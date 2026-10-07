@@ -92,6 +92,7 @@ func TestIntentKindsDeepCopy(t *testing.T) {
 				RunnerImage: &RunnerImageRef{Image: "img", Source: RunnerImageSourceRepository},
 				Transcript:  &TranscriptRef{Name: "t"},
 				StartedAt:   now.DeepCopy(),
+				WrapUp:      &IntentRunWrapUp{Reason: WrapUpMaxTurns, Resumed: true, Kept: true},
 			}}
 		}, func(o runtime.Object) {
 			r := o.(*IntentRun)
@@ -104,6 +105,7 @@ func TestIntentKindsDeepCopy(t *testing.T) {
 			r.Status.RunnerImage.Source = RunnerImageSourceDefault
 			r.Status.Transcript.Name = "u"
 			r.Status.StartedAt.Time = later
+			r.Status.WrapUp.Kept = false
 		}},
 	}
 	for _, c := range cases {

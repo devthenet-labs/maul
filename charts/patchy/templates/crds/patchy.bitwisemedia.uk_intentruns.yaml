@@ -571,6 +571,16 @@ spec:
                 - name
                 - namespace
                 type: object
+              numTurns:
+                description: |-
+                  NumTurns is how many turns the agent took, as the pod reported them:
+                  the CLI's own count when the run ended on a result, else the turns
+                  counted off its stream (a run cut off mid-stream). A wrap-up turn is
+                  included. Untrusted, like every count the pod reports.
+                format: int32
+                maximum: 100000
+                minimum: 0
+                type: integer
               observedGeneration:
                 description: ObservedGeneration is the last spec generation acted
                   on.
@@ -641,6 +651,15 @@ spec:
                 - image
                 - source
                 type: object
+              sessionID:
+                description: |-
+                  SessionID is the agent session the run resumed into for a repair or
+                  a wrap-up, as the pod reported it; for correlating the transcript with
+                  the egress broker's audit. Shown only to those who may read
+                  transcripts.
+                maxLength: 64
+                pattern: ^[0-9A-Za-z][0-9A-Za-z_-]*$
+                type: string
               startedAt:
                 description: StartedAt is when the Job launched.
                 format: date-time
@@ -708,8 +727,11 @@ spec:
                 - name
                 x-kubernetes-list-type: map
               usage:
-                description: Usage accounting for the run, as the harness reported
-                  it.
+                description: |-
+                  Usage accounting for the run, as the harness reported it. A run that
+                  ended with no stage report (its pod OOM-killed, evicted or past the
+                  Job deadline, or deleted by an abort) records none: what it spent
+                  before then is not known here.
                 properties:
                   cacheCreationTokens:
                     description: CacheCreationTokens written to prompt cache.
@@ -733,6 +755,34 @@ spec:
                     description: OutputTokens produced.
                     format: int64
                     type: integer
+                type: object
+              wrapUp:
+                description: |-
+                  WrapUp is set when the run's first agent run was cut off by a limit,
+                  and says what patchy made of it; unset on a run that was not.
+                properties:
+                  kept:
+                    description: |-
+                      Kept says the run ended ok on that report: a plan written before or
+                      during the wrap-up, or a build whose agent confirmed its report
+                      against the work it had done.
+                    type: boolean
+                  reason:
+                    description: Reason is the limit that cut the first agent run
+                      off.
+                    enum:
+                    - max_turns
+                    - budget
+                    - deadline
+                    - idle
+                    type: string
+                  resumed:
+                    description: |-
+                      Resumed says patchy resumed the agent's session for one bounded
+                      wrap-up turn to write or confirm its report.
+                    type: boolean
+                required:
+                - reason
                 type: object
             type: object
         required:

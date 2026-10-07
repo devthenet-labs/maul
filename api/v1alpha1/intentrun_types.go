@@ -391,9 +391,32 @@ type IntentRunStatus struct {
 	// +optional
 	// +kubebuilder:validation:MaxLength=4096
 	Detail string `json:"detail,omitempty"`
-	// Usage accounting for the run, as the harness reported it.
+	// Usage accounting for the run, as the harness reported it. A run that
+	// ended with no stage report (its pod OOM-killed, evicted or past the
+	// Job deadline, or deleted by an abort) records none: what it spent
+	// before then is not known here.
 	// +optional
 	Usage UsageSummary `json:"usage,omitempty"`
+	// NumTurns is how many turns the agent took, as the pod reported them:
+	// the CLI's own count when the run ended on a result, else the turns
+	// counted off its stream (a run cut off mid-stream). A wrap-up turn is
+	// included. Untrusted, like every count the pod reports.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=100000
+	NumTurns int32 `json:"numTurns,omitempty"`
+	// SessionID is the agent session the run resumed into for a repair or
+	// a wrap-up, as the pod reported it; for correlating the transcript with
+	// the egress broker's audit. Shown only to those who may read
+	// transcripts.
+	// +optional
+	// +kubebuilder:validation:MaxLength=64
+	// +kubebuilder:validation:Pattern=`^[0-9A-Za-z][0-9A-Za-z_-]*$`
+	SessionID string `json:"sessionID,omitempty"`
+	// WrapUp is set when the run's first agent run was cut off by a limit,
+	// and says what patchy made of it; unset on a run that was not.
+	// +optional
+	WrapUp *IntentRunWrapUp `json:"wrapUp,omitempty"`
 	// Transcript points at the conversation the run produced, in a
 	// ConfigMap owned by this run.
 	// +optional
@@ -413,6 +436,42 @@ type IntentRunStatus struct {
 	// ObservedGeneration is the last spec generation acted on.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+}
+
+// WrapUpReason names the limit that cut a run's first agent run off.
+// +kubebuilder:validation:Enum=max_turns;budget;deadline;idle
+type WrapUpReason string
+
+// The limits a wrap-up records: the envelope's vocabulary.
+const (
+	// WrapUpMaxTurns: the agent reached its turn limit, on a clean turn
+	// boundary, so its session could be resumed.
+	WrapUpMaxTurns WrapUpReason = "max_turns"
+	// WrapUpBudget: the output-token kill switch or the egress broker's
+	// per-pod limit ended the run.
+	WrapUpBudget WrapUpReason = "budget"
+	// WrapUpDeadline: the stage's wall clock ended the run.
+	WrapUpDeadline WrapUpReason = "deadline"
+	// WrapUpIdle: the idle watchdog ended a run that made no progress.
+	WrapUpIdle WrapUpReason = "idle"
+)
+
+// IntentRunWrapUp is what became of a run whose first agent run was cut off
+// by a limit. It is what the pod reported, so it is untrusted: it is shown
+// to people (on the plan comment, the pull request and the dashboard), and
+// never decides how attempts are counted.
+type IntentRunWrapUp struct {
+	// Reason is the limit that cut the first agent run off.
+	Reason WrapUpReason `json:"reason"`
+	// Resumed says patchy resumed the agent's session for one bounded
+	// wrap-up turn to write or confirm its report.
+	// +optional
+	Resumed bool `json:"resumed,omitempty"`
+	// Kept says the run ended ok on that report: a plan written before or
+	// during the wrap-up, or a build whose agent confirmed its report
+	// against the work it had done.
+	// +optional
+	Kept bool `json:"kept,omitempty"`
 }
 
 // +kubebuilder:object:root=true

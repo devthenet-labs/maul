@@ -1197,6 +1197,9 @@ func testIntentRunSchema(ctx context.Context, t *testing.T, c client.Client) {
 			Report:       "## Changes\n",
 			Detail:       "pushed",
 			Usage:        patchyv1.UsageSummary{InputTokens: 1, OutputTokens: 2, CostUSD: "0.123456"},
+			NumTurns:     34,
+			SessionID:    "0b9a3c1e-7d2f-4e5a-9b6c-1d2e3f4a5b6c",
+			WrapUp:       &patchyv1.IntentRunWrapUp{Reason: patchyv1.WrapUpMaxTurns, Resumed: true, Kept: true},
 			Transcript:   &patchyv1.TranscriptRef{Name: "target-1-revise-transcript", Turns: 12},
 			StartedAt:    schemaNow.DeepCopy(),
 			FinishedAt:   schemaNow.DeepCopy(),
@@ -1227,6 +1230,16 @@ func testIntentRunSchema(ctx context.Context, t *testing.T, c client.Client) {
 		{"a malformed pushed commit", func(s *patchyv1.IntentRunStatus) { s.PushedCommit = "HEAD" }, true},
 		{"an unknown run phase", func(s *patchyv1.IntentRunStatus) { s.Phase = "Bogus" }, true},
 		{"an unknown image source", func(s *patchyv1.IntentRunStatus) { s.RunnerImage.Source = "bogus" }, true},
+		{"100000 turns", func(s *patchyv1.IntentRunStatus) { s.NumTurns = 100000 }, false},
+		{"turns past 100000", func(s *patchyv1.IntentRunStatus) { s.NumTurns = 100001 }, true},
+		{"negative turns", func(s *patchyv1.IntentRunStatus) { s.NumTurns = -1 }, true},
+		{"a 64-character session id", func(s *patchyv1.IntentRunStatus) { s.SessionID = strings.Repeat("a", 64) }, false},
+		{"a session id past 64", func(s *patchyv1.IntentRunStatus) { s.SessionID = strings.Repeat("a", 65) }, true},
+		{"a session id with a space", func(s *patchyv1.IntentRunStatus) { s.SessionID = "a b" }, true},
+		{"a session id starting with a dash", func(s *patchyv1.IntentRunStatus) { s.SessionID = "-ab" }, true},
+		{"each wrap-up reason", func(s *patchyv1.IntentRunStatus) { s.WrapUp.Reason = patchyv1.WrapUpIdle }, false},
+		{"an unknown wrap-up reason", func(s *patchyv1.IntentRunStatus) { s.WrapUp.Reason = "report_invalid" }, true},
+		{"a wrap-up with no reason", func(s *patchyv1.IntentRunStatus) { s.WrapUp.Reason = "" }, true},
 	} {
 		t.Run("status with "+tt.name, func(t *testing.T) {
 			r := fresh(t)
