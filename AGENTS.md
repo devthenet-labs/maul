@@ -209,18 +209,19 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
 - `templates` — the finding handoff/issue body, the stage prompts (investigate, remediate, and the intent plan and
   build), and the PR body, rendered from embedded templates with golden tests. Also the intent side, which
   intent-controller renders:
-  the plan comment, which shows the plan report VERBATIM (its exact bytes) in a ```markdown block whose fence no line of
-  it can close, only patchy's header outside it, and refuses (`ErrPlanRefused`, with a notice to post instead) a plan
-  over GitHub's comment limit, not UTF-8, or holding characters no block can show (tag characters, bidi controls, stray
-  variation selectors: `planview.go`), whose header otherwise counts what the block hides at a glance (other invisible
-  characters less an emoji's, lines past 100 columns, long blank runs); `Sanitize`/`SanitizeInline`, the pass every
-  OTHER piece of agent text bound for GitHub takes (hidden markup shown literally, tables as text, characters that
+  the plan comment (a plan whose run was cut off by a limit says so in its header, as the PR body and a round's push
+  comment do: `CutOff`), which shows the plan report VERBATIM (its exact bytes) in a ```markdown block whose fence no
+  line of it can close, only patchy's header outside it, and refuses (`ErrPlanRefused`, with a notice to post instead) a
+  plan over GitHub's comment limit, not UTF-8, or holding characters no block can show (tag characters, bidi controls,
+  stray variation selectors: `planview.go`), whose header otherwise counts what the block hides at a glance (other
+  invisible characters less an emoji's, lines past 100 columns, long blank runs); `Sanitize`/`SanitizeInline`, the pass
+  every OTHER piece of agent text bound for GitHub takes (hidden markup shown literally, tables as text, characters that
   render as nothing as their code point; mentions, issue references on any host and so closing keywords made inline
   code); both with seeded properties checked against goldmark as a stand-in for GitHub; and the intent status comment,
   notices, the preview comment (`intent_preview.go`: the host linked only while live and only as bare DNS labels, the
   preview controller's message never shown), PR body ("Part of", never a closing keyword), PR title and commit message,
-  over plain values. The last three can land on the default branch as plain text (a squash commit copies the title
-  and, if the repo says so, the body), where inline code protects nothing, so each also `defang`s every reference and
+  over plain values. The last three can land on the default branch as plain text (a squash commit copies the title and,
+  if the repo says so, the body), where inline code protects nothing, so each also `defang`s every reference and
   mention, code spans included; seeded properties read them raw.
 - `webhook`, `telemetry`, `cli`, `version` — service plumbing (the webhook server is used by
   integration-controller only).
@@ -267,7 +268,12 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   others at v4); `agentresult` converts envelope results onto CR status (`FromPlan` re-derives a plan from its
   report). A missing or refused report is first repaired in the agent's own session (`repair.go`: the optional
   `harness.Resumer`, claude and fake only; at most 2 bounded rounds; one transcript per stage; a writable stage's
-  clone fingerprinted so a repair may change only the report and commit.sh). In the intent stages, a running
+  clone fingerprinted so a repair may change only the report and commit.sh). An intent stage cut off by a limit
+  keeps its work (`wrapup.go`): its turn grant is split (`splitGrant`, a few turns held back inside it), every round
+  after the first run is held to one window (`intentWindow`; a Finding stage's repair window is pinned unchanged), a
+  run stopped at its turn limit is resumed once with a wrap-up prompt (a build even with a report on disk, and its
+  commit.sh may then commit only what the tree held, `committedSubset`), a run killed mid-stream is not resumed and a
+  build's report then never yields success, and `Stage.WrapUp` records what happened. In the intent stages, a running
   foreground command's output is printed live as `PATCHY-OUTPUT:` chunks (`output.go`: read from the file the CLI
   keeps it in, via the optional `harness.TaskWatcher`; bounded per command and per process by constants; never
   persisted, never a turn, never idle-watchdog progress; `jobs.scanLog` skips it), and one lock serialises every

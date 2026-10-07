@@ -34,7 +34,10 @@ output-token kill switch is listed as what it is: a count of streamed output tok
 ceiling is checked only before the next launch, so a running run can pass it; the panel says so. A run still waiting for
 a run slot can be opened too: its panel follows it live from the moment its agent starts. The activity comes from the
 run's transcript, which stops recording at its cap (500 entries or 512 KiB) while the agent goes on; past the cap the
-panel says the activity is not known rather than show the last tool and time frozen there.
+panel says the activity is not known rather than show the last tool and time frozen there. Once a run ends, the panel
+also shows the turns its agent took and, for a run cut off by a limit, which limit and whether patchy gave it a short
+wrap-up turn and kept its report, in fixed wording. A reader with the transcripts tier also sees the run's agent session
+id.
 
 **Live output.** While a run is live, a reader with the transcripts tier also sees what the command the agent is waiting
 on prints (a test suite, a build), as it prints it. It is one command at a time, the latest: when the agent starts
@@ -51,7 +54,9 @@ results only, so a command printing steadily does not make a stuck agent look bu
 receives none of it.
 
 Spend on the dashboard is recorded spend only: the cost each run reported when it was collected. A run's spend appears
-when it ends. There are no live token or dollar figures yet.
+when it ends. There are no live token or dollar figures yet. A run that ended with no report from its pod (an OOM kill,
+an eviction, the Job's deadline) records no spend at all
+([what a run records](../configuration/intent-controller.md#what-a-run-records)).
 
 ### What it never shows
 

@@ -85,10 +85,11 @@ same working directory, with every flag the first run had, so a plan stays read-
 with one message: patchy's fixed text and the refusal reason, quoted as data in a fence. The message asks for the report
 alone, and asks for an untrue claim (tests that failed, a step not built) to be corrected rather than hidden.
 
-- At most **2 rounds**, each of at most **6 turns** and **10 minutes**, and never more than the stage has left of its
-  turns, output tokens (its token budget or grant) and wall clock (its `_TIMEOUT`). No round starts with less than **2
-  minutes** of the wall clock left, with no turns or output tokens left, or after the stage is cancelled. These are
-  constants: no configuration key exists for them.
+- At most **2 rounds**, each of at most **6 turns** and **10 minutes** (on an intent stage, the per-round wall clock of
+  [cut-off intent runs](#cut-off-intent-runs) instead), and never more than the stage has left of its turns, output
+  tokens (its token budget or grant) and wall clock (its `_TIMEOUT`). No round starts with less than **2 minutes** of
+  the wall clock left, with no turns or output tokens left, or after the stage is cancelled. These are constants: no
+  configuration key exists for them.
 - The output-token kill switch and the idle watchdog apply to a repair run as they do to the first. The broker token is
   read afresh for it and registered with the transcript scrubber.
 - All the runs of a stage write one transcript: a repair's turns follow the first run's, after a notice saying why it
@@ -106,6 +107,41 @@ alone, and asks for an untrue claim (tests that failed, a step not built) to be 
   end `ok`, or why no round ran, such as `(not repaired: less than 2m of the stage's 1m wall clock left)`.
 
 codex and copilot cannot resume a session, so a stage on them ends on the first refusal, exactly as before.
+
+## Cut-off intent runs
+
+An intent stage (`plan`, `build`, and a revise or check-fix round, which runs as a build) does not throw away what its
+agent did because a limit stopped it. Finding stages (`investigate`, `remediate`) are unchanged.
+
+- **Turns held back.** From a turn grant of 15 or more, a fifth is held back, at least **3** and at most **6** turns:
+  the first run gets `--max-turns` of the rest (34 of a plan's default 40, 144 of a build's 150, 74 of a revise round's
+  80), and the prompt states that figure. A smaller grant holds nothing back. The held-back turns stay inside the grant,
+  so the grant still bounds the stage.
+- **One window.** Every round after the first run, a wrap-up or a repair, gets at most **6** turns and never more than
+  the grant has left; no more output tokens than the stage's budget has left after what the result events reported; and
+  **15%** of the stage's wall clock, between **3** and **10 minutes**, never more than the stage has left. No round
+  starts with less than 2 minutes left or after the stage is cancelled. No output tokens are held back: on claude 2.1
+  the kill switch counts each message's output at its start, so it barely moves, and a token reserve would bound
+  nothing.
+- **Stopped at its turn limit** (`error_max_turns`, a clean turn boundary): the session is resumed once with a fixed
+  wrap-up prompt. A plan with no report writes one from what it found; a plan with a report on disk keeps it and is not
+  resumed. A build is always resumed, even with a report on disk: it must make the report match the working tree and set
+  `success: false` if the work is unfinished. A build's wrap-up may change only the report and `commit.sh`, under the
+  repair's fingerprint, and `commit.sh` may then commit only paths whose content matches the tree as it was when the
+  wrap-up began: a file it adds or changes beyond that is refused. The report then settles, with the usual repair
+  rounds.
+- **Killed mid-stream** (the wall clock, the idle watchdog, the output-token kill switch, the broker's per-pod limit):
+  no resume, since resuming a session killed mid-stream is not proven on the pinned CLI. A plan report on disk that
+  parses is kept as written; a build report on disk is recorded beside the original outcome, but never yields success or
+  a changeset. A build likewise gets no success when it cannot be resumed at all (codex or copilot, the broker's limit,
+  a cancelled stage, a wrap-up that failed or had no turns left).
+- **What is recorded.** The stage event's `wrap_up` names the limit (`max_turns`, `budget` for the kill switch and the
+  broker's limit, `deadline`, `idle`), whether a wrap-up turn ran, and whether the stage ended `ok` on the report. A run
+  cut off before its result event still records its session id and the turns counted off its stream. The wrap-up's turns
+  follow the first run's in the one transcript, and its spend is added as a repair's is.
+
+A run that ends with no event at all (an OOM kill, an eviction, the Job's deadline, a pod deleted by an abort) records
+none of this, and none of its spend: see [intent-controller](intent-controller.md#what-a-run-records).
 
 ## Stage configuration
 

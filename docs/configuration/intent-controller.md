@@ -243,6 +243,11 @@ The plan comment shows the plan's exact bytes in a code block. An approval count
 - the issue still reads as it did when the plan was made;
 - for the label, the label is still on the issue.
 
+A plan whose planner was cut off by a limit and kept what it wrote
+([cut-off intent runs](agent-runner.md#cut-off-intent-runs)) says so first under "Before you approve": which limit, and
+whether patchy gave the planner one short final turn to write it. Read such a plan knowing the planner may not have
+checked everything it meant to, or ask for a new one.
+
 The build receives only the approved plan, never the issue. The pull request comes from `patchy-intent/<intent>`, which
 patchy creates once and never forces. Its body says `Part of <intent repository>#<n>` and carries no closing keyword.
 patchy closes the issue itself when the pull request merges.
@@ -309,6 +314,11 @@ for `test`") and what it pushed, and when it pushed, asks the approvers to revie
 request, the issue's status comment counts its revision rounds against `limits.maxRevisions` ("Revisions: 1 of 3") as
 the limit counts them: a round that failed counts, and a CI-fix round is not a revision. The summary patchy posts when
 the intent ends counts revision and CI-fix rounds apart, the same way.
+
+A build whose agent reached its turn limit, then confirmed its report against the work it had done in one short final
+turn, can still open a pull request; its body says the build was cut off. A round that did the same says so in the
+comment announcing its push. Both are patchy's own words: the limit is matched against the run record's vocabulary,
+never quoted from the pod.
 
 ### The preview link
 
@@ -413,6 +423,27 @@ Turning the flag off is the supported rollback. Do not roll intent-controller ba
 intents while an intent of a multi-repository Project is open: the older controller does not hold them, and would lose
 their sibling pull requests' records. Cancel each such intent first, or suspend it (`spec.suspend: true`) until the
 controller is rolled forward again.
+
+## What a run records
+
+Each IntentRun's status records what its pod reported when the run was collected, written with its report and usage at
+every write of the run (settled, a build's push held on a suspension, and pushed):
+
+- `numTurns`: the turns the agent took, the CLI's count when the run ended on a result, else the turns counted off its
+  stream;
+- `sessionID`: the agent session, which a wrap-up or a repair resumed;
+- `wrapUp`: set when a limit cut the first agent run off: `reason` (`max_turns`, `budget`, `deadline` or `idle`),
+  `resumed` (a wrap-up turn ran) and `kept` (the run ended `ok` on that report).
+
+All three come from the pod, which may run on the repository's own image, so they are held to the schema rather than
+trusted: turns are clamped to 0–100000; a session id longer than 64 characters, or with anything but letters, digits,
+`-` and `_` (or led by `-` or `_`), is dropped; and so is a wrap-up with any other reason. They are shown to people (the
+plan comment, the pull request, the dashboard) and never decide how attempts are counted.
+
+A run that ends with no stage report records no usage, turns or session: an agent pod OOM-killed or evicted, a Job past
+its deadline, or a pod deleted by an abort. What such a run spent before it ended never reaches the run or the Intent's
+`status.usage`, so the cost ceiling (`limits.maxCostMicroUSD`) can undercount it. The egress broker's audit log has the
+requests it made.
 
 ## Permissions
 
