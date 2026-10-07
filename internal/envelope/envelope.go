@@ -89,6 +89,45 @@ type Stage struct {
 	ElapsedSeconds float64 `json:"elapsed_seconds"`
 	// Detail explains a non-ok outcome for humans.
 	Detail string `json:"detail,omitempty"`
+	// WrapUp is set on an intent stage whose first run was cut off (its turn
+	// limit, the token kill switch, the wall clock, the idle watchdog, the
+	// broker's per-pod limit) and says what patchy did about it; nil on
+	// every other stage. It is additive within Version 4: an older
+	// controller ignores it. Like every field the pod writes, it is
+	// untrusted: the controller bounds it and never counts attempts on it.
+	WrapUp *WrapUp `json:"wrap_up,omitempty"`
+}
+
+// WrapUpReason names the limit that cut an intent stage's first run off.
+type WrapUpReason string
+
+// The limits a wrap-up records.
+const (
+	// WrapUpMaxTurns: the CLI stopped the run at its turn limit
+	// (error_max_turns), on a clean turn boundary, so its session can be
+	// resumed.
+	WrapUpMaxTurns WrapUpReason = "max_turns"
+	// WrapUpBudget: the runner's output-token kill switch or the egress
+	// broker's per-pod limit ended the run.
+	WrapUpBudget WrapUpReason = "budget"
+	// WrapUpDeadline: the stage's wall clock ended the run.
+	WrapUpDeadline WrapUpReason = "deadline"
+	// WrapUpIdle: the idle watchdog ended a run that made no progress.
+	WrapUpIdle WrapUpReason = "idle"
+)
+
+// WrapUp is what became of a stage whose first run was cut off.
+type WrapUp struct {
+	// Reason is the limit that cut the first run off.
+	Reason WrapUpReason `json:"reason"`
+	// Resumed says patchy resumed the agent's session for a bounded wrap-up
+	// turn. Only a run stopped at its turn limit is resumed: one that was
+	// killed mid-stream is not, until resuming such a session is proven.
+	Resumed bool `json:"resumed,omitempty"`
+	// Kept says the stage ended ok on a report written before or during the
+	// wrap-up: a plan an approver should read knowing its run was cut off,
+	// or a build whose report its agent confirmed against the tree.
+	Kept bool `json:"kept,omitempty"`
 }
 
 // AnalysisResult is one investigation dimension: a rating plus a short
