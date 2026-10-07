@@ -302,6 +302,21 @@ func cutOffLimit(reason string) string {
 	return "it reached a limit"
 }
 
+// RoundCutOffNote is the sentence a revision or CI-fix round's pull request
+// comment adds after "pushed commit …" when the round's agent was cut off by
+// a limit and its report was kept: a leading space, then patchy's own words;
+// "" for nil, so the comment is exactly as without it.
+func RoundCutOffNote(c *CutOff) string {
+	if c == nil {
+		return ""
+	}
+	note := " The round's agent was cut off before it finished: " + cutOffLimit(c.Reason) + "."
+	if c.Resumed {
+		note += " In one short final turn, changing no code, it checked its report against the work it had done."
+	}
+	return note + " Review the push knowing the round ran out before it could check its work any further."
+}
+
 // cutOffView is a CutOff as the templates read it; nil for none.
 type cutOffView struct {
 	Limit   string

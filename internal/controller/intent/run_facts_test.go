@@ -15,6 +15,7 @@ import (
 
 	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
 	"github.com/bitwise-media-group/patchy/internal/envelope"
+	"github.com/bitwise-media-group/patchy/internal/ghclient"
 	"github.com/bitwise-media-group/patchy/internal/jobs"
 )
 
@@ -205,5 +206,34 @@ func TestUncutRunsCarryNoMarker(t *testing.T) {
 		if strings.Contains(c.Body, "cut off") {
 			t.Errorf("plan comment says its run was cut off: %q", c.Body)
 		}
+	}
+}
+
+// TestSalvagedRoundIsMarked: a revision round whose agent was cut off and
+// kept its report records its facts with the push, and its pull request
+// comment says the round was cut off after the commit it pushed.
+func TestSalvagedRoundIsMarked(t *testing.T) {
+	e := newEnv(t, testProject())
+	e.jobs.output = func(spec jobs.Spec) jobs.RunOutput {
+		out := defaultOutput(spec)
+		if ev := out.Events[0]; ev.Remediation != nil {
+			ev.Remediation.Stage = salvaged(ev.Remediation.Stage)
+		}
+		return out
+	}
+	name := e.awaiting()
+	e.gh.label(1, "patchy:approved", approver)
+	pr := e.drive(name, v1alpha1.IntentInReview, repoImage).Status.PullRequests[0]
+	e.gh.reviews[pr.Number] = []ghclient.Review{{ID: 63, NodeID: "review-63", Author: actorOf(approver),
+		State: "CHANGES_REQUESTED", Body: "Mention the endpoint too.", SubmittedAt: e.clock.Now()}}
+	e.clock.Advance(3 * time.Minute)
+	e.drive(name, v1alpha1.IntentRevising, repoImage)
+	e.drive(name, v1alpha1.IntentInReview, repoImage)
+	round := e.runsOf(name, v1alpha1.IntentStageRevise)[0]
+	checkFacts(t, "pushed round", &round)
+	want := "Revision round pushed commit `" + round.Status.PushedCommit + "`. The round's agent was cut off " +
+		"before it finished: it reached its turn limit."
+	if got := e.roundNotices(name, pr.Number)[1]; !strings.Contains(got, want) {
+		t.Errorf("round notice = %q, want it to contain %q", got, want)
 	}
 }

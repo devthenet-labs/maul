@@ -249,7 +249,8 @@ func (p *pass) finishPRRound(ctx context.Context, run *v1alpha1.IntentRun) error
 		}
 	}
 	if run.Status.Phase == v1alpha1.RunComplete {
-		body = marker + "\n" + label + " pushed commit `" + run.Status.PushedCommit + "`."
+		body = marker + "\n" + label + " pushed commit `" + run.Status.PushedCommit + "`." +
+			templates.RoundCutOffNote(runCutOff(run))
 		if pr.State == prOpen && !terminal(p.in.Status.Phase) {
 			if err := p.r.GitHub.RequestReviewers(ctx, pr.Repository, pr.Number,
 				p.proj.Spec.Approvers.Logins); err != nil {

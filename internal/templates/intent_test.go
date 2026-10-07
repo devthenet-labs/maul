@@ -343,6 +343,26 @@ func TestCutOffLimit(t *testing.T) {
 	}
 }
 
+// TestRoundCutOffNote: a round cut off says so after its push, in patchy's
+// words only; an uncut round adds nothing.
+func TestRoundCutOffNote(t *testing.T) {
+	for _, tt := range []struct {
+		c    *CutOff
+		want string
+	}{
+		{nil, ""},
+		{&CutOff{Reason: "max_turns", Resumed: true}, " The round's agent was cut off before it finished: it reached " +
+			"its turn limit. In one short final turn, changing no code, it checked its report against the work it had " +
+			"done. Review the push knowing the round ran out before it could check its work any further."},
+		{&CutOff{Reason: "@octocat"}, " The round's agent was cut off before it finished: it reached a limit. " +
+			"Review the push knowing the round ran out before it could check its work any further."},
+	} {
+		if got := RoundCutOffNote(tt.c); got != tt.want {
+			t.Errorf("RoundCutOffNote(%+v) = %q, want %q", tt.c, got, tt.want)
+		}
+	}
+}
+
 // TestIntentMarkers: each comment is headed by its marker, which only
 // characters that cannot end the comment or its line reach.
 func TestIntentMarkers(t *testing.T) {
