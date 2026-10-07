@@ -12,11 +12,18 @@ import (
 // StageLimits are what one intent run may spend, as agent-runner resolved
 // them for it: its agent turns and output tokens once any grant has lowered
 // them (planLimits, buildLimits), and its stage's wall clock. A prompt
-// states them up front so the agent paces its own work: reaching any of
-// them ends the run with nothing to show for it.
+// states them up front so the agent paces its own work: reaching the token
+// or time limit ends the run with nothing to show for it, and reaching the
+// turn limit leaves only the wrap-up turns, when there are any.
 type StageLimits struct {
-	// MaxTurns is the run's agent-turn ceiling (claude's --max-turns).
+	// MaxTurns is the run's agent-turn ceiling (claude's --max-turns): the
+	// grant less the turns held back for a wrap-up.
 	MaxTurns int
+	// WrapUpTurns are the turns held back from the grant for a wrap-up: a
+	// run stopped at MaxTurns is resumed for at most this many more, to
+	// write (a build: confirm) its report. Zero states no wrap-up, and the
+	// prompt reads exactly as it did before wrap-ups existed.
+	WrapUpTurns int
 	// TokenBudget is the output tokens past which the runner kills the run.
 	TokenBudget int
 	// Timeout is the stage's wall clock, after which the runner kills the

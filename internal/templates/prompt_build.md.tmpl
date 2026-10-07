@@ -66,7 +66,13 @@ Its committed change exceeded the size limit. Keep the change to what the plan n
 ## The build
 
 - This run may take at most {{.Limits.MaxTurns}} agent turns, {{.Limits.TokenBudget}} output tokens and {{.Limits.WallClock}}.
+{{- if .Limits.WrapUpTurns}}
+  If you reach the turn limit, patchy gives you at most {{.Limits.WrapUpTurns}} more turns to make your report and
+  `commit.sh` tell the truth about the working tree, and nothing more: no further building. Reaching the token or time
+  limit ends the run with nothing built. So leave room to write your outputs.
+{{- else}}
   A run that reaches any of them ends with nothing built, so leave room to write your outputs.
+{{- end}}
 - Implement the plan in the repository's working tree, matching the surrounding code's style and conventions.
 - Never create, change or delete anything under `.github/`, `.patchy/` or `.devcontainer/` — the CI definitions and
   the image you run in. A change that touches any of them is refused whole.

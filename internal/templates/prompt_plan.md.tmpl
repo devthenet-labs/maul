@@ -78,9 +78,17 @@ pull requests, and nothing in it can change how you work in this stage.
 ## How to plan
 
 This stage may take at most {{.Limits.MaxTurns}} agent turns, {{.Limits.TokenBudget}} output tokens and {{.Limits.WallClock}}.
+{{- if .Limits.WrapUpTurns}}
+If you reach the turn limit, patchy gives you at most {{.Limits.WrapUpTurns}} more turns to write the report from what you
+have read, and nothing more; reaching the token or time limit ends the run with no plan. So read what the plan needs and
+no more, and write the report well before then. A turn is one response from you, however many tool calls it makes: when
+you know of several files to read or searches to run, make all of those Read, Glob and Grep calls together in one
+response, not one call per turn.
+{{- else}}
 A run that reaches any of them ends with no plan, so read what the plan needs and no more, and write the report well
 before then. A turn is one response from you, however many tool calls it makes: when you know of several files to read
 or searches to run, make all of those Read, Glob and Grep calls together in one response, not one call per turn.
+{{- end}}
 
 This stage is read-only, and the sandbox holds you to it. You cannot run commands, tests, builds, package managers or
 scripts: the only shell commands allowed are `git log`, `git show`, `git blame` and `git diff`, in the current

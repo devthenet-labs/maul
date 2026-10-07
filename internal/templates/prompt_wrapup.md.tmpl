@@ -1,0 +1,35 @@
+{{- /*
+prompt_wrapup is the one message a cut-off intent stage's agent is sent, in its own session, when its first run
+stopped at its turn limit: write (a plan) or confirm against the working tree (a build) the report, with the few turns
+held back for it. It is patchy's fixed text, paths and numbers alone: nothing untrusted is quoted.
+*/ -}}
+## You reached your turn limit
+
+Your run stopped at its limit of {{.FirstTurns}} agent turns before it finished.
+patchy gives you at most {{.Turns}} more turns to wrap up, and nothing more after them.
+{{- if .CommitScriptPath}}
+
+The working tree is kept exactly as it is now: patchy refuses a wrap-up that changes any file in it, and commits only
+what it already holds.
+
+- Do not edit code or tests, do not run tests, builds or other commands, and do not commit.
+{{- if .ReportWritten}}
+- Check the report you wrote at {{code .ReportPath}} against the working tree, and rewrite it
+  so it describes what the tree holds now, in the format your instructions gave.
+{{- else}}
+- Write your report at {{code .ReportPath}} so it describes what the working tree holds now, in the format your
+  instructions gave.
+{{- end}}
+- If the plan is not fully built, or its tests did not run and pass on the tree as it stands, set `success: false` and
+  say in `reason` what is unfinished. Never claim more than the tree holds.
+- Only if `success` is true: make sure {{code .CommitScriptPath}} exists and commits the change exactly as the tree
+  holds it, and nothing else.
+{{- else}}
+
+- Stop exploring: read nothing more unless one read is needed to finish.
+- Write your report at {{code .ReportPath}} now, in the format your instructions gave, from what you have
+  already read. Say plainly in it what you did not get to check, and set your confidence to match, rather than
+  guessing.
+- Write no file but the report.
+{{- end}}
+- When you are done, reply with one short line saying so.
