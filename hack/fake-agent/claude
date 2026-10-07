@@ -17,21 +17,37 @@
 # result carries its own num_turns and usage, but a total_cost_usd cumulative
 # over the session. Sessions are files under $HOME, as the CLI's are.
 #
-# Only the build stage is scripted. What the agent does is chosen by the
-# environment, a test's stand-in for a model:
+# The plan and build stages are scripted. What the agent does is chosen by
+# the environment, a test's stand-in for a model:
 #
-#   PATCHY_FAKE_CLAUDE_REPORT  the first run's report: "ok" (default), or the
+#   PATCHY_FAKE_CLAUDE_FIRST   how the first run ends: "ok" (default) on a
+#                              success result; "max-turns" stopped at its
+#                              --max-turns limit (an error_max_turns result,
+#                              num_turns the limit, exit status 1, as the CLI
+#                              ends it) before writing any report; or
+#                              "max-turns-report" stopped there just AFTER
+#                              writing its report — for a build, one claiming
+#                              success: true, which the tree may no longer
+#                              bear out. A build's first run writes VERSION
+#                              and commit.sh whichever it is.
+#   PATCHY_FAKE_CLAUDE_REPORT  the build's first report: "ok" (default), or the
 #                              two slips that threw builds away live:
 #                              "long-note" (one note of 574 characters) and
 #                              "scalar-notes" (notes as a single string).
-#   PATCHY_FAKE_CLAUDE_REPAIR  what a resumed run does: "fix" (default)
-#                              rewrites the report valid, "keep" changes
-#                              nothing, "touch" rewrites the report valid and
-#                              also edits VERSION, which a repair may not.
-#   PATCHY_FAKE_CLAUDE_OUTPUT  <n>: the first run also runs a foreground Bash
-#                              command printing n lines, as claude 2.1.263 was
-#                              probed to: a task_started event, the output
-#                              appended line by line to
+#   PATCHY_FAKE_CLAUDE_REPAIR  what a resumed run (a repair or a wrap-up)
+#                              does: "fix" (default) rewrites the report valid
+#                              (a build's claiming success: true); "report"
+#                              writes the report and nothing else, a build's
+#                              owning up with success: false, the work
+#                              unfinished; "keep" changes nothing; "touch"
+#                              rewrites the report valid and also edits
+#                              VERSION, which neither a repair nor a wrap-up
+#                              may; "lost" finds no such session, as a resume
+#                              the CLI cannot continue fails.
+#   PATCHY_FAKE_CLAUDE_OUTPUT  <n>: the build's first run also runs a
+#                              foreground Bash command printing n lines, as
+#                              claude 2.1.263 was probed to: a task_started
+#                              event, the output appended line by line to
 #                              ${CLAUDE_CODE_TMPDIR:-/tmp}/claude-<uid>/<slug
 #                              of the working directory>/<session>/tasks/
 #                              <task>.output, the file deleted as the command
@@ -66,12 +82,17 @@ state="$HOME/.fake-claude"
 mkdir -p "$state/sessions"
 printf '%s %s %s %s\n' "$mode" "$session" "$turns" "$tools" >>"$state/calls"
 
-if [ "${PATCHY_PHASE:-}" != build ] || [ -z "$mode" ]; then
-  printf '{"type":"result","subtype":"error_during_execution","is_error":true,"num_turns":0,"session_id":"%s","errors":["the scripted claude only builds"]}\n' "$session"
+phase="${PATCHY_PHASE:-}"
+case "$phase" in
+plan | build) ;;
+*) phase='' ;;
+esac
+if [ -z "$phase" ] || [ -z "$mode" ]; then
+  printf '{"type":"result","subtype":"error_during_execution","is_error":true,"num_turns":0,"session_id":"%s","errors":["the scripted claude only plans and builds"]}\n' "$session"
   exit 1
 fi
 
-report="$workspace/reports/build.md"
+report="$workspace/reports/$phase.md"
 mkdir -p "$workspace/reports"
 
 # write_report <notes line> — the build report, with the notes line given.
@@ -79,6 +100,37 @@ write_report() {
   printf '%s\n' '---' 'success: true' 'summary: "Add a VERSION file"' 'tests:' '  ran: true' \
     '  passed: true' '  command: "go test ./..."' "$1" '---' '' '## What changed' '' \
     'Scripted build from hack/fake-agent/claude: VERSION names the current version.' >"$report"
+}
+
+# write_unfinished — a build report owning up to unfinished work.
+write_unfinished() {
+  printf '%s\n' '---' 'success: false' 'summary: "Add a VERSION file"' 'tests:' '  ran: false' \
+    '  passed: false' 'reason: "VERSION is written, but the suite never ran on it."' '---' '' '## Where it stopped' '' \
+    'Scripted build from hack/fake-agent/claude, cut off before it could run the suite.' >"$report"
+}
+
+# write_plan — the plan report exactly as report.ParsePlan wants it, naming
+# the repositories the request lists (one "- <url>" line each under the
+# snapshot's last unfenced "## Repositories" heading), or the job's
+# repository on github.com when it lists none.
+write_plan() {
+  repos=$(awk '
+    /^```/ { fenced = !fenced; next }
+    fenced { next }
+    /^## Repositories$/ { split("", urls); n = 0; listed = 1; next }
+    /^## / { listed = 0 }
+    listed && /^- https:\/\/[A-Za-z0-9._~:\/-]+$/ { urls[++n] = substr($0, 3) }
+    END { for (i = 1; i <= n; i++) print urls[i] }
+  ' "$workspace/input/issue.md" 2>/dev/null || true)
+  [ -n "$repos" ] || repos="https://github.com/${PATCHY_REPO:-}"
+  {
+    printf '%s\n' '---' 'summary: Add a VERSION file (scripted plan from hack/fake-agent/claude)' 'repositories:'
+    for url in $repos; do printf '  - %s\n' "$url"; done
+    printf '%s\n' 'new_dependencies: []' 'questions: []' 'confidence: 0.85' 'estimated_max_turns: 30' \
+      'estimated_token_budget: 150000' '---' '' '## Approach' '' \
+      'Scripted plan from hack/fake-agent/claude: add a VERSION file at the repository root.' '' \
+      '## Steps' '' '1. Create VERSION holding the version on one line.' '2. Commit it with commit.sh.'
+  } >"$report"
 }
 
 # init <session> — the session's init event, printed once per run.
@@ -125,33 +177,64 @@ emit() {
     "$8" "$1" "$2" "$7" "$3" "$4" "$5" "$6"
 }
 
+# cut <session> <turns> — a first run stopped at its turn limit, as the CLI
+# ends one: a clean turn boundary, then an error_max_turns result carrying
+# the session, the turns (the limit) and the usage, and exit status 1.
+cut() {
+  init "$1"
+  printf '{"type":"assistant","message":{"id":"msg_cut_%s","usage":{"input_tokens":1000,"cache_creation_input_tokens":200,"cache_read_input_tokens":3000,"output_tokens":400},"content":[{"type":"text","text":"Still working."}]}}\n' \
+    "$2"
+  printf '{"type":"result","subtype":"error_max_turns","is_error":true,"result":"","session_id":"%s","num_turns":%s,"total_cost_usd":0.1000,"usage":{"input_tokens":1000,"cache_creation_input_tokens":200,"cache_read_input_tokens":3000,"output_tokens":400},"errors":["Reached maximum number of turns (%s)"]}\n' \
+    "$1" "$2" "$2"
+}
+
+first="${PATCHY_FAKE_CLAUDE_FIRST:-ok}"
+if [ "$mode" = first ] && [ "$phase" = plan ]; then
+  [ "$first" = max-turns ] || write_plan
+  echo 1000 >"$state/sessions/$session"
+  if [ "$first" = ok ]; then
+    emit "$session" 3 1000 200 3000 400 0.1000 "Planned: add a VERSION file."
+    exit 0
+  fi
+  cut "$session" "${turns:-0}"
+  exit 1
+fi
+
 if [ "$mode" = first ]; then
   printf '0.1.0\n' >VERSION
   printf '%s\n' '#!/bin/sh' 'set -e' 'git add VERSION' 'git commit -qm "feat: add a VERSION file"' \
     >"$workspace/commit.sh"
-  case "${PATCHY_FAKE_CLAUDE_REPORT:-ok}" in
-  long-note) write_report "notes:
+  case "$first:${PATCHY_FAKE_CLAUDE_REPORT:-ok}" in
+  max-turns:*) ;;
+  *:long-note) write_report "notes:
   - \"$(printf '%574s' '' | tr ' ' 'n')\"" ;;
-  scalar-notes) write_report 'notes: "What was built: a VERSION file at the repository root"' ;;
+  *:scalar-notes) write_report 'notes: "What was built: a VERSION file at the repository root"' ;;
   *) write_report 'notes: []' ;;
   esac
   [ "${PATCHY_FAKE_CLAUDE_OUTPUT:-0}" -eq 0 ] || run_command "$session" "$PATCHY_FAKE_CLAUDE_OUTPUT"
   # Cost in hundredths of a cent, cumulative over the session, as the CLI's.
   echo 1000 >"$state/sessions/$session"
-  emit "$session" 3 1000 200 3000 400 0.1000 "Built: VERSION added, the suite passes."
-  exit 0
+  if [ "$first" = ok ]; then
+    emit "$session" 3 1000 200 3000 400 0.1000 "Built: VERSION added, the suite passes."
+    exit 0
+  fi
+  cut "$session" "${turns:-0}"
+  exit 1
 fi
 
-if [ ! -f "$state/sessions/$session" ]; then
+repair="${PATCHY_FAKE_CLAUDE_REPAIR:-fix}"
+if [ ! -f "$state/sessions/$session" ] || [ "$repair" = lost ]; then
   printf '{"type":"result","subtype":"error_during_execution","is_error":true,"num_turns":0,"session_id":"%s","total_cost_usd":0,"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0},"errors":["No conversation found with session ID: %s"]}\n' \
     "$session" "$session"
   echo "No conversation found with session ID: $session" >&2
   exit 1
 fi
 
-case "${PATCHY_FAKE_CLAUDE_REPAIR:-fix}" in
-fix) write_report 'notes: []' ;;
-touch)
+case "$phase:$repair" in
+plan:fix | plan:report | plan:touch) write_plan ;;
+build:fix) write_report 'notes: []' ;;
+build:report) write_unfinished ;;
+build:touch)
   write_report 'notes: []'
   printf '0.2.0\n' >VERSION
   ;;
