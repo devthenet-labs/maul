@@ -17,6 +17,7 @@ import {
   runLinkLabel,
   secondsSince,
   stopConditions,
+  wrapUpNote,
 } from "../src/intents.ts";
 import { mockIntentDetail } from "../src/mock/intents.ts";
 import { hrefForIntent, hrefForIntentRun, isIntentsRoute, parseRoute } from "../src/router.ts";
@@ -397,4 +398,16 @@ test("no intents view imports Markdown or sets inner HTML", () => {
     assert.doesNotMatch(src, /from\s+["']\.\/Markdown["']/, `${file} imports Markdown`);
     assert.doesNotMatch(src, /dangerouslySetInnerHTML|innerHTML/, `${file} sets inner HTML`);
   }
+});
+
+test("wrapUpNote says what became of a cut-off run, and never the pod's own reason text", () => {
+  assert.equal(wrapUpNote(undefined), "");
+  assert.equal(
+    wrapUpNote({ reason: "max_turns", resumed: true, kept: true }),
+    "cut off by its turn limit, then given one short wrap-up turn; its report was kept",
+  );
+  assert.equal(wrapUpNote({ reason: "deadline", kept: true }), "cut off by its time limit; its report was kept");
+  assert.equal(wrapUpNote({ reason: "idle" }), "cut off by the idle watchdog; nothing was kept");
+  assert.equal(wrapUpNote({ reason: "budget" }), "cut off by its token budget; nothing was kept");
+  assert.equal(wrapUpNote({ reason: "<b>@octocat</b>" }), "cut off by a limit; nothing was kept");
 });

@@ -10,6 +10,7 @@ import type {
   IntentRunRow,
   IntentTier,
   RunActivity,
+  RunWrapUp,
   RunOutput,
 } from "./types";
 
@@ -262,3 +263,21 @@ export const INTENTS_VIEW_FILES = [
   "src/components/PlainText.tsx",
   "src/components/IntentsArea.tsx",
 ];
+
+const WRAP_UP_LIMITS = new Map<string, string>([
+  ["max_turns", "its turn limit"],
+  ["budget", "its token budget"],
+  ["deadline", "its time limit"],
+  ["idle", "the idle watchdog"],
+]);
+
+// wrapUpNote says, in plain English, that a run's agent was cut off by a
+// limit and what patchy made of it; "" for a run that was not. The reason
+// is matched, never shown: it is what the pod reported.
+export function wrapUpNote(w: RunWrapUp | undefined): string {
+  if (!w) return "";
+  const limit = WRAP_UP_LIMITS.get(w.reason) ?? "a limit";
+  const resumed = w.resumed ? ", then given one short wrap-up turn" : "";
+  const kept = w.kept ? "; its report was kept" : "; nothing was kept";
+  return `cut off by ${limit}${resumed}${kept}`;
+}

@@ -10,7 +10,14 @@ import { useEffect, useState } from "preact/hooks";
 import type { IntentRunDetail, RunActivity, TranscriptTurn } from "../types";
 import { streamRun } from "../api";
 import { formatDate, formatMicroUSD, formatTokens } from "../format";
-import { formatDuration, mergeRunOutput, secondsSince, stopConditions, type RunOutputState } from "../intents";
+import {
+  formatDuration,
+  mergeRunOutput,
+  secondsSince,
+  stopConditions,
+  wrapUpNote,
+  type RunOutputState,
+} from "../intents";
 import { hrefForIntent } from "../router";
 import { Icon } from "./icons";
 import { LiveOutput } from "./LiveOutput";
@@ -90,9 +97,16 @@ export function RunPanel({ run, now }: { run: IntentRunDetail; now: number }) {
           <dt>Activity</dt>
           <dd class="font-mono">
             {activity ? `${activity.turns} entries` : "—"}
+            {run.numTurns ? ` · ${run.numTurns} turns` : ""}
             {run.grant?.maxTurns ? ` · ${run.grant.maxTurns} turn limit` : ""}
           </dd>
         </div>
+        {run.wrapUp ? (
+          <div>
+            <dt>Cut off</dt>
+            <dd>{wrapUpNote(run.wrapUp)}</dd>
+          </div>
+        ) : null}
         <div>
           <dt>Now</dt>
           <dd>
@@ -136,6 +150,12 @@ export function RunPanel({ run, now }: { run: IntentRunDetail; now: number }) {
             {run.imageDigest ? ` · ${run.imageDigest}` : ""}
           </dd>
         </div>
+        {run.sessionID ? (
+          <div>
+            <dt>Session</dt>
+            <dd class="font-mono">{run.sessionID}</dd>
+          </div>
+        ) : null}
         <div>
           <dt>Commits</dt>
           <dd class="font-mono">

@@ -205,6 +205,22 @@ type IntentRunRow struct {
 	Transcript *TranscriptSummary `json:"transcript,omitempty"`
 	Grant      *RunGrant          `json:"grant,omitempty"`
 	Running    bool               `json:"running,omitempty"`
+	// NumTurns is the turns the agent took, as its pod reported them;
+	// recorded when the run ends.
+	NumTurns int32 `json:"numTurns,omitempty"`
+	// WrapUp says the run's agent was cut off by a limit and what patchy
+	// made of it; absent for a run that was not.
+	WrapUp *RunWrapUp `json:"wrapUp,omitempty"`
+}
+
+// RunWrapUp is what became of a run whose agent was cut off by a limit:
+// the limit (max_turns, budget, deadline or idle), whether patchy resumed
+// it for a short wrap-up turn, and whether the run kept the report it ended
+// on.
+type RunWrapUp struct {
+	Reason  string `json:"reason"`
+	Resumed bool   `json:"resumed,omitempty"`
+	Kept    bool   `json:"kept,omitempty"`
 }
 
 // RunGrant is what the run was granted.
@@ -236,6 +252,9 @@ type IntentRunDetail struct {
 	Job *RunJobClock `json:"job,omitempty"`
 	// Report is the run's report, tier 2 only, as plain text.
 	Report string `json:"report,omitempty"`
+	// SessionID is the agent session the run recorded, tier 2 only, like
+	// the transcript it identifies.
+	SessionID string `json:"sessionID,omitempty"`
 }
 
 // RunJobClock is the agent Job's clock and the limits that stop the run.

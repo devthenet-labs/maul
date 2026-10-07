@@ -674,6 +674,17 @@ export interface IntentRunRow {
   transcript?: TranscriptSummary;
   grant?: RunGrant;
   running?: boolean;
+  numTurns?: number;
+  wrapUp?: RunWrapUp;
+}
+
+// RunWrapUp: the run's agent was cut off by a limit (max_turns, budget,
+// deadline or idle); resumed when patchy gave it a short wrap-up turn, kept
+// when the run kept the report it ended on.
+export interface RunWrapUp {
+  reason: string;
+  resumed?: boolean;
+  kept?: boolean;
 }
 
 export interface RunGrant {
@@ -694,6 +705,8 @@ export interface IntentRunDetail extends IntentRunRow {
   intentCostMicroUSD: number;
   job?: RunJobClock;
   report?: string;
+  // sessionID is the agent session, transcripts tier only.
+  sessionID?: string;
 }
 
 export interface RunJobClock {

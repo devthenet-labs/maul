@@ -559,6 +559,10 @@ func runRow(run *v1alpha1.IntentRun) IntentRunRow {
 		BaseSHA:      st.BaseSHA, PushedCommit: st.PushedCommit,
 		Transcript: wireTranscript(st.Transcript),
 		Running:    st.Phase == v1alpha1.RunRunning || st.Phase == v1alpha1.RunPending,
+		NumTurns:   max(st.NumTurns, 0),
+	}
+	if w := st.WrapUp; w != nil {
+		row.WrapUp = &RunWrapUp{Reason: intentview.Text(string(w.Reason), 16), Resumed: w.Resumed, Kept: w.Kept}
 	}
 	if u := (Usage{
 		InputTokens: st.Usage.InputTokens, OutputTokens: st.Usage.OutputTokens,
@@ -635,6 +639,9 @@ func (s *Server) handleIntentRun(w http.ResponseWriter, r *http.Request) {
 	if tier == authz.TierTranscripts && run.Status.Report != "" {
 		out.Report = intentview.Text(report.StripFrontmatter(run.Status.Report), 0)
 		s.auditRead(ctx, id, in, run.Name, "report")
+	}
+	if tier == authz.TierTranscripts {
+		out.SessionID = intentview.Text(run.Status.SessionID, 64)
 	}
 	writeJSON(w, out)
 }

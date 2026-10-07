@@ -139,6 +139,8 @@ function runs(card: IntentCard): IntentRunRow[] {
     imageSource: "default",
     transcript: { turns: 4 },
     grant: { maxTurns: 80, tokenBudget: 400_000, timeoutMilliseconds: 1_800_000 },
+    numTurns: 65,
+    wrapUp: { reason: "max_turns", resumed: true, kept: true },
   };
   if (card.phase !== "Building") return [plan];
   return [

@@ -46,6 +46,10 @@ type tierGranter struct {
 	calls int
 }
 
+
+// fixtureSessionID is the plan run's agent session: transcripts tier only.
+const fixtureSessionID = "5f0e2d1c-aaaa-4bbb-8ccc-0123456789ab"
+
 func (g *tierGranter) Tiers(_ context.Context, id auth.Identity, projects []string) (map[string]authz.Tier, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -172,6 +176,8 @@ func intentsFixture(t *testing.T) []client.Object {
 			Usage:     v1alpha1.UsageSummary{InputTokens: 1000, OutputTokens: 200, CostUSD: "0.75"},
 			StartedAt: &started, FinishedAt: &finished,
 			Transcript: &v1alpha1.TranscriptRef{Name: "alpha-7-plan-r1-a1-transcript", Turns: 3},
+			NumTurns:   34, SessionID: fixtureSessionID,
+			WrapUp: &v1alpha1.IntentRunWrapUp{Reason: v1alpha1.WrapUpMaxTurns, Resumed: true, Kept: true},
 			RunnerImage: &v1alpha1.RunnerImageRef{Source: v1alpha1.RunnerImageSourceDefault,
 				Image: leakRegistry + "/patchy/claude@sha256:" + strings.Repeat("c", 64)},
 		},

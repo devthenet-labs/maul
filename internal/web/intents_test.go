@@ -285,7 +285,8 @@ func TestTimelineProjection(t *testing.T) {
 		StartedAt: "2026-07-21T11:10:00Z", FinishedAt: "2026-07-21T11:20:00Z", CostMicroUSD: 750_000,
 		Usage:       &Usage{InputTokens: 1000, OutputTokens: 200, CostMicroUSD: 750_000},
 		ImageSource: "default", ImageDigest: "cccccccccccc", Transcript: &TranscriptSummary{Turns: 3},
-		Grant: &RunGrant{MaxTurns: 80, TokenBudget: 400000, TimeoutMilliseconds: 1_800_000}}
+		Grant:    &RunGrant{MaxTurns: 80, TokenBudget: 400000, TimeoutMilliseconds: 1_800_000},
+		NumTurns: 34, WrapUp: &RunWrapUp{Reason: "max_turns", Resumed: true, Kept: true}}
 	if !reflect.DeepEqual(plan, wantRow) {
 		t.Errorf("plan run row =\n%+v\nwant\n%+v", plan, wantRow)
 	}
@@ -297,6 +298,9 @@ func TestTimelineProjection(t *testing.T) {
 		t.Errorf("tier 1 plan texts = %v", d.PlanTexts)
 	}
 	assertNoLeak(t, "timeline", body)
+	if strings.Contains(body, fixtureSessionID) {
+		t.Errorf("the timeline shows a run's session id, which is for the transcripts tier: %s", body)
+	}
 
 	_, body = get(t, as(t, s, readerAlpha), "/api/intents/alpha-7")
 	if d := decode[IntentDetail](t, body); d.Tier != "transcripts" || !slices.Equal(d.PlanTexts, []int32{1}) {
@@ -317,8 +321,9 @@ func TestTier2DeniedToTier1(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("tier 1 run = %d", code)
 	}
-	if run := decode[IntentRunDetail](t, body); run.Report != "" || run.Tier != "intents" {
-		t.Errorf("tier 1 run report = %q tier %q, want none", run.Report, run.Tier)
+	if run := decode[IntentRunDetail](t, body); run.Report != "" || run.Tier != "intents" ||
+		strings.Contains(body, fixtureSessionID) {
+		t.Errorf("tier 1 run report = %q tier %q session %q, want neither", run.Report, run.Tier, run.SessionID)
 	}
 
 	ts2 := as(t, s, readerAlpha)
@@ -334,6 +339,9 @@ func TestTier2DeniedToTier1(t *testing.T) {
 	if run := decode[IntentRunDetail](t, body); code != http.StatusOK || !strings.Contains(run.Report, "# Plan") ||
 		strings.Contains(run.Report, "summary:") {
 		t.Errorf("tier 2 run = %d report %q, want the report body without its frontmatter", code, run.Report)
+	}
+	if run := decode[IntentRunDetail](t, body); run.SessionID != fixtureSessionID || run.NumTurns != 34 {
+		t.Errorf("tier 2 run session %q turns %d, want %q and 34", run.SessionID, run.NumTurns, fixtureSessionID)
 	}
 }
 
