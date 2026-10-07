@@ -46,7 +46,6 @@ type tierGranter struct {
 	calls int
 }
 
-
 // fixtureSessionID is the plan run's agent session: transcripts tier only.
 const fixtureSessionID = "5f0e2d1c-aaaa-4bbb-8ccc-0123456789ab"
 

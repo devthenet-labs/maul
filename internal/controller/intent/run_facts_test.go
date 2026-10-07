@@ -70,7 +70,7 @@ func TestRecordPodFacts(t *testing.T) {
 func TestRecordPodFactsProperty(t *testing.T) {
 	reasons := []envelope.WrapUpReason{envelope.WrapUpMaxTurns, envelope.WrapUpBudget, envelope.WrapUpDeadline,
 		envelope.WrapUpIdle, "", "report_missing", "max_turns ", "MAX_TURNS"}
-	alphabet := []rune("abcXYZ019-_ .\n<>@/é​")
+	alphabet := []rune("abcXYZ019-_ .\n<>@/é\u200b")
 	cfg := &quick.Config{MaxCount: 2000, Rand: rand.New(rand.NewSource(20261007))}
 	prop := func(turns int, idLen uint8, idSeed int64, reason uint8, wrapped, resumed, kept bool) bool {
 		rng := rand.New(rand.NewSource(idSeed))
