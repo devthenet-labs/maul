@@ -177,8 +177,9 @@ func TestPlanRunsReadOnly(t *testing.T) {
 	if got := flag("--setting-sources"); got != "user" || !slices.Contains(argv, "--strict-mcp-config") {
 		t.Errorf("--setting-sources = %q in %q, want user alone and --strict-mcp-config", got, argv)
 	}
-	if got := flag("--max-turns"); got != "30" {
-		t.Errorf("--max-turns = %s, want the grant below the stage's limit", got)
+	// The grant of 30 holds 6 turns back for a wrap-up (splitGrant).
+	if got := flag("--max-turns"); got != "24" {
+		t.Errorf("--max-turns = %s, want the grant below the stage's limit less its wrap-up turns", got)
 	}
 	prompt := flag("-p")
 	// The build budget the planner sizes its plan against is the build
@@ -331,9 +332,10 @@ func TestPlanFailures(t *testing.T) {
 		{"report with a variation selector", step{stdout: streamSuccess, writes: map[string]string{
 			"reports/plan.md": goodPlan + "Warning" + string(rune(0x26a0)) + string(rune(0xfe0f)) + "\n",
 		}}, envelope.OutcomeReportInvalid, "report: plan: line 16, column 9: U+FE0F is a variation selector"},
-		{"budget exceeded", step{stdout: streamSuccess, budgetLines: budgetLines, writes: map[string]string{
-			"reports/plan.md": goodPlan,
-		}}, envelope.OutcomeBudgetExceeded, "budget exceeded"},
+		// The kill switch with no report on disk: nothing to salvage. A
+		// plan it left on disk is kept (TestPlanSalvage).
+		{"budget exceeded", step{stdout: streamSuccess, budgetLines: budgetLines},
+			envelope.OutcomeBudgetExceeded, "budget exceeded"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -486,8 +488,9 @@ func TestBuildRunsOnTheGrant(t *testing.T) {
 	if got := at("--setting-sources"); got != "user" || !slices.Contains(argv, "--strict-mcp-config") {
 		t.Errorf("--setting-sources = %q in %q, want user alone and --strict-mcp-config", got, argv)
 	}
-	if got := at("--max-turns"); got != "40" {
-		t.Errorf("--max-turns = %s, want the grant, not the automated budget", got)
+	// The grant of 40 holds 6 turns back for a wrap-up (splitGrant).
+	if got := at("--max-turns"); got != "34" {
+		t.Errorf("--max-turns = %s, want the grant less its wrap-up turns, not the automated budget", got)
 	}
 	prompt := at("-p")
 	for _, want := range []string{

@@ -42,6 +42,26 @@
 // reason. Codex and copilot cannot resume, so their stages end on the
 // first refusal, as before.
 //
+// An intent stage (plan, build) never throws away work its run did before it
+// was cut off (wrapup.go). Its turn grant is split (splitGrant): the first
+// run gets --max-turns of the grant less a few turns held back, and every
+// round after it, a wrap-up or a repair, is held to one window over what the
+// grant, the output-token budget and the wall clock have left
+// (intentWindow); a Finding stage keeps its repair window unchanged. A run
+// stopped at its turn limit, on a clean turn boundary, is resumed once with
+// the wrap-up prompt: a plan writes its report if it has none; a build makes
+// its report match the working tree, which the wrap-up may not change, and
+// commits only what the tree held when the wrap-up began (committedSubset).
+// A run killed mid-stream (the wall clock, the idle watchdog, the kill
+// switch, the broker's per-pod limit) is not resumed: a plan report it left
+// is kept if it parses, since an approver reads it, and a build report is
+// recorded but never packaged. The stage's event records which limit cut
+// the run off and what became of it (envelope.WrapUp), and a run cut off
+// before its result event still records its session and the turns its
+// stream shows. A run that ends with no event at all (an OOM kill, an
+// eviction, the Job deadline) records nothing here; the controller cannot
+// see what it spent.
+//
 // While a run of an intent's stage (plan, build) runs a foreground shell
 // command, the runner prints that command's output as it is produced, as
 // PATCHY-OUTPUT chunks beside the turns (output.go, on a

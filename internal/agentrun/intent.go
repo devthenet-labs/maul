@@ -216,6 +216,7 @@ func (a *Agent) plan(ctx context.Context, repos []manifestRepository) *envelope.
 		return ev
 	}
 	maxTurns, budget := a.planLimits()
+	split := splitGrant(maxTurns, a.cfg.InvestigateTimeout)
 	prompt, err := templates.RenderPlanPrompt(templates.PlanPrompt{
 		IssuePath:  a.cfg.issuePath(),
 		ReportPath: a.cfg.planPath(),
@@ -227,9 +228,10 @@ func (a *Agent) plan(ctx context.Context, repos []manifestRepository) *envelope.
 		// than the runner's default ceiling.
 		BuildMaxTurns:    a.cfg.RemediateManualMaxTurns,
 		BuildTokenBudget: a.cfg.RemediateManualTokenBudget,
-		// The plan's own limits, exactly as this run is held to them below.
+		// The plan's own limits, exactly as this run is held to them below:
+		// its first run's share of the turns, and the turns held back.
 		Limits: templates.StageLimits{
-			MaxTurns: maxTurns, TokenBudget: budget, Timeout: a.cfg.InvestigateTimeout,
+			MaxTurns: split.first, WrapUpTurns: split.reserve, TokenBudget: budget, Timeout: a.cfg.InvestigateTimeout,
 		},
 		PreviousAttempt:  a.cfg.PreviousAttempt,
 		Trees:            planTrees(repos),
@@ -256,47 +258,41 @@ func (a *Agent) plan(ctx context.Context, repos []manifestRepository) *envelope.
 	// report's directory: the planner can write and fix up its report and
 	// nothing else, which is what its prompt tells it. A Finding
 	// investigation sets no WriteDirs, so its invocation does not move. A
-	// report repair resumes with this same request, so it keeps the scope.
-	sr := a.newStage(h, cli, harness.PromptRequest{
+	// report repair or a wrap-up resumes with this same request, so it keeps
+	// the scope.
+	sr := a.newIntentStage(h, cli, harness.PromptRequest{
 		Prompt:    prompt,
 		Model:     a.cliModel(a.cfg.InvestigateModel, a.cfg.InvestigateHarness),
-		MaxTurns:  maxTurns,
 		Sandbox:   harness.SandboxReadOnly,
 		SessionID: a.newSessionID(),
 		AddDirs:   []string{a.cfg.Workspace},
 		Env:       env,
 		WriteDirs: []string{filepath.Dir(a.cfg.planPath())},
-	}, a.cfg.InvestigateTimeout, a.cfg.InvestigateIdleTimeout, budget)
+	}, a.cfg.InvestigateTimeout, a.cfg.InvestigateIdleTimeout, budget, split)
 	res, idle, runErr := a.start(ctx, sr)
-	a.fillStage(&ev.Stage, h, res)
-
-	if idle != "" {
-		ev.Outcome, ev.Detail = envelope.OutcomeTimeout, idle
-		return ev
-	}
-	if res.Aborted {
-		ev.Outcome = envelope.OutcomeBudgetExceeded
-		ev.Detail = res.AbortReason
-		return ev
-	}
-	if outcome, detail := stageOutcome(h, res, runErr, credentialValues(h, a.scrub...)); outcome != envelope.OutcomeOK {
-		ev.Outcome, ev.Detail = outcome, detail
-		return ev
-	}
+	a.fillRun(&ev.Stage, sr, res)
 
 	// A plan naming a repository outside the manifest is as invalid as one
 	// that does not parse, so a repair is held to both.
-	p, raw, outcome, detail := settleReport(ctx, a, sr, &ev.Stage, a.cfg.planPath(), readReport,
-		func(raw []byte) (*report.Plan, error) {
-			p, err := report.ParsePlan(raw)
-			if err != nil {
-				return nil, err
-			}
-			if reason := outsideManifest(p.Repositories, repos); reason != "" {
-				return nil, errors.New(reason)
-			}
-			return p, nil
-		})
+	parse := func(raw []byte) (*report.Plan, error) {
+		p, err := report.ParsePlan(raw)
+		if err != nil {
+			return nil, err
+		}
+		if reason := outsideManifest(p.Repositories, repos); reason != "" {
+			return nil, errors.New(reason)
+		}
+		return p, nil
+	}
+	var p *report.Plan
+	var raw []byte
+	outcome, detail := a.firstOutcome(h, res, idle, runErr)
+	if outcome == envelope.OutcomeOK {
+		p, raw, outcome, detail = settleReport(ctx, a, sr, &ev.Stage, a.cfg.planPath(), readReport, parse)
+	} else {
+		p, raw, outcome, detail = a.salvagePlan(ctx, sr, &ev.Stage, classifyCutOff(ctx, h, res, idle, runErr),
+			outcome, detail, parse)
+	}
 	if outcome != envelope.OutcomeOK {
 		ev.Outcome, ev.Detail = outcome, detail
 		return ev
@@ -369,13 +365,16 @@ func (a *Agent) build(ctx context.Context, params remediationParams, scope build
 		return ev
 	}
 
+	split := splitGrant(params.maxTurns, a.cfg.RemediateTimeout)
 	prompt, err := templates.RenderBuildPrompt(templates.BuildPrompt{
 		PlanPath:         a.cfg.inputInvestigation(),
 		ReportPath:       a.cfg.buildPath(),
 		CommitScriptPath: a.cfg.commitScript(),
-		// The run's own limits, exactly as it is held to them below.
+		// The run's own limits, exactly as it is held to them below: its
+		// first run's share of the turns, and the turns held back.
 		Limits: templates.StageLimits{
-			MaxTurns: params.maxTurns, TokenBudget: params.budget, Timeout: a.cfg.RemediateTimeout,
+			MaxTurns: split.first, WrapUpTurns: split.reserve, TokenBudget: params.budget,
+			Timeout: a.cfg.RemediateTimeout,
 		},
 		PreviousAttempt: a.cfg.PreviousAttempt,
 		ThisRepository:  scope.this,
@@ -390,35 +389,35 @@ func (a *Agent) build(ctx context.Context, params remediationParams, scope build
 	// The remediate timeout and idle limit, for a build and a revise round
 	// alike: the intent controller launches each with its stage's in those
 	// keys (see the plan stage).
-	sr := a.newStage(h, cli, harness.PromptRequest{
+	sr := a.newIntentStage(h, cli, harness.PromptRequest{
 		Prompt:    prompt,
 		Model:     a.cliModel(a.cfg.RemediateModel, a.cfg.RemediateHarness),
-		MaxTurns:  params.maxTurns,
 		Sandbox:   harness.SandboxWorkspaceWrite,
 		SessionID: a.newSessionID(),
 		AddDirs:   []string{a.cfg.Workspace},
 		Env:       env,
-	}, a.cfg.RemediateTimeout, a.cfg.RemediateIdleTimeout, params.budget)
+	}, a.cfg.RemediateTimeout, a.cfg.RemediateIdleTimeout, params.budget, split)
 	res, idle, runErr := a.start(ctx, sr)
-	a.fillStage(&ev.Stage, h, res)
+	a.fillRun(&ev.Stage, sr, res)
 
-	if idle != "" {
-		ev.Outcome, ev.Detail = envelope.OutcomeTimeout, idle
-		return ev
+	// A report invalid after a run that ended OK keeps the tree and is
+	// repaired in the agent's session; a run cut off is salvaged
+	// (salvageBuild), and a build salvaged after a wrap-up is held to
+	// committing only what the tree held when the wrap-up began.
+	var b *report.Build
+	var raw []byte
+	var wrapped *fingerprint
+	outcome, detail := a.firstOutcome(h, res, idle, runErr)
+	if outcome == envelope.OutcomeOK {
+		b, raw, outcome, detail = settleReport(ctx, a, sr, &ev.Stage, a.cfg.buildPath(), readReport, report.ParseBuild)
+	} else {
+		b, raw, wrapped, outcome, detail = a.salvageBuild(ctx, sr, &ev.Stage,
+			classifyCutOff(ctx, h, res, idle, runErr), outcome, detail)
 	}
-	if res.Aborted {
-		ev.Outcome = envelope.OutcomeBudgetExceeded
-		ev.Detail = res.AbortReason
-		return ev
-	}
-	if outcome, detail := stageOutcome(h, res, runErr, credentialValues(h, a.scrub...)); outcome != envelope.OutcomeOK {
-		ev.Outcome, ev.Detail = outcome, detail
-		return ev
-	}
-
-	b, raw, outcome, detail := settleReport(ctx, a, sr, &ev.Stage, a.cfg.buildPath(), readReport, report.ParseBuild)
 	if outcome != envelope.OutcomeOK {
-		ev.Outcome, ev.Detail = outcome, detail
+		// An unconfirmed report a cut-off build left is recorded beside its
+		// outcome, for people to read; it is never packaged.
+		ev.Outcome, ev.Detail, ev.ReportMarkdown = outcome, detail, string(raw)
 		return ev
 	}
 	// Raw, frontmatter included, as a remediation's. The controller records
@@ -435,6 +434,12 @@ func (a *Agent) build(ctx context.Context, params remediationParams, scope build
 	if outcome, detail := a.packageChangeset(ctx, baseSHA, ev); outcome != envelope.OutcomeOK {
 		ev.Outcome, ev.Detail = outcome, detail
 		return ev
+	}
+	if wrapped != nil {
+		if why := committedSubset(ctx, a.cfg.repoDir(), baseSHA, a.cfg.branch(), wrapped.worktree); why != "" {
+			ev.Outcome, ev.Detail, ev.Changeset = envelope.OutcomeCommitFailed, why, nil
+			return ev
+		}
 	}
 	ev.Success = true
 	return ev

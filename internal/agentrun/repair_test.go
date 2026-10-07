@@ -884,7 +884,7 @@ func TestTreeFingerprint(t *testing.T) {
 	write("one.txt", "1")
 	write("two.txt", "2")
 	write("three.txt", "3")
-	if got, want := changed(ctx, repo, base, fp()),
+	if got, want := changed(ctx, repo, base, fp(), "a repair"),
 		"it changed the working tree: app.js, one.txt, three.txt and 1 more, and a repair may change nothing "+
 			"but the report and commit.sh"; got != want {
 		t.Errorf("changed = %q, want %q", got, want)
@@ -898,7 +898,7 @@ func TestTreeFingerprint(t *testing.T) {
 	if got := fp(); got.head == base.head {
 		t.Errorf("a commit did not move HEAD: %+v", got)
 	}
-	if got := changed(ctx, repo, base, fp()); !strings.HasPrefix(got,
+	if got := changed(ctx, repo, base, fp(), "a repair"); !strings.HasPrefix(got,
 		"it moved HEAD (a commit); it staged changes; it changed the working tree: ") {
 		t.Errorf("changed after a commit = %q", got)
 	}

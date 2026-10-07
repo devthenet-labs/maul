@@ -45,6 +45,11 @@ type stageRun struct {
 	budget  int           // the stage's output-token budget, zero for none
 	rec     *transcript.Recorder
 	started time.Time
+	// split is an intent stage's grant split (splitGrant): req.MaxTurns is
+	// its first run's share, and every round after the first run is held to
+	// the intent window (intentWindow). Nil on a Finding stage, whose rounds
+	// keep the repair window they always had.
+	split *grantSplit
 }
 
 // newStage sets up a stage's session. The recorder is built here, once,
@@ -102,10 +107,11 @@ func settleReport[T any](ctx context.Context, a *Agent, sr *stageRun, st *envelo
 
 	rounds, last, why := 0, "", ""
 	for round := 1; round <= repairRounds; round++ {
-		if why = a.repairWindow(ctx, sr, st); why != "" {
+		var lim roundLimits
+		if lim, why = a.roundWindow(ctx, sr, st, time.Since(sr.started)); why != "" {
 			break
 		}
-		r := a.repairRound(ctx, sr, st, resumer, path, round, outcome, detail)
+		r := a.repairRound(ctx, sr, st, resumer, lim, path, round, outcome, detail)
 		if !r.ran {
 			why = r.why
 			break
@@ -154,14 +160,45 @@ func notRepaired(rounds int, last, why string) string {
 	return s
 }
 
-// repairWindow says why no repair round may start now, or "" when one may:
-// the stage cancelled, or too little of its wall clock, turns or output
-// tokens left.
-func (a *Agent) repairWindow(ctx context.Context, sr *stageRun, st *envelope.Stage) string {
+// roundLimits are what one round after a stage's first run (a repair, a
+// wrap-up) may spend: its turn cap, its kill switch's output tokens (zero
+// for none) and its wall clock.
+type roundLimits struct {
+	maxTurns int
+	budget   int
+	timeout  time.Duration
+}
+
+// roundWindow says what the next round after a stage's first run may
+// spend, elapsed into the stage, or why none may start. An intent stage is
+// held to the intent window; a Finding stage to the repair window it has
+// always had, which TestFindingRepairWindowUnchanged pins.
+func (a *Agent) roundWindow(ctx context.Context, sr *stageRun, st *envelope.Stage,
+	elapsed time.Duration) (roundLimits, string) {
+	if sr.split != nil {
+		return intentWindow(ctx, sr, st, elapsed)
+	}
+	if why := repairWindow(ctx, sr, st, elapsed); why != "" {
+		return roundLimits{}, why
+	}
+	lim := roundLimits{maxTurns: repairMaxTurns, timeout: min(repairTimeout, sr.timeout-elapsed)}
+	if sr.req.MaxTurns > 0 {
+		lim.maxTurns = min(repairMaxTurns, sr.req.MaxTurns-st.NumTurns)
+	}
+	if sr.budget > 0 {
+		lim.budget = sr.budget - st.Usage.OutputTokens
+	}
+	return lim, ""
+}
+
+// repairWindow says why no repair round of a Finding stage may start
+// elapsed into it, or "" when one may: the stage cancelled, or too little of
+// its wall clock, turns or output tokens left.
+func repairWindow(ctx context.Context, sr *stageRun, st *envelope.Stage, elapsed time.Duration) string {
 	if ctx.Err() != nil {
 		return "the stage was cancelled"
 	}
-	if left := sr.timeout - time.Since(sr.started); left < repairMinWindow {
+	if left := sr.timeout - elapsed; left < repairMinWindow {
 		return fmt.Sprintf("less than %s of the stage's %s wall clock left", shortDuration(repairMinWindow),
 			shortDuration(sr.timeout))
 	}
@@ -174,14 +211,17 @@ func (a *Agent) repairWindow(ctx context.Context, sr *stageRun, st *envelope.Sta
 	return ""
 }
 
-// repairResult is what one repair round did: whether its run started
-// (ran), why the rounds stop after it (why), a refusal of what it did to
-// the working tree (refused), and how its run ended when not OK (failure).
+// repairResult is what one round after the first run did: whether its run
+// started (ran), why the rounds stop after it (why), a refusal of what it
+// did to the working tree (refused), how its run ended when not OK
+// (failure), and, on a writable stage, the clone as the round found it
+// (before).
 type repairResult struct {
 	ran     bool
 	why     string
 	refused string
 	failure string
+	before  fingerprint
 }
 
 // repairFailureBytes bounds how a repair run's own ending is quoted after
@@ -189,48 +229,71 @@ type repairResult struct {
 const repairFailureBytes = 300
 
 // repairRound runs one repair: the agent's session resumed with the repair
-// prompt, under the stage's terms and what is left of its limits, its spend
-// added to st. On a stage that writes the working tree, the tree must be
-// exactly as the round found it afterwards, the report and commit.sh aside
-// (both sit outside the clone): anything else is refused, since nothing a
-// repair changes was built or tested.
+// prompt, under the stage's terms and the round's limits (roundWindow), its
+// spend added to st. On a stage that writes the working tree, the tree must
+// be exactly as the round found it afterwards, the report and commit.sh
+// aside (both sit outside the clone): anything else is refused, since
+// nothing a repair changes was built or tested.
 func (a *Agent) repairRound(ctx context.Context, sr *stageRun, st *envelope.Stage, resumer harness.Resumer,
-	path string, round int, outcome envelope.Outcome, detail string) repairResult {
+	lim roundLimits, path string, round int, outcome envelope.Outcome, detail string) repairResult {
+	commitScript := ""
+	if sr.writable() {
+		commitScript = a.cfg.commitScript()
+	}
+	return a.resumeRound(ctx, sr, st, resumer, lim, resumedRun{
+		what: fmt.Sprintf("repair round %d", round), noun: "a repair",
+		prompt: func() (string, error) {
+			return templates.RenderRepairPrompt(templates.RepairPrompt{
+				ReportPath: path, Missing: outcome == envelope.OutcomeReportMissing, Error: detail, Round: round,
+				Rounds: repairRounds, CommitScriptPath: commitScript,
+			})
+		},
+		notice: fmt.Sprintf("patchy refused the report (%s); asking the agent to repair it, round %d of %d",
+			oneLine(detail, repairFailureBytes), round, repairRounds),
+		log:     "asking the agent to repair its report",
+		logArgs: []any{"phase", a.cfg.Phase, "round", round, "outcome", outcome},
+	})
+}
+
+// resumedRun is what tells one kind of round after the first run from
+// another: what it is called in the transcript (what, "repair round 1") and
+// in a tree-guard refusal (noun, "a repair"), its prompt, the transcript
+// notice announcing it and the log line recording it.
+type resumedRun struct {
+	what, noun string
+	prompt     func() (string, error)
+	notice     string
+	log        string
+	logArgs    []any
+}
+
+// resumeRound runs one round after a stage's first run: the agent's session
+// resumed with the round's prompt, under the stage's terms (its request,
+// whose posture it never widens) and the round's limits, its spend added to
+// st. On a stage that writes the working tree, the tree must be exactly as
+// the round found it afterwards, the report and commit.sh aside: anything
+// else is refused.
+func (a *Agent) resumeRound(ctx context.Context, sr *stageRun, st *envelope.Stage, resumer harness.Resumer,
+	lim roundLimits, rr resumedRun) repairResult {
 	var before fingerprint
 	if sr.writable() {
 		var err error
 		if before, err = treeFingerprint(ctx, a.cfg.repoDir()); err != nil {
-			return repairResult{why: "the working tree could not be fingerprinted to guard a repair: " + err.Error()}
+			return repairResult{why: "the working tree could not be fingerprinted to guard " + rr.noun + ": " +
+				err.Error()}
 		}
 	}
 	env, err := a.brokerEnv()
 	if err != nil {
 		return repairResult{why: err.Error()}
 	}
-	missing := outcome == envelope.OutcomeReportMissing
-	commitScript := ""
-	if sr.writable() {
-		commitScript = a.cfg.commitScript()
-	}
-	prompt, err := templates.RenderRepairPrompt(templates.RepairPrompt{
-		ReportPath: path, Missing: missing, Error: detail, Round: round, Rounds: repairRounds,
-		CommitScriptPath: commitScript,
-	})
+	prompt, err := rr.prompt()
 	if err != nil {
 		return repairResult{why: err.Error()}
 	}
 
 	req := sr.req
-	req.Prompt, req.Env = prompt, env
-	req.MaxTurns = repairMaxTurns
-	if sr.req.MaxTurns > 0 {
-		req.MaxTurns = min(repairMaxTurns, sr.req.MaxTurns-st.NumTurns)
-	}
-	budget := 0
-	if sr.budget > 0 {
-		budget = sr.budget - st.Usage.OutputTokens
-	}
-	timeout := min(repairTimeout, sr.timeout-time.Since(sr.started))
+	req.Prompt, req.Env, req.MaxTurns = prompt, env, lim.maxTurns
 	session := st.SessionID
 	if session == "" {
 		session = sr.req.SessionID
@@ -240,20 +303,18 @@ func (a *Agent) repairRound(ctx context.Context, sr *stageRun, st *envelope.Stag
 		// The caller token was read afresh: the shared recorder must scrub
 		// the new value from the turns this run records.
 		sr.rec.AddSecrets(a.scrub...)
-		sr.rec.Notice("patchy refused the report (%s); asking the agent to repair it, round %d of %d",
-			oneLine(detail, repairFailureBytes), round, repairRounds)
+		sr.rec.Notice("%s", rr.notice)
 	}
-	a.cfg.Log.Info("asking the agent to repair its report", "phase", a.cfg.Phase, "round", round,
-		"outcome", outcome, "session", session)
+	a.cfg.Log.Info(rr.log, append(rr.logArgs, "session", session)...)
 	res, idle, runErr := a.run(ctx, sr, pinCLI(resumer.ResumeSpec(a.cfg.repoDir(), session, req), sr.cli),
-		timeout, budget)
+		lim.timeout, lim.budget)
 	var spent envelope.Stage
-	a.fillStage(&spent, sr.h, res)
+	a.fillRun(&spent, sr, res)
 	addRepair(st, spent)
 
-	r := repairResult{ran: true, failure: a.repairFailure(sr.h, res, idle, runErr)}
+	r := repairResult{ran: true, failure: a.repairFailure(sr.h, res, idle, runErr), before: before}
 	if ctx.Err() != nil {
-		r.why = fmt.Sprintf("the stage was cancelled during repair round %d", round)
+		r.why = "the stage was cancelled during " + rr.what
 		return r
 	}
 	if sr.writable() {
@@ -262,10 +323,10 @@ func (a *Agent) repairRound(ctx context.Context, sr *stageRun, st *envelope.Stag
 		case err != nil:
 			r.refused = "the working tree could not be fingerprinted after it: " + err.Error()
 		case after != before:
-			r.refused = changed(ctx, a.cfg.repoDir(), before, after)
+			r.refused = changed(ctx, a.cfg.repoDir(), before, after, rr.noun)
 		}
 		if r.refused != "" && sr.rec != nil {
-			sr.rec.Notice("patchy refused repair round %d: %s", round, r.refused)
+			sr.rec.Notice("patchy refused %s: %s", rr.what, r.refused)
 		}
 	}
 	return r

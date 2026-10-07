@@ -17,18 +17,24 @@ import (
 )
 
 // ungrantedPlanLimits are what a plan Job with no grant runs on and its
-// prompt states: the investigate stage's limits and wall clock.
+// prompt states: the investigate stage's limits, its turns split between the
+// first run and a wrap-up, and its wall clock.
 func ungrantedPlanLimits(cfg Config) templates.StageLimits {
+	s := splitGrant(cfg.InvestigateMaxTurns, cfg.InvestigateTimeout)
 	return templates.StageLimits{
-		MaxTurns: cfg.InvestigateMaxTurns, TokenBudget: cfg.InvestigateTokenBudget, Timeout: cfg.InvestigateTimeout,
+		MaxTurns: s.first, WrapUpTurns: s.reserve, TokenBudget: cfg.InvestigateTokenBudget,
+		Timeout: cfg.InvestigateTimeout,
 	}
 }
 
 // ungrantedBuildLimits are what a build Job with no grant runs on and its
-// prompt states: the automated budget and the remediate stage's wall clock.
+// prompt states: the automated budget, its turns split between the first
+// run and a wrap-up, and the remediate stage's wall clock.
 func ungrantedBuildLimits(cfg Config) templates.StageLimits {
+	s := splitGrant(cfg.RemediateAutoMaxTurns, cfg.RemediateTimeout)
 	return templates.StageLimits{
-		MaxTurns: cfg.RemediateAutoMaxTurns, TokenBudget: cfg.RemediateAutoTokenBudget, Timeout: cfg.RemediateTimeout,
+		MaxTurns: s.first, WrapUpTurns: s.reserve, TokenBudget: cfg.RemediateAutoTokenBudget,
+		Timeout: cfg.RemediateTimeout,
 	}
 }
 
@@ -44,18 +50,20 @@ func argvFlag(t *testing.T, argv []string, name string) string {
 
 // TestPlanPromptStatesItsLimits: the plan prompt states the limits the run
 // is actually held to — the grant once the stage's ceiling has clamped it,
-// the ceiling with no grant, and the stage's wall clock — not the raw
-// grant, and states the build's ceiling apart from them.
+// the ceiling with no grant, less the turns held back for a wrap-up, which
+// it states beside them, and the stage's wall clock — not the raw grant,
+// and states the build's ceiling apart from them.
 func TestPlanPromptStatesItsLimits(t *testing.T) {
 	tests := []struct {
 		name      string
 		granted   [2]int
 		wantTurns int
+		wantWrap  int
 		wantTok   int
 	}{
-		{"no grant states the stage's limits", [2]int{0, 0}, 25, 150000},
-		{"a lower grant is stated", [2]int{10, 50000}, 10, 50000},
-		{"a grant above the ceiling states the ceiling", [2]int{400, 9000000}, 25, 150000},
+		{"no grant states the stage's limits", [2]int{0, 0}, 20, 5, 150000},
+		{"a grant too small to hold turns back is stated whole", [2]int{10, 50000}, 10, 0, 50000},
+		{"a grant above the ceiling states the ceiling", [2]int{400, 9000000}, 20, 5, 150000},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -80,6 +88,11 @@ func TestPlanPromptStatesItsLimits(t *testing.T) {
 			if !strings.Contains(prompt, own) {
 				t.Errorf("the prompt does not state the run's own limits %q:\n%s", own, prompt)
 			}
+			wrap := fmt.Sprintf("patchy gives you at most %d more turns", tt.wantWrap)
+			if got := strings.Contains(prompt, "more turns"); got != (tt.wantWrap > 0) ||
+				(got && !strings.Contains(prompt, wrap)) {
+				t.Errorf("the prompt promises wrap-up turns = %v, want %q only when %d > 0", got, wrap, tt.wantWrap)
+			}
 			if want := "A build of this plan can be granted at most 240 agent turns and 1200000 output " +
 				"tokens."; !strings.Contains(prompt, want) {
 				t.Errorf("the prompt does not state the build's ceiling %q", want)
@@ -90,8 +103,9 @@ func TestPlanPromptStatesItsLimits(t *testing.T) {
 
 // TestBuildPromptStatesItsLimits: a build's prompt states the limits the
 // run is held to — its grant, clamped to the stage's ceiling, or the
-// automated budget with no grant — and the stage's wall clock, while its
-// posture stays the workspace-write one, with no write scope.
+// automated budget with no grant, less the 6 turns held back for a wrap-up
+// — and the stage's wall clock, while its posture stays the
+// workspace-write one, with no write scope.
 func TestBuildPromptStatesItsLimits(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -99,9 +113,9 @@ func TestBuildPromptStatesItsLimits(t *testing.T) {
 		wantTurns int
 		wantTok   int
 	}{
-		{"no grant states the automated budget", [2]int{0, 0}, 80, 400000},
-		{"a grant below the automated budget is stated", [2]int{40, 100000}, 40, 100000},
-		{"a grant above the ceiling states the ceiling", [2]int{400, 9000000}, 240, 1200000},
+		{"no grant states the automated budget", [2]int{0, 0}, 74, 400000},
+		{"a grant below the automated budget is stated", [2]int{40, 100000}, 34, 100000},
+		{"a grant above the ceiling states the ceiling", [2]int{400, 9000000}, 234, 1200000},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

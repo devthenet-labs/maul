@@ -167,9 +167,9 @@ const (
 )
 
 // changed describes how the clone in dir moved from before to after, for a
-// refused repair's detail: whether it committed, staged, or changed working
-// files, naming the first few of those.
-func changed(ctx context.Context, dir string, before, after fingerprint) string {
+// refused round's detail: whether it committed, staged, or changed working
+// files, naming the first few of those. noun names the round ("a repair").
+func changed(ctx context.Context, dir string, before, after fingerprint, noun string) string {
 	var parts []string
 	if after.head != before.head {
 		parts = append(parts, "it moved HEAD (a commit)")
@@ -193,5 +193,110 @@ func changed(ctx context.Context, dir string, before, after fingerprint) string 
 		}
 		parts = append(parts, what)
 	}
-	return strings.Join(parts, "; ") + ", and a repair may change nothing but the report and commit.sh"
+	return strings.Join(parts, "; ") + ", and " + noun + " may change nothing but the report and commit.sh"
+}
+
+// treeEntry is one path of a git tree: its mode and the object it names.
+type treeEntry struct {
+	mode, object string
+}
+
+// treeChange is one path a commit range changed: the entry it ends with,
+// or deleted.
+type treeChange struct {
+	path    string
+	entry   treeEntry
+	deleted bool
+}
+
+// lsTree lists every path of tree in the clone in dir, recursively.
+func lsTree(ctx context.Context, dir, tree string) (map[string]treeEntry, error) {
+	out, err := gitRaw(ctx, dir, "ls-tree", "-r", "-z", "--full-tree", tree)
+	if err != nil {
+		return nil, err
+	}
+	entries := map[string]treeEntry{}
+	for rec := range strings.SplitSeq(strings.TrimSuffix(string(out), "\x00"), "\x00") {
+		if rec == "" {
+			continue
+		}
+		meta, path, ok := strings.Cut(rec, "\t")
+		fields := strings.Fields(meta)
+		if !ok || len(fields) != 3 {
+			return nil, fmt.Errorf("git ls-tree: unexpected record %q", rec)
+		}
+		entries[path] = treeEntry{mode: fields[0], object: fields[2]}
+	}
+	return entries, nil
+}
+
+// diffTree lists the paths base..branch changed in the clone in dir,
+// renames as a delete and an add.
+func diffTree(ctx context.Context, dir, base, branch string) ([]treeChange, error) {
+	out, err := gitRaw(ctx, dir, "diff-tree", "-r", "-z", "--no-renames", base, branch)
+	if err != nil {
+		return nil, err
+	}
+	recs := strings.Split(strings.TrimSuffix(string(out), "\x00"), "\x00")
+	var changes []treeChange
+	for i := 0; i+1 < len(recs); i += 2 {
+		// ":<src mode> <dst mode> <src object> <dst object> <status>", then the path.
+		fields := strings.Fields(strings.TrimPrefix(recs[i], ":"))
+		if len(fields) != 5 {
+			return nil, fmt.Errorf("git diff-tree: unexpected record %q", recs[i])
+		}
+		changes = append(changes, treeChange{
+			path: recs[i+1], entry: treeEntry{mode: fields[1], object: fields[3]}, deleted: fields[4] == "D",
+		})
+	}
+	return changes, nil
+}
+
+// outsideBaseline returns the paths of changes the baseline tree does not
+// back: a path written with a mode or content the baseline does not hold
+// there, or a path deleted that the baseline still holds. It is pure;
+// TestOutsideBaselineProperty states it.
+func outsideBaseline(changes []treeChange, baseline map[string]treeEntry) []string {
+	var out []string
+	for _, c := range changes {
+		held, ok := baseline[c.path]
+		if c.deleted == ok || (!c.deleted && held != c.entry) {
+			out = append(out, c.path)
+		}
+	}
+	return out
+}
+
+// committedSubset checks that what commit.sh committed after a wrap-up,
+// base..branch in the clone in dir, is a subset of the working tree as the
+// wrap-up found it (baseline, a tree treeFingerprint wrote): every path it
+// writes has exactly the content and mode it had there, and every path it
+// deletes was absent there. commit.sh may commit less than the tree held —
+// leave scratch files out — but nothing the run had not written: a wrap-up
+// adds a report and a commit recipe, never code, and a recipe that wrote or
+// force-added a file of its own would be exactly that. It returns why the
+// commits are refused, or "" when they pass.
+func committedSubset(ctx context.Context, dir, base, branch, baseline string) string {
+	held, err := lsTree(ctx, dir, baseline)
+	if err != nil {
+		return "the working tree the wrap-up found could not be read: " + err.Error()
+	}
+	changes, err := diffTree(ctx, dir, base, branch)
+	if err != nil {
+		return "the committed change could not be read: " + err.Error()
+	}
+	paths := outsideBaseline(changes, held)
+	if len(paths) == 0 {
+		return ""
+	}
+	shown := paths[:min(len(paths), changedPathsShown)]
+	for i, p := range shown {
+		shown[i] = oneLine(p, changedPathBytes)
+	}
+	what := strings.Join(shown, ", ")
+	if more := len(paths) - len(shown); more > 0 {
+		what += fmt.Sprintf(" and %d more", more)
+	}
+	return "commit.sh committed " + what + " other than the working tree held when the wrap-up began, and a " +
+		"wrap-up build may commit only what its run had written"
 }
