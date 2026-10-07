@@ -464,6 +464,32 @@ func scanStreamUsage(line []byte) (int, bool) {
 	return *ev.Message.Usage.OutputTokens, true
 }
 
+// StreamTurns counts the model responses claude's stream carried; see
+// streamTurns.
+func (c *Claude) StreamTurns(stdout []byte) int { return streamTurns(stdout) }
+
+// streamTurns counts the distinct API messages among claude's assistant
+// events, for a run that ended without the result event whose num_turns
+// counts them. The CLI emits one assistant event per content block, all
+// carrying their message's id, so the count is of ids, the same dedup
+// streamUsage tallies by; an event with no id counts as its own message.
+func streamTurns(stdout []byte) int {
+	ids := map[string]bool{}
+	anonymous := 0
+	for line := range bytes.SplitSeq(stdout, []byte{'\n'}) {
+		var ev claudeEvent
+		if json.Unmarshal(line, &ev) != nil || ev.Type != "assistant" {
+			continue
+		}
+		if ev.Message.ID == "" {
+			anonymous++
+			continue
+		}
+		ids[ev.Message.ID] = true
+	}
+	return len(ids) + anonymous
+}
+
 // StreamUsage tallies the usage claude's assistant events reported; see
 // streamUsage.
 func (c *Claude) StreamUsage(stdout []byte) *Usage { return streamUsage(stdout) }

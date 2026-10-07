@@ -145,6 +145,16 @@ type StreamUsageReporter interface {
 	StreamUsage(stdout []byte) *Usage
 }
 
+// StreamTurnCounter is the optional capability of counting a run's agent
+// turns off its stream when it ended without the terminal event that reports
+// them (a timeout, the budget kill switch, a crash, a cancelled pod), so the
+// stage still records roughly how far the run got.
+type StreamTurnCounter interface {
+	// StreamTurns returns the number of distinct model responses the stream
+	// carried, or 0 when it carried none.
+	StreamTurns(stdout []byte) int
+}
+
 // TurnScanner is the optional capability of projecting the live output stream
 // onto the harness-neutral conversation vocabulary; it powers the transcript
 // the status page replays. A harness without it simply produces no transcript.
