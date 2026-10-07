@@ -252,8 +252,10 @@ func (p *pass) planning(ctx context.Context) (bool, error) {
 	return p.launchPlan(ctx, round, rs.next(), p.previousAttempt(latest))
 }
 
-// planComment is the approval comment's input for a plan report.
-func (p *pass) planComment(revision int32, raw []byte) (templates.PlanComment, error) {
+// planComment is the approval comment's input for a plan report, which run
+// produced: a plan its planner was cut off writing says so in the header.
+func (p *pass) planComment(run *v1alpha1.IntentRun, raw []byte) (templates.PlanComment, error) {
+	revision := run.Spec.Round
 	parsed, err := report.ParsePlan(raw)
 	if err != nil {
 		return templates.PlanComment{}, err
@@ -263,6 +265,7 @@ func (p *pass) planComment(revision int32, raw []byte) (templates.PlanComment, e
 		Summary: parsed.Summary, NewDependencies: parsed.NewDependencies, Questions: parsed.Questions,
 		ApproveLabel: approveLabel(p.proj), TriggerLabel: p.trigger(),
 		Repositories: p.planRepositories(parsed.Repositories),
+		CutOff:       runCutOff(run),
 	}, nil
 }
 
@@ -289,7 +292,7 @@ func (p *pass) planRepositories(named []string) []string {
 // The render is deterministic, so every pass reaches the same answer, and an
 // unshowable plan counts as a failed attempt without a record of its own.
 func (p *pass) planRefusal(run *v1alpha1.IntentRun) (reason, notice string) {
-	pc, err := p.planComment(run.Spec.Round, []byte(run.Status.Report))
+	pc, err := p.planComment(run, []byte(run.Status.Report))
 	if err != nil {
 		return fmt.Sprintf("the plan report does not parse: %v", err), ""
 	}
@@ -355,7 +358,7 @@ func (p *pass) writeBack(ctx context.Context, run *v1alpha1.IntentRun) (bool, er
 	if err != nil {
 		return false, err
 	}
-	pc, err := p.planComment(round, raw)
+	pc, err := p.planComment(run, raw)
 	if err != nil {
 		return false, err
 	}

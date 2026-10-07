@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"slices"
 
 	batchv1 "k8s.io/api/batch/v1"
@@ -24,6 +25,7 @@ import (
 	"github.com/bitwise-media-group/patchy/internal/envelope"
 	"github.com/bitwise-media-group/patchy/internal/jobs"
 	"github.com/bitwise-media-group/patchy/internal/runnerguard"
+	"github.com/bitwise-media-group/patchy/internal/templates"
 )
 
 // updateRun writes the run's status as mutate leaves it, over the version in
@@ -54,6 +56,61 @@ func podUsage(st *envelope.Stage) v1alpha1.UsageSummary {
 	return u
 }
 
+// maxRunTurns is the schema's bound on status.numTurns.
+const maxRunTurns = 100000
+
+// sessionIDPattern is the schema's pattern on status.sessionID, which is at
+// most maxSessionID characters.
+var sessionIDPattern = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z_-]*$`)
+
+const maxSessionID = 64
+
+// recordPodFacts writes what the pod's stage report says about the run onto
+// its status: the usage (podUsage), the turns, the session and what became
+// of a cut-off first run. Every one is untrusted, written by a pod that may
+// run on the repository's own image, so each is held to the schema rather
+// than refused whole: the turns clamped into its range, a session id it would
+// refuse dropped, and a wrap-up with a reason outside its vocabulary dropped.
+// None of them is read back to decide anything: the wrap-up is shown to
+// people, never used to count attempts.
+func recordPodFacts(s *v1alpha1.IntentRunStatus, st *envelope.Stage) {
+	s.Usage = podUsage(st)
+	s.NumTurns = int32(min(max(st.NumTurns, 0), maxRunTurns))
+	s.SessionID = ""
+	if len(st.SessionID) <= maxSessionID && sessionIDPattern.MatchString(st.SessionID) {
+		s.SessionID = st.SessionID
+	}
+	s.WrapUp = podWrapUp(st.WrapUp)
+}
+
+// podWrapUp is the run's record of a pod's wrap-up report, or nil for none
+// or one whose reason the schema does not know.
+func podWrapUp(w *envelope.WrapUp) *v1alpha1.IntentRunWrapUp {
+	if w == nil {
+		return nil
+	}
+	reason := v1alpha1.WrapUpReason(w.Reason)
+	switch reason {
+	case v1alpha1.WrapUpMaxTurns, v1alpha1.WrapUpBudget, v1alpha1.WrapUpDeadline, v1alpha1.WrapUpIdle:
+	default:
+		return nil
+	}
+	return &v1alpha1.IntentRunWrapUp{Reason: reason, Resumed: w.Resumed, Kept: w.Kept}
+}
+
+// runCutOff is what the plan comment and the pull request body say of a run
+// whose agent was cut off by a limit and whose report was kept all the same
+// (status.wrapUp.kept); nil for any other run, which renders them exactly as
+// before. It only ever adds patchy's own words about the run: the wrap-up is
+// the pod's report, shown to people, never trusted to decide anything.
+func runCutOff(run *v1alpha1.IntentRun) *templates.CutOff {
+	w := run.Status.WrapUp
+	if w == nil || !w.Kept {
+		return nil
+	}
+	return &templates.CutOff{Reason: string(w.Reason), Resumed: w.Resumed}
+}
+
 // settle stamps a run's terminal status (Complete, or Failed with the
 // outcome and detail), then deletes a plan run's Repository: only a build's
 // is kept, as the intent's runner-image anchor.
@@ -74,7 +131,7 @@ func (r *RunReconciler) settle(ctx context.Context, run *v1alpha1.IntentRun, res
 				cur.Status.Transcript = res.transcript
 			}
 			if res.stage != nil {
-				cur.Status.Usage = podUsage(res.stage)
+				recordPodFacts(&cur.Status, res.stage)
 			}
 		}
 		cur.Status.FinishedAt = &now

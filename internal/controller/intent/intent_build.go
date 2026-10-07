@@ -304,7 +304,7 @@ func (p *pass) openPullRequest(ctx context.Context, run *v1alpha1.IntentRun,
 		body, err := templates.RenderIntentPRBody(templates.IntentPRBody{
 			IntentRepository: repoSlug(p.repo()), IssueNumber: p.number(), Summary: pl.Summary,
 			PlanRevision: ap.PlanRevision, PlanDigest: ap.PlanDigest, ApprovedBy: ap.By,
-			Repositories: repositorySlugs(repos),
+			Repositories: repositorySlugs(repos), CutOff: runCutOff(run),
 		})
 		if err != nil {
 			return false, err
