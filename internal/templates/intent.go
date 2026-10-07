@@ -267,6 +267,52 @@ type PlanComment struct {
 	// each repository's image; fewer omits both, and the comment is exactly
 	// the one-repository comment.
 	Repositories []string
+	// CutOff, when set, says the planning run was cut off by a limit and the
+	// plan is what it had written: the header says so first, under "Before
+	// you approve". Nil renders the comment exactly as without it.
+	CutOff *CutOff
+}
+
+// CutOff says an intent run's agent was cut off by a limit before it
+// finished, and the report it ended on was kept all the same: written before
+// the cut-off, or in one short wrap-up turn patchy resumed it for. The plan
+// comment and the pull request body say so, in patchy's own words.
+type CutOff struct {
+	// Reason is the limit, in the run record's vocabulary: max_turns,
+	// budget, deadline or idle. Any other reads as "a limit": it is the
+	// pod's report, so it is only ever matched, never shown.
+	Reason string
+	// Resumed says patchy resumed the agent for one short wrap-up turn,
+	// which wrote or confirmed the report.
+	Resumed bool
+}
+
+// cutOffLimit is a CutOff reason as a clause: "it ran out of turns".
+func cutOffLimit(reason string) string {
+	switch reason {
+	case "max_turns":
+		return "it reached its turn limit"
+	case "budget":
+		return "it reached its token budget"
+	case "deadline":
+		return "it ran out of time"
+	case "idle":
+		return "it stopped making progress"
+	}
+	return "it reached a limit"
+}
+
+// cutOffView is a CutOff as the templates read it; nil for none.
+type cutOffView struct {
+	Limit   string
+	Resumed bool
+}
+
+func viewCutOff(c *CutOff) *cutOffView {
+	if c == nil {
+		return nil
+	}
+	return &cutOffView{Limit: cutOffLimit(c.Reason), Resumed: c.Resumed}
 }
 
 // RenderPlanComment renders a plan for approval: headed by PlanMarker over
@@ -333,6 +379,7 @@ func planComment(p PlanComment, digest string, view planView) (string, error) {
 		Replan          string
 		Cancel          string
 		Repositories    string
+		CutOff          *cutOffView
 		Plan            string
 	}{
 		Marker:          PlanMarker(p.Namespace, p.Intent, p.Revision, digest),
@@ -352,6 +399,7 @@ func planComment(p PlanComment, digest string, view planView) (string, error) {
 		Replan:          slashCommand(action.VerbReplan),
 		Cancel:          slashCommand(action.VerbCancel),
 		Repositories:    repositoryList(p.Repositories, false),
+		CutOff:          viewCutOff(p.CutOff),
 		Plan:            verbatim("markdown", string(p.Report)),
 	})
 }
@@ -636,6 +684,10 @@ type IntentPRBody struct {
 	// body. The body is never edited after it is opened, so it links no
 	// sibling: patchy cross-links them in a comment (IntentSiblingsComment).
 	Repositories []string
+	// CutOff, when set, says the build's agent was cut off by a limit and
+	// confirmed its report against the work it had done in a wrap-up turn:
+	// the footer says so. Nil renders the body exactly as without it.
+	CutOff *CutOff
 }
 
 // RenderIntentPRBody renders an intent pull request's body.
@@ -650,6 +702,7 @@ func RenderIntentPRBody(b IntentPRBody) (string, error) {
 		ApprovedBy       string
 		Count            int
 		Repositories     string
+		CutOff           *cutOffView
 	}{
 		IntentRepository: oneLine(b.IntentRepository),
 		IssueNumber:      b.IssueNumber,
@@ -663,6 +716,7 @@ func RenderIntentPRBody(b IntentPRBody) (string, error) {
 		ApprovedBy:   oneLine(b.ApprovedBy),
 		Count:        len(repos),
 		Repositories: strings.Join(repos, ", "),
+		CutOff:       viewCutOff(b.CutOff),
 	})
 }
 

@@ -182,6 +182,19 @@ func TestIntentGoldens(t *testing.T) {
 		// in this golden verbatim, as GitHub receives them, and the header
 		// points to each; the emoji's joiner and selector it does not count.
 		{"intent_plan_hostile.md", func() (string, error) { return RenderPlanComment(hostile) }},
+		// A plan the planner wrote in a wrap-up turn after its turn limit.
+		{"intent_plan_cut_off.md", func() (string, error) {
+			p := testPlanComment(testPlan)
+			p.CutOff = &CutOff{Reason: "max_turns", Resumed: true}
+			return RenderPlanComment(p)
+		}},
+		// A plan on disk when the wall clock ended the run, kept as written
+		// with no wrap-up turn.
+		{"intent_plan_cut_off_settled.md", func() (string, error) {
+			p := testPlanComment(testPlan)
+			p.CutOff = &CutOff{Reason: "deadline"}
+			return RenderPlanComment(p)
+		}},
 		{"intent_plan_refused.md", func() (string, error) {
 			return refusedPlan(testPlanComment("---\nsummary: x\n---\n" + strings.Repeat("a", MaxCommentBytes)))
 		}},
@@ -248,6 +261,14 @@ func TestIntentGoldens(t *testing.T) {
 				PlanRevision: 2, PlanDigest: PlanDigest([]byte(testPlan)), ApprovedBy: "peter",
 			})
 		}},
+		{"intent_pr_body_cut_off.md", func() (string, error) {
+			return RenderIntentPRBody(IntentPRBody{
+				IntentRepository: "devthenet-labs/intents", IssueNumber: 1,
+				Summary:      "Add GET /version returning {sha, built} as JSON",
+				PlanRevision: 2, PlanDigest: PlanDigest([]byte(testPlan)), ApprovedBy: "peter",
+				CutOff: &CutOff{Reason: "max_turns", Resumed: true},
+			})
+		}},
 		// Code spans the agent wrote are kept, and inert as markdown, but
 		// broken apart all the same: a merge or squash commit may carry the
 		// body as plain text.
@@ -291,6 +312,34 @@ func TestIntentGoldens(t *testing.T) {
 			}
 			golden(t, tt.name, got)
 		})
+	}
+}
+
+// TestCutOffLimit: each limit the run record names reads as its own clause,
+// and any other reason, which a pod reported, as "a limit" and never as its
+// own text.
+func TestCutOffLimit(t *testing.T) {
+	for _, tt := range []struct{ reason, want string }{
+		{"max_turns", "it reached its turn limit"},
+		{"budget", "it reached its token budget"},
+		{"deadline", "it ran out of time"},
+		{"idle", "it stopped making progress"},
+		{"", "it reached a limit"},
+		{"report_invalid", "it reached a limit"},
+		{"@octocat <!--", "it reached a limit"},
+	} {
+		if got := cutOffLimit(tt.reason); got != tt.want {
+			t.Errorf("cutOffLimit(%q) = %q, want %q", tt.reason, got, tt.want)
+		}
+	}
+	p := testPlanComment(testPlan)
+	p.CutOff = &CutOff{Reason: "@octocat fixes #3"}
+	got, err := RenderPlanComment(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "cut off before it finished: it reached a limit.") || strings.Contains(got, "@octocat") {
+		t.Errorf("a plan cut off for an unknown reason renders %q, want the generic clause and no pod text", got)
 	}
 }
 
