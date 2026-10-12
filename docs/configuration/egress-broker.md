@@ -171,6 +171,17 @@ Invoke-class permissions only — the broker needs to call models, never to mana
 - In-cluster traffic to the broker is plaintext HTTP carrying an audience-scoped identity token, the same posture as the
   artifact server; broker TLS or mesh mTLS is a hardening follow-up.
 
+## Troubleshooting
+
+- **Every claude run fails at once; the agent's transcript says `API Error: 401 Invalid bearer token`** (and the
+  broker's audit line shows `status=401` on `POST /v1/messages`). With `--anthropic-auth token`, the Secret does not
+  hold a valid `claude setup-token` token: most often it holds the command's whole output, or a token pasted with line
+  breaks. Check its shape without printing it — a setup-token starts `sk-ant-oat01-` and holds no whitespace — and
+  recreate it as [the install guide](../getting-started/install.md) shows. The broker reads the file per request, so a
+  corrected Secret takes effect without a restart once the kubelet refreshes the mount.
+- **A `401` on `HEAD /api/hello` with `reason=preauth_token`** is the claude CLI's connectivity probe, which carries no
+  caller token. It is expected and harmless.
+
 ## Known limitations
 
 - Codex and copilot remain in-pod-credentialed (both ship disabled); routing them through the broker is a follow-up.
