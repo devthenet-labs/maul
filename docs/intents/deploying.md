@@ -406,10 +406,11 @@ agent:
   # registries comes from helm_values.
   repositoryImages:
     enabled: true
-    # The generated publishers do not sign, so this is an explicit opt-out of signature
-    # checks: registry write access alone decides what an agent runs, that is the publisher
-    # roles and any other principal with ECR push on patchy/app-envs/*. Set cosignPublicKey
-    # instead to require signatures.
+    # The generated publishers sign only once AGENT_SIGNING_KEY is set, so start with an
+    # explicit opt-out of signature checks: registry write access alone decides what an agent
+    # runs, that is the publisher roles and any other principal with ECR push on
+    # patchy/app-envs/*. Once every app's agent image is signed, set cosignPublicKey and
+    # allowUnsigned: false (onboarding-app.md, "Signing the agent image").
     allowUnsigned: true
     onReject: default
     ephemeralStorage: 8Gi

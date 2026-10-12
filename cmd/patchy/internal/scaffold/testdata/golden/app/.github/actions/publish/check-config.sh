@@ -22,5 +22,13 @@ account="${BASH_REMATCH[1]}"
 [[ "${ROLE_ARN:-}" =~ ^arn:aws:iam::([0-9]{12}):role/[A-Za-z0-9+=,.@_-]{1,64}$ ]] ||
   fail "the $IMAGE_KIND role must be an IAM role ARN"
 [[ "${BASH_REMATCH[1]}" == "$account" ]] || fail "the $IMAGE_KIND role is not in the registry's account"
+# AGENT_SIGNING_KEY is optional: empty leaves the agent image unsigned.
+# Otherwise it is the AWS KMS key the agent publisher signs with, as cosign
+# names one. Only the agent image is ever signed.
+if [[ -n "${AGENT_SIGNING_KEY:-}" ]]; then
+  [[ "$IMAGE_KIND" == agent ]] || fail "only the agent publisher signs; AGENT_SIGNING_KEY is set for $IMAGE_KIND"
+  [[ "$AGENT_SIGNING_KEY" =~ ^awskms:///[A-Za-z0-9/_:.-]+$ ]] ||
+    fail "AGENT_SIGNING_KEY must be an AWS KMS key URI such as awskms:///alias/patchy-agent-image-signing"
+fi
 
 printf '%s\n' "$account"

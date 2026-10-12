@@ -1,4 +1,4 @@
-"""Drive check-config.sh and copy-image.sh against fake aws and skopeo."""
+"""Drive check-config.sh, copy-image.sh and sign-image.sh against fake aws, skopeo and cosign."""
 import os
 import pathlib
 import subprocess
@@ -34,6 +34,34 @@ case "$1" in
   *) exit 2 ;;
 esac
 """
+# Signatures are one file per signed reference under $FAKE_ECR/signed,
+# holding the key that signed it; verify passes only for that key.
+FAKE_COSIGN = r"""#!/usr/bin/env bash
+set -euo pipefail
+echo "cosign $*" >> "$FAKE_ECR/calls"
+key="" ref=${!#}
+args=("$@")
+for i in "${!args[@]}"; do [[ "${args[$i]}" == --key ]] && key=${args[$((i + 1))]}; done
+signature="$FAKE_ECR/signed/${ref//\//_}"
+case "$1" in
+  login)
+    cat > /dev/null
+    [[ -n "${DOCKER_CONFIG:-}" ]] && printf 'auth\n' > "$DOCKER_CONFIG/config.json" ;;
+  verify)
+    [[ -f "$signature" && "$(cat "$signature")" == "$key" ]] || { echo "no matching signatures" >&2; exit 1; } ;;
+  sign)
+    [[ -z "${FAKE_SIGN_FAILS:-}" ]] || { echo "sign failed" >&2; exit 1; }
+    [[ -f "$signature" ]] && { echo "tag already exists (immutable)" >&2; exit 1; }
+    mkdir -p "$FAKE_ECR/signed"
+    printf '%s' "${FAKE_SIGN_KEY:-$key}" > "$signature" ;;
+  *) exit 2 ;;
+esac
+"""
+
+KEY = "awskms:///alias/patchy-agent-image-signing"
+REF = "123456789012.dkr.ecr.us-east-1.amazonaws.com/team/agents/example-app@" + DIGEST
+SIGN = ("cosign sign --key " + KEY + " --tlog-upload=false --new-bundle-format=false --use-signing-config=false"
+        " --yes " + REF)
 
 CONFIG = {
     "AWS_REGION": "us-east-1",
@@ -60,7 +88,7 @@ class PublisherScriptTest(unittest.TestCase):
         (self.ecr / "calls").touch()
         bin_dir = root / "bin"
         bin_dir.mkdir()
-        for name, body in [("aws", FAKE_AWS), ("skopeo", FAKE_SKOPEO)]:
+        for name, body in [("aws", FAKE_AWS), ("skopeo", FAKE_SKOPEO), ("cosign", FAKE_COSIGN)]:
             (bin_dir / name).write_text(body)
             (bin_dir / name).chmod(0o755)
         self.env = {"PATH": f"{bin_dir}:{os.environ['PATH']}", "RUNNER_TEMP": str(root),
@@ -172,6 +200,74 @@ class PublisherScriptTest(unittest.TestCase):
                 result = self.run_script("check-config.sh", **overrides)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertEqual(result.stdout, "")
+
+    def test_check_config_accepts_an_unset_or_aws_kms_signing_key(self):
+        for key in ["", KEY, "awskms:///arn:aws:kms:us-east-1:123456789012:key/0b6a2d3c-1e2f-4a5b-8c7d-9e0f1a2b3c4d"]:
+            with self.subTest(key=key):
+                result = self.run_script("check-config.sh", **AGENT, AGENT_SIGNING_KEY=key)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, "123456789012\n")
+
+    def test_check_config_refuses_a_malformed_signing_key(self):
+        for key in ["alias/patchy-agent-image-signing", "awskms://alias/x", "awskms:///", "gcpkms://projects/p/x",
+                    "awskms:///alias/x $(id)", "awskms:///alias/x\n", "k8s://ns/secret", "cosign.key"]:
+            with self.subTest(key=key):
+                result = self.run_script("check-config.sh", **AGENT, AGENT_SIGNING_KEY=key)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(result.stdout, "")
+
+    def test_check_config_refuses_a_signing_key_for_the_runtime_publisher(self):
+        result = self.run_script("check-config.sh", AGENT_SIGNING_KEY=KEY)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("only the agent publisher signs", result.stderr)
+
+    def sign(self, **overrides):
+        return self.run_script("sign-image.sh", **{**AGENT, "AGENT_SIGNING_KEY": KEY, **overrides})
+
+    def cosign_calls(self, verb):
+        return [line for line in (self.ecr / "calls").read_text().splitlines() if line.startswith(f"cosign {verb} ")]
+
+    def test_sign_signs_exactly_the_validated_digest_with_the_legacy_form_and_no_tlog(self):
+        result = self.sign()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"Signed {REF}", result.stdout)
+        self.assertEqual(self.cosign_calls("sign"), [SIGN])
+        # Verified first (not yet signed) and again after signing.
+        self.assertEqual(len(self.cosign_calls("verify")), 2)
+        for call in self.cosign_calls("verify"):
+            self.assertEqual(call, f"cosign verify --key {KEY} --insecure-ignore-tlog=true {REF}")
+
+    def test_sign_skips_an_image_that_already_verifies(self):
+        self.assertEqual(self.sign().returncode, 0)
+        result = self.sign()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"Already signed: {REF}", result.stdout)
+        self.assertEqual(len(self.cosign_calls("sign")), 1)
+
+    def test_sign_fails_when_the_signature_does_not_verify_afterwards(self):
+        result = self.sign(FAKE_SIGN_KEY="awskms:///alias/another-key")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("does not verify after signing", result.stderr)
+
+    def test_sign_fails_when_cosign_sign_fails(self):
+        result = self.sign(FAKE_SIGN_FAILS="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("Signed", result.stdout)
+
+    def test_sign_logs_in_with_a_private_docker_config_it_removes(self):
+        result = self.sign()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.cosign_calls("login"),
+                         ["cosign login --username AWS --password-stdin 123456789012.dkr.ecr.us-east-1.amazonaws.com"])
+        self.assertFalse((pathlib.Path(self.env["RUNNER_TEMP"]) / "cosign-docker").exists())
+
+    def test_sign_refuses_bad_inputs_before_any_registry_call(self):
+        for overrides in [{"AGENT_SIGNING_KEY": ""}, {"AGENT_SIGNING_KEY": "alias/x"}, {"IMAGE_KIND": "runtime"},
+                          {"IMAGE_DIGEST": "sha256:short"}, {"IMAGE_DIGEST": ""}, {"ECR_REGISTRY": "evil.example.com"}]:
+            with self.subTest(**overrides):
+                result = self.sign(**overrides)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual((self.ecr / "calls").read_text(), "")
 
 
 if __name__ == "__main__":

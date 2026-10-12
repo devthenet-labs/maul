@@ -74,6 +74,7 @@ Set the configuration first and the two `*_PUBLISH_ENABLED` gates last:
 | `ECR_REGISTRY`             | `123456789012.dkr.ecr.eu-west-2.amazonaws.com` | the ECR registry host                                               |
 | `AGENT_IMAGE_REPOSITORY`   | `patchy/app-envs/hello-web`                    | the agent image's ECR repository, which `.patchy/agent.yaml` names  |
 | `AGENT_ROLE_ARN`           | the agent publisher role ARN                   | assumed only by `publish-agent.yml`                                 |
+| `AGENT_SIGNING_KEY`        | the signing key's `awskms:///` URI, or unset   | optional: the KMS key the agent image is signed with                |
 | `RUNTIME_IMAGE_REPOSITORY` | `patchy/previews/hello-web`                    | the runtime (preview) image's ECR repository                        |
 | `RUNTIME_ROLE_ARN`         | the runtime publisher role ARN                 | assumed only by `publish-runtime.yml`                               |
 | `AGENT_PUBLISH_ENABLED`    | `true`                                         | publishes the agent image; anything else skips it                   |
@@ -81,6 +82,35 @@ Set the configuration first and the two `*_PUBLISH_ENABLED` gates last:
 
 A skipped publisher is not a successful publication. To stop publishing, set a `*_PUBLISH_ENABLED` variable to anything
 but `true`; to revoke publishing, remove the roles' trust policies.
+
+## Signing the agent image
+
+Signing is optional. With `AGENT_SIGNING_KEY` set, `publish-agent.yml` signs the agent image after it copies it
+(`sign-image.sh`), with cosign and the AWS KMS key the variable names, under the same short-lived agent role. It signs
+exactly the digest it validated, never a tag. The signature is cosign's legacy form, a `sha256-<hex>.sig` tag beside the
+image, so an ECR rule that expires untagged images keeps it. Nothing goes to the public transparency log, so the
+repository's name stays private. The runtime publisher never signs.
+
+1. Create an AWS KMS key with key spec `ECC_NIST_P256` and key usage `SIGN_VERIFY`.
+2. Let the agent publisher role use it: pass the key's ARN to the reference terraform module as
+   `agent_signing_key_arn`. The module grants `kms:Sign`, `kms:GetPublicKey` and `kms:DescribeKey` on that key to the
+   agent role only, and adds `AGENT_SIGNING_KEY` to its output.
+3. Set `AGENT_SIGNING_KEY` to the key as cosign names it: `awskms:///<key ARN>`, or `awskms:///alias/<name>` for an
+   alias in `AWS_REGION`.
+4. Give patchy the public key. `cosign public-key --key "$AGENT_SIGNING_KEY"` prints the PEM for the chart's
+   `repositoryImages.cosignPublicKey`.
+5. Once the published image is signed, set `repositoryImages.allowUnsigned: false`.
+
+The signing step runs on every agent publish, including one that finds the image already published. An image that
+already verifies is not signed again: its signature tag is immutable too. So an image published before
+`AGENT_SIGNING_KEY` was set is signed on the publisher's next run; to sign it now, re-run `agent image` on
+`main`. The build is reproducible, so the publisher finds the same digest already published and only signs it.
+To sign by hand instead, with the agent role's credentials and the image's digest:
+
+```sh
+cosign sign --key "$AGENT_SIGNING_KEY" --tlog-upload=false --new-bundle-format=false --use-signing-config=false \
+  --yes 123456789012.dkr.ecr.eu-west-2.amazonaws.com/patchy/app-envs/hello-web@sha256:<digest>
+```
 
 ## Changing the agent toolchain
 

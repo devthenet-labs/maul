@@ -56,6 +56,7 @@ Set the configuration first and the two `*_PUBLISH_ENABLED` gates last:
 | `ECR_REGISTRY`             | `123456789012.dkr.ecr.eu-west-2.amazonaws.com` | the ECR registry host                                               |
 | `AGENT_IMAGE_REPOSITORY`   | `patchy/app-envs/hello-web`                    | the agent image's ECR repository, which `.patchy/agent.yaml` names  |
 | `AGENT_ROLE_ARN`           | the agent publisher role ARN                   | assumed only by `publish-agent.yml`                                 |
+| `AGENT_SIGNING_KEY`        | the signing key's `awskms:///` URI, or unset   | optional: the KMS key the agent image is signed with                |
 | `RUNTIME_IMAGE_REPOSITORY` | `patchy/previews/hello-web`                    | the runtime (preview) image's ECR repository                        |
 | `RUNTIME_ROLE_ARN`         | the runtime publisher role ARN                 | assumed only by `publish-runtime.yml`                               |
 | `AGENT_PUBLISH_ENABLED`    | `true`                                         | publishes the agent image; anything else skips it                   |

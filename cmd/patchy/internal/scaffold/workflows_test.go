@@ -29,13 +29,16 @@ type workflowJob struct {
 	Uses        string            `yaml:"uses"`
 	Secrets     any               `yaml:"secrets"`
 	Permissions map[string]string `yaml:"permissions"`
+	Env         map[string]string `yaml:"env"`
 	Steps       []workflowStep    `yaml:"steps"`
 }
 
 // workflowStep is one step of a job.
 type workflowStep struct {
+	If   string            `yaml:"if"`
 	Uses string            `yaml:"uses"`
 	With map[string]string `yaml:"with"`
+	Env  map[string]string `yaml:"env"`
 	Run  string            `yaml:"run"`
 }
 
@@ -172,6 +175,7 @@ func checkKindVariables(t *testing.T, files []File) {
 	owner := map[string]string{
 		"RUNTIME_ROLE_ARN": "publish-runtime.yml", "RUNTIME_IMAGE_REPOSITORY": "publish-runtime.yml",
 		"AGENT_ROLE_ARN": "publish-agent.yml", "AGENT_IMAGE_REPOSITORY": "publish-agent.yml",
+		"AGENT_SIGNING_KEY": "publish-agent.yml",
 	}
 	for _, f := range files {
 		name, ok := strings.CutPrefix(f.Path, ".github/workflows/")
@@ -219,6 +223,62 @@ func TestPublishersCheckOutOnlyThemselves(t *testing.T) {
 	}
 }
 
+// TestOnlyTheAgentPublisherSigns: signing is the agent publisher's alone
+// and off unless AGENT_SIGNING_KEY is set. cosign is installed and run only
+// behind that variable, the signing step runs after the copy (so it signs
+// an already-published image too) with the agent role already assumed, and
+// it signs exactly the digest validate_oci.py printed, never a tag. No
+// other workflow names cosign or the signing script.
+func TestOnlyTheAgentPublisherSigns(t *testing.T) {
+	const gate = "env.AGENT_SIGNING_KEY != ''"
+	for _, existing := range []bool{false, true} {
+		wfs := workflows(t, plan(t, testOptions(existing)))
+		job := wfs["publish-agent.yml"].Jobs["publish"]
+		if got := job.Env["AGENT_SIGNING_KEY"]; got != "${{ vars.AGENT_SIGNING_KEY }}" {
+			t.Errorf("existing=%v: the agent publisher's AGENT_SIGNING_KEY is %q, want the repository variable", existing, got)
+		}
+		at := func(match func(workflowStep) bool) int { return slices.IndexFunc(job.Steps, match) }
+		install := at(func(s workflowStep) bool { return strings.HasPrefix(s.Uses, "sigstore/cosign-installer@") })
+		sign := at(func(s workflowStep) bool { return strings.Contains(s.Run, "sign-image.sh") })
+		copyStep := at(func(s workflowStep) bool { return strings.Contains(s.Run, "copy-image.sh") })
+		role := at(func(s workflowStep) bool { return strings.HasPrefix(s.Uses, configureAWS) })
+		if install < 0 || sign < 0 {
+			t.Fatalf("existing=%v: the agent publisher installs cosign at step %d and signs at step %d", existing, install, sign)
+		}
+		if s := job.Steps[install]; s.If != gate || s.With["cosign-release"] != "v3.1.3" {
+			t.Errorf("existing=%v: cosign install %+v, want cosign v3.1.3 behind %q", existing, s, gate)
+		}
+		if s := job.Steps[sign]; s.If != gate || s.Env["IMAGE_DIGEST"] != "${{ steps.image.outputs.digest }}" ||
+			strings.TrimSpace(s.Run) != "bash .github/actions/publish/sign-image.sh" {
+			t.Errorf("existing=%v: signing step %+v, want sign-image.sh of the validated digest behind %q", existing, s, gate)
+		}
+		if install > sign || sign < copyStep || sign < role || sign != len(job.Steps)-1 {
+			t.Errorf("existing=%v: install %d, role %d, copy %d, sign %d: signing must be last, after the copy and the role",
+				existing, install, role, copyStep, sign)
+		}
+		checkNoOtherSigner(t, wfs)
+	}
+}
+
+// checkNoOtherSigner: no job but the agent publisher's names cosign or the
+// signing script.
+func checkNoOtherSigner(t *testing.T, wfs map[string]workflowFile) {
+	t.Helper()
+	for name, w := range wfs {
+		for jobName, j := range w.Jobs {
+			if name+"/"+jobName == "publish-agent.yml/publish" {
+				continue
+			}
+			for _, s := range j.Steps {
+				if strings.Contains(s.Uses, "cosign") || strings.Contains(s.Run, "cosign") ||
+					strings.Contains(s.Run, "sign-image.sh") {
+					t.Errorf("%s/%s uses cosign or signs", name, jobName)
+				}
+			}
+		}
+	}
+}
+
 // commitPins is the commit each action the generated workflows use is
 // pinned to. Every SHA here was checked to name a commit, not an annotated
 // tag object: the GitHub API's commits endpoint for the action's repository
@@ -236,6 +296,7 @@ var commitPins = map[string]string{
 	"actions/upload-artifact":               "ea165f8d65b6e75b540449e92b4886f43607fa02", // v4.6.2
 	"aws-actions/configure-aws-credentials": "e1253824e5c10ff9df46874f81ed3ec929e19cfd", // v6.3.0
 	"docker/setup-buildx-action":            "8d2750c68a42422c14e847fe6c8ac0403b4cbd6f", // v3.12.0
+	"sigstore/cosign-installer":             "6f9f17788090df1f26f669e9d70d6ae9567deba6", // v4.1.2
 }
 
 // TestActionsArePinnedToCommits: every action a generated workflow uses,

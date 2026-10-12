@@ -136,6 +136,8 @@ func writeModule(w func(string, ...any), o Options) {
 	if o.AgentPrefix != DefaultAgentPrefix {
 		w(`         agent_path_prefix        = "%s"`, o.AgentPrefix)
 	}
+	w(`         # Optional: sign the agent image with this KMS key (.github/actions/publish/README.md).`)
+	w(`         # agent_signing_key_arn = "arn:aws:kms:%s:%s:key/<key-id>"`, o.Region(), o.Account())
 	w(`       }`)
 	w(`       output "%s_variables" {`, name)
 	w(`         value = module.%s.github_variables_dotenv`, name)
