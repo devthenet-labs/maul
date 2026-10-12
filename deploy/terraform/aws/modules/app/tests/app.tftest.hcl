@@ -169,6 +169,49 @@ run "github_variables_contract" {
     condition     = startswith(output.github_variables_dotenv, "AGENT_IMAGE_REPOSITORY=patchy/app-envs/hello-web\nAGENT_ROLE_ARN=") && endswith(output.github_variables_dotenv, "RUNTIME_ROLE_ARN=arn:aws:iam::111122223333:role/mocked\n") && length(split("\n", output.github_variables_dotenv)) == 9
     error_message = "github_variables_dotenv is one sorted NAME=value line per variable."
   }
+
+  assert {
+    condition     = length(aws_iam_role_policy.agent_signing) == 0
+    error_message = "Without agent_signing_key_arn no role may sign."
+  }
+}
+
+run "agent_signing_key_is_granted_to_the_agent_role_only" {
+  command = apply
+
+  variables {
+    agent_signing_key_arn = "arn:aws:kms:eu-west-2:111122223333:key/0b6a2d3c-1e2f-4a5b-8c7d-9e0f1a2b3c4d"
+  }
+
+  assert {
+    condition     = length(aws_iam_role_policy.agent_signing) == 1 && aws_iam_role_policy.agent_signing[0].role == aws_iam_role.publisher["agent"].id && aws_iam_role.publisher["agent"].id != aws_iam_role.publisher["runtime"].id
+    error_message = "The signing grant must be one inline policy, on the agent publisher role."
+  }
+
+  assert {
+    condition = jsondecode(aws_iam_role_policy.agent_signing[0].policy).Statement == [{
+      Sid      = "SignAgentImageOnly"
+      Effect   = "Allow"
+      Action   = ["kms:Sign", "kms:GetPublicKey", "kms:DescribeKey"]
+      Resource = "arn:aws:kms:eu-west-2:111122223333:key/0b6a2d3c-1e2f-4a5b-8c7d-9e0f1a2b3c4d"
+    }]
+    error_message = "The signing grant must allow only kms:Sign, kms:GetPublicKey and kms:DescribeKey, on that one key."
+  }
+
+  assert {
+    condition     = output.github_variables.AGENT_SIGNING_KEY == "awskms:///arn:aws:kms:eu-west-2:111122223333:key/0b6a2d3c-1e2f-4a5b-8c7d-9e0f1a2b3c4d" && length(output.github_variables) == 9
+    error_message = "github_variables must add AGENT_SIGNING_KEY, cosign's awskms:/// URI of the key, and nothing else."
+  }
+}
+
+run "agent_signing_key_must_be_a_key_arn" {
+  command = plan
+
+  variables {
+    agent_signing_key_arn = "arn:aws:kms:eu-west-2:111122223333:alias/patchy-agent-image-signing"
+  }
+
+  expect_failures = [var.agent_signing_key_arn]
 }
 
 run "agent_only_app" {

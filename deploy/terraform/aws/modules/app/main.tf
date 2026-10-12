@@ -11,7 +11,9 @@
 #   - one trusted publisher role per repository. Each trusts only the app's
 #     own default-branch publisher workflow for that kind, so the runtime
 #     publisher can never write an agent image, and no app can write another
-#     app's repositories.
+#     app's repositories;
+#   - with agent_signing_key_arn, an inline policy that lets the agent
+#     publisher role, and only it, sign with that KMS key.
 
 data "aws_region" "current" {}
 
@@ -195,4 +197,28 @@ resource "aws_iam_role_policy_attachment" "publisher" {
 
   role       = aws_iam_role.publisher[each.key].name
   policy_arn = aws_iam_policy.publisher[each.key].arn
+}
+
+# Optional cosign signing of the agent image. The agent publisher signs the
+# digest it has just published with this key, and patchy verifies it against
+# the key's public half (the chart's repositoryImages.cosignPublicKey). Only
+# the agent role gets the grant: the runtime publisher never signs.
+resource "aws_iam_role_policy" "agent_signing" {
+  count = var.agent_signing_key_arn == null ? 0 : 1
+
+  name = "${var.role_name_prefix}${var.slug}-agent-sign"
+  role = aws_iam_role.publisher["agent"].id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid    = "SignAgentImageOnly"
+      Effect = "Allow"
+      Action = [
+        "kms:Sign",
+        "kms:GetPublicKey",
+        "kms:DescribeKey",
+      ]
+      Resource = var.agent_signing_key_arn
+    }]
+  })
 }
