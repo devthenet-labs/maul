@@ -43,9 +43,16 @@ No Anthropic API key? A Claude subscription works too: mint a long-lived OAuth t
 `egressBroker.anthropicAuth: token` (Helm) or `PATCHY_ANTHROPIC_AUTH=token` (kustomize) so the broker sends it as a
 bearer rather than an API key:
 
+Run `claude setup-token` on its own first: it is interactive (it opens a browser to sign in) and prints the token among
+other output, so capturing it with `$(claude setup-token)` stores that whole output as the "token". Then paste only the
+token (it starts `sk-ant-oat01-`; a wrapped token pasted across two lines is fine) at a hidden prompt:
+
 ```sh
-kubectl -n patchy create secret generic patchy-anthropic \
-  --from-literal=api-key="$(claude setup-token)"
+read -rs "TOKEN?Token: "; echo   # zsh; in bash: read -rsp "Token: " TOKEN; echo
+TOKEN=${TOKEN//[[:space:]]/}
+[[ $TOKEN == sk-ant-oat01-* ]] && echo "looks right" || echo "not a setup-token"
+printf %s "$TOKEN" | kubectl -n patchy create secret generic patchy-anthropic --from-file=api-key=/dev/stdin
+unset TOKEN
 ```
 
 Running claude against Amazon Bedrock, GCP Vertex AI, or Microsoft Foundry instead needs no Anthropic Secret at all —
