@@ -39,8 +39,8 @@ type Variable struct {
 
 // Variables are the repository variables the generated publishers read,
 // configuration first and the two gates last, in the order an owner sets
-// them. The README tables and the next steps are both built from this
-// one list.
+// them; AGENT_SIGNING_KEY alone is optional. The README tables and the
+// next steps are both built from this one list.
 func Variables(o Options) []Variable {
 	repo := o.Repo.String()
 	return []Variable{
@@ -54,6 +54,8 @@ func Variables(o Options) []Variable {
 			About: "the agent image's ECR repository, which `.patchy/agent.yaml` names"},
 		{Name: "AGENT_ROLE_ARN", Placeholder: "agent publisher role ARN",
 			About: "assumed only by `publish-agent.yml`"},
+		{Name: "AGENT_SIGNING_KEY", Placeholder: "signing key's `awskms:///` URI, or unset",
+			About: "optional: the KMS key the agent image is signed with"},
 		{Name: "RUNTIME_IMAGE_REPOSITORY", Value: o.RuntimeRepository(),
 			About: "the runtime (preview) image's ECR repository"},
 		{Name: "RUNTIME_ROLE_ARN", Placeholder: "runtime publisher role ARN",

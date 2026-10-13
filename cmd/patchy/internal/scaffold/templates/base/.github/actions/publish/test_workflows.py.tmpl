@@ -110,6 +110,24 @@ class WorkflowBoundaryTest(unittest.TestCase):
             self.assertEqual(text.count("role-to-assume:"), expected, name)
             self.assertEqual(text.count("configure-aws-credentials@"), expected, name)
 
+    def test_only_the_agent_publisher_signs_and_only_with_a_key(self):
+        text = workflow("publish-agent.yml")
+        self.assertIn("AGENT_SIGNING_KEY: ${{ vars.AGENT_SIGNING_KEY }}\n", text)
+        # Installing cosign and signing are both skipped while the variable is unset.
+        self.assertEqual(text.count("if: env.AGENT_SIGNING_KEY != ''"), 2)
+        self.assertEqual(text.count("sigstore/cosign-installer@"), 1)
+        self.assertIn("cosign-release: v3.1.3\n", text)
+        # The signing step comes after the copy, so an already-published
+        # image is signed too, and signs the validated digest, never a tag.
+        sign = text.index("run: bash .github/actions/publish/sign-image.sh")
+        self.assertLess(text.index("copy-image.sh"), sign)
+        self.assertLess(text.index("configure-aws-credentials"), sign)
+        self.assertIn("IMAGE_DIGEST: ${{ steps.image.outputs.digest }}", text[text.index("copy-image.sh"):])
+        for name in PUBLISHING_WORKFLOWS:
+            if name != "publish-agent.yml":
+                self.assertNotIn("cosign", workflow(name), name)
+                self.assertNotIn("SIGNING_KEY", workflow(name), name)
+
     def test_the_agent_publisher_never_reads_pull_requests(self):
         # Agent images come from the default branch only.
         self.assertNotIn("pull-requests:", workflow("publish-agent.yml"))

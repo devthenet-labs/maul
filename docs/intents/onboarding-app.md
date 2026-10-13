@@ -163,6 +163,8 @@ module "patchy_app_shop_web" {
   }
   # The account's GitHub Actions OIDC provider, created once per account.
   github_oidc_provider_arn = "arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com"
+  # Optional: sign the agent image with this KMS key (.github/actions/publish/README.md).
+  # agent_signing_key_arn = "arn:aws:kms:us-west-2:123456789012:key/<key-id>"
 }
 output "patchy_app_shop_web_variables" {
   value = module.patchy_app_shop_web.github_variables_dotenv
@@ -198,6 +200,7 @@ terraform output -json github_variables_dotenv | jq -r '."shop-web"' | gh variab
 | `PUBLISH_OWNER_ID`         | The owner's numeric ID                                            |
 | `AGENT_IMAGE_REPOSITORY`   | `patchy/app-envs/shop-web`                                        |
 | `AGENT_ROLE_ARN`           | The agent publisher role                                          |
+| `AGENT_SIGNING_KEY`        | Optional: the KMS key that signs the agent image (see below)      |
 | `RUNTIME_IMAGE_REPOSITORY` | `patchy/previews/shop-web` (with previews)                        |
 | `RUNTIME_ROLE_ARN`         | The runtime publisher role (with previews)                        |
 | `AGENT_PUBLISH_ENABLED`    | `true` to publish the agent image: yours to set, never emitted    |
@@ -230,6 +233,35 @@ terraform output -json github_variables_dotenv | jq -r '."shop-web"' | gh variab
    published as `sha-<commit>` (and `main-<commit>` for the default branch). Fork pull requests never publish.
 
 A skipped publisher is not a publication: to stop publishing, set a gate to anything but `true`.
+
+### Signing the agent image
+
+The agent publisher signs the agent image when `AGENT_SIGNING_KEY` is set, so the operator can require signatures
+(`agent.repositoryImages.cosignPublicKey`, with `allowUnsigned: false`). Without it, registry write access alone decides
+which image an agent runs. The publisher signs with cosign and an AWS KMS key, under the same short-lived agent role,
+and signs exactly the digest it validated. The signature is cosign's legacy `sha256-<hex>.sig` tag, which an ECR rule
+that expires untagged images keeps. Nothing goes to the public transparency log. The runtime publisher never signs.
+
+1. Create an AWS KMS key with key spec `ECC_NIST_P256` and key usage `SIGN_VERIFY`.
+2. Grant it to the agent publisher role: pass the key's ARN as the app module's `agent_signing_key_arn`. The module
+   grants `kms:Sign`, `kms:GetPublicKey` and `kms:DescribeKey` on that key to the agent role only, and adds
+   `AGENT_SIGNING_KEY` (`awskms:///<key ARN>`) to the dotenv output.
+3. Set the repository variables again from the module's output, which now carries `AGENT_SIGNING_KEY`, or set that one
+   by hand. Empty leaves signing off; any other value must be an `awskms:///` URI, or the publisher fails closed.
+4. Give the operator the public key for `agent.repositoryImages.cosignPublicKey`:
+
+   ```sh
+   cosign public-key --key awskms:///arn:aws:kms:us-west-2:123456789012:key/<key-id>
+   ```
+
+5. Once the image is signed, the operator sets `allowUnsigned: false`.
+
+The signing step runs on every agent publish, including one that finds the image already published, and skips an image
+that already verifies: the signature's tag is immutable too. So an image published before the key was set is signed on
+the publisher's next run. To sign it now, run `gh workflow run "agent image" --repo acme/Shop.Web`: the build is
+reproducible, so the publisher finds the same digest already published and only signs it. Or run the publisher's
+`cosign sign` command once by hand, as `.github/actions/publish/README.md` shows. Check the result with
+`patchy check image "$image" --cosign-key cosign.pub`, below.
 
 ### Check the agent image before the Project
 

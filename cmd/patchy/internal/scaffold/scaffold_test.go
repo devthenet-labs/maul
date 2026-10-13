@@ -123,7 +123,8 @@ func TestPlanFileSets(t *testing.T) {
 		".github/workflows/publish-images.yml", ".github/workflows/publish-runtime.yml",
 		".github/workflows/publish-agent.yml", ".github/actions/publish/guard.cjs",
 		".github/actions/publish/validate_oci.py", ".github/actions/publish/copy-image.sh",
-		".github/actions/publish/check-config.sh", ".github/actions/publish/README.md",
+		".github/actions/publish/check-config.sh", ".github/actions/publish/sign-image.sh",
+		".github/actions/publish/README.md",
 	} {
 		if _, ok := app[p]; !ok {
 			t.Errorf("a new application lacks %s", p)
@@ -226,7 +227,7 @@ func TestNothingHardCodesTheAccount(t *testing.T) {
 				}
 			}
 			if strings.HasPrefix(f.Path, ".github/workflows/") || f.Path == ".github/actions/publish/guard.cjs" ||
-				f.Path == ".github/actions/publish/copy-image.sh" || f.Path == ".github/actions/publish/check-config.sh" {
+				(strings.HasPrefix(f.Path, ".github/actions/publish/") && strings.HasSuffix(f.Path, ".sh")) {
 				if roleARN.MatchString(data) {
 					t.Errorf("%s hard-codes a role ARN", f.Path)
 				}

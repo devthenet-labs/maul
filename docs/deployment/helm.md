@@ -301,6 +301,11 @@ agent:
     ephemeralStorage: 8Gi
 ```
 
+The publishers `patchy init app` generates sign an application's agent image with an AWS KMS key once its
+`AGENT_SIGNING_KEY` repository variable is set. `cosign public-key --key awskms:///<key ARN>` prints the key's public
+half for `cosignPublicKey`. Sign every application's image before you turn `allowUnsigned` off:
+[Onboarding an application](../intents/onboarding-app.md#signing-the-agent-image) has the steps.
+
 The render fails, with a message naming the value to set, when the block is enabled and:
 
 - `registries` is empty, `ephemeralStorage` is empty, or `cosignPublicKey` is empty without `allowUnsigned: true` (each

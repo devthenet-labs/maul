@@ -158,7 +158,7 @@ func TestInitAppWritesAndRefusesToOverwrite(t *testing.T) {
 			t.Errorf("listed %s was not written: %v", p, err)
 		}
 	}
-	for _, want := range []string{"wrote 24 files for acme/Hello.Web", "image name hello-web",
+	for _, want := range []string{"wrote 25 files for acme/Hello.Web", "image name hello-web",
 		"//deploy/terraform/aws/modules/app?ref=v0.12.14\"",
 		"terraform output -raw patchy_app_hello_web_variables | gh variable set -f - --repo acme/Hello.Web",
 		"terraform output -json github_variables_dotenv | jq -r '.\"hello-web\"' | " +
@@ -182,7 +182,7 @@ func TestInitAppWritesAndRefusesToOverwrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, _, err = initApp(t, f, dir, releaseDeps())
-	if err == nil || out != "" || !strings.Contains(err.Error(), "24 files already exist") ||
+	if err == nil || out != "" || !strings.Contains(err.Error(), "25 files already exist") ||
 		!strings.Contains(err.Error(), "nothing was written; pass --force to overwrite, or --existing") {
 		t.Errorf("second init app = %v, stdout %q; want a refusal", err, out)
 	}

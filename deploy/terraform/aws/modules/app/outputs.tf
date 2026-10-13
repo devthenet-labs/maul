@@ -21,6 +21,10 @@ locals {
       RUNTIME_IMAGE_REPOSITORY = aws_ecr_repository.this["runtime"].name
       RUNTIME_ROLE_ARN         = aws_iam_role.publisher["runtime"].arn
     } : {},
+    # cosign's name for the signing key; absent when the image is not signed.
+    var.agent_signing_key_arn == null ? {} : {
+      AGENT_SIGNING_KEY = "awskms:///${var.agent_signing_key_arn}"
+    },
   )
 }
 

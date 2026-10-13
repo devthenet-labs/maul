@@ -132,3 +132,14 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "agent_signing_key_arn" {
+  description = "Optional ARN of an AWS KMS key (key spec ECC_NIST_P256, key usage SIGN_VERIFY) the agent publisher signs the agent image with, using cosign. When set, the agent publisher role, and only it, may use the key (kms:Sign, kms:GetPublicKey, kms:DescribeKey), and github_variables carries AGENT_SIGNING_KEY = awskms:///<this ARN>. Give the key's ARN, not an alias's: IAM grants on the key. Null (the default) signs nothing and changes nothing."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.agent_signing_key_arn == null || can(regex("^arn:aws[a-z-]*:kms:[a-z]{2}(-[a-z]+)+-[0-9]+:[0-9]{12}:key/[A-Za-z0-9-]+$", var.agent_signing_key_arn))
+    error_message = "agent_signing_key_arn must be the ARN of an AWS KMS key, arn:aws:kms:<region>:<account>:key/<key-id>, not an alias."
+  }
+}
