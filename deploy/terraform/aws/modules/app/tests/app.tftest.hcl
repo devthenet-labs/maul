@@ -189,13 +189,22 @@ run "agent_signing_key_is_granted_to_the_agent_role_only" {
   }
 
   assert {
-    condition = jsondecode(aws_iam_role_policy.agent_signing[0].policy).Statement == [{
+    condition = jsondecode(aws_iam_role_policy.agent_signing[0].policy).Statement[0] == {
       Sid      = "SignAgentImageOnly"
       Effect   = "Allow"
       Action   = ["kms:Sign", "kms:GetPublicKey", "kms:DescribeKey"]
       Resource = "arn:aws:kms:eu-west-2:111122223333:key/0b6a2d3c-1e2f-4a5b-8c7d-9e0f1a2b3c4d"
-    }]
+    }
     error_message = "The signing grant must allow only kms:Sign, kms:GetPublicKey and kms:DescribeKey, on that one key."
+  }
+
+  assert {
+    condition = (
+      length(jsondecode(aws_iam_role_policy.agent_signing[0].policy).Statement) == 2 &&
+      jsondecode(aws_iam_role_policy.agent_signing[0].policy).Statement[1].Action == ["ecr:GetDownloadUrlForLayer", "ecr:BatchGetImage"] &&
+      jsondecode(aws_iam_role_policy.agent_signing[0].policy).Statement[1].Resource == aws_ecr_repository.this["agent"].arn
+    )
+    error_message = "cosign verify needs layer reads on the agent repository, and on nothing else."
   }
 
   assert {
