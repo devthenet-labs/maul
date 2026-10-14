@@ -174,35 +174,23 @@ func (in *Ingestor) ingest(
 			append(attrs, slog.Any("error", err))...)
 	}
 
-	// An alert a suspended generation already holds is a redelivery: it
-	// stays deduplicated there rather than opening (or folding into) a
-	// successor.
-	id := alertID(f)
-	for i := range family.Items {
-		cur := &family.Items[i]
-		if cur.DeletionTimestamp.IsZero() && cur.Spec.Suspend && foldable(cur.Status.Phase) && holdsAlert(cur, id) {
-			return false, nil
-		}
+	// An alert a live pre-investigation generation already holds is a
+	// redelivery: it stays deduplicated there — suspended or not — rather
+	// than opening a successor or landing in a sibling generation too.
+	if heldByLive(family.Items, alertID(f)) {
+		return false, nil
 	}
 
-	// Fold into a live, unsuspended pre-investigation generation when one
-	// exists.
-	maxGen := 0
-	for i := range family.Items {
-		cur := &family.Items[i]
-		if gen := generationOf(cur.Name); gen > maxGen {
-			maxGen = gen
+	target, maxGen := newestAccepting(family.Items)
+	if target != nil {
+		err := in.fold(ctx, target.Name, f)
+		if err == errRaced {
+			// The live generation advanced (or was suspended) mid-fold;
+			// open its successor.
+			gen := generationOf(target.Name)
+			return false, in.create(ctx, integ, f, repoURL, hash, gen+1, target.Name)
 		}
-		if cur.DeletionTimestamp.IsZero() && accepting(cur) {
-			err := in.fold(ctx, cur.Name, f)
-			if err == errRaced {
-				// The live generation advanced (or was suspended) mid-fold;
-				// open its successor.
-				gen := generationOf(cur.Name)
-				return false, in.create(ctx, integ, f, repoURL, hash, gen+1, cur.Name)
-			}
-			return false, err
-		}
+		return false, err
 	}
 
 	return false, in.create(ctx, integ, f, repoURL, hash, maxGen+1, prevName(family.Items, maxGen))
@@ -369,6 +357,35 @@ func accepting(f *v1alpha1.Finding) bool {
 	return !f.Spec.Suspend && foldable(f.Status.Phase)
 }
 
+// heldByLive reports whether a live generation still in a foldable phase,
+// suspended or not, already carries alert id.
+func heldByLive(items []v1alpha1.Finding, id string) bool {
+	return slices.ContainsFunc(items, func(f v1alpha1.Finding) bool {
+		return f.DeletionTimestamp.IsZero() && foldable(f.Status.Phase) && holdsAlert(&f, id)
+	})
+}
+
+// newestAccepting returns the family's newest live generation that accepts
+// alerts (nil when none does), and the family's highest generation number.
+// Newest, not first listed: the cache lists a family in no particular
+// order, and a suspended elder resumed after its successor opened accepts
+// alerts again beside it. The successor is the generation the family's new
+// evidence accumulates on; picking by list order would split later alerts
+// arbitrarily between the two.
+func newestAccepting(items []v1alpha1.Finding) (*v1alpha1.Finding, int) {
+	var target *v1alpha1.Finding
+	targetGen, maxGen := 0, 0
+	for i := range items {
+		cur := &items[i]
+		gen := generationOf(cur.Name)
+		maxGen = max(maxGen, gen)
+		if cur.DeletionTimestamp.IsZero() && accepting(cur) && (target == nil || gen > targetGen) {
+			target, targetGen = cur, gen
+		}
+	}
+	return target, maxGen
+}
+
 // holdsAlert reports whether f already carries alert id.
 func holdsAlert(f *v1alpha1.Finding, id string) bool {
 	return slices.ContainsFunc(f.Spec.Alerts, func(a v1alpha1.Alert) bool { return a.ID == id })
@@ -505,8 +522,15 @@ func (in *Ingestor) create(
 	if err := in.Create(ctx, fnd); err != nil {
 		if kerrors.IsAlreadyExists(err) {
 			// Two deliveries raced; the winner's object is the family live
-			// generation — fold into it.
-			return in.fold(ctx, name, f)
+			// generation — fold into it. If it no longer accepts alerts
+			// (advanced past accumulation, or suspended), open the
+			// generation after it, exactly as a raced fold does above. Each
+			// step names a strictly later generation, so this ends.
+			err := in.fold(ctx, name, f)
+			if err == errRaced {
+				return in.create(ctx, integ, f, repoURL, hash, gen+1, name)
+			}
+			return err
 		}
 		return fmt.Errorf("create finding %s: %w", name, err)
 	}
