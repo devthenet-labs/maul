@@ -67,7 +67,11 @@ never fatal: the reconcile loops are the retry mechanism, and the webhook path o
   comment is edited by that id thereafter; a comment with no recorded id is adopted by its marker only when patchy wrote
   it (its author opened the tracking issue), never a comment someone else headed with a marker. Every post (issue,
   comment, notice) is first confirmed against the API server rather than the controller's cache, and recorded before any
-  follow-up that can fail (assignment, closure), so a projection never posts the same thing twice.
+  follow-up that can fail (assignment, closure), so a projection never posts the same thing twice. A repository with
+  GitHub Issues turned off answers the issue's creation with 410: the Finding records the `TrackingUnavailable`
+  condition (reason `IssuesDisabled`, naming the repository) and the projection asks again only every 6 hours instead of
+  retrying on the error backoff, opening the issue (and removing the condition) once Issues are back on. Only the issue
+  waits; the Finding moves through the pipeline as it would with no tracker.
 - **Runner-image comment** — with `--repository-images`, one sticky comment (headed `<!-- patchy:runner-image -->`,
   edited in place) tells the repository owner what patchy did with the agent image the repository declared: which file
   declared which image and the digest it was pinned to; or why the declaration was rejected or the devcontainer.json not

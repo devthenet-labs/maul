@@ -124,6 +124,9 @@ type FindingReconciler struct {
 	Ingest *Ingestor
 	// StaleRecheck paces that re-check; zero means DefaultStaleRecheck.
 	StaleRecheck time.Duration
+	// TrackingRecheck paces the re-try of a tracking issue the forge refused
+	// for good (TrackingUnavailable); zero means DefaultTrackingRecheck.
+	TrackingRecheck time.Duration
 	// Log receives diagnostics; nil discards.
 	Log *slog.Logger
 }
@@ -184,10 +187,19 @@ func (r *FindingReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		requeue = wait
 	}
 
-	if err := r.project(ctx, &fnd); err != nil {
+	wait, err = r.project(ctx, &fnd)
+	if err != nil {
 		return ctrl.Result{}, errors.Join(cmdErr, err)
 	}
-	return ctrl.Result{RequeueAfter: requeue}, cmdErr
+	return ctrl.Result{RequeueAfter: sooner(requeue, wait)}, cmdErr
+}
+
+// sooner is the earlier of two requeue waits, where 0 means none.
+func sooner(a, b time.Duration) time.Duration {
+	if a == 0 || (b > 0 && b < a) {
+		return b
+	}
+	return a
 }
 
 // resolveSource writes the pipeline's verdict back to the originating
@@ -234,15 +246,17 @@ func (r *FindingReconciler) closeAccumulation(ctx context.Context, fnd *v1alpha1
 	return 0, nil
 }
 
-// project pushes the Finding's current state to its tracking issue.
+// project pushes the Finding's current state to its tracking issue. A
+// positive wait asks for the next pass then: the forge refused the issue for
+// good, and the re-check is due no sooner.
 //
 // The guard lives here, not in Reconcile: closeAccumulation runs first and is
 // the only writer of the AccumulationComplete condition the investigation
 // gate blocks on. Skipping this function is safe; skipping the reconcile is
 // not — it would strand every deferred finding at Enhanced, silently.
-func (r *FindingReconciler) project(ctx context.Context, fnd *v1alpha1.Finding) error {
+func (r *FindingReconciler) project(ctx context.Context, fnd *v1alpha1.Finding) (time.Duration, error) {
 	if fnd.Spec.TrackingRef == nil {
-		return nil // no tracker configured
+		return 0, nil // no tracker configured
 	}
 	// A cloud finding's repository is resolved by the enhancer chain, which
 	// runs at Opened. Projecting before then would open the issue on the
@@ -251,45 +265,111 @@ func (r *FindingReconciler) project(ctx context.Context, fnd *v1alpha1.Finding) 
 	// repository and a permanent misfile.
 	if fnd.Spec.CloudResource != nil && fnd.Spec.Repository == nil &&
 		fnd.Status.Phase == v1alpha1.PhaseOpened {
-		return nil
+		return 0, nil
 	}
 	var integ v1alpha1.Integration
 	key := types.NamespacedName{Namespace: fnd.Namespace, Name: fnd.Spec.TrackingRef.Name}
 	if err := r.Get(ctx, key, &integ); err != nil {
-		return client.IgnoreNotFound(err)
+		return 0, client.IgnoreNotFound(err)
 	}
 	if !issuesEnabled(&integ) {
-		return nil
+		return 0, nil
 	}
 	repo, err := trackingRepo(fnd, &integ)
 	if err != nil {
-		return nil // nowhere sane to project
+		return 0, nil // nowhere sane to project
+	}
+	if fnd.Status.Tracking == nil {
+		// Refused for good last time: ask again only once the re-check is
+		// due, not on every event the finding's own progress raises.
+		if wait := r.trackingWait(fnd); wait > 0 {
+			return wait, nil
+		}
 	}
 	tracker, err := r.clientFor(ctx, &integ, repo)
 	if err != nil {
-		return fmt.Errorf("tracker client: %w", err)
+		return 0, fmt.Errorf("tracker client: %w", err)
 	}
 	if fnd.Status.Tracking == nil {
 		cur, err := r.latest(ctx, fnd)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		if cur.Status.Tracking != nil {
-			return nil // the cache lags the link; its watch event re-queues us
+			return 0, nil // the cache lags the link; its watch event re-queues us
 		}
 		return r.createIssue(ctx, fnd, &integ, tracker, repo)
 	}
 	if err := r.rerender(ctx, fnd, tracker, repo); err != nil {
-		return r.unlinkIfGone(ctx, fnd, err)
+		return 0, r.unlinkIfGone(ctx, fnd, err)
 	}
 	number := int(fnd.Status.Tracking.IssueNumber)
 	if err := r.projectComments(ctx, fnd, tracker, repo, number); err != nil {
-		return r.unlinkIfGone(ctx, fnd, err)
+		return 0, r.unlinkIfGone(ctx, fnd, err)
 	}
 	if err := r.projectPhase(ctx, fnd, tracker, repo, number); err != nil {
-		return r.unlinkIfGone(ctx, fnd, err)
+		return 0, r.unlinkIfGone(ctx, fnd, err)
 	}
-	return nil
+	return 0, nil
+}
+
+// trackingWait is how long the tracking issue's re-check is still off: the
+// rest of the interval since the forge last refused it for good
+// (TrackingUnavailable), or 0 when it is due or was never refused.
+func (r *FindingReconciler) trackingWait(fnd *v1alpha1.Finding) time.Duration {
+	cond := meta.FindStatusCondition(fnd.Status.Conditions, v1alpha1.ConditionTrackingUnavailable)
+	if cond == nil || cond.Status != metav1.ConditionTrue {
+		return 0
+	}
+	return max(cond.LastTransitionTime.Add(r.trackingRecheck()).Sub(r.now()), 0)
+}
+
+func (r *FindingReconciler) trackingRecheck() time.Duration {
+	if r.TrackingRecheck <= 0 {
+		return DefaultTrackingRecheck
+	}
+	return r.TrackingRecheck
+}
+
+// markTrackingUnavailable records the forge's refusal to open the tracking
+// issue on the finding (TrackingUnavailable), stamped now so the re-check is
+// paced from this refusal, and returns the wait until it. Only the issue
+// projection waits: the finding's phase and pipeline are untouched.
+func (r *FindingReconciler) markTrackingUnavailable(
+	ctx context.Context, fnd *v1alpha1.Finding, repo ghclient.Repo,
+) (time.Duration, error) {
+	wait := r.trackingRecheck()
+	r.log().LogAttrs(ctx, slog.LevelWarn, "issues disabled on the tracking repository; not projecting the finding",
+		slog.String("finding", fnd.Name),
+		slog.String("repository", repo.String()),
+		slog.Duration("recheck", wait))
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		var cur v1alpha1.Finding
+		if err := r.Get(ctx, client.ObjectKeyFromObject(fnd), &cur); err != nil {
+			return client.IgnoreNotFound(err)
+		}
+		// Removed first, so the stamp moves on every refusal: it is when
+		// the forge last said no, the re-check's starting point.
+		meta.RemoveStatusCondition(&cur.Status.Conditions, v1alpha1.ConditionTrackingUnavailable)
+		meta.SetStatusCondition(&cur.Status.Conditions, metav1.Condition{
+			Type:   v1alpha1.ConditionTrackingUnavailable,
+			Status: metav1.ConditionTrue,
+			Reason: v1alpha1.ReasonIssuesDisabled,
+			Message: fmt.Sprintf("GitHub refuses issues in %s (Issues are disabled); re-checked every %s",
+				repo, wait),
+			ObservedGeneration: cur.Generation,
+			LastTransitionTime: metav1.NewTime(r.now()),
+		})
+		if err := r.Status().Update(ctx, &cur); err != nil {
+			return err
+		}
+		fnd.Status.Conditions = cur.Status.Conditions
+		return nil
+	})
+	if err != nil {
+		return 0, fmt.Errorf("record tracking unavailable: %w", err)
+	}
+	return wait, nil
 }
 
 // trackingRepo picks where the finding's issue lives: its own repository, or
@@ -309,6 +389,11 @@ func trackingRepo(fnd *v1alpha1.Finding, integ *v1alpha1.Integration) (ghclient.
 	}
 	return ghclient.Repo{}, errNoTrackingRepo
 }
+
+// DefaultTrackingRecheck paces the re-try of a tracking issue the forge
+// refused for good (TrackingUnavailable), when
+// FindingReconciler.TrackingRecheck is unset.
+const DefaultTrackingRecheck = 6 * time.Hour
 
 // errNoTrackingRepo: the finding has no repository and the tracking
 // Integration configures no fallback, so there is nowhere to open an issue.
@@ -349,10 +434,10 @@ func (r *FindingReconciler) unlinkIfGone(ctx context.Context, fnd *v1alpha1.Find
 func (r *FindingReconciler) createIssue(
 	ctx context.Context, fnd *v1alpha1.Finding, integ *v1alpha1.Integration,
 	tracker trackerClient, repo ghclient.Repo,
-) error {
+) (time.Duration, error) {
 	body, err := templates.RenderFindingIssue(fnd)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	desired := projectedLabels(fnd)
 	issue, err := tracker.Create(ctx, repo, ghclient.IssueRequest{
@@ -360,8 +445,14 @@ func (r *FindingReconciler) createIssue(
 		Body:   body,
 		Labels: desired.Render(),
 	})
+	if ghclient.IsGone(err) {
+		// Opening an issue is answered 410 only where the repository has
+		// Issues turned off: no retry changes that, so it is recorded and
+		// re-checked rarely rather than retried on the backoff.
+		return r.markTrackingUnavailable(ctx, fnd, repo)
+	}
 	if err != nil {
-		return fmt.Errorf("create tracking issue: %w", err)
+		return 0, fmt.Errorf("create tracking issue: %w", err)
 	}
 	// The issue exists; the link write must survive status contention — a
 	// dropped link would make the next reconcile duplicate the issue, so
@@ -380,16 +471,18 @@ func (r *FindingReconciler) createIssue(
 		if cur.Status.Tracking == nil {
 			cur.Status.Tracking = tracking
 		}
+		meta.RemoveStatusCondition(&cur.Status.Conditions, v1alpha1.ConditionTrackingUnavailable)
 		if err := r.Status().Update(ctx, &cur); err != nil {
 			return err
 		}
 		fnd.Status.Tracking = cur.Status.Tracking
+		fnd.Status.Conditions = cur.Status.Conditions
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("link tracking issue: %w", err)
+		return 0, fmt.Errorf("link tracking issue: %w", err)
 	}
-	return r.markProjected(ctx, fnd, map[string]string{
+	return 0, r.markProjected(ctx, fnd, map[string]string{
 		AnnotationProjectedBody: hashOf(body + strings.Join(desired.Render(), "|")),
 	})
 }
