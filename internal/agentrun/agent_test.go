@@ -1007,3 +1007,41 @@ func TestEqualBudgetsAreAccepted(t *testing.T) {
 		t.Errorf("FromEnv() error = %v, want equal budgets accepted", err)
 	}
 }
+
+// TestRemediationCarriesReproduction: the report's reproduction block rides
+// the remediation event, so the controller can say in the pull request
+// whether the agent proved the bug; a report without one (as every report
+// before the block existed) carries none, which reads as "not reported".
+func TestRemediationCarriesReproduction(t *testing.T) {
+	reproduced := strings.Replace(goodRemediation, "confidence: 0.88\n",
+		"confidence: 0.88\nreproduction:\n  reproduced: true\n  command: npm test -- app.test.js\n"+
+			"  before: \"FAIL app.test.js: expected escaped output\"\n  after: \"PASS app.test.js\"\n", 1)
+	for _, tt := range []struct {
+		name, report string
+		want         *envelope.Reproduction
+	}{
+		{"reproduced", reproduced, &envelope.Reproduction{Reproduced: true, Command: "npm test -- app.test.js",
+			Before: "FAIL app.test.js: expected escaped output", After: "PASS app.test.js"}},
+		{"not reported", goodRemediation, nil},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var out bytes.Buffer
+			cfg, ws := remediateConfig(t, goodInvestigation, &out)
+			fx := &fakeExec{steps: []step{{
+				ws: ws, stdout: streamSuccess,
+				writes:    map[string]string{"reports/remediation.md": tt.report, "commit.sh": commitScript},
+				repoWrite: map[string]string{"app.js": "escaped();\n"},
+			}}}
+			if err := New(cfg, fx).Run(context.Background()); err != nil {
+				t.Fatalf("Run() error = %v", err)
+			}
+			rem := events(t, out.String())[0].Remediation
+			if rem.Outcome != envelope.OutcomeOK || !rem.Success {
+				t.Fatalf("remediation = %q/success:%v (detail: %q)", rem.Outcome, rem.Success, rem.Detail)
+			}
+			if (rem.Reproduction == nil) != (tt.want == nil) || (tt.want != nil && *rem.Reproduction != *tt.want) {
+				t.Errorf("Reproduction = %+v, want %+v", rem.Reproduction, tt.want)
+			}
+		})
+	}
+}

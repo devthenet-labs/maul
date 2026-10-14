@@ -217,6 +217,7 @@ func (a *Agent) remediate(ctx context.Context, params remediationParams) *envelo
 	// rendering (report.StripFrontmatter).
 	ev.ReportMarkdown = string(raw)
 	ev.Confidence = *rem.Confidence
+	ev.Reproduction = reproductionOf(rem.Reproduction)
 	ev.Outcome = envelope.OutcomeOK
 
 	if !*rem.Success {
@@ -231,6 +232,15 @@ func (a *Agent) remediate(ctx context.Context, params remediationParams) *envelo
 	ev.Success = true
 	ev.Branch = a.cfg.branch()
 	return ev
+}
+
+// reproductionOf carries a report's reproduction block onto the event, nil
+// when the report has none. ParseRemediation has already bounded it.
+func reproductionOf(p *report.Reproduction) *envelope.Reproduction {
+	if p == nil || p.Reproduced == nil {
+		return nil
+	}
+	return &envelope.Reproduction{Reproduced: *p.Reproduced, Command: p.Command, Before: p.Before, After: p.After}
 }
 
 // run executes one of a stage's runs — its first, or a repair — under the

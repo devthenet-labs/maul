@@ -1,5 +1,10 @@
 Fixes #123
 
+> [!WARNING]
+> patchy could not reproduce this bug before fixing it. The remediation report records no reproduction, so nothing here
+> shows that a test failed on the unfixed code and passes with this change. Confirm the fix and its test before
+> merging.
+
 remediation report here
 
 ---

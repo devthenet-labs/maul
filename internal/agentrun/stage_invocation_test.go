@@ -99,6 +99,12 @@ func goldenFile(t *testing.T, name, got string) {
 // allow rules are gone), its writes are scoped to the reports directory as
 // the plan stage's are, and its prompt says so. The remediate golden does
 // not move: the writable posture is unchanged.
+//
+// The remediate golden has moved once on purpose, in its prompt alone: it
+// asks the agent to prove the bug (the regression test first, seen to fail
+// on the unfixed code, then the fix and the same test passing) and to record
+// that in the report's reproduction block. Every flag and the environment
+// are byte-for-byte what they were.
 func TestFindingStageInvocationsUnchanged(t *testing.T) {
 	t.Run("investigate", func(t *testing.T) {
 		ws := newWorkspace(t)

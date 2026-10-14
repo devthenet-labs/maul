@@ -494,7 +494,11 @@ func (r *RemediationReconciler) succeed(
 	// toolchain, so whatever the report says, patchy built and tested
 	// nothing: the body says so, plainly, ahead of the report.
 	untested := !ranRepositoryImage(rem.Status.RunnerImage)
-	body, err := templates.PRBody(issueNumber, reportBody, untested)
+	// Whether the agent reports it reproduced the bug before fixing it is
+	// stated plainly, with its evidence, and its absence is a warning: the
+	// claim is the agent's own, so the body attributes it to the agent.
+	body, err := templates.PRBody(issueNumber, reportBody, untested,
+		agentresult.Reproduction(result.Reproduction))
 	if err != nil {
 		body = reportBody
 	}
@@ -650,6 +654,7 @@ func (r *RemediationReconciler) stampChild(
 		cur.Status.Stage = agentresult.FromStage(&result.Stage)
 		cur.Status.Stage.Transcript = transcript
 		cur.Status.Report = agentresult.TruncateReport(result.ReportMarkdown)
+		cur.Status.Reproduction = agentresult.Reproduction(result.Reproduction)
 		if extra != nil {
 			extra(&cur)
 		}

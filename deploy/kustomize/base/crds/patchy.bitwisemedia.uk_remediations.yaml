@@ -349,6 +349,36 @@ spec:
                 description: Report is the full remediation report markdown.
                 maxLength: 65536
                 type: string
+              reproduction:
+                description: |-
+                  Reproduction is the agent's own account of proving the bug with its
+                  regression test before fixing it, from the report's reproduction
+                  block. Self-reported: patchy runs no test itself. Nil when the report
+                  had none (every report before the block existed), which reads as "not
+                  reproduced".
+                properties:
+                  after:
+                    description: After is a short excerpt of the test's output with
+                      the fix applied.
+                    maxLength: 2000
+                    type: string
+                  before:
+                    description: Before is a short excerpt of the test's output on
+                      the unfixed code.
+                    maxLength: 2000
+                    type: string
+                  command:
+                    description: Command ran the regression test.
+                    maxLength: 500
+                    type: string
+                  reproduced:
+                    description: |-
+                      Reproduced reports that the test failed on the unfixed code for the
+                      expected reason and passes with the fix.
+                    type: boolean
+                required:
+                - reproduced
+                type: object
               runnerImage:
                 description: |-
                   RunnerImage is the image the Job actually launched on, written beside

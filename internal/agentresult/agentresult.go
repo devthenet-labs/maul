@@ -13,11 +13,13 @@ import (
 	"encoding/json"
 	"math"
 	"strconv"
+	"strings"
 	"unicode/utf8"
 
 	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
 	"github.com/bitwise-media-group/patchy/internal/envelope"
 	"github.com/bitwise-media-group/patchy/internal/model"
+	"github.com/bitwise-media-group/patchy/internal/report"
 	"github.com/bitwise-media-group/patchy/internal/templates"
 )
 
@@ -170,6 +172,24 @@ func FormatConfidence(f float64) string {
 	// that underflows) as a negative zero, and on a repository-declared image
 	// the pod writing the envelope is untrusted.
 	return strconv.FormatFloat(f+0, 'f', 4, 64)
+}
+
+// Reproduction converts a remediation event's reproduction onto the
+// Remediation status, nil when the event carries none. Every value is
+// bounded again, to the CRD's limits, with report.Bound — the runner bounded
+// it already, but on a repository-declared image the pod that wrote the
+// event is the image's process — and the command is put on one line. The
+// values stay the agent's claims: this bounds them, it verifies nothing.
+func Reproduction(p *envelope.Reproduction) *v1alpha1.Reproduction {
+	if p == nil {
+		return nil
+	}
+	return &v1alpha1.Reproduction{
+		Reproduced: p.Reproduced,
+		Command:    report.Bound(strings.Join(strings.Fields(p.Command), " "), report.ReproductionCommandMaxBytes),
+		Before:     report.Bound(p.Before, report.ReproductionExcerptMaxBytes),
+		After:      report.Bound(p.After, report.ReproductionExcerptMaxBytes),
+	}
 }
 
 // TruncateReport caps a report markdown for a CRD field.

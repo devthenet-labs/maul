@@ -174,14 +174,18 @@ investigate)
     "$repo" "$finding" "$investigate_model" "$seq" "$report" "$remediate_model"
   ;;
 remediate)
-  # A representative fix conversation: read the investigation handoff, edit,
-  # verify, commit, report.
+  # A representative fix conversation: read the investigation handoff, write
+  # the regression test and see it fail, edit, see it pass, commit, report.
   turn system notice '' 'session 00000000-0000-4000-8000-000000000001 started'
   turn assistant tool_use Read 'input/investigation.md'
   turn user tool_result Read 'Verdict remediate (confidence 0.92). Sink at app.js:42, escape the value.'
   turn assistant thinking '' 'The investigation already located the sink and ruled the second hit a false positive, so the change is local to app.js. Escaping at the sink leaves the render path and every caller untouched.'
   turn assistant tool_use Read 'repo/app.js'
   turn user tool_result Read 'function render(req, res) {\n  el.innerHTML = req.query.q;\n}'
+  turn assistant tool_use Write 'repo/app.test.js: a query holding markup must render as text'
+  turn user tool_result Write 'wrote repo/app.test.js'
+  turn assistant tool_use Bash 'npm test -- app.test.js'
+  turn user tool_result Bash 'FAIL app.test.js\n  render escapes the query: expected &lt;b&gt;, received <b>'
   turn assistant tool_use Edit 'repo/app.js: replace the unescaped assignment with an escaped one'
   turn user tool_result Edit 'applied 1 edit to repo/app.js'
   turn assistant tool_use Bash 'npm test'
@@ -192,10 +196,10 @@ remediate)
   turn user tool_result Write 'wrote reports/remediation.md (0.6 KB)'
   turn assistant text '' 'Fixed and verified. One line changed at the sink, the suite is green, and no public signature moved — this is safe to review as a normal pull request.'
 
-  report='---\nsuccess: true\nconfidence: 0.9\n---\n\n## What changed\n\nScripted fix from `hack/fake-agent` — no model was consulted.\n\n`app.js:42` no longer assigns untrusted input to `innerHTML`. The query\nparameter is escaped at the sink, which leaves the render path and every\ncaller unchanged.\n\n## Verification\n\n- `npm test` — 84 tests, all passing.\n- No public signature changed, so no caller needs updating.\n\n## Review notes\n\nThe second code-scanning hit (`lib/render.js:17`) was assessed as a false\npositive during investigation and is deliberately untouched.'
+  report='---\nsuccess: true\nconfidence: 0.9\nreproduction:\n  reproduced: true\n  command: \"npm test -- app.test.js\"\n  before: \"FAIL app.test.js: render escapes the query: expected &lt;b&gt;, received <b>\"\n  after: \"PASS app.test.js\"\n---\n\n## What changed\n\nScripted fix from `hack/fake-agent` — no model was consulted.\n\n`app.js:42` no longer assigns untrusted input to `innerHTML`. The query\nparameter is escaped at the sink, which leaves the render path and every\ncaller unchanged.\n\n## Verification\n\n- `npm test` — 84 tests, all passing.\n- No public signature changed, so no caller needs updating.\n\n## Review notes\n\nThe second code-scanning hit (`lib/render.js:17`) was assessed as a false\npositive during investigation and is deliberately untouched.'
 
   content=$(printf 'escaped();\n' | base64 | tr -d '\n')
-  printf 'PATCHY-EVENT: {"v":4,"type":"remediation","repo":"%s","finding":"%s","remediation":{"outcome":"ok","harness":"fake","model":"%s","session_id":"00000000-0000-4000-8000-000000000001","num_turns":%d,"usage":{"input_tokens":2500,"output_tokens":1500,"cache_read_tokens":0,"cache_creation_tokens":0,"cost_usd":0.12},"elapsed_seconds":4.0,"report_markdown":"%s","success":true,"confidence":0.9,"branch":"patchy/%s","changeset":{"base_sha":"%s","commit_message":"fix(security): escape the sink (fake agent)","upserts":[{"path":"app.js","mode":"100644","content_b64":"%s"}]}}}\n' \
+  printf 'PATCHY-EVENT: {"v":4,"type":"remediation","repo":"%s","finding":"%s","remediation":{"outcome":"ok","harness":"fake","model":"%s","session_id":"00000000-0000-4000-8000-000000000001","num_turns":%d,"usage":{"input_tokens":2500,"output_tokens":1500,"cache_read_tokens":0,"cache_creation_tokens":0,"cost_usd":0.12},"elapsed_seconds":4.0,"report_markdown":"%s","success":true,"confidence":0.9,"reproduction":{"reproduced":true,"command":"npm test -- app.test.js","before":"FAIL app.test.js: render escapes the query: expected &lt;b&gt;, received <b>","after":"PASS app.test.js"},"branch":"patchy/%s","changeset":{"base_sha":"%s","commit_message":"fix(security): escape the sink (fake agent)","upserts":[{"path":"app.js","mode":"100644","content_b64":"%s"}]}}}\n' \
     "$repo" "$finding" "$remediate_model" "$seq" "$report" "$finding" "$base_sha" "$content"
   ;;
 plan)
