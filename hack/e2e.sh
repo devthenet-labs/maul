@@ -7,9 +7,14 @@
 # API stands in at the network boundary. setup-envtest downloads the
 # kube-apiserver/etcd binaries once into ~/.cache; the suite skips itself
 # when KUBEBUILDER_ASSETS is empty, so plain `go test` stays fast.
+#
+# The suite takes close to ten minutes, which is `go test`'s default
+# -timeout, so one slow run would panic with "test timed out". The explicit
+# 30m leaves headroom; a later -timeout in "$@" wins, e.g.
+# `mise run e2e -- -timeout 45m`.
 set -eu
 
 KUBEBUILDER_ASSETS=$(setup-envtest use --bin-dir "${HOME}/.cache/kubebuilder-envtest" -p path)
 export KUBEBUILDER_ASSETS
 cd e2e
-go test ./... -count=1 "$@"
+go test ./... -count=1 -timeout 30m "$@"
