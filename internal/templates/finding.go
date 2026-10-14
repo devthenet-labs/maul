@@ -27,9 +27,15 @@ func RenderFindingIssue(f *v1alpha1.Finding) (string, error) {
 
 // RenderStageReportComment renders an agent report as a tracking-issue
 // comment, headed by the stage name and attempt so re-projection can dedup.
+// The report is agent text, so it is sanitised (Sanitize): on the issue it
+// may not link, show an image (GitHub's image proxy fetches an image's URL
+// whenever anyone views the issue, a channel out of the sealed agent pod),
+// mention anyone, reference an issue or hide text. A report that would take
+// the comment past GitHub's limit is cut, and says so.
 func RenderStageReportComment(stage string, attempt int32, report string) string {
-	return fmt.Sprintf("<!-- patchy:report %s/%d -->\n## %s report (attempt %d)\n\n%s",
-		stage, attempt, stage, attempt, report)
+	head := fmt.Sprintf("<!-- patchy:report %s/%d -->\n## %s report (attempt %d)\n\n",
+		stage, attempt, stage, attempt)
+	return head + fitReport(report, MaxCommentBytes-len(head), Sanitize)
 }
 
 // EnrichmentMarker heads one enhancer's sticky tracking comment; the

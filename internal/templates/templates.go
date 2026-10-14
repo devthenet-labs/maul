@@ -58,11 +58,14 @@ const NotReproducedMarker = "patchy could not reproduce this bug before fixing i
 // agent's account quoted as unverified, rather than contradict its own
 // "nothing was compiled or run".
 //
-// The evidence is agent text, so it is sanitised for the markdown reading
-// (the command inline, each excerpt as a code block no line of it can
-// close) and then defanged for the plain one: a repository may have GitHub
-// copy the body into the squash commit, where inline code protects nothing
-// and a "closes #12" quoted from test output would close issue 12.
+// The report and the evidence are agent text, so they are sanitised for
+// the markdown reading (the report by Sanitize: no link, image, raw HTML,
+// mention or live reference, nothing hidden; the command inline, each
+// excerpt as a code block no line of it can close) and then defanged for
+// the plain one: a repository may have GitHub copy the body into the squash
+// commit, where inline code protects nothing and a "closes #12" quoted from
+// the report would close issue 12. The report is cut, and says so, where
+// the whole body would pass GitHub's limit.
 func PRBody(issue int, reportBody string, untested bool, repro *v1alpha1.Reproduction) (string, error) {
 	type reproduction struct {
 		Reproduced             bool
@@ -77,14 +80,21 @@ func PRBody(issue int, reportBody string, untested bool, repro *v1alpha1.Reprodu
 		r.Before = evidenceBlock(repro.Before)
 		r.After = evidenceBlock(repro.After)
 	}
-	return render("pr_body.md.tmpl", struct {
-		Issue               int
-		Report              string
-		Untested            bool
-		GuideURL            string
-		Reproduction        *reproduction
-		NotReproducedMarker string
-	}{issue, reportBody, untested, AgentImageGuideURL, r, NotReproducedMarker})
+	body := func(shown string) (string, error) {
+		return render("pr_body.md.tmpl", struct {
+			Issue               int
+			Report              string
+			Untested            bool
+			GuideURL            string
+			Reproduction        *reproduction
+			NotReproducedMarker string
+		}{issue, shown, untested, AgentImageGuideURL, r, NotReproducedMarker})
+	}
+	frame, err := body("")
+	if err != nil {
+		return "", err
+	}
+	return body(fitReport(reportBody, MaxCommentBytes-len(frame), sanitizeDefanged))
 }
 
 // evidenceBlock renders a quoted excerpt of test output as a text code block
