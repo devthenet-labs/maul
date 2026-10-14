@@ -478,7 +478,12 @@ func (r *RemediationReconciler) succeed(
 		return r.fail(ctx, rem, string(envelope.OutcomeChangesetRejected), err.Error(), &result.Stage, transcript)
 	}
 	branch := "patchy/" + fnd.Name
-	commit, err := r.Forge.Push(ctx, rem.Namespace, fnd.Spec.Repository.URL, branch, result.Changeset)
+	// The commit message is the agent's, and lands on the default branch as
+	// plain text when the pull request is merged or rebased: defanged, it
+	// closes, references and mentions nothing there.
+	cs := *result.Changeset
+	cs.CommitMessage = templates.RemediationCommitMessage(cs.CommitMessage)
+	commit, err := r.Forge.Push(ctx, rem.Namespace, fnd.Spec.Repository.URL, branch, &cs)
 	if err != nil {
 		return fmt.Errorf("push remediation branch: %w", err)
 	}
@@ -497,10 +502,12 @@ func (r *RemediationReconciler) succeed(
 	// Whether the agent reports it reproduced the bug before fixing it is
 	// stated plainly, with its evidence, and its absence is a warning: the
 	// claim is the agent's own, so the body attributes it to the agent.
+	// The report is agent text: PRBody sanitises it, and a body it cannot
+	// render falls back to patchy's own words, never to the raw report.
 	body, err := templates.PRBody(issueNumber, reportBody, untested,
 		agentresult.Reproduction(result.Reproduction))
 	if err != nil {
-		body = reportBody
+		body = templates.PRBodyFallback(issueNumber)
 	}
 	number, url, err := r.Forge.EnsurePR(ctx, rem.Namespace, fnd.Spec.Repository.URL, branch,
 		templates.FindingIssueTitle(&fnd), body)

@@ -137,6 +137,15 @@ The controller — the only holder of a forge **write** credential — then repl
 Data API (blob → tree → commit → ref) onto a `patchy/<finding>` branch, opens the pull request, and moves the finding to
 `InReview`.
 
+Everything the agent writes is untrusted, so none of it reaches GitHub as it was written. The report, in the pull
+request body and in the tracking issue's report comments, is shown as text: links, images, raw HTML, hidden markup and
+tables are shown literally rather than rendered, mentions and issue references (closing keywords included) become inline
+code, and characters that render as nothing are shown by their code point. Headings, lists, emphasis and code blocks
+still render. The pull request body and the agent's commit message can also land on the default branch as plain text, so
+every mention and issue reference in them is broken apart as well (`# 7`, `@ name`): the only issue the pull request
+closes is the tracking issue, through patchy's own `Fixes #N`. A report that would take a body or comment past GitHub's
+size limit is cut and says so.
+
 ## 8. Humans close the loop
 
 Merging the PR fires a `pull_request` webhook: the integration-controller moves the finding to `Remediated`. Closing the

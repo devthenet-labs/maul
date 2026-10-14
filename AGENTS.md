@@ -245,7 +245,11 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   preview controller's message never shown), PR body ("Part of", never a closing keyword), PR title and commit message,
   over plain values. The last three can land on the default branch as plain text (a squash commit copies the title
   and, if the repo says so, the body), where inline code protects nothing, so each also `defang`s every reference and
-  mention, code spans included; seeded properties read them raw.
+  mention, code spans included; seeded properties read them raw. The Finding side takes the same passes
+  (`finding_text.go`): the remediation report in the PR body is `Sanitize`d and `defang`ed, a stage report comment on
+  the tracking issue `Sanitize`d, the agent's commit message `defang`ed (`RemediationCommitMessage`), and a PR body
+  that cannot render falls back to patchy's own words (`PRBodyFallback`), never the report; `fitReport` cuts a report
+  to GitHub's size limit BEFORE cleaning it, so a cut can never leave a code span unclosed.
 - `webhook`, `telemetry`, `cli`, `version` — service plumbing (the webhook server is used by
   integration-controller only).
 - `action` — the human-action vocabulary (the custom verbs) and the state-machine gating behind each one:
