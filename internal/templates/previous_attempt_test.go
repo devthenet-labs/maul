@@ -23,7 +23,7 @@ type retryPrompt struct {
 
 func retryPrompts() []retryPrompt {
 	return []retryPrompt{
-		{"remediate", "\n\n## The fix", func(p *PreviousAttempt) (string, error) {
+		{"remediate", "\n\n## Prove the bug", func(p *PreviousAttempt) (string, error) {
 			return RenderRemediatePrompt(RemediatePrompt{
 				IssuePath:         "/workspace/input/issue.md",
 				InvestigationPath: "/workspace/input/investigation.md",

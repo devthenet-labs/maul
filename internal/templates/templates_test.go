@@ -164,8 +164,32 @@ func TestGoldens(t *testing.T) {
 		render func() (string, error)
 	}{
 		{"finding_issue.md", func() (string, error) { return RenderFindingIssue(testFinding()) }},
-		{"pr_body.md", func() (string, error) { return PRBody(123, "remediation report here", false) }},
-		{"pr_body_untested.md", func() (string, error) { return PRBody(123, "remediation report here", true) }},
+		// No reproduction recorded (every report before the block existed):
+		// the body warns that patchy could not reproduce the bug.
+		{"pr_body.md", func() (string, error) { return PRBody(123, "remediation report here", false, nil) }},
+		{"pr_body_untested.md", func() (string, error) { return PRBody(123, "remediation report here", true, nil) }},
+		{"pr_body_reproduced.md", func() (string, error) {
+			return PRBody(123, "remediation report here", false, &v1alpha1.Reproduction{
+				Reproduced: true,
+				Command:    "go test ./internal/render -run TestEscapesName",
+				Before:     "--- FAIL: TestEscapesName (0.00s)\n    render_test.go:14: got \"<b>\", want \"&lt;b&gt;\"\nFAIL",
+				After:      "ok  \texample.com/app/internal/render\t0.012s",
+			})
+		}},
+		{"pr_body_untested_reproduced.md", func() (string, error) {
+			return PRBody(123, "remediation report here", true, &v1alpha1.Reproduction{
+				Reproduced: true,
+				Command:    "go test ./internal/render -run TestEscapesName",
+				Before:     "--- FAIL: TestEscapesName (0.00s)\nFAIL",
+				After:      "ok  \texample.com/app/internal/render\t0.012s",
+			})
+		}},
+		{"pr_body_not_reproduced.md", func() (string, error) {
+			return PRBody(123, "remediation report here", false, &v1alpha1.Reproduction{
+				Command: "go test ./internal/render -run TestEscapesName",
+				Before:  "ok  \texample.com/app/internal/render\t0.010s",
+			})
+		}},
 		{"prompt_investigate.md", func() (string, error) {
 			return RenderInvestigatePrompt(InvestigatePrompt{
 				IssuePath:         "/workspace/input/issue.md",

@@ -120,6 +120,19 @@ the finding markdown, the same pinned tree, and the investigation report, under 
 agent emits a summary report plus a `commit.sh` that must run cleanly and leave real commits — the claim is verified,
 not believed.
 
+The agent is asked to prove the bug before fixing it: write the regression test first, run it against the unfixed code
+and see it fail for the expected reason, then apply the fix and see the same test pass. The report's `reproduction`
+block records the result: `reproduced`, the test command, and short excerpts of the output before and after the fix
+(each cut to 2000 bytes, the command to 500). The pull request says plainly whether the agent reproduced the bug and
+quotes that evidence; when it reports it could not, or the report has no `reproduction` block, the pull request opens
+with a warning that patchy could not reproduce the bug before fixing it. The result is also recorded on the
+Remediation's `status.reproduction`. **These fields are the agent's own account.** patchy does not run the test itself,
+so they tell the reviewer what to check, not what was checked. A remediation on patchy's default image cannot run the
+repository's tests at all; its pull request says so too, and a reproduction the agent claims there is not accepted: the
+pull request carries the could-not-reproduce warning and quotes the claim as unverified. `status.reproduction` keeps the
+agent's account as reported; read it beside `status.runnerImage`. The block is optional, so a report without it is still
+valid, and no reproduction result holds a finding: every pull request already waits for a human merge.
+
 The controller — the only holder of a forge **write** credential — then replays the changeset through the GitHub Git
 Data API (blob → tree → commit → ref) onto a `patchy/<finding>` branch, opens the pull request, and moves the finding to
 `InReview`.

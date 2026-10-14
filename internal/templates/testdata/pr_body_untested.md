@@ -6,6 +6,11 @@ Fixes #123
 > test it (CI) before merging. patchy builds and tests its fixes only in an [agent image](https://devthenet-labs.github.io/patchy/integrations/agent-images/) the
 > repository declares and patchy can run.
 
+> [!WARNING]
+> patchy could not reproduce this bug before fixing it. The remediation report records no reproduction, so nothing here
+> shows that a test failed on the unfixed code and passes with this change. Confirm the fix and its test before
+> merging.
+
 remediation report here
 
 ---

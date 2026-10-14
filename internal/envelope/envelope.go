@@ -182,6 +182,28 @@ type Remediation struct {
 	// its tests rather than a confidence.
 	Branch    string     `json:"branch,omitempty"`
 	Changeset *Changeset `json:"changeset,omitempty"`
+	// Reproduction is the Finding remediation's account of proving the bug
+	// with its regression test, from the report's reproduction block; nil
+	// when the report has none, and always on an intent build. Additive
+	// within version 4: an older reader ignores it, and a newer one reads
+	// its absence as "not reported".
+	Reproduction *Reproduction `json:"reproduction,omitempty"`
+}
+
+// Reproduction is what a remediation agent reports about reproducing the
+// bug before fixing it (report.Reproduction): self-reported, bounded by the
+// runner, and bounded again by the controller, which cannot trust a pod
+// running a repository-declared image.
+type Reproduction struct {
+	// Reproduced: the regression test failed on the unfixed code for the
+	// expected reason and passes with the fix.
+	Reproduced bool `json:"reproduced"`
+	// Command ran the regression test.
+	Command string `json:"command,omitempty"`
+	// Before and After are short excerpts of its output without and with
+	// the fix.
+	Before string `json:"before,omitempty"`
+	After  string `json:"after,omitempty"`
 }
 
 // Plan is an intent's plan-stage event payload: the plan report exactly as

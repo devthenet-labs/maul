@@ -10,6 +10,9 @@ import (
 	"text/template"
 	"unicode"
 	"unicode/utf8"
+
+	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	"github.com/bitwise-media-group/patchy/internal/report"
 )
 
 //go:embed *.md.tmpl
@@ -34,18 +37,63 @@ func render(name string, data any) (string, error) {
 	return b.String(), nil
 }
 
+// NotReproducedMarker opens the warning a pull request body carries when the
+// remediation did not show a reproduction of the bug.
+const NotReproducedMarker = "patchy could not reproduce this bug before fixing it"
+
 // PRBody renders the pull-request body for a remediation branch; issue is
 // the tracking issue number ("Fixes #issue" auto-links and auto-closes).
 // untested marks a run on patchy's default agent image, which carries none
 // of the repository's toolchain: the body then warns, ahead of the report,
 // that patchy did not build or test the change.
-func PRBody(issue int, report string, untested bool) (string, error) {
+//
+// repro is the agent's account of reproducing the bug with its regression
+// test (agentresult.Reproduction). The body states it plainly, as the
+// agent's claim: that the agent reports it reproduced the bug, with the
+// command and the before and after excerpts; or, when the agent says it did
+// not or the report records nothing (nil), a warning that patchy could not
+// reproduce the bug before fixing it. On an untested run a claimed
+// reproduction is not accepted: the default image cannot run the
+// repository's tests, so the body carries the same warning, with the
+// agent's account quoted as unverified, rather than contradict its own
+// "nothing was compiled or run".
+//
+// The evidence is agent text, so it is sanitised for the markdown reading
+// (the command inline, each excerpt as a code block no line of it can
+// close) and then defanged for the plain one: a repository may have GitHub
+// copy the body into the squash commit, where inline code protects nothing
+// and a "closes #12" quoted from test output would close issue 12.
+func PRBody(issue int, reportBody string, untested bool, repro *v1alpha1.Reproduction) (string, error) {
+	type reproduction struct {
+		Reproduced             bool
+		Command, Before, After string
+	}
+	var r *reproduction
+	if repro != nil {
+		r = &reproduction{Reproduced: repro.Reproduced}
+		if c := strings.TrimSpace(repro.Command); c != "" {
+			r.Command = defang(SanitizeInline(code(c)))
+		}
+		r.Before = evidenceBlock(repro.Before)
+		r.After = evidenceBlock(repro.After)
+	}
 	return render("pr_body.md.tmpl", struct {
-		Issue    int
-		Report   string
-		Untested bool
-		GuideURL string
-	}{issue, report, untested, AgentImageGuideURL})
+		Issue               int
+		Report              string
+		Untested            bool
+		GuideURL            string
+		Reproduction        *reproduction
+		NotReproducedMarker string
+	}{issue, reportBody, untested, AgentImageGuideURL, r, NotReproducedMarker})
+}
+
+// evidenceBlock renders a quoted excerpt of test output as a text code block
+// nothing in it can close, sanitised and defanged; "" when there is none.
+func evidenceBlock(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return ""
+	}
+	return defang(chomp(Sanitize(fence(s))))
 }
 
 // InvestigatePrompt is the data for the analysis-stage prompt (stage 1:
@@ -217,5 +265,8 @@ type RemediatePrompt struct {
 // RenderRemediatePrompt renders the remediation prompt.
 func RenderRemediatePrompt(p RemediatePrompt) (string, error) {
 	p.PreviousAttempt = p.PreviousAttempt.quotable()
-	return render("prompt_remediate.md.tmpl", p)
+	return render("prompt_remediate.md.tmpl", struct {
+		RemediatePrompt
+		ExcerptMaxBytes, CommandMaxBytes int
+	}{p, report.ReproductionExcerptMaxBytes, report.ReproductionCommandMaxBytes})
 }

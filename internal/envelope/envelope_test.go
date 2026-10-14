@@ -219,3 +219,45 @@ func TestFirstEditTurnWire(t *testing.T) {
 		})
 	}
 }
+
+// TestReproductionWire pins the reproduction as an additive v4 field: it
+// round-trips under its own wire name, an explicit "not reproduced" survives
+// (reproduced: false is on the wire, not dropped as a zero), and an event
+// without it — a pod from before it existed, or an intent build — decodes
+// with no reproduction at all.
+func TestReproductionWire(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		repr *Reproduction
+		want string
+	}{
+		{"reproduced", &Reproduction{Reproduced: true, Command: "go test ./...", Before: "FAIL", After: "ok"},
+			`"reproduction":{"reproduced":true,"command":"go test ./...","before":"FAIL","after":"ok"}`},
+		{"not reproduced", &Reproduction{}, `"reproduction":{"reproduced":false}`},
+		{"absent", nil, ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ev := Event{Type: TypeRemediation, Repo: "acme/shop", Finding: "finding-1", Remediation: &Remediation{
+				Stage: Stage{Outcome: OutcomeOK, Harness: "claude", Model: "m"}, Reproduction: tt.repr,
+			}}
+			line, err := ev.Encode()
+			if err != nil {
+				t.Fatalf("Encode() error = %v", err)
+			}
+			if tt.want == "" && strings.Contains(line, `"reproduction"`) {
+				t.Errorf("line %q carries a reproduction, want none", line)
+			}
+			if tt.want != "" && !strings.Contains(line, tt.want) {
+				t.Errorf("line %q does not carry %s", line, tt.want)
+			}
+			got, ok := Decode([]byte(line))
+			if !ok {
+				t.Fatal("Decode() ok = false")
+			}
+			if (got.Remediation.Reproduction == nil) != (tt.repr == nil) ||
+				(tt.repr != nil && *got.Remediation.Reproduction != *tt.repr) {
+				t.Errorf("decoded Reproduction = %+v, want %+v", got.Remediation.Reproduction, tt.repr)
+			}
+		})
+	}
+}

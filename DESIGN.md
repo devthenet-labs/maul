@@ -53,8 +53,10 @@ resources as the state machine and GitHub issues as a human-facing projection.
    - `remediate` at or above the threshold queues the finding for remediation.
 7. Remediation runs in priority order under bounded concurrency: a second `claude -p` stage receives the finding
    markdown, the pinned repository tree, and the investigation report, under the clamped token budget and turn
-   ceiling. It produces a summary report (frontmatter: `success`, `confidence`) and a `commit.sh` that commits the
-   changeset.
+   ceiling. It is asked to prove the bug first (the regression test seen failing on the unfixed code, then passing
+   with the fix) and produces a summary report (frontmatter: `success`, `confidence`, and an optional, self-reported
+   `reproduction` block: `reproduced`, the test command, short before/after output excerpts) and a `commit.sh` that
+   commits the changeset.
 8. The remediation-controller verifies the claim against the repository (commit.sh must run cleanly and leave real
    commits), replays the changeset through the GitHub API onto a `patchy/<finding>` branch, opens the pull request,
    and moves the finding to in-review. Merging is left to humans; the merge webhook completes the finding.

@@ -95,12 +95,40 @@ type RemediationStatus struct {
 	// +optional
 	// +kubebuilder:validation:MaxLength=65536
 	Report string `json:"report,omitempty"`
+	// Reproduction is the agent's own account of proving the bug with its
+	// regression test before fixing it, from the report's reproduction
+	// block. Self-reported: patchy runs no test itself. Nil when the report
+	// had none (every report before the block existed), which reads as "not
+	// reproduced".
+	// +optional
+	Reproduction *Reproduction `json:"reproduction,omitempty"`
 	// Conditions of the run (Complete, RolledUp*).
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 	// ObservedGeneration is the last spec generation acted on.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+}
+
+// Reproduction is what a remediation agent reported about reproducing the
+// bug: its regression test, run against the unfixed code and again with the
+// fix. Every field is the agent's claim, bounded but not verified.
+type Reproduction struct {
+	// Reproduced reports that the test failed on the unfixed code for the
+	// expected reason and passes with the fix.
+	Reproduced bool `json:"reproduced"`
+	// Command ran the regression test.
+	// +optional
+	// +kubebuilder:validation:MaxLength=500
+	Command string `json:"command,omitempty"`
+	// Before is a short excerpt of the test's output on the unfixed code.
+	// +optional
+	// +kubebuilder:validation:MaxLength=2000
+	Before string `json:"before,omitempty"`
+	// After is a short excerpt of the test's output with the fix applied.
+	// +optional
+	// +kubebuilder:validation:MaxLength=2000
+	After string `json:"after,omitempty"`
 }
 
 // +kubebuilder:object:root=true

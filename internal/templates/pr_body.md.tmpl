@@ -6,6 +6,47 @@ Fixes #{{.Issue}}
 > test it (CI) before merging. patchy builds and tests its fixes only in an [agent image]({{.GuideURL}}) the
 > repository declares and patchy can run.
 {{end}}
+{{- with .Reproduction}}{{if and .Reproduced $.Untested}}
+> [!WARNING]
+> {{$.NotReproducedMarker}}. The remediation agent claims it reproduced the bug, but it ran
+> on patchy's default agent image, where none of this repository's tests can run, so patchy does not accept that
+> claim. The agent's account is quoted below; treat it as unverified and confirm the fix and its test before merging.
+{{- else if .Reproduced}}
+The remediation agent reports that it reproduced the bug before fixing it: it wrote the regression test first, saw it
+fail on the unfixed code, then saw it pass with the fix. This is the agent's own account, quoted below; patchy did not
+run the test itself.
+{{- else}}
+> [!WARNING]
+> {{$.NotReproducedMarker}}. The remediation agent reports that its regression test did not
+> fail on the unfixed code, or could not be run there, so nothing here shows that this change fixes the reported
+> problem. The report below says why. Confirm the fix and its test before merging.
+{{- end}}
+{{- if or .Command .Before .After}}
+
+### Reproduction
+{{- if .Command}}
+
+Test command: {{.Command}}
+{{- end}}
+{{- if .Before}}
+
+Without the fix:
+
+{{.Before}}
+{{- end}}
+{{- if .After}}
+
+With the fix:
+
+{{.After}}
+{{- end}}
+{{- end}}
+{{else}}
+> [!WARNING]
+> {{.NotReproducedMarker}}. The remediation report records no reproduction, so nothing here
+> shows that a test failed on the unfixed code and passes with this change. Confirm the fix and its test before
+> merging.
+{{end}}
 {{.Report}}
 
 ---
