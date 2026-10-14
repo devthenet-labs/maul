@@ -16,6 +16,7 @@ import (
 
 	"k8s.io/client-go/kubernetes"
 
+	"github.com/bitwise-media-group/patchy/internal/httpguard"
 	"github.com/bitwise-media-group/patchy/internal/provider"
 )
 
@@ -127,7 +128,7 @@ func (s *Server) handle(rt *route) http.Handler {
 // authentication charged like one; the shape check is what keeps a flood of
 // junk tokens from turning into TokenReview traffic.
 func (s *Server) preauthenticate(r *http.Request, _ *route, adm *admission) *rejection {
-	release, reason := s.ips.acquire(sourceIP(r))
+	release, reason := s.ips.acquire(httpguard.SourceIP(r))
 	if reason != "" {
 		countPreauth(r.Context(), "source_rate")
 		return &rejection{status: http.StatusTooManyRequests, kind: "rate_limit_error",
@@ -135,7 +136,7 @@ func (s *Server) preauthenticate(r *http.Request, _ *route, adm *admission) *rej
 	}
 	adm.release = release
 	if err := tokenShape(r.Header.Get(TokenHeader), s.cfg.Audience, adm.start); err != nil {
-		s.ips.penalize(sourceIP(r))
+		s.ips.penalize(httpguard.SourceIP(r))
 		countPreauth(r.Context(), "token_shape")
 		return &rejection{status: http.StatusUnauthorized, kind: "authentication_error", msg: err.Error(),
 			reason: "preauth_token"}
@@ -161,7 +162,7 @@ func (s *Server) authenticate(r *http.Request, _ *route, adm *admission) *reject
 		return &rejection{status: http.StatusServiceUnavailable, kind: "api_error",
 			msg: "egress broker: token review unavailable", reason: "review_unavailable"}
 	case err != nil:
-		s.ips.penalize(sourceIP(r))
+		s.ips.penalize(httpguard.SourceIP(r))
 		return &rejection{status: http.StatusUnauthorized, kind: "authentication_error", msg: err.Error(),
 			reason: "unauthenticated"}
 	}
@@ -280,7 +281,7 @@ func (s *Server) reject(w http.ResponseWriter, r *http.Request, rt *route, adm *
 // through and settling the worst case when it ends short.
 func (s *Server) proxy(w http.ResponseWriter, r *http.Request, rt *route, adm *admission) {
 	pod := adm.id.pod
-	aw := &auditWriter{ResponseWriter: w}
+	aw := &httpguard.CountingWriter{ResponseWriter: w}
 	var inner http.ResponseWriter = aw
 	var uw *usageWriter
 	var charged usage
@@ -303,7 +304,7 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, rt *route, adm *a
 				charged = charged.mergeAdd(d)
 				s.ledger.charge(pod, d.total())
 			}
-			if !uw.scan.complete && aw.status/100 == 2 {
+			if !uw.scan.complete && aw.Status/100 == 2 {
 				bound := adm.outputBound
 				if bound == 0 {
 					bound = uw.bytes / 4
@@ -320,7 +321,7 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, rt *route, adm *a
 		adm.release()
 		countRequest(r.Context(), rt.name, "proxied")
 		audit(s.log, r, auditEntry{
-			pod: pod, route: rt.name, model: adm.model, status: aw.status, bytes: aw.bytes,
+			pod: pod, route: rt.name, model: adm.model, status: aw.Status, bytes: aw.Bytes,
 			elapsed: s.now().Sub(adm.start), tokens: charged.total() + estimated, estimated: estimated > 0,
 			totals: s.ledger.totals(pod),
 		})

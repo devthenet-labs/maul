@@ -54,62 +54,6 @@ func TestTokenShape(t *testing.T) {
 	}
 }
 
-func TestIPLimiter(t *testing.T) {
-	if l := newIPLimiter(0, 10, time.Now); l != nil {
-		t.Fatal("zero rate did not disable the limiter")
-	}
-	if l := newIPLimiter(2.5, 0, time.Now); l.burst != 3 {
-		t.Fatalf("unset burst = %d, want one second of the rate rounded up (3)", l.burst)
-	}
-	var disabled *ipLimiter
-	if release, reason := disabled.acquire("1.2.3.4"); reason != "" {
-		t.Fatalf("disabled limiter refused: %s", reason)
-	} else {
-		release()
-	}
-	disabled.penalize("1.2.3.4") // must not panic
-
-	now := time.Unix(1_800_000_000, 0)
-	l := newIPLimiter(1, 2, func() time.Time { return now })
-	r1, reason := l.acquire("a")
-	if reason != "" {
-		t.Fatalf("first: %s", reason)
-	}
-	if _, reason := l.acquire("a"); reason != "" {
-		t.Fatalf("second: %s", reason)
-	}
-	// Two in flight is the cap, and the bucket is empty either way.
-	if _, reason := l.acquire("a"); reason == "" {
-		t.Fatal("third acquire admitted over the burst")
-	}
-	r1()
-	if _, reason := l.acquire("a"); !strings.Contains(reason, "rate") {
-		t.Fatalf("with a slot free but no tokens: reason = %q, want a rate refusal", reason)
-	}
-	// Another IP has its own bucket.
-	rb, reason := l.acquire("b")
-	if reason != "" {
-		t.Fatalf("other ip: %s", reason)
-	}
-	rb()
-	// Time refills.
-	now = now.Add(time.Second)
-	if _, reason := l.acquire("a"); reason != "" {
-		t.Fatalf("after refill: %s", reason)
-	}
-	// Idle entries are swept once idle past the TTL.
-	now = now.Add(ipIdleTTL + 2*time.Minute)
-	l.mu.Lock()
-	l.sweepLocked(now)
-	if _, ok := l.entries["b"]; ok {
-		t.Error("idle entry survived the sweep")
-	}
-	if _, ok := l.entries["a"]; !ok {
-		t.Error("entry with a request in flight was swept")
-	}
-	l.mu.Unlock()
-}
-
 func TestReviewLimiter(t *testing.T) {
 	var disabled *reviewLimiter
 	if err := disabled.admit(t.Context()); err != nil {

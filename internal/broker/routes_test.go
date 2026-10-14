@@ -320,22 +320,6 @@ func TestCredentialTransport(t *testing.T) {
 	}
 }
 
-func TestSourceIP(t *testing.T) {
-	cases := map[string]string{
-		"10.0.0.7:41234":  "10.0.0.7",
-		"[fd00::1]:8080":  "fd00::1",
-		"10.0.0.7":        "10.0.0.7",
-		"@unix-socket-id": "@unix-socket-id",
-	}
-	for remote, want := range cases {
-		r := httptest.NewRequest(http.MethodGet, "/", nil)
-		r.RemoteAddr = remote
-		if got := sourceIP(r); got != want {
-			t.Errorf("sourceIP(%q) = %q, want %q", remote, got, want)
-		}
-	}
-}
-
 func TestReviewLimiterRetryAfter(t *testing.T) {
 	var disabled *reviewLimiter
 	if got := disabled.retryAfter(); got != 1 {
