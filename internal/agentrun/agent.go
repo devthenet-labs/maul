@@ -173,6 +173,7 @@ func (a *Agent) remediate(ctx context.Context, params remediationParams) *envelo
 		ReportPath:        a.cfg.remediationPath(),
 		CommitScriptPath:  a.cfg.commitScript(),
 		PreviousAttempt:   a.cfg.PreviousAttempt,
+		NetworkProfile:    a.cfg.NetworkProfile,
 	})
 	if err != nil {
 		ev.Outcome = envelope.OutcomeRuntimeError

@@ -270,6 +270,10 @@ type RemediatePrompt struct {
 	// PreviousAttempt is the failed remediation this one retries; nil omits
 	// the section.
 	PreviousAttempt *PreviousAttempt
+	// NetworkProfile names the operator network profile the run's pod
+	// carries (a Go module route through the egress proxy); empty, as on
+	// every run without one, keeps the prompt's no-network sentence.
+	NetworkProfile string
 }
 
 // RenderRemediatePrompt renders the remediation prompt.
