@@ -210,15 +210,27 @@ resource "aws_iam_role_policy" "agent_signing" {
   role = aws_iam_role.publisher["agent"].id
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Sid    = "SignAgentImageOnly"
-      Effect = "Allow"
-      Action = [
-        "kms:Sign",
-        "kms:GetPublicKey",
-        "kms:DescribeKey",
-      ]
-      Resource = var.agent_signing_key_arn
-    }]
+    Statement = [
+      {
+        Sid    = "SignAgentImageOnly"
+        Effect = "Allow"
+        Action = [
+          "kms:Sign",
+          "kms:GetPublicKey",
+          "kms:DescribeKey",
+        ]
+        Resource = var.agent_signing_key_arn
+      },
+      {
+        # cosign verify, run before signing (to skip an already-signed
+        # image) and after (to prove the signature), downloads the
+        # signature payload; the publisher policy allows no layer downloads.
+        # The agent repository only.
+        Sid      = "VerifyAgentSignatures"
+        Effect   = "Allow"
+        Action   = ["ecr:GetDownloadUrlForLayer", "ecr:BatchGetImage"]
+        Resource = aws_ecr_repository.this["agent"].arn
+      },
+    ]
   })
 }

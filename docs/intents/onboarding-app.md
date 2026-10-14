@@ -244,8 +244,9 @@ that expires untagged images keeps. Nothing goes to the public transparency log.
 
 1. Create an AWS KMS key with key spec `ECC_NIST_P256` and key usage `SIGN_VERIFY`.
 2. Grant it to the agent publisher role: pass the key's ARN as the app module's `agent_signing_key_arn`. The module
-   grants `kms:Sign`, `kms:GetPublicKey` and `kms:DescribeKey` on that key to the agent role only, and adds
-   `AGENT_SIGNING_KEY` (`awskms:///<key ARN>`) to the dotenv output.
+   grants `kms:Sign`, `kms:GetPublicKey` and `kms:DescribeKey` on that key, plus `ecr:GetDownloadUrlForLayer` on the
+   agent repository (cosign verify reads the signature back), to the agent role only, and adds `AGENT_SIGNING_KEY`
+   (`awskms:///<key ARN>`) to the dotenv output.
 3. Set the repository variables again from the module's output, which now carries `AGENT_SIGNING_KEY`, or set that one
    by hand. Empty leaves signing off; any other value must be an `awskms:///` URI, or the publisher fails closed.
 4. Give the operator the public key for `agent.repositoryImages.cosignPublicKey`:

@@ -134,7 +134,7 @@ variable "tags" {
 }
 
 variable "agent_signing_key_arn" {
-  description = "Optional ARN of an AWS KMS key (key spec ECC_NIST_P256, key usage SIGN_VERIFY) the agent publisher signs the agent image with, using cosign. When set, the agent publisher role, and only it, may use the key (kms:Sign, kms:GetPublicKey, kms:DescribeKey), and github_variables carries AGENT_SIGNING_KEY = awskms:///<this ARN>. Give the key's ARN, not an alias's: IAM grants on the key. Null (the default) signs nothing and changes nothing."
+  description = "Optional ARN of an AWS KMS key (key spec ECC_NIST_P256, key usage SIGN_VERIFY) the agent publisher signs the agent image with, using cosign. When set, the agent publisher role, and only it, may use the key (kms:Sign, kms:GetPublicKey, kms:DescribeKey), plus layer reads on the agent repository so cosign can verify the signature, and github_variables carries AGENT_SIGNING_KEY = awskms:///<this ARN>. Give the key's ARN, not an alias's: IAM grants on the key. Null (the default) signs nothing and changes nothing."
   type        = string
   default     = null
 

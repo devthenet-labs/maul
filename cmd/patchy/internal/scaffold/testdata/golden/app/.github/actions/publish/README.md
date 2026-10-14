@@ -93,7 +93,7 @@ repository's name stays private. The runtime publisher never signs.
 
 1. Create an AWS KMS key with key spec `ECC_NIST_P256` and key usage `SIGN_VERIFY`.
 2. Let the agent publisher role use it: pass the key's ARN to the reference terraform module as
-   `agent_signing_key_arn`. The module grants `kms:Sign`, `kms:GetPublicKey` and `kms:DescribeKey` on that key to the
+   `agent_signing_key_arn`. The module grants `kms:Sign`, `kms:GetPublicKey` and `kms:DescribeKey` on that key, plus `ecr:GetDownloadUrlForLayer` on the agent repository (cosign verify reads the signature back), to the
    agent role only, and adds `AGENT_SIGNING_KEY` to its output.
 3. Set `AGENT_SIGNING_KEY` to the key as cosign names it: `awskms:///<key ARN>`, or `awskms:///alias/<name>` for an
    alias in `AWS_REGION`.
