@@ -66,6 +66,16 @@ description = "run the opt-in load tests (envtest, real binaries, 50k+ findings)
 dir = "{{cwd}}"
 run = "./hack/load.sh"
 
+# The egress proxy's live test: the real go command through the engine
+# against the real proxy.golang.org and sum.golang.org, with a profile Job's
+# go environment verbatim. Opt-in (it needs the internet), and run locally
+# before an egressproxy change merges and before a release.
+[live-go]
+description = "run the egress proxy against the real Go module proxy with the real go command"
+dir = "{{cwd}}"
+env = { PATCHY_LIVE_GO = "1" }
+run = "go test -count=1 -v -run TestLiveGo ./internal/egressproxy"
+
 # Tests that need a real API server (CRD schema validation, controller
 # integration): setup-envtest provisions kube-apiserver/etcd, then the suites
 # that skip without KUBEBUILDER_ASSETS run for real.
