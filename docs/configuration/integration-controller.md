@@ -16,11 +16,12 @@ integration-controller serve --namespace patchy --accumulation-window 1h
 
 The [shared flags](index.md#shared-flags-every-controller), plus:
 
-| Flag                       | Env                             | Default | Purpose                                                                                       |
-| -------------------------- | ------------------------------- | ------- | --------------------------------------------------------------------------------------------- |
-| `--accumulation-window`    | `PATCHY_ACCUMULATION_WINDOW`    | `1h`    | How long alerts of one finding family accumulate into a single Finding                        |
-| `--projection-concurrency` | `PATCHY_PROJECTION_CONCURRENCY` | `2`     | Findings projected to tracking issues in parallel (each projection may spend GitHub requests) |
-| `--repository-images`      | `PATCHY_REPOSITORY_IMAGES`      | `false` | Project the runner-image comment onto tracking issues; reads and watches Repositories         |
+| Flag                          | Env                                | Default | Purpose                                                                                       |
+| ----------------------------- | ---------------------------------- | ------- | --------------------------------------------------------------------------------------------- |
+| `--accumulation-window`       | `PATCHY_ACCUMULATION_WINDOW`       | `1h`    | How long alerts of one finding family accumulate into a single Finding                        |
+| `--projection-concurrency`    | `PATCHY_PROJECTION_CONCURRENCY`    | `2`     | Findings projected to tracking issues in parallel (each projection may spend GitHub requests) |
+| `--repository-images`         | `PATCHY_REPOSITORY_IMAGES`         | `false` | Project the runner-image comment onto tracking issues; reads and watches Repositories         |
+| `--tracking-recheck-interval` | `PATCHY_TRACKING_RECHECK_INTERVAL` | `6h`    | How often a tracking issue GitHub refused for good (Issues disabled) is asked for again       |
 
 `--repository-images` is the integration-controller's half of
 [repository-declared runner images](../integrations/agent-images.md): turn it on together with source-controller's. It
@@ -69,9 +70,11 @@ never fatal: the reconcile loops are the retry mechanism, and the webhook path o
   comment, notice) is first confirmed against the API server rather than the controller's cache, and recorded before any
   follow-up that can fail (assignment, closure), so a projection never posts the same thing twice. A repository with
   GitHub Issues turned off answers the issue's creation with 410: the Finding records the `TrackingUnavailable`
-  condition (reason `IssuesDisabled`, naming the repository) and the projection asks again only every 6 hours instead of
-  retrying on the error backoff, opening the issue (and removing the condition) once Issues are back on. Only the issue
-  waits; the Finding moves through the pipeline as it would with no tracker.
+  condition (reason `IssuesDisabled`, naming the repository) and the projection asks again only every
+  `--tracking-recheck-interval` (6 hours) instead of retrying on the error backoff, or on the Finding's next reconcile
+  once the repository its issue belongs in has changed (a new `spec.trackingRef`, or a new fallback repository), opening
+  the issue (and removing the condition) once Issues are back on. Only the issue waits; the Finding moves through the
+  pipeline as it would with no tracker.
 - **Runner-image comment** — with `--repository-images`, one sticky comment (headed `<!-- patchy:runner-image -->`,
   edited in place) tells the repository owner what patchy did with the agent image the repository declared: which file
   declared which image and the digest it was pinned to; or why the declaration was rejected or the devcontainer.json not

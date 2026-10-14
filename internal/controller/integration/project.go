@@ -281,8 +281,9 @@ func (r *FindingReconciler) project(ctx context.Context, fnd *v1alpha1.Finding) 
 	}
 	if fnd.Status.Tracking == nil {
 		// Refused for good last time: ask again only once the re-check is
-		// due, not on every event the finding's own progress raises.
-		if wait := r.trackingWait(fnd); wait > 0 {
+		// due, not on every event the finding's own progress raises, unless
+		// the issue now belongs in another repository.
+		if wait := r.trackingWait(fnd, repo); wait > 0 {
 			return wait, nil
 		}
 	}
@@ -315,10 +316,15 @@ func (r *FindingReconciler) project(ctx context.Context, fnd *v1alpha1.Finding) 
 
 // trackingWait is how long the tracking issue's re-check is still off: the
 // rest of the interval since the forge last refused it for good
-// (TrackingUnavailable), or 0 when it is due or was never refused.
-func (r *FindingReconciler) trackingWait(fnd *v1alpha1.Finding) time.Duration {
+// (TrackingUnavailable), or 0 when it is due, was never refused, or was
+// refused for another repository than repo (the tracking reference or the
+// fallback repository moved since) or under another interval. The condition's
+// message is compared whole: markTrackingUnavailable writes it from exactly
+// these two values, so any difference means the refusal is not this one.
+func (r *FindingReconciler) trackingWait(fnd *v1alpha1.Finding, repo ghclient.Repo) time.Duration {
 	cond := meta.FindStatusCondition(fnd.Status.Conditions, v1alpha1.ConditionTrackingUnavailable)
-	if cond == nil || cond.Status != metav1.ConditionTrue {
+	if cond == nil || cond.Status != metav1.ConditionTrue ||
+		cond.Message != trackingUnavailableMessage(repo, r.trackingRecheck()) {
 		return 0
 	}
 	return max(cond.LastTransitionTime.Add(r.trackingRecheck()).Sub(r.now()), 0)
@@ -352,11 +358,10 @@ func (r *FindingReconciler) markTrackingUnavailable(
 		// the forge last said no, the re-check's starting point.
 		meta.RemoveStatusCondition(&cur.Status.Conditions, v1alpha1.ConditionTrackingUnavailable)
 		meta.SetStatusCondition(&cur.Status.Conditions, metav1.Condition{
-			Type:   v1alpha1.ConditionTrackingUnavailable,
-			Status: metav1.ConditionTrue,
-			Reason: v1alpha1.ReasonIssuesDisabled,
-			Message: fmt.Sprintf("GitHub refuses issues in %s (Issues are disabled); re-checked every %s",
-				repo, wait),
+			Type:               v1alpha1.ConditionTrackingUnavailable,
+			Status:             metav1.ConditionTrue,
+			Reason:             v1alpha1.ReasonIssuesDisabled,
+			Message:            trackingUnavailableMessage(repo, wait),
 			ObservedGeneration: cur.Generation,
 			LastTransitionTime: metav1.NewTime(r.now()),
 		})
@@ -370,6 +375,14 @@ func (r *FindingReconciler) markTrackingUnavailable(
 		return 0, fmt.Errorf("record tracking unavailable: %w", err)
 	}
 	return wait, nil
+}
+
+// trackingUnavailableMessage is the TrackingUnavailable condition's message
+// for a refusal in repo, re-checked every wait. trackingWait matches it
+// exactly to tell whether a recorded refusal is for the repository the
+// finding's issue belongs in now.
+func trackingUnavailableMessage(repo ghclient.Repo, wait time.Duration) string {
+	return fmt.Sprintf("GitHub refuses issues in %s (Issues are disabled); re-checked every %s", repo, wait)
 }
 
 // trackingRepo picks where the finding's issue lives: its own repository, or

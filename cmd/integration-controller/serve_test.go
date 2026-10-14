@@ -50,6 +50,9 @@ func TestServeFlagDefaults(t *testing.T) {
 	if got := opts.Duration("stale-recheck-interval"); got != integration.DefaultStaleRecheck {
 		t.Errorf("stale-recheck-interval = %v, want %v", got, integration.DefaultStaleRecheck)
 	}
+	if got := opts.Duration("tracking-recheck-interval"); got != integration.DefaultTrackingRecheck {
+		t.Errorf("tracking-recheck-interval = %v, want %v", got, integration.DefaultTrackingRecheck)
+	}
 	if got := opts.String("google-oidc-issuer"); got != "" {
 		t.Errorf("google-oidc-issuer = %q, want empty (Google)", got)
 	}
