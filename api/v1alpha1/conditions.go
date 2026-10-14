@@ -42,6 +42,17 @@ const (
 	// count toward MaxAttempts. The collector sets it from the init's exit code alone,
 	// never from anything the pod printed, so a run cannot claim it.
 	ConditionSandboxRefused = "SandboxRefused"
+	// ConditionDefaultImageHeld marks a failed Remediation that was never
+	// launched: its repository declares an accepted agent image, this launch
+	// could not run it (repository images switched off, the sandbox breaker
+	// tripped, or a revival), and patchy's default image carries none of the
+	// repository's toolchain, so the finding was handed to a human instead of
+	// remediated untested. The agent never ran, so the attempt does not count
+	// toward MaxAttempts, and a later launch for the same finding (only an
+	// approval can bring a handed-off finding back) runs the default image:
+	// the approver accepted an untested fix. Set by remediation-controller
+	// alone, never from anything a pod printed.
+	ConditionDefaultImageHeld = "DefaultImageHeld"
 	// ConditionCommitAncestry reports, on a github Integration, whether its
 	// credential could read commit ancestry the last time ingest needed it:
 	// GitHub's compare API, which requires the Contents (read) permission.

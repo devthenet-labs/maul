@@ -164,7 +164,8 @@ func TestGoldens(t *testing.T) {
 		render func() (string, error)
 	}{
 		{"finding_issue.md", func() (string, error) { return RenderFindingIssue(testFinding()) }},
-		{"pr_body.md", func() (string, error) { return PRBody(123, "remediation report here") }},
+		{"pr_body.md", func() (string, error) { return PRBody(123, "remediation report here", false) }},
+		{"pr_body_untested.md", func() (string, error) { return PRBody(123, "remediation report here", true) }},
 		{"prompt_investigate.md", func() (string, error) {
 			return RenderInvestigatePrompt(InvestigatePrompt{
 				IssuePath:         "/workspace/input/issue.md",

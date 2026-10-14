@@ -340,7 +340,8 @@ func (r *SpawnerReconciler) spawn(ctx context.Context, fnd *v1alpha1.Finding) er
 
 // previousAttempt is what the next attempt is told about the one before it:
 // the latest earlier Remediation whose agent actually ran — one the sandbox
-// probe refused never reached its agent, so it is passed over — when that
+// probe refused, or one the launch held rather than run on the default
+// image, never reached its agent, so it is passed over — when that
 // run failed (an automatic retry, or a human retry after exhaustion), or when
 // it succeeded and its pull request was then closed unmerged (a human retry
 // of the review). Nil for a first attempt, a revival after a hand-off, or a
@@ -358,7 +359,7 @@ func (r *SpawnerReconciler) previousAttempt(
 		switch {
 		case rem.Spec.FindingRef.UID != fnd.UID:
 			return nil, nil // an earlier Finding's run under the same name
-		case runnerguard.Refused(rem.Status.Conditions):
+		case runnerguard.Refused(rem.Status.Conditions), runnerguard.Held(rem.Status.Conditions):
 			continue
 		case rem.Status.Phase == v1alpha1.RunFailed:
 			return agentresult.PreviousAttempt(rem.Name, rem.Spec.Attempt, rem.Status.Stage), nil

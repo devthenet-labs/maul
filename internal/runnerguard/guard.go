@@ -112,7 +112,9 @@ func (g Guard) PinFor(spec *jobs.Spec, repo *v1alpha1.Repository) string {
 // Such a finding runs on the default image from then on: whatever sent it
 // to a human (an incompatible image, an ignore verdict held because the run
 // used the repository's image, exhausted attempts) would otherwise be
-// retried in the same environment.
+// retried in the same environment. A remediation launch still holds such a
+// finding for a human (HeldCondition) until one accepts an untested run on
+// the default image; an investigation, read-only, just runs there.
 func Revived(fnd *v1alpha1.Finding) bool {
 	for _, pt := range fnd.Status.PhaseTimes {
 		if pt.Phase == v1alpha1.PhaseHandedOff || pt.Phase == v1alpha1.PhaseFailed {
@@ -215,4 +217,36 @@ func Refused(conds []metav1.Condition) bool {
 func SandboxRefused(st jobs.Status) bool {
 	return st.RunnerImageSource == v1alpha1.RunnerImageSourceRepository &&
 		st.InitExitCode != nil && *st.InitExitCode == jobs.ExitSandboxUnenforced
+}
+
+// HeldReason leads the condition a remediation launch records when it holds
+// a finding instead of falling back to the default image.
+const HeldReason = "RepositoryImageUnavailable"
+
+// HeldDetail is why a launch held a finding whose repository declares an
+// accepted image this launch cannot run; skipped is Pin's reason.
+func HeldDetail(skipped string) string {
+	return "the repository declares an agent image but this run cannot use it (" + skipped + "), and " +
+		"patchy's default image carries none of the repository's toolchain, so a fix there could not be " +
+		"built or tested; approve the finding to remediate it on the default image anyway, untested"
+}
+
+// HeldCondition is the condition a remediation launch sets on a run it held
+// (v1alpha1.ConditionDefaultImageHeld); the run's attempt then does not
+// count toward MaxAttempts, and a later launch for the finding runs the
+// default image.
+func HeldCondition(generation int64, skipped string) metav1.Condition {
+	return metav1.Condition{
+		Type:               v1alpha1.ConditionDefaultImageHeld,
+		Status:             metav1.ConditionTrue,
+		Reason:             HeldReason,
+		Message:            HeldDetail(skipped),
+		ObservedGeneration: generation,
+	}
+}
+
+// Held reports whether a run's conditions record that its launch was held
+// (HeldCondition) rather than run on the default image.
+func Held(conds []metav1.Condition) bool {
+	return meta.IsStatusConditionTrue(conds, v1alpha1.ConditionDefaultImageHeld)
 }

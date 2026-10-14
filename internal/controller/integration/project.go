@@ -884,6 +884,14 @@ func phaseLabel(p v1alpha1.Phase) string {
 
 // noticeReason explains a hand-off from the finding's state.
 func noticeReason(fnd *v1alpha1.Finding) string {
+	// remediation-controller held the run rather than remediate on the
+	// default image, which carries none of the repository's toolchain.
+	if rem := fnd.Status.Remediation; rem != nil && rem.Outcome == v1alpha1.OutcomeDefaultImageHeld {
+		return " (the repository declares an agent image, but this run could not use it, and patchy's default " +
+			"image cannot build or test a fix. Comment `" + command.Prefix + " " + action.VerbApprove +
+			"` to have patchy remediate it on the default image anyway: the pull request will be untested and " +
+			"will say so)"
+	}
 	if inv := fnd.Status.Investigation; inv != nil && inv.Recommendation == v1alpha1.RecommendationManual {
 		return " (investigation recommended a manual fix)"
 	}

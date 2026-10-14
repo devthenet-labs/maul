@@ -73,6 +73,38 @@ func TestProjectHeldIgnoreNotice(t *testing.T) {
 	}
 }
 
+// TestProjectDefaultImageHeldNotice: a finding remediation-controller held
+// rather than remediate on the default image says so on its tracking issue,
+// with what a human can do about it: approve an untested run.
+func TestProjectDefaultImageHeldNotice(t *testing.T) {
+	fnd := projectable(v1alpha1.PhaseHandedOff)
+	fnd.Status.Tracking = &v1alpha1.TrackingStatus{
+		Integration: "gh", IssueNumber: 7, URL: "https://github.com/acme/orders/issues/7", State: "open",
+	}
+	fnd.Status.Investigation = &v1alpha1.InvestigationSummary{
+		Name: "finding-aa-1-inv-1", Attempt: 1, Outcome: "ok", Recommendation: v1alpha1.RecommendationRemediate,
+	}
+	fnd.Status.Remediation = &v1alpha1.RemediationSummary{
+		Name: "finding-aa-1-rem-1", Attempt: 1, Outcome: v1alpha1.OutcomeDefaultImageHeld,
+	}
+	tracker := newFakeTracker()
+	tracker.issues[7] = &ghclient.Issue{Number: 7, State: "open"}
+	r, _ := newProjector(t, tracker, testIntegration(), fnd)
+	reconcileFinding(t, r)
+
+	found := false
+	for _, cm := range tracker.comments {
+		if strings.Contains(cm, "handed this finding to its human owners") &&
+			strings.Contains(cm, "declares an agent image") && strings.Contains(cm, "`/patchy approve`") &&
+			strings.Contains(cm, "untested") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("comments = %q, want the default-image hold notice", tracker.comments)
+	}
+}
+
 // TestClosingHeldFindingMakesNoResolverCall: a human closing the tracking
 // issue of a held ignore changes nothing — HandedOff is terminal — and the
 // projection that follows writes no dismissal back to the source, because
