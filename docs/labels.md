@@ -111,7 +111,10 @@ Finding **while** enhancement runs, so the window close cannot be a phase.
 | `RolledUpTotal` / `…Repository` / `…Harness` / `…Model` | Finding                    | Per-scope rollup accounting markers (exactly-once, finalizer-backed)                                        |
 
 Findings parked with `ForgeResolved: False` are re-queued automatically when `Forge` resources change. A finding can
-also be paused by a human: `spec.suspend: true` halts pipeline progress until cleared.
+also be paused by a human: `spec.suspend: true` halts pipeline progress until cleared. A suspended finding accepts no
+new alerts: a new alert of its family opens a successor generation (its own tracking issue, linked `successor-of` the
+suspended one), exactly as for a finding already past accumulation, so nothing is absorbed where nobody sees it. An
+alert the suspended finding already holds stays deduplicated there.
 
 ## Watching it
 
