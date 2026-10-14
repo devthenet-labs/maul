@@ -109,8 +109,8 @@ func (in *Ingestor) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 // Ingest folds one scanner finding into the cluster: append its alert to the
-// live pre-investigation Finding of its family, or create the next
-// generation.
+// live, unsuspended pre-investigation Finding of its family, or create the
+// next generation.
 func (in *Ingestor) Ingest(ctx context.Context, integ *v1alpha1.Integration, f source.Finding) error {
 	_, err := in.ingest(ctx, integ, f, false)
 	return err
@@ -174,17 +174,30 @@ func (in *Ingestor) ingest(
 			append(attrs, slog.Any("error", err))...)
 	}
 
-	// Fold into a live pre-investigation generation when one exists.
+	// An alert a suspended generation already holds is a redelivery: it
+	// stays deduplicated there rather than opening (or folding into) a
+	// successor.
+	id := alertID(f)
+	for i := range family.Items {
+		cur := &family.Items[i]
+		if cur.DeletionTimestamp.IsZero() && cur.Spec.Suspend && foldable(cur.Status.Phase) && holdsAlert(cur, id) {
+			return false, nil
+		}
+	}
+
+	// Fold into a live, unsuspended pre-investigation generation when one
+	// exists.
 	maxGen := 0
 	for i := range family.Items {
 		cur := &family.Items[i]
 		if gen := generationOf(cur.Name); gen > maxGen {
 			maxGen = gen
 		}
-		if cur.DeletionTimestamp.IsZero() && foldable(cur.Status.Phase) {
+		if cur.DeletionTimestamp.IsZero() && accepting(cur) {
 			err := in.fold(ctx, cur.Name, f)
 			if err == errRaced {
-				// The live generation advanced mid-fold; open its successor.
+				// The live generation advanced (or was suspended) mid-fold;
+				// open its successor.
 				gen := generationOf(cur.Name)
 				return false, in.create(ctx, integ, f, repoURL, hash, gen+1, cur.Name)
 			}
@@ -342,8 +355,24 @@ func toCloudResource(cr *source.CloudResource) *v1alpha1.FindingCloudResource {
 	}
 }
 
-// errRaced reports a fold target that left the foldable phases mid-fold.
-var errRaced = fmt.Errorf("finding advanced past accumulation")
+// errRaced reports a fold target that stopped accepting alerts mid-fold:
+// it left the foldable phases, or a human suspended it.
+var errRaced = fmt.Errorf("finding no longer accepts alerts")
+
+// accepting reports whether f still takes new alerts: a foldable phase and
+// not suspended. A suspended generation is frozen like an admitted, held or
+// terminal one — nothing advances it until a human resumes it, so an alert
+// folded in would be neither investigated nor surfaced. Its family's new
+// alerts open a successor generation instead: its own tracking issue and
+// status-page row, linked successor-of the suspended one.
+func accepting(f *v1alpha1.Finding) bool {
+	return !f.Spec.Suspend && foldable(f.Status.Phase)
+}
+
+// holdsAlert reports whether f already carries alert id.
+func holdsAlert(f *v1alpha1.Finding, id string) bool {
+	return slices.ContainsFunc(f.Spec.Alerts, func(a v1alpha1.Alert) bool { return a.ID == id })
+}
 
 // foldable phases still accept new alerts: the accumulation window overlaps
 // enhancement, and an aged window only closes via the AccumulationComplete
@@ -396,8 +425,11 @@ func (in *Ingestor) fold(ctx context.Context, name string, f source.Finding) err
 		if !foldable(cur.Status.Phase) {
 			return errRaced
 		}
-		if slices.ContainsFunc(cur.Spec.Alerts, func(a v1alpha1.Alert) bool { return a.ID == alert.ID }) {
+		if holdsAlert(&cur, alert.ID) {
 			return nil
+		}
+		if cur.Spec.Suspend {
+			return errRaced
 		}
 		if len(cur.Spec.Alerts) >= maxAlerts {
 			cur.Spec.OverflowAlerts++

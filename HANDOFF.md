@@ -1161,7 +1161,10 @@ already-pushed commits (or nothing) and can be removed once #51 is merged.
   unfixed alert.
 - Done in 0.12.13 (#87): the security remediation prompt now requires committing the regression test it writes; the
   0.12.13 gate's PR #72 carried one. Watch that it holds across rule types.
-- `finding-1678e4a376-5` (reflected XSS, suspended) absorbed real alert 15 in `shout.go`; resume it to get it fixed.
+- `finding-1678e4a376-5` (reflected XSS, suspended) absorbed real alert 15 in `shout.go` while it sat suspended in
+  `Enhanced` (2026-09-23 to 2026-10-14; it is now `HandedOff`, issue #24 closed). Fixed in ingest: a suspended finding
+  no longer takes new alerts, they open a successor generation; it is live once the release carrying the fix is
+  deployed.
 - Findings flow still uses the unscoped installation client for pins and PR creation (intents never do).
 - Command replies cost ~2 GitHub calls per comment from anyone on public repos; a per-actor rate limit may be needed.
 - `/patchy approve` was exercised live on held Finding `finding-7b91e0ec7e-1` during the 0.12.1 gate; the legacy
