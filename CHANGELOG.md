@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.12.30](https://github.com/devthenet-labs/patchy/compare/v0.12.29...v0.12.30) (2026-10-14)
+
+
+### Features
+
+* **remediation:** have the remediation agent prove the bug before fixing it ([#180](https://github.com/devthenet-labs/patchy/issues/180)) ([16b2a72](https://github.com/devthenet-labs/patchy/commit/16b2a728f7ea531fd4738120b7fe0a34ecdf1e2c))
+
+
+### Bug Fixes
+
+* **remediation:** sanitise agent text in Finding PR bodies, report comments and commits ([#182](https://github.com/devthenet-labs/patchy/issues/182)) ([52b4976](https://github.com/devthenet-labs/patchy/commit/52b49760e02145809e23ef3974a498c9bb3f8f62))
+
 ## [0.12.29](https://github.com/devthenet-labs/patchy/compare/v0.12.28...v0.12.29) (2026-10-14)
 
 
