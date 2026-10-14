@@ -93,7 +93,7 @@ passes every check.
 Follow-ups:
 
 - Consider a cross-slot replay test once two slots are live.
-- `hack/e2e.sh` should set an explicit `-timeout`: the suite runs close to Go's 10-minute default.
+- Done: `hack/e2e.sh` sets an explicit `-timeout 30m`; the suite runs close to Go's 10-minute default.
 
 Still with the owner:
 
@@ -198,8 +198,8 @@ Switch-on, in order:
 - A non-viewer's 403 page; that needs a second GitHub account.
 - Replaying a session across slots; only slot 0 was live.
 
-The e2e suite now runs close to Go's 10-minute default test timeout (579–597 s on the owner's machine). `hack/e2e.sh`
-should set an explicit `-timeout`.
+The e2e suite now runs close to Go's 10-minute default test timeout (579–597 s on the owner's machine), so `hack/e2e.sh`
+sets an explicit `-timeout 30m` (a later `-timeout` passed after `--` wins).
 
 **Still waiting on the owner:**
 
