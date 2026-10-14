@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.12.28](https://github.com/devthenet-labs/patchy/compare/v0.12.27...v0.12.28) (2026-10-14)
+
+
+### Features
+
+* **scaffold:** sign the published agent image with cosign when configured ([#169](https://github.com/devthenet-labs/patchy/issues/169)) ([683ca52](https://github.com/devthenet-labs/patchy/commit/683ca522b8d98a416b80c50c07cbed6eea4ec4e8))
+* **terraform:** create or pass the agent signing key in the platform module ([#173](https://github.com/devthenet-labs/patchy/issues/173)) ([a355edc](https://github.com/devthenet-labs/patchy/commit/a355edc2540e5a3c4481953def75f5314a30eedd))
+
+
+### Bug Fixes
+
+* **terraform:** let the agent publisher read back its own signature ([#171](https://github.com/devthenet-labs/patchy/issues/171)) ([90fbaaa](https://github.com/devthenet-labs/patchy/commit/90fbaaaa491b9f93452a695d92c75ae15b9355f1))
+
 ## [0.12.27](https://github.com/devthenet-labs/patchy/compare/v0.12.26...v0.12.27) (2026-10-09)
 
 
