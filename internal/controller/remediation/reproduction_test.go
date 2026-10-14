@@ -19,23 +19,32 @@ import (
 // the bug reaches the pull request body — stated plainly, or as the warning
 // that patchy could not reproduce it — and is recorded on the Remediation's
 // status, where an agent that said nothing (an older pod, a report without
-// the block) leaves nothing.
+// the block) leaves nothing. A reproduction claimed on patchy's default
+// image, which can run none of the repository's tests, still gets the
+// warning in the body; the status keeps the agent's account as reported.
 func TestRemediationReproduction(t *testing.T) {
 	for _, tt := range []struct {
-		name        string
-		repr        *envelope.Reproduction
-		wantWarning bool
+		name         string
+		defaultImage bool
+		repr         *envelope.Reproduction
+		wantWarning  bool
 	}{
-		{"reproduced", &envelope.Reproduction{Reproduced: true, Command: "go test ./...",
+		{"reproduced", false, &envelope.Reproduction{Reproduced: true, Command: "go test ./...",
 			Before: "--- FAIL: TestEscapes", After: "ok"}, false},
-		{"not reproduced", &envelope.Reproduction{Reproduced: false}, true},
-		{"not reported", nil, true},
+		{"not reproduced", false, &envelope.Reproduction{Reproduced: false}, true},
+		{"not reported", false, nil, true},
+		{"reproduced on the default image", true, &envelope.Reproduction{Reproduced: true, Command: "go test ./...",
+			Before: "--- FAIL: TestEscapes", After: "ok"}, true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			events := crdRemediationEvent(true)
 			events[0].Remediation.Reproduction = tt.repr
 			fw := &fakeForge{}
-			r, c := newRemediation(t, &fakeCRRunner{done: true, events: events}, fw, runningRemediation()...)
+			objs := withImage(acceptedImage(), v1alpha1.RunnerImageSourceRepository)
+			if tt.defaultImage {
+				objs = runningRemediation()
+			}
+			r, c := newRemediation(t, &fakeCRRunner{done: true, events: events}, fw, objs...)
 			remOnce(t, r, "finding-aa-1-rem-1")
 
 			if len(fw.bodies) != 1 {

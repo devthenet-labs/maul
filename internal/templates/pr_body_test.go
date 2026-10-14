@@ -70,17 +70,25 @@ var plainReferences = []*regexp.Regexp{
 // reported, and warns whenever it does not show a reproduction — said no,
 // or said nothing.
 func TestPRBodySaysWhetherReproduced(t *testing.T) {
+	claimed := &v1alpha1.Reproduction{Reproduced: true, Command: "make test", Before: "FAIL", After: "ok"}
 	for _, tt := range []struct {
 		name        string
+		untested    bool
 		repr        *v1alpha1.Reproduction
 		wantWarning bool
 	}{
-		{"reproduced", &v1alpha1.Reproduction{Reproduced: true, Command: "make test", Before: "FAIL", After: "ok"}, false},
-		{"not reproduced", &v1alpha1.Reproduction{}, true},
-		{"not reported", nil, true},
+		{"reproduced", false, claimed, false},
+		{"not reproduced", false, &v1alpha1.Reproduction{}, true},
+		{"not reported", false, nil, true},
+		// The default image runs none of the repository's tests, so a
+		// claimed reproduction there is not accepted: the body must not say
+		// both "nothing was compiled or run" and "the agent saw it fail".
+		{"reproduced on the default image", true, claimed, true},
+		{"not reproduced on the default image", true, &v1alpha1.Reproduction{}, true},
+		{"not reported on the default image", true, nil, true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			body, err := PRBody(1, "report", false, tt.repr)
+			body, err := PRBody(1, "report", tt.untested, tt.repr)
 			if err != nil {
 				t.Fatalf("PRBody() error = %v", err)
 			}

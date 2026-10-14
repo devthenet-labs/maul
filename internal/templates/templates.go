@@ -52,7 +52,11 @@ const NotReproducedMarker = "patchy could not reproduce this bug before fixing i
 // agent's claim: that the agent reports it reproduced the bug, with the
 // command and the before and after excerpts; or, when the agent says it did
 // not or the report records nothing (nil), a warning that patchy could not
-// reproduce the bug before fixing it.
+// reproduce the bug before fixing it. On an untested run a claimed
+// reproduction is not accepted: the default image cannot run the
+// repository's tests, so the body carries the same warning, with the
+// agent's account quoted as unverified, rather than contradict its own
+// "nothing was compiled or run".
 //
 // The evidence is agent text, so it is sanitised for the markdown reading
 // (the command inline, each excerpt as a code block no line of it can

@@ -60,8 +60,9 @@ change.
 
 Every remediation pull request also says whether the agent reports reproducing the bug: that its regression test failed
 on the unfixed code and passes with the fix, with the command and short output excerpts it quoted, or a warning that
-patchy could not reproduce the bug before fixing it. The reproduction is self-reported (patchy runs no test itself) and
-is recorded on the Remediation's `status.reproduction`; see
+patchy could not reproduce the bug before fixing it. On a default-image run a claimed reproduction gets that warning
+too, since that image cannot run the repository's tests. The reproduction is self-reported (patchy runs no test itself)
+and is recorded on the Remediation's `status.reproduction`; see
 [How it works](../how-it-works.md#7-remediation-in-priority-order).
 
 | Flag                        | Env                              | Default | Purpose                                                                                                                                   |

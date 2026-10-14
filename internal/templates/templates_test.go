@@ -176,6 +176,14 @@ func TestGoldens(t *testing.T) {
 				After:      "ok  \texample.com/app/internal/render\t0.012s",
 			})
 		}},
+		{"pr_body_untested_reproduced.md", func() (string, error) {
+			return PRBody(123, "remediation report here", true, &v1alpha1.Reproduction{
+				Reproduced: true,
+				Command:    "go test ./internal/render -run TestEscapesName",
+				Before:     "--- FAIL: TestEscapesName (0.00s)\nFAIL",
+				After:      "ok  \texample.com/app/internal/render\t0.012s",
+			})
+		}},
 		{"pr_body_not_reproduced.md", func() (string, error) {
 			return PRBody(123, "remediation report here", false, &v1alpha1.Reproduction{
 				Command: "go test ./internal/render -run TestEscapesName",
