@@ -7,7 +7,14 @@
 > documentation values `111122223333` and `203.0.113.10/32`. The real ones are in terraform-devthenet's `k8s/` values
 > (private).
 
-## Current checkpoint — 2026-10-13: agent DNS off, signed agent images required
+## Current checkpoint — 2026-10-14: agent DNS off, signed agent images required, and 0.12.28
+
+**0.12.28 is live** (Helm patchy rev 79, patchy-config rev 48; rollback 78 / 47). It ships the signing support for other
+installs: the `patchy init app` publisher signs (#169), the app module grants the key and the layer read `cosign verify`
+needs (#171), and the platform module creates or passes the key (`create_agent_signing_key`, `agent_signing_key_arn`,
+output `agent_signing`; #173). Gate: finding-514becf18f-29, image verified, then patchy-target#103 merged and the
+Finding Remediated. The stale September tracking issues on patchy-target are closed; their three Findings are HandedOff,
+and their alerts are untouched.
 
 **Agent pods now have no DNS resolver, and every repository-declared agent image must carry a cosign signature.** Both
 ship as configuration on 0.12.27 and were gated live together. Since 2026-10-12 the egress broker has authenticated with
@@ -49,7 +56,6 @@ Decided: the public fork's history keeps the site values. GitHub keeps every pul
 
 Follow-ups:
 
-- The platform module's `apps` map does not pass `agent_signing_key_arn` through yet.
 - overdub's `studio-test.js` "transport where it is" check is flaky (it failed twice on a `.github`-only change, then
   passed).
 
