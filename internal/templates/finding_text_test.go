@@ -108,6 +108,26 @@ func TestRemediationCommitMessageIsInert(t *testing.T) {
 	golden(t, "remediation_commit_hostile.txt", msg)
 }
 
+// TestPRBodyFallbackIsPatchyOnly: when PRBody cannot render, the body patchy
+// opens the pull request with is its own words: the finding's tracking issue
+// as its one reference, nothing else live, so a render failure can never be
+// a way to post the agent's report raw.
+func TestPRBodyFallbackIsPatchyOnly(t *testing.T) {
+	for _, issue := range []int{1, 123, 99999} {
+		body := PRBodyFallback(issue)
+		first, rest, _ := strings.Cut(body, "\n")
+		if want := fmt.Sprintf("Fixes #%d", issue); first != want {
+			t.Fatalf("first line = %q, want %q", first, want)
+		}
+		if msg := checkSanitized(rest); msg != "" {
+			t.Errorf("%s\n%s", msg, body)
+		}
+		if msg := checkPlainText(rest, -1); msg != "" {
+			t.Errorf("as plain text: %s\n%s", msg, body)
+		}
+	}
+}
+
 // legibleReport is an ordinary report: its structure must survive.
 const legibleReport = "## Root cause\n\nThe handler echoes `name` unescaped.\n\n" +
 	"### Fix\n\n- escape with `html.EscapeString`\n- add a regression test\n\n" +
