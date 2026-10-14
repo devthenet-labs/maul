@@ -7,7 +7,53 @@
 > documentation values `111122223333` and `203.0.113.10/32`. The real ones are in terraform-devthenet's `k8s/` values
 > (private).
 
-## Current checkpoint — 2026-10-08 (evening): previews public behind sign-in, and 0.12.26
+## Current checkpoint — 2026-10-13: agent DNS off, signed agent images required
+
+**Agent pods now have no DNS resolver, and every repository-declared agent image must carry a cosign signature.** Both
+ship as configuration on 0.12.27 and were gated live together. Since 2026-10-12 the egress broker has authenticated with
+the owner's Claude subscription (`egressBroker.anthropicAuth: token`), not an API key.
+
+- Live on devthenet-dev: Helm patchy rev 78 (0.12.27). Rollbacks:
+  - rev 77: DNS off, unsigned images still admitted;
+  - rev 76: before both.
+
+  Undo DNS by re-applying the `patchy-agents` `allow-auto-mode-dns` policy with `podSelector: {}` first, then rolling
+  back.
+
+- **Agent DNS** (`agent.networkPolicy.dns: none`, terraform-devthenet #50). The Auto Mode DNS allow policy in
+  `patchy-agents` now selects every pod except `app.kubernetes.io/name=patchy-agent`, so it cannot reopen what the chart
+  closes. A probe from inside a live investigation pod found:
+  - `example.com` does not resolve;
+  - the broker resolves from the hosts file;
+  - a query sent straight to the cluster DNS address times out;
+  - the broker is reachable.
+- **Signed agent images** (`repositoryImages.cosignPublicKey`, `allowUnsigned: false`; terraform-devthenet #51-#53).
+  - An ECC P-256 KMS key signs; only the six agent publisher roles may use it, and the private key never leaves KMS.
+  - Signatures are cosign's legacy `sha256-<digest>.sig` tag with no transparency-log upload. A tag survives ECR's
+    "expire untagged" lifecycle rule, which an untagged OCI referrer might not.
+  - The six declared images were signed by hand; each app's publisher now signs new ones. #169 adds this to the
+    `patchy init app` scaffold and the app module. #171 grants the layer read that `cosign verify` needs: the first
+    signed publish signed its image, then failed to read it back.
+  - `patchy check image --cosign-key` passes the signed image and fails an older unsigned one.
+- **Gate:**
+  - A Finding (finding-514becf18f-27) ran with DNS off: PR patchy-target#99 merged, Remediated. Broker calls were 200,
+    apart from the two known `HEAD /api/hello` probes.
+  - After the switch, finding-514becf18f-28's Repository pinned its image with `verified: true`. Investigation and
+    remediation ran in that image, and patchy-target#101 merged → Remediated.
+  - Intent intents#26: a plan (default image) and a build (preview-demo's signed image), then patchy-preview-demo#20.
+    The preview was Ready behind sign-in; merging moved the intent to Merged, closed the issue and tore the preview
+    down.
+
+Decided: the public fork's history keeps the site values. GitHub keeps every pull request's commits under
+`refs/pull/*/head`, so rewriting `main` could not remove them. The upstream advisory is still unsent.
+
+Follow-ups:
+
+- The platform module's `apps` map does not pass `agent_signing_key_arn` through yet.
+- overdub's `studio-test.js` "transport where it is" check is flaky (it failed twice on a `.github`-only change, then
+  passed).
+
+## Earlier checkpoint — 2026-10-08 (evening): previews public behind sign-in, and 0.12.26
 
 **The preview IP allowlist is gone**, as the owner asked once previews worked behind sign-in. **0.12.26 (#158) makes a
 `sessionTimeout` change never fail an upgrade.**
