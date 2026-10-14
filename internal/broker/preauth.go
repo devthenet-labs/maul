@@ -10,13 +10,12 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"net"
-	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"golang.org/x/time/rate"
+
+	"github.com/bitwise-media-group/patchy/internal/httpguard"
 )
 
 // Pre-authentication runs ahead of the TokenReview so that a pod varying the
@@ -34,9 +33,6 @@ const maxTokenBytes = 16 << 10
 // reviewQueueWait is how long a request waits for a TokenReview slot before
 // it is refused; it is the "small queue" in front of the API server.
 const reviewQueueWait = 2 * time.Second
-
-// ipIdleTTL is how long an idle source IP's bucket is kept.
-const ipIdleTTL = 10 * time.Minute
 
 // tokenShape rejects, without a TokenReview, a token that cannot be a
 // pod-bound projected ServiceAccount token for this broker: three base64url
@@ -100,71 +96,40 @@ func audienceContains(raw json.RawMessage, audience string) bool {
 	return false
 }
 
-// sourceIP is the caller's address without the port: in-cluster there is no
-// intermediary between the agent pod and the broker Service, so this is the
-// pod IP.
-func sourceIP(r *http.Request) string {
-	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
-		return host
-	}
-	return r.RemoteAddr
-}
-
-// ipLimiter is the per-source-IP token bucket and in-flight cap. A nil
-// *ipLimiter is disabled: acquire always succeeds.
+// ipLimiter is the broker's per-source-IP token bucket and in-flight cap:
+// httpguard's limiter with the cap at the burst and no queue, so a source
+// over either is refused at once. A nil *ipLimiter is disabled: acquire
+// always succeeds.
 type ipLimiter struct {
-	limit rate.Limit
-	burst int
-	now   func() time.Time
-
-	mu        sync.Mutex
-	entries   map[string]*ipEntry
-	lastSweep time.Time
-}
-
-type ipEntry struct {
-	bucket   *rate.Limiter
-	inflight int
-	seen     time.Time
+	guard *httpguard.IPLimiter
+	// now is the clock the guard reads, through a closure, so a test can
+	// freeze the broker's limiter after construction.
+	now func() time.Time
 }
 
 // newIPLimiter returns nil when perSecond is not positive. An unset burst
 // is one second of the rate (at least one), so a rate alone never
 // serializes a pod's parallel requests behind an in-flight cap of one.
 func newIPLimiter(perSecond float64, burst int, now func() time.Time) *ipLimiter {
-	if perSecond <= 0 {
+	l := &ipLimiter{now: now}
+	l.guard = httpguard.NewIPLimiter(httpguard.IPLimiterConfig{
+		Rate: perSecond, Burst: burst, InFlight: burst, Wait: 0,
+		Now: func() time.Time { return l.now() },
+	})
+	if l.guard == nil {
 		return nil
 	}
-	if burst < 1 {
-		burst = max(1, int(math.Ceil(perSecond)))
-	}
-	return &ipLimiter{limit: rate.Limit(perSecond), burst: burst, now: now, entries: map[string]*ipEntry{}}
+	return l
 }
 
 // acquire takes one token from ip's bucket and one in-flight slot (the cap
 // is the burst), returning the release for the slot or the refusal reason.
+// It never waits, so no context is consulted.
 func (l *ipLimiter) acquire(ip string) (func(), string) {
 	if l == nil {
 		return func() {}, ""
 	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	now := l.now()
-	l.sweepLocked(now)
-	e := l.entryLocked(ip, now)
-	if e.inflight >= l.burst {
-		return nil, "too many concurrent requests from this source"
-	}
-	if !e.bucket.AllowN(now, 1) {
-		return nil, "request rate from this source exceeded"
-	}
-	e.inflight++
-	return func() {
-		l.mu.Lock()
-		defer l.mu.Unlock()
-		e.inflight--
-		e.seen = l.now()
-	}, ""
+	return l.guard.Acquire(context.Background(), ip)
 }
 
 // penalize charges ip an extra token: a failed authentication costs twice
@@ -173,34 +138,7 @@ func (l *ipLimiter) penalize(ip string) {
 	if l == nil {
 		return
 	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	now := l.now()
-	l.entryLocked(ip, now).bucket.AllowN(now, 1)
-}
-
-// entryLocked returns ip's entry, creating a full bucket on first sight.
-func (l *ipLimiter) entryLocked(ip string, now time.Time) *ipEntry {
-	e, ok := l.entries[ip]
-	if !ok {
-		e = &ipEntry{bucket: rate.NewLimiter(l.limit, l.burst)}
-		l.entries[ip] = e
-	}
-	e.seen = now
-	return e
-}
-
-// sweepLocked drops idle entries; at most once a minute.
-func (l *ipLimiter) sweepLocked(now time.Time) {
-	if now.Sub(l.lastSweep) < time.Minute {
-		return
-	}
-	l.lastSweep = now
-	for ip, e := range l.entries {
-		if e.inflight == 0 && now.Sub(e.seen) > ipIdleTTL {
-			delete(l.entries, ip)
-		}
-	}
+	l.guard.Charge(ip)
 }
 
 // reviewLimiter bounds TokenReview calls broker-wide. A nil *reviewLimiter

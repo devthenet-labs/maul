@@ -9,33 +9,6 @@ import (
 	"time"
 )
 
-// auditWriter counts what one response wrote so the audit line can report
-// status and bytes. It exposes the wrapped writer via Unwrap so the proxy's
-// ResponseController still reaches the real Flusher.
-type auditWriter struct {
-	http.ResponseWriter
-	status int
-	bytes  int64
-}
-
-func (w *auditWriter) WriteHeader(code int) {
-	if w.status == 0 {
-		w.status = code
-	}
-	w.ResponseWriter.WriteHeader(code)
-}
-
-func (w *auditWriter) Write(p []byte) (int, error) {
-	if w.status == 0 {
-		w.status = http.StatusOK
-	}
-	n, err := w.ResponseWriter.Write(p)
-	w.bytes += int64(n)
-	return n, err
-}
-
-func (w *auditWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
-
 // auditEntry is what one request's audit line carries.
 type auditEntry struct {
 	pod     string
