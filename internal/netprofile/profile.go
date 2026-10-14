@@ -133,8 +133,15 @@ func validBakedModCache(dir string) error {
 }
 
 // anchored compiles a repository pattern so it must match the whole
-// owner/name.
+// owner/name. The bare pattern is compiled first: one with an unbalanced
+// ")" the wrapper happens to balance, such as "a)|(.*", would otherwise
+// close the anchoring group early and add an unanchored alternative that
+// matches every repository. A pattern that compiles alone is balanced, so
+// wrapping it is safe.
 func anchored(pattern string) (*regexp.Regexp, error) {
+	if _, err := regexp.Compile(pattern); err != nil {
+		return nil, err
+	}
 	return regexp.Compile(`^(?:` + pattern + `)$`)
 }
 

@@ -4,6 +4,7 @@
 package netprofile
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -141,6 +142,8 @@ func TestValidateRejects(t *testing.T) {
 			"1-256 bytes"},
 		{"invalid RE2", func(p *Profile) { p.Repositories = []string{"devthenet-labs/(patchy"} }, "missing closing )"},
 		{"RE2 rejects backreferences", func(p *Profile) { p.Repositories = []string{`(a)\1`} }, "invalid escape"},
+		{"group breakout", func(p *Profile) { p.Repositories = []string{"x)|(.*"} }, "unexpected )"},
+		{"group breakout suffix", func(p *Profile) { p.Repositories = []string{"a)|(b"} }, "unexpected )"},
 		{"no modules", func(p *Profile) { p.Modules = nil }, "modules"},
 		{"too many modules", func(p *Profile) {
 			p.Modules = make(Prefixes, MaxModules+1)
@@ -175,6 +178,30 @@ func TestValidateRejects(t *testing.T) {
 			}
 			if _, err := NewSet([]Profile{p}); err == nil {
 				t.Fatal("NewSet accepted a profile Validate refuses")
+			}
+		})
+	}
+}
+
+// TestParseRejectsGroupBreakout: a repository pattern whose stray ")"
+// would close the anchoring group and add an unanchored alternative is
+// refused at Parse, rather than widening the profile to every repository on
+// the host. Regression for a pattern that For once matched against
+// evil/anything.
+func TestParseRejectsGroupBreakout(t *testing.T) {
+	for _, pattern := range []string{"devthenet-labs/patchy)|(.*", "x)|(.*", "a)|(b"} {
+		t.Run(pattern, func(t *testing.T) {
+			data, err := json.Marshal([]map[string]any{{
+				"name": "go", "route": "go", "port": 8090,
+				"repositories": []string{pattern}, "modules": []string{"github.com/google/uuid"},
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			set, err := Parse(data)
+			if err == nil {
+				p, reason := set.For("https://github.com/evil/anything")
+				t.Fatalf("Parse accepted %q; For(evil/anything) = %q, %q", pattern, p.Name, reason)
 			}
 		})
 	}
