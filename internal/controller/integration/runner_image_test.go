@@ -73,6 +73,111 @@ func TestProjectHeldIgnoreNotice(t *testing.T) {
 	}
 }
 
+// TestProjectDefaultImageHeldNotice: a finding remediation-controller held
+// rather than remediate on the default image says so on its tracking issue,
+// with what a human can do about it: approve an untested run.
+func TestProjectDefaultImageHeldNotice(t *testing.T) {
+	fnd := projectable(v1alpha1.PhaseHandedOff)
+	fnd.Status.Tracking = &v1alpha1.TrackingStatus{
+		Integration: "gh", IssueNumber: 7, URL: "https://github.com/acme/orders/issues/7", State: "open",
+	}
+	fnd.Status.Investigation = &v1alpha1.InvestigationSummary{
+		Name: "finding-aa-1-inv-1", Attempt: 1, Outcome: "ok", Recommendation: v1alpha1.RecommendationRemediate,
+	}
+	fnd.Status.Remediation = &v1alpha1.RemediationSummary{
+		Name: "finding-aa-1-rem-1", Attempt: 1, Outcome: v1alpha1.OutcomeDefaultImageHeld,
+	}
+	tracker := newFakeTracker()
+	tracker.issues[7] = &ghclient.Issue{Number: 7, State: "open"}
+	r, _ := newProjector(t, tracker, testIntegration(), fnd)
+	reconcileFinding(t, r)
+
+	found := false
+	for _, cm := range tracker.comments {
+		if strings.Contains(cm, "handed this finding to its human owners") &&
+			strings.Contains(cm, "declares an agent image") && strings.Contains(cm, "`/patchy approve`") &&
+			strings.Contains(cm, "untested") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("comments = %q, want the default-image hold notice", tracker.comments)
+	}
+}
+
+// TestProjectDefaultImageHeldNoticeAfterEarlierHandOff: the usual way into
+// the hold is a revival — a finding handed off before (here, a manual-fix
+// recommendation) is approved, and its next launch is held because a revived
+// finding may not run the repository's image. Its notice annotations still
+// name the first hand-off, and the projection may never have seen the phases
+// between; the second hand-off owes its own notice all the same, once.
+func TestProjectDefaultImageHeldNoticeAfterEarlierHandOff(t *testing.T) {
+	fnd := projectable(v1alpha1.PhaseHandedOff)
+	at := metav1.NewTime(testClock)
+	fnd.Status.PhaseTimes = []v1alpha1.PhaseTime{
+		{Phase: v1alpha1.PhaseOpened, At: at}, {Phase: v1alpha1.PhaseEnhanced, At: at},
+		{Phase: v1alpha1.PhaseInvestigating, At: at}, {Phase: v1alpha1.PhaseHandedOff, At: at},
+		{Phase: v1alpha1.PhaseQueued, At: at}, {Phase: v1alpha1.PhaseRemediating, At: at},
+		{Phase: v1alpha1.PhaseHandedOff, At: at},
+	}
+	fnd.Annotations = map[string]string{
+		AnnotationProjectedNotice: string(v1alpha1.PhaseHandedOff),
+		AnnotationPostedNotice:    string(v1alpha1.PhaseHandedOff),
+	}
+	fnd.Status.Tracking = &v1alpha1.TrackingStatus{
+		Integration: "gh", IssueNumber: 7, URL: "https://github.com/acme/orders/issues/7", State: "open",
+	}
+	fnd.Status.Investigation = &v1alpha1.InvestigationSummary{
+		Name: "finding-aa-1-inv-1", Attempt: 1, Outcome: "ok", Recommendation: v1alpha1.RecommendationManual,
+	}
+	fnd.Status.Remediation = &v1alpha1.RemediationSummary{
+		Name: "finding-aa-1-rem-1", Attempt: 1, Outcome: v1alpha1.OutcomeDefaultImageHeld,
+	}
+	tracker := newFakeTracker()
+	tracker.issues[7] = &ghclient.Issue{Number: 7, State: "open"}
+	r, _ := newProjector(t, tracker, testIntegration(), fnd)
+	reconcileFinding(t, r)
+	reconcileFinding(t, r)
+
+	held := 0
+	for _, cm := range tracker.comments {
+		if strings.Contains(cm, "declares an agent image") && strings.Contains(cm, "`/patchy approve`") {
+			held++
+		}
+	}
+	if held != 1 {
+		t.Errorf("default-image hold notices = %d, want exactly 1; comments = %q", held, tracker.comments)
+	}
+}
+
+// TestProjectNoticeFirstEntryKeepsPhaseKey: a finding whose first hand-off was
+// projected by an earlier release (annotations naming the bare phase) is not
+// noticed again after an upgrade.
+func TestProjectNoticeFirstEntryKeepsPhaseKey(t *testing.T) {
+	fnd := projectable(v1alpha1.PhaseHandedOff)
+	at := metav1.NewTime(testClock)
+	fnd.Status.PhaseTimes = []v1alpha1.PhaseTime{
+		{Phase: v1alpha1.PhaseInvestigating, At: at}, {Phase: v1alpha1.PhaseHandedOff, At: at},
+	}
+	fnd.Annotations = map[string]string{
+		AnnotationProjectedNotice: string(v1alpha1.PhaseHandedOff),
+		AnnotationPostedNotice:    string(v1alpha1.PhaseHandedOff),
+	}
+	fnd.Status.Tracking = &v1alpha1.TrackingStatus{
+		Integration: "gh", IssueNumber: 7, URL: "https://github.com/acme/orders/issues/7", State: "open",
+	}
+	tracker := newFakeTracker()
+	tracker.issues[7] = &ghclient.Issue{Number: 7, State: "open"}
+	r, _ := newProjector(t, tracker, testIntegration(), fnd)
+	reconcileFinding(t, r)
+
+	for _, cm := range tracker.comments {
+		if strings.Contains(cm, "handed this finding to its human owners") {
+			t.Errorf("hand-off notice posted again: %q", cm)
+		}
+	}
+}
+
 // TestClosingHeldFindingMakesNoResolverCall: a human closing the tracking
 // issue of a held ignore changes nothing — HandedOff is terminal — and the
 // projection that follows writes no dismissal back to the source, because

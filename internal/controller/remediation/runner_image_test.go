@@ -76,7 +76,10 @@ func remReconcile(t *testing.T, r *RemediationReconciler) ctrl.Result {
 
 // TestRemediationLaunchPinsRunnerImage: the launch copies the Repository's
 // pin only under the kill switch for a finding no human revived — releasing
-// an approval hold is not a revival — and records what Create returned.
+// an approval hold is not a revival — and records what Create returned. The
+// default-image cases launch only because a human accepted an untested run
+// by approving an earlier held attempt; without that the launch is held
+// (TestRemediationHoldsDefaultImageFallback).
 func TestRemediationLaunchPinsRunnerImage(t *testing.T) {
 	investigated := []v1alpha1.Phase{v1alpha1.PhaseOpened, v1alpha1.PhaseEnhanced, v1alpha1.PhaseInvestigating}
 	then := func(more ...v1alpha1.Phase) []v1alpha1.Phase {
@@ -106,11 +109,20 @@ func TestRemediationLaunchPinsRunnerImage(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			objs := withImage(acceptedImage(), "", tt.history...)
-			objs[1].(*v1alpha1.Remediation).Status.JobRef = nil // granted, not launched
+			rem := objs[1].(*v1alpha1.Remediation)
+			rem.Status.JobRef = nil // granted, not launched
+			if tt.wantSource == v1alpha1.RunnerImageSourceDefault {
+				// Attempt 1 was held and approved; this is attempt 2.
+				held := rem.DeepCopy()
+				held.Status = v1alpha1.RemediationStatus{Phase: v1alpha1.RunFailed,
+					Conditions: []metav1.Condition{runnerguard.HeldCondition(1, runnerguard.SkipDisabled)}}
+				rem.Name, rem.Spec.Attempt = "finding-aa-1-rem-2", 2
+				objs = append(objs, held)
+			}
 			runner := &fakeCRRunner{}
 			r, c := newRemediation(t, runner, &fakeForge{}, objs...)
 			r.Images = tt.guard
-			remReconcile(t, r)
+			remOnce(t, r, rem.Name)
 
 			if len(runner.created) != 1 {
 				t.Fatalf("jobs = %d, want 1", len(runner.created))
@@ -122,10 +134,13 @@ func TestRemediationLaunchPinsRunnerImage(t *testing.T) {
 			if got := runner.created[0].RunnerImage; got != wantImage {
 				t.Errorf("spec.RunnerImage = %q, want %q", got, wantImage)
 			}
-			rem := getRem(t, c)
-			if rem.Status.JobRef == nil || rem.Status.RunnerImage == nil || rem.Status.RunnerImage.Source != tt.wantSource {
-				t.Errorf("jobRef/runnerImage = %+v/%+v, want source %s recorded", rem.Status.JobRef,
-					rem.Status.RunnerImage, tt.wantSource)
+			var got v1alpha1.Remediation
+			if err := c.Get(t.Context(), client.ObjectKeyFromObject(rem), &got); err != nil {
+				t.Fatalf("Get remediation: %v", err)
+			}
+			if got.Status.JobRef == nil || got.Status.RunnerImage == nil || got.Status.RunnerImage.Source != tt.wantSource {
+				t.Errorf("jobRef/runnerImage = %+v/%+v, want source %s recorded", got.Status.JobRef,
+					got.Status.RunnerImage, tt.wantSource)
 			}
 		})
 	}

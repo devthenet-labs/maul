@@ -375,6 +375,13 @@ type TranscriptRef struct {
 // completed, so there is no stage outcome to repeat.
 const PreviousOutcomePullRequestClosed = "pull_request_closed"
 
+// OutcomeDefaultImageHeld is the stage outcome remediation-controller
+// records on a Remediation it held rather than launch on the default image
+// (ConditionDefaultImageHeld), and on the Finding's remediation summary as
+// it hands the finding to a human. It is the controller's own verdict, like
+// "aborted"; no agent run reports it.
+const OutcomeDefaultImageHeld = "default_image_held"
+
 // PreviousAttempt is what a retry is told about the run it follows: the
 // latest earlier attempt of the same stage on the same Finding whose agent
 // actually ran, when that attempt failed. The controller that creates the

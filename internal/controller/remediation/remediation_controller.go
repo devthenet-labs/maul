@@ -272,6 +272,17 @@ func (r *RemediationReconciler) launch(ctx context.Context, rem *v1alpha1.Remedi
 		TokenBudget: rem.Spec.Parameters.TokenBudget,
 	}
 	if skipped := r.Images.Pin(&spec, &repo, &fnd); skipped != "" {
+		// The repository declares an accepted image this launch cannot run.
+		// The default image carries none of its toolchain, so a run there
+		// cannot build or test the fix: hand the finding to a human unless
+		// one already accepted exactly that by approving an earlier hold.
+		accepted, err := r.untestedAccepted(ctx, rem)
+		if err != nil {
+			return err
+		}
+		if !accepted {
+			return r.holdForImage(ctx, rem, skipped)
+		}
 		r.log().LogAttrs(ctx, slog.LevelInfo, "not running the repository-declared runner image",
 			slog.String("remediation", rem.Name), slog.String("reason", skipped))
 	}
@@ -353,11 +364,12 @@ func (r *RemediationReconciler) collect(ctx context.Context, rem *v1alpha1.Remed
 }
 
 // sandboxRefused ends a run whose sandbox probe found NetworkPolicy
-// unenforced: the breaker trips, so every later launch in this process runs
-// the default image, and the finding goes back to the queue without this
-// attempt counting against MaxAttempts — the run is marked SandboxRefused,
-// which fail() subtracts, and the next one runs on the default image, so
-// the retry cannot loop.
+// unenforced: the breaker trips, so no later launch in this process runs
+// the repository's image, and the finding goes back to the queue without
+// this attempt counting against MaxAttempts — the run is marked
+// SandboxRefused, which fail() subtracts. The next launch finds the breaker
+// tripped and is held for a human (holdForImage) rather than run untested
+// on the default image, so the retry cannot loop.
 func (r *RemediationReconciler) sandboxRefused(ctx context.Context, rem *v1alpha1.Remediation) error {
 	r.Images.Breaker.Trip(ctx, rem.Status.JobRef.Name, rem.Spec.FindingRef.Name)
 	result := &envelope.Remediation{Stage: agentresult.FailedStage(nil, "aborted", runnerguard.SandboxReason)}
@@ -368,6 +380,47 @@ func (r *RemediationReconciler) sandboxRefused(ctx context.Context, rem *v1alpha
 		return err
 	}
 	return r.finishFinding(ctx, rem, result, v1alpha1.PhaseQueued, runnerguard.SandboxReason)
+}
+
+// holdForImage ends a run before its launch: the repository declares an
+// accepted agent image, this launch cannot run it (skipped is Pin's reason),
+// and nobody has accepted an untested fix for the finding. The run is
+// marked held (so its attempt is not counted and a later launch knows a
+// human accepted the default image) and the finding is handed to a human
+// (edge Remediating→HandedOff); approving it revives it into a run on the
+// default image, whose pull request says it was not built or tested.
+func (r *RemediationReconciler) holdForImage(ctx context.Context, rem *v1alpha1.Remediation, skipped string) error {
+	detail := runnerguard.HeldDetail(skipped)
+	result := &envelope.Remediation{Stage: agentresult.FailedStage(nil, v1alpha1.OutcomeDefaultImageHeld, detail)}
+	held := func(cur *v1alpha1.Remediation) {
+		meta.SetStatusCondition(&cur.Status.Conditions, runnerguard.HeldCondition(cur.Generation, skipped))
+	}
+	if err := r.stampChild(ctx, rem, result, v1alpha1.RunFailed, nil, held); err != nil {
+		return err
+	}
+	r.log().LogAttrs(ctx, slog.LevelInfo, "held remediation instead of running the default image",
+		slog.String("remediation", rem.Name), slog.String("reason", skipped))
+	return r.finishFinding(ctx, rem, result, v1alpha1.PhaseHandedOff, detail)
+}
+
+// untestedAccepted reports whether a human has accepted an untested,
+// default-image remediation of rem's finding: an earlier attempt of the
+// same finding was held (holdForImage), and only an approval brings a
+// handed-off finding back to the queue.
+func (r *RemediationReconciler) untestedAccepted(ctx context.Context, rem *v1alpha1.Remediation) (bool, error) {
+	var siblings v1alpha1.RemediationList
+	if err := r.List(ctx, &siblings, client.InNamespace(rem.Namespace),
+		client.MatchingLabels{v1alpha1.LabelFinding: rem.Spec.FindingRef.Name}); err != nil {
+		return false, fmt.Errorf("look for held attempts: %w", err)
+	}
+	for i := range siblings.Items {
+		sib := &siblings.Items[i]
+		if sib.Spec.FindingRef.UID == rem.Spec.FindingRef.UID && sib.Spec.Attempt < rem.Spec.Attempt &&
+			runnerguard.Held(sib.Status.Conditions) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // pullFailed ends a run whose repository-declared image cannot be pulled
@@ -437,7 +490,11 @@ func (r *RemediationReconciler) succeed(
 	// The stored report carries its machine frontmatter; the PR body is
 	// presentation, so render the markdown body only.
 	reportBody := report.StripFrontmatter(result.ReportMarkdown)
-	body, err := templates.PRBody(issueNumber, reportBody)
+	// A run on patchy's default image had none of the repository's
+	// toolchain, so whatever the report says, patchy built and tested
+	// nothing: the body says so, plainly, ahead of the report.
+	untested := !ranRepositoryImage(rem.Status.RunnerImage)
+	body, err := templates.PRBody(issueNumber, reportBody, untested)
 	if err != nil {
 		body = reportBody
 	}
@@ -532,7 +589,8 @@ func (r *RemediationReconciler) fail(
 }
 
 // consumedAttempts is rem's attempt number less the finding's earlier
-// attempts the sandbox probe refused: their agent never ran.
+// attempts the sandbox probe refused or the launch held: their agent never
+// ran.
 func (r *RemediationReconciler) consumedAttempts(ctx context.Context, rem *v1alpha1.Remediation) (int32, error) {
 	var siblings v1alpha1.RemediationList
 	if err := r.List(ctx, &siblings, client.InNamespace(rem.Namespace),
@@ -543,7 +601,7 @@ func (r *RemediationReconciler) consumedAttempts(ctx context.Context, rem *v1alp
 	for i := range siblings.Items {
 		sib := &siblings.Items[i]
 		if sib.Spec.FindingRef.UID == rem.Spec.FindingRef.UID && sib.Spec.Attempt < rem.Spec.Attempt &&
-			runnerguard.Refused(sib.Status.Conditions) {
+			(runnerguard.Refused(sib.Status.Conditions) || runnerguard.Held(sib.Status.Conditions)) {
 			consumed--
 		}
 	}

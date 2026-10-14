@@ -426,6 +426,7 @@ const fakePushedCommit = "c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00"
 type fakeForge struct {
 	pushed  []string // branches
 	prs     []string // branches
+	bodies  []string // PR bodies
 	prCalls int
 }
 
@@ -437,9 +438,10 @@ func (f *fakeForge) Push(_ context.Context, _, _, branch string, cs *envelope.Ch
 	return fakePushedCommit, nil
 }
 
-func (f *fakeForge) EnsurePR(_ context.Context, _, _, branch, _, _ string) (int64, string, error) {
+func (f *fakeForge) EnsurePR(_ context.Context, _, _, branch, _, body string) (int64, string, error) {
 	f.prCalls++
 	f.prs = append(f.prs, branch)
+	f.bodies = append(f.bodies, body)
 	return 11, "https://github.com/acme/orders/pull/11", nil
 }
 

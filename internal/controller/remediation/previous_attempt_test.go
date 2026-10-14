@@ -114,6 +114,8 @@ func TestSpawnerCarriesPreviousAttempt(t *testing.T) {
 	}
 	refused := failed(2, "aborted", runnerguard.SandboxReason)
 	meta.SetStatusCondition(&refused.Status.Conditions, runnerguard.RefusedCondition(1))
+	held := failed(2, v1alpha1.OutcomeDefaultImageHeld, runnerguard.HeldDetail(runnerguard.SkipBreaker))
+	meta.SetStatusCondition(&held.Status.Conditions, runnerguard.HeldCondition(1, runnerguard.SkipBreaker))
 	pushed := remChild(1, v1alpha1.RunComplete, &v1alpha1.StageResult{Outcome: "ok"})
 	pushed.Status.Success = true
 	handedOff := remChild(1, v1alpha1.RunComplete, &v1alpha1.StageResult{Outcome: "ok"})
@@ -161,6 +163,10 @@ func TestSpawnerCarriesPreviousAttempt(t *testing.T) {
 				Detail: liveCommitFailure}},
 		{"an attempt the sandbox probe refused is passed over",
 			[]client.Object{queued(2), failed(1, "commit_failed", liveCommitFailure), refused}, 3,
+			&v1alpha1.PreviousAttempt{Name: "finding-aa-1-rem-1", Attempt: 1, Outcome: "commit_failed",
+				Detail: liveCommitFailure}},
+		{"an attempt held off the default image is passed over",
+			[]client.Object{queued(2), failed(1, "commit_failed", liveCommitFailure), held}, 3,
 			&v1alpha1.PreviousAttempt{Name: "finding-aa-1-rem-1", Attempt: 1, Outcome: "commit_failed",
 				Detail: liveCommitFailure}},
 		{"an outcome outside the stage vocabulary is named unknown",

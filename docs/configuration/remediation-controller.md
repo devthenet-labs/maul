@@ -48,6 +48,16 @@ accepted set, rendered from the harness definition, so it cannot drift from what
 [repository-declared runner images](investigation-controller.md#repository-declared-runner-images)): the remediation
 runs the image the Repository pinned, under the same conditions, probe and pull-failure handling.
 
+One difference: a remediation never falls back to the default runner image silently when the repository declares an
+accepted image. The default image carries none of the repository's toolchain, so a fix made there cannot be built or
+tested. When a launch cannot use the pinned image (`--repository-images` off, the sandbox breaker tripped, or a human
+revived the finding with `approve` or `retry`), no Job is created: the run is marked `DefaultImageHeld` (outcome
+`default_image_held`, not counted toward `--max-attempts`) and the finding goes to `HandedOff` with the reason on the
+tracking issue. Approving it is accepting an untested fix: the next attempt runs on the default image. A repository that
+declares nothing, or whose declaration was rejected under `onReject: default`, remediates on the default image as
+before. Either way, a pull request from a default-image run opens with a warning that patchy did not build or test the
+change.
+
 | Flag                        | Env                              | Default | Purpose                                                                                                                                   |
 | --------------------------- | -------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | `--repository-images`       | `PATCHY_REPOSITORY_IMAGES`       | `false` | Run a Repository's pinned repository-declared image (brokered claude runner only); the kill switch                                        |

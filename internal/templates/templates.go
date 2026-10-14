@@ -36,11 +36,16 @@ func render(name string, data any) (string, error) {
 
 // PRBody renders the pull-request body for a remediation branch; issue is
 // the tracking issue number ("Fixes #issue" auto-links and auto-closes).
-func PRBody(issue int, report string) (string, error) {
+// untested marks a run on patchy's default agent image, which carries none
+// of the repository's toolchain: the body then warns, ahead of the report,
+// that patchy did not build or test the change.
+func PRBody(issue int, report string, untested bool) (string, error) {
 	return render("pr_body.md.tmpl", struct {
-		Issue  int
-		Report string
-	}{issue, report})
+		Issue    int
+		Report   string
+		Untested bool
+		GuideURL string
+	}{issue, report, untested, AgentImageGuideURL})
 }
 
 // InvestigatePrompt is the data for the analysis-stage prompt (stage 1:

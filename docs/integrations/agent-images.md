@@ -318,6 +318,13 @@ Once the finding's repository snapshot is taken, patchy keeps one comment on the
   refused with `SandboxUnenforced` because the cluster does not enforce the network isolation patchy requires; the
   second is for the operator to fix, not you.
 
+If a remediation cannot use your accepted image (the operator switched repository images off, the sandbox check refused
+one, or a human revived the finding), patchy does not quietly fix it on the default runner image, which has none of your
+toolchain. It hands the finding to a human instead, and the hand-off notice says why. Comment `/patchy approve` to
+accept an untested fix: patchy then remediates on the default image. Any pull request patchy opens from a default-image
+run, including every one for a repository that declares no image, starts with a warning that patchy did not build or
+test the change.
+
 A repository that declares nothing gets no comment. Separately, when a run on your image recommends `ignore`, patchy
 hands the finding to a human instead of dismissing the alert, and says so in the hand-off notice: a verdict produced
 inside an image the repository controls is not trusted to close an alert on its own.
