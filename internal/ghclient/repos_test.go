@@ -181,3 +181,27 @@ func TestSearchIssues(t *testing.T) {
 		t.Errorf("SearchIssues() = %+v, want %+v", got, want)
 	}
 }
+
+func TestIsGone(t *testing.T) {
+	tests := []struct {
+		name   string
+		status int
+		want   bool
+	}{
+		{name: "issues disabled on the repository", status: http.StatusGone, want: true},
+		{name: "not found", status: http.StatusNotFound},
+		{name: "forbidden", status: http.StatusForbidden},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mux, c := newFakeClient(t)
+			mux.HandleFunc("POST /repos/o/r/issues", func(w http.ResponseWriter, _ *http.Request) {
+				http.Error(w, `{"message":"Issues has been disabled in this repository."}`, tt.status)
+			})
+			_, err := c.Create(context.Background(), testRepo, IssueRequest{Title: "t"})
+			if got := IsGone(err); got != tt.want {
+				t.Errorf("IsGone(%v) = %v, want %v", err, got, tt.want)
+			}
+		})
+	}
+}

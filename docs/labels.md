@@ -106,6 +106,7 @@ Finding **while** enhancement runs, so the window close cannot be a phase.
 | `Approved`                                              | Finding                    | A human approval (`/patchy approve`, the status page or the CLI) was accepted                               |
 | `ForgeResolved`                                         | Finding                    | The repository resolved to exactly one Forge (`False` reasons: `NoRepository`, `NoForgeMatch`, `Ambiguous`) |
 | `ReviewClosePending`                                    | Finding                    | A close seen in review awaits the recorded PR's state (`TrackingIssueClosed`, `UnrecordedRepository`)       |
+| `TrackingUnavailable`                                   | Finding                    | GitHub refuses the tracking issue (`IssuesDisabled`); re-tried every 6 hours, the pipeline goes on          |
 | `Complete`                                              | Investigation, Remediation | The stage finished; the reason carries the outcome                                                          |
 | `RolledUpTotal` / `…Repository` / `…Harness` / `…Model` | Finding                    | Per-scope rollup accounting markers (exactly-once, finalizer-backed)                                        |
 

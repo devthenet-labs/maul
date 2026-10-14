@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/google/go-github/v90/github"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -49,7 +50,10 @@ type fakeTracker struct {
 	failAssign, failClose int
 	// onPost, when set, is called as each issue or comment is posted.
 	onPost func()
-	alerts map[int]*ghclient.Alert // GetAlert's answers
+	// creates counts Create calls; createErrs fail its first calls, in order.
+	creates    int
+	createErrs []error
+	alerts     map[int]*ghclient.Alert // GetAlert's answers
 	// pulls are GetPullRequest's answers; pullErrs fail its first calls,
 	// in order; pullReads records each repo#number asked for.
 	pulls     map[int]*ghclient.PullRequest
@@ -100,6 +104,15 @@ func notFound(what string) error {
 		&github.ErrorResponse{Response: &http.Response{StatusCode: http.StatusNotFound}})
 }
 
+// issuesDisabled is GitHub's answer to opening an issue in a repository
+// with Issues turned off.
+func issuesDisabled() error {
+	return fmt.Errorf("ghclient: create issue in acme/orders: %w", &github.ErrorResponse{
+		Response: &http.Response{StatusCode: http.StatusGone},
+		Message:  "Issues has been disabled in this repository.",
+	})
+}
+
 // badGateway is a transient GitHub failure.
 func badGateway(what string) error {
 	return fmt.Errorf("ghclient: %s: %w", what,
@@ -109,6 +122,12 @@ func badGateway(what string) error {
 func (f *fakeTracker) Create(
 	_ context.Context, repo ghclient.Repo, req ghclient.IssueRequest,
 ) (*ghclient.Issue, error) {
+	f.creates++
+	if len(f.createErrs) > 0 {
+		err := f.createErrs[0]
+		f.createErrs = f.createErrs[1:]
+		return nil, err
+	}
 	if f.onPost != nil {
 		f.onPost()
 	}
@@ -451,6 +470,152 @@ func TestProjectReprojectsWhenIssueGone(t *testing.T) {
 	}
 	if _, ok := tracker.issues[8]; !ok {
 		t.Errorf("issue 8 not created; issues = %v", tracker.issues)
+	}
+}
+
+func TestProjectIssuesDisabledBacksOff(t *testing.T) {
+	tracker := newFakeTracker()
+	tracker.createErrs = []error{issuesDisabled(), issuesDisabled()}
+	r, c := newProjector(t, tracker, testIntegration(), projectable(v1alpha1.PhaseOpened))
+	now := testClock
+	r.Now = func() time.Time { return now }
+	// Count the clients built: each is an installation token minted in
+	// production, which a waiting projection must not spend either.
+	clients := 0
+	r.ClientFor = func(context.Context, *v1alpha1.Integration, ghclient.Repo) (trackerClient, error) {
+		clients++
+		return tracker, nil
+	}
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1"}}
+
+	// GitHub refuses the issue for good (410): the projection records why
+	// and waits out the re-check, rather than failing into a hot retry.
+	res, err := r.Reconcile(t.Context(), req)
+	if err != nil {
+		t.Fatalf("Reconcile: %v, want the refusal recorded, not retried", err)
+	}
+	if res.RequeueAfter != DefaultTrackingRecheck {
+		t.Errorf("RequeueAfter = %v, want %v", res.RequeueAfter, DefaultTrackingRecheck)
+	}
+	f := get(t, c, "finding-aa-1")
+	cond := meta.FindStatusCondition(f.Status.Conditions, v1alpha1.ConditionTrackingUnavailable)
+	if cond == nil || cond.Status != metav1.ConditionTrue || cond.Reason != v1alpha1.ReasonIssuesDisabled {
+		t.Fatalf("TrackingUnavailable = %+v, want True/IssuesDisabled", cond)
+	}
+	if !strings.Contains(cond.Message, "acme/orders") {
+		t.Errorf("message = %q, want the repository named", cond.Message)
+	}
+	if f.Status.Phase != v1alpha1.PhaseOpened {
+		t.Errorf("phase = %s, want the pipeline untouched", f.Status.Phase)
+	}
+
+	// The finding moves on meanwhile: its own events do not re-ask GitHub
+	// before the re-check is due.
+	f.Status.Phase = v1alpha1.PhaseEnhanced
+	if err := c.Status().Update(t.Context(), f); err != nil {
+		t.Fatalf("update phase: %v", err)
+	}
+	now = testClock.Add(time.Hour)
+	if res, err = r.Reconcile(t.Context(), req); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if tracker.creates != 1 || clients != 1 {
+		t.Errorf("creates = %d, clients = %d before the re-check; want 1 and 1 (no token minted while waiting)",
+			tracker.creates, clients)
+	}
+	if want := DefaultTrackingRecheck - time.Hour; res.RequeueAfter != want {
+		t.Errorf("RequeueAfter = %v, want the rest of the re-check (%v)", res.RequeueAfter, want)
+	}
+
+	// Due: asked again, still refused, and the next re-check is paced from
+	// this refusal.
+	now = testClock.Add(DefaultTrackingRecheck)
+	if res, err = r.Reconcile(t.Context(), req); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if tracker.creates != 2 || res.RequeueAfter != DefaultTrackingRecheck {
+		t.Errorf("creates = %d, RequeueAfter = %v; want 2 and %v", tracker.creates, res.RequeueAfter, DefaultTrackingRecheck)
+	}
+
+	// Issues turned back on: the next re-check opens the issue and clears
+	// the condition.
+	now = testClock.Add(2 * DefaultTrackingRecheck)
+	reconcileFinding(t, r)
+	f = get(t, c, "finding-aa-1")
+	if f.Status.Tracking == nil || f.Status.Tracking.IssueNumber != 7 {
+		t.Fatalf("tracking = %+v, want issue 7 linked", f.Status.Tracking)
+	}
+	if cond := meta.FindStatusCondition(f.Status.Conditions, v1alpha1.ConditionTrackingUnavailable); cond != nil {
+		t.Errorf("TrackingUnavailable = %+v after the issue opened, want removed", cond)
+	}
+}
+
+// A refusal is for one repository: once the finding's issue belongs in
+// another (here the tracking Integration's fallback moved), the next
+// reconcile asks GitHub there at once rather than waiting out the re-check.
+func TestProjectIssuesDisabledRechecksMovedRepository(t *testing.T) {
+	tracker := newFakeTracker()
+	tracker.createErrs = []error{issuesDisabled()}
+	integ := withFallback()
+	r, c := newProjector(t, tracker, integ, projectableCloud(v1alpha1.PhaseEnhanced))
+	now := testClock
+	r.Now = func() time.Time { return now }
+	var asked []string
+	r.ClientFor = func(_ context.Context, _ *v1alpha1.Integration, repo ghclient.Repo) (trackerClient, error) {
+		asked = append(asked, repo.String())
+		return tracker, nil
+	}
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1"}}
+
+	if _, err := r.Reconcile(t.Context(), req); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if !meta.IsStatusConditionTrue(get(t, c, "finding-aa-1").Status.Conditions,
+		v1alpha1.ConditionTrackingUnavailable) {
+		t.Fatal("TrackingUnavailable not recorded for the refusal")
+	}
+
+	// Same repository an hour on: still waiting, nothing asked.
+	now = testClock.Add(time.Hour)
+	if res, err := r.Reconcile(t.Context(), req); err != nil || res.RequeueAfter == 0 {
+		t.Fatalf("Reconcile = %+v, %v; want a wait for the unchanged repository", res, err)
+	}
+
+	// The operator points the fallback at a repository with Issues on.
+	var cur v1alpha1.Integration
+	if err := c.Get(t.Context(), client.ObjectKeyFromObject(integ), &cur); err != nil {
+		t.Fatalf("get integration: %v", err)
+	}
+	cur.Spec.GitHub.Issues.FallbackRepository = "acme/triage"
+	if err := c.Update(t.Context(), &cur); err != nil {
+		t.Fatalf("update integration: %v", err)
+	}
+	reconcileFinding(t, r)
+
+	if want := []string{"acme/security", "acme/triage"}; !slices.Equal(asked, want) {
+		t.Errorf("repositories asked = %v, want %v", asked, want)
+	}
+	f := get(t, c, "finding-aa-1")
+	if f.Status.Tracking == nil {
+		t.Fatal("tracking not linked in the new repository")
+	}
+	if cond := meta.FindStatusCondition(f.Status.Conditions, v1alpha1.ConditionTrackingUnavailable); cond != nil {
+		t.Errorf("TrackingUnavailable = %+v after the issue opened, want removed", cond)
+	}
+}
+
+func TestProjectTransientCreateFailureStillRetries(t *testing.T) {
+	tracker := newFakeTracker()
+	tracker.createErrs = []error{badGateway("create issue")}
+	r, c := newProjector(t, tracker, testIntegration(), projectable(v1alpha1.PhaseOpened))
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1"}}
+
+	if _, err := r.Reconcile(t.Context(), req); err == nil {
+		t.Fatal("Reconcile: nil error on a 502, want it returned for the backoff")
+	}
+	f := get(t, c, "finding-aa-1")
+	if cond := meta.FindStatusCondition(f.Status.Conditions, v1alpha1.ConditionTrackingUnavailable); cond != nil {
+		t.Errorf("TrackingUnavailable = %+v on a transient failure, want none", cond)
 	}
 }
 

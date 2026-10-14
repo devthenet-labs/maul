@@ -59,6 +59,13 @@ const (
 	// issues-enabled Integration can read it (suspended, issues turned off,
 	// deleted), the close waits. Removed as the finding leaves review.
 	ConditionReviewClosePending = "ReviewClosePending"
+	// ConditionTrackingUnavailable marks a Finding whose tracking issue the
+	// forge refuses to open for good (ReasonIssuesDisabled: the repository
+	// has Issues turned off). Only the issue projection waits on it, never
+	// the pipeline: the integration-controller asks again once its
+	// LastTransitionTime, re-stamped on every refusal, is a re-check
+	// interval old, and removes it once the issue opens.
+	ConditionTrackingUnavailable = "TrackingUnavailable"
 
 	// Intent conditions, all set by intent-controller. The first three, and
 	// BranchConflict, explain a Blocked intent; raising the limit, fixing the
@@ -210,6 +217,9 @@ const (
 	// public one, or an App installation on the old owner that still has
 	// it); otherwise GitHub answers 404 and nothing moves either.
 	ReasonUnrecordedRepository = "UnrecordedRepository"
+	// ReasonIssuesDisabled: GitHub answered 410 to opening the tracking
+	// issue, which it does only when the repository has Issues turned off.
+	ReasonIssuesDisabled = "IssuesDisabled"
 
 	// Repository runner-image reasons, all set by source-controller.
 

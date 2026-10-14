@@ -26,6 +26,15 @@ func IsForbidden(err error) bool {
 	return errors.As(err, &ger) && ger.Response != nil && ger.Response.StatusCode == http.StatusForbidden
 }
 
+// IsGone reports whether err (anywhere in its chain) is a GitHub API 410.
+// GitHub answers so for a feature turned off on the repository — opening an
+// issue where Issues are disabled — and for a deleted issue; the caller
+// knows which it asked for.
+func IsGone(err error) bool {
+	var ger *github.ErrorResponse
+	return errors.As(err, &ger) && ger.Response != nil && ger.Response.StatusCode == http.StatusGone
+}
+
 // IsRefused reports whether err (anywhere in its chain) is GitHub refusing
 // the request itself: a 4xx answer other than 401 (a credential that may be
 // re-minted), 408 (a timeout) and 429 (throttling). Repeating such a request
