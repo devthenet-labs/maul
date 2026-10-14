@@ -139,8 +139,8 @@ func TestRemediationLaunchPinsRunnerImage(t *testing.T) {
 				t.Fatalf("Get remediation: %v", err)
 			}
 			if got.Status.JobRef == nil || got.Status.RunnerImage == nil || got.Status.RunnerImage.Source != tt.wantSource {
-				t.Errorf("jobRef/runnerImage = %+v/%+v, want source %s recorded", rem.Status.JobRef,
-					rem.Status.RunnerImage, tt.wantSource)
+				t.Errorf("jobRef/runnerImage = %+v/%+v, want source %s recorded", got.Status.JobRef,
+					got.Status.RunnerImage, tt.wantSource)
 			}
 		})
 	}

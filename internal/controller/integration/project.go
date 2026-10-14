@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -50,11 +51,11 @@ const (
 	// AnnotationProjectedRemediation names the Remediation whose report
 	// comment was posted.
 	AnnotationProjectedRemediation = "patchy.bitwisemedia.uk/projected-remediation"
-	// AnnotationProjectedNotice records the phase whose human notice
-	// (hold/hand-off/failure) was posted.
+	// AnnotationProjectedNotice records the phase entry whose human notice
+	// (hold/hand-off/failure) was posted, as noticeKey renders it.
 	AnnotationProjectedNotice = "patchy.bitwisemedia.uk/projected-notice"
-	// AnnotationPostedNotice records the phase whose notice comment is on
-	// the tracking item. It is written the moment the notice is posted,
+	// AnnotationPostedNotice records the phase entry (noticeKey) whose
+	// notice comment is on the tracking item. It is written the moment the notice is posted,
 	// ahead of the assignment or closure that completes the phase's
 	// projection, so a retry after either fails redoes it without posting
 	// the notice again.
@@ -526,27 +527,28 @@ func (r *FindingReconciler) projectPhase(
 ) error {
 	ann := fnd.GetAnnotations()
 	phase := fnd.Status.Phase
-	if ann[AnnotationProjectedNotice] == string(phase) {
+	key := noticeKey(fnd)
+	if ann[AnnotationProjectedNotice] == key {
 		return nil
 	}
-	posted := ann[AnnotationPostedNotice] == string(phase)
+	posted := ann[AnnotationPostedNotice] == key
 	if postsNotice(phase) && !posted {
 		// A notice is a post: confirm the cache's "not yet" first.
 		cur, err := r.latest(ctx, fnd)
 		if err != nil {
 			return err
 		}
-		if cur.GetAnnotations()[AnnotationProjectedNotice] == string(phase) {
+		if cur.GetAnnotations()[AnnotationProjectedNotice] == key {
 			return nil
 		}
-		posted = cur.GetAnnotations()[AnnotationPostedNotice] == string(phase)
+		posted = cur.GetAnnotations()[AnnotationPostedNotice] == key
 	}
 	// post posts the phase's notice unless an earlier pass already did.
 	post := func(notice string) error {
 		if posted {
 			return nil
 		}
-		return r.postNotice(ctx, fnd, tracker, repo, number, notice)
+		return r.postNotice(ctx, fnd, tracker, repo, number, key, notice)
 	}
 
 	switch phase {
@@ -587,8 +589,29 @@ func (r *FindingReconciler) projectPhase(
 		return nil
 	}
 	return r.markProjected(ctx, fnd, map[string]string{
-		AnnotationProjectedNotice: string(phase), AnnotationPostedNotice: string(phase),
+		AnnotationProjectedNotice: key, AnnotationPostedNotice: key,
 	})
+}
+
+// noticeKey names the finding's current phase entry for the notice
+// annotations: the phase itself on its first entry (the form every earlier
+// release wrote, so an upgrade posts nothing twice), and "<phase>#<n>" on
+// its n-th. A finding can re-enter a notice phase without the projection
+// ever seeing the phases between (approve, then held again on the next
+// launch), and each entry owes its own notice: a key on the phase alone
+// would read the new hand-off as already projected and never say why.
+func noticeKey(fnd *v1alpha1.Finding) string {
+	phase := fnd.Status.Phase
+	n := 0
+	for _, pt := range fnd.Status.PhaseTimes {
+		if pt.Phase == phase {
+			n++
+		}
+	}
+	if n <= 1 {
+		return string(phase)
+	}
+	return string(phase) + "#" + strconv.Itoa(n)
 }
 
 // postsNotice reports the phases whose projection posts a comment.
@@ -780,18 +803,19 @@ func (r *FindingReconciler) setTrackingState(ctx context.Context, fnd *v1alpha1.
 	})
 }
 
-// postNotice posts a phase notice and records it on AnnotationPostedNotice
+// postNotice posts a phase notice and records its key on AnnotationPostedNotice
 // straight away, reading past the cache: the notice exists now, and this
 // record is what keeps a retry of the phase's follow-up from posting it
 // again, so it must not be lost to a stale read's conflicts.
 func (r *FindingReconciler) postNotice(
-	ctx context.Context, fnd *v1alpha1.Finding, tracker trackerClient, repo ghclient.Repo, number int, notice string,
+	ctx context.Context, fnd *v1alpha1.Finding, tracker trackerClient, repo ghclient.Repo, number int,
+	key, notice string,
 ) error {
 	if err := tracker.Comment(ctx, repo, number, notice); err != nil {
 		return err
 	}
 	if err := r.annotate(ctx, r.apiReader(), fnd,
-		map[string]string{AnnotationPostedNotice: string(fnd.Status.Phase)}); err != nil {
+		map[string]string{AnnotationPostedNotice: key}); err != nil {
 		return fmt.Errorf("record posted notice: %w", err)
 	}
 	return nil
