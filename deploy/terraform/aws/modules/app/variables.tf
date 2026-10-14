@@ -143,3 +143,14 @@ variable "agent_signing_key_arn" {
     error_message = "agent_signing_key_arn must be the ARN of an AWS KMS key, arn:aws:kms:<region>:<account>:key/<key-id>, not an alias."
   }
 }
+
+variable "agent_signing_enabled" {
+  description = "Whether the agent publisher signs, when agent_signing_key_arn is only known after apply (a key created in the same configuration, as the platform module's create_agent_signing_key does): resource counts cannot depend on an unknown value. Null (the default) means signing is on exactly when agent_signing_key_arn is set."
+  type        = bool
+  default     = null
+
+  validation {
+    condition     = var.agent_signing_enabled != true || var.agent_signing_key_arn != null
+    error_message = "agent_signing_enabled true needs agent_signing_key_arn."
+  }
+}

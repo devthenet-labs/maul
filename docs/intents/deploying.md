@@ -410,7 +410,9 @@ agent:
     # explicit opt-out of signature checks: registry write access alone decides what an agent
     # runs, that is the publisher roles and any other principal with ECR push on
     # patchy/app-envs/*. Once every app's agent image is signed, set cosignPublicKey and
-    # allowUnsigned: false (onboarding-app.md, "Signing the agent image").
+    # allowUnsigned: false (onboarding-app.md, "Signing the agent image"). The platform
+    # module's create_agent_signing_key creates and grants the key and outputs the public
+    # key as agent_signing.public_key_pem.
     allowUnsigned: true
     onReject: default
     ephemeralStorage: 8Gi

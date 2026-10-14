@@ -513,3 +513,13 @@ run "subject_prefix_case_must_match" {
 
   expect_failures = [var.github]
 }
+
+run "agent_signing_enabled_without_a_key_is_refused" {
+  command = plan
+
+  variables {
+    agent_signing_enabled = true
+  }
+
+  expect_failures = [var.agent_signing_enabled]
+}

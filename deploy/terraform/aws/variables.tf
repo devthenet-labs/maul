@@ -382,3 +382,24 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "create_agent_signing_key" {
+  description = "Create an ECC_NIST_P256 SIGN_VERIFY KMS key that every app's agent publisher signs its agent image with, using cosign (the app module's agent_signing_key_arn). Its public half is output agent_signing.public_key_pem, for the chart's agent.repositoryImages.cosignPublicKey. Excludes agent_signing_key_arn."
+  type        = bool
+  default     = false
+}
+
+variable "agent_signing_key_arn" {
+  description = "ARN of an existing KMS key (ECC_NIST_P256, SIGN_VERIFY) every app's agent publisher signs its agent image with, instead of a key this module creates. The key's ARN, not an alias's: IAM grants on the key. Null (the default) with create_agent_signing_key false signs nothing."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.agent_signing_key_arn == null || can(regex("^arn:aws[a-z-]*:kms:[a-z0-9-]+:[0-9]{12}:key/[A-Za-z0-9-]+$", var.agent_signing_key_arn))
+    error_message = "agent_signing_key_arn must be a KMS key ARN (arn:aws:kms:<region>:<account>:key/<id>), not an alias."
+  }
+  validation {
+    condition     = !(var.create_agent_signing_key && var.agent_signing_key_arn != null)
+    error_message = "Set create_agent_signing_key or agent_signing_key_arn, not both."
+  }
+}
