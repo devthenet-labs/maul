@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.12.29](https://github.com/devthenet-labs/patchy/compare/v0.12.28...v0.12.29) (2026-10-14)
+
+
+### Bug Fixes
+
+* **e2e:** set an explicit 30m go test timeout for the e2e suite ([#175](https://github.com/devthenet-labs/patchy/issues/175)) ([2cabb5d](https://github.com/devthenet-labs/patchy/commit/2cabb5d9695348eecfe171fa6074ff7df251f8be))
+* **integration:** open a successor instead of folding alerts into a suspended finding ([#176](https://github.com/devthenet-labs/patchy/issues/176)) ([c9e241d](https://github.com/devthenet-labs/patchy/commit/c9e241d5f646194add773317f9c39652baba3400))
+* **integration:** stop hot-retrying tracking issues where Issues are disabled ([#177](https://github.com/devthenet-labs/patchy/issues/177)) ([ca179ea](https://github.com/devthenet-labs/patchy/commit/ca179ea73ba3e44acc14371ee313da51e0c6b3a2))
+* **remediation:** hold default-image fallbacks and mark untested PRs ([#178](https://github.com/devthenet-labs/patchy/issues/178)) ([8086102](https://github.com/devthenet-labs/patchy/commit/80861028af1bab8495cc9e982ff4927c3e9d1053))
+
 ## [0.12.28](https://github.com/devthenet-labs/patchy/compare/v0.12.27...v0.12.28) (2026-10-14)
 
 
