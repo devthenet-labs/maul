@@ -231,6 +231,55 @@ func TestIPLimiterTokenBeyondWaitRefused(t *testing.T) {
 	}
 }
 
+// TestIPLimiterCancelWhileWaitingForToken: a caller that holds a slot and
+// is waiting for its next token, and whose context ends first, is refused
+// for rate and gives back both the slot and the reserved token. Without
+// either, every cancelled request would leak: a slot (the source is refused
+// for concurrency for good once InFlight are gone) or a token (the next
+// caller waits a full interval longer).
+func TestIPLimiterCancelWhileWaitingForToken(t *testing.T) {
+	// Two tokens a second: the next token is 500ms away.
+	l := NewIPLimiter(IPLimiterConfig{Rate: 2, Burst: 1, InFlight: 1, Wait: 5 * time.Second})
+	start := time.Now()
+	r1, reason := l.Acquire(t.Context(), "a")
+	if reason != "" {
+		t.Fatal(reason)
+	}
+	r1()
+
+	// Cancel rather than a short deadline: a deadline before the token is
+	// refused up front, never reaching the wait this test is about.
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	time.AfterFunc(20*time.Millisecond, cancel)
+	waitStart := time.Now()
+	if _, reason := l.Acquire(ctx, "a"); reason != ReasonRate {
+		t.Fatalf("reason = %q, want %q", reason, ReasonRate)
+	}
+	if elapsed := time.Since(waitStart); elapsed < 10*time.Millisecond || elapsed > 400*time.Millisecond {
+		t.Fatalf("refused after %v: not the cancel during the token wait", elapsed)
+	}
+	l.mu.Lock()
+	inflight := l.entries["a"].inflight
+	l.mu.Unlock()
+	if inflight != 0 {
+		t.Fatalf("in flight after the cancelled wait = %d, want 0 (slot returned)", inflight)
+	}
+
+	// Past the first token's refill but well before a second one: only a
+	// returned reservation leaves a token here. A caller that cannot wait
+	// for a later token is refused for rate, and one stuck behind a leaked
+	// slot for concurrency.
+	time.Sleep(time.Until(start.Add(650 * time.Millisecond)))
+	ctx2, cancel2 := context.WithTimeout(t.Context(), 150*time.Millisecond)
+	defer cancel2()
+	r3, reason := l.Acquire(ctx2, "a")
+	if reason != "" {
+		t.Fatalf("acquire after the cancelled wait refused: %s (token or slot not returned)", reason)
+	}
+	r3()
+}
+
 // TestIPLimiterSweepKeepsWaiters: an entry with a queued caller is never
 // swept, even when it looks idle.
 func TestIPLimiterSweepKeepsWaiters(t *testing.T) {
