@@ -76,6 +76,17 @@ mock_provider "aws" {
       repository_url = "111122223333.dkr.ecr.eu-west-2.amazonaws.com/mocked"
     }
   }
+  mock_resource "aws_kms_key" {
+    defaults = {
+      arn    = "arn:aws:kms:eu-west-2:111122223333:key/0c0c0c0c-1111-4222-8333-444444444444"
+      key_id = "0c0c0c0c-1111-4222-8333-444444444444"
+    }
+  }
+  mock_data "aws_kms_public_key" {
+    defaults = {
+      public_key_pem = "-----BEGIN PUBLIC KEY-----\nMOCKED\n-----END PUBLIC KEY-----\n"
+    }
+  }
 }
 
 # The two public ALB subnets, distinct, in two zones and tagged for
@@ -1435,4 +1446,138 @@ run "edge_certificate_must_cover_the_relay" {
   }
 
   expect_failures = [var.preview_auth]
+}
+
+# Agent image signing (create_agent_signing_key / agent_signing_key_arn).
+
+run "agent_signing_is_off_by_default" {
+  command = apply
+
+  variables {
+    apps = {
+      tools = {
+        github = {
+          owner            = "Acme-Org"
+          name             = "tools"
+          repository_id    = 555
+          owner_id         = 987654
+          sub_claim_prefix = "repo:Acme-Org@987654/tools@555"
+        }
+        preview = false
+      }
+    }
+  }
+
+  assert {
+    condition     = length(aws_kms_key.agent_signing) == 0 && output.agent_signing == null && !contains(keys(output.github_variables["tools"]), "AGENT_SIGNING_KEY")
+    error_message = "Without either signing input no key is created, agent_signing is null and no app gets AGENT_SIGNING_KEY."
+  }
+}
+
+run "agent_signing_key_is_created_and_shared_by_every_app" {
+  command = apply
+
+  variables {
+    create_agent_signing_key = true
+    apps = {
+      tools = {
+        github = {
+          owner            = "Acme-Org"
+          name             = "tools"
+          repository_id    = 555
+          owner_id         = 987654
+          sub_claim_prefix = "repo:Acme-Org@987654/tools@555"
+        }
+        preview = false
+      }
+      hello-web = {
+        github = {
+          owner            = "Acme-Org"
+          name             = "Hello.Web"
+          repository_id    = 123456789
+          owner_id         = 987654
+          sub_claim_prefix = "repo:Acme-Org@987654/Hello.Web@123456789"
+        }
+        preview = false
+      }
+    }
+  }
+
+  assert {
+    condition = (
+      length(aws_kms_key.agent_signing) == 1 &&
+      aws_kms_key.agent_signing[0].customer_master_key_spec == "ECC_NIST_P256" &&
+      aws_kms_key.agent_signing[0].key_usage == "SIGN_VERIFY" &&
+      aws_kms_alias.agent_signing[0].name == "alias/acme-prod-patchy-agent-image-signing"
+    )
+    error_message = "create_agent_signing_key creates one ECC_NIST_P256 SIGN_VERIFY key, aliased <name_prefix>-patchy-agent-image-signing."
+  }
+
+  assert {
+    condition = alltrue([
+      for slug in ["tools", "hello-web"] :
+      output.github_variables[slug].AGENT_SIGNING_KEY == "awskms:///arn:aws:kms:eu-west-2:111122223333:key/0c0c0c0c-1111-4222-8333-444444444444"
+    ])
+    error_message = "Every app's AGENT_SIGNING_KEY names the created key."
+  }
+
+  assert {
+    condition = output.agent_signing == {
+      key_arn        = "arn:aws:kms:eu-west-2:111122223333:key/0c0c0c0c-1111-4222-8333-444444444444"
+      cosign_key_uri = "awskms:///arn:aws:kms:eu-west-2:111122223333:key/0c0c0c0c-1111-4222-8333-444444444444"
+      public_key_pem = "-----BEGIN PUBLIC KEY-----\nMOCKED\n-----END PUBLIC KEY-----\n"
+    }
+    error_message = "agent_signing gives the key ARN, its cosign URI and the PEM public key for cosignPublicKey."
+  }
+
+  assert {
+    condition     = !can(yamldecode(output.helm_values).agent.repositoryImages.cosignPublicKey) && !can(yamldecode(output.helm_values).agent.repositoryImages.allowUnsigned)
+    error_message = "helm_values never carries cosignPublicKey or allowUnsigned: those stay explicit in the operator's values."
+  }
+}
+
+run "existing_agent_signing_key_is_used" {
+  command = apply
+
+  variables {
+    agent_signing_key_arn = "arn:aws:kms:eu-west-2:111122223333:key/0e0e0e0e-5555-4666-8777-888888888888"
+    apps = {
+      tools = {
+        github = {
+          owner            = "Acme-Org"
+          name             = "tools"
+          repository_id    = 555
+          owner_id         = 987654
+          sub_claim_prefix = "repo:Acme-Org@987654/tools@555"
+        }
+        preview = false
+      }
+    }
+  }
+
+  assert {
+    condition     = length(aws_kms_key.agent_signing) == 0 && output.github_variables["tools"].AGENT_SIGNING_KEY == "awskms:///arn:aws:kms:eu-west-2:111122223333:key/0e0e0e0e-5555-4666-8777-888888888888" && output.agent_signing.key_arn == "arn:aws:kms:eu-west-2:111122223333:key/0e0e0e0e-5555-4666-8777-888888888888"
+    error_message = "agent_signing_key_arn is passed to every app and creates no key."
+  }
+}
+
+run "agent_signing_key_alias_is_refused" {
+  command = plan
+
+  variables {
+    agent_signing_key_arn = "arn:aws:kms:eu-west-2:111122223333:alias/patchy-agent-image-signing"
+  }
+
+  expect_failures = [var.agent_signing_key_arn]
+}
+
+run "agent_signing_key_both_ways_is_refused" {
+  command = plan
+
+  variables {
+    create_agent_signing_key = true
+    agent_signing_key_arn    = "arn:aws:kms:eu-west-2:111122223333:key/0e0e0e0e-5555-4666-8777-888888888888"
+  }
+
+  expect_failures = [var.agent_signing_key_arn]
 }

@@ -15,5 +15,7 @@ module "app" {
   agent_path_prefix        = var.agent_path_prefix
   preview_path_prefix      = var.preview_path_prefix
   role_name_prefix         = local.app_role_name_prefix
+  agent_signing_key_arn    = local.agent_signing_key_arn
+  agent_signing_enabled    = local.agent_signing
   tags                     = var.tags
 }

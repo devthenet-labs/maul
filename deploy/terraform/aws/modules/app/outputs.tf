@@ -22,7 +22,7 @@ locals {
       RUNTIME_ROLE_ARN         = aws_iam_role.publisher["runtime"].arn
     } : {},
     # cosign's name for the signing key; absent when the image is not signed.
-    var.agent_signing_key_arn == null ? {} : {
+    !local.agent_signing ? {} : {
       AGENT_SIGNING_KEY = "awskms:///${var.agent_signing_key_arn}"
     },
   )

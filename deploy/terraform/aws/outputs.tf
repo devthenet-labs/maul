@@ -86,7 +86,7 @@ output "helm_values" {
 }
 
 output "github_variables" {
-  description = "Per app slug, the repository variables its publish workflows read, as a map: AWS_REGION, ECR_REGISTRY, PUBLISH_REPOSITORY_ID, PUBLISH_OWNER_ID, AGENT_IMAGE_REPOSITORY, AGENT_ROLE_ARN and, with previews, RUNTIME_IMAGE_REPOSITORY and RUNTIME_ROLE_ARN."
+  description = "Per app slug, the repository variables its publish workflows read, as a map: AWS_REGION, ECR_REGISTRY, PUBLISH_REPOSITORY_ID, PUBLISH_OWNER_ID, AGENT_IMAGE_REPOSITORY, AGENT_ROLE_ARN, with previews RUNTIME_IMAGE_REPOSITORY and RUNTIME_ROLE_ARN, and with agent signing AGENT_SIGNING_KEY."
   value       = { for slug, app in module.app : slug => app.github_variables }
 }
 
@@ -147,4 +147,13 @@ output "edge_certificate_arn" {
 output "preview_auth_dex_redirect_uri" {
   description = "The one redirect URI of Dex's static client for the preview sign-in relay, https://<preview_auth.host>/dex/callback: the only per-install IdP setup preview sign-in needs. Null without preview_auth."
   value       = var.preview_auth == null ? null : "https://${var.preview_auth.host}/dex/callback"
+}
+
+output "agent_signing" {
+  description = "The agent image signing key, or null when signing is off: its ARN, cosign's name for it (each app's AGENT_SIGNING_KEY, already in github_variables) and the PEM public key for the chart's agent.repositoryImages.cosignPublicKey."
+  value = !local.agent_signing ? null : {
+    key_arn        = local.agent_signing_key_arn
+    cosign_key_uri = "awskms:///${local.agent_signing_key_arn}"
+    public_key_pem = data.aws_kms_public_key.agent_signing[0].public_key_pem
+  }
 }

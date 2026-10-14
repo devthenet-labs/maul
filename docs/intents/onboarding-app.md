@@ -242,6 +242,11 @@ which image an agent runs. The publisher signs with cosign and an AWS KMS key, u
 and signs exactly the digest it validated. The signature is cosign's legacy `sha256-<hex>.sig` tag, which an ECR rule
 that expires untagged images keeps. Nothing goes to the public transparency log. The runtime publisher never signs.
 
+With the platform module (`deploy/terraform/aws`), steps 1, 2 and 4 are one setting: `create_agent_signing_key = true`
+creates the key, grants it to every app's agent publisher, and outputs the public key as `agent_signing.public_key_pem`
+(`terraform output -json agent_signing | jq -r .public_key_pem`). To use a key you already have, set
+`agent_signing_key_arn` instead. Then set the repository variables (step 3) and `allowUnsigned` (step 5) as below.
+
 1. Create an AWS KMS key with key spec `ECC_NIST_P256` and key usage `SIGN_VERIFY`.
 2. Grant it to the agent publisher role: pass the key's ARN as the app module's `agent_signing_key_arn`. The module
    grants `kms:Sign`, `kms:GetPublicKey` and `kms:DescribeKey` on that key, plus `ecr:GetDownloadUrlForLayer` on the
