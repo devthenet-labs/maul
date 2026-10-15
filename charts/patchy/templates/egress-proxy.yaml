@@ -178,8 +178,15 @@ spec:
                   imagePullPolicy: {{ .Values.image.pullPolicy }}
                   args: ["serve"]
                   envFrom:
+                      {{- with $vals.extraEnvFrom }}
+                      {{- toYaml . | nindent 22 }}
+                      {{- end }}
                       - configMapRef:
                             name: {{ include "patchy.configMapName" (dict "root" . "name" $name) }}
+                  {{- with include "patchy.extraEnv" (dict "path" "egressProxy" "env" $vals.extraEnv) }}
+                  env:
+                      {{- . | nindent 22 }}
+                  {{- end }}
                   ports:
                       {{- range $pname := keys $profiles | sortAlpha }}
                       {{- $port := int (index $profiles $pname).port }}
@@ -221,6 +228,9 @@ spec:
                   volumeMounts:
                       - name: tmp
                         mountPath: /tmp
+                      {{- with $vals.extraVolumeMounts }}
+                      {{- toYaml . | nindent 22 }}
+                      {{- end }}
             {{- with $vals.nodeSelector }}
             nodeSelector:
                 {{- toYaml . | nindent 16 }}
@@ -236,6 +246,9 @@ spec:
             volumes:
                 - name: tmp
                   emptyDir: {}
+                {{- with $vals.extraVolumes }}
+                {{- toYaml . | nindent 16 }}
+                {{- end }}
 {{- if gt (int $vals.replicas) 1 }}
 ---
 # Keep one proxy serving through a node drain: a build mid-download would

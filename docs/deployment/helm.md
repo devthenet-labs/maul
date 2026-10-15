@@ -206,9 +206,10 @@ everywhere they appear (env, container ports, probes, Services, NetworkPolicies)
 
 `integrationController`, `sourceController`, `contextController`, `investigationController`, and `remediationController`
 all share one shape: `image`, `config` (+ `config.extra`), `resources`, `podAnnotations`, `podLabels`, `nodeSelector`,
-`tolerations`, `affinity`, `serviceAccount.{create,name,annotations}`, and `networkPolicy.create`. A
-`service.{type,port,nodePort,annotations}` block exists only on the two controllers anything dials — integration
-(`:8080`, fronted by `webhook.*`; `NodePort` covers the kind/dev flow) and source (`:9790`, in-cluster only by design).
+`tolerations`, `affinity`, `extraEnv`, `extraEnvFrom`, `extraVolumes`, `extraVolumeMounts`,
+`serviceAccount.{create,name,annotations}`, and `networkPolicy.create`. A `service.{type,port,nodePort,annotations}`
+block exists only on the two controllers anything dials — integration (`:8080`, fronted by `webhook.*`; `NodePort`
+covers the kind/dev flow) and source (`:9790`, in-cluster only by design).
 
 The controller-specific `config` defaults:
 
@@ -224,6 +225,39 @@ The controller-specific `config` defaults:
 Everything else a binary binds (see the [configuration reference](../configuration/index.md)) is reachable through
 `config.extra` / `<controller>.config.extra`.
 
+### Extra environment and volumes
+
+Every Deployment the chart renders (the five above, plus `evaluationController`, `intentController`, `statusServer`,
+`egressBroker`, `egressProxy`, `previewController` and `previewAuth`) takes the same four keys, rendered verbatim:
+
+| Key                 | Default | Purpose                                                                                           |
+| ------------------- | ------- | ------------------------------------------------------------------------------------------------- |
+| `extraEnv`          | `[]`    | Container `EnvVar` entries, `valueFrom` allowed (a Secret key, a field reference)                 |
+| `extraEnvFrom`      | `[]`    | `configMapRef` / `secretRef` sources (optional `prefix`), listed before the chart's own ConfigMap |
+| `extraVolumes`      | `[]`    | Pod volumes                                                                                       |
+| `extraVolumeMounts` | `[]`    | Mounts on the component's container                                                               |
+
+`config.extra` stays the place for `PATCHY_*` settings: the render fails when `extraEnv` names a `PATCHY_*` key,
+`POD_NAMESPACE` or `DOCKER_CONFIG`, the variables patchy sets itself. An `extraEnvFrom` source cannot be checked at
+render time, so it is listed before the chart's ConfigMap: Kubernetes lets a later source win a key both define, and
+explicit `env` wins over every source, so the chart's own settings are never replaced from a Secret. A volume or mount
+name that clashes with one the chart renders (`tmp`, `data`, and the like) is refused by the API server at apply time.
+
+The usual use is a credential off its home cloud. On a cluster outside AWS, source-controller can resolve declared
+images in ECR with static IAM keys from a Secret (the AWS SDK reads them from the environment):
+
+```yaml
+sourceController:
+  extraEnv:
+    - name: AWS_ACCESS_KEY_ID
+      valueFrom: { secretKeyRef: { name: patchy-ecr-reader, key: AWS_ACCESS_KEY_ID } }
+    - name: AWS_SECRET_ACCESS_KEY
+      valueFrom: { secretKeyRef: { name: patchy-ecr-reader, key: AWS_SECRET_ACCESS_KEY } }
+```
+
+Give that IAM user nothing but `ecr:GetAuthorizationToken` and read access to the allowlisted repositories, and keep the
+Secret in the release namespace. The keys reach source-controller's own pod only, never an agent pod.
+
 ### Agent sandbox
 
 | Key                                      | Default                                               | Purpose                                                                                                                                                                                                                                                                                                                                                     |
@@ -231,6 +265,7 @@ Everything else a binary binds (see the [configuration reference](../configurati
 | `agent.namespace`                        | `patchy-agents`                                       | Created by the chart with the `restricted` PSS labels                                                                                                                                                                                                                                                                                                       |
 | `agent.createNamespace`                  | `true`                                                | Set `false` when the namespace is managed elsewhere                                                                                                                                                                                                                                                                                                         |
 | `agent.serviceAccount`                   | `patchy-agent`                                        | The Job identity: no Role, token not mounted                                                                                                                                                                                                                                                                                                                |
+| `agent.paused`                           | `false`                                               | The cluster-wide pause: investigation-, remediation-, intent- and evaluation-controller launch no new agent Job while it is `true`; running Jobs finish and pending work queues in order. Rolls those four controllers and status-server, whose page shows it — see [Pausing agents](../configuration/investigation-controller.md#pausing-agents)           |
 | `agent.jobDeadline` / `agent.jobTTL`     | `1h` / `1h`                                           | `activeDeadlineSeconds` / `ttlSecondsAfterFinished`                                                                                                                                                                                                                                                                                                         |
 | `agent.resources.default`                | `{}`                                                  | CPU and memory on both containers of every agent Job without a class (Finding Jobs, intent plans, evaluation units): any of `requests.cpu`, `requests.memory`, `limits.cpu`, `limits.memory`, quoted or not. `{}` sets none, as before. Rolls the four controllers that launch agent Jobs                                                                   |
 | `agent.resources.classes`                | `{}`                                                  | Named sizes a Project picks per repository (`agentResourceClass`) for its intent builds, revise and check-fix rounds; each sets `requests.cpu`, `requests.memory`, `limits.memory` and optionally `limits.cpu`. The largest is the most any agent Job can request. Rolls intent-controller only. See [Sizing agents](../intents/deploying.md#sizing-agents) |
@@ -360,12 +395,17 @@ sourceController:
             port: 8080
 ```
 
-For any other registry set `pullSecret`: source-controller mounts that Secret's `.dockerconfigjson` key as `config.json`
-under `DOCKER_CONFIG`, and the agent ServiceAccount lists it in `imagePullSecrets`. The kubelet reads pull Secrets from
-the pod's own namespace, so a Secret of the same name must also exist in `agent.namespace`: set `pullSecretData` to have
-the chart render it in both namespaces, or create both yourself. The mount is optional, so a missing release-namespace
-Secret (or one without a `.dockerconfigjson` key) does not stop source-controller: it resolves anonymously, rejects the
-images it cannot read, and picks the credential up once the Secret appears.
+For any other registry, or for ECR or Artifact Registry from a cluster outside that cloud, set `pullSecret`:
+source-controller mounts that Secret's `.dockerconfigjson` key as `config.json` under `DOCKER_CONFIG`, and the agent
+ServiceAccount lists it in `imagePullSecrets`. An entry naming the registry host wins over the cloud credential chain,
+for ECR and Artifact Registry hosts too; a host it does not name still goes through the workload identity above. An ECR
+password from `aws ecr get-login-password` expires after 12 hours, so for ECR off AWS prefer static IAM keys in
+source-controller's environment ([extra environment](#extra-environment-and-volumes)), which the SDK exchanges for a
+fresh token itself; the kubelet on such a cluster still needs its own way to pull the pinned digest. The kubelet reads
+pull Secrets from the pod's own namespace, so a Secret of the same name must also exist in `agent.namespace`: set
+`pullSecretData` to have the chart render it in both namespaces, or create both yourself. The mount is optional, so a
+missing release-namespace Secret (or one without a `.dockerconfigjson` key) does not stop source-controller: it resolves
+anonymously, rejects the images it cannot read, and picks the credential up once the Secret appears.
 
 ### Network profiles (the egress proxy)
 

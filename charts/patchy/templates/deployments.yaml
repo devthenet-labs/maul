@@ -14,9 +14,11 @@
 # against a botched rollout racing two replicas — singleton-by-construction
 # stays the deployment model. Do not scale these.
 #
-# No credential is mounted anywhere here: provider and forge credentials live
+# The chart mounts no credential here: provider and forge credentials live
 # in Secrets referenced by the Integration and Forge custom resources
-# (spec.secretRef), read on demand through the API.
+# (spec.secretRef), read on demand through the API. What an operator adds
+# through <controller>.extraEnv, extraEnvFrom, extraVolumes and
+# extraVolumeMounts is theirs (patchy.extraEnv refuses the names patchy sets).
 #
 # With agent.repositoryImages enabled, source-controller additionally mounts
 # the cosign public key (a ConfigMap, configmap.yaml) and, with pullSecret,
@@ -26,11 +28,11 @@
 # reads under DOCKER_CONFIG.
 {{- $ri := .Values.agent.repositoryImages | default dict }}
 {{- range $c := list
-    (dict "name" "integration-controller" "vals" .Values.integrationController)
-    (dict "name" "source-controller" "vals" .Values.sourceController)
-    (dict "name" "context-controller" "vals" .Values.contextController)
-    (dict "name" "investigation-controller" "vals" .Values.investigationController)
-    (dict "name" "remediation-controller" "vals" .Values.remediationController)
+    (dict "name" "integration-controller" "key" "integrationController" "vals" .Values.integrationController)
+    (dict "name" "source-controller" "key" "sourceController" "vals" .Values.sourceController)
+    (dict "name" "context-controller" "key" "contextController" "vals" .Values.contextController)
+    (dict "name" "investigation-controller" "key" "investigationController" "vals" .Values.investigationController)
+    (dict "name" "remediation-controller" "key" "remediationController" "vals" .Values.remediationController)
 }}
 ---
 apiVersion: apps/v1
@@ -91,6 +93,9 @@ spec:
                   imagePullPolicy: {{ $.Values.image.pullPolicy }}
                   args: ["serve"]
                   envFrom:
+                      {{- with $c.vals.extraEnvFrom }}
+                      {{- toYaml . | nindent 22 }}
+                      {{- end }}
                       - configMapRef:
                             name: {{ include "patchy.configMapName" (dict "root" $ "name" $c.name) }}
                   env:
@@ -98,6 +103,9 @@ spec:
                         valueFrom:
                             fieldRef:
                                 fieldPath: metadata.namespace
+                      {{- with include "patchy.extraEnv" (dict "path" $c.key "env" $c.vals.extraEnv) }}
+                      {{- . | nindent 22 }}
+                      {{- end }}
                   ports:
                       {{- if eq $c.name "integration-controller" }}
                       - name: http
@@ -158,6 +166,9 @@ spec:
                       {{- end }}
                       - name: tmp
                         mountPath: /tmp
+                      {{- with $c.vals.extraVolumeMounts }}
+                      {{- toYaml . | nindent 22 }}
+                      {{- end }}
             {{- with $c.vals.nodeSelector }}
             nodeSelector:
                 {{- toYaml . | nindent 16 }}
@@ -207,4 +218,7 @@ spec:
                 # writable /tmp.
                 - name: tmp
                   emptyDir: {}
+                {{- with $c.vals.extraVolumes }}
+                {{- toYaml . | nindent 16 }}
+                {{- end }}
 {{- end }}

@@ -30,13 +30,14 @@ grammar:
 The [shared flags](index.md#shared-flags-every-controller) (`--listen-addr` is the page's own address here — there is no
 webhook), plus:
 
-| Flag                | Env                      | Default         | Purpose                                                                              |
-| ------------------- | ------------------------ | --------------- | ------------------------------------------------------------------------------------ |
-| `--namespace`       | `PATCHY_NAMESPACE`       | `POD_NAMESPACE` | Namespace the Findings and FindingRollups live in                                    |
-| `--agent-namespace` | `PATCHY_AGENT_NAMESPACE` | `patchy-agents` | Namespace the agent Jobs run in; live conversations are followed from their pod logs |
-| `--kubeconfig`      | `PATCHY_KUBECONFIG`      | in-cluster      | Kubeconfig path for running outside the cluster                                      |
-| `--health-addr`     | `PATCHY_HEALTH_ADDR`     | `:8081`         | healthz/readyz probe listen address                                                  |
-| `--auth-config`     | `PATCHY_AUTH_CONFIG`     | _(unset)_       | Mounted authentication config; absent ⇒ rollups-only (see below)                     |
+| Flag                | Env                      | Default         | Purpose                                                                                                                      |
+| ------------------- | ------------------------ | --------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `--namespace`       | `PATCHY_NAMESPACE`       | `POD_NAMESPACE` | Namespace the Findings and FindingRollups live in                                                                            |
+| `--agent-namespace` | `PATCHY_AGENT_NAMESPACE` | `patchy-agents` | Namespace the agent Jobs run in; live conversations are followed from their pod logs                                         |
+| `--kubeconfig`      | `PATCHY_KUBECONFIG`      | in-cluster      | Kubeconfig path for running outside the cluster                                                                              |
+| `--health-addr`     | `PATCHY_HEALTH_ADDR`     | `:8081`         | healthz/readyz probe listen address                                                                                          |
+| `--auth-config`     | `PATCHY_AUTH_CONFIG`     | _(unset)_       | Mounted authentication config; absent ⇒ rollups-only (see below)                                                             |
+| `--agents-paused`   | `PATCHY_AGENTS_PAUSED`   | `false`         | Show the [agent pause](investigation-controller.md#pausing-agents) on the signed-in page; display only. Helm: `agent.paused` |
 
 Two more flags turn on the [intents dashboard](../intents/dashboard.md):
 

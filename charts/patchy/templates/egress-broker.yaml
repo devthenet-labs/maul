@@ -203,8 +203,15 @@ spec:
                   imagePullPolicy: {{ .Values.image.pullPolicy }}
                   args: ["serve"]
                   envFrom:
+                      {{- with $vals.extraEnvFrom }}
+                      {{- toYaml . | nindent 22 }}
+                      {{- end }}
                       - configMapRef:
                             name: {{ include "patchy.configMapName" (dict "root" . "name" $name) }}
+                  {{- with include "patchy.extraEnv" (dict "path" "egressBroker" "env" $vals.extraEnv) }}
+                  env:
+                      {{- . | nindent 22 }}
+                  {{- end }}
                   ports:
                       - name: http
                         containerPort: 8080
@@ -251,6 +258,9 @@ spec:
                         mountPath: /etc/patchy/foundry
                         readOnly: true
                       {{- end }}
+                      {{- with $vals.extraVolumeMounts }}
+                      {{- toYaml . | nindent 22 }}
+                      {{- end }}
             {{- with $vals.nodeSelector }}
             nodeSelector:
                 {{- toYaml . | nindent 16 }}
@@ -277,6 +287,9 @@ spec:
                 - name: foundry
                   secret:
                       secretName: {{ $vals.foundrySecret }}
+                {{- end }}
+                {{- with $vals.extraVolumes }}
+                {{- toYaml . | nindent 16 }}
                 {{- end }}
 ---
 apiVersion: v1

@@ -331,12 +331,19 @@ Per-controller blocks — `integrationController`, `sourceController`, `contextC
   on the two controllers anything dials (integration :8080, source :9790; NodePort covers the kind/dev flow).
 - `<controller>.resources`, `podAnnotations`, `podLabels`, `nodeSelector`, `tolerations`, `affinity` — per-controller
   pod tuning.
+- `<component>.extraEnv`, `extraEnvFrom`, `extraVolumes`, `extraVolumeMounts` — on every Deployment the chart renders:
+  container env (`valueFrom` allowed, so a Secret-backed credential such as `AWS_ACCESS_KEY_ID`), envFrom sources
+  (listed before the chart's ConfigMap, so the chart's keys win a clash), pod volumes and container mounts. A name
+  patchy sets itself (`PATCHY_*`, `POD_NAMESPACE`, `DOCKER_CONFIG`) in `extraEnv` fails the render; `PATCHY_*` settings
+  belong in `config.extra`.
 
 The genuinely shared settings stay global:
 
 - `image.*` — repository prefix (registry included), tag (default `v<appVersion>`), pull policy, pull secrets.
 - `webhook.*` — the single external entry point (`host`, plus one of `ingress` / `httpRoute`) in front of the
   integration-controller; a provider has one webhook URL, so exposure is a chart-level concern.
+- `agent.paused` — the cluster-wide pause: while `true`, investigation-, remediation-, intent- and evaluation-controller
+  launch no new agent Job (running ones finish; pending work queues in order), and the status page says so.
 - `agent.*` — the sandbox: namespace, service account, `jobDeadline`/`jobTTL`, and the two stages' limits:
   `modelAllowlist` (canonical, provider-qualified model ids), `investigate.*` (absolute), `remediate.*` (`auto.*` is
   what an unattended fix gets and the line past which an estimate needs approval, `manual.*` the most an approval can
@@ -369,11 +376,12 @@ The genuinely shared settings stay global:
   `host/path/` prefixes), `cosignPublicKey` (or `allowUnsigned: true`) and `ephemeralStorage` (the disk wall on every
   agent Job) are required when `enabled`; `maxBytes`, `onReject` (`default` runs a rejected declaration on the default
   image, `handoff` parks the finding), `changesetMaxEntries`, and `pullSecret`/`pullSecretData` (a dockerconfigjson
-  Secret for registries other than ECR or Artifact Registry; the kubelet needs a same-named copy in `agent.namespace`,
-  and `pullSecretData` renders both) tune it. Enabling it fails the render while the agent egress is broad — set
-  `agent.networkPolicy.broadEgress: never` under `mode: none` or `istio` — and adds the EKS Pod Identity agent to
-  source-controller's NetworkPolicy, so an ECR allowlist needs only a Pod Identity association on the source-controller
-  ServiceAccount. See [Helm charts](../../docs/deployment/helm.md#repository-runner-images) in the docs.
+  Secret; an entry naming a registry host wins, ECR and Artifact Registry included, so a cluster off those clouds can
+  use one; the kubelet needs a same-named copy in `agent.namespace`, and `pullSecretData` renders both) tune it.
+  Enabling it fails the render while the agent egress is broad — set `agent.networkPolicy.broadEgress: never` under
+  `mode: none` or `istio` — and adds the EKS Pod Identity agent to source-controller's NetworkPolicy, so an ECR
+  allowlist needs only a Pod Identity association on the source-controller ServiceAccount. See
+  [Helm charts](../../docs/deployment/helm.md#repository-runner-images) in the docs.
 - `agent.networkPolicy.*` — the sandbox policies (above).
 - `commonLabels` / `commonAnnotations` — stamped on every object the chart renders (annotations reach the pods too;
   per-object annotations win key-by-key).

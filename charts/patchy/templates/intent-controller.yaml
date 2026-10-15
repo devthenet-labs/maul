@@ -253,6 +253,9 @@ spec:
                   imagePullPolicy: {{ .Values.image.pullPolicy }}
                   args: ["serve"]
                   envFrom:
+                      {{- with $vals.extraEnvFrom }}
+                      {{- toYaml . | nindent 22 }}
+                      {{- end }}
                       - configMapRef:
                             name: {{ include "patchy.configMapName" (dict "root" . "name" $name) }}
                   env:
@@ -260,6 +263,9 @@ spec:
                         valueFrom:
                             fieldRef:
                                 fieldPath: metadata.namespace
+                      {{- with include "patchy.extraEnv" (dict "path" "intentController" "env" $vals.extraEnv) }}
+                      {{- . | nindent 22 }}
+                      {{- end }}
                   ports:
                       - name: health
                         containerPort: 8081
@@ -290,6 +296,9 @@ spec:
                   volumeMounts:
                       - name: tmp
                         mountPath: /tmp
+                      {{- with $vals.extraVolumeMounts }}
+                      {{- toYaml . | nindent 22 }}
+                      {{- end }}
             {{- with $vals.nodeSelector }}
             nodeSelector:
                 {{- toYaml . | nindent 16 }}
@@ -307,6 +316,9 @@ spec:
                 # writable /tmp.
                 - name: tmp
                   emptyDir: {}
+                {{- with $vals.extraVolumes }}
+                {{- toYaml . | nindent 16 }}
+                {{- end }}
 {{- if $vals.networkPolicy.create }}
 ---
 # Ingress: 8081 probes only — it serves nothing else. Egress: DNS, then TCP

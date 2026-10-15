@@ -214,6 +214,11 @@ previewController:
     nodeSelector: {}
     tolerations: []
     affinity: {}
+    # Operator env, envFrom, volumes and mounts: see integrationController.
+    extraEnv: []
+    extraEnvFrom: []
+    extraVolumes: []
+    extraVolumeMounts: []
     serviceAccount:
         create: true
         name: ""
@@ -366,6 +371,11 @@ previewAuth:
     nodeSelector: {}
     tolerations: []
     affinity: {}
+    # Operator env, envFrom, volumes and mounts: see integrationController.
+    extraEnv: []
+    extraEnvFrom: []
+    extraVolumes: []
+    extraVolumeMounts: []
     serviceAccount:
         create: true
         name: ""
@@ -531,6 +541,20 @@ integrationController:
     nodeSelector: {}
     tolerations: []
     affinity: {}
+    # Operator additions to this component's pod, the same four keys on every
+    # Deployment the chart renders. extraEnv is a list of container EnvVar
+    # entries (valueFrom allowed: a Secret's AWS_ACCESS_KEY_ID for
+    # source-controller resolving ECR off AWS, say); a name patchy sets
+    # itself (any PATCHY_* key, POD_NAMESPACE, DOCKER_CONFIG) fails the
+    # render, since PATCHY_* settings belong in config.extra. extraEnvFrom
+    # entries (configMapRef/secretRef, optional prefix) come before the
+    # chart's own ConfigMap, so the chart's keys win any clash. extraVolumes
+    # are pod volumes and extraVolumeMounts the controller container's mounts
+    # (a projected token or a CA bundle, say). All four render verbatim.
+    extraEnv: []
+    extraEnvFrom: []
+    extraVolumes: []
+    extraVolumeMounts: []
     serviceAccount:
         # Set false to bring your own (and point `name` at it).
         create: true
@@ -576,6 +600,11 @@ sourceController:
     nodeSelector: {}
     tolerations: []
     affinity: {}
+    # Operator env, envFrom, volumes and mounts: see integrationController.
+    extraEnv: []
+    extraEnvFrom: []
+    extraVolumes: []
+    extraVolumeMounts: []
     serviceAccount:
         create: true
         name: ""
@@ -636,6 +665,11 @@ contextController:
     nodeSelector: {}
     tolerations: []
     affinity: {}
+    # Operator env, envFrom, volumes and mounts: see integrationController.
+    extraEnv: []
+    extraEnvFrom: []
+    extraVolumes: []
+    extraVolumeMounts: []
     serviceAccount:
         create: true
         name: ""
@@ -678,6 +712,11 @@ investigationController:
     nodeSelector: {}
     tolerations: []
     affinity: {}
+    # Operator env, envFrom, volumes and mounts: see integrationController.
+    extraEnv: []
+    extraEnvFrom: []
+    extraVolumes: []
+    extraVolumeMounts: []
     serviceAccount:
         create: true
         name: ""
@@ -709,6 +748,11 @@ remediationController:
     nodeSelector: {}
     tolerations: []
     affinity: {}
+    # Operator env, envFrom, volumes and mounts: see integrationController.
+    extraEnv: []
+    extraEnvFrom: []
+    extraVolumes: []
+    extraVolumeMounts: []
     serviceAccount:
         create: true
         name: ""
@@ -813,6 +857,11 @@ evaluationController:
     nodeSelector: {}
     tolerations: []
     affinity: {}
+    # Operator env, envFrom, volumes and mounts: see integrationController.
+    extraEnv: []
+    extraEnvFrom: []
+    extraVolumes: []
+    extraVolumeMounts: []
     serviceAccount:
         create: true
         name: ""
@@ -921,6 +970,11 @@ intentController:
     nodeSelector: {}
     tolerations: []
     affinity: {}
+    # Operator env, envFrom, volumes and mounts: see integrationController.
+    extraEnv: []
+    extraEnvFrom: []
+    extraVolumes: []
+    extraVolumeMounts: []
     serviceAccount:
         create: true
         name: ""
@@ -1015,6 +1069,11 @@ statusServer:
     nodeSelector: {}
     tolerations: []
     affinity: {}
+    # Operator env, envFrom, volumes and mounts: see integrationController.
+    extraEnv: []
+    extraEnvFrom: []
+    extraVolumes: []
+    extraVolumeMounts: []
     serviceAccount:
         create: true
         name: ""
@@ -1128,6 +1187,11 @@ egressBroker:
     nodeSelector: {}
     tolerations: []
     affinity: {}
+    # Operator env, envFrom, volumes and mounts: see integrationController.
+    extraEnv: []
+    extraEnvFrom: []
+    extraVolumes: []
+    extraVolumeMounts: []
     serviceAccount:
         create: true
         name: ""
@@ -1229,6 +1293,11 @@ egressProxy:
     nodeSelector: {}
     tolerations: []
     affinity: {}
+    # Operator env, envFrom, volumes and mounts: see integrationController.
+    extraEnv: []
+    extraEnvFrom: []
+    extraVolumes: []
+    extraVolumeMounts: []
     serviceAccount:
         create: true
         name: ""
@@ -1260,6 +1329,14 @@ agent:
     # expects it to exist and to carry the restricted Pod Security labels.
     createNamespace: true
     serviceAccount: patchy-agent
+    # The cluster-wide pause. true stops every controller that launches agent
+    # Jobs (investigation, remediation, intent and evaluation) from starting
+    # new ones: their schedulers grant no slot, so work queues in order
+    # (Findings in Investigating or Queued, intent runs and evaluation units
+    # Pending) and no tokens are spent. Jobs already running finish and are
+    # collected as usual. Changing it rolls those four controllers. The
+    # per-object spec.suspend still pauses one Finding, Intent or Project.
+    paused: false
     # Job execution limits (both job controllers).
     jobDeadline: 1h
     jobTTL: 1h
@@ -1528,8 +1605,11 @@ agent:
         changesetMaxEntries: 500
         # Name of a kubernetes.io/dockerconfigjson Secret in the RELEASE
         # namespace that source-controller resolves declared images with
-        # (mounted as DOCKER_CONFIG). Leave empty for ECR and Artifact
-        # Registry: source-controller uses its workload identity there. When
+        # (mounted as DOCKER_CONFIG). An entry naming a registry host wins
+        # for that host, ECR and Artifact Registry included; a host it does
+        # not name uses source-controller's workload identity (IRSA/Pod
+        # Identity, GKE Workload Identity), or for ECR off AWS the AWS_*
+        # keys sourceController.extraEnv supplies. When
         # set, the agent ServiceAccount also lists it in imagePullSecrets —
         # and the kubelet reads that Secret from agent.namespace, not the
         # release namespace, so a Secret of the same name must exist there

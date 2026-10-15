@@ -83,6 +83,8 @@ metadata:
 {{- if $vals.intents.enabled }}
 {{- $_ := set $data "PATCHY_INTENTS_ENABLED" "true" }}
 {{- end }}
+{{- /* agent.paused, shown on the page; the job controllers enforce it. */}}
+{{- $_ := include "patchy.agentsPausedData" (dict "root" . "data" $data) }}
 {{- range $k, $v := .Values.config.extra }}
 {{- $_ := set $data $k $v }}
 {{- end }}
@@ -464,6 +466,9 @@ spec:
                   imagePullPolicy: {{ .Values.image.pullPolicy }}
                   args: ["serve"]
                   envFrom:
+                      {{- with $vals.extraEnvFrom }}
+                      {{- toYaml . | nindent 22 }}
+                      {{- end }}
                       - configMapRef:
                             name: {{ include "patchy.configMapName" (dict "root" . "name" $name) }}
                   env:
@@ -471,6 +476,9 @@ spec:
                         valueFrom:
                             fieldRef:
                                 fieldPath: metadata.namespace
+                      {{- with include "patchy.extraEnv" (dict "path" "statusServer" "env" $vals.extraEnv) }}
+                      {{- . | nindent 22 }}
+                      {{- end }}
                   ports:
                       - name: http
                         containerPort: 8080
@@ -507,6 +515,9 @@ spec:
                         readOnly: true
                       - name: tmp
                         mountPath: /tmp
+                      {{- with $vals.extraVolumeMounts }}
+                      {{- toYaml . | nindent 22 }}
+                      {{- end }}
             {{- with $vals.nodeSelector }}
             nodeSelector:
                 {{- toYaml . | nindent 16 }}
@@ -528,6 +539,9 @@ spec:
                       optional: true
                 - name: tmp
                   emptyDir: {}
+                {{- with $vals.extraVolumes }}
+                {{- toYaml . | nindent 16 }}
+                {{- end }}
 ---
 apiVersion: v1
 kind: Service

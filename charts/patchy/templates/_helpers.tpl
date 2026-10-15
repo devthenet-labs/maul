@@ -267,6 +267,46 @@ Context: dict "root" $ "data" <dict>.
 {{- end }}
 
 {{/*
+PATCHY_AGENTS_PAUSED for every controller that launches agent Jobs
+(investigation, remediation, intent and evaluation): agent.paused, the
+cluster-wide pause. Set into .data only while paused, so unpausing leaves
+every ConfigMap as it was; either way the change rolls those four
+controllers, whose schedulers then grant no slot and launch no Job. Jobs
+already running finish and are collected. Context: dict "root" $ "data"
+<dict>.
+*/}}
+{{- define "patchy.agentsPausedData" -}}
+{{- if .root.Values.agent.paused -}}
+{{- $_ := set .data "PATCHY_AGENTS_PAUSED" "true" -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+One container's operator env (<component>.extraEnv: EnvVar entries, valueFrom
+allowed), rendered as list items for the caller to indent. The names patchy
+itself sets are refused, so a Secret-backed variable can add credentials or
+settings but never silently replace what the chart configured: every PATCHY_*
+key (the chart's own config, overridable only through config.extra, where its
+render-time guards still see it), POD_NAMESPACE and DOCKER_CONFIG (the
+agent.repositoryImages.pullSecret mount). <component>.extraEnvFrom cannot be
+judged at render time, so the Deployments list it BEFORE the chart's own
+ConfigMap: a later envFrom source wins a shared key, and explicit env wins
+over every envFrom source. Context: dict "path" "<values key>" "env" <list>.
+*/}}
+{{- define "patchy.extraEnv" -}}
+{{- $path := .path -}}
+{{- range .env -}}
+{{- $name := toString .name -}}
+{{- if or (hasPrefix "PATCHY_" $name) (has $name (list "POD_NAMESPACE" "DOCKER_CONFIG")) -}}
+{{- fail (printf "%s.extraEnv: %s is set by the chart and cannot be overridden here (PATCHY_* keys go in %s.config.extra; DOCKER_CONFIG follows agent.repositoryImages.pullSecret)" $path $name $path) -}}
+{{- end -}}
+{{- end -}}
+{{- with .env -}}
+{{- toYaml . -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 Render a map as the comma-joined key=value wire form the runnercfg flags
 parse (--claude-model-map, --claude-provider-env). Keys sort deterministically.
 */}}
