@@ -849,7 +849,9 @@ func TestOutputEnds(t *testing.T) {
 // was running as the run ended, and it is read out as such, not dropped. CI
 // saw TestOutputEnds lose its last command this way. The test plays the
 // first command's goroutine, so the hand-over comes after the run's end
-// every time.
+// every time: no seam through scan and end can hold that hand-over back
+// until the run has ended, and without that ordering the race is a matter
+// of scheduling.
 func TestOutputEndReadsOutTheCommandAfterOneClosing(t *testing.T) {
 	cfg, ws, tmp, out := outputSetup(t)
 	a := New(cfg, &commandExec{ws: ws})
@@ -877,10 +879,12 @@ func TestOutputEndReadsOutTheCommandAfterOneClosing(t *testing.T) {
 		f.mu.Lock()
 		over = f.over
 		f.mu.Unlock()
-		if time.Now().After(deadline) {
-			t.Fatal("timed out waiting for the run's end")
+		if !over {
+			if time.Now().After(deadline) {
+				t.Fatal("timed out waiting for the run's end")
+			}
+			time.Sleep(5 * time.Millisecond)
 		}
-		runtime.Gosched()
 	}
 	f.next(first) // the first command's goroutine hands over, after the run's end
 	f.wg.Done()
