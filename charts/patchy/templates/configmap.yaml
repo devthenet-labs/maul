@@ -33,6 +33,7 @@
 # below, but from its own template (intent-controller.yaml), so the whole
 # component stays behind intentController.enabled.
 {{- include "patchy.repositoryImagesGuard" . }}
+{{- include "patchy.egressProxyGuard" . }}
 {{- range $c := list
     (dict "name" "integration-controller" "vals" .Values.integrationController)
     (dict "name" "source-controller" "vals" .Values.sourceController)
@@ -294,6 +295,15 @@ generation's sets ride beside them during a rotation's overlap.
 {{- $_ := set $data "PATCHY_PREVIEW_AUTH_PREVIOUS_ANNOTATIONS" (get $pas.sets (toString (int $pas.otherGen)) | toJson) }}
 {{- end }}
 {{- end }}
+{{- end }}
+{{- if and (include "patchy.egressProxyEnabled" $root) (has $c.name (list "remediation-controller" "intent-controller")) }}
+{{- /*
+Network profiles (egressProxy): the job controllers that launch remediate
+and build Jobs get the kill switch, the profile set and the proxy's URL.
+investigation-controller and evaluation-controller never bind these flags,
+so they never carry them.
+*/}}
+{{- $_ := include "patchy.networkProfilesData" (dict "root" $root "data" $data) }}
 {{- end }}
 {{/*
 The global egress proxy (spec.proxy on a Forge/GitHub Integration overrides

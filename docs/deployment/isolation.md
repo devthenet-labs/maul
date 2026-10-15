@@ -242,7 +242,103 @@ image needs nothing extra.
     directly, whatever the chart renders. Remove it, or narrow its `podSelector` so it selects no agent pod, when you
     turn DNS off. `clusterDNSCIDR` needs nothing: it only adds an address to the chart's own DNS rules, which are dropped.
 
+## Network profiles: the Go dependency route
+
+An agent pod has no route to a package registry: every dependency must be in the runner image. An operator can grant one
+exception, off by default: a **network profile** (`egressProxy.enabled` and `agent.networkProfiles` in the Helm chart;
+there is no kustomize component). The profile is a **delta** on the egress described above, never a new baseline. Only a
+pod that is all of these gains anything:
+
+- a Finding's remediate pod, or an Intent's build, revise or check-fix pod;
+- running the repository's **accepted** repository-declared image;
+- of a repository matching exactly one profile (RE2 patterns matched anchored against the lowercased `owner/name`);
+- while `egressProxy.suspendProfiles` is off and the sandbox breaker is not tripped.
+
+It gains exactly one egress destination, the [egress proxy](../configuration/egress-proxy.md) on that profile's port,
+and nothing else: no credential, no resolver (under `dns: none` the controller pins the proxy's Service name in the
+hosts file, as it does the broker's) and no proxy variable. Every other pod, investigate, plan and evaluation pods and
+every default-image pod included, is byte for byte what it was. The proxy forwards only `GET` and `HEAD` requests for Go
+modules and checksum-database records, only for the profile's allowlisted module prefixes, and only tagged releases
+unless the profile sets `allowPseudoVersions`; it holds no credential and caches nothing.
+
+What the egress is without profiles depends on your values; do not read one deployment's as the chart's. Under
+`dns: none` with brokered claude only, an agent pod reaches the artifact server and the egress broker and has no
+resolver. With `dns: cluster` it also has a DNS rule; under mode `cilium` a non-brokered runner gets `toFQDNs` to its
+model API; and with repository images off under mode `none`, the base policy's "TCP 443 to anywhere" rule stays.
+Profiles require repository images, which require narrow egress, so that last case never carries a profile.
+
+### How it is enforced
+
+**The port is the identity, checked on both sides.** Each profile has its own proxy listener and its own two rules:
+
+- an agent-side NetworkPolicy, `<release>-agents-network-<profile>` in the agent namespace, selecting only agent pods
+  labelled `patchy.bitwisemedia.uk/network-<profile>: "true"` and allowing them egress to the proxy's pods on that
+  profile's port, and nothing else (no DNS rule, no `ipBlock`);
+- the proxy's own NetworkPolicy, whose ingress admits that port only from agent pods carrying that label in the agent
+  namespace (plus the probe port 8081 from anywhere). Its egress is DNS and TCP 443 to `0.0.0.0/0` with the cluster's
+  IPv4 ranges, `10/8`, `172.16/12`, `192.168/16`, `169.254/16` (IMDS and EKS Pod Identity) and `100.64/10` excepted, and
+  nothing IPv6. The proxy's own dialer refuses the same ranges again at connect time.
+
+Plain `networking.k8s.io/v1` policies only: modes `none`, `gke` and `cilium` all enforce them (Cilium unions them with
+the per-harness `CiliumNetworkPolicy`). Mode `istio` is refused by the chart in step 1: the `REGISTRY_ONLY` Sidecar and
+port-based identity have not been verified together.
+
+**The label is set in one place and checked in three.** Only the remediation-controller (after it pins the image) and
+the intent-controller (for build and revise stages) ask for a profile. `internal/jobs` applies it only to the exact
+pairs `(remediate, remediation)` and `(build, intent)`, only when it injects the repository image, and refuses it on any
+other Job. With `admissionPolicy.enabled`, a ValidatingAdmissionPolicy refuses a Job in the agent namespace whose labels
+or pod-template labels carry a `network-` profile key unless the remediation-controller creates it with kind
+`remediation`, or the intent-controller with kind `intent`, and it carries the `runner-image-source: repository`
+annotation. That closes "an investigation never gets a profile" against a bug in one controller: the
+investigation-controller's ServiceAccount holds `jobs create` there too. Without admission policies (clusters older than
+1.30) the label is enforced by controller code alone, and the install NOTES say so.
+
+**Two kill-switch levers.** `egressProxy.suspendProfiles: true` stops the job controllers applying a profile from their
+next Job **and** rolls the proxy into answering every profile request `410 suspended`, so a Job already running can
+fetch nothing new from the moment the new proxy pods are Ready (between the switch and then, the old pods still serve).
+The policies stay rendered. `egressProxy.enabled: false` removes the proxy and every policy.
+
+### What a profile does not stop
+
+Be plain about the residue; it is why a narrower step 2 (an exact `module@version` allowlist per run) exists.
+
+- **Data in allowed module paths still reaches proxy.golang.org, and from there the origin.** Under a broad prefix
+  (`github.com/`), proxy.golang.org fetches from attacker-owned repositories; index.golang.org then lists each newly
+  fetched `module@version` publicly, and a checksum lookup appends it permanently to the public log, so code in the pod
+  with pre-made tags can signal about a byte per first fetch. Vanity hosts under an allowed prefix
+  (`go.opentelemetry.io/`, `k8s.io/`) see `?go-get=1` requests for arbitrary subpaths. **Narrow prefixes**
+  (`github.com/google/uuid`, not `github.com/`) close this for everything outside them.
+- **Which version is fetched, and the `list` and `@latest` requests themselves, stay visible to Google,** and a
+  never-before-fetched tag shows in the index. The version gate closes commit choice, fork-network commits served
+  through the parent repository and the version string as a carrier; `allowPseudoVersions: true` reopens those three for
+  that profile's modules.
+- **Typosquats** under a broad prefix are fetchable. Review `go.mod` in the pull request; its body says the run had a
+  profile.
+- **Environment is not a boundary.** The job controller sets every go variable non-empty (`GOSUMDB=sum.golang.org`, the
+  pattern variables `patchy.invalid`, `GOENV=off`) so neither the image's `ENV` nor its `$GOROOT/go.env` can turn
+  checksum verification off by default, but the agent can still run `GOSUMDB=off go get …`. Integrity is restored
+  downstream: CI's go command verifies `go.sum` against what proxy.golang.org serves, and a human reviews the diff.
+- **Malicious dependency code** runs in the pod when tests run. It gains no reachability beyond the proxy, which is
+  bounded by the same allowlist; the final boundary for the dependency is pull-request review.
+- **Node-local traffic.** On Cilium, traffic from the local host to local pods is allowed by default, and a CIDR rule
+  does not match Cilium's `host` entity, so a hostNetwork workload on the proxy's node may reach the profile ports
+  regardless of the ingress rule.
+- **The policy-attach window.** On EKS Auto Mode a new pod's NetworkPolicy attaches seconds after it starts, so for a
+  few seconds after each proxy pod starts its ingress rule (the identity check) may be missing. The proxy's readiness is
+  held for 15 seconds so the Service sends it nothing in that window, but its pod IP is reachable by any pod whose own
+  egress allows it. In both cases the impact is bounded: no credential, allowlisted modules and tagged versions only.
+- **A compromised proxy** has TCP 443 to the internet, so it could exfiltrate what profile pods send it. That is why it
+  is small, separate from the broker, distroless, read-only, non-root and credential-less. With attribution on it also
+  holds a token that can list pods in the agent namespace, and reaches the API server's endpoint IPs (`/32`s only).
+- **On a CNI that does not enforce NetworkPolicy** the port is open to every pod, but every repository-image Job's
+  sandbox probe already fails such clusters before untrusted code runs.
+- **DoS and cost.** One profile pod can use its share of the proxy (global and per-source concurrency, rate, size caps
+  and timeouts bound it), and each profile run copies its modules into `/tmp`, so size ephemeral storage with headroom.
+
 ## Egress proxies
+
+This section is about corporate forward proxies for the controllers' own forge traffic, not the
+[egress proxy](#network-profiles-the-go-dependency-route) above.
 
 The **controllers'** NetworkPolicies (separate from the agent sandbox above) allow only their declared egress: DNS,
 443/6443, and each controller's specific peers. Routing forge traffic through a corporate forward proxy — the chart's

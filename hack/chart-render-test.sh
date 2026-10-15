@@ -1752,6 +1752,283 @@ cm status-intents-inline status-server PATCHY_INTENTS_ENABLED true
 expect_fail 'intents block of the wrong shape' 'additional properties' \
   --set statusServer.intents.bogus=true
 
+# ---- egress proxy: off renders exactly what main rendered ------------------
+# The templates the egress proxy and network profiles touch, rendered with
+# egressProxy off, are byte for byte what main rendered before the feature
+# existed (blank lines and the chart version aside): the egress-off.*.yaml
+# goldens were taken from main before any template change and are never
+# regenerated to make this pass. The CRDs are left out on purpose: the
+# networkProfile status field changed them earlier.
+egress_off_templates="networkpolicy networkpolicy-gke networkpolicy-cilium configmap deployments intent-controller egress-broker rbac services admission-policy"
+egress_show=""
+for t in $egress_off_templates; do
+  egress_show="$egress_show --show-only templates/$t.yaml"
+done
+ri=$fixtures/repository-images.yaml
+ic=$fixtures/intent-controller.yaml
+# shellcheck disable=SC2086
+egress_off() {
+  name=$1
+  shift
+  golden_neutral "egress-off-$name" "$golden/egress-off.$name.yaml" $egress_show "$@"
+}
+egress_off default
+egress_off repository-images -f "$ri" -f "$ic"
+egress_off repository-images-dns-none -f "$ri" -f "$ic" --set agent.networkPolicy.dns=none
+egress_off repository-images-gke -f "$ri" -f "$ic" --set agent.networkPolicy.mode=gke
+egress_off repository-images-cilium -f "$ri" -f "$ic" --set agent.networkPolicy.mode=cilium
+
+# Profiles set with the proxy off add nothing: the same objects as the
+# default render, and no profile key anywhere.
+ep=$fixtures/egress-proxy.yaml
+objects='.kind + " " + (.metadata.namespace // "") + " " + .metadata.name'
+render egress-default -f "$ri" -f "$ic"
+render egress-profiles-off -f "$ri" -f "$ic" -f "$ep" --set egressProxy.enabled=false
+if [ "$(get egress-default "$objects" | sort)" != "$(get egress-profiles-off "$objects" | sort)" ]; then
+  fail "egress-profiles-off: profiles with egressProxy off changed the object list"
+fi
+for key in PATCHY_NETWORK_PROFILES_ENABLED PATCHY_NETWORK_PROFILES PATCHY_EGRESS_PROXY_URL; do
+  expect egress-profiles-off "select(.kind == \"ConfigMap\") | .data.$key | select(. != null)" ""
+done
+notes egress-profiles-off -f "$ri" -f "$ep" --set egressProxy.enabled=false
+notes_has egress-profiles-off 'agent.networkProfiles is set but egressProxy.enabled is false' yes
+notes egress-default -f "$ri"
+notes_has egress-default 'agent.networkProfiles is set' no
+notes_has egress-default 'Network profiles are on' no
+
+# ---- egress proxy on: two profiles under mode none and dns none -------------
+render egress-on -f "$ri" -f "$ic" -f "$ep" --set agent.networkPolicy.dns=none
+epdep='select(.kind == "Deployment" and .metadata.name == "patchy-egress-proxy")'
+expect egress-on "$epdep | .spec.replicas" 2
+expect egress-on "$epdep | .spec.strategy.rollingUpdate.maxUnavailable" 0
+expect egress-on "$epdep | .spec.template.spec.containers[0].image | split(\":\") | .[0]" ghcr.io/devthenet-labs/patchy/egress-proxy
+expect egress-on "$epdep | .spec.template.spec.containers[0].args | join(\" \")" serve
+expect egress-on "$epdep | .spec.template.spec.containers[0].ports[] | .name + \"=\" + (.containerPort | tostring)" \
+  'p8090=8090
+p8091=8091
+health=8081'
+expect egress-on "$epdep | .spec.template.spec.containers[0].readinessProbe.initialDelaySeconds" 15
+expect egress-on "$epdep | .spec.template.spec.automountServiceAccountToken" false
+expect egress-on "$epdep | .spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem" true
+expect egress-on "$epdep | .spec.template.spec.securityContext.runAsUser" 65532
+expect egress-on 'select(.kind == "PodDisruptionBudget" and .metadata.name == "patchy-egress-proxy") | .spec.minAvailable' 1
+expect egress-on 'select(.kind == "ServiceAccount" and .metadata.name == "patchy-egress-proxy") | .automountServiceAccountToken' false
+expect egress-on 'select(.kind == "Service" and .metadata.name == "patchy-egress-proxy") | .spec.ports[] | .name + " " + (.port | tostring) + " " + (.targetPort | tostring)' \
+  'p8090 8090 8090
+p8091 8091 8091'
+expect egress-on 'select(.kind == "Service" and .metadata.name == "patchy-egress-proxy") | .spec.type' ClusterIP
+render egress-one-replica -f "$ri" -f "$ep" --set egressProxy.replicas=1
+expect egress-one-replica 'select(.kind == "PodDisruptionBudget") | .metadata.name | select(. == "patchy-egress-proxy")' ""
+# The proxy's own ConfigMap, from its own dict.
+profiles='[{"allowPseudoVersions":false,"bakedModCache":"/opt/go/pkg/mod","host":"github.com","modules":["github.com/google/uuid","golang.org/x"],"name":"go","port":8090,"repositories":["devthenet-labs/patchy-preview-demo","devthenet-labs/patchy-target"],"route":"go"},{"allowPseudoVersions":true,"bakedModCache":"","host":"github.example.com","modules":["example.com/lib"],"name":"npm","port":8091,"repositories":["acme/.*"],"route":"go"}]'
+cm egress-on egress-proxy PATCHY_NETWORK_PROFILES "$profiles"
+cm egress-on egress-proxy PATCHY_HEALTH_ADDR :8081
+cm egress-on egress-proxy PATCHY_SUSPENDED false
+cm egress-on egress-proxy PATCHY_ATTRIBUTE_PODS false
+cm egress-on egress-proxy PATCHY_AGENT_NAMESPACE patchy-agents
+cm egress-on egress-proxy PATCHY_DENY_CIDRS 10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16
+for key in PATCHY_MAX_CONCURRENT PATCHY_LIMIT_WAIT PATCHY_MAX_ZIP_BYTES PATCHY_REQUESTS_PER_SECOND_PER_SOURCE; do
+  cm egress-on egress-proxy "$key" null
+done
+# Both job controllers carry the three keys, the same profile JSON; the other
+# job launchers carry none.
+for c in remediation-controller intent-controller; do
+  cm egress-on "$c" PATCHY_NETWORK_PROFILES_ENABLED true
+  cm egress-on "$c" PATCHY_NETWORK_PROFILES "$profiles"
+  cm egress-on "$c" PATCHY_EGRESS_PROXY_URL http://patchy-egress-proxy.patchy.svc.cluster.local
+done
+render egress-on-eval -f "$ri" -f "$ep" -f "$fixtures/evaluation-controller.yaml"
+for c in investigation-controller evaluation-controller; do
+  for key in PATCHY_NETWORK_PROFILES_ENABLED PATCHY_NETWORK_PROFILES PATCHY_EGRESS_PROXY_URL; do
+    cm egress-on-eval "$c" "$key" null
+  done
+done
+# checksum/config: turning the feature on rolls exactly the proxy (new),
+# remediation- and intent-controller.
+csum='select(.kind == "Deployment") | .metadata.name + " " + .spec.template.metadata.annotations["checksum/config"]'
+render egress-before -f "$ri" -f "$ic" --set agent.networkPolicy.dns=none
+get egress-before "$csum" | sort >"$out/csum.before"
+get egress-on "$csum" | sort >"$out/csum.after"
+changed=$(comm -13 "$out/csum.before" "$out/csum.after" | cut -d' ' -f1 | sort | tr '\n' ' ')
+if [ "$changed" != "patchy-egress-proxy patchy-intent-controller patchy-remediation-controller " ]; then
+  fail "egress-on: checksum/config changed on '$changed', want the proxy, intent- and remediation-controller"
+fi
+# The proxy's NetworkPolicy: one ingress rule per profile with its exact
+# label and port, the probe port, DNS, and 443 out with every private,
+# link-local and IPv4 cluster range excepted and nothing IPv6.
+epnp='select(.kind == "NetworkPolicy" and .metadata.name == "patchy-egress-proxy")'
+expect egress-on "$epnp | .spec.policyTypes | join(\",\")" Ingress,Egress
+expect egress-on "$epnp | .spec.ingress[] | select(.from) | (.from[0].namespaceSelector.matchLabels[\"kubernetes.io/metadata.name\"]) + \" \" + (.from[0].podSelector.matchLabels | to_entries | map(.key + \"=\" + .value) | join(\",\")) + \" \" + (.ports[0].port | tostring)" \
+  'patchy-agents app.kubernetes.io/name=patchy-agent,app.kubernetes.io/managed-by=patchy,patchy.bitwisemedia.uk/network-go=true 8090
+patchy-agents app.kubernetes.io/name=patchy-agent,app.kubernetes.io/managed-by=patchy,patchy.bitwisemedia.uk/network-npm=true 8091'
+expect egress-on "$epnp | .spec.ingress[] | select(.from == null) | .ports[0].port" 8081
+expect egress-on "$epnp | .spec.egress[] | select(.to[0].ipBlock.cidr == \"0.0.0.0/0\") | .to[0].ipBlock.except | join(\",\")" \
+  10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,100.64.0.0/10
+expect egress-on "$epnp | .spec.egress[] | select(.to[0].ipBlock.cidr == \"0.0.0.0/0\") | .ports | map(.port) | join(\",\")" 443
+expect egress-on "$epnp | .spec.egress[].to[].ipBlock | select(. != null) | .cidr" 0.0.0.0/0
+expect egress-on "$epnp | .. | select(tag == \"!!str\") | select(test(\":\"))" ""
+# An IPv6 cluster range and a node-local DNS address reach the deny list;
+# only the IPv4 ones the except list.
+render egress-v6 -f "$ri" -f "$ep" --set clusterDNSCIDR=172.20.0.10/32 \
+  --set-json 'agent.networkPolicy.clusterCIDRs=["10.0.0.0/8","fd00::/8","100.80.0.0/16"]'
+expect egress-v6 "$epnp | .spec.egress[] | select(.to[0].ipBlock.cidr == \"0.0.0.0/0\") | .to[0].ipBlock.except | join(\",\")" \
+  10.0.0.0/8,100.80.0.0/16,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,100.64.0.0/10,172.20.0.10/32
+cm egress-v6 egress-proxy PATCHY_DENY_CIDRS 10.0.0.0/8,fd00::/8,100.80.0.0/16,172.20.0.10/32
+expect egress-v6 "$epnp | .spec.egress[] | select(.to[0].ipBlock.cidr == \"172.20.0.10/32\") | .ports[0].port" 53
+# The agent side: one policy per profile, its label and port alone, and no
+# DNS rule anywhere in the agent namespace under dns none.
+for pair in go:8090 npm:8091; do
+  p=${pair%%:*}
+  port=${pair#*:}
+  anp="select(.kind == \"NetworkPolicy\" and .metadata.name == \"patchy-agents-network-$p\")"
+  expect egress-on "$anp | .metadata.namespace" patchy-agents
+  expect egress-on "$anp | .spec.podSelector.matchLabels | to_entries | map(.key + \"=\" + .value) | join(\",\")" \
+    "app.kubernetes.io/name=patchy-agent,app.kubernetes.io/managed-by=patchy,patchy.bitwisemedia.uk/network-$p=true"
+  expect egress-on "$anp | .spec.policyTypes | join(\",\")" Egress
+  expect egress-on "$anp | .spec.egress | length" 1
+  expect egress-on "$anp | .spec.egress[0].to[0].podSelector.matchLabels[\"app.kubernetes.io/name\"]" egress-proxy
+  expect egress-on "$anp | .spec.egress[0].to[0].namespaceSelector.matchLabels[\"kubernetes.io/metadata.name\"]" patchy
+  expect egress-on "$anp | .spec.egress[0].ports | map(.port) | join(\",\")" "$port"
+done
+expect egress-on 'select(.kind == "NetworkPolicy" and .metadata.namespace == "patchy-agents") | .spec.egress[]?.ports[]? | select(.port == 53) | .port' ""
+# The profile-label admission policy names exactly the two launchers.
+vap='select(.kind == "ValidatingAdmissionPolicy" and .metadata.name == "patchy-network-profiles")'
+expect egress-on "$vap | .spec.matchConstraints.resourceRules[0].resources | join(\",\")" jobs
+expect egress-on "$vap | .spec.validations[0].expression | [match(\"system:serviceaccount:[a-z0-9:-]+\"; \"g\").string] | join(\",\") | select(. != \"\")" \
+  system:serviceaccount:patchy:patchy-remediation-controller,system:serviceaccount:patchy:patchy-intent-controller
+expect egress-on 'select(.kind == "ValidatingAdmissionPolicyBinding" and .metadata.name == "patchy-network-profiles") | .spec.matchResources.namespaceSelector.matchLabels["kubernetes.io/metadata.name"]' patchy-agents
+render egress-on-no-intent -f "$ri" -f "$ep"
+expect egress-on-no-intent "$vap | .spec.validations[0].expression | [match(\"system:serviceaccount:[a-z0-9:-]+\"; \"g\").string] | join(\",\") | select(. != \"\")" \
+  system:serviceaccount:patchy:patchy-remediation-controller
+render egress-on-no-vap -f "$ri" -f "$ep" --set admissionPolicy.enabled=false
+expect egress-on-no-vap 'select(.metadata.name == "patchy-network-profiles") | .kind' ""
+notes egress-on-no-vap -f "$ri" -f "$ep" --set admissionPolicy.enabled=false
+notes_has egress-on-no-vap 'is enforced by
+controller code only' yes
+notes egress-on -f "$ri" -f "$ep"
+notes_has egress-on 'Network profiles are on' yes
+notes_has egress-on 'controller code only' no
+# The global proxy block never reaches the egress proxy's ConfigMap, and
+# its extra keys do (config.extra, then its own).
+render egress-https-proxy -f "$ri" -f "$ep" --set proxy.httpsProxy=http://corp-proxy:3128 \
+  --set proxy.httpProxy=http://corp-proxy:3128 --set config.extra.PATCHY_X=global \
+  --set egressProxy.config.extra.PATCHY_Y=own
+for key in HTTPS_PROXY HTTP_PROXY NO_PROXY; do
+  cm egress-https-proxy egress-proxy "$key" null
+done
+cm egress-https-proxy remediation-controller HTTPS_PROXY http://corp-proxy:3128
+cm egress-https-proxy egress-proxy PATCHY_X global
+cm egress-https-proxy egress-proxy PATCHY_Y own
+# Limits render only when set.
+render egress-limits -f "$ri" -f "$ep" --set egressProxy.limits.maxConcurrent=64 \
+  --set egressProxy.limits.limitWait=10s --set egressProxy.limits.maxZipBytes=1048576000 \
+  --set-json egressProxy.limits.requestsPerSecondPerSource=2.5
+cm egress-limits egress-proxy PATCHY_MAX_CONCURRENT 64
+cm egress-limits egress-proxy PATCHY_LIMIT_WAIT 10s
+cm egress-limits egress-proxy PATCHY_MAX_ZIP_BYTES 1048576000
+cm egress-limits egress-proxy PATCHY_REQUESTS_PER_SECOND_PER_SOURCE 2.5
+cm egress-limits egress-proxy PATCHY_BURST_PER_SOURCE null
+
+# ---- egress proxy: the kill switch -------------------------------------------
+# suspendProfiles: the controllers stop applying profiles and the proxy
+# rolls into suspended, with the proxy and every policy still rendered.
+render egress-suspended -f "$ri" -f "$ic" -f "$ep" --set agent.networkPolicy.dns=none \
+  --set egressProxy.suspendProfiles=true
+for c in remediation-controller intent-controller; do
+  cm egress-suspended "$c" PATCHY_NETWORK_PROFILES_ENABLED false
+done
+cm egress-suspended egress-proxy PATCHY_SUSPENDED true
+if [ "$(get egress-on "$objects" | sort)" != "$(get egress-suspended "$objects" | sort)" ]; then
+  fail "egress-suspended: suspendProfiles changed the object list"
+fi
+epsum="$epdep | .spec.template.metadata.annotations[\"checksum/config\"]"
+if [ "$(get egress-on "$epsum")" = "$(get egress-suspended "$epsum")" ]; then
+  fail "egress-suspended: the proxy's checksum/config did not change, so suspending would not roll it"
+fi
+notes egress-suspended -f "$ri" -f "$ep" --set egressProxy.suspendProfiles=true
+notes_has egress-suspended 'egressProxy.suspendProfiles is on' yes
+
+# ---- egress proxy: attribution -----------------------------------------------
+render egress-attr -f "$ri" -f "$ep" --set egressProxy.attribution.enabled=true \
+  --set-json 'egressProxy.attribution.apiServerCIDRs=["10.0.1.10/32","10.0.2.20/32"]'
+expect egress-attr "$epdep | .spec.template.spec.automountServiceAccountToken" true
+cm egress-attr egress-proxy PATCHY_ATTRIBUTE_PODS true
+attrrole='select(.kind == "Role" and .metadata.name == "patchy-egress-proxy-attribution")'
+expect egress-attr "$attrrole | .metadata.namespace" patchy-agents
+expect egress-attr "$attrrole | .rules[] | (.apiGroups | join(\",\")) + \"|\" + (.resources | join(\",\")) + \"|\" + (.verbs | join(\",\"))" \
+  '|pods|get,list,watch'
+expect egress-attr 'select(.kind == "RoleBinding" and .metadata.name == "patchy-egress-proxy-attribution") | .subjects[0].name' patchy-egress-proxy
+expect egress-attr "$epnp | .spec.egress[] | select(.to[0].ipBlock.cidr == \"10.0.1.10/32\") | (.to | map(.ipBlock.cidr) | join(\",\")) + \" \" + (.ports | map(.port | tostring) | join(\",\"))" \
+  "10.0.1.10/32,10.0.2.20/32 443,6443"
+expect egress-on 'select(.metadata.name == "patchy-egress-proxy-attribution") | .kind' ""
+
+# ---- egress proxy: dialects ----------------------------------------------------
+# gke and cilium render the same plain policies, and no CiliumNetworkPolicy
+# for a profile; istio is refused.
+for mode in gke cilium; do
+  render "egress-$mode" -f "$ri" -f "$ep" --set agent.networkPolicy.mode=$mode
+  for n in patchy-egress-proxy patchy-agents-network-go patchy-agents-network-npm; do
+    expect "egress-$mode" "select(.metadata.name == \"$n\" and .kind == \"NetworkPolicy\") | .spec" \
+      "$(get egress-on "select(.metadata.name == \"$n\" and .kind == \"NetworkPolicy\") | .spec")"
+  done
+  expect "egress-$mode" 'select(.kind == "CiliumNetworkPolicy") | .metadata.name | select(test("network|egress-proxy"))' ""
+done
+expect_fail 'egress proxy under istio' 'not supported under agent.networkPolicy.mode istio' \
+  -f "$ri" -f "$ep" --set agent.networkPolicy.mode=istio --set agent.networkPolicy.broadEgress=never
+
+# ---- egress proxy guards: each fails, each passes once fixed ------------------
+expect_fail 'egress proxy without repository images' 'egressProxy.enabled requires agent.repositoryImages.enabled' \
+  -f "$ep"
+expect_fail 'egress proxy without profiles' 'requires at least one agent.networkProfiles entry' \
+  -f "$ri" --set egressProxy.enabled=true
+expect_fail 'egress proxy without its policy' 'egressProxy.networkPolicy.create must stay true' \
+  -f "$ri" -f "$ep" --set egressProxy.networkPolicy.create=false
+expect_fail 'two profiles on one port' 'go and npm both use port 8090' \
+  -f "$ri" -f "$ep" --set agent.networkProfiles.npm.port=8090
+expect_fail 'profile on the health port' 'agent/networkProfiles/go/port' \
+  -f "$ri" -f "$ep" --set agent.networkProfiles.go.port=8081
+expect_fail 'profile name not a DNS label' "invalid propertyName 'Go'" \
+  -f "$ri" -f "$ep" --set-json 'agent.networkProfiles.Go={"route":"go","port":8092,"repositories":["a/b"],"modules":["example.com/x"]}'
+for m in '*' com GitHub.com/; do
+  expect_fail "module prefix $m" 'agent/networkProfiles/go/modules/0' \
+    -f "$ri" -f "$ep" --set-json "agent.networkProfiles.go.modules=[\"$m\"]"
+done
+for m in golang.org golang.org/ golang.org/toolchain golang.org/toolchainx/y; do
+  expect_fail "module prefix $m" 'would admit the Go toolchain modules' \
+    -f "$ri" -f "$ep" --set-json "agent.networkProfiles.go.modules=[\"$m\"]"
+done
+expect_fail 'route npm' 'agent/networkProfiles/npm/route' \
+  -f "$ri" -f "$ep" --set agent.networkProfiles.npm.route=npm
+expect_fail 'empty repositories' 'agent/networkProfiles/go/repositories' \
+  -f "$ri" -f "$ep" --set-json 'agent.networkProfiles.go.repositories=[]'
+for b in /opt/../x /opt/./x /opt/x/ /opt//x opt/x; do
+  expect_fail "bakedModCache $b" 'agent/networkProfiles/go/bakedModCache' \
+    -f "$ri" -f "$ep" --set "agent.networkProfiles.go.bakedModCache=$b"
+  # A render that skips the schema still meets the guard.
+  expect_fail "bakedModCache $b without the schema" 'is not an absolute clean path' \
+    -f "$ri" -f "$ep" --set "agent.networkProfiles.go.bakedModCache=$b" --skip-schema-validation
+done
+expect_fail 'attribution without CIDRs' 'egressProxy.attribution.enabled requires egressProxy.attribution.apiServerCIDRs' \
+  -f "$ri" -f "$ep" --set egressProxy.attribution.enabled=true
+expect_fail 'attribution with a /24' 'egressProxy/attribution/apiServerCIDRs/0' \
+  -f "$ri" -f "$ep" --set egressProxy.attribution.enabled=true \
+  --set-json 'egressProxy.attribution.apiServerCIDRs=["10.0.1.0/24"]'
+expect_fail 'attribution with a /24 without the schema' 'is not an IPv4 /32' \
+  -f "$ri" -f "$ep" --set egressProxy.attribution.enabled=true \
+  --set-json 'egressProxy.attribution.apiServerCIDRs=["10.0.1.0/24"]' --skip-schema-validation
+expect_fail 'unknown egressProxy key' 'additional properties' \
+  -f "$ri" -f "$ep" --set egressProxy.bogus=true
+# ...and each passes once fixed.
+render egress-fixed -f "$ri" -f "$ep" --set agent.networkProfiles.npm.port=8092 \
+  --set agent.networkProfiles.go.bakedModCache=/opt/go/.cache/mod \
+  --set-json 'agent.networkProfiles.go.modules=["golang.org/x/mod","github.com/google/uuid/"]' \
+  --set egressProxy.attribution.enabled=true --set-json 'egressProxy.attribution.apiServerCIDRs=["10.0.1.10/32"]'
+expect egress-fixed 'select(.kind == "Service" and .metadata.name == "patchy-egress-proxy") | .spec.ports | map(.port) | join(",")' 8090,8092
+expect egress-fixed 'select(.kind == "ConfigMap" and .metadata.name == "patchy-egress-proxy-config") | .data.PATCHY_NETWORK_PROFILES | from_json | .[0] | .bakedModCache + " " + (.modules | join(","))' \
+  "/opt/go/.cache/mod golang.org/x/mod,github.com/google/uuid"
+render egress-no-schema -f "$ri" -f "$ep" --skip-schema-validation
+expect egress-no-schema 'select(.kind == "Deployment" and .metadata.name == "patchy-egress-proxy") | .kind' Deployment
+
 # ---- charts/patchy-config: Projects ------------------------------------------
 # The CR chart renders .Values.projects into Project CRs verbatim; its values
 # schema embeds the CRD's spec schema (hack/codegen.sh), so a malformed entry

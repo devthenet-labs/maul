@@ -1,0 +1,31 @@
+# Copyright 2026 Bitwise Media Group Ltd.
+# SPDX-License-Identifier: MIT
+#
+# chart-render-test fixture: the egress proxy on, with two profiles on 8090
+# and 8091. Layer it over repository-images.yaml (which brings narrow egress
+# under mode none) and add agent.networkPolicy.dns=none for the devthenet
+# shape. The second profile is still route go (the only route in step 1);
+# its name only shows a second profile rendering.
+egressProxy:
+    enabled: true
+agent:
+    networkProfiles:
+        go:
+            route: go
+            port: 8090
+            repositories:
+                - devthenet-labs/patchy-preview-demo
+                - devthenet-labs/patchy-target
+            modules:
+                - github.com/google/uuid
+                - golang.org/x/
+        npm:
+            route: go
+            port: 8091
+            host: github.example.com
+            repositories:
+                - acme/.*
+            modules:
+                - example.com/lib
+            bakedModCache: ""
+            allowPseudoVersions: true

@@ -249,6 +249,62 @@
                 }
             }
         },
+        "networkProfile": {
+            "type": "object",
+            "description": "One operator dependency-route profile (agent.networkProfiles.<name>). The job controllers and the egress proxy re-validate it at startup (netprofile.Validate), including compiling the repository patterns; TestChartProfileSchemaMatchesValidator keeps these patterns in step with that validator.",
+            "additionalProperties": false,
+            "required": ["route", "port", "repositories", "modules"],
+            "properties": {
+                "route": {
+                    "description": "The dependency route the profile opens; go (GOPROXY and the checksum database) is the only one in step 1",
+                    "type": "string",
+                    "enum": ["go"]
+                },
+                "port": {
+                    "description": "The egress-proxy listener serving this profile alone; unique across profiles and never the health port 8081",
+                    "type": "integer",
+                    "minimum": 1024,
+                    "maximum": 65535,
+                    "not": {"const": 8081}
+                },
+                "host": {
+                    "description": "The lowercase forge host the repositories live on",
+                    "type": "string",
+                    "maxLength": 253,
+                    "pattern": "^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$",
+                    "default": "github.com"
+                },
+                "repositories": {
+                    "description": "RE2 patterns matched anchored against a repository's lowercased owner/name",
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 64,
+                    "items": {"type": "string", "minLength": 1, "maxLength": 256}
+                },
+                "modules": {
+                    "description": "Module-path prefixes the proxy forwards, matched on path-element boundaries; never golang.org itself or golang.org/toolchain (a render guard refuses those)",
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 256,
+                    "items": {
+                        "type": "string",
+                        "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+(/[A-Za-z0-9._~+-]+)*/?$"
+                    }
+                },
+                "bakedModCache": {
+                    "description": "The image's GOMODCACHE, served read-only after the proxy: an absolute clean path (no . or .. element, no trailing slash), or empty for the network only",
+                    "type": "string",
+                    "maxLength": 4096,
+                    "pattern": "^(/([A-Za-z0-9_+-][A-Za-z0-9._+-]*|\\.[A-Za-z0-9_+-][A-Za-z0-9._+-]*|\\.\\.[A-Za-z0-9._+-]+))*$",
+                    "default": "/opt/go/pkg/mod"
+                },
+                "allowPseudoVersions": {
+                    "description": "Admit v0.0.0-<time>-<commit> versions of allowed modules; off, only tagged releases are forwarded",
+                    "type": "boolean",
+                    "default": false
+                }
+            }
+        },
         "serviceAccount": {
             "type": "object",
             "additionalProperties": false,
@@ -1965,6 +2021,75 @@
                 }
             }
         },
+        "egressProxy": {
+            "type": "object",
+            "description": "The egress proxy: the operator's Go dependency route for profile Jobs; off by default and chart-only",
+            "additionalProperties": false,
+            "properties": {
+                "enabled": {"type": "boolean"},
+                "suspendProfiles": {
+                    "description": "The kill switch: the job controllers apply no profile from their next Job, and the proxy answers every profile request 410 suspended",
+                    "type": "boolean"
+                },
+                "image": {"$ref": "#/definitions/imageOverride"},
+                "replicas": {"type": "integer", "minimum": 1, "maximum": 10},
+                "limits": {
+                    "type": "object",
+                    "description": "The proxy's limit flags; 0 or empty keeps the binary's default",
+                    "additionalProperties": false,
+                    "properties": {
+                        "maxConcurrent": {"type": "integer", "minimum": 0},
+                        "maxConcurrentPerSource": {"type": "integer", "minimum": 0},
+                        "requestsPerSecondPerSource": {"type": "number", "minimum": 0},
+                        "burstPerSource": {"type": "integer", "minimum": 0},
+                        "limitWait": {"type": "string", "pattern": "^(([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+|0)?$"},
+                        "requestTimeout": {"type": "string", "pattern": "^(([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+|0)?$"},
+                        "upstreamHeaderTimeout": {"type": "string", "pattern": "^(([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+|0)?$"},
+                        "maxZipBytes": {"type": "integer", "minimum": 0}
+                    }
+                },
+                "attribution": {
+                    "type": "object",
+                    "description": "Best-effort audit attribution of source IPs to agent pods; needs the API server's endpoint IPs as /32s",
+                    "additionalProperties": false,
+                    "properties": {
+                        "enabled": {"type": "boolean"},
+                        "apiServerCIDRs": {
+                            "type": "array",
+                            "items": {"type": "string", "pattern": "^([0-9]{1,3}\\.){3}[0-9]{1,3}/32$"}
+                        }
+                    }
+                },
+                "resources": {"type": "object"},
+                "podAnnotations": {"type": "object"},
+                "podLabels": {"type": "object"},
+                "nodeSelector": {"type": "object"},
+                "tolerations": {"type": "array", "items": {"type": "object"}},
+                "affinity": {"type": "object"},
+                "serviceAccount": {"$ref": "#/definitions/serviceAccount"},
+                "service": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "annotations": {"type": "object"}
+                    }
+                },
+                "networkPolicy": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "create": {"type": "boolean"}
+                    }
+                },
+                "config": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "extra": {"$ref": "#/definitions/extraEnv"}
+                    }
+                }
+            }
+        },
         "agent": {
             "type": "object",
             "additionalProperties": false,
@@ -2092,6 +2217,13 @@
                             "description": "The .dockerconfigjson content (JSON, not base64) rendered as the pullSecret Secret in both the release namespace and agent.namespace"
                         }
                     }
+                },
+                "networkProfiles": {
+                    "description": "Operator dependency-route profiles keyed by name; inert unless egressProxy.enabled",
+                    "type": "object",
+                    "maxProperties": 8,
+                    "propertyNames": {"pattern": "^[a-z]([a-z0-9-]{0,30}[a-z0-9])?$"},
+                    "additionalProperties": {"$ref": "#/definitions/networkProfile"}
                 },
                 "networkPolicy": {
                     "type": "object",

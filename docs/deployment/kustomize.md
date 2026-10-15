@@ -31,6 +31,10 @@ kubectl apply -k deploy/kustomize/overlays/dev
 kubectl apply -k deploy/kustomize/overlays/prod
 ```
 
+The egress proxy (operator network profiles, the [Go dependency route](../configuration/egress-proxy.md)) is
+**chart-only** in step 1: its profiles are a map of ports, per-profile policies and one shared JSON, which a component
+would have to hard-code for a single profile. The base is untouched, so kustomize-deployed agents stay offline.
+
 The runbook order for a fresh cluster: apply the overlay (CRDs render first), create the
 [two Secrets](../getting-started/install.md#create-the-secrets), apply your `Integration`/`Forge` resources
 (`base/crs.example.yaml` is the commented walkthrough; the dev overlay ships working placeholders), then point the

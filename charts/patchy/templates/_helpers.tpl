@@ -476,3 +476,158 @@ runnerimage.registryKey is the same fold on source-controller's side.
 {{- $key = regexReplaceAll `^([^/]+):443/` $key "${1}/" -}}
 {{- regexReplaceAll `^([0-9]{12})\.dkr[.-]ecr(-fips)?\.([a-z0-9-]+)\.(amazonaws\.com|on\.aws)/` $key "${1}.dkr.ecr.${3}.amazonaws.com/" -}}
 {{- end }}
+
+{{/*
+Whether the egress proxy deploys (egressProxy.enabled); returns a non-empty
+string for yes. Everything the feature renders, and every key it stamps,
+hangs off this, so with it off every existing render is unchanged.
+*/}}
+{{- define "patchy.egressProxyEnabled" -}}
+{{- if (.Values.egressProxy | default dict).enabled -}}
+yes
+{{- end -}}
+{{- end }}
+
+{{/*
+The label prefix an agent Job and its pod carry, as <prefix><profile>: "true",
+when a network profile is applied: the identity both NetworkPolicies on the
+profile's port select, and what the profile-label admission policy guards.
+The one spelling in the chart; TestChartLabelPrefix pins it to
+netprofile.LabelPrefix.
+*/}}
+{{- define "patchy.networkProfileLabelPrefix" -}}
+patchy.bitwisemedia.uk/network-
+{{- end }}
+
+{{/*
+The egress proxy's in-cluster base URL, without a port: the job controllers
+join each profile's port to it (PATCHY_EGRESS_PROXY_URL).
+*/}}
+{{- define "patchy.egressProxyURL" -}}
+http://{{ include "patchy.fullname" . }}-egress-proxy.{{ .Release.Namespace }}.svc.cluster.local
+{{- end }}
+
+{{/*
+agent.networkProfiles as the JSON array the egress proxy and both job
+controllers parse (netprofile.Parse, PATCHY_NETWORK_PROFILES): sorted by
+name, defaults applied (host github.com, bakedModCache /opt/go/pkg/mod,
+allowPseudoVersions false), trailing slashes stripped from the module
+prefixes (the matcher works on path-element boundaries anyway). One string,
+so the three ConfigMaps that carry it cannot disagree.
+*/}}
+{{- define "patchy.networkProfilesJSON" -}}
+{{- $profiles := .Values.agent.networkProfiles | default dict -}}
+{{- $out := list -}}
+{{- range $name := keys $profiles | sortAlpha -}}
+{{- $p := index $profiles $name | default dict -}}
+{{- $modules := list -}}
+{{- range $p.modules | default list -}}
+{{- $modules = append $modules (trimSuffix "/" (toString .)) -}}
+{{- end -}}
+{{- $baked := "/opt/go/pkg/mod" -}}
+{{- if hasKey $p "bakedModCache" -}}
+{{- $baked = $p.bakedModCache | default "" | toString -}}
+{{- end -}}
+{{- $out = append $out (dict
+    "name" $name
+    "route" ($p.route | default "")
+    "port" (int ($p.port | default 0))
+    "host" ($p.host | default "github.com")
+    "repositories" ($p.repositories | default list)
+    "modules" $modules
+    "bakedModCache" $baked
+    "allowPseudoVersions" ($p.allowPseudoVersions | default false)
+) -}}
+{{- end -}}
+{{- toJson $out -}}
+{{- end }}
+
+{{/*
+Stamp the network-profile keys into remediation- or intent-controller's
+ConfigMap data: the kill switch (off under suspendProfiles), the profile set
+and the proxy's base URL. Called only while the egress proxy is enabled.
+Context: dict "root" $ "data" <dict>.
+*/}}
+{{- define "patchy.networkProfilesData" -}}
+{{- $ep := .root.Values.egressProxy -}}
+{{- $_ := set .data "PATCHY_NETWORK_PROFILES_ENABLED" (ternary "false" "true" ($ep.suspendProfiles | default false)) -}}
+{{- $_ := set .data "PATCHY_NETWORK_PROFILES" (include "patchy.networkProfilesJSON" .root) -}}
+{{- $_ := set .data "PATCHY_EGRESS_PROXY_URL" (include "patchy.egressProxyURL" .root) -}}
+{{- end }}
+
+{{/*
+Render-time guards for egressProxy; called once from configmap.yaml beside
+patchy.repositoryImagesGuard. Only an enabled block is judged, so turning it
+off never fails a render. Each fails the render with a message naming the
+value:
+
+  1. egressProxy.enabled without agent.repositoryImages.enabled: a profile
+     only applies to a Job running an accepted repository image (and that
+     block's own guards bring narrow egress and the agent NetworkPolicy).
+  2. no agent.networkProfiles entry: the proxy and both controllers refuse
+     to start on an empty set.
+  3. egressProxy.networkPolicy.create false: the per-profile ingress rules
+     are the identity check.
+  4. agent.networkPolicy.mode resolving to istio: not verified.
+  5. two profiles on one port (the schema cannot say "unique").
+  6. a module prefix that admits the Go toolchain modules: golang.org,
+     golang.org/ or golang.org/toolchain...
+  7. a bakedModCache with a . or .. element, an empty element or a trailing
+     slash. values.schema.json refuses these too; this holds a render that
+     skips schema validation to the validator's rule (path.Clean-stable).
+  8. attribution.enabled without apiServerCIDRs, or with an entry that is
+     not an IPv4 /32.
+
+The job controllers and the proxy re-validate the whole set at startup
+(netprofile.Validate), RE2 compilation included.
+*/}}
+{{- define "patchy.egressProxyGuard" -}}
+{{- if include "patchy.egressProxyEnabled" . -}}
+{{- $ep := .Values.egressProxy -}}
+{{- if not (.Values.agent.repositoryImages | default dict).enabled -}}
+{{- fail "egressProxy.enabled requires agent.repositoryImages.enabled: a network profile only ever applies to a Job running an accepted repository image" -}}
+{{- end -}}
+{{- $profiles := .Values.agent.networkProfiles | default dict -}}
+{{- if not $profiles -}}
+{{- fail "egressProxy.enabled requires at least one agent.networkProfiles entry: the egress proxy and the job controllers refuse to start without a profile" -}}
+{{- end -}}
+{{- if not ($ep.networkPolicy | default dict).create -}}
+{{- fail "egressProxy.networkPolicy.create must stay true while egressProxy.enabled: the per-profile ingress rules are the identity check, and without them any pod could use any profile" -}}
+{{- end -}}
+{{- if eq (include "patchy.egressMode" .) "istio" -}}
+{{- fail "egressProxy.enabled is not supported under agent.networkPolicy.mode istio in step 1: the Sidecar's REGISTRY_ONLY egress and port-based identity have not been verified together" -}}
+{{- end -}}
+{{- $ports := dict -}}
+{{- range $name := keys $profiles | sortAlpha -}}
+{{- $p := index $profiles $name | default dict -}}
+{{- $port := toString (int ($p.port | default 0)) -}}
+{{- if hasKey $ports $port -}}
+{{- fail (printf "agent.networkProfiles: %s and %s both use port %s; each profile needs its own port" (get $ports $port) $name $port) -}}
+{{- end -}}
+{{- $_ := set $ports $port $name -}}
+{{- range $m := $p.modules | default list -}}
+{{- $t := trimSuffix "/" (toString $m) -}}
+{{- if or (eq $t "golang.org") (hasPrefix "golang.org/toolchain" $t) -}}
+{{- fail (printf "agent.networkProfiles.%s.modules: %q would admit the Go toolchain modules; name the golang.org paths needed (golang.org/x/...)" $name (toString $m)) -}}
+{{- end -}}
+{{- end -}}
+{{- if hasKey $p "bakedModCache" -}}
+{{- $baked := $p.bakedModCache | default "" | toString -}}
+{{- if and $baked (or (not (hasPrefix "/" $baked)) (hasSuffix "/" $baked) (contains "//" $baked) (regexMatch `(^|/)\.\.?(/|$)` $baked)) -}}
+{{- fail (printf "agent.networkProfiles.%s.bakedModCache: %q is not an absolute clean path: no . or .. element, no empty element and no trailing slash (or leave it empty for the network only)" $name $baked) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- $attr := $ep.attribution | default dict -}}
+{{- if $attr.enabled -}}
+{{- if not $attr.apiServerCIDRs -}}
+{{- fail "egressProxy.attribution.enabled requires egressProxy.attribution.apiServerCIDRs: the API server's endpoint IPs as IPv4 /32s" -}}
+{{- end -}}
+{{- range $attr.apiServerCIDRs -}}
+{{- if not (regexMatch `^([0-9]{1,3}\.){3}[0-9]{1,3}/32$` (toString .)) -}}
+{{- fail (printf "egressProxy.attribution.apiServerCIDRs entry %q is not an IPv4 /32: name each API server endpoint IP, never a subnet, which would open every pod and node in it to the proxy" (toString .)) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end }}

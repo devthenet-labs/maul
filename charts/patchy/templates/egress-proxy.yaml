@@ -1,0 +1,404 @@
+{{/*
+Copyright 2026 Bitwise Media Group Ltd.
+SPDX-License-Identifier: MIT
+
+The egress proxy (cmd/egress-proxy), in one file (modeled on
+egress-broker.yaml): the operator's Go dependency route for agent Jobs. A
+GOPROXY-protocol reverse proxy to proxy.golang.org and sum.golang.org that
+forwards only GET/HEAD module and checksum-database requests for each
+profile's allowlisted module prefixes, holds no credential, caches nothing
+and mounts no ServiceAccount token unless attribution is on.
+
+One listener per agent.networkProfiles entry. The port is the identity: the
+NetworkPolicy below admits only pods labelled for that profile from the
+agent namespace to that port, and the profile's agent-side policy
+(networkpolicy-profiles.yaml) lets only those pods out to it.
+*/}}
+{{- if include "patchy.egressProxyEnabled" . }}
+{{- $vals := .Values.egressProxy }}
+{{- $name := "egress-proxy" }}
+{{- $fullname := include "patchy.fullname" . }}
+{{- $profiles := .Values.agent.networkProfiles }}
+{{- $prefix := include "patchy.networkProfileLabelPrefix" . }}
+{{- $attr := $vals.attribution | default dict }}
+{{- $sa := include "patchy.serviceAccountName" (dict "root" . "name" $name "vals" $vals) }}
+{{- if $vals.serviceAccount.create }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+    name: {{ $sa }}
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "patchy.labels" (dict "root" . "name" $name) | nindent 8 }}
+    {{- with include "patchy.annotations" (dict "root" . "extra" $vals.serviceAccount.annotations) }}
+    annotations:
+        {{- . | nindent 8 }}
+    {{- end }}
+# The proxy needs no Kubernetes access; the pod mounts a token only for
+# attribution (below).
+automountServiceAccountToken: false
+{{- end }}
+---
+{{- /*
+The proxy's ConfigMap is rendered from its own dict, as egress-broker.yaml's
+is, never through patchy.controllerConfigMap: the global proxy block
+(HTTPS_PROXY, HTTP_PROXY, NO_PROXY) must never reach it. The deny list is
+agent.networkPolicy.clusterCIDRs plus clusterDNSCIDR, beside the binary's
+built-in private, link-local and reserved ranges.
+*/}}
+{{- $deny := list }}
+{{- range .Values.agent.networkPolicy.clusterCIDRs }}
+{{- $deny = append $deny (toString .) }}
+{{- end }}
+{{- with .Values.clusterDNSCIDR }}
+{{- $deny = append $deny (toString .) }}
+{{- end }}
+{{- $data := dict
+    "PATCHY_NETWORK_PROFILES" (include "patchy.networkProfilesJSON" .)
+    "PATCHY_HEALTH_ADDR" ":8081"
+    "PATCHY_DENY_CIDRS" (join "," (uniq $deny))
+    "PATCHY_LOG_LEVEL" .Values.config.logLevel
+    "PATCHY_SUSPENDED" (ternary "true" "false" ($vals.suspendProfiles | default false))
+    "PATCHY_ATTRIBUTE_PODS" (ternary "true" "false" ($attr.enabled | default false))
+    "PATCHY_AGENT_NAMESPACE" .Values.agent.namespace
+}}
+{{- /* Each limit renders only when set, so the binary's default holds. */}}
+{{- $limits := $vals.limits | default dict }}
+{{- range $key, $env := dict
+    "maxConcurrent" "PATCHY_MAX_CONCURRENT"
+    "maxConcurrentPerSource" "PATCHY_MAX_CONCURRENT_PER_SOURCE"
+    "requestsPerSecondPerSource" "PATCHY_REQUESTS_PER_SECOND_PER_SOURCE"
+    "burstPerSource" "PATCHY_BURST_PER_SOURCE"
+    "limitWait" "PATCHY_LIMIT_WAIT"
+    "requestTimeout" "PATCHY_REQUEST_TIMEOUT"
+    "upstreamHeaderTimeout" "PATCHY_UPSTREAM_HEADER_TIMEOUT"
+    "maxZipBytes" "PATCHY_MAX_ZIP_BYTES"
+}}
+{{- with index $limits $key }}
+{{- $_ := set $data $env . }}
+{{- end }}
+{{- end }}
+{{- range $k, $v := .Values.config.extra }}
+{{- $_ := set $data $k $v }}
+{{- end }}
+{{- range $k, $v := ($vals.config | default dict).extra }}
+{{- $_ := set $data $k $v }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+    name: {{ include "patchy.configMapName" (dict "root" . "name" $name) }}
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "patchy.labels" (dict "root" . "name" $name) | nindent 8 }}
+    {{- with include "patchy.annotations" (dict "root" .) }}
+    annotations:
+        {{- . | nindent 8 }}
+    {{- end }}
+data:
+    {{- range $k, $v := $data }}
+    {{- /* Integral floats render as integers, as in configmap.yaml. */ -}}
+    {{- $s := $v | toString }}
+    {{- if and (kindIs "float64" $v) (eq $v (floor $v)) }}
+    {{- $s = int64 $v | toString }}
+    {{- end }}
+    {{ $k }}: {{ $s | quote }}
+    {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: {{ $fullname }}-{{ $name }}
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "patchy.labels" (dict "root" . "name" $name "component" $name) | nindent 8 }}
+    {{- with include "patchy.annotations" (dict "root" .) }}
+    annotations:
+        {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    replicas: {{ $vals.replicas }}
+    # Stateless: surge a new pod before an old one goes, so a roll (a
+    # suspendProfiles flip included) never leaves the route without a
+    # serving pod.
+    strategy:
+        type: RollingUpdate
+        rollingUpdate:
+            maxUnavailable: 0
+            maxSurge: 1
+    selector:
+        matchLabels:
+            {{- include "patchy.selectorLabels" (dict "root" . "name" $name) | nindent 12 }}
+    template:
+        metadata:
+            labels:
+                {{- include "patchy.labels" (dict "root" . "name" $name "component" $name) | nindent 16 }}
+                {{- with $vals.podLabels }}
+                {{- toYaml . | nindent 16 }}
+                {{- end }}
+            {{- /* checksum/config rolls the proxy when its config changes:
+                   a profile edit, or suspendProfiles (PATCHY_SUSPENDED). */}}
+            {{- $checksums := dict "checksum/config" (toJson $data | sha256sum) }}
+            {{- with include "patchy.annotations" (dict "root" . "extra" (merge $checksums ($vals.podAnnotations | default dict))) }}
+            annotations:
+                {{- . | nindent 16 }}
+            {{- end }}
+        spec:
+            serviceAccountName: {{ $sa }}
+            automountServiceAccountToken: {{ $attr.enabled | default false }}
+            {{- with .Values.image.pullSecrets }}
+            imagePullSecrets:
+                {{- toYaml . | nindent 16 }}
+            {{- end }}
+            securityContext:
+                runAsNonRoot: true
+                runAsUser: 65532
+                runAsGroup: 65532
+                fsGroup: 65532
+                seccompProfile:
+                    type: RuntimeDefault
+            # Replicas on different nodes, and zones where there are several.
+            topologySpreadConstraints:
+                - maxSkew: 1
+                  topologyKey: topology.kubernetes.io/zone
+                  whenUnsatisfiable: ScheduleAnyway
+                  labelSelector:
+                      matchLabels:
+                          {{- include "patchy.selectorLabels" (dict "root" . "name" $name) | nindent 26 }}
+                - maxSkew: 1
+                  topologyKey: kubernetes.io/hostname
+                  whenUnsatisfiable: ScheduleAnyway
+                  labelSelector:
+                      matchLabels:
+                          {{- include "patchy.selectorLabels" (dict "root" . "name" $name) | nindent 26 }}
+            containers:
+                - name: proxy
+                  image: {{ include "patchy.image" (dict "root" . "binary" $name "image" $vals.image) }}
+                  imagePullPolicy: {{ .Values.image.pullPolicy }}
+                  args: ["serve"]
+                  envFrom:
+                      - configMapRef:
+                            name: {{ include "patchy.configMapName" (dict "root" . "name" $name) }}
+                  ports:
+                      {{- range $pname := keys $profiles | sortAlpha }}
+                      {{- $port := int (index $profiles $pname).port }}
+                      - name: p{{ $port }}
+                        containerPort: {{ $port }}
+                        protocol: TCP
+                      {{- end }}
+                      - name: health
+                        containerPort: 8081
+                        protocol: TCP
+                  livenessProbe:
+                      httpGet:
+                          path: /healthz
+                          port: health
+                      initialDelaySeconds: 5
+                      periodSeconds: 20
+                  # The policy-attach window: on EKS Auto Mode a new pod's
+                  # NetworkPolicy attaches seconds after it starts, and the
+                  # ingress rule below is the identity check. Holding
+                  # readiness keeps the Service from sending a profile pod's
+                  # traffic to a pod whose rule may not be attached yet.
+                  readinessProbe:
+                      httpGet:
+                          path: /readyz
+                          port: health
+                      initialDelaySeconds: 15
+                      periodSeconds: 10
+                  {{- with $vals.resources }}
+                  resources:
+                      {{- toYaml . | nindent 22 }}
+                  {{- end }}
+                  securityContext:
+                      allowPrivilegeEscalation: false
+                      readOnlyRootFilesystem: true
+                      capabilities:
+                          drop: ["ALL"]
+                      seccompProfile:
+                          type: RuntimeDefault
+                  volumeMounts:
+                      - name: tmp
+                        mountPath: /tmp
+            {{- with $vals.nodeSelector }}
+            nodeSelector:
+                {{- toYaml . | nindent 16 }}
+            {{- end }}
+            {{- with $vals.tolerations }}
+            tolerations:
+                {{- toYaml . | nindent 16 }}
+            {{- end }}
+            {{- with $vals.affinity }}
+            affinity:
+                {{- toYaml . | nindent 16 }}
+            {{- end }}
+            volumes:
+                - name: tmp
+                  emptyDir: {}
+{{- if gt (int $vals.replicas) 1 }}
+---
+# Keep one proxy serving through a node drain: a build mid-download would
+# otherwise fail on a dropped route.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+    name: {{ $fullname }}-{{ $name }}
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "patchy.labels" (dict "root" . "name" $name) | nindent 8 }}
+spec:
+    minAvailable: 1
+    selector:
+        matchLabels:
+            {{- include "patchy.selectorLabels" (dict "root" . "name" $name) | nindent 12 }}
+{{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+    name: {{ $fullname }}-{{ $name }}
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "patchy.labels" (dict "root" . "name" $name) | nindent 8 }}
+    {{- with include "patchy.annotations" (dict "root" . "extra" ($vals.service | default dict).annotations) }}
+    annotations:
+        {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    type: ClusterIP
+    selector:
+        {{- include "patchy.selectorLabels" (dict "root" . "name" $name) | nindent 8 }}
+    ports:
+        {{- range $pname := keys $profiles | sortAlpha }}
+        {{- $port := int (index $profiles $pname).port }}
+        - name: p{{ $port }}
+          port: {{ $port }}
+          targetPort: {{ $port }}
+          protocol: TCP
+        {{- end }}
+---
+# Ingress: one rule per profile — only that profile's labelled agent pods,
+# from the agent namespace, on that profile's port — plus 8081 probes from
+# anywhere (kubelet probes arrive from the node IP). Egress: DNS for the two
+# fixed upstream names, then TCP 443 to the public internet only: the except
+# list holds the cluster's ranges, the private and CGNAT ranges and
+# link-local (IMDS, EKS Pod Identity). IPv4 only; there is no ::/0 rule, so
+# IPv6 egress is denied outright. With attribution, the API server's
+# endpoint IPs (/32s) too.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+    name: {{ $fullname }}-{{ $name }}
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "patchy.labels" (dict "root" . "name" $name) | nindent 8 }}
+    {{- with include "patchy.annotations" (dict "root" .) }}
+    annotations:
+        {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    podSelector:
+        matchLabels:
+            {{- include "patchy.selectorLabels" (dict "root" . "name" $name) | nindent 12 }}
+    policyTypes: [Ingress, Egress]
+    ingress:
+        {{- range $pname := keys $profiles | sortAlpha }}
+        # Profile {{ $pname }}.
+        - from:
+              - namespaceSelector:
+                    matchLabels:
+                        kubernetes.io/metadata.name: {{ $.Values.agent.namespace }}
+                podSelector:
+                    matchLabels:
+                        {{- include "patchy.agentPodSelector" $ | nindent 24 }}
+                        {{ $prefix }}{{ $pname }}: "true"
+          ports:
+              - protocol: TCP
+                port: {{ int (index $profiles $pname).port }}
+        {{- end }}
+        - ports:
+              - protocol: TCP
+                port: 8081
+    egress:
+        - to:
+              - namespaceSelector:
+                    matchLabels:
+                        kubernetes.io/metadata.name: kube-system
+          ports:
+              - protocol: UDP
+                port: 53
+              - protocol: TCP
+                port: 53
+        {{- with include "patchy.clusterDNSEgress" . }}
+        {{- . | nindent 8 }}
+        {{- end }}
+        {{- $except := list }}
+        {{- range .Values.agent.networkPolicy.clusterCIDRs }}
+        {{- if regexMatch `^[0-9.]+/[0-9]+$` (toString .) }}
+        {{- $except = append $except (toString .) }}
+        {{- end }}
+        {{- end }}
+        {{- $except = concat $except (list "10.0.0.0/8" "172.16.0.0/12" "192.168.0.0/16" "169.254.0.0/16" "100.64.0.0/10") }}
+        {{- with .Values.clusterDNSCIDR }}
+        {{- if regexMatch `^[0-9.]+/[0-9]+$` (toString .) }}
+        {{- $except = append $except (toString .) }}
+        {{- end }}
+        {{- end }}
+        - to:
+              - ipBlock:
+                    cidr: 0.0.0.0/0
+                    except:
+                        {{- range uniq $except }}
+                        - {{ . }}
+                        {{- end }}
+          ports:
+              - protocol: TCP
+                port: 443
+        {{- if $attr.enabled }}
+        # The API server's endpoint IPs, for attribution's pod informer.
+        - to:
+              {{- range $attr.apiServerCIDRs }}
+              - ipBlock:
+                    cidr: {{ . }}
+              {{- end }}
+          ports:
+              - protocol: TCP
+                port: 443
+              - protocol: TCP
+                port: 6443
+        {{- end }}
+{{- if $attr.enabled }}
+---
+# Attribution: read-only pods in the agent namespace, so an audit line can
+# name the finding, owner and repository behind a source IP. Never Secrets,
+# never a write; attribution decides nothing.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+    name: {{ $fullname }}-{{ $name }}-attribution
+    namespace: {{ .Values.agent.namespace }}
+    labels:
+        {{- include "patchy.labels" (dict "root" . "name" $name) | nindent 8 }}
+rules:
+    - apiGroups: [""]
+      resources: [pods]
+      verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+    name: {{ $fullname }}-{{ $name }}-attribution
+    namespace: {{ .Values.agent.namespace }}
+    labels:
+        {{- include "patchy.labels" (dict "root" . "name" $name) | nindent 8 }}
+roleRef:
+    apiGroup: rbac.authorization.k8s.io
+    kind: Role
+    name: {{ $fullname }}-{{ $name }}-attribution
+subjects:
+    - kind: ServiceAccount
+      name: {{ $sa }}
+      namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- end }}

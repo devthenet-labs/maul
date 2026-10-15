@@ -284,4 +284,97 @@ spec:
         namespaceSelector:
             matchLabels:
                 kubernetes.io/metadata.name: {{ .Release.Namespace }}
+{{- if include "patchy.egressProxyEnabled" . }}
+{{- /*
+The profile-label policy (egressProxy): a second enforcement point for
+network profiles, independent of controller code. A Job in the agent
+namespace whose labels, or whose pod template's labels, carry a
+<networkProfileLabelPrefix><name> key is admitted only from the controller
+that launches that run kind, remediation-controller for kind remediation and
+intent-controller for kind intent, and only with the runner-image-source
+annotation repository. Every other requester is refused, the
+investigation-controller (which holds jobs create there) included. It judges
+CREATE, and an UPDATE only when the profile labels differ from oldObject's,
+so the Job controller's and the garbage collector's own updates pass
+untouched; removing every profile label is never refused.
+*/}}
+{{- $prefix := include "patchy.networkProfileLabelPrefix" . }}
+{{- $kindLabel := "patchy.bitwisemedia.uk/kind" }}
+{{- $launchers := list (dict "sa" (printf "system:serviceaccount:%s:%s" $ns (include "patchy.serviceAccountName" (dict "root" $ "name" "remediation-controller" "vals" .Values.remediationController))) "kind" "remediation") }}
+{{- if .Values.intentController.enabled }}
+{{- $launchers = append $launchers (dict "sa" (printf "system:serviceaccount:%s:%s" $ns (include "patchy.serviceAccountName" (dict "root" $ "name" "intent-controller" "vals" .Values.intentController))) "kind" "intent") }}
+{{- end }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+    name: {{ include "patchy.fullname" . }}-network-profiles
+    labels: {{- include "patchy.labels" (dict "root" $ "name" "admission-policy") | nindent 8 }}
+    {{- with include "patchy.annotations" (dict "root" $) }}
+    annotations: {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    # Fail closed: a policy that cannot compile or evaluate must not become an
+    # open door.
+    failurePolicy: Fail
+    matchConstraints:
+        resourceRules:
+            - apiGroups: [batch]
+              apiVersions: [v1]
+              operations: [CREATE, UPDATE]
+              resources: [jobs]
+    variables:
+        # The profile labels, as "job:<key>=<value>" and "pod:<key>=<value>",
+        # on the object and (empty on CREATE) on oldObject.
+        - name: profileLabels
+          expression: >-
+              object.metadata.?labels.orValue({}).filter(k, k.startsWith('{{ $prefix }}'))
+                .map(k, 'job:' + k + '=' + object.metadata.labels[k])
+              + object.spec.?template.?metadata.?labels.orValue({}).filter(k, k.startsWith('{{ $prefix }}'))
+                .map(k, 'pod:' + k + '=' + object.spec.template.metadata.labels[k])
+        - name: oldProfileLabels
+          expression: >-
+              oldObject == null ? [] :
+              oldObject.metadata.?labels.orValue({}).filter(k, k.startsWith('{{ $prefix }}'))
+                .map(k, 'job:' + k + '=' + oldObject.metadata.labels[k])
+              + oldObject.spec.?template.?metadata.?labels.orValue({}).filter(k, k.startsWith('{{ $prefix }}'))
+                .map(k, 'pod:' + k + '=' + oldObject.spec.template.metadata.labels[k])
+        # Whether this request sets or changes a profile label: compared as
+        # sets, so map ordering never reads as a change.
+        - name: judged
+          expression: >-
+              size(variables.profileLabels) > 0
+              && !(variables.profileLabels.all(l, l in variables.oldProfileLabels)
+                   && variables.oldProfileLabels.all(l, l in variables.profileLabels))
+        - name: runKind
+          expression: "object.metadata.?labels[?'{{ $kindLabel }}'].orValue('')"
+    validations:
+        - expression: >-
+              !variables.judged || (
+                ({{ range $i, $l := $launchers }}{{ if $i }}
+                 || {{ end }}(request.userInfo.username == '{{ $l.sa }}' && variables.runKind == '{{ $l.kind }}'){{ end }})
+                && object.metadata.?annotations[?'patchy.bitwisemedia.uk/runner-image-source'].orValue('') == 'repository'
+              )
+          messageExpression: >-
+              "job " + object.metadata.name + " carries a network profile label ({{ $prefix }}<profile>); " +
+              "only remediation-controller (kind remediation) and intent-controller (kind intent) may set one, " +
+              "and only on a Job running a repository image (runner-image-source: repository)"
+          reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+    name: {{ include "patchy.fullname" . }}-network-profiles
+    labels: {{- include "patchy.labels" (dict "root" $ "name" "admission-policy") | nindent 8 }}
+    {{- with include "patchy.annotations" (dict "root" $) }}
+    annotations: {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    policyName: {{ include "patchy.fullname" . }}-network-profiles
+    validationActions: [Deny]
+    matchResources:
+        namespaceSelector:
+            matchLabels:
+                kubernetes.io/metadata.name: {{ .Values.agent.namespace }}
+{{- end }}
 {{- end }}

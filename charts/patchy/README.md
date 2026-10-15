@@ -296,6 +296,23 @@ resolver nor a ClusterIP Service. Set `broadEgress: always` to keep the broad ru
 turns out not to be enforcing then fails open rather than blackholing every runner. The namespace default-deny is never
 dropped, so a missing CRD fails the sandbox closed.
 
+## Network profiles (opt-in, off by default)
+
+`egressProxy.enabled` deploys `cmd/egress-proxy`, the operator's Go dependency route, and grants each
+`agent.networkProfiles` entry to Finding remediate and Intent build/revise/check-fix Jobs that run an accepted
+repository image of a repository matching exactly one profile (RE2, anchored against the lowercased `owner/name`). Such
+a pod gains one destination, the proxy on its profile's port, enforced by NetworkPolicy on both sides: the agent-side
+`<release>-agents-network-<profile>` policy and the proxy's ingress rule both select the
+`patchy.bitwisemedia.uk/network-<profile>` label. With `admissionPolicy.enabled`, a ValidatingAdmissionPolicy admits
+that label only from remediation-controller (kind remediation) or intent-controller (kind intent) on a repository-image
+Job. Repositories declare nothing.
+
+It requires `agent.repositoryImages.enabled` and is refused under mode `istio`; the guards are listed in the
+[Helm docs](../../docs/deployment/helm.md). `egressProxy.suspendProfiles: true` is the kill switch: the controllers
+apply no profile from their next Job, and the proxy rolls into answering every profile request `410 suspended`, while
+every policy stays rendered. `enabled: false` removes everything. The proxy runs two replicas behind a
+PodDisruptionBudget, holds no credential, caches nothing, and never inherits the global `proxy` block.
+
 ## Values worth knowing
 
 Per-controller blocks — `integrationController`, `sourceController`, `contextController`, `investigationController`,

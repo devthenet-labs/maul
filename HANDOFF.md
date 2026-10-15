@@ -327,7 +327,8 @@ the owner.
 - Repositories with real dependencies: agent pods have no network, so dependencies must be in the agent image (patchy
   uses the devcontainer's image, not `postCreateCommand`). Rebuild the scaffolded agent image when the lockfile changes;
   if an agent ever needs new dependencies, a per-Project dependency proxy serving only lockfile and plan-approved
-  packages, never general egress.
+  packages, never general egress. **Step 2** of the egress proxy: step 1 (the Go route, `egressProxy` in the chart, off
+  by default) is a name-level module-prefix gate, and its residue (docs/deployment/isolation.md) is why step 2 exists.
 - The deferred 0.12.20 items (a)–(e).
 
 ## Earlier checkpoint — 2026-10-06 (overnight): 0.12.19
@@ -883,6 +884,15 @@ repos report `read` for everyone, so `read` is never enough).
 - Webhook handlers are acked (202) before they run and never retried: they must not depend on a GitHub call. Record
   intent/command state in CR status and settle it in a reconciler with backoff (see
   `internal/controller/integration/review.go` and `commands.go`).
+- A network profile adds exactly one destination to an agent pod's egress: the egress proxy on that profile's port, and
+  only for a remediate or build/revise/check-fix pod running an accepted repository image of a repository matching
+  exactly one profile. Everything else about the pod's egress and DNS is as configured without profiles. The proxy
+  forwards only GET/HEAD GOPROXY and checksum-database requests for the profile's allowlisted module prefixes (tagged
+  versions only, unless the profile admits pseudo-versions) to proxy.golang.org and sum.golang.org, holds no credential,
+  and caches nothing. Investigate, plan and evaluation pods, and every default-image pod, never get a profile (enforced
+  in the callers, in `internal/jobs`, and, where admission policies are on, by a ValidatingAdmissionPolicy). The
+  devthenet baseline (`dns: none`, brokered claude only: agent pods reach only the artifact server and the egress
+  broker, with no resolver) is that deployment's configuration, not the chart's.
 
 ## Where everything is
 

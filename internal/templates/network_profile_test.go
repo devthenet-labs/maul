@@ -13,7 +13,8 @@ import (
 var networkRouteFragments = []string{
 	"the operator's dependency route `go`",
 	"tagged releases of module paths the operator allows",
-	"`410 Gone`",
+	"fails as not found or refused",
+	"report it, do not work around it",
 	"modules already in this image still build",
 	"branch and commit versions are refused",
 	"Nothing else on the network is reachable",
@@ -87,7 +88,12 @@ func TestNetworkProfilePromptReplacesOffline(t *testing.T) {
 					t.Errorf("profile prompt lacks %q", want)
 				}
 			}
-			for _, banned := range []string{"no network access", "**no network access**", "the image lacks"} {
+			// The go command reports the last not-found error across GOPROXY
+			// entries, so with the baked cache after the proxy a refusal reads
+			// as a missing file, never as the proxy's 410 and its reason
+			// (TestLiveGo pins that): the prompt must not promise one.
+			for _, banned := range []string{"no network access", "**no network access**", "the image lacks",
+				"410", "with the reason"} {
 				if strings.Contains(flat, banned) {
 					t.Errorf("profile prompt still says %q", banned)
 				}

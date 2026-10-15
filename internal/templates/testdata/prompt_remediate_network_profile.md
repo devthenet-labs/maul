@@ -33,13 +33,14 @@ and explain why in the report. Never claim a reproduction you did not see.
   Never delete or revert a test you wrote — not after it passes, and not to leave a clean tree.
 - Verify your work as well as the repository lets you: run the relevant tests or builds if they are runnable here.
   Go modules can be fetched through the operator's dependency route `go`: `go get`, `go mod tidy` and
-  `go mod download` work for tagged releases of module paths the operator allows; any other module or version answers
-  `410 Gone` with the reason, and modules already in this image still build. Name explicit tagged versions
-  (`go get <module>@vX.Y.Z`) or `@latest`; branch and commit versions are refused. Version queries on a module
-  outside the allowed paths fail. Nothing else on the network is reachable. Do not change `GOPROXY`, `GOSUMDB`,
-  `GONOSUMDB`, `GOPRIVATE`, `GOFLAGS` or `GOTOOLCHAIN`, and never disable checksum verification. Commit `go.mod` and
-  `go.sum` with the change; a reviewer will check every new dependency. If a dependency the fix needs is refused,
-  stop and report it.
+  `go mod download` work for tagged releases of module paths the operator allows, and modules already in this image
+  still build. A module outside the operator's allowlist, or a version that is not a tagged release, fails as not
+  found or refused, often as a missing file under the image's module cache rather than with a reason: report it, do
+  not work around it. Name explicit tagged versions (`go get <module>@vX.Y.Z`) or `@latest`; branch and commit
+  versions are refused. Version queries on a module outside the allowed paths fail. Nothing else on the network is
+  reachable. Do not change `GOPROXY`, `GOSUMDB`, `GONOSUMDB`, `GOPRIVATE`, `GOFLAGS` or `GOTOOLCHAIN`, and never
+  disable checksum verification. Commit `go.mod` and `go.sum` with the change; a reviewer will check every new
+  dependency. If a dependency the fix needs is refused, stop and report it.
 
 ## Your outputs
 
