@@ -428,6 +428,9 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   polled, kubelet `..data` swap, keep-last-good) and `awsca` (the CodeArtifact token minter over aws-sdk-go-v2, with
   an API client that dials only public 443 and a Pod Identity client that dials only `169.254.170.23:80`).
   `TestLiveRegistry`/`TestLiveGoRegistry` (`mise run live-registry`) drive real npm, pip and go through it.
+  `TestLiveTunnel` (`mise run live-tunnel`, step 3) runs every package manager found on PATH (pip, uv, npm, pnpm,
+  Yarn Berry, cargo, dotnet, Maven, Gradle) and the claude CLI through the CONNECT tunnel with `jobs.TunnelEnv`'s
+  environment against the public registries, recording upstream bytes and what each prints on a refused CONNECT.
 - `artifact` — the tarball store + HTTP handler source-controller serves agent fetches from, plus the
   content-addressed workspace-blob side: sha256-named bundles (64-hex files beside the 32-hex repo tarballs),
   index rebuilt from disk on restart, last-access retention sweep, the `:9791` internal upload handler, and

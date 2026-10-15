@@ -89,6 +89,19 @@ dir = "{{cwd}}"
 env = { PATCHY_LIVE_REGISTRY = "1" }
 run = "go test -count=1 -v -run 'TestLive(Go)?Registry|TestLiveCodeArtifact' ./internal/egressproxy"
 
+# The egress proxy's CONNECT tunnel against the real package managers on
+# PATH (pip, uv, npm, pnpm, Yarn Berry via corepack, cargo, dotnet, Maven,
+# Gradle) and the claude CLI, with a tunnel Job's environment from
+# jobs.TunnelEnv, against the public registries. Absent clients are skipped
+# and listed; the log ends with the measured upstream bytes per client and
+# what each prints on a refused CONNECT. Opt-in (it needs the internet),
+# never in CI; run locally before a tunnel change merges.
+[live-tunnel]
+description = "run the egress proxy's CONNECT tunnel with the real package managers against the public registries"
+dir = "{{cwd}}"
+env = { PATCHY_LIVE_TUNNEL = "1" }
+run = "go test -count=1 -v -timeout 30m -run '^TestLiveTunnel$' ./internal/egressproxy"
+
 # Tests that need a real API server (CRD schema validation, controller
 # integration): setup-envtest provisions kube-apiserver/etcd, then the suites
 # that skip without KUBEBUILDER_ASSETS run for real.
