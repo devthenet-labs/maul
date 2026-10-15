@@ -40,6 +40,10 @@ const established = "HTTP/1.1 200 Connection established\r\n\r\n"
 // suspendedPhrase is step 1's suspended words, shared by both routes.
 const suspendedPhrase = "egress-proxy: profile routes are suspended by the operator"
 
+// shuttingDownPhrase answers a CONNECT that arrives while the proxy closes
+// its tunnels.
+const shuttingDownPhrase = "egress-proxy: shutting down; retry the CONNECT"
+
 // refusal is one answer serveConnect writes itself, before or instead of
 // the 200.
 type refusal struct {
@@ -51,7 +55,9 @@ type refusal struct {
 // ConfigureListener prepares a profile listener's http.Server: HTTP/1
 // only (no h2c, so every request is one the tunnel can hijack), and a
 // Shutdown that also closes the open tunnels, which net/http stops
-// tracking once they are hijacked.
+// tracking once they are hijacked. Shutdown neither waits for that nor
+// for their close lines: a caller that is about to exit calls
+// DrainTunnels after it.
 func (s *Server) ConfigureListener(hs *http.Server) {
 	var p http.Protocols
 	p.SetHTTP1(true)
@@ -59,14 +65,19 @@ func (s *Server) ConfigureListener(hs *http.Server) {
 	hs.RegisterOnShutdown(s.CloseTunnels)
 }
 
-// CloseTunnels ends every open tunnel (outcome shutdown): a rolling
-// restart or a suspendProfiles roll ends the old pod's tunnels at its
-// termination, and the clients reconnect to a new pod.
-func (s *Server) CloseTunnels() {
-	s.tunnels.Range(func(k, _ any) bool {
-		k.(*tunnel).end(OutcomeShutdown, "")
-		return true
-	})
+// CloseTunnels ends every open tunnel (outcome shutdown), and every tunnel
+// hijacked after it at once: a rolling restart or a suspendProfiles roll
+// ends the old pod's tunnels at its termination, and the clients reconnect
+// to a new pod.
+func (s *Server) CloseTunnels() { s.tunnels.closeAll() }
+
+// DrainTunnels closes the tunnels (CloseTunnels) and waits until every
+// CONNECT handler has written its close line and metrics, or ctx ends
+// (its error). Call it after the listeners' Shutdown has returned, so no
+// CONNECT is still to arrive.
+func (s *Server) DrainTunnels(ctx context.Context) error {
+	s.CloseTunnels()
+	return s.tunnels.wait(ctx)
 }
 
 // tunnel is one CONNECT, from the hijack to the close line.
@@ -245,10 +256,14 @@ func (s *Server) serveConnect(p netprofile.Profile, w http.ResponseWriter, r *ht
 			e.pod = info
 		}
 	}
+	// Counted from before the hijack to after the close line, so
+	// DrainTunnels waits for both.
+	s.tunnels.enter()
 	conn, brw, err := http.NewResponseController(w).Hijack()
 	if err != nil {
 		// Only a request that is not HTTP/1 cannot be hijacked, and the
 		// listener speaks HTTP/1 alone; answer without a tunnel anyway.
+		defer s.tunnels.leave(nil)
 		e.status, e.outcome, e.reason = http.StatusBadRequest, OutcomeBadRequest, "not_hijackable"
 		http.Error(w, "egress-proxy: CONNECT needs HTTP/1.1", http.StatusBadRequest)
 		auditTunnel(r.Context(), s.log, e)
@@ -259,10 +274,11 @@ func (s *Server) serveConnect(p netprofile.Profile, w http.ResponseWriter, r *ht
 	// the request's when the client half-closes.
 	ctx, cancel := context.WithCancel(context.WithoutCancel(r.Context()))
 	t := &tunnel{s: s, client: conn, fromClient: pipelined(brw.Reader, conn), ctx: ctx, cancel: cancel}
-	s.tunnels.Store(t, struct{}{})
+	live := s.tunnels.track(t)
 	defer func() {
+		// Leave last, once the close line and the metrics are out.
+		defer s.tunnels.leave(t)
 		t.end(OutcomeTunnelled, "")
-		s.tunnels.Delete(t)
 		e.outcome, e.reason = t.result()
 		e.bytesUp, e.bytesDown = t.bytes[up].Load(), t.bytes[down].Load()
 		e.elapsed = s.cfg.Now().Sub(start)
@@ -273,6 +289,14 @@ func (s *Server) serveConnect(p netprofile.Profile, w http.ResponseWriter, r *ht
 		}
 		countTunnel(context.WithoutCancel(ctx), p.Name, e.outcome, host, e.bytesUp, e.bytesDown)
 	}()
+	if !live {
+		// Hijacked after CloseTunnels walked the open tunnels: the pod is
+		// going away, so this one is refused before any dial, and the
+		// client retries against a new pod.
+		e.host = strconv.Quote(clip(r.RequestURI))
+		t.refuse(&e, refusal{http.StatusServiceUnavailable, OutcomeShutdown, "", shuttingDownPhrase})
+		return
+	}
 	_ = conn.SetDeadline(time.Time{})
 	host, ok := s.admitConnect(t, p, r, &e)
 	if !ok {

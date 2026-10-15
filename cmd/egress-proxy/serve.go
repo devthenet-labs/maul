@@ -40,6 +40,11 @@ const (
 	maxHeaderBytes    = 16 << 10
 )
 
+// tunnelDrainTimeout bounds the wait at exit for the open tunnels' close
+// lines once they are closed; ending a tunnel is a close and one log line,
+// so it is short.
+const tunnelDrainTimeout = 5 * time.Second
+
 func newServeCmd(opts *cli.Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -336,7 +341,16 @@ func run(ctx context.Context, srv *egressproxy.Server, healthAddr string, listen
 			return b.srv.Shutdown(shutdownCtx)
 		})
 	}
-	if err := g.Wait(); err != nil && !errors.Is(err, context.Canceled) {
+	err = g.Wait()
+	// Shutdown returns without waiting for the hijacked tunnels; wait for
+	// their close lines here, bounded, before the process exits.
+	drainCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), tunnelDrainTimeout)
+	defer cancel()
+	if derr := srv.DrainTunnels(drainCtx); derr != nil {
+		log.LogAttrs(drainCtx, slog.LevelWarn, "egress-proxy: tunnels still closing at exit",
+			slog.String("error", derr.Error()))
+	}
+	if err != nil && !errors.Is(err, context.Canceled) {
 		return err
 	}
 	return nil

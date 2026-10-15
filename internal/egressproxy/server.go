@@ -47,11 +47,12 @@ type Server struct {
 	// The CONNECT tunnel (step 3): its own limiter, its dialer (the same
 	// guarded dialer, under a policy with the tunnel-only deny ranges
 	// added), each tunnel profile's per-source budgets, and the open
-	// tunnels, which Shutdown closes (CloseTunnels).
+	// tunnels, which Shutdown closes (CloseTunnels) and DrainTunnels
+	// waits out.
 	tunnelLimits *limiter
 	tunnelDialer *guardedDialer
 	budgets      map[string]*budgetTable
-	tunnels      sync.Map // *tunnel -> struct{}
+	tunnels      *tunnelSet
 }
 
 // New validates cfg and builds the engine.
@@ -94,6 +95,7 @@ func (s *Server) buildTunnel() {
 	s.tunnelLimits = newLimiter(l.limits(), s.cfg.Now)
 	s.tunnelDialer = newGuardedDialer(policy, s.cfg.lookup)
 	s.tunnelDialer.rewrite = s.cfg.dialRewrite
+	s.tunnels = newTunnelSet()
 	s.budgets = map[string]*budgetTable{}
 	for _, p := range s.cfg.Profiles.Profiles() {
 		if p.HasTunnel() {
