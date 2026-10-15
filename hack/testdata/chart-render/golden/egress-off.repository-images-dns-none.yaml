@@ -725,7 +725,7 @@ spec:
                 app.kubernetes.io/part-of: patchy
                 app.kubernetes.io/component: controller
             annotations:
-                checksum/config: 243404c252a5af17c0b44d4c789bfd09590050b5ecd1a04f0847e874624d40eb
+                checksum/config: CHECKSUM
         spec:
             serviceAccountName: patchy-integration-controller
             securityContext:
@@ -827,7 +827,7 @@ spec:
                 app.kubernetes.io/part-of: patchy
                 app.kubernetes.io/component: controller
             annotations:
-                checksum/config: 01f0a2a35e202ae518191d57fb227c59d24ee29b6daa8b79bbfc53422c763de2
+                checksum/config: CHECKSUM
                 checksum/repository-image-key: bb3b5d1673654097aa57d379a8db7678d52906b9097c1c2626506c5f1a19ec71
         spec:
             serviceAccountName: patchy-source-controller
@@ -962,7 +962,7 @@ spec:
                 app.kubernetes.io/part-of: patchy
                 app.kubernetes.io/component: controller
             annotations:
-                checksum/config: ca28f52bab3e85f6fd6769ffa13fe455d1ea7624aefcecfd9f39a62dfaa9f040
+                checksum/config: CHECKSUM
         spec:
             serviceAccountName: patchy-context-controller
             securityContext:
@@ -1061,7 +1061,7 @@ spec:
                 app.kubernetes.io/part-of: patchy
                 app.kubernetes.io/component: controller
             annotations:
-                checksum/config: 10cc53cfc45c463c69305d6a5921716a1d0287a54687152d45faf33effc1923b
+                checksum/config: CHECKSUM
         spec:
             serviceAccountName: patchy-investigation-controller
             securityContext:
@@ -1160,7 +1160,7 @@ spec:
                 app.kubernetes.io/part-of: patchy
                 app.kubernetes.io/component: controller
             annotations:
-                checksum/config: ad9e0f1d341481bb3d424f14ca3a18c41ba5e5ee6dcb0582dc986670ecdca1d2
+                checksum/config: CHECKSUM
         spec:
             serviceAccountName: patchy-remediation-controller
             securityContext:
@@ -1560,7 +1560,7 @@ spec:
                 app.kubernetes.io/part-of: patchy
                 app.kubernetes.io/component: controller
             annotations:
-                checksum/config: c142473857d2a5ad1812aca1823702764cf3b4ee7ed990c2a8df8391d74b207b
+                checksum/config: CHECKSUM
         spec:
             serviceAccountName: patchy-intent-controller
             securityContext:
@@ -1849,7 +1849,7 @@ spec:
                 app.kubernetes.io/part-of: patchy
                 app.kubernetes.io/component: broker
             annotations:
-                checksum/config: e1b6d202595c3a57023acf5c121628aa6f688a4ebafcc61e78b9b2cbfd623a04
+                checksum/config: CHECKSUM
         spec:
             serviceAccountName: patchy-egress-broker
             securityContext:

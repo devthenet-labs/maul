@@ -1674,7 +1674,9 @@ fi
 chart_version=$(yq eval '.version' "$chart/Chart.yaml" | sed 's/[.]/\\./g')
 app_version=$(yq eval '.appVersion' "$chart/Chart.yaml" | sed 's/[.]/\\./g')
 # golden_neutral NAME FILE [helm args...]: golden_render with the chart and
-# app versions replaced by VERSION in the render.
+# app versions replaced by VERSION in the render, and every checksum/config
+# annotation by CHECKSUM: those hash ConfigMaps that carry the version, so they
+# change on every release, while the ConfigMaps themselves stay compared.
 golden_neutral() {
   name=$1
   file=$2
@@ -1683,7 +1685,8 @@ golden_neutral() {
     fail "$name: render failed: $(cat "$out/$name.err")"
     return
   fi
-  sed -e "s/$app_version/VERSION/g" -e "s/$chart_version/VERSION/g" "$out/$name.raw" >"$out/$name.golden"
+  sed -e "s/$app_version/VERSION/g" -e "s/$chart_version/VERSION/g" \
+    -e 's/checksum\/config: [0-9a-f]\{64\}/checksum\/config: CHECKSUM/' "$out/$name.raw" >"$out/$name.golden"
   if ! same_render "$file" "$out/$name.golden"; then
     fail "$name: render differs from $file: $(head -20 "$out/same.diff")"
   fi
