@@ -86,6 +86,19 @@ func (s *Server) forward(w *httpguard.CountingWriter, r *http.Request, req Reque
 	if resp.ContentLength >= 0 {
 		h.Set("Content-Length", strconv.FormatInt(resp.ContentLength, 10))
 	}
+	// The context's deadline only reaches the upstream side: a client that
+	// stops reading blocks the copy in a write to its connection, holding
+	// this request's limit slots, until a write deadline ends it. The same
+	// absolute deadline bounds both sides. An unsupported writer (a test
+	// recorder) has no connection to block on.
+	if dl, ok := ctx.Deadline(); ok {
+		if err := http.NewResponseController(w).SetWriteDeadline(dl); err != nil &&
+			!errors.Is(err, http.ErrNotSupported) {
+			refuse(w, e, http.StatusInternalServerError, OutcomeUpstreamError, "write_deadline",
+				"egress-proxy: cannot bound the response")
+			return
+		}
+	}
 	e.outcome = OutcomeProxied
 	w.WriteHeader(resp.StatusCode)
 	if r.Method == http.MethodHead {

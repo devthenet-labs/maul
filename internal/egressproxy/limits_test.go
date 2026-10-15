@@ -4,6 +4,8 @@
 package egressproxy
 
 import (
+	"io"
+	"net"
 	"net/http"
 	"sync"
 	"testing"
@@ -164,4 +166,70 @@ func TestLimitsDefaults(t *testing.T) {
 			t.Errorf("cap %s/%s = %d, want %d", r.Route, r.Kind, got, c)
 		}
 	}
+}
+
+// TestRequestTimeoutBoundsAClientThatStopsReading: a client that requests
+// a large zip and never reads the answer blocks the proxy's copy in a write
+// to its connection. The request's deadline must end that write too, so
+// its limit slots are released after --request-timeout rather than when
+// the connection finally dies.
+func TestRequestTimeoutBoundsAClientThatStopsReading(t *testing.T) {
+	const zipPath = "/go/github.com/google/uuid/@v/v1.6.0.zip"
+	streaming := make(chan struct{}, 1)
+	up := newUpstream(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/github.com/google/uuid/@v/v1.6.0.zip" {
+			_, _ = w.Write([]byte("ok"))
+			return
+		}
+		select {
+		case streaming <- struct{}{}:
+		default:
+		}
+		chunk := make([]byte, 64<<10)
+		for range 4096 { // 256 MiB, far past any socket buffer
+			if _, err := w.Write(chunk); err != nil {
+				return
+			}
+		}
+	})
+	const timeout = 300 * time.Millisecond
+	h := newHarness(t, Config{Limits: Limits{MaxConcurrent: 1, Wait: 50 * time.Millisecond,
+		RequestTimeout: timeout}}, up, failingUpstream(t))
+
+	u := mustURL(t, h.urls["go"])
+	conn, err := net.Dial("tcp", u.Host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	if tc, ok := conn.(*net.TCPConn); ok {
+		_ = tc.SetReadBuffer(4 << 10)
+	}
+	if _, err := io.WriteString(conn, "GET "+zipPath+" HTTP/1.1\r\nHost: "+u.Host+"\r\n\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-streaming:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the zip request never reached the upstream")
+	}
+	// The stalled client holds the only global slot until its deadline.
+	start := time.Now()
+	for {
+		r := h.get(t, listPath)
+		if r.status == http.StatusOK {
+			break
+		}
+		if r.status != http.StatusServiceUnavailable {
+			t.Fatalf("request beside the stalled client = %d %q, want 503 then 200", r.status, r.body)
+		}
+		if time.Since(start) > 10*timeout+2*time.Second {
+			t.Fatalf("the stalled client still holds its slot %s after the request timeout of %s",
+				time.Since(start), timeout)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	waitForLine(t, h.log, func(l map[string]any) bool {
+		return l["kind"] == "zip" && l["outcome"] == OutcomeUpstreamError && l["reason"] == "stream"
+	})
 }

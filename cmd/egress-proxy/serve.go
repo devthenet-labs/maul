@@ -28,8 +28,11 @@ import (
 	"github.com/bitwise-media-group/patchy/internal/version"
 )
 
-// Server timeouts for the profile listeners. There is no write timeout: a
-// module zip streams for up to --request-timeout, which bounds it instead.
+// Server timeouts for the profile listeners. There is no server-wide write
+// timeout: a module zip streams for up to --request-timeout, and the engine
+// sets each forwarded response's write deadline to that request's own
+// deadline, so a client that stops reading cannot hold its limit slots past
+// it.
 const (
 	readHeaderTimeout = 10 * time.Second
 	idleTimeout       = 90 * time.Second
