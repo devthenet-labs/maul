@@ -24,18 +24,25 @@ import (
 )
 
 // NetworkProfile is the operator network profile a launching controller
-// asks a Job to carry (Spec.NetworkProfile): one dependency route through
-// the egress proxy. Applied, it adds exactly three things to the Job and
-// nothing else: the profile label on the Job and its pod (the identity both
-// NetworkPolicies on the profile's port select), the proxy's host in the
-// pod's hosts file under DNSNone, and the go command's environment in the
-// agent container (goProfileEnv).
+// asks a Job to carry (Spec.NetworkProfile): the dependency routes through
+// the egress proxy, the public go route and any registry grants. Applied,
+// it adds exactly three things to the Job and nothing else: the profile
+// label on the Job and its pod (the identity both NetworkPolicies on the
+// profile's port select), the proxy's host in the pod's hosts file under
+// DNSNone, and the package managers' environment in the agent container
+// (profileEnv).
 type NetworkProfile struct {
 	// Name is the profile's name (netprofile's grammar); the label is
 	// netprofile.LabelKey(Name).
 	Name string
-	// Route is the dependency route; netprofile.RouteGo only.
+	// Route is the public dependency route: netprofile.RouteGo, or "" for
+	// a profile that holds registry grants only.
 	Route string
+	// Registries are the profile's registry grants, as the operator's
+	// profile set holds them (at most one per ecosystem). Each becomes its
+	// ecosystem's environment (§5 of the step-2 spec); none, as on every
+	// step-1 profile, leaves the Job exactly as it was.
+	Registries []netprofile.Grant
 	// ProxyURL is the egress proxy's listener for this profile:
 	// http://<host>:<port>, with no path. The controller joins the proxy's
 	// base URL and the profile's port.
@@ -102,8 +109,22 @@ func profileRefusal(spec Spec) error {
 	if err := netprofile.ValidName(p.Name); err != nil {
 		refuse("%v", err)
 	}
-	if p.Route != netprofile.RouteGo {
+	switch {
+	case p.Route == "" && len(p.Registries) == 0:
+		refuse("a profile with no route must hold registry grants; it would open nothing")
+	case p.Route != "" && p.Route != netprofile.RouteGo:
 		refuse("route %q is not supported (only %q)", p.Route, netprofile.RouteGo)
+	}
+	seen := map[string]bool{}
+	for _, g := range p.Registries {
+		if err := g.Validate(); err != nil {
+			refuse("%v", err)
+			continue
+		}
+		if seen[g.Ecosystem] {
+			refuse("two %s grants: a package manager takes one index from the environment", g.Ecosystem)
+		}
+		seen[g.Ecosystem] = true
 	}
 	if err := validProxyURL(p.ProxyURL); err != nil {
 		refuse("%v", err)
@@ -193,16 +214,33 @@ var goProfileNames = []string{
 // around the proxy or the checksum database; no credential helper; no
 // toolchain download; GOPATH and GOMODCACHE on the writable /tmp; and the
 // profile's name for agent-runner's prompt.
+//
+// With a go registry grant, GOPROXY lists the registry's route first, then
+// the public route when the profile has it, then the baked cache; and
+// GONOSUMDB is the grant's private module prefixes (never looked up in the
+// public checksum database) or, with none, the pattern that matches
+// nothing. GOPRIVATE and GONOPROXY stay unmatched: a real pattern there
+// means direct, which a profile pod cannot reach.
 func goProfileEnv(p *NetworkProfile) []corev1.EnvVar {
-	goproxy := p.ProxyURL + "/go"
+	var entries []string
+	gonosumdb := patternNone
+	if g, ok := grantFor(p, netprofile.EcosystemGo); ok {
+		entries = append(entries, registryURL(p, g))
+		if len(g.PrivateModules) > 0 {
+			gonosumdb = strings.Join(g.PrivateModules, ",")
+		}
+	}
+	if p.Route == netprofile.RouteGo {
+		entries = append(entries, p.ProxyURL+"/go")
+	}
 	if p.BakedModCache != "" {
-		goproxy += "," + (&url.URL{Scheme: "file", Path: path.Join(p.BakedModCache, "cache/download")}).String()
+		entries = append(entries, (&url.URL{Scheme: "file", Path: path.Join(p.BakedModCache, "cache/download")}).String())
 	}
 	values := map[string]string{
 		"GOENV":               "off",
-		"GOPROXY":             goproxy,
+		"GOPROXY":             strings.Join(entries, ","),
 		"GOSUMDB":             "sum.golang.org",
-		"GONOSUMDB":           patternNone,
+		"GONOSUMDB":           gonosumdb,
 		"GONOPROXY":           patternNone,
 		"GOPRIVATE":           patternNone,
 		"GOINSECURE":          patternNone,
@@ -219,13 +257,141 @@ func goProfileEnv(p *NetworkProfile) []corev1.EnvVar {
 	return env
 }
 
-// applyProfileEnv owns goProfileNames on env: every entry of those names
-// (an operator's Config.Env, a runner's Env, an injectEnv blank) is
-// dropped, then the profile's values are appended once each, in order.
+// Where a profile Job's npm and pip keep their caches: the root filesystem
+// is read-only.
+const (
+	profileNPMCache = "/tmp/npm-cache"
+	profilePipCache = "/tmp/pip-cache"
+)
+
+// pipListNone is the value of every pip list variable a profile owns: one
+// space, which pip splits to an empty list, where an empty value would
+// fall through to a config file's (fact 5 of the step-2 spec).
+const pipListNone = " "
+
+// npmProfileEnv is npm's environment for an npm grant: the registry's
+// proxy route (an environment variable beats every .npmrc), tarballs
+// fetched through it whatever host a lockfile names while the lockfile
+// keeps the canonical URL (replace-registry-host always), no audit, fund or
+// update-notifier requests, install scripts off unless the grant runs
+// them, the cache on /tmp, and strict TLS for anything an image would turn
+// it off for.
+func npmProfileEnv(p *NetworkProfile, g netprofile.Grant) []corev1.EnvVar {
+	return []corev1.EnvVar{
+		{Name: "NPM_CONFIG_REGISTRY", Value: registryURL(p, g) + "/"},
+		{Name: "NPM_CONFIG_REPLACE_REGISTRY_HOST", Value: "always"},
+		{Name: "NPM_CONFIG_AUDIT", Value: "false"},
+		{Name: "NPM_CONFIG_FUND", Value: "false"},
+		{Name: "NPM_CONFIG_UPDATE_NOTIFIER", Value: "false"},
+		{Name: "NPM_CONFIG_IGNORE_SCRIPTS", Value: strconv.FormatBool(!g.NPMScripts)},
+		{Name: "NPM_CONFIG_CACHE", Value: profileNPMCache},
+		{Name: "NPM_CONFIG_STRICT_SSL", Value: "true"},
+	}
+}
+
+// pipProfileEnv is pip's environment for a pypi grant: no pip.conf of any
+// level, the registry's simple index through the proxy as the only index
+// (the list variables a single space, never empty), the proxy's plain-http
+// host trusted, wheels only unless the grant allows source builds, no
+// prompts, no version check, and the cache on /tmp.
+func pipProfileEnv(p *NetworkProfile, g netprofile.Grant) []corev1.EnvVar {
+	onlyBinary := ":all:"
+	if g.PipSdists {
+		onlyBinary = ":none:"
+	}
+	return []corev1.EnvVar{
+		{Name: "PIP_CONFIG_FILE", Value: "/dev/null"},
+		{Name: "PIP_INDEX_URL", Value: registryURL(p, g) + "/simple/"},
+		{Name: "PIP_EXTRA_INDEX_URL", Value: pipListNone},
+		{Name: "PIP_FIND_LINKS", Value: pipListNone},
+		{Name: "PIP_TRUSTED_HOST", Value: proxyHostPort(p.ProxyURL)},
+		{Name: "PIP_ONLY_BINARY", Value: onlyBinary},
+		{Name: "PIP_NO_INPUT", Value: "1"},
+		{Name: "PIP_DISABLE_PIP_VERSION_CHECK", Value: "1"},
+		{Name: "PIP_CACHE_DIR", Value: profilePipCache},
+	}
+}
+
+// registryURL is a grant's route on the profile's listener, with no
+// trailing slash.
+func registryURL(p *NetworkProfile, g netprofile.Grant) string {
+	return p.ProxyURL + "/r/" + g.Name
+}
+
+// proxyHostPort is the proxy URL's host:port, the form pip's trusted-host
+// matches an http index by.
+func proxyHostPort(proxyURL string) string {
+	if u, err := url.Parse(proxyURL); err == nil {
+		return u.Host
+	}
+	return proxyURL
+}
+
+// grantFor is the profile's grant of the ecosystem, if it has one.
+func grantFor(p *NetworkProfile, ecosystem string) (netprofile.Grant, bool) {
+	for _, g := range p.Registries {
+		if g.Ecosystem == ecosystem {
+			return g, true
+		}
+	}
+	return netprofile.Grant{}, false
+}
+
+// profileEnv is everything a profile Job's agent container is given: a
+// step-1 profile (the public go route, no grants) exactly goProfileEnv; a
+// profile with grants, the go environment when it has the public route or
+// a go grant (without its trailing profile name), then npm's and pip's for
+// their grants, then the profile's name, its ecosystems and its grants for
+// agent-runner's prompt. No value is empty.
+func profileEnv(p *NetworkProfile) []corev1.EnvVar {
+	if len(p.Registries) == 0 {
+		return goProfileEnv(p)
+	}
+	var env []corev1.EnvVar
+	_, goGrant := grantFor(p, netprofile.EcosystemGo)
+	if p.Route == netprofile.RouteGo || goGrant {
+		goEnv := goProfileEnv(p)
+		env = append(env, goEnv[:len(goEnv)-1]...) // the profile's name goes last, below
+	}
+	if g, ok := grantFor(p, netprofile.EcosystemNPM); ok {
+		env = append(env, npmProfileEnv(p, g)...)
+	}
+	if g, ok := grantFor(p, netprofile.EcosystemPyPI); ok {
+		env = append(env, pipProfileEnv(p, g)...)
+	}
+	pod := podGrants(p)
+	grants, err := netprofile.EncodePodGrants(pod)
+	if err != nil {
+		// profileRefusal validated every grant and their ecosystems first,
+		// and nothing builds a Job it refused.
+		panic(fmt.Sprintf("jobs: encode the grants profileRefusal admitted: %v", err))
+	}
+	return append(env,
+		corev1.EnvVar{Name: netprofile.EnvProfile, Value: p.Name},
+		corev1.EnvVar{Name: netprofile.EnvEcosystems, Value: netprofile.EcosystemList(p.Route == netprofile.RouteGo, pod)},
+		corev1.EnvVar{Name: netprofile.EnvGrants, Value: grants},
+	)
+}
+
+// podGrants is what the agent is told about the profile's grants.
+func podGrants(p *NetworkProfile) []netprofile.PodGrant {
+	out := make([]netprofile.PodGrant, 0, len(p.Registries))
+	for _, g := range p.Registries {
+		out = append(out, netprofile.PodGrantOf(g))
+	}
+	return out
+}
+
+// applyProfileEnv owns the profile's names on env (profileEnv): every entry
+// of those names (an operator's Config.Env, a runner's Env, an injectEnv
+// blank) is dropped, then the profile's values are appended once each, in
+// order. A name the profile does not set (npm's on a profile without an
+// npm grant) is left as it was.
 func applyProfileEnv(env []corev1.EnvVar, p *NetworkProfile) []corev1.EnvVar {
+	own := profileEnv(p)
 	return append(slices.DeleteFunc(env, func(e corev1.EnvVar) bool {
-		return slices.Contains(goProfileNames, e.Name)
-	}), goProfileEnv(p)...)
+		return slices.ContainsFunc(own, func(o corev1.EnvVar) bool { return o.Name == e.Name })
+	}), own...)
 }
 
 // networkProfileOf reads the profile a Job carries off the Job that exists,
