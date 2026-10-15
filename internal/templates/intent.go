@@ -738,11 +738,75 @@ type IntentPRBody struct {
 	// the agent could fetch Go modules through it (PRBody's line); empty
 	// leaves the body exactly as it was.
 	NetworkProfile string
+	// GoRequirements are the Go module requirements the build added to or
+	// changed in the repository's go.mod, compared with its base, each
+	// against the approved plan's new_dependencies: the body lists them and
+	// marks each one that is not as the plan named it. None omits the
+	// section, and the body is exactly what it was.
+	GoRequirements []GoRequirement
+}
+
+// GoRequirement is one require line of a build's go.mod that its base's
+// go.mod does not hold at that version. Path and Version are the build
+// agent's writing, so the body shows them inert.
+type GoRequirement struct {
+	Path    string
+	Version string
+	// Was is the base's version of the requirement, "" when the build
+	// added it.
+	Was string
+	// Indirect marks a "// indirect" requirement: one the plan is not
+	// expected to name, so its absence from the plan is not marked.
+	Indirect bool
+	// InPlan: one of the plan's new_dependencies names the module.
+	// PlanVersion is the version that entry names, "" for none.
+	InPlan      bool
+	PlanVersion string
+}
+
+// GoRequirementsMax bounds the requirements an intent pull request body
+// lists; the rest are counted.
+const GoRequirementsMax = 20
+
+// goRequirementItems renders reqs as the body's list items, at most
+// GoRequirementsMax, and counts those not as the plan named them: a direct
+// requirement the plan does not name, or one at another version than the
+// one it names. Each item is sanitised and defanged as networkProfileLine
+// is, the body being plain text too in a squash commit.
+func goRequirementItems(reqs []GoRequirement) (items []string, differ, more int) {
+	text := func(s string) string { return code(cutRunes(oneLine(visibleText(s)), 200)) }
+	for _, r := range reqs {
+		var note string
+		switch {
+		case r.InPlan && r.PlanVersion != "" && r.PlanVersion != r.Version:
+			note = "; **the plan named " + text(r.PlanVersion) + "**"
+		case !r.InPlan && !r.Indirect:
+			note = "; **not in the plan**"
+		case r.InPlan:
+			note = ", as planned"
+		case r.Indirect:
+			note = " (indirect)"
+		}
+		if strings.HasPrefix(note, "; **") {
+			differ++
+		}
+		if len(items) == GoRequirementsMax {
+			more++
+			continue
+		}
+		change := "added"
+		if r.Was != "" {
+			change = "changed from " + text(r.Was)
+		}
+		items = append(items, defang(SanitizeInline(text(r.Path)+" "+text(r.Version)+": "+change+note)))
+	}
+	return items, differ, more
 }
 
 // RenderIntentPRBody renders an intent pull request's body.
 func RenderIntentPRBody(b IntentPRBody) (string, error) {
 	repos := repositoryItems(b.Repositories, true)
+	goItems, goDiffer, goMore := goRequirementItems(b.GoRequirements)
 	return render("intent_pr_body.md.tmpl", struct {
 		IntentRepository string
 		IssueNumber      int64
@@ -753,6 +817,9 @@ func RenderIntentPRBody(b IntentPRBody) (string, error) {
 		Count            int
 		Repositories     string
 		NetworkProfile   string
+		GoRequirements   []string
+		GoDiffer         int
+		GoMore           int
 	}{
 		IntentRepository: oneLine(b.IntentRepository),
 		IssueNumber:      b.IssueNumber,
@@ -767,6 +834,7 @@ func RenderIntentPRBody(b IntentPRBody) (string, error) {
 		Count:          len(repos),
 		Repositories:   strings.Join(repos, ", "),
 		NetworkProfile: networkProfileLine(b.NetworkProfile),
+		GoRequirements: goItems, GoDiffer: goDiffer, GoMore: goMore,
 	})
 }
 

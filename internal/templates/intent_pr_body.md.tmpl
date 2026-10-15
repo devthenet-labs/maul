@@ -11,6 +11,16 @@ Part of {{ .IntentRepository }}#{{ .IssueNumber }}
 
 {{ . }}
 {{- end }}
+{{- with .GoRequirements }}
+
+The Go module requirements this change adds to or changes in `go.mod`, compared with its base{{ if eq $.GoDiffer 1 }}; 1 of them differs from the approved plan's new dependencies{{ else if $.GoDiffer }}; {{ $.GoDiffer }} of them differ from the approved plan's new dependencies{{ end }}:
+{{ range . }}
+- {{ . }}
+{{- end }}
+{{- with $.GoMore }}
+- and {{ . }} more
+{{- end }}
+{{- end }}
 
 ---
 

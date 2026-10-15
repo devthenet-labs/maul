@@ -257,6 +257,8 @@ func (p *pass) openPullRequests(ctx context.Context, round int32, repos []v1alph
 // body are patchy's own, from the approved plan: the body says "Part of" the
 // intent issue and holds no closing keyword; with more than one repository
 // it also says which, and that the intent completes when every one merges.
+// It lists the Go module requirements the build added or changed, marking
+// each one not as the plan's new_dependencies named it (goRequirements).
 func (p *pass) openPullRequest(ctx context.Context, run *v1alpha1.IntentRun,
 	repos []v1alpha1.ProjectRepository) (bool, error) {
 	repoURL := run.Spec.Repository.URL
@@ -300,11 +302,16 @@ func (p *pass) openPullRequest(ctx context.Context, run *v1alpha1.IntentRun,
 				fmt.Sprintf("branch %s%s moved from the build's commit %s to %s before patchy opened its pull request; "+
 					"restore it to the build's commit to resume", branch, in, run.Status.PushedCommit, head))
 		}
+		goReqs, err := p.goRequirements(ctx, run)
+		if err != nil {
+			return false, fmt.Errorf("compare go.mod before opening the pull request: %w", err)
+		}
 		ap, pl := p.in.Status.Approval, p.in.Status.Plan
 		body, err := templates.RenderIntentPRBody(templates.IntentPRBody{
 			IntentRepository: repoSlug(p.repo()), IssueNumber: p.number(), Summary: pl.Summary,
 			PlanRevision: ap.PlanRevision, PlanDigest: ap.PlanDigest, ApprovedBy: ap.By,
 			Repositories: repositorySlugs(repos), NetworkProfile: recordedNetworkProfile(run),
+			GoRequirements: goReqs,
 		})
 		if err != nil {
 			return false, err
