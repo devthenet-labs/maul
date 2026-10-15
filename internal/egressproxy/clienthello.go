@@ -169,6 +169,11 @@ func ReadClientHello(r io.Reader) (Hello, []byte, error) {
 		hdr [recordHeaderLen]byte
 	)
 	for {
+		if a.records+recordHeaderLen+1 > MaxHelloBytes {
+			// No further record fits: refuse before reading its header,
+			// as ParseClientHello does, so nothing past the cap is read.
+			return Hello{}, raw, ErrHelloTooLarge
+		}
 		if _, err := io.ReadFull(r, hdr[:]); err != nil {
 			return Hello{}, raw, eof(err)
 		}

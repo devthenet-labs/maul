@@ -277,6 +277,17 @@ func sizedHello(t *testing.T, n int) []byte {
 	return nil
 }
 
+// nearCap is an unfinished ClientHello declaring a 65516-byte body (within
+// the cap), with present handshake bytes cut into maxRecordLen records: the
+// records end within a record header of MaxHelloBytes, so no further
+// record fits.
+func nearCap(present int) []byte {
+	declared := 65516
+	hs := make([]byte, present)
+	hs[0], hs[1], hs[2], hs[3] = typeClientHello, byte(declared>>16), byte(declared>>8), byte(declared)
+	return fragment(hs, maxRecordLen)
+}
+
 // truncated is hello with its last byte dropped and its handshake length
 // adjusted, so the message is complete but its extensions block is not.
 func truncated(hello []byte) []byte {
@@ -328,6 +339,12 @@ func TestParseClientHelloExamples(t *testing.T) {
 		{"malformation beats a bad name", one(sniExt(), ext{extALPN, []byte{0, 0}}), Hello{}, ErrBadHello},
 
 		{"64 KiB + 1", sizedHello(t, MaxHelloBytes+1), Hello{}, ErrHelloTooLarge},
+		// Pinned boundary inputs: the records seen end within a record
+		// header of the cap and the hello is unfinished, so no further
+		// record fits. Both functions refuse there and read nothing more.
+		{"no further record fits, stream ends", nearCap(65511), Hello{}, ErrHelloTooLarge},
+		{"no further record fits, a record follows",
+			append(nearCap(65513), record(recordTypeHS, 0x0301, []byte{0})...), Hello{}, ErrHelloTooLarge},
 		{"declared length over the cap", record(recordTypeHS, 0x0301, []byte{1, 0x01, 0x00, 0x00}),
 			Hello{}, ErrHelloTooLarge},
 		{"application data first", record(23, 0x0303, hello), Hello{}, ErrBadHello},
@@ -443,6 +460,8 @@ func FuzzParseClientHello(f *testing.F) {
 	f.Add([]byte{0x80, 0x2e, 0x01, 0x00, 0x02})
 	f.Add(record(recordTypeHS, 0x0301, []byte{1, 0x01, 0x00, 0x00}))
 	f.Add([]byte{})
+	f.Add(nearCap(65511))
+	f.Add(append(nearCap(65513), record(recordTypeHS, 0x0301, []byte{0})...))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		parsed, perr := ParseClientHello(data) // must not panic on any input
 		cr := &countingReader{r: bytes.NewReader(data)}
@@ -472,4 +491,27 @@ func FuzzParseClientHello(f *testing.F) {
 			t.Fatalf("implausible hello %+v", parsed)
 		}
 	})
+}
+
+// TestReadClientHelloStopsAtTheCap: once the records seen leave no room
+// for another, ReadClientHello refuses without reading the next header, so
+// it never reads or buffers past MaxHelloBytes and never waits on a client
+// whose hello can no longer fit.
+func TestReadClientHelloStopsAtTheCap(t *testing.T) {
+	wire := nearCap(65513)
+	if len(wire) != MaxHelloBytes-3 {
+		t.Fatalf("nearCap built %d bytes, want %d", len(wire), MaxHelloBytes-3)
+	}
+	after := record(recordTypeHS, 0x0301, []byte{0})
+	cr := &countingReader{r: bytes.NewReader(append(slices.Clone(wire), after...))}
+	_, raw, err := ReadClientHello(cr)
+	if !errors.Is(err, ErrHelloTooLarge) {
+		t.Errorf("ReadClientHello = %v, want ErrHelloTooLarge", err)
+	}
+	if cr.n != len(wire) || !bytes.Equal(raw, wire) {
+		t.Errorf("ReadClientHello read %d bytes and returned %d, want %d", cr.n, len(raw), len(wire))
+	}
+	if cap(raw) > MaxHelloBytes {
+		t.Errorf("ReadClientHello buffered cap %d, over the cap", cap(raw))
+	}
 }
