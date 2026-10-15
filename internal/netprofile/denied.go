@@ -289,3 +289,83 @@ func isAddr(h string) bool {
 	_, err := netip.ParseAddr(h)
 	return err == nil
 }
+
+// The tunnel's further hard denies (step 3). A tunnel host is an operator's
+// exact public name, opened as an opaque TLS tunnel, so it is held to more
+// than a registry host: every forge (git dependencies and pushes), every
+// model API, the managed Kubernetes control planes, the special-use and
+// in-cluster names, and the package-publish endpoints. Registries (step 2)
+// keep DeniedHost's table alone: an Azure Artifacts feed lives on
+// pkgs.dev.azure.com and a GitLab package registry on gitlab.com, and an
+// internal registry may be under .internal. Each entry denies the name and
+// every name below it.
+var (
+	// TunnelForgeHosts are the forges beyond ForgeHosts.
+	TunnelForgeHosts = []string{
+		"ghcr.io", "githubcopilot.com", "gitlab.com", "bitbucket.org", "codeberg.org", "dev.azure.com",
+		"visualstudio.com", "sr.ht",
+	}
+	// TunnelModelAPIHosts are the model APIs beyond ModelAPIHosts.
+	TunnelModelAPIHosts = []string{"claude.ai", "claude.com", "chatgpt.com"}
+	// ControlPlaneHosts are the managed Kubernetes API endpoints' parents:
+	// EKS (<id>.<sfx>.<region>.eks.amazonaws.com), AKS (azmk8s.io), GKE's
+	// management API (its cluster endpoints are bare addresses, which the
+	// grammar refuses and the dialer's deny list covers), DigitalOcean and
+	// Linode.
+	ControlPlaneHosts = []string{
+		"eks.amazonaws.com", "azmk8s.io", "container.googleapis.com", "k8s.ondigitalocean.com", "linodelke.net",
+	}
+	// SpecialUseSuffixes are names that never denote a public registry:
+	// in-cluster DNS, metadata servers (metadata.google.internal), mDNS,
+	// reverse lookups and the reserved test names.
+	SpecialUseSuffixes = []string{
+		"localhost", "local", "internal", "svc", "cluster.local", "home.arpa", "in-addr.arpa", "ip6.arpa",
+		"invalid", "test", "example",
+	}
+	// PublishHosts are package-publish endpoints on their own hosts, so an
+	// operator cannot open an upload path by listing them.
+	PublishHosts = []string{"upload.pypi.org", "www.nuget.org"}
+)
+
+// DeniedTunnelHost reports why host may not be a tunnel host (nil when it
+// may). It refuses an IP literal in any form, a single-label name, any
+// name DeniedHost refuses with no internal admission (only ctx.Hosts is
+// read: the profile's forge host, and in the job controllers every Forge
+// CR's), and any name in or below the tunnel tables above. DeniedHost's
+// rules are applied to every suffix of host of two or more labels, so a
+// name below a denied one is always denied: the Kubernetes API names and
+// the regional Vertex host are exact in DeniedHost, but nothing below them
+// is a public registry either. The host is lowercased and a trailing dot
+// dropped first.
+func DeniedTunnelHost(host string, ctx DenyContext) error {
+	h := canonicalHost(host)
+	if h == "" {
+		return fmt.Errorf("%w: empty host", ErrDeniedHost)
+	}
+	if IPLiteral(h) || strings.Contains(h, ":") {
+		return fmt.Errorf("%w: %s is an IP literal", ErrDeniedHost, host)
+	}
+	if !strings.Contains(h, ".") {
+		return fmt.Errorf("%w: %s is a single-label name", ErrDeniedHost, host)
+	}
+	for _, set := range [][]string{TunnelForgeHosts, TunnelModelAPIHosts, ControlPlaneHosts, SpecialUseSuffixes,
+		PublishHosts} {
+		for _, d := range set {
+			if under(h, d) {
+				return fmt.Errorf("%w: %s is %s or below it", ErrDeniedHost, host, d)
+			}
+		}
+	}
+	base := DenyContext{Hosts: ctx.Hosts}
+	labels := strings.Split(h, ".")
+	for i := 0; len(labels)-i >= minTunnelLabels; i++ {
+		s := strings.Join(labels[i:], ".")
+		if err := DeniedHost(s, base); err != nil {
+			if i == 0 {
+				return err
+			}
+			return fmt.Errorf("%s is below %s: %w", host, s, err)
+		}
+	}
+	return nil
+}

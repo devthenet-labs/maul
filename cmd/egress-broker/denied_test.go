@@ -25,8 +25,9 @@ var brokerURLSources = []string{"serve.go", "../../internal/broker/hosts.go", ".
 // TestModelHostsDenied pins the egress proxy's deny table to the broker:
 // every https URL literal the broker builds a route from, each template
 // instantiated with sample regions and resources, is a host no registry,
-// file host or redirect target may be. A new broker route therefore cannot
-// ship without its deny entry (netprofile.ModelAPIHosts).
+// file host or redirect target may be, and no tunnel may open to (step 3).
+// A new broker route therefore cannot ship without its deny entry
+// (netprofile.ModelAPIHosts).
 func TestModelHostsDenied(t *testing.T) {
 	samples := []string{"us-east-1", "eu-west-2", "us-east5", "europe-west4", "myresource", "acme-ai"}
 	var literals []string
@@ -68,6 +69,10 @@ func TestModelHostsDenied(t *testing.T) {
 			}
 			if err := netprofile.DeniedHost(u.Hostname(), netprofile.DenyContext{}); err == nil {
 				t.Errorf("the broker reaches %s (from %q), which netprofile.DeniedHost admits", u.Hostname(), lit)
+			}
+			if err := netprofile.DeniedTunnelHost(u.Hostname(), netprofile.DenyContext{}); err == nil {
+				t.Errorf("the broker reaches %s (from %q), which netprofile.DeniedTunnelHost admits",
+					u.Hostname(), lit)
 			}
 		}
 	}

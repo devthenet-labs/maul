@@ -38,6 +38,19 @@
 // the Kubernetes API, in-cluster names and IP literals outside a
 // registry's own internal CIDRs.
 //
+// Step 3 adds the CONNECT tunnel. A profile may list Hosts, exact public
+// host names (ValidHost: lowercase LDH labels, the last starting with a
+// letter, so no IP form passes; NormalizeHost and IPLiteral judge what a
+// client sends), with route "tunnel" (the tunnel alone) or "go" (both on
+// the one port); Clients, the package-manager presets (client.go) the job
+// controllers apply beside it; and Upload, per-profile upload caps.
+// DeniedTunnelHost is DeniedHost's table applied to every suffix of the
+// host, plus the tunnel's own rows: more forges and model APIs, the managed
+// Kubernetes control planes, special-use names and package-publish hosts.
+// A tunnel host may not be a host of one of the profile's grants, which
+// would bypass the grant's package policy, and a client preset may not sit
+// beside a grant for the same package manager.
+//
 // The package imports only the standard library (a test pins that), so the
 // proxy, the controllers and the jobs package can share it without linking
 // anything else.
