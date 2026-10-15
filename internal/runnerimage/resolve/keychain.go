@@ -28,14 +28,17 @@ var ecrHost = regexp.MustCompile(`^\d{12}\.dkr\.ecr(?:-fips)?\.([a-z0-9-]+)\.ama
 const ecrTokenSkew = 5 * time.Minute
 
 // NewKeychain builds the host-selected keychain the resolver authenticates
-// with. ECR hosts go through the AWS SDK's default credential chain (IRSA or
-// Pod Identity in-cluster, the same path the AWS enhancer uses), Artifact
-// Registry and GCR through Application Default Credentials (Workload
-// Identity in-cluster), and every other host through the docker config
-// under DOCKER_CONFIG (the mounted pullSecret), which falls back to
-// anonymous when it has no entry for the host. Selection is by host, so a
-// cloud host never consults the docker config and a ghcr host never mints a
-// cloud token. A cloud credential failure is an error, never anonymous.
+// with. The docker config under DOCKER_CONFIG (the mounted pullSecret) is
+// asked first: an entry naming the registry host wins, for a cloud registry
+// too, so a cluster off AWS or GCP can resolve ECR or Artifact Registry with
+// a docker-config Secret. A host the docker config does not name goes by
+// host: ECR through the AWS SDK's default credential chain (IRSA or Pod
+// Identity in-cluster, the same path the AWS enhancer uses, or AWS_* env
+// from a Secret), Artifact Registry and GCR through Application Default
+// Credentials (Workload Identity in-cluster), and every other host is
+// anonymous. A ghcr host never mints a cloud token. A cloud credential
+// failure, or a docker config that cannot be read, is an error, never
+// anonymous.
 func NewKeychain() authn.Keychain {
 	return &hostKeychain{
 		ecr:    &ecrKeychain{tokens: awsECRToken, now: time.Now},
@@ -59,13 +62,20 @@ func (k *hostKeychain) Resolve(target authn.Resource) (authn.Authenticator, erro
 // ResolveContext implements authn.ContextKeychain.
 func (k *hostKeychain) ResolveContext(ctx context.Context, target authn.Resource) (authn.Authenticator, error) {
 	host := target.RegistryStr()
+	configured, err := k.docker.Resolve(target)
+	if err != nil {
+		return nil, err
+	}
+	if configured != authn.Anonymous {
+		return configured, nil
+	}
 	switch {
 	case ecrHost.MatchString(host):
 		return k.ecr.ResolveContext(ctx, target)
 	case host == "gcr.io" || strings.HasSuffix(host, ".gcr.io") || strings.HasSuffix(host, ".pkg.dev"):
 		return authn.Resolve(ctx, k.google, target)
 	default:
-		return k.docker.Resolve(target)
+		return authn.Anonymous, nil
 	}
 }
 

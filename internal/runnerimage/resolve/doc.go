@@ -30,10 +30,11 @@
 // capped and read one blob at a time.
 //
 // Registry credentials come from a host-selected keychain (NewKeychain):
-// ECR through the AWS SDK's default credential chain, Artifact Registry and
-// GCR through Application Default Credentials, everything else through the
-// docker config under DOCKER_CONFIG, anonymous last. A cloud credential
-// failure is transient, never anonymous. A 401, 403 or 404 is a
+// the docker config under DOCKER_CONFIG first, for any host it names
+// (a cloud registry included), then ECR through the AWS SDK's default
+// credential chain, Artifact Registry and GCR through Application Default
+// Credentials, anonymous last. A cloud credential failure is transient,
+// never anonymous. A 401, 403 or 404 is a
 // *runnerimage.Rejection; anything else is transient and left to the
 // caller's backoff.
 //
