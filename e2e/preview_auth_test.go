@@ -23,6 +23,7 @@ import (
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
+	authorizationv1 "k8s.io/api/authorization/v1"
 	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -36,6 +37,7 @@ import (
 	"github.com/bitwise-media-group/patchy/internal/previewauth"
 	"github.com/bitwise-media-group/patchy/internal/previewauth/adapters/keydir"
 	"github.com/bitwise-media-group/patchy/internal/previewauth/fakedex"
+	"github.com/bitwise-media-group/patchy/internal/rbactest"
 )
 
 // The installation TestPreviewSignIn renders: the relay's public issuer, the
@@ -264,6 +266,11 @@ func grantPreviewViewer(t *testing.T, cl *cluster, user string) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	// The authorizer observes the binding a moment after it is stored.
+	rbactest.WaitAllowed(t, cl.client, rbactest.Review(user, nil, authorizationv1.ResourceAttributes{
+		Namespace: namespace, Verb: "get", Group: v1alpha1.GroupVersion.Group,
+		Resource: "projects", Subresource: "previews", Name: "demo",
+	}))
 }
 
 // readyPreview creates the demo Project, its Intent in review and the

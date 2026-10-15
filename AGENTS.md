@@ -308,6 +308,9 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   current and previous key, RFC 7638 kids), `keydir` (the mounted keys Secret) and `hostprobe` (the unauthenticated
   host probe, critique F5). `previewauth/httpapi` is the HTTP surface (endpoints, pages, envelope headers, rate
   limit, audit line, OTel counters); `previewauth/fakedex` is test support only (an in-memory Dex).
+- `rbactest` — test support only: `WaitAllowed` polls SubjectAccessReviews until a real API server's RBAC authorizer
+  has observed a grant a suite just stored, so envtest suites (action policy, authz, chart, e2e) never act inside the
+  informer window and flake on a refusal.
 - `intentview` — the pure public projection of intents for the status page: board columns, fixed public wording
   for outcomes and block reasons (never a run's detail or a condition's message), limits with schema defaults, cost
   parsing, and `Text` (templates.VisibleText plus a cap) for every shown string. Copies of intent-controller facts
