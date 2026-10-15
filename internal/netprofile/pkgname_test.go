@@ -414,6 +414,25 @@ func TestPyProjectOfFileExamples(t *testing.T) {
 			t.Errorf("%q matched %q (err %v)", file, notProject, err)
 		}
 	}
+	// A legacy sdist with more than one <name>-<version> reading is
+	// refused, never attributed: PEP 440 admits 1-2 (1.post2), v1-2.dev0
+	// and 1rc1-2, so foo-1-2.tar.gz is as much version 2 of foo-1 as
+	// version 1-2 of foo, and either guess lets one project's file pass an
+	// allowlist naming the other.
+	for _, f := range []string{"foo-1-2.tar.gz", "foo-v1-2.dev0.tar.gz", "foo-1rc1-2.zip", "foo-1-2.tar.bz2",
+		"foo-1-2.tar.gz.metadata", "foo-bar-1-2-3.tar.gz"} {
+		if d, err := PyProjectOfFile(f); err == nil {
+			t.Errorf("PyProjectOfFile(%q) = %+v, want an ambiguity refusal", f, d)
+		}
+		if f, err := PyFilePath("/packages/source/f/foo-1/" + f); err == nil {
+			t.Errorf("PyFilePath admitted ambiguous %q as %+v", f.Raw, f.Dist)
+		}
+	}
+	// A PyDist reached any other way still matches neither reading.
+	amb := PyDist{Kind: PySdist, Project: "foo", Version: "1-2", base: "foo-1-2"}
+	if amb.MatchesProject("foo") || amb.MatchesProject("foo-1") {
+		t.Error("an ambiguous legacy sdist matched a project")
+	}
 	for _, f := range []string{"", "six", "six.whl", "six-1.0.whl", "six-x-py3-none-any.whl", "six-1.0.exe",
 		"six-1.0-py3-none-any-x-y.whl", "-1.0.tar.gz", "six-.tar.gz", "six-notaversion.tar.gz",
 		"six-1.0-py3-none-any.whl.metadata.metadata", "six-1.0-x!-none-any.whl", "six-1.0-abc-py3-none-any.whl"} {
@@ -463,6 +482,27 @@ func TestPropertyPyProjectOfFile(t *testing.T) {
 			}
 		}
 		return true
+	}
+	if err := quick.Check(prop, quickConfig(5000)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestPropertyPyLegacySdistAmbiguity: for any project p, the legacy sdist
+// <p>-<k>-<n> (version n of the project p-k, and equally version k-n, i.e.
+// k.post n, of p) is refused, and a PyDist carrying it matches neither
+// project, so a grant naming p never admits a sibling's file.
+func TestPropertyPyLegacySdistAmbiguity(t *testing.T) {
+	prop := func(p pyProject, k, n uint16, ext uint8) bool {
+		legacy := PyNormalize(string(p))
+		base := fmt.Sprintf("%s-%d-%d", legacy, k, n)
+		f := base + sdistExts[int(ext)%len(sdistExts)]
+		if d, err := PyProjectOfFile(f); err == nil {
+			t.Logf("PyProjectOfFile(%q) = %+v, want a refusal", f, d)
+			return false
+		}
+		d := PyDist{Kind: PySdist, Project: legacy, base: base}
+		return !d.MatchesProject(legacy) && !d.MatchesProject(fmt.Sprintf("%s-%d", legacy, k))
 	}
 	if err := quick.Check(prop, quickConfig(5000)); err != nil {
 		t.Fatal(err)

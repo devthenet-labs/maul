@@ -314,9 +314,9 @@ const (
 // PyDist is a parsed distribution file name.
 type PyDist struct {
 	Kind PyFileKind
-	// Project is the normalized project name; for a legacy sdist it is
-	// the shortest reading whose remainder is a version (MatchesProject
-	// is the allowlist's test, which needs no reading).
+	// Project is the normalized project name; a legacy sdist is admitted
+	// only when exactly one dash splits it into a name and a version, so
+	// its project is never a guess.
 	Project string
 	Version string
 	// Metadata is a PEP 658 ".metadata" file beside the distribution.
@@ -361,20 +361,33 @@ func PyProjectOfFile(filename string) (PyDist, error) {
 		if !ok {
 			continue
 		}
-		// The shortest name whose remainder is a version: the name never
-		// ends with a version-shaped part in practice (PEP 625 names have
-		// no hyphen at all).
+		// Exactly one dash may split the base into a name and a PEP 440
+		// version. More than one reading is refused: PEP 440 admits a dash
+		// inside a version (1-2 is 1.post2), so foo-1-2.tar.gz is both
+		// foo 1-2 and foo-1 2, and taking either reading would let a file
+		// of one project pass an allowlist naming the other (PEP 625 names
+		// have no hyphen at all, so this only ever refuses legacy names).
+		readings := 0
 		for i := 0; i < len(base); i++ {
 			if base[i] != '-' {
 				continue
 			}
 			project, version := base[:i], base[i+1:]
 			if PyName(project) && PyVersion(version) {
-				d.Kind, d.Project, d.Version, d.base = PySdist, PyNormalize(project), version, base
-				return d, nil
+				readings++
+				if readings == 1 {
+					d.Kind, d.Project, d.Version, d.base = PySdist, PyNormalize(project), version, base
+				}
 			}
 		}
-		return PyDist{}, fmt.Errorf("sdist %q is not <name>-<PEP 440 version>%s", filename, ext)
+		switch readings {
+		case 0:
+			return PyDist{}, fmt.Errorf("sdist %q is not <name>-<PEP 440 version>%s", filename, ext)
+		case 1:
+			return d, nil
+		default:
+			return PyDist{}, fmt.Errorf("sdist %q splits into more than one <name>-<PEP 440 version>", filename)
+		}
 	}
 	return PyDist{}, fmt.Errorf("%q is not a wheel or sdist (.whl, .tar.gz, .zip, .tar.bz2, optionally .metadata)",
 		filename)
@@ -382,7 +395,8 @@ func PyProjectOfFile(filename string) (PyDist, error) {
 
 // MatchesProject reports whether the file belongs to the project (compared
 // normalized): a wheel's name must normalize to it; an sdist must split at
-// some dash into a name that normalizes to it and a PEP 440 version, which
+// exactly one dash into a name and a PEP 440 version, and that name must
+// normalize to it, which
 // is how a legacy sdist with separators in its name is told from a
 // neighbour (charset-normalizer-2.0.0.tar.gz belongs to charset-normalizer,
 // never to charset, since "normalizer-2.0.0" is not a version).
@@ -391,12 +405,16 @@ func (d PyDist) MatchesProject(project string) bool {
 	if d.Kind == PyWheel {
 		return d.Project == project
 	}
+	readings, match := 0, false
 	for i := 0; i < len(d.base); i++ {
-		if d.base[i] == '-' && PyNormalize(d.base[:i]) == project && PyVersion(d.base[i+1:]) {
-			return true
+		if d.base[i] == '-' && PyName(d.base[:i]) && PyVersion(d.base[i+1:]) {
+			readings++
+			match = match || PyNormalize(d.base[:i]) == project
 		}
 	}
-	return false
+	// An ambiguous name matches nothing (PyProjectOfFile refuses it; this
+	// holds for a PyDist built any other way too).
+	return readings == 1 && match
 }
 
 // PyFile is a pip file path PyFilePath admitted.
