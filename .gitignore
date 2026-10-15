@@ -1,6 +1,22 @@
-# build artifacts
+# build artifacts (a bare `go build ./cmd/<binary>` at the root writes one
+# of these; `mise run build` writes to /bin/)
 /bin/
 dist/
+/agent-runner
+/context-controller
+/egress-broker
+/egress-proxy
+/evaluation-controller
+/integration-controller
+/intent-controller
+/investigation-controller
+/kubectl-patchy
+/patchy
+/preview-auth
+/preview-controller
+/remediation-controller
+/source-controller
+/status-server
 
 # docs site (zensical) build output + python env
 /site/
