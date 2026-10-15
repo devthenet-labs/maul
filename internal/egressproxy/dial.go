@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"net/http"
 	"net/netip"
@@ -134,11 +135,13 @@ func NewGuardedClient(policy DialPolicy, timeout time.Duration) *http.Client {
 // did) admits no internal address at all rather than a truncated port.
 func (p AddrPolicy) ForRegistry(r netprofile.Registry, always []netip.Prefix) DialPolicy {
 	internal := r.InternalPrefixes()
-	n := r.Port()
-	if n < 1 || n > netprofile.MaxPort {
-		internal, n = nil, 0
+	var port uint16
+	if n := r.Port(); n >= 1 && n <= math.MaxUint16 {
+		port = uint16(n)
+	} else {
+		internal = nil
 	}
-	return registryPolicy{public: p, internal: internal, port: uint16(n), //nolint:gosec // bounded just above
+	return registryPolicy{public: p, internal: internal, port: port,
 		always: append(append([]netip.Prefix(nil), netprofile.AlwaysDeniedCIDRs...), always...)}
 }
 
