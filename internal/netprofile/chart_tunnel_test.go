@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -73,6 +74,57 @@ func TestChartTunnelDenyMatchesNetprofile(t *testing.T) {
 	t.Logf("%d hosts, %d denied by the chart", len(hosts), denied)
 	if denied == 0 || denied == len(hosts) {
 		t.Errorf("the corpus is one-sided: %d of %d denied", denied, len(hosts))
+	}
+}
+
+// TestChartTunnelGuardMatchesValidator: the host grammar and the numeric
+// limits patchy.egressTunnelGuard applies (guards 21 and 25, which still
+// judge a render that skips the schema) are this package's, and the guard
+// reads them from those helpers rather than spelling out its own copies.
+func TestChartTunnelGuardMatchesValidator(t *testing.T) {
+	if got := chartHelper(t, "patchy.egressTunnelHostPattern"); got != TunnelHostPattern {
+		t.Errorf("patchy.egressTunnelHostPattern = %q, want TunnelHostPattern %q", got, TunnelHostPattern)
+	}
+	var limits struct {
+		MaxHosts       int64 `json:"maxHosts"`
+		MaxHostLen     int64 `json:"maxHostLen"`
+		MinUploadBytes int64 `json:"minUploadBytes"`
+		MaxUploadBytes int64 `json:"maxUploadBytes"`
+	}
+	dec := json.NewDecoder(strings.NewReader(chartHelper(t, "patchy.egressTunnelLimits")))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&limits); err != nil {
+		t.Fatalf("patchy.egressTunnelLimits: %v", err)
+	}
+	for _, c := range []struct {
+		name      string
+		got, want int64
+	}{
+		{"maxHosts", limits.MaxHosts, MaxTunnelHosts},
+		{"maxHostLen", limits.MaxHostLen, maxHostLen},
+		{"minUploadBytes", limits.MinUploadBytes, MinUploadBytes},
+		{"maxUploadBytes", limits.MaxUploadBytes, MaxUploadBytes},
+	} {
+		if c.got != c.want {
+			t.Errorf("patchy.egressTunnelLimits %s = %d, want %d", c.name, c.got, c.want)
+		}
+	}
+	guard := chartHelper(t, "patchy.egressTunnelGuard")
+	for _, use := range []string{`include "patchy.egressTunnelHostPattern"`, `include "patchy.egressTunnelLimits"`} {
+		if !strings.Contains(guard, use) {
+			t.Errorf("patchy.egressTunnelGuard does not %s", use)
+		}
+	}
+	// No private copy of a limit or of the grammar beside the helpers.
+	// (Numbers as whole words, so int64 is not a 64.)
+	for _, lit := range []string{
+		`\b` + strconv.Itoa(MaxTunnelHosts) + `\b`, `\b` + strconv.Itoa(maxHostLen) + `\b`,
+		`\b` + strconv.Itoa(MinUploadBytes) + `\b`, `\b` + strconv.Itoa(MaxUploadBytes) + `\b`,
+		regexp.QuoteMeta("[a-z0-9-]{0,61}"),
+	} {
+		if regexp.MustCompile(lit).MatchString(guard) {
+			t.Errorf("patchy.egressTunnelGuard spells out %s itself; read it from the limits helpers", lit)
+		}
 	}
 }
 

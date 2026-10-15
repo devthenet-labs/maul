@@ -1103,6 +1103,24 @@ longest Job deadline), else 2h, or that deadline when it is longer.
 {{- end }}
 
 {{/*
+The tunnel host grammar guard 21 applies (for a render that skips the
+schema): netprofile.TunnelHostPattern, which values.schema.json carries too.
+TestChartTunnelGuardMatchesValidator holds this body equal to it.
+*/}}
+{{- define "patchy.egressTunnelHostPattern" -}}
+^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]([a-z0-9-]{0,61}[a-z0-9])?$
+{{- end }}
+
+{{/*
+The numeric limits guards 21 and 25 apply, as JSON: netprofile's
+MaxTunnelHosts, maxHostLen and MinUploadBytes/MaxUploadBytes.
+TestChartTunnelGuardMatchesValidator holds them equal to those.
+*/}}
+{{- define "patchy.egressTunnelLimits" -}}
+{"maxHosts": 64, "maxHostLen": 253, "minUploadBytes": 65536, "maxUploadBytes": 1073741824}
+{{- end }}
+
+{{/*
 Render-time guards for the profiles' tunnel hosts (step 3), continuing
 patchy.egressRegistriesGuard's numbering; called from patchy.egressProxyGuard,
 so only while egressProxy.enabled. Each mirrors a netprofile.Validate rule,
@@ -1126,8 +1144,9 @@ so a profile the chart renders is one the binaries start with:
   25. upload with neither field, a field outside 64 KiB-1 GiB, or perTunnel
       above perSource.
   26. egressProxy.tunnel.sourceBudgetIdle below the longest Job deadline a
-      profile applies to (patchy.egressLongestJobDeadline), or a deadline not
-      written in h, m and s, while some profile tunnels.
+      profile applies to (patchy.egressLongestJobDeadline), or either
+      deadline (agent's, and the intent controller's while it is on) not
+      written in whole h, m and s, while some profile tunnels.
 */}}
 {{- define "patchy.egressTunnelGuard" -}}
 {{- $profiles := .Values.agent.networkProfiles | default dict -}}
@@ -1136,6 +1155,12 @@ so a profile the chart renders is one the binaries start with:
 {{- $goHosts := splitList " " (include "patchy.egressGoRouteHosts" .) -}}
 {{- $clientEco := dict "npm" "npm" "yarn" "npm" "pip" "pypi" "uv" "pypi" -}}
 {{- $clients := splitList " " (include "patchy.egressTunnelClients" .) -}}
+{{- $hostPattern := include "patchy.egressTunnelHostPattern" . -}}
+{{- $limits := include "patchy.egressTunnelLimits" . | fromJson -}}
+{{- $maxHosts := int64 $limits.maxHosts -}}
+{{- $maxHostLen := int64 $limits.maxHostLen -}}
+{{- $minUpload := int64 $limits.minUploadBytes -}}
+{{- $maxUpload := int64 $limits.maxUploadBytes -}}
 {{- range $name := keys $profiles | sortAlpha -}}
 {{- $p := index $profiles $name | default dict -}}
 {{- $at := printf "agent.networkProfiles.%s" $name -}}
@@ -1154,13 +1179,13 @@ so a profile the chart renders is one the binaries start with:
 {{- fail (printf "%s lists hosts without a route: set route tunnel (or route go, for both)" $at) -}}
 {{- end -}}
 {{- /* 21 */ -}}
-{{- if gt (len $hosts) 64 -}}
-{{- fail (printf "%s.hosts lists %d names; at most 64" $at (len $hosts)) -}}
+{{- if gt (len $hosts) $maxHosts -}}
+{{- fail (printf "%s.hosts lists %d names; at most %d" $at (len $hosts) $maxHosts) -}}
 {{- end -}}
 {{- $seen := dict -}}
 {{- range $hosts -}}
 {{- $h := toString . -}}
-{{- if or (gt (len $h) 253) (not (regexMatch `^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]([a-z0-9-]{0,61}[a-z0-9])?$` $h)) -}}
+{{- if or (gt (len $h) $maxHostLen) (not (regexMatch $hostPattern $h)) -}}
 {{- fail (printf "%s.hosts entry %q is not an exact lowercase host name: no wildcard, IP address, underscore or trailing dot, and a last label that starts with a letter" $at $h) -}}
 {{- end -}}
 {{- if hasKey $seen $h -}}
@@ -1217,8 +1242,8 @@ so a profile the chart renders is one the binaries start with:
 {{- end -}}
 {{- range $k := list "perTunnel" "perSource" -}}
 {{- $v := index $p.upload $k -}}
-{{- if and $v (or (lt (int64 $v) 65536) (gt (int64 $v) 1073741824)) -}}
-{{- fail (printf "%s.upload.%s %d is outside 65536-1073741824 bytes" $at $k (int64 $v)) -}}
+{{- if and $v (or (lt (int64 $v) $minUpload) (gt (int64 $v) $maxUpload)) -}}
+{{- fail (printf "%s.upload.%s %d is outside %d-%d bytes" $at $k (int64 $v) $minUpload $maxUpload) -}}
 {{- end -}}
 {{- end -}}
 {{- if and .perTunnel .perSource (gt (int64 .perTunnel) (int64 .perSource)) -}}
@@ -1228,11 +1253,23 @@ so a profile the chart renders is one the binaries start with:
 {{- end -}}
 {{- /* 26 */ -}}
 {{- if include "patchy.egressTunnelProfiles" . -}}
+{{- /* Each deadline on its own: patchy.egressLongestJobDeadline never picks
+       one it cannot read, so judging only its answer would let a malformed
+       intent deadline (2.5h, 5400000ms) through with a shorter window. */ -}}
+{{- $deadlines := dict "agent.jobDeadline" (toString .Values.agent.jobDeadline) -}}
+{{- if .Values.intentController.enabled -}}
+{{- with (.Values.intentController.config | default dict).jobDeadline -}}
+{{- $_ := set $deadlines "intentController.config.jobDeadline" (toString .) -}}
+{{- end -}}
+{{- end -}}
+{{- range $key := keys $deadlines | sortAlpha -}}
+{{- $d := index $deadlines $key -}}
+{{- if lt (int64 (include "patchy.durationSeconds" $d)) 0 -}}
+{{- fail (printf "%s must be written in whole h, m and s (2h, 90m) while a network profile tunnels: the tunnel's budget window is compared to the longest Job deadline, and %q is not" $key $d) -}}
+{{- end -}}
+{{- end -}}
 {{- $longest := include "patchy.egressLongestJobDeadline" . -}}
 {{- $longestS := int64 (include "patchy.durationSeconds" $longest) -}}
-{{- if lt $longestS 0 -}}
-{{- fail (printf "agent.jobDeadline and intentController.config.jobDeadline must be written in h, m and s (2h, 90m) while a network profile tunnels: the tunnel's budget window is compared to the longest, and %q is not" $longest) -}}
-{{- end -}}
 {{- with ((.Values.egressProxy | default dict).tunnel | default dict).sourceBudgetIdle -}}
 {{- $idle := int64 (include "patchy.durationSeconds" .) -}}
 {{- if lt $idle $longestS -}}

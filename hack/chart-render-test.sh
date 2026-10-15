@@ -2468,8 +2468,17 @@ expect_fail 'guard 26: a budget window below the intent deadline' 'egressProxy.t
   -f "$ri" -f "$ic" -f "$et" --set egressProxy.tunnel.sourceBudgetIdle=30m
 expect_fail 'guard 26: a budget window below the agent deadline' 'egressProxy.tunnel.sourceBudgetIdle 2h is below the longest Job deadline 3h' \
   -f "$ri" -f "$et" --set egressProxy.tunnel.sourceBudgetIdle=2h --set agent.jobDeadline=3h
-expect_fail 'guard 26: a deadline in milliseconds' 'must be written in h, m and s' \
+expect_fail 'guard 26: a deadline in milliseconds' 'agent.jobDeadline must be written in whole h, m and s' \
   -f "$ri" -f "$et" --set agent.jobDeadline=3600000ms
+# An intent deadline the chart cannot read is refused on its own, not passed
+# over for a shorter agent deadline (the budget window would come out short).
+expect_fail 'guard 26: a fractional intent deadline' 'intentController.config.jobDeadline must be written in whole h, m and s' \
+  -f "$ri" -f "$ic" -f "$et" --set agent.jobDeadline=1h --set intentController.config.jobDeadline=2.5h
+expect_fail 'guard 26: an intent deadline in milliseconds' 'intentController.config.jobDeadline must be written in whole h, m and s' \
+  -f "$ri" -f "$ic" -f "$et" --set agent.jobDeadline=1h --set intentController.config.jobDeadline=5400000ms
+expect_fail 'guard 26: a short window beside a fractional intent deadline' 'intentController.config.jobDeadline must be written in whole h, m and s' \
+  -f "$ri" -f "$ic" -f "$et" --set agent.jobDeadline=1h --set intentController.config.jobDeadline=2.5h \
+  --set egressProxy.tunnel.sourceBudgetIdle=1h
 expect_fail 'a budget window in milliseconds (schema)' 'egressProxy/tunnel/sourceBudgetIdle' \
   -f "$ri" -f "$et" --set egressProxy.tunnel.sourceBudgetIdle=7200000ms
 expect_fail 'an unknown tunnel key' 'additional properties' \
