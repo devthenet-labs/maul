@@ -1752,6 +1752,32 @@ cm status-intents-inline status-server PATCHY_INTENTS_ENABLED true
 expect_fail 'intents block of the wrong shape' 'additional properties' \
   --set statusServer.intents.bogus=true
 
+# ---- egress proxy: off renders exactly what main rendered ------------------
+# The templates the egress proxy and network profiles touch, rendered with
+# egressProxy off, are byte for byte what main rendered before the feature
+# existed (blank lines and the chart version aside): the egress-off.*.yaml
+# goldens were taken from main before any template change and are never
+# regenerated to make this pass. The CRDs are left out on purpose: the
+# networkProfile status field changed them earlier.
+egress_off_templates="networkpolicy networkpolicy-gke networkpolicy-cilium configmap deployments intent-controller egress-broker rbac services admission-policy"
+egress_show=""
+for t in $egress_off_templates; do
+  egress_show="$egress_show --show-only templates/$t.yaml"
+done
+ri=$fixtures/repository-images.yaml
+ic=$fixtures/intent-controller.yaml
+# shellcheck disable=SC2086
+egress_off() {
+  name=$1
+  shift
+  golden_neutral "egress-off-$name" "$golden/egress-off.$name.yaml" $egress_show "$@"
+}
+egress_off default
+egress_off repository-images -f "$ri" -f "$ic"
+egress_off repository-images-dns-none -f "$ri" -f "$ic" --set agent.networkPolicy.dns=none
+egress_off repository-images-gke -f "$ri" -f "$ic" --set agent.networkPolicy.mode=gke
+egress_off repository-images-cilium -f "$ri" -f "$ic" --set agent.networkPolicy.mode=cilium
+
 # ---- charts/patchy-config: Projects ------------------------------------------
 # The CR chart renders .Values.projects into Project CRs verbatim; its values
 # schema embeds the CRD's spec schema (hack/codegen.sh), so a malformed entry
