@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.12.36](https://github.com/devthenet-labs/patchy/compare/v0.12.35...v0.12.36) (2026-10-15)
+
+
+### Features
+
+* **chart:** tunnel profiles and egressProxy.tunnel limits, with docs ([#215](https://github.com/devthenet-labs/patchy/issues/215)) ([5bc8a57](https://github.com/devthenet-labs/patchy/commit/5bc8a57610f55612f22d2be30e2b87937584f729))
+* **controllers:** forge-host refusal and tunnel prompts ([#212](https://github.com/devthenet-labs/patchy/issues/212)) ([877cb11](https://github.com/devthenet-labs/patchy/commit/877cb11e2fd93c9531819ef635d899919c90c891))
+
 ## [0.12.35](https://github.com/devthenet-labs/patchy/compare/v0.12.34...v0.12.35) (2026-10-15)
 
 
