@@ -2127,6 +2127,15 @@ notes_has np-never-codex 'WARNING: codex is enabled, but no policy lets an agent
 notes np-off --set agent.networkPolicy.create=false
 notes_has np-off 'WARNING: agent.networkPolicy.create is false' yes
 notes_has np-off 'TCP 443 to anywhere' no
+# With no policy rendered, the DNS note names no policy of this chart's and the
+# broadEgress advice (a setting with nothing to act on) is not given.
+notes np-off-dns-none --set agent.networkPolicy.create=false --set agent.networkPolicy.dns=none \
+  --set agent.networkPolicy.broadEgress=always
+notes_has np-off-dns-none 'WARNING: agent.networkPolicy.create is false' yes
+notes_has np-off-dns-none 'Agent DNS: none.' yes
+notes_has np-off-dns-none 'agent egress policies allow no DNS' no
+notes_has np-off-dns-none 'base policy' no
+notes_has np-off-dns-none 'broadEgress: never' no
 notes np-gke --set agent.networkPolicy.mode=gke
 notes_has np-gke 'hostname-enforced via mode gke' yes
 notes_has np-gke 'TCP 443 to anywhere' no

@@ -244,7 +244,13 @@ are additive, so the allowlist is not actually constraining egress. That is
 what agent.networkPolicy.broadEgress={{ .Values.agent.networkPolicy.broadEgress | default "auto" }} asks for; set it to `auto` once the mode
 is soaked{{ else }} — each runner reaches only its own model API{{ end }}.
 {{- end }}
-{{- if $dnsNone }}
+{{- if and $dnsNone (not .Values.agent.networkPolicy.create) }}
+
+Agent DNS: none. The agent pods have no resolver (the job controllers pin the
+artifact server and the egress broker in each pod's hosts file), but with no
+NetworkPolicy rendered nothing stops an agent pod from querying the cluster
+resolver by address, and so carrying data out in query names.
+{{- else if $dnsNone }}
 
 Agent DNS: none. The agent pods have no resolver (the job controllers pin the
 artifact server and the egress broker in each pod's hosts file), and this

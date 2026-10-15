@@ -989,11 +989,16 @@ func TestResolveGrantProperties(t *testing.T) {
 // TestRemediationPausedSchedulerGrantsNothing: with the agents paused,
 // pending remediations keep waiting and their findings stay Queued.
 func TestRemediationPausedSchedulerGrantsNothing(t *testing.T) {
-	r, c := remWith(t, &fakeCRRunner{}, &fakeForge{}, nil, pendingRem("rem-a", "f3", 50), pendingRem("rem-b", "f4", 40))
+	fnd := queuedFinding(v1alpha1.PhaseQueued)
+	r, c := remWith(t, &fakeCRRunner{}, &fakeForge{}, nil, fnd,
+		pendingRem("rem-a", fnd.Name, 50), pendingRem("rem-b", "f4", 40))
 	r.MaxConcurrent = 2
 	r.Paused = true
 	if _, err := scheduleOnce(t, r); err != nil {
 		t.Fatalf("schedule: %v", err)
+	}
+	if f := findingNow(t, c); f.Status.Phase != v1alpha1.PhaseQueued || f.Status.ActiveRun != nil {
+		t.Errorf("finding = %q activeRun %+v, want still Queued with no run", f.Status.Phase, f.Status.ActiveRun)
 	}
 	var list v1alpha1.RemediationList
 	if err := c.List(t.Context(), &list); err != nil {
