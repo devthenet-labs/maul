@@ -108,9 +108,10 @@ var defaultOutputPace = outputPace{
 // follower every stream line (scan), which only starts and signals the
 // goroutine and never waits; the command followed has that one goroutine,
 // bound to the run's context, reading its file. end, once the run is over,
-// ends the command followed, drops the queue and waits for the last chunk,
-// so no goroutine outlives its run and no chunk is printed after the
-// stage's result.
+// ends the command followed, drops the queue (but for the command that
+// started once the one followed had ended) and waits for the last chunk, so
+// no goroutine outlives its run and no chunk is printed after the stage's
+// result.
 type outputFollower struct {
 	a       *Agent
 	tw      harness.TaskWatcher
@@ -138,6 +139,16 @@ type followedTask struct {
 
 // end marks the command ended; a second call is a no-op.
 func (t *followedTask) end() { t.once.Do(func() { close(t.ended) }) }
+
+// isEnded reports whether the command or the run has ended it.
+func (t *followedTask) isEnded() bool {
+	select {
+	case <-t.ended:
+		return true
+	default:
+		return false
+	}
+}
 
 // followOutput sets up the live output of one run whose command is spec,
 // or returns nil when the stage shows none or the harness cannot follow
@@ -265,17 +276,31 @@ func (f *outputFollower) endTask(t *followedTask) {
 
 // end is called once the run is over: it ends the command followed, as the
 // CLI that ran it is gone, drops the commands queued, and waits for the last
-// chunk. That wait is bounded by the drain time.
+// chunk. One queued command is kept: the oldest, when the command followed
+// had already ended by its own event and was only being read out. The CLI
+// runs its foreground commands one at a time, so that one is the command it
+// was running as the run ended, which is read out as the command followed
+// is; the hand-over to it is only the previous command's readout finishing,
+// which the run's end must not race. The wait is bounded by the drain time,
+// twice over when a command is kept.
 func (f *outputFollower) end() {
 	if f == nil {
 		return
 	}
 	f.mu.Lock()
 	f.over = true
+	var last *followedTask
+	if f.current != nil && f.current.isEnded() && len(f.queue) > 0 {
+		last, f.queue = f.queue[0], f.queue[1:]
+	}
 	if f.current != nil {
 		f.current.end()
 	}
 	f.dropQueue()
+	if last != nil {
+		last.end()
+		f.queue = []*followedTask{last}
+	}
 	f.mu.Unlock()
 	f.wg.Wait()
 }
@@ -289,14 +314,15 @@ func (f *outputFollower) dropQueue() {
 }
 
 // next lets go of the command whose goroutine is done and follows the
-// oldest one queued, from its first line, unless the run is over or the
-// process's budget is spent, when the queue is dropped unseen.
+// oldest one queued, from its first line, unless the process's budget is
+// spent, when the queue is dropped unseen. Once the run is over the queue
+// holds at most the one command end kept, already ended, which is read out.
 func (f *outputFollower) next(done *followedTask) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	delete(f.known, done.id)
 	f.current = nil
-	if f.over || f.a.outputSpent() {
+	if f.a.outputSpent() {
 		f.dropQueue()
 		return
 	}

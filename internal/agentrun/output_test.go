@@ -843,6 +843,57 @@ func TestOutputEnds(t *testing.T) {
 	}
 }
 
+// TestOutputEndReadsOutTheCommandAfterOneClosing: a command that starts
+// while the one before it, already ended, is still being read out waits its
+// turn; when the run ends before that turn comes, it is the command the CLI
+// was running as the run ended, and it is read out as such, not dropped. CI
+// saw TestOutputEnds lose its last command this way. The test plays the
+// first command's goroutine, so the hand-over comes after the run's end
+// every time.
+func TestOutputEndReadsOutTheCommandAfterOneClosing(t *testing.T) {
+	cfg, ws, tmp, out := outputSetup(t)
+	a := New(cfg, &commandExec{ws: ws})
+	a.pace = fastPace
+	f := a.followOutput(context.Background(), harness.NewFake(), runner.CommandSpec{}, nil)
+	f.scan([]byte(initLine()))
+	first := &followedTask{id: "bfirst", toolUse: "toolu_a", ended: make(chan struct{})}
+	f.mu.Lock()
+	f.known[first.id] = first
+	f.current = first
+	f.wg.Add(1)
+	f.mu.Unlock()
+	f.scan([]byte(answeredLine("toolu_a", "a1")))
+
+	second, _ := commandFile(t, tmp, "bsecond")
+	put(t, second, "b1\nb2")
+	f.scan([]byte(startedLine("bsecond", "toolu_b")))
+	ended := make(chan struct{})
+	go func() {
+		f.end()
+		close(ended)
+	}()
+	deadline := time.Now().Add(10 * time.Second)
+	for over := false; !over; {
+		f.mu.Lock()
+		over = f.over
+		f.mu.Unlock()
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for the run's end")
+		}
+		runtime.Gosched()
+	}
+	f.next(first) // the first command's goroutine hands over, after the run's end
+	f.wg.Done()
+	<-ended
+
+	if lines := joined(t, byTask(t, chunks(out.String()))["bsecond"]); !slices.Equal(lines, []string{"b1", "b2"}) {
+		t.Errorf("the run's last command lines = %q, want its output read out when the run ended", lines)
+	}
+	if f.current != nil || len(f.queue) != 0 || len(f.known) != 0 {
+		t.Errorf("after the run: followed %v, queued %d, known %d; want none", f.current, len(f.queue), len(f.known))
+	}
+}
+
 // byTask splits chunks by command, and checks no command's chunks are
 // interleaved with another's: each command's are one run of stdout.
 func byTask(t *testing.T, got []transcript.Output) map[string][]transcript.Output {
