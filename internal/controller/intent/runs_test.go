@@ -1872,3 +1872,56 @@ func contains(list []string, s string) bool {
 	}
 	return false
 }
+
+// TestPausedGrantsAndLaunchesNothing: with the agents paused, the scheduler
+// grants no slot, and a run granted before the pause took effect does not
+// launch its Job until the pause is lifted.
+func TestPausedGrantsAndLaunchesNothing(t *testing.T) {
+	e := newEnv(t, testProject())
+	ctx := context.Background()
+	name := e.newIntent(approver)
+	pass := func(schedule, runs bool) {
+		e.mustIntent(name)
+		e.readyRepositories("")
+		if schedule {
+			_, _ = e.runs.Reconcile(ctx, req(runSchedulerRequest))
+		}
+		if runs {
+			for _, r := range e.intentRuns(name) {
+				_, _ = e.runs.Reconcile(ctx, req(r.Name))
+			}
+		}
+	}
+	e.runs.Paused = true
+	for range 5 {
+		pass(true, true)
+	}
+	if n := len(e.jobs.launched()); n != 0 {
+		t.Fatalf("jobs launched = %d, want none while paused", n)
+	}
+	runs := e.intentRuns(name)
+	if len(runs) == 0 {
+		t.Fatal("no run was created")
+	}
+	for _, r := range runs {
+		if r.Status.Phase == v1alpha1.RunRunning {
+			t.Fatalf("%s granted a slot while paused", r.Name)
+		}
+	}
+
+	// Granted, then paused before its launch pass.
+	e.runs.Paused = false
+	pass(true, false)
+	e.runs.Paused = true
+	for range 3 {
+		pass(false, true)
+	}
+	if n := len(e.jobs.launched()); n != 0 {
+		t.Fatalf("jobs launched = %d, want the granted run held while paused", n)
+	}
+	e.runs.Paused = false
+	pass(false, true)
+	if n := len(e.jobs.launched()); n != 1 {
+		t.Errorf("jobs launched = %d, want the held run's Job once the pause is lifted", n)
+	}
+}

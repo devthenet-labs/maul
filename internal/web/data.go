@@ -30,6 +30,9 @@ type Dataset struct {
 	User        *User            `json:"user,omitempty"`
 	Findings    []FindingSummary `json:"findings"`
 	Rollups     []Rollup         `json:"rollups,omitempty"`
+	// AgentsPaused reports the operator's agent pause: no new agent Jobs
+	// launch until it is lifted. Findings payload only; never public.
+	AgentsPaused bool `json:"agentsPaused,omitempty"`
 }
 
 // User is the signed-in identity the top bar renders.
@@ -404,6 +407,9 @@ func (s *Server) buildDataset(ctx context.Context, withFindings bool, verbs []st
 		Version:     version.Version,
 		User:        user,
 		Findings:    []FindingSummary{},
+	}
+	if withFindings {
+		ds.AgentsPaused = s.agentsPaused
 	}
 
 	// Sorting happens on index slices over the CR items, not on the projected

@@ -60,6 +60,7 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	runnercfg.RegisterEvolveFlags(f)
 	runnercfg.RegisterAgentResourceFlags(f)
 	runnercfg.RegisterAgentDNSFlag(f)
+	runnercfg.RegisterAgentsPausedFlag(f)
 	return cmd
 }
 
@@ -153,6 +154,7 @@ func setupReconcilers(mgr manager.Manager, opts *cli.Options, namespace string, 
 		Workspaces:       workspaces,
 		Namespace:        namespace,
 		MaxConcurrent:    opts.Int("max-concurrent-units"),
+		Paused:           opts.Bool(runnercfg.AgentsPausedFlag),
 		EnabledHarnesses: enabled,
 		ArtifactBaseURL:  artifactBaseURL,
 		Log:              log,
@@ -262,7 +264,8 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		slog.String("agent_namespace", agentNS),
 		slog.String("listen_addr", httpSrv.Addr),
 		slog.String("auth_mode", authCfg.Mode),
-		slog.Any("harnesses", enabled))
+		slog.Any("harnesses", enabled),
+		slog.Bool("agents_paused", opts.Bool(runnercfg.AgentsPausedFlag)))
 
 	g, ctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return mgr.Start(ctx) })

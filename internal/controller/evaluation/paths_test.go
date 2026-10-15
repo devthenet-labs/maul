@@ -826,3 +826,44 @@ func TestFinalizeEdges(t *testing.T) {
 		})
 	}
 }
+
+// TestPausedSchedulerGrantsNothing: with the agents paused, pending units
+// keep waiting however many slots are free.
+func TestPausedSchedulerGrantsNothing(t *testing.T) {
+	objs := make([]client.Object, 3)
+	for i := range objs {
+		objs[i] = pendingUnit(i)
+	}
+	c := newClient(t, objs...)
+	r := newUnitReconciler(c, &fakeRunner{}, present)
+	r.Paused = true
+	if _, err := r.Reconcile(t.Context(), unitReq(schedulerRequest)); err != nil {
+		t.Fatalf("schedule: %v", err)
+	}
+	var list v1alpha1.EvaluationUnitList
+	if err := c.List(t.Context(), &list); err != nil {
+		t.Fatal(err)
+	}
+	for _, u := range list.Items {
+		if u.Status.Phase != "" && u.Status.Phase != v1alpha1.RunPending {
+			t.Errorf("%s phase = %q, want still pending", u.Name, u.Status.Phase)
+		}
+	}
+}
+
+// TestPausedHoldsAGrantedLaunch: a unit granted before the pause took
+// effect does not launch its Job while the agents are paused.
+func TestPausedHoldsAGrantedLaunch(t *testing.T) {
+	unit := runningUnit(nil)
+	c := newClient(t, testEval(unitPlan("claude")), unit)
+	runner := &fakeRunner{}
+	r := newUnitReconciler(c, runner, fakeWorkspaces{present: map[string]bool{digestA: true}})
+	r.Paused = true
+	reconcileUnit(t, r, unit.Name)
+	if len(runner.created) != 0 {
+		t.Errorf("jobs created = %d, want none while paused", len(runner.created))
+	}
+	if u := getUnit(t, c, unit.Name); u.Status.JobRef != nil {
+		t.Errorf("jobRef = %+v, want none", u.Status.JobRef)
+	}
+}

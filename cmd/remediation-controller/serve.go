@@ -61,6 +61,7 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	runnercfg.RegisterNetworkProfileFlags(f)
 	runnercfg.RegisterAgentResourceFlags(f)
 	runnercfg.RegisterAgentDNSFlag(f)
+	runnercfg.RegisterAgentsPausedFlag(f)
 	f.Duration("job-deadline", time.Hour, "activeDeadlineSeconds for an agent Job")
 	f.Duration("job-ttl", time.Hour, "ttlSecondsAfterFinished for a finished agent Job")
 
@@ -230,6 +231,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		Forge:         remediation.NewForgeWriter(forges),
 		Namespace:     namespace,
 		MaxConcurrent: opts.Int("max-concurrent-remediations"),
+		Paused:        opts.Bool(runnercfg.AgentsPausedFlag),
 		MaxAttempts:   int32(opts.Int("max-attempts")),
 		Aging: schedule.AgingPolicy{
 			Interval: opts.Duration("priority-aging-interval"),
@@ -262,6 +264,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	log.LogAttrs(ctx, slog.LevelInfo, "remediation-controller starting",
 		slog.String("namespace", namespace),
 		slog.Int("max_concurrent", opts.Int("max-concurrent-remediations")),
+		slog.Bool("agents_paused", opts.Bool(runnercfg.AgentsPausedFlag)),
 		slog.Duration("finding_ttl", opts.Duration("finding-ttl")),
 		slog.Bool("repository_images", repositoryImages))
 
