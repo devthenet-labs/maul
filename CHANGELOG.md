@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.38](https://github.com/devthenet-labs/patchy/compare/v0.12.37...v0.12.38) (2026-10-15)
+
+
+### Bug Fixes
+
+* **jobs:** settle a run whose agent log is gone instead of failing forever ([#221](https://github.com/devthenet-labs/patchy/issues/221)) ([c8d6282](https://github.com/devthenet-labs/patchy/commit/c8d6282c5efae3c248d2763d1b1a798652c0dd8b))
+
 ## [0.12.37](https://github.com/devthenet-labs/patchy/compare/v0.12.36...v0.12.37) (2026-10-15)
 
 
