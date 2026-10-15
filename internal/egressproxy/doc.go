@@ -43,6 +43,13 @@
 // with the same rules. A go grant's private modules are refused on the
 // profile's /go route too, so they never fall through to Google.
 //
+// Step 3's CONNECT tunnel will judge a request target and the client's
+// first TLS records with two pure parsers that nothing serves yet:
+// ParseConnectTarget (connect.go: authority-form host:443 only) and
+// ParseClientHello/ReadClientHello (clienthello.go: the SNI, ALPN and ECH
+// signals of one ClientHello, reassembled across records and reads, never
+// more than MaxHelloBytes).
+//
 // Each request emits one audit line (never a header or body) and the
 // patchy.egress_proxy metrics.
 // Attribution of a source IP to an agent pod (PodLookup) is audit garnish
