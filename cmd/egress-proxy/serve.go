@@ -298,12 +298,15 @@ func run(ctx context.Context, srv *egressproxy.Server, healthAddr string, listen
 			closeAll()
 			return fmt.Errorf("profile %s listener %s: %w", p.Name, addr, err)
 		}
-		servers = append(servers, bound{ln, &http.Server{
+		hs := &http.Server{
 			Handler:           h,
 			ReadHeaderTimeout: readHeaderTimeout,
 			IdleTimeout:       idleTimeout,
 			MaxHeaderBytes:    maxHeaderBytes,
-		}})
+		}
+		// HTTP/1 only, and Shutdown closes the hijacked tunnels.
+		srv.ConfigureListener(hs)
+		servers = append(servers, bound{ln, hs})
 		names = append(names, fmt.Sprintf("%s:%d", p.Name, p.Port))
 	}
 	srv.SetReady()

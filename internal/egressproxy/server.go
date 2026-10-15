@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -42,6 +43,15 @@ type Server struct {
 	public     *http.Client
 	// selfChecks are the credential self-checks in flight.
 	selfChecks sync.WaitGroup
+
+	// The CONNECT tunnel (step 3): its own limiter, its dialer (the same
+	// guarded dialer, under a policy with the tunnel-only deny ranges
+	// added), each tunnel profile's per-source budgets, and the open
+	// tunnels, which Shutdown closes (CloseTunnels).
+	tunnelLimits *limiter
+	tunnelDialer *guardedDialer
+	budgets      map[string]*budgetTable
+	tunnels      sync.Map // *tunnel -> struct{}
 }
 
 // New validates cfg and builds the engine.
@@ -67,7 +77,29 @@ func New(cfg Config, log *slog.Logger) (*Server, error) {
 		ua:     "patchy-egress-proxy/" + version.Version,
 	}
 	s.buildRegistries()
+	s.buildTunnel()
 	return s, nil
+}
+
+// buildTunnel sets up the tunnel's limiter, dialer and budgets. The
+// dialer's policy is the Go route's (built-in ranges and --deny-cidrs)
+// plus the always-denied ranges and the tunnel-only deny ranges (the API
+// server's addresses); the Go route's own dial never reads the last two.
+func (s *Server) buildTunnel() {
+	l := s.cfg.TunnelLimits
+	policy := AddrPolicy{testLoopback: s.cfg.Policy.testLoopback}
+	for _, set := range [][]netip.Prefix{s.cfg.Policy.Deny, netprofile.AlwaysDeniedCIDRs, s.cfg.AlwaysDeny, l.Deny} {
+		policy.Deny = append(policy.Deny, set...)
+	}
+	s.tunnelLimits = newLimiter(l.limits(), s.cfg.Now)
+	s.tunnelDialer = newGuardedDialer(policy, s.cfg.lookup)
+	s.tunnelDialer.rewrite = s.cfg.dialRewrite
+	s.budgets = map[string]*budgetTable{}
+	for _, p := range s.cfg.Profiles.Profiles() {
+		if p.HasTunnel() {
+			s.budgets[p.Name] = newBudgetTable(p, l, s.cfg.Now)
+		}
+	}
 }
 
 // Profiles is the configured profile set.
@@ -80,7 +112,21 @@ func (s *Server) Handler(name string) (http.Handler, error) {
 	if !ok {
 		return nil, fmt.Errorf("egress proxy: no profile %q", name)
 	}
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { s.serve(p, w, r) }), nil
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// A CONNECT reaches the tunnel only on a profile with hosts; on
+		// every other profile it gets step 1's answer, byte for byte.
+		if r.Method == http.MethodConnect && p.HasTunnel() {
+			s.serveConnect(p, w, r)
+			return
+		}
+		s.serve(p, w, r)
+	}), nil
+}
+
+// tunnelOnly reports a profile whose listener serves the tunnel and
+// nothing else: no Go route and no registry grant.
+func tunnelOnly(p netprofile.Profile) bool {
+	return p.HasTunnel() && !p.HasGoRoute() && len(p.Registries) == 0
 }
 
 // SetReady marks every profile listener bound, so /readyz answers 200.
@@ -135,7 +181,7 @@ func (s *Server) serve(p netprofile.Profile, w http.ResponseWriter, r *http.Requ
 		countRequest(ctx, p.Name, e.route, e.outcome, cw.Bytes, extra...)
 	}()
 
-	if !s.envelope(cw, r, e) {
+	if !s.envelope(p, cw, r, e) {
 		return
 	}
 	// A profile holding registry grants serves /r/; for every other
@@ -168,10 +214,14 @@ func (s *Server) serve(p netprofile.Profile, w http.ResponseWriter, r *http.Requ
 // envelope runs the checks every route shares (step 1's pipeline steps
 // 0-2): suspended, method, body, absolute form and query. It answers every
 // refusal itself.
-func (s *Server) envelope(w http.ResponseWriter, r *http.Request, e *auditEntry) bool {
+func (s *Server) envelope(p netprofile.Profile, w http.ResponseWriter, r *http.Request, e *auditEntry) bool {
 	if s.cfg.Suspended {
-		refuse(w, e, http.StatusGone, OutcomeSuspended, "",
-			"egress-proxy: profile routes are suspended by the operator")
+		refuse(w, e, http.StatusGone, OutcomeSuspended, "", suspendedPhrase)
+		return false
+	}
+	if tunnelOnly(p) {
+		w.Header().Set("Allow", http.MethodConnect)
+		refuse(w, e, http.StatusMethodNotAllowed, OutcomeMethod, "", "egress-proxy: only CONNECT")
 		return false
 	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {

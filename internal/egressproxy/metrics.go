@@ -137,3 +137,53 @@ func RegisterCredentialExpiry(registries []string, expiry ExpiryFunc, now func()
 	}
 	return reg.Unregister, nil
 }
+
+// The tunnel instruments (step 3). host is set only for a host in the
+// profile's allowlist, so cardinality is bounded by the profile tables.
+var (
+	tunnelsCounter = sync.OnceValue(func() metric.Int64Counter {
+		c, err := otel.Meter(scopeName).Int64Counter("patchy.egress_proxy.tunnels",
+			metric.WithDescription("egress proxy CONNECT tunnels by profile, outcome and allowlisted host"))
+		if err != nil {
+			otel.Handle(err)
+		}
+		return c
+	})
+	tunnelBytesCounter = sync.OnceValue(func() metric.Int64Counter {
+		c, err := otel.Meter(scopeName).Int64Counter("patchy.egress_proxy.tunnel_bytes",
+			metric.WithDescription("bytes carried by CONNECT tunnels by profile, allowlisted host and direction"),
+			metric.WithUnit("By"))
+		if err != nil {
+			otel.Handle(err)
+		}
+		return c
+	})
+	tunnelsOpenCounter = sync.OnceValue(func() metric.Int64UpDownCounter {
+		c, err := otel.Meter(scopeName).Int64UpDownCounter("patchy.egress_proxy.tunnels_open",
+			metric.WithDescription("open egress proxy CONNECT tunnels by profile"))
+		if err != nil {
+			otel.Handle(err)
+		}
+		return c
+	})
+)
+
+// countTunnel records one ended tunnel and its bytes.
+func countTunnel(ctx context.Context, profile, outcome, host string, bytesUp, bytesDown int64) {
+	tunnelsCounter().Add(ctx, 1, metric.WithAttributes(
+		attribute.String("profile", profile),
+		attribute.String("outcome", outcome),
+		attribute.String("host", host)))
+	for d, n := range map[direction]int64{up: bytesUp, down: bytesDown} {
+		if n > 0 {
+			tunnelBytesCounter().Add(ctx, n, metric.WithAttributes(
+				attribute.String("profile", profile),
+				attribute.String("host", host),
+				attribute.String("direction", d.String())))
+		}
+	}
+}
+
+func countTunnelOpen(ctx context.Context, profile string, delta int64) {
+	tunnelsOpenCounter().Add(ctx, delta, metric.WithAttributes(attribute.String("profile", profile)))
+}

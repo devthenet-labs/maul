@@ -43,12 +43,23 @@
 // with the same rules. A go grant's private modules are refused on the
 // profile's /go route too, so they never fall through to Google.
 //
-// Step 3's CONNECT tunnel will judge a request target and the client's
-// first TLS records with two pure parsers that nothing serves yet:
-// ParseConnectTarget (connect.go: authority-form host:443 only) and
-// ParseClientHello/ReadClientHello (clienthello.go: the SNI, ALPN and ECH
-// signals of one ClientHello, reassembled across records and reads, never
-// more than MaxHelloBytes).
+// A profile with hosts (step 3; tunnel.go) also answers CONNECT on the
+// same listener, a hostname-allowlisted TLS tunnel: suspended, the
+// request's shape (HTTP/1.1, authority-form host:443 by ParseConnectTarget,
+// no body), the host policy (no IP literal, netprofile's host grammar
+// after NormalizeHost, DeniedTunnelHost, the profile's exact hosts), the
+// tunnel's own limits and per-source byte budgets (tunnellimits.go), a
+// dial of the name resolved fully qualified through the same guarded
+// dialer with the tunnel-only deny ranges added, the 200, then the
+// client's ClientHello (ReadClientHello: its SNI must be the CONNECT host,
+// with no ECH) before any byte goes upstream, and a splice under byte caps
+// and idle and absolute deadlines (splice.go). Every refusal is written raw
+// on the hijacked connection, so the reason travels as the status line's
+// phrase and as the body. The proxy never terminates TLS. A CONNECT on a
+// profile without hosts gets step 1's 405 (410 when suspended), byte for
+// byte; a tunnel-only profile answers every other method 405 Allow:
+// CONNECT. Each tunnel writes an opened line, progress lines and one close
+// line, all at info.
 //
 // Each request emits one audit line (never a header or body) and the
 // patchy.egress_proxy metrics.
