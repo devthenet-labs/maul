@@ -61,6 +61,8 @@ tests:
 notes:
   - "<one line, at most 500 characters: what a reviewer should look at closely>"
 reason: "<only when success is false: why the plan could not be built>"
+refused:
+  - "<only when the egress proxy refused a dependency the plan needs: the proxy's exact line>"
 ---
 ```
 
@@ -78,6 +80,13 @@ characters that render as nothing or reorder text — zero-width spaces and join
 selectors, tag characters, or any control character but tab and line break. A report breaking any of these rules is
 refused whole, so read the frontmatter back against them before you finish, and if a claim in it is not true (a test
 that failed, a step not built), correct the claim rather than leave it out.
+
+`refused` is only for a build that could not be done because the operator's egress proxy refused a dependency the plan
+needs: one `- "..."` item per refusal, at most 5, each the proxy's exact line with `egress-proxy:` in it (for example
+`403 egress-proxy: <host> is not in profile <profile>'s hosts`). patchy does not retry a build the proxy refused by its
+policy, and shows these lines to the operator, who can change it. Leave `refused` out for any other failure, for a
+refusal that says to retry later, for a refusal you got past, and for one you only inferred without the proxy's line,
+which belongs in `reason`.
 
 End the body with a `## Working notes` section, whether or not you succeeded: a short note, under 6 KiB, for the next
 agent on this intent, who will not have this session. Say where the relevant code is, which commands worked in this

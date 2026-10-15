@@ -126,9 +126,9 @@ func TestIntentviewRoundCountsPinned(t *testing.T) {
 // The dashboard's rule for which failed attempts count is this package's,
 // for every outcome, with and without the sandbox refusal.
 func TestIntentviewUncountedPinned(t *testing.T) {
-	outcomes := []string{"", OutcomeAborted, OutcomeImageRequired, OutcomeNotBuilt, OutcomeBranchExists,
-		OutcomeHoldExpired, OutcomePushRefused, OutcomeLaunchRefused, OutcomeHeadMoved, OutcomeInputUnavailable,
-		OutcomeNoUsableFeedback, OutcomeUnschedulable, OutcomeEvicted,
+	outcomes := []string{"", OutcomeAborted, OutcomeImageRequired, OutcomeNotBuilt, OutcomeDependencyRefused,
+		OutcomeBranchExists, OutcomeHoldExpired, OutcomePushRefused, OutcomeLaunchRefused, OutcomeHeadMoved,
+		OutcomeInputUnavailable, OutcomeNoUsableFeedback, OutcomeUnschedulable, OutcomeEvicted,
 		string(envelope.OutcomeOK), string(envelope.OutcomeRuntimeError), string(envelope.OutcomeTimeout)}
 	for _, o := range outcomes {
 		for _, refused := range []bool{false, true} {
@@ -205,8 +205,8 @@ func TestIntentviewSharedWordingPinned(t *testing.T) {
 // never falls back to a bare code for one of them.
 func TestIntentviewWordsEveryOutcome(t *testing.T) {
 	outcomes := []string{
-		OutcomeAborted, OutcomeImageRequired, OutcomeNotBuilt, OutcomeBranchExists, OutcomeHoldExpired,
-		OutcomePushRefused, OutcomeLaunchRefused, OutcomeHeadMoved, OutcomeInputUnavailable,
+		OutcomeAborted, OutcomeImageRequired, OutcomeNotBuilt, OutcomeDependencyRefused, OutcomeBranchExists,
+		OutcomeHoldExpired, OutcomePushRefused, OutcomeLaunchRefused, OutcomeHeadMoved, OutcomeInputUnavailable,
 		OutcomeNoUsableFeedback, OutcomeUnschedulable, OutcomeEvicted,
 		string(envelope.OutcomeOK), string(envelope.OutcomeRuntimeError), string(envelope.OutcomeTimeout),
 		string(envelope.OutcomeBudgetExceeded), string(envelope.OutcomeReportMissing),

@@ -111,8 +111,8 @@ func (p *pass) building(ctx context.Context) (bool, error) {
 			if blocked == nil {
 				blocked = latest
 			}
-		case rs.counted(nil) >= p.set.MaxAttempts:
-			return true, p.fail(ctx)
+		case rs.spent(p.set.MaxAttempts):
+			return true, p.failSpent(ctx, latest)
 		default:
 			launches = append(launches, buildLaunch{repo: repo, attempt: rs.next(), prev: p.previousAttempt(latest)})
 		}
@@ -140,6 +140,18 @@ func (p *pass) building(ctx context.Context) (bool, error) {
 		inFlight = append(inFlight, runs...)
 	}
 	return p.ensureBuilds(ctx, inFlight)
+}
+
+// failSpent fails the Intent on a build round with no attempt left to make
+// (roundRuns.spent), saying in the log when its latest run's dependency was
+// refused by the egress proxy's policy rather than its attempts spent.
+func (p *pass) failSpent(ctx context.Context, latest *v1alpha1.IntentRun) error {
+	if latest.Status.Outcome == OutcomeDependencyRefused {
+		p.r.log().LogAttrs(ctx, slog.LevelWarn, "the build's dependency is refused by the egress proxy's policy; "+
+			"the intent fails without another attempt",
+			slog.String("intent", p.in.Name), slog.String("run", latest.Name))
+	}
+	return p.fail(ctx)
 }
 
 // ensureBuilds makes sure every unfinished build of the round has its input

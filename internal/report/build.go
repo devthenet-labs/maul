@@ -16,7 +16,13 @@ const (
 	BuildMaxNotes = 10
 	// ReasonMaxChars bounds the reason a build could not be done.
 	ReasonMaxChars = 1000
+	// BuildMaxRefused is the most refused lines a build report may carry.
+	BuildMaxRefused = 5
 )
+
+// ProxyMarker is what every line the egress proxy refuses a request with
+// carries; a refused line must quote it.
+const ProxyMarker = "egress-proxy: "
 
 // Build is the parsed build report: the intent build stage's contract, for
 // the first build of an approved plan and for every revise round after it.
@@ -32,6 +38,10 @@ const (
 //	notes: []                      # at most 10 one-line items for reviewers;
 //	                               # not held to the 500-character item bound
 //	reason: "<one line>"           # required exactly when success is false
+//	refused: []                    # optional, only when success is false: at
+//	                               # most 5 lines, each the egress proxy's
+//	                               # exact refusal of a dependency the plan
+//	                               # needs ("403 egress-proxy: …")
 //	---
 //
 // followed by the change's description in markdown — what changed and why,
@@ -54,6 +64,13 @@ const (
 // change neutralises its layout there, as patchy's renderers already
 // sanitise the agent text they show.
 //
+// Refused is the build's structured account of a dependency the operator's
+// egress proxy refused (the network profile's tunnel hosts, its Go
+// allowlist, or a registry grant): each item quotes the proxy's own line,
+// so the controller can tell a refusal no retry gets past from a transient
+// one (netprofile.PolicyRefusal) without reading the free-text reason. It
+// is optional, so a report written before it existed stays valid.
+//
 // A report claiming success while its own tests failed contradicts itself
 // and is refused. Success is still only the agent's claim: the runner
 // downgrades it unless commit.sh leaves real commits, exactly as it does a
@@ -71,6 +88,9 @@ type Build struct {
 	// Reason says why the plan could not be built; set exactly when Success
 	// is false.
 	Reason string `yaml:"reason"`
+	// Refused are the egress proxy's refusals of dependencies the plan
+	// needs, each the proxy's exact line; set only when Success is false.
+	Refused []string `yaml:"refused"`
 	// Body is the markdown description following the frontmatter.
 	Body string `yaml:"-"`
 }
@@ -143,6 +163,29 @@ func (b *Build) validate() error {
 			}
 		case b.Reason != "":
 			errs = append(errs, errors.New("reason is set but success is true"))
+		}
+	}
+	errs = append(errs, b.validateRefused())
+	return errors.Join(errs...)
+}
+
+// validateRefused checks the refused lines: one-line items, each quoting the
+// egress proxy's line, only on a build that could not be done.
+func (b *Build) validateRefused() error {
+	if len(b.Refused) == 0 {
+		return nil
+	}
+	if b.Success != nil && *b.Success {
+		return errors.New("refused is set but success is true")
+	}
+	if err := lines("refused", b.Refused, BuildMaxRefused, ItemMaxChars); err != nil {
+		return err
+	}
+	var errs []error
+	for i, line := range b.Refused {
+		if !strings.Contains(line, ProxyMarker) {
+			errs = append(errs, fmt.Errorf("refused[%d] does not quote the egress proxy's line (%q): "+
+				"copy the proxy's refusal exactly, or leave refused out", i, strings.TrimSpace(ProxyMarker)))
 		}
 	}
 	return errors.Join(errs...)
