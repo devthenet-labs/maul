@@ -143,6 +143,12 @@ type Config struct {
 	// repository-image Job blanks. Empty, as on every Job without a profile,
 	// leaves the prompts unchanged.
 	NetworkProfile string
+	// NetworkRoutes are that profile's ecosystems and registry grants
+	// (netprofile.EnvEcosystems, netprofile.EnvGrants), which
+	// cmd/agent-runner reads beside it. Empty, as on a step-1 profile, keeps
+	// step 1's Go paragraph; with grants the remediate and build prompts
+	// describe each ecosystem.
+	NetworkRoutes templates.NetworkRoutes
 
 	InvestigateTimeout time.Duration
 	RemediateTimeout   time.Duration

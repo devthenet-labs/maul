@@ -123,7 +123,7 @@ func TestNetworkProfilePRBodyGoldens(t *testing.T) {
 		render func(profile string) (string, error)
 	}{
 		{"pr_body_network_profile.md", func(profile string) (string, error) {
-			return PRBody(123, "remediation report here", false, nil, profile)
+			return PRBody(123, "remediation report here", false, nil, profile, NetworkRoutes{})
 		}},
 		{"intent_pr_body_network_profile.md", func(profile string) (string, error) {
 			return RenderIntentPRBody(IntentPRBody{

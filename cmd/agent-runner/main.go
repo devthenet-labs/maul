@@ -21,6 +21,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -31,6 +32,7 @@ import (
 	"github.com/bitwise-media-group/patchy/internal/netprofile"
 	"github.com/bitwise-media-group/patchy/internal/runner"
 	"github.com/bitwise-media-group/patchy/internal/sandboxprobe"
+	"github.com/bitwise-media-group/patchy/internal/templates"
 )
 
 func main() {
@@ -73,14 +75,32 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 }
 
 // config is the stage configuration: agentrun.FromEnv, plus the network
-// profile the Job carries (netprofile.EnvProfile), read here through the
-// same getenv rather than in FromEnv, so it is no agentrun configuration
-// key, which a repository-image Job would blank.
+// profile the Job carries (netprofile.EnvProfile) and, for a profile with
+// registry grants, its ecosystems and grants (netprofile.EnvEcosystems,
+// netprofile.EnvGrants), read here through the same getenv rather than in
+// FromEnv, so they are no agentrun configuration keys, which a
+// repository-image Job would blank. Only the controller sets them; a value
+// that does not hold together is a configuration error, never a prompt.
 func config(getenv func(string) string) (agentrun.Config, error) {
 	cfg, err := agentrun.FromEnv(getenv)
 	if err != nil {
 		return agentrun.Config{}, err
 	}
 	cfg.NetworkProfile = getenv(netprofile.EnvProfile)
+	ecosystems, err := netprofile.ParseEcosystems(getenv(netprofile.EnvEcosystems))
+	if err != nil {
+		return agentrun.Config{}, err
+	}
+	grants, err := netprofile.DecodePodGrants(getenv(netprofile.EnvGrants))
+	if err != nil {
+		return agentrun.Config{}, err
+	}
+	if err := netprofile.CheckPodRoutes(ecosystems, grants); err != nil {
+		return agentrun.Config{}, err
+	}
+	if len(grants) > 0 && cfg.NetworkProfile == "" {
+		return agentrun.Config{}, fmt.Errorf("%s is set without %s", netprofile.EnvGrants, netprofile.EnvProfile)
+	}
+	cfg.NetworkRoutes = templates.PodRoutes(ecosystems, grants)
 	return cfg, nil
 }

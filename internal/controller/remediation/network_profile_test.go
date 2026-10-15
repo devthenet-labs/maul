@@ -114,3 +114,41 @@ func TestRemediationPRBodySaysNetworkProfile(t *testing.T) {
 		})
 	}
 }
+
+// registryProfileGuard is profileGuard with a second profile, web, holding
+// an npm registry grant, for acme/orders too (so the go profile matches
+// nothing once the test points the guard at web alone).
+func registryProfileGuard(t *testing.T) runnerguard.Guard {
+	t.Helper()
+	g := profileGuard(t)
+	set, err := netprofile.Parse([]byte(`[{"name":"web","port":8091,"repositories":["acme/orders"],` +
+		`"registries":[{"name":"art-npm","ecosystem":"npm","hosts":["acme.jfrog.io"],"packagePolicy":"registry"}]}]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.Profiles = set
+	return g
+}
+
+// TestRemediationPRBodyNamesRegistryRoutes: the pull request of a run whose
+// recorded profile holds registry grants in the controller's profile set
+// names each ecosystem and its registry; a recorded profile the set no
+// longer holds keeps step 1's line.
+func TestRemediationPRBodyNamesRegistryRoutes(t *testing.T) {
+	for profile, want := range map[string]string{
+		"web": "network profile `web` (npm via `art-npm`), so it could fetch packages",
+		"go":  "network profile `go`, so it could fetch Go modules",
+	} {
+		t.Run(profile, func(t *testing.T) {
+			objs := withImage(acceptedImage(), v1alpha1.RunnerImageSourceRepository)
+			objs[1].(*v1alpha1.Remediation).Status.RunnerImage.NetworkProfile = profile
+			fw := &fakeForge{}
+			r, _ := newRemediation(t, &fakeCRRunner{done: true, events: crdRemediationEvent(true)}, fw, objs...)
+			r.Images = registryProfileGuard(t)
+			remReconcile(t, r)
+			if len(fw.bodies) != 1 || !strings.Contains(fw.bodies[0], want) {
+				t.Errorf("PR bodies %q, want one saying %q", fw.bodies, want)
+			}
+		})
+	}
+}

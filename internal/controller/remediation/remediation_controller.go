@@ -522,9 +522,12 @@ func (r *RemediationReconciler) succeed(
 	// The report is agent text: PRBody sanitises it, and a body it cannot
 	// render falls back to patchy's own words, never to the raw report.
 	// A run whose Job carried a network profile could fetch dependencies;
-	// the body says so, from what the launch recorded off the Job.
+	// the body says so, from what the launch recorded off the Job, and
+	// names the profile's routes as the operator's profile set holds them
+	// now (the run records only the name).
+	profile := networkProfileOf(rem.Status.RunnerImage)
 	body, err := templates.PRBody(issueNumber, reportBody, untested,
-		agentresult.Reproduction(result.Reproduction), networkProfileOf(rem.Status.RunnerImage))
+		agentresult.Reproduction(result.Reproduction), profile, r.networkRoutes(profile))
 	if err != nil {
 		body = templates.PRBodyFallback(issueNumber)
 	}
@@ -840,6 +843,16 @@ func (r *RemediationReconciler) changesetRules(
 // the default image.
 func ranRepositoryImage(ri *v1alpha1.RunnerImageRef) bool {
 	return ri != nil && ri.Source == v1alpha1.RunnerImageSourceRepository
+}
+
+// networkRoutes are the routes of the profile called name in this
+// controller's profile set: none for no profile, or one the set no longer
+// holds, which leaves the pull request's line as step 1 wrote it.
+func (r *RemediationReconciler) networkRoutes(name string) templates.NetworkRoutes {
+	if p, ok := r.Images.Profiles.Get(name); ok && name != "" {
+		return templates.RoutesOf(p)
+	}
+	return templates.NetworkRoutes{}
 }
 
 // networkProfileOf is the network profile a run's Job carried, as recorded

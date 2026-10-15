@@ -222,6 +222,10 @@ type BuildPrompt struct {
 	// every run without one, keeps the prompt's no-network sentence and its
 	// stop-and-report for a dependency the image lacks.
 	NetworkProfile string
+	// NetworkRoutes are the profile's routes as the pod reads them. With
+	// registry grants the prompt describes each ecosystem instead of step
+	// 1's Go paragraph; without, it is exactly step 1's prompt.
+	NetworkRoutes NetworkRoutes
 }
 
 // RenderBuildPrompt renders the build-stage prompt.

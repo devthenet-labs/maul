@@ -62,7 +62,9 @@ and explain why in the report. Never claim a reproduction you did not see.
   keep every test you write in the working tree, and have `commit.sh` commit it with the code.
   Never delete or revert a test you wrote — not after it passes, and not to leave a clean tree.
 - Verify your work as well as the repository lets you: run the relevant tests or builds if they are runnable here.
-{{- if .NetworkProfile}}
+{{- if .NetworkRoutes.Grants}}
+{{networkRoutes .NetworkProfile .NetworkRoutes "fix"}}
+{{- else if .NetworkProfile}}
   Go modules can be fetched through the operator's dependency route `{{.NetworkProfile}}`: `go get`, `go mod tidy` and
   `go mod download` work for tagged releases of module paths the operator allows, and modules already in this image
   still build. A module outside the operator's allowlist, or a version that is not a tagged release, fails as not

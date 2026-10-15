@@ -278,6 +278,11 @@ type PlanComment struct {
 	// through the egress proxy, and that anything else must still be in the
 	// image.
 	NetworkProfiles []string
+	// NetworkRoutes are each NetworkProfiles entry's routes, in the same
+	// order. When none holds a registry grant (or there are none), the
+	// advice is step 1's word for word; otherwise it says, per build, which
+	// ecosystems it fetches, through which registry and under which policy.
+	NetworkRoutes []NetworkRoutes
 }
 
 // RenderPlanComment renders a plan for approval: headed by PlanMarker over
@@ -356,6 +361,7 @@ func planComment(p PlanComment, digest string, view planView, advice string) (st
 		}
 	}
 	profile, profiled, offline := planProfiles(p)
+	routeAdvice := planRouteAdvice(p)
 	questions := 0
 	for _, q := range p.Questions {
 		if strings.TrimSpace(q) != "" {
@@ -385,6 +391,7 @@ func planComment(p PlanComment, digest string, view planView, advice string) (st
 		ProfileBuilds   string
 		OthersOffline   bool
 		Advice          string
+		RouteAdvice     string
 		Plan            string
 	}{
 		Marker:          PlanMarker(p.Namespace, p.Intent, p.Revision, digest),
@@ -409,6 +416,7 @@ func planComment(p PlanComment, digest string, view planView, advice string) (st
 		ProfileBuilds:   strings.Join(profiled, ", "),
 		OthersOffline:   offline,
 		Advice:          advice,
+		RouteAdvice:     routeAdvice,
 		Plan:            verbatim("markdown", string(p.Report)),
 	})
 }
@@ -443,6 +451,62 @@ func planProfiles(p PlanComment) (profile string, profiled []string, offline boo
 		}
 	}
 	return "", profiled, offline
+}
+
+// planRouteAdvice is the dependency advice for a plan whose builds hold
+// registry grants, or "" when none does (step 1's advice then stands): for
+// a one-repository plan, what its build fetches through its profile; for
+// more, each repository whose build gets a profile, with what it fetches,
+// and whether any other build runs offline. Like planProfiles, names and
+// repositories render as sanitiser output whatever they hold.
+func planRouteAdvice(p PlanComment) string {
+	routes := func(i int) NetworkRoutes {
+		if i >= len(p.NetworkRoutes) {
+			return NetworkRoutes{}
+		}
+		return p.NetworkRoutes[i]
+	}
+	granted := false
+	for i := range p.NetworkProfiles {
+		granted = granted || len(routes(i).Grants) > 0
+	}
+	if !granted {
+		return ""
+	}
+	name := func(i int) string {
+		if i >= len(p.NetworkProfiles) {
+			return ""
+		}
+		return strings.TrimSpace(strings.ReplaceAll(visibleText(p.NetworkProfiles[i]), "\n", " "))
+	}
+	if len(repositoryItems(p.Repositories, false)) == 0 {
+		return "The build runs in the image this repository declares, with the operator's network profile " +
+			code(name(0)) + ": through patchy's egress proxy it fetches " + list(routes(0).routeSummaries()) +
+			". This plan adds dependencies: each one the build cannot fetch " +
+			"that way must be in that image on the default branch before you approve, or the build will fail."
+	}
+	var profiled []string
+	offline := false
+	for i, r := range p.Repositories {
+		r = strings.TrimSpace(strings.ReplaceAll(visibleText(r), "\n", " "))
+		switch {
+		case r == "":
+		case name(i) == "":
+			offline = true
+		default:
+			profiled = append(profiled, code(r)+" (network profile "+code(name(i))+": "+
+				strings.Join(routes(i).routeSummaries(), "; ")+")")
+		}
+	}
+	advice := "Each build runs in the image its own repository declares. The build of each repository listed " +
+		"here fetches new dependencies through patchy's egress proxy, as its network profile allows: " +
+		strings.Join(profiled, ", ") + "."
+	if offline {
+		advice += " Every other build runs offline, so it cannot fetch anything new."
+	}
+	return advice + " This plan adds dependencies: each one a build cannot fetch that way must be in the image " +
+		"of the repository that needs it, on that repository's default branch, before you approve, or its " +
+		"build will fail."
 }
 
 // hasBuilderNotes reports whether a plan's body holds a non-empty
@@ -744,6 +808,9 @@ type IntentPRBody struct {
 	// marks each one that is not as the plan named it. None omits the
 	// section, and the body is exactly what it was.
 	GoRequirements []GoRequirement
+	// NetworkRoutes are that profile's routes in the controller's current
+	// profile set; with registry grants the line names each ecosystem.
+	NetworkRoutes NetworkRoutes
 }
 
 // GoRequirement is one require line of a build's go.mod that its base's
@@ -833,7 +900,7 @@ func RenderIntentPRBody(b IntentPRBody) (string, error) {
 		ApprovedBy:     oneLine(b.ApprovedBy),
 		Count:          len(repos),
 		Repositories:   strings.Join(repos, ", "),
-		NetworkProfile: networkProfileLine(b.NetworkProfile),
+		NetworkProfile: networkProfileLine(b.NetworkProfile, b.NetworkRoutes),
 		GoRequirements: goItems, GoDiffer: goDiffer, GoMore: goMore,
 	})
 }
