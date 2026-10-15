@@ -9,7 +9,10 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
+
+	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/bitwise-media-group/patchy/internal/httpguard"
 	"github.com/bitwise-media-group/patchy/internal/netprofile"
@@ -31,6 +34,14 @@ type Server struct {
 	limits *limiter
 	ua     string
 	ready  atomic.Bool
+
+	// registries are the /r/ routes' upstreams by name; public is the
+	// client for file hosts and redirect hops (the public dial policy, no
+	// credential ever).
+	registries map[string]*registryRoute
+	public     *http.Client
+	// selfChecks are the credential self-checks in flight.
+	selfChecks sync.WaitGroup
 }
 
 // New validates cfg and builds the engine.
@@ -43,7 +54,7 @@ func New(cfg Config, log *slog.Logger) (*Server, error) {
 		log = slog.New(slog.DiscardHandler)
 	}
 	dialer := newGuardedDialer(cfg.Policy, cfg.lookup)
-	return &Server{
+	s := &Server{
 		cfg: cfg,
 		log: log,
 		client: &http.Client{
@@ -54,7 +65,9 @@ func New(cfg Config, log *slog.Logger) (*Server, error) {
 		},
 		limits: newLimiter(cfg.Limits, cfg.Now),
 		ua:     "patchy-egress-proxy/" + version.Version,
-	}, nil
+	}
+	s.buildRegistries()
+	return s, nil
 }
 
 // Profiles is the configured profile set.
@@ -114,9 +127,23 @@ func (s *Server) serve(p netprofile.Profile, w http.ResponseWriter, r *http.Requ
 		countInflight(ctx, p.Name, -1)
 		e.status, e.bytes, e.elapsed = cw.Status, cw.Bytes, s.cfg.Now().Sub(start)
 		audit(ctx, s.log, *e)
-		countRequest(ctx, p.Name, e.route, e.outcome, cw.Bytes)
+		var extra []attribute.KeyValue
+		if e.reg != nil {
+			extra = []attribute.KeyValue{attribute.String("ecosystem", e.reg.ecosystem),
+				attribute.String("registry", e.reg.registry)}
+		}
+		countRequest(ctx, p.Name, e.route, e.outcome, cw.Bytes, extra...)
 	}()
 
+	if !s.envelope(cw, r, e) {
+		return
+	}
+	// A profile holding registry grants serves /r/; for every other
+	// profile /r/ is outside the protocol, exactly as in step 1.
+	if len(p.Registries) > 0 && strings.HasPrefix(r.URL.EscapedPath(), registryPrefix) {
+		s.serveRegistry(p, cw, r, e)
+		return
+	}
 	req, ok := s.admit(p, cw, r, e)
 	if !ok {
 		return
@@ -138,33 +165,40 @@ func (s *Server) serve(p netprofile.Profile, w http.ResponseWriter, r *http.Requ
 	s.forward(cw, r, req, e)
 }
 
-// admit runs the pipeline's checks up to the limits: suspended, method,
-// body, shape, parse, allowlist and version gate. It answers every refusal
-// itself and returns ok only for a request to serve.
-func (s *Server) admit(p netprofile.Profile, w http.ResponseWriter, r *http.Request, e *auditEntry) (Request, bool) {
+// envelope runs the checks every route shares (step 1's pipeline steps
+// 0-2): suspended, method, body, absolute form and query. It answers every
+// refusal itself.
+func (s *Server) envelope(w http.ResponseWriter, r *http.Request, e *auditEntry) bool {
 	if s.cfg.Suspended {
 		refuse(w, e, http.StatusGone, OutcomeSuspended, "",
 			"egress-proxy: profile routes are suspended by the operator")
-		return Request{}, false
+		return false
 	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
 		refuse(w, e, http.StatusMethodNotAllowed, OutcomeMethod, "", "egress-proxy: only GET and HEAD")
-		return Request{}, false
+		return false
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 0)
 	switch {
 	case r.ContentLength != 0 || len(r.TransferEncoding) > 0:
 		refuse(w, e, http.StatusBadRequest, OutcomeBadRequest, "body", "egress-proxy: a request carries no body")
-		return Request{}, false
+		return false
 	case r.URL.IsAbs() || r.URL.Host != "":
 		refuse(w, e, http.StatusBadRequest, OutcomeBadRequest, "absolute_uri",
 			"egress-proxy: absolute-form request URIs are refused")
-		return Request{}, false
+		return false
 	case r.URL.RawQuery != "" || r.URL.ForceQuery:
 		refuse(w, e, http.StatusBadRequest, OutcomeBadRequest, "query", "egress-proxy: a request carries no query")
-		return Request{}, false
+		return false
 	}
+	return true
+}
+
+// admit runs the /go route's checks up to the limits: shape, parse, a go
+// grant's private modules, allowlist and version gate. It answers every
+// refusal itself and returns ok only for a request to serve.
+func (s *Server) admit(p netprofile.Profile, w http.ResponseWriter, r *http.Request, e *auditEntry) (Request, bool) {
 	req, err := parsePath(r)
 	if err != nil {
 		var pe *PathError
@@ -177,6 +211,17 @@ func (s *Server) admit(p netprofile.Profile, w http.ResponseWriter, r *http.Requ
 		return Request{}, false
 	}
 	e.route, e.kind, e.module, e.version = string(req.Route), string(req.Kind), req.Module, req.Version
+	// A go grant's private modules never reach the public proxy or
+	// checksum database: the go command falls through to this route after
+	// the registry's 404, and the more specific private prefix wins over
+	// the profile's public modules.
+	if g, ok := p.GrantFor(netprofile.EcosystemGo); ok && req.ModuleChecked() &&
+		g.PrivateModulePrefixes().Allows(req.Module) {
+		refuse(w, e, http.StatusGone, OutcomePrivateModule, ReasonPrivateModule,
+			fmt.Sprintf("egress-proxy: module path %s is private to registry %s and is never fetched from "+
+				"the public module proxy or checksum database", clip(req.Module), g.Name))
+		return Request{}, false
+	}
 	if req.ModuleChecked() && !p.Modules.Allows(req.Module) {
 		refuse(w, e, http.StatusGone, OutcomeNotAllowed, ReasonPrefix,
 			fmt.Sprintf("egress-proxy: module path %s is not allowed by profile %s; allowed prefixes: %s",
