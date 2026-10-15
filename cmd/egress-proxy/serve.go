@@ -40,6 +40,11 @@ const (
 	maxHeaderBytes    = 16 << 10
 )
 
+// tunnelDrainTimeout bounds the wait at exit for the open tunnels' close
+// lines once they are closed; ending a tunnel is a close and one log line,
+// so it is short.
+const tunnelDrainTimeout = 5 * time.Second
+
 func newServeCmd(opts *cli.Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -100,6 +105,7 @@ func addEngineFlags(cmd *cobra.Command) {
 	f.String("always-deny-cidrs", "",
 		"comma-separated CIDRs never dialled even when an internal registry lists them (cluster DNS, the API "+
 			"server endpoints), beside the built-in always-denied ranges and KUBERNETES_SERVICE_HOST")
+	addTunnelFlags(cmd)
 }
 
 // settings is the validated configuration of one serve run.
@@ -158,6 +164,10 @@ func configure(opts *cli.Options) (settings, error) {
 	if err != nil {
 		return settings{}, err
 	}
+	tunnel, err := configureTunnel(opts)
+	if err != nil {
+		return settings{}, err
+	}
 	return settings{
 		credentialsDir: opts.String("registry-credentials-dir"),
 		pollInterval:   reg.pollInterval,
@@ -180,6 +190,7 @@ func configure(opts *cli.Options) (settings, error) {
 				HeaderTimeout:       opts.Duration("upstream-header-timeout"),
 				MaxZipBytes:         int64(opts.Int("max-zip-bytes")),
 			},
+			TunnelLimits:      tunnel,
 			Suspended:         opts.Bool("suspended"),
 			Registries:        reg.set,
 			MaxArtifactBytes:  reg.maxArtifactBytes,
@@ -243,6 +254,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		return err
 	}
 	logRegistries(ctx, log, s.engine.Registries)
+	logTunnel(ctx, log, s.engine.Profiles, s.engine.TunnelLimits)
 	return run(ctx, srv, s.healthAddr, net.Listen, log)
 }
 
@@ -298,12 +310,15 @@ func run(ctx context.Context, srv *egressproxy.Server, healthAddr string, listen
 			closeAll()
 			return fmt.Errorf("profile %s listener %s: %w", p.Name, addr, err)
 		}
-		servers = append(servers, bound{ln, &http.Server{
+		hs := &http.Server{
 			Handler:           h,
 			ReadHeaderTimeout: readHeaderTimeout,
 			IdleTimeout:       idleTimeout,
 			MaxHeaderBytes:    maxHeaderBytes,
-		}})
+		}
+		// HTTP/1 only, and Shutdown closes the hijacked tunnels.
+		srv.ConfigureListener(hs)
+		servers = append(servers, bound{ln, hs})
 		names = append(names, fmt.Sprintf("%s:%d", p.Name, p.Port))
 	}
 	srv.SetReady()
@@ -326,7 +341,16 @@ func run(ctx context.Context, srv *egressproxy.Server, healthAddr string, listen
 			return b.srv.Shutdown(shutdownCtx)
 		})
 	}
-	if err := g.Wait(); err != nil && !errors.Is(err, context.Canceled) {
+	err = g.Wait()
+	// Shutdown returns without waiting for the hijacked tunnels; wait for
+	// their close lines here, bounded, before the process exits.
+	drainCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), tunnelDrainTimeout)
+	defer cancel()
+	if derr := srv.DrainTunnels(drainCtx); derr != nil {
+		log.LogAttrs(drainCtx, slog.LevelWarn, "egress-proxy: tunnels still closing at exit",
+			slog.String("error", derr.Error()))
+	}
+	if err != nil && !errors.Is(err, context.Canceled) {
 		return err
 	}
 	return nil

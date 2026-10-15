@@ -31,6 +31,9 @@ type Config struct {
 	GoProxy, SumDB *url.URL
 	// Limits bounds concurrency, rate, time and zip size.
 	Limits Limits
+	// TunnelLimits bounds the CONNECT tunnel (step 3) and carries its
+	// tunnel-only deny ranges.
+	TunnelLimits TunnelLimits
 	// Policy is the dial policy; the zero value is the production policy.
 	Policy AddrPolicy
 	// Pods attributes source IPs to agent pods for the audit line; nil
@@ -121,6 +124,11 @@ func (cfg Config) withDefaults() (Config, error) {
 		}
 	}
 	cfg.Limits = cfg.Limits.withDefaults()
+	tl, err := cfg.TunnelLimits.withDefaults()
+	if err != nil {
+		return cfg, fmt.Errorf("egress proxy: %w", err)
+	}
+	cfg.TunnelLimits = tl
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
