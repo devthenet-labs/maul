@@ -491,13 +491,20 @@ The residue, in plain words:
 - **Domain fronting.** The proxy matches the server name to the `CONNECT` host, and refuses ECH so the name cannot be
   hidden, but it cannot see the HTTP `Host` inside TLS. On a shared CDN (Cloudflare for npm and Yarn, Fastly for PyPI,
   Fastly and CloudFront for crates, Azure Front Door for NuGet) a client could name another tenant inside the tunnel.
-  Several CDNs refuse a mismatch across tenants, but patchy does not rely on it. **Not closed** without decrypting the
-  tunnel, which patchy will not do (a CA in every image, broken pinning, plaintext in the proxy).
+  Some tenants refuse a mismatch, but many do not, and patchy does not rely on it. Measured live through a tunnel to
+  `pypi.org` and to `files.pythonhosted.org` with a correct SNI: `Host: www.python.org` answered `200`,
+  `Host: www.fastly.com` `200`, `Host: docs.python.org` `421` (refused) and `Host: example.com` no response. So a PyPI
+  tunnel reaches any Fastly-hosted site that does not enforce a match between SNI and `Host`. The other CDNs above were
+  not measured; assume the same. **Not closed** without decrypting the tunnel, which patchy will not do (a CA in every
+  image, broken pinning, plaintext in the proxy).
 - **NuGet revocation is offline.** The `nuget` preset sets `NUGET_CERT_REVOCATION_MODE=offline`, because revocation
   checks go to CRL and OCSP hosts over plain http, which nothing carries: signatures are verified, but a revoked signing
   certificate is not detected.
 - **Budgets are per source IP, per profile, per proxy replica, per window.** The window outlasts every Job, so a pod
   cannot pause long enough to refill its budget, and a new pod reusing an IP inherits what is left (less, never more).
+  But the budget lives in the proxy's memory: a replica that restarts, crashes or is rolled (every Helm upgrade that
+  changes the proxy's configuration rolls it) gives every source a fresh budget there, measured live. A pod that can
+  make the proxy restart, or outlasts an upgrade, can upload more than the budget.
 - **A ClientHello parser bug** would be the tunnel's own risk: the parser is small, pure, fuzzed and cross-checked
   against Go's `crypto/tls`.
 - **A compromised proxy** could tunnel anywhere on public 443, as it could already reach the internet for the Go route.
