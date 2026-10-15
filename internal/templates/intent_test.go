@@ -972,7 +972,7 @@ func planOutcome(report string) (outcome, msg string) {
 	if len(out) > MaxCommentBytes {
 		return "", fmt.Sprintf("output is %d bytes, over %d", len(out), MaxCommentBytes)
 	}
-	full, err2 := planComment(p, PlanDigest([]byte(report)), viewPlan(report))
+	full, err2 := planComment(p, PlanDigest([]byte(report)), viewPlan(report), "")
 	if err2 != nil {
 		return "", fmt.Sprintf("planComment = %v", err2)
 	}

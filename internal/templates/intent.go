@@ -268,6 +268,16 @@ type PlanComment struct {
 	// each repository's image; fewer omits both, and the comment is exactly
 	// the one-repository comment.
 	Repositories []string
+	// NetworkProfiles are the operator network profiles the plan's builds
+	// get, each named as the build's own launch decides it for its
+	// repository: with more than one repository, one entry per Repositories
+	// entry, in the same order; otherwise the one repository's build's
+	// alone. "" (or no entry) is a build without one, which runs offline, so
+	// with none at all the comment is exactly the comment before the field
+	// existed. The dependency advice says which builds fetch Go modules
+	// through the egress proxy, and that anything else must still be in the
+	// image.
+	NetworkProfiles []string
 }
 
 // RenderPlanComment renders a plan for approval: headed by PlanMarker over
@@ -291,7 +301,7 @@ func RenderPlanComment(p PlanComment) (string, error) {
 	if view.unshowable > 0 {
 		return refusePlan(p, digest, planRefusal{unshowable: view.unshowable})
 	}
-	out, err := planComment(p, digest, view)
+	out, err := planComment(p, digest, view, "")
 	if err != nil {
 		return "", err
 	}
@@ -301,15 +311,51 @@ func RenderPlanComment(p PlanComment) (string, error) {
 	return out, nil
 }
 
+// adviceStandIn marks where the dependency advice goes in SamePlanComment's
+// render: NULs, which no plan comment patchy posts holds outside its
+// verbatim block (visibleText shows them as their code point).
+const adviceStandIn = "\x00patchy-dependency-advice\x00"
+
+// SamePlanComment reports whether body, a plan comment patchy posted, is the
+// one RenderPlanComment renders for p, its dependency advice aside: the
+// advice is one line naming each build's network profile, and that reads
+// state that can change between a post and its record (the sandbox breaker,
+// which a restart clears, and the operator's profile flags), so a retry that
+// finds the comment it posted must not post the plan again over it. Any
+// other difference, or advice that is not one of patchy's own lines, is a
+// different comment. A plan RenderPlanComment refuses is never the same.
+func SamePlanComment(p PlanComment, body string) (bool, error) {
+	want, err := RenderPlanComment(p)
+	if err != nil {
+		return false, err
+	}
+	if body == want {
+		return true, nil
+	}
+	shape, err := planComment(p, PlanDigest(p.Report), viewPlan(string(p.Report)), adviceStandIn)
+	if err != nil {
+		return false, err
+	}
+	pre, post, ok := strings.Cut(shape, adviceStandIn)
+	if !ok || len(body) < len(pre)+len(post) || !strings.HasPrefix(body, pre) || !strings.HasSuffix(body, post) {
+		return false, nil
+	}
+	advice := body[len(pre) : len(body)-len(post)]
+	own := strings.HasPrefix(advice, "Each build runs ") || strings.HasPrefix(advice, "The build runs ")
+	return own && !strings.ContainsAny(advice, "\r\n"+adviceStandIn[:1]), nil
+}
+
 // planComment renders the plan comment whatever its size, with view the
-// report's planView.
-func planComment(p PlanComment, digest string, view planView) (string, error) {
+// report's planView. A non-empty advice stands in for the dependency advice
+// (SamePlanComment's placeholder); "" renders the advice p calls for.
+func planComment(p PlanComment, digest string, view planView, advice string) (string, error) {
 	deps := make([]string, 0, len(p.NewDependencies))
 	for _, d := range p.NewDependencies {
 		if d = code(strings.TrimSpace(visibleText(d))); d != "" {
 			deps = append(deps, d)
 		}
 	}
+	profile, profiled, offline := planProfiles(p)
 	questions := 0
 	for _, q := range p.Questions {
 		if strings.TrimSpace(q) != "" {
@@ -335,6 +381,10 @@ func planComment(p PlanComment, digest string, view planView) (string, error) {
 		Cancel          string
 		Repositories    string
 		BuilderNotes    bool
+		Profile         string
+		ProfileBuilds   string
+		OthersOffline   bool
+		Advice          string
 		Plan            string
 	}{
 		Marker:          PlanMarker(p.Namespace, p.Intent, p.Revision, digest),
@@ -355,8 +405,44 @@ func planComment(p PlanComment, digest string, view planView) (string, error) {
 		Cancel:          slashCommand(action.VerbCancel),
 		Repositories:    repositoryList(p.Repositories, false),
 		BuilderNotes:    hasBuilderNotes(p.Report),
+		Profile:         profile,
+		ProfileBuilds:   strings.Join(profiled, ", "),
+		OthersOffline:   offline,
+		Advice:          advice,
 		Plan:            verbatim("markdown", string(p.Report)),
 	})
+}
+
+// planProfiles reads a plan comment's NetworkProfiles for its dependency
+// advice: for a one-repository plan, its build's profile as code ("" for
+// none); for more, each repository whose build gets one, as code with its
+// profile, and whether any other build runs offline. Names render as
+// sanitiser output whatever they hold.
+func planProfiles(p PlanComment) (profile string, profiled []string, offline bool) {
+	name := func(i int) string {
+		if i >= len(p.NetworkProfiles) {
+			return ""
+		}
+		return strings.TrimSpace(strings.ReplaceAll(visibleText(p.NetworkProfiles[i]), "\n", " "))
+	}
+	if len(repositoryItems(p.Repositories, false)) == 0 {
+		if n := name(0); n != "" {
+			profile = code(n)
+		}
+		return profile, nil, false
+	}
+	for i, r := range p.Repositories {
+		r = strings.TrimSpace(strings.ReplaceAll(visibleText(r), "\n", " "))
+		if r == "" {
+			continue
+		}
+		if n := name(i); n != "" {
+			profiled = append(profiled, code(r)+" (network profile "+code(n)+")")
+		} else {
+			offline = true
+		}
+	}
+	return "", profiled, offline
 }
 
 // hasBuilderNotes reports whether a plan's body holds a non-empty

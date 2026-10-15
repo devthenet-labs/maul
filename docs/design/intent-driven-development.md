@@ -897,7 +897,10 @@ iterates on those failures itself, using the revise machinery.
   has no toolchain. That closes, for intents, the follow-up about untested PRs from runs that fell back to the default
   image.
 - _New dependencies._ The plan lists `new_dependencies`, and the plan comment tells the approver to add them to the
-  image on main first.
+  image on main first. Where a repository's build gets an operator network profile (decided as the build decides it),
+  the comment says instead that the build fetches Go modules through the egress proxy, tagged releases of the allowed
+  module paths only, and that anything else must still be in the image. The planner, which runs sealed, is told neither
+  way: only to name every new dependency, since the comment tells the approver which ones the build can fetch.
 - _Unchanged:_ egress, NetworkPolicy and the sandbox probe.
 
 **Changeset rules.** Every intent changeset must pass the exported remediation validator:

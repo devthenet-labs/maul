@@ -49,7 +49,10 @@ type IntentReconciler struct {
 	GitHub    GitHub
 	Settings  Settings
 	// Images is the repository-image launch policy the run scheduler
-	// enforces; a Blocked intent reads it to know whether its block holds.
+	// enforces; a Blocked intent reads it to know whether its block holds,
+	// and the plan comment reads its network profiles (buildProfile) to say
+	// which builds fetch Go modules. It must be the run scheduler's own
+	// Guard, profiles included: one without them words every build offline.
 	Images runnerguard.Guard
 	// Classes are the operator's resource classes: an Intent whose run
 	// waits on one it does not define is Blocked (ResourcesUnavailable).

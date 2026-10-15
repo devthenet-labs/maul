@@ -282,21 +282,27 @@ func (p *pass) planComment(revision int32, raw []byte) (templates.PlanComment, e
 	if err != nil {
 		return templates.PlanComment{}, err
 	}
+	repos := p.planRepositories(parsed.Repositories)
+	profiles := make([]string, len(repos))
+	for i, r := range repos {
+		profiles[i] = buildProfile(p.r.Images, r.URL)
+	}
 	return templates.PlanComment{
 		Namespace: p.in.Namespace, Intent: p.in.Name, Revision: revision, Report: raw,
 		Summary: parsed.Summary, NewDependencies: parsed.NewDependencies, Questions: parsed.Questions,
 		ApproveLabel: approveLabel(p.proj), TriggerLabel: p.trigger(),
-		Repositories: p.planRepositories(parsed.Repositories),
+		Repositories: repositorySlugs(repos), NetworkProfiles: profiles,
 	}, nil
 }
 
 // planRepositories are the Project repositories a plan names, in the plan's
-// order, as "owner/name" in the Project's own spelling: the header of the
-// plan comment lists them from the validated frontmatter, never in the
+// order and in the Project's own spelling: the header of the plan comment
+// lists them, as "owner/name", from the validated frontmatter, never in the
 // planner's spelling (its casing, or an underscore a comment would render as
-// emphasis). A name the Project does not hold is left out: such a plan was
-// refused when its run was collected.
-func (p *pass) planRepositories(named []string) []string {
+// emphasis), and its dependency advice says which of their builds get a
+// network profile. A name the Project does not hold is left out: such a
+// plan was refused when its run was collected.
+func (p *pass) planRepositories(named []string) []v1alpha1.ProjectRepository {
 	var repos []v1alpha1.ProjectRepository
 	for _, u := range named {
 		r, ok := p.projectRepository(u)
@@ -304,7 +310,7 @@ func (p *pass) planRepositories(named []string) []string {
 			repos = append(repos, r)
 		}
 	}
-	return repositorySlugs(repos)
+	return repos
 }
 
 // planRefusal says why a completed plan run's plan cannot be offered for
@@ -393,7 +399,18 @@ func (p *pass) writeBack(ctx context.Context, run *v1alpha1.IntentRun) (bool, er
 	if err != nil {
 		return false, err
 	}
-	changed := c == nil || c.Body != body
+	changed := c == nil
+	if !changed {
+		// The dependency advice reads the build's network profile
+		// decision, whose inputs (the sandbox breaker, the profile flags)
+		// can change between the post and its record: a comment that
+		// differs only there is still the one posted.
+		same, err := templates.SamePlanComment(pc, c.Body)
+		if err != nil {
+			return false, fmt.Errorf("render plan r%d: %w", round, err)
+		}
+		changed = !same
+	}
 	if !changed {
 		changed, err = p.everEdited(ctx, c)
 		if err != nil {

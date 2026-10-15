@@ -15,8 +15,9 @@ import (
 	"github.com/bitwise-media-group/patchy/internal/netprofile"
 )
 
-// withProfiles turns network profiles on in the run scheduler's guard, with
-// one profile, go, for profileRepos.
+// withProfiles turns network profiles on in the guard, the run scheduler's
+// and the intent reconciler's alike (one guard in production), with one
+// profile, go, for profileRepos.
 func withProfiles(t *testing.T, e *env, profileRepos string) {
 	t.Helper()
 	set, err := netprofile.Parse([]byte(`[{"name":"go","route":"go","port":8090,"repositories":["` +
@@ -29,6 +30,7 @@ func withProfiles(t *testing.T, e *env, profileRepos string) {
 		t.Fatal(err)
 	}
 	e.runs.Images.ProfilesEnabled, e.runs.Images.Profiles, e.runs.Images.ProxyBase = true, set, base
+	e.intent.Images.ProfilesEnabled, e.intent.Images.Profiles, e.intent.Images.ProxyBase = true, set, base
 }
 
 // specsOf are the launched Job specs of phase, in no particular order.
