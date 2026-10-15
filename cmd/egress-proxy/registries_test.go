@@ -74,6 +74,16 @@ func TestConfigureRegistries(t *testing.T) {
 	if len(e.DenyHosts) != 1 || e.DenyHosts[0] != netprofile.DefaultHost {
 		t.Errorf("deny hosts = %v", e.DenyHosts)
 	}
+	// --deny-hosts (the broker's base-URL overrides, as the chart stamps
+	// them) join the forge hosts, lowercased, once each.
+	s, err = configure(serveOpts(t, "--network-profiles", registryProfiles, "--registries", testRegistries,
+		"--deny-hosts", "Gateway.Example., github.com,bedrock.corp.example"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(s.engine.DenyHosts, ","); got != "github.com,gateway.example,bedrock.corp.example" {
+		t.Errorf("deny hosts with --deny-hosts = %s", got)
+	}
 	fakeEnv(t, map[string]string{registriesEnv: testRegistries})
 	s, err = configure(serveOpts(t, "--network-profiles", registryProfiles))
 	if err != nil || s.engine.Registries.Len() != 3 {
@@ -115,6 +125,13 @@ func TestConfigureRegistriesRefuses(t *testing.T) {
 		{"always deny cidr", nil, []string{"--registries", internal, "--always-deny-cidrs", "10.100.0.10/32"},
 			"always-denied"},
 		{"bad always deny", nil, []string{"--always-deny-cidrs", "nope"}, "--always-deny-cidrs"},
+		{"deny host not a host", nil, []string{"--deny-hosts", "https://gateway.example/"}, "--deny-hosts"},
+		{"registry on a deny host", nil, []string{"--deny-hosts", "reg.example", "--registries",
+			`[{"name":"n","ecosystem":"npm","url":"https://npm.reg.example/","auth":{"type":"none"}}]`},
+			"deny list"},
+		{"redirect pattern over a deny host", nil, []string{"--deny-hosts", "gw.cdn.acme.example", "--registries",
+			`[{"name":"n","ecosystem":"npm","url":"https://npm.reg.example/","auth":{"type":"none"},` +
+				`"redirectHosts":["*.cdn.acme.example"]}]`}, "overlaps"},
 		{"missing CA", nil, []string{"--registries", withCA, "--registry-ca-dir", t.TempDir()}, "CA bundle"},
 		{"bad CA", nil, []string{"--registries", withCA, "--registry-ca-dir", caDir}, "no PEM certificate"},
 		{"artifact cap", nil, []string{"--max-artifact-bytes", "0"}, "--max-artifact-bytes"},

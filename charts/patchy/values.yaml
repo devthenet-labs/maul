@@ -1213,11 +1213,15 @@ egressBroker:
         extraEgress: []
 
 # The egress proxy (cmd/egress-proxy): the operator's dependency route for
-# agent Jobs. A GOPROXY-protocol reverse proxy to proxy.golang.org and
-# sum.golang.org that forwards only GET/HEAD module and checksum-database
-# requests for each profile's allowlisted module prefixes (tagged releases
-# only unless the profile sets allowPseudoVersions), holds no credential and
-# caches nothing. One listener per agent.networkProfiles entry: the port is
+# agent Jobs. A reverse proxy that forwards only GET/HEAD requests: GOPROXY
+# and checksum-database requests to proxy.golang.org and sum.golang.org for
+# each profile's allowlisted module prefixes (tagged releases only unless the
+# profile sets allowPseudoVersions), and, for a profile granted a registry
+# (egressProxy.registries), Go, npm or PyPI simple-index requests below that
+# registry's fixed base URL under the grant's package policy. It holds a
+# credential only for the registries configured below, sends it only to that
+# registry's origin, never to an agent, and caches nothing. One listener per
+# agent.networkProfiles entry: the port is
 # the identity, enforced by NetworkPolicy on both sides (only pods labelled
 # patchy.bitwisemedia.uk/network-<name> from agent.namespace reach that
 # port). Off by default; with enabled false nothing of it renders, and
@@ -1281,6 +1285,68 @@ egressProxy:
         # fields until the list is updated. Required when enabled; every entry
         # must be an IPv4 /32.
         apiServerCIDRs: []
+    # Credentialed upstream registries a profile can be granted
+    # (agent.networkProfiles.<p>.registries), keyed by name (a DNS label of
+    # at most 32 characters starting with a letter; at most 16). Empty:
+    # nothing of it renders. Each one is a fixed https upstream for one
+    # ecosystem; the agent's package manager is pointed at
+    # http://<proxy>:<profile port>/r/<name>/... and the proxy adds the
+    # credential, which no agent pod ever holds. The chart refuses a registry
+    # on a forge or model API host, on the Kubernetes API or an in-cluster
+    # name (unless internal), and a grant that names no registry.
+    # docs/configuration/egress-proxy.md walks through each field.
+    registries: {}
+    #   art-npm:
+    #       ecosystem: npm                 # go | npm | pypi (codeartifact: npm | pypi)
+    #       url: https://acme.jfrog.io/artifactory/api/npm/npm-virtual/   # https; pypi: the index URL ending /simple/
+    #       auth:
+    #           type: bearer               # none | bearer | basic | codeartifact
+    #           secretName: patchy-registry-art   # bearer: key token; basic: keys username, password.
+    #                                      # A Secret in the RELEASE namespace that you create (or External
+    #                                      # Secrets does); the chart never does. Mounted read-only into the
+    #                                      # proxy alone and re-read every 30s: rotate without a restart.
+    #       maxArtifactBytes: 0            # 0 = the proxy's default (512 MiB); at most 4 GiB
+    #       redirectHosts: []              # hosts a 3xx may lead to; followed WITHOUT the credential; exact, or
+    #                                      # *.a.b.c (3+ labels, never a shared cloud suffix or a denied host)
+    #       healthPackage: ""              # optional: a package the credential can always read (credential self-check)
+    #   art-go:
+    #       ecosystem: go
+    #       url: https://acme.jfrog.io/artifactory/api/go/go-virtual
+    #       auth: {type: basic, secretName: patchy-registry-art-go}
+    #       privateModules: [acme.example/]   # REQUIRED for go (may be []): never looked up in sum.golang.org,
+    #                                         # refused on the public /go route; becomes GONOSUMDB in the pod
+    #       publicChecksumLookups: false      # REQUIRED for go: may other modules this registry serves be checked
+    #                                         # against the public sum.golang.org? false if it hosts unlisted in-house paths
+    #   nexus-pypi:
+    #       ecosystem: pypi
+    #       url: https://nexus.corp.internal:8443/repository/pypi-all/simple/
+    #       auth: {type: basic, secretName: patchy-registry-nexus}
+    #       fileHosts: []                  # pypi: extra https hosts the index links files to, fetched WITHOUT credentials
+    #       ca: {configMap: corp-root-ca, key: ca.crt}   # a ConfigMap in the release namespace; the registry then
+    #                                      # trusts ONLY this bundle. Read at startup: roll the proxy after editing it.
+    #       internal:                      # opt-in: the registry resolves to a private or cluster address
+    #           cidrs: [10.20.30.40/32]    # IPv4, /24 or narrower (/32 inside clusterCIDRs); never the always-denied set
+    #           podSelector: {}            # in-cluster registry: {namespace: tools, matchLabels: {app: nexus}}
+    #           targetPort: 0              # in-cluster: the pods' container port when it differs from the URL port
+    #   ca-npm:
+    #       ecosystem: npm
+    #       url: https://patchy-gate-377946145366.d.codeartifact.us-east-1.amazonaws.com/npm/npm-store/
+    #       auth:
+    #           type: codeartifact         # minted by the proxy with its own AWS identity (cloudCredentials)
+    #           codeartifact: {domain: patchy-gate, domainOwner: "377946145366", region: us-east-1, durationSeconds: 43200}
+    # The proxy's own cloud identity, for codeartifact registries:
+    #   none         no AWS identity (a codeartifact registry fails the render);
+    #   irsa         IAM Roles for Service Accounts: put the role on
+    #                egressProxy.serviceAccount.annotations
+    #                (eks.amazonaws.com/role-arn); STS is reached on public 443,
+    #                which the proxy's policy already allows;
+    #   podIdentity  an EKS Pod Identity association on the proxy's
+    #                ServiceAccount; adds egress to the node-local Pod Identity
+    #                agent (169.254.170.23:80; under mode cilium a
+    #                CiliumNetworkPolicy toEntities host, as for the egress
+    #                broker). The proxy's dialer admits that address for the
+    #                credential call alone, never for a forwarded request.
+    cloudCredentials: none
     resources:
         requests:
             cpu: 50m
@@ -1308,7 +1374,19 @@ egressProxy:
         # Must stay true while enabled: the per-profile ingress rules ARE the
         # identity check. false fails the render.
         create: true
+        # Verbatim egress rules appended to the proxy's policy, as for
+        # egressBroker.networkPolicy.extraEgress: an in-cluster OTLP collector
+        # for the proxy's metrics, say. They open nothing for a forwarded
+        # request: the proxy's own dialer still admits only public IPv4 on
+        # 443 (and each internal registry's CIDRs on its port).
+        extraEgress: []
     config:
+        # The proxy's log level. Empty: the shared config.logLevel, but never
+        # quieter than info, because the per-request audit lines and the
+        # registry credential lines are written at info and are the record
+        # an operator reads (kubectl logs) to see what the proxy forwarded
+        # and refused. Set warn to drop them.
+        # logLevel: info
         # Extra PATCHY_* keys for the proxy only; win over anything the chart
         # derives. The global proxy block (HTTPS_PROXY and friends) is never
         # stamped here: a corporate HTTPS proxy for the proxy's own upstream
@@ -1640,9 +1718,17 @@ agent:
     # of the build cache: size agent.repositoryImages.ephemeralStorage for the
     # profiled repositories at about twice the baked module cache plus the
     # build cache, or the pod is evicted.
+    #
+    # A profile may also be granted registries (egressProxy.registries), at
+    # most one per ecosystem: its Job then gets that package manager's
+    # environment pointed at the proxy (npm, pip, or GOPROXY ahead of the
+    # public route), install scripts and source builds off unless the grant
+    # allows them. Each grant must say what it admits: packages (an
+    # allowlist) or packagePolicy: registry (the registry's own curation is
+    # the policy); there is no default. A profile with grants needs no route.
     networkProfiles: {}
     #   go:
-    #       route: go                     # the only route in step 1
+    #       route: go                     # the public Go route; optional when the profile has registries
     #       port: 8090                    # 1024-65535, unique, not 8081; changing it breaks running Jobs
     #       host: github.com              # forge host the repositories live on (default github.com)
     #       repositories:                 # RE2, matched ANCHORED against the lowercased owner/name
@@ -1652,6 +1738,20 @@ agent:
     #           - golang.org/x/
     #       bakedModCache: /opt/go/pkg/mod  # the image's GOMODCACHE, read AFTER the proxy; "" = network only
     #       allowPseudoVersions: false    # true admits v0.0.0-<time>-<commit> versions of allowed modules
+    #   web:
+    #       port: 8091
+    #       repositories: [devthenet-labs/patchy-polyglot-demo]
+    #       registries:                   # grants: registry name -> policy; at most one per ecosystem
+    #           ca-npm:
+    #               packagePolicy: registry   # OR packages: ["left-pad", "@acme/*"]
+    #               scripts: false            # npm: run install scripts; default false
+    #               allowPrerelease: false    # npm: admit -rc.1 / +build tarball versions; default false
+    #           nexus-pypi:
+    #               packages: [six, requests, urllib3, idna, certifi, charset-normalizer]
+    #               sdists: false             # pip: allow source builds (setup.py runs); default false
+    #           art-go:
+    #               packages: [acme.example/]  # go: module prefixes
+    #               allowPseudoVersions: false
     # The sandbox policies: default-deny both directions plus DNS, the
     # artifact server, and TCP-443-only external egress. A plain
     # NetworkPolicy cannot match hostnames; enforcement at that level needs

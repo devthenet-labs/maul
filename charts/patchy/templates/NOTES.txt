@@ -277,6 +277,40 @@ an accepted repository image of a matching repository. Every other Job is
 unchanged. Its audit lines (kubectl logs -n {{ .Release.Namespace }} deploy/{{ include "patchy.fullname" . }}-egress-proxy)
 show refused modules as outcome=not_allowed; while a build falls through to
 the image's baked module cache those are expected, not an attack.
+{{- $regs := .Values.egressProxy.registries | default dict }}
+{{- if $regs }}
+{{- $secrets := list }}
+{{- $minted := list }}
+{{- range $rname := keys $regs | sortAlpha }}
+{{- $auth := (index $regs $rname).auth | default dict }}
+{{- with $auth.secretName }}{{ $secrets = append $secrets (printf "%s (%s, %s)" . $rname (ternary "key token" "keys username, password" (eq $auth.type "bearer"))) }}{{ end }}
+{{- if eq $auth.type "codeartifact" }}{{ $minted = append $minted $rname }}{{ end }}
+{{- end }}
+
+Registries: the proxy serves {{ len $regs }} registr{{ if eq (len $regs) 1 }}y{{ else }}ies{{ end }} ({{ keys $regs | sortAlpha | join ", " }}) to the profiles
+granted them, and holds their credentials; no agent pod ever does.
+{{- with $secrets }}
+
+Create these Secrets in {{ $.Release.Namespace }} yourself (the chart never does); until each
+exists, new proxy pods wait in ContainerCreating:
+{{- range . }}
+  - {{ . }}
+{{- end }}
+Rotate one by updating the Secret: each proxy pod logs credential_reloaded
+within about two minutes, with no restart. Revoke the old token after that.
+{{- end }}
+{{- with $minted }}
+
+{{ join ", " . }} mint{{ if eq (len .) 1 }}s{{ end }} a CodeArtifact token with the proxy's own AWS identity
+(egressProxy.cloudCredentials {{ $.Values.egressProxy.cloudCredentials }}): each proxy pod logs credential_minted with
+its expiry, or credential_mint_failed with the AWS error code.
+{{- end }}
+
+Check a registry from inside the proxy (one real request, never a credential
+printed):
+
+  kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "patchy.fullname" . }}-egress-proxy -- /usr/local/bin/controller probe --registry <name> --package <package>
+{{- end }}
 {{- if .Values.egressProxy.suspendProfiles }}
 
 egressProxy.suspendProfiles is on: the job controllers apply no profile, and

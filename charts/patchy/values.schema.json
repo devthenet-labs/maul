@@ -290,14 +290,280 @@
                 }
             }
         },
+        "registry": {
+            "type": "object",
+            "description": "One credentialed upstream registry (egressProxy.registries.<name>). The egress proxy re-validates it at startup (netprofile.ParseRegistries); TestChartRegistrySchemaMatchesValidator keeps these rules in step with that validator, and patchy.egressProxyGuard holds what a schema cannot say (the deny list, CIDR overlaps, CodeArtifact host agreement).",
+            "additionalProperties": false,
+            "required": [
+                "ecosystem",
+                "url",
+                "auth"
+            ],
+            "properties": {
+                "ecosystem": {
+                    "description": "The package protocol: go (GOPROXY), npm, or pypi (PEP 503 simple)",
+                    "type": "string",
+                    "enum": [
+                        "go",
+                        "npm",
+                        "pypi"
+                    ]
+                },
+                "url": {
+                    "description": "The https base URL; for pypi the index URL ending /simple/. A port other than 443 needs internal",
+                    "type": "string",
+                    "pattern": "^https://[a-z0-9.-]+(:[0-9]{1,5})?/[A-Za-z0-9._~/+-]*$"
+                },
+                "auth": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                        "type"
+                    ],
+                    "properties": {
+                        "type": {
+                            "description": "none, bearer (Secret key token), basic (keys username, password) or codeartifact (minted with egressProxy.cloudCredentials)",
+                            "type": "string",
+                            "enum": [
+                                "none",
+                                "bearer",
+                                "basic",
+                                "codeartifact"
+                            ]
+                        },
+                        "secretName": {
+                            "description": "bearer and basic only: a Secret in the release namespace that the operator creates; mounted into the egress proxy alone",
+                            "type": "string",
+                            "maxLength": 253,
+                            "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+                        },
+                        "codeartifact": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                                "domain",
+                                "domainOwner",
+                                "region"
+                            ],
+                            "properties": {
+                                "domain": {
+                                    "type": "string",
+                                    "pattern": "^[a-z][a-z0-9-]{0,48}[a-z0-9]$"
+                                },
+                                "domainOwner": {
+                                    "description": "The 12-digit AWS account id owning the domain (quote it in YAML)",
+                                    "type": "string",
+                                    "pattern": "^[0-9]{12}$"
+                                },
+                                "region": {
+                                    "type": "string",
+                                    "pattern": "^[a-z]{2}(-[a-z]+)+-[0-9]$"
+                                },
+                                "durationSeconds": {
+                                    "description": "Token lifetime in seconds; default 43200",
+                                    "type": "integer",
+                                    "minimum": 900,
+                                    "maximum": 43200
+                                }
+                            }
+                        }
+                    }
+                },
+                "fileHosts": {
+                    "description": "pypi: further exact https hosts the index links files to, fetched without the credential",
+                    "type": "array",
+                    "maxItems": 8,
+                    "items": {
+                        "type": "string",
+                        "maxLength": 253,
+                        "pattern": "^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$"
+                    }
+                },
+                "redirectHosts": {
+                    "description": "Exact hosts or *.suffix patterns (three labels or more after the *) a 3xx may lead to; followed without the credential",
+                    "type": "array",
+                    "maxItems": 8,
+                    "items": {
+                        "type": "string",
+                        "maxLength": 255,
+                        "pattern": "^(\\*\\.)?[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$"
+                    }
+                },
+                "internal": {
+                    "description": "Opt-in: the registry resolves to a private or in-cluster address",
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                        "cidrs"
+                    ],
+                    "properties": {
+                        "cidrs": {
+                            "description": "The only addresses the proxy dials for this registry, on the URL's port: IPv4, /24 or narrower; a /32 inside agent.networkPolicy.clusterCIDRs",
+                            "type": "array",
+                            "minItems": 1,
+                            "items": {
+                                "type": "string",
+                                "pattern": "^([0-9]{1,3}\\.){3}[0-9]{1,3}/(2[4-9]|3[0-2])$"
+                            }
+                        },
+                        "podSelector": {
+                            "description": "An in-cluster registry's pods, for the proxy's NetworkPolicy",
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                                "namespace",
+                                "matchLabels"
+                            ],
+                            "properties": {
+                                "namespace": {
+                                    "type": "string",
+                                    "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$"
+                                },
+                                "matchLabels": {
+                                    "type": "object",
+                                    "minProperties": 1,
+                                    "maxProperties": 16,
+                                    "additionalProperties": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        },
+                        "targetPort": {
+                            "description": "The registry pods' container port, when it differs from the URL's (Service) port; needs podSelector",
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 65535
+                        }
+                    }
+                },
+                "privateModules": {
+                    "description": "go: module prefixes only this registry serves; never looked up in sum.golang.org, refused on the public go route (GONOSUMDB in the pod). Required for go, possibly empty",
+                    "type": "array",
+                    "maxItems": 256,
+                    "items": {
+                        "type": "string",
+                        "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+(/[A-Za-z0-9._~+-]+)*/?$"
+                    }
+                },
+                "publicChecksumLookups": {
+                    "description": "go: whether other modules this registry serves may be checked against the public sum.golang.org. Required for go",
+                    "type": "boolean"
+                },
+                "maxArtifactBytes": {
+                    "description": "Largest tarball, wheel or zip passed through; 0 is the proxy's default (512 MiB)",
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 4294967296
+                },
+                "healthPackage": {
+                    "description": "Optional: a package the credential can always read, fetched once after repeated 403s to tell a dead credential from curation",
+                    "type": "string",
+                    "maxLength": 214
+                },
+                "ca": {
+                    "description": "A CA bundle in a release-namespace ConfigMap; the registry then trusts only it",
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                        "configMap",
+                        "key"
+                    ],
+                    "properties": {
+                        "configMap": {
+                            "type": "string",
+                            "maxLength": 253,
+                            "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+                        },
+                        "key": {
+                            "type": "string",
+                            "maxLength": 253,
+                            "pattern": "^[-._a-zA-Z0-9]+$"
+                        }
+                    }
+                }
+            },
+            "if": {
+                "properties": {
+                    "ecosystem": {
+                        "const": "go"
+                    }
+                },
+                "required": [
+                    "ecosystem"
+                ]
+            },
+            "then": {
+                "required": [
+                    "privateModules",
+                    "publicChecksumLookups"
+                ]
+            }
+        },
+        "registryGrant": {
+            "type": "object",
+            "description": "One profile's grant of one registry (agent.networkProfiles.<p>.registries.<name>): exactly one of packages or packagePolicy registry",
+            "additionalProperties": false,
+            "properties": {
+                "packages": {
+                    "description": "An allowlist: go module prefixes, npm names or @scope/*, pip project names",
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 512,
+                    "items": {
+                        "type": "string",
+                        "minLength": 1
+                    }
+                },
+                "packagePolicy": {
+                    "description": "registry: the registry's own curation is the policy, and any well-formed name is forwarded",
+                    "type": "string",
+                    "enum": [
+                        "registry"
+                    ]
+                },
+                "scripts": {
+                    "description": "npm: run install scripts",
+                    "type": "boolean"
+                },
+                "allowPrerelease": {
+                    "description": "npm: admit prerelease and build versions",
+                    "type": "boolean"
+                },
+                "sdists": {
+                    "description": "pypi: allow source builds",
+                    "type": "boolean"
+                },
+                "allowPseudoVersions": {
+                    "description": "go: admit pseudo-versions",
+                    "type": "boolean"
+                }
+            },
+            "oneOf": [
+                {
+                    "required": [
+                        "packages"
+                    ]
+                },
+                {
+                    "required": [
+                        "packagePolicy"
+                    ]
+                }
+            ]
+        },
         "networkProfile": {
             "type": "object",
             "description": "One operator dependency-route profile (agent.networkProfiles.<name>). The job controllers and the egress proxy re-validate it at startup (netprofile.Validate), including compiling the repository patterns; TestChartProfileSchemaMatchesValidator keeps these patterns in step with that validator.",
             "additionalProperties": false,
-            "required": ["route", "port", "repositories", "modules"],
+            "required": ["port", "repositories"],
+            "anyOf": [{"required": ["route"]}, {"required": ["registries"], "properties": {"registries": {"minProperties": 1}}}],
+            "if": {"properties": {"route": {"const": "go"}}, "required": ["route"]},
+            "then": {"required": ["modules"]},
+            "dependencies": {"modules": ["route"]},
             "properties": {
                 "route": {
-                    "description": "The dependency route the profile opens; go (GOPROXY and the checksum database) is the only one in step 1",
+                    "description": "The public dependency route the profile opens: go (GOPROXY and the checksum database to proxy.golang.org and sum.golang.org). Optional when the profile holds registry grants",
                     "type": "string",
                     "enum": ["go"]
                 },
@@ -343,6 +609,13 @@
                     "description": "Admit v0.0.0-<time>-<commit> versions of allowed modules; off, only tagged releases are forwarded",
                     "type": "boolean",
                     "default": false
+                },
+                "registries": {
+                    "description": "Grants of egressProxy.registries entries, keyed by registry name; at most one per ecosystem (a render guard)",
+                    "type": "object",
+                    "maxProperties": 3,
+                    "propertyNames": {"pattern": "^[a-z]([a-z0-9-]{0,30}[a-z0-9])?$"},
+                    "additionalProperties": {"$ref": "#/definitions/registryGrant"}
                 }
             }
         },
@@ -2145,6 +2418,18 @@
                         }
                     }
                 },
+                "registries": {
+                    "description": "Credentialed upstream registries a profile can be granted, keyed by name",
+                    "type": "object",
+                    "maxProperties": 16,
+                    "propertyNames": {"pattern": "^[a-z]([a-z0-9-]{0,30}[a-z0-9])?$"},
+                    "additionalProperties": {"$ref": "#/definitions/registry"}
+                },
+                "cloudCredentials": {
+                    "description": "The proxy's own AWS identity for codeartifact registries: none, irsa (role annotation on egressProxy.serviceAccount) or podIdentity (adds egress to the node-local Pod Identity agent)",
+                    "type": "string",
+                    "enum": ["none", "irsa", "podIdentity"]
+                },
                 "resources": {"type": "object"},
                 "podAnnotations": {"type": "object"},
                 "podLabels": {"type": "object"},
@@ -2167,13 +2452,19 @@
                     "type": "object",
                     "additionalProperties": false,
                     "properties": {
-                        "create": {"type": "boolean"}
+                        "create": {"type": "boolean"},
+                        "extraEgress": {
+                            "description": "Verbatim NetworkPolicy egress rules appended to the proxy's policy (an in-cluster OTLP collector, say); the proxy's dialer still governs every forwarded request",
+                            "type": "array",
+                            "items": {"type": "object"}
+                        }
                     }
                 },
                 "config": {
                     "type": "object",
                     "additionalProperties": false,
                     "properties": {
+                        "logLevel": {"$ref": "#/definitions/logLevel"},
                         "extra": {"$ref": "#/definitions/extraEnv"}
                     }
                 }

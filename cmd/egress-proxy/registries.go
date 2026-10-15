@@ -12,6 +12,8 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -37,8 +39,11 @@ var getenv = os.Getenv
 
 // registrySettings is the validated registry half of the configuration.
 type registrySettings struct {
-	set              netprofile.RegistrySet
-	alwaysDeny       []netip.Prefix
+	set        netprofile.RegistrySet
+	alwaysDeny []netip.Prefix
+	// denyHosts are the profiles' forge hosts and --deny-hosts: no
+	// registry, file host or redirect hop may be one or below one.
+	denyHosts        []string
 	cas              map[string]*x509.CertPool
 	maxArtifactBytes int64
 	pollInterval     time.Duration
@@ -59,12 +64,16 @@ func configureRegistries(opts *cli.Options, profiles netprofile.Set) (registrySe
 	if a, err := netip.ParseAddr(getenv("KUBERNETES_SERVICE_HOST")); err == nil && a.Is4() {
 		always = append(always, netip.PrefixFrom(a, 32))
 	}
+	deny, err := denyHosts(profiles, opts.StringList("deny-hosts"))
+	if err != nil {
+		return registrySettings{}, err
+	}
 	raw := opts.String("registries")
 	if raw == "" {
 		raw = getenv(registriesEnv)
 	}
 	set, err := netprofile.ParseRegistries([]byte(raw),
-		netprofile.RegistryContext{DenyHosts: profiles.Hosts(), AlwaysDeny: always})
+		netprofile.RegistryContext{DenyHosts: deny, AlwaysDeny: always})
 	if err != nil {
 		return registrySettings{}, fmt.Errorf("--registries: %w", err)
 	}
@@ -91,9 +100,35 @@ func configureRegistries(opts *cli.Options, profiles netprofile.Set) (registrySe
 		}
 		cas[r.Name] = pool
 	}
-	return registrySettings{set: set, alwaysDeny: always, cas: cas, maxArtifactBytes: maxArtifact,
-		pollInterval: poll}, nil
+	return registrySettings{set: set, alwaysDeny: always, denyHosts: deny, cas: cas,
+		maxArtifactBytes: maxArtifact, pollInterval: poll}, nil
 }
+
+// denyHosts is the profiles' forge hosts followed by --deny-hosts, each
+// lowercased with one trailing dot dropped, without repeats. An entry that
+// is not a host name (a URL, a port, a wildcard) is refused rather than
+// silently matching nothing.
+func denyHosts(profiles netprofile.Set, extra []string) ([]string, error) {
+	out := profiles.Hosts()
+	seen := map[string]bool{}
+	for _, h := range out {
+		seen[h] = true
+	}
+	for _, h := range extra {
+		h = strings.TrimSuffix(strings.ToLower(h), ".")
+		if !denyHostPattern.MatchString(h) {
+			return nil, fmt.Errorf("--deny-hosts: %q is not a host name", h)
+		}
+		if !seen[h] {
+			seen[h] = true
+			out = append(out, h)
+		}
+	}
+	return out, nil
+}
+
+// denyHostPattern is a lowercase host name of at most 253 bytes.
+var denyHostPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$`)
 
 // loadCA reads a PEM bundle into a pool of its own: a registry with a CA
 // trusts nothing else.

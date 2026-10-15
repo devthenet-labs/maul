@@ -138,6 +138,14 @@ helm lint charts/patchy -f hack/testdata/chart-render/intent-controller.yaml \
 helm lint charts/patchy -f hack/testdata/chart-render/repository-images.yaml \
   -f hack/testdata/chart-render/egress-proxy.yaml --set egressProxy.attribution.enabled=true \
   --set-json 'egressProxy.attribution.apiServerCIDRs=["10.0.1.10/32"]'
+# ...with registries (bearer, basic, internal with a CA, CodeArtifact), under
+# mode none and cilium.
+helm lint charts/patchy -f hack/testdata/chart-render/intent-controller.yaml \
+  -f hack/testdata/chart-render/repository-images.yaml \
+  -f hack/testdata/chart-render/egress-proxy.yaml -f hack/testdata/chart-render/egress-registries.yaml
+helm lint charts/patchy -f hack/testdata/chart-render/repository-images.yaml \
+  -f hack/testdata/chart-render/egress-proxy.yaml -f hack/testdata/chart-render/egress-registries.yaml \
+  --set agent.networkPolicy.mode=cilium
 
 # The CR chart: the empty default plus a populated render of every array.
 helm lint charts/patchy-config

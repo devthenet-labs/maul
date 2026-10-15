@@ -1,10 +1,19 @@
 # egress-proxy
 
-The egress proxy is the operator's dependency route for agent Jobs. It is a GOPROXY-protocol reverse proxy to
-`proxy.golang.org` and `sum.golang.org`, and it is optional and off by default. Like the egress broker it is not a
-controller: it has no reconcilers and no leases. It forwards only `GET` and `HEAD` requests for Go modules and
-checksum-database records, and only for the module path prefixes the operator allows. It holds no credential, caches
-nothing and mounts no ServiceAccount token unless attribution is on.
+The egress proxy is the operator's dependency route for agent Jobs. It is optional and off by default. Like the egress
+broker it is not a controller: it has no reconcilers and no leases. It forwards only `GET` and `HEAD` requests, on two
+kinds of route:
+
+- the **public Go route**: GOPROXY and checksum-database requests to `proxy.golang.org` and `sum.golang.org`, only for
+  the module path prefixes the operator allows;
+- **registry routes**: Go, npm or PyPI (simple index) requests below the fixed base URL of an operator-defined upstream
+  registry, such as JFrog Artifactory, Sonatype Nexus or AWS CodeArtifact, under the package policy of the profile's
+  grant. See [Registries](#registries).
+
+It holds a credential only for the registries the operator configured (a Secret mounted read-only, or a CodeArtifact
+token it mints with its own AWS identity), sends it only to that registry's origin, and never passes it, an inbound
+credential or an upstream error body to an agent. It caches nothing and mounts no ServiceAccount token unless
+attribution is on.
 
 Repositories declare nothing. The operator maps profiles to repositories in the chart's `agent.networkProfiles` values,
 and a Job gets a profile only when all of these hold:
@@ -16,7 +25,7 @@ and a Job gets a profile only when all of these hold:
   `devthenet-labs/patchy-target`. A repository that matches two profiles gets none.
 
 Investigate, plan and evaluation Jobs, and every Job on the default runner image, never get a profile. The Helm chart is
-the only way to deploy it in step 1; there is no kustomize component (see [Kustomize](../deployment/kustomize.md)).
+the only way to deploy it; there is no kustomize component (see [Kustomize](../deployment/kustomize.md)).
 
 ## How a request flows
 
@@ -122,59 +131,503 @@ As everywhere, each flag is also the matching `PATCHY_*` environment variable. T
 from its own values, never from the global `proxy` block: a corporate HTTPS proxy for the egress proxy's own upstream
 traffic is **not supported** in step 1.
 
-| Flag                               | Default                    | Purpose                                                                                       |
-| ---------------------------------- | -------------------------- | --------------------------------------------------------------------------------------------- |
-| `--network-profiles`               | required                   | The profile set as the chart renders it (a JSON array); refused when empty or invalid         |
-| `--health-addr`                    | `:8081`                    | `/healthz` and `/readyz`; no profile may use its port                                         |
-| `--go-proxy-upstream`              | `https://proxy.golang.org` | Module proxy every go route forwards to (https only)                                          |
-| `--go-sumdb-upstream`              | `https://sum.golang.org`   | Checksum database every sumdb route forwards to (https only)                                  |
-| `--deny-cidrs`                     | —                          | CIDRs never dialled, beside the built-in private, link-local and reserved ranges              |
-| `--max-concurrent`                 | `128`                      | Requests in flight across every source                                                        |
-| `--max-concurrent-per-source`      | `32`                       | Requests in flight from one source IP                                                         |
-| `--requests-per-second-per-source` | `100`                      | Request rate of one source IP                                                                 |
-| `--burst-per-source`               | `200`                      | Request burst of one source IP                                                                |
-| `--limit-wait`                     | `30s`                      | How long a request queues for the limits above before a 503                                   |
-| `--request-timeout`                | `10m`                      | Bound on one whole request, the body stream included                                          |
-| `--upstream-header-timeout`        | `2m`                       | Bound on the wait for an upstream's response headers                                          |
-| `--max-zip-bytes`                  | `524288000`                | Largest module zip passed through                                                             |
-| `--suspended`                      | `false`                    | Answer every profile request `410 suspended` (the immediate lever)                            |
-| `--attribute-pods`                 | `false`                    | Attribute source IPs to agent pods in the audit line (best-effort; needs read access to pods) |
-| `--agent-namespace`                | `patchy-agents`            | Namespace of the agent pods attributed                                                        |
-| `--kubeconfig`                     | in-cluster                 | Kubeconfig for attribution                                                                    |
+| Flag                               | Default                            | Purpose                                                                                       |
+| ---------------------------------- | ---------------------------------- | --------------------------------------------------------------------------------------------- |
+| `--registries`                     | —                                  | The registries as the chart renders them (a JSON array); empty: no registry route             |
+| `--network-profiles`               | required                           | The profile set as the chart renders it (a JSON array); refused when empty or invalid         |
+| `--health-addr`                    | `:8081`                            | `/healthz` and `/readyz`; no profile may use its port                                         |
+| `--go-proxy-upstream`              | `https://proxy.golang.org`         | Module proxy every go route forwards to (https only)                                          |
+| `--go-sumdb-upstream`              | `https://sum.golang.org`           | Checksum database every sumdb route forwards to (https only)                                  |
+| `--deny-cidrs`                     | —                                  | CIDRs never dialled, beside the built-in private, link-local and reserved ranges              |
+| `--max-concurrent`                 | `128`                              | Requests in flight across every source                                                        |
+| `--max-concurrent-per-source`      | `32`                               | Requests in flight from one source IP                                                         |
+| `--requests-per-second-per-source` | `100`                              | Request rate of one source IP                                                                 |
+| `--burst-per-source`               | `200`                              | Request burst of one source IP                                                                |
+| `--limit-wait`                     | `30s`                              | How long a request queues for the limits above before a 503                                   |
+| `--request-timeout`                | `10m`                              | Bound on one whole request, the body stream included                                          |
+| `--upstream-header-timeout`        | `2m`                               | Bound on the wait for an upstream's response headers                                          |
+| `--max-zip-bytes`                  | `524288000`                        | Largest module zip passed through                                                             |
+| `--suspended`                      | `false`                            | Answer every profile request `410 suspended` (the immediate lever)                            |
+| `--attribute-pods`                 | `false`                            | Attribute source IPs to agent pods in the audit line (best-effort; needs read access to pods) |
+| `--agent-namespace`                | `patchy-agents`                    | Namespace of the agent pods attributed                                                        |
+| `--kubeconfig`                     | in-cluster                         | Kubeconfig for attribution                                                                    |
+| `--registry-credentials-dir`       | `/etc/patchy/registry-credentials` | The mounted static credentials: `<registry>/token`, or `<registry>/username` and `password`   |
+| `--registry-ca-dir`                | `/etc/patchy/registry-ca`          | The registries' CA bundles, `<registry>.pem`                                                  |
+| `--max-artifact-bytes`             | `536870912`                        | Largest npm tarball, pip file or Go zip on a registry route, unless the registry sets its own |
+| `--credential-poll-interval`       | `30s`                              | How often the mounted credentials are re-read (at least `5s`)                                 |
+| `--always-deny-cidrs`              | —                                  | CIDRs never dialled even when an internal registry lists them                                 |
+| `--deny-hosts`                     | —                                  | Hosts no registry, file host or redirect hop may be, each with every name below it            |
 
 The chart sets `--deny-cidrs` to `agent.networkPolicy.clusterCIDRs` plus `clusterDNSCIDR`. Each `egressProxy.limits`
-value renders only when set; 0 or empty keeps the default above.
+value renders only when set; 0 or empty keeps the default above. With registries configured it also sets `--registries`
+(as `PATCHY_EGRESS_REGISTRIES`; the binary also reads `PATCHY_REGISTRIES`), `--deny-hosts` to the hosts of the egress
+broker's base-URL overrides (`PATCHY_{ANTHROPIC,BEDROCK,VERTEX,FOUNDRY}_BASE_URL` in `config.extra` or
+`egressBroker.config.extra`) and, when a registry is `internal`, `--always-deny-cidrs` to `clusterDNSCIDR` plus the
+attribution `apiServerCIDRs`. The Kubernetes API's Service address (`KUBERNETES_SERVICE_HOST`, which kubelet injects
+into every container) is always denied too.
+
+The chart stamps the proxy's `PATCHY_LOG_LEVEL` from `egressProxy.config.logLevel`, or else the shared `config.logLevel`
+but never quieter than `info`: the audit and credential lines below are written at `info`, so at the chart's default
+`warn` they would all be dropped.
 
 The proxy dials IPv4 only, on port 443 only, and refuses private, link-local, CGNAT, loopback, reserved and
 `--deny-cidrs` addresses both before the dial and on the connected address, so a DNS answer that changes between lookups
 cannot steer it inside the cluster. `/readyz` turns ready only after every profile listener is bound and never calls an
 upstream.
 
+## Registries
+
+A profile can be granted one or more operator-defined **registries**: fixed https upstreams that may need a login, for
+the Go (GOPROXY), npm and pip (PEP 503 simple index) protocols. The agent's package manager is pointed at
+`http://<proxy>:<profile port>/r/<registry>/…`; the proxy forwards `GET` and `HEAD` below the registry's base URL and
+adds the credential, which no agent pod ever holds. Registries are defined once, in `egressProxy.registries`, and
+granted per profile, in `agent.networkProfiles.<profile>.registries`. Repositories still declare nothing.
+
+```yaml
+egressProxy:
+  enabled: true
+  cloudCredentials: podIdentity # for the codeartifact registry below
+  registries:
+    art-npm:
+      ecosystem: npm
+      url: https://acme.jfrog.io/artifactory/api/npm/npm-virtual/
+      auth: { type: bearer, secretName: patchy-registry-art }
+    ca-pypi:
+      ecosystem: pypi
+      url: https://patchy-gate-377946145366.d.codeartifact.us-east-1.amazonaws.com/pypi/pypi-store/simple/
+      auth:
+        type: codeartifact
+        codeartifact: { domain: patchy-gate, domainOwner: "377946145366", region: us-east-1 }
+agent:
+  networkProfiles:
+    web:
+      port: 8091
+      repositories: [acme/web]
+      registries:
+        art-npm:
+          packagePolicy: registry # the registry's own curation decides
+        ca-pypi:
+          packages: [six, requests, urllib3, idna, certifi, charset-normalizer]
+```
+
+A profile holds **at most one grant per ecosystem** (each package manager takes one index from the environment). A
+profile with grants needs no `route`; it may also keep `route: go` and its `modules` beside a go grant. Grants are
+judged per listener: the port is still the identity, and a profile cannot reach another profile's registry. A registry
+that is not granted to the profile answers `410` (a go-shaped path) or `403` with the outcome `not_granted`, without
+naming it.
+
+### Registry fields
+
+| Key                     | Purpose                                                                                                                                                     |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ecosystem`             | `go`, `npm` or `pypi` (CodeArtifact: `npm` or `pypi`; it has no Go support)                                                                                 |
+| `url`                   | The https base URL. For `pypi`, the **index URL**, ending `/simple/`. Port 443 unless `internal`                                                            |
+| `auth.type`             | `none`, `bearer`, `basic` or `codeartifact` ([Credentials](#credentials))                                                                                   |
+| `auth.secretName`       | `bearer` and `basic` only: the Secret the proxy reads the credential from                                                                                   |
+| `auth.codeartifact`     | `codeartifact` only: `domain`, `domainOwner` (quoted), `region`, and `durationSeconds` (900-43200, default 43200)                                           |
+| `fileHosts`             | `pypi`: further exact https hosts the index links files to (such as `files.pythonhosted.org`), fetched **without** the credential; at most 8                |
+| `redirectHosts`         | Hosts a `3xx` may lead to, exact or `*.suffix`, followed **without** the credential ([Redirects](#redirects-and-file-hosts)); at most 8                     |
+| `internal`              | Opt-in for a private or in-cluster registry: `cidrs`, `podSelector`, `targetPort` ([Private and in-cluster registries](#private-and-in-cluster-registries)) |
+| `ca`                    | `{configMap, key}`: a CA bundle in a release-namespace ConfigMap; the registry then trusts **only** it                                                      |
+| `privateModules`        | `go`, **required** (may be `[]`): module prefixes only this registry serves ([Go registries](#go-registries))                                               |
+| `publicChecksumLookups` | `go`, **required**: whether other modules this registry serves may be checked against the public `sum.golang.org`                                           |
+| `maxArtifactBytes`      | Largest tarball, wheel or zip passed through; `0` is the proxy's default (512 MiB); at most 4 GiB (large ML wheels need a raise)                            |
+| `healthPackage`         | Optional: a package the credential can always read, for the credential self-check and the default `probe` package                                           |
+
+### Grants and package policy
+
+Each grant must say what it admits; there is no default, and the chart refuses a grant that says neither or both:
+
+- `packages: [...]`, an **allowlist** judged before any upstream contact: Go module prefixes (matched on path-element
+  boundaries, as `modules` are), npm names or `@scope/*` (every name in that scope), pip project names (compared after
+  PEP 503 normalisation). The allowlist must name **transitive** dependencies too, and, for source builds, the build
+  backend (see `sdists` below).
+- `packagePolicy: registry`: the registry's own curation (virtual-repository include and exclude patterns, JFrog
+  Curation, CodeArtifact upstreams and package-origin controls) is the policy, and the proxy forwards any well-formed
+  name. It is an explicit acknowledgement in values, so it shows up in review; the
+  [isolation model](../deployment/isolation.md#registry-grants) says what it gives up.
+
+Per-ecosystem switches, each refused on another ecosystem's grant:
+
+| Switch                | Ecosystem | Default | Effect                                                                                                              |
+| --------------------- | --------- | ------- | ------------------------------------------------------------------------------------------------------------------- |
+| `scripts`             | npm       | `false` | Run install scripts (`NPM_CONFIG_IGNORE_SCRIPTS=false`)                                                             |
+| `allowPrerelease`     | npm       | `false` | Admit prerelease and build tarball versions (`-rc.1`, `+sha.abc`); off, only `MAJOR.MINOR.PATCH` is fetched         |
+| `sdists`              | pypi      | `false` | Allow source distributions and builds (`PIP_ONLY_BINARY=:none:`); off, wheels only (`:all:`), so no `setup.py` runs |
+| `allowPseudoVersions` | go        | `false` | Admit `v0.0.0-<time>-<commit>` versions, as for a profile's public route                                            |
+
+### npm
+
+The registry `url` is the npm registry base, such as `https://acme.jfrog.io/artifactory/api/npm/npm-virtual/` or a
+CodeArtifact `…/npm/<repository>/`. The proxy accepts packuments (`/<name>`, and `/@scope%2fname` for a scoped package,
+sent upstream escaped exactly so) and tarballs in three shapes (`/<name>/-/<name>-<v>.tgz`,
+`/@s/<name>/-/<name>-<v>.tgz` and `/@s/<name>/-/@s/<name>-<v>.tgz`), each either bare or below the upstream's base path.
+Everything else (search, audit, `dist-tags`, `/-/whoami`, a version document) is refused `403 bad_path`; a refusal is a
+`403` with a JSON `{"error":"egress-proxy: …"}` body, which npm prints.
+
+npm needs no response rewriting: with `NPM_CONFIG_REPLACE_REGISTRY_HOST=always` npm fetches every tarball through the
+configured registry whatever host the packument or lockfile names, and `package-lock.json` keeps the registry's
+**canonical** `resolved` URLs, never the proxy's. Scoped registries in a repository's `.npmrc` (`@acme:registry=…`)
+cannot be overridden from the environment and point at a host the pod cannot reach, so such a scope fails to fetch.
+
+### pip
+
+The registry `url` is the **index URL**, ending `/simple/`. The proxy serves `/simple/<project>/` (the PEP 503
+normalised name, with the trailing slash pip always sends) and refuses the root index. The simple page is the one
+response it rewrites: it parses the upstream page and generates a new one whose every link is
+`/r/<registry>/f/<origin>/<path>`, where origin 0 is the registry's own host (credentialed, under the index's path) and
+origins 1-n are the `fileHosts` (never credentialed). A link on any other host, with a query or userinfo, or whose path
+breaks the file grammar (only `%2B` and `%21` escapes, no `.`, `..` or empty segment, a wheel, sdist or `.metadata`
+filename with a PEP 440 version) is **dropped** and counted (`dropped_links`); a `sha256`/`sha384`/`sha512` hash
+fragment is kept. A file request is judged again on its own, so a hand-made URL gets only what a page could have
+offered. pip writes no URL into anything, and `pip-compile` must be run with `--no-emit-index-url` (the changeset guard
+refuses the proxy's host in any file, below).
+
+PyPI-shaped indexes link files on another host (`files.pythonhosted.org`, a CDN, `download.pytorch.org`): list those in
+`fileHosts`, or their links are dropped and pip reports "no matching distribution". A pip refusal is a `403`; pip never
+shows the body, so the proxy's audit line is where its reason is.
+
+### Go registries
+
+For Artifactory or Nexus Go repositories (CodeArtifact has no Go support). The proxy serves
+`/r/<registry>/<module>/@v/…`, `@latest` and `/r/<registry>/sumdb/sum.golang.org/…` with the public route's grammar, its
+`410` rule and the grant's `allowPseudoVersions`. A go registry must state two things, with no default:
+
+- `privateModules` (may be `[]`): module prefixes that exist only in this registry. They become `GONOSUMDB` in the pod,
+  are **never** looked up in `sum.golang.org`, and are refused (`410 private_module`) on the profile's public `/go`
+  route, so a registry miss can never fall through to Google.
+- `publicChecksumLookups`: whether a module this registry served, outside `privateModules`, may be checked against the
+  public `sum.golang.org` on the registry's say-so. `false` is the safe answer for a registry with any in-house
+  repository whose paths you have not listed.
+
+`GOPROXY` lists the registry first, then the public route (if the profile has `route: go`), then the baked cache. The go
+command picks the first entry that answers `supported` for its checksum lookups, so every lookup arrives at the registry
+route and is judged in this order: a `privateModules` path is `410 private_module`; a module the profile's public
+`modules` admit is forwarded to `sum.golang.org`; with `publicChecksumLookups: true`, a module the grant's `packages`
+admit (or, under `packagePolicy: registry`, one whose `.mod` the registry serves) is forwarded; anything else is
+`410 checksum_not_public`. The build then fails with `verifying <module>@<version>: 410 Gone`: add the prefix to
+`privateModules` if it is in-house, or turn on `publicChecksumLookups` if the registry serves only public modules.
+
+### The environment a grant gives a Job
+
+As for the go variables above, the job controller replaces whatever the image or the controller configuration set, every
+value non-empty, on profile Jobs only. `U` is the profile's proxy URL.
+
+| Ecosystem | Variable                                                            | Value                                                                                       |
+| --------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| go        | `GOPROXY`                                                           | `U/r/<registry>`, then `U/go` with `route: go`, then the baked cache; no `direct`, no `off` |
+| go        | `GONOSUMDB`                                                         | the registry's `privateModules`, comma-joined, or `patchy.invalid`                          |
+| npm       | `NPM_CONFIG_REGISTRY`                                               | `U/r/<registry>/` (the environment beats every `.npmrc`)                                    |
+| npm       | `NPM_CONFIG_REPLACE_REGISTRY_HOST`                                  | `always`                                                                                    |
+| npm       | `NPM_CONFIG_AUDIT`, `NPM_CONFIG_FUND`, `NPM_CONFIG_UPDATE_NOTIFIER` | `false`                                                                                     |
+| npm       | `NPM_CONFIG_IGNORE_SCRIPTS`                                         | `true` unless the grant sets `scripts`                                                      |
+| npm       | `NPM_CONFIG_CACHE`, `NPM_CONFIG_STRICT_SSL`                         | `/tmp/npm-cache`, `true`                                                                    |
+| pypi      | `PIP_CONFIG_FILE`                                                   | `/dev/null`: no `pip.conf` of any level is read                                             |
+| pypi      | `PIP_INDEX_URL`                                                     | `U/r/<registry>/simple/`                                                                    |
+| pypi      | `PIP_EXTRA_INDEX_URL`, `PIP_FIND_LINKS`                             | one space (an empty value would fall through to a config file)                              |
+| pypi      | `PIP_TRUSTED_HOST`                                                  | the proxy's `host:port` (pip refuses a plain-http index otherwise)                          |
+| pypi      | `PIP_ONLY_BINARY`                                                   | `:all:`, or `:none:` when the grant sets `sdists`                                           |
+| pypi      | `PIP_NO_INPUT`, `PIP_DISABLE_PIP_VERSION_CHECK`, `PIP_CACHE_DIR`    | `1`, `1`, `/tmp/pip-cache`                                                                  |
+
+`PATCHY_NETWORK_ECOSYSTEMS` and `PATCHY_NETWORK_GRANTS` tell the agent runner which ecosystems the run can fetch and
+under what policy, for the prompt. Each Job's changeset is refused, before any forge call, if any file's path or content
+names the proxy's in-cluster host: lockfiles and configuration must keep the registry's canonical URLs.
+
+**With `scripts: true`** install scripts run with no network but the proxy. `node-gyp` downloads Node headers from
+`nodejs.org` and `prebuild-install` fetches binaries from GitHub releases; neither is reachable. Such a grant works only
+with an image that bakes the headers (point `npm_config_nodedir` at them in the image's `ENV`; the profile does not own
+that variable) and packages that build from source or ship their binaries in the tarball.
+
+**With `sdists: true`, or a project installed from source** (`pip install .`, `pip install -e .`), PEP 517 build
+isolation fetches the build backend (`setuptools`, `wheel`, `hatchling`, `flit-core`, `poetry-core`, …) from the same
+index, so under a `packages` allowlist those must be listed too. The alternative is an image that bakes them and a build
+with `--no-build-isolation`.
+
+**Unsupported clients.** uv and poetry write the index URL into their lockfiles and yarn classic records tarball URLs,
+so they are not supported; pnpm reads `npm_config_registry` and may work, but is not tested. A repository
+`requirements.txt` carrying `--index-url` or `--extra-index-url` points pip at an index the pod cannot reach, so the
+fetch fails and nothing leaks.
+
+### Credentials
+
+| `auth.type`    | Secret keys            | Sent upstream                                                                    |
+| -------------- | ---------------------- | -------------------------------------------------------------------------------- |
+| `none`         | —                      | no `Authorization` (a public registry behind the grant's package policy)         |
+| `bearer`       | `token`                | `Authorization: Bearer <token>` (Artifactory access tokens, Nexus user tokens)   |
+| `basic`        | `username`, `password` | `Authorization: Basic …` (Nexus, Artifactory, any user plus API key)             |
+| `codeartifact` | —                      | npm: `Bearer <token>`; pip: `Basic` of `aws:<token>`; minted by the proxy itself |
+
+A credential is sent **only** to the registry URL's exact `scheme://host:port`: never to a `fileHosts` host, a redirect
+hop or the public checksum database, and never to an agent. An `Authorization` header the agent sends (npm sends one
+when a repository's `.npmrc` has a token) is always dropped. Every non-200 answer on a registry route carries a body the
+proxy wrote, so an upstream error page never reaches the agent, and every non-archive response is scanned for the
+credential (`502 credential_echo` on a match).
+
+**Static credentials** (`bearer`, `basic`). Create the Secret in the **release** namespace yourself, or with External
+Secrets; the chart never creates it, and the install NOTES list the ones it expects:
+
+```sh
+kubectl -n patchy create secret generic patchy-registry-art --from-literal=token="$ARTIFACTORY_TOKEN"
+kubectl -n patchy create secret generic patchy-registry-nexus --from-literal=username=patchy --from-literal=password="$NEXUS_TOKEN"
+```
+
+The chart projects each Secret's needed keys into the proxy alone, at `/etc/patchy/registry-credentials/<registry>/`,
+read-only and mode `0440` (readable through the pod's group). No other pod mounts them and no ServiceAccount gains a
+Secret read. A missing Secret holds a new proxy pod in `ContainerCreating`, loudly, while the surge-only rollout keeps
+the old pods serving. Give the proxy a token that can read **only** the repository it names: the grammar keeps requests
+below the registry's base path, but a token that can read more is more to lose (see the
+[isolation model](../deployment/isolation.md#registry-grants)).
+
+**Rotation needs no restart.** The proxy re-reads the files every 30 seconds (`--credential-poll-interval`), and kubelet
+refreshes a projected Secret within its sync period, about one to two minutes on EKS defaults. A value that is empty,
+over 8 KiB, or holds a control character (or a `:` in a username) is refused and the last good value kept
+(`credential_invalid` in the log). To rotate:
+
+1. create the new token at the registry;
+2. update the Secret (first command below);
+3. wait until **every** proxy pod logs `credential_reloaded` for the registry (second command below), or
+   `patchy.egress_proxy.credential.refreshes{result=reloaded}` counts it;
+4. then revoke the old token.
+
+```sh
+kubectl -n patchy create secret generic patchy-registry-art --from-literal=token="$NEW" --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n patchy logs -l app.kubernetes.io/name=egress-proxy --prefix --tail=-1 --since=10m --max-log-requests=10 | grep credential_reloaded
+```
+
+An upstream `401` makes the proxy re-read at once (at most once per poll interval). A plain `403` does not: it is what
+registry curation answers, and reads to the agent as `registry_refused`. A revoked token can look like a run of `403`s,
+so give the registry a `healthPackage` (a package the credential can always read, such as `left-pad`, `six` or a module
+path): after three `403`s within a minute the proxy fetches it once and, if that answers `401` or `403`, re-reads the
+credential and logs `credential_rejected`. Without `healthPackage` a revoked token shows only as `registry_refused`
+lines and a failing `probe`.
+
+### CodeArtifact
+
+`auth.type: codeartifact` needs no Secret: the proxy mints the authorization token with its own AWS identity, set by
+`egressProxy.cloudCredentials` (the chart refuses a CodeArtifact registry while it is `none`):
+
+- **`podIdentity`**: create an EKS Pod Identity association for the `patchy-egress-proxy` ServiceAccount in the release
+  namespace. The chart adds egress to the node-local Pod Identity agent (`169.254.170.23:80`; under mode `cilium` a
+  `CiliumNetworkPolicy` to the `host` entity, as for the egress broker). The proxy's dialer admits that address for the
+  credential call alone, never for a forwarded request.
+
+  ```sh
+  aws eks create-pod-identity-association --cluster-name <cluster> --namespace patchy \
+    --service-account patchy-egress-proxy --role-arn arn:aws:iam::<account>:role/patchy-egress-proxy
+  ```
+
+- **`irsa`**: set `egressProxy.serviceAccount.annotations` to `eks.amazonaws.com/role-arn: <role ARN>` (the chart
+  refuses `irsa` without it on a chart-created ServiceAccount). STS is reached on public 443, which the proxy's policy
+  already allows.
+
+Either way no long-lived secret exists, and the proxy's ServiceAccount token stays unmounted (the webhooks inject their
+own token volume). The role needs exactly:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "codeartifact:GetAuthorizationToken",
+      "Resource": "arn:aws:codeartifact:<region>:<owner>:domain/<domain>"
+    },
+    {
+      "Effect": "Allow",
+      "Action": "sts:GetServiceBearerToken",
+      "Resource": "*",
+      "Condition": { "StringEquals": { "sts:AWSServiceName": "codeartifact.amazonaws.com" } }
+    },
+    {
+      "Effect": "Allow",
+      "Action": "codeartifact:ReadFromRepository",
+      "Resource": "arn:aws:codeartifact:<region>:<owner>:repository/<domain>/<repository>"
+    }
+  ]
+}
+```
+
+No publish, no other domain or repository. The URL's host must be the domain's endpoint,
+`<domain>-<owner>.d.codeartifact.<region>.amazonaws.com` (or `….on.aws`); the chart and the proxy refuse any other, so a
+typo can never send the token elsewhere. The token is minted at startup in the background (the routes answer
+`503 credential_unavailable` until then, and every other route works), refreshed at half its lifetime (or 15 minutes
+before expiry, if earlier) with jitter, and kept in use through mint failures (backing off from 30 seconds to 5 minutes)
+until it expires. Each pod logs `credential_minted` with `expires_at`, or `credential_mint_failed` with the AWS error
+code and the class of the endpoint address it tried.
+
+**VPC interface endpoints are not supported.** With a `codeartifact.api`, `codeartifact.repositories` or `sts` interface
+endpoint that has private DNS, those names resolve to private addresses, which the proxy's dialer and policy refuse:
+`credential_mint_failed` then names a `private` address class, and `probe` fails. Use an endpoint without private DNS,
+or none.
+
+### Private and in-cluster registries
+
+A registry on a private address, a non-443 port or an in-cluster name opts in with `internal`:
+
+```yaml
+egressProxy:
+  registries:
+    nexus-pypi:
+      ecosystem: pypi
+      url: https://nexus.tools.svc.cluster.local:8443/repository/pypi-all/simple/
+      auth: { type: basic, secretName: patchy-registry-nexus }
+      ca: { configMap: corp-root-ca, key: ca.crt }
+      internal:
+        cidrs: [10.100.12.34/32] # the Service's ClusterIP
+        podSelector: { namespace: tools, matchLabels: { app: nexus } }
+        targetPort: 8081 # the pods' container port
+```
+
+- `cidrs` are the **only** addresses the proxy dials for that registry, and only on the URL's port: IPv4, `/24` or
+  narrower, and a `/32` for anything inside `agent.networkPolicy.clusterCIDRs` (so a range can never admit
+  `kubernetes.default` or its neighbours). The always-denied set can never be listed: `0/8`, `127/8`, `169.254/16`
+  (IMDS, Pod Identity), `224/4`, `240/4`, `clusterDNSCIDR`, the attribution `apiServerCIDRs`, and the Kubernetes API's
+  Service address. Every other registry keeps the public policy (public IPv4 on 443).
+- The chart renders a proxy egress rule to `cidrs` on the URL's port and, with `podSelector`, one to the registry's pods
+  on `targetPort`. NetworkPolicy judges a Service's traffic **after** DNAT, by pod IP and container port, so a Service
+  on 8443 that targets 8081 needs `targetPort: 8081`; the `cidrs` rule stays on the URL port, which is what the dialer
+  dials.
+- `ca`: a ConfigMap in the release namespace; the registry then trusts only that bundle, never the system roots. It is
+  read at startup, so after editing it roll the proxy: `kubectl -n patchy rollout restart deploy/patchy-egress-proxy`.
+
+### Redirects and file hosts
+
+Artifactory with cloud storage and some CDN-fronted registries answer artifact requests with a `302` to a presigned URL.
+A redirect is followed only to a `redirectHosts` entry, with a fresh request and **no** `Authorization`, through the
+public dial policy, at most 3 hops, the presigned query kept; any other is `502 redirect_refused`, and no `Location`
+header ever reaches the agent. An entry is an exact host or a `*.suffix` pattern with at least three labels after the
+`*` (`*.s3.us-east-1.amazonaws.com`). The chart and the proxy refuse a pattern that is a shared cloud suffix or a parent
+of one (`*.amazonaws.com`, `*.s3.amazonaws.com`, `*.googleapis.com`, `*.blob.core.windows.net`, …) or that overlaps a
+denied host. `fileHosts` entries are exact hosts only, since the agent chooses the file paths there.
+
+**Keep registries off forge and model hosts.** The registry URL host, every `fileHosts` entry and every `redirectHosts`
+pattern are checked against a deny list: forges (`github.com`, `githubusercontent.com`, each profile's `host`), model
+APIs (`anthropic.com`, `openai.com`, the Azure, Bedrock and Vertex endpoints, and the egress broker's base-URL
+overrides), the Kubernetes API and, without `internal`, in-cluster names and IP literals. A redirect hop is checked
+again at request time. A GitHub Enterprise host known only as a `Forge` resource (in `patchy-config`) is invisible to
+the chart and the proxy: the job controllers check every grant's hosts against every Forge at launch and refuse the
+profile (the run settles as `launch_refused`, naming the host).
+
+### What the chart refuses
+
+The render fails, naming the value, on: a grant of an undefined registry; two grants of one ecosystem in a profile; a
+grant with neither or both of `packages` and `packagePolicy`; a CodeArtifact registry while `cloudCredentials` is
+`none`, on `go`, or whose URL is not its domain's endpoint; a denied URL host; a port other than 443 without `internal`;
+`internal.cidrs` overlapping the always-denied set or a non-`/32` inside the cluster ranges; `bearer`/`basic` without
+`secretName`, or `none`/`codeartifact` with one; `privateModules`/`publicChecksumLookups` off `go`, and an ecosystem
+switch on another ecosystem's grant; `targetPort` without `podSelector`; a `go` registry missing either checksum key; a
+denied or wildcard `fileHosts` entry and a denied, shared or two-label `redirectHosts` pattern; a `pypi` URL not ending
+`/simple/`; and `irsa` without the role annotation. The proxy validates all of it again at startup and refuses to start
+on a grant naming an unknown registry or a grant whose ecosystem, hosts or `privateModules` differ from the registry's.
+
+### Caps
+
+| Response                         | Cap                                                          |
+| -------------------------------- | ------------------------------------------------------------ |
+| npm packument                    | 64 MiB                                                       |
+| npm tarball, pip file, Go zip    | `maxArtifactBytes`, default `--max-artifact-bytes` (512 MiB) |
+| pip simple page, pip `.metadata` | 16 MiB                                                       |
+| other Go kinds                   | the public route's                                           |
+
 ## Audit and metrics
 
-One `slog` line per request, `msg` `proxied` or `refused`, with `profile`, `port`, `source_ip`, `route` (`go` or
-`sumdb`), `kind`, `module`, `version`, `method`, `status`, `upstream_status`, `bytes`, `duration`, `outcome` and
-`reason`. With attribution on, `pod`, `finding`, `owner`, `run_kind`, `attempt` and `repo` are filled best-effort; they
-never decide anything. Header and body values are never logged.
+One `slog` line per request, `msg` `proxied` or `refused`, with `profile`, `port`, `source_ip`, `route` (`go`, `sumdb`
+or `r/<registry>`), `kind`, `module`, `version`, `method`, `status`, `upstream_status`, `bytes`, `duration`, `outcome`
+and `reason`. With attribution on, `pod`, `finding`, `owner`, `run_kind`, `attempt` and `repo` are filled best-effort;
+they never decide anything. Header and body values are never logged.
 
-| `outcome`        | Meaning                                                                             |
-| ---------------- | ----------------------------------------------------------------------------------- |
-| `proxied`        | forwarded and answered                                                              |
-| `not_allowed`    | the module is outside the profile's prefixes, or the version failed the gate        |
-| `bad_path`       | the path broke the grammar                                                          |
-| `bad_request`    | a body, a query or an absolute-form URI                                             |
-| `method`         | not GET or HEAD                                                                     |
-| `limited`        | over a limit after waiting (503)                                                    |
-| `upstream_error` | the upstream failed, answered another status, or resolved to a denied address (502) |
-| `too_large`      | the response passed its size cap                                                    |
-| `suspended`      | the kill switch is on                                                               |
+A registry line adds, after `reason`: `ecosystem`, `registry`, `package` (npm name or pip project; a Go registry line
+keeps `module` and has no `package`), `credential` (`none`, `static` or `codeartifact`, **never** the value),
+`rewritten_links` and `dropped_links` (pip pages), `redirects` and `redirect_host`. `kind` is then `packument`,
+`tarball`, `page`, `file` or `metadata` (or a Go kind). A public-route line is exactly as before.
+
+| `outcome`                | Meaning                                                                                  |
+| ------------------------ | ---------------------------------------------------------------------------------------- |
+| `proxied`                | forwarded and answered (an upstream `404`/`410` too, with reason `not_found`)            |
+| `not_allowed`            | the package or module is outside the allowlist, or the version failed the gate           |
+| `bad_path`               | the path broke the grammar                                                               |
+| `bad_request`            | a body, a query or an absolute-form URI                                                  |
+| `method`                 | not GET or HEAD                                                                          |
+| `limited`                | over a limit after waiting (503)                                                         |
+| `upstream_error`         | the upstream failed, answered another status, or resolved to a denied address (502)      |
+| `too_large`              | the response passed its size cap                                                         |
+| `suspended`              | the kill switch is on                                                                    |
+| `not_granted`            | the profile holds no grant for that registry                                             |
+| `prerelease`             | an npm prerelease or build version without `allowPrerelease` (403)                       |
+| `registry_refused`       | the registry answered `403`: its own curation refused it (npm/pip 403, go 410)           |
+| `upstream_auth`          | the registry answered `401`: the credential was refused (502; the credential is re-read) |
+| `credential_unavailable` | no valid credential yet, or the CodeArtifact token expired (503)                         |
+| `credential_echo`        | a response contained the credential (502, or the stream aborted)                         |
+| `redirect_refused`       | a redirect to a host not in `redirectHosts`, over 3 hops, or not https (502)             |
+| `denied_host`            | a redirect hop to a denied host (502)                                                    |
+| `private_module`         | a `privateModules` path on the public route or a checksum lookup of one (410)            |
+| `checksum_not_public`    | a checksum lookup the registry's `publicChecksumLookups` does not allow (410)            |
+
+**Credential lifecycle lines** carry the registry and its kind, never a value: `credential_loaded`,
+`credential_reloaded`, `credential_invalid` (with the reason), `credential_minted` (with `expires_at`),
+`credential_mint_failed` (with the AWS error code and the endpoint's address class) and `credential_rejected` (the
+`healthPackage` self-check). At startup each registry logs `registry configured` with its ecosystem, host and credential
+kind.
 
 **Expect `not_allowed` lines during normal builds.** With the proxy first, every baked module outside the allowlist is
 asked of the proxy, refused, and then served from the image's cache. Those lines are the fall-through working, not an
 attack.
 
-Metrics: `patchy.egress_proxy.requests` (by `profile`, `route`, `outcome`), `patchy.egress_proxy.bytes` (by `profile`,
-`route`) and `patchy.egress_proxy.inflight` (by `profile`).
+Metrics: `patchy.egress_proxy.requests` (by `profile`, `route`, `outcome`, plus `ecosystem` and `registry` on registry
+routes), `patchy.egress_proxy.bytes` (by `profile`, `route`), `patchy.egress_proxy.inflight` (by `profile`),
+`patchy.egress_proxy.credential.refreshes` (by `registry`, `kind`, `result`), `patchy.egress_proxy.credential.expiry`
+(seconds until a CodeArtifact token expires, by `registry`) and `patchy.egress_proxy.index.links` (by `registry`,
+`result` `rewritten` or `dropped`). They are exported only with telemetry configured. The proxy's NetworkPolicy allows
+only public 443 out, so an OTLP endpoint in the cluster also needs an `egressProxy.networkPolicy.extraEgress` rule; a
+hosted collector on public 443 needs none.
+
+## Debugging without a log sink
+
+Everything below works on a cluster that ships no container logs anywhere, with nothing added to the chart. What is lost
+without a sink is long history, not the recent past.
+
+**Why did this fetch fail?** Look at the run first. Go `410` and npm `403` bodies name the rule, and npm and the go
+command print them, so they are in the run's transcript, which the status page's run panel and `patchy describe` show.
+pip never prints a body, so for pip the proxy's audit line is the answer.
+
+**Which requests did the proxy refuse or forward?** Every request is one audit line:
+
+```sh
+kubectl -n patchy logs -l app.kubernetes.io/name=egress-proxy --prefix --tail=-1 --since=2h --max-log-requests=10 | grep -E 'outcome=(not_allowed|not_granted|prerelease|registry_refused|upstream_auth|credential_|redirect_refused|denied_host|private_module|checksum_not_public)'
+```
+
+`--tail=-1` matters: with a label selector kubectl shows only the last **10** lines per pod by default. `--prefix` names
+the pod each line came from. The audit lines are written at `info`, which the chart keeps for the proxy whatever the
+shared `config.logLevel` (see [Flags](#flags)).
+
+**Is the credential working, and when does it expire?**
+
+```sh
+kubectl -n patchy logs -l app.kubernetes.io/name=egress-proxy --prefix --tail=-1 --max-log-requests=10 | grep -E 'msg=(credential_|"registry configured")'
+kubectl -n patchy exec deploy/patchy-egress-proxy -- /usr/local/bin/controller probe --registry ca-pypi --package six
+```
+
+`probe` runs inside a proxy pod (the image is distroless: there is no shell, and the binary is
+`/usr/local/bin/controller`). It builds the engine from the pod's own configuration, loads or mints the registry's
+credential itself, sends one real request for the package (the registry's `healthPackage` without `--package`) through
+the first profile granting it, and prints one line such as
+`registry=ca-pypi profile=web path=/r/ca-pypi/simple/six/ status=200 upstream_status=200 outcome=ok reason= credential=codeartifact`.
+It never prints a credential or a response body, and exits non-zero unless the answer was `200`.
+
+**How far back can I see?** Only each container's **current** log file, which kubectl reads; rotated files need node
+access. On EKS that file rotates at 10 MiB, and an audit line is roughly 500-700 bytes, so a pod keeps about 15-20
+thousand recent requests; an `npm ci` makes about two requests per dependency, so a busy day can rotate past the
+morning. `kubectl logs --previous` adds the prior container of the **same** pod after a crash, not after the pod is
+replaced (a config roll, a `suspendProfiles` flip, a node drain, an upgrade), and a replaced pod's logs are gone.
+
+To keep a whole investigation, stream for its duration, starting before the run and restarting after any roll:
+
+```sh
+kubectl -n patchy logs -f -l app.kubernetes.io/name=egress-proxy --prefix --tail=-1 --max-log-requests=10 > proxy-$(date +%s).log &
+```
+
+If history ever matters, run a log shipper outside the patchy chart (a Fluent Bit DaemonSet, or the EKS observability
+add-on); it is cluster-level and changes nothing in this chart.
 
 ## Troubleshooting
 
@@ -186,6 +639,18 @@ Metrics: `patchy.egress_proxy.requests` (by `profile`, `route`, `outcome`), `pat
 - **`502 … upstream answered <code>` or `denied_address`.** proxy.golang.org or sum.golang.org failed, or their names
   resolved to an address the proxy refuses to dial. Check the cluster's DNS and outbound HTTPS from the release
   namespace.
-- **`503`.** A limit was reached and the wait ran out; raise `egressProxy.limits` if this is steady load.
+- **`503`.** A limit was reached and the wait ran out; raise `egressProxy.limits` if this is steady load. On a registry
+  route, `503 credential_unavailable` means the credential is not there yet: a missing or invalid Secret key
+  (`credential_invalid`), or a CodeArtifact token not yet minted or expired (`credential_mint_failed`).
+- **npm `403 … registry_refused`, pip `HTTP error 403`, go `410 … registry_refused`.** The registry's own curation
+  refused the package. If every request is refused, the credential may be revoked: run `probe`, and set a
+  `healthPackage`.
+- **`502 … upstream_auth`.** The registry refused the credential: rotate it, then check `credential_reloaded`.
+- **pip finds "no matching distribution" for a package the index has.** Its files are on a host missing from
+  `fileHosts`, or their links broke the file grammar: look for `dropped_links` above 0 on the page's audit line.
+- **`410 … checksum_not_public` from the go command.** See [Go registries](#go-registries).
+- **The proxy pods stay in `ContainerCreating`.** A registry's Secret (or a `ca` ConfigMap) is missing in the release
+  namespace: `kubectl -n patchy describe pod -l app.kubernetes.io/name=egress-proxy` names it.
 - **A Job has no profile.** Check the remediation's or intent run's `runnerImage.networkProfile` and the controller's
-  log line for the launch: no accepted image, no matching repository, two matching profiles, or the kill switch.
+  log line for the launch: no accepted image, no matching repository, two matching profiles, or the kill switch. A run
+  that settles as `launch_refused` names a grant host that is, or is below, a Forge's host.

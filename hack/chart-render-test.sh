@@ -1931,6 +1931,17 @@ cm egress-limits egress-proxy PATCHY_LIMIT_WAIT 10s
 cm egress-limits egress-proxy PATCHY_MAX_ZIP_BYTES 1048576000
 cm egress-limits egress-proxy PATCHY_REQUESTS_PER_SECOND_PER_SOURCE 2.5
 cm egress-limits egress-proxy PATCHY_BURST_PER_SOURCE null
+# The proxy's log level: the audit and credential lines are info, so the
+# shared default warn becomes info for the proxy alone; a louder shared
+# level and the proxy's own level are kept.
+cm egress-on egress-proxy PATCHY_LOG_LEVEL info
+cm egress-on remediation-controller PATCHY_LOG_LEVEL warn
+render egress-log-debug -f "$ri" -f "$ep" --set config.logLevel=debug
+cm egress-log-debug egress-proxy PATCHY_LOG_LEVEL debug
+render egress-log-own -f "$ri" -f "$ep" --set egressProxy.config.logLevel=warn
+cm egress-log-own egress-proxy PATCHY_LOG_LEVEL warn
+expect_fail 'egress proxy log level of the wrong value' '/egressProxy/config/logLevel' \
+  -f "$ri" -f "$ep" --set egressProxy.config.logLevel=loud
 
 # ---- egress proxy: the kill switch -------------------------------------------
 # suspendProfiles: the controllers stop applying profiles and the proxy
@@ -2031,6 +2042,252 @@ expect egress-fixed 'select(.kind == "ConfigMap" and .metadata.name == "patchy-e
   "/opt/go/.cache/mod golang.org/x/mod,github.com/google/uuid"
 render egress-no-schema -f "$ri" -f "$ep" --skip-schema-validation
 expect egress-no-schema 'select(.kind == "Deployment" and .metadata.name == "patchy-egress-proxy") | .kind' Deployment
+
+# ---- egress proxy registries (step 2): off adds nothing ----------------------
+# An explicit empty registries map renders exactly the step-1 render, and the
+# step-1 render carries none of the registry keys, volumes or rules.
+er=$fixtures/egress-registries.yaml
+render egress-on-empty-registries -f "$ri" -f "$ic" -f "$ep" --set agent.networkPolicy.dns=none \
+  --set-json 'egressProxy.registries={}' --set egressProxy.cloudCredentials=none
+if ! same_render "$out/egress-on.yaml" "$out/egress-on-empty-registries.yaml"; then
+  fail "egress-on-empty-registries: registries: {} changed the render: $(head -20 "$out/same.diff")"
+fi
+for key in PATCHY_EGRESS_REGISTRIES PATCHY_ALWAYS_DENY_CIDRS PATCHY_DENY_HOSTS; do
+  expect egress-on "select(.kind == \"ConfigMap\") | .data.$key | select(. != null)" ""
+done
+expect egress-on "$epdep | .spec.template.spec.volumes[] | select(.name | test(\"^registry-\")) | .name" ""
+expect egress-on 'select(.kind == "CiliumNetworkPolicy" and .metadata.name == "patchy-egress-proxy-cloud-credentials") | .kind' ""
+expect egress-on "$epnp | .spec.egress[] | select(.to[0].ipBlock.cidr == \"169.254.170.23/32\") | .ports[0].port" ""
+
+# ---- egress proxy registries on: four registries, two new profiles -----------
+render egress-reg -f "$ri" -f "$ic" -f "$ep" -f "$er" --set agent.networkPolicy.dns=none
+regjson='select(.kind == "ConfigMap" and .metadata.name == "patchy-egress-proxy-config") | .data.PATCHY_EGRESS_REGISTRIES'
+# The registries JSON: sorted by name, the credential by type alone, and no
+# Secret name or key anywhere in any ConfigMap.
+expect egress-reg "$regjson | from_json | map(.name + \"=\" + .ecosystem + \"/\" + .auth.type) | join(\",\")" \
+  art-go=go/basic,art-npm=npm/bearer,ca-npm=npm/codeartifact,nexus-pypi=pypi/basic
+expect egress-reg "$regjson | from_json | .[] | select(.name == \"art-go\") | (.privateModules | join(\",\")) + \" \" + (.publicChecksumLookups | tostring)" \
+  "acme.example false"
+expect egress-reg "$regjson | from_json | .[] | select(.name == \"ca-npm\") | .auth.codeartifact | .domain + \" \" + .domainOwner + \" \" + .region + \" \" + (.durationSeconds | tostring)" \
+  "patchy-gate 377946145366 us-east-1 3600"
+expect egress-reg "$regjson | from_json | .[] | select(.name == \"nexus-pypi\") | (.ca | tostring) + \" \" + (.internal.cidrs | join(\",\")) + \" \" + (.internal.targetPort | tostring) + \" \" + .internal.podSelector.namespace" \
+  "true 10.100.12.34/32 8081 tools"
+expect egress-reg "$regjson | from_json | .[] | select(.name == \"art-npm\") | .redirectHosts[0] + \" \" + .healthPackage" \
+  "*.s3.us-east-1.amazonaws.com left-pad"
+expect egress-reg "$regjson | from_json | .[] | select(.name != \"art-go\") | has(\"privateModules\")" "false
+false
+false"
+expect egress-reg 'select(.kind == "ConfigMap") | .data | to_entries[] | select(.value | test("patchy-registry-|secretName")) | .key' ""
+for c in remediation-controller intent-controller; do
+  cm egress-reg "$c" PATCHY_EGRESS_REGISTRIES null
+done
+cm egress-reg egress-proxy PATCHY_ALWAYS_DENY_CIDRS 172.20.0.10/32
+cm egress-reg egress-proxy PATCHY_DENY_HOSTS null
+# The profile JSON: one string in the three ConfigMaps, grants on the two new
+# profiles only, each with its registry's ecosystem, hosts and (go)
+# privateModules, and the step-1 profiles exactly as before.
+pj='.data.PATCHY_NETWORK_PROFILES'
+for c in remediation-controller intent-controller; do
+  expect egress-reg "select(.kind == \"ConfigMap\" and .metadata.name == \"patchy-$c-config\") | $pj" \
+    "$(get egress-reg "select(.kind == \"ConfigMap\" and .metadata.name == \"patchy-egress-proxy-config\") | $pj")"
+done
+regpj="select(.kind == \"ConfigMap\" and .metadata.name == \"patchy-egress-proxy-config\") | $pj | from_json"
+expect egress-reg "$regpj | .[] | select(has(\"registries\")) | .name + \" \" + (.registries | map(.name + \"/\" + .ecosystem) | join(\",\"))" \
+  'ca ca-npm/npm
+web art-go/go,art-npm/npm,nexus-pypi/pypi'
+expect egress-reg "$regpj | .[] | select(.name == \"web\") | .route + \"|\" + (.modules | length | tostring)" "|0"
+expect egress-reg "$regpj | .[] | select(.name == \"web\") | .registries[] | .name + \" \" + (.hosts | join(\",\"))" \
+  'art-go acme.jfrog.io
+art-npm acme.jfrog.io,*.s3.us-east-1.amazonaws.com
+nexus-pypi nexus.tools.svc.cluster.local,files.pythonhosted.org'
+expect egress-reg "$regpj | .[] | select(.name == \"web\") | .registries[] | select(.name == \"art-go\") | (.privateModules | join(\",\")) + \" \" + (.packages | join(\",\")) + \" \" + (.allowPseudoVersions | tostring)" \
+  "acme.example acme.example true"
+expect egress-reg "$regpj | .[] | select(.name == \"web\") | .registries[] | select(.name == \"art-npm\") | (.packages | join(\",\")) + \" \" + (has(\"privateModules\") | tostring) + \" \" + (has(\"scripts\") | tostring)" \
+  "left-pad,@acme/* false false"
+expect egress-reg "$regpj | .[] | select(.name == \"ca\") | .registries[0] | .packagePolicy + \" \" + (.scripts | tostring) + \" \" + (has(\"packages\") | tostring)" \
+  "registry true false"
+for p in go npm; do
+  expect egress-reg "$regpj | .[] | select(.name == \"$p\") | to_json(0)" \
+    "$(get egress-on "select(.kind == \"ConfigMap\" and .metadata.name == \"patchy-egress-proxy-config\") | $pj | from_json | .[] | select(.name == \"$p\") | to_json(0)")"
+done
+# The credential volume: one Secret per bearer/basic registry, exactly the
+# needed keys, optional false, 0440, mounted read-only with no subPath (kubelet
+# never refreshes a subPath mount); the CA volume likewise.
+regvol="$epdep | .spec.template.spec.volumes[] | select(.name == \"registry-credentials\") | .projected"
+expect egress-reg "$regvol | .defaultMode" 288
+expect egress-reg "$regvol | .sources[] | .secret.name + \" \" + (.secret.optional | tostring) + \" \" + (.secret.items | map(.key + \"=\" + .path) | join(\",\"))" \
+  'patchy-registry-art-go false username=art-go/username,password=art-go/password
+patchy-registry-art false token=art-npm/token
+patchy-registry-nexus false username=nexus-pypi/username,password=nexus-pypi/password'
+expect egress-reg "$epdep | .spec.template.spec.volumes[] | select(.name == \"registry-ca\") | .projected.sources[] | .configMap.name + \" \" + (.configMap.items | map(.key + \"=\" + .path) | join(\",\"))" \
+  "corp-root-ca ca.crt=nexus-pypi.pem"
+expect egress-reg "$epdep | .spec.template.spec.containers[0].volumeMounts[] | select(.name | test(\"^registry-\")) | .name + \" \" + .mountPath + \" \" + (.readOnly | tostring)" \
+  'registry-credentials /etc/patchy/registry-credentials true
+registry-ca /etc/patchy/registry-ca true'
+expect egress-reg "$epdep | .. | select(tag == \"!!map\") | select(has(\"subPath\")) | .subPath" ""
+# The proxy's policy: the internal registry's CIDR on its URL port, its pods
+# on their container port, and the Pod Identity agent; nothing else new.
+expect egress-reg "$epnp | .spec.egress[] | select(.to[0].ipBlock.cidr == \"10.100.12.34/32\") | .ports | map(.protocol + \"/\" + (.port | tostring)) | join(\",\")" TCP/8443
+expect egress-reg "$epnp | .spec.egress[] | select(.to[0].podSelector) | .to[0].namespaceSelector.matchLabels[\"kubernetes.io/metadata.name\"] + \" \" + (.to[0].podSelector.matchLabels | to_entries | map(.key + \"=\" + .value) | join(\",\")) + \" \" + (.ports[0].port | tostring)" \
+  "tools app=nexus 8081"
+expect egress-reg "$epnp | .spec.egress[] | select(.to[0].ipBlock.cidr == \"169.254.170.23/32\") | .ports | map(.protocol + \"/\" + (.port | tostring)) | join(\",\")" TCP/80
+render egress-reg-base -f "$ri" -f "$ic" -f "$ep" --set agent.networkPolicy.dns=none --set clusterDNSCIDR=172.20.0.10/32
+expect egress-reg "$epnp | .spec.egress | length" "$(($(get egress-reg-base "$epnp | .spec.egress | length") + 3))"
+expect egress-reg "$epnp | .spec.ingress[] | select(.from) | .ports[0].port" '8093
+8090
+8091
+8092'
+# A podSelector rule without targetPort uses the URL's port.
+render egress-reg-no-target -f "$ri" -f "$ep" -f "$er" --set egressProxy.registries.nexus-pypi.internal.targetPort=0
+expect egress-reg-no-target "$epnp | .spec.egress[] | select(.to[0].podSelector) | .ports[0].port" 8443
+# checksum/config: registries roll the proxy and both job controllers, and
+# nothing else.
+get egress-reg "$csum" | sort >"$out/csum.reg"
+changed=$(comm -13 "$out/csum.after" "$out/csum.reg" | cut -d' ' -f1 | sort | tr '\n' ' ')
+if [ "$changed" != "patchy-egress-proxy patchy-intent-controller patchy-remediation-controller " ]; then
+  fail "egress-reg: checksum/config changed on '$changed', want the proxy, intent- and remediation-controller"
+fi
+# Under mode cilium the Pod Identity agent is granted by a host-entity CNP.
+render egress-reg-cilium -f "$ri" -f "$ep" -f "$er" --set agent.networkPolicy.mode=cilium
+regcnp='select(.kind == "CiliumNetworkPolicy" and .metadata.name == "patchy-egress-proxy-cloud-credentials")'
+expect egress-reg-cilium "$regcnp | .spec.egress[0].toEntities[0] + \" \" + .spec.egress[0].toPorts[0].ports[0].port" "host 80"
+expect egress-reg-cilium "$regcnp | .spec.endpointSelector.matchLabels[\"app.kubernetes.io/name\"]" egress-proxy
+expect egress-reg 'select(.kind == "CiliumNetworkPolicy") | .metadata.name' ""
+# irsa: the role annotation, and no Pod Identity rule.
+render egress-reg-irsa -f "$ri" -f "$ep" -f "$er" --set egressProxy.cloudCredentials=irsa \
+  --set-json 'egressProxy.serviceAccount.annotations={"eks.amazonaws.com/role-arn":"arn:aws:iam::377946145366:role/patchy-egress-proxy"}'
+expect egress-reg-irsa "$epnp | .spec.egress[] | select(.to[0].ipBlock.cidr == \"169.254.170.23/32\") | .kind" ""
+expect egress-reg-irsa 'select(.kind == "ServiceAccount" and .metadata.name == "patchy-egress-proxy") | .metadata.annotations["eks.amazonaws.com/role-arn"]' \
+  arn:aws:iam::377946145366:role/patchy-egress-proxy
+expect egress-reg-irsa "$epdep | .spec.template.spec.automountServiceAccountToken" false
+# Attribution adds the API server's endpoints to the always-denied ranges; a
+# render without an internal registry stamps none.
+render egress-reg-attr -f "$ri" -f "$ep" -f "$er" --set egressProxy.attribution.enabled=true \
+  --set-json 'egressProxy.attribution.apiServerCIDRs=["10.0.1.10/32"]'
+cm egress-reg-attr egress-proxy PATCHY_ALWAYS_DENY_CIDRS 172.20.0.10/32,10.0.1.10/32
+render egress-reg-public -f "$ri" -f "$ep" --set clusterDNSCIDR=172.20.0.10/32 \
+  --set-json 'egressProxy.registries={"art-npm":{"ecosystem":"npm","url":"https://acme.jfrog.io/npm/","auth":{"type":"none"}}}'
+cm egress-reg-public egress-proxy PATCHY_ALWAYS_DENY_CIDRS null
+expect egress-reg-public "$epdep | .spec.template.spec.volumes[] | select(.name == \"registry-ca\") | .name" ""
+expect egress-reg-public "$epnp | .spec.egress[] | select(.to[0].podSelector) | .kind" ""
+# The broker's base-URL overrides become request-time redirect denials.
+render egress-reg-broker -f "$ri" -f "$ep" -f "$er" \
+  --set egressBroker.config.extra.PATCHY_ANTHROPIC_BASE_URL=https://LLM-Gateway.corp.example:8443/anthropic \
+  --set config.extra.PATCHY_BEDROCK_BASE_URL=https://bedrock.corp.example
+cm egress-reg-broker egress-proxy PATCHY_DENY_HOSTS bedrock.corp.example,llm-gateway.corp.example
+# extraEgress appends verbatim.
+render egress-reg-extra -f "$ri" -f "$ep" -f "$er" \
+  --set-json 'egressProxy.networkPolicy.extraEgress=[{"to":[{"ipBlock":{"cidr":"10.9.0.5/32"}}],"ports":[{"protocol":"TCP","port":4317}]}]'
+expect egress-reg-extra "$epnp | .spec.egress[-1] | .to[0].ipBlock.cidr + \" \" + (.ports[0].port | tostring)" "10.9.0.5/32 4317"
+# The NOTES name the Secrets the operator creates and the probe.
+notes egress-reg -f "$ri" -f "$ep" -f "$er"
+notes_has egress-reg '  - patchy-registry-art (art-npm, key token)' yes
+notes_has egress-reg '  - patchy-registry-nexus (nexus-pypi, keys username, password)' yes
+notes_has egress-reg 'ca-npm mints a CodeArtifact token' yes
+notes_has egress-reg '/usr/local/bin/controller probe --registry <name>' yes
+notes_has egress-on 'Registries:' no
+
+# ---- egress proxy registry guards: each fails, each passes once fixed ---------
+expect_fail 'guard 9: a grant of an undefined registry' 'agent.networkProfiles.ca.registries.nope grants a registry that egressProxy.registries does not define' \
+  -f "$ri" -f "$ep" -f "$er" --set-json 'agent.networkProfiles.ca.registries.nope={"packagePolicy":"registry"}'
+expect_fail 'guard 10: two npm grants' 'agent.networkProfiles.ca grants two npm registries (art-npm and ca-npm)' \
+  -f "$ri" -f "$ep" -f "$er" --set-json 'agent.networkProfiles.ca.registries.art-npm={"packagePolicy":"registry"}'
+expect_fail 'four grants (schema)' 'agent/networkProfiles/web/registries' \
+  -f "$ri" -f "$ep" -f "$er" --set-json 'agent.networkProfiles.web.registries.ca-npm={"packagePolicy":"registry"}'
+expect_fail 'guard 11: no package policy (schema)' 'agent/networkProfiles/ca/registries/ca-npm' \
+  -f "$ri" -f "$ep" -f "$er" --set-json 'agent.networkProfiles.ca.registries.ca-npm={"scripts":true}'
+expect_fail 'guard 11: no package policy' 'must say what it admits' --skip-schema-validation \
+  -f "$ri" -f "$ep" -f "$er" --set-json 'agent.networkProfiles.ca.registries.ca-npm={"scripts":true}'
+expect_fail 'guard 11: both policies' 'sets both packages and packagePolicy' --skip-schema-validation \
+  -f "$ri" -f "$ep" -f "$er" --set-json 'agent.networkProfiles.ca.registries.ca-npm={"packagePolicy":"registry","packages":["x"]}'
+expect_fail 'guard 12: codeartifact without a cloud identity' 'egressProxy.registries.ca-npm is a codeartifact registry but egressProxy.cloudCredentials is none' \
+  -f "$ri" -f "$ep" -f "$er" --set egressProxy.cloudCredentials=none
+expect_fail 'guard 12: codeartifact host of another domain' 'is not the CodeArtifact endpoint of its auth.codeartifact domain' \
+  -f "$ri" -f "$ep" -f "$er" --set-string egressProxy.registries.ca-npm.auth.codeartifact.domainOwner=111111111111
+expect_fail 'guard 12: codeartifact go' 'codeartifact has no Go module support' \
+  -f "$ri" -f "$ep" -f "$er" --set egressProxy.registries.ca-npm.ecosystem=go \
+  --set-json 'egressProxy.registries.ca-npm.privateModules=[]' --set egressProxy.registries.ca-npm.publicChecksumLookups=false
+for h in npm.pkg.github.com api.anthropic.com bedrock-runtime.us-east-1.amazonaws.com us-east5-aiplatform.googleapis.com \
+  x.cognitiveservices.azure.com generativelanguage.googleapis.com kubernetes.default.svc github.example.com; do
+  expect_fail "guard 13: registry on $h" "egressProxy.registries.art-npm.url host $h is" \
+    -f "$ri" -f "$ep" -f "$er" --set "egressProxy.registries.art-npm.url=https://$h/npm/"
+done
+expect_fail 'guard 13: an in-cluster name without internal' 'is an in-cluster name and the registry is not internal' \
+  -f "$ri" -f "$ep" -f "$er" --set egressProxy.registries.art-npm.url=https://nexus.tools.svc/npm/
+expect_fail 'guard 13: an IP literal outside internal.cidrs' 'is an IP literal outside' \
+  -f "$ri" -f "$ep" -f "$er" --set egressProxy.registries.nexus-pypi.url=https://10.100.12.35:8443/simple/
+expect_fail 'guard 13: the broker override host' 'egressProxy.registries.art-npm.url host gw.corp.example is gw.corp.example or below it' \
+  -f "$ri" -f "$ep" -f "$er" --set egressProxy.registries.art-npm.url=https://gw.corp.example/npm/ \
+  --set egressBroker.config.extra.PATCHY_ANTHROPIC_BASE_URL=https://gw.corp.example
+expect_fail 'guard 14: a public registry off 443' 'egressProxy.registries.art-npm.url names port 8443' \
+  -f "$ri" -f "$ep" -f "$er" --set egressProxy.registries.art-npm.url=https://npm.acme.example:8443/npm/
+expect_fail 'guard 15: a /24 inside clusterCIDRs' 'egressProxy.registries.nexus-pypi.internal.cidrs entry 10.100.12.0/24 is inside agent.networkPolicy.clusterCIDRs 10.0.0.0/8' \
+  -f "$ri" -f "$ep" -f "$er" --set-json 'egressProxy.registries.nexus-pypi.internal.cidrs=["10.100.12.0/24"]'
+expect_fail 'guard 15: clusterDNSCIDR inside cidrs' 'overlaps clusterDNSCIDR 172.20.0.10/32' \
+  -f "$ri" -f "$ep" -f "$er" --set-json 'egressProxy.registries.nexus-pypi.internal.cidrs=["172.20.0.0/24"]' \
+  --set-json 'agent.networkPolicy.clusterCIDRs=["10.0.0.0/8"]'
+expect_fail 'guard 15: link-local' 'overlaps the always-denied range 169.254.0.0/16' \
+  -f "$ri" -f "$ep" -f "$er" --set-json 'egressProxy.registries.nexus-pypi.internal.cidrs=["169.254.169.0/24"]' \
+  --set-json 'agent.networkPolicy.clusterCIDRs=["10.0.0.0/8"]'
+expect_fail 'guard 15: the API server endpoints' 'overlaps attribution.apiServerCIDRs 10.0.1.10/32' \
+  -f "$ri" -f "$ep" -f "$er" --set-json 'egressProxy.registries.nexus-pypi.internal.cidrs=["10.0.1.10/32"]' \
+  --set egressProxy.attribution.enabled=true --set-json 'egressProxy.attribution.apiServerCIDRs=["10.0.1.10/32"]'
+expect_fail 'guard 15: an unmasked CIDR' 'is not a masked IPv4 CIDR' \
+  -f "$ri" -f "$ep" -f "$er" --set-json 'egressProxy.registries.nexus-pypi.internal.cidrs=["192.0.2.7/24"]' \
+  --set-json 'agent.networkPolicy.clusterCIDRs=["10.0.0.0/8"]'
+expect_fail 'guard 16: bearer without a Secret (schema)' 'egressProxy/registries/art-npm/auth' \
+  -f "$ri" -f "$ep" -f "$er" --set egressProxy.registries.art-npm.auth.secretName=null
+expect_fail 'guard 16: bearer without a Secret' 'egressProxy.registries.art-npm.auth.secretName is required with auth.type bearer' \
+  --skip-schema-validation -f "$ri" -f "$ep" -f "$er" --set egressProxy.registries.art-npm.auth.secretName=null
+expect_fail 'guard 16: codeartifact with a Secret' 'egressProxy.registries.ca-npm.auth.secretName is set with auth.type codeartifact' \
+  -f "$ri" -f "$ep" -f "$er" --set egressProxy.registries.ca-npm.auth.secretName=x
+expect_fail 'guard 17: privateModules on npm' 'egressProxy.registries.art-npm: privateModules and publicChecksumLookups are for go registries only' \
+  -f "$ri" -f "$ep" -f "$er" --set-json 'egressProxy.registries.art-npm.privateModules=[]'
+expect_fail 'guard 17: scripts on a pypi grant' 'agent.networkProfiles.web.registries.nexus-pypi: scripts and allowPrerelease are for npm grants only' \
+  -f "$ri" -f "$ep" -f "$er" --set agent.networkProfiles.web.registries.nexus-pypi.scripts=true
+expect_fail 'guard 17: sdists on an npm grant' 'sdists is for pypi grants only' \
+  -f "$ri" -f "$ep" -f "$er" --set agent.networkProfiles.web.registries.art-npm.sdists=true
+expect_fail 'guard 17: allowPseudoVersions on an npm grant' 'allowPseudoVersions is for go grants only' \
+  -f "$ri" -f "$ep" -f "$er" --set agent.networkProfiles.web.registries.art-npm.allowPseudoVersions=true
+expect_fail 'guard 17: targetPort without podSelector' 'internal.targetPort is the podSelector rule' \
+  --skip-schema-validation -f "$ri" -f "$ep" -f "$er" --set-json 'egressProxy.registries.nexus-pypi.internal.podSelector=null'
+expect_fail 'guard 18: go without publicChecksumLookups (schema)' 'egressProxy/registries/art-go' \
+  -f "$ri" -f "$ep" -f "$er" --set egressProxy.registries.art-go.publicChecksumLookups=null
+expect_fail 'guard 18: go without publicChecksumLookups' 'must state both privateModules' --skip-schema-validation \
+  -f "$ri" -f "$ep" -f "$er" --set egressProxy.registries.art-go.publicChecksumLookups=null
+expect_fail 'guard 19: a denied file host' 'egressProxy.registries.nexus-pypi.fileHosts entry objects.githubusercontent.com is githubusercontent.com or below it' \
+  -f "$ri" -f "$ep" -f "$er" --set-json 'egressProxy.registries.nexus-pypi.fileHosts=["objects.githubusercontent.com"]'
+expect_fail 'guard 19: a wildcard file host' 'is not an exact host name' --skip-schema-validation \
+  -f "$ri" -f "$ep" -f "$er" --set-json 'egressProxy.registries.nexus-pypi.fileHosts=["*.files.acme.example"]'
+for pat in '*.amazonaws.com:has fewer than 3 labels' '*.googleapis.com:has fewer than 3 labels' \
+  '*.acme.io:has fewer than 3 labels' '*.s3.amazonaws.com:covers the shared suffix' \
+  '*.storage.googleapis.com:covers the shared suffix' '*.blob.core.windows.net:covers the shared suffix' \
+  '*.us-east-1.amazonaws.com:can match a Bedrock endpoint' \
+  '*.api.anthropic.com:overlaps the denied anthropic.com' '*.default.svc.cluster.local:can match the Kubernetes API name'; do
+  needle=${pat#*:}
+  pat=${pat%%:*}
+  expect_fail "guard 19: redirect pattern $pat" "egressProxy.registries.art-npm.redirectHosts entry $pat $needle" \
+    -f "$ri" -f "$ep" -f "$er" --set-json "egressProxy.registries.art-npm.redirectHosts=[\"$pat\"]"
+done
+expect_fail 'a pypi URL that is not an index' 'egressProxy.registries.nexus-pypi.url must be the index URL, ending /simple/' \
+  -f "$ri" -f "$ep" -f "$er" --set egressProxy.registries.nexus-pypi.url=https://nexus.tools.svc.cluster.local:8443/repository/pypi-all/
+expect_fail 'a profile with neither route nor grant (schema)' 'agent/networkProfiles/web' \
+  -f "$ri" -f "$ep" -f "$er" --set-json 'agent.networkProfiles.web.registries={}'
+expect_fail 'modules without a route (schema)' 'agent/networkProfiles/web' \
+  -f "$ri" -f "$ep" -f "$er" --set-json 'agent.networkProfiles.web.modules=["example.com/x"]'
+expect_fail 'irsa without the role' 'egressProxy.cloudCredentials irsa needs the role' \
+  -f "$ri" -f "$ep" -f "$er" --set egressProxy.cloudCredentials=irsa
+expect_fail 'an unknown registry key' 'additional properties' \
+  -f "$ri" -f "$ep" -f "$er" --set egressProxy.registries.art-npm.credential=file
+# ...and each passes once fixed: wildcards the table admits, an internal
+# registry by in-cluster name with a /32 ClusterIP, and an overlap-free set.
+render egress-reg-fixed -f "$ri" -f "$ep" -f "$er" \
+  --set-json 'egressProxy.registries.art-npm.redirectHosts=["*.s3.us-east-1.amazonaws.com","*.anthropic.acme.com","cdn.acme.example"]' \
+  --set-json 'egressProxy.registries.nexus-pypi.fileHosts=["files.pythonhosted.org","download.pytorch.org"]'
+expect egress-reg-fixed "$regjson | from_json | .[] | select(.name == \"art-npm\") | .redirectHosts | join(\",\")" \
+  "*.s3.us-east-1.amazonaws.com,*.anthropic.acme.com,cdn.acme.example"
+render egress-reg-no-schema -f "$ri" -f "$ep" -f "$er" --skip-schema-validation
+expect egress-reg-no-schema "$regjson | from_json | length" 4
 
 # ---- operator env, envFrom, volumes and mounts on every Deployment ----------
 # <component>.extraEnv/extraEnvFrom/extraVolumes/extraVolumeMounts, the same

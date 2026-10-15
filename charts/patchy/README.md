@@ -311,7 +311,24 @@ It requires `agent.repositoryImages.enabled` and is refused under mode `istio`; 
 [Helm docs](../../docs/deployment/helm.md). `egressProxy.suspendProfiles: true` is the kill switch: the controllers
 apply no profile from their next Job, and the proxy rolls into answering every profile request `410 suspended`, while
 every policy stays rendered. `enabled: false` removes everything. The proxy runs two replicas behind a
-PodDisruptionBudget, holds no credential, caches nothing, and never inherits the global `proxy` block.
+PodDisruptionBudget, caches nothing, and never inherits the global `proxy` block.
+
+**Registries** (also opt-in; `egressProxy.registries` is empty by default). A profile can be granted operator-defined
+upstream registries (Artifactory, Nexus, AWS CodeArtifact) for Go, npm and pip: `egressProxy.registries.<name>` defines
+one (`ecosystem`, `url`, `auth`, and optionally `fileHosts`, `redirectHosts`, `internal`, `ca`, `healthPackage`,
+`maxArtifactBytes`; a `go` registry must state `privateModules` and `publicChecksumLookups`), and
+`agent.networkProfiles.<profile>.registries.<name>` grants it with `packages` (an allowlist) or
+`packagePolicy: registry` (there is no default), at most one grant per ecosystem. The proxy then holds that registry's
+credential, and only the proxy: a `bearer` or `basic` Secret you create in the release namespace (`auth.secretName`;
+never created by the chart, mounted read-only into the proxy alone and re-read without a restart), or a CodeArtifact
+token it mints with its own identity (`egressProxy.cloudCredentials`: `irsa` with the role on
+`egressProxy.serviceAccount.annotations`, or `podIdentity`, which adds egress to the node-local Pod Identity agent). The
+render refuses a registry on a forge, model API or Kubernetes API host, a CodeArtifact URL that is not its domain's
+endpoint, a private address without `internal`, and a grant that names no registry or no package policy.
+`egressProxy.networkPolicy.extraEgress` appends rules to the proxy's policy (an in-cluster OTLP collector), and
+`egressProxy.config.logLevel` sets its log level (default: the shared level, but never quieter than `info`, so its audit
+lines are kept). The [egress proxy docs](../../docs/configuration/egress-proxy.md#registries) cover every field, the IAM
+policy, rotation and debugging without a log sink.
 
 ## Values worth knowing
 

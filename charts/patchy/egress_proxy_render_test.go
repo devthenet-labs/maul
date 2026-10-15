@@ -4,6 +4,7 @@
 package chart_test
 
 import (
+	"net/netip"
 	"os/exec"
 	"reflect"
 	"strings"
@@ -77,4 +78,104 @@ func TestChartNetworkProfilesParse(t *testing.T) {
 	if p, reason := set.For("https://github.com/devthenet-labs/patchy-target"); p.Name != "go" || reason != "" {
 		t.Error("the go profile does not match devthenet-labs/patchy-target")
 	}
+}
+
+// egressRegistryArgs layers the registries fixture over the on-fixture.
+var egressRegistryArgs = append(append([]string{}, egressOnArgs...),
+	"-f", "../../hack/testdata/chart-render/egress-registries.yaml")
+
+// TestChartRegistriesParse: what the chart renders for the registries
+// fixture is what the binaries start with. The proxy's registries JSON
+// passes netprofile.ParseRegistries in the context the proxy builds (the
+// profiles' forge hosts plus PATCHY_DENY_HOSTS, the always-denied ranges
+// plus a Kubernetes Service IP), every grant agrees with its registry
+// (netprofile.CheckGrants, the proxy's startup check), the profile set
+// parses in all three ConfigMaps, and each grant's hosts clear a job
+// controller's Forge check against the profiles' own forge hosts.
+func TestChartRegistriesParse(t *testing.T) {
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm not on PATH")
+	}
+	data := renderConfigMaps(t, egressRegistryArgs)
+	proxy := data["patchy-egress-proxy-config"]
+	set, err := netprofile.Parse([]byte(proxy[netprofile.EnvProfiles]))
+	if err != nil {
+		t.Fatalf("netprofile.Parse refuses the chart's profiles: %v", err)
+	}
+	for _, c := range []string{"patchy-remediation-controller-config", "patchy-intent-controller-config"} {
+		if data[c][netprofile.EnvProfiles] != proxy[netprofile.EnvProfiles] {
+			t.Errorf("%s's profiles differ from the proxy's", c)
+		}
+		if _, ok := data[c]["PATCHY_EGRESS_REGISTRIES"]; ok {
+			t.Errorf("%s carries the registries; only the proxy reads them", c)
+		}
+	}
+	regs, err := netprofile.ParseRegistries([]byte(proxy["PATCHY_EGRESS_REGISTRIES"]), proxyRegistryContext(set, proxy))
+	if err != nil {
+		t.Fatalf("netprofile.ParseRegistries refuses the chart's registries: %v", err)
+	}
+	if regs.Len() != 4 {
+		t.Errorf("parsed %d registries, want 4", regs.Len())
+	}
+	if err := netprofile.CheckGrants(set, regs); err != nil {
+		t.Errorf("the chart's grants disagree with its registries: %v", err)
+	}
+	web, ok := set.Get("web")
+	if !ok || len(web.Registries) != 3 || web.Route != "" {
+		t.Fatalf("web profile = %+v, want three grants and no route", web)
+	}
+	for _, p := range set.Profiles() {
+		for _, g := range p.Registries {
+			if err := g.DeniedHosts(netprofile.DenyContext{Hosts: set.Hosts()}); err != nil {
+				t.Errorf("profile %s: a job controller's Forge check refuses grant %s: %v", p.Name, g.Name, err)
+			}
+		}
+	}
+	if g, _ := web.GrantFor(netprofile.EcosystemGo); !reflect.DeepEqual(g.PrivateModules, []string{"acme.example"}) {
+		t.Errorf("web's go grant privateModules = %v, want [acme.example]", g.PrivateModules)
+	}
+	if p, reason := set.For("https://github.com/acme/web"); p.Name != "web" || reason != "" {
+		t.Errorf("acme/web matched profile %q (%s), want web", p.Name, reason)
+	}
+}
+
+// renderConfigMaps renders the chart with args and returns every
+// ConfigMap's data by name.
+func renderConfigMaps(t *testing.T, args []string) map[string]map[string]string {
+	t.Helper()
+	all := append([]string{"template", "patchy", ".", "--namespace", "patchy"}, args...)
+	output, err := exec.CommandContext(t.Context(), "helm", all...).Output()
+	if err != nil {
+		t.Fatalf("render chart: %v", err)
+	}
+	dec := yaml.NewYAMLOrJSONDecoder(strings.NewReader(string(output)), 4096)
+	data := map[string]map[string]string{}
+	for {
+		u := &unstructured.Unstructured{}
+		if err := dec.Decode(u); err != nil {
+			break
+		}
+		if u.GetKind() == "ConfigMap" {
+			d, _, _ := unstructured.NestedStringMap(u.Object, "data")
+			data[u.GetName()] = d
+		}
+	}
+	return data
+}
+
+// proxyRegistryContext is the context the egress proxy validates its
+// registries in: the profiles' forge hosts plus PATCHY_DENY_HOSTS, and
+// PATCHY_ALWAYS_DENY_CIDRS plus a Kubernetes Service IP.
+func proxyRegistryContext(set netprofile.Set, proxy map[string]string) netprofile.RegistryContext {
+	cidrs := strings.Split(proxy["PATCHY_ALWAYS_DENY_CIDRS"], ",")
+	always := make([]netip.Prefix, 0, len(cidrs)+1)
+	always = append(always, netip.MustParsePrefix("10.100.0.1/32"))
+	for _, c := range cidrs {
+		always = append(always, netip.MustParsePrefix(c))
+	}
+	deny := set.Hosts()
+	if h := proxy["PATCHY_DENY_HOSTS"]; h != "" {
+		deny = append(deny, strings.Split(h, ",")...)
+	}
+	return netprofile.RegistryContext{DenyHosts: deny, AlwaysDeny: always}
 }

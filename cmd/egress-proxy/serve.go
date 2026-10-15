@@ -93,6 +93,10 @@ func addEngineFlags(cmd *cobra.Command) {
 		"largest npm tarball, pip file or go zip passed through a registry route, unless the registry sets its own")
 	f.Duration("credential-poll-interval", credfile.DefaultInterval,
 		"how often the mounted registry credentials are re-read (at least 5s)")
+	f.String("deny-hosts", "",
+		"comma-separated hosts no registry, file host or redirect hop may be, each with every name below it, "+
+			"beside the built-in forge and model API table and the profiles' forge hosts (the egress broker's "+
+			"base-URL overrides)")
 	f.String("always-deny-cidrs", "",
 		"comma-separated CIDRs never dialled even when an internal registry lists them (cluster DNS, the API "+
 			"server endpoints), beside the built-in always-denied ranges and KUBERNETES_SERVICE_HOST")
@@ -180,7 +184,7 @@ func configure(opts *cli.Options) (settings, error) {
 			Registries:        reg.set,
 			MaxArtifactBytes:  reg.maxArtifactBytes,
 			AlwaysDeny:        reg.alwaysDeny,
-			DenyHosts:         set.Hosts(),
+			DenyHosts:         reg.denyHosts,
 			RegistryCAs:       reg.cas,
 			SelfCheckInterval: reg.pollInterval,
 		},
