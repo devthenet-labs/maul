@@ -100,6 +100,7 @@ func addEngineFlags(cmd *cobra.Command) {
 	f.String("always-deny-cidrs", "",
 		"comma-separated CIDRs never dialled even when an internal registry lists them (cluster DNS, the API "+
 			"server endpoints), beside the built-in always-denied ranges and KUBERNETES_SERVICE_HOST")
+	addTunnelFlags(cmd)
 }
 
 // settings is the validated configuration of one serve run.
@@ -158,6 +159,10 @@ func configure(opts *cli.Options) (settings, error) {
 	if err != nil {
 		return settings{}, err
 	}
+	tunnel, err := configureTunnel(opts)
+	if err != nil {
+		return settings{}, err
+	}
 	return settings{
 		credentialsDir: opts.String("registry-credentials-dir"),
 		pollInterval:   reg.pollInterval,
@@ -180,6 +185,7 @@ func configure(opts *cli.Options) (settings, error) {
 				HeaderTimeout:       opts.Duration("upstream-header-timeout"),
 				MaxZipBytes:         int64(opts.Int("max-zip-bytes")),
 			},
+			TunnelLimits:      tunnel,
 			Suspended:         opts.Bool("suspended"),
 			Registries:        reg.set,
 			MaxArtifactBytes:  reg.maxArtifactBytes,
@@ -243,6 +249,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		return err
 	}
 	logRegistries(ctx, log, s.engine.Registries)
+	logTunnel(ctx, log, s.engine.Profiles, s.engine.TunnelLimits)
 	return run(ctx, srv, s.healthAddr, net.Listen, log)
 }
 

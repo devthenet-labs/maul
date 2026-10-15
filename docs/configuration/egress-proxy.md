@@ -131,32 +131,50 @@ As everywhere, each flag is also the matching `PATCHY_*` environment variable. T
 from its own values, never from the global `proxy` block: a corporate HTTPS proxy for the egress proxy's own upstream
 traffic is **not supported** in step 1.
 
-| Flag                               | Default                            | Purpose                                                                                       |
-| ---------------------------------- | ---------------------------------- | --------------------------------------------------------------------------------------------- |
-| `--registries`                     | —                                  | The registries as the chart renders them (a JSON array); empty: no registry route             |
-| `--network-profiles`               | required                           | The profile set as the chart renders it (a JSON array); refused when empty or invalid         |
-| `--health-addr`                    | `:8081`                            | `/healthz` and `/readyz`; no profile may use its port                                         |
-| `--go-proxy-upstream`              | `https://proxy.golang.org`         | Module proxy every go route forwards to (https only)                                          |
-| `--go-sumdb-upstream`              | `https://sum.golang.org`           | Checksum database every sumdb route forwards to (https only)                                  |
-| `--deny-cidrs`                     | —                                  | CIDRs never dialled, beside the built-in private, link-local and reserved ranges              |
-| `--max-concurrent`                 | `128`                              | Requests in flight across every source                                                        |
-| `--max-concurrent-per-source`      | `32`                               | Requests in flight from one source IP                                                         |
-| `--requests-per-second-per-source` | `100`                              | Request rate of one source IP                                                                 |
-| `--burst-per-source`               | `200`                              | Request burst of one source IP                                                                |
-| `--limit-wait`                     | `30s`                              | How long a request queues for the limits above before a 503                                   |
-| `--request-timeout`                | `10m`                              | Bound on one whole request, the body stream included                                          |
-| `--upstream-header-timeout`        | `2m`                               | Bound on the wait for an upstream's response headers                                          |
-| `--max-zip-bytes`                  | `524288000`                        | Largest module zip passed through                                                             |
-| `--suspended`                      | `false`                            | Answer every profile request `410 suspended` (the immediate lever)                            |
-| `--attribute-pods`                 | `false`                            | Attribute source IPs to agent pods in the audit line (best-effort; needs read access to pods) |
-| `--agent-namespace`                | `patchy-agents`                    | Namespace of the agent pods attributed                                                        |
-| `--kubeconfig`                     | in-cluster                         | Kubeconfig for attribution                                                                    |
-| `--registry-credentials-dir`       | `/etc/patchy/registry-credentials` | The mounted static credentials: `<registry>/token`, or `<registry>/username` and `password`   |
-| `--registry-ca-dir`                | `/etc/patchy/registry-ca`          | The registries' CA bundles, `<registry>.pem`                                                  |
-| `--max-artifact-bytes`             | `536870912`                        | Largest npm tarball, pip file or Go zip on a registry route, unless the registry sets its own |
-| `--credential-poll-interval`       | `30s`                              | How often the mounted credentials are re-read (at least `5s`)                                 |
-| `--always-deny-cidrs`              | —                                  | CIDRs never dialled even when an internal registry lists them                                 |
-| `--deny-hosts`                     | —                                  | Hosts no registry, file host or redirect hop may be, each with every name below it            |
+| Flag                                 | Default                            | Purpose                                                                                        |
+| ------------------------------------ | ---------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `--registries`                       | —                                  | The registries as the chart renders them (a JSON array); empty: no registry route              |
+| `--network-profiles`                 | required                           | The profile set as the chart renders it (a JSON array); refused when empty or invalid          |
+| `--health-addr`                      | `:8081`                            | `/healthz` and `/readyz`; no profile may use its port                                          |
+| `--go-proxy-upstream`                | `https://proxy.golang.org`         | Module proxy every go route forwards to (https only)                                           |
+| `--go-sumdb-upstream`                | `https://sum.golang.org`           | Checksum database every sumdb route forwards to (https only)                                   |
+| `--deny-cidrs`                       | —                                  | CIDRs never dialled, beside the built-in private, link-local and reserved ranges               |
+| `--max-concurrent`                   | `128`                              | Requests in flight across every source                                                         |
+| `--max-concurrent-per-source`        | `32`                               | Requests in flight from one source IP                                                          |
+| `--requests-per-second-per-source`   | `100`                              | Request rate of one source IP                                                                  |
+| `--burst-per-source`                 | `200`                              | Request burst of one source IP                                                                 |
+| `--limit-wait`                       | `30s`                              | How long a request queues for the limits above before a 503                                    |
+| `--request-timeout`                  | `10m`                              | Bound on one whole request, the body stream included                                           |
+| `--upstream-header-timeout`          | `2m`                               | Bound on the wait for an upstream's response headers                                           |
+| `--max-zip-bytes`                    | `524288000`                        | Largest module zip passed through                                                              |
+| `--suspended`                        | `false`                            | Answer every profile request `410 suspended` (the immediate lever)                             |
+| `--attribute-pods`                   | `false`                            | Attribute source IPs to agent pods in the audit line (best-effort; needs read access to pods)  |
+| `--agent-namespace`                  | `patchy-agents`                    | Namespace of the agent pods attributed                                                         |
+| `--kubeconfig`                       | in-cluster                         | Kubeconfig for attribution                                                                     |
+| `--registry-credentials-dir`         | `/etc/patchy/registry-credentials` | The mounted static credentials: `<registry>/token`, or `<registry>/username` and `password`    |
+| `--registry-ca-dir`                  | `/etc/patchy/registry-ca`          | The registries' CA bundles, `<registry>.pem`                                                   |
+| `--max-artifact-bytes`               | `536870912`                        | Largest npm tarball, pip file or Go zip on a registry route, unless the registry sets its own  |
+| `--credential-poll-interval`         | `30s`                              | How often the mounted credentials are re-read (at least `5s`)                                  |
+| `--always-deny-cidrs`                | —                                  | CIDRs never dialled even when an internal registry lists them                                  |
+| `--deny-hosts`                       | —                                  | Hosts no registry, file host or redirect hop may be, each with every name below it             |
+| `--tunnel-max-concurrent`            | `256`                              | Open CONNECT tunnels across every source                                                       |
+| `--tunnel-max-concurrent-per-source` | `32`                               | Open tunnels from one source IP                                                                |
+| `--tunnel-rate-per-source`           | `10`                               | New tunnels per second from one source IP                                                      |
+| `--tunnel-burst-per-source`          | `50`                               | New-tunnel burst of one source IP                                                              |
+| `--tunnel-limit-wait`                | `10s`                              | How long a CONNECT queues for the tunnel limits before a 503                                   |
+| `--tunnel-dial-timeout`              | `10s`                              | Bound on a tunnel's resolve and connect                                                        |
+| `--tunnel-hello-timeout`             | `10s`                              | Bound on the wait from the 200 to a complete TLS ClientHello                                   |
+| `--tunnel-idle-timeout`              | `2m`                               | A tunnel with no byte either way for this long is closed                                       |
+| `--tunnel-max-duration`              | `30m`                              | Absolute lifetime of one tunnel                                                                |
+| `--tunnel-max-upload-bytes`          | `1048576`                          | Client-to-upstream bytes on one tunnel (provisional; a profile's `upload.perTunnel` wins)      |
+| `--tunnel-max-download-bytes`        | `2147483648`                       | Upstream-to-client bytes on one tunnel                                                         |
+| `--tunnel-source-upload-budget`      | `8388608`                          | Upload bytes of one source IP on one profile per window (provisional; `upload.perSource` wins) |
+| `--tunnel-source-download-budget`    | `8589934592`                       | Download bytes of one source IP on one profile per window                                      |
+| `--tunnel-source-budget-idle`        | `2h`                               | A source's budget entry expires this long after its last tunnel closed                         |
+| `--tunnel-min-budget-idle`           | `2h`                               | Floor of the window above (the longest Job deadline); startup refuses less                     |
+| `--tunnel-max-sources`               | `4096`                             | Budget-table entries per profile; full refuses a new source, never evicts                      |
+| `--tunnel-progress-interval`         | `5m`                               | Period of an open tunnel's progress line; `0` turns it off                                     |
+| `--tunnel-deny-cidrs`                | —                                  | CIDRs only the tunnel never dials (the Kubernetes API server's addresses)                      |
 
 The chart sets `--deny-cidrs` to `agent.networkPolicy.clusterCIDRs` plus `clusterDNSCIDR`. Each `egressProxy.limits`
 value renders only when set; 0 or empty keeps the default above. With registries configured it also sets `--registries`
@@ -165,6 +183,9 @@ broker's base-URL overrides (`PATCHY_{ANTHROPIC,BEDROCK,VERTEX,FOUNDRY}_BASE_URL
 `egressBroker.config.extra`) and, when a registry is `internal`, `--always-deny-cidrs` to `clusterDNSCIDR` plus the
 attribution `apiServerCIDRs`. The Kubernetes API's Service address (`KUBERNETES_SERVICE_HOST`, which kubelet injects
 into every container) is always denied too.
+
+The `--tunnel-*` flags bound the CONNECT tunnel a profile with `hosts` serves on its own port (step 3). No chart value
+sets `hosts` yet, so the tunnel is off; with no profile listing hosts these flags change nothing.
 
 The chart stamps the proxy's `PATCHY_LOG_LEVEL` from `egressProxy.config.logLevel`, or else the shared `config.logLevel`
 but never quieter than `info`: the audit and credential lines below are written at `info`, so at the chart's default
