@@ -19,6 +19,25 @@
 // and the paths below it on path-element boundaries, so golang.org/x never
 // admits golang.org/xyz.
 //
+// Step 2 adds credentialed registries. A Registry (registry.go) is an
+// operator-defined upstream (egressProxy.registries.<name>): its ecosystem
+// (go, npm or pypi), https base URL, credential type (never a Secret's name
+// or value), file and redirect hosts, optional internal admission and, for
+// go, the checksum choice. ParseRegistries reads the proxy's registries
+// JSON. A profile holds Grants (grant.go), at most one per ecosystem, each
+// with an explicit package policy (an allowlist, or "registry"); a profile
+// may then omit its public route. CheckGrants holds the two documents to
+// each other.
+//
+// The grammars the proxy judges registry paths by are pure functions here
+// (pkgname.go): NPMName, NPMPath and NPMVersion for npm (the scope
+// separator is the only escape admitted), PyNormalize, PyProjectOfFile and
+// PyFilePath for pip (only %2B and %21 admitted, no empty, . or ..
+// segment). DeniedHost and DeniedPattern (denied.go) are the hard deny
+// table every registry, file and redirect host passes: forges, model APIs,
+// the Kubernetes API, in-cluster names and IP literals outside a
+// registry's own internal CIDRs.
+//
 // The package imports only the standard library (a test pins that), so the
 // proxy, the controllers and the jobs package can share it without linking
 // anything else.

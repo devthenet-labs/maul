@@ -14,7 +14,9 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestAddrPolicy(t *testing.T) {
@@ -249,5 +251,34 @@ func TestUpstreamURLJoin(t *testing.T) {
 		if got := outboundURL(base, tt.path).String(); got != tt.want {
 			t.Errorf("outboundURL(%s, %s) = %s, want %s", tt.base, tt.path, got, tt.want)
 		}
+	}
+}
+
+// TestNewGuardedClient: the exported client judges every address by its
+// policy before dialling and never follows a redirect.
+func TestNewGuardedClient(t *testing.T) {
+	var redirected atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/target" {
+			redirected.Add(1)
+		}
+		http.Redirect(w, r, "/target", http.StatusFound)
+	}))
+	defer srv.Close()
+
+	loopback := NewGuardedClient(AddrPolicy{testLoopback: true}, 5*time.Second)
+	resp, err := loopback.Get(srv.URL + "/start")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusFound || redirected.Load() != 0 {
+		t.Fatalf("status %d, %d redirected requests: the client followed a redirect", resp.StatusCode,
+			redirected.Load())
+	}
+
+	public := NewGuardedClient(AddrPolicy{}, 5*time.Second)
+	if _, err := public.Get(srv.URL); !errors.Is(err, ErrDeniedAddress) {
+		t.Fatalf("the production policy dialled loopback: %v", err)
 	}
 }

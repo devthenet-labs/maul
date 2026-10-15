@@ -21,7 +21,11 @@
 // or non-443 address at connect time (dial.go), so a rebinding answer is
 // judged on the address actually dialled.
 //
-// The proxy holds no credential and caches nothing. Each request emits one
+// The proxy caches nothing, and its step-1 routes hold no credential. Step
+// 2's credentialed registry routes take theirs from a CredentialSource
+// (credential.go): a Credential's value sits in unexported fields and every
+// formatter prints it as [redacted]. The sources are adapters: credfile
+// (a mounted Secret, polled) and awsca (a minted CodeArtifact token). Each request emits one
 // audit line (never a header or body) and the patchy.egress_proxy metrics.
 // Attribution of a source IP to an agent pod (PodLookup) is audit garnish
 // only and never decides anything. The core imports no Kubernetes package;

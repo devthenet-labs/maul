@@ -98,6 +98,28 @@ func (p AddrPolicy) Check(ap netip.AddrPort) error {
 	return nil
 }
 
+// DialPolicy judges an address the guarded dialer is about to connect to,
+// wrapping ErrDeniedAddress when it may not. AddrPolicy is the forwarding
+// routes' policy; a credential minter's clients bring their own (awsca).
+type DialPolicy interface {
+	Check(ap netip.AddrPort) error
+}
+
+// NewGuardedClient is an HTTP client whose every connection goes through
+// the guarded dialer under policy: IPv4 only, the policy judged before the
+// dial and again on the address actually connected, no proxy from the
+// environment, redirects never followed. The CodeArtifact minter gives
+// the AWS SDK two of these, one per policy.
+func NewGuardedClient(policy DialPolicy, timeout time.Duration) *http.Client {
+	return &http.Client{
+		Transport: newTransport(newGuardedDialer(policy, nil), timeout),
+		Timeout:   timeout,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+}
+
 // lookupFunc resolves a host to IPv4 addresses.
 type lookupFunc func(ctx context.Context, host string) ([]netip.Addr, error)
 
@@ -111,12 +133,12 @@ func defaultLookup(ctx context.Context, host string) ([]netip.Addr, error) {
 // connect time. A denied address ends the dial; it is never retried on
 // another address.
 type guardedDialer struct {
-	policy AddrPolicy
+	policy DialPolicy
 	lookup lookupFunc
 	dialer net.Dialer
 }
 
-func newGuardedDialer(policy AddrPolicy, lookup lookupFunc) *guardedDialer {
+func newGuardedDialer(policy DialPolicy, lookup lookupFunc) *guardedDialer {
 	if lookup == nil {
 		lookup = defaultLookup
 	}
