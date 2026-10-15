@@ -312,7 +312,7 @@ spec:
                 app.kubernetes.io/part-of: patchy
                 app.kubernetes.io/component: server
             annotations:
-                checksum/config: aa5b9b64397f08e7b9e21696d47b936ed5ad4e78a88d9767e845808715762b33
+                checksum/config: CHECKSUM
         spec:
             serviceAccountName: patchy-status-server
             securityContext:
