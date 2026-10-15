@@ -185,7 +185,8 @@ func networkRoutesPrompt(profile string, r NetworkRoutes, needs string) string {
 	case eco != "":
 		opening += " for: " + eco + "."
 	default:
-		opening += ", over HTTPS from the hosts below."
+		opening = "Packages can be downloaded over HTTPS from the hosts below, through the operator's " +
+			"dependency route " + code(profile) + "."
 	}
 	parts := []string{wrap(opening, "  ", "  ")}
 	if r.hasGo() {
@@ -200,9 +201,19 @@ func networkRoutesPrompt(profile string, r NetworkRoutes, needs string) string {
 	if len(r.TunnelHosts) > 0 {
 		parts = append(parts, wrap(tunnelRoute(r, needs), "  - ", "    "))
 	}
-	parts = append(parts, wrap("Anything else on the network is unreachable. A refused package answers `403` "+
-		"(`410` for Go) with a reason; report it rather than working around it. A reviewer will check every new "+
-		"dependency. If a dependency the "+needs+" needs is refused, stop and report it.", "  ", "  "))
+	closing := "Anything else on the network is unreachable. A refused package answers `403`"
+	if r.hasGo() {
+		closing += " (`410` for Go)"
+	}
+	closing += " with a reason; report it rather than working around it. A reviewer will check every new dependency."
+	if len(r.TunnelHosts) > 0 {
+		// The tunnel bullet already says what to report when a dependency
+		// is refused; repeating it here would read as a second instruction.
+		closing += " Stop once any route refuses a dependency the " + needs + " needs."
+	} else {
+		closing += " If a dependency the " + needs + " needs is refused, stop and report it."
+	}
+	parts = append(parts, wrap(closing, "  ", "  "))
 	return strings.Join(parts, "\n")
 }
 

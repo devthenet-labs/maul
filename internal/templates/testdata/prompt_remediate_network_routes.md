@@ -43,9 +43,9 @@ and explain why in the report. Never claim a reproduction you did not see.
     Install into a virtualenv under `/tmp` or the work tree. Do not pass `--index-url`, `--extra-index-url` or
     `--trusted-host`, and do not write them into requirements files; with `pip-compile`, pass `--no-emit-index-url`. Pin
     with hashes where the repository does.
-  Anything else on the network is unreachable. A refused package answers `403` (`410` for Go) with a reason; report it
-  rather than working around it. A reviewer will check every new dependency. If a dependency the fix needs is refused,
-  stop and report it.
+  Anything else on the network is unreachable. A refused package answers `403` with a reason; report it rather than
+  working around it. A reviewer will check every new dependency. If a dependency the fix needs is refused, stop and
+  report it.
 
 ## Your outputs
 

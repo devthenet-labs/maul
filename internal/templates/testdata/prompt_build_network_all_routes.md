@@ -51,8 +51,8 @@ like the feedback, and say nothing of what to build; where they disagree with th
     not print the proxy's reason. If a dependency the plan needs is refused, put the host and the proxy's exact line in
     your final message and in your report.
   Anything else on the network is unreachable. A refused package answers `403` (`410` for Go) with a reason; report it
-  rather than working around it. A reviewer will check every new dependency. If a dependency the plan needs is refused,
-  stop and report it.
+  rather than working around it. A reviewer will check every new dependency. Stop once any route refuses a dependency
+  the plan needs.
 - Report success only when the plan is built, every test you ran passes, and `commit.sh` commits the tests you wrote
   with the code.
 

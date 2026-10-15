@@ -78,10 +78,25 @@ func TestNetworkTunnelPrompt(t *testing.T) {
 				t.Errorf("tunnel prompt lacks %q:\n%s", want, got)
 			}
 		}
-		for _, never := range []string{"GOPROXY", "**Go**", "no network access", "no **network access**"} {
+		for _, never := range []string{"GOPROXY", "**Go**", "for Go", "`410`", "no network access",
+			"no **network access**"} {
 			if strings.Contains(flat, never) {
 				t.Errorf("tunnel-only prompt says %q:\n%s", never, got)
 			}
+		}
+		if n := strings.Count(flat, "needs is refused"); n != 1 {
+			t.Errorf("tunnel-only prompt says what to do with a refused dependency %d times, want once:\n%s", n, got)
+		}
+
+		// A grant-only profile without the Go route has no Go answer to
+		// describe either.
+		grants, err := render("web", webRoutes())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if flat := strings.Join(strings.Fields(grants), " "); strings.Contains(flat, "for Go") ||
+			strings.Contains(flat, "`410`") {
+			t.Errorf("npm+pypi prompt describes the Go refusal:\n%s", grants)
 		}
 
 		withGo, err := render("go", goTunnelRoutes())
@@ -89,7 +104,8 @@ func TestNetworkTunnelPrompt(t *testing.T) {
 			t.Fatal(err)
 		}
 		flat = strings.Join(strings.Fields(withGo), " ")
-		for _, want := range []string{"**Go**", "Do not change `GOPROXY`", "`registry.npmjs.org`", "egress-proxy"} {
+		for _, want := range []string{"**Go**", "Do not change `GOPROXY`", "`registry.npmjs.org`", "egress-proxy",
+			"(`410` for Go)"} {
 			if !strings.Contains(flat, want) {
 				t.Errorf("go+tunnel prompt lacks %q:\n%s", want, withGo)
 			}

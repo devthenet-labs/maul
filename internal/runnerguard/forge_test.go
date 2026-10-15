@@ -220,6 +220,14 @@ func TestProxyHostForms(t *testing.T) {
 // host with the pip preset and its own upload caps.
 func tunnelSpec(t *testing.T) *jobs.Spec {
 	t.Helper()
+	spec, _ := tunnelSpecSet(t)
+	return spec
+}
+
+// tunnelSpecSet is tunnelSpec with the profile set it was applied from, so
+// a test can check the set after changing the spec.
+func tunnelSpecSet(t *testing.T) (*jobs.Spec, netprofile.Set) {
+	t.Helper()
 	set, err := netprofile.Parse([]byte(`[{"name":"web","route":"tunnel","port":8092,` +
 		`"repositories":["devthenet-labs/patchy-target"],"modules":[],"bakedModCache":"",` +
 		`"hosts":["pypi.org","files.pythonhosted.org"],"clients":["pip"],` +
@@ -232,14 +240,14 @@ func tunnelSpec(t *testing.T) *jobs.Spec {
 	if applied, skipped := g.Profile(&spec, targetURL); applied != "web" {
 		t.Fatalf("Profile = (%q, %q), want web", applied, skipped)
 	}
-	return &spec
+	return &spec, set
 }
 
 // TestProfileCopiesTunnel: the requested profile carries the operator's
 // tunnel hosts and client presets exactly (step 3), never aliasing the
 // profile set's; the upload caps stay with the egress proxy.
 func TestProfileCopiesTunnel(t *testing.T) {
-	spec := tunnelSpec(t)
+	spec, set := tunnelSpecSet(t)
 	want := jobs.NetworkProfile{Name: "web", Route: "tunnel",
 		ProxyURL: "http://patchy-egress-proxy.patchy.svc.cluster.local:8092",
 		Hosts:    []string{"pypi.org", "files.pythonhosted.org"}, Clients: []string{"pip"}}
@@ -248,8 +256,8 @@ func TestProfileCopiesTunnel(t *testing.T) {
 	}
 	spec.NetworkProfile.Hosts[0] = "evil.example"
 	spec.NetworkProfile.Clients[0] = "npm"
-	again := tunnelSpec(t)
-	if again.NetworkProfile.Hosts[0] != "pypi.org" || again.NetworkProfile.Clients[0] != "pip" {
+	again, _ := set.Get("web")
+	if again.Hosts[0] != "pypi.org" || again.Clients[0] != "pip" {
 		t.Error("the spec's tunnel hosts or clients alias the profile set's")
 	}
 }

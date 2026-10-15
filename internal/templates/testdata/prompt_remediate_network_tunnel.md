@@ -32,7 +32,7 @@ and explain why in the report. Never claim a reproduction you did not see.
   keep every test you write in the working tree, and have `commit.sh` commit it with the code.
   Never delete or revert a test you wrote — not after it passes, and not to leave a clean tree.
 - Verify your work as well as the repository lets you: run the relevant tests or builds if they are runnable here.
-  Packages can be fetched through the operator's dependency route `py`, over HTTPS from the hosts below.
+  Packages can be downloaded over HTTPS from the hosts below, through the operator's dependency route `py`.
   - **HTTPS downloads**: packages can be downloaded over HTTPS from these hosts only, through the operator's proxy,
     which is already configured in this environment: `files.pythonhosted.org` and `pypi.org`. Any other host, plain
     http, and git dependencies are refused (`403 egress-proxy: …`). Do not change `HTTPS_PROXY`, `NO_PROXY` or a
@@ -42,9 +42,8 @@ and explain why in the report. Never claim a reproduction you did not see.
     `http.client.HTTPSConnection(proxy_host, proxy_port).set_tunnel("<host>", 443)`), because some package managers do
     not print the proxy's reason. If a dependency the fix needs is refused, put the host and the proxy's exact line in
     your final message and in your report.
-  Anything else on the network is unreachable. A refused package answers `403` (`410` for Go) with a reason; report it
-  rather than working around it. A reviewer will check every new dependency. If a dependency the fix needs is refused,
-  stop and report it.
+  Anything else on the network is unreachable. A refused package answers `403` with a reason; report it rather than
+  working around it. A reviewer will check every new dependency. Stop once any route refuses a dependency the fix needs.
 
 ## Your outputs
 

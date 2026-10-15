@@ -90,6 +90,24 @@ func TestNetworkRoutesPromptGoldens(t *testing.T) {
 	}
 }
 
+// TestNetworkRoutesPromptGoRefusal: only a profile with a Go route (public
+// or a go registry) is told of the Go route's `410`; TestNetworkRoutesPrompt
+// holds an npm/pip profile to never mentioning it.
+func TestNetworkRoutesPromptGoRefusal(t *testing.T) {
+	for _, render := range []func(string, NetworkRoutes) (string, error){renderBuildRoutes, renderRemediateRoutes} {
+		for _, r := range []NetworkRoutes{goRegRoutes(), {PublicGo: true, Grants: webRoutes().Grants}} {
+			withGo, err := render("go", r)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(strings.Join(strings.Fields(withGo), " "),
+				"A refused package answers `403` (`410` for Go) with a reason") {
+				t.Errorf("a Go routes prompt lacks the Go refusal:\n%s", withGo)
+			}
+		}
+	}
+}
+
 // TestNetworkRoutesPrompt: a profile with grants is described per
 // ecosystem, under the opening sentence and above the shared closing,
 // never as offline and never with step 1's Go paragraph alone; a run told
@@ -108,14 +126,14 @@ func TestNetworkRoutesPrompt(t *testing.T) {
 			"which packages exist is the registry's decision", "Only release versions (x.y.z)",
 			"Install scripts do not run", "`package-lock.json` keeps the registry's own URLs",
 			"**pip**:", "`six`, `requests`", "wheels only (no source builds)", "`--no-emit-index-url`",
-			"A refused package answers `403` (`410` for Go) with a reason",
+			"A refused package answers `403` with a reason",
 			"A reviewer will check every new dependency",
 		} {
 			if !strings.Contains(flat, want) {
 				t.Errorf("the routes prompt lacks %q:\n%s", want, got)
 			}
 		}
-		for _, banned := range []string{"no network access", "**Go**", "Go modules can be fetched"} {
+		for _, banned := range []string{"no network access", "**Go**", "Go modules can be fetched", "for Go"} {
 			if strings.Contains(flat, banned) {
 				t.Errorf("the npm/pip routes prompt says %q:\n%s", banned, got)
 			}

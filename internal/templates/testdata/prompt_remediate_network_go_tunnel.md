@@ -50,8 +50,8 @@ and explain why in the report. Never claim a reproduction you did not see.
     not print the proxy's reason. If a dependency the fix needs is refused, put the host and the proxy's exact line in
     your final message and in your report.
   Anything else on the network is unreachable. A refused package answers `403` (`410` for Go) with a reason; report it
-  rather than working around it. A reviewer will check every new dependency. If a dependency the fix needs is refused,
-  stop and report it.
+  rather than working around it. A reviewer will check every new dependency. Stop once any route refuses a dependency
+  the fix needs.
 
 ## Your outputs
 
