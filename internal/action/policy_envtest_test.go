@@ -385,6 +385,34 @@ func TestPolicyCannotBeBypassedByPatch(t *testing.T) {
 	}
 }
 
+// TestPolicyAdmitsTheClientsPatch: the CLI and the status page write each
+// verb as a merge patch of the one field it sets, guarded by the
+// resourceVersion it decided on. That write must pass for the verb's holder,
+// and a stale resourceVersion must still conflict so the caller re-decides.
+func TestPolicyAdmitsTheClientsPatch(t *testing.T) {
+	env := startPolicyEnv(t)
+	env.seed(t, "clients-patch", v1alpha1.PhaseAwaitingApproval)
+	user := env.userClient(t, "approver@acme.test", action.VerbApprove)
+
+	f := get(t, user, "clients-patch")
+	base := f.DeepCopy()
+	if _, err := action.Apply(f, action.VerbApprove, "approver@acme.test", "ok", time.Now()); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	lock := client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})
+	if err := user.Patch(t.Context(), f, lock); err != nil {
+		t.Fatalf("approve by merge patch rejected: %v", err)
+	}
+
+	// base still carries the old resourceVersion.
+	stale := base.DeepCopy()
+	stale.Spec.Approval = approval()
+	err := user.Patch(t.Context(), stale, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{}))
+	if !apierrors.IsConflict(err) {
+		t.Errorf("stale patch err = %v, want a conflict", err)
+	}
+}
+
 // TestPolicyCoversCreate closes the delete-and-recreate route: a user who can
 // create findings must not be able to create one with an approval already on it.
 func TestPolicyCoversCreate(t *testing.T) {

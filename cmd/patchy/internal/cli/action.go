@@ -203,6 +203,7 @@ func applyOne(ctx context.Context, opts *Options, env *kubecfg.Env,
 		if err := env.Client.Get(callCtx, objectKey(env, name), &fnd); err != nil {
 			return err
 		}
+		base := fnd.DeepCopy()
 		var err error
 		changed, err = action.Apply(&fnd, verb, user, f.note, now())
 		if err != nil {
@@ -211,7 +212,9 @@ func applyOne(ctx context.Context, opts *Options, env *kubecfg.Env,
 		if !changed || f.dryRun {
 			return nil
 		}
-		return env.Client.Update(callCtx, &fnd)
+		// Patch only the field the verb changed, guarded by the
+		// resourceVersion the gating decision was made against.
+		return env.Client.Patch(callCtx, &fnd, specPatch(base))
 	})
 	return changed, err
 }

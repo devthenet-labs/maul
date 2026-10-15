@@ -578,6 +578,10 @@ That second piece exists because Kubernetes RBAC has no notion of a field: `upda
 Without the policy, letting a developer suspend a finding would also let them rewrite its severity or forge an approval.
 See [Kustomize](deployment/kustomize.md) for the manifest and the role ladder.
 
+Every action is written as a JSON merge patch of the one spec field it sets, guarded by the resource version the CLI
+read, so the native verb it needs is `patch`. The patch also means the CLI's field manager (`patchy`) owns that field
+and nothing else: a `helm upgrade` of the Integrations that `patchy backfill` stamped applies without conflicts.
+
 !!! warning "Requires Kubernetes 1.30+"
 
     `ValidatingAdmissionPolicy` reached GA in 1.30. On an older cluster the policy will not install and

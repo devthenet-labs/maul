@@ -391,14 +391,16 @@ func TestHandleActionRetriesConflict(t *testing.T) {
 		WithObjects(actionFinding(v1alpha1.PhaseQueued)).
 		WithStatusSubresource(&v1alpha1.Finding{}).
 		WithInterceptorFuncs(interceptor.Funcs{
-			Update: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+			Patch: func(ctx context.Context, cl client.WithWatch, obj client.Object, patch client.Patch,
+				opts ...client.PatchOption,
+			) error {
 				if conflicts > 0 {
 					conflicts--
 					return apierrors.NewConflict(
 						schema.GroupResource{Group: "patchy.bitwisemedia.uk", Resource: "findings"},
 						obj.GetName(), nil)
 				}
-				return cl.Update(ctx, obj, opts...)
+				return cl.Patch(ctx, obj, patch, opts...)
 			},
 		}).
 		Build()
@@ -408,8 +410,53 @@ func TestHandleActionRetriesConflict(t *testing.T) {
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d (%s), want 200 after retry", res.StatusCode, body)
 	}
+	if conflicts != 0 {
+		t.Fatal("the injected conflict was never returned; the handler did not write through Patch")
+	}
 	if !getFinding(t, c, "fnd-1").Spec.Suspend {
 		t.Error("suspend not applied after conflict retry")
+	}
+}
+
+// TestHandleActionPatchCarriesResourceVersion proves the spec patch is
+// decided on the state it was gated against: when the finding reaches a
+// terminal phase between the handler's read and its write, the patch must
+// conflict (its resourceVersion is stale), the retry must re-run the gating
+// on fresh state, and suspend must be refused rather than written onto a
+// finished finding. A patch without the optimistic lock would go through.
+func TestHandleActionPatchCarriesResourceVersion(t *testing.T) {
+	raced := false
+	c := fake.NewClientBuilder().
+		WithScheme(kube.Scheme()).
+		WithObjects(actionFinding(v1alpha1.PhaseQueued)).
+		WithStatusSubresource(&v1alpha1.Finding{}).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Patch: func(ctx context.Context, cl client.WithWatch, obj client.Object, patch client.Patch,
+				opts ...client.PatchOption,
+			) error {
+				if !raced {
+					raced = true
+					var cur v1alpha1.Finding
+					if err := cl.Get(ctx, client.ObjectKeyFromObject(obj), &cur); err != nil {
+						return err
+					}
+					cur.Status.Phase = v1alpha1.PhaseRemediated
+					if err := cl.Status().Update(ctx, &cur); err != nil {
+						return err
+					}
+				}
+				return cl.Patch(ctx, obj, patch, opts...)
+			},
+		}).
+		Build()
+	s := NewServer(c, "patchy", stubAuth{id: operator}, stubGranter{grants: allGrants()}, nil)
+	s.now = func() time.Time { return testClock }
+	res, body := postAction(t, s, "fnd-1", "suspend")
+	if res.StatusCode != http.StatusForbidden {
+		t.Errorf("status = %d (%s), want 403 once the retry sees the terminal phase", res.StatusCode, body)
+	}
+	if getFinding(t, c, "fnd-1").Spec.Suspend {
+		t.Error("suspend written onto a finding that went terminal after the gating decision")
 	}
 }
 

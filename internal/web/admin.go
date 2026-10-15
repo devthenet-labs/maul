@@ -90,8 +90,9 @@ func (s *Server) requestReplay(ctx context.Context, id auth.Identity) error {
 			if err := s.client.Get(ctx, client.ObjectKeyFromObject(&list.Items[i]), &cur); err != nil {
 				return err
 			}
+			base := cur.DeepCopy()
 			cur.Spec.Replay = &v1alpha1.ActionRequest{By: id.Username, At: metav1.NewTime(s.now())}
-			return s.client.Update(ctx, &cur)
+			return s.client.Patch(ctx, &cur, specPatch(base))
 		})
 		if err != nil {
 			return fmt.Errorf("request replay on integration %s: %w", name, err)
@@ -130,8 +131,9 @@ func (s *Server) resetAll(ctx context.Context, id auth.Identity) error {
 			if err := s.client.Get(ctx, client.ObjectKeyFromObject(&list.Items[i]), &cur); err != nil {
 				return err
 			}
+			base := cur.DeepCopy()
 			cur.Spec.Reset = &v1alpha1.ActionRequest{By: id.Username, At: metav1.NewTime(s.now())}
-			return s.client.Update(ctx, &cur)
+			return s.client.Patch(ctx, &cur, specPatch(base))
 		})
 		if err != nil {
 			return fmt.Errorf("request reset on integration %s: %w", name, err)

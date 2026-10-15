@@ -93,12 +93,19 @@ func runBackfill(ctx context.Context, opts *Options, name string, repos []string
 		if integ.Spec.Suspend {
 			return fmt.Errorf("integration %s is suspended", name)
 		}
+		base := integ.DeepCopy()
 		integ.Spec.Backfill = &v1alpha1.BackfillRequest{
 			By:           user,
 			At:           metav1.Now(),
 			Repositories: repos,
 		}
-		return env.Client.Update(callCtx, &integ)
+		// A merge patch of spec.backfill alone, never a full Update: the
+		// rest of the spec is the operator's (Helm applies it), and an Update
+		// re-serialises it — "10m" reads back as "10m0s" — which hands those
+		// fields to this field manager and makes the next helm upgrade
+		// conflict. The resourceVersion precondition keeps the suspend check
+		// above honest.
+		return env.Client.Patch(callCtx, &integ, specPatch(base))
 	})
 	if err != nil {
 		return err

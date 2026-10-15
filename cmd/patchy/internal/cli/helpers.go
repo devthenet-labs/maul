@@ -38,6 +38,17 @@ func listOptions(env *kubecfg.Env, selector string) []client.ListOption {
 	return out
 }
 
+// specPatch is the write every spec verb makes: a JSON merge patch of only
+// what changed since base, so the CLI's field manager takes ownership of the
+// one field the verb sets and nothing an operator applies (a full Update
+// re-serialises the whole spec and can claim fields whose encoding merely
+// round-trips differently). The optimistic lock adds base's resourceVersion,
+// so a write decided on stale state fails with a conflict and is retried
+// against fresh state, exactly as an Update would.
+func specPatch(base client.Object) client.Patch {
+	return client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})
+}
+
 // objectKey names an object in the environment's namespace.
 func objectKey(env *kubecfg.Env, name string) types.NamespacedName {
 	return types.NamespacedName{Namespace: env.Namespace, Name: name}

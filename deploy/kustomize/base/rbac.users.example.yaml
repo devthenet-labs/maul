@@ -13,12 +13,15 @@
 #   * the patchy CLI acts as the user's OWN kubeconfig identity, so the API
 #     server authorizes it directly.
 #
-# The CLI is why every role below viewer also grants native `update`: without
-# it no client acting as the user could write a finding at all. RBAC has no
-# notion of a field, so `update` alone would grant the whole resource — the
+# The CLI is why every role below viewer also grants native `patch` (and
+# `update`, for kubectl edit): without them no client acting as the user could
+# write a finding at all. The CLI writes each action as a merge patch of the
+# one field it sets, so its field manager never claims fields an operator
+# applies. RBAC has no notion of a field, so `patch`/`update` alone would
+# grant the whole resource — the
 # ValidatingAdmissionPolicy in admission-policy.yaml is what narrows it back
 # down, binding each spec field to its custom verb for every client equally.
-# Grant `update` only alongside that policy, and note that `create`/`delete`
+# Grant `patch`/`update` only alongside that policy, and note that `create`/`delete`
 # are deliberately absent: with them, a user could delete a finding and
 # recreate it with an approval already set.
 #

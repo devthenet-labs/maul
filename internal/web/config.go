@@ -438,12 +438,13 @@ func (s *Server) handleBackfill(w http.ResponseWriter, r *http.Request) {
 			return &statusError{code: http.StatusConflict,
 				msg: fmt.Sprintf("Integration %q does not support backfill.", name)}
 		}
+		base := cur.DeepCopy()
 		cur.Spec.Backfill = &v1alpha1.BackfillRequest{
 			By:           id.Username,
 			At:           metav1.NewTime(s.now()),
 			Repositories: body.Repositories,
 		}
-		return s.client.Update(r.Context(), &cur)
+		return s.client.Patch(r.Context(), &cur, specPatch(base))
 	})
 	if err != nil {
 		var se *statusError
