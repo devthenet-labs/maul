@@ -13,6 +13,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
 	"github.com/bitwise-media-group/patchy/internal/action"
@@ -89,11 +90,24 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// specPatch is the write every status-page spec action makes: a JSON merge
+// patch of only what changed since base, so the status server's field
+// manager takes ownership of the one field the action sets and nothing the
+// operator (Helm) or a controller applies. A full Update re-serialises the
+// whole spec and claims every field whose encoding merely round-trips
+// differently ("10m" reads back as "10m0s"), which makes the next helm
+// upgrade conflict. The optimistic lock carries base's resourceVersion, so a
+// write decided on stale state still fails with a conflict and is retried.
+func specPatch(base client.Object) client.Patch {
+	return client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})
+}
+
 // apply performs one verb against fresh state. The gating lives in
 // internal/action so the CLI applies identical semantics; this maps its
 // outcomes onto HTTP and writes. A no-op (the action's effect is already
 // recorded) skips the write and still reports success.
 func (s *Server) apply(r *http.Request, cur *v1alpha1.Finding, verb string, id auth.Identity) error {
+	base := cur.DeepCopy()
 	changed, err := action.Apply(cur, verb, id.Username, approveNote, s.now())
 	switch {
 	case errors.Is(err, action.ErrUnavailable):
@@ -109,5 +123,5 @@ func (s *Server) apply(r *http.Request, cur *v1alpha1.Finding, verb string, id a
 	case !changed:
 		return nil
 	}
-	return s.client.Update(r.Context(), cur)
+	return s.client.Patch(r.Context(), cur, specPatch(base))
 }

@@ -85,9 +85,10 @@ It enforces, for everyone except the patchy controllers:
     `kubectl api-resources | grep validatingadmissionpolic` before relying on the verb ladder.
 
 `base/rbac.users.example.yaml` is documentation rather than an applied resource: copy the role ladder into your overlay
-and bind it to your own users or SSO groups. Roles above viewer grant `update` on findings — that is what lets the CLI
-write at all, and the admission policy is what makes it safe. `create` and `delete` are deliberately withheld, so nobody
-can launder an approval by deleting a finding and recreating it with one preset.
+and bind it to your own users or SSO groups. Roles above viewer grant `patch` (and `update`) on findings — the CLI
+writes each action as a merge patch of the one spec field it sets, so `patch` is what lets it write at all, and the
+admission policy is what makes it safe. `create` and `delete` are deliberately withheld, so nobody can launder an
+approval by deleting a finding and recreating it with one preset.
 
 ## The overlays
 
