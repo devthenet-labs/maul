@@ -2032,6 +2032,114 @@ expect egress-fixed 'select(.kind == "ConfigMap" and .metadata.name == "patchy-e
 render egress-no-schema -f "$ri" -f "$ep" --skip-schema-validation
 expect egress-no-schema 'select(.kind == "Deployment" and .metadata.name == "patchy-egress-proxy") | .kind' Deployment
 
+# ---- operator env, envFrom, volumes and mounts on every Deployment ----------
+# <component>.extraEnv/extraEnvFrom/extraVolumes/extraVolumeMounts, the same
+# four keys on all twelve Deployments: a Secret-backed env var (AWS keys for
+# source-controller resolving ECR off AWS), an envFrom source listed BEFORE
+# the chart's ConfigMap (a later source wins a clash, so the chart's keys
+# win), and a mounted volume. Every optional component is on here.
+components="integrationController:integration-controller sourceController:source-controller
+contextController:context-controller investigationController:investigation-controller
+remediationController:remediation-controller evaluationController:evaluation-controller
+intentController:intent-controller statusServer:status-server egressBroker:egress-broker
+egressProxy:egress-proxy previewController:preview-controller previewAuth:preview-auth"
+extras=$out/extras.yaml
+: >"$extras"
+for pair in $components; do
+  key=${pair%%:*}
+  cat >>"$extras" <<EXTRAS
+$key:
+  extraEnv:
+    - name: EXTRA_FROM_SECRET
+      valueFrom:
+        secretKeyRef: {name: $key-env, key: value}
+  extraEnvFrom:
+    - secretRef: {name: $key-envfrom}
+  extraVolumes:
+    - name: extra-ca
+      configMap: {name: $key-ca}
+  extraVolumeMounts:
+    - name: extra-ca
+      mountPath: /etc/extra-ca
+      readOnly: true
+EXTRAS
+done
+allcomponents="-f $pf -f $ic -f $pc -f $pav -f $ri -f $fixtures/egress-proxy.yaml -f $fixtures/evaluation-controller.yaml"
+# shellcheck disable=SC2086 # $allcomponents is a list of helm arguments.
+render extras-all $allcomponents -f "$extras"
+# shellcheck disable=SC2086
+render extras-none $allcomponents
+for pair in $components; do
+  key=${pair%%:*}
+  dep="select(.kind == \"Deployment\" and .metadata.name == \"patchy-${pair#*:}\") | .spec.template.spec"
+  expect extras-all "$dep | .containers[0].env[] | select(.name == \"EXTRA_FROM_SECRET\") | .valueFrom.secretKeyRef.name" "$key-env"
+  expect extras-all "$dep | .containers[0].envFrom[0].secretRef.name" "$key-envfrom"
+  expect extras-all "$dep | .containers[0].envFrom[-1].configMapRef.name" "patchy-${pair#*:}-config"
+  expect extras-all "$dep | .volumes[] | select(.name == \"extra-ca\") | .configMap.name" "$key-ca"
+  expect extras-all "$dep | .containers[0].volumeMounts[] | select(.name == \"extra-ca\") | .mountPath" "/etc/extra-ca"
+  # Unset, nothing of it renders.
+  expect extras-none "$dep | .containers[0].env[]? | select(.name == \"EXTRA_FROM_SECRET\") | .name" ""
+  expect extras-none "$dep | .containers[0].envFrom | length" "1"
+  expect extras-none "$dep | .volumes[] | select(.name == \"extra-ca\") | .name" ""
+done
+# The names patchy sets are refused, wherever they are asked for.
+expect_fail "extraEnv names a PATCHY_ key" 'sourceController.extraEnv: PATCHY_ARTIFACT_DIR is set by the chart' \
+  --set-json 'sourceController.extraEnv=[{"name":"PATCHY_ARTIFACT_DIR","value":"/x"}]'
+expect_fail "extraEnv names POD_NAMESPACE" 'egressBroker.extraEnv: POD_NAMESPACE is set by the chart' \
+  --set-json 'egressBroker.extraEnv=[{"name":"POD_NAMESPACE","value":"x"}]'
+expect_fail "extraEnv names DOCKER_CONFIG" 'sourceController.extraEnv: DOCKER_CONFIG is set by the chart' \
+  --set-json 'sourceController.extraEnv=[{"name":"DOCKER_CONFIG","value":"/x"}]'
+expect_fail "an extraEnv entry of the wrong shape" 'additional properties' \
+  --set-json 'contextController.extraEnv=[{"name":"A","secretRef":{"name":"x"}}]'
+expect_fail "an extraVolumeMount without a path" 'mountPath' \
+  --set-json 'contextController.extraVolumeMounts=[{"name":"x"}]'
+
+# ---- agent.paused: the cluster-wide pause ------------------------------------
+# PATCHY_AGENTS_PAUSED reaches exactly the four controllers that launch agent
+# Jobs (and status-server, which shows it), only while paused; NOTES say so.
+# shellcheck disable=SC2086
+render paused $allcomponents --set agent.paused=true
+for c in investigation-controller remediation-controller intent-controller evaluation-controller status-server; do
+  cm paused "$c" PATCHY_AGENTS_PAUSED true
+  cm extras-none "$c" PATCHY_AGENTS_PAUSED null
+done
+expect paused 'select(.kind == "ConfigMap") | select(.data.PATCHY_AGENTS_PAUSED != null) | .metadata.name' \
+  "$(printf '%s\n' patchy-investigation-controller-config patchy-remediation-controller-config patchy-evaluation-controller-config patchy-intent-controller-config patchy-status-server-config)"
+expect_fail "agent.paused of the wrong type" '/agent/paused' --set-string agent.paused=yes
+notes paused-notes --set agent.paused=true
+notes_has paused-notes 'AGENTS PAUSED: agent.paused is true' yes
+notes default-notes
+notes_has default-notes 'AGENTS PAUSED' no
+
+# ---- NOTES: the agent egress posture as rendered -----------------------------
+# The NOTES once said "TCP 443 to anywhere" whatever broadEgress resolved to.
+notes_has default-notes 'base NetworkPolicy allows TCP 443 to anywhere' yes
+notes np-never --set agent.networkPolicy.broadEgress=never
+notes_has np-never 'TCP 443 to anywhere' no
+notes_has np-never 'no direct route out of the cluster' yes
+notes_has np-never 'plus the cluster DNS resolver' yes
+notes np-never-dns-none --set agent.networkPolicy.broadEgress=never --set agent.networkPolicy.dns=none
+notes_has np-never-dns-none 'TCP 443' no
+notes_has np-never-dns-none 'no direct route out of the cluster' yes
+notes_has np-never-dns-none 'plus the cluster DNS resolver' no
+notes np-never-codex --set agent.networkPolicy.broadEgress=never --set agent.runners.codex.enabled=true
+notes_has np-never-codex 'WARNING: codex is enabled, but no policy lets an agent pod reach a' yes
+notes np-off --set agent.networkPolicy.create=false
+notes_has np-off 'WARNING: agent.networkPolicy.create is false' yes
+notes_has np-off 'TCP 443 to anywhere' no
+# With no policy rendered, the DNS note names no policy of this chart's and the
+# broadEgress advice (a setting with nothing to act on) is not given.
+notes np-off-dns-none --set agent.networkPolicy.create=false --set agent.networkPolicy.dns=none \
+  --set agent.networkPolicy.broadEgress=always
+notes_has np-off-dns-none 'WARNING: agent.networkPolicy.create is false' yes
+notes_has np-off-dns-none 'Agent DNS: none.' yes
+notes_has np-off-dns-none 'agent egress policies allow no DNS' no
+notes_has np-off-dns-none 'base policy' no
+notes_has np-off-dns-none 'broadEgress: never' no
+notes np-gke --set agent.networkPolicy.mode=gke
+notes_has np-gke 'hostname-enforced via mode gke' yes
+notes_has np-gke 'TCP 443 to anywhere' no
+
 # ---- charts/patchy-config: Projects ------------------------------------------
 # The CR chart renders .Values.projects into Project CRs verbatim; its values
 # schema embeds the CRD's spec schema (hack/codegen.sh), so a malformed entry

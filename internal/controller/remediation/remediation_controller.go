@@ -72,6 +72,10 @@ type RemediationReconciler struct {
 	Namespace string
 	// MaxConcurrent bounds simultaneously running remediations (default 1).
 	MaxConcurrent int
+	// Paused stops new agent Jobs (the --agents-paused switch): the
+	// scheduler grants no slot and a run granted before the pause took
+	// effect does not launch, while running Jobs are still collected.
+	Paused bool
 	// MaxAttempts bounds remediation attempts per finding.
 	MaxAttempts int32
 	// Aging lifts long-waiting remediations.
@@ -127,6 +131,9 @@ func (r *RemediationReconciler) schedule(ctx context.Context) (ctrl.Result, erro
 				Expedited: r.expedited(ctx, rem.Namespace, rem.Spec.FindingRef.Name),
 			})
 		}
+	}
+	if r.Paused {
+		return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
 	}
 	maxConcurrent := r.MaxConcurrent
 	if maxConcurrent <= 0 {
@@ -202,6 +209,9 @@ func (r *RemediationReconciler) run(ctx context.Context, req ctrl.Request) (ctrl
 	switch rem.Status.Phase {
 	case v1alpha1.RunRunning:
 		if rem.Status.JobRef == nil {
+			if r.Paused {
+				return ctrl.Result{}, nil
+			}
 			return ctrl.Result{}, r.launch(ctx, &rem)
 		}
 		return r.collect(ctx, &rem)

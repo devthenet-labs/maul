@@ -341,6 +341,20 @@ func RegisterAgentDNSFlag(f *pflag.FlagSet) {
 			"pinned in the pod's hosts file; brokered claude and the fake harness only)")
 }
 
+// AgentsPausedFlag is the switch RegisterAgentsPausedFlag adds.
+const AgentsPausedFlag = "agents-paused"
+
+// RegisterAgentsPausedFlag adds --agents-paused, shared by every controller
+// that launches agent Jobs (investigation, remediation, intent and
+// evaluation): the cluster-wide pause. While it is set the controller's
+// scheduler grants no slot and launches no Job; Jobs already running finish
+// and are collected as usual, and pending work waits, in order, until the
+// switch is lifted.
+func RegisterAgentsPausedFlag(f *pflag.FlagSet) {
+	f.Bool(AgentsPausedFlag, false,
+		"launch no new agent Jobs (running Jobs finish and are collected; pending work waits until this is unset)")
+}
+
 // AgentDNS reads --agent-dns and holds it to the harnesses this controller
 // runs: under none, a harness whose pod dials its model API by name (codex,
 // copilot: a credential in the pod, no broker) could never reach it, so

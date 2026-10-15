@@ -58,6 +58,9 @@ type Server struct {
 	intents *intentsState
 	// csp is the Content-Security-Policy the hardened envelope sends.
 	csp string
+	// agentsPaused is the operator's agent pause (agent.paused), shown on
+	// the signed-in page; display only, the job controllers enforce it.
+	agentsPaused bool
 }
 
 // NewServer builds the backend over the manager's cached client. log may be
@@ -88,6 +91,14 @@ func (s *Server) WithTranscripts(reader client.Reader, tailer Tailer) *Server {
 	if tailer != nil {
 		s.tails = newTailHub(tailer, s.log)
 	}
+	return s
+}
+
+// WithAgentsPaused records the operator's agent pause (--agents-paused, the
+// chart's agent.paused) so the signed-in findings payload can say why no
+// agent runs. Display only: the job controllers enforce the pause.
+func (s *Server) WithAgentsPaused(paused bool) *Server {
+	s.agentsPaused = paused
 	return s
 }
 

@@ -98,6 +98,7 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	runnercfg.RegisterNetworkProfileFlags(f)
 	runnercfg.RegisterAgentResourceFlags(f)
 	runnercfg.RegisterAgentDNSFlag(f)
+	runnercfg.RegisterAgentsPausedFlag(f)
 	f.Int("changeset-max-entries", changeset.DefaultMaxEntries,
 		"most files (upserts plus deletes) a build's changeset may touch before it is rejected without any forge call")
 	return cmd
@@ -383,6 +384,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	if err := (&intent.RunReconciler{
 		Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Jobs: runner, GitHub: gh, Settings: set,
 		MaxConcurrent: opts.Int("intent-max-concurrent-runs"), Harness: harnessID,
+		Paused:    opts.Bool(runnercfg.AgentsPausedFlag),
 		PlanModel: opts.String("intent-plan-model"), BuildModel: opts.String("intent-build-model"),
 		Images: images, Classes: sizes.classes, MaxChangesetEntries: opts.Int("changeset-max-entries"), Log: log,
 	}).SetupWithManager(mgr); err != nil {
@@ -406,6 +408,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		slog.String("agent_namespace", agentNS),
 		slog.String("harness", harnessID),
 		slog.Int("max_concurrent_runs", opts.Int("intent-max-concurrent-runs")),
+		slog.Bool("agents_paused", opts.Bool(runnercfg.AgentsPausedFlag)),
 		slog.Bool("multi_repo", set.MultiRepo),
 		slog.Bool("repository_images", sizes.repositoryImages),
 		slog.String("agent_resources", sizes.defaults.String()),

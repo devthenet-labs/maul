@@ -30,6 +30,7 @@ import { RollupsView } from "./components/RollupsView";
 import { StatTiles } from "./components/StatTiles";
 import { Toasts, type ToastItem } from "./components/Toast";
 import { TopBar } from "./components/TopBar";
+import { Icon } from "./components/icons";
 import { useBodyThemeMode } from "./components/ThemeToggle";
 
 const TOAST_DISMISS_MS = 6000;
@@ -382,7 +383,15 @@ export function App() {
         adminBusy={adminBusy}
         onAdmin={(verb) => void onAdmin(verb)}
       />
-      <main class="mx-auto w-[min(1240px,calc(100%-40px))] pt-6 pb-20 max-sm:w-[calc(100%-28px)]">{body}</main>
+      <main class="mx-auto w-[min(1240px,calc(100%-40px))] pt-6 pb-20 max-sm:w-[calc(100%-28px)]">
+        {dataset?.agentsPaused ? (
+          <div class="ps-note mb-4" role="status">
+            <Icon name="alertTriangle" size={14} /> Agents are paused: no new investigation, remediation, intent or
+            evaluation Jobs start until an operator lifts the pause (agent.paused). Running Jobs finish.
+          </div>
+        ) : null}
+        {body}
+      </main>
       <Toasts toasts={toasts} onDismiss={(id) => setToasts((t) => t.filter((x) => x.id !== id))} />
     </>
   );

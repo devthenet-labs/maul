@@ -5,6 +5,12 @@ The CRs are the state machine: findings, investigations, and remediations
 live as patchy.bitwisemedia.uk custom resources in {{ .Release.Namespace }}
 (kubectl get patchy -n {{ .Release.Namespace }}).
 
+{{ if .Values.agent.paused -}}
+AGENTS PAUSED: agent.paused is true, so investigation-, remediation-,
+intent- and evaluation-controller launch no new agent Job. Work queues in
+order and running Jobs finish. Set agent.paused: false to resume.
+
+{{ end -}}
 The pipeline idles until two things exist:
 
   1. An Integration and a Forge custom resource (render them with the
@@ -177,7 +183,23 @@ Preview sign-in: stage {{ $pas.stage }}, key generation {{ int $pas.gen }}{{ if 
 {{- end }}
 {{- end }}
 {{- $egressMode := include "patchy.egressMode" . }}
-{{- if eq $egressMode "none" }}
+{{- $broadEgress := include "patchy.broadEgress" . }}
+{{- $dnsNone := include "patchy.agentDNSNone" . }}
+{{- $unbrokered := list }}
+{{- range $id, $r := .Values.agent.runners }}
+{{- if and (ne $id "claude") (include "patchy.harnessEnabled" (dict "root" $ "id" $id)) }}
+{{- $unbrokered = append $unbrokered $id }}
+{{- end }}
+{{- end }}
+{{- if not .Values.agent.networkPolicy.create }}
+
+WARNING: agent.networkPolicy.create is false, so this chart renders no
+NetworkPolicy for {{ .Values.agent.namespace }}: an agent pod reaches whatever the cluster's own
+policies allow, which on most clusters is everything. Credential absence (the
+agent pod holds no forge credential; the repository arrives as a
+digest-verified tarball from source-controller's artifact server) is then the
+only control.
+{{- else if and (eq $egressMode "none") $broadEgress }}
 
 NOTE: the agent sandbox currently has no hostname-level egress policy — the
 base NetworkPolicy allows TCP 443 to anywhere, and credential absence (the
@@ -193,18 +215,42 @@ For defence in depth, one of:
   * Cilium — needs DNS-based policy (the DNS proxy); auto picks it up.
   * Istio — set mode: istio (never auto-selected: it needs native sidecars
     and namespace injection, which CRD presence does not imply).
+{{- if not $unbrokered }}
+  * Brokered claude only (this release) — set
+    agent.networkPolicy.broadEgress: never, and an agent pod reaches only the
+    artifact server and the egress broker.
+{{- end }}
 
 Note that auto can only see the cluster when Helm renders against one; an
 off-cluster `helm template` always reports none.
+{{- else if eq $egressMode "none" }}
+
+Agent sandbox egress: no direct route out of the cluster
+(agent.networkPolicy.broadEgress is never). An agent pod may reach
+source-controller's artifact server{{ if include "patchy.brokerEnabled" . }} and the egress broker (all of claude's
+model traffic){{ end }}{{ if not $dnsNone }}, plus the cluster DNS resolver{{ end }}, and nothing else{{ if include "patchy.egressProxyEnabled" . }} (a Job granted a
+network profile also reaches the egress proxy){{ end }}.
+{{- if $unbrokered }}
+
+WARNING: {{ join ", " $unbrokered }} {{ if gt (len $unbrokered) 1 }}are{{ else }}is{{ end }} enabled, but no policy lets an agent pod reach a
+model API directly: those Jobs will fail to connect. Keep broadEgress auto
+or always for them, or run claude alone.
+{{- end }}
 {{- else }}
 
-Agent sandbox egress: hostname-enforced via mode {{ $egressMode }}{{ if include "patchy.broadEgress" . }}, but the base
+Agent sandbox egress: hostname-enforced via mode {{ $egressMode }}{{ if $broadEgress }}, but the base
 policy's broad "TCP 443 to anywhere" rule is STILL IN PLACE — network policies
 are additive, so the allowlist is not actually constraining egress. That is
 what agent.networkPolicy.broadEgress={{ .Values.agent.networkPolicy.broadEgress | default "auto" }} asks for; set it to `auto` once the mode
 is soaked{{ else }} — each runner reaches only its own model API{{ end }}.
 {{- end }}
-{{- if include "patchy.agentDNSNone" . }}
+{{- if and $dnsNone (not .Values.agent.networkPolicy.create) }}
+
+Agent DNS: none. The agent pods have no resolver (the job controllers pin the
+artifact server and the egress broker in each pod's hosts file), but with no
+NetworkPolicy rendered nothing stops an agent pod from querying the cluster
+resolver by address, and so carrying data out in query names.
+{{- else if $dnsNone }}
 
 Agent DNS: none. The agent pods have no resolver (the job controllers pin the
 artifact server and the egress broker in each pod's hosts file), and this
@@ -215,7 +261,7 @@ cluster resolver directly, and so still carries data out in query names.
 Remove it, or narrow it so it selects no agent pod:
 
   kubectl get networkpolicy -n {{ .Values.agent.namespace }}
-{{- if include "patchy.broadEgress" . }}
+{{- if $broadEgress }}
 
 DNS is closed, but the base policy still allows TCP 443 to any address
 outside the cluster. Only brokered claude runs without a resolver, and it

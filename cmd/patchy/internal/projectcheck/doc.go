@@ -28,8 +28,9 @@
 //     precedence, then imagecheck.Static under source-controller's live
 //     policy, read from its ConfigMap (found by the app.kubernetes.io labels,
 //     over kustomize's shared patchy-config); registry reads use
-//     resolve.NewKeychain, so an ECR image is read with the caller's AWS
-//     credentials. A signature source-controller requires but whose key is
+//     resolve.NewKeychain, so an entry in the caller's docker config naming
+//     the registry host wins (for ECR too), and an ECR host it does not name
+//     is read with the caller's AWS credentials. A signature source-controller requires but whose key is
 //     not found here makes an otherwise passing image a SKIP;
 //   - previews: that intent-controller writes Previews and preview-controller
 //     is configured, then, per previewed repository, that its image

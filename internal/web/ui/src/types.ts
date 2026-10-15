@@ -398,6 +398,9 @@ export interface Dataset {
   user?: DatasetUser;
   findings: FindingSummary[];
   rollups?: Rollup[];
+  // The operator's agent pause (agent.paused): no new agent Jobs launch until
+  // it is lifted. Signed-in findings payload only.
+  agentsPaused?: boolean;
 }
 
 // OfflineDataset is a Dataset whose findings are full: what the demo kit and

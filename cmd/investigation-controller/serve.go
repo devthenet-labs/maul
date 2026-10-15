@@ -52,6 +52,7 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	runnercfg.RegisterRepositoryImageFlags(f)
 	runnercfg.RegisterAgentResourceFlags(f)
 	runnercfg.RegisterAgentDNSFlag(f)
+	runnercfg.RegisterAgentsPausedFlag(f)
 	f.Duration("job-deadline", time.Hour, "activeDeadlineSeconds for an agent Job")
 	f.Duration("job-ttl", time.Hour, "ttlSecondsAfterFinished for a finished agent Job")
 	f.String("model-allowlist", "anthropic/claude-sonnet-5,anthropic/claude-opus-5",
@@ -212,6 +213,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		Runner:              runner,
 		Namespace:           namespace,
 		MaxConcurrent:       opts.Int("max-concurrent-investigations"),
+		Paused:              opts.Bool(runnercfg.AgentsPausedFlag),
 		MaxAttempts:         int32(opts.Int("max-attempts")),
 		ConfidenceThreshold: opts.Float("confidence-threshold"),
 		Aging: schedule.AgingPolicy{
@@ -233,6 +235,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	log.LogAttrs(ctx, slog.LevelInfo, "investigation-controller starting",
 		slog.String("namespace", namespace),
 		slog.Int("max_concurrent", opts.Int("max-concurrent-investigations")),
+		slog.Bool("agents_paused", opts.Bool(runnercfg.AgentsPausedFlag)),
 		slog.Bool("repository_images", repositoryImages))
 
 	if err := mgr.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {

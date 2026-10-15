@@ -75,6 +75,10 @@ type RunReconciler struct {
 	Settings  Settings
 	// MaxConcurrent bounds Running runs (default 1).
 	MaxConcurrent int
+	// Paused stops new agent Jobs (the --agents-paused switch): the
+	// scheduler grants no slot and a run granted before the pause took
+	// effect does not launch, while running Jobs are still collected.
+	Paused bool
 	// Harness runs every intent Job (brokered claude in production, the
 	// fake harness in dev); PlanModel and BuildModel are the canonical
 	// models of the two stages.
@@ -120,6 +124,9 @@ func (r *RunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 // schedule grants free slots to pending runs that can launch now, FIFO with
 // a build ahead of a plan. Slots are counted from the cluster, never memory.
 func (r *RunReconciler) schedule(ctx context.Context) (ctrl.Result, error) {
+	if r.Paused {
+		return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
+	}
 	settings := r.Settings.withDefaults()
 	var list v1alpha1.IntentRunList
 	if err := r.List(ctx, &list, client.InNamespace(settings.Namespace)); err != nil {
@@ -293,6 +300,9 @@ func (r *RunReconciler) run(ctx context.Context, req ctrl.Request) (ctrl.Result,
 			return ctrl.Result{}, err
 		}
 		if run.Status.JobRef == nil {
+			if r.Paused {
+				return ctrl.Result{}, nil
+			}
 			return ctrl.Result{}, r.launch(ctx, &run)
 		}
 		return r.collect(ctx, &run)

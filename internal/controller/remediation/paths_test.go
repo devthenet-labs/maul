@@ -985,3 +985,47 @@ func TestResolveGrantProperties(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+// TestRemediationPausedSchedulerGrantsNothing: with the agents paused,
+// pending remediations keep waiting and their findings stay Queued.
+func TestRemediationPausedSchedulerGrantsNothing(t *testing.T) {
+	fnd := queuedFinding(v1alpha1.PhaseQueued)
+	r, c := remWith(t, &fakeCRRunner{}, &fakeForge{}, nil, fnd,
+		pendingRem("rem-a", fnd.Name, 50), pendingRem("rem-b", "f4", 40))
+	r.MaxConcurrent = 2
+	r.Paused = true
+	if _, err := scheduleOnce(t, r); err != nil {
+		t.Fatalf("schedule: %v", err)
+	}
+	if f := findingNow(t, c); f.Status.Phase != v1alpha1.PhaseQueued || f.Status.ActiveRun != nil {
+		t.Errorf("finding = %q activeRun %+v, want still Queued with no run", f.Status.Phase, f.Status.ActiveRun)
+	}
+	var list v1alpha1.RemediationList
+	if err := c.List(t.Context(), &list); err != nil {
+		t.Fatal(err)
+	}
+	for _, rem := range list.Items {
+		if rem.Status.Phase != "" {
+			t.Errorf("%s phase = %q, want still pending", rem.Name, rem.Status.Phase)
+		}
+	}
+}
+
+// TestRemediationPausedHoldsAGrantedLaunch: a run granted before the pause
+// took effect does not launch its Job while the agents are paused.
+func TestRemediationPausedHoldsAGrantedLaunch(t *testing.T) {
+	objs := runningRemediation()
+	objs[1].(*v1alpha1.Remediation).Status.JobRef = nil
+	runner := &fakeCRRunner{}
+	r, c := remWith(t, runner, &fakeForge{}, nil, objs...)
+	r.Paused = true
+	if _, err := remReconcileErr(t, r, remName); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if len(runner.created) != 0 {
+		t.Errorf("jobs created = %d, want none while paused", len(runner.created))
+	}
+	if rem := getRem(t, c); rem.Status.JobRef != nil {
+		t.Errorf("jobRef = %+v, want none", rem.Status.JobRef)
+	}
+}

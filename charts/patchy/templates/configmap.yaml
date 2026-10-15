@@ -173,6 +173,7 @@ namespace for claude anymore.
 {{- $_ := set $data "PATCHY_REMEDIATE_MANUAL_TOKEN_BUDGET" $root.Values.agent.remediate.manual.tokenBudget }}
 {{- $_ := include "patchy.agentResourcesData" (dict "root" $root "data" $data) }}
 {{- $_ := include "patchy.agentDNSData" (dict "root" $root "data" $data) }}
+{{- $_ := include "patchy.agentsPausedData" (dict "root" $root "data" $data) }}
 {{- if eq $c.name "investigation-controller" }}
 {{- $_ := set $data "PATCHY_FINDING_MIN_AGE" $own.findingMinAge }}
 {{- $_ := set $data "PATCHY_GATE_CONCURRENCY" $own.gateConcurrency }}
@@ -255,6 +256,7 @@ ConfigMap is unchanged.
 */}}
 {{- $_ := include "patchy.agentResourcesData" (dict "root" $root "data" $data) }}
 {{- $_ := include "patchy.agentDNSData" (dict "root" $root "data" $data) }}
+{{- $_ := include "patchy.agentsPausedData" (dict "root" $root "data" $data) }}
 {{- with ($root.Values.agent.resources | default dict).classes }}
 {{- $_ := set $data "PATCHY_INTENT_RESOURCE_CLASSES" (toJson .) }}
 {{- end }}

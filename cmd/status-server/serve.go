@@ -46,6 +46,9 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	f.Bool("intents-enabled", false,
 		"serve the intents views (board, timeline, run panel) with per-Project access reviews; needs auth mode "+
 			"oidc with usernamePrefix and groupsPrefix, and turns on the hardened browser envelope")
+	f.Bool("agents-paused", false,
+		"show the operator's agent pause (the chart's agent.paused) on the signed-in page; display only, the job "+
+			"controllers enforce it")
 	f.Bool("intents-dev-insecure", false,
 		"development only: let the intents views run in auth mode none, which shows every Project to every "+
 			"visitor; refused unless --listen-addr is a loopback address")
@@ -220,7 +223,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		granter = authz.Full{}
 	}
 
-	srv := web.NewServer(mgr.GetClient(), namespace, authn, granter, log)
+	srv := web.NewServer(mgr.GetClient(), namespace, authn, granter, log).WithAgentsPaused(opts.Bool("agents-paused"))
 	// Transcripts read through the uncached API reader (caching every
 	// ConfigMap in the namespace to serve objects read once per page view is
 	// not worth an informer) and follow live runs from the agent namespace's

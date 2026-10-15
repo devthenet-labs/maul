@@ -66,6 +66,7 @@ supports it, refusing to start otherwise.
 | `--agent-cpu-limit`               | `PATCHY_AGENT_CPU_LIMIT`               | —                      | CPU limit, at or above the request; unset sets none, and none is best: a limit throttles test suites                                                                                 |
 | `--agent-memory-limit`            | `PATCHY_AGENT_MEMORY_LIMIT`            | —                      | Memory limit, at or above the request; unset sets none                                                                                                                               |
 | `--agent-dns`                     | `PATCHY_AGENT_DNS`                     | `cluster`              | How agent pods resolve names: `cluster`, or `none` for [no resolver](#agent-dns) (brokered claude and the fake harness only)                                                         |
+| `--agents-paused`                 | `PATCHY_AGENTS_PAUSED`                 | `false`                | Launch no new agent Job; running Jobs finish ([pausing agents](#pausing-agents)). Helm: `agent.paused`                                                                               |
 
 The four `--agent-*` CPU and memory flags are the default every agent Job gets (Helm `agent.resources.default`), shared
 with the remediation-, intent- and evaluation-controller. All unset, which is the default, a Job requests and limits
@@ -74,6 +75,22 @@ or `128Mi` and `512Gi`, each request at or below its limit), and a bad value sto
 Finding never picks a size of its own; only an intent's Project can, from the operator's classes
 ([intent-controller](intent-controller.md#resource-classes)). Every agent pod carries
 `karpenter.sh/do-not-disrupt: "true"`, so a node autoscaler consolidating nodes never evicts a running agent.
+
+### Pausing agents
+
+`--agents-paused` (Helm `agent.paused`, shared with the remediation-, intent- and evaluation-controller) is the
+cluster-wide pause. While it is set, each of the four schedulers grants no slot, and a run granted just before the pause
+took effect does not launch its Job. Nothing else changes: findings are still ingested, enhanced and admitted, so work
+queues in order (Findings in `Investigating` or `Queued`, intent runs and evaluation units `Pending`), and Jobs already
+running finish and are collected as usual. No attempt is spent and no run fails while paused. Unsetting it lets the
+queue drain in its usual priority order. In Helm, changing `agent.paused` rolls those four controllers (and
+status-server, whose signed-in page then shows the pause). The per-object `spec.suspend` still pauses one Finding,
+Intent or Project.
+
+Each controller bounds its own pool, and there is no cap across them: with the defaults up to 3 investigations, 1
+remediation, 1 intent run and 4 evaluation units, so 9 agent Jobs, can run at once. Size those four limits
+(`--max-concurrent-investigations`, `--max-concurrent-remediations`, `--intent-max-concurrent-runs`,
+`--max-concurrent-units`) together against the agent nodes and the model budget.
 
 ### Agent DNS
 

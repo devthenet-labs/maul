@@ -64,6 +64,10 @@ type UnitReconciler struct {
 	Namespace  string
 	// MaxConcurrent bounds simultaneously Running units (default 4).
 	MaxConcurrent int
+	// Paused stops new agent Jobs (the --agents-paused switch): the
+	// scheduler grants no slot and a run granted before the pause took
+	// effect does not launch, while running Jobs are still collected.
+	Paused bool
 	// EnabledHarnesses is the evolve-runner fleet resolved at startup.
 	EnabledHarnesses []string
 	// ArtifactBaseURL is the public artifact endpoint agent pods fetch
@@ -114,6 +118,9 @@ func (r *UnitReconciler) schedule(ctx context.Context) (ctrl.Result, error) {
 			})
 		}
 	}
+	if r.Paused {
+		return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
+	}
 	maxConcurrent := r.MaxConcurrent
 	if maxConcurrent <= 0 {
 		maxConcurrent = 4
@@ -154,6 +161,9 @@ func (r *UnitReconciler) run(ctx context.Context, req ctrl.Request) (ctrl.Result
 	switch unit.Status.Phase {
 	case v1alpha1.RunRunning:
 		if unit.Status.JobRef == nil {
+			if r.Paused {
+				return ctrl.Result{}, nil
+			}
 			return ctrl.Result{}, r.launch(ctx, &unit)
 		}
 		return r.collect(ctx, &unit)

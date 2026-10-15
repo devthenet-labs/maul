@@ -1240,9 +1240,11 @@ spec:
 # against a botched rollout racing two replicas — singleton-by-construction
 # stays the deployment model. Do not scale these.
 #
-# No credential is mounted anywhere here: provider and forge credentials live
+# The chart mounts no credential here: provider and forge credentials live
 # in Secrets referenced by the Integration and Forge custom resources
-# (spec.secretRef), read on demand through the API.
+# (spec.secretRef), read on demand through the API. What an operator adds
+# through <controller>.extraEnv, extraEnvFrom, extraVolumes and
+# extraVolumeMounts is theirs (patchy.extraEnv refuses the names patchy sets).
 #
 # With agent.repositoryImages enabled, source-controller additionally mounts
 # the cosign public key (a ConfigMap, configmap.yaml) and, with pullSecret,

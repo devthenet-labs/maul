@@ -77,10 +77,13 @@ with `--repository-images` on the [investigation](investigation-controller.md#ag
   agent sandbox. The chart already refuses to render an allowlist that overlaps that prefix; the denial holds
   source-controller to the rule whatever reaches its allowlist. Never allowlist a pull-through-cache namespace
   (`.../docker-hub/`, `.../ecr-public/`, an Artifact Registry `*-remote` repository): anyone can populate those paths.
-- **Registry credentials** are chosen by host: ECR through the AWS default credential chain (IRSA or EKS Pod Identity),
-  Artifact Registry and GCR through Application Default Credentials, everything else through the docker config under
-  `DOCKER_CONFIG` (a mounted `dockerconfigjson` Secret), falling back to anonymous. A cloud credential failure is
-  retried, never anonymous; a 401 or 403 from the registry is a rejection (`AccessDenied`), not a retry.
+- **Registry credentials.** The docker config under `DOCKER_CONFIG` (the mounted `repositoryImages.pullSecret`, a
+  `dockerconfigjson` Secret) is asked first, for every host: an entry naming the registry host wins, for ECR and
+  Artifact Registry too, so a cluster off AWS or GCP can resolve them with a docker-config Secret. A host it does not
+  name goes by host: ECR through the AWS default credential chain (IRSA or EKS Pod Identity, or `AWS_*` env from a
+  Secret via `sourceController.extraEnv`), Artifact Registry and GCR through Application Default Credentials, and every
+  other host is anonymous. A cloud credential failure, or a docker config that cannot be read, is retried, never
+  anonymous; a 401 or 403 from the registry is a rejection (`AccessDenied`), not a retry.
 - **Status writes.** The artifact, SHA and forge are persisted first with `Ready=False` / `RunnerImageResolving`, so a
   registry outage costs no re-download; resolution then finishes with `Ready=True`. A registry that fails transiently
   (or does not answer within three minutes) leaves `Ready=False` / `RunnerImageResolveFailed` and backs off. Verdicts

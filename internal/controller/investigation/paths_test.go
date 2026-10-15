@@ -955,3 +955,53 @@ func TestApplyFatalKeepsReportedStage(t *testing.T) {
 		t.Errorf("lastFailureReason = %q, want the fatal error", f.Status.LastFailureReason)
 	}
 }
+
+// TestPausedSchedulerGrantsNothing: with the agents paused, pending
+// investigations keep waiting however many slots are free, and a running
+// one keeps its slot.
+func TestPausedSchedulerGrantsNothing(t *testing.T) {
+	running := pendingInv("inv-running", "f0", "low")
+	running.Status.Phase = v1alpha1.RunRunning
+	r, c := invWith(t, &fakeRunner{}, nil,
+		running, pendingInv("inv-a", "f2", "high"), pendingInv("inv-b", "f3", "critical"))
+	r.MaxConcurrent = 3
+	r.Paused = true
+	res, err := scheduleOnce(t, r)
+	if err != nil {
+		t.Fatalf("schedule: %v", err)
+	}
+	if res.RequeueAfter != 5*time.Minute {
+		t.Errorf("requeue = %v, want the 5m safety tick", res.RequeueAfter)
+	}
+	var list v1alpha1.InvestigationList
+	if err := c.List(t.Context(), &list); err != nil {
+		t.Fatal(err)
+	}
+	for _, inv := range list.Items {
+		want := v1alpha1.RunPhase("")
+		if inv.Name == "inv-running" {
+			want = v1alpha1.RunRunning
+		}
+		if inv.Status.Phase != want {
+			t.Errorf("%s phase = %q, want %q", inv.Name, inv.Status.Phase, want)
+		}
+	}
+}
+
+// TestPausedHoldsAGrantedLaunch: a run granted before the pause took effect
+// (the grant and the launch are separate passes) does not launch its Job
+// while the agents are paused.
+func TestPausedHoldsAGrantedLaunch(t *testing.T) {
+	runner := &fakeRunner{}
+	r, c := invWith(t, runner, nil, launchable(readyRepo())...)
+	r.Paused = true
+	if _, err := r.Reconcile(t.Context(), reqFor(invName)); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if len(runner.created) != 0 {
+		t.Errorf("jobs created = %d, want none while paused", len(runner.created))
+	}
+	if inv := getInv(t, c); inv.Status.JobRef != nil {
+		t.Errorf("jobRef = %+v, want none", inv.Status.JobRef)
+	}
+}

@@ -436,3 +436,31 @@ func TestBuildDatasetOrderingAndRollupsOnly(t *testing.T) {
 		t.Errorf("rollups-only dataset rollups = %d", len(pub.Rollups))
 	}
 }
+
+// TestBuildDatasetAgentsPaused: the operator's agent pause reaches the
+// signed-in findings payload, so the page can say why nothing moves, and
+// stays out of the public rollups projection.
+func TestBuildDatasetAgentsPaused(t *testing.T) {
+	s := testServer(t).WithAgentsPaused(true)
+	ds, err := s.buildDataset(t.Context(), true, nil, nil)
+	if err != nil {
+		t.Fatalf("buildDataset: %v", err)
+	}
+	if !ds.AgentsPaused {
+		t.Error("findings dataset: agentsPaused = false, want true")
+	}
+	public, err := s.buildDataset(t.Context(), false, nil, nil)
+	if err != nil {
+		t.Fatalf("buildDataset: %v", err)
+	}
+	if public.AgentsPaused {
+		t.Error("public rollups dataset carries agentsPaused")
+	}
+	unpaused, err := testServer(t).buildDataset(t.Context(), true, nil, nil)
+	if err != nil {
+		t.Fatalf("buildDataset: %v", err)
+	}
+	if _, ok := asMap(t, unpaused)["agentsPaused"]; ok {
+		t.Error("an unpaused dataset renders agentsPaused")
+	}
+}

@@ -68,3 +68,15 @@ func TestAgentDNSFlag(t *testing.T) {
 		t.Errorf("--agent-dns defaults to %q, want cluster", f.DefValue)
 	}
 }
+
+// TestAgentsPausedFlag: the binary registers --agents-paused, off by
+// default, so the chart's PATCHY_AGENTS_PAUSED reaches the scheduler.
+func TestAgentsPausedFlag(t *testing.T) {
+	f := newServeCmd(cli.NewOptions()).Flags().Lookup("agents-paused")
+	if f == nil {
+		t.Fatal("--agents-paused is not registered")
+	}
+	if f.DefValue != "false" {
+		t.Errorf("--agents-paused defaults to %q, want false", f.DefValue)
+	}
+}

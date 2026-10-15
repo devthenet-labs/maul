@@ -26,6 +26,21 @@ func (k *fixedKeychain) Resolve(authn.Resource) (authn.Authenticator, error) {
 	return &authn.Basic{Username: k.user}, nil
 }
 
+// hostsKeychain answers the hosts it lists and is anonymous for every
+// other: a docker config with an auths entry per listed host.
+type hostsKeychain struct {
+	users map[string]string
+	calls int
+}
+
+func (k *hostsKeychain) Resolve(target authn.Resource) (authn.Authenticator, error) {
+	k.calls++
+	if u, ok := k.users[target.RegistryStr()]; ok {
+		return &authn.Basic{Username: u, Password: "from-docker-config"}, nil
+	}
+	return authn.Anonymous, nil
+}
+
 func registryOf(t *testing.T, host string) name.Registry {
 	t.Helper()
 	r, err := name.NewRegistry(host)
@@ -45,7 +60,9 @@ func TestHostKeychainSelectsByHost(t *testing.T) {
 		now: time.Now,
 	}
 	google := &fixedKeychain{user: "oauth2accesstoken"}
-	docker := &fixedKeychain{user: "docker"}
+	docker := &hostsKeychain{users: map[string]string{
+		"ghcr.io": "docker", "public.ecr.aws": "docker", "evil-amazonaws.com": "docker", "index.docker.io": "docker",
+	}}
 	kc := &hostKeychain{ecr: ecrKC, google: google, docker: docker}
 
 	cases := []struct {
@@ -81,6 +98,87 @@ func TestHostKeychainSelectsByHost(t *testing.T) {
 	if tokens != 3 {
 		t.Errorf("ECR tokens minted = %d, want one per region (3)", tokens)
 	}
+}
+
+// TestHostKeychainPullSecretWinsForCloudHosts: the configured pull secret
+// (the docker config under DOCKER_CONFIG) was ignored for ECR and Artifact
+// Registry hosts, so a cluster off AWS or GCP could not resolve a private
+// cloud registry with a docker-config Secret at all. An entry naming the
+// cloud host now wins; a cloud host it does not name still goes through the
+// cloud credential chain, and a non-cloud host still never mints a cloud
+// token.
+func TestHostKeychainPullSecretWinsForCloudHosts(t *testing.T) {
+	tokens := 0
+	ecrKC := &ecrKeychain{
+		tokens: func(_ context.Context, region string) (string, time.Time, error) {
+			tokens++
+			return base64.StdEncoding.EncodeToString([]byte("AWS:" + region)), time.Now().Add(12 * time.Hour), nil
+		},
+		now: time.Now,
+	}
+	google := &fixedKeychain{user: "oauth2accesstoken"}
+	docker := &hostsKeychain{users: map[string]string{
+		"123456789012.dkr.ecr.us-east-1.amazonaws.com": "pull-secret-ecr",
+		"europe-west1-docker.pkg.dev":                  "pull-secret-gar",
+	}}
+	kc := &hostKeychain{ecr: ecrKC, google: google, docker: docker}
+	cases := []struct {
+		host string
+		user string
+	}{
+		{"123456789012.dkr.ecr.us-east-1.amazonaws.com", "pull-secret-ecr"},
+		{"europe-west1-docker.pkg.dev", "pull-secret-gar"},
+		{"210987654321.dkr.ecr.eu-west-1.amazonaws.com", "AWS"},
+		{"gcr.io", "oauth2accesstoken"},
+		{"ghcr.io", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.host, func(t *testing.T) {
+			a, err := kc.Resolve(registryOf(t, tc.host))
+			if err != nil {
+				t.Fatalf("Resolve: %v", err)
+			}
+			cfg, err := a.Authorization()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.Username != tc.user {
+				t.Errorf("username = %q, want %q", cfg.Username, tc.user)
+			}
+		})
+	}
+	if tokens != 1 {
+		t.Errorf("ECR tokens minted = %d, want 1 (only the host the pull secret does not name)", tokens)
+	}
+	if google.calls != 1 {
+		t.Errorf("ADC lookups = %d, want 1 (only the host the pull secret does not name)", google.calls)
+	}
+}
+
+// TestHostKeychainDockerConfigErrorIsAnError: a docker config that cannot
+// be read is an error for a cloud host too, never a silent fall back.
+func TestHostKeychainDockerConfigErrorIsAnError(t *testing.T) {
+	kc := &hostKeychain{
+		ecr: &ecrKeychain{
+			tokens: func(context.Context, string) (string, time.Time, error) {
+				return "", time.Time{}, errors.New("unused")
+			},
+			now: time.Now,
+		},
+		google: &fixedKeychain{user: "oauth2accesstoken"},
+		docker: errKeychain{},
+	}
+	for _, host := range []string{"123456789012.dkr.ecr.us-east-1.amazonaws.com", "gcr.io", "ghcr.io"} {
+		if _, err := kc.Resolve(registryOf(t, host)); err == nil || !strings.Contains(err.Error(), "bad docker config") {
+			t.Errorf("%s: Resolve = %v, want the docker config error", host, err)
+		}
+	}
+}
+
+type errKeychain struct{}
+
+func (errKeychain) Resolve(authn.Resource) (authn.Authenticator, error) {
+	return nil, errors.New("bad docker config")
 }
 
 func TestECRKeychainCachesUntilExpiry(t *testing.T) {

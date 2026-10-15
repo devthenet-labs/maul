@@ -68,6 +68,10 @@ type InvestigationReconciler struct {
 	Namespace string
 	// MaxConcurrent bounds simultaneously running investigations.
 	MaxConcurrent int
+	// Paused stops new agent Jobs (the --agents-paused switch): the
+	// scheduler grants no slot and a run granted before the pause took
+	// effect does not launch, while running Jobs are still collected.
+	Paused bool
 	// MaxAttempts bounds analysis attempts per finding before Failed.
 	MaxAttempts int32
 	// ConfidenceThreshold gates automated remediation queueing.
@@ -128,6 +132,9 @@ func (r *InvestigationReconciler) schedule(ctx context.Context) (ctrl.Result, er
 			})
 		}
 	}
+	if r.Paused {
+		return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
+	}
 	maxConcurrent := r.MaxConcurrent
 	if maxConcurrent <= 0 {
 		maxConcurrent = 3
@@ -183,6 +190,9 @@ func (r *InvestigationReconciler) run(ctx context.Context, req ctrl.Request) (ct
 	switch inv.Status.Phase {
 	case v1alpha1.RunRunning:
 		if inv.Status.JobRef == nil {
+			if r.Paused {
+				return ctrl.Result{}, nil
+			}
 			return ctrl.Result{}, r.launch(ctx, &inv)
 		}
 		return r.collect(ctx, &inv)

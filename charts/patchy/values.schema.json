@@ -4,6 +4,47 @@
     "type": "object",
     "additionalProperties": false,
     "definitions": {
+        "containerExtraEnv": {
+            "type": "array",
+            "description": "Container EnvVar entries added to this component (valueFrom allowed). A name patchy sets itself (PATCHY_*, POD_NAMESPACE, DOCKER_CONFIG) fails the render.",
+            "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name"],
+                "properties": {
+                    "name": {"type": "string", "pattern": "^[-._a-zA-Z][-._a-zA-Z0-9]*$"},
+                    "value": {"type": "string"},
+                    "valueFrom": {"type": "object"}
+                }
+            }
+        },
+        "containerExtraEnvFrom": {
+            "type": "array",
+            "description": "Container EnvFromSource entries, listed before the chart's own ConfigMap so the chart's keys win a clash.",
+            "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                    "prefix": {"type": "string"},
+                    "configMapRef": {"type": "object"},
+                    "secretRef": {"type": "object"}
+                }
+            }
+        },
+        "podExtraVolumes": {
+            "type": "array",
+            "description": "Pod Volume entries added to this component, rendered verbatim.",
+            "items": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string", "minLength": 1}}}
+        },
+        "containerExtraVolumeMounts": {
+            "type": "array",
+            "description": "VolumeMount entries added to this component's container, rendered verbatim.",
+            "items": {
+                "type": "object",
+                "required": ["name", "mountPath"],
+                "properties": {"name": {"type": "string", "minLength": 1}, "mountPath": {"type": "string", "minLength": 1}}
+            }
+        },
         "duration": {
             "type": "string",
             "description": "Go duration, e.g. 60s, 2m, 1h30m",
@@ -472,6 +513,10 @@
                 "nodeSelector": {"type": "object"},
                 "tolerations": {"type": "array", "items": {"type": "object"}},
                 "affinity": {"type": "object"},
+                "extraEnv": {"$ref": "#/definitions/containerExtraEnv"},
+                "extraEnvFrom": {"$ref": "#/definitions/containerExtraEnvFrom"},
+                "extraVolumes": {"$ref": "#/definitions/podExtraVolumes"},
+                "extraVolumeMounts": {"$ref": "#/definitions/containerExtraVolumeMounts"},
                 "serviceAccount": {"$ref": "#/definitions/serviceAccount"},
                 "networkPolicy": {
                     "type": "object",
@@ -735,6 +780,10 @@
                 "affinity": {
                     "type": "object"
                 },
+                "extraEnv": {"$ref": "#/definitions/containerExtraEnv"},
+                "extraEnvFrom": {"$ref": "#/definitions/containerExtraEnvFrom"},
+                "extraVolumes": {"$ref": "#/definitions/podExtraVolumes"},
+                "extraVolumeMounts": {"$ref": "#/definitions/containerExtraVolumeMounts"},
                 "serviceAccount": {
                     "$ref": "#/definitions/serviceAccount"
                 },
@@ -992,6 +1041,10 @@
                 "affinity": {
                     "type": "object"
                 },
+                "extraEnv": {"$ref": "#/definitions/containerExtraEnv"},
+                "extraEnvFrom": {"$ref": "#/definitions/containerExtraEnvFrom"},
+                "extraVolumes": {"$ref": "#/definitions/podExtraVolumes"},
+                "extraVolumeMounts": {"$ref": "#/definitions/containerExtraVolumeMounts"},
                 "serviceAccount": {
                     "$ref": "#/definitions/serviceAccount"
                 },
@@ -1049,6 +1102,10 @@
                 "affinity": {
                     "type": "object"
                 },
+                "extraEnv": {"$ref": "#/definitions/containerExtraEnv"},
+                "extraEnvFrom": {"$ref": "#/definitions/containerExtraEnvFrom"},
+                "extraVolumes": {"$ref": "#/definitions/podExtraVolumes"},
+                "extraVolumeMounts": {"$ref": "#/definitions/containerExtraVolumeMounts"},
                 "serviceAccount": {
                     "$ref": "#/definitions/serviceAccount"
                 },
@@ -1121,6 +1178,10 @@
                 "affinity": {
                     "type": "object"
                 },
+                "extraEnv": {"$ref": "#/definitions/containerExtraEnv"},
+                "extraEnvFrom": {"$ref": "#/definitions/containerExtraEnvFrom"},
+                "extraVolumes": {"$ref": "#/definitions/podExtraVolumes"},
+                "extraVolumeMounts": {"$ref": "#/definitions/containerExtraVolumeMounts"},
                 "serviceAccount": {
                     "$ref": "#/definitions/serviceAccount"
                 },
@@ -1208,6 +1269,10 @@
                 "affinity": {
                     "type": "object"
                 },
+                "extraEnv": {"$ref": "#/definitions/containerExtraEnv"},
+                "extraEnvFrom": {"$ref": "#/definitions/containerExtraEnvFrom"},
+                "extraVolumes": {"$ref": "#/definitions/podExtraVolumes"},
+                "extraVolumeMounts": {"$ref": "#/definitions/containerExtraVolumeMounts"},
                 "serviceAccount": {
                     "$ref": "#/definitions/serviceAccount"
                 },
@@ -1283,6 +1348,10 @@
                 "affinity": {
                     "type": "object"
                 },
+                "extraEnv": {"$ref": "#/definitions/containerExtraEnv"},
+                "extraEnvFrom": {"$ref": "#/definitions/containerExtraEnvFrom"},
+                "extraVolumes": {"$ref": "#/definitions/podExtraVolumes"},
+                "extraVolumeMounts": {"$ref": "#/definitions/containerExtraVolumeMounts"},
                 "serviceAccount": {
                     "$ref": "#/definitions/serviceAccount"
                 },
@@ -1502,6 +1571,10 @@
                 "affinity": {
                     "type": "object"
                 },
+                "extraEnv": {"$ref": "#/definitions/containerExtraEnv"},
+                "extraEnvFrom": {"$ref": "#/definitions/containerExtraEnvFrom"},
+                "extraVolumes": {"$ref": "#/definitions/podExtraVolumes"},
+                "extraVolumeMounts": {"$ref": "#/definitions/containerExtraVolumeMounts"},
                 "serviceAccount": {
                     "$ref": "#/definitions/serviceAccount"
                 },
@@ -1709,6 +1782,10 @@
                 "affinity": {
                     "type": "object"
                 },
+                "extraEnv": {"$ref": "#/definitions/containerExtraEnv"},
+                "extraEnvFrom": {"$ref": "#/definitions/containerExtraEnvFrom"},
+                "extraVolumes": {"$ref": "#/definitions/podExtraVolumes"},
+                "extraVolumeMounts": {"$ref": "#/definitions/containerExtraVolumeMounts"},
                 "serviceAccount": {
                     "$ref": "#/definitions/serviceAccount"
                 },
@@ -1859,6 +1936,10 @@
                 "affinity": {
                     "type": "object"
                 },
+                "extraEnv": {"$ref": "#/definitions/containerExtraEnv"},
+                "extraEnvFrom": {"$ref": "#/definitions/containerExtraEnvFrom"},
+                "extraVolumes": {"$ref": "#/definitions/podExtraVolumes"},
+                "extraVolumeMounts": {"$ref": "#/definitions/containerExtraVolumeMounts"},
                 "serviceAccount": {
                     "$ref": "#/definitions/serviceAccount"
                 },
@@ -2010,6 +2091,10 @@
                 "affinity": {
                     "type": "object"
                 },
+                "extraEnv": {"$ref": "#/definitions/containerExtraEnv"},
+                "extraEnvFrom": {"$ref": "#/definitions/containerExtraEnvFrom"},
+                "extraVolumes": {"$ref": "#/definitions/podExtraVolumes"},
+                "extraVolumeMounts": {"$ref": "#/definitions/containerExtraVolumeMounts"},
                 "serviceAccount": {
                     "$ref": "#/definitions/serviceAccount"
                 },
@@ -2066,6 +2151,10 @@
                 "nodeSelector": {"type": "object"},
                 "tolerations": {"type": "array", "items": {"type": "object"}},
                 "affinity": {"type": "object"},
+                "extraEnv": {"$ref": "#/definitions/containerExtraEnv"},
+                "extraEnvFrom": {"$ref": "#/definitions/containerExtraEnvFrom"},
+                "extraVolumes": {"$ref": "#/definitions/podExtraVolumes"},
+                "extraVolumeMounts": {"$ref": "#/definitions/containerExtraVolumeMounts"},
                 "serviceAccount": {"$ref": "#/definitions/serviceAccount"},
                 "service": {
                     "type": "object",
@@ -2110,6 +2199,10 @@
                 },
                 "createNamespace": {
                     "type": "boolean"
+                },
+                "paused": {
+                    "type": "boolean",
+                    "description": "The cluster-wide pause: no new agent Jobs from investigation-, remediation-, intent- or evaluation-controller; running Jobs finish."
                 },
                 "serviceAccount": {
                     "type": "string"

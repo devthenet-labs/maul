@@ -247,3 +247,16 @@ func TestAgentDNSFlag(t *testing.T) {
 		t.Errorf("--agent-dns defaults to %q, want cluster", f.DefValue)
 	}
 }
+
+// TestAgentsPausedFlag: intent-controller registers --agents-paused
+// (unprefixed, like the other agent Job flags), off by default.
+func TestAgentsPausedFlag(t *testing.T) {
+	_, _, serve := command(t)
+	f := serve.Flags().Lookup("agents-paused")
+	if f == nil {
+		t.Fatal("--agents-paused is not registered")
+	}
+	if f.DefValue != "false" {
+		t.Errorf("--agents-paused defaults to %q, want false", f.DefValue)
+	}
+}
