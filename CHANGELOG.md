@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.12.33](https://github.com/devthenet-labs/patchy/compare/v0.12.32...v0.12.33) (2026-10-15)
+
+
+### Features
+
+* **chart:** extra env/volumes, global agent pause, pull secret for cloud registries, accurate egress NOTES ([#197](https://github.com/devthenet-labs/patchy/issues/197)) ([707019c](https://github.com/devthenet-labs/patchy/commit/707019c065887359b2a796c6266f2fb88e826c32))
+* egress proxy registries: profile grants, credential reload and CodeArtifact tokens ([#199](https://github.com/devthenet-labs/patchy/issues/199)) ([cdeb1a7](https://github.com/devthenet-labs/patchy/commit/cdeb1a7f7c0a741be0124e5a839cd10bb893ee81))
+
+
+### Bug Fixes
+
+* **agentrun:** read out the run's last command when its predecessor is still closing ([#192](https://github.com/devthenet-labs/patchy/issues/192)) ([c6e7b5f](https://github.com/devthenet-labs/patchy/commit/c6e7b5f9896c4c821be450d300d54f26fbe0f181))
+* **cli:** write spec actions as merge patches so Helm keeps its fields ([#193](https://github.com/devthenet-labs/patchy/issues/193)) ([e2f94dd](https://github.com/devthenet-labs/patchy/commit/e2f94dd72eac66d66e53d649ce3c435485994d00))
+* **intent:** flag Go dependency drift in the PR body; tell the planner its build's network profile ([#200](https://github.com/devthenet-labs/patchy/issues/200)) ([b496fb3](https://github.com/devthenet-labs/patchy/commit/b496fb3458ec8cdfff596c0eee1486cd96b3bc5e))
+* **jobs:** hold default-image agents until the pod's policy attaches ([#194](https://github.com/devthenet-labs/patchy/issues/194)) ([cf7b5c7](https://github.com/devthenet-labs/patchy/commit/cf7b5c7ae7a5ebd57519b43b0179f84889835209))
+
 ## [0.12.32](https://github.com/devthenet-labs/patchy/compare/v0.12.31...v0.12.32) (2026-10-15)
 
 
