@@ -4,15 +4,12 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
-	"net/http"
 	"net/url"
 	"time"
 
@@ -49,15 +46,6 @@ func newProbeCmd(opts *cli.Options) *cobra.Command {
 		"(default: the registry's healthPackage)")
 	f.Duration("probe-credential-wait", 30*time.Second, "how long to wait for the credential to load or mint")
 	return cmd
-}
-
-// probeOutcome is what the probe reads off its request's audit line.
-type probeOutcome struct {
-	Status         int    `json:"status"`
-	UpstreamStatus int    `json:"upstream_status"`
-	Outcome        string `json:"outcome"`
-	Reason         string `json:"reason"`
-	Credential     string `json:"credential"`
 }
 
 // runProbe sends one request through the engine and prints the outcome.
@@ -103,17 +91,24 @@ func runProbe(ctx context.Context, opts *cli.Options, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	res, err := probeOnce(ctx, srv, prof.Name, path, &audit)
+	res, err := egressproxy.Probe(ctx, srv, prof.Name, path, &audit)
 	if err != nil {
 		return err
 	}
+	return reportProbe(out, name, prof.Name, path, res)
+}
+
+// reportProbe prints the probe's one line, the one the runbook reads, and
+// fails unless the request was forwarded and answered 200.
+func reportProbe(out io.Writer, registry, profile, path string, res egressproxy.ProbeResult) error {
 	outcome := res.Outcome
-	if outcome == egressproxy.OutcomeProxied && res.Status == http.StatusOK {
+	if res.OK() {
 		outcome = "ok"
 	}
 	_, _ = fmt.Fprintf(out, "registry=%s profile=%s path=%s status=%d upstream_status=%d outcome=%s reason=%s "+
-		"credential=%s\n", name, prof.Name, path, res.Status, res.UpstreamStatus, outcome, res.Reason, res.Credential)
-	if outcome != "ok" {
+		"credential=%s\n", registry, profile, path, res.Status, res.UpstreamStatus, outcome, res.Reason,
+		res.Credential)
+	if !res.OK() {
 		return errProbeFailed
 	}
 	return nil
@@ -164,52 +159,3 @@ func probePath(r netprofile.Registry, pkg string) (string, error) {
 		return (&url.URL{Path: base + esc + "/@v/list"}).EscapedPath(), nil
 	}
 }
-
-// probeOnce serves one GET of path on the profile's handler, discarding
-// the body, and reads the audit line it left.
-func probeOnce(ctx context.Context, srv *egressproxy.Server, profile, path string, audit *bytes.Buffer,
-) (probeOutcome, error) {
-	h, err := srv.Handler(profile)
-	if err != nil {
-		return probeOutcome{}, err
-	}
-	u, err := url.ParseRequestURI(path)
-	if err != nil {
-		return probeOutcome{}, err
-	}
-	req := (&http.Request{Method: http.MethodGet, URL: u, RequestURI: path, Proto: "HTTP/1.1", ProtoMajor: 1,
-		ProtoMinor: 1, Header: http.Header{}, Body: http.NoBody, Host: "probe", RemoteAddr: "127.0.0.1:0",
-	}).WithContext(ctx)
-	func() {
-		// An aborted stream is the engine's answer too: its audit line
-		// is written while the abort unwinds.
-		defer func() {
-			if r := recover(); r != nil && r != http.ErrAbortHandler { //nolint:errorlint // sentinel panic value
-				panic(r)
-			}
-		}()
-		h.ServeHTTP(&discardWriter{header: http.Header{}}, req)
-	}()
-	var last probeOutcome
-	sc := bufio.NewScanner(bytes.NewReader(audit.Bytes()))
-	found := false
-	for sc.Scan() {
-		var line probeOutcome
-		if json.Unmarshal(sc.Bytes(), &line) == nil && line.Outcome != "" {
-			last, found = line, true
-		}
-	}
-	if !found {
-		return probeOutcome{}, errors.New("the request left no audit line")
-	}
-	return last, nil
-}
-
-// discardWriter is a ResponseWriter that keeps nothing but headers.
-type discardWriter struct {
-	header http.Header
-}
-
-func (w *discardWriter) Header() http.Header         { return w.header }
-func (w *discardWriter) Write(p []byte) (int, error) { return len(p), nil }
-func (w *discardWriter) WriteHeader(int)             {}

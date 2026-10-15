@@ -284,6 +284,43 @@ func TestProbe(t *testing.T) {
 	}
 }
 
+// TestReportProbe: the line the runbook reads. A forwarded 200 prints
+// outcome=ok with the credential's kind and succeeds; anything else prints
+// the engine's outcome and fails.
+func TestReportProbe(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		res     egressproxy.ProbeResult
+		want    string
+		wantErr error
+	}{
+		{"static", egressproxy.ProbeResult{Status: 200, UpstreamStatus: 200, Outcome: egressproxy.OutcomeProxied,
+			Credential: "static"},
+			"status=200 upstream_status=200 outcome=ok reason= credential=static\n", nil},
+		{"codeartifact", egressproxy.ProbeResult{Status: 200, UpstreamStatus: 200,
+			Outcome: egressproxy.OutcomeProxied, Credential: "codeartifact"},
+			"status=200 upstream_status=200 outcome=ok reason= credential=codeartifact\n", nil},
+		{"not found", egressproxy.ProbeResult{Status: 404, UpstreamStatus: 404, Outcome: egressproxy.OutcomeProxied,
+			Reason: egressproxy.ReasonNotFound, Credential: "static"},
+			"status=404 upstream_status=404 outcome=proxied reason=not_found credential=static\n", errProbeFailed},
+		{"upstream auth", egressproxy.ProbeResult{Status: 502, UpstreamStatus: 401,
+			Outcome: egressproxy.OutcomeUpstreamAuth, Credential: "codeartifact"},
+			"status=502 upstream_status=401 outcome=upstream_auth reason= credential=codeartifact\n", errProbeFailed},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var out bytes.Buffer
+			err := reportProbe(&out, "art-npm", "web", "/r/art-npm/left-pad", tt.res)
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("reportProbe = %v, want %v", err, tt.wantErr)
+			}
+			want := "registry=art-npm profile=web path=/r/art-npm/left-pad " + tt.want
+			if out.String() != want {
+				t.Errorf("reportProbe printed %q, want %q", out.String(), want)
+			}
+		})
+	}
+}
+
 // TestProbePath: the first request each ecosystem's client makes.
 func TestProbePath(t *testing.T) {
 	for _, tt := range []struct {
