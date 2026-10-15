@@ -169,7 +169,8 @@ type tunnelEntry struct {
 	port       int
 	sourceIP   string
 	pod        PodInfo
-	host       string // the CONNECT host: validated, or clipped and quoted
+	host       string // the CONNECT host: validated, or the raw target's host part, clipped
+	target     string // the raw CONNECT target, clipped; set only while host is not validated
 	sni        string
 	alpn       []string
 	upstreamIP string
@@ -182,6 +183,11 @@ type tunnelEntry struct {
 	// forwarded is set once the hello went upstream: the close line then
 	// reads "tunnel", whatever ended it.
 	forwarded bool
+}
+
+// setTarget records the audit view of the CONNECT target.
+func (e *tunnelEntry) setTarget(v auditTarget) {
+	e.host, e.target = v.host, v.target
 }
 
 // identity is the attribute list every tunnel line starts with.
@@ -226,7 +232,11 @@ func auditTunnel(ctx context.Context, log *slog.Logger, e tunnelEntry) {
 	if e.forwarded {
 		msg = "tunnel"
 	}
-	attrs := append(e.identity(),
+	attrs := e.identity()
+	if e.target != "" {
+		attrs = append(attrs, slog.String("target", e.target))
+	}
+	attrs = append(attrs,
 		slog.String("sni", clip(e.sni)),
 		slog.String("alpn", clip(strings.Join(e.alpn, ","))),
 		slog.String("upstream_ip", e.upstreamIP),

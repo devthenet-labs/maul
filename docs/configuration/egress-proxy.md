@@ -608,13 +608,14 @@ body (so a client that shows only one of them still shows the reason) and audite
    dial happens before the `200`, so these are readable answers, not torn connections.
 6. **`200 Connection established`**, then the ClientHello: one TLS handshake record, one `server_name` equal to the
    `CONNECT` host, and no Encrypted Client Hello (or legacy ESNI). A refused hello gets one TLS alert (`sni_missing`,
-   `sni_mismatch`, `ech`, `bad_hello`) and **no byte goes upstream**.
+   `sni_mismatch`, `ech`, `bad_hello`) and **no byte goes upstream**. Its audit line still says `status=200`: the status
+   is the `CONNECT` answer, which was sent before the hello arrived; `outcome` says what happened to the hello.
 7. The hello goes upstream verbatim and both directions are copied, counted against the caps, until either side closes,
    a cap trips or a deadline passes.
 
 The listener speaks HTTP/1 only (no h2c), and a rolling restart closes the old pods' open tunnels; clients reconnect to
 the new pods. `openssl s_client -proxy` sends its `CONNECT` as HTTP/1.0, which the shape check refuses (`400`, reason
-`proto`), so it cannot probe a tunnel; use the Python or curl probe under
+`proto`, `400 egress-proxy: CONNECT must be HTTP/1.1`), so it cannot probe a tunnel; use the Python or curl probe under
 [Debugging a refused host](#debugging-a-refused-host).
 
 ### The hard-deny list
@@ -755,6 +756,11 @@ These keys reach the proxy only while some profile lists hosts. What the default
   `agent.jobDeadline` and, with intents on, `intentController.config.jobDeadline`, and the proxy refuses a shorter one
   at startup), so a pod cannot pause long enough to refill its own budget. A new pod that reuses a recent IP inherits
   what is left: that errs towards less, never more.
+- **The budget is held in memory.** A proxy replica that restarts, crashes or is rolled starts with an empty table, so
+  every source gets a fresh budget on that replica. Every Helm upgrade that changes the proxy's configuration rolls its
+  pods. Measured live: 20 minutes after a source spent its budget, the replica that had not restarted still refused it
+  (5 of 5 tunnels) while a restarted one admitted it (3 of 3). A pod that can make the proxy restart, or outlasts an
+  upgrade, can upload more than the budget.
 - **Over a cap** a tunnel is closed at once (`upload_cap`, `download_cap`); over a budget the next `CONNECT` is refused
   `503 egress-proxy: over the tunnel limit (source_upload_budget)`.
 - **The concurrency and rate limits** keep one pod from exhausting the proxy, not data in (the byte budget does that).
@@ -768,12 +774,20 @@ A keep-alive tunnel idle for 2 minutes is closed and the client reconnects (`idl
 Every tunnel writes up to three kinds of line, all at `info` with `route=tunnel`, never a header or a payload byte:
 
 - `tunnel opened`, just before the `200`: `profile`, `port`, `source_ip`, the attribution fields, `host` and
-  `upstream_ip`. It is written before the client can send anything, so a crash still leaves it in
-  `kubectl logs --previous`.
+  `upstream_ip`. It is written before the client can send anything, so a container crash still leaves it in
+  `kubectl logs --previous`; a pod that is deleted, evicted or replaced by a roll takes its lines with it.
 - `tunnel progress`, every `progressInterval` while a tunnel stays open, with running `bytes_up`, `bytes_down` and
   `duration`.
 - one close line: `tunnel` once the hello went upstream, whatever ended it, or `refused` for a refusal before that, with
   `sni`, `alpn`, `upstream_ip`, `bytes_up`, `bytes_down`, `duration`, `status`, `outcome` and `reason`.
+
+`host` is the validated host name once the name has passed the host grammar (`tunnelled`, `not_allowed`, `hard_denied`
+and everything after). When it has not (`ip_literal`, `bad_host`, `port`, `bad_request`, `suspended`, `shutdown`), the
+close line adds `target`, the raw `CONNECT` target as sent, and `host` is that target's host part as sent
+(`host=1.1.1.1 target=1.1.1.1:443`, `host=pypi.org target=pypi.org:8443`), or empty when the target is not `host:port`
+at all. Both are cut at 256 bytes, and never quoted by the proxy: the log handler quotes and escapes a value holding
+spaces, quotes or control characters, so `grep host=1.1.1.1` finds the line and a hostile target cannot forge another
+attribute or line.
 
 | `outcome`                                         | Meaning                                                                                                                                                      |
 | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -786,6 +800,9 @@ Every tunnel writes up to three kinds of line, all at `info` with `route=tunnel`
 | `upload_cap`, `download_cap`                      | a cap or budget cut an open tunnel                                                                                                                           |
 | `idle_timeout`, `max_duration`, `shutdown`        | ended by a deadline or a proxy shutdown                                                                                                                      |
 | `bad_request`, `suspended`                        | a malformed `CONNECT` (`reason` `proto`, `target` or `body`); the kill switch                                                                                |
+
+A request other than `CONNECT` on a port whose profile has only a tunnel (no Go route, no registry grant) is not a
+tunnel line: it is a request audit line with `route=none outcome=method`, answered `405 egress-proxy: only CONNECT`.
 
 Lines to expect, which are not an attack:
 
@@ -893,7 +910,7 @@ keeps `module` and has no `package`), `credential` (`none`, `static` or `codeart
 | `not_allowed`            | the package or module is outside the allowlist, or the version failed the gate           |
 | `bad_path`               | the path broke the grammar                                                               |
 | `bad_request`            | a body, a query or an absolute-form URI (400)                                            |
-| `method`                 | not GET or HEAD                                                                          |
+| `method`                 | not GET or HEAD; on a tunnel-only port, not `CONNECT` (`route=none`)                     |
 | `limited`                | over a limit after waiting (503)                                                         |
 | `upstream_error`         | the upstream failed, answered another status, or resolved to a denied address (502)      |
 | `too_large`              | the response passed its size cap                                                         |
