@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	authorizationv1 "k8s.io/api/authorization/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -26,6 +27,7 @@ import (
 
 	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
 	"github.com/bitwise-media-group/patchy/e2e/fakeoidc"
+	"github.com/bitwise-media-group/patchy/internal/rbactest"
 	"github.com/bitwise-media-group/patchy/internal/transcript"
 	"github.com/bitwise-media-group/patchy/internal/transcriptstore"
 )
@@ -208,6 +210,16 @@ func grantIntentTiers(t *testing.T, cl *cluster) {
 	bind("alpha-content", rbacv1.Subject{Kind: rbacv1.GroupKind, APIGroup: rbacv1.GroupName,
 		Name: "github:acme:alpha-content"})
 	bind("beta-viewers", rbacv1.Subject{Kind: rbacv1.UserKind, APIGroup: rbacv1.GroupName, Name: "github:bea"})
+	// The authorizer observes a new binding a moment after it is stored, and
+	// status-server caches what its reviews are told: wait for each grant.
+	review := func(user string, groups []string, project, sub string) authorizationv1.SubjectAccessReviewSpec {
+		return rbactest.Review(user, groups, authorizationv1.ResourceAttributes{Namespace: namespace,
+			Verb: "get", Group: "patchy.bitwisemedia.uk", Resource: "projects", Subresource: sub, Name: project})
+	}
+	rbactest.WaitAllowed(t, cl.client,
+		review("github:viv", nil, "alpha", "intents"),
+		review("github:probe", []string{"github:acme:alpha-content"}, "alpha", "transcripts"),
+		review("github:bea", nil, "beta", "intents"))
 }
 
 // fabricateIntents writes two Projects, an Intent in each, and the alpha

@@ -4,10 +4,10 @@
 package action_test
 
 import (
+	"testing"
 	"time"
 
-	"testing"
-
+	authorizationv1 "k8s.io/api/authorization/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -16,6 +16,7 @@ import (
 
 	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
 	"github.com/bitwise-media-group/patchy/internal/action"
+	"github.com/bitwise-media-group/patchy/internal/rbactest"
 )
 
 // The integrations policy's own envtest proof: the request stamps
@@ -31,12 +32,13 @@ func (e *policyEnv) integrationUserClient(t *testing.T, username string, verbs .
 	ctx := t.Context()
 	safe := "integ-" + username
 
+	granted := append([]string{"get", "list", "update", "patch"}, verbs...)
 	role := &rbacv1.Role{
 		ObjectMeta: metav1.ObjectMeta{Name: "role-" + safe, Namespace: policyNamespace},
 		Rules: []rbacv1.PolicyRule{{
 			APIGroups: []string{v1alpha1.GroupVersion.Group},
 			Resources: []string{"integrations"},
-			Verbs:     append([]string{"get", "list", "update", "patch"}, verbs...),
+			Verbs:     granted,
 		}},
 	}
 	if err := e.admin.Create(ctx, role); err != nil && !apierrors.IsAlreadyExists(err) {
@@ -50,6 +52,11 @@ func (e *policyEnv) integrationUserClient(t *testing.T, username string, verbs .
 	if err := e.admin.Create(ctx, binding); err != nil && !apierrors.IsAlreadyExists(err) {
 		t.Fatalf("create rolebinding: %v", err)
 	}
+	// Act only once the RBAC authorizer has observed the grant: a request
+	// inside that window is refused, a CI flake on a loaded runner.
+	rbactest.WaitAllowed(t, e.admin, rbactest.Verbs(username, nil, authorizationv1.ResourceAttributes{
+		Namespace: policyNamespace, Group: v1alpha1.GroupVersion.Group, Resource: "integrations",
+	}, granted...)...)
 
 	cfg := rest.CopyConfig(e.cfg)
 	cfg.Impersonate = rest.ImpersonationConfig{UserName: username}

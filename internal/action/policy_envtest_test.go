@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	authorizationv1 "k8s.io/api/authorization/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -24,6 +25,7 @@ import (
 	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
 	"github.com/bitwise-media-group/patchy/internal/action"
 	"github.com/bitwise-media-group/patchy/internal/kube"
+	"github.com/bitwise-media-group/patchy/internal/rbactest"
 )
 
 // This suite is the proof behind the CLI's security claim: the custom verbs are
@@ -155,12 +157,13 @@ func (e *policyEnv) userClient(t *testing.T, username string, verbs ...string) c
 	ctx := t.Context()
 	safe := strings.NewReplacer("@", "-", ".", "-", ":", "-").Replace(username)
 
+	// update is the native verb the API server checks; the policy is what
+	// narrows it down to individual fields.
+	granted := append([]string{"get", "list", "update", "patch"}, verbs...)
 	rules := []rbacv1.PolicyRule{{
 		APIGroups: []string{v1alpha1.GroupVersion.Group},
 		Resources: []string{"findings"},
-		// update is the native verb the API server checks; the policy is what
-		// narrows it down to individual fields.
-		Verbs: append([]string{"get", "list", "update", "patch"}, verbs...),
+		Verbs:     granted,
 	}}
 	role := &rbacv1.Role{
 		ObjectMeta: metav1.ObjectMeta{Name: "role-" + safe, Namespace: policyNamespace},
@@ -177,6 +180,11 @@ func (e *policyEnv) userClient(t *testing.T, username string, verbs ...string) c
 	if err := e.admin.Create(ctx, binding); err != nil && !apierrors.IsAlreadyExists(err) {
 		t.Fatalf("create rolebinding: %v", err)
 	}
+	// Act only once the RBAC authorizer has observed the grant: a request
+	// inside that window is refused, a CI flake on a loaded runner.
+	rbactest.WaitAllowed(t, e.admin, rbactest.Verbs(username, nil, authorizationv1.ResourceAttributes{
+		Namespace: policyNamespace, Group: v1alpha1.GroupVersion.Group, Resource: "findings",
+	}, granted...)...)
 
 	cfg := rest.CopyConfig(e.cfg)
 	cfg.Impersonate = rest.ImpersonationConfig{UserName: username}

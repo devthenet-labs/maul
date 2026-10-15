@@ -7,6 +7,7 @@ import (
 	"os"
 	"testing"
 
+	authorizationv1 "k8s.io/api/authorization/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -14,6 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
 	"github.com/bitwise-media-group/patchy/internal/kube"
+	"github.com/bitwise-media-group/patchy/internal/rbactest"
 	"github.com/bitwise-media-group/patchy/internal/web/auth"
 )
 
@@ -78,6 +80,18 @@ func TestProjectReviewerRealRBAC(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// One request each role allows, to wait on once it is bound: the RBAC
+	// authorizer observes a new binding a moment after it is stored, and the
+	// reviewer caches what it is told.
+	allows := map[string]authorizationv1.ResourceAttributes{
+		"alpha-intents":    {Subresource: "intents", Name: "alpha"},
+		"beta-transcripts": {Subresource: "transcripts", Name: "beta"},
+		"all-intents":      {Subresource: "intents", Name: "gamma"},
+		"alpha-previews":   {Subresource: "previews", Name: "alpha"},
+		"all-previews":     {Subresource: "previews", Name: "gamma"},
+		"alpha-native":     {Name: "alpha"},
+	}
+	var granted []authorizationv1.SubjectAccessReviewSpec
 	bindings := 0
 	bind := func(role string, subject rbacv1.Subject) {
 		t.Helper()
@@ -88,6 +102,13 @@ func TestProjectReviewerRealRBAC(t *testing.T) {
 			Subjects:   []rbacv1.Subject{subject},
 		}); err != nil {
 			t.Fatal(err)
+		}
+		attrs := allows[role]
+		attrs.Namespace, attrs.Group, attrs.Resource, attrs.Verb = "patchy", group, "projects", "get"
+		if subject.Kind == rbacv1.GroupKind {
+			granted = append(granted, rbactest.Review("github:probe", []string{subject.Name}, attrs))
+		} else {
+			granted = append(granted, rbactest.Review(subject.Name, nil, attrs))
 		}
 	}
 	user := func(n string) rbacv1.Subject {
@@ -103,6 +124,7 @@ func TestProjectReviewerRealRBAC(t *testing.T) {
 	bind("alpha-native", user("github:dave"))
 	bind("alpha-previews", user("github:grace"))
 	bind("all-previews", groupSubject("github:acme:reviewers"))
+	rbactest.WaitAllowed(t, admin, granted...)
 
 	projects := []string{"alpha", "beta", "gamma"}
 	cases := []struct {

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	authorizationv1 "k8s.io/api/authorization/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/bitwise-media-group/patchy/internal/kube"
 	"github.com/bitwise-media-group/patchy/internal/netprofile"
+	"github.com/bitwise-media-group/patchy/internal/rbactest"
 )
 
 const (
@@ -89,6 +91,17 @@ func TestEgressProxyAgainstAPIServer(t *testing.T) {
 		}
 		return &waitError{err: err, want: egressDenied}
 	})
+
+	// The chart's RBAC was stored a moment ago; act as the controllers only
+	// once the authorizer has observed it, or an admitted case fails on RBAC.
+	controllers := []string{saIntent, saRemediation, saInvestigation}
+	granted := make([]authorizationv1.SubjectAccessReviewSpec, 0, len(controllers))
+	for _, sa := range controllers {
+		granted = append(granted, rbactest.Review(sa, nil, authorizationv1.ResourceAttributes{
+			Namespace: egressAgents, Group: "batch", Resource: "jobs", Verb: "create",
+		}))
+	}
+	rbactest.WaitAllowed(t, admin, granted...)
 
 	as := func(user string) client.Client {
 		c := rest.CopyConfig(cfg)
