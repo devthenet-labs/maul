@@ -1011,6 +1011,14 @@ func (r *RunReconciler) collect(ctx context.Context, run *v1alpha1.IntentRun) (c
 		return r.unfinished(ctx, run, st)
 	}
 	out, err := r.Jobs.Result(ctx, run.Status.JobRef.Name)
+	if errors.Is(err, jobs.ErrLogsGone) {
+		// No retry can read it (an evicted pod, a removed container): the
+		// run settles with its no-result outcome, which names the cause.
+		r.log().LogAttrs(ctx, slog.LevelWarn, "the agent log is gone; the run settles without a result",
+			slog.String("run", run.Name), slog.Any("error", err))
+		return ctrl.Result{}, r.settle(ctx, run, result{outcome: noResultOutcome(st),
+			detail: noResultDetail(jobs.LogsGoneDetail, st)})
+	}
 	if err != nil {
 		return ctrl.Result{}, err
 	}

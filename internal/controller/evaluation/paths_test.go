@@ -570,8 +570,9 @@ func TestCollectOutcomes(t *testing.T) {
 		{"first fatal wins", func(t *testing.T) []string {
 			return []string{fatalLine(t, "first"), fatalLine(t, "second")}
 		}, nil, v1alpha1.RunFailed, v1alpha1.UnitJobFailed, "first", 0},
-		{"unreadable log is a failed run", func(*testing.T) []string { return nil }, errBoom,
-			v1alpha1.RunFailed, v1alpha1.UnitJobFailed, "agent job finished without a result event", 0},
+		{"a log that is gone is a failed run", func(*testing.T) []string { return nil },
+			fmt.Errorf("%w (the pod is gone)", jobs.ErrLogsGone),
+			v1alpha1.RunFailed, v1alpha1.UnitJobFailed, jobs.LogsGoneDetail, 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -597,6 +598,47 @@ func TestCollectOutcomes(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestCollectLogReadFailures: an evicted unit whose log is gone fails in
+// one pass, naming the eviction, while a read that may still succeed is
+// returned for a retry and leaves the unit running.
+func TestCollectLogReadFailures(t *testing.T) {
+	const evicted = "Pod ephemeral local storage usage exceeds the total limit of containers 8Gi."
+	t.Run("evicted, log gone", func(t *testing.T) {
+		u, objs, job := collectFixture(1)
+		runner := &errRunner{fakeRunner: &fakeRunner{
+			status: map[string]jobs.Status{job: {Done: true, Failed: 1, PodReason: "Evicted", PodMessage: evicted}},
+		}, linesErr: fmt.Errorf("%w (the pod was evicted)", jobs.ErrLogsGone)}
+		c := newClient(t, objs...)
+		r := newUnitReconciler(c, nil, present)
+		r.Runner = runner
+		if _, err := r.Reconcile(t.Context(), unitReq(u.Name)); err != nil {
+			t.Fatalf("Reconcile: %v", err)
+		}
+		got := getUnit(t, c, u.Name)
+		want := jobs.LogsGoneDetail + ": the agent pod was evicted: " + evicted
+		if got.Status.Phase != v1alpha1.RunFailed || got.Status.Reason != v1alpha1.UnitJobFailed ||
+			got.Status.Detail != want {
+			t.Errorf("unit = %q %q %q, want Failed %q %q", got.Status.Phase, got.Status.Reason, got.Status.Detail,
+				v1alpha1.UnitJobFailed, want)
+		}
+	})
+	t.Run("transient", func(t *testing.T) {
+		u, objs, job := collectFixture(1)
+		runner := &errRunner{fakeRunner: &fakeRunner{
+			status: map[string]jobs.Status{job: {Done: true, Succeeded: 1}},
+		}, linesErr: errBoom}
+		c := newClient(t, objs...)
+		r := newUnitReconciler(c, nil, present)
+		r.Runner = runner
+		if _, err := r.Reconcile(t.Context(), unitReq(u.Name)); !errors.Is(err, errBoom) {
+			t.Fatalf("Reconcile = %v, want the read error returned for a retry", err)
+		}
+		if got := getUnit(t, c, u.Name); got.Status.Phase != v1alpha1.RunRunning {
+			t.Errorf("unit phase = %q, want Running", got.Status.Phase)
+		}
+	})
 }
 
 // TestCollectJobStates: a vanished Job aborts the unit, an unfinished one

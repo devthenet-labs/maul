@@ -38,10 +38,11 @@ func (f *fakeLogs) Stream(_ context.Context, pod, container string, follow bool)
 	return io.NopCloser(strings.NewReader(f.body)), nil
 }
 
-// jobPod is a pod whose agent container has finished — readable by Result.
+// jobPod is a pod whose agent container has finished — readable by Result:
+// the kubelet still has the container, so its status carries the ID.
 func jobPod(jobName string) *corev1.Pod {
 	return jobPodInState(jobName, corev1.PodSucceeded, corev1.ContainerState{
-		Terminated: &corev1.ContainerStateTerminated{},
+		Terminated: &corev1.ContainerStateTerminated{ContainerID: "containerd://0123abcd"},
 	})
 }
 

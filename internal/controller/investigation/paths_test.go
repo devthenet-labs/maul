@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
 	"strings"
@@ -368,6 +369,13 @@ func TestCollectFailurePaths(t *testing.T) {
 			{V: envelope.Version, Type: envelope.TypeFatal, Error: "workspace missing"},
 		}}, "aborted: workspace missing"},
 		{"no investigation event", &fakeRunner{done: true}, "aborted: agent job produced no investigation event"},
+		// Regression: an evicted pod's log is gone, and a collect that kept
+		// failing on it held the run until the Job's TTL deleted it.
+		{"log gone after an eviction", &errRunner{fakeRunner: &fakeRunner{status: &jobs.Status{Done: true, Failed: 1,
+			PodReason: "Evicted", PodMessage: "Pod ephemeral local storage usage exceeds the total limit of containers 8Gi."}},
+			resultErr: fmt.Errorf("%w (the pod was evicted)", jobs.ErrLogsGone)},
+			"aborted: the agent log could not be read, so no result was collected: the agent pod was evicted: " +
+				"Pod ephemeral local storage usage exceeds the total limit of containers 8Gi."},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

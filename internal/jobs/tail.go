@@ -28,11 +28,19 @@ type Tailer struct {
 	cs        kubernetes.Interface
 	namespace string
 	logs      logReader
+
+	// failures times each agent log's failed reads against LogReadGrace;
+	// now is its clock, swapped by tests.
+	failures *readFailures
+	now      func() time.Time
 }
 
 // NewTailer builds a read-only reader over the agent namespace.
 func NewTailer(cs kubernetes.Interface, namespace string) *Tailer {
-	return &Tailer{cs: cs, namespace: namespace, logs: podLogs{cs: cs, namespace: namespace}}
+	return &Tailer{
+		cs: cs, namespace: namespace, logs: podLogs{cs: cs, namespace: namespace},
+		failures: &readFailures{}, now: time.Now,
+	}
 }
 
 // Tail follows a running agent's log and delivers each transcript turn and
@@ -89,7 +97,7 @@ func (t *Tailer) waitForAgent(ctx context.Context, jobName string, terminated bo
 				return "", err
 			}
 			if gone {
-				return "", fmt.Errorf("jobs: no pods for job %s", jobName)
+				return "", fmt.Errorf("jobs: no pods for job %s: %w", jobName, ErrLogsGone)
 			}
 		default:
 			agent := agentStatus(pod)
@@ -106,8 +114,8 @@ func (t *Tailer) waitForAgent(ctx context.Context, jobName string, terminated bo
 				if agent != nil && agent.State.Waiting != nil && agent.State.Waiting.Reason != "" {
 					reason = agent.State.Waiting.Reason
 				}
-				return "", fmt.Errorf("jobs: agent container of %s never started (pod phase %s, %s)",
-					jobName, pod.Status.Phase, reason)
+				return "", fmt.Errorf("jobs: agent container of %s never started (pod phase %s, %s): %w",
+					jobName, pod.Status.Phase, reason, ErrLogsGone)
 			}
 		}
 		select {

@@ -210,11 +210,7 @@ func unschedulable(st jobs.Status, now time.Time) (detail string, requeue time.D
 // result, with why the agent stopped when the Job says (an OOM kill, an
 // eviction, the deadline), and for an OOM kill what to change.
 func noResultDetail(base string, st jobs.Status) string {
-	why := st.Termination()
-	if why == "" {
-		return base
-	}
-	detail := base + ": " + why
+	detail := st.Explain(base)
 	if st.AgentTerminated == "OOMKilled" {
 		if st.ResourceClass != "" {
 			detail += "; give the repository a resource class with more memory (agentResourceClass), or raise " +

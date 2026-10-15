@@ -5,6 +5,7 @@ package evaluation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -332,11 +333,21 @@ func (r *UnitReconciler) collect(ctx context.Context, unit *v1alpha1.EvaluationU
 		}
 		return nil
 	})
-	if err != nil {
-		// The pods' logs may already be gone (TTL'd Job); treat as a failed
-		// run rather than retrying forever.
-		r.log().LogAttrs(ctx, slog.LevelWarn, "read evaluation job log",
+	switch {
+	case errors.Is(err, jobs.ErrLogsGone):
+		// No retry can read it (an evicted pod, a removed container, a
+		// failure outlasting jobs.LogReadGrace): the unit fails without a
+		// result, naming why the agent stopped.
+		r.log().LogAttrs(ctx, slog.LevelWarn, "the evaluation job log is gone; the unit fails without a result",
 			slog.String("unit", unit.Name), slog.Any("error", err))
+		return ctrl.Result{}, r.settle(ctx, unit, settleOutcome{
+			reason: v1alpha1.UnitJobFailed,
+			detail: st.Explain(jobs.LogsGoneDetail),
+		})
+	case err != nil:
+		// The log may still be readable: retried, with backoff, until it
+		// reads or jobs reports it gone.
+		return ctrl.Result{}, err
 	}
 
 	switch {

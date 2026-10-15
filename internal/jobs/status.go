@@ -122,6 +122,21 @@ func (s Status) Termination() string {
 	return ""
 }
 
+// LogsGoneDetail is the failure detail of a run whose agent log is
+// ErrLogsGone, before Explain adds why the agent stopped.
+const LogsGoneDetail = "the agent log could not be read, so no result was collected"
+
+// Explain is base, the detail of a run whose agent reported no result, with
+// Termination appended when the Job says why the agent stopped (an eviction
+// names the kubelet's message: the ephemeral-storage limit it exceeded, for
+// one).
+func (s Status) Explain(base string) string {
+	if why := s.Termination(); why != "" {
+		return base + ": " + why
+	}
+	return base
+}
+
 // Status reports the named Job's state, including its newest pod's.
 func (c *Client) Status(ctx context.Context, jobName string) (Status, error) {
 	job, err := c.cs.BatchV1().Jobs(c.cfg.Namespace).Get(ctx, jobName, metav1.GetOptions{})

@@ -6,6 +6,7 @@ package investigation
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -350,6 +351,18 @@ func (r *InvestigationReconciler) collect(ctx context.Context, inv *v1alpha1.Inv
 	}
 
 	out, err := r.Runner.Result(ctx, inv.Status.JobRef.Name)
+	if errors.Is(err, jobs.ErrLogsGone) {
+		// No retry can read it (an evicted pod, a removed container): the
+		// run fails as one with no result, naming why the agent stopped.
+		r.log().LogAttrs(ctx, slog.LevelWarn, "the agent log is gone; the run fails without a result",
+			slog.String("investigation", inv.Name), slog.Any("error", err))
+		var fnd v1alpha1.Finding
+		key := types.NamespacedName{Namespace: inv.Namespace, Name: inv.Spec.FindingRef.Name}
+		if err := r.Get(ctx, key, &fnd); err != nil {
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
+		return ctrl.Result{}, r.fail(ctx, inv, &fnd, "aborted", st.Explain(jobs.LogsGoneDetail), nil, nil)
+	}
 	if err != nil {
 		return ctrl.Result{}, err
 	}

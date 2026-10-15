@@ -370,7 +370,10 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   gateway env (wins over `Config.Env`, can never name a credential). `eval.go` is the evaluation Job flavour
   (same posture; `evolve exec-unit` instead of `agent-runner` — wrapped in a capture-once token export when
   brokered — no git init, unit.json handoff); `ResultLines` is the envelope-agnostic log reader the evaluation
-  collector decodes its own events from. The one exception to "no network beyond the artifact server and the
+  collector decodes its own events from; both report `ErrLogsGone` for a finished Job whose log can never be read
+  (deleted pod, removed container, a line too long to scan, or every read failing for `LogReadGrace` from the first
+  failure this process saw), which every collector settles as
+  its no-result outcome instead of retrying. The one exception to "no network beyond the artifact server and the
   broker" is an operator network profile (`network.go`): only on a `(remediate, remediation)` or `(build, intent)`
   Job that injects an accepted repository image, behind `Config.NetworkProfiles`, it adds the profile label, the
   egress proxy in hostAliases under `dns: none`, and the proxy-first go environment (every go variable non-empty);

@@ -405,6 +405,13 @@ func (r *RemediationReconciler) collect(ctx context.Context, rem *v1alpha1.Remed
 		return ctrl.Result{RequeueAfter: requeue}, nil
 	}
 	out, err := r.Runner.Result(ctx, rem.Status.JobRef.Name)
+	if errors.Is(err, jobs.ErrLogsGone) {
+		// No retry can read it (an evicted pod, a removed container): the
+		// run fails as one with no result, naming why the agent stopped.
+		r.log().LogAttrs(ctx, slog.LevelWarn, "the agent log is gone; the run fails without a result",
+			slog.String("remediation", rem.Name), slog.Any("error", err))
+		return ctrl.Result{}, r.fail(ctx, rem, "aborted", st.Explain(jobs.LogsGoneDetail), nil, nil)
+	}
 	if err != nil {
 		return ctrl.Result{}, err
 	}
