@@ -43,6 +43,11 @@ deliberately suspended, hence the `suspended` pill on each row.
   renders only for users granted `get` on `integrations` — unlike rollups this view is **never public**, and it is
   read-only apart from the backfill trigger: the resources themselves are managed in the cluster.
 
+While the operator's [agent pause](configuration/investigation-controller.md#pausing-agents) (`agent.paused`) is on, the
+page shows a banner saying no new investigation, remediation, intent or evaluation Jobs start. Only signed-in users see
+it: the public rollups view, without signing in, does not. Nothing else on the page marks held work, since paused
+findings keep their phase and held runs have no status yet.
+
 ## Agent conversations
 
 Each run's investigation and remediation tab carries the agent's turn-by-turn conversation: its messages, its reasoning,

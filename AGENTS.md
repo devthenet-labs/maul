@@ -48,7 +48,10 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   `claude -p`, results emitted as a `PATCHY-EVENT:` JSONL stream on stdout, beside the `PATCHY-TURN:` transcript and the
   live, never-persisted `PATCHY-OUTPUT:` command output. Never talks to GitHub or the Kubernetes API; a claude pod holds
   no credential at all (model traffic goes through the egress broker, authenticated by a projected SA token read fresh
-  per stage), a codex/copilot pod only its model key.
+  per stage), a codex/copilot pod only its model key. Two subcommands share the binary: `sandbox-probe` (the
+  `internal/sandboxprobe` check the trusted prepare init runs: `--mode strict`, the default, for a repository image,
+  exit 78 when egress is open; `--mode wait --targets k8s,imds` for every other non-evaluation Job, exit 0 either way)
+  and `preflight` (what `patchy check image --run` drives).
 - `cmd/egress-broker` — the egress credential broker (NOT a controller: no reconcilers, no leases): the reverse
   proxy all claude model traffic goes through, one route per provider (anthropic — key or `claude setup-token`
   bearer via `--anthropic-auth` — plus bedrock SigV4, vertex OAuth, foundry key/entra). Validates caller
@@ -125,14 +128,18 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   SPA + JSON projection of Findings/FindingRollups, SSE refetch signal, OIDC sign-in, the access-review-gated
   approve/retry/expedite/suspend/resume actions, and the user-menu demo tooling (replay → Integration
   `spec.replay`; reset → delete all pipeline CRs). Rollup statistics are public; the findings surface always
-  requires auth. Writes SPEC only (`spec.approval`, `spec.suspend`, `spec.replay`) — never status, never a phase.
+  requires auth. Writes SPEC only (`spec.approval`, `spec.suspend`, `spec.replay`) — never status, never a phase —
+  each as a JSON merge patch of only the field it sets, with the resourceVersion as an optimistic lock (`specPatch`,
+  #193), so it never takes ownership of fields Helm applied (field manager: the binary's name, `controller` in-image).
+  `--agents-paused` (chart `agent.paused`) shows a pause banner to signed-in users only; display only.
   With `--intents-enabled` (chart `statusServer.intents.enabled`, kustomize component `status-intents`; default
   off) it also serves the read-only intents views (board, timeline, run panel; docs/intents/dashboard.md): per-Project
   access reviews on the virtual subresources `projects/intents` and `projects/transcripts`, mode oidc with both claim
   prefixes required, and a hardened browser envelope for the whole page. No intent write of any kind.
 - `cmd/patchy` — the workstation CLI (the only binary not deployed): `patchy <verb> <noun>` over the
   caller's own kubeconfig, no channel through any controller. get/describe/review/browse/can-i plus the five
-  action verbs. Writes SPEC only, same as status-server; enforcement of the custom verbs for direct API
+  action verbs. Writes SPEC only, same as status-server, as the same merge patches (`specPatch`, native verb `patch`;
+  field manager the binary's file name, `patchy` or `kubectl-patchy`); enforcement of the custom verbs for direct API
   writes is the ValidatingAdmissionPolicy in `deploy/kustomize/base/admission-policy.yaml`, NOT the CLI's
   own SelfSubjectAccessReview (that is ergonomics). Five cluster-free commands ride along: `dev` (the
   generic-integration test harness), `mirror` (vendored chart/artifact mirroring over `internal/mirror`;
@@ -227,7 +234,11 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   never part of the Finding transition table), `controller/intent` (Project validation + discovery, the Intent
   phase machine and its GitHub writes, the IntentRun scheduler with launch/collect/push, the Intent TTL; one
   writer reconciler per status and its own phase table, `v1alpha1.SetIntentPhase`, beside Finding's; `doc.go` holds
-  the single-writer table and the durable-settle rules), `controller/preview` (fixed slot workload renderer,
+  the single-writer table and the durable-settle rules; `go_requirements.go` reads the root go.mod at the build's base
+  and pushed commit with `x/mod/modfile` for the PR body's requirements section, a refused, missing or non-inline
+  go.mod (`ghclient.ErrNotInline`) leaving the body as before; `planBuildProfiles` hands a plan Job its builds'
+  profiles as `PATCHY_BUILD_NETWORK_PROFILES`, a fact for the prompt, never a profile of its own),
+  `controller/preview` (fixed slot workload renderer,
   bounded rollout, cleanup and orphan sweep; no forge access; with `--preview-auth-required`, default off, it renders
   each slot's pinned sign-in annotations from the chart's JSON, the one the slot admission policy compares, and the
   sweep reports a slot Ingress without the current or previous generation's set (auth-session-timeout judged, as the
@@ -265,7 +276,11 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   (`finding_text.go`): the remediation report in the PR body is `Sanitize`d and `defang`ed, a stage report comment on
   the tracking issue `Sanitize`d, the agent's commit message `defang`ed (`RemediationCommitMessage`), and a PR body
   that cannot render falls back to patchy's own words (`PRBodyFallback`), never the report; `fitReport` cuts a report
-  to GitHub's size limit BEFORE cleaning it, so a cut can never leave a code span unclosed.
+  to GitHub's size limit BEFORE cleaning it, so a cut can never leave a code span unclosed. The intent PR body also
+  lists the root go.mod requirements a build added or changed, marking any at another version than the plan's
+  `new_dependencies` and any direct one the plan did not name (#200; sanitised and defanged, agent-written), and the
+  plan prompt states which network profile each repository's build would get (`BuildProfile`,
+  `Encode`/`DecodeBuildProfiles`, carried as `PATCHY_BUILD_NETWORK_PROFILES`).
 - `webhook`, `telemetry`, `cli`, `version` — service plumbing (the webhook server is used by
   integration-controller only).
 - `action` — the human-action vocabulary (the custom verbs) and the state-machine gating behind each one:
@@ -355,6 +370,27 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   Job that injects an accepted repository image, behind `Config.NetworkProfiles`, it adds the profile label, the
   egress proxy in hostAliases under `dns: none`, and the proxy-first go environment (every go variable non-empty);
   any other pair is refused (`ErrNetworkProfileRefused`), and `Create` reports the profile from the Job's label.
+  A profile with registry grants also gets each granted ecosystem's environment, never empty: npm's
+  (`NPM_CONFIG_REGISTRY` at the proxy's `/r/<registry>/`, `REPLACE_REGISTRY_HOST=always`, scripts off unless granted,
+  no audit/fund/notifier, cache in /tmp) and pip's (`PIP_CONFIG_FILE=/dev/null`, `PIP_INDEX_URL` its `/simple/`, the
+  list variables a single space, wheels only unless `sdists`), the go grant's route first in `GOPROXY`, plus
+  `PATCHY_NETWORK_ECOSYSTEMS` and `PATCHY_NETWORK_GRANTS` (the `netprofile.PodGrant` JSON: names, bounded allowlist,
+  switches, no URL or credential) beside `PATCHY_NETWORK_PROFILE`, for agent-runner's prompt (those three are
+  reserved per-Job names). The prepare init runs `agent-runner sandbox-probe`: strict inside the injection script on a
+  repository image, else the wait probe (`--mode=wait --targets=k8s,imds`, `|| echo`, never fails the Job) as the
+  script's last step, both with `PATCHY_SANDBOX_PROBE_TIMEOUT` (default 20s); evaluation Jobs run neither.
+- `sandboxprobe` — the negative-connectivity check behind `agent-runner sandbox-probe`, stdlib only: dial the targets
+  (`internet` 1.1.1.1:443, `k8s` from `KUBERNETES_SERVICE_HOST`, `imds` 169.254.169.254:80) until three consecutive
+  rounds find all closed or the window (`PATCHY_SANDBOX_PROBE_TIMEOUT`, 20s) ends. `ModeStrict` (no arguments; every
+  target) exits `ExitUnenforced` (78), which `jobs` re-exports and the collectors map to `SandboxUnenforced`;
+  `ModeWait` (default targets `k8s,imds`) exits 0 either way with one `SANDBOX NOT CONFIRMED` line. Window, clock and
+  dialer injectable.
+- `runnercfg` — the job controllers' shared agent-runner flag surface and startup validation (investigation,
+  remediation, intent, evaluation): per-harness runner images and credential Secrets, harness restriction, repository
+  images, network profiles, agent resources, agent DNS, `--agents-paused`, the brokered claude provider config, and
+  `Resolve` (every allowlisted model runnable; then one advisory 5-second broker `/readyz` probe that logs
+  `egress broker not reachable yet; claude jobs will fail until it is` and never gates startup; intent-controller uses
+  `ResolveWithoutBrokerProbe`).
 - `broker`, `provider` — the egress-broker engine (TokenReview auth + verdict cache, per-route credential
   strategies, SSE-safe reverse proxy, audit) and the pure logic of brokered claude runners (gateway env,
   canonical→provider model-id maps with per-provider derived defaults, the `PATCHY_MODEL_MAP` codec both the

@@ -144,3 +144,10 @@ The server's own ServiceAccount is deliberately narrow: `findings` read + **spec
 `spec.approval`; suspend/resume toggle `spec.suspend` — it never writes `findings/status` and never moves a phase; the
 owning controllers react to the spec change), `findingrollups` read, and cluster-scoped `subjectaccessreviews create`
 for the reviews.
+
+Every spec write the server makes (an action button, the user menu's replay and reset, and the Config view's backfill
+trigger) is a JSON merge patch of only the field it sets, carrying the resource version it was decided on, so a write
+against stale state is a conflict and is retried on fresh state. The server's field manager therefore owns that one
+field and nothing an operator applied: a later `helm upgrade` of the same resources applies without `--force-conflicts`.
+It sets no manager name of its own, so the API server takes it from the binary's file name, which in the shipped image
+is `controller`.

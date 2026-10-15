@@ -293,11 +293,14 @@ pod that is all of these gains anything:
 It gains exactly one egress destination, the [egress proxy](../configuration/egress-proxy.md) on that profile's port,
 and nothing else: no credential, no resolver (under `dns: none` the controller pins the proxy's Service name in the
 hosts file, as it does the broker's) and no proxy variable. Every other pod, investigate, plan and evaluation pods and
-every default-image pod included, is byte for byte what it was. The proxy forwards only `GET` and `HEAD` requests for Go
-modules and checksum-database records, only for the profile's allowlisted module prefixes, and only tagged releases
-unless the profile sets `allowPseudoVersions`; it caches nothing. A profile may also be granted operator-defined
-registries ([below](#registry-grants)); then the proxy holds those registries' credentials, but the pod still holds
-none.
+every default-image pod included, gets nothing from a profile: no label, no proxy entry and no proxy environment. (Two
+things they do carry are not part of a profile: every default-image pod ends its `prepare` with the wait probe
+[above](#what-the-agent-policy-does-not-stop), and an intent plan pod is told, as plain text for its prompt in
+`PATCHY_BUILD_NETWORK_PROFILES`, which profile its builds would get.) The proxy forwards only `GET` and `HEAD` requests
+for Go modules and checksum-database records, only for the profile's allowlisted module prefixes, and only tagged
+releases unless the profile sets `allowPseudoVersions`; it caches nothing. A profile may also be granted
+operator-defined registries ([below](#registry-grants)); then the proxy holds those registries' credentials, but the pod
+still holds none.
 
 What the egress is without profiles depends on your values; do not read one deployment's as the chart's. Under
 `dns: none` with brokered claude only, an agent pod reaches the artifact server and the egress broker and has no

@@ -2,11 +2,12 @@
 
 The in-pod coding-agent runtime: one stage per Job — `investigate` or `remediate` — via the harness CLI its runner image
 bundles (`claude -p` in the claude-agent-runner image, `codex exec` in the codex-agent-runner image, `copilot -p` in the
-copilot-agent-runner image). It never talks to GitHub or the Kubernetes API, and it has no flags — configuration is
-exclusively `PATCHY_*` environment variables, injected into the Job pod by the job controllers. A claude pod holds **no
-credential of any kind**: its model traffic goes through the [egress broker](egress-broker.md), authenticated by a
-projected ServiceAccount token; a codex or copilot pod holds the one model key of its harness. Results leave the pod as
-a `PATCHY-EVENT:` JSONL stream on stdout (which is why all patchy logging goes to stderr).
+copilot-agent-runner image). It never talks to GitHub or the Kubernetes API, and a stage has no flags — its
+configuration is exclusively `PATCHY_*` environment variables, injected into the Job pod by the job controllers (the
+[`sandbox-probe`](#sandbox-probe) and `preflight` subcommands take arguments). A claude pod holds **no credential of any
+kind**: its model traffic goes through the [egress broker](egress-broker.md), authenticated by a projected
+ServiceAccount token; a codex or copilot pod holds the one model key of its harness. Results leave the pod as a
+`PATCHY-EVENT:` JSONL stream on stdout (which is why all patchy logging goes to stderr).
 
 You normally never configure the agent-runner directly: the
 [investigation-controller](investigation-controller.md#stage-flags) and
@@ -200,6 +201,40 @@ Two knobs exist only here:
 | `PATCHY_FAKE_FIXTURE`               | —                  | Stream-JSON fixture the `fake` harness replays (tests, dev overlay) |
 
 Malformed values fail fast with an error naming the exact `PATCHY_<KEY>`.
+
+### Network profiles
+
+The first three variables below reach the agent container only on a Job the controller gave an operator
+[network profile](egress-proxy.md) (a remediate or intent build Job on an accepted repository image). agent-runner reads
+them beside its configuration, not as configuration keys, and only to tell the agent in the remediate and build prompts
+what it can fetch; the routes themselves are the go, npm and pip variables the controller writes next to them
+([the go environment](egress-proxy.md#the-go-environment-a-profile-job-gets),
+[the environment a grant gives a Job](egress-proxy.md#the-environment-a-grant-gives-a-job)). A combination that does not
+hold together, such as grants without a profile, is a configuration error, never a prompt. The fourth is an ordinary
+configuration key, set only on an intent plan Job, which itself never carries a profile.
+
+| Env                             | Set when                                      | Purpose                                                                                                                                                |
+| ------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `PATCHY_NETWORK_PROFILE`        | the Job carries a profile                     | The profile's name; the prompts then describe its routes instead of saying the run is offline                                                          |
+| `PATCHY_NETWORK_ECOSYSTEMS`     | the profile holds registry grants             | The ecosystems the Job can fetch, comma-separated in the order `go,npm,pypi` (only those present)                                                      |
+| `PATCHY_NETWORK_GRANTS`         | the profile holds registry grants             | JSON: per grant, the registry's name and ecosystem, its first 64 allowlisted packages (and a count of the rest) and its switches; no URL or credential |
+| `PATCHY_BUILD_NETWORK_PROFILES` | an intent plan Job whose builds get a profile | JSON: for the planning repository and each tree it reads, the profile its build would get and that profile's routes; the plan prompt states it         |
+
+## sandbox-probe
+
+`agent-runner sandbox-probe` is the negative-connectivity check the trusted `prepare` init container runs, from the same
+static binary, before the agent container starts
+([the policy-attach window](../deployment/isolation.md#what-the-agent-policy-does-not-stop)). It dials addresses the
+agent's NetworkPolicy must block and retries until three consecutive rounds find all of them closed, or its window ends.
+
+| Flag        | Default                     | Purpose                                                                                                                                                                                                                                                                                                                                                  |
+| ----------- | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--mode`    | `strict`                    | `strict` (a repository-image Job): the public internet (`1.1.1.1:443`), the Kubernetes API and the metadata service, and exit `78` if one is still open at the window's end, which fails the run `SandboxUnenforced`. `wait` (every other Job but evaluation's): exit `0` either way, logging one `SANDBOX NOT CONFIRMED` line when a target stayed open |
+| `--targets` | `k8s,imds` (wait mode only) | Comma-separated targets: `internet`, `k8s` (from `KUBERNETES_SERVICE_HOST`/`_PORT`), `imds` (`169.254.169.254:80`). Refused with `--mode strict`, whose targets are fixed; an unknown or repeated key is an error                                                                                                                                        |
+
+Both forms of a flag (`--mode wait`, `--mode=wait`) are accepted; a positional argument is an error. The window is
+`PATCHY_SANDBOX_PROBE_TIMEOUT` (a Go duration, default `20s`), which the controllers set on the `prepare` container; an
+unparseable value is an error.
 
 ## The workspace, and how it got there
 
