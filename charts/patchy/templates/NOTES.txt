@@ -322,7 +322,7 @@ image still build.
 WARNING: admissionPolicy.enabled is false, so the profile label
 ({{ include "patchy.networkProfileLabelPrefix" . }}<profile>) on agent Jobs is enforced by
 controller code only: nothing at the API server stops another principal that
-can create Jobs in {{ .Values.agent.namespace }} (the investigation-controller's
+can create Jobs or Pods in {{ .Values.agent.namespace }} (the investigation-controller's
 ServiceAccount included) from labelling one.
 {{- end }}
 {{- else if .Values.agent.networkProfiles }}

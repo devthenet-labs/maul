@@ -1176,6 +1176,15 @@
                         "type": "string"
                     },
                     "description": "Additional usernames exempt from the policy, for a controller of your own that legitimately writes Finding spec. The chart's own components are exempted automatically."
+                },
+                "jobControllerUsernames": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                        "type": "string",
+                        "minLength": 1
+                    },
+                    "description": "With egressProxy: the usernames the Kubernetes Job controller creates Pods as. A Pod carrying a network profile label in agent.namespace is admitted only from one of these, with a controlling owner reference to a batch/v1 Job. Default system:serviceaccount:kube-system:job-controller (kube-controller-manager under --use-service-account-credentials)."
                 }
             }
         },

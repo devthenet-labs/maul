@@ -207,6 +207,8 @@ func applyEgressRender(t *testing.T, admin client.Client) {
 		"NetworkPolicy/patchy-agents-network-npm", "Role/patchy-egress-proxy-attribution",
 		"ValidatingAdmissionPolicy/patchy-network-profiles",
 		"ValidatingAdmissionPolicyBinding/patchy-network-profiles",
+		"ValidatingAdmissionPolicy/patchy-network-profile-pods",
+		"ValidatingAdmissionPolicyBinding/patchy-network-profile-pods",
 	} {
 		if !seen[want] {
 			t.Errorf("the on-fixture render has no %s", want)

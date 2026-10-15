@@ -324,15 +324,30 @@ Plain `networking.k8s.io/v1` policies only: modes `none`, `gke` and `cilium` all
 the per-harness `CiliumNetworkPolicy`). Mode `istio` is refused by the chart in step 1: the `REGISTRY_ONLY` Sidecar and
 port-based identity have not been verified together.
 
-**The label is set in one place and checked in three.** Only the remediation-controller (after it pins the image) and
-the intent-controller (for build and revise stages) ask for a profile. `internal/jobs` applies it only to the exact
-pairs `(remediate, remediation)` and `(build, intent)`, only when it injects the repository image, and refuses it on any
-other Job. With `admissionPolicy.enabled`, a ValidatingAdmissionPolicy refuses a Job in the agent namespace whose labels
-or pod-template labels carry a `network-` profile key unless the remediation-controller creates it with kind
-`remediation`, or the intent-controller with kind `intent`, and it carries the `runner-image-source: repository`
-annotation. That closes "an investigation never gets a profile" against a bug in one controller: the
-investigation-controller's ServiceAccount holds `jobs create` there too. Without admission policies (clusters older than
-1.30) the label is enforced by controller code alone, and the install NOTES say so.
+**The label is set in one place and checked in four.** Only the remediation-controller (after it pins the image) and the
+intent-controller (for build and revise stages) ask for a profile. `internal/jobs` applies it only to the exact pairs
+`(remediate, remediation)` and `(build, intent)`, only when it injects the repository image, and refuses it on any other
+Job. With `admissionPolicy.enabled`, a ValidatingAdmissionPolicy refuses a Job in the agent namespace whose labels or
+pod-template labels carry a `network-` profile key unless the remediation-controller creates it with kind `remediation`,
+or the intent-controller with kind `intent`, and it carries the `runner-image-source: repository` annotation. That
+closes "an investigation never gets a profile" against a bug in one controller: the investigation-controller's
+ServiceAccount holds `jobs create` there too.
+
+The NetworkPolicies select Pods, not Jobs, so a second policy covers Pods: a Pod in the agent namespace whose labels
+carry a `network-` profile key is admitted only when the Kubernetes Job controller creates it
+(`admissionPolicy.jobControllerUsernames`, default `system:serviceaccount:kube-system:job-controller`) with a single
+controlling owner reference to a `batch/v1` Job, and no update may add or change such a label, through the `pods/status`
+subresource as well as the Pod itself (a status write keeps the labels it is sent), while removing one is always
+allowed. A bare Pod, or one from a ReplicaSet, StatefulSet or any other controller, carrying the label is refused, so
+every labelled Pod was stamped from a Job template the Job policy already judged and that policy stays the one gate. The
+default identity is kube-controller-manager's per-controller ServiceAccount under `--use-service-account-credentials`,
+which kubeadm, kind, k3s, EKS (Auto Mode included), GKE and AKS all run with; on a control plane that runs every
+controller as `system:kube-controller-manager`, set that name instead, and the owner reference check still keeps the
+other controllers' Pods out. A wrong name fails closed: profile Jobs are created but their Pods are refused, which the
+Job's events show.
+
+Without admission policies (clusters older than 1.30) the label is enforced by controller code alone, and the install
+NOTES say so.
 
 **Two kill-switch levers.** `egressProxy.suspendProfiles: true` stops the job controllers applying a profile from their
 next Job **and** rolls the proxy into answering every profile request `410 suspended`, so a Job already running can

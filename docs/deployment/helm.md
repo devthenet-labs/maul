@@ -40,6 +40,13 @@ admissionPolicy:
   # resolved ServiceAccount names — so renaming the release or overriding
   # a serviceAccount.name cannot lock a controller out.
   extraExemptSubjects: []
+  # With egressProxy on: the Job controller's identity. A Pod carrying a
+  # network-profile label in the agent namespace is admitted only from it,
+  # for the batch/v1 Job that controls it. Set
+  # system:kube-controller-manager on a control plane that runs every
+  # controller as that one user.
+  jobControllerUsernames:
+    - system:serviceaccount:kube-system:job-controller
 ```
 
 Disabling it is a real reduction in privilege separation, not a cosmetic toggle: every custom verb becomes advisory, and
@@ -431,7 +438,7 @@ agent:
 
 | Key                                     | Default                 | Purpose                                                                                                                                                    |
 | --------------------------------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `egressProxy.enabled`                   | `false`                 | Deploy the proxy, its Service, PodDisruptionBudget and NetworkPolicy, the per-profile agent policies and (with `admissionPolicy`) the profile-label policy |
+| `egressProxy.enabled`                   | `false`                 | Deploy the proxy, its Service, PodDisruptionBudget and NetworkPolicy, per-profile agent policies, and (with `admissionPolicy`) both profile-label policies |
 | `egressProxy.suspendProfiles`           | `false`                 | The kill switch: no profile from the next Job, and the proxy answers every profile request `410 suspended` once rolled                                     |
 | `egressProxy.replicas`                  | `2`                     | Proxy replicas; above 1 a PodDisruptionBudget keeps one serving                                                                                            |
 | `egressProxy.limits.*`                  | binary defaults         | Concurrency, per-source rate and burst, queue wait, timeouts, zip cap; each renders only when set                                                          |

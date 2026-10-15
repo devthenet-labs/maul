@@ -1903,8 +1903,26 @@ expect egress-on 'select(.kind == "ValidatingAdmissionPolicyBinding" and .metada
 render egress-on-no-intent -f "$ri" -f "$ep"
 expect egress-on-no-intent "$vap | .spec.validations[0].expression | [match(\"system:serviceaccount:[a-z0-9:-]+\"; \"g\").string] | join(\",\") | select(. != \"\")" \
   system:serviceaccount:patchy:patchy-remediation-controller
+# Its pod side: Pods in the agent namespace, admitted with a profile label
+# only from the Job controller's identity (overridable) and only for a
+# controlling batch/v1 Job.
+pvap='select(.kind == "ValidatingAdmissionPolicy" and .metadata.name == "patchy-network-profile-pods")'
+expect egress-on "$pvap | .spec.failurePolicy" Fail
+expect egress-on "$pvap | .spec.matchConstraints.resourceRules[0].resources | join(\",\")" pods,pods/status
+expect egress-on "$pvap | .spec.matchConstraints.resourceRules[0].operations | join(\",\")" CREATE,UPDATE
+expect egress-on "$pvap | .spec.validations[0].expression | [match(\"system:serviceaccount:[a-z0-9:-]+\"; \"g\").string] | join(\",\") | select(. != \"\")" \
+  system:serviceaccount:kube-system:job-controller
+expect egress-on "$pvap | .spec.variables[] | select(.name == \"jobControlled\") | .expression | test(\"r.apiVersion == 'batch/v1' && r.kind == 'Job'\")" true
+expect egress-on "$pvap | .spec.variables[] | select(.name == \"profileLabels\") | .expression | test(\"patchy.bitwisemedia.uk/network-\")" true
+expect egress-on 'select(.kind == "ValidatingAdmissionPolicyBinding" and .metadata.name == "patchy-network-profile-pods") | .spec.matchResources.namespaceSelector.matchLabels["kubernetes.io/metadata.name"]' patchy-agents
+expect egress-on 'select(.kind == "ValidatingAdmissionPolicyBinding" and .metadata.name == "patchy-network-profile-pods") | .spec.validationActions | join(",")' Deny
+render egress-on-kcm -f "$ri" -f "$ep" --set-json 'admissionPolicy.jobControllerUsernames=["system:kube-controller-manager"]'
+expect egress-on-kcm "$pvap | .spec.validations[0].expression | contains(\"[\\\"system:kube-controller-manager\\\"]\")" true
+expect_fail 'an empty jobControllerUsernames' 'minItems' -f "$ri" -f "$ep" --set-json 'admissionPolicy.jobControllerUsernames=[]'
+expect egress-profiles-off 'select(.metadata.name == "patchy-network-profile-pods") | .kind' ""
 render egress-on-no-vap -f "$ri" -f "$ep" --set admissionPolicy.enabled=false
 expect egress-on-no-vap 'select(.metadata.name == "patchy-network-profiles") | .kind' ""
+expect egress-on-no-vap 'select(.metadata.name == "patchy-network-profile-pods") | .kind' ""
 notes egress-on-no-vap -f "$ri" -f "$ep" --set admissionPolicy.enabled=false
 notes_has egress-on-no-vap 'is enforced by
 controller code only' yes

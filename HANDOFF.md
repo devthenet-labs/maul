@@ -1004,9 +1004,10 @@ repos report `read` for everyone, so `read` is never enough).
   or Job Secret ever holds a registry credential, and the feature grants no ServiceAccount a Secret read (kubelet mounts
   it; controllers that already hold release-namespace `secrets get` could still name it, as any Secret there).
   Investigate, plan and evaluation pods, and every default-image pod, never get a profile (enforced in the callers, in
-  `internal/jobs`, and, where admission policies are on, by a ValidatingAdmissionPolicy). The devthenet baseline
-  (`dns: none`, brokered claude only: agent pods reach only the artifact server and the egress broker, with no resolver)
-  is that deployment's configuration, not the chart's.
+  `internal/jobs`, and, where admission policies are on, by a ValidatingAdmissionPolicy on Jobs plus a sibling on Pods
+  that admits a labelled Pod only from the Job controller for its controlling Job, so a bare Pod cannot claim a
+  profile). The devthenet baseline (`dns: none`, brokered claude only: agent pods reach only the artifact server and the
+  egress broker, with no resolver) is that deployment's configuration, not the chart's.
 
 ## Where everything is
 

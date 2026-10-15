@@ -305,7 +305,9 @@ a pod gains one destination, the proxy on its profile's port, enforced by Networ
 `<release>-agents-network-<profile>` policy and the proxy's ingress rule both select the
 `patchy.bitwisemedia.uk/network-<profile>` label. With `admissionPolicy.enabled`, a ValidatingAdmissionPolicy admits
 that label only from remediation-controller (kind remediation) or intent-controller (kind intent) on a repository-image
-Job. Repositories declare nothing.
+Job, and a second admits a Pod carrying it only from the Kubernetes Job controller
+(`admissionPolicy.jobControllerUsernames`) for its controlling `batch/v1` Job, so a bare Pod cannot claim a profile.
+Repositories declare nothing.
 
 It requires `agent.repositoryImages.enabled` and is refused under mode `istio`; the guards are listed in the
 [Helm docs](../../docs/deployment/helm.md). `egressProxy.suspendProfiles: true` is the kill switch: the controllers
