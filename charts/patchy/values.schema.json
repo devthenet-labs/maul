@@ -2464,6 +2464,7 @@
                     "type": "object",
                     "additionalProperties": false,
                     "properties": {
+                        "logLevel": {"$ref": "#/definitions/logLevel"},
                         "extra": {"$ref": "#/definitions/extraEnv"}
                     }
                 }

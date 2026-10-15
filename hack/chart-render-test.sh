@@ -1931,6 +1931,17 @@ cm egress-limits egress-proxy PATCHY_LIMIT_WAIT 10s
 cm egress-limits egress-proxy PATCHY_MAX_ZIP_BYTES 1048576000
 cm egress-limits egress-proxy PATCHY_REQUESTS_PER_SECOND_PER_SOURCE 2.5
 cm egress-limits egress-proxy PATCHY_BURST_PER_SOURCE null
+# The proxy's log level: the audit and credential lines are info, so the
+# shared default warn becomes info for the proxy alone; a louder shared
+# level and the proxy's own level are kept.
+cm egress-on egress-proxy PATCHY_LOG_LEVEL info
+cm egress-on remediation-controller PATCHY_LOG_LEVEL warn
+render egress-log-debug -f "$ri" -f "$ep" --set config.logLevel=debug
+cm egress-log-debug egress-proxy PATCHY_LOG_LEVEL debug
+render egress-log-own -f "$ri" -f "$ep" --set egressProxy.config.logLevel=warn
+cm egress-log-own egress-proxy PATCHY_LOG_LEVEL warn
+expect_fail 'egress proxy log level of the wrong value' '/egressProxy/config/logLevel' \
+  -f "$ri" -f "$ep" --set egressProxy.config.logLevel=loud
 
 # ---- egress proxy: the kill switch -------------------------------------------
 # suspendProfiles: the controllers stop applying profiles and the proxy

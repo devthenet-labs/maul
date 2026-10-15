@@ -61,7 +61,7 @@ built-in private, link-local and reserved ranges.
     "PATCHY_NETWORK_PROFILES" (include "patchy.networkProfilesJSON" .)
     "PATCHY_HEALTH_ADDR" ":8081"
     "PATCHY_DENY_CIDRS" (join "," (uniq $deny))
-    "PATCHY_LOG_LEVEL" .Values.config.logLevel
+    "PATCHY_LOG_LEVEL" (include "patchy.egressProxyLogLevel" .)
     "PATCHY_SUSPENDED" (ternary "true" "false" ($vals.suspendProfiles | default false))
     "PATCHY_ATTRIBUTE_PODS" (ternary "true" "false" ($attr.enabled | default false))
     "PATCHY_AGENT_NAMESPACE" .Values.agent.namespace

@@ -529,6 +529,19 @@ yes
 {{- end }}
 
 {{/*
+The egress proxy's log level: egressProxy.config.logLevel, else the shared
+config.logLevel but never quieter than info. Every audit line (one per
+request) and every credential lifecycle line is written at info, and they
+are how an operator without a log sink sees what the proxy did, so the
+chart's default warn would otherwise drop them all.
+*/}}
+{{- define "patchy.egressProxyLogLevel" -}}
+{{- $own := ((.Values.egressProxy | default dict).config | default dict).logLevel -}}
+{{- $shared := .Values.config.logLevel | default "warn" -}}
+{{- $own | default (ternary $shared "info" (has $shared (list "debug" "info"))) -}}
+{{- end }}
+
+{{/*
 The label prefix an agent Job and its pod carry, as <prefix><profile>: "true",
 when a network profile is applied: the identity both NetworkPolicies on the
 profile's port select, and what the profile-label admission policy guards.

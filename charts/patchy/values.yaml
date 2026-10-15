@@ -1381,6 +1381,12 @@ egressProxy:
         # 443 (and each internal registry's CIDRs on its port).
         extraEgress: []
     config:
+        # The proxy's log level. Empty: the shared config.logLevel, but never
+        # quieter than info, because the per-request audit lines and the
+        # registry credential lines are written at info and are the record
+        # an operator reads (kubectl logs) to see what the proxy forwarded
+        # and refused. Set warn to drop them.
+        # logLevel: info
         # Extra PATCHY_* keys for the proxy only; win over anything the chart
         # derives. The global proxy block (HTTPS_PROXY and friends) is never
         # stamped here: a corporate HTTPS proxy for the proxy's own upstream
