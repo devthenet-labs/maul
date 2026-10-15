@@ -188,6 +188,20 @@ be told so, or it spends the run timing out against a registry it cannot reach.
 Rebuild the image whenever the dependency manifest changes: a dependency missing from the baked cache fails the agent's
 build (for Go, with `module lookup disabled by GOPROXY=off`).
 
+### Operator network profiles
+
+Images stay offline: keep `GOPROXY=off` and the baked cache. An operator can give a repository a Go dependency route at
+run time instead, with a [network profile](../configuration/egress-proxy.md) in the Helm chart; the repository declares
+nothing. A remediate or build Job of a matched repository, running your accepted image, then gets a go environment that
+overrides the image's (`GOPROXY` set to the operator's proxy first and your baked cache second, `GOSUMDB`, `GOPATH` and
+`GOMODCACHE` under `/tmp`, `GOTOOLCHAIN=local`), so it can fetch tagged releases of the module paths the operator allows
+while what the image bakes still builds. `GOFLAGS` stays yours.
+
+- Tell your operator your image's `GOMODCACHE`: the profile's `bakedModCache` should equal it (`/opt/go/pkg/mod`, the
+  scaffold's and the Go example's, is the default). A wrong value only makes builds slower.
+- A profile run copies every module it touches into `/tmp`, so the operator's ephemeral-storage limit for profiled
+  repositories should be about twice your baked module cache plus the build cache.
+
 ## Publishing the image
 
 The image must sit under a registry path your operator has allowlisted, and by default it must be signed with the

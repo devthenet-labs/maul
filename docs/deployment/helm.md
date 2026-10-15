@@ -367,6 +367,47 @@ the chart render it in both namespaces, or create both yourself. The mount is op
 Secret (or one without a `.dockerconfigjson` key) does not stop source-controller: it resolves anonymously, rejects the
 images it cannot read, and picks the credential up once the Secret appears.
 
+### Network profiles (the egress proxy)
+
+Off by default. `egressProxy.enabled` deploys the [egress proxy](../configuration/egress-proxy.md) and grants each
+`agent.networkProfiles` entry to the remediate and build Jobs that run an accepted repository image of a matching
+repository; the [isolation model](isolation.md#network-profiles-the-go-dependency-route) covers what that adds and what
+it does not stop. It requires `agent.repositoryImages.enabled` and is refused under mode `istio`.
+
+```yaml
+egressProxy:
+  enabled: true
+agent:
+  networkProfiles:
+    go:
+      route: go # the only route in step 1
+      port: 8090 # 1024-65535, unique, not 8081
+      host: github.com # the default
+      repositories: [devthenet-labs/patchy-target] # RE2, anchored, lowercased owner/name
+      modules: [github.com/google/uuid] # keep prefixes narrow
+      bakedModCache: /opt/go/pkg/mod # the image's GOMODCACHE (the default); "" = network only
+      allowPseudoVersions: false # the default
+```
+
+| Key                                | Default         | Purpose                                                                                                                                                    |
+| ---------------------------------- | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `egressProxy.enabled`              | `false`         | Deploy the proxy, its Service, PodDisruptionBudget and NetworkPolicy, the per-profile agent policies and (with `admissionPolicy`) the profile-label policy |
+| `egressProxy.suspendProfiles`      | `false`         | The kill switch: no profile from the next Job, and the proxy answers every profile request `410 suspended` once rolled                                     |
+| `egressProxy.replicas`             | `2`             | Proxy replicas; above 1 a PodDisruptionBudget keeps one serving                                                                                            |
+| `egressProxy.limits.*`             | binary defaults | Concurrency, per-source rate and burst, queue wait, timeouts, zip cap; each renders only when set                                                          |
+| `egressProxy.attribution.enabled`  | `false`         | Attribute source IPs to agent pods in the audit line; needs `apiServerCIDRs` (the API server's endpoint IPs, IPv4 `/32`s only)                             |
+| `egressProxy.networkPolicy.create` | `true`          | Must stay true while enabled: the per-profile ingress rules are the identity check                                                                         |
+| `egressProxy.config.extra`         | `{}`            | Extra `PATCHY_*` keys for the proxy; the global `proxy` block never reaches it                                                                             |
+| `agent.networkProfiles.<name>`     | `{}`            | One profile: `route`, `port`, `host`, `repositories`, `modules`, `bakedModCache`, `allowPseudoVersions`; at most eight                                     |
+
+The render fails, naming the value, on: the proxy without repository images or without a profile; its policy turned off;
+mode `istio`; two profiles on one port; a module prefix that admits the Go toolchain (`golang.org`,
+`golang.org/toolchain…`); a `bakedModCache` with a `.` or `..` element or a trailing slash; and attribution without
+`/32`s. The schema refuses the rest (a bad name, port 8081, a route other than `go`, an uppercase or `*` prefix, an
+empty `repositories`). Profiles set while `egressProxy.enabled` is false render nothing, and the install NOTES say so.
+Size `agent.repositoryImages.ephemeralStorage` for profiled repositories at about twice the baked module cache plus the
+build cache: a profile run copies its modules into `/tmp`.
+
 ### Model providers (brokered claude)
 
 All claude model traffic goes through the [egress credential broker](../configuration/egress-broker.md), which deploys

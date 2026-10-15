@@ -17,7 +17,7 @@ hour, get context-enhanced, then a sandboxed `claude -p` run investigates each o
 remediated in priority order into pull requests, everything else routes to humans. Completed findings expire on a
 TTL; `FindingRollup` resources keep the all-time statistics.
 
-Thirteen binaries, one module. "Not monolithic" means separate binaries/deployments with shared `internal/` code:
+Fourteen binaries, one module. "Not monolithic" means separate binaries/deployments with shared `internal/` code:
 
 - `cmd/integration-controller` — the single internet-facing entry point, driven by `Integration` CRs: validates
   provider webhooks (`/github/webhooks` HMAC, `/google-cloud/webhooks` Pub/Sub OIDC, `/wiz/webhooks` bearer
@@ -56,6 +56,15 @@ Thirteen binaries, one module. "Not monolithic" means separate binaries/deployme
   outbound, streams SSE with idle keep-alive pings, audits one slog line per request. Engine in
   `internal/broker`; deployed by the chart exactly when a claude runner is enabled (claude ⇒ broker;
   proxy-only, no in-pod credential mode).
+- `cmd/egress-proxy` — OPTIONAL (default-off; chart `egressProxy`, chart-only, no kustomize component): the
+  operator's Go dependency route (NOT a controller: no reconcilers, no leases). A GOPROXY-protocol reverse proxy to
+  proxy.golang.org and sum.golang.org with one listener per operator network profile (`agent.networkProfiles`);
+  the port is the identity, enforced by NetworkPolicy on both sides (only pods labelled
+  `patchy.bitwisemedia.uk/network-<name>` reach that port). Forwards GET/HEAD only, for the profile's module
+  prefixes and tagged releases (pseudo-versions only with `allowPseudoVersions`); every refusal is a 410 with a
+  reason, never contacting the upstream. No credential, no cache, no SA token unless `--attribute-pods`.
+  `--suspended` answers every profile request 410 (the chart's `suspendProfiles` immediate lever). Engine in
+  `internal/egressproxy` (+ `podindex` for opt-in attribution); flags in docs/configuration/egress-proxy.md.
 - `cmd/preview-auth` — OPTIONAL (default-off; chart `previewAuth`, two stages: `permit` admits the pinned sign-in
   annotations, `require` puts every slot Ingress behind them, refused by a `lookup` until the permit stage is live;
   chart-only, no kustomize component): the preview sign-in relay (NOT a controller: no reconcilers, no leases), the
@@ -331,12 +340,32 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   gateway env (wins over `Config.Env`, can never name a credential). `eval.go` is the evaluation Job flavour
   (same posture; `evolve exec-unit` instead of `agent-runner` — wrapped in a capture-once token export when
   brokered — no git init, unit.json handoff); `ResultLines` is the envelope-agnostic log reader the evaluation
-  collector decodes its own events from.
+  collector decodes its own events from. The one exception to "no network beyond the artifact server and the
+  broker" is an operator network profile (`network.go`): only on a `(remediate, remediation)` or `(build, intent)`
+  Job that injects an accepted repository image, behind `Config.NetworkProfiles`, it adds the profile label, the
+  egress proxy in hostAliases under `dns: none`, and the proxy-first go environment (every go variable non-empty);
+  any other pair is refused (`ErrNetworkProfileRefused`), and `Create` reports the profile from the Job's label.
 - `broker`, `provider` — the egress-broker engine (TokenReview auth + verdict cache, per-route credential
   strategies, SSE-safe reverse proxy, audit) and the pure logic of brokered claude runners (gateway env,
   canonical→provider model-id maps with per-provider derived defaults, the `PATCHY_MODEL_MAP` codec both the
   controllers and agentrun share). `provider.BrokerTokenHeader` is the one definition of the caller-token
   header.
+- `httpguard` — the pre-auth HTTP plumbing the broker and the egress proxy share: `SourceIP` (the connection's
+  address, never a forwarding header; a rate key, never an identity), `IPLimiter` (per-source token bucket plus an
+  in-flight cap, with an optional bounded wait; the broker keeps `InFlight == Burst, Wait == 0`, pinned by
+  `TestBrokerLimiterEquivalence`) and `CountingWriter`. Stdlib plus `x/time/rate` only (a test pins that).
+- `netprofile` — operator network profiles, PURE (stdlib only, a test pins that): `Parse` (the chart's JSON,
+  unknown fields refused), `Validate` (name grammar, route `go`, ports, lowercase host, RE2 repository patterns,
+  module prefixes that never admit the Go toolchain, a clean `bakedModCache`), `Set.For` (host plus RE2 matched
+  ANCHORED against the lowercased `owner/name`; two matches are no match), `Prefixes.Allows` (path-element
+  boundaries) and `LabelPrefix`. The chart's schema and label are pinned to it
+  (`TestChartProfileSchemaMatchesValidator`, `TestChartLabelPrefix`).
+- `egressproxy` — the egress proxy's engine (no Kubernetes imports in the core, a test pins that): the pure GOPROXY
+  and sumdb path parsers over x/mod, the per-request pipeline (suspended, method, body, path grammar, allowlist and
+  tagged-release gate, limits, forward to a fixed https base), status mapping and header/size caps, the guarded
+  dialer (tcp4, port 443, no private/link-local/reserved/denied address, judged at connect time), the audit line and
+  the `patchy.egress_proxy.*` metrics. `podindex` is the opt-in client-go attribution adapter (transform-stripped
+  pod cache; audit garnish, never a decision). `TestLiveGo` (`mise run live-go`) runs the real go command through it.
 - `artifact` — the tarball store + HTTP handler source-controller serves agent fetches from, plus the
   content-addressed workspace-blob side: sha256-named bundles (64-hex files beside the 32-hex repo tarballs),
   index rebuilt from disk on restart, last-access retention sweep, the `:9791` internal upload handler, and

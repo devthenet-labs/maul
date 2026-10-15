@@ -266,6 +266,13 @@ Brokered claude only: a controller with codex or copilot enabled refuses to star
 allow policy for `patchy-agents` managed outside these manifests must be removed or narrowed too, since policies are
 additive.
 
+**Network profiles are chart-only.** The optional egress proxy (`cmd/egress-proxy`, the operator's Go dependency route
+for remediate and build Jobs) has no kustomize component in step 1. Its profiles are a values-driven map: each profile
+has its own port, its own agent NetworkPolicy and its own proxy ingress rule, and the profile JSON is shared by three
+ConfigMaps, which a component would have to hard-code for one profile. Use the Helm chart's `egressProxy` and
+`agent.networkProfiles` values (docs/configuration/egress-proxy.md). The kustomize base is untouched, so its agents stay
+offline.
+
 ## Applying
 
 ```sh

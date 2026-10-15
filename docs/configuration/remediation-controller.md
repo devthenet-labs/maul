@@ -71,6 +71,20 @@ and is recorded on the Remediation's `status.reproduction`; see
 | `--agent-ephemeral-storage` | `PATCHY_AGENT_EPHEMERAL_STORAGE` | —       | Ephemeral-storage request and limit on both agent containers (e.g. `8Gi`); **required** with `--repository-images`                        |
 | `--changeset-max-entries`   | `PATCHY_CHANGESET_MAX_ENTRIES`   | `500`   | Most files (upserts plus deletes) a changeset from a repository-image run may touch; more is rejected before any forge call (must be > 0) |
 
+### Network profiles
+
+An operator network profile gives a remediate Job that runs the repository's accepted image, of a repository matching
+exactly one profile, one more destination: the [egress proxy](egress-proxy.md) on that profile's port, with its go
+command pointed there. The investigate Job never gets one. The Helm chart stamps all three flags from `egressProxy` and
+`agent.networkProfiles`; the Remediation records the profile that ran (`status.runnerImage.networkProfile`), and the
+pull request and `patchy describe remediation` say so.
+
+| Flag                         | Env                               | Default | Purpose                                                                                                                                 |
+| ---------------------------- | --------------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `--network-profiles-enabled` | `PATCHY_NETWORK_PROFILES_ENABLED` | `false` | Apply operator network profiles; the next-Job kill switch (`egressProxy.suspendProfiles` sets it false). Requires `--repository-images` |
+| `--network-profiles`         | `PATCHY_NETWORK_PROFILES`         | —       | The profile set as the chart renders it (a JSON array); refused at startup when empty or invalid while enabled, ignored while disabled  |
+| `--egress-proxy-url`         | `PATCHY_EGRESS_PROXY_URL`         | —       | The egress proxy's base URL, `http://<host>` with no port or path; each profile's port is joined to it. Required while enabled          |
+
 ## Stage flags
 
 The investigation report requests its own model, turn count, and token budget for the fix — but the turn and token

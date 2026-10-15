@@ -2,11 +2,11 @@
 
 The eight controllers (the [evaluation-controller](evaluation-controller.md), [intent-controller](intent-controller.md)
 and [preview-controller](preview-controller.md) are optional), the [status-server](status-server.md), the
-[egress-broker](egress-broker.md) and the optional preview sign-in relay, [preview-auth](preview-auth.md), share one
-configuration system; the agent-runner is deliberately different. There are no config files — configuration is flags and
-environment only, and the GitHub credentials are **not** configuration: they live in Secrets referenced by your
-`Integration` and `Forge` custom resources ([secrets and CRs](../getting-started/install.md#create-the-secrets)), read
-on demand through the Kubernetes API.
+[egress-broker](egress-broker.md), the optional [egress-proxy](egress-proxy.md) and the optional preview sign-in relay,
+[preview-auth](preview-auth.md), share one configuration system; the agent-runner is deliberately different. There are
+no config files — configuration is flags and environment only, and the GitHub credentials are **not** configuration:
+they live in Secrets referenced by your `Integration` and `Forge` custom resources
+([secrets and CRs](../getting-started/install.md#create-the-secrets)), read on demand through the Kubernetes API.
 
 ## Flags, environment, precedence
 
@@ -76,4 +76,5 @@ standard `OTEL_*` variables select exporters. See [Observability](../observabili
 - [preview-controller](preview-controller.md) — optional: fixed, isolated PR-head runtime previews and slot cleanup
 - [agent-runner](agent-runner.md) — the in-pod environment contract
 - [egress-broker](egress-broker.md) — the proxy all claude model traffic goes through: routes, credentials, limits
+- [egress-proxy](egress-proxy.md) — optional: the operator's Go dependency route for profile Jobs (network profiles)
 - [status-server](status-server.md) — the status page's flags, authentication and authorization

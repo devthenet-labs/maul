@@ -78,6 +78,9 @@ other binary binds, so the shared kustomize ConfigMap cannot set one by accident
 | `--repository-images`                           | `PATCHY_REPOSITORY_IMAGES`                                | `false`                     | Run a Repository's pinned repository-declared image; a build requires one (see below)                                                                                                                                                                 |
 | `--agent-ephemeral-storage`                     | `PATCHY_AGENT_EPHEMERAL_STORAGE`                          | —                           | Ephemeral-storage request and limit on both agent containers; **required** with the flag above                                                                                                                                                        |
 | `--changeset-max-entries`                       | `PATCHY_CHANGESET_MAX_ENTRIES`                            | `500`                       | Most files a build's changeset may touch; more is rejected before any forge call                                                                                                                                                                      |
+| `--network-profiles-enabled`                    | `PATCHY_NETWORK_PROFILES_ENABLED`                         | `false`                     | Apply operator network profiles to build, revise and check-fix Jobs; the next-Job kill switch. Requires `--repository-images` ([network profiles](#network-profiles))                                                                                 |
+| `--network-profiles`                            | `PATCHY_NETWORK_PROFILES`                                 | —                           | The profile set as the chart renders it (a JSON array); refused at startup when empty or invalid while enabled                                                                                                                                        |
+| `--egress-proxy-url`                            | `PATCHY_EGRESS_PROXY_URL`                                 | —                           | The egress proxy's base URL, `http://<host>` with no port or path; required while enabled                                                                                                                                                             |
 | `--intent-resource-classes`                     | `PATCHY_INTENT_RESOURCE_CLASSES`                          | —                           | The operator's resource classes as JSON, name to `{"requests": {"cpu", "memory"}, "limits": {"memory", "cpu"}}` (the CPU limit optional); a Project picks one per repository ([Resource classes](#resource-classes)). Helm: `agent.resources.classes` |
 | `--agent-cpu-request`, `--agent-memory-request` | `PATCHY_AGENT_CPU_REQUEST`, `PATCHY_AGENT_MEMORY_REQUEST` | —                           | The default CPU and memory request on both containers of every agent Job without a class; unset requests none. Helm: `agent.resources.default`                                                                                                        |
 | `--agent-cpu-limit`, `--agent-memory-limit`     | `PATCHY_AGENT_CPU_LIMIT`, `PATCHY_AGENT_MEMORY_LIMIT`     | —                           | The default CPU and memory limit, at or above its request; unset sets none                                                                                                                                                                            |
@@ -131,6 +134,16 @@ build are spent the intent fails instead.
 
 A build's changeset is held to the intent rules whatever image ran it. Nothing under `.github/`, `.patchy/` or
 `.devcontainer/` is accepted, so an agent cannot choose its own next sandbox.
+
+### Network profiles
+
+A build, revise or check-fix Job that runs the repository's accepted image, of a repository matching exactly one
+operator network profile, gets one more destination: the [egress proxy](egress-proxy.md) on that profile's port, with
+its go command pointed there and its prompt saying which Go modules it may fetch. A plan never gets one, and nor does a
+build on the default image (`requireRepositoryImage: false` with no pin). In a multi-repository intent each repository's
+build is judged on its own repository. The IntentRun records the profile that ran (`status.runnerImage.networkProfile`)
+and the pull request says so. The Helm chart stamps the three flags above from `egressProxy` and
+`agent.networkProfiles`; `egressProxy.suspendProfiles` turns them off from the next Job.
 
 ## Projects
 

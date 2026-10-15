@@ -156,6 +156,16 @@ Cilium FQDN / Istio allowlists) restricting their egress to their model APIs. Al
 projection, alert dismissal, branch push, pull requests — happen controller-side with short-lived,
 per-repository scoped tokens.
 
+One operator-granted exception, off by default: a **network profile** (chart `egressProxy` and
+`agent.networkProfiles`) gives a remediate or build/revise/check-fix pod that runs an accepted repository image,
+of a repository matching exactly one profile, one more destination: the egress proxy on that profile's port, a
+GOPROXY-protocol reverse proxy that forwards only the profile's allowlisted Go module prefixes (tagged releases
+only by default) to proxy.golang.org and sum.golang.org, holds no credential and caches nothing. Enforcement is
+two-sided: the agent-side NetworkPolicy lets only pods carrying the profile label out to that port, and the
+proxy's ingress admits only those pods to it; the label is set only by the two job controllers, checked again in
+`internal/jobs`, and, with admission policies on, by a ValidatingAdmissionPolicy. Investigate, plan and
+evaluation pods, and every default-image pod, never get one. Repositories declare nothing.
+
 ### Evaluation execution (optional)
 
 The same machinery optionally executes **remote skill evaluations** for evolve, patchy's sibling
