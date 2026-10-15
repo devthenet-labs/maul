@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bitwise-media-group/patchy/internal/netprofile"
 )
@@ -131,5 +132,48 @@ func TestTunnelAuditHostTextGrep(t *testing.T) {
 		if !strings.Contains(buf.String(), want) {
 			t.Errorf("line %q lacks %q", buf.String(), want)
 		}
+	}
+}
+
+// TestTunnelRefusalMetricHost: a refused CONNECT whose bare host part is
+// allowlisted (wrong port, suspended, HTTP/1.0) never puts that host on
+// the tunnels metric, because the host was not validated: the metric
+// labels a host only after it passed judgement.
+func TestTunnelRefusalMetricHost(t *testing.T) {
+	testMetrics()
+	tests := []struct {
+		name, line string
+		cfg        Config
+		outcome    string
+	}{
+		{"port 8443", "CONNECT pkg.registry.dev:8443 HTTP/1.1", Config{}, OutcomePort},
+		{"suspended", "CONNECT pkg.registry.dev:443 HTTP/1.1", Config{Suspended: true}, OutcomeSuspended},
+		{"HTTP/1.0", "CONNECT pkg.registry.dev:443 HTTP/1.0", Config{}, OutcomeBadRequest},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			labelled := map[string]string{"profile": "web", "outcome": tt.outcome, "host": "pkg.registry.dev"}
+			bare := map[string]string{"profile": "web", "outcome": tt.outcome, "host": ""}
+			before := [2]int64{sum(t, "patchy.egress_proxy.tunnels", labelled),
+				sum(t, "patchy.egress_proxy.tunnels", bare)}
+			h := newTunnelHarness(t, tt.cfg)
+			c, br := h.connect(t, "web", tt.line)
+			_ = readRaw(t, br)
+			_ = c.Close()
+			if line := h.closeLine(t, 1); line["outcome"] != tt.outcome || line["host"] != "pkg.registry.dev" {
+				t.Fatalf("close line %v, want outcome %s and host pkg.registry.dev", line, tt.outcome)
+			}
+			// The count follows the close line; wait for it.
+			deadline := time.Now().Add(10 * time.Second)
+			for sum(t, "patchy.egress_proxy.tunnels", bare)-before[1] < 1 {
+				if time.Now().After(deadline) {
+					t.Fatalf("no %s tunnel counted with host=\"\"", tt.outcome)
+				}
+				time.Sleep(5 * time.Millisecond)
+			}
+			if got := sum(t, "patchy.egress_proxy.tunnels", labelled) - before[0]; got != 0 {
+				t.Errorf("an unvalidated host became a metric attribute: +%d with host=pkg.registry.dev", got)
+			}
+		})
 	}
 }
