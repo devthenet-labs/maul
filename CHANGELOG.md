@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.12.31](https://github.com/devthenet-labs/patchy/compare/v0.12.30...v0.12.31) (2026-10-15)
+
+
+### Features
+
+* apply operator network profiles to remediation and intent build Jobs ([#185](https://github.com/devthenet-labs/patchy/issues/185)) ([a66c862](https://github.com/devthenet-labs/patchy/commit/a66c86252e1c8cdbe4f49980b9aad937b3d4a791))
+* **chart:** deploy the egress proxy and agent network profiles (off by default) ([#187](https://github.com/devthenet-labs/patchy/issues/187)) ([a6bca53](https://github.com/devthenet-labs/patchy/commit/a6bca53304020dc314b2776cd7c8cdd13912b536))
+* egress proxy foundations (httpguard extraction, operator network profiles) ([#183](https://github.com/devthenet-labs/patchy/issues/183)) ([82b3063](https://github.com/devthenet-labs/patchy/commit/82b30634cbfa2c6ea73621d73e3109ffb12873f5))
+* egress-proxy binary with the Go module route ([#186](https://github.com/devthenet-labs/patchy/issues/186)) ([611729e](https://github.com/devthenet-labs/patchy/commit/611729e0332ac59bce07de93f7a8356c29580185))
+
 ## [0.12.30](https://github.com/devthenet-labs/patchy/compare/v0.12.29...v0.12.30) (2026-10-14)
 
 
