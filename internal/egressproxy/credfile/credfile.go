@@ -5,7 +5,6 @@ package credfile
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -77,9 +76,11 @@ type state struct {
 	// cred is the last good credential; ok reports there is one.
 	cred egressproxy.Credential
 	ok   bool
-	// seen is the fingerprint of the files the last good value came from.
-	seen [sha256.Size]byte
-	// lastBad is the fingerprint and reason of the last invalid outcome
+	// seen is the content of the files the last good value came from,
+	// compared byte for byte to notice a change. It holds nothing cred does
+	// not already hold, and is never logged.
+	seen string
+	// lastBad is the content and reason of the last invalid outcome
 	// logged, so one bad file is logged once, not on every poll.
 	lastBad string
 	// forced is when Invalidate last re-read the registry.
@@ -238,7 +239,7 @@ func (s *Source) refresh(name string) error {
 }
 
 // apply swaps a good credential in when the files changed.
-func (s *Source) apply(st *state, cred egressproxy.Credential, sum [sha256.Size]byte) {
+func (s *Source) apply(st *state, cred egressproxy.Credential, sum string) {
 	s.mu.Lock()
 	first, changed := !st.ok, sum != st.seen
 	if changed || first {
@@ -258,8 +259,8 @@ func (s *Source) apply(st *state, cred egressproxy.Credential, sum [sha256.Size]
 
 // invalid logs a bad outcome once per distinct (files, reason) and keeps
 // the last good value.
-func (s *Source) invalid(st *state, sum [sha256.Size]byte, reason string) {
-	key := fmt.Sprintf("%x %s", sum, reason)
+func (s *Source) invalid(st *state, sum, reason string) {
+	key := sum + "\x00" + reason
 	s.mu.Lock()
 	repeat := st.lastBad == key
 	st.lastBad = key
@@ -274,31 +275,29 @@ func (s *Source) invalid(st *state, sum [sha256.Size]byte, reason string) {
 }
 
 // read loads the registry's keys. A missing key is a reason, not an error;
-// an unreadable one is both. The fingerprint covers every key's bytes (as
+// an unreadable one is both. The content returned covers every key's bytes (as
 // read, before the one trailing newline is dropped), so any change to any
 // file is a change.
-func (s *Source) read(reg Registry) (map[string]string, [sha256.Size]byte, string, error) {
-	h := sha256.New()
+func (s *Source) read(reg Registry) (map[string]string, string, string, error) {
+	var seen strings.Builder
 	values := map[string]string{}
 	for _, k := range reg.keys() {
 		path := filepath.Join(s.dir, reg.Name, k)
 		raw, err := readCapped(path)
 		switch {
 		case errors.Is(err, fs.ErrNotExist):
-			return nil, [sha256.Size]byte{}, "missing key " + k, nil
+			return nil, "", "missing key " + k, nil
 		case errors.Is(err, errTooLong):
-			return nil, [sha256.Size]byte{}, fmt.Sprintf("key %s is over %d bytes", k, egressproxy.MaxSecretBytes), nil
+			return nil, "", fmt.Sprintf("key %s is over %d bytes", k, egressproxy.MaxSecretBytes), nil
 		case err != nil:
-			return nil, [sha256.Size]byte{}, "unreadable key " + k,
+			return nil, "", "unreadable key " + k,
 				fmt.Errorf("registry %s: read credential key %s: %w", reg.Name, k, err)
 		}
-		_, _ = fmt.Fprintf(h, "%s\x00%d\x00", k, len(raw))
-		_, _ = h.Write(raw)
+		_, _ = fmt.Fprintf(&seen, "%s\x00%d\x00", k, len(raw))
+		seen.Write(raw)
 		values[k] = trimNewline(string(raw))
 	}
-	var sum [sha256.Size]byte
-	copy(sum[:], h.Sum(nil))
-	return values, sum, "", nil
+	return values, seen.String(), "", nil
 }
 
 // errTooLong is a key file over the value limit (plus a newline).
