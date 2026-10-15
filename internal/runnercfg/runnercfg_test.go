@@ -906,3 +906,89 @@ func TestAgentDNSFromTheEnvironment(t *testing.T) {
 		t.Errorf("AgentDNS = %q, %v; want none", got, err)
 	}
 }
+
+// netProfilesJSON is one valid profile, as the chart renders it.
+const netProfilesJSON = `[{"name":"go","route":"go","port":8090,"host":"github.com",` +
+	`"repositories":["devthenet-labs/patchy-target"],"modules":["github.com/google/uuid"],` +
+	`"bakedModCache":"/opt/go/pkg/mod","allowPseudoVersions":false}]`
+
+func TestNetworkProfiles(t *testing.T) {
+	const proxy = "http://patchy-egress-proxy.patchy.svc.cluster.local"
+	on := []string{"--network-profiles-enabled", "--repository-images", "--agent-ephemeral-storage", "8Gi"}
+	tests := []struct {
+		name        string
+		args        []string
+		wantEnabled bool
+		wantErr     string
+	}{
+		{"defaults", nil, false, ""},
+		{"off ignores a bad set and URL", []string{"--network-profiles", "{not json", "--egress-proxy-url", "ftp://x"},
+			false, ""},
+		{"enabled", append(slices.Clone(on), "--network-profiles", netProfilesJSON, "--egress-proxy-url", proxy),
+			true, ""},
+		{"IP proxy", append(slices.Clone(on), "--network-profiles", netProfilesJSON,
+			"--egress-proxy-url", "http://10.100.50.9"), true, ""},
+		{"without repository images", []string{"--network-profiles-enabled", "--network-profiles", netProfilesJSON,
+			"--egress-proxy-url", proxy}, false, "requires --repository-images"},
+		{"empty set", append(slices.Clone(on), "--egress-proxy-url", proxy), false, "--network-profiles is empty"},
+		{"empty array", append(slices.Clone(on), "--network-profiles", "[]", "--egress-proxy-url", proxy), false,
+			"--network-profiles is empty"},
+		{"bad JSON", append(slices.Clone(on), "--network-profiles", "{", "--egress-proxy-url", proxy), false,
+			"--network-profiles:"},
+		{"bad regex", append(slices.Clone(on), "--network-profiles", strings.Replace(netProfilesJSON,
+			"devthenet-labs/patchy-target", "a(", 1), "--egress-proxy-url", proxy), false, "--network-profiles:"},
+		{"bad prefix", append(slices.Clone(on), "--network-profiles", strings.Replace(netProfilesJSON,
+			"github.com/google/uuid", "golang.org/toolchain", 1), "--egress-proxy-url", proxy), false,
+			"--network-profiles:"},
+		{"no proxy URL", append(slices.Clone(on), "--network-profiles", netProfilesJSON), false,
+			"--egress-proxy-url is required"},
+		{"proxy with port", append(slices.Clone(on), "--network-profiles", netProfilesJSON,
+			"--egress-proxy-url", proxy+":8090"), false, "--egress-proxy-url:"},
+		{"proxy with path", append(slices.Clone(on), "--network-profiles", netProfilesJSON,
+			"--egress-proxy-url", proxy+"/go"), false, "--egress-proxy-url:"},
+		{"https proxy", append(slices.Clone(on), "--network-profiles", netProfilesJSON,
+			"--egress-proxy-url", "https://proxy.example"), false, "--egress-proxy-url:"},
+		{"proxy with user", append(slices.Clone(on), "--network-profiles", netProfilesJSON,
+			"--egress-proxy-url", "http://u@proxy.example"), false, "--egress-proxy-url:"},
+		{"uppercase proxy", append(slices.Clone(on), "--network-profiles", netProfilesJSON,
+			"--egress-proxy-url", "http://Proxy.example"), false, "--egress-proxy-url:"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			o := cli.NewOptions()
+			cmd := &cobra.Command{Use: "test", RunE: func(*cobra.Command, []string) error { return nil }}
+			o.Bind(cmd)
+			RegisterRepositoryImageFlags(cmd.Flags())
+			RegisterNetworkProfileFlags(cmd.Flags())
+			cmd.SetArgs(tt.args)
+			if err := cmd.Execute(); err != nil {
+				t.Fatalf("execute: %v", err)
+			}
+			if err := o.Load(cmd); err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			enabled, set, base, err := NetworkProfiles(o)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("NetworkProfiles err = %v, want one containing %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("NetworkProfiles: %v", err)
+			}
+			if enabled != tt.wantEnabled {
+				t.Fatalf("enabled = %v, want %v", enabled, tt.wantEnabled)
+			}
+			if !enabled {
+				if set.Len() != 0 || base != nil {
+					t.Errorf("off returned a set of %d and base %v, want neither", set.Len(), base)
+				}
+				return
+			}
+			if _, ok := set.Get("go"); !ok || set.Len() != 1 || base == nil || base.Scheme != "http" || base.Port() != "" {
+				t.Errorf("NetworkProfiles = %d profiles, base %v", set.Len(), base)
+			}
+		})
+	}
+}

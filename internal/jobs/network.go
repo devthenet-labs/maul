@@ -70,6 +70,12 @@ var allowedProfilePairs = map[profilePair]bool{
 	{string(agentrun.PhaseBuild), kindIntent}:          true,
 }
 
+// ProfileAllowed reports whether a Job of phase and kind may carry a
+// network profile at all: exactly (remediate, remediation) or (build,
+// intent), judged as a pair. Create refuses a profile anywhere else; a
+// launching controller asks before it requests one.
+func ProfileAllowed(phase, kind string) bool { return allowedProfilePairs[profilePair{phase, kind}] }
+
 // profileRefusal reports why a Spec's NetworkProfile must not be built
 // into any Job, or nil when it may (or when there is none). It is judged
 // before injection is decided, so a profile asked for on the wrong Job is a

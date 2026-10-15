@@ -647,6 +647,10 @@ func (r *RunReconciler) launchJob(ctx context.Context, run *v1alpha1.IntentRun,
 		// same launch would be refused again.
 		return r.settle(ctx, run, result{outcome: OutcomeLaunchRefused,
 			detail: "the agent Job's trees were refused: " + err.Error()})
+	case errors.Is(err, jobs.ErrNetworkProfileRefused):
+		// Likewise a network profile the Job may not carry.
+		return r.settle(ctx, run, result{outcome: OutcomeLaunchRefused,
+			detail: "the agent Job's network profile was refused: " + err.Error()})
 	case err != nil:
 		return fmt.Errorf("launch run %s: %w", run.Name, err)
 	}
@@ -776,6 +780,9 @@ func (r *RunReconciler) stageSpec(run *v1alpha1.IntentRun, spec *jobs.Spec, cm *
 		if skipped := r.Images.PinFor(spec, repo); skipped != "" && requireImage {
 			return true, &result{outcome: OutcomeImageRequired, detail: skipped}
 		}
+		// A no-op when PinFor copied no image (a build on the default
+		// image, the Project not requiring the repository's).
+		r.networkProfile(run, spec)
 		return requireImage, nil
 	case v1alpha1.IntentStageRevise:
 		spec.Model = r.BuildModel
@@ -799,10 +806,22 @@ func (r *RunReconciler) stageSpec(run *v1alpha1.IntentRun, spec *jobs.Spec, cm *
 		if skipped := r.Images.PinFor(spec, repo); skipped != "" {
 			return true, &result{outcome: OutcomeImageRequired, detail: skipped}
 		}
+		r.networkProfile(run, spec)
 		return true, nil
 	}
 	return false, &result{outcome: OutcomeAborted,
 		detail: fmt.Sprintf("stage %q is not run by this controller", run.Spec.Stage)}
+}
+
+// networkProfile requests the operator network profile the run's repository
+// gets, if any, on a build or revise spec once PinFor has run: only a spec
+// it gave the repository's accepted image can get one. A plan never asks: it runs the default
+// image and jobs.Create would refuse a profile on it. What the Job carries
+// is recorded from Create's read-back, never from this request.
+func (r *RunReconciler) networkProfile(run *v1alpha1.IntentRun, spec *jobs.Spec) {
+	if _, skipped := r.Images.Profile(spec, run.Spec.Repository.URL); skipped != "" {
+		r.log().Info("not applying a network profile", "run", run.Name, "reason", skipped)
+	}
 }
 
 // planOpenPullRequests is what a plan run's Job is handed of the other

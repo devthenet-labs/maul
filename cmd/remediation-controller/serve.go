@@ -58,6 +58,7 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	f.String("agent-service-account", "patchy-agent", "service account for the agent Jobs")
 	runnercfg.RegisterFlags(f)
 	runnercfg.RegisterRepositoryImageFlags(f)
+	runnercfg.RegisterNetworkProfileFlags(f)
 	runnercfg.RegisterAgentResourceFlags(f)
 	runnercfg.RegisterAgentDNSFlag(f)
 	f.Duration("job-deadline", time.Hour, "activeDeadlineSeconds for an agent Job")
@@ -127,6 +128,10 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	if err != nil {
 		return err
 	}
+	profilesOn, profiles, proxyBase, err := runnercfg.NetworkProfiles(opts)
+	if err != nil {
+		return err
+	}
 	agentResources, err := runnercfg.AgentResources(opts)
 	if err != nil {
 		return err
@@ -192,6 +197,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		EphemeralStorage:      ephemeralStorage,
 		AllowRepositoryImages: repositoryImages,
 		DNS:                   agentDNS,
+		NetworkProfiles:       profilesOn,
 	}, log)
 
 	forges := forge.NewStore(mgr.GetAPIReader())
@@ -231,8 +237,11 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		},
 		Enabled: enabled,
 		Images: runnerguard.Guard{
-			Enabled: repositoryImages,
-			Breaker: runnerguard.NewBreaker("remediation-controller", log),
+			Enabled:         repositoryImages,
+			Breaker:         runnerguard.NewBreaker("remediation-controller", log),
+			ProfilesEnabled: profilesOn,
+			Profiles:        profiles,
+			ProxyBase:       proxyBase,
 		},
 		MaxChangesetEntries: opts.Int("changeset-max-entries"),
 		Log:                 log,

@@ -286,13 +286,20 @@ func (r *RemediationReconciler) launch(ctx context.Context, rem *v1alpha1.Remedi
 		r.log().LogAttrs(ctx, slog.LevelInfo, "not running the repository-declared runner image",
 			slog.String("remediation", rem.Name), slog.String("reason", skipped))
 	}
+	// The operator's network profile for the repository, if it gets one:
+	// only on the accepted image Pin just copied, so a revived finding
+	// (default image) gets none. What the Job carries is read back below.
+	if _, skipped := r.Images.Profile(&spec, repo.Spec.URL); skipped != "" {
+		r.log().LogAttrs(ctx, slog.LevelInfo, "not applying a network profile",
+			slog.String("remediation", rem.Name), slog.String("reason", skipped))
+	}
 	jobName, image, err := r.Runner.Create(ctx, spec)
 	if err != nil {
 		return fmt.Errorf("launch remediation job: %w", err)
 	}
 	// The image is recorded from what Create returned, never from the
 	// Repository's pin: the changeset validator applies its
-	// repository-image rules on this stamp.
+	// repository-image rules on this stamp. So is the network profile.
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		var cur v1alpha1.Remediation
 		if err := r.Get(ctx, client.ObjectKeyFromObject(rem), &cur); err != nil {
