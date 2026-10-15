@@ -55,6 +55,25 @@ type chartSchema struct {
 				AllowPseudoVersions struct {
 					Default bool `json:"default"`
 				} `json:"allowPseudoVersions"`
+				Hosts struct {
+					MaxItems    int          `json:"maxItems"`
+					UniqueItems bool         `json:"uniqueItems"`
+					Items       stringSchema `json:"items"`
+				} `json:"hosts"`
+				Clients struct {
+					MaxItems    int  `json:"maxItems"`
+					UniqueItems bool `json:"uniqueItems"`
+					Items       struct {
+						Enum []string `json:"enum"`
+					} `json:"items"`
+				} `json:"clients"`
+				Upload struct {
+					MinProperties int `json:"minProperties"`
+					Properties    struct {
+						PerTunnel intBounds `json:"perTunnel"`
+						PerSource intBounds `json:"perSource"`
+					} `json:"properties"`
+				} `json:"upload"`
 			} `json:"properties"`
 		} `json:"networkProfile"`
 	} `json:"definitions"`
@@ -70,6 +89,12 @@ type chartSchema struct {
 			} `json:"properties"`
 		} `json:"agent"`
 	} `json:"properties"`
+}
+
+// intBounds is a JSON-schema integer's bounds.
+type intBounds struct {
+	Minimum int64 `json:"minimum"`
+	Maximum int64 `json:"maximum"`
 }
 
 // stringSchema is a JSON-schema string: a pattern and length bounds.
@@ -139,7 +164,7 @@ func TestChartProfileSchemaMatchesValidator(t *testing.T) {
 		name      string
 		got, want any
 	}{
-		{"route enum", np.Route.Enum, []string{RouteGo}},
+		{"route enum", np.Route.Enum, []string{RouteGo, RouteTunnel}},
 		{"port minimum", np.Port.Minimum, MinPort},
 		{"port maximum", np.Port.Maximum, MaxPort},
 		{"port not", np.Port.Not.Const, HealthPort},
@@ -154,6 +179,16 @@ func TestChartProfileSchemaMatchesValidator(t *testing.T) {
 		{"bakedModCache maxLength", np.BakedModCache.MaxLength, maxBakedCacheLen},
 		{"allowPseudoVersions default", np.AllowPseudoVersions.Default, false},
 		{"networkProfiles maxProperties", profiles.MaxProperties, MaxProfiles},
+		{"hosts maxItems", np.Hosts.MaxItems, MaxTunnelHosts},
+		{"hosts uniqueItems", np.Hosts.UniqueItems, true},
+		{"hosts pattern", np.Hosts.Items.Pattern, TunnelHostPattern},
+		{"hosts maxLength", np.Hosts.Items.MaxLength, maxHostLen},
+		{"clients enum", np.Clients.Items.Enum, Clients},
+		{"clients maxItems", np.Clients.MaxItems, len(Clients)},
+		{"clients uniqueItems", np.Clients.UniqueItems, true},
+		{"upload minProperties", np.Upload.MinProperties, 1},
+		{"upload perTunnel", np.Upload.Properties.PerTunnel, intBounds{MinUploadBytes, MaxUploadBytes}},
+		{"upload perSource", np.Upload.Properties.PerSource, intBounds{MinUploadBytes, MaxUploadBytes}},
 		// route and modules left required in step 2: a registry-only profile
 		// has neither. TestChartRegistrySchemaMatchesValidator pins the
 		// anyOf (route or a grant) and the route-go-needs-modules rule.
@@ -200,6 +235,21 @@ func TestChartProfileSchemaMatchesValidator(t *testing.T) {
 			gen: chartString{alphabet: "ab09.-_A", maxLen: 12},
 		},
 		{
+			// The grammar alone: the deny table and the forge host are the
+			// render guards' (TestChartTunnelDenyMatchesNetprofile).
+			name:   "tunnel host",
+			schema: func(v string) bool { return np.Hosts.Items.admits(t, v) },
+			validate: func(v string) bool {
+				return ValidHost(v)
+			},
+			fixed: []string{"", "pypi.org", "files.pythonhosted.org", "xn--p1ai", "a.xn--p1ai", "x.a1", "a1",
+				"1.2.3.4", "example.123", "0x7f.1", "127.1", "2130706433", "Pypi.org", "pypi.org.", ".pypi.org",
+				"*.npmjs.org", "py_pi.org", "-a.org", "a-.org", "a.-org", "a.org-", "a..org", "a.b-",
+				strings.Repeat("a", 63) + ".org", strings.Repeat("a", 64) + ".org",
+				strings.Repeat("a.", 125) + "org", strings.Repeat("a.", 126) + "org"},
+			gen: chartString{alphabet: "ab09.-_xA", maxLen: 16},
+		},
+		{
 			name:   "module prefix",
 			schema: func(v string) bool { return np.Modules.Items.admits(t, v) && !toolchainGuard(v) },
 			validate: func(v string) bool {
@@ -242,6 +292,49 @@ func TestChartProfileSchemaMatchesValidator(t *testing.T) {
 				t.Error(err)
 			}
 		})
+	}
+}
+
+// TestSchemaHasNoLookahead: Helm compiles values.schema.json's patterns
+// with Go's RE2, which has no lookaround; one such pattern fails every
+// install, egress off included, so none may appear anywhere in the schema.
+func TestSchemaHasNoLookahead(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(chartDir, "values.schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var walk func(v any)
+	walk = func(v any) {
+		switch x := v.(type) {
+		case map[string]any:
+			for k, e := range x {
+				if p, ok := e.(string); ok && k == "pattern" {
+					for _, bad := range []string{"(?=", "(?!", "(?<"} {
+						if strings.Contains(p, bad) {
+							t.Errorf("values.schema.json pattern %q holds %s, which RE2 cannot compile", p, bad)
+						}
+					}
+					if _, err := regexp.Compile(p); err != nil {
+						t.Errorf("values.schema.json pattern %q does not compile as RE2: %v", p, err)
+					}
+				}
+				walk(e)
+			}
+		case []any:
+			for _, e := range x {
+				walk(e)
+			}
+		}
+	}
+	var doc any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	walk(doc)
+	for _, bad := range []string{"(?=", "(?!", "(?<"} {
+		if strings.Contains(string(raw), bad) {
+			t.Errorf("values.schema.json holds %s", bad)
+		}
 	}
 }
 

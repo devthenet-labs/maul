@@ -8,7 +8,9 @@ forwards only GET/HEAD requests: GOPROXY and checksum-database requests to
 proxy.golang.org and sum.golang.org for each profile's allowlisted module
 prefixes, and, for a profile granted a registry (egressProxy.registries),
 Go, npm or PyPI simple-index requests below that registry's fixed base URL.
-It holds a credential only for the registries configured (a Secret mounted
+For a profile that lists hosts it also opens HTTPS CONNECT tunnels to exactly
+those public names on 443, after checking the TLS ClientHello's SNI, and
+never decrypts them. It holds a credential only for the registries configured (a Secret mounted
 read-only, or a CodeArtifact token it mints with its own AWS identity),
 caches nothing, and mounts no ServiceAccount token unless attribution is on.
 
@@ -111,6 +113,47 @@ DNS, and the API server's endpoints under attribution).
 {{- with $alwaysDeny }}
 {{- $_ := set $data "PATCHY_ALWAYS_DENY_CIDRS" (join "," (uniq .)) }}
 {{- end }}
+{{- end }}
+{{- end }}
+{{- /*
+The tunnel (step 3) stamps its keys only while some profile lists hosts, so
+an install without tunnels renders what it did before: each
+egressProxy.tunnel limit that is set; the budget window and its floor (the
+longest Job deadline a profile applies to, which guard 26 holds the window
+to); and the addresses the tunnel alone never dials, the API server's
+(attribution.apiServerCIDRs when listed, plus tunnel.denyCIDRs). The Go and
+registry routes' PATCHY_DENY_CIDRS is untouched.
+*/}}
+{{- if include "patchy.egressTunnelProfiles" . }}
+{{- $tunnel := $vals.tunnel | default dict }}
+{{- range $key, $env := dict
+    "maxConcurrent" "PATCHY_TUNNEL_MAX_CONCURRENT"
+    "maxConcurrentPerSource" "PATCHY_TUNNEL_MAX_CONCURRENT_PER_SOURCE"
+    "ratePerSource" "PATCHY_TUNNEL_RATE_PER_SOURCE"
+    "burstPerSource" "PATCHY_TUNNEL_BURST_PER_SOURCE"
+    "limitWait" "PATCHY_TUNNEL_LIMIT_WAIT"
+    "dialTimeout" "PATCHY_TUNNEL_DIAL_TIMEOUT"
+    "helloTimeout" "PATCHY_TUNNEL_HELLO_TIMEOUT"
+    "idleTimeout" "PATCHY_TUNNEL_IDLE_TIMEOUT"
+    "maxDuration" "PATCHY_TUNNEL_MAX_DURATION"
+    "maxUploadBytes" "PATCHY_TUNNEL_MAX_UPLOAD_BYTES"
+    "maxDownloadBytes" "PATCHY_TUNNEL_MAX_DOWNLOAD_BYTES"
+    "sourceUploadBudget" "PATCHY_TUNNEL_SOURCE_UPLOAD_BUDGET"
+    "sourceDownloadBudget" "PATCHY_TUNNEL_SOURCE_DOWNLOAD_BUDGET"
+    "maxSources" "PATCHY_TUNNEL_MAX_SOURCES"
+    "progressInterval" "PATCHY_TUNNEL_PROGRESS_INTERVAL"
+}}
+{{- with index $tunnel $key }}
+{{- $_ := set $data $env . }}
+{{- end }}
+{{- end }}
+{{- $_ := set $data "PATCHY_TUNNEL_SOURCE_BUDGET_IDLE" (include "patchy.egressTunnelBudgetIdle" .) }}
+{{- $_ := set $data "PATCHY_TUNNEL_MIN_BUDGET_IDLE" (include "patchy.egressLongestJobDeadline" .) }}
+{{- $tunnelDeny := list }}
+{{- range $attr.apiServerCIDRs | default list }}{{ $tunnelDeny = append $tunnelDeny (toString .) }}{{ end }}
+{{- range $tunnel.denyCIDRs | default list }}{{ $tunnelDeny = append $tunnelDeny (toString .) }}{{ end }}
+{{- with $tunnelDeny }}
+{{- $_ := set $data "PATCHY_TUNNEL_DENY_CIDRS" (join "," (uniq .)) }}
 {{- end }}
 {{- end }}
 {{- range $k, $v := .Values.config.extra }}
@@ -379,8 +422,11 @@ spec:
 ---
 # Ingress: one rule per profile — only that profile's labelled agent pods,
 # from the agent namespace, on that profile's port — plus 8081 probes from
-# anywhere (kubelet probes arrive from the node IP). Egress: DNS for the two
-# fixed upstream names, then TCP 443 to the public internet only: the except
+# anywhere (kubelet probes arrive from the node IP). Egress: DNS for the
+# upstream names (the Go route's, the registries' and the tunnels' hosts),
+# then TCP 443 to the public internet only, which every tunnel needs and no
+# more (the proxy's dialer still refuses any host a profile does not list,
+# and the tunnel's own deny CIDRs keep it off the API server): the except
 # list holds the cluster's ranges, the private and CGNAT ranges and
 # link-local (IMDS, EKS Pod Identity). IPv4 only; there is no ::/0 rule, so
 # IPv6 egress is denied outright. With attribution, the API server's

@@ -292,13 +292,14 @@ pod that is all of these gains anything:
 
 It gains exactly one egress destination, the [egress proxy](../configuration/egress-proxy.md) on that profile's port,
 and nothing else: no credential, no resolver (under `dns: none` the controller pins the proxy's Service name in the
-hosts file, as it does the broker's) and no proxy variable. Every other pod, investigate, plan and evaluation pods and
-every default-image pod included, gets nothing from a profile: no label, no proxy entry and no proxy environment. (Two
-things they do carry are not part of a profile: every default-image pod ends its `prepare` with the wait probe
-[above](#what-the-agent-policy-does-not-stop), and an intent plan pod is told, as plain text for its prompt in
-`PATCHY_BUILD_NETWORK_PROFILES`, which profile its builds would get.) The proxy forwards only `GET` and `HEAD` requests
-for Go modules and checksum-database records, only for the profile's allowlisted module prefixes, and only tagged
-releases unless the profile sets `allowPseudoVersions`; it caches nothing. A profile may also be granted
+hosts file, as it does the broker's) and no proxy variable unless the profile lists tunnel hosts
+([below](#tunnel-hosts)), when `HTTPS_PROXY` points at that same port. Every other pod, investigate, plan and evaluation
+pods and every default-image pod included, gets nothing from a profile: no label, no proxy entry and no proxy
+environment. (Two things they do carry are not part of a profile: every default-image pod ends its `prepare` with the
+wait probe [above](#what-the-agent-policy-does-not-stop), and an intent plan pod is told, as plain text for its prompt
+in `PATCHY_BUILD_NETWORK_PROFILES`, which profile its builds would get.) The proxy forwards only `GET` and `HEAD`
+requests for Go modules and checksum-database records, only for the profile's allowlisted module prefixes, and only
+tagged releases unless the profile sets `allowPseudoVersions`; it caches nothing. A profile may also be granted
 operator-defined registries ([below](#registry-grants)); then the proxy holds those registries' credentials, but the pod
 still holds none.
 
@@ -446,6 +447,60 @@ The residue, in plain words:
   against the forge and model API hosts (and, at Job launch, every Forge resource's host), but a registry on a CDN
   shared with a denied service cannot be told apart by address; it need not be, since only the configured hostname is
   ever dialled.
+
+### Tunnel hosts
+
+A profile can list **hosts**: exact public host names its pods reach through an HTTPS `CONNECT` tunnel in the proxy, on
+443 only (see [Tunnel](../configuration/egress-proxy.md#tunnel)). It is off unless a profile lists hosts. What changes,
+and what does not:
+
+- **The agent pod gains no new destination.** The tunnel is served on the profile's existing port, behind the same two
+  NetworkPolicies and the same label; a tunnel-only profile gets its first port exactly as a Go profile does. The pod
+  still has no resolver and no credential. What it gains is the proxy environment (`HTTPS_PROXY` and `NO_PROXY`, both
+  cases, plus the operator's client presets), written by the job controller over whatever the image set; `HTTP_PROXY`
+  and `ALL_PROXY` stay blank, and `NO_PROXY` names every in-cluster endpoint, so model traffic still goes straight to
+  the broker.
+- **What the proxy does on that port.** It opens a TLS tunnel only to a host the profile lists exactly, after checking
+  that the ClientHello's server name equals that host and carries no Encrypted Client Hello, and copies bytes. It never
+  decrypts a tunnel and holds no credential for one. It never tunnels to a forge, a model API, a managed Kubernetes
+  control plane, an in-cluster or special-use name, or a package-publish host; the hosts of every `Forge` resource are
+  checked at Job launch.
+- **The Kubernetes API.** The proxy never tunnels to it by a managed control-plane name (EKS, AKS, GKE, DigitalOcean,
+  Linode), by cluster address, or by the public address the operator configured
+  (`egressProxy.attribution.apiServerCIDRs` and `egressProxy.tunnel.denyCIDRs`). An API server that is public under a
+  name the deny list does not know is reached only if the operator lists that name, and only stopped by address if its
+  addresses are in `tunnel.denyCIDRs`: set them on such an install (the proxy warns at startup while the list is empty).
+
+The residue, in plain words:
+
+- **No package allowlist.** The tunnel is name-level: any package on a listed registry is fetchable, attacker-published
+  ones included, and their install scripts (npm lifecycle scripts, Python build backends) run in the pod with the tunnel
+  open. Which packages were fetched is visible to the registry, and for some to package owners (PyPI's public download
+  dataset, npm's download counts): an attacker who owns packages can read which of them a run fetched, a low-rate side
+  channel. Review the lockfile in the pull request. A package allowlist needs a registry-protocol route, as the
+  [registry grants](#registry-grants) are.
+- **npm and Yarn hosts are a public publish channel.** `npm publish` is a `PUT` to `registry.npmjs.org`, the host reads
+  use, and `registry.yarnpkg.com` fronts the same registry. The token travels inside TLS, so the proxy cannot refuse it,
+  and patchy holding no credential does not help: a dependency's install script or a prompt-injected agent can bring its
+  own npm token and publish the private working tree as a world-readable package. Only the upload caps bound it: 8 MiB
+  per source IP, per profile, per proxy replica (so 16 MiB with the default two replicas), compressed, which is a lot of
+  source code. **This is not closed**; an npm-protocol route that serves only reads is the fix, and until then list an
+  npm host only where that is acceptable. PyPI and NuGet publish on separate hosts, which are denied.
+- **Other uploads to a listed host.** Registries accept requests the proxy cannot see. Data sent to a listed host
+  reaches its operator's logs, bounded by the same caps.
+- **Domain fronting.** The proxy matches the server name to the `CONNECT` host, and refuses ECH so the name cannot be
+  hidden, but it cannot see the HTTP `Host` inside TLS. On a shared CDN (Cloudflare for npm and Yarn, Fastly for PyPI,
+  Fastly and CloudFront for crates, Azure Front Door for NuGet) a client could name another tenant inside the tunnel.
+  Several CDNs refuse a mismatch across tenants, but patchy does not rely on it. **Not closed** without decrypting the
+  tunnel, which patchy will not do (a CA in every image, broken pinning, plaintext in the proxy).
+- **NuGet revocation is offline.** The `nuget` preset sets `NUGET_CERT_REVOCATION_MODE=offline`, because revocation
+  checks go to CRL and OCSP hosts over plain http, which nothing carries: signatures are verified, but a revoked signing
+  certificate is not detected.
+- **Budgets are per source IP, per profile, per proxy replica, per window.** The window outlasts every Job, so a pod
+  cannot pause long enough to refill its budget, and a new pod reusing an IP inherits what is left (less, never more).
+- **A ClientHello parser bug** would be the tunnel's own risk: the parser is small, pure, fuzzed and cross-checked
+  against Go's `crypto/tls`.
+- **A compromised proxy** could tunnel anywhere on public 443, as it could already reach the internet for the Go route.
 
 ## Egress proxies
 

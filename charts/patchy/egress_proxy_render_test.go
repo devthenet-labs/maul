@@ -179,3 +179,72 @@ func proxyRegistryContext(set netprofile.Set, proxy map[string]string) netprofil
 	}
 	return netprofile.RegistryContext{DenyHosts: deny, AlwaysDeny: always}
 }
+
+// egressTunnelArgs renders the tunnel fixture: the on-fixture's two profiles
+// on the same ports, go with tunnel hosts beside its Go route, npm a
+// tunnel-only profile without a modules key.
+var egressTunnelArgs = []string{
+	"-f", "../../hack/testdata/chart-render/repository-images.yaml",
+	"-f", "../../hack/testdata/chart-render/intent-controller.yaml",
+	"-f", "../../hack/testdata/chart-render/egress-tunnel.yaml",
+}
+
+// TestChartTunnelProfilesParse: the profile set the chart renders for the
+// tunnel fixture is one netprofile.Parse accepts in all three ConfigMaps,
+// carrying the hosts, clients and upload caps as written; no client preset
+// warns (each lists its usual hosts); and every host clears a job
+// controller's Forge check against the profiles' own forge hosts.
+func TestChartTunnelProfilesParse(t *testing.T) {
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm not on PATH")
+	}
+	data := renderConfigMaps(t, egressTunnelArgs)
+	proxy := data["patchy-egress-proxy-config"][netprofile.EnvProfiles]
+	for _, c := range []string{"patchy-remediation-controller-config", "patchy-intent-controller-config"} {
+		if data[c][netprofile.EnvProfiles] != proxy {
+			t.Errorf("%s's profiles differ from the proxy's", c)
+		}
+		for k := range data[c] {
+			if strings.HasPrefix(k, "PATCHY_TUNNEL_") {
+				t.Errorf("%s carries %s; only the proxy reads the tunnel limits", c, k)
+			}
+		}
+	}
+	set, err := netprofile.Parse([]byte(proxy))
+	if err != nil {
+		t.Fatalf("netprofile.Parse refuses the chart's tunnel profiles: %v\n%s", err, proxy)
+	}
+	checkTunnelProfiles(t, set)
+}
+
+// checkTunnelProfiles holds the tunnel fixture's parsed profiles to what
+// the fixture says, and to the startup warnings and Forge check.
+func checkTunnelProfiles(t *testing.T, set netprofile.Set) {
+	t.Helper()
+	goProfile, _ := set.Get("go")
+	npm, _ := set.Get("npm")
+	if !goProfile.HasGoRoute() || !goProfile.HasTunnel() || npm.HasGoRoute() || !npm.HasTunnel() {
+		t.Fatalf("routes: go %v/%v, npm %v/%v; want go both, npm the tunnel alone",
+			goProfile.HasGoRoute(), goProfile.HasTunnel(), npm.HasGoRoute(), npm.HasTunnel())
+	}
+	if !reflect.DeepEqual([]string(goProfile.Hosts), []string{"pypi.org", "files.pythonhosted.org"}) ||
+		!reflect.DeepEqual(goProfile.Clients, []string{netprofile.ClientPip, netprofile.ClientUV}) {
+		t.Errorf("go hosts %v, clients %v", goProfile.Hosts, goProfile.Clients)
+	}
+	if u := goProfile.Upload; u == nil || u.PerTunnel != 512<<10 || u.PerSource != 16<<20 {
+		t.Errorf("go upload = %+v, want 512 KiB a tunnel and 16 MiB a source", u)
+	}
+	if npm.Upload != nil || len(npm.Modules) != 0 || npm.BakedModCache != "" || npm.AllowPseudoVersions {
+		t.Errorf("npm = %+v, want no upload and none of the go route's fields", npm)
+	}
+	for _, p := range set.Profiles() {
+		if w := p.ClientWarnings(); len(w) != 0 {
+			t.Errorf("profile %s warns: %v", p.Name, w)
+		}
+		for _, h := range p.Hosts {
+			if err := netprofile.DeniedTunnelHost(h, netprofile.DenyContext{Hosts: set.Hosts()}); err != nil {
+				t.Errorf("profile %s: a job controller's Forge check refuses host %s: %v", p.Name, h, err)
+			}
+		}
+	}
+}

@@ -572,6 +572,11 @@ A profile with registry grants also carries "registries": one object per
 grant, sorted by registry name, holding the grant's policy plus what the
 job controllers need of the registry (patchy.egressGrantJSON): they never
 see egressProxy.registries. A profile without grants renders no such key.
+
+A profile with tunnel hosts carries "hosts" (as written), and "clients" and
+"upload" when set; a profile without them renders none of the three keys, so
+its JSON is what it was before tunnels existed. A route tunnel profile takes
+none of the go route's fields: "modules" renders [] and "bakedModCache" "".
 */}}
 {{- define "patchy.networkProfilesJSON" -}}
 {{- $profiles := .Values.agent.networkProfiles | default dict -}}
@@ -582,7 +587,7 @@ see egressProxy.registries. A profile without grants renders no such key.
 {{- range $p.modules | default list -}}
 {{- $modules = append $modules (trimSuffix "/" (toString .)) -}}
 {{- end -}}
-{{- $baked := "/opt/go/pkg/mod" -}}
+{{- $baked := ternary "" "/opt/go/pkg/mod" (eq ($p.route | default "") "tunnel") -}}
 {{- if hasKey $p "bakedModCache" -}}
 {{- $baked = $p.bakedModCache | default "" | toString -}}
 {{- end -}}
@@ -602,6 +607,22 @@ see egressProxy.registries. A profile without grants renders no such key.
 {{- $grants = append $grants (include "patchy.egressGrantJSON" (dict "root" $ "name" $gname "grant" (index $p.registries $gname | default dict)) | fromJson) -}}
 {{- end -}}
 {{- $_ := set (last $out) "registries" $grants -}}
+{{- end -}}
+{{- with $p.hosts -}}
+{{- $hosts := list -}}
+{{- range . }}{{ $hosts = append $hosts (toString .) }}{{ end -}}
+{{- $_ := set (last $out) "hosts" $hosts -}}
+{{- end -}}
+{{- with $p.clients -}}
+{{- $clients := list -}}
+{{- range . }}{{ $clients = append $clients (toString .) }}{{ end -}}
+{{- $_ := set (last $out) "clients" $clients -}}
+{{- end -}}
+{{- with $p.upload -}}
+{{- $u := dict -}}
+{{- with .perTunnel }}{{ $_ := set $u "perTunnel" (int64 .) }}{{ end -}}
+{{- with .perSource }}{{ $_ := set $u "perSource" (int64 .) }}{{ end -}}
+{{- $_ := set (last $out) "upload" $u -}}
 {{- end -}}
 {{- end -}}
 {{- toJson $out -}}
@@ -747,6 +768,9 @@ value:
   8. attribution.enabled without apiServerCIDRs, or with an entry that is
      not an IPv4 /32.
 
+Guards 9-19 are the registries' (patchy.egressRegistriesGuard), 20-26 the
+tunnel's (patchy.egressTunnelGuard).
+
 The job controllers and the proxy re-validate the whole set at startup
 (netprofile.Validate), RE2 compilation included.
 */}}
@@ -799,6 +823,7 @@ The job controllers and the proxy re-validate the whole set at startup
 {{- end -}}
 {{- end -}}
 {{- include "patchy.egressRegistriesGuard" . -}}
+{{- include "patchy.egressTunnelGuard" . -}}
 {{- end -}}
 {{- end }}
 
@@ -1013,6 +1038,248 @@ against each Forge CR at launch.
 {{- end }}
 
 {{/*
+The names of the profiles that list tunnel hosts, space-separated and sorted
+("" when none): every tunnel key the chart renders hangs off this, so an
+install without hosts renders what it did before tunnels existed.
+*/}}
+{{- define "patchy.egressTunnelProfiles" -}}
+{{- $profiles := .Values.agent.networkProfiles | default dict -}}
+{{- $out := list -}}
+{{- range $name := keys $profiles | sortAlpha -}}
+{{- if (index $profiles $name | default dict).hosts }}{{ $out = append $out $name }}{{ end -}}
+{{- end -}}
+{{- join " " $out -}}
+{{- end }}
+
+{{/*
+A Go duration written in hours, minutes and seconds only (2h, 90m, 1h30m,
+45s), as whole seconds; -1 for anything else (ms, a fraction, empty). The
+deadlines guard 26 compares are all written this way.
+*/}}
+{{- define "patchy.durationSeconds" -}}
+{{- $d := toString . -}}
+{{- if not (regexMatch `^([0-9]+[hms])+$` $d) -}}
+-1
+{{- else -}}
+{{- $total := 0 -}}
+{{- $unit := dict "h" 3600 "m" 60 "s" 1 -}}
+{{- range regexFindAll `[0-9]+[hms]` $d -1 -}}
+{{- $total = add $total (mul (atoi (regexFind `^[0-9]+` .)) (get $unit (regexFind `[hms]$` .))) -}}
+{{- end -}}
+{{- $total -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+The longest deadline of a Job a network profile can apply to, as written:
+agent.jobDeadline (remediate Jobs) or, with the intent controller on,
+intentController.config.jobDeadline (build, revise and check-fix Jobs). The
+tunnel's budget window may never be shorter (PATCHY_TUNNEL_MIN_BUDGET_IDLE).
+*/}}
+{{- define "patchy.egressLongestJobDeadline" -}}
+{{- $longest := toString .Values.agent.jobDeadline -}}
+{{- if .Values.intentController.enabled -}}
+{{- $intent := toString ((.Values.intentController.config | default dict).jobDeadline | default "") -}}
+{{- if gt (int64 (include "patchy.durationSeconds" $intent)) (int64 (include "patchy.durationSeconds" $longest)) -}}
+{{- $longest = $intent -}}
+{{- end -}}
+{{- end -}}
+{{- $longest -}}
+{{- end }}
+
+{{/*
+The tunnel's budget window as stamped (PATCHY_TUNNEL_SOURCE_BUDGET_IDLE):
+egressProxy.tunnel.sourceBudgetIdle when set (guard 26 holds it to the
+longest Job deadline), else 2h, or that deadline when it is longer.
+*/}}
+{{- define "patchy.egressTunnelBudgetIdle" -}}
+{{- $set := toString (((.Values.egressProxy | default dict).tunnel | default dict).sourceBudgetIdle | default "") -}}
+{{- if $set -}}
+{{- $set -}}
+{{- else -}}
+{{- $longest := include "patchy.egressLongestJobDeadline" . -}}
+{{- ternary $longest "2h" (gt (int64 (include "patchy.durationSeconds" $longest)) 7200) -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+The tunnel host grammar guard 21 applies (for a render that skips the
+schema): netprofile.TunnelHostPattern, which values.schema.json carries too.
+TestChartTunnelGuardMatchesValidator holds this body equal to it.
+*/}}
+{{- define "patchy.egressTunnelHostPattern" -}}
+^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]([a-z0-9-]{0,61}[a-z0-9])?$
+{{- end }}
+
+{{/*
+The numeric limits guards 21 and 25 apply, as JSON: netprofile's
+MaxTunnelHosts, maxHostLen and MinUploadBytes/MaxUploadBytes.
+TestChartTunnelGuardMatchesValidator holds them equal to those.
+*/}}
+{{- define "patchy.egressTunnelLimits" -}}
+{"maxHosts": 64, "maxHostLen": 253, "minUploadBytes": 65536, "maxUploadBytes": 1073741824}
+{{- end }}
+
+{{/*
+Render-time guards for the profiles' tunnel hosts (step 3), continuing
+patchy.egressRegistriesGuard's numbering; called from patchy.egressProxyGuard,
+so only while egressProxy.enabled. Each mirrors a netprofile.Validate rule,
+so a profile the chart renders is one the binaries start with:
+
+  20. route tunnel without hosts, or with modules, bakedModCache or
+      allowPseudoVersions; hosts on a profile without a route.
+  21. a host that is not an exact lowercase host name (the schema's pattern,
+      for a render that skips the schema), more than 64, or one listed twice.
+  22. a host on the tunnel's deny list (patchy.egressDeniedTunnelHost: forges,
+      model APIs, managed Kubernetes control planes, special-use and
+      in-cluster names, publish endpoints, IP literals, single labels), equal
+      to or under any profile's forge host or the broker's base-URL overrides.
+  23. a host that is one of the profile's grant hosts (or matches a grant's
+      *. pattern), whose package policy the tunnel would bypass; beside
+      route go, an upstream of the Go route (proxy.golang.org,
+      sum.golang.org), whose module allowlist it would bypass.
+  24. clients or upload without hosts; an unknown or repeated client; npm or
+      yarn beside an npm grant, pip or uv beside a pypi grant (both set the
+      same package manager's registry).
+  25. upload with neither field, a field outside 64 KiB-1 GiB, or perTunnel
+      above perSource.
+  26. egressProxy.tunnel.sourceBudgetIdle below the longest Job deadline a
+      profile applies to (patchy.egressLongestJobDeadline), or either
+      deadline (agent's, and the intent controller's while it is on) not
+      written in whole h, m and s, while some profile tunnels.
+*/}}
+{{- define "patchy.egressTunnelGuard" -}}
+{{- $profiles := .Values.agent.networkProfiles | default dict -}}
+{{- $regs := (.Values.egressProxy | default dict).registries | default dict -}}
+{{- $extra := splitList " " (include "patchy.egressExtraDenyHosts" .) -}}
+{{- $goHosts := splitList " " (include "patchy.egressGoRouteHosts" .) -}}
+{{- $clientEco := dict "npm" "npm" "yarn" "npm" "pip" "pypi" "uv" "pypi" -}}
+{{- $clients := splitList " " (include "patchy.egressTunnelClients" .) -}}
+{{- $hostPattern := include "patchy.egressTunnelHostPattern" . -}}
+{{- $limits := include "patchy.egressTunnelLimits" . | fromJson -}}
+{{- $maxHosts := int64 $limits.maxHosts -}}
+{{- $maxHostLen := int64 $limits.maxHostLen -}}
+{{- $minUpload := int64 $limits.minUploadBytes -}}
+{{- $maxUpload := int64 $limits.maxUploadBytes -}}
+{{- range $name := keys $profiles | sortAlpha -}}
+{{- $p := index $profiles $name | default dict -}}
+{{- $at := printf "agent.networkProfiles.%s" $name -}}
+{{- $route := $p.route | default "" | toString -}}
+{{- $hosts := $p.hosts | default list -}}
+{{- /* 20 */ -}}
+{{- if eq $route "tunnel" -}}
+{{- if not $hosts -}}
+{{- fail (printf "%s is route tunnel without hosts: list the exact host names its Jobs may reach" $at) -}}
+{{- end -}}
+{{- if or $p.modules $p.bakedModCache $p.allowPseudoVersions -}}
+{{- fail (printf "%s is route tunnel: modules, bakedModCache and allowPseudoVersions are the go route's; drop them, or use route go to have both" $at) -}}
+{{- end -}}
+{{- end -}}
+{{- if and $hosts (not $route) -}}
+{{- fail (printf "%s lists hosts without a route: set route tunnel (or route go, for both)" $at) -}}
+{{- end -}}
+{{- /* 21 */ -}}
+{{- if gt (len $hosts) $maxHosts -}}
+{{- fail (printf "%s.hosts lists %d names; at most %d" $at (len $hosts) $maxHosts) -}}
+{{- end -}}
+{{- $seen := dict -}}
+{{- range $hosts -}}
+{{- $h := toString . -}}
+{{- if or (gt (len $h) $maxHostLen) (not (regexMatch $hostPattern $h)) -}}
+{{- fail (printf "%s.hosts entry %q is not an exact lowercase host name: no wildcard, IP address, underscore or trailing dot, and a last label that starts with a letter" $at $h) -}}
+{{- end -}}
+{{- if hasKey $seen $h -}}
+{{- fail (printf "%s.hosts lists %s twice" $at $h) -}}
+{{- end -}}
+{{- $_ := set $seen $h true -}}
+{{- /* 22 */ -}}
+{{- with include "patchy.egressDeniedTunnelHost" (dict "host" $h "extra" $extra) -}}
+{{- fail (printf "%s.hosts entry %s %s: a tunnel never reaches a forge, a model API, a Kubernetes control plane, an in-cluster or special-use name, or a package-publish endpoint" $at $h .) -}}
+{{- end -}}
+{{- /* 23 */ -}}
+{{- range $gname := keys ($p.registries | default dict) | sortAlpha -}}
+{{- range $gh := include "patchy.egressRegistryHosts" (index $regs $gname | default dict) | fromJsonArray -}}
+{{- $gh = toString $gh -}}
+{{- if or (eq $h $gh) (and (hasPrefix "*." $gh) (hasSuffix (trimPrefix "*" $gh) $h)) -}}
+{{- fail (printf "%s.hosts entry %s is %s, a host of its %s grant: the tunnel would bypass the grant's package policy" $at $h $gh $gname) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if and (eq $route "go") (has $h $goHosts) -}}
+{{- fail (printf "%s.hosts entry %s is an upstream of the profile's Go route: the tunnel would bypass the route's module allowlist" $at $h) -}}
+{{- end -}}
+{{- end -}}
+{{- /* 24 */ -}}
+{{- if and $p.clients (not $hosts) -}}
+{{- fail (printf "%s.clients configure the tunnel: set hosts or drop them" $at) -}}
+{{- end -}}
+{{- $seenClient := dict -}}
+{{- range $p.clients | default list -}}
+{{- $c := toString . -}}
+{{- if not (has $c $clients) -}}
+{{- fail (printf "%s.clients entry %q is not one of %s" $at $c (join ", " $clients)) -}}
+{{- end -}}
+{{- if hasKey $seenClient $c -}}
+{{- fail (printf "%s.clients lists %s twice" $at $c) -}}
+{{- end -}}
+{{- $_ := set $seenClient $c true -}}
+{{- with get $clientEco $c -}}
+{{- $eco := . -}}
+{{- range $gname := keys ($p.registries | default dict) | sortAlpha -}}
+{{- if eq ((index $regs $gname | default dict).ecosystem | default "" | toString) $eco -}}
+{{- fail (printf "%s: client %s and the %s grant %s both configure the same package manager; drop one" $at $c $eco $gname) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- /* 25 */ -}}
+{{- with $p.upload -}}
+{{- if not $hosts -}}
+{{- fail (printf "%s.upload caps the tunnel: set hosts or drop it" $at) -}}
+{{- end -}}
+{{- if not (or .perTunnel .perSource) -}}
+{{- fail (printf "%s.upload sets neither perTunnel nor perSource" $at) -}}
+{{- end -}}
+{{- range $k := list "perTunnel" "perSource" -}}
+{{- $v := index $p.upload $k -}}
+{{- if and $v (or (lt (int64 $v) $minUpload) (gt (int64 $v) $maxUpload)) -}}
+{{- fail (printf "%s.upload.%s %d is outside %d-%d bytes" $at $k (int64 $v) $minUpload $maxUpload) -}}
+{{- end -}}
+{{- end -}}
+{{- if and .perTunnel .perSource (gt (int64 .perTunnel) (int64 .perSource)) -}}
+{{- fail (printf "%s.upload.perTunnel %d is above upload.perSource %d" $at (int64 .perTunnel) (int64 .perSource)) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- /* 26 */ -}}
+{{- if include "patchy.egressTunnelProfiles" . -}}
+{{- /* Each deadline on its own: patchy.egressLongestJobDeadline never picks
+       one it cannot read, so judging only its answer would let a malformed
+       intent deadline (2.5h, 5400000ms) through with a shorter window. */ -}}
+{{- $deadlines := dict "agent.jobDeadline" (toString .Values.agent.jobDeadline) -}}
+{{- if .Values.intentController.enabled -}}
+{{- with (.Values.intentController.config | default dict).jobDeadline -}}
+{{- $_ := set $deadlines "intentController.config.jobDeadline" (toString .) -}}
+{{- end -}}
+{{- end -}}
+{{- range $key := keys $deadlines | sortAlpha -}}
+{{- $d := index $deadlines $key -}}
+{{- if lt (int64 (include "patchy.durationSeconds" $d)) 0 -}}
+{{- fail (printf "%s must be written in whole h, m and s (2h, 90m) while a network profile tunnels: the tunnel's budget window is compared to the longest Job deadline, and %q is not" $key $d) -}}
+{{- end -}}
+{{- end -}}
+{{- $longest := include "patchy.egressLongestJobDeadline" . -}}
+{{- $longestS := int64 (include "patchy.durationSeconds" $longest) -}}
+{{- with ((.Values.egressProxy | default dict).tunnel | default dict).sourceBudgetIdle -}}
+{{- $idle := int64 (include "patchy.durationSeconds" .) -}}
+{{- if lt $idle $longestS -}}
+{{- fail (printf "egressProxy.tunnel.sourceBudgetIdle %s is below the longest Job deadline %s: a pod could pause long enough to refill its own upload budget; raise it or leave it empty" (toString .) $longest) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 The egress proxy's hard-deny table, as literal lists (netprofile/denied.go is
 the binary's copy; TestDeniedHostMatchesChart reads these bodies and holds
 them equal to it). Each is a space-separated list.
@@ -1050,6 +1317,43 @@ amazonaws.com s3.amazonaws.com cloudfront.net googleapis.com storage.googleapis.
 
 {{- define "patchy.egressMinPatternLabels" -}}
 3
+{{- end }}
+
+{{/*
+The tunnel's further hard-deny table (netprofile.DeniedTunnelHost; the tunnel
+tables in netprofile/denied.go, held equal by TestChartTunnelDenyMatchesNetprofile):
+forges beyond the registry table's, model APIs beyond it, the managed
+Kubernetes control planes, special-use names and the package-publish hosts.
+Each denies the name and every name below it. Then the Go route's upstreams
+(netprofile.GoRouteHosts), which a go profile may not tunnel to, and the
+client presets (netprofile.Clients).
+*/}}
+{{- define "patchy.egressTunnelForgeHosts" -}}
+ghcr.io githubcopilot.com gitlab.com bitbucket.org codeberg.org dev.azure.com visualstudio.com sr.ht
+{{- end }}
+
+{{- define "patchy.egressTunnelModelHosts" -}}
+claude.ai claude.com chatgpt.com
+{{- end }}
+
+{{- define "patchy.egressControlPlaneHosts" -}}
+eks.amazonaws.com azmk8s.io container.googleapis.com k8s.ondigitalocean.com linodelke.net
+{{- end }}
+
+{{- define "patchy.egressSpecialUseSuffixes" -}}
+localhost local internal svc cluster.local home.arpa in-addr.arpa ip6.arpa invalid test example
+{{- end }}
+
+{{- define "patchy.egressPublishHosts" -}}
+upload.pypi.org www.nuget.org
+{{- end }}
+
+{{- define "patchy.egressGoRouteHosts" -}}
+proxy.golang.org sum.golang.org
+{{- end }}
+
+{{- define "patchy.egressTunnelClients" -}}
+npm yarn pip uv nuget cargo jvm
 {{- end }}
 
 {{/*
@@ -1233,6 +1537,45 @@ patchy.egressDeniedHost.
 {{- $why = "can match a Bedrock endpoint" -}}
 {{- else if and (eq (index $labels (sub $n 3)) "vpce") (or (le $n 4) (hasPrefix "bedrock" (index $labels (sub $n 5)))) -}}
 {{- $why = "can match a Bedrock VPC endpoint" -}}
+{{- end -}}
+{{- end -}}
+{{- $why -}}
+{{- end }}
+
+{{/*
+netprofile.DeniedTunnelHost in the chart: why a host may not be a tunnel host,
+or "" when it may. An IP literal in any inet_aton form, a single-label name,
+a name in or under the tunnel table above, or a name with any suffix of two
+or more labels that patchy.egressDeniedHost refuses (with no internal
+admission), so a name below a denied one is always denied. Context: dict
+"host" <host> "extra" <further denied hosts, a list>.
+*/}}
+{{- define "patchy.egressDeniedTunnelHost" -}}
+{{- $h := trimSuffix "." (lower (toString .host)) -}}
+{{- $extra := .extra | default list -}}
+{{- $why := "" -}}
+{{- if not $h -}}
+{{- $why = "is empty" -}}
+{{- else if or (hasPrefix "[" $h) (contains ":" $h) (regexMatch `^((0x[0-9a-f]*|[0-9]+)\.){0,3}(0x[0-9a-f]*|[0-9]+)\.?$` $h) -}}
+{{- $why = "is an IP literal" -}}
+{{- else if not (contains "." $h) -}}
+{{- $why = "is a single-label name" -}}
+{{- else -}}
+{{- range $list := list "patchy.egressTunnelForgeHosts" "patchy.egressTunnelModelHosts" "patchy.egressControlPlaneHosts" "patchy.egressSpecialUseSuffixes" "patchy.egressPublishHosts" -}}
+{{- range $d := splitList " " (include $list $) -}}
+{{- if and (not $why) (or (eq $h $d) (hasSuffix (printf ".%s" $d) $h)) -}}
+{{- $why = printf "is %s or below it" $d -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- $labels := splitList "." $h -}}
+{{- range $i := until (int (sub (len $labels) 1)) -}}
+{{- if not $why -}}
+{{- $s := join "." (slice $labels $i) -}}
+{{- with include "patchy.egressDeniedHost" (dict "host" $s "internal" false "cidrs" list "extra" $extra) -}}
+{{- $why = ternary . (printf "is below %s, which %s" $s .) (eq $i 0) -}}
+{{- end -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 {{- $why -}}

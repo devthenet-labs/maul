@@ -147,6 +147,11 @@ helm lint charts/patchy -f hack/testdata/chart-render/repository-images.yaml \
   -f hack/testdata/chart-render/egress-proxy.yaml -f hack/testdata/chart-render/egress-registries.yaml \
   --set agent.networkPolicy.mode=cilium
 
+# ...with tunnel hosts (a go profile with hosts, a tunnel-only profile).
+helm lint charts/patchy -f hack/testdata/chart-render/intent-controller.yaml \
+  -f hack/testdata/chart-render/repository-images.yaml \
+  -f hack/testdata/chart-render/egress-tunnel.yaml --set agent.networkPolicy.dns=none
+
 # The CR chart: the empty default plus a populated render of every array.
 helm lint charts/patchy-config
 helm template patchy-config charts/patchy-config >/dev/null

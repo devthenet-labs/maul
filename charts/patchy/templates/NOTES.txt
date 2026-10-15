@@ -311,6 +311,30 @@ printed):
 
   kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "patchy.fullname" . }}-egress-proxy -- /usr/local/bin/controller probe --registry <name> --package <package>
 {{- end }}
+{{- with include "patchy.egressTunnelProfiles" . }}
+{{- $tunnels := splitList " " . }}
+{{- $publish := list }}
+{{- range $pname := $tunnels }}
+{{- range (index $.Values.agent.networkProfiles $pname).hosts }}
+{{- if has (toString .) (list "registry.npmjs.org" "registry.yarnpkg.com") }}{{ $publish = append $publish (printf "%s (%s)" (toString .) $pname) }}{{ end }}
+{{- end }}
+{{- end }}
+
+Tunnels: {{ join ", " $tunnels }} open{{ if eq (len $tunnels) 1 }}s{{ end }} HTTPS CONNECT tunnels to the exact hosts listed,
+through the proxy on the profile's port. A tunnel is name-level: any package on
+a listed host is fetchable, so review lockfiles in the PRs. A refused host
+shows in the audit lines as outcome=not_allowed (or hard_denied); some
+package managers print no reason, so ask the agent's report for the proxy's
+line.
+{{- with $publish }}
+
+Publish residue: {{ join ", " . }} is an npm registry, where a publish is a
+PUT to the same host a read uses. The tunnel cannot tell them apart, so a
+dependency's install script or a misled agent that brings its own npm token
+can publish from the pod, bounded only by the upload caps
+(egressProxy.tunnel.sourceUploadBudget, per proxy replica).
+{{- end }}
+{{- end }}
 {{- if .Values.egressProxy.suspendProfiles }}
 
 egressProxy.suspendProfiles is on: the job controllers apply no profile, and

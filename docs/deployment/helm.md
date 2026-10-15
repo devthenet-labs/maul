@@ -436,27 +436,34 @@ agent:
       allowPseudoVersions: false # the default
 ```
 
-| Key                                     | Default                 | Purpose                                                                                                                                                    |
-| --------------------------------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `egressProxy.enabled`                   | `false`                 | Deploy the proxy, its Service, PodDisruptionBudget and NetworkPolicy, per-profile agent policies, and (with `admissionPolicy`) both profile-label policies |
-| `egressProxy.suspendProfiles`           | `false`                 | The kill switch: no profile from the next Job, and the proxy answers every profile request `410 suspended` once rolled                                     |
-| `egressProxy.replicas`                  | `2`                     | Proxy replicas; above 1 a PodDisruptionBudget keeps one serving                                                                                            |
-| `egressProxy.limits.*`                  | binary defaults         | Concurrency, per-source rate and burst, queue wait, timeouts, zip cap; each renders only when set                                                          |
-| `egressProxy.attribution.enabled`       | `false`                 | Attribute source IPs to agent pods in the audit line; needs `apiServerCIDRs` (the API server's endpoint IPs, IPv4 `/32`s only)                             |
-| `egressProxy.networkPolicy.create`      | `true`                  | Must stay true while enabled: the per-profile ingress rules are the identity check                                                                         |
-| `egressProxy.config.extra`              | `{}`                    | Extra `PATCHY_*` keys for the proxy; the global `proxy` block never reaches it                                                                             |
-| `agent.networkProfiles.<name>`          | `{}`                    | One profile: `route`, `port`, `host`, `repositories`, `modules`, `bakedModCache`, `allowPseudoVersions`, `registries`; at most eight                       |
-| `egressProxy.registries.<name>`         | `{}`                    | An upstream registry a profile can be granted (Go, npm, pip); see [Registries](../configuration/egress-proxy.md#registries)                                |
-| `egressProxy.cloudCredentials`          | `none`                  | The proxy's own AWS identity for CodeArtifact registries: `irsa` or `podIdentity`                                                                          |
-| `egressProxy.networkPolicy.extraEgress` | `[]`                    | Verbatim egress rules appended to the proxy's policy (an in-cluster OTLP collector)                                                                        |
-| `egressProxy.config.logLevel`           | shared, at least `info` | The proxy's log level; its audit and credential lines are `info`                                                                                           |
+| Key                                     | Default                 | Purpose                                                                                                                                                                               |
+| --------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `egressProxy.enabled`                   | `false`                 | Deploy the proxy, its Service, PodDisruptionBudget and NetworkPolicy, per-profile agent policies, and (with `admissionPolicy`) both profile-label policies                            |
+| `egressProxy.suspendProfiles`           | `false`                 | The kill switch: no profile from the next Job, and the proxy answers every profile request `410 suspended` once rolled                                                                |
+| `egressProxy.replicas`                  | `2`                     | Proxy replicas; above 1 a PodDisruptionBudget keeps one serving                                                                                                                       |
+| `egressProxy.limits.*`                  | binary defaults         | Concurrency, per-source rate and burst, queue wait, timeouts, zip cap; each renders only when set                                                                                     |
+| `egressProxy.attribution.enabled`       | `false`                 | Attribute source IPs to agent pods in the audit line; needs `apiServerCIDRs` (the API server's endpoint IPs, IPv4 `/32`s only)                                                        |
+| `egressProxy.networkPolicy.create`      | `true`                  | Must stay true while enabled: the per-profile ingress rules are the identity check                                                                                                    |
+| `egressProxy.config.extra`              | `{}`                    | Extra `PATCHY_*` keys for the proxy; the global `proxy` block never reaches it                                                                                                        |
+| `agent.networkProfiles.<name>`          | `{}`                    | One profile: `route` (`go` or `tunnel`), `port`, `host`, `repositories`, `modules`, `bakedModCache`, `allowPseudoVersions`, `registries`, `hosts`, `clients`, `upload`; at most eight |
+| `egressProxy.tunnel.*`                  | measured defaults       | The CONNECT tunnel's limits and `denyCIDRs`; rendered only while a profile lists `hosts`. See [Tunnel limits](../configuration/egress-proxy.md#tunnel-limits)                         |
+| `egressProxy.registries.<name>`         | `{}`                    | An upstream registry a profile can be granted (Go, npm, pip); see [Registries](../configuration/egress-proxy.md#registries)                                                           |
+| `egressProxy.cloudCredentials`          | `none`                  | The proxy's own AWS identity for CodeArtifact registries: `irsa` or `podIdentity`                                                                                                     |
+| `egressProxy.networkPolicy.extraEgress` | `[]`                    | Verbatim egress rules appended to the proxy's policy (an in-cluster OTLP collector)                                                                                                   |
+| `egressProxy.config.logLevel`           | shared, at least `info` | The proxy's log level; its audit and credential lines are `info`                                                                                                                      |
 
 The render fails, naming the value, on: the proxy without repository images or without a profile; its policy turned off;
 mode `istio`; two profiles on one port; a module prefix that admits the Go toolchain (`golang.org`,
 `golang.org/toolchain…`); a `bakedModCache` with a `.` or `..` element or a trailing slash; and attribution without
 `/32`s. The schema refuses the rest (a bad name, port 8081, a route other than `go`, an uppercase or `*` prefix, an
 empty `repositories`). Profiles set while `egressProxy.enabled` is false render nothing, and the install NOTES say so.
-Registries and grants have their own guards, listed under
+Tunnel hosts have their own guards: a route `tunnel` profile without `hosts` or with the Go route's fields; a host that
+is not an exact lowercase name, is listed twice, or is on the tunnel's deny list (forges, model APIs, managed control
+planes, in-cluster and special-use names, publish endpoints, any profile's forge host); a host of the profile's own
+grants, or a Go route upstream beside `route: go`; `clients` or `upload` without `hosts`, an unknown client, or a preset
+beside a grant for the same package manager; `upload` outside 64 KiB-1 GiB or `perTunnel` above `perSource`; and
+`egressProxy.tunnel.sourceBudgetIdle` below the longest Job deadline. Tunnels are off until a profile lists `hosts`; see
+[Tunnel](../configuration/egress-proxy.md#tunnel). Registries and grants have their own guards, listed under
 [What the chart refuses](../configuration/egress-proxy.md#what-the-chart-refuses); the install NOTES name every registry
 Secret you must create. Size `agent.repositoryImages.ephemeralStorage` for profiled repositories at about twice the
 baked module cache plus the build cache: a profile run copies its modules into `/tmp`.

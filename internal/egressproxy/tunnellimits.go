@@ -13,13 +13,21 @@ import (
 )
 
 // The defaults behind every zero TunnelLimits field (and the binary's
-// --tunnel-* flags; §2.5 of the step-3 spec). The two upload caps are
-// provisional until the live client fixtures measure real installs.
+// --tunnel-* flags; §2.5 of the step-3 spec), set from the live client
+// fixtures (TestLiveTunnel). Upload, the exfiltration direction: the
+// largest tunnel measured sent 21 KB (pip, one keep-alive tunnel to
+// pypi.org) and the largest source 602 KB (yarn, 162 packages, 3.7 KB a
+// package), so 1 MiB a tunnel and 8 MiB a source cover every measured
+// ecosystem at 4x, and a yarn tree of about 2,000 packages (7.4 MB). The
+// concurrency and rate limits only keep one pod from exhausting the proxy
+// (the byte budget bounds exfiltration): pnpm 11 and yarn 4 opened 50
+// tunnels at once and yarn 183 new ones a second, so the per-source limits
+// sit above that and the global one fits eight such pods.
 const (
-	DefaultTunnelMaxConcurrent        = 256
-	DefaultTunnelPerSourceConcurrent  = 32
-	DefaultTunnelPerSourceRate        = 10
-	DefaultTunnelPerSourceBurst       = 50
+	DefaultTunnelMaxConcurrent        = 512
+	DefaultTunnelPerSourceConcurrent  = 64
+	DefaultTunnelPerSourceRate        = 50
+	DefaultTunnelPerSourceBurst       = 200
 	DefaultTunnelLimitWait            = 10 * time.Second
 	DefaultTunnelDialTimeout          = 10 * time.Second
 	DefaultTunnelHelloTimeout         = 10 * time.Second

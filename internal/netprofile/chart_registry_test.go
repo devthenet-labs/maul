@@ -123,9 +123,18 @@ type registrySchema struct {
 			AnyOf []struct {
 				Required []string `json:"required"`
 			} `json:"anyOf"`
-			Then struct {
-				Required []string `json:"required"`
-			} `json:"then"`
+			AllOf []struct {
+				If struct {
+					Properties struct {
+						Route struct {
+							Const string `json:"const"`
+						} `json:"route"`
+					} `json:"properties"`
+				} `json:"if"`
+				Then struct {
+					Required []string `json:"required"`
+				} `json:"then"`
+			} `json:"allOf"`
 			Dependencies map[string][]string `json:"dependencies"`
 			Properties   struct {
 				Registries struct {
@@ -197,6 +206,10 @@ func TestChartRegistrySchemaMatchesValidator(t *testing.T) {
 	for _, o := range np.AnyOf {
 		anyOf = append(anyOf, o.Required)
 	}
+	routeThen := map[string][]string{}
+	for _, o := range np.AllOf {
+		routeThen[o.If.Properties.Route.Const] = o.Then.Required
+	}
 	for _, c := range []struct {
 		name      string
 		got, want any
@@ -232,8 +245,10 @@ func TestChartRegistrySchemaMatchesValidator(t *testing.T) {
 		{"packagePolicy enum", grant.Properties.PackagePolicy.Enum, []string{PackagePolicyRegistry}},
 		{"grant oneOf", oneOf, [][]string{{"packages"}, {"packagePolicy"}}},
 		{"profile anyOf", anyOf, [][]string{{"route"}, {"registries"}}},
-		{"profile then", np.Then.Required, []string{"modules"}},
-		{"profile dependencies", np.Dependencies, map[string][]string{"modules": {"route"}}},
+		{"profile route rules", routeThen, map[string][]string{RouteGo: {"modules"}, RouteTunnel: {"hosts"}}},
+		{"profile dependencies", np.Dependencies, map[string][]string{
+			"modules": {"route"}, "hosts": {"route"}, "clients": {"hosts"}, "upload": {"hosts"},
+		}},
 		{"profile registries maxProperties", np.Properties.Registries.MaxProperties, len(Ecosystems)},
 		{"profile registries propertyNames", np.Properties.Registries.PropertyNames.Pattern, namePattern.String()},
 	} {

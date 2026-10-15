@@ -72,7 +72,12 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   into the proxy alone (re-read every 30s, `credfile`) or a CodeArtifact token it mints with its own IRSA/Pod
   Identity role (`awsca`); sent only to the registry's origin, never to an agent, a redirect hop or a file host.
   Hard denies on forge, model API (plus the broker's base-URL overrides, `--deny-hosts`) and in-cluster hosts.
-  `--suspended` answers every profile request 410 (the chart's `suspendProfiles` immediate lever). Engine in
+  `--suspended` answers every profile request 410 (the chart's `suspendProfiles` immediate lever). Step 3: a profile
+  listing `hosts` (`route: tunnel`, or beside `route: go`) is also served HTTPS `CONNECT` on the same port: a
+  hostname-allowlisted tunnel to exactly those public names on 443, SNI checked against the CONNECT host, ECH refused,
+  never decrypted, with its own limits and per-source byte budgets (`--tunnel-*`, chart `egressProxy.tunnel`, rendered
+  only while a profile lists hosts) and a tunnel-only deny list for the API server's addresses (`--tunnel-deny-cidrs`).
+  An npm or Yarn registry host is a publish channel bounded only by the upload caps. Engine in
   `internal/egressproxy` (+ `podindex` for opt-in attribution, `pyindex`, `credfile`, `awsca`); `probe --registry`
   sends one request from inside the pod; flags and the no-log-sink runbook in docs/configuration/egress-proxy.md.
 - `cmd/preview-auth` — OPTIONAL (default-off; chart `previewAuth`, two stages: `permit` admits the pinned sign-in
@@ -408,12 +413,14 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   by type only, CodeArtifact host agreement, internal CIDRs clear of the always-denied set), `Grant` on `Profile` (at
   most one per ecosystem, `packages` or `packagePolicy: registry`), `CheckGrants`, the npm and pip grammars
   (`NPMName`, `NPMVersion`, `PyFilePath`, `PyProjectOfFile`) and the deny table (`DeniedHost`, `DeniedPattern`,
-  `TooWideSuffixes`). Step 3 (not yet consumed) adds route `tunnel`, `Hosts` (exact names: `ValidHost`,
+  `TooWideSuffixes`). Step 3 adds route `tunnel`, `Hosts` (exact names: `ValidHost`,
   `NormalizeHost`, `IPLiteral`, `TunnelHostPattern`), the `Clients` presets, `Upload` caps and `DeniedTunnelHost`
   (`DeniedHost` over every suffix plus more forges and model APIs, managed control planes, special-use names and
-  publish hosts). The chart's schema, label and deny table are pinned to it
-  (`TestChartProfileSchemaMatchesValidator`, `TestChartRegistrySchemaMatchesValidator`, `TestDeniedHostMatchesChart`,
-  which runs the chart's own deny helpers through helm, `TestChartLabelPrefix`).
+  publish hosts). The chart's schema, label and deny tables are pinned to it
+  (`TestChartProfileSchemaMatchesValidator`, `TestChartRegistrySchemaMatchesValidator`, `TestDeniedHostMatchesChart`
+  and `TestChartTunnelDenyMatchesNetprofile`, which run the chart's own deny helpers through helm,
+  `TestSchemaHasNoLookahead`, `TestChartLabelPrefix`); cmd/egress-proxy's `TestChartTunnelDefaultsMatchFlags` holds
+  `egressProxy.tunnel`'s defaults to the flags.
 - `egressproxy` — the egress proxy's engine (no Kubernetes imports in the core, a test pins that): the pure GOPROXY
   and sumdb path parsers over x/mod, the per-request pipeline (suspended, method, body, path grammar, allowlist and
   tagged-release gate, limits, forward to a fixed https base), status mapping and header/size caps, the guarded

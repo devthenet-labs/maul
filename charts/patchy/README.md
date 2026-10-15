@@ -332,6 +332,21 @@ endpoint, a private address without `internal`, and a grant that names no regist
 lines are kept). The [egress proxy docs](../../docs/configuration/egress-proxy.md#registries) cover every field, the IAM
 policy, rotation and debugging without a log sink.
 
+**Tunnel hosts** (also opt-in; no profile lists hosts by default). `agent.networkProfiles.<profile>.hosts` lists exact
+public host names (no wildcard or IP) the profile's Jobs reach over an HTTPS `CONNECT` tunnel through the proxy on the
+profile's own port, for npm, pnpm, Yarn, pip, uv, NuGet, Cargo, Maven and Gradle; `route: tunnel` makes a tunnel-only
+profile (no `modules`), and `route: go` may list hosts beside its Go route. `clients` adds per-package-manager
+environment presets (`npm`, `yarn`, `pip`, `uv`, `nuget`, `cargo`, `jvm`) and `upload` (`perTunnel`, `perSource`, in
+bytes) overrides the upload caps. `egressProxy.tunnel` holds the tunnel's limits (defaults measured with real package
+managers: 1 MiB upload a tunnel, 8 MiB a source per profile per replica, 64 open tunnels and 50 new a second per source,
+512 open in all) and `denyCIDRs`, addresses the tunnel never dials beside `attribution.apiServerCIDRs`; its keys render
+only while some profile lists hosts, so other installs render exactly as before. The render refuses forges, model APIs,
+managed Kubernetes control planes, in-cluster and special-use names, publish endpoints (`upload.pypi.org`,
+`www.nuget.org`), the Go route's own upstreams beside `route: go`, a grant's hosts, and a `sourceBudgetIdle` below the
+longest Job deadline. **An npm or Yarn registry host is a public publish channel** bounded only by the upload caps (the
+install NOTES say so); see the [isolation model](../../docs/deployment/isolation.md#tunnel-hosts) and the
+[tunnel docs](../../docs/configuration/egress-proxy.md#tunnel).
+
 ## Values worth knowing
 
 Per-controller blocks — `integrationController`, `sourceController`, `contextController`, `investigationController`,

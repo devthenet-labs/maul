@@ -1,0 +1,50 @@
+# Copyright 2026 Bitwise Media Group Ltd.
+# SPDX-License-Identifier: MIT
+#
+# chart-render-test fixture: tunnel hosts (step 3). Layer it over
+# repository-images.yaml INSTEAD of egress-proxy.yaml: the same two profiles
+# on the same ports, so every NetworkPolicy, Service and RBAC object must
+# render exactly as the go-only fixture's. go keeps egress-proxy.yaml's Go
+# route and adds a tunnel to PyPI with per-profile upload caps; npm is a
+# tunnel-only profile with no modules key at all (what a schema requiring
+# modules on every profile would refuse). Attribution is on, so the API
+# server's addresses reach the tunnel's deny list beside tunnel.denyCIDRs.
+egressProxy:
+    enabled: true
+    attribution:
+        enabled: true
+        apiServerCIDRs:
+            - 10.0.1.10/32
+    tunnel:
+        denyCIDRs:
+            - 203.0.113.10/32
+agent:
+    networkProfiles:
+        go:
+            route: go
+            port: 8090
+            repositories:
+                - devthenet-labs/patchy-preview-demo
+                - devthenet-labs/patchy-target
+            modules:
+                - github.com/google/uuid
+                - golang.org/x/
+            hosts:
+                - pypi.org
+                - files.pythonhosted.org
+            clients:
+                - pip
+                - uv
+            upload:
+                perTunnel: 524288
+                perSource: 16777216
+        npm:
+            route: tunnel
+            port: 8091
+            host: github.example.com
+            repositories:
+                - acme/.*
+            hosts:
+                - registry.npmjs.org
+            clients:
+                - npm
