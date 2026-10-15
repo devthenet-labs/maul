@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
@@ -118,6 +119,9 @@ func (r *UnitReconciler) schedule(ctx context.Context) (ctrl.Result, error) {
 			})
 		}
 	}
+	if err := r.markPaused(ctx, list.Items); err != nil {
+		return ctrl.Result{}, err
+	}
 	if r.Paused {
 		return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
 	}
@@ -132,6 +136,39 @@ func (r *UnitReconciler) schedule(ctx context.Context) (ctrl.Result, error) {
 	}
 	// Safety tick: re-inspect even if an event is lost.
 	return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
+}
+
+// markPaused keeps the AgentsPaused condition true on every unit the pause
+// holds and removes it from every other, writing only a unit whose condition
+// changes: while agents are not paused, a unit that never carried it is never
+// written.
+func (r *UnitReconciler) markPaused(ctx context.Context, items []v1alpha1.EvaluationUnit) error {
+	for i := range items {
+		unit := &items[i]
+		if !unit.DeletionTimestamp.IsZero() {
+			continue
+		}
+		conds := slices.Clone(unit.Status.Conditions)
+		held := v1alpha1.HeldByPause(r.Paused, unit.Status.Phase, unit.Status.JobRef)
+		if !v1alpha1.SyncAgentsPaused(&conds, held, r.now()) {
+			continue
+		}
+		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			var cur v1alpha1.EvaluationUnit
+			if err := r.Get(ctx, client.ObjectKeyFromObject(unit), &cur); err != nil {
+				return client.IgnoreNotFound(err)
+			}
+			held = v1alpha1.HeldByPause(r.Paused, cur.Status.Phase, cur.Status.JobRef)
+			if !cur.DeletionTimestamp.IsZero() || !v1alpha1.SyncAgentsPaused(&cur.Status.Conditions, held, r.now()) {
+				return nil
+			}
+			return r.Status().Update(ctx, &cur)
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // grant moves one unit to Running (idempotent).

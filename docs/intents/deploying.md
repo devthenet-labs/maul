@@ -983,10 +983,10 @@ What it **cannot** prove, and where to look instead:
 Jobs) from starting any new agent Job; a running plan or build finishes and is collected as usual. See
 [Pausing agents](../configuration/investigation-controller.md#pausing-agents).
 
-A paused intent does not say so. Its next IntentRun is created and waits with an empty status (no phase, no Job), and
-the intent's issue keeps its last status: an intent waiting for its plan still says "Planning". The only signs are the
-banner the status page shows to signed-in users and each controller's startup log line (`agents_paused`). Set it back to
-`false` and the held runs start in order.
+A paused intent says so on its issue. Its next IntentRun is created and waits (no Job) with the condition
+`AgentsPaused=True`, and the issue's status comment keeps its phase and adds "**Agents paused:** the operator has paused
+patchy's agents, so this work waits until they are resumed." Set it back to `false` and the held runs start in order;
+the condition and the line go once each run launches.
 
 ## Upgrades
 

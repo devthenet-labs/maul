@@ -133,6 +133,9 @@ func (r *RemediationReconciler) schedule(ctx context.Context) (ctrl.Result, erro
 			})
 		}
 	}
+	if err := r.markPaused(ctx, list.Items); err != nil {
+		return ctrl.Result{}, err
+	}
 	if r.Paused {
 		return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
 	}
@@ -146,6 +149,39 @@ func (r *RemediationReconciler) schedule(ctx context.Context) (ctrl.Result, erro
 		}
 	}
 	return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
+}
+
+// markPaused keeps the AgentsPaused condition true on every remediation the
+// pause holds and removes it from every other, writing only a run whose
+// condition changes: while agents are not paused, a run that never carried
+// it is never written.
+func (r *RemediationReconciler) markPaused(ctx context.Context, items []v1alpha1.Remediation) error {
+	for i := range items {
+		rem := &items[i]
+		if !rem.DeletionTimestamp.IsZero() {
+			continue
+		}
+		conds := slices.Clone(rem.Status.Conditions)
+		held := v1alpha1.HeldByPause(r.Paused, rem.Status.Phase, rem.Status.JobRef)
+		if !v1alpha1.SyncAgentsPaused(&conds, held, r.now()) {
+			continue
+		}
+		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			var cur v1alpha1.Remediation
+			if err := r.Get(ctx, client.ObjectKeyFromObject(rem), &cur); err != nil {
+				return client.IgnoreNotFound(err)
+			}
+			held = v1alpha1.HeldByPause(r.Paused, cur.Status.Phase, cur.Status.JobRef)
+			if !cur.DeletionTimestamp.IsZero() || !v1alpha1.SyncAgentsPaused(&cur.Status.Conditions, held, r.now()) {
+				return nil
+			}
+			return r.Status().Update(ctx, &cur)
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // expedited reads the parent finding's expedite mark (cached client; a miss

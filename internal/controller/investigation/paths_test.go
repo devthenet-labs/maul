@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -1003,5 +1004,98 @@ func TestPausedHoldsAGrantedLaunch(t *testing.T) {
 	}
 	if inv := getInv(t, c); inv.Status.JobRef != nil {
 		t.Errorf("jobRef = %+v, want none", inv.Status.JobRef)
+	}
+}
+
+// TestPausedMarksHeldRuns: while the agents are paused, the scheduler marks
+// every run the pause holds (pending, or granted with no Job yet) with
+// AgentsPaused, and nothing else; a second pass writes nothing; once the
+// pause is lifted the mark is removed. A run that never waited on a pause is
+// never written.
+func TestPausedMarksHeldRuns(t *testing.T) {
+	launched := pendingInv("inv-launched", "f0", "low")
+	launched.Status.Phase = v1alpha1.RunRunning
+	launched.Status.JobRef = &v1alpha1.JobReference{Namespace: "patchy-agents", Name: "job-0"}
+	granted := pendingInv("inv-granted", "f1", "low")
+	granted.Status.Phase = v1alpha1.RunRunning
+	done := pendingInv("inv-done", "f2", "low")
+	done.Status.Phase = v1alpha1.RunComplete
+	r, c := invWith(t, &fakeRunner{}, nil, launched, granted, done, pendingInv("inv-pending", "f3", "high"))
+	r.MaxConcurrent = 1
+	get := func(name string) *v1alpha1.Investigation {
+		t.Helper()
+		var inv v1alpha1.Investigation
+		if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: name}, &inv); err != nil {
+			t.Fatal(err)
+		}
+		return &inv
+	}
+	versions := func() map[string]string {
+		out := map[string]string{}
+		for _, n := range []string{"inv-launched", "inv-granted", "inv-done", "inv-pending"} {
+			out[n] = get(n).ResourceVersion
+		}
+		return out
+	}
+
+	r.Paused = true
+	if _, err := scheduleOnce(t, r); err != nil {
+		t.Fatalf("schedule: %v", err)
+	}
+	for name, held := range map[string]bool{
+		"inv-launched": false, "inv-granted": true, "inv-done": false, "inv-pending": true,
+	} {
+		cond := meta.FindStatusCondition(get(name).Status.Conditions, v1alpha1.ConditionAgentsPaused)
+		switch {
+		case held && (cond == nil || cond.Status != metav1.ConditionTrue ||
+			cond.Reason != v1alpha1.ReasonAgentsPaused || cond.Message != v1alpha1.AgentsPausedMessage):
+			t.Errorf("%s AgentsPaused = %+v, want True/Paused with the fixed message", name, cond)
+		case !held && cond != nil:
+			t.Errorf("%s AgentsPaused = %+v, want none: the pause does not hold it", name, cond)
+		}
+	}
+	before := versions()
+	if _, err := scheduleOnce(t, r); err != nil {
+		t.Fatalf("schedule: %v", err)
+	}
+	if after := versions(); !reflect.DeepEqual(before, after) {
+		t.Errorf("a second paused pass wrote status: %v -> %v", before, after)
+	}
+
+	r.Paused = false
+	if _, err := scheduleOnce(t, r); err != nil {
+		t.Fatalf("schedule: %v", err)
+	}
+	for _, name := range []string{"inv-launched", "inv-granted", "inv-done", "inv-pending"} {
+		if cond := meta.FindStatusCondition(get(name).Status.Conditions, v1alpha1.ConditionAgentsPaused); cond != nil {
+			t.Errorf("%s AgentsPaused = %+v after the pause lifted, want none", name, cond)
+		}
+	}
+}
+
+// TestUnpausedSchedulerWritesNoPauseMark: with the agents not paused, runs
+// the scheduler does not grant are left byte-identical.
+func TestUnpausedSchedulerWritesNoPauseMark(t *testing.T) {
+	launched := pendingInv("inv-launched", "f0", "low")
+	launched.Status.Phase = v1alpha1.RunRunning
+	launched.Status.JobRef = &v1alpha1.JobReference{Namespace: "patchy-agents", Name: "job-0"}
+	done := pendingInv("inv-done", "f2", "low")
+	done.Status.Phase = v1alpha1.RunComplete
+	r, c := invWith(t, &fakeRunner{}, nil, launched, done)
+	for _, obj := range []*v1alpha1.Investigation{launched, done} {
+		var before v1alpha1.Investigation
+		if err := c.Get(t.Context(), client.ObjectKeyFromObject(obj), &before); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := scheduleOnce(t, r); err != nil {
+			t.Fatalf("schedule: %v", err)
+		}
+		var after v1alpha1.Investigation
+		if err := c.Get(t.Context(), client.ObjectKeyFromObject(obj), &after); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(before, after) {
+			t.Errorf("%s changed while not paused:\n%+v\n%+v", obj.Name, before.Status, after.Status)
+		}
 	}
 }

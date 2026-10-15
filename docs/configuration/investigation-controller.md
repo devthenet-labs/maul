@@ -87,11 +87,15 @@ Helm, changing `agent.paused` rolls those four controllers (and status-server, w
 signed-in users only; the public rollups view does not show it). The per-object `spec.suspend` still pauses one Finding,
 Intent or Project.
 
-Held work carries no paused marker of its own. A held Investigation, IntentRun or EvaluationUnit has an empty status (no
-phase, no Job), or, if it was granted a slot just before the pause took effect, phase `Running` with no `jobRef`; no
-condition or event says why. The Finding stays in its phase, and an intent's issue keeps its last status (an intent
-waiting for its plan still says "Planning"). Each of the four controllers logs `agents_paused` in its startup line, and
-the status page banner is the only other place the pause shows.
+Each scheduler marks the work it holds. A held Investigation, Remediation, IntentRun or EvaluationUnit (pending, or
+granted a slot just before the pause took effect and so `Running` with no `jobRef`) carries the condition
+`AgentsPaused=True`, reason `Paused`, whose message names `agent.paused`; `kubectl get investigations -o yaml` (or any
+of the other kinds) shows it. An intent's issue says so under its phase in the status comment ("Agents paused: the
+operator has paused patchy's agents, …"). When the pause is lifted, each scheduler removes the condition on its next
+pass and the status comment drops the line. The Finding stays in its phase, and neither `patchy get`/`describe` nor the
+status page lists run conditions, so there the signs are the status page banner (signed-in users only) and each
+controller's startup log line (`agents_paused`). Nothing is written while agents are not paused: a run that never waited
+on a pause never carries the condition.
 
 Each controller bounds its own pool, and there is no cap across them: with the defaults up to 3 investigations, 1
 remediation, 1 intent run and 4 evaluation units, so 9 agent Jobs, can run at once. Size those four limits

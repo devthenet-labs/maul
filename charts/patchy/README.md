@@ -378,7 +378,8 @@ The genuinely shared settings stay global:
   integration-controller; a provider has one webhook URL, so exposure is a chart-level concern.
 - `agent.paused` — the cluster-wide pause: while `true`, investigation-, remediation-, intent- and evaluation-controller
   launch no new agent Job (running ones finish; pending work queues in order). The status page shows a banner to
-  signed-in users only; held runs and intent issues carry no paused marker.
+  signed-in users only; each held run carries the condition `AgentsPaused`, and an intent's issue status comment says
+  the agents are paused.
 - `agent.*` — the sandbox: namespace, service account, `jobDeadline`/`jobTTL`, and the two stages' limits:
   `modelAllowlist` (canonical, provider-qualified model ids), `investigate.*` (absolute), `remediate.*` (`auto.*` is
   what an unattended fix gets and the line past which an estimate needs approval, `manual.*` the most an approval can

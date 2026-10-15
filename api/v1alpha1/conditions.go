@@ -171,6 +171,16 @@ const (
 	// by intent-controller's run reconciler, and False once the run settles.
 	ConditionPushHeld = "PushHeld"
 
+	// ConditionAgentsPaused marks an Investigation, Remediation, IntentRun or
+	// EvaluationUnit that waits only because the operator paused agents
+	// (Helm agent.paused, --agents-paused): it is pending, or was granted a
+	// slot but has no Job yet. Reason ReasonAgentsPaused, message
+	// AgentsPausedMessage. Set by the controller that schedules the run (its
+	// status owner) and removed once the pause is lifted or the run no longer
+	// waits; never written while agents are not paused and the condition is
+	// absent (SyncAgentsPaused).
+	ConditionAgentsPaused = "AgentsPaused"
+
 	// ConditionIntentNameConflict marks a Project, True while one of its
 	// trigger-labelled issues cannot become an Intent because the name
 	// <project>-<issue> is held by an Intent for an issue of another
