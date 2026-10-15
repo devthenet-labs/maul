@@ -60,3 +60,20 @@ func TestPlanPromptStatesTheBuildProfile(t *testing.T) {
 		t.Errorf("FromEnv error = %v, want one naming PATCHY_BUILD_NETWORK_PROFILES", err)
 	}
 }
+
+// TestBuildProfilesCarryRoutes: a build profile handed with its registry
+// routes reaches the plan's configuration with them, so the plan prompt
+// names what that build can fetch.
+func TestBuildProfilesCarryRoutes(t *testing.T) {
+	env := map[string]string{"PATCHY_REPO": "acme/shop", "PATCHY_FINDING": "target-1-plan-r1-a1",
+		"PATCHY_PHASE": string(PhasePlan), "PATCHY_BUILD_NETWORK_PROFILES": `[{"url":"https://github.com/acme/shop",` +
+			`"profile":"web","routes":{"grants":[{"registry":"ca-npm","ecosystem":"npm","anyPackage":true}]}}]`}
+	cfg, err := FromEnv(func(k string) string { return env[k] })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.BuildProfiles) != 1 || cfg.BuildProfiles[0].Routes == nil ||
+		len(cfg.BuildProfiles[0].Routes.Grants) != 1 || cfg.BuildProfiles[0].Routes.Grants[0].Registry != "ca-npm" {
+		t.Errorf("BuildProfiles = %+v, want the web profile with its npm grant", cfg.BuildProfiles)
+	}
+}

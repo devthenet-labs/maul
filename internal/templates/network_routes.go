@@ -21,9 +21,9 @@ type NetworkRoutes struct {
 	// PublicGo is the public Go module route (route: go). In the pod, which
 	// learns only the ecosystems, it is set for a listed go with no go
 	// grant; the prompt reads Go the same either way.
-	PublicGo bool
+	PublicGo bool `json:"publicGo,omitempty"`
 	// Grants are the profile's registry grants, at most one per ecosystem.
-	Grants []netprofile.PodGrant
+	Grants []netprofile.PodGrant `json:"grants,omitempty"`
 }
 
 // RoutesOf is a profile's routes as the job controllers hold the profile.

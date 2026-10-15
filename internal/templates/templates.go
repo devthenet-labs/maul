@@ -22,7 +22,8 @@ var files embed.FS
 // error caught by the package's golden tests, so panicking at init is right.
 var tmpl = template.Must(template.New("").
 	Funcs(template.FuncMap{"join": strings.Join, "code": code, "fence": fence, "chomp": chomp,
-		"openPullRequests": openPullRequestsListing, "networkRoutes": networkRoutesPrompt}).
+		"openPullRequests": openPullRequestsListing, "networkRoutes": networkRoutesPrompt,
+		"buildProfilesRouted": buildProfilesRouted, "planRoutes": planRoutes}).
 	ParseFS(files, "*.md.tmpl"))
 
 // chomp drops trailing line breaks, so a block ending in one (fence) can sit

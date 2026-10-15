@@ -14,19 +14,20 @@ import (
 	"github.com/bitwise-media-group/patchy/internal/envelope"
 	"github.com/bitwise-media-group/patchy/internal/jobs"
 	"github.com/bitwise-media-group/patchy/internal/netprofile"
+	"github.com/bitwise-media-group/patchy/internal/templates"
 )
 
 // webProfiles is a profile set with one registry-only profile, web, for
-// profileRepos: an npm grant under the registry's policy and a pypi grant
+// a repository: an npm grant under the registry's policy and a pypi grant
 // with an allowlist.
 const webProfiles = `[{"name":"web","port":8091,"repositories":["%s"],"registries":[` +
 	`{"name":"art-npm","ecosystem":"npm","hosts":["acme.jfrog.io"],"packagePolicy":"registry"},` +
 	`{"name":"art-pypi","ecosystem":"pypi","hosts":["acme.jfrog.io"],"packages":["six"]}]}]`
 
-// withRegistryProfiles is withProfiles for webProfiles.
-func withRegistryProfiles(t *testing.T, e *env, profileRepos string) {
+// withRegistryProfiles is withProfiles for webProfiles, for acme/app.
+func withRegistryProfiles(t *testing.T, e *env) {
 	t.Helper()
-	set, err := netprofile.Parse([]byte(strings.Replace(webProfiles, "%s", profileRepos, 1)))
+	set, err := netprofile.Parse([]byte(strings.Replace(webProfiles, "%s", "acme/app", 1)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +52,7 @@ func (f forgeHosts) Hosts(context.Context, string) ([]string, error) { return f,
 // and the pull request body names its routes.
 func TestRegistryProfileReachesPlanBuildAndPR(t *testing.T) {
 	e := newEnv(t, testProject())
-	withRegistryProfiles(t, e, "acme/app")
+	withRegistryProfiles(t, e)
 	e.jobs.output = func(spec jobs.Spec) jobs.RunOutput {
 		if spec.Phase == "plan" {
 			return planOutput(defaultOutput(spec).Events[0].Plan.Stage, planWithDependencies)
@@ -92,7 +93,7 @@ func TestRegistryProfileReachesPlanBuildAndPR(t *testing.T) {
 // Job is created.
 func TestRegistryGrantNamingAForgeIsRefused(t *testing.T) {
 	e := newEnv(t, testProject())
-	withRegistryProfiles(t, e, "acme/app")
+	withRegistryProfiles(t, e)
 	e.runs.Images.Forges = forgeHosts{"github.com", "jfrog.io"}
 	name := e.awaiting()
 	e.gh.label(1, "patchy:approved", approver)
@@ -121,7 +122,7 @@ func TestProfileBuildNamingTheProxyIsRefused(t *testing.T) {
 		t.Run(map[bool]string{true: "profile", false: "no profile"}[profile], func(t *testing.T) {
 			e := newEnv(t, testProject())
 			if profile {
-				withRegistryProfiles(t, e, "acme/app")
+				withRegistryProfiles(t, e)
 			}
 			e.jobs.output = func(spec jobs.Spec) jobs.RunOutput {
 				out := defaultOutput(spec)
@@ -155,5 +156,34 @@ func TestProfileBuildNamingTheProxyIsRefused(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestPlanJobIsToldItsBuildsRoutes: a plan Job whose build gets a registry
+// profile is told the profile's routes beside its name, and nothing of the
+// proxy; it asks for no profile itself.
+func TestPlanJobIsToldItsBuildsRoutes(t *testing.T) {
+	e := newEnv(t, testProject())
+	withRegistryProfiles(t, e)
+	e.awaiting()
+	e.jobs.mu.Lock()
+	defer e.jobs.mu.Unlock()
+	plans := 0
+	for name, spec := range e.jobs.specs {
+		if spec.Phase != "plan" {
+			continue
+		}
+		plans++
+		if spec.NetworkProfile != nil {
+			t.Errorf("plan Job %s asked for network profile %+v", name, spec.NetworkProfile)
+		}
+		got, err := templates.DecodeBuildProfiles(e.jobs.envs[name][envBuildProfiles])
+		if err != nil || len(got) != 1 || got[0].Profile != "web" || got[0].Routes == nil ||
+			len(got[0].Routes.Grants) != 2 || got[0].Routes.Grants[0].Registry != "art-npm" {
+			t.Errorf("plan Job %s was told %+v (%v), want the web profile with its two grants", name, got, err)
+		}
+	}
+	if plans == 0 {
+		t.Fatal("no plan Job launched")
 	}
 }

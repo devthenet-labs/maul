@@ -318,3 +318,63 @@ func TestRoutesOfAndPodRoutes(t *testing.T) {
 		t.Errorf("a listed go with a go grant read as the public route: %+v", r)
 	}
 }
+
+// TestPlanPromptBuildRoutes pins what a plan prompt says when a build of
+// the plan gets a profile with registry grants: what each build can fetch,
+// per ecosystem and registry, instead of step 1's Go sentence; a set of
+// step-1 profiles renders the #200 prompt byte for byte.
+func TestPlanPromptBuildRoutes(t *testing.T) {
+	web := webRoutes()
+	one := func(b []BuildProfile) (string, error) {
+		return RenderPlanPrompt(PlanPrompt{
+			IssuePath: "/workspace/input/issue.md", ReportPath: "/workspace/reports/plan.md",
+			Intent: testPlanRequest, BuildMaxTurns: 150, BuildTokenBudget: 800000, Limits: testPlanLimits,
+			BuildProfiles: b,
+		})
+	}
+	for _, tt := range []struct {
+		golden, want string
+		render       func([]BuildProfile) (string, error)
+		profiles     []BuildProfile
+	}{
+		{"prompt_plan_network_routes.md", "This repository's build runs with the operator's network profile `web`, " +
+			"so while it builds it can fetch any npm package `ca-npm` serves and the PyPI projects the operator " +
+			"allows from `ca-pypi`", one, []BuildProfile{{URL: testAPIURL, Profile: "web", Routes: &web}}},
+		{"prompt_plan_trees_network_routes.md", "`" + testWebURL + "` (profile `go`: tagged releases of Go module " +
+			"paths the operator allows), `" + testAPIURL + "` (profile `web`: any npm package `ca-npm` serves; the " +
+			"PyPI projects the operator allows from `ca-pypi`)", renderTestTreesPlanPromptWith,
+			[]BuildProfile{{URL: testWebURL, Profile: "go"}, {URL: testAPIURL, Profile: "web", Routes: &web}}},
+	} {
+		t.Run(tt.golden, func(t *testing.T) {
+			got, err := tt.render(tt.profiles)
+			if err != nil {
+				t.Fatal(err)
+			}
+			golden(t, tt.golden, got)
+			if flat := strings.Join(strings.Fields(got), " "); !strings.Contains(flat, tt.want) ||
+				!strings.Contains(flat, "must already be in the image") {
+				t.Errorf("prompt lacks %q:\n%s", tt.want, got)
+			}
+		})
+	}
+
+	// Routes without grants, or grants that do not validate, are not what a
+	// controller writes: the build is described as step 1 would.
+	bad := NetworkRoutes{Grants: []netprofile.PodGrant{{Registry: "ca-npm", Ecosystem: "npm"}}}
+	step1, err := one([]BuildProfile{{URL: testAPIURL, Profile: "go"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range []*NetworkRoutes{{PublicGo: true}, &bad} {
+		if got, err := one([]BuildProfile{{URL: testAPIURL, Profile: "go", Routes: r}}); err != nil || got != step1 {
+			t.Errorf("routes %+v changed the step-1 prompt (err %v)", r, err)
+		}
+	}
+	got, err := DecodeBuildProfiles(EncodeBuildProfiles([]BuildProfile{{URL: testAPIURL, Profile: "web", Routes: &web}}))
+	if err != nil || len(got) != 1 || got[0].Routes == nil || fmt.Sprint(*got[0].Routes) != fmt.Sprint(web) {
+		t.Errorf("round trip = %+v, %v; want the routes back", got, err)
+	}
+	if enc := EncodeBuildProfiles([]BuildProfile{{URL: testAPIURL, Profile: "go"}}); strings.Contains(enc, "routes") {
+		t.Errorf("a step-1 profile's JSON grew a routes key: %s", enc)
+	}
+}
