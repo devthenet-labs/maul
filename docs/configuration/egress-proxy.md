@@ -775,6 +775,14 @@ Every tunnel writes up to three kinds of line, all at `info` with `route=tunnel`
 - one close line: `tunnel` once the hello went upstream, whatever ended it, or `refused` for a refusal before that, with
   `sni`, `alpn`, `upstream_ip`, `bytes_up`, `bytes_down`, `duration`, `status`, `outcome` and `reason`.
 
+`host` is the validated host name once the name has passed the host grammar (`tunnelled`, `not_allowed`, `hard_denied`
+and everything after). When it has not (`ip_literal`, `bad_host`, `port`, `bad_request`, `suspended`, `shutdown`), the
+close line adds `target`, the raw `CONNECT` target as sent, and `host` is that target's host part as sent
+(`host=1.1.1.1 target=1.1.1.1:443`, `host=pypi.org target=pypi.org:8443`), or empty when the target is not `host:port`
+at all. Both are cut at 256 bytes, and never quoted by the proxy: the log handler quotes and escapes a value holding
+spaces, quotes or control characters, so `grep host=1.1.1.1` finds the line and a hostile target cannot forge another
+attribute or line.
+
 | `outcome`                                         | Meaning                                                                                                                                                      |
 | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `tunnelled`                                       | opened and closed normally                                                                                                                                   |

@@ -13,7 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
-	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -205,43 +205,69 @@ func writeRawRefusal(w io.Writer, status int, phrase string) error {
 	return err
 }
 
+// auditTarget is what a tunnel's audit line says about the CONNECT
+// target: host is the validated host, or the raw target's host part when
+// it has one; target is the raw target, clipped, set only while host is
+// not a validated name. Neither is pre-quoted: the slog handler quotes and
+// escapes a value that needs it (control bytes, spaces, quotes, invalid
+// UTF-8), so a grep for the bare host matches.
+type auditTarget struct {
+	host, target string
+}
+
+// rawTarget is the audit view of a target no policy has validated: its
+// host part when it has the authority shape (any port), and the whole
+// value, clipped.
+func rawTarget(target string) auditTarget {
+	v := auditTarget{target: clip(target)}
+	switch host, err := ParseConnectTarget(target); {
+	case err == nil:
+		v.host = clip(host)
+	case errors.Is(err, ErrConnectPort):
+		// The shape check passed up to the port: one ':', a non-empty
+		// host with no control byte, space, '/', '@' or bracket.
+		h, _, _ := strings.Cut(target, ":")
+		v.host = clip(h)
+	}
+	return v
+}
+
 // judgeTarget is the pure half of the CONNECT pipeline (§2.3 steps 1-2 of
 // the step-3 spec): the target's shape, then the host policy in order (an
 // IP literal, the host grammar after normalisation, the hard-deny table
 // with deny's hosts, the profile's exact allowlist). It returns the
-// normalised host to dial, or the refusal; display is the host for the
-// audit line (the validated host, or the raw value clipped and quoted).
-func judgeTarget(p netprofile.Profile, deny netprofile.DenyContext, target string) (host, display string,
+// normalised host to dial, or the refusal; view is the target for the
+// audit line (the validated host, or rawTarget's host part and target).
+func judgeTarget(p netprofile.Profile, deny netprofile.DenyContext, target string) (host string, view auditTarget,
 	rf *refusal) {
+	view = rawTarget(target)
 	raw, err := ParseConnectTarget(target)
-	display = strconv.Quote(clip(target))
 	switch {
 	case errors.Is(err, ErrConnectPort):
-		return "", display, &refusal{http.StatusForbidden, OutcomePort, "", ErrConnectPort.Error()}
+		return "", view, &refusal{http.StatusForbidden, OutcomePort, "", ErrConnectPort.Error()}
 	case err != nil:
-		return "", display, &refusal{http.StatusBadRequest, OutcomeBadRequest, "target", ErrConnectTarget.Error()}
+		return "", view, &refusal{http.StatusBadRequest, OutcomeBadRequest, "target", ErrConnectTarget.Error()}
 	}
-	display = strconv.Quote(clip(raw))
 	if netprofile.IPLiteral(raw) {
-		return "", display, &refusal{http.StatusForbidden, OutcomeIPLiteral, "",
+		return "", view, &refusal{http.StatusForbidden, OutcomeIPLiteral, "",
 			"egress-proxy: an IP address is never tunnelled; CONNECT to an allowed host name"}
 	}
 	h, err := netprofile.NormalizeHost(raw)
 	if err != nil || !netprofile.ValidHost(h) {
-		return "", display, &refusal{http.StatusForbidden, OutcomeBadHost, "",
+		return "", view, &refusal{http.StatusForbidden, OutcomeBadHost, "",
 			"egress-proxy: the CONNECT host is not a valid host name"}
 	}
-	display = h
+	view = auditTarget{host: h}
 	if err := netprofile.DeniedTunnelHost(h, deny); err != nil {
-		return "", display, &refusal{http.StatusForbidden, OutcomeHardDenied, "",
+		return "", view, &refusal{http.StatusForbidden, OutcomeHardDenied, "",
 			fmt.Sprintf("egress-proxy: %s is never tunnelled (a forge, model API, control plane, internal or "+
 				"publish host)", h)}
 	}
 	if !p.Hosts.Allows(h) {
-		return "", display, &refusal{http.StatusForbidden, OutcomeNotAllowed, "",
+		return "", view, &refusal{http.StatusForbidden, OutcomeNotAllowed, "",
 			fmt.Sprintf("egress-proxy: %s is not in profile %s's hosts", h, p.Name)}
 	}
-	return h, display, nil
+	return h, view, nil
 }
 
 // serveConnect runs one CONNECT through the tunnel pipeline (§2.3 of the
@@ -284,7 +310,7 @@ func (s *Server) serveConnect(p netprofile.Profile, w http.ResponseWriter, r *ht
 		e.elapsed = s.cfg.Now().Sub(start)
 		auditTunnel(ctx, s.log, e)
 		host := ""
-		if p.Hosts.Allows(e.host) {
+		if e.target == "" && p.Hosts.Allows(e.host) {
 			host = e.host
 		}
 		countTunnel(context.WithoutCancel(ctx), p.Name, e.outcome, host, e.bytesUp, e.bytesDown)
@@ -293,7 +319,7 @@ func (s *Server) serveConnect(p netprofile.Profile, w http.ResponseWriter, r *ht
 		// Hijacked after CloseTunnels walked the open tunnels: the pod is
 		// going away, so this one is refused before any dial, and the
 		// client retries against a new pod.
-		e.host = strconv.Quote(clip(r.RequestURI))
+		e.setTarget(rawTarget(r.RequestURI))
 		t.refuse(&e, refusal{http.StatusServiceUnavailable, OutcomeShutdown, "", shuttingDownPhrase})
 		return
 	}
@@ -329,7 +355,7 @@ func (s *Server) serveConnect(p netprofile.Profile, w http.ResponseWriter, r *ht
 // admitConnect is §2.3 steps 0-2: suspended, the request's shape and the
 // host policy. It answers every refusal itself.
 func (s *Server) admitConnect(t *tunnel, p netprofile.Profile, r *http.Request, e *tunnelEntry) (string, bool) {
-	e.host = strconv.Quote(clip(r.RequestURI))
+	e.setTarget(rawTarget(r.RequestURI))
 	if s.cfg.Suspended {
 		t.refuse(e, refusal{http.StatusGone, OutcomeSuspended, "", suspendedPhrase})
 		return "", false
@@ -343,8 +369,8 @@ func (s *Server) admitConnect(t *tunnel, p netprofile.Profile, r *http.Request, 
 		return "", false
 	}
 	deny := netprofile.DenyContext{Hosts: append([]string{p.Host}, s.cfg.DenyHosts...)}
-	host, display, rf := judgeTarget(p, deny, r.RequestURI)
-	e.host = display
+	host, view, rf := judgeTarget(p, deny, r.RequestURI)
+	e.setTarget(view)
 	if rf != nil {
 		t.refuse(e, *rf)
 		return "", false
