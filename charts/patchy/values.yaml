@@ -1230,7 +1230,10 @@ egressBroker:
 # each profile's allowlisted module prefixes (tagged releases only unless the
 # profile sets allowPseudoVersions), and, for a profile granted a registry
 # (egressProxy.registries), Go, npm or PyPI simple-index requests below that
-# registry's fixed base URL under the grant's package policy. It holds a
+# registry's fixed base URL under the grant's package policy. For a profile
+# that lists hosts it also opens HTTPS CONNECT tunnels to exactly those public
+# host names on 443, after checking the TLS ClientHello names the same host;
+# it never decrypts a tunnel. It holds a
 # credential only for the registries configured below, sends it only to that
 # registry's origin, never to an agent, and caches nothing. One listener per
 # agent.networkProfiles entry: the port is
@@ -1297,6 +1300,63 @@ egressProxy:
         # fields until the list is updated. Required when enabled; every entry
         # must be an IPv4 /32.
         apiServerCIDRs: []
+    # The CONNECT tunnel's limits (agent.networkProfiles.<p>.hosts). Nothing
+    # here renders unless some profile lists hosts, so an install without
+    # tunnels is unchanged. The defaults are the binary's, measured with
+    # real package managers (docs/configuration/egress-proxy.md, Tunnel);
+    # 0 or "" keeps the binary's default.
+    tunnel:
+        # Extra IPv4 CIDRs the tunnel never dials, beside
+        # attribution.apiServerCIDRs (which it never dials either, when set):
+        # set the Kubernetes API's public endpoint addresses here when the
+        # API is public under a name the built-in deny list does not cover
+        # (a self-managed control plane; EKS, AKS, GKE, DigitalOcean and
+        # Linode names are covered). The proxy warns at startup while this
+        # list is empty.
+        denyCIDRs: []
+        # Open tunnels across every source.
+        maxConcurrent: 512
+        # Open tunnels from one source IP (pnpm 11 and yarn 4 open 50).
+        maxConcurrentPerSource: 64
+        # New tunnels a second from one source IP, and the burst (yarn 4
+        # opens a tunnel for almost every request: 183 a second measured).
+        ratePerSource: 50
+        burstPerSource: 200
+        # How long a CONNECT queues for the limits above before a 503.
+        limitWait: 10s
+        # Bound on resolving and connecting to the host.
+        dialTimeout: 10s
+        # Bound on the wait from the 200 to a complete TLS ClientHello.
+        helloTimeout: 10s
+        # A tunnel with no byte either way for this long is closed (clients
+        # reconnect: expected on keep-alive sockets, not an error).
+        idleTimeout: 2m
+        # Absolute lifetime of one tunnel.
+        maxDuration: 30m
+        # Upload (client to host) is the exfiltration direction, so its caps
+        # are small: bytes on one tunnel, and on every tunnel of one source
+        # IP on one profile per budget window, per proxy replica. A profile's
+        # upload.perTunnel and upload.perSource override them. Measured
+        # upload per package: yarn 3.7 KB, pip 1.8 KB, npm and pnpm 1.1 KB,
+        # uv 0.5 KB, cargo 0.14 KB; a yarn tree of about 2,000 packages
+        # sends about 7.4 MB.
+        maxUploadBytes: 1048576
+        sourceUploadBudget: 8388608
+        # Download caps, the same two ways (2 GiB covers the largest pip
+        # wheels).
+        maxDownloadBytes: 2147483648
+        sourceDownloadBudget: 8589934592
+        # A source's spent budget is forgotten only this long after its
+        # last tunnel closed: hours, minutes, seconds (2h, 90m). Never below
+        # the longest agent or intent jobDeadline (a render guard), so no pod
+        # can pause long enough to refill its own budget. "" = 2h, or that
+        # deadline when it is longer.
+        sourceBudgetIdle: ""
+        # Budget-table entries per profile; a full table refuses a new
+        # source, never evicts one.
+        maxSources: 4096
+        # Period of an open tunnel's progress audit line; "0" turns it off.
+        progressInterval: 5m
     # Credentialed upstream registries a profile can be granted
     # (agent.networkProfiles.<p>.registries), keyed by name (a DNS label of
     # at most 32 characters starting with a letter; at most 16). Empty:
@@ -1739,6 +1799,17 @@ agent:
     # allows them. Each grant must say what it admits: packages (an
     # allowlist) or packagePolicy: registry (the registry's own curation is
     # the policy); there is no default. A profile with grants needs no route.
+    #
+    # A profile may list hosts (route tunnel, or beside route go): exact
+    # public host names its Jobs reach over an HTTPS CONNECT tunnel through
+    # the proxy, for ecosystems without a route (npm/pnpm/yarn, pip/uv,
+    # NuGet, Cargo, Maven/Gradle). Name-level only: any package on a listed
+    # registry is fetchable, and a tunnel to registry.npmjs.org or
+    # registry.yarnpkg.com can carry an npm publish with a token the
+    # repository or a dependency brings, bounded only by the upload caps
+    # (egressProxy.tunnel). The chart refuses forges, model APIs, managed
+    # Kubernetes control planes, in-cluster names and publish endpoints.
+    # Nothing tunnels unless a profile lists hosts.
     networkProfiles: {}
     #   go:
     #       route: go                     # the public Go route; optional when the profile has registries
@@ -1765,6 +1836,17 @@ agent:
     #           art-go:
     #               packages: [acme.example/]  # go: module prefixes
     #               allowPseudoVersions: false
+    #   py:
+    #       route: tunnel                 # a CONNECT tunnel to hosts only (route go may list hosts too)
+    #       port: 8092
+    #       repositories: [devthenet-labs/patchy-pip-fixture]
+    #       hosts:                        # EXACT host names: no wildcard, no IP, https (443) only
+    #           - pypi.org
+    #           - files.pythonhosted.org
+    #       clients: [pip]                # env presets: npm, yarn, pip, uv, nuget, cargo, jvm
+    #       upload:                       # optional per-profile caps in bytes (default egressProxy.tunnel)
+    #           perTunnel: 1048576
+    #           perSource: 8388608
     # The sandbox policies: default-deny both directions plus DNS, the
     # artifact server, and TCP-443-only external egress. A plain
     # NetworkPolicy cannot match hostnames; enforcement at that level needs

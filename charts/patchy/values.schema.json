@@ -558,14 +558,27 @@
             "additionalProperties": false,
             "required": ["port", "repositories"],
             "anyOf": [{"required": ["route"]}, {"required": ["registries"], "properties": {"registries": {"minProperties": 1}}}],
-            "if": {"properties": {"route": {"const": "go"}}, "required": ["route"]},
-            "then": {"required": ["modules"]},
-            "dependencies": {"modules": ["route"]},
+            "allOf": [
+                {"if": {"properties": {"route": {"const": "go"}}, "required": ["route"]}, "then": {"required": ["modules"]}},
+                {
+                    "if": {"properties": {"route": {"const": "tunnel"}}, "required": ["route"]},
+                    "then": {
+                        "required": ["hosts"],
+                        "properties": {
+                            "hosts": {"minItems": 1},
+                            "modules": {"maxItems": 0},
+                            "bakedModCache": {"const": ""},
+                            "allowPseudoVersions": {"const": false}
+                        }
+                    }
+                }
+            ],
+            "dependencies": {"modules": ["route"], "hosts": ["route"], "clients": ["hosts"], "upload": ["hosts"]},
             "properties": {
                 "route": {
-                    "description": "The public dependency route the profile opens: go (GOPROXY and the checksum database to proxy.golang.org and sum.golang.org). Optional when the profile holds registry grants",
+                    "description": "The public dependency route the profile opens: go (GOPROXY and the checksum database to proxy.golang.org and sum.golang.org, plus a tunnel to hosts when it lists them) or tunnel (an HTTPS CONNECT tunnel to hosts only). Optional when the profile holds registry grants",
                     "type": "string",
-                    "enum": ["go"]
+                    "enum": ["go", "tunnel"]
                 },
                 "port": {
                     "description": "The egress-proxy listener serving this profile alone; unique across profiles and never the health port 8081",
@@ -616,6 +629,34 @@
                     "maxProperties": 3,
                     "propertyNames": {"pattern": "^[a-z]([a-z0-9-]{0,30}[a-z0-9])?$"},
                     "additionalProperties": {"$ref": "#/definitions/registryGrant"}
+                },
+                "hosts": {
+                    "description": "Exact public host names the egress proxy opens an HTTPS CONNECT tunnel to (443 only): lowercase, two or more labels, the last starting with a letter; no wildcard, IP address or trailing dot. Forges, model APIs, managed Kubernetes control planes, in-cluster names and publish endpoints are refused by a render guard",
+                    "type": "array",
+                    "maxItems": 64,
+                    "uniqueItems": true,
+                    "items": {
+                        "type": "string",
+                        "maxLength": 253,
+                        "pattern": "^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]([a-z0-9-]{0,61}[a-z0-9])?$"
+                    }
+                },
+                "clients": {
+                    "description": "Client env presets the tunnel Jobs get (proxy names and noise switches per package manager); only with hosts",
+                    "type": "array",
+                    "maxItems": 7,
+                    "uniqueItems": true,
+                    "items": {"type": "string", "enum": ["npm", "yarn", "pip", "uv", "nuget", "cargo", "jvm"]}
+                },
+                "upload": {
+                    "description": "This profile's tunnel upload caps in bytes, overriding egressProxy.tunnel.maxUploadBytes and sourceUploadBudget; only with hosts, perTunnel at most perSource (a render guard)",
+                    "type": "object",
+                    "additionalProperties": false,
+                    "minProperties": 1,
+                    "properties": {
+                        "perTunnel": {"type": "integer", "minimum": 65536, "maximum": 1073741824},
+                        "perSource": {"type": "integer", "minimum": 65536, "maximum": 1073741824}
+                    }
                 }
             }
         },
@@ -2425,6 +2466,38 @@
                             "type": "array",
                             "items": {"type": "string", "pattern": "^([0-9]{1,3}\\.){3}[0-9]{1,3}/32$"}
                         }
+                    }
+                },
+                "tunnel": {
+                    "type": "object",
+                    "description": "The CONNECT tunnel's limits (agent.networkProfiles.<p>.hosts); rendered only while some profile lists hosts. 0 or empty keeps the binary's default",
+                    "additionalProperties": false,
+                    "properties": {
+                        "denyCIDRs": {
+                            "description": "IPv4 CIDRs the tunnel never dials beside attribution.apiServerCIDRs: a public Kubernetes API endpoint the hard-deny names do not cover",
+                            "type": "array",
+                            "items": {"type": "string", "pattern": "^([0-9]{1,3}\\.){3}[0-9]{1,3}/[0-9]{1,2}$"}
+                        },
+                        "maxConcurrent": {"type": "integer", "minimum": 0},
+                        "maxConcurrentPerSource": {"type": "integer", "minimum": 0},
+                        "ratePerSource": {"type": "number", "minimum": 0},
+                        "burstPerSource": {"type": "integer", "minimum": 0},
+                        "limitWait": {"type": "string", "pattern": "^(([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+|0)?$"},
+                        "dialTimeout": {"type": "string", "pattern": "^(([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+|0)?$"},
+                        "helloTimeout": {"type": "string", "pattern": "^(([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+|0)?$"},
+                        "idleTimeout": {"type": "string", "pattern": "^(([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+|0)?$"},
+                        "maxDuration": {"type": "string", "pattern": "^(([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+|0)?$"},
+                        "maxUploadBytes": {"type": "integer", "minimum": 0},
+                        "maxDownloadBytes": {"type": "integer", "minimum": 0},
+                        "sourceUploadBudget": {"type": "integer", "minimum": 0},
+                        "sourceDownloadBudget": {"type": "integer", "minimum": 0},
+                        "sourceBudgetIdle": {
+                            "description": "Hours, minutes and seconds only (2h, 90m, 1h30m); never below the longest agent or intent Job deadline (a render guard). Empty: 2h, or that deadline when longer",
+                            "type": "string",
+                            "pattern": "^([0-9]+[hms])*$"
+                        },
+                        "maxSources": {"type": "integer", "minimum": 0},
+                        "progressInterval": {"type": "string", "pattern": "^(([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+|0)?$"}
                     }
                 },
                 "registries": {

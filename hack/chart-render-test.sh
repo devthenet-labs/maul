@@ -2307,6 +2307,188 @@ expect egress-reg-fixed "$regjson | from_json | .[] | select(.name == \"art-npm\
 render egress-reg-no-schema -f "$ri" -f "$ep" -f "$er" --skip-schema-validation
 expect egress-reg-no-schema "$regjson | from_json | length" 4
 
+# ---- egress proxy tunnels (step 3): no hosts adds nothing ---------------------
+# Without hosts on any profile no tunnel key renders anywhere: the go-only and
+# registries renders above carry the step-1/2 profile JSON they asserted, and
+# no PATCHY_TUNNEL_* key in any ConfigMap.
+tunnelkeys='select(.kind == "ConfigMap") | .data | keys | .[] | select(test("^PATCHY_TUNNEL_"))'
+for r in egress-on egress-reg egress-attr egress-suspended; do
+  expect "$r" "$tunnelkeys" ""
+done
+notes_has egress-on 'Tunnels:' no
+
+# ---- egress proxy tunnels on: a go profile with hosts, a tunnel-only one ------
+et=$fixtures/egress-tunnel.yaml
+render egress-tunnel -f "$ri" -f "$ic" -f "$et" --set agent.networkPolicy.dns=none
+tpj="select(.kind == \"ConfigMap\" and .metadata.name == \"patchy-egress-proxy-config\") | $pj | from_json"
+expect egress-tunnel "$tpj | .[] | select(.name == \"go\") | (.hosts | join(\",\")) + \" \" + (.clients | join(\",\")) + \" \" + (.upload.perTunnel | tostring) + \" \" + (.upload.perSource | tostring)" \
+  "pypi.org,files.pythonhosted.org pip,uv 524288 16777216"
+# A tunnel-only profile renders none of the go route's values, and no upload
+# key when it sets none.
+expect egress-tunnel "$tpj | .[] | select(.name == \"npm\") | .route + \" \" + (.modules | length | tostring) + \" [\" + .bakedModCache + \"] \" + (.allowPseudoVersions | tostring) + \" \" + (.hosts | join(\",\")) + \" \" + (.clients | join(\",\")) + \" \" + (has(\"upload\") | tostring)" \
+  "tunnel 0 [] false registry.npmjs.org npm false"
+# The go profile is its step-1 self plus the three tunnel keys.
+expect egress-tunnel "$tpj | .[] | select(.name == \"go\") | del(.hosts, .clients, .upload) | to_json(0)" \
+  "$(get egress-on "select(.kind == \"ConfigMap\" and .metadata.name == \"patchy-egress-proxy-config\") | $pj | from_json | .[] | select(.name == \"go\") | to_json(0)")"
+for c in remediation-controller intent-controller; do
+  expect egress-tunnel "select(.kind == \"ConfigMap\" and .metadata.name == \"patchy-$c-config\") | $pj" \
+    "$(get egress-tunnel "select(.kind == \"ConfigMap\" and .metadata.name == \"patchy-egress-proxy-config\") | $pj")"
+  cm egress-tunnel "$c" PATCHY_TUNNEL_MAX_CONCURRENT null
+done
+# The proxy's tunnel keys: the values.yaml defaults (the binary's, pinned by
+# cmd/egress-proxy TestChartTunnelDefaultsMatchFlags), the budget window and
+# its floor (the intent jobDeadline, 90m, is the longest), and the API
+# server's addresses beside tunnel.denyCIDRs for the tunnel alone.
+for kv in MAX_CONCURRENT=512 MAX_CONCURRENT_PER_SOURCE=64 RATE_PER_SOURCE=50 BURST_PER_SOURCE=200 \
+  LIMIT_WAIT=10s DIAL_TIMEOUT=10s HELLO_TIMEOUT=10s IDLE_TIMEOUT=2m MAX_DURATION=30m MAX_UPLOAD_BYTES=1048576 \
+  MAX_DOWNLOAD_BYTES=2147483648 SOURCE_UPLOAD_BUDGET=8388608 SOURCE_DOWNLOAD_BUDGET=8589934592 MAX_SOURCES=4096 \
+  PROGRESS_INTERVAL=5m SOURCE_BUDGET_IDLE=2h MIN_BUDGET_IDLE=90m DENY_CIDRS=10.0.1.10/32,203.0.113.10/32; do
+  cm egress-tunnel egress-proxy "PATCHY_TUNNEL_${kv%%=*}" "${kv#*=}"
+done
+expect egress-tunnel "$tunnelkeys | select(. != \"PATCHY_TUNNEL_DENY_CIDRS\")" "$(printf 'PATCHY_TUNNEL_%s\n' BURST_PER_SOURCE DIAL_TIMEOUT \
+  HELLO_TIMEOUT IDLE_TIMEOUT LIMIT_WAIT MAX_CONCURRENT MAX_CONCURRENT_PER_SOURCE MAX_DOWNLOAD_BYTES MAX_DURATION MAX_SOURCES \
+  MAX_UPLOAD_BYTES MIN_BUDGET_IDLE PROGRESS_INTERVAL RATE_PER_SOURCE SOURCE_BUDGET_IDLE SOURCE_DOWNLOAD_BUDGET \
+  SOURCE_UPLOAD_BUDGET)"
+# Against the go-only fixture with the same ports and attribution: the Go and
+# registry routes' deny list is the same, and so is every NetworkPolicy,
+# Service, RBAC and admission object; only the three ConfigMaps (and so the
+# three checksums) differ.
+render egress-tunnel-base -f "$ri" -f "$ic" -f "$ep" --set agent.networkPolicy.dns=none \
+  --set egressProxy.attribution.enabled=true --set-json 'egressProxy.attribution.apiServerCIDRs=["10.0.1.10/32"]'
+cm egress-tunnel egress-proxy PATCHY_DENY_CIDRS "$(get egress-tunnel-base 'select(.kind == "ConfigMap" and .metadata.name == "patchy-egress-proxy-config") | .data.PATCHY_DENY_CIDRS')"
+for kind in NetworkPolicy Service Role RoleBinding ClusterRole ClusterRoleBinding ServiceAccount PodDisruptionBudget \
+  ValidatingAdmissionPolicy ValidatingAdmissionPolicyBinding; do
+  if [ "$(get egress-tunnel "select(.kind == \"$kind\") | to_json(0)" | sort)" != \
+    "$(get egress-tunnel-base "select(.kind == \"$kind\") | to_json(0)" | sort)" ]; then
+    fail "egress-tunnel: a $kind differs from the go-only render with the same ports"
+  fi
+done
+get egress-tunnel-base "$csum" | sort >"$out/csum.tbase"
+get egress-tunnel "$csum" | sort >"$out/csum.tunnel"
+changed=$(comm -13 "$out/csum.tbase" "$out/csum.tunnel" | cut -d' ' -f1 | sort | tr '\n' ' ')
+if [ "$changed" != "patchy-egress-proxy patchy-intent-controller patchy-remediation-controller " ]; then
+  fail "egress-tunnel: checksum/config changed on '$changed', want the proxy, intent- and remediation-controller"
+fi
+# The budget window: without the intent controller its floor is
+# agent.jobDeadline; a longer deadline raises both; a set window renders as
+# set; and an unset limit keeps the binary's default (no key). The API
+# server's addresses reach the tunnel's deny list without attribution too.
+render egress-tunnel-no-intent -f "$ri" -f "$et"
+cm egress-tunnel-no-intent egress-proxy PATCHY_TUNNEL_MIN_BUDGET_IDLE 1h
+cm egress-tunnel-no-intent egress-proxy PATCHY_TUNNEL_SOURCE_BUDGET_IDLE 2h
+render egress-tunnel-long -f "$ri" -f "$ic" -f "$et" --set agent.jobDeadline=3h
+cm egress-tunnel-long egress-proxy PATCHY_TUNNEL_MIN_BUDGET_IDLE 3h
+cm egress-tunnel-long egress-proxy PATCHY_TUNNEL_SOURCE_BUDGET_IDLE 3h
+render egress-tunnel-set -f "$ri" -f "$ic" -f "$et" --set egressProxy.tunnel.sourceBudgetIdle=4h \
+  --set egressProxy.tunnel.maxConcurrent=0 --set-string egressProxy.tunnel.progressInterval=0 \
+  --set egressProxy.attribution.enabled=false --set-json 'egressProxy.tunnel.denyCIDRs=[]'
+cm egress-tunnel-set egress-proxy PATCHY_TUNNEL_SOURCE_BUDGET_IDLE 4h
+cm egress-tunnel-set egress-proxy PATCHY_TUNNEL_MAX_CONCURRENT null
+cm egress-tunnel-set egress-proxy PATCHY_TUNNEL_PROGRESS_INTERVAL 0
+cm egress-tunnel-set egress-proxy PATCHY_TUNNEL_DENY_CIDRS 10.0.1.10/32
+render egress-tunnel-no-deny -f "$ri" -f "$et" --set-json 'egressProxy.attribution.apiServerCIDRs=[]' \
+  --set egressProxy.attribution.enabled=false --set-json 'egressProxy.tunnel.denyCIDRs=[]'
+cm egress-tunnel-no-deny egress-proxy PATCHY_TUNNEL_DENY_CIDRS null
+# The NOTES name the tunnel profiles and the npm publish residue.
+notes egress-tunnel -f "$ri" -f "$et"
+notes_has egress-tunnel 'Tunnels: go, npm open HTTPS CONNECT tunnels' yes
+notes_has egress-tunnel 'Publish residue: registry.npmjs.org (npm) is an npm registry' yes
+notes egress-tunnel-pip -f "$ri" -f "$et" --set-json 'agent.networkProfiles.npm.hosts=["pypi.org"]' \
+  --set-json 'agent.networkProfiles.npm.clients=["pip"]'
+notes_has egress-tunnel-pip 'Publish residue' no
+
+# ---- egress proxy tunnel guards: each fails, each passes once fixed -----------
+for pair in 'github.com:github.com or below it' 'objects.githubusercontent.com:githubusercontent.com or below it' \
+  'api.anthropic.com:anthropic.com or below it' 'x.eks.amazonaws.com:eks.amazonaws.com or below it' \
+  'gitlab.com:gitlab.com or below it' 'x.hcp.westeurope.azmk8s.io:azmk8s.io or below it' \
+  'upload.pypi.org:upload.pypi.org or below it' 'www.nuget.org:www.nuget.org or below it' \
+  'metadata.google.internal:internal or below it' 'x.kubernetes.default:below kubernetes.default' \
+  'bedrock-runtime.us-east-1.amazonaws.com:a Bedrock endpoint' 'pkg.github.example.com:github.example.com or below it'; do
+  h=${pair%%:*}
+  expect_fail "guard 22: tunnel host $h" "agent.networkProfiles.npm.hosts entry $h is ${pair#*:}" \
+    -f "$ri" -f "$et" --set-json "agent.networkProfiles.npm.hosts=[\"$h\"]"
+done
+expect_fail 'guard 22: the broker override host' 'agent.networkProfiles.npm.hosts entry gw.corp.net is gw.corp.net or below it' \
+  -f "$ri" -f "$et" --set-json 'agent.networkProfiles.npm.hosts=["gw.corp.net"]' \
+  --set egressBroker.config.extra.PATCHY_ANTHROPIC_BASE_URL=https://gw.corp.net
+for h in '*.npmjs.org' 10.0.0.1 Registry.npmjs.org registry.npmjs.org. registry_npm.org localhost example.123; do
+  expect_fail "tunnel host $h (schema)" 'agent/networkProfiles/npm/hosts/0' \
+    -f "$ri" -f "$et" --set-json "agent.networkProfiles.npm.hosts=[\"$h\"]"
+  expect_fail "guard 21: tunnel host $h without the schema" "agent.networkProfiles.npm.hosts entry \"$h\" is not an exact lowercase host name" \
+    --skip-schema-validation -f "$ri" -f "$et" --set-json "agent.networkProfiles.npm.hosts=[\"$h\"]"
+done
+expect_fail 'guard 21: a host twice (schema)' 'agent/networkProfiles/npm/hosts' \
+  -f "$ri" -f "$et" --set-json 'agent.networkProfiles.npm.hosts=["registry.npmjs.org","registry.npmjs.org"]'
+expect_fail 'guard 21: a host twice' 'agent.networkProfiles.npm.hosts lists registry.npmjs.org twice' --skip-schema-validation \
+  -f "$ri" -f "$et" --set-json 'agent.networkProfiles.npm.hosts=["registry.npmjs.org","registry.npmjs.org"]'
+expect_fail 'guard 20: tunnel without hosts (schema)' 'agent/networkProfiles/npm' \
+  -f "$ri" -f "$et" --set-json 'agent.networkProfiles.npm.hosts=[]'
+expect_fail 'guard 20: tunnel without hosts' 'agent.networkProfiles.npm is route tunnel without hosts' --skip-schema-validation \
+  -f "$ri" -f "$et" --set-json 'agent.networkProfiles.npm.hosts=[]' --set-json 'agent.networkProfiles.npm.clients=[]'
+expect_fail 'guard 20: tunnel with modules (schema)' 'agent/networkProfiles/npm/modules' \
+  -f "$ri" -f "$et" --set-json 'agent.networkProfiles.npm.modules=["example.com/x"]'
+expect_fail 'guard 20: tunnel with modules' 'agent.networkProfiles.npm is route tunnel: modules, bakedModCache and allowPseudoVersions' \
+  --skip-schema-validation -f "$ri" -f "$et" --set-json 'agent.networkProfiles.npm.modules=["example.com/x"]'
+expect_fail 'guard 20: tunnel with allowPseudoVersions (schema)' 'agent/networkProfiles/npm/allowPseudoVersions' \
+  -f "$ri" -f "$et" --set agent.networkProfiles.npm.allowPseudoVersions=true
+expect_fail 'guard 20: tunnel with a baked cache' 'agent.networkProfiles.npm is route tunnel' --skip-schema-validation \
+  -f "$ri" -f "$et" --set agent.networkProfiles.npm.bakedModCache=/opt/go/pkg/mod
+expect_fail 'a go profile without modules (schema)' 'agent/networkProfiles/py' \
+  -f "$ri" -f "$et" --set-json 'agent.networkProfiles.py={"route":"go","port":8093,"repositories":["a/b"],"hosts":["pypi.org"]}'
+expect_fail 'hosts without a route (schema)' 'agent/networkProfiles/py' \
+  -f "$ri" -f "$et" -f "$er" --set-json 'agent.networkProfiles.py={"port":8094,"repositories":["a/b"],"registries":{"ca-npm":{"packagePolicy":"registry"}},"hosts":["pypi.org"]}'
+expect_fail 'guard 23: a Go route upstream' 'agent.networkProfiles.go.hosts entry proxy.golang.org is an upstream of the profile' \
+  -f "$ri" -f "$et" --set-json 'agent.networkProfiles.go.hosts=["proxy.golang.org"]'
+expect_fail 'guard 23: a grant host' 'agent.networkProfiles.web.hosts entry files.pythonhosted.org is files.pythonhosted.org, a host of its nexus-pypi grant' \
+  -f "$ri" -f "$ep" -f "$er" --set agent.networkProfiles.web.route=tunnel --set-json 'agent.networkProfiles.web.hosts=["files.pythonhosted.org"]'
+expect_fail 'guard 23: a grant pattern' 'is *.s3.us-east-1.amazonaws.com, a host of its art-npm grant' \
+  -f "$ri" -f "$ep" -f "$er" --set agent.networkProfiles.web.route=tunnel --set-json 'agent.networkProfiles.web.hosts=["b.s3.us-east-1.amazonaws.com"]'
+expect_fail 'guard 24: clients without hosts (schema)' 'agent/networkProfiles/go' \
+  -f "$ri" -f "$ep" --set-json 'agent.networkProfiles.go.clients=["pip"]'
+expect_fail 'guard 24: clients without hosts' 'agent.networkProfiles.go.clients configure the tunnel' --skip-schema-validation \
+  -f "$ri" -f "$ep" --set-json 'agent.networkProfiles.go.clients=["pip"]'
+expect_fail 'guard 24: an unknown client (schema)' 'agent/networkProfiles/npm/clients/0' \
+  -f "$ri" -f "$et" --set-json 'agent.networkProfiles.npm.clients=["pnpm"]'
+expect_fail 'guard 24: an unknown client' 'agent.networkProfiles.npm.clients entry "pnpm" is not one of npm, yarn, pip, uv, nuget, cargo, jvm' \
+  --skip-schema-validation -f "$ri" -f "$et" --set-json 'agent.networkProfiles.npm.clients=["pnpm"]'
+expect_fail 'guard 24: a preset beside a grant of its package manager' 'agent.networkProfiles.web: client pip and the pypi grant nexus-pypi both configure the same package manager' \
+  -f "$ri" -f "$ep" -f "$er" --set agent.networkProfiles.web.route=tunnel --set-json 'agent.networkProfiles.web.hosts=["pypi.org"]' \
+  --set-json 'agent.networkProfiles.web.clients=["pip"]'
+expect_fail 'guard 25: upload without hosts (schema)' 'agent/networkProfiles/go' \
+  -f "$ri" -f "$ep" --set agent.networkProfiles.go.upload.perTunnel=65536
+expect_fail 'guard 25: upload without hosts' 'agent.networkProfiles.go.upload caps the tunnel' --skip-schema-validation \
+  -f "$ri" -f "$ep" --set agent.networkProfiles.go.upload.perTunnel=65536
+expect_fail 'guard 25: upload below 64 KiB (schema)' 'agent/networkProfiles/go/upload/perTunnel' \
+  -f "$ri" -f "$et" --set agent.networkProfiles.go.upload.perTunnel=1024
+expect_fail 'guard 25: upload below 64 KiB' 'agent.networkProfiles.go.upload.perTunnel 1024 is outside 65536-1073741824 bytes' \
+  --skip-schema-validation -f "$ri" -f "$et" --set agent.networkProfiles.go.upload.perTunnel=1024
+expect_fail 'guard 25: perTunnel above perSource' 'agent.networkProfiles.go.upload.perTunnel 16777217 is above upload.perSource 16777216' \
+  -f "$ri" -f "$et" --set agent.networkProfiles.go.upload.perTunnel=16777217
+expect_fail 'guard 26: a budget window below the intent deadline' 'egressProxy.tunnel.sourceBudgetIdle 30m is below the longest Job deadline 90m' \
+  -f "$ri" -f "$ic" -f "$et" --set egressProxy.tunnel.sourceBudgetIdle=30m
+expect_fail 'guard 26: a budget window below the agent deadline' 'egressProxy.tunnel.sourceBudgetIdle 2h is below the longest Job deadline 3h' \
+  -f "$ri" -f "$et" --set egressProxy.tunnel.sourceBudgetIdle=2h --set agent.jobDeadline=3h
+expect_fail 'guard 26: a deadline in milliseconds' 'must be written in h, m and s' \
+  -f "$ri" -f "$et" --set agent.jobDeadline=3600000ms
+expect_fail 'a budget window in milliseconds (schema)' 'egressProxy/tunnel/sourceBudgetIdle' \
+  -f "$ri" -f "$et" --set egressProxy.tunnel.sourceBudgetIdle=7200000ms
+expect_fail 'an unknown tunnel key' 'additional properties' \
+  -f "$ri" -f "$et" --set egressProxy.tunnel.bogus=1
+expect_fail 'a tunnel deny entry that is no CIDR' 'egressProxy/tunnel/denyCIDRs/0' \
+  -f "$ri" -f "$et" --set-json 'egressProxy.tunnel.denyCIDRs=["api.example.com"]'
+# A deadline in milliseconds is fine while nothing tunnels.
+render egress-tunnel-ms-off -f "$ri" -f "$ep" --set agent.jobDeadline=3600000ms
+expect egress-tunnel-ms-off "$epdep | .kind" Deployment
+# ...and each passes once fixed: a budget window at the deadline, a host that
+# only looks like a denied one, and the cap at its bounds.
+render egress-tunnel-fixed -f "$ri" -f "$ic" -f "$et" --set egressProxy.tunnel.sourceBudgetIdle=1h30m \
+  --set-json 'agent.networkProfiles.npm.hosts=["registry.npmjs.org","github.com.example.org","xn--p1ai.a1"]' \
+  --set agent.networkProfiles.go.upload.perTunnel=16777216
+cm egress-tunnel-fixed egress-proxy PATCHY_TUNNEL_SOURCE_BUDGET_IDLE 1h30m
+expect egress-tunnel-fixed "$tpj | .[] | select(.name == \"npm\") | .hosts | join(\",\")" "registry.npmjs.org,github.com.example.org,xn--p1ai.a1"
+render egress-tunnel-no-schema -f "$ri" -f "$et" --skip-schema-validation
+expect egress-tunnel-no-schema "$tpj | length" 2
+
 # ---- operator env, envFrom, volumes and mounts on every Deployment ----------
 # <component>.extraEnv/extraEnvFrom/extraVolumes/extraVolumeMounts, the same
 # four keys on all twelve Deployments: a Secret-backed env var (AWS keys for

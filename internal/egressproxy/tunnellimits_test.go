@@ -49,6 +49,42 @@ func defaultTunnelLimits(t *testing.T, l TunnelLimits) TunnelLimits {
 	return l
 }
 
+// TestTunnelDefaultsFromMeasurements pins the defaults the live client
+// fixtures set (step-3 spec §2.5, PR #213): the upload caps at about 4x the
+// largest measured (21 KB a tunnel, 602 KB a source), and the per-source
+// concurrency and rate above what pnpm 11 and yarn 4 asked for (50 open,
+// 183 new a second), so an ordinary install is never queued. A change here
+// is a change to what an install may upload or how fast it runs: re-measure
+// first.
+func TestTunnelDefaultsFromMeasurements(t *testing.T) {
+	l := defaultTunnelLimits(t, TunnelLimits{})
+	for _, c := range []struct {
+		name      string
+		got, want any
+	}{
+		{"max upload bytes", l.MaxUploadBytes, int64(1 << 20)},
+		{"source upload budget", l.SourceUploadBudget, int64(8 << 20)},
+		{"max concurrent", l.MaxConcurrent, 512},
+		{"max concurrent per source", l.PerSourceConcurrent, 64},
+		{"rate per source", l.PerSourceRate, 50.0},
+		{"burst per source", l.PerSourceBurst, 200},
+	} {
+		if c.got != c.want {
+			t.Errorf("default %s = %v, want %v", c.name, c.got, c.want)
+		}
+	}
+	// The measured peaks fit under the limits with room to spare.
+	const pnpmYarnOpen, yarnNewPerSecond, largestSourceUpload, largestTunnelUpload = 50, 183, 601996, 21486
+	if l.PerSourceConcurrent < pnpmYarnOpen || float64(l.PerSourceBurst) < yarnNewPerSecond {
+		t.Errorf("per-source limits %d open, burst %d are below the measured peaks %d open, %d new a second",
+			l.PerSourceConcurrent, l.PerSourceBurst, pnpmYarnOpen, yarnNewPerSecond)
+	}
+	if l.SourceUploadBudget < 4*largestSourceUpload || l.MaxUploadBytes < 4*largestTunnelUpload {
+		t.Errorf("upload caps %d a tunnel, %d a source are under 4x the measured %d, %d",
+			l.MaxUploadBytes, l.SourceUploadBudget, largestTunnelUpload, largestSourceUpload)
+	}
+}
+
 // TestBudgetKeptAcrossAPause: a source that spent its budget, closed
 // every tunnel and paused for most of the longest Job deadline (90m - 1m)
 // is still refused; only a whole window after its last tunnel does the

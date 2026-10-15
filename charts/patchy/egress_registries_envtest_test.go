@@ -24,8 +24,9 @@ import (
 // Pod Identity rule, its irsa variant) to a real API server, which
 // validates what a render cannot: the projected credential and CA volumes
 // (defaultMode, items, no subPath), the internal registry's ipBlock and
-// namespace/pod-selector peers, and the Pod Identity /32. The
-// CiliumNetworkPolicy, rendered only under mode cilium, has no CRD in
+// namespace/pod-selector peers, and the Pod Identity /32. The tunnel
+// fixture (step 3) is applied the same way: its ConfigMap's tunnel keys and
+// its unchanged policies. The CiliumNetworkPolicy, rendered only under mode cilium, has no CRD in
 // envtest; the render test's assertions hold its shape.
 func TestEgressRegistriesAgainstAPIServer(t *testing.T) {
 	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
@@ -49,14 +50,26 @@ func TestEgressRegistriesAgainstAPIServer(t *testing.T) {
 	if err := admin.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: egressRelease}}); err != nil {
 		t.Fatalf("release namespace: %v", err)
 	}
+	registryObjects := []string{
+		"Deployment/patchy-egress-proxy", "NetworkPolicy/patchy-egress-proxy",
+		"ConfigMap/patchy-egress-proxy-config", "NetworkPolicy/patchy-agents-network-web",
+		"NetworkPolicy/patchy-agents-network-ca",
+	}
 	for _, variant := range []struct {
 		name string
 		args []string
+		want []string
 	}{
-		{"pod identity", egressRegistryArgs},
+		{"pod identity", egressRegistryArgs, registryObjects},
 		{"irsa", append(append([]string{}, egressRegistryArgs...), "--set", "egressProxy.cloudCredentials=irsa",
 			"--set-json",
-			`egressProxy.serviceAccount.annotations={"eks.amazonaws.com/role-arn":"arn:aws:iam::377946145366:role/p"}`)},
+			`egressProxy.serviceAccount.annotations={"eks.amazonaws.com/role-arn":"arn:aws:iam::377946145366:role/p"}`),
+			registryObjects},
+		{"tunnel", egressTunnelArgs, []string{
+			"Deployment/patchy-egress-proxy", "NetworkPolicy/patchy-egress-proxy",
+			"ConfigMap/patchy-egress-proxy-config", "NetworkPolicy/patchy-agents-network-go",
+			"NetworkPolicy/patchy-agents-network-npm",
+		}},
 	} {
 		t.Run(variant.name, func(t *testing.T) {
 			args := append([]string{"template", "patchy", ".", "--namespace", egressRelease}, variant.args...)
@@ -95,13 +108,9 @@ func TestEgressRegistriesAgainstAPIServer(t *testing.T) {
 				}
 				applied[u.GetKind()+"/"+u.GetName()] = true
 			}
-			for _, want := range []string{
-				"Deployment/patchy-egress-proxy", "NetworkPolicy/patchy-egress-proxy",
-				"ConfigMap/patchy-egress-proxy-config", "NetworkPolicy/patchy-agents-network-web",
-				"NetworkPolicy/patchy-agents-network-ca",
-			} {
+			for _, want := range variant.want {
 				if !applied[want] {
-					t.Errorf("the registries render has no %s", want)
+					t.Errorf("the %s render has no %s", variant.name, want)
 				}
 			}
 		})
