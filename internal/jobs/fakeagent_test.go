@@ -16,6 +16,7 @@ import (
 	"github.com/bitwise-media-group/patchy/internal/changeset"
 	"github.com/bitwise-media-group/patchy/internal/envelope"
 	"github.com/bitwise-media-group/patchy/internal/report"
+	"github.com/bitwise-media-group/patchy/internal/sandboxprobe"
 	"github.com/bitwise-media-group/patchy/internal/transcript"
 )
 
@@ -458,6 +459,35 @@ func TestFakeAgentUnknownPhase(t *testing.T) {
 	}
 	if ev.Error == "" {
 		t.Error("fatal event carries no error text")
+	}
+}
+
+// TestFakeAgentSandboxProbe: the prepare init of a default-image Job in the
+// dev-fake overlay invokes the fake image's agent-runner as the wait probe.
+// It must hand over at once and print nothing to stdout, rather than run a
+// stage inside the init container.
+func TestFakeAgentSandboxProbe(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake agent is a POSIX shell script")
+	}
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("no sh on PATH")
+	}
+	script, err := filepath.Abs(fakeAgentScript)
+	if err != nil {
+		t.Fatalf("resolve script: %v", err)
+	}
+	args := append([]string{script, sandboxprobe.Command}, strings.Fields(waitProbeArgs)...)
+	cmd := exec.Command(sh, args...)
+	cmd.Env = append(os.Environ(), "PATCHY_FAKE_TURN_DELAY=0")
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("fake agent-runner %s: %v", sandboxprobe.Command, err)
+	}
+	if stdout.Len() != 0 {
+		t.Errorf("fake sandbox probe printed to stdout: %q", stdout.String())
 	}
 }
 

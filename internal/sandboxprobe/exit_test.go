@@ -52,7 +52,8 @@ func TestExitStatus(t *testing.T) {
 func TestMainMisconfigured(t *testing.T) {
 	var buf bytes.Buffer
 	env := map[string]string{TimeoutEnv: "twenty", "KUBERNETES_SERVICE_HOST": "10.96.0.1"}
-	got := Main(context.Background(), func(k string) string { return env[k] }, slog.New(slog.NewTextHandler(&buf, nil)))
+	got := Main(context.Background(), nil, func(k string) string { return env[k] },
+		slog.New(slog.NewTextHandler(&buf, nil)))
 	if got != exitMisconfigured {
 		t.Errorf("Main = %d, want %d", got, exitMisconfigured)
 	}

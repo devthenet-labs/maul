@@ -40,6 +40,21 @@ func TestRunDispatchesSandboxProbe(t *testing.T) {
 	}
 }
 
+// TestRunPassesProbeArguments: the arguments after the subcommand reach
+// the probe, so the default Job's --mode=wait selects the wait mode rather
+// than being dropped (which would run the strict probe). An unknown mode is
+// refused by name, proving the argument was read.
+func TestRunPassesProbeArguments(t *testing.T) {
+	getenv := func(k string) string { return map[string]string{"KUBERNETES_SERVICE_HOST": "10.96.0.1"}[k] }
+	var stderr bytes.Buffer
+	code := run(context.Background(), []string{"agent-runner", sandboxprobe.Command, "--mode=lenient"}, getenv,
+		io.Discard, &stderr)
+	if code != 2 || !strings.Contains(stderr.String(), "lenient") {
+		t.Errorf("run(%s --mode=lenient) = %d, stderr %q; want the probe refusing the mode", sandboxprobe.Command,
+			code, stderr.String())
+	}
+}
+
 // TestRunDispatchesPreflight: `agent-runner preflight` runs the preflight
 // alone, not a stage — the stage would demand PATCHY_REPO — and prints its
 // verdict on stdout with the exit status the workstation check reads.

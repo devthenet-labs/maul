@@ -19,6 +19,14 @@
 // clock and the dialer are injectable so the retry behaviour is tested
 // without a network or a wall clock.
 //
+// A default-image Job runs the same probe in its wait mode (ModeWait,
+// `sandbox-probe --mode=wait --targets=k8s,imds`): only the targets every
+// chart posture blocks (the public internet is open on purpose under
+// broadEgress), the same rounds and window, and exit 0 whatever the
+// verdict, logging one loud line when a target is still open at the end of
+// the window. It narrows the window in which a trusted agent could run
+// before its policy attaches; it never refuses a run.
+//
 // The probe is stdlib-only and lives in the static agent-runner binary
 // (`agent-runner sandbox-probe`, the subcommand named by Command, which
 // internal/jobs writes into the prepare script and agent-runner dispatches

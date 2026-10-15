@@ -242,6 +242,38 @@ image needs nothing extra.
     directly, whatever the chart renders. Remove it, or narrow its `podSelector` so it selects no agent pod, when you
     turn DNS off. `clusterDNSCIDR` needs nothing: it only adds an address to the chart's own DNS rules, which are dropped.
 
+### What the agent policy does not stop
+
+Two residuals apply to every agent pod, whatever the image and whatever the posture.
+
+- **The policy-attach window at pod start.** On some CNIs (EKS Auto Mode's VPC CNI among them) a new pod's NetworkPolicy
+  attaches a few seconds after the pod starts, and until it does the pod's egress is open. The `prepare` init container
+  runs first, in the trusted runner image, and both containers share the pod's network, so patchy closes the window by
+  holding the agent container until the policy has visibly attached:
+  - A [repository-image](#repository-declared-images) Job runs the **strict** sandbox probe, unchanged: three targets,
+    and if any is still open when the window closes the run fails `SandboxUnenforced` and the untrusted image never
+    starts.
+  - Every **default-image** Job (finding investigate and remediate, intent plan and build) ends its `prepare` script
+    with the probe in **wait** mode: `agent-runner sandbox-probe --mode=wait --targets=k8s,imds`. It dials the
+    Kubernetes API's ClusterIP (from `KUBERNETES_SERVICE_HOST`) and the metadata service (`169.254.169.254:80`), which
+    every chart posture blocks. It does not dial `1.1.1.1`, because `broadEgress` keeps TCP 443 to the internet open on
+    purpose. It returns after three consecutive rounds in which neither answered. That adds about 2 seconds to a Job's
+    start against a policy that rejects and about 11 seconds against one that drops (the VPC CNI drops), plus however
+    long the policy took to attach. If the 20-second window closes with a target still open, it prints one line to the
+    `prepare` log (`kubectl logs <pod> -c prepare`) starting `SANDBOX NOT CONFIRMED`, naming the open targets, and the
+    agent starts anyway. The wait probe never fails the Job, never spends an attempt and never trips the sandbox
+    breaker, because a default-image run never depended on it. On a cluster that does not enforce NetworkPolicy (kind,
+    see above) every default-image Job therefore starts about 20 to 23 seconds later and logs that line, which is the
+    signal to fix the CNI. The line names only the targets, the round count and the elapsed time.
+  - **Evaluation Jobs run neither probe.** Their evolve-runner images come from the evolve repository and ship no
+    `agent-runner` to run it with, so an evaluation pod may run its first seconds inside the window.
+- **The node's own kubelet.** On EKS Auto Mode (VPC CNI) a pod can reach the kubelet of the node it runs on (TCP 10250)
+  whatever NetworkPolicy says. The kubelet answers `401 Unauthorized` to an anonymous request, and its read-only port
+  (10255) is closed. An agent pod holds no credential the kubelet accepts: `automountServiceAccountToken` is off, the
+  only projected token is bound to the egress broker's audience, and the `patchy-agent` ServiceAccount has no Role, so
+  even a token the kubelet did accept would authorise nothing. What remains is that an agent can see that a kubelet
+  answers on its node. Closing that is a node-level control (a security group or host firewall), outside the chart.
+
 ## Network profiles: the Go dependency route
 
 An agent pod has no route to a package registry: every dependency must be in the runner image. An operator can grant one

@@ -37,10 +37,21 @@
 // are agent-runner and the broker. Names an empty value cannot neutralise
 // (git's repository redirections) are reserved instead, so the resolver
 // refuses an image that sets them. Such a Job carries the runner-image
-// audit annotations and label; a default Job carries none and is
-// byte-for-byte what it was before the feature existed. Create returns the
-// image and source that actually apply, and that value is what the
+// audit annotations and label; a default Job carries none. Create returns
+// the image and source that actually apply, and that value is what the
 // launching controller records.
+//
+// A default-image Job's prepare init ends with the same probe in its wait
+// mode (`agent-runner sandbox-probe --mode=wait --targets=k8s,imds`): it
+// holds the agent container back until the API server and the metadata
+// service, which every chart posture blocks, have stayed unreachable for
+// the probe's confirming rounds, so the agent does not start inside the
+// window before a late-attaching NetworkPolicy applies. When the window
+// closes with either still open it logs one loud line and hands over
+// anyway: it never exits ExitSandboxUnenforced and never fails the init,
+// so a default-image run's attempts and the breaker are untouched. An
+// evaluation Job runs neither probe: its evolve-runner image ships no
+// agent-runner.
 //
 // Under Config.DNS DNSNone a pod has no working resolver, which closes the
 // DNS channel out of the sandbox: dnsPolicy None, its own loopback as its

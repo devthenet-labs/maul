@@ -10,8 +10,10 @@
 // runs the negative-connectivity check the trusted prepare init container
 // performs before a repository-declared image gets to run anything, and
 // exits sandboxprobe.ExitUnenforced when egress is still open at the end of
-// the window. Invoked as `agent-runner preflight [harness]`
-// (agentrun.PreflightCommand) it runs only the preflight a stage runs first
+// the window; with --mode=wait (a default-image Job's prepare) it holds
+// until egress is blocked or the window closes and exits 0 either way.
+// Invoked as `agent-runner preflight [harness]` (agentrun.PreflightCommand)
+// it runs only the preflight a stage runs first
 // on a repository-declared image, prints the verdict on stdout and exits
 // agentrun.ExitPreflightFailed when the image cannot run the harness; the
 // workstation check `patchy check image --run` drives it.
@@ -48,7 +50,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 	if len(args) > 1 {
 		switch args[1] {
 		case sandboxprobe.Command:
-			return sandboxprobe.Main(ctx, getenv, log)
+			return sandboxprobe.Main(ctx, args[2:], getenv, log)
 		case agentrun.PreflightCommand:
 			return agentrun.PreflightMain(ctx, args[2:], getenv, &runner.Exec{}, stdout, log)
 		}

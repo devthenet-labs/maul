@@ -159,7 +159,7 @@ fi
 `
 
 // injectScript is appended to prepareScript on a repository-image Job, and
-// only then, so the default Job stays byte-identical. It still runs in the
+// only then (a default Job ends with waitProbeScript instead). It still runs in the
 // trusted runner image: each binary named in $PATCHY_INJECT is copied from
 // where the Dockerfile put it into the patchy-bin emptyDir (read-only in the
 // agent container), then the sandbox probe runs from the trusted binary,
@@ -170,6 +170,32 @@ const injectScript = `for bin in $PATCHY_INJECT; do
   cp "` + toolsBinDir + `/$bin" "` + patchyBinDir + `/$bin"
 done
 ` + toolsBinDir + `/` + agentRunnerBin + ` ` + sandboxprobe.Command + `
+`
+
+// waitProbeArgs selects the sandbox probe's wait mode against the two
+// targets every chart posture blocks: the Kubernetes API's ClusterIP and the
+// cloud metadata service. Never the public internet, which broadEgress
+// opens on purpose and a default-image claude pod never needs.
+const waitProbeArgs = "--mode=" + string(sandboxprobe.ModeWait) +
+	" --targets=" + sandboxprobe.TargetKubernetes + "," + sandboxprobe.TargetMetadata
+
+// waitProbeScript ends every default-image Job's prepare script, after the
+// fetch, the handoff and any trees, so the agent container cannot start
+// before the pod's NetworkPolicy has visibly attached: on a CNI that
+// attaches it a few seconds after the pod starts (EKS Auto Mode), an agent
+// started at once would run its first seconds with the policy absent. The
+// probe holds until its targets have been blocked for the confirming rounds
+// (about 2 s against a policy that rejects, about 11 s against one that
+// drops) or until the window closes, and then hands over either way. The
+// default image is trusted: this narrows a window, it does not gate the
+// run. The guard is belt and braces: the wait mode exits 0 on a verdict,
+// and a probe that could not run (or an older agent-runner that ignores the
+// arguments and runs the strict probe, which exits 78 under broad egress)
+// must still never fail the init, spend an attempt or trip the breaker.
+// The runner image's own agent-runner runs it; every runner image ships
+// one at toolsBinDir.
+const waitProbeScript = toolsBinDir + `/` + agentRunnerBin + ` ` + sandboxprobe.Command + ` ` + waitProbeArgs +
+	` || echo "sandbox probe (wait) exited $?; the agent starts anyway" >&2
 `
 
 // Runner is one harness's agent-runner deployment surface: the container image
@@ -247,9 +273,10 @@ type Config struct {
 	// ignored and every Job runs its harness's runner image, so a flip
 	// takes effect at the next Job without touching any CR.
 	AllowRepositoryImages bool
-	// SandboxProbeTimeout is how long a repository-image Job's prepare init
-	// keeps re-probing while egress is open before concluding that
-	// NetworkPolicy is not enforced (default DefaultSandboxProbeTimeout).
+	// SandboxProbeTimeout is how long a Job's prepare init keeps re-probing
+	// while egress is open (default DefaultSandboxProbeTimeout): a
+	// repository-image Job then concludes NetworkPolicy is not enforced and
+	// refuses the run; a default-image Job logs that and starts the agent.
 	SandboxProbeTimeout time.Duration
 	// DNS is how the agent pods resolve names: DNSCluster (or empty) leaves
 	// every Job exactly as before; DNSNone gives the pod no resolver and
@@ -822,6 +849,13 @@ func (c *Client) prepareContainer(runner Runner, spec Spec, res corev1.ResourceR
 		// treesRefusal has kept trees off an injecting Job, so this never
 		// follows injectScript.
 		script += treesScript
+	}
+	if !inject {
+		// The repository-image Job's strict probe ran in injectScript; every
+		// other Job waits for its policy here, last, so the fetches before
+		// it have already given the policy time to attach.
+		env = append(env, corev1.EnvVar{Name: sandboxprobe.TimeoutEnv, Value: c.cfg.SandboxProbeTimeout.String()})
+		script += waitProbeScript
 	}
 	return corev1.Container{
 		Name:            initContainerName,

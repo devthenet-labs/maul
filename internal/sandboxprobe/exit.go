@@ -23,16 +23,41 @@ const (
 	exitMisconfigured = 2
 )
 
-// Main runs the probe the way `agent-runner sandbox-probe` does: its
-// configuration from the environment, one line to log, and the process
-// exit status as the result.
-func Main(ctx context.Context, getenv func(string) string, log *slog.Logger) int {
-	p, err := FromEnv(getenv)
+// Main runs the probe the way `agent-runner sandbox-probe [args]` does: its
+// configuration from the arguments (Parse) and the environment, one line to
+// log, and the process exit status as the result. With no arguments it is
+// the strict probe (Exit); with --mode wait it is the wait probe (Wait).
+func Main(ctx context.Context, args []string, getenv func(string) string, log *slog.Logger) int {
+	p, mode, err := Parse(args, getenv)
 	if err != nil {
 		log.LogAttrs(ctx, slog.LevelError, "invalid sandbox probe configuration", slog.Any("error", err))
 		return exitMisconfigured
 	}
+	if mode == ModeWait {
+		return p.Wait(ctx, log)
+	}
 	return p.Exit(ctx, log)
+}
+
+// Wait runs the probe in the wait mode: it returns once the targets have
+// been blocked for the confirming rounds or the window has closed, and
+// exits 0 either way, logging the verdict line (at error level when a
+// target is still open, so it stands out in the prepare log). It never
+// exits ExitUnenforced, so a default-image Job is never refused, its
+// attempt never spent and no breaker tripped by it; exitInterrupted when
+// the context ended first.
+func (p Prober) Wait(ctx context.Context, log *slog.Logger) int {
+	res, err := p.Run(ctx)
+	if err != nil {
+		log.LogAttrs(ctx, slog.LevelError, "sandbox probe interrupted", slog.Any("error", err))
+		return exitInterrupted
+	}
+	level := slog.LevelInfo
+	if !res.Enforced {
+		level = slog.LevelError
+	}
+	log.LogAttrs(ctx, level, res.WaitVerdict())
+	return 0
 }
 
 // Exit runs the probe and maps its conclusion onto the process exit status,

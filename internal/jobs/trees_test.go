@@ -63,8 +63,14 @@ func TestGoldenPlanTreesJob(t *testing.T) {
 	plain.Trees, plain.RepoKey, plain.RepoURL = nil, "", ""
 	base := buildJobForTest(t, brokeredConfig(), plain)
 	prep, basePrep := container(t, job, initContainerName), container(t, base, initContainerName)
-	if got, want := prep.Command[2], basePrep.Command[2]+treesScript; got != want {
-		t.Errorf("prepare script = %q, want the plain plan's with the trees script after it", got)
+	// The trees fetch slots in before the wait probe, which stays last so
+	// nothing runs between it and the agent container.
+	base0, ok := strings.CutSuffix(basePrep.Command[2], waitProbeScript)
+	if !ok {
+		t.Fatalf("plain plan's prepare script does not end with the wait probe:\n%s", basePrep.Command[2])
+	}
+	if got, want := prep.Command[2], base0+treesScript+waitProbeScript; got != want {
+		t.Errorf("prepare script = %q, want the plain plan's with the trees script before its wait probe", got)
 	}
 	prep.Command, basePrep.Command = nil, nil
 	if !reflect.DeepEqual(prep, basePrep) {

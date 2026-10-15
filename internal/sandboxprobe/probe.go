@@ -52,15 +52,11 @@ func (t Target) String() string { return t.Name + " (" + t.Addr + ")" }
 // blocked: a public IP, the cluster's API server (from the environment the
 // kubelet injects into every container) and the cloud metadata service.
 func DefaultTargets(getenv func(string) string) []Target {
-	targets := []Target{{Name: "public internet", Addr: "1.1.1.1:443"}}
-	if host := getenv("KUBERNETES_SERVICE_HOST"); host != "" {
-		port := getenv("KUBERNETES_SERVICE_PORT")
-		if port == "" {
-			port = "443"
-		}
-		targets = append(targets, Target{Name: "kubernetes API", Addr: net.JoinHostPort(host, port)})
+	targets := []Target{internetTarget}
+	if t, ok := kubernetesTarget(getenv); ok {
+		targets = append(targets, t)
 	}
-	return append(targets, Target{Name: "cloud metadata", Addr: "169.254.169.254:80"})
+	return append(targets, metadataTarget)
 }
 
 // Prober runs the check. The zero value of every optional field selects the
@@ -118,15 +114,24 @@ func FromEnv(getenv func(string) string) (Prober, error) {
 	if getenv("KUBERNETES_SERVICE_HOST") == "" {
 		return Prober{}, fmt.Errorf("KUBERNETES_SERVICE_HOST is unset; the probe cannot check the Kubernetes API")
 	}
-	p := Prober{Targets: DefaultTargets(getenv), Timeout: DefaultTimeout}
-	if raw := getenv(TimeoutEnv); raw != "" {
-		d, err := time.ParseDuration(raw)
-		if err != nil {
-			return Prober{}, fmt.Errorf("%s=%q is not a duration", TimeoutEnv, raw)
-		}
-		p.Timeout = d
+	timeout, err := timeoutFromEnv(getenv)
+	if err != nil {
+		return Prober{}, err
 	}
-	return p, nil
+	return Prober{Targets: DefaultTargets(getenv), Timeout: timeout}, nil
+}
+
+// timeoutFromEnv is the window TimeoutEnv names, DefaultTimeout when unset.
+func timeoutFromEnv(getenv func(string) string) (time.Duration, error) {
+	raw := getenv(TimeoutEnv)
+	if raw == "" {
+		return DefaultTimeout, nil
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, fmt.Errorf("%s=%q is not a duration", TimeoutEnv, raw)
+	}
+	return d, nil
 }
 
 // Run probes every target each round until either none has answered for
