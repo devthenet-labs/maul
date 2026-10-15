@@ -1058,7 +1058,8 @@ The hosts of the egress broker's base-URL overrides
 egressBroker.config.extra), sorted and space-separated: model API hosts the
 fixed table cannot know, denied to every registry, file host and redirect
 hop (guard 13, and PATCHY_DENY_HOSTS for the proxy's request-time check). An
-override set through extraEnvFrom is invisible here.
+override set through extraEnvFrom is invisible here. The key list is pinned to
+the broker's -base-url flags by cmd/egress-broker TestChartOverrideKeysMatchFlags.
 */}}
 {{- define "patchy.egressBrokerOverrideHosts" -}}
 {{- $hosts := list -}}
