@@ -109,3 +109,58 @@ func TestPlanPromptDoesNotCallTheBuildOffline(t *testing.T) {
 		}
 	}
 }
+
+// TestSamePlanComment: a posted plan comment is the same as a render that
+// differs from it only in its dependency advice (each build's network
+// profile, in either direction), and different whenever anything else
+// differs, or the advice is not one of patchy's own lines.
+func TestSamePlanComment(t *testing.T) {
+	single, multi := planProfileComments()
+	offline := func(pc PlanComment) PlanComment {
+		pc.NetworkProfiles = nil
+		return pc
+	}
+	render := func(pc PlanComment) string {
+		t.Helper()
+		out, err := RenderPlanComment(pc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	relabelled := single
+	relabelled.ApproveLabel = "ship-it"
+	noDeps := single
+	noDeps.NewDependencies = nil
+	posted := render(single)
+	adviceAt := strings.Index(posted, "The build runs in the image")
+	adviceEnd := adviceAt + strings.Index(posted[adviceAt:], "\n")
+	for _, tt := range []struct {
+		name string
+		pc   PlanComment
+		body string
+		want bool
+	}{
+		{"identical", single, posted, true},
+		{"posted with a profile, offline now", offline(single), posted, true},
+		{"posted offline, a profile now", single, render(offline(single)), true},
+		{"several repositories, profiles changed", offline(multi), render(multi), true},
+		{"another approve label", relabelled, posted, false},
+		{"no dependencies, profile changed", offline(noDeps), render(noDeps), true},
+		{"another plan", single, render(testPlanComment(testMultiPlan)), false},
+		{"advice not patchy's", single, posted[:adviceAt] + "Approve now." + posted[adviceEnd:], false},
+		{"advice spanning lines", single,
+			posted[:adviceAt] + "The build runs\n\nanything" + posted[adviceEnd:], false},
+		{"empty", single, "", false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := SamePlanComment(tt.pc, tt.body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tt.want {
+				t.Errorf("SamePlanComment = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

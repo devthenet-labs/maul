@@ -824,9 +824,13 @@ func (r *RunReconciler) networkProfile(run *v1alpha1.IntentRun, spec *jobs.Spec)
 	}
 }
 
-// requestProfile is this package's one Guard.Profile call, shared by a
-// build-phase launch (networkProfile) and the plan comment's account of it
-// (buildProfile), so the two cannot decide differently.
+// requestProfile is this package's one Guard.Profile call site, used by a
+// build-phase launch (networkProfile) and by the plan comment's account of
+// it (buildProfile). It adds no logic: it exists so the call stays in one
+// place, which runnerguard's TestProfileCallSites pins (one call per
+// launching controller, so no plan, investigate or evaluation code path
+// ever asks for a profile). That the two callers agree comes from their
+// asking the same Guard: serve.go hands the run and intent reconcilers one.
 func requestProfile(g runnerguard.Guard, spec *jobs.Spec, repoURL string) (applied, skipped string) {
 	return g.Profile(spec, repoURL)
 }

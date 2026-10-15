@@ -399,7 +399,18 @@ func (p *pass) writeBack(ctx context.Context, run *v1alpha1.IntentRun) (bool, er
 	if err != nil {
 		return false, err
 	}
-	changed := c == nil || c.Body != body
+	changed := c == nil
+	if !changed {
+		// The dependency advice reads the build's network profile
+		// decision, whose inputs (the sandbox breaker, the profile flags)
+		// can change between the post and its record: a comment that
+		// differs only there is still the one posted.
+		same, err := templates.SamePlanComment(pc, c.Body)
+		if err != nil {
+			return false, fmt.Errorf("render plan r%d: %w", round, err)
+		}
+		changed = !same
+	}
 	if !changed {
 		changed, err = p.everEdited(ctx, c)
 		if err != nil {

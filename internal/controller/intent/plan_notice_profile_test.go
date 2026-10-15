@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -141,5 +142,55 @@ func TestPlanCommentSaysWhatTheBuildFetches(t *testing.T) {
 				t.Fatalf("build specs = %+v, want one with a profile %v", builds, tt.profile)
 			}
 		})
+	}
+}
+
+// TestPlanRecordRetryAfterProfileChange: a retry of the plan's record that
+// finds the plan comment it posted, after a restart changed the profile
+// decision its dependency advice reads (here the profiles switched off),
+// takes that comment as posted: no second plan comment, and the approve
+// label an approver added since still approves.
+func TestPlanRecordRetryAfterProfileChange(t *testing.T) {
+	e := newEnv(t, testProject())
+	withProfiles(t, e, "acme/app")
+	e.jobs.output = func(spec jobs.Spec) jobs.RunOutput {
+		if spec.Phase == "plan" {
+			return planOutput(defaultOutput(spec).Events[0].Plan.Stage, planWithDependencies)
+		}
+		return defaultOutput(spec)
+	}
+	name := e.newIntent(approver)
+	e.failStatusIf = func(in *v1alpha1.Intent) bool {
+		return in.Status.Plan != nil && in.Status.Plan.CommentID != 0
+	}
+	for range 30 {
+		if e.failed > 0 {
+			break
+		}
+		_ = e.reconcileIntent(name)
+		e.readyRepositories("")
+		e.runRuns()
+		e.clock.Advance(time.Minute)
+	}
+	if e.failed == 0 {
+		t.Fatal("the plan comment was never recorded")
+	}
+	if plans := e.gh.withMarker("patchy:plan"); len(plans) != 1 || !strings.Contains(plans[0].Body, "egress proxy") {
+		t.Fatalf("plan comments = %+v, want one with the proxy advice", plans)
+	}
+	e.clock.Advance(time.Second)
+	id := e.gh.label(1, "patchy:approved", approver)
+	// A restarted controller whose profiles are off would word the advice
+	// offline.
+	images := e.intent.Images
+	images.ProfilesEnabled = false
+	e.intent = &IntentReconciler{Client: e.c, APIReader: e.c, GitHub: e.gh, Settings: testSettings(),
+		Images: images, Nudger: e.nudger, Now: e.clock.Now}
+	in := e.drive(name, v1alpha1.IntentBuilding, repoImage)
+	if ap := in.Status.Approval; ap == nil || ap.EventID != id || ap.Source != v1alpha1.IntentActionLabel {
+		t.Fatalf("approval = %+v, want the label %d", ap, id)
+	}
+	if n := len(e.gh.withMarker("patchy:plan")); n != 1 {
+		t.Errorf("plan comments = %d, want exactly one", n)
 	}
 }

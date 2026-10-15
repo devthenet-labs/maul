@@ -301,7 +301,7 @@ func RenderPlanComment(p PlanComment) (string, error) {
 	if view.unshowable > 0 {
 		return refusePlan(p, digest, planRefusal{unshowable: view.unshowable})
 	}
-	out, err := planComment(p, digest, view)
+	out, err := planComment(p, digest, view, "")
 	if err != nil {
 		return "", err
 	}
@@ -311,9 +311,44 @@ func RenderPlanComment(p PlanComment) (string, error) {
 	return out, nil
 }
 
+// adviceStandIn marks where the dependency advice goes in SamePlanComment's
+// render: NULs, which no plan comment patchy posts holds outside its
+// verbatim block (visibleText shows them as their code point).
+const adviceStandIn = "\x00patchy-dependency-advice\x00"
+
+// SamePlanComment reports whether body, a plan comment patchy posted, is the
+// one RenderPlanComment renders for p, its dependency advice aside: the
+// advice is one line naming each build's network profile, and that reads
+// state that can change between a post and its record (the sandbox breaker,
+// which a restart clears, and the operator's profile flags), so a retry that
+// finds the comment it posted must not post the plan again over it. Any
+// other difference, or advice that is not one of patchy's own lines, is a
+// different comment. A plan RenderPlanComment refuses is never the same.
+func SamePlanComment(p PlanComment, body string) (bool, error) {
+	want, err := RenderPlanComment(p)
+	if err != nil {
+		return false, err
+	}
+	if body == want {
+		return true, nil
+	}
+	shape, err := planComment(p, PlanDigest(p.Report), viewPlan(string(p.Report)), adviceStandIn)
+	if err != nil {
+		return false, err
+	}
+	pre, post, ok := strings.Cut(shape, adviceStandIn)
+	if !ok || len(body) < len(pre)+len(post) || !strings.HasPrefix(body, pre) || !strings.HasSuffix(body, post) {
+		return false, nil
+	}
+	advice := body[len(pre) : len(body)-len(post)]
+	own := strings.HasPrefix(advice, "Each build runs ") || strings.HasPrefix(advice, "The build runs ")
+	return own && !strings.ContainsAny(advice, "\r\n"+adviceStandIn[:1]), nil
+}
+
 // planComment renders the plan comment whatever its size, with view the
-// report's planView.
-func planComment(p PlanComment, digest string, view planView) (string, error) {
+// report's planView. A non-empty advice stands in for the dependency advice
+// (SamePlanComment's placeholder); "" renders the advice p calls for.
+func planComment(p PlanComment, digest string, view planView, advice string) (string, error) {
 	deps := make([]string, 0, len(p.NewDependencies))
 	for _, d := range p.NewDependencies {
 		if d = code(strings.TrimSpace(visibleText(d))); d != "" {
@@ -349,6 +384,7 @@ func planComment(p PlanComment, digest string, view planView) (string, error) {
 		Profile         string
 		ProfileBuilds   string
 		OthersOffline   bool
+		Advice          string
 		Plan            string
 	}{
 		Marker:          PlanMarker(p.Namespace, p.Intent, p.Revision, digest),
@@ -372,6 +408,7 @@ func planComment(p PlanComment, digest string, view planView) (string, error) {
 		Profile:         profile,
 		ProfileBuilds:   strings.Join(profiled, ", "),
 		OthersOffline:   offline,
+		Advice:          advice,
 		Plan:            verbatim("markdown", string(p.Report)),
 	})
 }
