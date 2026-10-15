@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.12.34](https://github.com/devthenet-labs/patchy/compare/v0.12.33...v0.12.34) (2026-10-15)
+
+
+### Features
+
+* **chart:** egress proxy registries, cloud credentials and profile grants ([#204](https://github.com/devthenet-labs/patchy/issues/204)) ([389e42d](https://github.com/devthenet-labs/patchy/commit/389e42d7ea8275bb578e313b62fbf2f90e308ea6))
+* **egress-proxy:** registry routes for Go, npm and pip, with credential wiring ([#202](https://github.com/devthenet-labs/patchy/issues/202)) ([b695920](https://github.com/devthenet-labs/patchy/commit/b695920731d013c91861721ca68360254e217b64))
+* pass registry grants to remediation and intent build Jobs ([#201](https://github.com/devthenet-labs/patchy/issues/201)) ([20a3995](https://github.com/devthenet-labs/patchy/commit/20a39956cb56c7688db3f8a7ba5e92bea1108be4))
+
 ## [0.12.33](https://github.com/devthenet-labs/patchy/compare/v0.12.32...v0.12.33) (2026-10-15)
 
 
