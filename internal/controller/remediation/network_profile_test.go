@@ -4,6 +4,8 @@
 package remediation
 
 import (
+	"context"
+	"encoding/base64"
 	"net/url"
 	"strings"
 	"testing"
@@ -13,6 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	"github.com/bitwise-media-group/patchy/internal/envelope"
 	"github.com/bitwise-media-group/patchy/internal/jobs"
 	"github.com/bitwise-media-group/patchy/internal/netprofile"
 	"github.com/bitwise-media-group/patchy/internal/runnerguard"
@@ -148,6 +151,83 @@ func TestRemediationPRBodyNamesRegistryRoutes(t *testing.T) {
 			remReconcile(t, r)
 			if len(fw.bodies) != 1 || !strings.Contains(fw.bodies[0], want) {
 				t.Errorf("PR bodies %q, want one saying %q", fw.bodies, want)
+			}
+		})
+	}
+}
+
+// TestRemediationChangesetNamingTheProxyIsRefused: a run whose Job carried
+// a network profile (as recorded at launch) and whose changeset points a
+// lockfile at the egress proxy is refused before any forge call, naming
+// the file; the same changeset from a run without a profile is pushed.
+func TestRemediationChangesetNamingTheProxyIsRefused(t *testing.T) {
+	for _, profile := range []string{"go", ""} {
+		t.Run("profile="+profile, func(t *testing.T) {
+			events := crdRemediationEvent(true)
+			events[0].Remediation.Changeset.Upserts = append(events[0].Remediation.Changeset.Upserts,
+				envelope.FileChange{Path: "package-lock.json", Mode: "100644", ContentB64: base64.StdEncoding.EncodeToString(
+					[]byte(`"resolved": "http://patchy-egress-proxy.patchy.svc.cluster.local:8091/r/ca-npm/x/-/x-1.0.0.tgz"`))})
+			objs := withImage(acceptedImage(), v1alpha1.RunnerImageSourceRepository)
+			objs[1].(*v1alpha1.Remediation).Status.RunnerImage.NetworkProfile = profile
+			fw := &fakeForge{}
+			r, c := newRemediation(t, &fakeCRRunner{done: true, events: events}, fw, objs...)
+			r.Images = profileGuard(t)
+			remReconcile(t, r)
+			if profile == "" {
+				if len(fw.pushed) != 1 {
+					t.Errorf("pushed = %v, want the changeset pushed", fw.pushed)
+				}
+				return
+			}
+			rem := getRem(t, c)
+			if len(fw.pushed) != 0 || fw.prCalls != 0 || rem.Status.Stage == nil ||
+				rem.Status.Stage.Outcome != string(envelope.OutcomeChangesetRejected) ||
+				!strings.Contains(rem.Status.Stage.Detail, "package-lock.json") {
+				t.Errorf("pushed %v, stage %+v; want no forge call and changeset_rejected naming the file",
+					fw.pushed, rem.Status.Stage)
+			}
+		})
+	}
+}
+
+// forgeList is a fixed Forge host list (runnerguard.ForgeHosts).
+type forgeList []string
+
+func (f forgeList) Hosts(context.Context, string) ([]string, error) { return f, nil }
+
+// TestRemediationGrantNamingAForgeFailsTheLaunch: a remediate launch whose
+// profile's registry grant names a Forge's host fails the run as
+// launch_refused, naming the host, with no Job created; with no Forge
+// matching it launches with the grants on the spec.
+func TestRemediationGrantNamingAForgeFailsTheLaunch(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		forges forgeList
+		refuse bool
+	}{
+		{"a Forge on the registry's domain", forgeList{"github.com", "jfrog.io"}, true},
+		{"no Forge matches", forgeList{"github.com", "ghe.corp.example"}, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			objs := withImage(acceptedImage(), "", v1alpha1.PhaseOpened, v1alpha1.PhaseQueued, v1alpha1.PhaseRemediating)
+			objs[1].(*v1alpha1.Remediation).Status.JobRef = nil
+			runner := &fakeCRRunner{}
+			r, c := newRemediation(t, runner, &fakeForge{}, objs...)
+			r.Images = registryProfileGuard(t)
+			r.Images.Forges = tt.forges
+			remReconcile(t, r)
+			rem := getRem(t, c)
+			if !tt.refuse {
+				if len(runner.created) != 1 || runner.created[0].NetworkProfile == nil ||
+					len(runner.created[0].NetworkProfile.Registries) != 1 {
+					t.Fatalf("created %+v, want one Job with the web profile's grant", runner.created)
+				}
+				return
+			}
+			if len(runner.created) != 0 || rem.Status.Stage == nil || rem.Status.Stage.Outcome != outcomeLaunchRefused ||
+				!strings.Contains(rem.Status.Stage.Detail, "acme.jfrog.io") {
+				t.Errorf("created %d Jobs, stage %+v; want none and launch_refused naming the host",
+					len(runner.created), rem.Status.Stage)
 			}
 		})
 	}

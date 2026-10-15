@@ -244,6 +244,8 @@ func serve(ctx context.Context, opts *cli.Options) error {
 			ProfilesEnabled: profilesOn,
 			Profiles:        profiles,
 			ProxyBase:       proxyBase,
+			// A registry grant may name no Forge's host (CheckForges).
+			Forges: forges,
 		},
 		MaxChangesetEntries: opts.Int("changeset-max-entries"),
 		Log:                 log,

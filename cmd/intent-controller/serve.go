@@ -359,13 +359,16 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	}, log)
 	// Forges come from the cache; their Secrets are never cached, so the
 	// manager's client reads each one live.
-	gh := intent.NewForgeGitHub(forge.NewStore(mgr.GetClient()), namespace)
+	forges := forge.NewStore(mgr.GetClient())
+	gh := intent.NewForgeGitHub(forges, namespace)
 	images := runnerguard.Guard{
 		Enabled:         sizes.repositoryImages,
 		Breaker:         runnerguard.NewBreaker("intent-controller", log),
 		ProfilesEnabled: sizes.profilesOn,
 		Profiles:        sizes.profiles,
 		ProxyBase:       sizes.proxyBase,
+		// A registry grant may name no Forge's host (CheckForges).
+		Forges: forges,
 	}
 	nudger := intent.NewNudger()
 

@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -166,6 +167,27 @@ func (s *Store) Resolve(ctx context.Context, namespace, repoURL string) (*Resolv
 		return nil, fmt.Errorf("list forges: %w", err)
 	}
 	return Resolve(forges.Items, repoURL)
+}
+
+// Hosts are the hosts of every Forge in namespace (Host), lowercase, sorted
+// and unique: the job controllers refuse a network profile whose registry
+// grants name one (runnerguard.Guard.CheckForges), since the chart cannot
+// see Forge CRs.
+func (s *Store) Hosts(ctx context.Context, namespace string) ([]string, error) {
+	var forges v1alpha1.ForgeList
+	if err := s.c.List(ctx, &forges, client.InNamespace(namespace)); err != nil {
+		return nil, fmt.Errorf("list forges: %w", err)
+	}
+	seen := map[string]bool{}
+	var out []string
+	for i := range forges.Items {
+		if h := Host(&forges.Items[i]); h != "" && !seen[h] {
+			seen[h] = true
+			out = append(out, h)
+		}
+	}
+	slices.Sort(out)
+	return out, nil
 }
 
 // Token mints a short-lived token for the resolved repository at the given

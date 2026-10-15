@@ -19,7 +19,10 @@
 // image, until a human approves exactly that. On a launch that runs the
 // accepted image, Guard.Profile requests the operator network profile the
 // repository matches, if exactly one does, and only for a remediate or
-// intent build Job, under its own kill switch. While a repository-image Job has not
+// intent build Job, under its own kill switch, with the profile's registry
+// grants; CheckForges then refuses a profile whose grants name a Forge's
+// host, and ProxyHostForms are what a profile run's changeset may not
+// name. While a repository-image Job has not
 // finished, whether its pod is still within the pull grace, stuck on a
 // deterministic pull failure, or worth another look (Pending): a pod in
 // ImagePullBackOff never mutates its Job, so the Job watch alone would never

@@ -4,6 +4,7 @@
 package changeset
 
 import (
+	"bytes"
 	"encoding/base64"
 	"fmt"
 	"slices"
@@ -50,6 +51,13 @@ type Rules struct {
 	// Deny lists repository-root directories no path may be in or replace,
 	// matched without regard to case, whichever image the run used.
 	Deny []string
+	// Forbidden are literal strings no upsert's path or content may hold,
+	// matched without regard to case: on a run that carried a network
+	// profile, the egress proxy's host forms, so no lockfile or
+	// configuration file leaves the run pointing at the proxy instead of
+	// the registry's canonical URL. Empty, as on every other run, checks
+	// nothing.
+	Forbidden []string
 }
 
 // intentDeny is what an intent run may never change: CI definitions
@@ -151,6 +159,9 @@ func Validate(cs *envelope.Changeset, rules Rules) error {
 		if err := checkUpsert(up); err != nil {
 			return err
 		}
+		if err := checkForbidden(up, rules.Forbidden); err != nil {
+			return err
+		}
 	}
 	for _, p := range cs.Deletes {
 		if err := check(p); err != nil {
@@ -198,6 +209,31 @@ func checkUpsert(up envelope.FileChange) error {
 	}
 	if _, err := base64.StdEncoding.DecodeString(up.ContentB64); err != nil {
 		return fmt.Errorf("changeset path %q content is not base64: %w", up.Path, err)
+	}
+	return nil
+}
+
+// checkForbidden refuses an upsert whose path or decoded content holds one
+// of forbidden, without regard to case. checkUpsert has already decoded the
+// content once, so it decodes here.
+func checkForbidden(up envelope.FileChange, forbidden []string) error {
+	if len(forbidden) == 0 {
+		return nil
+	}
+	content, err := base64.StdEncoding.DecodeString(up.ContentB64)
+	if err != nil {
+		return fmt.Errorf("changeset path %q content is not base64: %w", up.Path, err)
+	}
+	path, body := strings.ToLower(up.Path), bytes.ToLower(content)
+	for _, f := range forbidden {
+		f = strings.ToLower(f)
+		if f == "" {
+			continue
+		}
+		if strings.Contains(path, f) || bytes.Contains(body, []byte(f)) {
+			return fmt.Errorf("changeset path %q names the egress proxy (%s): lockfiles and configuration must "+
+				"keep the registry's canonical URLs", up.Path, f)
+		}
 	}
 	return nil
 }
