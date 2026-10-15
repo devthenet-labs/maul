@@ -129,7 +129,7 @@ the new pods being Ready, the old ones still serve. `egressProxy.enabled: false`
 
 As everywhere, each flag is also the matching `PATCHY_*` environment variable. The chart renders the proxy's ConfigMap
 from its own values, never from the global `proxy` block: a corporate HTTPS proxy for the egress proxy's own upstream
-traffic is **not supported** in step 1.
+traffic is **not supported**.
 
 | Flag                               | Default                            | Purpose                                                                                       |
 | ---------------------------------- | ---------------------------------- | --------------------------------------------------------------------------------------------- |
@@ -262,8 +262,10 @@ The registry `url` is the npm registry base, such as `https://acme.jfrog.io/arti
 CodeArtifact `…/npm/<repository>/`. The proxy accepts packuments (`/<name>`, and `/@scope%2fname` for a scoped package,
 sent upstream escaped exactly so) and tarballs in three shapes (`/<name>/-/<name>-<v>.tgz`,
 `/@s/<name>/-/<name>-<v>.tgz` and `/@s/<name>/-/@s/<name>-<v>.tgz`), each either bare or below the upstream's base path.
-Everything else (search, audit, `dist-tags`, `/-/whoami`, a version document) is refused `403 bad_path`; a refusal is a
-`403` with a JSON `{"error":"egress-proxy: …"}` body, which npm prints.
+Every other path (`dist-tags`, `/-/whoami`, a version document) is refused `403 bad_path`; a refusal is a `403` with a
+JSON `{"error":"egress-proxy: …"}` body, which npm prints. Two requests never reach the npm route at all: any request
+with a query string (`npm search` sends `?text=…`) is refused `400 bad_request` (reason `query`, a plain-text body), and
+any request that is not `GET` or `HEAD` (`npm audit` posts) `405 method`, as on every route.
 
 npm needs no response rewriting: with `NPM_CONFIG_REPLACE_REGISTRY_HOST=always` npm fetches every tarball through the
 configured registry whatever host the packument or lockfile names, and `package-lock.json` keeps the registry's
@@ -546,7 +548,7 @@ keeps `module` and has no `package`), `credential` (`none`, `static` or `codeart
 | `proxied`                | forwarded and answered (an upstream `404`/`410` too, with reason `not_found`)            |
 | `not_allowed`            | the package or module is outside the allowlist, or the version failed the gate           |
 | `bad_path`               | the path broke the grammar                                                               |
-| `bad_request`            | a body, a query or an absolute-form URI                                                  |
+| `bad_request`            | a body, a query or an absolute-form URI (400)                                            |
 | `method`                 | not GET or HEAD                                                                          |
 | `limited`                | over a limit after waiting (503)                                                         |
 | `upstream_error`         | the upstream failed, answered another status, or resolved to a denied address (502)      |
@@ -612,7 +614,11 @@ kubectl -n patchy exec deploy/patchy-egress-proxy -- /usr/local/bin/controller p
 credential itself, sends one real request for the package (the registry's `healthPackage` without `--package`) through
 the first profile granting it, and prints one line such as
 `registry=ca-pypi profile=web path=/r/ca-pypi/simple/six/ status=200 upstream_status=200 outcome=ok reason= credential=codeartifact`.
-It never prints a credential or a response body, and exits non-zero unless the answer was `200`.
+It never prints a credential or a response body, and exits non-zero unless the answer was `200`: the line is then
+followed on stderr by a log line with `level=ERROR msg=fatal error="probe failed"`, and the first line's `outcome` and
+`reason` say why. Before sending, it waits up to `--probe-credential-wait` (default `30s`) for the registry's credential
+to load or mint; if none arrives in that time it sends the request anyway, which then shows
+`outcome=credential_unavailable`.
 
 **How far back can I see?** Only each container's **current** log file, which kubectl reads; rotated files need node
 access. On EKS that file rotates at 10 MiB, and an audit line is roughly 500-700 bytes, so a pod keeps about 15-20

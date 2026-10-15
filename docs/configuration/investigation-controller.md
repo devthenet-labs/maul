@@ -81,11 +81,17 @@ Finding never picks a size of its own; only an intent's Project can, from the op
 `--agents-paused` (Helm `agent.paused`, shared with the remediation-, intent- and evaluation-controller) is the
 cluster-wide pause. While it is set, each of the four schedulers grants no slot, and a run granted just before the pause
 took effect does not launch its Job. Nothing else changes: findings are still ingested, enhanced and admitted, so work
-queues in order (Findings in `Investigating` or `Queued`, intent runs and evaluation units `Pending`), and Jobs already
-running finish and are collected as usual. No attempt is spent and no run fails while paused. Unsetting it lets the
-queue drain in its usual priority order. In Helm, changing `agent.paused` rolls those four controllers (and
-status-server, whose signed-in page then shows the pause). The per-object `spec.suspend` still pauses one Finding,
+queues in order (Findings in `Investigating` or `Queued`), and Jobs already running finish and are collected as usual.
+No attempt is spent and no run fails while paused. Unsetting it lets the queue drain in its usual priority order. In
+Helm, changing `agent.paused` rolls those four controllers (and status-server, whose page then shows a pause banner to
+signed-in users only; the public rollups view does not show it). The per-object `spec.suspend` still pauses one Finding,
 Intent or Project.
+
+Held work carries no paused marker of its own. A held Investigation, IntentRun or EvaluationUnit has an empty status (no
+phase, no Job), or, if it was granted a slot just before the pause took effect, phase `Running` with no `jobRef`; no
+condition or event says why. The Finding stays in its phase, and an intent's issue keeps its last status (an intent
+waiting for its plan still says "Planning"). Each of the four controllers logs `agents_paused` in its startup line, and
+the status page banner is the only other place the pause shows.
 
 Each controller bounds its own pool, and there is no cap across them: with the defaults up to 3 investigations, 1
 remediation, 1 intent run and 4 evaluation units, so 9 agent Jobs, can run at once. Size those four limits

@@ -7,7 +7,57 @@
 > documentation values `111122223333` and `203.0.113.10/32`. The real ones are in terraform-devthenet's `k8s/` values
 > (private).
 
-## Current checkpoint — 2026-10-15: the Go dependency route, and 0.12.29 to 0.12.32
+## Current checkpoint — 2026-10-15 (evening): registry routes, the agent pause, 0.12.33 and 0.12.34
+
+**Agents can fetch through operator-held registry credentials.** 0.12.34 is egress proxy step 2: a network profile can
+be granted operator-defined Go, npm and pip registries (Artifactory, Nexus, CodeArtifact), whose credential only the
+proxy holds. See [docs/configuration/egress-proxy.md](docs/configuration/egress-proxy.md#registries).
+
+- Live on devthenet-dev: Helm patchy rev 91 (0.12.34) and patchy-config rev 56. A CodeArtifact domain `patchy-gate`
+  holds npm and pip repositories whose allowlists are granted to the `go` profile.
+- Gate passed 2026-10-15:
+  - Findings: patchy-target#115 and #117 merged, both Findings Remediated.
+  - Intent: intents#30 opened patchy-preview-demo#24, with its preview, and its build fetched Go modules through the
+    proxy; merged.
+  - The agent pause (`agent.paused`).
+  - `patchy backfill` then a patchy-config upgrade applied without `--force-conflicts` (CLI field ownership, #193).
+  - Isolation and the status page re-checked.
+
+**0.12.34** (egress step 2):
+
+- #202: registry routes in the egress proxy for Go, npm and pip (`/r/<registry>/`), with the credential wiring.
+- #201: remediation and intent build Jobs get their profile's registry grants (npm and pip environment,
+  `PATCHY_NETWORK_ECOSYSTEMS`, `PATCHY_NETWORK_GRANTS`).
+- #204: the chart's `egressProxy.registries`, cloud credentials and profile grants.
+
+**0.12.33:**
+
+- #192: live command output no longer drops the last command's output when the previous one is still closing (the output
+  follower race behind the flaky `TestOutputEnds`).
+- #193: the CLI and the status server write spec actions as JSON merge patches, so they own only the field they set and
+  Helm upgrades no longer conflict.
+- #194: default-image agent Jobs end their prepare with `agent-runner sandbox-probe --mode=wait`, holding the agent
+  until the pod's NetworkPolicy has attached (never fails the Job).
+- #195: envtest suites wait for RBAC grants before acting on them (the `TestIntegrationPolicyEnforcesVerbPerField`
+  flake).
+- #197: chart `extraEnv`/`extraEnvFrom`/`extraVolumes`/`extraVolumeMounts`, the global agent pause `agent.paused`, a
+  pull secret for cloud registries, and accurate egress NOTES.
+- #198: docs say previews need EKS Auto Mode.
+- #199: egress proxy registries: profile grants, credential reload and CodeArtifact tokens.
+- #200: the intent PR body lists the Go requirements a build added or changed and flags drift from the plan; the plan
+  prompt says which network profile the build gets.
+
+Follow-ups:
+
+- Paused work has no visible marker: held Investigations and IntentRuns have an empty status, Findings keep their phase
+  and an intent's issue still says "Planning". Only the signed-in status page banner and the controllers' startup log
+  show the pause.
+- The demo repositories' agent images have no Node or Python, so the npm and pip grants have not been exercised by a
+  real agent yet.
+- Egress proxy step 3 (a hostname-allowlisted CONNECT tunnel for npm, pip, NuGet and Cargo) is in progress (#205, #206).
+- marigold-web's agent image has no Node, so agents cannot run its tests.
+
+## Earlier checkpoint — 2026-10-15: the Go dependency route, and 0.12.29 to 0.12.32
 
 **Agents can now add and upgrade Go dependencies.** Before this, an agent pod had no network, so a fix or build that
 needed a new module could not fetch it. 0.12.31 adds `cmd/egress-proxy`, an in-cluster GOPROXY that alone reaches
@@ -53,14 +103,14 @@ and intent build Jobs a route to it. Agent pods keep `dns: none`; the profile's 
 - #175: the e2e suite has an explicit 30-minute timeout.
 - Each release was gated with a live Finding on patchy-target (#107, #109) and merged green.
 
-Follow-ups:
+Follow-ups (as of this checkpoint; see the current one above):
 
-- Egress proxy step 2 (routes that add an operator-held credential, for Artifactory, Nexus or CodeArtifact) and step 3
-  (a hostname-allowlisted CONNECT tunnel for npm, pip, NuGet and Cargo).
-- Flaky tests: `TestOutputEnds` (internal/agentrun) and the envtest
-  `TestIntegrationPolicyEnforcesVerbPerField/backfill_verb_may_not_replay` (an RBAC propagation race).
-- `patchy backfill` takes field ownership of Integration fields Helm sets, so the next patchy-config upgrade needed
-  `--force-conflicts`. The CLI should patch only its own field.
+- Egress proxy step 2 (routes that add an operator-held credential, for Artifactory, Nexus or CodeArtifact): built and
+  live in 0.12.34. Step 3 (a hostname-allowlisted CONNECT tunnel for npm, pip, NuGet and Cargo): in progress.
+- Flaky tests: `TestOutputEnds` (internal/agentrun; fixed by #192) and the envtest
+  `TestIntegrationPolicyEnforcesVerbPerField/backfill_verb_may_not_replay` (an RBAC propagation race; fixed by #195).
+- `patchy backfill` took field ownership of Integration fields Helm sets, so the next patchy-config upgrade needed
+  `--force-conflicts`: fixed by #193 (merge patches).
 - marigold-web's agent image has no Node, so agents cannot run its tests.
 
 ## Earlier checkpoint — 2026-10-14: agent DNS off, signed agent images required, and 0.12.28
@@ -386,7 +436,7 @@ the owner.
   packages, never general egress. **Step 2** of the egress proxy: step 1 (the Go route, `egressProxy` in the chart, off
   by default) is a name-level module-prefix gate, and its residue (docs/deployment/isolation.md) is why step 2 exists.
   Step 2's credentialed registry routes (Go, npm, pip; Artifactory, Nexus, CodeArtifact) are built (#199, #201, #202 and
-  the chart PR, `egressProxy.registries`, off by default) and await the CodeArtifact live gate (spec §11).
+  #204, `egressProxy.registries`, off by default) and live on devthenet-dev since 0.12.34 with a CodeArtifact domain.
 - The deferred 0.12.20 items (a)–(e).
 
 ## Earlier checkpoint — 2026-10-06 (overnight): 0.12.19

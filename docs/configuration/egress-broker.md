@@ -48,6 +48,13 @@ missing Anthropic key file or unresolvable cloud credentials fail readiness. Thi
 claude-Secret probing as "is the model credential present": the controllers enable the claude harness by configuration
 and probe `readyz` advisorily at startup.
 
+That probe is one request, made once, by the investigation- and remediation-controller only (intent-controller does not
+probe), with a 5-second timeout and no retry. When it cannot reach the broker, typically because the broker's pods are
+not yet Ready during an install or a roll, the controller logs one warning,
+`egress broker not reachable yet; claude jobs will fail until it is`, and starts anyway; when the broker answers but not
+`200`, the warning is `egress broker is not ready; check its /readyz and credential sources`. Neither is repeated, and
+nothing is gated on them: if claude Jobs then run and succeed, the warning was a startup race and can be ignored.
+
 ## Flags
 
 As everywhere, each flag is also the matching `PATCHY_*` environment variable (`--tokens-per-pod` is

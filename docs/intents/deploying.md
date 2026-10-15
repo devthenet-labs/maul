@@ -977,6 +977,17 @@ What it **cannot** prove, and where to look instead:
 - **Who can reach previews**: only the load balancer's security group, which the chart renders from
   `preview.inboundCIDRs`.
 
+## Pausing agents
+
+`agent.paused: true` in the `patchy` chart stops intent-controller (and the other three controllers that launch agent
+Jobs) from starting any new agent Job; a running plan or build finishes and is collected as usual. See
+[Pausing agents](../configuration/investigation-controller.md#pausing-agents).
+
+A paused intent does not say so. Its next IntentRun is created and waits with an empty status (no phase, no Job), and
+the intent's issue keeps its last status: an intent waiting for its plan still says "Planning". The only signs are the
+banner the status page shows to signed-in users and each controller's startup log line (`agents_paused`). Set it back to
+`false` and the held runs start in order.
+
 ## Upgrades
 
 - **One release, three artifacts.** Upgrade the chart, the CLI and the module ref together: `helm_values` carries chart

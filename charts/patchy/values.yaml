@@ -1410,9 +1410,10 @@ agent:
     # The cluster-wide pause. true stops every controller that launches agent
     # Jobs (investigation, remediation, intent and evaluation) from starting
     # new ones: their schedulers grant no slot, so work queues in order
-    # (Findings in Investigating or Queued, intent runs and evaluation units
-    # Pending) and no tokens are spent. Jobs already running finish and are
-    # collected as usual. Changing it rolls those four controllers. The
+    # (Findings in Investigating or Queued; held runs and evaluation units
+    # keep an empty status, with no paused marker) and no tokens are spent.
+    # Jobs already running finish and are collected as usual. Changing it
+    # rolls those four controllers. The
     # per-object spec.suspend still pauses one Finding, Intent or Project.
     paused: false
     # Job execution limits (both job controllers).

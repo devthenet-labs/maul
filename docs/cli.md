@@ -579,8 +579,10 @@ Without the policy, letting a developer suspend a finding would also let them re
 See [Kustomize](deployment/kustomize.md) for the manifest and the role ladder.
 
 Every action is written as a JSON merge patch of the one spec field it sets, guarded by the resource version the CLI
-read, so the native verb it needs is `patch`. The patch also means the CLI's field manager (`patchy`) owns that field
-and nothing else: a `helm upgrade` of the Integrations that `patchy backfill` stamped applies without conflicts.
+read, so the native verb it needs is `patch`. The patch also means the CLI's field manager owns that field and nothing
+else: a `helm upgrade` of the Integrations that `patchy backfill` stamped applies without conflicts. The CLI sets no
+field manager name of its own, so the API server takes it from the binary's file name: `patchy` as shipped,
+`kubectl-patchy` when run as `kubectl patchy`, or whatever a renamed binary is called.
 
 !!! warning "Requires Kubernetes 1.30+"
 
