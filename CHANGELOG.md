@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.12.35](https://github.com/devthenet-labs/patchy/compare/v0.12.34...v0.12.35) (2026-10-15)
+
+
+### Features
+
+* **egressproxy:** ClientHello and CONNECT target parsers ([#205](https://github.com/devthenet-labs/patchy/issues/205)) ([d6c4cb1](https://github.com/devthenet-labs/patchy/commit/d6c4cb1590858084b6040d2f6d9a350b54b61cd5))
+* **egressproxy:** hostname-allowlisted CONNECT tunnel on the profile listener ([#211](https://github.com/devthenet-labs/patchy/issues/211)) ([b7a0db3](https://github.com/devthenet-labs/patchy/commit/b7a0db3fc44b3293fbd9b78db8fa81ad2721903e))
+* **jobs:** tunnel env and client presets on profile Jobs ([#210](https://github.com/devthenet-labs/patchy/issues/210)) ([dbad9b5](https://github.com/devthenet-labs/patchy/commit/dbad9b5259aee1934722d4a28dc9724bfa080f94))
+* **netprofile:** tunnel route, exact hosts, hard-deny table and client presets ([#206](https://github.com/devthenet-labs/patchy/issues/206)) ([0dd7285](https://github.com/devthenet-labs/patchy/commit/0dd728511740b79cffb43aad41b260e0ce1f3c88))
+
+
+### Bug Fixes
+
+* **chart:** admit network-profile Pods only from the Job controller ([#208](https://github.com/devthenet-labs/patchy/issues/208)) ([c8f549b](https://github.com/devthenet-labs/patchy/commit/c8f549b5434cd3a4d18e23a5eafe809108ce1b1f))
+
 ## [0.12.34](https://github.com/devthenet-labs/patchy/compare/v0.12.33...v0.12.34) (2026-10-15)
 
 
