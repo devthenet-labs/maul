@@ -1,0 +1,92 @@
+# Copyright 2026 Bitwise Media Group Ltd.
+# SPDX-License-Identifier: MIT
+#
+# chart-render-test fixture: egress proxy registries (step 2). Layer it over
+# repository-images.yaml, intent-controller.yaml and egress-proxy.yaml (whose
+# go and npm profiles stay step-1 profiles). Four registries: a bearer npm
+# registry with a redirect pattern, a basic go registry, an in-cluster basic
+# pypi registry with a CA whose Service port (8443) and container port (8081)
+# differ on purpose, and a CodeArtifact npm registry minted through EKS Pod
+# Identity. Two new profiles: web holds three grants (npm, pypi, go) and no
+# public route; ca holds the CodeArtifact grant beside the public go route.
+clusterDNSCIDR: 172.20.0.10/32
+egressProxy:
+    cloudCredentials: podIdentity
+    registries:
+        art-npm:
+            ecosystem: npm
+            url: https://acme.jfrog.io/artifactory/api/npm/npm-virtual/
+            auth:
+                type: bearer
+                secretName: patchy-registry-art
+            redirectHosts:
+                - "*.s3.us-east-1.amazonaws.com"
+            healthPackage: left-pad
+        art-go:
+            ecosystem: go
+            url: https://acme.jfrog.io/artifactory/api/go/go-virtual
+            auth:
+                type: basic
+                secretName: patchy-registry-art-go
+            privateModules:
+                - acme.example/
+            publicChecksumLookups: false
+        nexus-pypi:
+            ecosystem: pypi
+            url: https://nexus.tools.svc.cluster.local:8443/repository/pypi-all/simple/
+            auth:
+                type: basic
+                secretName: patchy-registry-nexus
+            fileHosts:
+                - files.pythonhosted.org
+            ca:
+                configMap: corp-root-ca
+                key: ca.crt
+            internal:
+                cidrs:
+                    - 10.100.12.34/32
+                podSelector:
+                    namespace: tools
+                    matchLabels:
+                        app: nexus
+                targetPort: 8081
+        ca-npm:
+            ecosystem: npm
+            url: https://patchy-gate-377946145366.d.codeartifact.us-east-1.amazonaws.com/npm/npm-store/
+            auth:
+                type: codeartifact
+                codeartifact:
+                    domain: patchy-gate
+                    domainOwner: "377946145366"
+                    region: us-east-1
+                    durationSeconds: 3600
+agent:
+    networkProfiles:
+        web:
+            port: 8092
+            repositories:
+                - acme/web
+            registries:
+                art-npm:
+                    packages:
+                        - left-pad
+                        - "@acme/*"
+                nexus-pypi:
+                    packages:
+                        - six
+                        - requests
+                art-go:
+                    packages:
+                        - acme.example/
+                    allowPseudoVersions: true
+        ca:
+            route: go
+            port: 8093
+            repositories:
+                - acme/ca-.*
+            modules:
+                - golang.org/x/
+            registries:
+                ca-npm:
+                    packagePolicy: registry
+                    scripts: true

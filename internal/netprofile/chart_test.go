@@ -154,7 +154,10 @@ func TestChartProfileSchemaMatchesValidator(t *testing.T) {
 		{"bakedModCache maxLength", np.BakedModCache.MaxLength, maxBakedCacheLen},
 		{"allowPseudoVersions default", np.AllowPseudoVersions.Default, false},
 		{"networkProfiles maxProperties", profiles.MaxProperties, MaxProfiles},
-		{"required", s.Definitions.NetworkProfile.Required, []string{"route", "port", "repositories", "modules"}},
+		// route and modules left required in step 2: a registry-only profile
+		// has neither. TestChartRegistrySchemaMatchesValidator pins the
+		// anyOf (route or a grant) and the route-go-needs-modules rule.
+		{"required", s.Definitions.NetworkProfile.Required, []string{"port", "repositories"}},
 	} {
 		if !reflect.DeepEqual(c.got, c.want) {
 			t.Errorf("values.schema.json %s = %v, want %v", c.name, c.got, c.want)

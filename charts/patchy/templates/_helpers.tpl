@@ -554,6 +554,11 @@ name, defaults applied (host github.com, bakedModCache /opt/go/pkg/mod,
 allowPseudoVersions false), trailing slashes stripped from the module
 prefixes (the matcher works on path-element boundaries anyway). One string,
 so the three ConfigMaps that carry it cannot disagree.
+
+A profile with registry grants also carries "registries": one object per
+grant, sorted by registry name, holding the grant's policy plus what the
+job controllers need of the registry (patchy.egressGrantJSON): they never
+see egressProxy.registries. A profile without grants renders no such key.
 */}}
 {{- define "patchy.networkProfilesJSON" -}}
 {{- $profiles := .Values.agent.networkProfiles | default dict -}}
@@ -578,6 +583,117 @@ so the three ConfigMaps that carry it cannot disagree.
     "bakedModCache" $baked
     "allowPseudoVersions" ($p.allowPseudoVersions | default false)
 ) -}}
+{{- with $p.registries -}}
+{{- $grants := list -}}
+{{- range $gname := keys . | sortAlpha -}}
+{{- $grants = append $grants (include "patchy.egressGrantJSON" (dict "root" $ "name" $gname "grant" (index $p.registries $gname | default dict)) | fromJson) -}}
+{{- end -}}
+{{- $_ := set (last $out) "registries" $grants -}}
+{{- end -}}
+{{- end -}}
+{{- toJson $out -}}
+{{- end }}
+
+{{/*
+One registry grant as the profile JSON carries it (netprofile.Grant): the
+grant's own policy and switches, each key only when set, plus the granted
+registry's ecosystem, privateModules (go) and hosts (netprofile.Registry.Hosts:
+the URL's host, then fileHosts, then redirectHosts), which the egress proxy
+holds equal to the registry's at startup (netprofile.CheckGrants) and the
+job controllers check against every Forge CR at launch. Go module prefixes
+lose a trailing slash, as a profile's modules do. Context: dict "root" $
+"name" <registry> "grant" <grant values>.
+*/}}
+{{- define "patchy.egressGrantJSON" -}}
+{{- $g := .grant -}}
+{{- $r := index ((.root.Values.egressProxy | default dict).registries | default dict) .name | default dict -}}
+{{- $eco := $r.ecosystem | default "" -}}
+{{- $out := dict "name" .name "ecosystem" $eco "hosts" (include "patchy.egressRegistryHosts" $r | fromJsonArray) -}}
+{{- with $g.packages -}}
+{{- $pkgs := list -}}
+{{- range . -}}
+{{- $pkgs = append $pkgs (ternary (trimSuffix "/" (toString .)) (toString .) (eq $eco "go")) -}}
+{{- end -}}
+{{- $_ := set $out "packages" $pkgs -}}
+{{- end -}}
+{{- with $g.packagePolicy }}{{ $_ := set $out "packagePolicy" . }}{{ end -}}
+{{- if $g.allowPseudoVersions }}{{ $_ := set $out "allowPseudoVersions" true }}{{ end -}}
+{{- if $g.allowPrerelease }}{{ $_ := set $out "allowPrerelease" true }}{{ end -}}
+{{- if $g.scripts }}{{ $_ := set $out "scripts" true }}{{ end -}}
+{{- if $g.sdists }}{{ $_ := set $out "sdists" true }}{{ end -}}
+{{- with include "patchy.egressPrivateModules" $r | fromJsonArray -}}
+{{- $_ := set $out "privateModules" . -}}
+{{- end -}}
+{{- toJson $out -}}
+{{- end }}
+
+{{/*
+A registry's hosts as a JSON array: the URL's host (no port), then
+fileHosts, then redirectHosts, as written. netprofile.Registry.Hosts is the
+same list; the egress proxy refuses a grant whose copy differs.
+*/}}
+{{- define "patchy.egressRegistryHosts" -}}
+{{- $hosts := list ((urlParse (.url | default "" | toString)).hostname) -}}
+{{- range .fileHosts | default list }}{{ $hosts = append $hosts (toString .) }}{{ end -}}
+{{- range .redirectHosts | default list }}{{ $hosts = append $hosts (toString .) }}{{ end -}}
+{{- toJson $hosts -}}
+{{- end }}
+
+{{/*
+A go registry's privateModules as a JSON array, trailing slashes stripped
+(GONOSUMDB and the proxy's matcher work on path-element boundaries either
+way): "[]" for a go registry that lists none, "null" for a registry that is
+not go or does not say.
+*/}}
+{{- define "patchy.egressPrivateModules" -}}
+{{- if and (eq (.ecosystem | default "") "go") (not (kindIs "invalid" .privateModules)) -}}
+{{- $out := list -}}
+{{- range .privateModules | default list }}{{ $out = append $out (trimSuffix "/" (toString .)) }}{{ end -}}
+{{- toJson $out -}}
+{{- else -}}
+null
+{{- end -}}
+{{- end }}
+
+{{/*
+egressProxy.registries as the JSON array the egress proxy parses
+(netprofile.ParseRegistries, PATCHY_EGRESS_REGISTRIES): sorted by name, each
+key only when set. A credential is described by its type alone (plus the
+CodeArtifact domain to mint for): a Secret's name never appears here, and
+the proxy reads a bearer or basic credential from the mounted
+registry-credentials volume. "ca": true says a CA bundle is mounted at
+<registry>.pem in the registry-ca volume.
+*/}}
+{{- define "patchy.egressRegistriesJSON" -}}
+{{- $regs := (.Values.egressProxy | default dict).registries | default dict -}}
+{{- $out := list -}}
+{{- range $name := keys $regs | sortAlpha -}}
+{{- $r := index $regs $name | default dict -}}
+{{- $auth := $r.auth | default dict -}}
+{{- $a := dict "type" ($auth.type | default "") -}}
+{{- with $auth.codeartifact -}}
+{{- $ca := dict "domain" (.domain | default "" | toString) "domainOwner" (.domainOwner | default "" | toString) "region" (.region | default "" | toString) -}}
+{{- with .durationSeconds }}{{ $_ := set $ca "durationSeconds" (int .) }}{{ end -}}
+{{- $_ := set $a "codeartifact" $ca -}}
+{{- end -}}
+{{- $e := dict "name" $name "ecosystem" ($r.ecosystem | default "") "url" ($r.url | default "") "auth" $a -}}
+{{- with $r.fileHosts }}{{ $_ := set $e "fileHosts" . }}{{ end -}}
+{{- with $r.redirectHosts }}{{ $_ := set $e "redirectHosts" . }}{{ end -}}
+{{- with $r.internal -}}
+{{- $in := dict "cidrs" (.cidrs | default list) -}}
+{{- with .podSelector }}{{ $_ := set $in "podSelector" . }}{{ end -}}
+{{- with .targetPort }}{{ $_ := set $in "targetPort" (int .) }}{{ end -}}
+{{- $_ := set $e "internal" $in -}}
+{{- end -}}
+{{- $pm := include "patchy.egressPrivateModules" $r | fromJsonArray -}}
+{{- if and (eq ($r.ecosystem | default "") "go") (not (kindIs "invalid" $r.privateModules)) -}}
+{{- $_ := set $e "privateModules" $pm -}}
+{{- end -}}
+{{- if kindIs "bool" $r.publicChecksumLookups }}{{ $_ := set $e "publicChecksumLookups" $r.publicChecksumLookups }}{{ end -}}
+{{- with $r.maxArtifactBytes }}{{ $_ := set $e "maxArtifactBytes" (int64 .) }}{{ end -}}
+{{- with $r.healthPackage }}{{ $_ := set $e "healthPackage" (toString .) }}{{ end -}}
+{{- if $r.ca }}{{ $_ := set $e "ca" true }}{{ end -}}
+{{- $out = append $out $e -}}
 {{- end -}}
 {{- toJson $out -}}
 {{- end }}
@@ -669,5 +785,441 @@ The job controllers and the proxy re-validate the whole set at startup
 {{- end -}}
 {{- end -}}
 {{- end -}}
+{{- include "patchy.egressRegistriesGuard" . -}}
 {{- end -}}
+{{- end }}
+
+{{/*
+Render-time guards for egressProxy.registries and the profiles' grants
+(step 2), continuing patchy.egressProxyGuard's numbering; called from it, so
+only while egressProxy.enabled:
+
+   9. a grant names a registry missing from egressProxy.registries;
+  10. a profile holds two grants of one ecosystem;
+  11. a grant has neither packages nor packagePolicy: registry, or both;
+  12. a codeartifact registry with cloudCredentials none, on ecosystem go,
+      or whose URL host is not its domain's endpoint;
+  13. a registry URL host on the deny list (patchy.egressDeniedHost: forges,
+      model APIs, the broker's overrides, every profile's forge host, the
+      Kubernetes API; in-cluster names and IP literals only when internal);
+  14. a port other than 443 without internal;
+  15. internal.cidrs overlapping the always-denied set (the fixed ranges,
+      clusterDNSCIDR, attribution.apiServerCIDRs), or a non-/32 entry inside
+      agent.networkPolicy.clusterCIDRs (the Kubernetes Service IP is not
+      known here; the binary refuses it);
+  16. bearer or basic without auth.secretName, none or codeartifact with
+      one; auth.codeartifact on any other type, or missing on codeartifact;
+  17. privateModules/publicChecksumLookups on a non-go registry; scripts or
+      allowPrerelease on a non-npm grant, sdists on a non-pypi grant,
+      allowPseudoVersions on a non-go grant; internal.targetPort without
+      internal.podSelector;
+  18. a go registry without both privateModules (a list, possibly empty)
+      and publicChecksumLookups;
+  19. a fileHosts entry that is denied or not an exact host; a
+      redirectHosts entry that is denied, or a *. pattern that overlaps the
+      deny list, covers a shared cloud suffix or has fewer than three
+      labels after the * (patchy.egressDeniedPattern).
+
+Beside them: a pypi URL that does not end /simple/, a profile with neither
+a route nor a grant, and cloudCredentials irsa on a chart-created
+ServiceAccount without the eks.amazonaws.com/role-arn annotation. The
+egress proxy re-validates all of it at startup (netprofile.ParseRegistries
+and CheckGrants), and the job controllers check every grant's hosts
+against each Forge CR at launch.
+*/}}
+{{- define "patchy.egressRegistriesGuard" -}}
+{{- $ep := .Values.egressProxy -}}
+{{- $regs := $ep.registries | default dict -}}
+{{- $cloud := $ep.cloudCredentials | default "none" -}}
+{{- $extra := splitList " " (include "patchy.egressExtraDenyHosts" .) -}}
+{{- $always := splitList " " (include "patchy.egressAlwaysDeniedCIDRs" .) -}}
+{{- $alwaysWhy := dict -}}
+{{- range $always }}{{ $_ := set $alwaysWhy . "the always-denied range" }}{{ end -}}
+{{- with .Values.clusterDNSCIDR -}}
+{{- if regexMatch `^[0-9.]+/[0-9]+$` (toString .) -}}
+{{- $always = append $always (toString .) -}}
+{{- $_ := set $alwaysWhy (toString .) "clusterDNSCIDR" -}}
+{{- end -}}
+{{- end -}}
+{{- $attr := $ep.attribution | default dict -}}
+{{- if $attr.enabled -}}
+{{- range $attr.apiServerCIDRs | default list -}}
+{{- $always = append $always (toString .) -}}
+{{- $_ := set $alwaysWhy (toString .) "attribution.apiServerCIDRs" -}}
+{{- end -}}
+{{- end -}}
+{{- $clusterCIDRs := list -}}
+{{- range .Values.agent.networkPolicy.clusterCIDRs | default list -}}
+{{- if regexMatch `^[0-9.]+/[0-9]+$` (toString .) }}{{ $clusterCIDRs = append $clusterCIDRs (toString .) }}{{ end -}}
+{{- end -}}
+{{- range $name := keys $regs | sortAlpha -}}
+{{- $r := index $regs $name | default dict -}}
+{{- $at := printf "egressProxy.registries.%s" $name -}}
+{{- $eco := $r.ecosystem | default "" | toString -}}
+{{- $auth := $r.auth | default dict -}}
+{{- $type := $auth.type | default "" | toString -}}
+{{- $u := urlParse ($r.url | default "" | toString) -}}
+{{- $host := $u.hostname -}}
+{{- $port := "443" -}}
+{{- with regexFind `:[0-9]+$` $u.host }}{{ $port = trimPrefix ":" . }}{{ end -}}
+{{- $in := $r.internal -}}
+{{- $cidrs := list -}}
+{{- with $in }}{{ $cidrs = .cidrs | default list }}{{ end -}}
+{{- /* 16 */ -}}
+{{- if and (has $type (list "bearer" "basic")) (not $auth.secretName) -}}
+{{- fail (printf "%s.auth.secretName is required with auth.type %s: the Secret in the release namespace the proxy reads %s from (you create it; the chart never does)" $at $type (ternary "key token" "keys username and password" (eq $type "bearer"))) -}}
+{{- end -}}
+{{- if and (has $type (list "none" "codeartifact")) $auth.secretName -}}
+{{- fail (printf "%s.auth.secretName is set with auth.type %s, which reads no Secret: drop it" $at $type) -}}
+{{- end -}}
+{{- if and (eq $type "codeartifact") (not $auth.codeartifact) -}}
+{{- fail (printf "%s.auth.codeartifact (domain, domainOwner, region) is required with auth.type codeartifact" $at) -}}
+{{- end -}}
+{{- if and (ne $type "codeartifact") $auth.codeartifact -}}
+{{- fail (printf "%s.auth.codeartifact is set with auth.type %s: it belongs to auth.type codeartifact only" $at $type) -}}
+{{- end -}}
+{{- /* 12 */ -}}
+{{- if eq $type "codeartifact" -}}
+{{- if eq $cloud "none" -}}
+{{- fail (printf "%s is a codeartifact registry but egressProxy.cloudCredentials is none: set irsa or podIdentity so the proxy can mint its token" $at) -}}
+{{- end -}}
+{{- if eq $eco "go" -}}
+{{- fail (printf "%s: codeartifact has no Go module support; a codeartifact registry is npm or pypi" $at) -}}
+{{- end -}}
+{{- $ca := $auth.codeartifact -}}
+{{- $prefix := printf "%s-%s.d.codeartifact.%s" (toString $ca.domain) (toString $ca.domainOwner) (toString $ca.region) -}}
+{{- if not (has $host (list (printf "%s.amazonaws.com" $prefix) (printf "%s.on.aws" $prefix))) -}}
+{{- fail (printf "%s.url host %s is not the CodeArtifact endpoint of its auth.codeartifact domain, owner and region (%s.amazonaws.com): a typo here would send the token to another host" $at $host $prefix) -}}
+{{- end -}}
+{{- end -}}
+{{- /* 13 */ -}}
+{{- with include "patchy.egressDeniedHost" (dict "host" $host "internal" (not (not $in)) "cidrs" $cidrs "extra" $extra) -}}
+{{- fail (printf "%s.url host %s %s: a registry may never be a forge, a model API, the Kubernetes API, or (without internal) an in-cluster or private address" $at $host .) -}}
+{{- end -}}
+{{- /* 14 */ -}}
+{{- if and (ne $port "443") (not $in) -}}
+{{- fail (printf "%s.url names port %s: a public registry is reached on 443 only; set internal (cidrs) for a private registry" $at $port) -}}
+{{- end -}}
+{{- if and (eq $eco "pypi") (not (hasSuffix "/simple/" $u.path)) -}}
+{{- fail (printf "%s.url must be the index URL, ending /simple/" $at) -}}
+{{- end -}}
+{{- /* 15 */ -}}
+{{- range $c := $cidrs -}}
+{{- $c = toString $c -}}
+{{- $rng := splitList " " (include "patchy.ipv4Range" $c) -}}
+{{- if or (eq (index $rng 2) "0") (gt (atoi (index $rng 1)) 4294967295) -}}
+{{- fail (printf "%s.internal.cidrs entry %s is not a masked IPv4 CIDR (write the network address)" $at $c) -}}
+{{- end -}}
+{{- range $d := $always -}}
+{{- if include "patchy.ipv4Overlap" (list $c $d) -}}
+{{- fail (printf "%s.internal.cidrs entry %s overlaps %s %s, which the proxy never dials" $at $c (get $alwaysWhy $d) $d) -}}
+{{- end -}}
+{{- end -}}
+{{- range $cc := $clusterCIDRs -}}
+{{- if and (include "patchy.ipv4Overlap" (list $c $cc)) (not (hasSuffix "/32" $c)) -}}
+{{- fail (printf "%s.internal.cidrs entry %s is inside agent.networkPolicy.clusterCIDRs %s: list the registry's ClusterIP as a /32, never a range that could admit kubernetes.default or its neighbours" $at $c $cc) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- /* 17 and 18 */ -}}
+{{- $hasPM := not (kindIs "invalid" $r.privateModules) -}}
+{{- $hasPCL := not (kindIs "invalid" $r.publicChecksumLookups) -}}
+{{- if and (ne $eco "go") (or $hasPM $hasPCL) -}}
+{{- fail (printf "%s: privateModules and publicChecksumLookups are for go registries only" $at) -}}
+{{- end -}}
+{{- if and (eq $eco "go") (not (and $hasPM $hasPCL)) -}}
+{{- fail (printf "%s is a go registry and must state both privateModules (a list, possibly empty: module prefixes only it serves, never looked up in sum.golang.org) and publicChecksumLookups (may other modules it serves be checked against sum.golang.org?); there is no default" $at) -}}
+{{- end -}}
+{{- if and $in $in.targetPort (not $in.podSelector) -}}
+{{- fail (printf "%s.internal.targetPort is the podSelector rule's port: it needs internal.podSelector" $at) -}}
+{{- end -}}
+{{- /* 19 */ -}}
+{{- range $r.fileHosts | default list -}}
+{{- $fh := toString . -}}
+{{- if or (hasPrefix "*." $fh) (regexMatch `^[0-9.]+$` $fh) -}}
+{{- fail (printf "%s.fileHosts entry %s is not an exact host name: the agent chooses file paths there, so only exact hosts are allowed" $at $fh) -}}
+{{- end -}}
+{{- with include "patchy.egressDeniedHost" (dict "host" $fh "internal" (not (not $in)) "cidrs" $cidrs "extra" $extra) -}}
+{{- fail (printf "%s.fileHosts entry %s %s" $at $fh .) -}}
+{{- end -}}
+{{- end -}}
+{{- range $r.redirectHosts | default list -}}
+{{- $rh := toString . -}}
+{{- $why := "" -}}
+{{- if hasPrefix "*." $rh -}}
+{{- $why = include "patchy.egressDeniedPattern" (dict "host" $rh "internal" (not (not $in)) "cidrs" $cidrs "extra" $extra) -}}
+{{- else -}}
+{{- $why = include "patchy.egressDeniedHost" (dict "host" $rh "internal" (not (not $in)) "cidrs" $cidrs "extra" $extra) -}}
+{{- end -}}
+{{- with $why -}}
+{{- fail (printf "%s.redirectHosts entry %s %s: a redirect is followed without the credential, but never to a denied or shared host" $at $rh .) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- /* The profiles' grants: 9, 10, 11 and 17's grant half. */ -}}
+{{- $profiles := .Values.agent.networkProfiles | default dict -}}
+{{- range $pname := keys $profiles | sortAlpha -}}
+{{- $p := index $profiles $pname | default dict -}}
+{{- $grants := $p.registries | default dict -}}
+{{- if and (not $p.route) (not $grants) -}}
+{{- fail (printf "agent.networkProfiles.%s needs route: go or at least one registries grant" $pname) -}}
+{{- end -}}
+{{- $seen := dict -}}
+{{- range $gname := keys $grants | sortAlpha -}}
+{{- $g := index $grants $gname | default dict -}}
+{{- $at := printf "agent.networkProfiles.%s.registries.%s" $pname $gname -}}
+{{- if not (hasKey $regs $gname) -}}
+{{- fail (printf "%s grants a registry that egressProxy.registries does not define" $at) -}}
+{{- end -}}
+{{- $eco := (index $regs $gname | default dict).ecosystem | default "" | toString -}}
+{{- if hasKey $seen $eco -}}
+{{- fail (printf "agent.networkProfiles.%s grants two %s registries (%s and %s): a profile holds at most one grant per ecosystem, since each package manager takes one index" $pname $eco (get $seen $eco) $gname) -}}
+{{- end -}}
+{{- $_ := set $seen $eco $gname -}}
+{{- if not (or $g.packages $g.packagePolicy) -}}
+{{- fail (printf "%s must say what it admits: packages (an allowlist) or packagePolicy: registry (the registry's own curation); there is no default" $at) -}}
+{{- end -}}
+{{- if and $g.packages $g.packagePolicy -}}
+{{- fail (printf "%s sets both packages and packagePolicy: choose one" $at) -}}
+{{- end -}}
+{{- if and (or $g.scripts $g.allowPrerelease) (ne $eco "npm") -}}
+{{- fail (printf "%s: scripts and allowPrerelease are for npm grants only" $at) -}}
+{{- end -}}
+{{- if and $g.sdists (ne $eco "pypi") -}}
+{{- fail (printf "%s: sdists is for pypi grants only" $at) -}}
+{{- end -}}
+{{- if and $g.allowPseudoVersions (ne $eco "go") -}}
+{{- fail (printf "%s: allowPseudoVersions is for go grants only" $at) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- /* The proxy's own AWS identity. */ -}}
+{{- if and (eq $cloud "irsa") (($ep.serviceAccount | default dict).create) (not (hasKey (($ep.serviceAccount | default dict).annotations | default dict) "eks.amazonaws.com/role-arn")) -}}
+{{- fail "egressProxy.cloudCredentials irsa needs the role on egressProxy.serviceAccount.annotations (eks.amazonaws.com/role-arn)" -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+The egress proxy's hard-deny table, as literal lists (netprofile/denied.go is
+the binary's copy; TestDeniedHostMatchesChart reads these bodies and holds
+them equal to it). Each is a space-separated list.
+
+  forge and model hosts: each denies the host and every name below it;
+  cluster hosts: the Kubernetes API's in-cluster names, denied exactly;
+  cluster suffixes: in-cluster names, denied unless the registry is internal;
+  too-wide suffixes: shared multi-tenant suffixes no redirectHosts pattern
+    may equal or cover;
+  always-denied CIDRs: no internal registry may ever list these.
+*/}}
+{{- define "patchy.egressDeniedForgeHosts" -}}
+github.com githubusercontent.com
+{{- end }}
+
+{{- define "patchy.egressDeniedModelHosts" -}}
+anthropic.com openai.com openai.azure.com services.ai.azure.com cognitiveservices.azure.com aiplatform.googleapis.com generativelanguage.googleapis.com
+{{- end }}
+
+{{- define "patchy.egressDeniedClusterHosts" -}}
+kubernetes kubernetes.default kubernetes.default.svc kubernetes.default.svc.cluster.local
+{{- end }}
+
+{{- define "patchy.egressClusterSuffixes" -}}
+svc cluster.local
+{{- end }}
+
+{{- define "patchy.egressTooWideSuffixes" -}}
+amazonaws.com s3.amazonaws.com cloudfront.net googleapis.com storage.googleapis.com appspot.com azure.com windows.net blob.core.windows.net azureedge.net githubusercontent.com github.io fastly.net akamaized.net r2.cloudflarestorage.com
+{{- end }}
+
+{{- define "patchy.egressAlwaysDeniedCIDRs" -}}
+0.0.0.0/8 127.0.0.0/8 169.254.0.0/16 224.0.0.0/4 240.0.0.0/4
+{{- end }}
+
+{{- define "patchy.egressMinPatternLabels" -}}
+3
+{{- end }}
+
+{{/*
+The hosts of the egress broker's base-URL overrides
+(PATCHY_{ANTHROPIC,BEDROCK,VERTEX,FOUNDRY}_BASE_URL in config.extra or
+egressBroker.config.extra), sorted and space-separated: model API hosts the
+fixed table cannot know, denied to every registry, file host and redirect
+hop (guard 13, and PATCHY_DENY_HOSTS for the proxy's request-time check). An
+override set through extraEnvFrom is invisible here.
+*/}}
+{{- define "patchy.egressBrokerOverrideHosts" -}}
+{{- $hosts := list -}}
+{{- $broker := (.Values.egressBroker | default dict).config | default dict -}}
+{{- range $src := list (.Values.config.extra | default dict) ($broker.extra | default dict) -}}
+{{- range $k := list "PATCHY_ANTHROPIC_BASE_URL" "PATCHY_BEDROCK_BASE_URL" "PATCHY_VERTEX_BASE_URL" "PATCHY_FOUNDRY_BASE_URL" -}}
+{{- with index $src $k -}}
+{{- with lower (urlParse (toString .)).hostname -}}
+{{- $hosts = append $hosts . -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- $hosts | uniq | sortAlpha | join " " -}}
+{{- end }}
+
+{{/*
+Every further denied host the chart knows, space-separated: each profile's
+forge host (default github.com) and the broker's base-URL overrides.
+*/}}
+{{- define "patchy.egressExtraDenyHosts" -}}
+{{- $hosts := list -}}
+{{- range $p := values (.Values.agent.networkProfiles | default dict) -}}
+{{- $hosts = append $hosts (($p | default dict).host | default "github.com" | toString | lower) -}}
+{{- end -}}
+{{- with include "patchy.egressBrokerOverrideHosts" . -}}
+{{- $hosts = concat $hosts (splitList " " .) -}}
+{{- end -}}
+{{- $hosts | uniq | sortAlpha | join " " -}}
+{{- end }}
+
+{{/*
+An IPv4 address or CIDR as "<first> <last> <masked>" integers ("masked" is
+1 when the address is the prefix's first, as netip.Prefix.Masked demands):
+the arithmetic guard 15's overlap checks need. A plain address is a /32.
+*/}}
+{{- define "patchy.ipv4Range" -}}
+{{- $parts := splitList "/" (toString .) -}}
+{{- $bits := 32 -}}
+{{- if gt (len $parts) 1 }}{{ $bits = atoi (index $parts 1) }}{{ end -}}
+{{- $o := splitList "." (index $parts 0) -}}
+{{- $n := add (mul (atoi (index $o 0)) 16777216) (mul (atoi (index $o 1)) 65536) (mul (atoi (index $o 2)) 256) (atoi (index $o 3)) -}}
+{{- $size := 1 -}}
+{{- range until (int (sub 32 $bits)) }}{{ $size = mul $size 2 }}{{ end -}}
+{{- $start := mul (div $n $size) $size -}}
+{{- printf "%d %d %d" $start (sub (add $start $size) 1) (ternary 1 0 (eq $start $n)) -}}
+{{- end }}
+
+{{/*
+Whether two IPv4 CIDRs overlap: "yes" or "". Context: list a b.
+*/}}
+{{- define "patchy.ipv4Overlap" -}}
+{{- $a := splitList " " (include "patchy.ipv4Range" (index . 0)) -}}
+{{- $b := splitList " " (include "patchy.ipv4Range" (index . 1)) -}}
+{{- if and (le (atoi (index $a 0)) (atoi (index $b 1))) (le (atoi (index $b 0)) (atoi (index $a 1))) -}}
+yes
+{{- end -}}
+{{- end }}
+
+{{/*
+netprofile.DeniedHost in the chart: why a host may not be a registry, file
+or redirect host, or "" when it may. Context: dict "host" <host> "internal"
+<bool: the registry is internal> "cidrs" <its internal.cidrs> "extra"
+<further denied hosts, a list>.
+*/}}
+{{- define "patchy.egressDeniedHost" -}}
+{{- $h := trimSuffix "." (lower (toString .host)) -}}
+{{- $why := "" -}}
+{{- if not $h -}}
+{{- $why = "is empty" -}}
+{{- else if or (hasPrefix "[" $h) (contains ":" $h) -}}
+{{- $why = "is an IPv6 literal" -}}
+{{- else if regexMatch `^[0-9]{1,3}(\.[0-9]{1,3}){3}$` $h -}}
+{{- range splitList " " (include "patchy.egressAlwaysDeniedCIDRs" .) -}}
+{{- if and (not $why) (include "patchy.ipv4Overlap" (list . $h)) -}}
+{{- $why = printf "is in the always-denied range %s" . -}}
+{{- end -}}
+{{- end -}}
+{{- if not $why -}}
+{{- $inside := "" -}}
+{{- range .cidrs | default list -}}
+{{- if include "patchy.ipv4Overlap" (list (toString .) $h) }}{{ $inside = "yes" }}{{ end -}}
+{{- end -}}
+{{- if not $inside }}{{ $why = "is an IP literal outside the registry's internal.cidrs" }}{{ end -}}
+{{- end -}}
+{{- else -}}
+{{- $denied := concat (splitList " " (include "patchy.egressDeniedForgeHosts" .)) (splitList " " (include "patchy.egressDeniedModelHosts" .)) (.extra | default list) -}}
+{{- range $denied -}}
+{{- $d := trimSuffix "." (lower (toString .)) -}}
+{{- if and (not $why) $d (or (eq $h $d) (hasSuffix (printf ".%s" $d) $h)) -}}
+{{- $why = printf "is %s or below it (a forge, a model API or the broker's)" $d -}}
+{{- end -}}
+{{- end -}}
+{{- if and (not $why) (has $h (splitList " " (include "patchy.egressDeniedClusterHosts" .))) -}}
+{{- $why = "is the Kubernetes API" -}}
+{{- end -}}
+{{- if not $why -}}
+{{- $labels := splitList "." $h -}}
+{{- $n := len $labels -}}
+{{- if hasSuffix ".amazonaws.com" $h -}}
+{{- if and (ge $n 4) (hasPrefix "bedrock" (index $labels (sub $n 4))) -}}
+{{- $why = "is a Bedrock endpoint (bedrock*.<region>.amazonaws.com)" -}}
+{{- else if and (ge $n 5) (eq (index $labels (sub $n 3)) "vpce") (hasPrefix "bedrock" (index $labels (sub $n 5))) -}}
+{{- $why = "is a Bedrock VPC endpoint" -}}
+{{- end -}}
+{{- end -}}
+{{- if and (eq $n 3) (eq (index $labels 1) "googleapis") (eq (index $labels 2) "com") (hasSuffix "-aiplatform" (index $labels 0)) -}}
+{{- $why = "is a regional Vertex AI endpoint (*-aiplatform.googleapis.com)" -}}
+{{- end -}}
+{{- end -}}
+{{- if and (not $why) (not .internal) -}}
+{{- range splitList " " (include "patchy.egressClusterSuffixes" .) -}}
+{{- if and (not $why) (or (eq $h .) (hasSuffix (printf ".%s" .) $h)) -}}
+{{- $why = "is an in-cluster name and the registry is not internal" -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- $why -}}
+{{- end }}
+
+{{/*
+netprofile.DeniedPattern in the chart: why a redirectHosts wildcard
+"*.suffix" may not be used, or "" when it may. Same context as
+patchy.egressDeniedHost.
+*/}}
+{{- define "patchy.egressDeniedPattern" -}}
+{{- $suffix := trimPrefix "*." (toString .host) -}}
+{{- $why := "" -}}
+{{- $labels := splitList "." $suffix -}}
+{{- $n := len $labels -}}
+{{- if or (not (regexMatch `^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$` $suffix)) (regexMatch `(^|\.)-|-(\.|$)|\.\.` $suffix) -}}
+{{- $why = "is not *. followed by a lowercase host name" -}}
+{{- else if lt $n (int (include "patchy.egressMinPatternLabels" .)) -}}
+{{- $why = printf "has fewer than %s labels after the *" (include "patchy.egressMinPatternLabels" .) -}}
+{{- else if regexMatch `^[0-9]{1,3}(\.[0-9]{1,3}){3}$` $suffix -}}
+{{- $why = "wildcards an address" -}}
+{{- end -}}
+{{- if not $why -}}
+{{- range splitList " " (include "patchy.egressTooWideSuffixes" .) -}}
+{{- if and (not $why) (or (eq . $suffix) (hasSuffix (printf ".%s" $suffix) .)) -}}
+{{- $why = printf "covers the shared suffix %s" . -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if not $why -}}
+{{- $denied := concat (splitList " " (include "patchy.egressDeniedForgeHosts" .)) (splitList " " (include "patchy.egressDeniedModelHosts" .)) (.extra | default list) -}}
+{{- range $denied -}}
+{{- $d := trimSuffix "." (lower (toString .)) -}}
+{{- if and (not $why) $d (or (eq $suffix $d) (hasSuffix (printf ".%s" $d) $suffix) (hasSuffix (printf ".%s" $suffix) $d)) -}}
+{{- $why = printf "overlaps the denied %s" $d -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if not $why -}}
+{{- range splitList " " (include "patchy.egressDeniedClusterHosts" .) -}}
+{{- if and (not $why) (or (eq . $suffix) (hasSuffix (printf ".%s" $suffix) .)) -}}
+{{- $why = printf "can match the Kubernetes API name %s" . -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if and (not $why) (not .internal) -}}
+{{- range splitList " " (include "patchy.egressClusterSuffixes" .) -}}
+{{- if and (not $why) (or (eq $suffix .) (hasSuffix (printf ".%s" .) $suffix)) -}}
+{{- $why = "is an in-cluster name" -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if and (not $why) (hasSuffix ".amazonaws.com" (printf ".%s" $suffix)) -}}
+{{- if or (le $n 3) (hasPrefix "bedrock" (index $labels (sub $n 4))) -}}
+{{- $why = "can match a Bedrock endpoint" -}}
+{{- else if and (eq (index $labels (sub $n 3)) "vpce") (or (le $n 4) (hasPrefix "bedrock" (index $labels (sub $n 5)))) -}}
+{{- $why = "can match a Bedrock VPC endpoint" -}}
+{{- end -}}
+{{- end -}}
+{{- $why -}}
 {{- end }}

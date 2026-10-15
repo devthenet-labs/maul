@@ -3,11 +3,14 @@ Copyright 2026 Bitwise Media Group Ltd.
 SPDX-License-Identifier: MIT
 
 The egress proxy (cmd/egress-proxy), in one file (modeled on
-egress-broker.yaml): the operator's Go dependency route for agent Jobs. A
-GOPROXY-protocol reverse proxy to proxy.golang.org and sum.golang.org that
-forwards only GET/HEAD module and checksum-database requests for each
-profile's allowlisted module prefixes, holds no credential, caches nothing
-and mounts no ServiceAccount token unless attribution is on.
+egress-broker.yaml): the operator's dependency route for agent Jobs. It
+forwards only GET/HEAD requests: GOPROXY and checksum-database requests to
+proxy.golang.org and sum.golang.org for each profile's allowlisted module
+prefixes, and, for a profile granted a registry (egressProxy.registries),
+Go, npm or PyPI simple-index requests below that registry's fixed base URL.
+It holds a credential only for the registries configured (a Secret mounted
+read-only, or a CodeArtifact token it mints with its own AWS identity),
+caches nothing, and mounts no ServiceAccount token unless attribution is on.
 
 One listener per agent.networkProfiles entry. The port is the identity: the
 NetworkPolicy below admits only pods labelled for that profile from the
@@ -77,6 +80,37 @@ built-in private, link-local and reserved ranges.
 }}
 {{- with index $limits $key }}
 {{- $_ := set $data $env . }}
+{{- end }}
+{{- end }}
+{{- /*
+Registries (step 2) stamp their keys only when some are configured:
+the registries JSON (no Secret name in it, ever), the broker's base-URL
+override hosts as further request-time redirect denials, and, only when a
+registry is internal, the ranges no internal admission may cover (cluster
+DNS, and the API server's endpoints under attribution).
+*/}}
+{{- $regs := $vals.registries | default dict }}
+{{- $internal := false }}
+{{- $files := list }}
+{{- $cas := list }}
+{{- range $rname := keys $regs | sortAlpha }}
+{{- $r := index $regs $rname | default dict }}
+{{- if $r.internal }}{{ $internal = true }}{{ end }}
+{{- if has (($r.auth | default dict).type | default "") (list "bearer" "basic") }}{{ $files = append $files $rname }}{{ end }}
+{{- if $r.ca }}{{ $cas = append $cas $rname }}{{ end }}
+{{- end }}
+{{- if $regs }}
+{{- $_ := set $data "PATCHY_EGRESS_REGISTRIES" (include "patchy.egressRegistriesJSON" .) }}
+{{- with include "patchy.egressBrokerOverrideHosts" . }}
+{{- $_ := set $data "PATCHY_DENY_HOSTS" (splitList " " . | join ",") }}
+{{- end }}
+{{- if $internal }}
+{{- $alwaysDeny := list }}
+{{- with .Values.clusterDNSCIDR }}{{ $alwaysDeny = append $alwaysDeny (toString .) }}{{ end }}
+{{- if $attr.enabled }}{{ $alwaysDeny = concat $alwaysDeny ($attr.apiServerCIDRs | default list) }}{{ end }}
+{{- with $alwaysDeny }}
+{{- $_ := set $data "PATCHY_ALWAYS_DENY_CIDRS" (join "," (uniq .)) }}
+{{- end }}
 {{- end }}
 {{- end }}
 {{- range $k, $v := .Values.config.extra }}
@@ -228,6 +262,16 @@ spec:
                   volumeMounts:
                       - name: tmp
                         mountPath: /tmp
+                      {{- if $files }}
+                      - name: registry-credentials
+                        mountPath: /etc/patchy/registry-credentials
+                        readOnly: true
+                      {{- end }}
+                      {{- if $cas }}
+                      - name: registry-ca
+                        mountPath: /etc/patchy/registry-ca
+                        readOnly: true
+                      {{- end }}
                       {{- with $vals.extraVolumeMounts }}
                       {{- toYaml . | nindent 22 }}
                       {{- end }}
@@ -246,6 +290,48 @@ spec:
             volumes:
                 - name: tmp
                   emptyDir: {}
+                {{- if $files }}
+                # The bearer and basic registries' credentials: one Secret
+                # per registry, created by the operator in this namespace,
+                # each key projected to <registry>/<key> (no subPath, so
+                # kubelet refreshes a rotated Secret and the proxy re-reads
+                # it without a restart). optional false: a missing Secret
+                # holds the new pod in ContainerCreating, loudly, while the
+                # surge-only rollout keeps the old pods serving.
+                - name: registry-credentials
+                  projected:
+                      defaultMode: 288 # 0440: readable through the pod's fsGroup
+                      sources:
+                          {{- range $rname := $files }}
+                          {{- $auth := (index $regs $rname).auth }}
+                          - secret:
+                                name: {{ $auth.secretName }}
+                                optional: false
+                                items:
+                                    {{- range $key := ternary (list "token") (list "username" "password") (eq $auth.type "bearer") }}
+                                    - key: {{ $key }}
+                                      path: {{ $rname }}/{{ $key }}
+                                    {{- end }}
+                          {{- end }}
+                {{- end }}
+                {{- if $cas }}
+                # Each registry's CA bundle as <registry>.pem; that registry
+                # then trusts only it. Read at startup: roll the proxy after
+                # editing the ConfigMap.
+                - name: registry-ca
+                  projected:
+                      defaultMode: 292 # 0444
+                      sources:
+                          {{- range $rname := $cas }}
+                          {{- $ca := (index $regs $rname).ca }}
+                          - configMap:
+                                name: {{ $ca.configMap }}
+                                optional: false
+                                items:
+                                    - key: {{ $ca.key }}
+                                      path: {{ $rname }}.pem
+                          {{- end }}
+                {{- end }}
                 {{- with $vals.extraVolumes }}
                 {{- toYaml . | nindent 16 }}
                 {{- end }}
@@ -368,6 +454,47 @@ spec:
           ports:
               - protocol: TCP
                 port: 443
+        {{- range $rname := keys $regs | sortAlpha }}
+        {{- $r := index $regs $rname }}
+        {{- with $r.internal }}
+        {{- $urlPort := 443 }}
+        {{- with regexFind `:[0-9]+$` (urlParse (toString $r.url)).host }}{{ $urlPort = trimPrefix ":" . | atoi }}{{ end }}
+        # Internal registry {{ $rname }}: its CIDRs on its URL's port, which
+        # is all the proxy's dialer admits for it.
+        - to:
+              {{- range .cidrs }}
+              - ipBlock:
+                    cidr: {{ . }}
+              {{- end }}
+          ports:
+              - protocol: TCP
+                port: {{ $urlPort }}
+        {{- with .podSelector }}
+        # ...and its pods, on their container port: NetworkPolicy judges a
+        # Service's traffic after DNAT, by pod IP and targetPort.
+        - to:
+              - namespaceSelector:
+                    matchLabels:
+                        kubernetes.io/metadata.name: {{ .namespace }}
+                podSelector:
+                    matchLabels:
+                        {{- toYaml .matchLabels | nindent 24 }}
+          ports:
+              - protocol: TCP
+                port: {{ $r.internal.targetPort | default $urlPort | int }}
+        {{- end }}
+        {{- end }}
+        {{- end }}
+        {{- if eq ($vals.cloudCredentials | default "none") "podIdentity" }}
+        # The EKS Pod Identity agent, for the CodeArtifact token: the proxy's
+        # credential client alone dials it, never a forwarded request.
+        - to:
+              - ipBlock:
+                    cidr: 169.254.170.23/32
+          ports:
+              - protocol: TCP
+                port: 80
+        {{- end }}
         {{- if $attr.enabled }}
         # The API server's endpoint IPs, for attribution's pod informer.
         - to:
@@ -381,6 +508,39 @@ spec:
               - protocol: TCP
                 port: 6443
         {{- end }}
+        {{- with ($vals.networkPolicy | default dict).extraEgress }}
+        # Operator-supplied additions (egressProxy.networkPolicy.extraEgress).
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+{{- if and (eq (include "patchy.egressMode" .) "cilium") (eq ($vals.cloudCredentials | default "none") "podIdentity") }}
+---
+# The EKS Pod Identity agent is a hostNetwork process on the pod's own node:
+# Cilium classifies it as the reserved host entity, which no ipBlock (the
+# rule above included) can match, so under mode cilium this grants it, as
+# egress-broker.yaml's cloud-credentials policy does for the broker.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+    name: {{ $fullname }}-{{ $name }}-cloud-credentials
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "patchy.labels" (dict "root" . "name" $name) | nindent 8 }}
+    {{- with include "patchy.annotations" (dict "root" .) }}
+    annotations:
+        {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    endpointSelector:
+        matchLabels:
+            {{- include "patchy.selectorLabels" (dict "root" . "name" $name) | nindent 12 }}
+    egress:
+        - toEntities:
+              - host
+          toPorts:
+              - ports:
+                    - port: "80"
+                      protocol: TCP
+{{- end }}
 {{- if $attr.enabled }}
 ---
 # Attribution: read-only pods in the agent namespace, so an audit line can
