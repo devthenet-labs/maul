@@ -7,7 +7,63 @@
 > documentation values `111122223333` and `203.0.113.10/32`. The real ones are in terraform-devthenet's `k8s/` values
 > (private).
 
-## Current checkpoint — 2026-10-14: agent DNS off, signed agent images required, and 0.12.28
+## Current checkpoint — 2026-10-15: the Go dependency route, and 0.12.29 to 0.12.32
+
+**Agents can now add and upgrade Go dependencies.** Before this, an agent pod had no network, so a fix or build that
+needed a new module could not fetch it. 0.12.31 adds `cmd/egress-proxy`, an in-cluster GOPROXY that alone reaches
+proxy.golang.org and sum.golang.org, and operator-defined network profiles that give matching repositories' remediate
+and intent build Jobs a route to it. Agent pods keep `dns: none`; the profile's port is the pod's identity. See
+[docs/configuration/egress-proxy.md](docs/configuration/egress-proxy.md) and the security invariant below.
+
+- Live on devthenet-dev: Helm patchy rev 86 (0.12.32, profile `go` on) and patchy-config rev 53. Rollbacks:
+  - `egressProxy.suspendProfiles: true` (rev 85 was this): the proxy answers 410 at once and new Jobs get no profile;
+  - rev 82: 0.12.31 with the proxy off; rev 81: 0.12.30.
+- Values (terraform-devthenet #54): profile `go` for `patchy-preview-demo` and `patchy-target`, module prefixes
+  github.com, golang.org/x, google.golang.org, gopkg.in, go.opentelemetry.io, k8s.io and sigs.k8s.io, tagged releases
+  only, baked cache `/opt/go/pkg/mod`. Repositories declare nothing; the operator maps profiles to repositories.
+- How it was decided: direct registry egress through EKS Auto Mode's FQDN policies was probed live and rejected (it
+  needs a resolver in the pod and filters by address, not name). Per-language mirrors were rejected as too many
+  services. An independent review reordered the plan to a Go-protocol route first: it sees module paths, so it can
+  refuse vanity origins and pseudo-versions, and it needs no `HTTPS_PROXY` or token in the pod.
+- Built as #183 (shared limiter, `internal/netprofile`), #185 (Job wiring, prompts, controllers), #186
+  (`internal/egressproxy`, the binary), #187 (chart, docs), #188 (version-neutral render goldens) and #189 (the plan
+  comment says which builds can fetch modules).
+- Gates on devthenet-dev, all passed:
+  - Probes: a labelled pod fetched `github.com/google/uuid` through the proxy with checksums verified; disallowed
+    modules and pseudo-versions were refused; nothing else was reachable. An unlabelled pod could not reach the proxy.
+    Held through a proxy restart, and from fresh pods.
+  - A bump past a baked version (uuid v1.5.0 to v1.6.0) came through the proxy; a refused module still built from the
+    baked cache.
+  - Intents: intents#27 added `github.com/google/uuid` (patchy-preview-demo#21) and intents#28 added `golang.org/x/text`
+    (patchy-preview-demo#22). Plan Jobs had no profile, build Jobs did, CI verified `go.sum`, both merged.
+  - Findings: patchy-target#111 with the profile and #113 with profiles suspended (no label on the Job); both merged.
+  - Kill switch: suspend took 71 s, lifting it 69 s.
+
+**Earlier the same day (0.12.29, 0.12.30):**
+
+- #176: a new alert of a suspended Finding opens a successor instead of being absorbed silently.
+- #177: a repository with Issues disabled records `TrackingUnavailable` and re-checks every 6 h
+  (`--tracking-recheck-interval`) instead of retrying hot.
+- #178: when a repository declares an image but the run cannot use it, the Finding is held (`DefaultImageHeld`); a
+  second approve accepts an untested run, and default-image PRs say they were not built or tested.
+- #180: the remediation agent proves the bug: it runs its regression test before and after the fix, reports a
+  `reproduction:` block (self-reported), and the PR shows it or warns when it is missing.
+- #182: Finding PR bodies, report comments and commit messages now go through the same sanitising as intents (it was raw
+  agent text). Comments and PR bodies posted before 0.12.30 are not re-rendered.
+- #175: the e2e suite has an explicit 30-minute timeout.
+- Each release was gated with a live Finding on patchy-target (#107, #109) and merged green.
+
+Follow-ups:
+
+- Egress proxy step 2 (routes that add an operator-held credential, for Artifactory, Nexus or CodeArtifact) and step 3
+  (a hostname-allowlisted CONNECT tunnel for npm, pip, NuGet and Cargo).
+- Flaky tests: `TestOutputEnds` (internal/agentrun) and the envtest
+  `TestIntegrationPolicyEnforcesVerbPerField/backfill_verb_may_not_replay` (an RBAC propagation race).
+- `patchy backfill` takes field ownership of Integration fields Helm sets, so the next patchy-config upgrade needed
+  `--force-conflicts`. The CLI should patch only its own field.
+- marigold-web's agent image has no Node, so agents cannot run its tests.
+
+## Earlier checkpoint — 2026-10-14: agent DNS off, signed agent images required, and 0.12.28
 
 **0.12.28 is live** (Helm patchy rev 79, patchy-config rev 48; rollback 78 / 47). It ships the signing support for other
 installs: the `patchy init app` publisher signs (#169), the app module grants the key and the layer read `cosign verify`
@@ -896,18 +952,18 @@ repos report `read` for everyone, so `read` is never enough).
 
 ## Where everything is
 
-| Thing                           | Where                                                                                                                                                                                                                                                                                                    |
-| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| patchy fork (work here)         | `devthenet-labs/patchy`, local `/Users/peter/code/patchy`. `upstream` (bitwise-media-group) is read-only. Always pass `--repo devthenet-labs/patchy` to `gh` (bare PR numbers can resolve to upstream).                                                                                                  |
-| Infra (terraform + Helm values) | `/Users/peter/code/DevTheNet/terraform-devthenet` (remote `brvtl/terraform-devthenet`), Helm values in `k8s/`. AWS profile `devthenet` (`~/.aws`).                                                                                                                                                       |
-| Cluster                         | EKS Auto Mode `devthenet-dev`, us-east-1. Namespaces `patchy`, `patchy-agents`, and guarded empty slots `patchy-preview-0/1`. `export AWS_PROFILE=devthenet`.                                                                                                                                            |
-| Helm releases                   | `patchy` (chart `oci://ghcr.io/devthenet-labs/patchy/charts/patchy`, values `-f k8s/patchy-values.yaml -f k8s/patchy-values-tls.yaml`) and `patchy-config` (`.../charts/patchy-config`, `-f k8s/patchy-config-values.yaml`). Current live state and rollback points are in the current checkpoint above. |
-| Hostnames                       | `patchy.devthe.net` (webhooks `/github/webhooks`), `status.patchy.devthe.net`.                                                                                                                                                                                                                           |
-| GitHub App                      | `patchy-devthenet` (id 5036888), installation 163854331 on all devthenet-labs repos; credentials in Secret `patchy/patchy-github` (keys `appID`, `privateKey`, `webhookSecret`).                                                                                                                         |
-| App repo (demo target)          | `devthenet-labs/patchy-target` (deliberately vulnerable Go server; its agent image is `patchy/app-envs/patchy-target` in ECR, pushed by the per-app role `devthenet-labs-app-env-push-patchy-target`).                                                                                                   |
-| Intent repo                     | `devthenet-labs/intents` (private): README, issue form `.github/ISSUE_TEMPLATE/target.yml` applying `patchy:target`, labels `patchy:target` and `patchy:approved`.                                                                                                                                       |
-| Scratch repo                    | `devthenet-labs/patchy-smoke` (private) for API experiments.                                                                                                                                                                                                                                             |
-| Plans (git-ignored)             | `.claude/plans/intent-wave3-brief.md` (the controller contract), `.claude/plans/intent-dev-understand-maps.md` (codebase maps). Local only.                                                                                                                                                              |
+| Thing                           | Where                                                                                                                                                                                                                                                                                                                                           |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| patchy fork (work here)         | `devthenet-labs/patchy`, local `/Users/peter/code/patchy`. `upstream` (bitwise-media-group) is read-only. Always pass `--repo devthenet-labs/patchy` to `gh` (bare PR numbers can resolve to upstream).                                                                                                                                         |
+| Infra (terraform + Helm values) | `/Users/peter/code/DevTheNet/terraform-devthenet` (remote `brvtl/terraform-devthenet`), Helm values in `k8s/`. AWS profile `devthenet` (`~/.aws`).                                                                                                                                                                                              |
+| Cluster                         | EKS Auto Mode `devthenet-dev`, us-east-1. Namespaces `patchy`, `patchy-agents`, and guarded empty slots `patchy-preview-0/1`. `export AWS_PROFILE=devthenet`.                                                                                                                                                                                   |
+| Helm releases                   | `patchy` (chart `oci://ghcr.io/devthenet-labs/patchy/charts/patchy`, values `-f k8s/patchy-values.yaml -f k8s/patchy-values-tls.yaml -f k8s/patchy-values-preview-auth.yaml`) and `patchy-config` (`.../charts/patchy-config`, `-f k8s/patchy-config-values.yaml`). Current live state and rollback points are in the current checkpoint above. |
+| Hostnames                       | `patchy.devthe.net` (webhooks `/github/webhooks`), `status.patchy.devthe.net`.                                                                                                                                                                                                                                                                  |
+| GitHub App                      | `patchy-devthenet` (id 5036888), installation 163854331 on all devthenet-labs repos; credentials in Secret `patchy/patchy-github` (keys `appID`, `privateKey`, `webhookSecret`).                                                                                                                                                                |
+| App repo (demo target)          | `devthenet-labs/patchy-target` (deliberately vulnerable Go server; its agent image is `patchy/app-envs/patchy-target` in ECR, pushed by the per-app role `devthenet-labs-app-env-push-patchy-target`).                                                                                                                                          |
+| Intent repo                     | `devthenet-labs/intents` (private): README, issue form `.github/ISSUE_TEMPLATE/target.yml` applying `patchy:target`, labels `patchy:target` and `patchy:approved`.                                                                                                                                                                              |
+| Scratch repo                    | `devthenet-labs/patchy-smoke` (private) for API experiments.                                                                                                                                                                                                                                                                                    |
+| Plans (git-ignored)             | `.claude/plans/intent-wave3-brief.md` (the controller contract), `.claude/plans/intent-dev-understand-maps.md` (codebase maps). Local only.                                                                                                                                                                                                     |
 
 ## Where the work stands
 
