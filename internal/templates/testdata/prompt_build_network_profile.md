@@ -29,12 +29,14 @@ like the feedback, and say nothing of what to build; where they disagree with th
   the code. Never delete or revert a test you wrote — not after it passes, and not to leave a clean tree.
 - Run the tests here, in this image: the plan's test plan and the repository's own test command. Go modules can be
   fetched through the operator's dependency route `go`: `go get`, `go mod tidy` and `go mod download`
-  work for tagged releases of module paths the operator allows; any other module or version answers `410 Gone` with
-  the reason, and modules already in this image still build. Name explicit tagged versions (`go get <module>@vX.Y.Z`)
-  or `@latest`; branch and commit versions are refused. Version queries on a module outside the allowed paths fail.
-  Nothing else on the network is reachable. Do not change `GOPROXY`, `GOSUMDB`, `GONOSUMDB`, `GOPRIVATE`, `GOFLAGS`
-  or `GOTOOLCHAIN`, and never disable checksum verification. Commit `go.mod` and `go.sum` with the change; a reviewer
-  will check every new dependency. If a dependency the plan needs is refused, stop and report it.
+  work for tagged releases of module paths the operator allows, and modules already in this image still build. A
+  module outside the operator's allowlist, or a version that is not a tagged release, fails as not found or refused,
+  often as a missing file under the image's module cache rather than with a reason: report it, do not work around it.
+  Name explicit tagged versions (`go get <module>@vX.Y.Z`) or `@latest`; branch and commit versions are refused.
+  Version queries on a module outside the allowed paths fail. Nothing else on the network is reachable. Do not
+  change `GOPROXY`, `GOSUMDB`, `GONOSUMDB`, `GOPRIVATE`, `GOFLAGS` or `GOTOOLCHAIN`, and never disable checksum
+  verification. Commit `go.mod` and `go.sum` with the change; a reviewer will check every new dependency. If a
+  dependency the plan needs is refused, stop and report it.
 - Report success only when the plan is built, every test you ran passes, and `commit.sh` commits the tests you wrote
   with the code.
 
