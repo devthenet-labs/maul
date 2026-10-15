@@ -1508,10 +1508,10 @@ return in a safe form: a repository naming a class from the same list.
   Project changes or the controller restarts; a revise round ends. Attempt numbers stay capped by `MaxIntentRunAttempt`,
   so restarts cannot retry forever.
 - A run whose agent reported nothing says why when the Job does: OOM-killed (naming the limit and the class), evicted,
-  or past its deadline. That holds when the log itself is gone (`jobs.ErrLogsGone`: an evicted or deleted pod, a removed
-  container, or a read still failing `jobs.LogReadGrace` after the Job finished): the run settles in one pass rather
-  than failing every collect until the Job's TTL. Investigation, remediation and evaluation collectors do the same with
-  their own no-result failure.
+  or past its deadline. That holds when the log itself is gone (`jobs.ErrLogsGone`: a deleted pod, a container the
+  kubelet removed with its log (an evicted pod's), a line too long to scan, or reads still failing `jobs.LogReadGrace`
+  after the first failed one): the run settles in one pass rather than failing every collect until the Job's TTL.
+  Investigation, remediation and evaluation collectors do the same with their own no-result failure.
 - Every agent pod carries `karpenter.sh/do-not-disrupt: "true"`. Agent Jobs run once (`backoffLimit: 0`), so a
   consolidation eviction would end a run with nothing to show. This is the one deliberate change to the default Job;
   with `agent.resources` unset, no other byte of any Job or ConfigMap changes.

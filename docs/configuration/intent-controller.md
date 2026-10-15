@@ -224,10 +224,12 @@ carries none. The class list is the spend ceiling: a Project can pick only a siz
 - **An agent that stopped without a result** says why in the run's detail when the Job does: OOM-killed, naming the
   memory limit and the class and what to raise; evicted; or past its deadline. An eviction records outcome `evicted`;
   its raw Kubernetes pod message stays on the run for operators, while the intent issue says only that the pod was
-  evicted. An OOM kill and an eviction count as attempts: the agent may have run. When the agent's log itself is gone
-  (the kubelet removed it with the evicted pod, the pod was deleted, or it stayed unreadable for five minutes after the
-  Job finished), the run settles at once with the same outcome and a detail that says the log could not be read; a log
-  read that fails while the log is still there is retried with backoff instead.
+  evicted. An OOM kill and an eviction count as attempts: the agent may have run. When the agent's log itself is gone,
+  the run settles without waiting for the Job's TTL, its detail saying the log could not be read: an evicted pod whose
+  log the kubelet removed records `evicted`, naming the eviction's cause; a deleted pod, a container removed for another
+  reason, or a log line too long to read records `aborted`. A log read that fails while the log is still there is
+  retried with backoff; if every read keeps failing for five minutes from the first failure, the run settles the same
+  way (`evicted` for an evicted pod, `aborted` otherwise).
 
 Every agent pod, on a class or not, carries `karpenter.sh/do-not-disrupt: "true"`, so Karpenter (EKS Auto Mode's node
 manager) does not evict a running agent to consolidate its node: an agent Job runs once (`backoffLimit: 0`), and an

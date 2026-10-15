@@ -74,8 +74,12 @@ func TestPlanWithLogGoneSettles(t *testing.T) {
 	if len(errs) != 0 {
 		t.Fatalf("collecting a plan whose log is gone failed %d times, want none: %v", len(errs), errs)
 	}
-	for _, run := range e.runsOf(name, v1alpha1.IntentStagePlan) {
-		if run.Status.Outcome != OutcomeAborted || !strings.Contains(run.Status.Detail, "log") {
+	runs := e.runsOf(name, v1alpha1.IntentStagePlan)
+	if len(runs) == 0 {
+		t.Fatal("no plan runs")
+	}
+	for _, run := range runs {
+		if run.Status.Outcome != OutcomeAborted || !strings.Contains(run.Status.Detail, jobs.LogsGoneDetail) {
 			t.Errorf("run %s = %q %q, want aborted naming the lost log", run.Name, run.Status.Outcome,
 				run.Status.Detail)
 		}

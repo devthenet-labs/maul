@@ -28,11 +28,19 @@ type Tailer struct {
 	cs        kubernetes.Interface
 	namespace string
 	logs      logReader
+
+	// failures times each agent log's failed reads against LogReadGrace;
+	// now is its clock, swapped by tests.
+	failures *readFailures
+	now      func() time.Time
 }
 
 // NewTailer builds a read-only reader over the agent namespace.
 func NewTailer(cs kubernetes.Interface, namespace string) *Tailer {
-	return &Tailer{cs: cs, namespace: namespace, logs: podLogs{cs: cs, namespace: namespace}}
+	return &Tailer{
+		cs: cs, namespace: namespace, logs: podLogs{cs: cs, namespace: namespace},
+		failures: &readFailures{}, now: time.Now,
+	}
 }
 
 // Tail follows a running agent's log and delivers each transcript turn and

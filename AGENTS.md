@@ -371,7 +371,8 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   (same posture; `evolve exec-unit` instead of `agent-runner` — wrapped in a capture-once token export when
   brokered — no git init, unit.json handoff); `ResultLines` is the envelope-agnostic log reader the evaluation
   collector decodes its own events from; both report `ErrLogsGone` for a finished Job whose log can never be read
-  (evicted or deleted pod, removed container, unreadable past `LogReadGrace`), which every collector settles as
+  (deleted pod, removed container, a line too long to scan, or every read failing for `LogReadGrace` from the first
+  failure this process saw), which every collector settles as
   its no-result outcome instead of retrying. The one exception to "no network beyond the artifact server and the
   broker" is an operator network profile (`network.go`): only on a `(remediate, remediation)` or `(build, intent)`
   Job that injects an accepted repository image, behind `Config.NetworkProfiles`, it adds the profile label, the

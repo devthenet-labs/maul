@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
@@ -27,17 +28,60 @@ import (
 const maxEventLine = 32 << 20
 
 // ErrLogsGone marks a finished Job whose agent log can never be read: the
-// pod was evicted or deleted, the kubelet removed the terminated container
-// with its log, the agent never ran, or the log stayed unreadable for
-// LogReadGrace after the Job finished. A collector settles such a run with
-// its no-result outcome rather than retrying, since a retry cannot succeed
-// and would only hold the run until the Job's TTL deletes it. Every other
-// read error is worth retrying.
+// pod was deleted, the kubelet removed the terminated container with its log
+// (as it does with an evicted pod's), the agent never ran, a line of the log
+// is too long to ever scan, or every read of it has failed for LogReadGrace.
+// A collector settles such a run with its no-result outcome rather than
+// retrying, since a retry cannot succeed and would only hold the run until
+// the Job's TTL deletes it. Every other read error is worth retrying.
 var ErrLogsGone = errors.New("the agent log is gone")
 
-// LogReadGrace bounds the retries of a finished Job's log that fails to read
-// for a reason the pod does not explain: past it, the read is ErrLogsGone.
+// LogReadGrace bounds the retries of a finished Job's log that keeps failing
+// to read for a reason the pod does not explain. It is counted from the first
+// failed read this process saw, not from when the Job finished, so a
+// collector that falls behind still retries a log it has only just failed
+// to read.
 const LogReadGrace = 5 * time.Minute
+
+// staleFailure is how long a first-failure record is kept before it is
+// pruned: far past LogReadGrace, so a record still being retried is never
+// dropped, while one whose run settled some other way does not linger.
+const staleFailure = 12 * LogReadGrace
+
+// readFailures remembers, per agent pod, when this process first failed to
+// read its log, so LogReadGrace bounds the retries from that moment.
+type readFailures struct {
+	mu    sync.Mutex
+	first map[string]time.Time
+}
+
+// since records now as pod's first failure unless one is recorded, prunes
+// stale records, and returns how long pod's log has been failing.
+func (f *readFailures) since(pod string, now time.Time) time.Duration {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.first == nil {
+		f.first = map[string]time.Time{}
+	}
+	for name, at := range f.first {
+		if now.Sub(at) > staleFailure {
+			delete(f.first, name)
+		}
+	}
+	at, ok := f.first[pod]
+	if !ok {
+		f.first[pod] = now
+		return 0
+	}
+	return now.Sub(at)
+}
+
+// forget drops pod's record: its log read, or it settled as gone.
+func (f *readFailures) forget(pod string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.first, pod)
+}
 
 // logReader opens a pod's container log stream; the indirection exists so
 // tests can feed canned or piped logs (the fake clientset cannot serve
@@ -73,7 +117,7 @@ type RunOutput struct {
 //
 // A log that can never be read is ErrLogsGone (see there).
 func (c *Client) Result(ctx context.Context, jobName string) (RunOutput, error) {
-	stream, err := c.openFinished(ctx, jobName)
+	stream, pod, err := c.openFinished(ctx, jobName)
 	if err != nil {
 		return RunOutput{}, err
 	}
@@ -88,8 +132,10 @@ func (c *Client) Result(ctx context.Context, jobName string) (RunOutput, error) 
 		return nil
 	})
 	if err != nil {
-		return RunOutput{}, fmt.Errorf("jobs: read logs of %s: %w", jobName, err)
+		// Neither handler fails, so this is the read itself failing.
+		return RunOutput{}, c.readFailed(ctx, jobName, pod, err)
 	}
+	c.failures.forget(pod)
 	return out, nil
 }
 
@@ -100,7 +146,7 @@ func (c *Client) Result(ctx context.Context, jobName string) (RunOutput, error) 
 // for the duration of the call. A log that can never be read is ErrLogsGone,
 // as for Result.
 func (c *Client) ResultLines(ctx context.Context, jobName string, fn func(line []byte) error) error {
-	stream, err := c.openFinished(ctx, jobName)
+	stream, pod, err := c.openFinished(ctx, jobName)
 	if err != nil {
 		return err
 	}
@@ -114,64 +160,92 @@ func (c *Client) ResultLines(ctx context.Context, jobName string, fn func(line [
 		}
 	}
 	if err := sc.Err(); err != nil {
-		return fmt.Errorf("jobs: read logs of %s: %w", jobName, err)
+		return c.readFailed(ctx, jobName, pod, err)
 	}
+	c.failures.forget(pod)
 	return nil
 }
 
 // openFinished waits for jobName's agent container to finish and opens its
-// whole log. When the open fails, the pod and the Job say whether the log is
-// gone for good (ErrLogsGone) or the failure is worth retrying.
-func (t *Tailer) openFinished(ctx context.Context, jobName string) (io.ReadCloser, error) {
+// whole log, returning the stream and the pod it reads.
+func (t *Tailer) openFinished(ctx context.Context, jobName string) (io.ReadCloser, string, error) {
 	pod, err := t.waitForAgent(ctx, jobName, true)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	stream, err := t.logs.Stream(ctx, pod, agentContainerName, false)
-	if err == nil {
-		return stream, nil
+	if err != nil {
+		return nil, "", t.readFailed(ctx, jobName, pod, err)
 	}
+	return stream, pod, nil
+}
+
+// readFailed classifies a failure to open or to scan pod's log: ErrLogsGone
+// when no retry can read it (see logGone), the wrapped error otherwise. A
+// line too long to scan is gone at once: the container has finished, so its
+// log is what it is and every read would stop at the same line.
+func (t *Tailer) readFailed(ctx context.Context, jobName, pod string, err error) error {
 	err = fmt.Errorf("jobs: read logs of %s: %w", jobName, err)
-	if why := t.logGone(ctx, jobName, pod); why != "" {
-		return nil, fmt.Errorf("%w (%s): %w", ErrLogsGone, why, err)
+	why := ""
+	if errors.Is(err, bufio.ErrTooLong) {
+		why = fmt.Sprintf("a line of it exceeds %d MiB", maxEventLine>>20)
+	} else {
+		why = t.logGone(ctx, jobName, pod)
 	}
-	return nil, err
+	if why == "" {
+		return err
+	}
+	t.failures.forget(pod)
+	return fmt.Errorf("%w (%s): %w", ErrLogsGone, why, err)
 }
 
 // logGone says why the agent log of jobName's pod can never be read, or ""
 // when it may still be (including when the pod or the Job cannot be looked
 // at just now). It is asked only after a read failed.
+//
+// An evicted pod is gone at once only when the kubelet has also removed its
+// agent container: until then the log may still be served, and a failed read
+// of it is retried like any other, within LogReadGrace.
 func (t *Tailer) logGone(ctx context.Context, jobName, podName string) string {
 	pod, err := t.findPod(ctx, jobName)
 	if err != nil {
 		return ""
 	}
-	switch {
-	case pod == nil:
+	if pod == nil {
 		return "the pod is gone"
-	case pod.Name != podName:
+	}
+	if pod.Name != podName {
 		// A newer pod replaced it: the next read is of that one.
 		return ""
-	case pod.Status.Reason == "Evicted":
-		why := "the pod was evicted"
+	}
+	evicted := ""
+	if pod.Status.Reason == "Evicted" {
+		evicted = "the pod was evicted"
 		if pod.Status.Message != "" {
-			why += ": " + pod.Status.Message
+			evicted += ": " + pod.Status.Message
 		}
-		return why
-	case containerRemoved(pod):
+	}
+	if containerRemoved(pod) {
+		if evicted != "" {
+			return evicted
+		}
 		return "the terminated agent container was removed with its log"
 	}
 	job, err := t.cs.BatchV1().Jobs(t.namespace).Get(ctx, jobName, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
 		return "the job is gone"
 	}
-	if err != nil {
+	if err != nil || finishedAt(job).IsZero() {
 		return ""
 	}
-	if finished := finishedAt(job); !finished.IsZero() && time.Since(finished) > LogReadGrace {
-		return fmt.Sprintf("unreadable for over %s since the job finished", LogReadGrace)
+	if t.failures.since(podName, t.now()) <= LogReadGrace {
+		return ""
 	}
-	return ""
+	why := fmt.Sprintf("unreadable for over %s", LogReadGrace)
+	if evicted != "" {
+		why = evicted + "; " + why
+	}
+	return why
 }
 
 // containerRemoved mirrors the kubelet's own test for a log it cannot serve:
