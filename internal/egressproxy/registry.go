@@ -177,9 +177,7 @@ func (s *Server) serveRegistry(p netprofile.Profile, w *httpguard.CountingWriter
 	case colNPM:
 		req, ok = s.admitNPM(g, rt, w, r, "/"+sub, e)
 	case colPyPI:
-		refuseFor(w, e, colPyPI, http.StatusForbidden, OutcomeBadPath, "unsupported",
-			"egress-proxy: this registry route is not served yet")
-		return
+		req, ok = s.admitPyPI(g, rt, w, r, "/"+sub, e)
 	default:
 		req, ok = s.admitGoRegistry(p, g, rt, w, r, e)
 	}
