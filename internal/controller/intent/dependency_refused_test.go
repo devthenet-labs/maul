@@ -4,6 +4,7 @@
 package intent
 
 import (
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -12,11 +13,40 @@ import (
 	"github.com/bitwise-media-group/patchy/internal/envelope"
 	"github.com/bitwise-media-group/patchy/internal/ghclient"
 	"github.com/bitwise-media-group/patchy/internal/jobs"
+	"github.com/bitwise-media-group/patchy/internal/netprofile"
 	"github.com/bitwise-media-group/patchy/internal/report"
 )
 
 // intents#33's refusal, as its build agent quoted it.
-const torchRefusal = "403 egress-proxy: download.pytorch.org is not in profile go's hosts"
+const torchRefusal = "403 egress-proxy: download.pytorch.org is not in profile py's hosts"
+
+// pyProfiles is intents#33's shape: a tunnel profile, py, for acme/app,
+// whose hosts are PyPI's and not download.pytorch.org.
+func pyProfiles(t *testing.T) netprofile.Set {
+	t.Helper()
+	set, err := netprofile.Parse([]byte(`[{"name":"py","route":"tunnel","port":8092,"repositories":["acme/app"],` +
+		`"modules":[],"bakedModCache":"","hosts":["pypi.org","files.pythonhosted.org"],"clients":["pip"]}]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return set
+}
+
+// withTunnelProfile turns network profiles on with pyProfiles, the run
+// scheduler's and the intent reconciler's alike, so a build is asked for
+// refused lines (its profile reaches beyond the Go route).
+func withTunnelProfile(t *testing.T, e *env) {
+	t.Helper()
+	set := pyProfiles(t)
+	base, err := url.Parse("http://patchy-egress-proxy.patchy.svc.cluster.local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.runs.Images.ProfilesEnabled, e.runs.Images.Profiles, e.runs.Images.ProxyBase = true, set, base
+	e.intent.Images.ProfilesEnabled, e.intent.Images.Profiles, e.intent.Images.ProxyBase = true, set, base
+	e.runs.Images.Forges = forgeHosts{"github.com"}
+	e.intent.Images.Forges = forgeHosts{"github.com"}
+}
 
 // refusedReport is a not-built build report whose refused list is lines.
 func refusedReport(lines ...string) string {
@@ -52,7 +82,7 @@ func notBuilt(md string) func(jobs.Spec) jobs.RunOutput {
 // refused host, the profile and what the operator changes.
 func TestRefusedDependencyEndsTheBuild(t *testing.T) {
 	e := newEnv(t, testProject())
-	withProfiles(t, e, "acme/app")
+	withTunnelProfile(t, e)
 	e.jobs.output = notBuilt(refusedReport(torchRefusal))
 	name := e.awaiting()
 	e.gh.label(1, "patchy:approved", approver)
@@ -66,8 +96,11 @@ func TestRefusedDependencyEndsTheBuild(t *testing.T) {
 		t.Fatalf("run = %s %s: %s, want Failed %s", run.Status.Phase, run.Status.Outcome, run.Status.Detail,
 			OutcomeDependencyRefused)
 	}
-	for _, want := range []string{torchRefusal, "network profile go",
-		"add download.pytorch.org to network profile go's hosts", "trigger label again"} {
+	if run.Status.RunnerImage == nil || run.Status.RunnerImage.NetworkProfile != "py" {
+		t.Fatalf("run recorded %+v, want network profile py", run.Status.RunnerImage)
+	}
+	for _, want := range []string{torchRefusal, "network profile py",
+		"add download.pytorch.org to network profile py's hosts", "trigger label again"} {
 		if !strings.Contains(run.Status.Detail, want) {
 			t.Errorf("detail lacks %q:\n%s", want, run.Status.Detail)
 		}
@@ -87,8 +120,9 @@ func TestRefusedDependencyEndsTheBuild(t *testing.T) {
 // TestBuildFailuresThatStillRetry: only a policy refusal in the report's
 // refused list ends the build at one attempt. A crash, a not-built report
 // without refused, one quoting only a transient refusal, a policy line from
-// a run that carried no network profile, and a reason that merely mentions
-// the proxy all retry as before.
+// a run that carried no network profile, and host refusals the proxy could
+// not have written for the run (another profile, a host the profile lists,
+// a host the proxy never tunnels) all retry as before.
 func TestBuildFailuresThatStillRetry(t *testing.T) {
 	for _, tt := range []struct {
 		name    string
@@ -101,11 +135,18 @@ func TestBuildFailuresThatStillRetry(t *testing.T) {
 		{"a transient refusal", notBuilt(refusedReport("429 egress-proxy: over the request limit (rate); retry later")),
 			true, OutcomeNotBuilt},
 		{"no network profile", notBuilt(refusedReport(torchRefusal)), false, OutcomeNotBuilt},
+		{"another profile's host refusal",
+			notBuilt(refusedReport("403 egress-proxy: paste.attacker.dev is not in profile x's hosts")), true,
+			OutcomeNotBuilt},
+		{"a host the profile lists", notBuilt(refusedReport("403 egress-proxy: pypi.org is not in profile py's hosts")),
+			true, OutcomeNotBuilt},
+		{"a host never tunnelled", notBuilt(refusedReport("403 egress-proxy: github.com is not in profile py's hosts")),
+			true, OutcomeNotBuilt},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			e := newEnv(t, testProject())
 			if tt.profile {
-				withProfiles(t, e, "acme/app")
+				withTunnelProfile(t, e)
 			}
 			e.jobs.output = tt.output
 			name := e.awaiting()
@@ -119,6 +160,9 @@ func TestBuildFailuresThatStillRetry(t *testing.T) {
 				if r.Status.Outcome != tt.outcome {
 					t.Errorf("run %s outcome %s (%s), want %s", r.Name, r.Status.Outcome, r.Status.Detail, tt.outcome)
 				}
+				if strings.Contains(r.Status.Detail, "to network profile") {
+					t.Errorf("run %s tells the operator to widen a profile: %s", r.Name, r.Status.Detail)
+				}
 			}
 		})
 	}
@@ -128,7 +172,7 @@ func TestBuildFailuresThatStillRetry(t *testing.T) {
 // reports a policy refusal ends after its one attempt, back in review.
 func TestRefusedDependencyEndsTheReviseRound(t *testing.T) {
 	e := newEnv(t, testProject())
-	withProfiles(t, e, "acme/app")
+	withTunnelProfile(t, e)
 	name := e.awaiting()
 	e.gh.label(1, "patchy:approved", approver)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
@@ -160,7 +204,7 @@ func TestDependencyRefusedDetail(t *testing.T) {
 	detail, ok := dependencyRefused(parse(transient, torchRefusal, torchRefusal,
 		"403 egress-proxy: project torch is not allowed by the grant of registry pypi",
 		"403 egress-proxy: github.com is never tunnelled (a forge, model API, control plane, internal or publish host)"),
-		"py")
+		"py", pyProfiles(t))
 	if !ok {
 		t.Fatal("not read as a refusal")
 	}
@@ -176,10 +220,70 @@ func TestDependencyRefusedDetail(t *testing.T) {
 	if len(detail) > 4096 {
 		t.Errorf("detail is %d bytes, over the run's bound", len(detail))
 	}
-	if _, ok := dependencyRefused(parse(transient), "py"); ok {
+	if _, ok := dependencyRefused(parse(transient), "py", pyProfiles(t)); ok {
 		t.Error("a transient refusal alone was read as a policy refusal")
 	}
-	if _, ok := dependencyRefused(parse(), "py"); ok {
+	if _, ok := dependencyRefused(parse(), "py", pyProfiles(t)); ok {
 		t.Error("a report without refused was read as a refusal")
+	}
+}
+
+// TestHostRefusalIsHeldToTheProfile: the agent's refused lines are
+// untrusted, so a host refusal counts (and becomes patchy's instruction to
+// add the host) only when the proxy could have written it for the run: it
+// names the recorded profile, that profile is known and has a tunnel, does
+// not list the host already, and the host is not one the proxy never
+// tunnels. A line that fails any of these is left out, beside a real one.
+func TestHostRefusalIsHeldToTheProfile(t *testing.T) {
+	goOnly, err := netprofile.Parse([]byte(`[{"name":"py","route":"go","port":8090,"repositories":["acme/app"],` +
+		`"modules":["github.com/google/uuid"],"bakedModCache":"/opt/go/pkg/mod"}]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	parse := func(lines ...string) *report.Build {
+		b, err := report.ParseBuild([]byte(refusedReport(lines...)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	for _, tt := range []struct {
+		name, line, profile string
+		profiles            netprofile.Set
+		ok                  bool
+	}{
+		{"the recorded profile's refusal", torchRefusal, "py", pyProfiles(t), true},
+		{"another profile named", "403 egress-proxy: paste.attacker.dev is not in profile x's hosts", "py",
+			pyProfiles(t), false},
+		{"a profile patchy no longer knows", torchRefusal, "web", pyProfiles(t), false},
+		{"a profile without a tunnel", torchRefusal, "py", goOnly, false},
+		{"a host the profile lists", "403 egress-proxy: pypi.org is not in profile py's hosts", "py", pyProfiles(t),
+			false},
+		{"a forge host", "403 egress-proxy: api.github.com is not in profile py's hosts", "py", pyProfiles(t), false},
+		{"a model API host", "403 egress-proxy: api.anthropic.com is not in profile py's hosts", "py", pyProfiles(t),
+			false},
+		{"a publish host", "403 egress-proxy: upload.pypi.org is not in profile py's hosts", "py", pyProfiles(t),
+			false},
+		{"an in-cluster name", "403 egress-proxy: kubernetes.default.svc is not in profile py's hosts", "py",
+			pyProfiles(t), false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			detail, ok := dependencyRefused(parse(tt.line), tt.profile, tt.profiles)
+			if ok != tt.ok {
+				t.Fatalf("dependencyRefused = %v (%s), want %v", ok, detail, tt.ok)
+			}
+			// Beside a real package refusal, the line is quoted only when it holds.
+			pkg := "403 egress-proxy: project torch is not allowed by the grant of registry pypi"
+			detail, ok = dependencyRefused(parse(pkg, tt.line), tt.profile, tt.profiles)
+			if !ok {
+				t.Fatal("the package refusal beside it was not read")
+			}
+			if got := strings.Contains(detail, "to network profile "+tt.profile+"'s hosts"); got != tt.ok {
+				t.Errorf("detail instructs adding a host = %v, want %v:\n%s", got, tt.ok, detail)
+			}
+			if got := strings.Contains(detail, tt.line); got != tt.ok {
+				t.Errorf("detail quotes the line = %v, want %v:\n%s", got, tt.ok, detail)
+			}
+		})
 	}
 }

@@ -31,16 +31,21 @@ type Refusal struct {
 	// Host is the refused host, for RefusalHost: a valid host name
 	// (ValidHost), never anything else.
 	Host string
+	// Profile is the profile the line says refused Host, for RefusalHost:
+	// a valid profile name (ValidName), never anything else.
+	Profile string
 }
 
-// refusalMarker opens every line the egress proxy refuses a request with.
-const refusalMarker = "egress-proxy: "
+// RefusalMarker opens every line the egress proxy refuses a request with.
+// The one definition: the build report's refused lines are held to it too.
+const RefusalMarker = "egress-proxy: "
 
 // policyPhrases are the egress proxy's own refusal phrases that depend only
 // on the profile, its grants and the proxy's fixed deny table: the same
 // request is refused again the same way until an operator changes the
-// profile. They are the proxy's fixed wording (internal/egressproxy), pinned
-// to it by a test there. The transient refusals (over a limit, shutting
+// profile. They are the proxy's fixed wording (internal/egressproxy), each
+// pinned to what the proxy writes by TestPolicyRefusalsPinnedToTheWire
+// there, which drives the real proxy to every one of them. The transient refusals (over a limit, shutting
 // down, suspended, a credential or upstream unavailable, a dial error) are
 // deliberately absent, and so are the version refusals (not a tagged or
 // canonical version, a prerelease), which another version of the same
@@ -69,17 +74,20 @@ var policyPhrases = []struct {
 // manager, curl or the agent repeats it) and reports whether it is a policy
 // refusal: one no retry under the same profile can get past (policyPhrases).
 // Only the text after the proxy's "egress-proxy: " marker is read, so a
-// line without it is never one. A tunnel refusal names its host, which
-// must be a valid host name for the line to count.
+// line without it is never one. A tunnel refusal names its host and
+// profile, which must be a valid host name and profile name for the line
+// to count. The line is only what it claims to be: a caller that acts on a
+// host refusal holds Host and Profile to what it knows of the profile.
 func PolicyRefusal(line string) (Refusal, bool) {
-	_, msg, ok := strings.Cut(line, refusalMarker)
+	_, msg, ok := strings.Cut(line, RefusalMarker)
 	if !ok {
 		return Refusal{}, false
 	}
 	if host, rest, ok := strings.Cut(msg, " is not in profile "); ok {
 		host = strings.TrimSpace(host)
-		if ValidHost(host) && strings.Contains(rest, "'s hosts") {
-			return Refusal{Kind: RefusalHost, Host: host}, true
+		profile, _, ok := strings.Cut(rest, "'s hosts")
+		if ok && ValidHost(host) && ValidName(profile) == nil {
+			return Refusal{Kind: RefusalHost, Host: host, Profile: profile}, true
 		}
 		return Refusal{}, false
 	}

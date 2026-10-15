@@ -26,7 +26,14 @@ const maxRefusedQuoted = 3
 // schema) and says what the operator changes; transient refusals among the
 // lines are left out, and a report holding only those is an ordinary
 // not_built, retried as before.
-func dependencyRefused(b *report.Build, profile string) (string, bool) {
+//
+// The refused lines are the agent's, and the agent may have been steered by
+// the repository, so a host refusal is never taken at its word: patchy
+// itself tells the operator to add that host, so the line counts only when
+// it is one the proxy could have written for this run (hostRefusalHolds).
+// Any other host line is left out like a transient one, and so cannot widen
+// egress or skip the retry.
+func dependencyRefused(b *report.Build, profile string, profiles netprofile.Set) (string, bool) {
 	if profile == "" || b == nil || len(b.Refused) == 0 {
 		return "", false
 	}
@@ -39,7 +46,7 @@ func dependencyRefused(b *report.Build, profile string) (string, bool) {
 	)
 	for _, line := range b.Refused {
 		ref, ok := netprofile.PolicyRefusal(line)
-		if !ok {
+		if !ok || ref.Kind == netprofile.RefusalHost && !hostRefusalHolds(ref, profile, profiles) {
 			continue
 		}
 		matched++
@@ -62,7 +69,8 @@ func dependencyRefused(b *report.Build, profile string) (string, bool) {
 	}
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "the egress proxy refused a dependency the build needs, under network profile %s, and refuses "+
-		"it the same way on every attempt under that profile, so patchy did not retry it. The proxy said: %s",
+		"it the same way on every attempt under that profile, so patchy did not retry it. The build agent quoted "+
+		"the proxy: %s",
 		profile, strings.Join(quoted, "; "))
 	if more := matched - len(quoted); more > 0 {
 		fmt.Fprintf(&sb, " (and %d more)", more)
@@ -83,4 +91,20 @@ func dependencyRefused(b *report.Build, profile string) (string, bool) {
 	fmt.Fprintf(&sb, ". To build it, %s; then apply the trigger label again for a new plan, or, on a review round, "+
 		"ask for the change again", strings.Join(actions, "; and "))
 	return sb.String(), true
+}
+
+// hostRefusalHolds reports whether ref, a tunnel host refusal an agent
+// quoted, is one the egress proxy could have written for a run under the
+// recorded profile, as patchy knows that profile now: it names that very
+// profile, the profile is known and has a tunnel (the proxy answers a
+// CONNECT on no other), it does not already list the host, and the host is
+// not one the proxy never tunnels (it says so in other words then, and no
+// operator may list such a host). The deny context is every profile's
+// forge host, the profile's own among them.
+func hostRefusalHolds(ref netprofile.Refusal, profile string, profiles netprofile.Set) bool {
+	p, ok := profiles.Get(profile)
+	if !ok || ref.Profile != profile || !p.HasTunnel() || p.Hosts.Allows(ref.Host) {
+		return false
+	}
+	return netprofile.DeniedTunnelHost(ref.Host, netprofile.DenyContext{Hosts: profiles.Hosts()}) == nil
 }

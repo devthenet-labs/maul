@@ -829,7 +829,8 @@ closes the intent issue itself.
 
   - a Job deadline of 90 m (the broker caller token is minted for the deadline plus 15 m, so 105 m here);
   - two attempts per stage, except that a build or revise run whose report quotes an egress-proxy policy refusal
-    (`dependency_refused`) gets no second one: the next attempt would be refused the same way;
+    (`dependency_refused`) gets no second one: the next attempt would be refused the same way (a quoted host refusal
+    counts only when it fits the profile the run's Job carried, since the report is the agent's word);
   - one `head_moved` retry per round.
 - **The cost ceiling is advisory for build and revise runs.** Those runs use the repository-declared image, and the
   runner-images design treats usage reported by the CLI from such an image as untrusted. The limits that are actually

@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/bitwise-media-group/patchy/internal/netprofile"
 )
 
 // Build report bounds, beyond the ones every intent report shares
@@ -21,8 +23,9 @@ const (
 )
 
 // ProxyMarker is what every line the egress proxy refuses a request with
-// carries; a refused line must quote it.
-const ProxyMarker = "egress-proxy: "
+// carries; a refused line must quote it. It is netprofile's, so the lines
+// this report admits are the lines netprofile.PolicyRefusal reads.
+const ProxyMarker = netprofile.RefusalMarker
 
 // Build is the parsed build report: the intent build stage's contract, for
 // the first build of an approved plan and for every revise round after it.

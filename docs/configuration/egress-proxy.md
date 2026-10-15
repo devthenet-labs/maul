@@ -848,9 +848,19 @@ change. Before, such a build spent both attempts on the same refusal (intents#33
 Then apply the trigger label again for a new plan. Every other failure keeps its retry: a crash, a timeout, a report
 without `refused`, and a refusal that can pass on a later try (over a limit, a credential or upstream unavailable, a
 dial error, suspended routes, an untagged or prerelease version, which another version avoids). A run without a network
-profile never ends `dependency_refused`. The phrases are read by `netprofile.PolicyRefusal`, pinned to what the proxy
-writes by a test beside it. On step 1's Go route alone the go command reports a refusal as a missing file rather than
-the proxy's line, so that prompt does not ask for `refused`, and such a build is retried as before.
+profile never ends `dependency_refused`. The phrases are read by `netprofile.PolicyRefusal`, and every one of them is
+pinned to what the proxy writes by `TestPolicyRefusalsPinnedToTheWire` in `internal/egressproxy`, which drives the proxy
+to each refusal.
+
+The `refused` lines are the agent's word, and an agent can be steered by the repository it builds, so patchy never tells
+you to add a host on that word alone. A `<host> is not in profile <p>'s hosts` line counts only when the proxy could
+have written it for that run: it names the profile the run's Job carried, that profile has tunnel hosts and does not
+already list the host, and the host is not one the proxy never tunnels (a forge, model API, control-plane, in-cluster or
+publish host, or any profile's forge host). Any other such line is ignored and the build keeps its retry. Even a line
+that counts is a quote, not proof: before adding a host, confirm the refusal on the proxy's audit line
+(`outcome=not_allowed` with that host, under [Debugging a refused host](#debugging-a-refused-host)) and decide whether
+the build should reach it at all. On step 1's Go route alone the go command reports a refusal as a missing file rather
+than the proxy's line, so that prompt does not ask for `refused`, and such a build is retried as before.
 
 **On the operator side** the proxy's logs are the only record of what it decided, and they live only as long as the pod
 (see [Debugging without a log sink](#debugging-without-a-log-sink)):
@@ -992,8 +1002,8 @@ add-on); it is cluster-level and changes nothing in this chart.
 - **The proxy pods stay in `ContainerCreating`.** A registry's Secret (or a `ca` ConfigMap) is missing in the release
   namespace: `kubectl -n patchy describe pod -l app.kubernetes.io/name=egress-proxy` names it.
 - **An intent run ended `dependency_refused` after one attempt.** Its agent quoted the proxy's policy refusal; the run's
-  `status.detail` says what to change (see [Debugging a refused host](#debugging-a-refused-host)), then apply the
-  trigger label again.
+  `status.detail` says what to change (see [Debugging a refused host](#debugging-a-refused-host)). Confirm the refusal
+  on the proxy's audit line before widening a profile, then apply the trigger label again.
 - **A tunnel install fails.** Run the probe under [Debugging a refused host](#debugging-a-refused-host). `not_allowed`:
   add the host to the profile's `hosts` (or point the package manager at a listed one); `hard_denied`: the host is on
   the deny list and cannot be listed; `503 … (source_upload_budget)`: the source spent its upload budget (raise

@@ -20,9 +20,12 @@ func TestPolicyRefusal(t *testing.T) {
 	}{
 		// intents#33, as the agent quoted it.
 		{"tunnel host", "403 egress-proxy: download.pytorch.org is not in profile py's hosts",
-			Refusal{Kind: RefusalHost, Host: "download.pytorch.org"}, true},
+			Refusal{Kind: RefusalHost, Host: "download.pytorch.org", Profile: "py"}, true},
 		{"tunnel host, status line", "HTTP/1.1 403 egress-proxy: pkg.example.com is not in profile web's hosts",
-			Refusal{Kind: RefusalHost, Host: "pkg.example.com"}, true},
+			Refusal{Kind: RefusalHost, Host: "pkg.example.com", Profile: "web"}, true},
+		{"tunnel host, profile not a name", "403 egress-proxy: pkg.example.com is not in profile Web Dev's hosts",
+			Refusal{}, false},
+		{"tunnel host, no profile", "403 egress-proxy: pkg.example.com is not in profile 's hosts", Refusal{}, false},
 		{"tunnel host not a host name", "403 egress-proxy: pkg_x.example.com is not in profile web's hosts",
 			Refusal{}, false},
 		{"forge", "403 egress-proxy: github.com is never tunnelled (a forge, model API, control plane, internal " +
@@ -80,12 +83,12 @@ func TestPolicyRefusal(t *testing.T) {
 
 // TestPolicyRefusalProperties, seeded: a line without the proxy's marker is
 // never a policy refusal, whatever it holds; a refusal's kind is always one
-// of the three; and a host refusal's host is always a valid host name that
-// the line itself carries.
+// of the three; and a host refusal's host and profile are always a valid
+// host name and profile name that the line itself carries.
 func TestPolicyRefusalProperties(t *testing.T) {
 	pool := []string{"egress-proxy: ", "egress-proxy:", " is not in profile ", "'s hosts", " is never tunnelled",
 		" is not allowed by profile ", "pkg.example.com", "a_b", "403 ", "x", " ", "..", "\n", "é",
-		"checksum_not_public: ", " is private to registry ", "retry later"}
+		"checksum_not_public: ", " is private to registry ", "retry later", "py", "Py"}
 	draw := func(picks []uint8) string {
 		var b strings.Builder
 		for _, p := range picks {
@@ -96,7 +99,7 @@ func TestPolicyRefusalProperties(t *testing.T) {
 	prop := func(picks []uint8) bool {
 		line := draw(picks)
 		r, ok := PolicyRefusal(line)
-		if !strings.Contains(line, refusalMarker) {
+		if !strings.Contains(line, RefusalMarker) {
 			return !ok && r == Refusal{}
 		}
 		if !ok {
@@ -104,9 +107,10 @@ func TestPolicyRefusalProperties(t *testing.T) {
 		}
 		switch r.Kind {
 		case RefusalHost:
-			return ValidHost(r.Host) && strings.Contains(line, r.Host)
+			return ValidHost(r.Host) && strings.Contains(line, r.Host) && ValidName(r.Profile) == nil &&
+				strings.Contains(line, " "+r.Profile+"'s hosts")
 		case RefusalPackage, RefusalNever:
-			return r.Host == ""
+			return r.Host == "" && r.Profile == ""
 		}
 		return false
 	}
