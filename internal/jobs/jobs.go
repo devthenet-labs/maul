@@ -714,11 +714,19 @@ func (c *Client) buildJob(name string, spec Spec) (*batchv1.Job, error) {
 		lbls[labelRunnerImageSource] = v1alpha1.RunnerImageSourceRepository
 	}
 	profile := c.appliesProfile(runner, spec)
+	var tunnel []corev1.EnvVar
 	if profile {
 		// The identity both NetworkPolicies on the profile's port select.
 		// It is on the Job and its pod only, never in jobLabels, so the
 		// per-Job Secret is unchanged.
 		lbls[netprofile.LabelKey(spec.NetworkProfile.Name)] = netprofile.LabelValue
+		// The tunnel's NO_PROXY names every endpoint the pod dials: the
+		// artifact server, the broker routes and the proxy itself (a
+		// profile Job has no trees).
+		if tunnel, err = TunnelEnv(*spec.NetworkProfile,
+			endpointURLs(runner, spec.ArtifactURL, spec.NetworkProfile.ProxyURL)); err != nil {
+			return nil, fmt.Errorf("%w: %w", ErrNetworkProfileRefused, err)
+		}
 	}
 
 	job := &batchv1.Job{
@@ -744,7 +752,7 @@ func (c *Client) buildJob(name string, spec Spec) (*batchv1.Job, error) {
 					},
 					Volumes:        c.podVolumes(name, runner, findingTokenTTL(c.cfg.Deadline), inject),
 					InitContainers: []corev1.Container{c.prepareContainer(runner, spec, res, inject)},
-					Containers:     []corev1.Container{c.agentContainer(runner, spec, res, inject, profile)},
+					Containers:     []corev1.Container{c.agentContainer(runner, spec, res, inject, profile, tunnel)},
 				},
 			},
 		},
@@ -879,10 +887,11 @@ func (c *Client) prepareContainer(runner Runner, spec Spec, res corev1.ResourceR
 // can redirect it — and the injection env on top of the usual one.
 //
 // A Job carrying a network profile (profile, which implies inject) also gets
-// its package managers' environment (profileEnv), applied last so it owns
-// its names.
+// its package managers' environment (profileEnv) and, with tunnel hosts, the
+// tunnel environment (tunnel, TunnelEnv's), applied last so it owns its
+// names.
 func (c *Client) agentContainer(runner Runner, spec Spec, res corev1.ResourceRequirements,
-	inject, profile bool) corev1.Container {
+	inject, profile bool, tunnel []corev1.EnvVar) corev1.Container {
 	mounts := []corev1.VolumeMount{
 		{Name: volWorkspace, MountPath: workspaceDir},
 		{Name: volTmp, MountPath: "/tmp"},
@@ -897,7 +906,7 @@ func (c *Client) agentContainer(runner Runner, spec Spec, res corev1.ResourceReq
 		mounts = append(mounts, corev1.VolumeMount{Name: volPatchyBin, MountPath: patchyBinDir, ReadOnly: true})
 	}
 	if profile {
-		env = applyProfileEnv(env, spec.NetworkProfile)
+		env = applyProfileEnv(env, spec.NetworkProfile, tunnel)
 	}
 	return corev1.Container{
 		Name:            agentContainerName,
@@ -974,6 +983,9 @@ var perJobEnv = map[string]bool{
 	netprofile.EnvProfile:    true,
 	netprofile.EnvEcosystems: true,
 	netprofile.EnvGrants:     true,
+	// Set only on a profile with tunnel hosts (TunnelEnv).
+	netprofile.EnvRoutes: true,
+	netprofile.EnvHosts:  true,
 }
 
 func init() {
@@ -1001,7 +1013,9 @@ var gitRedirectEnv = []string{"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT
 // proxyEnv are the proxy variables in both cases (curl and Go honour the
 // lowercase forms): reserved against Config.Env and blanked on a
 // repository image, so no image ENV and no operator passthrough can point
-// the pod's traffic anywhere but the broker.
+// the pod's traffic anywhere but the broker. Only a network profile with
+// tunnel hosts sets four of them (TunnelEnv: the https and no-proxy
+// names), after the blanks, with NO_PROXY naming the broker.
 var proxyEnv = []string{
 	"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY",
 	"http_proxy", "https_proxy", "no_proxy", "all_proxy",
