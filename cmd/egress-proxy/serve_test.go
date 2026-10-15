@@ -110,6 +110,34 @@ func TestConfigureMapsFlags(t *testing.T) {
 	}
 }
 
+// TestConfigureAttribution: attribution is off by default; on, it carries
+// the namespace and kubeconfig to the pod index.
+func TestConfigureAttribution(t *testing.T) {
+	s, err := configure(serveOpts(t, "--network-profiles", twoProfiles))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.attributePods || s.agentNamespace != "patchy-agents" {
+		t.Errorf("default attribution = %v in %q, want off in patchy-agents", s.attributePods, s.agentNamespace)
+	}
+	s, err = configure(serveOpts(t, "--network-profiles", twoProfiles, "--attribute-pods",
+		"--agent-namespace", "agents", "--kubeconfig", "/k"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !s.attributePods || s.agentNamespace != "agents" || s.kubeconfig != "/k" {
+		t.Errorf("attribution settings = %+v", s)
+	}
+	if _, err := configure(serveOpts(t, "--network-profiles", twoProfiles, "--attribute-pods",
+		"--agent-namespace", "")); err == nil {
+		t.Error("--attribute-pods without a namespace was accepted")
+	}
+	if _, err := podIndex(settings{kubeconfig: "/nonexistent/kubeconfig", agentNamespace: "agents"}); err == nil ||
+		!strings.Contains(err.Error(), "--attribute-pods") {
+		t.Errorf("podIndex with a missing kubeconfig = %v, want an --attribute-pods error", err)
+	}
+}
+
 // TestConfigureFromEnvironment: the chart's ConfigMap sets PATCHY_*
 // variables, not flags.
 func TestConfigureFromEnvironment(t *testing.T) {

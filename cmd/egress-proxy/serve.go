@@ -17,9 +17,12 @@ import (
 
 	"github.com/spf13/cobra"
 	"golang.org/x/sync/errgroup"
+	"k8s.io/client-go/kubernetes"
 
 	"github.com/bitwise-media-group/patchy/internal/cli"
 	"github.com/bitwise-media-group/patchy/internal/egressproxy"
+	"github.com/bitwise-media-group/patchy/internal/egressproxy/podindex"
+	"github.com/bitwise-media-group/patchy/internal/kube"
 	"github.com/bitwise-media-group/patchy/internal/netprofile"
 	"github.com/bitwise-media-group/patchy/internal/telemetry"
 	"github.com/bitwise-media-group/patchy/internal/version"
@@ -63,6 +66,11 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	f.Int64("max-zip-bytes", egressproxy.DefaultMaxZipBytes, "largest module zip passed through")
 	f.Bool("suspended", false,
 		"answer every profile request 410 suspended: the operator's immediate kill switch")
+	f.Bool("attribute-pods", false,
+		"attribute source IPs to agent pods in the audit line (best-effort; needs get/list/watch on pods "+
+			"in --agent-namespace)")
+	f.String("agent-namespace", "patchy-agents", "namespace of the agent pods attributed (--attribute-pods only)")
+	f.String("kubeconfig", "", "kubeconfig path (default: in-cluster config; --attribute-pods only)")
 	return cmd
 }
 
@@ -70,6 +78,11 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 type settings struct {
 	engine     egressproxy.Config
 	healthAddr string
+	// attribution: whether to index agent pods, where, and how to reach
+	// the API server.
+	attributePods  bool
+	agentNamespace string
+	kubeconfig     string
 }
 
 // configure validates the flags into the engine configuration. It refuses
@@ -106,8 +119,15 @@ func configure(opts *cli.Options) (settings, error) {
 	if err != nil {
 		return settings{}, fmt.Errorf("--deny-cidrs: %w", err)
 	}
+	agentNamespace := opts.String("agent-namespace")
+	if opts.Bool("attribute-pods") && agentNamespace == "" {
+		return settings{}, errors.New("--attribute-pods needs --agent-namespace")
+	}
 	return settings{
-		healthAddr: healthAddr,
+		healthAddr:     healthAddr,
+		attributePods:  opts.Bool("attribute-pods"),
+		agentNamespace: agentNamespace,
+		kubeconfig:     opts.String("kubeconfig"),
 		engine: egressproxy.Config{
 			Profiles: set,
 			GoProxy:  goProxy,
@@ -158,11 +178,32 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	if err != nil {
 		return err
 	}
+	if s.attributePods {
+		idx, err := podIndex(s)
+		if err != nil {
+			return err
+		}
+		idx.Start(ctx, log)
+		s.engine.Pods = idx
+	}
 	srv, err := egressproxy.New(s.engine, log)
 	if err != nil {
 		return err
 	}
 	return run(ctx, srv, s.healthAddr, net.Listen, log)
+}
+
+// podIndex builds the attribution index over the agent namespace's pods.
+func podIndex(s settings) (*podindex.Index, error) {
+	restCfg, err := kube.RestConfig(s.kubeconfig)
+	if err != nil {
+		return nil, fmt.Errorf("--attribute-pods: kubernetes config: %w", err)
+	}
+	cs, err := kubernetes.NewForConfig(restCfg)
+	if err != nil {
+		return nil, fmt.Errorf("--attribute-pods: kubernetes clientset: %w", err)
+	}
+	return podindex.New(cs, s.agentNamespace)
 }
 
 // listenFunc binds a listener; tests substitute one.

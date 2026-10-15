@@ -8,8 +8,9 @@
 // the profile admits pseudo-versions). The listener port is the identity:
 // NetworkPolicy on both sides admits only the profile's labelled agent
 // pods to it. It holds no credential and caches nothing. Not a controller:
-// no reconcilers, no leases, and no Kubernetes access. Engine in
-// internal/egressproxy.
+// no reconcilers and no leases; its only Kubernetes access is the opt-in
+// --attribute-pods (get/list/watch on pods in the agent namespace, audit
+// garnish only). Engine in internal/egressproxy.
 package main
 
 import (
