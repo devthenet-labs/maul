@@ -217,6 +217,26 @@ func networkRoutesPrompt(profile string, r NetworkRoutes, needs string) string {
 	return strings.Join(parts, "\n")
 }
 
+// refusedGuide is the build prompt's paragraph on the report's refused
+// lines, for routes beyond step 1's Go route alone (BeyondGo): there a
+// refusal reaches the agent as the proxy's own line (a tunnel's status line,
+// a registry route's body). On step 1's Go route the go command reports a
+// refusal as a missing file, never with the proxy's line, so that prompt
+// says nothing of refused and stays step 1's word for word. The example is
+// a tunnel's refusal when the routes have hosts, else a registry grant's.
+func refusedGuide(r NetworkRoutes) string {
+	example := "`403 egress-proxy: <host> is not in profile <profile>'s hosts`"
+	if len(r.TunnelHosts) == 0 {
+		example = "`403 egress-proxy: package <name> is not allowed by the grant of registry <registry>`"
+	}
+	return wrap("`refused` is only for a build that could not be done because the operator's egress proxy "+
+		"refused a dependency the plan needs: one `- \"...\"` item per refusal, at most 5, each the proxy's "+
+		"exact line with `egress-proxy:` in it (for example "+example+"). patchy does not retry a build the "+
+		"proxy refused by its policy, and shows these lines to the operator, who can change it. Leave "+
+		"`refused` out for any other failure, for a refusal that says to retry later, for a refusal you got "+
+		"past, and for one you only inferred without the proxy's line, which belongs in `reason`.", "", "")
+}
+
 // goRoute is the Go bullet: step 1's Go text, and with a go registry where
 // modules come from first, its policy and its private modules.
 func goRoute(r NetworkRoutes) string {

@@ -847,9 +847,37 @@ For Yarn, cargo, pnpm and uv the client's own output does not say why; the probe
 first 2 KB of each tool result, so the error at the end of a long install log is often cut off: the agent is asked to
 quote the proxy's line itself.
 
-Seen live: an intent build that needed `download.pytorch.org`, which its profile did not list, ended `Failed` with the
-proxy's `403` line quoted in the IntentRun's `status.detail` and `status.report`. It spent a second build attempt on the
-same refusal first: a refused host does not change between attempts, so the retry cannot help (a known gap).
+**A refused intent build is not retried.** An intent build or revise round on a profile with registry grants or tunnel
+hosts reports a refusal as structured data: its build report's `refused` list holds the proxy's exact lines. When at
+least one of them is a policy refusal, one no retry under the same profile gets past, the run ends `dependency_refused`
+after its one attempt: a build fails its intent, with the trigger label removed, and a revise round ends with its
+notice. The run's `status.detail` (shown on the intent's issue) names the profile, quotes the lines and says what to
+change. Before, such a build spent both attempts on the same refusal (intents#33 spent two on
+`403 egress-proxy: download.pytorch.org is not in profile py's hosts`).
+
+| The proxy's line says                                                                                                                          | What to change                                                                                  |
+| ---------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `<host> is not in profile <p>'s hosts`                                                                                                         | Add the host to the profile's `hosts`                                                           |
+| `module path … is not allowed by profile …`, `… is not allowed by the grant of registry …`, `profile … holds no grant for this registry route` | Allow the module or package in the profile's `modules` or its grant (or grant the registry)     |
+| `… refused by the policy of registry …`, `… is private to registry …`, `checksum_not_public: …`                                                | The registry's own policy, or the grant's `privateModules` and checksum choice                  |
+| `… is never tunnelled`, `only port 443 may be tunnelled`, `absolute-form request URIs are refused`                                             | Nothing admits it (a forge, model API or control-plane host, an IP, a port, plain http): replan |
+
+Then apply the trigger label again for a new plan. Every other failure keeps its retry: a crash, a timeout, a report
+without `refused`, and a refusal that can pass on a later try (over a limit, a credential or upstream unavailable, a
+dial error, suspended routes, an untagged or prerelease version, which another version avoids). A run without a network
+profile never ends `dependency_refused`. The phrases are read by `netprofile.PolicyRefusal`, and every one of them is
+pinned to what the proxy writes by `TestPolicyRefusalsPinnedToTheWire` in `internal/egressproxy`, which drives the proxy
+to each refusal.
+
+The `refused` lines are the agent's word, and an agent can be steered by the repository it builds, so patchy never tells
+you to add a host on that word alone. A `<host> is not in profile <p>'s hosts` line counts only when the proxy could
+have written it for that run: it names the profile the run's Job carried, that profile has tunnel hosts and does not
+already list the host, and the host is not one the proxy never tunnels (a forge, model API, control-plane, in-cluster or
+publish host, or any profile's forge host). Any other such line is ignored and the build keeps its retry. Even a line
+that counts is a quote, not proof: before adding a host, confirm the refusal on the proxy's audit line
+(`outcome=not_allowed` with that host, under [Debugging a refused host](#debugging-a-refused-host)) and decide whether
+the build should reach it at all. On step 1's Go route alone the go command reports a refusal as a missing file rather
+than the proxy's line, so that prompt does not ask for `refused`, and such a build is retried as before.
 
 **On the operator side** the proxy's logs are the only record of what it decided, and they live only as long as the pod
 (see [Debugging without a log sink](#debugging-without-a-log-sink)):
@@ -990,6 +1018,9 @@ add-on); it is cluster-level and changes nothing in this chart.
 - **`410 … checksum_not_public` from the go command.** See [Go registries](#go-registries).
 - **The proxy pods stay in `ContainerCreating`.** A registry's Secret (or a `ca` ConfigMap) is missing in the release
   namespace: `kubectl -n patchy describe pod -l app.kubernetes.io/name=egress-proxy` names it.
+- **An intent run ended `dependency_refused` after one attempt.** Its agent quoted the proxy's policy refusal; the run's
+  `status.detail` says what to change (see [Debugging a refused host](#debugging-a-refused-host)). Confirm the refusal
+  on the proxy's audit line before widening a profile, then apply the trigger label again.
 - **A tunnel install fails.** Run the probe under [Debugging a refused host](#debugging-a-refused-host). `not_allowed`:
   add the host to the profile's `hosts` (or point the package manager at a listed one); `hard_denied`: the host is on
   the deny list and cannot be listed; `503 … (source_upload_budget)`: the source spent its upload budget (raise

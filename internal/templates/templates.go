@@ -23,7 +23,8 @@ var files embed.FS
 var tmpl = template.Must(template.New("").
 	Funcs(template.FuncMap{"join": strings.Join, "code": code, "fence": fence, "chomp": chomp,
 		"openPullRequests": openPullRequestsListing, "networkRoutes": networkRoutesPrompt,
-		"buildProfilesRouted": buildProfilesRouted, "planRoutes": planRoutes}).
+		"buildProfilesRouted": buildProfilesRouted, "planRoutes": planRoutes,
+		"refusedGuide": refusedGuide}).
 	ParseFS(files, "*.md.tmpl"))
 
 // chomp drops trailing line breaks, so a block ending in one (fence) can sit

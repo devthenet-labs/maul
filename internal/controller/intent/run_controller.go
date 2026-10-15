@@ -1497,8 +1497,12 @@ func (r *RunReconciler) collectBuild(ctx context.Context, run *v1alpha1.IntentRu
 		return r.settle(ctx, run, res)
 	case !ev.Success:
 		res.outcome, res.detail = OutcomeNotBuilt, "the build agent reported the plan not built"
-		if b, err := report.ParseBuild([]byte(ev.ReportMarkdown)); err == nil && b.Reason != "" {
-			res.detail += ": " + b.Reason
+		if b, err := report.ParseBuild([]byte(ev.ReportMarkdown)); err == nil {
+			if detail, ok := dependencyRefused(b, recordedNetworkProfile(run), r.Images.Profiles); ok {
+				res.outcome, res.detail = OutcomeDependencyRefused, detail
+			} else if b.Reason != "" {
+				res.detail += ": " + b.Reason
+			}
 		}
 		return r.settle(ctx, run, res)
 	case ev.Changeset == nil:

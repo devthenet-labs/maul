@@ -138,9 +138,11 @@ func (p *pass) failedRevise(ctx context.Context, run *v1alpha1.IntentRun, rs rou
 	// A round whose pod no node could fit ends, as one with no image to run
 	// on does: another attempt would wait the same way, and the round's
 	// notice says why; a check-fix round's failures are consumed with it.
+	// So does one whose dependency the egress proxy refuses by its policy,
+	// which every attempt under the same profile meets again.
 	if run.Status.Outcome == OutcomeInputUnavailable || run.Status.Outcome == OutcomeImageRequired ||
 		run.Status.Outcome == OutcomeNoUsableFeedback || run.Status.Outcome == OutcomeUnschedulable ||
-		!p.roundOpen(run) {
+		run.Status.Outcome == OutcomeDependencyRefused || !p.roundOpen(run) {
 		return p.endReviseRound(ctx, run)
 	}
 	if p.leftProject(run.Spec.Repository.URL) {

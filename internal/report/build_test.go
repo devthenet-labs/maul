@@ -70,6 +70,42 @@ func TestParseBuildFailureReport(t *testing.T) {
 	}
 }
 
+// refusedBuild is a build that could not be done because the egress proxy
+// refused a dependency, as intents#33's agent reported it.
+func refusedBuild(refused string) string {
+	src := buildWith("success: true", "success: false")
+	src = strings.Replace(src, "tests:\n  ran: true\n  passed: true\n  command: \"go test ./...\"",
+		"tests:\n  ran: false\n  passed: false", 1)
+	return strings.Replace(src, "notes:", "reason: \"torch==2.5.1+cpu needs download.pytorch.org\"\n"+refused+
+		"notes:", 1)
+}
+
+// TestParseBuildRefused: a build the egress proxy stopped quotes the
+// proxy's line in refused; unquoted, as a model writes it, the line is
+// repaired like any other list item; and a report without refused, written
+// before it existed, stays valid with none.
+func TestParseBuildRefused(t *testing.T) {
+	const line = "403 egress-proxy: download.pytorch.org is not in profile py's hosts"
+	for name, src := range map[string]string{
+		"quoted":   refusedBuild("refused:\n  - \"" + line + "\"\n"),
+		"unquoted": refusedBuild("refused:\n  - " + line + "\n"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			b, err := ParseBuild([]byte(src))
+			if err != nil {
+				t.Fatalf("ParseBuild() error = %v", err)
+			}
+			if !slices.Equal(b.Refused, []string{line}) {
+				t.Errorf("Refused = %q, want %q", b.Refused, line)
+			}
+		})
+	}
+	b, err := ParseBuild([]byte(refusedBuild("")))
+	if err != nil || len(b.Refused) != 0 {
+		t.Errorf("a report without refused = %+v, %v; want valid with none", b, err)
+	}
+}
+
 // TestParseBuildRepairsUnquotedProse mirrors the plan's repair for the build
 // report's own prose keys, nested ones included.
 func TestParseBuildRepairsUnquotedProse(t *testing.T) {
@@ -178,6 +214,18 @@ func TestParseBuildErrors(t *testing.T) {
 		{"success with a reason", buildWith("notes:", "reason: \"none\"\nnotes:"), "reason is set but success is true"},
 		{"reason over 1000 characters", strings.Replace(buildWith("success: true", "success: false"), "notes:",
 			`reason: "`+strings.Repeat("r", ReasonMaxChars+1)+`"`+"\nnotes:", 1), "over 1000"},
+		{"refused on a success", buildWith("notes:",
+			"refused:\n  - \"403 egress-proxy: x.example.com is not in profile py's hosts\"\nnotes:"),
+			"refused is set but success is true"},
+		{"refused without the proxy's line", refusedBuild("refused:\n  - \"the proxy said no\"\n"),
+			"refused[0] does not quote the egress proxy's line"},
+		{"six refused", refusedBuild(items("refused", BuildMaxRefused+1,
+			func(i int) string {
+				return fmt.Sprintf("403 egress-proxy: h%d.example.com is not in profile py's hosts", i)
+			}) +
+			"\n"), "over 5"},
+		{"a refused line with a line separator", refusedBuild(
+			"refused:\n  - \"403 egress-proxy: x\\u2028y\"\n"), "refused[0] holds U+2028"},
 		{"body over 48 KiB", strings.Replace(validBuild, "## What changed\n\nA handler and its test.\n",
 			strings.Repeat("b", BodyMaxBytes+1), 1), "body is"},
 		{"document over 56 KiB", validBuild + strings.Repeat("b", ReportMaxBytes), "over the 57344-byte bound"},

@@ -34,6 +34,16 @@ const (
 	// OutcomeNotBuilt: the build agent reported it could not build the
 	// plan.
 	OutcomeNotBuilt = "not_built"
+	// OutcomeDependencyRefused: the build agent reported the plan not built
+	// because the operator's egress proxy refused a dependency it needs, and
+	// quoted the proxy's line in its report's refused list; at least one of
+	// those lines is a policy refusal (netprofile.PolicyRefusal), which every
+	// attempt under the same network profile meets again. It counts as an
+	// attempt, and no further one is made: a build ends its Intent Failed,
+	// and a revise round ends. The run's detail names the refused host or
+	// package and what the operator changes. A pod may not report it
+	// (podOutcome): the controller derives it from the report alone.
+	OutcomeDependencyRefused = "dependency_refused"
 	// OutcomeBranchExists: the intent branch exists at a commit other than
 	// the one this run created. Nothing is forced.
 	OutcomeBranchExists = "branch_exists"
@@ -140,6 +150,20 @@ func (rs roundRuns) counted(refused func(*v1alpha1.IntentRun) bool) int32 {
 		}
 	}
 	return n
+}
+
+// spent reports a failed round with no attempt left to make: its counted
+// failures reached maxAttempts, or its latest run ended dependency_refused,
+// a refusal by the egress proxy's policy that every attempt under the same
+// network profile meets again, so the intent fails now, the run's detail
+// saying what the operator changes, rather than spend another attempt
+// learning it.
+func (rs roundRuns) spent(maxAttempts int32) bool {
+	if l := rs.latest(); l != nil && l.Status.Phase == v1alpha1.RunFailed &&
+		l.Status.Outcome == OutcomeDependencyRefused {
+		return true
+	}
+	return rs.counted(nil) >= maxAttempts
 }
 
 // uncounted reports a failed run whose agent never ran, or whose result a
