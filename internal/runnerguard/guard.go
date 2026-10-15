@@ -276,7 +276,10 @@ func Refused(conds []metav1.Condition) bool {
 // SandboxRefused reports whether a repository-image Job's prepare init
 // exited with jobs.ExitSandboxUnenforced: the probe found egress open, the
 // agent container never started, and there is no log to read. A default
-// Job never runs the probe, so its init's exit status is not judged here.
+// Job's init is never judged here: it runs the probe only in its wait mode,
+// which exits 0 whatever it finds, and its prepare script guards even that
+// line with an echo of the exit status, so a default init cannot exit
+// ExitSandboxUnenforced. Keep both true before loosening the annotation gate.
 func SandboxRefused(st jobs.Status) bool {
 	return st.RunnerImageSource == v1alpha1.RunnerImageSourceRepository &&
 		st.InitExitCode != nil && *st.InitExitCode == jobs.ExitSandboxUnenforced

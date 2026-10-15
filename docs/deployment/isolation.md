@@ -256,7 +256,10 @@ Two residuals apply to every agent pod, whatever the image and whatever the post
   - Every **default-image** Job (finding investigate and remediate, intent plan and build) ends its `prepare` script
     with the probe in **wait** mode: `agent-runner sandbox-probe --mode=wait --targets=k8s,imds`. It dials the
     Kubernetes API's ClusterIP (from `KUBERNETES_SERVICE_HOST`) and the metadata service (`169.254.169.254:80`), which
-    every chart posture blocks. It does not dial `1.1.1.1`, because `broadEgress` keeps TCP 443 to the internet open on
+    every chart posture blocks. (Under `broadEgress` the Kubernetes API is blocked only because
+    `agent.networkPolicy.clusterCIDRs` excludes its address from the open TCP 443 rule: if your service ClusterIPs or
+    API endpoints sit outside the default RFC 1918 ranges, a `100.64.0.0/10` secondary CIDR for example, add those
+    ranges to `clusterCIDRs`.) It does not dial `1.1.1.1`, because `broadEgress` keeps TCP 443 to the internet open on
     purpose. It returns after three consecutive rounds in which neither answered. That adds about 2 seconds to a Job's
     start against a policy that rejects and about 11 seconds against one that drops (the VPC CNI drops), plus however
     long the policy took to attach. If the 20-second window closes with a target still open, it prints one line to the
@@ -264,7 +267,8 @@ Two residuals apply to every agent pod, whatever the image and whatever the post
     agent starts anyway. The wait probe never fails the Job, never spends an attempt and never trips the sandbox
     breaker, because a default-image run never depended on it. On a cluster that does not enforce NetworkPolicy (kind,
     see above) every default-image Job therefore starts about 20 to 23 seconds later and logs that line, which is the
-    signal to fix the CNI. The line names only the targets, the round count and the elapsed time.
+    signal to fix the CNI. On a CNI that does enforce, the same line naming the Kubernetes API means `clusterCIDRs` does
+    not cover the API's address. The line names only the targets, the round count and the elapsed time.
   - **Evaluation Jobs run neither probe.** Their evolve-runner images come from the evolve repository and ship no
     `agent-runner` to run it with, so an evaluation pod may run its first seconds inside the window.
 - **The node's own kubelet.** On EKS Auto Mode (VPC CNI) a pod can reach the kubelet of the node it runs on (TCP 10250)

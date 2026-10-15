@@ -44,14 +44,15 @@
 // A default-image Job's prepare init ends with the same probe in its wait
 // mode (`agent-runner sandbox-probe --mode=wait --targets=k8s,imds`): it
 // holds the agent container back until the API server and the metadata
-// service, which every chart posture blocks, have stayed unreachable for
-// the probe's confirming rounds, so the agent does not start inside the
-// window before a late-attaching NetworkPolicy applies. When the window
-// closes with either still open it logs one loud line and hands over
-// anyway: it never exits ExitSandboxUnenforced and never fails the init,
-// so a default-image run's attempts and the breaker are untouched. An
-// evaluation Job runs neither probe: its evolve-runner image ships no
-// agent-runner.
+// service, which every chart posture blocks (the API server only while
+// clusterCIDRs covers its address under broadEgress), have stayed
+// unreachable for the probe's confirming rounds, so the agent does not
+// start inside the window before a late-attaching NetworkPolicy applies.
+// When the window closes with either still open it logs one loud line and
+// hands over anyway: it never exits ExitSandboxUnenforced and never fails
+// the init, so a default-image run's attempts and the breaker are
+// untouched. An evaluation Job runs neither probe: its evolve-runner image
+// ships no agent-runner (TestEvalJobRunsNoProbe pins that).
 //
 // Under Config.DNS DNSNone a pod has no working resolver, which closes the
 // DNS channel out of the sandbox: dnsPolicy None, its own loopback as its

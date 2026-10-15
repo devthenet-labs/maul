@@ -23,12 +23,13 @@ func probeLine(t *testing.T, script string) string {
 	return lines[len(lines)-1]
 }
 
-// TestEveryJobProbesItsSandbox: whatever the kind, phase, harness, credential
+// TestEveryJobProbesItsSandbox: whatever the finding or intent kind, phase, harness, credential
 // channel, DNS mode or trees, a Job's prepare init ends with a sandbox
 // probe before the agent container may start. A repository-image Job runs
 // the strict probe, exactly as before (its exit 78 refuses the run); every
 // default-image Job runs the wait probe against the two targets every chart
-// posture blocks, which can delay the agent but never refuse it.
+// posture blocks, which can delay the agent but never refuse it. Evaluation
+// Jobs run neither (TestEvalJobRunsNoProbe).
 func TestEveryJobProbesItsSandbox(t *testing.T) {
 	stages := []struct{ kind, phase string }{
 		{"investigation", "investigate"},
@@ -109,6 +110,27 @@ func TestEveryJobProbesItsSandbox(t *testing.T) {
 					t.Errorf("prepare does not carry %s", sandboxprobe.TimeoutEnv)
 				}
 			})
+		}
+	}
+}
+
+// TestEvalJobRunsNoProbe: an evaluation Job is the one kind outside
+// TestEveryJobProbesItsSandbox. Its prepare init runs in the evolve-runner
+// image, which ships no agent-runner, so a probe line there would only fail
+// (or, behind the wait mode's guard, be echoed away as an exit 127) while
+// the docs went on claiming the window was closed. Adding a probe to it
+// must come with an agent-runner in that image and an update to
+// docs/deployment/isolation.md, not silently.
+func TestEvalJobRunsNoProbe(t *testing.T) {
+	job, err := New(fake.NewClientset(), testConfig(), nil).buildEvalJob(EvalNameFor("unit"), testEvalSpec())
+	if err != nil {
+		t.Fatalf("buildEvalJob: %v", err)
+	}
+	for _, c := range append(job.Spec.Template.Spec.InitContainers, job.Spec.Template.Spec.Containers...) {
+		for _, arg := range append(append([]string{}, c.Command...), c.Args...) {
+			if strings.Contains(arg, sandboxprobe.Command) {
+				t.Errorf("evaluation container %q runs the sandbox probe:\n%s", c.Name, arg)
+			}
 		}
 	}
 }

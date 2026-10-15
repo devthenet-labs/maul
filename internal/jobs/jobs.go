@@ -174,8 +174,10 @@ done
 
 // waitProbeArgs selects the sandbox probe's wait mode against the two
 // targets every chart posture blocks: the Kubernetes API's ClusterIP and the
-// cloud metadata service. Never the public internet, which broadEgress
-// opens on purpose and a default-image claude pod never needs.
+// cloud metadata service. (Under broadEgress the first holds only while
+// agent.networkPolicy.clusterCIDRs covers the service and API addresses.)
+// Never the public internet, which broadEgress opens on purpose and a
+// default-image claude pod never needs.
 const waitProbeArgs = "--mode=" + string(sandboxprobe.ModeWait) +
 	" --targets=" + sandboxprobe.TargetKubernetes + "," + sandboxprobe.TargetMetadata
 

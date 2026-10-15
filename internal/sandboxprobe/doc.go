@@ -22,8 +22,9 @@
 // A default-image Job runs the same probe in its wait mode (ModeWait,
 // `sandbox-probe --mode=wait --targets=k8s,imds`): only the targets every
 // chart posture blocks (the public internet is open on purpose under
-// broadEgress), the same rounds and window, and exit 0 whatever the
-// verdict, logging one loud line when a target is still open at the end of
+// broadEgress, and there the API server is blocked only while the chart's
+// clusterCIDRs cover its address), the same rounds and window, and exit 0
+// whatever the verdict, logging one loud line when a target is still open at the end of
 // the window. It narrows the window in which a trusted agent could run
 // before its policy attaches; it never refuses a run.
 //
