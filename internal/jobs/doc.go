@@ -81,9 +81,12 @@
 // Applied, it adds exactly one destination: the profile label on the Job
 // and its pod (netprofile.LabelKey, which the NetworkPolicies on both sides
 // of the egress proxy's profile port select), the proxy's host in the hosts
-// file under DNSNone, and the go command's environment pointing at the
-// proxy, every go variable a profile owns set non-empty so the image's
-// $GOROOT/go.env cannot route around it. No credential, no resolver and no
+// file under DNSNone, and the package managers' environment pointing at
+// the proxy: go's for the public route or a go registry grant, npm's and
+// pip's for their registry grants, every variable a profile owns set
+// non-empty so neither the image's $GOROOT/go.env nor a pip.conf or .npmrc
+// can route around it. A registry's credential stays in the proxy. No
+// credential, no resolver and no
 // proxy variable comes with it, and the per-Job Secret is unchanged. Create
 // reads the profile back off the Job that exists, so what the caller
 // records is what runs.

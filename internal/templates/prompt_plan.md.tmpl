@@ -119,7 +119,9 @@ needs from it:
   can fetch them. Prefer a plan that needs none.
 {{- with .BuildProfiles}}
 
-{{if $.Trees -}}
+{{if buildProfilesRouted . -}}
+{{planRoutes . (ne (len $.Trees) 0)}}
+{{- else if $.Trees -}}
 The build of each repository listed here runs with an operator network profile: {{range $i, $b := .}}{{if $i}}, {{end}}{{code $b.URL}} (profile {{code $b.Profile}}){{end}}.
 Each can fetch new Go modules while it builds, but only tagged releases of module paths the operator allows: such a
 module needs no change to any image, so it is no risk to list. Every other build runs offline, and every other new

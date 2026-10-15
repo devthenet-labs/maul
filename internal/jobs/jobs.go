@@ -879,7 +879,8 @@ func (c *Client) prepareContainer(runner Runner, spec Spec, res corev1.ResourceR
 // can redirect it — and the injection env on top of the usual one.
 //
 // A Job carrying a network profile (profile, which implies inject) also gets
-// the go command's environment, applied last so it owns its names.
+// its package managers' environment (profileEnv), applied last so it owns
+// its names.
 func (c *Client) agentContainer(runner Runner, spec Spec, res corev1.ResourceRequirements,
 	inject, profile bool) corev1.Container {
 	mounts := []corev1.VolumeMount{
@@ -966,10 +967,13 @@ var perJobEnv = map[string]bool{
 	"PATCHY_PREVIOUS_ATTEMPT":     true,
 	"PATCHY_OPEN_PULL_REQUESTS":   true,
 	agentrun.BinDirEnv:            true,
-	// Set only on a Job that carries a network profile (goProfileEnv), and
-	// read by cmd/agent-runner, not agentrun.FromEnv, so it is no
-	// configuration key a repository-image Job blanks.
-	netprofile.EnvProfile: true,
+	// Set only on a Job that carries a network profile (profileEnv), and
+	// read by cmd/agent-runner, not agentrun.FromEnv, so they are no
+	// configuration keys a repository-image Job blanks. The ecosystems and
+	// grants are set only on a profile with registry grants.
+	netprofile.EnvProfile:    true,
+	netprofile.EnvEcosystems: true,
+	netprofile.EnvGrants:     true,
 }
 
 func init() {

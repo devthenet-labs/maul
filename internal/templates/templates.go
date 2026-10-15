@@ -22,7 +22,8 @@ var files embed.FS
 // error caught by the package's golden tests, so panicking at init is right.
 var tmpl = template.Must(template.New("").
 	Funcs(template.FuncMap{"join": strings.Join, "code": code, "fence": fence, "chomp": chomp,
-		"openPullRequests": openPullRequestsListing}).
+		"openPullRequests": openPullRequestsListing, "networkRoutes": networkRoutesPrompt,
+		"buildProfilesRouted": buildProfilesRouted, "planRoutes": planRoutes}).
 	ParseFS(files, "*.md.tmpl"))
 
 // chomp drops trailing line breaks, so a block ending in one (fence) can sit
@@ -71,9 +72,11 @@ const NotReproducedMarker = "patchy could not reproduce this bug before fixing i
 // the Remediation recorded it from the Job (RunnerImageRef.NetworkProfile):
 // when set, one line says the agent could fetch Go modules through it, so
 // the reviewer checks every dependency the change adds; empty leaves the
-// body exactly as it was.
+// body exactly as it was. routes are that profile's routes in the
+// controller's current profile set: with registry grants the line names
+// each ecosystem and its registry.
 func PRBody(issue int, reportBody string, untested bool, repro *v1alpha1.Reproduction,
-	networkProfile string) (string, error) {
+	networkProfile string, routes NetworkRoutes) (string, error) {
 	type reproduction struct {
 		Reproduced             bool
 		Command, Before, After string
@@ -96,7 +99,8 @@ func PRBody(issue int, reportBody string, untested bool, repro *v1alpha1.Reprodu
 			Reproduction        *reproduction
 			NotReproducedMarker string
 			NetworkProfile      string
-		}{issue, shown, untested, AgentImageGuideURL, r, NotReproducedMarker, networkProfileLine(networkProfile)})
+		}{issue, shown, untested, AgentImageGuideURL, r, NotReproducedMarker,
+			networkProfileLine(networkProfile, routes)})
 	}
 	frame, err := body("")
 	if err != nil {
@@ -282,6 +286,10 @@ type RemediatePrompt struct {
 	// carries (a Go module route through the egress proxy); empty, as on
 	// every run without one, keeps the prompt's no-network sentence.
 	NetworkProfile string
+	// NetworkRoutes are the profile's routes as the pod reads them. With
+	// registry grants the prompt describes each ecosystem instead of step
+	// 1's Go paragraph; without, it is exactly step 1's prompt.
+	NetworkRoutes NetworkRoutes
 }
 
 // RenderRemediatePrompt renders the remediation prompt.
@@ -298,10 +306,20 @@ func RenderRemediatePrompt(p RemediatePrompt) (string, error) {
 // the recorded profile's (a DNS label by the CRD's pattern), shown as inline
 // code all the same and defanged, since a squash commit can copy the body
 // to the default branch as plain text.
-func networkProfileLine(name string) string {
+//
+// A profile with registry grants (routes, read from the controller's
+// current profile set, since the run records only the name) says which
+// ecosystems it could fetch and through which registry; without grants the
+// line is step 1's, word for word.
+func networkProfileLine(name string, routes NetworkRoutes) string {
 	name = oneLine(name)
 	if name == "" {
 		return ""
+	}
+	if len(routes.Grants) > 0 {
+		return defang(SanitizeInline("The agent ran with the operator's network profile " + code(name) +
+			" (" + routes.routeList() + "), so it could fetch packages through patchy's egress proxy: review " +
+			"every dependency this change adds or updates, and the lockfiles that record them."))
 	}
 	return defang(SanitizeInline("The agent ran with the operator's network profile " + code(name) +
 		", so it could fetch Go modules through patchy's egress proxy: review every dependency this change adds " +

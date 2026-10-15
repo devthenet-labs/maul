@@ -31,9 +31,9 @@ func TestPRBodyReproductionIsInert(t *testing.T) {
 			Command:    "go test ./... `# closes #5 @root` | tee out",
 			Before:     hostile,
 			After:      hostile,
-		}, "")
+		}, "", NetworkRoutes{})
 		if err != nil {
-			t.Fatalf("PRBody() error = %v", err)
+			t.Fatalf("PRBody(, NetworkRoutes{}) error = %v", err)
 		}
 		first, rest, _ := strings.Cut(body, "\n")
 		if first != "Fixes #123" {
@@ -88,9 +88,9 @@ func TestPRBodySaysWhetherReproduced(t *testing.T) {
 		{"not reported on the default image", true, nil, true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			body, err := PRBody(1, "report", tt.untested, tt.repr, "")
+			body, err := PRBody(1, "report", tt.untested, tt.repr, "", NetworkRoutes{})
 			if err != nil {
-				t.Fatalf("PRBody() error = %v", err)
+				t.Fatalf("PRBody(, NetworkRoutes{}) error = %v", err)
 			}
 			if got := strings.Contains(body, NotReproducedMarker); got != tt.wantWarning {
 				t.Errorf("not-reproduced warning present = %v, want %v:\n%s", got, tt.wantWarning, body)

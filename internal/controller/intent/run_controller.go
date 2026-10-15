@@ -651,7 +651,14 @@ func (r *RunReconciler) launchJob(ctx context.Context, run *v1alpha1.IntentRun,
 			env[envBuildProfiles] = profiles
 		}
 	}
-	jobName, image, err := r.Jobs.Create(ctx, spec, env)
+	// A registry grant naming a Forge's host is refused like a profile
+	// Create refuses, before any Job exists.
+	err := r.Images.CheckForges(ctx, run.Namespace, &spec)
+	var jobName string
+	var image v1alpha1.RunnerImageRef
+	if err == nil {
+		jobName, image, err = r.Jobs.Create(ctx, spec, env)
+	}
 	switch {
 	case launchRefused(err):
 		// Retrying would keep a granted slot forever: the run ends, its
@@ -883,7 +890,8 @@ const envBuildProfiles = "PATCHY_BUILD_NETWORK_PROFILES"
 // planBuildProfiles is what a plan Job is told of its builds' network
 // profiles: for the planning repository and each tree it reads, the profile
 // buildProfile decides a build of it gets, the decision the plan comment's
-// dependency advice states. Only the fact reaches the Job, as plain text for
+// dependency advice states, with the profile's routes when it holds
+// registry grants. Only the fact reaches the Job, as plain text for
 // its prompt: the plan Job asks for no profile and gets none, so it carries
 // neither a profile's label nor its proxy environment.
 func (r *RunReconciler) planBuildProfiles(run *v1alpha1.IntentRun) string {
@@ -895,7 +903,11 @@ func (r *RunReconciler) planBuildProfiles(run *v1alpha1.IntentRun) string {
 	var profiles []templates.BuildProfile
 	for _, u := range urls {
 		if name := buildProfile(r.Images, u); name != "" {
-			profiles = append(profiles, templates.BuildProfile{URL: u, Profile: name})
+			b := templates.BuildProfile{URL: u, Profile: name}
+			if routes := profileRoutes(r.Images, name); len(routes.Grants) > 0 {
+				b.Routes = &routes
+			}
+			profiles = append(profiles, b)
 		}
 	}
 	return templates.EncodeBuildProfiles(profiles)
@@ -1455,6 +1467,11 @@ func (r *RunReconciler) collectBuild(ctx context.Context, run *v1alpha1.IntentRu
 		return r.settle(ctx, run, res)
 	}
 	rules := changeset.IntentRules(run.Status.BaseSHA, r.MaxChangesetEntries)
+	if recordedNetworkProfile(run) != "" {
+		// The Job carried a profile (the launch's read-back, never the
+		// request): no file may leave the run naming the egress proxy.
+		rules.Forbidden = r.Images.ProxyHostForms()
+	}
 	if err := changeset.Validate(ev.Changeset, rules); err != nil {
 		res.outcome, res.detail = string(envelope.OutcomeChangesetRejected), err.Error()
 		return r.settle(ctx, run, res)

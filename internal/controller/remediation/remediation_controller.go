@@ -5,6 +5,7 @@ package remediation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -303,8 +304,20 @@ func (r *RemediationReconciler) launch(ctx context.Context, rem *v1alpha1.Remedi
 		r.log().LogAttrs(ctx, slog.LevelInfo, "not applying a network profile",
 			slog.String("remediation", rem.Name), slog.String("reason", skipped))
 	}
-	jobName, image, err := r.Runner.Create(ctx, spec)
-	if err != nil {
+	// A registry grant naming a Forge's host is refused before any Job
+	// exists, and so is a profile Create refuses: the same launch would be
+	// refused again, so the run fails rather than retrying forever.
+	err = r.Images.CheckForges(ctx, rem.Namespace, &spec)
+	var jobName string
+	var image v1alpha1.RunnerImageRef
+	if err == nil {
+		jobName, image, err = r.Runner.Create(ctx, spec)
+	}
+	switch {
+	case errors.Is(err, jobs.ErrNetworkProfileRefused):
+		return r.fail(ctx, rem, outcomeLaunchRefused, "the agent Job's network profile was refused: "+err.Error(),
+			nil, nil)
+	case err != nil:
 		return fmt.Errorf("launch remediation job: %w", err)
 	}
 	// The image is recorded from what Create returned, never from the
@@ -522,9 +535,12 @@ func (r *RemediationReconciler) succeed(
 	// The report is agent text: PRBody sanitises it, and a body it cannot
 	// render falls back to patchy's own words, never to the raw report.
 	// A run whose Job carried a network profile could fetch dependencies;
-	// the body says so, from what the launch recorded off the Job.
+	// the body says so, from what the launch recorded off the Job, and
+	// names the profile's routes as the operator's profile set holds them
+	// now (the run records only the name).
+	profile := networkProfileOf(rem.Status.RunnerImage)
 	body, err := templates.PRBody(issueNumber, reportBody, untested,
-		agentresult.Reproduction(result.Reproduction), networkProfileOf(rem.Status.RunnerImage))
+		agentresult.Reproduction(result.Reproduction), profile, r.networkRoutes(profile))
 	if err != nil {
 		body = templates.PRBodyFallback(issueNumber)
 	}
@@ -811,6 +827,11 @@ func (r *RemediationReconciler) changesetRules(
 		MaxEntries:      r.maxChangesetEntries(),
 		RepositoryImage: ranRepositoryImage(rem.Status.RunnerImage),
 	}
+	if networkProfileOf(rem.Status.RunnerImage) != "" {
+		// The Job carried a profile (the launch's read-back, never the
+		// request): no file may leave the run naming the egress proxy.
+		rules.Forbidden = r.Images.ProxyHostForms()
+	}
 	var repo v1alpha1.Repository
 	key := types.NamespacedName{Namespace: rem.Namespace, Name: rem.Spec.RepositoryRef.Name}
 	switch err := r.Get(ctx, key, &repo); {
@@ -840,6 +861,20 @@ func (r *RemediationReconciler) changesetRules(
 // the default image.
 func ranRepositoryImage(ri *v1alpha1.RunnerImageRef) bool {
 	return ri != nil && ri.Source == v1alpha1.RunnerImageSourceRepository
+}
+
+// outcomeLaunchRefused is a run whose Job was refused before it existed,
+// in the intent runs' vocabulary.
+const outcomeLaunchRefused = "launch_refused"
+
+// networkRoutes are the routes of the profile called name in this
+// controller's profile set: none for no profile, or one the set no longer
+// holds, which leaves the pull request's line as step 1 wrote it.
+func (r *RemediationReconciler) networkRoutes(name string) templates.NetworkRoutes {
+	if p, ok := r.Images.Profiles.Get(name); ok && name != "" {
+		return templates.RoutesOf(p)
+	}
+	return templates.NetworkRoutes{}
 }
 
 // networkProfileOf is the network profile a run's Job carried, as recorded

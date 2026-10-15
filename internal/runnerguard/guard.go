@@ -4,6 +4,8 @@
 package runnerguard
 
 import (
+	"context"
+	"fmt"
 	"net"
 	"net/url"
 	"strconv"
@@ -34,6 +36,16 @@ type Guard struct {
 	ProfilesEnabled bool
 	Profiles        netprofile.Set
 	ProxyBase       *url.URL
+	// Forges lists the hosts of the Forge CRs the controller can see, which
+	// CheckForges holds a profile's registry grants to. Nil refuses every
+	// profile with grants: a check that cannot run must not pass.
+	Forges ForgeHosts
+}
+
+// ForgeHosts lists the hosts of the Forge CRs in a namespace
+// (forge.Store.Hosts).
+type ForgeHosts interface {
+	Hosts(ctx context.Context, namespace string) ([]string, error)
 }
 
 // Reasons Pin reports for not using an image the Repository pinned.
@@ -163,10 +175,100 @@ func (g Guard) Profile(spec *jobs.Spec, repoURL string) (applied, skipped string
 	spec.NetworkProfile = &jobs.NetworkProfile{
 		Name:          p.Name,
 		Route:         p.Route,
+		Registries:    p.Registries,
 		ProxyURL:      g.ProxyBase.Scheme + "://" + net.JoinHostPort(g.ProxyBase.Hostname(), strconv.Itoa(p.Port)),
 		BakedModCache: p.BakedModCache,
 	}
 	return p.Name, ""
+}
+
+// CheckForges refuses, with an error wrapping jobs.ErrNetworkProfileRefused
+// that names the host, a requested profile any of whose registry grants
+// names a forge: a grant host (the registry's URL host, a file host, or a
+// redirect pattern) that is, lies below or matches the host of a Forge CR
+// in namespace. The chart and the proxy cannot see Forge CRs (a GitHub
+// Enterprise host configured only in patchy-config), so the job
+// controllers, which list them anyway, run this check at launch. A spec
+// with no profile, or a profile without grants (step 1), is never checked
+// and costs no list. A list failure is returned as is, for a retry; with
+// no Forges lister configured, a profile with grants is refused.
+func (g Guard) CheckForges(ctx context.Context, namespace string, spec *jobs.Spec) error {
+	p := spec.NetworkProfile
+	if p == nil || len(p.Registries) == 0 {
+		return nil
+	}
+	if g.Forges == nil {
+		return fmt.Errorf("%w: profile %s holds registry grants and no Forge list is configured to check "+
+			"them against", jobs.ErrNetworkProfileRefused, p.Name)
+	}
+	hosts, err := g.Forges.Hosts(ctx, namespace)
+	if err != nil {
+		return fmt.Errorf("list the Forges a registry grant may not name: %w", err)
+	}
+	return ForgeRefusal(p, hosts)
+}
+
+// ForgeRefusal is CheckForges' decision over a listed set of Forge hosts:
+// nil when no grant host is, lies below or matches one of them, an error
+// wrapping jobs.ErrNetworkProfileRefused naming the host otherwise. A grant
+// that lists no hosts at all is refused whatever the Forges: its registry
+// URL host belongs first in that list, and a grant without it could name a
+// Forge's host this check never sees.
+func ForgeRefusal(p *jobs.NetworkProfile, forgeHosts []string) error {
+	if p == nil {
+		return nil
+	}
+	for _, gr := range p.Registries {
+		if len(gr.Hosts) == 0 {
+			return fmt.Errorf("%w: profile %s grant %s lists no hosts to check against the Forges "+
+				"(its registry URL host comes first)", jobs.ErrNetworkProfileRefused, p.Name, gr.Name)
+		}
+	}
+	if len(forgeHosts) == 0 {
+		return nil
+	}
+	for _, gr := range p.Registries {
+		for _, h := range gr.Hosts {
+			for _, f := range forgeHosts {
+				// DeniedHosts below skips IP literals (the proxy judges
+				// addresses); a Forge on an IP is still refused by name.
+				if strings.EqualFold(h, f) {
+					return fmt.Errorf("%w: profile %s grant %s names %s, the host of a Forge",
+						jobs.ErrNetworkProfileRefused, p.Name, gr.Name, h)
+				}
+			}
+		}
+		if err := gr.DeniedHosts(netprofile.DenyContext{Hosts: forgeHosts}); err != nil {
+			return fmt.Errorf("%w: profile %s: %w (a Forge's host)", jobs.ErrNetworkProfileRefused, p.Name, err)
+		}
+	}
+	return nil
+}
+
+// ProxyHostForms are the spellings of the egress proxy's host that a
+// changeset of a profile run may not contain (changeset.Rules.Forbidden):
+// lockfiles and configuration must keep the registry's canonical URLs.
+// For an in-cluster Service name <svc>.<ns>.svc.cluster.local they are
+// that name, <svc>.<ns>.svc, <svc>.<ns> and http://<svc>; for any other
+// host with a dot, the host itself; for a single-label host only
+// http://<host>, since the bare word would refuse unrelated text. No
+// proxy base is none.
+func (g Guard) ProxyHostForms() []string {
+	if g.ProxyBase == nil {
+		return nil
+	}
+	host := strings.ToLower(g.ProxyBase.Hostname())
+	if host == "" {
+		return nil
+	}
+	if svcNS, ok := strings.CutSuffix(host, ".svc.cluster.local"); ok && strings.Count(svcNS, ".") == 1 {
+		svc, _, _ := strings.Cut(svcNS, ".")
+		return []string{host, svcNS + ".svc", svcNS, "http://" + svc}
+	}
+	if !strings.Contains(host, ".") {
+		return []string{"http://" + host}
+	}
+	return []string{host}
 }
 
 // Revived reports whether a human brought the finding back from a terminal

@@ -5,6 +5,7 @@ package intent
 
 import (
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -97,7 +98,7 @@ func TestBuildAndReviseRoundsGetTheNetworkProfile(t *testing.T) {
 	want := jobs.NetworkProfile{Name: "go", Route: "go",
 		ProxyURL: "http://patchy-egress-proxy.patchy.svc.cluster.local:8090", BakedModCache: "/opt/go/pkg/mod"}
 	for _, s := range builds {
-		if s.NetworkProfile == nil || *s.NetworkProfile != want || s.RunnerImage != repoImage {
+		if s.NetworkProfile == nil || !reflect.DeepEqual(*s.NetworkProfile, want) || s.RunnerImage != repoImage {
 			t.Errorf("build-phase spec %s: profile %+v image %q, want %+v on the repository's image",
 				s.Finding, s.NetworkProfile, s.RunnerImage, want)
 		}

@@ -284,14 +284,16 @@ func (p *pass) planComment(revision int32, raw []byte) (templates.PlanComment, e
 	}
 	repos := p.planRepositories(parsed.Repositories)
 	profiles := make([]string, len(repos))
+	routes := make([]templates.NetworkRoutes, len(repos))
 	for i, r := range repos {
 		profiles[i] = buildProfile(p.r.Images, r.URL)
+		routes[i] = profileRoutes(p.r.Images, profiles[i])
 	}
 	return templates.PlanComment{
 		Namespace: p.in.Namespace, Intent: p.in.Name, Revision: revision, Report: raw,
 		Summary: parsed.Summary, NewDependencies: parsed.NewDependencies, Questions: parsed.Questions,
 		ApproveLabel: approveLabel(p.proj), TriggerLabel: p.trigger(),
-		Repositories: repositorySlugs(repos), NetworkProfiles: profiles,
+		Repositories: repositorySlugs(repos), NetworkProfiles: profiles, NetworkRoutes: routes,
 	}, nil
 }
 

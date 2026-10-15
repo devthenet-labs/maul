@@ -7,6 +7,7 @@ import (
 	"context"
 	"math/rand"
 	"net/url"
+	"reflect"
 	"testing"
 
 	"k8s.io/client-go/kubernetes/fake"
@@ -99,7 +100,7 @@ func TestProfile(t *testing.T) {
 			want := jobs.NetworkProfile{Name: "go", Route: "go",
 				ProxyURL:      "http://patchy-egress-proxy.patchy.svc.cluster.local:8090",
 				BakedModCache: "/opt/go/pkg/mod"}
-			if spec.NetworkProfile == nil || *spec.NetworkProfile != want {
+			if spec.NetworkProfile == nil || !reflect.DeepEqual(*spec.NetworkProfile, want) {
 				t.Errorf("spec.NetworkProfile = %+v, want %+v", spec.NetworkProfile, want)
 			}
 		})

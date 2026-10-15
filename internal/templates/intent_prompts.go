@@ -6,8 +6,11 @@ package templates
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
+
+	"github.com/bitwise-media-group/patchy/internal/netprofile"
 )
 
 // StageLimits are what one intent run may spend, as agent-runner resolved
@@ -101,6 +104,10 @@ type PlanPrompt struct {
 type BuildProfile struct {
 	URL     string `json:"url"`
 	Profile string `json:"profile"`
+	// Routes are the profile's routes when it holds registry grants, which
+	// the prompt then names per build instead of step 1's Go sentence; nil
+	// for a step-1 profile, whose JSON and prompt are what they were.
+	Routes *NetworkRoutes `json:"routes,omitempty"`
 }
 
 // BuildProfilesMax bounds the BuildProfiles a plan prompt states: a
@@ -112,12 +119,58 @@ const BuildProfilesMax = 8
 func boundBuildProfiles(in []BuildProfile) []BuildProfile {
 	var out []BuildProfile
 	for _, b := range in {
-		b = BuildProfile{URL: cutRunes(oneLine(b.URL), 200), Profile: cutRunes(oneLine(b.Profile), 63)}
+		b = BuildProfile{URL: cutRunes(oneLine(b.URL), 200), Profile: cutRunes(oneLine(b.Profile), 63),
+			Routes: boundRoutes(b.Routes)}
 		if b.URL != "" && b.Profile != "" && len(out) < BuildProfilesMax {
 			out = append(out, b)
 		}
 	}
 	return out
+}
+
+// boundRoutes keeps routes whose grants each validate and hold one
+// ecosystem apiece, or nil: anything else is not what a controller wrote,
+// and the build is then described as step 1 would.
+func boundRoutes(r *NetworkRoutes) *NetworkRoutes {
+	if r == nil || len(r.Grants) == 0 {
+		return nil
+	}
+	if _, err := netprofile.EncodePodGrants(r.Grants); err != nil {
+		return nil
+	}
+	return &NetworkRoutes{PublicGo: r.PublicGo, Grants: slices.Clone(r.Grants)}
+}
+
+// buildProfilesRouted reports whether any build's profile holds registry
+// grants, which the plan prompt then describes per build (planRoutes).
+func buildProfilesRouted(bs []BuildProfile) bool {
+	return slices.ContainsFunc(bs, func(b BuildProfile) bool { return b.Routes != nil })
+}
+
+// planRoutes is the plan prompt's paragraph on its builds' network
+// profiles when one holds registry grants: what each build can fetch, so
+// the planner does not call such a dependency a risk, and that the rest
+// must be in the image. multi is a multi-repository plan's wording.
+func planRoutes(bs []BuildProfile, multi bool) string {
+	summary := func(b BuildProfile) []string {
+		if b.Routes == nil {
+			return []string{"tagged releases of Go module paths the operator allows"}
+		}
+		return b.Routes.routeSummaries()
+	}
+	if !multi {
+		return wrap("This repository's build runs with the operator's network profile "+code(bs[0].Profile)+
+			", so while it builds it can fetch "+list(summary(bs[0]))+": such a dependency needs no change to the "+
+			"image, so it is no risk to list. Every other new dependency must already be in the image.", "", "")
+	}
+	items := make([]string, 0, len(bs))
+	for _, b := range bs {
+		items = append(items, code(b.URL)+" (profile "+code(b.Profile)+": "+strings.Join(summary(b), "; ")+")")
+	}
+	return wrap("The build of each repository listed here runs with an operator network profile, and while it "+
+		"builds can fetch what that profile allows: "+strings.Join(items, ", ")+". Such a dependency needs no "+
+		"change to any image, so it is no risk to list. Every other build runs offline, and every other new "+
+		"dependency must already be in the image of the repository that needs it.", "", "")
 }
 
 // EncodeBuildProfiles is the JSON a plan Job hands agent-runner as
@@ -222,6 +275,10 @@ type BuildPrompt struct {
 	// every run without one, keeps the prompt's no-network sentence and its
 	// stop-and-report for a dependency the image lacks.
 	NetworkProfile string
+	// NetworkRoutes are the profile's routes as the pod reads them. With
+	// registry grants the prompt describes each ecosystem instead of step
+	// 1's Go paragraph; without, it is exactly step 1's prompt.
+	NetworkRoutes NetworkRoutes
 }
 
 // RenderBuildPrompt renders the build-stage prompt.

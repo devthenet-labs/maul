@@ -271,3 +271,34 @@ func serve(t *testing.T, mux *http.ServeMux) string {
 	t.Cleanup(srv.Close)
 	return srv.URL
 }
+
+// TestStoreHosts: Store.Hosts lists the hosts of the namespace's Forges
+// only, lowercase, sorted and once each, and surfaces a list failure.
+func TestStoreHosts(t *testing.T) {
+	pub := mkForge("gh", "", nil, nil)
+	pub.Namespace = "ns"
+	ghes := mkForge("ghes", "https://GHE.Corp.Example/api/v3", nil, nil)
+	ghes.Namespace = "ns"
+	again := mkForge("ghes-acme", "ghe.corp.example", []string{"acme"}, nil)
+	again.Namespace = "ns"
+	elsewhere := mkForge("other", "https://git.other.example", nil, nil)
+	elsewhere.Namespace = "other"
+	c := fake.NewClientBuilder().WithScheme(kube.Scheme()).WithObjects(&pub, &ghes, &again, &elsewhere).Build()
+	got, err := NewStore(c).Hosts(context.Background(), "ns")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"ghe.corp.example", "github.com"}; strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("Hosts = %v, want %v", got, want)
+	}
+
+	boom := errors.New("apiserver down")
+	failing := fake.NewClientBuilder().WithScheme(kube.Scheme()).WithInterceptorFuncs(interceptor.Funcs{
+		List: func(context.Context, client.WithWatch, client.ObjectList, ...client.ListOption) error {
+			return boom
+		},
+	}).Build()
+	if _, err := NewStore(failing).Hosts(context.Background(), "ns"); !errors.Is(err, boom) {
+		t.Errorf("Hosts with a failing list = %v, want the list error", err)
+	}
+}

@@ -42,9 +42,9 @@ const hostileReport = "## Summary\n\n" +
 // in the body but patchy's own first line references an issue or mentions
 // anyone.
 func TestPRBodyReportIsInert(t *testing.T) {
-	body, err := PRBody(123, hostileReport, false, nil, "")
+	body, err := PRBody(123, hostileReport, false, nil, "", NetworkRoutes{})
 	if err != nil {
-		t.Fatalf("PRBody() error = %v", err)
+		t.Fatalf("PRBody(, NetworkRoutes{}) error = %v", err)
 	}
 	first, rest, _ := strings.Cut(body, "\n")
 	if first != "Fixes #123" {
@@ -138,9 +138,9 @@ const legibleReport = "## Root cause\n\nThe handler echoes `name` unescaped.\n\n
 // inline code and a code block keep rendering as such in the pull request
 // body and the tracking comment, the code block's content byte for byte.
 func TestReportKeepsItsFormatting(t *testing.T) {
-	body, err := PRBody(1, legibleReport, false, nil, "")
+	body, err := PRBody(1, legibleReport, false, nil, "", NetworkRoutes{})
 	if err != nil {
-		t.Fatalf("PRBody() error = %v", err)
+		t.Fatalf("PRBody(, NetworkRoutes{}) error = %v", err)
 	}
 	for name, md := range map[string]string{
 		"pull request body": body,
@@ -185,9 +185,9 @@ func TestReportKeepsItsFormatting(t *testing.T) {
 func TestFindingReportFitsGitHub(t *testing.T) {
 	huge := strings.Repeat("\u200b@admin fixes #1 ", 20000)
 	body, err := PRBody(1, huge, false, &v1alpha1.Reproduction{Reproduced: true, Command: "make test",
-		Before: strings.Repeat("\x01", 2000), After: strings.Repeat("\x01", 2000)}, "")
+		Before: strings.Repeat("\x01", 2000), After: strings.Repeat("\x01", 2000)}, "", NetworkRoutes{})
 	if err != nil {
-		t.Fatalf("PRBody() error = %v", err)
+		t.Fatalf("PRBody(, NetworkRoutes{}) error = %v", err)
 	}
 	comment := RenderStageReportComment("Investigation", 1, huge)
 	for name, md := range map[string]string{"pull request body": body, "stage comment": comment} {
@@ -220,7 +220,7 @@ func TestFindingTextProperties(t *testing.T) {
 				failure, ok = fmt.Sprintf("panic: %v\nagent text %q", r, agent), false
 			}
 		}()
-		body, err := PRBody(42, agent, false, nil, "")
+		body, err := PRBody(42, agent, false, nil, "", NetworkRoutes{})
 		if err != nil {
 			failure = fmt.Sprintf("pull request body: %v", err)
 			return false

@@ -312,6 +312,7 @@ func (p *pass) openPullRequest(ctx context.Context, run *v1alpha1.IntentRun,
 			PlanRevision: ap.PlanRevision, PlanDigest: ap.PlanDigest, ApprovedBy: ap.By,
 			Repositories: repositorySlugs(repos), NetworkProfile: recordedNetworkProfile(run),
 			GoRequirements: goReqs,
+			NetworkRoutes:  profileRoutes(p.r.Images, recordedNetworkProfile(run)),
 		})
 		if err != nil {
 			return false, err
@@ -801,6 +802,16 @@ func prsEqual(a, b []v1alpha1.IntentPullRequest) bool {
 		}
 	}
 	return true
+}
+
+// profileRoutes are the routes of the profile called name in the guard's
+// profile set, for text that names them: none for no profile or one the
+// set no longer holds, which leaves that text as step 1 wrote it.
+func profileRoutes(g runnerguard.Guard, name string) templates.NetworkRoutes {
+	if p, ok := g.Profiles.Get(name); ok && name != "" {
+		return templates.RoutesOf(p)
+	}
+	return templates.NetworkRoutes{}
 }
 
 // recordedNetworkProfile is the network profile the run's Job carried, as

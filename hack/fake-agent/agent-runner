@@ -48,7 +48,10 @@
 # approved plan alone (input/investigation.md) with an empty request; a
 # request beside it is a fatal event, as agent-runner makes it. The
 # changeset stays clear of .github, .patchy and .devcontainer, which an
-# intent's changeset may never touch.
+# intent's changeset may never touch. When PATCHY_FAKE_BUILD_EXTRA_PATH is
+# set, a build's changeset also writes that file with
+# PATCHY_FAKE_BUILD_EXTRA_CONTENT (a test harness's stand-in for a model
+# that edits more than the plan asked, such as a requirements file).
 #
 # A multi-repository intent keeps two more of agent-runner's guards. A plan
 # Job handed a repositories manifest (input/repositories, one
@@ -327,8 +330,13 @@ build)
   report='---\nsuccess: true\nsummary: Add a VERSION file (scripted build from hack/fake-agent)\ntests:\n  ran: true\n  passed: true\n  command: \"go test ./...\"\nnotes: []\n---\n\n## What changed\n\nScripted build from `hack/fake-agent`; no model was consulted. `VERSION`\nnow names the current version, as the approved plan asked.\n\n## Verification\n\n- `go test ./...` passes.\n\n## Working notes\n\n'"$notes"'\n'
 
   content=$(printf '0.1.0\n' | base64 | tr -d '\n')
-  printf 'PATCHY-EVENT: {"v":4,"type":"remediation","repo":"%s","finding":"%s","remediation":{"outcome":"ok","harness":"fake","model":"%s","session_id":"00000000-0000-4000-8000-000000000003","num_turns":%d,"usage":{"input_tokens":3000,"output_tokens":1200,"cache_read_tokens":0,"cache_creation_tokens":0,"cost_usd":0.10},"elapsed_seconds":3.0,"report_markdown":"%s","success":true,"changeset":{"base_sha":"%s","commit_message":"feat: add a VERSION file (fake agent)","upserts":[{"path":"VERSION","mode":"100644","content_b64":"%s"}]}}}\n' \
-    "$repo" "$finding" "$remediate_model" "$seq" "$report" "$base_sha" "$content"
+  extra=''
+  if [ -n "${PATCHY_FAKE_BUILD_EXTRA_PATH:-}" ]; then
+    extra=$(printf ',{"path":"%s","mode":"100644","content_b64":"%s"}' "$PATCHY_FAKE_BUILD_EXTRA_PATH" \
+      "$(printf '%s\n' "${PATCHY_FAKE_BUILD_EXTRA_CONTENT:-}" | base64 | tr -d '\n')")
+  fi
+  printf 'PATCHY-EVENT: {"v":4,"type":"remediation","repo":"%s","finding":"%s","remediation":{"outcome":"ok","harness":"fake","model":"%s","session_id":"00000000-0000-4000-8000-000000000003","num_turns":%d,"usage":{"input_tokens":3000,"output_tokens":1200,"cache_read_tokens":0,"cache_creation_tokens":0,"cost_usd":0.10},"elapsed_seconds":3.0,"report_markdown":"%s","success":true,"changeset":{"base_sha":"%s","commit_message":"feat: add a VERSION file (fake agent)","upserts":[{"path":"VERSION","mode":"100644","content_b64":"%s"}%s]}}}\n' \
+    "$repo" "$finding" "$remediate_model" "$seq" "$report" "$base_sha" "$content" "$extra"
   ;;
 *)
   printf 'PATCHY-EVENT: {"v":4,"type":"fatal","repo":"%s","finding":"%s","error":"fake agent: unknown phase %s"}\n' \
