@@ -219,6 +219,26 @@ registry credential is the proxy's, never your image's or the pod's.
   `--no-build-isolation`.
 - Use npm or pip; uv, poetry and yarn write index URLs into their lockfiles and are not supported, and pnpm is untested.
 
+A profile can instead list **tunnel hosts** (see [Tunnel](../configuration/egress-proxy.md#tunnel)): the run then gets
+`HTTPS_PROXY` and `NO_PROXY` pointed at the operator's proxy and reaches exactly those public registries, for any
+package manager that honours a proxy (npm, pnpm, Yarn, pip, uv, NuGet, Cargo, Maven, Gradle). The tunnel fetches
+packages, never tools, so bake what it cannot reach:
+
+- **the package manager itself**: corepack would download pnpm or Yarn (from `repo.yarnpkg.com`, which few operators
+  list), so install the version the repository pins;
+- **the interpreter or toolchain**: uv downloads Python from GitHub and rustup from `static.rust-lang.org`, neither
+  listed; set `UV_PYTHON_DOWNLOADS` aside, the `uv` preset sets it to `never`;
+- **the Gradle distribution** under `GRADLE_USER_HOME/wrapper/dists`: `services.gradle.org` redirects to github.com,
+  which is denied;
+- **Node headers** for native modules (`npm_config_nodedir` in your image's `ENV`), since `nodejs.org` is rarely listed;
+- **git dependencies**, which the tunnel never reaches (forges are denied).
+
+On a profile whose clients include `jvm`, the job controller **replaces** your image's `JAVA_TOOL_OPTIONS` with the
+proxy settings: put heap and agent flags in `gradle.properties` (`org.gradle.jvmargs`) or `.mvn/jvm.config`. The other
+presets (`npm_config_*`, `PIP_PROXY`, `CARGO_HTTP_PROXY`, …) likewise replace your image's values of the same names on
+such a run only. Do not configure another proxy or registry in the repository: a project `.npmrc` `registry=` line or an
+extra index names a host the operator did not list, and the fetch is refused.
+
 ## Publishing the image
 
 The image must sit under a registry path your operator has allowlisted, and by default it must be signed with the

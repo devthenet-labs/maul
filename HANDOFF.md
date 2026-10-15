@@ -994,20 +994,26 @@ repos report `read` for everyone, so `read` is never enough).
   `internal/controller/integration/review.go` and `commands.go`).
 - A network profile adds exactly one destination to an agent pod's egress: the egress proxy on that profile's port, and
   only for a remediate or build/revise/check-fix pod running an accepted repository image of a repository matching
-  exactly one profile. Everything else about the pod's egress and DNS is as configured without profiles. The proxy
-  forwards only GET/HEAD requests: GOPROXY and checksum-database requests to proxy.golang.org and sum.golang.org for the
-  profile's allowlisted module prefixes (tagged versions only, unless the profile admits pseudo-versions), and, for a
-  profile granted a registry, Go, npm or PyPI simple-index requests below that registry's fixed base URL under the
-  grant's package policy. It holds a credential only for registries the operator configured (a Secret mounted read-only
-  into the proxy alone, or a CodeArtifact token it mints with its own role), sends it only to that registry's origin,
-  and never forwards it, an inbound credential, or an upstream error body to an agent. It caches nothing. No agent pod
-  or Job Secret ever holds a registry credential, and the feature grants no ServiceAccount a Secret read (kubelet mounts
-  it; controllers that already hold release-namespace `secrets get` could still name it, as any Secret there).
-  Investigate, plan and evaluation pods, and every default-image pod, never get a profile (enforced in the callers, in
-  `internal/jobs`, and, where admission policies are on, by a ValidatingAdmissionPolicy on Jobs plus a sibling on Pods
-  that admits a labelled Pod only from the Job controller for its controlling Job, so a bare Pod cannot claim a
-  profile). The devthenet baseline (`dns: none`, brokered claude only: agent pods reach only the artifact server and the
-  egress broker, with no resolver) is that deployment's configuration, not the chart's.
+  exactly one profile. Everything else about the pod's egress and DNS is as configured without profiles. On that port
+  the proxy forwards GET/HEAD requests: GOPROXY and checksum-database requests to proxy.golang.org and sum.golang.org
+  for the profile's allowlisted module prefixes (tagged versions only, unless the profile admits pseudo-versions) (go
+  route), and, for a profile granted a registry, Go, npm or PyPI simple-index requests below that registry's fixed base
+  URL under the grant's package policy. For a profile listing hosts it also opens TLS tunnels only to the profile's
+  exact public host names on 443, after checking the ClientHello's SNI equals the requested host and carries no ECH
+  (tunnel); it decrypts nothing and never dials a forge, a model API, IMDS or a cluster or private address. It never
+  tunnels to the Kubernetes API by a managed control-plane name, by cluster address, or by the public address the
+  operator configured (`attribution.apiServerCIDRs`, `egressProxy.tunnel.denyCIDRs`). A tunnel to an npm or Yarn
+  registry host can carry an attacker-supplied publish, bounded only by the upload caps. It holds a credential only for
+  registries the operator configured (a Secret mounted read-only into the proxy alone, or a CodeArtifact token it mints
+  with its own role), sends it only to that registry's origin, and never forwards it, an inbound credential, or an
+  upstream error body to an agent. It caches nothing. No agent pod or Job Secret ever holds a registry credential, and
+  the feature grants no ServiceAccount a Secret read (kubelet mounts it; controllers that already hold release-namespace
+  `secrets get` could still name it, as any Secret there). Investigate, plan and evaluation pods, and every
+  default-image pod, never get a profile (enforced in the callers, in `internal/jobs`, and, where admission policies are
+  on, by a ValidatingAdmissionPolicy on Jobs plus a sibling on Pods that admits a labelled Pod only from the Job
+  controller for its controlling Job, so a bare Pod cannot claim a profile). The devthenet baseline (`dns: none`,
+  brokered claude only: agent pods reach only the artifact server and the egress broker, with no resolver) is that
+  deployment's configuration, not the chart's.
 
 ## Where everything is
 

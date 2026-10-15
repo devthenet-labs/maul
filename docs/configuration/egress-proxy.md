@@ -10,6 +10,10 @@ kinds of route:
   registry, such as JFrog Artifactory, Sonatype Nexus or AWS CodeArtifact, under the package policy of the profile's
   grant. See [Registries](#registries).
 
+And, for a profile that lists **hosts**, an HTTPS `CONNECT` **tunnel** to exactly those public host names on 443, for
+ecosystems without a route (npm, pnpm, Yarn, pip, uv, NuGet, Cargo, Maven, Gradle). It checks the TLS ClientHello's
+server name and never decrypts the tunnel. See [Tunnel](#tunnel).
+
 It holds a credential only for the registries the operator configured (a Secret mounted read-only, or a CodeArtifact
 token it mints with its own AWS identity), sends it only to that registry's origin, and never passes it, an inbound
 credential or an upstream error body to an agent. It caches nothing and mounts no ServiceAccount token unless
@@ -184,8 +188,9 @@ broker's base-URL overrides (`PATCHY_{ANTHROPIC,BEDROCK,VERTEX,FOUNDRY}_BASE_URL
 attribution `apiServerCIDRs`. The Kubernetes API's Service address (`KUBERNETES_SERVICE_HOST`, which kubelet injects
 into every container) is always denied too.
 
-The `--tunnel-*` flags bound the CONNECT tunnel a profile with `hosts` serves on its own port (step 3). No chart value
-sets `hosts` yet, so the tunnel is off; with no profile listing hosts these flags change nothing.
+The `--tunnel-*` flags bound the CONNECT tunnel a profile with `hosts` serves on its own port. The chart sets them from
+`egressProxy.tunnel` only while some profile lists hosts; with none they change nothing. See
+[Tunnel limits](#tunnel-limits).
 
 The chart stamps the proxy's `PATCHY_LOG_LEVEL` from `egressProxy.config.logLevel`, or else the shared `config.logLevel`
 but never quieter than `info`: the audit and credential lines below are written at `info`, so at the chart's default
@@ -552,6 +557,292 @@ on a grant naming an unknown registry or a grant whose ecosystem, hosts or `priv
 | pip simple page, pip `.metadata` | 16 MiB                                                       |
 | other Go kinds                   | the public route's                                           |
 
+## Tunnel
+
+For ecosystems without a route of their own (npm, pnpm and Yarn, pip and uv, NuGet, Cargo, Maven and Gradle) a profile
+can list **hosts**: exact public host names its Jobs reach over an HTTPS `CONNECT` tunnel through the proxy, on 443
+only. The tunnel is served on the profile's existing port, so a tunnel adds no port, Service, NetworkPolicy or label:
+the proxy answers `CONNECT` on that listener and everything else as before. Nothing tunnels until a profile lists hosts.
+
+```yaml
+agent:
+  networkProfiles:
+    py:
+      route: tunnel # a tunnel only; route go may list hosts too, for both on one port
+      port: 8092
+      repositories: [acme/web]
+      hosts: [pypi.org, files.pythonhosted.org] # exact names: no wildcard, no IP, https only
+      clients: [pip] # environment presets: npm, yarn, pip, uv, nuget, cargo, jvm
+      upload: # optional, bytes; defaults egressProxy.tunnel
+        perTunnel: 1048576
+        perSource: 8388608
+```
+
+A `route: tunnel` profile takes no `modules`, `bakedModCache` or `allowPseudoVersions`. A `route: go` profile may list
+`hosts` too: one repository that needs Go modules and npm packages uses one profile, since a repository that matches two
+profiles gets none. A profile's tunnel hosts may not be the Go route's own upstreams (`proxy.golang.org`,
+`sum.golang.org`) beside `route: go`, nor a host of one of its registry grants, since the tunnel would bypass that
+route's or grant's package policy.
+
+**The tunnel is name-level.** The proxy checks the `CONNECT` line and the TLS ClientHello and then copies bytes. It
+never decrypts a tunnel, so it cannot see which package or version is fetched: any package on a listed host is
+fetchable, and the pull request's lockfile is where a reviewer sees what came in. See the
+[isolation model](../deployment/isolation.md#tunnel-hosts) for the residue.
+
+### How a CONNECT is judged
+
+In order, each refusal written as a raw `HTTP/1.1 <code> egress-proxy: <reason>` status line with the same line as the
+body (so a client that shows only one of them still shows the reason) and audited:
+
+1. **Suspended**: `410 egress-proxy: profile routes are suspended by the operator`, the Go route's words.
+2. **Shape** (`400`, `bad_request`): HTTP/1.1 only, the target in authority form (`host:443`, no scheme, path, userinfo
+   or IPv6 bracket), no body. A port other than 443 is `403 port`.
+3. **Host policy** (`403`): an IP address in any form is `ip_literal`; a name that is not an exact lowercase host is
+   `bad_host`; a name on the deny list below is `hard_denied`; any other name the profile does not list exactly is
+   `not_allowed`, phrased `egress-proxy: <host> is not in profile <p>'s hosts`. There is no suffix match:
+   `registry.npmjs.org` never admits `x.registry.npmjs.org`.
+4. **Limits** (`503 egress-proxy: over the tunnel limit (<reason>)`, `limited`): see [Tunnel limits](#tunnel-limits).
+5. **Resolve and dial** (`502`): the name is resolved as a fully qualified name (the proxy pod's search domains never
+   apply) and dialled through the same guarded dialer as the Go route, every address judged before the dial and again on
+   the connected socket; `denied_address` when it resolves somewhere the proxy never dials, `dial_error` otherwise. The
+   dial happens before the `200`, so these are readable answers, not torn connections.
+6. **`200 Connection established`**, then the ClientHello: one TLS handshake record, one `server_name` equal to the
+   `CONNECT` host, and no Encrypted Client Hello (or legacy ESNI). A refused hello gets one TLS alert (`sni_missing`,
+   `sni_mismatch`, `ech`, `bad_hello`) and **no byte goes upstream**.
+7. The hello goes upstream verbatim and both directions are copied, counted against the caps, until either side closes,
+   a cap trips or a deadline passes.
+
+The listener speaks HTTP/1 only (no h2c), and a rolling restart closes the old pods' open tunnels; clients reconnect to
+the new pods. `openssl s_client -proxy` sends its `CONNECT` as HTTP/1.0, which the shape check refuses (`400`, reason
+`proto`), so it cannot probe a tunnel; use the Python or curl probe under
+[Debugging a refused host](#debugging-a-refused-host).
+
+### The hard-deny list
+
+A host is refused when it equals or is below an entry, whatever the profile lists. The chart refuses such a profile at
+render time, and the proxy and both job controllers at startup.
+
+| Class                               | Entries                                                                                                                                                                                                                                                                                                       |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Forges                              | `github.com`, `githubusercontent.com`, `ghcr.io`, `githubcopilot.com`, `gitlab.com`, `bitbucket.org`, `codeberg.org`, `dev.azure.com`, `visualstudio.com`, `sr.ht`; every profile's `host`; and, at Job launch, the web host of every `Forge` resource (the run settles as `launch_refused`, naming the host) |
+| Model APIs                          | `anthropic.com`, `claude.ai`, `claude.com`, `openai.com`, `chatgpt.com`, `openai.azure.com`, `services.ai.azure.com`, `cognitiveservices.azure.com`, `aiplatform.googleapis.com`, `generativelanguage.googleapis.com`, Bedrock and regional Vertex endpoints, and the egress broker's base-URL overrides      |
+| Managed Kubernetes control planes   | `eks.amazonaws.com`, `azmk8s.io`, `container.googleapis.com`, `k8s.ondigitalocean.com`, `linodelke.net`, and the in-cluster `kubernetes.default…` names                                                                                                                                                       |
+| Special-use and in-cluster names    | single labels, `localhost`, `local`, `internal` (so `metadata.google.internal`), `svc`, `cluster.local`, `home.arpa`, `in-addr.arpa`, `ip6.arpa`, `invalid`, `test`, `example`                                                                                                                                |
+| Publish endpoints on their own host | `upload.pypi.org`, `www.nuget.org`                                                                                                                                                                                                                                                                            |
+
+Addresses are denied whatever a name resolves to: private, link-local (IMDS, EKS Pod Identity), CGNAT, loopback,
+reserved, `--deny-cidrs` and the Kubernetes Service address, as on every route, plus, for tunnels only,
+`--tunnel-deny-cidrs`. The chart sets that to `attribution.apiServerCIDRs` (when listed) plus
+`egressProxy.tunnel.denyCIDRs`, so the tunnel never reaches the Kubernetes API by its public address either. A public
+EKS, AKS or GKE endpoint is covered by name; **an install whose API endpoint is public under another name** (a
+self-managed control plane) must list its addresses in `egressProxy.tunnel.denyCIDRs`. The proxy logs a warning at
+startup while profiles tunnel and that list is empty.
+
+### Hosts per ecosystem
+
+Copy what you need. What a tunnel cannot fetch must be baked into the image (see
+[Bring your own agent image](../integrations/agent-images.md#operator-network-profiles)).
+
+| Ecosystem                                 | Hosts                                                                                                         | Bake into the image instead                                                                          |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| npm, pnpm, yarn classic (publish channel) | `registry.npmjs.org`                                                                                          | the package manager itself (corepack would fetch it); Node headers (`nodejs.org`) for native modules |
+| Yarn Berry (publish channel)              | `registry.yarnpkg.com` (Berry's default; or point the repository at `registry.npmjs.org`)                     | Yarn itself (or list `repo.yarnpkg.com`, which corepack fetches it from)                             |
+| pip, uv                                   | `pypi.org`, `files.pythonhosted.org`                                                                          | the Python interpreter (uv downloads interpreters from GitHub, which is denied)                      |
+| NuGet                                     | `api.nuget.org` (restore and vulnerability audit; never `www.nuget.org`, the push host)                       | —                                                                                                    |
+| Cargo                                     | `index.crates.io`, `static.crates.io`                                                                         | git dependencies (forges are denied); the toolchain                                                  |
+| Maven                                     | `repo.maven.apache.org`                                                                                       | Maven itself                                                                                         |
+| Gradle                                    | `repo.maven.apache.org`, `plugins.gradle.org`, `plugins-artifacts.gradle.org` (+ `dl.google.com` for Android) | the Gradle distribution (`services.gradle.org` redirects to github.com)                              |
+
+**The npm and Yarn rows are public publish channels.** `npm publish` is a `PUT` to `registry.npmjs.org` itself, the host
+reads use, and `registry.yarnpkg.com` fronts the same registry. The token travels inside TLS, so the proxy cannot see or
+refuse it: a dependency's install script, or a misled agent, that brings its own npm token can publish the working tree
+as a world-readable package, bounded only by the upload caps below. PyPI and NuGet do not have this problem: their
+publish hosts are separate and denied. The install NOTES name every profile that lists one of these two hosts. The real
+fix is an npm-protocol route that serves only reads; until then, list an npm host only where that risk is acceptable.
+
+### The environment a tunnel gives a Job
+
+On a profile Job with hosts, the job controller writes these into the agent container (never the prepare init),
+replacing anything the image or the controller configuration set. `P` is the profile's proxy URL
+(`http://<proxy>:<port>`), `N` the no-proxy list.
+
+| Variable                     | Value                                                                                                                                                                                  |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `HTTPS_PROXY`, `https_proxy` | `P`                                                                                                                                                                                    |
+| `NO_PROXY`, `no_proxy`       | `N`: every in-cluster endpoint the pod dials (the artifact server, the broker's routes, the proxy itself, IP literals kept), `localhost`, `127.0.0.1`, `::1`, `.svc`, `.cluster.local` |
+| `PATCHY_NETWORK_ROUTES`      | `tunnel`, or `go,tunnel`                                                                                                                                                               |
+| `PATCHY_NETWORK_HOSTS`       | the hosts, sorted, for the agent's prompt                                                                                                                                              |
+
+`HTTP_PROXY`, `http_proxy`, `ALL_PROXY` and `all_proxy` stay blank, so plain http goes direct and the NetworkPolicy
+drops it. `NO_PROXY` is load-bearing: Claude Code sends all its traffic to the first proxy variable set unless
+`NO_PROXY` names the host, so it must name the broker. In the live fixtures, `claude -p` with this environment reached
+the broker directly and the proxy saw **no traffic at all** from it, not even a refusal.
+
+Then each preset the profile lists in `clients`, in this order. The preset names are not reserved: an image may set
+them, and they are replaced only on a Job whose profile lists that client.
+
+| Client  | Sets                                                                                                                                                                                                                                                                                                                   | Why                                                                                                 |
+| ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `npm`   | `npm_config_https_proxy=P`, `npm_config_noproxy=N`, `npm_config_update_notifier=false`, `npm_config_fund=false`, `npm_config_audit=false`, `COREPACK_ENABLE_DOWNLOAD_PROMPT=0`; for pnpm 11, which reads only its own names, `pnpm_config_https_proxy=P`, `pnpm_config_noproxy=N`, `pnpm_config_update_notifier=false` | for npm the environment beats a project `.npmrc`; audit off keeps uploads small; no corepack prompt |
+| `yarn`  | `YARN_HTTPS_PROXY=P`, `YARN_ENABLE_TELEMETRY=0`                                                                                                                                                                                                                                                                        | Yarn Berry does not reliably read `HTTPS_PROXY`                                                     |
+| `pip`   | `PIP_PROXY=P`, `PIP_DISABLE_PIP_VERSION_CHECK=1`, `PIP_NO_INPUT=1`                                                                                                                                                                                                                                                     | `PIP_PROXY` beats a pip config file                                                                 |
+| `uv`    | `UV_PYTHON_DOWNLOADS=never`                                                                                                                                                                                                                                                                                            | uv's interpreters come from GitHub                                                                  |
+| `nuget` | `NUGET_CERT_REVOCATION_MODE=offline`, `DOTNET_CLI_TELEMETRY_OPTOUT=1`, `DOTNET_NOLOGO=1`, `DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE=1`                                                                                                                                                                                | revocation checks go to CRL and OCSP hosts over plain http, which nothing carries                   |
+| `cargo` | `CARGO_HTTP_PROXY=P`, `CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse`                                                                                                                                                                                                                                                     | a git-config proxy would beat `HTTPS_PROXY`; the git index is on GitHub                             |
+| `jvm`   | `JAVA_TOOL_OPTIONS=-Dhttps.proxyHost=<host> -Dhttps.proxyPort=<port> -Dhttp.nonProxyHosts=<N, "\|"-joined, ".svc" as "*.svc">`                                                                                                                                                                                         | the JVM ignores `HTTPS_PROXY`                                                                       |
+
+Notes, each from the live fixtures or the clients' documentation:
+
+- **pnpm and `pnpm-workspace.yaml`** (pnpm 11.1 and 11.28): an `httpsProxy` in the file loses to the environment, but a
+  `noProxy` there is honoured, and pnpm then dials that registry directly. In a pod the NetworkPolicy drops that dial,
+  so a repository can break its own install this way, but cannot reach a host the profile does not list.
+- **`jvm` replaces the image's `JAVA_TOOL_OPTIONS`** (it cannot be merged): put heap and agent flags in
+  `gradle.properties` (`org.gradle.jvmargs`) or `.mvn/jvm.config` instead. Every JVM prints
+  `Picked up JAVA_TOOL_OPTIONS: …` on stderr; that line is expected.
+- **NuGet revocation is offline**: package signatures are still verified, but a revoked signing certificate is not
+  detected. Drop the `nuget` preset to accept `NU3028` restore failures instead.
+- **Unverified clients.** The `nuget` and `jvm` presets have never run against a real `dotnet restore`, `mvn` or
+  `gradle` (the live fixtures exist but no machine with a JDK or .NET SDK has run them yet). Maven 3.9.0 ignored the JVM
+  proxy properties (MNG-7721; fixed in 3.9.1), so Maven may need a `settings.xml` proxy in the image instead. Treat both
+  presets as untested until the fixtures run.
+
+### Tunnel limits
+
+The tunnel has its own limits, separate from the Go and registry routes' request limits, so neither starves the other.
+Upload, client to host, is the exfiltration direction, so its caps are small. The defaults come from the live client
+fixtures (`mise run live-tunnel`), which ran each package manager's install of a realistic dependency tree through the
+tunnel and counted the bytes on the wire:
+
+| Client | Fixture                              | Tunnels | Peak open | Upload, total | Upload per package |
+| ------ | ------------------------------------ | ------- | --------- | ------------- | ------------------ |
+| yarn 4 | `express`, `eslint` (162 packages)   | 312     | 50        | 602 KB        | 3.7 KB             |
+| pip    | `requests`, `flask`, `boto3` (18)    | 2       | 2         | 33 KB         | 1.8 KB             |
+| pnpm   | `express`, `eslint` (162)            | 50      | 50        | 189 KB        | 1.2 KB             |
+| npm    | `express`, `eslint` (162), audit off | 15      | 15        | 172 KB        | 1.1 KB             |
+| uv     | `requests`, `flask`, `boto3` (18)    | 6       | 4         | 9 KB          | 0.5 KB             |
+| cargo  | `tokio`, `serde`, `serde_json` (48)  | 2       | 2         | 7 KB          | 0.14 KB            |
+
+The largest single tunnel sent 21 KB (pip, one keep-alive tunnel to `pypi.org`). Yarn Berry opens a fresh tunnel for
+almost every request, about 1.9 KB of TLS handshake each, which is why its upload per package is about three times
+npm's.
+
+| Value (`egressProxy.tunnel.*`)             | Default                                       | Meaning                                                                                          |
+| ------------------------------------------ | --------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `maxUploadBytes`                           | 1 MiB                                         | upload on one tunnel; a profile's `upload.perTunnel` overrides it                                |
+| `sourceUploadBudget`                       | 8 MiB                                         | upload of every tunnel of one source IP on one profile, per window; `upload.perSource` overrides |
+| `maxDownloadBytes`, `sourceDownloadBudget` | 2 GiB, 8 GiB                                  | the same, downstream                                                                             |
+| `maxConcurrent`                            | 512                                           | open tunnels across every source                                                                 |
+| `maxConcurrentPerSource`                   | 64                                            | open tunnels from one source IP (pnpm 11 and yarn 4 opened 50)                                   |
+| `ratePerSource`, `burstPerSource`          | 50/s, 200                                     | new tunnels from one source IP (yarn 4 opened 183 a second)                                      |
+| `limitWait`                                | `10s`                                         | queueing before a `503`                                                                          |
+| `dialTimeout`, `helloTimeout`              | `10s`                                         | resolve and connect; the `200` to a complete ClientHello                                         |
+| `idleTimeout`, `maxDuration`               | `2m`, `30m`                                   | no byte either way; absolute lifetime of one tunnel                                              |
+| `sourceBudgetIdle`                         | `2h`, or the longest Job deadline when longer | how long after a source's last tunnel its spent budget is forgotten                              |
+| `maxSources`                               | 4096                                          | budget-table entries per profile; a full table refuses a new source, never evicts one            |
+| `progressInterval`                         | `5m`                                          | period of an open tunnel's progress line; `"0"` turns it off                                     |
+| `denyCIDRs`                                | `[]`                                          | addresses the tunnel never dials, beside `attribution.apiServerCIDRs`                            |
+
+These keys reach the proxy only while some profile lists hosts. What the defaults allow:
+
+- **1 MiB a tunnel** is about 50 times the largest tunnel measured, and covers a long keep-alive npm socket in a
+  2,000-package install (about 135 KB).
+- **8 MiB a source** is about 13 times the largest install measured. At 3.7 KB a package, a yarn tree of about 2,000
+  packages sends about **7.4 MB**; npm or pnpm about 2.2 MB, pip about 3.6 MB. A yarn monorepo above that needs
+  `upload.perSource` raised on its profile. 16 MiB would cover larger yarn trees out of the box, but doubles what a pod
+  can upload, so the default stays 8 MiB.
+- **The budget is per source IP, per profile, per proxy replica, per window.** With two replicas a pod can upload up to
+  twice the budget. The window outlasts every Job (the chart holds `sourceBudgetIdle` at or above the longest
+  `agent.jobDeadline` and, with intents on, `intentController.config.jobDeadline`, and the proxy refuses a shorter one
+  at startup), so a pod cannot pause long enough to refill its own budget. A new pod that reuses a recent IP inherits
+  what is left: that errs towards less, never more.
+- **Over a cap** a tunnel is closed at once (`upload_cap`, `download_cap`); over a budget the next `CONNECT` is refused
+  `503 egress-proxy: over the tunnel limit (source_upload_budget)`.
+- **The concurrency and rate limits** keep one pod from exhausting the proxy, not data in (the byte budget does that).
+  At the old 10 a second, a yarn install of 162 packages took 27 seconds instead of 2, and pnpm's 50 parallel tunnels
+  queued it from 1.5 to 61 seconds; the defaults sit above both.
+
+A keep-alive tunnel idle for 2 minutes is closed and the client reconnects (`idle_timeout`): expected, not an error.
+
+### Tunnel audit lines and metrics
+
+Every tunnel writes up to three kinds of line, all at `info` with `route=tunnel`, never a header or a payload byte:
+
+- `tunnel opened`, just before the `200`: `profile`, `port`, `source_ip`, the attribution fields, `host` and
+  `upstream_ip`. It is written before the client can send anything, so a crash still leaves it in
+  `kubectl logs --previous`.
+- `tunnel progress`, every `progressInterval` while a tunnel stays open, with running `bytes_up`, `bytes_down` and
+  `duration`.
+- one close line: `tunnel` once the hello went upstream, whatever ended it, or `refused` for a refusal before that, with
+  `sni`, `alpn`, `upstream_ip`, `bytes_up`, `bytes_down`, `duration`, `status`, `outcome` and `reason`.
+
+| `outcome`                                         | Meaning                                                                                                                                                      |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `tunnelled`                                       | opened and closed normally                                                                                                                                   |
+| `not_allowed`                                     | a host the profile does not list                                                                                                                             |
+| `hard_denied`, `ip_literal`, `bad_host`, `port`   | the deny list, an IP address, not a host name, a port other than 443                                                                                         |
+| `limited`                                         | over a limit; `reason` is `source_concurrency`, `source_rate`, `global_concurrency`, `source_upload_budget`, `source_download_budget` or `source_table_full` |
+| `denied_address`, `dial_error`                    | the host resolves somewhere the proxy never dials; resolving or connecting failed                                                                            |
+| `sni_missing`, `sni_mismatch`, `ech`, `bad_hello` | the ClientHello was refused; nothing went upstream                                                                                                           |
+| `upload_cap`, `download_cap`                      | a cap or budget cut an open tunnel                                                                                                                           |
+| `idle_timeout`, `max_duration`, `shutdown`        | ended by a deadline or a proxy shutdown                                                                                                                      |
+| `bad_request`, `suspended`                        | a malformed `CONNECT` (`reason` `proto`, `target` or `body`); the kill switch                                                                                |
+
+Lines to expect, which are not an attack:
+
+- `not_allowed` for a registry the repository's configuration names but the operator did not list (a project `.npmrc`
+  `registry=` line, an extra index in `pyproject.toml`): the allowlist working;
+- `idle_timeout` on long-lived npm and NuGet keep-alive tunnels;
+- `hard_denied` for `api.anthropic.com` would be the claude CLI's feature checks; with the broker's environment
+  (`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`) the live fixtures saw none.
+
+Metrics: `patchy.egress_proxy.tunnels` (by `profile`, `outcome` and `host`, the host only when it is listed, so the
+cardinality is bounded), `patchy.egress_proxy.tunnel_bytes` (by `profile`, `host`, `direction`) and
+`patchy.egress_proxy.tunnels_open` (by `profile`), with telemetry configured.
+
+### Debugging a refused host
+
+**Ask the run first.** The agent is told that when a download fails it should ask the proxy directly and put the host
+and the proxy's exact line in its final message and report, which the run keeps (`IntentRun` and `Remediation`
+`status.report`): `kubectl get intentrun <name> -o yaml` shows it with no log access at all. The probe it runs:
+
+```sh
+curl -sSv -x "$HTTPS_PROXY" https://<host>/ 2>&1 | grep -i egress-proxy
+python3 -c 'import http.client,os,urllib.parse as u; p=u.urlsplit(os.environ["HTTPS_PROXY"]); c=http.client.HTTPSConnection(p.hostname,p.port,timeout=10); c.set_tunnel("<host>",443); c.request("HEAD","/"); print(c.getresponse().status)'
+```
+
+On a refusal the Python form fails with
+`OSError: Tunnel connection failed: 403 egress-proxy: <host> is not in profile <p>'s hosts`, and it needs nothing but
+the standard library.
+
+**What each client prints by itself**, measured with the live fixtures (one listed host removed):
+
+| Client                | Shows           | Output (trimmed)                                                                                                                                            |
+| --------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| pip                   | code and reason | `Tunnel connection failed: 403 egress-proxy: files.pythonhosted.org is not in profile live's hosts` (after 5 retries)                                       |
+| npm                   | code and reason | `npm error 403 403 egress-proxy: registry.npmjs.org is not in profile live's hosts - GET https://registry.npmjs.org/left-pad`                               |
+| Yarn 4                | code only       | `YN0001: │ RequestError: Bad response: 403`                                                                                                                 |
+| cargo                 | code only       | `CONNECT tunnel failed, response 403`                                                                                                                       |
+| pnpm 11               | neither         | `GET https://registry.npmjs.org/left-pad error (0). Will retry in 10 seconds.` then `ERR_PNPM_META_FETCH_FAIL … fetch failed` (about 70 seconds of retries) |
+| uv                    | neither         | `tunnel error: unsuccessful`, after naming the URL it was fetching                                                                                          |
+| dotnet, Maven, Gradle | unverified      | the fixtures have not run (no JDK or .NET SDK on the machine that ran them)                                                                                 |
+
+For Yarn, cargo, pnpm and uv the client's own output does not say why; the probe above does. Transcripts keep only the
+first 2 KB of each tool result, so the error at the end of a long install log is often cut off: the agent is asked to
+quote the proxy's line itself.
+
+**On the operator side** the proxy's logs are the only record of what it decided, and they live only as long as the pod
+(see [Debugging without a log sink](#debugging-without-a-log-sink)):
+
+```sh
+kubectl -n patchy logs -l app.kubernetes.io/name=egress-proxy --prefix --tail=-1 --since=2h --max-log-requests=10 | grep 'route=tunnel' | grep -v 'outcome=tunnelled'
+```
+
+### Version skew
+
+The chart pins the proxy and both job controllers to one tag. A proxy or controller image older than the tunnel, given a
+profile with `hosts`, refuses to start (it refuses unknown fields), rather than silently dropping the tunnel; only an
+operator who pins an old image by hand meets this.
+
 ## Audit and metrics
 
 One `slog` line per request, `msg` `proxied` or `refused`, with `profile`, `port`, `source_ip`, `route` (`go`, `sumdb`
@@ -678,6 +969,11 @@ add-on); it is cluster-level and changes nothing in this chart.
 - **`410 … checksum_not_public` from the go command.** See [Go registries](#go-registries).
 - **The proxy pods stay in `ContainerCreating`.** A registry's Secret (or a `ca` ConfigMap) is missing in the release
   namespace: `kubectl -n patchy describe pod -l app.kubernetes.io/name=egress-proxy` names it.
+- **A tunnel install fails.** Run the probe under [Debugging a refused host](#debugging-a-refused-host). `not_allowed`:
+  add the host to the profile's `hosts` (or point the package manager at a listed one); `hard_denied`: the host is on
+  the deny list and cannot be listed; `503 … (source_upload_budget)`: the source spent its upload budget (raise
+  `upload.perSource` on the profile if the install is genuinely large); `idle_timeout` on its own is a client
+  reconnecting, not a failure.
 - **A Job has no profile.** Check the remediation's or intent run's `runnerImage.networkProfile` and the controller's
   log line for the launch: no accepted image, no matching repository, two matching profiles, or the kill switch. A run
   that settles as `launch_refused` names a grant host that is, or is below, a Forge's web host (its `baseURL` host, and
