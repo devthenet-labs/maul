@@ -10,6 +10,13 @@ Before rendering, the controller re-derives the Preview from the operator's Proj
 state (`v1alpha1.DesiredPreviewComponents`, the function the writer uses too) and checks every component against it. A
 mismatched spec fails closed and removes an exposed Ingress before releasing the slot.
 
+!!! warning "Previews need EKS Auto Mode"
+
+    Previews currently work only on EKS Auto Mode. They depend on its `alb-preview` load balancer class, on the AWS
+    load balancer's built-in sign-in (through [preview-auth](preview-auth.md)) and on Auto Mode's readiness-gate label.
+    On other clusters (GKE, AKS, k3d, on-premises) no load balancer picks up the preview Ingress, so a preview never
+    becomes reachable. Leave `preview.enabled` off there; intents still run in full without a preview link.
+
 `preview.enabled` first creates guarded, empty slot namespaces and the non-default `alb-preview` class.
 `previewController.enabled` then adds the controller, one namespaced Role in the release namespace and one in each slot,
 and turns on intent-controller's Preview projector. Both switches default to `false`; the chart refuses to enable the
