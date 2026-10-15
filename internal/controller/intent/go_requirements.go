@@ -5,6 +5,7 @@ package intent
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"slices"
 	"strings"
@@ -27,16 +28,17 @@ const goModPath = "go.mod"
 // base did not hold, each against the approved plan's new_dependencies, for
 // the pull request's body: the go.mod at the build's base commit and at the
 // commit it pushed, both read from GitHub. None (nil) when the pushed tree
-// has no go.mod, either go.mod does not parse, GitHub refuses the read, or
-// nothing changed; only a transient error is returned, so the pass retries.
+// has no go.mod, either go.mod does not parse, GitHub refuses the read or
+// cannot return it inline (a symlink, a directory, over 1 MiB), or nothing
+// changed; only a transient error is returned, so the pass retries.
 func (p *pass) goRequirements(ctx context.Context, run *v1alpha1.IntentRun) ([]templates.GoRequirement, error) {
 	read := func(ref string) ([]byte, bool, error) {
 		data, err := p.r.GitHub.FileContent(ctx, run.Spec.Repository.URL, goModPath, ref)
 		switch {
 		case ghclient.IsNotFound(err):
 			return nil, false, nil
-		case ghclient.IsRefused(err):
-			p.r.log().LogAttrs(ctx, slog.LevelWarn, "GitHub refused to read go.mod; the pull request body omits "+
+		case ghclient.IsRefused(err), errors.Is(err, ghclient.ErrNotInline):
+			p.r.log().LogAttrs(ctx, slog.LevelWarn, "GitHub would not return go.mod; the pull request body omits "+
 				"its requirements", slog.String("intent", p.in.Name), slog.String("ref", ref),
 				slog.String("error", err.Error()))
 			return nil, false, nil

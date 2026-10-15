@@ -5,12 +5,14 @@ package intent
 
 import (
 	"encoding/base64"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
 
 	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
 	"github.com/bitwise-media-group/patchy/internal/envelope"
+	"github.com/bitwise-media-group/patchy/internal/ghclient"
 	"github.com/bitwise-media-group/patchy/internal/jobs"
 	"github.com/bitwise-media-group/patchy/internal/templates"
 )
@@ -114,5 +116,23 @@ func TestGoRequirementChanges(t *testing.T) {
 	}
 	if _, err := goRequirementChanges([]byte(baseGoMod), []byte("require (\n"), nil); err == nil {
 		t.Error("a go.mod that does not parse compared without an error")
+	}
+}
+
+// TestPullRequestOpensWhenGoModIsNotInline: a go.mod the contents API cannot
+// return inline (a symlink, a directory, a file over 1 MiB) never changes on
+// a retry, so the pull request opens without the requirements section
+// rather than the pass retrying for ever with no pull request.
+func TestPullRequestOpensWhenGoModIsNotInline(t *testing.T) {
+	e := newEnv(t, testProject())
+	e.gh.repoErrs["FileContent acme/app"] = fmt.Errorf("ghclient: read go.mod: %w", ghclient.ErrNotInline)
+	name := e.awaiting()
+	e.gh.label(1, "patchy:approved", approver)
+	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
+	e.gh.mu.Lock()
+	body := e.gh.prs[in.Status.PullRequests[0].Number].body
+	e.gh.mu.Unlock()
+	if strings.Contains(body, "go.mod") {
+		t.Errorf("the pull request body accounts for a go.mod GitHub would not return:\n%s", body)
 	}
 }

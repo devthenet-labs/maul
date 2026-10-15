@@ -5,6 +5,7 @@ package ghclient
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"testing"
 )
@@ -18,6 +19,10 @@ func TestFileContent(t *testing.T) {
 			writeJSON(t, w, `{"type":"file","encoding":"base64","content":"bW9kdWxlIHgK"}`)
 		case "dir":
 			writeJSON(t, w, `[]`)
+		case "link":
+			writeJSON(t, w, `{"type":"symlink","target":"elsewhere"}`)
+		case "big":
+			writeJSON(t, w, `{"type":"file","encoding":"none","content":""}`)
 		default:
 			http.Error(w, `{"message":"Not Found"}`, http.StatusNotFound)
 		}
@@ -29,7 +34,10 @@ func TestFileContent(t *testing.T) {
 	if _, err := c.FileContent(context.Background(), testRepo, "go.mod", "missing"); !IsNotFound(err) {
 		t.Errorf("FileContent() of an absent file error = %v, want a 404", err)
 	}
-	if _, err := c.FileContent(context.Background(), testRepo, "go.mod", "dir"); err == nil || IsNotFound(err) {
-		t.Errorf("FileContent() of a directory error = %v, want a non-404 error", err)
+	for _, ref := range []string{"dir", "link", "big"} {
+		if _, err := c.FileContent(context.Background(), testRepo, "go.mod", ref); !errors.Is(err, ErrNotInline) ||
+			IsNotFound(err) {
+			t.Errorf("FileContent() at %s error = %v, want ErrNotInline", ref, err)
+		}
 	}
 }
