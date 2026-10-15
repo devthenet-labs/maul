@@ -100,6 +100,7 @@ spec:
           if [ -f /patchy/input/investigation.md ]; then
             cp /patchy/input/investigation.md /workspace/input/investigation.md
           fi
+          /usr/local/bin/agent-runner sandbox-probe --mode=wait --targets=k8s,imds || echo "sandbox probe (wait) exited $?; the agent starts anyway" >&2
         env:
         - name: HOME
           value: /workspace
@@ -109,6 +110,8 @@ spec:
           value: http://patchy-source-controller.patchy.svc.cluster.local:9790/artifacts/deadbeef.tar.gz
         - name: PATCHY_ARTIFACT_DIGEST
           value: aa11bb22cc33dd44ee55ff6600112233445566778899aabbccddeeff00112233
+        - name: PATCHY_SANDBOX_PROBE_TIMEOUT
+          value: 20s
         image: ghcr.io/bitwise-media-group/patchy/claude-agent-runner:1
         name: prepare
         resources:

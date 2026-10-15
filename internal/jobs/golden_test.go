@@ -20,8 +20,9 @@ var update = flag.Bool("update", false, "rewrite golden files")
 // annotation, volume, container, env entry and security setting — as YAML
 // under testdata, so a change to the pod shape is a visible diff in review
 // rather than a surprise on the cluster. The default and brokered shapes
-// were captured before repository-declared runner images existed and must
-// stay byte-identical while nothing asks for one.
+// were captured before repository-declared runner images existed and change
+// only deliberately: their one change since is the wait-mode sandbox probe
+// (and its window) at the end of the prepare init.
 func goldenJob(t *testing.T, name string, job *batchv1.Job) {
 	t.Helper()
 	raw, err := yaml.Marshal(job)

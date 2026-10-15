@@ -60,6 +60,15 @@
 # suffix ignored), or fails fatally before building.
 set -eu
 
+# The prepare init runs `agent-runner sandbox-probe ...` (internal/jobs:
+# the wait probe on every default-image Job) before the agent container
+# starts. The fake image has no policy worth waiting for and no stage to
+# run there: say so on stderr and hand over, printing nothing a stage would.
+if [ "${1:-}" = sandbox-probe ]; then
+  echo "fake agent-runner: sandbox-probe skipped" >&2
+  exit 0
+fi
+
 repo="${PATCHY_REPO:-unknown/unknown}"
 finding="${PATCHY_FINDING:-unknown}"
 phase="${PATCHY_PHASE:-investigate}"
