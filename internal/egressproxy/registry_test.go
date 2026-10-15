@@ -312,6 +312,32 @@ func TestRegistryPolicy(t *testing.T) {
 	}
 }
 
+// TestRegistryPolicyPortOutOfRange: an internal registry whose URL names a
+// port past 65535 (one validation refuses, built here unvalidated) admits
+// no internal address, neither on the port truncated to 16 bits (70000 is
+// 4464) nor on any other; the public policy still judges the rest.
+func TestRegistryPolicyPortOutOfRange(t *testing.T) {
+	for _, url := range []string{"https://nexus.corp.internal:70000/npm/", "https://nexus.corp.internal:0/npm/"} {
+		p := AddrPolicy{}.ForRegistry(netprofile.Registry{URL: url,
+			Internal: &netprofile.Internal{CIDRs: []string{"10.20.30.0/24"}}}, nil)
+		for ap, ok := range map[string]bool{
+			"10.20.30.40:4464":  false,
+			"10.20.30.40:0":     false,
+			"10.20.30.40:443":   false,
+			"10.20.30.40:70000": false,
+			"8.8.8.8:443":       true,
+		} {
+			addrPort, err := netip.ParseAddrPort(ap)
+			if err != nil {
+				continue // 70000 is no AddrPort at all
+			}
+			if err := p.Check(addrPort); (err == nil) != ok {
+				t.Errorf("%s: Check(%s) = %v, want ok=%v", url, ap, err, ok)
+			}
+		}
+	}
+}
+
 // TestRegistryDialRebinding: a public registry's name resolving to a
 // private address is refused at dial time, as step 1's upstreams are; the
 // public (redirect) client never uses an internal admission.

@@ -129,9 +129,16 @@ func NewGuardedClient(policy DialPolicy, timeout time.Duration) *http.Client {
 // the URL's port, ahead of the built-in deny list, but never one in the
 // always-denied set (netprofile.AlwaysDeniedCIDRs and always: the
 // Kubernetes Service IP, --always-deny-cidrs), which is judged first; every
-// other address falls to p. Redirect hops never use this policy.
+// other address falls to p. Redirect hops never use this policy. A port
+// outside 1-65535 (validation refuses one; ForRegistry does not trust it
+// did) admits no internal address at all rather than a truncated port.
 func (p AddrPolicy) ForRegistry(r netprofile.Registry, always []netip.Prefix) DialPolicy {
-	return registryPolicy{public: p, internal: r.InternalPrefixes(), port: uint16(r.Port()),
+	internal := r.InternalPrefixes()
+	n := r.Port()
+	if n < 1 || n > netprofile.MaxPort {
+		internal, n = nil, 0
+	}
+	return registryPolicy{public: p, internal: internal, port: uint16(n), //nolint:gosec // bounded just above
 		always: append(append([]netip.Prefix(nil), netprofile.AlwaysDeniedCIDRs...), always...)}
 }
 
