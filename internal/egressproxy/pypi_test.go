@@ -210,10 +210,11 @@ func TestPyPIAllowlist(t *testing.T) {
 			t.Errorf("%s outcome = %v", p, h.lastLine(t)["outcome"])
 		}
 	}
+	h.py(t, "/r/nexus-pypi/f/0"+pyPrefix+"/x/six-1.16.0.tar.gz.metadata")
 	if l := h.lastLine(t); l["kind"] != kindMetadata {
 		t.Errorf("metadata kind = %v", l["kind"])
 	}
-	if len(up.Hits()) != 2 || len(fh.Hits()) != 2 {
+	if len(up.Hits()) != 3 || len(fh.Hits()) != 2 {
 		t.Errorf("hits: registry %d, file host %d; want 2, 2", len(up.Hits()), len(fh.Hits()))
 	}
 }

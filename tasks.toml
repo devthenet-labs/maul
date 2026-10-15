@@ -74,7 +74,20 @@ run = "./hack/load.sh"
 description = "run the egress proxy against the real Go module proxy with the real go command"
 dir = "{{cwd}}"
 env = { PATCHY_LIVE_GO = "1" }
-run = "go test -count=1 -v -run TestLiveGo ./internal/egressproxy"
+run = "go test -count=1 -v -run '^TestLiveGo$' ./internal/egressproxy"
+
+# The egress proxy's registry routes against the real npm, pip and go
+# commands: loopback TLS registries that demand a login only the proxy holds,
+# a fake proxy.golang.org and a fake signing sum.golang.org. Opt-in (it needs
+# npm, python3 and go on PATH), and run locally before a registry-route change
+# merges. With PATCHY_LIVE_CODEARTIFACT=<domain>/<owner>/<region>/<repo> set
+# it also runs npm and pip against that real CodeArtifact repository, minting
+# the token from the developer's AWS credentials: the pre-gate check.
+[live-registry]
+description = "run the egress proxy's registry routes with the real npm, pip and go commands"
+dir = "{{cwd}}"
+env = { PATCHY_LIVE_REGISTRY = "1" }
+run = "go test -count=1 -v -run 'TestLive(Go)?Registry|TestLiveCodeArtifact' ./internal/egressproxy"
 
 # Tests that need a real API server (CRD schema validation, controller
 # integration): setup-envtest provisions kube-apiserver/etcd, then the suites
