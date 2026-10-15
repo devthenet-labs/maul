@@ -127,6 +127,26 @@ func TestCheckForges(t *testing.T) {
 	}
 }
 
+// TestCheckForgesRefusesHostlessGrant: a grant that lists no hosts (a
+// hand-written or pre-chart profile, where the registry URL host is not
+// rendered first) is refused at launch, whether or not any Forge exists,
+// rather than passing a check that loops over nothing.
+func TestCheckForgesRefusesHostlessGrant(t *testing.T) {
+	ctx := context.Background()
+	spec := remediateSpec(pinned)
+	spec.NetworkProfile = &jobs.NetworkProfile{Name: "npm", Route: "npm", Registries: []netprofile.Grant{
+		{Name: "ok", Ecosystem: "go", Hosts: []string{"goproxy.acme.example"},
+			PackagePolicy: netprofile.PackagePolicyRegistry},
+		{Name: "ghe-npm", Ecosystem: "npm", PackagePolicy: netprofile.PackagePolicyRegistry},
+	}}
+	for _, forges := range [][]string{nil, {"github.com", "ghe.corp.example"}} {
+		err := Guard{Forges: &fakeForges{hosts: forges}}.CheckForges(ctx, "patchy", &spec)
+		if !errors.Is(err, jobs.ErrNetworkProfileRefused) || !strings.Contains(err.Error(), "ghe-npm") {
+			t.Errorf("Forges %v: CheckForges = %v, want a refusal naming grant ghe-npm", forges, err)
+		}
+	}
+}
+
 // TestPropertyForgeRefusal: for generated grant host sets and Forge host
 // sets disjoint from them (no Forge host equal to, above or below a grant
 // host), the decision is step 1's (no refusal); adding a grant host, or a

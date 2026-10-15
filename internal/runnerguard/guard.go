@@ -210,9 +210,21 @@ func (g Guard) CheckForges(ctx context.Context, namespace string, spec *jobs.Spe
 
 // ForgeRefusal is CheckForges' decision over a listed set of Forge hosts:
 // nil when no grant host is, lies below or matches one of them, an error
-// wrapping jobs.ErrNetworkProfileRefused naming the host otherwise.
+// wrapping jobs.ErrNetworkProfileRefused naming the host otherwise. A grant
+// that lists no hosts at all is refused whatever the Forges: its registry
+// URL host belongs first in that list, and a grant without it could name a
+// Forge's host this check never sees.
 func ForgeRefusal(p *jobs.NetworkProfile, forgeHosts []string) error {
-	if p == nil || len(forgeHosts) == 0 {
+	if p == nil {
+		return nil
+	}
+	for _, gr := range p.Registries {
+		if len(gr.Hosts) == 0 {
+			return fmt.Errorf("%w: profile %s grant %s lists no hosts to check against the Forges "+
+				"(its registry URL host comes first)", jobs.ErrNetworkProfileRefused, p.Name, gr.Name)
+		}
+	}
+	if len(forgeHosts) == 0 {
 		return nil
 	}
 	for _, gr := range p.Registries {
