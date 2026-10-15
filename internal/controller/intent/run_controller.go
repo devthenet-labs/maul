@@ -645,7 +645,13 @@ func (r *RunReconciler) launchJob(ctx context.Context, run *v1alpha1.IntentRun,
 	settings := r.Settings.withDefaults()
 	stage := run.Spec.Stage
 	build := settings.grant(proj, v1alpha1.IntentStageBuild)
-	jobName, image, err := r.Jobs.Create(ctx, spec, stageEnv(stage, settings, build))
+	env := stageEnv(stage, settings, build)
+	if stage == v1alpha1.IntentStagePlan {
+		if profiles := r.planBuildProfiles(run); profiles != "" {
+			env[envBuildProfiles] = profiles
+		}
+	}
+	jobName, image, err := r.Jobs.Create(ctx, spec, env)
 	switch {
 	case launchRefused(err):
 		// Retrying would keep a granted slot forever: the run ends, its
@@ -867,6 +873,32 @@ func buildProfile(g runnerguard.Guard, repoURL string) string {
 	}
 	name, _ := requestProfile(g, &spec, repoURL)
 	return name
+}
+
+// envBuildProfiles hands a plan Job the network profile each build of its
+// plan would get (planBuildProfiles), which agent-runner states in the plan
+// prompt.
+const envBuildProfiles = "PATCHY_BUILD_NETWORK_PROFILES"
+
+// planBuildProfiles is what a plan Job is told of its builds' network
+// profiles: for the planning repository and each tree it reads, the profile
+// buildProfile decides a build of it gets, the decision the plan comment's
+// dependency advice states. Only the fact reaches the Job, as plain text for
+// its prompt: the plan Job asks for no profile and gets none, so it carries
+// neither a profile's label nor its proxy environment.
+func (r *RunReconciler) planBuildProfiles(run *v1alpha1.IntentRun) string {
+	urls := make([]string, 0, 1+len(run.Spec.Trees))
+	urls = append(urls, run.Spec.Repository.URL)
+	for _, tree := range run.Spec.Trees {
+		urls = append(urls, tree.URL)
+	}
+	var profiles []templates.BuildProfile
+	for _, u := range urls {
+		if name := buildProfile(r.Images, u); name != "" {
+			profiles = append(profiles, templates.BuildProfile{URL: u, Profile: name})
+		}
+	}
+	return templates.EncodeBuildProfiles(profiles)
 }
 
 // planOpenPullRequests is what a plan run's Job is handed of the other

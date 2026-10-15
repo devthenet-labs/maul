@@ -57,6 +57,9 @@ type GitHub interface {
 	// Application repositories.
 	DefaultBranch(ctx context.Context, repoURL string) (string, error)
 	HeadSHA(ctx context.Context, repoURL, branch string) (string, error)
+	// FileContent is the file at path at ref (ghclient.FileContent): the
+	// go.mod a pull request's body compares with its base's.
+	FileContent(ctx context.Context, repoURL, path, ref string) ([]byte, error)
 	CreateCommit(ctx context.Context, repoURL string, req ghclient.CommitRequest) (string, error)
 	CreateBranchRef(ctx context.Context, repoURL, branch, sha string) error
 	FastForwardRef(ctx context.Context, repoURL, branch, sha string) error
@@ -496,6 +499,14 @@ func (g *forgeGitHub) HeadSHA(ctx context.Context, repoURL, branch string) (stri
 		return "", err
 	}
 	return c.HeadSHA(ctx, repo, branch)
+}
+
+func (g *forgeGitHub) FileContent(ctx context.Context, repoURL, path, ref string) ([]byte, error) {
+	c, repo, err := g.client(ctx, repoURL, contentsRead)
+	if err != nil {
+		return nil, err
+	}
+	return c.FileContent(ctx, repo, path, ref)
 }
 
 func (g *forgeGitHub) CreateCommit(ctx context.Context, repoURL string, req ghclient.CommitRequest) (string, error) {

@@ -185,6 +185,10 @@ type fakeGitHub struct {
 	edited map[int64]bool
 
 	commits []ghclient.CommitRequest
+	// files are the files of each base commit, by fakeRef(repoURL, sha)
+	// and then path; a commit CreateCommit made reads its own files, then
+	// its base's.
+	files map[string]map[string]string
 	// commitRepos are the "owner/name" each commit was created in, by
 	// index.
 	commitRepos []string
@@ -244,6 +248,7 @@ func newFakeGitHub(clock *fakeClock) *fakeGitHub {
 		lockedPRs:          map[int64]bool{},
 		repoErrs:           map[string]error{},
 		parents:            map[string]string{},
+		files:              map[string]map[string]string{},
 		prs:                map[int64]*fakePR{},
 		heads:              map[string]string{"main": baseSHA},
 		reviews:            map[int64][]ghclient.Review{},
@@ -908,6 +913,37 @@ func (f *fakeGitHub) HeadSHA(_ context.Context, repoURL, branch string) (string,
 		return sha, nil
 	}
 	return "", ghError(http.StatusNotFound, "Not Found")
+}
+
+func (f *fakeGitHub) FileContent(_ context.Context, repoURL, path, ref string) ([]byte, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.call("FileContent"); err != nil {
+		return nil, err
+	}
+	if err := f.repoErr("FileContent", repoURL); err != nil {
+		return nil, err
+	}
+	for ref != "" {
+		if content, ok := f.files[fakeRef(repoURL, ref)][path]; ok {
+			return []byte(content), nil
+		}
+		var i int
+		if _, err := fmt.Sscanf(ref, "%x", &i); err != nil || i <= 0xc0ffee00 || i > 0xc0ffee00+len(f.commits) {
+			break
+		}
+		req := f.commits[i-0xc0ffee00-1]
+		for _, file := range req.Files {
+			if file.Path == path {
+				return file.Content, nil
+			}
+		}
+		if slices.Contains(req.Deletes, path) {
+			break
+		}
+		ref = req.BaseSHA
+	}
+	return nil, ghError(http.StatusNotFound, "Not Found")
 }
 
 func (f *fakeGitHub) CreateCommit(_ context.Context, repoURL string, req ghclient.CommitRequest) (string, error) {

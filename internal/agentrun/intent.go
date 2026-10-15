@@ -260,6 +260,7 @@ func (a *Agent) plan(ctx context.Context, repos []manifestRepository) *envelope.
 		PreviousAttempt:  a.cfg.PreviousAttempt,
 		Trees:            planTrees(repos),
 		OpenPullRequests: a.cfg.OpenPullRequests,
+		BuildProfiles:    a.cfg.BuildProfiles,
 	})
 	if err != nil {
 		ev.Outcome = envelope.OutcomeRuntimeError

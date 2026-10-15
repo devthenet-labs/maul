@@ -4,6 +4,7 @@
 package templates
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -86,6 +87,65 @@ type PlanPrompt struct {
 	// RenderPlanPrompt bounds and strips them (BoundOpenPullRequests). None
 	// omits the section, and the prompt is exactly the prompt without it.
 	OpenPullRequests []OpenPullRequest
+	// BuildProfiles are the repositories whose build runs with an operator
+	// network profile, each with the profile's name, as the plan comment's
+	// dependency advice decides it: a fact the prompt states so the planner
+	// does not call a Go module the build can fetch a risk. The plan Job
+	// itself carries no profile. None omits the paragraph, and the prompt
+	// is exactly the prompt without it.
+	BuildProfiles []BuildProfile
+}
+
+// BuildProfile is one repository whose build gets an operator network
+// profile, by the URL the Project spells it with, and the profile's name.
+type BuildProfile struct {
+	URL     string `json:"url"`
+	Profile string `json:"profile"`
+}
+
+// BuildProfilesMax bounds the BuildProfiles a plan prompt states: a
+// Project's repositories.
+const BuildProfilesMax = 8
+
+// boundBuildProfiles keeps the first BuildProfilesMax profiles that name
+// both a repository and a profile, each on one line.
+func boundBuildProfiles(in []BuildProfile) []BuildProfile {
+	var out []BuildProfile
+	for _, b := range in {
+		b = BuildProfile{URL: cutRunes(oneLine(b.URL), 200), Profile: cutRunes(oneLine(b.Profile), 63)}
+		if b.URL != "" && b.Profile != "" && len(out) < BuildProfilesMax {
+			out = append(out, b)
+		}
+	}
+	return out
+}
+
+// EncodeBuildProfiles is the JSON a plan Job hands agent-runner as
+// PATCHY_BUILD_NETWORK_PROFILES; "" for none.
+func EncodeBuildProfiles(profiles []BuildProfile) string {
+	profiles = boundBuildProfiles(profiles)
+	if len(profiles) == 0 {
+		return ""
+	}
+	b, err := json.Marshal(profiles)
+	if err != nil {
+		// Strings only: never.
+		return ""
+	}
+	return string(b)
+}
+
+// DecodeBuildProfiles reads EncodeBuildProfiles' JSON back, bounded again;
+// "" is none.
+func DecodeBuildProfiles(s string) ([]BuildProfile, error) {
+	if s == "" {
+		return nil, nil
+	}
+	var profiles []BuildProfile
+	if err := json.Unmarshal([]byte(s), &profiles); err != nil {
+		return nil, fmt.Errorf("build network profiles: %w", err)
+	}
+	return boundBuildProfiles(profiles), nil
 }
 
 // PlanTree is one repository a multi-repository plan reads: its URL as the
@@ -121,6 +181,7 @@ func RenderPlanPrompt(p PlanPrompt) (string, error) {
 		p.Trees = nil
 	}
 	p.OpenPullRequests = BoundOpenPullRequests(p.OpenPullRequests)
+	p.BuildProfiles = boundBuildProfiles(p.BuildProfiles)
 	return render("prompt_plan.md.tmpl", p)
 }
 
