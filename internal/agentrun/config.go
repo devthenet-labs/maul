@@ -129,6 +129,12 @@ type Config struct {
 	// bounds, strips and fences it.
 	OpenPullRequests []templates.OpenPullRequest
 
+	// BuildProfiles are the repositories whose build of an intent's plan
+	// runs with an operator network profile, which the plan prompt states
+	// as a fact. Only an intent plan Job is handed them; the plan Job
+	// itself carries no profile.
+	BuildProfiles []templates.BuildProfile
+
 	// NetworkProfile names the operator network profile the pod carries (a
 	// Go module route through the egress proxy), which the remediate and
 	// build prompts then describe instead of saying the run is offline.
@@ -216,6 +222,16 @@ func ConfigEnvKeys() []string {
 		return ""
 	})
 	return slices.Sorted(maps.Keys(seen))
+}
+
+// buildProfilesFromEnv decodes PATCHY_BUILD_NETWORK_PROFILES, adding to
+// errs when it does not decode.
+func buildProfilesFromEnv(raw string, errs []string) ([]templates.BuildProfile, []string) {
+	profiles, err := templates.DecodeBuildProfiles(raw)
+	if err != nil {
+		errs = append(errs, fmt.Sprintf("PATCHY_BUILD_NETWORK_PROFILES is not valid JSON: %v", err))
+	}
+	return profiles, errs
 }
 
 // negativeIdleTimeouts reports each stage idle limit set below zero: zero is
@@ -333,6 +349,7 @@ func FromEnv(getenv func(string) string) (Config, error) {
 	} else {
 		cfg.OpenPullRequests = prs
 	}
+	cfg.BuildProfiles, errs = buildProfilesFromEnv(get("BUILD_NETWORK_PROFILES", ""), errs)
 	// Approving a fix must never buy less than leaving it alone would: a
 	// manual budget below the automated one inverts the whole model.
 	if cfg.RemediateManualMaxTurns < cfg.RemediateAutoMaxTurns {

@@ -104,6 +104,7 @@ spec:
         - name: LD_PRELOAD
         - name: NODE_OPTIONS
         - name: NO_PROXY
+        - name: PATCHY_BUILD_NETWORK_PROFILES
         - name: PATCHY_CALIBRATION
         - name: PATCHY_CHANGESET_MAX_BYTES
         - name: PATCHY_GRANTED_MAX_TURNS

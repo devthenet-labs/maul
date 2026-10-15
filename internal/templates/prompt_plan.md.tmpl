@@ -117,6 +117,19 @@ needs from it:
   tagged release where there is one): the approval comment tells the approver which of them the build can fetch, and a
   human must add each other one to the image on the default branch before approving. Do not ask whether the build
   can fetch them. Prefer a plan that needs none.
+{{- with .BuildProfiles}}
+
+{{if $.Trees -}}
+The build of each repository listed here runs with an operator network profile: {{range $i, $b := .}}{{if $i}}, {{end}}{{code $b.URL}} (profile {{code $b.Profile}}){{end}}.
+Each can fetch new Go modules while it builds, but only tagged releases of module paths the operator allows: such a
+module needs no change to any image, so it is no risk to list. Every other build runs offline, and every other new
+dependency must already be in the image of the repository that needs it.
+{{- else -}}
+This repository's build runs with the operator's network profile {{code (index . 0).Profile}}, so it can fetch new
+Go modules while it builds, but only tagged releases of module paths the operator allows: such a module needs no change
+to the image, so it is no risk to list. Every other new dependency must already be in the image.
+{{- end}}
+{{- end}}
 
 Take the test plan from the repository's own guidance, since you cannot run anything to find out: its guides for
 contributors and agents (CLAUDE.md, AGENTS.md, CONTRIBUTING.md, the README's development notes) and its CI workflows

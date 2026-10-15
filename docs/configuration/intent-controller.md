@@ -143,9 +143,13 @@ its go command pointed there and its prompt saying which Go modules it may fetch
 build on the default image (`requireRepositoryImage: false` with no pin). In a multi-repository intent each repository's
 build is judged on its own repository. The plan comment's dependency advice names the profile each repository's build
 will get, by the same decision, so the approver knows which new Go modules the build can fetch and what must still be in
-the image. The IntentRun records the profile that ran (`status.runnerImage.networkProfile`) and the pull request says
-so. The Helm chart stamps the three flags above from `egressProxy` and `agent.networkProfiles`;
-`egressProxy.suspendProfiles` turns them off from the next Job.
+the image. The plan Job is told the same fact, as text for its prompt only (it carries no profile), so the planner does
+not count a module the build can fetch as a risk. The IntentRun records the profile that ran
+(`status.runnerImage.networkProfile`) and the pull request says so. Whatever the profile, the pull request's body lists
+each requirement the build added to or changed in the repository's root `go.mod`, compared with its base, and marks each
+one at another version than the approved plan's new dependencies name, and each direct one they do not name. The Helm
+chart stamps the three flags above from `egressProxy` and `agent.networkProfiles`; `egressProxy.suspendProfiles` turns
+them off from the next Job.
 
 ## Projects
 
