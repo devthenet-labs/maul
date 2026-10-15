@@ -7,7 +7,61 @@
 > documentation values `111122223333` and `203.0.113.10/32`. The real ones are in terraform-devthenet's `k8s/` values
 > (private).
 
-## Current checkpoint — 2026-10-15 (evening): registry routes, the agent pause, 0.12.33 and 0.12.34
+## Current checkpoint — 2026-10-15 (night): the CONNECT tunnel, 0.12.35 and 0.12.36
+
+**Agents can install npm, pip, NuGet and Cargo dependencies through a hostname-allowlisted tunnel.** 0.12.36 completes
+egress proxy step 3: a network profile can list exact public hosts, and its Jobs get `HTTPS_PROXY` and client presets
+for a CONNECT tunnel to them on 443. The proxy checks the ClientHello's SNI and decrypts nothing. See
+[docs/configuration/egress-proxy.md](docs/configuration/egress-proxy.md#tunnel) and its residue in
+[docs/deployment/isolation.md](docs/deployment/isolation.md#tunnel-hosts).
+
+- Live on devthenet-dev: Helm patchy rev 98 (0.12.36) and patchy-config rev 59. Profile `py` (route tunnel, port 8092,
+  hosts `pypi.org` and `files.pythonhosted.org`, client preset `pip`) for the new fixture repository
+  `devthenet-labs/patchy-pip-fixture` (signed `python:3.13-slim` agent image, Project `pip-fixture`, label
+  `patchy:pip-fixture`).
+- Gate passed 2026-10-15:
+  - Probes: a listed host `200`; `example.com` `not_allowed`; `github.com`, `upload.pypi.org` and `api.anthropic.com`
+    `hard_denied`; `1.1.1.1` `ip_literal`; port 8443 `port`; an SNI mismatch answered with a TLS alert; `upload_cap` at
+    1 MiB; `source_upload_budget`. Unlabelled and `go`-labelled pods cannot reach 8092. The `go` route and the
+    CodeArtifact registries still work.
+  - Intents: intents#32 opened patchy-pip-fixture#1, whose build fetched `python-slugify` through the tunnel; merged.
+    intents#33 needed `download.pytorch.org`, which the profile does not list: the refusal was reported in the run
+    (`status.detail` and `status.report` quote the proxy's `403` line), and the intent ended `Failed`.
+  - Rollback drill: `suspendProfiles` answered new CONNECTs
+    `410 egress-proxy: profile routes are suspended by the operator`, then restored.
+  - Attribution is off on devthenet-dev, so the audit lines' pod and owner fields are empty.
+
+**0.12.36** (step 3 complete):
+
+- #212: the controllers refuse a grant host that is a Forge's web host, and the prompts tell agents about the tunnel.
+- #213: live client fixtures (pip, npm, Yarn, pnpm, uv, cargo) against a real tunnel.
+- #215: the chart's tunnel profiles and `egressProxy.tunnel` limits, with docs.
+
+**0.12.35:**
+
+- #208: the pod-side network-profile admission policy: a labelled Pod is admitted only from the Job controller for its
+  controlling Job. Verified live: a bare labelled Pod was refused, the Job controller's pod for a labelled Job was
+  admitted, and adding the label by update or through `pods/status` was refused.
+- Step 3 code, inert until 0.12.36's chart could configure it: #205 (ClientHello and CONNECT target parsers), #206
+  (netprofile tunnel route, exact hosts, hard-deny table, client presets), #210 (tunnel env and client presets on
+  profile Jobs), #211 (the tunnel engine and its flags).
+
+Follow-ups:
+
+- The per-source upload budget is in memory per proxy replica: a restart, crash or roll (every Helm upgrade that changes
+  the proxy's configuration) gives every source a fresh budget on that replica. Measured: after 20m27s the replica that
+  had not restarted still refused 5 of 5, a restarted one admitted 3 of 3. Documented; not fixed.
+- A refused dependency is retried: intents#33 spent two build attempts (a1, a2) on a refusal that could not change. A
+  build that fails on a refused host should fail without the retry.
+- Domain fronting is real on Fastly: through a PyPI tunnel with a correct SNI, `Host: www.python.org` and
+  `Host: www.fastly.com` answered `200` (`docs.python.org` `421`, `example.com` nothing). Documented as residue; not
+  closable without decrypting.
+- The tunnel audit line's `host` attribute is double-quoted; a fix is in flight.
+- The CodeArtifact npm and pip grants have still not been exercised by a real agent (only the tunnel has).
+- Paused work has no visible marker (see the checkpoint below).
+- marigold-web's agent image has no Node, so agents cannot run its tests.
+
+## Earlier checkpoint — 2026-10-15 (evening): registry routes, the agent pause, 0.12.33 and 0.12.34
 
 **Agents can fetch through operator-held registry credentials.** 0.12.34 is egress proxy step 2: a network profile can
 be granted operator-defined Go, npm and pip registries (Artifactory, Nexus, CodeArtifact), whose credential only the
@@ -47,14 +101,15 @@ proxy holds. See [docs/configuration/egress-proxy.md](docs/configuration/egress-
 - #200: the intent PR body lists the Go requirements a build added or changed and flags drift from the plan; the plan
   prompt says which network profile the build gets.
 
-Follow-ups:
+Follow-ups (as of this checkpoint; see the current one above):
 
 - Paused work has no visible marker: held Investigations and IntentRuns have an empty status, Findings keep their phase
   and an intent's issue still says "Planning". Only the signed-in status page banner and the controllers' startup log
   show the pause.
 - The demo repositories' agent images have no Node or Python, so the npm and pip grants have not been exercised by a
   real agent yet.
-- Egress proxy step 3 (a hostname-allowlisted CONNECT tunnel for npm, pip, NuGet and Cargo) is in progress (#205, #206).
+- Egress proxy step 3 (a hostname-allowlisted CONNECT tunnel for npm, pip, NuGet and Cargo): done in 0.12.35 and
+  0.12.36, live since 0.12.36.
 - marigold-web's agent image has no Node, so agents cannot run its tests.
 
 ## Earlier checkpoint — 2026-10-15: the Go dependency route, and 0.12.29 to 0.12.32
@@ -106,7 +161,7 @@ and intent build Jobs a route to it. Agent pods keep `dns: none`; the profile's 
 Follow-ups (as of this checkpoint; see the current one above):
 
 - Egress proxy step 2 (routes that add an operator-held credential, for Artifactory, Nexus or CodeArtifact): built and
-  live in 0.12.34. Step 3 (a hostname-allowlisted CONNECT tunnel for npm, pip, NuGet and Cargo): in progress.
+  live in 0.12.34. Step 3 (a hostname-allowlisted CONNECT tunnel for npm, pip, NuGet and Cargo): live in 0.12.36.
 - Flaky tests: `TestOutputEnds` (internal/agentrun; fixed by #192) and the envtest
   `TestIntegrationPolicyEnforcesVerbPerField/backfill_verb_may_not_replay` (an RBAC propagation race; fixed by #195).
 - `patchy backfill` took field ownership of Integration fields Helm sets, so the next patchy-config upgrade needed
@@ -437,6 +492,7 @@ the owner.
   by default) is a name-level module-prefix gate, and its residue (docs/deployment/isolation.md) is why step 2 exists.
   Step 2's credentialed registry routes (Go, npm, pip; Artifactory, Nexus, CodeArtifact) are built (#199, #201, #202 and
   #204, `egressProxy.registries`, off by default) and live on devthenet-dev since 0.12.34 with a CodeArtifact domain.
+  Step 3's hostname-allowlisted tunnel (`hosts` on a profile) is live since 0.12.36 with profile `py`.
 - The deferred 0.12.20 items (a)–(e).
 
 ## Earlier checkpoint — 2026-10-06 (overnight): 0.12.19
@@ -1003,17 +1059,18 @@ repos report `read` for everyone, so `read` is never enough).
   (tunnel); it decrypts nothing and never dials a forge, a model API, IMDS or a cluster or private address. It never
   tunnels to the Kubernetes API by a managed control-plane name, by cluster address, or by the public address the
   operator configured (`attribution.apiServerCIDRs`, `egressProxy.tunnel.denyCIDRs`). A tunnel to an npm or Yarn
-  registry host can carry an attacker-supplied publish, bounded only by the upload caps. It holds a credential only for
-  registries the operator configured (a Secret mounted read-only into the proxy alone, or a CodeArtifact token it mints
-  with its own role), sends it only to that registry's origin, and never forwards it, an inbound credential, or an
-  upstream error body to an agent. It caches nothing. No agent pod or Job Secret ever holds a registry credential, and
-  the feature grants no ServiceAccount a Secret read (kubelet mounts it; controllers that already hold release-namespace
-  `secrets get` could still name it, as any Secret there). Investigate, plan and evaluation pods, and every
-  default-image pod, never get a profile (enforced in the callers, in `internal/jobs`, and, where admission policies are
-  on, by a ValidatingAdmissionPolicy on Jobs plus a sibling on Pods that admits a labelled Pod only from the Job
-  controller for its controlling Job, so a bare Pod cannot claim a profile). The devthenet baseline (`dns: none`,
-  brokered claude only: agent pods reach only the artifact server and the egress broker, with no resolver) is that
-  deployment's configuration, not the chart's.
+  registry host can carry an attacker-supplied publish, bounded only by the upload caps, and a tunnel to a host on a
+  shared CDN can name another tenant in the HTTP `Host` it cannot see (domain fronting, measured on Fastly through a
+  PyPI tunnel). It holds a credential only for registries the operator configured (a Secret mounted read-only into the
+  proxy alone, or a CodeArtifact token it mints with its own role), sends it only to that registry's origin, and never
+  forwards it, an inbound credential, or an upstream error body to an agent. It caches nothing. No agent pod or Job
+  Secret ever holds a registry credential, and the feature grants no ServiceAccount a Secret read (kubelet mounts it;
+  controllers that already hold release-namespace `secrets get` could still name it, as any Secret there). Investigate,
+  plan and evaluation pods, and every default-image pod, never get a profile (enforced in the callers, in
+  `internal/jobs`, and, where admission policies are on, by a ValidatingAdmissionPolicy on Jobs plus a sibling on Pods
+  that admits a labelled Pod only from the Job controller for its controlling Job, so a bare Pod cannot claim a
+  profile). The devthenet baseline (`dns: none`, brokered claude only: agent pods reach only the artifact server and the
+  egress broker, with no resolver) is that deployment's configuration, not the chart's.
 
 ## Where everything is
 
