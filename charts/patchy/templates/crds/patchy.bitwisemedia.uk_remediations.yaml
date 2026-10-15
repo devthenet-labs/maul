@@ -238,7 +238,7 @@ spec:
                 description: Branch carrying the pushed fix.
                 type: string
               conditions:
-                description: Conditions of the run (Complete, RolledUp*).
+                description: Conditions of the run (Complete, RolledUp*, AgentsPaused).
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.

@@ -6,6 +6,7 @@ package remediation
 import (
 	"reflect"
 	"testing"
+	"time"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -89,5 +90,49 @@ func TestRemediationPausedMarksHeldRuns(t *testing.T) {
 		if cond := meta.FindStatusCondition(get(name).Status.Conditions, v1alpha1.ConditionAgentsPaused); cond != nil {
 			t.Errorf("%s AgentsPaused = %+v after the pause lifted, want none", name, cond)
 		}
+	}
+}
+
+// TestRemediationUnpauseGrantsOnTheNextPass: the pass that removes
+// AgentsPaused once the pause lifts grants nothing (a grant would re-read the
+// runs it just wrote through a possibly stale cache) and asks to run again
+// shortly; that next pass grants.
+func TestRemediationUnpauseGrantsOnTheNextPass(t *testing.T) {
+	fnd := queuedFinding(v1alpha1.PhaseQueued)
+	r, c := remWith(t, &fakeCRRunner{}, &fakeForge{}, nil, fnd, pendingRem("rem-a", fnd.Name, 50))
+	get := func() *v1alpha1.Remediation {
+		t.Helper()
+		var rem v1alpha1.Remediation
+		if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: "rem-a"}, &rem); err != nil {
+			t.Fatal(err)
+		}
+		return &rem
+	}
+	r.Paused = true
+	if _, err := scheduleOnce(t, r); err != nil {
+		t.Fatalf("paused schedule: %v", err)
+	}
+
+	r.Paused = false
+	res, err := scheduleOnce(t, r)
+	if err != nil {
+		t.Fatalf("unpause schedule: %v", err)
+	}
+	rem := get()
+	if cond := meta.FindStatusCondition(rem.Status.Conditions, v1alpha1.ConditionAgentsPaused); cond != nil {
+		t.Errorf("AgentsPaused = %+v after the pause lifted, want none", cond)
+	}
+	if rem.Status.Phase == v1alpha1.RunRunning {
+		t.Errorf("phase = Running: the unpause pass granted a run it had just written")
+	}
+	if res.RequeueAfter <= 0 || res.RequeueAfter > time.Second {
+		t.Errorf("requeue = %v, want a prompt follow-up pass", res.RequeueAfter)
+	}
+
+	if _, err := scheduleOnce(t, r); err != nil {
+		t.Fatalf("next schedule: %v", err)
+	}
+	if got := get().Status.Phase; got != v1alpha1.RunRunning {
+		t.Errorf("phase = %q after the next pass, want Running", got)
 	}
 }

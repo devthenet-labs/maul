@@ -133,11 +133,19 @@ func (r *RemediationReconciler) schedule(ctx context.Context) (ctrl.Result, erro
 			})
 		}
 	}
-	if err := r.markPaused(ctx, list.Items); err != nil {
+	marked, err := r.markPaused(ctx, list.Items)
+	if err != nil {
 		return ctrl.Result{}, err
 	}
 	if r.Paused {
 		return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
+	}
+	if marked {
+		// The pause just lifted and this pass rewrote runs' status. Granting
+		// now would re-read them through a cache that may not have seen
+		// those writes yet and fail the pass on a conflict, so leave the
+		// grants to the pass their update events (or this requeue) trigger.
+		return ctrl.Result{RequeueAfter: time.Second}, nil
 	}
 	maxConcurrent := r.MaxConcurrent
 	if maxConcurrent <= 0 {
@@ -154,8 +162,9 @@ func (r *RemediationReconciler) schedule(ctx context.Context) (ctrl.Result, erro
 // markPaused keeps the AgentsPaused condition true on every remediation the
 // pause holds and removes it from every other, writing only a run whose
 // condition changes: while agents are not paused, a run that never carried
-// it is never written.
-func (r *RemediationReconciler) markPaused(ctx context.Context, items []v1alpha1.Remediation) error {
+// it is never written. It reports whether it wrote any run.
+func (r *RemediationReconciler) markPaused(ctx context.Context, items []v1alpha1.Remediation) (bool, error) {
+	marked := false
 	for i := range items {
 		rem := &items[i]
 		if !rem.DeletionTimestamp.IsZero() {
@@ -175,13 +184,14 @@ func (r *RemediationReconciler) markPaused(ctx context.Context, items []v1alpha1
 			if !cur.DeletionTimestamp.IsZero() || !v1alpha1.SyncAgentsPaused(&cur.Status.Conditions, held, r.now()) {
 				return nil
 			}
+			marked = true
 			return r.Status().Update(ctx, &cur)
 		})
 		if err != nil {
-			return err
+			return marked, err
 		}
 	}
-	return nil
+	return marked, nil
 }
 
 // expedited reads the parent finding's expedite mark (cached client; a miss

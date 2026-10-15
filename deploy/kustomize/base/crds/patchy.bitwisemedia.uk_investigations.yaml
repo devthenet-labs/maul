@@ -208,7 +208,7 @@ spec:
                   HoldReasons says why.
                 type: boolean
               conditions:
-                description: Conditions of the run (Complete, RolledUp*).
+                description: Conditions of the run (Complete, RolledUp*, AgentsPaused).
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.

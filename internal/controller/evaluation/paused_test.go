@@ -6,6 +6,7 @@ package evaluation
 import (
 	"reflect"
 	"testing"
+	"time"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -79,5 +80,42 @@ func TestPausedMarksHeldUnits(t *testing.T) {
 		if cond := meta.FindStatusCondition(conds, v1alpha1.ConditionAgentsPaused); cond != nil {
 			t.Errorf("%s AgentsPaused = %+v after the pause lifted, want none", name, cond)
 		}
+	}
+}
+
+// TestUnpauseGrantsUnitOnTheNextPass: the pass that removes AgentsPaused
+// once the pause lifts grants nothing (a grant would re-read the units it
+// just wrote through a possibly stale cache) and asks to run again shortly;
+// that next pass grants.
+func TestUnpauseGrantsUnitOnTheNextPass(t *testing.T) {
+	unit := pendingUnit(0)
+	c := newClient(t, unit)
+	r := newUnitReconciler(c, &fakeRunner{}, present)
+	r.Paused = true
+	if _, err := r.Reconcile(t.Context(), unitReq(schedulerRequest)); err != nil {
+		t.Fatalf("paused schedule: %v", err)
+	}
+
+	r.Paused = false
+	res, err := r.Reconcile(t.Context(), unitReq(schedulerRequest))
+	if err != nil {
+		t.Fatalf("unpause schedule: %v", err)
+	}
+	got := getUnit(t, c, unit.Name)
+	if cond := meta.FindStatusCondition(got.Status.Conditions, v1alpha1.ConditionAgentsPaused); cond != nil {
+		t.Errorf("AgentsPaused = %+v after the pause lifted, want none", cond)
+	}
+	if got.Status.Phase == v1alpha1.RunRunning {
+		t.Errorf("phase = Running: the unpause pass granted a unit it had just written")
+	}
+	if res.RequeueAfter <= 0 || res.RequeueAfter > time.Second {
+		t.Errorf("requeue = %v, want a prompt follow-up pass", res.RequeueAfter)
+	}
+
+	if _, err := r.Reconcile(t.Context(), unitReq(schedulerRequest)); err != nil {
+		t.Fatalf("next schedule: %v", err)
+	}
+	if phase := getUnit(t, c, unit.Name).Status.Phase; phase != v1alpha1.RunRunning {
+		t.Errorf("phase = %q after the next pass, want Running", phase)
 	}
 }

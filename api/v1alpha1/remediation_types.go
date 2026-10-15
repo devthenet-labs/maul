@@ -102,7 +102,7 @@ type RemediationStatus struct {
 	// reproduced".
 	// +optional
 	Reproduction *Reproduction `json:"reproduction,omitempty"`
-	// Conditions of the run (Complete, RolledUp*).
+	// Conditions of the run (Complete, RolledUp*, AgentsPaused).
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 	// ObservedGeneration is the last spec generation acted on.

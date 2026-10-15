@@ -986,7 +986,8 @@ Jobs) from starting any new agent Job; a running plan or build finishes and is c
 A paused intent says so on its issue. Its next IntentRun is created and waits (no Job) with the condition
 `AgentsPaused=True`, and the issue's status comment keeps its phase and adds "**Agents paused:** the operator has paused
 patchy's agents, so this work waits until they are resumed." Set it back to `false` and the held runs start in order;
-the condition and the line go once each run launches.
+the condition and the line go on the scheduler's first pass after the pause lifts, even for a run still waiting for a
+free slot.
 
 ## Upgrades
 

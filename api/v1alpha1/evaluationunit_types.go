@@ -106,7 +106,7 @@ type EvaluationUnitStatus struct {
 	// result entry the client reassembles locally.
 	// +optional
 	ResultsRef *TranscriptRef `json:"resultsRef,omitempty"`
-	// Conditions of the run (Complete).
+	// Conditions of the run (Complete, AgentsPaused).
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 	// ObservedGeneration is the last spec generation acted on.
