@@ -188,7 +188,9 @@ func TestTunnelHostPatternMatchesValidHost(t *testing.T) {
 		strings.Repeat("a.", 126) + "b", strings.Repeat("a.", 126) + "bc", strings.Repeat("a", 63) + ".com",
 		strings.Repeat("a", 64) + ".com",
 	} {
-		check(h)
+		if !check(h) {
+			t.Errorf("%q: TunnelHostPattern and ValidHost disagree", h)
+		}
 	}
 	if err := quick.Check(func(h genHostish) bool { return check(strings.ToLower(string(h))) },
 		quickConfig(20000)); err != nil {

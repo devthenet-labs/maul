@@ -48,8 +48,9 @@
 // host, plus the tunnel's own rows: more forges and model APIs, the managed
 // Kubernetes control planes, special-use names and package-publish hosts.
 // A tunnel host may not be a host of one of the profile's grants, which
-// would bypass the grant's package policy, and a client preset may not sit
-// beside a grant for the same package manager.
+// would bypass the grant's package policy, nor, beside the Go route, one of
+// GoRouteHosts, which would bypass the route's module allowlist; and a
+// client preset may not sit beside a grant for the same package manager.
 //
 // The package imports only the standard library (a test pins that), so the
 // proxy, the controllers and the jobs package can share it without linking

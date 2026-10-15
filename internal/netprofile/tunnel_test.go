@@ -151,6 +151,14 @@ func TestTunnelValidateRejects(t *testing.T) {
 			p.Hosts = Hosts{"eu.cdn.acme.example.com"}
 			p.Clients = nil
 		}, "bypass the grant"},
+		{"the go route's module proxy", func(p *Profile) {
+			*p = validProfile()
+			p.Hosts = Hosts{"registry.npmjs.org", "proxy.golang.org"}
+		}, "bypass the route's module allowlist"},
+		{"the go route's checksum database", func(p *Profile) {
+			*p = validProfile()
+			p.Hosts = Hosts{"sum.golang.org"}
+		}, "bypass the route's module allowlist"},
 		{"clients without hosts", func(p *Profile) {
 			*p = validProfile()
 			p.Clients = []string{ClientNPM}
@@ -204,6 +212,13 @@ func TestTunnelValidateAdmits(t *testing.T) {
 		{"go and hosts", func(p *Profile) {
 			*p = validProfile()
 			p.Hosts, p.Clients = Hosts{"registry.npmjs.org"}, []string{ClientNPM}
+		}},
+		{"a go upstream on a tunnel-only profile", func(p *Profile) {
+			p.Hosts = Hosts{"proxy.golang.org", "sum.golang.org"}
+		}},
+		{"go and a host beside its upstreams", func(p *Profile) {
+			*p = validProfile()
+			p.Hosts = Hosts{"golang.org", "go.dev"}
 		}},
 		{"every client", func(p *Profile) { p.Clients = slices.Clone(Clients) }},
 		{"punycode and an alphanumeric TLD", func(p *Profile) { p.Hosts = Hosts{"xn--p1ai.xn--p1ai", "mirror.a1"} }},

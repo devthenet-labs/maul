@@ -26,6 +26,13 @@ type Upload struct {
 	PerSource int64 `json:"perSource,omitempty"`
 }
 
+// GoRouteHosts are the hosts behind the public Go route's default
+// upstreams (the module proxy and the checksum database). A profile with
+// the Go route may not tunnel to them: GOPROXY pointed at the tunnel would
+// skip the route's module allowlist, its pseudo-version gate and its
+// toolchain refusal. egressproxy's tests pin this to its defaults.
+var GoRouteHosts = []string{"proxy.golang.org", "sum.golang.org"}
+
 // HasGoRoute reports whether the profile serves the public Go route.
 func (p Profile) HasGoRoute() bool { return p.Route == RouteGo }
 
@@ -35,7 +42,8 @@ func (p Profile) HasTunnel() bool { return len(p.Hosts) > 0 }
 
 // validateTunnel is the step-3 half of Validate: the hosts (grammar, no
 // duplicate, the tunnel deny table with the profile's own forge host, and
-// none a host of one of the profile's registry grants), then the clients
+// none a host of one of the profile's registry grants or, beside the Go
+// route, one of GoRouteHosts), then the clients
 // and the upload caps, both only beside hosts. validateRoute has already
 // held hosts to a route.
 func (p Profile) validateTunnel() error {
@@ -60,6 +68,10 @@ func (p Profile) validateTunnel() error {
 		if g, gh, ok := p.grantHost(h); ok {
 			return fail("host %s is %s, a host of its %s grant: the tunnel would bypass the grant's package "+
 				"policy", h, gh, g)
+		}
+		if p.HasGoRoute() && slices.Contains(GoRouteHosts, h) {
+			return fail("host %s is an upstream of the profile's Go route: the tunnel would bypass the route's "+
+				"module allowlist", h)
 		}
 	}
 	if err := p.validateClients(); err != nil {
