@@ -1241,6 +1241,9 @@ type fakeJobs struct {
 	// statusFn, when set, answers Status for a Job from its spec (ok
 	// false: the status map, then a finished Job, as without it).
 	statusFn func(spec jobs.Spec) (jobs.Status, bool)
+	// resultErr, when set, fails Result for a Job with its answer (nil:
+	// the output, as without it).
+	resultErr func(spec jobs.Spec) error
 }
 
 func newFakeJobs() *fakeJobs {
@@ -1274,6 +1277,11 @@ func (j *fakeJobs) Result(_ context.Context, name string) (jobs.RunOutput, error
 	j.results++
 	if j.gone[name] {
 		return jobs.RunOutput{}, kerrors.NewNotFound(batchv1.Resource("jobs"), name)
+	}
+	if j.resultErr != nil {
+		if err := j.resultErr(j.specs[name]); err != nil {
+			return jobs.RunOutput{}, err
+		}
 	}
 	return j.output(j.specs[name]), nil
 }
