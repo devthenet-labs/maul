@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -86,6 +87,35 @@ func TestControlJudgesTheConnectedAddress(t *testing.T) {
 			t.Errorf("control(%s) = %v, want ok=%v", addr, err, ok)
 		}
 	}
+}
+
+// TestDialerControlRefusesAtConnectTime: the net.Dialer the guarded
+// dialer dials through carries the Control hook, so a connection to a
+// denied address is refused at connect time even when nothing judged it
+// before the dial. The address is a live loopback listener the production
+// policy denies: without the hook the connection would succeed.
+func TestDialerControlRefusesAtConnectTime(t *testing.T) {
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	d := newGuardedDialer(AddrPolicy{}, nil)
+	conn, err := d.dialer.DialContext(t.Context(), "tcp4", ln.Addr().String())
+	if conn != nil {
+		_ = conn.Close()
+	}
+	if !errors.Is(err, ErrDeniedAddress) {
+		t.Errorf("dial of a denied loopback listener = %v, want ErrDeniedAddress from Control", err)
+	}
+	// The same listener under the test policy connects: the refusal above
+	// is the policy, not the network.
+	ok := newGuardedDialer(AddrPolicy{testLoopback: true}, nil)
+	conn, err = ok.dialer.DialContext(t.Context(), "tcp4", ln.Addr().String())
+	if err != nil {
+		t.Fatalf("dial under the test policy = %v", err)
+	}
+	_ = conn.Close()
 }
 
 // fixedLookup answers each lookup with the next entry of answers (the
