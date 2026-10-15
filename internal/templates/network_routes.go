@@ -5,6 +5,7 @@ package templates
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/bitwise-media-group/patchy/internal/netprofile"
@@ -16,7 +17,9 @@ import (
 // that names it is exactly what it was before grants existed; with grants,
 // the prompts, the plan's dependency advice and the pull request bodies
 // say which ecosystems the run could fetch, through which registry and
-// under which policy.
+// under which policy. With tunnel hosts (step 3) they also say which hosts
+// packages can be downloaded from over HTTPS, and a profile whose route is
+// the tunnel alone is never described as a Go route.
 type NetworkRoutes struct {
 	// PublicGo is the public Go module route (route: go). In the pod, which
 	// learns only the ecosystems, it is set for a listed go with no go
@@ -24,6 +27,10 @@ type NetworkRoutes struct {
 	PublicGo bool `json:"publicGo,omitempty"`
 	// Grants are the profile's registry grants, at most one per ecosystem.
 	Grants []netprofile.PodGrant `json:"grants,omitempty"`
+	// TunnelHosts are the profile's tunnel hosts, sorted: the exact public
+	// names the egress proxy opens an HTTPS tunnel to. None means no
+	// tunnel.
+	TunnelHosts []string `json:"tunnelHosts,omitempty"`
 }
 
 // RoutesOf is a profile's routes as the job controllers hold the profile.
@@ -31,6 +38,30 @@ func RoutesOf(p netprofile.Profile) NetworkRoutes {
 	r := NetworkRoutes{PublicGo: p.Route == netprofile.RouteGo}
 	for _, g := range p.Registries {
 		r.Grants = append(r.Grants, netprofile.PodGrantOf(g))
+	}
+	if len(p.Hosts) > 0 {
+		r.TunnelHosts = slices.Sorted(slices.Values(p.Hosts))
+	}
+	return r
+}
+
+// BeyondGo reports routes that are more than step 1's Go route alone:
+// registry grants or tunnel hosts. Every text that names a profile is
+// step 1's, word for word, exactly when it is false.
+func (r NetworkRoutes) BeyondGo() bool { return len(r.Grants) > 0 || len(r.TunnelHosts) > 0 }
+
+// WithTunnel is the routes as a pod reads them once it has a tunnel
+// (netprofile.ParsePodTunnel): the tunnel's hosts and, for a pod told no
+// ecosystems (a profile without grants), the Go route exactly when the
+// routes list it. A pod with grants already learned Go from its
+// ecosystems. No hosts leaves the routes as they were.
+func (r NetworkRoutes) WithTunnel(t netprofile.PodTunnel, ecosystems []string) NetworkRoutes {
+	if len(t.Hosts) == 0 {
+		return r
+	}
+	r.TunnelHosts = slices.Clone(t.Hosts)
+	if len(ecosystems) == 0 {
+		r.PublicGo = t.GoRoute
 	}
 	return r
 }
@@ -90,6 +121,16 @@ func (r NetworkRoutes) ecosystems() string {
 	return list(names)
 }
 
+// hostList is the tunnel's hosts as inline code, in prose. Each is a
+// validated host name, so code() shows it as it is.
+func (r NetworkRoutes) hostList() string {
+	items := make([]string, 0, len(r.TunnelHosts))
+	for _, h := range r.TunnelHosts {
+		items = append(items, code(h))
+	}
+	return list(items)
+}
+
 // packageList is a grant's allowlist as inline code, with the count of the
 // entries the pod was not told by name.
 func packageList(g netprofile.PodGrant) string {
@@ -130,14 +171,24 @@ func wrap(text, first, indent string) string {
 }
 
 // networkRoutesPrompt is the paragraph a remediate or build prompt carries
-// for a profile with registry grants, in place of step 1's Go paragraph:
-// an opening sentence naming the route and its ecosystems, one bullet per
-// ecosystem, and the shared closing. needs names what a refused dependency
-// blocks ("plan" or "fix"). It starts a line of its own, indented as the
-// prompts' bullet continuations are.
+// for a profile with registry grants or tunnel hosts, in place of step 1's
+// Go paragraph: an opening sentence naming the route and its ecosystems,
+// one bullet per ecosystem and one for the tunnel's hosts, and the shared
+// closing. needs names what a refused dependency blocks ("plan" or "fix").
+// It starts a line of its own, indented as the prompts' bullet
+// continuations are.
 func networkRoutesPrompt(profile string, r NetworkRoutes, needs string) string {
-	parts := []string{wrap("Packages can be fetched through the operator's dependency route "+code(profile)+
-		" for: "+r.ecosystems()+".", "  ", "  ")}
+	opening := "Packages can be fetched through the operator's dependency route " + code(profile)
+	switch eco := r.ecosystems(); {
+	case eco != "" && len(r.TunnelHosts) > 0:
+		opening += " for: " + eco + ", and downloaded over HTTPS from the hosts below."
+	case eco != "":
+		opening += " for: " + eco + "."
+	default:
+		opening = "Packages can be downloaded over HTTPS from the hosts below, through the operator's " +
+			"dependency route " + code(profile) + "."
+	}
+	parts := []string{wrap(opening, "  ", "  ")}
 	if r.hasGo() {
 		parts = append(parts, wrap(goRoute(r), "  - ", "    "))
 	}
@@ -147,9 +198,22 @@ func networkRoutesPrompt(profile string, r NetworkRoutes, needs string) string {
 	if g, ok := r.grant(netprofile.EcosystemPyPI); ok {
 		parts = append(parts, wrap(pipRoute(g), "  - ", "    "))
 	}
-	parts = append(parts, wrap("Anything else on the network is unreachable. A refused package answers `403` "+
-		"(`410` for Go) with a reason; report it rather than working around it. A reviewer will check every new "+
-		"dependency. If a dependency the "+needs+" needs is refused, stop and report it.", "  ", "  "))
+	if len(r.TunnelHosts) > 0 {
+		parts = append(parts, wrap(tunnelRoute(r, needs), "  - ", "    "))
+	}
+	closing := "Anything else on the network is unreachable. A refused package answers `403`"
+	if r.hasGo() {
+		closing += " (`410` for Go)"
+	}
+	closing += " with a reason; report it rather than working around it. A reviewer will check every new dependency."
+	if len(r.TunnelHosts) > 0 {
+		// The tunnel bullet already says what to report when a dependency
+		// is refused; repeating it here would read as a second instruction.
+		closing += " Stop once any route refuses a dependency the " + needs + " needs."
+	} else {
+		closing += " If a dependency the " + needs + " needs is refused, stop and report it."
+	}
+	parts = append(parts, wrap(closing, "  ", "  "))
 	return strings.Join(parts, "\n")
 }
 
@@ -235,6 +299,24 @@ func pipRoute(g netprofile.PodGrant) string {
 		"`pip-compile`, pass `--no-emit-index-url`. Pin with hashes where the repository does."
 }
 
+// tunnelRoute is the tunnel's bullet (§4.6 of the step-3 spec): the hosts,
+// what is refused, what not to change, and how to read the proxy's verdict
+// when a package manager does not print it, so the host and the proxy's
+// line reach the run's report, the record that outlives the pod. The probe
+// is fixed text; only the validated hosts vary.
+func tunnelRoute(r NetworkRoutes, needs string) string {
+	return "**HTTPS downloads**: packages can be downloaded over HTTPS from these hosts only, through the " +
+		"operator's proxy, which is already configured in this environment: " + r.hostList() + ". Any other " +
+		"host, plain http, and git dependencies are refused (`403 egress-proxy: …`). Do not change " +
+		"`HTTPS_PROXY`, `NO_PROXY` or a package manager's proxy or registry settings, and never disable TLS " +
+		"verification. Never publish or upload a package. Commit the lockfile with the change. If a download " +
+		"fails, find out whether the proxy refused it: run " +
+		"`curl -sSv -x \"$HTTPS_PROXY\" https://<host>/ 2>&1 | grep -i egress-proxy` (or, without curl, " +
+		"`python3 -c` with `http.client.HTTPSConnection(proxy_host, proxy_port).set_tunnel(\"<host>\", 443)`), " +
+		"because some package managers do not print the proxy's reason. If a dependency the " + needs + " needs " +
+		"is refused, put the host and the proxy's exact line in your final message and in your report."
+}
+
 // routeSummaries describe each route in a phrase, for the plan advice:
 // each grant with its registry and policy, and the public Go route.
 func (r NetworkRoutes) routeSummaries() []string {
@@ -257,6 +339,9 @@ func (r NetworkRoutes) routeSummaries() []string {
 	if g, ok := r.grant(netprofile.EcosystemPyPI); ok {
 		out = append(out, phrase(g, "PyPI project"))
 	}
+	if len(r.TunnelHosts) > 0 {
+		out = append(out, "any package downloaded over HTTPS from "+r.hostList())
+	}
 	return out
 }
 
@@ -277,6 +362,9 @@ func (r NetworkRoutes) routeList() string {
 		if g, ok := r.grant(e); ok {
 			out = append(out, ecosystemNames[e]+" via "+code(g.Registry))
 		}
+	}
+	if len(r.TunnelHosts) > 0 {
+		out = append(out, "HTTPS downloads from "+r.hostList())
 	}
 	return strings.Join(out, ", ")
 }

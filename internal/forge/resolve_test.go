@@ -5,6 +5,7 @@ package forge
 
 import (
 	"errors"
+	"slices"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -115,6 +116,32 @@ func TestResolveInvalidRegexNeverMatches(t *testing.T) {
 	bad := mkForge("bad-regex", "", nil, []string{`^(unclosed`})
 	if _, err := Resolve([]v1alpha1.Forge{bad}, "https://github.com/acme/orders"); !errors.Is(err, ErrNoMatch) {
 		t.Fatalf("Resolve(bad regex) error = %v, want ErrNoMatch", err)
+	}
+}
+
+// TestWebHosts: a Forge's host, plus the web host above an api. host
+// (GitHub Enterprise Cloud with data residency); a GHES base URL is its web
+// host already.
+func TestWebHosts(t *testing.T) {
+	for _, c := range []struct {
+		name, base string
+		want       []string
+	}{
+		{"empty", "", []string{"github.com"}},
+		{"ghes url", "https://ghe.corp/api/v3", []string{"ghe.corp"}},
+		{"ghes bare", "ghe.corp", []string{"ghe.corp"}},
+		{"data residency", "https://api.octo.ghe.com", []string{"api.octo.ghe.com", "octo.ghe.com"}},
+		{"uppercase", "https://API.Octo.GHE.com", []string{"api.octo.ghe.com", "octo.ghe.com"}},
+		{"trailing slash", "https://api.octo.ghe.com/", []string{"api.octo.ghe.com", "octo.ghe.com"}},
+		{"api.github.com", "https://api.github.com", []string{"api.github.com", "github.com"}},
+		{"single label below api", "https://api.corp", []string{"api.corp"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := mkForge("f", c.base, nil, nil)
+			if got := WebHosts(&f); !slices.Equal(got, c.want) {
+				t.Errorf("WebHosts(baseURL=%q) = %v, want %v", c.base, got, c.want)
+			}
+		})
 	}
 }
 

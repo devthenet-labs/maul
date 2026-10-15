@@ -592,6 +592,55 @@ func TestTunnelEndpointCollisionRefused(t *testing.T) {
 	}
 }
 
+// TestTunnelEnvReadsBack: the routes and hosts TunnelEnv writes are what
+// agent-runner reads (netprofile.ParsePodTunnel), so the prompt describes
+// the routes the pod has: the Go route only beside it, the hosts sorted.
+func TestTunnelEnvReadsBack(t *testing.T) {
+	for _, p := range []*NetworkProfile{tunnelProfile(), goTunnelProfile()} {
+		env, err := TunnelEnv(*p, []string{"http://patchy-egress-broker.patchy.svc.cluster.local:8080"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		values := map[string]string{}
+		for _, e := range env {
+			values[e.Name] = e.Value
+		}
+		got, err := netprofile.ParsePodTunnel(values[netprofile.EnvRoutes], values[netprofile.EnvHosts])
+		if err != nil {
+			t.Fatalf("profile %s: %v", p.Name, err)
+		}
+		if got.GoRoute != (p.Route == netprofile.RouteGo) || !slices.Equal(got.Hosts, slices.Sorted(slices.Values(p.Hosts))) {
+			t.Errorf("profile %s: read back %+v from %+v", p.Name, got, p)
+		}
+	}
+}
+
+// TestTunnelNeedsBrokeredRunner: a tunnel profile on a runner that is not
+// brokered (one that would call its model API directly, so through the
+// tunnel's HTTPS_PROXY, which refuses model hosts) is refused, naming the
+// runner; the same runner still carries a go profile, and a brokered
+// runner carries the tunnel.
+func TestTunnelNeedsBrokeredRunner(t *testing.T) {
+	direct := profileConfig()
+	r := direct.Runners["claude"]
+	r.Brokered, r.Secret = false, ""
+	direct.Runners = map[string]Runner{"claude": r}
+	spec := buildProfileSpec()
+	spec.NetworkProfile = tunnelProfile()
+	_, err := New(fake.NewClientset(), direct, nil).buildJob("x", spec)
+	if !errors.Is(err, ErrNetworkProfileRefused) || !strings.Contains(err.Error(), `runner "claude" is not brokered`) {
+		t.Errorf("tunnel on a direct runner: buildJob = %v, want a refusal naming the runner", err)
+	}
+	spec.NetworkProfile = goProfile()
+	if _, err := New(fake.NewClientset(), direct, nil).buildJob("x", spec); err != nil {
+		t.Errorf("go profile on a direct runner: %v", err)
+	}
+	spec.NetworkProfile = tunnelProfile()
+	if _, err := New(fake.NewClientset(), profileConfig(), nil).buildJob("x", spec); err != nil {
+		t.Errorf("tunnel on a brokered runner: %v", err)
+	}
+}
+
 // TestPropertyNoProxyCoversEndpoints (§8.5): over brokered providers ×
 // base URLs (names and IP literals, IPv4 and bracketed IPv6) × artifact
 // URLs × proxy URLs × presets × DNS modes, a tunnel Job's NO_PROXY holds

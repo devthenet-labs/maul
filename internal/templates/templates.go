@@ -287,8 +287,9 @@ type RemediatePrompt struct {
 	// every run without one, keeps the prompt's no-network sentence.
 	NetworkProfile string
 	// NetworkRoutes are the profile's routes as the pod reads them. With
-	// registry grants the prompt describes each ecosystem instead of step
-	// 1's Go paragraph; without, it is exactly step 1's prompt.
+	// registry grants or tunnel hosts the prompt describes each route
+	// instead of step 1's Go paragraph; without, it is exactly step 1's
+	// prompt.
 	NetworkRoutes NetworkRoutes
 }
 
@@ -307,16 +308,17 @@ func RenderRemediatePrompt(p RemediatePrompt) (string, error) {
 // code all the same and defanged, since a squash commit can copy the body
 // to the default branch as plain text.
 //
-// A profile with registry grants (routes, read from the controller's
-// current profile set, since the run records only the name) says which
-// ecosystems it could fetch and through which registry; without grants the
-// line is step 1's, word for word.
+// A profile with registry grants or tunnel hosts (routes, read from the
+// controller's current profile set, since the run records only the name)
+// says which ecosystems it could fetch, through which registry, and from
+// which hosts over HTTPS; without either the line is step 1's, word for
+// word.
 func networkProfileLine(name string, routes NetworkRoutes) string {
 	name = oneLine(name)
 	if name == "" {
 		return ""
 	}
-	if len(routes.Grants) > 0 {
+	if routes.BeyondGo() {
 		return defang(SanitizeInline("The agent ran with the operator's network profile " + code(name) +
 			" (" + routes.routeList() + "), so it could fetch packages through patchy's egress proxy: review " +
 			"every dependency this change adds or updates, and the lockfiles that record them."))

@@ -44,7 +44,7 @@ func withRegistryProfiles(t *testing.T, e *env) {
 // forgeHosts is a fixed Forge host list (runnerguard.ForgeHosts).
 type forgeHosts []string
 
-func (f forgeHosts) Hosts(context.Context, string) ([]string, error) { return f, nil }
+func (f forgeHosts) WebHosts(context.Context, string) ([]string, error) { return f, nil }
 
 // TestRegistryProfileReachesPlanBuildAndPR: with a registry profile for the
 // intent's repository, the plan comment says which ecosystems the build
@@ -181,6 +181,47 @@ func TestPlanJobIsToldItsBuildsRoutes(t *testing.T) {
 		if err != nil || len(got) != 1 || got[0].Profile != "web" || got[0].Routes == nil ||
 			len(got[0].Routes.Grants) != 2 || got[0].Routes.Grants[0].Registry != "art-npm" {
 			t.Errorf("plan Job %s was told %+v (%v), want the web profile with its two grants", name, got, err)
+		}
+	}
+	if plans == 0 {
+		t.Fatal("no plan Job launched")
+	}
+}
+
+// TestPlanJobIsToldItsBuildsTunnel: a plan Job whose build gets a
+// tunnel-only profile is told the profile's tunnel hosts beside its name,
+// and no Go route; it asks for no profile itself.
+func TestPlanJobIsToldItsBuildsTunnel(t *testing.T) {
+	e := newEnv(t, testProject())
+	set, err := netprofile.Parse([]byte(`[{"name":"py","route":"tunnel","port":8092,"repositories":["acme/app"],` +
+		`"modules":[],"bakedModCache":"","hosts":["pypi.org","files.pythonhosted.org"],"clients":["pip"]}]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	base, err := url.Parse("http://patchy-egress-proxy.patchy.svc.cluster.local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.runs.Images.ProfilesEnabled, e.runs.Images.Profiles, e.runs.Images.ProxyBase = true, set, base
+	e.intent.Images.ProfilesEnabled, e.intent.Images.Profiles, e.intent.Images.ProxyBase = true, set, base
+	e.runs.Images.Forges = forgeHosts{"github.com"}
+	e.intent.Images.Forges = forgeHosts{"github.com"}
+	e.awaiting()
+	e.jobs.mu.Lock()
+	defer e.jobs.mu.Unlock()
+	plans := 0
+	for name, spec := range e.jobs.specs {
+		if spec.Phase != "plan" {
+			continue
+		}
+		plans++
+		if spec.NetworkProfile != nil {
+			t.Errorf("plan Job %s asked for network profile %+v", name, spec.NetworkProfile)
+		}
+		got, err := templates.DecodeBuildProfiles(e.jobs.envs[name][envBuildProfiles])
+		if err != nil || len(got) != 1 || got[0].Profile != "py" || got[0].Routes == nil || got[0].Routes.PublicGo ||
+			strings.Join(got[0].Routes.TunnelHosts, ",") != "files.pythonhosted.org,pypi.org" {
+			t.Errorf("plan Job %s was told %+v (%v), want the py profile with its tunnel hosts", name, got, err)
 		}
 	}
 	if plans == 0 {

@@ -20,8 +20,8 @@
 // accepted image, Guard.Profile requests the operator network profile the
 // repository matches, if exactly one does, and only for a remediate or
 // intent build Job, under its own kill switch, with the profile's registry
-// grants; CheckForges then refuses a profile whose grants name a Forge's
-// host, and ProxyHostForms are what a profile run's changeset may not
+// grants and tunnel hosts; CheckForges then refuses a profile whose grants
+// or tunnel hosts name a Forge's web host, and ProxyHostForms are what a profile run's changeset may not
 // name. While a repository-image Job has not
 // finished, whether its pod is still within the pull grace, stuck on a
 // deterministic pull failure, or worth another look (Pending): a pod in

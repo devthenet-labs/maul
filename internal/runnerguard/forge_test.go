@@ -41,7 +41,7 @@ type fakeForges struct {
 	calls int
 }
 
-func (f *fakeForges) Hosts(context.Context, string) ([]string, error) {
+func (f *fakeForges) WebHosts(context.Context, string) ([]string, error) {
 	f.calls++
 	return f.hosts, f.err
 }
@@ -212,5 +212,142 @@ func TestProxyHostForms(t *testing.T) {
 	}
 	if got := (Guard{}).ProxyHostForms(); got != nil {
 		t.Errorf("no proxy base: %v", got)
+	}
+}
+
+// tunnelSpec is a remediate spec carrying the target's profile from a set
+// whose one profile, web, is a tunnel to the Python index and its file
+// host with the pip preset and its own upload caps.
+func tunnelSpec(t *testing.T) *jobs.Spec {
+	t.Helper()
+	spec, _ := tunnelSpecSet(t)
+	return spec
+}
+
+// tunnelSpecSet is tunnelSpec with the profile set it was applied from, so
+// a test can check the set after changing the spec.
+func tunnelSpecSet(t *testing.T) (*jobs.Spec, netprofile.Set) {
+	t.Helper()
+	set, err := netprofile.Parse([]byte(`[{"name":"web","route":"tunnel","port":8092,` +
+		`"repositories":["devthenet-labs/patchy-target"],"modules":[],"bakedModCache":"",` +
+		`"hosts":["pypi.org","files.pythonhosted.org"],"clients":["pip"],` +
+		`"upload":{"perTunnel":1048576,"perSource":8388608}}]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := remediateSpec(pinned)
+	g := Guard{ProfilesEnabled: true, Profiles: set, ProxyBase: proxyBase(t)}
+	if applied, skipped := g.Profile(&spec, targetURL); applied != "web" {
+		t.Fatalf("Profile = (%q, %q), want web", applied, skipped)
+	}
+	return &spec, set
+}
+
+// TestProfileCopiesTunnel: the requested profile carries the operator's
+// tunnel hosts and client presets exactly (step 3), never aliasing the
+// profile set's; the upload caps stay with the egress proxy.
+func TestProfileCopiesTunnel(t *testing.T) {
+	spec, set := tunnelSpecSet(t)
+	want := jobs.NetworkProfile{Name: "web", Route: "tunnel",
+		ProxyURL: "http://patchy-egress-proxy.patchy.svc.cluster.local:8092",
+		Hosts:    []string{"pypi.org", "files.pythonhosted.org"}, Clients: []string{"pip"}}
+	if !reflect.DeepEqual(*spec.NetworkProfile, want) {
+		t.Fatalf("spec.NetworkProfile = %+v, want %+v", spec.NetworkProfile, want)
+	}
+	spec.NetworkProfile.Hosts[0] = "evil.example"
+	spec.NetworkProfile.Clients[0] = "npm"
+	again, _ := set.Get("web")
+	if again.Hosts[0] != "pypi.org" || again.Clients[0] != "pip" {
+		t.Error("the spec's tunnel hosts or clients alias the profile set's")
+	}
+}
+
+// TestCheckForgesTunnel: a tunnel host that is, or lies below, a web host
+// of a Forge (forge.WebHosts: the parent of a data-residency api. host
+// included) refuses the whole profile naming the host; a tunnel-only
+// profile with no grants is still checked; unrelated Forges pass; a list
+// failure is returned unrefused, for a retry, so nothing launches; no
+// lister refuses.
+func TestCheckForgesTunnel(t *testing.T) {
+	ctx := context.Background()
+	for _, tt := range []struct {
+		name   string
+		forges []string
+		host   string
+	}{
+		{"exact", []string{"github.com", "pypi.org"}, "pypi.org"},
+		{"below a forge", []string{"pythonhosted.org"}, "files.pythonhosted.org"},
+		{"case", []string{"PyPI.org"}, "pypi.org"},
+		{"web host of an api. forge", []string{"api.pythonhosted.org", "pythonhosted.org"},
+			"files.pythonhosted.org"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			f := &fakeForges{hosts: tt.forges}
+			err := Guard{Forges: f}.CheckForges(ctx, "patchy", tunnelSpec(t))
+			if !errors.Is(err, jobs.ErrNetworkProfileRefused) || !strings.Contains(err.Error(), tt.host) ||
+				!strings.Contains(err.Error(), "profile web") {
+				t.Errorf("CheckForges = %v, want a refusal of profile web naming %s", err, tt.host)
+			}
+			if f.calls != 1 {
+				t.Errorf("Forges listed %d times, want once", f.calls)
+			}
+		})
+	}
+
+	f := &fakeForges{hosts: []string{"github.com", "ghe.corp.example", "api.octo.ghe.com", "octo.ghe.com"}}
+	if err := (Guard{Forges: f}).CheckForges(ctx, "patchy", tunnelSpec(t)); err != nil {
+		t.Errorf("no Forge matches: %v", err)
+	}
+	f = &fakeForges{err: errors.New("boom")}
+	if err := (Guard{Forges: f}).CheckForges(ctx, "patchy", tunnelSpec(t)); err == nil ||
+		errors.Is(err, jobs.ErrNetworkProfileRefused) {
+		t.Errorf("a list failure = %v, want it returned unrefused", err)
+	}
+	if err := (Guard{}).CheckForges(ctx, "patchy", tunnelSpec(t)); !errors.Is(err, jobs.ErrNetworkProfileRefused) {
+		t.Errorf("no lister = %v, want a refusal", err)
+	}
+}
+
+// TestPropertyForgeRefusalTunnel: for generated tunnel hosts and Forge web
+// hosts disjoint from them (none equal to, above or below a tunnel host),
+// nothing is refused; adding a tunnel host, or a name above it, to the
+// Forge hosts refuses the profile naming it. Seeded so the gate is
+// deterministic.
+func TestPropertyForgeRefusalTunnel(t *testing.T) {
+	rng := rand.New(rand.NewSource(20261016))
+	label := func() string {
+		const letters = "abcdefghijklmnopqrstuvwxyz"
+		b := make([]byte, 3+rng.Intn(6))
+		for i := range b {
+			b[i] = letters[rng.Intn(len(letters))]
+		}
+		return string(b)
+	}
+	host := func(tld string) string { return label() + "." + label() + "." + tld }
+	for i := range 1000 {
+		var forgeHosts []string
+		tunnelHosts := make([]string, 0, 4)
+		for range 1 + rng.Intn(4) {
+			tunnelHosts = append(tunnelHosts, host("net"))
+		}
+		for range rng.Intn(4) {
+			forgeHosts = append(forgeHosts, host("org"))
+		}
+		p := &jobs.NetworkProfile{Name: "p", Route: "tunnel", Hosts: tunnelHosts}
+		if err := ForgeRefusal(p, forgeHosts); err != nil {
+			t.Fatalf("iteration %d: disjoint %v vs %v refused: %v", i, tunnelHosts, forgeHosts, err)
+		}
+		pick := tunnelHosts[rng.Intn(len(tunnelHosts))]
+		forge := pick
+		if rng.Intn(2) == 0 {
+			forge = strings.Join(strings.Split(pick, ".")[1:], ".") // a Forge above the tunnel host
+		}
+		forgeHosts = append(slices.Clone(forgeHosts), forge)
+		rng.Shuffle(len(forgeHosts), func(a, b int) { forgeHosts[a], forgeHosts[b] = forgeHosts[b], forgeHosts[a] })
+		err := ForgeRefusal(p, forgeHosts)
+		if !errors.Is(err, jobs.ErrNetworkProfileRefused) || !strings.Contains(err.Error(), pick) {
+			t.Fatalf("iteration %d: %v with Forge %s = %v, want a refusal naming %s", i, tunnelHosts, forge, err,
+				pick)
+		}
 	}
 }

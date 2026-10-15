@@ -279,9 +279,10 @@ type PlanComment struct {
 	// image.
 	NetworkProfiles []string
 	// NetworkRoutes are each NetworkProfiles entry's routes, in the same
-	// order. When none holds a registry grant (or there are none), the
-	// advice is step 1's word for word; otherwise it says, per build, which
-	// ecosystems it fetches, through which registry and under which policy.
+	// order. When none holds a registry grant or tunnel hosts (or there are
+	// none), the advice is step 1's word for word; otherwise it says, per
+	// build, which ecosystems it fetches, through which registry and under
+	// which policy, and from which hosts over HTTPS.
 	NetworkRoutes []NetworkRoutes
 }
 
@@ -454,7 +455,7 @@ func planProfiles(p PlanComment) (profile string, profiled []string, offline boo
 }
 
 // planRouteAdvice is the dependency advice for a plan whose builds hold
-// registry grants, or "" when none does (step 1's advice then stands): for
+// registry grants or tunnel hosts, or "" when none does (step 1's advice then stands): for
 // a one-repository plan, what its build fetches through its profile; for
 // more, each repository whose build gets a profile, with what it fetches,
 // and whether any other build runs offline. Like planProfiles, names and
@@ -468,7 +469,7 @@ func planRouteAdvice(p PlanComment) string {
 	}
 	granted := false
 	for i := range p.NetworkProfiles {
-		granted = granted || len(routes(i).Grants) > 0
+		granted = granted || routes(i).BeyondGo()
 	}
 	if !granted {
 		return ""

@@ -193,7 +193,7 @@ func TestRemediationChangesetNamingTheProxyIsRefused(t *testing.T) {
 // forgeList is a fixed Forge host list (runnerguard.ForgeHosts).
 type forgeList []string
 
-func (f forgeList) Hosts(context.Context, string) ([]string, error) { return f, nil }
+func (f forgeList) WebHosts(context.Context, string) ([]string, error) { return f, nil }
 
 // TestRemediationGrantNamingAForgeFailsTheLaunch: a remediate launch whose
 // profile's registry grant names a Forge's host fails the run as
@@ -230,5 +230,70 @@ func TestRemediationGrantNamingAForgeFailsTheLaunch(t *testing.T) {
 					len(runner.created), rem.Status.Stage)
 			}
 		})
+	}
+}
+
+// tunnelProfileGuard is profileGuard with one tunnel-only profile for
+// acme/orders: the Python index and its file host, with the pip preset.
+func tunnelProfileGuard(t *testing.T) runnerguard.Guard {
+	t.Helper()
+	g := profileGuard(t)
+	set, err := netprofile.Parse([]byte(`[{"name":"py","route":"tunnel","port":8092,"repositories":["acme/orders"],` +
+		`"modules":[],"bakedModCache":"","hosts":["pypi.org","files.pythonhosted.org"],"clients":["pip"]}]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.Profiles = set
+	return g
+}
+
+// TestRemediationTunnelNamingAForgeFailsTheLaunch: a remediate launch whose
+// profile's tunnel hosts include a Forge's web host fails the run as
+// launch_refused, naming the host, with no Job created; with no Forge
+// matching it launches with the tunnel hosts and presets on the spec; and
+// the pull request of such a run names the hosts, never Go modules.
+func TestRemediationTunnelNamingAForgeFailsTheLaunch(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		forges forgeList
+		refuse bool
+	}{
+		{"a Forge above a tunnel host", forgeList{"github.com", "pythonhosted.org"}, true},
+		{"no Forge matches", forgeList{"github.com", "ghe.corp.example"}, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			objs := withImage(acceptedImage(), "", v1alpha1.PhaseOpened, v1alpha1.PhaseQueued, v1alpha1.PhaseRemediating)
+			objs[1].(*v1alpha1.Remediation).Status.JobRef = nil
+			runner := &fakeCRRunner{}
+			r, c := newRemediation(t, runner, &fakeForge{}, objs...)
+			r.Images = tunnelProfileGuard(t)
+			r.Images.Forges = tt.forges
+			remReconcile(t, r)
+			rem := getRem(t, c)
+			if !tt.refuse {
+				if len(runner.created) != 1 || runner.created[0].NetworkProfile == nil ||
+					strings.Join(runner.created[0].NetworkProfile.Hosts, ",") != "pypi.org,files.pythonhosted.org" ||
+					strings.Join(runner.created[0].NetworkProfile.Clients, ",") != "pip" {
+					t.Fatalf("created %+v, want one Job with the py profile's hosts and preset", runner.created)
+				}
+				return
+			}
+			if len(runner.created) != 0 || rem.Status.Stage == nil || rem.Status.Stage.Outcome != outcomeLaunchRefused ||
+				!strings.Contains(rem.Status.Stage.Detail, "files.pythonhosted.org") {
+				t.Errorf("created %d Jobs, stage %+v; want none and launch_refused naming the host",
+					len(runner.created), rem.Status.Stage)
+			}
+		})
+	}
+
+	objs := withImage(acceptedImage(), v1alpha1.RunnerImageSourceRepository)
+	objs[1].(*v1alpha1.Remediation).Status.RunnerImage.NetworkProfile = "py"
+	fw := &fakeForge{}
+	r, _ := newRemediation(t, &fakeCRRunner{done: true, events: crdRemediationEvent(true)}, fw, objs...)
+	r.Images = tunnelProfileGuard(t)
+	remReconcile(t, r)
+	want := "network profile `py` (HTTPS downloads from `files.pythonhosted.org` and `pypi.org`)"
+	if len(fw.bodies) != 1 || !strings.Contains(fw.bodies[0], want) || strings.Contains(fw.bodies[0], "Go modules") {
+		t.Errorf("PR bodies %q, want one saying %q and no Go modules", fw.bodies, want)
 	}
 }

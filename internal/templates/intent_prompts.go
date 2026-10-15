@@ -104,9 +104,10 @@ type PlanPrompt struct {
 type BuildProfile struct {
 	URL     string `json:"url"`
 	Profile string `json:"profile"`
-	// Routes are the profile's routes when it holds registry grants, which
-	// the prompt then names per build instead of step 1's Go sentence; nil
-	// for a step-1 profile, whose JSON and prompt are what they were.
+	// Routes are the profile's routes when it holds registry grants or
+	// tunnel hosts, which the prompt then names per build instead of step
+	// 1's Go sentence; nil for a step-1 profile, whose JSON and prompt are
+	// what they were.
 	Routes *NetworkRoutes `json:"routes,omitempty"`
 }
 
@@ -128,21 +129,32 @@ func boundBuildProfiles(in []BuildProfile) []BuildProfile {
 	return out
 }
 
-// boundRoutes keeps routes whose grants each validate and hold one
-// ecosystem apiece, or nil: anything else is not what a controller wrote,
-// and the build is then described as step 1 would.
+// boundRoutes keeps routes beyond the Go route whose grants each validate
+// and hold one ecosystem apiece and whose tunnel hosts are a sorted list of
+// valid host names (netprofile.ParsePodTunnel), or nil: anything else is
+// not what a controller wrote, and the build is then described as step 1
+// would.
 func boundRoutes(r *NetworkRoutes) *NetworkRoutes {
-	if r == nil || len(r.Grants) == 0 {
+	if r == nil || !r.BeyondGo() {
 		return nil
 	}
-	if _, err := netprofile.EncodePodGrants(r.Grants); err != nil {
-		return nil
+	if len(r.Grants) > 0 {
+		if _, err := netprofile.EncodePodGrants(r.Grants); err != nil {
+			return nil
+		}
 	}
-	return &NetworkRoutes{PublicGo: r.PublicGo, Grants: slices.Clone(r.Grants)}
+	if len(r.TunnelHosts) > 0 {
+		if _, err := netprofile.ParsePodTunnel(netprofile.RouteTunnel, strings.Join(r.TunnelHosts, ",")); err != nil {
+			return nil
+		}
+	}
+	return &NetworkRoutes{PublicGo: r.PublicGo, Grants: slices.Clone(r.Grants),
+		TunnelHosts: slices.Clone(r.TunnelHosts)}
 }
 
 // buildProfilesRouted reports whether any build's profile holds registry
-// grants, which the plan prompt then describes per build (planRoutes).
+// grants or tunnel hosts, which the plan prompt then describes per build
+// (planRoutes).
 func buildProfilesRouted(bs []BuildProfile) bool {
 	return slices.ContainsFunc(bs, func(b BuildProfile) bool { return b.Routes != nil })
 }
@@ -276,8 +288,9 @@ type BuildPrompt struct {
 	// stop-and-report for a dependency the image lacks.
 	NetworkProfile string
 	// NetworkRoutes are the profile's routes as the pod reads them. With
-	// registry grants the prompt describes each ecosystem instead of step
-	// 1's Go paragraph; without, it is exactly step 1's prompt.
+	// registry grants or tunnel hosts the prompt describes each route
+	// instead of step 1's Go paragraph; without, it is exactly step 1's
+	// prompt.
 	NetworkRoutes NetworkRoutes
 }
 
