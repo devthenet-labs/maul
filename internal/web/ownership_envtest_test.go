@@ -31,7 +31,11 @@ import (
 
 const serverManager = "patchy-status-server"
 
-func TestIntegrationStampsLeaveHelmFieldsToHelm(t *testing.T) {
+// startOwnershipEnv starts an API server with the CRDs and returns an admin
+// client and a Server whose writes land under the status server's field
+// manager.
+func startOwnershipEnv(t *testing.T) (client.Client, *Server) {
+	t.Helper()
 	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
 		t.Skip("KUBEBUILDER_ASSETS not set; skipping ownership envtest")
 	}
@@ -65,6 +69,11 @@ func TestIntegrationStampsLeaveHelmFieldsToHelm(t *testing.T) {
 	}
 	s := NewServer(srvClient, "patchy", stubAuth{id: operator}, stubGranter{grants: allGrants()}, nil)
 	s.now = func() time.Time { return testClock }
+	return admin, s
+}
+
+func TestIntegrationStampsLeaveHelmFieldsToHelm(t *testing.T) {
+	admin, s := startOwnershipEnv(t)
 
 	helm := func() error {
 		u := &unstructured.Unstructured{Object: map[string]any{
@@ -112,6 +121,63 @@ func TestIntegrationStampsLeaveHelmFieldsToHelm(t *testing.T) {
 	}
 	if err := helm(); err != nil {
 		t.Fatalf("helm re-apply after the status server's stamps conflicted: %v", err)
+	}
+}
+
+// TestFindingActionsLeaveControllerFieldsAlone covers the action handler's
+// write. The Finding is applied by a controller with an approval timestamp
+// in fractional seconds, which the API server stores as written and
+// metav1.Time drops on a round trip: a full Update would change that value
+// and take spec.approval from the controller, whose next apply conflicts.
+func TestFindingActionsLeaveControllerFieldsAlone(t *testing.T) {
+	admin, s := startOwnershipEnv(t)
+
+	const controller = "integration-controller"
+	apply := func() error {
+		u := &unstructured.Unstructured{Object: map[string]any{
+			"apiVersion": v1alpha1.GroupVersion.String(),
+			"kind":       "Finding",
+			"metadata":   map[string]any{"name": "fnd-1", "namespace": "patchy"},
+			"spec": map[string]any{
+				"integrationRef": map[string]any{"name": "gh"},
+				"source":         "github-code-scanning",
+				"advisories":     []any{"CVE-2026-0001"},
+				"approval":       map[string]any{"by": "octocat", "at": "2026-07-24T09:00:00.250Z"},
+			},
+		}}
+		return admin.Apply(t.Context(), client.ApplyConfigurationFromUnstructured(u), client.FieldOwner(controller))
+	}
+	if err := apply(); err != nil {
+		t.Fatalf("seed finding: %v", err)
+	}
+	key := client.ObjectKey{Namespace: "patchy", Name: "fnd-1"}
+	var fnd v1alpha1.Finding
+	if err := admin.Get(t.Context(), key, &fnd); err != nil {
+		t.Fatalf("get finding: %v", err)
+	}
+	fnd.Status.Phase = v1alpha1.PhaseQueued
+	if err := admin.Status().Update(t.Context(), &fnd); err != nil {
+		t.Fatalf("seed finding status: %v", err)
+	}
+
+	for _, verb := range []string{"suspend", "resume", "expedite"} {
+		if res, body := postAction(t, s, "fnd-1", verb); res.StatusCode != http.StatusOK {
+			t.Fatalf("%s status = %d (%s)", verb, res.StatusCode, body)
+		}
+	}
+
+	var got v1alpha1.Finding
+	if err := admin.Get(t.Context(), key, &got); err != nil {
+		t.Fatalf("get finding: %v", err)
+	}
+	if got.Spec.Expedite == nil || got.Spec.Suspend {
+		t.Fatalf("spec = expedite %+v suspend %v, want expedited and resumed", got.Spec.Expedite, got.Spec.Suspend)
+	}
+	if fields, want := ownedSpecFields(t, &got, serverManager), []string{"expedite"}; !slices.Equal(fields, want) {
+		t.Errorf("status server owns spec fields %v, want only %v", fields, want)
+	}
+	if err := apply(); err != nil {
+		t.Fatalf("controller re-apply after the status server's actions conflicted: %v", err)
 	}
 }
 

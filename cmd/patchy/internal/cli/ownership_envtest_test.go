@@ -27,7 +27,8 @@ import (
 // writes and nothing else, or the operator's next apply conflicts. A full
 // Update did exactly that for every metav1.Duration the operator wrote in
 // short form ("10m" reads back as "10m0s"), so `patchy backfill` broke the
-// next `helm upgrade` until it ran with --force-conflicts.
+// next `helm upgrade` until it ran with --force-conflicts. A Finding's
+// timestamps drift the same way (fractional seconds are dropped).
 
 // cliManager is the field manager the real CLI writes as (its user agent).
 const cliManager = "patchy"
@@ -136,6 +137,27 @@ func TestBackfillLeavesHelmFieldsToHelm(t *testing.T) {
 	}
 }
 
+// controllerFinding is a Finding as a controller applies it. Its approval
+// timestamp carries fractional seconds, which the API server stores as
+// written and metav1.Time drops on a round trip ("...:00.250Z" reads back as
+// "...:00Z"): a full Update of the typed object therefore changes that value
+// and takes it from the controller, as it took Helm's short-form durations.
+func controllerFinding() *unstructured.Unstructured {
+	return &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": v1alpha1.GroupVersion.String(),
+		"kind":       "Finding",
+		"metadata":   map[string]any{"name": "fnd-own", "namespace": testNamespace},
+		"spec": map[string]any{
+			"integrationRef": map[string]any{"name": "gh"},
+			"source":         "github-code-scanning",
+			"advisories":     []any{"CVE-2026-0001"},
+			"title":          "Command injection in the build script",
+			"severity":       "high",
+			"approval":       map[string]any{"by": "octocat", "at": "2026-07-24T09:00:00.250Z"},
+		},
+	}}
+}
+
 func TestActionLeavesControllerFieldsAlone(t *testing.T) {
 	opts, _, _, admin := startGetEnv(t)
 	env, err := opts.Connect()
@@ -147,13 +169,17 @@ func TestActionLeavesControllerFieldsAlone(t *testing.T) {
 	opts.WithAccess(func(context.Context, *kubecfg.Env, string, string) (bool, error) { return true, nil })
 	opts.WithIdentity(func() string { return "op@acme.test" })
 
-	fnd := testFinding("fnd-own", v1alpha1.PhaseQueued)
-	fnd.CreationTimestamp = metav1.Time{}
-	if err := admin.Create(t.Context(), fnd); err != nil {
+	const controller = "integration-controller"
+	if err := applyAs(t, admin, controller, controllerFinding()); err != nil {
 		t.Fatalf("seed finding: %v", err)
 	}
+	var fnd v1alpha1.Finding
+	key := client.ObjectKey{Namespace: testNamespace, Name: "fnd-own"}
+	if err := admin.Get(t.Context(), key, &fnd); err != nil {
+		t.Fatalf("get finding: %v", err)
+	}
 	fnd.Status.Phase = v1alpha1.PhaseQueued
-	if err := admin.Status().Update(t.Context(), fnd); err != nil {
+	if err := admin.Status().Update(t.Context(), &fnd); err != nil {
 		t.Fatalf("seed finding status: %v", err)
 	}
 
@@ -164,7 +190,7 @@ func TestActionLeavesControllerFieldsAlone(t *testing.T) {
 	}
 
 	var got v1alpha1.Finding
-	if err := admin.Get(t.Context(), client.ObjectKeyFromObject(fnd), &got); err != nil {
+	if err := admin.Get(t.Context(), key, &got); err != nil {
 		t.Fatalf("get finding: %v", err)
 	}
 	if got.Spec.Expedite == nil || got.Spec.Suspend {
@@ -172,5 +198,13 @@ func TestActionLeavesControllerFieldsAlone(t *testing.T) {
 	}
 	if fields, want := specFieldsOf(t, &got, cliManager), []string{"expedite"}; !slices.Equal(fields, want) {
 		t.Errorf("CLI owns spec fields %v, want only %v", fields, want)
+	}
+	if fields := specFieldsOf(t, &got, controller); !slices.Contains(fields, "approval") {
+		t.Errorf("%s no longer owns spec.approval (owns %v)", controller, fields)
+	}
+
+	// The controller's next apply, unforced, must go through.
+	if err := applyAs(t, admin, controller, controllerFinding()); err != nil {
+		t.Fatalf("controller re-apply after the CLI's actions conflicted: %v", err)
 	}
 }
