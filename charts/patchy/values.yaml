@@ -1148,6 +1148,104 @@ egressBroker:
         create: true
         extraEgress: []
 
+# The egress proxy (cmd/egress-proxy): the operator's dependency route for
+# agent Jobs. A GOPROXY-protocol reverse proxy to proxy.golang.org and
+# sum.golang.org that forwards only GET/HEAD module and checksum-database
+# requests for each profile's allowlisted module prefixes (tagged releases
+# only unless the profile sets allowPseudoVersions), holds no credential and
+# caches nothing. One listener per agent.networkProfiles entry: the port is
+# the identity, enforced by NetworkPolicy on both sides (only pods labelled
+# patchy.bitwisemedia.uk/network-<name> from agent.namespace reach that
+# port). Off by default; with enabled false nothing of it renders, and
+# agent.networkProfiles is inert. Chart-only (no kustomize component).
+egressProxy:
+    # Deploys the proxy, its Service, PodDisruptionBudget and NetworkPolicy,
+    # the per-profile agent NetworkPolicies (and, with admissionPolicy, the
+    # profile-label admission policy), and stamps the profiles into
+    # remediation- and intent-controller. Requires agent.repositoryImages
+    # (a profile only ever applies to a Job running an accepted repository
+    # image) and at least one agent.networkProfiles entry. Refused under
+    # agent.networkPolicy.mode istio.
+    enabled: false
+    # The kill switch, two levers at once:
+    #   - next Job: both job controllers apply no profile from their next Job
+    #     on (PATCHY_NETWORK_PROFILES_ENABLED=false);
+    #   - immediate: the proxy rolls (checksum/config) and answers every
+    #     profile request 410 "suspended" (PATCHY_SUSPENDED=true), so Jobs
+    #     already running can fetch nothing new from the moment the new proxy
+    #     pods are Ready. Modules baked into the image still build.
+    # The proxy and every policy stay rendered, so lifting the switch does not
+    # race policy attachment. enabled: false removes everything.
+    suspendProfiles: false
+    image: {}
+    # Two replicas behind a PodDisruptionBudget (minAvailable 1) and a
+    # surge-only rollout, so a node drain or a suspendProfiles roll never
+    # leaves a build without the route. 1 renders no PodDisruptionBudget.
+    replicas: 2
+    # Each limit renders only when set; 0 or "" keeps the binary's default.
+    limits:
+        # Requests in flight across every source (default 128).
+        maxConcurrent: 0
+        # Requests in flight from one source IP (default 32).
+        maxConcurrentPerSource: 0
+        # Request rate of one source IP (default 100) and its burst (200).
+        requestsPerSecondPerSource: 0
+        burstPerSource: 0
+        # How long a request queues for the limits above before a 503 (30s).
+        limitWait: ""
+        # Bound on one whole request, the body stream included (10m).
+        requestTimeout: ""
+        # Bound on the wait for an upstream's response headers (2m).
+        upstreamHeaderTimeout: ""
+        # Largest module zip passed through, in bytes (524288000).
+        maxZipBytes: 0
+    # Best-effort audit attribution (source IP -> the agent pod's finding,
+    # owner and repository). Needs a Role to get/list/watch pods in
+    # agent.namespace, the proxy's ServiceAccount token, and egress to the
+    # API server, which the proxy otherwise lacks. Attribution never decides
+    # anything.
+    attribution:
+        enabled: false
+        # The API server's endpoint IPs as /32s, NOT subnets: read them with
+        #   kubectl get endpointslice -n default \
+        #     -l kubernetes.io/service-name=kubernetes \
+        #     -o jsonpath='{.items[*].endpoints[*].addresses[*]}'
+        # On EKS these are the control-plane ENIs in the cluster's own
+        # subnets, beside nodes and pods, so a subnet here would open every
+        # pod and node in it to the proxy. They can change when EKS scales or
+        # replaces the control plane; attribution then degrades to empty audit
+        # fields until the list is updated. Required when enabled; every entry
+        # must be an IPv4 /32.
+        apiServerCIDRs: []
+    resources:
+        requests:
+            cpu: 50m
+            memory: 64Mi
+        limits:
+            cpu: "1"
+            memory: 256Mi
+    podAnnotations: {}
+    podLabels: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    serviceAccount:
+        create: true
+        name: ""
+        annotations: {}
+    service:
+        annotations: {}
+    networkPolicy:
+        # Must stay true while enabled: the per-profile ingress rules ARE the
+        # identity check. false fails the render.
+        create: true
+    config:
+        # Extra PATCHY_* keys for the proxy only; win over anything the chart
+        # derives. The global proxy block (HTTPS_PROXY and friends) is never
+        # stamped here: a corporate HTTPS proxy for the proxy's own upstream
+        # traffic is not supported.
+        extra: {}
+
 # The agent sandbox: the namespace and identity the two job controllers
 # create their ephemeral Jobs in, and the two agent stages' limits. Nothing
 # in this namespace holds a forge credential — the repository arrives as a
@@ -1445,6 +1543,35 @@ agent:
         # agent.namespace. Optional; like any inline credential it lands in
         # the release's revision history.
         pullSecretData: ""
+    # Operator dependency-route profiles, keyed by name (a DNS label of at
+    # most 32 characters starting with a letter). Inert unless
+    # egressProxy.enabled. A Finding remediate Job, or an Intent
+    # build/revise/check-fix Job, gets profile <name> when it runs an
+    # accepted repository image and its repository matches exactly one
+    # profile's host and repositories (a repository matching two gets none).
+    # Its pod is then labelled patchy.bitwisemedia.uk/network-<name>: "true",
+    # may reach the egress proxy on <port> and nothing else new, and its go
+    # command is pointed there (proxy first, the image's baked module cache
+    # second). Investigate, plan and evaluation Jobs, and every default-image
+    # Job, never get a profile. Repositories declare nothing: the mapping is
+    # the operator's, here.
+    #
+    # A profile Job copies every module its build touches into /tmp, on top
+    # of the build cache: size agent.repositoryImages.ephemeralStorage for the
+    # profiled repositories at about twice the baked module cache plus the
+    # build cache, or the pod is evicted.
+    networkProfiles: {}
+    #   go:
+    #       route: go                     # the only route in step 1
+    #       port: 8090                    # 1024-65535, unique, not 8081; changing it breaks running Jobs
+    #       host: github.com              # forge host the repositories live on (default github.com)
+    #       repositories:                 # RE2, matched ANCHORED against the lowercased owner/name
+    #           - devthenet-labs/patchy-preview-demo
+    #       modules:                      # module-path prefixes, matched on path-element boundaries
+    #           - github.com/google/uuid
+    #           - golang.org/x/
+    #       bakedModCache: /opt/go/pkg/mod  # the image's GOMODCACHE, read AFTER the proxy; "" = network only
+    #       allowPseudoVersions: false    # true admits v0.0.0-<time>-<commit> versions of allowed modules
     # The sandbox policies: default-deny both directions plus DNS, the
     # artifact server, and TCP-443-only external egress. A plain
     # NetworkPolicy cannot match hostnames; enforcement at that level needs

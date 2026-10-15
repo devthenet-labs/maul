@@ -130,6 +130,15 @@ helm template patchy charts/patchy -f hack/testdata/chart-render/intent-controll
 helm template patchy charts/patchy -f hack/testdata/chart-render/intent-controller.yaml \
   --set agent.runners.claude.enabled=false --set agent.runners.codex.enabled=true >/dev/null
 
+# The egress proxy on (two profiles, repository images, dns none), and with
+# attribution.
+helm lint charts/patchy -f hack/testdata/chart-render/intent-controller.yaml \
+  -f hack/testdata/chart-render/repository-images.yaml \
+  -f hack/testdata/chart-render/egress-proxy.yaml --set agent.networkPolicy.dns=none
+helm lint charts/patchy -f hack/testdata/chart-render/repository-images.yaml \
+  -f hack/testdata/chart-render/egress-proxy.yaml --set egressProxy.attribution.enabled=true \
+  --set-json 'egressProxy.attribution.apiServerCIDRs=["10.0.1.10/32"]'
+
 # The CR chart: the empty default plus a populated render of every array.
 helm lint charts/patchy-config
 helm template patchy-config charts/patchy-config >/dev/null

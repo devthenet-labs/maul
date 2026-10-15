@@ -223,6 +223,34 @@ needs no such rule: set agent.networkPolicy.broadEgress: never to leave an
 agent pod the artifact server and the broker alone.
 {{- end }}
 {{- end }}
+{{- if include "patchy.egressProxyEnabled" . }}
+
+Network profiles are on: the egress proxy ({{ include "patchy.fullname" . }}-egress-proxy) serves
+{{ len .Values.agent.networkProfiles }} profile(s) ({{ keys .Values.agent.networkProfiles | sortAlpha | join ", " }}) to remediate and build Jobs that run
+an accepted repository image of a matching repository. Every other Job is
+unchanged. Its audit lines (kubectl logs -n {{ .Release.Namespace }} deploy/{{ include "patchy.fullname" . }}-egress-proxy)
+show refused modules as outcome=not_allowed; while a build falls through to
+the image's baked module cache those are expected, not an attack.
+{{- if .Values.egressProxy.suspendProfiles }}
+
+egressProxy.suspendProfiles is on: the job controllers apply no profile, and
+the proxy answers every profile request 410 suspended. Modules baked into an
+image still build.
+{{- end }}
+{{- if not .Values.admissionPolicy.enabled }}
+
+WARNING: admissionPolicy.enabled is false, so the profile label
+({{ include "patchy.networkProfileLabelPrefix" . }}<profile>) on agent Jobs is enforced by
+controller code only: nothing at the API server stops another principal that
+can create Jobs in {{ .Values.agent.namespace }} (the investigation-controller's
+ServiceAccount included) from labelling one.
+{{- end }}
+{{- else if .Values.agent.networkProfiles }}
+
+NOTE: agent.networkProfiles is set but egressProxy.enabled is false, so no
+profile applies: agent Jobs stay offline, and nothing of the egress proxy is
+deployed.
+{{- end }}
 
 For the pod-security labels on {{ .Release.Namespace }} (the chart only
 labels the agent namespace it creates):
