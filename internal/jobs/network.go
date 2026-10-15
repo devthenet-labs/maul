@@ -115,17 +115,7 @@ func profileRefusal(spec Spec) error {
 	case p.Route != "" && p.Route != netprofile.RouteGo:
 		refuse("route %q is not supported (only %q)", p.Route, netprofile.RouteGo)
 	}
-	seen := map[string]bool{}
-	for _, g := range p.Registries {
-		if err := g.Validate(); err != nil {
-			refuse("%v", err)
-			continue
-		}
-		if seen[g.Ecosystem] {
-			refuse("two %s grants: a package manager takes one index from the environment", g.Ecosystem)
-		}
-		seen[g.Ecosystem] = true
-	}
+	errs = append(errs, grantRefusals(p)...)
 	if err := validProxyURL(p.ProxyURL); err != nil {
 		refuse("%v", err)
 	}
@@ -137,6 +127,31 @@ func profileRefusal(spec Spec) error {
 		return nil
 	}
 	return fmt.Errorf("%w: %w", ErrNetworkProfileRefused, errors.Join(errs...))
+}
+
+// grantRefusals are why a profile's registry grants do not hold together:
+// a grant that does not validate, two grants of one ecosystem, or grants
+// the agent could not be told of (profileEnv must be able to encode them).
+func grantRefusals(p *NetworkProfile) []error {
+	var errs []error
+	seen := map[string]bool{}
+	for _, g := range p.Registries {
+		if err := g.Validate(); err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		if seen[g.Ecosystem] {
+			errs = append(errs, fmt.Errorf("two %s grants: a package manager takes one index from the environment",
+				g.Ecosystem))
+		}
+		seen[g.Ecosystem] = true
+	}
+	if len(errs) == 0 && len(p.Registries) > 0 {
+		if _, err := netprofile.EncodePodGrants(podGrants(p)); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errs
 }
 
 // isSpaceOrControl reports a byte no path in GOPROXY's list may hold.
