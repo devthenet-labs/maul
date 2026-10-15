@@ -175,6 +175,21 @@ builds:
       goarch:
           - amd64
           - arm64
+    - id: egress-proxy
+      main: ./cmd/egress-proxy
+      binary: egress-proxy
+      flags:
+          - -trimpath
+      ldflags:
+          - -s -w
+          - -X github.com/bitwise-media-group/patchy/internal/version.Version={{ .Version }}
+          - -X github.com/bitwise-media-group/patchy/internal/version.Commit={{ .ShortCommit }}
+          - -X github.com/bitwise-media-group/patchy/internal/version.BuildDate={{ .Date }}
+      goos:
+          - linux
+      goarch:
+          - amd64
+          - arm64
     - id: preview-auth
       main: ./cmd/preview-auth
       binary: preview-auth
@@ -291,6 +306,7 @@ archives:
           - integration-controller
           - investigation-controller
           - egress-broker
+          - egress-proxy
           - preview-auth
           - agent-runner
           - status-server
@@ -483,6 +499,24 @@ dockers_v2:
           - linux/arm64
       build_args:
           TARGET: egress-broker
+      labels:
+          org.opencontainers.image.source: https://github.com/devthenet-labs/patchy
+          org.opencontainers.image.licenses: MIT
+          org.opencontainers.image.revision: "{{ .FullCommit }}"
+          org.opencontainers.image.version: "{{ .Version }}"
+    - id: egress-proxy
+      ids: [egress-proxy]
+      dockerfile: Dockerfile.controller
+      images:
+          - "{{ .Env.PATCHY_IMAGE_REGISTRY }}/egress-proxy"
+      tags:
+          - v{{ .Version }}
+          - latest
+      platforms:
+          - linux/amd64
+          - linux/arm64
+      build_args:
+          TARGET: egress-proxy
       labels:
           org.opencontainers.image.source: https://github.com/devthenet-labs/patchy
           org.opencontainers.image.licenses: MIT
