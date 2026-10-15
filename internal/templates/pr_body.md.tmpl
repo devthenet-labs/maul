@@ -47,7 +47,9 @@ With the fix:
 > shows that a test failed on the unfixed code and passes with this change. Confirm the fix and its test before
 > merging.
 {{end}}
-{{.Report}}
+{{with .NetworkProfile}}{{.}}
+
+{{end}}{{.Report}}
 
 ---
 

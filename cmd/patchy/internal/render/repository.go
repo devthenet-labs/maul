@@ -87,6 +87,16 @@ func RunnerImageRef(ref *v1alpha1.RunnerImageRef) string {
 	return fmt.Sprintf("%s (%s)", ref.Image, ref.Source)
 }
 
+// NetworkProfile renders the operator network profile one run's Job
+// carried, as the run recorded it, with what it means; "" (no field) when
+// it carried none.
+func NetworkProfile(ref *v1alpha1.RunnerImageRef) string {
+	if ref == nil || ref.NetworkProfile == "" {
+		return ""
+	}
+	return ref.NetworkProfile + " (the agent could fetch Go modules through the egress proxy)"
+}
+
 // conditionLine renders one condition as its status, reason and message.
 func conditionLine(conds []metav1.Condition, typ string) string {
 	c := meta.FindStatusCondition(conds, typ)

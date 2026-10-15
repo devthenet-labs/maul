@@ -286,13 +286,20 @@ func (r *RemediationReconciler) launch(ctx context.Context, rem *v1alpha1.Remedi
 		r.log().LogAttrs(ctx, slog.LevelInfo, "not running the repository-declared runner image",
 			slog.String("remediation", rem.Name), slog.String("reason", skipped))
 	}
+	// The operator's network profile for the repository, if it gets one:
+	// only on the accepted image Pin just copied, so a revived finding
+	// (default image) gets none. What the Job carries is read back below.
+	if _, skipped := r.Images.Profile(&spec, repo.Spec.URL); skipped != "" {
+		r.log().LogAttrs(ctx, slog.LevelInfo, "not applying a network profile",
+			slog.String("remediation", rem.Name), slog.String("reason", skipped))
+	}
 	jobName, image, err := r.Runner.Create(ctx, spec)
 	if err != nil {
 		return fmt.Errorf("launch remediation job: %w", err)
 	}
 	// The image is recorded from what Create returned, never from the
 	// Repository's pin: the changeset validator applies its
-	// repository-image rules on this stamp.
+	// repository-image rules on this stamp. So is the network profile.
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		var cur v1alpha1.Remediation
 		if err := r.Get(ctx, client.ObjectKeyFromObject(rem), &cur); err != nil {
@@ -504,8 +511,10 @@ func (r *RemediationReconciler) succeed(
 	// claim is the agent's own, so the body attributes it to the agent.
 	// The report is agent text: PRBody sanitises it, and a body it cannot
 	// render falls back to patchy's own words, never to the raw report.
+	// A run whose Job carried a network profile could fetch dependencies;
+	// the body says so, from what the launch recorded off the Job.
 	body, err := templates.PRBody(issueNumber, reportBody, untested,
-		agentresult.Reproduction(result.Reproduction))
+		agentresult.Reproduction(result.Reproduction), networkProfileOf(rem.Status.RunnerImage))
 	if err != nil {
 		body = templates.PRBodyFallback(issueNumber)
 	}
@@ -821,4 +830,13 @@ func (r *RemediationReconciler) changesetRules(
 // the default image.
 func ranRepositoryImage(ri *v1alpha1.RunnerImageRef) bool {
 	return ri != nil && ri.Source == v1alpha1.RunnerImageSourceRepository
+}
+
+// networkProfileOf is the network profile a run's Job carried, as recorded
+// at launch; "" when it carried none or nothing was recorded.
+func networkProfileOf(ref *v1alpha1.RunnerImageRef) string {
+	if ref == nil {
+		return ""
+	}
+	return ref.NetworkProfile
 }

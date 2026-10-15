@@ -144,6 +144,13 @@ type RunnerImageRef struct {
 	// issue and describe can name the file; empty otherwise.
 	// +optional
 	Manifest string `json:"manifest,omitempty"`
+	// NetworkProfile names the operator network profile the run's pod
+	// carried (its dependency route through the egress proxy), read back
+	// from the Job that exists; empty when the run had none.
+	// +kubebuilder:validation:MaxLength=32
+	// +kubebuilder:validation:Pattern=`^[a-z]([a-z0-9-]{0,30}[a-z0-9])?$`
+	// +optional
+	NetworkProfile string `json:"networkProfile,omitempty"`
 }
 
 // RunnerImageRef sources.

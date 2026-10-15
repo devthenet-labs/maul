@@ -1224,6 +1224,10 @@ func (j *fakeJobs) Create(_ context.Context, spec jobs.Spec, env map[string]stri
 	ref := v1alpha1.RunnerImageRef{Image: "patchy/claude-agent-runner:test", Source: v1alpha1.RunnerImageSourceDefault}
 	if spec.RunnerImage != "" && !j.defaultOn {
 		ref = v1alpha1.RunnerImageRef{Image: spec.RunnerImage, Source: v1alpha1.RunnerImageSourceRepository}
+		if spec.NetworkProfile != nil {
+			// As jobs.Client reads it back off a Job that injects.
+			ref.NetworkProfile = spec.NetworkProfile.Name
+		}
 	}
 	return name, ref, nil
 }

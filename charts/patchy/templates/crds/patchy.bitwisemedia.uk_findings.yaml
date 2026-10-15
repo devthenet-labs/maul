@@ -808,6 +808,14 @@ spec:
                           the Repository at launch when Source is "repository" so the tracking
                           issue and describe can name the file; empty otherwise.
                         type: string
+                      networkProfile:
+                        description: |-
+                          NetworkProfile names the operator network profile the run's pod
+                          carried (its dependency route through the egress proxy), read back
+                          from the Job that exists; empty when the run had none.
+                        maxLength: 32
+                        pattern: ^[a-z]([a-z0-9-]{0,30}[a-z0-9])?$
+                        type: string
                       source:
                         description: |-
                           Source is RunnerImageSourceRepository when the image came from the

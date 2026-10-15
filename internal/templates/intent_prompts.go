@@ -156,6 +156,11 @@ type BuildPrompt struct {
 	// section, and the prompt is exactly the one-repository prompt.
 	ThisRepository string
 	Siblings       []string
+	// NetworkProfile names the operator network profile the run's pod
+	// carries (a Go module route through the egress proxy); empty, as on
+	// every run without one, keeps the prompt's no-network sentence and its
+	// stop-and-report for a dependency the image lacks.
+	NetworkProfile string
 }
 
 // RenderBuildPrompt renders the build-stage prompt.

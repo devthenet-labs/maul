@@ -31,7 +31,7 @@ func TestPRBodyReproductionIsInert(t *testing.T) {
 			Command:    "go test ./... `# closes #5 @root` | tee out",
 			Before:     hostile,
 			After:      hostile,
-		})
+		}, "")
 		if err != nil {
 			t.Fatalf("PRBody() error = %v", err)
 		}
@@ -88,7 +88,7 @@ func TestPRBodySaysWhetherReproduced(t *testing.T) {
 		{"not reported on the default image", true, nil, true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			body, err := PRBody(1, "report", tt.untested, tt.repr)
+			body, err := PRBody(1, "report", tt.untested, tt.repr, "")
 			if err != nil {
 				t.Fatalf("PRBody() error = %v", err)
 			}

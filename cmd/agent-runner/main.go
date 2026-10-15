@@ -26,6 +26,7 @@ import (
 	"syscall"
 
 	"github.com/bitwise-media-group/patchy/internal/agentrun"
+	"github.com/bitwise-media-group/patchy/internal/netprofile"
 	"github.com/bitwise-media-group/patchy/internal/runner"
 	"github.com/bitwise-media-group/patchy/internal/sandboxprobe"
 )
@@ -53,7 +54,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 		}
 	}
 
-	cfg, err := agentrun.FromEnv(getenv)
+	cfg, err := config(getenv)
 	if err != nil {
 		log.LogAttrs(ctx, slog.LevelError, "invalid configuration", slog.Any("error", err))
 		return 2
@@ -67,4 +68,17 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 		return 2
 	}
 	return 0
+}
+
+// config is the stage configuration: agentrun.FromEnv, plus the network
+// profile the Job carries (netprofile.EnvProfile), read here through the
+// same getenv rather than in FromEnv, so it is no agentrun configuration
+// key, which a repository-image Job would blank.
+func config(getenv func(string) string) (agentrun.Config, error) {
+	cfg, err := agentrun.FromEnv(getenv)
+	if err != nil {
+		return agentrun.Config{}, err
+	}
+	cfg.NetworkProfile = getenv(netprofile.EnvProfile)
+	return cfg, nil
 }

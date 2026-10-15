@@ -4,6 +4,9 @@
 package runnerguard
 
 import (
+	"net"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -12,6 +15,7 @@ import (
 
 	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
 	"github.com/bitwise-media-group/patchy/internal/jobs"
+	"github.com/bitwise-media-group/patchy/internal/netprofile"
 )
 
 // Guard is one job controller's repository-image launch policy.
@@ -23,6 +27,13 @@ type Guard struct {
 	// Breaker refuses repository images once a sandbox probe has found
 	// NetworkPolicy unenforced; nil never trips.
 	Breaker *Breaker
+	// ProfilesEnabled is the controller's --network-profiles-enabled kill
+	// switch, Profiles the operator's profile set and ProxyBase the egress
+	// proxy's http://<host> base URL (runnercfg.NetworkProfiles). While the
+	// switch is off no launch requests a profile.
+	ProfilesEnabled bool
+	Profiles        netprofile.Set
+	ProxyBase       *url.URL
 }
 
 // Reasons Pin reports for not using an image the Repository pinned.
@@ -104,6 +115,58 @@ func (g Guard) PinFor(spec *jobs.Spec, repo *v1alpha1.Repository) string {
 	spec.RunnerSearchPath = ri.SearchPath
 	spec.RunnerImageManifest = ri.Manifest
 	return ""
+}
+
+// Reasons Profile reports for not requesting a profile a repository
+// would get.
+const (
+	SkipProfilesDisabled = "network profiles are disabled"
+	SkipProfileAmbiguous = "the repository matches more than one network profile, so it gets none"
+)
+
+// Profile requests, on a spec that already carries the Repository's
+// accepted image (Pin or PinFor copied it), the one operator network
+// profile its repository matches, and returns the profile's name. It
+// returns why not when a profile would otherwise be considered and is not
+// applied, and ("", "") when there is nothing to say: no image (nothing
+// was pinned, or Pin declined it: a revived finding, the kill switch, the
+// breaker), a Job that may never carry a profile (jobs.ProfileAllowed: a
+// remediate Job of kind remediation or a build Job of kind intent only),
+// profiles off with none configured, or no profile matching. Profiles off
+// with some configured, the breaker tripped, or a repository matching two
+// profiles (fail closed) is a reason.
+//
+// Like Pin, what Profile sets is a request: jobs.Client.Create decides
+// whether the profile is applied and returns what the Job carries, and that
+// return value is the only thing a launch may record.
+func (g Guard) Profile(spec *jobs.Spec, repoURL string) (applied, skipped string) {
+	if spec.RunnerImage == "" || !jobs.ProfileAllowed(spec.Phase, spec.Kind) {
+		return "", ""
+	}
+	switch {
+	case !g.ProfilesEnabled || g.ProxyBase == nil:
+		if g.Profiles.Len() == 0 {
+			return "", ""
+		}
+		return "", SkipProfilesDisabled
+	case g.Breaker.Tripped():
+		return "", SkipBreaker
+	}
+	p, reason := g.Profiles.For(repoURL)
+	switch reason {
+	case "":
+	case netprofile.ReasonAmbiguous:
+		return "", SkipProfileAmbiguous
+	default:
+		return "", ""
+	}
+	spec.NetworkProfile = &jobs.NetworkProfile{
+		Name:          p.Name,
+		Route:         p.Route,
+		ProxyURL:      g.ProxyBase.Scheme + "://" + net.JoinHostPort(g.ProxyBase.Hostname(), strconv.Itoa(p.Port)),
+		BakedModCache: p.BakedModCache,
+	}
+	return p.Name, ""
 }
 
 // Revived reports whether a human brought the finding back from a terminal

@@ -59,4 +59,20 @@
 // Job on the default runner image (ErrTreesRefused), so N trees never meet
 // a repository-declared image, and every Job without them is byte-for-byte
 // what it was before.
+//
+// One exception to the offline sandbox is the operator's to grant: a network
+// profile (Spec.NetworkProfile, network.go). It applies only under
+// Config.NetworkProfiles, only to a Job that runs the repository's image,
+// and only to a remediate Job of kind remediation or a build Job of kind
+// intent (revise and check-fix are build Jobs); Create refuses it on any
+// other (Phase, Kind) pair or beside trees (ErrNetworkProfileRefused).
+// Applied, it adds exactly one destination: the profile label on the Job
+// and its pod (netprofile.LabelKey, which the NetworkPolicies on both sides
+// of the egress proxy's profile port select), the proxy's host in the hosts
+// file under DNSNone, and the go command's environment pointing at the
+// proxy, every go variable a profile owns set non-empty so the image's
+// $GOROOT/go.env cannot route around it. No credential, no resolver and no
+// proxy variable comes with it, and the per-Job Secret is unchanged. Create
+// reads the profile back off the Job that exists, so what the caller
+// records is what runs.
 package jobs

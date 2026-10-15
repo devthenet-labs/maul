@@ -16,7 +16,10 @@
 // new plan and a new approval. When Pin declines an image the Repository
 // did pin, a remediation launch holds the finding for a human
 // (HeldCondition, Held) instead of remediating untested on the default
-// image, until a human approves exactly that. While a repository-image Job has not
+// image, until a human approves exactly that. On a launch that runs the
+// accepted image, Guard.Profile requests the operator network profile the
+// repository matches, if exactly one does, and only for a remediate or
+// intent build Job, under its own kill switch. While a repository-image Job has not
 // finished, whether its pod is still within the pull grace, stuck on a
 // deterministic pull failure, or worth another look (Pending): a pod in
 // ImagePullBackOff never mutates its Job, so the Job watch alone would never

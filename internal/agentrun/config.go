@@ -129,6 +129,15 @@ type Config struct {
 	// bounds, strips and fences it.
 	OpenPullRequests []templates.OpenPullRequest
 
+	// NetworkProfile names the operator network profile the pod carries (a
+	// Go module route through the egress proxy), which the remediate and
+	// build prompts then describe instead of saying the run is offline.
+	// FromEnv never sets it: cmd/agent-runner reads it (netprofile.EnvProfile)
+	// through the same getenv, so it is no configuration key a
+	// repository-image Job blanks. Empty, as on every Job without a profile,
+	// leaves the prompts unchanged.
+	NetworkProfile string
+
 	InvestigateTimeout time.Duration
 	RemediateTimeout   time.Duration
 	// InvestigateIdleTimeout/RemediateIdleTimeout end a run of the stage

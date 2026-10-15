@@ -15,18 +15,22 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
+	"net/netip"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/spf13/pflag"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/bitwise-media-group/patchy/internal/cli"
 	"github.com/bitwise-media-group/patchy/internal/harness"
 	"github.com/bitwise-media-group/patchy/internal/jobs"
 	"github.com/bitwise-media-group/patchy/internal/model"
+	"github.com/bitwise-media-group/patchy/internal/netprofile"
 	"github.com/bitwise-media-group/patchy/internal/provider"
 	"github.com/bitwise-media-group/patchy/internal/resourceclass"
 )
@@ -203,6 +207,79 @@ func RepositoryImages(opts *cli.Options) (enabled bool, ephemeralStorage string,
 			"it bounds the disk a repository-declared image can fill through the pod's emptyDirs")
 	}
 	return enabled, ephemeralStorage, nil
+}
+
+// RegisterNetworkProfileFlags adds the operator network profile flags the
+// two controllers that launch write-stage Jobs share (remediation and
+// intent; investigation and evaluation never register them): the kill
+// switch, the profile set's JSON (netprofile.Parse) and the egress proxy's
+// base URL, to which each profile's port is joined. It is registered beside
+// RegisterRepositoryImageFlags, which it requires.
+func RegisterNetworkProfileFlags(f *pflag.FlagSet) {
+	f.Bool("network-profiles-enabled", false,
+		"apply operator network profiles to remediate and intent build Jobs that run an accepted repository "+
+			"image (requires --repository-images); off applies none from the next Job on")
+	f.String("network-profiles", "",
+		"the operator network profiles as JSON (an array; the chart renders agent.networkProfiles); "+
+			"ignored while --network-profiles-enabled is off")
+	f.String("egress-proxy-url", "",
+		"the egress proxy's base URL, http://<host> with no port or path (each profile's port is joined to it); "+
+			"required with --network-profiles-enabled")
+}
+
+// NetworkProfiles reads those flags: whether profiles are on, the parsed
+// profile set and the proxy's base URL. Off, the other two are ignored
+// (nothing is parsed, so a ConfigMap still carrying profiles while the kill
+// switch is thrown starts) and the set is empty. On, startup fails naming
+// the flag without --repository-images (a profile only ever applies to a
+// Job running an accepted repository image), with no profile, without the
+// proxy URL or with one that is not http://<host> alone, or when a profile
+// does not validate (an RE2 pattern, a module prefix, a port, ...).
+func NetworkProfiles(opts *cli.Options) (enabled bool, set netprofile.Set, base *url.URL, err error) {
+	if !opts.Bool("network-profiles-enabled") {
+		return false, netprofile.Set{}, nil, nil
+	}
+	if !opts.Bool("repository-images") {
+		return false, netprofile.Set{}, nil, errors.New("--network-profiles-enabled requires --repository-images: " +
+			"a network profile only ever applies to a Job running an accepted repository image")
+	}
+	if set, err = netprofile.Parse([]byte(opts.String("network-profiles"))); err != nil {
+		return false, netprofile.Set{}, nil, fmt.Errorf("--network-profiles: %w", err)
+	}
+	if set.Len() == 0 {
+		return false, netprofile.Set{}, nil, errors.New("--network-profiles is empty: " +
+			"--network-profiles-enabled needs at least one profile")
+	}
+	raw := opts.String("egress-proxy-url")
+	if raw == "" {
+		return false, netprofile.Set{}, nil, errors.New("--egress-proxy-url is required with --network-profiles-enabled")
+	}
+	if base, err = proxyBase(raw); err != nil {
+		return false, netprofile.Set{}, nil, fmt.Errorf("--egress-proxy-url: %w", err)
+	}
+	return true, set, base, nil
+}
+
+// proxyBase admits http://<host> alone: a lowercase DNS name or an IP
+// literal, with no port (each profile brings its own), path, query,
+// fragment or user.
+func proxyBase(raw string) (*url.URL, error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return nil, fmt.Errorf("%q: %w", raw, err)
+	}
+	if u.Scheme != "http" || u.Opaque != "" || u.User != nil || u.Port() != "" || u.Path != "" ||
+		u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.HasSuffix(u.Host, ":") {
+		return nil, fmt.Errorf("%q is not http://<host> with no port, path, query, fragment or user", raw)
+	}
+	host := u.Hostname()
+	if _, err := netip.ParseAddr(host); err == nil {
+		return u, nil
+	}
+	if host == "" || host != strings.ToLower(host) || len(validation.IsDNS1123Subdomain(host)) > 0 {
+		return nil, fmt.Errorf("%q: host %q is not a lowercase DNS name or an IP", raw, host)
+	}
+	return u, nil
 }
 
 // agentResourceFlags are the default's flags, in resourceclass's order:
@@ -497,22 +574,22 @@ func resolve(ctx context.Context, opts *cli.Options, cs kubernetes.Interface, na
 func probeBroker(ctx context.Context, brokerURL string, log *slog.Logger) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	url := strings.TrimRight(brokerURL, "/") + "/readyz"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	readyz := strings.TrimRight(brokerURL, "/") + "/readyz"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, readyz, nil)
 	if err != nil {
-		log.Warn("egress broker probe failed", "url", url, "error", err)
+		log.Warn("egress broker probe failed", "url", readyz, "error", err)
 		return
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		log.Warn("egress broker not reachable yet; claude jobs will fail until it is",
-			"url", url, "error", err)
+			"url", readyz, "error", err)
 		return
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		log.Warn("egress broker is not ready; check its /readyz and credential sources",
-			"url", url, "status", resp.StatusCode)
+			"url", readyz, "status", resp.StatusCode)
 	}
 }
 

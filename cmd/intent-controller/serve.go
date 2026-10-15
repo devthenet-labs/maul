@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"slices"
 	"time"
@@ -22,6 +23,7 @@ import (
 	"github.com/bitwise-media-group/patchy/internal/jobs"
 	"github.com/bitwise-media-group/patchy/internal/kube"
 	"github.com/bitwise-media-group/patchy/internal/model"
+	"github.com/bitwise-media-group/patchy/internal/netprofile"
 	"github.com/bitwise-media-group/patchy/internal/resourceclass"
 	"github.com/bitwise-media-group/patchy/internal/runnercfg"
 	"github.com/bitwise-media-group/patchy/internal/runnerguard"
@@ -93,6 +95,7 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	f.Duration("job-ttl", time.Hour, "ttlSecondsAfterFinished for a finished agent Job")
 	runnercfg.RegisterFlags(f)
 	runnercfg.RegisterRepositoryImageFlags(f)
+	runnercfg.RegisterNetworkProfileFlags(f)
 	runnercfg.RegisterAgentResourceFlags(f)
 	runnercfg.RegisterAgentDNSFlag(f)
 	f.Int("changeset-max-entries", changeset.DefaultMaxEntries,
@@ -189,12 +192,17 @@ func resourceClasses(opts *cli.Options) (resourceclass.Set, error) {
 // read and checked before the controller starts: whether a build may run
 // its repository's image and the ephemeral-storage wall on every Job
 // (runnercfg.RepositoryImages), the default CPU and memory
-// (runnercfg.AgentResources), and the operator's resource classes.
+// (runnercfg.AgentResources), and the operator's resource classes; and,
+// beside them, the operator's network profiles a build on its repository's
+// image may carry (runnercfg.NetworkProfiles).
 type jobSizes struct {
 	repositoryImages bool
 	ephemeralStorage string
 	defaults         resourceclass.Resources
 	classes          resourceclass.Set
+	profilesOn       bool
+	profiles         netprofile.Set
+	proxyBase        *url.URL
 }
 
 // readJobSizes reads the jobSizes flags.
@@ -210,6 +218,9 @@ func readJobSizes(opts *cli.Options) (jobSizes, error) {
 		return jobSizes{}, err
 	}
 	if s.classes, err = resourceClasses(opts); err != nil {
+		return jobSizes{}, err
+	}
+	if s.profilesOn, s.profiles, s.proxyBase, err = runnercfg.NetworkProfiles(opts); err != nil {
 		return jobSizes{}, err
 	}
 	return s, nil
@@ -343,13 +354,17 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		EphemeralStorage:      sizes.ephemeralStorage,
 		AllowRepositoryImages: sizes.repositoryImages,
 		DNS:                   agentDNS,
+		NetworkProfiles:       sizes.profilesOn,
 	}, log)
 	// Forges come from the cache; their Secrets are never cached, so the
 	// manager's client reads each one live.
 	gh := intent.NewForgeGitHub(forge.NewStore(mgr.GetClient()), namespace)
 	images := runnerguard.Guard{
-		Enabled: sizes.repositoryImages,
-		Breaker: runnerguard.NewBreaker("intent-controller", log),
+		Enabled:         sizes.repositoryImages,
+		Breaker:         runnerguard.NewBreaker("intent-controller", log),
+		ProfilesEnabled: sizes.profilesOn,
+		Profiles:        sizes.profiles,
+		ProxyBase:       sizes.proxyBase,
 	}
 	nudger := intent.NewNudger()
 

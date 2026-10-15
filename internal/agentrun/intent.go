@@ -405,6 +405,7 @@ func (a *Agent) build(ctx context.Context, params remediationParams, scope build
 		PreviousAttempt: a.cfg.PreviousAttempt,
 		ThisRepository:  scope.this,
 		Siblings:        scope.siblings,
+		NetworkProfile:  a.cfg.NetworkProfile,
 	})
 	if err != nil {
 		ev.Outcome = envelope.OutcomeRuntimeError

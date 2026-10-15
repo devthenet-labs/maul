@@ -25,6 +25,7 @@ import (
 	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
 	"github.com/bitwise-media-group/patchy/internal/agentrun"
 	"github.com/bitwise-media-group/patchy/internal/harness"
+	"github.com/bitwise-media-group/patchy/internal/netprofile"
 	"github.com/bitwise-media-group/patchy/internal/provider"
 	"github.com/bitwise-media-group/patchy/internal/runnerimage"
 	"github.com/bitwise-media-group/patchy/internal/sandboxprobe"
@@ -257,6 +258,11 @@ type Config struct {
 	// Resolver resolves those hosts as a DNSNone Job is created (default
 	// net.DefaultResolver, the controller's own).
 	Resolver Resolver
+	// NetworkProfiles is the kill switch for operator network profiles
+	// (--network-profiles-enabled): while false (the default) a
+	// Spec.NetworkProfile is dropped and every Job is exactly what it would
+	// be without one, so a flip takes effect at the next Job.
+	NetworkProfiles bool
 }
 
 // Spec is one agent Job to create.
@@ -349,6 +355,15 @@ type Spec struct {
 	// Finding Job, every plan, a build whose repository picks no class)
 	// leaves the Job exactly as Config shapes it.
 	Resources *Resources
+	// NetworkProfile is the operator network profile the launching
+	// controller asks this Job to carry (network.go). It is honoured only
+	// with Config.NetworkProfiles on, on a Job that runs the repository's
+	// image, and only on a remediate Job of kind remediation or a build Job
+	// of kind intent; anywhere else Create refuses it
+	// (ErrNetworkProfileRefused) or, when only the kill switches or the
+	// image are missing, drops it. Nil, as on every other Job, leaves the
+	// Job unchanged.
+	NetworkProfile *NetworkProfile
 }
 
 // Resources is one Job's CPU and memory (Spec.Resources). The four
@@ -485,6 +500,7 @@ func (c *Client) Create(ctx context.Context, spec Spec) (string, v1alpha1.Runner
 		slog.Int("attempt", spec.Attempt),
 		slog.String("runner_image", ref.Image),
 		slog.String("runner_image_source", ref.Source),
+		slog.String("network_profile", ref.NetworkProfile),
 	}
 	if len(spec.Trees) > 0 {
 		trees := make([]string, len(spec.Trees))
@@ -500,16 +516,18 @@ func (c *Client) Create(ctx context.Context, spec Spec) (string, v1alpha1.Runner
 // runnerImageRef reads the effective runner image off a Job: the audit
 // annotations when it ran a repository-declared image, else the agent
 // container's image with Source default. manifest is echoed only for a
-// repository image.
+// repository image. The network profile is read off the Job's own label
+// (networkProfileOf), never from what the caller asked for.
 func runnerImageRef(job *batchv1.Job, manifest string) v1alpha1.RunnerImageRef {
 	if job.Annotations[annotationRunnerImageSource] == v1alpha1.RunnerImageSourceRepository {
 		return v1alpha1.RunnerImageRef{
-			Image:    job.Annotations[annotationRunnerImage],
-			Source:   v1alpha1.RunnerImageSourceRepository,
-			Manifest: manifest,
+			Image:          job.Annotations[annotationRunnerImage],
+			Source:         v1alpha1.RunnerImageSourceRepository,
+			Manifest:       manifest,
+			NetworkProfile: networkProfileOf(job),
 		}
 	}
-	ref := v1alpha1.RunnerImageRef{Source: v1alpha1.RunnerImageSourceDefault}
+	ref := v1alpha1.RunnerImageRef{Source: v1alpha1.RunnerImageSourceDefault, NetworkProfile: networkProfileOf(job)}
 	for _, ct := range job.Spec.Template.Spec.Containers {
 		if ct.Name == agentContainerName {
 			ref.Image = ct.Image
@@ -622,6 +640,12 @@ func (c *Client) build(ctx context.Context, name string, spec Spec) (*batchv1.Jo
 	for _, tr := range spec.Trees {
 		artifacts = append(artifacts, tr.ArtifactURL)
 	}
+	if c.appliesProfile(runner, spec) {
+		// The egress proxy is one more endpoint the pod dials: under
+		// DNSNone its Service name is pinned in the hosts file with the
+		// others.
+		artifacts = append(artifacts, spec.NetworkProfile.ProxyURL)
+	}
 	if err := c.isolateDNS(ctx, &job.Spec.Template.Spec, spec.Harness, runner,
 		endpointURLs(runner, artifacts...)); err != nil {
 		return nil, err
@@ -630,6 +654,10 @@ func (c *Client) build(ctx context.Context, name string, spec Spec) (*batchv1.Jo
 }
 
 func (c *Client) buildJob(name string, spec Spec) (*batchv1.Job, error) {
+	// A profile beside trees is the profile's refusal: it is judged first.
+	if err := profileRefusal(spec); err != nil {
+		return nil, err
+	}
 	if err := treesRefusal(spec); err != nil {
 		return nil, err
 	}
@@ -656,6 +684,13 @@ func (c *Client) buildJob(name string, spec Spec) (*batchv1.Job, error) {
 		ann[annotationToolsImage] = runner.Image
 		lbls[labelRunnerImageSource] = v1alpha1.RunnerImageSourceRepository
 	}
+	profile := c.appliesProfile(runner, spec)
+	if profile {
+		// The identity both NetworkPolicies on the profile's port select.
+		// It is on the Job and its pod only, never in jobLabels, so the
+		// per-Job Secret is unchanged.
+		lbls[netprofile.LabelKey(spec.NetworkProfile.Name)] = netprofile.LabelValue
+	}
 
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
@@ -680,7 +715,7 @@ func (c *Client) buildJob(name string, spec Spec) (*batchv1.Job, error) {
 					},
 					Volumes:        c.podVolumes(name, runner, findingTokenTTL(c.cfg.Deadline), inject),
 					InitContainers: []corev1.Container{c.prepareContainer(runner, spec, res, inject)},
-					Containers:     []corev1.Container{c.agentContainer(runner, spec, res, inject)},
+					Containers:     []corev1.Container{c.agentContainer(runner, spec, res, inject, profile)},
 				},
 			},
 		},
@@ -806,8 +841,11 @@ func (c *Client) prepareContainer(runner Runner, spec Spec, res corev1.ResourceR
 // image instead, with agent-runner started by absolute path from the
 // read-only patchy-bin mount — neither the image's ENTRYPOINT nor its PATH
 // can redirect it — and the injection env on top of the usual one.
+//
+// A Job carrying a network profile (profile, which implies inject) also gets
+// the go command's environment, applied last so it owns its names.
 func (c *Client) agentContainer(runner Runner, spec Spec, res corev1.ResourceRequirements,
-	inject bool) corev1.Container {
+	inject, profile bool) corev1.Container {
 	mounts := []corev1.VolumeMount{
 		{Name: volWorkspace, MountPath: workspaceDir},
 		{Name: volTmp, MountPath: "/tmp"},
@@ -820,6 +858,9 @@ func (c *Client) agentContainer(runner Runner, spec Spec, res corev1.ResourceReq
 		image, command = spec.RunnerImage, []string{patchyBinDir + "/" + agentRunnerBin}
 		env = injectEnv(env, spec)
 		mounts = append(mounts, corev1.VolumeMount{Name: volPatchyBin, MountPath: patchyBinDir, ReadOnly: true})
+	}
+	if profile {
+		env = applyProfileEnv(env, spec.NetworkProfile)
 	}
 	return corev1.Container{
 		Name:            agentContainerName,
@@ -889,6 +930,10 @@ var perJobEnv = map[string]bool{
 	"PATCHY_PREVIOUS_ATTEMPT":     true,
 	"PATCHY_OPEN_PULL_REQUESTS":   true,
 	agentrun.BinDirEnv:            true,
+	// Set only on a Job that carries a network profile (goProfileEnv), and
+	// read by cmd/agent-runner, not agentrun.FromEnv, so it is no
+	// configuration key a repository-image Job blanks.
+	netprofile.EnvProfile: true,
 }
 
 func init() {
