@@ -720,6 +720,15 @@ func (c *Client) buildJob(name string, spec Spec) (*batchv1.Job, error) {
 		// It is on the Job and its pod only, never in jobLabels, so the
 		// per-Job Secret is unchanged.
 		lbls[netprofile.LabelKey(spec.NetworkProfile.Name)] = netprofile.LabelValue
+		if len(spec.NetworkProfile.Hosts) > 0 && !runner.Brokered {
+			// A tunnel sets HTTPS_PROXY, and a runner that is not brokered
+			// calls its model API directly: through the proxy, which
+			// hard-denies model hosts. Refuse the pairing rather than
+			// launch a run that cannot reach its model.
+			return nil, fmt.Errorf("%w: profile %s has tunnel hosts, and runner %q is not brokered: its model "+
+				"calls would go to the egress proxy, which refuses them; only a brokered runner may carry a "+
+				"tunnel", ErrNetworkProfileRefused, spec.NetworkProfile.Name, spec.Harness)
+		}
 		// The tunnel's NO_PROXY names every endpoint the pod dials: the
 		// artifact server, the broker routes and the proxy itself (a
 		// profile Job has no trees).

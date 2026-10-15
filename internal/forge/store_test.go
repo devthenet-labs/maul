@@ -272,24 +272,34 @@ func serve(t *testing.T, mux *http.ServeMux) string {
 	return srv.URL
 }
 
-// TestStoreHosts: Store.Hosts lists the hosts of the namespace's Forges
-// only, lowercase, sorted and once each, and surfaces a list failure.
-func TestStoreHosts(t *testing.T) {
+// TestStoreWebHosts: Store.WebHosts lists the web hosts of the namespace's
+// Forges only, lowercase, sorted and once each, with the web host above an
+// api. host, and surfaces a list failure.
+func TestStoreWebHosts(t *testing.T) {
 	pub := mkForge("gh", "", nil, nil)
 	pub.Namespace = "ns"
 	ghes := mkForge("ghes", "https://GHE.Corp.Example/api/v3", nil, nil)
 	ghes.Namespace = "ns"
 	again := mkForge("ghes-acme", "ghe.corp.example", []string{"acme"}, nil)
 	again.Namespace = "ns"
+	residency := mkForge("octo", "https://api.octo.ghe.com", []string{"octo"}, nil)
+	residency.Namespace = "ns"
 	elsewhere := mkForge("other", "https://git.other.example", nil, nil)
 	elsewhere.Namespace = "other"
-	c := fake.NewClientBuilder().WithScheme(kube.Scheme()).WithObjects(&pub, &ghes, &again, &elsewhere).Build()
-	got, err := NewStore(c).Hosts(context.Background(), "ns")
+	c := fake.NewClientBuilder().WithScheme(kube.Scheme()).
+		WithObjects(&pub, &ghes, &again, &residency, &elsewhere).Build()
+	got, err := NewStore(c).WebHosts(context.Background(), "ns")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"ghe.corp.example", "github.com"}; strings.Join(got, ",") != strings.Join(want, ",") {
-		t.Errorf("Hosts = %v, want %v", got, want)
+	want := []string{"api.octo.ghe.com", "ghe.corp.example", "github.com", "octo.ghe.com"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("WebHosts = %v, want %v", got, want)
+	}
+	empty, err := NewStore(fake.NewClientBuilder().WithScheme(kube.Scheme()).Build()).
+		WebHosts(context.Background(), "ns")
+	if err != nil || len(empty) != 0 {
+		t.Errorf("WebHosts with no Forges = %v, %v; want none", empty, err)
 	}
 
 	boom := errors.New("apiserver down")
@@ -298,7 +308,7 @@ func TestStoreHosts(t *testing.T) {
 			return boom
 		},
 	}).Build()
-	if _, err := NewStore(failing).Hosts(context.Background(), "ns"); !errors.Is(err, boom) {
-		t.Errorf("Hosts with a failing list = %v, want the list error", err)
+	if _, err := NewStore(failing).WebHosts(context.Background(), "ns"); !errors.Is(err, boom) {
+		t.Errorf("WebHosts with a failing list = %v, want the list error", err)
 	}
 }

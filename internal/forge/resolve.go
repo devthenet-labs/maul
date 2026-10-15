@@ -76,6 +76,26 @@ func Host(f *v1alpha1.Forge) string {
 	return strings.ToLower(base)
 }
 
+// WebHosts are the hosts a Forge serves people and clients on: Host, and,
+// when that host is an API host (it starts with "api."), the web host it
+// sits under too: GitHub Enterprise Cloud with data residency is configured
+// as https://api.<subdomain>.ghe.com, and its web, git and download hosts
+// are <subdomain>.ghe.com and the names below it. A GHES base URL
+// (https://ghe/api/v3) is already its web host. A host judged "equal to or
+// below" these covers the api., codeload. and uploads. subdomains alike.
+// For github.com the egress proxy's hard-deny table already covers every
+// host; the list says so all the same.
+func WebHosts(f *v1alpha1.Forge) []string {
+	h := Host(f)
+	if h == "" {
+		return nil
+	}
+	if web, ok := strings.CutPrefix(h, "api."); ok && strings.Contains(web, ".") {
+		return []string{h, web}
+	}
+	return []string{h}
+}
+
 // specificity ranks a matching Forge: a spec constrained by orgs beats one
 // without, then one constrained by repositories beats one without. Equal
 // specificity among matches is ErrAmbiguous.

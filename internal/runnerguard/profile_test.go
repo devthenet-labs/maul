@@ -5,9 +5,11 @@ package runnerguard
 
 import (
 	"context"
+	"errors"
 	"math/rand"
 	"net/url"
 	"reflect"
+	"strings"
 	"testing"
 
 	"k8s.io/client-go/kubernetes/fake"
@@ -36,6 +38,24 @@ const (
 func testProfiles(t testing.TB) netprofile.Set {
 	t.Helper()
 	set, err := netprofile.Parse([]byte(profilesJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return set
+}
+
+// tunnelProfilesJSON is profilesJSON with a tunnel beside go's Go route:
+// the npm registry, with the npm client preset (step 3).
+const tunnelProfilesJSON = `[
+ {"name":"go","route":"go","port":8090,"repositories":["devthenet-labs/patchy-target",
+  "devthenet-labs/patchy-preview-demo"],"modules":["github.com/google/uuid"],"bakedModCache":"/opt/go/pkg/mod",
+  "hosts":["registry.npmjs.org"],"clients":["npm"]},
+ {"name":"wide","route":"go","port":8091,"repositories":["devthenet-labs/patchy-preview-.*"],
+  "modules":["golang.org/x"],"bakedModCache":""}]`
+
+func tunnelProfiles(t testing.TB) netprofile.Set {
+	t.Helper()
+	set, err := netprofile.Parse([]byte(tunnelProfilesJSON))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +149,14 @@ var stageSpec = map[string]jobs.Spec{
 // check-fix, an accepted image is pinned, exactly one profile matches,
 // profiles are on and the breaker is closed. Fed to jobs.Create, the
 // result is either a Job carrying exactly that profile or a Job carrying
-// none, never a refusal. Seeded so the gate is deterministic.
+// none, never a refusal.
+//
+// Step 3 adds two dimensions: the profile set (go alone, or go with a
+// tunnel to registry.npmjs.org) and the Forges' web hosts (none, an
+// unrelated GHE host, the tunnel host itself, or a name above it). The
+// launch then runs CheckForges as the controllers do before Create, and a
+// profile whose tunnel hosts include a Forge's host is refused there, so no
+// Job carries it (oracle: no profile). Seeded so the gate is deterministic.
 func TestPropertyProfileOnlyWhereAllowed(t *testing.T) {
 	rng := rand.New(rand.NewSource(20261014))
 	stages := []string{"investigate", "remediate", "plan", "build", "revise", "check-fix"}
@@ -150,12 +177,14 @@ func TestPropertyProfileOnlyWhereAllowed(t *testing.T) {
 		Runners: map[string]jobs.Runner{"claude": {Image: "runner:1", Brokered: true,
 			Inject: []string{"agent-runner", "claude"}}},
 	}, nil)
+	var counts [3]int
 	for i := range 3000 {
 		stage := stages[rng.Intn(len(stages))]
 		image := rng.Intn(3) // 0 none, 1 accepted, 2 revived finding
 		u := urls[rng.Intn(len(urls))]
-		g := Guard{Enabled: true, ProfilesEnabled: rng.Intn(2) == 0, Profiles: testProfiles(t),
-			ProxyBase: proxyBase(t)}
+		profiles, tunnel, forgeHosts, forgeHit := drawTunnelForges(t, rng)
+		g := Guard{Enabled: true, ProfilesEnabled: rng.Intn(2) == 0, Profiles: profiles,
+			ProxyBase: proxyBase(t), Forges: &fakeForges{hosts: forgeHosts}}
 		breaker := rng.Intn(4) == 0
 		if breaker {
 			g.Breaker = trippedBreaker()
@@ -170,6 +199,8 @@ func TestPropertyProfileOnlyWhereAllowed(t *testing.T) {
 		}
 		spec := stageSpec[stage]
 		spec.Harness, spec.Finding, spec.Attempt = "claude", "f-1", 1
+		// A tunnel's NO_PROXY names the artifact server the pod dials.
+		spec.ArtifactURL = "http://source-controller.patchy.svc.cluster.local:9790/a.tar.gz"
 		if spec.Kind == "intent" {
 			g.PinFor(&spec, repo)
 		} else {
@@ -185,15 +216,72 @@ func TestPropertyProfileOnlyWhereAllowed(t *testing.T) {
 				i, stage, image, u.url, g.ProfilesEnabled, breaker, spec.NetworkProfile, applied, want)
 		}
 
-		_, ref, err := client.Create(context.Background(), spec)
-		if err != nil {
-			t.Fatalf("iteration %d: Create: %v", i, err)
-		}
-		if wantRef := map[bool]string{true: "go"}[want]; ref.NetworkProfile != wantRef {
-			t.Fatalf("iteration %d: Create recorded profile %q, want %q", i, ref.NetworkProfile, wantRef)
-		}
-		if err := client.Delete(context.Background(), jobs.NameFor(spec.Finding, spec.Kind, 1)); err != nil {
-			t.Fatalf("iteration %d: Delete: %v", i, err)
-		}
+		counts[launchAsControllers(t, i, g, client, spec, want, want && tunnel, forgeHit)]++
 	}
+	if counts[launchTunnel] == 0 || counts[launchForgeRefused] == 0 {
+		t.Errorf("draws built %d tunnel Jobs and refused %d for a Forge host; want some of each",
+			counts[launchTunnel], counts[launchForgeRefused])
+	}
+}
+
+// What launchAsControllers did with one draw.
+const (
+	launchPlain = iota
+	launchTunnel
+	launchForgeRefused
+)
+
+// launchAsControllers finishes one TestPropertyProfileOnlyWhereAllowed
+// draw as the controllers launch: CheckForges, then jobs.Create. A profile
+// whose tunnel hosts include a Forge's host (tunnel and forgeHit) must be
+// refused there naming the host; any other launch must be created, with
+// exactly the profile Profile requested (want), and is then deleted.
+func launchAsControllers(t *testing.T, i int, g Guard, client *jobs.Client, spec jobs.Spec, want, tunnel,
+	forgeHit bool) int {
+	t.Helper()
+	if tunnel && !reflect.DeepEqual(spec.NetworkProfile.Hosts, []string{"registry.npmjs.org"}) {
+		t.Fatalf("iteration %d: profile %+v, want the tunnel host copied", i, spec.NetworkProfile)
+	}
+	err := g.CheckForges(context.Background(), "patchy", &spec)
+	if tunnel && forgeHit {
+		if !errors.Is(err, jobs.ErrNetworkProfileRefused) || !strings.Contains(err.Error(), "registry.npmjs.org") {
+			t.Fatalf("iteration %d: CheckForges = %v, want a refusal naming the tunnel host", i, err)
+		}
+		return launchForgeRefused
+	}
+	if err != nil {
+		t.Fatalf("iteration %d: CheckForges = %v", i, err)
+	}
+	_, ref, err := client.Create(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("iteration %d: Create: %v", i, err)
+	}
+	if wantRef := map[bool]string{true: "go"}[want]; ref.NetworkProfile != wantRef {
+		t.Fatalf("iteration %d: Create recorded profile %q, want %q", i, ref.NetworkProfile, wantRef)
+	}
+	if err := client.Delete(context.Background(), jobs.NameFor(spec.Finding, spec.Kind, 1)); err != nil {
+		t.Fatalf("iteration %d: Delete: %v", i, err)
+	}
+	if tunnel {
+		return launchTunnel
+	}
+	return launchPlain
+}
+
+// drawTunnelForges draws TestPropertyProfileOnlyWhereAllowed's step-3
+// dimensions: the profile set (go alone, or go with a tunnel to
+// registry.npmjs.org) and the Forges' web hosts (none, an unrelated GHE
+// host, the tunnel host itself, or a name above it), with whether a Forge
+// host meets the tunnel host.
+func drawTunnelForges(t *testing.T, rng *rand.Rand) (set netprofile.Set, tunnel bool, forges []string,
+	hit bool) {
+	t.Helper()
+	tunnel = rng.Intn(2) == 0
+	set = testProfiles(t)
+	if tunnel {
+		set = tunnelProfiles(t)
+	}
+	forges = [][]string{nil, {"ghe.corp.example"}, {"github.com", "registry.npmjs.org"}, {"npmjs.org"}}[rng.Intn(4)]
+	hit = len(forges) > 0 && forges[len(forges)-1] != "ghe.corp.example"
+	return set, tunnel, forges, hit
 }

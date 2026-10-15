@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -36,16 +37,18 @@ type Guard struct {
 	ProfilesEnabled bool
 	Profiles        netprofile.Set
 	ProxyBase       *url.URL
-	// Forges lists the hosts of the Forge CRs the controller can see, which
-	// CheckForges holds a profile's registry grants to. Nil refuses every
-	// profile with grants: a check that cannot run must not pass.
+	// Forges lists the web hosts of the Forge CRs the controller can see,
+	// which CheckForges holds a profile's registry grants and tunnel hosts
+	// to. Nil refuses every profile with grants or tunnel hosts: a check
+	// that cannot run must not pass.
 	Forges ForgeHosts
 }
 
-// ForgeHosts lists the hosts of the Forge CRs in a namespace
-// (forge.Store.Hosts).
+// ForgeHosts lists the web hosts of the Forge CRs in a namespace
+// (forge.Store.WebHosts: each Forge's host and, for an api. host, the web
+// host above it).
 type ForgeHosts interface {
-	Hosts(ctx context.Context, namespace string) ([]string, error)
+	WebHosts(ctx context.Context, namespace string) ([]string, error)
 }
 
 // Reasons Pin reports for not using an image the Repository pinned.
@@ -172,48 +175,59 @@ func (g Guard) Profile(spec *jobs.Spec, repoURL string) (applied, skipped string
 	default:
 		return "", ""
 	}
+	// The tunnel's hosts and client presets travel with the profile (step
+	// 3); its upload caps are the egress proxy's alone and never reach a
+	// Job. CheckForges then holds the hosts to the Forges.
 	spec.NetworkProfile = &jobs.NetworkProfile{
 		Name:          p.Name,
 		Route:         p.Route,
 		Registries:    p.Registries,
 		ProxyURL:      g.ProxyBase.Scheme + "://" + net.JoinHostPort(g.ProxyBase.Hostname(), strconv.Itoa(p.Port)),
 		BakedModCache: p.BakedModCache,
+		Hosts:         slices.Clone([]string(p.Hosts)),
+		Clients:       slices.Clone(p.Clients),
 	}
 	return p.Name, ""
 }
 
 // CheckForges refuses, with an error wrapping jobs.ErrNetworkProfileRefused
-// that names the host, a requested profile any of whose registry grants
-// names a forge: a grant host (the registry's URL host, a file host, or a
-// redirect pattern) that is, lies below or matches the host of a Forge CR
-// in namespace. The chart and the proxy cannot see Forge CRs (a GitHub
-// Enterprise host configured only in patchy-config), so the job
-// controllers, which list them anyway, run this check at launch. A spec
-// with no profile, or a profile without grants (step 1), is never checked
-// and costs no list. A list failure is returned as is, for a retry; with
-// no Forges lister configured, a profile with grants is refused.
+// that names the host, a requested profile any of whose registry grants or
+// tunnel hosts names a forge: a grant host (the registry's URL host, a file
+// host, or a redirect pattern) or a tunnel host that is, lies below or
+// matches a web host of a Forge CR in namespace (forge.WebHosts). The
+// chart and the proxy cannot see Forge CRs (a GitHub Enterprise host
+// configured only in patchy-config), so the job controllers, which list
+// them anyway, run this check at launch. The whole profile is refused,
+// never just the host, so the run settles with the host named rather than
+// running with less than the operator listed. A spec with no profile, or a
+// profile with neither grants nor tunnel hosts (step 1), is never checked
+// and costs no list. A list failure is returned as is, for a retry, so
+// nothing launches until the check has run; with no Forges lister
+// configured, such a profile is refused.
 func (g Guard) CheckForges(ctx context.Context, namespace string, spec *jobs.Spec) error {
 	p := spec.NetworkProfile
-	if p == nil || len(p.Registries) == 0 {
+	if p == nil || len(p.Registries) == 0 && len(p.Hosts) == 0 {
 		return nil
 	}
 	if g.Forges == nil {
-		return fmt.Errorf("%w: profile %s holds registry grants and no Forge list is configured to check "+
-			"them against", jobs.ErrNetworkProfileRefused, p.Name)
+		return fmt.Errorf("%w: profile %s holds registry grants or tunnel hosts and no Forge list is "+
+			"configured to check them against", jobs.ErrNetworkProfileRefused, p.Name)
 	}
-	hosts, err := g.Forges.Hosts(ctx, namespace)
+	hosts, err := g.Forges.WebHosts(ctx, namespace)
 	if err != nil {
-		return fmt.Errorf("list the Forges a registry grant may not name: %w", err)
+		return fmt.Errorf("list the Forges a registry grant or tunnel host may not name: %w", err)
 	}
 	return ForgeRefusal(p, hosts)
 }
 
-// ForgeRefusal is CheckForges' decision over a listed set of Forge hosts:
-// nil when no grant host is, lies below or matches one of them, an error
-// wrapping jobs.ErrNetworkProfileRefused naming the host otherwise. A grant
-// that lists no hosts at all is refused whatever the Forges: its registry
-// URL host belongs first in that list, and a grant without it could name a
-// Forge's host this check never sees.
+// ForgeRefusal is CheckForges' decision over a listed set of Forge web
+// hosts: nil when no grant host or tunnel host is, lies below or matches
+// one of them, an error wrapping jobs.ErrNetworkProfileRefused naming the
+// host otherwise. A grant that lists no hosts at all is refused whatever
+// the Forges: its registry URL host belongs first in that list, and a
+// grant without it could name a Forge's host this check never sees. A
+// tunnel host is judged by netprofile.DeniedTunnelHost with the Forges as
+// its forge hosts, the rule the profile's own forge host is held to.
 func ForgeRefusal(p *jobs.NetworkProfile, forgeHosts []string) error {
 	if p == nil {
 		return nil
@@ -240,6 +254,18 @@ func ForgeRefusal(p *jobs.NetworkProfile, forgeHosts []string) error {
 		}
 		if err := gr.DeniedHosts(netprofile.DenyContext{Hosts: forgeHosts}); err != nil {
 			return fmt.Errorf("%w: profile %s: %w (a Forge's host)", jobs.ErrNetworkProfileRefused, p.Name, err)
+		}
+	}
+	for _, h := range p.Hosts {
+		for _, f := range forgeHosts {
+			if strings.EqualFold(h, f) {
+				return fmt.Errorf("%w: profile %s tunnel host %s is the host of a Forge",
+					jobs.ErrNetworkProfileRefused, p.Name, h)
+			}
+		}
+		if err := netprofile.DeniedTunnelHost(h, netprofile.DenyContext{Hosts: forgeHosts}); err != nil {
+			return fmt.Errorf("%w: profile %s tunnel host %s: %w (a Forge's host)", jobs.ErrNetworkProfileRefused,
+				p.Name, h, err)
 		}
 	}
 	return nil

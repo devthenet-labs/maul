@@ -904,7 +904,7 @@ func (r *RunReconciler) planBuildProfiles(run *v1alpha1.IntentRun) string {
 	for _, u := range urls {
 		if name := buildProfile(r.Images, u); name != "" {
 			b := templates.BuildProfile{URL: u, Profile: name}
-			if routes := profileRoutes(r.Images, name); len(routes.Grants) > 0 {
+			if routes := profileRoutes(r.Images, name); routes.BeyondGo() {
 				b.Routes = &routes
 			}
 			profiles = append(profiles, b)

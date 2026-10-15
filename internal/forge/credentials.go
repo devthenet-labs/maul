@@ -169,25 +169,25 @@ func (s *Store) Resolve(ctx context.Context, namespace, repoURL string) (*Resolv
 	return Resolve(forges.Items, repoURL)
 }
 
-// Hosts are the hosts of every Forge in namespace (Host), lowercase, sorted
-// and unique: the job controllers refuse a network profile whose registry
-// grants name one (runnerguard.Guard.CheckForges), since the chart cannot
-// see Forge CRs.
-func (s *Store) Hosts(ctx context.Context, namespace string) ([]string, error) {
+// WebHosts are the web hosts of every Forge in namespace (WebHosts: each
+// Forge's host and, for an api. host, the web host above it), lowercase,
+// sorted and unique, from the same List Resolve does. The job controllers
+// refuse a network profile whose registry grants or tunnel hosts are, or
+// lie below, one of them (runnerguard.Guard.CheckForges), since the chart
+// and the egress proxy cannot see Forge CRs. Its cost is whatever the
+// Store's reader costs: one List per profile launch with an uncached
+// reader.
+func (s *Store) WebHosts(ctx context.Context, namespace string) ([]string, error) {
 	var forges v1alpha1.ForgeList
 	if err := s.c.List(ctx, &forges, client.InNamespace(namespace)); err != nil {
 		return nil, fmt.Errorf("list forges: %w", err)
 	}
-	seen := map[string]bool{}
 	var out []string
 	for i := range forges.Items {
-		if h := Host(&forges.Items[i]); h != "" && !seen[h] {
-			seen[h] = true
-			out = append(out, h)
-		}
+		out = append(out, WebHosts(&forges.Items[i])...)
 	}
 	slices.Sort(out)
-	return out, nil
+	return slices.Compact(out), nil
 }
 
 // Token mints a short-lived token for the resolved repository at the given

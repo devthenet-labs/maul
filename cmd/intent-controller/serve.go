@@ -367,7 +367,8 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		ProfilesEnabled: sizes.profilesOn,
 		Profiles:        sizes.profiles,
 		ProxyBase:       sizes.proxyBase,
-		// A registry grant may name no Forge's host (CheckForges).
+		// A registry grant or tunnel host may name no Forge's web host
+		// (CheckForges; WebHosts lists them through this Store's reader).
 		Forges: forges,
 	}
 	nudger := intent.NewNudger()

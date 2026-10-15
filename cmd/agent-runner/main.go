@@ -26,6 +26,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"slices"
 	"syscall"
 
 	"github.com/bitwise-media-group/patchy/internal/agentrun"
@@ -75,12 +76,15 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 }
 
 // config is the stage configuration: agentrun.FromEnv, plus the network
-// profile the Job carries (netprofile.EnvProfile) and, for a profile with
-// registry grants, its ecosystems and grants (netprofile.EnvEcosystems,
-// netprofile.EnvGrants), read here through the same getenv rather than in
-// FromEnv, so they are no agentrun configuration keys, which a
-// repository-image Job would blank. Only the controller sets them; a value
-// that does not hold together is a configuration error, never a prompt.
+// profile the Job carries (netprofile.EnvProfile), for a profile with
+// registry grants its ecosystems and grants (netprofile.EnvEcosystems,
+// netprofile.EnvGrants), and for a profile with tunnel hosts its routes and
+// hosts (netprofile.EnvRoutes, netprofile.EnvHosts), so a tunnel-only
+// profile is never described as a Go route. They are read here through the
+// same getenv rather than in FromEnv, so they are no agentrun configuration
+// keys, which a repository-image Job would blank. Only the controller sets
+// them; a value that does not hold together is a configuration error, never
+// a prompt.
 func config(getenv func(string) string) (agentrun.Config, error) {
 	cfg, err := agentrun.FromEnv(getenv)
 	if err != nil {
@@ -101,6 +105,24 @@ func config(getenv func(string) string) (agentrun.Config, error) {
 	if len(grants) > 0 && cfg.NetworkProfile == "" {
 		return agentrun.Config{}, fmt.Errorf("%s is set without %s", netprofile.EnvGrants, netprofile.EnvProfile)
 	}
-	cfg.NetworkRoutes = templates.PodRoutes(ecosystems, grants)
+	tunnel, err := netprofile.ParsePodTunnel(getenv(netprofile.EnvRoutes), getenv(netprofile.EnvHosts))
+	if err != nil {
+		return agentrun.Config{}, err
+	}
+	if len(tunnel.Hosts) > 0 {
+		if cfg.NetworkProfile == "" {
+			return agentrun.Config{}, fmt.Errorf("%s is set without %s", netprofile.EnvHosts, netprofile.EnvProfile)
+		}
+		// With grants the ecosystems already say whether Go is served: by
+		// the public route the routes list, or by a go grant.
+		goGrant := slices.ContainsFunc(grants, func(g netprofile.PodGrant) bool {
+			return g.Ecosystem == netprofile.EcosystemGo
+		})
+		if len(ecosystems) > 0 && slices.Contains(ecosystems, netprofile.EcosystemGo) != (tunnel.GoRoute || goGrant) {
+			return agentrun.Config{}, fmt.Errorf("%s and %s disagree on the go route", netprofile.EnvRoutes,
+				netprofile.EnvEcosystems)
+		}
+	}
+	cfg.NetworkRoutes = templates.PodRoutes(ecosystems, grants).WithTunnel(tunnel, ecosystems)
 	return cfg, nil
 }

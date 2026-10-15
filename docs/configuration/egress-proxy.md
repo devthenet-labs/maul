@@ -659,4 +659,5 @@ add-on); it is cluster-level and changes nothing in this chart.
   namespace: `kubectl -n patchy describe pod -l app.kubernetes.io/name=egress-proxy` names it.
 - **A Job has no profile.** Check the remediation's or intent run's `runnerImage.networkProfile` and the controller's
   log line for the launch: no accepted image, no matching repository, two matching profiles, or the kill switch. A run
-  that settles as `launch_refused` names a grant host that is, or is below, a Forge's host.
+  that settles as `launch_refused` names a grant host that is, or is below, a Forge's web host (its `baseURL` host, and
+  for an `api.` host the host above it, as on GitHub Enterprise Cloud with data residency).
