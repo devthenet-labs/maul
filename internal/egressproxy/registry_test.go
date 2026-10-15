@@ -471,3 +471,23 @@ func TestRegistryMetrics(t *testing.T) {
 		t.Errorf("expiry gauge = %d, want 600", got)
 	}
 }
+
+// TestOpenRegistry401: a registry without a login and no credential
+// source answering 401 is a 502 upstream_auth, never a crash.
+func TestOpenRegistry401(t *testing.T) {
+	w := newWorld(t)
+	w.host(npmHost, func(rw http.ResponseWriter, _ *http.Request) { rw.WriteHeader(http.StatusUnauthorized) })
+	r := npmRegistry()
+	r.Auth = netprofile.Auth{Type: netprofile.AuthNone}
+	r.HealthPackage = ""
+	h := newHarness(t, Config{
+		Profiles:    mustProfiles(t, webProfile(r)),
+		Registries:  mustRegistries(t, r),
+		rootCAs:     w.pki.pool,
+		dialRewrite: w.rewrite,
+	}, failingUpstream(t), failingUpstream(t))
+	if res := h.do(t, "web", http.MethodGet, "/r/art-npm/left-pad", nil); res.status != http.StatusBadGateway ||
+		h.lastLine(t)["outcome"] != OutcomeUpstreamAuth || h.lastLine(t)["credential"] != "none" {
+		t.Errorf("open registry 401 = %d %v", res.status, h.lastLine(t))
+	}
+}

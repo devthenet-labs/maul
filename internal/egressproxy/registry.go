@@ -246,6 +246,14 @@ func (s *Server) credential(rt *registryRoute) (Credential, error) {
 	return c, nil
 }
 
+// invalidate asks the registry's source to re-read or re-mint; a registry
+// without a login has nothing to refresh.
+func (s *Server) invalidate(rt *registryRoute) {
+	if rt.reg.Auth.Type != netprofile.AuthNone && s.cfg.Credentials != nil {
+		s.cfg.Credentials.Invalidate(rt.reg.Name)
+	}
+}
+
 // joinBase is base's path followed by the escaped remainder, with RawPath
 // set so the remainder leaves exactly as admitted (a scoped packument's
 // %2f, a wheel's %2B). It refuses a remainder net/url would not send
@@ -375,7 +383,7 @@ func (s *Server) forwardRegistry(ctx context.Context, w *httpguard.CountingWrite
 			fmt.Sprintf("egress-proxy: %s: not found in registry %s", clip(req.what), name))
 	case http.StatusUnauthorized:
 		if req.origin0 {
-			s.cfg.Credentials.Invalidate(name)
+			s.invalidate(rt)
 		}
 		refuseFor(w, e, col, http.StatusBadGateway, OutcomeUpstreamAuth, "",
 			"egress-proxy: registry "+name+" refused the operator's credential; ask the operator")
@@ -591,7 +599,7 @@ func (s *Server) probeModule(ctx context.Context, rt *registryRoute, target *url
 	}
 	_ = resp.Body.Close()
 	if resp.StatusCode == http.StatusUnauthorized {
-		s.cfg.Credentials.Invalidate(rt.reg.Name)
+		s.invalidate(rt)
 	}
 	return resp.StatusCode == http.StatusOK
 }
@@ -652,9 +660,7 @@ func (s *Server) selfCheck(rt *registryRoute) {
 	}
 	_ = resp.Body.Close()
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		if s.cfg.Credentials != nil {
-			s.cfg.Credentials.Invalidate(rt.reg.Name)
-		}
+		s.invalidate(rt)
 		s.log.LogAttrs(ctx, slog.LevelWarn, "credential_rejected",
 			slog.String("registry", rt.reg.Name),
 			slog.String("credential", string(cred.Kind())),
