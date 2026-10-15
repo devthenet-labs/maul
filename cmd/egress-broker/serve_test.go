@@ -313,3 +313,28 @@ func TestServeListenError(t *testing.T) {
 		t.Fatal("serve with an unbindable listen address succeeded")
 	}
 }
+
+// TestUpstreamFlagSurface pins the base-URL flags' defaults and help text,
+// byte for byte: the defaults moved into internal/broker's exported
+// constants (so the egress proxy's deny table can be pinned to them), and
+// what an operator reads in --help and sets in values must not move with
+// them.
+func TestUpstreamFlagSurface(t *testing.T) {
+	cmd := newServeCmd(cli.NewOptions())
+	for _, c := range []struct{ flag, def, usage string }{
+		{"anthropic-base-url", "https://api.anthropic.com", "Anthropic API base URL"},
+		{"bedrock-base-url", "",
+			"Bedrock runtime base URL (default: https://bedrock-runtime.<bedrock-region>.amazonaws.com)"},
+		{"vertex-base-url", "", "Vertex AI base URL (default: https://<vertex-region>-aiplatform.googleapis.com)"},
+		{"foundry-base-url", "", "Foundry base URL (default: https://<foundry-resource>.services.ai.azure.com)"},
+	} {
+		f := cmd.Flags().Lookup(c.flag)
+		if f == nil {
+			t.Errorf("--%s is not defined", c.flag)
+			continue
+		}
+		if f.DefValue != c.def || f.Usage != c.usage {
+			t.Errorf("--%s = default %q, usage %q; want %q, %q", c.flag, f.DefValue, f.Usage, c.def, c.usage)
+		}
+	}
+}

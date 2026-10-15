@@ -73,7 +73,7 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 		"mounted Secret file holding the Anthropic credential; set to enable the anthropic route")
 	f.String("anthropic-auth", "key",
 		"anthropic credential mode: key (x-api-key) or token (Authorization bearer — a claude setup-token OAuth token)")
-	f.String("anthropic-base-url", "https://api.anthropic.com", "Anthropic API base URL")
+	f.String("anthropic-base-url", broker.DefaultAnthropicBaseURL, "Anthropic API base URL")
 	f.String("bedrock-region", "", "AWS region for Bedrock SigV4 signing; set to enable the bedrock route")
 	f.String("bedrock-base-url", "",
 		"Bedrock runtime base URL (default: https://bedrock-runtime.<bedrock-region>.amazonaws.com)")
@@ -147,7 +147,7 @@ func bedrockUpstream(ctx context.Context, opts *cli.Options) (*broker.Upstream, 
 	}
 	raw := opts.String("bedrock-base-url")
 	if raw == "" {
-		raw = fmt.Sprintf("https://bedrock-runtime.%s.amazonaws.com", region)
+		raw = fmt.Sprintf(broker.BedrockBaseURLFormat, region)
 	}
 	target, err := broker.ParseTarget(raw)
 	if err != nil {
@@ -171,7 +171,7 @@ func vertexUpstream(ctx context.Context, opts *cli.Options) (*broker.Upstream, e
 	}
 	raw := opts.String("vertex-base-url")
 	if raw == "" {
-		raw = fmt.Sprintf("https://%s-aiplatform.googleapis.com", region)
+		raw = fmt.Sprintf(broker.VertexBaseURLFormat, region)
 	}
 	target, err := broker.ParseTarget(raw)
 	if err != nil {
@@ -190,7 +190,7 @@ func foundryUpstream(_ context.Context, opts *cli.Options) (*broker.Upstream, er
 		return nil, nil
 	}
 	if raw == "" {
-		raw = fmt.Sprintf("https://%s.services.ai.azure.com", resource)
+		raw = fmt.Sprintf(broker.FoundryBaseURLFormat, resource)
 	}
 	target, err := broker.ParseTarget(raw)
 	if err != nil {

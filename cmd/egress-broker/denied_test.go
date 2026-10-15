@@ -17,8 +17,10 @@ import (
 )
 
 // brokerURLSources are the files that spell the broker's upstream hosts:
-// its default base URLs (serve.go) and the Foundry Entra scope.
-var brokerURLSources = []string{"serve.go", "../../internal/broker/foundry.go"}
+// its default base URLs (internal/broker/hosts.go, which serve.go uses),
+// the Foundry Entra scope, and serve.go itself, so a literal added there
+// beside the constants is still caught.
+var brokerURLSources = []string{"serve.go", "../../internal/broker/hosts.go", "../../internal/broker/foundry.go"}
 
 // TestModelHostsDenied pins the egress proxy's deny table to the broker:
 // every https URL literal the broker builds a route from, each template
