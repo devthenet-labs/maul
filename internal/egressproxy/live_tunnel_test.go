@@ -192,10 +192,10 @@ func (r *liveTunnelRun) measure() measurement {
 	for deadline := time.Now().Add(10 * time.Second); ; {
 		opened, closed := 0, 0
 		for _, l := range lines {
-			switch l["msg"] {
-			case "tunnel opened":
+			switch {
+			case l["msg"] == "tunnel opened":
 				opened++
-			case "tunnel":
+			case closesOpenedTunnel(l):
 				closed++
 			}
 		}
@@ -243,6 +243,26 @@ func (r *liveTunnelRun) measure() measurement {
 	return m
 }
 
+// closesOpenedTunnel reports whether l is the close line of a tunnel that
+// logged "tunnel opened". The open line follows the upstream dial and
+// precedes the 200 and the ClientHello, so a tunnel refused after it (a
+// failed 200 write, bad_hello, sni_missing, sni_mismatch, ech) closes with
+// msg "refused", not "tunnel"; what tells it from a refusal before the open
+// line is the upstream address only a dialled tunnel carries.
+func closesOpenedTunnel(l map[string]any) bool {
+	if l["route"] != "tunnel" {
+		return false
+	}
+	switch l["msg"] {
+	case "tunnel":
+		return true
+	case "refused":
+		ip, _ := l["upstream_ip"].(string)
+		return ip != ""
+	}
+	return false
+}
+
 // peaks is the most tunnels open at once and the most opened within any
 // one second, from the opened lines and the close lines of opened tunnels
 // (those carry an upstream address).
@@ -262,7 +282,7 @@ func peaks(lines []map[string]any) (open, perSecond int) {
 		case l["msg"] == "tunnel opened":
 			events = append(events, event{at, 1})
 			opens = append(opens, at)
-		case (l["msg"] == "tunnel" || l["msg"] == "refused") && l["upstream_ip"] != "" && l["upstream_ip"] != nil:
+		case closesOpenedTunnel(l):
 			events = append(events, event{at, -1})
 		}
 	}
@@ -862,4 +882,69 @@ func counted(ss []string) string {
 
 func mdCell(s string) string {
 	return strings.NewReplacer("|", `\|`, "\n", " ").Replace(s)
+}
+
+// TestMeasureCountsRefusalsAfterTheOpenLine: a tunnel refused after its
+// "tunnel opened" line (here a client that closes before its hello, which
+// is bad_hello) closes with msg "refused". measure must count that as the
+// close of the opened tunnel, or it waits out its deadline and fails a
+// client run the proxy handled correctly. Not a live test: it runs the
+// engine over the loopback tunnel harness, so it runs in CI.
+func TestMeasureCountsRefusalsAfterTheOpenLine(t *testing.T) {
+	h := newTunnelHarness(t, Config{})
+	c, br := h.connect(t, "web", "CONNECT pkg.registry.dev:443 HTTP/1.1")
+	if r := readRaw(t, br); r.statusLine != "HTTP/1.1 200 Connection established" {
+		t.Fatalf("CONNECT = %q", r.statusLine)
+	}
+	_ = c.Close()
+	// One refusal before any open line too, which closes nothing.
+	c2, br2 := h.connect(t, "web", "CONNECT not-listed.example.com:443 HTTP/1.1")
+	if r := readRaw(t, br2); r.statusLine == "HTTP/1.1 200 Connection established" {
+		t.Fatalf("CONNECT to an unlisted host = %q", r.statusLine)
+	}
+	_ = c2.Close()
+	h.closeLine(t, 2)
+	if n := len(h.linesWith(t, "tunnel opened")); n != 1 {
+		t.Fatalf("%d open lines, want 1:\n%s", n, h.log.String())
+	}
+
+	start := time.Now()
+	m := (&liveTunnelRun{t: t, log: h.log}).measure()
+	if waited := time.Since(start); waited > 2*time.Second {
+		t.Errorf("measure waited %s for a tunnel already closed", waited)
+	}
+	if m.tunnels != 0 || m.refused != 2 {
+		t.Errorf("tunnels %d refused %d, want 0 and 2", m.tunnels, m.refused)
+	}
+	if !slices.Contains(m.refusedOutcomes, OutcomeBadHello+" pkg.registry.dev") {
+		t.Errorf("refusals %v, want bad_hello pkg.registry.dev", m.refusedOutcomes)
+	}
+	if m.peakOpen != 1 {
+		t.Errorf("peak open %d, want 1", m.peakOpen)
+	}
+}
+
+// TestClosesOpenedTunnel pins which audit lines close an opened tunnel.
+func TestClosesOpenedTunnel(t *testing.T) {
+	tests := []struct {
+		name string
+		line map[string]any
+		want bool
+	}{
+		{"forwarded", map[string]any{"route": "tunnel", "msg": "tunnel", "upstream_ip": "192.0.2.1"}, true},
+		{"refused after the dial", map[string]any{"route": "tunnel", "msg": "refused", "upstream_ip": "192.0.2.1"},
+			true},
+		{"refused before the dial", map[string]any{"route": "tunnel", "msg": "refused", "upstream_ip": ""}, false},
+		{"refused, no address", map[string]any{"route": "tunnel", "msg": "refused"}, false},
+		{"opened", map[string]any{"route": "tunnel", "msg": "tunnel opened", "upstream_ip": "192.0.2.1"}, false},
+		{"progress", map[string]any{"route": "tunnel", "msg": "tunnel progress"}, false},
+		{"other route", map[string]any{"route": "goproxy", "msg": "refused", "upstream_ip": "192.0.2.1"}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := closesOpenedTunnel(tt.line); got != tt.want {
+				t.Errorf("closesOpenedTunnel(%v) = %v, want %v", tt.line, got, tt.want)
+			}
+		})
+	}
 }
