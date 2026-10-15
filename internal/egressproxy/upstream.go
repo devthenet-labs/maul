@@ -125,3 +125,15 @@ func (s *Server) stream(w io.Writer, body io.Reader, limit int64, e *auditEntry)
 		panic(http.ErrAbortHandler)
 	}
 }
+
+// dialReason names why a registry request failed, for the audit line: the
+// same reasons step 1's forward gives.
+func dialReason(err error) string {
+	switch {
+	case errors.Is(err, ErrDeniedAddress):
+		return ReasonDeniedAddress
+	case errors.Is(err, context.DeadlineExceeded):
+		return "timeout"
+	}
+	return "unreachable"
+}

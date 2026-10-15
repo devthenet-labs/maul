@@ -21,6 +21,7 @@ import (
 
 	"github.com/bitwise-media-group/patchy/internal/cli"
 	"github.com/bitwise-media-group/patchy/internal/egressproxy"
+	"github.com/bitwise-media-group/patchy/internal/egressproxy/credfile"
 	"github.com/bitwise-media-group/patchy/internal/egressproxy/podindex"
 	"github.com/bitwise-media-group/patchy/internal/kube"
 	"github.com/bitwise-media-group/patchy/internal/netprofile"
@@ -45,6 +46,19 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 		Short: "Run the egress proxy",
 		RunE:  func(cmd *cobra.Command, _ []string) error { return serve(cmd.Context(), opts) },
 	}
+	addEngineFlags(cmd)
+	f := cmd.Flags()
+	f.Bool("attribute-pods", false,
+		"attribute source IPs to agent pods in the audit line (best-effort; needs get/list/watch on pods "+
+			"in --agent-namespace)")
+	f.String("agent-namespace", "patchy-agents", "namespace of the agent pods attributed (--attribute-pods only)")
+	f.String("kubeconfig", "", "kubeconfig path (default: in-cluster config; --attribute-pods only)")
+	return cmd
+}
+
+// addEngineFlags registers the flags serve and probe share: everything the
+// engine is built from.
+func addEngineFlags(cmd *cobra.Command) {
 	f := cmd.Flags()
 	f.String("network-profiles", "",
 		"the operator's network profiles as the chart renders them (a JSON array); required")
@@ -69,18 +83,28 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	f.Int64("max-zip-bytes", egressproxy.DefaultMaxZipBytes, "largest module zip passed through")
 	f.Bool("suspended", false,
 		"answer every profile request 410 suspended: the operator's immediate kill switch")
-	f.Bool("attribute-pods", false,
-		"attribute source IPs to agent pods in the audit line (best-effort; needs get/list/watch on pods "+
-			"in --agent-namespace)")
-	f.String("agent-namespace", "patchy-agents", "namespace of the agent pods attributed (--attribute-pods only)")
-	f.String("kubeconfig", "", "kubeconfig path (default: in-cluster config; --attribute-pods only)")
-	return cmd
+	f.String("registries", "",
+		"the operator's credentialed upstream registries as the chart renders them (a JSON array; "+
+			"environment PATCHY_EGRESS_REGISTRIES); empty: no registry route")
+	f.String("registry-credentials-dir", defaultCredentialsDir,
+		"directory of the mounted registry credentials (<registry>/token, or <registry>/username and password)")
+	f.String("registry-ca-dir", defaultCADir, "directory of the registries' CA bundles (<registry>.pem)")
+	f.Int64("max-artifact-bytes", egressproxy.DefaultMaxArtifactBytes,
+		"largest npm tarball, pip file or go zip passed through a registry route, unless the registry sets its own")
+	f.Duration("credential-poll-interval", credfile.DefaultInterval,
+		"how often the mounted registry credentials are re-read (at least 5s)")
+	f.String("always-deny-cidrs", "",
+		"comma-separated CIDRs never dialled even when an internal registry lists them (cluster DNS, the API "+
+			"server endpoints), beside the built-in always-denied ranges and KUBERNETES_SERVICE_HOST")
 }
 
 // settings is the validated configuration of one serve run.
 type settings struct {
 	engine     egressproxy.Config
 	healthAddr string
+	// credentialsDir and pollInterval are the file-backed credentials'.
+	credentialsDir string
+	pollInterval   time.Duration
 	// attribution: whether to index agent pods, where, and how to reach
 	// the API server.
 	attributePods  bool
@@ -126,7 +150,13 @@ func configure(opts *cli.Options) (settings, error) {
 	if opts.Bool("attribute-pods") && agentNamespace == "" {
 		return settings{}, errors.New("--attribute-pods needs --agent-namespace")
 	}
+	reg, err := configureRegistries(opts, set)
+	if err != nil {
+		return settings{}, err
+	}
 	return settings{
+		credentialsDir: opts.String("registry-credentials-dir"),
+		pollInterval:   reg.pollInterval,
 		healthAddr:     healthAddr,
 		attributePods:  opts.Bool("attribute-pods"),
 		agentNamespace: agentNamespace,
@@ -146,7 +176,13 @@ func configure(opts *cli.Options) (settings, error) {
 				HeaderTimeout:       opts.Duration("upstream-header-timeout"),
 				MaxZipBytes:         int64(opts.Int("max-zip-bytes")),
 			},
-			Suspended: opts.Bool("suspended"),
+			Suspended:         opts.Bool("suspended"),
+			Registries:        reg.set,
+			MaxArtifactBytes:  reg.maxArtifactBytes,
+			AlwaysDeny:        reg.alwaysDeny,
+			DenyHosts:         set.Hosts(),
+			RegistryCAs:       reg.cas,
+			SelfCheckInterval: reg.pollInterval,
 		},
 	}, nil
 }
@@ -189,10 +225,20 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		idx.Start(ctx, log)
 		s.engine.Pods = idx
 	}
+	src, err := buildSources(ctx, s, log)
+	if err != nil {
+		return err
+	}
+	if src != nil {
+		s.engine.Credentials = src
+		defer src.close()
+		go src.run(ctx)
+	}
 	srv, err := egressproxy.New(s.engine, log)
 	if err != nil {
 		return err
 	}
+	logRegistries(ctx, log, s.engine.Registries)
 	return run(ctx, srv, s.healthAddr, net.Listen, log)
 }
 

@@ -6,14 +6,18 @@ package egressproxy
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"net/http"
 	"net/netip"
 	"strconv"
 	"syscall"
 	"time"
+
+	"github.com/bitwise-media-group/patchy/internal/netprofile"
 )
 
 // ErrDeniedAddress is the dial refusal: the address an upstream name
@@ -120,6 +124,63 @@ func NewGuardedClient(policy DialPolicy, timeout time.Duration) *http.Client {
 	}
 }
 
+// ForRegistry is the dial policy of one registry's transport. A public
+// registry gets exactly p, plus the always-denied ranges. An internal
+// registry (internal.cidrs) admits an address inside one of its CIDRs on
+// the URL's port, ahead of the built-in deny list, but never one in the
+// always-denied set (netprofile.AlwaysDeniedCIDRs and always: the
+// Kubernetes Service IP, --always-deny-cidrs), which is judged first; every
+// other address falls to p. Redirect hops never use this policy. A port
+// outside 1-65535 (validation refuses one; ForRegistry does not trust it
+// did) admits no internal address at all rather than a truncated port.
+func (p AddrPolicy) ForRegistry(r netprofile.Registry, always []netip.Prefix) DialPolicy {
+	internal := r.InternalPrefixes()
+	var port uint16
+	if n := r.Port(); n >= 1 && n <= math.MaxUint16 {
+		port = uint16(n)
+	} else {
+		internal = nil
+	}
+	return registryPolicy{public: p, internal: internal, port: port,
+		always: append(append([]netip.Prefix(nil), netprofile.AlwaysDeniedCIDRs...), always...)}
+}
+
+// registryPolicy is ForRegistry's policy.
+type registryPolicy struct {
+	public   AddrPolicy
+	internal []netip.Prefix
+	port     uint16
+	always   []netip.Prefix
+}
+
+// Check judges ap: the test loopback (public registries only), then the
+// always-denied set, then the registry's internal admission, then the
+// public policy.
+func (p registryPolicy) Check(ap netip.AddrPort) error {
+	a := ap.Addr().Unmap()
+	if !a.Is4() {
+		return fmt.Errorf("%w: %s is not IPv4", ErrDeniedAddress, a)
+	}
+	if len(p.internal) == 0 && p.public.testLoopback && a.IsLoopback() {
+		return nil
+	}
+	for _, d := range p.always {
+		if d.Contains(a) {
+			return fmt.Errorf("%w: %s is in the always-denied %s", ErrDeniedAddress, a, d)
+		}
+	}
+	for _, in := range p.internal {
+		if in.Contains(a) {
+			if ap.Port() != p.port {
+				return fmt.Errorf("%w: port %d is not the internal registry's %d", ErrDeniedAddress, ap.Port(),
+					p.port)
+			}
+			return nil
+		}
+	}
+	return p.public.Check(ap)
+}
+
 // lookupFunc resolves a host to IPv4 addresses.
 type lookupFunc func(ctx context.Context, host string) ([]netip.Addr, error)
 
@@ -136,6 +197,9 @@ type guardedDialer struct {
 	policy DialPolicy
 	lookup lookupFunc
 	dialer net.Dialer
+	// rewrite maps a host:port before the dial, in tests only (registry
+	// hosts to httptest listeners); nil in production.
+	rewrite func(addr string) string
 }
 
 func newGuardedDialer(policy DialPolicy, lookup lookupFunc) *guardedDialer {
@@ -159,6 +223,9 @@ func (d *guardedDialer) control(_, address string, _ syscall.RawConn) error {
 // DialContext resolves addr's host and dials each IPv4 address in turn,
 // stopping at the first denied one.
 func (d *guardedDialer) DialContext(ctx context.Context, _, addr string) (net.Conn, error) {
+	if d.rewrite != nil {
+		addr = d.rewrite(addr)
+	}
 	host, portStr, err := net.SplitHostPort(addr)
 	if err != nil {
 		return nil, err
@@ -199,11 +266,17 @@ func (d *guardedDialer) DialContext(ctx context.Context, _, addr string) (net.Co
 // newTransport is the outbound transport: the guarded dialer, no proxy
 // from the environment, system roots, TLS 1.2 at least.
 func newTransport(d *guardedDialer, headerTimeout time.Duration) *http.Transport {
+	return newTransportRoots(d, headerTimeout, nil)
+}
+
+// newTransportRoots is newTransport trusting only roots (nil: the system
+// roots): a registry with its own CA trusts nothing else.
+func newTransportRoots(d *guardedDialer, headerTimeout time.Duration, roots *x509.CertPool) *http.Transport {
 	return &http.Transport{
 		DialContext:           d.DialContext,
 		Proxy:                 nil,
 		ForceAttemptHTTP2:     true,
-		TLSClientConfig:       &tls.Config{MinVersion: tls.VersionTLS12},
+		TLSClientConfig:       &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots},
 		TLSHandshakeTimeout:   10 * time.Second,
 		ResponseHeaderTimeout: headerTimeout,
 		MaxIdleConns:          64,

@@ -25,8 +25,26 @@
 // 2's credentialed registry routes take theirs from a CredentialSource
 // (credential.go): a Credential's value sits in unexported fields and every
 // formatter prints it as [redacted]. The sources are adapters: credfile
-// (a mounted Secret, polled) and awsca (a minted CodeArtifact token). Each request emits one
-// audit line (never a header or body) and the patchy.egress_proxy metrics.
+// (a mounted Secret, polled) and awsca (a minted CodeArtifact token).
+//
+// A profile holding registry grants also serves /r/<registry>/... (§2.2 of
+// the step-2 spec; registry.go): the grant check, the ecosystem's grammar
+// judged on the escaped path (npm.go, gorepo.go, pypi.go; the grammars
+// themselves are netprofile's), the grant's package policy, the limits, the
+// credential, then a forward to the registry's fixed base with RawPath kept
+// and exactly the credential added, on the registry's own transport (its
+// dial policy, AddrPolicy.ForRegistry, and its CA). Redirects are followed
+// only to the registry's redirectHosts, without the credential, re-judged
+// against the deny table on every hop (redirect.go). Every non-200 answer
+// carries a body the proxy wrote, and every non-archive body is scanned
+// for the credential sent (echo.go). A pip simple page is the one answer
+// rewritten: pyindex regenerates it with every file link pointing back
+// into the route, and the file route re-judges each such path statelessly
+// with the same rules. A go grant's private modules are refused on the
+// profile's /go route too, so they never fall through to Google.
+//
+// Each request emits one audit line (never a header or body) and the
+// patchy.egress_proxy metrics.
 // Attribution of a source IP to an agent pod (PodLookup) is audit garnish
 // only and never decides anything. The core imports no Kubernetes package;
 // the pod index adapter lives in podindex.

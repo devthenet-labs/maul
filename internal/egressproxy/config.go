@@ -4,8 +4,10 @@
 package egressproxy
 
 import (
+	"crypto/x509"
 	"errors"
 	"fmt"
+	"net/netip"
 	"net/url"
 	"time"
 
@@ -40,8 +42,37 @@ type Config struct {
 	// Now is the clock; nil is time.Now.
 	Now func() time.Time
 
+	// Registries are the operator's credentialed upstream registries
+	// (step 2); a profile's grants name them. Empty: no /r/ route exists.
+	Registries netprofile.RegistrySet
+	// Credentials hands a registry route its credential. Required when a
+	// registry's auth is not none.
+	Credentials CredentialSource
+	// MaxArtifactBytes caps an archive (npm tarball, pip file, go zip) on
+	// a registry route whose registry sets no maxArtifactBytes; 0 is
+	// DefaultMaxArtifactBytes.
+	MaxArtifactBytes int64
+	// AlwaysDeny are ranges never dialled, even when an internal
+	// registry lists them: --always-deny-cidrs and the Kubernetes Service
+	// IP. The built-in always-denied set (netprofile.AlwaysDeniedCIDRs)
+	// applies regardless.
+	AlwaysDeny []netip.Prefix
+	// DenyHosts are further hosts no redirect hop may reach (the egress
+	// broker's base-URL overrides), beside netprofile's deny table.
+	DenyHosts []string
+	// RegistryCAs are the CA bundles of the registries that set ca: such a
+	// registry's transport trusts only its bundle.
+	RegistryCAs map[string]*x509.CertPool
+	// SelfCheckInterval is the least time between two credential
+	// self-checks of one registry; 0 is DefaultSelfCheckInterval.
+	SelfCheckInterval time.Duration
+
 	// lookup replaces the dialer's resolver in tests.
 	lookup lookupFunc
+	// rootCAs replaces the system roots of the registry transports in
+	// tests; dialRewrite redirects their dials to httptest listeners.
+	rootCAs     *x509.CertPool
+	dialRewrite func(addr string) string
 }
 
 // ParseUpstream parses an upstream base: an absolute http or https URL with
@@ -93,5 +124,41 @@ func (cfg Config) withDefaults() (Config, error) {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
+	if cfg.MaxArtifactBytes <= 0 {
+		cfg.MaxArtifactBytes = DefaultMaxArtifactBytes
+	}
+	if cfg.SelfCheckInterval <= 0 {
+		cfg.SelfCheckInterval = DefaultSelfCheckInterval
+	}
+	if err := cfg.checkRegistries(); err != nil {
+		return cfg, fmt.Errorf("egress proxy: %w", err)
+	}
 	return cfg, nil
+}
+
+// checkRegistries holds the registries to the profiles and to the rest of
+// the configuration: every grant names a registry of its ecosystem, a
+// registry with a login has a credential source, a registry with a CA has
+// its bundle, and no internal CIDR overlaps an always-denied range.
+func (cfg Config) checkRegistries() error {
+	if err := netprofile.CheckGrants(cfg.Profiles, cfg.Registries); err != nil {
+		return err
+	}
+	for _, r := range cfg.Registries.Registries() {
+		if r.Auth.Type != netprofile.AuthNone && cfg.Credentials == nil {
+			return fmt.Errorf("registry %s: auth %s needs a credential source", r.Name, r.Auth.Type)
+		}
+		if r.CA && cfg.RegistryCAs[r.Name] == nil {
+			return fmt.Errorf("registry %s: ca is set and no CA bundle was loaded", r.Name)
+		}
+		for _, p := range r.InternalPrefixes() {
+			for _, d := range cfg.AlwaysDeny {
+				if d.Overlaps(p) {
+					return fmt.Errorf("registry %s: internal.cidrs entry %s overlaps the always-denied %s",
+						r.Name, p, d)
+				}
+			}
+		}
+	}
+	return nil
 }

@@ -7,6 +7,8 @@ import (
 	"context"
 	"log/slog"
 	"time"
+
+	"github.com/bitwise-media-group/patchy/internal/netprofile"
 )
 
 // The outcomes a request ends in: the audit line's outcome and the
@@ -21,6 +23,19 @@ const (
 	OutcomeUpstreamError = "upstream_error"
 	OutcomeTooLarge      = "too_large"
 	OutcomeSuspended     = "suspended"
+
+	// The registry routes' outcomes (step 2). Only private_module can end
+	// a /go line, and only on a profile holding a go grant.
+	OutcomeNotGranted            = "not_granted"
+	OutcomeUpstreamAuth          = "upstream_auth"
+	OutcomeRegistryRefused       = "registry_refused"
+	OutcomeCredentialUnavailable = "credential_unavailable"
+	OutcomeCredentialEcho        = "credential_echo"
+	OutcomeRedirectRefused       = "redirect_refused"
+	OutcomeDeniedHost            = "denied_host"
+	OutcomePrivateModule         = "private_module"
+	OutcomeChecksumNotPublic     = "checksum_not_public"
+	OutcomePrerelease            = "prerelease"
 )
 
 // The refusal reasons beside an outcome.
@@ -30,6 +45,7 @@ const (
 	ReasonDeniedAddress = "denied_address"
 	ReasonNotFound      = "not_found"
 	ReasonLocal         = "answered_locally"
+	ReasonPrivateModule = "private_module"
 )
 
 // maxEcho bounds a caller-controlled string before it reaches an audit
@@ -61,6 +77,21 @@ type auditEntry struct {
 	elapsed        time.Duration
 	outcome        string
 	reason         string
+	// reg is set on /r/ routes only: its attributes follow reason, so a
+	// /go line keeps step 1's attribute list exactly.
+	reg *registryAudit
+}
+
+// registryAudit is what a /r/ route's audit line adds.
+type registryAudit struct {
+	ecosystem  string
+	registry   string
+	pkg        string
+	credential CredentialKind
+	// links are counted on pip pages only.
+	rewritten, dropped int
+	redirects          int
+	redirectHost       string
 }
 
 // audit emits the one line every request gets. Never a header and never a
@@ -70,7 +101,7 @@ func audit(ctx context.Context, log *slog.Logger, e auditEntry) {
 	if e.outcome != OutcomeProxied {
 		msg = "refused"
 	}
-	log.LogAttrs(ctx, slog.LevelInfo, msg,
+	attrs := []slog.Attr{
 		slog.String("profile", e.profile),
 		slog.Int("port", e.port),
 		slog.String("source_ip", clip(e.sourceIP)),
@@ -90,5 +121,22 @@ func audit(ctx context.Context, log *slog.Logger, e auditEntry) {
 		slog.Int64("bytes", e.bytes),
 		slog.Duration("duration", e.elapsed),
 		slog.String("outcome", e.outcome),
-		slog.String("reason", e.reason))
+		slog.String("reason", e.reason),
+	}
+	if r := e.reg; r != nil {
+		cred := r.credential
+		if cred == "" {
+			cred = CredentialNone
+		}
+		attrs = append(attrs, slog.String("ecosystem", r.ecosystem), slog.String("registry", r.registry))
+		if r.ecosystem != netprofile.EcosystemGo {
+			attrs = append(attrs, slog.String("package", clip(r.pkg)))
+		}
+		attrs = append(attrs, slog.String("credential", string(cred)))
+		if r.ecosystem == netprofile.EcosystemPyPI {
+			attrs = append(attrs, slog.Int("rewritten_links", r.rewritten), slog.Int("dropped_links", r.dropped))
+		}
+		attrs = append(attrs, slog.Int("redirects", r.redirects), slog.String("redirect_host", clip(r.redirectHost)))
+	}
+	log.LogAttrs(ctx, slog.LevelInfo, msg, attrs...)
 }
