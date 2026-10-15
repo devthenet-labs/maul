@@ -141,9 +141,11 @@ A build, revise or check-fix Job that runs the repository's accepted image, of a
 operator network profile, gets one more destination: the [egress proxy](egress-proxy.md) on that profile's port, with
 its go command pointed there and its prompt saying which Go modules it may fetch. A plan never gets one, and nor does a
 build on the default image (`requireRepositoryImage: false` with no pin). In a multi-repository intent each repository's
-build is judged on its own repository. The IntentRun records the profile that ran (`status.runnerImage.networkProfile`)
-and the pull request says so. The Helm chart stamps the three flags above from `egressProxy` and
-`agent.networkProfiles`; `egressProxy.suspendProfiles` turns them off from the next Job.
+build is judged on its own repository. The plan comment's dependency advice names the profile each repository's build
+will get, by the same decision, so the approver knows which new Go modules the build can fetch and what must still be in
+the image. The IntentRun records the profile that ran (`status.runnerImage.networkProfile`) and the pull request says
+so. The Helm chart stamps the three flags above from `egressProxy` and `agent.networkProfiles`;
+`egressProxy.suspendProfiles` turns them off from the next Job.
 
 ## Projects
 

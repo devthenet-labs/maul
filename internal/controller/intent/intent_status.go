@@ -93,7 +93,7 @@ func (p *pass) statusComment() templates.IntentStatusComment {
 	if ap := st.Approval; ap != nil {
 		c.ApprovedBy, c.ApprovedRevision = ap.By, ap.PlanRevision
 		if pl := st.Plan; pl != nil {
-			c.Repositories = p.planRepositories(pl.Repositories)
+			c.Repositories = repositorySlugs(p.planRepositories(pl.Repositories))
 		}
 	}
 	for _, pr := range st.PullRequests {

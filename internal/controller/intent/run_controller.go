@@ -819,9 +819,40 @@ func (r *RunReconciler) stageSpec(run *v1alpha1.IntentRun, spec *jobs.Spec, cm *
 // image and jobs.Create would refuse a profile on it. What the Job carries
 // is recorded from Create's read-back, never from this request.
 func (r *RunReconciler) networkProfile(run *v1alpha1.IntentRun, spec *jobs.Spec) {
-	if _, skipped := r.Images.Profile(spec, run.Spec.Repository.URL); skipped != "" {
+	if _, skipped := requestProfile(r.Images, spec, run.Spec.Repository.URL); skipped != "" {
 		r.log().Info("not applying a network profile", "run", run.Name, "reason", skipped)
 	}
+}
+
+// requestProfile is this package's one Guard.Profile call, shared by a
+// build-phase launch (networkProfile) and the plan comment's account of it
+// (buildProfile), so the two cannot decide differently.
+func requestProfile(g runnerguard.Guard, spec *jobs.Spec, repoURL string) (applied, skipped string) {
+	return g.Profile(spec, repoURL)
+}
+
+// buildProfile is the operator network profile a build of repoURL asks for
+// when it runs the repository's accepted image, "" for none: the plan
+// comment's dependency advice reads it before any build exists. It makes the
+// very calls a build launch makes, in its order (PinFor, then
+// requestProfile, on a build Job's phase and kind), on a stand-in Repository
+// whose accepted image is the premise the advice states: the build's own
+// Repository is pinned only when it launches. So it reads every input the
+// build's decision reads now (the repository-images and profiles kill
+// switches, the proxy, the breaker, the matching profiles); a build on the
+// default image, which never gets one, is the case the advice does not
+// cover. The spec it fills is a scratch value, never launched, and it is
+// never asked about a plan Job: a plan never gets a profile.
+func buildProfile(g runnerguard.Guard, repoURL string) string {
+	spec := jobs.Spec{Phase: jobPhase[v1alpha1.IntentStageBuild], Kind: KindIntent}
+	accepted := &v1alpha1.Repository{Status: v1alpha1.RepositoryStatus{
+		RunnerImage: &v1alpha1.RunnerImage{Image: "accepted"},
+	}}
+	if g.PinFor(&spec, accepted) != "" {
+		return ""
+	}
+	name, _ := requestProfile(g, &spec, repoURL)
+	return name
 }
 
 // planOpenPullRequests is what a plan run's Job is handed of the other

@@ -74,9 +74,11 @@ needs from it:
 - **Steps** — for each repository, the files to add or change and what changes in each, in order.
 - **Test plan** — the tests to add or change, and the command that runs them in this repository.
 - **Risks** — what could break, and what a reviewer should check.
-- **New dependencies** — the build runs in this repository's own image with **no network access**, so it can use
-  only the dependencies already in that image. Name every new dependency the plan needs, with its version: a human
-  must add each one to the image on the default branch before approving. Prefer a plan that needs none.
+- **New dependencies** — the build runs in this repository's own image, and can use only the dependencies already in
+  that image and any the operator lets its build fetch. Name every new dependency the plan needs, with its version (a
+  tagged release where there is one): the approval comment tells the approver which of them the build can fetch, and a
+  human must add each other one to the image on the default branch before approving. Do not ask whether the build
+  can fetch them. Prefer a plan that needs none.
 
 Take the test plan from the repository's own guidance, since you cannot run anything to find out: its guides for
 contributors and agents (CLAUDE.md, AGENTS.md, CONTRIBUTING.md, the README's development notes) and its CI workflows
