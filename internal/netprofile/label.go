@@ -16,6 +16,16 @@ const LabelValue = "true"
 // profile, so the agent runner can tell the agent the route exists.
 const EnvProfile = "PATCHY_NETWORK_PROFILE"
 
+// EnvRoutes is the agent container variable that lists the public routes
+// of the applied profile when it has a tunnel ("tunnel" or "go,tunnel"),
+// so the agent runner can tell the agent which exist (step 3). It is unset
+// on a profile without hosts, whose route is the step-1 go route.
+const EnvRoutes = "PATCHY_NETWORK_ROUTES"
+
+// EnvHosts is the agent container variable carrying the applied profile's
+// tunnel hosts, sorted and comma-joined, for the agent's prompt (step 3).
+const EnvHosts = "PATCHY_NETWORK_HOSTS"
+
 // EnvProfiles is the variable (and flag) carrying the profile set's JSON in
 // the egress proxy and the job controllers.
 const EnvProfiles = "PATCHY_NETWORK_PROFILES"

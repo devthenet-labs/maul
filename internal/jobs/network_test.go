@@ -450,15 +450,24 @@ func TestGoProfileNamesNotReserved(t *testing.T) {
 // repository's image, profiles are on and a profile was asked for; a
 // profile asked for on any other pair is an error, never a Job. A profile
 // adds no credential, no SecretKeyRef and no reserved name but
-// PATCHY_NETWORK_PROFILE, and the proxy variables stay blanked. Seeded so
-// the gate is deterministic.
+// PATCHY_NETWORK_PROFILE (and, with tunnel hosts, PATCHY_NETWORK_ROUTES and
+// PATCHY_NETWORK_HOSTS), and the proxy variables stay blanked on every Job
+// except a tunnel-profile Job, where exactly HTTPS_PROXY, https_proxy,
+// NO_PROXY and no_proxy carry the controller's values and the plain-http
+// and ALL_PROXY names stay blank (step 3, §4.3). The profile is drawn from
+// a go, a tunnel-only and a go-plus-tunnel profile. Seeded so the gate is
+// deterministic.
 func TestPropertyNetworkProfileOnlyWhereAllowed(t *testing.T) {
 	rng := rand.New(rand.NewSource(20261014))
 	r := clusterResolver()
 	r.answers[proxyHost] = []string{"10.100.50.9"}
+	tunnels := 0
 	for i := range 2000 {
 		pc := drawProfileCase(rng, r)
 		spec := pc.spec
+		if pc.want && len(spec.NetworkProfile.Hosts) > 0 {
+			tunnels++
+		}
 		job, err := New(fake.NewClientset(), pc.cfg, nil).build(context.Background(),
 			NameFor(spec.Finding, spec.Kind, int32(spec.Attempt)), spec)
 		if spec.NetworkProfile != nil && !pc.pair {
@@ -473,6 +482,9 @@ func TestPropertyNetworkProfileOnlyWhereAllowed(t *testing.T) {
 		if msg := pc.check(t, job); msg != "" {
 			t.Fatalf("iteration %d: %s/%s %+v: %s", i, spec.Phase, spec.Kind, pc, msg)
 		}
+	}
+	if tunnels == 0 {
+		t.Error("no draw built a tunnel-profile Job")
 	}
 }
 
@@ -508,28 +520,38 @@ func drawProfileCase(rng *rand.Rand, r Resolver) profileCase {
 	}
 	set := coin()
 	if set {
-		spec.NetworkProfile = goProfile()
+		spec.NetworkProfile = []func() *NetworkProfile{goProfile, tunnelProfile, goTunnelProfile}[rng.Intn(3)]()
 	}
 	pair := spec.Phase == "remediate" && spec.Kind == "remediation" || spec.Phase == "build" && spec.Kind == "intent"
 	injected := cfg.AllowRepositoryImages && pinned && inject
 	return profileCase{cfg: cfg, spec: spec, pair: pair, want: pair && injected && cfg.NetworkProfiles && set}
 }
 
+// shape is the drawn profile's name, whether it has the Go route and
+// whether it has a tunnel; the go profile's when none was drawn.
+func (pc profileCase) shape() (name string, goRoute, tunnel bool) {
+	if p := pc.spec.NetworkProfile; p != nil {
+		return p.Name, p.Route == netprofile.RouteGo, len(p.Hosts) > 0
+	}
+	return "go", true, false
+}
+
 // check judges a built Job against the oracle, returning what is wrong.
 func (pc profileCase) check(t *testing.T, job *batchv1.Job) string {
 	t.Helper()
-	key := netprofile.LabelKey("go")
+	name, goRoute, tunnel := pc.shape()
+	key := netprofile.LabelKey(name)
 	_, labelled := job.Labels[key]
 	_, podLabelled := job.Spec.Template.Labels[key]
 	agent := agentOf(t, job.Spec.Template.Spec)
 	env := envMap(agent)
 	_, hasProfileEnv := env[netprofile.EnvProfile]
 	hasGoProxy := env["GOPROXY"].Value != ""
-	if labelled != pc.want || podLabelled != pc.want || hasProfileEnv != pc.want || hasGoProxy != pc.want {
-		return fmt.Sprintf("label=%v pod=%v env=%v goproxy=%v, want %v",
-			labelled, podLabelled, hasProfileEnv, hasGoProxy, pc.want)
+	if labelled != pc.want || podLabelled != pc.want || hasProfileEnv != pc.want || hasGoProxy != (pc.want && goRoute) {
+		return fmt.Sprintf("label=%v pod=%v env=%v goproxy=%v, want %v (go route %v)",
+			labelled, podLabelled, hasProfileEnv, hasGoProxy, pc.want, goRoute)
 	}
-	if got := networkProfileOf(job); got != map[bool]string{true: "go"}[pc.want] {
+	if got := networkProfileOf(job); got != map[bool]string{true: name}[pc.want] {
 		return fmt.Sprintf("read-back %q", got)
 	}
 	if !pc.want {
@@ -538,16 +560,37 @@ func (pc profileCase) check(t *testing.T, job *batchv1.Job) string {
 	plain := pc.spec
 	plain.NetworkProfile = nil
 	base := envMap(agentOf(t, buildJobForTest(t, pc.cfg, plain).Spec.Template.Spec))
+	perProfile := []string{netprofile.EnvProfile}
+	if tunnel {
+		perProfile = append(perProfile, netprofile.EnvRoutes, netprofile.EnvHosts)
+	}
 	for _, e := range agent.Env {
 		if e.ValueFrom != nil && e.ValueFrom.SecretKeyRef != nil {
 			return "a SecretKeyRef on " + e.Name
 		}
-		if _, before := base[e.Name]; !before && reservedEnv[e.Name] && e.Name != netprofile.EnvProfile {
+		if _, before := base[e.Name]; !before && reservedEnv[e.Name] && !slices.Contains(perProfile, e.Name) {
 			return "the profile added reserved name " + e.Name
 		}
 	}
+	return checkProxyEnv(env, pc.spec.NetworkProfile, tunnel)
+}
+
+// checkProxyEnv judges the proxy variables: blank, except on a tunnel Job,
+// where the https names carry the profile's proxy and the no-proxy names
+// the broker and the proxy.
+func checkProxyEnv(env map[string]corev1.EnvVar, p *NetworkProfile, tunnel bool) string {
 	for _, name := range proxyEnv {
-		if e, ok := env[name]; !ok || e.Value != "" {
+		e, ok := env[name]
+		switch {
+		case tunnel && (name == "HTTPS_PROXY" || name == "https_proxy"):
+			if e.Value != p.ProxyURL {
+				return fmt.Sprintf("%s = %+v, want the profile's proxy", name, e)
+			}
+		case tunnel && (name == "NO_PROXY" || name == "no_proxy"):
+			if !strings.Contains(e.Value, brokerHost) || !strings.Contains(e.Value, proxyHost) {
+				return fmt.Sprintf("%s = %+v, want the broker and the proxy in it", name, e)
+			}
+		case !ok || e.Value != "":
 			return fmt.Sprintf("%s = %+v, want blanked", name, e)
 		}
 	}

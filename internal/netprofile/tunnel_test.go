@@ -457,3 +457,16 @@ func TestPropertyTunnelJSONRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestClientEcosystem: the npm and yarn presets configure npm's registry
+// settings and pip and uv pypi's; the rest have no grant ecosystem.
+func TestClientEcosystem(t *testing.T) {
+	want := map[string]string{ClientNPM: EcosystemNPM, ClientYarn: EcosystemNPM, ClientPip: EcosystemPyPI,
+		ClientUV: EcosystemPyPI}
+	for _, c := range Clients {
+		eco, ok := ClientEcosystem(c)
+		if w, has := want[c]; eco != w || ok != has {
+			t.Errorf("ClientEcosystem(%s) = %q, %v; want %q, %v", c, eco, ok, w, has)
+		}
+	}
+}

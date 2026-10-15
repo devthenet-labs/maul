@@ -59,6 +59,14 @@ var clientEcosystem = map[string]string{
 	ClientUV:   EcosystemPyPI,
 }
 
+// ClientEcosystem is the registry ecosystem whose grant configures the same
+// package manager as client c, if there is one: a profile may not hold
+// both (Validate), and the job controllers refuse a Job asked to carry both.
+func ClientEcosystem(c string) (string, bool) {
+	eco, ok := clientEcosystem[c]
+	return eco, ok
+}
+
 // ClientWarnings are the startup warnings for a valid profile: one per
 // listed client whose usual public hosts are not in the profile's hosts.
 // They are warnings, not refusals, because a private mirror the operator

@@ -30,13 +30,14 @@ import (
 // label on the Job and its pod (the identity both NetworkPolicies on the
 // profile's port select), the proxy's host in the pod's hosts file under
 // DNSNone, and the package managers' environment in the agent container
-// (profileEnv).
+// (profileEnv, then TunnelEnv when the profile lists tunnel hosts).
 type NetworkProfile struct {
 	// Name is the profile's name (netprofile's grammar); the label is
 	// netprofile.LabelKey(Name).
 	Name string
-	// Route is the public dependency route: netprofile.RouteGo, or "" for
-	// a profile that holds registry grants only.
+	// Route is the public dependency route: netprofile.RouteGo,
+	// netprofile.RouteTunnel (a tunnel to Hosts only), or "" for a profile
+	// that holds registry grants only.
 	Route string
 	// Registries are the profile's registry grants, as the operator's
 	// profile set holds them (at most one per ecosystem). Each becomes its
@@ -48,8 +49,15 @@ type NetworkProfile struct {
 	// base URL and the profile's port.
 	ProxyURL string
 	// BakedModCache is the repository image's GOMODCACHE, served read-only
-	// after the proxy; empty means the network only.
+	// after the proxy; empty means the network only. Go route only.
 	BakedModCache string
+	// Hosts are the profile's tunnel hosts (step 3), exact public names
+	// the proxy opens a CONNECT tunnel to on 443; none means no tunnel.
+	// With hosts the Job also gets the tunnel environment (TunnelEnv).
+	Hosts []string
+	// Clients are the client presets (netprofile.Clients) applied beside
+	// the tunnel; only with Hosts.
+	Clients []string
 }
 
 // ErrNetworkProfileRefused wraps every refusal of a Spec's NetworkProfile: a
@@ -112,10 +120,11 @@ func profileRefusal(spec Spec) error {
 	switch {
 	case p.Route == "" && len(p.Registries) == 0:
 		refuse("a profile with no route must hold registry grants; it would open nothing")
-	case p.Route != "" && p.Route != netprofile.RouteGo:
-		refuse("route %q is not supported (only %q)", p.Route, netprofile.RouteGo)
+	case p.Route != "" && p.Route != netprofile.RouteGo && p.Route != netprofile.RouteTunnel:
+		refuse("route %q is not supported (only %q or %q)", p.Route, netprofile.RouteGo, netprofile.RouteTunnel)
 	}
 	errs = append(errs, grantRefusals(p)...)
+	errs = append(errs, tunnelRefusals(p)...)
 	if err := validProxyURL(p.ProxyURL); err != nil {
 		refuse("%v", err)
 	}
@@ -352,7 +361,10 @@ func grantFor(p *NetworkProfile, ecosystem string) (netprofile.Grant, bool) {
 	return netprofile.Grant{}, false
 }
 
-// profileEnv is everything a profile Job's agent container is given: a
+// profileEnv is the route and grant half of a profile Job's agent
+// environment (TunnelEnv is the tunnel half, appended after it): a
+// tunnel-only profile without grants, its name alone, so the image's go
+// environment stays untouched and the Go route honestly absent; a
 // step-1 profile (the public go route, no grants) exactly goProfileEnv; a
 // profile with grants, the go environment when it has the public route or
 // a go grant (without its trailing profile name), then npm's and pip's for
@@ -360,6 +372,9 @@ func grantFor(p *NetworkProfile, ecosystem string) (netprofile.Grant, bool) {
 // agent-runner's prompt. No value is empty.
 func profileEnv(p *NetworkProfile) []corev1.EnvVar {
 	if len(p.Registries) == 0 {
+		if p.Route == netprofile.RouteTunnel {
+			return []corev1.EnvVar{{Name: netprofile.EnvProfile, Value: p.Name}}
+		}
 		return goProfileEnv(p)
 	}
 	var env []corev1.EnvVar
@@ -397,13 +412,14 @@ func podGrants(p *NetworkProfile) []netprofile.PodGrant {
 	return out
 }
 
-// applyProfileEnv owns the profile's names on env (profileEnv): every entry
-// of those names (an operator's Config.Env, a runner's Env, an injectEnv
-// blank) is dropped, then the profile's values are appended once each, in
-// order. A name the profile does not set (npm's on a profile without an
-// npm grant) is left as it was.
-func applyProfileEnv(env []corev1.EnvVar, p *NetworkProfile) []corev1.EnvVar {
-	own := profileEnv(p)
+// applyProfileEnv owns the profile's names on env (profileEnv, then the
+// tunnel environment, TunnelEnv's, nil without hosts): every entry of those
+// names (an operator's Config.Env, a runner's Env, an injectEnv blank) is
+// dropped, then the profile's values are appended once each, in order. A
+// name the profile does not set (npm's on a profile without an npm grant,
+// HTTPS_PROXY's blank on a profile without hosts) is left as it was.
+func applyProfileEnv(env []corev1.EnvVar, p *NetworkProfile, tunnel []corev1.EnvVar) []corev1.EnvVar {
+	own := slices.Concat(profileEnv(p), tunnel)
 	return append(slices.DeleteFunc(env, func(e corev1.EnvVar) bool {
 		return slices.ContainsFunc(own, func(o corev1.EnvVar) bool { return o.Name == e.Name })
 	}), own...)
