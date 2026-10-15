@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.32](https://github.com/devthenet-labs/patchy/compare/v0.12.31...v0.12.32) (2026-10-15)
+
+
+### Bug Fixes
+
+* **intent:** say which builds fetch Go modules in the plan's dependency advice ([#189](https://github.com/devthenet-labs/patchy/issues/189)) ([12c08ba](https://github.com/devthenet-labs/patchy/commit/12c08ba1a79f6c6888f475a088b7a49e81396092))
+
 ## [0.12.31](https://github.com/devthenet-labs/patchy/compare/v0.12.30...v0.12.31) (2026-10-15)
 
 
