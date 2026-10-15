@@ -106,3 +106,48 @@ func TestNetworkProfilePromptReplacesOffline(t *testing.T) {
 		})
 	}
 }
+
+// TestNetworkProfilePRBodyGoldens pins the line a Finding's and an
+// intent's pull request carry when the run that built them had a network
+// profile. Without one each body is what it was (pr_body.md,
+// intent_pr_body.md).
+func TestNetworkProfilePRBodyGoldens(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		render func(profile string) (string, error)
+	}{
+		{"pr_body_network_profile.md", func(profile string) (string, error) {
+			return PRBody(123, "remediation report here", false, nil, profile)
+		}},
+		{"intent_pr_body_network_profile.md", func(profile string) (string, error) {
+			return RenderIntentPRBody(IntentPRBody{
+				IntentRepository: "devthenet-labs/intents", IssueNumber: 1,
+				Summary:      "Add GET /version returning {sha, built} as JSON",
+				PlanRevision: 2, PlanDigest: PlanDigest([]byte(testPlan)), ApprovedBy: "peter",
+				NetworkProfile: profile,
+			})
+		}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := tt.render("go")
+			if err != nil {
+				t.Fatal(err)
+			}
+			golden(t, tt.name, got)
+			if !strings.Contains(got, "network profile `go`") {
+				t.Errorf("body does not name the profile:\n%s", got)
+			}
+			without, err := tt.render("")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(without, "network profile") {
+				t.Errorf("a body without a profile mentions one:\n%s", without)
+			}
+			// Exactly one line more: the profile line and its blank line.
+			if strings.Count(got, "\n")-strings.Count(without, "\n") != 2 {
+				t.Errorf("the profile added more than its line:\n--- without\n%s\n--- with\n%s", without, got)
+			}
+		})
+	}
+}

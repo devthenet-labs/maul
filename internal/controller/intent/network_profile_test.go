@@ -5,6 +5,7 @@ package intent
 
 import (
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -55,9 +56,15 @@ func TestBuildAndReviseRoundsGetTheNetworkProfile(t *testing.T) {
 	name := e.awaiting()
 	e.gh.label(1, "patchy:approved", approver)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
+	number := in.Status.PullRequests[0].Number
+	e.gh.mu.Lock()
+	body := e.gh.prs[number].body
+	e.gh.mu.Unlock()
+	if !strings.Contains(body, "network profile `go`") {
+		t.Errorf("the pull request body does not say the build had the profile:\n%s", body)
+	}
 
 	// A review asks for changes: a review-triggered revise round.
-	number := in.Status.PullRequests[0].Number
 	e.gh.reviews[number] = []ghclient.Review{{ID: 901, NodeID: "review-901", Author: actorOf(approver),
 		State: "CHANGES_REQUESTED", Body: "Please add a test.", SubmittedAt: e.clock.Now()}}
 	e.clock.Advance(3 * time.Minute)

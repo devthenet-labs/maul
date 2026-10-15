@@ -5,6 +5,7 @@ package remediation
 
 import (
 	"net/url"
+	"strings"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -88,6 +89,27 @@ func TestRemediationLaunchAppliesNetworkProfile(t *testing.T) {
 			}
 			if got.Status.RunnerImage == nil || got.Status.RunnerImage.NetworkProfile != tt.wantProfile {
 				t.Errorf("recorded runner image %+v, want network profile %q", got.Status.RunnerImage, tt.wantProfile)
+			}
+		})
+	}
+}
+
+// TestRemediationPRBodySaysNetworkProfile: the pull request of a run whose
+// Job carried a network profile, as the Remediation recorded it at launch,
+// says so; one without says nothing about it.
+func TestRemediationPRBodySaysNetworkProfile(t *testing.T) {
+	for _, profile := range []string{"go", ""} {
+		t.Run("profile="+profile, func(t *testing.T) {
+			objs := withImage(acceptedImage(), v1alpha1.RunnerImageSourceRepository)
+			objs[1].(*v1alpha1.Remediation).Status.RunnerImage.NetworkProfile = profile
+			fw := &fakeForge{}
+			r, _ := newRemediation(t, &fakeCRRunner{done: true, events: crdRemediationEvent(true)}, fw, objs...)
+			remReconcile(t, r)
+			if len(fw.bodies) != 1 {
+				t.Fatalf("PR bodies = %d, want 1", len(fw.bodies))
+			}
+			if got := strings.Contains(fw.bodies[0], "network profile `go`"); got != (profile != "") {
+				t.Errorf("profile line present = %v, want %v:\n%s", got, profile != "", fw.bodies[0])
 			}
 		})
 	}

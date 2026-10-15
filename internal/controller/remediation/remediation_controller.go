@@ -511,8 +511,10 @@ func (r *RemediationReconciler) succeed(
 	// claim is the agent's own, so the body attributes it to the agent.
 	// The report is agent text: PRBody sanitises it, and a body it cannot
 	// render falls back to patchy's own words, never to the raw report.
+	// A run whose Job carried a network profile could fetch dependencies;
+	// the body says so, from what the launch recorded off the Job.
 	body, err := templates.PRBody(issueNumber, reportBody, untested,
-		agentresult.Reproduction(result.Reproduction))
+		agentresult.Reproduction(result.Reproduction), networkProfileOf(rem.Status.RunnerImage))
 	if err != nil {
 		body = templates.PRBodyFallback(issueNumber)
 	}
@@ -828,4 +830,13 @@ func (r *RemediationReconciler) changesetRules(
 // the default image.
 func ranRepositoryImage(ri *v1alpha1.RunnerImageRef) bool {
 	return ri != nil && ri.Source == v1alpha1.RunnerImageSourceRepository
+}
+
+// networkProfileOf is the network profile a run's Job carried, as recorded
+// at launch; "" when it carried none or nothing was recorded.
+func networkProfileOf(ref *v1alpha1.RunnerImageRef) string {
+	if ref == nil {
+		return ""
+	}
+	return ref.NetworkProfile
 }

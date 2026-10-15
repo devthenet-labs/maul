@@ -647,6 +647,11 @@ type IntentPRBody struct {
 	// body. The body is never edited after it is opened, so it links no
 	// sibling: patchy cross-links them in a comment (IntentSiblingsComment).
 	Repositories []string
+	// NetworkProfile is the operator network profile the build's Job
+	// carried, as its run recorded it from the Job: when set, one line says
+	// the agent could fetch Go modules through it (PRBody's line); empty
+	// leaves the body exactly as it was.
+	NetworkProfile string
 }
 
 // RenderIntentPRBody renders an intent pull request's body.
@@ -661,6 +666,7 @@ func RenderIntentPRBody(b IntentPRBody) (string, error) {
 		ApprovedBy       string
 		Count            int
 		Repositories     string
+		NetworkProfile   string
 	}{
 		IntentRepository: oneLine(b.IntentRepository),
 		IssueNumber:      b.IssueNumber,
@@ -668,12 +674,13 @@ func RenderIntentPRBody(b IntentPRBody) (string, error) {
 		// "GH-", an issue URL's path segment) and the letter or digit
 		// after it, which no markdown construct turns on, so the result
 		// stays inert markdown.
-		Summary:      defang(SanitizeInline(b.Summary)),
-		PlanRevision: b.PlanRevision,
-		Digest:       shortDigest(oneLine(b.PlanDigest)),
-		ApprovedBy:   oneLine(b.ApprovedBy),
-		Count:        len(repos),
-		Repositories: strings.Join(repos, ", "),
+		Summary:        defang(SanitizeInline(b.Summary)),
+		PlanRevision:   b.PlanRevision,
+		Digest:         shortDigest(oneLine(b.PlanDigest)),
+		ApprovedBy:     oneLine(b.ApprovedBy),
+		Count:          len(repos),
+		Repositories:   strings.Join(repos, ", "),
+		NetworkProfile: networkProfileLine(b.NetworkProfile),
 	})
 }
 

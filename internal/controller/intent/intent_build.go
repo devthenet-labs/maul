@@ -304,7 +304,7 @@ func (p *pass) openPullRequest(ctx context.Context, run *v1alpha1.IntentRun,
 		body, err := templates.RenderIntentPRBody(templates.IntentPRBody{
 			IntentRepository: repoSlug(p.repo()), IssueNumber: p.number(), Summary: pl.Summary,
 			PlanRevision: ap.PlanRevision, PlanDigest: ap.PlanDigest, ApprovedBy: ap.By,
-			Repositories: repositorySlugs(repos),
+			Repositories: repositorySlugs(repos), NetworkProfile: recordedNetworkProfile(run),
 		})
 		if err != nil {
 			return false, err
@@ -794,4 +794,14 @@ func prsEqual(a, b []v1alpha1.IntentPullRequest) bool {
 		}
 	}
 	return true
+}
+
+// recordedNetworkProfile is the network profile the run's Job carried, as
+// the run recorded it at launch from the Job itself; "" when it carried
+// none.
+func recordedNetworkProfile(run *v1alpha1.IntentRun) string {
+	if run == nil || run.Status.RunnerImage == nil {
+		return ""
+	}
+	return run.Status.RunnerImage.NetworkProfile
 }

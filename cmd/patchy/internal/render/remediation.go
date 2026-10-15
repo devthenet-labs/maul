@@ -24,6 +24,7 @@ func RemediationDetail(d *printer.Doc, rem *v1alpha1.Remediation, now time.Time)
 		Field("Approved by", rem.Spec.ApprovedBy).
 		Field("Granted", Timestamp(rem.Status.GrantedAt, now)).
 		Field("Runner image", RunnerImageRef(rem.Status.RunnerImage)).
+		Field("Network profile", NetworkProfile(rem.Status.RunnerImage)).
 		Field("Age", Age(rem.CreationTimestamp.Time, now))
 	if rem.Spec.Revival {
 		d.Field("Revival", "yes — remediate-only run reviving a handed-off finding")

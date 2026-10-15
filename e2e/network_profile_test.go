@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 
 	batchv1 "k8s.io/api/batch/v1"
@@ -148,7 +149,14 @@ func TestIntentNetworkProfile(t *testing.T) {
 				run.Status.RunnerImage, wantProfile)
 		}
 	}
-	e.waitPhase(t, name, v1alpha1.IntentInReview)
+	in = e.waitPhase(t, name, v1alpha1.IntentInReview)
+	for url, want := range map[string]bool{webRepoURL: false, apiRepoURL: true} {
+		pr, ok := e.gh.Pull(int(prOf(t, in, url).Number))
+		if !ok || strings.Contains(pr.Body, "network profile `go`") != want {
+			t.Errorf("%s pull request body (found %v) names the profile = %v, want %v:\n%s", url, ok,
+				!want, want, pr.Body)
+		}
+	}
 }
 
 // TestRemediationNetworkProfile: remediation-controller started with a

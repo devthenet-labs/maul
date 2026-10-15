@@ -402,7 +402,15 @@ func TestRunnerImageDetail(t *testing.T) {
 				Status: v1alpha1.RemediationStatus{RunnerImage: &v1alpha1.RunnerImageRef{
 					Image: "runner:v1", Source: "default"}},
 			}, testClock)
-		}, []string{"**Runner image:** runner:v1 (default)"}, nil},
+		}, []string{"**Runner image:** runner:v1 (default)"}, []string{"Network profile"}},
+		{"remediation with a network profile", func(d *printer.Doc) {
+			render.RemediationDetail(d, &v1alpha1.Remediation{
+				ObjectMeta: metav1.ObjectMeta{Name: "fnd-1-rem-1"},
+				Status: v1alpha1.RemediationStatus{RunnerImage: &v1alpha1.RunnerImageRef{
+					Image: testPinned, Source: "repository", Manifest: ".patchy/agent.yaml", NetworkProfile: "go"}},
+			}, testClock)
+		}, []string{"**Runner image:** " + testPinned + " (repository, declared in .patchy/agent.yaml)",
+			"**Network profile:** go (the agent could fetch Go modules through the egress proxy)"}, nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
