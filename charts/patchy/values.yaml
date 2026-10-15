@@ -54,6 +54,18 @@ admissionPolicy:
     # status server are exempted automatically from their resolved
     # ServiceAccount names.
     extraExemptSubjects: []
+    # The username the Kubernetes Job controller creates Pods as. Used only
+    # with egressProxy: a Pod carrying a network profile label in
+    # agent.namespace is admitted only from one of these, with a controlling
+    # owner reference to a batch/v1 Job. The default is kube-controller-
+    # manager's per-controller identity under --use-service-account-
+    # credentials, which kubeadm, kind, k3s, EKS (Auto Mode included), GKE
+    # and AKS all run with. A control plane that runs every controller as one
+    # user needs system:kube-controller-manager here instead; the owner
+    # reference check still keeps other controllers' Pods out. A wrong value
+    # fails closed: profile Jobs start, but their Pods are refused.
+    jobControllerUsernames:
+        - system:serviceaccount:kube-system:job-controller
 
 # The cluster DNS address as a /32, for clusters whose resolver is not a pod in
 # kube-system. EKS Auto Mode runs CoreDNS on every node at the cluster DNS
