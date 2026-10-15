@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.12.37](https://github.com/devthenet-labs/patchy/compare/v0.12.36...v0.12.37) (2026-10-15)
+
+
+### Bug Fixes
+
+* **egress-proxy:** stop double-quoting the tunnel audit host ([#217](https://github.com/devthenet-labs/patchy/issues/217)) ([ae64873](https://github.com/devthenet-labs/patchy/commit/ae64873416b16ee32e3add0e796104f6065d740a))
+* **intent:** end a build the egress proxy refuses by policy after one attempt ([#220](https://github.com/devthenet-labs/patchy/issues/220)) ([6f312bd](https://github.com/devthenet-labs/patchy/commit/6f312bd527ead28b159894fac608b5a6b8f3af99))
+* mark runs held by the agent pause and say so on the intent issue ([#219](https://github.com/devthenet-labs/patchy/issues/219)) ([df31544](https://github.com/devthenet-labs/patchy/commit/df315449b1103e236d0e99772b6d3269af5abe31))
+
 ## [0.12.36](https://github.com/devthenet-labs/patchy/compare/v0.12.35...v0.12.36) (2026-10-15)
 
 
