@@ -202,6 +202,23 @@ while what the image bakes still builds. `GOFLAGS` stays yours.
 - A profile run copies every module it touches into `/tmp`, so the operator's ephemeral-storage limit for profiled
   repositories should be about twice your baked module cache plus the build cache.
 
+A profile can also be granted the operator's own registries (Artifactory, Nexus or CodeArtifact, for Go, npm and pip;
+see [Registries](../configuration/egress-proxy.md#registries)). That changes only run time, never the image: still bake
+what you can, so a build that the allowlist refuses still has what it needs. A granted run gets npm's and pip's
+environment from the job controller (`NPM_CONFIG_REGISTRY` and `PIP_INDEX_URL` pointed at the proxy, `PIP_CONFIG_FILE`
+set to `/dev/null`, caches under `/tmp`), which beats your image's `.npmrc`, `pip.conf` and `ENV` of the same names. The
+registry credential is the proxy's, never your image's or the pod's.
+
+- **Scoped npm registries are unreachable.** A repository or image `.npmrc` naming a registry for a scope
+  (`@acme:registry=…`) cannot be overridden from the environment, so that scope's fetches fail. Have the operator's
+  registry serve the scope instead (a virtual repository), and drop the scoped line.
+- **Install scripts and source builds are off** unless the operator's grant turns them on. A native npm module that runs
+  `node-gyp` needs the Node headers baked into the image, with `npm_config_nodedir` in your image's `ENV` pointing at
+  them: the pod cannot download them, and `prebuild-install` cannot reach GitHub releases. A pip source build needs its
+  build backend (`setuptools`, `hatchling`, …) in the operator's allowlist, or baked into the image with
+  `--no-build-isolation`.
+- Use npm or pip; uv, poetry and yarn write index URLs into their lockfiles and are not supported, and pnpm is untested.
+
 ## Publishing the image
 
 The image must sit under a registry path your operator has allowlisted, and by default it must be signed with the

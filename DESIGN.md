@@ -160,7 +160,10 @@ One operator-granted exception, off by default: a **network profile** (chart `eg
 `agent.networkProfiles`) gives a remediate or build/revise/check-fix pod that runs an accepted repository image,
 of a repository matching exactly one profile, one more destination: the egress proxy on that profile's port, a
 GOPROXY-protocol reverse proxy that forwards only the profile's allowlisted Go module prefixes (tagged releases
-only by default) to proxy.golang.org and sum.golang.org, holds no credential and caches nothing. Enforcement is
+only by default) to proxy.golang.org and sum.golang.org and caches nothing. A profile may also be granted
+operator-defined registries (Go, npm, pip) under an explicit package policy; the proxy then holds those registries'
+credentials, sends each only to its registry's origin and never to an agent, and no agent pod ever holds one.
+Enforcement is
 two-sided: the agent-side NetworkPolicy lets only pods carrying the profile label out to that port, and the
 proxy's ingress admits only those pods to it; the label is set only by the two job controllers, checked again in
 `internal/jobs`, and, with admission policies on, by a ValidatingAdmissionPolicy. Investigate, plan and

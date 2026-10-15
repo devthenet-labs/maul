@@ -295,7 +295,9 @@ and nothing else: no credential, no resolver (under `dns: none` the controller p
 hosts file, as it does the broker's) and no proxy variable. Every other pod, investigate, plan and evaluation pods and
 every default-image pod included, is byte for byte what it was. The proxy forwards only `GET` and `HEAD` requests for Go
 modules and checksum-database records, only for the profile's allowlisted module prefixes, and only tagged releases
-unless the profile sets `allowPseudoVersions`; it holds no credential and caches nothing.
+unless the profile sets `allowPseudoVersions`; it caches nothing. A profile may also be granted operator-defined
+registries ([below](#registry-grants)); then the proxy holds those registries' credentials, but the pod still holds
+none.
 
 What the egress is without profiles depends on your values; do not read one deployment's as the chart's. Under
 `dns: none` with brokered claude only, an agent pod reaches the artifact server and the egress broker and has no
@@ -364,12 +366,68 @@ Be plain about the residue; it is why a narrower step 2 (an exact `module@versio
   held for 15 seconds so the Service sends it nothing in that window, but its pod IP is reachable by any pod whose own
   egress allows it. In both cases the impact is bounded: no credential, allowlisted modules and tagged versions only.
 - **A compromised proxy** has TCP 443 to the internet, so it could exfiltrate what profile pods send it. That is why it
-  is small, separate from the broker, distroless, read-only, non-root and credential-less. With attribution on it also
-  holds a token that can list pods in the agent namespace, and reaches the API server's endpoint IPs (`/32`s only).
+  is small, separate from the broker, distroless, read-only and non-root, and holds no credential unless registries are
+  configured ([below](#registry-grants)). With attribution on it also holds a token that can list pods in the agent
+  namespace, and reaches the API server's endpoint IPs (`/32`s only).
 - **On a CNI that does not enforce NetworkPolicy** the port is open to every pod, but every repository-image Job's
   sandbox probe already fails such clusters before untrusted code runs.
 - **DoS and cost.** One profile pod can use its share of the proxy (global and per-source concurrency, rate, size caps
   and timeouts bound it), and each profile run copies its modules into `/tmp`, so size ephemeral storage with headroom.
+
+### Registry grants
+
+A profile can be granted operator-defined upstream registries (`egressProxy.registries`: Artifactory, Nexus,
+CodeArtifact, for Go, npm and pip; see [Registries](../configuration/egress-proxy.md#registries)). What changes, and
+what does not:
+
+- **The agent pod: nothing new.** It still reaches only the proxy on its profile's port, gains no resolver and **no
+  credential**: the registry credential never enters the agent namespace, the pod's environment, a Job Secret or any
+  response. The package manager is pointed at the proxy by environment variables the job controller owns, install
+  scripts (npm) and source builds (pip) off unless the grant allows them.
+- **The proxy now holds credentials** when credentialed registries are configured: read-only registry tokens from
+  Secrets mounted into it alone, or a CodeArtifact token of at most 12 hours that it mints with its own AWS role (no
+  long-lived secret at all). It sends a credential only to that registry's exact origin, never on a redirect, a file
+  host or a checksum lookup; it drops any `Authorization` the agent sends; every non-200 answer on a registry route
+  carries a body the proxy wrote, so no upstream error page reaches the agent; and every non-archive response is scanned
+  for the credential.
+- **The proxy's egress** may now also reach operator-named private addresses (`internal`: listed CIDRs on one port,
+  never IMDS, link-local, loopback, cluster DNS, the API server or the Kubernetes Service address, and only `/32`s
+  inside the cluster ranges) and, with `cloudCredentials: podIdentity`, the node-local Pod Identity agent, for the
+  credential call alone.
+
+The residue, in plain words:
+
+- **A compromised proxy holds every configured registry's credential** and can reach the public internet on 443, so it
+  could exfiltrate them. This is now the proxy's most serious residue. Give it read-only tokens scoped to the one
+  repository each registry names, and prefer CodeArtifact's short-lived tokens; a deployment per credentialed registry
+  is a possible follow-up if one shared process is too much.
+- **Confused deputy.** The proxy's login could read other repositories on the same registry host if a request could
+  leave the configured base path. Every forwarded path is the base plus a remainder that passed a strict grammar (npm:
+  only the scope's `%2f`; pip: only `%2B` and `%21`, no `.`, `..` or empty segment; no query anywhere), but a virtual
+  repository aggregates whatever you configured it to: scope the token to that repository.
+- **The name and version are still a channel, narrowed, not closed.** An allowlist fixes the package **name**; npm
+  versions must be plain `x.y.z` unless `allowPrerelease`, and a pip file must be a real distribution filename with a
+  PEP 440 version. Within an allowlisted name the agent still chooses an npm version (three fields of up to ten digits,
+  about 100 bits per request), a pip file path's directory segments and version (up to 1024 bytes), or a Go version
+  under the public route's rules. These reach the registry's access logs and, on a miss through a remote or virtual
+  repository, its public upstream's logs: places the agent cannot read back, but a registry's staff can. Under
+  `packagePolicy: registry` the **name** is free too; that is the stated cost of handing the policy to the registry.
+- **Install-time code.** With `scripts` or `sdists` on, dependency code runs at install, as tests already do; it gains
+  no reachability beyond the proxy.
+- **Dependency confusion.** Under `packagePolicy: registry`, a virtual repository that merges private and public names
+  can resolve to a public lookalike. That is the registry's configuration: use its exclude patterns or package-origin
+  controls, and review the lockfile diff.
+- **Lockfile poisoning.** npm (`replace-registry-host=always`), pip and go write canonical URLs or none, and a changeset
+  that names the proxy's in-cluster host in any file is refused before any forge call. uv, poetry and yarn are not
+  supported.
+- **Archives are not scanned** for the credential (`.tgz`, `.whl`, zip): they are verified by hash, and an
+  operator-trusted registry is not assumed to plant a token in them.
+- **Rotation gap.** A rotated Secret reaches the proxy within kubelet's sync delay (about one to two minutes); revoke
+  the old token only after every proxy pod logs `credential_reloaded`.
+- **Hostname deny lists are not IP-level controls.** The registry host, file hosts and redirect patterns are checked
+  against the forge and model API hosts (and, at Job launch, every Forge resource's host), but a registry on a CDN
+  shared with a denied service cannot be told apart by address; it need not be, since only the configured hostname is
+  ever dialled.
 
 ## Egress proxies
 

@@ -62,9 +62,16 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   the port is the identity, enforced by NetworkPolicy on both sides (only pods labelled
   `patchy.bitwisemedia.uk/network-<name>` reach that port). Forwards GET/HEAD only, for the profile's module
   prefixes and tagged releases (pseudo-versions only with `allowPseudoVersions`); every refusal is a 410 with a
-  reason, never contacting the upstream. No credential, no cache, no SA token unless `--attribute-pods`.
+  reason, never contacting the upstream. No cache, no SA token unless `--attribute-pods`. Step 2: a profile granted
+  an operator registry (`egressProxy.registries`, `--registries`; Go, npm, pip; Artifactory, Nexus, CodeArtifact)
+  is also served `/r/<registry>/…` below that registry's fixed base URL, under the grant's `packages` allowlist or
+  `packagePolicy: registry`. It then HOLDS that registry's credential, and only it does: a Secret the chart projects
+  into the proxy alone (re-read every 30s, `credfile`) or a CodeArtifact token it mints with its own IRSA/Pod
+  Identity role (`awsca`); sent only to the registry's origin, never to an agent, a redirect hop or a file host.
+  Hard denies on forge, model API (plus the broker's base-URL overrides, `--deny-hosts`) and in-cluster hosts.
   `--suspended` answers every profile request 410 (the chart's `suspendProfiles` immediate lever). Engine in
-  `internal/egressproxy` (+ `podindex` for opt-in attribution); flags in docs/configuration/egress-proxy.md.
+  `internal/egressproxy` (+ `podindex` for opt-in attribution, `pyindex`, `credfile`, `awsca`); `probe --registry`
+  sends one request from inside the pod; flags and the no-log-sink runbook in docs/configuration/egress-proxy.md.
 - `cmd/preview-auth` — OPTIONAL (default-off; chart `previewAuth`, two stages: `permit` admits the pinned sign-in
   annotations, `require` puts every slot Ingress behind them, refused by a `lookup` until the permit stage is live;
   chart-only, no kustomize component): the preview sign-in relay (NOT a controller: no reconcilers, no leases), the
@@ -361,14 +368,27 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   unknown fields refused), `Validate` (name grammar, route `go`, ports, lowercase host, RE2 repository patterns,
   module prefixes that never admit the Go toolchain, a clean `bakedModCache`), `Set.For` (host plus RE2 matched
   ANCHORED against the lowercased `owner/name`; two matches are no match), `Prefixes.Allows` (path-element
-  boundaries) and `LabelPrefix`. The chart's schema and label are pinned to it
-  (`TestChartProfileSchemaMatchesValidator`, `TestChartLabelPrefix`).
+  boundaries) and `LabelPrefix`. Step 2 adds `ParseRegistries`/`Registry.Validate` (the registries JSON: credential
+  by type only, CodeArtifact host agreement, internal CIDRs clear of the always-denied set), `Grant` on `Profile` (at
+  most one per ecosystem, `packages` or `packagePolicy: registry`), `CheckGrants`, the npm and pip grammars
+  (`NPMName`, `NPMVersion`, `PyFilePath`, `PyProjectOfFile`) and the deny table (`DeniedHost`, `DeniedPattern`,
+  `TooWideSuffixes`). The chart's schema, label and deny table are pinned to it
+  (`TestChartProfileSchemaMatchesValidator`, `TestChartRegistrySchemaMatchesValidator`, `TestDeniedHostMatchesChart`,
+  which runs the chart's own deny helpers through helm, `TestChartLabelPrefix`).
 - `egressproxy` — the egress proxy's engine (no Kubernetes imports in the core, a test pins that): the pure GOPROXY
   and sumdb path parsers over x/mod, the per-request pipeline (suspended, method, body, path grammar, allowlist and
   tagged-release gate, limits, forward to a fixed https base), status mapping and header/size caps, the guarded
   dialer (tcp4, port 443, no private/link-local/reserved/denied address, judged at connect time), the audit line and
   the `patchy.egress_proxy.*` metrics. `podindex` is the opt-in client-go attribution adapter (transform-stripped
   pod cache; audit garnish, never a decision). `TestLiveGo` (`mise run live-go`) runs the real go command through it.
+  Step 2's registry routes live here too (`/r/<registry>`: grant check, npm and Go routes, `RawPath` forwarding, the
+  per-ecosystem status table with proxy-written error bodies, redirects only to `redirectHosts` without the
+  credential, the credential-echo scan, the redacted `Credential` type and the `CredentialSource` port), with three
+  subpackages: `pyindex` (PURE: regenerates a pip simple page so every link points back into the proxy, sharing
+  `netprofile.PyFilePath` with the file route; seeded properties), `credfile` (the file-backed static credentials,
+  polled, kubelet `..data` swap, keep-last-good) and `awsca` (the CodeArtifact token minter over aws-sdk-go-v2, with
+  an API client that dials only public 443 and a Pod Identity client that dials only `169.254.170.23:80`).
+  `TestLiveRegistry`/`TestLiveGoRegistry` (`mise run live-registry`) drive real npm, pip and go through it.
 - `artifact` — the tarball store + HTTP handler source-controller serves agent fetches from, plus the
   content-addressed workspace-blob side: sha256-named bundles (64-hex files beside the 32-hex repo tarballs),
   index rebuilt from disk on restart, last-access retention sweep, the `:9791` internal upload handler, and

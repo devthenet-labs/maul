@@ -385,6 +385,8 @@ the owner.
   if an agent ever needs new dependencies, a per-Project dependency proxy serving only lockfile and plan-approved
   packages, never general egress. **Step 2** of the egress proxy: step 1 (the Go route, `egressProxy` in the chart, off
   by default) is a name-level module-prefix gate, and its residue (docs/deployment/isolation.md) is why step 2 exists.
+  Step 2's credentialed registry routes (Go, npm, pip; Artifactory, Nexus, CodeArtifact) are built (#199, #201, #202 and
+  the chart PR, `egressProxy.registries`, off by default) and await the CodeArtifact live gate (spec §11).
 - The deferred 0.12.20 items (a)–(e).
 
 ## Earlier checkpoint — 2026-10-06 (overnight): 0.12.19
@@ -943,12 +945,18 @@ repos report `read` for everyone, so `read` is never enough).
 - A network profile adds exactly one destination to an agent pod's egress: the egress proxy on that profile's port, and
   only for a remediate or build/revise/check-fix pod running an accepted repository image of a repository matching
   exactly one profile. Everything else about the pod's egress and DNS is as configured without profiles. The proxy
-  forwards only GET/HEAD GOPROXY and checksum-database requests for the profile's allowlisted module prefixes (tagged
-  versions only, unless the profile admits pseudo-versions) to proxy.golang.org and sum.golang.org, holds no credential,
-  and caches nothing. Investigate, plan and evaluation pods, and every default-image pod, never get a profile (enforced
-  in the callers, in `internal/jobs`, and, where admission policies are on, by a ValidatingAdmissionPolicy). The
-  devthenet baseline (`dns: none`, brokered claude only: agent pods reach only the artifact server and the egress
-  broker, with no resolver) is that deployment's configuration, not the chart's.
+  forwards only GET/HEAD requests: GOPROXY and checksum-database requests to proxy.golang.org and sum.golang.org for the
+  profile's allowlisted module prefixes (tagged versions only, unless the profile admits pseudo-versions), and, for a
+  profile granted a registry, Go, npm or PyPI simple-index requests below that registry's fixed base URL under the
+  grant's package policy. It holds a credential only for registries the operator configured (a Secret mounted read-only
+  into the proxy alone, or a CodeArtifact token it mints with its own role), sends it only to that registry's origin,
+  and never forwards it, an inbound credential, or an upstream error body to an agent. It caches nothing. No agent pod
+  or Job Secret ever holds a registry credential, and the feature grants no ServiceAccount a Secret read (kubelet mounts
+  it; controllers that already hold release-namespace `secrets get` could still name it, as any Secret there).
+  Investigate, plan and evaluation pods, and every default-image pod, never get a profile (enforced in the callers, in
+  `internal/jobs`, and, where admission policies are on, by a ValidatingAdmissionPolicy). The devthenet baseline
+  (`dns: none`, brokered claude only: agent pods reach only the artifact server and the egress broker, with no resolver)
+  is that deployment's configuration, not the chart's.
 
 ## Where everything is
 
