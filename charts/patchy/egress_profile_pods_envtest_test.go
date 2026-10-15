@@ -10,6 +10,7 @@ import (
 	authorizationv1 "k8s.io/api/authorization/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -172,6 +173,22 @@ func checkProfilePodUpdates(t *testing.T, admin, jobController client.Client, ow
 	plain.Labels[netprofile.LabelKey("go")] = netprofile.LabelValue
 	if err := admin.Update(ctx, plain); !deniedWith(err, egressPodDenied) {
 		t.Errorf("labelling an unlabelled pod: got %v, want refused", err)
+	}
+	// The status subresource keeps label changes (its strategy resets spec,
+	// not metadata.labels), so it must be judged too: a principal holding
+	// create on pods and patch on pods/status could otherwise label an
+	// admitted bare pod after the fact.
+	viaStatus := []byte(`{"metadata":{"labels":{"` + netprofile.LabelKey("go") + `":"` + netprofile.LabelValue + `"}}}`)
+	statusTarget := unlabelledPod(profilePod("plain-live", nil))
+	err = admin.Status().Patch(ctx, statusTarget, client.RawPatch(types.MergePatchType, viaStatus))
+	if !deniedWith(err, egressPodDenied) {
+		t.Errorf("labelling an unlabelled pod through pods/status: got %v, want refused", err)
+	}
+	// A status write that leaves the profile labels alone (the kubelet's)
+	// still passes; live takes the new resourceVersion for what follows.
+	statusOnly := []byte(`{"status":{"message":"unrelated"}}`)
+	if err := admin.Status().Patch(ctx, live, client.RawPatch(types.MergePatchType, statusOnly)); err != nil {
+		t.Errorf("a status write leaving the profile labels alone was refused: %v", err)
 	}
 	cleared := live.DeepCopy()
 	delete(cleared.Labels, netprofile.LabelKey("go"))

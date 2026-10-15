@@ -390,7 +390,10 @@ well as the identity so that, on a cluster whose controller manager runs
 every controller as one user (system:kube-controller-manager), a ReplicaSet,
 StatefulSet or DaemonSet Pod still cannot borrow the Job controller's
 admission. No UPDATE may set or change a profile label (the Job controller
-never relabels a Pod); removing every profile label is never refused.
+never relabels a Pod); removing every profile label is never refused. The
+status subresource is matched too: a pods/status write keeps the labels it
+is sent (the status strategy resets spec, not metadata.labels), so without
+it an unlabelled bare Pod could be given a profile label through /status.
 */}}
 ---
 apiVersion: admissionregistration.k8s.io/v1
@@ -410,7 +413,8 @@ spec:
             - apiGroups: [""]
               apiVersions: [v1]
               operations: [CREATE, UPDATE]
-              resources: [pods]
+              # pods/status as well: a status write persists label changes.
+              resources: [pods, pods/status]
     variables:
         # The profile labels as "<key>=<value>", on the object and (empty on
         # CREATE) on oldObject.

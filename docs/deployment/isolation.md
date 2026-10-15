@@ -333,8 +333,9 @@ ServiceAccount holds `jobs create` there too.
 The NetworkPolicies select Pods, not Jobs, so a second policy covers Pods: a Pod in the agent namespace whose labels
 carry a `network-` profile key is admitted only when the Kubernetes Job controller creates it
 (`admissionPolicy.jobControllerUsernames`, default `system:serviceaccount:kube-system:job-controller`) with a single
-controlling owner reference to a `batch/v1` Job, and no update may add or change such a label (removing one is always
-allowed). A bare Pod, or one from a ReplicaSet, StatefulSet or any other controller, carrying the label is refused, so
+controlling owner reference to a `batch/v1` Job, and no update may add or change such a label, through the `pods/status`
+subresource as well as the Pod itself (a status write keeps the labels it is sent), while removing one is always
+allowed. A bare Pod, or one from a ReplicaSet, StatefulSet or any other controller, carrying the label is refused, so
 every labelled Pod was stamped from a Job template the Job policy already judged and that policy stays the one gate. The
 default identity is kube-controller-manager's per-controller ServiceAccount under `--use-service-account-credentials`,
 which kubeadm, kind, k3s, EKS (Auto Mode included), GKE and AKS all run with; on a control plane that runs every

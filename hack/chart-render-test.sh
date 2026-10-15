@@ -1908,7 +1908,7 @@ expect egress-on-no-intent "$vap | .spec.validations[0].expression | [match(\"sy
 # controlling batch/v1 Job.
 pvap='select(.kind == "ValidatingAdmissionPolicy" and .metadata.name == "patchy-network-profile-pods")'
 expect egress-on "$pvap | .spec.failurePolicy" Fail
-expect egress-on "$pvap | .spec.matchConstraints.resourceRules[0].resources | join(\",\")" pods
+expect egress-on "$pvap | .spec.matchConstraints.resourceRules[0].resources | join(\",\")" pods,pods/status
 expect egress-on "$pvap | .spec.matchConstraints.resourceRules[0].operations | join(\",\")" CREATE,UPDATE
 expect egress-on "$pvap | .spec.validations[0].expression | [match(\"system:serviceaccount:[a-z0-9:-]+\"; \"g\").string] | join(\",\") | select(. != \"\")" \
   system:serviceaccount:kube-system:job-controller
