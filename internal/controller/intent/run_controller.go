@@ -124,13 +124,16 @@ func (r *RunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 // schedule grants free slots to pending runs that can launch now, FIFO with
 // a build ahead of a plan. Slots are counted from the cluster, never memory.
 func (r *RunReconciler) schedule(ctx context.Context) (ctrl.Result, error) {
-	if r.Paused {
-		return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
-	}
 	settings := r.Settings.withDefaults()
 	var list v1alpha1.IntentRunList
 	if err := r.List(ctx, &list, client.InNamespace(settings.Namespace)); err != nil {
 		return ctrl.Result{}, err
+	}
+	if err := r.markPaused(ctx, list.Items); err != nil {
+		return ctrl.Result{}, err
+	}
+	if r.Paused {
+		return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
 	}
 	running := 0
 	var pending []schedule.Candidate
@@ -165,6 +168,42 @@ func (r *RunReconciler) schedule(ctx context.Context) (ctrl.Result, error) {
 		}
 	}
 	return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
+}
+
+// markPaused keeps the AgentsPaused condition true on every run the pause
+// holds (pending, or granted with no Job yet) and removes it from every
+// other, writing only a run whose condition changes: while agents are not
+// paused, a run that never carried it is never written. The intent
+// reconciler reads it to say so on the issue (statusComment).
+func (r *RunReconciler) markPaused(ctx context.Context, items []v1alpha1.IntentRun) error {
+	for i := range items {
+		run := &items[i]
+		if !run.DeletionTimestamp.IsZero() {
+			continue
+		}
+		conds := slices.Clone(run.Status.Conditions)
+		held := v1alpha1.HeldByPause(r.Paused, run.Status.Phase, run.Status.JobRef)
+		if !v1alpha1.SyncAgentsPaused(&conds, held, r.now()) {
+			continue
+		}
+		// Read fresh, as grant does; a write that lost a race is retried
+		// by the pass the winning write's event brings.
+		var cur v1alpha1.IntentRun
+		if err := r.APIReader.Get(ctx, client.ObjectKeyFromObject(run), &cur); err != nil {
+			if kerrors.IsNotFound(err) {
+				continue
+			}
+			return err
+		}
+		held = v1alpha1.HeldByPause(r.Paused, cur.Status.Phase, cur.Status.JobRef)
+		if !cur.DeletionTimestamp.IsZero() || !v1alpha1.SyncAgentsPaused(&cur.Status.Conditions, held, r.now()) {
+			continue
+		}
+		if err := r.Status().Update(ctx, &cur); err != nil && !kerrors.IsConflict(err) && !kerrors.IsNotFound(err) {
+			return err
+		}
+	}
+	return nil
 }
 
 // holdsSlot reports a Running run that occupies a slot of the pool: every

@@ -8,6 +8,10 @@ inside an issue comment as a hard break. */ -}}
 ### patchy
 
 **Phase:** {{ code .Phase }}{{ with .Sentence }}: {{ . }}{{ end }}
+{{- if .AgentsPaused }}
+
+**Agents paused:** the operator has paused patchy's agents, so this work waits until they are resumed.
+{{- end }}
 {{- if .PlanRevision }}
 
 **Plan:** {{ if .PlanURL }}[r{{ .PlanRevision }}]({{ .PlanURL }}){{ else }}r{{ .PlanRevision }}{{ end }}{{ with .Summary }}: {{ . }}{{ end }}

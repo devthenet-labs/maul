@@ -109,6 +109,7 @@ func (p *pass) statusComment() templates.IntentStatusComment {
 		c.Revisions, c.MaxRevisions = p.revisionRounds(), maxRevisions(p.proj)
 	}
 	c.Preview = p.statusPreview()
+	c.AgentsPaused = p.agentsPaused()
 	switch st.Phase {
 	case v1alpha1.IntentRevising:
 		run := p.round(v1alpha1.IntentStageRevise, st.Rounds, anyRepository).latest()
@@ -125,6 +126,18 @@ func (p *pass) statusComment() templates.IntentStatusComment {
 		c.Reason = p.failureReason()
 	}
 	return c
+}
+
+// agentsPaused reports whether one of the Intent's unfinished runs waits on
+// the operator's agent pause, as the run reconciler marks it.
+func (p *pass) agentsPaused() bool {
+	for _, run := range p.runs {
+		if run.Status.Phase != v1alpha1.RunComplete && run.Status.Phase != v1alpha1.RunFailed &&
+			meta.IsStatusConditionTrue(run.Status.Conditions, v1alpha1.ConditionAgentsPaused) {
+			return true
+		}
+	}
+	return false
 }
 
 // failedRunReason is a failed run's outcome and detail as the issue shows

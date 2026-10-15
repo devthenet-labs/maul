@@ -103,9 +103,6 @@ proxy holds. See [docs/configuration/egress-proxy.md](docs/configuration/egress-
 
 Follow-ups (as of this checkpoint; see the current one above):
 
-- Paused work has no visible marker: held Investigations and IntentRuns have an empty status, Findings keep their phase
-  and an intent's issue still says "Planning". Only the signed-in status page banner and the controllers' startup log
-  show the pause.
 - The demo repositories' agent images have no Node or Python, so the npm and pip grants have not been exercised by a
   real agent yet.
 - Egress proxy step 3 (a hostname-allowlisted CONNECT tunnel for npm, pip, NuGet and Cargo): done in 0.12.35 and

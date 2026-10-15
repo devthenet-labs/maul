@@ -45,8 +45,8 @@ deliberately suspended, hence the `suspended` pill on each row.
 
 While the operator's [agent pause](configuration/investigation-controller.md#pausing-agents) (`agent.paused`) is on, the
 page shows a banner saying no new investigation, remediation, intent or evaluation Jobs start. Only signed-in users see
-it: the public rollups view, without signing in, does not. Nothing else on the page marks held work, since paused
-findings keep their phase and held runs have no status yet.
+it: the public rollups view, without signing in, does not. Nothing else on the page marks held work: paused findings
+keep their phase, and the page does not list the `AgentsPaused` condition each held run carries.
 
 ## Agent conversations
 

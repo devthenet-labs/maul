@@ -1483,7 +1483,8 @@ agent:
     # Jobs (investigation, remediation, intent and evaluation) from starting
     # new ones: their schedulers grant no slot, so work queues in order
     # (Findings in Investigating or Queued; held runs and evaluation units
-    # keep an empty status, with no paused marker) and no tokens are spent.
+    # carry the condition AgentsPaused, and an intent's issue says so) and no
+    # tokens are spent.
     # Jobs already running finish and are collected as usual. Changing it
     # rolls those four controllers. The
     # per-object spec.suspend still pauses one Finding, Intent or Project.

@@ -259,7 +259,7 @@ spec:
                 format: int32
                 type: integer
               conditions:
-                description: Conditions of the run (Complete).
+                description: Conditions of the run (Complete, AgentsPaused).
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.

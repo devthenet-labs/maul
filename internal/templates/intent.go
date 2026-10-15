@@ -127,6 +127,10 @@ type IntentStatusComment struct {
 	// Preview is the intent's preview (intent_preview.go); nil, or a zero
 	// State, omits the line, and the comment is exactly the one without.
 	Preview *IntentPreview
+	// AgentsPaused reports that the intent's run waits only on the
+	// operator's agent pause (the run's AgentsPaused condition); the comment
+	// then says so, in fixed words, under the phase.
+	AgentsPaused bool
 	// FixingChecks reports a Revising intent whose round failed checks
 	// started rather than review feedback: the phase's sentence then says
 	// so.
@@ -196,6 +200,7 @@ func RenderIntentStatusComment(c IntentStatusComment) (string, error) {
 		Marker           string
 		Phase            string
 		Sentence         string
+		AgentsPaused     bool
 		PlanRevision     int32
 		PlanURL          string
 		Summary          string
@@ -214,6 +219,7 @@ func RenderIntentStatusComment(c IntentStatusComment) (string, error) {
 		Marker:           IntentStatusMarker(c.Namespace, c.Intent),
 		Phase:            oneLine(c.Phase),
 		Sentence:         sentence,
+		AgentsPaused:     c.AgentsPaused,
 		PlanRevision:     c.PlanRevision,
 		PlanURL:          oneLine(c.PlanURL),
 		Summary:          SanitizeInline(c.Summary),

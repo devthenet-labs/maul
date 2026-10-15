@@ -134,6 +134,11 @@ func TestIntentGoldens(t *testing.T) {
 				Namespace: "patchy", Intent: "target-1", Phase: "Planning",
 			})
 		}},
+		{"intent_status_planning_paused.md", func() (string, error) {
+			return RenderIntentStatusComment(IntentStatusComment{
+				Namespace: "patchy", Intent: "target-1", Phase: "Planning", AgentsPaused: true,
+			})
+		}},
 		{"intent_status_awaiting_approval.md", func() (string, error) {
 			return RenderIntentStatusComment(IntentStatusComment{
 				Namespace: "patchy", Intent: "target-1", Phase: "AwaitingApproval",

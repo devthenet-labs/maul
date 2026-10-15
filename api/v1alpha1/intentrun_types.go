@@ -431,7 +431,7 @@ type IntentRunStatus struct {
 	// FinishedAt is when the run was collected.
 	// +optional
 	FinishedAt *metav1.Time `json:"finishedAt,omitempty"`
-	// Conditions of the run (Complete, SandboxRefused, PushHeld).
+	// Conditions of the run (Complete, SandboxRefused, PushHeld, AgentsPaused).
 	// +optional
 	// +listType=map
 	// +listMapKey=type

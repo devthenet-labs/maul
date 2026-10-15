@@ -497,7 +497,8 @@ spec:
                 pattern: ^([0-9a-f]{40}|[0-9a-f]{64})$
                 type: string
               conditions:
-                description: Conditions of the run (Complete, SandboxRefused, PushHeld).
+                description: Conditions of the run (Complete, SandboxRefused, PushHeld,
+                  AgentsPaused).
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
