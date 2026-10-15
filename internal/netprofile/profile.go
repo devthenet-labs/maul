@@ -18,6 +18,11 @@ import (
 // through the egress proxy. It is the only route in step 1.
 const RouteGo = "go"
 
+// RouteTunnel is a profile whose only public route is the CONNECT tunnel
+// to its exact hosts (step 3). A RouteGo profile may list hosts too, and
+// then serves both on its one port.
+const RouteTunnel = "tunnel"
+
 // DefaultHost is the forge host a profile's repositories live on when the
 // profile names none.
 const DefaultHost = "github.com"
@@ -76,6 +81,16 @@ type Profile struct {
 	// per ecosystem. The key is rendered only for a profile that has
 	// grants, so a step-1 profile's JSON is unchanged.
 	Registries []Grant `json:"registries,omitempty"`
+	// Hosts are the exact public host names the profile's tunnel opens on
+	// 443 (step 3); none means no tunnel. Rendered only when set, like the
+	// two keys below.
+	Hosts Hosts `json:"hosts,omitempty"`
+	// Clients are the client presets (Clients) the job controllers apply
+	// beside the tunnel; only with Hosts.
+	Clients []string `json:"clients,omitempty"`
+	// Upload overrides the proxy's upload caps for this profile's tunnels;
+	// only with Hosts.
+	Upload *Upload `json:"upload,omitempty"`
 
 	// patterns are Repositories compiled, anchored; set by NewSet.
 	patterns []*regexp.Regexp
@@ -115,7 +130,10 @@ func (p Profile) Validate() error {
 	if err := validBakedModCache(p.BakedModCache); err != nil {
 		return fmt.Errorf("profile %s: %w", p.Name, err)
 	}
-	return p.validateGrants()
+	if err := p.validateGrants(); err != nil {
+		return err
+	}
+	return p.validateTunnel()
 }
 
 // validateGrants checks each grant and the profile-wide rules: one grant
@@ -158,15 +176,16 @@ func (p Profile) GrantFor(ecosystem string) (Grant, bool) {
 }
 
 // validateRoute is the public route and its modules: RouteGo with 1 to
-// MaxModules module prefixes, or no route, no modules and at least one
-// grant.
+// MaxModules module prefixes; RouteTunnel with hosts and none of the go
+// route's fields; or no route, no modules and at least one grant.
 func (p Profile) validateRoute() error {
 	switch {
 	case p.Route == "" && len(p.Registries) == 0:
-		return fmt.Errorf("profile %s: route %q is not supported (only %q), and a profile without a route "+
-			"must hold registry grants", p.Name, p.Route, RouteGo)
-	case p.Route != "" && p.Route != RouteGo:
-		return fmt.Errorf("profile %s: route %q is not supported (only %q)", p.Name, p.Route, RouteGo)
+		return fmt.Errorf("profile %s: route %q is not supported (only %q or %q), and a profile without a route "+
+			"must hold registry grants", p.Name, p.Route, RouteGo, RouteTunnel)
+	case p.Route != "" && p.Route != RouteGo && p.Route != RouteTunnel:
+		return fmt.Errorf("profile %s: route %q is not supported (only %q or %q)", p.Name, p.Route, RouteGo,
+			RouteTunnel)
 	}
 	if p.Route == RouteGo && (len(p.Modules) == 0 || len(p.Modules) > MaxModules) {
 		return fmt.Errorf("profile %s: modules must list 1-%d prefixes, not %d", p.Name, MaxModules, len(p.Modules))
@@ -174,6 +193,18 @@ func (p Profile) validateRoute() error {
 	if p.Route == "" && len(p.Modules) > 0 {
 		return fmt.Errorf("profile %s: modules are the public go route's allowlist; set route: go or drop them",
 			p.Name)
+	}
+	if p.Route == RouteTunnel {
+		switch {
+		case len(p.Hosts) == 0:
+			return fmt.Errorf("profile %s: route tunnel needs hosts", p.Name)
+		case len(p.Modules) > 0 || p.BakedModCache != "" || p.AllowPseudoVersions:
+			return fmt.Errorf("profile %s: modules, bakedModCache and allowPseudoVersions are the go route's; "+
+				"route tunnel takes none of them", p.Name)
+		}
+	}
+	if p.Route == "" && len(p.Hosts) > 0 {
+		return fmt.Errorf("profile %s: hosts need route: tunnel (or route: go, for both)", p.Name)
 	}
 	for _, m := range p.Modules {
 		if err := ValidPrefix(m); err != nil {
@@ -240,6 +271,7 @@ func NewSet(profiles []Profile) (Set, error) {
 		p.Repositories = append([]string(nil), p.Repositories...)
 		p.Modules = append(Prefixes(nil), p.Modules...)
 		p.Registries = cloneGrants(p.Registries)
+		p.Hosts, p.Clients, p.Upload = cloneTunnel(p)
 		p.patterns = make([]*regexp.Regexp, len(p.Repositories))
 		for i, r := range p.Repositories {
 			re, err := anchored(r)
@@ -311,6 +343,7 @@ func (p Profile) clone() Profile {
 	p.Repositories = append([]string(nil), p.Repositories...)
 	p.Modules = append(Prefixes(nil), p.Modules...)
 	p.Registries = cloneGrants(p.Registries)
+	p.Hosts, p.Clients, p.Upload = cloneTunnel(p)
 	return p
 }
 

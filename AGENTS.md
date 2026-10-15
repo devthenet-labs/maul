@@ -372,7 +372,10 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   by type only, CodeArtifact host agreement, internal CIDRs clear of the always-denied set), `Grant` on `Profile` (at
   most one per ecosystem, `packages` or `packagePolicy: registry`), `CheckGrants`, the npm and pip grammars
   (`NPMName`, `NPMVersion`, `PyFilePath`, `PyProjectOfFile`) and the deny table (`DeniedHost`, `DeniedPattern`,
-  `TooWideSuffixes`). The chart's schema, label and deny table are pinned to it
+  `TooWideSuffixes`). Step 3 (not yet consumed) adds route `tunnel`, `Hosts` (exact names: `ValidHost`,
+  `NormalizeHost`, `IPLiteral`, `TunnelHostPattern`), the `Clients` presets, `Upload` caps and `DeniedTunnelHost`
+  (`DeniedHost` over every suffix plus more forges and model APIs, managed control planes, special-use names and
+  publish hosts). The chart's schema, label and deny table are pinned to it
   (`TestChartProfileSchemaMatchesValidator`, `TestChartRegistrySchemaMatchesValidator`, `TestDeniedHostMatchesChart`,
   which runs the chart's own deny helpers through helm, `TestChartLabelPrefix`).
 - `egressproxy` — the egress proxy's engine (no Kubernetes imports in the core, a test pins that): the pure GOPROXY
