@@ -56,9 +56,12 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   proxy all claude model traffic goes through, one route per provider (anthropic — key or `claude setup-token`
   bearer via `--anthropic-auth` — plus bedrock SigV4, vertex OAuth, foundry key/entra). Validates caller
   tokens via TokenReview (its only Kubernetes access), strips them, injects/signs the model credential
-  outbound, streams SSE with idle keep-alive pings, audits one slog line per request. Engine in
+  outbound, streams SSE with idle keep-alive pings, audits one slog line per request. With `--usage-addr`
+  (chart: under `attribution.mode: attribute`; off by default) it also serves its per-Job, per-model usage ledger on a
+  listener of its own (`GET /v1/usage/jobs/<job>`, port 8082) to the run controllers' ServiceAccounts only
+  (`--usage-callers`, their own token audience, `internal/usagewire`). Engine in
   `internal/broker`; deployed by the chart exactly when a claude runner is enabled (claude ⇒ broker;
-  proxy-only, no in-pod credential mode).
+  proxy-only, no in-pod credential mode). One replica, always: the usage figures depend on it.
 - `cmd/egress-proxy` — OPTIONAL (default-off; chart `egressProxy`, chart-only, no kustomize component): the
   operator's Go dependency route (NOT a controller: no reconcilers, no leases). A GOPROXY-protocol reverse proxy to
   proxy.golang.org and sum.golang.org with one listener per operator network profile (`agent.networkProfiles`);
@@ -433,16 +436,29 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   dialer injectable.
 - `runnercfg` — the job controllers' shared agent-runner flag surface and startup validation (investigation,
   remediation, intent, evaluation): per-harness runner images and credential Secrets, harness restriction, repository
-  images, network profiles, agent resources, agent DNS, `--agents-paused`, `--attribution-mode`, the brokered claude
+  images, network profiles, agent resources, agent DNS, `--agents-paused`, `--attribution-mode`, the `--usage-*`
+  flags (`UsageMeter`), the brokered claude
   provider config, and
   `Resolve` (every allowlisted model runnable; then one advisory 5-second broker `/readyz` probe that logs
   `egress broker not reachable yet; claude jobs will fail until it is` and never gates startup; intent-controller uses
   `ResolveWithoutBrokerProbe`).
 - `broker`, `provider` — the egress-broker engine (TokenReview auth + verdict cache, per-route credential
-  strategies, SSE-safe reverse proxy, audit) and the pure logic of brokered claude runners (gateway env,
+  strategies, SSE-safe reverse proxy, audit, and the ledger: per pod name and UID the limits' counters plus, per bare
+  model id, observed input/output/cache-read/5m-and-1h cache-write tokens kept apart from the estimated shortfall,
+  served by `UsageHandler`) and the pure logic of brokered claude runners (gateway env,
   canonical→provider model-id maps with per-provider derived defaults, the `PATCHY_MODEL_MAP` codec both the
   controllers and agentrun share). `provider.BrokerTokenHeader` is the one definition of the caller-token
   header.
+- `usagewire`, `usagemeter` — trusted usage (per-user credentials design, revision 1, L2). `usagewire` is the
+  stdlib-only wire contract of the broker's usage endpoint (Job-name keying, `PodOfJob`, audience, credential kinds,
+  reserved model keys). `usagemeter` is the run controllers' side, behind `--usage-measurement` (off; chart on under
+  `attribution.mode: attribute`): at a terminal run whose usage is not `final`, `Settle` asks the broker for the run's
+  Job (projected usage-audience token, read per call), waits up to 2 minutes while requests are in flight or the broker
+  is unreachable, and decides `measured` (broker booted before the Job), `partial` or `reported` (no entry, no answer,
+  or a non-brokered harness, judged from the controller's own launch harness, never the pod's); `Price` normalises ids
+  with `model.Resolve` and prices observed tokens only at `model.PriceTableVersion` (cache writes 1.25x/2x; unknown
+  model: tokens kept, no cost; subscription: notional). Each of the four controllers writes `status.usage` (or
+  `status.stage.usage`) `measured`/`source`/`final` itself. `usagemetertest` is a fake broker for their tests.
 - `httpguard` — the pre-auth HTTP plumbing the broker and the egress proxy share: `SourceIP` (the connection's
   address, never a forwarding header; a rate key, never an identity), `IPLimiter` (per-source token bucket plus an
   in-flight cap, with an optional bounded wait; the broker keeps `InFlight == Burst, Wait == 0`, pinned by

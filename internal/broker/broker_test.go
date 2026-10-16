@@ -31,6 +31,11 @@ const (
 	testNamespace = "patchy-agents"
 	testSA        = "patchy-agent"
 	testSubject   = "system:serviceaccount:" + testNamespace + ":" + testSA
+	// testJob is an agent Job and testJobPod the pod the Job controller
+	// would name for it; testController is a run controller's identity.
+	testJob        = "patchy-0a1b2c3d4e-inv-a1"
+	testJobPod     = testJob + "-x7k2p"
+	testController = "system:serviceaccount:patchy:patchy-investigation-controller"
 )
 
 // tokenExp is a fixed far-future expiry so a minted token is byte-stable
@@ -95,6 +100,26 @@ func fakeReviews(calls *atomic.Int64) *fake.Clientset {
 						podNameExtraKey: {"agent-pod-1"},
 					},
 				},
+			}
+		case "jobpod", "jobpod-recycled":
+			uid := "uid-1"
+			if tokenSub(tr.Spec.Token) == "jobpod-recycled" {
+				uid = "uid-2"
+			}
+			out.Status = authnv1.TokenReviewStatus{
+				Authenticated: true,
+				User: authnv1.UserInfo{
+					Username: testSubject,
+					Extra: map[string]authnv1.ExtraValue{
+						podNameExtraKey: {testJobPod},
+						podUIDExtraKey:  {uid},
+					},
+				},
+			}
+		case "controller":
+			out.Status = authnv1.TokenReviewStatus{
+				Authenticated: true,
+				User:          authnv1.UserInfo{Username: testController},
 			}
 		case "nopod":
 			out.Status = authnv1.TokenReviewStatus{

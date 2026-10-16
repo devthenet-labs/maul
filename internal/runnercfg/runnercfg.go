@@ -35,6 +35,7 @@ import (
 	"github.com/bitwise-media-group/patchy/internal/netprofile"
 	"github.com/bitwise-media-group/patchy/internal/provider"
 	"github.com/bitwise-media-group/patchy/internal/resourceclass"
+	"github.com/bitwise-media-group/patchy/internal/usagemeter"
 )
 
 // RegisterFlags adds the per-harness runner flags shared by both job
@@ -366,6 +367,21 @@ func RegisterAttributionFlag(f *pflag.FlagSet) {
 	f.String(attribution.Flag, string(attribution.ModeOff),
 		"record whom each agent run is for: off stamps nothing; attribute stamps each new run's "+
 			"spec.attributedTo and every agent Job's and pod's "+v1alpha1.AnnotationAttributedTo+" annotation")
+}
+
+// RegisterUsageFlags adds the --usage-* flags (usagemeter.RegisterFlags),
+// shared by every controller that launches agent Jobs: off by default.
+func RegisterUsageFlags(f *pflag.FlagSet) { usagemeter.RegisterFlags(f) }
+
+// UsageMeter builds the meter the --usage-* flags configure: nil while
+// --usage-measurement is off, a startup error when it is on without a
+// usable broker URL.
+func UsageMeter(opts *cli.Options, log *slog.Logger) (*usagemeter.Meter, error) {
+	return usagemeter.New(usagemeter.Config{
+		On:        opts.Bool(usagemeter.FlagMeasurement),
+		BrokerURL: opts.String(usagemeter.FlagBrokerURL),
+		TokenFile: opts.String(usagemeter.FlagTokenFile),
+	}, log)
 }
 
 // Attribution reads --attribution-mode, refusing an unknown mode at

@@ -35,6 +35,7 @@ import (
 	"github.com/bitwise-media-group/patchy/internal/stats"
 	"github.com/bitwise-media-group/patchy/internal/templates"
 	"github.com/bitwise-media-group/patchy/internal/transcriptstore"
+	"github.com/bitwise-media-group/patchy/internal/usagemeter"
 )
 
 // InvestigationPhaseIndex indexes Investigations by status.phase for the
@@ -95,6 +96,9 @@ type InvestigationReconciler struct {
 	// person's, and the admission policy admits nothing else from this
 	// controller); under off (the zero value) none.
 	Attribution attribution.Mode
+	// Meter settles a finished run's usage against the egress broker
+	// (--usage-measurement); nil, the default, records nothing.
+	Meter *usagemeter.Meter
 	// Now is the clock seam; nil means time.Now.
 	Now func() time.Time
 	// calibrationTimeout is the deadline seam for the advisory rollup read;
@@ -250,9 +254,37 @@ func (r *InvestigationReconciler) run(ctx context.Context, req ctrl.Request) (ct
 			return ctrl.Result{}, r.launch(ctx, &inv)
 		}
 		return r.collect(ctx, &inv)
+	case v1alpha1.RunComplete, v1alpha1.RunFailed:
+		return r.measure(ctx, &inv)
 	default:
-		return ctrl.Result{}, nil // Pending waits for a grant; terminal is done
+		return ctrl.Result{}, nil // Pending waits for a grant
 	}
+}
+
+// measure settles a finished investigation's usage against the egress
+// broker (usagemeter): a no-op while the meter is off or once the usage is
+// final. The harness is the one this controller launched it on, never the
+// pod's own report of it.
+func (r *InvestigationReconciler) measure(ctx context.Context, inv *v1alpha1.Investigation) (ctrl.Result, error) {
+	if inv.Status.Stage == nil || !r.Meter.Pending(inv.Status.Phase, &inv.Status.Stage.Usage) {
+		return ctrl.Result{}, nil
+	}
+	out, wait := r.Meter.Settle(ctx, usagemeter.RunOf(ctx, r.Runner, inv.UID, inv.Status.JobRef,
+		inv.CreationTimestamp.Time, r.InvestigateHarness))
+	if out == nil {
+		return ctrl.Result{RequeueAfter: wait}, nil
+	}
+	return ctrl.Result{}, retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		var cur v1alpha1.Investigation
+		if err := r.Get(ctx, client.ObjectKeyFromObject(inv), &cur); err != nil {
+			return client.IgnoreNotFound(err)
+		}
+		if cur.Status.Stage == nil || cur.Status.Stage.Usage.Final {
+			return nil
+		}
+		usagemeter.Apply(&cur.Status.Stage.Usage, *out)
+		return r.Status().Update(ctx, &cur)
+	})
 }
 
 // launch creates the agent Job for a granted investigation.

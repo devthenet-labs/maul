@@ -54,6 +54,7 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	runnercfg.RegisterAgentDNSFlag(f)
 	runnercfg.RegisterAgentsPausedFlag(f)
 	runnercfg.RegisterAttributionFlag(f)
+	runnercfg.RegisterUsageFlags(f)
 	f.Duration("job-deadline", time.Hour, "activeDeadlineSeconds for an agent Job")
 	f.Duration("job-ttl", time.Hour, "ttlSecondsAfterFinished for a finished agent Job")
 	f.String("model-allowlist", "anthropic/claude-sonnet-5,anthropic/claude-opus-5",
@@ -133,6 +134,10 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	}
 	cpuRequest, memoryRequest, cpuLimit, memoryLimit := agentResources.Strings()
 	attributionMode, err := runnercfg.Attribution(opts)
+	if err != nil {
+		return err
+	}
+	meter, err := runnercfg.UsageMeter(opts, log)
 	if err != nil {
 		return err
 	}
@@ -233,6 +238,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 			Breaker: runnerguard.NewBreaker("investigation-controller", log),
 		},
 		Attribution: attributionMode,
+		Meter:       meter,
 		Log:         log,
 	}
 	if err := inv.SetupWithManager(mgr); err != nil {
@@ -244,6 +250,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		slog.Int("max_concurrent", opts.Int("max-concurrent-investigations")),
 		slog.Bool("agents_paused", opts.Bool(runnercfg.AgentsPausedFlag)),
 		slog.String("attribution_mode", string(attributionMode)),
+		slog.Bool("usage_measurement", meter.On()),
 		slog.Bool("repository_images", repositoryImages))
 
 	if err := mgr.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {

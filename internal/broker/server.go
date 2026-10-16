@@ -23,8 +23,14 @@ import (
 // Server is the broker engine: authenticated, audited, limit-enforcing
 // reverse proxies for the configured upstream routes.
 type Server struct {
-	cfg    Config
-	auth   *authenticator
+	cfg  Config
+	auth *authenticator
+	// usageAuth authenticates the usage endpoint's callers; nil while the
+	// endpoint is off.
+	usageAuth *authenticator
+	// boot is when this process's ledger started: the usage endpoint
+	// reports it, so a controller knows whether the ledger saw a pod whole.
+	boot   time.Time
 	routes map[string]*route
 	ips    *ipLimiter
 	ledger *ledger
@@ -45,9 +51,11 @@ func New(cs kubernetes.Interface, cfg Config, log *slog.Logger) (*Server, error)
 		log = slog.New(slog.DiscardHandler)
 	}
 	now := time.Now
+	reviews := newReviewLimiter(cfg.TokenReviewsPerSecond)
 	s := &Server{
 		cfg:    cfg,
-		auth:   newAuthenticator(cs, cfg, newReviewLimiter(cfg.TokenReviewsPerSecond)),
+		auth:   newAuthenticator(cs, cfg, reviews),
+		boot:   now(),
 		routes: map[string]*route{},
 		ips:    newIPLimiter(cfg.PreauthRequestsPerSecond, cfg.PreauthBurst, now),
 		ledger: newLedger(cfg.Limits, now),
@@ -58,6 +66,9 @@ func New(cs kubernetes.Interface, cfg Config, log *slog.Logger) (*Server, error)
 	}
 	for name, u := range cfg.Upstreams {
 		s.routes[name] = newRoute(name, u, log)
+	}
+	if cfg.Usage.Enabled() {
+		s.usageAuth = newUsageAuthenticator(cs, cfg, reviews)
 	}
 	return s, nil
 }
@@ -255,7 +266,7 @@ func (s *Server) reserve(r *http.Request, _ *route, adm *admission) *rejection {
 	if adm.ep.metered {
 		worst = adm.estimate + adm.outputBound
 	}
-	release, reason := s.ledger.admit(r.Context(), adm.id.pod, worst)
+	release, reason := s.ledger.admit(r.Context(), adm.id.key(), worst)
 	if reason != "" {
 		return &rejection{status: http.StatusTooManyRequests, kind: "rate_limit_error", msg: reason, reason: "limit"}
 	}
@@ -273,14 +284,15 @@ func (s *Server) reject(w http.ResponseWriter, r *http.Request, rt *route, adm *
 	countRequest(r.Context(), rt.name, rej.reason)
 	audit(s.log, r, auditEntry{
 		pod: adm.id.pod, route: rt.name, model: adm.model, reason: rej.reason,
-		status: rej.status, elapsed: s.now().Sub(adm.start), totals: s.ledger.totals(adm.id.pod),
+		status: rej.status, elapsed: s.now().Sub(adm.start), totals: s.ledger.totals(adm.id.key()),
 	})
 }
 
 // proxy forwards an admitted request, charging usage as the response streams
 // through and settling the worst case when it ends short.
 func (s *Server) proxy(w http.ResponseWriter, r *http.Request, rt *route, adm *admission) {
-	pod := adm.id.pod
+	key := adm.id.key()
+	cred := rt.upstream.CredentialKind
 	aw := &httpguard.CountingWriter{ResponseWriter: w}
 	var inner http.ResponseWriter = aw
 	var uw *usageWriter
@@ -288,7 +300,7 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, rt *route, adm *a
 	if adm.ep.metered {
 		uw = &usageWriter{ResponseWriter: aw, scan: &usageScanner{}, onUsage: func(d usage) {
 			charged = charged.mergeAdd(d)
-			s.ledger.charge(pod, d.total())
+			s.ledger.observe(key, adm.model, rt.name, cred, d)
 		}}
 		inner = uw
 	}
@@ -302,7 +314,7 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, rt *route, adm *a
 		if uw != nil {
 			if d := uw.scan.finish(); d.total() > 0 {
 				charged = charged.mergeAdd(d)
-				s.ledger.charge(pod, d.total())
+				s.ledger.observe(key, adm.model, rt.name, cred, d)
 			}
 			if !uw.scan.complete && aw.Status/100 == 2 {
 				bound := adm.outputBound
@@ -310,7 +322,7 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, rt *route, adm *a
 					bound = uw.bytes / 4
 				}
 				estimated = shortfall(charged, adm.estimate, bound)
-				s.ledger.charge(pod, estimated)
+				s.ledger.shortfall(key, adm.model, rt.name, cred, estimated)
 			}
 			countTokens(r.Context(), rt.name, charged, estimated)
 		}
@@ -321,9 +333,9 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, rt *route, adm *a
 		adm.release()
 		countRequest(r.Context(), rt.name, "proxied")
 		audit(s.log, r, auditEntry{
-			pod: pod, route: rt.name, model: adm.model, status: aw.Status, bytes: aw.Bytes,
+			pod: adm.id.pod, route: rt.name, model: adm.model, status: aw.Status, bytes: aw.Bytes,
 			elapsed: s.now().Sub(adm.start), tokens: charged.total() + estimated, estimated: estimated > 0,
-			totals: s.ledger.totals(pod),
+			totals: s.ledger.totals(key),
 		})
 	}()
 	defer sw.stop()

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/bitwise-media-group/patchy/internal/provider"
+	"github.com/bitwise-media-group/patchy/internal/usagewire"
 )
 
 // Default knob values, applied by Config.withDefaults.
@@ -65,6 +66,12 @@ type Upstream struct {
 	Target *url.URL
 	// Credential attaches the upstream credential; nil forwards unmodified.
 	Credential CredentialFunc
+	// CredentialKind is what kind of credential Credential attaches, one of
+	// the usagewire.Credential* kinds; the usage endpoint reports it beside
+	// each model's tokens, so a controller can tell a subscription's
+	// notional cost from money spent. Empty for a route built without one
+	// (tests).
+	CredentialKind string
 	// BufferBody marks a route whose Credential hashes the payload, as
 	// SigV4 does; its bodies are bounded by Config.MaxRequestBytes rather
 	// than MaxAnthropicRequestBytes. Every route buffers regardless, so the
@@ -160,7 +167,26 @@ type Config struct {
 	// Upstreams is the route table, keyed by path prefix; only the
 	// provider.Names routes, each with its own surface, are accepted.
 	Upstreams map[string]Upstream
+	// Usage configures the usage endpoint (UsageHandler); its zero value
+	// leaves the endpoint off.
+	Usage UsageConfig
 }
+
+// UsageConfig configures the usage endpoint the run controllers read a
+// settled run's measured tokens from (usagewire).
+type UsageConfig struct {
+	// Callers are the usernames, system:serviceaccount:<ns>:<name>, the
+	// endpoint answers to: the run controllers' ServiceAccounts. Empty
+	// leaves the endpoint off.
+	Callers []string
+	// Audience is the projected-token audience the callers present;
+	// empty takes usagewire.Audience. It must differ from Config.Audience,
+	// so an agent pod's token never authenticates on the endpoint.
+	Audience string
+}
+
+// Enabled reports whether the usage endpoint is configured.
+func (u UsageConfig) Enabled() bool { return len(u.Callers) > 0 }
 
 // withDefaults returns cfg with zero knobs defaulted.
 func (c Config) withDefaults() Config {
@@ -184,6 +210,9 @@ func (c Config) withDefaults() Config {
 	}
 	if len(c.BetaDenylist) == 0 && !c.DisableBetaDenylist {
 		c.BetaDenylist = slices.Clone(DefaultBetaDenylist)
+	}
+	if c.Usage.Audience == "" {
+		c.Usage.Audience = usagewire.Audience
 	}
 	return c
 }
@@ -230,6 +259,33 @@ func (c Config) validate() error {
 	for _, p := range c.BetaDenylist {
 		if _, err := path.Match(p, ""); err != nil {
 			return fmt.Errorf("broker: beta deny pattern %q: %w", p, err)
+		}
+	}
+	return c.Usage.validate(c)
+}
+
+// serviceAccountUser is the username prefix of every ServiceAccount.
+const serviceAccountUser = "system:serviceaccount:"
+
+// validate rejects a usage endpoint that would answer anyone but a
+// controller ServiceAccount: a caller that is not a ServiceAccount, the
+// agent ServiceAccount itself, or the agents' audience.
+func (u UsageConfig) validate(c Config) error {
+	if !u.Enabled() {
+		return nil
+	}
+	if u.Audience == c.Audience {
+		return errors.New("broker: the usage audience must differ from the agent audience")
+	}
+	agent := serviceAccountUser + c.AgentNamespace + ":" + c.AgentServiceAccount
+	for _, caller := range u.Callers {
+		ns, name, ok := strings.Cut(strings.TrimPrefix(caller, serviceAccountUser), ":")
+		switch {
+		case !strings.HasPrefix(caller, serviceAccountUser) || !ok || ns == "" || name == "" ||
+			strings.Contains(name, ":"):
+			return fmt.Errorf("broker: usage caller %q is not system:serviceaccount:<namespace>:<name>", caller)
+		case caller == agent:
+			return errors.New("broker: the agent service account cannot be a usage caller")
 		}
 	}
 	return nil

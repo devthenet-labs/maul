@@ -34,6 +34,7 @@ import (
 	"github.com/bitwise-media-group/patchy/internal/schedule"
 	"github.com/bitwise-media-group/patchy/internal/templates"
 	"github.com/bitwise-media-group/patchy/internal/transcriptstore"
+	"github.com/bitwise-media-group/patchy/internal/usagemeter"
 )
 
 // remSchedulerRequest is the singleton request every watch event maps to.
@@ -100,6 +101,9 @@ type RemediationReconciler struct {
 	// ("org" for one stamped before the mode was on); under off (the zero
 	// value) none.
 	Attribution attribution.Mode
+	// Meter settles a finished run's usage against the egress broker
+	// (--usage-measurement); nil, the default, records nothing.
+	Meter *usagemeter.Meter
 	// Now is the clock seam; nil means time.Now.
 	Now func() time.Time
 	// Log receives diagnostics; nil discards.
@@ -268,9 +272,37 @@ func (r *RemediationReconciler) run(ctx context.Context, req ctrl.Request) (ctrl
 			return ctrl.Result{}, r.launch(ctx, &rem)
 		}
 		return r.collect(ctx, &rem)
+	case v1alpha1.RunComplete, v1alpha1.RunFailed:
+		return r.measure(ctx, &rem)
 	default:
 		return ctrl.Result{}, nil
 	}
+}
+
+// measure settles a finished remediation's usage against the egress broker
+// (usagemeter): a no-op while the meter is off or once the usage is final.
+// The harness is the one the spawner resolved and this controller launched
+// it on, never the pod's own report of it.
+func (r *RemediationReconciler) measure(ctx context.Context, rem *v1alpha1.Remediation) (ctrl.Result, error) {
+	if rem.Status.Stage == nil || !r.Meter.Pending(rem.Status.Phase, &rem.Status.Stage.Usage) {
+		return ctrl.Result{}, nil
+	}
+	out, wait := r.Meter.Settle(ctx, usagemeter.RunOf(ctx, r.Runner, rem.UID, rem.Status.JobRef,
+		rem.CreationTimestamp.Time, rem.Spec.Parameters.Harness))
+	if out == nil {
+		return ctrl.Result{RequeueAfter: wait}, nil
+	}
+	return ctrl.Result{}, retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		var cur v1alpha1.Remediation
+		if err := r.Get(ctx, client.ObjectKeyFromObject(rem), &cur); err != nil {
+			return client.IgnoreNotFound(err)
+		}
+		if cur.Status.Stage == nil || cur.Status.Stage.Usage.Final {
+			return nil
+		}
+		usagemeter.Apply(&cur.Status.Stage.Usage, *out)
+		return r.Status().Update(ctx, &cur)
+	})
 }
 
 // launch creates the remediation agent Job (credential-less artifact flow;

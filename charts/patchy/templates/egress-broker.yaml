@@ -85,6 +85,16 @@ and the rendered ConfigMap unchanged. The config.extra maps below still win.
 {{- $_ := set $data $env . }}
 {{- end }}
 {{- end }}
+{{- /*
+Trusted usage (design L2): the usage endpoint on its own port, answering the
+run controllers' ServiceAccounts only, rendered only while
+patchy.usageMeasured (attribution.mode attribute). The Deployment stays at one
+replica: the usage figures depend on one ledger seeing all of a pod's traffic.
+*/}}
+{{- if include "patchy.usageMeasured" . }}
+{{- $_ := set $data "PATCHY_USAGE_ADDR" ":8082" }}
+{{- $_ := set $data "PATCHY_USAGE_CALLERS" (include "patchy.usageCallers" .) }}
+{{- end }}
 {{- with $limits.modelAllowlist }}
 {{- $_ := set $data "PATCHY_MODEL_ALLOWLIST" (join "," .) }}
 {{- end }}
@@ -219,6 +229,11 @@ spec:
                       - name: health
                         containerPort: 8081
                         protocol: TCP
+                      {{- if include "patchy.usageMeasured" . }}
+                      - name: usage
+                        containerPort: 8082
+                        protocol: TCP
+                      {{- end }}
                   livenessProbe:
                       httpGet:
                           path: /healthz
@@ -312,6 +327,12 @@ spec:
           port: {{ $vals.service.port }}
           targetPort: http
           protocol: TCP
+        {{- if include "patchy.usageMeasured" . }}
+        - name: usage
+          port: 8082
+          targetPort: usage
+          protocol: TCP
+        {{- end }}
 {{- if $vals.networkPolicy.create }}
 ---
 # Ingress: the proxy port from the agent namespace only — the broker answers
@@ -347,6 +368,21 @@ spec:
         - ports:
               - protocol: TCP
                 port: 8081
+        {{- if include "patchy.usageMeasured" . }}
+        # The usage endpoint: the run controllers only (TokenReview of their
+        # usage-audience token is the authentication; this is L3 on top).
+        - from:
+              {{- range $c := list "investigation-controller" "remediation-controller" "intent-controller" "evaluation-controller" }}
+              {{- if or (has $c (list "investigation-controller" "remediation-controller")) (and (eq $c "intent-controller") $.Values.intentController.enabled) (and (eq $c "evaluation-controller") $.Values.evaluationController.enabled) }}
+              - podSelector:
+                    matchLabels:
+                        {{- include "patchy.selectorLabels" (dict "root" $ "name" $c) | nindent 24 }}
+              {{- end }}
+              {{- end }}
+          ports:
+              - protocol: TCP
+                port: 8082
+        {{- end }}
     egress:
         - to:
               - namespaceSelector:

@@ -1225,9 +1225,12 @@ func (f *fakeGitHub) RerunFailedJobs(_ context.Context, repoURL string, runID in
 // fakeJobs stands in for the jobs client: it records each launch and serves
 // each Job's status and output from what the test set.
 type fakeJobs struct {
-	mu        sync.Mutex
-	specs     map[string]jobs.Spec
-	envs      map[string]map[string]string
+	mu    sync.Mutex
+	specs map[string]jobs.Spec
+	envs  map[string]map[string]string
+	// order is every Job's name in the order it was first created, so a
+	// test can read launches in order (specs is a map).
+	order     []string
 	deleted   []string
 	status    map[string]jobs.Status
 	defaultOn bool // report the default image even when the spec pinned one
@@ -1259,6 +1262,9 @@ func (j *fakeJobs) Create(_ context.Context, spec jobs.Spec, env map[string]stri
 		return "", v1alpha1.RunnerImageRef{}, j.createErr
 	}
 	name := jobs.NameFor(spec.Finding, spec.Kind, int32(spec.Attempt))
+	if _, seen := j.specs[name]; !seen {
+		j.order = append(j.order, name)
+	}
 	j.specs[name], j.envs[name] = spec, env
 	ref := v1alpha1.RunnerImageRef{Image: "patchy/claude-agent-runner:test", Source: v1alpha1.RunnerImageSourceDefault}
 	if spec.RunnerImage != "" && !j.defaultOn {
@@ -1320,6 +1326,18 @@ func (j *fakeJobs) launched() []jobs.Spec {
 	out := make([]jobs.Spec, 0, len(j.specs))
 	for _, s := range j.specs {
 		out = append(out, s)
+	}
+	return out
+}
+
+// launchedInOrder are the specs of the Jobs created, in the order each was
+// first created.
+func (j *fakeJobs) launchedInOrder() []jobs.Spec {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	out := make([]jobs.Spec, 0, len(j.order))
+	for _, name := range j.order {
+		out = append(out, j.specs[name])
 	}
 	return out
 }

@@ -554,14 +554,172 @@ spec:
                           schemas forbid floats).
                         pattern: ^[0-9]+(\.[0-9]{1,6})?$
                         type: string
+                      final:
+                        description: |-
+                          Final marks the usage settled: the controller has stopped waiting
+                          for the broker and Source and Measured will not change.
+                        type: boolean
                       inputTokens:
                         description: InputTokens consumed.
                         format: int64
                         type: integer
+                      measured:
+                        description: |-
+                          Measured is the broker's metered usage of the run's pod, beside the
+                          pod-reported counts above (which a pod could misreport). Present
+                          when Source is measured or partial.
+                        properties:
+                          brokerBootTime:
+                            description: |-
+                              BrokerBootTime is when the broker's ledger began; Source is measured
+                              only when it is before the run's Job was created.
+                            format: date-time
+                            type: string
+                          cacheReadTokens:
+                            description: CacheReadTokens observed.
+                            format: int64
+                            minimum: 0
+                            type: integer
+                          cacheWriteTokens:
+                            description: |-
+                              CacheWriteTokens observed: every prompt cache write, five-minute and
+                              one-hour (Models has the split).
+                            format: int64
+                            minimum: 0
+                            type: integer
+                          costUSD:
+                            description: |-
+                              CostUSD prices the observed tokens: the sum of Models' costs, absent
+                              when any model with observed tokens has no known price.
+                            pattern: ^[0-9]+(\.[0-9]{1,6})?$
+                            type: string
+                          estimatedShortfallTokens:
+                            description: |-
+                              EstimatedShortfallTokens is the unmetered worst case: what the
+                              broker charged its limits for cut or usage-less responses beyond what
+                              it observed. Shown as unmetered, never priced, never part of a cost.
+                            format: int64
+                            minimum: 0
+                            type: integer
+                          inputTokens:
+                            description: InputTokens observed.
+                            format: int64
+                            minimum: 0
+                            type: integer
+                          models:
+                            description: Models is the usage per model.
+                            items:
+                              description: ModelUsage is a run's measured usage of
+                                one model.
+                              properties:
+                                cacheReadTokens:
+                                  description: CacheReadTokens observed.
+                                  format: int64
+                                  minimum: 0
+                                  type: integer
+                                cacheWrite1hTokens:
+                                  description: 'CacheWrite1hTokens observed: one-hour
+                                    prompt cache writes.'
+                                  format: int64
+                                  minimum: 0
+                                  type: integer
+                                cacheWrite5mTokens:
+                                  description: 'CacheWrite5mTokens observed: five-minute
+                                    prompt cache writes.'
+                                  format: int64
+                                  minimum: 0
+                                  type: integer
+                                costUSD:
+                                  description: |-
+                                    CostUSD prices the observed tokens at list rates; absent when the
+                                    model has no known price (its tokens are kept).
+                                  pattern: ^[0-9]+(\.[0-9]{1,6})?$
+                                  type: string
+                                credential:
+                                  description: |-
+                                    Credential is the kind of credential that paid: api-key,
+                                    oauth-token (a Claude subscription) or cloud-identity.
+                                  maxLength: 32
+                                  type: string
+                                estimatedShortfallTokens:
+                                  description: EstimatedShortfallTokens is this model's
+                                    unmetered worst case.
+                                  format: int64
+                                  minimum: 0
+                                  type: integer
+                                inputTokens:
+                                  description: InputTokens observed.
+                                  format: int64
+                                  minimum: 0
+                                  type: integer
+                                model:
+                                  description: |-
+                                    Model is the registry's canonical id when the reported id resolves to
+                                    one, else the id the broker reported (an unknown model).
+                                  maxLength: 160
+                                  minLength: 1
+                                  type: string
+                                outputTokens:
+                                  description: OutputTokens observed.
+                                  format: int64
+                                  minimum: 0
+                                  type: integer
+                                priceTable:
+                                  description: |-
+                                    PriceTable is the price-table version CostUSD was priced at; set
+                                    with CostUSD.
+                                  maxLength: 32
+                                  type: string
+                                pricing:
+                                  description: Pricing is list or subscription (notional);
+                                    set with CostUSD.
+                                  enum:
+                                  - list
+                                  - subscription
+                                  type: string
+                              required:
+                              - model
+                              type: object
+                            maxItems: 16
+                            type: array
+                            x-kubernetes-list-type: atomic
+                          outputTokens:
+                            description: OutputTokens observed.
+                            format: int64
+                            minimum: 0
+                            type: integer
+                          priceTable:
+                            description: PriceTable is the price-table version CostUSD
+                              was priced at.
+                            maxLength: 32
+                            type: string
+                          pricing:
+                            description: |-
+                              Pricing is subscription when any priced model's tokens were paid by
+                              a subscription credential, else list.
+                            enum:
+                            - list
+                            - subscription
+                            type: string
+                        type: object
                       outputTokens:
                         description: OutputTokens produced.
                         format: int64
                         type: integer
+                      source:
+                        description: |-
+                          Source says which figure the run's usage is to be trusted as, once
+                          Final: measured (the egress broker metered the whole pod), partial
+                          (it metered only part of it: it restarted after the pod existed, or
+                          requests were still in flight when the wait ended) or reported (no
+                          broker figure: a non-brokered harness, or none was available; only
+                          the pod-reported counts above exist). Set by the run's controller
+                          under --usage-measurement; empty before or without it.
+                        enum:
+                        - measured
+                        - partial
+                        - reported
+                        type: string
                     type: object
                 required:
                 - outcome

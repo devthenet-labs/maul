@@ -23,14 +23,28 @@ import (
 // caller to the broker and must never travel further.
 const TokenHeader = provider.BrokerTokenHeader
 
-// podNameExtraKey is where the API server reports the bound pod of a
-// pod-bound projected token on the TokenReview user info.
-const podNameExtraKey = "authentication.kubernetes.io/pod-name"
+// podNameExtraKey and podUIDExtraKey are where the API server reports the
+// bound pod of a pod-bound projected token on the TokenReview user info.
+const (
+	podNameExtraKey = "authentication.kubernetes.io/pod-name"
+	podUIDExtraKey  = "authentication.kubernetes.io/pod-uid"
+)
 
 // identity is who a validated caller token belongs to.
 type identity struct {
 	user string // e.g. system:serviceaccount:patchy-agents:patchy-agent
-	pod  string // bound pod name: the audit and ledger key; may be empty
+	pod  string // bound pod name: the audit key; may be empty
+	uid  string // bound pod UID; may be empty
+}
+
+// key is the ledger key: the pod name, and its UID when the review reported
+// one, so a pod name used again by a later pod never shares an entry. Neither
+// a pod name nor a UID can contain "/".
+func (id identity) key() string {
+	if id.uid == "" {
+		return id.pod
+	}
+	return id.pod + "/" + id.uid
 }
 
 // errReviewThrottled and errReviewUnavailable are a review the broker could
@@ -58,20 +72,45 @@ type verdict struct {
 type authenticator struct {
 	cs       kubernetes.Interface
 	audience string
-	subject  string // the only accepted username
-	ttl      time.Duration
-	reviews  *reviewLimiter // nil: unlimited
-	now      func() time.Time
+	subjects map[string]bool // the only accepted usernames
+	// refusal is the reason a valid token of any other identity is denied.
+	refusal string
+	ttl     time.Duration
+	reviews *reviewLimiter // nil: unlimited
+	now     func() time.Time
 
 	mu    sync.Mutex
 	cache map[[sha256.Size]byte]verdict
 }
 
 func newAuthenticator(cs kubernetes.Interface, cfg Config, reviews *reviewLimiter) *authenticator {
+	subject := fmt.Sprintf("system:serviceaccount:%s:%s", cfg.AgentNamespace, cfg.AgentServiceAccount)
 	return &authenticator{
 		cs:       cs,
 		audience: cfg.Audience,
-		subject:  fmt.Sprintf("system:serviceaccount:%s:%s", cfg.AgentNamespace, cfg.AgentServiceAccount),
+		subjects: map[string]bool{subject: true},
+		refusal:  "identity is not the agent service account",
+		ttl:      cfg.VerdictTTL,
+		reviews:  reviews,
+		now:      time.Now,
+		cache:    map[[sha256.Size]byte]verdict{},
+	}
+}
+
+// newUsageAuthenticator is the usage endpoint's authenticator: its own
+// audience, its own verdict cache and only the configured controller
+// ServiceAccounts, behind the same review limiter as the proxy's, so the
+// endpoint adds no TokenReview capacity of its own.
+func newUsageAuthenticator(cs kubernetes.Interface, cfg Config, reviews *reviewLimiter) *authenticator {
+	subjects := map[string]bool{}
+	for _, c := range cfg.Usage.Callers {
+		subjects[c] = true
+	}
+	return &authenticator{
+		cs:       cs,
+		audience: cfg.Usage.Audience,
+		subjects: subjects,
+		refusal:  "identity is not a usage caller",
 		ttl:      cfg.VerdictTTL,
 		reviews:  reviews,
 		now:      time.Now,
@@ -88,6 +127,12 @@ func (a *authenticator) authenticate(r *http.Request) (identity, error) {
 	if token == "" {
 		return identity{}, fmt.Errorf("missing %s header", TokenHeader)
 	}
+	return a.authenticateToken(r, token)
+}
+
+// authenticateToken is authenticate for a token the caller has already
+// extracted from the request.
+func (a *authenticator) authenticateToken(r *http.Request, token string) (identity, error) {
 	key := sha256.Sum256([]byte(token))
 
 	a.mu.Lock()
@@ -127,12 +172,15 @@ func (a *authenticator) review(r *http.Request, token string) (verdict, error) {
 	switch {
 	case !tr.Status.Authenticated:
 		return verdict{allowed: false, reason: "not authenticated for audience " + a.audience, expiry: expiry}, nil
-	case tr.Status.User.Username != a.subject:
-		return verdict{allowed: false, reason: "identity is not the agent service account", expiry: expiry}, nil
+	case !a.subjects[tr.Status.User.Username]:
+		return verdict{allowed: false, reason: a.refusal, expiry: expiry}, nil
 	}
 	id := identity{user: tr.Status.User.Username}
 	if pods := tr.Status.User.Extra[podNameExtraKey]; len(pods) > 0 {
 		id.pod = pods[0]
+	}
+	if uids := tr.Status.User.Extra[podUIDExtraKey]; len(uids) > 0 {
+		id.uid = uids[0]
 	}
 	return verdict{allowed: true, id: id, expiry: expiry}, nil
 }

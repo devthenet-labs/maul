@@ -13,7 +13,8 @@ import (
 )
 
 // ledgerTTL is how long an idle pod's counters survive; a Job never outlives
-// its deadline by that much.
+// its deadline by that much, and its controller reads the pod's usage within
+// minutes of the Job finishing.
 const ledgerTTL = 24 * time.Hour
 
 // podTotals is what one pod has consumed so far, for the audit line.
@@ -44,6 +45,11 @@ type podCounters struct {
 	tokens   int64
 	reserved int64 // outstanding reservations of in-flight requests
 	seen     time.Time
+	// firstSeen is when the ledger first saw the pod; models is what it
+	// consumed per bare model id (usageledger.go). Both are for the usage
+	// endpoint and decide nothing here.
+	firstSeen time.Time
+	models    map[string]*modelUsage
 	// freed is closed, and cleared, when one of the pod's in-flight slots is
 	// released: requests waiting for a slot select on it. Nil while nobody
 	// waits.
@@ -153,9 +159,17 @@ func (l *ledger) charge(pod string, n int64) {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	now := l.now()
-	l.podLocked(pod, now).tokens += n
-	l.hour.add(now, n)
+	l.chargeLocked(l.podLocked(pod, l.now()), n)
+}
+
+// chargeLocked adds n tokens to p's total and the hourly window; called
+// under mu.
+func (l *ledger) chargeLocked(p *podCounters, n int64) {
+	if n <= 0 {
+		return
+	}
+	p.tokens += n
+	l.hour.add(l.now(), n)
 }
 
 // totals reports pod's counters.
@@ -172,7 +186,7 @@ func (l *ledger) totals(pod string) podTotals {
 func (l *ledger) podLocked(pod string, now time.Time) *podCounters {
 	p, ok := l.pods[pod]
 	if !ok {
-		p = &podCounters{}
+		p = &podCounters{firstSeen: now}
 		l.pods[pod] = p
 	}
 	p.seen = now

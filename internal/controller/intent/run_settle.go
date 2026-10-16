@@ -15,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -24,6 +25,7 @@ import (
 	"github.com/bitwise-media-group/patchy/internal/envelope"
 	"github.com/bitwise-media-group/patchy/internal/jobs"
 	"github.com/bitwise-media-group/patchy/internal/runnerguard"
+	"github.com/bitwise-media-group/patchy/internal/usagemeter"
 )
 
 // updateRun writes the run's status as mutate leaves it, over the version in
@@ -233,4 +235,30 @@ func (r *RunReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&v1alpha1.Intent{}, mapIntent).
 		Named("intent-run").
 		Complete(r)
+}
+
+// measure settles a finished run's usage against the egress broker
+// (usagemeter): a no-op while the meter is off or once the usage is final.
+// Every intent Job runs on r.Harness. The write is over a fresh read, as
+// every write of a run's status here is.
+func (r *RunReconciler) measure(ctx context.Context, run *v1alpha1.IntentRun) (ctrl.Result, error) {
+	if !r.Meter.Pending(run.Status.Phase, &run.Status.Usage) {
+		return ctrl.Result{}, nil
+	}
+	out, wait := r.Meter.Settle(ctx, usagemeter.RunOf(ctx, r.Jobs, run.UID, run.Status.JobRef,
+		run.CreationTimestamp.Time, r.Harness))
+	if out == nil {
+		return ctrl.Result{RequeueAfter: wait}, nil
+	}
+	return ctrl.Result{}, retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		var cur v1alpha1.IntentRun
+		if err := r.APIReader.Get(ctx, client.ObjectKeyFromObject(run), &cur); err != nil {
+			return client.IgnoreNotFound(err)
+		}
+		if cur.Status.Usage.Final || !cur.DeletionTimestamp.IsZero() {
+			return nil
+		}
+		usagemeter.Apply(&cur.Status.Usage, *out)
+		return r.Status().Update(ctx, &cur)
+	})
 }
