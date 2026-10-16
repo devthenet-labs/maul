@@ -90,6 +90,7 @@ are meant to run in the application repository's own image.
 {{- if .Values.preview.enabled }}
 {{- $p := .Values.preview }}
 {{- $n := $p.nodeIsolation }}
+{{- $iso := include "patchy.previewNodeIsolation" . | fromJson }}
 
 Previews: {{ $p.slotCount }} slot(s), each preview served at <project>-<issue>.{{ $p.hostSuffix }}.
 Next steps:
@@ -107,12 +108,21 @@ Next steps:
   2. The wildcard record: point *.{{ $p.hostSuffix }} at that hostname (a
      Route53 alias A record, or a CNAME).
 
-  3. The preview nodes: {{ if $n.create }}this release renders NodeClass {{ $n.nodeClass }} and
-     NodePool {{ $n.nodePool }}, kept on uninstall (delete the NodePool first).
-{{- else }}NodeClass {{ $n.nodeClass }} and NodePool {{ $n.nodePool }} must
-     exist (DefaultDeny, tainted {{ $n.taintKey }}=true:NoExecute), or set
+  3. The preview nodes: {{ if eq $iso.mode "none" }}none. preview.nodeIsolation.mode is none, so
+     preview Pods share nodes with everything else: hostile pull request
+     code runs beside patchy's controllers and agents. Prefer a dedicated,
+     tainted node.
+{{- else if $n.create }}this release renders NodeClass {{ $iso.nodeClass }} and
+     NodePool {{ $iso.nodePool }}, kept on uninstall (delete the NodePool first).
+{{- else if $iso.eks }}NodeClass {{ $iso.nodeClass }} and NodePool {{ $iso.nodePool }} must
+     exist (DefaultDeny, tainted {{ $iso.taintKey }}=true:NoExecute), or set
      preview.nodeIsolation.create to render them.
+{{- else }}nodes labelled
+{{- range $pair := $iso.pairs }} {{ index $pair 0 }}={{ index $pair 1 }}{{ end }}
+     and tainted {{ $iso.taintKey }}=true:NoExecute must exist, and nothing
+     else may run there.
 {{- end }}
+{{- if $iso.eks }}
 
   4. The isolation probe: before enabling any Project preview, and after
      every EKS, Auto Mode or VPC CNI upgrade, run the cold-start gate from a
@@ -121,9 +131,10 @@ Next steps:
        bash hack/preview-isolation-probe/run.sh \
          --repository <owner>/<app> \
          --image {{ include "patchy.previewImagePrefix" . }}<app> \
-         --taint-key {{ $n.taintKey }} \
-         --node-pool {{ $n.nodePool }} --node-class {{ $n.nodeClass }} \
+         --taint-key {{ $iso.taintKey }} \
+         --node-pool {{ $iso.nodePool }} --node-class {{ $iso.nodeClass }} \
          <disposable-PR-number>
+{{- end }}
 
 COST: the preview ALB bills from the moment the placeholder creates it,
 whether or not any preview runs{{ if $p.placeholder.enabled }} (even with previewController off){{ end }}.
@@ -132,10 +143,16 @@ A preview node ({{ join ", " $n.instanceTypes }}) bills from launch until it
 is consolidated, 30s after its last preview Pod. Budget by CPU: the pool
 stops launching nodes at {{ $n.cpuLimit }} CPUs. Auto Mode is not known to
 enforce a NodePool's node limit, so do not count on its limit of {{ $n.nodeLimit }} nodes.
-{{- else }}
-A preview node bills from launch until NodePool {{ $n.nodePool }}'s own
+{{- else if $iso.eks }}
+A preview node bills from launch until NodePool {{ $iso.nodePool }}'s own
 disruption policy removes it. This release does not render that NodePool, so
 its consolidation and limits are whatever you set.
+{{- end }}
+{{- with $iso.legacy }}
+
+DEPRECATED: preview.nodeIsolation.{{ join " and preview.nodeIsolation." . }} still work, but
+move them to preview.nodeIsolation.eksAutoMode ({{ join ", " . }}) before
+they are removed.
 {{- end }}
 {{- end }}
 {{- $pas := include "patchy.previewAuthState" . | fromJson }}

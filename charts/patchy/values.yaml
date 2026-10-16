@@ -114,14 +114,36 @@ preview:
     slotCount: 2
     placeholder:
         enabled: true
-    # A dedicated, tainted EKS Auto Mode NodePool backed by a DefaultDeny
-    # NodeClass is required before any slot workload runs. These names must
-    # match the node resources, which exist before the first slot workload:
-    # yours, or the chart's with create below.
+    # Dedicated, tainted nodes for hostile preview code. Every slot Pod
+    # selects them (a node selector) and tolerates their NoExecute taint,
+    # which keeps everything else off them; the slot admission policies hold
+    # every slot Pod to both, and every other Pod off the taint. The nodes
+    # exist before the first slot workload: yours, or (EKS Auto Mode) the
+    # chart's with create below.
     nodeIsolation:
+        # required: every slot Pod selects the nodes and tolerates their
+        # taint, and the render fails without a selector and a taintKey.
+        # none: neither, an explicit opt-out for a cluster without dedicated
+        # preview nodes (preview Pods then share nodes with everything else),
+        # which refuses a selector or taintKey.
+        mode: required
+        # Node label to value every slot Pod selects, on any cluster (for
+        # example patchy.example.com/previews: "true" on a tainted node of
+        # its own). Merged with eksAutoMode's two labels.
+        selector: {}
+        taintKey: "" # Exact NoExecute taint; value must be "true".
+        # EKS Auto Mode: a dedicated NodePool backed by a DefaultDeny
+        # NodeClass. Each name fills one selector label
+        # (karpenter.sh/nodepool, eks.amazonaws.com/nodeclass); set both or
+        # neither.
+        eksAutoMode:
+            nodePool: ""
+            nodeClass: ""
+        # Legacy spellings of eksAutoMode.nodePool and eksAutoMode.nodeClass,
+        # still honoured (eksAutoMode wins where both are set); the install
+        # NOTES ask to move them.
         nodePool: ""
         nodeClass: ""
-        taintKey: "" # Exact NoExecute taint; value must be "true".
         # Render that NodeClass and NodePool, named nodeClass and nodePool,
         # instead of expecting them to exist. Off by default; requires
         # preview.enabled. The NodeClass always carries networkPolicy:

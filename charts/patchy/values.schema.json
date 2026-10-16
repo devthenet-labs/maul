@@ -756,10 +756,26 @@
                 "nodeIsolation": {
                     "type": "object",
                     "additionalProperties": false,
-                    "required": ["nodePool", "nodeClass", "taintKey"],
+                    "required": ["taintKey"],
                     "properties": {
-                        "nodePool": {"type": "string", "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"},
-                        "nodeClass": {"type": "string", "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"},
+                        "mode": {"type": "string", "enum": ["required", "none"], "description": "required: every slot Pod selects the preview nodes and tolerates their taint; none: neither, an explicit opt-out"},
+                        "selector": {
+                            "type": "object",
+                            "description": "Node label to value every slot Pod selects, merged with eksAutoMode's two labels",
+                            "propertyNames": {"pattern": "^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?[A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$"},
+                            "additionalProperties": {"type": "string", "pattern": "^([A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?)?$"}
+                        },
+                        "eksAutoMode": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "description": "EKS Auto Mode: the dedicated NodePool and its DefaultDeny NodeClass, each filling one selector label; both or neither",
+                            "properties": {
+                                "nodePool": {"type": "string", "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"},
+                                "nodeClass": {"type": "string", "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"}
+                            }
+                        },
+                        "nodePool": {"type": "string", "description": "Legacy spelling of eksAutoMode.nodePool", "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"},
+                        "nodeClass": {"type": "string", "description": "Legacy spelling of eksAutoMode.nodeClass", "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"},
                         "taintKey": {"type": "string"},
                         "create": {"type": "boolean"},
                         "role": {"type": "string", "description": "IAM role name, not an ARN", "pattern": "^$|^[A-Za-z0-9+=,.@_-]{1,64}$"},

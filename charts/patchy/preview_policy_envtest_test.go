@@ -145,10 +145,14 @@ func waitForPreviewPolicy(t *testing.T, admin client.Client, image string) {
 	// Bindings propagate independently. A Pod rejection does not prove that
 	// Deployment, Service or Ingress policy is active yet, so wait for one
 	// rejection from every rendered policy before testing the admission matrix.
+	// The outside probes tolerate the preview taint and everything: either
+	// is refused with a taint key, and tolerate-all also with node isolation
+	// none, which has no taint.
+	outsideTolerations := append(previewTolerations(), corev1.Toleration{Operator: corev1.TolerationOpExists})
 	outsidePod := pod("ordinary", "probe", "nginx:latest")
-	outsidePod.Spec.Tolerations = previewTolerations()
+	outsidePod.Spec.Tolerations = outsideTolerations
 	outsideDeployment := deployment("ordinary", "probe", "nginx:latest")
-	outsideDeployment.Spec.Template.Spec.Tolerations = previewTolerations()
+	outsideDeployment.Spec.Template.Spec.Tolerations = outsideTolerations
 	probes := []struct {
 		name string
 		obj  client.Object

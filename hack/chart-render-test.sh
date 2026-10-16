@@ -368,6 +368,77 @@ expect_fail 'preview zero slots, schema skipped' 'preview.slotCount must be betw
   -f "$fixtures/preview-foundation.yaml" --set preview.slotCount=0 --skip-schema-validation
 expect_fail 'preview missing cert' 'preview.certificateARN' -f "$fixtures/preview-foundation.yaml" --set preview.certificateARN=
 
+# ---- generic node isolation (preview.nodeIsolation) --------------------------
+# eksAutoMode.{nodePool,nodeClass} is the new spelling of the legacy
+# nodePool/nodeClass: the whole render is byte for byte the legacy one. A
+# generic selector joins the EKS labels in the slot admission policy and the
+# controller's ConfigMap; mode none renders neither selector nor toleration.
+eksiso="--set preview.nodeIsolation.nodePool= --set preview.nodeIsolation.nodeClass= --set preview.nodeIsolation.eksAutoMode.nodePool=patchy-preview --set preview.nodeIsolation.eksAutoMode.nodeClass=patchy-preview"
+render preview-runtime-eks -f "$fixtures/preview-foundation.yaml" \
+  -f "$fixtures/intent-controller.yaml" -f "$fixtures/preview-controller.yaml" $eksiso
+if ! cmp -s "$out/preview-runtime.yaml" "$out/preview-runtime-eks.yaml"; then
+  fail "preview-runtime-eks: preview.nodeIsolation.eksAutoMode renders differently from the legacy nodePool/nodeClass"
+fi
+notes notes-preview-legacy-nodes -f "$fixtures/preview-foundation.yaml"
+notes_has notes-preview-legacy-nodes "DEPRECATED: preview.nodeIsolation.nodePool and preview.nodeIsolation.nodeClass still work" yes
+notes notes-preview-eks-nodes -f "$fixtures/preview-foundation.yaml" $eksiso
+notes_has notes-preview-eks-nodes "DEPRECATED" no
+notes_has notes-preview-eks-nodes "NodeClass patchy-preview and NodePool patchy-preview must" yes
+generic='--set preview.nodeIsolation.nodePool= --set preview.nodeIsolation.nodeClass='
+render preview-generic -f "$fixtures/preview-foundation.yaml" -f "$fixtures/intent-controller.yaml" \
+  -f "$fixtures/preview-controller.yaml" $generic \
+  --set-json 'preview.nodeIsolation.selector={"patchy.example.com/previews":"true","node.example.com/pool":"previews"}'
+podsel='select(.kind == "ValidatingAdmissionPolicy" and .metadata.name == "patchy-preview-pods") | .spec.validations[] | select(.message | test("select the dedicated"))'
+expect preview-generic "$podsel | .expression" "has(variables.pod.nodeSelector) && 'node.example.com/pool' in variables.pod.nodeSelector && variables.pod.nodeSelector['node.example.com/pool'] == \"previews\" && 'patchy.example.com/previews' in variables.pod.nodeSelector && variables.pod.nodeSelector['patchy.example.com/previews'] == \"true\""
+expect preview-generic "$podsel | .message" 'preview pods must select the dedicated preview nodes'
+expect preview "$podsel | .message" 'preview pods must select the dedicated preview node pool and class'
+cm preview-generic preview-controller PATCHY_PREVIEW_NODE_SELECTOR '{"node.example.com/pool":"previews","patchy.example.com/previews":"true"}'
+cm preview-generic preview-controller PATCHY_PREVIEW_NODE_POOL null
+cm preview-generic preview-controller PATCHY_PREVIEW_NODE_CLASS null
+cm preview-generic preview-controller PATCHY_PREVIEW_TAINT_KEY patchy.devthe.net/preview-only
+cm preview-generic preview-controller PATCHY_PREVIEW_NODE_ISOLATION null
+cm preview-runtime preview-controller PATCHY_PREVIEW_NODE_SELECTOR null
+cm preview-runtime preview-controller PATCHY_PREVIEW_NODE_ISOLATION null
+# Both: the EKS labels first, then the generic ones, in the one rule.
+render preview-generic-eks -f "$fixtures/preview-foundation.yaml" \
+  --set-json 'preview.nodeIsolation.selector={"patchy.example.com/previews":"true"}'
+expect preview-generic-eks "$podsel | .expression" "has(variables.pod.nodeSelector) && 'karpenter.sh/nodepool' in variables.pod.nodeSelector && variables.pod.nodeSelector['karpenter.sh/nodepool'] == \"patchy-preview\" && 'eks.amazonaws.com/nodeclass' in variables.pod.nodeSelector && variables.pod.nodeSelector['eks.amazonaws.com/nodeclass'] == \"patchy-preview\" && 'patchy.example.com/previews' in variables.pod.nodeSelector && variables.pod.nodeSelector['patchy.example.com/previews'] == \"true\""
+render preview-iso-none -f "$fixtures/preview-foundation.yaml" -f "$fixtures/intent-controller.yaml" \
+  -f "$fixtures/preview-controller.yaml" $generic --set preview.nodeIsolation.taintKey= --set preview.nodeIsolation.mode=none
+expect preview-iso-none "$podsel | .message" ''
+expect preview-iso-none 'select(.kind == "ValidatingAdmissionPolicy" and .metadata.name == "patchy-preview-pods") | .spec.validations[] | select(.message | test("tolerate")) | .message' ''
+expect preview-iso-none 'select(.kind == "ValidatingAdmissionPolicy" and .metadata.name == "patchy-preview-outside-pods") | .spec.validations[0].expression' "!has(variables.pod.tolerations) || variables.pod.tolerations.all(t,
+  !(has(t.operator) && t.operator == 'Exists' &&
+    (!has(t.key) || t.key == '')))"
+cm preview-iso-none preview-controller PATCHY_PREVIEW_NODE_ISOLATION none
+cm preview-iso-none preview-controller PATCHY_PREVIEW_TAINT_KEY null
+notes notes-preview-iso-none -f "$fixtures/preview-foundation.yaml" $generic --set preview.nodeIsolation.taintKey= \
+  --set preview.nodeIsolation.mode=none
+notes_has notes-preview-iso-none "preview Pods share nodes with everything else" yes
+notes_has notes-preview-iso-none "hack/preview-isolation-probe/run.sh" no
+expect_fail 'preview isolation without nodes' 'or preview.nodeIsolation.selector, are required' \
+  -f "$fixtures/preview-foundation.yaml" $generic
+expect_fail 'preview isolation none with a selector' 'preview.nodeIsolation.mode none renders no node selector' \
+  -f "$fixtures/preview-foundation.yaml" --set preview.nodeIsolation.mode=none
+expect_fail 'preview isolation none with a taint key' 'preview.nodeIsolation.mode none renders no node selector' \
+  -f "$fixtures/preview-foundation.yaml" $generic --set preview.nodeIsolation.mode=none
+expect_fail 'preview isolation mode unknown' "'/preview/nodeIsolation/mode'" \
+  -f "$fixtures/preview-foundation.yaml" --set preview.nodeIsolation.mode=optional
+expect_fail 'preview isolation selector contradicting the NodePool' 'contradicts the NodePool "patchy-preview"' \
+  -f "$fixtures/preview-foundation.yaml" --set-json 'preview.nodeIsolation.selector={"karpenter.sh/nodepool":"other"}'
+expect_fail 'preview isolation selector key with a space' "invalid propertyName 'bad key'" \
+  -f "$fixtures/preview-foundation.yaml" --set-json 'preview.nodeIsolation.selector={"bad key":"x"}'
+expect_fail 'preview isolation selector key, schema skipped' 'is not a label key' --skip-schema-validation \
+  -f "$fixtures/preview-foundation.yaml" --set-json 'preview.nodeIsolation.selector={"bad key":"x"}'
+expect_fail 'preview isolation NodeClass without NodePool' 'preview.nodeIsolation.nodePool (eksAutoMode.nodePool) is required' \
+  -f "$fixtures/preview-foundation.yaml" $generic --set preview.nodeIsolation.eksAutoMode.nodeClass=patchy-preview
+expect_fail 'preview nodes without EKS names' 'preview.nodeIsolation.create requires preview.nodeIsolation.eksAutoMode.nodePool' \
+  -f "$fixtures/preview-foundation.yaml" -f "$fixtures/auto-mode.yaml" $generic \
+  --set-json 'preview.nodeIsolation.selector={"patchy.example.com/previews":"true"}'
+render preview-nodes-generic -f "$fixtures/preview-foundation.yaml" -f "$fixtures/auto-mode.yaml" \
+  --set-json 'preview.nodeIsolation.selector={"patchy.example.com/previews":"true"}'
+expect preview-nodes-generic 'select(.kind == "NodePool") | .spec.template.metadata.labels."patchy.example.com/previews"' true
+
 # ---- the preview image prefix (preview.imagePathPrefix) ---------------------
 # One helper (patchy.previewImagePrefix) feeds the slot admission policy, the
 # preview-controller and source-controller's denied path. With the default

@@ -278,9 +278,15 @@ blocks on ImageRequired. The changeset entry cap is remediation's value.
 {{- $_ := set $data "PATCHY_PREVIEW_SLOT_COUNT" $p.slotCount }}
 {{- $_ := set $data "PATCHY_PREVIEW_IMAGE_PREFIX" (include "patchy.previewImagePrefix" $root) }}
 {{- $_ := set $data "PATCHY_PREVIEW_HOST_SUFFIX" $p.hostSuffix }}
-{{- $_ := set $data "PATCHY_PREVIEW_NODE_POOL" $p.nodeIsolation.nodePool }}
-{{- $_ := set $data "PATCHY_PREVIEW_NODE_CLASS" $p.nodeIsolation.nodeClass }}
-{{- $_ := set $data "PATCHY_PREVIEW_TAINT_KEY" $p.nodeIsolation.taintKey }}
+{{- /* Node isolation (_preview.tpl): the EKS names keep their own keys, so
+       an install configured by them alone renders this ConfigMap as it
+       always did; a generic selector and mode none add a key each. */}}
+{{- $nodes := include "patchy.previewNodeIsolation" $root | fromJson }}
+{{- with $nodes.nodePool }}{{ $_ := set $data "PATCHY_PREVIEW_NODE_POOL" . }}{{ end }}
+{{- with $nodes.nodeClass }}{{ $_ := set $data "PATCHY_PREVIEW_NODE_CLASS" . }}{{ end }}
+{{- with $nodes.taintKey }}{{ $_ := set $data "PATCHY_PREVIEW_TAINT_KEY" . }}{{ end }}
+{{- with $nodes.selector }}{{ $_ := set $data "PATCHY_PREVIEW_NODE_SELECTOR" (toJson .) }}{{ end }}
+{{- if eq $nodes.mode "none" }}{{ $_ := set $data "PATCHY_PREVIEW_NODE_ISOLATION" "none" }}{{ end }}
 {{- $_ := set $data "PATCHY_PREVIEW_ROLLOUT_TIMEOUT" $own.rolloutTimeout }}
 {{- $_ := set $data "PATCHY_PREVIEW_POLL_INTERVAL" $own.pollInterval }}
 {{- $_ := set $data "PATCHY_PREVIEW_MAX_RETRIES" $own.maxRetries }}
