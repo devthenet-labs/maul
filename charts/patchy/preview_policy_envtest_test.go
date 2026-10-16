@@ -153,6 +153,14 @@ func waitForPreviewPolicy(t *testing.T, admin client.Client, image string) {
 	outsidePod.Spec.Tolerations = outsideTolerations
 	outsideDeployment := deployment("ordinary", "probe", "nginx:latest")
 	outsideDeployment.Spec.Template.Spec.Tolerations = outsideTolerations
+	// The secret probe must pass the pods policy under every isolation
+	// config, or the API server may answer with that policy's refusal
+	// instead (policies are evaluated in no fixed order): select both the
+	// EKS pool and the generic preview nodes; extra selector keys are allowed.
+	secretPod := withSecretEnv(pod("patchy-preview-0", "probe", image))
+	for k, v := range genericSelector {
+		secretPod.Spec.NodeSelector[k] = v
+	}
 	probes := []struct {
 		name string
 		obj  client.Object
@@ -166,7 +174,7 @@ func waitForPreviewPolicy(t *testing.T, admin client.Client, image string) {
 		{"slot ingress", ingress("patchy-preview-0", "probe", "alb", previewHost), "alb-preview"},
 		{"outside ingress", ingress("ordinary", "probe", "alb-preview", previewHost),
 			"reserved for the exact preview slot"},
-		{"slot secret env", withSecretEnv(pod("patchy-preview-0", "probe", image)), "may not read a Secret"},
+		{"slot secret env", secretPod, "may not read a Secret"},
 	}
 	deadline := time.Now().Add(30 * time.Second)
 	for {
