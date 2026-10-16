@@ -57,31 +57,37 @@ func (p *podCounters) modelLocked(model, route, credential string) *modelUsage {
 }
 
 // observe records an observed usage increment against pod's model and
-// charges its tokens to the limits.
-func (l *ledger) observe(pod, model, route, credential string, d usage) {
+// charges its tokens, and their price, to the limits. It returns the price
+// in micro-USD.
+func (l *ledger) observe(pod, model, route, credential string, d usage) int64 {
 	if d.total() <= 0 {
-		return
+		return 0
 	}
+	cost := l.prices.cost(model, d)
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	p := l.podLocked(pod, l.now())
 	m := p.modelLocked(modelKey(model), route, credential)
 	m.observed = m.observed.mergeAdd(d)
-	l.chargeLocked(p, d.total())
+	l.chargeLocked(p, d.total(), cost)
+	return cost
 }
 
 // shortfall records the worst-case charge for a response whose usage never
 // became final against pod's model, apart from what was observed, and
-// charges it to the limits.
-func (l *ledger) shortfall(pod, model, route, credential string, n int64) {
+// charges it to the limits, priced at the model's output rate (it is
+// unmetered, so its class is unknown). It returns that price in micro-USD.
+func (l *ledger) shortfall(pod, model, route, credential string, n int64) int64 {
 	if n <= 0 {
-		return
+		return 0
 	}
+	cost := l.prices.outputCost(model, n)
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	p := l.podLocked(pod, l.now())
 	p.modelLocked(modelKey(model), route, credential).shortfall += n
-	l.chargeLocked(p, n)
+	l.chargeLocked(p, n, cost)
+	return cost
 }
 
 // jobUsage is the ledger entries of job's pods, sorted by name and UID,

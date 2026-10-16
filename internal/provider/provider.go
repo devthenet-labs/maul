@@ -21,12 +21,43 @@ import (
 const BrokerTokenHeader = "X-Patchy-Broker-Token"
 
 // LimitMessagePrefix opens the error message of every 429 the egress broker
-// returns for a spend limit it enforces on a pod's behalf (requests, tokens,
-// concurrency, the hourly ceiling, the max_tokens ceiling). The in-pod
+// returns for a spend limit it enforces on a pod's behalf (requests, tokens
+// or cost, concurrency, the hourly ceilings, the max_tokens ceiling). The in-pod
 // runtime maps a CLI failure carrying it to budget_exceeded, so the prefix
 // is a contract between the two sides and is defined here for the same
 // reason BrokerTokenHeader is.
 const LimitMessagePrefix = "egress broker: per-pod limit"
+
+// BudgetAnnotation is the agent pod annotation carrying the run's cost
+// budget in micro-USD (design "limits that fit large features" §1.2). With
+// --limit-unit=cost the egress broker reads it from the caller's own pod
+// (UID-checked against the TokenReview) and enforces the smaller of it and
+// --cost-per-pod; the run controllers stamp it. Defined here, beside
+// BrokerTokenHeader, so the writer and the reader share one name and grammar.
+const BudgetAnnotation = "patchy.bitwisemedia.uk/budget-micro-usd"
+
+// maxBudgetDigits bounds a budget value: sixteen digits is ten billion
+// dollars, far past any run, and keeps every sum the broker forms of it
+// clear of int64 overflow.
+const maxBudgetDigits = 16
+
+// ParseBudget reads a BudgetAnnotation value: one to sixteen ASCII digits
+// naming a positive number of micro-USD, nothing else (no sign, no space, no
+// unit). ok is false for any other value, which the broker treats as no
+// budget at all and so falls back to --cost-per-pod.
+func ParseBudget(v string) (microUSD int64, ok bool) {
+	if v == "" || len(v) > maxBudgetDigits {
+		return 0, false
+	}
+	var n int64
+	for _, c := range []byte(v) {
+		if c < '0' || c > '9' {
+			return 0, false
+		}
+		n = n*10 + int64(c-'0')
+	}
+	return n, n > 0
+}
 
 // PlaceholderAuthEnv and PlaceholderAuthToken are the fixed, non-secret auth
 // token internal/jobs sets on every brokered claude pod. The claude CLI

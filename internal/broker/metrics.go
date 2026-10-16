@@ -17,8 +17,10 @@ const scopeName = "github.com/bitwise-media-group/patchy/internal/broker"
 
 // The broker's counters: every request by route and outcome (proxied or the
 // rejection reason), the pre-authentication rejections by reason (a flood
-// shows here first), and the tokens charged by route and class, "estimated"
-// being the request-size charge for a cut or usage-less response.
+// shows here first), the tokens charged by route and class, "estimated"
+// being the request-size charge for a cut or usage-less response, and the
+// same charges priced in micro-USD (observed or estimated), whatever the
+// limit unit.
 var (
 	requestsCounter = sync.OnceValue(func() metric.Int64Counter {
 		c, err := otel.Meter(scopeName).Int64Counter("patchy.broker.requests",
@@ -31,6 +33,15 @@ var (
 	preauthCounter = sync.OnceValue(func() metric.Int64Counter {
 		c, err := otel.Meter(scopeName).Int64Counter("patchy.broker.preauth.rejections",
 			metric.WithDescription("requests refused before any TokenReview, by reason"))
+		if err != nil {
+			otel.Handle(err)
+		}
+		return c
+	})
+	costCounter = sync.OnceValue(func() metric.Int64Counter {
+		c, err := otel.Meter(scopeName).Int64Counter("patchy.broker.cost",
+			metric.WithDescription("micro-USD charged to pods by route and class (observed or estimated)"),
+			metric.WithUnit("{micro-USD}"))
 		if err != nil {
 			otel.Handle(err)
 		}
@@ -66,6 +77,16 @@ func countTokens(ctx context.Context, route string, u usage, estimated int64) {
 	} {
 		if n > 0 {
 			tokensCounter().Add(ctx, n, metric.WithAttributes(
+				attribute.String("route", route),
+				attribute.String("class", class)))
+		}
+	}
+}
+
+func countCost(ctx context.Context, route string, observed, estimated int64) {
+	for class, n := range map[string]int64{"observed": observed, "estimated": estimated} {
+		if n > 0 {
+			costCounter().Add(ctx, n, metric.WithAttributes(
 				attribute.String("route", route),
 				attribute.String("class", class)))
 		}

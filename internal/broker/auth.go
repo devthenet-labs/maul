@@ -35,6 +35,10 @@ type identity struct {
 	user string // e.g. system:serviceaccount:patchy-agents:patchy-agent
 	pod  string // bound pod name: the audit key; may be empty
 	uid  string // bound pod UID; may be empty
+	// budget is the bound pod's BudgetAnnotation in micro-USD, read with
+	// the verdict under the cost limits; 0 when absent, unreadable, or not
+	// read.
+	budget int64
 }
 
 // key is the ledger key: the pod name, and its UID when the review reported
@@ -77,6 +81,9 @@ type authenticator struct {
 	refusal string
 	ttl     time.Duration
 	reviews *reviewLimiter // nil: unlimited
+	// budgets reads the bound pod's budget annotation into each allowed
+	// verdict; nil reads none (the token unit, and the usage endpoint).
+	budgets *budgetReader
 	now     func() time.Time
 
 	mu    sync.Mutex
@@ -85,7 +92,7 @@ type authenticator struct {
 
 func newAuthenticator(cs kubernetes.Interface, cfg Config, reviews *reviewLimiter) *authenticator {
 	subject := fmt.Sprintf("system:serviceaccount:%s:%s", cfg.AgentNamespace, cfg.AgentServiceAccount)
-	return &authenticator{
+	a := &authenticator{
 		cs:       cs,
 		audience: cfg.Audience,
 		subjects: map[string]bool{subject: true},
@@ -95,6 +102,10 @@ func newAuthenticator(cs kubernetes.Interface, cfg Config, reviews *reviewLimite
 		now:      time.Now,
 		cache:    map[[sha256.Size]byte]verdict{},
 	}
+	if cfg.Limits.cost() {
+		a.budgets = &budgetReader{cs: cs, namespace: cfg.AgentNamespace}
+	}
+	return a
 }
 
 // newUsageAuthenticator is the usage endpoint's authenticator: its own
@@ -181,6 +192,11 @@ func (a *authenticator) review(r *http.Request, token string) (verdict, error) {
 	}
 	if uids := tr.Status.User.Extra[podUIDExtraKey]; len(uids) > 0 {
 		id.uid = uids[0]
+	}
+	if a.budgets != nil {
+		if id.budget, err = a.budgets.read(r.Context(), id.pod, id.uid); err != nil {
+			return verdict{}, errReviewUnavailable
+		}
 	}
 	return verdict{allowed: true, id: id, expiry: expiry}, nil
 }

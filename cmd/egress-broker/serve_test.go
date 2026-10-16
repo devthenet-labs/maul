@@ -283,6 +283,21 @@ func TestServeStartupErrors(t *testing.T) {
 			args:    []string{"--kubeconfig", kc, "--vertex-region", "us-east5", "--vertex-project", "a/b"},
 			wantErr: "upstream vertex needs a project",
 		},
+		{
+			name:    "cost limit under the token unit",
+			args:    []string{"--kubeconfig", kc, "--anthropic-api-key-file", "/k", "--cost-per-pod", "5"},
+			wantErr: "cost limits need the cost limit unit",
+		},
+		{
+			name:    "cost unit without a per-pod cap",
+			args:    []string{"--kubeconfig", kc, "--anthropic-api-key-file", "/k", "--limit-unit", "cost"},
+			wantErr: "the cost limit unit needs a cost per pod",
+		},
+		{
+			name:    "unknown limit unit",
+			args:    []string{"--kubeconfig", kc, "--anthropic-api-key-file", "/k", "--limit-unit", "usd"},
+			wantErr: `limit unit "usd" is not tokens or cost`,
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			err := serve(t.Context(), serveOpts(t, tt.args...))

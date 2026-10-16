@@ -40,8 +40,9 @@ type Server struct {
 	log    *slog.Logger
 }
 
-// New builds a Server. cs performs the TokenReviews; the broker needs no
-// other Kubernetes access of any kind.
+// New builds a Server. cs performs the TokenReviews and, under the cost
+// limit unit only, reads the caller pod's budget annotation (get pods in the
+// agent namespace); the broker needs no other Kubernetes access of any kind.
 func New(cs kubernetes.Interface, cfg Config, log *slog.Logger) (*Server, error) {
 	cfg = cfg.withDefaults()
 	if err := cfg.validate(); err != nil {
@@ -261,12 +262,17 @@ func (s *Server) inspectRequest(r *http.Request, rt *route, adm *admission) *rej
 // any usage lands; the reservation is returned when the request settles. A
 // request over the in-flight cap alone waits briefly for a slot, for as long
 // as its caller does.
+//
+// The cost reservation is the requested model's output price times its
+// output bound (design §1.1); the pod's cost cap is the smaller of
+// --cost-per-pod and its budget annotation, read with the verdict.
 func (s *Server) reserve(r *http.Request, _ *route, adm *admission) *rejection {
-	var worst int64
+	res := reservation{budget: adm.id.budget}
 	if adm.ep.metered {
-		worst = adm.estimate + adm.outputBound
+		res.tokens = adm.estimate + adm.outputBound
+		res.cost = s.ledger.prices.outputCost(adm.model, adm.outputBound)
 	}
-	release, reason := s.ledger.admit(r.Context(), adm.id.key(), worst)
+	release, reason := s.ledger.admit(r.Context(), adm.id.key(), res)
 	if reason != "" {
 		return &rejection{status: http.StatusTooManyRequests, kind: "rate_limit_error", msg: reason, reason: "limit"}
 	}
@@ -285,7 +291,17 @@ func (s *Server) reject(w http.ResponseWriter, r *http.Request, rt *route, adm *
 	audit(s.log, r, auditEntry{
 		pod: adm.id.pod, route: rt.name, model: adm.model, reason: rej.reason,
 		status: rej.status, elapsed: s.now().Sub(adm.start), totals: s.ledger.totals(adm.id.key()),
+		costLimit: s.costLimit(adm.id),
 	})
+}
+
+// costLimit is the caller pod's cost cap in micro-USD for the audit line;
+// 0 unless the cost limits are enforced.
+func (s *Server) costLimit(id identity) int64 {
+	if !s.cfg.Limits.cost() {
+		return 0
+	}
+	return s.cfg.Limits.podCostLimit(id.budget)
 }
 
 // proxy forwards an admitted request, charging usage as the response streams
@@ -297,10 +313,11 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, rt *route, adm *a
 	var inner http.ResponseWriter = aw
 	var uw *usageWriter
 	var charged usage
+	var cost, estimatedCost int64
 	if adm.ep.metered {
 		uw = &usageWriter{ResponseWriter: aw, scan: &usageScanner{}, onUsage: func(d usage) {
 			charged = charged.mergeAdd(d)
-			s.ledger.observe(key, adm.model, rt.name, cred, d)
+			cost += s.ledger.observe(key, adm.model, rt.name, cred, d)
 		}}
 		inner = uw
 	}
@@ -314,7 +331,7 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, rt *route, adm *a
 		if uw != nil {
 			if d := uw.scan.finish(); d.total() > 0 {
 				charged = charged.mergeAdd(d)
-				s.ledger.observe(key, adm.model, rt.name, cred, d)
+				cost += s.ledger.observe(key, adm.model, rt.name, cred, d)
 			}
 			if !uw.scan.complete && aw.Status/100 == 2 {
 				bound := adm.outputBound
@@ -322,9 +339,10 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, rt *route, adm *a
 					bound = uw.bytes / 4
 				}
 				estimated = shortfall(charged, adm.estimate, bound)
-				s.ledger.shortfall(key, adm.model, rt.name, cred, estimated)
+				estimatedCost = s.ledger.shortfall(key, adm.model, rt.name, cred, estimated)
 			}
 			countTokens(r.Context(), rt.name, charged, estimated)
+			countCost(r.Context(), rt.name, cost, estimatedCost)
 		}
 		// The caller may already hold the whole response: the reverse proxy
 		// flushes from a timer goroutine while this handler is still inside
@@ -335,7 +353,7 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, rt *route, adm *a
 		audit(s.log, r, auditEntry{
 			pod: adm.id.pod, route: rt.name, model: adm.model, status: aw.Status, bytes: aw.Bytes,
 			elapsed: s.now().Sub(adm.start), tokens: charged.total() + estimated, estimated: estimated > 0,
-			totals: s.ledger.totals(key),
+			cost: cost + estimatedCost, totals: s.ledger.totals(key), costLimit: s.costLimit(adm.id),
 		})
 	}()
 	defer sw.stop()

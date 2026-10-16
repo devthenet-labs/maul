@@ -680,10 +680,20 @@ func TestConfigValidation(t *testing.T) {
 		"negative tokens per pod":  func(c *Config) { c.Limits.TokensPerPod = -1 },
 		"negative tokens per hour": func(c *Config) { c.Limits.TokensPerHour = -1 },
 		"negative ceiling":         func(c *Config) { c.Limits.MaxTokensCeiling = -1 },
-		"negative preauth rate":    func(c *Config) { c.PreauthRequestsPerSecond = -1 },
-		"negative preauth burst":   func(c *Config) { c.PreauthBurst = -1 },
-		"negative review rate":     func(c *Config) { c.TokenReviewsPerSecond = -1 },
-		"malformed beta pattern":   func(c *Config) { c.BetaDenylist = []string{"ok-*", "bad-["} },
+		"negative cost per pod": func(c *Config) {
+			c.Limits.Unit, c.Limits.CostPerPod = UnitCost, -1
+		},
+		"negative cost per hour": func(c *Config) {
+			c.Limits.Unit, c.Limits.CostPerPod, c.Limits.CostPerHour = UnitCost, 1, -1
+		},
+		"cost per pod under tokens":  func(c *Config) { c.Limits.CostPerPod = 1 },
+		"cost per hour under tokens": func(c *Config) { c.Limits.CostPerHour = 1 },
+		"cost unit without per pod":  func(c *Config) { c.Limits.Unit, c.Limits.CostPerHour = UnitCost, 1 },
+		"unknown unit":               func(c *Config) { c.Limits.Unit = "dollars" },
+		"negative preauth rate":      func(c *Config) { c.PreauthRequestsPerSecond = -1 },
+		"negative preauth burst":     func(c *Config) { c.PreauthBurst = -1 },
+		"negative review rate":       func(c *Config) { c.TokenReviewsPerSecond = -1 },
+		"malformed beta pattern":     func(c *Config) { c.BetaDenylist = []string{"ok-*", "bad-["} },
 		"disabled with patterns": func(c *Config) {
 			c.DisableBetaDenylist, c.BetaDenylist = true, []string{"x-*"}
 		},
@@ -696,6 +706,11 @@ func TestConfigValidation(t *testing.T) {
 	}
 	if _, err := New(fake.NewClientset(), valid(), nil); err != nil {
 		t.Errorf("valid config refused: %v", err)
+	}
+	costCfg := valid()
+	costCfg.Limits = Limits{Unit: UnitCost, CostPerPod: 1, TokensPerPod: 1}
+	if _, err := New(fake.NewClientset(), costCfg, nil); err != nil {
+		t.Errorf("cost unit with a per-pod cap and a token backstop refused: %v", err)
 	}
 	if _, err := ParseTarget("not a url"); err == nil {
 		t.Error("relative target accepted")

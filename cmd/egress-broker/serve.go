@@ -57,6 +57,15 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	f.Int("tokens-per-pod", 0,
 		"tokens (input, cache creation, cache read, output) one agent pod may consume; 0 disables")
 	f.Int("tokens-per-hour", 0, "broker-wide trailing-hour token ceiling; 0 disables")
+	f.String("limit-unit", broker.UnitTokens,
+		"what the spend limits count: tokens (--tokens-per-pod, --tokens-per-hour) or cost (--cost-per-pod, "+
+			"--cost-per-hour, priced per model from the observed tokens, with the token limits as optional "+
+			"backstops and each pod's budget annotation read with get pods in --agent-namespace)")
+	f.Int("cost-per-pod", 0,
+		"micro-USD one agent pod may spend (the smaller of this and the pod's budget annotation); "+
+			"required with --limit-unit=cost, refused otherwise")
+	f.Int("cost-per-hour", 0,
+		"broker-wide trailing-hour cost ceiling in micro-USD; 0 disables; only with --limit-unit=cost")
 	f.Int("max-tokens-ceiling", 0, "largest max_tokens a request may set; 0 disables")
 	f.String("model-allowlist", "",
 		"comma-separated model ids pods may name (canonical or wire form; dated variants and the "+
@@ -304,6 +313,9 @@ func serve(ctx context.Context, opts *cli.Options) error {
 			ConcurrencyWait:  opts.Duration("concurrency-wait"),
 			TokensPerPod:     int64(opts.Int("tokens-per-pod")),
 			TokensPerHour:    int64(opts.Int("tokens-per-hour")),
+			Unit:             opts.String("limit-unit"),
+			CostPerPod:       int64(opts.Int("cost-per-pod")),
+			CostPerHour:      int64(opts.Int("cost-per-hour")),
 			MaxTokensCeiling: int64(opts.Int("max-tokens-ceiling")),
 			ModelAllowlist:   opts.StringList("model-allowlist"),
 		},
@@ -351,6 +363,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		slog.String("listen_addr", proxySrv.Addr),
 		slog.String("health_addr", healthSrv.Addr),
 		slog.String("usage_addr", usageAddr),
+		slog.String("limit_unit", opts.String("limit-unit")),
 		slog.Any("routes", names))
 
 	g, ctx := errgroup.WithContext(ctx)

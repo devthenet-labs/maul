@@ -18,25 +18,25 @@ func TestLedgerHourlyCeilingAndEviction(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
 	l := newLedger(Limits{TokensPerHour: 100, TokensPerPod: 1000}, func() time.Time { return now })
 
-	release, reason := l.admit(t.Context(), "a", 0)
+	release, reason := l.admit(t.Context(), "a", reservation{tokens: 0})
 	if reason != "" {
 		t.Fatal(reason)
 	}
 	release()
 	l.charge("a", 60)
 	l.charge("b", 40)
-	if _, reason := l.admit(t.Context(), "c", 0); !strings.Contains(reason, "hourly") ||
+	if _, reason := l.admit(t.Context(), "c", reservation{tokens: 0}); !strings.Contains(reason, "hourly") ||
 		!strings.HasPrefix(reason, provider.LimitMessagePrefix) {
 		t.Fatalf("at the hourly ceiling: reason = %q", reason)
 	}
 	// The window slides: fifty-nine minutes on the tokens still count, an
 	// hour on they do not.
 	now = now.Add(59 * time.Minute)
-	if _, reason := l.admit(t.Context(), "c", 0); reason == "" {
+	if _, reason := l.admit(t.Context(), "c", reservation{tokens: 0}); reason == "" {
 		t.Fatal("admitted inside the trailing hour")
 	}
 	now = now.Add(2 * time.Minute)
-	release, reason = l.admit(t.Context(), "c", 0)
+	release, reason = l.admit(t.Context(), "c", reservation{tokens: 0})
 	if reason != "" {
 		t.Fatalf("after the hour: %s", reason)
 	}
@@ -46,9 +46,9 @@ func TestLedgerHourlyCeilingAndEviction(t *testing.T) {
 	}
 	// Pods idle past the TTL are evicted; one with a request in flight is
 	// kept.
-	holding, _ := l.admit(t.Context(), "held", 0)
+	holding, _ := l.admit(t.Context(), "held", reservation{tokens: 0})
 	now = now.Add(ledgerTTL + time.Minute)
-	if _, reason := l.admit(t.Context(), "x", 0); reason != "" {
+	if _, reason := l.admit(t.Context(), "x", reservation{tokens: 0}); reason != "" {
 		t.Fatal(reason)
 	}
 	if got := l.totals("a"); got != (podTotals{}) {
@@ -63,24 +63,24 @@ func TestLedgerHourlyCeilingAndEviction(t *testing.T) {
 func TestLedgerPerPod(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
 	l := newLedger(Limits{RequestsPerPod: 2, ConcurrentPerPod: 1, TokensPerPod: 50}, func() time.Time { return now })
-	r1, reason := l.admit(t.Context(), "p", 0)
+	r1, reason := l.admit(t.Context(), "p", reservation{tokens: 0})
 	if reason != "" {
 		t.Fatal(reason)
 	}
-	if _, reason := l.admit(t.Context(), "p", 0); !strings.Contains(reason, "concurrent") {
+	if _, reason := l.admit(t.Context(), "p", reservation{tokens: 0}); !strings.Contains(reason, "concurrent") {
 		t.Fatalf("second in flight: %q", reason)
 	}
 	r1()
-	r2, reason := l.admit(t.Context(), "p", 0)
+	r2, reason := l.admit(t.Context(), "p", reservation{tokens: 0})
 	if reason != "" {
 		t.Fatal(reason)
 	}
 	r2()
-	if _, reason := l.admit(t.Context(), "p", 0); !strings.Contains(reason, "requests per pod") {
+	if _, reason := l.admit(t.Context(), "p", reservation{tokens: 0}); !strings.Contains(reason, "requests per pod") {
 		t.Fatalf("third request: %q", reason)
 	}
 	l.charge("q", 50)
-	if _, reason := l.admit(t.Context(), "q", 0); !strings.Contains(reason, "tokens per pod") {
+	if _, reason := l.admit(t.Context(), "q", reservation{tokens: 0}); !strings.Contains(reason, "tokens per pod") {
 		t.Fatalf("over tokens: %q", reason)
 	}
 	l.charge("q", 0)
@@ -91,7 +91,7 @@ func TestLedgerPerPod(t *testing.T) {
 	// Unlimited: everything counts, nothing refuses.
 	u := newLedger(Limits{}, func() time.Time { return now })
 	for range 10 {
-		release, reason := u.admit(t.Context(), "z", 0)
+		release, reason := u.admit(t.Context(), "z", reservation{tokens: 0})
 		if reason != "" {
 			t.Fatal(reason)
 		}
@@ -121,28 +121,28 @@ func TestHourWindow(t *testing.T) {
 func TestLedgerReservation(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
 	l := newLedger(Limits{TokensPerPod: 1000, TokensPerHour: 1500}, func() time.Time { return now })
-	if _, reason := l.admit(t.Context(), "fresh", 1001); !strings.Contains(reason, "tokens per pod") {
+	if _, reason := l.admit(t.Context(), "fresh", reservation{tokens: 1001}); !strings.Contains(reason, "tokens per pod") {
 		t.Fatalf("a single reservation over the budget: reason = %q", reason)
 	}
-	r1, reason := l.admit(t.Context(), "p", 600)
+	r1, reason := l.admit(t.Context(), "p", reservation{tokens: 600})
 	if reason != "" {
 		t.Fatal(reason)
 	}
-	if _, reason := l.admit(t.Context(), "p", 600); !strings.Contains(reason, "tokens per pod") {
+	if _, reason := l.admit(t.Context(), "p", reservation{tokens: 600}); !strings.Contains(reason, "tokens per pod") {
 		t.Fatalf("second reservation over the pod budget: reason = %q", reason)
 	}
-	r2, reason := l.admit(t.Context(), "q", 800)
+	r2, reason := l.admit(t.Context(), "q", reservation{tokens: 800})
 	if reason != "" {
 		t.Fatal(reason)
 	}
-	if _, reason := l.admit(t.Context(), "z", 200); !strings.Contains(reason, "hourly") {
+	if _, reason := l.admit(t.Context(), "z", reservation{tokens: 200}); !strings.Contains(reason, "hourly") {
 		t.Fatalf("reservations over the hourly ceiling: reason = %q", reason)
 	}
 	// Settled at its actual usage, the reservation is returned.
 	l.charge("p", 10)
 	r1()
 	r2()
-	release, reason := l.admit(t.Context(), "p", 600)
+	release, reason := l.admit(t.Context(), "p", reservation{tokens: 600})
 	if reason != "" {
 		t.Fatalf("after release: %s", reason)
 	}
@@ -151,7 +151,7 @@ func TestLedgerReservation(t *testing.T) {
 		t.Fatalf("pod tokens = %d, want only the charged 10", got)
 	}
 	l.charge("p", 990)
-	if _, reason := l.admit(t.Context(), "p", 0); !strings.Contains(reason, "tokens per pod") {
+	if _, reason := l.admit(t.Context(), "p", reservation{tokens: 0}); !strings.Contains(reason, "tokens per pod") {
 		t.Fatalf("at the budget with no reservation: reason = %q", reason)
 	}
 }
@@ -165,12 +165,12 @@ func TestLedgerConcurrencyWait(t *testing.T) {
 
 	t.Run("admitted when a slot frees", func(t *testing.T) {
 		l := newLedger(Limits{ConcurrentPerPod: 1, ConcurrencyWait: time.Minute}, clock)
-		holder, reason := l.admit(t.Context(), "p", 0)
+		holder, reason := l.admit(t.Context(), "p", reservation{tokens: 0})
 		if reason != "" {
 			t.Fatal(reason)
 		}
 		time.AfterFunc(20*time.Millisecond, holder)
-		release, reason := l.admit(t.Context(), "p", 0)
+		release, reason := l.admit(t.Context(), "p", reservation{tokens: 0})
 		if reason != "" {
 			t.Fatalf("waiting request refused: %s", reason)
 		}
@@ -181,7 +181,7 @@ func TestLedgerConcurrencyWait(t *testing.T) {
 	})
 	t.Run("limits checked again after the wait", func(t *testing.T) {
 		l := newLedger(Limits{ConcurrentPerPod: 1, TokensPerPod: 100, ConcurrencyWait: time.Minute}, clock)
-		holder, reason := l.admit(t.Context(), "p", 0)
+		holder, reason := l.admit(t.Context(), "p", reservation{tokens: 0})
 		if reason != "" {
 			t.Fatal(reason)
 		}
@@ -190,19 +190,19 @@ func TestLedgerConcurrencyWait(t *testing.T) {
 			l.charge("p", 100)
 			holder()
 		})
-		if _, reason := l.admit(t.Context(), "p", 0); !strings.Contains(reason, "tokens per pod") {
+		if _, reason := l.admit(t.Context(), "p", reservation{tokens: 0}); !strings.Contains(reason, "tokens per pod") {
 			t.Fatalf("after the wait: reason = %q, want the token limit", reason)
 		}
 	})
 	t.Run("other limits never wait", func(t *testing.T) {
 		l := newLedger(Limits{ConcurrentPerPod: 1, RequestsPerPod: 1, ConcurrencyWait: time.Minute}, clock)
-		holder, reason := l.admit(t.Context(), "p", 0)
+		holder, reason := l.admit(t.Context(), "p", reservation{tokens: 0})
 		if reason != "" {
 			t.Fatal(reason)
 		}
 		defer holder()
 		start := time.Now()
-		if _, reason := l.admit(t.Context(), "p", 0); !strings.Contains(reason, "requests per pod") {
+		if _, reason := l.admit(t.Context(), "p", reservation{tokens: 0}); !strings.Contains(reason, "requests per pod") {
 			t.Fatalf("reason = %q", reason)
 		}
 		if waited := time.Since(start); waited > 5*time.Second {
@@ -211,15 +211,15 @@ func TestLedgerConcurrencyWait(t *testing.T) {
 	})
 	t.Run("negative wait refuses at once", func(t *testing.T) {
 		l := newLedger(Limits{ConcurrentPerPod: 1, ConcurrencyWait: -1}, clock)
-		holder, _ := l.admit(t.Context(), "p", 0)
+		holder, _ := l.admit(t.Context(), "p", reservation{tokens: 0})
 		defer holder()
-		if _, reason := l.admit(t.Context(), "p", 0); !strings.Contains(reason, "concurrent") {
+		if _, reason := l.admit(t.Context(), "p", reservation{tokens: 0}); !strings.Contains(reason, "concurrent") {
 			t.Fatalf("reason = %q", reason)
 		}
 	})
 	t.Run("context ends the wait without taking a slot", func(t *testing.T) {
 		l := newLedger(Limits{ConcurrentPerPod: 1, ConcurrencyWait: time.Minute}, clock)
-		holder, reason := l.admit(t.Context(), "p", 0)
+		holder, reason := l.admit(t.Context(), "p", reservation{tokens: 0})
 		if reason != "" {
 			t.Fatal(reason)
 		}
@@ -227,7 +227,7 @@ func TestLedgerConcurrencyWait(t *testing.T) {
 		const after = 20 * time.Millisecond
 		start := time.Now()
 		time.AfterFunc(after, cancel)
-		if _, reason := l.admit(ctx, "p", 0); !strings.Contains(reason, "concurrent") {
+		if _, reason := l.admit(ctx, "p", reservation{tokens: 0}); !strings.Contains(reason, "concurrent") {
 			t.Fatalf("cancelled wait: reason = %q", reason)
 		}
 		if waited := time.Since(start); waited < after || waited > 5*time.Second {
@@ -238,7 +238,7 @@ func TestLedgerConcurrencyWait(t *testing.T) {
 		// is admitted without waiting.
 		done, cancelDone := context.WithCancel(t.Context())
 		cancelDone()
-		release, reason := l.admit(done, "p", 0)
+		release, reason := l.admit(done, "p", reservation{tokens: 0})
 		if reason != "" {
 			t.Fatalf("slot leaked by the cancelled waiter: %s", reason)
 		}
@@ -261,7 +261,7 @@ func TestLedgerConcurrencyWaitRace(t *testing.T) {
 	errs := make(chan string, workers)
 	for range workers {
 		wg.Go(func() {
-			release, reason := l.admit(t.Context(), "p", 0)
+			release, reason := l.admit(t.Context(), "p", reservation{tokens: 0})
 			if reason != "" {
 				errs <- reason
 				return
