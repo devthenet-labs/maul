@@ -237,6 +237,16 @@ func TestPriceNotional(t *testing.T) {
 	}
 }
 
+// TestPriceBoundsCredential: an unexpected credential kind is recorded as
+// "unknown" (priced list), never as the broker's string.
+func TestPriceBoundsCredential(t *testing.T) {
+	got := Price(model.Builtins(), []usagewire.Pod{pod(0, usagewire.Model{Model: "claude-sonnet-5",
+		Credential: strings.Repeat("x", 100), Input: 1})}, nil)
+	if m := got.Models[0]; m.Credential != "unknown" || m.Pricing != v1alpha1.UsagePricingList {
+		t.Errorf("model = %+v", m)
+	}
+}
+
 // TestPriceBoundsModels: however many models the pods report, the figure
 // keeps at most the schema's sixteen, the rest summed under ModelOther.
 func TestPriceBoundsModels(t *testing.T) {

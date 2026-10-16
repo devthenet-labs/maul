@@ -54,7 +54,7 @@ func Price(models []model.Model, pods []usagewire.Pod, boot *metav1.Time) *v1alp
 				}
 			}
 			if w.Credential != "" {
-				a.credential = w.Credential
+				a.credential = credentialKind(w.Credential)
 			}
 			a.tokens.Input = sat(a.tokens.Input, w.Input)
 			a.tokens.Output = sat(a.tokens.Output, w.Output)
@@ -125,6 +125,17 @@ func modelID(models []model.Model, reported string) (string, *model.Model) {
 		id = id[:maxModelID]
 	}
 	return id, nil
+}
+
+// credentialKind bounds a reported credential kind to the schema's: one of
+// the known kinds as is, anything else "unknown", so a value the API server
+// would refuse can never stall a run's status write.
+func credentialKind(c string) string {
+	switch c {
+	case usagewire.CredentialAPIKey, usagewire.CredentialOAuthToken, usagewire.CredentialCloudIdentity:
+		return c
+	}
+	return "unknown"
 }
 
 // pricingOf is what a credential kind's priced figure means.
