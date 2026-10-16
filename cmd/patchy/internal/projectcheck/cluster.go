@@ -61,7 +61,11 @@ const (
 type controllerConfig struct {
 	// from names the ConfigMaps read, for reasons; empty when none exists.
 	from string
-	data map[string]string
+	// name and annotations are the controller's own ConfigMap's, empty
+	// when it has none (the shared one's are never read).
+	name        string
+	annotations map[string]string
+	data        map[string]string
 	// err is why the ConfigMaps could not be listed.
 	err error
 }
@@ -158,6 +162,9 @@ func overlay(shared, own *corev1.ConfigMap) controllerConfig {
 		from = append(from, cm.Namespace+"/"+cm.Name)
 	}
 	c.from = strings.Join(from, " and ")
+	if own != nil {
+		c.name, c.annotations = own.Name, own.Annotations
+	}
 	return c
 }
 

@@ -21,6 +21,9 @@ const (
 	CheckPreviewAuth     = "preview-auth"
 	CheckPreviewAuthDex  = "preview-auth-dex"
 	CheckPreviewAuthHost = "preview-auth-host"
+	// CheckPreviewGatewayAllowlist is reported only while the preview
+	// gateway is on.
+	CheckPreviewGatewayAllowlist = "preview-gateway-allowlist"
 )
 
 // IntentRepository is the Repository of a check about the Project's intent
