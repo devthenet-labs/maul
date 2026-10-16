@@ -396,6 +396,44 @@ func TestGatewayRateLimit(t *testing.T) {
 	}
 }
 
+// TestGatewaySignInRateLimit: the handoff callback and a sign-in host of
+// its own are limited too, each on its own: nothing else is hit here.
+func TestGatewaySignInRateLimit(t *testing.T) {
+	const signIn = "signin.example.com"
+	for name, tc := range map[string]struct {
+		url  string
+		edit func(*GatewayConfig)
+	}{
+		"handoff callback": {url: previewOrigin + previewauth.HandoffPath + "?code=x"},
+		"sign-in host /start": {url: "https://" + signIn + "/start?h=" + label + "&s=x", edit: func(g *GatewayConfig) {
+			h, err := previewauth.NewHosts(suffix, signIn)
+			if err != nil {
+				t.Fatal(err)
+			}
+			g.Hosts, g.SignInUpstream = h, &stubUpstream{id: previewauth.Identity{Username: "github:alice"}}
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := newGatewayEnv(t, nil, func(g *GatewayConfig) {
+				g.RateLimit = RateLimit{PerSecond: 0.001, Burst: 3}
+				if tc.edit != nil {
+					tc.edit(g)
+				}
+			})
+			b := e.browser()
+			var statuses []int
+			for range 6 {
+				resp := nav(t, b, tc.url)
+				_ = resp.Body.Close()
+				statuses = append(statuses, resp.StatusCode)
+			}
+			if statuses[0] == http.StatusTooManyRequests || statuses[len(statuses)-1] != http.StatusTooManyRequests {
+				t.Errorf("statuses %v, want refusals and then 429", statuses)
+			}
+		})
+	}
+}
+
 // TestGatewayCrossOrigin: cross-preview CSRF and same-site subresources are
 // refused before the preview sees them; the host's own requests and
 // top-level navigations from elsewhere pass.
