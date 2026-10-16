@@ -86,16 +86,19 @@ non-default EKS Auto Mode `alb-preview` class. It does **not** create an Ingress
 workload, Project, or preview-controller: that controller has its own default-off `previewController.enabled` switch.
 Supply the ECR registry host, node-local DNS `/32`, ALB public subnet CIDRs, tightly scoped operator `/32` inbound
 CIDRs, issued wildcard ACM certificate ARN, preview host suffix, and a distinct ALB name. Before enabling the
-foundation, supply `preview.nodeIsolation.nodePool`, `nodeClass`, and `taintKey` from a dedicated EKS Auto Mode NodePool
-whose NodeClass uses `networkPolicy: DefaultDeny` and whose taint is `<taintKey>=true:NoExecute`. `DefaultAllow` has a
-start-up interval with unrestricted egress even when the slot NetworkPolicy exists. The chart renders that NodeClass
-(with `DefaultDeny` fixed, not a value) and NodePool only with `preview.nodeIsolation.create: true` plus the node
-`role`, `subnetIDs` and `securityGroupIDs` (see `values.yaml`); otherwise they must already exist. It never creates the
-node IAM role. The [chart-render fixture](../../hack/testdata/chart-render/preview-foundation.yaml) shows the shape;
-these are cluster-specific values, not defaults. The default `alb` class must already be limited to the patchy namespace
-before slots are enabled; `edgeIngressClass.create` renders an edge class that is limited to the release namespace and
-is never the default. On EKS Auto Mode set `clusterDNSCIDR` (or `preview.dnsCIDR`) to the node-local DNS `/32`: the slot
-policy allows DNS only there.
+foundation, supply the dedicated preview nodes: `preview.nodeIsolation.selector` (any node labels, on any cluster)
+and/or `preview.nodeIsolation.eksAutoMode.nodePool` and `nodeClass` (the legacy `preview.nodeIsolation.nodePool` and
+`nodeClass` still work), plus `taintKey`, from nodes tainted `<taintKey>=true:NoExecute`; on EKS Auto Mode a dedicated
+NodePool whose NodeClass uses `networkPolicy: DefaultDeny`. `preview.nodeIsolation.mode: none` is the explicit opt-out
+(no selector, no toleration, preview Pods share nodes with everything else). `DefaultAllow` has a start-up interval with
+unrestricted egress even when the slot NetworkPolicy exists. The chart renders that NodeClass (with `DefaultDeny` fixed,
+not a value) and NodePool only with `preview.nodeIsolation.create: true` plus the node `role`, `subnetIDs` and
+`securityGroupIDs` (see `values.yaml`); otherwise they must already exist. It never creates the node IAM role. The
+[chart-render fixture](../../hack/testdata/chart-render/preview-foundation.yaml) shows the shape; these are
+cluster-specific values, not defaults. The default `alb` class must already be limited to the patchy namespace before
+slots are enabled; `edgeIngressClass.create` renders an edge class that is limited to the release namespace and is never
+the default. On EKS Auto Mode set `clusterDNSCIDR` (or `preview.dnsCIDR`) to the node-local DNS `/32`: the slot policy
+allows DNS only there.
 
 Preview images are `<preview.imageRegistry>/<preview.imagePathPrefix>/<app>:sha-<full SHA>`. `preview.imagePathPrefix`
 (default `patchy/previews`) is lowercase registry path segments with no leading or trailing slash, never empty. One
@@ -128,15 +131,15 @@ readiness gate into each slot Pod, and the preview-controller marks a Preview Re
 0.12.15, so an upgrade from there that never set it turns it on, and a Preview deploying during that upgrade may spend
 one retry (the upgrade note in `docs/deployment/helm.md`).
 
-Slot Pods and Deployment templates must also select the configured NodePool and NodeClass, tolerate the exact
-`NoExecute` taint, use the default scheduler, and leave `nodeName` unset. A second fail-closed policy on **all other
-namespaces** rejects both the named preview taint toleration and an empty-key `Exists` toleration (which would tolerate
-every taint), plus direct `nodeName` placement on new Pods and Deployment templates. An ordinary scheduled Pod without
-those tolerations is unaffected, including later metadata updates after its node is assigned. Keep both policies while
-any preview node or slot workload exists; both policies have cluster-wide bindings and their match conditions use the
-actual namespace name. Another name-based policy refuses `alb-preview` Ingresses outside slots. No workload should be
-admitted until the NodePool and node IAM role are ready and a Deployment-managed first-instruction probe proves
-isolation on a fresh node.
+Slot Pods and Deployment templates must also select the configured preview nodes (the EKS NodePool and NodeClass labels,
+then the generic selector's), tolerate the exact `NoExecute` taint, use the default scheduler, and leave `nodeName`
+unset. A second fail-closed policy on **all other namespaces** rejects both the named preview taint toleration and an
+empty-key `Exists` toleration (which would tolerate every taint), plus direct `nodeName` placement on new Pods and
+Deployment templates. An ordinary scheduled Pod without those tolerations is unaffected, including later metadata
+updates after its node is assigned. Keep both policies while any preview node or slot workload exists; both policies
+have cluster-wide bindings and their match conditions use the actual namespace name. Another name-based policy refuses
+`alb-preview` Ingresses outside slots. No workload should be admitted until the NodePool and node IAM role are ready and
+a Deployment-managed first-instruction probe proves isolation on a fresh node.
 
 Every slot namespace **and every chart-owned guardrail** carries `helm.sh/resource-policy: keep`. Helm uninstall or
 rollback to a revision without previews therefore orphans them rather than silently deleting an occupied slot or leaving

@@ -10,10 +10,12 @@
 # preview-controller or other user-created resource.
 {{- if .Values.preview.enabled }}
 {{- $p := .Values.preview }}
-{{- $nodes := $p.nodeIsolation }}
-{{- if not $nodes.nodePool }}{{ fail "preview.nodeIsolation.nodePool is required when preview.enabled=true" }}{{ end }}
-{{- if not $nodes.nodeClass }}{{ fail "preview.nodeIsolation.nodeClass is required when preview.enabled=true" }}{{ end }}
-{{- if not $nodes.taintKey }}{{ fail "preview.nodeIsolation.taintKey is required when preview.enabled=true" }}{{ end }}
+{{- /* Node isolation (_preview.tpl): the selector every slot Pod must carry,
+       the EKS NodePool and NodeClass labels first, so an install configured
+       by those names alone renders the policy it always did; with mode none
+       neither the selector nor the toleration rule renders. */}}
+{{- $nodes := include "patchy.previewNodeIsolation" . | fromJson }}
+{{- $eksOnly := and $nodes.eks (eq (len $nodes.pairs) 2) }}
 {{- $slots := list }}
 {{- range $i := until (int $p.slotCount) }}{{ $slots = append $slots (printf "patchy-preview-%d" $i) }}{{ end }}
 {{- $guardSlots := list }}
@@ -97,13 +99,14 @@ spec:
               (!has(variables.pod.hostPID) || !variables.pod.hostPID) &&
               (!has(variables.pod.hostIPC) || !variables.pod.hostIPC)
           message: preview pods may not use host namespaces
+        {{- if eq $nodes.mode "required" }}
         - expression: >-
               has(variables.pod.nodeSelector) &&
-              'karpenter.sh/nodepool' in variables.pod.nodeSelector &&
-              variables.pod.nodeSelector['karpenter.sh/nodepool'] == {{ $nodes.nodePool | quote }} &&
-              'eks.amazonaws.com/nodeclass' in variables.pod.nodeSelector &&
-              variables.pod.nodeSelector['eks.amazonaws.com/nodeclass'] == {{ $nodes.nodeClass | quote }}
-          message: preview pods must select the dedicated preview node pool and class
+              {{- range $i, $pair := $nodes.pairs }}
+              '{{ index $pair 0 }}' in variables.pod.nodeSelector &&
+              variables.pod.nodeSelector['{{ index $pair 0 }}'] == {{ index $pair 1 | quote }}{{ if lt (add1 $i) (len $nodes.pairs) }} &&{{ end }}
+              {{- end }}
+          message: preview pods must select the dedicated preview {{ if $eksOnly }}node pool and class{{ else }}nodes{{ end }}
         - expression: >-
               has(variables.pod.tolerations) &&
               variables.pod.tolerations.exists(t,
@@ -113,6 +116,7 @@ spec:
                 has(t.effect) && t.effect == 'NoExecute' &&
                 !has(t.tolerationSeconds))
           message: preview pods must tolerate the exact preview-only taint
+        {{- end }}
         - expression: >-
               {{- if eq $kind.name "pods" }}
               (!has(variables.pod.nodeName) || variables.pod.nodeName == '' ||
@@ -178,7 +182,9 @@ spec:
         - expression: >-
               !has(variables.pod.tolerations) ||
               variables.pod.tolerations.all(t,
+                {{- if $nodes.taintKey }}
                 (!has(t.key) || t.key != {{ $nodes.taintKey | quote }}) &&
+                {{- end }}
                 !(has(t.operator) && t.operator == 'Exists' &&
                   (!has(t.key) || t.key == '')))
           message: preview-only toleration and tolerate-all are forbidden outside preview slots

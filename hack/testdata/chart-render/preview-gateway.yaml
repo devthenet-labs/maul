@@ -1,0 +1,15 @@
+# Copyright 2026 Bitwise Media Group Ltd.
+# SPDX-License-Identifier: MIT
+#
+# chart-render-test fixture: the preview gateway on, exposed through one
+# Ingress on the edge class, rendered over preview-foundation.yaml and
+# preview-auth.yaml. The keys are an operator Secret so the render is
+# deterministic (the goldens compare it byte for byte).
+previewAuth:
+    keys:
+        existingSecret: patchy-preview-auth-keys-ops
+    gateway:
+        enabled: true
+        forwardedHops: 1
+        ingress:
+            enabled: true

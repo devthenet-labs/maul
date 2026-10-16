@@ -222,9 +222,9 @@ seeded property pins them to the Ingress this controller renders.
 
 ## Without the legacy Ingress
 
-`--preview-legacy-ingress` (`PATCHY_PREVIEW_LEGACY_INGRESS`, chart `previewController.config.legacyIngress`) defaults to
-`true`: everything above, exactly as before the preview gateway. Set to `false`, for an install whose preview hosts the
-preview gateway serves:
+`--preview-legacy-ingress` (`PATCHY_PREVIEW_LEGACY_INGRESS`, chart `preview.legacyIngress`) defaults to `true`:
+everything above, exactly as before the preview gateway. Set to `false`, for an install whose preview hosts the preview
+gateway serves:
 
 - No slot Ingress is rendered, and none precedes the Pods.
 - `Ready` means every component has a Ready Pod of its current spec with an image ID. There is no load balancer to wait

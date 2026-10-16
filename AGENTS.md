@@ -98,7 +98,10 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   rollback, the probe gate before the allowlist goes), reference `docs/configuration/preview-auth.md`; the terraform
   module's `preview_auth` puts its host on the edge. Flags carry a `preview-auth-` prefix (`PATCHY_PREVIEW_AUTH_*`).
   Engine in `internal/previewauth` (core), `internal/previewauth/adapters/*` and `internal/previewauth/httpapi`.
-  With `--preview-auth-gateway` (default off; the chart does not expose it yet) it is also the preview gateway, beside
+  With `--preview-auth-gateway` (default off; chart `previewAuth.gateway`: its Pods labelled
+  `patchy.bitwisemedia.uk/preview-gateway`, the one label the slot NetworkPolicy admits, and one exposure of Service
+  `<fullname>-preview-gateway`: Ingress, HTTPRoute or LoadBalancer, the last optionally over its own TLS by SNI,
+  `--preview-auth-gateway-tls-dir`, adapter `previewauth/adapters/tlsdir`) it is also the preview gateway, beside
   the unchanged provider endpoints: `/start` on its sign-in host (the issuer's by default) issues a single-use handoff
   code to `https://<label>.<suffix>/.patchy/callback`, which sets a per-host session; every preview host is then proxied
   to the Services `status.serving` names, held to the proxy hygiene contract (origin rule, no gateway cookie or identity
@@ -144,8 +147,9 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   is matched with (`v1alpha1.PreviewComponentServiceName`, `PreviewPathMatches`, `PreviewRoute`) are shared, pinned to
   the rendered Ingress by a seeded property. Node isolation is generic (`--preview-node-selector` JSON map plus
   `--preview-taint-key`, `--preview-node-isolation=required|none`; the NodePool/NodeClass flags fill EKS's two keys, so
-  renders stay byte-identical). `--preview-legacy-ingress` (default true, today's path) off renders no slot Ingress,
-  ignores target health and deletes the controller's own slot Ingresses. See `docs/configuration/preview-controller.md`.
+  renders stay byte-identical; chart `preview.nodeIsolation.{selector,mode,eksAutoMode}`). `--preview-legacy-ingress`
+  (default true, today's path; chart `preview.legacyIngress`) off renders no slot Ingress, ignores target health and
+  deletes the controller's own slot Ingresses. See `docs/configuration/preview-controller.md`.
 - `cmd/status-server` — the human-facing status page (NOT a controller: no reconcilers, no leases): the embedded
   SPA + JSON projection of Findings/FindingRollups, SSE refetch signal, OIDC sign-in, the access-review-gated
   approve/retry/expedite/suspend/resume actions, and the user-menu demo tooling (replay → Integration
@@ -368,8 +372,9 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   `PreviewLookup` over the Preview cache), `access` (the `Authorizer` over `web/authz.ProjectReviewer.Allowed`),
   `ledger` (single-use codes on one Lease, resourceVersion compare-and-swap, capped), `dex` (go-oidc client of Dex,
   lazy retried discovery, `web/auth.MapClaims` under the intents-views claims posture), `signer` (RS256, JWKS of
-  current and previous key, RFC 7638 kids), `keydir` (the mounted keys Secret) and `hostprobe` (the unauthenticated
-  host probe, critique F5). `previewauth/httpapi` is the HTTP surface (endpoints, pages, envelope headers, rate
+  current and previous key, RFC 7638 kids), `keydir` (the mounted keys Secret), `tlsdir` (the gateway's own TLS pairs,
+  one projected subdirectory each, by SNI, re-read keep-last-good) and `hostprobe` (the unauthenticated host probe,
+  critique F5). `previewauth/httpapi` is the HTTP surface (endpoints, pages, envelope headers, rate
   limit, audit line, OTel counters, and the preview gateway: `gateway*.go` and `streams.go`, off unless
   `Config.Gateway` is set); `previewauth/fakedex` is test support only (an in-memory Dex). The gateway's pure side is
   in the core: `gateway.go` (the state, handoff code, gateway login and host session kinds t, o, g and h, and
