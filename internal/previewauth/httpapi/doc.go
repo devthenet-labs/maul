@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: MIT
 
 // Package httpapi is the preview sign-in relay's HTTP surface: the OpenID
-// provider every preview host's ALB signs viewers in through, and the one
-// Dex client callback. It is wiring over the pure core (internal/previewauth)
+// provider every preview host's ALB signs viewers in through, the one Dex
+// client callback and, when it is on, the preview gateway's sign-in and
+// authenticating proxy. It is wiring over the pure core (internal/previewauth)
 // and its ports; every decision about a token, a redirect URI or a binding
 // is the core's.
 //
@@ -38,4 +39,32 @@
 // label, Project, result, pairwise subject and a short hash of the token id;
 // never a token, code, state, cookie or login, except that a refused access
 // review is logged at warn with the viewer's login for operators.
+//
+// The preview gateway (Config.Gateway; off unless set, and then beside every
+// endpoint above, unchanged on the issuer host) adds, by Host:
+//
+//   - any host, GET /.patchy/healthz: 200, for the edge's health check.
+//   - the sign-in host (the issuer's by default), GET /start?h=&s=: a preview
+//     host's sealed state; with a relay session (one that carries an id) the
+//     access review runs and a single-use handoff code goes to
+//     https://<label>.<suffix>/.patchy/callback, else the viewer signs in at
+//     Dex first (a gateway login state, kind g, through the same
+//     /dex/callback). A sign-in host of its own serves only /start, its
+//     /dex/callback, / and /logout, with its own Dex client.
+//   - preview hosts <label>.<suffix>: /.patchy/ is the gateway's and never
+//     forwarded; /.patchy/callback spends a handoff code once its state
+//     cookie matches, the Preview is the same and the review passes again,
+//     and sets the host session. Every other request with a host session is
+//     held to the origin rule (Sec-Fetch-Site, Origin on unsafe and upgrade
+//     requests), re-checked against the live Preview and the review (cached
+//     20 s) and proxied to the route status.serving names, with the hygiene
+//     of previewauth.CleanRequest and CleanResponse. Without one, only a
+//     top-level navigation gets a state cookie and a 302 to /start; anything
+//     else is a 401. The rate limit applies to unauthenticated requests and
+//     handoff callbacks, never to a signed-in viewer's traffic.
+//
+// Proxied requests are tracked: each ends at its host session's absolute
+// end, and RunRechecks (every 20 s) and PreviewChanged close
+// those a new request would now refuse, streams and upgraded connections
+// included.
 package httpapi

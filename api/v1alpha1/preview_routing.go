@@ -3,7 +3,10 @@
 
 package v1alpha1
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+)
 
 // The preview routing helpers. preview-controller names each component's
 // Service and renders the slot Ingress's Prefix paths with them, and records
@@ -16,6 +19,11 @@ import "strings"
 // the component's container port: the Service maps it to the container's
 // named port "http".
 const PreviewServicePort int32 = 80
+
+// PreviewSlotNamespace is slot n's fixed namespace, patchy-preview-<n>: where
+// preview-controller renders the slot's objects and where the gateway
+// addresses its Services.
+func PreviewSlotNamespace(n int32) string { return "patchy-preview-" + strconv.Itoa(int(n)) }
 
 // PreviewComponentServiceName names component i's Service (and Deployment)
 // in the Preview's slot. The first component keeps preview-<preview>, the

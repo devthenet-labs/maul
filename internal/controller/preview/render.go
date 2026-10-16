@@ -145,7 +145,7 @@ func (s Settings) tolerations() []corev1.Toleration {
 // health: TargetHealth, with the legacy Ingress the load balancer needs.
 func (s Settings) targetHealth() bool { return s.TargetHealth && !s.NoLegacyIngress }
 
-func (s Settings) slotName(n int32) string { return fmt.Sprintf("patchy-preview-%d", n) }
+func (s Settings) slotName(n int32) string { return v1alpha1.PreviewSlotNamespace(n) }
 
 // resourceName names the Preview's Ingress, and its first component's
 // Deployment and Service: preview-<p>, the name every single-component Preview

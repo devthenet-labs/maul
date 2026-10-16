@@ -96,3 +96,33 @@ func TestJudgeProbeOnlyItsOwnSlotAndLabel(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestJudgeGatewayProbe(t *testing.T) {
+	h, err := NewHosts(testSuffix, "preview-auth.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	good := h.StartURL("intent-7", "pa1.t.1.abc")
+	if err := JudgeGatewayProbe(302, good, h, "intent-7"); err != nil {
+		t.Errorf("the gateway's own redirect: %v", err)
+	}
+	for _, tc := range []struct {
+		status int
+		loc    string
+	}{
+		{200, ""},
+		{301, good},
+		{302, h.StartURL("other-1", "pa1.t.1.abc")},
+		{302, "https://preview-auth.example.com/start?h=intent-7&s=pa1.o.1.abc"},
+		{302, "https://evil.example.com/start?h=intent-7&s=pa1.t.1.abc"},
+		{302, "http://preview-auth.example.com/start?h=intent-7&s=pa1.t.1.abc"},
+		{302, "https://preview-auth.example.com/authorize?h=intent-7&s=pa1.t.1.abc"},
+		{302, good + "&h=intent-7"},
+		{302, good + "&x=1"},
+		{302, "https://u@preview-auth.example.com/start?h=intent-7&s=pa1.t.1.abc"},
+	} {
+		if err := JudgeGatewayProbe(tc.status, tc.loc, h, "intent-7"); err == nil {
+			t.Errorf("JudgeGatewayProbe(%d, %q) passed", tc.status, tc.loc)
+		}
+	}
+}

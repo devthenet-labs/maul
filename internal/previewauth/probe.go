@@ -41,3 +41,24 @@ func JudgeProbe(status int, location, issuer string, slot int, label string, cb 
 	}
 	return nil
 }
+
+// JudgeGatewayProbe judges a preview host's answer to an unauthenticated
+// navigation when the preview gateway serves it: protected only when it
+// answered 302 to exactly https://<sign-in host>/start with h the host's own
+// label and s a sealed state. Every other answer is ErrUnprotected.
+func JudgeGatewayProbe(status int, location string, hosts Hosts, label string) error {
+	if status != http.StatusFound || hosts.SignIn() == "" {
+		return ErrUnprotected
+	}
+	u, err := url.Parse(location)
+	if err != nil || u.Scheme != "https" || u.Host != hosts.SignIn() || u.Path != "/start" || u.User != nil ||
+		u.Fragment != "" {
+		return ErrUnprotected
+	}
+	q, err := url.ParseQuery(u.RawQuery)
+	if err != nil || len(q) != 2 || len(q["h"]) != 1 || len(q["s"]) != 1 || q.Get("h") != label ||
+		TokenKind(q.Get("s")) != KindState {
+		return ErrUnprotected
+	}
+	return nil
+}

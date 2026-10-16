@@ -58,4 +58,19 @@ var (
 	pageForbidden   = pageData{Title: "Refused", Message: "This request must come from this page."}
 	pageRateLimited = pageData{Title: "Too many requests", Message: "Slow down and try again in a moment."}
 	pageNotAllowed  = pageData{Title: "Method not allowed", Message: "Only GET and POST are served."}
+
+	// The gateway's own pages on preview hosts.
+	pageSignInRequired = pageData{Title: "Sign in to view this preview",
+		Message: "This request needs a preview sign-in. Open the preview's address in your browser to sign in."}
+	pageCrossOrigin = pageData{Title: "Refused",
+		Message: "This request did not come from this preview, so it was not forwarded."}
+	pageServiceWorker = pageData{Title: "Refused",
+		Message: "Previews cannot register service workers."}
+	pageNotOnAllowlist = pageData{Title: "Refused",
+		Message: "Previews cannot be reached from this network address."}
+	pageStarting = pageData{Title: "Preview starting",
+		Message: "This preview is not serving yet. Try again in a moment."}
+	pageUpstreamDown = pageData{Title: "Preview not answering",
+		Message: "The preview did not answer. It may be restarting; try again in a moment."}
+	pageTooLarge = pageData{Title: "Request too large", Message: "This request is larger than previews accept."}
 )

@@ -113,6 +113,13 @@ func (v *viewers) Allowed(_ context.Context, r previewauth.AccessReview) (bool, 
 	return v.users[r.Username], nil
 }
 
+// count is how many access reviews were asked.
+func (v *viewers) count() int {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return len(v.asked)
+}
+
 func (v *viewers) setErr(err error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()

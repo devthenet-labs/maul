@@ -24,10 +24,18 @@ const (
 	KindRefresh Kind = 'r'
 	KindLogin   Kind = 'l'
 	KindSession Kind = 's'
+	// The preview gateway's kinds (gateway.go): a preview host's session, the
+	// state a preview host sends to the sign-in host, the handoff code the
+	// sign-in host sends back, and the gateway's sign-in state through Dex.
+	KindHost         Kind = 'h'
+	KindState        Kind = 't'
+	KindHandoff      Kind = 'o'
+	KindGatewayLogin Kind = 'g'
 )
 
 // kinds lists every kind, in the order keys are derived.
-var kinds = []Kind{KindCode, KindAccess, KindRefresh, KindLogin, KindSession}
+var kinds = []Kind{KindCode, KindAccess, KindRefresh, KindLogin, KindSession, KindHost, KindState, KindHandoff,
+	KindGatewayLogin}
 
 func (k Kind) purpose() string {
 	switch k {
@@ -41,6 +49,14 @@ func (k Kind) purpose() string {
 		return "login"
 	case KindSession:
 		return "session"
+	case KindHost:
+		return "host-session"
+	case KindState:
+		return "preview-state"
+	case KindHandoff:
+		return "handoff"
+	case KindGatewayLogin:
+		return "gateway-login"
 	}
 	return ""
 }
@@ -105,6 +121,22 @@ func (r *KeyRing) open(k Kind, token string, v any) error {
 		return ErrInvalidToken
 	}
 	return nil
+}
+
+// TokenKind is the kind a token's spelling names, or 0 when it does not have
+// a token's shape. It opens nothing: a caller uses it only to pick which
+// Open to try, and that Open decides.
+func TokenKind(token string) Kind {
+	rest, ok := strings.CutPrefix(token, tokenPrefix+".")
+	if !ok || len(rest) < 2 || rest[1] != '.' {
+		return 0
+	}
+	for _, k := range kinds {
+		if Kind(rest[0]) == k {
+			return k
+		}
+	}
+	return 0
 }
 
 // live reports an authentic payload's expiry against now: a token is valid

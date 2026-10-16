@@ -88,6 +88,9 @@ func testSession(t testing.TB) Session {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if s, err = s.Named(); err != nil {
+		t.Fatal(err)
+	}
 	return s
 }
 

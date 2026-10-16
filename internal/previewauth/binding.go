@@ -5,6 +5,8 @@ package previewauth
 
 import (
 	"errors"
+	"strconv"
+	"strings"
 
 	"github.com/bitwise-media-group/patchy/api/v1alpha1"
 )
@@ -34,6 +36,64 @@ type View struct {
 	// Live: not being deleted, in a phase that holds or awaits its slot's
 	// host (Queued, Deploying, Ready), with a slot assigned.
 	Live bool
+	// Routes is what the Preview serves, from status.serving: set only on a
+	// live View whose snapshot was written for this very Preview (its UID),
+	// never from spec. The gateway proxies only to these.
+	Routes []Route
+}
+
+// Route is one served component: requests whose path falls under Path go to
+// Service's Port in the Preview's slot namespace.
+type Route struct {
+	Path    string
+	Service string
+	Port    int32
+}
+
+// Upstream is the route's in-cluster address in slot's namespace: by DNS
+// name, so the gateway needs no Service or Endpoint read.
+func (r Route) Upstream(slot int) string {
+	return r.Service + "." + v1alpha1.PreviewSlotNamespace(int32(slot)) + ".svc:" + strconv.Itoa(int(r.Port))
+}
+
+// Pick is the route a request path goes to (the longest matching prefix,
+// v1alpha1.PreviewRoute), or false when none matches.
+func (v View) Pick(path string) (Route, bool) {
+	prefixes := make([]string, len(v.Routes))
+	for i, r := range v.Routes {
+		prefixes[i] = r.Path
+	}
+	i := v1alpha1.PreviewRoute(prefixes, path)
+	if i < 0 {
+		return Route{}, false
+	}
+	return v.Routes[i], true
+}
+
+// routesOf reads the serving snapshot of p, refusing the whole snapshot when
+// it was written for another UID or any component is not a well-formed
+// Service name, path and port.
+func routesOf(p *v1alpha1.Preview) []Route {
+	s := p.Status.Serving
+	if s == nil || s.UID == "" || s.UID != p.UID || len(s.Components) == 0 ||
+		len(s.Components) > v1alpha1.MaxPreviewComponents {
+		return nil
+	}
+	out := make([]Route, 0, len(s.Components))
+	for _, c := range s.Components {
+		if !validServiceName(c.Service) || c.Port < 1 || c.Port > 65535 || !strings.HasPrefix(c.Path, "/") ||
+			len(c.Path) > 128 {
+			return nil
+		}
+		out = append(out, Route{Path: c.Path, Service: c.Service, Port: c.Port})
+	}
+	return out
+}
+
+// validServiceName is a DNS-1035 label, which a Service name is.
+func validServiceName(n string) bool {
+	return n != "" && len(n) <= maxLabel && n[0] >= 'a' && n[0] <= 'z' && n[len(n)-1] != '-' &&
+		strings.Trim(n, "abcdefghijklmnopqrstuvwxyz0123456789-") == ""
 }
 
 // ViewOf projects p. A Preview whose name is not its host label, or that has
@@ -47,6 +107,9 @@ func ViewOf(p *v1alpha1.Preview) View {
 	case v1alpha1.PreviewQueued, v1alpha1.PreviewDeploying, v1alpha1.PreviewReady:
 		v.Live = p.DeletionTimestamp == nil && p.Status.Slot != nil && p.Name == p.Spec.HostLabel &&
 			v.UID != "" && v.Slot >= 0 && v.Slot < MaxSlots
+	}
+	if v.Live {
+		v.Routes = routesOf(p)
 	}
 	return v
 }

@@ -170,3 +170,11 @@ func TestPreviewComponentServiceName(t *testing.T) {
 		t.Errorf("second component's Service = %q", got)
 	}
 }
+
+func TestPreviewSlotNamespace(t *testing.T) {
+	for n, want := range map[int32]string{0: "patchy-preview-0", 3: "patchy-preview-3"} {
+		if got := PreviewSlotNamespace(n); got != want {
+			t.Errorf("PreviewSlotNamespace(%d) = %s, want %s", n, got, want)
+		}
+	}
+}

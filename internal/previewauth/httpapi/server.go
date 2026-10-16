@@ -42,6 +42,10 @@ type Config struct {
 	Log       *slog.Logger
 	// Now is the clock; nil is time.Now.
 	Now func() time.Time
+
+	// Gateway, when set, turns the preview gateway on beside the relay's
+	// provider endpoints (gateway.go). Nil keeps the relay exactly as it was.
+	Gateway *GatewayConfig
 }
 
 func (c Config) validate() error {
@@ -60,6 +64,11 @@ func (c Config) validate() error {
 		strings.HasSuffix(host, "."+c.Callbacks.Suffix()) {
 		return fmt.Errorf("the relay host %s sits under the preview host suffix %s", host, c.Callbacks.Suffix())
 	}
+	if c.Gateway != nil {
+		if err := c.Gateway.validate(c); err != nil {
+			return fmt.Errorf("gateway: %w", err)
+		}
+	}
 	return c.Lifetimes.Validate()
 }
 
@@ -70,6 +79,8 @@ type Server struct {
 	now       func() time.Time
 	limiter   *limiter
 	discovery []byte
+	// gw is the preview gateway, nil when it is off.
+	gw *gateway
 }
 
 // New validates cfg and builds the Server.
@@ -90,6 +101,9 @@ func New(cfg Config) (*Server, error) {
 		return nil, err
 	}
 	s.discovery = d
+	if cfg.Gateway != nil {
+		s.gw = newGateway(s, *cfg.Gateway)
+	}
 	return s, nil
 }
 
@@ -104,7 +118,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/userinfo", s.handleUserinfo)
 	mux.HandleFunc("/logout", s.only(http.MethodPost, s.handleLogout))
 	mux.HandleFunc("/", s.handleRoot)
-	return s.envelope(mux)
+	if s.gw == nil {
+		return s.envelope(mux, s.limiter)
+	}
+	if s.gw.sharedHost {
+		mux.HandleFunc("/start", s.only(http.MethodGet, s.gw.handleStart))
+	}
+	return s.gw.handler(s.envelope(mux, s.limiter))
 }
 
 // auditKey carries a request's audit record through its handler.
@@ -156,20 +176,43 @@ func (w *statusWriter) Write(p []byte) (int, error) {
 	return w.ResponseWriter.Write(p)
 }
 
+// Unwrap lets http.ResponseController reach the connection beneath, to
+// flush a stream or hijack an upgrade.
+func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+// pageHeaders are the headers every page of the relay's and the gateway's
+// own carries: never framed, never cached, no script or style, no referrer.
+func pageHeaders(h http.Header) {
+	h.Set("Strict-Transport-Security", "max-age=31536000")
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Content-Security-Policy", "default-src 'none'; base-uri 'none'; form-action 'self'; "+
+		"frame-ancestors 'none'")
+	h.Set("X-Frame-Options", "DENY")
+	h.Set("Referrer-Policy", "no-referrer")
+	h.Set("Cache-Control", "no-store")
+}
+
+// relayDeadline bounds the read and write of every request the gateway does
+// not proxy (relay, sign-in, health, a preview host's own pages and the
+// handoff callback) when the gateway is on: its server has no Read or
+// WriteTimeout, so streams and WebSockets can be proxied, and every other
+// request sets its own.
+const relayDeadline = 30 * time.Second
+
 // envelope sets the headers every response carries, refuses methods other
-// than GET and POST, caps the body, applies the rate limit and writes the
-// audit line.
-func (s *Server) envelope(next http.Handler) http.Handler {
+// than GET and POST, caps the body, applies the rate limit (lim) and writes
+// the audit line.
+func (s *Server) envelope(next http.Handler, lim *limiter) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := s.now()
 		h := w.Header()
-		h.Set("Strict-Transport-Security", "max-age=31536000")
-		h.Set("X-Content-Type-Options", "nosniff")
-		h.Set("Content-Security-Policy", "default-src 'none'; base-uri 'none'; form-action 'self'; "+
-			"frame-ancestors 'none'")
-		h.Set("X-Frame-Options", "DENY")
-		h.Set("Referrer-Policy", "no-referrer")
-		h.Set("Cache-Control", "no-store")
+		pageHeaders(h)
+		if s.gw != nil {
+			h.Set("Cross-Origin-Opener-Policy", "same-origin")
+			// Connection deadlines are wall-clock time, never the
+			// injectable clock.
+			s.gw.setDeadline(w)
+		}
 		a := &record{endpoint: endpointName(r.URL.Path), slot: -1}
 		sw := &statusWriter{ResponseWriter: w}
 		defer func() {
@@ -192,7 +235,7 @@ func (s *Server) envelope(next http.Handler) http.Handler {
 		// ALB redeem junk codes starve every viewer's sign-in. Those
 		// handlers charge the address only for a request that fails to
 		// authenticate (backchannelThrottled).
-		if !backchannel(a.endpoint) && !s.limiter.allow(r) {
+		if !backchannel(a.endpoint) && !lim.allow(r) {
 			a.result = "rate_limited"
 			count(r.Context(), limitedCounter)
 			h.Set("Retry-After", "1")
@@ -233,6 +276,8 @@ func endpointName(path string) string {
 		return path[1:]
 	case "/dex/callback":
 		return "callback"
+	case "/start":
+		return "start"
 	case "/":
 		return "root"
 	}

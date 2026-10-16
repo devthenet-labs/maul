@@ -167,6 +167,10 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	state := q.Get("state")
+	if s.gw != nil && s.gw.sharedHost && previewauth.TokenKind(state) == previewauth.KindGatewayLogin {
+		s.gw.finishLogin(w, r, q)
+		return
+	}
 	st, err := s.cfg.Ring.OpenLogin(state, s.now())
 	if err != nil {
 		login("expired", http.StatusBadRequest, pageSignInExpired)
@@ -192,6 +196,11 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	now := s.now()
 	sess, err := previewauth.NewSession(now, s.cfg.Lifetimes, id)
+	if err == nil && s.gw != nil {
+		// Only the gateway's /start needs a named session; with the gateway
+		// off the session stays exactly as large as before.
+		sess, err = sess.Named()
+	}
 	if err != nil {
 		login("failed", http.StatusBadGateway, pageUpstreamFailed)
 		return

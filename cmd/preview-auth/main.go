@@ -10,6 +10,11 @@
 // Its Kubernetes access is Previews (get, list, watch), SubjectAccessReviews
 // (create) and its one code-ledger Lease (get, update); its keys come from a
 // mounted Secret, so it reads no Secret through the API.
+//
+// With --preview-auth-gateway (default off) it is also the preview gateway:
+// it signs viewers in on its sign-in host and proxies every preview host
+// itself, each with its own host session, to the slot Services the Preview's
+// status.serving names, by DNS name (so still no Service or Endpoint read).
 package main
 
 import (
