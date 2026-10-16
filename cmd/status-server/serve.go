@@ -80,6 +80,38 @@ func newIntentsWiring(opts *cli.Options, authCfg *auth.Config) (intentsWiring, e
 	return intentsWiring{on: true, projects: projects}, nil
 }
 
+// viewsWiring is the optional views the flags turn on, each checked against
+// the auth posture before anything starts.
+type viewsWiring struct {
+	intents intentsWiring
+	usage   usageWiring
+}
+
+func newViewsWiring(opts *cli.Options, authCfg *auth.Config) (viewsWiring, error) {
+	intents, err := newIntentsWiring(opts, authCfg)
+	if err != nil {
+		return viewsWiring{}, err
+	}
+	usage, err := newUsageWiring(opts.Bool("usage-enabled"), authCfg)
+	if err != nil {
+		return viewsWiring{}, err
+	}
+	return viewsWiring{intents: intents, usage: usage}, nil
+}
+
+// registerIndexes installs the indexes of every view that is on.
+func (vw viewsWiring) registerIndexes(ctx context.Context, idx client.FieldIndexer) error {
+	if err := vw.intents.registerIndexes(ctx, idx); err != nil {
+		return err
+	}
+	return vw.usage.registerIndexes(ctx, idx)
+}
+
+// apply turns on every view that is on.
+func (vw viewsWiring) apply(srv *web.Server, c client.Client, namespace string, tailer web.Tailer) *web.Server {
+	return vw.usage.apply(vw.intents.apply(srv, c, namespace, tailer), c, namespace)
+}
+
 // usageWiring is what --usage-enabled adds to the server, decided before
 // anything starts.
 type usageWiring struct{ on bool }
@@ -231,11 +263,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	}
 	// Checked before anything starts: a posture that cannot serve the
 	// intents views safely must not come up serving them.
-	intents, err := newIntentsWiring(opts, authCfg)
-	if err != nil {
-		return err
-	}
-	usage, err := newUsageWiring(opts.Bool("usage-enabled"), authCfg)
+	views, err := newViewsWiring(opts, authCfg)
 	if err != nil {
 		return err
 	}
@@ -259,10 +287,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	if err := web.RegisterIndexes(ctx, mgr.GetFieldIndexer()); err != nil {
 		return err
 	}
-	if err := intents.registerIndexes(ctx, mgr.GetFieldIndexer()); err != nil {
-		return err
-	}
-	if err := usage.registerIndexes(ctx, mgr.GetFieldIndexer()); err != nil {
+	if err := views.registerIndexes(ctx, mgr.GetFieldIndexer()); err != nil {
 		return err
 	}
 
@@ -285,8 +310,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		log.LogAttrs(ctx, slog.LevelWarn, "live transcripts unavailable",
 			slog.String("agent_namespace", agentNS), slog.Any("error", err))
 	}
-	srv = intents.apply(srv.WithTranscripts(mgr.GetAPIReader(), tailer), mgr.GetClient(), namespace, tailer)
-	srv = usage.apply(srv, mgr.GetClient(), namespace)
+	srv = views.apply(srv.WithTranscripts(mgr.GetAPIReader(), tailer), mgr.GetClient(), namespace, tailer)
 
 	err = mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
 		return srv.StartWatch(ctx, mgr.GetCache())
@@ -309,8 +333,8 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		slog.String("namespace", namespace),
 		slog.String("listen_addr", httpSrv.Addr),
 		slog.String("auth_mode", mode),
-		slog.Bool("intents", intents.on),
-		slog.Bool("usage", usage.on))
+		slog.Bool("intents", views.intents.on),
+		slog.Bool("usage", views.usage.on))
 
 	g, ctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return mgr.Start(ctx) })

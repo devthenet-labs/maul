@@ -56,6 +56,24 @@ function day(i: number, days: number, to: Date): UsageDay {
   };
 }
 
+// projectTotals sums one Project's segments over the window.
+function projectTotals(daily: UsageDay[], project: string) {
+  const t = {
+    project, runs: 0, partialRuns: 0, reportedRuns: 0, unpricedRuns: 0, tokens: 0, inputTokens: 0, outputTokens: 0,
+    cacheReadTokens: 0, cacheWriteTokens: 0, unmeteredTokens: 0, costMicroUSD: 0, notionalCostMicroUSD: 0,
+    reportedTokens: 0, reportedCostMicroUSD: 0,
+  };
+  for (const d of daily) {
+    for (const s of d.projects) {
+      if (s.key !== project) continue;
+      t.runs += s.runs;
+      t.tokens += s.tokens;
+      t.costMicroUSD += s.costMicroUSD;
+    }
+  }
+  return t;
+}
+
 export function mockUsage(days: number, all: boolean): UsageReport {
   const to = new Date();
   const daily = Array.from({ length: days }, (_, i) => day(i, days, to));
@@ -99,7 +117,7 @@ export function mockUsage(days: number, all: boolean): UsageReport {
       { intent: "billing-12", project: "billing", runs: 4, tokens: 1_300_000, costMicroUSD: 4_000_000, notionalCostMicroUSD: 0 },
     ],
     topIntentMonths: [daily[0].day.slice(0, 7), daily[days - 1].day.slice(0, 7)].filter((m, i, a) => a.indexOf(m) === i),
-    projects: PROJECTS.map((p) => ({ ...totals, project: p })),
+    projects: PROJECTS.map((p) => projectTotals(daily, p)),
   };
   if (all) {
     report.people = [

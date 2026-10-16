@@ -191,14 +191,14 @@ func usageTables(rep usageview.UsageReport) []printer.Group {
 		[][]any{append([]any{fmt.Sprintf("%dd", rep.Days)}, figureCells(rep.Totals)...)})}}
 
 	if len(rep.People) > 0 {
-		var rows [][]any
+		rows := make([][]any, 0, len(rep.People))
 		for _, p := range rep.People {
 			rows = append(rows, append([]any{person(p.User, p.Login)}, figureCells(p.UsageFigures)...))
 		}
 		groups = append(groups, printer.Group{Title: "People", Table: usageTable("USER", figureColumns, rows)})
 	}
 	if len(rep.Projects) > 0 {
-		var rows [][]any
+		rows := make([][]any, 0, len(rep.Projects))
 		for _, p := range rep.Projects {
 			rows = append(rows, append([]any{p.Project}, figureCells(p.UsageFigures)...))
 		}
@@ -214,7 +214,7 @@ func usageTables(rep usageview.UsageReport) []printer.Group {
 		groups = append(groups, printer.Group{Title: "Days", Table: usageTable("DAY", figureColumns, rows)})
 	}
 	if len(rep.TopIntents) > 0 {
-		var rows [][]any
+		rows := make([][]any, 0, len(rep.TopIntents))
 		for _, ti := range rep.TopIntents {
 			rows = append(rows, []any{ti.Intent, ti.Project, strconv.FormatInt(ti.Runs, 10),
 				strconv.FormatInt(ti.Tokens, 10), microUSD(ti.CostMicroUSD), microUSD(ti.NotionalCostMicroUSD)})

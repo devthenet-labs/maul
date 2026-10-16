@@ -93,11 +93,12 @@ func TestWindow(t *testing.T) {
 	}
 }
 
-// A person's own report: totals and days from their user scope, stacked by
-// their Projects with the no-project remainder, by kind, with their top
-// intents; reported and unmetered figures kept apart from the trusted ones.
-func TestBuildSelf(t *testing.T) {
-	const me, other = "github-id:42", "github-id:7"
+const me, other = "github-id:42", "github-id:7"
+
+// selfFixture is one person's month: two Projects, a no-project run, a
+// reported run, an older intent, and another person's run beside them.
+func selfFixture(t *testing.T) UsageReport {
+	t.Helper()
 	rollups := fold(t, []run{
 		{user: me, login: "octocat", project: "shop", intent: "add-cart", kind: "build", at: daysAgo(0),
 			delta: measured(100, 50, 10, 5, 3, 2_000_000, 0)},
@@ -111,8 +112,14 @@ func TestBuildSelf(t *testing.T) {
 		{user: other, login: "hubot", project: "shop", intent: "theirs", kind: "build", at: daysAgo(0),
 			delta: measured(1_000, 0, 0, 0, 0, 9_000_000, 0)},
 	})
-	rep := Build(rollups, Filter{User: me, Self: true}, testNow, 30)
+	return Build(rollups, Filter{User: me, Self: true}, testNow, 30)
+}
 
+// A person's own report: totals and days from their user scope, stacked by
+// their Projects with the no-project remainder; reported and unmetered
+// figures kept apart from the trusted ones.
+func TestBuildSelf(t *testing.T) {
+	rep := selfFixture(t)
 	if rep.View != ViewSelf || rep.User != me || rep.Login != "octocat" || rep.Days != 30 ||
 		rep.From != "2026-09-17" || rep.To != "2026-10-16" || len(rep.Daily) != 30 {
 		t.Fatalf("header = %s %s %s %d %s..%s (%d days)", rep.View, rep.User, rep.Login, rep.Days, rep.From, rep.To,
@@ -137,6 +144,18 @@ func TestBuildSelf(t *testing.T) {
 	if !reflect.DeepEqual(today.Projects, wantProjects) {
 		t.Errorf("today's projects = %+v, want %+v", today.Projects, wantProjects)
 	}
+	if len(rep.People) != 0 {
+		t.Errorf("a person's report lists people: %+v", rep.People)
+	}
+	if len(rep.Projects) != 2 || rep.Projects[0].Project != "shop" || rep.Projects[1].Project != "blog" {
+		t.Errorf("Projects = %+v", rep.Projects)
+	}
+}
+
+// The stack keys are ordered largest first with no-project last, and the
+// top intents are the person's own, from the months the window touches.
+func TestBuildSelfKeysAndTopIntents(t *testing.T) {
+	rep := selfFixture(t)
 	if !slices.Equal(rep.ProjectKeys, []string{"shop", "blog", NoProject}) {
 		t.Errorf("ProjectKeys = %v", rep.ProjectKeys)
 	}
@@ -155,12 +174,6 @@ func TestBuildSelf(t *testing.T) {
 	if !slices.Equal(rep.TopIntentMonths, []string{"2026-09", "2026-10"}) {
 		t.Errorf("TopIntentMonths = %v", rep.TopIntentMonths)
 	}
-	if len(rep.People) != 0 {
-		t.Errorf("a person's report lists people: %+v", rep.People)
-	}
-	if len(rep.Projects) != 2 || rep.Projects[0].Project != "shop" || rep.Projects[1].Project != "blog" {
-		t.Errorf("Projects = %+v", rep.Projects)
-	}
 }
 
 // Everyone's report sums every user scope, splits by the project scopes
@@ -177,7 +190,7 @@ func TestBuildAll(t *testing.T) {
 	if rep.View != ViewAll || rep.Totals.Tokens != 45 || rep.Totals.Runs != 3 {
 		t.Fatalf("all = %s %+v", rep.View, rep.Totals)
 	}
-	var users []string
+	users := make([]string, 0, len(rep.People))
 	for _, p := range rep.People {
 		users = append(users, p.User+"="+p.Login)
 	}

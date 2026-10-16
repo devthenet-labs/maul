@@ -255,50 +255,105 @@ func Build(rollups []v1alpha1.UsageRollup, f Filter, now time.Time, days int) Us
 		Daily: make([]UsageDay, len(keys)), ProjectKeys: []string{}, KindKeys: []string{},
 		TopIntents: []UsageIntent{}, TopIntentMonths: []string{},
 	}
-	inWindow := func(day string) bool { return day >= rep.From && day <= rep.To }
+	sel := selectScopes(rollups, f)
+	rep.Login = sel.login
 
-	var primary, stack, people, projects, tops []*v1alpha1.UsageRollup
-	for i := range rollups {
-		r := &rollups[i]
-		s := r.Spec.Scope
-		switch s.Type {
-		case v1alpha1.UsageScopeUser:
-			if f.User == "" || s.User == f.User {
-				tops = append(tops, r)
-				if f.Project == "" {
-					if f.User == "" {
-						people = append(people, r)
-					}
-					primary = append(primary, r)
-				}
-				if f.User != "" && r.Status.Login != "" {
-					rep.Login = r.Status.Login
-				}
-			}
-		case v1alpha1.UsageScopeUserProject:
-			userOK, projOK := f.User == "" || s.User == f.User, f.Project == "" || s.Project == f.Project
-			switch {
-			case f.User != "" && f.Project != "" && userOK && projOK:
-				primary = append(primary, r)
-				stack = append(stack, r)
-			case f.User != "" && f.Project == "" && userOK:
-				stack = append(stack, r)
-				projects = append(projects, r)
-			case f.User == "" && f.Project != "" && projOK:
-				people = append(people, r)
-			}
-		case v1alpha1.UsageScopeProject:
-			if f.User == "" && (f.Project == "" || s.Project == f.Project) {
-				stack = append(stack, r)
-				projects = append(projects, r)
-				if f.Project != "" {
-					primary = append(primary, r)
-				}
-			}
-		}
+	dayKinds, kindTotals := fillDays(&rep, keys, sel.primary)
+	dayProjects, projectTotals := splitProjects(&rep, keys, sel.stack)
+	rep.ProjectKeys = orderKeys(projectTotals, NoProject)
+	rep.KindKeys = orderKeys(kindTotals, "")
+	for i := range rep.Daily {
+		rep.Daily[i].Projects = segments(dayProjects[i], rep.ProjectKeys)
+		rep.Daily[i].Kinds = segments(dayKinds[i], rep.KindKeys)
 	}
 
-	// Daily totals and kind segments from the primary scopes.
+	rep.TopIntents, rep.TopIntentMonths = topIntents(sel.tops, f.Project, rep.From, rep.To)
+	inWindow := func(day string) bool { return day >= rep.From && day <= rep.To }
+	if f.User == "" {
+		rep.People = peopleRows(rollups, sel.people, inWindow)
+	}
+	if f.Project == "" {
+		rep.Projects = projectRows(sel.projects, inWindow)
+	}
+	return rep
+}
+
+// selection is which rollups play which part in a report.
+type selection struct {
+	// primary sum to the report's totals and days.
+	primary []*v1alpha1.UsageRollup
+	// stack split the days by Project.
+	stack []*v1alpha1.UsageRollup
+	// people and projects are the per-person and per-Project rows.
+	people, projects []*v1alpha1.UsageRollup
+	// tops hold the top intents (user scopes).
+	tops []*v1alpha1.UsageRollup
+	// login is the filtered person's last-seen login.
+	login string
+}
+
+func selectScopes(rollups []v1alpha1.UsageRollup, f Filter) selection {
+	var sel selection
+	for i := range rollups {
+		r := &rollups[i]
+		switch r.Spec.Scope.Type {
+		case v1alpha1.UsageScopeUser:
+			sel.addUser(r, f)
+		case v1alpha1.UsageScopeUserProject:
+			sel.addUserProject(r, f)
+		case v1alpha1.UsageScopeProject:
+			sel.addProject(r, f)
+		}
+	}
+	return sel
+}
+
+func (sel *selection) addUser(r *v1alpha1.UsageRollup, f Filter) {
+	if f.User != "" && r.Spec.Scope.User != f.User {
+		return
+	}
+	sel.tops = append(sel.tops, r)
+	if f.Project == "" {
+		if f.User == "" {
+			sel.people = append(sel.people, r)
+		}
+		sel.primary = append(sel.primary, r)
+	}
+	if f.User != "" && r.Status.Login != "" {
+		sel.login = r.Status.Login
+	}
+}
+
+func (sel *selection) addUserProject(r *v1alpha1.UsageRollup, f Filter) {
+	s := r.Spec.Scope
+	userOK, projOK := f.User == "" || s.User == f.User, f.Project == "" || s.Project == f.Project
+	switch {
+	case f.User != "" && f.Project != "" && userOK && projOK:
+		sel.primary = append(sel.primary, r)
+		sel.stack = append(sel.stack, r)
+	case f.User != "" && f.Project == "" && userOK:
+		sel.stack = append(sel.stack, r)
+		sel.projects = append(sel.projects, r)
+	case f.User == "" && f.Project != "" && projOK:
+		sel.people = append(sel.people, r)
+	}
+}
+
+func (sel *selection) addProject(r *v1alpha1.UsageRollup, f Filter) {
+	if f.User != "" || (f.Project != "" && r.Spec.Scope.Project != f.Project) {
+		return
+	}
+	sel.stack = append(sel.stack, r)
+	sel.projects = append(sel.projects, r)
+	if f.Project != "" {
+		sel.primary = append(sel.primary, r)
+	}
+}
+
+// fillDays sums the primary scopes into each day and the totals, and
+// returns each day's kind segments and the window's kind totals.
+func fillDays(rep *UsageReport, keys []string, primary []*v1alpha1.UsageRollup) ([]map[string]UsageSegment,
+	map[string]UsageSegment) {
 	kindTotals := map[string]UsageSegment{}
 	dayKinds := make([]map[string]UsageSegment, len(keys))
 	for i, day := range keys {
@@ -311,20 +366,21 @@ func Build(rollups []v1alpha1.UsageRollup, f Filter, now time.Time, days int) Us
 			}
 			addFigures(&rep.Daily[i].UsageFigures, b.UsageAggregate)
 			for k, kt := range b.Kinds {
-				seg := dayKinds[i][k]
-				seg.Key = k
-				seg.Runs += kt.Runs
-				seg.Tokens += kt.Tokens
-				seg.CostMicroUSD += kt.CostMicroUSD
-				seg.NotionalCostMicroUSD += kt.NotionalCostMicroUSD
-				dayKinds[i][k] = seg
+				seg := UsageSegment{Key: k, Runs: kt.Runs, Tokens: kt.Tokens, CostMicroUSD: kt.CostMicroUSD,
+					NotionalCostMicroUSD: kt.NotionalCostMicroUSD}
+				dayKinds[i][k] = sumSegment(dayKinds[i][k], seg, k)
 				kindTotals[k] = sumSegment(kindTotals[k], seg, k)
 			}
 		}
 		addTotals(&rep.Totals, rep.Daily[i].UsageFigures)
 	}
+	return dayKinds, kindTotals
+}
 
-	// Project segments from the stack scopes, plus the remainder.
+// splitProjects splits each day by the stack scopes' Projects, plus the
+// remainder no Project accounts for.
+func splitProjects(rep *UsageReport, keys []string, stack []*v1alpha1.UsageRollup) ([]map[string]UsageSegment,
+	map[string]UsageSegment) {
 	projectTotals := map[string]UsageSegment{}
 	dayProjects := make([]map[string]UsageSegment, len(keys))
 	for i, day := range keys {
@@ -336,54 +392,48 @@ func Build(rollups []v1alpha1.UsageRollup, f Filter, now time.Time, days int) Us
 				continue
 			}
 			p := r.Spec.Scope.Project
-			seg := sumSegment(dayProjects[i][p], bucketSegment(p, b.UsageAggregate), p)
-			dayProjects[i][p] = seg
-			sum = sumSegment(sum, bucketSegment(p, b.UsageAggregate), "")
+			seg := bucketSegment(p, b.UsageAggregate)
+			dayProjects[i][p] = sumSegment(dayProjects[i][p], seg, p)
+			sum = sumSegment(sum, seg, "")
 		}
-		total := dayTotalSegment(rep.Daily[i].UsageFigures)
-		if rest := remainder(total, sum); !zero(rest) {
+		if rest := remainder(dayTotalSegment(rep.Daily[i].UsageFigures), sum); !zero(rest) {
 			dayProjects[i][NoProject] = rest
 		}
 		for k, seg := range dayProjects[i] {
 			projectTotals[k] = sumSegment(projectTotals[k], seg, k)
 		}
 	}
+	return dayProjects, projectTotals
+}
 
-	rep.ProjectKeys = orderKeys(projectTotals, NoProject)
-	rep.KindKeys = orderKeys(kindTotals, "")
-	for i := range rep.Daily {
-		rep.Daily[i].Projects = segments(dayProjects[i], rep.ProjectKeys)
-		rep.Daily[i].Kinds = segments(dayKinds[i], rep.KindKeys)
+func peopleRows(rollups []v1alpha1.UsageRollup, people []*v1alpha1.UsageRollup, in func(string) bool) []UsagePerson {
+	out := make([]UsagePerson, 0, len(people))
+	for _, r := range people {
+		p := UsagePerson{User: r.Spec.Scope.User, Login: loginOf(rollups, r.Spec.Scope.User)}
+		windowFigures(&p.UsageFigures, r, in)
+		if p.Runs > 0 {
+			out = append(out, p)
+		}
 	}
+	slices.SortFunc(out, func(a, b UsagePerson) int {
+		return cmp.Or(compareFigures(a.UsageFigures, b.UsageFigures), cmp.Compare(a.User, b.User))
+	})
+	return out
+}
 
-	rep.TopIntents, rep.TopIntentMonths = topIntents(tops, f.Project, rep.From, rep.To)
-	if f.User == "" {
-		rep.People = []UsagePerson{}
-		for _, r := range people {
-			p := UsagePerson{User: r.Spec.Scope.User, Login: loginOf(rollups, r.Spec.Scope.User)}
-			windowFigures(&p.UsageFigures, r, inWindow)
-			if p.Runs > 0 {
-				rep.People = append(rep.People, p)
-			}
+func projectRows(projects []*v1alpha1.UsageRollup, in func(string) bool) []UsageProject {
+	out := make([]UsageProject, 0, len(projects))
+	for _, r := range projects {
+		p := UsageProject{Project: r.Spec.Scope.Project}
+		windowFigures(&p.UsageFigures, r, in)
+		if p.Runs > 0 {
+			out = append(out, p)
 		}
-		slices.SortFunc(rep.People, func(a, b UsagePerson) int {
-			return cmp.Or(compareFigures(a.UsageFigures, b.UsageFigures), cmp.Compare(a.User, b.User))
-		})
 	}
-	if f.Project == "" {
-		rep.Projects = []UsageProject{}
-		for _, r := range projects {
-			p := UsageProject{Project: r.Spec.Scope.Project}
-			windowFigures(&p.UsageFigures, r, inWindow)
-			if p.Runs > 0 {
-				rep.Projects = append(rep.Projects, p)
-			}
-		}
-		slices.SortFunc(rep.Projects, func(a, b UsageProject) int {
-			return cmp.Or(compareFigures(a.UsageFigures, b.UsageFigures), cmp.Compare(a.Project, b.Project))
-		})
-	}
-	return rep
+	slices.SortFunc(out, func(a, b UsageProject) int {
+		return cmp.Or(compareFigures(a.UsageFigures, b.UsageFigures), cmp.Compare(a.Project, b.Project))
+	})
+	return out
 }
 
 func view(f Filter) string {

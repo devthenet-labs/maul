@@ -171,7 +171,7 @@ func TestUsageAllNeedsTheGrant(t *testing.T) {
 		t.Fatalf("GET /api/usage/all as admin = %d %s", code, body)
 	}
 	rep := decode[usageview.UsageReport](t, body)
-	var people []string
+	people := make([]string, 0, len(rep.People))
 	for _, p := range rep.People {
 		people = append(people, p.User)
 	}
