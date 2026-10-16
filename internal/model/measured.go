@@ -4,6 +4,7 @@
 package model
 
 import (
+	"math"
 	"regexp"
 	"strings"
 )
@@ -41,14 +42,21 @@ func MeasuredCostUSD(m Model, t MeasuredTokens) *float64 {
 	if m.InputUSD == nil || m.OutputUSD == nil {
 		return nil
 	}
-	n := func(v int64) float64 { return float64(max(v, 0)) / 1e6 }
+	// Each term is a count times a per-million rate, which is its cost in
+	// micro-USD; the sum is rounded there, once. Every product is converted
+	// explicitly so the compiler cannot fuse it into the addition: arm64
+	// fuses x*y+z by default and amd64 does not, so a fused sum could round
+	// a half micro-USD one way on one architecture and the other way on the
+	// next, and the broker's cost limit (which prices through here) would
+	// then admit a request on one node it refuses on another.
+	n := func(v int64) float64 { return float64(max(v, 0)) }
 	in := *m.InputUSD
-	cost := n(t.Input)*in +
-		n(t.CacheWrite5m)*in*CacheWrite5mMultiplier +
-		n(t.CacheWrite1h)*in*CacheWrite1hMultiplier +
-		n(t.CacheRead)*cachedInputRate(m) +
-		n(t.Output)**m.OutputUSD
-	cost = round6(cost)
+	micro := float64(n(t.Input)*in) +
+		float64(n(t.CacheWrite5m)*float64(in*CacheWrite5mMultiplier)) +
+		float64(n(t.CacheWrite1h)*float64(in*CacheWrite1hMultiplier)) +
+		float64(n(t.CacheRead)*cachedInputRate(m)) +
+		float64(n(t.Output)**m.OutputUSD)
+	cost := math.Round(micro) / 1e6
 	return &cost
 }
 

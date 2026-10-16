@@ -39,6 +39,19 @@ func TestMeasuredCostUSD(t *testing.T) {
 	}
 }
 
+// TestMeasuredCostHalfMicroTie pins a sum that lands exactly on half a
+// micro-USD: 5000 in (15000) + 10 written (37.5) + 20 read (6) + 1 out (15) =
+// 15058.5 micro-USD, which rounds up to 15059. Summed in USD with the products
+// fused into the additions, arm64 rounded it up and amd64 down, so the broker's
+// cost limit (CI on linux/amd64) disagreed with the same figure on arm64.
+func TestMeasuredCostHalfMicroTie(t *testing.T) {
+	sonnet, _ := ModelByID(Builtins(), "anthropic/claude-sonnet-5")
+	got := MeasuredCostUSD(sonnet, MeasuredTokens{Input: 5000, CacheWrite5m: 10, CacheRead: 20, Output: 1})
+	if got == nil || *got != 0.015059 {
+		t.Fatalf("MeasuredCostUSD = %v, want 0.015059", got)
+	}
+}
+
 // TestMeasuredCostMonotonicProperty (seeded): adding tokens of any class
 // never lowers a priced cost, and a priced cost is never negative.
 func TestMeasuredCostMonotonicProperty(t *testing.T) {
