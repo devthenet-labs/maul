@@ -281,8 +281,9 @@ wildcard record can point at either one, and DNS is the rollback until the last 
 2. **Flip the wildcard record** to the edge ALB. With the terraform module, the preview alias moves from the preview ALB
    to the edge (a terraform PR). Wait out the record's TTL, then run `patchy check project` again. `preview-dns` names
    the gateway's edge, `preview-auth-host` sees the gateway's redirect to `/start` on every Ready preview and its `404`
-   on `<project>-0.<suffix>`, and `preview-gateway-allowlist` passes from outside `inboundCIDRs`. Sign in to a live
-   preview in a browser.
+   on `<project>-0.<suffix>`, from an address inside `inboundCIDRs`. Run it again from outside them:
+   `preview-gateway-allowlist` passes, and `preview-auth-host` skips every host the gateway refuses there. Sign in to a
+   live preview in a browser.
 
    **Rollback:** point the record back at the preview ALB. Nothing else changed.
 
@@ -301,13 +302,13 @@ release notes list the kept objects to delete by hand.
 `patchy check project` reads the mode in force from the relay's and preview-controller's ConfigMaps and, in gateway
 mode, checks:
 
-| Check                       | What passes                                                                                                                                                                                                                                                             |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `preview-dns`               | `<project>-0.<suffix>` resolves to the gateway's edge: `publishedAddresses`, else the gateway Ingress's or LoadBalancer Service's address. While both paths serve, the legacy preview load balancer passes too. A private edge not in this resolver's answer is a SKIP. |
-| `preview-tls`               | A certificate trusted for the probe host                                                                                                                                                                                                                                |
-| `preview-auth-dex`          | Dex accepts the relay's client with `<issuer>/dex/callback`, as before                                                                                                                                                                                                  |
-| `preview-auth-host`         | `<project>-0.<suffix>`, which no Preview owns, answers with the gateway's own `404` page. Every Ready preview answers an unauthenticated navigation with the `302` to `https://<sign-in host>/start` for its own label.                                                 |
-| `preview-gateway-allowlist` | From an address the gateway refuses, a request whose `X-Forwarded-For` names an address inside `inboundCIDRs` is still refused. From an admitted address it is a SKIP: run it from outside.                                                                             |
+| Check                       | What passes                                                                                                                                                                                                                                                                            |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `preview-dns`               | `<project>-0.<suffix>` resolves to the gateway's edge: `publishedAddresses`, else the gateway Ingress's or LoadBalancer Service's address. While both paths serve, the legacy preview load balancer passes too. A private edge not in this resolver's answer is a SKIP.                |
+| `preview-tls`               | A certificate trusted for the probe host                                                                                                                                                                                                                                               |
+| `preview-auth-dex`          | Dex accepts the relay's client with `<issuer>/dex/callback`, as before                                                                                                                                                                                                                 |
+| `preview-auth-host`         | `<project>-0.<suffix>`, which no Preview owns, answers with the gateway's own `404` page. Every Ready preview answers an unauthenticated navigation with the `302` to `https://<sign-in host>/start` for its own label. A host the gateway refuses (outside `inboundCIDRs`) is a SKIP. |
+| `preview-gateway-allowlist` | From an address the gateway refuses, a request whose `X-Forwarded-For` names an address inside `inboundCIDRs` is still refused. From an admitted address it is a SKIP: run it from outside.                                                                                            |
 
 The relay's background probe applies the same verdicts every minute (`patchy.preview_auth.unprotected_hosts`). In
 gateway mode it also asks for `patchy-probe-0.<suffix>`, which must be the gateway's `404`.

@@ -294,7 +294,7 @@ func (r *run) gatewayHosts(ctx context.Context, s settings, issuer, suffix strin
 	}
 	for _, p := range r.readyPreviews(ctx) {
 		name := p.label + "." + suffix
-		status, _, h, err := r.httpDo(ctx, "https://"+name+"/", navigation)
+		status, body, h, err := r.httpDo(ctx, "https://"+name+"/", navigation)
 		location := h.Get("Location")
 		switch {
 		case err != nil && timedOut(err):
@@ -305,6 +305,9 @@ func (r *run) gatewayHosts(ctx context.Context, s settings, issuer, suffix strin
 		case expect.Live(status, location, p.slot, p.label) == nil:
 			r.add(CheckPreviewAuthHost, "", checkreport.Pass, "%s (slot %d) answers without credentials with a "+
 				"redirect to sign in for its own preview (%s)", name, p.slot, location)
+		case previewauth.IsAllowlistRefusal(status, h, body):
+			r.add(CheckPreviewAuthHost, "", checkreport.Skip, "the preview gateway refuses this address (it is "+
+				"outside previewAuth.gateway.inboundCIDRs), so %s (slot %d) cannot be judged from here", name, p.slot)
 		case permit:
 			r.add(CheckPreviewAuthHost, "", checkreport.Skip, "%s (slot %d) answered %d without credentials, not the "+
 				"gateway's redirect: sign-in is not required on the legacy ALB path yet (previewAuth.stage=permit), "+
@@ -389,6 +392,9 @@ func (r *run) gatewayPlaceholder(ctx context.Context, expect previewauth.ProbeEx
 		previewauth.JudgeGatewayUnknown(status, h, body) == nil:
 		r.add(CheckPreviewAuthHost, "", checkreport.Pass, "%s answers without credentials with the legacy redirect "+
 			"to the relay or the gateway's 404 page", name)
+	case previewauth.IsAllowlistRefusal(status, h, body):
+		r.add(CheckPreviewAuthHost, "", checkreport.Skip, "the preview gateway refuses this address (it is "+
+			"outside previewAuth.gateway.inboundCIDRs), so %s cannot be judged from here", name)
 	default:
 		r.add(CheckPreviewAuthHost, "", checkreport.Fail, "%s answered %d (Location %q) without credentials, "+
 			"neither the redirect to %s/authorize for client %s nor the gateway's 404 page", name, status,

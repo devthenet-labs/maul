@@ -204,6 +204,50 @@ func TestGatewayAllowlist(t *testing.T) {
 	}
 }
 
+// TestGatewayFromOutsideTheAllowlist: run from outside inboundCIDRs, as
+// the allowlist check asks, the gateway refuses every host before it routes
+// one. That is the allowlist working, so the allowlist check passes and every
+// host line skips instead of failing, whichever path the probe expects.
+func TestGatewayFromOutsideTheAllowlist(t *testing.T) {
+	tests := map[string]func(*world, *fakeWeb){
+		"gateway only": func(*world, *fakeWeb) {},
+		"both serve, sign-in required": func(w *world, f *fakeWeb) {
+			w.setting(previewController, keyPreviewLegacyIngress, "true")
+			f.answers["placeholder."+suffix+"/"] = gatewayRefused()
+		},
+		"both serve, the permit stage": func(w *world, _ *fakeWeb) {
+			w.setting(previewController, keyPreviewLegacyIngress, "true")
+			w.setting(previewController, keyAuthRequired, "")
+		},
+	}
+	for name, change := range tests {
+		t.Run(name, func(t *testing.T) {
+			w, web := gatewayWorld(t)
+			web.answers["shop-0."+suffix+"/"] = gatewayRefused()
+			web.answers["shop-7."+suffix+"/"] = gatewayRefused()
+			change(w, web)
+			r := w.runWeb(web)
+			if n := r.Failed(); n != 0 {
+				t.Fatalf("Failed = %d:\n%s", n, dump(r))
+			}
+			if c := onlyLine(t, r, CheckPreviewGatewayAllowlist); c.Status != checkreport.Pass {
+				t.Errorf("allowlist: %s %s", c.Status, c.Reason)
+			}
+			hosts := lines(r, CheckPreviewAuthHost)
+			var live bool
+			for _, c := range hosts {
+				if c.Status != checkreport.Skip || !strings.Contains(c.Reason, "inboundCIDRs") {
+					t.Errorf("host: %s %s", c.Status, c.Reason)
+				}
+				live = live || strings.Contains(c.Reason, "shop-7."+suffix+" (slot 1)")
+			}
+			if !live {
+				t.Errorf("no line for the Ready preview:\n%s", dump(Report{Checks: hosts}))
+			}
+		})
+	}
+}
+
 // TestGatewayFailures: each part of the gateway path that is wrong fails or
 // skips its own line, with a reason that says what to fix.
 func TestGatewayFailures(t *testing.T) {
