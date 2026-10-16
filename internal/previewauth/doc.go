@@ -48,6 +48,32 @@
 //     request: protected only when it is the ALB's 302 to this relay's
 //     /authorize for the host's own slot client and callback.
 //
+// The preview gateway (gateway.go, hygiene.go; design §2, §2.1 and Revision
+// 1) is the relay grown into its own relying party and an authenticating
+// proxy, beside the provider surface above until that is removed:
+//
+//   - Hosts is the Host grammar: <label>.<suffix> exactly (":443" at most),
+//     and the one sign-in host. Location builds every redirect back to a
+//     preview host from its label and a return path ValidReturnPath accepts,
+//     so its host is always the requesting host's.
+//   - State (kind t) is what a preview host sends to the sign-in host's
+//     /start; its state cookie is named per state (StateCookieName). The
+//     Handoff code (kind o) the sign-in host sends back is single-use
+//     (HandoffKey), bound to the Preview, the state and its cookie's nonce,
+//     and names the relay session that issued it; Handoff.Redeem is the
+//     fixation and login-CSRF check. HostSession (kind h) is the preview host's
+//     own session, at most GatewayLifetimes.HostSession long. GatewayLogin
+//     (kind g) is the gateway's sign-in state through Dex.
+//   - View.Routes are the served components from status.serving (for this
+//     Preview's UID only), and View.Pick routes a path as an Ingress Prefix
+//     would.
+//   - CheckOrigin, TopLevelNavigation, IsServiceWorkerScript, CleanRequest
+//     and CleanResponse are the proxy hygiene contract: cross-site and
+//     cross-preview requests refused but for top-level navigations, unsafe and
+//     upgrade requests held to the host's own Origin, gateway cookies and
+//     identity headers never forwarded, the pairwise X-Patchy-Viewer set, and
+//     upstream Set-Cookie, Clear-Site-Data and caching held in check.
+//
 // Nothing the ALB forwards to a preview identifies the viewer or works
 // anywhere else. That is the security boundary: preview code is written by an
 // agent and must be treated as hostile to its viewers.

@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/bitwise-media-group/patchy/internal/sealed"
 )
 
 const (
@@ -181,8 +183,12 @@ func (s LoginState) valid() error {
 type Session struct {
 	V        int      `json:"v"`
 	Identity Identity `json:"id"`
-	Start    int64    `json:"ss"`
-	Expires  int64    `json:"abs"`
+	// ID names this sign-in. The gateway's handoff codes carry it, so a code
+	// says which relay session issued it. Sessions sealed before it existed
+	// have none and are signed in again by the gateway's /start.
+	ID      string `json:"sid,omitempty"`
+	Start   int64  `json:"ss"`
+	Expires int64  `json:"abs"`
 }
 
 func (s Session) valid() error {
@@ -200,7 +206,12 @@ func NewSession(now time.Time, lt Lifetimes, id Identity) (Session, error) {
 	if err := id.Validate(); err != nil {
 		return Session{}, err
 	}
-	return Session{V: payloadVersion, Identity: id, Start: now.Unix(), Expires: now.Add(lt.SessionMaxAge).Unix()}, nil
+	sid, err := sealed.RandomToken()
+	if err != nil {
+		return Session{}, err
+	}
+	return Session{V: payloadVersion, Identity: id, ID: sid, Start: now.Unix(),
+		Expires: now.Add(lt.SessionMaxAge).Unix()}, nil
 }
 
 // Lifetimes are the relay's token lifetimes.

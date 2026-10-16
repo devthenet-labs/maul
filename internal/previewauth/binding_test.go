@@ -56,7 +56,7 @@ func TestViewOf(t *testing.T) {
 		}
 	}
 	v := ViewOf(preview(nil))
-	if want := (View{UID: "uid-7", Label: "intent-7", Project: "demo", Slot: 2, Live: true}); v != want {
+	if want := (View{UID: "uid-7", Label: "intent-7", Project: "demo", Slot: 2, Live: true}); !reflect.DeepEqual(v, want) {
 		t.Errorf("ViewOf = %+v, want %+v", v, want)
 	}
 	if v := ViewOf(preview(func(p *v1alpha1.Preview) { p.Status.Slot = nil })); v.Slot != -1 {

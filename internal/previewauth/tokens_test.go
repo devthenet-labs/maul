@@ -49,8 +49,10 @@ func sampleTokens(t testing.TB, r *KeyRing) map[Kind]string {
 	if err != nil {
 		t.Fatal(err)
 	}
+	gw := sampleGatewayTokens(t, r)
 	return map[Kind]string{KindCode: code, KindAccess: toks.AccessToken, KindRefresh: toks.RefreshToken,
-		KindLogin: login, KindSession: sess}
+		KindLogin: login, KindSession: sess, KindHost: gw[KindHost], KindState: gw[KindState],
+		KindHandoff: gw[KindHandoff], KindGatewayLogin: gw[KindGatewayLogin]}
 }
 
 // openAs opens token as kind k at now and reports only the error.
@@ -67,6 +69,16 @@ func openAs(r *KeyRing, k Kind, token string, now time.Time) error {
 		_, err = r.OpenLogin(token, now)
 	case KindSession:
 		_, err = r.OpenSession(token, now)
+	case KindHost:
+		_, err = r.OpenHostSession(token, now)
+	case KindState:
+		_, err = r.OpenState(token, now)
+	case KindHandoff:
+		_, err = r.OpenHandoff(token, now)
+	case KindGatewayLogin:
+		_, err = r.OpenGatewayLogin(token, now)
+	default:
+		err = ErrInvalidToken
 	}
 	return err
 }
@@ -230,7 +242,7 @@ func TestTokenRoundTripProperty(t *testing.T) {
 		if err != nil || aBack != a {
 			return false
 		}
-		for _, k := range []Kind{KindAccess, KindRefresh, KindLogin, KindSession} {
+		for _, k := range kinds[1:] {
 			if openAs(r, k, tok, time.Unix(g.IssuedAt, 0)) == nil {
 				return false
 			}
