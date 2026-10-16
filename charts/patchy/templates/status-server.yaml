@@ -40,6 +40,29 @@ rather than crash-looping the pod). An existingSecret is opaque to the chart.
 {{- end }}
 {{- end }}
 {{- end }}
+{{- /*
+The usage views key a person by their GitHub id, which Dex sends only with the
+federated:id scope; otherwise they need what the intents views need. An inline
+config is checked here (the server refuses the rest at startup).
+*/}}
+{{- if $vals.usage.enabled }}
+{{- if not (or $vals.auth.config $vals.auth.existingSecret) }}
+{{- fail "statusServer.usage.enabled requires an auth config in mode oidc (statusServer.auth.existingSecret or statusServer.auth.config)" }}
+{{- end }}
+{{- with $vals.auth.config }}
+{{- if ne (.mode | default "") "oidc" }}
+{{- fail "statusServer.usage.enabled requires statusServer.auth.config.mode oidc: usage is kept per GitHub account, which only a Dex sign-in through the GitHub connector names" }}
+{{- end }}
+{{- $oidc := .oidc | default dict }}
+{{- $claims := $oidc.claims | default dict }}
+{{- if or (not $claims.usernamePrefix) (not $claims.groupsPrefix) }}
+{{- fail "statusServer.usage.enabled requires statusServer.auth.config.oidc.claims.usernamePrefix and groupsPrefix" }}
+{{- end }}
+{{- if not (has "federated:id" ($oidc.scopes | default list)) }}
+{{- fail "statusServer.usage.enabled requires federated:id in statusServer.auth.config.oidc.scopes, so Dex's ID token names the GitHub connector and the person's GitHub id" }}
+{{- end }}
+{{- end }}
+{{- end }}
 {{- if $vals.auth.config }}
 ---
 apiVersion: v1
@@ -82,6 +105,9 @@ metadata:
 }}
 {{- if $vals.intents.enabled }}
 {{- $_ := set $data "PATCHY_INTENTS_ENABLED" "true" }}
+{{- end }}
+{{- if $vals.usage.enabled }}
+{{- $_ := set $data "PATCHY_USAGE_ENABLED" "true" }}
 {{- end }}
 {{- /* agent.paused, shown on the page; the job controllers enforce it. */}}
 {{- $_ := include "patchy.agentsPausedData" (dict "root" . "data" $data) }}
@@ -265,6 +291,40 @@ subjects:
       namespace: {{ .Release.Namespace }}
 ---
 {{- end }}
+{{- if $vals.usage.enabled }}
+# The usage views: read-only on the UsageRollups the run controllers write,
+# cached through an informer (hence list and watch). Never */status, never a
+# write. Who sees whose usage is the server's own decision: a person their
+# own, holders of the virtual usage/all everyone's.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+    name: {{ include "patchy.fullname" . }}-{{ $name }}-usage
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "patchy.labels" (dict "root" . "name" $name) | nindent 8 }}
+rules:
+    - apiGroups: [patchy.bitwisemedia.uk]
+      resources: [usagerollups]
+      verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+    name: {{ include "patchy.fullname" . }}-{{ $name }}-usage
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "patchy.labels" (dict "root" . "name" $name) | nindent 8 }}
+roleRef:
+    apiGroup: rbac.authorization.k8s.io
+    kind: Role
+    name: {{ include "patchy.fullname" . }}-{{ $name }}-usage
+subjects:
+    - kind: ServiceAccount
+      name: {{ include "patchy.serviceAccountName" (dict "root" . "name" $name "vals" $vals) }}
+      namespace: {{ .Release.Namespace }}
+---
+{{- end }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
@@ -405,6 +465,27 @@ rules:
     - apiGroups: [patchy.bitwisemedia.uk]
       resources: [projects/intents, projects/transcripts]
       verbs: [get]
+{{- end }}
+{{- if $vals.usage.enabled }}
+---
+# Everyone's usage: the status page's admin usage view (get on the virtual
+# usage/all, read only by the server's access reviews) and `patchy get usage`,
+# which reads the UsageRollups with the caller's own kubeconfig. A person's
+# own usage needs no grant. Bind it with a RoleBinding in the release
+# namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+    name: {{ include "patchy.fullname" . }}-usage-admin
+    labels:
+        {{- include "patchy.labels" (dict "root" . "name" $name) | nindent 8 }}
+rules:
+    - apiGroups: [patchy.bitwisemedia.uk]
+      resources: [usage/all]
+      verbs: [get]
+    - apiGroups: [patchy.bitwisemedia.uk]
+      resources: [usagerollups]
+      verbs: [get, list]
 {{- end }}
 {{- end }}
 ---

@@ -189,8 +189,9 @@ Each controller is granted only `create` and `get` on `usagerollups` and `get` a
 for remediation-controller's compaction), all uncached, by name; the chart grants them only under `attribute`. No one
 may delete a rollup through the chart's roles. Rollups live only in etcd, so a cluster rebuild resets them.
 
-`kubectl get usagerollups` (short name `ur`) lists them. The dashboard's Usage page and `patchy get usage` are not built
-yet.
+`kubectl get usagerollups` (short name `ur`) lists them. The status page's [Usage page](status-server.md#usage-views)
+(`statusServer.usage.enabled`) shows each person their own and admins everyone's, and
+[`patchy get usage`](../cli.md#reading-usage) prints the same report.
 
 ## Turning it off
 

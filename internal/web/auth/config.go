@@ -6,6 +6,7 @@ package auth
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -130,6 +131,14 @@ type ClaimsConfig struct {
 	// claim is email: an unverified address is an assertion anyone can make
 	// at some providers.
 	RequireVerifiedEmail bool `yaml:"requireVerifiedEmail"`
+	// GitHubConnector is the id of the Dex connector that signs people in
+	// with GitHub (default github). A token whose federated_claims name it
+	// carries the person's numeric GitHub id (Identity.GitHubID), which the
+	// usage views need; it takes the federated:id scope. The connector must
+	// not set useLoginAsID, which makes user_id the login: an all-digit
+	// login would otherwise read as someone else's id (MapClaims refuses a
+	// user_id equal to preferred_username).
+	GitHubConnector string `yaml:"githubConnector"`
 }
 
 // reservedPrefix is the Kubernetes system identity namespace. A configured
@@ -230,6 +239,35 @@ func (c *Config) applyDefaults() {
 	if cl.DisplayName == "" {
 		cl.DisplayName = "name"
 	}
+	if cl.GitHubConnector == "" {
+		cl.GitHubConnector = DefaultGitHubConnector
+	}
+}
+
+// DefaultGitHubConnector is the Dex connector id assumed to be GitHub's.
+const DefaultGitHubConnector = "github"
+
+// FederatedIDScope is the Dex scope that adds federated_claims (the
+// upstream connector and user id) to the ID token.
+const FederatedIDScope = "federated:id"
+
+// RequireForUsage checks the configuration may serve the usage views, which
+// key a person by their numeric GitHub id. Everything RequireForIntents asks
+// for, plus the federated:id scope, without which Dex never says which
+// connector signed someone in or their GitHub id, so no one could be shown
+// their own usage. Call it on what LoadConfig returned.
+func (c *Config) RequireForUsage() error {
+	if err := c.RequireForIntents(); err != nil {
+		return fmt.Errorf("the usage views need what the intents views need: %w", err)
+	}
+	if !slices.Contains(c.OIDC.Scopes, FederatedIDScope) {
+		return fmt.Errorf("the usage views need the %s scope in oidc.scopes, so Dex's ID token names the "+
+			"GitHub connector and the person's GitHub id", FederatedIDScope)
+	}
+	if c.OIDC.Claims.GitHubConnector == "" {
+		return fmt.Errorf("the usage views need oidc.claims.githubConnector")
+	}
+	return nil
 }
 
 // RequireForIntents checks the configuration may serve the intents views,

@@ -129,3 +129,32 @@ func TestResourceReviewerError(t *testing.T) {
 		t.Fatalf("Allowed error = %v, want wrapped %v", err, boom)
 	}
 }
+
+// A subresource reviewer asks about exactly that subresource: the usage
+// views' usage/all, never the bare resource.
+func TestSubresourceReviewer(t *testing.T) {
+	var got []authorizationv1.ResourceAttributes
+	c := fake.NewClientBuilder().WithScheme(kube.Scheme()).WithInterceptorFuncs(interceptor.Funcs{
+		Create: func(_ context.Context, _ client.WithWatch, obj client.Object, _ ...client.CreateOption) error {
+			sar := obj.(*authorizationv1.SubjectAccessReview)
+			got = append(got, *sar.Spec.ResourceAttributes)
+			sar.Status.Allowed = sar.Spec.User == "github:admin" && sar.Spec.ResourceAttributes.Subresource == "all"
+			return nil
+		},
+	}).Build()
+	r := NewSubresourceReviewer(c, "patchy", "patchy.bitwisemedia.uk", "usage", "all", time.Minute)
+	for _, tc := range []struct {
+		user string
+		want bool
+	}{{"github:admin", true}, {"github:octocat", false}} {
+		ok, err := r.Allowed(t.Context(), auth.Identity{Username: tc.user}, "get")
+		if err != nil || ok != tc.want {
+			t.Errorf("Allowed(%s) = %t, %v; want %t", tc.user, ok, err, tc.want)
+		}
+	}
+	want := authorizationv1.ResourceAttributes{Namespace: "patchy", Group: "patchy.bitwisemedia.uk",
+		Resource: "usage", Subresource: "all", Verb: "get"}
+	if len(got) != 2 || got[0] != want || got[1] != want {
+		t.Errorf("reviews = %+v, want two of %+v", got, want)
+	}
+}

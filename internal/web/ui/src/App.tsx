@@ -9,6 +9,7 @@ import {
   fetchFindings,
   fetchMe,
   fetchRollups,
+  fetchUsageAccess,
   postAction,
   postAdmin,
   postBackfill,
@@ -16,10 +17,11 @@ import {
   subscribeConfig,
 } from "./api";
 import { consumeLogoutMarker, readAuthError, readProvider, signInURL, signOut } from "./auth";
-import type { ActionVerb, AdminVerb, ConfigDataset, Dataset, Finding, Me, Phase } from "./types";
+import type { ActionVerb, AdminVerb, ConfigDataset, Dataset, Finding, Me, Phase, UsageAccess } from "./types";
 import { emptySelection, filterFindings, repoOptions, sortFindings, type Selection } from "./filters";
 import { isIntentsRoute, useRoute } from "./router";
 import { IntentsArea } from "./components/IntentsArea";
+import { UsageView } from "./components/UsageView";
 import { DEFAULT_PERSONA, type Persona } from "./mock/personas";
 import { ConfigView } from "./components/ConfigView";
 import { FilterBar } from "./components/FilterBar";
@@ -92,6 +94,13 @@ export function App() {
     void fetchMe().then(setMe);
   }, []);
   const intentsNav = Boolean(me && me.projects.length > 0);
+
+  // The usage views likewise: /api/usage/access answering at all means they
+  // are on; the page itself explains a caller who cannot see their own.
+  const [usageAccess, setUsageAccess] = useState<UsageAccess | null>(null);
+  useEffect(() => {
+    void fetchUsageAccess().then(setUsageAccess);
+  }, []);
 
   // The detail view lazily fetches its finding: the list payload carries
   // trimmed summaries only. detail is null while loading or when the finding
@@ -321,6 +330,18 @@ export function App() {
     // The intents views gate themselves, per Project, never on the findings
     // grant.
     body = <IntentsArea route={route} />;
+  } else if (route.view === "usage") {
+    // The usage views gate themselves too: a person's own usage needs no
+    // findings grant.
+    body =
+      usageAccess && !usageAccess.self ? (
+        <div class="mx-auto my-20 max-w-[460px] rounded-xl border border-line-2 bg-surface p-7 text-center shadow-card">
+          <h1 class="mx-0 mt-0 mb-2 text-[19px] tracking-tight">Usage unavailable</h1>
+          <p class="m-0 text-muted">{usageAccess.reason}</p>
+        </div>
+      ) : (
+        <UsageView all={route.all} access={usageAccess} />
+      );
   } else if (findingsBlocked !== null && route.view !== "rollups") {
     body = authPanel();
   } else if (error && !dataset) {
@@ -376,6 +397,7 @@ export function App() {
         route={route}
         configView={configView}
         intentsNav={intentsNav}
+        usageNav={usageAccess !== null}
         themeMode={themeMode}
         onToggleTheme={toggleTheme}
         persona={persona}

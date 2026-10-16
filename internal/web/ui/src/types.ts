@@ -747,3 +747,88 @@ export interface RunOutput {
 export interface StreamNotice {
   reason?: string;
 }
+
+// ---- usage views ----------------------------------------------------------
+// Mirrors internal/usageview (the report, shared with `patchy get usage`) and
+// internal/web/usage.go (UsageAccess); TestUsageWireTypesMatchTypeScript
+// keeps the field names in lockstep. Costs are integer micro-USD. Trusted
+// figures are the broker's metered tokens; notional cost is a subscription's
+// list-rate equivalent, never money spent; unmetered tokens are the broker's
+// worst-case shortfall and reported figures the pods' own, both shown apart.
+
+export type UsageView = "self" | "user" | "project" | "user-project" | "all";
+
+export interface UsageAccess {
+  name: string;
+  self: boolean;
+  all: boolean;
+  reason: string;
+}
+
+export interface UsageFigures {
+  runs: number;
+  partialRuns: number;
+  reportedRuns: number;
+  unpricedRuns: number;
+  tokens: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  unmeteredTokens: number;
+  costMicroUSD: number;
+  notionalCostMicroUSD: number;
+  reportedTokens: number;
+  reportedCostMicroUSD: number;
+}
+
+export interface UsageSegment {
+  key: string;
+  runs: number;
+  tokens: number;
+  costMicroUSD: number;
+  notionalCostMicroUSD: number;
+}
+
+export interface UsageDay extends UsageFigures {
+  day: string;
+  projects: UsageSegment[];
+  kinds: UsageSegment[];
+}
+
+export interface UsageIntent {
+  intent: string;
+  project: string;
+  runs: number;
+  tokens: number;
+  costMicroUSD: number;
+  notionalCostMicroUSD: number;
+}
+
+export interface UsagePerson extends UsageFigures {
+  user: string;
+  login: string;
+}
+
+export interface UsageProject extends UsageFigures {
+  project: string;
+}
+
+export interface UsageReport {
+  view: UsageView;
+  user: string;
+  login: string;
+  project: string;
+  days: number;
+  from: string;
+  to: string;
+  totals: UsageFigures;
+  daily: UsageDay[];
+  projectKeys: string[];
+  kindKeys: string[];
+  topIntents: UsageIntent[];
+  topIntentMonths: string[];
+  // people: views all and project; projects: views all, self and user.
+  people?: UsagePerson[];
+  projects?: UsageProject[];
+}

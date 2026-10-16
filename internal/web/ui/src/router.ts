@@ -8,6 +8,9 @@
 //   #/intents             intents board (when the server has the views on)
 //   #/intents/{name}      one intent's timeline
 //   #/intents/{name}/runs/{run}  one run's panel
+//   #/usage               the signed-in person's usage (when the server has
+//                         the usage views on)
+//   #/usage/all           everyone's usage (holders of usage/all)
 
 import { useEffect, useState } from "preact/hooks";
 import type { ScopeType } from "./types";
@@ -23,7 +26,8 @@ export type Route =
   | { view: "config"; section: ConfigSection }
   | { view: "intents" }
   | { view: "intent"; name: string }
-  | { view: "intentRun"; name: string; run: string };
+  | { view: "intentRun"; name: string; run: string }
+  | { view: "usage"; all: boolean };
 
 // isIntentsRoute reports a route of the intents views, which gate
 // themselves rather than on the findings grant.
@@ -51,6 +55,9 @@ export function parseRoute(hash: string): Route {
       : "integrations";
     return { view: "config", section };
   }
+  if (parts[0] === "usage") {
+    return { view: "usage", all: parts[1] === "all" };
+  }
   if (parts[0] === "intents") {
     if (parts[1] && parts[2] === "runs" && parts[3]) {
       return { view: "intentRun", name: parts[1], run: parts[3] };
@@ -71,6 +78,10 @@ export function hrefForIntent(name: string): string {
 
 export function hrefForIntentRun(name: string, run: string): string {
   return `#/intents/${encodeURIComponent(name)}/runs/${encodeURIComponent(run)}`;
+}
+
+export function hrefForUsage(all = false): string {
+  return all ? "#/usage/all" : "#/usage";
 }
 
 export function hrefForList(): string {

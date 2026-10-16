@@ -21,6 +21,8 @@ import type {
   RunOutput,
   StreamNotice,
   TranscriptTurn,
+  UsageAccess,
+  UsageReport,
 } from "./types";
 import { availableActions, retryTarget } from "./actions";
 import { mockConfig } from "./mock/config";
@@ -35,6 +37,7 @@ import {
   mockRunTurns,
 } from "./mock/intents";
 import { DEFAULT_PERSONA, type Persona } from "./mock/personas";
+import { mockUsage, mockUsageAccess } from "./mock/usage";
 
 // AuthRequiredError: the server wants a signed-in user (HTTP 401).
 export class AuthRequiredError extends Error {
@@ -546,4 +549,37 @@ export function streamTranscript(
     }
   });
   return close;
+}
+
+// ---- usage views -----------------------------------------------------------
+// fetchUsageAccess is how the SPA learns the usage views are on: anything but
+// a JSON answer (the bare 404 of a server with them off, a 401 before
+// sign-in) means "no Usage nav".
+
+export async function fetchUsageAccess(): Promise<UsageAccess | null> {
+  const mode = dataMode();
+  if (mode === "demo") return mockUsageAccess();
+  if (mode === "snapshot") return null;
+  try {
+    const res = await fetch("/api/usage/access");
+    if (!res.ok || !(res.headers.get("Content-Type") ?? "").includes("application/json")) return null;
+    return (await res.json()) as UsageAccess;
+  } catch {
+    return null;
+  }
+}
+
+// UsageQuery filters the admin view; the own view takes days alone.
+export interface UsageQuery {
+  days: number;
+  user?: string;
+  project?: string;
+}
+
+export async function fetchUsage(all: boolean, q: UsageQuery): Promise<UsageReport> {
+  if (dataMode() === "demo") return mockUsage(q.days, all && !q.user);
+  const params = new URLSearchParams({ days: String(q.days) });
+  if (all && q.user) params.set("user", q.user);
+  if (all && q.project) params.set("project", q.project);
+  return request<UsageReport>(`/api/usage${all ? "/all" : ""}?${params.toString()}`);
 }

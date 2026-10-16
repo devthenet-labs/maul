@@ -70,3 +70,40 @@ func TestLoopback(t *testing.T) {
 		}
 	}
 }
+
+// The usage views come up only under oidc with both prefixes and Dex's
+// federated:id scope; off, any posture starts.
+func TestUsageAuthGate(t *testing.T) {
+	dex := auth.ClaimsConfig{Username: "preferred_username", UsernamePrefix: "github:", GroupsPrefix: "github:",
+		GitHubConnector: "github"}
+	oidc := func(scopes ...string) *auth.Config {
+		return &auth.Config{Mode: auth.ModeOIDC, OIDC: &auth.OIDCConfig{Claims: dex, Scopes: scopes}}
+	}
+	cases := []struct {
+		name    string
+		on      bool
+		cfg     *auth.Config
+		wantErr string
+	}{
+		{"off and unconfigured", false, nil, ""},
+		{"off in mode none", false, &auth.Config{Mode: auth.ModeNone}, ""},
+		{"unconfigured", true, nil, "none is configured"},
+		{"mode none", true, &auth.Config{Mode: auth.ModeNone}, `not "none"`},
+		{"mode anonymous", true, &auth.Config{Mode: auth.ModeAnonymous}, `not "anonymous"`},
+		{"oidc without federated:id", true, oidc("openid", "profile"), "federated:id"},
+		{"dex with federated:id", true, oidc("openid", "federated:id"), ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			uw, err := newUsageWiring(tc.on, tc.cfg)
+			switch {
+			case tc.wantErr == "" && err != nil:
+				t.Fatalf("newUsageWiring = %v", err)
+			case tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)):
+				t.Fatalf("newUsageWiring = %v, want an error containing %q", err, tc.wantErr)
+			case tc.wantErr == "" && uw.on != tc.on:
+				t.Errorf("on = %v, want %v", uw.on, tc.on)
+			}
+		})
+	}
+}

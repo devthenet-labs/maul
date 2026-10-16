@@ -11,6 +11,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/bitwise-media-group/patchy/internal/usageview"
 )
 
 // tsInterfaces reads every `export interface` in a TypeScript source into
@@ -89,5 +91,30 @@ func TestIntentWireTypesMatchTypeScript(t *testing.T) {
 	// that silently matched nothing cannot pass the loop above.
 	if len(ts) < 30 || !slices.Contains(slices.Collect(maps.Keys(ts)), "FindingSummary") {
 		t.Fatalf("parsed %d interfaces from types.ts; the parser is broken", len(ts))
+	}
+}
+
+// TestUsageWireTypesMatchTypeScript keeps the usage report (internal/usageview,
+// which `patchy get usage -o json` prints too) and UsageAccess in lockstep with
+// the SPA's interfaces of the same names.
+func TestUsageWireTypesMatchTypeScript(t *testing.T) {
+	src, err := os.ReadFile("ui/src/types.ts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := tsInterfaces(t, string(src))
+	for _, v := range []any{
+		UsageAccess{}, usageview.UsageFigures{}, usageview.UsageSegment{}, usageview.UsageDay{},
+		usageview.UsageIntent{}, usageview.UsagePerson{}, usageview.UsageProject{}, usageview.UsageReport{},
+	} {
+		typ := reflect.TypeOf(v)
+		want, ok := ts[typ.Name()]
+		if !ok {
+			t.Errorf("ui/src/types.ts has no interface %s", typ.Name())
+			continue
+		}
+		if got := jsonFields(typ); !slices.Equal(got, want) {
+			t.Errorf("%s: Go fields %v, TypeScript fields %v", typ.Name(), got, want)
+		}
 	}
 }
