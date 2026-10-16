@@ -40,11 +40,12 @@ is N+1.
 its default an install renders as before (only YAML comments differ):
 
 - `previewAuth.gateway` (off): the gateway's flags, the Pod label `patchy.bitwisemedia.uk/preview-gateway` the slot
-  NetworkPolicy admits beside the ALB's subnets, one exposure (Ingress, HTTPRoute or LoadBalancer, the last optionally
-  over the gateway's own TLS by SNI), `forwardedHops` required with any exposure, `inboundCIDRs` at the edge where
-  possible (a LoadBalancer with `externalTrafficPolicy: Local`, so the gateway's peer is the client),
-  `publishedAddresses` recorded on the relay ConfigMap (`patchy check project` compares DNS with it). The exposure
-  targets the gateway's own listener (8082), where even the relay's endpoints are limited behind the gateway's hops.
+  NetworkPolicy admits beside the ALB's subnets (those only while `preview.legacyIngress` is on), one exposure (Ingress,
+  HTTPRoute or LoadBalancer, the last optionally over the gateway's own TLS by SNI), `forwardedHops` required with any
+  exposure, `inboundCIDRs` at the edge where possible (a LoadBalancer with `externalTrafficPolicy: Local`, so the
+  gateway's peer is the client), `publishedAddresses` recorded on the relay ConfigMap (`patchy check project` compares
+  DNS with it). The exposure targets the gateway's own listener (8082), where even the relay's endpoints are limited
+  behind the gateway's hops.
 - `preview.legacyIngress` (true) feeds `--preview-legacy-ingress`; false makes the ALB values optional, and NOTES list
   the legacy ones still set. `previewController.config.legacyIngress` (unreleased) still wins while set.
 - `preview.nodeIsolation.{selector,mode,eksAutoMode}`: generic node isolation; the legacy `nodePool`/`nodeClass` render

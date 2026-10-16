@@ -1170,6 +1170,16 @@ cm pg preview-auth PATCHY_PREVIEW_AUTH_GATEWAY_INBOUND_CIDRS null
 cm pg preview-auth PATCHY_PREVIEW_AUTH_PROBE_MODE null
 render pg-nolegacy -f "$pf" -f "$pav" -f "$pgw" --set preview.legacyIngress=false
 cm pg-nolegacy preview-auth PATCHY_PREVIEW_AUTH_PROBE_MODE gateway
+# Off the legacy path the slots admit the gateway's Pods alone, though the
+# ALB values stay set (release N keeps the idle ALB as a way back): no
+# Ingress puts a target in a slot, so no subnet is admitted to one.
+expect pg-nolegacy 'select(.kind == "NetworkPolicy" and .metadata.name == "preview-isolation") | .spec.ingress[0].from[] | select(has("ipBlock")) | .ipBlock.cidr' ""
+expect pg-nolegacy 'select(.kind == "NetworkPolicy" and .metadata.name == "preview-isolation") | .spec.ingress[0].from | length' '1
+1'
+# Without the gateway either, nothing reaches a slot.
+render pf-nolegacy -f "$pf" --set preview.legacyIngress=false
+expect pf-nolegacy 'select(.kind == "NetworkPolicy" and .metadata.name == "preview-isolation") | .spec.ingress | length' '0
+0'
 render pa-nolegacy -f "$pf" -f "$pav" --set preview.legacyIngress=false
 cm pa-nolegacy preview-auth PATCHY_PREVIEW_AUTH_PROBE_MODE null
 if ! grep -q '"preview-auth-probe-mode"' cmd/preview-auth/serve.go; then
@@ -1200,8 +1210,8 @@ expect pg "$pgdep | .spec.template.spec.containers[0].ports[] | select(.name == 
 expect pg 'select(.kind == "NetworkPolicy" and .metadata.name == "patchy-preview-auth") | .spec.ingress[0].ports | map(.port | tostring) | join(",")' '8080,8082'
 expect pg 'select(.kind == "Service" and .metadata.name == "patchy-preview-auth") | .spec.ports | map(.name + ":" + (.port | tostring) + ">" + .targetPort) | join(",")' 'http:8080>http'
 expect pg 'select(.kind == "Service" and .metadata.name == "patchy-preview-gateway") | .spec.selector."app.kubernetes.io/name"' preview-auth
-# The slot policy: the ALB's subnets (legacy) and the gateway's Pods, port
-# http only; DNS by both the address and the kube-system selector.
+# The slot policy: the ALB's subnets (while legacy) and the gateway's Pods,
+# port http only; DNS by both the address and the kube-system selector.
 pgslot='select(.kind == "NetworkPolicy" and .metadata.name == "preview-isolation")'
 expect pg "$pgslot | .spec.ingress | length" '1
 1'

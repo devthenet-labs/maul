@@ -39,7 +39,14 @@ case "$1 $2" in
 esac
 `
 
-// gatewayPolicy is a slot policy admitting the gateway's label.
+// gatewayOnlyPolicy is a slot policy admitting the gateway's label alone,
+// as one off the legacy path is.
+const gatewayOnlyPolicy = `{"spec":{"ingress":[{"from":[` +
+	`{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"patchy"}},` +
+	`"podSelector":{"matchLabels":{"patchy.bitwisemedia.uk/preview-gateway":"true"}}}]}]}}`
+
+// gatewayPolicy is a slot policy admitting the gateway's label beside the
+// ALB's subnets, as one on the legacy path is.
 const gatewayPolicy = `{"spec":{"ingress":[{"from":[{"ipBlock":{"cidr":"10.40.128.0/24"}},` +
 	`{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"patchy"}},` +
 	`"podSelector":{"matchLabels":{"patchy.bitwisemedia.uk/preview-gateway":"true"}}}]}]}}`
@@ -220,5 +227,22 @@ func TestIngressValidatesAndDryRunCallsNothing(t *testing.T) {
 	if run.code != 0 || len(run.calls) != 0 || strings.Count(run.stdout, "kind: Pod") != 4 ||
 		strings.Contains(run.stdout, "nodeSelector") {
 		t.Errorf("--print-manifests: exit %d, %d calls, stdout:\n%s", run.code, len(run.calls), run.stdout)
+	}
+}
+
+// TestIngressWarnsOfAddressRanges: a slot policy that also admits an
+// ipBlock (the ALB's subnets on the legacy path) lets every address in it
+// past the gateway, which no client of this run tests, so the run says so;
+// a policy admitting the gateway alone draws no warning. Neither changes
+// the verdict.
+func TestIngressWarnsOfAddressRanges(t *testing.T) {
+	run := runIngress(t, gatewayPolicy, expected(), ingressArgs()...)
+	if run.code != 0 || !strings.Contains(run.stderr, "WARNING: patchy-preview-0/preview-isolation also admits "+
+		"the address ranges 10.40.128.0/24") {
+		t.Errorf("with an ipBlock: exit %d, stderr:\n%s", run.code, run.stderr)
+	}
+	run = runIngress(t, gatewayOnlyPolicy, expected(), ingressArgs()...)
+	if run.code != 0 || strings.Contains(run.stderr, "WARNING") {
+		t.Errorf("gateway alone: exit %d, stderr:\n%s", run.code, run.stderr)
 	}
 }

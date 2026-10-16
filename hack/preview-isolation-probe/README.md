@@ -94,7 +94,9 @@ client also proves the listener answers, so the two refusals are the policy's an
 label is `patchy.bitwisemedia.uk/preview-gateway: "true"`, the one the slot policy names; the script refuses to run when
 the slot policy does not name it (the gateway is off). The agents namespace's own default-deny egress may refuse its
 client before the slot policy does; either fence is a pass, and the release-namespace client, which no egress policy
-holds back, is the one that proves the slot policy.
+holds back, is the one that proves the slot policy. While `preview.legacyIngress` is `true` the slot policy also admits
+the preview ALB's subnets by `ipBlock`; no client here is in them, so the run prints a `WARNING` naming those ranges
+instead of judging them. They are gone once `preview.legacyIngress` is `false`.
 
 The listener runs in a slot, so it must pass the slot admission policies: its image must be under preview-controller's
 image prefix as `<leaf>:sha-<40 hex>`. Build the image from this directory's `Dockerfile` (any build, no trusted

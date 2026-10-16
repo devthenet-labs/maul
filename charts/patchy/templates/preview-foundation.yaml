@@ -97,15 +97,22 @@ metadata:
 spec:
     podSelector: {}
     policyTypes: [Ingress, Egress]
-    {{- if or $p.albSubnetCIDRs $gw.enabled }}
+    {{- /* The ALB's subnets only while the legacy slot Ingress serves
+           (preview.legacyIngress): once it is off the ALB has no target in
+           a slot, so its subnets are admitted no longer, whatever ALB
+           values stay set for the way back. */}}
+    {{- $albPeers := and $legacy $p.albSubnetCIDRs }}
+    {{- if or $albPeers $gw.enabled }}
     ingress:
         # Port http only, from the preview ALB's subnets (the legacy path)
         # and the preview gateway's Pods: in the release namespace AND
         # carrying its dedicated label, never the chart's selector labels.
         - from:
+            {{- if $albPeers }}
             {{- range $cidr := $p.albSubnetCIDRs }}
             - ipBlock:
                   cidr: {{ $cidr }}
+            {{- end }}
             {{- end }}
             {{- if $gw.enabled }}
             - namespaceSelector:

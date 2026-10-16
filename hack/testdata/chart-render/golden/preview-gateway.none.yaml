@@ -77,10 +77,6 @@ spec:
     # and the preview gateway's Pods: in the release namespace AND
     # carrying its dedicated label, never the chart's selector labels.
     - from:
-        - ipBlock:
-            cidr: 10.40.128.0/24
-        - ipBlock:
-            cidr: 10.40.129.0/24
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: patchy

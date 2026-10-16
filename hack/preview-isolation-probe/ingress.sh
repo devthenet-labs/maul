@@ -224,6 +224,14 @@ if ! jq -e '[.spec.ingress[]?.from[]? | .podSelector.matchLabels["patchy.bitwise
     echo "$slot_ns/preview-isolation admits no preview gateway Pod: is previewAuth.gateway.enabled set?" >&2
     exit 1
 fi
+# An ipBlock peer admits every address in it (the preview ALB's subnets, while
+# preview.legacyIngress serves), and so whatever else runs there, past the
+# gateway's sign-in. This run's clients are never in it, so say so plainly.
+blocks=$(jq -r '[.spec.ingress[]?.from[]? | .ipBlock.cidr? // empty] | join(", ")' <<<"$policy")
+if [[ -n $blocks ]]; then
+    echo "WARNING: $slot_ns/preview-isolation also admits the address ranges $blocks on port http, bypassing the" \
+        "preview gateway; this run does not test them. They go once preview.legacyIngress is false." >&2
+fi
 for target in "$slot_ns/$listener" "$agents_ns/preview-ingress-agent" "$release_ns/preview-ingress-release" \
     "$release_ns/preview-ingress-gateway"; do
     if kube get pod "${target#*/}" -n "${target%%/*}" >/dev/null 2>&1; then

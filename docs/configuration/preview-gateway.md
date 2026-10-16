@@ -68,8 +68,10 @@ previewAuth:
 With it on:
 
 - The relay's Pods carry `patchy.bitwisemedia.uk/preview-gateway: "true"`. The slot NetworkPolicy admits Pods in the
-  release namespace with that label on port `http` only. The relay's own policy gains egress to that port. Nothing else
-  reaches a slot Pod: no Ingress, no load balancer, no other namespace.
+  release namespace with that label on port `http` only. The relay's own policy gains egress to that port. While
+  `preview.legacyIngress` is `true` the policy also admits the preview ALB's subnets (`preview.albSubnetCIDRs`), every
+  address in them, as before. Once it is `false`, nothing else reaches a slot Pod: no Ingress, no load balancer, no
+  subnet, no other namespace, even with the ALB values still set.
 - The Service `<release>-preview-gateway` (port 80, and 443 with the gateway's own TLS) is what every exposure points
   at.
 - The relay keeps every endpoint it had, so the legacy ALB path keeps working while both run.
@@ -288,11 +290,12 @@ wildcard record can point at either one, and DNS is the rollback until the last 
    **Rollback:** point the record back at the preview ALB. Nothing else changed.
 
 3. **Retire the slot Ingresses.** Set `preview.legacyIngress: false` and upgrade. preview-controller deletes the slot
-   Ingresses it rendered, the relay's probe switches to gateway mode, and `patchy check project` judges the gateway
-   alone. Keep `preview.placeholder` and the ALB values for now: they keep the idle preview ALB, and so a way back,
-   until the next release removes them. **Rollback:** set `preview.legacyIngress: true`, wait until every Ready preview
-   has its slot Ingress again (`kubectl get ingress -A -l app.kubernetes.io/managed-by=patchy-preview-controller`), then
-   point the record back.
+   Ingresses it rendered, the relay's probe switches to gateway mode, `patchy check project` judges the gateway alone,
+   and the slot NetworkPolicy stops admitting the ALB's subnets, so only the gateway reaches a slot. Keep
+   `preview.placeholder` and the ALB values for now: they keep the idle preview ALB, and so a way back, until the next
+   release removes them. **Rollback:** set `preview.legacyIngress: true`, wait until every Ready preview has its slot
+   Ingress again (`kubectl get ingress -A -l app.kubernetes.io/managed-by=patchy-preview-controller`), then point the
+   record back.
 
 The next release removes the legacy path: the ALB values, the relay's provider endpoints and the placeholder. Its
 release notes list the kept objects to delete by hand.
@@ -329,7 +332,8 @@ Stronger than the ALB path:
 
 - No slot renders an Ingress once `preview.legacyIngress` is `false`. "A preview host without sign-in" is then not a
   state any controller, rollback or foreign object can reach.
-- A slot admits only gateway Pods, not a subnet.
+- Once `preview.legacyIngress` is `false`, a slot admits only gateway Pods, not a subnet. Until then it also admits the
+  preview ALB's subnets, and with them anything else running there, without sign-in.
 - Revocation takes effect within about 40 seconds: the access-review cache plus a re-check that also closes open
   streams.
 - No OIDC client Secret lives in a slot namespace.

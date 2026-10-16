@@ -230,7 +230,9 @@ preview:
     # fails to render until the Project names one under the new path.
     imagePathPrefix: patchy/previews
     dnsCIDR: "" # Node-local CoreDNS service /32, not a broad service CIDR; empty means clusterDNSCIDR.
-    albSubnetCIDRs: [] # LEGACY: public ALB source subnets, not 0.0.0.0/0.
+    # LEGACY: public ALB source subnets, not 0.0.0.0/0. Slots admit them only
+    # while legacyIngress is true.
+    albSubnetCIDRs: []
     # LEGACY: the subnet IDs of albSubnetCIDRs, one per CIDR: pins the preview ALB to
     # exactly those subnets. Empty leaves placement to Auto Mode, which uses a
     # kubernetes.io/role/elb subnet in every zone that has one; albSubnetCIDRs
