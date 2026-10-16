@@ -11,6 +11,8 @@ import (
 
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
+
+	"github.com/bitwise-media-group/patchy/internal/usagewire"
 )
 
 // vertexScope is the OAuth scope the Vertex AI prediction API accepts.
@@ -27,9 +29,10 @@ func Vertex(ctx context.Context, target *url.URL, project, location string) (Ups
 	}
 	ts = oauth2.ReuseTokenSource(nil, ts)
 	return Upstream{
-		Target:   target,
-		Project:  project,
-		Location: location,
+		Target:         target,
+		CredentialKind: usagewire.CredentialCloudIdentity,
+		Project:        project,
+		Location:       location,
 		Credential: func(_ context.Context, req *http.Request) error {
 			tok, err := ts.Token()
 			if err != nil {

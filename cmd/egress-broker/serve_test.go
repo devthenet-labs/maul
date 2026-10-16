@@ -338,3 +338,34 @@ func TestUpstreamFlagSurface(t *testing.T) {
 		}
 	}
 }
+
+// TestUsageConfig: the usage endpoint is off by default, needs an address
+// and callers together, and expands each <namespace>:<serviceaccount> into
+// its ServiceAccount username.
+func TestUsageConfig(t *testing.T) {
+	addr, cfg, err := usageConfig(serveOpts(t))
+	if err != nil || addr != "" || cfg.Enabled() {
+		t.Fatalf("default: addr %q cfg %+v err %v, want off", addr, cfg, err)
+	}
+	for name, args := range map[string][]string{
+		"addr only":    {"--usage-addr", ":8082"},
+		"callers only": {"--usage-callers", "patchy:a"},
+		"bad caller":   {"--usage-addr", ":8082", "--usage-callers", "patchy"},
+		"empty name":   {"--usage-addr", ":8082", "--usage-callers", "patchy:"},
+		"extra colon":  {"--usage-addr", ":8082", "--usage-callers", "patchy:a:b"},
+	} {
+		if _, _, err := usageConfig(serveOpts(t, args...)); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	addr, cfg, err = usageConfig(serveOpts(t, "--usage-addr", ":8082",
+		"--usage-callers", "patchy:patchy-intent-controller,patchy:patchy-evaluation-controller"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"system:serviceaccount:patchy:patchy-intent-controller",
+		"system:serviceaccount:patchy:patchy-evaluation-controller"}
+	if addr != ":8082" || !slices.Equal(cfg.Callers, want) || cfg.Audience != "patchy-egress-broker-usage" {
+		t.Errorf("addr %q cfg %+v", addr, cfg)
+	}
+}

@@ -296,6 +296,9 @@ spec:
                   volumeMounts:
                       - name: tmp
                         mountPath: /tmp
+                      {{- with include "patchy.usageTokenMount" . }}
+                      {{- . | nindent 22 }}
+                      {{- end }}
                       {{- with $vals.extraVolumeMounts }}
                       {{- toYaml . | nindent 22 }}
                       {{- end }}
@@ -316,6 +319,9 @@ spec:
                 # writable /tmp.
                 - name: tmp
                   emptyDir: {}
+                {{- with include "patchy.usageTokenVolume" . }}
+                {{- . | nindent 16 }}
+                {{- end }}
                 {{- with $vals.extraVolumes }}
                 {{- toYaml . | nindent 16 }}
                 {{- end }}
@@ -366,6 +372,9 @@ spec:
                 port: 443
               - protocol: TCP
                 port: 6443
+        {{- with include "patchy.usageBrokerEgress" . }}
+        {{- . | nindent 8 }}
+        {{- end }}
         {{- with $vals.networkPolicy.extraEgress }}
         # Operator-supplied additions (intentController.networkPolicy.extraEgress),
         # rendered verbatim.

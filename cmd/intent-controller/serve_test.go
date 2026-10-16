@@ -291,3 +291,36 @@ func TestAttributionModeReachesSettings(t *testing.T) {
 		t.Errorf("settings with mode enforce = %v, want the --attribution-mode refusal", err)
 	}
 }
+
+// TestUsageMeasurementReachesMeter: measurement is off by default, and
+// PATCHY_USAGE_MEASUREMENT with PATCHY_USAGE_BROKER_URL (the chart's wiring
+// under attribution) turns the meter on; on without a broker URL stops
+// startup.
+func TestUsageMeasurementReachesMeter(t *testing.T) {
+	for key, value := range componentData(t) {
+		t.Setenv(key, value)
+	}
+	opts, root, _ := command(t)
+	if err := root.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if m, err := runnercfg.UsageMeter(opts, nil); err != nil || m.On() {
+		t.Fatalf("default meter = %v, %v; want off", m, err)
+	}
+	t.Setenv("PATCHY_USAGE_MEASUREMENT", "true")
+	opts, root, _ = command(t)
+	if err := root.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if _, err := runnercfg.UsageMeter(opts, nil); err == nil {
+		t.Error("measurement on without a broker URL was accepted")
+	}
+	t.Setenv("PATCHY_USAGE_BROKER_URL", "http://patchy-egress-broker.patchy.svc:8082")
+	opts, root, _ = command(t)
+	if err := root.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if m, err := runnercfg.UsageMeter(opts, nil); err != nil || !m.On() {
+		t.Fatalf("meter = %v, %v; want on", m, err)
+	}
+}

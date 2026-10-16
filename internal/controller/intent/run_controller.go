@@ -35,6 +35,7 @@ import (
 	"github.com/bitwise-media-group/patchy/internal/schedule"
 	"github.com/bitwise-media-group/patchy/internal/templates"
 	"github.com/bitwise-media-group/patchy/internal/transcriptstore"
+	"github.com/bitwise-media-group/patchy/internal/usagemeter"
 )
 
 // runSchedulerRequest is the singleton request every run and Job event also
@@ -95,8 +96,11 @@ type RunReconciler struct {
 	// MaxChangesetEntries caps a build changeset's entries; <= 0 means
 	// changeset.DefaultMaxEntries.
 	MaxChangesetEntries int
-	Now                 func() time.Time
-	Log                 *slog.Logger
+	// Meter settles a finished run's usage against the egress broker
+	// (--usage-measurement); nil, the default, records nothing.
+	Meter *usagemeter.Meter
+	Now   func() time.Time
+	Log   *slog.Logger
 }
 
 func (r *RunReconciler) now() time.Time {
@@ -356,7 +360,10 @@ func (r *RunReconciler) run(ctx context.Context, req ctrl.Request) (ctrl.Result,
 		// settle deletes a plan run's Repository after the terminal write;
 		// a delete that failed there is retried here, on every event, so
 		// no plan Repository outlives its collection.
-		return ctrl.Result{}, r.deletePlanRepository(ctx, &run)
+		if err := r.deletePlanRepository(ctx, &run); err != nil {
+			return ctrl.Result{}, err
+		}
+		return r.measure(ctx, &run)
 	}
 	return ctrl.Result{}, nil
 }

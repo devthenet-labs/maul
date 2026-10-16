@@ -23,6 +23,7 @@ import (
 	"github.com/bitwise-media-group/patchy/internal/cli"
 	"github.com/bitwise-media-group/patchy/internal/kube"
 	"github.com/bitwise-media-group/patchy/internal/telemetry"
+	"github.com/bitwise-media-group/patchy/internal/usagewire"
 	"github.com/bitwise-media-group/patchy/internal/version"
 )
 
@@ -87,7 +88,44 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 		"Foundry base URL (default: https://<foundry-resource>.services.ai.azure.com)")
 	f.String("foundry-auth", "key", "foundry credential mode: key (x-api-key from file) or entra (bearer)")
 	f.String("foundry-api-key-file", "", "mounted Secret file holding the Foundry API key (foundry-auth key)")
+
+	// The usage endpoint (per-user credentials design, L2): off unless an
+	// address is set, and then only for the named controllers.
+	f.String("usage-addr", "",
+		"listen address of the usage endpoint the run controllers read a settled run's measured tokens from; "+
+			"empty disables it")
+	f.String("usage-callers", "",
+		"comma-separated <namespace>:<serviceaccount> identities the usage endpoint answers to (the run "+
+			"controllers); required with --usage-addr")
+	f.String("usage-audience", usagewire.Audience,
+		"audience the usage callers' projected tokens must be bound to; must differ from --token-audience")
 	return cmd
+}
+
+// usageConfig reads the usage endpoint's flags: its listen address (empty
+// when off) and the engine config. The address and the callers come
+// together or not at all, so the endpoint can neither listen for nobody
+// nor be configured without a listener.
+func usageConfig(opts *cli.Options) (string, broker.UsageConfig, error) {
+	addr := opts.String("usage-addr")
+	pairs := opts.StringList("usage-callers")
+	switch {
+	case addr == "" && len(pairs) == 0:
+		return "", broker.UsageConfig{}, nil
+	case addr == "":
+		return "", broker.UsageConfig{}, errors.New("--usage-callers needs --usage-addr")
+	case len(pairs) == 0:
+		return "", broker.UsageConfig{}, errors.New("--usage-addr needs --usage-callers")
+	}
+	cfg := broker.UsageConfig{Audience: opts.String("usage-audience")}
+	for _, p := range pairs {
+		ns, name, ok := strings.Cut(p, ":")
+		if !ok || ns == "" || name == "" || strings.Contains(name, ":") {
+			return "", broker.UsageConfig{}, fmt.Errorf("--usage-callers: %q is not <namespace>:<serviceaccount>", p)
+		}
+		cfg.Callers = append(cfg.Callers, "system:serviceaccount:"+ns+":"+name)
+	}
+	return addr, cfg, nil
 }
 
 // upstreams builds the route table from the flags: one route per provider
@@ -241,6 +279,10 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	if err != nil {
 		return err
 	}
+	usageAddr, usage, err := usageConfig(opts)
+	if err != nil {
+		return err
+	}
 	// --beta-denylist: empty keeps the engine's built-in list, "none" strips
 	// nothing, anything else is the operator's own patterns.
 	betas := opts.StringList("beta-denylist")
@@ -271,6 +313,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		PreauthBurst:             opts.Int("preauth-burst"),
 		TokenReviewsPerSecond:    opts.Float("token-reviews-per-second"),
 		Upstreams:                routes,
+		Usage:                    usage,
 	}, log)
 	if err != nil {
 		return err
@@ -290,14 +333,28 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
+	servers := []*http.Server{proxySrv, healthSrv}
+	// The usage endpoint gets a listener of its own, so the chart's
+	// NetworkPolicy can open it to the run controllers alone.
+	if h := srv.UsageHandler(); h != nil {
+		servers = append(servers, &http.Server{
+			Addr:              usageAddr,
+			Handler:           h,
+			ReadHeaderTimeout: 10 * time.Second,
+			ReadTimeout:       30 * time.Second,
+			WriteTimeout:      30 * time.Second,
+		})
+	}
+
 	names := slices.Sorted(maps.Keys(routes))
 	log.LogAttrs(ctx, slog.LevelInfo, "egress-broker starting",
 		slog.String("listen_addr", proxySrv.Addr),
 		slog.String("health_addr", healthSrv.Addr),
+		slog.String("usage_addr", usageAddr),
 		slog.Any("routes", names))
 
 	g, ctx := errgroup.WithContext(ctx)
-	for _, s := range []*http.Server{proxySrv, healthSrv} {
+	for _, s := range servers {
 		g.Go(func() error {
 			if err := s.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 				return err

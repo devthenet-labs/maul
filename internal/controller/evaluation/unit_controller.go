@@ -28,6 +28,7 @@ import (
 	"github.com/bitwise-media-group/patchy/internal/evalresults"
 	"github.com/bitwise-media-group/patchy/internal/jobs"
 	"github.com/bitwise-media-group/patchy/internal/schedule"
+	"github.com/bitwise-media-group/patchy/internal/usagemeter"
 	"github.com/bitwise-media-group/patchy/pkg/evaluation"
 )
 
@@ -81,8 +82,11 @@ type UnitReconciler struct {
 	// for one stamped before the mode was on); under off (the zero value)
 	// none.
 	Attribution attribution.Mode
-	Now         func() time.Time
-	Log         *slog.Logger
+	// Meter settles a finished unit's usage against the egress broker
+	// (--usage-measurement); nil, the default, records nothing.
+	Meter *usagemeter.Meter
+	Now   func() time.Time
+	Log   *slog.Logger
 }
 
 func (r *UnitReconciler) now() time.Time {
@@ -221,9 +225,36 @@ func (r *UnitReconciler) run(ctx context.Context, req ctrl.Request) (ctrl.Result
 			return ctrl.Result{}, r.launch(ctx, &unit)
 		}
 		return r.collect(ctx, &unit)
+	case v1alpha1.RunComplete, v1alpha1.RunFailed:
+		return r.measure(ctx, &unit)
 	default:
-		return ctrl.Result{}, nil // Pending waits for a grant; terminal is done
+		return ctrl.Result{}, nil // Pending waits for a grant
 	}
+}
+
+// measure settles a finished unit's usage against the egress broker
+// (usagemeter): a no-op while the meter is off or once the usage is final.
+// The harness is the one this controller resolved at launch.
+func (r *UnitReconciler) measure(ctx context.Context, unit *v1alpha1.EvaluationUnit) (ctrl.Result, error) {
+	if !r.Meter.Pending(unit.Status.Phase, &unit.Status.Usage) {
+		return ctrl.Result{}, nil
+	}
+	out, wait := r.Meter.Settle(ctx, usagemeter.RunOf(ctx, r.Runner, unit.UID, unit.Status.JobRef,
+		unit.CreationTimestamp.Time, unit.Status.Harness))
+	if out == nil {
+		return ctrl.Result{RequeueAfter: wait}, nil
+	}
+	return ctrl.Result{}, retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		var cur v1alpha1.EvaluationUnit
+		if err := r.Get(ctx, client.ObjectKeyFromObject(unit), &cur); err != nil {
+			return client.IgnoreNotFound(err)
+		}
+		if cur.Status.Usage.Final {
+			return nil
+		}
+		usagemeter.Apply(&cur.Status.Usage, *out)
+		return r.Status().Update(ctx, &cur)
+	})
 }
 
 // launch resolves the harness, checks the workspace blob, and creates the

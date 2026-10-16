@@ -38,4 +38,16 @@
 // whose message carries provider.LimitMessagePrefix, which the in-pod runtime
 // maps to budget_exceeded. TokenReview remains the broker's only Kubernetes
 // access; the ledger is in-memory per replica.
+//
+// The ledger also keeps what each pod consumed per bare model id: the tokens
+// observed in the responses (input, output, cache reads, and cache writes
+// split into their five-minute and one-hour parts), apart from the
+// worst-case shortfall charged for a response whose usage never became
+// final. The limits count both; only the observed tokens are ever priced.
+// With Config.Usage set, UsageHandler serves that record per Job on a
+// listener of its own (usagewire) to the run controllers alone, which read
+// it when a run settles; it reports the process's boot time, so a ledger
+// that restarted mid-run is never taken for a whole one. The broker runs as
+// a single replica, and the usage figures depend on it: a second replica
+// would hold half of a pod's traffic.
 package broker

@@ -166,6 +166,11 @@ spec:
                       {{- end }}
                       - name: tmp
                         mountPath: /tmp
+                      {{- if has $c.name (list "investigation-controller" "remediation-controller") }}
+                      {{- with include "patchy.usageTokenMount" $ }}
+                      {{- . | nindent 22 }}
+                      {{- end }}
+                      {{- end }}
                       {{- with $c.vals.extraVolumeMounts }}
                       {{- toYaml . | nindent 22 }}
                       {{- end }}
@@ -218,6 +223,11 @@ spec:
                 # writable /tmp.
                 - name: tmp
                   emptyDir: {}
+                {{- if has $c.name (list "investigation-controller" "remediation-controller") }}
+                {{- with include "patchy.usageTokenVolume" $ }}
+                {{- . | nindent 16 }}
+                {{- end }}
+                {{- end }}
                 {{- with $c.vals.extraVolumes }}
                 {{- toYaml . | nindent 16 }}
                 {{- end }}

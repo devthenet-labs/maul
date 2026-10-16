@@ -150,6 +150,34 @@ into `PATCHY_MODEL_MAP` and applied in-pod. Bedrock and Vertex ids are derived p
 derivable ids**, so `--claude-model-map` must cover every claude-resolving allowlisted model and stage default — the
 controllers refuse to start otherwise, which turns a would-be mid-run failure into a startup error.
 
+## Usage endpoint
+
+The broker's ledger also records what each pod consumed per model. It keeps the tokens the responses reported (input,
+output, cache reads, and cache writes split into five-minute and one-hour parts) apart from the worst-case shortfall it
+charged for a cut or usage-less response. The limits count both; only the reported tokens are ever priced. The run
+controllers read this record when a run settles ([trusted usage](attribution.md#trusted-usage)).
+
+The record is served on a listener of its own, off unless `--usage-addr` is set:
+
+| Flag               | Default                      | Purpose                                                                                               |
+| ------------------ | ---------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `--usage-addr`     | empty (off)                  | Listen address of the usage endpoint (`:8082` in the chart)                                           |
+| `--usage-callers`  | empty                        | Comma-separated `<namespace>:<serviceaccount>` identities it answers to; required with `--usage-addr` |
+| `--usage-audience` | `patchy-egress-broker-usage` | Audience the callers' projected tokens must be bound to; must differ from `--token-audience`          |
+
+`GET /v1/usage/jobs/<job>` answers with the broker's boot time and the ledger entry of each of that Job's pods (named
+`<job>-<five characters>`): the pod name and UID, when the ledger first saw it, its requests still in flight, and per
+model the route, the credential kind (`api-key`, `oauth-token` for a Claude subscription, `cloud-identity`), the tokens
+by class and the shortfall. The caller sends a pod-bound projected token as `Authorization: Bearer`; it passes the same
+pre-authentication as the proxy, then a TokenReview whose username must be one of `--usage-callers`. The agent
+ServiceAccount can never be one, and an agent pod's broker token is bound to the other audience, so an agent can read no
+usage, and a controller's usage token opens nothing on the proxy. The endpoint reads the in-memory ledger only: the
+broker still writes nothing to Kubernetes. Under the chart it is on exactly while `attribution.mode` is `attribute`, and
+its NetworkPolicy admits port 8082 from the run controllers' pods only.
+
+**One replica.** The usage figures depend on one ledger seeing all of a pod's traffic. The chart runs one broker; a
+second replica would hold half of each pod's usage.
+
 ## Workload identity
 
 For bedrock/vertex/foundry-entra the broker's ServiceAccount is the cloud-identity attachment point, the same recipe as
@@ -172,7 +200,8 @@ Invoke-class permissions only — the broker needs to call models, never to mana
   mounted volumes), no writes, no leases.
 - The Deployment runs under the restricted Pod Security posture like every other patchy component: non-root 65532,
   read-only root filesystem, no capabilities.
-- Its NetworkPolicy admits the proxy port from the agent namespace only, and egress to DNS, TCP 443, and the API server.
+- Its NetworkPolicy admits the proxy port from the agent namespace only, the usage port (when on) from the run
+  controllers only, and egress to DNS, TCP 443, and the API server.
 - Every request produces one audit log line — caller pod, route, method, path, status, duration, bytes — and never
   bodies or headers.
 - In-cluster traffic to the broker is plaintext HTTP carrying an audience-scoped identity token, the same posture as the
@@ -193,7 +222,8 @@ Invoke-class permissions only — the broker needs to call models, never to mana
 
 - Codex and copilot remain in-pod-credentialed (both ship disabled); routing them through the broker is a follow-up.
 - The limit counters live in memory, per replica, evicted after 24 hours: a broker restart resets every pod's totals,
-  and more than one replica multiplies the effective limits (the chart runs one).
+  and more than one replica multiplies the effective limits (the chart runs one). A restart also empties the usage
+  record; the boot time it reports keeps a controller from taking what is left for a whole run (`source: partial`).
 - Bedrock streaming responses are metered by estimate only (see [Enforcement](#enforcement)); the other routes are
   metered from the usage they report.
 - Bedrock/Vertex runs may report no `total_cost_usd`; cost accounting then falls back to the registry's first-party

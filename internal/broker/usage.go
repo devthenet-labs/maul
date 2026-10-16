@@ -11,12 +11,19 @@ import (
 )
 
 // usage is one response's token usage across every field the API reports.
+// cacheCreation is every cache write; cacheWrite1h is the part of it written
+// with the one-hour TTL (the cache_creation breakdown), the rest being the
+// default five-minute writes, which price differently.
 type usage struct {
 	input         int64
 	cacheCreation int64
+	cacheWrite1h  int64
 	cacheRead     int64
 	output        int64
 }
+
+// cacheWrite5m is the five-minute part of the cache writes.
+func (u usage) cacheWrite5m() int64 { return max(u.cacheCreation-u.cacheWrite1h, 0) }
 
 // total is the sum every limit counts.
 func (u usage) total() int64 { return u.input + u.cacheCreation + u.cacheRead + u.output }
@@ -28,6 +35,7 @@ func (u usage) merge(o usage) usage {
 	return usage{
 		input:         max(u.input, o.input),
 		cacheCreation: max(u.cacheCreation, o.cacheCreation),
+		cacheWrite1h:  max(u.cacheWrite1h, o.cacheWrite1h),
 		cacheRead:     max(u.cacheRead, o.cacheRead),
 		output:        max(u.output, o.output),
 	}
@@ -38,18 +46,24 @@ func (u usage) minus(o usage) usage {
 	return usage{
 		input:         u.input - o.input,
 		cacheCreation: u.cacheCreation - o.cacheCreation,
+		cacheWrite1h:  u.cacheWrite1h - o.cacheWrite1h,
 		cacheRead:     u.cacheRead - o.cacheRead,
 		output:        u.output - o.output,
 	}
 }
 
 // usageJSON is the wire shape of a usage object; pointers distinguish an
-// absent field from a zero.
+// absent field from a zero. cache_creation is the per-TTL breakdown of
+// cache_creation_input_tokens.
 type usageJSON struct {
 	Input         *int64 `json:"input_tokens"`
 	CacheCreation *int64 `json:"cache_creation_input_tokens"`
 	CacheRead     *int64 `json:"cache_read_input_tokens"`
 	Output        *int64 `json:"output_tokens"`
+	Breakdown     *struct {
+		Ephemeral5m *int64 `json:"ephemeral_5m_input_tokens"`
+		Ephemeral1h *int64 `json:"ephemeral_1h_input_tokens"`
+	} `json:"cache_creation"`
 }
 
 func (j *usageJSON) usage() usage {
@@ -62,7 +76,14 @@ func (j *usageJSON) usage() usage {
 		}
 		return *p
 	}
-	return usage{input: d(j.Input), cacheCreation: d(j.CacheCreation), cacheRead: d(j.CacheRead), output: d(j.Output)}
+	u := usage{input: d(j.Input), cacheCreation: d(j.CacheCreation), cacheRead: d(j.CacheRead), output: d(j.Output)}
+	if b := j.Breakdown; b != nil {
+		// The breakdown is the more detailed report: the total is at least
+		// its sum, and the one-hour part is never more than the total.
+		u.cacheWrite1h = max(d(b.Ephemeral1h), 0)
+		u.cacheCreation = max(u.cacheCreation, max(d(b.Ephemeral5m), 0)+u.cacheWrite1h)
+	}
+	return u
 }
 
 // Scanner bounds: an SSE data line longer than maxSSELine is skipped (usage
@@ -152,6 +173,7 @@ func (u usage) mergeAdd(o usage) usage {
 	return usage{
 		input:         u.input + o.input,
 		cacheCreation: u.cacheCreation + o.cacheCreation,
+		cacheWrite1h:  u.cacheWrite1h + o.cacheWrite1h,
 		cacheRead:     u.cacheRead + o.cacheRead,
 		output:        u.output + o.output,
 	}

@@ -313,6 +313,151 @@ type UsageSummary struct {
 	// +optional
 	// +kubebuilder:validation:Pattern=`^[0-9]+(\.[0-9]{1,6})?$`
 	CostUSD string `json:"costUSD,omitempty"`
+	// Source says which figure the run's usage is to be trusted as, once
+	// Final: measured (the egress broker metered the whole pod), partial
+	// (it metered only part of it: it restarted after the pod existed, or
+	// requests were still in flight when the wait ended) or reported (no
+	// broker figure: a non-brokered harness, or none was available; only
+	// the pod-reported counts above exist). Set by the run's controller
+	// under --usage-measurement; empty before or without it.
+	// +optional
+	Source UsageSource `json:"source,omitempty"`
+	// Final marks the usage settled: the controller has stopped waiting
+	// for the broker and Source and Measured will not change.
+	// +optional
+	Final bool `json:"final,omitempty"`
+	// Measured is the broker's metered usage of the run's pod, beside the
+	// pod-reported counts above (which a pod could misreport). Present
+	// when Source is measured or partial.
+	// +optional
+	Measured *MeasuredUsage `json:"measured,omitempty"`
+}
+
+// UsageSource is where a run's settled usage figure comes from.
+// +kubebuilder:validation:Enum=measured;partial;reported
+type UsageSource string
+
+// Usage sources.
+const (
+	UsageSourceMeasured UsageSource = "measured"
+	UsageSourcePartial  UsageSource = "partial"
+	UsageSourceReported UsageSource = "reported"
+)
+
+// UsagePricing says what a priced figure means: list (what the tokens cost
+// at list rates on an API key or cloud identity) or subscription (the list
+// equivalent of tokens a Claude subscription paid for: notional, never
+// money spent).
+// +kubebuilder:validation:Enum=list;subscription
+type UsagePricing string
+
+// Usage pricings.
+const (
+	UsagePricingList         UsagePricing = "list"
+	UsagePricingSubscription UsagePricing = "subscription"
+)
+
+// MeasuredUsage is the egress broker's metered usage of one run's pod:
+// tokens observed in the model responses, priced at list rates, and apart
+// from them the worst-case tokens it charged for responses whose usage it
+// never saw in full, which are never priced.
+type MeasuredUsage struct {
+	// InputTokens observed.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	InputTokens int64 `json:"inputTokens,omitempty"`
+	// OutputTokens observed.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	OutputTokens int64 `json:"outputTokens,omitempty"`
+	// CacheReadTokens observed.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	CacheReadTokens int64 `json:"cacheReadTokens,omitempty"`
+	// CacheWriteTokens observed: every prompt cache write, five-minute and
+	// one-hour (Models has the split).
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	CacheWriteTokens int64 `json:"cacheWriteTokens,omitempty"`
+	// EstimatedShortfallTokens is the unmetered worst case: what the
+	// broker charged its limits for cut or usage-less responses beyond what
+	// it observed. Shown as unmetered, never priced, never part of a cost.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	EstimatedShortfallTokens int64 `json:"estimatedShortfallTokens,omitempty"`
+	// CostUSD prices the observed tokens: the sum of Models' costs, absent
+	// when any model with observed tokens has no known price.
+	// +optional
+	// +kubebuilder:validation:Pattern=`^[0-9]+(\.[0-9]{1,6})?$`
+	CostUSD string `json:"costUSD,omitempty"`
+	// Pricing is subscription when any priced model's tokens were paid by
+	// a subscription credential, else list.
+	// +optional
+	Pricing UsagePricing `json:"pricing,omitempty"`
+	// PriceTable is the price-table version CostUSD was priced at.
+	// +optional
+	// +kubebuilder:validation:MaxLength=32
+	PriceTable string `json:"priceTable,omitempty"`
+	// BrokerBootTime is when the broker's ledger began; Source is measured
+	// only when it is before the run's Job was created.
+	// +optional
+	BrokerBootTime *metav1.Time `json:"brokerBootTime,omitempty"`
+	// Models is the usage per model.
+	// +optional
+	// +kubebuilder:validation:MaxItems=16
+	// +listType=atomic
+	Models []ModelUsage `json:"models,omitempty"`
+}
+
+// ModelUsage is a run's measured usage of one model.
+type ModelUsage struct {
+	// Model is the registry's canonical id when the reported id resolves to
+	// one, else the id the broker reported (an unknown model).
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=160
+	Model string `json:"model"`
+	// Credential is the kind of credential that paid: api-key,
+	// oauth-token (a Claude subscription) or cloud-identity.
+	// +optional
+	// +kubebuilder:validation:MaxLength=32
+	Credential string `json:"credential,omitempty"`
+	// InputTokens observed.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	InputTokens int64 `json:"inputTokens,omitempty"`
+	// OutputTokens observed.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	OutputTokens int64 `json:"outputTokens,omitempty"`
+	// CacheReadTokens observed.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	CacheReadTokens int64 `json:"cacheReadTokens,omitempty"`
+	// CacheWrite5mTokens observed: five-minute prompt cache writes.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	CacheWrite5mTokens int64 `json:"cacheWrite5mTokens,omitempty"`
+	// CacheWrite1hTokens observed: one-hour prompt cache writes.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	CacheWrite1hTokens int64 `json:"cacheWrite1hTokens,omitempty"`
+	// EstimatedShortfallTokens is this model's unmetered worst case.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	EstimatedShortfallTokens int64 `json:"estimatedShortfallTokens,omitempty"`
+	// CostUSD prices the observed tokens at list rates; absent when the
+	// model has no known price (its tokens are kept).
+	// +optional
+	// +kubebuilder:validation:Pattern=`^[0-9]+(\.[0-9]{1,6})?$`
+	CostUSD string `json:"costUSD,omitempty"`
+	// Pricing is list or subscription (notional); set with CostUSD.
+	// +optional
+	Pricing UsagePricing `json:"pricing,omitempty"`
+	// PriceTable is the price-table version CostUSD was priced at; set
+	// with CostUSD.
+	// +optional
+	// +kubebuilder:validation:MaxLength=32
+	PriceTable string `json:"priceTable,omitempty"`
 }
 
 // StageResult records how one agent stage ran, mirroring the agent envelope's

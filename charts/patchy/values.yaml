@@ -87,8 +87,15 @@ admissionPolicy:
 # submitter must be its creator, unless that is the evaluation-controller; a
 # run's spec.attributedTo is admitted only from its own kind's controller; and
 # only intent-controller may record an Intent's requestedBy.userID.
-# Uses admissionPolicy.jobControllerUsernames. See
-# docs/configuration/attribution.md.
+# Uses admissionPolicy.jobControllerUsernames.
+#
+# With attribute, while the egress broker deploys, trusted usage (design L2)
+# is on too: the broker serves what it metered per Job on a usage endpoint
+# (port 8082, its own audience, the run controllers' ServiceAccounts only,
+# a NetworkPolicy from those pods only), and each of the four controllers
+# settles every finished run's usage from it (PATCHY_USAGE_MEASUREMENT): the
+# run's status usage gains measured (priced per model), source and final.
+# See docs/configuration/attribution.md.
 attribution:
     mode: "off"
 

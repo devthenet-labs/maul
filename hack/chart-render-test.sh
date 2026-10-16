@@ -2634,6 +2634,42 @@ done
 expect_fail "attribution.mode not in the enum" '/attribution/mode' --set attribution.mode=enforce
 expect_fail "attribution of the wrong shape" 'additional properties' --set attribution.bogus=true
 
+# ---- trusted usage (design L2): the broker's usage endpoint ------------------
+# Off (attribution.mode off, the default) renders no usage key, port, token or
+# policy rule anywhere. Under attribute, with the broker deployed, the broker
+# serves the endpoint on 8082 to exactly the run controllers present (its
+# callers, its NetworkPolicy), and each of them gets the meter's settings, the
+# projected usage-audience token and an egress rule to that port only.
+usage_cms='select(.kind == "ConfigMap") | select(.data.PATCHY_USAGE_MEASUREMENT != null) | .metadata.name'
+expect extras-none "$usage_cms" ""
+expect extras-none 'select(.kind == "ConfigMap" and .metadata.name == "patchy-egress-broker-config") | .data.PATCHY_USAGE_ADDR' null
+expect extras-none 'select(.kind == "Service" and .metadata.name == "patchy-egress-broker") | .spec.ports[] | select(.name == "usage") | .port' ""
+expect extras-none 'select(.kind == "Deployment") | .spec.template.spec.volumes[] | select(.name == "broker-usage-token") | .name' ""
+expect attribution "$usage_cms" \
+  "$(printf '%s\n' patchy-investigation-controller-config patchy-remediation-controller-config patchy-evaluation-controller-config patchy-intent-controller-config)"
+for c in investigation-controller remediation-controller intent-controller evaluation-controller; do
+  cm attribution "$c" PATCHY_USAGE_MEASUREMENT true
+  cm attribution "$c" PATCHY_USAGE_BROKER_URL http://patchy-egress-broker.patchy.svc.cluster.local:8082
+  cm attribution "$c" PATCHY_USAGE_TOKEN_FILE /var/run/secrets/patchy/broker-usage/token
+  expect attribution "select(.kind == \"Deployment\" and .metadata.name == \"patchy-$c\") | .spec.template.spec.volumes[] | select(.name == \"broker-usage-token\") | .projected.sources[0].serviceAccountToken.audience" patchy-egress-broker-usage
+  expect attribution "select(.kind == \"Deployment\" and .metadata.name == \"patchy-$c\") | .spec.template.spec.containers[0].volumeMounts[] | select(.name == \"broker-usage-token\") | .mountPath" /var/run/secrets/patchy/broker-usage
+  expect attribution "select(.kind == \"NetworkPolicy\" and .metadata.name == \"patchy-$c\") | .spec.egress[] | select(.ports[0].port == 8082) | .to[0].podSelector.matchLabels.\"app.kubernetes.io/name\"" egress-broker
+done
+expect attribution 'select(.kind == "ConfigMap" and .metadata.name == "patchy-egress-broker-config") | .data.PATCHY_USAGE_ADDR' :8082
+expect attribution 'select(.kind == "ConfigMap" and .metadata.name == "patchy-egress-broker-config") | .data.PATCHY_USAGE_CALLERS' \
+  patchy:patchy-investigation-controller,patchy:patchy-remediation-controller,patchy:patchy-intent-controller,patchy:patchy-evaluation-controller
+expect attribution 'select(.kind == "Service" and .metadata.name == "patchy-egress-broker") | .spec.ports[] | select(.name == "usage") | .port' 8082
+expect attribution 'select(.kind == "NetworkPolicy" and .metadata.name == "patchy-egress-broker") | .spec.ingress[] | select(.ports[0].port == 8082) | .from[].podSelector.matchLabels."app.kubernetes.io/name"' \
+  "$(printf '%s\n' investigation-controller remediation-controller intent-controller evaluation-controller)"
+# No other controller reaches the usage port, and the agents never do.
+expect attribution 'select(.kind == "NetworkPolicy" and .metadata.name == "patchy-egress-broker") | .spec.ingress[] | select(.ports[0].port == 8082) | .from[] | select(.namespaceSelector != null) | .namespaceSelector' ""
+expect attribution-core 'select(.kind == "ConfigMap" and .metadata.name == "patchy-egress-broker-config") | .data.PATCHY_USAGE_CALLERS' \
+  patchy:patchy-investigation-controller,patchy:patchy-remediation-controller
+# Without a broker (a fake-only values file) nothing is measured.
+render usage-no-broker --set attribution.mode=attribute --set agent.runners.claude.enabled=false \
+  --set agent.runners.codex.enabled=true
+expect usage-no-broker "$usage_cms" ""
+
 # ---- NOTES: the agent egress posture as rendered -----------------------------
 # The NOTES once said "TCP 443 to anywhere" whatever broadEgress resolved to.
 notes_has default-notes 'base NetworkPolicy allows TCP 443 to anywhere' yes
