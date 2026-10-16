@@ -282,6 +282,7 @@ projects: []
 #       #     # The "large" preset for feature-sized intents (with the patchy
 #       #     # chart's stage ceilings raised to match; docs/intents/sizing.md):
 #       #     # maxCostMicroUSD: 150000000
+#       #     # plan:   { maxCostMicroUSD: 10000000 }
 #       #     # build:  { maxTurns: 300, timeout: 90m, maxCostMicroUSD: 60000000, tokenBudget: 200000 }
 #       #     # revise: { maxTurns: 200, timeout: 45m, maxCostMicroUSD: 20000000, tokenBudget: 200000 }
 #       # checks:

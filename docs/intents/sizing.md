@@ -21,12 +21,11 @@ family patchy's intents use:
 | implement preview chart PR      |   161 |       — |           25k |                            49.5M |         451k |
 
 A whole feature track, with an implementer, three reviewers, verifiers, a fix round and CI for each of about three pull
-requests, came to about 6M tokens without cache reads, but **about 140M to 160M tokens with them**: roughly
-$110 per
-track at API list prices ($5 input, $6.25 cache write, $0.50 cache read and $25 output per million tokens). A
+requests, came to about 6M tokens without cache reads, but **about 140M to 160M tokens with them**: roughly \$110 per
+track at API list prices (\$5 input, \$6.25 cache write, \$0.50 cache read and \$25 output per million tokens). A
 client's token counter often leaves cache reads out. The broker does not: it counts every token the model API reports.
 
-The largest single run, the attribution implementer, prices at about $42. It is the run the large preset below is sized
+The largest single run, the attribution implementer, prices at about \$42. It is the run the large preset below is sized
 around.
 
 ## Why cache reads dominate long-context runs
@@ -39,14 +38,13 @@ re-read about 65M tokens, around 97% of its 67.7M total. Output, the part a revi
 Cache reads cost a tenth of the input price, so the same run looks very different in each unit:
 
 - **As tokens**, it is 67.7M. A `tokensPerPod` limit of 15M counts a cache read the same as an output token and would
-  end this run about 22% of the way through, though the 15M it had consumed cost about $9.
-- **As cost**, it is about $42, of which cache reads are about $33. A cost limit of $60 admits it with room to spare,
+  end this run about 22% of the way through, though the 15M it had consumed cost about \$9.
+- **As cost**, it is about \$42, of which cache reads are about \$33. A cost limit of \$60 admits it with room to spare,
   and still ends a run that loops or runs away.
 
 The broker's own e2e suite checks this end to end (`e2e/broker_cost_test.go`): with a fake model API answering every
 request with a 413k-token turn of 400k cache reads, a 2M tokens-per-pod limit cuts the run on its sixth turn, while a
-$5
-cost-per-pod limit admits all ten turns ($3.15), and a $1 run budget still stops its own pod on the fourth.
+\$5 cost-per-pod limit admits all ten turns (\$3.15), and a \$1 run budget still stops its own pod on the fourth.
 
 Raising a token limit high enough for the largest run raises it for every pod in the cluster, at every model's price.
 Cost limits price each model's tokens at its own rates, and a run's budget can differ from the cluster's per-pod cap.
@@ -56,11 +54,11 @@ Cost limits price each model's tokens at its own rates, and a run's budget can d
 The preset is values only; it adds no kind or mode. It raises intent-controller's stage ceilings so a Project may use
 them, then lets each large Project opt in through its own limits. A Project that sets nothing keeps the defaults.
 
-| Stage                 | Turns | Timeout | Run budget ($)         | Output tokens | Evidence                               |
-| --------------------- | ----: | ------: | ---------------------- | ------------: | -------------------------------------- |
-| build                 |   300 |     90m | 60 (`60000000` micro)  |          200k | largest run: 232 turns, 55m, about $42 |
-| revise (or check fix) |   200 |     45m | 20 (`20000000` micro)  |          200k | a review round on the same context     |
-| plan                  |    40 |     20m | the per-intent ceiling |          200k | the defaults; a plan is read-only      |
+| Stage                 | Turns | Timeout | Run budget (\$)       | Output tokens | Evidence                                |
+| --------------------- | ----: | ------: | --------------------- | ------------: | --------------------------------------- |
+| build                 |   300 |     90m | 60 (`60000000` micro) |          200k | largest run: 232 turns, 55m, about \$42 |
+| revise (or check fix) |   200 |     45m | 20 (`20000000` micro) |          200k | a review round on the same context      |
+| plan                  |    40 |     20m | 10 (`10000000` micro) |          200k | the defaults; a plan is read-only       |
 
 Output tokens fall to 200k because even the largest run wrote 32k. `tokenBudget` is the runner's output budget and makes
 a good tripwire, not a spend measure. The Job deadline follows each stage: 90m plus 15 minutes for a build, under the
@@ -77,7 +75,8 @@ egressBroker:
     # two, so keep this at or above the largest stage budget.
     costPerPod: 60000000 # $60
     # At least twice the largest run budget, or a Project using it is not
-    # Ready (RunBudgetOverHourlyLimit); size it for your concurrent runs.
+    # Ready (RunBudgetOverHourlyLimit); a stage without its own budget
+    # counts the per-intent ceiling. Size it for your concurrent runs.
     costPerHour: 200000000 # $200
     # Token limits stay as backstops under cost. Unset them, or raise them
     # well above 70M a pod: a 15M backstop would still cut the largest run.
@@ -116,8 +115,11 @@ projects:
           agentResourceClass: large # only if you defined the class above
       limits:
         # The per-intent ceiling covers the plan, the build and every revise
-        # round together, and each stage budget must fit under it.
+        # round together, and each stage budget must fit under it. Every
+        # stage sets its own budget: one that sets none runs on this ceiling,
+        # more than half the hourly limit above, and the Project is not Ready.
         maxCostMicroUSD: 150000000 # $150
+        plan: { maxCostMicroUSD: 10000000 }
         build: { maxTurns: 300, timeout: 90m, maxCostMicroUSD: 60000000, tokenBudget: 200000 }
         revise: { maxTurns: 200, timeout: 45m, maxCostMicroUSD: 20000000, tokenBudget: 200000 }
 ```
@@ -129,15 +131,14 @@ the controller's ceiling is clamped to it, so the patchy chart values above must
 
 1. **Measure first, still under tokens.** The broker prices every request under either unit. Its audit line carries
    `cost_micro_usd` and the pod's running `pod_cost_micro_usd`, and the `patchy.broker.cost` counter sums micro-USD by
-   route. Run a few intents of the size you expect, then read the largest pod totals. They tell you whether
-   $60 and
-   $20 fit your Projects.
+   route. Run a few intents of the size you expect, then read the largest pod totals. They tell you whether \$60 and
+   \$20 fit your Projects.
 2. **Upgrade the patchy chart with the values above.** Under `unit: cost` the chart requires `costPerPod`, renders a
    Role that lets the broker `get` pods in the agent namespace (for the budget annotation; no list or watch), gives
    intent-controller the unit and the hourly limit, and renders the admission policies that let only intent-controller
    set a run's budget. It refuses `costPerPod` or `costPerHour` under `unit: tokens`.
 3. **Upgrade patchy-config with each large Project's limits.** Projects that set no stage budget get the per-intent
-   ceiling (`limits.maxCostMicroUSD`, $10 by default) as every run's budget.
+   ceiling (`limits.maxCostMicroUSD`, \$10 by default) as every run's budget.
 4. **Check it took.** `kubectl get project <name>` shows the Project Ready, and not `RunBudgetOverHourlyLimit`. A new
    run's IntentRun records `spec.grant.budgetMicroUSD`, its Job and pod carry the
    `patchy.bitwisemedia.uk/budget-micro-usd` annotation, and the broker's audit line for that pod shows
