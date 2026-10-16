@@ -127,8 +127,8 @@ func (r *Reconciler) reconcileActive(ctx context.Context, p *v1alpha1.Preview) (
 		// target group binding) in place before the new Pods start. There the
 		// rolling update keeps the previous revision serving behind the kept
 		// Ingress until the new one is Ready (its target healthy).
-		if p.Status.Slot != nil && !r.Settings.TargetHealth {
-			if err := r.deleteIngress(ctx, p, *p.Status.Slot); err != nil {
+		if p.Status.Slot != nil && !r.Settings.targetHealth() {
+			if err := r.withdrawIngress(ctx, p, *p.Status.Slot); err != nil {
 				return ctrl.Result{}, err
 			}
 		}
@@ -291,7 +291,10 @@ func (r *Reconciler) slotHasManagedObjects(ctx context.Context, slot int32) (boo
 // Deployment (a Deployment whose spec did not change is not touched, so it is
 // not rolled), and marks the Preview Ready once every component is. The host
 // is exposed only then too — unless Ready waits for target health, when the
-// Ingress precedes the Pods (Settings.TargetHealth).
+// Ingress precedes the Pods (Settings.TargetHealth). Without the legacy
+// Ingress (Settings.NoLegacyIngress) the Preview renders no Ingress at all and
+// removes any of its own a legacy pass left, and Ready means every component
+// has a Ready Pod of its current spec with an image ID.
 //
 // Pruning comes first so that a renamed component's Service fits the slot
 // quota, which in slot 0 has no Service to spare beside four components and
@@ -300,7 +303,12 @@ func (r *Reconciler) slotHasManagedObjects(ctx context.Context, slot int32) (boo
 // and with it prepareIngress has dropped stale routes from the kept one.
 func (r *Reconciler) deploy(ctx context.Context, p *v1alpha1.Preview) (ctrl.Result, error) {
 	slot := *p.Status.Slot
-	if r.Settings.TargetHealth {
+	if r.Settings.NoLegacyIngress {
+		if err := r.deleteOwnedIngresses(ctx, p, slot); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+	if r.Settings.targetHealth() {
 		if err := r.prepareIngress(ctx, p, slot); err != nil {
 			return r.renderError(ctx, p, err)
 		}
@@ -319,7 +327,7 @@ func (r *Reconciler) deploy(ctx context.Context, p *v1alpha1.Preview) (ctrl.Resu
 			return r.renderError(ctx, p, err)
 		}
 	}
-	if r.Settings.TargetHealth {
+	if r.Settings.targetHealth() {
 		// The Pods must start after their target group bindings exist, or
 		// the load balancer never injects the gate Ready waits for.
 		if err := r.ensureIngress(ctx, p, slot); err != nil {
@@ -450,7 +458,7 @@ func (r *Reconciler) completeDeployment(ctx context.Context, p *v1alpha1.Preview
 	// Reaching Ready waits for target health. A Preview already Ready at
 	// this generation stays Ready on its serving Pods, so one deployed
 	// before the gate existed is not restarted to grow one.
-	gated := r.Settings.TargetHealth && p.Status.Phase != v1alpha1.PreviewReady
+	gated := r.Settings.targetHealth() && p.Status.Phase != v1alpha1.PreviewReady
 	components := make([]v1alpha1.PreviewComponentStatus, 0, len(p.Spec.Components))
 	for i, c := range p.Spec.Components {
 		imageID, state, err := r.readyImage(ctx, p, i, slot, gated)
@@ -484,8 +492,10 @@ func (r *Reconciler) completeDeployment(ctx context.Context, p *v1alpha1.Preview
 			Name: c.Name, Revision: c.Revision, ImageID: imageID,
 		})
 	}
-	if err := r.ensureIngress(ctx, p, slot); err != nil {
-		return r.renderError(ctx, p, err)
+	if !r.Settings.NoLegacyIngress {
+		if err := r.ensureIngress(ctx, p, slot); err != nil {
+			return r.renderError(ctx, p, err)
+		}
 	}
 	url := "https://" + r.Settings.host(p)
 	serving := servingSnapshot(p)
@@ -546,8 +556,8 @@ func (r *Reconciler) retryError(ctx context.Context, p *v1alpha1.Preview, cause 
 		// target health: the retried Pods need the Ingress's target group
 		// bindings in place to get their gates, and until a target is
 		// healthy the load balancer routes nothing to it.
-		if !r.Settings.TargetHealth {
-			if err := r.deleteIngress(ctx, p, *p.Status.Slot); err != nil {
+		if !r.Settings.targetHealth() {
+			if err := r.withdrawIngress(ctx, p, *p.Status.Slot); err != nil {
 				return ctrl.Result{}, err
 			}
 		}
@@ -589,7 +599,7 @@ func (r *Reconciler) retryError(ctx context.Context, p *v1alpha1.Preview, cause 
 
 func (r *Reconciler) fail(ctx context.Context, p *v1alpha1.Preview, reason string) (ctrl.Result, error) {
 	if p.Status.Slot != nil && *p.Status.Slot >= 0 && int(*p.Status.Slot) < r.Settings.SlotCount {
-		if err := r.deleteIngress(ctx, p, *p.Status.Slot); err != nil {
+		if err := r.withdrawIngress(ctx, p, *p.Status.Slot); err != nil {
 			return ctrl.Result{}, err
 		}
 	}

@@ -213,6 +213,14 @@ previewController:
         # its last retry fails). Set false explicitly to keep the old
         # behaviour, or upgrade while no Preview is deploying.
         targetHealth: true
+        # Render each Preview's slot Ingress, the load balancer path above,
+        # exactly as before the preview gateway. false renders none: a
+        # Preview is Ready once every component has a Ready Pod of its
+        # current spec (targetHealth is then ignored), and the controller
+        # deletes the slot Ingresses it rendered before, leaving the preview
+        # gateway to route from status.serving. Keep it true until the
+        # gateway serves the preview hosts.
+        legacyIngress: true
         extra: {}
     resources:
         requests:

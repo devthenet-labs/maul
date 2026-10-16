@@ -97,6 +97,14 @@ type Settings struct {
 	// Ready, as in slice 2, and the host can answer 404 for a few seconds
 	// after Ready while the target registers.
 	TargetHealth bool
+	// NoLegacyIngress (--preview-legacy-ingress=false) renders no slot
+	// Ingress: the preview gateway routes to the slot Services from
+	// status.serving instead. Ready then means every component has a Ready
+	// Pod of its current spec with an image ID (TargetHealth has no load
+	// balancer to wait for and is ignored), and the controller deletes the
+	// slot Ingresses it rendered before. The zero value is the legacy path,
+	// exactly as it was.
+	NoLegacyIngress bool
 	// Auth puts every preview Ingress behind the sign-in relay; off, the
 	// Ingress renders exactly as it did before the relay existed.
 	Auth AuthSettings
@@ -132,6 +140,10 @@ func (s Settings) tolerations() []corev1.Toleration {
 		Key: s.TaintKey, Operator: corev1.TolerationOpEqual, Value: "true", Effect: corev1.TaintEffectNoExecute,
 	}}
 }
+
+// targetHealth reports whether Ready waits for the load balancer's target
+// health: TargetHealth, with the legacy Ingress the load balancer needs.
+func (s Settings) targetHealth() bool { return s.TargetHealth && !s.NoLegacyIngress }
 
 func (s Settings) slotName(n int32) string { return fmt.Sprintf("patchy-preview-%d", n) }
 

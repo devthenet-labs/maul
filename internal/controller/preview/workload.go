@@ -222,6 +222,37 @@ func quotaExceeded(err error) bool {
 	return kerrors.IsForbidden(err) && strings.Contains(err.Error(), "exceeded quota")
 }
 
+// withdrawIngress takes the Preview's host off its slot Ingress: the legacy
+// path deletes the Ingress by name (refusing a foreign one), and without the
+// legacy Ingress every Ingress the Preview owns in the slot goes, a foreign
+// one being none of its business.
+func (r *Reconciler) withdrawIngress(ctx context.Context, p *v1alpha1.Preview, slot int32) error {
+	if r.Settings.NoLegacyIngress {
+		return r.deleteOwnedIngresses(ctx, p, slot)
+	}
+	return r.deleteIngress(ctx, p, slot)
+}
+
+// deleteOwnedIngresses deletes every Ingress in the slot that the Preview owns
+// (its UID, name and managed-by labels): what a controller rendering the
+// legacy Ingress left behind once that is switched off.
+func (r *Reconciler) deleteOwnedIngresses(ctx context.Context, p *v1alpha1.Preview, slot int32) error {
+	var ingresses networkingv1.IngressList
+	if err := r.List(ctx, &ingresses, client.InNamespace(r.Settings.slotName(slot)), ownedSelector(p)); err != nil {
+		return err
+	}
+	for i := range ingresses.Items {
+		ing := &ingresses.Items[i]
+		if !ownedBy(ing, p) || !ing.DeletionTimestamp.IsZero() {
+			continue
+		}
+		if err := r.Delete(ctx, ing); err != nil && !kerrors.IsNotFound(err) {
+			return err
+		}
+	}
+	return nil
+}
+
 func (r *Reconciler) deleteIngress(ctx context.Context, p *v1alpha1.Preview, slot int32) error {
 	var live networkingv1.Ingress
 	key := types.NamespacedName{Namespace: r.Settings.slotName(slot), Name: resourceName(p)}

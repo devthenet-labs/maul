@@ -132,6 +132,8 @@ func TestServeStartupErrors(t *testing.T) {
 			"--preview-node-selector", `{"node-role.example.com/preview":"true"}`,
 			"--preview-taint-key", "node-role.example.com/preview", "--kubeconfig", missing},
 			wantErr: "kubeconfig"},
+		{name: "gateway mode reaches the manager", args: validArgs("--preview-legacy-ingress=false",
+			"--preview-target-health", "--kubeconfig", missing), wantErr: "kubeconfig"},
 		{name: "isolation none reaches the manager", args: []string{"--namespace", "patchy",
 			"--preview-image-prefix", "registry.example/patchy/previews/", "--preview-host-suffix", "previews.example.com",
 			"--preview-node-isolation", "none", "--kubeconfig", missing},
@@ -148,5 +150,20 @@ func TestServeStartupErrors(t *testing.T) {
 				t.Fatalf("serve error = %v, want %q", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+// TestLegacyIngressFlag: the legacy slot Ingress is on unless the operator
+// turns it off, so an install that never sets the flag keeps its behaviour.
+func TestLegacyIngressFlag(t *testing.T) {
+	if !serveOpts(t, validArgs()...).Bool("preview-legacy-ingress") {
+		t.Error("--preview-legacy-ingress defaults to false; want today's behaviour, true")
+	}
+	if serveOpts(t, validArgs("--preview-legacy-ingress=false")...).Bool("preview-legacy-ingress") {
+		t.Error("--preview-legacy-ingress=false not honoured")
+	}
+	t.Setenv("PATCHY_PREVIEW_LEGACY_INGRESS", "false")
+	if serveOpts(t, validArgs()...).Bool("preview-legacy-ingress") {
+		t.Error("PATCHY_PREVIEW_LEGACY_INGRESS=false not honoured")
 	}
 }

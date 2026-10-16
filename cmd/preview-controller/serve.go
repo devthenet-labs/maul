@@ -51,6 +51,10 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	f.Bool("preview-target-health", false, "mark a Preview Ready only once each component's load balancer "+
 		"target is healthy (its Pods' readiness gates, injected in slot namespaces labelled for it): the Ingress "+
 		"precedes the Pods and stays across redeploys")
+	f.Bool("preview-legacy-ingress", true, "render each Preview's slot Ingress (the load balancer path, "+
+		"exactly as before the preview gateway); false renders none, marks a Preview Ready once every component "+
+		"has a Ready Pod of its current spec (--preview-target-health is ignored) and deletes the slot Ingresses "+
+		"the controller rendered before, for the preview gateway to route from status.serving")
 	f.Bool("preview-auth-required", false, "put every preview Ingress behind the sign-in relay: render each "+
 		"slot's pinned auth annotations (--preview-auth-annotations) and have the sweeper report, then after a "+
 		"grace period delete, a slot Ingress without them")
@@ -80,8 +84,9 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		NodePool: opts.String("preview-node-pool"), NodeClass: opts.String("preview-node-class"),
 		TaintKey: opts.String("preview-taint-key"), NodeIsolation: opts.String("preview-node-isolation"),
 		RolloutTimeout: opts.Duration("preview-rollout-timeout"), PollInterval: opts.Duration("preview-poll-interval"),
-		MaxRetries:   int32(opts.Int("preview-max-retries")),
-		TargetHealth: opts.Bool("preview-target-health"),
+		MaxRetries:      int32(opts.Int("preview-max-retries")),
+		TargetHealth:    opts.Bool("preview-target-health"),
+		NoLegacyIngress: !opts.Bool("preview-legacy-ingress"),
 	}
 	selector, err := preview.ParseNodeSelector(opts.String("preview-node-selector"))
 	if err != nil {
@@ -120,9 +125,13 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		Events: recorder}); err != nil {
 		return err
 	}
+	if settings.NoLegacyIngress && settings.TargetHealth {
+		prov.Logger.LogAttrs(ctx, slog.LevelWarn, "preview target health ignored: without the legacy slot "+
+			"Ingress no load balancer target is waited for")
+	}
 	prov.Logger.LogAttrs(ctx, slog.LevelInfo, "preview-controller starting",
 		slog.Int("slot_count", settings.SlotCount), slog.String("namespace", namespace),
-		slog.Bool("auth_required", settings.Auth.Required))
+		slog.Bool("auth_required", settings.Auth.Required), slog.Bool("legacy_ingress", !settings.NoLegacyIngress))
 	if err := mgr.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		return err
 	}

@@ -217,6 +217,24 @@ never from its spec. The Service-name derivation (`v1alpha1.PreviewComponentServ
 (`v1alpha1.PreviewPathMatches` and `PreviewRoute`, the Ingress `Prefix` semantics: element by element, longest prefix
 first) live in `api/v1alpha1`, and a seeded property pins them to the Ingress this controller renders.
 
+## Without the legacy Ingress
+
+`--preview-legacy-ingress` (`PATCHY_PREVIEW_LEGACY_INGRESS`, chart `previewController.config.legacyIngress`) defaults to
+`true`: everything above, exactly as before the preview gateway. Set to `false`, for an install whose preview hosts the
+preview gateway serves:
+
+- No slot Ingress is rendered, and none precedes the Pods.
+- `Ready` means every component has a Ready Pod of its current spec with an image ID. There is no load balancer to wait
+  for, so `--preview-target-health` is ignored (the controller logs a warning when both are set) and no readiness gate
+  is expected.
+- On every deploy pass the controller deletes the slot Ingresses its Preview owns (by its UID, name and managed-by
+  labels), so a Preview made `Ready` on the legacy path loses its Ingress without restarting; a foreign Ingress is left
+  alone. Cleanup deletes them too before a slot is freed, and the orphan sweep deletes every managed slot Ingress, a
+  live Preview's included.
+- The slot Role keeps its Ingress verbs, which the cleanup needs.
+
+Turning it off before the gateway serves the preview hosts takes every preview off the network.
+
 ## Sign-in on preview Ingresses (off by default)
 
 The chart sets these flags from `previewAuth` in its require stage only (see the chart README's preview sign-in

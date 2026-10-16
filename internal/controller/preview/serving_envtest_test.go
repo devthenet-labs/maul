@@ -13,6 +13,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -248,5 +249,50 @@ func TestEnvtestServingSnapshotLifecycle(t *testing.T) {
 		if p = e.step(p); p.Status.Serving != nil {
 			t.Fatalf("snapshot back before the retried attempt was Ready: %+v", p.Status.Serving)
 		}
+	}
+}
+
+// TestEnvtestGatewayMode drives a Preview with the legacy Ingress off
+// through a real API server: the Ingress an earlier legacy pass rendered is
+// deleted, none is created, and the Preview is Ready with its snapshot once
+// its Pod is Ready, without any readiness gate.
+func TestEnvtestGatewayMode(t *testing.T) {
+	s := testSettings()
+	s.NoLegacyIngress = true
+	s.TargetHealth = true // ignored without the legacy Ingress
+	e := startRealEnv(t, s)
+	ctx := t.Context()
+	_, p := e.createDemo(strings.Repeat("a", 40))
+	p = e.until(p, "a slot", func(p *v1alpha1.Preview) bool { return p.Status.Slot != nil })
+	// What a legacy controller rendered for this Preview before the switch.
+	legacy := testSettings().ingress(p, 0)
+	if err := e.c.Create(ctx, legacy); err != nil {
+		t.Fatal(err)
+	}
+	p = e.until(p, "Deployment rendered", func(p *v1alpha1.Preview) bool {
+		return e.c.Get(ctx, types.NamespacedName{Namespace: "patchy-preview-0", Name: "preview-demo-1"},
+			&appsv1.Deployment{}) == nil
+	})
+	var ings networkingv1.IngressList
+	if err := e.c.List(ctx, &ings, client.InNamespace("patchy-preview-0")); err != nil {
+		t.Fatal(err)
+	}
+	for _, ing := range ings.Items {
+		if ing.DeletionTimestamp.IsZero() {
+			t.Fatalf("Ingress %s present without the legacy path", ing.Name)
+		}
+	}
+	e.runPod(p, "only")
+	p = e.until(p, "Ready", func(p *v1alpha1.Preview) bool { return p.Status.Phase == v1alpha1.PreviewReady })
+	want := &v1alpha1.PreviewServing{Generation: p.Generation, UID: p.UID,
+		Components: []v1alpha1.PreviewServingComponent{{Name: "demo", Service: "preview-demo-1", Path: "/", Port: 80}}}
+	if !reflect.DeepEqual(p.Status.Serving, want) || p.Status.URL == "" {
+		t.Fatalf("status = %+v, want Ready with URL and %+v", p.Status, want)
+	}
+	if err := e.c.List(ctx, &ings, client.InNamespace("patchy-preview-0")); err != nil {
+		t.Fatal(err)
+	}
+	if len(ings.Items) != 0 {
+		t.Fatalf("Ingresses at Ready: %d", len(ings.Items))
 	}
 }
