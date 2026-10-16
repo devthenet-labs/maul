@@ -7,12 +7,17 @@ import (
 	"fmt"
 	"maps"
 	"math/rand"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
 	"testing/quick"
 	"time"
+
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	"sigs.k8s.io/yaml"
 
 	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
 )
@@ -517,4 +522,55 @@ func topIntentsHold(top []v1alpha1.UsageTopIntent, truth map[string]v1alpha1.Usa
 		}
 	}
 	return true
+}
+
+// TestApplyUsageLedgerCap: the usage ledger is capped at maxLedger entries,
+// the CRD's maxItems on status.recent, keeping the newest, so a scope that
+// takes every run (the org) never has its status refused by the API server;
+// the totals still count every run, and the newest runs are still refused a
+// second time.
+func TestApplyUsageLedgerCap(t *testing.T) {
+	var st v1alpha1.UsageRollupStatus
+	d := UsageDelta{Kind: UsageKindInvestigation, CompletedAt: usageNow, Source: v1alpha1.UsageSourceReported,
+		Usage: v1alpha1.UsageAggregate{Runs: 1, ReportedRuns: 1}}
+	const runs = maxLedger + 10
+	for i := range runs {
+		if !ApplyUsage(&st, fmt.Sprintf("u:run-%d", i), d, "", true, usageNow) {
+			t.Fatalf("run %d refused", i)
+		}
+	}
+	if len(st.Recent) != maxLedger {
+		t.Errorf("ledger = %d entries, want capped at %d", len(st.Recent), maxLedger)
+	}
+	if st.Recent[0] != "u:run-10" || st.Recent[len(st.Recent)-1] != fmt.Sprintf("u:run-%d", runs-1) {
+		t.Errorf("ledger keeps %s .. %s, want the newest %d", st.Recent[0], st.Recent[len(st.Recent)-1], maxLedger)
+	}
+	month := st.Months[usageNow.Format("2006-01")]
+	if month.Runs != runs || st.Days[usageNow.Format(time.DateOnly)].Runs != runs {
+		t.Errorf("runs = %d month / %d day, want %d", month.Runs, st.Days[usageNow.Format(time.DateOnly)].Runs, runs)
+	}
+	if ApplyUsage(&st, fmt.Sprintf("u:run-%d", runs-1), d, "", true, usageNow) {
+		t.Error("the newest run was applied twice")
+	}
+}
+
+// TestUsageLedgerCapMatchesCRD: maxLedger is the CRD's maxItems on a
+// UsageRollup's status.recent; were it larger, every status write past
+// that many runs would be refused.
+func TestUsageLedgerCapMatchesCRD(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "deploy", "kustomize", "base", "crds",
+		"patchy.bitwisemedia.uk_usagerollups.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var crd apiextensionsv1.CustomResourceDefinition
+	if err := yaml.Unmarshal(raw, &crd); err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range crd.Spec.Versions {
+		recent := v.Schema.OpenAPIV3Schema.Properties["status"].Properties["recent"]
+		if recent.MaxItems == nil || *recent.MaxItems != maxLedger {
+			t.Errorf("%s: status.recent maxItems = %v, want %d", v.Name, recent.MaxItems, maxLedger)
+		}
+	}
 }
