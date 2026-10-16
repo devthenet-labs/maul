@@ -79,7 +79,8 @@ func (routedPreview) Generate(r *rand.Rand, _ int) reflect.Value {
 // v1alpha1.PreviewRoute over the components' paths picks the component whose
 // Service (v1alpha1.PreviewComponentServiceName, the name the Service is
 // rendered under) the rendered Ingress routes the path to, and no route
-// exactly when the Ingress has none. Seeded, so the gate is deterministic.
+// exactly when the Ingress has none; and so does routing over the serving
+// snapshot the gateway reads. Seeded, so the gate is deterministic.
 func TestRoutingAgreesWithRenderedIngress(t *testing.T) {
 	s := testSettings()
 	cfg := &quick.Config{MaxCount: 3000, Rand: rand.New(rand.NewSource(20261016))}
@@ -98,11 +99,21 @@ func TestRoutingAgreesWithRenderedIngress(t *testing.T) {
 		if i := v1alpha1.PreviewRoute(prefixes, c.Path); i >= 0 {
 			got = v1alpha1.PreviewComponentServiceName(p, i)
 		}
-		if got != want {
-			t.Logf("paths %q, request %q: PreviewRoute -> %q, the rendered Ingress -> %q", prefixes, c.Path, got,
-				want)
+		// The gateway's input is the serving snapshot, not the spec.
+		snapshot := servingSnapshot(p)
+		served := make([]string, len(snapshot.Components))
+		for i, comp := range snapshot.Components {
+			served[i] = comp.Path
 		}
-		return got == want
+		fromSnapshot := ""
+		if i := v1alpha1.PreviewRoute(served, c.Path); i >= 0 {
+			fromSnapshot = snapshot.Components[i].Service
+		}
+		if got != want || fromSnapshot != want {
+			t.Logf("paths %q, request %q: PreviewRoute -> %q, over the snapshot -> %q, the rendered Ingress -> %q",
+				prefixes, c.Path, got, fromSnapshot, want)
+		}
+		return got == want && fromSnapshot == want
 	}
 	if err := quick.Check(check, cfg); err != nil {
 		t.Error(err)

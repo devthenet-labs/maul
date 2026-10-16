@@ -15,6 +15,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -132,7 +133,9 @@ func (r *Reconciler) reconcileActive(ctx context.Context, p *v1alpha1.Preview) (
 			}
 		}
 		// A Preview holding its slot redeploys in it at once: it reports
-		// Deploying, not Ready and with no URL, at the new revision.
+		// Deploying, not Ready and with no URL, at the new revision. Its
+		// serving snapshot stays: the rolling update keeps the previous
+		// revision's Pods serving until the new ones are Ready.
 		p.Status.Phase = v1alpha1.PreviewPending
 		if p.Status.Slot != nil {
 			p.Status.Phase = v1alpha1.PreviewDeploying
@@ -165,6 +168,7 @@ func (r *Reconciler) reconcileActive(ctx context.Context, p *v1alpha1.Preview) (
 		p.Status.Phase = v1alpha1.PreviewExpired
 		p.Status.Message = fmt.Sprintf("preview expired after %s without a new deployment", p.Spec.TTL.Duration)
 		p.Status.URL = ""
+		p.Status.Serving = nil
 		return ctrl.Result{}, r.Status().Update(ctx, p)
 	}
 	if p.Status.Slot == nil {
@@ -427,6 +431,21 @@ func (r *Reconciler) oldPodsRemain(ctx context.Context, p *v1alpha1.Preview, i i
 	return r.childrenRemain(ctx, p, i, slot)
 }
 
+// servingSnapshot is what a Ready Preview serves, for the preview gateway to
+// route by: its generation and UID, and each component's Service, path and
+// Service port, in spec order, named and matched by the helpers the gateway
+// shares (v1alpha1.PreviewComponentServiceName, PreviewComponentPath).
+func servingSnapshot(p *v1alpha1.Preview) *v1alpha1.PreviewServing {
+	components := make([]v1alpha1.PreviewServingComponent, 0, len(p.Spec.Components))
+	for i, c := range p.Spec.Components {
+		components = append(components, v1alpha1.PreviewServingComponent{
+			Name: c.Name, Service: componentName(p, i), Path: v1alpha1.PreviewComponentPath(c),
+			Port: v1alpha1.PreviewServicePort,
+		})
+	}
+	return &v1alpha1.PreviewServing{Generation: p.Generation, UID: p.UID, Components: components}
+}
+
 func (r *Reconciler) completeDeployment(ctx context.Context, p *v1alpha1.Preview, slot int32) (ctrl.Result, error) {
 	// Reaching Ready waits for target health. A Preview already Ready at
 	// this generation stays Ready on its serving Pods, so one deployed
@@ -469,12 +488,14 @@ func (r *Reconciler) completeDeployment(ctx context.Context, p *v1alpha1.Preview
 		return r.renderError(ctx, p, err)
 	}
 	url := "https://" + r.Settings.host(p)
+	serving := servingSnapshot(p)
 	if p.Status.Phase != v1alpha1.PreviewReady || p.Status.URL != url ||
-		!slices.Equal(p.Status.Components, components) {
+		!slices.Equal(p.Status.Components, components) || !equality.Semantic.DeepEqual(p.Status.Serving, serving) {
 		p.Status.Phase = v1alpha1.PreviewReady
 		p.Status.URL = url
 		p.Status.Message = ""
 		p.Status.Components = components
+		p.Status.Serving = serving
 		if p.Status.LastDeployedAt == nil {
 			t := metav1.NewTime(r.now())
 			p.Status.LastDeployedAt = &t
@@ -550,6 +571,8 @@ func (r *Reconciler) retryError(ctx context.Context, p *v1alpha1.Preview, cause 
 				return ctrl.Result{}, err
 			}
 		}
+		// Nothing serves once the Deployments are gone.
+		p.Status.Serving = nil
 	}
 	p.Status.Retries++
 	p.Status.Message = cause.Error()
@@ -570,7 +593,8 @@ func (r *Reconciler) fail(ctx context.Context, p *v1alpha1.Preview, reason strin
 			return ctrl.Result{}, err
 		}
 	}
-	if p.Status.Phase == v1alpha1.PreviewFailed && p.Status.Message == reason && p.Status.URL == "" {
+	if p.Status.Phase == v1alpha1.PreviewFailed && p.Status.Message == reason && p.Status.URL == "" &&
+		p.Status.Serving == nil {
 		if p.Status.Slot != nil {
 			return r.release(ctx, p)
 		}
@@ -579,6 +603,7 @@ func (r *Reconciler) fail(ctx context.Context, p *v1alpha1.Preview, reason strin
 	p.Status.Phase = v1alpha1.PreviewFailed
 	p.Status.Message = reason
 	p.Status.URL = ""
+	p.Status.Serving = nil
 	return ctrl.Result{}, r.Status().Update(ctx, p)
 }
 
@@ -595,6 +620,7 @@ func (r *Reconciler) release(ctx context.Context, p *v1alpha1.Preview) (ctrl.Res
 		return r.wait(), err
 	}
 	p.Status.Slot = nil
+	p.Status.Serving = nil
 	return ctrl.Result{}, r.Status().Update(ctx, p)
 }
 
@@ -605,6 +631,13 @@ func (r *Reconciler) finalize(ctx context.Context, p *v1alpha1.Preview) (ctrl.Re
 	if p.Status.Slot != nil && (*p.Status.Slot < 0 || int(*p.Status.Slot) >= r.Settings.SlotCount) {
 		return ctrl.Result{}, fmt.Errorf("preview %s holds retired slot %d; restore slotCount before finalizer cleanup",
 			p.Name, *p.Status.Slot)
+	}
+	if p.Status.Serving != nil {
+		// A deleting Preview serves nothing while its cleanup runs.
+		p.Status.Serving = nil
+		if err := r.Status().Update(ctx, p); err != nil {
+			return ctrl.Result{}, err
+		}
 	}
 	done, err := r.cleanup(ctx, p)
 	if err != nil || !done {

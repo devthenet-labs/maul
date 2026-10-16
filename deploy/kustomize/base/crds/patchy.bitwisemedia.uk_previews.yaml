@@ -260,6 +260,71 @@ spec:
                 format: int32
                 maximum: 3
                 type: integer
+              serving:
+                description: |-
+                  Serving is what the Preview serves, for a router to route by. Unlike
+                  URL and Components, it survives a redeploy (see PreviewServing).
+                properties:
+                  components:
+                    description: Components are the served components, in spec order.
+                    items:
+                      description: |-
+                        PreviewServingComponent is one component of what a Preview serves: where
+                        the preview gateway sends a request whose path falls under Path.
+                      properties:
+                        name:
+                          description: Name is the component's name (its Project repository's
+                            key).
+                          maxLength: 16
+                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                          type: string
+                        path:
+                          description: |-
+                            Path is the URL path prefix the component is served under, "/"
+                            written out (PreviewComponentPath), matched with PreviewPathMatches.
+                          maxLength: 128
+                          pattern: ^/([a-z0-9-]+(/[a-z0-9-]+)*)?$
+                          type: string
+                        port:
+                          description: Port is the Service's port (PreviewServicePort),
+                            not the container's.
+                          format: int32
+                          maximum: 65535
+                          minimum: 1
+                          type: integer
+                        service:
+                          description: |-
+                            Service is the component's Service in the Preview's slot namespace
+                            (PreviewComponentServiceName).
+                          maxLength: 63
+                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                          type: string
+                      required:
+                      - name
+                      - path
+                      - port
+                      - service
+                      type: object
+                    maxItems: 4
+                    minItems: 1
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  generation:
+                    description: Generation is the Preview generation these components
+                      turned Ready at.
+                    format: int64
+                    minimum: 1
+                    type: integer
+                  uid:
+                    description: |-
+                      UID is the Preview's UID when the snapshot was written; a router
+                      refuses a snapshot whose UID is not the Preview's own.
+                    type: string
+                required:
+                - components
+                - generation
+                - uid
+                type: object
               slot:
                 format: int32
                 type: integer

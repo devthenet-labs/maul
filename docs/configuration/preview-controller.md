@@ -185,6 +185,20 @@ the cold-start isolation gate in `hack/preview-isolation-probe/README.md` with a
 after any EKS, Auto Mode or VPC CNI upgrade and before relying on previews again. The direct Auto Mode network-policy
 agent-log check is still open; absence of errors in Kubernetes events is not a substitute.
 
+## The serving snapshot
+
+`status.serving` records what a Preview serves, for the preview gateway to route by: the Preview's generation and UID
+when it turned `Ready`, and per component its name, its Service (`preview-<project>-<issue>` or
+`preview-<project>-<issue>-<key>`), its path (`/` written out) and the Service's port (80). It is written when the
+Preview turns `Ready`, and backfilled onto a Preview that was `Ready` before the field existed. Unlike `url` and
+`components`, it stays while the Preview redeploys (`Deploying` at a new generation), because the rolling update keeps
+the previous revision's Pods serving until the new ones are Ready; it moves to the new generation once that is `Ready`.
+It is cleared when nothing may serve any more: a retry that deletes the Deployments, `Failed`, `Expired`, the slot's
+release, and a deleting Preview. A router serves a Preview only from this snapshot plus its UID, slot and host label,
+never from its spec. The Service-name derivation (`v1alpha1.PreviewComponentServiceName`) and the path matcher
+(`v1alpha1.PreviewPathMatches` and `PreviewRoute`, the Ingress `Prefix` semantics: element by element, longest prefix
+first) live in `api/v1alpha1`, and a seeded property pins them to the Ingress this controller renders.
+
 ## Sign-in on preview Ingresses (off by default)
 
 The chart sets these flags from `previewAuth` in its require stage only (see the chart README's preview sign-in
