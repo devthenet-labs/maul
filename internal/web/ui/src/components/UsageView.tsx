@@ -7,7 +7,7 @@
 // own reported figures are shown apart and never added to a cost.
 
 import type { ComponentChildren } from "preact";
-import { useCallback, useEffect, useMemo, useState } from "preact/hooks";
+import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { UsageAccess, UsageDay, UsageFigures, UsageReport } from "../types";
 import { AuthRequiredError, ForbiddenError, fetchUsage } from "../api";
 import { signInURL } from "../auth";
@@ -19,6 +19,7 @@ import {
   NO_PROJECT,
   OTHER,
   displayKeys,
+  latestOnly,
   layoutBars,
   niceMax,
   personLabel,
@@ -371,20 +372,26 @@ export function UsageView({ all, access }: { all: boolean; access: UsageAccess |
   const [project, setProject] = useState<string>("");
   const [state, setState] = useState<Loaded>({ kind: "loading" });
 
+  const latest = useRef(latestOnly()).current;
+
   const load = useCallback(async () => {
+    const current = latest.begin();
     try {
-      setState({ kind: "report", report: await fetchUsage(all, { days, user, project }) });
+      const report = await fetchUsage(all, { days, user, project });
+      if (current()) setState({ kind: "report", report });
     } catch (e) {
+      if (!current()) return;
       if (e instanceof AuthRequiredError) setState({ kind: "auth" });
       else if (e instanceof ForbiddenError) setState({ kind: "denied", message: e.message });
       else setState({ kind: "error", message: e instanceof Error ? e.message : String(e) });
     }
-  }, [all, days, user, project]);
+  }, [latest, all, days, user, project]);
 
   useEffect(() => {
     setState({ kind: "loading" });
     void load();
-  }, [load]);
+    return () => latest.cancel();
+  }, [latest, load]);
   useEffect(() => {
     setUser("");
     setProject("");

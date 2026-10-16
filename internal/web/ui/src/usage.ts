@@ -127,3 +127,26 @@ export function personLabel(user: string, login?: string): string {
   if (user === "org") return "org (no person)";
   return login ? `@${login}` : user;
 }
+
+// Latest sequences overlapping loads: each begin() hands back a check that
+// holds only until the next begin() or cancel(). A load applies its answer
+// only while its check holds, so a slower, older response (the 30-day
+// report after a switch to 90 days, or the unfiltered one after a filter
+// is cleared) can never overwrite a newer one.
+export interface Latest {
+  begin(): () => boolean;
+  cancel(): void;
+}
+
+export function latestOnly(): Latest {
+  let seq = 0;
+  return {
+    begin() {
+      const mine = ++seq;
+      return () => mine === seq;
+    },
+    cancel() {
+      seq++;
+    },
+  };
+}

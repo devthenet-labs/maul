@@ -8,6 +8,7 @@ import {
   NO_PROJECT,
   OTHER,
   displayKeys,
+  latestOnly,
   layoutBars,
   niceMax,
   personLabel,
@@ -122,4 +123,46 @@ test("the demo report covers its window and its kinds sum to each day", () => {
     );
   }
   assert.ok(mockUsage(90, true).people.length > 0);
+});
+
+// A deferred promise the test resolves by hand, so responses can arrive in
+// any order.
+function deferred() {
+  let resolve;
+  const promise = new Promise((r) => (resolve = r));
+  return { promise, resolve };
+}
+
+// load mirrors UsageView's: begin, await, apply only while current.
+async function load(latest, fetch, apply) {
+  const current = latest.begin();
+  const value = await fetch;
+  if (current()) apply(value);
+}
+
+test("latestOnly keeps the newest load when an older one answers last", async () => {
+  const latest = latestOnly();
+  let shown = null;
+  const days30 = deferred();
+  const days90 = deferred();
+  const first = load(latest, days30.promise, (v) => (shown = v));
+  const second = load(latest, days90.promise, (v) => (shown = v));
+  days90.resolve("90 days");
+  await second;
+  days30.resolve("30 days");
+  await first;
+  assert.equal(shown, "90 days");
+});
+
+test("latestOnly applies an in-order answer and nothing after cancel", async () => {
+  const latest = latestOnly();
+  let shown = null;
+  await load(latest, Promise.resolve("mine"), (v) => (shown = v));
+  assert.equal(shown, "mine");
+  const late = deferred();
+  const pending = load(latest, late.promise, (v) => (shown = v));
+  latest.cancel();
+  late.resolve("unmounted");
+  await pending;
+  assert.equal(shown, "mine");
 });
