@@ -7,6 +7,24 @@
 > documentation values `111122223333` and `203.0.113.10/32`. The real ones are in terraform-devthenet's `k8s/` values
 > (private).
 
+## In flight — 2026-10-16: portable previews, release N (the chart)
+
+**The preview gateway can be exposed on any cluster, beside the ALB path.** Branch `feat/preview-gateway-chart` (design
+`.claude/plans/portable-previews-design.md`, §4 as revised) adds the chart side of release N; with every new value at
+its default an install renders as before (only YAML comments differ):
+
+- `previewAuth.gateway` (off): the gateway's flags, the Pod label `patchy.bitwisemedia.uk/preview-gateway` the slot
+  NetworkPolicy admits beside the ALB's subnets, one exposure (Ingress, HTTPRoute or LoadBalancer, the last optionally
+  over the gateway's own TLS by SNI), `forwardedHops` required with any exposure, `inboundCIDRs` at the edge where
+  possible, `publishedAddresses` for `patchy check project`.
+- `preview.legacyIngress` (true) feeds `--preview-legacy-ingress`; false makes the ALB values optional, and NOTES list
+  the legacy ones still set. `previewController.config.legacyIngress` (unreleased) still wins while set.
+- `preview.nodeIsolation.{selector,mode,eksAutoMode}`: generic node isolation; the legacy `nodePool`/`nodeClass` render
+  byte for byte the same and warn in NOTES. `preview.imageRegistry` accepts any registry host.
+
+Not live anywhere. Order on EKS: enable the gateway with its Ingress, flip the wildcard record to it, then set
+`preview.legacyIngress: false` (design §8 as revised). N+1 (removing the ALB path and its values) is not started.
+
 ## In flight — 2026-10-16: run attribution (per-user credentials, L1)
 
 **Every agent run can say whom it is for.** Branch `feat/run-attribution` adds layer L1 of the per-user credentials
