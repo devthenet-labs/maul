@@ -119,6 +119,11 @@ spec:
                 port: 443
               - protocol: TCP
                 port: 6443
+        {{- if has $c.name (list "investigation-controller" "remediation-controller") }}
+        {{- with include "patchy.usageBrokerEgress" $ }}
+        {{- . | nindent 8 }}
+        {{- end }}
+        {{- end }}
         {{- if or (eq $c.name "context-controller") (and (eq $c.name "source-controller") $repositoryImages) }}
         # The EKS Pod Identity agent (see the header comment).
         - to:

@@ -294,6 +294,97 @@ and every checksum/config, as it was. Context: dict "root" $ "data" <dict>.
 {{- end }}
 
 {{/*
+"yes" when trusted usage is measured (per-user credentials design, L2): under
+attribution.mode attribute, while the egress broker deploys. The broker then
+serves its usage endpoint on port 8082 to the run controllers alone, and the
+controllers settle each run's usage from it (--usage-measurement).
+*/}}
+{{- define "patchy.usageMeasured" -}}
+{{- if and (include "patchy.attributionOn" .) (include "patchy.brokerEnabled" .) -}}
+yes
+{{- end -}}
+{{- end }}
+
+{{/*
+The run controllers whose ServiceAccounts the broker's usage endpoint answers,
+as <namespace>:<serviceaccount>, comma-separated: investigation and
+remediation always, intent and evaluation when deployed.
+*/}}
+{{- define "patchy.usageCallers" -}}
+{{- $callers := list -}}
+{{- range $c := list
+    (dict "name" "investigation-controller" "vals" .Values.investigationController "on" true)
+    (dict "name" "remediation-controller" "vals" .Values.remediationController "on" true)
+    (dict "name" "intent-controller" "vals" .Values.intentController "on" .Values.intentController.enabled)
+    (dict "name" "evaluation-controller" "vals" .Values.evaluationController "on" .Values.evaluationController.enabled)
+-}}
+{{- if $c.on -}}
+{{- $callers = append $callers (printf "%s:%s" $.Release.Namespace (include "patchy.serviceAccountName" (dict "root" $ "name" $c.name "vals" $c.vals))) -}}
+{{- end -}}
+{{- end -}}
+{{- join "," $callers -}}
+{{- end }}
+
+{{/*
+Stamp a run controller's usage-measurement settings into its ConfigMap data
+dict while patchy.usageMeasured. Context: dict "root" $ "data" <dict>.
+*/}}
+{{- define "patchy.usageMeterData" -}}
+{{- if include "patchy.usageMeasured" .root -}}
+{{- $_ := set .data "PATCHY_USAGE_MEASUREMENT" "true" -}}
+{{- $_ := set .data "PATCHY_USAGE_BROKER_URL" (printf "http://%s-egress-broker.%s.svc.cluster.local:8082" (include "patchy.fullname" .root) .root.Release.Namespace) -}}
+{{- $_ := set .data "PATCHY_USAGE_TOKEN_FILE" "/var/run/secrets/patchy/broker-usage/token" -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+A run controller's volumeMounts entry for its usage token, while
+patchy.usageMeasured; the caller indents it.
+*/}}
+{{- define "patchy.usageTokenMount" -}}
+{{- if include "patchy.usageMeasured" . -}}
+- name: broker-usage-token
+  mountPath: /var/run/secrets/patchy/broker-usage
+  readOnly: true
+{{- end -}}
+{{- end }}
+
+{{/*
+A run controller's volumes entry for its usage token, while
+patchy.usageMeasured: a projected ServiceAccount token bound to the broker's
+usage audience (usagewire.Audience), which the broker accepts on the usage
+endpoint only, and only from these ServiceAccounts.
+*/}}
+{{- define "patchy.usageTokenVolume" -}}
+{{- if include "patchy.usageMeasured" . -}}
+- name: broker-usage-token
+  projected:
+      sources:
+          - serviceAccountToken:
+                audience: patchy-egress-broker-usage
+                expirationSeconds: 3600
+                path: token
+{{- end -}}
+{{- end }}
+
+{{/*
+A run controller's NetworkPolicy egress rule to the broker's usage port,
+while patchy.usageMeasured; the caller indents it.
+*/}}
+{{- define "patchy.usageBrokerEgress" -}}
+{{- if include "patchy.usageMeasured" . -}}
+# The egress broker's usage endpoint: settled runs' metered usage.
+- to:
+      - podSelector:
+            matchLabels:
+                {{- include "patchy.selectorLabels" (dict "root" . "name" "egress-broker") | nindent 16 }}
+  ports:
+      - protocol: TCP
+        port: 8082
+{{- end -}}
+{{- end }}
+
+{{/*
 "yes" when attribution.mode is not off: the controllers stamp, and the
 attribution admission policies render.
 */}}

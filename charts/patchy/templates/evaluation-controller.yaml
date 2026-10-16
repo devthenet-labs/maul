@@ -108,6 +108,7 @@ broker/provider stamps replace the PATCHY_CLAUDE_SECRET* keys.
 {{- $_ := include "patchy.agentsPausedData" (dict "root" $ "data" $data) }}
 {{- /* attribution.mode: stamp who each unit is for, rendered only when on. */}}
 {{- $_ := include "patchy.attributionData" (dict "root" $ "data" $data) }}
+{{- $_ := include "patchy.usageMeterData" (dict "root" $ "data" $data) }}
 {{- range $k, $v := .Values.config.extra }}
 {{- $_ := set $data $k $v }}
 {{- end }}
@@ -379,6 +380,9 @@ spec:
                         readOnly: true
                       - name: tmp
                         mountPath: /tmp
+                      {{- with include "patchy.usageTokenMount" . }}
+                      {{- . | nindent 22 }}
+                      {{- end }}
                       {{- with $vals.extraVolumeMounts }}
                       {{- toYaml . | nindent 22 }}
                       {{- end }}
@@ -400,6 +404,9 @@ spec:
                       secretName: {{ $authSecret }}
                 - name: tmp
                   emptyDir: {}
+                {{- with include "patchy.usageTokenVolume" . }}
+                {{- . | nindent 16 }}
+                {{- end }}
                 {{- with $vals.extraVolumes }}
                 {{- toYaml . | nindent 16 }}
                 {{- end }}
@@ -477,6 +484,9 @@ spec:
           ports:
               - protocol: TCP
                 port: 9791
+        {{- with include "patchy.usageBrokerEgress" . }}
+        {{- . | nindent 8 }}
+        {{- end }}
 {{- end }}
 {{- if $vals.ingress.enabled }}
 ---
