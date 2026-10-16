@@ -150,49 +150,48 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   renders stay byte-identical; chart `preview.nodeIsolation.{selector,mode,eksAutoMode}`). `--preview-legacy-ingress`
   (default true, today's path; chart `preview.legacyIngress`) off renders no slot Ingress, ignores target health and
   deletes the controller's own slot Ingresses. See `docs/configuration/preview-controller.md`.
-- `cmd/status-server` — the human-facing status page (NOT a controller: no reconcilers, no leases): the embedded
-  SPA + JSON projection of Findings/FindingRollups, SSE refetch signal, OIDC sign-in, the access-review-gated
-  approve/retry/expedite/suspend/resume actions, and the user-menu demo tooling (replay → Integration
-  `spec.replay`; reset → delete all pipeline CRs). Rollup statistics are public; the findings surface always
-  requires auth. Writes SPEC only (`spec.approval`, `spec.suspend`, `spec.replay`) — never status, never a phase —
-  each as a JSON merge patch of only the field it sets, with the resourceVersion as an optimistic lock (`specPatch`,
-  #193), so it never takes ownership of fields Helm applied (field manager: the binary's name, `controller` in-image).
-  `--agents-paused` (chart `agent.paused`) shows a pause banner to signed-in users only; display only.
-  With `--intents-enabled` (chart `statusServer.intents.enabled`, kustomize component `status-intents`; default
-  off) it also serves the read-only intents views (board, timeline, run panel; docs/intents/dashboard.md): per-Project
-  access reviews on the virtual subresources `projects/intents` and `projects/transcripts`, mode oidc with both claim
-  prefixes required, and a hardened browser envelope for the whole page. No intent write of any kind.
-  With `--usage-enabled` (chart `statusServer.usage.enabled`; default off, chart only) it serves the Usage page and
-  `/api/usage*` (internal/web/usage.go): a person's own usage keyed by their GitHub numeric id (`auth.Identity.GitHubID`,
-  read from Dex `federated_claims` of the configured GitHub connector; any other identity refused), everyone's behind
-  an access review on the virtual `usage/all`; startup needs `auth.Config.RequireForUsage` (oidc, prefixes,
-  `federated:id`). Read only, over a cached `UsageRollup` informer.
-- `cmd/patchy` — the workstation CLI (the only binary not deployed): `patchy <verb> <noun>` over the
-  caller's own kubeconfig, no channel through any controller. get/describe/review/browse/can-i plus the five
-  action verbs; `get usage` is the usage report (not a kind; `internal/usageview`), admin-only by a
-  SelfSubjectAccessReview on `usage/all`. Writes SPEC only, same as status-server, as the same merge patches (`specPatch`, native verb `patch`;
-  field manager the binary's file name, `patchy` or `kubectl-patchy`); enforcement of the custom verbs for direct API
-  writes is the ValidatingAdmissionPolicy in `deploy/kustomize/base/admission-policy.yaml`, NOT the CLI's
-  own SelfSubjectAccessReview (that is ergonomics). Five cluster-free commands ride along: `dev` (the
-  generic-integration test harness), `mirror` (vendored chart/artifact mirroring over `internal/mirror`;
-  kubeconfig flags inert, git never touched), `check image` (source-controller's runner-image checks through
-  `resolve.Inspect`, plus `--run`: `agent-runner preflight` in a local docker shaped like the agent pod; engine in
-  `cmd/patchy/internal/imagecheck`), `setup github-app` (creates the GitHub App through the manifest flow with
-  exactly `intentperm.ForApp`'s permissions and events for `--security`/`--intents`/`--checks`/`--rerun-failed`, then
-  writes its ghsecret-keyed Secret manifest to a 0600 file or a pipe, never to the cluster and never the private key to
-  a terminal or a file other users can read; engine in `cmd/patchy/internal/ghapp`, plain net/http, no GitHub
-  client) and `init app` (scaffolds an application repository's agent image, CI builds and split trusted ECR
-  publishers from embedded templates; engine in `cmd/patchy/internal/scaffold`, golden trees checked as their own
-  CI would by `mise run scaffold-check`). `check project` is `check image`'s cluster-reading sibling: a read-only
-  Project preflight (engine in `cmd/patchy/internal/projectcheck`) that reads Ready/IntentNameConflict, resolves
-  every repository over the Forge CRs, and judges agent and preview images, DNS and TLS with the caller's own
-  credentials, and, while the chart's `previewAuth` is on, the relay's discovery, Dex's acceptance of the relay's one
-  redirect URI and (once sign-in is required) each Ready preview host's unauthenticated redirect to the relay for its
-  own slot (`previewauth.JudgeProbe`). It never reads a Secret, so never the App key. Both `check` nouns render through
-  `cmd/patchy/internal/checkreport` (PASS/FAIL/SKIP lines, `-o json|yaml`, inert reasons). Builds for windows too,
-  and ships a `kubectl-patchy` alias. Ships no container image: it is distributed as its own `patchy-cli` release
-  archive (separate from the cluster binaries' `patchy` archive) and as a Homebrew cask in
-  bitwise-media-group/homebrew-tap.
+- `cmd/status-server` — the human-facing status page (NOT a controller: no reconcilers, no leases): the embedded SPA +
+  JSON projection of Findings/FindingRollups, SSE refetch signal, OIDC sign-in, the access-review-gated
+  approve/retry/expedite/suspend/resume actions, and the user-menu demo tooling (replay → Integration `spec.replay`;
+  reset → delete all pipeline CRs). Rollup statistics are public; the findings surface always requires auth. Writes SPEC
+  only (`spec.approval`, `spec.suspend`, `spec.replay`) — never status, never a phase — each as a JSON merge patch of
+  only the field it sets, with the resourceVersion as an optimistic lock (`specPatch`, #193), so it never takes
+  ownership of fields Helm applied (field manager: the binary's name, `controller` in-image). `--agents-paused` (chart
+  `agent.paused`) shows a pause banner to signed-in users only; display only. With `--intents-enabled` (chart
+  `statusServer.intents.enabled`, kustomize component `status-intents`; default off) it also serves the read-only
+  intents views (board, timeline, run panel; docs/intents/dashboard.md): per-Project access reviews on the virtual
+  subresources `projects/intents` and `projects/transcripts`, mode oidc with both claim prefixes required, and a
+  hardened browser envelope for the whole page. No intent write of any kind. With `--usage-enabled` (chart
+  `statusServer.usage.enabled`; default off, chart only) it serves the Usage page and `/api/usage*`
+  (internal/web/usage.go): a person's own usage keyed by their GitHub numeric id (`auth.Identity.GitHubID`, read from
+  Dex `federated_claims` of the configured GitHub connector; any other identity refused), everyone's behind an access
+  review on the virtual `usage/all`; startup needs `auth.Config.RequireForUsage` (oidc, prefixes, `federated:id`). Read
+  only, over a cached `UsageRollup` informer.
+- `cmd/patchy` — the workstation CLI (the only binary not deployed): `patchy <verb> <noun>` over the caller's own
+  kubeconfig, no channel through any controller. get/describe/review/browse/can-i plus the five action verbs; `get
+  usage` is the usage report (not a kind; `internal/usageview`), admin-only by a SelfSubjectAccessReview on `usage/all`.
+  Writes SPEC only, same as status-server, as the same merge patches (`specPatch`, native verb `patch`; field manager
+  the binary's file name, `patchy` or `kubectl-patchy`); enforcement of the custom verbs for direct API writes is the
+  ValidatingAdmissionPolicy in `deploy/kustomize/base/admission-policy.yaml`, NOT the CLI's own SelfSubjectAccessReview
+  (that is ergonomics). Five cluster-free commands ride along: `dev` (the generic-integration test harness), `mirror`
+  (vendored chart/artifact mirroring over `internal/mirror`; kubeconfig flags inert, git never touched), `check image`
+  (source-controller's runner-image checks through `resolve.Inspect`, plus `--run`: `agent-runner preflight` in a local
+  docker shaped like the agent pod; engine in `cmd/patchy/internal/imagecheck`), `setup github-app` (creates the GitHub
+  App through the manifest flow with exactly `intentperm.ForApp`'s permissions and events for
+  `--security`/`--intents`/`--checks`/`--rerun-failed`, then writes its ghsecret-keyed Secret manifest to a 0600 file or
+  a pipe, never to the cluster and never the private key to a terminal or a file other users can read; engine in
+  `cmd/patchy/internal/ghapp`, plain net/http, no GitHub client) and `init app` (scaffolds an application repository's
+  agent image, CI builds and split trusted ECR publishers from embedded templates; engine in
+  `cmd/patchy/internal/scaffold`, golden trees checked as their own CI would by `mise run scaffold-check`). `check
+  project` is `check image`'s cluster-reading sibling: a read-only Project preflight (engine in
+  `cmd/patchy/internal/projectcheck`) that reads Ready/IntentNameConflict, resolves every repository over the Forge CRs,
+  and judges agent and preview images, DNS and TLS with the caller's own credentials, and, while the chart's
+  `previewAuth` is on, the relay's discovery, Dex's acceptance of the relay's one redirect URI and (once sign-in is
+  required) each Ready preview host's unauthenticated redirect to the relay for its own slot (`previewauth.JudgeProbe`).
+  It never reads a Secret, so never the App key. Both `check` nouns render through `cmd/patchy/internal/checkreport`
+  (PASS/FAIL/SKIP lines, `-o json|yaml`, inert reasons). Builds for windows too, and ships a `kubectl-patchy` alias.
+  Ships no container image: it is distributed as its own `patchy-cli` release archive (separate from the cluster
+  binaries' `patchy` archive) and as a Homebrew cask in bitwise-media-group/homebrew-tap.
 
 ## Layout
 
