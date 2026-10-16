@@ -421,7 +421,7 @@ func TestGatewaySignInRateLimit(t *testing.T) {
 				}
 			})
 			b := e.browser()
-			var statuses []int
+			statuses := make([]int, 0, 6)
 			for range 6 {
 				resp := nav(t, b, tc.url)
 				_ = resp.Body.Close()

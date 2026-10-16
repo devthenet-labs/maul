@@ -216,7 +216,8 @@ func TestStateSizeProperty(t *testing.T) {
 	cfg.Values = func(args []reflect.Value, rnd *rand.Rand) {
 		// Heavy in the bytes JSON escapes, up to past the length limit.
 		const alpha = "&<>\"/abc=?%"
-		b := []byte{'/'}
+		b := make([]byte, 1, maxReturn+65)
+		b[0] = '/'
 		for range rnd.Intn(maxReturn + 64) {
 			b = append(b, alpha[rnd.Intn(len(alpha))])
 		}
