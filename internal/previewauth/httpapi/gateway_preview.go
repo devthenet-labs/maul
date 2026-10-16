@@ -349,6 +349,12 @@ func (g *gateway) forward(w http.ResponseWriter, r *http.Request, view previewau
 		g.page(w, r, resultTooLarge, http.StatusRequestEntityTooLarge, pageTooLarge)
 		return
 	}
+	// A proxied request alone is not bounded by the connection deadline
+	// handler set: a stream, an upload or an upgraded connection may run
+	// as long as its host session.
+	rc := http.NewResponseController(w)
+	_ = rc.SetReadDeadline(time.Time{})
+	_ = rc.SetWriteDeadline(time.Time{})
 	ctx, cancel := context.WithDeadline(r.Context(), time.Unix(sess.Expires, 0))
 	defer cancel()
 	id := g.streams.add(&tracked{label: view.Label, uid: view.UID, slot: view.Slot, project: view.Project,

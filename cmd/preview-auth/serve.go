@@ -389,9 +389,9 @@ func serve(ctx context.Context, opts *cli.Options) error {
 }
 
 // newHTTPServer is the relay's server. With the gateway on it has no Read or
-// WriteTimeout, which would cut proxied streams and WebSockets: relay
-// requests set their own deadlines instead, and proxied ones are bounded by
-// their host session.
+// WriteTimeout, which would cut proxied streams and WebSockets: every request
+// the gateway does not proxy sets its own 30-second deadline instead, and
+// proxied ones are bounded by their host session.
 func newHTTPServer(addr string, h http.Handler, gateway bool) *http.Server {
 	srv := &http.Server{
 		Addr: addr, Handler: h,

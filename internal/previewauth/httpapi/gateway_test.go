@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/netip"
@@ -724,4 +725,55 @@ func TestGatewayLongReturnPath(t *testing.T) {
 	if got := e.signInPreview(t, e.browser(), short); got != previewOrigin+short {
 		t.Errorf("signed in to %q, want %s%s", got, previewOrigin, short)
 	}
+}
+
+// TestGatewayDeadlines: the gateway's server has no Read or WriteTimeout,
+// so a request it does not proxy (the health check, a preview host's
+// unauthenticated pages, the handoff callback) is bounded by its own
+// deadline: a client trickling a chunked body is cut off. A proxied stream
+// is not.
+func TestGatewayDeadlines(t *testing.T) {
+	e := newGatewayEnv(t, nil, nil)
+	e.srv.gw.deadline = 300 * time.Millisecond
+	for name, head := range map[string]string{
+		"healthz":         "POST " + previewauth.HealthPath + " HTTP/1.1\r\nHost: anything\r\n",
+		"unauthenticated": "POST /api HTTP/1.1\r\nHost: " + previewHost + "\r\n",
+		"handoff":         "GET " + previewauth.HandoffPath + "?code=x HTTP/1.1\r\nHost: " + previewHost + "\r\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			conn, err := net.Dial("tcp", e.gw.Listener.Addr().String())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = conn.Close() }()
+			if _, err := io.WriteString(conn, head+"Transfer-Encoding: chunked\r\n\r\n"); err != nil {
+				t.Fatal(err)
+			}
+			done := make(chan struct{})
+			defer close(done)
+			go func() {
+				for {
+					select {
+					case <-done:
+						return
+					case <-time.After(50 * time.Millisecond):
+						if _, err := io.WriteString(conn, "1\r\na\r\n"); err != nil {
+							return
+						}
+					}
+				}
+			}()
+			if !closedWithin(conn, 5*time.Second) {
+				t.Error("a trickled body held the connection open past the deadline")
+			}
+		})
+	}
+	t.Run("proxied stream", func(t *testing.T) {
+		b := e.browser()
+		e.signInPreview(t, b, "/")
+		s := openStream(t, b)
+		if closedWithin(s.Body, time.Second) {
+			t.Error("the connection deadline cut a proxied stream")
+		}
+	})
 }

@@ -206,8 +206,10 @@ What the gateway holds every proxied request to (each rule is pinned by a seeded
   every `--preview-auth-review-ttl` refuses the viewer. A failed lookup or review keeps it, as a new request would
   answer `503` and keep the cookie.
 - **Limits.** The rate limit applies to unauthenticated preview-host requests, handoff callbacks and the sign-in host,
-  never to a signed-in viewer's traffic. The body limit, the upstream timeouts and the optional inbound allowlist (a
-  second layer behind the edge's) are flags.
+  never to a signed-in viewer's traffic. Every request the gateway does not proxy (relay, sign-in, health, its own pages
+  and the handoff callback) must be read and answered within 30 seconds; only a proxied request may run as long as its
+  host session. The body limit, the upstream timeouts and the optional inbound allowlist (a second layer behind the
+  edge's) are flags.
 
 Revocation through the gateway lands within the review cache plus the re-check (about 40 seconds) for new requests and
 open streams alike. A change to the viewer's IdP groups lands when the host session ends

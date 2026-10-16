@@ -114,6 +114,9 @@ type gateway struct {
 	proxy      *httputil.ReverseProxy
 	streams    *tracker
 	signIn     http.Handler
+	// deadline bounds every request but a proxied one; relayDeadline
+	// outside tests.
+	deadline time.Duration
 }
 
 func newGateway(s *Server, cfg GatewayConfig) *gateway {
@@ -126,7 +129,7 @@ func newGateway(s *Server, cfg GatewayConfig) *gateway {
 	if cfg.Transport == nil {
 		cfg.Transport = NewUpstreamTransport(DefaultUpstreamTimeouts(), nil)
 	}
-	g := &gateway{s: s, cfg: cfg, streams: newTracker(),
+	g := &gateway{s: s, cfg: cfg, streams: newTracker(), deadline: relayDeadline,
 		sharedHost: cfg.Hosts.SignIn() == strings.TrimPrefix(s.cfg.Issuer, "https://")}
 	g.upstream = cfg.SignInUpstream
 	if g.upstream == nil {
@@ -150,9 +153,14 @@ func newGateway(s *Server, cfg GatewayConfig) *gateway {
 // else to the relay exactly as before.
 func (g *gateway) handler(relay http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// A relay request on this connection may have left a write
-		// deadline behind: the server has no WriteTimeout to reset it.
-		_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
+		// The server has no Read or WriteTimeout, so that streams and
+		// WebSockets can be proxied: every request is bounded here (which
+		// also replaces a deadline an earlier request on this connection
+		// left), and only forward lifts it. Without this, a client could
+		// trickle a chunked body to the health check, a preview host's
+		// pages or the handoff callback and hold a goroutine and a file
+		// descriptor for as long as it liked.
+		g.setDeadline(w)
 		if r.URL.Path == previewauth.HealthPath {
 			g.health(w, r)
 			return
@@ -167,6 +175,14 @@ func (g *gateway) handler(relay http.Handler) http.Handler {
 		}
 		relay.ServeHTTP(w, r)
 	})
+}
+
+// setDeadline bounds the rest of this request's read and write. Connection
+// deadlines are wall-clock time, never the injectable clock.
+func (g *gateway) setDeadline(w http.ResponseWriter) {
+	rc, deadline := http.NewResponseController(w), time.Now().Add(g.deadline)
+	_ = rc.SetReadDeadline(deadline)
+	_ = rc.SetWriteDeadline(deadline)
 }
 
 // health is the reserved /.patchy/healthz: 200 on every host, never

@@ -192,9 +192,11 @@ func pageHeaders(h http.Header) {
 	h.Set("Cache-Control", "no-store")
 }
 
-// relayDeadline bounds a relay or sign-in request's read and write when the
-// gateway is on: its server has no Read or WriteTimeout, so streams and
-// WebSockets can be proxied, and each relay request sets its own.
+// relayDeadline bounds the read and write of every request the gateway does
+// not proxy (relay, sign-in, health, a preview host's own pages and the
+// handoff callback) when the gateway is on: its server has no Read or
+// WriteTimeout, so streams and WebSockets can be proxied, and every other
+// request sets its own.
 const relayDeadline = 30 * time.Second
 
 // envelope sets the headers every response carries, refuses methods other
@@ -209,9 +211,7 @@ func (s *Server) envelope(next http.Handler, lim *limiter) http.Handler {
 			h.Set("Cross-Origin-Opener-Policy", "same-origin")
 			// Connection deadlines are wall-clock time, never the
 			// injectable clock.
-			rc, deadline := http.NewResponseController(w), time.Now().Add(relayDeadline)
-			_ = rc.SetReadDeadline(deadline)
-			_ = rc.SetWriteDeadline(deadline)
+			s.gw.setDeadline(w)
 		}
 		a := &record{endpoint: endpointName(r.URL.Path), slot: -1}
 		sw := &statusWriter{ResponseWriter: w}
