@@ -124,6 +124,7 @@ func gatewayFlags(cmd *cobra.Command) {
 		"exposure targets: the relay's endpoints are rate limited there behind the gateway's forwarded hops")
 	f.String("preview-auth-gateway-tls-listen-addr", ":8443", "the TLS listener's address, with "+
 		"--preview-auth-gateway-tls-dir")
+	testDialFlags(cmd)
 }
 
 // tlsReload is how often the gateway re-reads its TLS directory (a renewed
@@ -182,6 +183,10 @@ func loadGateway(opts *cli.Options, st static, httpClient *http.Client) (*gatewa
 	if timeouts.Dial <= 0 || timeouts.ResponseHeader <= 0 || timeouts.Idle <= 0 {
 		return nil, errors.New("--preview-auth-gateway-*-timeout must all be positive")
 	}
+	dial, err := upstreamDial(opts)
+	if err != nil {
+		return nil, err
+	}
 	gs := &gatewayStatic{cfg: &httpapi.GatewayConfig{
 		Hosts: hosts,
 		Lifetimes: previewauth.GatewayLifetimes{State: opts.Duration("preview-auth-gateway-state-ttl"),
@@ -191,7 +196,7 @@ func loadGateway(opts *cli.Options, st static, httpClient *http.Client) (*gatewa
 			PerSecond: opts.Float("preview-auth-rate-per-second"), Burst: opts.Int("preview-auth-rate-burst"),
 			ForwardedHops: hops,
 		},
-		InboundCIDRs: cidrs, BodyLimit: int64(limit), Transport: httpapi.NewUpstreamTransport(timeouts, nil),
+		InboundCIDRs: cidrs, BodyLimit: int64(limit), Transport: httpapi.NewUpstreamTransport(timeouts, dial),
 		HSTS: opts.Bool("preview-auth-gateway-hsts"), Recheck: opts.Duration("preview-auth-review-ttl"),
 	}, addr: opts.String("preview-auth-gateway-listen-addr")}
 	if gs.addr == "" {
