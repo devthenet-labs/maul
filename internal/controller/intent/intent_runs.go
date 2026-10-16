@@ -341,6 +341,7 @@ func (p *pass) createRun(ctx context.Context, stage v1alpha1.IntentStage, repo v
 			Inputs:          inputs,
 			Grant:           p.set.grant(p.proj, stage),
 			PreviousAttempt: prev,
+			AttributedTo:    p.set.Attribution.Stamp(p.attributeRun(stage)),
 		},
 	}
 	if stage == v1alpha1.IntentStagePlan {

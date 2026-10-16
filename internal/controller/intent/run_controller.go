@@ -587,6 +587,9 @@ func (r *RunReconciler) launch(ctx context.Context, run *v1alpha1.IntentRun) err
 		// A build, revise or check-fix run of a repository that picks a
 		// class runs on it; every other run on the default (nil).
 		Resources: resources,
+		// Whom the run is for, from its own immutable spec, never
+		// recomputed here: "org" for a run stamped before the mode was on.
+		AttributedTo: r.Settings.Attribution.Annotation(run.Spec.AttributedTo),
 	}
 	if len(run.Spec.Trees) > 0 {
 		ready, refusal, err := r.treesSpec(ctx, run, proj, &spec)

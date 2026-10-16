@@ -25,6 +25,7 @@ import (
 
 	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
 	"github.com/bitwise-media-group/patchy/internal/agentresult"
+	"github.com/bitwise-media-group/patchy/internal/attribution"
 	"github.com/bitwise-media-group/patchy/internal/changeset"
 	"github.com/bitwise-media-group/patchy/internal/envelope"
 	"github.com/bitwise-media-group/patchy/internal/jobs"
@@ -94,6 +95,11 @@ type RemediationReconciler struct {
 	// the repository-image rules, before any forge call is made; <= 0 means
 	// changeset.DefaultMaxEntries.
 	MaxChangesetEntries int
+	// Attribution is --attribution-mode: under attribute every Job carries
+	// the attributed-to annotation of its Remediation's spec.attributedTo
+	// ("org" for one stamped before the mode was on); under off (the zero
+	// value) none.
+	Attribution attribution.Mode
 	// Now is the clock seam; nil means time.Now.
 	Now func() time.Time
 	// Log receives diagnostics; nil discards.
@@ -325,8 +331,9 @@ func (r *RemediationReconciler) launch(ctx context.Context, rem *v1alpha1.Remedi
 		// The grant the spawner resolved. The pod treats its own automated
 		// budget as a floor beneath this, so a run is never starved by what
 		// the investigation predicted.
-		MaxTurns:    rem.Spec.Parameters.MaxTurns,
-		TokenBudget: rem.Spec.Parameters.TokenBudget,
+		MaxTurns:     rem.Spec.Parameters.MaxTurns,
+		TokenBudget:  rem.Spec.Parameters.TokenBudget,
+		AttributedTo: r.Attribution.Annotation(rem.Spec.AttributedTo),
 	}
 	if skipped := r.Images.Pin(&spec, &repo, &fnd); skipped != "" {
 		// The repository declares an accepted image this launch cannot run.

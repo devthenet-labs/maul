@@ -26,6 +26,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/kubernetes"
 
+	"github.com/bitwise-media-group/patchy/api/v1alpha1"
+	"github.com/bitwise-media-group/patchy/internal/attribution"
 	"github.com/bitwise-media-group/patchy/internal/cli"
 	"github.com/bitwise-media-group/patchy/internal/harness"
 	"github.com/bitwise-media-group/patchy/internal/jobs"
@@ -353,6 +355,27 @@ const AgentsPausedFlag = "agents-paused"
 func RegisterAgentsPausedFlag(f *pflag.FlagSet) {
 	f.Bool(AgentsPausedFlag, false,
 		"launch no new agent Jobs (running Jobs finish and are collected; pending work waits until this is unset)")
+}
+
+// RegisterAttributionFlag adds --attribution-mode, shared by every
+// controller that launches agent Jobs (investigation, remediation, intent
+// and evaluation): off (the default) stamps nothing; attribute stamps each
+// new run's spec.attributedTo and every agent Job's attributed-to
+// annotation (design L1).
+func RegisterAttributionFlag(f *pflag.FlagSet) {
+	f.String(attribution.Flag, string(attribution.ModeOff),
+		"record whom each agent run is for: off stamps nothing; attribute stamps each new run's "+
+			"spec.attributedTo and every agent Job's and pod's "+v1alpha1.AnnotationAttributedTo+" annotation")
+}
+
+// Attribution reads --attribution-mode, refusing an unknown mode at
+// startup rather than running unattributed by mistake.
+func Attribution(opts *cli.Options) (attribution.Mode, error) {
+	mode, err := attribution.ParseMode(opts.String(attribution.Flag))
+	if err != nil {
+		return "", fmt.Errorf("--%s: %w", attribution.Flag, err)
+	}
+	return mode, nil
 }
 
 // AgentDNS reads --agent-dns and holds it to the harnesses this controller

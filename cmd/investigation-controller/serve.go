@@ -53,6 +53,7 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	runnercfg.RegisterAgentResourceFlags(f)
 	runnercfg.RegisterAgentDNSFlag(f)
 	runnercfg.RegisterAgentsPausedFlag(f)
+	runnercfg.RegisterAttributionFlag(f)
 	f.Duration("job-deadline", time.Hour, "activeDeadlineSeconds for an agent Job")
 	f.Duration("job-ttl", time.Hour, "ttlSecondsAfterFinished for a finished agent Job")
 	f.String("model-allowlist", "anthropic/claude-sonnet-5,anthropic/claude-opus-5",
@@ -131,6 +132,10 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		return err
 	}
 	cpuRequest, memoryRequest, cpuLimit, memoryLimit := agentResources.Strings()
+	attributionMode, err := runnercfg.Attribution(opts)
+	if err != nil {
+		return err
+	}
 
 	mgr, err := kube.NewManager(kube.Options{
 		Kubeconfig:              opts.String("kubeconfig"),
@@ -203,7 +208,8 @@ func serve(ctx context.Context, opts *cli.Options) error {
 			MaxTurns:    int32(opts.Int("investigate-max-turns")),
 			TokenBudget: int64(opts.Int("investigate-token-budget")),
 		},
-		Log: log,
+		Attribution: attributionMode,
+		Log:         log,
 	}
 	if err := gate.SetupWithManager(mgr); err != nil {
 		return err
@@ -226,7 +232,8 @@ func serve(ctx context.Context, opts *cli.Options) error {
 			Enabled: repositoryImages,
 			Breaker: runnerguard.NewBreaker("investigation-controller", log),
 		},
-		Log: log,
+		Attribution: attributionMode,
+		Log:         log,
 	}
 	if err := inv.SetupWithManager(mgr); err != nil {
 		return err
@@ -236,6 +243,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		slog.String("namespace", namespace),
 		slog.Int("max_concurrent", opts.Int("max-concurrent-investigations")),
 		slog.Bool("agents_paused", opts.Bool(runnercfg.AgentsPausedFlag)),
+		slog.String("attribution_mode", string(attributionMode)),
 		slog.Bool("repository_images", repositoryImages))
 
 	if err := mgr.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
