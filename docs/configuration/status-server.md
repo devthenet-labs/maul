@@ -81,7 +81,10 @@ The Usage page answers "who is producing what, and what does it cost" from the `
 
 A person is their **GitHub numeric id**, never a login, which can be renamed and taken by someone else. The page reads
 it from the Dex ID token's `federated_claims`: `connector_id` must equal `oidc.claims.githubConnector` (default
-`github`) and `user_id` is the id. Dex sends that claim only when asked for the `federated:id` scope, so list it:
+`github`) and `user_id` is the id. Dex sends that claim only when asked for the `federated:id` scope, so list it. The
+GitHub connector must **not** set `useLoginAsID`: with it, `user_id` is the login, and an all-digit login would read as
+whoever holds that numeric id. The server refuses a `user_id` equal to `preferred_username` (the login) for that reason,
+so under `useLoginAsID` nobody gets a GitHub id and the views refuse everyone.
 
 ```yaml
 oidc:

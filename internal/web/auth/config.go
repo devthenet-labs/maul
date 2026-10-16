@@ -134,7 +134,10 @@ type ClaimsConfig struct {
 	// GitHubConnector is the id of the Dex connector that signs people in
 	// with GitHub (default github). A token whose federated_claims name it
 	// carries the person's numeric GitHub id (Identity.GitHubID), which the
-	// usage views need; it takes the federated:id scope.
+	// usage views need; it takes the federated:id scope. The connector must
+	// not set useLoginAsID, which makes user_id the login: an all-digit
+	// login would otherwise read as someone else's id (MapClaims refuses a
+	// user_id equal to preferred_username).
 	GitHubConnector string `yaml:"githubConnector"`
 }
 

@@ -50,6 +50,16 @@ func mapClaims(claims map[string]any, cfg ClaimsConfig) (*Identity, error) {
 		}
 	}
 	id.GitHubID = githubID(claims["federated_claims"], cfg.GitHubConnector)
+	if login, _ := claims["preferred_username"].(string); id.GitHubID != 0 && login != "" &&
+		login == strconv.FormatInt(id.GitHubID, 10) {
+		// Dex's GitHub connector with useLoginAsID puts the login in
+		// user_id, and GitHub allows all-digit logins: a login equal to
+		// the "id" would name whoever holds that numeric id instead.
+		// Without useLoginAsID, user_id is the id and preferred_username
+		// the login, and only an account whose login is its own id could
+		// match, which is refused too rather than guessed at.
+		id.GitHubID = 0
+	}
 	return id, nil
 }
 
@@ -58,7 +68,9 @@ func mapClaims(claims map[string]any, cfg ClaimsConfig) (*Identity, error) {
 // connector is the configured GitHub one and the id is a positive decimal
 // int64 without a sign or leading zeros, else 0. Any other connector (LDAP,
 // another OIDC provider) names someone patchy cannot tie to a GitHub
-// account, and an empty connector setting matches nothing.
+// account, and an empty connector setting matches nothing. The connector
+// must not set useLoginAsID: user_id is then the login, which MapClaims
+// refuses when it reads as an id (it equals preferred_username).
 func githubID(v any, connector string) int64 {
 	fc, ok := v.(map[string]any)
 	if !ok || connector == "" {

@@ -1208,8 +1208,9 @@ statusServer:
     # is their GitHub numeric id: the server refuses to start unless auth is
     # mode oidc as for the intents views, and oidc.scopes lists federated:id
     # (Dex then names the connector; oidc.claims.githubConnector, default
-    # github, is the one trusted). It hardens the page as the intents views
-    # do. See docs/configuration/status-server.md#usage-views.
+    # github, is the one trusted; it must not set useLoginAsID, or nobody
+    # gets an id). It hardens the page as the intents views do. See
+    # docs/configuration/status-server.md#usage-views.
     usage:
         enabled: false
     config:

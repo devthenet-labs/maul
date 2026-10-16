@@ -47,6 +47,20 @@ func TestMapClaimsGitHubID(t *testing.T) {
 		{"overflow", dexClaims("github", "9223372036854775808"), cfg, 0},
 		{"too long", dexClaims("github", "12345678901234567890"), cfg, 0},
 		{"empty", dexClaims("github", ""), cfg, 0},
+		// Dex's useLoginAsID makes user_id the login; an all-digit login
+		// must not read as the account holding that numeric id.
+		{"useLoginAsID all-digit login", map[string]any{
+			"preferred_username": "583231",
+			"federated_claims":   map[string]any{"connector_id": "github", "user_id": "583231"},
+		}, cfg, 0},
+		{"useLoginAsID login under another username claim", map[string]any{
+			"preferred_username": "583231", "email": "a@acme.test",
+			"federated_claims": map[string]any{"connector_id": "github", "user_id": "583231"},
+		}, ClaimsConfig{Username: "email", GitHubConnector: "github"}, 0},
+		{"numeric login, distinct id", map[string]any{
+			"preferred_username": "583231",
+			"federated_claims":   map[string]any{"connector_id": "github", "user_id": "1024"},
+		}, cfg, 1024},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
