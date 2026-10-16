@@ -21,8 +21,8 @@
 // the org's, with an "-unregistered" reason saying why.
 //
 // The annotation's grammar (ValuePattern) is also the chart's admission
-// policy's; a seeded property pins that every Value matches it and parses
-// back.
+// policy's: a seeded property pins that every Value matches it and parses
+// back, and a chart render test that the Job policy's grammar is it.
 //
 // The package imports only the standard library and api/v1alpha1 (a test
 // pins that), so any controller, the jobs package and the templates may use
