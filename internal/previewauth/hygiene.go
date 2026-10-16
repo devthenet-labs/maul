@@ -252,9 +252,11 @@ func StripCookies(h http.Header) {
 // identityHeader reports a request header that could assert who the viewer
 // is or where the request came from. Every one is dropped from a proxied
 // request; the gateway then sets X-Patchy-Viewer and the X-Forwarded-*
-// headers itself.
+// headers itself. Names are judged with "_" read as "-": CGI, WSGI and Rack
+// servers fold both into one variable, so X-Patchy_Viewer or X_Forwarded_For
+// would reach the preview as the gateway's own header.
 func identityHeader(name string) bool {
-	n := strings.ToLower(name)
+	n := strings.ReplaceAll(strings.ToLower(name), "_", "-")
 	for _, p := range []string{"x-patchy-", "x-forwarded-", "x-amzn-oidc-", "x-auth-request-", "x-remote-",
 		"x-webauth-", "x-original-", "cf-access-", "x-goog-authenticated-", "x-ms-client-principal"} {
 		if strings.HasPrefix(n, p) {

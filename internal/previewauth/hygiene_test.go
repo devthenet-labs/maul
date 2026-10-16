@@ -4,8 +4,10 @@
 package previewauth
 
 import (
+	"bytes"
 	"math/rand"
 	"net/http"
+	"net/textproto"
 	"net/url"
 	"reflect"
 	"slices"
@@ -257,7 +259,11 @@ func TestCleanRequestProperty(t *testing.T) {
 		h := http.Header{}
 		for range rnd.Intn(8) {
 			if rnd.Intn(2) == 0 {
-				h[identityNames[rnd.Intn(len(identityNames))]] = []string{randString(rnd, 1+rnd.Intn(10))}
+				name := identityNames[rnd.Intn(len(identityNames))]
+				if rnd.Intn(2) == 0 {
+					name = underscored(rnd, name)
+				}
+				h[name] = []string{randString(rnd, 1+rnd.Intn(10))}
 			} else {
 				h.Add(plainNames[rnd.Intn(len(plainNames))], randString(rnd, 1+rnd.Intn(10)))
 			}
@@ -321,9 +327,10 @@ func cleanedHeaderOK(name string, vals []string, in http.Header) bool {
 	if want, ok := own[name]; ok {
 		return slices.Equal(vals, []string{want})
 	}
-	lower := strings.ToLower(name)
+	// A server that folds "_" and "-" together reads both spellings as one.
+	folded := strings.ReplaceAll(strings.ToLower(name), "_", "-")
 	if identityHeader(name) || slices.ContainsFunc(identityNames, func(n string) bool {
-		return strings.ToLower(n) == lower
+		return strings.ToLower(n) == folded
 	}) {
 		return false
 	}
@@ -331,6 +338,42 @@ func cleanedHeaderOK(name string, vals []string, in http.Header) bool {
 		return len(vals) == 1
 	}
 	return slices.Equal(vals, in[name])
+}
+
+// underscored spells some of name's "-" as "_", the spelling a CGI-style
+// server folds into the same variable.
+func underscored(r *rand.Rand, name string) string {
+	b := []byte(name)
+	for i, c := range b {
+		if c == '-' && r.Intn(2) == 0 {
+			b[i] = '_'
+		}
+	}
+	if i := bytes.IndexByte(b, '-'); i >= 0 && !bytes.Contains(b, []byte("_")) {
+		b[i] = '_'
+	}
+	return textproto.CanonicalMIMEHeaderKey(string(b))
+}
+
+// TestCleanRequestUnderscores pins the underscore spellings of identity
+// headers: Go keeps them as distinct names, so they used to pass beside the
+// gateway's own X-Patchy-Viewer.
+func TestCleanRequestUnderscores(t *testing.T) {
+	h := http.Header{}
+	for _, raw := range []string{"x-patchy_viewer", "X_Forwarded_For", "x_forwarded-host", "X-Amzn-Oidc_Data",
+		"Remote_User", "X_Real_IP"} {
+		h[textproto.CanonicalMIMEHeaderKey(raw)] = []string{"forged"}
+	}
+	h.Set("X_App_Header", "kept")
+	CleanRequest(h, ForwardedFor{Viewer: "sub-1", ClientIP: "203.0.113.7", Host: "demo." + testSuffix})
+	for name, vals := range h {
+		if slices.Contains(vals, "forged") {
+			t.Errorf("%s reached the preview", name)
+		}
+	}
+	if h.Get("X_App_Header") != "kept" || h.Get(ViewerHeader) != "sub-1" {
+		t.Errorf("headers after cleaning: %v", h)
+	}
 }
 
 func randToken(r *rand.Rand) string {
