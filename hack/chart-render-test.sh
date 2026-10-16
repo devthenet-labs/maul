@@ -1275,6 +1275,12 @@ expect pg-none 'select(.kind == "ConfigMap" and .metadata.name == "patchy-previe
 expect pg 'select(.kind == "ConfigMap" and .metadata.name == "patchy-preview-auth-config") | .metadata.annotations."patchy.bitwisemedia.uk/preview-gateway-published-addresses"' null
 notes notes-pg-none -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.ingress.enabled=false --set previewAuth.gateway.forwardedHops=null
 notes_has notes-pg-none "none rendered. Route *.preview.patchy.devthe.net to" yes
+# publishedAddresses is recorded only: nothing reads it in this release, so
+# no doc or NOTES may say patchy check project compares DNS with it.
+if grep -rn 'check project' charts/patchy/values.yaml charts/patchy/values.schema.json charts/patchy/templates \
+  docs/configuration/preview-auth.md docs/deployment/helm.md HANDOFF.md | grep -i 'published' | grep -v 'later'; then
+  fail "publishedAddresses: a doc claims patchy check project reads it, which nothing does yet"
+fi
 expect_fail 'gateway without the relay' 'previewAuth.gateway.enabled requires previewAuth.enabled' \
   -f "$pf" -f "$pgw" --set previewAuth.enabled=false
 expect_fail 'gateway sign-in host under the preview suffix' 'must not be under preview.hostSuffix' \

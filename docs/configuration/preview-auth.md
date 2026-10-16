@@ -263,8 +263,8 @@ on the relay's Pods, and with it on:
   ALB's `inbound-cidrs` only on an ALB of the gateway's own, since on a shared one it restricts every Ingress in the
   group) and checked again by the gateway. Where the edge does not hold it, the install NOTES say so.
 - **`publishedAddresses`** records where the wildcard record should point (a tailnet or LAN address, a tunnel's
-  hostname) as the relay ConfigMap's `patchy.bitwisemedia.uk/preview-gateway-published-addresses` annotation, for
-  `patchy check project` to compare DNS with; nothing routes by it.
+  hostname) as the relay ConfigMap's `patchy.bitwisemedia.uk/preview-gateway-published-addresses` annotation; nothing
+  routes by it. Nothing reads it in this release either: a later `patchy check project` will compare DNS with it.
 - **`tls.secrets`** (`[{secretName, hosts}]`, `kubernetes.io/tls` Secrets in the release namespace) lets the gateway
   terminate TLS itself, for the LoadBalancer exposure or none: each Secret is projected into its own subdirectory of
   `--preview-auth-gateway-tls-dir`, served on 8443 behind the Service's 443 and picked by SNI, and a renewal is picked

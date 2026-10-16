@@ -471,10 +471,10 @@ previewAuth:
         # ingress.inboundCIDRsAnnotation. The gateway checks it again behind
         # forwardedHops either way, a second layer only. Empty admits all.
         inboundCIDRs: []
-        # The addresses the wildcard record should hold, for `patchy check
-        # project` to compare DNS with when the exposure publishes none
-        # (a tunnel, a host port, a tailnet address): recorded on the relay
-        # ConfigMap, never routed by.
+        # The addresses the wildcard record should hold when the exposure
+        # publishes none (a tunnel, a host port, a tailnet address): recorded
+        # on the relay ConfigMap, never routed by. Nothing reads them in this
+        # release; a later `patchy check project` will compare DNS with them.
         publishedAddresses: []
         # How the edge reaches the gateway: pick at most one of ingress,
         # httpRoute and a LoadBalancer Service, or none and point a tunnel at

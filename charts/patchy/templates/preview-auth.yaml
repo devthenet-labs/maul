@@ -104,9 +104,10 @@ metadata:
     {{- if $st.managedKeys }}
     {{- $_ := set $marker "patchy.bitwisemedia.uk/preview-auth-key-generation" (toString (int $st.gen)) }}
     {{- end }}
-    {{- /* Where the wildcard record should point, for patchy check project's
-           DNS check when the exposure publishes no address. Recorded only,
-           never routed by. */}}
+    {{- /* Where the wildcard record should point when the exposure
+           publishes no address. Recorded only, never routed by, and read by
+           nothing in this release (a later patchy check project will compare
+           DNS with it). */}}
     {{- if and $gw.enabled $gwVals.publishedAddresses }}
     {{- $_ := set $marker "patchy.bitwisemedia.uk/preview-gateway-published-addresses" (join "," $gwVals.publishedAddresses) }}
     {{- end }}
