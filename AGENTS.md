@@ -198,8 +198,8 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   preview-controller's legacy Ingress switch; `projectcheck/gateway.go`): DNS against `publishedAddresses` or the
   gateway's Ingress/Service status (a private edge not in this resolver is a SKIP), the gateway's 404 on
   `<project>-0.<suffix>` and its `/start` redirect on each Ready preview, and `preview-gateway-allowlist` (a spoofed
-  `X-Forwarded-For` from a refused address must stay refused). It never reads a Secret, so never the App key. Both `check` nouns render
-  through `cmd/patchy/internal/checkreport`
+  `X-Forwarded-For` from a refused address must stay refused).
+  It never reads a Secret, so never the App key. Both `check` nouns render through `cmd/patchy/internal/checkreport`
   (PASS/FAIL/SKIP lines, `-o json|yaml`, inert reasons). Builds for windows too, and ships a `kubectl-patchy` alias.
   Ships no container image: it is distributed as its own `patchy-cli` release archive (separate from the cluster
   binaries' `patchy` archive) and as a Homebrew cask in bitwise-media-group/homebrew-tap.
