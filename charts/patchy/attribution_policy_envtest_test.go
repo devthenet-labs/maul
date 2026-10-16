@@ -461,7 +461,7 @@ func grantAttributionTesters(t *testing.T, admin client.Client) {
 			t.Fatalf("create %T: %v", obj, err)
 		}
 	}
-	var reviews []authorizationv1.SubjectAccessReviewSpec
+	reviews := make([]authorizationv1.SubjectAccessReviewSpec, 0, 18)
 	for _, user := range []string{attrUser, saIntegrate, saEvaluation} {
 		for _, resource := range []string{"findings", "evaluations"} {
 			reviews = append(reviews, rbactest.Verbs(user, nil, authorizationv1.ResourceAttributes{

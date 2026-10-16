@@ -53,7 +53,8 @@ type EvaluationUnitSpec struct {
 	Index int32 `json:"index"`
 	// Unit is the plan, copied down from the parent spec.
 	Unit UnitPlan `json:"unit"`
-	// AttributedTo is who the run is for, stamped at creation by evaluation-controller from the Evaluation's submitter under
+	// AttributedTo is who the run is for, stamped at creation by
+	// evaluation-controller from the Evaluation's submitter under
 	// --attribution-mode attribute (design L1); nil under mode off and on every
 	// run created before it. Immutable with the rest of the spec.
 	// +optional

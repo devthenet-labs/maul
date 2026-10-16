@@ -113,7 +113,8 @@ func TestAttributionTable(t *testing.T) {
 	e.clock.Advance(3 * time.Minute)
 	e.drive(name, v1alpha1.IntentRevising, repoImage)
 	revise := e.runsOf(name, v1alpha1.IntentStageRevise)
-	if len(revise) != 1 || !reflect.DeepEqual(revise[0].Spec.AttributedTo, person(approver, v1alpha1.AttributionReviewer)) {
+	if want := person(approver, v1alpha1.AttributionReviewer); len(revise) != 1 ||
+		!reflect.DeepEqual(revise[0].Spec.AttributedTo, want) {
 		t.Fatalf("review round attributed to %+v, want the newest reviewer", revise[0].Spec.AttributedTo)
 	}
 	e.drive(name, v1alpha1.IntentInReview, repoImage)

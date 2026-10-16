@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 	"k8s.io/client-go/kubernetes"
 
+	"github.com/bitwise-media-group/patchy/internal/attribution"
 	"github.com/bitwise-media-group/patchy/internal/changeset"
 	"github.com/bitwise-media-group/patchy/internal/cli"
 	"github.com/bitwise-media-group/patchy/internal/controller/remediation"
@@ -102,6 +103,18 @@ func agentEnv(opts *cli.Options) map[string]string {
 	}
 }
 
+// ownSettings checks the settings remediation-controller alone reads and
+// returns --attribution-mode, so a bad value stops startup.
+func ownSettings(opts *cli.Options) (attribution.Mode, error) {
+	if opts.Int("changeset-max-entries") <= 0 {
+		return "", errors.New("--changeset-max-entries must be positive")
+	}
+	if opts.Duration("remediate-idle-timeout") < 0 {
+		return "", errors.New("--remediate-idle-timeout must not be negative (0 disables it)")
+	}
+	return runnercfg.Attribution(opts)
+}
+
 func serve(ctx context.Context, opts *cli.Options) error {
 	prov, shutdown, err := telemetry.Init(ctx, telemetry.Config{
 		Dir:            os.Getenv("PATCHY_TELEMETRY_DIR"),
@@ -139,15 +152,9 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		return err
 	}
 	cpuRequest, memoryRequest, cpuLimit, memoryLimit := agentResources.Strings()
-	attributionMode, err := runnercfg.Attribution(opts)
+	attributionMode, err := ownSettings(opts)
 	if err != nil {
 		return err
-	}
-	if opts.Int("changeset-max-entries") <= 0 {
-		return errors.New("--changeset-max-entries must be positive")
-	}
-	if opts.Duration("remediate-idle-timeout") < 0 {
-		return errors.New("--remediate-idle-timeout must not be negative (0 disables it)")
 	}
 
 	mgr, err := kube.NewManager(kube.Options{

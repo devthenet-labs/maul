@@ -39,10 +39,11 @@ type InvestigationSpec struct {
 	// Nil on a first attempt.
 	// +optional
 	PreviousAttempt *PreviousAttempt `json:"previousAttempt,omitempty"`
-	// AttributedTo is who the run is for, stamped at creation by investigation-controller: always the org, since no human is behind an
-	// investigation under
-	// --attribution-mode attribute (design L1); nil under mode off and on every
-	// run created before it. Immutable with the rest of the spec.
+	// AttributedTo is who the run is for, stamped at creation by
+	// investigation-controller: always the org, since no human is behind an
+	// investigation under --attribution-mode attribute (design L1); nil under
+	// mode off and on every run created before it. Immutable with the rest of
+	// the spec.
 	// +optional
 	AttributedTo *Attribution `json:"attributedTo,omitempty"`
 }
