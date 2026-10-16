@@ -1285,11 +1285,17 @@ expect pg-none 'select(.kind == "ConfigMap" and .metadata.name == "patchy-previe
 expect pg 'select(.kind == "ConfigMap" and .metadata.name == "patchy-preview-auth-config") | .metadata.annotations."patchy.bitwisemedia.uk/preview-gateway-published-addresses"' null
 notes notes-pg-none -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.ingress.enabled=false --set previewAuth.gateway.forwardedHops=null
 notes_has notes-pg-none "none rendered. Route *.preview.patchy.devthe.net to" yes
-# publishedAddresses is recorded only: nothing reads it in this release, so
-# no doc or NOTES may say patchy check project compares DNS with it.
-if grep -rn 'check project' charts/patchy/values.yaml charts/patchy/values.schema.json charts/patchy/templates \
-  docs/configuration/preview-auth.md docs/deployment/helm.md HANDOFF.md | grep -i 'published' | grep -v 'later'; then
-  fail "publishedAddresses: a doc claims patchy check project reads it, which nothing does yet"
+# publishedAddresses is never routed by, and patchy check project compares DNS
+# with it (cmd/patchy/internal/projectcheck/gateway.go reads the annotation),
+# so no doc may still say nothing reads it.
+if ! grep -q 'publishedAnnotation = "patchy.bitwisemedia.uk/preview-gateway-published-addresses"' \
+  cmd/patchy/internal/projectcheck/gateway.go; then
+  fail "publishedAddresses: patchy check project no longer reads the annotation the chart writes"
+fi
+if grep -rn -i 'published' charts/patchy/values.yaml charts/patchy/values.schema.json charts/patchy/templates \
+  docs/configuration/preview-auth.md docs/configuration/preview-gateway.md docs/deployment/helm.md HANDOFF.md |
+  grep -i -e 'nothing reads' -e 'a later .*check project'; then
+  fail "publishedAddresses: a doc still says nothing reads it, but patchy check project does"
 fi
 expect_fail 'gateway without the relay' 'previewAuth.gateway.enabled requires previewAuth.enabled' \
   -f "$pf" -f "$pgw" --set previewAuth.enabled=false
