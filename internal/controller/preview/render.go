@@ -62,13 +62,21 @@ func ptr[T any](value T) *T { return &value }
 // Settings are fixed operator values, never taken from a Preview spec or an
 // agent. SlotCount is the only global concurrency/spend bound.
 type Settings struct {
-	Namespace      string
-	SlotCount      int
-	ImagePrefix    string // exact <registry>/<path>/ every image repository is one leaf under
-	HostSuffix     string
-	NodePool       string
-	NodeClass      string
-	TaintKey       string
+	Namespace   string
+	SlotCount   int
+	ImagePrefix string // exact <registry>/<path>/ every image repository is one leaf under
+	HostSuffix  string
+	// NodeSelector is the operator's generic preview node selector, merged
+	// with NodePool and NodeClass (which fill EKS Auto Mode's two keys).
+	NodeSelector map[string]string
+	NodePool     string
+	NodeClass    string
+	// TaintKey is the preview nodes' NoExecute taint, value "true", which
+	// every slot Pod tolerates. It is required whenever a selector is set.
+	TaintKey string
+	// NodeIsolation is NodeIsolationRequired (also the zero value) or
+	// NodeIsolationNone; see validateNodeIsolation.
+	NodeIsolation  string
 	RolloutTimeout time.Duration
 	PollInterval   time.Duration
 	MaxRetries     int32
@@ -104,11 +112,25 @@ func (s Settings) Validate() error {
 			"(a lowercase registry host, one or more lowercase path segments and a trailing slash)", s.ImagePrefix)
 	}
 	if s.Namespace == "" || s.SlotCount < 1 || s.SlotCount > 4 ||
-		s.HostSuffix == "" || s.NodePool == "" || s.NodeClass == "" || s.TaintKey == "" ||
+		s.HostSuffix == "" ||
 		s.RolloutTimeout <= 0 || s.PollInterval <= 0 || s.MaxRetries < 1 || s.MaxRetries > 3 {
 		return fmt.Errorf("invalid preview-controller settings")
 	}
+	if err := s.validateNodeIsolation(); err != nil {
+		return fmt.Errorf("invalid preview-controller settings: %w", err)
+	}
 	return s.Auth.validate(s)
+}
+
+// tolerations tolerate the preview nodes' NoExecute taint, or are nil with no
+// taint key (node isolation none).
+func (s Settings) tolerations() []corev1.Toleration {
+	if s.TaintKey == "" {
+		return nil
+	}
+	return []corev1.Toleration{{
+		Key: s.TaintKey, Operator: corev1.TolerationOpEqual, Value: "true", Effect: corev1.TaintEffectNoExecute,
+	}}
 }
 
 func (s Settings) slotName(n int32) string { return fmt.Sprintf("patchy-preview-%d", n) }
@@ -209,12 +231,8 @@ func (s Settings) deployment(p *v1alpha1.Preview, i int, slot int32) *appsv1.Dep
 				ObjectMeta: metav1.ObjectMeta{Labels: labels},
 				Spec: corev1.PodSpec{
 					ServiceAccountName: "default", AutomountServiceAccountToken: ptr(false),
-					NodeSelector: map[string]string{
-						"karpenter.sh/nodepool": s.NodePool, "eks.amazonaws.com/nodeclass": s.NodeClass,
-					},
-					Tolerations: []corev1.Toleration{{
-						Key: s.TaintKey, Operator: corev1.TolerationOpEqual, Value: "true", Effect: corev1.TaintEffectNoExecute,
-					}},
+					NodeSelector: s.nodeSelector(),
+					Tolerations:  s.tolerations(),
 					SecurityContext: &corev1.PodSecurityContext{
 						RunAsNonRoot: ptr(true), RunAsUser: ptr(int64(65532)), RunAsGroup: ptr(int64(65532)),
 						SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},

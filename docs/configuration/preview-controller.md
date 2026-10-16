@@ -185,6 +185,24 @@ the cold-start isolation gate in `hack/preview-isolation-probe/README.md` with a
 after any EKS, Auto Mode or VPC CNI upgrade and before relying on previews again. The direct Auto Mode network-policy
 agent-log check is still open; absence of errors in Kubernetes events is not a substitute.
 
+## Node isolation
+
+Every slot Pod selects the dedicated preview nodes and tolerates their `NoExecute` taint (`<taint key>=true`), which
+keeps everything else off those nodes. The binary takes the selector in generic form:
+
+- `--preview-node-selector` (`PATCHY_PREVIEW_NODE_SELECTOR`) is a JSON object of node label to value.
+- `--preview-node-pool` and `--preview-node-class` fill its EKS Auto Mode keys, `karpenter.sh/nodepool` and
+  `eks.amazonaws.com/nodeclass`, so an install configured by them renders exactly the Pods it always did and no live
+  preview restarts. A selector that gives either key another value is refused.
+- `--preview-taint-key` is the taint every slot Pod tolerates.
+- `--preview-node-isolation` is `required` (the default) or `none`. Required refuses to start without a non-empty
+  selector and a taint key; none renders neither, refuses either if set, and is an explicit opt-out for a cluster with
+  no dedicated preview nodes, where preview code then shares nodes with everything else.
+
+Every key must be a label name and every value a label value. Changing the selector or the taint changes every slot
+Pod's template, so each live preview rolls once. The chart still sets only the pool, class and taint key, and its slot
+admission policy compares exactly those keys; the generic selector reaches the chart with the preview gateway.
+
 ## The serving snapshot
 
 `status.serving` records what a Preview serves, for the preview gateway to route by: the Preview's generation and UID
