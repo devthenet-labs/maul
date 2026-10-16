@@ -233,6 +233,15 @@ func (r *Reconciler) withdrawIngress(ctx context.Context, p *v1alpha1.Preview, s
 	return r.deleteIngress(ctx, p, slot)
 }
 
+// dropLegacyIngress deletes the Preview's own slot Ingresses when the legacy
+// Ingress is off, and does nothing on the legacy path.
+func (r *Reconciler) dropLegacyIngress(ctx context.Context, p *v1alpha1.Preview, slot int32) error {
+	if !r.Settings.NoLegacyIngress {
+		return nil
+	}
+	return r.deleteOwnedIngresses(ctx, p, slot)
+}
+
 // deleteOwnedIngresses deletes every Ingress in the slot that the Preview owns
 // (its UID, name and managed-by labels): what a controller rendering the
 // legacy Ingress left behind once that is switched off.

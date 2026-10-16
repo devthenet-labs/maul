@@ -303,10 +303,8 @@ func (r *Reconciler) slotHasManagedObjects(ctx context.Context, slot int32) (boo
 // and with it prepareIngress has dropped stale routes from the kept one.
 func (r *Reconciler) deploy(ctx context.Context, p *v1alpha1.Preview) (ctrl.Result, error) {
 	slot := *p.Status.Slot
-	if r.Settings.NoLegacyIngress {
-		if err := r.deleteOwnedIngresses(ctx, p, slot); err != nil {
-			return ctrl.Result{}, err
-		}
+	if err := r.dropLegacyIngress(ctx, p, slot); err != nil {
+		return ctrl.Result{}, err
 	}
 	if r.Settings.targetHealth() {
 		if err := r.prepareIngress(ctx, p, slot); err != nil {
