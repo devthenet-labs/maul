@@ -61,7 +61,8 @@ func (a humanAction) key() string {
 }
 
 func (a humanAction) record() v1alpha1.IntentAction {
-	return v1alpha1.IntentAction{Source: a.source, EventID: a.id, Login: a.actor.Login, At: metav1.NewTime(a.at)}
+	return v1alpha1.IntentAction{Source: a.source, EventID: a.id, Login: a.actor.Login, UserID: max(a.actor.ID, 0),
+		At: metav1.NewTime(a.at)}
 }
 
 // sourceRank orders two actions GitHub dated the same second: a label event,
@@ -93,7 +94,8 @@ func (p *pass) lastTrigger() v1alpha1.IntentAction {
 		return *lt
 	}
 	rb := p.in.Spec.RequestedBy
-	return v1alpha1.IntentAction{Source: v1alpha1.IntentActionLabel, EventID: rb.EventID, Login: rb.Login, At: rb.At}
+	return v1alpha1.IntentAction{Source: v1alpha1.IntentActionLabel, EventID: rb.EventID, Login: rb.Login,
+		UserID: rb.UserID, At: rb.At}
 }
 
 // rateOK reports whether the rate budget of the installation repoURL is read
@@ -758,7 +760,7 @@ func (p *pass) settleApprove(ctx context.Context, a humanAction, issue *ghclient
 		return p.refuseApproval(ctx, a, issue, planChanged, issueChanged)
 	}
 	approval := v1alpha1.IntentApproval{
-		By: a.actor.Login, Source: a.source, EventID: a.id, At: metav1.NewTime(a.at),
+		By: a.actor.Login, ByID: max(a.actor.ID, 0), Source: a.source, EventID: a.id, At: metav1.NewTime(a.at),
 		PlanRevision: pl.Revision, PlanDigest: pl.Digest, InputDigest: p.in.Status.Input.Digest,
 	}
 	if err := p.setPhase(ctx, v1alpha1.IntentBuilding, func(cur *v1alpha1.Intent) {

@@ -284,6 +284,10 @@ func TestDiscovery(t *testing.T) {
 		in.Spec.Issue.Repository != intentRepoURL || in.Spec.RequestedBy.EventID == 0 {
 		t.Errorf("intent spec = %+v", in.Spec)
 	}
+	// The applier's GitHub id, the identity attribution keys on.
+	if got, want := in.Spec.RequestedBy.UserID, actorOf("alice").ID; got != want || got < 1 {
+		t.Errorf("requestedBy.userID = %d, want alice's id %d", got, want)
+	}
 	var none v1alpha1.Intent
 	if err := e.c.Get(context.Background(), types.NamespacedName{Namespace: testNS, Name: "target-2"}, &none); err == nil {
 		t.Error("an issue whose trigger predates its last close became an intent")

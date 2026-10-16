@@ -20,6 +20,7 @@ import (
 
 	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
 	"github.com/bitwise-media-group/patchy/internal/agentresult"
+	"github.com/bitwise-media-group/patchy/internal/attribution"
 	"github.com/bitwise-media-group/patchy/internal/harness"
 	"github.com/bitwise-media-group/patchy/internal/model"
 	"github.com/bitwise-media-group/patchy/internal/priority"
@@ -55,6 +56,10 @@ type SpawnerReconciler struct {
 	// ManualMaxTurns/ManualTokenBudget bound what a human approval can grant.
 	ManualMaxTurns    int32
 	ManualTokenBudget int64
+	// Attribution is --attribution-mode: under attribute each new
+	// Remediation is stamped with whom it is for (Attribute); under off (the
+	// zero value) nothing is stamped.
+	Attribution attribution.Mode
 	// Now is the clock seam; nil means time.Now.
 	Now func() time.Time
 	// Log receives diagnostics; nil discards.
@@ -319,6 +324,7 @@ func (r *SpawnerReconciler) spawn(ctx context.Context, fnd *v1alpha1.Finding) er
 			ApprovedBy:       approvedBy(fnd),
 			Revival:          fnd.Spec.Approval != nil && attempt > 1,
 			PreviousAttempt:  prev,
+			AttributedTo:     r.Attribution.Stamp(Attribute(fnd)),
 		},
 	}
 	if err := r.Create(ctx, rem); err != nil && !kerrors.IsAlreadyExists(err) {
@@ -383,6 +389,19 @@ func approvedBy(fnd *v1alpha1.Finding) string {
 		return ""
 	}
 	return fnd.Spec.Approval.By
+}
+
+// Attribute is whom a remediation of fnd is for (design §2): the Finding's
+// approver when its approval is held, re-attributed to the org (reason
+// approver-unregistered) when that approver has no patchy identity, which
+// is every approval made on the status page or in the CLI, whose usernames
+// carry no GitHub id; the org when no human approved it.
+func Attribute(fnd *v1alpha1.Finding) *v1alpha1.Attribution {
+	ap := fnd.Spec.Approval
+	if ap == nil {
+		return attribution.Org()
+	}
+	return attribution.To(ap.By, ap.ByID, v1alpha1.AttributionApprover)
 }
 
 // SetupWithManager wires the spawner.

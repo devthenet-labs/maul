@@ -13,18 +13,19 @@ remediation-controller serve --namespace patchy \
 
 The [shared flags](index.md#shared-flags-every-controller), plus:
 
-| Flag                               | Env                                     | Default          | Purpose                                                                                      |
-| ---------------------------------- | --------------------------------------- | ---------------- | -------------------------------------------------------------------------------------------- |
-| `--max-attempts`                   | `PATCHY_MAX_ATTEMPTS`                   | `2`              | Remediation attempts per finding before it fails                                             |
-| `--max-concurrent-remediations`    | `PATCHY_MAX_CONCURRENT_REMEDIATIONS`    | `1`              | Simultaneously running remediation Jobs                                                      |
-| `--agents-paused`                  | `PATCHY_AGENTS_PAUSED`                  | `false`          | Launch no new remediation Job ([pausing agents](investigation-controller.md#pausing-agents)) |
-| `--priority-aging-interval`        | `PATCHY_PRIORITY_AGING_INTERVAL`        | `24h`            | Wait per effective-priority point of aging boost                                             |
-| `--priority-aging-cap`             | `PATCHY_PRIORITY_AGING_CAP`             | `25`             | Maximum aging boost                                                                          |
-| `--priority-weight-severity`       | `PATCHY_PRIORITY_WEIGHT_SEVERITY`       | `0.3`            | Scheduling-priority weight of the scanner severity                                           |
-| `--priority-weight-exploitability` | `PATCHY_PRIORITY_WEIGHT_EXPLOITABILITY` | `0.3`            | Weight of the assessed exploitability                                                        |
-| `--priority-weight-likelihood`     | `PATCHY_PRIORITY_WEIGHT_LIKELIHOOD`     | `0.2`            | Weight of the assessed likelihood                                                            |
-| `--priority-weight-impact`         | `PATCHY_PRIORITY_WEIGHT_IMPACT`         | `0.2`            | Weight of the assessed impact                                                                |
-| `--finding-ttl`                    | `PATCHY_FINDING_TTL`                    | `336h` (14 days) | How long completed findings are kept before deletion; `0` keeps them forever                 |
+| Flag                               | Env                                     | Default          | Purpose                                                                                                                |
+| ---------------------------------- | --------------------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `--max-attempts`                   | `PATCHY_MAX_ATTEMPTS`                   | `2`              | Remediation attempts per finding before it fails                                                                       |
+| `--max-concurrent-remediations`    | `PATCHY_MAX_CONCURRENT_REMEDIATIONS`    | `1`              | Simultaneously running remediation Jobs                                                                                |
+| `--agents-paused`                  | `PATCHY_AGENTS_PAUSED`                  | `false`          | Launch no new remediation Job ([pausing agents](investigation-controller.md#pausing-agents))                           |
+| `--attribution-mode`               | `PATCHY_ATTRIBUTION_MODE`               | `off`            | `attribute` stamps each new Remediation with whom it is for and annotates its Jobs ([run attribution](attribution.md)) |
+| `--priority-aging-interval`        | `PATCHY_PRIORITY_AGING_INTERVAL`        | `24h`            | Wait per effective-priority point of aging boost                                                                       |
+| `--priority-aging-cap`             | `PATCHY_PRIORITY_AGING_CAP`             | `25`             | Maximum aging boost                                                                                                    |
+| `--priority-weight-severity`       | `PATCHY_PRIORITY_WEIGHT_SEVERITY`       | `0.3`            | Scheduling-priority weight of the scanner severity                                                                     |
+| `--priority-weight-exploitability` | `PATCHY_PRIORITY_WEIGHT_EXPLOITABILITY` | `0.3`            | Weight of the assessed exploitability                                                                                  |
+| `--priority-weight-likelihood`     | `PATCHY_PRIORITY_WEIGHT_LIKELIHOOD`     | `0.2`            | Weight of the assessed likelihood                                                                                      |
+| `--priority-weight-impact`         | `PATCHY_PRIORITY_WEIGHT_IMPACT`         | `0.2`            | Weight of the assessed impact                                                                                          |
+| `--finding-ttl`                    | `PATCHY_FINDING_TTL`                    | `336h` (14 days) | How long completed findings are kept before deletion; `0` keeps them forever                                           |
 
 The four weights combine the investigation's ratings into the 0–100 scheduling priority the queue sorts on (severity 30%
 / exploitability 30% / likelihood 20% / impact 20% by default).

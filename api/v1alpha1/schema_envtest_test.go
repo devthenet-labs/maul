@@ -300,6 +300,10 @@ func TestSchemaValidation(t *testing.T) {
 		testPreviousAttemptSchema(ctx, t, c)
 	})
 
+	t.Run("run spec attribution names a person exactly for a person reason, immutably", func(t *testing.T) {
+		testAttributionSchema(ctx, t, c)
+	})
+
 	t.Run("evaluation spec is immutable and bounded", func(t *testing.T) {
 		testEvaluationSchema(ctx, t, c)
 	})

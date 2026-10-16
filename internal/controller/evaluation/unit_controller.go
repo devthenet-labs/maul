@@ -24,6 +24,7 @@ import (
 
 	"github.com/bitwise-media-group/patchy/api/v1alpha1"
 	"github.com/bitwise-media-group/patchy/internal/agentresult"
+	"github.com/bitwise-media-group/patchy/internal/attribution"
 	"github.com/bitwise-media-group/patchy/internal/evalresults"
 	"github.com/bitwise-media-group/patchy/internal/jobs"
 	"github.com/bitwise-media-group/patchy/internal/schedule"
@@ -75,8 +76,13 @@ type UnitReconciler struct {
 	// ArtifactBaseURL is the public artifact endpoint agent pods fetch
 	// bundles from, e.g. http://patchy-source-controller.patchy.svc:9790.
 	ArtifactBaseURL string
-	Now             func() time.Time
-	Log             *slog.Logger
+	// Attribution is --attribution-mode: under attribute every Job carries
+	// the attributed-to annotation of its unit's spec.attributedTo ("org"
+	// for one stamped before the mode was on); under off (the zero value)
+	// none.
+	Attribution attribution.Mode
+	Now         func() time.Time
+	Log         *slog.Logger
 }
 
 func (r *UnitReconciler) now() time.Time {
@@ -254,6 +260,7 @@ func (r *UnitReconciler) launch(ctx context.Context, unit *v1alpha1.EvaluationUn
 		UnitJSON:       []byte(plan.ExecJSON),
 		ArtifactURL:    strings.TrimSuffix(r.ArtifactBaseURL, "/") + "/artifacts/" + plan.Workspace.Digest + ".tar.gz",
 		ArtifactDigest: plan.Workspace.Digest,
+		AttributedTo:   r.Attribution.Annotation(unit.Spec.AttributedTo),
 	})
 	if err != nil {
 		return fmt.Errorf("launch unit %s: %w", unit.Name, err)

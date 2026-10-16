@@ -16,6 +16,7 @@ import (
 	"k8s.io/apimachinery/pkg/selection"
 
 	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	"github.com/bitwise-media-group/patchy/internal/attribution"
 	"github.com/bitwise-media-group/patchy/internal/forge"
 )
 
@@ -170,6 +171,11 @@ type Settings struct {
 	// intent has no pull request in runs in its preview
 	// (status.previewBases); off, it reads nothing for previews.
 	Previews bool
+	// Attribution is --attribution-mode: under attribute every new
+	// IntentRun is stamped with whom it is for (attribute.go) and every
+	// agent Job carries its run's attributed-to annotation; under off (the
+	// zero value) neither is.
+	Attribution attribution.Mode
 }
 
 // multiRepoOff reports a Project these settings run no intent of: one that

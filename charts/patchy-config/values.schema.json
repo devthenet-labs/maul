@@ -466,6 +466,12 @@
                         "by": {
                             "description": "By is the requesting login.",
                             "type": "string"
+                        },
+                        "byID": {
+                            "description": "ByID is GitHub's numeric id of the requester, recorded only for a\nrequest made by a GitHub comment (see Approval.ByID).",
+                            "format": "int64",
+                            "minimum": 1,
+                            "type": "integer"
                         }
                     },
                     "required": ["at", "by"],
@@ -483,6 +489,12 @@
                         "by": {
                             "description": "By is the requesting login.",
                             "type": "string"
+                        },
+                        "byID": {
+                            "description": "ByID is GitHub's numeric id of the requester, recorded only for a\nrequest made by a GitHub comment (see Approval.ByID).",
+                            "format": "int64",
+                            "minimum": 1,
+                            "type": "integer"
                         }
                     },
                     "required": ["at", "by"],

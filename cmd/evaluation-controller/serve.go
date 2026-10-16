@@ -19,6 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	"github.com/bitwise-media-group/patchy/internal/artifact"
+	"github.com/bitwise-media-group/patchy/internal/attribution"
 	"github.com/bitwise-media-group/patchy/internal/cli"
 	ctrleval "github.com/bitwise-media-group/patchy/internal/controller/evaluation"
 	"github.com/bitwise-media-group/patchy/internal/evalapi"
@@ -61,6 +62,7 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	runnercfg.RegisterAgentResourceFlags(f)
 	runnercfg.RegisterAgentDNSFlag(f)
 	runnercfg.RegisterAgentsPausedFlag(f)
+	runnercfg.RegisterAttributionFlag(f)
 	return cmd
 }
 
@@ -138,11 +140,13 @@ func uploadClient(opts *cli.Options, namespace string) (*artifact.Client, error)
 
 // setupReconcilers registers the gate, the unit scheduler, and the TTL loop.
 func setupReconcilers(mgr manager.Manager, opts *cli.Options, namespace string, enabled []string,
-	runner *jobs.Client, workspaces *artifact.Client, artifactBaseURL string, log *slog.Logger) error {
+	runner *jobs.Client, workspaces *artifact.Client, artifactBaseURL string, attributionMode attribution.Mode,
+	log *slog.Logger) error {
 	gate := &ctrleval.GateReconciler{
 		Client:           mgr.GetClient(),
 		Namespace:        namespace,
 		EnabledHarnesses: enabled,
+		Attribution:      attributionMode,
 		Log:              log,
 	}
 	if err := gate.SetupWithManager(mgr); err != nil {
@@ -157,6 +161,7 @@ func setupReconcilers(mgr manager.Manager, opts *cli.Options, namespace string, 
 		Paused:           opts.Bool(runnercfg.AgentsPausedFlag),
 		EnabledHarnesses: enabled,
 		ArtifactBaseURL:  artifactBaseURL,
+		Attribution:      attributionMode,
 		Log:              log,
 	}
 	if err := units.SetupWithManager(mgr); err != nil {
@@ -205,6 +210,10 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	if err != nil {
 		return err
 	}
+	attributionMode, err := runnercfg.Attribution(opts)
+	if err != nil {
+		return err
+	}
 
 	agentNS := opts.String("agent-namespace")
 	mgr, err := kube.NewManager(kube.Options{
@@ -229,7 +238,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		return err
 	}
 	if err := setupReconcilers(mgr, opts, namespace, enabled, runner, workspaces,
-		serviceURL(opts, "artifact-base-url", namespace, 9790), log); err != nil {
+		serviceURL(opts, "artifact-base-url", namespace, 9790), attributionMode, log); err != nil {
 		return err
 	}
 
@@ -265,7 +274,8 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		slog.String("listen_addr", httpSrv.Addr),
 		slog.String("auth_mode", authCfg.Mode),
 		slog.Any("harnesses", enabled),
-		slog.Bool("agents_paused", opts.Bool(runnercfg.AgentsPausedFlag)))
+		slog.Bool("agents_paused", opts.Bool(runnercfg.AgentsPausedFlag)),
+		slog.String("attribution_mode", string(attributionMode)))
 
 	g, ctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return mgr.Start(ctx) })

@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 	"k8s.io/client-go/kubernetes"
 
+	"github.com/bitwise-media-group/patchy/internal/attribution"
 	"github.com/bitwise-media-group/patchy/internal/changeset"
 	"github.com/bitwise-media-group/patchy/internal/cli"
 	"github.com/bitwise-media-group/patchy/internal/controller/remediation"
@@ -62,6 +63,7 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	runnercfg.RegisterAgentResourceFlags(f)
 	runnercfg.RegisterAgentDNSFlag(f)
 	runnercfg.RegisterAgentsPausedFlag(f)
+	runnercfg.RegisterAttributionFlag(f)
 	f.Duration("job-deadline", time.Hour, "activeDeadlineSeconds for an agent Job")
 	f.Duration("job-ttl", time.Hour, "ttlSecondsAfterFinished for a finished agent Job")
 
@@ -101,6 +103,18 @@ func agentEnv(opts *cli.Options) map[string]string {
 	}
 }
 
+// ownSettings checks the settings remediation-controller alone reads and
+// returns --attribution-mode, so a bad value stops startup.
+func ownSettings(opts *cli.Options) (attribution.Mode, error) {
+	if opts.Int("changeset-max-entries") <= 0 {
+		return "", errors.New("--changeset-max-entries must be positive")
+	}
+	if opts.Duration("remediate-idle-timeout") < 0 {
+		return "", errors.New("--remediate-idle-timeout must not be negative (0 disables it)")
+	}
+	return runnercfg.Attribution(opts)
+}
+
 func serve(ctx context.Context, opts *cli.Options) error {
 	prov, shutdown, err := telemetry.Init(ctx, telemetry.Config{
 		Dir:            os.Getenv("PATCHY_TELEMETRY_DIR"),
@@ -138,11 +152,9 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		return err
 	}
 	cpuRequest, memoryRequest, cpuLimit, memoryLimit := agentResources.Strings()
-	if opts.Int("changeset-max-entries") <= 0 {
-		return errors.New("--changeset-max-entries must be positive")
-	}
-	if opts.Duration("remediate-idle-timeout") < 0 {
-		return errors.New("--remediate-idle-timeout must not be negative (0 disables it)")
+	attributionMode, err := ownSettings(opts)
+	if err != nil {
+		return err
 	}
 
 	mgr, err := kube.NewManager(kube.Options{
@@ -220,6 +232,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		AutoTokenBudget:   int64(opts.Int("remediate-auto-token-budget")),
 		ManualMaxTurns:    int32(opts.Int("remediate-manual-max-turns")),
 		ManualTokenBudget: int64(opts.Int("remediate-manual-token-budget")),
+		Attribution:       attributionMode,
 		Log:               log,
 	}
 	if err := spawner.SetupWithManager(mgr); err != nil {
@@ -249,6 +262,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 			Forges: forges,
 		},
 		MaxChangesetEntries: opts.Int("changeset-max-entries"),
+		Attribution:         attributionMode,
 		Log:                 log,
 	}
 	if err := rem.SetupWithManager(mgr); err != nil {
@@ -268,6 +282,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		slog.String("namespace", namespace),
 		slog.Int("max_concurrent", opts.Int("max-concurrent-remediations")),
 		slog.Bool("agents_paused", opts.Bool(runnercfg.AgentsPausedFlag)),
+		slog.String("attribution_mode", string(attributionMode)),
 		slog.Duration("finding_ttl", opts.Duration("finding-ttl")),
 		slog.Bool("repository_images", repositoryImages))
 

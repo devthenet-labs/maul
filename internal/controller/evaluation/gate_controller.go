@@ -18,6 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/bitwise-media-group/patchy/api/v1alpha1"
+	"github.com/bitwise-media-group/patchy/internal/attribution"
 )
 
 // UnitName is the deterministic child name for one unit index.
@@ -35,8 +36,12 @@ type GateReconciler struct {
 	Namespace string
 	// EnabledHarnesses is the evolve-runner fleet resolved at startup.
 	EnabledHarnesses []string
-	Now              func() time.Time
-	Log              *slog.Logger
+	// Attribution is --attribution-mode: under attribute each new unit is
+	// stamped with whom it is for (Attribute); under off (the zero value)
+	// nothing is stamped.
+	Attribution attribution.Mode
+	Now         func() time.Time
+	Log         *slog.Logger
 }
 
 func (r *GateReconciler) now() time.Time {
@@ -113,6 +118,7 @@ func (r *GateReconciler) ensureUnit(ctx context.Context, eval *v1alpha1.Evaluati
 			EvaluationRef: v1alpha1.ObjectReference{Name: eval.Name, UID: eval.UID},
 			Index:         int32(index),
 			Unit:          plan,
+			AttributedTo:  r.Attribution.Stamp(Attribute(eval)),
 		},
 	}
 	if err := r.Create(ctx, unit); err != nil && !kerrors.IsAlreadyExists(err) {
@@ -123,6 +129,15 @@ func (r *GateReconciler) ensureUnit(ctx context.Context, eval *v1alpha1.Evaluati
 		return r.settleUnavailable(ctx, eval.Namespace, name, plan)
 	}
 	return nil
+}
+
+// Attribute is whom a unit of eval is for (design §2): its submitter. The
+// submitter is the username the evaluation API verified, which names no
+// GitHub account by id, so it is never a patchy identity yet: the unit is
+// re-attributed to the org with reason submitter-unregistered, and the
+// submitter stays on the Evaluation's spec.
+func Attribute(eval *v1alpha1.Evaluation) *v1alpha1.Attribution {
+	return attribution.To(eval.Spec.Submitter, 0, v1alpha1.AttributionSubmitter)
 }
 
 // settleUnavailable marks a just-created unit Failed/HarnessUnavailable.

@@ -188,6 +188,11 @@ func TestCommandSettles(t *testing.T) {
 				if a == nil || a.By != maintainer || a.Note != "ship it" || !a.At.Time.Equal(testClock) {
 					t.Errorf("approval = %+v, want maintainer's with the note at the decision", a)
 				}
+				// The commenter's GitHub id rides with the login: the
+				// identity attribution keys on (design L1).
+				if a != nil && (a.ByID != accountID(maintainer) || a.ByID < 1) {
+					t.Errorf("approval byID = %d, want the commenter's id %d", a.ByID, accountID(maintainer))
+				}
 			},
 		},
 		{

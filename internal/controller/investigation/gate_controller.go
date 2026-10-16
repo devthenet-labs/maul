@@ -24,6 +24,7 @@ import (
 
 	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
 	"github.com/bitwise-media-group/patchy/internal/agentresult"
+	"github.com/bitwise-media-group/patchy/internal/attribution"
 	"github.com/bitwise-media-group/patchy/internal/forge"
 	"github.com/bitwise-media-group/patchy/internal/runnerguard"
 )
@@ -63,6 +64,10 @@ type GateReconciler struct {
 	Concurrency int
 	// Parameters bound the analysis stage (model/turns/budget), from flags.
 	Parameters v1alpha1.AgentParameters
+	// Attribution is --attribution-mode: under attribute each new
+	// Investigation is stamped as the org's, since no human is behind an
+	// investigation; under off (the zero value) nothing is stamped.
+	Attribution attribution.Mode
 	// Now is the clock seam; nil means time.Now.
 	Now func() time.Time
 	// Log receives diagnostics; nil discards.
@@ -260,6 +265,7 @@ func (r *GateReconciler) openInvestigation(
 			Parameters:    r.Parameters,
 			// What the attempt this one retries failed with.
 			PreviousAttempt: prev,
+			AttributedTo:    r.Attribution.Stamp(attribution.Org()),
 		},
 	}
 	if err := r.Create(ctx, inv); err != nil && !kerrors.IsAlreadyExists(err) {

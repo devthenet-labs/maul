@@ -99,6 +99,7 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	runnercfg.RegisterAgentResourceFlags(f)
 	runnercfg.RegisterAgentDNSFlag(f)
 	runnercfg.RegisterAgentsPausedFlag(f)
+	runnercfg.RegisterAttributionFlag(f)
 	f.Int("changeset-max-entries", changeset.DefaultMaxEntries,
 		"most files (upserts plus deletes) a build's changeset may touch before it is rejected without any forge call")
 	return cmd
@@ -174,6 +175,11 @@ func settings(opts *cli.Options, namespace, agentNS string) (intent.Settings, er
 	if deadline < longestStage {
 		return intent.Settings{}, fmt.Errorf("--intent-job-deadline %s is shorter than a stage's timeout", deadline)
 	}
+	mode, err := runnercfg.Attribution(opts)
+	if err != nil {
+		return intent.Settings{}, err
+	}
+	s.Attribution = mode
 	return s, nil
 }
 
@@ -414,6 +420,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		slog.Int("max_concurrent_runs", opts.Int("intent-max-concurrent-runs")),
 		slog.Bool("agents_paused", opts.Bool(runnercfg.AgentsPausedFlag)),
 		slog.Bool("multi_repo", set.MultiRepo),
+		slog.String("attribution_mode", string(set.Attribution)),
 		slog.Bool("repository_images", sizes.repositoryImages),
 		slog.String("agent_resources", sizes.defaults.String()),
 		slog.String("resource_classes", sizes.classes.Describe()))

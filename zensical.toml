@@ -71,6 +71,7 @@ nav = [
     { "egress-broker" = "configuration/egress-broker.md" },
     { "egress-proxy" = "configuration/egress-proxy.md" },
     { "status-server" = "configuration/status-server.md" },
+    { "Run attribution" = "configuration/attribution.md" },
   ] },
   { "Deployment" = [
     { "Helm charts" = "deployment/helm.md" },

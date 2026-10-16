@@ -26,6 +26,7 @@ import (
 
 	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
 	"github.com/bitwise-media-group/patchy/internal/agentresult"
+	"github.com/bitwise-media-group/patchy/internal/attribution"
 	"github.com/bitwise-media-group/patchy/internal/envelope"
 	"github.com/bitwise-media-group/patchy/internal/jobs"
 	"github.com/bitwise-media-group/patchy/internal/priority"
@@ -89,6 +90,11 @@ type InvestigationReconciler struct {
 	// repository-declared image (the --repository-images kill switch and
 	// the sandbox breaker); the zero value never does.
 	Images runnerguard.Guard
+	// Attribution is --attribution-mode: under attribute every Job carries
+	// the attributed-to annotation "org" (an investigation is never a
+	// person's, and the admission policy admits nothing else from this
+	// controller); under off (the zero value) none.
+	Attribution attribution.Mode
 	// Now is the clock seam; nil means time.Now.
 	Now func() time.Time
 	// calibrationTimeout is the deadline seam for the advisory rollup read;
@@ -292,6 +298,7 @@ func (r *InvestigationReconciler) launch(ctx context.Context, inv *v1alpha1.Inve
 		Calibration:    r.calibration(ctx, repoName),
 		// What the attempt this one retries failed with, from its own spec.
 		PreviousAttempt: agentresult.EncodePreviousAttempt(inv.Spec.PreviousAttempt),
+		AttributedTo:    r.Attribution.Annotation(nil),
 	}
 	if skipped := r.Images.Pin(&spec, &repo, &fnd); skipped != "" {
 		r.log().LogAttrs(ctx, slog.LevelInfo, "not running the repository-declared runner image",

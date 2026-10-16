@@ -42,6 +42,12 @@ type RemediationSpec struct {
 	// so the agent does not repeat the failure. Nil on a first attempt.
 	// +optional
 	PreviousAttempt *PreviousAttempt `json:"previousAttempt,omitempty"`
+	// AttributedTo is who the run is for, stamped at creation by
+	// remediation-controller: the Finding's approver when it is held, else the
+	// org under --attribution-mode attribute (design L1); nil under mode off and
+	// on every run created before it. Immutable with the rest of the spec.
+	// +optional
+	AttributedTo *Attribution `json:"attributedTo,omitempty"`
 }
 
 // PullRequestRef is the opened pull request. Its lifecycle (merge/close)

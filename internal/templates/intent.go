@@ -143,6 +143,12 @@ type IntentStatusComment struct {
 	// Project's ceiling; both 0 omit the line.
 	CostMicroUSD    int64
 	MaxCostMicroUSD int64
+	// Attribution is whom the intent's latest run is attributed to (design
+	// L1), shown beside the cost line; nil, as under --attribution-mode off,
+	// omits the line, and the comment is exactly the one without. A person
+	// is named by login as code, never as a mention, so the line notifies
+	// no one.
+	Attribution *IntentAttribution
 	// Reason explains a Blocked or Failed phase in the controller's words.
 	// It may quote what an agent produced (a refused changeset path), so it
 	// is shown fenced, any character in it that renders as nothing shown by
@@ -151,6 +157,13 @@ type IntentStatusComment struct {
 	// Commands are the verbs an approver can use in this phase, such as
 	// "approve"; each is shown as its /patchy command.
 	Commands []string
+}
+
+// IntentAttribution is whom a run is attributed to: Login for a person, ""
+// for the organisation, and the stamp's reason (v1alpha1.AttributionReason).
+type IntentAttribution struct {
+	Login  string
+	Reason string
 }
 
 // IntentPullRequest is one pull request an intent opened.
@@ -213,6 +226,7 @@ func RenderIntentStatusComment(c IntentStatusComment) (string, error) {
 		MaxRevisions     int32
 		Cost             string
 		MaxCost          string
+		Attribution      *IntentAttribution
 		Reason           string
 		Commands         []string
 	}{
@@ -232,9 +246,19 @@ func RenderIntentStatusComment(c IntentStatusComment) (string, error) {
 		MaxRevisions:     c.MaxRevisions,
 		Cost:             usd(c.CostMicroUSD),
 		MaxCost:          usd(c.MaxCostMicroUSD),
+		Attribution:      statusAttribution(c.Attribution),
 		Reason:           strings.TrimRight(visibleText(c.Reason), "\n"),
 		Commands:         slashCommands(c.Commands),
 	})
+}
+
+// statusAttribution is the attribution as the comment shows it: each field
+// on one line, nil when there is none.
+func statusAttribution(a *IntentAttribution) *IntentAttribution {
+	if a == nil {
+		return nil
+	}
+	return &IntentAttribution{Login: oneLine(a.Login), Reason: oneLine(a.Reason)}
 }
 
 type statusPR struct {

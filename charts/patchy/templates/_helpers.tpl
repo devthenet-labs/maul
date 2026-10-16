@@ -282,6 +282,28 @@ already running finish and are collected. Context: dict "root" $ "data"
 {{- end }}
 
 {{/*
+PATCHY_ATTRIBUTION_MODE for every controller that launches agent Jobs
+(investigation, remediation, intent and evaluation): attribution.mode, set
+into .data only when it is not off, so the default leaves every ConfigMap,
+and every checksum/config, as it was. Context: dict "root" $ "data" <dict>.
+*/}}
+{{- define "patchy.attributionData" -}}
+{{- if include "patchy.attributionOn" .root -}}
+{{- $_ := set .data "PATCHY_ATTRIBUTION_MODE" .root.Values.attribution.mode -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+"yes" when attribution.mode is not off: the controllers stamp, and the
+attribution admission policies render.
+*/}}
+{{- define "patchy.attributionOn" -}}
+{{- if ne ((.Values.attribution | default dict).mode | default "off") "off" -}}
+yes
+{{- end -}}
+{{- end }}
+
+{{/*
 One container's operator env (<component>.extraEnv: EnvVar entries, valueFrom
 allowed), rendered as list items for the caller to indent. The names patchy
 itself sets are refused, so a Secret-backed variable can add credentials or

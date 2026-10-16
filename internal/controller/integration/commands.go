@@ -265,7 +265,7 @@ func (a commandAnswer) decide(
 		return v1alpha1.CommandSuperseded, nil, nil
 	}
 	// A probe on a copy: the effect is written once decided (apply).
-	_, err = action.Apply(fnd.DeepCopy(), c.Verb, c.Actor.Login, c.Note, now)
+	_, err = action.ApplyWithID(fnd.DeepCopy(), c.Verb, c.Actor.Login, c.Actor.ID, c.Note, now)
 	switch {
 	case errors.Is(err, action.ErrUnavailable):
 		return v1alpha1.CommandUnavailable, action.Available(fnd, now), nil
@@ -327,7 +327,7 @@ func (a commandAnswer) apply(ctx context.Context, fnd *v1alpha1.Finding) (*v1alp
 		if c.DecidedAt != nil {
 			at = c.DecidedAt.Time
 		}
-		changed, err := action.Apply(cur, c.Verb, c.Actor.Login, c.Note, at)
+		changed, err := action.ApplyWithID(cur, c.Verb, c.Actor.Login, c.Actor.ID, c.Note, at)
 		switch {
 		case errors.Is(err, action.ErrUnavailable):
 			if !appliedBy(cur, c, at) {

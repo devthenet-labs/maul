@@ -96,6 +96,18 @@ var (
 // Callers running under conflict retry must call Apply again after every
 // re-Get, so the gating is re-evaluated against fresh state.
 func Apply(f *v1alpha1.Finding, verb, user, note string, now time.Time) (changed bool, err error) {
+	return ApplyWithID(f, verb, user, 0, note, now)
+}
+
+// ApplyWithID is Apply for an action a GitHub account took (a /patchy
+// command on the tracking issue): the approval, retry or expedite request
+// also records the account's numeric id (byID), the identity run
+// attribution keys on, since a login can be renamed and reused. id <= 0
+// records none, as Apply does for the status page and the CLI, whose
+// usernames are not GitHub accounts.
+func ApplyWithID(f *v1alpha1.Finding, verb, user string, id int64, note string, now time.Time) (changed bool,
+	err error) {
+	id = max(id, 0)
 	switch verb {
 	case VerbSuspend:
 		if f.Spec.Suspend {
@@ -125,7 +137,7 @@ func Apply(f *v1alpha1.Finding, verb, user, note string, now time.Time) (changed
 		if f.Spec.Approval != nil && !staleApproval(f) {
 			return false, nil
 		}
-		f.Spec.Approval = &v1alpha1.Approval{By: user, At: metav1.NewTime(now), Note: note}
+		f.Spec.Approval = &v1alpha1.Approval{By: user, ByID: id, At: metav1.NewTime(now), Note: note}
 
 	case VerbRetry:
 		if v1alpha1.RetryTarget(f) == "" {
@@ -134,7 +146,7 @@ func Apply(f *v1alpha1.Finding, verb, user, note string, now time.Time) (changed
 		if v1alpha1.RetryRequested(f) {
 			return false, nil // a fresh retry is already pending consumption
 		}
-		f.Spec.Retry = &v1alpha1.ActionRequest{By: user, At: metav1.NewTime(now)}
+		f.Spec.Retry = &v1alpha1.ActionRequest{By: user, ByID: id, At: metav1.NewTime(now)}
 
 	case VerbExpedite:
 		if f.Spec.Expedite != nil {
@@ -143,7 +155,7 @@ func Apply(f *v1alpha1.Finding, verb, user, note string, now time.Time) (changed
 		if !expeditable(f.Status.Phase) {
 			return false, ErrUnavailable
 		}
-		f.Spec.Expedite = &v1alpha1.ActionRequest{By: user, At: metav1.NewTime(now)}
+		f.Spec.Expedite = &v1alpha1.ActionRequest{By: user, ByID: id, At: metav1.NewTime(now)}
 
 	default:
 		return false, ErrUnknownVerb

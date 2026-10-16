@@ -7,6 +7,30 @@
 > documentation values `111122223333` and `203.0.113.10/32`. The real ones are in terraform-devthenet's `k8s/` values
 > (private).
 
+## In flight — 2026-10-16: run attribution (per-user credentials, L1)
+
+**Every agent run can say whom it is for.** Branch `feat/run-attribution` adds layer L1 of the per-user credentials
+design (attribution; L2 usage and L3 per-user credentials follow). It is off by default: with chart
+`attribution.mode: off` nothing changes. With `attribute`:
+
+- the four job controllers stamp each new run's immutable `spec.attributedTo` per the design's table, by GitHub numeric
+  id, and annotate every agent Job and pod `patchy.bitwisemedia.uk/attributed-to` (`org` or `github-id:<id>`);
+- a human with no GitHub id on record is re-attributed to the org (`approver-unregistered`);
+- the intent issue's status comment names the latest run's person;
+- up to six admission policies keep the annotation, each run's own stamp and the Finding, Evaluation and Intent identity
+  stamps honest.
+
+See [docs/configuration/attribution.md](docs/configuration/attribution.md).
+
+Not yet live anywhere. To enable: pause the agents, set `attribution.mode: attribute`, upgrade, then resume, so no
+launch from a pod on the old configuration meets the new Job policy.
+
+Known gaps, for later groups:
+
+- Status-page and CLI approvals, and every evaluation submitter, carry no GitHub id yet, so their runs are the org's.
+  Capturing Dex's `federated_claims.user_id` at sign-in closes this.
+- The kustomize base has no attribution policies; the chart is the only rendering.
+
 ## Current checkpoint — 2026-10-15 (night): the CONNECT tunnel, 0.12.35 and 0.12.36
 
 **Agents can install npm, pip, NuGet and Cargo dependencies through a hostname-allowlisted tunnel.** 0.12.36 completes

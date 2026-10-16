@@ -149,7 +149,7 @@ func (p *pass) startCheckFix(ctx context.Context, pr *v1alpha1.IntentPullRequest
 				p.checkFixRounds(), limit, failedIn(p.inRepository(pr.Repository))))
 	}
 	run, err := p.createReviseRun(ctx, pr, p.in.Status.Rounds+1, v1alpha1.IntentRunTriggerChecks,
-		nil, failed.checkIDs, failed.statusIDs, 0)
+		nil, failed.checkIDs, failed.statusIDs, 0, p.attributeRun(v1alpha1.IntentStageBuild))
 	if err != nil {
 		return false, err
 	}

@@ -1203,6 +1203,18 @@
                 }
             }
         },
+        "attribution": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Run attribution (design L1): whom every agent run is for. off changes nothing; attribute stamps spec.attributedTo on new runs and the attributed-to annotation on agent Jobs and pods, and renders the attribution admission policies.",
+            "properties": {
+                "mode": {
+                    "type": "string",
+                    "enum": ["off", "attribute"],
+                    "description": "off (default) or attribute. Reaches investigation-, remediation-, intent- and evaluation-controller as PATCHY_ATTRIBUTION_MODE only when attribute."
+                }
+            }
+        },
         "admissionPolicy": {
             "type": "object",
             "additionalProperties": false,

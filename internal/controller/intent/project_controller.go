@@ -563,6 +563,7 @@ func (r *ProjectReconciler) create(ctx context.Context, p *v1alpha1.Project, pol
 				Login:   trigger.Actor.Login,
 				At:      metav1.NewTime(trigger.CreatedAt),
 				EventID: trigger.ID,
+				UserID:  max(trigger.Actor.ID, 0),
 			},
 		},
 	}

@@ -20,6 +20,7 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	"sigs.k8s.io/yaml"
 
+	"github.com/bitwise-media-group/patchy/internal/attribution"
 	"github.com/bitwise-media-group/patchy/internal/cli"
 	"github.com/bitwise-media-group/patchy/internal/controller/intent"
 	"github.com/bitwise-media-group/patchy/internal/runnercfg"
@@ -139,6 +140,8 @@ func TestComponentConfigReachesSettings(t *testing.T) {
 			IdleTimeout: 20 * time.Minute},
 		Revise: intent.StageCeiling{MaxTurns: 80, TokenBudget: 400000, Timeout: 45 * time.Minute,
 			IdleTimeout: 20 * time.Minute},
+		// Off unless the operator turns it on.
+		Attribution: attribution.ModeOff,
 	}
 	if s != want {
 		t.Errorf("settings = %+v, want %+v", s, want)
@@ -258,5 +261,33 @@ func TestAgentsPausedFlag(t *testing.T) {
 	}
 	if f.DefValue != "false" {
 		t.Errorf("--agents-paused defaults to %q, want false", f.DefValue)
+	}
+}
+
+// TestAttributionModeReachesSettings: PATCHY_ATTRIBUTION_MODE (the chart's
+// attribution.mode) reaches the reconcilers' settings, and an unknown mode
+// stops startup rather than running unattributed.
+func TestAttributionModeReachesSettings(t *testing.T) {
+	for key, value := range componentData(t) {
+		t.Setenv(key, value)
+	}
+	t.Setenv("PATCHY_ATTRIBUTION_MODE", "attribute")
+	opts, root, _ := command(t)
+	if err := root.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	s, err := settings(opts, "patchy", "patchy-agents")
+	if err != nil || s.Attribution != attribution.ModeAttribute {
+		t.Fatalf("settings = %q, %v; want attribution attribute", s.Attribution, err)
+	}
+
+	t.Setenv("PATCHY_ATTRIBUTION_MODE", "enforce")
+	opts, root, _ = command(t)
+	if err := root.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if _, err := settings(opts, "patchy", "patchy-agents"); err == nil ||
+		!strings.Contains(err.Error(), "--attribution-mode") {
+		t.Errorf("settings with mode enforce = %v, want the --attribution-mode refusal", err)
 	}
 }

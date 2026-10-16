@@ -23,6 +23,7 @@ import (
 
 	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
 	"github.com/bitwise-media-group/patchy/internal/action"
+	"github.com/bitwise-media-group/patchy/internal/attribution"
 	"github.com/bitwise-media-group/patchy/internal/command"
 	"github.com/bitwise-media-group/patchy/internal/ghclient"
 	"github.com/bitwise-media-group/patchy/internal/templates"
@@ -525,7 +526,8 @@ func (p *pass) commandRound(ctx context.Context, pr *v1alpha1.IntentPullRequest)
 					p.inRepository(pr.Repository), p.revisionRounds(), limit))
 		}
 		run, err := p.createReviseRun(ctx, pr, p.in.Status.Rounds+1,
-			v1alpha1.IntentRunTriggerCommand, nil, nil, nil, c.ID)
+			v1alpha1.IntentRunTriggerCommand, nil, nil, nil, c.ID,
+			attribution.To(c.UserLogin, c.UserID, v1alpha1.AttributionCommenter))
 		if err != nil {
 			return false, err
 		}
@@ -778,7 +780,9 @@ func (p *pass) reviewRound(ctx context.Context, pr *v1alpha1.IntentPullRequest) 
 	for _, r := range eligible {
 		ids = append(ids, r.ID)
 	}
-	run, err := p.createReviseRun(ctx, pr, round, v1alpha1.IntentRunTriggerReview, ids, nil, nil, 0)
+	newest := eligible[len(eligible)-1].Author
+	run, err := p.createReviseRun(ctx, pr, round, v1alpha1.IntentRunTriggerReview, ids, nil, nil, 0,
+		attribution.To(newest.Login, newest.ID, v1alpha1.AttributionReviewer))
 	if err != nil {
 		return false, err
 	}
@@ -903,7 +907,7 @@ func (p *pass) enterRevising(ctx context.Context, run *v1alpha1.IntentRun) error
 // PR head can never choose a different runner image.
 func (p *pass) createReviseRun(ctx context.Context, pr *v1alpha1.IntentPullRequest, round int32,
 	trigger v1alpha1.IntentRunTrigger, reviewIDs, checkIDs, statusIDs []int64,
-	commandID int64) (*v1alpha1.IntentRun, error) {
+	commandID int64, attributed *v1alpha1.Attribution) (*v1alpha1.IntentRun, error) {
 	ap := p.in.Status.Approval
 	if ap == nil {
 		return nil, errors.New("a revise round has no approved plan")
@@ -936,8 +940,9 @@ func (p *pass) createReviseRun(ctx context.Context, pr *v1alpha1.IntentPullReque
 		Inputs: v1alpha1.IntentRunInputs{ConfigMap: runInputName(name), InputDigest: ap.InputDigest,
 			PlanRevision: ap.PlanRevision, PlanDigest: ap.PlanDigest, ReviewIDs: slices.Clone(reviewIDs),
 			CheckRunIDs: slices.Clone(checkIDs), StatusIDs: slices.Clone(statusIDs), CommandID: commandID},
-		ImageFrom: &v1alpha1.ObjectReference{Name: imageRepo.Name, UID: imageRepo.UID},
-		Grant:     p.set.grant(p.proj, v1alpha1.IntentStageRevise),
+		ImageFrom:    &v1alpha1.ObjectReference{Name: imageRepo.Name, UID: imageRepo.UID},
+		Grant:        p.set.grant(p.proj, v1alpha1.IntentStageRevise),
+		AttributedTo: p.set.Attribution.Stamp(attributed),
 	}
 	run := &v1alpha1.IntentRun{ObjectMeta: metav1.ObjectMeta{
 		Name: name, Namespace: p.in.Namespace,
@@ -968,8 +973,17 @@ func (p *pass) createReviseRun(ctx context.Context, pr *v1alpha1.IntentPullReque
 	if err := p.r.APIReader.Get(ctx, client.ObjectKeyFromObject(run), &existing); err != nil {
 		return nil, err
 	}
-	if existing.Spec.IntentRef.UID != p.in.UID || !reflect.DeepEqual(existing.Spec, spec) {
+	if existing.Spec.IntentRef.UID != p.in.UID || !sameRound(existing.Spec, spec) {
 		return nil, fmt.Errorf("revise run %s: %w", name, errNotOwned)
 	}
 	return &existing, nil
+}
+
+// sameRound reports whether an existing revise run's spec is the round a
+// pass would lease, attribution aside: the existing stamp stands, so a
+// lease a pass created just before --attribution-mode changed is still
+// adopted rather than refused as another's.
+func sameRound(existing, want v1alpha1.IntentRunSpec) bool {
+	existing.AttributedTo, want.AttributedTo = nil, nil
+	return reflect.DeepEqual(existing, want)
 }

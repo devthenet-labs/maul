@@ -2584,6 +2584,56 @@ notes_has paused-notes 'AGENTS PAUSED: agent.paused is true' yes
 notes default-notes
 notes_has default-notes 'AGENTS PAUSED' no
 
+# ---- attribution.mode: run attribution (design L1) -------------------------
+# Off (the default) renders no PATCHY_ATTRIBUTION_MODE and no attribution
+# policy at all. attribute reaches exactly the four controllers that launch
+# agent Jobs, and renders the Job, pod, Finding-stamp and run-stamp policies,
+# plus the Intent-requester policy only with the intent controller and the
+# Evaluation-submitter policy only with the evaluation controller; the Job
+# policy names each launcher present, investigation-controller org-only, and
+# the run-stamp policy pins each run kind to its own controller.
+attribution_policies='select(.kind == "ValidatingAdmissionPolicy") | select(.metadata.name | test("^patchy-attribution-")) | .metadata.name'
+# shellcheck disable=SC2086
+expect extras-none 'select(.kind == "ConfigMap") | select(.data.PATCHY_ATTRIBUTION_MODE != null) | .metadata.name' ""
+expect extras-none "$attribution_policies" ""
+# shellcheck disable=SC2086
+render attribution $allcomponents --set attribution.mode=attribute
+expect attribution 'select(.kind == "ConfigMap") | select(.data.PATCHY_ATTRIBUTION_MODE != null) | .metadata.name' \
+  "$(printf '%s\n' patchy-investigation-controller-config patchy-remediation-controller-config patchy-evaluation-controller-config patchy-intent-controller-config)"
+for c in investigation-controller remediation-controller intent-controller evaluation-controller; do
+  cm attribution "$c" PATCHY_ATTRIBUTION_MODE attribute
+done
+expect attribution "$attribution_policies" \
+  "$(printf '%s\n' patchy-attribution-jobs patchy-attribution-pods patchy-attribution-finding-stamps patchy-attribution-run-stamps patchy-attribution-intent-requester patchy-attribution-evaluation-submitter)"
+expect attribution 'select(.kind == "ValidatingAdmissionPolicyBinding") | select(.metadata.name == "patchy-attribution-jobs") | .spec.matchResources.namespaceSelector.matchLabels."kubernetes.io/metadata.name"' "patchy-agents"
+launchers='select(.kind == "ValidatingAdmissionPolicy" and .metadata.name == "patchy-attribution-jobs") | .spec.variables[] | select(.name == "launcher") | .expression'
+for sa in investigation-controller remediation-controller intent-controller evaluation-controller; do
+  if ! get attribution "$launchers" | grep -qF "system:serviceaccount:patchy:patchy-$sa"; then
+    fail "attribution: the Job policy does not name $sa as a launcher"
+  fi
+done
+if ! get attribution 'select(.kind == "ValidatingAdmissionPolicy" and .metadata.name == "patchy-attribution-jobs") | .spec.validations[0].expression' |
+  grep -qF "patchy-investigation-controller' && variables.runKind == 'investigation' && variables.job.value() == 'org'"; then
+  fail "attribution: the Job policy does not hold investigation-controller to org"
+fi
+run_stamps='select(.kind == "ValidatingAdmissionPolicy" and .metadata.name == "patchy-attribution-run-stamps") | .spec.validations[0].expression'
+for pair in investigations:investigation-controller remediations:remediation-controller intentruns:intent-controller evaluationunits:evaluation-controller; do
+  if ! get attribution "$run_stamps" |
+    grep -qF "request.resource.resource == '${pair%%:*}' && request.userInfo.username == 'system:serviceaccount:patchy:patchy-${pair#*:}'"; then
+    fail "attribution: the run-stamp policy does not pin ${pair%%:*} to ${pair#*:}"
+  fi
+done
+render attribution-core --set attribution.mode=attribute
+expect attribution-core "$attribution_policies" \
+  "$(printf '%s\n' patchy-attribution-jobs patchy-attribution-pods patchy-attribution-finding-stamps patchy-attribution-run-stamps)"
+for sa in intent-controller evaluation-controller; do
+  if get attribution-core "$launchers" | grep -qF "patchy-$sa"; then
+    fail "attribution-core: the Job policy names $sa, which is not installed"
+  fi
+done
+expect_fail "attribution.mode not in the enum" '/attribution/mode' --set attribution.mode=enforce
+expect_fail "attribution of the wrong shape" 'additional properties' --set attribution.bogus=true
+
 # ---- NOTES: the agent egress posture as rendered -----------------------------
 # The NOTES once said "TCP 443 to anywhere" whatever broadEgress resolved to.
 notes_has default-notes 'base NetworkPolicy allows TCP 443 to anywhere' yes
