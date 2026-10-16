@@ -198,6 +198,12 @@ const (
 	ConditionRolledUpRepository = "RolledUpRepository"
 	ConditionRolledUpHarness    = "RolledUpHarness"
 	ConditionRolledUpModel      = "RolledUpModel"
+
+	// ConditionUsageRolledUp marks a run whose usage its own controller has
+	// folded into every UsageRollup scope it owes (reason Aggregated). Only
+	// a run carrying FinalizerUsageRollup gets it; the finalizer is released
+	// once it is True.
+	ConditionUsageRolledUp = "UsageRolledUp"
 )
 
 // Condition reasons.

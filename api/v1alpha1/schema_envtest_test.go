@@ -304,6 +304,10 @@ func TestSchemaValidation(t *testing.T) {
 		testAttributionSchema(ctx, t, c)
 	})
 
+	t.Run("usage rollup scope names exactly its keys, immutably, and its buckets are bounded", func(t *testing.T) {
+		testUsageRollupSchema(ctx, t, c)
+	})
+
 	t.Run("evaluation spec is immutable and bounded", func(t *testing.T) {
 		testEvaluationSchema(ctx, t, c)
 	})
