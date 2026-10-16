@@ -70,6 +70,10 @@ type Prober struct {
 	// http.DefaultTransport.
 	Transport http.RoundTripper
 	Log       *slog.Logger
+	// Gateway, when set (the preview gateway is on), also accepts the
+	// gateway's redirect to its sign-in host's /start: while both paths
+	// serve, a host behind either one is protected.
+	Gateway *previewauth.Hosts
 }
 
 // NeedLeaderElection is false: every replica probes; nothing is written.
@@ -168,8 +172,12 @@ func (p *Prober) probe(ctx context.Context, c *http.Client, v previewauth.View) 
 	}
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 	_ = resp.Body.Close()
-	if err := previewauth.JudgeProbe(resp.StatusCode, resp.Header.Get("Location"), p.Issuer, v.Slot, v.Label,
-		p.Callbacks); err != nil {
+	loc := resp.Header.Get("Location")
+	err = previewauth.JudgeProbe(resp.StatusCode, loc, p.Issuer, v.Slot, v.Label, p.Callbacks)
+	if err != nil && p.Gateway != nil {
+		err = previewauth.JudgeGatewayProbe(resp.StatusCode, loc, *p.Gateway, v.Label)
+	}
+	if err != nil {
 		p.log().LogAttrs(ctx, slog.LevelWarn, "preview host is not protected by the sign-in relay",
 			slog.String("label", v.Label), slog.String("slot", strconv.Itoa(v.Slot)),
 			slog.Int("status", resp.StatusCode))

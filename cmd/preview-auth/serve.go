@@ -9,12 +9,15 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"os"
 	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/spf13/cobra"
+	toolscache "k8s.io/client-go/tools/cache"
+	crcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/bitwise-media-group/patchy/api/v1alpha1"
@@ -79,7 +82,113 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	f.Duration("preview-auth-probe-interval", time.Minute,
 		"how often every Ready preview host is probed without credentials; 0 disables the probe")
 	f.Duration("preview-auth-probe-timeout", hostprobe.DefaultTimeout, "one host probe's timeout")
+	gatewayFlags(cmd)
 	return cmd
+}
+
+// gatewayFlags are the preview gateway's (design §2, §2.1): off by default,
+// and with it off nothing else here is read.
+func gatewayFlags(cmd *cobra.Command) {
+	f := cmd.Flags()
+	glt := previewauth.DefaultGatewayLifetimes()
+	up := httpapi.DefaultUpstreamTimeouts()
+	f.Bool("preview-auth-gateway", false, "serve the preview gateway beside the relay: sign-in on the sign-in "+
+		"host and the authenticating proxy on every https://<label>.<host suffix>")
+	f.String("preview-auth-gateway-sign-in-host", "", "the gateway's sign-in host (default: the issuer's host); "+
+		"another host needs https://<host>/dex/callback registered at Dex for the same client")
+	f.Int("preview-auth-gateway-forwarded-hops", 0, "trusted proxies appending to X-Forwarded-For in front of "+
+		"the gateway's edge; 0 uses the peer address")
+	f.String("preview-auth-gateway-inbound-cidrs", "", "comma-separated client CIDRs preview hosts admit, "+
+		"judged after the forwarded hops; a second layer behind the edge's own allowlist (empty admits all)")
+	f.Int("preview-auth-gateway-body-limit", httpapi.DefaultBodyLimit, "largest proxied request body, in bytes")
+	f.Duration("preview-auth-gateway-dial-timeout", up.Dial, "dial timeout to a preview's Service")
+	f.Duration("preview-auth-gateway-response-header-timeout", up.ResponseHeader,
+		"how long a preview may take to start answering")
+	f.Duration("preview-auth-gateway-idle-timeout", up.Idle, "idle keep-alive connection lifetime to previews")
+	f.Duration("preview-auth-gateway-session-timeout", glt.HostSession, "a preview host session's absolute "+
+		"lifetime, and so the longest an IdP group change takes to apply")
+	f.Duration("preview-auth-gateway-state-ttl", glt.State, "how long a preview host's sign-in may take")
+	f.Duration("preview-auth-gateway-handoff-ttl", glt.Handoff, "a handoff code's lifetime")
+	f.Bool("preview-auth-gateway-hsts", false, "add Strict-Transport-Security to proxied responses")
+}
+
+// gatewayStatic is the gateway's configuration, loaded with the relay's.
+type gatewayStatic struct {
+	cfg *httpapi.GatewayConfig
+	// signInUpstream is the sign-in host's own Dex client, nil when it is
+	// the issuer's host.
+	signInUpstream *dex.Upstream
+}
+
+// loadGateway validates the gateway's flags. It returns nil when the
+// gateway is off.
+func loadGateway(opts *cli.Options, st static, httpClient *http.Client) (*gatewayStatic, error) {
+	if !opts.Bool("preview-auth-gateway") {
+		return nil, nil
+	}
+	issuerHost := strings.TrimPrefix(st.issuer, "https://")
+	signIn := opts.String("preview-auth-gateway-sign-in-host")
+	if signIn == "" {
+		signIn = issuerHost
+	}
+	hosts, err := previewauth.NewHosts(st.callbacks.Suffix(), signIn)
+	if err != nil {
+		return nil, fmt.Errorf("--preview-auth-gateway-sign-in-host: %w", err)
+	}
+	var cidrs []netip.Prefix
+	for _, c := range opts.StringList("preview-auth-gateway-inbound-cidrs") {
+		p, err := netip.ParsePrefix(c)
+		if err != nil {
+			return nil, fmt.Errorf("--preview-auth-gateway-inbound-cidrs: %w", err)
+		}
+		cidrs = append(cidrs, p.Masked())
+	}
+	limit := opts.Int("preview-auth-gateway-body-limit")
+	if limit < 1 {
+		return nil, fmt.Errorf("--preview-auth-gateway-body-limit %d is not positive", limit)
+	}
+	hops := opts.Int("preview-auth-gateway-forwarded-hops")
+	if hops < 0 {
+		return nil, fmt.Errorf("--preview-auth-gateway-forwarded-hops %d is negative", hops)
+	}
+	timeouts := httpapi.UpstreamTimeouts{
+		Dial: opts.Duration("preview-auth-gateway-dial-timeout"), Idle: opts.Duration("preview-auth-gateway-idle-timeout"),
+		ResponseHeader: opts.Duration("preview-auth-gateway-response-header-timeout"),
+	}
+	if timeouts.Dial <= 0 || timeouts.ResponseHeader <= 0 || timeouts.Idle <= 0 {
+		return nil, errors.New("--preview-auth-gateway-*-timeout must all be positive")
+	}
+	gs := &gatewayStatic{cfg: &httpapi.GatewayConfig{
+		Hosts: hosts,
+		Lifetimes: previewauth.GatewayLifetimes{State: opts.Duration("preview-auth-gateway-state-ttl"),
+			Handoff:     opts.Duration("preview-auth-gateway-handoff-ttl"),
+			HostSession: opts.Duration("preview-auth-gateway-session-timeout")},
+		RateLimit: httpapi.RateLimit{
+			PerSecond: opts.Float("preview-auth-rate-per-second"), Burst: opts.Int("preview-auth-rate-burst"),
+			ForwardedHops: hops,
+		},
+		InboundCIDRs: cidrs, BodyLimit: int64(limit), Transport: httpapi.NewUpstreamTransport(timeouts, nil),
+		HSTS: opts.Bool("preview-auth-gateway-hsts"), Recheck: opts.Duration("preview-auth-review-ttl"),
+	}}
+	if err := gs.cfg.Lifetimes.Validate(); err != nil {
+		return nil, err
+	}
+	if signIn != issuerHost {
+		secret, err := readSecretFile(opts.String("preview-auth-dex-client-secret-file"))
+		if err != nil {
+			return nil, err
+		}
+		gs.signInUpstream, err = dex.New(dex.Config{
+			IssuerURL: opts.String("preview-auth-dex-issuer-url"), ClientID: opts.String("preview-auth-dex-client-id"),
+			ClientSecret: secret, RedirectURL: "https://" + signIn + dex.CallbackPath, Claims: claims(opts),
+			HTTPClient: httpClient,
+		})
+		if err != nil {
+			return nil, err
+		}
+		gs.cfg.SignInUpstream = gs.signInUpstream
+	}
+	return gs, nil
 }
 
 func lifetimes(opts *cli.Options) previewauth.Lifetimes {
@@ -120,6 +229,8 @@ type static struct {
 	keys                     keydir.Keys
 	signer                   *signer.Signer
 	upstream                 *dex.Upstream
+	// gateway is the preview gateway's configuration, nil when it is off.
+	gateway *gatewayStatic
 }
 
 // loadStatic validates the flags and loads the keys and the Dex client.
@@ -167,6 +278,10 @@ func loadStatic(opts *cli.Options) (static, error) {
 		ClientSecret: secret, RedirectURL: st.issuer + dex.CallbackPath, Claims: claims(opts),
 		HTTPClient: httpClient,
 	})
+	if err != nil {
+		return st, err
+	}
+	st.gateway, err = loadGateway(opts, st, httpClient)
 	return st, err
 }
 
@@ -217,6 +332,10 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	}
 
 	lookup := kubeview.Lookup{Reader: mgr.GetClient(), Namespace: namespace}
+	var gwCfg *httpapi.GatewayConfig
+	if st.gateway != nil {
+		gwCfg = st.gateway.cfg
+	}
 	srv, err := httpapi.New(httpapi.Config{
 		Issuer: issuer, SlotCount: opts.Int("preview-auth-slot-count"), Callbacks: cb, Lifetimes: lifetimes(opts),
 		Ring: keys.Ring, Lookup: lookup,
@@ -230,22 +349,28 @@ func serve(ctx context.Context, opts *cli.Options) error {
 			PerSecond: opts.Float("preview-auth-rate-per-second"), Burst: opts.Int("preview-auth-rate-burst"),
 			ForwardedHops: opts.Int("preview-auth-forwarded-hops"),
 		},
-		Log: log,
+		Log: log, Gateway: gwCfg,
 	})
 	if err != nil {
 		return err
 	}
-	if err := mgr.Add(&hostprobe.Prober{
+	prober := &hostprobe.Prober{
 		Lister: lookup, Callbacks: cb, Issuer: issuer, Interval: opts.Duration("preview-auth-probe-interval"),
 		Timeout: opts.Duration("preview-auth-probe-timeout"), Log: log,
-	}); err != nil {
+	}
+	if gwCfg != nil {
+		prober.Gateway = &gwCfg.Hosts
+		if err := watchPreviews(ctx, mgr.GetCache(), srv.PreviewChanged); err != nil {
+			return err
+		}
+		if err := mgr.Add(rechecker{srv}); err != nil {
+			return fmt.Errorf("gateway rechecks: %w", err)
+		}
+	}
+	if err := mgr.Add(prober); err != nil {
 		return fmt.Errorf("host probe: %w", err)
 	}
-	httpSrv := &http.Server{
-		Addr: opts.ListenAddr, Handler: srv.Handler(),
-		ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second,
-		IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 64 << 10,
-	}
+	httpSrv := newHTTPServer(opts.ListenAddr, srv.Handler(), gwCfg != nil)
 	if err := mgr.Add(listener{srv: httpSrv}); err != nil {
 		return fmt.Errorf("listener: %w", err)
 	}
@@ -254,12 +379,71 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	}
 
 	log.LogAttrs(ctx, slog.LevelInfo, "preview-auth starting",
-		slog.String("issuer", issuer), slog.String("host_suffix", cb.Suffix()),
+		slog.String("issuer", issuer), slog.String("host_suffix", cb.Suffix()), slog.Bool("gateway", gwCfg != nil),
 		slog.Int("slot_count", opts.Int("preview-auth-slot-count")), slog.Int("key_generation", keys.Ring.Generation()),
 		slog.String("signing_kid", sg.KeyID()), slog.String("listen_addr", httpSrv.Addr))
 	if err := mgr.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		return err
 	}
+	return nil
+}
+
+// newHTTPServer is the relay's server. With the gateway on it has no Read or
+// WriteTimeout, which would cut proxied streams and WebSockets: relay
+// requests set their own deadlines instead, and proxied ones are bounded by
+// their host session.
+func newHTTPServer(addr string, h http.Handler, gateway bool) *http.Server {
+	srv := &http.Server{
+		Addr: addr, Handler: h,
+		ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second,
+		IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 64 << 10,
+	}
+	if gateway {
+		srv.ReadTimeout, srv.WriteTimeout = 0, 0
+	}
+	return srv
+}
+
+// informerSource is the part of the manager's cache watchPreviews needs.
+type informerSource interface {
+	GetInformer(ctx context.Context, obj client.Object, opts ...crcache.InformerGetOption) (crcache.Informer, error)
+}
+
+// watchPreviews tells the gateway (changedLabel) about every Preview update
+// and delete, so
+// the streams it proxies to a Preview that is gone or replaced are closed at
+// once rather than at the next re-check.
+func watchPreviews(ctx context.Context, c informerSource, changedLabel func(context.Context, string)) error {
+	inf, err := c.GetInformer(ctx, &v1alpha1.Preview{})
+	if err != nil {
+		return fmt.Errorf("preview informer: %w", err)
+	}
+	changed := func(obj any) {
+		key, err := toolscache.DeletionHandlingMetaNamespaceKeyFunc(obj)
+		if err != nil {
+			return
+		}
+		if _, name, err := toolscache.SplitMetaNamespaceKey(key); err == nil {
+			changedLabel(ctx, name)
+		}
+	}
+	_, err = inf.AddEventHandler(toolscache.ResourceEventHandlerFuncs{
+		UpdateFunc: func(_, obj any) { changed(obj) },
+		DeleteFunc: changed,
+	})
+	if err != nil {
+		return fmt.Errorf("preview event handler: %w", err)
+	}
+	return nil
+}
+
+// rechecker re-checks the gateway's proxied streams on every replica.
+type rechecker struct{ srv *httpapi.Server }
+
+func (r rechecker) NeedLeaderElection() bool { return false }
+
+func (r rechecker) Start(ctx context.Context) error {
+	r.srv.RunRechecks(ctx)
 	return nil
 }
 

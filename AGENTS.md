@@ -94,6 +94,12 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   rollback, the probe gate before the allowlist goes), reference `docs/configuration/preview-auth.md`; the terraform
   module's `preview_auth` puts its host on the edge. Flags carry a `preview-auth-` prefix (`PATCHY_PREVIEW_AUTH_*`).
   Engine in `internal/previewauth` (core), `internal/previewauth/adapters/*` and `internal/previewauth/httpapi`.
+  With `--preview-auth-gateway` (default off; the chart does not expose it yet) it is also the preview gateway, beside
+  the unchanged provider endpoints: `/start` on its sign-in host (the issuer's by default) issues a single-use handoff
+  code to `https://<label>.<suffix>/.patchy/callback`, which sets a per-host session; every preview host is then proxied
+  to the Services `status.serving` names, held to the proxy hygiene contract (origin rule, no gateway cookie or identity
+  header upstream, pairwise `X-Patchy-Viewer`, Set-Cookie and cache filtering), and its streams are closed on expiry,
+  revocation or a Preview change. Reference `docs/configuration/preview-auth.md#the-preview-gateway-off-by-default`.
 - `cmd/evaluation-controller` — OPTIONAL (default-off in the chart): remote skill-evaluation execution for
   evolve. Hosts the bearer-authenticated HTTP API (`pkg/evaluation` wire contract: workspace upload streamed to
   source-controller's `:9791` blob endpoint, submission, snapshot, SSE monitoring, cancel; OIDC verify + SAR on
@@ -341,7 +347,11 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   lazy retried discovery, `web/auth.MapClaims` under the intents-views claims posture), `signer` (RS256, JWKS of
   current and previous key, RFC 7638 kids), `keydir` (the mounted keys Secret) and `hostprobe` (the unauthenticated
   host probe, critique F5). `previewauth/httpapi` is the HTTP surface (endpoints, pages, envelope headers, rate
-  limit, audit line, OTel counters); `previewauth/fakedex` is test support only (an in-memory Dex).
+  limit, audit line, OTel counters, and the preview gateway: `gateway*.go` and `streams.go`, off unless
+  `Config.Gateway` is set); `previewauth/fakedex` is test support only (an in-memory Dex). The gateway's pure side is
+  in the core: `gateway.go` (the state, handoff code, gateway login and host session kinds t, o, g and h, and
+  `Handoff.Redeem`, the fixation check) and `hygiene.go` (the `Hosts` grammar and `Location`, `CheckOrigin`,
+  `CleanRequest`, `CleanResponse`), each with seeded properties; `View.Routes` are read from `status.serving`.
 - `rbactest` — test support only: `WaitAllowed` polls SubjectAccessReviews until a real API server's RBAC authorizer
   has observed a grant a suite just stored, so envtest suites (action policy, authz, chart, e2e) never act inside the
   informer window and flake on a refusal.

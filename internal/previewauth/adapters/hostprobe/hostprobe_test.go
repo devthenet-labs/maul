@@ -48,6 +48,10 @@ func (h hosts) RoundTrip(r *http.Request) (*http.Response, error) {
 		return rec.Result(), nil
 	case "other-slot":
 		slot = "0"
+	case "gateway":
+		rec.Header().Set("Location", "https://preview-auth.example.com/start?h="+label+"&s=pa1.t.1.abc")
+		rec.WriteHeader(http.StatusFound)
+		return rec.Result(), nil
 	}
 	q := url.Values{"client_id": {"patchy-preview-s" + slot}, "response_type": {"code"},
 		"redirect_uri": {"https://" + label + "." + suffix + "/oauth2/idpresponse"}}
@@ -78,6 +82,34 @@ func TestOnce(t *testing.T) {
 	p.Lister = failing{}
 	if res := p.Once(context.Background()); res.Probed != 0 {
 		t.Fatalf("failed listing probed %+v", res)
+	}
+}
+
+// TestOnceGateway: with the gateway on, a host answering with the gateway's
+// redirect is protected as well as one behind the ALB; without it, it is not.
+func TestOnceGateway(t *testing.T) {
+	cb, err := previewauth.NewCallbacks(suffix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gw, err := previewauth.NewHosts(suffix, "preview-auth.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := func(label string) previewauth.View {
+		return previewauth.View{UID: "u-" + label, Label: label, Project: "p", Slot: 1, Live: true}
+	}
+	p := &Prober{
+		Lister: views{v("a-1"), v("b-2"), v("g-3")}, Callbacks: cb, Issuer: issuer,
+		Transport: hosts{"a-1": "auth", "b-2": "app", "g-3": "gateway"},
+	}
+	if res := p.Once(context.Background()); res.Unprotected != 2 {
+		t.Fatalf("gateway off: %+v", res)
+	}
+	p.Gateway = &gw
+	res := p.Once(context.Background())
+	if res.Probed != 3 || res.Unprotected != 1 || !slices.Equal(res.UnprotectedLabels, []string{"b-2"}) {
+		t.Fatalf("gateway on: %+v", res)
 	}
 }
 
