@@ -260,6 +260,11 @@ e2e/                SEPARATE Go module: envtest carries the CRDs, the real binar
                     preview_gateway_test.go does the same with the gateway on and the legacy
                     Ingress off, preview-auth built by buildTagged with the e2edial tag so
                     slot Service names dial local listeners (no kube-proxy under envtest).
+                    broker_cost_test.go runs egress-broker (cluster.serveBinary: not a
+                    controller, so no --namespace) on envtest's real TokenReview with
+                    pod-bound tokens and a fake model upstream of heavy cache-read turns:
+                    the token unit cuts the run, the cost unit admits it, a budget
+                    annotation still bounds it.
 docs/ overrides/    Zensical docs site (zensical.toml at the root; patchy-branded theme in
                     docs/stylesheets/extra.css + overrides/). `mise run serve` to preview,
                     `mise run docs-build` to build; the reusable release workflow publishes it

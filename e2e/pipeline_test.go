@@ -360,14 +360,22 @@ func (cl *cluster) stoppableController(t *testing.T, name string, extra ...strin
 // stoppableBinary is stoppableController running bin, a build of name.
 func (cl *cluster) stoppableBinary(t *testing.T, name, bin string, extra ...string) (pid int, stop func()) {
 	t.Helper()
+	return cl.serveBinary(t, name, bin, append([]string{"--namespace", namespace}, extra...)...)
+}
+
+// serveBinary runs bin's serve command against the cluster with the shared
+// kubeconfig, health and log flags plus args, and waits for its readiness
+// probe. A controller takes --namespace (stoppableBinary adds it); a binary
+// that is not one, such as the egress broker, does not.
+func (cl *cluster) serveBinary(t *testing.T, name, bin string, args ...string) (pid int, stop func()) {
+	t.Helper()
 	health := fmt.Sprintf("127.0.0.1:%d", freePort(t))
-	args := append([]string{
+	args = append([]string{
 		"serve",
 		"--kubeconfig", cl.kubeconfig,
-		"--namespace", namespace,
 		"--health-addr", health,
 		"--log-level", "info",
-	}, extra...)
+	}, args...)
 
 	cmd := exec.Command(bin, args...)
 	var logs bytes.Buffer
