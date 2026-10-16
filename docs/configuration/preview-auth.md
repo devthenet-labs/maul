@@ -191,9 +191,10 @@ What the gateway holds every proxied request to (each rule is pinned by a seeded
   host is same-site with every other, so this, not `SameSite`, closes cross-preview CSRF and WebSocket hijacking.
 - **Identity.** Every gateway and relay cookie (`patchy-pv*`, `patchy-pa*`, however cased or prefixed) and every inbound
   identity or forwarding header (`X-Patchy-*`, `X-Forwarded-*`, `Forwarded`, `X-Amzn-Oidc-*`, `X-Auth-Request-*`, ...)
-  is dropped. The gateway sets `X-Patchy-Viewer: <pairwise sub>` (stable for one viewer on one Preview, unrelated across
-  Previews), `X-Forwarded-For`, `-Proto` and `-Host`, and nothing else about the viewer. The app's own `Authorization`
-  passes untouched.
+  is dropped, with `_` read as `-` (`X_Forwarded_For` too: CGI-style servers fold the two). The gateway sets
+  `X-Patchy-Viewer: <pairwise sub>` (stable for one viewer on one Preview, unrelated across Previews),
+  `X-Forwarded-For`, `-Proto` and `-Host`, and nothing else about the viewer. The app's own `Authorization` passes
+  untouched.
 - **Responses.** A `Set-Cookie` naming a gateway cookie is dropped (a preview can neither shadow nor delete the
   session); `Clear-Site-Data`, `Access-Control-Allow-Credentials` and `Service-Worker-Allowed` are removed;
   `Cache-Control` loses `public` and `s-maxage` and gains `private` (and `no-store` on a status other than 2xx and 304);
