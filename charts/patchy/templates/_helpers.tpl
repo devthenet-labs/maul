@@ -1265,6 +1265,29 @@ unchanged; a stretched deadline is written in seconds.
 {{- end }}
 
 {{/*
+intent-controller's deadline rule, failed at render rather than at startup:
+every stage timeout plus 15m (the Job deadline's margin,
+intent.JobDeadlineMargin) must fit under intentController.config.jobDeadlineMax,
+or a stage's Jobs could end before it times out. jobDeadline is a floor of its
+own, not tied to the stage timeouts. A value the chart cannot read (not whole
+h, m and s) is left to the controller's startup check.
+*/}}
+{{- define "patchy.intentDeadlineGuard" -}}
+{{- $own := .Values.intentController.config | default dict -}}
+{{- $max := toString ($own.jobDeadlineMax | default "") -}}
+{{- $maxS := int64 (include "patchy.durationSeconds" $max) -}}
+{{- if ge $maxS 0 -}}
+{{- range $stage := list "plan" "build" "revise" -}}
+{{- $t := toString ((index $own $stage | default dict).timeout | default "") -}}
+{{- $tS := int64 (include "patchy.durationSeconds" $t) -}}
+{{- if and (ge $tS 0) (gt (add $tS 900) $maxS) -}}
+{{- fail (printf "intentController.config.%s.timeout %s plus 15m is longer than intentController.config.jobDeadlineMax %s: its Jobs could end before the stage times out (intent-controller refuses to start); raise jobDeadlineMax or shorten the stage" $stage $t $max) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 The tunnel's budget window as stamped (PATCHY_TUNNEL_SOURCE_BUDGET_IDLE):
 egressProxy.tunnel.sourceBudgetIdle when set (guard 26 holds it to the
 longest Job deadline), else 2h, or that deadline when it is longer.

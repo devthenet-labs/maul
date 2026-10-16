@@ -62,8 +62,8 @@ other binary binds, so the shared kustomize ConfigMap cannot set one by accident
 | `--usage-token-file`                            | `PATCHY_USAGE_TOKEN_FILE`                                 | `/var/run/secrets/patchy/broker-usage/token` | projected token for the `patchy-egress-broker-usage` audience, read per request                                                                                                                                                                       |
 | `--intent-rate-limit-floor`                     | `PATCHY_INTENT_RATE_LIMIT_FLOOR`                          | `1000`                                       | Pause intent polling while the installation has fewer core requests left than this; `0` disables                                                                                                                                                      |
 | `--intent-ttl`                                  | `PATCHY_INTENT_TTL`                                       | `336h` (14 days)                             | How long an ended intent is kept, with everything it owns; `0` keeps it forever                                                                                                                                                                       |
-| `--intent-job-deadline`                         | `PATCHY_INTENT_JOB_DEADLINE`                              | `90m`                                        | The least `activeDeadlineSeconds` on an intent Job; at least every stage timeout                                                                                                                                                                      |
-| `--intent-job-deadline-max`                     | `PATCHY_INTENT_JOB_DEADLINE_MAX`                          | `4h30m`                                      | The most a run's stage timeout plus 15m may stretch its Job's deadline ([Stage limits](#stage-limits))                                                                                                                                                |
+| `--intent-job-deadline`                         | `PATCHY_INTENT_JOB_DEADLINE`                              | `90m`                                        | The least `activeDeadlineSeconds` on an intent Job, whatever its stage; not tied to the stage timeouts                                                                                                                                                |
+| `--intent-job-deadline-max`                     | `PATCHY_INTENT_JOB_DEADLINE_MAX`                          | `4h30m`                                      | The most a run's stage timeout plus 15m may stretch its Job's deadline; every stage timeout plus 15m must fit under it ([Stage limits](#stage-limits))                                                                                                |
 | `--broker-limit-unit`                           | `PATCHY_BROKER_LIMIT_UNIT`                                | `tokens`                                     | The egress broker's unit; `cost` grants every run a cost budget stamped on its Job ([Stage limits](#stage-limits)). Helm: `egressBroker.limits.unit`                                                                                                  |
 | `--broker-cost-per-hour`                        | `PATCHY_BROKER_COST_PER_HOUR`                             | `0`                                          | The broker's hourly cost limit in micro-USD (`cost` only): a Project whose run budget exceeds half is not Ready. Helm: `egressBroker.limits.costPerHour`                                                                                              |
 | `--intent-plan-model`                           | `PATCHY_INTENT_PLAN_MODEL`                                | `anthropic/claude-sonnet-5`                  | Canonical model the plan stage runs                                                                                                                                                                                                                   |
@@ -103,10 +103,11 @@ The per-stage limits are ceilings. A Project's `limits` may lower them for its o
 timeouts are the runner's no-progress watchdog ([agent-runner](agent-runner.md#the-idle-watchdog)), set per stage and
 not by a Project: a run that waits that long on a command that never returns ends as a `timeout` naming the command,
 which counts as one of the run's attempts, as the wall clock's timeout does. The plan stage's equals its wall clock by
-default, so only a build, revise or check-fix run is ever ended early. The controller refuses to start with a Job
-deadline shorter than any stage timeout. Any longer deadline works: each Job's broker caller token is minted for its
-deadline plus 15 minutes (at least an hour), so it always outlives the Job. `--job-deadline`, `--model-allowlist` and
-the `--investigate-*`/`--remediate-*` flags belong to the finding job controllers and are not read here.
+default, so only a build, revise or check-fix run is ever ended early. The controller refuses to start when any stage
+timeout plus 15 minutes is longer than `--intent-job-deadline-max`; `--intent-job-deadline` is a floor of its own and
+need not cover the stage timeouts. Each Job's broker caller token is minted for its deadline plus 15 minutes (at least
+an hour), so it always outlives the Job. `--job-deadline`, `--model-allowlist` and the `--investigate-*`/`--remediate-*`
+flags belong to the finding job controllers and are not read here.
 
 ### Stage limits
 
@@ -118,7 +119,8 @@ Project that needs more.
 - `timeout` (1m to 4h) is the run's wall clock, recorded on its IntentRun grant. Its Job's deadline is that timeout plus
   15 minutes (prepare, report repair, collection), capped by `--intent-job-deadline-max` and never under
   `--intent-job-deadline`, so with the defaults (every stage timeout at most 75m) every intent Job keeps its 90m
-  deadline. A stage timeout raised to 3h gets a 3h15m deadline.
+  deadline. Raising only `--intent-build-timeout` to 3h gives build Jobs a 3h15m deadline while plan and revise Jobs
+  keep 90m: the floor is not raised with it.
 - `maxCostMicroUSD` is one run's spend budget, at most the Project's per-intent `limits.maxCostMicroUSD` (the schema
   refuses more). It is enforced only while the egress broker counts cost (`--broker-limit-unit cost`, Helm:
   `egressBroker.limits.unit: cost`): every run is then granted a budget, the stage's or else the per-intent ceiling,

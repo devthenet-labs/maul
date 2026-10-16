@@ -125,7 +125,8 @@ func TestRunBudgetForAnUnbudgetedRun(t *testing.T) {
 // TestStageTimeoutLowersTheGrant: a Project's stage timeout shortens the
 // run's wall clock, in the grant and in the env agent-runner reads, and a
 // longer one is clamped to the controller's; the Job's deadline follows the
-// granted timeout.
+// granted timeout, over a floor the binary starts with (any positive one:
+// the floor is not tied to the stage timeouts).
 func TestStageTimeoutLowersTheGrant(t *testing.T) {
 	p := testProject()
 	p.Spec.Limits.Plan.Timeout = &metav1.Duration{Duration: 10 * time.Minute}
@@ -142,15 +143,15 @@ func TestStageTimeoutLowersTheGrant(t *testing.T) {
 	}
 
 	e := newEnv(t, p)
-	e.jobDeadlines(0, 4*time.Hour+30*time.Minute)
+	e.jobDeadlines(30*time.Minute, 4*time.Hour+30*time.Minute)
 	name := e.newIntent(approver)
 	e.drive(name, v1alpha1.IntentAwaitingApproval, repoImage)
 	spec, env := e.launchOf(t, "plan")
 	if env["PATCHY_INVESTIGATE_TIMEOUT"] != "10m0s" {
 		t.Errorf("plan env timeout = %q, want 10m0s", env["PATCHY_INVESTIGATE_TIMEOUT"])
 	}
-	if spec.Deadline != 25*time.Minute {
-		t.Errorf("plan Job deadline = %s, want the timeout plus 15m", spec.Deadline)
+	if spec.Deadline != 30*time.Minute {
+		t.Errorf("plan Job deadline = %s, want the 30m floor over its 25m", spec.Deadline)
 	}
 	e.clock.Advance(time.Minute)
 	e.gh.label(1, "patchy:approved", approver)
@@ -161,6 +162,29 @@ func TestStageTimeoutLowersTheGrant(t *testing.T) {
 	}
 	if spec.Deadline != 75*time.Minute {
 		t.Errorf("build Job deadline = %s, want the timeout plus 15m", spec.Deadline)
+	}
+}
+
+// TestLongStageStretchesOnlyItsOwnJobs: under the shipped 90m floor, an
+// operator who raises the build stage to 3h gets a 3h15m build Job while the
+// plan Job keeps 90m. The floor is not raised to the longest stage, which
+// would hand every short stage the long one's deadline.
+func TestLongStageStretchesOnlyItsOwnJobs(t *testing.T) {
+	e := newEnv(t, testProject())
+	for _, s := range []*Settings{&e.project.Settings, &e.intent.Settings, &e.runs.Settings} {
+		s.Build.Timeout = 3 * time.Hour
+	}
+	e.jobDeadlines(90*time.Minute, 4*time.Hour+30*time.Minute)
+	name := e.newIntent(approver)
+	e.drive(name, v1alpha1.IntentAwaitingApproval, repoImage)
+	if spec, _ := e.launchOf(t, "plan"); spec.Deadline != 90*time.Minute {
+		t.Errorf("plan Job deadline = %s, want the 90m floor", spec.Deadline)
+	}
+	e.clock.Advance(time.Minute)
+	e.gh.label(1, "patchy:approved", approver)
+	e.drive(name, v1alpha1.IntentInReview, repoImage)
+	if spec, _ := e.launchOf(t, "build"); spec.Deadline != 3*time.Hour+15*time.Minute {
+		t.Errorf("build Job deadline = %s, want its 3h timeout plus 15m", spec.Deadline)
 	}
 }
 
@@ -199,9 +223,9 @@ func TestJobDeadlineProperty(t *testing.T) {
 		timeout := time.Duration(timeoutS)*time.Second + time.Second
 		got := Settings{JobDeadline: floor, JobDeadlineMax: ceiling}.jobDeadline(timeout)
 		return got >= floor &&
-			got >= min(timeout+jobDeadlineMargin, ceiling) &&
+			got >= min(timeout+JobDeadlineMargin, ceiling) &&
 			got <= max(floor, ceiling) &&
-			(got == floor || got <= timeout+jobDeadlineMargin)
+			(got == floor || got <= timeout+JobDeadlineMargin)
 	}
 	if err := quick.Check(prop, quickConfig(11)); err != nil {
 		t.Error(err)

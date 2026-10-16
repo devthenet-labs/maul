@@ -1105,13 +1105,16 @@ intentController:
         # Ended intents are deleted this long after completion (everything
         # they own cascades); "0s" keeps them forever.
         intentTTL: 336h
-        # The least activeDeadlineSeconds on an intent Job: at least every
-        # stage timeout (the controller refuses to start otherwise). A run
-        # whose stage timeout plus 15m is longer gets that instead, up to
-        # jobDeadlineMax. The broker caller token each Job gets is minted for
-        # its deadline plus 15m (at least 1h), so it outlives the Job.
+        # The least activeDeadlineSeconds on an intent Job, whatever its
+        # stage. A run whose stage timeout plus 15m is longer gets that
+        # instead, so raising one stage's timeout stretches only that stage's
+        # Jobs (this floor need not follow it). The broker caller token each
+        # Job gets is minted for its deadline plus 15m (at least 1h), so it
+        # outlives the Job.
         jobDeadline: 90m
         # The most a run's stage timeout may stretch its Job's deadline to.
+        # Every stage timeout plus 15m must fit under it (a render guard, and
+        # the controller refuses to start otherwise).
         jobDeadlineMax: 4h30m
         # The per-stage ceilings. A Project's limits may lower them, never
         # raise them. The models must resolve to the claude harness. Each

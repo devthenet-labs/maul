@@ -189,24 +189,29 @@ type Settings struct {
 	// cluster's hour alone.
 	BrokerCostPerHour int64
 	// JobDeadline is --intent-job-deadline, the least activeDeadlineSeconds
-	// an intent Job gets; JobDeadlineMax is --intent-job-deadline-max, the
-	// most a run's stage timeout can stretch it to (jobDeadline).
+	// an intent Job gets, independent of the stage timeouts; JobDeadlineMax
+	// is --intent-job-deadline-max, the most a run's stage timeout can
+	// stretch it to (jobDeadline), which every stage timeout plus
+	// JobDeadlineMargin fits under.
 	JobDeadline    time.Duration
 	JobDeadlineMax time.Duration
 }
 
-// jobDeadlineMargin is what an intent Job's deadline allows past its stage
-// timeout: the prepare init, report repair rounds and collection.
-const jobDeadlineMargin = 15 * time.Minute
+// JobDeadlineMargin is what an intent Job's deadline allows past its stage
+// timeout: the prepare init, report repair rounds and collection. The binary
+// refuses to start unless every stage timeout plus it fits under
+// JobDeadlineMax.
+const JobDeadlineMargin = 15 * time.Minute
 
 // jobDeadline is the activeDeadlineSeconds of a run whose stage timeout is
-// timeout: the timeout plus jobDeadlineMargin, capped by JobDeadlineMax, and
+// timeout: the timeout plus JobDeadlineMargin, capped by JobDeadlineMax, and
 // never less than JobDeadline, so a short stage keeps the deadline every
-// intent Job had before deadlines were derived. Zero keeps the jobs Config's.
+// intent Job had before deadlines were derived, while a longer stage
+// stretches only its own Jobs. Zero keeps the jobs Config's.
 func (s Settings) jobDeadline(timeout time.Duration) time.Duration {
 	derived := time.Duration(0)
 	if timeout > 0 {
-		derived = timeout + jobDeadlineMargin
+		derived = timeout + JobDeadlineMargin
 		if s.JobDeadlineMax > 0 && derived > s.JobDeadlineMax {
 			derived = s.JobDeadlineMax
 		}

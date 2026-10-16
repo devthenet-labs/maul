@@ -200,15 +200,43 @@ func TestResourceClasses(t *testing.T) {
 	}
 }
 
-// TestSettingsRefusesADeadlineShorterThanAStage pins the startup check the
-// chart and the component document: the Job deadline bounds every stage.
-func TestSettingsRefusesADeadlineShorterThanAStage(t *testing.T) {
-	opts, root, _ := command(t, "--intent-job-deadline", "59m")
-	if err := root.Execute(); err != nil {
-		t.Fatalf("execute: %v", err)
+// TestSettingsDecouplesTheDeadlineFloor: --intent-job-deadline is a floor
+// independent of the stage timeouts, so a build timeout raised to 3h starts
+// under the default 90m floor (the build's Jobs alone stretch to 3h15m), as
+// does a floor shorter than every stage. What is refused is a stage whose
+// timeout plus 15m does not fit under --intent-job-deadline-max, or a floor
+// that is not positive.
+func TestSettingsDecouplesTheDeadlineFloor(t *testing.T) {
+	load := func(t *testing.T, args ...string) (intent.Settings, error) {
+		t.Helper()
+		opts, root, _ := command(t, args...)
+		if err := root.Execute(); err != nil {
+			t.Fatalf("execute: %v", err)
+		}
+		return settings(opts, "patchy", "patchy-agents")
 	}
-	if _, err := settings(opts, "patchy", "patchy-agents"); err == nil {
-		t.Fatal("settings accepted a 59m Job deadline under a 60m build timeout")
+	for _, args := range [][]string{
+		{"--intent-build-timeout", "3h"},
+		{"--intent-job-deadline", "59m"},
+		{"--intent-build-timeout", "4h15m"},
+	} {
+		if _, err := load(t, args...); err != nil {
+			t.Errorf("settings(%v) = %v, want it to start", args, err)
+		}
+	}
+	s, err := load(t, "--intent-build-timeout", "3h")
+	if err != nil || s.JobDeadline != 90*time.Minute {
+		t.Errorf("a 3h build kept floor %s, %v; want the default 90m untouched", s.JobDeadline, err)
+	}
+	for _, args := range [][]string{
+		{"--intent-build-timeout", "4h16m"},
+		{"--intent-plan-timeout", "2h", "--intent-job-deadline-max", "2h"},
+		{"--intent-revise-timeout", "2h", "--intent-job-deadline-max", "2h14m"},
+		{"--intent-job-deadline", "0s"},
+	} {
+		if _, err := load(t, args...); err == nil {
+			t.Errorf("settings(%v) succeeded, want a startup error", args)
+		}
 	}
 }
 

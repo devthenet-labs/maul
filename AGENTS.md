@@ -141,11 +141,12 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   writer of Project status, Intent and IntentRun. Its own flags carry an `intent-` prefix (`PATCHY_INTENT_*`); it runs
   on brokered claude only (or the fake harness in dev). A Project's stage `timeout` (clamped to the stage flag) sets
   each run's wall clock and its Job deadline (timeout + 15m, never under `--intent-job-deadline`, capped by
-  `--intent-job-deadline-max`). With `--broker-limit-unit cost` (chart: `egressBroker.limits.unit: cost`; default
-  tokens, nothing stamped) every run's immutable grant records a cost budget (`limits.<stage>.maxCostMicroUSD`, else
-  the per-intent ceiling) stamped on its Job and pod as `provider.BudgetAnnotation`, the chart's `budget-policy.yaml`
-  letting only intent-controller set it; with `--broker-cost-per-hour` a Project whose run budget exceeds half of it
-  is not Ready (`RunBudgetOverHourlyLimit`).
+  `--intent-job-deadline-max`, under which every stage flag plus 15m must fit; the floor is not tied to the stage
+  timeouts, so a longer stage stretches only its own Jobs). With `--broker-limit-unit cost` (chart:
+  `egressBroker.limits.unit: cost`; default tokens, nothing stamped) every run's immutable grant records a cost
+  budget (`limits.<stage>.maxCostMicroUSD`, else the per-intent ceiling) stamped on its Job and pod as
+  `provider.BudgetAnnotation`, the chart's `budget-policy.yaml` letting only intent-controller set it; with
+  `--broker-cost-per-hour` a Project whose run budget exceeds half of it is not Ready (`RunBudgetOverHourlyLimit`).
 - `cmd/preview-controller` — OPTIONAL (default-off): renders one `Preview` per eligible Intent PR into a fixed,
   isolated slot namespace. It uses only the Kubernetes API, with namespaced Roles and no GitHub, AWS, ECR or Secret
   access. It owns Preview status, fixed Deployment/Service/Ingress objects, bounded retries, slot cleanup and a

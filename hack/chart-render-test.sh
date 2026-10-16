@@ -2894,13 +2894,25 @@ cm egress-tunnel-long egress-proxy PATCHY_TUNNEL_MIN_BUDGET_IDLE 3h
 cm egress-tunnel-long egress-proxy PATCHY_TUNNEL_SOURCE_BUDGET_IDLE 3h
 # An intent stage whose timeout plus 15m outlasts intentController's
 # jobDeadline stretches its Job's deadline (LF2), up to jobDeadlineMax, and
-# the window follows the longest such deadline.
+# the window follows the longest such deadline. The floor stays 90m: it is
+# not tied to the stage timeouts, so this is a shape intent-controller starts
+# with (TestSettingsDecouplesTheDeadlineFloor).
 render egress-tunnel-stage -f "$ri" -f "$ic" -f "$et" --set intentController.config.build.timeout=3h
 cm egress-tunnel-stage egress-proxy PATCHY_TUNNEL_MIN_BUDGET_IDLE 11700s
 cm egress-tunnel-stage egress-proxy PATCHY_TUNNEL_SOURCE_BUDGET_IDLE 11700s
-render egress-tunnel-capped -f "$ri" -f "$ic" -f "$et" --set intentController.config.build.timeout=3h \
+cm egress-tunnel-stage intent-controller PATCHY_INTENT_JOB_DEADLINE 90m
+cm egress-tunnel-stage intent-controller PATCHY_INTENT_BUILD_TIMEOUT 3h
+# A stage that exactly fits jobDeadlineMax with its 15m margin reaches it.
+render egress-tunnel-capped -f "$ri" -f "$ic" -f "$et" --set intentController.config.build.timeout=1h45m \
   --set intentController.config.jobDeadlineMax=2h
 cm egress-tunnel-capped egress-proxy PATCHY_TUNNEL_MIN_BUDGET_IDLE 7200s
+# One that does not fit is refused, as intent-controller refuses to start.
+for stage in plan build revise; do
+  expect_fail "intent $stage timeout past jobDeadlineMax" \
+    "intentController.config.$stage.timeout 3h plus 15m is longer than intentController.config.jobDeadlineMax 2h" \
+    -f "$ri" -f "$ic" -f "$et" --set "intentController.config.$stage.timeout=3h" \
+    --set intentController.config.jobDeadlineMax=2h
+done
 expect_fail 'guard 26: an unreadable intent deadline ceiling' 'intentController.config.jobDeadlineMax must be written in whole h, m and s' \
   -f "$ri" -f "$ic" -f "$et" --set intentController.config.jobDeadlineMax=4.5h
 render egress-tunnel-set -f "$ri" -f "$ic" -f "$et" --set egressProxy.tunnel.sourceBudgetIdle=4h \

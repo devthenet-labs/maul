@@ -200,7 +200,8 @@ the `jobs.Client` for each launch from one base Config plus that run's stage env
   revise, set in the launch's env to the run's granted timeout (the stage's limit, or the Project's shorter
   `limits.<stage>.timeout`), so build (60 m) and revise (45 m) differ. `grant.timeoutMilliseconds` records that value.
   The Job deadline follows it: the timeout plus 15 minutes, never under `--intent-job-deadline` (90 m), capped by
-  `--intent-job-deadline-max`.
+  `--intent-job-deadline-max`, which every stage timeout plus 15 minutes must fit under. The floor is not tied to the
+  stage timeouts, so a longer stage stretches only its own Jobs.
 - _The build budget the plan is sized for._ The plan prompt states the most a build can be granted, which agent-runner
   reads from the plan Job's `PATCHY_REMEDIATE_MANUAL_*`, the build stage's own ceiling. The plan launch sets it to the
   grant the Project's build will receive (its build limit, clamped by the controller's flag), with
