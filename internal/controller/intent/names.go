@@ -176,6 +176,80 @@ type Settings struct {
 	// agent Job carries its run's attributed-to annotation; under off (the
 	// zero value) neither is.
 	Attribution attribution.Mode
+	// CostBudgets is --broker-limit-unit cost: the egress broker counts
+	// spend in micro-USD, so every run is granted a cost budget
+	// (IntentRunGrant.BudgetMicroUSD) and its agent Job and pod carry it as
+	// provider.BudgetAnnotation. Off (the token unit, the default), no run
+	// records a budget and no Job carries one.
+	CostBudgets bool
+	// BrokerCostPerHour is the broker's hourly cost limit in micro-USD
+	// (--broker-cost-per-hour), zero when it has none or counts tokens. A
+	// Project whose run budget is more than half of it is not Ready
+	// (ReasonRunBudgetOverHourlyLimit): one such run could spend the
+	// cluster's hour alone.
+	BrokerCostPerHour int64
+	// JobDeadline is --intent-job-deadline, the least activeDeadlineSeconds
+	// an intent Job gets, independent of the stage timeouts; JobDeadlineMax
+	// is --intent-job-deadline-max, the most a run's stage timeout can
+	// stretch it to (jobDeadline), which every stage timeout plus
+	// JobDeadlineMargin fits under.
+	JobDeadline    time.Duration
+	JobDeadlineMax time.Duration
+}
+
+// JobDeadlineMargin is what an intent Job's deadline allows past its stage
+// timeout: the prepare init, report repair rounds and collection. The binary
+// refuses to start unless every stage timeout plus it fits under
+// JobDeadlineMax.
+const JobDeadlineMargin = 15 * time.Minute
+
+// jobDeadline is the activeDeadlineSeconds of a run whose stage timeout is
+// timeout: the timeout plus JobDeadlineMargin, capped by JobDeadlineMax, and
+// never less than JobDeadline, so a short stage keeps the deadline every
+// intent Job had before deadlines were derived, while a longer stage
+// stretches only its own Jobs. Zero keeps the jobs Config's.
+func (s Settings) jobDeadline(timeout time.Duration) time.Duration {
+	derived := time.Duration(0)
+	if timeout > 0 {
+		derived = timeout + JobDeadlineMargin
+		if s.JobDeadlineMax > 0 && derived > s.JobDeadlineMax {
+			derived = s.JobDeadlineMax
+		}
+	}
+	return max(s.JobDeadline, derived)
+}
+
+// ceiling is stage's controller ceiling.
+func (s Settings) ceiling(stage v1alpha1.IntentStage) StageCeiling {
+	switch stage {
+	case v1alpha1.IntentStageBuild:
+		return s.Build
+	case v1alpha1.IntentStageRevise:
+		return s.Revise
+	}
+	return s.Plan
+}
+
+// stageLimits are the Project's limits for stage.
+func stageLimits(p *v1alpha1.Project, stage v1alpha1.IntentStage) v1alpha1.StageLimits {
+	switch stage {
+	case v1alpha1.IntentStageBuild:
+		return p.Spec.Limits.Build
+	case v1alpha1.IntentStageRevise:
+		return p.Spec.Limits.Revise
+	}
+	return p.Spec.Limits.Plan
+}
+
+// runBudget is the cost budget of one run of stage in micro-USD: the
+// stage's maxCostMicroUSD, or the Project's per-intent ceiling when that is
+// unset, and never more than that ceiling (the schema holds it there too).
+func runBudget(p *v1alpha1.Project, stage v1alpha1.IntentStage) int64 {
+	ceiling := maxCostMicroUSD(p)
+	if b := stageLimits(p, stage).MaxCostMicroUSD; b > 0 && b < ceiling {
+		return b
+	}
+	return ceiling
 }
 
 // multiRepoOff reports a Project these settings run no intent of: one that
@@ -225,13 +299,7 @@ func (s Settings) withDefaults() Settings {
 // stage clamped by the controller's ceiling (a zero limit takes the
 // ceiling), and the ceiling's wall clock.
 func (s Settings) grant(p *v1alpha1.Project, stage v1alpha1.IntentStage) v1alpha1.IntentRunGrant {
-	ceiling, limits := s.Plan, p.Spec.Limits.Plan
-	switch stage {
-	case v1alpha1.IntentStageBuild:
-		ceiling, limits = s.Build, p.Spec.Limits.Build
-	case v1alpha1.IntentStageRevise:
-		ceiling, limits = s.Revise, p.Spec.Limits.Revise
-	}
+	ceiling, limits := s.ceiling(stage), stageLimits(p, stage)
 	turns := ceiling.MaxTurns
 	if limits.MaxTurns > 0 && limits.MaxTurns < turns {
 		turns = limits.MaxTurns
@@ -240,11 +308,63 @@ func (s Settings) grant(p *v1alpha1.Project, stage v1alpha1.IntentStage) v1alpha
 	if limits.TokenBudget > 0 && limits.TokenBudget < tokens {
 		tokens = limits.TokenBudget
 	}
-	return v1alpha1.IntentRunGrant{
+	timeout := ceiling.Timeout
+	if limits.Timeout != nil && limits.Timeout.Duration > 0 && limits.Timeout.Duration < timeout {
+		timeout = limits.Timeout.Duration
+	}
+	g := v1alpha1.IntentRunGrant{
 		MaxTurns:            turns,
 		TokenBudget:         tokens,
-		TimeoutMilliseconds: ceiling.Timeout.Milliseconds(),
+		TimeoutMilliseconds: timeout.Milliseconds(),
 	}
+	if s.CostBudgets {
+		g.BudgetMicroUSD = runBudget(p, stage)
+	}
+	return g
+}
+
+// budgetOverHourly reports the first stage whose run budget is more than
+// half the broker's hourly cost limit, with that budget: the guard that one
+// run cannot starve every other (design "limits that fit large features"
+// §1.4). Nothing is reported unless the broker counts cost under an hourly
+// limit.
+func (s Settings) budgetOverHourly(p *v1alpha1.Project) (v1alpha1.IntentStage, int64) {
+	if !s.CostBudgets || s.BrokerCostPerHour <= 0 {
+		return "", 0
+	}
+	for _, stage := range []v1alpha1.IntentStage{
+		v1alpha1.IntentStagePlan, v1alpha1.IntentStageBuild, v1alpha1.IntentStageRevise,
+	} {
+		// A budget is at most the schema's $1000 cap, so doubling it cannot
+		// overflow; exactly half the limit is allowed.
+		if b := runBudget(p, stage); 2*b > s.BrokerCostPerHour {
+			return stage, b
+		}
+	}
+	return "", 0
+}
+
+// runTimeout is a granted run's stage timeout: its grant's, or, for a run
+// granted with none, the controller's stage timeout.
+func (s Settings) runTimeout(run *v1alpha1.IntentRun) time.Duration {
+	if ms := run.Spec.Grant.TimeoutMilliseconds; ms > 0 {
+		return time.Duration(ms) * time.Millisecond
+	}
+	return s.ceiling(run.Spec.Stage).Timeout
+}
+
+// runBudgetFor is the cost budget a run's Job carries: none unless the
+// broker counts cost; then its grant's, or, for a run granted before the
+// unit was cost, the Project's budget for its stage now, so no intent Job
+// launches without one.
+func (s Settings) runBudgetFor(run *v1alpha1.IntentRun, p *v1alpha1.Project) int64 {
+	if !s.CostBudgets {
+		return 0
+	}
+	if b := run.Spec.Grant.BudgetMicroUSD; b > 0 {
+		return b
+	}
+	return runBudget(p, run.Spec.Stage)
 }
 
 // Project settings with the schema defaults applied, for a Project the API

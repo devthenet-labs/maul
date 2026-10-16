@@ -126,6 +126,23 @@ func attributedTo(ann map[string]string, value string) error {
 	return nil
 }
 
+// budget records microUSD, when there is one, in ann as the run's cost
+// budget, which the Job and its pod template then both carry. A value the
+// broker could not read back (negative, or past its sixteen digits) is a
+// controller bug, refused rather than launched with a budget the broker
+// would ignore and the admission policy refuse.
+func budget(ann map[string]string, microUSD int64) error {
+	if microUSD == 0 {
+		return nil
+	}
+	v := strconv.FormatInt(microUSD, 10)
+	if got, ok := provider.ParseBudget(v); !ok || got != microUSD {
+		return fmt.Errorf("jobs: cost budget %d micro-USD is not a positive budget the broker reads", microUSD)
+	}
+	ann[provider.BudgetAnnotation] = v
+	return nil
+}
+
 // podAnnotations are a Job's annotations plus the ones only its pod
 // carries.
 func podAnnotations(job map[string]string) map[string]string {
@@ -418,6 +435,19 @@ type Spec struct {
 	// before attribution existed. A value outside the grammar is refused
 	// before anything is created.
 	AttributedTo string
+	// BudgetMicroUSD is the run's cost budget the launching controller asks
+	// the Job and its pod template to carry as provider.BudgetAnnotation,
+	// which the egress broker enforces under its cost unit. Zero, as on
+	// every Finding Job and every intent Job while the broker counts tokens,
+	// leaves the Job without it, exactly as before budgets existed. A
+	// negative value, or one past the annotation grammar
+	// (provider.ParseBudget), is refused before anything is created.
+	BudgetMicroUSD int64
+	// Deadline, when positive, replaces Config.Deadline for this one Job: its
+	// activeDeadlineSeconds and the broker caller token's lifetime derived
+	// from it. An intent run's deadline follows its stage timeout; zero, as
+	// on every Finding Job, keeps the Config's.
+	Deadline time.Duration
 }
 
 // Resources is one Job's CPU and memory (Spec.Resources). The four
@@ -731,6 +761,13 @@ func (c *Client) buildJob(name string, spec Spec) (*batchv1.Job, error) {
 	if err := attributedTo(ann, spec.AttributedTo); err != nil {
 		return nil, err
 	}
+	if err := budget(ann, spec.BudgetMicroUSD); err != nil {
+		return nil, err
+	}
+	deadline := c.cfg.Deadline
+	if spec.Deadline > 0 {
+		deadline = spec.Deadline
+	}
 	inject := c.injects(runner, spec)
 	if inject {
 		if err := c.injectionRefusal(spec.Harness, runner, spec); err != nil {
@@ -787,7 +824,7 @@ func (c *Client) buildJob(name string, spec Spec) (*batchv1.Job, error) {
 						FSGroup:        new(int64(runAsUser)),
 						SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
 					},
-					Volumes:        c.podVolumes(name, runner, findingTokenTTL(c.cfg.Deadline), inject),
+					Volumes:        c.podVolumes(name, runner, findingTokenTTL(deadline), inject),
 					InitContainers: []corev1.Container{c.prepareContainer(runner, spec, res, inject)},
 					Containers:     []corev1.Container{c.agentContainer(runner, spec, res, inject, profile, tunnel)},
 				},
@@ -802,8 +839,8 @@ func (c *Client) buildJob(name string, spec Spec) (*batchv1.Job, error) {
 		// unaffected. Default Jobs are left byte-identical.
 		job.Spec.Template.Spec.AutomountServiceAccountToken = new(false)
 	}
-	if c.cfg.Deadline > 0 {
-		job.Spec.ActiveDeadlineSeconds = new(int64(c.cfg.Deadline.Seconds()))
+	if deadline > 0 {
+		job.Spec.ActiveDeadlineSeconds = new(int64(deadline.Seconds()))
 	}
 	if c.cfg.TTL > 0 {
 		job.Spec.TTLSecondsAfterFinished = new(int32(c.cfg.TTL.Seconds()))

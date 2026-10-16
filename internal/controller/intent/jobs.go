@@ -91,3 +91,13 @@ func stageEnv(stage v1alpha1.IntentStage, s Settings, build v1alpha1.IntentRunGr
 		"PATCHY_REMEDIATE_AUTO_TOKEN_BUDGET":   n(ceiling.TokenBudget),
 	}
 }
+
+// stageTimeoutKey is the PATCHY_* key carrying stage's wall clock to
+// agent-runner: a plan reads the investigate stage's, every other stage the
+// remediate stage's.
+func stageTimeoutKey(stage v1alpha1.IntentStage) string {
+	if stage == v1alpha1.IntentStagePlan {
+		return "PATCHY_INVESTIGATE_TIMEOUT"
+	}
+	return "PATCHY_REMEDIATE_TIMEOUT"
+}

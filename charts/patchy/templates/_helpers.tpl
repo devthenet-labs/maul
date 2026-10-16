@@ -299,6 +299,33 @@ attribution.mode attribute, while the egress broker deploys. The broker then
 serves its usage endpoint on port 8082 to the run controllers alone, and the
 controllers settle each run's usage from it (--usage-measurement).
 */}}
+{{/*
+"yes" when the egress broker deploys and counts cost
+(egressBroker.limits.unit cost): intent runs then carry a budget annotation,
+and its admission policies render (budget-policy.yaml).
+*/}}
+{{- define "patchy.brokerCostBudgets" -}}
+{{- if and (include "patchy.brokerEnabled" .) (eq (((.Values.egressBroker | default dict).limits | default dict).unit | default "tokens") "cost") -}}
+yes
+{{- end -}}
+{{- end }}
+
+{{/*
+intent-controller's side of the broker's cost unit (large-features limits
+design, LF2), rendered only while patchy.brokerCostBudgets: every intent run
+is granted a cost budget stamped on its agent Job and pod, and a Project whose
+run budget is more than half the broker's costPerHour is not Ready (the guard
+the chart cannot apply itself: Project budgets live on the CRs).
+*/}}
+{{- define "patchy.brokerBudgetData" -}}
+{{- if include "patchy.brokerCostBudgets" .root -}}
+{{- $_ := set .data "PATCHY_BROKER_LIMIT_UNIT" "cost" -}}
+{{- with .root.Values.egressBroker.limits.costPerHour -}}
+{{- $_ := set $.data "PATCHY_BROKER_COST_PER_HOUR" . -}}
+{{- end -}}
+{{- end -}}
+{{- end }}
+
 {{- define "patchy.usageMeasured" -}}
 {{- if and (include "patchy.attributionOn" .) (include "patchy.brokerEnabled" .) -}}
 yes
@@ -1192,12 +1219,72 @@ tunnel's budget window may never be shorter (PATCHY_TUNNEL_MIN_BUDGET_IDLE).
 {{- define "patchy.egressLongestJobDeadline" -}}
 {{- $longest := toString .Values.agent.jobDeadline -}}
 {{- if .Values.intentController.enabled -}}
-{{- $intent := toString ((.Values.intentController.config | default dict).jobDeadline | default "") -}}
+{{- $intent := include "patchy.intentLongestJobDeadline" . -}}
 {{- if gt (int64 (include "patchy.durationSeconds" $intent)) (int64 (include "patchy.durationSeconds" $longest)) -}}
 {{- $longest = $intent -}}
 {{- end -}}
 {{- end -}}
 {{- $longest -}}
+{{- end }}
+
+{{/*
+The longest deadline an intent Job can get: intentController.config.jobDeadline
+(the floor), or, when the longest stage timeout plus 15m is longer, that,
+capped by jobDeadlineMax (the controller's derivation, Settings.jobDeadline).
+A stage timeout the chart cannot read counts as reaching the cap. The floor is
+returned as written whenever nothing stretches it, so a default render is
+unchanged; a stretched deadline is written in seconds.
+*/}}
+{{- define "patchy.intentLongestJobDeadline" -}}
+{{- $own := .Values.intentController.config | default dict -}}
+{{- $floor := toString ($own.jobDeadline | default "") -}}
+{{- $floorS := int64 (include "patchy.durationSeconds" $floor) -}}
+{{- $ceilingS := int64 (include "patchy.durationSeconds" (toString ($own.jobDeadlineMax | default ""))) -}}
+{{- $derived := int64 0 -}}
+{{- if and (ge $floorS 0) (gt $ceilingS $floorS) -}}
+{{- $derived = $ceilingS -}}
+{{- $stageS := int64 0 -}}
+{{- $known := true -}}
+{{- range $stage := list "plan" "build" "revise" -}}
+{{- $t := int64 (include "patchy.durationSeconds" (toString ((index $own $stage | default dict).timeout | default ""))) -}}
+{{- if lt $t 0 -}}
+{{- $known = false -}}
+{{- else if gt $t $stageS -}}
+{{- $stageS = $t -}}
+{{- end -}}
+{{- end -}}
+{{- if and $known (lt (add $stageS 900) $ceilingS) -}}
+{{- $derived = add $stageS 900 -}}
+{{- end -}}
+{{- end -}}
+{{- if gt $derived $floorS -}}
+{{- printf "%ds" $derived -}}
+{{- else -}}
+{{- $floor -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+intent-controller's deadline rule, failed at render rather than at startup:
+every stage timeout plus 15m (the Job deadline's margin,
+intent.JobDeadlineMargin) must fit under intentController.config.jobDeadlineMax,
+or a stage's Jobs could end before it times out. jobDeadline is a floor of its
+own, not tied to the stage timeouts. A value the chart cannot read (not whole
+h, m and s) is left to the controller's startup check.
+*/}}
+{{- define "patchy.intentDeadlineGuard" -}}
+{{- $own := .Values.intentController.config | default dict -}}
+{{- $max := toString ($own.jobDeadlineMax | default "") -}}
+{{- $maxS := int64 (include "patchy.durationSeconds" $max) -}}
+{{- if ge $maxS 0 -}}
+{{- range $stage := list "plan" "build" "revise" -}}
+{{- $t := toString ((index $own $stage | default dict).timeout | default "") -}}
+{{- $tS := int64 (include "patchy.durationSeconds" $t) -}}
+{{- if and (ge $tS 0) (gt (add $tS 900) $maxS) -}}
+{{- fail (printf "intentController.config.%s.timeout %s plus 15m is longer than intentController.config.jobDeadlineMax %s: its Jobs could end before the stage times out (intent-controller refuses to start); raise jobDeadlineMax or shorten the stage" $stage $t $max) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
 {{- end }}
 
 {{/*
@@ -1373,6 +1460,9 @@ so a profile the chart renders is one the binaries start with:
 {{- if .Values.intentController.enabled -}}
 {{- with (.Values.intentController.config | default dict).jobDeadline -}}
 {{- $_ := set $deadlines "intentController.config.jobDeadline" (toString .) -}}
+{{- end -}}
+{{- with (.Values.intentController.config | default dict).jobDeadlineMax -}}
+{{- $_ := set $deadlines "intentController.config.jobDeadlineMax" (toString .) -}}
 {{- end -}}
 {{- end -}}
 {{- range $key := keys $deadlines | sortAlpha -}}

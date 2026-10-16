@@ -181,10 +181,35 @@ type StageLimits struct {
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=100000000
 	TokenBudget int64 `json:"tokenBudget,omitempty"`
+	// MaxCostMicroUSD is the spend budget of one run of the stage in
+	// micro-USD (60000000 = $60), at most the Project's per-intent
+	// limits.maxCostMicroUSD. It is enforced only while the egress broker
+	// counts cost (egressBroker.limits.unit cost): intent-controller then
+	// stamps every run's agent pod with it, the per-intent ceiling standing
+	// in when this is unset, and the broker ends the run's model traffic at
+	// the smaller of it and the broker's own per-pod cost limit. Under the
+	// token unit (the default) it has no effect.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=1000000000
+	MaxCostMicroUSD int64 `json:"maxCostMicroUSD,omitempty"`
+	// Timeout is the wall-clock limit of one run of the stage, between 1m
+	// and 4h. Like the other limits it is clamped to the controller's stage
+	// timeout (--intent-<stage>-timeout), so a Project can shorten a stage
+	// but never lengthen it past what the operator runs. The run's Job
+	// deadline is derived from it (see --intent-job-deadline-max). Unset
+	// means the controller's stage timeout.
+	// +optional
+	// +kubebuilder:validation:XValidation:rule="duration(self) >= duration('1m') && duration(self) <= duration('4h')",message="a stage timeout must be between 1m and 4h"
+	Timeout *metav1.Duration `json:"timeout,omitempty"`
 }
 
 // ProjectLimits bound the spend of a Project's intents before it starts.
 // The global bound is intent-controller's --max-concurrent-runs slot pool.
+// A stage's per-run cost budget may not exceed the per-intent ceiling.
+// +kubebuilder:validation:XValidation:rule="!has(self.plan) || !has(self.plan.maxCostMicroUSD) || self.plan.maxCostMicroUSD <= (has(self.maxCostMicroUSD) ? self.maxCostMicroUSD : 10000000)",message="limits.plan.maxCostMicroUSD must not exceed limits.maxCostMicroUSD"
+// +kubebuilder:validation:XValidation:rule="!has(self.build) || !has(self.build.maxCostMicroUSD) || self.build.maxCostMicroUSD <= (has(self.maxCostMicroUSD) ? self.maxCostMicroUSD : 10000000)",message="limits.build.maxCostMicroUSD must not exceed limits.maxCostMicroUSD"
+// +kubebuilder:validation:XValidation:rule="!has(self.revise) || !has(self.revise.maxCostMicroUSD) || self.revise.maxCostMicroUSD <= (has(self.maxCostMicroUSD) ? self.maxCostMicroUSD : 10000000)",message="limits.revise.maxCostMicroUSD must not exceed limits.maxCostMicroUSD"
 type ProjectLimits struct {
 	// MaxActiveIntents is how many of this Project's intents may be
 	// non-terminal at once; a newly triggered issue past it waits.

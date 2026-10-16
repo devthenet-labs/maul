@@ -47,6 +47,10 @@ const (
 	// cannot be read: missing, or not among the Secrets intent-controller's
 	// RBAC names (secrets get is restricted by resourceNames).
 	ReasonForgeSecretUnreadable = "ForgeSecretUnreadable"
+	// ReasonRunBudgetOverHourlyLimit: under the broker's cost unit, a
+	// stage's run budget is more than half the broker's hourly cost limit,
+	// so one run could spend the whole cluster's hour.
+	ReasonRunBudgetOverHourlyLimit = "RunBudgetOverHourlyLimit"
 )
 
 // revalidateEvery re-checks a Ready Project's forge, installation and labels
@@ -241,6 +245,13 @@ func (r *ProjectReconciler) validate(ctx context.Context, p *v1alpha1.Project) (
 		return notReady(ReasonUnsupportedRepositories,
 			"intents build in exactly one repository unless intent-controller runs with --intent-multi-repo, "+
 				"and this Project lists %d", n)
+	}
+	if stage, budget := r.Settings.budgetOverHourly(p); stage != "" {
+		return notReady(ReasonRunBudgetOverHourlyLimit,
+			"a %s run's cost budget of %d micro-USD is more than half the egress broker's hourly cost limit of %d "+
+				"micro-USD, so one run could spend the cluster's hour alone; lower limits.%s.maxCostMicroUSD (or "+
+				"limits.maxCostMicroUSD, its default) or raise the broker's costPerHour",
+			stage, budget, r.Settings.BrokerCostPerHour, stage)
 	}
 	trigger := v1alpha1.ProjectTriggerLabel(p)
 	var projects v1alpha1.ProjectList

@@ -2099,6 +2099,32 @@ expect_fail cost-without-pod "needs egressBroker.limits.costPerPod" --set egress
 expect_fail cost-under-tokens "need egressBroker.limits.unit cost" --set egressBroker.limits.costPerPod=5
 expect_fail cost-hour-under-tokens "need egressBroker.limits.unit cost" --set egressBroker.limits.costPerHour=5
 expect_fail unknown-unit "/egressBroker/limits/unit" --set egressBroker.limits.unit=usd
+# Run budgets (LF2): with the intent controller on, the token unit renders no
+# budget key and no budget policy; the cost unit tells intent-controller to
+# grant budgets (and the hourly limit, for its Project check) and renders the
+# three budget admission policies, each with its binding.
+render limits-intent -f "$fixtures/broker-limits.yaml" -f "$fixtures/intent-controller.yaml"
+cm limits-intent intent-controller PATCHY_BROKER_LIMIT_UNIT null
+cm limits-intent intent-controller PATCHY_BROKER_COST_PER_HOUR null
+cm limits-intent intent-controller PATCHY_INTENT_JOB_DEADLINE_MAX 4h30m
+expect limits-intent 'select(.metadata.name // "" | test("^patchy-budget-")) | .kind' ""
+render limits-intent-cost -f "$fixtures/broker-limits.yaml" -f "$fixtures/intent-controller.yaml" \
+  --set egressBroker.limits.unit=cost --set egressBroker.limits.costPerPod=60000000 \
+  --set egressBroker.limits.costPerHour=200000000
+cm limits-intent-cost intent-controller PATCHY_BROKER_LIMIT_UNIT cost
+cm limits-intent-cost intent-controller PATCHY_BROKER_COST_PER_HOUR 200000000
+for p in budget-jobs budget-pods budget-runs; do
+  expect limits-intent-cost "select(.kind == \"ValidatingAdmissionPolicy\" and .metadata.name == \"patchy-$p\") | .spec.failurePolicy" Fail
+  expect limits-intent-cost "select(.kind == \"ValidatingAdmissionPolicyBinding\" and .metadata.name == \"patchy-$p\") | .spec.validationActions | join(\",\")" Deny
+done
+expect limits-intent-cost 'select(.kind == "ValidatingAdmissionPolicyBinding" and .metadata.name == "patchy-budget-jobs") | .spec.matchResources.namespaceSelector.matchLabels["kubernetes.io/metadata.name"]' patchy-agents
+expect limits-intent-cost 'select(.kind == "ValidatingAdmissionPolicyBinding" and .metadata.name == "patchy-budget-runs") | .spec.matchResources.namespaceSelector.matchLabels["kubernetes.io/metadata.name"]' patchy
+render limits-intent-cost-pod -f "$fixtures/broker-limits.yaml" -f "$fixtures/intent-controller.yaml" \
+  --set egressBroker.limits.unit=cost --set egressBroker.limits.costPerPod=60000000
+cm limits-intent-cost-pod intent-controller PATCHY_BROKER_LIMIT_UNIT cost
+cm limits-intent-cost-pod intent-controller PATCHY_BROKER_COST_PER_HOUR null
+# Without the intent controller nothing grants budgets, so no policy renders.
+expect limits-cost 'select(.metadata.name // "" | test("^patchy-budget-")) | .kind' ""
 render limits-extra -f "$fixtures/broker-limits.yaml" --set egressBroker.config.extra.PATCHY_TOKENS_PER_POD=7
 cm limits-extra egress-broker PATCHY_TOKENS_PER_POD 7
 if [ "$(get default 'select(.kind == "Deployment" and .metadata.name == "patchy-egress-broker") | .spec.template.metadata.annotations["checksum/config"]')" = \
@@ -2866,6 +2892,29 @@ cm egress-tunnel-no-intent egress-proxy PATCHY_TUNNEL_SOURCE_BUDGET_IDLE 2h
 render egress-tunnel-long -f "$ri" -f "$ic" -f "$et" --set agent.jobDeadline=3h
 cm egress-tunnel-long egress-proxy PATCHY_TUNNEL_MIN_BUDGET_IDLE 3h
 cm egress-tunnel-long egress-proxy PATCHY_TUNNEL_SOURCE_BUDGET_IDLE 3h
+# An intent stage whose timeout plus 15m outlasts intentController's
+# jobDeadline stretches its Job's deadline (LF2), up to jobDeadlineMax, and
+# the window follows the longest such deadline. The floor stays 90m: it is
+# not tied to the stage timeouts, so this is a shape intent-controller starts
+# with (TestSettingsDecouplesTheDeadlineFloor).
+render egress-tunnel-stage -f "$ri" -f "$ic" -f "$et" --set intentController.config.build.timeout=3h
+cm egress-tunnel-stage egress-proxy PATCHY_TUNNEL_MIN_BUDGET_IDLE 11700s
+cm egress-tunnel-stage egress-proxy PATCHY_TUNNEL_SOURCE_BUDGET_IDLE 11700s
+cm egress-tunnel-stage intent-controller PATCHY_INTENT_JOB_DEADLINE 90m
+cm egress-tunnel-stage intent-controller PATCHY_INTENT_BUILD_TIMEOUT 3h
+# A stage that exactly fits jobDeadlineMax with its 15m margin reaches it.
+render egress-tunnel-capped -f "$ri" -f "$ic" -f "$et" --set intentController.config.build.timeout=1h45m \
+  --set intentController.config.jobDeadlineMax=2h
+cm egress-tunnel-capped egress-proxy PATCHY_TUNNEL_MIN_BUDGET_IDLE 7200s
+# One that does not fit is refused, as intent-controller refuses to start.
+for stage in plan build revise; do
+  expect_fail "intent $stage timeout past jobDeadlineMax" \
+    "intentController.config.$stage.timeout 3h plus 15m is longer than intentController.config.jobDeadlineMax 2h" \
+    -f "$ri" -f "$ic" -f "$et" --set "intentController.config.$stage.timeout=3h" \
+    --set intentController.config.jobDeadlineMax=2h
+done
+expect_fail 'guard 26: an unreadable intent deadline ceiling' 'intentController.config.jobDeadlineMax must be written in whole h, m and s' \
+  -f "$ri" -f "$ic" -f "$et" --set intentController.config.jobDeadlineMax=4.5h
 render egress-tunnel-set -f "$ri" -f "$ic" -f "$et" --set egressProxy.tunnel.sourceBudgetIdle=4h \
   --set egressProxy.tunnel.maxConcurrent=0 --set-string egressProxy.tunnel.progressInterval=0 \
   --set egressProxy.attribution.enabled=false --set-json 'egressProxy.tunnel.denyCIDRs=[]'

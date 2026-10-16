@@ -215,6 +215,20 @@ spec:
                   build:
                     description: Build bounds each initial build run.
                     properties:
+                      maxCostMicroUSD:
+                        description: |-
+                          MaxCostMicroUSD is the spend budget of one run of the stage in
+                          micro-USD (60000000 = $60), at most the Project's per-intent
+                          limits.maxCostMicroUSD. It is enforced only while the egress broker
+                          counts cost (egressBroker.limits.unit cost): intent-controller then
+                          stamps every run's agent pod with it, the per-intent ceiling standing
+                          in when this is unset, and the broker ends the run's model traffic at
+                          the smaller of it and the broker's own per-pod cost limit. Under the
+                          token unit (the default) it has no effect.
+                        format: int64
+                        maximum: 1000000000
+                        minimum: 0
+                        type: integer
                       maxTurns:
                         description: MaxTurns the agent may take in one run of the
                           stage.
@@ -222,6 +236,19 @@ spec:
                         maximum: 1000
                         minimum: 0
                         type: integer
+                      timeout:
+                        description: |-
+                          Timeout is the wall-clock limit of one run of the stage, between 1m
+                          and 4h. Like the other limits it is clamped to the controller's stage
+                          timeout (--intent-<stage>-timeout), so a Project can shorten a stage
+                          but never lengthen it past what the operator runs. The run's Job
+                          deadline is derived from it (see --intent-job-deadline-max). Unset
+                          means the controller's stage timeout.
+                        type: string
+                        x-kubernetes-validations:
+                        - message: a stage timeout must be between 1m and 4h
+                          rule: duration(self) >= duration('1m') && duration(self)
+                            <= duration('4h')
                       tokenBudget:
                         description: |-
                           TokenBudget is the output-token budget of one run of the stage (the
@@ -280,6 +307,20 @@ spec:
                     description: Plan bounds each planning run (read-only, default
                       runner image).
                     properties:
+                      maxCostMicroUSD:
+                        description: |-
+                          MaxCostMicroUSD is the spend budget of one run of the stage in
+                          micro-USD (60000000 = $60), at most the Project's per-intent
+                          limits.maxCostMicroUSD. It is enforced only while the egress broker
+                          counts cost (egressBroker.limits.unit cost): intent-controller then
+                          stamps every run's agent pod with it, the per-intent ceiling standing
+                          in when this is unset, and the broker ends the run's model traffic at
+                          the smaller of it and the broker's own per-pod cost limit. Under the
+                          token unit (the default) it has no effect.
+                        format: int64
+                        maximum: 1000000000
+                        minimum: 0
+                        type: integer
                       maxTurns:
                         description: MaxTurns the agent may take in one run of the
                           stage.
@@ -287,6 +328,19 @@ spec:
                         maximum: 1000
                         minimum: 0
                         type: integer
+                      timeout:
+                        description: |-
+                          Timeout is the wall-clock limit of one run of the stage, between 1m
+                          and 4h. Like the other limits it is clamped to the controller's stage
+                          timeout (--intent-<stage>-timeout), so a Project can shorten a stage
+                          but never lengthen it past what the operator runs. The run's Job
+                          deadline is derived from it (see --intent-job-deadline-max). Unset
+                          means the controller's stage timeout.
+                        type: string
+                        x-kubernetes-validations:
+                        - message: a stage timeout must be between 1m and 4h
+                          rule: duration(self) >= duration('1m') && duration(self)
+                            <= duration('4h')
                       tokenBudget:
                         description: |-
                           TokenBudget is the output-token budget of one run of the stage (the
@@ -299,6 +353,20 @@ spec:
                   revise:
                     description: Revise bounds each revise or check-fix run.
                     properties:
+                      maxCostMicroUSD:
+                        description: |-
+                          MaxCostMicroUSD is the spend budget of one run of the stage in
+                          micro-USD (60000000 = $60), at most the Project's per-intent
+                          limits.maxCostMicroUSD. It is enforced only while the egress broker
+                          counts cost (egressBroker.limits.unit cost): intent-controller then
+                          stamps every run's agent pod with it, the per-intent ceiling standing
+                          in when this is unset, and the broker ends the run's model traffic at
+                          the smaller of it and the broker's own per-pod cost limit. Under the
+                          token unit (the default) it has no effect.
+                        format: int64
+                        maximum: 1000000000
+                        minimum: 0
+                        type: integer
                       maxTurns:
                         description: MaxTurns the agent may take in one run of the
                           stage.
@@ -306,6 +374,19 @@ spec:
                         maximum: 1000
                         minimum: 0
                         type: integer
+                      timeout:
+                        description: |-
+                          Timeout is the wall-clock limit of one run of the stage, between 1m
+                          and 4h. Like the other limits it is clamped to the controller's stage
+                          timeout (--intent-<stage>-timeout), so a Project can shorten a stage
+                          but never lengthen it past what the operator runs. The run's Job
+                          deadline is derived from it (see --intent-job-deadline-max). Unset
+                          means the controller's stage timeout.
+                        type: string
+                        x-kubernetes-validations:
+                        - message: a stage timeout must be between 1m and 4h
+                          rule: duration(self) >= duration('1m') && duration(self)
+                            <= duration('4h')
                       tokenBudget:
                         description: |-
                           TokenBudget is the output-token budget of one run of the stage (the
@@ -316,6 +397,17 @@ spec:
                         type: integer
                     type: object
                 type: object
+                x-kubernetes-validations:
+                - message: limits.plan.maxCostMicroUSD must not exceed limits.maxCostMicroUSD
+                  rule: '!has(self.plan) || !has(self.plan.maxCostMicroUSD) || self.plan.maxCostMicroUSD
+                    <= (has(self.maxCostMicroUSD) ? self.maxCostMicroUSD : 10000000)'
+                - message: limits.build.maxCostMicroUSD must not exceed limits.maxCostMicroUSD
+                  rule: '!has(self.build) || !has(self.build.maxCostMicroUSD) || self.build.maxCostMicroUSD
+                    <= (has(self.maxCostMicroUSD) ? self.maxCostMicroUSD : 10000000)'
+                - message: limits.revise.maxCostMicroUSD must not exceed limits.maxCostMicroUSD
+                  rule: '!has(self.revise) || !has(self.revise.maxCostMicroUSD) ||
+                    self.revise.maxCostMicroUSD <= (has(self.maxCostMicroUSD) ? self.maxCostMicroUSD
+                    : 10000000)'
               preview:
                 description: |-
                   Preview is the one-repository shorthand for previews: the runtime

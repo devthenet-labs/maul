@@ -32,6 +32,7 @@ granting the widest read in the chart.
 {{- if not $vals.forgeSecrets }}
 {{- fail "intentController.enabled requires intentController.forgeSecrets: the names of the Secrets your Forges reference (spec.secretRef), e.g. [patchy-github]. This restricts Secret reads in the release namespace; an empty list would grant every Secret there" }}
 {{- end }}
+{{- include "patchy.intentDeadlineGuard" . }}
 {{- if $vals.serviceAccount.create }}
 ---
 apiVersion: v1

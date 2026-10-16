@@ -159,7 +159,9 @@ input token, so a token cap sized for a short run cuts a long one early. `--limi
   the token, checks the pod UID against the TokenReview, and caches it with the verdict (`--verdict-ttl`). A missing,
   malformed or zero annotation, a gone pod or a different UID falls back to `--cost-per-pod`, never to unlimited; a read
   the API server does not answer refuses the request with 503 and caches nothing. The annotation can only lower the cap.
-  Until the run controllers stamp it, every pod runs under `--cost-per-pod`.
+  intent-controller stamps it on every intent run under the cost unit, from the Project's stage limits
+  ([stage limits](intent-controller.md#stage-limits)), and admission policies let only it set the annotation; a Finding
+  Job carries none and runs under `--cost-per-pod`.
 - `--tokens-per-pod` and `--tokens-per-hour` still apply when set, as absolute backstops.
 
 A refusal reads `egress broker: per-pod limit: cost per pod (N micro-USD) reached`, or

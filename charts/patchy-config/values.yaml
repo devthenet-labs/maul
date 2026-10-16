@@ -272,6 +272,13 @@ projects: []
 #       #     plan:   { maxTurns: 40, tokenBudget: 200000 }
 #       #     build:  { maxTurns: 150, tokenBudget: 800000 }
 #       #     revise: { maxTurns: 80, tokenBudget: 400000 }
+#       #     # Each stage may also set timeout (1m to 4h, clamped to the
+#       #     # controller's stage timeout; the run's Job deadline follows
+#       #     # it) and maxCostMicroUSD, one run's spend budget (at most
+#       #     # maxCostMicroUSD above). The budget is enforced only while the
+#       #     # patchy chart's egressBroker.limits.unit is cost, when the
+#       #     # per-intent ceiling stands in for a stage that sets none.
+#       #     # build: { maxTurns: 150, timeout: 45m, maxCostMicroUSD: 8000000 }
 #       # checks:
 #       #     # Check-run names or commit-status contexts whose failure on
 #       #     # patchy's own PR head starts a fix round without a human (at

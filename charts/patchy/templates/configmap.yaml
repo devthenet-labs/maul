@@ -233,6 +233,9 @@ is its own: a build stage alone may take an hour.
 {{- $_ := set $data "PATCHY_INTENT_RATE_LIMIT_FLOOR" $own.rateLimitFloor }}
 {{- $_ := set $data "PATCHY_INTENT_TTL" $own.intentTTL }}
 {{- $_ := set $data "PATCHY_INTENT_JOB_DEADLINE" $own.jobDeadline }}
+{{- with $own.jobDeadlineMax }}
+{{- $_ := set $data "PATCHY_INTENT_JOB_DEADLINE_MAX" . }}
+{{- end }}
 {{- range $stage := list "plan" "build" }}
 {{- $s := index $own $stage }}
 {{- $prefix := printf "PATCHY_INTENT_%s_" (upper $stage) }}
@@ -261,6 +264,7 @@ ConfigMap is unchanged.
 {{- $_ := include "patchy.agentsPausedData" (dict "root" $root "data" $data) }}
 {{- $_ := include "patchy.attributionData" (dict "root" $root "data" $data) }}
 {{- $_ := include "patchy.usageMeterData" (dict "root" $root "data" $data) }}
+{{- $_ := include "patchy.brokerBudgetData" (dict "root" $root "data" $data) }}
 {{- with ($root.Values.agent.resources | default dict).classes }}
 {{- $_ := set $data "PATCHY_INTENT_RESOURCE_CLASSES" (toJson .) }}
 {{- end }}

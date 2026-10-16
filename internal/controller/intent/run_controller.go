@@ -612,6 +612,10 @@ func (r *RunReconciler) launch(ctx context.Context, run *v1alpha1.IntentRun) err
 		// Whom the run is for, from its own immutable spec, never
 		// recomputed here: "org" for a run stamped before the mode was on.
 		AttributedTo: r.Settings.Attribution.Annotation(run.Spec.AttributedTo),
+		// The run's cost budget, under the broker's cost unit only, and a
+		// deadline that follows its stage timeout.
+		BudgetMicroUSD: r.Settings.runBudgetFor(run, proj),
+		Deadline:       r.Settings.jobDeadline(r.Settings.runTimeout(run)),
 	}
 	if len(run.Spec.Trees) > 0 {
 		ready, refusal, err := r.treesSpec(ctx, run, proj, &spec)
@@ -710,6 +714,9 @@ func (r *RunReconciler) launchJob(ctx context.Context, run *v1alpha1.IntentRun,
 	stage := run.Spec.Stage
 	build := settings.grant(proj, v1alpha1.IntentStageBuild)
 	env := stageEnv(stage, settings, build)
+	// The in-pod wall clock is the run's own granted timeout, which a
+	// Project may set below the controller's.
+	env[stageTimeoutKey(stage)] = settings.runTimeout(run).String()
 	if stage == v1alpha1.IntentStagePlan {
 		if profiles := r.planBuildProfiles(run); profiles != "" {
 			env[envBuildProfiles] = profiles
