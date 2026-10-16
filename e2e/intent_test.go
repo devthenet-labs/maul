@@ -463,8 +463,8 @@ func intentLifecycle(t *testing.T, e *intentEnv) string {
 	number, name := e.fileIntent(t)
 	in := e.waitPhase(t, name, v1alpha1.IntentPlanning)
 	opened := e.lastLabeled(t, number, triggerLabel)
-	if rb := in.Spec.RequestedBy; rb.Login != approver.Login || rb.EventID != opened.ID {
-		t.Errorf("requestedBy = %+v, want %s's labeled event %d", rb, approver.Login, opened.ID)
+	if rb := in.Spec.RequestedBy; rb.Login != approver.Login || rb.EventID != opened.ID || rb.UserID != approver.ID {
+		t.Errorf("requestedBy = %+v, want %s (id %d)'s labeled event %d", rb, approver.Login, approver.ID, opened.ID)
 	}
 	if in.Spec.Issue.Repository != intentRepoURL || in.Spec.Issue.Number != int64(number) {
 		t.Errorf("issue = %+v, want %s#%d", in.Spec.Issue, intentRepoURL, number)
@@ -474,6 +474,8 @@ func intentLifecycle(t *testing.T, e *intentEnv) string {
 	planRun := v1alpha1.IntentRunName(name, v1alpha1.IntentStagePlan, 1, "", 1)
 	planJob := e.kubelet.waitRun(t, "the plan job to run", phaseIs("plan"))
 	e.checkPlanJob(t, planJob, planRun)
+	// Attribution is off by default: no stamp, no annotation.
+	checkUnattributed(t, planJob, e.run(t, planRun))
 
 	// 3. The plan is posted for approval, its bytes shown verbatim.
 	in = e.waitPhase(t, name, v1alpha1.IntentAwaitingApproval)
@@ -574,6 +576,7 @@ func intentLifecycle(t *testing.T, e *intentEnv) string {
 	//    by digest, handed the approved plan and nothing of the request.
 	buildRun := v1alpha1.IntentRunName(name, v1alpha1.IntentStageBuild, 1, appRepo, 1)
 	buildJob := e.kubelet.waitRun(t, "the build job to run", phaseIs("build"))
+	checkUnattributed(t, buildJob, e.run(t, buildRun))
 	var buildRepo v1alpha1.Repository
 	if err := e.cl.client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: buildRun + "-src"}, &buildRepo); err != nil {
 		t.Fatalf("read the build repository: %v", err)
