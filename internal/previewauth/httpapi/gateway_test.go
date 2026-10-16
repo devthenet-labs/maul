@@ -577,7 +577,7 @@ func openStream(t *testing.T, b *http.Client) *http.Response {
 // at the session's absolute end.
 func TestGatewayStreamRevocation(t *testing.T) {
 	t.Run("revoked", func(t *testing.T) {
-		e := newGatewayEnv(t, nil, nil)
+		e := newGatewayEnv(t, nil, func(g *GatewayConfig) { g.Recheck = 50 * time.Millisecond })
 		b := e.browser()
 		e.signInPreview(t, b, "/")
 		s := openStream(t, b)
@@ -586,13 +586,16 @@ func TestGatewayStreamRevocation(t *testing.T) {
 			t.Fatalf("upgrade: %d", resp.StatusCode)
 		}
 		_ = conn
+		// The production loop, at a short interval: it re-checks the
+		// stream (the review is asked again) and keeps it while it passes.
+		e.runRechecks(t)
 		e.viewers.revoke("github:bob")
-		e.srv.Recheck(context.Background())
+		asked := e.viewers.count()
+		waitFor(t, 2*time.Second, func() bool { return e.viewers.count() > asked+1 })
 		if closedWithin(s.Body, 200*time.Millisecond) {
 			t.Fatal("a re-check that passed closed the stream")
 		}
 		e.viewers.revoke("github:alice")
-		e.srv.Recheck(context.Background())
 		if !closedWithin(s.Body, 2*time.Second) {
 			t.Error("the stream outlived the revocation")
 		}
@@ -604,13 +607,15 @@ func TestGatewayStreamRevocation(t *testing.T) {
 		}
 	})
 	t.Run("transient failure keeps it", func(t *testing.T) {
-		e := newGatewayEnv(t, nil, nil)
+		e := newGatewayEnv(t, nil, func(g *GatewayConfig) { g.Recheck = 50 * time.Millisecond })
 		b := e.browser()
 		e.signInPreview(t, b, "/")
 		s := openStream(t, b)
 		e.viewers.setErr(errors.New("api server down"))
+		e.runRechecks(t)
+		asked := e.viewers.count()
+		waitFor(t, 2*time.Second, func() bool { return e.viewers.count() > asked+1 })
 		e.previews.fail(errors.New("cache down"))
-		e.srv.Recheck(context.Background())
 		if closedWithin(s.Body, 300*time.Millisecond) {
 			t.Error("a transient failure closed the stream")
 		}
@@ -643,6 +648,32 @@ func TestGatewayStreamRevocation(t *testing.T) {
 			t.Error("the stream outlived the host session")
 		}
 	})
+}
+
+// runRechecks runs the production re-check loop until the test ends.
+func (e *gatewayEnv) runRechecks(t *testing.T) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		e.srv.RunRechecks(ctx)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		<-done
+	})
+}
+
+// waitFor polls cond until it holds or d passes.
+func waitFor(t *testing.T, d time.Duration, cond func() bool) {
+	t.Helper()
+	for end := time.Now().Add(d); !cond(); {
+		if time.Now().After(end) {
+			t.Fatal("condition not reached")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 // TestGatewayLimits: the inbound allowlist (after the trusted hops), the

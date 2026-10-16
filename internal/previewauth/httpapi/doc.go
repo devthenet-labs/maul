@@ -64,7 +64,7 @@
 //     handoff callbacks, never to a signed-in viewer's traffic.
 //
 // Proxied requests are tracked: each ends at its host session's absolute
-// end, and Recheck (run every 20 s by RunRechecks) and PreviewChanged close
+// end, and RunRechecks (every 20 s) and PreviewChanged close
 // those a new request would now refuse, streams and upgraded connections
 // included.
 package httpapi

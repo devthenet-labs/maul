@@ -82,18 +82,6 @@ func (t *tracker) close(ctx context.Context, id uint64, c *tracked, reason strin
 	count(ctx, streamsClosedCounter, attribute.String("reason", reason))
 }
 
-// Recheck re-checks every proxied request in flight against its Preview and
-// its viewer's access review, as a new request would be, and closes those
-// that would now be refused: the Preview is gone or replaced (its UID or slot
-// changed), or the review says no. A failed lookup or review keeps the
-// connection, as a new request would answer 503 and keep the cookie. Answers
-// are shared per label and per viewer, so a busy page costs one review.
-func (s *Server) Recheck(ctx context.Context) {
-	if s.gw != nil {
-		s.gw.recheck(ctx, "")
-	}
-}
-
 // PreviewChanged re-checks the requests in flight to label's host at once;
 // the Preview informer calls it on every update and delete.
 func (s *Server) PreviewChanged(ctx context.Context, label string) {
@@ -120,6 +108,12 @@ func (s *Server) RunRechecks(ctx context.Context) {
 	}
 }
 
+// recheck re-checks every proxied request in flight against its Preview and
+// its viewer's access review, as a new request would be, and closes those
+// that would now be refused: the Preview is gone or replaced (its UID or slot
+// changed), or the review says no. A failed lookup or review keeps the
+// connection, as a new request would answer 503 and keep the cookie. Answers
+// are shared per label and per viewer, so a busy page costs one review.
 func (g *gateway) recheck(ctx context.Context, label string) {
 	conns := g.streams.snapshot(label)
 	views := map[string]previewauth.View{}
