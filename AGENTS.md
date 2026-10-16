@@ -105,7 +105,13 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   code to `https://<label>.<suffix>/.patchy/callback`, which sets a per-host session; every preview host is then proxied
   to the Services `status.serving` names, held to the proxy hygiene contract (origin rule, no gateway cookie or identity
   header upstream, pairwise `X-Patchy-Viewer`, Set-Cookie and cache filtering), and its streams are closed on expiry,
-  revocation or a Preview change. Reference `docs/configuration/preview-auth.md#the-preview-gateway-off-by-default`.
+  revocation or a Preview change. Reference `docs/configuration/preview-auth.md#the-preview-gateway-off-by-default`;
+  operator guide (platform recipes, the release N migration rolled back by DNS, checks, security)
+  `docs/configuration/preview-gateway.md`. Its host probe judges by `--preview-auth-probe-mode` (`alb`, `either`,
+  `gateway`; empty derives alb or either from the gateway switch; the chart sets gateway with
+  `preview.legacyIngress: false`), and in gateway mode also asks `patchy-probe-0.<suffix>`, which must be the gateway's
+  404. The e2e suite builds it with the `e2edial` tag, whose `dial_e2e.go` adds `--e2e-gateway-dial-map` (slot Service
+  names to loopback listeners); a released binary has no such flag (`dial.go`).
 - `cmd/evaluation-controller` — OPTIONAL (default-off in the chart): remote skill-evaluation execution for
   evolve. Hosts the bearer-authenticated HTTP API (`pkg/evaluation` wire contract: workspace upload streamed to
   source-controller's `:9791` blob endpoint, submission, snapshot, SSE monitoring, cancel; OIDC verify + SAR on
@@ -181,7 +187,12 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   every repository over the Forge CRs, and judges agent and preview images, DNS and TLS with the caller's own
   credentials, and, while the chart's `previewAuth` is on, the relay's discovery, Dex's acceptance of the relay's one
   redirect URI and (once sign-in is required) each Ready preview host's unauthenticated redirect to the relay for its
-  own slot (`previewauth.JudgeProbe`). It never reads a Secret, so never the App key. Both `check` nouns render through
+  own slot (`previewauth.JudgeProbe`). With the preview gateway on it judges the mode in force
+  (`previewauth.ProbeModeFor` of the relay's gateway switch and preview-controller's legacy Ingress switch;
+  `projectcheck/gateway.go`): DNS against `publishedAddresses` or the gateway's Ingress/Service status (a private edge
+  not in this resolver is a SKIP), the gateway's 404 on `<project>-0.<suffix>` and its `/start` redirect on each Ready
+  preview, and `preview-gateway-allowlist` (a spoofed `X-Forwarded-For` from a refused address must stay refused). It
+  never reads a Secret, so never the App key. Both `check` nouns render through
   `cmd/patchy/internal/checkreport` (PASS/FAIL/SKIP lines, `-o json|yaml`, inert reasons). Builds for windows too,
   and ships a `kubectl-patchy` alias. Ships no container image: it is distributed as its own `patchy-cli` release
   archive (separate from the cluster binaries' `patchy` archive) and as a Homebrew cask in
@@ -228,7 +239,10 @@ e2e/                SEPARATE Go module: envtest carries the CRDs, the real binar
                     repository, so intent_multirepo_test.go runs multi-repository intents end to
                     end; cluster.stoppableController restarts a binary with other flags.
                     preview_auth_test.go runs preview-auth and preview-controller together,
-                    with previewauth/fakedex as a TLS Dex (--preview-auth-dex-ca-file).
+                    with previewauth/fakedex as a TLS Dex (--preview-auth-dex-ca-file);
+                    preview_gateway_test.go does the same with the gateway on and the legacy
+                    Ingress off, preview-auth built by buildTagged with the e2edial tag so
+                    slot Service names dial local listeners (no kube-proxy under envtest).
 docs/ overrides/    Zensical docs site (zensical.toml at the root; patchy-branded theme in
                     docs/stylesheets/extra.css + overrides/). `mise run serve` to preview,
                     `mise run docs-build` to build; the reusable release workflow publishes it
@@ -361,8 +375,11 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   `pa1.<kind>.<gen>.<blob>` with the kind and generation in the AAD and strict base64, the binding every token is
   checked against (client, slot, Preview UID, label: `Bound.Matches`), the pairwise subject, the login double-submit
   (a cookie name per sealed state), the OAuth input checks and the access-review input (`ReviewFor`, refused for a
-  Preview with no Project), and `JudgeProbe` (is a preview host's unauthenticated answer the ALB's redirect to this
-  relay for its own slot). Access tokens carry no identity. Seeded properties; stdlib, `sealed` and `api/v1alpha1`
+  Preview with no Project), and the probe verdicts: `JudgeProbe` (is a preview host's unauthenticated answer the ALB's
+  redirect to this relay for its own slot), `JudgeGatewayProbe` (the gateway's redirect to `/start`), `ProbeMode` and
+  `ProbeExpect.Live` (which of the two the mode in force accepts), `JudgeGatewayUnknown` (the gateway's own 404 for a
+  host no Preview owns, by the page marks `PageCSP` and `NoPreviewTitle` httpapi renders with) and
+  `IsAllowlistRefusal`. Access tokens carry no identity. Seeded properties; stdlib, `sealed` and `api/v1alpha1`
   only (a test pins that). Its adapters, one package each under `previewauth/adapters/`: `kubeview` (the
   `PreviewLookup` over the Preview cache), `access` (the `Authorizer` over `web/authz.ProjectReviewer.Allowed`),
   `ledger` (single-use codes on one Lease, resourceVersion compare-and-swap, capped), `dex` (go-oidc client of Dex,

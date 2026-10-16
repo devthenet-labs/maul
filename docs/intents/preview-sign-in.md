@@ -9,6 +9,15 @@ browser session, and admits only the people and teams you list.
 It is off by default, and turning it on keeps the IP allowlist. Dropping the allowlist is a separate, later decision
 with its own gate ([Opening previews to the internet](#opening-previews-to-the-internet)).
 
+!!! note "The preview gateway"
+
+    This page is the legacy path: the preview ALB signs viewers in through the relay. The
+    [preview gateway](../configuration/preview-gateway.md) signs them in itself, on any cluster, and in release N runs
+    beside this path. Sections 1 (Dex) and 2 (who may view) apply to it unchanged, and so do key rotation and
+    [Check it](#check-it)'s `patchy check project`. The permit and require stages, the slot Ingress annotations and the
+    `aws elbv2` check are the ALB's alone. Moving an EKS install from this path to the gateway is
+    [three steps, rolled back by DNS](../configuration/preview-gateway.md#moving-off-the-preview-alb-eks-release-n).
+
 What it guarantees:
 
 - No request reaches a preview without a signed-in viewer the API server's RBAC admits, for that Preview's Project.
@@ -165,6 +174,12 @@ Gate G1, from an address the allowlist admits:
    replayed at `https://<relay host>/userinfo` it returns that `sub` only, and after the access-token lifetime (10
    minutes) a 401.
 
+With the [preview gateway](../configuration/preview-gateway.md#checking-it) on, `patchy check project` judges the path
+in force instead. `preview-auth-host` expects the gateway's `302` to `https://<sign-in host>/start` on every Ready
+preview (either path's redirect while `preview.legacyIngress` is still `true`) and the gateway's `404` page on
+`<project>-0.<suffix>`. `preview-gateway-allowlist` checks that a spoofed `X-Forwarded-For` cannot get past
+`previewAuth.gateway.inboundCIDRs`. Step 2's `aws elbv2` check does not apply.
+
 The relay probes every Ready preview host the same way once a minute and exports
 `patchy.preview_auth.unprotected_hosts`; alert on anything above zero. While the allowlist is set, that probe reaches
 the preview load balancer only if the cluster's NAT egress addresses are in `preview.inboundCIDRs`; otherwise its hosts
@@ -309,3 +324,18 @@ What a previewed app sees, and must not do:
   page to sign in again.
 - One preview can send credentialed requests to another (they share a registrable domain); do not rely on SameSite
   cookies between previews.
+
+Behind the [preview gateway](../configuration/preview-gateway.md) instead:
+
+- `/.patchy/` is the gateway's on every preview host (`/.patchy/callback`, `/.patchy/healthz`): the app never receives a
+  request under it.
+- Cookie names starting `__Host-patchy-pv` and `__Host-patchy-pa` are the gateway's: the app never sees them, and a
+  `Set-Cookie` naming one is dropped.
+- `X-Patchy-Viewer` carries a pairwise id, stable for one viewer on one preview and unrelated across previews. It is not
+  a user identity. Nothing else about the viewer reaches the app, and the app's `Authorization` header is untouched.
+- A request from another preview is refused unless it is a top-level navigation. Every `POST`, `PUT`, `PATCH`, `DELETE`
+  and WebSocket must carry the preview's own `Origin`, which a browser sends for same-origin requests anyway. Service
+  workers cannot be registered.
+- Responses are marked `private` and `Vary: Cookie`, and lose `Clear-Site-Data` and `Access-Control-Allow-Credentials`.
+- When the session ends (15 minutes by default), a `fetch` or XHR gets a `401` page and a WebSocket is closed. Reload
+  the page to sign in again, without Dex while the sign-in host's session lasts.
