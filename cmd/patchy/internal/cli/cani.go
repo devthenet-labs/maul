@@ -138,7 +138,8 @@ func whoami(ctx context.Context, opts *Options, env *kubecfg.Env) string {
 	return "unknown"
 }
 
-// canI runs a SelfSubjectAccessReview for one verb on one resource.
+// canI runs a SelfSubjectAccessReview for one verb on one resource, or on
+// one subresource of it written resource/subresource (usage/all).
 //
 // Self- rather than plain SubjectAccessReview matters: asking about yourself
 // needs no grant, whereas asking about another user is privileged and the CLI
@@ -147,13 +148,15 @@ func canI(ctx context.Context, opts *Options, env *kubecfg.Env, resource, verb s
 	callCtx, cancel := opts.Timeout(ctx)
 	defer cancel()
 
+	res, sub, _ := strings.Cut(resource, "/")
 	review := &authorizationv1.SelfSubjectAccessReview{
 		Spec: authorizationv1.SelfSubjectAccessReviewSpec{
 			ResourceAttributes: &authorizationv1.ResourceAttributes{
-				Namespace: env.Namespace,
-				Group:     v1alpha1.GroupVersion.Group,
-				Resource:  resource,
-				Verb:      verb,
+				Namespace:   env.Namespace,
+				Group:       v1alpha1.GroupVersion.Group,
+				Resource:    res,
+				Subresource: sub,
+				Verb:        verb,
 			},
 		},
 	}
