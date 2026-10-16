@@ -1197,6 +1197,21 @@ statusServer:
     # requireVerifiedEmail when the username claim is email).
     intents:
         enabled: false
+    # The usage views (per-user credentials design, L2): a "Usage" page where
+    # each signed-in person sees their own daily tokens and cost (stacked by
+    # Project and run kind, top intents), and holders of get on the virtual
+    # usage/all see everyone's. Read from the UsageRollups that
+    # attribution.mode attribute writes, so useful only with that on.
+    # Enabling it grants the server read on usagerollups and, with
+    # rbac.userRoles, renders the usage-admin ClusterRole (usage/all plus
+    # usagerollups get/list, for the page and `patchy get usage`). A person
+    # is their GitHub numeric id: the server refuses to start unless auth is
+    # mode oidc as for the intents views, and oidc.scopes lists federated:id
+    # (Dex then names the connector; oidc.claims.githubConnector, default
+    # github, is the one trusted). It hardens the page as the intents views
+    # do. See docs/configuration/status-server.md#usage-views.
+    usage:
+        enabled: false
     config:
         # Extra PATCHY_* keys for the status server only.
         extra: {}
