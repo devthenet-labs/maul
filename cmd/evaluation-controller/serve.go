@@ -27,6 +27,7 @@ import (
 	"github.com/bitwise-media-group/patchy/internal/kube"
 	"github.com/bitwise-media-group/patchy/internal/runnercfg"
 	"github.com/bitwise-media-group/patchy/internal/telemetry"
+	"github.com/bitwise-media-group/patchy/internal/usagemeter"
 	"github.com/bitwise-media-group/patchy/internal/version"
 	"github.com/bitwise-media-group/patchy/internal/web/authz"
 )
@@ -63,6 +64,7 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	runnercfg.RegisterAgentDNSFlag(f)
 	runnercfg.RegisterAgentsPausedFlag(f)
 	runnercfg.RegisterAttributionFlag(f)
+	runnercfg.RegisterUsageFlags(f)
 	return cmd
 }
 
@@ -141,7 +143,7 @@ func uploadClient(opts *cli.Options, namespace string) (*artifact.Client, error)
 // setupReconcilers registers the gate, the unit scheduler, and the TTL loop.
 func setupReconcilers(mgr manager.Manager, opts *cli.Options, namespace string, enabled []string,
 	runner *jobs.Client, workspaces *artifact.Client, artifactBaseURL string, attributionMode attribution.Mode,
-	log *slog.Logger) error {
+	meter *usagemeter.Meter, log *slog.Logger) error {
 	gate := &ctrleval.GateReconciler{
 		Client:           mgr.GetClient(),
 		Namespace:        namespace,
@@ -162,6 +164,7 @@ func setupReconcilers(mgr manager.Manager, opts *cli.Options, namespace string, 
 		EnabledHarnesses: enabled,
 		ArtifactBaseURL:  artifactBaseURL,
 		Attribution:      attributionMode,
+		Meter:            meter,
 		Log:              log,
 	}
 	if err := units.SetupWithManager(mgr); err != nil {
@@ -214,6 +217,10 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	if err != nil {
 		return err
 	}
+	meter, err := runnercfg.UsageMeter(opts, log)
+	if err != nil {
+		return err
+	}
 
 	agentNS := opts.String("agent-namespace")
 	mgr, err := kube.NewManager(kube.Options{
@@ -238,7 +245,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		return err
 	}
 	if err := setupReconcilers(mgr, opts, namespace, enabled, runner, workspaces,
-		serviceURL(opts, "artifact-base-url", namespace, 9790), attributionMode, log); err != nil {
+		serviceURL(opts, "artifact-base-url", namespace, 9790), attributionMode, meter, log); err != nil {
 		return err
 	}
 
@@ -275,7 +282,8 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		slog.String("auth_mode", authCfg.Mode),
 		slog.Any("harnesses", enabled),
 		slog.Bool("agents_paused", opts.Bool(runnercfg.AgentsPausedFlag)),
-		slog.String("attribution_mode", string(attributionMode)))
+		slog.String("attribution_mode", string(attributionMode)),
+		slog.Bool("usage_measurement", meter.On()))
 
 	g, ctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return mgr.Start(ctx) })

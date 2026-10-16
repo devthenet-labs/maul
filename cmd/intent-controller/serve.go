@@ -28,6 +28,7 @@ import (
 	"github.com/bitwise-media-group/patchy/internal/runnercfg"
 	"github.com/bitwise-media-group/patchy/internal/runnerguard"
 	"github.com/bitwise-media-group/patchy/internal/telemetry"
+	"github.com/bitwise-media-group/patchy/internal/usagemeter"
 	"github.com/bitwise-media-group/patchy/internal/version"
 )
 
@@ -100,6 +101,7 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	runnercfg.RegisterAgentDNSFlag(f)
 	runnercfg.RegisterAgentsPausedFlag(f)
 	runnercfg.RegisterAttributionFlag(f)
+	runnercfg.RegisterUsageFlags(f)
 	f.Int("changeset-max-entries", changeset.DefaultMaxEntries,
 		"most files (upserts plus deletes) a build's changeset may touch before it is rejected without any forge call")
 	return cmd
@@ -233,6 +235,21 @@ func readJobSizes(opts *cli.Options) (jobSizes, error) {
 	return s, nil
 }
 
+// readRunConfig reads what the run reconciler takes from the flags beside
+// its settings: the jobSizes and the usage meter (nil while
+// --usage-measurement is off).
+func readRunConfig(opts *cli.Options, log *slog.Logger) (jobSizes, *usagemeter.Meter, error) {
+	sizes, err := readJobSizes(opts)
+	if err != nil {
+		return jobSizes{}, nil, err
+	}
+	meter, err := runnercfg.UsageMeter(opts, log)
+	if err != nil {
+		return jobSizes{}, nil, err
+	}
+	return sizes, meter, nil
+}
+
 // harness resolves the one harness both intent stages run on: intents run
 // on brokered claude only (no other harness honours the sandbox postures),
 // or on the fake harness in dev and tests.
@@ -307,7 +324,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	if err != nil {
 		return err
 	}
-	sizes, err := readJobSizes(opts)
+	sizes, meter, err := readRunConfig(opts, log)
 	if err != nil {
 		return err
 	}
@@ -396,7 +413,8 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		MaxConcurrent: opts.Int("intent-max-concurrent-runs"), Harness: harnessID,
 		Paused:    opts.Bool(runnercfg.AgentsPausedFlag),
 		PlanModel: opts.String("intent-plan-model"), BuildModel: opts.String("intent-build-model"),
-		Images: images, Classes: sizes.classes, MaxChangesetEntries: opts.Int("changeset-max-entries"), Log: log,
+		Images: images, Classes: sizes.classes, MaxChangesetEntries: opts.Int("changeset-max-entries"),
+		Meter: meter, Log: log,
 	}).SetupWithManager(mgr); err != nil {
 		return err
 	}
@@ -421,6 +439,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		slog.Bool("agents_paused", opts.Bool(runnercfg.AgentsPausedFlag)),
 		slog.Bool("multi_repo", set.MultiRepo),
 		slog.String("attribution_mode", string(set.Attribution)),
+		slog.Bool("usage_measurement", meter.On()),
 		slog.Bool("repository_images", sizes.repositoryImages),
 		slog.String("agent_resources", sizes.defaults.String()),
 		slog.String("resource_classes", sizes.classes.Describe()))

@@ -64,6 +64,7 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	runnercfg.RegisterAgentDNSFlag(f)
 	runnercfg.RegisterAgentsPausedFlag(f)
 	runnercfg.RegisterAttributionFlag(f)
+	runnercfg.RegisterUsageFlags(f)
 	f.Duration("job-deadline", time.Hour, "activeDeadlineSeconds for an agent Job")
 	f.Duration("job-ttl", time.Hour, "ttlSecondsAfterFinished for a finished agent Job")
 
@@ -153,6 +154,10 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	}
 	cpuRequest, memoryRequest, cpuLimit, memoryLimit := agentResources.Strings()
 	attributionMode, err := ownSettings(opts)
+	if err != nil {
+		return err
+	}
+	meter, err := runnercfg.UsageMeter(opts, log)
 	if err != nil {
 		return err
 	}
@@ -263,6 +268,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		},
 		MaxChangesetEntries: opts.Int("changeset-max-entries"),
 		Attribution:         attributionMode,
+		Meter:               meter,
 		Log:                 log,
 	}
 	if err := rem.SetupWithManager(mgr); err != nil {
@@ -283,6 +289,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		slog.Int("max_concurrent", opts.Int("max-concurrent-remediations")),
 		slog.Bool("agents_paused", opts.Bool(runnercfg.AgentsPausedFlag)),
 		slog.String("attribution_mode", string(attributionMode)),
+		slog.Bool("usage_measurement", meter.On()),
 		slog.Duration("finding_ttl", opts.Duration("finding-ttl")),
 		slog.Bool("repository_images", repositoryImages))
 
