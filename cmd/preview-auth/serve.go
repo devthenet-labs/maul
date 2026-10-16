@@ -454,7 +454,8 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	}
 
 	log.LogAttrs(ctx, slog.LevelInfo, "preview-auth starting",
-		slog.String("issuer", issuer), slog.String("host_suffix", cb.Suffix()), slog.Bool("gateway", gwCfg != nil), slog.String("probe_mode", string(st.probeMode)),
+		slog.String("issuer", issuer), slog.String("host_suffix", cb.Suffix()), slog.Bool("gateway", gwCfg != nil),
+		slog.String("probe_mode", string(st.probeMode)),
 		slog.Int("slot_count", opts.Int("preview-auth-slot-count")), slog.Int("key_generation", keys.Ring.Generation()),
 		slog.String("signing_kid", sg.KeyID()), slog.String("listen_addr", httpSrv.Addr))
 	if err := mgr.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {

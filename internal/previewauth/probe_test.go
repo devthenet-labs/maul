@@ -214,7 +214,10 @@ func TestJudgeGatewayUnknown(t *testing.T) {
 		"cacheable":            func(_ *int, h http.Header, _ *[]byte) { h.Set("Cache-Control", "public") },
 		"plain text":           func(_ *int, h http.Header, _ *[]byte) { h.Set("Content-Type", "text/plain") },
 		"another page":         func(_ *int, _ http.Header, b *[]byte) { *b = []byte("<title>Not found</title>") },
-		"a default backend":    func(_ *int, h http.Header, b *[]byte) { *b = []byte("404 page not found") },
+		"a default backend": func(_ *int, h http.Header, b *[]byte) {
+			h.Set("Content-Type", "text/plain")
+			*b = []byte("404 page not found")
+		},
 	} {
 		s, hh, b := gatewayNotFound()
 		edit(&s, hh, &b)
