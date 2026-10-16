@@ -43,6 +43,11 @@ deliberately suspended, hence the `suspended` pill on each row.
   renders only for users granted `get` on `integrations` — unlike rollups this view is **never public**, and it is
   read-only apart from the backfill trigger: the resources themselves are managed in the cluster.
 
+- **Usage** — only when the server has the [usage views](configuration/status-server.md#usage-views) on: your own daily
+  tokens and cost over 30 or 90 days, stacked by Project or run kind, with your top intents; with `usage/all`,
+  everyone's, per person and per Project. The unmetered worst case and pod-reported figures are shown apart, never in a
+  total, and a subscription's cost is shown as an equivalent API cost, not money spent.
+
 While the operator's [agent pause](configuration/investigation-controller.md#pausing-agents) (`agent.paused`) is on, the
 page shows a banner saying no new investigation, remediation, intent or evaluation Jobs start. Only signed-in users see
 it: the public rollups view, without signing in, does not. Nothing else on the page marks held work: paused findings

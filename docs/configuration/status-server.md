@@ -54,6 +54,53 @@ header refused, streams `no-store`, open findings transcript streams re-authoris
 subscribers, a Content-Security-Policy and HSTS. See the [dashboard page](../intents/dashboard.md) for what it shows,
 its RBAC and its limits. With the flag off the server behaves exactly as before it existed.
 
+One flag turns on the [usage views](#usage-views):
+
+| Flag              | Env                    | Default | Purpose                                                                                                                                                          |
+| ----------------- | ---------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--usage-enabled` | `PATCHY_USAGE_ENABLED` | `false` | Serve the Usage page: each person's own usage, everyone's for holders of `usage/all`. Needs mode `oidc` as above plus the `federated:id` scope; hardens the page |
+
+## Usage views
+
+The Usage page answers "who is producing what, and what does it cost" from the `UsageRollup`s that
+[attribution](attribution.md#usage-rollups) writes, so it shows something only with `attribution.mode: attribute`. Helm:
+`statusServer.usage.enabled: true` (default `false`).
+
+- **Your own usage.** Every signed-in person sees their own daily tokens and cost over the last 30 or 90 days, stacked
+  by Project or by run kind, their top intents, and the totals. No grant is needed: the server reads only the rollups
+  keyed by the caller's own GitHub id.
+- **Everyone's usage.** A holder of `get` on the virtual subresource `usage/all` (group `patchy.bitwisemedia.uk`, the
+  release namespace) also sees every person, the org's runs (no person behind them), every Project and the totals, and
+  can open one person or one Project. With `statusServer.rbac.userRoles` the chart renders the `patchy-usage-admin`
+  ClusterRole (that grant plus `get`/`list` on `usagerollups`, for [`patchy get usage`](../cli.md#reading-usage)); bind
+  it with a RoleBinding in the release namespace.
+- **What the figures are.** Tokens and cost are what the egress broker metered, priced at list rates. A Claude
+  subscription's tokens are priced too, as an _equivalent API cost_, never as money spent. The broker's worst-case
+  unmetered shortfall and the runs with only their pod's own (untrusted) report are shown in their own panel, never in a
+  total. Top intents come from month buckets, so they cover the whole months the window touches.
+
+A person is their **GitHub numeric id**, never a login, which can be renamed and taken by someone else. The page reads
+it from the Dex ID token's `federated_claims`: `connector_id` must equal `oidc.claims.githubConnector` (default
+`github`) and `user_id` is the id. Dex sends that claim only when asked for the `federated:id` scope, so list it:
+
+```yaml
+oidc:
+  scopes: [openid, offline_access, profile, email, groups, "federated:id"]
+  claims:
+    username: preferred_username
+    usernamePrefix: "github:"
+    groupsPrefix: "github:"
+    # githubConnector: github   # the id of Dex's GitHub connector
+```
+
+With `--usage-enabled` the server refuses to start unless the config passes the intents views' checks (mode `oidc`, both
+claim prefixes, `requireVerifiedEmail` for an `email` username) and lists `federated:id`. A request from an identity
+without a GitHub id (another Dex connector, or a session from before the scope was added: sign out and in again) is
+refused both views with a 403 saying why, even when it holds `usage/all`. The views turn on the same hardened browser
+envelope as the intents views. The API is `GET /api/usage?days=N` (own), `GET /api/usage/all?days=N&user=&project=`
+(everyone's; `user` is a login, `github-id:<id>` or `org`) and `GET /api/usage/access` (what the caller may see); `days`
+is 1 to 400, default 30.
+
 ## Authentication configuration
 
 `--auth-config` points at a YAML file, conventionally a mounted Secret (`patchy-status-auth`, key `config.yaml` — the
@@ -82,6 +129,7 @@ oidc: # mode: oidc only
     # usernamePrefix: "oidc:"     # prepended to the username before every access review
     # groupsPrefix: "oidc:"       # prepended to every group
     # requireVerifiedEmail: true  # refuse a token whose email_verified is not true
+    # githubConnector: github     # Dex connector whose federated_claims carry a GitHub id (usage views)
 ```
 
 `usernamePrefix` and `groupsPrefix` work like kube-apiserver's `--oidc-username-prefix` and `--oidc-groups-prefix`: with

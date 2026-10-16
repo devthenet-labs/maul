@@ -162,9 +162,15 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   off) it also serves the read-only intents views (board, timeline, run panel; docs/intents/dashboard.md): per-Project
   access reviews on the virtual subresources `projects/intents` and `projects/transcripts`, mode oidc with both claim
   prefixes required, and a hardened browser envelope for the whole page. No intent write of any kind.
+  With `--usage-enabled` (chart `statusServer.usage.enabled`; default off, chart only) it serves the Usage page and
+  `/api/usage*` (internal/web/usage.go): a person's own usage keyed by their GitHub numeric id (`auth.Identity.GitHubID`,
+  read from Dex `federated_claims` of the configured GitHub connector; any other identity refused), everyone's behind
+  an access review on the virtual `usage/all`; startup needs `auth.Config.RequireForUsage` (oidc, prefixes,
+  `federated:id`). Read only, over a cached `UsageRollup` informer.
 - `cmd/patchy` — the workstation CLI (the only binary not deployed): `patchy <verb> <noun>` over the
   caller's own kubeconfig, no channel through any controller. get/describe/review/browse/can-i plus the five
-  action verbs. Writes SPEC only, same as status-server, as the same merge patches (`specPatch`, native verb `patch`;
+  action verbs; `get usage` is the usage report (not a kind; `internal/usageview`), admin-only by a
+  SelfSubjectAccessReview on `usage/all`. Writes SPEC only, same as status-server, as the same merge patches (`specPatch`, native verb `patch`;
   field manager the binary's file name, `patchy` or `kubectl-patchy`); enforcement of the custom verbs for direct API
   writes is the ValidatingAdmissionPolicy in `deploy/kustomize/base/admission-policy.yaml`, NOT the CLI's
   own SelfSubjectAccessReview (that is ergonomics). Five cluster-free commands ride along: `dev` (the
@@ -384,6 +390,11 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
 - `rbactest` — test support only: `WaitAllowed` polls SubjectAccessReviews until a real API server's RBAC authorizer
   has observed a grant a suite just stored, so envtest suites (action policy, authz, chart, e2e) never act inside the
   informer window and flake on a refusal.
+- `usageview` — the pure projection of `UsageRollup`s into the one usage report the status page and `patchy get usage`
+  render (stdlib + `api/v1alpha1`, a test pins that): a window of UTC days, per person, Project, both or everyone, each
+  day stacked by Project (plus a "no project" remainder) and by run kind, top intents from month buckets, trusted,
+  notional, unmetered and reported figures apart. Seeded conservation property over `stats.ApplyUsage`. Its types are
+  the wire types, pinned to `ui/src/types.ts` (`TestUsageWireTypesMatchTypeScript`).
 - `intentview` — the pure public projection of intents for the status page: board columns, fixed public wording
   for outcomes and block reasons (never a run's detail or a condition's message), limits with schema defaults, cost
   parsing, and `Text` (templates.VisibleText plus a cap) for every shown string. Copies of intent-controller facts
