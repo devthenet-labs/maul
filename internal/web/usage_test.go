@@ -5,7 +5,9 @@ package web
 
 import (
 	"context"
+	"io"
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
@@ -237,5 +239,32 @@ func TestUsageOffServesNothing(t *testing.T) {
 	}
 	if s.hardened() {
 		t.Error("the envelope is hardened with neither view on")
+	}
+}
+
+// With the usage views on and the intents views off, the hardened envelope
+// re-checks a live Finding transcript stream, whose reauth period must not
+// come from the absent intents options (regression: a nil dereference).
+func TestUsageFollowsALiveTranscriptWithoutIntents(t *testing.T) {
+	tailer := &fakeTailer{turns: storedTurns()}
+	s := transcriptServer(t, tailer, runningInvestigation()...).WithUsage(UsageOptions{All: &usageGranter{}})
+	if s.intents != nil {
+		t.Fatal("fixture has the intents views on")
+	}
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	res, err := http.Get(ts.URL + transcriptPath)
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("GET %s = %d, want 200", transcriptPath, res.StatusCode)
+	}
+	body, _ := io.ReadAll(res.Body)
+	turns, ended := sseTurns(t, string(body))
+	if len(turns) != 3 || !ended {
+		t.Errorf("got %d live turns (ended %v), want 3 and an end", len(turns), ended)
 	}
 }
