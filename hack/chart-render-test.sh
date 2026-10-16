@@ -1272,6 +1272,57 @@ expect_fail 'gateway forwarded hops negative' "'/previewAuth/gateway/forwardedHo
   -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.forwardedHops=-1
 expect_fail 'gateway Service of type NodePort' "'/previewAuth/gateway/service/type'" \
   -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.service.type=NodePort
+# The gateway's own TLS (tls.secrets), for a LoadBalancer or no exposure:
+# each Secret one projected subdirectory, the listener on 8443 behind the
+# Service's 443, admitted by the relay's policy beside 8080. Refused where
+# an edge terminates TLS, and unless *.<hostSuffix> and the sign-in host
+# are both covered.
+pgtls='previewAuth.gateway.tls.secrets=[{"secretName":"preview-wildcard","hosts":["*.preview.patchy.devthe.net"]},{"secretName":"preview-signin","hosts":["preview-auth.patchy.devthe.net"]}]'
+pglb="--set previewAuth.gateway.ingress.enabled=false --set previewAuth.gateway.service.type=LoadBalancer --set previewAuth.gateway.forwardedHops=0"
+# shellcheck disable=SC2086
+golden_select pg-golden-loadbalancer-tls "$golden/preview-gateway.loadbalancer-tls.yaml" -f "$pf" -f "$pav" -f "$pgw" \
+  $pglb --set-json "$pgtls"
+# shellcheck disable=SC2086
+render pg-tls -f "$pf" -f "$pav" -f "$pgw" $pglb --set-json "$pgtls"
+cm pg-tls preview-auth PATCHY_PREVIEW_AUTH_GATEWAY_TLS_DIR /etc/patchy/preview-gateway/tls
+cm pg-tls preview-auth PATCHY_PREVIEW_AUTH_GATEWAY_TLS_LISTEN_ADDR :8443
+cm pg preview-auth PATCHY_PREVIEW_AUTH_GATEWAY_TLS_DIR null
+for key in $(get pg-tls 'select(.kind == "ConfigMap" and .metadata.name == "patchy-preview-auth-config") | .data | keys | .[] | select(test("GATEWAY_TLS"))'); do
+  flag=$(echo "${key#PATCHY_}" | tr 'A-Z_' 'a-z-')
+  if ! grep -q "\"$flag\"" cmd/preview-auth/serve.go; then
+    fail "pg-tls: ConfigMap key $key is no preview-auth flag ($flag)"
+  fi
+done
+expect pg-tls "$pgdep | .spec.template.spec.containers[0].ports[] | select(.name == \"https\") | .containerPort" 8443
+expect pg "$pgdep | .spec.template.spec.containers[0].ports[] | select(.name == \"https\") | .containerPort" ''
+expect pg-tls "$pgdep | .spec.template.spec.containers[0].volumeMounts[] | select(.name == \"gateway-tls\") | .mountPath + \" \" + (.readOnly | tostring)" '/etc/patchy/preview-gateway/tls true'
+expect pg-tls "$pgdep | .spec.template.spec.volumes[] | select(.name == \"gateway-tls\") | .projected.sources[] | .secret.name + \" \" + (.secret.items | map(.key + \"=\" + .path) | join(\",\"))" 'preview-wildcard tls.crt=0/tls.crt,tls.key=0/tls.key
+preview-signin tls.crt=1/tls.crt,tls.key=1/tls.key'
+expect pg-tls 'select(.kind == "Service" and .metadata.name == "patchy-preview-gateway") | .spec.ports | map(.name + ":" + (.port | tostring) + ">" + .targetPort) | join(",")' 'http:80>http,https:443>https'
+expect pg 'select(.kind == "Service" and .metadata.name == "patchy-preview-gateway") | .spec.ports | map(.name) | join(",")' http
+expect pg-tls 'select(.kind == "NetworkPolicy" and .metadata.name == "patchy-preview-auth") | .spec.ingress[0].ports | map(.port | tostring) | join(",")' '8080,8443'
+render pg-tls-none -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.ingress.enabled=false --set-json "$pgtls"
+cm pg-tls-none preview-auth PATCHY_PREVIEW_AUTH_GATEWAY_TLS_DIR /etc/patchy/preview-gateway/tls
+expect_fail 'gateway TLS with an Ingress' 'previewAuth.gateway.tls.secrets is refused with the ingress exposure' \
+  -f "$pf" -f "$pav" -f "$pgw" --set-json "$pgtls"
+expect_fail 'gateway TLS with an HTTPRoute' 'previewAuth.gateway.tls.secrets is refused with the httpRoute exposure' \
+  -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.ingress.enabled=false --set-json "$pgtls" \
+  --set-json 'previewAuth.gateway.httpRoute.parentRefs=[{"name":"edge"}]'
+# shellcheck disable=SC2086
+expect_fail 'gateway TLS for another host' 'host other.example.com (Secret x) is neither' \
+  -f "$pf" -f "$pav" -f "$pgw" $pglb \
+  --set-json 'previewAuth.gateway.tls.secrets=[{"secretName":"x","hosts":["*.preview.patchy.devthe.net","other.example.com"]}]'
+# shellcheck disable=SC2086
+expect_fail 'gateway TLS without the sign-in host' 'covers no preview-auth.patchy.devthe.net' \
+  -f "$pf" -f "$pav" -f "$pgw" $pglb \
+  --set-json 'previewAuth.gateway.tls.secrets=[{"secretName":"x","hosts":["*.preview.patchy.devthe.net"]}]'
+# shellcheck disable=SC2086
+expect_fail 'gateway TLS without the preview hosts' 'covers no *.preview.patchy.devthe.net' \
+  -f "$pf" -f "$pav" -f "$pgw" $pglb \
+  --set-json 'previewAuth.gateway.tls.secrets=[{"secretName":"x","hosts":["preview-auth.patchy.devthe.net"]}]'
+# shellcheck disable=SC2086
+expect_fail 'gateway TLS Secret without hosts' "missing property 'hosts'" \
+  -f "$pf" -f "$pav" -f "$pgw" $pglb --set-json 'previewAuth.gateway.tls.secrets=[{"secretName":"x"}]'
 
 # ---- feature on: keys on the right controllers ------------------------------
 render on -f "$fixtures/repository-images.yaml"

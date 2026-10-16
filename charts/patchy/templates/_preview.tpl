@@ -107,8 +107,11 @@ with fromJson). Fields:
                not previewAuth.host, which the relay's Ingress routes
   exposure     ingress | httpRoute | loadBalancer | none
   hops         forwardedHops as a string, "" when unset
+  tls          the gateway terminates TLS itself (tls.secrets)
 It fails the render on a gateway without the relay, a sign-in host under
-the preview suffix, two exposures at once, and an exposure without
+the preview suffix, TLS secrets with an edge that terminates TLS (ingress,
+httpRoute) or whose hosts are not *.<hostSuffix> and the sign-in host, both
+covered, two exposures at once, and an exposure without
 forwardedHops (no default: how many proxies append X-Forwarded-For is the
 platform's, and a wrong guess lets a client name its own address to the
 rate limit and the allowlist). Context: the root.
@@ -138,7 +141,22 @@ rate limit and the allowlist). Context: the root.
 {{- else -}}
 {{- $hops = int $g.forwardedHops | toString -}}
 {{- end -}}
-{{- $out = dict "enabled" true "signInHost" $signIn "routeSignIn" (ne $signIn $pa.host) "exposure" $exposure "hops" $hops -}}
+{{- $secrets := ($g.tls | default dict).secrets | default list -}}
+{{- if $secrets -}}
+{{- if has $exposure (list "ingress" "httpRoute") }}{{ fail (printf "previewAuth.gateway.tls.secrets is refused with the %s exposure: its edge terminates TLS (ingress.tls, or the Gateway's listener); the gateway's own TLS is for service.type LoadBalancer or no exposure" $exposure) }}{{ end -}}
+{{- $wild := printf "*.%s" $suffix -}}
+{{- $covered := list -}}
+{{- range $sec := $secrets -}}
+{{- range $h := $sec.hosts -}}
+{{- if not (has $h (list $wild $signIn)) }}{{ fail (printf "previewAuth.gateway.tls.secrets host %s (Secret %s) is neither %s nor the sign-in host %s" $h $sec.secretName $wild $signIn) }}{{ end -}}
+{{- $covered = append $covered $h -}}
+{{- end -}}
+{{- end -}}
+{{- range $h := list $wild $signIn -}}
+{{- if not (has $h $covered) }}{{ fail (printf "previewAuth.gateway.tls.secrets covers no %s: the gateway's own TLS must cover every preview host (%s) and the sign-in host (%s)" $h $wild $signIn) }}{{ end -}}
+{{- end -}}
+{{- end -}}
+{{- $out = dict "enabled" true "signInHost" $signIn "routeSignIn" (ne $signIn $pa.host) "exposure" $exposure "hops" $hops "tls" (not (empty $secrets)) -}}
 {{- end -}}
 {{- $out | toJson -}}
 {{- end }}

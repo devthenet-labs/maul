@@ -1107,6 +1107,26 @@
                                 "parentRefs": {"type": "array", "items": {"type": "object"}},
                                 "annotations": {"type": "object"}
                             }
+                        },
+                        "tls": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                                "secrets": {
+                                    "type": "array",
+                                    "maxItems": 8,
+                                    "description": "kubernetes.io/tls Secrets the gateway serves TLS with itself, by SNI; LoadBalancer or no exposure only",
+                                    "items": {
+                                        "type": "object",
+                                        "additionalProperties": false,
+                                        "required": ["secretName", "hosts"],
+                                        "properties": {
+                                            "secretName": {"type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"},
+                                            "hosts": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^(\\*\\.)?[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)+$"}}
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 },

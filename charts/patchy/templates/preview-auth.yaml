@@ -77,6 +77,10 @@ metadata:
 {{- $_ := set $data "PATCHY_PREVIEW_AUTH_GATEWAY_SIGN_IN_HOST" $gw.signInHost }}
 {{- with $gw.hops }}{{ $_ := set $data "PATCHY_PREVIEW_AUTH_GATEWAY_FORWARDED_HOPS" . }}{{ end }}
 {{- with $gwVals.inboundCIDRs }}{{ $_ := set $data "PATCHY_PREVIEW_AUTH_GATEWAY_INBOUND_CIDRS" (join "," .) }}{{ end }}
+{{- if $gw.tls }}
+{{- $_ := set $data "PATCHY_PREVIEW_AUTH_GATEWAY_TLS_DIR" "/etc/patchy/preview-gateway/tls" }}
+{{- $_ := set $data "PATCHY_PREVIEW_AUTH_GATEWAY_TLS_LISTEN_ADDR" ":8443" }}
+{{- end }}
 {{- end }}
 {{- range $k, $v := .Values.config.extra }}
 {{- $_ := set $data $k $v }}
@@ -424,6 +428,11 @@ spec:
                       - name: health
                         containerPort: 8081
                         protocol: TCP
+                      {{- if $gw.tls }}
+                      - name: https
+                        containerPort: 8443
+                        protocol: TCP
+                      {{- end }}
                   livenessProbe:
                       httpGet:
                           path: /healthz
@@ -456,6 +465,11 @@ spec:
                         readOnly: true
                       - name: tmp
                         mountPath: /tmp
+                      {{- if $gw.tls }}
+                      - name: gateway-tls
+                        mountPath: /etc/patchy/preview-gateway/tls
+                        readOnly: true
+                      {{- end }}
                       {{- with $vals.extraVolumeMounts }}
                       {{- toYaml . | nindent 22 }}
                       {{- end }}
@@ -485,6 +499,23 @@ spec:
                             path: clientSecret
                 - name: tmp
                   emptyDir: {}
+                {{- if $gw.tls }}
+                # previewAuth.gateway.tls.secrets, one subdirectory each; the
+                # gateway re-reads them, so a renewal needs no restart.
+                - name: gateway-tls
+                  projected:
+                      defaultMode: 0440
+                      sources:
+                          {{- range $i, $sec := $gwVals.tls.secrets }}
+                          - secret:
+                                name: {{ $sec.secretName }}
+                                items:
+                                    - key: tls.crt
+                                      path: {{ $i }}/tls.crt
+                                    - key: tls.key
+                                      path: {{ $i }}/tls.key
+                          {{- end }}
+                {{- end }}
                 {{- with $vals.extraVolumes }}
                 {{- toYaml . | nindent 16 }}
                 {{- end }}
@@ -548,6 +579,10 @@ spec:
         - ports:
               - protocol: TCP
                 port: 8080
+              {{- if $gw.tls }}
+              - protocol: TCP
+                port: 8443
+              {{- end }}
           {{- with $vals.ingressFrom }}
           from:
               {{- range $cidr := . }}
@@ -675,6 +710,13 @@ spec:
           port: 80
           targetPort: http
           protocol: TCP
+        {{- if $gw.tls }}
+        # The gateway's own TLS (previewAuth.gateway.tls.secrets).
+        - name: https
+          port: 443
+          targetPort: https
+          protocol: TCP
+        {{- end }}
 {{- $hosts := list (printf "*.%s" .Values.preview.hostSuffix) }}
 {{- if $gw.routeSignIn }}{{ $hosts = append $hosts $gw.signInHost }}{{ end }}
 {{- if eq $gw.exposure "ingress" }}

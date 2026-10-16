@@ -510,6 +510,16 @@ previewAuth:
             # HTTPRoute. TLS is the Gateway's listener's.
             parentRefs: []
             annotations: {}
+        # TLS the gateway terminates itself, for the LoadBalancer exposure
+        # or none (a tunnel passing TLS through): kubernetes.io/tls Secrets
+        # in the release namespace, picked by SNI, each with the hosts it
+        # covers ("*.<preview.hostSuffix>" and the sign-in host between
+        # them), e.g. [{secretName: preview-wildcard, hosts:
+        # ["*.preview.example.com"]}]. The Service then also serves 443.
+        # Refused with ingress or httpRoute, whose edge terminates TLS. A
+        # renewed Secret (cert-manager) is picked up without a restart.
+        tls:
+            secrets: []
     config:
         extra: {}
     resources:
