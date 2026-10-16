@@ -39,7 +39,8 @@ func newCheckProjectCmd(opts *Options) *cobra.Command {
 			"IntentNameConflict condition, and the Ready verdict of each covering Forge. The\n" +
 			"check never reads a Secret, so it never handles the App's private key: its\n" +
 			"cluster reads are Projects, Forges, ConfigMaps, the preview placeholder\n" +
-			"Ingress and Previews, with your kubeconfig.\n\n" +
+			"Ingress, the preview gateway's Ingress and Service, and Previews, with your\n" +
+			"kubeconfig.\n\n" +
 			"The rest is checked with your own identity, and each reason says so: every\n" +
 			"repository resolves to exactly one Forge; each app repository's agent image,\n" +
 			"as .patchy/agent.yaml (or .devcontainer/devcontainer.json) declares it at the\n" +
@@ -68,6 +69,16 @@ func newCheckProjectCmd(opts *Options) *cobra.Command {
 			"not readable); and, once sign-in is required, the placeholder host and every\n" +
 			"Ready preview host of the Project answer a request without credentials with\n" +
 			"the load balancer's redirect to the relay for that slot's own client.\n\n" +
+			"With the preview gateway on (previewAuth.gateway), the checks judge the path\n" +
+			"in force: <project>-0.<host suffix> must resolve to the gateway's edge (its\n" +
+			"publishedAddresses, else its Ingress's or LoadBalancer Service's address; a\n" +
+			"private edge this resolver does not answer with is a SKIP; while the legacy\n" +
+			"slot Ingress still serves, the preview load balancer passes too), answer a\n" +
+			"navigation with the gateway's 404 page, and every Ready preview host with\n" +
+			"the gateway's redirect to <sign-in host>/start for its own label. With\n" +
+			"previewAuth.gateway.inboundCIDRs set, preview-gateway-allowlist sends a\n" +
+			"spoofed X-Forwarded-For naming an admitted address from a refused one, which\n" +
+			"must stay refused (a SKIP from an admitted address).\n\n" +
 			"-o json or -o yaml prints the whole report as data. The exit status is 1 when\n" +
 			"any check fails, 3 when the Project does not exist and 4 when you may not\n" +
 			"read it.",

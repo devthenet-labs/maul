@@ -16,18 +16,24 @@ chart and the module's platform half) is that page's; this one is per applicatio
 A preview runs the runtime image inside a locked-down slot. An image that breaks one of these rules fails its rollout,
 and the Preview says why:
 
-| Rule                              | What it means for the image                                                                                                                                                                                                             |
-| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **uid 65532**, no capabilities    | The Pod runs as a non-root user with every capability dropped and no privilege escalation (Pod Security `restricted`). Declare `USER 65532:65532`.                                                                                      |
-| **Read-only root filesystem**     | Nothing on the image's filesystem is writable, and there is no writable `/tmp`. Write nothing to disk: an app that writes temp files, caches or PID files at startup crashes.                                                           |
-| **One port**, plain HTTP          | One container listening on one port, the Project's `preview.port`. TLS ends at the load balancer; the app speaks HTTP.                                                                                                                  |
-| **Readiness path**                | The Project's `preview.readinessPath` must answer 200 once the app is ready. It is both the Pod's readiness check and the load balancer's health check, so a Preview is `Ready` only once the load balancer reports the target healthy. |
-| **Immutable `sha-<40 hex>` tags** | A preview runs exactly `<imageRepository>:sha-<full head SHA>` of the pull request. Only the trusted runtime publisher pushes those tags, and ECR's immutable tags keep them from moving.                                               |
-| **The NodePool's architecture**   | The preview nodes are `amd64` unless the operator chose otherwise (`preview.nodeIsolation.arch`). The generated publishers build and accept a single `linux/amd64` image.                                                               |
-| **Small**                         | The publisher refuses an OCI archive over 128 MiB. A preview container runs with fixed resources: 25m CPU and 32 MiB requested, limited to 250m CPU and **256 MiB of memory**, above which it is killed.                                |
-| **No egress**                     | A preview Pod reaches DNS and nothing else: no other service, no database, no internet. An app that needs a backend to start does not start.                                                                                            |
+| Rule                              | What it means for the image                                                                                                                                                                                                                                                                                     |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **uid 65532**, no capabilities    | The Pod runs as a non-root user with every capability dropped and no privilege escalation (Pod Security `restricted`). Declare `USER 65532:65532`.                                                                                                                                                              |
+| **Read-only root filesystem**     | Nothing on the image's filesystem is writable, and there is no writable `/tmp`. Write nothing to disk: an app that writes temp files, caches or PID files at startup crashes.                                                                                                                                   |
+| **One port**, plain HTTP          | One container listening on one port, the Project's `preview.port`. TLS ends at the load balancer (or the preview gateway's edge); the app speaks HTTP.                                                                                                                                                          |
+| **Readiness path**                | The Project's `preview.readinessPath` must answer 200 once the app is ready. It is the Pod's readiness check and, on the preview ALB, also the load balancer's health check, so a Preview is `Ready` only once the load balancer reports the target healthy. Behind the preview gateway, a Ready Pod is enough. |
+| **Immutable `sha-<40 hex>` tags** | A preview runs exactly `<imageRepository>:sha-<full head SHA>` of the pull request. Only the trusted runtime publisher pushes those tags, and ECR's immutable tags keep them from moving.                                                                                                                       |
+| **The NodePool's architecture**   | The preview nodes are `amd64` unless the operator chose otherwise (`preview.nodeIsolation.arch`). The generated publishers build and accept a single `linux/amd64` image.                                                                                                                                       |
+| **Small**                         | The publisher refuses an OCI archive over 128 MiB. A preview container runs with fixed resources: 25m CPU and 32 MiB requested, limited to 250m CPU and **256 MiB of memory**, above which it is killed.                                                                                                        |
+| **No egress**                     | A preview Pod reaches DNS and nothing else: no other service, no database, no internet. An app that needs a backend to start does not start.                                                                                                                                                                    |
 
 The generated Go service meets all of it: a static binary on distroless, uid 65532, port 8080 and `/healthz`.
+
+Behind the [preview gateway](../configuration/preview-gateway.md), the app also never sees a path under `/.patchy/`,
+must not set cookies named `__Host-patchy-*`, and receives a non-GET request or a WebSocket only with its own `Origin`
+(a browser sends it for the app's own requests).
+[Preview sign-in, for application authors](preview-sign-in.md#for-application-authors) lists what the app sees on each
+path.
 
 ## Naming: the repository name is yours
 
@@ -356,13 +362,13 @@ helm upgrade patchy-config oci://ghcr.io/devthenet-labs/patchy/charts/patchy-con
 GH_TOKEN=$(gh auth token) patchy check project shop-web -n patchy
 ```
 
-Every line should be PASS, except two expected SKIPs: `preview-tls` from an address the preview load balancer does not
-admit, and `preview-image` until a default-branch commit is published after `PREVIEW_PUBLISH_ENABLED` was set (push one,
-or re-run the default branch's latest `test` run; with one previewed repository it is never a FAIL).
-[Deploying, verification](deploying.md#verification) lists what each check proves and what none of them can. An issue in
-the intent repository with the label `patchy:shop-web`, opened or labelled by an approver with write access to it, is
-then the first intent. A label an issue form applies as the issue is created counts as the issue author's, so a form
-with the trigger label starts an intent only for an approver.
+Every line should be PASS, except two expected SKIPs: `preview-tls` from an address the preview load balancer (or the
+preview gateway's edge) does not admit, and `preview-image` until a default-branch commit is published after
+`PREVIEW_PUBLISH_ENABLED` was set (push one, or re-run the default branch's latest `test` run; with one previewed
+repository it is never a FAIL). [Deploying, verification](deploying.md#verification) lists what each check proves and
+what none of them can. An issue in the intent repository with the label `patchy:shop-web`, opened or labelled by an
+approver with write access to it, is then the first intent. A label an issue form applies as the issue is created counts
+as the issue author's, so a form with the trigger label starts an intent only for an approver.
 
 An application that spans several repositories, a front end and its API say, is one Project over all of them: onboard
 each repository as on this page, then follow

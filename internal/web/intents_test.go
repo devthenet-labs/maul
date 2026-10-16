@@ -825,3 +825,39 @@ func TestTier2ReadsAreAudited(t *testing.T) {
 		t.Errorf("an audit line carried content: %s", out)
 	}
 }
+
+// TestWirePreviewLinksOnlyWhatTheIssueLinks: the board links a Ready
+// Preview's URL only when the intent issue would (intentview.PreviewURL):
+// the intent's own label first, under a suffix of two labels or more. A URL
+// a Preview's status could carry but the issue refuses is not linked.
+func TestWirePreviewLinksOnlyWhatTheIssueLinks(t *testing.T) {
+	pv := func(label, url string) *v1alpha1.Preview {
+		return &v1alpha1.Preview{Spec: v1alpha1.PreviewSpec{HostLabel: label},
+			Status: v1alpha1.PreviewStatus{Phase: v1alpha1.PreviewReady, URL: url}}
+	}
+	for _, tc := range []struct {
+		name string
+		pv   *v1alpha1.Preview
+		want string
+	}{
+		{"its own host", pv("alpha-7", "https://alpha-7.preview.example.com"), "https://alpha-7.preview.example.com"},
+		{"a trailing slash", pv("alpha-7", "https://alpha-7.preview.example.com/"), "https://alpha-7.preview.example.com/"},
+		{"another intent's host", pv("alpha-7", "https://alpha-8.preview.example.com"), ""},
+		{"another label", pv("alpha-8", "https://alpha-8.preview.example.com"), ""},
+		{"a path", pv("alpha-7", "https://alpha-7.preview.example.com/login"), ""},
+		{"a port", pv("alpha-7", "https://alpha-7.preview.example.com:8443"), ""},
+		{"userinfo", pv("alpha-7", "https://x@alpha-7.preview.example.com"), ""},
+		{"no suffix", pv("alpha-7", "https://alpha-7.com"), ""},
+		{"an address", pv("alpha-7", "https://alpha-7.10.0.0.1"), ""},
+		{"http", pv("alpha-7", "http://alpha-7.preview.example.com"), ""},
+	} {
+		if got := wirePreview("alpha-7", tc.pv).URL; got != tc.want {
+			t.Errorf("%s: URL %q, want %q", tc.name, got, tc.want)
+		}
+	}
+	deploying := pv("alpha-7", "https://alpha-7.preview.example.com")
+	deploying.Status.Phase = v1alpha1.PreviewDeploying
+	if got := wirePreview("alpha-7", deploying).URL; got != "" {
+		t.Errorf("a deploying preview linked %q", got)
+	}
+}

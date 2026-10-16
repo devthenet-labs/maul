@@ -24,9 +24,11 @@ func TestPreviewGenericIsolationAgainstAPIServer(t *testing.T) {
 	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
 		t.Skip("KUBEBUILDER_ASSETS not set; run via mise run envtest")
 	}
-	_, admin := startPreviewPolicyEnv(t, "--set", "preview.nodeIsolation.nodePool=",
+	env, admin := startPreviewPolicyEnv(t, "--set", "preview.nodeIsolation.nodePool=",
 		"--set", "preview.nodeIsolation.nodeClass=",
 		"--set-json", `preview.nodeIsolation.selector={"patchy.example.com/previews":"true"}`)
+	testIngressProbePods(t, env, "--node-selector", "patchy.example.com/previews=true", "--taint-key",
+		previewTaintKey)
 	generic := func(name string) *corev1.Pod {
 		return mutatePod(pod("patchy-preview-0", name, previewImage), func(p *corev1.Pod) {
 			p.Spec.NodeSelector = genericSelector

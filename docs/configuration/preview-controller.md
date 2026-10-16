@@ -10,12 +10,13 @@ Before rendering, the controller re-derives the Preview from the operator's Proj
 state (`v1alpha1.DesiredPreviewComponents`, the function the writer uses too) and checks every component against it. A
 mismatched spec fails closed and removes an exposed Ingress before releasing the slot.
 
-!!! warning "Previews need EKS Auto Mode"
+!!! warning "Off EKS Auto Mode, previews need the preview gateway"
 
-    Previews currently work only on EKS Auto Mode. They depend on its `alb-preview` load balancer class, on the AWS
-    load balancer's built-in sign-in (through [preview-auth](preview-auth.md)) and on Auto Mode's readiness-gate label.
-    On other clusters (GKE, AKS, k3d, on-premises) no load balancer picks up the preview Ingress, so a preview never
-    becomes reachable. Leave `preview.enabled` off there; intents still run in full without a preview link.
+    The legacy path (the default, `preview.legacyIngress: true`) works only on EKS Auto Mode: it depends on its
+    `alb-preview` load balancer class, on the AWS load balancer's built-in sign-in (through
+    [preview-auth](preview-auth.md)) and on Auto Mode's readiness-gate label. On any other cluster (GKE, AKS, k3d,
+    on-premises), turn on the [preview gateway](preview-gateway.md) and set `preview.legacyIngress: false`: the slots
+    then render no Ingress, and the gateway serves every preview host behind whatever edge the cluster has.
 
 `preview.enabled` first creates guarded, empty slot namespaces and the non-default `alb-preview` class.
 `previewController.enabled` then adds the controller, one namespaced Role in the release namespace and one in each slot,
@@ -200,8 +201,9 @@ keeps everything else off those nodes. The binary takes the selector in generic 
   no dedicated preview nodes, where preview code then shares nodes with everything else.
 
 Every key must be a label name and every value a label value. Changing the selector or the taint changes every slot
-Pod's template, so each live preview rolls once. The chart still sets only the pool, class and taint key, and its slot
-admission policy compares exactly those keys; the generic selector reaches the chart with the preview gateway.
+Pod's template, so each live preview rolls once. The chart sets these from `preview.nodeIsolation` (`selector`,
+`taintKey`, `mode`, and the EKS `eksAutoMode.nodePool` and `nodeClass`), and its slot admission policy compares the same
+selector.
 
 ## The serving snapshot
 
@@ -236,7 +238,8 @@ gateway serves:
   live Preview's included.
 - The slot Role keeps its Ingress verbs, which the cleanup needs.
 
-Turning it off before the gateway serves the preview hosts takes every preview off the network.
+Turning it off before the gateway serves the preview hosts takes every preview off the network. The order on an EKS
+install is in [Preview gateway](preview-gateway.md#moving-off-the-preview-alb-eks-release-n).
 
 ## Sign-in on preview Ingresses (off by default)
 

@@ -482,6 +482,12 @@ patchy check project shop -o json | jq '.checks[] | select(.status == "FAIL")'
 | `preview-dns`   | That `<project>-0.<host suffix>` resolves to the preview load balancer, the placeholder Ingress's address. No intent is numbered 0, so the wildcard covers that name and no Preview owns it. It fails when the name does not exist (NXDOMAIN) or resolves elsewhere, and when the placeholder Ingress has no load balancer address; a lookup that times out, or a placeholder you cannot read, is a SKIP.                                                                                                            |
 | `preview-tls`   | That the name serves a certificate trusted for it. The preview load balancer admits only `preview.inboundCIDRs`, so from any other address the handshake times out, and that is a SKIP, not a FAIL.                                                                                                                                                                                                                                                                                                                  |
 
+While preview sign-in is on, `preview-auth`, `preview-auth-dex` and `preview-auth-host` check the relay, Dex's redirect
+URI and each preview host's answer without credentials ([Preview sign-in](intents/preview-sign-in.md#check-it)). With
+the [preview gateway](configuration/preview-gateway.md#checking-it) on, `preview-dns` and `preview-auth-host` judge the
+gateway's path instead (its edge's address, its `404` page for a host no Preview owns, its redirect to `/start`), and
+`preview-gateway-allowlist` checks that a spoofed `X-Forwarded-For` cannot get past `previewAuth.gateway.inboundCIDRs`.
+
 The check never reads a Secret, so it never holds the App's private key: whether the App is installed with the
 permissions intents use, and whether the labels exist, come from the conditions the controller computed in the cluster.
 What only your own identity can see, it reads with that identity and says so: GitHub with `GH_TOKEN` (else

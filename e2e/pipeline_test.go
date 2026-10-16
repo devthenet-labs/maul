@@ -93,9 +93,21 @@ var (
 // run. e2e is its own module, so the build runs in the parent directory.
 func build(t *testing.T, name string) string {
 	t.Helper()
+	return buildTagged(t, name, "")
+}
+
+// buildTagged is build with Go build tags (comma-separated; empty is none),
+// cached apart from the untagged binary: the e2edial tag adds preview-auth's
+// test-only dial seam, which a released binary never has.
+func buildTagged(t *testing.T, name, tags string) string {
+	t.Helper()
 	buildMu.Lock()
 	defer buildMu.Unlock()
-	if bin, ok := buildBins[name]; ok {
+	key := name
+	if tags != "" {
+		key = name + "+" + strings.ReplaceAll(tags, ",", "+")
+	}
+	if bin, ok := buildBins[key]; ok {
 		return bin
 	}
 	if buildDir == "" {
@@ -105,13 +117,13 @@ func build(t *testing.T, name string) string {
 		}
 		buildDir = dir
 	}
-	bin := filepath.Join(buildDir, name)
-	cmd := exec.Command("go", "build", "-o", bin, "./cmd/"+name)
+	bin := filepath.Join(buildDir, key)
+	cmd := exec.Command("go", "build", "-o", bin, "-tags", tags, "./cmd/"+name)
 	cmd.Dir = ".."
 	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("build %s: %v\n%s", name, err, out)
+		t.Fatalf("build %s: %v\n%s", key, err, out)
 	}
-	buildBins[name] = bin
+	buildBins[key] = bin
 	return bin
 }
 
@@ -342,6 +354,12 @@ func (cl *cluster) controller(t *testing.T, name string, extra ...string) int {
 // so a successor leads once the lease expires.
 func (cl *cluster) stoppableController(t *testing.T, name string, extra ...string) (pid int, stop func()) {
 	t.Helper()
+	return cl.stoppableBinary(t, name, build(t, name), extra...)
+}
+
+// stoppableBinary is stoppableController running bin, a build of name.
+func (cl *cluster) stoppableBinary(t *testing.T, name, bin string, extra ...string) (pid int, stop func()) {
+	t.Helper()
 	health := fmt.Sprintf("127.0.0.1:%d", freePort(t))
 	args := append([]string{
 		"serve",
@@ -351,7 +369,7 @@ func (cl *cluster) stoppableController(t *testing.T, name string, extra ...strin
 		"--log-level", "info",
 	}, extra...)
 
-	cmd := exec.Command(build(t, name), args...)
+	cmd := exec.Command(bin, args...)
 	var logs bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &logs, &logs
 	if err := cmd.Start(); err != nil {

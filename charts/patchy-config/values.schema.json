@@ -850,7 +850,7 @@
                             "type": "integer"
                         },
                         "readinessPath": {
-                            "description": "ReadinessPath is a safe HTTP path, also used by the ALB health check.",
+                            "description": "ReadinessPath is a safe HTTP path: the Pod's readiness check, and on\nthe legacy preview load balancer path also its health check.",
                             "maxLength": 128,
                             "pattern": "^/[a-zA-Z0-9/_-]*$",
                             "type": "string"
@@ -891,7 +891,7 @@
                                     },
                                     "path": {
                                         "default": "/",
-                                        "description": "Path is the URL path prefix the component is served under on the\nintent's preview host, \"/\" by default. The load balancer routes the\nlongest matching prefix and does not rewrite it, so the application\nserves under its path (an API at /api answers /api/...), and a page\ncalls a sibling component same-origin, from the browser. Lowercase\nsegments only, so it is safe as an Ingress path. Paths are distinct\nacross the Project (CEL-enforced on the spec).",
+                                        "description": "Path is the URL path prefix the component is served under on the\nintent's preview host, \"/\" by default. The preview gateway (or the\nlegacy load balancer) routes the longest matching prefix and does not\nrewrite it, so the application serves under its path (an API at /api\nanswers /api/...), and a page calls a sibling component same-origin,\nfrom the browser. Lowercase segments only, so it is safe as an Ingress\npath. Paths are distinct across the Project (CEL-enforced on the spec).",
                                         "maxLength": 128,
                                         "pattern": "^/([a-z0-9-]+(/[a-z0-9-]+)*)?$",
                                         "type": "string"
@@ -904,7 +904,7 @@
                                         "type": "integer"
                                     },
                                     "readinessPath": {
-                                        "description": "ReadinessPath is a safe HTTP path, also used by the ALB health check.",
+                                        "description": "ReadinessPath is a safe HTTP path: the Pod's readiness check, and on\nthe legacy preview load balancer path also its health check.",
                                         "maxLength": 128,
                                         "pattern": "^/[a-zA-Z0-9/_-]*$",
                                         "type": "string"

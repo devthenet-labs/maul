@@ -7,16 +7,32 @@
 > documentation values `111122223333` and `203.0.113.10/32`. The real ones are in terraform-devthenet's `k8s/` values
 > (private).
 
-## In flight — 2026-10-16: limits that fit large features (LF1: broker cost limits)
+## In flight — 2026-10-16: portable previews, release N (end to end, check project, isolation probe, docs)
 
-**The broker can bound spend in micro-USD instead of tokens.** Branch `feature/lf1-broker-cost-limits` adds LF1 of the
-large-features limits design: `--limit-unit=cost` (chart `egressBroker.limits.unit`, default `tokens`, so nothing
-changes until switched) with `--cost-per-pod` (required) and `--cost-per-hour`, priced per model through
-`model.MeasuredCostUSD` (an unpriced model at the dearest rate), and a per-pod cap lowered by the pod's
-`patchy.bitwisemedia.uk/budget-micro-usd` annotation, read with `get pods` in the agent namespace (a Role rendered only
-under `cost`), UID-checked and cached with the verdict. Cost is audited and metered under either unit. Still to come:
-LF2 (StageLimits cost and timeout, controllers stamping the annotation, the admission pair, the hourly guard) and LF3
-(sizing docs and e2e). See [docs/configuration/egress-broker.md](docs/configuration/egress-broker.md#cost-limits).
+**Release N of the preview gateway is complete in code.** Branch `feat/preview-gateway-e2e-docs` (design §5, §9 W5 to W7
+and Revision W9) adds what proves and documents it; nothing changes for an install that leaves the gateway off:
+
+- **Probe verdicts by mode.** `previewauth.ProbeMode` (`alb`, `either`, `gateway`) and `JudgeGatewayUnknown` (the
+  gateway's own 404 for a host no Preview owns). The relay's probe takes `--preview-auth-probe-mode`; the chart sets
+  `gateway` once `preview.legacyIngress` is false with the gateway on, and the probe then also asks
+  `patchy-probe-0.<suffix>`.
+- **`patchy check project` in gateway mode:** DNS against `publishedAddresses` or the exposure's status (a private edge
+  SKIPs), the gateway's 404 and `/start` redirect, and `preview-gateway-allowlist` (a spoofed `X-Forwarded-For`).
+- **e2e:** `TestPreviewGatewayEndToEnd` runs both shipped binaries with the gateway on (sign-in through a TLS Dex,
+  routing by path, serving through a redeploy, cross-preview refusal, revocation). preview-auth is built with the
+  `e2edial` tag there; released binaries carry no dial override.
+- **`hack/preview-isolation-probe/ingress.sh`:** the ingress direction with kubectl alone. An agents Pod and an
+  unlabelled release Pod must be refused by a slot Pod, a gateway-labelled one admitted.
+- **Docs:** `docs/configuration/preview-gateway.md`, with platform recipes (EKS ALB, ingress-nginx, Traefik, Gateway
+  API, Cloudflare Tunnel, k3d) and the migration (deploy the gateway, flip DNS, retire the slot Ingresses; rollback by
+  DNS).
+- Found and fixed on the way: `TestPreviewGenericIsolationAgainstAPIServer` had failed on main since #228 (its policy
+  wait probe selected the EKS pool under a generic selector); #232 had fixed the same probe on main, and this branch's
+  fix, which passes the configured selector, replaces it.
+
+Next: live on the desktop (k3d recipe, a tainted preview node, `ingress.sh`), then the EKS migration on devthenet-dev.
+Terraform W8 (the wildcard alias to the edge ALB, the preview wildcard certificate on the edge) is still to do, and so
+is N+1.
 
 ## In flight — 2026-10-16: the Usage page, API and CLI (per-user credentials, L2: W4)
 
@@ -65,12 +81,12 @@ releases runs still settling unaggregated (`RollupForbidden`).
 its default an install renders as before (only YAML comments differ):
 
 - `previewAuth.gateway` (off): the gateway's flags, the Pod label `patchy.bitwisemedia.uk/preview-gateway` the slot
-  NetworkPolicy admits beside the ALB's subnets, one exposure (Ingress, HTTPRoute or LoadBalancer, the last optionally
-  over the gateway's own TLS by SNI), `forwardedHops` required with any exposure, `inboundCIDRs` at the edge where
-  possible (a LoadBalancer with `externalTrafficPolicy: Local`, so the gateway's peer is the client),
-  `publishedAddresses` recorded on the relay ConfigMap (nothing reads it yet; a later `patchy check project` will). The
-  exposure targets the gateway's own listener (8082), where even the relay's endpoints are limited behind the gateway's
-  hops.
+  NetworkPolicy admits beside the ALB's subnets (those only while `preview.legacyIngress` is on), one exposure (Ingress,
+  HTTPRoute or LoadBalancer, the last optionally over the gateway's own TLS by SNI), `forwardedHops` required with any
+  exposure, `inboundCIDRs` at the edge where possible (a LoadBalancer with `externalTrafficPolicy: Local`, so the
+  gateway's peer is the client), `publishedAddresses` recorded on the relay ConfigMap (`patchy check project` compares
+  DNS with it). The exposure targets the gateway's own listener (8082), where even the relay's endpoints are limited
+  behind the gateway's hops.
 - `preview.legacyIngress` (true) feeds `--preview-legacy-ingress`; false makes the ALB values optional, and NOTES list
   the legacy ones still set. `previewController.config.legacyIngress` (unreleased) still wins while set.
 - `preview.nodeIsolation.{selector,mode,eksAutoMode}`: generic node isolation; the legacy `nodePool`/`nodeClass` render

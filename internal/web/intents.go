@@ -437,7 +437,7 @@ func projectCard(in *v1alpha1.Intent, runs []*v1alpha1.IntentRun, pv *v1alpha1.P
 			URL: intentview.SafeURL(pr.URL), State: pr.State, MergedAt: stampPtr(pr.MergedAt),
 		})
 	}
-	c.Preview = wirePreview(pv)
+	c.Preview = wirePreview(in.Name, pv)
 	for _, run := range runs {
 		if run.Status.Phase == v1alpha1.RunRunning || run.Status.Phase == v1alpha1.RunPending {
 			c.RunningRuns = append(c.RunningRuns, RunningRun{
@@ -456,9 +456,11 @@ func projectCard(in *v1alpha1.Intent, runs []*v1alpha1.IntentRun, pv *v1alpha1.P
 	return c
 }
 
-// wirePreview projects a Preview: its phase and served revision always, its
-// URL only while it is Ready and only as an https link.
-func wirePreview(pv *v1alpha1.Preview) *PreviewLink {
+// wirePreview projects intent's Preview: its phase and served revision
+// always, its URL only while it is Ready and only when it passes the check
+// the intent issue links it by (intentview.PreviewURL: the intent's own host
+// label first, under the operator's suffix).
+func wirePreview(intent string, pv *v1alpha1.Preview) *PreviewLink {
 	if pv == nil {
 		return nil
 	}
@@ -467,7 +469,7 @@ func wirePreview(pv *v1alpha1.Preview) *PreviewLink {
 		out.Revision = rev[:12]
 	}
 	if pv.Status.Phase == v1alpha1.PreviewReady {
-		out.URL = intentview.SafeURL(pv.Status.URL)
+		out.URL = intentview.PreviewURL(pv.Status.URL, intent, pv.Spec.HostLabel)
 	}
 	return out
 }

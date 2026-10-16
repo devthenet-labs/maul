@@ -19,6 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/bitwise-media-group/patchy/api/v1alpha1"
+	"github.com/bitwise-media-group/patchy/internal/previewauth"
 	"github.com/bitwise-media-group/patchy/internal/previewauth/httpapi"
 )
 
@@ -221,5 +222,34 @@ func TestGatewayListener(t *testing.T) {
 	added = nil
 	if _, err := addListeners(&added, ":8080", nil, relay, nil, nil); err != nil || len(added) != 1 {
 		t.Fatalf("gateway off: %d runnables, %v", len(added), err)
+	}
+}
+
+// TestProbeMode: the probe's mode follows the gateway's switch unless set,
+// and a mode expecting the gateway's answers needs the gateway.
+func TestProbeMode(t *testing.T) {
+	for _, tt := range []struct {
+		args []string
+		want previewauth.ProbeMode
+	}{
+		{staticArgs(t), previewauth.ProbeALB},
+		{gatewayArgs(t), previewauth.ProbeEither},
+		{gatewayArgs(t, "--preview-auth-probe-mode", "gateway"), previewauth.ProbeGateway},
+		{gatewayArgs(t, "--preview-auth-probe-mode", "alb"), previewauth.ProbeALB},
+		{staticArgs(t, "--preview-auth-probe-mode", "alb"), previewauth.ProbeALB},
+	} {
+		st, err := loadStatic(serveOpts(t, tt.args...))
+		if err != nil || st.probeMode != tt.want {
+			t.Errorf("%v: mode %q, %v; want %q", tt.args[len(tt.args)-2:], st.probeMode, err, tt.want)
+		}
+	}
+	for _, args := range [][]string{
+		staticArgs(t, "--preview-auth-probe-mode", "gateway"),
+		staticArgs(t, "--preview-auth-probe-mode", "either"),
+		gatewayArgs(t, "--preview-auth-probe-mode", "both"),
+	} {
+		if _, err := loadStatic(serveOpts(t, args...)); err == nil || !strings.Contains(err.Error(), "probe-mode") {
+			t.Errorf("%v: err = %v", args[len(args)-2:], err)
+		}
 	}
 }

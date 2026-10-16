@@ -6,6 +6,8 @@ package httpapi
 import (
 	"html/template"
 	"net/http"
+
+	"github.com/bitwise-media-group/patchy/internal/previewauth"
 )
 
 // page is every HTML answer: a title, a sentence, and on the home page a
@@ -34,7 +36,7 @@ func renderPage(w http.ResponseWriter, status int, d pageData) {
 var (
 	pageBadRequest = pageData{Title: "Sign-in request not valid",
 		Message: "This sign-in request is not one patchy's preview sign-in can answer. Open the preview link again."}
-	pageNoPreview = pageData{Title: "No live preview",
+	pageNoPreview = pageData{Title: previewauth.NoPreviewTitle,
 		Message: "There is no live preview at this address. It may have expired or been replaced."}
 	pageDenied = pageData{Title: "Not a preview viewer",
 		Message: "You are signed in, but you are not a preview viewer for this project. Ask an operator to add you."}
@@ -67,7 +69,7 @@ var (
 	pageServiceWorker = pageData{Title: "Refused",
 		Message: "Previews cannot register service workers."}
 	pageNotOnAllowlist = pageData{Title: "Refused",
-		Message: "Previews cannot be reached from this network address."}
+		Message: previewauth.NotOnAllowlistMessage}
 	pageStarting = pageData{Title: "Preview starting",
 		Message: "This preview is not serving yet. Try again in a moment."}
 	pageUpstreamDown = pageData{Title: "Preview not answering",

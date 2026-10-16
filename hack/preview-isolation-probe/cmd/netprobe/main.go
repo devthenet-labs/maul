@@ -1,7 +1,9 @@
 // Copyright 2026 Bitwise Media Group Ltd.
 // SPDX-License-Identifier: MIT
 
-// netprobe is a one-shot cold-start network-isolation test. It has no listener.
+// netprobe is a one-shot cold-start network-isolation test. It has no
+// listener, except as the ingress-direction run's slot Pod (ingress.go:
+// `listen`, and `connect` for its clients).
 package main
 
 import (
@@ -186,6 +188,9 @@ func burst(start time.Time, targets []target, emit func(result)) (reachable, inc
 func emit(r result) { _ = json.NewEncoder(os.Stdout).Encode(r) }
 
 func main() {
+	if handled, code := ingressMode(os.Args[1:]); handled {
+		os.Exit(code)
+	}
 	start := time.Now()
 	all, ok := targets()
 	if !ok {

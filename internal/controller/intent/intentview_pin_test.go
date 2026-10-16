@@ -252,3 +252,40 @@ func TestIntentviewWordsEveryBlockReason(t *testing.T) {
 		}
 	}
 }
+
+// For any URL, intent and host label, the status page links a preview
+// exactly when the intent issue does, and to the same host.
+func TestIntentviewPreviewURLPinned(t *testing.T) {
+	parts := []string{"https://", "http://", "demo-1", "demo-2", ".", "preview", "example", "com", "/", ":443",
+		"x@", "10", "-", "A", "_", "?q"}
+	cfg := &quick.Config{
+		MaxCount: 5000,
+		Rand:     rand.New(rand.NewSource(20261016)),
+		Values: func(args []reflect.Value, r *rand.Rand) {
+			var b strings.Builder
+			if r.Intn(4) > 0 {
+				b.WriteString("https://demo-1.")
+			}
+			for range r.Intn(8) {
+				b.WriteString(parts[r.Intn(len(parts))])
+			}
+			labels := []string{"demo-1", "demo-2", ""}
+			args[0] = reflect.ValueOf(b.String())
+			args[1] = reflect.ValueOf(labels[r.Intn(len(labels))])
+		},
+	}
+	prop := func(raw, label string) bool {
+		host, ok := previewHost(raw, "demo-1", label)
+		got := intentview.PreviewURL(raw, "demo-1", label)
+		if !ok {
+			return got == ""
+		}
+		return got == raw && strings.TrimSuffix(strings.TrimPrefix(raw, "https://"), "/") == host
+	}
+	if err := quick.Check(prop, cfg); err != nil {
+		t.Error(err)
+	}
+	if intentview.PreviewURL("https://demo-1.preview.example.com/", "demo-1", "demo-1") == "" {
+		t.Error("the plain preview URL is not linked")
+	}
+}

@@ -386,7 +386,8 @@ type ProjectPreview struct {
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=65535
 	Port int32 `json:"port"`
-	// ReadinessPath is a safe HTTP path, also used by the ALB health check.
+	// ReadinessPath is a safe HTTP path: the Pod's readiness check, and on
+	// the legacy preview load balancer path also its health check.
 	// +kubebuilder:validation:Pattern=`^/[a-zA-Z0-9/_-]*$`
 	// +kubebuilder:validation:MaxLength=128
 	ReadinessPath string `json:"readinessPath"`
@@ -397,12 +398,12 @@ type ProjectPreview struct {
 type ProjectRepositoryPreview struct {
 	ProjectPreview `json:",inline"`
 	// Path is the URL path prefix the component is served under on the
-	// intent's preview host, "/" by default. The load balancer routes the
-	// longest matching prefix and does not rewrite it, so the application
-	// serves under its path (an API at /api answers /api/...), and a page
-	// calls a sibling component same-origin, from the browser. Lowercase
-	// segments only, so it is safe as an Ingress path. Paths are distinct
-	// across the Project (CEL-enforced on the spec).
+	// intent's preview host, "/" by default. The preview gateway (or the
+	// legacy load balancer) routes the longest matching prefix and does not
+	// rewrite it, so the application serves under its path (an API at /api
+	// answers /api/...), and a page calls a sibling component same-origin,
+	// from the browser. Lowercase segments only, so it is safe as an Ingress
+	// path. Paths are distinct across the Project (CEL-enforced on the spec).
 	// +optional
 	// +kubebuilder:default="/"
 	// +kubebuilder:validation:MaxLength=128
