@@ -48,6 +48,10 @@ inside an issue comment as a hard break. */ -}}
 
 **Reported cost:** {{ code (or .Cost "$0.00") }}{{ with .MaxCost }} of the {{ code . }} limit{{ end }}
 {{- end }}
+{{- with .Attribution }}
+
+**Attributed to:** {{ if .Login }}{{ code (print "@" .Login) }}{{ else }}the organisation{{ end }}{{ with .Reason }} ({{ code . }}){{ end }}, for the latest run
+{{- end }}
 {{- with .Reason }}
 
 {{ fence . | chomp }}

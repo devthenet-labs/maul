@@ -6,6 +6,7 @@ package intent
 import (
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -94,6 +95,10 @@ func TestAttributionTable(t *testing.T) {
 	}
 	if got := e.launchedAttribution("build"); !reflect.DeepEqual(got, []string{annotationOf(reviewer)}) {
 		t.Errorf("build Jobs attributed to %v, want the approver's id", got)
+	}
+	e.mustIntent(name)
+	if body := e.statusBody(); !strings.Contains(body, "**Attributed to:** `@carol` (`approver`), for the latest run") {
+		t.Errorf("the status comment does not name the build's approver:\n%s", body)
 	}
 
 	// Two approvers request changes: the round is the newest reviewer's.
@@ -193,6 +198,9 @@ func TestAttributionUnregisteredAndOff(t *testing.T) {
 		if s.AttributedTo != "" {
 			t.Errorf("a %s Job attributed under mode off: %q", s.Phase, s.AttributedTo)
 		}
+	}
+	if body := off.statusBody(); strings.Contains(body, "Attributed to") {
+		t.Errorf("the status comment names an attribution under mode off:\n%s", body)
 	}
 }
 

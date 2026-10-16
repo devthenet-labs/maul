@@ -110,6 +110,7 @@ func (p *pass) statusComment() templates.IntentStatusComment {
 	}
 	c.Preview = p.statusPreview()
 	c.AgentsPaused = p.agentsPaused()
+	c.Attribution = p.latestAttribution()
 	switch st.Phase {
 	case v1alpha1.IntentRevising:
 		run := p.round(v1alpha1.IntentStageRevise, st.Rounds, anyRepository).latest()
@@ -126,6 +127,26 @@ func (p *pass) statusComment() templates.IntentStatusComment {
 		c.Reason = p.failureReason()
 	}
 	return c
+}
+
+// latestAttribution is whom the Intent's newest run is attributed to, nil
+// when it carries no stamp (every run under --attribution-mode off).
+func (p *pass) latestAttribution() *templates.IntentAttribution {
+	var latest *v1alpha1.IntentRun
+	for _, run := range p.runs {
+		if latest == nil || latest.CreationTimestamp.Before(&run.CreationTimestamp) ||
+			latest.CreationTimestamp.Equal(&run.CreationTimestamp) && latest.Name < run.Name {
+			latest = run
+		}
+	}
+	if latest == nil || latest.Spec.AttributedTo == nil {
+		return nil
+	}
+	a := &templates.IntentAttribution{Reason: string(latest.Spec.AttributedTo.Reason)}
+	if u := latest.Spec.AttributedTo.User; u != nil {
+		a.Login = u.Login
+	}
+	return a
 }
 
 // agentsPaused reports whether one of the Intent's unfinished runs waits on

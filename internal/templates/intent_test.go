@@ -161,6 +161,23 @@ func TestIntentGoldens(t *testing.T) {
 				Commands: []string{"cancel"},
 			})
 		}},
+		// Attribution on (design L1): the latest run's person, as code so
+		// no one is notified, beside the cost line; the org by name.
+		{"intent_status_in_review_attributed.md", func() (string, error) {
+			return RenderIntentStatusComment(IntentStatusComment{
+				Namespace: "patchy", Intent: "target-1", Phase: "InReview",
+				PlanRevision: 2, ApprovedBy: "peter", ApprovedRevision: 2,
+				CostMicroUSD: 1_234_567, MaxCostMicroUSD: 10_000_000,
+				Attribution: &IntentAttribution{Login: "carol", Reason: "reviewer"},
+				Commands:    []string{"cancel"},
+			})
+		}},
+		{"intent_status_planning_attributed_org.md", func() (string, error) {
+			return RenderIntentStatusComment(IntentStatusComment{
+				Namespace: "patchy", Intent: "target-1", Phase: "Planning",
+				Attribution: &IntentAttribution{Reason: "approver-unregistered"},
+			})
+		}},
 		// A round failed checks started is not a revision from review.
 		{"intent_status_fixing_checks.md", func() (string, error) {
 			return RenderIntentStatusComment(IntentStatusComment{
