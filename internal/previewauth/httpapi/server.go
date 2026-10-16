@@ -210,8 +210,7 @@ func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 func pageHeaders(h http.Header) {
 	h.Set("Strict-Transport-Security", "max-age=31536000")
 	h.Set("X-Content-Type-Options", "nosniff")
-	h.Set("Content-Security-Policy", "default-src 'none'; base-uri 'none'; form-action 'self'; "+
-		"frame-ancestors 'none'")
+	h.Set("Content-Security-Policy", previewauth.PageCSP)
 	h.Set("X-Frame-Options", "DENY")
 	h.Set("Referrer-Policy", "no-referrer")
 	h.Set("Cache-Control", "no-store")

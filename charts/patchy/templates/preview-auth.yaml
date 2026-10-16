@@ -76,6 +76,12 @@ metadata:
 {{- $_ := set $data "PATCHY_PREVIEW_AUTH_GATEWAY" true }}
 {{- $_ := set $data "PATCHY_PREVIEW_AUTH_GATEWAY_SIGN_IN_HOST" $gw.signInHost }}
 {{- $_ := set $data "PATCHY_PREVIEW_AUTH_GATEWAY_LISTEN_ADDR" ":8082" }}
+{{- /* With the legacy slot Ingress off only the gateway serves preview
+       hosts, so the host probe expects its answers alone (and its 404 for a
+       host no Preview owns); with it on, either path's redirect. */}}
+{{- if not (include "patchy.previewLegacyIngress" .) }}
+{{- $_ := set $data "PATCHY_PREVIEW_AUTH_PROBE_MODE" "gateway" }}
+{{- end }}
 {{- with $gw.hops }}{{ $_ := set $data "PATCHY_PREVIEW_AUTH_GATEWAY_FORWARDED_HOPS" . }}{{ end }}
 {{- with $gwVals.inboundCIDRs }}{{ $_ := set $data "PATCHY_PREVIEW_AUTH_GATEWAY_INBOUND_CIDRS" (join "," .) }}{{ end }}
 {{- if $gw.tls }}

@@ -85,6 +85,10 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	f.Duration("preview-auth-probe-interval", time.Minute,
 		"how often every Ready preview host is probed without credentials; 0 disables the probe")
 	f.Duration("preview-auth-probe-timeout", hostprobe.DefaultTimeout, "one host probe's timeout")
+	f.String("preview-auth-probe-mode", "", "which path the probe expects to answer preview hosts: alb (the "+
+		"ALB's redirect to the relay), either (release N's migration: the ALB's or the gateway's redirect) or "+
+		"gateway (only the gateway's redirect, and its 404 for a host no Preview owns); empty is alb without "+
+		"the gateway and either with it")
 	gatewayFlags(cmd)
 	return cmd
 }
@@ -277,6 +281,8 @@ type static struct {
 	upstream                 *dex.Upstream
 	// gateway is the preview gateway's configuration, nil when it is off.
 	gateway *gatewayStatic
+	// probeMode is the path the host probe expects to answer.
+	probeMode previewauth.ProbeMode
 }
 
 // loadStatic validates the flags and loads the keys and the Dex client.
@@ -327,8 +333,26 @@ func loadStatic(opts *cli.Options) (static, error) {
 	if err != nil {
 		return st, err
 	}
-	st.gateway, err = loadGateway(opts, st, httpClient)
+	if st.gateway, err = loadGateway(opts, st, httpClient); err != nil {
+		return st, err
+	}
+	st.probeMode, err = probeMode(opts.String("preview-auth-probe-mode"), st.gateway != nil)
 	return st, err
+}
+
+// probeMode is the host probe's mode: as set, or derived from the gateway's
+// switch. A mode expecting the gateway's answers is refused without it.
+func probeMode(s string, gateway bool) (previewauth.ProbeMode, error) {
+	m, err := previewauth.ParseProbeMode(s)
+	switch {
+	case err != nil:
+		return "", fmt.Errorf("--preview-auth-probe-mode: %w", err)
+	case m == "":
+		return previewauth.ProbeModeFor(gateway, true), nil
+	case m != previewauth.ProbeALB && !gateway:
+		return "", fmt.Errorf("--preview-auth-probe-mode %s needs --preview-auth-gateway", m)
+	}
+	return m, nil
 }
 
 func serve(ctx context.Context, opts *cli.Options) error {
@@ -402,7 +426,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	}
 	prober := &hostprobe.Prober{
 		Lister: lookup, Callbacks: cb, Issuer: issuer, Interval: opts.Duration("preview-auth-probe-interval"),
-		Timeout: opts.Duration("preview-auth-probe-timeout"), Log: log,
+		Timeout: opts.Duration("preview-auth-probe-timeout"), Log: log, Mode: st.probeMode,
 	}
 	if gwCfg != nil {
 		prober.Gateway = &gwCfg.Hosts
@@ -425,7 +449,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	}
 
 	log.LogAttrs(ctx, slog.LevelInfo, "preview-auth starting",
-		slog.String("issuer", issuer), slog.String("host_suffix", cb.Suffix()), slog.Bool("gateway", gwCfg != nil),
+		slog.String("issuer", issuer), slog.String("host_suffix", cb.Suffix()), slog.Bool("gateway", gwCfg != nil), slog.String("probe_mode", string(st.probeMode)),
 		slog.Int("slot_count", opts.Int("preview-auth-slot-count")), slog.Int("key_generation", keys.Ring.Generation()),
 		slog.String("signing_kid", sg.KeyID()), slog.String("listen_addr", httpSrv.Addr))
 	if err := mgr.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {

@@ -6,8 +6,10 @@ package previewauth
 import (
 	"errors"
 	"math/rand"
+	"net/http"
 	"net/url"
 	"reflect"
+	"strings"
 	"testing"
 	"testing/quick"
 )
@@ -124,5 +126,142 @@ func TestJudgeGatewayProbe(t *testing.T) {
 		if err := JudgeGatewayProbe(tc.status, tc.loc, h, "intent-7"); err == nil {
 			t.Errorf("JudgeGatewayProbe(%d, %q) passed", tc.status, tc.loc)
 		}
+	}
+}
+
+func TestProbeModes(t *testing.T) {
+	for _, tc := range []struct {
+		gateway, legacy bool
+		want            ProbeMode
+	}{
+		{false, true, ProbeALB}, {false, false, ProbeALB}, {true, true, ProbeEither}, {true, false, ProbeGateway},
+	} {
+		if got := ProbeModeFor(tc.gateway, tc.legacy); got != tc.want {
+			t.Errorf("ProbeModeFor(%v, %v) = %s, want %s", tc.gateway, tc.legacy, got, tc.want)
+		}
+	}
+	for _, s := range []string{"", "alb", "either", "gateway"} {
+		if m, err := ParseProbeMode(s); err != nil || string(m) != s {
+			t.Errorf("ParseProbeMode(%q) = %q, %v", s, m, err)
+		}
+	}
+	for _, s := range []string{"ALB", "both", " gateway"} {
+		if _, err := ParseProbeMode(s); err == nil {
+			t.Errorf("ParseProbeMode(%q) passed", s)
+		}
+	}
+}
+
+// TestProbeExpectLive: each mode accepts exactly its paths' redirects for
+// the host's own label and slot.
+func TestProbeExpectLive(t *testing.T) {
+	cb := newCallbacks(t)
+	h, err := NewHosts(testSuffix, "preview-auth.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	alb := probeLocation(testIssuer, 1, "intent-7", nil)
+	gw := h.StartURL("intent-7", "pa1.t.1.abc")
+	for _, tc := range []struct {
+		mode    ProbeMode
+		albOK   bool
+		gwOK    bool
+		otherOK bool
+	}{
+		{ProbeALB, true, false, false},
+		{ProbeEither, true, true, false},
+		{ProbeGateway, false, true, false},
+		{"", false, false, false},
+	} {
+		e := ProbeExpect{Mode: tc.mode, Issuer: testIssuer, Callbacks: cb, Gateway: h}
+		for loc, want := range map[string]bool{alb: tc.albOK, gw: tc.gwOK,
+			h.StartURL("other-1", "pa1.t.1.abc"): tc.otherOK} {
+			if err := e.Live(302, loc, 1, "intent-7"); (err == nil) != want {
+				t.Errorf("%q: Live(%q) = %v, want ok %v", tc.mode, loc, err, want)
+			}
+		}
+		if err := e.Live(200, "", 1, "intent-7"); !errors.Is(err, ErrUnprotected) {
+			t.Errorf("%q: the app's 200 = %v", tc.mode, err)
+		}
+	}
+}
+
+// gatewayNotFound is the gateway's 404 for a host no Preview owns, as
+// httpapi renders it (TestGatewayProbeVerdictsMatchThePages holds the two
+// together).
+func gatewayNotFound() (int, http.Header, []byte) {
+	h := http.Header{}
+	h.Set("Content-Security-Policy", PageCSP)
+	h.Set("Cross-Origin-Opener-Policy", "same-origin")
+	h.Set("Cache-Control", "no-store")
+	h.Set("Content-Type", "text/html; charset=utf-8")
+	return http.StatusNotFound, h, []byte("<!doctype html><html><head><title>" + NoPreviewTitle +
+		"</title></head><body></body></html>")
+}
+
+func TestJudgeGatewayUnknown(t *testing.T) {
+	status, h, body := gatewayNotFound()
+	if err := JudgeGatewayUnknown(status, h, body); err != nil {
+		t.Fatalf("the gateway's own 404: %v", err)
+	}
+	for name, edit := range map[string]func(*int, http.Header, *[]byte){
+		"an app's 200":         func(s *int, _ http.Header, _ *[]byte) { *s = 200 },
+		"the sign-in redirect": func(s *int, _ http.Header, _ *[]byte) { *s = 302 },
+		"no CSP":               func(_ *int, h http.Header, _ *[]byte) { h.Del("Content-Security-Policy") },
+		"another CSP":          func(_ *int, h http.Header, _ *[]byte) { h.Set("Content-Security-Policy", "default-src *") },
+		"two CSPs":             func(_ *int, h http.Header, _ *[]byte) { h.Add("Content-Security-Policy", PageCSP) },
+		"no COOP":              func(_ *int, h http.Header, _ *[]byte) { h.Del("Cross-Origin-Opener-Policy") },
+		"cacheable":            func(_ *int, h http.Header, _ *[]byte) { h.Set("Cache-Control", "public") },
+		"plain text":           func(_ *int, h http.Header, _ *[]byte) { h.Set("Content-Type", "text/plain") },
+		"another page":         func(_ *int, _ http.Header, b *[]byte) { *b = []byte("<title>Not found</title>") },
+		"a default backend":    func(_ *int, h http.Header, b *[]byte) { *b = []byte("404 page not found") },
+	} {
+		s, hh, b := gatewayNotFound()
+		edit(&s, hh, &b)
+		if err := JudgeGatewayUnknown(s, hh, b); !errors.Is(err, ErrUnprotected) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
+
+// TestJudgeGatewayUnknownProperty: with any one of its marks changed, the
+// gateway's 404 is no longer the gateway's 404.
+func TestJudgeGatewayUnknownProperty(t *testing.T) {
+	headers := []string{"Content-Security-Policy", "Cross-Origin-Opener-Policy", "Cache-Control", "Content-Type"}
+	prop := func(which uint8, status uint16, junk string) bool {
+		s, h, b := gatewayNotFound()
+		switch which % 3 {
+		case 0:
+			if s = int(status%500) + 100; s == http.StatusNotFound {
+				return true
+			}
+		case 1:
+			name := headers[int(which/3)%len(headers)]
+			if junk == h.Get(name) || name == "Content-Type" && strings.HasPrefix(junk, "text/html") {
+				return true
+			}
+			h.Set(name, junk)
+		default:
+			b = []byte(junk)
+			if strings.Contains(junk, "<title>"+NoPreviewTitle+"</title>") {
+				return true
+			}
+		}
+		return errors.Is(JudgeGatewayUnknown(s, h, b), ErrUnprotected)
+	}
+	if err := quick.Check(prop, quickConfig(2000)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestIsAllowlistRefusal(t *testing.T) {
+	_, h, _ := gatewayNotFound()
+	page := []byte("<p>" + NotOnAllowlistMessage + "</p>")
+	if !IsAllowlistRefusal(http.StatusForbidden, h, page) {
+		t.Fatal("the gateway's allowlist page was not recognised")
+	}
+	if IsAllowlistRefusal(http.StatusForbidden, h, []byte("<p>Previews cannot register service workers.</p>")) ||
+		IsAllowlistRefusal(http.StatusNotFound, h, page) || IsAllowlistRefusal(http.StatusForbidden, http.Header{}, page) {
+		t.Fatal("another answer was taken for the allowlist page")
 	}
 }

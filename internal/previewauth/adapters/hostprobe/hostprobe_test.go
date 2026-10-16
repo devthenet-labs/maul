@@ -52,6 +52,18 @@ func (h hosts) RoundTrip(r *http.Request) (*http.Response, error) {
 		rec.Header().Set("Location", "https://preview-auth.example.com/start?h="+label+"&s=pa1.t.1.abc")
 		rec.WriteHeader(http.StatusFound)
 		return rec.Result(), nil
+	case "gateway-404":
+		h := rec.Header()
+		h.Set("Content-Security-Policy", previewauth.PageCSP)
+		h.Set("Cross-Origin-Opener-Policy", "same-origin")
+		h.Set("Cache-Control", "no-store")
+		h.Set("Content-Type", "text/html; charset=utf-8")
+		rec.WriteHeader(http.StatusNotFound)
+		_, _ = rec.WriteString("<title>" + previewauth.NoPreviewTitle + "</title>")
+		return rec.Result(), nil
+	case "404":
+		rec.WriteHeader(http.StatusNotFound)
+		return rec.Result(), nil
 	}
 	q := url.Values{"client_id": {"patchy-preview-s" + slot}, "response_type": {"code"},
 		"redirect_uri": {"https://" + label + "." + suffix + "/oauth2/idpresponse"}}
@@ -116,5 +128,51 @@ func TestOnceGateway(t *testing.T) {
 func TestStartDisabled(t *testing.T) {
 	if err := (&Prober{}).Start(context.Background()); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestOnceGatewayMode: in gateway mode only the gateway's redirect protects
+// a live host, and each pass also asks for a host no Preview owns, which must
+// answer with the gateway's own 404; in the migration mode neither changes.
+func TestOnceGatewayMode(t *testing.T) {
+	cb, err := previewauth.NewCallbacks(suffix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gw, err := previewauth.NewHosts(suffix, "preview-auth.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := func(label string) previewauth.View {
+		return previewauth.View{UID: "u-" + label, Label: label, Project: "p", Slot: 1, Live: true}
+	}
+	unknown := previewauth.UnknownProbeLabel
+	tests := []struct {
+		name      string
+		mode      previewauth.ProbeMode
+		unknownAs string
+		probed    int
+		bad       []string
+	}{
+		{"gateway, its 404", previewauth.ProbeGateway, "gateway-404", 4, []string{"a-1", "b-2"}},
+		{"gateway, another 404", previewauth.ProbeGateway, "404", 4, []string{"a-1", "b-2", unknown}},
+		{"gateway, an app", previewauth.ProbeGateway, "app", 4, []string{"a-1", "b-2", unknown}},
+		{"either", previewauth.ProbeEither, "app", 3, []string{"b-2"}},
+		{"derived from Gateway", "", "app", 3, []string{"b-2"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &Prober{
+				Lister: views{v("a-1"), v("b-2"), v("g-3")}, Callbacks: cb, Issuer: issuer, Gateway: &gw,
+				Mode:      tt.mode,
+				Transport: hosts{"a-1": "auth", "b-2": "app", "g-3": "gateway", unknown: tt.unknownAs},
+			}
+			res := p.Once(context.Background())
+			slices.Sort(res.UnprotectedLabels)
+			slices.Sort(tt.bad)
+			if res.Probed != tt.probed || !slices.Equal(res.UnprotectedLabels, tt.bad) {
+				t.Fatalf("result %+v, want %d probed and %v unprotected", res, tt.probed, tt.bad)
+			}
+		})
 	}
 }

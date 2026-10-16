@@ -1165,6 +1165,16 @@ cm pg preview-auth PATCHY_PREVIEW_AUTH_GATEWAY true
 cm pg preview-auth PATCHY_PREVIEW_AUTH_GATEWAY_SIGN_IN_HOST preview-auth.patchy.devthe.net
 cm pg preview-auth PATCHY_PREVIEW_AUTH_GATEWAY_FORWARDED_HOPS 1
 cm pg preview-auth PATCHY_PREVIEW_AUTH_GATEWAY_INBOUND_CIDRS null
+# The host probe's mode: either path's redirect while the legacy slot
+# Ingress still serves (derived, no key), the gateway's alone without it.
+cm pg preview-auth PATCHY_PREVIEW_AUTH_PROBE_MODE null
+render pg-nolegacy -f "$pf" -f "$pav" -f "$pgw" --set preview.legacyIngress=false
+cm pg-nolegacy preview-auth PATCHY_PREVIEW_AUTH_PROBE_MODE gateway
+render pa-nolegacy -f "$pf" -f "$pav" --set preview.legacyIngress=false
+cm pa-nolegacy preview-auth PATCHY_PREVIEW_AUTH_PROBE_MODE null
+if ! grep -q '"preview-auth-probe-mode"' cmd/preview-auth/serve.go; then
+  fail "pg-nolegacy: PATCHY_PREVIEW_AUTH_PROBE_MODE is no preview-auth flag"
+fi
 # Every gateway key is a preview-auth flag.
 for key in $(get pg 'select(.kind == "ConfigMap" and .metadata.name == "patchy-preview-auth-config") | .data | keys | .[] | select(test("GATEWAY"))'); do
   flag=$(echo "${key#PATCHY_}" | tr 'A-Z_' 'a-z-')
