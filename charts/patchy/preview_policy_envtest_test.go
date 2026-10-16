@@ -4,6 +4,7 @@
 package chart_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -93,12 +94,20 @@ func startPreviewPolicyEnv(t *testing.T, helmArgs ...string) (*envtest.Environme
 	// The image the rendered policies admit: the secret-refs probe must fail
 	// on its Secret reference alone, not on the image rule as well.
 	image := previewImage
+	// And the nodes they require, so the same probe is refused for its
+	// Secret reference, not for its node selector, under a generic one.
+	var selector map[string]string
 	for _, arg := range helmArgs {
 		if prefix, ok := strings.CutPrefix(arg, "preview.imagePathPrefix="); ok {
 			image = previewRegistry + "/" + prefix + "/demo:sha-" + previewSHA
 		}
+		if raw, ok := strings.CutPrefix(arg, "preview.nodeIsolation.selector="); ok {
+			if err := json.Unmarshal([]byte(raw), &selector); err != nil {
+				t.Fatalf("selector %s: %v", raw, err)
+			}
+		}
 	}
-	waitForPreviewPolicy(t, admin, image)
+	waitForPreviewPolicy(t, admin, image, selector)
 	return env, admin
 }
 
@@ -139,7 +148,7 @@ func installPreviewPolicy(t *testing.T, admin client.Client, helmArgs ...string)
 	}
 }
 
-func waitForPreviewPolicy(t *testing.T, admin client.Client, image string) {
+func waitForPreviewPolicy(t *testing.T, admin client.Client, image string, selector map[string]string) {
 	t.Helper()
 	ctx := t.Context()
 	// Bindings propagate independently. A Pod rejection does not prove that
@@ -166,7 +175,11 @@ func waitForPreviewPolicy(t *testing.T, admin client.Client, image string) {
 		{"slot ingress", ingress("patchy-preview-0", "probe", "alb", previewHost), "alb-preview"},
 		{"outside ingress", ingress("ordinary", "probe", "alb-preview", previewHost),
 			"reserved for the exact preview slot"},
-		{"slot secret env", withSecretEnv(pod("patchy-preview-0", "probe", image)), "may not read a Secret"},
+		{"slot secret env", withSecretEnv(mutatePod(pod("patchy-preview-0", "probe", image), func(p *corev1.Pod) {
+			if selector != nil {
+				p.Spec.NodeSelector = selector
+			}
+		})), "may not read a Secret"},
 	}
 	deadline := time.Now().Add(30 * time.Second)
 	for {
