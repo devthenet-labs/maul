@@ -20,7 +20,7 @@
 #     racing during a botched rollout.
 #   * The agent pods have NO role at all — see serviceaccounts.yaml.
 {{- define "patchy.roleRules" -}}
-{{- if eq . "integration-controller" }}
+{{- if eq .name "integration-controller" }}
 {{- /*
 Ingests scanner webhooks into Findings (create/fold/duplicate-merge — the
 one deleter of duplicate Findings), projects Findings to tracking issues
@@ -54,7 +54,7 @@ record (only watched with --repository-images; mirrors the kustomize base) */}}
 - apiGroups: [""]
   resources: [secrets]
   verbs: [get]
-{{- else if eq . "source-controller" }}
+{{- else if eq .name "source-controller" }}
 {{- /*
 Validates Forge credentials, resolves + pins Repositories, serves the
 artifact tarballs. Writes only Forge/Repository status.
@@ -68,7 +68,7 @@ artifact tarballs. Writes only Forge/Repository status.
 - apiGroups: [""]
   resources: [secrets]
   verbs: [get]
-{{- else if eq . "context-controller" }}
+{{- else if eq .name "context-controller" }}
 {{- /*
 The enhancer chain: reads Opened findings, writes enrichments/owners and the
 Opened -> Enhanced edge to status, and sets spec.repository once for a cloud
@@ -91,7 +91,7 @@ secret; the cloud enhancers still use workload identity and hold none.
 - apiGroups: [""]
   resources: [secrets]
   verbs: [get]
-{{- else if eq . "investigation-controller" }}
+{{- else if eq .name "investigation-controller" }}
 {{- /*
 The gate (creates Repository + Investigation, parks repo-less findings) and
 the analysis scheduler (launches agent Jobs, stamps results, routes the
@@ -121,6 +121,19 @@ verdict edges on Finding status).
 - apiGroups: [patchy.bitwisemedia.uk]
   resources: [findingrollups]
   verbs: [get, list, watch]
+{{- if include "patchy.attributionOn" .root }}
+# Usage rollups (design L2): each attributed run is folded into its
+# UsageRollups by this controller once it settles (only under attribution.mode attribute,
+# which stamps runs). Read and written uncached
+# by name (the API reader), so no list/watch; `update` on investigations is
+# also the usage finalizer's removal.
+- apiGroups: [patchy.bitwisemedia.uk]
+  resources: [usagerollups]
+  verbs: [create, get]
+- apiGroups: [patchy.bitwisemedia.uk]
+  resources: [usagerollups/status]
+  verbs: [get, update]
+{{- end }}
 - apiGroups: [""]
   resources: [secrets]
   verbs: [get]
@@ -130,7 +143,7 @@ verdict edges on Finding status).
 - apiGroups: [""]
   resources: [configmaps]
   verbs: [create, get, update]
-{{- else if eq . "remediation-controller" }}
+{{- else if eq .name "remediation-controller" }}
 {{- /*
 Queue admission + the remediation scheduler + push/PR, and the rollup/TTL
 loop. The one deleter of expired Findings (cascade deletes the children);
@@ -164,6 +177,18 @@ rollup finalizer removal.
 - apiGroups: [patchy.bitwisemedia.uk]
   resources: [findingrollups/status]
   verbs: [get, update, patch]
+{{- if include "patchy.attributionOn" .root }}
+# Usage rollups (design L2): remediation runs are folded in by this
+# controller (create/get, status update, uncached by name), and the rollup
+# loop's compaction lists them uncached once a pass (list, no watch). Only
+# under attribution.mode attribute, which stamps runs.
+- apiGroups: [patchy.bitwisemedia.uk]
+  resources: [usagerollups]
+  verbs: [create, get, list]
+- apiGroups: [patchy.bitwisemedia.uk]
+  resources: [usagerollups/status]
+  verbs: [get, update]
+{{- end }}
 - apiGroups: [patchy.bitwisemedia.uk]
   resources: [forges]
   verbs: [get, list, watch]
@@ -204,7 +229,7 @@ metadata:
         {{- . | nindent 8 }}
     {{- end }}
 rules:
-    {{- include "patchy.roleRules" $c.name | nindent 4 }}
+    {{- include "patchy.roleRules" (dict "name" $c.name "root" $) | nindent 4 }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

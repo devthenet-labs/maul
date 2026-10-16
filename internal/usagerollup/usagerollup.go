@@ -21,6 +21,16 @@ import (
 	"github.com/bitwise-media-group/patchy/internal/stats"
 )
 
+// UsageRolledUp condition reasons.
+const (
+	// ReasonAggregated: the run's usage is in every scope it owes.
+	ReasonAggregated = "Aggregated"
+	// ReasonRollupForbidden: the controller may not write UsageRollups
+	// (attribution was turned off after the run was created), so the run
+	// was let go unaggregated rather than held forever.
+	ReasonRollupForbidden = "RollupForbidden"
+)
+
 // Finalizers is the finalizer list a controller creates a run with: base,
 // and v1alpha1.FinalizerUsageRollup when the run is attributed (its
 // spec.attributedTo is set, which only --attribution-mode attribute does).
@@ -125,17 +135,31 @@ func Settle[T client.Object](ctx context.Context, a *Aggregator, key client.Obje
 		if !Due(run, !obj.GetDeletionTimestamp().IsZero(), a.Measuring) {
 			return nil
 		}
-		scopes, err := a.Aggregate(ctx, run)
-		if err != nil {
-			return err
-		}
-		meta.SetStatusCondition(conds, metav1.Condition{
+		cond := metav1.Condition{
 			Type:               v1alpha1.ConditionUsageRolledUp,
 			Status:             metav1.ConditionTrue,
-			Reason:             "Aggregated",
-			Message:            fmt.Sprintf("usage folded into %d usage rollups", scopes),
+			Reason:             ReasonAggregated,
 			ObservedGeneration: obj.GetGeneration(),
-		})
+		}
+		scopes, err := a.Aggregate(ctx, run)
+		switch {
+		case kerrors.IsForbidden(err):
+			// No rollup write is granted: the chart grants it only under
+			// attribution.mode attribute, so attribution was turned off
+			// after this run was created. Holding the run would block its
+			// deletion for good; let it go, said so on the run and in the
+			// log.
+			a.log().LogAttrs(ctx, slog.LevelWarn, "usage rollups are not writable; releasing the run unaggregated",
+				slog.String("run", key.Name), slog.Any("error", err))
+			cond.Reason = ReasonRollupForbidden
+			cond.Message = "usage rollups are not writable by this controller (attribution turned off?); " +
+				"this run's usage was not aggregated"
+		case err != nil:
+			return err
+		default:
+			cond.Message = fmt.Sprintf("usage folded into %d usage rollups", scopes)
+		}
+		meta.SetStatusCondition(conds, cond)
 		return a.Client.Status().Update(ctx, obj)
 	})
 	if err != nil {

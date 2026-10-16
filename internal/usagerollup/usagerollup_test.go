@@ -404,3 +404,47 @@ func checkBuildRollups(t *testing.T, got map[v1alpha1.UsageScopeType]v1alpha1.Us
 	}
 	return user
 }
+
+// TestSettleForbidden: a controller no longer granted UsageRollups (the
+// chart grants them only under attribution.mode attribute) lets an owed run
+// go, marked RollupForbidden, rather than holding its deletion forever; any
+// other rollup error keeps the run held, to be retried.
+func TestSettleForbidden(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		err      error
+		released bool
+	}{
+		{"forbidden", kerrors.NewForbidden(v1alpha1.GroupVersion.WithResource("usagerollups").GroupResource(),
+			"x", errors.New("no grant")), true},
+		{"unavailable", kerrors.NewServiceUnavailable("etcd"), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			run := intentRun(alice, v1alpha1.RunComplete, measured(true))
+			c := newClientWith(interceptor.Funcs{
+				Get: func(ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object,
+					opts ...client.GetOption) error {
+					if _, ok := obj.(*v1alpha1.UsageRollup); ok {
+						return tc.err
+					}
+					return cl.Get(ctx, key, obj, opts...)
+				},
+			}, intent(), run)
+			err := Settle(context.Background(), aggregator(c, true), client.ObjectKeyFromObject(run), IntentRuns(c))
+			if (err == nil) != tc.released {
+				t.Fatalf("Settle = %v, want released %v", err, tc.released)
+			}
+			after := getRun(t, c, run.Name)
+			if slices.Contains(after.Finalizers, v1alpha1.FinalizerUsageRollup) == tc.released {
+				t.Errorf("finalizers = %v", after.Finalizers)
+			}
+			cond := meta.FindStatusCondition(after.Status.Conditions, v1alpha1.ConditionUsageRolledUp)
+			if tc.released && (cond == nil || cond.Reason != ReasonRollupForbidden) {
+				t.Errorf("condition = %+v", cond)
+			}
+			if !tc.released && cond != nil {
+				t.Errorf("a held run was marked: %+v", cond)
+			}
+		})
+	}
+}
