@@ -350,8 +350,9 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   limit, audit line, OTel counters, and the preview gateway: `gateway*.go` and `streams.go`, off unless
   `Config.Gateway` is set); `previewauth/fakedex` is test support only (an in-memory Dex). The gateway's pure side is
   in the core: `gateway.go` (the state, handoff code, gateway login and host session kinds t, o, g and h, and
-  `Handoff.Redeem`, the fixation check) and `hygiene.go` (the `Hosts` grammar and `Location`, `CheckOrigin`,
-  `CleanRequest`, `CleanResponse`), each with seeded properties; `View.Routes` are read from `status.serving`.
+  `Handoff.Redeem`, the fixation check; a code failing `CheckState` is spent at once) and `hygiene.go` (the `Hosts`
+  grammar and `Location`, `CheckOrigin`, `CleanRequest`, `CleanResponse`), each with seeded properties; `View.Routes`
+  are read from `status.serving`.
 - `rbactest` — test support only: `WaitAllowed` polls SubjectAccessReviews until a real API server's RBAC authorizer
   has observed a grant a suite just stored, so envtest suites (action policy, authz, chart, e2e) never act inside the
   informer window and flake on a refusal.
