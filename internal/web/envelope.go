@@ -9,9 +9,10 @@ import (
 	"io/fs"
 	"net/http"
 	"strings"
+	"time"
 )
 
-// The hardened browser envelope, on whenever the intents views are. Preview
+// The hardened browser envelope, on whenever the intents or usage views are. Preview
 // apps run pull request code on a host that is same-site with the status
 // host, and same-site requests carry the session's SameSite=Lax cookies, so
 // a preview page could otherwise open the intents streams with the viewer's
@@ -95,7 +96,7 @@ func inlineScripts(html string) []string {
 }
 
 // hardened reports whether the hardened envelope is on.
-func (s *Server) hardened() bool { return s.intents != nil }
+func (s *Server) hardened() bool { return s.intents != nil || s.usage != nil }
 
 // hardenedRequest applies the hardened envelope's request checks and
 // headers, answering a refused request itself; ok is false when it did.
@@ -130,4 +131,14 @@ func (s *Server) streamCacheControl() string {
 		return "no-store"
 	}
 	return "no-cache"
+}
+
+// reauthPeriod is how often an open stream re-checks its viewer's grant
+// under the hardened envelope: the intents views' setting when they are on,
+// else the default (the usage views harden the envelope without them).
+func (s *Server) reauthPeriod() time.Duration {
+	if s.intents != nil {
+		return s.intents.reauth
+	}
+	return defaultReauthPeriod
 }

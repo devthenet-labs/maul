@@ -2240,6 +2240,17 @@
                         }
                     }
                 },
+                "usage": {
+                    "type": "object",
+                    "description": "The usage views: each person's own usage, everyone's for holders of usage/all. Needs auth mode oidc with usernamePrefix, groupsPrefix and the federated:id scope, and hardens the whole page's browser envelope.",
+                    "additionalProperties": false,
+                    "required": ["enabled"],
+                    "properties": {
+                        "enabled": {
+                            "type": "boolean"
+                        }
+                    }
+                },
                 "image": {
                     "$ref": "#/definitions/imageOverride"
                 },

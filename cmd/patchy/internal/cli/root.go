@@ -218,5 +218,5 @@ func getNounCompletion(_ *cobra.Command, args []string, _ string) ([]string, cob
 	if len(args) > 0 {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
-	return append([]string{resource.All}, resource.Spellings()...), cobra.ShellCompDirectiveNoFileComp
+	return append([]string{resource.All, usageNoun}, resource.Spellings()...), cobra.ShellCompDirectiveNoFileComp
 }

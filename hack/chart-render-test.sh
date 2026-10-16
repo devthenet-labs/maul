@@ -2170,6 +2170,50 @@ cm status-intents-inline status-server PATCHY_INTENTS_ENABLED true
 expect_fail 'intents block of the wrong shape' 'additional properties' \
   --set statusServer.intents.bogus=true
 
+# ---- status server: the usage views -----------------------------------------
+# Off (the default) the template is the goldens above, untouched. On: exactly
+# read on usagerollups for the server, the usage-admin role with the example
+# user roles, the flag in the ConfigMap, and the auth guards.
+suf=$fixtures/status-usage.yaml
+render status-usage -f "$suf"
+cm default status-server PATCHY_USAGE_ENABLED null
+cm status-intents status-server PATCHY_USAGE_ENABLED null
+cm status-usage status-server PATCHY_USAGE_ENABLED true
+usagerole='select(.kind == "Role" and .metadata.name == "patchy-status-server-usage") | .metadata.namespace + " " + (.rules[] | (.resources | join(",")) + " " + (.verbs | join(",")))'
+expect status-usage "$usagerole" "patchy usagerollups get,list,watch"
+expect status-usage 'select(.kind == "RoleBinding" and .metadata.name == "patchy-status-server-usage") | .subjects[0].name' \
+  patchy-status-server
+expect status-usage 'select(.kind == "ClusterRole" and .metadata.name == "patchy-usage-admin") | .rules[] | (.resources | join(",")) + " " + (.verbs | join(","))' \
+  "usage/all get
+usagerollups get,list"
+for n in patchy-status-server-usage patchy-usage-admin; do
+  expect default "select(.metadata.name == \"$n\") | .kind" ""
+  expect status-intents "select(.metadata.name == \"$n\") | .kind" ""
+done
+# The server never gains a write, a status subresource or Secrets from them.
+expect status-usage 'select((.kind == "Role" or .kind == "ClusterRole") and (.metadata.name | test("status-server-usage"))) | .rules[] | select(.verbs[] | test("create|update|patch|delete")) | .verbs | join(",")' ""
+if [ "$(get default "$sscsum")" = "$(get status-usage "$sscsum")" ]; then
+  fail "status-usage: the status server's checksum/config did not change, so enabling the views would not roll it"
+fi
+uoidc="--set statusServer.usage.enabled=true --set statusServer.auth.config.mode=oidc --set statusServer.auth.config.oidc.issuerURL=https://dex.example.com --set statusServer.auth.config.oidc.clientID=c --set statusServer.auth.config.oidc.claims.usernamePrefix=github: --set statusServer.auth.config.oidc.claims.groupsPrefix=github:"
+expect_fail 'usage without auth' 'statusServer.usage.enabled requires an auth config in mode oidc' \
+  --set statusServer.usage.enabled=true
+expect_fail 'usage in mode none' 'statusServer.usage.enabled requires statusServer.auth.config.mode oidc' \
+  --set statusServer.usage.enabled=true --set statusServer.auth.config.mode=none
+# shellcheck disable=SC2086 # $uoidc is a word list on purpose
+expect_fail 'usage without the federated:id scope' 'requires federated:id' $uoidc
+# shellcheck disable=SC2086
+expect_fail 'usage with other scopes only' 'requires federated:id' $uoidc \
+  --set 'statusServer.auth.config.oidc.scopes={openid,profile,groups}'
+expect_fail 'usage without claim prefixes' 'claims.usernamePrefix and groupsPrefix' \
+  --set statusServer.usage.enabled=true --set statusServer.auth.config.mode=oidc \
+  --set 'statusServer.auth.config.oidc.scopes={openid,federated:id}'
+# shellcheck disable=SC2086
+render status-usage-inline $uoidc --set 'statusServer.auth.config.oidc.scopes={openid,profile,groups,federated:id}'
+cm status-usage-inline status-server PATCHY_USAGE_ENABLED true
+expect_fail 'usage block of the wrong shape' 'additional properties' \
+  --set statusServer.usage.bogus=true
+
 # ---- egress proxy: off renders exactly what main rendered ------------------
 # The templates the egress proxy and network profiles touch, rendered with
 # egressProxy off, are byte for byte what main rendered before the feature

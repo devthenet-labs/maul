@@ -3,7 +3,15 @@ import type { AdminVerb, Dataset } from "../types";
 import type { DataMode } from "../api";
 import { readProvider, signOut } from "../auth";
 import { PERSONAS, type Persona } from "../mock/personas";
-import { hrefForConfig, hrefForIntents, hrefForList, hrefForRollups, isIntentsRoute, type Route } from "../router";
+import {
+  hrefForConfig,
+  hrefForIntents,
+  hrefForList,
+  hrefForRollups,
+  hrefForUsage,
+  isIntentsRoute,
+  type Route,
+} from "../router";
 import { Icon } from "./icons";
 import { PatchMark } from "./PatchMark";
 import { ThemeToggle, type ThemeMode } from "./ThemeToggle";
@@ -149,6 +157,7 @@ export function TopBar({
   route,
   configView,
   intentsNav,
+  usageNav,
   themeMode,
   onToggleTheme,
   persona,
@@ -165,6 +174,8 @@ export function TopBar({
   // Whether the server has the intents views on and shows this user at
   // least one Project.
   intentsNav: boolean;
+  // Whether the server has the usage views on for this signed-in caller.
+  usageNav: boolean;
   themeMode: ThemeMode;
   onToggleTheme: () => void;
   persona: Persona;
@@ -186,13 +197,20 @@ export function TopBar({
         <nav class="flex gap-1 rounded-[9px] border border-line bg-surface p-[3px]" aria-label="Views">
           <a
             href={hrefForList()}
-            class={navClass(route.view !== "rollups" && route.view !== "config" && !isIntentsRoute(route))}
+            class={navClass(
+              route.view !== "rollups" && route.view !== "config" && route.view !== "usage" && !isIntentsRoute(route),
+            )}
           >
             Findings
           </a>
           {intentsNav ? (
             <a href={hrefForIntents()} class={navClass(isIntentsRoute(route))}>
               Intents
+            </a>
+          ) : null}
+          {usageNav ? (
+            <a href={hrefForUsage()} class={navClass(route.view === "usage")}>
+              Usage
             </a>
           ) : null}
           <a href={hrefForRollups()} class={navClass(route.view === "rollups")}>
