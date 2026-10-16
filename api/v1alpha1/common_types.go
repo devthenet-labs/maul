@@ -38,6 +38,8 @@ const (
 	LabelHarness = "patchy.bitwisemedia.uk/harness"
 	// LabelScope carries the rollup scope type on FindingRollup objects.
 	LabelScope = "patchy.bitwisemedia.uk/scope"
+	// LabelUsageScope carries the scope type on UsageRollup objects.
+	LabelUsageScope = "patchy.bitwisemedia.uk/usage-scope"
 	// LabelEvaluation names the owning Evaluation on EvaluationUnit children
 	// and evaluation agent Jobs.
 	LabelEvaluation = "patchy.bitwisemedia.uk/evaluation"
@@ -66,6 +68,12 @@ const (
 	FinalizerRollupRepository = "patchy.bitwisemedia.uk/rollup-repository"
 	FinalizerRollupHarness    = "patchy.bitwisemedia.uk/rollup-harness"
 	FinalizerRollupModel      = "patchy.bitwisemedia.uk/rollup-model"
+	// FinalizerUsageRollup is put on a run created with spec.attributedTo
+	// (--attribution-mode attribute) by its own controller, and removed by
+	// that controller only once the run's usage is folded into its
+	// UsageRollups (ConditionUsageRolledUp): no run can be deleted, by TTL or
+	// by hand, before its usage is aggregated.
+	FinalizerUsageRollup = "patchy.bitwisemedia.uk/usage-rollup"
 )
 
 // LocalSecretReference names a Secret in the same namespace as the referring

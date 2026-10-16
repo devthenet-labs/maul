@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/bitwise-media-group/patchy/internal/attribution"
 	"github.com/bitwise-media-group/patchy/internal/cli"
 )
 
@@ -110,5 +111,26 @@ func TestServeStartupErrors(t *testing.T) {
 				t.Fatalf("serve error = %v, want %q", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+// TestUsageCompactorOnlyUnderAttribute: the UsageRollups' compaction loop
+// is registered only under attribution mode attribute. Off (the default),
+// the chart grants no access to UsageRollups, so a loop would log a refused
+// list every hour on an install that never opted in.
+func TestUsageCompactorOnlyUnderAttribute(t *testing.T) {
+	if c := usageCompactor(nil, nil, "patchy", attribution.ModeOff, nil); c != nil {
+		t.Errorf("mode off registers a compactor: %+v", c)
+	}
+	c := usageCompactor(nil, nil, "patchy", attribution.ModeAttribute, nil)
+	if c == nil || c.Namespace != "patchy" {
+		t.Errorf("mode attribute compactor = %+v, want one for namespace patchy", c)
+	}
+	mode, err := ownSettings(serveOpts(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := usageCompactor(nil, nil, "patchy", mode, nil); c != nil {
+		t.Errorf("the default flags (mode %q) register a compactor", mode)
 	}
 }

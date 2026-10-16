@@ -4,12 +4,17 @@
 package e2e
 
 import (
+	"context"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 
+	"k8s.io/apimachinery/pkg/types"
+
 	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	"github.com/bitwise-media-group/patchy/internal/stats"
 	"github.com/bitwise-media-group/patchy/internal/templates"
 )
 
@@ -38,6 +43,30 @@ func TestIntentAttribution(t *testing.T) {
 	buildRun := v1alpha1.IntentRunName(name, v1alpha1.IntentStageBuild, 1, appRepo, 1)
 	checkAttributed(t, e.kubelet.waitRun(t, "the build job to run", phaseIs("build")), e.run(t, buildRun),
 		v1alpha1.AttributionApprover, want)
+
+	// Each settled run's usage is folded, by intent-controller itself, into
+	// the approver's durable rollup, once, and the run then lets go of its
+	// usage finalizer.
+	scope := v1alpha1.UsageScope{Type: v1alpha1.UsageScopeUser, User: want}
+	eventually(t, "the plan and the build to be rolled up for the approver", func() bool {
+		var r v1alpha1.UsageRollup
+		key := types.NamespacedName{Namespace: namespace, Name: stats.UsageObjectName(scope)}
+		if err := e.cl.client.Get(context.Background(), key, &r); err != nil {
+			return false
+		}
+		kinds := map[string]int64{}
+		for _, m := range r.Status.Months {
+			for k, v := range m.Kinds {
+				kinds[k] += v.Runs
+			}
+		}
+		return kinds[stats.UsageKindPlan] == 1 && kinds[stats.UsageKindBuild] == 1 && r.Status.Login == approver.Login
+	})
+	for _, run := range []string{planRun, buildRun} {
+		eventually(t, "run "+run+" to release its usage finalizer", func() bool {
+			return !slices.Contains(e.run(t, run).Finalizers, v1alpha1.FinalizerUsageRollup)
+		})
+	}
 
 	line := "**Attributed to:** `@" + approver.Login + "` (`approver`), for the latest run"
 	eventually(t, "the status comment to name the build's approver", func() bool {

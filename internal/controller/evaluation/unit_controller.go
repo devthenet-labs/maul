@@ -29,6 +29,7 @@ import (
 	"github.com/bitwise-media-group/patchy/internal/jobs"
 	"github.com/bitwise-media-group/patchy/internal/schedule"
 	"github.com/bitwise-media-group/patchy/internal/usagemeter"
+	"github.com/bitwise-media-group/patchy/internal/usagerollup"
 	"github.com/bitwise-media-group/patchy/pkg/evaluation"
 )
 
@@ -85,6 +86,9 @@ type UnitReconciler struct {
 	// Meter settles a finished unit's usage against the egress broker
 	// (--usage-measurement); nil, the default, records nothing.
 	Meter *usagemeter.Meter
+	// Usage folds a settled unit that carries the usage finalizer into its
+	// UsageRollups and releases the finalizer; nil settles nothing.
+	Usage *usagerollup.Aggregator
 	Now   func() time.Time
 	Log   *slog.Logger
 }
@@ -214,7 +218,14 @@ func (r *UnitReconciler) run(ctx context.Context, req ctrl.Request) (ctrl.Result
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	if !unit.DeletionTimestamp.IsZero() {
-		return ctrl.Result{}, r.finalize(ctx, &unit)
+		if err := r.finalize(ctx, &unit); err != nil {
+			return ctrl.Result{}, err
+		}
+		res, err := r.measure(ctx, &unit)
+		if err != nil || res.RequeueAfter > 0 {
+			return res, err
+		}
+		return ctrl.Result{}, r.rollUpUsage(ctx, &unit)
 	}
 	switch unit.Status.Phase {
 	case v1alpha1.RunRunning:
@@ -226,17 +237,38 @@ func (r *UnitReconciler) run(ctx context.Context, req ctrl.Request) (ctrl.Result
 		}
 		return r.collect(ctx, &unit)
 	case v1alpha1.RunComplete, v1alpha1.RunFailed:
-		return r.measure(ctx, &unit)
+		res, err := r.measure(ctx, &unit)
+		if err != nil || res.RequeueAfter > 0 {
+			return res, err
+		}
+		return res, r.rollUpUsage(ctx, &unit)
 	default:
 		return ctrl.Result{}, nil // Pending waits for a grant
 	}
 }
 
+// rollUpUsage folds a unit that owes its usage into its UsageRollups once it
+// is due (usagerollup); a unit without the usage finalizer costs nothing.
+func (r *UnitReconciler) rollUpUsage(ctx context.Context, unit *v1alpha1.EvaluationUnit) error {
+	if r.Usage == nil || !usagerollup.Owed(unit, unit.Status.Conditions) {
+		return nil
+	}
+	return usagerollup.Settle(ctx, r.Usage, client.ObjectKeyFromObject(unit), usagerollup.EvaluationUnits)
+}
+
 // measure settles a finished unit's usage against the egress broker
 // (usagemeter): a no-op while the meter is off or once the usage is final.
-// The harness is the one this controller resolved at launch.
+// The harness is the one this controller resolved at launch. A unit deleted
+// before it settled (an Evaluation cancelled mid-flight; its Job already
+// gone) is measured too while it owes its usage rollup, so its metered spend
+// is not lost.
 func (r *UnitReconciler) measure(ctx context.Context, unit *v1alpha1.EvaluationUnit) (ctrl.Result, error) {
-	if !r.Meter.Pending(unit.Status.Phase, &unit.Status.Usage) {
+	if !unit.DeletionTimestamp.IsZero() {
+		if !usagerollup.Owed(unit, unit.Status.Conditions) ||
+			!r.Meter.PendingDeleted(unit.Status.JobRef, &unit.Status.Usage) {
+			return ctrl.Result{}, nil
+		}
+	} else if !r.Meter.Pending(unit.Status.Phase, &unit.Status.Usage) {
 		return ctrl.Result{}, nil
 	}
 	out, wait := r.Meter.Settle(ctx, usagemeter.RunOf(ctx, r.Runner, unit.UID, unit.Status.JobRef,

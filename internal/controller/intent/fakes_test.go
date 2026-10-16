@@ -1472,7 +1472,7 @@ func newEnv(t *testing.T, objs ...client.Object) *env {
 		WithScheme(kube.Scheme()).
 		WithObjects(objs...).
 		WithStatusSubresource(&v1alpha1.Project{}, &v1alpha1.Intent{}, &v1alpha1.IntentRun{},
-			&v1alpha1.Repository{}).
+			&v1alpha1.Repository{}, &v1alpha1.UsageRollup{}).
 		WithInterceptorFuncs(interceptor.Funcs{
 			Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
 				if obj.GetUID() == "" {

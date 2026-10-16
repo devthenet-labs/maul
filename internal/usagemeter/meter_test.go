@@ -397,3 +397,30 @@ func TestNew(t *testing.T) {
 		t.Fatalf("on: %v %v", m, err)
 	}
 }
+
+// TestPendingDeleted: a run being deleted still waits for its usage while
+// the meter is on, it launched a Job and its usage is not final (or it
+// never reported one); never while the meter is off, for a run that never
+// launched, or once final.
+func TestPendingDeleted(t *testing.T) {
+	on := &Meter{Fetcher: &fakeFetcher{}}
+	ref := &v1alpha1.JobReference{Name: job}
+	for _, tc := range []struct {
+		name string
+		m    *Meter
+		ref  *v1alpha1.JobReference
+		u    *v1alpha1.UsageSummary
+		want bool
+	}{
+		{name: "no stage yet", m: on, ref: ref, want: true},
+		{name: "reported, not final", m: on, ref: ref, u: &v1alpha1.UsageSummary{CostUSD: "1"}, want: true},
+		{name: "final", m: on, ref: ref, u: &v1alpha1.UsageSummary{Final: true}},
+		{name: "never launched", m: on},
+		{name: "unnamed job", m: on, ref: &v1alpha1.JobReference{}},
+		{name: "meter off", ref: ref},
+	} {
+		if got := tc.m.PendingDeleted(tc.ref, tc.u); got != tc.want {
+			t.Errorf("%s: PendingDeleted = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}

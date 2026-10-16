@@ -27,6 +27,7 @@ import (
 	"github.com/bitwise-media-group/patchy/internal/command"
 	"github.com/bitwise-media-group/patchy/internal/ghclient"
 	"github.com/bitwise-media-group/patchy/internal/templates"
+	"github.com/bitwise-media-group/patchy/internal/usagerollup"
 )
 
 const reviewQuiet = 2 * time.Minute
@@ -300,7 +301,7 @@ func (p *pass) retryReviseAttempt(ctx context.Context, run *v1alpha1.IntentRun, 
 	with := &v1alpha1.IntentRun{ObjectMeta: metav1.ObjectMeta{
 		Name: name, Namespace: p.in.Namespace,
 		Labels:          map[string]string{v1alpha1.LabelIntent: p.in.Name},
-		Finalizers:      []string{v1alpha1.FinalizerJobs},
+		Finalizers:      usagerollup.Finalizers(spec.AttributedTo, v1alpha1.FinalizerJobs),
 		OwnerReferences: []metav1.OwnerReference{intentOwner(p.in)},
 	}, Spec: spec}
 	if err := p.r.Create(ctx, with); err != nil {
@@ -947,7 +948,7 @@ func (p *pass) createReviseRun(ctx context.Context, pr *v1alpha1.IntentPullReque
 	run := &v1alpha1.IntentRun{ObjectMeta: metav1.ObjectMeta{
 		Name: name, Namespace: p.in.Namespace,
 		Labels:          map[string]string{v1alpha1.LabelIntent: p.in.Name},
-		Finalizers:      []string{v1alpha1.FinalizerJobs},
+		Finalizers:      usagerollup.Finalizers(spec.AttributedTo, v1alpha1.FinalizerJobs),
 		OwnerReferences: []metav1.OwnerReference{intentOwner(p.in)},
 	}, Spec: spec}
 	if len(p.in.Status.PullRequests) > 1 {

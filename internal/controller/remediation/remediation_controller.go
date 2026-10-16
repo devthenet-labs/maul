@@ -35,6 +35,7 @@ import (
 	"github.com/bitwise-media-group/patchy/internal/templates"
 	"github.com/bitwise-media-group/patchy/internal/transcriptstore"
 	"github.com/bitwise-media-group/patchy/internal/usagemeter"
+	"github.com/bitwise-media-group/patchy/internal/usagerollup"
 )
 
 // remSchedulerRequest is the singleton request every watch event maps to.
@@ -104,6 +105,9 @@ type RemediationReconciler struct {
 	// Meter settles a finished run's usage against the egress broker
 	// (--usage-measurement); nil, the default, records nothing.
 	Meter *usagemeter.Meter
+	// Usage folds a settled run that carries the usage finalizer into its
+	// UsageRollups and releases the finalizer; nil settles nothing.
+	Usage *usagerollup.Aggregator
 	// Now is the clock seam; nil means time.Now.
 	Now func() time.Time
 	// Log receives diagnostics; nil discards.
@@ -261,7 +265,14 @@ func (r *RemediationReconciler) run(ctx context.Context, req ctrl.Request) (ctrl
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	if !rem.DeletionTimestamp.IsZero() {
-		return ctrl.Result{}, r.finalize(ctx, &rem)
+		if err := r.finalize(ctx, &rem); err != nil {
+			return ctrl.Result{}, err
+		}
+		res, err := r.measure(ctx, &rem)
+		if err != nil || res.RequeueAfter > 0 {
+			return res, err
+		}
+		return ctrl.Result{}, r.rollUpUsage(ctx, &rem)
 	}
 	switch rem.Status.Phase {
 	case v1alpha1.RunRunning:
@@ -273,18 +284,43 @@ func (r *RemediationReconciler) run(ctx context.Context, req ctrl.Request) (ctrl
 		}
 		return r.collect(ctx, &rem)
 	case v1alpha1.RunComplete, v1alpha1.RunFailed:
-		return r.measure(ctx, &rem)
+		res, err := r.measure(ctx, &rem)
+		if err != nil || res.RequeueAfter > 0 {
+			return res, err
+		}
+		return res, r.rollUpUsage(ctx, &rem)
 	default:
 		return ctrl.Result{}, nil
 	}
 }
 
+// rollUpUsage folds a run that owes its usage into its UsageRollups once it
+// is due (usagerollup); a run without the usage finalizer costs nothing.
+func (r *RemediationReconciler) rollUpUsage(ctx context.Context, rem *v1alpha1.Remediation) error {
+	if r.Usage == nil || !usagerollup.Owed(rem, rem.Status.Conditions) {
+		return nil
+	}
+	return usagerollup.Settle(ctx, r.Usage, client.ObjectKeyFromObject(rem), usagerollup.Remediations)
+}
+
 // measure settles a finished remediation's usage against the egress broker
 // (usagemeter): a no-op while the meter is off or once the usage is final.
 // The harness is the one the spawner resolved and this controller launched
-// it on, never the pod's own report of it.
+// it on, never the pod's own report of it. A run deleted before it settled
+// (its Job already gone) is measured too while it owes its usage rollup, so
+// its metered spend is not lost; one that never reported a stage gets an
+// aborted stage to hold the measurement.
 func (r *RemediationReconciler) measure(ctx context.Context, rem *v1alpha1.Remediation) (ctrl.Result, error) {
-	if rem.Status.Stage == nil || !r.Meter.Pending(rem.Status.Phase, &rem.Status.Stage.Usage) {
+	var usage *v1alpha1.UsageSummary
+	if rem.Status.Stage != nil {
+		usage = &rem.Status.Stage.Usage
+	}
+	deleting := !rem.DeletionTimestamp.IsZero()
+	if deleting {
+		if !usagerollup.Owed(rem, rem.Status.Conditions) || !r.Meter.PendingDeleted(rem.Status.JobRef, usage) {
+			return ctrl.Result{}, nil
+		}
+	} else if usage == nil || !r.Meter.Pending(rem.Status.Phase, usage) {
 		return ctrl.Result{}, nil
 	}
 	out, wait := r.Meter.Settle(ctx, usagemeter.RunOf(ctx, r.Runner, rem.UID, rem.Status.JobRef,
@@ -296,6 +332,9 @@ func (r *RemediationReconciler) measure(ctx context.Context, rem *v1alpha1.Remed
 		var cur v1alpha1.Remediation
 		if err := r.Get(ctx, client.ObjectKeyFromObject(rem), &cur); err != nil {
 			return client.IgnoreNotFound(err)
+		}
+		if cur.Status.Stage == nil && deleting {
+			cur.Status.Stage = agentresult.DeletedStage(r.now())
 		}
 		if cur.Status.Stage == nil || cur.Status.Stage.Usage.Final {
 			return nil
@@ -785,8 +824,10 @@ func (r *RemediationReconciler) stampChild(
 			return client.IgnoreNotFound(err)
 		}
 		cur.Status.Phase = phase
+		finished := settledAt(cur.Status.Stage, r.now())
 		cur.Status.Stage = agentresult.FromStage(&result.Stage)
 		cur.Status.Stage.Transcript = transcript
+		cur.Status.Stage.FinishedAt = finished
 		cur.Status.Report = agentresult.TruncateReport(result.ReportMarkdown)
 		cur.Status.Reproduction = agentresult.Reproduction(result.Reproduction)
 		if extra != nil {
@@ -868,6 +909,17 @@ func nonEmptyReason(s string) string {
 		return "Unknown"
 	}
 	return s
+}
+
+// settledAt is the stage's finish time: the one already stamped (a replayed
+// settle keeps it), else now. The pod reports no finish time of its own, and
+// usage rollups bucket the run by it (the run's completedAt), so a run that
+// waited in the queue across midnight lands on the day it finished.
+func settledAt(prev *v1alpha1.StageResult, now time.Time) *metav1.Time {
+	if prev != nil && prev.FinishedAt != nil && !prev.FinishedAt.IsZero() {
+		return prev.FinishedAt.DeepCopy()
+	}
+	return timePtr(now)
 }
 
 // timePtr wraps a time for CRD fields.

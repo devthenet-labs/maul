@@ -112,6 +112,17 @@ rules:
     - apiGroups: [patchy.bitwisemedia.uk]
       resources: [forges]
       verbs: [get, list, watch]
+    {{- /* usagerollups create/get, status get/update, under attribution.mode
+           attribute only: each attributed run's usage folded in once it
+           settles (design L2), uncached by name, so no list/watch. */}}
+    {{- if include "patchy.attributionOn" . }}
+    - apiGroups: [patchy.bitwisemedia.uk]
+      resources: [usagerollups]
+      verbs: [create, get]
+    - apiGroups: [patchy.bitwisemedia.uk]
+      resources: [usagerollups/status]
+      verbs: [get, update]
+    {{- end }}
     - apiGroups: [""]
       resources: [configmaps]
       verbs: [create, get, list, watch, update]

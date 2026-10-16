@@ -28,6 +28,7 @@ import (
 	"github.com/bitwise-media-group/patchy/internal/runnercfg"
 	"github.com/bitwise-media-group/patchy/internal/telemetry"
 	"github.com/bitwise-media-group/patchy/internal/usagemeter"
+	"github.com/bitwise-media-group/patchy/internal/usagerollup"
 	"github.com/bitwise-media-group/patchy/internal/version"
 	"github.com/bitwise-media-group/patchy/internal/web/authz"
 )
@@ -165,6 +166,7 @@ func setupReconcilers(mgr manager.Manager, opts *cli.Options, namespace string, 
 		ArtifactBaseURL:  artifactBaseURL,
 		Attribution:      attributionMode,
 		Meter:            meter,
+		Usage:            usagerollup.New(mgr.GetClient(), mgr.GetAPIReader(), namespace, meter.On(), log),
 		Log:              log,
 	}
 	if err := units.SetupWithManager(mgr); err != nil {

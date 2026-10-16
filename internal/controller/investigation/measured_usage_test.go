@@ -11,9 +11,12 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	"github.com/bitwise-media-group/patchy/internal/attribution"
 	"github.com/bitwise-media-group/patchy/internal/jobs"
+	"github.com/bitwise-media-group/patchy/internal/stats"
 	"github.com/bitwise-media-group/patchy/internal/usagemeter"
 	"github.com/bitwise-media-group/patchy/internal/usagemeter/usagemetertest"
+	"github.com/bitwise-media-group/patchy/internal/usagerollup"
 )
 
 // settledInvestigation is a finished investigation whose pod reported its
@@ -112,6 +115,83 @@ func TestMeasureSettledInvestigation(t *testing.T) {
 			reconcileInvestigation(t, r)
 			if len(broker.Asked()) != asked {
 				t.Error("a final usage was measured again")
+			}
+		})
+	}
+}
+
+// TestMeasureDeletedInvestigation: an attributed investigation deleted
+// before its usage was final (mid-run, with no stage yet, or in the settle
+// window) is still measured against the broker before it is folded in, so
+// its metered spend reaches the trusted totals; while requests are in
+// flight it is looked at again, and it is never let go before.
+func TestMeasureDeletedInvestigation(t *testing.T) {
+	jobCreated := clock.Add(-time.Hour)
+	before, seen := jobCreated.Add(-time.Hour), jobCreated.Add(time.Minute)
+	for _, tc := range []struct {
+		name     string
+		midRun   bool
+		inflight bool
+	}{
+		{name: "deleted mid-run", midRun: true},
+		{name: "deleted in the settle window"},
+		{name: "in flight", midRun: true, inflight: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			runner, fnd, inv := settledInvestigation(jobCreated)
+			if tc.midRun {
+				inv.Status.Phase, inv.Status.Stage = v1alpha1.RunRunning, nil
+			}
+			inv.Spec.AttributedTo = attribution.Org()
+			inv.Finalizers = usagerollup.Finalizers(inv.Spec.AttributedTo, v1alpha1.FinalizerJobs)
+			r, c := newInvestigation(t, runner, fnd, inv)
+			r.InvestigateHarness = "claude"
+			broker, meter := usagemetertest.New(t, func() time.Time { return clock })
+			var inflight int64
+			if tc.inflight {
+				inflight = 1
+			}
+			broker.Set("job-1", usagemetertest.Answer("job-1", before, seen, inflight, usagemetertest.Sonnet(400)))
+			r.Meter = meter
+			r.Usage = usagerollup.New(c, c, "patchy", true, nil)
+			key := types.NamespacedName{Namespace: "patchy", Name: inv.Name}
+			var cur v1alpha1.Investigation
+			if err := c.Get(t.Context(), key, &cur); err != nil {
+				t.Fatal(err)
+			}
+			if err := c.Delete(t.Context(), &cur); err != nil {
+				t.Fatal(err)
+			}
+			res := reconcileInvestigation(t, r)
+			if len(broker.Asked()) != 1 {
+				t.Errorf("broker asked %d times, want 1", len(broker.Asked()))
+			}
+			if tc.inflight {
+				if res.RequeueAfter != usagemeter.DefaultPoll {
+					t.Errorf("requeue = %v, want a poll", res.RequeueAfter)
+				}
+				if err := c.Get(t.Context(), key, &cur); err != nil {
+					t.Errorf("a run still in flight was let go: %v", err)
+				}
+				return
+			}
+			if err := c.Get(t.Context(), key, &cur); err == nil {
+				t.Errorf("the deleted run is still held: finalizers %v", cur.Finalizers)
+			}
+			var rollup v1alpha1.UsageRollup
+			if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy",
+				Name: stats.UsageObjectName(v1alpha1.UsageScope{Type: v1alpha1.UsageScopeUser, User: "org"})},
+				&rollup); err != nil {
+				t.Fatalf("org rollup: %v", err)
+			}
+			if len(rollup.Status.Months) != 1 {
+				t.Fatalf("months = %+v", rollup.Status.Months)
+			}
+			for _, month := range rollup.Status.Months {
+				if month.Runs != 1 || month.ReportedRuns != 0 || month.InputTokens != 1_000_000 ||
+					month.CostMicroUSD != 3_000_000 {
+					t.Errorf("month = %+v, want one measured run of 1M input tokens and $3", month.UsageAggregate)
+				}
 			}
 		})
 	}
