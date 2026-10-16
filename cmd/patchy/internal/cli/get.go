@@ -36,6 +36,10 @@ type getFlags struct {
 	suspended bool
 	awaiting  bool
 	sortBy    string
+	// The usage report's filters (`get usage`).
+	user    string
+	project string
+	since   string
 }
 
 // findingOnly reports whether a filter that only makes sense for findings was
@@ -76,13 +80,20 @@ func newGetCmd(opts *Options) *cobra.Command {
 			"Columns come from the CRDs themselves, so they match `kubectl get` exactly;\n" +
 			"-o wide adds the columns marked lower priority (issue and pull-request links).\n\n" +
 			"The resource `all` lists every patchy kind, each in its own table, in the\n" +
-			"order the pipeline uses them. Kinds with nothing in them are left out.",
+			"order the pipeline uses them. Kinds with nothing in them are left out.\n\n" +
+			"The resource `usage` is the usage report the status page's Usage view shows:\n" +
+			"metered tokens and cost per person and per Project, read from the UsageRollups.\n" +
+			"It needs get on the virtual usage/all (the admin usage grant) and filters with\n" +
+			"--user (a GitHub login, github-id:<id> or org), --project and --since\n" +
+			"(30d, 720h or 2026-09-01; default 30 days, at most 400).",
 		Example: "  patchy get findings\n" +
 			"  patchy get all\n" +
 			"  patchy get findings --phase AwaitingApproval --severity critical\n" +
 			"  patchy get findings --awaiting -o wide\n" +
 			"  patchy get investigations --finding my-finding\n" +
-			"  patchy get fnd my-finding -o yaml",
+			"  patchy get fnd my-finding -o yaml\n" +
+			"  patchy get usage --since 90d\n" +
+			"  patchy get usage --user octocat --project storefront -o json",
 		Args:              cobra.MinimumNArgs(1),
 		ValidArgsFunction: getNounCompletion,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -102,6 +113,10 @@ func newGetCmd(opts *Options) *cobra.Command {
 	fl.BoolVar(&f.suspended, "suspended", false, "only suspended findings")
 	fl.BoolVar(&f.awaiting, "awaiting", false, "only findings with an action available")
 	fl.StringVar(&f.sortBy, "sort-by", "age", "sort by: age, name, severity, priority, or phase")
+	fl.StringVar(&f.user, "user", "", "usage only: one person (a GitHub login, github-id:<id>, or org)")
+	fl.StringVar(&f.project, "project", "", "usage only: one Project")
+	fl.StringVar(&f.since, "since", "", "usage only: the window, as days (30d), a duration (720h) or a first day "+
+		"(2026-09-01); default 30d")
 
 	_ = cmd.RegisterFlagCompletionFunc("sort-by", fixedCompletion(sortKeys))
 	_ = cmd.RegisterFlagCompletionFunc("phase", fixedCompletion(phaseNames()))
@@ -112,6 +127,12 @@ func newGetCmd(opts *Options) *cobra.Command {
 }
 
 func runGet(ctx context.Context, opts *Options, f *getFlags, noun string, names []string) error {
+	if strings.EqualFold(noun, usageNoun) {
+		return runGetUsage(ctx, opts, f, names)
+	}
+	if used := f.usageOnly(); len(used) > 0 {
+		return errUsage(fmt.Errorf("%s only applies to usage, not %s", strings.Join(used, "/"), noun))
+	}
 	if resource.IsAll(noun) {
 		return runGetAll(ctx, opts, f, names)
 	}

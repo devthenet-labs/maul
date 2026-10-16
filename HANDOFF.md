@@ -18,6 +18,27 @@ under `cost`), UID-checked and cached with the verdict. Cost is audited and mete
 LF2 (StageLimits cost and timeout, controllers stamping the annotation, the admission pair, the hourly guard) and LF3
 (sizing docs and e2e). See [docs/configuration/egress-broker.md](docs/configuration/egress-broker.md#cost-limits).
 
+## In flight — 2026-10-16: the Usage page, API and CLI (per-user credentials, L2: W4)
+
+**People can see what they spent.** Branch `feat/usage-dashboard` adds the surfaces of L2 (design section 3, Dashboard;
+revision 1, Surfaces). Off by default; chart `statusServer.usage.enabled: true` turns it on, and it shows something only
+with `attribution.mode: attribute`:
+
+- status-server `--usage-enabled`: a Usage page (inline SVG, no chart library) with the signed-in person's own daily
+  tokens and cost over 30 or 90 days, stacked by Project or run kind, top intents, and the unmetered and pod-reported
+  figures shown apart; holders of `get` on the virtual `usage/all` see everyone, per person and per Project;
+- a person is their GitHub numeric id from Dex's `federated_claims` (connector `oidc.claims.githubConnector`, default
+  `github`); the server refuses to start without mode oidc, both claim prefixes and the `federated:id` scope, and
+  refuses any identity without a GitHub id;
+- `patchy get usage [--user] [--project] [--since]`: admin-only (SelfSubjectAccessReview on `usage/all`, then the
+  caller's own RBAC on `usagerollups`); the same report as the page (`internal/usageview`);
+- chart: `patchy-status-server-usage` Role (usagerollups get/list/watch) and, with `rbac.userRoles`, the
+  `patchy-usage-admin` ClusterRole.
+
+See [docs/configuration/status-server.md](docs/configuration/status-server.md#usage-views). Not yet live. To enable: add
+`federated:id` to the status page's Dex scopes, set `statusServer.usage.enabled`, bind `patchy-usage-admin` for admins,
+and have everyone sign out and in again. No kustomize component yet (chart only).
+
 ## In flight — 2026-10-16: durable per-user usage rollups (per-user credentials, L2: W3)
 
 **Who spent what now outlives the runs.** Branch `feat/usage-rollups` adds the `UsageRollup` kind (design revision 1,
@@ -32,10 +53,10 @@ L2). Off by default; chart `attribution.mode: attribute` turns it on with L1 and
   most 120);
 - `patchy.usage.tokens` and `patchy.usage.cost` carry `user`, `project`, `kind`.
 
-See [docs/configuration/attribution.md](docs/configuration/attribution.md#usage-rollups). Not yet live. Still to come
-for L2: the dashboard Usage page and `patchy get usage` (W4). Known gaps: Finding and evaluation runs have no Project,
-so they count in user scopes only; the demo reset (Integration `spec.reset`) does not delete `UsageRollup`s; turning
-attribution off releases runs still settling unaggregated (`RollupForbidden`).
+See [docs/configuration/attribution.md](docs/configuration/attribution.md#usage-rollups). Not yet live. The Usage page
+and `patchy get usage` (W4) are in flight above. Known gaps: Finding and evaluation runs have no Project, so they count
+in user scopes only; the demo reset (Integration `spec.reset`) does not delete `UsageRollup`s; turning attribution off
+releases runs still settling unaggregated (`RollupForbidden`).
 
 ## In flight — 2026-10-16: portable previews, release N (the chart)
 

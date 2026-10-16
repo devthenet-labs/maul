@@ -1,0 +1,13 @@
+# Copyright 2026 Bitwise Media Group Ltd.
+# SPDX-License-Identifier: MIT
+#
+# The status server's usage views on, behind an operator-owned auth Secret
+# (opaque to the chart: the server checks it is oidc with both prefixes and
+# the federated:id scope at startup), with the example user roles.
+statusServer:
+    usage:
+        enabled: true
+    auth:
+        existingSecret: patchy-status-auth
+    rbac:
+        userRoles: true

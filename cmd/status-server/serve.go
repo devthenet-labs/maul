@@ -19,6 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
+	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
 	"github.com/bitwise-media-group/patchy/internal/cli"
 	"github.com/bitwise-media-group/patchy/internal/jobs"
 	"github.com/bitwise-media-group/patchy/internal/kube"
@@ -46,6 +47,10 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	f.Bool("intents-enabled", false,
 		"serve the intents views (board, timeline, run panel) with per-Project access reviews; needs auth mode "+
 			"oidc with usernamePrefix and groupsPrefix, and turns on the hardened browser envelope")
+	f.Bool("usage-enabled", false,
+		"serve the usage views (a signed-in person's own usage, and everyone's for holders of get on the "+
+			"virtual usage/all); needs auth mode oidc as the intents views do plus Dex's federated:id scope, "+
+			"since a person is their GitHub id; turns on the hardened browser envelope")
 	f.Bool("agents-paused", false,
 		"show the operator's agent pause (the chart's agent.paused) on the signed-in page; display only, the job "+
 			"controllers enforce it")
@@ -73,6 +78,76 @@ func newIntentsWiring(opts *cli.Options, authCfg *auth.Config) (intentsWiring, e
 		return intentsWiring{}, err
 	}
 	return intentsWiring{on: true, projects: projects}, nil
+}
+
+// viewsWiring is the optional views the flags turn on, each checked against
+// the auth posture before anything starts.
+type viewsWiring struct {
+	intents intentsWiring
+	usage   usageWiring
+}
+
+func newViewsWiring(opts *cli.Options, authCfg *auth.Config) (viewsWiring, error) {
+	intents, err := newIntentsWiring(opts, authCfg)
+	if err != nil {
+		return viewsWiring{}, err
+	}
+	usage, err := newUsageWiring(opts.Bool("usage-enabled"), authCfg)
+	if err != nil {
+		return viewsWiring{}, err
+	}
+	return viewsWiring{intents: intents, usage: usage}, nil
+}
+
+// registerIndexes installs the indexes of every view that is on.
+func (vw viewsWiring) registerIndexes(ctx context.Context, idx client.FieldIndexer) error {
+	if err := vw.intents.registerIndexes(ctx, idx); err != nil {
+		return err
+	}
+	return vw.usage.registerIndexes(ctx, idx)
+}
+
+// apply turns on every view that is on.
+func (vw viewsWiring) apply(srv *web.Server, c client.Client, namespace string, tailer web.Tailer) *web.Server {
+	return vw.usage.apply(vw.intents.apply(srv, c, namespace, tailer), c, namespace)
+}
+
+// usageWiring is what --usage-enabled adds to the server, decided before
+// anything starts.
+type usageWiring struct{ on bool }
+
+// newUsageWiring checks the auth posture may serve the usage views: oidc as
+// for the intents views, plus the federated:id scope that carries a
+// person's GitHub id. There is no development bypass: without a GitHub id
+// no one has usage to see.
+func newUsageWiring(enabled bool, authCfg *auth.Config) (usageWiring, error) {
+	if !enabled {
+		return usageWiring{}, nil
+	}
+	if err := authCfg.RequireForUsage(); err != nil {
+		return usageWiring{}, fmt.Errorf("--usage-enabled: %w", err)
+	}
+	return usageWiring{on: true}, nil
+}
+
+// registerIndexes installs the usage index; the UsageRollup informer it
+// implies needs the usage RBAC, which the chart grants only with the views
+// on.
+func (uw usageWiring) registerIndexes(ctx context.Context, idx client.FieldIndexer) error {
+	if !uw.on {
+		return nil
+	}
+	return web.RegisterUsageIndexes(ctx, idx)
+}
+
+// apply turns the usage views on in srv; with them off it returns srv
+// unchanged.
+func (uw usageWiring) apply(srv *web.Server, c client.Client, namespace string) *web.Server {
+	if !uw.on {
+		return srv
+	}
+	return srv.WithUsage(web.UsageOptions{All: authz.NewSubresourceReviewer(c, namespace,
+		v1alpha1.GroupVersion.Group, web.UsageAllResource, web.UsageAllSubresource, 0)})
 }
 
 // registerIndexes installs the intents indexes. The intents kinds are cached
@@ -188,7 +263,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	}
 	// Checked before anything starts: a posture that cannot serve the
 	// intents views safely must not come up serving them.
-	intents, err := newIntentsWiring(opts, authCfg)
+	views, err := newViewsWiring(opts, authCfg)
 	if err != nil {
 		return err
 	}
@@ -212,7 +287,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	if err := web.RegisterIndexes(ctx, mgr.GetFieldIndexer()); err != nil {
 		return err
 	}
-	if err := intents.registerIndexes(ctx, mgr.GetFieldIndexer()); err != nil {
+	if err := views.registerIndexes(ctx, mgr.GetFieldIndexer()); err != nil {
 		return err
 	}
 
@@ -235,7 +310,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		log.LogAttrs(ctx, slog.LevelWarn, "live transcripts unavailable",
 			slog.String("agent_namespace", agentNS), slog.Any("error", err))
 	}
-	srv = intents.apply(srv.WithTranscripts(mgr.GetAPIReader(), tailer), mgr.GetClient(), namespace, tailer)
+	srv = views.apply(srv.WithTranscripts(mgr.GetAPIReader(), tailer), mgr.GetClient(), namespace, tailer)
 
 	err = mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
 		return srv.StartWatch(ctx, mgr.GetCache())
@@ -258,7 +333,8 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		slog.String("namespace", namespace),
 		slog.String("listen_addr", httpSrv.Addr),
 		slog.String("auth_mode", mode),
-		slog.Bool("intents", intents.on))
+		slog.Bool("intents", views.intents.on),
+		slog.Bool("usage", views.usage.on))
 
 	g, ctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return mgr.Start(ctx) })

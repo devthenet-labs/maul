@@ -456,3 +456,29 @@
     @apply border-amber bg-amber text-onaccent shadow-none;
   }
 }
+
+/* Usage chart series: the dataviz reference categorical palette, first six
+   slots in their validated order, stepped per theme (dark is the default
+   theme). "other" folds the keys past six; "(no project)" is a neutral, not
+   a series. Identity is never colour alone: every chart has a legend and a
+   table view. */
+.theme-patchy {
+  --usage-1: #3987e5;
+  --usage-2: #d95926;
+  --usage-3: #199e70;
+  --usage-4: #c98500;
+  --usage-5: #d55181;
+  --usage-6: #008300;
+  --usage-other: #7d8a80;
+  --usage-none: #4d5c51;
+}
+.theme-patchy-light {
+  --usage-1: #2a78d6;
+  --usage-2: #eb6834;
+  --usage-3: #1baf7a;
+  --usage-4: #eda100;
+  --usage-5: #e87ba4;
+  --usage-6: #008300;
+  --usage-other: #8b968d;
+  --usage-none: #b9c4ba;
+}
