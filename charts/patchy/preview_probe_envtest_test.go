@@ -6,6 +6,7 @@ package chart_test
 import (
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -94,4 +95,44 @@ func readAll(t *testing.T, r io.Reader) string {
 		t.Fatal(err)
 	}
 	return string(b)
+}
+
+// testIngressProbePods creates the ingress-direction run's four Pods
+// (ingress.sh --print-manifests with placement, a preview image and the
+// clients in an ordinary namespace) with a server-side dry run against the
+// rendered slot policies: the listener must be admissible in a slot, and
+// the clients outside one.
+func testIngressProbePods(t *testing.T, env *envtest.Environment, placement ...string) {
+	t.Helper()
+	user, err := env.AddUser(envtest.User{Name: "ingress-probe-operator", Groups: []string{"system:masters"}}, nil)
+	if err != nil {
+		t.Fatalf("add kubectl user: %v", err)
+	}
+	kubectl, err := user.Kubectl()
+	if err != nil {
+		t.Fatalf("kubectl: %v", err)
+	}
+	dir, err := filepath.Abs(probeDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	args := append([]string{filepath.Join(dir, "ingress.sh"), "--print-manifests", "--image", previewImage,
+		"--release-namespace", "ordinary", "--agents-namespace", "ordinary"}, placement...)
+	out, err := exec.CommandContext(t.Context(), "bash", args...).Output()
+	if err != nil {
+		t.Fatalf("ingress.sh --print-manifests: %v", err)
+	}
+	docs := strings.Split(string(out), "---\n")
+	if len(docs) != 4 {
+		t.Fatalf("ingress.sh printed %d manifests, want 4:\n%s", len(docs), out)
+	}
+	for i, doc := range docs {
+		file := filepath.Join(t.TempDir(), "pod.yaml")
+		if err := os.WriteFile(file, []byte(doc), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, stderr, err := kubectl.Run("create", "-f", file, "--dry-run=server"); err != nil {
+			t.Errorf("ingress.sh's Pod %d is refused: %v: %s\n%s", i, err, readAll(t, stderr), doc)
+		}
+	}
 }
