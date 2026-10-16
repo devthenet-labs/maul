@@ -796,8 +796,10 @@ func (r *InvestigationReconciler) stampChild(
 			return client.IgnoreNotFound(err)
 		}
 		cur.Status.Phase = phase
+		finished := settledAt(cur.Status.Stage, r.now())
 		cur.Status.Stage = agentresult.FromStage(&result.Stage)
 		cur.Status.Stage.Transcript = transcript
+		cur.Status.Stage.FinishedAt = finished
 		cur.Status.Report = agentresult.TruncateReport(result.ReportMarkdown)
 		if phase == v1alpha1.RunComplete {
 			cur.Status.Exploitability = agentresult.Analysis(result.Exploitability)
@@ -894,6 +896,17 @@ func (r *InvestigationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&batchv1.Job{}, mapJob).
 		Named("investigation").
 		Complete(r)
+}
+
+// settledAt is the stage's finish time: the one already stamped (a replayed
+// settle keeps it), else now. The pod reports no finish time of its own, and
+// usage rollups bucket the run by it (the run's completedAt), so a run that
+// waited in the queue across midnight lands on the day it finished.
+func settledAt(prev *v1alpha1.StageResult, now time.Time) *metav1.Time {
+	if prev != nil && prev.FinishedAt != nil && !prev.FinishedAt.IsZero() {
+		return prev.FinishedAt.DeepCopy()
+	}
+	return timePtr(now)
 }
 
 func timePtr(t time.Time) *metav1.Time {

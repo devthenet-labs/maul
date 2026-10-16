@@ -805,8 +805,10 @@ func (r *RemediationReconciler) stampChild(
 			return client.IgnoreNotFound(err)
 		}
 		cur.Status.Phase = phase
+		finished := settledAt(cur.Status.Stage, r.now())
 		cur.Status.Stage = agentresult.FromStage(&result.Stage)
 		cur.Status.Stage.Transcript = transcript
+		cur.Status.Stage.FinishedAt = finished
 		cur.Status.Report = agentresult.TruncateReport(result.ReportMarkdown)
 		cur.Status.Reproduction = agentresult.Reproduction(result.Reproduction)
 		if extra != nil {
@@ -888,6 +890,17 @@ func nonEmptyReason(s string) string {
 		return "Unknown"
 	}
 	return s
+}
+
+// settledAt is the stage's finish time: the one already stamped (a replayed
+// settle keeps it), else now. The pod reports no finish time of its own, and
+// usage rollups bucket the run by it (the run's completedAt), so a run that
+// waited in the queue across midnight lands on the day it finished.
+func settledAt(prev *v1alpha1.StageResult, now time.Time) *metav1.Time {
+	if prev != nil && prev.FinishedAt != nil && !prev.FinishedAt.IsZero() {
+		return prev.FinishedAt.DeepCopy()
+	}
+	return timePtr(now)
 }
 
 // timePtr wraps a time for CRD fields.

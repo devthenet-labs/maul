@@ -4,11 +4,13 @@
 package investigation
 
 import (
+	"maps"
 	"slices"
 	"testing"
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
 	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
@@ -92,5 +94,42 @@ func TestRollUpInvestigationUsage(t *testing.T) {
 				t.Errorf("finalizers %v, conditions %+v", got.Finalizers, got.Status.Conditions)
 			}
 		})
+	}
+}
+
+// TestInvestigationBucketedByCompletion: an investigation created the day
+// before it finishes (it waited for a slot across midnight) has its stage's
+// finish time stamped when the controller collects it, and lands in the
+// rollup's day and month of that finish, not of its creation.
+func TestInvestigationBucketedByCompletion(t *testing.T) {
+	objs := investigationFixture()
+	inv := objs[1].(*v1alpha1.Investigation)
+	inv.CreationTimestamp = metav1.NewTime(time.Date(2026, 6, 30, 23, 30, 0, 0, time.UTC))
+	inv.Spec.AttributedTo = attribution.Org()
+	inv.Finalizers = usagerollup.Finalizers(inv.Spec.AttributedTo, v1alpha1.FinalizerJobs)
+	runner := &fakeRunner{done: true, events: investigationEvent("remediate", 0.9, false)}
+	r, c := newInvestigation(t, runner, objs...)
+	r.Usage = usagerollup.New(c, c, "patchy", false, nil)
+	reconcileInvestigation(t, r)
+	reconcileInvestigation(t, r)
+
+	var got v1alpha1.Investigation
+	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: inv.Name}, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Status.Stage == nil || got.Status.Stage.FinishedAt == nil || !got.Status.Stage.FinishedAt.Time.Equal(clock) {
+		t.Fatalf("stage = %+v, want finishedAt %v", got.Status.Stage, clock)
+	}
+	var rollup v1alpha1.UsageRollup
+	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy",
+		Name: stats.UsageObjectName(v1alpha1.UsageScope{Type: v1alpha1.UsageScopeUser, User: "org"})}, &rollup); err != nil {
+		t.Fatalf("org rollup: %v", err)
+	}
+	day, month := clock.Format(time.DateOnly), clock.Format("2006-01")
+	if _, ok := rollup.Status.Days[day]; !ok || len(rollup.Status.Days) != 1 {
+		t.Errorf("days = %v, want only %s", slices.Collect(maps.Keys(rollup.Status.Days)), day)
+	}
+	if _, ok := rollup.Status.Months[month]; !ok || len(rollup.Status.Months) != 1 {
+		t.Errorf("months = %v, want only %s", slices.Collect(maps.Keys(rollup.Status.Months)), month)
 	}
 }
