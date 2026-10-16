@@ -88,6 +88,54 @@ spec:
                 format: int32
                 minimum: 1
                 type: integer
+              attributedTo:
+                description: |-
+                  AttributedTo is who the run is for, stamped at creation by remediation-controller: the Finding's approver when it is held,
+                  else the org under
+                  --attribution-mode attribute (design L1); nil under mode off and on every
+                  run created before it. Immutable with the rest of the spec.
+                properties:
+                  reason:
+                    description: Reason says why.
+                    enum:
+                    - org
+                    - requester
+                    - approver
+                    - commenter
+                    - reviewer
+                    - submitter
+                    - approver-unregistered
+                    - submitter-unregistered
+                    type: string
+                  user:
+                    description: User is the person the run is attributed to; nil
+                      for the org.
+                    properties:
+                      id:
+                        description: 'ID is GitHub''s numeric account id: the identity.'
+                        format: int64
+                        minimum: 1
+                        type: integer
+                      login:
+                        description: |-
+                          Login is the GitHub login when the reference was recorded, for display
+                          only. Never a Bot: no bot is ever attributed a run.
+                        maxLength: 64
+                        minLength: 1
+                        pattern: ^[A-Za-z0-9][A-Za-z0-9_.-]*$
+                        type: string
+                    required:
+                    - id
+                    - login
+                    type: object
+                required:
+                - reason
+                type: object
+                x-kubernetes-validations:
+                - message: attributedTo.user is set exactly when the reason names
+                    a person
+                  rule: has(self.user) == (self.reason in ['requester', 'approver',
+                    'commenter', 'reviewer', 'submitter'])
               findingRef:
                 description: FindingRef is the owning Finding (UID-pinned).
                 properties:

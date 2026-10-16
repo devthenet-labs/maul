@@ -345,6 +345,13 @@ type IntentRunSpec struct {
 	// attempt.
 	// +optional
 	PreviousAttempt *PreviousAttempt `json:"previousAttempt,omitempty"`
+	// AttributedTo is who the run is for, stamped at creation by intent-controller: a plan by its trigger's applier when an approver,
+	// a build or check-fix run by the plan's approver, a revise round by its
+	// commenter or newest reviewer under
+	// --attribution-mode attribute (design L1); nil under mode off and on every
+	// run created before it. Immutable with the rest of the spec.
+	// +optional
+	AttributedTo *Attribution `json:"attributedTo,omitempty"`
 }
 
 // IntentRunStatus records how the run ran. Written only by

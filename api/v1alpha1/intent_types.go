@@ -250,6 +250,12 @@ type IntentRequest struct {
 	// EventID is the GitHub id of the labeled issue event.
 	// +kubebuilder:validation:Minimum=1
 	EventID int64 `json:"eventID"`
+	// UserID is GitHub's numeric id of the actor: their identity, which the
+	// login is not (design L1). Zero on an Intent created before it was
+	// recorded.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	UserID int64 `json:"userID,omitempty"`
 }
 
 // IntentActionSource names where a human action on the intent issue came
@@ -284,6 +290,11 @@ type IntentAction struct {
 	// +kubebuilder:validation:MaxLength=64
 	// +kubebuilder:validation:Pattern=`^[A-Za-z0-9][A-Za-z0-9_.-]*(\[bot\])?$`
 	Login string `json:"login"`
+	// UserID is GitHub's numeric id of the actor (design L1). Zero on an
+	// action recorded before it was.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	UserID int64 `json:"userID,omitempty"`
 	// At is the action's created_at, as GitHub reports it.
 	At metav1.Time `json:"at"`
 }
@@ -411,6 +422,11 @@ type IntentApproval struct {
 	// +kubebuilder:validation:MaxLength=64
 	// +kubebuilder:validation:Pattern=`^[A-Za-z0-9][A-Za-z0-9_.-]*$`
 	By string `json:"by"`
+	// ByID is GitHub's numeric id of the approver: their identity, which the
+	// login is not (design L1). Zero on an approval recorded before it was.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	ByID int64 `json:"byID,omitempty"`
 	// Source of the approving action — the approve label, or a /patchy
 	// approve comment — and so which id space EventID is in.
 	Source IntentActionSource `json:"source"`

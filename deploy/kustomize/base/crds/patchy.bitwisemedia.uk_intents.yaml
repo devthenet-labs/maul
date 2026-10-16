@@ -146,6 +146,14 @@ spec:
                     minLength: 1
                     pattern: ^[A-Za-z0-9][A-Za-z0-9_.-]*(\[bot\])?$
                     type: string
+                  userID:
+                    description: |-
+                      UserID is GitHub's numeric id of the actor: their identity, which the
+                      login is not (design L1). Zero on an Intent created before it was
+                      recorded.
+                    format: int64
+                    minimum: 1
+                    type: integer
                 required:
                 - at
                 - eventID
@@ -207,6 +215,13 @@ spec:
                     minLength: 1
                     pattern: ^[A-Za-z0-9][A-Za-z0-9_.-]*$
                     type: string
+                  byID:
+                    description: |-
+                      ByID is GitHub's numeric id of the approver: their identity, which the
+                      login is not (design L1). Zero on an approval recorded before it was.
+                    format: int64
+                    minimum: 1
+                    type: integer
                   eventID:
                     description: |-
                       EventID is GitHub's id of the approving action, in Source's id space:
@@ -488,6 +503,13 @@ spec:
                     - label
                     - command
                     type: string
+                  userID:
+                    description: |-
+                      UserID is GitHub's numeric id of the actor (design L1). Zero on an
+                      action recorded before it was.
+                    format: int64
+                    minimum: 1
+                    type: integer
                 required:
                 - at
                 - eventID

@@ -150,8 +150,18 @@ type RelatedFinding struct {
 // Approval records a human approval: "/patchy approve" on the tracking item,
 // or the approve action on the status page or in the CLI.
 type Approval struct {
-	// By is the approving login.
+	// By is the approving login: the bare GitHub login for a /patchy
+	// approve comment, the signed-in username on the status page, the kube
+	// username in the CLI.
 	By string `json:"by"`
+	// ByID is GitHub's numeric id of the approver, recorded only for an
+	// approval made by a GitHub comment, whose author GitHub names by id
+	// (design L1). A direct API writer may not set it: under attribution the
+	// chart's admission policy pins by to the requesting user and refuses
+	// byID from anyone but the patchy controllers and the status server.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	ByID int64 `json:"byID,omitempty"`
 	// At is when the approval was received.
 	At metav1.Time `json:"at"`
 	// Note is optional free text following the approve command.
@@ -166,6 +176,11 @@ type Approval struct {
 type ActionRequest struct {
 	// By is the requesting login.
 	By string `json:"by"`
+	// ByID is GitHub's numeric id of the requester, recorded only for a
+	// request made by a GitHub comment (see Approval.ByID).
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	ByID int64 `json:"byID,omitempty"`
 	// At is when the request was received.
 	At metav1.Time `json:"at"`
 }

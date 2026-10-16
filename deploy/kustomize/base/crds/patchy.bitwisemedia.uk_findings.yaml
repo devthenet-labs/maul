@@ -155,8 +155,21 @@ spec:
                     format: date-time
                     type: string
                   by:
-                    description: By is the approving login.
+                    description: |-
+                      By is the approving login: the bare GitHub login for a /patchy
+                      approve comment, the signed-in username on the status page, the kube
+                      username in the CLI.
                     type: string
+                  byID:
+                    description: |-
+                      ByID is GitHub's numeric id of the approver, recorded only for an
+                      approval made by a GitHub comment, whose author GitHub names by id
+                      (design L1). A direct API writer may not set it: under attribution the
+                      chart's admission policy pins by to the requesting user and refuses
+                      byID from anyone but the patchy controllers and the status server.
+                    format: int64
+                    minimum: 1
+                    type: integer
                   note:
                     description: Note is optional free text following the approve
                       command.
@@ -226,6 +239,13 @@ spec:
                   by:
                     description: By is the requesting login.
                     type: string
+                  byID:
+                    description: |-
+                      ByID is GitHub's numeric id of the requester, recorded only for a
+                      request made by a GitHub comment (see Approval.ByID).
+                    format: int64
+                    minimum: 1
+                    type: integer
                 required:
                 - at
                 - by
@@ -319,6 +339,13 @@ spec:
                   by:
                     description: By is the requesting login.
                     type: string
+                  byID:
+                    description: |-
+                      ByID is GitHub's numeric id of the requester, recorded only for a
+                      request made by a GitHub comment (see Approval.ByID).
+                    format: int64
+                    minimum: 1
+                    type: integer
                 required:
                 - at
                 - by
