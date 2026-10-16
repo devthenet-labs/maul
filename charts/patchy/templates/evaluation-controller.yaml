@@ -106,6 +106,8 @@ broker/provider stamps replace the PATCHY_CLAUDE_SECRET* keys.
 {{- $_ := include "patchy.agentDNSData" (dict "root" $ "data" $data) }}
 {{- /* agent.paused: no new evaluation unit Jobs, rendered only while paused. */}}
 {{- $_ := include "patchy.agentsPausedData" (dict "root" $ "data" $data) }}
+{{- /* attribution.mode: stamp who each unit is for, rendered only when on. */}}
+{{- $_ := include "patchy.attributionData" (dict "root" $ "data" $data) }}
 {{- range $k, $v := .Values.config.extra }}
 {{- $_ := set $data $k $v }}
 {{- end }}

@@ -1,0 +1,321 @@
+# Copyright 2026 Bitwise Media Group Ltd.
+# SPDX-License-Identifier: MIT
+#
+# Run attribution's admission policies (per-user credentials design, L1 and
+# revision 1), rendered only while attribution.mode is not off.
+#
+# WHY THIS EXISTS
+#
+# Attribution is a billing decision: whom a run's spend is recorded against
+# (and, with per-user credentials later, whose key pays). Its record on the
+# run's spec is written once by the run's own controller and kept by the
+# immutable-spec CEL rule. What a pod is attributed to is read from its
+# patchy.bitwisemedia.uk/attributed-to annotation, so that annotation must
+# come only from the launching controller, through the Job controller, and
+# never be changed afterwards: otherwise a prompt-injected agent, or anyone
+# holding create on pods, could bill another person. And the human stamps
+# attribution is derived from (a Finding's approval, retry and expedite, an
+# Evaluation's submitter) must name whoever wrote them.
+{{- if include "patchy.attributionOn" . }}
+{{- if not (semverCompare ">=1.30.0-0" .Capabilities.KubeVersion.Version) }}
+{{- fail (printf "attribution.mode is %s but this cluster is %s; its admission policies need Kubernetes 1.30+. Upgrade, or keep attribution.mode off." .Values.attribution.mode .Capabilities.KubeVersion.Version) }}
+{{- end }}
+{{- $ns := .Release.Namespace }}
+{{- $key := "patchy.bitwisemedia.uk/attributed-to" }}
+{{- $grammar := "^(org|github-id:[1-9][0-9]{0,18})$" }}
+{{- $kindLabel := "patchy.bitwisemedia.uk/kind" }}
+{{- $sa := dict }}
+{{- range $c := list
+    (dict "name" "integration-controller" "vals" .Values.integrationController)
+    (dict "name" "source-controller" "vals" .Values.sourceController)
+    (dict "name" "context-controller" "vals" .Values.contextController)
+    (dict "name" "investigation-controller" "vals" .Values.investigationController)
+    (dict "name" "remediation-controller" "vals" .Values.remediationController)
+    (dict "name" "intent-controller" "vals" .Values.intentController)
+    (dict "name" "evaluation-controller" "vals" .Values.evaluationController)
+    (dict "name" "status-server" "vals" $.Values.statusServer)
+}}
+{{- $_ := set $sa $c.name (printf "system:serviceaccount:%s:%s" $ns (include "patchy.serviceAccountName" (dict "root" $ "name" $c.name "vals" $c.vals))) }}
+{{- end }}
+{{- /*
+The controllers that launch agent Jobs, each with the run kind it launches
+and whether it may name a person: an investigation is never anyone's.
+*/}}
+{{- $launchers := list
+    (dict "sa" (get $sa "investigation-controller") "kind" "investigation" "orgOnly" true)
+    (dict "sa" (get $sa "remediation-controller") "kind" "remediation" "orgOnly" false) }}
+{{- if .Values.intentController.enabled }}
+{{- $launchers = append $launchers (dict "sa" (get $sa "intent-controller") "kind" "intent" "orgOnly" false) }}
+{{- end }}
+{{- if .Values.evaluationController.enabled }}
+{{- $launchers = append $launchers (dict "sa" (get $sa "evaluation-controller") "kind" "evaluation" "orgOnly" false) }}
+{{- end }}
+{{- /*
+The Job policy. A Job a launcher creates must be of the launcher's own run
+kind and carry the annotation, on the Job and its pod template alike, in
+the grammar (investigation-controller: only "org"). Nobody else may create
+a Job carrying it. No update may set, change or remove it, so the Job
+controller's and the garbage collector's own updates pass untouched.
+*/}}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+    name: {{ include "patchy.fullname" . }}-attribution-jobs
+    labels: {{- include "patchy.labels" (dict "root" $ "name" "admission-policy") | nindent 8 }}
+    {{- with include "patchy.annotations" (dict "root" $) }}
+    annotations: {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    # Fail closed: a policy that cannot compile or evaluate must not become an
+    # open door.
+    failurePolicy: Fail
+    matchConstraints:
+        resourceRules:
+            - apiGroups: [batch]
+              apiVersions: [v1]
+              operations: [CREATE, UPDATE]
+              resources: [jobs]
+    variables:
+        - name: job
+          expression: "object.metadata.?annotations[?'{{ $key }}']"
+        - name: pod
+          expression: "object.spec.?template.?metadata.?annotations[?'{{ $key }}']"
+        - name: runKind
+          expression: "object.metadata.?labels[?'{{ $kindLabel }}'].orValue('')"
+        - name: launcher
+          expression: >-
+              request.userInfo.username in [{{ range $i, $l := $launchers }}{{ if $i }}, {{ end }}'{{ $l.sa }}'{{ end }}]
+    validations:
+        - expression: >-
+              oldObject != null || !variables.launcher || (
+                variables.job.hasValue() && variables.pod == variables.job
+                && variables.job.value().matches('{{ $grammar }}')
+                && ({{ range $i, $l := $launchers }}{{ if $i }}
+                    || {{ end }}(request.userInfo.username == '{{ $l.sa }}' && variables.runKind == '{{ $l.kind }}'{{ if $l.orgOnly }} && variables.job.value() == 'org'{{ end }}){{ end }})
+              )
+          messageExpression: >-
+              "job " + object.metadata.name + " is launched by a patchy controller and must carry the " +
+              "{{ $key }} annotation, on the Job and its pod template alike, for its own run kind " +
+              "('org' or 'github-id:<id>'; investigation-controller only 'org')"
+          reason: Forbidden
+        - expression: >-
+              oldObject != null || variables.launcher || (!variables.job.hasValue() && !variables.pod.hasValue())
+          messageExpression: >-
+              "job " + object.metadata.name + " carries the {{ $key }} annotation; " +
+              "only the patchy controllers that launch agent Jobs may set it"
+          reason: Forbidden
+        - expression: >-
+              oldObject == null || (
+                variables.job == oldObject.metadata.?annotations[?'{{ $key }}']
+                && variables.pod == oldObject.spec.?template.?metadata.?annotations[?'{{ $key }}']
+              )
+          messageExpression: >-
+              "the {{ $key }} annotation on job " + object.metadata.name + " may not be set, changed or removed"
+          reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+    name: {{ include "patchy.fullname" . }}-attribution-jobs
+    labels: {{- include "patchy.labels" (dict "root" $ "name" "admission-policy") | nindent 8 }}
+    {{- with include "patchy.annotations" (dict "root" $) }}
+    annotations: {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    policyName: {{ include "patchy.fullname" . }}-attribution-jobs
+    validationActions: [Deny]
+    matchResources:
+        namespaceSelector:
+            matchLabels:
+                kubernetes.io/metadata.name: {{ .Values.agent.namespace }}
+{{- /*
+The pod side. A pod carrying the annotation is admitted only when the
+Kubernetes Job controller (admissionPolicy.jobControllerUsernames) creates
+it with a controlling owner reference to a batch/v1 Job, so every such pod
+is stamped from a template the Job policy already judged. No update, nor a
+pods/status write (which keeps the metadata it is sent), may set, change or
+remove it.
+*/}}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+    name: {{ include "patchy.fullname" . }}-attribution-pods
+    labels: {{- include "patchy.labels" (dict "root" $ "name" "admission-policy") | nindent 8 }}
+    {{- with include "patchy.annotations" (dict "root" $) }}
+    annotations: {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    # Fail closed: a policy that cannot compile or evaluate must not become an
+    # open door.
+    failurePolicy: Fail
+    matchConstraints:
+        resourceRules:
+            - apiGroups: [""]
+              apiVersions: [v1]
+              operations: [CREATE, UPDATE]
+              resources: [pods, pods/status]
+    variables:
+        - name: value
+          expression: "object.metadata.?annotations[?'{{ $key }}']"
+        # Exactly one controlling owner reference, and it is a batch/v1 Job.
+        - name: jobControlled
+          expression: >-
+              object.metadata.?ownerReferences.orValue([])
+                .filter(r, r.?controller.orValue(false))
+                .all(r, r.apiVersion == 'batch/v1' && r.kind == 'Job')
+              && size(object.metadata.?ownerReferences.orValue([])
+                .filter(r, r.?controller.orValue(false))) == 1
+    validations:
+        - expression: >-
+              oldObject != null || !variables.value.hasValue() || (
+                request.userInfo.username in [{{ range $i, $u := .Values.admissionPolicy.jobControllerUsernames }}{{ if $i }}, {{ end }}{{ $u | toJson }}{{ end }}]
+                && variables.jobControlled
+              )
+          messageExpression: >-
+              "pod " + object.metadata.name + " carries the {{ $key }} annotation; only the Kubernetes " +
+              "Job controller may create a pod carrying it, for the batch/v1 Job that controls it"
+          reason: Forbidden
+        - expression: >-
+              oldObject == null || variables.value == oldObject.metadata.?annotations[?'{{ $key }}']
+          messageExpression: >-
+              "the {{ $key }} annotation on pod " + object.metadata.name + " may not be set, changed or removed"
+          reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+    name: {{ include "patchy.fullname" . }}-attribution-pods
+    labels: {{- include "patchy.labels" (dict "root" $ "name" "admission-policy") | nindent 8 }}
+    {{- with include "patchy.annotations" (dict "root" $) }}
+    annotations: {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    policyName: {{ include "patchy.fullname" . }}-attribution-pods
+    validationActions: [Deny]
+    matchResources:
+        namespaceSelector:
+            matchLabels:
+                kubernetes.io/metadata.name: {{ .Values.agent.namespace }}
+{{- /*
+A Finding's approval, retry and expedite stamps name who asked. The patchy
+controllers (a /patchy command, recorded by integration-controller with the
+commenter's GitHub id) and the status server (which writes the signed-in
+username after its own access review) are trusted to stamp them. Anyone else
+writes as themselves: a stamp they set or change must name the requesting
+user and carry no byID, the GitHub id attribution keys on, so no direct API
+writer can bill a remediation to someone else. The finding-actions policy
+still decides whether they may take the action at all.
+*/}}
+{{- $findingExempt := list (get $sa "integration-controller") (get $sa "source-controller") (get $sa "context-controller") (get $sa "investigation-controller") (get $sa "remediation-controller") (get $sa "status-server") }}
+{{- range $extra := .Values.admissionPolicy.extraExemptSubjects }}
+{{- $findingExempt = append $findingExempt $extra }}
+{{- end }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+    name: {{ include "patchy.fullname" . }}-attribution-finding-stamps
+    labels: {{- include "patchy.labels" (dict "root" $ "name" "admission-policy") | nindent 8 }}
+    {{- with include "patchy.annotations" (dict "root" $) }}
+    annotations: {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    # Fail closed: a policy that cannot compile or evaluate must not become an
+    # open door.
+    failurePolicy: Fail
+    matchConstraints:
+        resourceRules:
+            # CREATE too: recreating a Finding with a stamp preset must not
+            # launder one.
+            - apiGroups: [patchy.bitwisemedia.uk]
+              apiVersions: [v1alpha1]
+              operations: [CREATE, UPDATE]
+              resources: [findings]
+    matchConditions:
+        - name: not-a-patchy-controller
+          expression: >-
+              !(request.userInfo.username in [{{ range $i, $s := $findingExempt }}{{ if $i }}, {{ end }}'{{ $s }}'{{ end }}])
+    validations:
+{{- range $field := list "approval" "retry" "expedite" }}
+        - expression: >-
+              (oldObject != null && oldObject.spec.?{{ $field }} == object.spec.?{{ $field }})
+              || !has(object.spec.{{ $field }})
+              || (object.spec.{{ $field }}.by == request.userInfo.username && !has(object.spec.{{ $field }}.byID))
+          messageExpression: >-
+              "spec.{{ $field }} on finding " + object.metadata.name + " must name the requesting user (by: " +
+              request.userInfo.username + ") and carry no byID; only patchy's controllers and status server " +
+              "stamp another identity"
+          reason: Forbidden
+{{- end }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+    name: {{ include "patchy.fullname" . }}-attribution-finding-stamps
+    labels: {{- include "patchy.labels" (dict "root" $ "name" "admission-policy") | nindent 8 }}
+    {{- with include "patchy.annotations" (dict "root" $) }}
+    annotations: {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    policyName: {{ include "patchy.fullname" . }}-attribution-finding-stamps
+    validationActions: [Deny]
+    matchResources:
+        namespaceSelector:
+            matchLabels:
+                kubernetes.io/metadata.name: {{ $ns }}
+{{- if .Values.evaluationController.enabled }}
+{{- /*
+An Evaluation's submitter is whom its units are for. The evaluation API
+stamps it server-side from the verified token, writing as the
+evaluation-controller; anyone creating an Evaluation directly must name
+themselves. The spec is immutable, so CREATE is the only write to judge.
+*/}}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+    name: {{ include "patchy.fullname" . }}-attribution-evaluation-submitter
+    labels: {{- include "patchy.labels" (dict "root" $ "name" "admission-policy") | nindent 8 }}
+    {{- with include "patchy.annotations" (dict "root" $) }}
+    annotations: {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    # Fail closed: a policy that cannot compile or evaluate must not become an
+    # open door.
+    failurePolicy: Fail
+    matchConstraints:
+        resourceRules:
+            - apiGroups: [patchy.bitwisemedia.uk]
+              apiVersions: [v1alpha1]
+              operations: [CREATE]
+              resources: [evaluations]
+    matchConditions:
+        - name: not-the-evaluation-api
+          expression: >-
+              request.userInfo.username != '{{ get $sa "evaluation-controller" }}'
+    validations:
+        - expression: "object.spec.submitter == request.userInfo.username"
+          messageExpression: >-
+              "spec.submitter on evaluation " + object.metadata.name + " must be the requesting user (" +
+              request.userInfo.username + "); only the evaluation API stamps another"
+          reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+    name: {{ include "patchy.fullname" . }}-attribution-evaluation-submitter
+    labels: {{- include "patchy.labels" (dict "root" $ "name" "admission-policy") | nindent 8 }}
+    {{- with include "patchy.annotations" (dict "root" $) }}
+    annotations: {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    policyName: {{ include "patchy.fullname" . }}-attribution-evaluation-submitter
+    validationActions: [Deny]
+    matchResources:
+        namespaceSelector:
+            matchLabels:
+                kubernetes.io/metadata.name: {{ $ns }}
+{{- end }}
+{{- end }}

@@ -67,6 +67,29 @@ admissionPolicy:
     jobControllerUsernames:
         - system:serviceaccount:kube-system:job-controller
 
+# Run attribution (per-user credentials design, layer L1): record whom every
+# agent run is for. off (the default) changes nothing anywhere. attribute
+# turns it on in the four controllers that launch agent Jobs
+# (PATCHY_ATTRIBUTION_MODE): each new Investigation, Remediation, IntentRun
+# and EvaluationUnit is stamped spec.attributedTo (a person by GitHub id, or
+# the org), every agent Job and its pod carry the
+# patchy.bitwisemedia.uk/attributed-to annotation ("org" or
+# "github-id:<id>"), and the intent issue's status comment names whom the
+# latest run is attributed to. The org credential still pays for every run.
+#
+# With attribute the chart also renders four admission policies (Kubernetes
+# 1.30+): only the launching controller may set the annotation on a Job
+# (investigation-controller only "org"), and every agent Job it launches must
+# carry it; only the Job controller may create a pod carrying it, for its
+# owning Job, and no update may change it; a Finding's approval, retry and
+# expedite, written by anyone but patchy's controllers and status server,
+# must name the requesting user and carry no GitHub id; and an Evaluation's
+# submitter must be its creator, unless that is the evaluation-controller.
+# Uses admissionPolicy.jobControllerUsernames. See
+# docs/configuration/attribution.md.
+attribution:
+    mode: "off"
+
 # The cluster DNS address as a /32, for clusters whose resolver is not a pod in
 # kube-system. EKS Auto Mode runs CoreDNS on every node at the cluster DNS
 # Service address (the tenth address of the service CIDR: 172.20.0.10/32 for

@@ -67,6 +67,7 @@ supports it, refusing to start otherwise.
 | `--agent-memory-limit`            | `PATCHY_AGENT_MEMORY_LIMIT`            | —                      | Memory limit, at or above the request; unset sets none                                                                                                                               |
 | `--agent-dns`                     | `PATCHY_AGENT_DNS`                     | `cluster`              | How agent pods resolve names: `cluster`, or `none` for [no resolver](#agent-dns) (brokered claude and the fake harness only)                                                         |
 | `--agents-paused`                 | `PATCHY_AGENTS_PAUSED`                 | `false`                | Launch no new agent Job; running Jobs finish ([pausing agents](#pausing-agents)). Helm: `agent.paused`                                                                               |
+| `--attribution-mode`              | `PATCHY_ATTRIBUTION_MODE`              | `off`                  | `attribute` stamps each new Investigation as the org's and annotates its Jobs `org` ([run attribution](attribution.md)). Helm: `attribution.mode`                                    |
 
 The four `--agent-*` CPU and memory flags are the default every agent Job gets (Helm `agent.resources.default`), shared
 with the remediation-, intent- and evaluation-controller. All unset, which is the default, a Job requests and limits
