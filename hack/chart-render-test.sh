@@ -2123,6 +2123,23 @@ render limits-intent-cost-pod -f "$fixtures/broker-limits.yaml" -f "$fixtures/in
   --set egressBroker.limits.unit=cost --set egressBroker.limits.costPerPod=60000000
 cm limits-intent-cost-pod intent-controller PATCHY_BROKER_LIMIT_UNIT cost
 cm limits-intent-cost-pod intent-controller PATCHY_BROKER_COST_PER_HOUR null
+# The large preset (LF3, docs/intents/sizing.md) renders as the guide says:
+# the broker on cost with no token backstop, the raised build and revise
+# ceilings (the stages' other keys kept), every intent Job deadline within
+# the default ceiling, and the large resource class.
+render large-preset -f "$fixtures/intent-controller.yaml" -f "$fixtures/large-preset.yaml"
+cm large-preset egress-broker PATCHY_LIMIT_UNIT cost
+cm large-preset egress-broker PATCHY_COST_PER_POD 60000000
+cm large-preset egress-broker PATCHY_COST_PER_HOUR 200000000
+cm large-preset egress-broker PATCHY_TOKENS_PER_POD null
+cm large-preset intent-controller PATCHY_BROKER_LIMIT_UNIT cost
+cm large-preset intent-controller PATCHY_INTENT_BUILD_MAX_TURNS 300
+cm large-preset intent-controller PATCHY_INTENT_BUILD_TIMEOUT 90m
+cm large-preset intent-controller PATCHY_INTENT_BUILD_MODEL anthropic/claude-sonnet-5
+cm large-preset intent-controller PATCHY_INTENT_REVISE_MAX_TURNS 200
+cm large-preset intent-controller PATCHY_INTENT_REVISE_TIMEOUT 45m
+cm large-preset intent-controller PATCHY_INTENT_JOB_DEADLINE_MAX 4h30m
+expect large-preset 'select(.kind == "ConfigMap" and .metadata.name == "patchy-intent-controller-config") | .data.PATCHY_INTENT_RESOURCE_CLASSES | from_json | .large.limits.memory' 10Gi
 # Without the intent controller nothing grants budgets, so no policy renders.
 expect limits-cost 'select(.metadata.name // "" | test("^patchy-budget-")) | .kind' ""
 render limits-extra -f "$fixtures/broker-limits.yaml" --set egressBroker.config.extra.PATCHY_TOKENS_PER_POD=7

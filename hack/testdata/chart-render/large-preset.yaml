@@ -1,0 +1,27 @@
+# Copyright 2026 Bitwise Media Group Ltd.
+# SPDX-License-Identifier: MIT
+#
+# chart-render-test fixture: the patchy chart values of the large preset in
+# docs/intents/sizing.md, verbatim, so the guide's values keep rendering (and
+# passing every guard) as the chart changes. Keep the two in step.
+egressBroker:
+    limits:
+        unit: cost
+        costPerPod: 60000000
+        costPerHour: 200000000
+        tokensPerPod: 0
+        tokensPerHour: 0
+intentController:
+    config:
+        build:
+            maxTurns: 300
+            timeout: 90m
+        revise:
+            maxTurns: 200
+            timeout: 45m
+agent:
+    resources:
+        classes:
+            large:
+                requests: { cpu: 4, memory: 8Gi }
+                limits: { memory: 10Gi }

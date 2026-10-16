@@ -137,6 +137,10 @@ intent-controller creates a Job carrying the annotation, and every Job it create
 creates a pod carrying it, for its own Job; nobody changes either afterwards; and only intent-controller creates an
 IntentRun with a budget.
 
+[Sizing limits for large features](../intents/sizing.md) gives a "large" preset (build 300 turns, 90m,
+$60; revise 200
+turns, 45m, $20), the stage ceilings and broker limits it needs, and the evidence it is sized from.
+
 ### Brokered claude only
 
 Intents run on brokered claude and nothing else, because no other harness honours the plan stage's read-only sandbox.

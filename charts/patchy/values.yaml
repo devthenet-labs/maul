@@ -1351,7 +1351,9 @@ egressBroker:
         # limits.maxCostMicroUSD) that intent-controller stamps on the run's
         # Job and pod, admission policies letting only it set the annotation;
         # a Project whose run budget is more than half costPerHour is not
-        # Ready.
+        # Ready. docs/intents/sizing.md sizes these for feature-sized intents
+        # (the "large" preset: costPerPod 60000000, costPerHour 200000000,
+        # no token backstop), with the evidence behind the numbers.
         unit: tokens
         # Tokens (input, cache creation, cache read, output) one pod may
         # consume.

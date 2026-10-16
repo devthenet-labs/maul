@@ -445,7 +445,8 @@ while a stage's `tokenBudget` counts output tokens only, so it must sit far abov
 ends early (its stage timeout, a token budget, a crash) still records what it spent, as its stream reported it call by
 call: the input and cache tokens exactly, but output tokens only as counted when each call started, so the cost recorded
 for such a run is a floor. With `egressBroker.limits.unit: cost` each run also gets its own enforced budget, the
-Project's `limits.<stage>.maxCostMicroUSD` ([stage limits](../configuration/intent-controller.md#stage-limits)).
+Project's `limits.<stage>.maxCostMicroUSD` ([stage limits](../configuration/intent-controller.md#stage-limits));
+[sizing limits for large features](sizing.md) shows how to size them and switch.
 
 **The Ingresses.** Intents need neither: an App created with only `--intents --checks` has no webhook, the webhook
 Ingress serves only the security pipeline (`--security`), and the status Ingress the status page. Keeping both, as here,

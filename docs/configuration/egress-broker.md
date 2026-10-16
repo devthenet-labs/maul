@@ -171,6 +171,8 @@ total) and `pod_cost_limit_micro_usd` (its cap, `0` under the token unit), and `
 route and class (`observed`, `estimated`), so a cost limit can be sized from live runs before an install switches. The
 chart's cost unit renders a Role granting `get` on pods in the agent namespace, nothing else; setting
 `PATCHY_LIMIT_UNIT` through `config.extra` instead leaves the broker without it, and every request then fails with 503.
+[Sizing limits for large features](../intents/sizing.md) has the measured runs behind these limits, a "large" preset and
+the steps to switch an install.
 
 ## The controller side
 
