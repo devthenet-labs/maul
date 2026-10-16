@@ -276,18 +276,7 @@ func (c Config) validate() error {
 			}
 		}
 	}
-	l := c.Limits
-	for name, v := range map[string]int64{
-		"requests per pod": l.RequestsPerPod, "concurrent per pod": l.ConcurrentPerPod,
-		"tokens per pod": l.TokensPerPod, "tokens per hour": l.TokensPerHour,
-		"max tokens ceiling": l.MaxTokensCeiling,
-		"cost per pod":       l.CostPerPod, "cost per hour": l.CostPerHour,
-	} {
-		if v < 0 {
-			return fmt.Errorf("broker: %s must not be negative", name)
-		}
-	}
-	if err := l.validateUnit(); err != nil {
+	if err := c.Limits.validate(); err != nil {
 		return err
 	}
 	if c.PreauthRequestsPerSecond < 0 || c.TokenReviewsPerSecond < 0 || c.PreauthBurst < 0 {
@@ -304,9 +293,19 @@ func (c Config) validate() error {
 	return c.Usage.validate(c)
 }
 
-// validateUnit rejects cost limits that would not be enforced, and a cost
-// unit without the per-pod cap every pod falls back to.
-func (l Limits) validateUnit() error {
+// validate rejects a negative limit, cost limits that would not be
+// enforced, and a cost unit without the per-pod cap every pod falls back to.
+func (l Limits) validate() error {
+	for name, v := range map[string]int64{
+		"requests per pod": l.RequestsPerPod, "concurrent per pod": l.ConcurrentPerPod,
+		"tokens per pod": l.TokensPerPod, "tokens per hour": l.TokensPerHour,
+		"max tokens ceiling": l.MaxTokensCeiling,
+		"cost per pod":       l.CostPerPod, "cost per hour": l.CostPerHour,
+	} {
+		if v < 0 {
+			return fmt.Errorf("broker: %s must not be negative", name)
+		}
+	}
 	switch l.Unit {
 	case UnitTokens:
 		if l.CostPerPod > 0 || l.CostPerHour > 0 {
