@@ -1086,6 +1086,7 @@
                             "additionalProperties": false,
                             "properties": {
                                 "type": {"type": "string", "enum": ["ClusterIP", "LoadBalancer"]},
+                                "externalTrafficPolicy": {"type": "string", "enum": ["Local", "Cluster"], "description": "The LoadBalancer exposure's externalTrafficPolicy; Local (the default) keeps the client's address as the gateway's peer"},
                                 "annotations": {"type": "object"}
                             }
                         },

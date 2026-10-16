@@ -711,6 +711,12 @@ metadata:
     {{- end }}
 spec:
     type: {{ $gwVals.service.type | default "ClusterIP" }}
+    {{- if eq $gw.exposure "loadBalancer" }}
+    # Local keeps the client's address as the peer (forwardedHops 0): under
+    # Cluster, kube-proxy source-NATs to a node address, which inboundCIDRs
+    # would refuse and the rate limit would share among every viewer.
+    externalTrafficPolicy: {{ $gwVals.service.externalTrafficPolicy | default "Local" }}
+    {{- end }}
     {{- if and (eq $gw.exposure "loadBalancer") $gwVals.inboundCIDRs }}
     # previewAuth.gateway.inboundCIDRs, kept at the load balancer.
     loadBalancerSourceRanges:

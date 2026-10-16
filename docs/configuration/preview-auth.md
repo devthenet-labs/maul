@@ -248,7 +248,12 @@ on the relay's Pods, and with it on:
   - `ingress.enabled`: one Ingress (`className`, empty for the edge class; `annotations` over the chart's ALB settings:
     target type `ip` and the health check `/.patchy/healthz`); `tls` is the Ingress's own (the edge terminates TLS).
   - `httpRoute.parentRefs`: one HTTPRoute on your Gateway, whose listener terminates TLS.
-  - `service.type: LoadBalancer`: the Service itself, with `inboundCIDRs` as its `loadBalancerSourceRanges`.
+  - `service.type: LoadBalancer`: the Service itself, with `inboundCIDRs` as its `loadBalancerSourceRanges` and
+    `externalTrafficPolicy: Local` (`service.externalTrafficPolicy`), so the gateway's peer is the client: under
+    `Cluster`, kube-proxy source-NATs to a node address (MetalLB, k3d's serverlb, an instance-mode cloud load balancer),
+    and with `forwardedHops: 0` the allowlist would refuse every viewer and the rate limit would share one bucket per
+    node. Set `Cluster` only where the load balancer keeps the client's address itself (an AWS NLB with IP targets and
+    client IP preservation); NOTES warn when it is `Cluster`.
   - none: point a tunnel or an Ingress of your own at the Service.
 - **`forwardedHops`** has no default and is required with any exposure: the proxies appending to `X-Forwarded-For` in
   front of the gateway (`1` behind one ALB or ingress controller, `0` behind an L4 load balancer). The rate limit and

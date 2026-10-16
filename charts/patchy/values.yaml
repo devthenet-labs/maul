@@ -485,6 +485,15 @@ previewAuth:
         service:
             # ClusterIP, or LoadBalancer (an exposure of its own).
             type: ClusterIP
+            # The LoadBalancer exposure's externalTrafficPolicy. Local keeps
+            # the client's address as the gateway's peer, which forwardedHops
+            # 0 judges: under Cluster, kube-proxy source-NATs to a node
+            # address (MetalLB, k3d's serverlb, an instance-mode cloud load
+            # balancer), so inboundCIDRs would refuse every viewer and the
+            # rate limit would share one bucket per node. Cluster only where
+            # the load balancer keeps the client's address itself (an AWS
+            # NLB with IP targets and client IP preservation).
+            externalTrafficPolicy: Local
             annotations: {}
         ingress:
             enabled: false

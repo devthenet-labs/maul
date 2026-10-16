@@ -242,7 +242,7 @@ https://<label>.{{ .Values.preview.hostSuffix }} is proxied to its slot by Servi
          -o jsonpath='{.status.loadBalancer.ingress[0]}'
 {{- else if eq $gw.exposure "httpRoute" }}HTTPRoute {{ $gwName }} attaches *.{{ .Values.preview.hostSuffix }}{{ if $gw.routeSignIn }} and
      {{ $gw.signInHost }}{{ end }} to your Gateway, whose listener terminates TLS.
-{{- else if eq $gw.exposure "loadBalancer" }}Service {{ $gwName }} is a LoadBalancer. Its address:
+{{- else if eq $gw.exposure "loadBalancer" }}Service {{ $gwName }} is a LoadBalancer (externalTrafficPolicy {{ $gwv.service.externalTrafficPolicy | default "Local" }}). Its address:
 
        kubectl get service {{ $gwName }} -n {{ .Release.Namespace }} \
          -o jsonpath='{.status.loadBalancer.ingress[0]}'
@@ -260,6 +260,14 @@ https://<label>.{{ .Values.preview.hostSuffix }} is proxied to its slot by Servi
   3. Dex: the relay's client {{ $pa.dex.clientID }} also needs the redirect URI
 
        https://{{ $gw.signInHost }}/dex/callback
+{{- end }}
+{{- if and (eq $gw.exposure "loadBalancer") (eq ($gwv.service.externalTrafficPolicy | default "Local") "Cluster") (eq ($gw.hops | default "0") "0") }}
+
+  CLIENT ADDRESS: previewAuth.gateway.service.externalTrafficPolicy is Cluster with
+  forwardedHops 0. Unless your load balancer keeps the client's address itself (an
+  AWS NLB with IP targets and client IP preservation), kube-proxy hands the gateway
+  a node address: {{ if $gwv.inboundCIDRs }}inboundCIDRs then refuses every viewer, and {{ end }}the rate limit
+  shares one bucket per node. Set it to Local.
 {{- end }}
 {{- if and $gwv.inboundCIDRs (or (eq $gw.exposure "httpRoute") (eq $gw.exposure "none") (and (eq $gw.exposure "ingress") (not $gwv.ingress.inboundCIDRsAnnotation))) }}
 

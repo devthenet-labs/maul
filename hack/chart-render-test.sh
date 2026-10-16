@@ -1239,6 +1239,26 @@ expect pg-lb 'select(.kind == "Service" and .metadata.name == "patchy-preview-ga
 expect pg-lb 'select(.kind == "Service" and .metadata.name == "patchy-preview-gateway") | .metadata.annotations."service.beta.kubernetes.io/aws-load-balancer-type"' external
 expect pg-lb 'select((.kind == "Ingress" or .kind == "HTTPRoute") and .metadata.name == "patchy-preview-gateway") | .kind' ''
 cm pg-lb preview-auth PATCHY_PREVIEW_AUTH_GATEWAY_FORWARDED_HOPS 0
+# Local, so the gateway's peer is the client that forwardedHops 0 and
+# inboundCIDRs judge: under Cluster kube-proxy hands it a node address.
+expect pg-lb 'select(.kind == "Service" and .metadata.name == "patchy-preview-gateway") | .spec.externalTrafficPolicy' Local
+expect pg 'select(.kind == "Service" and .metadata.name == "patchy-preview-gateway") | .spec | has("externalTrafficPolicy")' false
+notes notes-pg-lb -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.ingress.enabled=false \
+  --set previewAuth.gateway.service.type=LoadBalancer --set previewAuth.gateway.forwardedHops=0 \
+  --set 'previewAuth.gateway.inboundCIDRs={203.0.113.0/24}'
+notes_has notes-pg-lb "is a LoadBalancer (externalTrafficPolicy Local)" yes
+notes_has notes-pg-lb "CLIENT ADDRESS" no
+render pg-lb-cluster -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.ingress.enabled=false \
+  --set previewAuth.gateway.service.type=LoadBalancer --set previewAuth.gateway.forwardedHops=0 \
+  --set previewAuth.gateway.service.externalTrafficPolicy=Cluster
+expect pg-lb-cluster 'select(.kind == "Service" and .metadata.name == "patchy-preview-gateway") | .spec.externalTrafficPolicy' Cluster
+notes notes-pg-lb-cluster -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.ingress.enabled=false \
+  --set previewAuth.gateway.service.type=LoadBalancer --set previewAuth.gateway.forwardedHops=0 \
+  --set previewAuth.gateway.service.externalTrafficPolicy=Cluster --set 'previewAuth.gateway.inboundCIDRs={203.0.113.0/24}'
+notes_has notes-pg-lb-cluster "CLIENT ADDRESS: previewAuth.gateway.service.externalTrafficPolicy is Cluster" yes
+notes_has notes-pg-lb-cluster "inboundCIDRs then refuses every viewer" yes
+expect_fail 'gateway externalTrafficPolicy that is not one' "'/previewAuth/gateway/service/externalTrafficPolicy'" \
+  -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.service.externalTrafficPolicy=Nearest
 render pg-route -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.ingress.enabled=false \
   --set previewAuth.gateway.signInHost=signin.patchy.devthe.net \
   --set-json 'previewAuth.gateway.httpRoute.parentRefs=[{"name":"edge","namespace":"gateways"}]'

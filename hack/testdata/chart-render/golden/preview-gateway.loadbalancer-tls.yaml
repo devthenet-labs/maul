@@ -171,6 +171,10 @@ metadata:
     app.kubernetes.io/part-of: patchy
 spec:
   type: LoadBalancer
+  # Local keeps the client's address as the peer (forwardedHops 0): under
+  # Cluster, kube-proxy source-NATs to a node address, which inboundCIDRs
+  # would refuse and the rate limit would share among every viewer.
+  externalTrafficPolicy: Local
   selector:
     app.kubernetes.io/name: preview-auth
     app.kubernetes.io/instance: patchy
