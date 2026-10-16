@@ -7,6 +7,8 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+
+	"github.com/bitwise-media-group/patchy/internal/usagewire"
 )
 
 // Anthropic is the first-party route: inject the credential from a mounted
@@ -17,8 +19,13 @@ import (
 // OAuth token authenticates. Either way the file is read per request, so a
 // rotated Secret propagates without a restart.
 func Anthropic(target *url.URL, keyFile string, bearer bool) Upstream {
+	kind := usagewire.CredentialAPIKey
+	if bearer {
+		kind = usagewire.CredentialOAuthToken
+	}
 	return Upstream{
-		Target: target,
+		Target:         target,
+		CredentialKind: kind,
 		Credential: func(_ context.Context, req *http.Request) error {
 			key, err := readKeyFile(keyFile)
 			if err != nil {

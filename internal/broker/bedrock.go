@@ -15,6 +15,8 @@ import (
 
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+
+	"github.com/bitwise-media-group/patchy/internal/usagewire"
 )
 
 // emptyPayloadHash is the SHA-256 of an empty body, hex-encoded — SigV4's
@@ -36,8 +38,9 @@ func Bedrock(ctx context.Context, target *url.URL, region string) (Upstream, err
 	}
 	signer := v4.NewSigner()
 	return Upstream{
-		Target:     target,
-		BufferBody: true,
+		Target:         target,
+		CredentialKind: usagewire.CredentialCloudIdentity,
+		BufferBody:     true,
 		Credential: func(ctx context.Context, req *http.Request) error {
 			creds, err := cfg.Credentials.Retrieve(ctx)
 			if err != nil {

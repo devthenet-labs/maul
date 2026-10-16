@@ -14,6 +14,8 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+
+	"github.com/bitwise-media-group/patchy/internal/usagewire"
 )
 
 // foundryScope is the Entra token scope for Azure AI (Cognitive Services)
@@ -24,7 +26,8 @@ const foundryScope = "https://cognitiveservices.azure.com/.default"
 // from a mounted Secret file, same rotation posture as the Anthropic route.
 func FoundryKey(target *url.URL, keyFile string) Upstream {
 	return Upstream{
-		Target: target,
+		Target:         target,
+		CredentialKind: usagewire.CredentialAPIKey,
 		Credential: func(_ context.Context, req *http.Request) error {
 			key, err := readKeyFile(keyFile)
 			if err != nil {
@@ -51,7 +54,8 @@ func FoundryEntra(target *url.URL) (Upstream, error) {
 	}
 	ts := &entraTokenSource{cred: cred}
 	return Upstream{
-		Target: target,
+		Target:         target,
+		CredentialKind: usagewire.CredentialCloudIdentity,
 		Credential: func(ctx context.Context, req *http.Request) error {
 			tok, err := ts.token(ctx)
 			if err != nil {
