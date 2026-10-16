@@ -220,7 +220,7 @@ func (s *Server) followTranscript(
 	defer ping.Stop()
 	var reauth <-chan time.Time
 	if recheck != nil {
-		t := time.NewTicker(s.intents.reauth)
+		t := time.NewTicker(s.reauthPeriod())
 		defer t.Stop()
 		reauth = t.C
 	}

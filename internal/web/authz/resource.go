@@ -26,8 +26,10 @@ type ResourceReviewer struct {
 	namespace string
 	group     string
 	resource  string
-	ttl       time.Duration
-	now       func() time.Time
+	// subresource is the (virtual) subresource reviewed, "" for none.
+	subresource string
+	ttl         time.Duration
+	now         func() time.Time
 
 	mu    sync.Mutex
 	cache map[string]resourceCached
@@ -50,6 +52,17 @@ func NewResourceReviewer(c client.Client, namespace, group, resource string, ttl
 	}
 }
 
+// NewSubresourceReviewer is NewResourceReviewer for one subresource of the
+// resource, such as the virtual usage/all the status page's admin usage view
+// is gated on: nothing on the API server serves it, so RBAC granting it is
+// read only by these reviews.
+func NewSubresourceReviewer(c client.Client, namespace, group, resource, subresource string,
+	ttl time.Duration) *ResourceReviewer {
+	r := NewResourceReviewer(c, namespace, group, resource, ttl)
+	r.subresource = subresource
+	return r
+}
+
 // Allowed reports whether the identity may verb the resource.
 func (r *ResourceReviewer) Allowed(ctx context.Context, id auth.Identity, verb string) (bool, error) {
 	key := cacheKey(id) + "\x00" + verb
@@ -65,10 +78,11 @@ func (r *ResourceReviewer) Allowed(ctx context.Context, id auth.Identity, verb s
 			User:   id.Username,
 			Groups: id.Groups,
 			ResourceAttributes: &authorizationv1.ResourceAttributes{
-				Namespace: r.namespace,
-				Group:     r.group,
-				Resource:  r.resource,
-				Verb:      verb,
+				Namespace:   r.namespace,
+				Group:       r.group,
+				Resource:    r.resource,
+				Subresource: r.subresource,
+				Verb:        verb,
 			},
 		},
 	}

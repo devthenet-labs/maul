@@ -58,6 +58,9 @@ type Server struct {
 	intents *intentsState
 	// csp is the Content-Security-Policy the hardened envelope sends.
 	csp string
+	// usage is the usage views' state, nil while they are off. Its presence
+	// also turns on the hardened browser envelope.
+	usage *usageState
 	// agentsPaused is the operator's agent pause (agent.paused), shown on
 	// the signed-in page; display only, the job controllers enforce it.
 	agentsPaused bool
@@ -118,6 +121,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /events", s.handleEvents)
 	if s.intents != nil {
 		s.registerIntents(mux)
+	}
+	if s.usage != nil {
+		s.registerUsage(mux)
+	}
+	if s.hardened() {
 		assets, _ := uiAssets()
 		s.csp = buildCSP(assets)
 	}

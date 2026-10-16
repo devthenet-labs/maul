@@ -164,10 +164,11 @@ type UsageReport struct {
 	TopIntents []UsageIntent `json:"topIntents"`
 	// TopIntentMonths are those months, oldest first.
 	TopIntentMonths []string `json:"topIntentMonths"`
-	// People are every person's totals (views all and project).
-	People []UsagePerson `json:"people"`
+	// People are every person's totals (views all and project; omitted
+	// otherwise).
+	People []UsagePerson `json:"people,omitempty"`
 	// Projects are every Project's totals (views all, self and user).
-	Projects []UsageProject `json:"projects"`
+	Projects []UsageProject `json:"projects,omitempty"`
 }
 
 // Filter selects a report's view.
