@@ -112,6 +112,19 @@ type Limits struct {
 	// TokensPerHour is the broker-wide trailing-hour token ceiling, the
 	// backstop against attacker-minted findings.
 	TokensPerHour int64
+	// Unit is what the spend limits are expressed in: UnitTokens (the
+	// default; empty is the same) enforces TokensPerPod and TokensPerHour
+	// alone, UnitCost enforces CostPerPod and CostPerHour, priced from the
+	// observed tokens per model (pricing.go), with the token limits kept as
+	// optional absolute backstops.
+	Unit string
+	// CostPerPod caps the micro-USD one pod may spend; with UnitCost it is
+	// required, and a pod's BudgetAnnotation can only lower it. Zero under
+	// UnitTokens.
+	CostPerPod int64
+	// CostPerHour is the broker-wide trailing-hour cost ceiling in
+	// micro-USD; zero disables. Zero under UnitTokens.
+	CostPerHour int64
 	// MaxTokensCeiling caps a request's max_tokens.
 	MaxTokensCeiling int64
 	// ModelAllowlist is the model ids a pod may name, in canonical
@@ -121,10 +134,30 @@ type Limits struct {
 	ModelAllowlist []string
 }
 
+// The limit units (Limits.Unit).
+const (
+	UnitTokens = "tokens"
+	UnitCost   = "cost"
+)
+
+// cost reports whether the cost limits are the enforced unit.
+func (l Limits) cost() bool { return l.Unit == UnitCost }
+
 // perPod reports whether any per-pod limit is configured, in which case a
 // token whose review lacks the bound pod name is rejected outright.
 func (l Limits) perPod() bool {
-	return l.RequestsPerPod > 0 || l.ConcurrentPerPod > 0 || l.TokensPerPod > 0
+	return l.RequestsPerPod > 0 || l.ConcurrentPerPod > 0 || l.TokensPerPod > 0 || l.cost()
+}
+
+// podCostLimit is the micro-USD a pod with the given budget annotation
+// (0: none, or unreadable) may spend: the smaller of the annotation and
+// CostPerPod, so an annotation can lower the broker's cap but never raise
+// it, and a missing one falls back to the cap, never to unlimited.
+func (l Limits) podCostLimit(budget int64) int64 {
+	if budget > 0 && budget < l.CostPerPod {
+		return budget
+	}
+	return l.CostPerPod
 }
 
 // Config configures the broker engine.
@@ -205,6 +238,9 @@ func (c Config) withDefaults() Config {
 	if c.MaxAnthropicRequestBytes <= 0 {
 		c.MaxAnthropicRequestBytes = DefaultMaxAnthropicRequestBytes
 	}
+	if c.Limits.Unit == "" {
+		c.Limits.Unit = UnitTokens
+	}
 	if c.Limits.ConcurrencyWait == 0 {
 		c.Limits.ConcurrencyWait = DefaultConcurrencyWait
 	}
@@ -240,15 +276,8 @@ func (c Config) validate() error {
 			}
 		}
 	}
-	l := c.Limits
-	for name, v := range map[string]int64{
-		"requests per pod": l.RequestsPerPod, "concurrent per pod": l.ConcurrentPerPod,
-		"tokens per pod": l.TokensPerPod, "tokens per hour": l.TokensPerHour,
-		"max tokens ceiling": l.MaxTokensCeiling,
-	} {
-		if v < 0 {
-			return fmt.Errorf("broker: %s must not be negative", name)
-		}
+	if err := c.Limits.validate(); err != nil {
+		return err
 	}
 	if c.PreauthRequestsPerSecond < 0 || c.TokenReviewsPerSecond < 0 || c.PreauthBurst < 0 {
 		return errors.New("broker: pre-authentication rates must not be negative")
@@ -262,6 +291,35 @@ func (c Config) validate() error {
 		}
 	}
 	return c.Usage.validate(c)
+}
+
+// validate rejects a negative limit, cost limits that would not be
+// enforced, and a cost unit without the per-pod cap every pod falls back to.
+func (l Limits) validate() error {
+	for name, v := range map[string]int64{
+		"requests per pod": l.RequestsPerPod, "concurrent per pod": l.ConcurrentPerPod,
+		"tokens per pod": l.TokensPerPod, "tokens per hour": l.TokensPerHour,
+		"max tokens ceiling": l.MaxTokensCeiling,
+		"cost per pod":       l.CostPerPod, "cost per hour": l.CostPerHour,
+	} {
+		if v < 0 {
+			return fmt.Errorf("broker: %s must not be negative", name)
+		}
+	}
+	switch l.Unit {
+	case UnitTokens:
+		if l.CostPerPod > 0 || l.CostPerHour > 0 {
+			return errors.New("broker: cost limits need the cost limit unit")
+		}
+	case UnitCost:
+		if l.CostPerPod <= 0 {
+			return errors.New("broker: the cost limit unit needs a cost per pod, " +
+				"the cap a pod without a budget annotation falls back to")
+		}
+	default:
+		return fmt.Errorf("broker: limit unit %q is not %s or %s", l.Unit, UnitTokens, UnitCost)
+	}
+	return nil
 }
 
 // serviceAccountUser is the username prefix of every ServiceAccount.

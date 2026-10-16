@@ -36,8 +36,19 @@
 // token ceiling, charged from every usage field the response reports and
 // from a request-size estimate when a stream is cut. Over any limit is a 429
 // whose message carries provider.LimitMessagePrefix, which the in-pod runtime
-// maps to budget_exceeded. TokenReview remains the broker's only Kubernetes
-// access; the ledger is in-memory per replica.
+// maps to budget_exceeded. The ledger is in-memory per replica.
+//
+// The limits are in tokens by default (Limits.Unit). Under the cost unit the
+// per-pod and hourly limits are in micro-USD instead (pricing.go: the shared
+// model.MeasuredCostUSD over the built-in registry, an unpriced model at the
+// dearest rate of each class, a shortfall at the output rate), a request
+// reserves its output bound at its model's output price, and the token
+// limits stay as optional backstops. A pod's cap is then the smaller of
+// Limits.CostPerPod and its provider.BudgetAnnotation, read with the verdict
+// by one get of the token's own pod in the agent namespace, UID-checked
+// (budget.go); that read, under the cost unit only, is the broker's one
+// Kubernetes access beside TokenReview. Cost is counted, audited and
+// metered under either unit, so a cost limit can be sized before switching.
 //
 // The ledger also keeps what each pod consumed per bare model id: the tokens
 // observed in the responses (input, output, cache reads, and cache writes

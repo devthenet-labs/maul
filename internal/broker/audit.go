@@ -23,14 +23,21 @@ type auditEntry struct {
 	// the response's usage was never seen.
 	tokens    int64
 	estimated bool
+	// cost is what this request charged the pod in micro-USD, priced
+	// whatever the limit unit.
+	cost int64
 	// totals is the pod's running count after this request, so operators
 	// can size the limits from observed runs.
 	totals podTotals
+	// costLimit is the pod's cost cap in micro-USD (the smaller of
+	// --cost-per-pod and its budget annotation); 0 unless the cost limits
+	// are enforced.
+	costLimit int64
 }
 
 // audit emits the one slog line every request gets: caller pod, route,
-// method, path, status, duration, bytes, the model named, the tokens
-// charged and the pod's running totals. Never bodies, never headers — model
+// method, path, status, duration, bytes, the model named, the tokens and
+// micro-USD charged and the pod's running totals. Never bodies, never headers — model
 // prompts and completions must not land in the broker's logs.
 func audit(log *slog.Logger, r *http.Request, e auditEntry) {
 	msg := "proxied"
@@ -50,5 +57,8 @@ func audit(log *slog.Logger, r *http.Request, e auditEntry) {
 		slog.Int64("tokens", e.tokens),
 		slog.Bool("estimated", e.estimated),
 		slog.Int64("pod_requests", e.totals.requests),
-		slog.Int64("pod_tokens", e.totals.tokens))
+		slog.Int64("pod_tokens", e.totals.tokens),
+		slog.Int64("cost_micro_usd", e.cost),
+		slog.Int64("pod_cost_micro_usd", e.totals.cost),
+		slog.Int64("pod_cost_limit_micro_usd", e.costLimit))
 }

@@ -164,9 +164,11 @@ expect default 'select(.kind == "NetworkPolicy" and .metadata.name == "patchy-so
 for key in PATCHY_REQUESTS_PER_POD PATCHY_CONCURRENT_PER_POD PATCHY_CONCURRENCY_WAIT PATCHY_TOKENS_PER_POD \
   PATCHY_TOKENS_PER_HOUR PATCHY_MAX_TOKENS_CEILING PATCHY_MODEL_ALLOWLIST PATCHY_BETA_DENYLIST \
   PATCHY_MAX_ANTHROPIC_REQUEST_BYTES PATCHY_MAX_REQUEST_BYTES PATCHY_PREAUTH_REQUESTS_PER_SECOND \
-  PATCHY_PREAUTH_BURST PATCHY_TOKEN_REVIEWS_PER_SECOND; do
+  PATCHY_PREAUTH_BURST PATCHY_TOKEN_REVIEWS_PER_SECOND PATCHY_LIMIT_UNIT PATCHY_COST_PER_POD \
+  PATCHY_COST_PER_HOUR; do
   cm default egress-broker "$key" null
 done
+expect default 'select(.metadata.name == "patchy-egress-broker-budgets") | .kind' ""
 render default-cilium --set agent.networkPolicy.mode=cilium
 expect default-cilium 'select(.metadata.name == "patchy-source-controller-cloud-credentials") | .kind' ""
 
@@ -2071,6 +2073,32 @@ cm limits egress-broker PATCHY_MAX_REQUEST_BYTES 20971520
 cm limits egress-broker PATCHY_PREAUTH_REQUESTS_PER_SECOND 2.5
 cm limits egress-broker PATCHY_PREAUTH_BURST 100
 cm limits egress-broker PATCHY_TOKEN_REVIEWS_PER_SECOND 20
+# The token unit renders no unit and no Role, so the fixture above (unit
+# unset) and an explicit tokens agree.
+expect limits 'select(.metadata.name == "patchy-egress-broker-budgets") | .kind' ""
+render limits-tokens -f "$fixtures/broker-limits.yaml" --set egressBroker.limits.unit=tokens
+if ! cmp -s "$out/limits.yaml" "$out/limits-tokens.yaml"; then
+  fail "limits-tokens: an explicit egressBroker.limits.unit tokens changed the render"
+fi
+# The cost unit: the micro-USD limits (integers past float notation), and a
+# Role granting get on pods in the agent namespace, nothing more.
+render limits-cost -f "$fixtures/broker-limits.yaml" --set egressBroker.limits.unit=cost \
+  --set egressBroker.limits.costPerPod=60000000 --set egressBroker.limits.costPerHour=200000000
+cm limits-cost egress-broker PATCHY_LIMIT_UNIT cost
+cm limits-cost egress-broker PATCHY_COST_PER_POD 60000000
+cm limits-cost egress-broker PATCHY_COST_PER_HOUR 200000000
+cm limits-cost egress-broker PATCHY_TOKENS_PER_POD 30000000
+expect limits-cost 'select(.kind == "Role" and .metadata.name == "patchy-egress-broker-budgets") | .metadata.namespace' patchy-agents
+expect limits-cost 'select(.kind == "Role" and .metadata.name == "patchy-egress-broker-budgets") | .rules | length' 1
+expect limits-cost 'select(.kind == "Role" and .metadata.name == "patchy-egress-broker-budgets") | .rules[0] | (.apiGroups + .resources + .verbs) | join(",")' ',pods,get'
+expect limits-cost 'select(.kind == "RoleBinding" and .metadata.name == "patchy-egress-broker-budgets") | .subjects[0].name' patchy-egress-broker
+render limits-cost-pod -f "$fixtures/broker-limits.yaml" --set egressBroker.limits.unit=cost \
+  --set egressBroker.limits.costPerPod=60000000
+cm limits-cost-pod egress-broker PATCHY_COST_PER_HOUR null
+expect_fail cost-without-pod "needs egressBroker.limits.costPerPod" --set egressBroker.limits.unit=cost
+expect_fail cost-under-tokens "need egressBroker.limits.unit cost" --set egressBroker.limits.costPerPod=5
+expect_fail cost-hour-under-tokens "need egressBroker.limits.unit cost" --set egressBroker.limits.costPerHour=5
+expect_fail unknown-unit "/egressBroker/limits/unit" --set egressBroker.limits.unit=usd
 render limits-extra -f "$fixtures/broker-limits.yaml" --set egressBroker.config.extra.PATCHY_TOKENS_PER_POD=7
 cm limits-extra egress-broker PATCHY_TOKENS_PER_POD 7
 if [ "$(get default 'select(.kind == "Deployment" and .metadata.name == "patchy-egress-broker") | .spec.template.metadata.annotations["checksum/config"]')" = \

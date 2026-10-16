@@ -98,7 +98,7 @@ func TestLedgerJobUsageScope(t *testing.T) {
 // released, which is what a controller waits on before calling usage final.
 func TestLedgerInflight(t *testing.T) {
 	l := newLedger(Limits{}, time.Now)
-	release, reason := l.admit(t.Context(), ledgerPod, 0)
+	release, reason := l.admit(t.Context(), ledgerPod, reservation{tokens: 0})
 	if reason != "" {
 		t.Fatal(reason)
 	}

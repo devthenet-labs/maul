@@ -11,6 +11,9 @@
 # credential outbound. The model credentials therefore live HERE, in the
 # release namespace, not in the agent sandbox.
 {{- if include "patchy.brokerEnabled" . }}
+{{- /* The one exception to TokenReview-only: with egressBroker.limits.unit
+cost the broker also gets pods in the agent namespace, for the budget
+annotation (the -budgets Role below). */}}
 {{- $vals := .Values.egressBroker }}
 {{- $name := "egress-broker" }}
 {{- $provider := .Values.agent.runners.claude.provider | default dict }}
@@ -86,6 +89,27 @@ and the rendered ConfigMap unchanged. The config.extra maps below still win.
 {{- end }}
 {{- end }}
 {{- /*
+The limit unit (large-features limits design, LF1): tokens, the default,
+renders nothing; cost renders the unit and the micro-USD limits, which the
+token unit refuses rather than silently ignores.
+*/}}
+{{- $unit := $limits.unit | default "tokens" }}
+{{- if not (has $unit (list "tokens" "cost")) }}
+{{- fail (printf "egressBroker.limits.unit: %q is not tokens or cost" $unit) }}
+{{- end }}
+{{- if eq $unit "cost" }}
+{{- if not $limits.costPerPod }}
+{{- fail "egressBroker.limits.unit cost needs egressBroker.limits.costPerPod, the cap a pod without a budget annotation falls back to" }}
+{{- end }}
+{{- $_ := set $data "PATCHY_LIMIT_UNIT" "cost" }}
+{{- $_ := set $data "PATCHY_COST_PER_POD" $limits.costPerPod }}
+{{- with $limits.costPerHour }}
+{{- $_ := set $data "PATCHY_COST_PER_HOUR" . }}
+{{- end }}
+{{- else if or $limits.costPerPod $limits.costPerHour }}
+{{- fail "egressBroker.limits.costPerPod and costPerHour need egressBroker.limits.unit cost" }}
+{{- end }}
+{{- /*
 Trusted usage (design L2): the usage endpoint on its own port, answering the
 run controllers' ServiceAccounts only, rendered only while
 patchy.usageMeasured (attribution.mode attribute). The Deployment stays at one
@@ -158,6 +182,39 @@ subjects:
     - kind: ServiceAccount
       name: {{ include "patchy.serviceAccountName" (dict "root" . "name" $name "vals" $vals) }}
       namespace: {{ .Release.Namespace }}
+{{- if eq $unit "cost" }}
+---
+# The cost limits read each caller pod's budget annotation: get on pods in
+# the agent namespace only, by name (the token's own pod, UID-checked). No
+# list, no watch, no other resource, no other namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+    name: {{ include "patchy.fullname" . }}-{{ $name }}-budgets
+    namespace: {{ .Values.agent.namespace }}
+    labels:
+        {{- include "patchy.labels" (dict "root" . "name" $name) | nindent 8 }}
+rules:
+    - apiGroups: [""]
+      resources: [pods]
+      verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+    name: {{ include "patchy.fullname" . }}-{{ $name }}-budgets
+    namespace: {{ .Values.agent.namespace }}
+    labels:
+        {{- include "patchy.labels" (dict "root" . "name" $name) | nindent 8 }}
+roleRef:
+    apiGroup: rbac.authorization.k8s.io
+    kind: Role
+    name: {{ include "patchy.fullname" . }}-{{ $name }}-budgets
+subjects:
+    - kind: ServiceAccount
+      name: {{ include "patchy.serviceAccountName" (dict "root" . "name" $name "vals" $vals) }}
+      namespace: {{ .Release.Namespace }}
+{{- end }}
 ---
 apiVersion: apps/v1
 kind: Deployment
