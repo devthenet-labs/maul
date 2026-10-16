@@ -553,3 +553,44 @@ func TestIntentVerbsStayOffFindings(t *testing.T) {
 		}
 	}
 }
+
+// TestApplyWithIDRecordsTheAccount: a GitHub command records the account's
+// numeric id beside its login on every request it can make; Apply (the
+// status page, the CLI) and a non-positive id record none.
+func TestApplyWithIDRecordsTheAccount(t *testing.T) {
+	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	byID := func(f *v1alpha1.Finding, verb string) int64 {
+		switch verb {
+		case VerbApprove:
+			return f.Spec.Approval.ByID
+		case VerbRetry:
+			return f.Spec.Retry.ByID
+		}
+		return f.Spec.Expedite.ByID
+	}
+	for _, tc := range []struct {
+		verb  string
+		phase v1alpha1.Phase
+	}{
+		{VerbApprove, v1alpha1.PhaseAwaitingApproval},
+		{VerbExpedite, v1alpha1.PhaseOpened},
+	} {
+		for _, id := range []int64{42, 0, -3} {
+			f := finding(tc.phase)
+			changed, err := ApplyWithID(f, tc.verb, "alice", id, "", now)
+			if err != nil || !changed {
+				t.Fatalf("ApplyWithID(%s, %d) = %v, %v", tc.verb, id, changed, err)
+			}
+			if got, want := byID(f, tc.verb), max(id, 0); got != want {
+				t.Errorf("ApplyWithID(%s, %d) byID = %d, want %d", tc.verb, id, got, want)
+			}
+		}
+		f := finding(tc.phase)
+		if _, err := Apply(f, tc.verb, "github:alice", "", now); err != nil {
+			t.Fatal(err)
+		}
+		if got := byID(f, tc.verb); got != 0 {
+			t.Errorf("Apply(%s) byID = %d, want none", tc.verb, got)
+		}
+	}
+}
