@@ -70,6 +70,20 @@ an OTLP backend gets the same numbers the `FindingRollup` objects carry):
 
 `repo` is the only high-cardinality attribute (~estate size); constrained backends can drop it with a metric view.
 
+**Per-user usage** (only under `attribution.mode: attribute`; emitted by each run's own controller when it folds the run
+into its user's `UsageRollup`, exactly once per run, aligned with the rollup counters; see
+[usage rollups](configuration/attribution.md#usage-rollups)):
+
+- `patchy.usage.tokens` — tokens by `user` (`org` or `github-id:<id>`), `project` (empty for Finding and evaluation
+  runs), `kind` (`investigation`, `remediation`, `plan`, `build`, `revise`, `check-fix`, `evaluation`), `source`
+  (`measured`, `partial`, `reported`) and `class` (`input`, `output`, `cache_read`, `cache_write`; `reported` for a
+  reported run's own total).
+- `patchy.usage.cost` — USD by `user`, `project`, `kind` and `pricing`: `list` is money spent at list rates,
+  `subscription` the notional list-price equivalent of subscription-paid tokens, `reported` a pod's own untrusted
+  figure. Sum `list` alone for spend.
+
+`user` is bounded by headcount.
+
 **Preview sign-in** (preview-auth and preview-controller, only while the chart's `previewAuth` is on):
 
 - `patchy.preview_auth.unprotected_hosts` — Ready preview hosts that answered the relay's credential-less probe with

@@ -145,8 +145,60 @@ must run as one replica.
 Runs that settled before trusted usage was on are settled as `reported` the first time their controller sees them: the
 broker has no record of them.
 
+## Usage rollups
+
+A run's usage dies with the run: Findings expire after their TTL, Intents after theirs. Under `attribute` each run's own
+controller also folds the run into durable `UsageRollup` objects in the release namespace, which outlive the runs.
+
+- **Scopes.** One object per scope: `user` (a person by GitHub id, `github-id:<id>`, or `org` for runs no person is
+  behind), `user-project` (one person's runs of one Project's intents) and `project` (one Project's intents' runs, by
+  anyone). Finding and evaluation runs have no Project, so they count in their user scope only. The object name is
+  `usage-<scope>-<16 hex>` of a hash of the scope's keys; `spec.scope` is the truth, and `status.login` the person's
+  last login, for display only.
+- **Buckets.** Each object holds day buckets (`2026-10-16`, the last 400 days) and month buckets (`2026-10`, at most 120
+  months). A run lands in the UTC day and month of its completion (`finishedAt`; its creation when it never finished).
+  Every bucket holds the runs, the metered tokens by class, the unmetered shortfall, the list-price cost and, apart, the
+  notional cost of subscription-paid tokens, and splits runs, tokens and both costs by run kind (`investigation`,
+  `remediation`, `plan`, `build`, `revise`, `check-fix`, `evaluation`). All costs are integer micro-USD.
+- **Trusted and reported.** Only a run whose usage is final and `measured` or `partial` adds to the token and cost
+  totals (`partialRuns` counts the partial ones). Any other run (a codex or copilot run, no broker figure, measurement
+  off, or a run deleted before its usage settled) is counted in `reportedRuns`, with the pod's own tokens and cost in
+  `reportedTokens` and `reportedCostMicroUSD`, never in a trusted total. A metered run with tokens of a model that has
+  no price is counted in `unpricedRuns`: its tokens are in, its cost is not.
+- **Top intents.** A user scope's month bucket also keeps that person's ten most expensive intents of the month (cost,
+  then tokens). It is kept as runs arrive: an intent enters a full list only when its runs so far outrank the last
+  entry, so the list can miss an intent built up from many cheap runs; the bucket's totals never miss anything.
+
+How a run is folded in, exactly once:
+
+- A run created under `attribute` carries the `patchy.bitwisemedia.uk/usage-rollup` finalizer. It is folded in once it
+  is `Complete` or `Failed` and its usage is `final` (at once when measurement is off, or the run never reported a
+  stage), or when it is deleted. A run deleted before it settled (an evaluation cancelled, a finding deleted under its
+  remediation) is first measured against the broker when measurement is on and it had launched a Job, waiting at most as
+  long as a settled run would, so its metered spend still reaches the trusted totals. Each rollup's `status.recent`
+  ledger records the run's UID (`u:<uid>`), so a crash or a conflict between the rollup write and the run's own write
+  never counts it twice.
+- The run is then marked `UsageRolledUp` and the finalizer removed, so its deletion, by TTL or by hand, never waits on
+  the rollup. A run created before the feature, or under `off`, has no finalizer and is never folded in or held.
+- remediation-controller, which hosts the FindingRollup loop, compacts the rollups hourly under `attribute`: day buckets
+  past the 400-day window are dropped. Under `off` the loop does not run, so an install that never opted in neither
+  lists nor logs anything about rollups; rollups left from an earlier `attribute` wait until it is turned back on. Month
+  totals are never touched: every run is in its month as well as its day.
+
+Each controller is granted only `create` and `get` on `usagerollups` and `get` and `update` on their status (plus `list`
+for remediation-controller's compaction), all uncached, by name; the chart grants them only under `attribute`. No one
+may delete a rollup through the chart's roles. Rollups live only in etcd, so a cluster rebuild resets them.
+
+`kubectl get usagerollups` (short name `ur`) lists them. The dashboard's Usage page and `patchy get usage` are not built
+yet.
+
 ## Turning it off
 
 Set `attribution.mode: off`. The controllers stop stamping new runs and annotating new Jobs, stop settling usage, and
-the policies and the broker's usage endpoint are removed. Stamps already written stay on their runs: the specs are
-immutable, and the stamps are only records.
+the policies, the broker's usage endpoint and the controllers' grants on `usagerollups` are removed. Stamps already
+written stay on their runs: the specs are immutable, and the stamps are only records. The rollups stay, and so does
+everything already in them.
+
+A run created under `attribute` that settles after the grant is gone cannot be folded in. Its controller marks it
+`UsageRolledUp` with reason `RollupForbidden`, logs a warning, and releases it, rather than hold its deletion forever.
+To keep those runs' usage, pause the agents and let the runs in flight settle before turning attribution off.

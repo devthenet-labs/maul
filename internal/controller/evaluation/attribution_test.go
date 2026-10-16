@@ -5,6 +5,7 @@ package evaluation
 
 import (
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -45,6 +46,11 @@ func TestGateAttribution(t *testing.T) {
 			}
 			if got := units.Items[0].Spec.AttributedTo; !reflect.DeepEqual(got, tc.want) {
 				t.Errorf("attributedTo = %+v, want %+v", got, tc.want)
+			}
+			// The usage finalizer rides with the stamp.
+			fins := units.Items[0].Finalizers
+			if got := slices.Contains(fins, v1alpha1.FinalizerUsageRollup); got != (tc.want != nil) {
+				t.Errorf("usage finalizer = %v, want %v (finalizers %v)", got, tc.want != nil, fins)
 			}
 		})
 	}

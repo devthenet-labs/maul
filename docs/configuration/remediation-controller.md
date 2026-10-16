@@ -151,3 +151,6 @@ a command that never returns ends as a `timeout` naming the command, instead of 
 - **Rollups and the TTL** — on terminal-phase entry the stage statistics are aggregated exactly-once (finalizer-backed)
   into the per-scope `FindingRollup` objects; completed findings older than `--finding-ttl` are deleted, and the rollups
   remain the durable record.
+- **Usage rollups** — under `--attribution-mode attribute` each settled remediation is folded into its person's (or the
+  org's) `UsageRollup`, and, in that mode only, the same loop compacts every `UsageRollup` hourly, dropping day buckets
+  past 400 days; see [usage rollups](attribution.md#usage-rollups).

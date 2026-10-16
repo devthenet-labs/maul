@@ -5,6 +5,7 @@ package investigation
 
 import (
 	"reflect"
+	"slices"
 	"testing"
 
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -51,6 +52,11 @@ func TestGateAttribution(t *testing.T) {
 			}
 			if !reflect.DeepEqual(inv.Spec.AttributedTo, tc.want) {
 				t.Errorf("attributedTo = %+v, want %+v", inv.Spec.AttributedTo, tc.want)
+			}
+			// The usage finalizer rides with the stamp: an unattributed run
+			// is never held for a usage rollup.
+			if got := slices.Contains(inv.Finalizers, v1alpha1.FinalizerUsageRollup); got != (tc.want != nil) {
+				t.Errorf("usage finalizer = %v, want %v (finalizers %v)", got, tc.want != nil, inv.Finalizers)
 			}
 		})
 	}

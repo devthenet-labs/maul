@@ -41,3 +41,14 @@ func RunOf(ctx context.Context, js JobStatus, uid types.UID, ref *v1alpha1.JobRe
 func (m *Meter) Pending(phase v1alpha1.RunPhase, u *v1alpha1.UsageSummary) bool {
 	return m.On() && (phase == v1alpha1.RunComplete || phase == v1alpha1.RunFailed) && u != nil && !u.Final
 }
+
+// PendingDeleted reports whether a run being deleted still waits for its
+// usage to be settled before it is folded into the rollups: the meter is
+// on, the run launched a Job (one that never did has nothing metered) and
+// its usage is not final (u nil when it never reported a stage). A run
+// cancelled mid-flight never settles, so without this its broker-metered
+// spend would be counted only as the pod reported it. The wait is Settle's,
+// bounded by Wait like a settled run's.
+func (m *Meter) PendingDeleted(ref *v1alpha1.JobReference, u *v1alpha1.UsageSummary) bool {
+	return m.On() && ref != nil && ref.Name != "" && (u == nil || !u.Final)
+}

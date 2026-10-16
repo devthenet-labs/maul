@@ -19,6 +19,7 @@ import (
 	"github.com/bitwise-media-group/patchy/internal/agentresult"
 	"github.com/bitwise-media-group/patchy/internal/envelope"
 	"github.com/bitwise-media-group/patchy/internal/runnerguard"
+	"github.com/bitwise-media-group/patchy/internal/usagerollup"
 )
 
 // The outcomes the controller records on a run beside the envelope's own.
@@ -323,11 +324,12 @@ func (p *pass) createRun(ctx context.Context, stage v1alpha1.IntentStage, repo v
 		ap := p.in.Status.Approval
 		inputs.InputDigest, inputs.PlanRevision, inputs.PlanDigest = ap.InputDigest, ap.PlanRevision, ap.PlanDigest
 	}
+	attributedTo := p.set.Attribution.Stamp(p.attributeRun(stage))
 	run := &v1alpha1.IntentRun{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name, Namespace: p.in.Namespace,
 			Labels:          map[string]string{v1alpha1.LabelIntent: p.in.Name},
-			Finalizers:      []string{v1alpha1.FinalizerJobs},
+			Finalizers:      usagerollup.Finalizers(attributedTo, v1alpha1.FinalizerJobs),
 			OwnerReferences: []metav1.OwnerReference{intentOwner(p.in)},
 		},
 		Spec: v1alpha1.IntentRunSpec{
@@ -341,7 +343,7 @@ func (p *pass) createRun(ctx context.Context, stage v1alpha1.IntentStage, repo v
 			Inputs:          inputs,
 			Grant:           p.set.grant(p.proj, stage),
 			PreviousAttempt: prev,
-			AttributedTo:    p.set.Attribution.Stamp(p.attributeRun(stage)),
+			AttributedTo:    attributedTo,
 		},
 	}
 	if stage == v1alpha1.IntentStagePlan {

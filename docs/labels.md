@@ -109,6 +109,7 @@ Finding **while** enhancement runs, so the window close cannot be a phase.
 | `TrackingUnavailable`                                   | Finding                    | GitHub refuses the tracking issue (`IssuesDisabled`); re-tried every 6 hours, the pipeline goes on          |
 | `Complete`                                              | Investigation, Remediation | The stage finished; the reason carries the outcome                                                          |
 | `RolledUpTotal` / `…Repository` / `…Harness` / `…Model` | Finding                    | Per-scope rollup accounting markers (exactly-once, finalizer-backed)                                        |
+| `UsageRolledUp`                                         | every run kind             | The run's usage is in its `UsageRollup`s (reason `Aggregated`, or `RollupForbidden`); attributed runs only  |
 
 Findings parked with `ForgeResolved: False` are re-queued automatically when `Forge` resources change. A finding can
 also be paused by a human: `spec.suspend: true` halts pipeline progress until cleared. A suspended finding accepts no

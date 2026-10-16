@@ -223,6 +223,16 @@ rules:
     - apiGroups: [patchy.bitwisemedia.uk]
       resources: [findingrollups]
       verbs: [get, list, watch]
+    # Usage rollups (design L2): each attributed run is folded into its
+    # UsageRollups by this controller once it settles. Read and written
+    # uncached by name (the API reader), so no list/watch; `update` on
+    # investigations is also the usage finalizer's removal.
+    - apiGroups: [patchy.bitwisemedia.uk]
+      resources: [usagerollups]
+      verbs: [create, get]
+    - apiGroups: [patchy.bitwisemedia.uk]
+      resources: [usagerollups/status]
+      verbs: [get, update]
     - apiGroups: [""]
       resources: [secrets]
       verbs: [get]
@@ -297,6 +307,16 @@ rules:
     - apiGroups: [patchy.bitwisemedia.uk]
       resources: [findingrollups/status]
       verbs: [get, update, patch]
+    # Usage rollups (design L2): remediation runs are folded in by this
+    # controller (create/get, status update, uncached by name), and the
+    # rollup loop's compaction lists them uncached once a pass (list, no
+    # watch).
+    - apiGroups: [patchy.bitwisemedia.uk]
+      resources: [usagerollups]
+      verbs: [create, get, list]
+    - apiGroups: [patchy.bitwisemedia.uk]
+      resources: [usagerollups/status]
+      verbs: [get, update]
     - apiGroups: [patchy.bitwisemedia.uk]
       resources: [forges]
       verbs: [get, list, watch]
@@ -477,7 +497,9 @@ subjects:
 # and deletes them (cancel); the gate creates EvaluationUnit children; the
 # scheduler stamps unit statuses and rolls the parent up; the TTL loop deletes
 # expired Evaluations (cascade). `update` on evaluationunits (not just status)
-# is the jobs-finalizer removal. configmaps create/get/update: the per-unit
+# is the jobs- and usage-finalizer removal; usagerollups create/get and
+# status update fold each attributed unit's usage in once it settles (design
+# L2), uncached by name. configmaps create/get/update: the per-unit
 # results objects, owner-referenced to their unit, only ever addressed by
 # deterministic name (plus get for the API's snapshot lift). No secrets in
 # this namespace — the auth config is a mounted volume.
@@ -502,6 +524,12 @@ rules:
     - apiGroups: [patchy.bitwisemedia.uk]
       resources: [evaluationunits/status]
       verbs: [get, update, patch]
+    - apiGroups: [patchy.bitwisemedia.uk]
+      resources: [usagerollups]
+      verbs: [create, get]
+    - apiGroups: [patchy.bitwisemedia.uk]
+      resources: [usagerollups/status]
+      verbs: [get, update]
     - apiGroups: [""]
       resources: [configmaps]
       verbs: [create, get, update]

@@ -3078,6 +3078,30 @@ render usage-no-broker --set attribution.mode=attribute --set agent.runners.clau
   --set agent.runners.codex.enabled=true
 expect usage-no-broker "$usage_cms" ""
 
+# ---- usage rollups (design L2): durable per-user usage ------------------------
+# Off renders no UsageRollup grant anywhere (the CRD alone is installed). Under
+# attribute each run controller present may create, get and status-update
+# UsageRollups (uncached, by name: no list or watch), and remediation-controller,
+# which hosts the compaction loop, may also list them; no one may delete one.
+# shellcheck disable=SC2016 # $n is a yq variable, not the shell's
+usage_rules='select(.kind == "Role") | .metadata.name as $n | .rules[] | select(.resources[0] | test("^usagerollups")) | $n + " " + (.resources | join(",")) + ":" + (.verbs | join(","))'
+expect extras-none "$usage_rules" ""
+expect attribution "$usage_rules" \
+  "patchy-evaluation-controller usagerollups:create,get
+patchy-evaluation-controller usagerollups/status:get,update
+patchy-intent-controller usagerollups:create,get
+patchy-intent-controller usagerollups/status:get,update
+patchy-investigation-controller usagerollups:create,get
+patchy-investigation-controller usagerollups/status:get,update
+patchy-remediation-controller usagerollups:create,get,list
+patchy-remediation-controller usagerollups/status:get,update"
+expect attribution-core "$usage_rules" \
+  "patchy-investigation-controller usagerollups:create,get
+patchy-investigation-controller usagerollups/status:get,update
+patchy-remediation-controller usagerollups:create,get,list
+patchy-remediation-controller usagerollups/status:get,update"
+expect attribution 'select(.kind == "Role" or .kind == "ClusterRole") | .rules[] | select(.resources[] | test("usagerollups")) | .verbs[] | select(. == "delete" or . == "deletecollection" or . == "watch")' ""
+
 # ---- NOTES: the agent egress posture as rendered -----------------------------
 # The NOTES once said "TCP 443 to anywhere" whatever broadEgress resolved to.
 notes_has default-notes 'base NetworkPolicy allows TCP 443 to anywhere' yes

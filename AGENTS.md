@@ -15,7 +15,8 @@ security findings, using **Kubernetes custom resources as the state machine** �
 one-way human-facing projection. GHAS/CodeQL alerts arrive via webhook, accumulate into `Finding` resources for an
 hour, get context-enhanced, then a sandboxed `claude -p` run investigates each one; high-confidence verdicts are
 remediated in priority order into pull requests, everything else routes to humans. Completed findings expire on a
-TTL; `FindingRollup` resources keep the all-time statistics.
+TTL; `FindingRollup` resources keep the all-time statistics, and (under `attribution.mode: attribute`) `UsageRollup`
+resources each person's, Project's and the org's usage by day and month.
 
 Fourteen binaries, one module. "Not monolithic" means separate binaries/deployments with shared `internal/` code:
 
@@ -43,7 +44,7 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   routes verdicts onto the Finding).
 - `cmd/remediation-controller` — queue admission (approvals/revivals), the priority scheduler, remediation agent
   Jobs, changeset push + PR via the forge write seam (the finding flow's only write credential), and hosts the
-  rollup/TTL loop.
+  rollup/TTL loop (and the hourly `UsageRollup` compaction).
 - `cmd/agent-runner` — the in-pod coding-agent runtime: one stage per Job (`investigate` or `remediate`) via
   `claude -p`, results emitted as a `PATCHY-EVENT:` JSONL stream on stdout, beside the `PATCHY-TURN:` transcript and the
   live, never-persisted `PATCHY-OUTPUT:` command output. Never talks to GitHub or the Kubernetes API; a claude pod holds
@@ -268,7 +269,8 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   `controller/integration` (receiver, ingest, projection, human signals), `controller/source` (Forge +
   Repository reconcilers), `controller/context` (the enhancer chain), `controller/investigation` (gate +
   analysis scheduler), `controller/remediation` (spawner + priority scheduler + push/PR), `controller/rollup`
-  (all-time stats + finding TTL; hosted by the remediation binary), `controller/evaluation` (Evaluation gate +
+  (all-time stats + finding TTL, and the `UsageCompactor` that drops `UsageRollup` day buckets past 400 days; hosted
+  by the remediation binary), `controller/evaluation` (Evaluation gate +
   unit scheduler + evaluation TTL; single writer for both evaluation kinds — their phases are local enums,
   never part of the Finding transition table), `controller/intent` (Project validation + discovery, the Intent
   phase machine and its GitHub writes, the IntentRun scheduler with launch/collect/push, the Intent TTL; one
@@ -293,7 +295,10 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   request also reads contents, which GitHub needs in a private repository). `ghclient`, `ghpush`, `ghsecret` sit
   beneath it.
 - `schedule`, `priority`, `stats` — pure logic: slot picking with anti-starvation aging, the 0–100 scheduling
-  score, rollup delta arithmetic + OTel taps.
+  score, rollup delta arithmetic + OTel taps. `stats/usage.go` is the `UsageRollup` side: `UsageDeltaFrom` (trusted
+  figures only from a final `measured`/`partial` usage, the pod's own report kept apart as reported), `ApplyUsage`
+  (the `u:<run uid>` ledger, UTC day and month buckets, the bounded top-intents list), `CompactUsage` and
+  `patchy.usage.tokens`/`patchy.usage.cost` (`user` attribute); seeded properties.
 - `labels` — the trimmed human-facing label vocabulary the issue projection renders (one-way; never parsed back
   into state).
 - `templates` — the finding handoff/issue body, the stage prompts (investigate, remediate, and the intent plan and
@@ -476,6 +481,14 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   with `model.Resolve` and prices observed tokens only at `model.PriceTableVersion` (cache writes 1.25x/2x; unknown
   model: tokens kept, no cost; subscription: notional). Each of the four controllers writes `status.usage` (or
   `status.stage.usage`) `measured`/`source`/`final` itself. `usagemetertest` is a fake broker for their tests.
+- `usagerollup` — durable usage (L2): each run's own controller (the four job controllers) folds its runs into
+  `UsageRollup`s. A run created with `spec.attributedTo` carries the `usage-rollup` finalizer (`Finalizers`); once
+  settled with its usage final (or the meter off, or no stage), or when deleted (a run deleted unsettled is first
+  measured, bounded, while the meter is on and it launched a Job: `Meter.PendingDeleted`), `Settle` applies it to the
+  user, user x project and project scopes through `stats.ApplyUsage`, marks it `UsageRolledUp` and releases the
+  finalizer. A run without the finalizer is not applicable. Reads and writes go through the API reader (no informer,
+  no list/watch); a `Forbidden` rollup write (the chart grants it only under `attribute`) releases the run as
+  `RollupForbidden`. `kinds.go` adapts the four run kinds (an IntentRun's Project from its Intent, UID-checked).
 - `httpguard` — the pre-auth HTTP plumbing the broker and the egress proxy share: `SourceIP` (the connection's
   address, never a forwarding header; a rate key, never an identity), `IPLimiter` (per-source token bucket plus an
   in-flight cap, with an optional bounded wait; the broker keeps `InFlight == Burst, Wait == 0`, pinned by

@@ -488,7 +488,7 @@ func newRemediation(
 	c := fake.NewClientBuilder().
 		WithScheme(kube.Scheme()).
 		WithObjects(objs...).
-		WithStatusSubresource(&v1alpha1.Finding{}, &v1alpha1.Remediation{}).
+		WithStatusSubresource(&v1alpha1.Finding{}, &v1alpha1.Remediation{}, &v1alpha1.UsageRollup{}).
 		Build()
 	return &RemediationReconciler{
 		Client:        c,
