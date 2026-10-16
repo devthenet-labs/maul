@@ -173,6 +173,9 @@ func (g *gateway) finishLogin(w http.ResponseWriter, r *http.Request, q url.Valu
 	}
 	now := g.s.now()
 	sess, err := previewauth.NewSession(now, g.s.cfg.Lifetimes, id)
+	if err == nil {
+		sess, err = sess.Named()
+	}
 	if err != nil {
 		login("failed", http.StatusBadGateway, pageUpstreamFailed)
 		return

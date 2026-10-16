@@ -183,9 +183,13 @@ func (s LoginState) valid() error {
 type Session struct {
 	V        int      `json:"v"`
 	Identity Identity `json:"id"`
-	// ID names this sign-in. The gateway's handoff codes carry it, so a code
-	// says which relay session issued it. Sessions sealed before it existed
-	// have none and are signed in again by the gateway's /start.
+	// ID names this sign-in, and only while the preview gateway is on
+	// (Named): the gateway's handoff codes carry it, so a code says which
+	// relay session issued it. A session without one (sealed with the
+	// gateway off, or before it existed) is signed in again by /start. With
+	// the gateway off it is never set, so the relay session is exactly as
+	// large as before and an identity that fit under MaxSessionBytes still
+	// does.
 	ID      string `json:"sid,omitempty"`
 	Start   int64  `json:"ss"`
 	Expires int64  `json:"abs"`
@@ -206,12 +210,19 @@ func NewSession(now time.Time, lt Lifetimes, id Identity) (Session, error) {
 	if err := id.Validate(); err != nil {
 		return Session{}, err
 	}
+	return Session{V: payloadVersion, Identity: id, Start: now.Unix(),
+		Expires: now.Add(lt.SessionMaxAge).Unix()}, nil
+}
+
+// Named gives the session a random ID, which the gateway's /start requires.
+// Only a relay with the gateway on names its sessions.
+func (s Session) Named() (Session, error) {
 	sid, err := sealed.RandomToken()
 	if err != nil {
 		return Session{}, err
 	}
-	return Session{V: payloadVersion, Identity: id, ID: sid, Start: now.Unix(),
-		Expires: now.Add(lt.SessionMaxAge).Unix()}, nil
+	s.ID = sid
+	return s, nil
 }
 
 // Lifetimes are the relay's token lifetimes.

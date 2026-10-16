@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math/rand"
 	"reflect"
 	"slices"
@@ -340,6 +341,40 @@ func TestSessionSizeCap(t *testing.T) {
 	if _, err := r.SealSession(s); !errors.Is(err, ErrIdentityTooLarge) {
 		t.Errorf("SealSession with 200 groups = %v, want ErrIdentityTooLarge", err)
 	}
+}
+
+// TestUnnamedSessionKeepsItsRoom: NewSession leaves the session unnamed, so
+// with the gateway off a viewer whose groups fit before the gateway's sid
+// existed still fits: at the first group count where a named session is
+// too large, the unnamed one still seals.
+func TestUnnamedSessionKeepsItsRoom(t *testing.T) {
+	r := newRing(t, 1, masterA)
+	for n := 1; n < 400; n++ {
+		groups := make([]string, 0, n)
+		for i := range n {
+			groups = append(groups, fmt.Sprintf("g:%03d", i))
+		}
+		s, err := NewSession(t0, DefaultLifetimes(), Identity{Username: "github:alice", Groups: groups})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if s.ID != "" {
+			t.Fatalf("NewSession named the session %q", s.ID)
+		}
+		named, err := s.Named()
+		if err != nil || named.ID == "" {
+			t.Fatalf("Named = %+v, %v", named, err)
+		}
+		if _, err := r.SealSession(named); errors.Is(err, ErrIdentityTooLarge) {
+			if _, err := r.SealSession(s); err != nil {
+				t.Errorf("%d groups: the unnamed session does not seal either: %v", n, err)
+			}
+			return
+		} else if err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Fatal("no group count reached the session cap")
 }
 
 func TestSealRefusesInvalidPayloads(t *testing.T) {

@@ -146,6 +146,11 @@ func TestSessionCookie(t *testing.T) {
 	if !hostOnly(sess) || sess.MaxAge != 0 || !sess.Expires.IsZero() {
 		t.Fatalf("session cookie %+v", sess)
 	}
+	// With the gateway off the session is never named: a sid would take
+	// room from the viewer's groups under MaxSessionBytes.
+	if opened, err := r.ring.OpenSession(sess.Value, r.clock.now()); err != nil || opened.ID != "" {
+		t.Errorf("relay session with the gateway off: ID %q, %v", opened.ID, err)
+	}
 	// After the session's absolute lifetime, authorize goes back to Dex.
 	r.clock.advance(13 * time.Hour)
 	resp = get(t, b, authorizeURL(nil))

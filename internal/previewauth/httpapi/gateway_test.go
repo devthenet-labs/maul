@@ -141,6 +141,13 @@ func TestGatewayKeepsTheRelay(t *testing.T) {
 		t.Fatal(err)
 	}
 	cb := get(t, b, issuer+"/dex/callback?"+url.Values{"state": {dexURL.Query().Get("state")}, "code": {"ok"}}.Encode())
+	// With the gateway on, the ALB sign-in's relay session is named, so
+	// /start can use it.
+	if c := findCookie(cb, previewauth.RelaySessionCookie); c == nil {
+		t.Error("the ALB sign-in set no relay session")
+	} else if opened, err := e.ring.OpenSession(c.Value, e.clock.now()); err != nil || opened.ID == "" {
+		t.Errorf("relay session with the gateway on: ID %q, %v", opened.ID, err)
+	}
 	code, _ := codeFrom(t, cb)
 	tok := decodeToken(t, e.tokenRequest("basic", 1, e.ring.ClientSecret(1), url.Values{
 		"grant_type": {"authorization_code"}, "code": {code}, "redirect_uri": {callback}}))
