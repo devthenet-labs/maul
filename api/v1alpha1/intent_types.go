@@ -365,6 +365,14 @@ type IntentInput struct {
 	// +optional
 	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
 	ContextDigest string `json:"contextDigest,omitempty"`
+	// Trigger is the trigger action that opened this revision: the one
+	// that created the Intent, or the replan or revival that moved it to
+	// Planning. Every plan run of the revision is attributed from it (design
+	// L1), never from status.lastTrigger, which a later refused or
+	// unavailable action also moves. Absent on a revision opened before it
+	// was recorded.
+	// +optional
+	Trigger *IntentAction `json:"trigger,omitempty"`
 }
 
 // IntentPlan is the plan posted for approval.

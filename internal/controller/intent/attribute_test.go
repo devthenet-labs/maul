@@ -11,8 +11,10 @@ import (
 	"time"
 
 	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	"github.com/bitwise-media-group/patchy/internal/envelope"
 	"github.com/bitwise-media-group/patchy/internal/attribution"
 	"github.com/bitwise-media-group/patchy/internal/ghclient"
+	"github.com/bitwise-media-group/patchy/internal/jobs"
 )
 
 // reviewer is a second approver, so a review round can be told from the
@@ -223,5 +225,71 @@ func TestAttributePlanByNonApprover(t *testing.T) {
 	}
 	if got := p.attributeRun(v1alpha1.IntentStageBuild); !reflect.DeepEqual(got, attribution.Org()) {
 		t.Errorf("a build with no approval attributed to %+v, want the org", got)
+	}
+}
+
+// TestAttributePlanRetryKeepsItsTrigger is the regression for a plan retry
+// attributed to whichever trigger action was consumed last: an action
+// consumed while the round's first attempt runs (a replan refused for its
+// actor, or one an approver makes while the intent is not awaiting approval)
+// starts no plan, so the round's next attempt is still the requester's.
+func TestAttributePlanRetryKeepsItsTrigger(t *testing.T) {
+	for _, tc := range []struct {
+		name, by string
+		label    bool // the trigger label re-applied, else /patchy replan
+	}{
+		{"a trigger label refused for a non-approver", "mallory", true},
+		{"a replan unavailable to another approver", reviewer, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := testProject()
+			p.Spec.Approvers.Logins = append(p.Spec.Approvers.Logins, reviewer)
+			e := newEnv(t, p)
+			e.gh.perms[reviewer] = ghclient.PermissionWrite
+			e.attributing()
+			name := e.discovered(approver)
+			first := v1alpha1.IntentRunName(name, v1alpha1.IntentStagePlan, 1, "", 1)
+			job := jobs.NameFor(first, KindIntent, 1)
+			e.jobs.status[job] = jobs.Status{} // held running
+			e.jobs.output = func(spec jobs.Spec) jobs.RunOutput {
+				if spec.Phase == "plan" && spec.Finding == first {
+					return planOutput(envelope.Stage{Outcome: envelope.OutcomeRuntimeError,
+						Detail: "the CLI crashed"}, "")
+				}
+				return defaultOutput(spec)
+			}
+			e.passUntil(name, func() bool { return len(e.runsOf(name, v1alpha1.IntentStagePlan)) == 1 })
+
+			e.clock.Advance(time.Minute)
+			if tc.label {
+				e.gh.removeTrigger()
+				e.gh.label(1, "patchy:target", tc.by)
+			} else {
+				e.gh.comment(tc.by, "/patchy replan")
+			}
+			e.settleActions(name)
+			in := e.get(name)
+			if in.Status.Phase != v1alpha1.IntentPlanning || in.Status.LastTrigger == nil ||
+				in.Status.LastTrigger.Login != tc.by {
+				t.Fatalf("phase %s lastTrigger %+v, want Planning with the replan consumed", in.Status.Phase,
+					in.Status.LastTrigger)
+			}
+
+			e.jobs.mu.Lock()
+			delete(e.jobs.status, job)
+			e.jobs.mu.Unlock()
+			e.drive(name, v1alpha1.IntentAwaitingApproval, repoImage)
+			runs := e.runsOf(name, v1alpha1.IntentStagePlan)
+			if len(runs) != 2 {
+				t.Fatalf("plan runs = %d, want the failed attempt and its retry", len(runs))
+			}
+			want := person(approver, v1alpha1.AttributionRequester)
+			for _, run := range runs {
+				if !reflect.DeepEqual(run.Spec.AttributedTo, want) {
+					t.Errorf("plan run %s attributed to %+v, want the requester %+v", run.Name,
+						run.Spec.AttributedTo, want)
+				}
+			}
+		})
 	}
 }

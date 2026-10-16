@@ -11,10 +11,10 @@ import (
 // attributeRun is whom a new plan or build run of the Intent is for (design
 // §2), and a check-fix round too, which asks with the build stage:
 //
-//   - plan: whoever applied the trigger the plan answers (the newest
-//     consumed trigger action, or the one that created the Intent) when they
-//     are one of the Project's approvers, reason requester; the org
-//     otherwise.
+//   - plan: whoever took the trigger action that opened the plan's input
+//     revision (planTrigger) when they are one of the Project's approvers,
+//     reason requester; the org otherwise. An action consumed after it, a
+//     refused or unavailable one included, never moves a later attempt.
 //   - build and check-fix: the approver of the plan being built, reason
 //     approver.
 //
@@ -26,7 +26,7 @@ import (
 func (p *pass) attributeRun(stage v1alpha1.IntentStage) *v1alpha1.Attribution {
 	switch stage {
 	case v1alpha1.IntentStagePlan:
-		lt := p.lastTrigger()
+		lt := p.planTrigger()
 		if !isApprover(p.proj, lt.Login) {
 			return attribution.Org()
 		}
@@ -38,4 +38,14 @@ func (p *pass) attributeRun(stage v1alpha1.IntentStage) *v1alpha1.Attribution {
 		}
 		return attribution.To(ap.By, ap.ByID, v1alpha1.AttributionApprover)
 	}
+}
+
+// planTrigger is the trigger action that opened the current input revision,
+// recorded beside it; on a revision opened before it was recorded, the
+// newest consumed trigger action, as attribution read it then.
+func (p *pass) planTrigger() v1alpha1.IntentAction {
+	if in := p.in.Status.Input; in != nil && in.Trigger != nil {
+		return *in.Trigger
+	}
+	return p.lastTrigger()
 }

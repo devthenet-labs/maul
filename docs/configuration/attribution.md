@@ -27,23 +27,28 @@ Each new `Investigation`, `Remediation`, `IntentRun` and `EvaluationUnit` gets `
 It names a user (`login` and GitHub numeric `id`) and a `reason`. Every run spec is immutable, so the stamp is written
 once and never changes.
 
-| Run                     | Attributed to                                                       | `reason`    |
-| ----------------------- | ------------------------------------------------------------------- | ----------- |
-| Intent plan             | whoever applied the trigger (or replanned), if they are an approver | `requester` |
-| Intent plan             | otherwise, the organisation                                         | `org`       |
-| Intent build            | the plan's approver                                                 | `approver`  |
-| Intent revise (command) | the approver whose `/patchy revise` or `/patchy retry` started it   | `commenter` |
-| Intent revise (review)  | the author of the newest approver review the round consumed         | `reviewer`  |
-| Intent check-fix        | the plan's approver                                                 | `approver`  |
-| Finding investigation   | the organisation: no human is behind an investigation               | `org`       |
-| Finding remediation     | the Finding's approver when its approval is held, else the org      | `approver`  |
-| Evaluation unit         | its Evaluation's submitter                                          | `submitter` |
+| Run                     | Attributed to                                                     | `reason`    |
+| ----------------------- | ----------------------------------------------------------------- | ----------- |
+| Intent plan             | whoever opened the plan's revision, if they are an approver       | `requester` |
+| Intent plan             | otherwise, the organisation                                       | `org`       |
+| Intent build            | the plan's approver                                               | `approver`  |
+| Intent revise (command) | the approver whose `/patchy revise` or `/patchy retry` started it | `commenter` |
+| Intent revise (review)  | the author of the newest approver review the round consumed       | `reviewer`  |
+| Intent check-fix        | the plan's approver                                               | `approver`  |
+| Finding investigation   | the organisation: no human is behind an investigation             | `org`       |
+| Finding remediation     | the Finding's approver when its approval is held, else the org    | `approver`  |
+| Evaluation unit         | its Evaluation's submitter                                        | `submitter` |
+
+A plan's revision is opened by the trigger that created the Intent, or by the replan or revival that started it again.
+Every attempt of that revision is attributed to the same person. A trigger action consumed while it runs, a refused or
+unavailable one included, starts no plan and changes no attempt's attribution.
 
 A person is identified by their GitHub numeric id. A login can be renamed, and a freed login can be taken by someone
 else, so the login is kept for display only. patchy records the id wherever GitHub supplies it:
 
 - an Intent's `spec.requestedBy.userID`;
 - every consumed trigger action (`status.lastTrigger.userID`);
+- the trigger action that opened the current plan revision (`status.input.trigger.userID`);
 - the accepted approval (`status.approval.byID`);
 - a Finding's approval, retry and expedite made by a `/patchy` comment (`spec.approval.byID` and the same field on
   `retry` and `expedite`).

@@ -457,6 +457,54 @@ spec:
                     maximum: 999
                     minimum: 1
                     type: integer
+                  trigger:
+                    description: |-
+                      Trigger is the trigger action that opened this revision: the one
+                      that created the Intent, or the replan or revival that moved it to
+                      Planning. Every plan run of the revision is attributed from it (design
+                      L1), never from status.lastTrigger, which a later refused or
+                      unavailable action also moves. Absent on a revision opened before it
+                      was recorded.
+                    properties:
+                      at:
+                        description: At is the action's created_at, as GitHub reports
+                          it.
+                        format: date-time
+                        type: string
+                      eventID:
+                        description: EventID is GitHub's id of the action, in Source's
+                          id space.
+                        format: int64
+                        minimum: 1
+                        type: integer
+                      login:
+                        description: |-
+                          Login of the actor. It may be anyone, a Bot ("<name>[bot]")
+                          included: an action refused for its actor is consumed too.
+                        maxLength: 64
+                        minLength: 1
+                        pattern: ^[A-Za-z0-9][A-Za-z0-9_.-]*(\[bot\])?$
+                        type: string
+                      source:
+                        description: Source of the action, and so the id space of
+                          EventID.
+                        enum:
+                        - label
+                        - command
+                        type: string
+                      userID:
+                        description: |-
+                          UserID is GitHub's numeric id of the actor (design L1). Zero on an
+                          action recorded before it was.
+                        format: int64
+                        minimum: 1
+                        type: integer
+                    required:
+                    - at
+                    - eventID
+                    - login
+                    - source
+                    type: object
                 required:
                 - configMap
                 - digest

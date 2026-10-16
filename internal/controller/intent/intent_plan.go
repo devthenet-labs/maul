@@ -115,6 +115,13 @@ func (p *pass) startPlanning(ctx context.Context, issue *ghclient.Issue, trigger
 	if c := cm.Data[keyContext]; c != "" {
 		input.ContextDigest = digest([]byte(c))
 	}
+	// The revision's plan runs are attributed to the action that opened it,
+	// whatever is consumed after it.
+	opened := p.lastTrigger()
+	if trigger != nil {
+		opened = *trigger
+	}
+	input.Trigger = &opened
 	return p.setPhase(ctx, v1alpha1.IntentPlanning, func(cur *v1alpha1.Intent) {
 		cur.Status.Input = &input
 		cur.Status.Plan = nil

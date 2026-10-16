@@ -264,9 +264,10 @@ names, and a seeded property test checks that they are label-safe and unique wit
 - **Status:**
   - `phase` and `phaseTimes`
   - conditions: `BudgetExhausted`, `RevisionLimitReached`, `ImageRequired`, `ApprovalRejected`
-  - `input{revision, digest, configMap, contextDigest}`. Every entry to `Planning` except a resume from `Blocked` (the
-    first, a replan, a revival) takes a new snapshot at the next revision, so a revision is never reused.
-    `contextDigest` pins the snapshot's context file on a replan or revival, and is empty on the first plan.
+  - `input{revision, digest, configMap, contextDigest, trigger}`. Every entry to `Planning` except a resume from
+    `Blocked` (the first, a replan, a revival) takes a new snapshot at the next revision, so a revision is never reused.
+    `contextDigest` pins the snapshot's context file on a replan or revival, and is empty on the first plan. `trigger`
+    is the action that opened the revision; every plan run of it is attributed from it, never from `lastTrigger`.
   - `plan{revision, digest, configMap, commentID, commentDigest, postedAt, summary, repositories}`. The plan's revision
     is the input revision it was planned from.
   - `approval{by, source, eventID, at, planRevision, planDigest, inputDigest}`. `source` (`label` or `command`) says
