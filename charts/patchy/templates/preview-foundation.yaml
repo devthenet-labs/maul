@@ -12,10 +12,13 @@
 {{- $legacy := include "patchy.previewLegacyIngress" . }}
 {{- $alb := include "patchy.previewALB" . }}
 {{- $nodes := include "patchy.previewNodeIsolation" . | fromJson }}
+{{- $gw := include "patchy.previewGateway" . | fromJson }}
 {{- /* Slot DNS: the node-local address where one is set (EKS Auto Mode
        serves DNS on every node at the cluster DNS Service address, so a
-       kube-system selector matches nothing there), else the kube-system
-       selector every other cluster's resolver Pods match. */}}
+       kube-system selector matches nothing there), the kube-system selector
+       every other cluster's resolver Pods match when none is, and both with
+       the preview gateway on (the portable shape; with it off an install
+       keeps the rule it had). */}}
 {{- $dnsCIDR := $p.dnsCIDR | default .Values.clusterDNSCIDR }}
 {{- if and (not $dnsCIDR) $nodes.eks }}{{ fail "preview.dnsCIDR is required when preview.enabled=true on EKS Auto Mode (preview.nodeIsolation.eksAutoMode): the node-local cluster DNS /32 (it defaults to clusterDNSCIDR when that is set)" }}{{ end }}
 {{- if not $p.hostSuffix }}{{ fail "preview.hostSuffix is required when preview.enabled=true" }}{{ end }}
@@ -94,12 +97,23 @@ metadata:
 spec:
     podSelector: {}
     policyTypes: [Ingress, Egress]
-    {{- if $p.albSubnetCIDRs }}
+    {{- if or $p.albSubnetCIDRs $gw.enabled }}
     ingress:
+        # Port http only, from the preview ALB's subnets (the legacy path)
+        # and the preview gateway's Pods: in the release namespace AND
+        # carrying its dedicated label, never the chart's selector labels.
         - from:
             {{- range $cidr := $p.albSubnetCIDRs }}
             - ipBlock:
                   cidr: {{ $cidr }}
+            {{- end }}
+            {{- if $gw.enabled }}
+            - namespaceSelector:
+                  matchLabels:
+                      kubernetes.io/metadata.name: {{ $.Release.Namespace }}
+              podSelector:
+                  matchLabels:
+                      patchy.bitwisemedia.uk/preview-gateway: "true"
             {{- end }}
           ports:
             - protocol: TCP
@@ -113,7 +127,8 @@ spec:
             {{- if $dnsCIDR }}
             - ipBlock:
                   cidr: {{ $dnsCIDR }}
-            {{- else }}
+            {{- end }}
+            {{- if or (not $dnsCIDR) $gw.enabled }}
             - namespaceSelector:
                   matchLabels:
                       kubernetes.io/metadata.name: kube-system

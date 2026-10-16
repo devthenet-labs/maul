@@ -28,6 +28,9 @@ previewAuth is off.
 {{- $sa := include "patchy.serviceAccountName" (dict "root" . "name" $name "vals" $vals) }}
 {{- $lease := printf "%s-preview-auth-codes" $fullname }}
 {{- $className := $vals.ingress.className | default (include "patchy.edgeIngressClassName" .) }}
+{{- $gw := include "patchy.previewGateway" . | fromJson }}
+{{- $gwVals := $vals.gateway | default dict }}
+{{- $gwName := printf "%s-preview-gateway" $fullname }}
 {{- if eq $className "alb-preview" }}{{ fail "previewAuth.ingress.className must not be alb-preview: the relay sits on the edge ALB, which the preview ALB's token calls reach from the internet" }}{{ end }}
 {{- if $vals.serviceAccount.create }}
 ---
@@ -67,6 +70,14 @@ metadata:
     "PATCHY_PREVIEW_AUTH_FORWARDED_HOPS" $vals.forwardedHops
     "PATCHY_PREVIEW_AUTH_PROBE_INTERVAL" $vals.probeInterval
 }}
+{{- if $gw.enabled }}
+{{- /* The preview gateway (previewAuth.gateway), only with it on, so an
+       install that never enables it keeps this ConfigMap as it was. */}}
+{{- $_ := set $data "PATCHY_PREVIEW_AUTH_GATEWAY" true }}
+{{- $_ := set $data "PATCHY_PREVIEW_AUTH_GATEWAY_SIGN_IN_HOST" $gw.signInHost }}
+{{- with $gw.hops }}{{ $_ := set $data "PATCHY_PREVIEW_AUTH_GATEWAY_FORWARDED_HOPS" . }}{{ end }}
+{{- with $gwVals.inboundCIDRs }}{{ $_ := set $data "PATCHY_PREVIEW_AUTH_GATEWAY_INBOUND_CIDRS" (join "," .) }}{{ end }}
+{{- end }}
 {{- range $k, $v := .Values.config.extra }}
 {{- $_ := set $data $k $v }}
 {{- end }}
@@ -87,6 +98,12 @@ metadata:
     {{- $marker := dict }}
     {{- if $st.managedKeys }}
     {{- $_ := set $marker "patchy.bitwisemedia.uk/preview-auth-key-generation" (toString (int $st.gen)) }}
+    {{- end }}
+    {{- /* Where the wildcard record should point, for patchy check project's
+           DNS check when the exposure publishes no address. Recorded only,
+           never routed by. */}}
+    {{- if and $gw.enabled $gwVals.publishedAddresses }}
+    {{- $_ := set $marker "patchy.bitwisemedia.uk/preview-gateway-published-addresses" (join "," $gwVals.publishedAddresses) }}
     {{- end }}
     {{- with include "patchy.annotations" (dict "root" . "extra" $marker) }}
     annotations:
@@ -337,6 +354,11 @@ spec:
                 {{- with $vals.podLabels }}
                 {{- toYaml . | nindent 16 }}
                 {{- end }}
+                {{- if $gw.enabled }}
+                # The one label the slot NetworkPolicy admits (with the
+                # release namespace): stable, never the selector labels.
+                patchy.bitwisemedia.uk/preview-gateway: "true"
+                {{- end }}
             {{- /* The relay loads its keys at start, so a changed keys Secret
                    (a rotation) rolls it; an existingSecret is the
                    operator's to roll. */}}
@@ -554,6 +576,22 @@ spec:
                 port: 443
               - protocol: TCP
                 port: 6443
+        {{- if $gw.enabled }}
+        # The gateway proxies to the slot Pods' port http (the Service
+        # resolves to them), and to nothing else in the slots.
+        - to:
+              - namespaceSelector:
+                    matchExpressions:
+                        - key: kubernetes.io/metadata.name
+                          operator: In
+                          values:
+                              {{- range $i := until (int .Values.preview.slotCount) }}
+                              - patchy-preview-{{ $i }}
+                              {{- end }}
+          ports:
+              - protocol: TCP
+                port: http
+        {{- end }}
         {{- with $vals.networkPolicy.extraEgress }}
         # Operator-supplied additions (previewAuth.networkPolicy.extraEgress).
         {{- toYaml . | nindent 8 }}
@@ -607,4 +645,117 @@ spec:
                             name: {{ $fullname }}-{{ $name }}
                             port:
                                 name: http
+{{- if $gw.enabled }}
+---
+# The preview gateway's Service: what an edge (Ingress, HTTPRoute, a tunnel)
+# points at, or a LoadBalancer of its own. Port 80 is the relay's http port,
+# where the gateway answers every preview host and the sign-in host.
+apiVersion: v1
+kind: Service
+metadata:
+    name: {{ $gwName }}
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "patchy.labels" (dict "root" . "name" $name) | nindent 8 }}
+    {{- with include "patchy.annotations" (dict "root" . "extra" ($gwVals.service.annotations | default dict)) }}
+    annotations:
+        {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    type: {{ $gwVals.service.type | default "ClusterIP" }}
+    {{- if and (eq $gw.exposure "loadBalancer") $gwVals.inboundCIDRs }}
+    # previewAuth.gateway.inboundCIDRs, kept at the load balancer.
+    loadBalancerSourceRanges:
+        {{- toYaml $gwVals.inboundCIDRs | nindent 8 }}
+    {{- end }}
+    selector:
+        {{- include "patchy.selectorLabels" (dict "root" . "name" $name) | nindent 8 }}
+    ports:
+        - name: http
+          port: 80
+          targetPort: http
+          protocol: TCP
+{{- $hosts := list (printf "*.%s" .Values.preview.hostSuffix) }}
+{{- if $gw.routeSignIn }}{{ $hosts = append $hosts $gw.signInHost }}{{ end }}
+{{- if eq $gw.exposure "ingress" }}
+{{- $gwClass := $gwVals.ingress.className | default (include "patchy.edgeIngressClassName" .) }}
+{{- if eq $gwClass "alb-preview" }}{{ fail "previewAuth.gateway.ingress.className must not be alb-preview: that class is reserved for the slot namespaces" }}{{ end }}
+{{- $gwDefaults := dict
+    "alb.ingress.kubernetes.io/target-type" "ip"
+    "alb.ingress.kubernetes.io/healthcheck-path" "/.patchy/healthz" }}
+{{- if or (not $gwClass) (ne $gwClass (include "patchy.edgeIngressClassName" .)) }}
+{{- $_ := set $gwDefaults "alb.ingress.kubernetes.io/scheme" "internet-facing" }}
+{{- end }}
+{{- if and $gwVals.ingress.inboundCIDRsAnnotation $gwVals.inboundCIDRs }}
+{{- $_ := set $gwDefaults $gwVals.ingress.inboundCIDRsAnnotation (join "," $gwVals.inboundCIDRs) }}
+{{- end }}
+{{- $gwAnnotations := merge (dict) ($gwVals.ingress.annotations | default dict) $gwDefaults }}
+---
+# One Ingress for every preview host and the gateway's own sign-in host. Its
+# health check, /.patchy/healthz, answers 200 on any Host and is never
+# forwarded to a preview. The edge terminates TLS.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+    name: {{ $gwName }}
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "patchy.labels" (dict "root" . "name" $name) | nindent 8 }}
+    {{- with include "patchy.annotations" (dict "root" . "extra" $gwAnnotations) }}
+    annotations:
+        {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    {{- with $gwClass }}
+    ingressClassName: {{ . }}
+    {{- end }}
+    {{- with $gwVals.ingress.tls }}
+    tls:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+    rules:
+        {{- range $host := $hosts }}
+        - host: {{ $host | quote }}
+          http:
+              paths:
+                  - path: /
+                    pathType: Prefix
+                    backend:
+                        service:
+                            name: {{ $gwName }}
+                            port:
+                                name: http
+        {{- end }}
+{{- else if eq $gw.exposure "httpRoute" }}
+---
+# Gateway API flavour: every preview host and the gateway's sign-in host on
+# the operator's Gateway, whose listener terminates TLS.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+    name: {{ $gwName }}
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "patchy.labels" (dict "root" . "name" $name) | nindent 8 }}
+    {{- with include "patchy.annotations" (dict "root" . "extra" ($gwVals.httpRoute.annotations | default dict)) }}
+    annotations:
+        {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    parentRefs:
+        {{- toYaml $gwVals.httpRoute.parentRefs | nindent 8 }}
+    hostnames:
+        {{- range $host := $hosts }}
+        - {{ $host | quote }}
+        {{- end }}
+    rules:
+        - matches:
+              - path:
+                    type: PathPrefix
+                    value: /
+          backendRefs:
+              - name: {{ $gwName }}
+                port: 80
+{{- end }}
+{{- end }}
 {{- end }}

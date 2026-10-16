@@ -1071,6 +1071,45 @@
                 "probeInterval": {
                     "$ref": "#/definitions/duration"
                 },
+                "gateway": {
+                    "type": "object",
+                    "description": "The preview gateway: sign-in and the authenticating proxy for every preview host, off by default",
+                    "additionalProperties": false,
+                    "properties": {
+                        "enabled": {"type": "boolean"},
+                        "signInHost": {"type": "string", "description": "The host viewers sign in on, outside preview.hostSuffix; empty is previewAuth.host", "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)+$"},
+                        "forwardedHops": {"type": ["integer", "null"], "description": "Proxies appending to X-Forwarded-For in front of the gateway; required with an exposure", "minimum": 0, "maximum": 5},
+                        "inboundCIDRs": {"type": "array", "uniqueItems": true, "maxItems": 64, "items": {"type": "string", "pattern": "^([0-9]{1,3}(\\.[0-9]{1,3}){3}/([0-9]|[12][0-9]|3[0-2])|[0-9a-fA-F:]*:[0-9a-fA-F:.]*/([0-9]|[1-9][0-9]|1[01][0-9]|12[0-8]))$"}},
+                        "publishedAddresses": {"type": "array", "uniqueItems": true, "maxItems": 16, "description": "The addresses (or a hostname) the wildcard record should hold, for patchy check project", "items": {"type": "string", "pattern": "^([0-9]{1,3}(\\.[0-9]{1,3}){3}|[0-9a-fA-F:]*:[0-9a-fA-F:.]*|[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)+)$"}},
+                        "service": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                                "type": {"type": "string", "enum": ["ClusterIP", "LoadBalancer"]},
+                                "annotations": {"type": "object"}
+                            }
+                        },
+                        "ingress": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                                "enabled": {"type": "boolean"},
+                                "className": {"type": "string"},
+                                "annotations": {"type": "object"},
+                                "tls": {"type": "array", "items": {"type": "object"}},
+                                "inboundCIDRsAnnotation": {"type": "string", "pattern": "^$|^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?[A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$"}
+                            }
+                        },
+                        "httpRoute": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                                "parentRefs": {"type": "array", "items": {"type": "object"}},
+                                "annotations": {"type": "object"}
+                            }
+                        }
+                    }
+                },
                 "ingressFrom": {
                     "type": "array",
                     "uniqueItems": true,

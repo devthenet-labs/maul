@@ -1,0 +1,177 @@
+# Source: patchy/templates/preview-auth.yaml
+# Ingress: 8080 from the edge ALB (ingressFrom narrows it to the ALB's
+# subnets; it targets the pods by IP) plus 8081 probes. Egress: DNS, and TCP
+# 443 and 6443 anywhere: the API server (Previews, access reviews, the
+# Lease), Dex at its public issuer, and every preview host the probe asks.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: patchy-preview-auth
+  namespace: patchy
+  labels:
+    app: preview-auth
+    helm.sh/chart: patchy-VERSION
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "VERSION"
+    app.kubernetes.io/name: preview-auth
+    app.kubernetes.io/instance: patchy
+    app.kubernetes.io/part-of: patchy
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: preview-auth
+      app.kubernetes.io/instance: patchy
+      app.kubernetes.io/part-of: patchy
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 8080
+    - ports:
+        - protocol: TCP
+          port: 8081
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
+    # The gateway proxies to the slot Pods' port http (the Service
+    # resolves to them), and to nothing else in the slots.
+    - to:
+        - namespaceSelector:
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values:
+                  - patchy-preview-0
+                  - patchy-preview-1
+      ports:
+        - protocol: TCP
+          port: http
+---
+# Source: patchy/templates/preview-foundation.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: preview-isolation
+  namespace: patchy-preview-0
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # Port http only, from the preview ALB's subnets (the legacy path)
+    # and the preview gateway's Pods: in the release namespace AND
+    # carrying its dedicated label, never the chart's selector labels.
+    - from:
+        - ipBlock:
+            cidr: 10.40.128.0/24
+        - ipBlock:
+            cidr: 10.40.129.0/24
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: patchy
+          podSelector:
+            matchLabels:
+              patchy.bitwisemedia.uk/preview-gateway: "true"
+      ports:
+        - protocol: TCP
+          port: http
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 172.20.0.10/32
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+# Source: patchy/templates/preview-auth.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: patchy-preview-auth-config
+  namespace: patchy
+  labels:
+    app: preview-auth
+    helm.sh/chart: patchy-VERSION
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "VERSION"
+    app.kubernetes.io/name: preview-auth
+    app.kubernetes.io/instance: patchy
+    app.kubernetes.io/part-of: patchy
+data:
+  PATCHY_HEALTH_ADDR: ":8081"
+  PATCHY_LISTEN_ADDR: ":8080"
+  PATCHY_LOG_LEVEL: "warn"
+  PATCHY_PREVIEW_AUTH_ACCESS_TOKEN_TTL: "10m"
+  PATCHY_PREVIEW_AUTH_DEX_CLIENT_ID: "patchy-preview-auth"
+  PATCHY_PREVIEW_AUTH_DEX_CLIENT_SECRET_FILE: "/etc/patchy/preview-auth/dex/clientSecret"
+  PATCHY_PREVIEW_AUTH_DEX_ISSUER_URL: "https://dex.patchy.devthe.net"
+  PATCHY_PREVIEW_AUTH_FORWARDED_HOPS: "1"
+  PATCHY_PREVIEW_AUTH_GATEWAY: "true"
+  PATCHY_PREVIEW_AUTH_GATEWAY_FORWARDED_HOPS: "0"
+  PATCHY_PREVIEW_AUTH_GATEWAY_INBOUND_CIDRS: "203.0.113.0/24,2001:db8::/32"
+  PATCHY_PREVIEW_AUTH_GATEWAY_SIGN_IN_HOST: "preview-auth.patchy.devthe.net"
+  PATCHY_PREVIEW_AUTH_GROUPS_CLAIM: "groups"
+  PATCHY_PREVIEW_AUTH_GROUPS_PREFIX: "github:"
+  PATCHY_PREVIEW_AUTH_HOST_SUFFIX: "preview.patchy.devthe.net"
+  PATCHY_PREVIEW_AUTH_ISSUER: "https://preview-auth.patchy.devthe.net"
+  PATCHY_PREVIEW_AUTH_KEYS_DIR: "/etc/patchy/preview-auth/keys"
+  PATCHY_PREVIEW_AUTH_LEDGER_LEASE: "patchy-preview-auth-codes"
+  PATCHY_PREVIEW_AUTH_PROBE_INTERVAL: "1m"
+  PATCHY_PREVIEW_AUTH_RATE_BURST: "30"
+  PATCHY_PREVIEW_AUTH_RATE_PER_SECOND: "5"
+  PATCHY_PREVIEW_AUTH_REQUIRE_VERIFIED_EMAIL: "false"
+  PATCHY_PREVIEW_AUTH_SESSION_MAX_AGE: "12h"
+  PATCHY_PREVIEW_AUTH_SLOT_COUNT: "2"
+  PATCHY_PREVIEW_AUTH_USERNAME_CLAIM: "preferred_username"
+  PATCHY_PREVIEW_AUTH_USERNAME_PREFIX: "github:"
+---
+# Source: patchy/templates/preview-auth.yaml
+# The preview gateway's Service: what an edge (Ingress, HTTPRoute, a tunnel)
+# points at, or a LoadBalancer of its own. Port 80 is the relay's http port,
+# where the gateway answers every preview host and the sign-in host.
+apiVersion: v1
+kind: Service
+metadata:
+  name: patchy-preview-gateway
+  namespace: patchy
+  labels:
+    app: preview-auth
+    helm.sh/chart: patchy-VERSION
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "VERSION"
+    app.kubernetes.io/name: preview-auth
+    app.kubernetes.io/instance: patchy
+    app.kubernetes.io/part-of: patchy
+spec:
+  type: LoadBalancer
+  # previewAuth.gateway.inboundCIDRs, kept at the load balancer.
+  loadBalancerSourceRanges:
+    - 203.0.113.0/24
+    - 2001:db8::/32
+  selector:
+    app.kubernetes.io/name: preview-auth
+    app.kubernetes.io/instance: patchy
+    app.kubernetes.io/part-of: patchy
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP

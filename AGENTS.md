@@ -94,7 +94,9 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   rollback, the probe gate before the allowlist goes), reference `docs/configuration/preview-auth.md`; the terraform
   module's `preview_auth` puts its host on the edge. Flags carry a `preview-auth-` prefix (`PATCHY_PREVIEW_AUTH_*`).
   Engine in `internal/previewauth` (core), `internal/previewauth/adapters/*` and `internal/previewauth/httpapi`.
-  With `--preview-auth-gateway` (default off; the chart does not expose it yet) it is also the preview gateway, beside
+  With `--preview-auth-gateway` (default off; chart `previewAuth.gateway`: its Pods labelled
+  `patchy.bitwisemedia.uk/preview-gateway`, the one label the slot NetworkPolicy admits, and one exposure of Service
+  `<fullname>-preview-gateway`: Ingress, HTTPRoute or LoadBalancer) it is also the preview gateway, beside
   the unchanged provider endpoints: `/start` on its sign-in host (the issuer's by default) issues a single-use handoff
   code to `https://<label>.<suffix>/.patchy/callback`, which sets a per-host session; every preview host is then proxied
   to the Services `status.serving` names, held to the proxy hygiene contract (origin rule, no gateway cookie or identity

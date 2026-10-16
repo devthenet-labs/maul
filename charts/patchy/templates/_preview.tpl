@@ -97,3 +97,48 @@ set, so turning legacyIngress off never deletes them under a live install
 true
 {{- end -}}
 {{- end }}
+
+{{/*
+patchy.previewGateway: previewAuth.gateway resolved once, as JSON (read it
+with fromJson). Fields:
+  enabled      previewAuth.enabled and previewAuth.gateway.enabled
+  signInHost   the host viewers sign in on (previewAuth.host when unset)
+  routeSignIn  the sign-in host needs a route of the gateway's own: it is
+               not previewAuth.host, which the relay's Ingress routes
+  exposure     ingress | httpRoute | loadBalancer | none
+  hops         forwardedHops as a string, "" when unset
+It fails the render on a gateway without the relay, a sign-in host under
+the preview suffix, two exposures at once, and an exposure without
+forwardedHops (no default: how many proxies append X-Forwarded-For is the
+platform's, and a wrong guess lets a client name its own address to the
+rate limit and the allowlist). Context: the root.
+*/}}
+{{- define "patchy.previewGateway" -}}
+{{- $pa := .Values.previewAuth -}}
+{{- $g := $pa.gateway | default dict -}}
+{{- $out := dict "enabled" false -}}
+{{- if $g.enabled -}}
+{{- if not $pa.enabled }}{{ fail "previewAuth.gateway.enabled requires previewAuth.enabled: the gateway runs in the preview sign-in relay's Pods, with its keys, Dex client and access reviews" }}{{ end -}}
+{{- $suffix := .Values.preview.hostSuffix -}}
+{{- $signIn := $g.signInHost | default $pa.host -}}
+{{- if or (eq $signIn $suffix) (hasSuffix (printf ".%s" $suffix) $signIn) }}{{ fail (printf "previewAuth.gateway.signInHost %s must not be under preview.hostSuffix %s: preview code is same-site with every preview host, and the sign-in host holds the viewer's session" $signIn $suffix) }}{{ end -}}
+{{- $svc := $g.service | default dict -}}
+{{- $ing := $g.ingress | default dict -}}
+{{- $route := $g.httpRoute | default dict -}}
+{{- $exposures := list -}}
+{{- if $ing.enabled }}{{ $exposures = append $exposures "ingress" }}{{ end -}}
+{{- if $route.parentRefs }}{{ $exposures = append $exposures "httpRoute" }}{{ end -}}
+{{- if eq ($svc.type | default "ClusterIP") "LoadBalancer" }}{{ $exposures = append $exposures "loadBalancer" }}{{ end -}}
+{{- if gt (len $exposures) 1 }}{{ fail (printf "previewAuth.gateway exposes the gateway %s at once: pick one of ingress.enabled, httpRoute.parentRefs and service.type LoadBalancer" (join " and " $exposures)) }}{{ end -}}
+{{- $exposure := "none" -}}
+{{- if $exposures }}{{ $exposure = first $exposures }}{{ end -}}
+{{- $hops := "" -}}
+{{- if kindIs "invalid" $g.forwardedHops -}}
+{{- if ne $exposure "none" }}{{ fail (printf "previewAuth.gateway.forwardedHops is required with the %s exposure, and has no default: the number of proxies that append to X-Forwarded-For in front of the gateway (1 behind one ALB or ingress controller, 0 behind an L4 load balancer)" $exposure) }}{{ end -}}
+{{- else -}}
+{{- $hops = int $g.forwardedHops | toString -}}
+{{- end -}}
+{{- $out = dict "enabled" true "signInHost" $signIn "routeSignIn" (ne $signIn $pa.host) "exposure" $exposure "hops" $hops -}}
+{{- end -}}
+{{- $out | toJson -}}
+{{- end }}

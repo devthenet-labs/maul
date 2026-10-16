@@ -146,8 +146,8 @@ Least privilege, all rendered by the chart:
 preview host, so previews need no ALB `authenticate-oidc` and can run behind any edge. It ships beside the provider
 endpoints above, which keep answering on the issuer host exactly as before, so the ALB path and the gateway both work
 during the migration; nothing changes until the flag is set and an edge routes `*.<suffix>` and the sign-in host to the
-relay's Service. The chart does not expose the gateway yet: `previewAuth.config.extra` can set its flags, but its edge
-route comes in a later release.
+relay's Service. The chart turns it on with `previewAuth.gateway.enabled` and exposes it ([In the chart](#in-the-chart),
+below).
 
 ```text
 browser                          preview-auth (gateway)                            Dex
@@ -226,6 +226,40 @@ sign-in host and the status page.
 | `__Host-patchy-pv-state-<h>` | the preview host | Secure, HttpOnly, `Path=/`, `SameSite=Lax`, 10 min | A sign-in's random value, whose hash the sealed state and so the handoff code carry |
 | `__Host-patchy-pv`           | the preview host | as above, the host session's lifetime              | The sealed host session: the binding, the identity and the pairwise sub             |
 | `__Host-patchy-pa-login-<h>` | the sign-in host | as above, 5 minutes                                | The Dex double-submit value, as for the ALB path                                    |
+
+### In the chart
+
+`previewAuth.gateway` (off by default, and it needs `previewAuth.enabled`) sets `--preview-auth-gateway` and its flags
+on the relay's Pods, and with it on:
+
+- **Pods.** The relay's Pods carry `patchy.bitwisemedia.uk/preview-gateway: "true"`, a label of their own (never the
+  chart's selector labels). The slot NetworkPolicy admits Pods that are in the release namespace **and** carry it, on
+  port `http` only, beside the legacy ALB's subnets; the relay's own NetworkPolicy gains egress to the slots' port
+  `http` and nothing else there. Slot DNS then allows both the DNS address (`preview.dnsCIDR` or `clusterDNSCIDR`) and
+  the kube-system resolver Pods.
+- **Service.** `<fullname>-preview-gateway`, port 80 to the relay's `http` port, is what every exposure points at.
+- **Exposure**, at most one; each routes `*.<preview.hostSuffix>` and the sign-in host when it is not `previewAuth.host`
+  (whose own Ingress already routes it):
+  - `ingress.enabled`: one Ingress (`className`, empty for the edge class; `annotations` over the chart's ALB settings:
+    target type `ip` and the health check `/.patchy/healthz`); `tls` is the Ingress's own (the edge terminates TLS).
+  - `httpRoute.parentRefs`: one HTTPRoute on your Gateway, whose listener terminates TLS.
+  - `service.type: LoadBalancer`: the Service itself, with `inboundCIDRs` as its `loadBalancerSourceRanges`.
+  - none: point a tunnel or an Ingress of your own at the Service.
+- **`forwardedHops`** has no default and is required with any exposure: the proxies appending to `X-Forwarded-For` in
+  front of the gateway (`1` behind one ALB or ingress controller, `0` behind an L4 load balancer). The rate limit and
+  the allowlist judge the address it names, so a wrong value lets a client name its own.
+- **`inboundCIDRs`** is kept at the edge where the exposure can hold it (a LoadBalancer's source ranges, or the Ingress
+  annotation `ingress.inboundCIDRsAnnotation` names, such as `nginx.ingress.kubernetes.io/whitelist-source-range`; an
+  ALB's `inbound-cidrs` only on an ALB of the gateway's own, since on a shared one it restricts every Ingress in the
+  group) and checked again by the gateway. Where the edge does not hold it, the install NOTES say so.
+- **`publishedAddresses`** records where the wildcard record should point (a tailnet or LAN address, a tunnel's
+  hostname) as the relay ConfigMap's `patchy.bitwisemedia.uk/preview-gateway-published-addresses` annotation, for
+  `patchy check project` to compare DNS with; nothing routes by it.
+- **`signInHost`** (default `previewAuth.host`) must sit outside `preview.hostSuffix`.
+
+Turning it on changes nothing a viewer sees until the wildcard record points at the exposure: the preview ALB keeps
+serving while `preview.legacyIngress` is `true`. Both paths sign viewers in, so the switch is safe in either direction;
+once the record has moved, `preview.legacyIngress: false` retires the slot Ingresses.
 
 ## Flags
 

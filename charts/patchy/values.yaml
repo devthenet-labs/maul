@@ -441,6 +441,75 @@ previewAuth:
     # CIDRs allowed to reach the relay's :8080 (the edge ALB's subnets);
     # empty is anywhere.
     ingressFrom: []
+    # The preview gateway (docs/configuration/preview-auth.md#the-preview-gateway):
+    # the relay's Pods also sign viewers in as their own relying party and
+    # proxy every https://<label>.<preview.hostSuffix> to its slot's Services,
+    # on any cluster, with no load balancer of its own per preview. Off by
+    # default; it needs previewAuth.enabled. On, the relay's Pods carry the
+    # label patchy.bitwisemedia.uk/preview-gateway: "true", the slot
+    # NetworkPolicy admits them on port http (beside the legacy ALB's
+    # subnets), and their own NetworkPolicy lets them reach the slots.
+    # Nothing moves until the wildcard DNS record points at the exposure
+    # below; preview.legacyIngress false then retires the ALB path.
+    gateway:
+        enabled: false
+        # The host viewers sign in on (/start and /dex/callback), outside
+        # preview.hostSuffix. Empty: previewAuth.host, whose Ingress already
+        # routes it here. Another name needs https://<signInHost>/dex/callback
+        # registered at Dex for the same client, and a route of its own (the
+        # exposure below adds one).
+        signInHost: ""
+        # Proxies appending to X-Forwarded-For in front of the gateway
+        # (1 behind one ALB or ingress controller, 0 behind an L4 load
+        # balancer). No default: required with any exposure below, because
+        # the per-address rate limit and inboundCIDRs judge the address it
+        # names. Unset with no exposure (a tunnel) is 0.
+        forwardedHops: null
+        # Client CIDRs that may open preview hosts (sign-in stays open). Kept
+        # at the edge where the platform can: a LoadBalancer Service's
+        # loadBalancerSourceRanges, or the Ingress annotation named by
+        # ingress.inboundCIDRsAnnotation. The gateway checks it again behind
+        # forwardedHops either way, a second layer only. Empty admits all.
+        inboundCIDRs: []
+        # The addresses the wildcard record should hold, for `patchy check
+        # project` to compare DNS with when the exposure publishes none
+        # (a tunnel, a host port, a tailnet address): recorded on the relay
+        # ConfigMap, never routed by.
+        publishedAddresses: []
+        # How the edge reaches the gateway: pick at most one of ingress,
+        # httpRoute and a LoadBalancer Service, or none and point a tunnel at
+        # Service <fullname>-preview-gateway (port 80). Each routes
+        # *.<preview.hostSuffix> and the sign-in host (unless that is
+        # previewAuth.host, already routed). Edge caching must be off for
+        # preview hosts.
+        service:
+            # ClusterIP, or LoadBalancer (an exposure of its own).
+            type: ClusterIP
+            annotations: {}
+        ingress:
+            enabled: false
+            className: "" # empty: the edge class (edgeIngressClass)
+            # Merged over the chart's ALB settings for the gateway (each
+            # overridable): target-type ip, healthcheck-path /.patchy/healthz
+            # (the gateway answers it 200 on any Host) and, off the chart's
+            # edge class only, scheme internet-facing.
+            annotations: {}
+            # Edge TLS, the Ingress controller's (cert-manager, say): the
+            # Ingress spec.tls verbatim. On EKS leave it empty and let the
+            # edge class's ACM certificate cover *.<hostSuffix>.
+            tls: []
+            # The annotation this Ingress controller reads a source allowlist
+            # from, filled with inboundCIDRs: nginx.ingress.kubernetes.io/
+            # whitelist-source-range, or alb.ingress.kubernetes.io/
+            # inbound-cidrs (only on an ALB of the gateway's own: on a shared
+            # one it restricts every Ingress in the group). Empty: the
+            # allowlist is the gateway's alone, and NOTES say so.
+            inboundCIDRsAnnotation: ""
+        httpRoute:
+            # Gateway API: the Gateway(s) to attach to; non-empty renders an
+            # HTTPRoute. TLS is the Gateway's listener's.
+            parentRefs: []
+            annotations: {}
     config:
         extra: {}
     resources:
