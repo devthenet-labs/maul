@@ -662,3 +662,19 @@ func TestGatewayConfigRefusals(t *testing.T) {
 		}
 	}
 }
+
+// TestGatewayLongReturnPath: a request path whose sealed state would pass
+// MaxStateBytes (an ordinary long query string of "&"-joined pairs) still
+// signs in, returning to "/", instead of ending in a 400 at /start.
+func TestGatewayLongReturnPath(t *testing.T) {
+	e := newGatewayEnv(t, nil, nil)
+	b := e.browser()
+	ret := "/?" + strings.Repeat("a=1&", 511) + "a="
+	if got := e.signInPreview(t, b, ret); got != previewOrigin+"/" {
+		t.Errorf("signed in to %.60q, want %s/", got, previewOrigin)
+	}
+	short := "/list?a=1&b=2"
+	if got := e.signInPreview(t, e.browser(), short); got != previewOrigin+short {
+		t.Errorf("signed in to %q, want %s%s", got, previewOrigin, short)
+	}
+}

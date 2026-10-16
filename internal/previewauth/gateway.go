@@ -7,8 +7,10 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/bitwise-media-group/patchy/internal/sealed"
@@ -38,6 +40,11 @@ const (
 	HealthPath = ReservedPrefix + "healthz"
 	// maxReturn bounds a return path.
 	maxReturn = 2048
+	// maxReturnJSON bounds a return path as the sealed state encodes it:
+	// JSON writes '&', '<' and '>' as six bytes each, so a return path
+	// within maxReturn can still seal past MaxStateBytes. A path this long
+	// keeps the sealed state well inside it (TestStateSizeProperty).
+	maxReturnJSON = maxReturn + 2
 )
 
 // GatewayLifetimes are the gateway's token lifetimes.
@@ -97,7 +104,9 @@ func (s State) valid() error {
 }
 
 // NewState starts a sign-in for the live Preview v at the request path ret
-// (refused paths become "/"). It returns the state to seal and the random
+// (refused paths, and paths too long once encoded for the sealed state,
+// become "/", so the sign-in host never refuses the state as oversized). It
+// returns the state to seal and the random
 // value for its state cookie; the state keeps only the value's hash.
 func NewState(now time.Time, lt GatewayLifetimes, v View, ret string) (State, string, error) {
 	if !v.Live || !ValidLabel(v.Label) || v.UID == "" {
@@ -107,7 +116,7 @@ func NewState(now time.Time, lt GatewayLifetimes, v View, ret string) (State, st
 	if err != nil {
 		return State{}, "", err
 	}
-	if !ValidReturnPath(ret) {
+	if !ValidReturnPath(ret) || jsonLen(ret) > maxReturnJSON {
 		ret = "/"
 	}
 	s := State{V: payloadVersion, Label: v.Label, UID: v.UID, NonceHash: csrfHash(nonce), Return: ret,
@@ -116,6 +125,15 @@ func NewState(now time.Time, lt GatewayLifetimes, v View, ret string) (State, st
 		return State{}, "", err
 	}
 	return s, nonce, nil
+}
+
+// jsonLen is the length of s encoded as a JSON string.
+func jsonLen(s string) int {
+	b, err := json.Marshal(s)
+	if err != nil {
+		return math.MaxInt
+	}
+	return len(b)
 }
 
 // StateCookieName is the state cookie of one sealed state: the prefix plus
@@ -131,12 +149,20 @@ func stateHash(sealedState string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// SealState seals a preview host's sign-in state.
+// SealState seals a preview host's sign-in state. A state that would seal
+// past MaxStateBytes, which /start refuses, is ErrInvalidToken.
 func (r *KeyRing) SealState(s State) (string, error) {
 	if err := s.valid(); err != nil {
 		return "", err
 	}
-	return r.seal(KindState, s)
+	tok, err := r.seal(KindState, s)
+	if err != nil {
+		return "", err
+	}
+	if len(tok) > MaxStateBytes {
+		return "", ErrInvalidToken
+	}
+	return tok, nil
 }
 
 // OpenState opens a sign-in state that has not expired at now.

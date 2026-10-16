@@ -5,8 +5,11 @@ package previewauth
 
 import (
 	"errors"
+	"math/rand"
+	"reflect"
 	"strings"
 	"testing"
+	"testing/quick"
 	"time"
 
 	"k8s.io/apimachinery/pkg/types"
@@ -169,6 +172,72 @@ func TestStateStart(t *testing.T) {
 	refused, _, err := NewState(t0, DefaultGatewayLifetimes(), v, "//evil.example/x")
 	if err != nil || refused.Return != "/" {
 		t.Errorf("NewState kept a refused return path: %q, %v", refused.Return, err)
+	}
+}
+
+// TestStateSizeExample pins the finding: a 2048-byte return path of
+// "&"-joined query pairs is valid, but JSON writes every "&" as six bytes,
+// and it used to seal to over 6000 bytes, which /start refuses. It now
+// starts the sign-in at "/" instead.
+func TestStateSizeExample(t *testing.T) {
+	r := newRing(t, 1, masterA)
+	v := liveView(strings.Repeat("u", maxUID), strings.Repeat("l", 63), 1)
+	ret := "/?" + strings.Repeat("a=1&", 511) + "a="
+	if len(ret) != maxReturn || !ValidReturnPath(ret) {
+		t.Fatalf("example is %d bytes, valid %v", len(ret), ValidReturnPath(ret))
+	}
+	st, _, err := NewState(t0, DefaultGatewayLifetimes(), v, ret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealedState, err := r.SealState(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sealedState) > MaxStateBytes || st.Return != "/" {
+		t.Errorf("state %d bytes returning to %.20q", len(sealedState), st.Return)
+	}
+	// A long return path of plain bytes is kept.
+	plain := "/" + strings.Repeat("a", maxReturn-1)
+	if st, _, err := NewState(t0, DefaultGatewayLifetimes(), v, plain); err != nil || st.Return != plain {
+		t.Errorf("a plain 2048-byte path became %.20q, %v", st.Return, err)
+	} else if tok, err := r.SealState(st); err != nil || len(tok) > MaxStateBytes {
+		t.Errorf("a plain 2048-byte path seals to %d bytes, %v", len(tok), err)
+	}
+}
+
+// TestStateSizeProperty: whatever request path a sign-in starts at, its
+// sealed state fits under MaxStateBytes, so /start never refuses it as
+// oversized; a valid path whose encoding fits is kept as it is.
+func TestStateSizeProperty(t *testing.T) {
+	r := newRing(t, 1, masterA)
+	v := liveView(strings.Repeat("u", maxUID), strings.Repeat("l", 63), 1)
+	cfg := quickConfig(500)
+	cfg.Values = func(args []reflect.Value, rnd *rand.Rand) {
+		// Heavy in the bytes JSON escapes, up to past the length limit.
+		const alpha = "&<>\"/abc=?%"
+		b := []byte{'/'}
+		for range rnd.Intn(maxReturn + 64) {
+			b = append(b, alpha[rnd.Intn(len(alpha))])
+		}
+		args[0] = reflect.ValueOf(string(b))
+	}
+	prop := func(ret string) bool {
+		st, _, err := NewState(t0, DefaultGatewayLifetimes(), v, ret)
+		if err != nil {
+			return false
+		}
+		tok, err := r.SealState(st)
+		if err != nil || len(tok) > MaxStateBytes {
+			return false
+		}
+		if ValidReturnPath(ret) && jsonLen(ret) <= maxReturnJSON {
+			return st.Return == ret
+		}
+		return st.Return == "/"
+	}
+	if err := quick.Check(prop, cfg); err != nil {
+		t.Error(err)
 	}
 }
 
