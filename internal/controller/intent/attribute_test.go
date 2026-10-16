@@ -4,15 +4,21 @@
 package intent
 
 import (
+	"context"
 	"reflect"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+
 	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/envelope"
 	"github.com/bitwise-media-group/patchy/internal/attribution"
+	"github.com/bitwise-media-group/patchy/internal/envelope"
 	"github.com/bitwise-media-group/patchy/internal/ghclient"
 	"github.com/bitwise-media-group/patchy/internal/jobs"
 )
@@ -29,12 +35,12 @@ func (e *env) attributing() {
 	e.runs.Settings.Attribution = attribution.ModeAttribute
 }
 
-// discovered is the Intent discovery makes for issue 1, triggered by
-// requester: unlike newIntent, through the issue events, so its requestedBy
+// discovered is the Intent discovery makes for issue 1, triggered by the
+// approver: unlike newIntent, through the issue events, so its requestedBy
 // carries the applier's GitHub id.
-func (e *env) discovered(requester string) string {
+func (e *env) discovered() string {
 	e.t.Helper()
-	e.gh.openIssue(1, "Add a version endpoint", "Please add GET /version.", requester)
+	e.gh.openIssue(1, "Add a version endpoint", "Please add GET /version.", approver)
 	e.reconcileProject()
 	e.clock.Advance(time.Second)
 	return v1alpha1.IntentName("target", 1)
@@ -70,7 +76,7 @@ func TestAttributionTable(t *testing.T) {
 	e := newEnv(t, p)
 	e.gh.perms[reviewer] = ghclient.PermissionWrite
 	e.attributing()
-	name := e.discovered(approver)
+	name := e.discovered()
 	if got := e.get(name).Spec.RequestedBy.UserID; got != actorOf(approver).ID {
 		t.Fatalf("requestedBy.userID = %d, want the applier's", got)
 	}
@@ -134,7 +140,7 @@ func TestAttributionCommandAndChecks(t *testing.T) {
 	e := newEnv(t, p)
 	e.gh.perms[reviewer] = ghclient.PermissionWrite
 	e.attributing()
-	name := e.discovered(approver)
+	name := e.discovered()
 	e.drive(name, v1alpha1.IntentAwaitingApproval, repoImage)
 	e.clock.Advance(time.Minute)
 	e.gh.label(1, "patchy:approved", approver)
@@ -187,7 +193,7 @@ func TestAttributionUnregisteredAndOff(t *testing.T) {
 	}
 
 	off := newEnv(t, testProject())
-	name = off.discovered(approver)
+	name = off.discovered()
 	off.drive(name, v1alpha1.IntentAwaitingApproval, repoImage)
 	off.clock.Advance(time.Minute)
 	off.gh.label(1, "patchy:approved", approver)
@@ -247,7 +253,7 @@ func TestAttributePlanRetryKeepsItsTrigger(t *testing.T) {
 			e := newEnv(t, p)
 			e.gh.perms[reviewer] = ghclient.PermissionWrite
 			e.attributing()
-			name := e.discovered(approver)
+			name := e.discovered()
 			first := v1alpha1.IntentRunName(name, v1alpha1.IntentStagePlan, 1, "", 1)
 			job := jobs.NameFor(first, KindIntent, 1)
 			e.jobs.status[job] = jobs.Status{} // held running
@@ -289,6 +295,68 @@ func TestAttributePlanRetryKeepsItsTrigger(t *testing.T) {
 					t.Errorf("plan run %s attributed to %+v, want the requester %+v", run.Name,
 						run.Spec.AttributedTo, want)
 				}
+			}
+		})
+	}
+}
+
+// TestReviseLeaseAdoptedWhateverItsStamp: a revise round's lease created by
+// a pass under another attribution (the mode changed between the create and
+// the pass that finds it, or the stamp's person did) is the same round, so
+// it is adopted with its own stamp, never refused as another's.
+func TestReviseLeaseAdoptedWhateverItsStamp(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		stamp *v1alpha1.Attribution // the existing lease's
+	}{
+		{"leased before attribution was on", nil},
+		{"leased under another attribution", attribution.Org()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t, testProject())
+			e.attributing()
+			name := e.discovered()
+			e.drive(name, v1alpha1.IntentAwaitingApproval, repoImage)
+			e.clock.Advance(time.Minute)
+			e.gh.label(1, "patchy:approved", approver)
+			in := e.drive(name, v1alpha1.IntentInReview, repoImage)
+
+			wc, ok := e.c.(client.WithWatch)
+			if !ok {
+				t.Fatal("the env's client does not watch")
+			}
+			leased := false
+			c := interceptor.NewClient(wc, interceptor.Funcs{
+				Create: func(ctx context.Context, c client.WithWatch, obj client.Object,
+					opts ...client.CreateOption) error {
+					run, ok := obj.(*v1alpha1.IntentRun)
+					if !ok || run.Spec.Stage != v1alpha1.IntentStageRevise || leased {
+						return c.Create(ctx, obj, opts...)
+					}
+					leased = true
+					other := run.DeepCopy()
+					other.Spec.AttributedTo = tc.stamp.DeepCopy()
+					if err := c.Create(ctx, other, opts...); err != nil {
+						return err
+					}
+					return kerrors.NewAlreadyExists(schema.GroupResource{Resource: "intentruns"}, run.Name)
+				},
+			})
+			e.intent.Client = c
+
+			number := in.Status.PullRequests[0].Number
+			e.gh.reviews[number] = []ghclient.Review{{ID: 901, NodeID: "review-901", Author: actorOf(approver),
+				State: "CHANGES_REQUESTED", Body: "Please add a test.", SubmittedAt: e.clock.Now()}}
+			e.clock.Advance(3 * time.Minute)
+			e.drive(name, v1alpha1.IntentRevising, repoImage)
+			e.drive(name, v1alpha1.IntentInReview, repoImage)
+			runs := e.runsOf(name, v1alpha1.IntentStageRevise)
+			if !leased || len(runs) != 1 || runs[0].Status.Phase != v1alpha1.RunComplete {
+				t.Fatalf("leased %v, revise runs %+v; want the one existing lease adopted and run", leased, runs)
+			}
+			if !reflect.DeepEqual(runs[0].Spec.AttributedTo, tc.stamp) {
+				t.Errorf("the adopted round is attributed to %+v, want its own stamp %+v",
+					runs[0].Spec.AttributedTo, tc.stamp)
 			}
 		})
 	}
