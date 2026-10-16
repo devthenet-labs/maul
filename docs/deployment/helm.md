@@ -573,7 +573,8 @@ Jobs run under the same per-pod limits.
 | `egressBroker.limits.preauthBurst`             | `0`      | Per-source-IP burst and in-flight cap before authentication                                                                                                                                                                     |
 | `egressBroker.limits.tokenReviewsPerSecond`    | `0`      | Broker-wide TokenReview rate, with a short queue; `0` is off                                                                                                                                                                    |
 
-`egressBroker.config.extra` still wins over anything these render.
+`egressBroker.config.extra` still wins over anything these render. For feature-sized intents, see
+[sizing limits for large features](../intents/sizing.md): token limits cut long-context runs that cost limits admit.
 
 ## Operational notes
 

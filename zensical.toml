@@ -51,6 +51,7 @@ nav = [
   ] },
   { "Intents & previews" = [
     { "Deploying intents and previews" = "intents/deploying.md" },
+    { "Sizing limits for large features" = "intents/sizing.md" },
     { "Onboarding an application" = "intents/onboarding-app.md" },
     { "The Terraform module" = "intents/terraform-module.md" },
     { "The intents dashboard" = "intents/dashboard.md" },
