@@ -244,6 +244,17 @@ type IntentRunGrant struct {
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=86400000
 	TimeoutMilliseconds int64 `json:"timeoutMilliseconds,omitempty"`
+	// BudgetMicroUSD is the run's spend budget in micro-USD: the stage's
+	// limits.<stage>.maxCostMicroUSD, or the Project's per-intent ceiling
+	// when that is unset. Recorded only while intent-controller runs with
+	// --broker-limit-unit cost, and copied onto the agent Job and its pod as
+	// the patchy.bitwisemedia.uk/budget-micro-usd annotation the egress
+	// broker enforces. The run spec is immutable, so the budget is fixed
+	// when the run is granted.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=1000000000
+	BudgetMicroUSD int64 `json:"budgetMicroUSD,omitempty"`
 }
 
 // IntentRunSpec identifies one attempt of one stage on one repository. It is

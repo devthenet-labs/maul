@@ -67,8 +67,18 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 		"pause intent polling while the installation has fewer core GitHub requests left than this (0 disables)")
 	f.Duration("intent-ttl", intent.DefaultTTL, "retention of ended intents after completion; 0 keeps them forever")
 	f.Duration("intent-job-deadline", 90*time.Minute,
-		"activeDeadlineSeconds on an intent agent Job, at least both stage timeouts (the broker caller token is "+
-			"minted for it plus 15m)")
+		"the least activeDeadlineSeconds on an intent agent Job, at least every stage timeout; a run whose stage "+
+			"timeout plus 15m is longer gets that, up to --intent-job-deadline-max (the broker caller token is "+
+			"minted for the Job's deadline plus 15m)")
+	f.Duration("intent-job-deadline-max", 4*time.Hour+30*time.Minute,
+		"the most a run's stage timeout plus 15m may stretch its intent Job's deadline past --intent-job-deadline")
+	f.String("broker-limit-unit", "tokens",
+		"the egress broker's --limit-unit: under cost every intent run is granted a cost budget (the stage's "+
+			"limits.<stage>.maxCostMicroUSD, else the Project's limits.maxCostMicroUSD) stamped on its agent Job "+
+			"and pod as patchy.bitwisemedia.uk/budget-micro-usd; under tokens (the default) none is")
+	f.Int("broker-cost-per-hour", 0,
+		"the egress broker's --cost-per-hour in micro-USD (cost unit only; 0: none): a Project whose run budget "+
+			"is more than half of it is not Ready")
 	f.Int("intent-plan-max-turns", 40, "most agent turns a plan run may take (a Project may lower it)")
 	f.Int("intent-plan-token-budget", 200000, "most output tokens a plan run may spend (a Project may lower it)")
 	f.Duration("intent-plan-timeout", 20*time.Minute, "wall-clock limit of a plan run")
@@ -178,12 +188,41 @@ func settings(opts *cli.Options, namespace, agentNS string) (intent.Settings, er
 	if deadline < longestStage {
 		return intent.Settings{}, fmt.Errorf("--intent-job-deadline %s is shorter than a stage's timeout", deadline)
 	}
+	s.JobDeadline, s.JobDeadlineMax = deadline, opts.Duration("intent-job-deadline-max")
+	if s.JobDeadlineMax <= 0 {
+		return intent.Settings{}, errors.New("--intent-job-deadline-max must be positive")
+	}
+	if err := brokerBudgets(opts, &s); err != nil {
+		return intent.Settings{}, err
+	}
 	mode, err := runnercfg.Attribution(opts)
 	if err != nil {
 		return intent.Settings{}, err
 	}
 	s.Attribution = mode
 	return s, nil
+}
+
+// brokerBudgets reads the broker's limit unit and hourly cost limit, which
+// decide whether runs are granted cost budgets and which budgets a Project
+// may set. The hourly limit is refused under the token unit, as the broker
+// refuses it, rather than silently ignored.
+func brokerBudgets(opts *cli.Options, s *intent.Settings) error {
+	perHour := int64(opts.Int("broker-cost-per-hour"))
+	switch unit := opts.String("broker-limit-unit"); unit {
+	case "tokens":
+		if perHour != 0 {
+			return errors.New("--broker-cost-per-hour is only meaningful with --broker-limit-unit cost")
+		}
+	case "cost":
+		if perHour < 0 {
+			return errors.New("--broker-cost-per-hour must not be negative (0: none)")
+		}
+		s.CostBudgets, s.BrokerCostPerHour = true, perHour
+	default:
+		return fmt.Errorf("--broker-limit-unit %q: want tokens or cost", unit)
+	}
+	return nil
 }
 
 // resourceClasses reads --intent-resource-classes: every class validated as

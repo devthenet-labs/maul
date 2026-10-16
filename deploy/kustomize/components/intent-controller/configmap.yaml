@@ -51,12 +51,15 @@ data:
     # Intent agent Jobs running at once: a pool of its own, separate from
     # remediation's. A multi-repository intent's builds share it.
     PATCHY_INTENT_MAX_CONCURRENT_RUNS: "1"
-    # activeDeadlineSeconds on every intent Job: at least both stage
-    # timeouts (the controller refuses to start otherwise). The broker
-    # caller token each Job gets is minted for this deadline plus 15m (at
-    # least 1h), so it outlives any deadline set here. The shared
-    # PATCHY_JOB_DEADLINE is the finding stages' and does not apply here.
+    # The least activeDeadlineSeconds on an intent Job: at least every stage
+    # timeout (the controller refuses to start otherwise). A run whose stage
+    # timeout plus 15m is longer gets that instead, up to
+    # PATCHY_INTENT_JOB_DEADLINE_MAX. The broker caller token each Job gets
+    # is minted for its deadline plus 15m (at least 1h), so it outlives the
+    # Job. The shared PATCHY_JOB_DEADLINE is the finding stages' and does
+    # not apply here.
     PATCHY_INTENT_JOB_DEADLINE: 90m
+    PATCHY_INTENT_JOB_DEADLINE_MAX: 4h30m
     # Ended intents are deleted this long after completion, with everything
     # they own; "0" keeps them forever.
     PATCHY_INTENT_TTL: 336h

@@ -469,6 +469,36 @@ func testProjectBounds(ctx context.Context, t *testing.T, c client.Client) {
 		{"twenty-one active intents", func(p *patchyv1.Project) { p.Spec.Limits.MaxActiveIntents = 21 }, true},
 		{"stage turns past the bound", func(p *patchyv1.Project) { p.Spec.Limits.Build.MaxTurns = 1001 }, true},
 		{"stage tokens past the bound", func(p *patchyv1.Project) { p.Spec.Limits.Revise.TokenBudget = 100000001 }, true},
+		// A stage's cost budget fits under the per-intent ceiling, and its
+		// timeout is between a minute and four hours (LF2).
+		{"stage cost at the intent ceiling", func(p *patchyv1.Project) {
+			p.Spec.Limits.Build.MaxCostMicroUSD = patchyv1.DefaultMaxCostMicroUSD
+		}, false},
+		{"stage cost past the intent ceiling", func(p *patchyv1.Project) {
+			p.Spec.Limits.Revise.MaxCostMicroUSD = patchyv1.DefaultMaxCostMicroUSD + 1
+		}, true},
+		{"plan cost past the intent ceiling", func(p *patchyv1.Project) {
+			p.Spec.Limits.Plan.MaxCostMicroUSD = patchyv1.DefaultMaxCostMicroUSD + 1
+		}, true},
+		{"stage cost under a raised intent ceiling", func(p *patchyv1.Project) {
+			p.Spec.Limits.MaxCostMicroUSD, p.Spec.Limits.Build.MaxCostMicroUSD = 100000000, 60000000
+		}, false},
+		{"stage cost past the bound", func(p *patchyv1.Project) {
+			p.Spec.Limits.MaxCostMicroUSD, p.Spec.Limits.Build.MaxCostMicroUSD = 1000000000, 1000000001
+		}, true},
+		{"negative stage cost", func(p *patchyv1.Project) { p.Spec.Limits.Build.MaxCostMicroUSD = -1 }, true},
+		{"stage timeout of a minute", func(p *patchyv1.Project) {
+			p.Spec.Limits.Plan.Timeout = &metav1.Duration{Duration: time.Minute}
+		}, false},
+		{"stage timeout of four hours", func(p *patchyv1.Project) {
+			p.Spec.Limits.Build.Timeout = &metav1.Duration{Duration: 4 * time.Hour}
+		}, false},
+		{"stage timeout under a minute", func(p *patchyv1.Project) {
+			p.Spec.Limits.Build.Timeout = &metav1.Duration{Duration: 59 * time.Second}
+		}, true},
+		{"stage timeout over four hours", func(p *patchyv1.Project) {
+			p.Spec.Limits.Revise.Timeout = &metav1.Duration{Duration: 4*time.Hour + time.Second}
+		}, true},
 		{"thirty-three fixed checks", func(p *patchyv1.Project) {
 			p.Spec.Checks.Fix = logins(33)
 		}, true},

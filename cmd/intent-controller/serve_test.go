@@ -141,7 +141,11 @@ func TestComponentConfigReachesSettings(t *testing.T) {
 		Revise: intent.StageCeiling{MaxTurns: 80, TokenBudget: 400000, Timeout: 45 * time.Minute,
 			IdleTimeout: 20 * time.Minute},
 		// Off unless the operator turns it on.
-		Attribution: attribution.ModeOff,
+		Attribution:    attribution.ModeOff,
+		JobDeadline:    90 * time.Minute,
+		JobDeadlineMax: 4*time.Hour + 30*time.Minute,
+		// No cost budgets until the broker counts cost.
+		CostBudgets: false,
 	}
 	if s != want {
 		t.Errorf("settings = %+v, want %+v", s, want)
@@ -205,6 +209,43 @@ func TestSettingsRefusesADeadlineShorterThanAStage(t *testing.T) {
 	}
 	if _, err := settings(opts, "patchy", "patchy-agents"); err == nil {
 		t.Fatal("settings accepted a 59m Job deadline under a 60m build timeout")
+	}
+}
+
+// TestBrokerBudgetsReachSettings: runs are granted cost budgets only under
+// --broker-limit-unit cost, the hourly limit reaching the Project check with
+// it; an hourly limit under the token unit, a negative one, an unknown unit
+// or a deadline ceiling that is not positive stops startup.
+func TestBrokerBudgetsReachSettings(t *testing.T) {
+	load := func(t *testing.T, args ...string) (intent.Settings, error) {
+		t.Helper()
+		opts, root, _ := command(t, args...)
+		if err := root.Execute(); err != nil {
+			t.Fatalf("execute: %v", err)
+		}
+		return settings(opts, "patchy", "patchy-agents")
+	}
+	s, err := load(t)
+	if err != nil || s.CostBudgets || s.BrokerCostPerHour != 0 {
+		t.Fatalf("default settings = budgets %v, per hour %d, %v; want neither", s.CostBudgets, s.BrokerCostPerHour, err)
+	}
+	s, err = load(t, "--broker-limit-unit", "cost", "--broker-cost-per-hour", "120000000")
+	if err != nil || !s.CostBudgets || s.BrokerCostPerHour != 120000000 {
+		t.Fatalf("cost settings = budgets %v, per hour %d, %v; want both", s.CostBudgets, s.BrokerCostPerHour, err)
+	}
+	s, err = load(t, "--broker-limit-unit", "cost")
+	if err != nil || !s.CostBudgets || s.BrokerCostPerHour != 0 {
+		t.Fatalf("cost with no hourly limit = budgets %v, per hour %d, %v", s.CostBudgets, s.BrokerCostPerHour, err)
+	}
+	for _, args := range [][]string{
+		{"--broker-cost-per-hour", "1"},
+		{"--broker-limit-unit", "cost", "--broker-cost-per-hour", "-1"},
+		{"--broker-limit-unit", "dollars"},
+		{"--intent-job-deadline-max", "0s"},
+	} {
+		if _, err := load(t, args...); err == nil {
+			t.Errorf("settings(%v) succeeded, want a startup error", args)
+		}
 	}
 }
 
