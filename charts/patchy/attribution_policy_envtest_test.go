@@ -342,6 +342,54 @@ func checkFindingStamps(t *testing.T, as func(string) client.Client) {
 		t.Errorf("a user's write leaving the stamp alone was refused: %v", err)
 	}
 
+	// UPDATE: a user who changes a stamp already there writes as
+	// themselves too, whoever wrote it first.
+	own := attributedFinding("own-stamp")
+	own.Spec.Approval = &v1alpha1.Approval{By: attrUser, At: at}
+	own.Spec.Retry = &v1alpha1.ActionRequest{By: attrUser, At: at}
+	if err := user.Create(ctx, own); err != nil {
+		t.Fatalf("create as the user: %v", err)
+	}
+	for _, tc := range []struct {
+		name   string
+		target *v1alpha1.Finding
+		mutate func(*v1alpha1.Finding)
+		want   string
+	}{
+		{"re-billing the controller's approval to someone else", f, func(f *v1alpha1.Finding) {
+			f.Spec.Approval.By = "carol"
+		}, attrStampDenied},
+		{"re-billing the controller's approval to another id", f, func(f *v1alpha1.Finding) {
+			f.Spec.Approval.ByID = 6
+		}, attrStampDenied},
+		{"adding a GitHub id to their own approval", own, func(f *v1alpha1.Finding) {
+			f.Spec.Approval.ByID = 5
+		}, attrStampDenied},
+		{"handing their own retry to someone else", own, func(f *v1alpha1.Finding) {
+			f.Spec.Retry.By = "bob"
+		}, attrStampDenied},
+		{"adding an expedite as someone else", own, func(f *v1alpha1.Finding) {
+			f.Spec.Expedite = &v1alpha1.ActionRequest{By: "bob", At: at}
+		}, attrStampDenied},
+		{"replacing the controller's approval with their own", f, func(f *v1alpha1.Finding) {
+			f.Spec.Approval = &v1alpha1.Approval{By: attrUser, At: at}
+		}, ""},
+	} {
+		t.Run("update: "+tc.name, func(t *testing.T) {
+			cur := &v1alpha1.Finding{}
+			if err := user.Get(ctx, client.ObjectKeyFromObject(tc.target), cur); err != nil {
+				t.Fatalf("get: %v", err)
+			}
+			tc.mutate(cur)
+			err := user.Update(ctx, cur, client.DryRunAll)
+			switch {
+			case tc.want == "" && err != nil:
+				t.Errorf("refused, want admitted: %v", err)
+			case tc.want != "" && !deniedWith(err, tc.want):
+				t.Errorf("got %v, want refused with %q", err, tc.want)
+			}
+		})
+	}
 }
 
 // checkRunStamps: a run's spec.attributedTo is admitted on CREATE only from
