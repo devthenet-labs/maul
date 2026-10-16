@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -19,6 +20,7 @@ import (
 	toolscache "k8s.io/client-go/tools/cache"
 	crcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	"github.com/bitwise-media-group/patchy/api/v1alpha1"
 	"github.com/bitwise-media-group/patchy/internal/cli"
@@ -31,6 +33,7 @@ import (
 	"github.com/bitwise-media-group/patchy/internal/previewauth/adapters/kubeview"
 	"github.com/bitwise-media-group/patchy/internal/previewauth/adapters/ledger"
 	"github.com/bitwise-media-group/patchy/internal/previewauth/adapters/signer"
+	"github.com/bitwise-media-group/patchy/internal/previewauth/adapters/tlsdir"
 	"github.com/bitwise-media-group/patchy/internal/previewauth/httpapi"
 	"github.com/bitwise-media-group/patchy/internal/telemetry"
 	"github.com/bitwise-media-group/patchy/internal/version"
@@ -110,7 +113,18 @@ func gatewayFlags(cmd *cobra.Command) {
 	f.Duration("preview-auth-gateway-state-ttl", glt.State, "how long a preview host's sign-in may take")
 	f.Duration("preview-auth-gateway-handoff-ttl", glt.Handoff, "a handoff code's lifetime")
 	f.Bool("preview-auth-gateway-hsts", false, "add Strict-Transport-Security to proxied responses")
+	f.String("preview-auth-gateway-tls-dir", "", "a directory of kubernetes.io/tls pairs (one subdirectory each, "+
+		"tls.crt and tls.key) the gateway serves TLS with itself, picked by SNI, for an exposure with no "+
+		"TLS-terminating edge; empty serves plain HTTP only")
+	f.String("preview-auth-gateway-listen-addr", ":8082", "the gateway's own plain-HTTP listener, which its "+
+		"exposure targets: the relay's endpoints are rate limited there behind the gateway's forwarded hops")
+	f.String("preview-auth-gateway-tls-listen-addr", ":8443", "the TLS listener's address, with "+
+		"--preview-auth-gateway-tls-dir")
 }
+
+// tlsReload is how often the gateway re-reads its TLS directory (a renewed
+// Secret reaches the mount within the kubelet's sync period).
+const tlsReload = 30 * time.Second
 
 // gatewayStatic is the gateway's configuration, loaded with the relay's.
 type gatewayStatic struct {
@@ -118,6 +132,12 @@ type gatewayStatic struct {
 	// signInUpstream is the sign-in host's own Dex client, nil when it is
 	// the issuer's host.
 	signInUpstream *dex.Upstream
+	// tls is the gateway's own certificates and tlsAddr their listener, nil
+	// when an edge in front terminates TLS.
+	tls     *tlsdir.Store
+	tlsAddr string
+	// addr is the gateway's plain listener, the one its exposure targets.
+	addr string
 }
 
 // loadGateway validates the gateway's flags. It returns nil when the
@@ -169,9 +189,18 @@ func loadGateway(opts *cli.Options, st static, httpClient *http.Client) (*gatewa
 		},
 		InboundCIDRs: cidrs, BodyLimit: int64(limit), Transport: httpapi.NewUpstreamTransport(timeouts, nil),
 		HSTS: opts.Bool("preview-auth-gateway-hsts"), Recheck: opts.Duration("preview-auth-review-ttl"),
-	}}
+	}, addr: opts.String("preview-auth-gateway-listen-addr")}
+	if gs.addr == "" {
+		return nil, errors.New("--preview-auth-gateway-listen-addr is empty")
+	}
 	if err := gs.cfg.Lifetimes.Validate(); err != nil {
 		return nil, err
+	}
+	if dir := opts.String("preview-auth-gateway-tls-dir"); dir != "" {
+		if gs.tls, err = loadGatewayTLS(dir, signIn, st.callbacks.Suffix()); err != nil {
+			return nil, err
+		}
+		gs.tlsAddr = opts.String("preview-auth-gateway-tls-listen-addr")
 	}
 	if signIn != issuerHost {
 		secret, err := readSecretFile(opts.String("preview-auth-dex-client-secret-file"))
@@ -189,6 +218,23 @@ func loadGateway(opts *cli.Options, st static, httpClient *http.Client) (*gatewa
 		gs.cfg.SignInUpstream = gs.signInUpstream
 	}
 	return gs, nil
+}
+
+// loadGatewayTLS loads the gateway's certificates and refuses a set that
+// does not cover the sign-in host and every preview host (a probe label
+// under the suffix), which a viewer's browser would refuse.
+func loadGatewayTLS(dir, signIn, suffix string) (*tlsdir.Store, error) {
+	store, err := tlsdir.Load(dir)
+	if err != nil {
+		return nil, fmt.Errorf("--preview-auth-gateway-tls-dir: %w", err)
+	}
+	for _, host := range []string{signIn, "preview-label." + suffix} {
+		if !store.Covers(host) {
+			return nil, fmt.Errorf("--preview-auth-gateway-tls-dir: no certificate covers %s (the sign-in host and "+
+				"*.%s must both be covered)", host, suffix)
+		}
+	}
+	return store, nil
 }
 
 func lifetimes(opts *cli.Options) previewauth.Lifetimes {
@@ -370,9 +416,9 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	if err := mgr.Add(prober); err != nil {
 		return fmt.Errorf("host probe: %w", err)
 	}
-	httpSrv := newHTTPServer(opts.ListenAddr, srv.Handler(), gwCfg != nil)
-	if err := mgr.Add(listener{srv: httpSrv}); err != nil {
-		return fmt.Errorf("listener: %w", err)
+	httpSrv, err := addListeners(mgr, opts.ListenAddr, st.gateway, srv.Handler(), srv.GatewayHandler(), log)
+	if err != nil {
+		return err
 	}
 	if err := mgr.Add(syncWatcher{mgr.GetCache().WaitForCacheSync, &synced, upstream, log}); err != nil {
 		return fmt.Errorf("sync watcher: %w", err)
@@ -402,6 +448,67 @@ func newHTTPServer(addr string, h http.Handler, gateway bool) *http.Server {
 		srv.ReadTimeout, srv.WriteTimeout = 0, 0
 	}
 	return srv
+}
+
+// addListeners adds the relay's listener (h) and, with the gateway on, the
+// gateway's own (gh) its exposure targets and, when the gateway serves its
+// own TLS, the TLS listener beside them, also gh; it returns the relay's.
+// The gateway's edge gets listeners of its own because it may not filter by
+// Host: whatever reaches the relay's endpoints through it is rate limited
+// behind the gateway's forwarded hops, not the relay's ALB's.
+func addListeners(mgr runnableAdder, addr string, gs *gatewayStatic, h, gh http.Handler,
+	log *slog.Logger) (*http.Server, error) {
+	httpSrv := newHTTPServer(addr, h, gs != nil)
+	if err := mgr.Add(listener{srv: httpSrv}); err != nil {
+		return nil, fmt.Errorf("listener: %w", err)
+	}
+	if gs == nil {
+		return httpSrv, nil
+	}
+	if err := mgr.Add(listener{srv: newHTTPServer(gs.addr, gh, true)}); err != nil {
+		return nil, fmt.Errorf("gateway listener: %w", err)
+	}
+	if gs.tls != nil {
+		if err := addTLSListener(mgr, gs, gh, log); err != nil {
+			return nil, err
+		}
+	}
+	return httpSrv, nil
+}
+
+// runnableAdder is the part of the manager addTLSListener needs.
+type runnableAdder interface{ Add(manager.Runnable) error }
+
+// addTLSListener serves the same handler with the gateway's own
+// certificates, and keeps them current.
+func addTLSListener(mgr runnableAdder, gs *gatewayStatic, h http.Handler, log *slog.Logger) error {
+	gs.tls.Log = log
+	tlsSrv := newTLSServer(gs.tlsAddr, h, gs.tls)
+	if err := mgr.Add(listener{srv: tlsSrv, tls: true}); err != nil {
+		return fmt.Errorf("TLS listener: %w", err)
+	}
+	if err := mgr.Add(tlsReloader{gs.tls}); err != nil {
+		return fmt.Errorf("TLS reloader: %w", err)
+	}
+	return nil
+}
+
+// newTLSServer is the gateway's server over its own certificates: the
+// gateway's timeouts, TLS 1.2 at least, the certificate picked by SNI.
+func newTLSServer(addr string, h http.Handler, store *tlsdir.Store) *http.Server {
+	srv := newHTTPServer(addr, h, true)
+	srv.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12, GetCertificate: store.GetCertificate}
+	return srv
+}
+
+// tlsReloader re-reads the gateway's TLS directory on every replica.
+type tlsReloader struct{ store *tlsdir.Store }
+
+func (r tlsReloader) NeedLeaderElection() bool { return false }
+
+func (r tlsReloader) Start(ctx context.Context) error {
+	r.store.Run(ctx, tlsReload)
+	return nil
 }
 
 // informerSource is the part of the manager's cache watchPreviews needs.
@@ -447,14 +554,24 @@ func (r rechecker) Start(ctx context.Context) error {
 	return nil
 }
 
-// listener serves the relay until the manager stops.
-type listener struct{ srv *http.Server }
+// listener serves the relay until the manager stops; with tls, over the
+// server's TLSConfig.
+type listener struct {
+	srv *http.Server
+	tls bool
+}
 
 func (l listener) NeedLeaderElection() bool { return false }
 
 func (l listener) Start(ctx context.Context) error {
 	errc := make(chan error, 1)
-	go func() { errc <- l.srv.ListenAndServe() }()
+	go func() {
+		if l.tls {
+			errc <- l.srv.ListenAndServeTLS("", "")
+			return
+		}
+		errc <- l.srv.ListenAndServe()
+	}()
 	select {
 	case err := <-errc:
 		return err

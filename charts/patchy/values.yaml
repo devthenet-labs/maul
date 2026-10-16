@@ -116,19 +116,57 @@ clusterDNSCIDR: ""
 # When enabled, the default placeholder Ingress creates a separate ALB even if
 # previewController is off. Set placeholder.enabled=false for a guardrails-only
 # staging revision before re-enabling a kept, older admission policy.
+#
+# The keys marked LEGACY are the preview ALB's (EKS Auto Mode only): required
+# while legacyIngress is true, optional once it is false, and removed in a
+# later release; with legacyIngress false the install NOTES list the ones
+# still set.
 preview:
     enabled: false
     slotCount: 2
+    # Render each Preview's slot Ingress on the preview ALB, which signs
+    # viewers in (previewAuth's permit/require stages): the path every
+    # install has used so far. false: the preview-controller renders no
+    # slot Ingress and deletes the ones it rendered before (a Preview is
+    # Ready once every component has a Ready Pod; previewController
+    # .config.targetHealth is ignored), so only previewAuth.gateway reaches
+    # the slots; the LEGACY keys become optional, and the ALB objects render
+    # only while albName is still set. Keep it true until the wildcard DNS
+    # record points at the gateway's edge.
+    legacyIngress: true
+    # LEGACY: the kept placeholder Ingress that creates the preview ALB.
     placeholder:
         enabled: true
-    # A dedicated, tainted EKS Auto Mode NodePool backed by a DefaultDeny
-    # NodeClass is required before any slot workload runs. These names must
-    # match the node resources, which exist before the first slot workload:
-    # yours, or the chart's with create below.
+    # Dedicated, tainted nodes for hostile preview code. Every slot Pod
+    # selects them (a node selector) and tolerates their NoExecute taint,
+    # which keeps everything else off them; the slot admission policies hold
+    # every slot Pod to both, and every other Pod off the taint. The nodes
+    # exist before the first slot workload: yours, or (EKS Auto Mode) the
+    # chart's with create below.
     nodeIsolation:
+        # required: every slot Pod selects the nodes and tolerates their
+        # taint, and the render fails without a selector and a taintKey.
+        # none: neither, an explicit opt-out for a cluster without dedicated
+        # preview nodes (preview Pods then share nodes with everything else),
+        # which refuses a selector or taintKey.
+        mode: required
+        # Node label to value every slot Pod selects, on any cluster (for
+        # example patchy.example.com/previews: "true" on a tainted node of
+        # its own). Merged with eksAutoMode's two labels.
+        selector: {}
+        taintKey: "" # Exact NoExecute taint; value must be "true".
+        # EKS Auto Mode: a dedicated NodePool backed by a DefaultDeny
+        # NodeClass. Each name fills one selector label
+        # (karpenter.sh/nodepool, eks.amazonaws.com/nodeclass); set both or
+        # neither.
+        eksAutoMode:
+            nodePool: ""
+            nodeClass: ""
+        # Legacy spellings of eksAutoMode.nodePool and eksAutoMode.nodeClass,
+        # still honoured (eksAutoMode wins where both are set); the install
+        # NOTES ask to move them.
         nodePool: ""
         nodeClass: ""
-        taintKey: "" # Exact NoExecute taint; value must be "true".
         # Render that NodeClass and NodePool, named nodeClass and nodePool,
         # instead of expecting them to exist. Off by default; requires
         # preview.enabled. The NodeClass always carries networkPolicy:
@@ -172,7 +210,10 @@ preview:
             size: 20Gi
             iops: 3000
             throughput: 125
-    imageRegistry: "" # ECR registry host only; images must be <imagePathPrefix>/<app>:sha-<full SHA>
+    # The registry host preview images come from (any registry: ECR, GHCR,
+    # a local one with a port); images must be
+    # <imageRegistry>/<imagePathPrefix>/<app>:sha-<full SHA>.
+    imageRegistry: ""
     # The registry path every preview runtime image sits directly under:
     # <imageRegistry>/<imagePathPrefix>/<app>, one lowercase DNS-label leaf
     # deep. Lowercase ECR path segments joined by "/", with no leading or
@@ -189,27 +230,29 @@ preview:
     # fails to render until the Project names one under the new path.
     imagePathPrefix: patchy/previews
     dnsCIDR: "" # Node-local CoreDNS service /32, not a broad service CIDR; empty means clusterDNSCIDR.
-    albSubnetCIDRs: [] # Public ALB source subnets, not 0.0.0.0/0.
-    # The subnet IDs of albSubnetCIDRs, one per CIDR: pins the preview ALB to
+    albSubnetCIDRs: [] # LEGACY: public ALB source subnets, not 0.0.0.0/0.
+    # LEGACY: the subnet IDs of albSubnetCIDRs, one per CIDR: pins the preview ALB to
     # exactly those subnets. Empty leaves placement to Auto Mode, which uses a
     # kubernetes.io/role/elb subnet in every zone that has one; albSubnetCIDRs
     # must then cover every such subnet, or the slots drop that zone's traffic.
     albSubnetIDs: []
-    # Reviewer IPs, each a /32 (the schema refuses wider), at most 8. Required
-    # unless previewAuth requires sign-in (see allowPublicWithAuth).
+    # LEGACY: reviewer IPs the preview ALB admits, each a /32 (the schema
+    # refuses wider), at most 8. Required with the ALB unless previewAuth
+    # requires sign-in (see allowPublicWithAuth). The gateway's allowlist is
+    # previewAuth.gateway.inboundCIDRs.
     inboundCIDRs: []
-    # Managed prefix list IDs (pl-...) the preview ALB also admits, at most 8:
+    # LEGACY: managed prefix list IDs (pl-...) the preview ALB also admits, at most 8:
     # the IngressClassParams prefixListsIDs. Optional and additive; it
     # replaces inboundCIDRs only once previewAuth requires sign-in.
     prefixListsIDs: []
-    # Rev C only: confirmed lets inboundCIDRs (and prefixListsIDs) be empty,
+    # LEGACY. Rev C only: confirmed lets inboundCIDRs (and prefixListsIDs) be empty,
     # so any address reaches the preview ALB and sign-in alone guards it.
     # Needs previewAuth in its require stage and previewAuth.sessionTimeout
     # of at most 900. Never set it before the ALB probe has run.
     allowPublicWithAuth: ""
-    certificateARN: "" # Issued wildcard certificate for preview hosts.
+    certificateARN: "" # LEGACY: issued wildcard certificate for preview hosts.
     hostSuffix: "" # e.g. preview.example.com, without leading dot.
-    albName: "" # Distinct from the normal patchy ALB.
+    albName: "" # LEGACY: distinct from the normal patchy ALB.
 
 # Namespaced runtime renderer for opt-in Projects. Kept off while preview
 # isolation, the separate ALB, placeholder Ingress and DNS are being staged.
@@ -244,15 +287,11 @@ previewController:
         # waits out rolloutTimeout and spends one of maxRetries (a Preview on
         # its last retry fails). Set false explicitly to keep the old
         # behaviour, or upgrade while no Preview is deploying.
+        # LEGACY (the preview ALB's target health); ignored with
+        # preview.legacyIngress false.
         targetHealth: true
-        # Render each Preview's slot Ingress, the load balancer path above,
-        # exactly as before the preview gateway. false renders none: a
-        # Preview is Ready once every component has a Ready Pod of its
-        # current spec (targetHealth is then ignored), and the controller
-        # deletes the slot Ingresses it rendered before, leaving the preview
-        # gateway to route from status.serving. Keep it true until the
-        # gateway serves the preview hosts.
-        legacyIngress: true
+        # legacyIngress moved to preview.legacyIngress. Set here (on a chart
+        # before the move), it still wins, and NOTES ask to move it.
         extra: {}
     resources:
         requests:
@@ -409,6 +448,94 @@ previewAuth:
     # CIDRs allowed to reach the relay's :8080 (the edge ALB's subnets);
     # empty is anywhere.
     ingressFrom: []
+    # The preview gateway (docs/configuration/preview-auth.md#the-preview-gateway):
+    # the relay's Pods also sign viewers in as their own relying party and
+    # proxy every https://<label>.<preview.hostSuffix> to its slot's Services,
+    # on any cluster, with no load balancer of its own per preview. Off by
+    # default; it needs previewAuth.enabled. On, the relay's Pods carry the
+    # label patchy.bitwisemedia.uk/preview-gateway: "true", the slot
+    # NetworkPolicy admits them on port http (beside the legacy ALB's
+    # subnets), and their own NetworkPolicy lets them reach the slots.
+    # Nothing moves until the wildcard DNS record points at the exposure
+    # below; preview.legacyIngress false then retires the ALB path.
+    gateway:
+        enabled: false
+        # The host viewers sign in on (/start and /dex/callback), outside
+        # preview.hostSuffix. Empty: previewAuth.host, whose Ingress already
+        # routes it here. Another name needs https://<signInHost>/dex/callback
+        # registered at Dex for the same client, and a route of its own (the
+        # exposure below adds one).
+        signInHost: ""
+        # Proxies appending to X-Forwarded-For in front of the gateway
+        # (1 behind one ALB or ingress controller, 0 behind an L4 load
+        # balancer). No default: required with any exposure below, because
+        # the per-address rate limit and inboundCIDRs judge the address it
+        # names. Unset with no exposure (a tunnel) is 0.
+        forwardedHops: null
+        # Client CIDRs that may open preview hosts (sign-in stays open). Kept
+        # at the edge where the platform can: a LoadBalancer Service's
+        # loadBalancerSourceRanges, or the Ingress annotation named by
+        # ingress.inboundCIDRsAnnotation. The gateway checks it again behind
+        # forwardedHops either way, a second layer only. Empty admits all.
+        inboundCIDRs: []
+        # The addresses the wildcard record should hold when the exposure
+        # publishes none (a tunnel, a host port, a tailnet address): recorded
+        # on the relay ConfigMap, never routed by. Nothing reads them in this
+        # release; a later `patchy check project` will compare DNS with them.
+        publishedAddresses: []
+        # How the edge reaches the gateway: pick at most one of ingress,
+        # httpRoute and a LoadBalancer Service, or none and point a tunnel at
+        # Service <fullname>-preview-gateway (port 80). Each routes
+        # *.<preview.hostSuffix> and the sign-in host (unless that is
+        # previewAuth.host, already routed). Edge caching must be off for
+        # preview hosts.
+        service:
+            # ClusterIP, or LoadBalancer (an exposure of its own).
+            type: ClusterIP
+            # The LoadBalancer exposure's externalTrafficPolicy. Local keeps
+            # the client's address as the gateway's peer, which forwardedHops
+            # 0 judges: under Cluster, kube-proxy source-NATs to a node
+            # address (MetalLB, k3d's serverlb, an instance-mode cloud load
+            # balancer), so inboundCIDRs would refuse every viewer and the
+            # rate limit would share one bucket per node. Cluster only where
+            # the load balancer keeps the client's address itself (an AWS
+            # NLB with IP targets and client IP preservation).
+            externalTrafficPolicy: Local
+            annotations: {}
+        ingress:
+            enabled: false
+            className: "" # empty: the edge class (edgeIngressClass)
+            # Merged over the chart's ALB settings for the gateway (each
+            # overridable): target-type ip, healthcheck-path /.patchy/healthz
+            # (the gateway answers it 200 on any Host) and, off the chart's
+            # edge class only, scheme internet-facing.
+            annotations: {}
+            # Edge TLS, the Ingress controller's (cert-manager, say): the
+            # Ingress spec.tls verbatim. On EKS leave it empty and let the
+            # edge class's ACM certificate cover *.<hostSuffix>.
+            tls: []
+            # The annotation this Ingress controller reads a source allowlist
+            # from, filled with inboundCIDRs: nginx.ingress.kubernetes.io/
+            # whitelist-source-range, or alb.ingress.kubernetes.io/
+            # inbound-cidrs (only on an ALB of the gateway's own: on a shared
+            # one it restricts every Ingress in the group). Empty: the
+            # allowlist is the gateway's alone, and NOTES say so.
+            inboundCIDRsAnnotation: ""
+        httpRoute:
+            # Gateway API: the Gateway(s) to attach to; non-empty renders an
+            # HTTPRoute. TLS is the Gateway's listener's.
+            parentRefs: []
+            annotations: {}
+        # TLS the gateway terminates itself, for the LoadBalancer exposure
+        # or none (a tunnel passing TLS through): kubernetes.io/tls Secrets
+        # in the release namespace, picked by SNI, each with the hosts it
+        # covers ("*.<preview.hostSuffix>" and the sign-in host between
+        # them), e.g. [{secretName: preview-wildcard, hosts:
+        # ["*.preview.example.com"]}]. The Service then also serves 443.
+        # Refused with ingress or httpRoute, whose edge terminates TLS. A
+        # renewed Secret (cert-manager) is picked up without a restart.
+        tls:
+            secrets: []
     config:
         extra: {}
     resources:
