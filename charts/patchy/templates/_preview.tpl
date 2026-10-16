@@ -69,3 +69,31 @@ Context: the root.
 {{- end -}}
 {{- dict "mode" $mode "taintKey" $taint "nodePool" $pool "nodeClass" $class "eks" (and (ne $pool "") (ne $class "")) "selector" $selector "pairs" $pairs "legacy" $legacy | toJson -}}
 {{- end }}
+
+{{/*
+patchy.previewLegacyIngress: "true" while preview-controller renders each
+Preview's slot Ingress on the preview ALB (preview.legacyIngress, default
+true), else "". previewController.config.legacyIngress, its spelling before
+it moved to preview, still wins when set. Context: the root.
+*/}}
+{{- define "patchy.previewLegacyIngress" -}}
+{{- $old := (.Values.previewController.config | default dict).legacyIngress -}}
+{{- if kindIs "bool" $old -}}
+{{- if $old }}true{{ end -}}
+{{- else if .Values.preview.legacyIngress -}}
+true
+{{- end -}}
+{{- end }}
+
+{{/*
+patchy.previewALB: "true" when the foundation renders the preview ALB's
+objects (the alb-preview IngressClass and its params, and the placeholder):
+always on the legacy path, and after it only while preview.albName is still
+set, so turning legacyIngress off never deletes them under a live install
+(they are kept anyway). Context: the root.
+*/}}
+{{- define "patchy.previewALB" -}}
+{{- if or (include "patchy.previewLegacyIngress" .) .Values.preview.albName -}}
+true
+{{- end -}}
+{{- end }}

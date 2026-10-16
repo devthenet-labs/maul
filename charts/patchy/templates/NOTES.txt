@@ -91,9 +91,17 @@ are meant to run in the application repository's own image.
 {{- $p := .Values.preview }}
 {{- $n := $p.nodeIsolation }}
 {{- $iso := include "patchy.previewNodeIsolation" . | fromJson }}
+{{- $legacy := include "patchy.previewLegacyIngress" . }}
+{{- $alb := include "patchy.previewALB" . }}
 
 Previews: {{ $p.slotCount }} slot(s), each preview served at <project>-<issue>.{{ $p.hostSuffix }}.
 Next steps:
+{{- if not $alb }}
+
+  1-2. No preview ALB: preview.legacyIngress is false, so the preview-controller
+     renders no slot Ingress and only the preview gateway (previewAuth.gateway)
+     reaches the slots. Point *.{{ $p.hostSuffix }} at the gateway's edge.
+{{- else }}
 
   1. The preview ALB.{{ if $p.placeholder.enabled }} The kept placeholder Ingress creates it ({{ $p.albName }}).
      Its hostname, once the load balancer is provisioned:
@@ -106,7 +114,9 @@ Next steps:
 {{- end }}
 
   2. The wildcard record: point *.{{ $p.hostSuffix }} at that hostname (a
-     Route53 alias A record, or a CNAME).
+     Route53 alias A record, or a CNAME){{ if not $legacy }}, or, now that
+     preview.legacyIngress is false, at the preview gateway's edge{{ end }}.
+{{- end }}
 
   3. The preview nodes: {{ if eq $iso.mode "none" }}none. preview.nodeIsolation.mode is none, so
      preview Pods share nodes with everything else: hostile pull request
@@ -136,8 +146,10 @@ Next steps:
          <disposable-PR-number>
 {{- end }}
 
+{{- if $alb }}
 COST: the preview ALB bills from the moment the placeholder creates it,
 whether or not any preview runs{{ if $p.placeholder.enabled }} (even with previewController off){{ end }}.
+{{- end }}
 {{- if $n.create }}
 A preview node ({{ join ", " $n.instanceTypes }}) bills from launch until it
 is consolidated, 30s after its last preview Pod. Budget by CPU: the pool
@@ -147,6 +159,23 @@ enforce a NodePool's node limit, so do not count on its limit of {{ $n.nodeLimit
 A preview node bills from launch until NodePool {{ $iso.nodePool }}'s own
 disruption policy removes it. This release does not render that NodePool, so
 its consolidation and limits are whatever you set.
+{{- end }}
+{{- $albKeys := list }}
+{{- range $k := list "albName" "certificateARN" "albSubnetCIDRs" "albSubnetIDs" "prefixListsIDs" "allowPublicWithAuth" }}
+{{- if get $p $k }}{{ $albKeys = append $albKeys (printf "preview.%s" $k) }}{{ end }}
+{{- end }}
+{{- if and (not $legacy) $albKeys }}
+
+DEPRECATED: preview.legacyIngress is false, so the preview ALB serves nothing,
+but {{ join ", " $albKeys }} {{ if eq (len $albKeys) 1 }}is{{ else }}are{{ end }} still set{{ if $alb }} and keep its kept objects
+(the alb-preview IngressClass, its params and the placeholder) rendering{{ end }}.
+They are removed in the next release: unset them once the wildcard record
+points at the preview gateway, then delete the kept objects the release notes list.
+{{- end }}
+{{- if kindIs "bool" (.Values.previewController.config | default dict).legacyIngress }}
+
+DEPRECATED: previewController.config.legacyIngress moved to preview.legacyIngress.
+It still wins while set; move it.
 {{- end }}
 {{- with $iso.legacy }}
 

@@ -109,9 +109,25 @@ clusterDNSCIDR: ""
 # When enabled, the default placeholder Ingress creates a separate ALB even if
 # previewController is off. Set placeholder.enabled=false for a guardrails-only
 # staging revision before re-enabling a kept, older admission policy.
+#
+# The keys marked LEGACY are the preview ALB's (EKS Auto Mode only): required
+# while legacyIngress is true, optional once it is false, and removed in a
+# later release; with legacyIngress false the install NOTES list the ones
+# still set.
 preview:
     enabled: false
     slotCount: 2
+    # Render each Preview's slot Ingress on the preview ALB, which signs
+    # viewers in (previewAuth's permit/require stages): the path every
+    # install has used so far. false: the preview-controller renders no
+    # slot Ingress and deletes the ones it rendered before (a Preview is
+    # Ready once every component has a Ready Pod; previewController
+    # .config.targetHealth is ignored), so only previewAuth.gateway reaches
+    # the slots; the LEGACY keys become optional, and the ALB objects render
+    # only while albName is still set. Keep it true until the wildcard DNS
+    # record points at the gateway's edge.
+    legacyIngress: true
+    # LEGACY: the kept placeholder Ingress that creates the preview ALB.
     placeholder:
         enabled: true
     # Dedicated, tainted nodes for hostile preview code. Every slot Pod
@@ -187,7 +203,10 @@ preview:
             size: 20Gi
             iops: 3000
             throughput: 125
-    imageRegistry: "" # ECR registry host only; images must be <imagePathPrefix>/<app>:sha-<full SHA>
+    # The registry host preview images come from (any registry: ECR, GHCR,
+    # a local one with a port); images must be
+    # <imageRegistry>/<imagePathPrefix>/<app>:sha-<full SHA>.
+    imageRegistry: ""
     # The registry path every preview runtime image sits directly under:
     # <imageRegistry>/<imagePathPrefix>/<app>, one lowercase DNS-label leaf
     # deep. Lowercase ECR path segments joined by "/", with no leading or
@@ -204,27 +223,29 @@ preview:
     # fails to render until the Project names one under the new path.
     imagePathPrefix: patchy/previews
     dnsCIDR: "" # Node-local CoreDNS service /32, not a broad service CIDR; empty means clusterDNSCIDR.
-    albSubnetCIDRs: [] # Public ALB source subnets, not 0.0.0.0/0.
-    # The subnet IDs of albSubnetCIDRs, one per CIDR: pins the preview ALB to
+    albSubnetCIDRs: [] # LEGACY: public ALB source subnets, not 0.0.0.0/0.
+    # LEGACY: the subnet IDs of albSubnetCIDRs, one per CIDR: pins the preview ALB to
     # exactly those subnets. Empty leaves placement to Auto Mode, which uses a
     # kubernetes.io/role/elb subnet in every zone that has one; albSubnetCIDRs
     # must then cover every such subnet, or the slots drop that zone's traffic.
     albSubnetIDs: []
-    # Reviewer IPs, each a /32 (the schema refuses wider), at most 8. Required
-    # unless previewAuth requires sign-in (see allowPublicWithAuth).
+    # LEGACY: reviewer IPs the preview ALB admits, each a /32 (the schema
+    # refuses wider), at most 8. Required with the ALB unless previewAuth
+    # requires sign-in (see allowPublicWithAuth). The gateway's allowlist is
+    # previewAuth.gateway.inboundCIDRs.
     inboundCIDRs: []
-    # Managed prefix list IDs (pl-...) the preview ALB also admits, at most 8:
+    # LEGACY: managed prefix list IDs (pl-...) the preview ALB also admits, at most 8:
     # the IngressClassParams prefixListsIDs. Optional and additive; it
     # replaces inboundCIDRs only once previewAuth requires sign-in.
     prefixListsIDs: []
-    # Rev C only: confirmed lets inboundCIDRs (and prefixListsIDs) be empty,
+    # LEGACY. Rev C only: confirmed lets inboundCIDRs (and prefixListsIDs) be empty,
     # so any address reaches the preview ALB and sign-in alone guards it.
     # Needs previewAuth in its require stage and previewAuth.sessionTimeout
     # of at most 900. Never set it before the ALB probe has run.
     allowPublicWithAuth: ""
-    certificateARN: "" # Issued wildcard certificate for preview hosts.
+    certificateARN: "" # LEGACY: issued wildcard certificate for preview hosts.
     hostSuffix: "" # e.g. preview.example.com, without leading dot.
-    albName: "" # Distinct from the normal patchy ALB.
+    albName: "" # LEGACY: distinct from the normal patchy ALB.
 
 # Namespaced runtime renderer for opt-in Projects. Kept off while preview
 # isolation, the separate ALB, placeholder Ingress and DNS are being staged.
@@ -259,15 +280,11 @@ previewController:
         # waits out rolloutTimeout and spends one of maxRetries (a Preview on
         # its last retry fails). Set false explicitly to keep the old
         # behaviour, or upgrade while no Preview is deploying.
+        # LEGACY (the preview ALB's target health); ignored with
+        # preview.legacyIngress false.
         targetHealth: true
-        # Render each Preview's slot Ingress, the load balancer path above,
-        # exactly as before the preview gateway. false renders none: a
-        # Preview is Ready once every component has a Ready Pod of its
-        # current spec (targetHealth is then ignored), and the controller
-        # deletes the slot Ingresses it rendered before, leaving the preview
-        # gateway to route from status.serving. Keep it true until the
-        # gateway serves the preview hosts.
-        legacyIngress: true
+        # legacyIngress moved to preview.legacyIngress. Set here (on a chart
+        # before the move), it still wins, and NOTES ask to move it.
         extra: {}
     resources:
         requests:

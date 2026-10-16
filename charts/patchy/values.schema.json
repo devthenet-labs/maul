@@ -745,6 +745,7 @@
             "properties": {
                 "enabled": {"type": "boolean"},
                 "slotCount": {"type": "integer", "minimum": 1, "maximum": 4},
+                "legacyIngress": {"type": "boolean", "description": "Render each Preview's slot Ingress on the preview ALB (the legacy path); false leaves the slots to previewAuth.gateway and makes the ALB keys optional"},
                 "placeholder": {
                     "type": "object",
                     "additionalProperties": false,
@@ -797,7 +798,7 @@
                         }
                     }
                 },
-                "imageRegistry": {"type": "string", "pattern": "^$|^[0-9]{12}\\.dkr\\.ecr\\.[a-z0-9-]+\\.amazonaws\\.com$"},
+                "imageRegistry": {"type": "string", "description": "The registry host preview images come from: any registry, lowercase, with an optional port", "pattern": "^$|^[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]{1,5})?$"},
                 "imagePathPrefix": {"type": "string", "description": "Registry path every preview image sits directly under (<imageRegistry>/<imagePathPrefix>/<app>): lowercase ECR path segments joined by '/', no leading or trailing slash, never empty, and disjoint from every agent.repositoryImages.registries entry", "pattern": "^[a-z0-9]+([._-][a-z0-9]+)*(/[a-z0-9]+([._-][a-z0-9]+)*)*$"},
                 "dnsCIDR": {"type": "string", "pattern": "^$|^[0-9]{1,3}(\\.[0-9]{1,3}){3}/32$"},
                 "albSubnetCIDRs": {"type": "array", "maxItems": 4, "uniqueItems": true, "items": {"type": "string", "pattern": "^[0-9]{1,3}(\\.[0-9]{1,3}){3}/(2[0-9]|3[0-2])$"}},
@@ -827,14 +828,14 @@
                 "config": {
                     "type": "object",
                     "additionalProperties": false,
-                    "required": ["apiServerCIDR", "rolloutTimeout", "pollInterval", "maxRetries", "targetHealth", "legacyIngress"],
+                    "required": ["apiServerCIDR", "rolloutTimeout", "pollInterval", "maxRetries", "targetHealth"],
                     "properties": {
                         "apiServerCIDR": {"type": "string", "pattern": "^$|^[0-9]{1,3}(\\.[0-9]{1,3}){3}/32$"},
                         "rolloutTimeout": {"$ref": "#/definitions/duration"},
                         "pollInterval": {"$ref": "#/definitions/duration"},
                         "maxRetries": {"type": "integer", "minimum": 1, "maximum": 3},
                         "targetHealth": {"type": "boolean"},
-                        "legacyIngress": {"type": "boolean"},
+                        "legacyIngress": {"type": ["boolean", "null"], "description": "Deprecated: moved to preview.legacyIngress; set here it still wins"},
                         "extra": {"$ref": "#/definitions/extraEnv"}
                     }
                 },

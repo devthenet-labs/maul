@@ -231,6 +231,77 @@ render preview-runtime-gateway -f "$fixtures/preview-foundation.yaml" \
   -f "$fixtures/intent-controller.yaml" -f "$fixtures/preview-controller.yaml" \
   --set previewController.config.legacyIngress=false
 cm preview-runtime-gateway preview-controller PATCHY_PREVIEW_LEGACY_INGRESS false
+# preview.legacyIngress is the value now; previewController.config.legacyIngress
+# (its spelling before the move, above) still wins while set, and NOTES ask
+# to move it. Off the legacy path the slot namespaces drop the readiness-gate
+# label (no load balancer target), and the ALB objects render only while
+# albName is still set.
+render preview-runtime-nolegacy -f "$fixtures/preview-foundation.yaml" \
+  -f "$fixtures/intent-controller.yaml" -f "$fixtures/preview-controller.yaml" --set preview.legacyIngress=false
+cm preview-runtime-nolegacy preview-controller PATCHY_PREVIEW_LEGACY_INGRESS false
+render preview-runtime-alias-wins -f "$fixtures/preview-foundation.yaml" \
+  -f "$fixtures/intent-controller.yaml" -f "$fixtures/preview-controller.yaml" --set preview.legacyIngress=false \
+  --set previewController.config.legacyIngress=true
+cm preview-runtime-alias-wins preview-controller PATCHY_PREVIEW_LEGACY_INGRESS true
+expect preview-runtime-nolegacy 'select(.kind == "Namespace" and (.metadata.name | test("^patchy-preview-"))) | .metadata.labels."eks.amazonaws.com/pod-readiness-gate-inject"' 'null
+null'
+for kind in IngressClass IngressClassParams; do
+  expect preview-runtime-nolegacy "select(.kind == \"$kind\") | .metadata.name" alb-preview
+done
+expect preview-runtime-nolegacy 'select(.metadata.name == "patchy-preview-placeholder") | .kind + "/" + .metadata.namespace' 'Service/patchy-preview-0
+Ingress/patchy-preview-0'
+notes notes-preview-nolegacy -f "$fixtures/preview-foundation.yaml" --set preview.legacyIngress=false
+notes_has notes-preview-nolegacy "DEPRECATED: preview.legacyIngress is false, so the preview ALB serves nothing," yes
+notes_has notes-preview-nolegacy "but preview.albName, preview.certificateARN, preview.albSubnetCIDRs are still set" yes
+notes_has notes-preview-nolegacy "at the preview gateway's edge" yes
+notes notes-preview-legacy -f "$fixtures/preview-foundation.yaml"
+notes_has notes-preview-legacy "preview ALB serves nothing" no
+notes_has notes-preview-legacy "previewController.config.legacyIngress moved" no
+notes notes-preview-alias -f "$fixtures/preview-foundation.yaml" --set previewController.config.legacyIngress=false
+notes_has notes-preview-alias "DEPRECATED: previewController.config.legacyIngress moved to preview.legacyIngress." yes
+# Off the legacy path with every ALB value unset: no ALB object at all, no
+# placeholder needed by the controller, and with nothing to admit (no ALB
+# subnets, no gateway) the slot policy admits no ingress at all.
+noalb=$out/no-alb.yaml
+printf 'preview:\n    legacyIngress: false\n    albSubnetCIDRs: []\n    inboundCIDRs: []\n    certificateARN: ""\n    albName: ""\n    placeholder:\n        enabled: false\n' >"$noalb"
+render preview-noalb -f "$fixtures/preview-foundation.yaml" -f "$fixtures/intent-controller.yaml" \
+  -f "$fixtures/preview-controller.yaml" -f "$noalb"
+expect preview-noalb 'select(.kind == "IngressClass" or .kind == "IngressClassParams" or .kind == "Ingress" or .metadata.name == "patchy-preview-placeholder") | .kind' ''
+expect preview-noalb 'select(.kind == "NetworkPolicy" and .metadata.name == "preview-isolation") | .spec.ingress | length' '0
+0'
+expect preview-noalb 'select(.kind == "NetworkPolicy" and .metadata.name == "preview-isolation") | .spec.policyTypes | join(",")' 'Ingress,Egress
+Ingress,Egress'
+notes notes-preview-noalb -f "$fixtures/preview-foundation.yaml" -f "$noalb"
+notes_has notes-preview-noalb "1-2. No preview ALB" yes
+notes_has notes-preview-noalb "COST: the preview ALB" no
+notes_has notes-preview-noalb "DEPRECATED: preview.legacyIngress" no
+expect_fail 'legacy path without the ALB name' 'preview.albName is required when preview.enabled=true with the preview ALB' \
+  -f "$fixtures/preview-foundation.yaml" -f "$noalb" --set preview.legacyIngress=true \
+  --set-json 'preview.albSubnetCIDRs=["10.40.128.0/24"]' --set-json 'preview.inboundCIDRs=["203.0.113.10/32"]' \
+  --set preview.certificateARN=arn:aws:acm:us-east-1:111122223333:certificate/a885812f-7587-4150-9196-5b160567cf54
+expect_fail 'legacy path without ALB subnets' 'preview.albSubnetCIDRs is required' \
+  -f "$fixtures/preview-foundation.yaml" -f "$noalb" --set preview.legacyIngress=true
+# Any registry host: preview images need not come from ECR.
+for registry in ghcr.io registry.example.com:5000; do
+  render "preview-registry-$(echo "$registry" | tr -c 'a-z0-9\n' '-')" -f "$fixtures/preview-foundation.yaml" \
+    -f "$fixtures/intent-controller.yaml" -f "$fixtures/preview-controller.yaml" --set preview.imageRegistry=$registry
+done
+cm preview-registry-ghcr-io preview-controller PATCHY_PREVIEW_IMAGE_PREFIX ghcr.io/patchy/previews/
+cm preview-registry-registry-example-com-5000 preview-controller PATCHY_PREVIEW_IMAGE_PREFIX registry.example.com:5000/patchy/previews/
+expect preview-registry-ghcr-io 'select(.kind == "ValidatingAdmissionPolicy" and .metadata.name == "patchy-preview-pods") | .spec.validations[0].expression' "variables.pod.containers.all(c,
+  c.image.startsWith('ghcr.io/patchy/previews/') &&
+  c.image.substring(24).matches('^[a-z0-9-]+:sha-[0-9a-f]{40}\$'))"
+expect_fail 'preview registry with a path' "'/preview/imageRegistry'" -f "$fixtures/preview-foundation.yaml" \
+  --set preview.imageRegistry=ghcr.io/acme
+expect_fail 'preview registry uppercase' "'/preview/imageRegistry'" -f "$fixtures/preview-foundation.yaml" \
+  --set preview.imageRegistry=GHCR.io
+# Off EKS Auto Mode, slot DNS needs no address: the kube-system selector,
+# as every other chart policy has. On Auto Mode an address stays required.
+render preview-dns-selector -f "$fixtures/preview-foundation.yaml" --set preview.dnsCIDR= \
+  --set preview.nodeIsolation.nodePool= --set preview.nodeIsolation.nodeClass= \
+  --set-json 'preview.nodeIsolation.selector={"patchy.example.com/previews":"true"}'
+expect preview-dns-selector 'select(.kind == "NetworkPolicy" and .metadata.name == "preview-isolation") | .spec.egress[0].to[] | .namespaceSelector.matchLabels."kubernetes.io/metadata.name" + " " + (has("ipBlock") | tostring)' 'kube-system false
+kube-system false'
 expect preview-runtime-ungated 'select(.kind == "Namespace" and (.metadata.name | test("^patchy-preview-"))) | .metadata.labels."eks.amazonaws.com/pod-readiness-gate-inject"' 'null
 null'
 expect_fail 'preview controller without slots' 'requires preview.enabled' \

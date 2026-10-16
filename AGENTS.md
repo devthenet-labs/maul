@@ -140,8 +140,8 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   is matched with (`v1alpha1.PreviewComponentServiceName`, `PreviewPathMatches`, `PreviewRoute`) are shared, pinned to
   the rendered Ingress by a seeded property. Node isolation is generic (`--preview-node-selector` JSON map plus
   `--preview-taint-key`, `--preview-node-isolation=required|none`; the NodePool/NodeClass flags fill EKS's two keys, so
-  renders stay byte-identical). `--preview-legacy-ingress` (default true, today's path) off renders no slot Ingress,
-  ignores target health and deletes the controller's own slot Ingresses. See `docs/configuration/preview-controller.md`.
+  renders stay byte-identical). `--preview-legacy-ingress` (default true, today's path; chart `preview.legacyIngress`) off renders no slot
+  Ingress, ignores target health and deletes the controller's own slot Ingresses. See `docs/configuration/preview-controller.md`.
 - `cmd/status-server` — the human-facing status page (NOT a controller: no reconcilers, no leases): the embedded
   SPA + JSON projection of Findings/FindingRollups, SSE refetch signal, OIDC sign-in, the access-review-gated
   approve/retry/expedite/suspend/resume actions, and the user-menu demo tooling (replay → Integration

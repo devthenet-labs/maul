@@ -291,7 +291,7 @@ blocks on ImageRequired. The changeset entry cap is remediation's value.
 {{- $_ := set $data "PATCHY_PREVIEW_POLL_INTERVAL" $own.pollInterval }}
 {{- $_ := set $data "PATCHY_PREVIEW_MAX_RETRIES" $own.maxRetries }}
 {{- $_ := set $data "PATCHY_PREVIEW_TARGET_HEALTH" $own.targetHealth }}
-{{- $_ := set $data "PATCHY_PREVIEW_LEGACY_INGRESS" $own.legacyIngress }}
+{{- $_ := set $data "PATCHY_PREVIEW_LEGACY_INGRESS" (include "patchy.previewLegacyIngress" $root | eq "true") }}
 {{- /*
 Preview sign-in required (previewAuth.stage require): the pinned annotation
 sets, rendered once in _preview-auth.tpl, so every Ingress the controller
