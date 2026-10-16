@@ -58,7 +58,7 @@ func annotationOf(login string) string {
 // to, in launch order.
 func (e *env) launchedAttribution(phase string) []string {
 	var out []string
-	for _, s := range e.jobs.launched() {
+	for _, s := range e.jobs.launchedInOrder() {
 		if s.Phase == phase {
 			out = append(out, s.AttributedTo)
 		}
