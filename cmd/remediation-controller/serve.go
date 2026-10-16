@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"k8s.io/client-go/kubernetes"
+	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/bitwise-media-group/patchy/internal/attribution"
 	"github.com/bitwise-media-group/patchy/internal/changeset"
@@ -276,13 +277,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	if err := rem.SetupWithManager(mgr); err != nil {
 		return err
 	}
-	roll := &rollup.Reconciler{
-		Client:    mgr.GetClient(),
-		Namespace: namespace,
-		TTL:       opts.Duration("finding-ttl"),
-		Log:       log,
-	}
-	if err := roll.SetupWithManager(mgr); err != nil {
+	if err := setupRollups(mgr, namespace, opts.Duration("finding-ttl"), log); err != nil {
 		return err
 	}
 
@@ -299,4 +294,23 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		return err
 	}
 	return nil
+}
+
+// setupRollups registers the rollup/TTL loop and, beside it, the
+// UsageRollups' compaction (the run controllers aggregate into them). A
+// compaction pass with nothing past retention writes nothing, so it is inert
+// until attribution has produced any.
+func setupRollups(mgr ctrl.Manager, namespace string, ttl time.Duration, log *slog.Logger) error {
+	roll := &rollup.Reconciler{
+		Client:    mgr.GetClient(),
+		Namespace: namespace,
+		TTL:       ttl,
+		Log:       log,
+	}
+	if err := roll.SetupWithManager(mgr); err != nil {
+		return err
+	}
+	return mgr.Add(&rollup.UsageCompactor{
+		Client: mgr.GetClient(), Reader: mgr.GetAPIReader(), Namespace: namespace, Log: log,
+	})
 }
