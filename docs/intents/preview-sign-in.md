@@ -184,6 +184,8 @@ The relay probes every Ready preview host the same way once a minute and exports
 `patchy.preview_auth.unprotected_hosts`; alert on anything above zero. While the allowlist is set, that probe reaches
 the preview load balancer only if the cluster's NAT egress addresses are in `preview.inboundCIDRs`; otherwise its hosts
 all count as unreachable (`patchy.preview_auth.probe.unreachable_hosts`) and it proves nothing, so run G1 by hand.
+Behind the preview gateway the same goes for `previewAuth.gateway.inboundCIDRs`: a host the gateway refuses by its
+allowlist counts as unreachable, not unprotected.
 
 ## Rotating the keys
 

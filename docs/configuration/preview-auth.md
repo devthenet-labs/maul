@@ -350,7 +350,7 @@ a refused access review logs the viewer's username at warn, for operators.
 | `patchy.preview_auth.rate_limited`            | counter   | Requests refused by the rate limit                                                                                                                                                                     |
 | `patchy.preview_auth.request.duration`        | histogram | Latency per endpoint                                                                                                                                                                                   |
 | `patchy.preview_auth.unprotected_hosts`       | gauge     | Ready preview hosts that answered an unauthenticated request with anything but a redirect to sign in for their own Preview (in gateway mode, also the unknown host when it is not the gateway's `404`) |
-| `patchy.preview_auth.probe.unreachable_hosts` | gauge     | Hosts that did not answer the probe at all                                                                                                                                                             |
+| `patchy.preview_auth.probe.unreachable_hosts` | gauge     | Hosts that did not answer the probe at all, or that the preview gateway refused by its inbound allowlist                                                                                               |
 | `patchy.preview_auth.gateway`                 | counter   | Preview-host and `/start` requests by result (`proxied`, `sign_in`, `unauthenticated`, `session`, `denied`, `cross_origin`, ...)                                                                       |
 | `patchy.preview_auth.gateway.streams_closed`  | counter   | Proxied streams and connections the gateway closed early, by reason: `preview_changed`, `revoked`                                                                                                      |
 
@@ -364,5 +364,8 @@ decision gets the audit line.
 `unprotected_hosts` above zero is an incident: the load balancer serves a preview without sign-in although its Ingress
 may conform (a failed Auto Mode model build keeps a whole Ingress group on its old rules). While `preview.inboundCIDRs`
 is set, the probe reaches the preview load balancer only if the cluster's NAT egress addresses are among them; otherwise
-every host counts as unreachable and the probe proves nothing. `patchy check project` runs the same probe from your
-workstation ([Preview sign-in](../intents/preview-sign-in.md#check-it)).
+every host counts as unreachable and the probe proves nothing. The same holds for the gateway: while
+`previewAuth.gateway.inboundCIDRs` leaves out the NAT egress addresses, the gateway answers the probe with its allowlist
+refusal page before it routes any host, and each such host counts as unreachable, never unprotected.
+`patchy check project` runs the same probe from your workstation
+([Preview sign-in](../intents/preview-sign-in.md#check-it)).

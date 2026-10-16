@@ -44,7 +44,8 @@ var (
 	})
 	unreachableGauge = sync.OnceValue(func() metric.Int64Gauge {
 		g, err := otel.Meter(scopeName).Int64Gauge("patchy.preview_auth.probe.unreachable_hosts",
-			metric.WithDescription("Ready preview hosts the relay's probe could not reach"))
+			metric.WithDescription("Ready preview hosts the relay's probe could not reach, or the preview "+
+				"gateway refused by its inbound allowlist"))
 		if err != nil {
 			otel.Handle(err)
 		}
@@ -201,6 +202,14 @@ func (p *Prober) probe(ctx context.Context, c *http.Client, expect previewauth.P
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, bodyLimit))
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, bodyLimit))
 	_ = resp.Body.Close()
+	if p.Gateway != nil && previewauth.IsAllowlistRefusal(resp.StatusCode, resp.Header, body) {
+		// The gateway refuses this replica's egress address by its inbound
+		// allowlist before it routes the host: the allowlist working, not an
+		// unprotected host, and nothing about the host can be judged.
+		p.log().LogAttrs(ctx, slog.LevelDebug, "preview host probe: refused by the gateway's inbound allowlist",
+			slog.String("label", v.Label))
+		return errUnreachable
+	}
 	if v.Label == previewauth.UnknownProbeLabel {
 		err = previewauth.JudgeGatewayUnknown(resp.StatusCode, resp.Header, body)
 	} else {

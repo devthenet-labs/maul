@@ -53,13 +53,18 @@ func (h hosts) RoundTrip(r *http.Request) (*http.Response, error) {
 		rec.WriteHeader(http.StatusFound)
 		return rec.Result(), nil
 	case "gateway-404":
-		h := rec.Header()
-		h.Set("Content-Security-Policy", previewauth.PageCSP)
-		h.Set("Cross-Origin-Opener-Policy", "same-origin")
-		h.Set("Cache-Control", "no-store")
-		h.Set("Content-Type", "text/html; charset=utf-8")
+		gatewayPage(rec)
 		rec.WriteHeader(http.StatusNotFound)
 		_, _ = rec.WriteString("<title>" + previewauth.NoPreviewTitle + "</title>")
+		return rec.Result(), nil
+	case "gateway-refused":
+		gatewayPage(rec)
+		rec.WriteHeader(http.StatusForbidden)
+		_, _ = rec.WriteString("<title>Refused</title><p>" + previewauth.NotOnAllowlistMessage + "</p>")
+		return rec.Result(), nil
+	case "403":
+		rec.WriteHeader(http.StatusForbidden)
+		_, _ = rec.WriteString(previewauth.NotOnAllowlistMessage)
 		return rec.Result(), nil
 	case "404":
 		rec.WriteHeader(http.StatusNotFound)
@@ -70,6 +75,15 @@ func (h hosts) RoundTrip(r *http.Request) (*http.Response, error) {
 	rec.Header().Set("Location", issuer+"/authorize?"+q.Encode())
 	rec.WriteHeader(http.StatusFound)
 	return rec.Result(), nil
+}
+
+// gatewayPage sets the headers of a page the gateway renders itself.
+func gatewayPage(rec *httptest.ResponseRecorder) {
+	h := rec.Header()
+	h.Set("Content-Security-Policy", previewauth.PageCSP)
+	h.Set("Cross-Origin-Opener-Policy", "same-origin")
+	h.Set("Cache-Control", "no-store")
+	h.Set("Content-Type", "text/html; charset=utf-8")
 }
 
 func TestOnce(t *testing.T) {
@@ -174,5 +188,60 @@ func TestOnceGatewayMode(t *testing.T) {
 				t.Fatalf("result %+v, want %d probed and %v unprotected", res, tt.probed, tt.bad)
 			}
 		})
+	}
+}
+
+// TestOnceGatewayAllowlistRefusal: when the gateway refuses the relay's own
+// egress address by its inbound allowlist, it does so before it routes any
+// host, so a refused host is unreachable, never unprotected, in either mode
+// with the gateway on. A bare 403 carrying the same words is not the
+// gateway's page and stays unprotected, and without the gateway the
+// refusal page protects nothing.
+func TestOnceGatewayAllowlistRefusal(t *testing.T) {
+	cb, err := previewauth.NewCallbacks(suffix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gw, err := previewauth.NewHosts(suffix, "preview-auth.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := func(label string) previewauth.View {
+		return previewauth.View{UID: "u-" + label, Label: label, Project: "p", Slot: 1, Live: true}
+	}
+	unknown := previewauth.UnknownProbeLabel
+	tests := []struct {
+		name                string
+		gateway             *previewauth.Hosts
+		mode                previewauth.ProbeMode
+		probed, unreachable int
+		bad                 []string
+	}{
+		{"gateway", &gw, previewauth.ProbeGateway, 3, 3, nil},
+		{"either", &gw, previewauth.ProbeEither, 2, 2, nil},
+		{"gateway off", nil, previewauth.ProbeALB, 2, 0, []string{"r-1", "r-2"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &Prober{
+				Lister: views{v("r-1"), v("r-2")}, Callbacks: cb, Issuer: issuer, Gateway: tt.gateway,
+				Mode:      tt.mode,
+				Transport: hosts{"r-1": "gateway-refused", "r-2": "gateway-refused", unknown: "gateway-refused"},
+			}
+			res := p.Once(context.Background())
+			slices.Sort(res.UnprotectedLabels)
+			if res.Probed != tt.probed || res.Unreachable != tt.unreachable ||
+				!slices.Equal(res.UnprotectedLabels, tt.bad) {
+				t.Fatalf("result %+v, want %d probed, %d unreachable, %v unprotected", res, tt.probed,
+					tt.unreachable, tt.bad)
+			}
+		})
+	}
+	p := &Prober{
+		Lister: views{v("r-1")}, Callbacks: cb, Issuer: issuer, Gateway: &gw, Mode: previewauth.ProbeEither,
+		Transport: hosts{"r-1": "403"},
+	}
+	if res := p.Once(context.Background()); res.Unprotected != 1 || res.Unreachable != 0 {
+		t.Fatalf("a bare 403: %+v", res)
 	}
 }
