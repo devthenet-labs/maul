@@ -62,13 +62,21 @@ func ptr[T any](value T) *T { return &value }
 // Settings are fixed operator values, never taken from a Preview spec or an
 // agent. SlotCount is the only global concurrency/spend bound.
 type Settings struct {
-	Namespace      string
-	SlotCount      int
-	ImagePrefix    string // exact <registry>/<path>/ every image repository is one leaf under
-	HostSuffix     string
-	NodePool       string
-	NodeClass      string
-	TaintKey       string
+	Namespace   string
+	SlotCount   int
+	ImagePrefix string // exact <registry>/<path>/ every image repository is one leaf under
+	HostSuffix  string
+	// NodeSelector is the operator's generic preview node selector, merged
+	// with NodePool and NodeClass (which fill EKS Auto Mode's two keys).
+	NodeSelector map[string]string
+	NodePool     string
+	NodeClass    string
+	// TaintKey is the preview nodes' NoExecute taint, value "true", which
+	// every slot Pod tolerates. It is required whenever a selector is set.
+	TaintKey string
+	// NodeIsolation is NodeIsolationRequired (also the zero value) or
+	// NodeIsolationNone; see validateNodeIsolation.
+	NodeIsolation  string
 	RolloutTimeout time.Duration
 	PollInterval   time.Duration
 	MaxRetries     int32
@@ -89,6 +97,14 @@ type Settings struct {
 	// Ready, as in slice 2, and the host can answer 404 for a few seconds
 	// after Ready while the target registers.
 	TargetHealth bool
+	// NoLegacyIngress (--preview-legacy-ingress=false) renders no slot
+	// Ingress: the preview gateway routes to the slot Services from
+	// status.serving instead. Ready then means every component has a Ready
+	// Pod of its current spec with an image ID (TargetHealth has no load
+	// balancer to wait for and is ignored), and the controller deletes the
+	// slot Ingresses it rendered before. The zero value is the legacy path,
+	// exactly as it was.
+	NoLegacyIngress bool
 	// Auth puts every preview Ingress behind the sign-in relay; off, the
 	// Ingress renders exactly as it did before the relay existed.
 	Auth AuthSettings
@@ -104,12 +120,30 @@ func (s Settings) Validate() error {
 			"(a lowercase registry host, one or more lowercase path segments and a trailing slash)", s.ImagePrefix)
 	}
 	if s.Namespace == "" || s.SlotCount < 1 || s.SlotCount > 4 ||
-		s.HostSuffix == "" || s.NodePool == "" || s.NodeClass == "" || s.TaintKey == "" ||
+		s.HostSuffix == "" ||
 		s.RolloutTimeout <= 0 || s.PollInterval <= 0 || s.MaxRetries < 1 || s.MaxRetries > 3 {
 		return fmt.Errorf("invalid preview-controller settings")
 	}
+	if err := s.validateNodeIsolation(); err != nil {
+		return fmt.Errorf("invalid preview-controller settings: %w", err)
+	}
 	return s.Auth.validate(s)
 }
+
+// tolerations tolerate the preview nodes' NoExecute taint, or are nil with no
+// taint key (node isolation none).
+func (s Settings) tolerations() []corev1.Toleration {
+	if s.TaintKey == "" {
+		return nil
+	}
+	return []corev1.Toleration{{
+		Key: s.TaintKey, Operator: corev1.TolerationOpEqual, Value: "true", Effect: corev1.TaintEffectNoExecute,
+	}}
+}
+
+// targetHealth reports whether Ready waits for the load balancer's target
+// health: TargetHealth, with the legacy Ingress the load balancer needs.
+func (s Settings) targetHealth() bool { return s.TargetHealth && !s.NoLegacyIngress }
 
 func (s Settings) slotName(n int32) string { return fmt.Sprintf("patchy-preview-%d", n) }
 
@@ -120,16 +154,14 @@ func resourceName(p *v1alpha1.Preview) string      { return "preview-" + p.Name 
 func (s Settings) host(p *v1alpha1.Preview) string { return p.Spec.HostLabel + "." + s.HostSuffix }
 func image(c v1alpha1.PreviewComponent) string     { return c.ImageRepository + ":sha-" + c.Revision }
 
-// componentName names component i's Deployment and Service. The first keeps
-// preview-<p>, so a single-component Preview renders exactly what it always
-// did: an existing preview is not re-rendered across an upgrade, and a
-// rolled-back controller, which knows only that name, can still clean it up.
-// Each further component is preview-<p>-<c>.
+// componentName names component i's Deployment and Service, by the one
+// derivation a router shares (v1alpha1.PreviewComponentServiceName). The
+// first keeps preview-<p>, so a single-component Preview renders exactly what
+// it always did: an existing preview is not re-rendered across an upgrade,
+// and a rolled-back controller, which knows only that name, can still clean
+// it up. Each further component is preview-<p>-<c>.
 func componentName(p *v1alpha1.Preview, i int) string {
-	if i == 0 {
-		return resourceName(p)
-	}
-	return resourceName(p) + "-" + p.Spec.Components[i].Name
+	return v1alpha1.PreviewComponentServiceName(p, i)
 }
 
 // labelsFor are the labels every object of the Preview carries; cleanup,
@@ -211,12 +243,8 @@ func (s Settings) deployment(p *v1alpha1.Preview, i int, slot int32) *appsv1.Dep
 				ObjectMeta: metav1.ObjectMeta{Labels: labels},
 				Spec: corev1.PodSpec{
 					ServiceAccountName: "default", AutomountServiceAccountToken: ptr(false),
-					NodeSelector: map[string]string{
-						"karpenter.sh/nodepool": s.NodePool, "eks.amazonaws.com/nodeclass": s.NodeClass,
-					},
-					Tolerations: []corev1.Toleration{{
-						Key: s.TaintKey, Operator: corev1.TolerationOpEqual, Value: "true", Effect: corev1.TaintEffectNoExecute,
-					}},
+					NodeSelector: s.nodeSelector(),
+					Tolerations:  s.tolerations(),
 					SecurityContext: &corev1.PodSecurityContext{
 						RunAsNonRoot: ptr(true), RunAsUser: ptr(int64(65532)), RunAsGroup: ptr(int64(65532)),
 						SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
@@ -266,7 +294,7 @@ func (s Settings) service(p *v1alpha1.Preview, i int, slot int32) *corev1.Servic
 			Annotations: annotations},
 		Spec: corev1.ServiceSpec{
 			Type: corev1.ServiceTypeClusterIP, Selector: componentLabels(p, i),
-			Ports: []corev1.ServicePort{{Name: "http", Port: 80, TargetPort: intstr.FromString("http"),
+			Ports: []corev1.ServicePort{{Name: "http", Port: v1alpha1.PreviewServicePort, TargetPort: intstr.FromString("http"),
 				Protocol: corev1.ProtocolTCP}},
 		},
 	}
@@ -282,7 +310,8 @@ func rootComponent(p *v1alpha1.Preview) int {
 
 // ingress is the Preview's one host: a single rule with a Prefix path per
 // component, longest first, so the load balancer tries a sibling's deeper
-// prefix before the root's catch-all whether or not it orders rules itself.
+// prefix before the root's catch-all whether or not it orders rules itself:
+// the routing v1alpha1.PreviewRoute states, which the preview gateway uses.
 // With auth required it also carries the slot's pinned sign-in set, the only
 // annotations beside the health-check path; the controller names the slot's
 // client Secret there but never reads it.
@@ -294,7 +323,7 @@ func (s Settings) ingress(p *v1alpha1.Preview, slot int32) *networkingv1.Ingress
 		paths = append(paths, networkingv1.HTTPIngressPath{
 			Path: v1alpha1.PreviewComponentPath(c), PathType: &pathType,
 			Backend: networkingv1.IngressBackend{Service: &networkingv1.IngressServiceBackend{
-				Name: componentName(p, i), Port: networkingv1.ServiceBackendPort{Number: 80},
+				Name: componentName(p, i), Port: networkingv1.ServiceBackendPort{Number: v1alpha1.PreviewServicePort},
 			}},
 		})
 	}

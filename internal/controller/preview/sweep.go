@@ -198,8 +198,14 @@ func (s *Sweeper) sweepSlot(ctx context.Context, namespace string, slot int32, l
 	if err := s.List(ctx, &ingresses, client.InNamespace(namespace), selector); err != nil {
 		return err
 	}
+	ingressLive := live
+	if s.Settings.NoLegacyIngress {
+		// Without the legacy Ingress no Preview renders one, so every
+		// managed slot Ingress is left over, a live Preview's too.
+		ingressLive = nil
+	}
 	for i := range ingresses.Items {
-		if err := s.deleteOrphan(ctx, &ingresses.Items[i], slot, live); err != nil {
+		if err := s.deleteOrphan(ctx, &ingresses.Items[i], slot, ingressLive); err != nil {
 			return err
 		}
 	}

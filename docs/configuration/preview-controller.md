@@ -185,6 +185,59 @@ the cold-start isolation gate in `hack/preview-isolation-probe/README.md` with a
 after any EKS, Auto Mode or VPC CNI upgrade and before relying on previews again. The direct Auto Mode network-policy
 agent-log check is still open; absence of errors in Kubernetes events is not a substitute.
 
+## Node isolation
+
+Every slot Pod selects the dedicated preview nodes and tolerates their `NoExecute` taint (`<taint key>=true`), which
+keeps everything else off those nodes. The binary takes the selector in generic form:
+
+- `--preview-node-selector` (`PATCHY_PREVIEW_NODE_SELECTOR`) is a JSON object of node label to value.
+- `--preview-node-pool` and `--preview-node-class` fill its EKS Auto Mode keys, `karpenter.sh/nodepool` and
+  `eks.amazonaws.com/nodeclass`, so an install configured by them renders exactly the Pods it always did and no live
+  preview restarts. A selector that gives either key another value is refused.
+- `--preview-taint-key` is the taint every slot Pod tolerates.
+- `--preview-node-isolation` is `required` (the default) or `none`. Required refuses to start without a non-empty
+  selector and a taint key; none renders neither, refuses either if set, and is an explicit opt-out for a cluster with
+  no dedicated preview nodes, where preview code then shares nodes with everything else.
+
+Every key must be a label name and every value a label value. Changing the selector or the taint changes every slot
+Pod's template, so each live preview rolls once. The chart still sets only the pool, class and taint key, and its slot
+admission policy compares exactly those keys; the generic selector reaches the chart with the preview gateway.
+
+## The serving snapshot
+
+`status.serving` records what a Preview serves, for the preview gateway to route by: the Preview's generation and UID
+when it turned `Ready`, and per component its name, its Service (`preview-<project>-<issue>` or
+`preview-<project>-<issue>-<key>`), its path (`/` written out) and the Service's port (80). It is written when the
+Preview turns `Ready`, and backfilled onto a Preview that was `Ready` before the field existed. Unlike `url` and
+`components`, it stays while the Preview redeploys (`Deploying` at a new generation), because the rolling update keeps
+the previous revision's Pods serving until the new ones are Ready; it moves to the new generation once that is `Ready`.
+A redeploy that stops rendering a component (a repository dropped from the Project, or a component whose Service name
+moves to another) drops that component's entry at once, before its Service is pruned or repurposed, just as the legacy
+path drops its route from the kept Ingress, and clears the snapshot if no entry is left. It is cleared when nothing may
+serve any more: a retry that deletes the Deployments, `Failed`, `Expired`, the slot's release, and a deleting Preview. A
+router serves a Preview only from this snapshot plus its UID, slot and host label, never from its spec. The Service-name
+derivation (`v1alpha1.PreviewComponentServiceName`) and the path matcher (`v1alpha1.PreviewPathMatches` and
+`PreviewRoute`, the Ingress `Prefix` semantics: element by element, longest prefix first) live in `api/v1alpha1`, and a
+seeded property pins them to the Ingress this controller renders.
+
+## Without the legacy Ingress
+
+`--preview-legacy-ingress` (`PATCHY_PREVIEW_LEGACY_INGRESS`, chart `previewController.config.legacyIngress`) defaults to
+`true`: everything above, exactly as before the preview gateway. Set to `false`, for an install whose preview hosts the
+preview gateway serves:
+
+- No slot Ingress is rendered, and none precedes the Pods.
+- `Ready` means every component has a Ready Pod of its current spec with an image ID. There is no load balancer to wait
+  for, so `--preview-target-health` is ignored (the controller logs a warning when both are set) and no readiness gate
+  is expected.
+- On every deploy pass the controller deletes the slot Ingresses its Preview owns (by its UID, name and managed-by
+  labels), so a Preview made `Ready` on the legacy path loses its Ingress without restarting; a foreign Ingress is left
+  alone. Cleanup deletes them too before a slot is freed, and the orphan sweep deletes every managed slot Ingress, a
+  live Preview's included.
+- The slot Role keeps its Ingress verbs, which the cleanup needs.
+
+Turning it off before the gateway serves the preview hosts takes every preview off the network.
+
 ## Sign-in on preview Ingresses (off by default)
 
 The chart sets these flags from `previewAuth` in its require stage only (see the chart README's preview sign-in

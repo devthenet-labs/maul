@@ -15,6 +15,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -126,13 +127,20 @@ func (r *Reconciler) reconcileActive(ctx context.Context, p *v1alpha1.Preview) (
 		// target group binding) in place before the new Pods start. There the
 		// rolling update keeps the previous revision serving behind the kept
 		// Ingress until the new one is Ready (its target healthy).
-		if p.Status.Slot != nil && !r.Settings.TargetHealth {
-			if err := r.deleteIngress(ctx, p, *p.Status.Slot); err != nil {
+		if p.Status.Slot != nil && !r.Settings.targetHealth() {
+			if err := r.withdrawIngress(ctx, p, *p.Status.Slot); err != nil {
 				return ctrl.Result{}, err
 			}
 		}
 		// A Preview holding its slot redeploys in it at once: it reports
-		// Deploying, not Ready and with no URL, at the new revision.
+		// Deploying, not Ready and with no URL, at the new revision. Its
+		// serving snapshot stays: the rolling update keeps the previous
+		// revision's Pods serving until the new ones are Ready. Only the
+		// entries whose Service the new spec still renders for the same
+		// component stay, since deploy prunes or repurposes the others (a
+		// dropped or renamed component), as the legacy path drops their
+		// routes from the kept Ingress.
+		p.Status.Serving = servingStillRendered(p)
 		p.Status.Phase = v1alpha1.PreviewPending
 		if p.Status.Slot != nil {
 			p.Status.Phase = v1alpha1.PreviewDeploying
@@ -165,6 +173,7 @@ func (r *Reconciler) reconcileActive(ctx context.Context, p *v1alpha1.Preview) (
 		p.Status.Phase = v1alpha1.PreviewExpired
 		p.Status.Message = fmt.Sprintf("preview expired after %s without a new deployment", p.Spec.TTL.Duration)
 		p.Status.URL = ""
+		p.Status.Serving = nil
 		return ctrl.Result{}, r.Status().Update(ctx, p)
 	}
 	if p.Status.Slot == nil {
@@ -287,7 +296,10 @@ func (r *Reconciler) slotHasManagedObjects(ctx context.Context, slot int32) (boo
 // Deployment (a Deployment whose spec did not change is not touched, so it is
 // not rolled), and marks the Preview Ready once every component is. The host
 // is exposed only then too — unless Ready waits for target health, when the
-// Ingress precedes the Pods (Settings.TargetHealth).
+// Ingress precedes the Pods (Settings.TargetHealth). Without the legacy
+// Ingress (Settings.NoLegacyIngress) the Preview renders no Ingress at all and
+// removes any of its own a legacy pass left, and Ready means every component
+// has a Ready Pod of its current spec with an image ID.
 //
 // Pruning comes first so that a renamed component's Service fits the slot
 // quota, which in slot 0 has no Service to spare beside four components and
@@ -296,7 +308,10 @@ func (r *Reconciler) slotHasManagedObjects(ctx context.Context, slot int32) (boo
 // and with it prepareIngress has dropped stale routes from the kept one.
 func (r *Reconciler) deploy(ctx context.Context, p *v1alpha1.Preview) (ctrl.Result, error) {
 	slot := *p.Status.Slot
-	if r.Settings.TargetHealth {
+	if err := r.dropLegacyIngress(ctx, p, slot); err != nil {
+		return ctrl.Result{}, err
+	}
+	if r.Settings.targetHealth() {
 		if err := r.prepareIngress(ctx, p, slot); err != nil {
 			return r.renderError(ctx, p, err)
 		}
@@ -315,7 +330,7 @@ func (r *Reconciler) deploy(ctx context.Context, p *v1alpha1.Preview) (ctrl.Resu
 			return r.renderError(ctx, p, err)
 		}
 	}
-	if r.Settings.TargetHealth {
+	if r.Settings.targetHealth() {
 		// The Pods must start after their target group bindings exist, or
 		// the load balancer never injects the gate Ready waits for.
 		if err := r.ensureIngress(ctx, p, slot); err != nil {
@@ -427,11 +442,54 @@ func (r *Reconciler) oldPodsRemain(ctx context.Context, p *v1alpha1.Preview, i i
 	return r.childrenRemain(ctx, p, i, slot)
 }
 
+// servingSnapshot is what a Ready Preview serves, for the preview gateway to
+// route by: its generation and UID, and each component's Service, path and
+// Service port, in spec order, named and matched by the helpers the gateway
+// shares (v1alpha1.PreviewComponentServiceName, PreviewComponentPath).
+func servingSnapshot(p *v1alpha1.Preview) *v1alpha1.PreviewServing {
+	components := make([]v1alpha1.PreviewServingComponent, 0, len(p.Spec.Components))
+	for i, c := range p.Spec.Components {
+		components = append(components, v1alpha1.PreviewServingComponent{
+			Name: c.Name, Service: componentName(p, i), Path: v1alpha1.PreviewComponentPath(c),
+			Port: v1alpha1.PreviewServicePort,
+		})
+	}
+	return &v1alpha1.PreviewServing{Generation: p.Generation, UID: p.UID, Components: components}
+}
+
+// servingStillRendered is the Preview's serving snapshot less every entry
+// whose Service its current spec no longer renders for the same component:
+// prune is about to delete a Service no component renders, and a Service
+// name the spec hands to another component (the first component's, when the
+// one before it is dropped) is about to select that component's Pods. nil
+// once no entry is left.
+func servingStillRendered(p *v1alpha1.Preview) *v1alpha1.PreviewServing {
+	if p.Status.Serving == nil {
+		return nil
+	}
+	rendered := make(map[string]string, len(p.Spec.Components))
+	for i, c := range p.Spec.Components {
+		rendered[componentName(p, i)] = c.Name
+	}
+	kept := make([]v1alpha1.PreviewServingComponent, 0, len(p.Status.Serving.Components))
+	for _, c := range p.Status.Serving.Components {
+		if name, ok := rendered[c.Service]; ok && name == c.Name {
+			kept = append(kept, c)
+		}
+	}
+	if len(kept) == 0 {
+		return nil
+	}
+	serving := p.Status.Serving.DeepCopy()
+	serving.Components = kept
+	return serving
+}
+
 func (r *Reconciler) completeDeployment(ctx context.Context, p *v1alpha1.Preview, slot int32) (ctrl.Result, error) {
 	// Reaching Ready waits for target health. A Preview already Ready at
 	// this generation stays Ready on its serving Pods, so one deployed
 	// before the gate existed is not restarted to grow one.
-	gated := r.Settings.TargetHealth && p.Status.Phase != v1alpha1.PreviewReady
+	gated := r.Settings.targetHealth() && p.Status.Phase != v1alpha1.PreviewReady
 	components := make([]v1alpha1.PreviewComponentStatus, 0, len(p.Spec.Components))
 	for i, c := range p.Spec.Components {
 		imageID, state, err := r.readyImage(ctx, p, i, slot, gated)
@@ -465,16 +523,20 @@ func (r *Reconciler) completeDeployment(ctx context.Context, p *v1alpha1.Preview
 			Name: c.Name, Revision: c.Revision, ImageID: imageID,
 		})
 	}
-	if err := r.ensureIngress(ctx, p, slot); err != nil {
-		return r.renderError(ctx, p, err)
+	if !r.Settings.NoLegacyIngress {
+		if err := r.ensureIngress(ctx, p, slot); err != nil {
+			return r.renderError(ctx, p, err)
+		}
 	}
 	url := "https://" + r.Settings.host(p)
+	serving := servingSnapshot(p)
 	if p.Status.Phase != v1alpha1.PreviewReady || p.Status.URL != url ||
-		!slices.Equal(p.Status.Components, components) {
+		!slices.Equal(p.Status.Components, components) || !equality.Semantic.DeepEqual(p.Status.Serving, serving) {
 		p.Status.Phase = v1alpha1.PreviewReady
 		p.Status.URL = url
 		p.Status.Message = ""
 		p.Status.Components = components
+		p.Status.Serving = serving
 		if p.Status.LastDeployedAt == nil {
 			t := metav1.NewTime(r.now())
 			p.Status.LastDeployedAt = &t
@@ -525,8 +587,8 @@ func (r *Reconciler) retryError(ctx context.Context, p *v1alpha1.Preview, cause 
 		// target health: the retried Pods need the Ingress's target group
 		// bindings in place to get their gates, and until a target is
 		// healthy the load balancer routes nothing to it.
-		if !r.Settings.TargetHealth {
-			if err := r.deleteIngress(ctx, p, *p.Status.Slot); err != nil {
+		if !r.Settings.targetHealth() {
+			if err := r.withdrawIngress(ctx, p, *p.Status.Slot); err != nil {
 				return ctrl.Result{}, err
 			}
 		}
@@ -550,6 +612,8 @@ func (r *Reconciler) retryError(ctx context.Context, p *v1alpha1.Preview, cause 
 				return ctrl.Result{}, err
 			}
 		}
+		// Nothing serves once the Deployments are gone.
+		p.Status.Serving = nil
 	}
 	p.Status.Retries++
 	p.Status.Message = cause.Error()
@@ -566,11 +630,12 @@ func (r *Reconciler) retryError(ctx context.Context, p *v1alpha1.Preview, cause 
 
 func (r *Reconciler) fail(ctx context.Context, p *v1alpha1.Preview, reason string) (ctrl.Result, error) {
 	if p.Status.Slot != nil && *p.Status.Slot >= 0 && int(*p.Status.Slot) < r.Settings.SlotCount {
-		if err := r.deleteIngress(ctx, p, *p.Status.Slot); err != nil {
+		if err := r.withdrawIngress(ctx, p, *p.Status.Slot); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
-	if p.Status.Phase == v1alpha1.PreviewFailed && p.Status.Message == reason && p.Status.URL == "" {
+	if p.Status.Phase == v1alpha1.PreviewFailed && p.Status.Message == reason && p.Status.URL == "" &&
+		p.Status.Serving == nil {
 		if p.Status.Slot != nil {
 			return r.release(ctx, p)
 		}
@@ -579,6 +644,7 @@ func (r *Reconciler) fail(ctx context.Context, p *v1alpha1.Preview, reason strin
 	p.Status.Phase = v1alpha1.PreviewFailed
 	p.Status.Message = reason
 	p.Status.URL = ""
+	p.Status.Serving = nil
 	return ctrl.Result{}, r.Status().Update(ctx, p)
 }
 
@@ -595,6 +661,7 @@ func (r *Reconciler) release(ctx context.Context, p *v1alpha1.Preview) (ctrl.Res
 		return r.wait(), err
 	}
 	p.Status.Slot = nil
+	p.Status.Serving = nil
 	return ctrl.Result{}, r.Status().Update(ctx, p)
 }
 
@@ -605,6 +672,13 @@ func (r *Reconciler) finalize(ctx context.Context, p *v1alpha1.Preview) (ctrl.Re
 	if p.Status.Slot != nil && (*p.Status.Slot < 0 || int(*p.Status.Slot) >= r.Settings.SlotCount) {
 		return ctrl.Result{}, fmt.Errorf("preview %s holds retired slot %d; restore slotCount before finalizer cleanup",
 			p.Name, *p.Status.Slot)
+	}
+	if p.Status.Serving != nil {
+		// A deleting Preview serves nothing while its cleanup runs.
+		p.Status.Serving = nil
+		if err := r.Status().Update(ctx, p); err != nil {
+			return ctrl.Result{}, err
+		}
 	}
 	done, err := r.cleanup(ctx, p)
 	if err != nil || !done {

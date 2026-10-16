@@ -128,7 +128,14 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   re-check holds to the Intent's, so a per-Project reader needs only Previews. The intent reconciler reads
   Preview status (one uncached get per pass, never written) to link the preview from the issue's status comment and one
   sticky comment per previewed PR, only once it checks out (`preview_view.go`: UID, observed generation, derived
-  revisions, a bare `https://<intent>.<suffix>`). See `docs/configuration/preview-controller.md`.
+  revisions, a bare `https://<intent>.<suffix>`). `status.serving` is what a Preview serves, for the preview gateway to
+  route by (generation, UID, per component its Service, path and port): written at Ready, kept through a redeploy,
+  cleared on a retry, Failed, Expired, release or deletion; the Service naming and the Ingress-`Prefix` path matcher it
+  is matched with (`v1alpha1.PreviewComponentServiceName`, `PreviewPathMatches`, `PreviewRoute`) are shared, pinned to
+  the rendered Ingress by a seeded property. Node isolation is generic (`--preview-node-selector` JSON map plus
+  `--preview-taint-key`, `--preview-node-isolation=required|none`; the NodePool/NodeClass flags fill EKS's two keys, so
+  renders stay byte-identical). `--preview-legacy-ingress` (default true, today's path) off renders no slot Ingress,
+  ignores target health and deletes the controller's own slot Ingresses. See `docs/configuration/preview-controller.md`.
 - `cmd/status-server` — the human-facing status page (NOT a controller: no reconcilers, no leases): the embedded
   SPA + JSON projection of Findings/FindingRollups, SSE refetch signal, OIDC sign-in, the access-review-gated
   approve/retry/expedite/suspend/resume actions, and the user-menu demo tooling (replay → Integration

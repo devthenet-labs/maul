@@ -224,6 +224,13 @@ render preview-runtime-ungated -f "$fixtures/preview-foundation.yaml" \
   -f "$fixtures/intent-controller.yaml" -f "$fixtures/preview-controller.yaml" \
   --set previewController.config.targetHealth=false
 cm preview-runtime-ungated preview-controller PATCHY_PREVIEW_TARGET_HEALTH false
+# The legacy slot Ingress is on unless the operator turns it off for the
+# preview gateway; the value only reaches the controller.
+cm preview-runtime preview-controller PATCHY_PREVIEW_LEGACY_INGRESS true
+render preview-runtime-gateway -f "$fixtures/preview-foundation.yaml" \
+  -f "$fixtures/intent-controller.yaml" -f "$fixtures/preview-controller.yaml" \
+  --set previewController.config.legacyIngress=false
+cm preview-runtime-gateway preview-controller PATCHY_PREVIEW_LEGACY_INGRESS false
 expect preview-runtime-ungated 'select(.kind == "Namespace" and (.metadata.name | test("^patchy-preview-"))) | .metadata.labels."eks.amazonaws.com/pod-readiness-gate-inject"' 'null
 null'
 expect_fail 'preview controller without slots' 'requires preview.enabled' \

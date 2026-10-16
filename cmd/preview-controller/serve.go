@@ -34,15 +34,27 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	f.String("preview-image-prefix", "", "exact <registry>/<path>/ prefix every preview image repository sits "+
 		"directly under, one DNS-label leaf deep (the chart's <preview.imageRegistry>/<preview.imagePathPrefix>/)")
 	f.String("preview-host-suffix", "", "DNS suffix after <project>-<issue>")
-	f.String("preview-node-pool", "", "dedicated DefaultDeny NodePool")
-	f.String("preview-node-class", "", "dedicated DefaultDeny NodeClass")
-	f.String("preview-taint-key", "", "dedicated NoExecute preview-only taint key")
+	f.String("preview-node-selector", "", "JSON object of node label to value every slot Pod selects: the "+
+		"dedicated preview nodes (merged with --preview-node-pool and --preview-node-class)")
+	f.String("preview-node-pool", "", "dedicated DefaultDeny EKS Auto Mode NodePool (fills the node "+
+		"selector's karpenter.sh/nodepool)")
+	f.String("preview-node-class", "", "dedicated DefaultDeny EKS Auto Mode NodeClass (fills the node "+
+		"selector's eks.amazonaws.com/nodeclass)")
+	f.String("preview-taint-key", "", "dedicated NoExecute preview-only taint key (value \"true\"), every "+
+		"slot Pod tolerates it; required with a node selector")
+	f.String("preview-node-isolation", preview.NodeIsolationRequired, "required: every slot Pod selects the "+
+		"preview nodes and tolerates their taint, and both must be set; none: neither, an explicit opt-out for "+
+		"a cluster without dedicated preview nodes")
 	f.Duration("preview-rollout-timeout", 10*time.Minute, "one runtime rollout attempt deadline")
 	f.Duration("preview-poll-interval", 15*time.Second, "readiness/queue poll and orphan-sweep interval")
 	f.Int("preview-max-retries", 3, "max timed-out or rejected rollout attempts per PR head")
 	f.Bool("preview-target-health", false, "mark a Preview Ready only once each component's load balancer "+
 		"target is healthy (its Pods' readiness gates, injected in slot namespaces labelled for it): the Ingress "+
 		"precedes the Pods and stays across redeploys")
+	f.Bool("preview-legacy-ingress", true, "render each Preview's slot Ingress (the load balancer path, "+
+		"exactly as before the preview gateway); false renders none, marks a Preview Ready once every component "+
+		"has a Ready Pod of its current spec (--preview-target-health is ignored) and deletes the slot Ingresses "+
+		"the controller rendered before, for the preview gateway to route from status.serving")
 	f.Bool("preview-auth-required", false, "put every preview Ingress behind the sign-in relay: render each "+
 		"slot's pinned auth annotations (--preview-auth-annotations) and have the sweeper report, then after a "+
 		"grace period delete, a slot Ingress without them")
@@ -70,11 +82,17 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		Namespace: namespace, SlotCount: opts.Int("preview-slot-count"),
 		ImagePrefix: opts.String("preview-image-prefix"), HostSuffix: opts.String("preview-host-suffix"),
 		NodePool: opts.String("preview-node-pool"), NodeClass: opts.String("preview-node-class"),
-		TaintKey:       opts.String("preview-taint-key"),
+		TaintKey: opts.String("preview-taint-key"), NodeIsolation: opts.String("preview-node-isolation"),
 		RolloutTimeout: opts.Duration("preview-rollout-timeout"), PollInterval: opts.Duration("preview-poll-interval"),
-		MaxRetries:   int32(opts.Int("preview-max-retries")),
-		TargetHealth: opts.Bool("preview-target-health"),
+		MaxRetries:      int32(opts.Int("preview-max-retries")),
+		TargetHealth:    opts.Bool("preview-target-health"),
+		NoLegacyIngress: !opts.Bool("preview-legacy-ingress"),
 	}
+	selector, err := preview.ParseNodeSelector(opts.String("preview-node-selector"))
+	if err != nil {
+		return err
+	}
+	settings.NodeSelector = selector
 	auth, err := authSettings(opts)
 	if err != nil {
 		return err
@@ -107,9 +125,13 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		Events: recorder}); err != nil {
 		return err
 	}
+	if settings.NoLegacyIngress && settings.TargetHealth {
+		prov.Logger.LogAttrs(ctx, slog.LevelWarn, "preview target health ignored: without the legacy slot "+
+			"Ingress no load balancer target is waited for")
+	}
 	prov.Logger.LogAttrs(ctx, slog.LevelInfo, "preview-controller starting",
 		slog.Int("slot_count", settings.SlotCount), slog.String("namespace", namespace),
-		slog.Bool("auth_required", settings.Auth.Required))
+		slog.Bool("auth_required", settings.Auth.Required), slog.Bool("legacy_ingress", !settings.NoLegacyIngress))
 	if err := mgr.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		return err
 	}

@@ -114,7 +114,29 @@ func TestServeStartupErrors(t *testing.T) {
 			`{"patchy-preview-0":{}}`), wantErr: "preview auth is not required"},
 		{name: "required without annotations", args: validArgs("--preview-auth-required"),
 			wantErr: "no annotations are set"},
+		{name: "bad node selector", args: validArgs("--preview-node-selector", "{"),
+			wantErr: "preview node selector"},
+		{name: "node selector without a taint", args: []string{"--namespace", "patchy",
+			"--preview-image-prefix", "registry.example/patchy/previews/", "--preview-host-suffix", "previews.example.com",
+			"--preview-node-selector", `{"node-role.example.com/preview":"true"}`},
+			wantErr: "node isolation is required"},
+		{name: "no isolation without opting out", args: []string{"--namespace", "patchy",
+			"--preview-image-prefix", "registry.example/patchy/previews/", "--preview-host-suffix", "previews.example.com"},
+			wantErr: "node isolation is required"},
+		{name: "unknown isolation mode", args: validArgs("--preview-node-isolation", "optional"),
+			wantErr: "neither"},
 		{name: "valid settings reach the manager", args: validArgs("--kubeconfig", missing),
+			wantErr: "kubeconfig"},
+		{name: "generic node isolation reaches the manager", args: []string{"--namespace", "patchy",
+			"--preview-image-prefix", "registry.example/patchy/previews/", "--preview-host-suffix", "previews.example.com",
+			"--preview-node-selector", `{"node-role.example.com/preview":"true"}`,
+			"--preview-taint-key", "node-role.example.com/preview", "--kubeconfig", missing},
+			wantErr: "kubeconfig"},
+		{name: "gateway mode reaches the manager", args: validArgs("--preview-legacy-ingress=false",
+			"--preview-target-health", "--kubeconfig", missing), wantErr: "kubeconfig"},
+		{name: "isolation none reaches the manager", args: []string{"--namespace", "patchy",
+			"--preview-image-prefix", "registry.example/patchy/previews/", "--preview-host-suffix", "previews.example.com",
+			"--preview-node-isolation", "none", "--kubeconfig", missing},
 			wantErr: "kubeconfig"},
 		{name: "namespace from the pod", env: "patchy", args: validArgs("--namespace", "", "--kubeconfig", missing),
 			wantErr: "kubeconfig"},
@@ -128,5 +150,20 @@ func TestServeStartupErrors(t *testing.T) {
 				t.Fatalf("serve error = %v, want %q", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+// TestLegacyIngressFlag: the legacy slot Ingress is on unless the operator
+// turns it off, so an install that never sets the flag keeps its behaviour.
+func TestLegacyIngressFlag(t *testing.T) {
+	if !serveOpts(t, validArgs()...).Bool("preview-legacy-ingress") {
+		t.Error("--preview-legacy-ingress defaults to false; want today's behaviour, true")
+	}
+	if serveOpts(t, validArgs("--preview-legacy-ingress=false")...).Bool("preview-legacy-ingress") {
+		t.Error("--preview-legacy-ingress=false not honoured")
+	}
+	t.Setenv("PATCHY_PREVIEW_LEGACY_INGRESS", "false")
+	if serveOpts(t, validArgs()...).Bool("preview-legacy-ingress") {
+		t.Error("PATCHY_PREVIEW_LEGACY_INGRESS=false not honoured")
 	}
 }

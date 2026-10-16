@@ -5,6 +5,7 @@ package v1alpha1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 // PreviewPhase is the local state of a disposable runtime preview. It never
@@ -127,6 +128,52 @@ type PreviewComponentStatus struct {
 	ImageID string `json:"imageID,omitempty"`
 }
 
+// PreviewServingComponent is one component of what a Preview serves: where
+// the preview gateway sends a request whose path falls under Path.
+type PreviewServingComponent struct {
+	// Name is the component's name (its Project repository's key).
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
+	// +kubebuilder:validation:MaxLength=16
+	Name string `json:"name"`
+	// Service is the component's Service in the Preview's slot namespace
+	// (PreviewComponentServiceName).
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
+	// +kubebuilder:validation:MaxLength=63
+	Service string `json:"service"`
+	// Path is the URL path prefix the component is served under, "/"
+	// written out (PreviewComponentPath), matched with PreviewPathMatches.
+	// +kubebuilder:validation:MaxLength=128
+	// +kubebuilder:validation:Pattern=`^/([a-z0-9-]+(/[a-z0-9-]+)*)?$`
+	Path string `json:"path"`
+	// Port is the Service's port (PreviewServicePort), not the container's.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	Port int32 `json:"port"`
+}
+
+// PreviewServing is the snapshot of what a Preview serves, written when it
+// turns Ready. It is kept while the Preview redeploys (Deploying at a new
+// generation), because the rolling update keeps the previous revision's Pods
+// serving until the new ones are Ready, less any component whose Service the
+// new spec no longer renders for it (pruned or handed to another component),
+// and it is cleared when nothing may
+// serve any more: a retry that deletes the Deployments, Failed, Expired, or
+// the slot's release. A router serves a Preview only from this snapshot, with
+// the Preview's UID, slot and host label, never from its spec.
+type PreviewServing struct {
+	// Generation is the Preview generation these components turned Ready at.
+	// +kubebuilder:validation:Minimum=1
+	Generation int64 `json:"generation"`
+	// UID is the Preview's UID when the snapshot was written; a router
+	// refuses a snapshot whose UID is not the Preview's own.
+	UID types.UID `json:"uid"`
+	// Components are the served components, in spec order.
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=4
+	// +listType=atomic
+	Components []PreviewServingComponent `json:"components"`
+}
+
 // PreviewStatus is written only by preview-controller. Slot is held until
 // finalizer cleanup has removed every rendered object from that slot.
 type PreviewStatus struct {
@@ -156,6 +203,10 @@ type PreviewStatus struct {
 	// +optional
 	// +kubebuilder:validation:MaxItems=4
 	Components []PreviewComponentStatus `json:"components,omitempty"`
+	// Serving is what the Preview serves, for a router to route by. Unlike
+	// URL and Components, it survives a redeploy (see PreviewServing).
+	// +optional
+	Serving *PreviewServing `json:"serving,omitempty"`
 	// +optional
 	Message string `json:"message,omitempty"`
 }
