@@ -7,6 +7,22 @@
 > documentation values `111122223333` and `203.0.113.10/32`. The real ones are in terraform-devthenet's `k8s/` values
 > (private).
 
+## In flight — 2026-10-16: trusted usage (per-user credentials, L2: measured usage)
+
+**A settled run records what the broker metered, not only what its pod said.** Branch `feat/broker-measured-usage` adds
+the measured half of L2 (design revision 1). Off by default; chart `attribution.mode: attribute` turns it on with L1
+while the broker deploys:
+
+- the broker's ledger keeps, per pod and bare model id, observed tokens (cache writes split 5m/1h) apart from the
+  estimated shortfall, and serves them per Job on port 8082 (`--usage-addr`) to the run controllers only;
+- the four job controllers settle each terminal run (`--usage-measurement`): `status.usage.measured` priced per model at
+  `model.PriceTableVersion`, `source` (`measured` only when the broker booted before the Job), `final` after at most a
+  2-minute wait for in-flight requests.
+
+See [docs/configuration/attribution.md](docs/configuration/attribution.md#trusted-usage). Not yet live. Still to come
+for L2: `UsageRollup` aggregation (W3), the dashboard Usage page and `patchy get usage` (W4), the controllers' OTel user
+attribute; the Intent's own `status.usage` totals and the issue's cost line still sum the pod-reported figures.
+
 ## In flight — 2026-10-16: run attribution (per-user credentials, L1)
 
 **Every agent run can say whom it is for.** Branch `feat/run-attribution` adds layer L1 of the per-user credentials

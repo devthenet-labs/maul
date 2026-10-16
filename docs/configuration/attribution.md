@@ -102,7 +102,50 @@ With `attribution.mode` other than `off`, the chart renders up to six Validating
 Together with the immutable run specs, these mean that only the run controllers decide attribution. A prompt-injected
 agent, or anyone holding `create` on pods or Jobs, cannot bill a run to someone else.
 
+## Trusted usage
+
+Under `attribute`, while the egress broker deploys, the chart also turns on trusted usage. Each run's `status.usage`
+(`status.stage.usage` on an Investigation or Remediation) is the pod's own report, which a repository image could
+misreport. The broker meters the same traffic, and when a run settles its controller now records the broker's figure
+beside it:
+
+| Field      | Meaning                                                                                                   |
+| ---------- | --------------------------------------------------------------------------------------------------------- |
+| `measured` | The broker's figure: tokens by class and per model, the unmetered shortfall apart, a cost and its pricing |
+| `source`   | `measured`, `partial` or `reported`: which figure to trust                                                |
+| `final`    | The controller has stopped waiting; `measured` and `source` will not change                               |
+
+How a settled run is measured:
+
+- The controller asks the broker's usage endpoint for the run's Job. While the pod still has requests in flight, or the
+  broker cannot be reached, it asks again every 10 seconds, for at most 2 minutes.
+- `measured` when the broker booted before the Job was created, so its ledger saw the whole pod. `partial` when it
+  booted later (a restart mid-run), or the wait ended with requests still in flight. `reported` when it has no entry for
+  the Job, never answered, or the run ran on a harness the broker does not carry (codex, copilot): only the pod's own
+  counts exist, and they are kept out of trusted totals.
+- Only tokens the responses reported are priced. The shortfall the broker charged for cut or usage-less responses is
+  shown as unmetered (worst case) and never priced.
+- Model ids are normalised to the model registry (dated and provider forms included). A model the registry does not know
+  keeps its tokens with no cost, and the run's total cost is then absent rather than understated.
+- Prices are the registry's list rates, cache writes at 1.25x (five-minute) and 2x (one-hour) the input rate. Each
+  priced figure records the price-table version it used. A run paid by a Claude subscription (`--anthropic-auth token`)
+  is priced `subscription`: the list-price equivalent, notional, never money spent.
+
+| Helm                          | Flag                                                  | Env                                                   |
+| ----------------------------- | ----------------------------------------------------- | ----------------------------------------------------- |
+| `attribution.mode: attribute` | `--usage-measurement`, `--usage-broker-url`           | `PATCHY_USAGE_MEASUREMENT`, `PATCHY_USAGE_BROKER_URL` |
+| `attribution.mode: attribute` | `--usage-addr`, `--usage-callers` (the egress broker) | `PATCHY_USAGE_ADDR`, `PATCHY_USAGE_CALLERS`           |
+
+The controllers authenticate to the broker with a projected ServiceAccount token for the `patchy-egress-broker-usage`
+audience, which the chart mounts at `/var/run/secrets/patchy/broker-usage/token`. The broker accepts it on the usage
+endpoint only, from those ServiceAccounts only; see [the egress broker](egress-broker.md#usage-endpoint). The broker
+must run as one replica.
+
+Runs that settled before trusted usage was on are settled as `reported` the first time their controller sees them: the
+broker has no record of them.
+
 ## Turning it off
 
-Set `attribution.mode: off`. The controllers stop stamping new runs and annotating new Jobs, and the policies are
-removed. Stamps already written stay on their runs: the specs are immutable, and the stamps are only records.
+Set `attribution.mode: off`. The controllers stop stamping new runs and annotating new Jobs, stop settling usage, and
+the policies and the broker's usage endpoint are removed. Stamps already written stay on their runs: the specs are
+immutable, and the stamps are only records.
