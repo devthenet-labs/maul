@@ -237,7 +237,12 @@ on the relay's Pods, and with it on:
   port `http` only, beside the legacy ALB's subnets; the relay's own NetworkPolicy gains egress to the slots' port
   `http` and nothing else there. Slot DNS then allows both the DNS address (`preview.dnsCIDR` or `clusterDNSCIDR`) and
   the kube-system resolver Pods.
-- **Service.** `<fullname>-preview-gateway`, port 80 to the relay's `http` port, is what every exposure points at.
+- **Service.** `<fullname>-preview-gateway`, port 80 to the gateway's own listener (`gateway`, 8082,
+  `--preview-auth-gateway-listen-addr`), is what every exposure points at. That listener (and the TLS one) rate limit
+  everything behind the gateway's `forwardedHops`, the relay's own endpoints included: an exposure that does not filter
+  by Host (a LoadBalancer, a tunnel) reaches them too, and judged by the relay's hops (`1`, for its ALB) a client
+  sending straight to it could name a fresh address in `X-Forwarded-For` on every request. The relay's `http` port keeps
+  the relay's hops.
 - **Exposure**, at most one; each routes `*.<preview.hostSuffix>` and the sign-in host when it is not `previewAuth.host`
   (whose own Ingress already routes it):
   - `ingress.enabled`: one Ingress (`className`, empty for the edge class; `annotations` over the chart's ALB settings:
@@ -311,6 +316,7 @@ As everywhere, each flag is also the matching `PATCHY_*` environment variable (`
 | `--preview-auth-gateway-handoff-ttl`             | `1m`                            | A handoff code's lifetime (codes are also single-use)                                                                                                                                                 |
 | `--preview-auth-gateway-hsts`                    | `false`                         | Add `Strict-Transport-Security` to proxied responses                                                                                                                                                  |
 | `--preview-auth-gateway-tls-dir`                 | `""`                            | A directory of `kubernetes.io/tls` pairs (a subdirectory each) the gateway serves TLS with itself, by SNI, re-read every 30s; it must cover the sign-in host and `*.<suffix>`. Empty: plain HTTP only |
+| `--preview-auth-gateway-listen-addr`             | `:8082`                         | The gateway's own plain listener, which its exposure targets; the relay's endpoints there are rate limited behind the gateway's forwarded hops                                                        |
 | `--preview-auth-gateway-tls-listen-addr`         | `:8443`                         | The TLS listener's address                                                                                                                                                                            |
 
 The chart sets all of these from `previewAuth` (`previewAuth.config.extra` adds any other key). `/token` and `/userinfo`

@@ -107,8 +107,33 @@ func New(cfg Config) (*Server, error) {
 	return s, nil
 }
 
-// Handler is the relay's public handler.
+// Handler is the relay's public handler: the relay's endpoints, rate
+// limited behind the relay's own forwarded hops, and with the gateway on the
+// gateway's hosts too.
 func (s *Server) Handler() http.Handler {
+	if s.gw == nil {
+		return s.envelope(s.relayMux(), s.limiter)
+	}
+	return s.gw.handler(s.envelope(s.relayMux(), s.limiter))
+}
+
+// GatewayHandler is the handler for the gateway's own edge (its exposure's
+// listener and its TLS listener), nil with the gateway off. It dispatches as
+// Handler does, but every request, the relay's endpoints on any other Host
+// included, is rate limited behind the gateway's forwarded hops: an exposure
+// that does not filter by Host (a LoadBalancer Service, a tunnel) reaches the
+// relay's endpoints too, and judged by the relay's hops a client behind it
+// would name its own address with X-Forwarded-For.
+func (s *Server) GatewayHandler() http.Handler {
+	if s.gw == nil {
+		return nil
+	}
+	return s.gw.handler(s.envelope(s.relayMux(), s.gw.limiter))
+}
+
+// relayMux routes the relay's endpoints (and, on a shared sign-in host, the
+// gateway's /start).
+func (s *Server) relayMux() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.well-known/openid-configuration", s.only(http.MethodGet, s.handleDiscovery))
 	mux.HandleFunc("/jwks", s.only(http.MethodGet, s.handleJWKS))
@@ -118,13 +143,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/userinfo", s.handleUserinfo)
 	mux.HandleFunc("/logout", s.only(http.MethodPost, s.handleLogout))
 	mux.HandleFunc("/", s.handleRoot)
-	if s.gw == nil {
-		return s.envelope(mux, s.limiter)
-	}
-	if s.gw.sharedHost {
+	if s.gw != nil && s.gw.sharedHost {
 		mux.HandleFunc("/start", s.only(http.MethodGet, s.gw.handleStart))
 	}
-	return s.gw.handler(s.envelope(mux, s.limiter))
+	return mux
 }
 
 // auditKey carries a request's audit record through its handler.
@@ -139,6 +161,9 @@ type record struct {
 	result   string
 	sub      string
 	jti      string
+	// lim is the limiter the envelope applied, which backchannelThrottled
+	// charges: the relay's or the gateway's, by listener.
+	lim *limiter
 }
 
 func rec(r *http.Request) *record {
@@ -213,7 +238,7 @@ func (s *Server) envelope(next http.Handler, lim *limiter) http.Handler {
 			// injectable clock.
 			s.gw.setDeadline(w)
 		}
-		a := &record{endpoint: endpointName(r.URL.Path), slot: -1}
+		a := &record{endpoint: endpointName(r.URL.Path), slot: -1, lim: lim}
 		sw := &statusWriter{ResponseWriter: w}
 		defer func() {
 			observe(r.Context(), a.endpoint, s.now().Sub(start))
@@ -258,7 +283,11 @@ func backchannel(endpoint string) bool { return endpoint == "token" || endpoint 
 // client secrets and tokens are 256-bit, so the limit sheds load from
 // strangers rather than slowing a guess.
 func (s *Server) backchannelThrottled(w http.ResponseWriter, r *http.Request) bool {
-	if s.limiter.allow(r) {
+	lim := rec(r).lim
+	if lim == nil {
+		lim = s.limiter
+	}
+	if lim.allow(r) {
 		return false
 	}
 	rec(r).result = "rate_limited"

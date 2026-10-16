@@ -28,6 +28,8 @@ spec:
         - protocol: TCP
           port: 8080
         - protocol: TCP
+          port: 8082
+        - protocol: TCP
           port: 8443
     - ports:
         - protocol: TCP
@@ -128,6 +130,7 @@ data:
   PATCHY_PREVIEW_AUTH_FORWARDED_HOPS: "1"
   PATCHY_PREVIEW_AUTH_GATEWAY: "true"
   PATCHY_PREVIEW_AUTH_GATEWAY_FORWARDED_HOPS: "0"
+  PATCHY_PREVIEW_AUTH_GATEWAY_LISTEN_ADDR: ":8082"
   PATCHY_PREVIEW_AUTH_GATEWAY_SIGN_IN_HOST: "preview-auth.patchy.devthe.net"
   PATCHY_PREVIEW_AUTH_GATEWAY_TLS_DIR: "/etc/patchy/preview-gateway/tls"
   PATCHY_PREVIEW_AUTH_GATEWAY_TLS_LISTEN_ADDR: ":8443"
@@ -148,8 +151,11 @@ data:
 ---
 # Source: patchy/templates/preview-auth.yaml
 # The preview gateway's Service: what an edge (Ingress, HTTPRoute, a tunnel)
-# points at, or a LoadBalancer of its own. Port 80 is the relay's http port,
-# where the gateway answers every preview host and the sign-in host.
+# points at, or a LoadBalancer of its own. Port 80 is the gateway's own
+# listener (8082), where it answers every preview host and the sign-in host;
+# anything else reaching the relay's endpoints there (an edge that does not
+# filter by Host) is rate limited behind gateway.forwardedHops, never the
+# relay's.
 apiVersion: v1
 kind: Service
 metadata:
@@ -172,7 +178,7 @@ spec:
   ports:
     - name: http
       port: 80
-      targetPort: http
+      targetPort: gateway
       protocol: TCP
     # The gateway's own TLS (previewAuth.gateway.tls.secrets).
     - name: https

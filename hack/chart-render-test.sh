@@ -1181,7 +1181,14 @@ expect pg "$pging | .spec.rules[0].http.paths[0].backend.service.name + \":\" + 
 expect pg "$pging | .metadata.annotations.\"alb.ingress.kubernetes.io/healthcheck-path\"" /.patchy/healthz
 expect pg "$pging | .metadata.annotations.\"alb.ingress.kubernetes.io/target-type\"" ip
 expect pg "$pging | .spec | has(\"tls\")" false
-expect pg 'select(.kind == "Service" and .metadata.name == "patchy-preview-gateway") | .spec.type + " " + (.spec.ports[0].port | tostring) + " " + .spec.ports[0].targetPort' 'ClusterIP 80 http'
+expect pg 'select(.kind == "Service" and .metadata.name == "patchy-preview-gateway") | .spec.type + " " + (.spec.ports[0].port | tostring) + " " + .spec.ports[0].targetPort' 'ClusterIP 80 gateway'
+# The exposure targets the gateway's own listener (8082), where even the
+# relay's endpoints are limited behind the gateway's hops; the relay's policy
+# admits it, and the relay's Service keeps the relay's port.
+cm pg preview-auth PATCHY_PREVIEW_AUTH_GATEWAY_LISTEN_ADDR :8082
+expect pg "$pgdep | .spec.template.spec.containers[0].ports[] | select(.name == \"gateway\") | .containerPort" 8082
+expect pg 'select(.kind == "NetworkPolicy" and .metadata.name == "patchy-preview-auth") | .spec.ingress[0].ports | map(.port | tostring) | join(",")' '8080,8082'
+expect pg 'select(.kind == "Service" and .metadata.name == "patchy-preview-auth") | .spec.ports | map(.name + ":" + (.port | tostring) + ">" + .targetPort) | join(",")' 'http:8080>http'
 expect pg 'select(.kind == "Service" and .metadata.name == "patchy-preview-gateway") | .spec.selector."app.kubernetes.io/name"' preview-auth
 # The slot policy: the ALB's subnets (legacy) and the gateway's Pods, port
 # http only; DNS by both the address and the kube-system selector.
@@ -1299,9 +1306,9 @@ expect pg "$pgdep | .spec.template.spec.containers[0].ports[] | select(.name == 
 expect pg-tls "$pgdep | .spec.template.spec.containers[0].volumeMounts[] | select(.name == \"gateway-tls\") | .mountPath + \" \" + (.readOnly | tostring)" '/etc/patchy/preview-gateway/tls true'
 expect pg-tls "$pgdep | .spec.template.spec.volumes[] | select(.name == \"gateway-tls\") | .projected.sources[] | .secret.name + \" \" + (.secret.items | map(.key + \"=\" + .path) | join(\",\"))" 'preview-wildcard tls.crt=0/tls.crt,tls.key=0/tls.key
 preview-signin tls.crt=1/tls.crt,tls.key=1/tls.key'
-expect pg-tls 'select(.kind == "Service" and .metadata.name == "patchy-preview-gateway") | .spec.ports | map(.name + ":" + (.port | tostring) + ">" + .targetPort) | join(",")' 'http:80>http,https:443>https'
+expect pg-tls 'select(.kind == "Service" and .metadata.name == "patchy-preview-gateway") | .spec.ports | map(.name + ":" + (.port | tostring) + ">" + .targetPort) | join(",")' 'http:80>gateway,https:443>https'
 expect pg 'select(.kind == "Service" and .metadata.name == "patchy-preview-gateway") | .spec.ports | map(.name) | join(",")' http
-expect pg-tls 'select(.kind == "NetworkPolicy" and .metadata.name == "patchy-preview-auth") | .spec.ingress[0].ports | map(.port | tostring) | join(",")' '8080,8443'
+expect pg-tls 'select(.kind == "NetworkPolicy" and .metadata.name == "patchy-preview-auth") | .spec.ingress[0].ports | map(.port | tostring) | join(",")' '8080,8082,8443'
 render pg-tls-none -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.ingress.enabled=false --set-json "$pgtls"
 cm pg-tls-none preview-auth PATCHY_PREVIEW_AUTH_GATEWAY_TLS_DIR /etc/patchy/preview-gateway/tls
 expect_fail 'gateway TLS with an Ingress' 'previewAuth.gateway.tls.secrets is refused with the ingress exposure' \

@@ -116,6 +116,8 @@ func gatewayFlags(cmd *cobra.Command) {
 	f.String("preview-auth-gateway-tls-dir", "", "a directory of kubernetes.io/tls pairs (one subdirectory each, "+
 		"tls.crt and tls.key) the gateway serves TLS with itself, picked by SNI, for an exposure with no "+
 		"TLS-terminating edge; empty serves plain HTTP only")
+	f.String("preview-auth-gateway-listen-addr", ":8082", "the gateway's own plain-HTTP listener, which its "+
+		"exposure targets: the relay's endpoints are rate limited there behind the gateway's forwarded hops")
 	f.String("preview-auth-gateway-tls-listen-addr", ":8443", "the TLS listener's address, with "+
 		"--preview-auth-gateway-tls-dir")
 }
@@ -134,6 +136,8 @@ type gatewayStatic struct {
 	// when an edge in front terminates TLS.
 	tls     *tlsdir.Store
 	tlsAddr string
+	// addr is the gateway's plain listener, the one its exposure targets.
+	addr string
 }
 
 // loadGateway validates the gateway's flags. It returns nil when the
@@ -185,7 +189,10 @@ func loadGateway(opts *cli.Options, st static, httpClient *http.Client) (*gatewa
 		},
 		InboundCIDRs: cidrs, BodyLimit: int64(limit), Transport: httpapi.NewUpstreamTransport(timeouts, nil),
 		HSTS: opts.Bool("preview-auth-gateway-hsts"), Recheck: opts.Duration("preview-auth-review-ttl"),
-	}}
+	}, addr: opts.String("preview-auth-gateway-listen-addr")}
+	if gs.addr == "" {
+		return nil, errors.New("--preview-auth-gateway-listen-addr is empty")
+	}
 	if err := gs.cfg.Lifetimes.Validate(); err != nil {
 		return nil, err
 	}
@@ -409,7 +416,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	if err := mgr.Add(prober); err != nil {
 		return fmt.Errorf("host probe: %w", err)
 	}
-	httpSrv, err := addListeners(mgr, opts.ListenAddr, st.gateway, srv.Handler(), log)
+	httpSrv, err := addListeners(mgr, opts.ListenAddr, st.gateway, srv.Handler(), srv.GatewayHandler(), log)
 	if err != nil {
 		return err
 	}
@@ -443,16 +450,26 @@ func newHTTPServer(addr string, h http.Handler, gateway bool) *http.Server {
 	return srv
 }
 
-// addListeners adds the relay's listener and, when the gateway serves its
-// own TLS, the TLS listener beside it; it returns the plain one.
-func addListeners(mgr runnableAdder, addr string, gs *gatewayStatic, h http.Handler,
+// addListeners adds the relay's listener (h) and, with the gateway on, the
+// gateway's own (gh) its exposure targets and, when the gateway serves its
+// own TLS, the TLS listener beside them, also gh; it returns the relay's.
+// The gateway's edge gets listeners of its own because it may not filter by
+// Host: whatever reaches the relay's endpoints through it is rate limited
+// behind the gateway's forwarded hops, not the relay's ALB's.
+func addListeners(mgr runnableAdder, addr string, gs *gatewayStatic, h, gh http.Handler,
 	log *slog.Logger) (*http.Server, error) {
 	httpSrv := newHTTPServer(addr, h, gs != nil)
 	if err := mgr.Add(listener{srv: httpSrv}); err != nil {
 		return nil, fmt.Errorf("listener: %w", err)
 	}
-	if gs != nil && gs.tls != nil {
-		if err := addTLSListener(mgr, gs, h, log); err != nil {
+	if gs == nil {
+		return httpSrv, nil
+	}
+	if err := mgr.Add(listener{srv: newHTTPServer(gs.addr, gh, true)}); err != nil {
+		return nil, fmt.Errorf("gateway listener: %w", err)
+	}
+	if gs.tls != nil {
+		if err := addTLSListener(mgr, gs, gh, log); err != nil {
 			return nil, err
 		}
 	}
