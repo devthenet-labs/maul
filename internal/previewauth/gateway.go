@@ -359,11 +359,29 @@ func (h Handoff) Redeem(label, stateCookie string, v View) error {
 	if h.Label != label {
 		return ErrNotBound
 	}
+	if err := h.CheckState(stateCookie); err != nil {
+		return err
+	}
+	return h.Matches(v)
+}
+
+// CheckState reports whether stateCookie, the value of the state cookie the
+// code names (StateCookie), is the one whose hash the state carried.
+//
+// This alone does not bind a code to the browser that signed in: whoever
+// loaded the preview host holds the state and its cookie, and could lure a
+// signed-in viewer to /start with them, so the code the viewer's browser is
+// sent answers the lurer's cookie. The sign-in host cannot see a preview
+// host's cookies, so the gateway closes that by spending a code whose state
+// does not match the first time it is presented: /start redirects the
+// viewer's own browser to the callback at once, which spends it, so a copy
+// of the URL (an access log, history) is worthless afterwards.
+func (h Handoff) CheckState(stateCookie string) error {
 	if stateCookie == "" || len(stateCookie) > 128 ||
 		subtle.ConstantTimeCompare([]byte(csrfHash(stateCookie)), []byte(h.NonceHash)) != 1 {
 		return ErrStateMismatch
 	}
-	return h.Matches(v)
+	return nil
 }
 
 // HandoffKey is the single-use ledger key of an opened handoff code, kept

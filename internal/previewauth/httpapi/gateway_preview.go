@@ -273,6 +273,17 @@ func (g *gateway) redeem(w http.ResponseWriter, r *http.Request, label string,
 	if c, err := r.Cookie(h.StateCookie()); err == nil {
 		cookie = c.Value
 	}
+	if h.CheckState(cookie) != nil {
+		// Not the browser that started this sign-in: spend the code, so
+		// the browser holding its state (perhaps one that lured this
+		// viewer to /start) can never redeem it.
+		if err := g.s.cfg.Ledger.Consume(ctx, previewauth.HandoffKey(h), time.Unix(h.Expires, 0)); err != nil &&
+			!errors.Is(err, previewauth.ErrReplayed) {
+			g.logRefusal(r, "code ledger", err)
+		}
+		g.page(w, r, resultStateCSRF, http.StatusBadRequest, pageSignInExpired)
+		return h, false
+	}
 	view, err := g.s.cfg.Lookup.ByLabel(ctx, label)
 	if err != nil {
 		g.logRefusal(r, "preview lookup", err)

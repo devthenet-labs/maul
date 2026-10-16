@@ -169,6 +169,11 @@ browser                          preview-auth (gateway)                         
                                    names: http://<service>.patchy-preview-<slot>.svc:<port>
 ```
 
+A handoff code that reaches a preview host without the state cookie it names (a browser that did not start that sign-in)
+is refused and spent at once. Whoever loads a preview host holds its sealed state and state cookie, and could lure a
+signed-in viewer to `/start` with them; `/start` then sends the viewer's own browser straight to the callback, which
+spends the code, so a copy of the URL (an access log, browser history) cannot be redeemed afterwards.
+
 Without a host session, only a top-level navigation (or, from a browser that sends no `Sec-Fetch-*` headers, a GET whose
 `Accept` names `text/html`) gets a state cookie and the redirect; any other request is a `401` page with no cookie, so
 background fetches and hot-reload sockets do not loop. A label with no live Preview is the same `404` whether it never

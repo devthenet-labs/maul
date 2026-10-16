@@ -221,12 +221,22 @@ func TestGatewayFixation(t *testing.T) {
 		t.Fatal("the victim was signed in as the attacker")
 	}
 
-	// The code was not spent: its own browser can still use it, once.
+	// A code presented without its state is spent: not even the browser
+	// that holds the state can use it afterwards.
+	resp = nav(t, attacker, code)
+	if resp.StatusCode != http.StatusBadRequest || len(resp.Cookies()) != 0 {
+		t.Errorf("a code spent by a mismatched callback: %d, cookies %v", resp.StatusCode, resp.Cookies())
+	}
+	_ = resp.Body.Close()
+
+	// Its own browser can use a fresh code, once.
+	own := e.browser()
+	code = e.toCallback(t, own, "/")
 	jarCopy, _ := cookiejar.New(nil)
 	u, _ := url.Parse(previewOrigin + "/")
-	jarCopy.SetCookies(u, attacker.Jar.Cookies(u))
-	redirect(t, nav(t, attacker, code), previewOrigin+"/")
-	replay := &http.Client{Jar: jarCopy, Transport: attacker.Transport, CheckRedirect: attacker.CheckRedirect}
+	jarCopy.SetCookies(u, own.Jar.Cookies(u))
+	redirect(t, nav(t, own, code), previewOrigin+"/")
+	replay := &http.Client{Jar: jarCopy, Transport: own.Transport, CheckRedirect: own.CheckRedirect}
 	resp = nav(t, replay, code)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("a replayed code: %d", resp.StatusCode)
@@ -244,6 +254,43 @@ func TestGatewayFixation(t *testing.T) {
 		t.Errorf("another host's code: %d, cookies %v", resp.StatusCode, resp.Cookies())
 	}
 	_ = resp.Body.Close()
+}
+
+// TestGatewayLuredStart: someone who loaded a preview host they may not view
+// holds its sealed state and state cookie, and lures a signed-in viewer to
+// /start with that state. The viewer's browser is sent a code minted for the
+// viewer; its own callback refuses it and spends it, so the lurer, holding
+// the state cookie and a copy of the URL (an access log, say), cannot redeem
+// it.
+func TestGatewayLuredStart(t *testing.T) {
+	e := newGatewayEnv(t, nil, nil)
+	victim := e.browser()
+	e.signInPreview(t, victim, "/") // a relay session, as any viewer has
+	victimHost, err := hostCookie(victim)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	lurer := e.browser()
+	start := redirect(t, nav(t, lurer, previewOrigin+"/"), "https://"+relayHost+"/start?")
+	code := redirect(t, nav(t, victim, start), previewOrigin+previewauth.HandoffPath+"?")
+	resp := nav(t, victim, code)
+	if resp.StatusCode != http.StatusBadRequest || len(resp.Cookies()) != 0 {
+		t.Fatalf("the victim's callback: %d, cookies %v", resp.StatusCode, resp.Cookies())
+	}
+	_ = resp.Body.Close()
+	if after, _ := hostCookie(victim); after != victimHost {
+		t.Error("the victim's host session changed")
+	}
+
+	resp = nav(t, lurer, code)
+	if resp.StatusCode != http.StatusBadRequest || len(resp.Cookies()) != 0 {
+		t.Errorf("the lurer redeemed the victim's code: %d, cookies %v", resp.StatusCode, resp.Cookies())
+	}
+	_ = resp.Body.Close()
+	if _, err := hostCookie(lurer); err == nil {
+		t.Error("the lurer was signed in as the victim")
+	}
 }
 
 // TestGatewayLoginCSRF: the Dex callback refuses a gateway sign-in this

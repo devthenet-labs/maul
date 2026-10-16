@@ -61,7 +61,8 @@
 //     Handoff code (kind o) the sign-in host sends back is single-use
 //     (HandoffKey), bound to the Preview, the state and its cookie's nonce,
 //     and names the relay session that issued it; Handoff.Redeem is the
-//     fixation and login-CSRF check. HostSession (kind h) is the preview host's
+//     fixation and login-CSRF check, and a code that fails CheckState is
+//     spent at once, so a lured viewer's code is worthless to the lurer. HostSession (kind h) is the preview host's
 //     own session, at most GatewayLifetimes.HostSession long. GatewayLogin
 //     (kind g) is the gateway's sign-in state through Dex.
 //   - View.Routes are the served components from status.serving (for this
