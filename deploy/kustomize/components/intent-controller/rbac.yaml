@@ -18,6 +18,9 @@
 #   repositories    create/get/list/watch/delete: each run's source tree
 #                   (status stays source-controller's).
 #   forges          get/list/watch: which Forge covers a repository.
+#   usagerollups    create/get, status get/update: each attributed run's
+#                   usage folded in once it settles (design L2), uncached by
+#                   name, so no list/watch.
 #   configmaps      create/get/list/watch/update: input snapshots, plans and
 #                   transcripts, all owner-referenced (no delete: the TTL
 #                   cascade removes them).
@@ -59,6 +62,12 @@ rules:
     - apiGroups: [patchy.bitwisemedia.uk]
       resources: [forges]
       verbs: [get, list, watch]
+    - apiGroups: [patchy.bitwisemedia.uk]
+      resources: [usagerollups]
+      verbs: [create, get]
+    - apiGroups: [patchy.bitwisemedia.uk]
+      resources: [usagerollups/status]
+      verbs: [get, update]
     - apiGroups: [""]
       resources: [configmaps]
       verbs: [create, get, list, watch, update]

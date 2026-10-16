@@ -163,6 +163,18 @@ rules:
     - apiGroups: [patchy.bitwisemedia.uk]
       resources: [evaluationunits/status]
       verbs: [get, update, patch]
+    {{- /* usagerollups create/get, status get/update, under attribution.mode
+           attribute only: each attributed unit's usage folded in once it
+           settles (design L2), uncached by name; `update` on
+           evaluationunits is then also the usage finalizer's removal. */}}
+    {{- if include "patchy.attributionOn" . }}
+    - apiGroups: [patchy.bitwisemedia.uk]
+      resources: [usagerollups]
+      verbs: [create, get]
+    - apiGroups: [patchy.bitwisemedia.uk]
+      resources: [usagerollups/status]
+      verbs: [get, update]
+    {{- end }}
     - apiGroups: [""]
       resources: [configmaps]
       verbs: [create, get, update]

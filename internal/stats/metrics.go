@@ -5,11 +5,14 @@ package stats
 
 import (
 	"context"
+	"slices"
 	"sync"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+
+	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
 )
 
 // scopeName identifies this package's meter.
@@ -86,4 +89,63 @@ func RecordCompletion(ctx context.Context, phase, recommendation, repo string) {
 // RecordDeleted emits a finding deletion (reason: ttl or manual).
 func RecordDeleted(ctx context.Context, reason string) {
 	findingDeleted().Add(ctx, 1, metric.WithAttributes(attribute.String("reason", reason)))
+}
+
+// The usage instruments fire when a run's own controller folds the run into
+// its user UsageRollup, exactly once per run (the rollup ledger decides),
+// aligned with the UsageRollup counters. `user` is the attributed-to value
+// ("org" or "github-id:<id>"): its cardinality is bounded by headcount.
+var (
+	usageTokens = sync.OnceValue(func() metric.Int64Counter {
+		c, _ := otel.Meter(scopeName).Int64Counter("patchy.usage.tokens",
+			metric.WithDescription("agent run tokens by user, project, run kind, source and class"))
+		return c
+	})
+	usageCost = sync.OnceValue(func() metric.Float64Counter {
+		c, _ := otel.Meter(scopeName).Float64Counter("patchy.usage.cost",
+			metric.WithDescription("agent run cost by user, project, run kind and pricing "+
+				"(list, subscription: notional, reported: the pod's own untrusted figure)"),
+			metric.WithUnit("usd"))
+		return c
+	})
+)
+
+// RecordUsage emits one run's usage metrics. Metered runs report their
+// token classes and their list and subscription costs; a reported run its
+// pod's own totals, under source and pricing "reported", so a dashboard can
+// keep them out of trusted sums.
+func RecordUsage(ctx context.Context, user string, d UsageDelta) {
+	source := string(d.Source)
+	base := []attribute.KeyValue{
+		attribute.String("user", user),
+		attribute.String("project", d.Project),
+		attribute.String("kind", d.Kind),
+	}
+	with := func(extra ...attribute.KeyValue) metric.MeasurementOption {
+		return metric.WithAttributes(append(slices.Clone(base), extra...)...)
+	}
+	u := d.Usage
+	tokens := map[string]int64{"reported": u.ReportedTokens}
+	if d.Trusted() {
+		tokens = map[string]int64{
+			"input":       u.InputTokens,
+			"output":      u.OutputTokens,
+			"cache_read":  u.CacheReadTokens,
+			"cache_write": u.CacheWriteTokens,
+		}
+	}
+	for class, n := range tokens {
+		if n > 0 {
+			usageTokens().Add(ctx, n, with(attribute.String("source", source), attribute.String("class", class)))
+		}
+	}
+	for pricing, micro := range map[string]int64{
+		string(v1alpha1.UsagePricingList):         u.CostMicroUSD,
+		string(v1alpha1.UsagePricingSubscription): u.NotionalCostMicroUSD,
+		"reported": u.ReportedCostMicroUSD,
+	} {
+		if micro > 0 {
+			usageCost().Add(ctx, float64(micro)/1e6, with(attribute.String("pricing", pricing)))
+		}
+	}
 }

@@ -43,6 +43,7 @@ func addKnownTypes(s *runtime.Scheme) error {
 		&Preview{}, &PreviewList{},
 		&Remediation{}, &RemediationList{},
 		&Repository{}, &RepositoryList{},
+		&UsageRollup{}, &UsageRollupList{},
 	)
 	metav1.AddToGroupVersion(s, GroupVersion)
 	return nil

@@ -36,6 +36,7 @@ import (
 	"github.com/bitwise-media-group/patchy/internal/templates"
 	"github.com/bitwise-media-group/patchy/internal/transcriptstore"
 	"github.com/bitwise-media-group/patchy/internal/usagemeter"
+	"github.com/bitwise-media-group/patchy/internal/usagerollup"
 )
 
 // runSchedulerRequest is the singleton request every run and Job event also
@@ -99,6 +100,9 @@ type RunReconciler struct {
 	// Meter settles a finished run's usage against the egress broker
 	// (--usage-measurement); nil, the default, records nothing.
 	Meter *usagemeter.Meter
+	// Usage folds a settled run that carries the usage finalizer into its
+	// UsageRollups and releases the finalizer; nil settles nothing.
+	Usage *usagerollup.Aggregator
 	Now   func() time.Time
 	Log   *slog.Logger
 }
@@ -333,7 +337,14 @@ func (r *RunReconciler) run(ctx context.Context, req ctrl.Request) (ctrl.Result,
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	if !run.DeletionTimestamp.IsZero() {
-		return ctrl.Result{}, r.finalize(ctx, &run)
+		if err := r.finalize(ctx, &run); err != nil {
+			return ctrl.Result{}, err
+		}
+		res, err := r.measure(ctx, &run)
+		if err != nil || res.RequeueAfter > 0 {
+			return res, err
+		}
+		return ctrl.Result{}, r.rollUpUsage(ctx, &run)
 	}
 	switch run.Status.Phase {
 	case v1alpha1.RunPending, "":
@@ -363,7 +374,11 @@ func (r *RunReconciler) run(ctx context.Context, req ctrl.Request) (ctrl.Result,
 		if err := r.deletePlanRepository(ctx, &run); err != nil {
 			return ctrl.Result{}, err
 		}
-		return r.measure(ctx, &run)
+		res, err := r.measure(ctx, &run)
+		if err != nil || res.RequeueAfter > 0 {
+			return res, err
+		}
+		return res, r.rollUpUsage(ctx, &run)
 	}
 	return ctrl.Result{}, nil
 }

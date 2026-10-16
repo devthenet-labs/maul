@@ -52,7 +52,7 @@ func newClient(t *testing.T, objs ...client.Object) client.Client {
 	return fake.NewClientBuilder().
 		WithScheme(kube.Scheme()).
 		WithObjects(objs...).
-		WithStatusSubresource(&v1alpha1.Evaluation{}, &v1alpha1.EvaluationUnit{}).
+		WithStatusSubresource(&v1alpha1.Evaluation{}, &v1alpha1.EvaluationUnit{}, &v1alpha1.UsageRollup{}).
 		Build()
 }
 

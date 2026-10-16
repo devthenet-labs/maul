@@ -14,7 +14,10 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
 	"github.com/bitwise-media-group/patchy/internal/envelope"
@@ -99,6 +102,18 @@ func FailedStage(reported *envelope.Stage, outcome, detail string) envelope.Stag
 	st.Outcome = envelope.Outcome(outcome)
 	st.Detail = detail
 	return st
+}
+
+// DeletedStage is the stage recorded on a run deleted before it reported
+// one, to hold the usage the broker measured for its Job: aborted, with
+// nothing reported, finished at now (the rollups bucket it by that).
+func DeletedStage(now time.Time) *v1alpha1.StageResult {
+	finished := metav1.NewTime(now)
+	return &v1alpha1.StageResult{
+		Outcome:    "aborted",
+		Detail:     "deleted before the stage reported",
+		FinishedAt: &finished,
+	}
 }
 
 // FromStage maps an envelope stage onto the CRD stage result.
