@@ -95,6 +95,12 @@ func TestPreviewGatewayNetworkPoliciesAgainstAPIServer(t *testing.T) {
 	if err := admin.Get(ctx, client.ObjectKey{Namespace: "patchy", Name: "patchy-preview-auth"}, &gw); err != nil {
 		t.Fatal(err)
 	}
+	checkGatewayEgress(t, &gw)
+}
+
+// checkGatewayEgress: the gateway reaches the slots on port http alone.
+func checkGatewayEgress(t *testing.T, gw *networkingv1.NetworkPolicy) {
+	t.Helper()
 	var toSlots []networkingv1.NetworkPolicyEgressRule
 	for _, rule := range gw.Spec.Egress {
 		for _, peer := range rule.To {

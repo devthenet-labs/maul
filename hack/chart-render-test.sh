@@ -444,20 +444,22 @@ expect_fail 'preview missing cert' 'preview.certificateARN' -f "$fixtures/previe
 # nodePool/nodeClass: the whole render is byte for byte the legacy one. A
 # generic selector joins the EKS labels in the slot admission policy and the
 # controller's ConfigMap; mode none renders neither selector nor toleration.
-eksiso="--set preview.nodeIsolation.nodePool= --set preview.nodeIsolation.nodeClass= --set preview.nodeIsolation.eksAutoMode.nodePool=patchy-preview --set preview.nodeIsolation.eksAutoMode.nodeClass=patchy-preview"
+eksiso=$out/eks-isolation.yaml
+printf 'preview:\n    nodeIsolation:\n        nodePool: ""\n        nodeClass: ""\n        eksAutoMode:\n            nodePool: patchy-preview\n            nodeClass: patchy-preview\n' >"$eksiso"
 render preview-runtime-eks -f "$fixtures/preview-foundation.yaml" \
-  -f "$fixtures/intent-controller.yaml" -f "$fixtures/preview-controller.yaml" $eksiso
+  -f "$fixtures/intent-controller.yaml" -f "$fixtures/preview-controller.yaml" -f "$eksiso"
 if ! cmp -s "$out/preview-runtime.yaml" "$out/preview-runtime-eks.yaml"; then
   fail "preview-runtime-eks: preview.nodeIsolation.eksAutoMode renders differently from the legacy nodePool/nodeClass"
 fi
 notes notes-preview-legacy-nodes -f "$fixtures/preview-foundation.yaml"
 notes_has notes-preview-legacy-nodes "DEPRECATED: preview.nodeIsolation.nodePool and preview.nodeIsolation.nodeClass still work" yes
-notes notes-preview-eks-nodes -f "$fixtures/preview-foundation.yaml" $eksiso
+notes notes-preview-eks-nodes -f "$fixtures/preview-foundation.yaml" -f "$eksiso"
 notes_has notes-preview-eks-nodes "DEPRECATED" no
 notes_has notes-preview-eks-nodes "NodeClass patchy-preview and NodePool patchy-preview must" yes
-generic='--set preview.nodeIsolation.nodePool= --set preview.nodeIsolation.nodeClass='
+generic=$out/generic-isolation.yaml
+printf 'preview:\n    nodeIsolation:\n        nodePool: ""\n        nodeClass: ""\n' >"$generic"
 render preview-generic -f "$fixtures/preview-foundation.yaml" -f "$fixtures/intent-controller.yaml" \
-  -f "$fixtures/preview-controller.yaml" $generic \
+  -f "$fixtures/preview-controller.yaml" -f "$generic" \
   --set-json 'preview.nodeIsolation.selector={"patchy.example.com/previews":"true","node.example.com/pool":"previews"}'
 podsel='select(.kind == "ValidatingAdmissionPolicy" and .metadata.name == "patchy-preview-pods") | .spec.validations[] | select(.message | test("select the dedicated"))'
 expect preview-generic "$podsel | .expression" "has(variables.pod.nodeSelector) && 'node.example.com/pool' in variables.pod.nodeSelector && variables.pod.nodeSelector['node.example.com/pool'] == \"previews\" && 'patchy.example.com/previews' in variables.pod.nodeSelector && variables.pod.nodeSelector['patchy.example.com/previews'] == \"true\""
@@ -475,7 +477,7 @@ render preview-generic-eks -f "$fixtures/preview-foundation.yaml" \
   --set-json 'preview.nodeIsolation.selector={"patchy.example.com/previews":"true"}'
 expect preview-generic-eks "$podsel | .expression" "has(variables.pod.nodeSelector) && 'karpenter.sh/nodepool' in variables.pod.nodeSelector && variables.pod.nodeSelector['karpenter.sh/nodepool'] == \"patchy-preview\" && 'eks.amazonaws.com/nodeclass' in variables.pod.nodeSelector && variables.pod.nodeSelector['eks.amazonaws.com/nodeclass'] == \"patchy-preview\" && 'patchy.example.com/previews' in variables.pod.nodeSelector && variables.pod.nodeSelector['patchy.example.com/previews'] == \"true\""
 render preview-iso-none -f "$fixtures/preview-foundation.yaml" -f "$fixtures/intent-controller.yaml" \
-  -f "$fixtures/preview-controller.yaml" $generic --set preview.nodeIsolation.taintKey= --set preview.nodeIsolation.mode=none
+  -f "$fixtures/preview-controller.yaml" -f "$generic" --set preview.nodeIsolation.taintKey= --set preview.nodeIsolation.mode=none
 expect preview-iso-none "$podsel | .message" ''
 expect preview-iso-none 'select(.kind == "ValidatingAdmissionPolicy" and .metadata.name == "patchy-preview-pods") | .spec.validations[] | select(.message | test("tolerate")) | .message' ''
 expect preview-iso-none 'select(.kind == "ValidatingAdmissionPolicy" and .metadata.name == "patchy-preview-outside-pods") | .spec.validations[0].expression' "!has(variables.pod.tolerations) || variables.pod.tolerations.all(t,
@@ -483,16 +485,16 @@ expect preview-iso-none 'select(.kind == "ValidatingAdmissionPolicy" and .metada
     (!has(t.key) || t.key == '')))"
 cm preview-iso-none preview-controller PATCHY_PREVIEW_NODE_ISOLATION none
 cm preview-iso-none preview-controller PATCHY_PREVIEW_TAINT_KEY null
-notes notes-preview-iso-none -f "$fixtures/preview-foundation.yaml" $generic --set preview.nodeIsolation.taintKey= \
+notes notes-preview-iso-none -f "$fixtures/preview-foundation.yaml" -f "$generic" --set preview.nodeIsolation.taintKey= \
   --set preview.nodeIsolation.mode=none
 notes_has notes-preview-iso-none "preview Pods share nodes with everything else" yes
 notes_has notes-preview-iso-none "hack/preview-isolation-probe/run.sh" no
 expect_fail 'preview isolation without nodes' 'or preview.nodeIsolation.selector, are required' \
-  -f "$fixtures/preview-foundation.yaml" $generic
+  -f "$fixtures/preview-foundation.yaml" -f "$generic"
 expect_fail 'preview isolation none with a selector' 'preview.nodeIsolation.mode none renders no node selector' \
   -f "$fixtures/preview-foundation.yaml" --set preview.nodeIsolation.mode=none
 expect_fail 'preview isolation none with a taint key' 'preview.nodeIsolation.mode none renders no node selector' \
-  -f "$fixtures/preview-foundation.yaml" $generic --set preview.nodeIsolation.mode=none
+  -f "$fixtures/preview-foundation.yaml" -f "$generic" --set preview.nodeIsolation.mode=none
 expect_fail 'preview isolation mode unknown' "'/preview/nodeIsolation/mode'" \
   -f "$fixtures/preview-foundation.yaml" --set preview.nodeIsolation.mode=optional
 expect_fail 'preview isolation selector contradicting the NodePool' 'contradicts the NodePool "patchy-preview"' \
@@ -502,9 +504,9 @@ expect_fail 'preview isolation selector key with a space' "invalid propertyName 
 expect_fail 'preview isolation selector key, schema skipped' 'is not a label key' --skip-schema-validation \
   -f "$fixtures/preview-foundation.yaml" --set-json 'preview.nodeIsolation.selector={"bad key":"x"}'
 expect_fail 'preview isolation NodeClass without NodePool' 'preview.nodeIsolation.nodePool (eksAutoMode.nodePool) is required' \
-  -f "$fixtures/preview-foundation.yaml" $generic --set preview.nodeIsolation.eksAutoMode.nodeClass=patchy-preview
+  -f "$fixtures/preview-foundation.yaml" -f "$generic" --set preview.nodeIsolation.eksAutoMode.nodeClass=patchy-preview
 expect_fail 'preview nodes without EKS names' 'preview.nodeIsolation.create requires preview.nodeIsolation.eksAutoMode.nodePool' \
-  -f "$fixtures/preview-foundation.yaml" -f "$fixtures/auto-mode.yaml" $generic \
+  -f "$fixtures/preview-foundation.yaml" -f "$fixtures/auto-mode.yaml" -f "$generic" \
   --set-json 'preview.nodeIsolation.selector={"patchy.example.com/previews":"true"}'
 render preview-nodes-generic -f "$fixtures/preview-foundation.yaml" -f "$fixtures/auto-mode.yaml" \
   --set-json 'preview.nodeIsolation.selector={"patchy.example.com/previews":"true"}'
@@ -1278,12 +1280,11 @@ expect_fail 'gateway Service of type NodePort' "'/previewAuth/gateway/service/ty
 # an edge terminates TLS, and unless *.<hostSuffix> and the sign-in host
 # are both covered.
 pgtls='previewAuth.gateway.tls.secrets=[{"secretName":"preview-wildcard","hosts":["*.preview.patchy.devthe.net"]},{"secretName":"preview-signin","hosts":["preview-auth.patchy.devthe.net"]}]'
-pglb="--set previewAuth.gateway.ingress.enabled=false --set previewAuth.gateway.service.type=LoadBalancer --set previewAuth.gateway.forwardedHops=0"
-# shellcheck disable=SC2086
+pglb=$out/gateway-lb.yaml
+printf 'previewAuth:\n    gateway:\n        forwardedHops: 0\n        service:\n            type: LoadBalancer\n        ingress:\n            enabled: false\n' >"$pglb"
 golden_select pg-golden-loadbalancer-tls "$golden/preview-gateway.loadbalancer-tls.yaml" -f "$pf" -f "$pav" -f "$pgw" \
-  $pglb --set-json "$pgtls"
-# shellcheck disable=SC2086
-render pg-tls -f "$pf" -f "$pav" -f "$pgw" $pglb --set-json "$pgtls"
+  -f "$pglb" --set-json "$pgtls"
+render pg-tls -f "$pf" -f "$pav" -f "$pgw" -f "$pglb" --set-json "$pgtls"
 cm pg-tls preview-auth PATCHY_PREVIEW_AUTH_GATEWAY_TLS_DIR /etc/patchy/preview-gateway/tls
 cm pg-tls preview-auth PATCHY_PREVIEW_AUTH_GATEWAY_TLS_LISTEN_ADDR :8443
 cm pg preview-auth PATCHY_PREVIEW_AUTH_GATEWAY_TLS_DIR null
@@ -1308,21 +1309,17 @@ expect_fail 'gateway TLS with an Ingress' 'previewAuth.gateway.tls.secrets is re
 expect_fail 'gateway TLS with an HTTPRoute' 'previewAuth.gateway.tls.secrets is refused with the httpRoute exposure' \
   -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.ingress.enabled=false --set-json "$pgtls" \
   --set-json 'previewAuth.gateway.httpRoute.parentRefs=[{"name":"edge"}]'
-# shellcheck disable=SC2086
 expect_fail 'gateway TLS for another host' 'host other.example.com (Secret x) is neither' \
-  -f "$pf" -f "$pav" -f "$pgw" $pglb \
+  -f "$pf" -f "$pav" -f "$pgw" -f "$pglb" \
   --set-json 'previewAuth.gateway.tls.secrets=[{"secretName":"x","hosts":["*.preview.patchy.devthe.net","other.example.com"]}]'
-# shellcheck disable=SC2086
 expect_fail 'gateway TLS without the sign-in host' 'covers no preview-auth.patchy.devthe.net' \
-  -f "$pf" -f "$pav" -f "$pgw" $pglb \
+  -f "$pf" -f "$pav" -f "$pgw" -f "$pglb" \
   --set-json 'previewAuth.gateway.tls.secrets=[{"secretName":"x","hosts":["*.preview.patchy.devthe.net"]}]'
-# shellcheck disable=SC2086
 expect_fail 'gateway TLS without the preview hosts' 'covers no *.preview.patchy.devthe.net' \
-  -f "$pf" -f "$pav" -f "$pgw" $pglb \
+  -f "$pf" -f "$pav" -f "$pgw" -f "$pglb" \
   --set-json 'previewAuth.gateway.tls.secrets=[{"secretName":"x","hosts":["preview-auth.patchy.devthe.net"]}]'
-# shellcheck disable=SC2086
 expect_fail 'gateway TLS Secret without hosts' "missing property 'hosts'" \
-  -f "$pf" -f "$pav" -f "$pgw" $pglb --set-json 'previewAuth.gateway.tls.secrets=[{"secretName":"x"}]'
+  -f "$pf" -f "$pav" -f "$pgw" -f "$pglb" --set-json 'previewAuth.gateway.tls.secrets=[{"secretName":"x"}]'
 
 # ---- feature on: keys on the right controllers ------------------------------
 render on -f "$fixtures/repository-images.yaml"

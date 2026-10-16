@@ -409,14 +409,9 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	if err := mgr.Add(prober); err != nil {
 		return fmt.Errorf("host probe: %w", err)
 	}
-	httpSrv := newHTTPServer(opts.ListenAddr, srv.Handler(), gwCfg != nil)
-	if err := mgr.Add(listener{srv: httpSrv}); err != nil {
-		return fmt.Errorf("listener: %w", err)
-	}
-	if st.gateway != nil && st.gateway.tls != nil {
-		if err := addTLSListener(mgr, st.gateway, srv.Handler(), log); err != nil {
-			return err
-		}
+	httpSrv, err := addListeners(mgr, opts.ListenAddr, st.gateway, srv.Handler(), log)
+	if err != nil {
+		return err
 	}
 	if err := mgr.Add(syncWatcher{mgr.GetCache().WaitForCacheSync, &synced, upstream, log}); err != nil {
 		return fmt.Errorf("sync watcher: %w", err)
@@ -446,6 +441,22 @@ func newHTTPServer(addr string, h http.Handler, gateway bool) *http.Server {
 		srv.ReadTimeout, srv.WriteTimeout = 0, 0
 	}
 	return srv
+}
+
+// addListeners adds the relay's listener and, when the gateway serves its
+// own TLS, the TLS listener beside it; it returns the plain one.
+func addListeners(mgr runnableAdder, addr string, gs *gatewayStatic, h http.Handler,
+	log *slog.Logger) (*http.Server, error) {
+	httpSrv := newHTTPServer(addr, h, gs != nil)
+	if err := mgr.Add(listener{srv: httpSrv}); err != nil {
+		return nil, fmt.Errorf("listener: %w", err)
+	}
+	if gs != nil && gs.tls != nil {
+		if err := addTLSListener(mgr, gs, h, log); err != nil {
+			return nil, err
+		}
+	}
+	return httpSrv, nil
 }
 
 // runnableAdder is the part of the manager addTLSListener needs.

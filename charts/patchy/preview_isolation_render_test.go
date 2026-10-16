@@ -53,7 +53,8 @@ func TestChartNodeIsolationIsTheControllers(t *testing.T) {
 			"--set", "preview.nodeIsolation.taintKey=", "--set", "preview.nodeIsolation.mode=none"), isNone: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			cm := renderConfigMaps(t, append(append([]string{}, previewRuntimeArgs...), tc.args...))["patchy-preview-controller-config"]
+			args := append(append([]string{}, previewRuntimeArgs...), tc.args...)
+			cm := renderConfigMaps(t, args)["patchy-preview-controller-config"]
 			s := settingsFrom(t, cm)
 			if err := s.Validate(); err != nil {
 				t.Fatalf("preview-controller refuses the chart's settings: %v (ConfigMap %v)", err, cm)

@@ -48,8 +48,10 @@ func tlsPair(t *testing.T, dir, sub string, names ...string) *x509.Certificate {
 	if err := os.MkdirAll(filepath.Join(dir, sub), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, filepath.Join(dir, sub), tlsdir.FileCert, string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})))
-	writeFile(t, filepath.Join(dir, sub), tlsdir.FileKey, string(pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})))
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+	writeFile(t, filepath.Join(dir, sub), tlsdir.FileCert, string(certPEM))
+	writeFile(t, filepath.Join(dir, sub), tlsdir.FileKey, string(keyPEM))
 	cert, err := x509.ParseCertificate(der)
 	if err != nil {
 		t.Fatal(err)
@@ -138,7 +140,8 @@ func TestTLSListenerServesBySNI(t *testing.T) {
 	}
 	go func() { _ = l.srv.ServeTLS(ln, "", "") }()
 	t.Cleanup(func() { _ = l.srv.Close() })
-	for host, want := range map[string]*x509.Certificate{"demo-1.previews.example.com": previews, "auth.example.com": signIn} {
+	certs := map[string]*x509.Certificate{"demo-1.previews.example.com": previews, "auth.example.com": signIn}
+	for host, want := range certs {
 		pool := x509.NewCertPool()
 		pool.AddCert(want)
 		client := &http.Client{Transport: &http.Transport{
@@ -158,8 +161,10 @@ func TestTLSListenerServesBySNI(t *testing.T) {
 		}
 	}
 	// TLS 1.1 is refused.
-	conn, err := tls.Dial("tcp", ln.Addr().String(), &tls.Config{ServerName: "auth.example.com",
-		InsecureSkipVerify: true, MinVersion: tls.VersionTLS10, MaxVersion: tls.VersionTLS11}) //nolint:gosec // the refusal under test
+	//nolint:gosec // an old, unverified handshake is the refusal under test
+	old := &tls.Config{ServerName: "auth.example.com", InsecureSkipVerify: true,
+		MinVersion: tls.VersionTLS10, MaxVersion: tls.VersionTLS11}
+	conn, err := tls.Dial("tcp", ln.Addr().String(), old)
 	if err == nil {
 		_ = conn.Close()
 		t.Error("a TLS 1.1 handshake succeeded")
