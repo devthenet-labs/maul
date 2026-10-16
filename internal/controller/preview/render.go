@@ -120,16 +120,14 @@ func resourceName(p *v1alpha1.Preview) string      { return "preview-" + p.Name 
 func (s Settings) host(p *v1alpha1.Preview) string { return p.Spec.HostLabel + "." + s.HostSuffix }
 func image(c v1alpha1.PreviewComponent) string     { return c.ImageRepository + ":sha-" + c.Revision }
 
-// componentName names component i's Deployment and Service. The first keeps
-// preview-<p>, so a single-component Preview renders exactly what it always
-// did: an existing preview is not re-rendered across an upgrade, and a
-// rolled-back controller, which knows only that name, can still clean it up.
-// Each further component is preview-<p>-<c>.
+// componentName names component i's Deployment and Service, by the one
+// derivation a router shares (v1alpha1.PreviewComponentServiceName). The
+// first keeps preview-<p>, so a single-component Preview renders exactly what
+// it always did: an existing preview is not re-rendered across an upgrade,
+// and a rolled-back controller, which knows only that name, can still clean
+// it up. Each further component is preview-<p>-<c>.
 func componentName(p *v1alpha1.Preview, i int) string {
-	if i == 0 {
-		return resourceName(p)
-	}
-	return resourceName(p) + "-" + p.Spec.Components[i].Name
+	return v1alpha1.PreviewComponentServiceName(p, i)
 }
 
 // labelsFor are the labels every object of the Preview carries; cleanup,
@@ -266,7 +264,7 @@ func (s Settings) service(p *v1alpha1.Preview, i int, slot int32) *corev1.Servic
 			Annotations: annotations},
 		Spec: corev1.ServiceSpec{
 			Type: corev1.ServiceTypeClusterIP, Selector: componentLabels(p, i),
-			Ports: []corev1.ServicePort{{Name: "http", Port: 80, TargetPort: intstr.FromString("http"),
+			Ports: []corev1.ServicePort{{Name: "http", Port: v1alpha1.PreviewServicePort, TargetPort: intstr.FromString("http"),
 				Protocol: corev1.ProtocolTCP}},
 		},
 	}
@@ -282,7 +280,8 @@ func rootComponent(p *v1alpha1.Preview) int {
 
 // ingress is the Preview's one host: a single rule with a Prefix path per
 // component, longest first, so the load balancer tries a sibling's deeper
-// prefix before the root's catch-all whether or not it orders rules itself.
+// prefix before the root's catch-all whether or not it orders rules itself:
+// the routing v1alpha1.PreviewRoute states, which the preview gateway uses.
 // With auth required it also carries the slot's pinned sign-in set, the only
 // annotations beside the health-check path; the controller names the slot's
 // client Secret there but never reads it.
@@ -294,7 +293,7 @@ func (s Settings) ingress(p *v1alpha1.Preview, slot int32) *networkingv1.Ingress
 		paths = append(paths, networkingv1.HTTPIngressPath{
 			Path: v1alpha1.PreviewComponentPath(c), PathType: &pathType,
 			Backend: networkingv1.IngressBackend{Service: &networkingv1.IngressServiceBackend{
-				Name: componentName(p, i), Port: networkingv1.ServiceBackendPort{Number: 80},
+				Name: componentName(p, i), Port: networkingv1.ServiceBackendPort{Number: v1alpha1.PreviewServicePort},
 			}},
 		})
 	}
