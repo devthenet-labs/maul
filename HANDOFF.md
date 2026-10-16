@@ -1,5 +1,9 @@
 # Handoff: intent-driven development in patchy
 
+> **How this file is written:** one checkpoint per release, written by the release, never by a feature PR. Concurrent
+> feature PRs each adding a section at the top conflicted with one another every time one merged; a feature PR puts what
+> is in flight, how to enable it and what is still to come in its PR body instead.
+>
 > **Field notes:** [FIELD-NOTES.md](FIELD-NOTES.md) collects what running intents on real applications taught us, as raw
 > material for the docs. Add to it as things happen.
 >
@@ -7,7 +11,13 @@
 > documentation values `111122223333` and `203.0.113.10/32`. The real ones are in terraform-devthenet's `k8s/` values
 > (private).
 
-## In flight — 2026-10-16: portable previews, release N (end to end, check project, isolation probe, docs)
+## Unreleased on main — 2026-10-16 (merged, not yet released or live)
+
+Everything here is off by default. Both clusters still run 0.12.38. Also merged and not described below: the preview
+serving snapshot and generic node isolation (#223), the gateway sign-in and proxy (#226), and the preview policy probe
+deflake (#232). The release that ships these replaces this section with a checkpoint.
+
+### Portable previews, release N (end to end, check project, isolation probe, docs) (#231)
 
 **Release N of the preview gateway is complete in code.** Branch `feat/preview-gateway-e2e-docs` (design §5, §9 W5 to W7
 and Revision W9) adds what proves and documents it; nothing changes for an install that leaves the gateway off:
@@ -34,7 +44,7 @@ Next: live on the desktop (k3d recipe, a tainted preview node, `ingress.sh`), th
 Terraform W8 (the wildcard alias to the edge ALB, the preview wildcard certificate on the edge) is still to do, and so
 is N+1.
 
-## In flight — 2026-10-16: the Usage page, API and CLI (per-user credentials, L2: W4)
+### The Usage page, API and CLI (per-user credentials, L2: W4) (#233)
 
 **People can see what they spent.** Branch `feat/usage-dashboard` adds the surfaces of L2 (design section 3, Dashboard;
 revision 1, Surfaces). Off by default; chart `statusServer.usage.enabled: true` turns it on, and it shows something only
@@ -55,7 +65,7 @@ See [docs/configuration/status-server.md](docs/configuration/status-server.md#us
 `federated:id` to the status page's Dex scopes, set `statusServer.usage.enabled`, bind `patchy-usage-admin` for admins,
 and have everyone sign out and in again. No kustomize component yet (chart only).
 
-## In flight — 2026-10-16: durable per-user usage rollups (per-user credentials, L2: W3)
+### Durable per-user usage rollups (per-user credentials, L2: W3) (#230)
 
 **Who spent what now outlives the runs.** Branch `feat/usage-rollups` adds the `UsageRollup` kind (design revision 1,
 L2). Off by default; chart `attribution.mode: attribute` turns it on with L1 and trusted usage:
@@ -74,7 +84,7 @@ and `patchy get usage` (W4) are in flight above. Known gaps: Finding and evaluat
 in user scopes only; the demo reset (Integration `spec.reset`) does not delete `UsageRollup`s; turning attribution off
 releases runs still settling unaggregated (`RollupForbidden`).
 
-## In flight — 2026-10-16: portable previews, release N (the chart)
+### Portable previews, release N (the chart) (#228)
 
 **The preview gateway can be exposed on any cluster, beside the ALB path.** Branch `feat/preview-gateway-chart` (design
 `.claude/plans/portable-previews-design.md`, §4 as revised) adds the chart side of release N; with every new value at
@@ -95,7 +105,7 @@ its default an install renders as before (only YAML comments differ):
 Not live anywhere. Order on EKS: enable the gateway with its Ingress, flip the wildcard record to it, then set
 `preview.legacyIngress: false` (design §8 as revised). N+1 (removing the ALB path and its values) is not started.
 
-## In flight — 2026-10-16: trusted usage (per-user credentials, L2: measured usage)
+### Trusted usage (per-user credentials, L2: measured usage) (#227)
 
 **A settled run records what the broker metered, not only what its pod said.** Branch `feat/broker-measured-usage` adds
 the measured half of L2 (design revision 1). Off by default; chart `attribution.mode: attribute` turns it on with L1
@@ -111,7 +121,7 @@ See [docs/configuration/attribution.md](docs/configuration/attribution.md#truste
 aggregation and the OTel user attribute are in flight above; the dashboard Usage page and `patchy get usage` (W4) are
 still to come; the Intent's own `status.usage` totals and the issue's cost line still sum the pod-reported figures.
 
-## In flight — 2026-10-16: run attribution (per-user credentials, L1)
+### Run attribution (per-user credentials, L1) (#224)
 
 **Every agent run can say whom it is for.** Branch `feat/run-attribution` adds layer L1 of the per-user credentials
 design (attribution; L2 usage and L3 per-user credentials follow). It is off by default: with chart
