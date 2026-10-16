@@ -489,8 +489,24 @@ func checkEvaluationSubmitter(t *testing.T, as func(string) client.Client) {
 // served), then the rest.
 func applyAttributionRender(t *testing.T, admin client.Client) {
 	t.Helper()
+	seen := applyChartRender(t, admin, attributionArgs)
+	for _, name := range []string{"attribution-jobs", "attribution-pods", "attribution-finding-stamps",
+		"attribution-evaluation-submitter", "attribution-run-stamps", "attribution-intent-requester"} {
+		for _, kind := range []string{"ValidatingAdmissionPolicy", "ValidatingAdmissionPolicyBinding"} {
+			if !seen[kind+"/patchy-"+name] {
+				t.Errorf("the attribution render has no %s patchy-%s", kind, name)
+			}
+		}
+	}
+}
+
+// applyChartRender creates every object of the chart rendered with extra
+// args, namespaces then CRDs (waiting until established) then the rest, and
+// returns what it created as kind/name.
+func applyChartRender(t *testing.T, admin client.Client, extra []string) map[string]bool {
+	t.Helper()
 	ctx := t.Context()
-	args := append([]string{"template", "patchy", ".", "--namespace", egressRelease}, attributionArgs...)
+	args := append([]string{"template", "patchy", ".", "--namespace", egressRelease}, extra...)
 	output, err := exec.CommandContext(ctx, "helm", args...).Output()
 	if err != nil {
 		t.Fatalf("render chart: %v", err)
@@ -524,14 +540,7 @@ func applyAttributionRender(t *testing.T, admin client.Client) {
 			waitCRDsEstablished(t, admin, group)
 		}
 	}
-	for _, name := range []string{"attribution-jobs", "attribution-pods", "attribution-finding-stamps",
-		"attribution-evaluation-submitter", "attribution-run-stamps", "attribution-intent-requester"} {
-		for _, kind := range []string{"ValidatingAdmissionPolicy", "ValidatingAdmissionPolicyBinding"} {
-			if !seen[kind+"/patchy-"+name] {
-				t.Errorf("the attribution render has no %s patchy-%s", kind, name)
-			}
-		}
-	}
+	return seen
 }
 
 func waitCRDsEstablished(t *testing.T, admin client.Client, crds []*unstructured.Unstructured) {

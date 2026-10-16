@@ -1105,11 +1105,14 @@ intentController:
         # Ended intents are deleted this long after completion (everything
         # they own cascades); "0s" keeps them forever.
         intentTTL: 336h
-        # activeDeadlineSeconds on every intent Job: at least both stage
-        # timeouts (the controller refuses to start otherwise). The broker
-        # caller token each Job gets is minted for this deadline plus 15m
-        # (at least 1h), so it outlives any deadline set here.
+        # The least activeDeadlineSeconds on an intent Job: at least every
+        # stage timeout (the controller refuses to start otherwise). A run
+        # whose stage timeout plus 15m is longer gets that instead, up to
+        # jobDeadlineMax. The broker caller token each Job gets is minted for
+        # its deadline plus 15m (at least 1h), so it outlives the Job.
         jobDeadline: 90m
+        # The most a run's stage timeout may stretch its Job's deadline to.
+        jobDeadlineMax: 4h30m
         # The per-stage ceilings. A Project's limits may lower them, never
         # raise them. The models must resolve to the claude harness. Each
         # idleTimeout ends a run of its stage that makes no progress (no
@@ -1340,6 +1343,12 @@ egressBroker:
         # annotation (a Role granting get on pods in agent.namespace, rendered
         # only then), holding the pod to the smaller of it and costPerPod. The
         # audit line reports cost_micro_usd under either unit, to size them.
+        # With the intent controller on, `cost` also grants every intent run
+        # a budget (the Project's limits.<stage>.maxCostMicroUSD, else its
+        # limits.maxCostMicroUSD) that intent-controller stamps on the run's
+        # Job and pod, admission policies letting only it set the annotation;
+        # a Project whose run budget is more than half costPerHour is not
+        # Ready.
         unit: tokens
         # Tokens (input, cache creation, cache read, output) one pod may
         # consume.

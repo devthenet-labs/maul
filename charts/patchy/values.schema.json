@@ -2062,6 +2062,10 @@
                         "jobDeadline": {
                             "$ref": "#/definitions/duration"
                         },
+                        "jobDeadlineMax": {
+                            "$ref": "#/definitions/duration",
+                            "description": "The most a run's stage timeout plus 15m may stretch its intent Job's deadline past jobDeadline"
+                        },
                         "plan": {
                             "type": "object",
                             "description": "The plan stage's ceilings: read-only, on the default runner image",

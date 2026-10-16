@@ -1,0 +1,218 @@
+# Copyright 2026 Bitwise Media Group Ltd.
+# SPDX-License-Identifier: MIT
+#
+# Run budgets' admission policies (large-features limits design, LF2),
+# rendered only while the egress broker counts cost
+# (egressBroker.limits.unit cost) and the intent controller runs.
+#
+# WHY THIS EXISTS
+#
+# Under the cost unit the broker holds each agent pod to the smaller of its
+# costPerPod and the pod's patchy.bitwisemedia.uk/budget-micro-usd
+# annotation, so the annotation chooses how much an agent may spend. It gets
+# the protection attribution's annotation has (attribution-policy.yaml): it
+# comes only from intent-controller, the one run controller that grants
+# budgets, through the Job controller, and nobody changes it afterwards. Its
+# source, an IntentRun's spec.grant.budgetMicroUSD, is admitted only from
+# intent-controller, and the run spec is immutable.
+{{- if and (include "patchy.brokerCostBudgets" .) .Values.intentController.enabled }}
+{{- $key := "patchy.bitwisemedia.uk/budget-micro-usd" }}
+{{- /* provider.ParseBudget as intent-controller writes it (no leading zero):
+       TestBudgetJobGrammarIsTheControllers pins the two together. */}}
+{{- $grammar := "^[1-9][0-9]{0,15}$" }}
+{{- $kindLabel := "patchy.bitwisemedia.uk/kind" }}
+{{- $intent := printf "system:serviceaccount:%s:%s" .Release.Namespace (include "patchy.serviceAccountName" (dict "root" $ "name" "intent-controller" "vals" .Values.intentController)) }}
+{{- /*
+The Job policy. Every Job intent-controller creates is an intent run's and
+carries the budget, on the Job and its pod template alike, in the grammar.
+Nobody else may create a Job carrying it: a Finding Job falls back to the
+broker's costPerPod. No update may set, change or remove it.
+*/}}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+    name: {{ include "patchy.fullname" . }}-budget-jobs
+    labels: {{- include "patchy.labels" (dict "root" $ "name" "admission-policy") | nindent 8 }}
+    {{- with include "patchy.annotations" (dict "root" $) }}
+    annotations: {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    # Fail closed: a policy that cannot compile or evaluate must not become an
+    # open door.
+    failurePolicy: Fail
+    matchConstraints:
+        resourceRules:
+            - apiGroups: [batch]
+              apiVersions: [v1]
+              operations: [CREATE, UPDATE]
+              resources: [jobs]
+    variables:
+        - name: job
+          expression: "object.metadata.?annotations[?'{{ $key }}']"
+        - name: pod
+          expression: "object.spec.?template.?metadata.?annotations[?'{{ $key }}']"
+        - name: runKind
+          expression: "object.metadata.?labels[?'{{ $kindLabel }}'].orValue('')"
+        - name: launcher
+          expression: "request.userInfo.username == '{{ $intent }}'"
+    validations:
+        - expression: >-
+              oldObject != null || !variables.launcher || (
+                variables.runKind == 'intent'
+                && variables.job.hasValue() && variables.pod == variables.job
+                && variables.job.value().matches('{{ $grammar }}')
+              )
+          messageExpression: >-
+              "job " + object.metadata.name + " is launched by intent-controller and must be an intent run's, " +
+              "carrying the {{ $key }} annotation on the Job and its pod template alike (a positive number " +
+              "of micro-USD)"
+          reason: Forbidden
+        - expression: >-
+              oldObject != null || variables.launcher || (!variables.job.hasValue() && !variables.pod.hasValue())
+          messageExpression: >-
+              "job " + object.metadata.name + " carries the {{ $key }} annotation; only intent-controller may set it"
+          reason: Forbidden
+        - expression: >-
+              oldObject == null || (
+                variables.job == oldObject.metadata.?annotations[?'{{ $key }}']
+                && variables.pod == oldObject.spec.?template.?metadata.?annotations[?'{{ $key }}']
+              )
+          messageExpression: >-
+              "the {{ $key }} annotation on job " + object.metadata.name + " may not be set, changed or removed"
+          reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+    name: {{ include "patchy.fullname" . }}-budget-jobs
+    labels: {{- include "patchy.labels" (dict "root" $ "name" "admission-policy") | nindent 8 }}
+    {{- with include "patchy.annotations" (dict "root" $) }}
+    annotations: {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    policyName: {{ include "patchy.fullname" . }}-budget-jobs
+    validationActions: [Deny]
+    matchResources:
+        namespaceSelector:
+            matchLabels:
+                kubernetes.io/metadata.name: {{ .Values.agent.namespace }}
+{{- /*
+The pod side. A pod carrying the budget is admitted only when the Kubernetes
+Job controller (admissionPolicy.jobControllerUsernames) creates it with a
+controlling owner reference to a batch/v1 Job, so every such pod is stamped
+from a template the Job policy already judged. No update, nor a pods/status
+write (which keeps the metadata it is sent), may set, change or remove it.
+*/}}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+    name: {{ include "patchy.fullname" . }}-budget-pods
+    labels: {{- include "patchy.labels" (dict "root" $ "name" "admission-policy") | nindent 8 }}
+    {{- with include "patchy.annotations" (dict "root" $) }}
+    annotations: {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    # Fail closed: a policy that cannot compile or evaluate must not become an
+    # open door.
+    failurePolicy: Fail
+    matchConstraints:
+        resourceRules:
+            - apiGroups: [""]
+              apiVersions: [v1]
+              operations: [CREATE, UPDATE]
+              resources: [pods, pods/status]
+    variables:
+        - name: value
+          expression: "object.metadata.?annotations[?'{{ $key }}']"
+        # Exactly one controlling owner reference, and it is a batch/v1 Job.
+        - name: jobControlled
+          expression: >-
+              object.metadata.?ownerReferences.orValue([])
+                .filter(r, r.?controller.orValue(false))
+                .all(r, r.apiVersion == 'batch/v1' && r.kind == 'Job')
+              && size(object.metadata.?ownerReferences.orValue([])
+                .filter(r, r.?controller.orValue(false))) == 1
+    validations:
+        - expression: >-
+              oldObject != null || !variables.value.hasValue() || (
+                request.userInfo.username in [{{ range $i, $u := .Values.admissionPolicy.jobControllerUsernames }}{{ if $i }}, {{ end }}{{ $u | toJson }}{{ end }}]
+                && variables.jobControlled
+              )
+          messageExpression: >-
+              "pod " + object.metadata.name + " carries the {{ $key }} annotation; only the Kubernetes " +
+              "Job controller may create a pod carrying it, for the batch/v1 Job that controls it"
+          reason: Forbidden
+        - expression: >-
+              oldObject == null || variables.value == oldObject.metadata.?annotations[?'{{ $key }}']
+          messageExpression: >-
+              "the {{ $key }} annotation on pod " + object.metadata.name + " may not be set, changed or removed"
+          reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+    name: {{ include "patchy.fullname" . }}-budget-pods
+    labels: {{- include "patchy.labels" (dict "root" $ "name" "admission-policy") | nindent 8 }}
+    {{- with include "patchy.annotations" (dict "root" $) }}
+    annotations: {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    policyName: {{ include "patchy.fullname" . }}-budget-pods
+    validationActions: [Deny]
+    matchResources:
+        namespaceSelector:
+            matchLabels:
+                kubernetes.io/metadata.name: {{ .Values.agent.namespace }}
+{{- /*
+An IntentRun's spec.grant.budgetMicroUSD is the budget its Job carries,
+copied unread at launch; the Job policy admits whatever intent-controller
+carries. So the budget is admitted on CREATE only from intent-controller,
+which grants it; the run spec is immutable, so CREATE is the only write to
+judge.
+*/}}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+    name: {{ include "patchy.fullname" . }}-budget-runs
+    labels: {{- include "patchy.labels" (dict "root" $ "name" "admission-policy") | nindent 8 }}
+    {{- with include "patchy.annotations" (dict "root" $) }}
+    annotations: {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    # Fail closed: a policy that cannot compile or evaluate must not become an
+    # open door.
+    failurePolicy: Fail
+    matchConstraints:
+        resourceRules:
+            - apiGroups: [patchy.bitwisemedia.uk]
+              apiVersions: [v1alpha1]
+              operations: [CREATE]
+              resources: [intentruns]
+    validations:
+        - expression: >-
+              !has(object.spec.grant) || !has(object.spec.grant.budgetMicroUSD)
+              || request.userInfo.username == '{{ $intent }}'
+          messageExpression: >-
+              "spec.grant.budgetMicroUSD on intentrun " + object.metadata.name +
+              " may only be granted by intent-controller"
+          reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+    name: {{ include "patchy.fullname" . }}-budget-runs
+    labels: {{- include "patchy.labels" (dict "root" $ "name" "admission-policy") | nindent 8 }}
+    {{- with include "patchy.annotations" (dict "root" $) }}
+    annotations: {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    policyName: {{ include "patchy.fullname" . }}-budget-runs
+    validationActions: [Deny]
+    matchResources:
+        namespaceSelector:
+            matchLabels:
+                kubernetes.io/metadata.name: {{ .Release.Namespace }}
+{{- end }}
