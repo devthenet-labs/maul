@@ -128,8 +128,9 @@ How a settled run is measured:
 - Model ids are normalised to the model registry (dated and provider forms included). A model the registry does not know
   keeps its tokens with no cost, and the run's total cost is then absent rather than understated.
 - Prices are the registry's list rates, cache writes at 1.25x (five-minute) and 2x (one-hour) the input rate. Each
-  priced figure records the price-table version it used. A run paid by a Claude subscription (`--anthropic-auth token`)
-  is priced `subscription`: the list-price equivalent, notional, never money spent.
+  priced figure records the price-table version it used, `<date>.<digest>`, whose digest changes with any rate. A run
+  paid by a Claude subscription (`--anthropic-auth token`) is priced `subscription`: the list-price equivalent,
+  notional, never money spent.
 
 | Helm                          | Flag                                                  | Env                                                   |
 | ----------------------------- | ----------------------------------------------------- | ----------------------------------------------------- |

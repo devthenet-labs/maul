@@ -9,8 +9,10 @@ import (
 	"encoding/json"
 	"math/rand"
 	"reflect"
+	"strings"
 	"testing"
 	"testing/quick"
+	"time"
 )
 
 // seed keeps every property deterministic in the gate.
@@ -118,32 +120,81 @@ func TestResolveProperty(t *testing.T) {
 	}
 }
 
-// TestPriceTableVersionPinned: the built-in rates and cache multipliers
-// hash to the digest recorded beside PriceTableVersion. A rate change fails
-// here until the version is bumped and the digest re-recorded, so no priced
-// figure can name a version whose rates it was not priced at.
-func TestPriceTableVersionPinned(t *testing.T) {
-	const (
-		version = "2026-10-16"
-		digest  = "828065fa4bf8b383"
-	)
+// priceDigest hashes what a priced figure depends on: every model's rates
+// and the cache-write multipliers.
+func priceDigest(t *testing.T, models []Model, write5m, write1h float64) string {
+	t.Helper()
 	type rate struct {
 		ID               string
 		In, Cached, Out  *float64
 		Write5m, Write1h float64
 	}
-	rates := make([]rate, 0, len(Builtins()))
-	for _, m := range Builtins() {
-		rates = append(rates, rate{m.ID, m.InputUSD, m.CachedInputUSD, m.OutputUSD,
-			CacheWrite5mMultiplier, CacheWrite1hMultiplier})
+	rates := make([]rate, 0, len(models))
+	for _, m := range models {
+		rates = append(rates, rate{m.ID, m.InputUSD, m.CachedInputUSD, m.OutputUSD, write5m, write1h})
 	}
 	blob, err := json.Marshal(rates)
 	if err != nil {
 		t.Fatal(err)
 	}
 	sum := sha256.Sum256(blob)
-	if got := hex.EncodeToString(sum[:8]); got != digest || PriceTableVersion != version {
-		t.Fatalf("the price table is %s at digest %s; pinned %s at %s: bump PriceTableVersion and re-pin both",
-			PriceTableVersion, got, version, digest)
+	return hex.EncodeToString(sum[:8])
+}
+
+// TestPriceTableVersionPinned: PriceTableVersion is "<date>.<digest>", the
+// digest that of the built-in rates and cache multipliers. The digest is part
+// of the recorded version itself, so a rate change cannot pass here while the
+// version every priced figure records stays the same: no priced figure can
+// name a version whose rates it was not priced at.
+func TestPriceTableVersionPinned(t *testing.T) {
+	digest := priceDigest(t, Builtins(), CacheWrite5mMultiplier, CacheWrite1hMultiplier)
+	date, got, ok := strings.Cut(PriceTableVersion, ".")
+	if !ok || got != digest {
+		t.Fatalf("PriceTableVersion = %q, but the rates hash to %s: set it to \"<today>.%s\"",
+			PriceTableVersion, digest, digest)
+	}
+	if _, err := time.Parse(time.DateOnly, date); err != nil {
+		t.Errorf("PriceTableVersion %q does not start with a YYYY-MM-DD date: %v", PriceTableVersion, err)
+	}
+}
+
+// TestPriceDigestCoversEveryRate: changing any one rate or multiplier moves
+// the digest, so TestPriceTableVersionPinned fails for each kind of change.
+func TestPriceDigestCoversEveryRate(t *testing.T) {
+	base := priceDigest(t, Builtins(), CacheWrite5mMultiplier, CacheWrite1hMultiplier)
+	bump := func(p *float64) *float64 {
+		v := 1.0
+		if p != nil {
+			v = *p + 0.01
+		}
+		return &v
+	}
+	cases := map[string]func([]Model) ([]Model, float64, float64){
+		"input": func(ms []Model) ([]Model, float64, float64) {
+			ms[0].InputUSD = bump(ms[0].InputUSD)
+			return ms, CacheWrite5mMultiplier, CacheWrite1hMultiplier
+		},
+		"cached input": func(ms []Model) ([]Model, float64, float64) {
+			ms[0].CachedInputUSD = bump(ms[0].CachedInputUSD)
+			return ms, CacheWrite5mMultiplier, CacheWrite1hMultiplier
+		},
+		"output": func(ms []Model) ([]Model, float64, float64) {
+			ms[len(ms)-1].OutputUSD = bump(ms[len(ms)-1].OutputUSD)
+			return ms, CacheWrite5mMultiplier, CacheWrite1hMultiplier
+		},
+		"5m multiplier": func(ms []Model) ([]Model, float64, float64) {
+			return ms, CacheWrite5mMultiplier + 0.25, CacheWrite1hMultiplier
+		},
+		"1h multiplier": func(ms []Model) ([]Model, float64, float64) {
+			return ms, CacheWrite5mMultiplier, CacheWrite1hMultiplier + 0.5
+		},
+	}
+	for name, change := range cases {
+		t.Run(name, func(t *testing.T) {
+			ms, w5, w1 := change(append([]Model(nil), Builtins()...))
+			if got := priceDigest(t, ms, w5, w1); got == base {
+				t.Errorf("digest unchanged at %s after changing the %s", got, name)
+			}
+		})
 	}
 }

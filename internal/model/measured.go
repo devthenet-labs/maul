@@ -10,9 +10,11 @@ import (
 
 // PriceTableVersion names the rates of the built-in registry. Every figure
 // priced from measured tokens records it, so a cost can be told apart from
-// one priced at other rates. Change it whenever a built-in rate or a cache
-// multiplier changes: TestPriceTableVersionPinned fails until it is.
-const PriceTableVersion = "2026-10-16"
+// one priced at other rates. It is "<date>.<digest>", the digest a hash of
+// every built-in rate and cache multiplier: TestPriceTableVersionPinned fails
+// whenever the rates change until the version is set to their new digest, so
+// the recorded version always changes with them.
+const PriceTableVersion = "2026-10-16.828065fa4bf8b383"
 
 // Cache-write multipliers over the base input rate: a five-minute prompt
 // cache write bills at 1.25x, a one-hour one at 2x (Anthropic's published
