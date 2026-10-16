@@ -48,9 +48,10 @@ func TestPreviewAdmissionWithGatewayAgainstAPIServer(t *testing.T) {
 // the rendered slot and gateway NetworkPolicies as the chart means them.
 // envtest has no dataplane, so this pins the stored shape (the isolation
 // probe checks packets on a real cluster): slot Pods admit only port http,
-// from the ALB's subnets and from Pods that are BOTH in the release
-// namespace and carry the gateway label (one peer, never two), and egress
-// only DNS; the gateway reaches the slots on port http alone.
+// from Pods that are BOTH in the release namespace and carry the gateway
+// label (one peer, never two), and egress only DNS; the gateway reaches the
+// slots on port http alone. With the legacy slot Ingress off, the ALB's
+// subnets are no peer although the fixture keeps the ALB values set.
 func TestPreviewGatewayNetworkPoliciesAgainstAPIServer(t *testing.T) {
 	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
 		t.Skip("KUBEBUILDER_ASSETS not set; run via mise run envtest")
@@ -151,8 +152,8 @@ func checkSlotPolicy(t *testing.T, np *networkingv1.NetworkPolicy) {
 			t.Errorf("%s: unexpected peer %+v (a namespace without a pod selector admits it all)", np.Namespace, peer)
 		}
 	}
-	if gateways != 1 || !slices.Equal(cidrs, []string{"10.40.128.0/24", "10.40.129.0/24"}) {
-		t.Errorf("%s: peers %d gateway, CIDRs %v; want one gateway peer and the ALB subnets", np.Namespace, gateways, cidrs)
+	if gateways != 1 || len(cidrs) != 0 {
+		t.Errorf("%s: peers %d gateway, CIDRs %v; want one gateway peer and no subnet", np.Namespace, gateways, cidrs)
 	}
 	if len(np.Spec.Egress) != 1 {
 		t.Fatalf("%s: %d egress rules, want DNS alone", np.Namespace, len(np.Spec.Egress))

@@ -71,3 +71,61 @@ This tests observed connectivity, **not** the Auto Mode network-policy agent log
 agent-log check remains open until node diagnostics or managed-agent log delivery make those logs directly available.
 Record that distinction with every re-run. Before enabling previews, also verify that the preview ALB, DNS alias,
 admission guards and slot quotas match the approved configuration for that rollout.
+
+## The ingress direction: only the preview gateway reaches a slot
+
+`ingress.sh` checks the other half of slot isolation on **any cluster, with no cloud API**: that the slot NetworkPolicy
+lets only the preview gateway open a connection to a slot Pod. Run it on the desktop and on EKS once
+`previewAuth.gateway` is on, and again before release N+1 turns the legacy ALB path off. It never calls `gh` or `aws`.
+
+The run creates four Pods from one netprobe image (`cmd/netprobe`, the same binary, in its `listen` and `connect`
+modes):
+
+| Pod                        | Where                                         | Must be                                 |
+| -------------------------- | --------------------------------------------- | --------------------------------------- |
+| `preview-ingress-listener` | the slot (`patchy-preview-<slot>`), port http | listening on 8080, on the preview nodes |
+| `preview-ingress-agent`    | the agents namespace                          | refused (`BLOCKED`)                     |
+| `preview-ingress-release`  | the release namespace, no gateway label       | refused (`BLOCKED`)                     |
+| `preview-ingress-gateway`  | the release namespace, gateway label          | admitted (`REACHED`)                    |
+
+Each client makes the egress run's burst (four workers, four attempts) at the listener's Pod IP. A refusal is a timeout
+or an unreachable route on every attempt; a connection refused is `INCONCLUSIVE`, which fails the run. The admitted
+client also proves the listener answers, so the two refusals are the policy's and not a dead listener's. The gateway
+label is `patchy.bitwisemedia.uk/preview-gateway: "true"`, the one the slot policy names; the script refuses to run when
+the slot policy does not name it (the gateway is off). The agents namespace's own default-deny egress may refuse its
+client before the slot policy does; either fence is a pass, and the release-namespace client, which no egress policy
+holds back, is the one that proves the slot policy. While `preview.legacyIngress` is `true` the slot policy also admits
+the preview ALB's subnets by `ipBlock`; no client here is in them, so the run prints a `WARNING` naming those ranges
+instead of judging them. They are gone once `preview.legacyIngress` is `false`.
+
+The listener runs in a slot, so it must pass the slot admission policies: its image must be under preview-controller's
+image prefix as `<leaf>:sha-<40 hex>`. Build the image from this directory's `Dockerfile` (any build, no trusted
+publisher needed) and push it to that registry with such a tag. On k3d, import it into the cluster's registry the way
+preview images are. Then:
+
+```sh
+bash hack/preview-isolation-probe/ingress.sh \
+  --image registry.example/patchy/previews/netprobe:sha-0123456789abcdef0123456789abcdef01234567 \
+  --node-selector patchy.example.com/previews=true \
+  --taint-key patchy.example.com/preview-only
+```
+
+| Flag                  | Environment               | Default         | Meaning                                                                                |
+| --------------------- | ------------------------- | --------------- | -------------------------------------------------------------------------------------- |
+| `--image`             | `PROBE_IMAGE`             | required        | The netprobe image under the preview image prefix, tagged `sha-<40 hex>`               |
+| `--node-selector`     | `PROBE_NODE_SELECTOR`     | required        | `label=value[,label=value]`, the chart's `preview.nodeIsolation.selector`              |
+| `--taint-key`         | `PROBE_TAINT_KEY`         | required        | The preview nodes' `NoExecute` taint key, the chart's `preview.nodeIsolation.taintKey` |
+| `--no-node-isolation` |                           |                 | The install runs `preview.nodeIsolation.mode: none`; neither of the two above is given |
+| `--release-namespace` | `PROBE_RELEASE_NAMESPACE` | `patchy`        | Where the gateway runs                                                                 |
+| `--agents-namespace`  | `PROBE_AGENTS_NAMESPACE`  | `patchy-agents` | The agents' namespace                                                                  |
+| `--slot`              | `PROBE_SLOT`              | `0`             | The slot the listener runs in                                                          |
+| `--timeout`           | `PROBE_TIMEOUT`           | `300`           | Seconds each Pod may take to start or finish                                           |
+
+`--dry-run` validates the values and prints the site; `--print-manifests` prints the four Pods (the listener's address
+as `192.0.2.1`). Neither calls `kubectl`. The chart's preview policy envtest creates `--print-manifests`' Pods with a
+server-side dry run against the rendered slot policies, so the listener stays admissible. The script deletes its Pods on
+exit, and refuses to start while any of them exists.
+
+On EKS Auto Mode use the NodePool and NodeClass labels as the selector
+(`karpenter.sh/nodepool=patchy-preview,eks.amazonaws.com/nodeclass=patchy-preview`). On the desktop, isolation is
+scheduling only; the run still proves the NetworkPolicy, which k3d's bundled network policy controller enforces.

@@ -233,7 +233,8 @@ func intentsFixture(t *testing.T) []client.Object {
 	}
 	preview := &v1alpha1.Preview{
 		ObjectMeta: metav1.ObjectMeta{Name: "alpha-7", Namespace: "patchy"},
-		Spec:       v1alpha1.PreviewSpec{IntentRef: v1alpha1.ObjectReference{Name: "alpha-7", UID: "uid-alpha-7"}},
+		Spec: v1alpha1.PreviewSpec{IntentRef: v1alpha1.ObjectReference{Name: "alpha-7", UID: "uid-alpha-7"},
+			HostLabel: "alpha-7"},
 		Status: v1alpha1.PreviewStatus{Phase: v1alpha1.PreviewReady, URL: "https://alpha-7.preview.example.com/",
 			ObservedRevision: strings.Repeat("d", 40)},
 	}

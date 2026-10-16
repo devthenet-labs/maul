@@ -347,8 +347,9 @@ spec:
                     minimum: 1
                     type: integer
                   readinessPath:
-                    description: ReadinessPath is a safe HTTP path, also used by the
-                      ALB health check.
+                    description: |-
+                      ReadinessPath is a safe HTTP path: the Pod's readiness check, and on
+                      the legacy preview load balancer path also its health check.
                     maxLength: 128
                     pattern: ^/[a-zA-Z0-9/_-]*$
                     type: string
@@ -431,12 +432,12 @@ spec:
                           default: /
                           description: |-
                             Path is the URL path prefix the component is served under on the
-                            intent's preview host, "/" by default. The load balancer routes the
-                            longest matching prefix and does not rewrite it, so the application
-                            serves under its path (an API at /api answers /api/...), and a page
-                            calls a sibling component same-origin, from the browser. Lowercase
-                            segments only, so it is safe as an Ingress path. Paths are distinct
-                            across the Project (CEL-enforced on the spec).
+                            intent's preview host, "/" by default. The preview gateway (or the
+                            legacy load balancer) routes the longest matching prefix and does not
+                            rewrite it, so the application serves under its path (an API at /api
+                            answers /api/...), and a page calls a sibling component same-origin,
+                            from the browser. Lowercase segments only, so it is safe as an Ingress
+                            path. Paths are distinct across the Project (CEL-enforced on the spec).
                           maxLength: 128
                           pattern: ^/([a-z0-9-]+(/[a-z0-9-]+)*)?$
                           type: string
@@ -447,8 +448,9 @@ spec:
                           minimum: 1
                           type: integer
                         readinessPath:
-                          description: ReadinessPath is a safe HTTP path, also used
-                            by the ALB health check.
+                          description: |-
+                            ReadinessPath is a safe HTTP path: the Pod's readiness check, and on
+                            the legacy preview load balancer path also its health check.
                           maxLength: 128
                           pattern: ^/[a-zA-Z0-9/_-]*$
                           type: string

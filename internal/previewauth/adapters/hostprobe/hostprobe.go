@@ -24,6 +24,10 @@ const scopeName = "github.com/bitwise-media-group/patchy/internal/previewauth/ad
 // DefaultTimeout bounds one host's probe.
 const DefaultTimeout = 10 * time.Second
 
+// bodyLimit bounds what a probe reads of an answer (the gateway's pages are
+// well under it).
+const bodyLimit = 4096
+
 // maxConcurrent bounds the probes in flight.
 const maxConcurrent = 4
 
@@ -31,7 +35,8 @@ var (
 	unprotectedGauge = sync.OnceValue(func() metric.Int64Gauge {
 		g, err := otel.Meter(scopeName).Int64Gauge("patchy.preview_auth.unprotected_hosts",
 			metric.WithDescription("Ready preview hosts that answered an unauthenticated request without "+
-				"redirecting to the relay for their own slot's client"))
+				"redirecting to sign in for their own Preview (and, in gateway mode, a host no Preview owns that "+
+				"answered other than with the gateway's 404)"))
 		if err != nil {
 			otel.Handle(err)
 		}
@@ -39,7 +44,8 @@ var (
 	})
 	unreachableGauge = sync.OnceValue(func() metric.Int64Gauge {
 		g, err := otel.Meter(scopeName).Int64Gauge("patchy.preview_auth.probe.unreachable_hosts",
-			metric.WithDescription("Ready preview hosts the relay's probe could not reach"))
+			metric.WithDescription("Ready preview hosts the relay's probe could not reach, or the preview "+
+				"gateway refused by its inbound allowlist"))
 		if err != nil {
 			otel.Handle(err)
 		}
@@ -70,10 +76,26 @@ type Prober struct {
 	// http.DefaultTransport.
 	Transport http.RoundTripper
 	Log       *slog.Logger
-	// Gateway, when set (the preview gateway is on), also accepts the
-	// gateway's redirect to its sign-in host's /start: while both paths
-	// serve, a host behind either one is protected.
+	// Gateway, when set (the preview gateway is on), is the gateway's host
+	// grammar, for its redirect to its sign-in host's /start.
 	Gateway *previewauth.Hosts
+	// Mode is the path expected to answer (previewauth.ProbeModeFor). Empty
+	// derives it from Gateway: ProbeEither with it, ProbeALB without. Under
+	// ProbeGateway every pass also asks for previewauth.UnknownProbeLabel,
+	// which must be the gateway's own 404.
+	Mode previewauth.ProbeMode
+}
+
+// expect is what a live host must answer with.
+func (p *Prober) expect() previewauth.ProbeExpect {
+	e := previewauth.ProbeExpect{Mode: p.Mode, Issuer: p.Issuer, Callbacks: p.Callbacks}
+	if p.Gateway != nil {
+		e.Gateway = *p.Gateway
+	}
+	if e.Mode == "" {
+		e.Mode = previewauth.ProbeModeFor(p.Gateway != nil, true)
+	}
+	return e
 }
 
 // NeedLeaderElection is false: every replica probes; nothing is written.
@@ -123,6 +145,12 @@ func (p *Prober) Once(ctx context.Context) Result {
 		return Result{}
 	}
 	c := p.client()
+	expect := p.expect()
+	if expect.Mode == previewauth.ProbeGateway {
+		// The host no Preview owns, judged like any other: its label is
+		// never a live one, so it cannot be mistaken for one below.
+		views = append(views, previewauth.View{Label: previewauth.UnknownProbeLabel, Slot: -1})
+	}
 	var (
 		mu  sync.Mutex
 		res Result
@@ -134,7 +162,7 @@ func (p *Prober) Once(ctx context.Context) Result {
 		sem <- struct{}{}
 		go func() {
 			defer func() { <-sem; wg.Done() }()
-			verdict := p.probe(ctx, c, v)
+			verdict := p.probe(ctx, c, expect, v)
 			mu.Lock()
 			defer mu.Unlock()
 			res.Probed++
@@ -156,7 +184,8 @@ func (p *Prober) Once(ctx context.Context) Result {
 
 var errUnreachable = errors.New("unreachable")
 
-func (p *Prober) probe(ctx context.Context, c *http.Client, v previewauth.View) error {
+func (p *Prober) probe(ctx context.Context, c *http.Client, expect previewauth.ProbeExpect,
+	v previewauth.View) error {
 	host := v.Label + "." + p.Callbacks.Suffix()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+host+"/", nil)
 	if err != nil {
@@ -170,12 +199,21 @@ func (p *Prober) probe(ctx context.Context, c *http.Client, v previewauth.View) 
 			slog.String("label", v.Label), slog.Any("error", err))
 		return errUnreachable
 	}
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, bodyLimit))
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, bodyLimit))
 	_ = resp.Body.Close()
-	loc := resp.Header.Get("Location")
-	err = previewauth.JudgeProbe(resp.StatusCode, loc, p.Issuer, v.Slot, v.Label, p.Callbacks)
-	if err != nil && p.Gateway != nil {
-		err = previewauth.JudgeGatewayProbe(resp.StatusCode, loc, *p.Gateway, v.Label)
+	if p.Gateway != nil && previewauth.IsAllowlistRefusal(resp.StatusCode, resp.Header, body) {
+		// The gateway refuses this replica's egress address by its inbound
+		// allowlist before it routes the host: the allowlist working, not an
+		// unprotected host, and nothing about the host can be judged.
+		p.log().LogAttrs(ctx, slog.LevelDebug, "preview host probe: refused by the gateway's inbound allowlist",
+			slog.String("label", v.Label))
+		return errUnreachable
+	}
+	if v.Label == previewauth.UnknownProbeLabel {
+		err = previewauth.JudgeGatewayUnknown(resp.StatusCode, resp.Header, body)
+	} else {
+		err = expect.Live(resp.StatusCode, resp.Header.Get("Location"), v.Slot, v.Label)
 	}
 	if err != nil {
 		p.log().LogAttrs(ctx, slog.LevelWarn, "preview host is not protected by the sign-in relay",

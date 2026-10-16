@@ -11,8 +11,9 @@
 // minting the App's scoped tokens on every repository and ensuring the
 // labels), its IntentNameConflict condition, and each covering Forge's
 // Ready condition. It never reads a Secret, so it never holds the App's
-// private key: the cluster reads are Projects, Forges, ConfigMaps, one
-// Ingress and Previews, with the caller's own kubeconfig.
+// private key: the cluster reads are Projects, Forges, ConfigMaps, the
+// placeholder Ingress, the gateway's Ingress and Service, and Previews, with
+// the caller's own kubeconfig.
 //
 // What the controllers cannot report before an intent runs, it checks with
 // the operator's own identity, and says so in each reason:
@@ -56,7 +57,25 @@
 //     the Project answer without credentials with the load balancer's
 //     redirect to the relay for their own slot's client
 //     (previewauth.JudgeProbe, the relay's own probe verdict). A timeout from
-//     outside the inbound CIDRs is a SKIP.
+//     outside the inbound CIDRs is a SKIP;
+//   - in gateway mode (the relay's PATCHY_PREVIEW_AUTH_GATEWAY on; the mode
+//     is previewauth.ProbeModeFor of that and preview-controller's
+//     PATCHY_PREVIEW_LEGACY_INGRESS), preview-dns compares the probe host
+//     with the gateway's edge instead: the chart's publishedAddresses (an
+//     annotation on the relay's ConfigMap), else the status of the
+//     gateway's Ingress or LoadBalancer Service (<release>-preview-gateway),
+//     else a SKIP (an HTTPRoute or a tunnel); a private edge (RFC 1918, ULA,
+//     CGNAT, so a tailnet) that this resolver does not answer with is a SKIP;
+//     while both paths serve, the legacy load balancer passes too.
+//     preview-auth-host asks every host as a navigation: the probe host,
+//     which no Preview owns, must be the gateway's own 404 page
+//     (previewauth.JudgeGatewayUnknown) and each Ready Preview the redirect to
+//     sign in for its own label (previewauth.ProbeExpect.Live, either path's
+//     while both serve). preview-gateway-allowlist, with inboundCIDRs set,
+//     sends the probe host a spoofed X-Forwarded-For naming an admitted
+//     address from an address the gateway refuses, which must still be
+//     refused; from an admitted address it is a SKIP. The Dex check is the
+//     same in both modes.
 //
 // What it cannot prove: that source-controller's or the preview nodes' own
 // registry credentials work from inside the cluster (a Repository's

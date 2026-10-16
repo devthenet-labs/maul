@@ -29,6 +29,13 @@ const (
 	keyAuthIssuer      = "PATCHY_PREVIEW_AUTH_ISSUER"
 	keyAuthDexIssuer   = "PATCHY_PREVIEW_AUTH_DEX_ISSUER_URL"
 	keyAuthDexClientID = "PATCHY_PREVIEW_AUTH_DEX_CLIENT_ID"
+	// The preview gateway's (previewAuth.gateway), and preview-controller's
+	// legacy slot Ingress switch, which together say which path serves
+	// preview hosts (previewauth.ProbeModeFor).
+	keyAuthGateway          = "PATCHY_PREVIEW_AUTH_GATEWAY"
+	keyAuthGatewaySignIn    = "PATCHY_PREVIEW_AUTH_GATEWAY_SIGN_IN_HOST"
+	keyAuthGatewayInbound   = "PATCHY_PREVIEW_AUTH_GATEWAY_INBOUND_CIDRS"
+	keyPreviewLegacyIngress = "PATCHY_PREVIEW_LEGACY_INGRESS"
 )
 
 // placeholderLabel is the host label of the chart's placeholder Ingress
@@ -86,6 +93,11 @@ func (r *run) previewAuth(ctx context.Context, s settings, suffix string) {
 	}
 	r.relayDiscovery(ctx, issuer)
 	r.dexRedirect(ctx, s, issuer)
+	if mode := s.probeMode(); mode != previewauth.ProbeALB {
+		r.gatewayHosts(ctx, s, issuer, suffix, mode, required)
+		r.gatewayAllowlist(ctx, s, suffix)
+		return
+	}
 	r.previewAuthHosts(ctx, issuer, suffix, required)
 }
 
@@ -330,22 +342,32 @@ func (r *run) previewAuthHosts(ctx context.Context, issuer, suffix string, requi
 // httpGet GETs u with the configured doer, returning the status, at most
 // bodyLimit bytes of the body and the Location header.
 func (r *run) httpGet(ctx context.Context, u string) (int, []byte, string, error) {
+	status, body, h, err := r.httpDo(ctx, u, nil)
+	return status, body, h.Get("Location"), err
+}
+
+// httpDo GETs u with the configured doer and the headers hdr, returning the
+// status, at most bodyLimit bytes of the body and the headers.
+func (r *run) httpDo(ctx context.Context, u string, hdr http.Header) (int, []byte, http.Header, error) {
 	ctx, cancel := context.WithTimeout(ctx, httpTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		return 0, nil, "", err
+		return 0, nil, http.Header{}, err
+	}
+	for k, v := range hdr {
+		req.Header[k] = v
 	}
 	resp, err := r.cfg.HTTP.Do(req)
 	if err != nil {
-		return 0, nil, "", err
+		return 0, nil, http.Header{}, err
 	}
 	defer resp.Body.Close() //nolint:errcheck // a read-only probe; the body has been read
 	body, err := io.ReadAll(io.LimitReader(resp.Body, bodyLimit))
 	if err != nil && !errors.Is(err, io.EOF) {
-		return 0, nil, "", fmt.Errorf("read the answer: %w", err)
+		return 0, nil, http.Header{}, fmt.Errorf("read the answer: %w", err)
 	}
-	return resp.StatusCode, body, resp.Header.Get("Location"), nil
+	return resp.StatusCode, body, resp.Header, nil
 }
 
 // pageText is a page's text: tags dropped, whitespace collapsed.

@@ -14,7 +14,8 @@ tokens on every repository and ensures the labels in-cluster), the
 IntentNameConflict condition, and the Ready verdict of each covering Forge. The
 check never reads a Secret, so it never handles the App's private key: its
 cluster reads are Projects, Forges, ConfigMaps, the preview placeholder
-Ingress and Previews, with your kubeconfig.
+Ingress, the preview gateway's Ingress and Service, and Previews, with your
+kubeconfig.
 
 The rest is checked with your own identity, and each reason says so: every
 repository resolves to exactly one Forge; each app repository's agent image,
@@ -46,6 +47,17 @@ authorization endpoint without signing anyone in, since Dex's client list is
 not readable); and, once sign-in is required, the placeholder host and every
 Ready preview host of the Project answer a request without credentials with
 the load balancer's redirect to the relay for that slot's own client.
+
+With the preview gateway on (previewAuth.gateway), the checks judge the path
+in force: <project>-0.<host suffix> must resolve to the gateway's edge (its
+publishedAddresses, else its Ingress's or LoadBalancer Service's address; a
+private edge this resolver does not answer with is a SKIP; while the legacy
+slot Ingress still serves, the preview load balancer passes too), answer a
+navigation with the gateway's 404 page, and every Ready preview host with
+the gateway's redirect to <sign-in host>/start for its own label. With
+previewAuth.gateway.inboundCIDRs set, preview-gateway-allowlist sends a
+spoofed X-Forwarded-For naming an admitted address from a refused one, which
+must stay refused (a SKIP from an admitted address).
 
 -o json or -o yaml prints the whole report as data. The exit status is 1 when
 any check fails, 3 when the Project does not exist and 4 when you may not

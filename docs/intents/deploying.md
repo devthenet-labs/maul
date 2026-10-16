@@ -43,9 +43,11 @@ and outputs are in [the module reference](terraform-module.md).
 
 ## Prerequisites
 
-Previews are built on EKS Auto Mode's load balancer and node pools, whose object kinds the chart renders directly, so
-they do not port to other clusters. (Intents without previews run on any cluster the chart supports; this guide covers
-the Auto Mode path, previews included.) Check every item below before you start; a missing one costs more to discover
+This guide's previews are built on EKS Auto Mode's load balancer and node pools, whose object kinds the chart renders
+directly. (Intents without previews run on any cluster the chart supports; this guide covers the Auto Mode path,
+previews included.) On any other cluster, previews run behind the [preview gateway](../configuration/preview-gateway.md)
+instead, with recipes for ingress-nginx, Traefik, Gateway API, Cloudflare Tunnel and k3d; an Auto Mode install moves to
+it in [three steps](#the-preview-gateway). Check every item below before you start; a missing one costs more to discover
 halfway through.
 
 | Prerequisite                                   | Why, and how to check                                                                                                                                                                                                                                                                                                                               |
@@ -762,6 +764,36 @@ fails, and once the intent ends ([The preview link](../configuration/intent-cont
 Previews are now guarded by the load balancer's IP allowlist alone. To put them behind GitHub sign-in as well, follow
 [Preview sign-in](preview-sign-in.md): one Dex redirect URI, a list of viewer teams, and two more `helm upgrade`s.
 
+## The preview gateway
+
+Release N adds the [preview gateway](../configuration/preview-gateway.md), off by default: the relay's Pods sign viewers
+in themselves and proxy every preview host, so a slot needs no Ingress of its own and the preview ALB is no longer
+needed. It runs beside the path above, which stays the default for this release. On this site it is exposed through the
+edge ALB the webhook already uses; the preview wildcard certificate's ARN joins `edgeIngressClass.certificateARNs`.
+
+```yaml
+# patchy-previews.yaml, added
+previewAuth:
+  gateway:
+    enabled: true
+    forwardedHops: 1
+    inboundCIDRs: [203.0.113.10/32] # held by the gateway: the shared edge ALB cannot restrict preview hosts alone
+    ingress:
+      enabled: true
+```
+
+Then, each step with its rollback point and `patchy check project shop-web` after it:
+
+1. Upgrade with the gateway on. The wildcard record still points at the preview load balancer, so viewers see no change;
+   run `hack/preview-isolation-probe/ingress.sh` to prove only the gateway reaches a slot.
+2. Point `*.preview.acme-apps.dev` at the edge ALB. `preview-dns` then names the gateway's edge, and `preview-auth-host`
+   sees the gateway's redirect. To roll back, point the record at the preview load balancer again.
+3. Set `preview.legacyIngress: false` and upgrade: the slot Ingresses go. To roll back, set it back to `true`, wait for
+   every Ready preview's slot Ingress, then move the record back.
+
+[Moving off the preview ALB](../configuration/preview-gateway.md#moving-off-the-preview-alb-eks-release-n) has the
+details. The next release removes the preview ALB path.
+
 ## Several repositories in one Project
 
 An application whose changes span repositories, a web front end and its API say, can be one Project over all of them.
@@ -964,6 +996,10 @@ check:
 | `preview-dns`   | `shop-web-0.preview.acme-apps.dev` resolves to the preview load balancer                                         |
 | `preview-tls`   | The name serves a trusted certificate; a SKIP from outside the inbound CIDRs, where the handshake times out      |
 
+With the [preview gateway](../configuration/preview-gateway.md#checking-it) on, `preview-dns` compares the name with the
+gateway's edge, `preview-auth-host` expects the gateway's answers, and `preview-gateway-allowlist` sends a spoofed
+`X-Forwarded-For` from outside the allowlist.
+
 What it **cannot** prove, and where to look instead:
 
 - **That NetworkPolicy is enforced**, and that a preview Pod is isolated: the isolation probe (step 12) is the only
@@ -1042,10 +1078,11 @@ In this order; each step depends on the one before it.
 
 ## Limitations
 
-- **EKS Auto Mode and ECR only**, and previews only through the Helm chart.
-- **Previews are reachable from an IP allowlist only**: each reviewer address is a `/32`, at most 8, and each change is
-  a Helm upgrade. There is no sign-in in front of a preview; teams on dynamic addresses or a VPN range cannot use them
-  realistically yet.
+- **This guide is EKS Auto Mode and ECR only**, and previews only through the Helm chart. Elsewhere, previews need the
+  [preview gateway](../configuration/preview-gateway.md).
+- **Without sign-in, previews are reachable from an IP allowlist only**: each reviewer address is a `/32`, at most 8,
+  and each change is a Helm upgrade. [Preview sign-in](preview-sign-in.md), or the preview gateway, puts a GitHub
+  sign-in in front of every preview.
 - **A fixed slot quota and fixed container limits.** `preview.slotCount` (1 to 4) slots, one Preview each; more wait in
   a queue. A slot holds at most 5 Services and 8 Pods. Every preview container runs with 25m CPU and 32 MiB requested,
   limited to 250m CPU and 256 MiB of memory; none of it is configurable yet.

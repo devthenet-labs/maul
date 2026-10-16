@@ -30,6 +30,7 @@ import (
 	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/checkreport"
 	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/imagecheck"
 	"github.com/bitwise-media-group/patchy/internal/forge"
+	"github.com/bitwise-media-group/patchy/internal/previewauth"
 	"github.com/bitwise-media-group/patchy/internal/runnerimage"
 )
 
@@ -442,7 +443,11 @@ func (r *run) previews(ctx context.Context, s settings) {
 	for _, rp := range previews {
 		r.previewImage(ctx, rp, prefix, baseRuns)
 	}
-	r.previewHost(ctx, suffix)
+	if mode := s.probeMode(); mode != previewauth.ProbeALB {
+		r.gatewayHost(ctx, s, suffix, mode)
+	} else {
+		r.previewHost(ctx, suffix)
+	}
 	r.previewAuth(ctx, s, suffix)
 }
 
@@ -630,6 +635,12 @@ func (r *run) previewHost(ctx context.Context, suffix string) {
 			strings.Join(lb.addrs, ", "), suffix)
 	}
 
+	r.previewTLS(ctx, host, suffix, "the preview load balancer admits only the chart's preview.inboundCIDRs")
+}
+
+// previewTLS checks host serves a certificate trusted for it. admits says
+// who answers only some addresses, for a timeout's reason.
+func (r *run) previewTLS(ctx context.Context, host, suffix, admits string) {
 	dctx, cancel := context.WithTimeout(ctx, tlsTimeout)
 	state, err := r.cfg.DialTLS(dctx, host)
 	cancel()
@@ -644,9 +655,8 @@ func (r *run) previewHost(ctx context.Context, suffix string) {
 	case err == nil:
 		r.add(CheckPreviewTLS, "", checkreport.Fail, "%s completed a handshake without a certificate", host)
 	case timedOut(err):
-		r.add(CheckPreviewTLS, "", checkreport.Skip, "no answer from %s:443 within %s: the preview load balancer "+
-			"admits only the chart's preview.inboundCIDRs, so this is expected from any other address; run it "+
-			"from an admitted one", host, tlsTimeout)
+		r.add(CheckPreviewTLS, "", checkreport.Skip, "no answer from %s:443 within %s: %s, so this is expected "+
+			"from any other address; run it from an admitted one", host, tlsTimeout, admits)
 	case errors.As(err, &verify) || errors.As(err, &hostname):
 		r.add(CheckPreviewTLS, "", checkreport.Fail, "%s serves a certificate that is not trusted for it (it must "+
 			"cover *.%s): %v", host, suffix, err)

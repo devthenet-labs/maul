@@ -44,6 +44,9 @@ type answer struct {
 	location string
 	body     string
 	err      error
+	header   http.Header
+	// spoofed, when set, answers a request carrying X-Forwarded-For.
+	spoofed *answer
 }
 
 // fakeWeb answers by host and path (the query is recorded, not matched);
@@ -59,13 +62,19 @@ func (f *fakeWeb) Do(req *http.Request) (*http.Response, error) {
 	defer f.mu.Unlock()
 	f.asked = append(f.asked, req.URL)
 	a, ok := f.answers[req.URL.Host+req.URL.Path]
+	if ok && a.spoofed != nil && req.Header.Get("X-Forwarded-For") != "" {
+		a = *a.spoofed
+	}
 	switch {
 	case !ok:
 		return nil, fmt.Errorf("dial tcp: lookup %s: no such host", req.URL.Host)
 	case a.err != nil:
 		return nil, a.err
 	}
-	h := http.Header{}
+	h := a.header.Clone()
+	if h == nil {
+		h = http.Header{}
+	}
 	if a.location != "" {
 		h.Set("Location", a.location)
 	}
