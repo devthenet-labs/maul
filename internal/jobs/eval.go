@@ -69,6 +69,9 @@ type EvalSpec struct {
 	ArtifactDigest string
 	// Deadline overrides the Config deadline for this unit (0 keeps it).
 	Deadline time.Duration
+	// AttributedTo is the attributed-to annotation value, as Spec's: empty
+	// leaves the Job without it.
+	AttributedTo string
 }
 
 // EvalNameFor is the deterministic Job (and per-Job Secret) name for one
@@ -172,6 +175,13 @@ func (c *Client) buildEvalJob(name string, spec EvalSpec) (*batchv1.Job, error) 
 		return nil, err
 	}
 	lbls := evalLabels(spec)
+	var ann map[string]string
+	if spec.AttributedTo != "" {
+		ann = map[string]string{}
+		if err := attributedTo(ann, spec.AttributedTo); err != nil {
+			return nil, err
+		}
+	}
 
 	deadline := c.cfg.Deadline
 	if spec.Deadline > 0 {
@@ -187,16 +197,17 @@ func (c *Client) buildEvalJob(name string, spec EvalSpec) (*batchv1.Job, error) 
 
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: c.cfg.Namespace,
-			Labels:    lbls,
+			Name:        name,
+			Namespace:   c.cfg.Namespace,
+			Labels:      lbls,
+			Annotations: ann,
 		},
 		Spec: batchv1.JobSpec{
 			// Retries are the unit reconciler's decision, never the Job
 			// controller's.
 			BackoffLimit: new(int32(0)),
 			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Labels: maps.Clone(lbls), Annotations: podAnnotations(nil)},
+				ObjectMeta: metav1.ObjectMeta{Labels: maps.Clone(lbls), Annotations: podAnnotations(ann)},
 				Spec: corev1.PodSpec{
 					ServiceAccountName: c.cfg.ServiceAccount,
 					RestartPolicy:      corev1.RestartPolicyNever,

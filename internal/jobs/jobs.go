@@ -24,6 +24,7 @@ import (
 
 	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
 	"github.com/bitwise-media-group/patchy/internal/agentrun"
+	"github.com/bitwise-media-group/patchy/internal/attribution"
 	"github.com/bitwise-media-group/patchy/internal/harness"
 	"github.com/bitwise-media-group/patchy/internal/netprofile"
 	"github.com/bitwise-media-group/patchy/internal/provider"
@@ -108,6 +109,22 @@ const AnnotationResourceClass = "patchy.bitwisemedia.uk/resource-class"
 // interruption) is unaffected, and so is a cluster without Karpenter, which
 // ignores the annotation.
 const annotationDoNotDisrupt = "karpenter.sh/do-not-disrupt"
+
+// attributedTo records value, when there is one, in ann as the
+// attributed-to annotation, which the Job and its pod template then both
+// carry. A value outside the annotation grammar is a controller bug, refused
+// rather than launched under an attribution the admission policy would
+// refuse anyway.
+func attributedTo(ann map[string]string, value string) error {
+	if value == "" {
+		return nil
+	}
+	if _, err := attribution.ParseValue(value); err != nil {
+		return fmt.Errorf("jobs: %w", err)
+	}
+	ann[v1alpha1.AnnotationAttributedTo] = value
+	return nil
+}
 
 // podAnnotations are a Job's annotations plus the ones only its pod
 // carries.
@@ -393,6 +410,14 @@ type Spec struct {
 	// image are missing, drops it. Nil, as on every other Job, leaves the
 	// Job unchanged.
 	NetworkProfile *NetworkProfile
+	// AttributedTo is the attributed-to annotation value the launching
+	// controller asks the Job and its pod template to carry
+	// (v1alpha1.AnnotationAttributedTo): "org" or "github-id:<id>"
+	// (attribution.ValuePattern), from attribution.Mode.Annotation. Empty,
+	// as under --attribution-mode off, leaves the Job without it, exactly as
+	// before attribution existed. A value outside the grammar is refused
+	// before anything is created.
+	AttributedTo string
 }
 
 // Resources is one Job's CPU and memory (Spec.Resources). The four
@@ -702,6 +727,9 @@ func (c *Client) buildJob(name string, spec Spec) (*batchv1.Job, error) {
 	ann := map[string]string{annotationRepo: spec.Repo}
 	if spec.Resources != nil && spec.Resources.Class != "" {
 		ann[AnnotationResourceClass] = spec.Resources.Class
+	}
+	if err := attributedTo(ann, spec.AttributedTo); err != nil {
+		return nil, err
 	}
 	inject := c.injects(runner, spec)
 	if inject {
