@@ -18,6 +18,27 @@ under `cost`), UID-checked and cached with the verdict. Cost is audited and mete
 LF2 (StageLimits cost and timeout, controllers stamping the annotation, the admission pair, the hourly guard) and LF3
 (sizing docs and e2e). See [docs/configuration/egress-broker.md](docs/configuration/egress-broker.md#cost-limits).
 
+## In flight — 2026-10-16: portable previews, release N (the chart)
+
+**The preview gateway can be exposed on any cluster, beside the ALB path.** Branch `feat/preview-gateway-chart` (design
+`.claude/plans/portable-previews-design.md`, §4 as revised) adds the chart side of release N; with every new value at
+its default an install renders as before (only YAML comments differ):
+
+- `previewAuth.gateway` (off): the gateway's flags, the Pod label `patchy.bitwisemedia.uk/preview-gateway` the slot
+  NetworkPolicy admits beside the ALB's subnets, one exposure (Ingress, HTTPRoute or LoadBalancer, the last optionally
+  over the gateway's own TLS by SNI), `forwardedHops` required with any exposure, `inboundCIDRs` at the edge where
+  possible (a LoadBalancer with `externalTrafficPolicy: Local`, so the gateway's peer is the client),
+  `publishedAddresses` recorded on the relay ConfigMap (nothing reads it yet; a later `patchy check project` will). The
+  exposure targets the gateway's own listener (8082), where even the relay's endpoints are limited behind the gateway's
+  hops.
+- `preview.legacyIngress` (true) feeds `--preview-legacy-ingress`; false makes the ALB values optional, and NOTES list
+  the legacy ones still set. `previewController.config.legacyIngress` (unreleased) still wins while set.
+- `preview.nodeIsolation.{selector,mode,eksAutoMode}`: generic node isolation; the legacy `nodePool`/`nodeClass` render
+  byte for byte the same and warn in NOTES. `preview.imageRegistry` accepts any registry host.
+
+Not live anywhere. Order on EKS: enable the gateway with its Ingress, flip the wildcard record to it, then set
+`preview.legacyIngress: false` (design §8 as revised). N+1 (removing the ALB path and its values) is not started.
+
 ## In flight — 2026-10-16: trusted usage (per-user credentials, L2: measured usage)
 
 **A settled run records what the broker metered, not only what its pod said.** Branch `feat/broker-measured-usage` adds

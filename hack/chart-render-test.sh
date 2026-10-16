@@ -233,6 +233,77 @@ render preview-runtime-gateway -f "$fixtures/preview-foundation.yaml" \
   -f "$fixtures/intent-controller.yaml" -f "$fixtures/preview-controller.yaml" \
   --set previewController.config.legacyIngress=false
 cm preview-runtime-gateway preview-controller PATCHY_PREVIEW_LEGACY_INGRESS false
+# preview.legacyIngress is the value now; previewController.config.legacyIngress
+# (its spelling before the move, above) still wins while set, and NOTES ask
+# to move it. Off the legacy path the slot namespaces drop the readiness-gate
+# label (no load balancer target), and the ALB objects render only while
+# albName is still set.
+render preview-runtime-nolegacy -f "$fixtures/preview-foundation.yaml" \
+  -f "$fixtures/intent-controller.yaml" -f "$fixtures/preview-controller.yaml" --set preview.legacyIngress=false
+cm preview-runtime-nolegacy preview-controller PATCHY_PREVIEW_LEGACY_INGRESS false
+render preview-runtime-alias-wins -f "$fixtures/preview-foundation.yaml" \
+  -f "$fixtures/intent-controller.yaml" -f "$fixtures/preview-controller.yaml" --set preview.legacyIngress=false \
+  --set previewController.config.legacyIngress=true
+cm preview-runtime-alias-wins preview-controller PATCHY_PREVIEW_LEGACY_INGRESS true
+expect preview-runtime-nolegacy 'select(.kind == "Namespace" and (.metadata.name | test("^patchy-preview-"))) | .metadata.labels."eks.amazonaws.com/pod-readiness-gate-inject"' 'null
+null'
+for kind in IngressClass IngressClassParams; do
+  expect preview-runtime-nolegacy "select(.kind == \"$kind\") | .metadata.name" alb-preview
+done
+expect preview-runtime-nolegacy 'select(.metadata.name == "patchy-preview-placeholder") | .kind + "/" + .metadata.namespace' 'Service/patchy-preview-0
+Ingress/patchy-preview-0'
+notes notes-preview-nolegacy -f "$fixtures/preview-foundation.yaml" --set preview.legacyIngress=false
+notes_has notes-preview-nolegacy "DEPRECATED: preview.legacyIngress is false, so the preview ALB serves nothing," yes
+notes_has notes-preview-nolegacy "but preview.albName, preview.certificateARN, preview.albSubnetCIDRs are still set" yes
+notes_has notes-preview-nolegacy "at the preview gateway's edge" yes
+notes notes-preview-legacy -f "$fixtures/preview-foundation.yaml"
+notes_has notes-preview-legacy "preview ALB serves nothing" no
+notes_has notes-preview-legacy "previewController.config.legacyIngress moved" no
+notes notes-preview-alias -f "$fixtures/preview-foundation.yaml" --set previewController.config.legacyIngress=false
+notes_has notes-preview-alias "DEPRECATED: previewController.config.legacyIngress moved to preview.legacyIngress." yes
+# Off the legacy path with every ALB value unset: no ALB object at all, no
+# placeholder needed by the controller, and with nothing to admit (no ALB
+# subnets, no gateway) the slot policy admits no ingress at all.
+noalb=$out/no-alb.yaml
+printf 'preview:\n    legacyIngress: false\n    albSubnetCIDRs: []\n    inboundCIDRs: []\n    certificateARN: ""\n    albName: ""\n    placeholder:\n        enabled: false\n' >"$noalb"
+render preview-noalb -f "$fixtures/preview-foundation.yaml" -f "$fixtures/intent-controller.yaml" \
+  -f "$fixtures/preview-controller.yaml" -f "$noalb"
+expect preview-noalb 'select(.kind == "IngressClass" or .kind == "IngressClassParams" or .kind == "Ingress" or .metadata.name == "patchy-preview-placeholder") | .kind' ''
+expect preview-noalb 'select(.kind == "NetworkPolicy" and .metadata.name == "preview-isolation") | .spec.ingress | length' '0
+0'
+expect preview-noalb 'select(.kind == "NetworkPolicy" and .metadata.name == "preview-isolation") | .spec.policyTypes | join(",")' 'Ingress,Egress
+Ingress,Egress'
+notes notes-preview-noalb -f "$fixtures/preview-foundation.yaml" -f "$noalb"
+notes_has notes-preview-noalb "1-2. No preview ALB" yes
+notes_has notes-preview-noalb "COST: the preview ALB" no
+notes_has notes-preview-noalb "DEPRECATED: preview.legacyIngress" no
+expect_fail 'legacy path without the ALB name' 'preview.albName is required when preview.enabled=true with the preview ALB' \
+  -f "$fixtures/preview-foundation.yaml" -f "$noalb" --set preview.legacyIngress=true \
+  --set-json 'preview.albSubnetCIDRs=["10.40.128.0/24"]' --set-json 'preview.inboundCIDRs=["203.0.113.10/32"]' \
+  --set preview.certificateARN=arn:aws:acm:us-east-1:111122223333:certificate/a885812f-7587-4150-9196-5b160567cf54
+expect_fail 'legacy path without ALB subnets' 'preview.albSubnetCIDRs is required' \
+  -f "$fixtures/preview-foundation.yaml" -f "$noalb" --set preview.legacyIngress=true
+# Any registry host: preview images need not come from ECR.
+for registry in ghcr.io registry.example.com:5000; do
+  render "preview-registry-$(echo "$registry" | tr -c 'a-z0-9\n' '-')" -f "$fixtures/preview-foundation.yaml" \
+    -f "$fixtures/intent-controller.yaml" -f "$fixtures/preview-controller.yaml" --set preview.imageRegistry=$registry
+done
+cm preview-registry-ghcr-io preview-controller PATCHY_PREVIEW_IMAGE_PREFIX ghcr.io/patchy/previews/
+cm preview-registry-registry-example-com-5000 preview-controller PATCHY_PREVIEW_IMAGE_PREFIX registry.example.com:5000/patchy/previews/
+expect preview-registry-ghcr-io 'select(.kind == "ValidatingAdmissionPolicy" and .metadata.name == "patchy-preview-pods") | .spec.validations[0].expression' "variables.pod.containers.all(c,
+  c.image.startsWith('ghcr.io/patchy/previews/') &&
+  c.image.substring(24).matches('^[a-z0-9-]+:sha-[0-9a-f]{40}\$'))"
+expect_fail 'preview registry with a path' "'/preview/imageRegistry'" -f "$fixtures/preview-foundation.yaml" \
+  --set preview.imageRegistry=ghcr.io/acme
+expect_fail 'preview registry uppercase' "'/preview/imageRegistry'" -f "$fixtures/preview-foundation.yaml" \
+  --set preview.imageRegistry=GHCR.io
+# Off EKS Auto Mode, slot DNS needs no address: the kube-system selector,
+# as every other chart policy has. On Auto Mode an address stays required.
+render preview-dns-selector -f "$fixtures/preview-foundation.yaml" --set preview.dnsCIDR= \
+  --set preview.nodeIsolation.nodePool= --set preview.nodeIsolation.nodeClass= \
+  --set-json 'preview.nodeIsolation.selector={"patchy.example.com/previews":"true"}'
+expect preview-dns-selector 'select(.kind == "NetworkPolicy" and .metadata.name == "preview-isolation") | .spec.egress[0].to[] | .namespaceSelector.matchLabels."kubernetes.io/metadata.name" + " " + (has("ipBlock") | tostring)' 'kube-system false
+kube-system false'
 expect preview-runtime-ungated 'select(.kind == "Namespace" and (.metadata.name | test("^patchy-preview-"))) | .metadata.labels."eks.amazonaws.com/pod-readiness-gate-inject"' 'null
 null'
 expect_fail 'preview controller without slots' 'requires preview.enabled' \
@@ -369,6 +440,79 @@ expect_fail 'preview zero slots' "'/preview/slotCount': minimum" -f "$fixtures/p
 expect_fail 'preview zero slots, schema skipped' 'preview.slotCount must be between 1 and 4' \
   -f "$fixtures/preview-foundation.yaml" --set preview.slotCount=0 --skip-schema-validation
 expect_fail 'preview missing cert' 'preview.certificateARN' -f "$fixtures/preview-foundation.yaml" --set preview.certificateARN=
+
+# ---- generic node isolation (preview.nodeIsolation) --------------------------
+# eksAutoMode.{nodePool,nodeClass} is the new spelling of the legacy
+# nodePool/nodeClass: the whole render is byte for byte the legacy one. A
+# generic selector joins the EKS labels in the slot admission policy and the
+# controller's ConfigMap; mode none renders neither selector nor toleration.
+eksiso=$out/eks-isolation.yaml
+printf 'preview:\n    nodeIsolation:\n        nodePool: ""\n        nodeClass: ""\n        eksAutoMode:\n            nodePool: patchy-preview\n            nodeClass: patchy-preview\n' >"$eksiso"
+render preview-runtime-eks -f "$fixtures/preview-foundation.yaml" \
+  -f "$fixtures/intent-controller.yaml" -f "$fixtures/preview-controller.yaml" -f "$eksiso"
+if ! cmp -s "$out/preview-runtime.yaml" "$out/preview-runtime-eks.yaml"; then
+  fail "preview-runtime-eks: preview.nodeIsolation.eksAutoMode renders differently from the legacy nodePool/nodeClass"
+fi
+notes notes-preview-legacy-nodes -f "$fixtures/preview-foundation.yaml"
+notes_has notes-preview-legacy-nodes "DEPRECATED: preview.nodeIsolation.nodePool and preview.nodeIsolation.nodeClass still work" yes
+notes notes-preview-eks-nodes -f "$fixtures/preview-foundation.yaml" -f "$eksiso"
+notes_has notes-preview-eks-nodes "DEPRECATED" no
+notes_has notes-preview-eks-nodes "NodeClass patchy-preview and NodePool patchy-preview must" yes
+generic=$out/generic-isolation.yaml
+printf 'preview:\n    nodeIsolation:\n        nodePool: ""\n        nodeClass: ""\n' >"$generic"
+render preview-generic -f "$fixtures/preview-foundation.yaml" -f "$fixtures/intent-controller.yaml" \
+  -f "$fixtures/preview-controller.yaml" -f "$generic" \
+  --set-json 'preview.nodeIsolation.selector={"patchy.example.com/previews":"true","node.example.com/pool":"previews"}'
+podsel='select(.kind == "ValidatingAdmissionPolicy" and .metadata.name == "patchy-preview-pods") | .spec.validations[] | select(.message | test("select the dedicated"))'
+expect preview-generic "$podsel | .expression" "has(variables.pod.nodeSelector) && 'node.example.com/pool' in variables.pod.nodeSelector && variables.pod.nodeSelector['node.example.com/pool'] == \"previews\" && 'patchy.example.com/previews' in variables.pod.nodeSelector && variables.pod.nodeSelector['patchy.example.com/previews'] == \"true\""
+expect preview-generic "$podsel | .message" 'preview pods must select the dedicated preview nodes'
+expect preview "$podsel | .message" 'preview pods must select the dedicated preview node pool and class'
+cm preview-generic preview-controller PATCHY_PREVIEW_NODE_SELECTOR '{"node.example.com/pool":"previews","patchy.example.com/previews":"true"}'
+cm preview-generic preview-controller PATCHY_PREVIEW_NODE_POOL null
+cm preview-generic preview-controller PATCHY_PREVIEW_NODE_CLASS null
+cm preview-generic preview-controller PATCHY_PREVIEW_TAINT_KEY patchy.devthe.net/preview-only
+cm preview-generic preview-controller PATCHY_PREVIEW_NODE_ISOLATION null
+cm preview-runtime preview-controller PATCHY_PREVIEW_NODE_SELECTOR null
+cm preview-runtime preview-controller PATCHY_PREVIEW_NODE_ISOLATION null
+# Both: the EKS labels first, then the generic ones, in the one rule.
+render preview-generic-eks -f "$fixtures/preview-foundation.yaml" \
+  --set-json 'preview.nodeIsolation.selector={"patchy.example.com/previews":"true"}'
+expect preview-generic-eks "$podsel | .expression" "has(variables.pod.nodeSelector) && 'karpenter.sh/nodepool' in variables.pod.nodeSelector && variables.pod.nodeSelector['karpenter.sh/nodepool'] == \"patchy-preview\" && 'eks.amazonaws.com/nodeclass' in variables.pod.nodeSelector && variables.pod.nodeSelector['eks.amazonaws.com/nodeclass'] == \"patchy-preview\" && 'patchy.example.com/previews' in variables.pod.nodeSelector && variables.pod.nodeSelector['patchy.example.com/previews'] == \"true\""
+render preview-iso-none -f "$fixtures/preview-foundation.yaml" -f "$fixtures/intent-controller.yaml" \
+  -f "$fixtures/preview-controller.yaml" -f "$generic" --set preview.nodeIsolation.taintKey= --set preview.nodeIsolation.mode=none
+expect preview-iso-none "$podsel | .message" ''
+expect preview-iso-none 'select(.kind == "ValidatingAdmissionPolicy" and .metadata.name == "patchy-preview-pods") | .spec.validations[] | select(.message | test("tolerate")) | .message' ''
+expect preview-iso-none 'select(.kind == "ValidatingAdmissionPolicy" and .metadata.name == "patchy-preview-outside-pods") | .spec.validations[0].expression' "!has(variables.pod.tolerations) || variables.pod.tolerations.all(t,
+  !(has(t.operator) && t.operator == 'Exists' &&
+    (!has(t.key) || t.key == '')))"
+cm preview-iso-none preview-controller PATCHY_PREVIEW_NODE_ISOLATION none
+cm preview-iso-none preview-controller PATCHY_PREVIEW_TAINT_KEY null
+notes notes-preview-iso-none -f "$fixtures/preview-foundation.yaml" -f "$generic" --set preview.nodeIsolation.taintKey= \
+  --set preview.nodeIsolation.mode=none
+notes_has notes-preview-iso-none "preview Pods share nodes with everything else" yes
+notes_has notes-preview-iso-none "hack/preview-isolation-probe/run.sh" no
+expect_fail 'preview isolation without nodes' 'or preview.nodeIsolation.selector, are required' \
+  -f "$fixtures/preview-foundation.yaml" -f "$generic"
+expect_fail 'preview isolation none with a selector' 'preview.nodeIsolation.mode none renders no node selector' \
+  -f "$fixtures/preview-foundation.yaml" --set preview.nodeIsolation.mode=none
+expect_fail 'preview isolation none with a taint key' 'preview.nodeIsolation.mode none renders no node selector' \
+  -f "$fixtures/preview-foundation.yaml" -f "$generic" --set preview.nodeIsolation.mode=none
+expect_fail 'preview isolation mode unknown' "'/preview/nodeIsolation/mode'" \
+  -f "$fixtures/preview-foundation.yaml" --set preview.nodeIsolation.mode=optional
+expect_fail 'preview isolation selector contradicting the NodePool' 'contradicts the NodePool "patchy-preview"' \
+  -f "$fixtures/preview-foundation.yaml" --set-json 'preview.nodeIsolation.selector={"karpenter.sh/nodepool":"other"}'
+expect_fail 'preview isolation selector key with a space' "invalid propertyName 'bad key'" \
+  -f "$fixtures/preview-foundation.yaml" --set-json 'preview.nodeIsolation.selector={"bad key":"x"}'
+expect_fail 'preview isolation selector key, schema skipped' 'is not a label key' --skip-schema-validation \
+  -f "$fixtures/preview-foundation.yaml" --set-json 'preview.nodeIsolation.selector={"bad key":"x"}'
+expect_fail 'preview isolation NodeClass without NodePool' 'preview.nodeIsolation.nodePool (eksAutoMode.nodePool) is required' \
+  -f "$fixtures/preview-foundation.yaml" -f "$generic" --set preview.nodeIsolation.eksAutoMode.nodeClass=patchy-preview
+expect_fail 'preview nodes without EKS names' 'preview.nodeIsolation.create requires preview.nodeIsolation.eksAutoMode.nodePool' \
+  -f "$fixtures/preview-foundation.yaml" -f "$fixtures/auto-mode.yaml" -f "$generic" \
+  --set-json 'preview.nodeIsolation.selector={"patchy.example.com/previews":"true"}'
+render preview-nodes-generic -f "$fixtures/preview-foundation.yaml" -f "$fixtures/auto-mode.yaml" \
+  --set-json 'preview.nodeIsolation.selector={"patchy.example.com/previews":"true"}'
+expect preview-nodes-generic 'select(.kind == "NodePool") | .spec.template.metadata.labels."patchy.example.com/previews"' true
 
 # ---- the preview image prefix (preview.imagePathPrefix) ---------------------
 # One helper (patchy.previewImagePrefix) feeds the slot admission policy, the
@@ -973,6 +1117,244 @@ render pa-prefix-only $pafull -f "$out/no-allowlist.yaml" --set previewAuth.stag
   --set previewAuth.permitConfirmedGeneration=1 --set 'preview.prefixListsIDs={pl-0123456789abcdef0}'
 expect pa-prefix-only 'select(.kind == "IngressClassParams" and .metadata.name == "alb-preview") | (.spec | has("inboundCIDRs") | tostring) + " " + (.spec.prefixListsIDs | join(","))' \
   'false pl-0123456789abcdef0'
+
+# ---- the preview gateway (previewAuth.gateway): off is absent ---------------
+# Off (every render above), no gateway object, label, key or slot peer
+# exists. On, the relay's Pods carry the stable gateway label the slot
+# NetworkPolicy admits beside the ALB's subnets, their own policy reaches
+# the slots' port http, and one exposure routes *.<hostSuffix> (and a
+# sign-in host of its own) to Service <fullname>-preview-gateway.
+pgw=$fixtures/preview-gateway.yaml
+for r in default preview pa-permit pa-require; do
+  expect "$r" 'select(.metadata.name == "patchy-preview-gateway") | .kind' ""
+  expect "$r" 'select(.kind == "Deployment") | .spec.template.metadata.labels."patchy.bitwisemedia.uk/preview-gateway" | select(. != null)' ""
+  expect "$r" 'select(.kind == "ConfigMap") | (.data // {}) | keys | .[] | select(test("GATEWAY"))' ""
+  expect "$r" 'select(.kind == "NetworkPolicy") | .spec.ingress[]?.from[]? | select(has("podSelector")) | (.podSelector.matchLabels // {}) | keys | .[] | select(. == "patchy.bitwisemedia.uk/preview-gateway")' ""
+done
+render pg -f "$pf" -f "$pav" -f "$pgw"
+pgsel='select(.metadata.name == "patchy-preview-gateway" or .metadata.name == "patchy-preview-auth-config" or (.kind == "NetworkPolicy" and (.metadata.name == "patchy-preview-auth" or (.metadata.name == "preview-isolation" and .metadata.namespace == "patchy-preview-0"))))'
+# golden_select NAME FILE [helm args...]: the gateway's objects (pgsel) of a
+# render, the chart and app versions written VERSION (a release bumps them),
+# are the committed golden FILE, as same_render compares them.
+golden_select() {
+  name=$1
+  file=$2
+  shift 2
+  versions="s/$(yq eval '.version' "$chart/Chart.yaml" | sed 's/[.]/\\./g')/VERSION/g;s/$(yq eval '.appVersion' "$chart/Chart.yaml" | sed 's/[.]/\\./g')/VERSION/g"
+  if ! helm template patchy "$chart" --namespace patchy "$@" >"$out/$name.full" 2>"$out/$name.err"; then
+    fail "$name: render failed: $(cat "$out/$name.err")"
+  elif ! yq eval "$pgsel" "$out/$name.full" | sed "$versions" >"$out/$name.golden"; then
+    fail "$name: yq failed"
+  elif ! same_render "$file" "$out/$name.golden"; then
+    fail "$name: render differs from $file: $(head -20 "$out/same.diff")"
+  fi
+}
+golden_select pg-golden-ingress "$golden/preview-gateway.ingress.yaml" -f "$pf" -f "$pav" -f "$pgw" \
+  --set previewAuth.gateway.signInHost=signin.patchy.devthe.net --set 'previewAuth.gateway.inboundCIDRs={203.0.113.0/24}' \
+  --set previewAuth.gateway.ingress.inboundCIDRsAnnotation=nginx.ingress.kubernetes.io/whitelist-source-range \
+  --set previewAuth.gateway.ingress.className=nginx
+golden_select pg-golden-httproute "$golden/preview-gateway.httproute.yaml" -f "$pf" -f "$pav" -f "$pgw" \
+  --set previewAuth.gateway.ingress.enabled=false --set-json 'previewAuth.gateway.httpRoute.parentRefs=[{"name":"edge","namespace":"gateways"}]'
+golden_select pg-golden-loadbalancer "$golden/preview-gateway.loadbalancer.yaml" -f "$pf" -f "$pav" -f "$pgw" \
+  --set previewAuth.gateway.ingress.enabled=false --set previewAuth.gateway.service.type=LoadBalancer \
+  --set previewAuth.gateway.forwardedHops=0 --set 'previewAuth.gateway.inboundCIDRs={203.0.113.0/24,2001:db8::/32}'
+golden_select pg-golden-none "$golden/preview-gateway.none.yaml" -f "$pf" -f "$pav" -f "$pgw" \
+  --set previewAuth.gateway.ingress.enabled=false --set previewAuth.gateway.forwardedHops=null \
+  --set 'previewAuth.gateway.publishedAddresses={100.64.0.7}' --set preview.legacyIngress=false
+pgdep='select(.kind == "Deployment" and .metadata.name == "patchy-preview-auth")'
+expect pg "$pgdep | .spec.template.metadata.labels.\"patchy.bitwisemedia.uk/preview-gateway\"" true
+cm pg preview-auth PATCHY_PREVIEW_AUTH_GATEWAY true
+cm pg preview-auth PATCHY_PREVIEW_AUTH_GATEWAY_SIGN_IN_HOST preview-auth.patchy.devthe.net
+cm pg preview-auth PATCHY_PREVIEW_AUTH_GATEWAY_FORWARDED_HOPS 1
+cm pg preview-auth PATCHY_PREVIEW_AUTH_GATEWAY_INBOUND_CIDRS null
+# Every gateway key is a preview-auth flag.
+for key in $(get pg 'select(.kind == "ConfigMap" and .metadata.name == "patchy-preview-auth-config") | .data | keys | .[] | select(test("GATEWAY"))'); do
+  flag=$(echo "${key#PATCHY_}" | tr 'A-Z_' 'a-z-')
+  if ! grep -q "\"$flag\"" cmd/preview-auth/serve.go; then
+    fail "pg: ConfigMap key $key is no preview-auth flag ($flag)"
+  fi
+done
+# The sign-in host is the relay's, which its own Ingress routes, so the
+# gateway's Ingress carries only the wildcard; health check on the reserved
+# path, never forwarded.
+pging='select(.kind == "Ingress" and .metadata.name == "patchy-preview-gateway")'
+expect pg "$pging | .spec.rules[].host" '*.preview.patchy.devthe.net'
+expect pg "$pging | .spec.rules[0].http.paths[0].backend.service.name + \":\" + .spec.rules[0].http.paths[0].backend.service.port.name" 'patchy-preview-gateway:http'
+expect pg "$pging | .metadata.annotations.\"alb.ingress.kubernetes.io/healthcheck-path\"" /.patchy/healthz
+expect pg "$pging | .metadata.annotations.\"alb.ingress.kubernetes.io/target-type\"" ip
+expect pg "$pging | .spec | has(\"tls\")" false
+expect pg 'select(.kind == "Service" and .metadata.name == "patchy-preview-gateway") | .spec.type + " " + (.spec.ports[0].port | tostring) + " " + .spec.ports[0].targetPort' 'ClusterIP 80 gateway'
+# The exposure targets the gateway's own listener (8082), where even the
+# relay's endpoints are limited behind the gateway's hops; the relay's policy
+# admits it, and the relay's Service keeps the relay's port.
+cm pg preview-auth PATCHY_PREVIEW_AUTH_GATEWAY_LISTEN_ADDR :8082
+expect pg "$pgdep | .spec.template.spec.containers[0].ports[] | select(.name == \"gateway\") | .containerPort" 8082
+expect pg 'select(.kind == "NetworkPolicy" and .metadata.name == "patchy-preview-auth") | .spec.ingress[0].ports | map(.port | tostring) | join(",")' '8080,8082'
+expect pg 'select(.kind == "Service" and .metadata.name == "patchy-preview-auth") | .spec.ports | map(.name + ":" + (.port | tostring) + ">" + .targetPort) | join(",")' 'http:8080>http'
+expect pg 'select(.kind == "Service" and .metadata.name == "patchy-preview-gateway") | .spec.selector."app.kubernetes.io/name"' preview-auth
+# The slot policy: the ALB's subnets (legacy) and the gateway's Pods, port
+# http only; DNS by both the address and the kube-system selector.
+pgslot='select(.kind == "NetworkPolicy" and .metadata.name == "preview-isolation")'
+expect pg "$pgslot | .spec.ingress | length" '1
+1'
+expect pg "$pgslot | .spec.ingress[0].from[] | select(has(\"podSelector\")) | .namespaceSelector.matchLabels.\"kubernetes.io/metadata.name\" + \" \" + (.podSelector.matchLabels | to_entries | map(.key + \"=\" + .value) | join(\",\"))" 'patchy patchy.bitwisemedia.uk/preview-gateway=true
+patchy patchy.bitwisemedia.uk/preview-gateway=true'
+expect pg "$pgslot | .spec.ingress[0].from[] | select(has(\"ipBlock\")) | .ipBlock.cidr" '10.40.128.0/24
+10.40.129.0/24
+10.40.128.0/24
+10.40.129.0/24'
+expect pg "$pgslot | .spec.ingress[0].ports | map(.protocol + \"/\" + .port) | join(\",\")" 'TCP/http
+TCP/http'
+expect pg "$pgslot | .spec.egress[0].to | length" '2
+2'
+# The gateway's own policy: DNS, 443/6443 as before, and the slots' http.
+expect pg 'select(.kind == "NetworkPolicy" and .metadata.name == "patchy-preview-auth") | .spec.egress[] | select(.to // [] | any_c(has("namespaceSelector") and .namespaceSelector | has("matchExpressions"))) | .to[0].namespaceSelector.matchExpressions[0].values | join(",")' 'patchy-preview-0,patchy-preview-1'
+expect pg 'select(.kind == "NetworkPolicy" and .metadata.name == "patchy-preview-auth") | .spec.egress[] | select(.to // [] | any_c(has("namespaceSelector") and .namespaceSelector | has("matchExpressions"))) | .ports | map(.protocol + "/" + .port) | join(",")' 'TCP/http'
+# Off the legacy path with no ALB values, the gateway is the only peer.
+render pg-only -f "$pf" -f "$pav" -f "$pgw" -f "$noalb"
+expect pg-only "$pgslot | .spec.ingress[0].from | length" '1
+1'
+# A sign-in host of its own: routed beside the wildcard, Dex told in NOTES.
+render pg-signin -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.signInHost=signin.patchy.devthe.net
+expect pg-signin "$pging | .spec.rules[].host" '*.preview.patchy.devthe.net
+signin.patchy.devthe.net'
+cm pg-signin preview-auth PATCHY_PREVIEW_AUTH_GATEWAY_SIGN_IN_HOST signin.patchy.devthe.net
+notes notes-pg-signin -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.signInHost=signin.patchy.devthe.net
+notes_has notes-pg-signin "https://signin.patchy.devthe.net/dex/callback" yes
+notes_has notes-pg-signin "Preview gateway: on. Viewers sign in at https://signin.patchy.devthe.net/start" yes
+notes_has notes-pg-signin "the preview ALB keeps serving" yes
+notes notes-pg -f "$pf" -f "$pav" -f "$pgw"
+notes_has notes-pg "also needs the redirect URI" no
+notes_has notes-pg "ALLOWLIST AT THE GATEWAY ONLY" no
+# The allowlist: at the edge where the exposure can hold it, at the gateway
+# always.
+render pg-cidrs -f "$pf" -f "$pav" -f "$pgw" --set 'previewAuth.gateway.inboundCIDRs={203.0.113.0/24,198.51.100.7/32}' \
+  --set previewAuth.gateway.ingress.inboundCIDRsAnnotation=nginx.ingress.kubernetes.io/whitelist-source-range
+cm pg-cidrs preview-auth PATCHY_PREVIEW_AUTH_GATEWAY_INBOUND_CIDRS 203.0.113.0/24,198.51.100.7/32
+expect pg-cidrs "$pging | .metadata.annotations.\"nginx.ingress.kubernetes.io/whitelist-source-range\"" 203.0.113.0/24,198.51.100.7/32
+notes notes-pg-cidrs-gw-only -f "$pf" -f "$pav" -f "$pgw" --set 'previewAuth.gateway.inboundCIDRs={203.0.113.0/24}'
+notes_has notes-pg-cidrs-gw-only "ALLOWLIST AT THE GATEWAY ONLY" yes
+render pg-lb -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.ingress.enabled=false \
+  --set previewAuth.gateway.service.type=LoadBalancer --set previewAuth.gateway.forwardedHops=0 \
+  --set 'previewAuth.gateway.inboundCIDRs={203.0.113.0/24}' --set-json 'previewAuth.gateway.service.annotations={"service.beta.kubernetes.io/aws-load-balancer-type":"external"}'
+expect pg-lb 'select(.kind == "Service" and .metadata.name == "patchy-preview-gateway") | .spec.type + " " + (.spec.loadBalancerSourceRanges | join(","))' 'LoadBalancer 203.0.113.0/24'
+expect pg-lb 'select(.kind == "Service" and .metadata.name == "patchy-preview-gateway") | .metadata.annotations."service.beta.kubernetes.io/aws-load-balancer-type"' external
+expect pg-lb 'select((.kind == "Ingress" or .kind == "HTTPRoute") and .metadata.name == "patchy-preview-gateway") | .kind' ''
+cm pg-lb preview-auth PATCHY_PREVIEW_AUTH_GATEWAY_FORWARDED_HOPS 0
+# Local, so the gateway's peer is the client that forwardedHops 0 and
+# inboundCIDRs judge: under Cluster kube-proxy hands it a node address.
+expect pg-lb 'select(.kind == "Service" and .metadata.name == "patchy-preview-gateway") | .spec.externalTrafficPolicy' Local
+expect pg 'select(.kind == "Service" and .metadata.name == "patchy-preview-gateway") | .spec | has("externalTrafficPolicy")' false
+notes notes-pg-lb -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.ingress.enabled=false \
+  --set previewAuth.gateway.service.type=LoadBalancer --set previewAuth.gateway.forwardedHops=0 \
+  --set 'previewAuth.gateway.inboundCIDRs={203.0.113.0/24}'
+notes_has notes-pg-lb "is a LoadBalancer (externalTrafficPolicy Local)" yes
+notes_has notes-pg-lb "CLIENT ADDRESS" no
+render pg-lb-cluster -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.ingress.enabled=false \
+  --set previewAuth.gateway.service.type=LoadBalancer --set previewAuth.gateway.forwardedHops=0 \
+  --set previewAuth.gateway.service.externalTrafficPolicy=Cluster
+expect pg-lb-cluster 'select(.kind == "Service" and .metadata.name == "patchy-preview-gateway") | .spec.externalTrafficPolicy' Cluster
+notes notes-pg-lb-cluster -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.ingress.enabled=false \
+  --set previewAuth.gateway.service.type=LoadBalancer --set previewAuth.gateway.forwardedHops=0 \
+  --set previewAuth.gateway.service.externalTrafficPolicy=Cluster --set 'previewAuth.gateway.inboundCIDRs={203.0.113.0/24}'
+notes_has notes-pg-lb-cluster "CLIENT ADDRESS: previewAuth.gateway.service.externalTrafficPolicy is Cluster" yes
+notes_has notes-pg-lb-cluster "inboundCIDRs then refuses every viewer" yes
+expect_fail 'gateway externalTrafficPolicy that is not one' "'/previewAuth/gateway/service/externalTrafficPolicy'" \
+  -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.service.externalTrafficPolicy=Nearest
+render pg-route -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.ingress.enabled=false \
+  --set previewAuth.gateway.signInHost=signin.patchy.devthe.net \
+  --set-json 'previewAuth.gateway.httpRoute.parentRefs=[{"name":"edge","namespace":"gateways"}]'
+pgroute='select(.kind == "HTTPRoute" and .metadata.name == "patchy-preview-gateway")'
+expect pg-route "$pgroute | .spec.hostnames | join(\",\")" '*.preview.patchy.devthe.net,signin.patchy.devthe.net'
+expect pg-route "$pgroute | .spec.parentRefs[0].name + \"/\" + .spec.parentRefs[0].namespace" edge/gateways
+expect pg-route "$pgroute | .spec.rules[0].backendRefs[0].name + \":\" + (.spec.rules[0].backendRefs[0].port | tostring)" patchy-preview-gateway:80
+expect pg-route 'select(.kind == "Ingress" and .metadata.name == "patchy-preview-gateway") | .kind' ''
+render pg-none -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.ingress.enabled=false \
+  --set previewAuth.gateway.forwardedHops=null --set 'previewAuth.gateway.publishedAddresses={100.64.0.7,fd7a:115c:a1e0::7}'
+cm pg-none preview-auth PATCHY_PREVIEW_AUTH_GATEWAY_FORWARDED_HOPS null
+expect pg-none 'select((.kind == "Ingress" or .kind == "HTTPRoute") and .metadata.name == "patchy-preview-gateway") | .kind' ''
+expect pg-none 'select(.kind == "ConfigMap" and .metadata.name == "patchy-preview-auth-config") | .metadata.annotations."patchy.bitwisemedia.uk/preview-gateway-published-addresses"' '100.64.0.7,fd7a:115c:a1e0::7'
+expect pg 'select(.kind == "ConfigMap" and .metadata.name == "patchy-preview-auth-config") | .metadata.annotations."patchy.bitwisemedia.uk/preview-gateway-published-addresses"' null
+notes notes-pg-none -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.ingress.enabled=false --set previewAuth.gateway.forwardedHops=null
+notes_has notes-pg-none "none rendered. Route *.preview.patchy.devthe.net to" yes
+# publishedAddresses is recorded only: nothing reads it in this release, so
+# no doc or NOTES may say patchy check project compares DNS with it.
+if grep -rn 'check project' charts/patchy/values.yaml charts/patchy/values.schema.json charts/patchy/templates \
+  docs/configuration/preview-auth.md docs/deployment/helm.md HANDOFF.md | grep -i 'published' | grep -v 'later'; then
+  fail "publishedAddresses: a doc claims patchy check project reads it, which nothing does yet"
+fi
+expect_fail 'gateway without the relay' 'previewAuth.gateway.enabled requires previewAuth.enabled' \
+  -f "$pf" -f "$pgw" --set previewAuth.enabled=false
+expect_fail 'gateway sign-in host under the preview suffix' 'must not be under preview.hostSuffix' \
+  -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.signInHost=signin.preview.patchy.devthe.net
+expect_fail 'gateway with two exposures' 'exposes the gateway ingress and httpRoute at once' \
+  -f "$pf" -f "$pav" -f "$pgw" --set-json 'previewAuth.gateway.httpRoute.parentRefs=[{"name":"edge"}]'
+expect_fail 'gateway with three exposures' 'exposes the gateway ingress and httpRoute and loadBalancer at once' \
+  -f "$pf" -f "$pav" -f "$pgw" --set-json 'previewAuth.gateway.httpRoute.parentRefs=[{"name":"edge"}]' \
+  --set previewAuth.gateway.service.type=LoadBalancer
+for exposure in "--set previewAuth.gateway.ingress.enabled=true" \
+  "--set previewAuth.gateway.ingress.enabled=false --set previewAuth.gateway.service.type=LoadBalancer"; do
+  # shellcheck disable=SC2086
+  expect_fail "gateway exposure without forwarded hops ($exposure)" 'previewAuth.gateway.forwardedHops is required with the' \
+    -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.forwardedHops=null $exposure
+done
+expect_fail 'gateway route without forwarded hops' 'previewAuth.gateway.forwardedHops is required with the httpRoute exposure' \
+  -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.forwardedHops=null --set previewAuth.gateway.ingress.enabled=false \
+  --set-json 'previewAuth.gateway.httpRoute.parentRefs=[{"name":"edge"}]'
+expect_fail 'gateway on the preview ALB class' 'previewAuth.gateway.ingress.className must not be alb-preview' \
+  -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.ingress.className=alb-preview
+expect_fail 'gateway inbound CIDR that is not one' "'/previewAuth/gateway/inboundCIDRs/0'" \
+  -f "$pf" -f "$pav" -f "$pgw" --set 'previewAuth.gateway.inboundCIDRs={203.0.113.7}'
+expect_fail 'gateway forwarded hops negative' "'/previewAuth/gateway/forwardedHops'" \
+  -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.forwardedHops=-1
+expect_fail 'gateway Service of type NodePort' "'/previewAuth/gateway/service/type'" \
+  -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.service.type=NodePort
+# The gateway's own TLS (tls.secrets), for a LoadBalancer or no exposure:
+# each Secret one projected subdirectory, the listener on 8443 behind the
+# Service's 443, admitted by the relay's policy beside 8080. Refused where
+# an edge terminates TLS, and unless *.<hostSuffix> and the sign-in host
+# are both covered.
+pgtls='previewAuth.gateway.tls.secrets=[{"secretName":"preview-wildcard","hosts":["*.preview.patchy.devthe.net"]},{"secretName":"preview-signin","hosts":["preview-auth.patchy.devthe.net"]}]'
+pglb=$out/gateway-lb.yaml
+printf 'previewAuth:\n    gateway:\n        forwardedHops: 0\n        service:\n            type: LoadBalancer\n        ingress:\n            enabled: false\n' >"$pglb"
+golden_select pg-golden-loadbalancer-tls "$golden/preview-gateway.loadbalancer-tls.yaml" -f "$pf" -f "$pav" -f "$pgw" \
+  -f "$pglb" --set-json "$pgtls"
+render pg-tls -f "$pf" -f "$pav" -f "$pgw" -f "$pglb" --set-json "$pgtls"
+cm pg-tls preview-auth PATCHY_PREVIEW_AUTH_GATEWAY_TLS_DIR /etc/patchy/preview-gateway/tls
+cm pg-tls preview-auth PATCHY_PREVIEW_AUTH_GATEWAY_TLS_LISTEN_ADDR :8443
+cm pg preview-auth PATCHY_PREVIEW_AUTH_GATEWAY_TLS_DIR null
+for key in $(get pg-tls 'select(.kind == "ConfigMap" and .metadata.name == "patchy-preview-auth-config") | .data | keys | .[] | select(test("GATEWAY_TLS"))'); do
+  flag=$(echo "${key#PATCHY_}" | tr 'A-Z_' 'a-z-')
+  if ! grep -q "\"$flag\"" cmd/preview-auth/serve.go; then
+    fail "pg-tls: ConfigMap key $key is no preview-auth flag ($flag)"
+  fi
+done
+expect pg-tls "$pgdep | .spec.template.spec.containers[0].ports[] | select(.name == \"https\") | .containerPort" 8443
+expect pg "$pgdep | .spec.template.spec.containers[0].ports[] | select(.name == \"https\") | .containerPort" ''
+expect pg-tls "$pgdep | .spec.template.spec.containers[0].volumeMounts[] | select(.name == \"gateway-tls\") | .mountPath + \" \" + (.readOnly | tostring)" '/etc/patchy/preview-gateway/tls true'
+expect pg-tls "$pgdep | .spec.template.spec.volumes[] | select(.name == \"gateway-tls\") | .projected.sources[] | .secret.name + \" \" + (.secret.items | map(.key + \"=\" + .path) | join(\",\"))" 'preview-wildcard tls.crt=0/tls.crt,tls.key=0/tls.key
+preview-signin tls.crt=1/tls.crt,tls.key=1/tls.key'
+expect pg-tls 'select(.kind == "Service" and .metadata.name == "patchy-preview-gateway") | .spec.ports | map(.name + ":" + (.port | tostring) + ">" + .targetPort) | join(",")' 'http:80>gateway,https:443>https'
+expect pg 'select(.kind == "Service" and .metadata.name == "patchy-preview-gateway") | .spec.ports | map(.name) | join(",")' http
+expect pg-tls 'select(.kind == "NetworkPolicy" and .metadata.name == "patchy-preview-auth") | .spec.ingress[0].ports | map(.port | tostring) | join(",")' '8080,8082,8443'
+render pg-tls-none -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.ingress.enabled=false --set-json "$pgtls"
+cm pg-tls-none preview-auth PATCHY_PREVIEW_AUTH_GATEWAY_TLS_DIR /etc/patchy/preview-gateway/tls
+expect_fail 'gateway TLS with an Ingress' 'previewAuth.gateway.tls.secrets is refused with the ingress exposure' \
+  -f "$pf" -f "$pav" -f "$pgw" --set-json "$pgtls"
+expect_fail 'gateway TLS with an HTTPRoute' 'previewAuth.gateway.tls.secrets is refused with the httpRoute exposure' \
+  -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.ingress.enabled=false --set-json "$pgtls" \
+  --set-json 'previewAuth.gateway.httpRoute.parentRefs=[{"name":"edge"}]'
+expect_fail 'gateway TLS for another host' 'host other.example.com (Secret x) is neither' \
+  -f "$pf" -f "$pav" -f "$pgw" -f "$pglb" \
+  --set-json 'previewAuth.gateway.tls.secrets=[{"secretName":"x","hosts":["*.preview.patchy.devthe.net","other.example.com"]}]'
+expect_fail 'gateway TLS without the sign-in host' 'covers no preview-auth.patchy.devthe.net' \
+  -f "$pf" -f "$pav" -f "$pgw" -f "$pglb" \
+  --set-json 'previewAuth.gateway.tls.secrets=[{"secretName":"x","hosts":["*.preview.patchy.devthe.net"]}]'
+expect_fail 'gateway TLS without the preview hosts' 'covers no *.preview.patchy.devthe.net' \
+  -f "$pf" -f "$pav" -f "$pgw" -f "$pglb" \
+  --set-json 'previewAuth.gateway.tls.secrets=[{"secretName":"x","hosts":["preview-auth.patchy.devthe.net"]}]'
+expect_fail 'gateway TLS Secret without hosts' "missing property 'hosts'" \
+  -f "$pf" -f "$pav" -f "$pgw" -f "$pglb" --set-json 'previewAuth.gateway.tls.secrets=[{"secretName":"x"}]'
 
 # ---- feature on: keys on the right controllers ------------------------------
 render on -f "$fixtures/repository-images.yaml"

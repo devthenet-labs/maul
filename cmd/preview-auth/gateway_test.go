@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"net/netip"
 	"slices"
 	"strings"
@@ -176,5 +177,49 @@ func TestRechecker(t *testing.T) {
 	off := rechecker{srv: &httpapi.Server{}}
 	if err := off.Start(ctx); err != nil {
 		t.Errorf("Start = %v", err)
+	}
+}
+
+// TestGatewayListener: with the gateway on, its exposure has a listener of
+// its own (:8082 by default) serving the gateway's handler, so whatever
+// reaches the relay's endpoints through an edge that does not filter by
+// Host is limited behind the gateway's hops; the relay's listener keeps the
+// relay's handler. Off, there is only the relay's.
+func TestGatewayListener(t *testing.T) {
+	st, err := loadStatic(serveOpts(t, gatewayArgs(t)...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.gateway.addr != ":8082" {
+		t.Errorf("gateway listen address = %q, want :8082", st.gateway.addr)
+	}
+	st, err = loadStatic(serveOpts(t, gatewayArgs(t, "--preview-auth-gateway-listen-addr", ":9082")...))
+	if err != nil || st.gateway.addr != ":9082" {
+		t.Fatalf("gateway listen address = %v, %v", st.gateway, err)
+	}
+	relay := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("relay")) })
+	gw := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("gateway")) })
+	var added addedRunnables
+	srv, err := addListeners(&added, ":8080", &gatewayStatic{addr: ":8082"}, relay, gw, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(added) != 2 || srv.Addr != ":8080" {
+		t.Fatalf("added %d runnables (relay at %s), want the relay's and the gateway's listeners", len(added), srv.Addr)
+	}
+	for i, want := range []struct{ addr, body string }{{":8080", "relay"}, {":8082", "gateway"}} {
+		l, ok := added[i].(listener)
+		if !ok || l.tls || l.srv.Addr != want.addr || l.NeedLeaderElection() {
+			t.Fatalf("listener %d = %+v", i, added[i])
+		}
+		rec := httptest.NewRecorder()
+		l.srv.Handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+		if rec.Body.String() != want.body {
+			t.Errorf("%s serves the %s handler, want %s", want.addr, rec.Body, want.body)
+		}
+	}
+	added = nil
+	if _, err := addListeners(&added, ":8080", nil, relay, nil, nil); err != nil || len(added) != 1 {
+		t.Fatalf("gateway off: %d runnables, %v", len(added), err)
 	}
 }

@@ -7,10 +7,12 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/cookiejar"
+	"net/http/httptest"
 	"net/netip"
 	"net/url"
 	"strings"
@@ -845,4 +847,55 @@ func TestGatewayDeadlines(t *testing.T) {
 			t.Error("the connection deadline cut a proxied stream")
 		}
 	})
+}
+
+// TestGatewayHandlerLimitsTheRelayByTheGatewaysHops: an exposure that does
+// not filter by Host (a LoadBalancer Service, a tunnel) reaches the relay's
+// endpoints through the gateway's listener. There they are limited behind
+// the gateway's forwarded hops (0 behind an L4 load balancer), never the
+// relay's (1 behind the edge ALB), so a client sending straight to the load
+// balancer cannot pick a fresh bucket per request with X-Forwarded-For. The
+// relay's own listener still keys on the entry its ALB appends.
+func TestGatewayHandlerLimitsTheRelayByTheGatewaysHops(t *testing.T) {
+	e := newGatewayEnv(t,
+		func(c *Config) { c.RateLimit = RateLimit{PerSecond: 0.001, Burst: 3, ForwardedHops: 1} },
+		func(g *GatewayConfig) { g.RateLimit = RateLimit{PerSecond: 0.001, Burst: 3} })
+	gw := e.srv.GatewayHandler()
+	if gw == nil {
+		t.Fatal("no gateway handler with the gateway on")
+	}
+	hit := func(h http.Handler, i int, path string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, issuer+path, nil)
+		req.RemoteAddr = "203.0.113.9:40000" // the attacker, straight to the load balancer
+		req.Header.Set("X-Forwarded-For", fmt.Sprintf("192.0.2.%d", i+1))
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+	limited := false
+	for i := range 6 {
+		if hit(gw, i, "/").Code == http.StatusTooManyRequests {
+			limited = true
+		}
+	}
+	if !limited {
+		t.Error("a fresh X-Forwarded-For per request escaped the gateway listener's limit on the relay's host")
+	}
+	// The backchannel's charge for an unauthenticated call is the gateway's
+	// limiter's too.
+	if rec := hit(gw, 99, "/userinfo"); rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("unauthenticated userinfo on the gateway listener over the limit: %d %s", rec.Code, rec.Body)
+	}
+	for i := range 6 {
+		if code := hit(e.handler, i+10, "/").Code; code != http.StatusOK {
+			t.Fatalf("relay listener, address %d: %d (each X-Forwarded-For its ALB appends is a client)", i, code)
+		}
+	}
+}
+
+// TestGatewayHandlerOff: with the gateway off there is no gateway listener.
+func TestGatewayHandlerOff(t *testing.T) {
+	if h := newRelay(t, nil).srv.GatewayHandler(); h != nil {
+		t.Fatal("a gateway handler with the gateway off")
+	}
 }
