@@ -16,7 +16,8 @@ L2). Off by default; chart `attribution.mode: attribute` turns it on with L1 and
   settled with its usage final (or at once on deletion), folds it exactly once (`u:<run uid>` ledger) into the `user`
   (`github-id:<id>` or `org`), `user-project` and `project` scopes, by UTC completion day and month, then releases it;
 - trusted figures come only from `measured`/`partial` usage; reported runs are counted apart;
-- remediation-controller compacts them hourly (day buckets past 400 days dropped; months kept, at most 120);
+- remediation-controller compacts them hourly under `attribute` only (day buckets past 400 days dropped; months kept, at
+  most 120);
 - `patchy.usage.tokens` and `patchy.usage.cost` carry `user`, `project`, `kind`.
 
 See [docs/configuration/attribution.md](docs/configuration/attribution.md#usage-rollups). Not yet live. Still to come

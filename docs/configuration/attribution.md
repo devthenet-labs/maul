@@ -177,8 +177,10 @@ How a run is folded in, exactly once:
   crash or a conflict between the rollup write and the run's own write never counts it twice.
 - The run is then marked `UsageRolledUp` and the finalizer removed, so its deletion, by TTL or by hand, never waits on
   the rollup. A run created before the feature, or under `off`, has no finalizer and is never folded in or held.
-- remediation-controller, which hosts the FindingRollup loop, compacts the rollups hourly: day buckets past the 400-day
-  window are dropped. Month totals are never touched: every run is in its month as well as its day.
+- remediation-controller, which hosts the FindingRollup loop, compacts the rollups hourly under `attribute`: day buckets
+  past the 400-day window are dropped. Under `off` the loop does not run, so an install that never opted in neither
+  lists nor logs anything about rollups; rollups left from an earlier `attribute` wait until it is turned back on. Month
+  totals are never touched: every run is in its month as well as its day.
 
 Each controller is granted only `create` and `get` on `usagerollups` and `get` and `update` on their status (plus `list`
 for remediation-controller's compaction), all uncached, by name; the chart grants them only under `attribute`. No one
