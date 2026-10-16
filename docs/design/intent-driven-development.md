@@ -197,8 +197,10 @@ the `jobs.Client` for each launch from one base Config plus that run's stage env
   automated budget, so a Project that tightens a stage is honoured. `PATCHY_REMEDIATE_AUTO_*` applies only to a Job with
   no grant, and intent-controller always grants.
 - _Time._ A stage's wall clock is `PATCHY_INVESTIGATE_TIMEOUT` for plan and `PATCHY_REMEDIATE_TIMEOUT` for build and
-  revise, set in the launch's env to that stage's limit, so build (60 m) and revise (45 m) differ.
-  `grant.timeoutMilliseconds` records that value. The Job deadline (90 m) bounds every stage.
+  revise, set in the launch's env to the run's granted timeout (the stage's limit, or the Project's shorter
+  `limits.<stage>.timeout`), so build (60 m) and revise (45 m) differ. `grant.timeoutMilliseconds` records that value.
+  The Job deadline follows it: the timeout plus 15 minutes, never under `--intent-job-deadline` (90 m), capped by
+  `--intent-job-deadline-max`.
 - _The build budget the plan is sized for._ The plan prompt states the most a build can be granted, which agent-runner
   reads from the plan Job's `PATCHY_REMEDIATE_MANUAL_*`, the build stage's own ceiling. The plan launch sets it to the
   grant the Project's build will receive (its build limit, clamped by the controller's flag), with
@@ -245,7 +247,8 @@ names, and a seeded property test checks that they are label-safe and unique wit
     - `maxActiveIntents` (2)
     - `maxRevisions` (3)
     - `maxCostMicroUSD` (10000000)
-    - per-stage `maxTurns` and `tokenBudget`, clamped by controller flags
+    - per-stage `maxTurns`, `tokenBudget` and `timeout`, clamped by controller flags, and `maxCostMicroUSD` (at most the
+      per-intent ceiling; enforced by the broker under its cost unit)
   - `requireRepositoryImage` (true)
   - `preview` (slice 2)
   - `suspend`
@@ -314,7 +317,7 @@ names, and a seeded property test checks that they are label-safe and unique wit
     also consume the reviews since the last round. Check runs and commit statuses are separate GitHub id spaces, so each
     has its own list.
   - `imageFrom`: the build-round Repository, used by revise runs, with its UID required by the schema
-  - `grant{maxTurns, tokenBudget, timeout}`
+  - `grant{maxTurns, tokenBudget, timeout, budgetMicroUSD}` (the budget only under the broker's cost unit)
   - `previousAttempt`
 - **Status:**
   - `phase` (RunPhase) and `job`

@@ -437,13 +437,15 @@ helm upgrade --install patchy oci://ghcr.io/devthenet-labs/patchy/charts/patchy 
 cost a Project's `limits.maxCostMicroUSD` checks, are reported from inside that image and only advisory.
 [`egressBroker.limits`](../deployment/helm.md#egress-broker-limits) is the enforced bound, checked by the broker before
 any model call; every limit is off by default, and this file leaves them off as an explicit opt-out. Off, what bounds a
-build pod is time: its Job deadline (`intentController.config.jobDeadline`, 90 minutes) at whatever rate the model
-provider allows the key, so set a spend limit on the key at the provider too. To size the broker's limits, read the
-per-pod totals on its audit line after the first intents (`kubectl -n patchy logs deploy/patchy-egress-broker`); note
-that `tokensPerPod` counts input, cache and output tokens, while a stage's `tokenBudget` counts output tokens only, so
-it must sit far above the build stage's 800000. A run that ends early (its stage timeout, a token budget, a crash) still
-records what it spent, as its stream reported it call by call: the input and cache tokens exactly, but output tokens
-only as counted when each call started, so the cost recorded for such a run is a floor.
+build pod is time: its Job deadline (`intentController.config.jobDeadline`, 90 minutes, or the stage timeout plus 15
+minutes when that is longer) at whatever rate the model provider allows the key, so set a spend limit on the key at the
+provider too. To size the broker's limits, read the per-pod totals on its audit line after the first intents
+(`kubectl -n patchy logs deploy/patchy-egress-broker`); note that `tokensPerPod` counts input, cache and output tokens,
+while a stage's `tokenBudget` counts output tokens only, so it must sit far above the build stage's 800000. A run that
+ends early (its stage timeout, a token budget, a crash) still records what it spent, as its stream reported it call by
+call: the input and cache tokens exactly, but output tokens only as counted when each call started, so the cost recorded
+for such a run is a floor. With `egressBroker.limits.unit: cost` each run also gets its own enforced budget, the
+Project's `limits.<stage>.maxCostMicroUSD` ([stage limits](../configuration/intent-controller.md#stage-limits)).
 
 **The Ingresses.** Intents need neither: an App created with only `--intents --checks` has no webhook, the webhook
 Ingress serves only the security pipeline (`--security`), and the status Ingress the status page. Keeping both, as here,
