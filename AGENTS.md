@@ -288,8 +288,20 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   `Encode`/`DecodeBuildProfiles`, carried as `PATCHY_BUILD_NETWORK_PROFILES`).
 - `webhook`, `telemetry`, `cli`, `version` — service plumbing (the webhook server is used by
   integration-controller only).
+- `attribution` — run attribution's pure core (per-user credentials design, L1): the `--attribution-mode` switch
+  (`off`, the default, stamps nothing anywhere; `attribute`), the re-attribution rule (`To`: a human with no GitHub
+  numeric id on record, such as every status-page or CLI approval and every evaluation submitter, makes the run the
+  org's, reason `approver-unregistered` or `submitter-unregistered`), and the `patchy.bitwisemedia.uk/attributed-to`
+  annotation grammar (`org` | `github-id:<id>`, `ValuePattern`, which the chart's policy repeats; seeded properties).
+  Each run controller stamps a new run's immutable `spec.attributedTo` at creation per design §2 and puts its
+  annotation on the Job and pod template (`jobs.Spec.AttributedTo`; investigation-controller only `org`); the intent
+  issue's status comment names the latest run's person as code. Under `attribute` the chart renders four policies
+  (`templates/attribution-policy.yaml`: Job per launcher, Pod only from the Job controller for its Job, Finding
+  approval/retry/expedite `by` pinned to the writer with no `byID`, Evaluation `submitter` pinned to its creator).
+  Stdlib and `api/v1alpha1` only (a test pins that). Operator guide `docs/configuration/attribution.md`.
 - `action` — the human-action vocabulary (the custom verbs) and the state-machine gating behind each one:
-  `Apply` mutates spec, `Available` reports what a finding currently admits. Owned here so the status
+  `Apply` mutates spec (`ApplyWithID` also records a GitHub commenter's numeric id as `byID`, which attribution keys
+  on), `Available` reports what a finding currently admits. Owned here so the status
   server and the CLI cannot drift; `web/authz` re-exports the verb constants. It decides whether an action
   is MEANINGFUL, never whether the caller may take it. The intent verbs (replan/cancel/revise) are constants
   here too, deliberately in none of the Finding verb lists.
@@ -395,7 +407,8 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   dialer injectable.
 - `runnercfg` — the job controllers' shared agent-runner flag surface and startup validation (investigation,
   remediation, intent, evaluation): per-harness runner images and credential Secrets, harness restriction, repository
-  images, network profiles, agent resources, agent DNS, `--agents-paused`, the brokered claude provider config, and
+  images, network profiles, agent resources, agent DNS, `--agents-paused`, `--attribution-mode`, the brokered claude
+  provider config, and
   `Resolve` (every allowlisted model runnable; then one advisory 5-second broker `/readyz` probe that logs
   `egress broker not reachable yet; claude jobs will fail until it is` and never gates startup; intent-controller uses
   `ResolveWithoutBrokerProbe`).

@@ -578,6 +578,11 @@ That second piece exists because Kubernetes RBAC has no notion of a field: `upda
 Without the policy, letting a developer suspend a finding would also let them rewrite its severity or forge an approval.
 See [Kustomize](deployment/kustomize.md) for the manifest and the role ladder.
 
+With [run attribution](configuration/attribution.md) on (chart `attribution.mode: attribute`), one more policy holds the
+identity in what you write. An approval, retry or expedite you set must name you in `by` (your Kubernetes username,
+which the CLI already writes) and carry no `byID`. A remediation you approve from the CLI is attributed to the
+organisation, because a Kubernetes username is not a GitHub account.
+
 Every action is written as a JSON merge patch of the one spec field it sets, guarded by the resource version the CLI
 read, so the native verb it needs is `patch`. The patch also means the CLI's field manager owns that field and nothing
 else: a `helm upgrade` of the Integrations that `patchy backfill` stamped applies without conflicts. The CLI sets no
