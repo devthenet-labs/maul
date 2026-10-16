@@ -135,7 +135,12 @@ func (r *Reconciler) reconcileActive(ctx context.Context, p *v1alpha1.Preview) (
 		// A Preview holding its slot redeploys in it at once: it reports
 		// Deploying, not Ready and with no URL, at the new revision. Its
 		// serving snapshot stays: the rolling update keeps the previous
-		// revision's Pods serving until the new ones are Ready.
+		// revision's Pods serving until the new ones are Ready. Only the
+		// entries whose Service the new spec still renders for the same
+		// component stay, since deploy prunes or repurposes the others (a
+		// dropped or renamed component), as the legacy path drops their
+		// routes from the kept Ingress.
+		p.Status.Serving = servingStillRendered(p)
 		p.Status.Phase = v1alpha1.PreviewPending
 		if p.Status.Slot != nil {
 			p.Status.Phase = v1alpha1.PreviewDeploying
@@ -450,6 +455,34 @@ func servingSnapshot(p *v1alpha1.Preview) *v1alpha1.PreviewServing {
 		})
 	}
 	return &v1alpha1.PreviewServing{Generation: p.Generation, UID: p.UID, Components: components}
+}
+
+// servingStillRendered is the Preview's serving snapshot less every entry
+// whose Service its current spec no longer renders for the same component:
+// prune is about to delete a Service no component renders, and a Service
+// name the spec hands to another component (the first component's, when the
+// one before it is dropped) is about to select that component's Pods. nil
+// once no entry is left.
+func servingStillRendered(p *v1alpha1.Preview) *v1alpha1.PreviewServing {
+	if p.Status.Serving == nil {
+		return nil
+	}
+	rendered := make(map[string]string, len(p.Spec.Components))
+	for i, c := range p.Spec.Components {
+		rendered[componentName(p, i)] = c.Name
+	}
+	kept := make([]v1alpha1.PreviewServingComponent, 0, len(p.Status.Serving.Components))
+	for _, c := range p.Status.Serving.Components {
+		if name, ok := rendered[c.Service]; ok && name == c.Name {
+			kept = append(kept, c)
+		}
+	}
+	if len(kept) == 0 {
+		return nil
+	}
+	serving := p.Status.Serving.DeepCopy()
+	serving.Components = kept
+	return serving
 }
 
 func (r *Reconciler) completeDeployment(ctx context.Context, p *v1alpha1.Preview, slot int32) (ctrl.Result, error) {

@@ -6,11 +6,13 @@ package preview
 import (
 	"context"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
@@ -185,5 +187,128 @@ func TestServingSnapshotBackfilled(t *testing.T) {
 	p = e.step(p.Name)
 	if p.Status.Phase != v1alpha1.PreviewReady || !reflect.DeepEqual(p.Status.Serving, wantServing(p, 1)) {
 		t.Fatalf("status = %+v, want Ready with the snapshot backfilled", p.Status)
+	}
+}
+
+// dropComponent has the Project stop previewing repository repo and moves
+// the Preview to the spec the writer then derives, as a new generation.
+func (e *testEnv) dropComponent(project *v1alpha1.Project, in *v1alpha1.Intent, p *v1alpha1.Preview,
+	repo string,
+) *v1alpha1.Preview {
+	e.t.Helper()
+	ctx := context.Background()
+	if err := e.c.Get(ctx, client.ObjectKeyFromObject(project), project); err != nil {
+		e.t.Fatal(err)
+	}
+	for i := range project.Spec.Repositories {
+		if project.Spec.Repositories[i].Name == repo {
+			project.Spec.Repositories[i].Preview = nil
+		}
+	}
+	if err := e.c.Update(ctx, project); err != nil {
+		e.t.Fatal(err)
+	}
+	components, ok := v1alpha1.DesiredPreviewComponents(project, in)
+	if !ok {
+		e.t.Fatalf("no components derived without %s", repo)
+	}
+	p.Spec.Components = components
+	p.Generation++
+	if err := e.c.Update(ctx, p); err != nil {
+		e.t.Fatal(err)
+	}
+	return e.step(p.Name)
+}
+
+// TestServingSnapshotDropsPrunedServices: a redeploy that stops rendering a
+// component keeps the snapshot only for the Services that survive the
+// prune, so a router never sends a path to a deleted Service; the legacy
+// path drops the same routes from its kept Ingress.
+func TestServingSnapshotDropsPrunedServices(t *testing.T) {
+	const docsSHA = "cccccccccccccccccccccccccccccccccccccccc"
+	at := time.Date(2026, 10, 1, 11, 0, 0, 0, time.UTC)
+	in, p := multiPreview(t, at)
+	project := shopProject()
+	project.Spec.Repositories = append(project.Spec.Repositories, v1alpha1.ProjectRepository{
+		Name: "docs", URL: "https://github.com/acme/docs",
+		Preview: &v1alpha1.ProjectRepositoryPreview{ProjectPreview: v1alpha1.ProjectPreview{
+			ImageRepository: testSettings().ImagePrefix + "acme-docs", Port: 8080, ReadinessPath: "/docs/healthz",
+		}, Path: "/docs"},
+	})
+	in.Status.PullRequests = append(in.Status.PullRequests, v1alpha1.IntentPullRequest{
+		Repository: "https://github.com/acme/docs", Number: 3, State: "open", HeadSHA: docsSHA,
+	})
+	components, ok := v1alpha1.DesiredPreviewComponents(project, in)
+	if !ok || len(components) != 3 {
+		t.Fatalf("derived %+v, %v; want three components", components, ok)
+	}
+	p.Spec.Components = components
+	e := newTestEnv(t, project, in, p)
+	p = e.untilSlot(p.Name)
+	e.step(p.Name)
+	for i := range p.Spec.Components {
+		e.markReady(p, i)
+	}
+	if p = e.step(p.Name); p.Status.Phase != v1alpha1.PreviewReady || p.Status.Serving == nil ||
+		len(p.Status.Serving.Components) != 3 {
+		t.Fatalf("phase %s, serving %+v; want Ready serving three components", p.Status.Phase, p.Status.Serving)
+	}
+	docs := componentName(p, slices.IndexFunc(p.Spec.Components,
+		func(c v1alpha1.PreviewComponent) bool { return c.Name == "docs" }))
+	want := p.Status.Serving.DeepCopy()
+	want.Components = slices.DeleteFunc(want.Components,
+		func(c v1alpha1.PreviewServingComponent) bool { return c.Service == docs })
+	if len(want.Components) != 2 {
+		t.Fatalf("snapshot %+v does not list %s", p.Status.Serving, docs)
+	}
+
+	p = e.dropComponent(project, in, p, "docs")
+	if p.Status.Phase != v1alpha1.PreviewDeploying || !reflect.DeepEqual(p.Status.Serving, want) {
+		t.Fatalf("redeploying: phase %s, serving %+v; want Deploying with %+v", p.Status.Phase, p.Status.Serving,
+			want)
+	}
+	p = e.step(p.Name) // prune deletes the docs component
+	if err := e.slotObject(docs, &corev1.Service{}); !kerrors.IsNotFound(err) {
+		t.Fatalf("dropped component's Service survived: %v", err)
+	}
+	// The remaining components' Deployments did not change, so the same pass
+	// may find them Ready at the new generation.
+	if p.Status.Phase == v1alpha1.PreviewReady {
+		want.Generation = p.Generation
+	}
+	if !reflect.DeepEqual(p.Status.Serving, want) {
+		t.Fatalf("serving after the prune = %+v, want %+v", p.Status.Serving, want)
+	}
+	for _, c := range p.Status.Serving.Components {
+		if err := e.slotObject(c.Service, &corev1.Service{}); err != nil {
+			t.Errorf("snapshot lists %s, whose Service is gone: %v", c.Service, err)
+		}
+	}
+}
+
+// TestServingSnapshotClearedWhenEveryServiceIsPruned: dropping the web
+// component leaves the API first, so it takes the Preview's own Service name:
+// the API's old Service is pruned and web's is repurposed to select the API's
+// Pods. No entry still names its own Service, so the snapshot is cleared.
+func TestServingSnapshotClearedWhenEveryServiceIsPruned(t *testing.T) {
+	at := time.Date(2026, 10, 1, 11, 0, 0, 0, time.UTC)
+	in, p := multiPreview(t, at)
+	project := shopProject()
+	e := newTestEnv(t, project, in, p)
+	p = e.untilSlot(p.Name)
+	e.step(p.Name)
+	e.markReady(p, 0)
+	e.markReady(p, 1)
+	if p = e.step(p.Name); p.Status.Phase != v1alpha1.PreviewReady || p.Status.Serving == nil {
+		t.Fatalf("phase %s, serving %+v; want Ready with a snapshot", p.Status.Phase, p.Status.Serving)
+	}
+	if p = e.dropComponent(project, in, p, "web"); p.Status.Serving != nil {
+		t.Fatalf("serving after dropping web = %+v, want none", p.Status.Serving)
+	}
+	if p = e.step(p.Name); p.Status.Serving != nil {
+		t.Fatalf("serving after the prune = %+v, want none", p.Status.Serving)
+	}
+	if err := e.slotObject("preview-shop-1-api", &corev1.Service{}); !kerrors.IsNotFound(err) {
+		t.Errorf("the API's old Service survived the prune: %v", err)
 	}
 }

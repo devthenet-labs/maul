@@ -154,7 +154,9 @@ type PreviewServingComponent struct {
 // PreviewServing is the snapshot of what a Preview serves, written when it
 // turns Ready. It is kept while the Preview redeploys (Deploying at a new
 // generation), because the rolling update keeps the previous revision's Pods
-// serving until the new ones are Ready, and it is cleared when nothing may
+// serving until the new ones are Ready, less any component whose Service the
+// new spec no longer renders for it (pruned or handed to another component),
+// and it is cleared when nothing may
 // serve any more: a retry that deletes the Deployments, Failed, Expired, or
 // the slot's release. A router serves a Preview only from this snapshot, with
 // the Preview's UID, slot and host label, never from its spec.

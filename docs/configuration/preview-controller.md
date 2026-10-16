@@ -211,11 +211,14 @@ when it turned `Ready`, and per component its name, its Service (`preview-<proje
 Preview turns `Ready`, and backfilled onto a Preview that was `Ready` before the field existed. Unlike `url` and
 `components`, it stays while the Preview redeploys (`Deploying` at a new generation), because the rolling update keeps
 the previous revision's Pods serving until the new ones are Ready; it moves to the new generation once that is `Ready`.
-It is cleared when nothing may serve any more: a retry that deletes the Deployments, `Failed`, `Expired`, the slot's
-release, and a deleting Preview. A router serves a Preview only from this snapshot plus its UID, slot and host label,
-never from its spec. The Service-name derivation (`v1alpha1.PreviewComponentServiceName`) and the path matcher
-(`v1alpha1.PreviewPathMatches` and `PreviewRoute`, the Ingress `Prefix` semantics: element by element, longest prefix
-first) live in `api/v1alpha1`, and a seeded property pins them to the Ingress this controller renders.
+A redeploy that stops rendering a component (a repository dropped from the Project, or a component whose Service name
+moves to another) drops that component's entry at once, before its Service is pruned or repurposed, just as the legacy
+path drops its route from the kept Ingress, and clears the snapshot if no entry is left. It is cleared when nothing may
+serve any more: a retry that deletes the Deployments, `Failed`, `Expired`, the slot's release, and a deleting Preview. A
+router serves a Preview only from this snapshot plus its UID, slot and host label, never from its spec. The Service-name
+derivation (`v1alpha1.PreviewComponentServiceName`) and the path matcher (`v1alpha1.PreviewPathMatches` and
+`PreviewRoute`, the Ingress `Prefix` semantics: element by element, longest prefix first) live in `api/v1alpha1`, and a
+seeded property pins them to the Ingress this controller renders.
 
 ## Without the legacy Ingress
 
