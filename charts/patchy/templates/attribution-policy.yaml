@@ -13,9 +13,10 @@
 # patchy.bitwisemedia.uk/attributed-to annotation, so that annotation must
 # come only from the launching controller, through the Job controller, and
 # never be changed afterwards: otherwise a prompt-injected agent, or anyone
-# holding create on pods, could bill another person. And the human stamps
-# attribution is derived from (a Finding's approval, retry and expedite, an
-# Evaluation's submitter) must name whoever wrote them.
+# holding create on pods, could bill another person. The run's own stamp is
+# admitted only from that controller. And the human stamps attribution is
+# derived from (a Finding's approval, retry and expedite, an Evaluation's
+# submitter, an Intent's requester id) must name whoever wrote them.
 {{- if include "patchy.attributionOn" . }}
 {{- if not (semverCompare ">=1.30.0-0" .Capabilities.KubeVersion.Version) }}
 {{- fail (printf "attribution.mode is %s but this cluster is %s; its admission policies need Kubernetes 1.30+. Upgrade, or keep attribution.mode off." .Values.attribution.mode .Capabilities.KubeVersion.Version) }}
@@ -265,6 +266,116 @@ spec:
         namespaceSelector:
             matchLabels:
                 kubernetes.io/metadata.name: {{ $ns }}
+{{- /*
+A run's spec.attributedTo is whom its Job is billed to: the launching
+controller copies it onto the Job annotation unread, and the Job policy
+admits whatever a launcher carries. So the stamp is admitted on CREATE only
+from the run kind's own controller, the one that decides it; anyone else
+creates runs without one (annotated org at launch). The run specs are
+immutable, so CREATE is the only write to judge.
+*/}}
+{{- $runs := list
+    (dict "resource" "investigations" "sa" (get $sa "investigation-controller"))
+    (dict "resource" "remediations" "sa" (get $sa "remediation-controller"))
+    (dict "resource" "intentruns" "sa" (get $sa "intent-controller"))
+    (dict "resource" "evaluationunits" "sa" (get $sa "evaluation-controller")) }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+    name: {{ include "patchy.fullname" . }}-attribution-run-stamps
+    labels: {{- include "patchy.labels" (dict "root" $ "name" "admission-policy") | nindent 8 }}
+    {{- with include "patchy.annotations" (dict "root" $) }}
+    annotations: {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    # Fail closed: a policy that cannot compile or evaluate must not become an
+    # open door.
+    failurePolicy: Fail
+    matchConstraints:
+        resourceRules:
+            - apiGroups: [patchy.bitwisemedia.uk]
+              apiVersions: [v1alpha1]
+              operations: [CREATE]
+              resources: [{{ range $i, $r := $runs }}{{ if $i }}, {{ end }}{{ $r.resource }}{{ end }}]
+    validations:
+        - expression: >-
+              !has(object.spec.attributedTo) || {{ range $i, $r := $runs }}{{ if $i }}
+                || {{ end }}(request.resource.resource == '{{ $r.resource }}' && request.userInfo.username == '{{ $r.sa }}'){{ end }}
+          messageExpression: >-
+              "spec.attributedTo on " + request.resource.resource + " " + object.metadata.name +
+              " may only be stamped by the controller that runs it"
+          reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+    name: {{ include "patchy.fullname" . }}-attribution-run-stamps
+    labels: {{- include "patchy.labels" (dict "root" $ "name" "admission-policy") | nindent 8 }}
+    {{- with include "patchy.annotations" (dict "root" $) }}
+    annotations: {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    policyName: {{ include "patchy.fullname" . }}-attribution-run-stamps
+    validationActions: [Deny]
+    matchResources:
+        namespaceSelector:
+            matchLabels:
+                kubernetes.io/metadata.name: {{ $ns }}
+{{- if .Values.intentController.enabled }}
+{{- /*
+An Intent's spec.requestedBy.userID is whom its first plan is attributed to
+when the requester is an approver. intent-controller records it from the
+issue's events; an Intent anyone else creates may carry no GitHub id, so its
+requester (named by login alone) is never attributed a run. The spec is
+immutable, so CREATE is the only write to judge.
+*/}}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+    name: {{ include "patchy.fullname" . }}-attribution-intent-requester
+    labels: {{- include "patchy.labels" (dict "root" $ "name" "admission-policy") | nindent 8 }}
+    {{- with include "patchy.annotations" (dict "root" $) }}
+    annotations: {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    # Fail closed: a policy that cannot compile or evaluate must not become an
+    # open door.
+    failurePolicy: Fail
+    matchConstraints:
+        resourceRules:
+            - apiGroups: [patchy.bitwisemedia.uk]
+              apiVersions: [v1alpha1]
+              operations: [CREATE]
+              resources: [intents]
+    matchConditions:
+        - name: not-intent-controller
+          expression: >-
+              request.userInfo.username != '{{ get $sa "intent-controller" }}'
+    validations:
+        - expression: "!has(object.spec.requestedBy.userID)"
+          messageExpression: >-
+              "spec.requestedBy.userID on intent " + object.metadata.name +
+              " may only be recorded by intent-controller, from the issue's events"
+          reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+    name: {{ include "patchy.fullname" . }}-attribution-intent-requester
+    labels: {{- include "patchy.labels" (dict "root" $ "name" "admission-policy") | nindent 8 }}
+    {{- with include "patchy.annotations" (dict "root" $) }}
+    annotations: {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    policyName: {{ include "patchy.fullname" . }}-attribution-intent-requester
+    validationActions: [Deny]
+    matchResources:
+        namespaceSelector:
+            matchLabels:
+                kubernetes.io/metadata.name: {{ $ns }}
+{{- end }}
 {{- if .Values.evaluationController.enabled }}
 {{- /*
 An Evaluation's submitter is whom its units are for. The evaluation API

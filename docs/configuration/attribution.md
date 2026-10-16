@@ -74,7 +74,7 @@ in that comment, so it notifies no one.
 
 ## Admission policies
 
-With `attribution.mode` other than `off`, the chart renders four ValidatingAdmissionPolicies. Each fails closed.
+With `attribution.mode` other than `off`, the chart renders up to six ValidatingAdmissionPolicies. Each fails closed.
 
 - **`<release>-attribution-jobs`** applies in the agent namespace. A Job created by one of the launching controllers
   must be of that controller's own run kind (`investigation`, `remediation`, `intent`, `evaluation`). It must carry the
@@ -90,6 +90,14 @@ With `attribution.mode` other than `off`, the chart renders four ValidatingAdmis
 - **`<release>-attribution-evaluation-submitter`** applies in the release namespace, and only with the
   evaluation-controller. An Evaluation created by anyone but the evaluation-controller (whose API stamps the verified
   submitter) must name its creator in `spec.submitter`.
+
+- **`<release>-attribution-run-stamps`** applies in the release namespace. A new `Investigation`, `Remediation`,
+  `IntentRun` or `EvaluationUnit` may carry `spec.attributedTo` only when the controller of that kind creates it:
+  investigation-, remediation-, intent- or evaluation-controller respectively. Anyone else, another of those controllers
+  included, creates a run without a stamp, and its Job is then annotated `org`.
+- **`<release>-attribution-intent-requester`** applies in the release namespace, and only with the intent-controller. An
+  Intent created by anyone but the intent-controller (which reads the requester from the issue's events) must not carry
+  `spec.requestedBy.userID`, so a requester named by login alone is never attributed a run.
 
 Together with the immutable run specs, these mean that only the run controllers decide attribution. A prompt-injected
 agent, or anyone holding `create` on pods or Jobs, cannot bill a run to someone else.

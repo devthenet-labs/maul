@@ -295,9 +295,12 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   annotation grammar (`org` | `github-id:<id>`, `ValuePattern`, which the chart's policy repeats; seeded properties).
   Each run controller stamps a new run's immutable `spec.attributedTo` at creation per design §2 and puts its
   annotation on the Job and pod template (`jobs.Spec.AttributedTo`; investigation-controller only `org`); the intent
-  issue's status comment names the latest run's person as code. Under `attribute` the chart renders four policies
-  (`templates/attribution-policy.yaml`: Job per launcher, Pod only from the Job controller for its Job, Finding
-  approval/retry/expedite `by` pinned to the writer with no `byID`, Evaluation `submitter` pinned to its creator).
+  issue's status comment names the latest run's person as code. A plan run is attributed from the trigger that opened
+  its input revision (`status.input.trigger`), never from `lastTrigger`. Under `attribute` the chart renders up to six
+  policies (`templates/attribution-policy.yaml`: Job per launcher, Pod only from the Job controller for its Job, Finding
+  approval/retry/expedite `by` pinned to the writer with no `byID`, Evaluation `submitter` pinned to its creator, a
+  run's `spec.attributedTo` only from its own kind's controller on CREATE, an Intent's `requestedBy.userID` only from
+  intent-controller; a render test pins the Job policy's grammar to `ValuePattern`).
   Stdlib and `api/v1alpha1` only (a test pins that). Operator guide `docs/configuration/attribution.md`.
 - `action` — the human-action vocabulary (the custom verbs) and the state-machine gating behind each one:
   `Apply` mutates spec (`ApplyWithID` also records a GitHub commenter's numeric id as `byID`, which attribution keys

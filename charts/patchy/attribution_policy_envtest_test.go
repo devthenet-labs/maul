@@ -38,6 +38,8 @@ const (
 	attrPodChangeDenied = "annotation on pod"
 	attrStampDenied     = "must name the requesting user"
 	attrSubmitterDenied = "must be the requesting user"
+	attrRunStampDenied  = "may only be stamped by the controller that runs it"
+	attrRequesterDenied = "may only be recorded by intent-controller"
 )
 
 const (
@@ -100,6 +102,8 @@ func TestAttributionPoliciesAgainstAPIServer(t *testing.T) {
 	t.Run("pods", func(t *testing.T) { checkAttributionPods(t, admin, as) })
 	t.Run("finding stamps", func(t *testing.T) { checkFindingStamps(t, as) })
 	t.Run("evaluation submitter", func(t *testing.T) { checkEvaluationSubmitter(t, as) })
+	t.Run("run stamps", func(t *testing.T) { checkRunStamps(t, as) })
+	t.Run("intent requester", func(t *testing.T) { checkIntentRequester(t, as) })
 }
 
 func checkAttributionJobs(t *testing.T, admin client.Client, as func(string) client.Client) {
@@ -337,6 +341,81 @@ func checkFindingStamps(t *testing.T, as func(string) client.Client) {
 	if err := user.Update(ctx, f); err != nil {
 		t.Errorf("a user's write leaving the stamp alone was refused: %v", err)
 	}
+
+}
+
+// checkRunStamps: a run's spec.attributedTo is admitted on CREATE only from
+// the controller of the run's own kind; a run without one is anyone's to
+// create (as RBAC allows), and another controller stamping a kind it does
+// not run is refused like anyone else.
+func checkRunStamps(t *testing.T, as func(string) client.Client) {
+	ctx := t.Context()
+	user := as(attrUser)
+	person := &v1alpha1.Attribution{User: &v1alpha1.UserRef{Login: "bob", ID: 5}, Reason: v1alpha1.AttributionApprover}
+	waitFor(t, func() error {
+		err := user.Create(ctx, attributedRemediation("probe", person), client.DryRunAll)
+		if deniedWith(err, attrRunStampDenied) {
+			return nil
+		}
+		return &waitError{err: err, want: attrRunStampDenied}
+	})
+	org := &v1alpha1.Attribution{Reason: v1alpha1.AttributionOrg}
+	for _, tc := range []struct {
+		name string
+		user string
+		run  client.Object
+		want string
+	}{
+		{"remediation-controller stamping a remediation", saRemediation, attributedRemediation("r1", person), ""},
+		{"a user stamping a remediation", attrUser, attributedRemediation("r2", person), attrRunStampDenied},
+		{"a user stamping a remediation org", attrUser, attributedRemediation("r3", org), attrRunStampDenied},
+		{"a user creating an unstamped remediation", attrUser, attributedRemediation("r4", nil), ""},
+		{"intent-controller stamping a remediation", saIntent, attributedRemediation("r5", person),
+			attrRunStampDenied},
+		{"investigation-controller stamping an investigation", saInvestigation,
+			attributedInvestigation("v1", org), ""},
+		{"a user stamping an investigation", attrUser, attributedInvestigation("v2", org), attrRunStampDenied},
+		{"intent-controller stamping an intent run", saIntent, attributedIntentRun("i1", person), ""},
+		{"a user stamping an intent run", attrUser, attributedIntentRun("i2", person), attrRunStampDenied},
+		{"remediation-controller stamping an intent run", saRemediation, attributedIntentRun("i3", person),
+			attrRunStampDenied},
+		{"evaluation-controller stamping a unit", saEvaluation, attributedUnit("u1", person), ""},
+		{"a user stamping a unit", attrUser, attributedUnit("u2", person), attrRunStampDenied},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := as(tc.user).Create(ctx, tc.run, client.DryRunAll)
+			switch {
+			case tc.want == "" && err != nil:
+				t.Errorf("refused, want admitted: %v", err)
+			case tc.want != "" && !deniedWith(err, tc.want):
+				t.Errorf("got %v, want refused with %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// checkIntentRequester: only intent-controller records the GitHub id of an
+// Intent's requester.
+func checkIntentRequester(t *testing.T, as func(string) client.Client) {
+	ctx := t.Context()
+	user := as(attrUser)
+	waitFor(t, func() error {
+		err := user.Create(ctx, attributedIntent(1, 5), client.DryRunAll)
+		if deniedWith(err, attrRequesterDenied) {
+			return nil
+		}
+		return &waitError{err: err, want: attrRequesterDenied}
+	})
+	if err := as(saIntent).Create(ctx, attributedIntent(2, 5), client.DryRunAll); err != nil {
+		t.Errorf("intent-controller recording the requester's id was refused: %v", err)
+	}
+	if err := user.Create(ctx, attributedIntent(3, 0), client.DryRunAll); err != nil {
+		t.Errorf("a user creating an Intent with no requester id was refused: %v", err)
+	}
+	if err := as(saRemediation).Create(ctx, attributedIntent(4, 5), client.DryRunAll); !deniedWith(err,
+		attrRequesterDenied) {
+		t.Errorf("another controller recording a requester id: got %v, want refused", err)
+	}
 }
 
 func checkEvaluationSubmitter(t *testing.T, as func(string) client.Client) {
@@ -398,7 +477,7 @@ func applyAttributionRender(t *testing.T, admin client.Client) {
 		}
 	}
 	for _, name := range []string{"attribution-jobs", "attribution-pods", "attribution-finding-stamps",
-		"attribution-evaluation-submitter"} {
+		"attribution-evaluation-submitter", "attribution-run-stamps", "attribution-intent-requester"} {
 		for _, kind := range []string{"ValidatingAdmissionPolicy", "ValidatingAdmissionPolicyBinding"} {
 			if !seen[kind+"/patchy-"+name] {
 				t.Errorf("the attribution render has no %s patchy-%s", kind, name)
@@ -443,8 +522,9 @@ func grantAttributionTesters(t *testing.T, admin client.Client) {
 		ObjectMeta: metav1.ObjectMeta{Name: "attribution-tester", Namespace: egressRelease},
 		Rules: []rbacv1.PolicyRule{{
 			APIGroups: []string{v1alpha1.GroupVersion.Group},
-			Resources: []string{"findings", "evaluations"},
-			Verbs:     []string{"get", "create", "update", "approve", "retry", "expedite", "suspend", "resume"},
+			Resources: []string{"findings", "evaluations", "investigations", "remediations", "intentruns",
+				"evaluationunits", "intents"},
+			Verbs: []string{"get", "create", "update", "approve", "retry", "expedite", "suspend", "resume"},
 		}},
 	}
 	binding := &rbacv1.RoleBinding{
@@ -454,6 +534,9 @@ func grantAttributionTesters(t *testing.T, admin client.Client) {
 			{Kind: "User", APIGroup: "rbac.authorization.k8s.io", Name: attrUser},
 			{Kind: "ServiceAccount", Name: "patchy-integration-controller", Namespace: egressRelease},
 			{Kind: "ServiceAccount", Name: "patchy-evaluation-controller", Namespace: egressRelease},
+			{Kind: "ServiceAccount", Name: "patchy-investigation-controller", Namespace: egressRelease},
+			{Kind: "ServiceAccount", Name: "patchy-remediation-controller", Namespace: egressRelease},
+			{Kind: "ServiceAccount", Name: "patchy-intent-controller", Namespace: egressRelease},
 		},
 	}
 	for _, obj := range []client.Object{role, binding} {
@@ -467,6 +550,14 @@ func grantAttributionTesters(t *testing.T, admin client.Client) {
 			reviews = append(reviews, rbactest.Verbs(user, nil, authorizationv1.ResourceAttributes{
 				Namespace: egressRelease, Group: v1alpha1.GroupVersion.Group, Resource: resource,
 			}, "create", "update", "approve")...)
+		}
+	}
+	for _, user := range []string{attrUser, saInvestigation, saRemediation, saIntent, saEvaluation} {
+		for _, resource := range []string{"investigations", "remediations", "intentruns", "evaluationunits",
+			"intents"} {
+			reviews = append(reviews, rbactest.Review(user, nil, authorizationv1.ResourceAttributes{
+				Namespace: egressRelease, Group: v1alpha1.GroupVersion.Group, Resource: resource, Verb: "create",
+			}))
 		}
 	}
 	rbactest.WaitAllowed(t, admin, reviews...)
@@ -539,6 +630,72 @@ func attributedEvaluation(name, submitter string) *v1alpha1.Evaluation {
 					SizeBytes: 1024,
 				},
 			}},
+		},
+	}
+}
+
+func attributedRemediation(name string, a *v1alpha1.Attribution) *v1alpha1.Remediation {
+	return &v1alpha1.Remediation{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: egressRelease},
+		Spec: v1alpha1.RemediationSpec{
+			FindingRef:       v1alpha1.ObjectReference{Name: "attr"},
+			InvestigationRef: v1alpha1.ObjectReference{Name: "attr-inv-1"},
+			RepositoryRef:    v1alpha1.LocalObjectReference{Name: "attr-src"},
+			Attempt:          1, AttributedTo: a,
+		},
+	}
+}
+
+func attributedInvestigation(name string, a *v1alpha1.Attribution) *v1alpha1.Investigation {
+	return &v1alpha1.Investigation{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: egressRelease},
+		Spec: v1alpha1.InvestigationSpec{FindingRef: v1alpha1.ObjectReference{Name: "attr"}, Attempt: 1,
+			AttributedTo: a},
+	}
+}
+
+func attributedIntentRun(name string, a *v1alpha1.Attribution) *v1alpha1.IntentRun {
+	digest := "sha256:" + strings.Repeat("a", 64)
+	return &v1alpha1.IntentRun{
+		ObjectMeta: metav1.ObjectMeta{Name: "target-1-plan-r1-" + name, Namespace: egressRelease},
+		Spec: v1alpha1.IntentRunSpec{
+			IntentRef: v1alpha1.ObjectReference{Name: "target-1", UID: "u-intent"},
+			Stage:     v1alpha1.IntentStagePlan,
+			Repository: v1alpha1.IntentRunRepository{
+				URL:           "https://github.com/acme/shop",
+				RepositoryRef: v1alpha1.LocalObjectReference{Name: name + "-src"},
+			},
+			Round:        1,
+			Attempt:      1,
+			Inputs:       v1alpha1.IntentRunInputs{ConfigMap: name + "-input", InputDigest: digest},
+			Grant:        v1alpha1.IntentRunGrant{MaxTurns: 40, TokenBudget: 200000, TimeoutMilliseconds: 1200000},
+			AttributedTo: a,
+		},
+	}
+}
+
+func attributedUnit(name string, a *v1alpha1.Attribution) *v1alpha1.EvaluationUnit {
+	return &v1alpha1.EvaluationUnit{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: egressRelease},
+		Spec: v1alpha1.EvaluationUnitSpec{
+			EvaluationRef: v1alpha1.ObjectReference{Name: "attr"},
+			Unit:          attributedEvaluation("unit", "x").Spec.Units[0],
+			AttributedTo:  a,
+		},
+	}
+}
+
+// attributedIntent is the Intent for issue n of Project target, its
+// requester carrying GitHub id id (none when 0).
+func attributedIntent(n, id int64) *v1alpha1.Intent {
+	return &v1alpha1.Intent{
+		ObjectMeta: metav1.ObjectMeta{Name: v1alpha1.IntentName("target", n), Namespace: egressRelease},
+		Spec: v1alpha1.IntentSpec{
+			Project: "target",
+			Issue: v1alpha1.IntentIssue{Repository: "https://github.com/acme/intents", Number: n,
+				URL: "https://github.com/acme/intents/issues/" + strconv.FormatInt(n, 10)},
+			RequestedBy: v1alpha1.IntentRequest{Login: "octocat", UserID: id, EventID: 42,
+				At: metav1.NewTime(time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC))},
 		},
 	}
 }

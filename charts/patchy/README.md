@@ -382,8 +382,8 @@ The genuinely shared settings stay global:
   the agents are paused.
 - `attribution.mode` — run attribution: `off` (the default) changes nothing; `attribute` makes investigation-,
   remediation-, intent- and evaluation-controller stamp whom each new run is for (`spec.attributedTo`) and annotate
-  every agent Job and pod (`patchy.bitwisemedia.uk/attributed-to`), and renders four admission policies that keep the
-  annotation and the Finding and Evaluation identity stamps honest. See
+  every agent Job and pod (`patchy.bitwisemedia.uk/attributed-to`), and renders up to six admission policies that keep
+  the annotation, each run's own stamp and the Finding, Evaluation and Intent identity stamps honest. See
   [Run attribution](../../docs/configuration/attribution.md).
 - `agent.*` — the sandbox: namespace, service account, `jobDeadline`/`jobTTL`, and the two stages' limits:
   `modelAllowlist` (canonical, provider-qualified model ids), `investigate.*` (absolute), `remediate.*` (`auto.*` is

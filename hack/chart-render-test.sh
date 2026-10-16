@@ -2580,9 +2580,11 @@ notes_has default-notes 'AGENTS PAUSED' no
 # ---- attribution.mode: run attribution (design L1) -------------------------
 # Off (the default) renders no PATCHY_ATTRIBUTION_MODE and no attribution
 # policy at all. attribute reaches exactly the four controllers that launch
-# agent Jobs, and renders the Job, pod and Finding-stamp policies, plus the
+# agent Jobs, and renders the Job, pod, Finding-stamp and run-stamp policies,
+# plus the Intent-requester policy only with the intent controller and the
 # Evaluation-submitter policy only with the evaluation controller; the Job
-# policy names each launcher present, investigation-controller org-only.
+# policy names each launcher present, investigation-controller org-only, and
+# the run-stamp policy pins each run kind to its own controller.
 attribution_policies='select(.kind == "ValidatingAdmissionPolicy") | select(.metadata.name | test("^patchy-attribution-")) | .metadata.name'
 # shellcheck disable=SC2086
 expect extras-none 'select(.kind == "ConfigMap") | select(.data.PATCHY_ATTRIBUTION_MODE != null) | .metadata.name' ""
@@ -2595,7 +2597,7 @@ for c in investigation-controller remediation-controller intent-controller evalu
   cm attribution "$c" PATCHY_ATTRIBUTION_MODE attribute
 done
 expect attribution "$attribution_policies" \
-  "$(printf '%s\n' patchy-attribution-jobs patchy-attribution-pods patchy-attribution-finding-stamps patchy-attribution-evaluation-submitter)"
+  "$(printf '%s\n' patchy-attribution-jobs patchy-attribution-pods patchy-attribution-finding-stamps patchy-attribution-run-stamps patchy-attribution-intent-requester patchy-attribution-evaluation-submitter)"
 expect attribution 'select(.kind == "ValidatingAdmissionPolicyBinding") | select(.metadata.name == "patchy-attribution-jobs") | .spec.matchResources.namespaceSelector.matchLabels."kubernetes.io/metadata.name"' "patchy-agents"
 launchers='select(.kind == "ValidatingAdmissionPolicy" and .metadata.name == "patchy-attribution-jobs") | .spec.variables[] | select(.name == "launcher") | .expression'
 for sa in investigation-controller remediation-controller intent-controller evaluation-controller; do
@@ -2607,9 +2609,16 @@ if ! get attribution 'select(.kind == "ValidatingAdmissionPolicy" and .metadata.
   grep -qF "patchy-investigation-controller' && variables.runKind == 'investigation' && variables.job.value() == 'org'"; then
   fail "attribution: the Job policy does not hold investigation-controller to org"
 fi
+run_stamps='select(.kind == "ValidatingAdmissionPolicy" and .metadata.name == "patchy-attribution-run-stamps") | .spec.validations[0].expression'
+for pair in investigations:investigation-controller remediations:remediation-controller intentruns:intent-controller evaluationunits:evaluation-controller; do
+  if ! get attribution "$run_stamps" |
+    grep -qF "request.resource.resource == '${pair%%:*}' && request.userInfo.username == 'system:serviceaccount:patchy:patchy-${pair#*:}'"; then
+    fail "attribution: the run-stamp policy does not pin ${pair%%:*} to ${pair#*:}"
+  fi
+done
 render attribution-core --set attribution.mode=attribute
 expect attribution-core "$attribution_policies" \
-  "$(printf '%s\n' patchy-attribution-jobs patchy-attribution-pods patchy-attribution-finding-stamps)"
+  "$(printf '%s\n' patchy-attribution-jobs patchy-attribution-pods patchy-attribution-finding-stamps patchy-attribution-run-stamps)"
 for sa in intent-controller evaluation-controller; do
   if get attribution-core "$launchers" | grep -qF "patchy-$sa"; then
     fail "attribution-core: the Job policy names $sa, which is not installed"

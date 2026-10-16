@@ -17,7 +17,8 @@ design (attribution; L2 usage and L3 per-user credentials follow). It is off by 
   id, and annotate every agent Job and pod `patchy.bitwisemedia.uk/attributed-to` (`org` or `github-id:<id>`);
 - a human with no GitHub id on record is re-attributed to the org (`approver-unregistered`);
 - the intent issue's status comment names the latest run's person;
-- four admission policies keep the annotation and the Finding and Evaluation identity stamps honest.
+- up to six admission policies keep the annotation, each run's own stamp and the Finding, Evaluation and Intent identity
+  stamps honest.
 
 See [docs/configuration/attribution.md](docs/configuration/attribution.md).
 

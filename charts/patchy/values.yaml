@@ -77,14 +77,16 @@ admissionPolicy:
 # "github-id:<id>"), and the intent issue's status comment names whom the
 # latest run is attributed to. The org credential still pays for every run.
 #
-# With attribute the chart also renders four admission policies (Kubernetes
+# With attribute the chart also renders up to six admission policies (Kubernetes
 # 1.30+): only the launching controller may set the annotation on a Job
 # (investigation-controller only "org"), and every agent Job it launches must
 # carry it; only the Job controller may create a pod carrying it, for its
 # owning Job, and no update may change it; a Finding's approval, retry and
 # expedite, written by anyone but patchy's controllers and status server,
-# must name the requesting user and carry no GitHub id; and an Evaluation's
-# submitter must be its creator, unless that is the evaluation-controller.
+# must name the requesting user and carry no GitHub id; an Evaluation's
+# submitter must be its creator, unless that is the evaluation-controller; a
+# run's spec.attributedTo is admitted only from its own kind's controller; and
+# only intent-controller may record an Intent's requestedBy.userID.
 # Uses admissionPolicy.jobControllerUsernames. See
 # docs/configuration/attribution.md.
 attribution:
