@@ -7,6 +7,23 @@
 > documentation values `111122223333` and `203.0.113.10/32`. The real ones are in terraform-devthenet's `k8s/` values
 > (private).
 
+## In flight — 2026-10-16: durable per-user usage rollups (per-user credentials, L2: W3)
+
+**Who spent what now outlives the runs.** Branch `feat/usage-rollups` adds the `UsageRollup` kind (design revision 1,
+L2). Off by default; chart `attribution.mode: attribute` turns it on with L1 and trusted usage:
+
+- each of the four job controllers creates its attributed runs with the `usage-rollup` finalizer and, once a run is
+  settled with its usage final (or at once on deletion), folds it exactly once (`u:<run uid>` ledger) into the `user`
+  (`github-id:<id>` or `org`), `user-project` and `project` scopes, by UTC completion day and month, then releases it;
+- trusted figures come only from `measured`/`partial` usage; reported runs are counted apart;
+- remediation-controller compacts them hourly (day buckets past 400 days dropped; months kept, at most 120);
+- `patchy.usage.tokens` and `patchy.usage.cost` carry `user`, `project`, `kind`.
+
+See [docs/configuration/attribution.md](docs/configuration/attribution.md#usage-rollups). Not yet live. Still to come
+for L2: the dashboard Usage page and `patchy get usage` (W4). Known gaps: Finding and evaluation runs have no Project,
+so they count in user scopes only; the demo reset (Integration `spec.reset`) does not delete `UsageRollup`s; turning
+attribution off releases runs still settling unaggregated (`RollupForbidden`).
+
 ## In flight — 2026-10-16: trusted usage (per-user credentials, L2: measured usage)
 
 **A settled run records what the broker metered, not only what its pod said.** Branch `feat/broker-measured-usage` adds
@@ -19,9 +36,9 @@ while the broker deploys:
   `model.PriceTableVersion`, `source` (`measured` only when the broker booted before the Job), `final` after at most a
   2-minute wait for in-flight requests.
 
-See [docs/configuration/attribution.md](docs/configuration/attribution.md#trusted-usage). Not yet live. Still to come
-for L2: `UsageRollup` aggregation (W3), the dashboard Usage page and `patchy get usage` (W4), the controllers' OTel user
-attribute; the Intent's own `status.usage` totals and the issue's cost line still sum the pod-reported figures.
+See [docs/configuration/attribution.md](docs/configuration/attribution.md#trusted-usage). Not yet live. `UsageRollup`
+aggregation and the OTel user attribute are in flight above; the dashboard Usage page and `patchy get usage` (W4) are
+still to come; the Intent's own `status.usage` totals and the issue's cost line still sum the pod-reported figures.
 
 ## In flight — 2026-10-16: run attribution (per-user credentials, L1)
 

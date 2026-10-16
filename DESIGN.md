@@ -70,8 +70,9 @@ Go, one module, separate binaries per concern (not monolithic), all hosted in Ku
 logging, tracing, and metrics; structured logging via `log/slog`.
 
 **The source of truth is the Kubernetes API.** The `patchy.bitwisemedia.uk/v1alpha1` custom resources —
-`Integration`, `Forge`, `Finding`, `Repository`, `Investigation`, `Remediation`, `FindingRollup`, and for the
-optional flows `Evaluation`/`EvaluationUnit` and `Project`/`Intent`/`IntentRun` — carry all pipeline state; etcd is
+`Integration`, `Forge`, `Finding`, `Repository`, `Investigation`, `Remediation`, `FindingRollup`, `UsageRollup` (under
+run attribution), and for the optional flows `Evaluation`/`EvaluationUnit` and `Project`/`Intent`/`IntentRun` — carry
+all pipeline state; etcd is
 the only state store. GitHub issues are a one-way, human-facing projection: labels and
 comments are rendered from the Finding, and human actions (issue close, `/patchy` command comments, PR merge) flow back
 in as webhook signals, never by re-parsing issue state.

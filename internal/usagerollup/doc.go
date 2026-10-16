@@ -30,4 +30,9 @@
 // Rollups are read and written uncached (the API reader), so no controller
 // holds an informer, or list/watch, on UsageRollups. Compaction is the
 // rollup loop's (internal/controller/rollup).
+//
+// The chart grants the rollup writes only under attribution.mode attribute.
+// A run created while it was on that settles after it was turned off meets a
+// Forbidden write; it is then marked rolled up with ReasonRollupForbidden and
+// released unaggregated, since holding it would block its deletion for good.
 package usagerollup
