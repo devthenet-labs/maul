@@ -7,6 +7,17 @@
 > documentation values `111122223333` and `203.0.113.10/32`. The real ones are in terraform-devthenet's `k8s/` values
 > (private).
 
+## In flight — 2026-10-16: limits that fit large features (LF1: broker cost limits)
+
+**The broker can bound spend in micro-USD instead of tokens.** Branch `feature/lf1-broker-cost-limits` adds LF1 of the
+large-features limits design: `--limit-unit=cost` (chart `egressBroker.limits.unit`, default `tokens`, so nothing
+changes until switched) with `--cost-per-pod` (required) and `--cost-per-hour`, priced per model through
+`model.MeasuredCostUSD` (an unpriced model at the dearest rate), and a per-pod cap lowered by the pod's
+`patchy.bitwisemedia.uk/budget-micro-usd` annotation, read with `get pods` in the agent namespace (a Role rendered only
+under `cost`), UID-checked and cached with the verdict. Cost is audited and metered under either unit. Still to come:
+LF2 (StageLimits cost and timeout, controllers stamping the annotation, the admission pair, the hourly guard) and LF3
+(sizing docs and e2e). See [docs/configuration/egress-broker.md](docs/configuration/egress-broker.md#cost-limits).
+
 ## In flight — 2026-10-16: trusted usage (per-user credentials, L2: measured usage)
 
 **A settled run records what the broker metered, not only what its pod said.** Branch `feat/broker-measured-usage` adds

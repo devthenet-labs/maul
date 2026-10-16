@@ -55,8 +55,12 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
 - `cmd/egress-broker` — the egress credential broker (NOT a controller: no reconcilers, no leases): the reverse
   proxy all claude model traffic goes through, one route per provider (anthropic — key or `claude setup-token`
   bearer via `--anthropic-auth` — plus bedrock SigV4, vertex OAuth, foundry key/entra). Validates caller
-  tokens via TokenReview (its only Kubernetes access), strips them, injects/signs the model credential
-  outbound, streams SSE with idle keep-alive pings, audits one slog line per request. With `--usage-addr`
+  tokens via TokenReview (its only Kubernetes access but one, below), strips them, injects/signs the model credential
+  outbound, streams SSE with idle keep-alive pings, audits one slog line per request. Spend limits count tokens, or
+  with `--limit-unit=cost` (chart `egressBroker.limits.unit`; default tokens) micro-USD priced by
+  `model.MeasuredCostUSD` (an unpriced model at the dearest rate), each pod capped by the smaller of `--cost-per-pod`
+  and its `patchy.bitwisemedia.uk/budget-micro-usd` annotation (`provider.BudgetAnnotation`), read under `cost` only
+  by `get pods` in the agent namespace, UID-checked and cached with the verdict. With `--usage-addr`
   (chart: under `attribution.mode: attribute`; off by default) it also serves its per-Job, per-model usage ledger on a
   listener of its own (`GET /v1/usage/jobs/<job>`, port 8082) to the run controllers' ServiceAccounts only
   (`--usage-callers`, their own token audience, `internal/usagewire`). Engine in

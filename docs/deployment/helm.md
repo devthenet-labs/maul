@@ -541,21 +541,24 @@ repository-declared image the in-pod budget is advisory and these limits are the
 before enabling `agent.repositoryImages`; the broker's audit line reports per-pod totals to size them from. Evaluation
 Jobs run under the same per-pod limits.
 
-| Key                                            | Default | Purpose                                                                                                         |
-| ---------------------------------------------- | ------- | --------------------------------------------------------------------------------------------------------------- |
-| `egressBroker.limits.requestsPerPod`           | `0`     | Requests one agent pod may make in its lifetime; `0` is off                                                     |
-| `egressBroker.limits.concurrentPerPod`         | `0`     | In-flight requests one agent pod may hold; `0` is off                                                           |
-| `egressBroker.limits.concurrencyWait`          | `""`    | How long a request over `concurrentPerPod` waits for a slot; empty is the binary's 2s, negative refuses at once |
-| `egressBroker.limits.tokensPerPod`             | `0`     | Tokens (input, cache creation, cache read, output) one pod may consume; `0` is off                              |
-| `egressBroker.limits.tokensPerHour`            | `0`     | Broker-wide trailing-hour token ceiling; `0` is off                                                             |
-| `egressBroker.limits.maxTokensCeiling`         | `0`     | Largest `max_tokens` a request may set; `0` is off                                                              |
-| `egressBroker.limits.modelAllowlist`           | `[]`    | Model ids pods may name (the claude-haiku helper family is always admitted); empty admits every model           |
-| `egressBroker.limits.betaDenylist`             | `[]`    | `anthropic-beta` glob patterns to strip; empty keeps the built-in list, `[none]` strips nothing                 |
-| `egressBroker.limits.maxAnthropicRequestBytes` | `0`     | Largest buffered request body on the anthropic, vertex and foundry routes; `0` is the binary's 2 MiB            |
-| `egressBroker.limits.maxRequestBytes`          | `0`     | Largest request body on the payload-signing bedrock route; `0` is the binary's 10 MiB                           |
-| `egressBroker.limits.preauthRequestsPerSecond` | `0`     | Per-source-IP request rate admitted before authentication; `0` is off                                           |
-| `egressBroker.limits.preauthBurst`             | `0`     | Per-source-IP burst and in-flight cap before authentication                                                     |
-| `egressBroker.limits.tokenReviewsPerSecond`    | `0`     | Broker-wide TokenReview rate, with a short queue; `0` is off                                                    |
+| Key                                            | Default  | Purpose                                                                                                         |
+| ---------------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------- |
+| `egressBroker.limits.requestsPerPod`           | `0`      | Requests one agent pod may make in its lifetime; `0` is off                                                     |
+| `egressBroker.limits.concurrentPerPod`         | `0`      | In-flight requests one agent pod may hold; `0` is off                                                           |
+| `egressBroker.limits.concurrencyWait`          | `""`     | How long a request over `concurrentPerPod` waits for a slot; empty is the binary's 2s, negative refuses at once |
+| `egressBroker.limits.tokensPerPod`             | `0`      | Tokens (input, cache creation, cache read, output) one pod may consume; `0` is off                              |
+| `egressBroker.limits.tokensPerHour`            | `0`      | Broker-wide trailing-hour token ceiling; `0` is off                                                             |
+| `egressBroker.limits.unit`                     | `tokens` | What the spend limits count: `tokens` or `cost` (micro-USD, with a Role to read each pod's budget annotation)   |
+| `egressBroker.limits.costPerPod`               | `0`      | Micro-USD one pod may spend; required with unit `cost`, refused with `tokens`                                   |
+| `egressBroker.limits.costPerHour`              | `0`      | Broker-wide trailing-hour cost ceiling in micro-USD; unit `cost` only, `0` is off                               |
+| `egressBroker.limits.maxTokensCeiling`         | `0`      | Largest `max_tokens` a request may set; `0` is off                                                              |
+| `egressBroker.limits.modelAllowlist`           | `[]`     | Model ids pods may name (the claude-haiku helper family is always admitted); empty admits every model           |
+| `egressBroker.limits.betaDenylist`             | `[]`     | `anthropic-beta` glob patterns to strip; empty keeps the built-in list, `[none]` strips nothing                 |
+| `egressBroker.limits.maxAnthropicRequestBytes` | `0`      | Largest buffered request body on the anthropic, vertex and foundry routes; `0` is the binary's 2 MiB            |
+| `egressBroker.limits.maxRequestBytes`          | `0`      | Largest request body on the payload-signing bedrock route; `0` is the binary's 10 MiB                           |
+| `egressBroker.limits.preauthRequestsPerSecond` | `0`      | Per-source-IP request rate admitted before authentication; `0` is off                                           |
+| `egressBroker.limits.preauthBurst`             | `0`      | Per-source-IP burst and in-flight cap before authentication                                                     |
+| `egressBroker.limits.tokenReviewsPerSecond`    | `0`      | Broker-wide TokenReview rate, with a short queue; `0` is off                                                    |
 
 `egressBroker.config.extra` still wins over anything these render.
 

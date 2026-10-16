@@ -81,19 +81,22 @@ The route flags are in [Routes and credentials](#routes-and-credentials): `--ant
 
 Every limit is off at `0` (or empty), so an unconfigured broker behaves as it always has; the Helm chart sizes them.
 
-| Flag                            | Default | Purpose                                                                                                                                                                                         |
-| ------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--requests-per-pod`            | `0`     | Requests one agent pod may make in its lifetime                                                                                                                                                 |
-| `--concurrent-per-pod`          | `0`     | In-flight requests one agent pod may hold                                                                                                                                                       |
-| `--concurrency-wait`            | `2s`    | How long a request over `--concurrent-per-pod` waits for one of the pod's slots before it is refused; `0` takes the default, negative refuses at once                                           |
-| `--tokens-per-pod`              | `0`     | Tokens (input, cache creation, cache read and output) one agent pod may consume                                                                                                                 |
-| `--tokens-per-hour`             | `0`     | Broker-wide trailing-hour token ceiling across every pod                                                                                                                                        |
-| `--max-tokens-ceiling`          | `0`     | Largest `max_tokens` a request may set                                                                                                                                                          |
-| `--model-allowlist`             | empty   | Comma-separated model ids pods may name (canonical or wire form; dated variants and the `claude-haiku` helper family are admitted); empty admits every model                                    |
-| `--beta-denylist`               | empty   | Comma-separated `anthropic-beta` glob patterns to strip; empty uses the built-in list (`mcp-client-*`, `web-fetch-*`, `code-execution-*`, `files-api-*`, `context-1m-*`), `none` strips nothing |
-| `--preauth-requests-per-second` | `0`     | Per-source-IP request rate admitted before authentication                                                                                                                                       |
-| `--preauth-burst`               | `0`     | Per-source-IP burst and in-flight cap before authentication                                                                                                                                     |
-| `--token-reviews-per-second`    | `0`     | Broker-wide TokenReview rate, with a short queue                                                                                                                                                |
+| Flag                            | Default  | Purpose                                                                                                                                                                                         |
+| ------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--requests-per-pod`            | `0`      | Requests one agent pod may make in its lifetime                                                                                                                                                 |
+| `--concurrent-per-pod`          | `0`      | In-flight requests one agent pod may hold                                                                                                                                                       |
+| `--concurrency-wait`            | `2s`     | How long a request over `--concurrent-per-pod` waits for one of the pod's slots before it is refused; `0` takes the default, negative refuses at once                                           |
+| `--tokens-per-pod`              | `0`      | Tokens (input, cache creation, cache read and output) one agent pod may consume                                                                                                                 |
+| `--tokens-per-hour`             | `0`      | Broker-wide trailing-hour token ceiling across every pod                                                                                                                                        |
+| `--limit-unit`                  | `tokens` | What the spend limits count: `tokens` (the two token flags) or `cost` (the two cost flags, with the token flags kept as optional backstops); see [Cost limits](#cost-limits)                    |
+| `--cost-per-pod`                | `0`      | Micro-USD one agent pod may spend (`60000000` is $60), lowered per pod by its budget annotation; required with `--limit-unit=cost`, refused otherwise                                           |
+| `--cost-per-hour`               | `0`      | Broker-wide trailing-hour cost ceiling in micro-USD; `--limit-unit=cost` only                                                                                                                   |
+| `--max-tokens-ceiling`          | `0`      | Largest `max_tokens` a request may set                                                                                                                                                          |
+| `--model-allowlist`             | empty    | Comma-separated model ids pods may name (canonical or wire form; dated variants and the `claude-haiku` helper family are admitted); empty admits every model                                    |
+| `--beta-denylist`               | empty    | Comma-separated `anthropic-beta` glob patterns to strip; empty uses the built-in list (`mcp-client-*`, `web-fetch-*`, `code-execution-*`, `files-api-*`, `context-1m-*`), `none` strips nothing |
+| `--preauth-requests-per-second` | `0`      | Per-source-IP request rate admitted before authentication                                                                                                                                       |
+| `--preauth-burst`               | `0`      | Per-source-IP burst and in-flight cap before authentication                                                                                                                                     |
+| `--token-reviews-per-second`    | `0`      | Broker-wide TokenReview rate, with a short queue                                                                                                                                                |
 
 ## Enforcement
 
@@ -138,6 +141,34 @@ pod's running totals, so the limits can be sized from observed runs; the `patchy
 `patchy.broker.preauth.rejections` counters carry the same figures. Aggregate spend is bounded by
 `max concurrent Jobs x --tokens-per-pod x Job turnover`, and by `--tokens-per-hour` when set. Evaluation pods run under
 the same ServiceAccount and share the per-pod limits, so size them for the longest legitimate evaluation too.
+
+### Cost limits
+
+Token limits weigh every token alike, but a long-context agent's volume is mostly cache reads, which cost a tenth of an
+input token, so a token cap sized for a short run cuts a long one early. `--limit-unit=cost` (chart
+`egressBroker.limits.unit: cost`, off by default) expresses the per-pod and hourly limits in micro-USD instead:
+
+- Every charge is priced per model with the same function the run controllers price measured usage with, at the built-in
+  registry's list rates: input, cache reads, the five-minute and one-hour cache writes at their multipliers, and output.
+  A model the registry cannot price is charged at the dearest rate of each class, so an unknown id fails safe.
+  Subscription (`--anthropic-auth token`) traffic is priced the same way, notionally.
+- A request reserves its `max_tokens` (else `--max-tokens-ceiling`) at its model's output price until it settles, and a
+  response whose usage never becomes final is charged its shortfall at the output price.
+- A pod's cap is the smaller of `--cost-per-pod` and the pod's own `patchy.bitwisemedia.uk/budget-micro-usd` annotation
+  (one to sixteen digits). The broker reads it with one `get` of the caller's pod in `--agent-namespace` when it reviews
+  the token, checks the pod UID against the TokenReview, and caches it with the verdict (`--verdict-ttl`). A missing,
+  malformed or zero annotation, a gone pod or a different UID falls back to `--cost-per-pod`, never to unlimited; a read
+  the API server does not answer refuses the request with 503 and caches nothing. The annotation can only lower the cap.
+  Until the run controllers stamp it, every pod runs under `--cost-per-pod`.
+- `--tokens-per-pod` and `--tokens-per-hour` still apply when set, as absolute backstops.
+
+A refusal reads `egress broker: per-pod limit: cost per pod (N micro-USD) reached`, or
+`broker-wide hourly cost ceiling (N micro-USD) reached`, and maps to `budget_exceeded` as every other limit does. Cost
+is counted under either unit: the audit line carries `cost_micro_usd` (this request), `pod_cost_micro_usd` (the pod's
+total) and `pod_cost_limit_micro_usd` (its cap, `0` under the token unit), and `patchy.broker.cost` counts micro-USD by
+route and class (`observed`, `estimated`), so a cost limit can be sized from live runs before an install switches. The
+chart's cost unit renders a Role granting `get` on pods in the agent namespace, nothing else; setting
+`PATCHY_LIMIT_UNIT` through `config.extra` instead leaves the broker without it, and every request then fails with 503.
 
 ## The controller side
 
@@ -197,7 +228,8 @@ Invoke-class permissions only — the broker needs to call models, never to mana
 ## Hardening posture
 
 - RBAC: `create tokenreviews` is the broker's entire Kubernetes surface — no Secret API access (credential files are
-  mounted volumes), no writes, no leases.
+  mounted volumes), no writes, no leases — except under the cost limit unit, which adds `get` on pods in the agent
+  namespace (no list, no watch) for the budget annotation.
 - The Deployment runs under the restricted Pod Security posture like every other patchy component: non-root 65532,
   read-only root filesystem, no capabilities.
 - Its NetworkPolicy admits the proxy port from the agent namespace only, the usage port (when on) from the run

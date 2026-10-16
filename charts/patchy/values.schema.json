@@ -2342,6 +2342,21 @@
                             "minimum": 0,
                             "description": "Broker-wide trailing-hour token ceiling"
                         },
+                        "unit": {
+                            "type": "string",
+                            "enum": ["tokens", "cost"],
+                            "description": "What the spend limits count: tokens (tokensPerPod, tokensPerHour) or cost (costPerPod, costPerHour in micro-USD, with each pod's budget annotation read)"
+                        },
+                        "costPerPod": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "description": "Micro-USD one agent pod may spend; required with unit cost, refused with unit tokens"
+                        },
+                        "costPerHour": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "description": "Broker-wide trailing-hour cost ceiling in micro-USD; unit cost only"
+                        },
                         "maxTokensCeiling": {
                             "type": "integer",
                             "minimum": 0,

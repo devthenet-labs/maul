@@ -1187,11 +1187,25 @@ egressBroker:
         # slots (a Go duration; empty is the binary's 2s, negative refuses at
         # once).
         concurrencyWait: ""
+        # What the spend limits count: `tokens` (tokensPerPod, tokensPerHour)
+        # or `cost` (costPerPod, costPerHour, in micro-USD, priced per model
+        # from the observed tokens; an unpriced model at the dearest rate).
+        # Under `cost` the token limits stay as optional backstops and the
+        # broker reads each agent pod's patchy.bitwisemedia.uk/budget-micro-usd
+        # annotation (a Role granting get on pods in agent.namespace, rendered
+        # only then), holding the pod to the smaller of it and costPerPod. The
+        # audit line reports cost_micro_usd under either unit, to size them.
+        unit: tokens
         # Tokens (input, cache creation, cache read, output) one pod may
         # consume.
         tokensPerPod: 0
         # Broker-wide trailing-hour token ceiling.
         tokensPerHour: 0
+        # Micro-USD one pod may spend (60000000 is $60); required with unit
+        # cost, refused with unit tokens.
+        costPerPod: 0
+        # Broker-wide trailing-hour cost ceiling in micro-USD; unit cost only.
+        costPerHour: 0
         # Largest max_tokens a request may set.
         maxTokensCeiling: 0
         # Model ids pods may name (canonical or wire form; dated variants and
