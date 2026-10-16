@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -391,6 +392,42 @@ func Text(s string, max int) string {
 func SafeURL(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.Opaque != "" {
+		return ""
+	}
+	return raw
+}
+
+// previewURLPattern and previewLabel are intent-controller's: a preview
+// link is https and a lowercase host, nothing else (a trailing slash at
+// most).
+var (
+	previewURLPattern = regexp.MustCompile(`^https://([a-z0-9.-]+)/?$`)
+	previewLabel      = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$`)
+)
+
+// PreviewURL returns raw, a Preview's status.url, when the intent's preview
+// may be linked by it, else "": the rule the intent issue's status comment
+// links by (intent-controller's previewHost, pinned to this copy by
+// internal/controller/intent/intentview_pin_test.go). That is "https://" and
+// a lowercase DNS name whose first label is the intent's name, which must
+// also be the Preview's host label, followed by at least two more labels,
+// none wrong in shape and the last not all digits.
+func PreviewURL(raw, intent, hostLabel string) string {
+	m := previewURLPattern.FindStringSubmatch(raw)
+	if m == nil || hostLabel != intent {
+		return ""
+	}
+	host := m[1]
+	labels := strings.Split(host, ".")
+	if len(host) > 253 || len(labels) < 3 || labels[0] != intent {
+		return ""
+	}
+	for _, l := range labels {
+		if !previewLabel.MatchString(l) {
+			return ""
+		}
+	}
+	if strings.Trim(labels[len(labels)-1], "0123456789") == "" {
 		return ""
 	}
 	return raw
