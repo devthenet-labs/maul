@@ -69,7 +69,9 @@ type Run struct {
 }
 
 // Due reports whether run can be aggregated now: when it is being deleted,
-// at once (nothing will settle it any more); otherwise once it is settled
+// at once (nothing will settle it any more; its controller has already
+// measured what the broker metered, usagemeter.Meter.PendingDeleted);
+// otherwise once it is settled
 // and its usage final. With measuring off, or without a usage at all,
 // nothing will ever mark it final, so settled is enough.
 func Due(run Run, deleting, measuring bool) bool {

@@ -72,3 +72,46 @@ func TestRollUpUnitUsage(t *testing.T) {
 		t.Errorf("finalizers %v, conditions %+v", got.Finalizers, got.Status.Conditions)
 	}
 }
+
+// TestRollUpCancelledUnitMeasured: a unit deleted mid-run (its Evaluation
+// cancelled) is measured against the broker before it is folded in, so the
+// spend its Job already ran up reaches its submitter's trusted totals
+// instead of a zero reported run.
+func TestRollUpCancelledUnitMeasured(t *testing.T) {
+	eval := testEval(unitPlan("claude"))
+	unit := runningUnit(nil)
+	jobName := jobs.EvalNameFor(unit.Name)
+	unit.Status.JobRef = &v1alpha1.JobReference{Name: jobName}
+	unit.Status.Harness = "claude"
+	unit.Spec.AttributedTo = attribution.To("alice", 42, v1alpha1.AttributionSubmitter)
+	unit.Finalizers = usagerollup.Finalizers(unit.Spec.AttributedTo, v1alpha1.FinalizerJobs)
+	c := newClient(t, eval, unit)
+	jobCreated := clock.Add(-time.Hour)
+	runner := &fakeRunner{status: map[string]jobs.Status{jobName: {Created: jobCreated}}}
+	r := newUnitReconciler(c, runner, fakeWorkspaces{present: map[string]bool{digestA: true}})
+	broker, meter := usagemetertest.New(t, func() time.Time { return clock })
+	r.Meter = meter
+	r.Usage = usagerollup.New(c, c, "patchy", meter.On(), nil)
+	broker.Set(jobName, usagemetertest.Answer(jobName, jobCreated.Add(-time.Hour), jobCreated.Add(time.Minute), 0,
+		usagemetertest.Sonnet(0)))
+	cur := getUnit(t, c, unit.Name)
+	if err := c.Delete(t.Context(), cur); err != nil {
+		t.Fatal(err)
+	}
+	reconcileUnit(t, r, unit.Name)
+
+	if got := len(broker.Asked()); got != 1 {
+		t.Errorf("broker asked %d times, want 1", got)
+	}
+	var list v1alpha1.UsageRollupList
+	if err := c.List(t.Context(), &list, client.InNamespace("patchy")); err != nil || len(list.Items) != 1 {
+		t.Fatalf("rollups = %d, %v", len(list.Items), err)
+	}
+	var runs, reported, cost int64
+	for _, m := range list.Items[0].Status.Months {
+		runs, reported, cost = runs+m.Runs, reported+m.ReportedRuns, cost+m.CostMicroUSD
+	}
+	if runs != 1 || reported != 0 || cost != 3_000_000 {
+		t.Errorf("runs %d, reported %d, cost %d; want one measured run of $3", runs, reported, cost)
+	}
+}

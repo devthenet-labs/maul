@@ -241,9 +241,16 @@ func (r *RunReconciler) SetupWithManager(mgr ctrl.Manager) error {
 // measure settles a finished run's usage against the egress broker
 // (usagemeter): a no-op while the meter is off or once the usage is final.
 // Every intent Job runs on r.Harness. The write is over a fresh read, as
-// every write of a run's status here is.
+// every write of a run's status here is. A run deleted before it settled
+// (its Job already gone) is measured too while it owes its usage rollup, so
+// its metered spend is not lost.
 func (r *RunReconciler) measure(ctx context.Context, run *v1alpha1.IntentRun) (ctrl.Result, error) {
-	if !r.Meter.Pending(run.Status.Phase, &run.Status.Usage) {
+	deleting := !run.DeletionTimestamp.IsZero()
+	if deleting {
+		if !usagerollup.Owed(run, run.Status.Conditions) || !r.Meter.PendingDeleted(run.Status.JobRef, &run.Status.Usage) {
+			return ctrl.Result{}, nil
+		}
+	} else if !r.Meter.Pending(run.Status.Phase, &run.Status.Usage) {
 		return ctrl.Result{}, nil
 	}
 	out, wait := r.Meter.Settle(ctx, usagemeter.RunOf(ctx, r.Jobs, run.UID, run.Status.JobRef,
@@ -256,7 +263,9 @@ func (r *RunReconciler) measure(ctx context.Context, run *v1alpha1.IntentRun) (c
 		if err := r.APIReader.Get(ctx, client.ObjectKeyFromObject(run), &cur); err != nil {
 			return client.IgnoreNotFound(err)
 		}
-		if cur.Status.Usage.Final || !cur.DeletionTimestamp.IsZero() {
+		// A run whose deletion began after this pass started measuring it
+		// is left to the deletion's own measurement.
+		if cur.Status.Usage.Final || (!deleting && !cur.DeletionTimestamp.IsZero()) {
 			return nil
 		}
 		usagemeter.Apply(&cur.Status.Usage, *out)

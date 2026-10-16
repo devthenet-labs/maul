@@ -15,8 +15,12 @@
 //     is not applicable: it is never aggregated and never held.
 //   - The run is due once it is settled (Complete or Failed) and its usage
 //     is final (or the meter is off, or the run never reported a stage, so
-//     nothing will ever make it final), or at once when it is being deleted
-//     (its usage then counts as whatever it has, usually reported).
+//     nothing will ever make it final), or when it is being deleted. A
+//     run deleted before it settled (cancelled mid-flight, or in the settle
+//     window) is first measured by its controller while the meter is on and
+//     it launched a Job (usagemeter.Meter.PendingDeleted, bounded by the
+//     meter's wait), so its broker-metered spend is not lost; otherwise its
+//     usage counts as whatever it has, usually reported.
 //   - Settle folds it into the user scope (the person, or "org"), and for an
 //     intent's run into the user x project and project scopes, under each
 //     rollup's exactly-once ledger keyed u:<run uid> (stats.ApplyUsage),

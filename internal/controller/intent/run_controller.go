@@ -340,6 +340,10 @@ func (r *RunReconciler) run(ctx context.Context, req ctrl.Request) (ctrl.Result,
 		if err := r.finalize(ctx, &run); err != nil {
 			return ctrl.Result{}, err
 		}
+		res, err := r.measure(ctx, &run)
+		if err != nil || res.RequeueAfter > 0 {
+			return res, err
+		}
 		return ctrl.Result{}, r.rollUpUsage(ctx, &run)
 	}
 	switch run.Status.Phase {

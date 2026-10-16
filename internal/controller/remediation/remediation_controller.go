@@ -268,6 +268,10 @@ func (r *RemediationReconciler) run(ctx context.Context, req ctrl.Request) (ctrl
 		if err := r.finalize(ctx, &rem); err != nil {
 			return ctrl.Result{}, err
 		}
+		res, err := r.measure(ctx, &rem)
+		if err != nil || res.RequeueAfter > 0 {
+			return res, err
+		}
 		return ctrl.Result{}, r.rollUpUsage(ctx, &rem)
 	}
 	switch rem.Status.Phase {
@@ -302,9 +306,21 @@ func (r *RemediationReconciler) rollUpUsage(ctx context.Context, rem *v1alpha1.R
 // measure settles a finished remediation's usage against the egress broker
 // (usagemeter): a no-op while the meter is off or once the usage is final.
 // The harness is the one the spawner resolved and this controller launched
-// it on, never the pod's own report of it.
+// it on, never the pod's own report of it. A run deleted before it settled
+// (its Job already gone) is measured too while it owes its usage rollup, so
+// its metered spend is not lost; one that never reported a stage gets an
+// aborted stage to hold the measurement.
 func (r *RemediationReconciler) measure(ctx context.Context, rem *v1alpha1.Remediation) (ctrl.Result, error) {
-	if rem.Status.Stage == nil || !r.Meter.Pending(rem.Status.Phase, &rem.Status.Stage.Usage) {
+	var usage *v1alpha1.UsageSummary
+	if rem.Status.Stage != nil {
+		usage = &rem.Status.Stage.Usage
+	}
+	deleting := !rem.DeletionTimestamp.IsZero()
+	if deleting {
+		if !usagerollup.Owed(rem, rem.Status.Conditions) || !r.Meter.PendingDeleted(rem.Status.JobRef, usage) {
+			return ctrl.Result{}, nil
+		}
+	} else if usage == nil || !r.Meter.Pending(rem.Status.Phase, usage) {
 		return ctrl.Result{}, nil
 	}
 	out, wait := r.Meter.Settle(ctx, usagemeter.RunOf(ctx, r.Runner, rem.UID, rem.Status.JobRef,
@@ -316,6 +332,9 @@ func (r *RemediationReconciler) measure(ctx context.Context, rem *v1alpha1.Remed
 		var cur v1alpha1.Remediation
 		if err := r.Get(ctx, client.ObjectKeyFromObject(rem), &cur); err != nil {
 			return client.IgnoreNotFound(err)
+		}
+		if cur.Status.Stage == nil && deleting {
+			cur.Status.Stage = agentresult.DeletedStage(r.now())
 		}
 		if cur.Status.Stage == nil || cur.Status.Stage.Usage.Final {
 			return nil

@@ -461,7 +461,8 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   `status.stage.usage`) `measured`/`source`/`final` itself. `usagemetertest` is a fake broker for their tests.
 - `usagerollup` — durable usage (L2): each run's own controller (the four job controllers) folds its runs into
   `UsageRollup`s. A run created with `spec.attributedTo` carries the `usage-rollup` finalizer (`Finalizers`); once
-  settled with its usage final (or the meter off, or no stage), or at once when deleted, `Settle` applies it to the
+  settled with its usage final (or the meter off, or no stage), or when deleted (a run deleted unsettled is first
+  measured, bounded, while the meter is on and it launched a Job: `Meter.PendingDeleted`), `Settle` applies it to the
   user, user x project and project scopes through `stats.ApplyUsage`, marks it `UsageRolledUp` and releases the
   finalizer. A run without the finalizer is not applicable. Reads and writes go through the API reader (no informer,
   no list/watch); a `Forbidden` rollup write (the chart grants it only under `attribute`) releases the run as

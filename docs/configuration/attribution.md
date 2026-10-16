@@ -173,8 +173,11 @@ How a run is folded in, exactly once:
 
 - A run created under `attribute` carries the `patchy.bitwisemedia.uk/usage-rollup` finalizer. It is folded in once it
   is `Complete` or `Failed` and its usage is `final` (at once when measurement is off, or the run never reported a
-  stage), or at once when it is deleted. Each rollup's `status.recent` ledger records the run's UID (`u:<uid>`), so a
-  crash or a conflict between the rollup write and the run's own write never counts it twice.
+  stage), or when it is deleted. A run deleted before it settled (an evaluation cancelled, a finding deleted under its
+  remediation) is first measured against the broker when measurement is on and it had launched a Job, waiting at most as
+  long as a settled run would, so its metered spend still reaches the trusted totals. Each rollup's `status.recent`
+  ledger records the run's UID (`u:<uid>`), so a crash or a conflict between the rollup write and the run's own write
+  never counts it twice.
 - The run is then marked `UsageRolledUp` and the finalizer removed, so its deletion, by TTL or by hand, never waits on
   the rollup. A run created before the feature, or under `off`, has no finalizer and is never folded in or held.
 - remediation-controller, which hosts the FindingRollup loop, compacts the rollups hourly under `attribute`: day buckets

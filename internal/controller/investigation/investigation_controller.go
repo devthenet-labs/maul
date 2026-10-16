@@ -249,6 +249,10 @@ func (r *InvestigationReconciler) run(ctx context.Context, req ctrl.Request) (ct
 		if err := r.finalize(ctx, &inv); err != nil {
 			return ctrl.Result{}, err
 		}
+		res, err := r.measure(ctx, &inv)
+		if err != nil || res.RequeueAfter > 0 {
+			return res, err
+		}
 		return ctrl.Result{}, r.rollUpUsage(ctx, &inv)
 	}
 
@@ -275,9 +279,21 @@ func (r *InvestigationReconciler) run(ctx context.Context, req ctrl.Request) (ct
 // measure settles a finished investigation's usage against the egress
 // broker (usagemeter): a no-op while the meter is off or once the usage is
 // final. The harness is the one this controller launched it on, never the
-// pod's own report of it.
+// pod's own report of it. A run deleted before it settled (its Job already
+// gone) is measured too while it owes its usage rollup, so its metered spend
+// is not lost; one that never reported a stage gets an aborted stage to hold
+// the measurement.
 func (r *InvestigationReconciler) measure(ctx context.Context, inv *v1alpha1.Investigation) (ctrl.Result, error) {
-	if inv.Status.Stage == nil || !r.Meter.Pending(inv.Status.Phase, &inv.Status.Stage.Usage) {
+	var usage *v1alpha1.UsageSummary
+	if inv.Status.Stage != nil {
+		usage = &inv.Status.Stage.Usage
+	}
+	deleting := !inv.DeletionTimestamp.IsZero()
+	if deleting {
+		if !usagerollup.Owed(inv, inv.Status.Conditions) || !r.Meter.PendingDeleted(inv.Status.JobRef, usage) {
+			return ctrl.Result{}, nil
+		}
+	} else if usage == nil || !r.Meter.Pending(inv.Status.Phase, usage) {
 		return ctrl.Result{}, nil
 	}
 	out, wait := r.Meter.Settle(ctx, usagemeter.RunOf(ctx, r.Runner, inv.UID, inv.Status.JobRef,
@@ -289,6 +305,9 @@ func (r *InvestigationReconciler) measure(ctx context.Context, inv *v1alpha1.Inv
 		var cur v1alpha1.Investigation
 		if err := r.Get(ctx, client.ObjectKeyFromObject(inv), &cur); err != nil {
 			return client.IgnoreNotFound(err)
+		}
+		if cur.Status.Stage == nil && deleting {
+			cur.Status.Stage = agentresult.DeletedStage(r.now())
 		}
 		if cur.Status.Stage == nil || cur.Status.Stage.Usage.Final {
 			return nil
