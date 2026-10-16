@@ -22,6 +22,12 @@ type Identity struct {
 	// Session reports whether the identity is backed by a sign-in session
 	// (the UI renders the user menu and sign-out only for sessions).
 	Session bool
+	// GitHubID is the person's numeric GitHub account id, set only when the
+	// verified ID token's Dex federated_claims name the configured GitHub
+	// connector (ClaimsConfig.GitHubConnector) and a numeric user_id; 0
+	// otherwise. It is the identity the usage views key a person by: a login
+	// can be renamed and reused, the id cannot.
+	GitHubID int64
 }
 
 // Display returns the name the UI should render.

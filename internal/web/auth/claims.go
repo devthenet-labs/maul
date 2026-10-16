@@ -5,6 +5,7 @@ package auth
 
 import (
 	"fmt"
+	"strconv"
 )
 
 // MapClaims derives the identity from verified ID-token claims using the
@@ -48,7 +49,33 @@ func mapClaims(claims map[string]any, cfg ClaimsConfig) (*Identity, error) {
 			id.Groups = []string{cfg.GroupsPrefix + groups}
 		}
 	}
+	id.GitHubID = githubID(claims["federated_claims"], cfg.GitHubConnector)
 	return id, nil
+}
+
+// githubID reads Dex's federated_claims ({"connector_id", "user_id"}, sent
+// when the federated:id scope is requested): the upstream user id when the
+// connector is the configured GitHub one and the id is a positive decimal
+// int64 without a sign or leading zeros, else 0. Any other connector (LDAP,
+// another OIDC provider) names someone patchy cannot tie to a GitHub
+// account, and an empty connector setting matches nothing.
+func githubID(v any, connector string) int64 {
+	fc, ok := v.(map[string]any)
+	if !ok || connector == "" {
+		return 0
+	}
+	if c, _ := fc["connector_id"].(string); c != connector {
+		return 0
+	}
+	raw, _ := fc["user_id"].(string)
+	if raw == "" || raw[0] < '1' || raw[0] > '9' || len(raw) > 19 {
+		return 0
+	}
+	id, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || id < 1 {
+		return 0
+	}
+	return id
 }
 
 // emailVerified reads an email_verified claim. OIDC Core makes it a JSON
