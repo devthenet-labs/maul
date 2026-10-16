@@ -36,6 +36,7 @@ import (
 	"github.com/bitwise-media-group/patchy/internal/templates"
 	"github.com/bitwise-media-group/patchy/internal/transcriptstore"
 	"github.com/bitwise-media-group/patchy/internal/usagemeter"
+	"github.com/bitwise-media-group/patchy/internal/usagerollup"
 )
 
 // InvestigationPhaseIndex indexes Investigations by status.phase for the
@@ -99,6 +100,9 @@ type InvestigationReconciler struct {
 	// Meter settles a finished run's usage against the egress broker
 	// (--usage-measurement); nil, the default, records nothing.
 	Meter *usagemeter.Meter
+	// Usage folds a settled run that carries the usage finalizer into its
+	// UsageRollups and releases the finalizer; nil settles nothing.
+	Usage *usagerollup.Aggregator
 	// Now is the clock seam; nil means time.Now.
 	Now func() time.Time
 	// calibrationTimeout is the deadline seam for the advisory rollup read;
@@ -242,7 +246,10 @@ func (r *InvestigationReconciler) run(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	if !inv.DeletionTimestamp.IsZero() {
-		return ctrl.Result{}, r.finalize(ctx, &inv)
+		if err := r.finalize(ctx, &inv); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, r.rollUpUsage(ctx, &inv)
 	}
 
 	switch inv.Status.Phase {
@@ -255,7 +262,11 @@ func (r *InvestigationReconciler) run(ctx context.Context, req ctrl.Request) (ct
 		}
 		return r.collect(ctx, &inv)
 	case v1alpha1.RunComplete, v1alpha1.RunFailed:
-		return r.measure(ctx, &inv)
+		res, err := r.measure(ctx, &inv)
+		if err != nil || res.RequeueAfter > 0 {
+			return res, err
+		}
+		return res, r.rollUpUsage(ctx, &inv)
 	default:
 		return ctrl.Result{}, nil // Pending waits for a grant
 	}
@@ -285,6 +296,15 @@ func (r *InvestigationReconciler) measure(ctx context.Context, inv *v1alpha1.Inv
 		usagemeter.Apply(&cur.Status.Stage.Usage, *out)
 		return r.Status().Update(ctx, &cur)
 	})
+}
+
+// rollUpUsage folds a run that owes its usage into its UsageRollups once it
+// is due (usagerollup); a run without the usage finalizer costs nothing.
+func (r *InvestigationReconciler) rollUpUsage(ctx context.Context, inv *v1alpha1.Investigation) error {
+	if r.Usage == nil || !usagerollup.Owed(inv, inv.Status.Conditions) {
+		return nil
+	}
+	return usagerollup.Settle(ctx, r.Usage, client.ObjectKeyFromObject(inv), usagerollup.Investigations)
 }
 
 // launch creates the agent Job for a granted investigation.

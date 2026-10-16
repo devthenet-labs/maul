@@ -26,6 +26,7 @@ import (
 	"github.com/bitwise-media-group/patchy/internal/jobs"
 	"github.com/bitwise-media-group/patchy/internal/runnerguard"
 	"github.com/bitwise-media-group/patchy/internal/usagemeter"
+	"github.com/bitwise-media-group/patchy/internal/usagerollup"
 )
 
 // updateRun writes the run's status as mutate leaves it, over the version in
@@ -261,4 +262,13 @@ func (r *RunReconciler) measure(ctx context.Context, run *v1alpha1.IntentRun) (c
 		usagemeter.Apply(&cur.Status.Usage, *out)
 		return r.Status().Update(ctx, &cur)
 	})
+}
+
+// rollUpUsage folds a run that owes its usage into its UsageRollups once it
+// is due (usagerollup); a run without the usage finalizer costs nothing.
+func (r *RunReconciler) rollUpUsage(ctx context.Context, run *v1alpha1.IntentRun) error {
+	if r.Usage == nil || !usagerollup.Owed(run, run.Status.Conditions) {
+		return nil
+	}
+	return usagerollup.Settle(ctx, r.Usage, client.ObjectKeyFromObject(run), usagerollup.IntentRuns(r.APIReader))
 }

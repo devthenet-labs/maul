@@ -29,6 +29,7 @@ import (
 	"github.com/bitwise-media-group/patchy/internal/runnerguard"
 	"github.com/bitwise-media-group/patchy/internal/telemetry"
 	"github.com/bitwise-media-group/patchy/internal/usagemeter"
+	"github.com/bitwise-media-group/patchy/internal/usagerollup"
 	"github.com/bitwise-media-group/patchy/internal/version"
 )
 
@@ -414,7 +415,8 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		Paused:    opts.Bool(runnercfg.AgentsPausedFlag),
 		PlanModel: opts.String("intent-plan-model"), BuildModel: opts.String("intent-build-model"),
 		Images: images, Classes: sizes.classes, MaxChangesetEntries: opts.Int("changeset-max-entries"),
-		Meter: meter, Log: log,
+		Meter: meter, Usage: usagerollup.New(mgr.GetClient(), mgr.GetAPIReader(), set.Namespace, meter.On(), log),
+		Log: log,
 	}).SetupWithManager(mgr); err != nil {
 		return err
 	}

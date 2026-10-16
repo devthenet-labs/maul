@@ -27,6 +27,7 @@ import (
 	"github.com/bitwise-media-group/patchy/internal/attribution"
 	"github.com/bitwise-media-group/patchy/internal/forge"
 	"github.com/bitwise-media-group/patchy/internal/runnerguard"
+	"github.com/bitwise-media-group/patchy/internal/usagerollup"
 )
 
 // FindingPhaseIndex is the field index over status.phase, registered by the
@@ -235,6 +236,7 @@ func (r *GateReconciler) openInvestigation(
 ) error {
 	attempt := fnd.Status.Attempts.Investigation + 1
 	name := fmt.Sprintf("%s-inv-%d", fnd.Name, attempt)
+	attributedTo := r.Attribution.Stamp(attribution.Org())
 	inv := &v1alpha1.Investigation{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -247,13 +249,13 @@ func (r *GateReconciler) openInvestigation(
 			Annotations: map[string]string{
 				v1alpha1.AnnotationRepo: fnd.Spec.Repository.Name,
 			},
-			Finalizers: []string{
+			Finalizers: usagerollup.Finalizers(attributedTo,
 				v1alpha1.FinalizerJobs,
 				v1alpha1.FinalizerRollupTotal,
 				v1alpha1.FinalizerRollupRepository,
 				v1alpha1.FinalizerRollupHarness,
 				v1alpha1.FinalizerRollupModel,
-			},
+			),
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(fnd, v1alpha1.GroupVersion.WithKind("Finding")),
 			},
@@ -265,7 +267,7 @@ func (r *GateReconciler) openInvestigation(
 			Parameters:    r.Parameters,
 			// What the attempt this one retries failed with.
 			PreviousAttempt: prev,
-			AttributedTo:    r.Attribution.Stamp(attribution.Org()),
+			AttributedTo:    attributedTo,
 		},
 	}
 	if err := r.Create(ctx, inv); err != nil && !kerrors.IsAlreadyExists(err) {

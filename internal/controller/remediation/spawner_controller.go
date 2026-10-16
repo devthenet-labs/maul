@@ -25,6 +25,7 @@ import (
 	"github.com/bitwise-media-group/patchy/internal/model"
 	"github.com/bitwise-media-group/patchy/internal/priority"
 	"github.com/bitwise-media-group/patchy/internal/runnerguard"
+	"github.com/bitwise-media-group/patchy/internal/usagerollup"
 )
 
 // SpawnerReconciler is the queue-admission writer: it turns approvals and
@@ -292,6 +293,7 @@ func (r *SpawnerReconciler) spawn(ctx context.Context, fnd *v1alpha1.Finding) er
 	}
 
 	score := priority.Score(fnd.Spec.Severity, inv.Exploitability, inv.Likelihood, inv.Impact, r.Weights)
+	attributedTo := r.Attribution.Stamp(Attribute(fnd))
 	rem := &v1alpha1.Remediation{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -303,13 +305,13 @@ func (r *SpawnerReconciler) spawn(ctx context.Context, fnd *v1alpha1.Finding) er
 			Annotations: map[string]string{
 				v1alpha1.AnnotationRepo: fnd.Spec.Repository.Name,
 			},
-			Finalizers: []string{
+			Finalizers: usagerollup.Finalizers(attributedTo,
 				v1alpha1.FinalizerJobs,
 				v1alpha1.FinalizerRollupTotal,
 				v1alpha1.FinalizerRollupRepository,
 				v1alpha1.FinalizerRollupHarness,
 				v1alpha1.FinalizerRollupModel,
-			},
+			),
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(fnd, v1alpha1.GroupVersion.WithKind("Finding")),
 			},
@@ -324,7 +326,7 @@ func (r *SpawnerReconciler) spawn(ctx context.Context, fnd *v1alpha1.Finding) er
 			ApprovedBy:       approvedBy(fnd),
 			Revival:          fnd.Spec.Approval != nil && attempt > 1,
 			PreviousAttempt:  prev,
-			AttributedTo:     r.Attribution.Stamp(Attribute(fnd)),
+			AttributedTo:     attributedTo,
 		},
 	}
 	if err := r.Create(ctx, rem); err != nil && !kerrors.IsAlreadyExists(err) {

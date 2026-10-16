@@ -5,6 +5,7 @@ package remediation
 
 import (
 	"reflect"
+	"slices"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -57,6 +58,10 @@ func TestSpawnerAttribution(t *testing.T) {
 			}
 			if !reflect.DeepEqual(rem.Spec.AttributedTo, tc.want) {
 				t.Errorf("attributedTo = %+v, want %+v", rem.Spec.AttributedTo, tc.want)
+			}
+			// The usage finalizer rides with the stamp.
+			if got := slices.Contains(rem.Finalizers, v1alpha1.FinalizerUsageRollup); got != (tc.want != nil) {
+				t.Errorf("usage finalizer = %v, want %v (finalizers %v)", got, tc.want != nil, rem.Finalizers)
 			}
 		})
 	}

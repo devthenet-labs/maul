@@ -349,7 +349,7 @@ func newInvestigation(
 	c := fake.NewClientBuilder().
 		WithScheme(kube.Scheme()).
 		WithObjects(objs...).
-		WithStatusSubresource(&v1alpha1.Finding{}, &v1alpha1.Investigation{}).
+		WithStatusSubresource(&v1alpha1.Finding{}, &v1alpha1.Investigation{}, &v1alpha1.UsageRollup{}).
 		Build()
 	return &InvestigationReconciler{
 		Client:              c,

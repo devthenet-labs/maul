@@ -19,6 +19,7 @@ import (
 
 	"github.com/bitwise-media-group/patchy/api/v1alpha1"
 	"github.com/bitwise-media-group/patchy/internal/attribution"
+	"github.com/bitwise-media-group/patchy/internal/usagerollup"
 )
 
 // UnitName is the deterministic child name for one unit index.
@@ -101,6 +102,7 @@ func (r *GateReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 func (r *GateReconciler) ensureUnit(ctx context.Context, eval *v1alpha1.Evaluation, index int) error {
 	plan := eval.Spec.Units[index]
 	name := UnitName(eval.Name, index)
+	attributedTo := r.Attribution.Stamp(Attribute(eval))
 	unit := &v1alpha1.EvaluationUnit{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -109,7 +111,7 @@ func (r *GateReconciler) ensureUnit(ctx context.Context, eval *v1alpha1.Evaluati
 				v1alpha1.LabelEvaluation: eval.Name,
 				v1alpha1.LabelUnitIndex:  fmt.Sprintf("%d", index),
 			},
-			Finalizers: []string{v1alpha1.FinalizerJobs},
+			Finalizers: usagerollup.Finalizers(attributedTo, v1alpha1.FinalizerJobs),
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(eval, v1alpha1.GroupVersion.WithKind("Evaluation")),
 			},
@@ -118,7 +120,7 @@ func (r *GateReconciler) ensureUnit(ctx context.Context, eval *v1alpha1.Evaluati
 			EvaluationRef: v1alpha1.ObjectReference{Name: eval.Name, UID: eval.UID},
 			Index:         int32(index),
 			Unit:          plan,
-			AttributedTo:  r.Attribution.Stamp(Attribute(eval)),
+			AttributedTo:  attributedTo,
 		},
 	}
 	if err := r.Create(ctx, unit); err != nil && !kerrors.IsAlreadyExists(err) {

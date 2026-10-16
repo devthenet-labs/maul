@@ -27,6 +27,7 @@ import (
 	"github.com/bitwise-media-group/patchy/internal/runnerguard"
 	"github.com/bitwise-media-group/patchy/internal/schedule"
 	"github.com/bitwise-media-group/patchy/internal/telemetry"
+	"github.com/bitwise-media-group/patchy/internal/usagerollup"
 	"github.com/bitwise-media-group/patchy/internal/version"
 )
 
@@ -269,6 +270,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		MaxChangesetEntries: opts.Int("changeset-max-entries"),
 		Attribution:         attributionMode,
 		Meter:               meter,
+		Usage:               usagerollup.New(mgr.GetClient(), mgr.GetAPIReader(), namespace, meter.On(), log),
 		Log:                 log,
 	}
 	if err := rem.SetupWithManager(mgr); err != nil {

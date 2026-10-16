@@ -35,6 +35,7 @@ import (
 	"github.com/bitwise-media-group/patchy/internal/templates"
 	"github.com/bitwise-media-group/patchy/internal/transcriptstore"
 	"github.com/bitwise-media-group/patchy/internal/usagemeter"
+	"github.com/bitwise-media-group/patchy/internal/usagerollup"
 )
 
 // remSchedulerRequest is the singleton request every watch event maps to.
@@ -104,6 +105,9 @@ type RemediationReconciler struct {
 	// Meter settles a finished run's usage against the egress broker
 	// (--usage-measurement); nil, the default, records nothing.
 	Meter *usagemeter.Meter
+	// Usage folds a settled run that carries the usage finalizer into its
+	// UsageRollups and releases the finalizer; nil settles nothing.
+	Usage *usagerollup.Aggregator
 	// Now is the clock seam; nil means time.Now.
 	Now func() time.Time
 	// Log receives diagnostics; nil discards.
@@ -261,7 +265,10 @@ func (r *RemediationReconciler) run(ctx context.Context, req ctrl.Request) (ctrl
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	if !rem.DeletionTimestamp.IsZero() {
-		return ctrl.Result{}, r.finalize(ctx, &rem)
+		if err := r.finalize(ctx, &rem); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, r.rollUpUsage(ctx, &rem)
 	}
 	switch rem.Status.Phase {
 	case v1alpha1.RunRunning:
@@ -273,10 +280,23 @@ func (r *RemediationReconciler) run(ctx context.Context, req ctrl.Request) (ctrl
 		}
 		return r.collect(ctx, &rem)
 	case v1alpha1.RunComplete, v1alpha1.RunFailed:
-		return r.measure(ctx, &rem)
+		res, err := r.measure(ctx, &rem)
+		if err != nil || res.RequeueAfter > 0 {
+			return res, err
+		}
+		return res, r.rollUpUsage(ctx, &rem)
 	default:
 		return ctrl.Result{}, nil
 	}
+}
+
+// rollUpUsage folds a run that owes its usage into its UsageRollups once it
+// is due (usagerollup); a run without the usage finalizer costs nothing.
+func (r *RemediationReconciler) rollUpUsage(ctx context.Context, rem *v1alpha1.Remediation) error {
+	if r.Usage == nil || !usagerollup.Owed(rem, rem.Status.Conditions) {
+		return nil
+	}
+	return usagerollup.Settle(ctx, r.Usage, client.ObjectKeyFromObject(rem), usagerollup.Remediations)
 }
 
 // measure settles a finished remediation's usage against the egress broker
