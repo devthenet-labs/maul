@@ -167,6 +167,10 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	state := q.Get("state")
+	if s.gw != nil && s.gw.sharedHost && previewauth.TokenKind(state) == previewauth.KindGatewayLogin {
+		s.gw.finishLogin(w, r, q)
+		return
+	}
 	st, err := s.cfg.Ring.OpenLogin(state, s.now())
 	if err != nil {
 		login("expired", http.StatusBadRequest, pageSignInExpired)

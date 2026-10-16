@@ -34,7 +34,11 @@ var (
 	ledgerCounter   = counter("patchy.preview_auth.ledger", "code ledger results: ok, replay, conflict, full, error")
 	upstreamCounter = counter("patchy.preview_auth.upstream_login", "Dex sign-ins by result")
 	limitedCounter  = counter("patchy.preview_auth.rate_limited", "requests refused by the per-address rate limit")
-	durationHist    = sync.OnceValue(func() metric.Float64Histogram {
+	gatewayCounter  = counter("patchy.preview_auth.gateway",
+		"preview gateway requests by result: proxied, sign_in, unauthenticated, session, denied, cross_origin, ...")
+	streamsClosedCounter = counter("patchy.preview_auth.gateway.streams_closed",
+		"proxied streams and connections closed early, by reason: preview_changed, revoked")
+	durationHist = sync.OnceValue(func() metric.Float64Histogram {
 		h, err := otel.Meter(scopeName).Float64Histogram("patchy.preview_auth.request.duration",
 			metric.WithDescription("relay request latency by endpoint"), metric.WithUnit("s"))
 		if err != nil {
