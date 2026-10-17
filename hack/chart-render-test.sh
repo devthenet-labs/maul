@@ -1062,6 +1062,32 @@ notes_has notes-pa-require "Every preview Ingress requires sign-in" yes
 notes notes-pa-noviewers -f "$pf" -f "$pav" --set-json 'previewAuth.viewers={"teams":[],"users":[]}'
 notes_has notes-pa-noviewers "NO VIEWERS" yes
 notes_has notes-preview-off "Preview sign-in" no
+# Without the preview ALB (legacyIngress false, albName unset) nothing carries
+# the ALB's sign-in annotations, so the stage is inert: the NOTES stage
+# nothing and speak of the relay's edge, and require needs no permit stage
+# first. With the ALB still rendered (albName set) the require stage is
+# gated exactly as before.
+notes_has notes-pa-permit "Preview sign-in: stage permit, key generation 1" yes
+notes_has notes-pa-permit "on the edge ALB" yes
+notes notes-pa-noalb -f "$pf" -f "$pav" -f "$noalb"
+notes_has notes-pa-noalb "Preview sign-in: key generation 1." yes
+notes_has notes-pa-noalb "Nothing to stage: without the preview ALB, previewAuth.stage has no" yes
+notes_has notes-pa-noalb "nothing serves the preview hosts until previewAuth.gateway is on" yes
+notes_has notes-pa-noalb "upgrade again with previewAuth.stage=require" no
+notes_has notes-pa-noalb "on the edge ALB" no
+notes_has notes-pa-noalb "Only viewers' browsers call it: there is no preview ALB." yes
+notes notes-pa-noalb-gateway -f "$pf" -f "$pav" -f "$noalb" -f "$fixtures/preview-gateway.yaml"
+notes_has notes-pa-noalb-gateway "effect and the preview gateway signs every viewer in." yes
+# shellcheck disable=SC2086
+render pa-noalb-require $pafull -f "$noalb" --set previewAuth.stage=require
+cm pa-noalb-require preview-controller PATCHY_PREVIEW_AUTH_REQUIRED true
+# shellcheck disable=SC2086
+notes notes-pa-noalb-require $pafull -f "$noalb" --set previewAuth.stage=require
+notes_has notes-pa-noalb-require "Nothing to stage" yes
+notes_has notes-pa-noalb-require "Every preview Ingress requires sign-in" no
+# shellcheck disable=SC2086
+expect_fail 'require before the permit stage, the ALB still rendered' 'does not admit key generation 1 yet' \
+  $pafull --set preview.legacyIngress=false --set previewAuth.stage=require
 # Guards.
 expect_fail 'sign-in without preview slots' 'previewAuth.enabled requires preview.enabled' -f "$pav"
 expect_fail 'sign-in without a host' 'previewAuth.host is required' -f "$pf" -f "$pav" --set previewAuth.host=
@@ -1312,6 +1338,7 @@ expect pg-none 'select(.kind == "ConfigMap" and .metadata.name == "patchy-previe
 expect pg 'select(.kind == "ConfigMap" and .metadata.name == "patchy-preview-auth-config") | .metadata.annotations."patchy.bitwisemedia.uk/preview-gateway-published-addresses"' null
 notes notes-pg-none -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.ingress.enabled=false --set previewAuth.gateway.forwardedHops=null
 notes_has notes-pg-none "none rendered. Route *.preview.patchy.devthe.net to" yes
+notes_has notes-pg-none "port 80 yourself (a tunnel, your own Ingress), terminating TLS there" yes
 # publishedAddresses is never routed by, and patchy check project compares DNS
 # with it (cmd/patchy/internal/projectcheck/gateway.go reads the annotation),
 # so no doc may still say nothing reads it.
@@ -1380,6 +1407,12 @@ expect pg 'select(.kind == "Service" and .metadata.name == "patchy-preview-gatew
 expect pg-tls 'select(.kind == "NetworkPolicy" and .metadata.name == "patchy-preview-auth") | .spec.ingress[0].ports | map(.port | tostring) | join(",")' '8080,8082,8443'
 render pg-tls-none -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.ingress.enabled=false --set-json "$pgtls"
 cm pg-tls-none preview-auth PATCHY_PREVIEW_AUTH_GATEWAY_TLS_DIR /etc/patchy/preview-gateway/tls
+# With the gateway's own TLS and no exposure (a tunnel or a tailnet device
+# passing TLS through), the edge routes to 443 and terminates nothing.
+notes notes-pg-none-tls -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.ingress.enabled=false \
+  --set previewAuth.gateway.forwardedHops=null --set-json "$pgtls"
+notes_has notes-pg-none-tls "port 443 yourself (a tunnel or a tailnet device passing" yes
+notes_has notes-pg-none-tls "terminating TLS there" no
 expect_fail 'gateway TLS with an Ingress' 'previewAuth.gateway.tls.secrets is refused with the ingress exposure' \
   -f "$pf" -f "$pav" -f "$pgw" --set-json "$pgtls"
 expect_fail 'gateway TLS with an HTTPRoute' 'previewAuth.gateway.tls.secrets is refused with the httpRoute exposure' \

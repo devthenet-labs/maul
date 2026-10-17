@@ -25,7 +25,9 @@ Fields:
                      annotations (every value a string)
   clientSecrets      managedKeys only: generation -> slot -> client secret
   applyGen           require only: the generation the controller and the
-                     placeholder put on slot Ingresses
+                     placeholder put on slot Ingresses (without the preview
+                     ALB, which carries no set, the current generation: the
+                     stage is inert there and needs no permit stage first)
   otherGen           require only: the other admitted generation, or 0
   sessionTimeout     the auth-session-timeout the pinned sets carry (below)
   timeoutCeiling     the longest auth-session-timeout the slot Ingress
@@ -220,6 +222,13 @@ internal/previewauth reproduces (a Go test renders the chart and compares).
 {{- else if and (gt $prevGen 0) (or (has (printf "g%d" $prevGen) $live) (eq $confirmed $prevGen)) -}}
 {{- $applyGen = $prevGen -}}
 {{- $otherGen = $gen -}}
+{{- else if not (include "patchy.previewALB" .) -}}
+{{- /* No preview ALB (preview.legacyIngress false and albName unset): no
+       placeholder and no slot Ingress will carry a set, so there is nothing
+       for the permit stage to stage. The stage is inert here: require
+       applies the current generation in one upgrade. */ -}}
+{{- $applyGen = $gen -}}
+{{- $otherGen = $prevGen -}}
 {{- else -}}
 {{- fail (printf "previewAuth.stage require: the live slot Ingress policy patchy-preview-ingresses does not admit key generation %d yet (it admits %q). Upgrade once with previewAuth.stage=permit first; a render without a cluster (helm template, GitOps) sets previewAuth.permitConfirmedGeneration=%d once that permit stage is live" $gen (join "," $live) $gen) -}}
 {{- end -}}

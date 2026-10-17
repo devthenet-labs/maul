@@ -84,8 +84,10 @@ With it on:
 between them, exist for the preview ALB: Helm applies a slot Ingress before the admission policies that judge its
 sign-in annotations. With `preview.legacyIngress: false` from the start no slot Ingress is ever rendered, so leave
 `stage` at its default and turn everything above on in one upgrade. What `require` adds there (the ALB's annotation sets
-in preview-controller's configuration, and a kept admission policy for slot Ingresses) has nothing to act on. An install
-that already reached `require` on the ALB path keeps it while it moves: stepping back to `permit` is the
+in preview-controller's configuration, and a kept admission policy for slot Ingresses) has nothing to act on, so the
+chart treats the stage as inert while no preview ALB renders (`preview.albName` unset too): `require` there also takes
+one upgrade, with no permit stage first, and the install NOTES stage nothing. An install that already reached `require`
+on the ALB path keeps it while it moves: stepping back to `permit` is the
 [rollback runbook](../intents/preview-sign-in.md#rolling-back), not a cleanup.
 
 `preview.nodeIsolation.mode: none` is an explicit opt-out for a cluster with no dedicated preview nodes. Preview code

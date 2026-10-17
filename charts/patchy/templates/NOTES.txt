@@ -187,8 +187,12 @@ they are removed.
 {{- $pas := include "patchy.previewAuthState" . | fromJson }}
 {{- if $pas.enabled }}
 {{- $pa := .Values.previewAuth }}
+{{- /* Without the preview ALB (preview.legacyIngress false, albName unset)
+       nothing carries the ALB's sign-in annotations: the stage is inert and
+       the steps speak of the relay's and the gateway's edge instead. */}}
+{{- $paALB := include "patchy.previewALB" . }}
 
-Preview sign-in: stage {{ $pas.stage }}, key generation {{ int $pas.gen }}{{ if gt (int $pas.prevGen) 0 }} (generation {{ int $pas.prevGen }} still admitted){{ end }}.
+Preview sign-in: {{ if $paALB }}stage {{ $pas.stage }}, {{ end }}key generation {{ int $pas.gen }}{{ if gt (int $pas.prevGen) 0 }} (generation {{ int $pas.prevGen }} still admitted){{ end }}.
 
   1. Dex, the one per-install IdP setup: a static client {{ $pa.dex.clientID }}
      at {{ $pa.dex.issuerURL }} whose ONLY redirect URI is
@@ -196,16 +200,28 @@ Preview sign-in: stage {{ $pas.stage }}, key generation {{ int $pas.gen }}{{ if 
        {{ $pas.issuer }}/dex/callback
 
      with its secret under key {{ $pa.dex.clientSecretKey | default "clientSecret" }} of Secret {{ $pa.dex.existingSecret }} ({{ .Release.Namespace }}).
+{{- if $paALB }}
 
   2. {{ $pa.host }} on the edge ALB: a DNS record to it, and its certificate
      covering the name. The edge ALB must stay reachable from the internet:
      the preview ALB calls {{ $pas.issuer }}/token from dynamic addresses.
+{{- else }}
+
+  2. {{ $pa.host }} at its edge (the relay's Ingress, previewAuth.ingress, or
+     the preview gateway's): a DNS record to it, and its certificate covering
+     the name. Only viewers' browsers call it: there is no preview ALB.
+{{- end }}
 {{- if not (or $pa.viewers.teams $pa.viewers.users) }}
 
   NO VIEWERS: previewAuth.viewers is empty, so every sign-in is refused until
   someone is bound to ClusterRole {{ include "patchy.fullname" . }}-preview-viewer.
 {{- end }}
-{{- if eq $pas.stage "permit" }}
+{{- if not $paALB }}
+
+  3. Nothing to stage: without the preview ALB, previewAuth.stage has no
+     effect{{ if (include "patchy.previewGateway" . | fromJson).enabled }} and the preview gateway signs every viewer in{{ else }}, and
+     nothing serves the preview hosts until previewAuth.gateway is on{{ end }}.
+{{- else if eq $pas.stage "permit" }}
 
   3. Nothing requires sign-in yet: the slot Ingress policy now admits
      generation {{ int $pas.gen }}'s sign-in annotations. Once this revision is live,
@@ -221,7 +237,7 @@ Preview sign-in: stage {{ $pas.stage }}, key generation {{ int $pas.gen }}{{ if 
      kept on rollback). Before a rollback, read the preview sign-in runbook:
      the kept policy refuses an Ingress that drops sign-in.
 {{- end }}
-{{- if and (eq $pas.stage "require") (ne (int $pas.sessionTimeout) (int $pa.sessionTimeout)) }}
+{{- if and $paALB (eq $pas.stage "require") (ne (int $pas.sessionTimeout) (int $pa.sessionTimeout)) }}
 
   SESSION TIMEOUT CHANGE IN PROGRESS: the slot Ingress policies now admit an
   auth-session-timeout of up to {{ int $pas.timeoutCeiling }} seconds, but slot Ingresses still
@@ -246,6 +262,9 @@ https://<label>.{{ .Values.preview.hostSuffix }} is proxied to its slot by Servi
 
        kubectl get service {{ $gwName }} -n {{ .Release.Namespace }} \
          -o jsonpath='{.status.loadBalancer.ingress[0]}'
+{{- else if $gw.tls }}none rendered. Route *.{{ .Values.preview.hostSuffix }}{{ if $gw.routeSignIn }} and {{ $gw.signInHost }}{{ end }} to
+     Service {{ $gwName }} port 443 yourself (a tunnel or a tailnet device passing
+     TLS through): the gateway terminates TLS with previewAuth.gateway.tls.secrets.
 {{- else }}none rendered. Route *.{{ .Values.preview.hostSuffix }}{{ if $gw.routeSignIn }} and {{ $gw.signInHost }}{{ end }} to
      Service {{ $gwName }} port 80 yourself (a tunnel, your own Ingress), terminating TLS there.
 {{- end }}
