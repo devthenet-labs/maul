@@ -13,3 +13,4 @@ internal/jobs/testdata/**
 internal/controller/preview/testdata/**
 cmd/patchy/internal/scaffold/testdata/**
 hack/testdata/chart-render/golden/**
+cmd/patchy/internal/previewsetup/testdata/**

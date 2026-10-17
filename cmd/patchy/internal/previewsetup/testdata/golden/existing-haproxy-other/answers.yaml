@@ -1,0 +1,25 @@
+# The answers `patchy setup previews` last rendered this directory from. A re-run starts
+# from them; flags given then override them. No secret is ever recorded here.
+apiServerCIDR: auto
+cliVersion: v0.12.40
+dex:
+  clientID: patchy-preview-auth
+  issuer: https://dex.patchy.acme.dev
+  namespace: dex
+edge: existing
+existing:
+  ingressClass: haproxy
+hostSuffix: acme-previews.dev
+imagePathPrefix: acme/patchy/previews
+namespace: patchy-system
+noViewers: true
+nodeIsolation:
+  label: patchy.bitwisemedia.uk/previews
+  labelValue: "true"
+  mode: none
+  taintKey: patchy.bitwisemedia.uk/preview-only
+platform: other
+registry: ghcr.io
+release: previews
+signInHost: preview-auth.patchy.acme.dev
+viewers: {}

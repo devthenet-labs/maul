@@ -1,0 +1,220 @@
+// Copyright 2026 Bitwise Media Group Ltd.
+// SPDX-License-Identifier: MIT
+
+package previewsetup
+
+import (
+	"bytes"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
+	"testing"
+
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
+	"sigs.k8s.io/yaml"
+)
+
+const (
+	chartDir      = "../../../../charts/patchy"
+	renderFixture = "../../../../hack/testdata/chart-render/intent-controller.yaml"
+	// offlineAPIServer stands in for apiServerCIDR auto, whose lookup needs
+	// a cluster: what a GitOps render sets instead.
+	offlineAPIServer = "10.43.0.1/32"
+)
+
+// renderValues renders the chart with a's generated values layered over a
+// minimal install (intent-controller on), as NEXT-STEPS.md's helm upgrade
+// does, and returns the objects.
+func renderValues(t *testing.T, a Answers, files []File) []*unstructured.Unstructured {
+	t.Helper()
+	values := filepath.Join(t.TempDir(), ValuesFile)
+	if err := os.WriteFile(values, []byte(byPath(files)[ValuesFile]), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	args := []string{"template", a.Release, chartDir, "-n", a.Namespace, "-f", renderFixture, "-f", values,
+		"--set", "previewAuth.keys.renderOffline=true"}
+	if a.APIServerCIDR == DefaultAPIServerCIDR {
+		args = append(args, "--set", "previewController.config.apiServerCIDR="+offlineAPIServer)
+	}
+	cmd := exec.Command("helm", args...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("helm template: %v\n%s", err, stderr.String())
+	}
+	var objs []*unstructured.Unstructured
+	dec := utilyaml.NewYAMLOrJSONDecoder(bytes.NewReader(out), 4096)
+	for {
+		var m map[string]any
+		if err := dec.Decode(&m); errors.Is(err, io.EOF) {
+			break
+		} else if err != nil {
+			t.Fatalf("decode the render: %v", err)
+		}
+		if m != nil {
+			objs = append(objs, &unstructured.Unstructured{Object: m})
+		}
+	}
+	return objs
+}
+
+func find(objs []*unstructured.Unstructured, kind, name string) *unstructured.Unstructured {
+	for _, o := range objs {
+		if o.GetKind() == kind && o.GetName() == name {
+			return o
+		}
+	}
+	return nil
+}
+
+// ingressHosts are an Ingress's rule hosts, and the hosts its TLS covers
+// with each Secret.
+func ingressHosts(o *unstructured.Unstructured) (rules []string, tls map[string][]string) {
+	tls = map[string][]string{}
+	rs, _, _ := unstructured.NestedSlice(o.Object, "spec", "rules")
+	for _, r := range rs {
+		if h, ok := r.(map[string]any)["host"].(string); ok {
+			rules = append(rules, h)
+		}
+	}
+	ts, _, _ := unstructured.NestedSlice(o.Object, "spec", "tls")
+	for _, e := range ts {
+		m := e.(map[string]any)
+		name, _ := m["secretName"].(string)
+		hs, _, _ := unstructured.NestedStringSlice(m, "hosts")
+		tls[name] = append(tls[name], hs...)
+	}
+	return rules, tls
+}
+
+// TestGoldenValuesRender renders every golden case's values with the
+// chart (design §9: drift between the wizard and the chart's schema and
+// render is caught here) and holds that what they render routes both
+// names to the gateway or the relay with the TLS the recipe promised: the
+// gateway's Service the manifests name exists, every Ingress is classed
+// as answered, the Certificate's Secret is what both Ingresses name for
+// the hosts it covers, and the chart's HTTPRoute sits on the Gateway
+// answered.
+func TestGoldenValuesRender(t *testing.T) {
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm not on PATH")
+	}
+	for name, a := range goldenCases() {
+		t.Run(name, func(t *testing.T) {
+			a.Normalize()
+			files := plan(t, a)
+			objs := renderValues(t, a, files)
+			if find(objs, "Service", a.GatewayService()) == nil {
+				t.Fatalf("no gateway Service %s in the render: Fullname disagrees with the chart", a.GatewayService())
+			}
+			relay := find(objs, "Ingress", a.Fullname()+"-preview-auth")
+			if relay == nil {
+				t.Fatal("no relay Ingress in the render")
+			}
+			if a.Existing.GatewayParent != "" {
+				checkRoute(t, a, objs, files)
+				return
+			}
+			gw := find(objs, "Ingress", a.GatewayService())
+			if gw == nil {
+				t.Fatal("no gateway Ingress in the render")
+			}
+			for _, ing := range []*unstructured.Unstructured{gw, relay} {
+				class, _, _ := unstructured.NestedString(ing.Object, "spec", "ingressClassName")
+				if class != a.Existing.IngressClass {
+					t.Errorf("Ingress %s class = %q, want %q", ing.GetName(), class, a.Existing.IngressClass)
+				}
+			}
+			gwRules, gwTLS := ingressHosts(gw)
+			relayRules, relayTLS := ingressHosts(relay)
+			if !slices.Equal(gwRules, []string{"*." + a.HostSuffix}) || !slices.Equal(relayRules, []string{a.SignInHost}) {
+				t.Errorf("rules: gateway %v, relay %v", gwRules, relayRules)
+			}
+			if a.EdgeTLS() == TLSEdge {
+				if len(gwTLS) != 0 || len(relayTLS) != 0 {
+					t.Errorf("the edge holds the certificate, yet the Ingresses carry TLS: %v %v", gwTLS, relayTLS)
+				}
+				return
+			}
+			var cert struct {
+				Spec struct {
+					SecretName string   `json:"secretName"`
+					DNSNames   []string `json:"dnsNames"`
+				} `json:"spec"`
+			}
+			if err := yaml.Unmarshal([]byte(byPath(files)[CertificateFile]), &cert); err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(gwTLS[cert.Spec.SecretName], gwRules) ||
+				!slices.Equal(relayTLS[cert.Spec.SecretName], relayRules) {
+				t.Errorf("Certificate Secret %s: gateway TLS %v, relay TLS %v", cert.Spec.SecretName, gwTLS, relayTLS)
+			}
+			if !slices.Equal(cert.Spec.DNSNames, append(gwRules, relayRules...)) {
+				t.Errorf("Certificate covers %v, the Ingresses route %v and %v", cert.Spec.DNSNames, gwRules, relayRules)
+			}
+		})
+	}
+}
+
+// checkRoute: on a Gateway API parent the chart's HTTPRoute carries the
+// previews on the answered parent, and the wizard's route carries the
+// sign-in host onto the gateway's Service.
+func checkRoute(t *testing.T, a Answers, objs []*unstructured.Unstructured, files []File) {
+	t.Helper()
+	route := find(objs, "HTTPRoute", a.GatewayService())
+	if route == nil {
+		t.Fatal("no HTTPRoute in the render")
+	}
+	ns, name, section, _ := ParseGatewayParent(a.Existing.GatewayParent)
+	parents, _, _ := unstructured.NestedSlice(route.Object, "spec", "parentRefs")
+	want := map[string]any{"name": name, "namespace": ns}
+	if section != "" {
+		want["sectionName"] = section
+	}
+	if len(parents) != 1 || !equalMaps(parents[0].(map[string]any), want) {
+		t.Errorf("HTTPRoute parentRefs = %v, want [%v]", parents, want)
+	}
+	hosts, _, _ := unstructured.NestedStringSlice(route.Object, "spec", "hostnames")
+	if !slices.Equal(hosts, []string{"*." + a.HostSuffix}) {
+		t.Errorf("HTTPRoute hostnames = %v", hosts)
+	}
+	var signIn struct {
+		Spec struct {
+			Hostnames []string `json:"hostnames"`
+			Rules     []struct {
+				BackendRefs []struct {
+					Name string `json:"name"`
+					Port int    `json:"port"`
+				} `json:"backendRefs"`
+			} `json:"rules"`
+		} `json:"spec"`
+	}
+	if err := yaml.Unmarshal([]byte(byPath(files)[SignInRouteFile]), &signIn); err != nil {
+		t.Fatal(err)
+	}
+	svc := find(objs, "Service", a.GatewayService())
+	port, _, _ := unstructured.NestedSlice(svc.Object, "spec", "ports")
+	if !slices.Equal(signIn.Spec.Hostnames, []string{a.SignInHost}) || len(signIn.Spec.Rules) != 1 ||
+		len(signIn.Spec.Rules[0].BackendRefs) != 1 || signIn.Spec.Rules[0].BackendRefs[0].Name != svc.GetName() ||
+		fmt.Sprint(signIn.Spec.Rules[0].BackendRefs[0].Port) != fmt.Sprint(port[0].(map[string]any)["port"]) {
+		t.Errorf("sign-in route %+v does not send %s to %s:%v", signIn.Spec, a.SignInHost, svc.GetName(), port)
+	}
+}
+
+func equalMaps(a, b map[string]any) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if b[k] != v {
+			return false
+		}
+	}
+	return true
+}
