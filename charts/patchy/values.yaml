@@ -300,8 +300,8 @@ previewController:
         # waits out rolloutTimeout and spends one of maxRetries (a Preview on
         # its last retry fails). Set false explicitly to keep the old
         # behaviour, or upgrade while no Preview is deploying.
-        # LEGACY (the preview ALB's target health); ignored with
-        # preview.legacyIngress false.
+        # LEGACY (the preview ALB's target health); inert with
+        # preview.legacyIngress false: the controller is then told false.
         targetHealth: true
         # legacyIngress moved to preview.legacyIngress. Set here (on a chart
         # before the move), it still wins, and NOTES ask to move it.

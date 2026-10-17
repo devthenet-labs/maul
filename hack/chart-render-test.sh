@@ -233,6 +233,10 @@ render preview-runtime-gateway -f "$fixtures/preview-foundation.yaml" \
   -f "$fixtures/intent-controller.yaml" -f "$fixtures/preview-controller.yaml" \
   --set previewController.config.legacyIngress=false
 cm preview-runtime-gateway preview-controller PATCHY_PREVIEW_LEGACY_INGRESS false
+# Target health is the preview ALB's: off the legacy path the controller is
+# told false whatever targetHealth says (it would only ignore it, warning at
+# every start), and on it targetHealth still decides.
+cm preview-runtime-gateway preview-controller PATCHY_PREVIEW_TARGET_HEALTH false
 # preview.legacyIngress is the value now; previewController.config.legacyIngress
 # (its spelling before the move, above) still wins while set, and NOTES ask
 # to move it. Off the legacy path the slot namespaces drop the readiness-gate
@@ -241,10 +245,12 @@ cm preview-runtime-gateway preview-controller PATCHY_PREVIEW_LEGACY_INGRESS fals
 render preview-runtime-nolegacy -f "$fixtures/preview-foundation.yaml" \
   -f "$fixtures/intent-controller.yaml" -f "$fixtures/preview-controller.yaml" --set preview.legacyIngress=false
 cm preview-runtime-nolegacy preview-controller PATCHY_PREVIEW_LEGACY_INGRESS false
+cm preview-runtime-nolegacy preview-controller PATCHY_PREVIEW_TARGET_HEALTH false
 render preview-runtime-alias-wins -f "$fixtures/preview-foundation.yaml" \
   -f "$fixtures/intent-controller.yaml" -f "$fixtures/preview-controller.yaml" --set preview.legacyIngress=false \
   --set previewController.config.legacyIngress=true
 cm preview-runtime-alias-wins preview-controller PATCHY_PREVIEW_LEGACY_INGRESS true
+cm preview-runtime-alias-wins preview-controller PATCHY_PREVIEW_TARGET_HEALTH true
 expect preview-runtime-nolegacy 'select(.kind == "Namespace" and (.metadata.name | test("^patchy-preview-"))) | .metadata.labels."eks.amazonaws.com/pod-readiness-gate-inject"' 'null
 null'
 for kind in IngressClass IngressClassParams; do

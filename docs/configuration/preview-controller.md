@@ -232,7 +232,8 @@ gateway serves:
 - No slot Ingress is rendered, and none precedes the Pods.
 - `Ready` means every component has a Ready Pod of its current spec with an image ID. There is no load balancer to wait
   for, so `--preview-target-health` is ignored (the controller logs a warning when both are set) and no readiness gate
-  is expected.
+  is expected. The chart sets it false there, whatever `previewController.config.targetHealth` says, so a gateway-only
+  install starts without that warning.
 - On every deploy pass the controller deletes the slot Ingresses its Preview owns (by its UID, name and managed-by
   labels), so a Preview made `Ready` on the legacy path loses its Ingress without restarting; a foreign Ingress is left
   alone. Cleanup deletes them too before a slot is freed, and the orphan sweep deletes every managed slot Ingress, a
