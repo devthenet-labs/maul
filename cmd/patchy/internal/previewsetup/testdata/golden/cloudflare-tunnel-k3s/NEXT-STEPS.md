@@ -89,16 +89,19 @@ cluster over plain HTTP. Universal SSL, free on every plan, covers each zone's a
 
 ## 6. Install
 
-cloudflared runs in namespace `patchy-cloudflared`, which its manifest creates, with the tunnel credentials
-mounted from Secret `cloudflared-credentials` and egress to DNS, the gateway and Cloudflare (443, and 7844 over TCP and
-QUIC) alone:
+cloudflared runs in namespace `patchy-cloudflared`, which its manifest creates (a new namespace of its own:
+rolling back deletes it), with the tunnel credentials mounted from Secret `cloudflared-credentials` and egress to DNS,
+the gateway and any public address on 443 and 7844 (TCP and QUIC), where Cloudflare's edge answers, alone:
 
 ```sh
 kubectl apply -f manifests/cloudflared.yaml -f secrets/cloudflared-credentials.secret.yaml
 kubectl -n patchy-cloudflared rollout status deployment/cloudflared
 ```
 
-It sends `*.acme-previews.dev` and `preview-auth.acme.dev` to `patchy-preview-gateway` and answers 404 for any other name. Then patchy:
+It sends `*.acme-previews.dev` and `preview-auth.acme.dev` to `patchy-preview-gateway` and answers 404 for any other name. cloudflared
+reaches the gateway from its own Pod addresses, so the values set `previewAuth.ingressFrom: []` (the chart's default:
+the relay's ports admit any source), overriding any narrowing to a load balancer's subnets in your values; to narrow it
+again, list cloudflared's Pod CIDRs there too. Then patchy:
 
 ```sh
 kubectl apply -f secrets/patchy-preview-auth-dex.secret.yaml

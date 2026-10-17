@@ -163,7 +163,8 @@ func newSetupPreviewsCmd(opts *Options) *cobra.Command {
 	fl.BoolVar(&a.Cloudflare.AdvancedCertificates, "cloudflare-acm", false, "--edge cloudflare-tunnel: the zones "+
 		"have Advanced Certificate Manager, so names deeper than Universal SSL's first level are allowed")
 	fl.StringVar(&a.Cloudflare.Namespace, "cloudflared-namespace", "", "--edge cloudflare-tunnel: the namespace "+
-		"cloudflared runs in, which its manifest creates (default "+previewsetup.DefaultCloudflaredNamespace+")")
+		"cloudflared runs in, a new one its manifest creates and rolling back deletes (default "+
+		previewsetup.DefaultCloudflaredNamespace+")")
 	fl.StringVar(&a.Release, "release", a.Release, "the patchy Helm release")
 	// -o names a directory here, not an output format.
 	fl.StringVarP(&f.output, "output", "o", defaultPreviewsDir, "the directory to write to")

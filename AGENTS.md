@@ -212,10 +212,13 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   as ClusterIP with the Tailscale operator's `expose`, hostname and tag annotations, a public DNS record to the device's
   100.x address, the tailnet policy as the allowlist) and `cloudflare-tunnel` (R1: `manifests/cloudflared.yaml`, a
   locally-managed tunnel's cloudflared in namespace `patchy-cloudflared` (the recipe's own; `--cloudflared-namespace`,
-  never the release namespace) at the digest-pinned image, both names to the gateway's Service and a 404 for the rest,
-  egress only to DNS, the gateway Pods' 8082 and Cloudflare's 443/7844, no SA token; gateway exposure none,
-  `forwardedHops: 1`; the `--tunnel-credentials` file (cert.pem refused) held redacted in `TunnelCredentials`, written
-  only into `secrets/cloudflared-credentials.secret.yaml` and read back on a re-run, its tunnel ID recorded; names deeper
+  a new one: never the release, Dex's, cert-manager's, Tailscale's, `default` or a `kube-` namespace) at the
+  digest-pinned image, both names to the gateway's Service and a 404 for the rest, egress only to DNS, the gateway Pods'
+  8082 and any public address on 443/7844 (no Cloudflare range pinned), no SA token; gateway exposure none,
+  `forwardedHops: 1`, `previewAuth.ingressFrom: []` (cloudflared's Pod addresses must reach 8082), the load balancer's
+  `--inbound-cidr`/`--load-balancer-class` refused (the allowlist is Cloudflare's); the `--tunnel-credentials` file
+  (cert.pem refused) held redacted in `TunnelCredentials`, written only into
+  `secrets/cloudflared-credentials.secret.yaml` and read back on a re-run, its tunnel ID recorded; names deeper
   than a zone's first level refused unless `--cloudflare-acm`, since free Universal SSL does not cover them). R2 and R3
   write the wildcard Certificate, a namespaced ACME
   Issuer with one DNS-01 solver (`--dns`, `--dns-option key=value`, never a secret; a ClusterIssuer

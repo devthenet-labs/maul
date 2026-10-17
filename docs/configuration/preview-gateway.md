@@ -383,16 +383,19 @@ previewAuth:
 - **Bypass the cache** for the preview hostnames: a Cache Rule matching `http.host` under `.preview.acme-apps.dev` with
   "Bypass cache". Cloudflare honours `private`, but a rule that caches by extension does not.
 - The relay's NetworkPolicy admits `previewAuth.ingressFrom` (empty is anywhere) on the gateway's port 8082. If you set
-  it, include cloudflared's Pod addresses, and let cloudflared's own egress reach that port.
-- Hold the allowlist at Cloudflare (a WAF custom rule or Cloudflare Access) and in `inboundCIDRs`.
+  it, include cloudflared's Pod addresses, and let cloudflared's own egress reach that port. The setup command's values
+  set it to `[]`, overriding a narrowing in your own values.
+- Hold the allowlist at Cloudflare (a WAF custom rule or Cloudflare Access) and in `inboundCIDRs`. The setup command
+  refuses `--inbound-cidr` on this edge and leaves `inboundCIDRs` empty: keep the allowlist at Cloudflare.
 - A proxied record resolves to Cloudflare's addresses, not the tunnel's. `patchy check project`'s DNS line then SKIPs
   with no `publishedAddresses`; check the record in the Cloudflare dashboard instead.
 
 `patchy setup previews --edge cloudflare-tunnel --tunnel-credentials ~/.cloudflared/<tunnel id>.json` (hidden while the
 command is built) writes all of this: the values above, cloudflared's namespace, config, Deployment (two replicas, the
 image pinned by digest, no ServiceAccount token, a read-only root) and a NetworkPolicy that lets it reach only DNS, the
-gateway's Pods on 8082 and Cloudflare on 443 and 7844, plus the credentials file as a Secret manifest in cloudflared's
-namespace. It never reads `cert.pem`, which stays on your workstation.
+gateway's Pods on 8082 and any public address on 443 and 7844 (where Cloudflare's edge answers; the policy names no
+Cloudflare range), plus the credentials file as a Secret manifest in cloudflared's namespace. It never reads `cert.pem`,
+which stays on your workstation.
 
 **Certificate depth.** Cloudflare's free Universal SSL certificate covers a zone's apex and its first-level names only
 (`acme-previews.dev` and `*.acme-previews.dev`). A preview host is `<label>.<hostSuffix>`, so with

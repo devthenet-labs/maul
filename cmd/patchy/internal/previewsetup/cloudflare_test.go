@@ -17,6 +17,7 @@ import (
 	"testing/quick"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"sigs.k8s.io/yaml"
 )
 
 // cloudflareAnswers are complete cloudflare-tunnel answers on k3s: names
@@ -121,6 +122,23 @@ func TestValidateCloudflare(t *testing.T) {
 		"release namespace": {func(a *Answers) { a.Cloudflare.Namespace = a.Namespace },
 			"is the release namespace"},
 		"bad namespace": {func(a *Answers) { a.Cloudflare.Namespace = "Edge_Tunnel" }, "--cloudflared-namespace"},
+		// The manifest relabels its namespace restricted and rolling back
+		// deletes it, so a namespace something else lives in is refused.
+		"dex namespace": {func(a *Answers) { a.Cloudflare.Namespace = a.Dex.Namespace }, "is Dex's namespace"},
+		"kube-system": {func(a *Answers) { a.Cloudflare.Namespace = "kube-system" },
+			"one of Kubernetes' own namespaces"},
+		"kube-node-lease": {func(a *Answers) { a.Cloudflare.Namespace = "kube-node-lease" },
+			"one of Kubernetes' own namespaces"},
+		"default": {func(a *Answers) { a.Cloudflare.Namespace = "default" }, "one of Kubernetes' own namespaces"},
+		"cert-manager": {func(a *Answers) { a.Cloudflare.Namespace = CertManager.Namespace },
+			"cert-manager's namespace"},
+		"tailscale": {func(a *Answers) { a.Cloudflare.Namespace = TailscaleOperator.Namespace },
+			"the Tailscale operator's namespace"},
+		// A load balancer's answers would be recorded and silently dropped.
+		"inbound cidr": {func(a *Answers) { a.LoadBalancer.InboundCIDRs = []string{"203.0.113.0/24"} },
+			"--inbound-cidr is for --edge gateway-tls"},
+		"load balancer class": {func(a *Answers) { a.LoadBalancer.Class = "metallb" },
+			"--load-balancer-class is for --edge gateway-tls"},
 		"bad tunnel id": {func(a *Answers) { a.Cloudflare.TunnelID = "6FF42AE2-765D-4ADF-8112-31C55C1551EF" },
 			"not a lowercase UUID"},
 		"deep suffix": {func(a *Answers) { a.HostSuffix = "preview.acme-apps.dev" }, "--cloudflare-acm"},
@@ -324,5 +342,41 @@ func TestCloudflaredHasNoKubernetesCredential(t *testing.T) {
 	}
 	if ns := m["Namespace"].GetLabels()["pod-security.kubernetes.io/enforce"]; ns != "restricted" {
 		t.Errorf("cloudflared's namespace enforces %q", ns)
+	}
+}
+
+// TestCloudflareEmptiesIngressFrom: cloudflared reaches the gateway's 8082
+// from its own Pod addresses, so an ingressFrom the operator narrowed to a
+// load balancer's subnets is overridden in the values layered after theirs,
+// and NEXT-STEPS.md says so.
+func TestCloudflareEmptiesIngressFrom(t *testing.T) {
+	files := byPath(plan(t, cloudflareAnswers()))
+	var v map[string]any
+	if err := yaml.Unmarshal([]byte(files[ValuesFile]), &v); err != nil {
+		t.Fatal(err)
+	}
+	pa, _ := v["previewAuth"].(map[string]any)
+	got, ok := pa["ingressFrom"].([]any)
+	if !ok || len(got) != 0 {
+		t.Errorf("previewAuth.ingressFrom = %#v, want an explicit []", pa["ingressFrom"])
+	}
+	if !strings.Contains(files[NextStepsFile], "`previewAuth.ingressFrom: []`") {
+		t.Error("NEXT-STEPS.md does not explain the emptied ingressFrom")
+	}
+}
+
+// TestCloudflaredEgressIsAnyPublicAddress: cloudflared's internet egress
+// names no Cloudflare range, so NEXT-STEPS.md must not claim it reaches
+// Cloudflare alone.
+func TestCloudflaredEgressIsAnyPublicAddress(t *testing.T) {
+	files := byPath(plan(t, cloudflareAnswers()))
+	np := fmt.Sprint(cloudflaredObjects(t, files[CloudflaredFile])["NetworkPolicy"].Object)
+	if !strings.Contains(np, "cidr:0.0.0.0/0") || !strings.Contains(np, "cidr:::/0") {
+		t.Fatalf("cloudflared's egress is no longer every public address; revisit the wording: %s", np)
+	}
+	steps := files[NextStepsFile]
+	if !strings.Contains(steps, "any public address on 443 and 7844") ||
+		strings.Contains(steps, "the gateway and Cloudflare (443") {
+		t.Error("NEXT-STEPS.md describes cloudflared's egress as Cloudflare's alone")
 	}
 }

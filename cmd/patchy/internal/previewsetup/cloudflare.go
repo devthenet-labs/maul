@@ -153,6 +153,21 @@ func (a Answers) validateCloudflare() []error {
 	if ns == a.Namespace {
 		errs = append(errs, fmt.Errorf("--cloudflared-namespace %s is the release namespace: the tunnel "+
 			"credentials serve every name the tunnel routes, so they never sit beside patchy's own Secrets", ns))
+	} else if owner := sharedNamespace(a, ns); owner != "" {
+		errs = append(errs, fmt.Errorf("--cloudflared-namespace %s is %s: the recipe's manifest relabels its "+
+			"namespace for the restricted Pod Security level and rolling back deletes it, so it must be a new "+
+			"namespace of its own (the default is %s)", ns, owner, DefaultCloudflaredNamespace))
+	}
+	// The allowlist of a tunnel is Cloudflare's: the gateway Service has no
+	// load balancer to hold one, so a load balancer's answers would be
+	// recorded and silently not applied.
+	if a.LoadBalancer.Class != "" {
+		errs = append(errs, errors.New("--load-balancer-class is for --edge gateway-tls: a tunnel's gateway "+
+			"Service has no load balancer"))
+	}
+	if len(a.LoadBalancer.InboundCIDRs) > 0 {
+		errs = append(errs, errors.New("--inbound-cidr is for --edge gateway-tls: a tunnel's previews are "+
+			"reached through Cloudflare, so keep the allowlist there (a WAF custom rule, or Cloudflare Access)"))
 	}
 	if a.HostSuffix != "" && a.SignInHost != "" && ValidHost(a.HostSuffix) && ValidHost(a.SignInHost) {
 		if err := CheckCloudflareDepth(a.HostSuffix, a.SignInHost, c.AdvancedCertificates); err != nil {
@@ -160,6 +175,25 @@ func (a Answers) validateCloudflare() []error {
 		}
 	}
 	return errs
+}
+
+// sharedNamespace names what else already lives in namespace ns, or ""
+// when it is none the wizard knows of: Kubernetes' own namespaces, Dex's
+// and those of the charts NEXT-STEPS.md installs. The recipe owns
+// cloudflared's namespace (it enforces restricted on it, and rolling back
+// deletes it), so it may be none of these.
+func sharedNamespace(a Answers, ns string) string {
+	switch {
+	case ns == "default" || strings.HasPrefix(ns, "kube-"):
+		return "one of Kubernetes' own namespaces"
+	case ns == a.Dex.Namespace:
+		return "Dex's namespace"
+	case ns == CertManager.Namespace:
+		return "cert-manager's namespace"
+	case ns == TailscaleOperator.Namespace:
+		return "the Tailscale operator's namespace"
+	}
+	return ""
 }
 
 var (
@@ -323,6 +357,11 @@ func cloudflareTunnelRecipe(a Answers, v values) ([]File, error) {
 	// cluster publishes; the allowlist is Cloudflare's (NEXT-STEPS.md).
 	gw["inboundCIDRs"] = []string{}
 	gw["publishedAddresses"] = []string{}
+	// cloudflared reaches the gateway's 8082 from its own Pod addresses,
+	// which an ingressFrom narrowed to an ALB's subnets would refuse, and
+	// ingressFrom takes CIDRs only: it is emptied (the relay's ports admit
+	// any source, the chart's default), and NEXT-STEPS.md says so.
+	v.at("previewAuth")["ingressFrom"] = []string{}
 	data, err := cloudflaredManifests(a)
 	if err != nil {
 		return nil, err
@@ -484,8 +523,10 @@ func cloudflaredPodSpec(labels, readiness, liveness map[string]any) map[string]a
 }
 
 // privateRanges are the addresses cloudflared's egress to the internet
-// leaves out, so its 443 and 7844 reach Cloudflare and nothing in the
-// cluster, the node network or a metadata service.
+// leaves out, so its 443 and 7844 reach public addresses only (Cloudflare's
+// among them, but not only Cloudflare's: the rule names no Cloudflare
+// range) and nothing in the cluster, the node network or a metadata
+// service.
 var (
 	privateV4 = []string{"10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12",
 		"192.168.0.0/16"}
@@ -493,8 +534,9 @@ var (
 )
 
 // cloudflaredNetworkPolicy lets cloudflared reach DNS, the gateway's
-// listener and Cloudflare (443, and 7844 over TCP and QUIC) and nothing
-// else, and admits only the kubelet's probes to its metrics port.
+// listener and any public address on 443 and 7844 (TCP and QUIC), which is
+// where Cloudflare's edge answers, and nothing else, and admits only the
+// kubelet's probes to its metrics port.
 func cloudflaredNetworkPolicy(a Answers, meta, labels map[string]any) map[string]any {
 	internet := []any{
 		map[string]any{"ipBlock": map[string]any{"cidr": "0.0.0.0/0", "except": privateV4}},

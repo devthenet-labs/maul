@@ -184,6 +184,17 @@ func TestSetupPreviewsCloudflareRefusals(t *testing.T) {
 			"previews.acme.dev"}, "share the registrable domain acme.dev"},
 		"release namespace": {[]string{"--tunnel-credentials", "OK", "--cloudflared-namespace", "patchy"},
 			"is the release namespace"},
+		// The manifest relabels its namespace and rolling back deletes it.
+		"dex namespace": {[]string{"--tunnel-credentials", "OK", "--cloudflared-namespace", "dex"},
+			"is Dex's namespace"},
+		"kube-system": {[]string{"--tunnel-credentials", "OK", "--cloudflared-namespace", "kube-system"},
+			"one of Kubernetes' own namespaces"},
+		// A tunnel has no load balancer: its allowlist would be recorded
+		// in answers.yaml and silently not applied.
+		"inbound cidr": {[]string{"--tunnel-credentials", "OK", "--inbound-cidr", "203.0.113.0/24"},
+			"--inbound-cidr is for --edge gateway-tls"},
+		"load balancer class": {[]string{"--tunnel-credentials", "OK", "--load-balancer-class", "metallb"},
+			"--load-balancer-class is for --edge gateway-tls"},
 	} {
 		dir := t.TempDir()
 		for i, a := range tc.args {

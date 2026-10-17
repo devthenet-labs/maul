@@ -43,6 +43,7 @@ previewAuth:
     tls:
       secrets: []
   host: preview-auth.acme.dev
+  ingressFrom: []
   viewers:
     teams:
     - acme:qa
