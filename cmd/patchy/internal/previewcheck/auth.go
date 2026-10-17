@@ -1,7 +1,7 @@
 // Copyright 2026 Bitwise Media Group Ltd.
 // SPDX-License-Identifier: MIT
 
-package projectcheck
+package previewcheck
 
 import (
 	"context"
@@ -71,43 +71,43 @@ func NewHTTPDoer() HTTPDoer {
 // Project (and the placeholder) answers an unauthenticated request with the
 // ALB's redirect to the relay for its own slot's client. Off, it reports
 // nothing.
-func (r *run) previewAuth(ctx context.Context, s settings, suffix string) {
-	required := s.preview.bool(keyAuthRequired)
-	if !s.auth.found() && !required {
+func (c *Checker) previewAuth(ctx context.Context, s Settings, suffix string) {
+	required := s.Preview.Bool(keyAuthRequired)
+	if !s.Auth.Found() && !required {
 		return
 	}
-	issuer := s.auth.data[keyAuthIssuer]
+	issuer := s.Auth.Data[keyAuthIssuer]
 	switch {
-	case s.auth.err != nil:
-		r.add(CheckPreviewAuth, "", checkreport.Skip, "cannot read the relay's settings: %v", s.auth.err)
+	case s.Auth.Err != nil:
+		c.add(CheckPreviewAuth, checkreport.Skip, "cannot read the relay's Settings: %v", s.Auth.Err)
 		return
-	case !s.auth.found():
-		r.add(CheckPreviewAuth, "", checkreport.Fail, "preview-controller requires sign-in (%s), but there is no "+
+	case !s.Auth.Found():
+		c.add(CheckPreviewAuth, checkreport.Fail, "preview-controller requires sign-in (%s), but there is no "+
 			"preview-auth ConfigMap in namespace %s: is previewAuth.enabled set in the patchy chart?",
-			keyAuthRequired, r.p.Namespace)
+			keyAuthRequired, c.cfg.Namespace)
 		return
 	case !previewauth.ValidIssuer(issuer):
-		r.add(CheckPreviewAuth, "", checkreport.Fail, "%s sets %s to %q, which is not an https origin", s.auth.from,
+		c.add(CheckPreviewAuth, checkreport.Fail, "%s sets %s to %q, which is not an https origin", s.Auth.From,
 			keyAuthIssuer, issuer)
 		return
 	}
-	r.relayDiscovery(ctx, issuer)
-	r.dexRedirect(ctx, s, issuer)
+	c.relayDiscovery(ctx, issuer)
+	c.dexRedirect(ctx, s, issuer)
 	if mode := s.probeMode(); mode != previewauth.ProbeALB {
-		r.gatewayHosts(ctx, s, issuer, suffix, mode, required)
-		r.gatewayAllowlist(ctx, s, suffix)
+		c.gatewayHosts(ctx, s, issuer, suffix, mode, required)
+		c.gatewayAllowlist(ctx, s, suffix)
 		return
 	}
-	r.previewAuthHosts(ctx, issuer, suffix, required)
+	c.previewAuthHosts(ctx, issuer, suffix, required)
 }
 
 // relayDiscovery checks the relay answers its own discovery document with
 // its issuer. The preview load balancer calls the relay's token endpoint
 // from dynamic public addresses, so the relay must answer from anywhere.
-func (r *run) relayDiscovery(ctx context.Context, issuer string) {
-	status, body, _, err := r.httpGet(ctx, issuer+"/.well-known/openid-configuration")
+func (c *Checker) relayDiscovery(ctx context.Context, issuer string) {
+	status, body, _, err := c.httpGet(ctx, issuer+"/.well-known/openid-configuration")
 	if err != nil {
-		r.add(CheckPreviewAuth, "", checkreport.Fail, "the relay at %s does not answer: %v (it must be reachable "+
+		c.add(CheckPreviewAuth, checkreport.Fail, "the relay at %s does not answer: %v (it must be reachable "+
 			"from the internet: the preview load balancer calls its token endpoint from dynamic addresses)",
 			issuer, err)
 		return
@@ -118,14 +118,14 @@ func (r *run) relayDiscovery(ctx context.Context, issuer string) {
 	}
 	switch {
 	case status != http.StatusOK:
-		r.add(CheckPreviewAuth, "", checkreport.Fail, "%s/.well-known/openid-configuration answered %d, not the "+
+		c.add(CheckPreviewAuth, checkreport.Fail, "%s/.well-known/openid-configuration answered %d, not the "+
 			"relay's discovery document: does the edge route %s to the preview-auth Service?", issuer, status,
 			strings.TrimPrefix(issuer, "https://"))
 	case json.Unmarshal(body, &doc) != nil || doc.Issuer != issuer || doc.AuthorizationEndpoint != issuer+"/authorize":
-		r.add(CheckPreviewAuth, "", checkreport.Fail, "%s/.well-known/openid-configuration is not the relay's "+
+		c.add(CheckPreviewAuth, checkreport.Fail, "%s/.well-known/openid-configuration is not the relay's "+
 			"discovery document for issuer %s (it names issuer %q)", issuer, issuer, doc.Issuer)
 	default:
-		r.add(CheckPreviewAuth, "", checkreport.Pass, "the relay answers at %s with its discovery document", issuer)
+		c.add(CheckPreviewAuth, checkreport.Pass, "the relay answers at %s with its discovery document", issuer)
 	}
 }
 
@@ -147,30 +147,30 @@ const dexMaxHops = 5
 // or an unregistered redirect URI fail, and a redirect loop, too many hops or
 // a redirect to another scheme or port on Dex's own host skip. It never follows a redirect off Dex's host, so
 // nobody signs in; Dex may keep the unused request until it expires.
-func (r *run) dexRedirect(ctx context.Context, s settings, issuer string) {
-	dexIssuer, clientID := s.auth.data[keyAuthDexIssuer], s.auth.data[keyAuthDexClientID]
+func (c *Checker) dexRedirect(ctx context.Context, s Settings, issuer string) {
+	dexIssuer, clientID := s.Auth.Data[keyAuthDexIssuer], s.Auth.Data[keyAuthDexClientID]
 	redirect := issuer + "/dex/callback"
 	if dexIssuer == "" || clientID == "" {
-		r.add(CheckPreviewAuthDex, "", checkreport.Fail, "%s sets no %s or %s", s.auth.from, keyAuthDexIssuer,
+		c.add(CheckPreviewAuthDex, checkreport.Fail, "%s sets no %s or %s", s.Auth.From, keyAuthDexIssuer,
 			keyAuthDexClientID)
 		return
 	}
-	status, body, _, err := r.httpGet(ctx, strings.TrimSuffix(dexIssuer, "/")+"/.well-known/openid-configuration")
+	status, body, _, err := c.httpGet(ctx, strings.TrimSuffix(dexIssuer, "/")+"/.well-known/openid-configuration")
 	var doc struct {
 		AuthorizationEndpoint string `json:"authorization_endpoint"`
 	}
 	switch {
 	case err != nil:
-		r.add(CheckPreviewAuthDex, "", checkreport.Skip, "cannot reach Dex at %s: %v", dexIssuer, err)
+		c.add(CheckPreviewAuthDex, checkreport.Skip, "cannot reach Dex at %s: %v", dexIssuer, err)
 		return
 	case status != http.StatusOK || json.Unmarshal(body, &doc) != nil || doc.AuthorizationEndpoint == "":
-		r.add(CheckPreviewAuthDex, "", checkreport.Fail, "%s/.well-known/openid-configuration answered %d without "+
+		c.add(CheckPreviewAuthDex, checkreport.Fail, "%s/.well-known/openid-configuration answered %d without "+
 			"an authorization endpoint: is %s Dex's issuer?", dexIssuer, status, dexIssuer)
 		return
 	}
 	authURL, err := url.Parse(doc.AuthorizationEndpoint)
 	if err != nil || authURL.Scheme != "https" || authURL.Host == "" {
-		r.add(CheckPreviewAuthDex, "", checkreport.Fail, "Dex's authorization endpoint %q is not an https URL",
+		c.add(CheckPreviewAuthDex, checkreport.Fail, "Dex's authorization endpoint %q is not an https URL",
 			doc.AuthorizationEndpoint)
 		return
 	}
@@ -180,21 +180,21 @@ func (r *run) dexRedirect(ctx context.Context, s settings, issuer string) {
 	seen := map[string]bool{}
 	for hop := 0; ; hop++ {
 		seen[next.String()] = true
-		status, body, location, err := r.httpGet(ctx, next.String())
+		status, body, location, err := c.httpGet(ctx, next.String())
 		if err != nil {
-			r.add(CheckPreviewAuthDex, "", checkreport.Skip, "cannot reach Dex's authorization endpoint at %s: %v",
+			c.add(CheckPreviewAuthDex, checkreport.Skip, "cannot reach Dex's authorization endpoint at %s: %v",
 				next.Redacted(), err)
 			return
 		}
 		if status >= 300 && status < 400 && location != "" {
-			to, ok := r.dexFollow(dexIssuer, clientID, redirect, authURL, next, location, status, hop, seen)
+			to, ok := c.dexFollow(dexIssuer, clientID, redirect, authURL, next, location, status, hop, seen)
 			if !ok {
 				return
 			}
 			next = to
 			continue
 		}
-		r.judgeDex(dexIssuer, clientID, redirect, status, pageText(body))
+		c.judgeDex(dexIssuer, clientID, redirect, status, pageText(body))
 		return
 	}
 }
@@ -203,23 +203,23 @@ func (r *run) dexRedirect(ctx context.Context, s settings, issuer string) {
 // next, or false once it has added the check's line (a redirect to another
 // host passes; an unreadable Location, another scheme or port on Dex's own
 // host, a loop or too many hops skip).
-func (r *run) dexFollow(dexIssuer, clientID, redirect string, authURL, next *url.URL, location string, status,
+func (c *Checker) dexFollow(dexIssuer, clientID, redirect string, authURL, next *url.URL, location string, status,
 	hop int, seen map[string]bool,
 ) (*url.URL, bool) {
 	to, err := next.Parse(location)
 	if err != nil {
-		r.add(CheckPreviewAuthDex, "", checkreport.Skip, "Dex answered %d with an unreadable Location %q",
+		c.add(CheckPreviewAuthDex, checkreport.Skip, "Dex answered %d with an unreadable Location %q",
 			status, location)
 		return nil, false
 	}
 	sameHost, sameOrigin := compareOrigin(to, authURL)
 	switch {
 	case !sameHost:
-		r.add(CheckPreviewAuthDex, "", checkreport.Pass, "Dex at %s accepts client %s with redirect URI %s "+
+		c.add(CheckPreviewAuthDex, checkreport.Pass, "Dex at %s accepts client %s with redirect URI %s "+
 			"(it answered %d, on to %s://%s)", dexIssuer, clientID, redirect, status, to.Scheme, to.Host)
 		return nil, false
 	case !sameOrigin:
-		r.add(CheckPreviewAuthDex, "", checkreport.Skip, "Dex redirected to another scheme or port on its "+
+		c.add(CheckPreviewAuthDex, checkreport.Skip, "Dex redirected to another scheme or port on its "+
 			"own host (%s://%s), which says nothing about the client", to.Scheme, to.Host)
 		return nil, false
 	}
@@ -227,11 +227,11 @@ func (r *run) dexFollow(dexIssuer, clientID, redirect string, authURL, next *url
 	to.Scheme, to.Host = authURL.Scheme, authURL.Host
 	switch {
 	case seen[to.String()]:
-		r.add(CheckPreviewAuthDex, "", checkreport.Skip, "Dex's authorization endpoint is a redirect loop "+
+		c.add(CheckPreviewAuthDex, checkreport.Skip, "Dex's authorization endpoint is a redirect loop "+
 			"(%s leads back to %s), which says nothing about the client", next.Path, to.Path)
 		return nil, false
 	case hop >= dexMaxHops:
-		r.add(CheckPreviewAuthDex, "", checkreport.Skip, "Dex's authorization endpoint answered more than %d "+
+		c.add(CheckPreviewAuthDex, checkreport.Skip, "Dex's authorization endpoint answered more than %d "+
 			"redirects on its own host (the last to %s), which says nothing about the client", dexMaxHops,
 			to.Path)
 		return nil, false
@@ -262,23 +262,23 @@ func effectivePort(u *url.URL) string {
 }
 
 // judgeDex judges the answer the Dex check ended on that is not a redirect.
-func (r *run) judgeDex(dexIssuer, clientID, redirect string, status int, page string) {
+func (c *Checker) judgeDex(dexIssuer, clientID, redirect string, status int, page string) {
 	switch {
 	case status == http.StatusOK:
-		r.add(CheckPreviewAuthDex, "", checkreport.Pass, "Dex at %s accepts client %s with redirect URI %s "+
+		c.add(CheckPreviewAuthDex, checkreport.Pass, "Dex at %s accepts client %s with redirect URI %s "+
 			"(it answered %d)", dexIssuer, clientID, redirect, status)
 	case strings.Contains(page, "redirect_uri"):
-		r.add(CheckPreviewAuthDex, "", checkreport.Fail, "Dex refuses redirect URI %s for client %s (%q): register "+
+		c.add(CheckPreviewAuthDex, checkreport.Fail, "Dex refuses redirect URI %s for client %s (%q): register "+
 			"it on that static client, the only per-install IdP setup", redirect, clientID,
 			excerpt(page, "redirect_uri"))
 	case status == http.StatusNotFound || strings.Contains(page, "client_id"):
-		r.add(CheckPreviewAuthDex, "", checkreport.Fail, "Dex has no client %s (%d %q): add the static client with "+
+		c.add(CheckPreviewAuthDex, checkreport.Fail, "Dex has no client %s (%d %q): add the static client with "+
 			"redirect URI %s", clientID, status, excerpt(page, "client_id"), redirect)
 	case status >= 400 && status < 500:
-		r.add(CheckPreviewAuthDex, "", checkreport.Fail, "Dex refused a sign-in for client %s with redirect URI %s: "+
+		c.add(CheckPreviewAuthDex, checkreport.Fail, "Dex refused a sign-in for client %s with redirect URI %s: "+
 			"%d %q", clientID, redirect, status, excerpt(page, ""))
 	default:
-		r.add(CheckPreviewAuthDex, "", checkreport.Skip, "Dex's authorization endpoint answered %d %q, which "+
+		c.add(CheckPreviewAuthDex, checkreport.Skip, "Dex's authorization endpoint answered %d %q, which "+
 			"says nothing about the client", status, excerpt(page, ""))
 	}
 }
@@ -288,15 +288,15 @@ func (r *run) judgeDex(dexIssuer, clientID, redirect string, status int, page st
 // answer with the ALB's redirect to the relay's /authorize for its own
 // slot's client and callback. Before sign-in is required (the permit stage)
 // nothing is expected to redirect yet.
-func (r *run) previewAuthHosts(ctx context.Context, issuer, suffix string, required bool) {
+func (c *Checker) previewAuthHosts(ctx context.Context, issuer, suffix string, required bool) {
 	if !required {
-		r.add(CheckPreviewAuthHost, "", checkreport.Skip, "preview-controller does not require sign-in yet "+
+		c.add(CheckPreviewAuthHost, checkreport.Skip, "preview-controller does not require sign-in yet "+
 			"(previewAuth.stage=permit), so no preview host redirects to the relay")
 		return
 	}
 	cb, err := previewauth.NewCallbacks(suffix)
 	if err != nil {
-		r.add(CheckPreviewAuthHost, "", checkreport.Skip, "preview-controller's host suffix %q is unusable: %v",
+		c.add(CheckPreviewAuthHost, checkreport.Skip, "preview-controller's host suffix %q is unusable: %v",
 			suffix, err)
 		return
 	}
@@ -306,32 +306,32 @@ func (r *run) previewAuthHosts(ctx context.Context, issuer, suffix string, requi
 	}
 	hosts := []host{{label: placeholderLabel, slot: 0}}
 	var list v1alpha1.PreviewList
-	if err := r.cfg.Reader.List(ctx, &list, client.InNamespace(r.p.Namespace)); err != nil {
-		r.add(CheckPreviewAuthHost, "", checkreport.Skip, "cannot list the Previews in namespace %s (%v), so only "+
-			"the placeholder host is probed", r.p.Namespace, err)
+	if err := c.cfg.Reader.List(ctx, &list, client.InNamespace(c.cfg.Namespace)); err != nil {
+		c.add(CheckPreviewAuthHost, checkreport.Skip, "cannot list the Previews in namespace %s (%v), so only "+
+			"the placeholder host is probed", c.cfg.Namespace, err)
 	}
 	for i := range list.Items {
 		p := &list.Items[i]
-		if p.Spec.Project == r.p.Name && p.Status.Phase == v1alpha1.PreviewReady && p.Status.Slot != nil &&
+		if p.Spec.Project == c.cfg.Project && p.Status.Phase == v1alpha1.PreviewReady && p.Status.Slot != nil &&
 			p.DeletionTimestamp == nil {
 			hosts = append(hosts, host{label: p.Spec.HostLabel, slot: int(*p.Status.Slot)})
 		}
 	}
 	for _, h := range hosts {
 		name := h.label + "." + suffix
-		status, _, location, err := r.httpGet(ctx, "https://"+name+"/")
+		status, _, location, err := c.httpGet(ctx, "https://"+name+"/")
 		switch {
 		case err != nil && timedOut(err):
-			r.add(CheckPreviewAuthHost, "", checkreport.Skip, "no answer from %s within %s: the preview load "+
+			c.add(CheckPreviewAuthHost, checkreport.Skip, "no answer from %s within %s: the preview load "+
 				"balancer admits only the chart's preview.inboundCIDRs, so run this from an admitted address",
 				name, httpTimeout)
 		case err != nil:
-			r.add(CheckPreviewAuthHost, "", checkreport.Fail, "%s: %v", name, err)
+			c.add(CheckPreviewAuthHost, checkreport.Fail, "%s: %v", name, err)
 		case previewauth.JudgeProbe(status, location, issuer, h.slot, h.label, cb) == nil:
-			r.add(CheckPreviewAuthHost, "", checkreport.Pass, "%s (slot %d) answers without credentials with the "+
+			c.add(CheckPreviewAuthHost, checkreport.Pass, "%s (slot %d) answers without credentials with the "+
 				"redirect to %s/authorize for client %s", name, h.slot, issuer, previewauth.ClientID(h.slot))
 		default:
-			r.add(CheckPreviewAuthHost, "", checkreport.Fail, "%s (slot %d) answered %d (Location %q) without "+
+			c.add(CheckPreviewAuthHost, checkreport.Fail, "%s (slot %d) answered %d (Location %q) without "+
 				"credentials, not the redirect to %s/authorize for client %s: the load balancer serves it without "+
 				"sign-in (its rules may be stale: compare them with aws elbv2 describe-rules)", name, h.slot, status,
 				location, issuer, previewauth.ClientID(h.slot))
@@ -341,14 +341,14 @@ func (r *run) previewAuthHosts(ctx context.Context, issuer, suffix string, requi
 
 // httpGet GETs u with the configured doer, returning the status, at most
 // bodyLimit bytes of the body and the Location header.
-func (r *run) httpGet(ctx context.Context, u string) (int, []byte, string, error) {
-	status, body, h, err := r.httpDo(ctx, u, nil)
+func (c *Checker) httpGet(ctx context.Context, u string) (int, []byte, string, error) {
+	status, body, h, err := c.httpDo(ctx, u, nil)
 	return status, body, h.Get("Location"), err
 }
 
 // httpDo GETs u with the configured doer and the headers hdr, returning the
 // status, at most bodyLimit bytes of the body and the headers.
-func (r *run) httpDo(ctx context.Context, u string, hdr http.Header) (int, []byte, http.Header, error) {
+func (c *Checker) httpDo(ctx context.Context, u string, hdr http.Header) (int, []byte, http.Header, error) {
 	ctx, cancel := context.WithTimeout(ctx, httpTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
@@ -358,7 +358,7 @@ func (r *run) httpDo(ctx context.Context, u string, hdr http.Header) (int, []byt
 	for k, v := range hdr {
 		req.Header[k] = v
 	}
-	resp, err := r.cfg.HTTP.Do(req)
+	resp, err := c.cfg.HTTP.Do(req)
 	if err != nil {
 		return 0, nil, http.Header{}, err
 	}

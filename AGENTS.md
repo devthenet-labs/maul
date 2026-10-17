@@ -202,11 +202,13 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   `cmd/patchy/internal/scaffold`, golden trees checked as their own CI would by `mise run scaffold-check`). `check
   project` is `check image`'s cluster-reading sibling: a read-only Project preflight (engine in
   `cmd/patchy/internal/projectcheck`) that reads Ready/IntentNameConflict, resolves every repository over the Forge CRs,
-  and judges agent and preview images, DNS and TLS with the caller's own credentials, and, while the chart's
+  and judges agent and preview images with the caller's own credentials; its preview DNS, TLS and sign-in checks are
+  `cmd/patchy/internal/previewcheck` (`Checker.Host`, `Checker.Auth`, `LoadSettings`), shared so a later install-level
+  `check previews` cannot drift from it. Those judge DNS and TLS and, while the chart's
   `previewAuth` is on, the relay's discovery, Dex's acceptance of the relay's one redirect URI and (once sign-in is
   required) each Ready preview host's unauthenticated redirect to the relay for its own slot (`previewauth.JudgeProbe`).
   With the preview gateway on it judges the mode in force (`previewauth.ProbeModeFor` of the relay's gateway switch and
-  preview-controller's legacy Ingress switch; `projectcheck/gateway.go`): DNS against `publishedAddresses` or the
+  preview-controller's legacy Ingress switch; `previewcheck/gateway.go`): DNS against `publishedAddresses` or the
   gateway's Ingress/Service status (a private edge not in this resolver is a SKIP), the gateway's 404 on
   `<project>-0.<suffix>` and its `/start` redirect on each Ready preview, and `preview-gateway-allowlist` (a spoofed
   `X-Forwarded-For` from a refused address must stay refused).

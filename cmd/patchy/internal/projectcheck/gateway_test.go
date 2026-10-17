@@ -426,18 +426,3 @@ func TestGatewayLegacyModeUnchanged(t *testing.T) {
 		t.Fatalf("Failed = %d:\n%s", n, dump(r))
 	}
 }
-
-func TestAllPrivate(t *testing.T) {
-	for addrs, want := range map[string]bool{
-		"10.0.0.1": true, "100.64.0.7": true, "192.168.1.2,172.16.0.1": true, "fd00::1": true, "127.0.0.1": true,
-		"192.0.2.10": false, "10.0.0.1,192.0.2.10": false, "": false, "not-an-ip": false,
-	} {
-		var list []string
-		if addrs != "" {
-			list = strings.Split(addrs, ",")
-		}
-		if got := allPrivate(list); got != want {
-			t.Errorf("allPrivate(%q) = %v, want %v", addrs, got, want)
-		}
-	}
-}

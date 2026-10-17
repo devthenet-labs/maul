@@ -13,7 +13,8 @@
 // Ready condition. It never reads a Secret, so it never holds the App's
 // private key: the cluster reads are Projects, Forges, ConfigMaps, the
 // placeholder Ingress, the gateway's Ingress and Service, and Previews, with
-// the caller's own kubeconfig.
+// the caller's own kubeconfig (the last three, and the ConfigMaps, through
+// previewcheck).
 //
 // What the controllers cannot report before an intent runs, it checks with
 // the operator's own identity, and says so in each reason:
@@ -38,44 +39,12 @@
 //     repository sits under preview-controller's prefix and that
 //     sha-<default-branch head> is published there (a FAIL only with more
 //     than one previewed repository, since only then does a preview run it);
-//   - preview-dns and preview-tls: that <project>-0.<host suffix> resolves to
-//     the preview load balancer (the placeholder Ingress's address) and
-//     serves a certificate trusted for it. An Intent is <project>-<issue> and
-//     no issue is numbered 0, so the probe host is one the wildcard record
-//     and certificate cover and no Preview owns. Only NXDOMAIN fails the DNS
-//     check; a lookup that times out is a SKIP. The load balancer admits
-//     only the chart's inbound CIDRs, so a TLS timeout is a SKIP, not a FAIL;
-//   - preview-auth, preview-auth-dex and preview-auth-host, only while the
-//     chart's preview sign-in is on (the relay's ConfigMap exists, or
-//     preview-controller requires sign-in): the relay answers its discovery
-//     document at its issuer; Dex accepts the relay's client with its one
-//     redirect URI (asked of Dex's authorization endpoint without a session,
-//     following only redirects on Dex's own host, such as a single-connector
-//     Dex's hop to its connector endpoint, never one off it, since Dex's
-//     clients are not readable); and, once
-//     sign-in is required, the placeholder host and every Ready Preview of
-//     the Project answer without credentials with the load balancer's
-//     redirect to the relay for their own slot's client
-//     (previewauth.JudgeProbe, the relay's own probe verdict). A timeout from
-//     outside the inbound CIDRs is a SKIP;
-//   - in gateway mode (the relay's PATCHY_PREVIEW_AUTH_GATEWAY on; the mode
-//     is previewauth.ProbeModeFor of that and preview-controller's
-//     PATCHY_PREVIEW_LEGACY_INGRESS), preview-dns compares the probe host
-//     with the gateway's edge instead: the chart's publishedAddresses (an
-//     annotation on the relay's ConfigMap), else the status of the
-//     gateway's Ingress or LoadBalancer Service (<release>-preview-gateway),
-//     else a SKIP (an HTTPRoute or a tunnel); a private edge (RFC 1918, ULA,
-//     CGNAT, so a tailnet) that this resolver does not answer with is a SKIP;
-//     while both paths serve, the legacy load balancer passes too.
-//     preview-auth-host asks every host as a navigation: the probe host,
-//     which no Preview owns, must be the gateway's own 404 page
-//     (previewauth.JudgeGatewayUnknown) and each Ready Preview the redirect to
-//     sign in for its own label (previewauth.ProbeExpect.Live, either path's
-//     while both serve). preview-gateway-allowlist, with inboundCIDRs set,
-//     sends the probe host a spoofed X-Forwarded-For naming an admitted
-//     address from an address the gateway refuses, which must still be
-//     refused; from an admitted address it is a SKIP. The Dex check is the
-//     same in both modes.
+//   - preview-dns, preview-tls, preview-auth, preview-auth-dex,
+//     preview-auth-host and preview-gateway-allowlist: previewcheck's
+//     checks of the preview path (the probe host <project>-0.<host suffix>,
+//     the gateway's or the legacy load balancer's edge, and preview sign-in),
+//     run for this Project and its Ready Previews; previewcheck's package
+//     documentation says what each judges.
 //
 // What it cannot prove: that source-controller's or the preview nodes' own
 // registry credentials work from inside the cluster (a Repository's
@@ -84,6 +53,6 @@
 // Every check is a Check line keyed by repository key (which also names the
 // repository's preview component), or by IntentRepository, and is never
 // limited to the first repository. Network and cluster reads go through
-// seams (client.Reader, GitHub, the registry Keychain, Resolver and
-// TLSDialer) so tests need no network at all.
+// seams (client.Reader, GitHub, the registry Keychain, and previewcheck's
+// Resolver, TLSDialer and HTTPDoer) so tests need no network at all.
 package projectcheck

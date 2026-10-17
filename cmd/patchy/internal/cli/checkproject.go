@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/checkreport"
+	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/previewcheck"
 	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/printer"
 	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/projectcheck"
 	"github.com/bitwise-media-group/patchy/internal/runnerimage/resolve"
@@ -100,8 +101,8 @@ func newCheckProjectCmd(opts *Options) *cobra.Command {
 					EnterpriseHost: os.Getenv("GH_HOST")},
 				keychain: resolve.NewKeychain(),
 				resolver: net.DefaultResolver,
-				dialTLS:  projectcheck.DialTLS,
-				http:     projectcheck.NewHTTPDoer(),
+				dialTLS:  previewcheck.DialTLS,
+				http:     previewcheck.NewHTTPDoer(),
 			})
 		},
 	}
@@ -128,9 +129,9 @@ func envToken(vars ...string) (token, source string) {
 type checkProjectDeps struct {
 	github   projectcheck.GitHub
 	keychain authn.Keychain
-	resolver projectcheck.Resolver
-	dialTLS  projectcheck.TLSDialer
-	http     projectcheck.HTTPDoer
+	resolver previewcheck.Resolver
+	dialTLS  previewcheck.TLSDialer
+	http     previewcheck.HTTPDoer
 }
 
 // runCheckProject runs the checks and renders the report; any failed check
