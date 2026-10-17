@@ -5,7 +5,6 @@ certificate:
   dns: route53
   dnsOptions:
     accessKeyID: AKIAIOSFODNN7EXAMPLE
-    hostedZoneID: Z0123456789ABCDEFGHIJ
     region: us-east-1
 cliVersion: v0.12.40
 dex:

@@ -37,6 +37,12 @@ func TestValidateGatewayCert(t *testing.T) {
 			a.Certificate = Certificate{DNS: "route53", DNSOptions: map[string]string{"region": "us-east-1",
 				"accessKeyID": "ASIAIOSFODNN7EXAMPLE"}}
 		}, "accessKeyID="},
+		// The two names never share a registrable domain, so never one
+		// hosted zone: a pinned zone would take the other name's challenge.
+		"route53 pinned zone": {func(a *Answers) {
+			a.Certificate = Certificate{DNS: "route53", DNSOptions: map[string]string{"region": "us-east-1",
+				"hostedZoneID": "Z0123456789ABCDEFGHIJ"}}
+		}, "--dns-option hostedZoneID: the certificate's two names sit on different registrable domains"},
 		"azure half a principal": {func(a *Answers) {
 			a.Certificate = Certificate{DNS: "azure", DNSOptions: map[string]string{
 				"subscriptionID": "00000000-0000-4000-8000-000000000001", "resourceGroupName": "dns",

@@ -16,7 +16,6 @@ spec:
     - dns01:
         route53:
           accessKeyID: AKIAIOSFODNN7EXAMPLE
-          hostedZoneID: Z0123456789ABCDEFGHIJ
           region: us-east-1
           secretAccessKeySecretRef:
             key: secret-access-key

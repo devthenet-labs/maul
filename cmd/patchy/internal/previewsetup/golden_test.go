@@ -143,9 +143,9 @@ func gatewayCertCases() map[string]Answers {
 	rfc.NodeIsolation.Mode = IsolationRequired
 	cases["gateway-tls-rfc2136-other"] = rfc
 
-	// The desktop (owner decision Q7): k3d, both names in one Route53
+	// The desktop (owner decision Q7): k3d, Route53 finding each name's
 	// zone, an IAM user's key, and the device's address once it appeared.
-	desk := tls(PlatformK3d, "route53", map[string]string{"region": "us-east-1", "hostedZoneID": "Z0123456789ABCDEFGHIJ",
+	desk := tls(PlatformK3d, "route53", map[string]string{"region": "us-east-1",
 		"accessKeyID": "AKIAIOSFODNN7EXAMPLE"})
 	desk.Edge = EdgeTailscale
 	desk.Registry = "123456789012.dkr.ecr.us-east-1.amazonaws.com"

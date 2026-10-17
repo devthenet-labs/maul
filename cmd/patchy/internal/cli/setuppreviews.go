@@ -121,7 +121,7 @@ func newSetupPreviewsCmd(opts *Options) *cobra.Command {
 	fl.StringVar(&a.Certificate.DNS, "dns", "", "--edge gateway-tls or tailscale: the DNS-01 solver of the Issuer "+
 		"written: "+strings.Join(previewsetup.DNSProviders(), ", ")+" (manual: your own --certificate-issuer)")
 	fl.StringArrayVar(&f.dnsOptions, "dns-option", nil, "a setting of the DNS-01 solver, key=value, never a "+
-		"secret (repeatable; route53: region, hostedZoneID, accessKeyID; google: project, serviceAccountKey; "+
+		"secret (repeatable; route53: region, accessKeyID; google: project, serviceAccountKey; "+
 		"azure: subscriptionID, resourceGroupName, environment, clientID, tenantID; rfc2136: nameserver, "+
 		"tsigKeyName, tsigAlgorithm)")
 	fl.StringVar(&f.dnsCredentialsFile, "dns-credentials-file", "", "a file holding the DNS-01 solver's "+

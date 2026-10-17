@@ -112,9 +112,6 @@ func randDNSOptions(r *rand.Rand, dns string) map[string]string {
 	case "route53":
 		opts["region"] = []string{"us-east-1", "eu-west-2", "ap-southeast-1"}[r.Intn(3)]
 		if some() {
-			opts["hostedZoneID"] = "Z" + strings.ToUpper(strings.ReplaceAll(randLabel(r), "-", "0"))
-		}
-		if some() {
 			opts["accessKeyID"] = "AKIA" + strings.Repeat("Q", 16)
 		}
 	case "google":

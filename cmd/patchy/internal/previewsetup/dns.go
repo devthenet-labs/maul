@@ -61,7 +61,6 @@ type dnsProvider struct {
 
 var (
 	awsRegionPattern     = regexp.MustCompile(`^[a-z]{2}(-[a-z]+)+-[0-9]{1,2}$`)
-	route53ZonePattern   = regexp.MustCompile(`^Z[A-Z0-9]{1,31}$`)
 	awsKeyIDPattern      = regexp.MustCompile(`^AKIA[A-Z0-9]{16}$`)
 	gcpProjectPattern    = regexp.MustCompile(`^[a-z][a-z0-9-]{4,28}[a-z0-9]$`)
 	uuidPattern          = regexp.MustCompile(`^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$`)
@@ -93,8 +92,6 @@ var dnsProviders = map[string]dnsProvider{
 		solver: "route53", secretKey: "secret-access-key",
 		options: []dnsOption{
 			{key: "region", required: true, valid: awsRegionPattern.MatchString, what: "an AWS region"},
-			{key: "hostedZoneID", valid: route53ZonePattern.MatchString,
-				what: "a Route53 hosted zone ID (only when both names sit in that one zone)"},
 			{key: "accessKeyID", valid: awsKeyIDPattern.MatchString,
 				what: "an IAM user's access key ID (AKIA...): without it, cert-manager's own identity (IRSA, " +
 					"EKS Pod Identity) answers"},
@@ -102,9 +99,6 @@ var dnsProviders = map[string]dnsProvider{
 		credential: func(o map[string]string) bool { return o["accessKeyID"] != "" },
 		spec: func(o map[string]string, withSecret bool) map[string]any {
 			m := map[string]any{"region": o["region"]}
-			if z := o["hostedZoneID"]; z != "" {
-				m["hostedZoneID"] = z
-			}
 			if id := o["accessKeyID"]; id != "" {
 				m["accessKeyID"] = id
 				if withSecret {
@@ -298,6 +292,12 @@ func (c Certificate) validateDNSOptions() []error {
 		case set && !o.valid(v):
 			bad("--dns-option %s=%q is not %s", o.key, v, o.what)
 		}
+	}
+	if _, set := c.DNSOptions["hostedZoneID"]; set && c.DNS == "route53" {
+		known["hostedZoneID"] = true
+		bad("--dns-option hostedZoneID: the certificate's two names sit on different registrable domains, so in " +
+			"two hosted zones, and one pinned zone would be sent the other name's challenge too; leave it out and " +
+			"cert-manager finds each name's zone itself (route53:ListHostedZonesByName, in the printed policy)")
 	}
 	for _, k := range sortedKeys(c.DNSOptions) {
 		if !known[k] {
