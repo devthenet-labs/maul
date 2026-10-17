@@ -218,6 +218,20 @@ description = "lint and test the init app golden trees as their own CI would"
 dir = "{{cwd}}"
 run = "./hack/scaffold-check.sh"
 
+# The upstream charts `patchy setup previews` writes values for
+# (cmd/patchy/internal/previewsetup/pins.go): each pinned version exists in
+# its repository, the values the recipes write render with that chart (so its
+# schema accepts them), and every Issuer and Certificate in the golden trees
+# is valid against cert-manager's CRDs at the pinned version, unknown fields
+# included. Needs the network and helm, so not in `make pr`; CI's preview-pins
+# job runs it on every pull request, which is where a renovate bump of a pin is
+# checked before it merges.
+[preview-pins]
+description = "check the setup previews recipes' pinned upstream charts against their repositories"
+dir = "{{cwd}}"
+env = { PATCHY_LIVE_PINS = "1" }
+run = "go test -count=1 -v -run '^TestLivePins$' ./cmd/patchy/internal/previewsetup"
+
 # Everything derived from the CLI's cobra command tree: the per-command
 # reference under docs/cli (nav'd from docs/cli.md) and the shell completions.
 # Kept repo-local because the archetype leaves `docs` to the app — see the
