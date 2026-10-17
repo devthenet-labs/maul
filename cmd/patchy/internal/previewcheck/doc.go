@@ -3,8 +3,28 @@
 
 // Package previewcheck is the preview path's checks, shared by the `check`
 // verbs so their verdicts cannot drift: `patchy check project` runs them
-// for one Project, and an install-level check is to run them before any
-// Project exists. It moved out of projectcheck unchanged.
+// for one Project, and `patchy check previews` (Install) runs them for the
+// install as a whole, before any Project exists.
+//
+// Install names the probe host previewauth.UnknownProbeLabel (the relay's
+// own background probe's, ProbeProject), probes every Ready Preview whatever
+// its Project (Config.AllPreviews), and adds three checks of its own:
+//
+//   - preview-config: previews and sign-in are on and agree on the host
+//     suffix, the preview gateway alone serves preview hosts (the legacy
+//     path still serving is a WARN), the sign-in host sits outside the
+//     suffix, and the suffix is a registrable domain (publicsuffix) shared
+//     with neither the sign-in host, the relay's issuer nor Dex (a WARN);
+//   - preview-viewers: a RoleBinding in the release namespace or a
+//     ClusterRoleBinding binds the chart's <release>-preview-viewer
+//     ClusterRole to at least one User or Group carrying the relay's claim
+//     prefix (a SelfSubjectAccessReview cannot ask for someone else, so the
+//     bindings are read);
+//   - preview-nodes: with node isolation required, at least one node
+//     carries preview-controller's node selector and its
+//     <taint key>=true:NoExecute taint, and none carries only one of them
+//     (an EKS Auto Mode NodePool with no node yet is a SKIP; isolation off
+//     is a WARN).
 //
 // It reads the controllers' settings from their ConfigMaps (LoadSettings:
 // each controller's own over kustomize's shared one; never a Secret), and
@@ -51,5 +71,7 @@
 //
 // Every line is about the install as a whole. Network and cluster reads go
 // through seams (client.Reader, Resolver, TLSDialer and HTTPDoer) so tests
-// need no network at all.
+// need no network at all. Cluster reads are ConfigMaps, the placeholder and
+// gateway Ingresses, the gateway's Service, Previews and, for Install,
+// RoleBindings, ClusterRoleBindings and Nodes; never a Secret.
 package previewcheck

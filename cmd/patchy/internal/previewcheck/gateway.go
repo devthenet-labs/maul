@@ -326,8 +326,8 @@ type previewHostRef struct {
 	slot  int
 }
 
-// readyPreviews lists the Project's Ready Previews; a failed list is a SKIP
-// line and none.
+// readyPreviews lists the Ready Previews the run probes (Checker.probes); a
+// failed list is a SKIP line and none.
 func (c *Checker) readyPreviews(ctx context.Context) []previewHostRef {
 	var list v1alpha1.PreviewList
 	if err := c.cfg.Reader.List(ctx, &list, client.InNamespace(c.cfg.Namespace)); err != nil {
@@ -338,12 +338,18 @@ func (c *Checker) readyPreviews(ctx context.Context) []previewHostRef {
 	var out []previewHostRef
 	for i := range list.Items {
 		p := &list.Items[i]
-		if p.Spec.Project == c.cfg.Project && p.Status.Phase == v1alpha1.PreviewReady && p.Status.Slot != nil &&
-			p.DeletionTimestamp == nil {
+		if c.probes(p) {
 			out = append(out, previewHostRef{label: p.Spec.HostLabel, slot: int(*p.Status.Slot)})
 		}
 	}
 	return out
+}
+
+// probes reports whether the run probes p's host: a Ready Preview with a
+// slot, not being deleted, of the run's Project (any, with AllPreviews).
+func (c *Checker) probes(p *v1alpha1.Preview) bool {
+	return (c.cfg.AllPreviews || p.Spec.Project == c.cfg.Project) && p.Status.Phase == v1alpha1.PreviewReady &&
+		p.Status.Slot != nil && p.DeletionTimestamp == nil
 }
 
 // gatewayUnknownHost probes <project>-0.<suffix>, which no Preview owns:

@@ -312,8 +312,7 @@ func (c *Checker) previewAuthHosts(ctx context.Context, issuer, suffix string, r
 	}
 	for i := range list.Items {
 		p := &list.Items[i]
-		if p.Spec.Project == c.cfg.Project && p.Status.Phase == v1alpha1.PreviewReady && p.Status.Slot != nil &&
-			p.DeletionTimestamp == nil {
+		if c.probes(p) {
 			hosts = append(hosts, host{label: p.Spec.HostLabel, slot: int(*p.Status.Slot)})
 		}
 	}

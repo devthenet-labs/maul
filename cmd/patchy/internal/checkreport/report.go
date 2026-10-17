@@ -20,12 +20,15 @@ import (
 // Status is one check's outcome.
 type Status string
 
-// The three outcomes. Only Fail makes the check as a whole fail; Skip means
-// the check could not or need not run, and its reason says which.
+// The outcomes. Only Fail makes the check as a whole fail; Skip means the
+// check could not or need not run, and its reason says which; Warn means it
+// ran and found something that works but is weaker than it should be, which
+// the reason names (only `check previews` reports it so far).
 const (
 	Pass Status = "PASS"
 	Fail Status = "FAIL"
 	Skip Status = "SKIP"
+	Warn Status = "WARN"
 )
 
 // Line is one check as the table prints it.
