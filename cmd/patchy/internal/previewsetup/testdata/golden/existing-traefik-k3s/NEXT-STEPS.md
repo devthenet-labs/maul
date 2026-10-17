@@ -40,6 +40,8 @@ curl -sfL https://get.k3s.io | K3S_URL=https://<server>:6443 K3S_TOKEN=<token> s
   --node-label patchy.bitwisemedia.uk/previews=true --node-taint patchy.bitwisemedia.uk/preview-only=true:NoExecute
 ```
 
+`patchy-previews.values.yaml` sets `preview.nodeIsolation` over your own values, but Helm merges its `selector` map: remove any `preview.nodeIsolation.selector` from your own values, or Pods require those labels too.
+
 Never `kubectl taint` a node that already runs Pods: those Pods would be evicted, and new ones could land before the taint.
 
 ## 3. Preview image pulls

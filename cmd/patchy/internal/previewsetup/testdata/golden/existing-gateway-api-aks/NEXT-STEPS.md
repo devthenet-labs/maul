@@ -35,6 +35,8 @@ az aks nodepool add --resource-group <group> --cluster-name <cluster> --name pre
   --labels patchy.bitwisemedia.uk/previews=true --node-taints patchy.bitwisemedia.uk/preview-only=true:NoExecute
 ```
 
+`patchy-previews.values.yaml` sets `preview.nodeIsolation` over your own values, but Helm merges its `selector` map: remove any `preview.nodeIsolation.selector` from your own values, or Pods require those labels too.
+
 ## 3. Preview image pulls
 
 Preview images are `acme.azurecr.io/acme/patchy/previews/<app>:sha-<commit>`. Slot Pods may not reference a Secret, so pulls are

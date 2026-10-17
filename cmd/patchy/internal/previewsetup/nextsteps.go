@@ -134,9 +134,22 @@ func nodesNote(a Answers) string {
 			"mode none. Add a dedicated node and run the command again with `--node-isolation required` as soon " +
 			"as you can."
 	}
+	// merged is what layering the file cannot undo: Helm merges a selector
+	// map, so a key in the operator's own values stays required.
+	merged := "\n\n`" + ValuesFile + "` sets `preview.nodeIsolation` over your own values, but Helm merges its " +
+		"`selector` map: remove any `preview.nodeIsolation.selector` from your own values, or Pods require those " +
+		"labels too."
+	if eks := n.EKSAutoMode; eks != (EKSAutoMode{}) {
+		return fmt.Sprintf("Every slot Pod selects the EKS Auto Mode NodePool `%s` and NodeClass `%s` and "+
+			"tolerates the taint `%s`. Either the NodePool is yours, and taints its nodes with exactly that, or "+
+			"set `preview.nodeIsolation.create: true` with `role`, `subnetIDs` and `securityGroupIDs` in your own "+
+			"values and the chart renders both. Auto Mode also needs `preview.dnsCIDR` (the node-local cluster "+
+			"DNS address, a /32) in your own values: the chart refuses to render without it.",
+			eks.NodePool, eks.NodeClass, taint) + merged
+	}
 	intro := fmt.Sprintf("Every slot Pod selects `%s` and tolerates the taint `%s`. Add at least one node with "+
 		"both, set when it registers so no other Pod lands on it first.", label, taint)
-	block := func(cmd string) string { return intro + "\n\n```sh\n" + cmd + "```" }
+	block := func(cmd string) string { return intro + "\n\n```sh\n" + cmd + "```" + merged }
 	switch a.Platform {
 	case PlatformK3d:
 		return block(fmt.Sprintf("k3d node create preview --cluster <cluster> --role agent "+
@@ -150,8 +163,9 @@ func nodesNote(a Answers) string {
 	case PlatformEKS:
 		return intro + " Use a managed node group with `labels: {" + n.Label + ": \"" + n.LabelValue + "\"}` and " +
 			"`taints: [{key: " + n.TaintKey + ", value: \"true\", effect: NoExecute}]` (eksctl's " +
-			"`managedNodeGroups`, or terraform's `aws_eks_node_group`). On EKS Auto Mode, see " +
-			"`preview.nodeIsolation.eksAutoMode` in the chart's values: it can render the NodePool and NodeClass."
+			"`managedNodeGroups`, or terraform's `aws_eks_node_group`). On EKS Auto Mode, run the command again " +
+			"with `--eks-auto-mode <nodePool>/<nodeClass>`: this file clears `preview.nodeIsolation.eksAutoMode`, " +
+			"so a pair in your own values no longer applies." + merged
 	case PlatformGKE:
 		return block(fmt.Sprintf("gcloud container node-pools create patchy-previews "+
 			"--cluster <cluster> \\\n  --node-labels=%s --node-taints=%s\n", label, taint))
@@ -160,7 +174,7 @@ func nodesNote(a Answers) string {
 			"<cluster> --name previews \\\n  --labels %s --node-taints %s\n", label, taint))
 	}
 	return intro + " Add it however your platform adds nodes: the label and the taint must both be there before the " +
-		"node is Ready."
+		"node is Ready." + merged
 }
 
 // pullsNote is how preview nodes pull preview images (owner decision Q4:

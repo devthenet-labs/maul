@@ -261,6 +261,20 @@ func (a Answers) validateNodes() []error {
 	if e := validation.IsQualifiedName(n.TaintKey); len(e) > 0 {
 		errs = append(errs, fmt.Errorf("--taint-key %q: %s", n.TaintKey, strings.Join(e, "; ")))
 	}
+	if eks := n.EKSAutoMode; eks != (EKSAutoMode{}) {
+		if a.Platform != PlatformEKS {
+			errs = append(errs, fmt.Errorf("--eks-auto-mode is for --platform eks, not %q", a.Platform))
+		}
+		if a.IsolationMode() == IsolationNone {
+			errs = append(errs, errors.New("--eks-auto-mode with --node-isolation none: Auto Mode names the "+
+				"dedicated preview nodes, which mode none has none of"))
+		}
+		for _, name := range []string{eks.NodePool, eks.NodeClass} {
+			if v := validation.IsDNS1123Label(name); len(v) > 0 {
+				errs = append(errs, fmt.Errorf("--eks-auto-mode name %q: %s", name, strings.Join(v, "; ")))
+			}
+		}
+	}
 	return errs
 }
 

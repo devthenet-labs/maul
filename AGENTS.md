@@ -207,7 +207,10 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   writer and Secret renderer; read back on a re-run, drawn again only with `--rotate dex-client-secret`) and
   `NEXT-STEPS.md`. It refuses a sign-in host or Dex issuer on the host suffix's registrable domain (publicsuffix), a
   re-run shows each file's diff and replaces a changed one only with `--force`, and only the existing-edge recipe (R4:
-  an Ingress class or a Gateway API parent) has landed; its golden trees are rendered through the chart in a test.
+  an Ingress class or a Gateway API parent) has landed; its golden trees are rendered through the chart in a test. The
+  values file sets every key of `preview.nodeIsolation` that picks nodes (an EKS Auto Mode pair only with
+  `--eks-auto-mode`, else cleared), so an operator's own isolation is never merged into it, and only the chart's edge
+  class or an `alb` class leaves TLS to the edge (ingress-nginx or Traefik on EKS gets the Certificate).
   `check project` is `check image`'s cluster-reading sibling: a read-only Project preflight (engine in
   `cmd/patchy/internal/projectcheck`) that reads Ready/IntentNameConflict, resolves every repository over the Forge CRs,
   and judges agent and preview images with the caller's own credentials; its preview DNS, TLS and sign-in checks are

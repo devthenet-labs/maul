@@ -10,7 +10,12 @@ preview:
   imageRegistry: ghcr.io
   legacyIngress: false
   nodeIsolation:
+    eksAutoMode:
+      nodeClass: ""
+      nodePool: ""
     mode: none
+    nodeClass: ""
+    nodePool: ""
     selector: {}
     taintKey: ""
   placeholder:

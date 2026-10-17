@@ -44,6 +44,9 @@ func randAnswers(r *rand.Rand) Answers {
 	if a.Platform == PlatformOther {
 		a.NodeIsolation.Mode = []string{IsolationRequired, IsolationNone}[r.Intn(2)]
 	}
+	if a.Platform == PlatformEKS && r.Intn(2) == 0 {
+		a.NodeIsolation.EKSAutoMode = EKSAutoMode{NodePool: randLabel(r), NodeClass: randLabel(r)}
+	}
 	switch r.Intn(3) {
 	case 0:
 		a.Existing.GatewayParent = randLabel(r) + "/" + randLabel(r)

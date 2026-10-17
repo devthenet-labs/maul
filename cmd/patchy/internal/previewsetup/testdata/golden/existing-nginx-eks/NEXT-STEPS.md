@@ -33,7 +33,9 @@ sealed-secrets) before they go anywhere else; never commit them as they are.
 
 ## 2. Preview nodes
 
-Every slot Pod selects `patchy.bitwisemedia.uk/previews=true` and tolerates the taint `patchy.bitwisemedia.uk/preview-only=true:NoExecute`. Add at least one node with both, set when it registers so no other Pod lands on it first. Use a managed node group with `labels: {patchy.bitwisemedia.uk/previews: "true"}` and `taints: [{key: patchy.bitwisemedia.uk/preview-only, value: "true", effect: NoExecute}]` (eksctl's `managedNodeGroups`, or terraform's `aws_eks_node_group`). On EKS Auto Mode, see `preview.nodeIsolation.eksAutoMode` in the chart's values: it can render the NodePool and NodeClass.
+Every slot Pod selects `patchy.bitwisemedia.uk/previews=true` and tolerates the taint `patchy.bitwisemedia.uk/preview-only=true:NoExecute`. Add at least one node with both, set when it registers so no other Pod lands on it first. Use a managed node group with `labels: {patchy.bitwisemedia.uk/previews: "true"}` and `taints: [{key: patchy.bitwisemedia.uk/preview-only, value: "true", effect: NoExecute}]` (eksctl's `managedNodeGroups`, or terraform's `aws_eks_node_group`). On EKS Auto Mode, run the command again with `--eks-auto-mode <nodePool>/<nodeClass>`: this file clears `preview.nodeIsolation.eksAutoMode`, so a pair in your own values no longer applies.
+
+`patchy-previews.values.yaml` sets `preview.nodeIsolation` over your own values, but Helm merges its `selector` map: remove any `preview.nodeIsolation.selector` from your own values, or Pods require those labels too.
 
 ## 3. Preview image pulls
 

@@ -25,6 +25,9 @@ const (
 	// offlineAPIServer stands in for apiServerCIDR auto, whose lookup needs
 	// a cluster: what a GitOps render sets instead.
 	offlineAPIServer = "10.43.0.1/32"
+	// testDNSCIDR is the preview.dnsCIDR EKS Auto Mode needs, which the
+	// operator's own values carry (NEXT-STEPS.md says so).
+	testDNSCIDR = "172.20.0.10/32"
 )
 
 // renderValues renders the chart with a's generated values layered over a
@@ -32,14 +35,32 @@ const (
 // does, and returns the objects.
 func renderValues(t *testing.T, a Answers, files []File) []*unstructured.Unstructured {
 	t.Helper()
-	values := filepath.Join(t.TempDir(), ValuesFile)
+	return renderOver(t, a, files, "")
+}
+
+// renderOver is renderValues with own, the operator's own values (YAML,
+// "" for none), layered before the generated file as NEXT-STEPS.md says.
+func renderOver(t *testing.T, a Answers, files []File, own string) []*unstructured.Unstructured {
+	t.Helper()
+	dir := t.TempDir()
+	values := filepath.Join(dir, ValuesFile)
 	if err := os.WriteFile(values, []byte(byPath(files)[ValuesFile]), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	args := []string{"template", a.Release, chartDir, "-n", a.Namespace, "-f", renderFixture, "-f", values,
-		"--set", "previewAuth.keys.renderOffline=true"}
+	args := []string{"template", a.Release, chartDir, "-n", a.Namespace, "-f", renderFixture}
+	if own != "" {
+		ownFile := filepath.Join(dir, "own.yaml")
+		if err := os.WriteFile(ownFile, []byte(own), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		args = append(args, "-f", ownFile)
+	}
+	args = append(args, "-f", values, "--set", "previewAuth.keys.renderOffline=true")
 	if a.APIServerCIDR == DefaultAPIServerCIDR {
 		args = append(args, "--set", "previewController.config.apiServerCIDR="+offlineAPIServer)
+	}
+	if a.NodeIsolation.EKSAutoMode != (EKSAutoMode{}) {
+		args = append(args, "--set", "preview.dnsCIDR="+testDNSCIDR)
 	}
 	cmd := exec.Command("helm", args...)
 	var stderr bytes.Buffer
@@ -217,4 +238,57 @@ func equalMaps(a, b map[string]any) bool {
 		}
 	}
 	return true
+}
+
+// previewControllerConfig is the preview-controller's ConfigMap data in a
+// render.
+func previewControllerConfig(t *testing.T, objs []*unstructured.Unstructured) map[string]string {
+	t.Helper()
+	for _, o := range objs {
+		if o.GetKind() != "ConfigMap" {
+			continue
+		}
+		data, _, _ := unstructured.NestedStringMap(o.Object, "data")
+		if _, ok := data["PATCHY_PREVIEW_HOST_SUFFIX"]; ok {
+			return data
+		}
+	}
+	t.Fatal("no preview-controller ConfigMap in the render")
+	return nil
+}
+
+// TestNodeIsolationOverOperatorValues: the generated values decide which
+// nodes slot Pods select even over an operator's own values that isolate
+// another way. Regression: an EKS Auto Mode pair in the operator's values
+// survived the layering and was merged with the generated selector, so
+// slot Pods required labels no node carried.
+func TestNodeIsolationOverOperatorValues(t *testing.T) {
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm not on PATH")
+	}
+	const own = "preview:\n  nodeIsolation:\n    eksAutoMode:\n      nodePool: theirs\n      nodeClass: theirs\n" +
+		"    taintKey: example.com/theirs\n"
+	generic := goldenCases()["existing-alb-eks"]
+	generic.Normalize()
+	cfg := previewControllerConfig(t, renderOver(t, generic, plan(t, generic), own))
+	if pool, ok := cfg["PATCHY_PREVIEW_NODE_POOL"]; ok {
+		t.Errorf("the operator's NodePool %q survived the generated values", pool)
+	}
+	if got, want := cfg["PATCHY_PREVIEW_NODE_SELECTOR"], `{"patchy.bitwisemedia.uk/previews":"true"}`; got != want {
+		t.Errorf("node selector = %s, want %s", got, want)
+	}
+	if got := cfg["PATCHY_PREVIEW_TAINT_KEY"]; got != DefaultTaintKey {
+		t.Errorf("taint key = %s, want %s", got, DefaultTaintKey)
+	}
+
+	auto := goldenCases()["existing-alb-eks-auto-mode"]
+	auto.Normalize()
+	cfg = previewControllerConfig(t, renderOver(t, auto, plan(t, auto), own))
+	if cfg["PATCHY_PREVIEW_NODE_POOL"] != "patchy-previews" || cfg["PATCHY_PREVIEW_NODE_CLASS"] != "patchy-previews" {
+		t.Errorf("Auto Mode pair = %s/%s, want patchy-previews/patchy-previews", cfg["PATCHY_PREVIEW_NODE_POOL"],
+			cfg["PATCHY_PREVIEW_NODE_CLASS"])
+	}
+	if sel, ok := cfg["PATCHY_PREVIEW_NODE_SELECTOR"]; ok {
+		t.Errorf("Auto Mode also selects %s: no preview node carries a generic label there", sel)
+	}
 }

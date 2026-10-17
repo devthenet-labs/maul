@@ -40,6 +40,8 @@ k3d node create preview --cluster <cluster> --role agent --k3s-node-label patchy
   --k3s-arg "--node-taint=patchy.bitwisemedia.uk/preview-only=true:NoExecute"
 ```
 
+`patchy-previews.values.yaml` sets `preview.nodeIsolation` over your own values, but Helm merges its `selector` map: remove any `preview.nodeIsolation.selector` from your own values, or Pods require those labels too.
+
 On one host this isolates scheduling only: the preview node shares the host's kernel.
 
 ## 3. Preview image pulls

@@ -24,11 +24,12 @@ const defaultPreviewsDir = "patchy-previews"
 
 // setupPreviewsFlags are `setup previews`' flags beyond the answers.
 type setupPreviewsFlags struct {
-	output    string
-	force     bool
-	dryRun    bool
-	rotate    string
-	nodeLabel string
+	output      string
+	force       bool
+	dryRun      bool
+	rotate      string
+	nodeLabel   string
+	eksAutoMode string
 }
 
 // newSetupPreviewsCmd is `setup previews` (design
@@ -85,6 +86,8 @@ func newSetupPreviewsCmd(opts *Options) *cobra.Command {
 		"required or none (default: required, except on --platform other, which must say)")
 	fl.StringVar(&f.nodeLabel, "node-label", a.NodeIsolation.Label+"="+a.NodeIsolation.LabelValue,
 		"the label preview nodes carry, key=value")
+	fl.StringVar(&f.eksAutoMode, "eks-auto-mode", "", "--platform eks: the EKS Auto Mode NodePool and NodeClass "+
+		"preview nodes come from, <nodePool>/<nodeClass> (instead of --node-label)")
 	fl.StringVar(&a.NodeIsolation.TaintKey, "taint-key", a.NodeIsolation.TaintKey,
 		"the NoExecute taint preview nodes carry")
 	fl.StringVar(&a.APIServerCIDR, "api-server-cidr", a.APIServerCIDR,
@@ -112,8 +115,8 @@ func newSetupPreviewsCmd(opts *Options) *cobra.Command {
 		previewsetup.TLSCertificate, previewsetup.TLSEdge}))
 	_ = cmd.RegisterFlagCompletionFunc("rotate", fixedCompletion([]string{previewsetup.RotateDexClientSecret}))
 	for _, name := range []string{"host-suffix", "sign-in-host", "dex-issuer", "dex-namespace", "dex-client-id",
-		"viewer-team", "viewer-user", "registry", "image-path-prefix", "node-label", "taint-key", "api-server-cidr",
-		"ingress-class", "gateway-parent", "certificate-issuer", "release"} {
+		"viewer-team", "viewer-user", "registry", "image-path-prefix", "node-label", "eks-auto-mode", "taint-key",
+		"api-server-cidr", "ingress-class", "gateway-parent", "certificate-issuer", "release"} {
 		_ = cmd.RegisterFlagCompletionFunc(name, noFileCompletion)
 	}
 	return cmd
@@ -139,6 +142,7 @@ func answerFlags(dst *previewsetup.Answers, src previewsetup.Answers) map[string
 		"node-label": func() {
 			dst.NodeIsolation.Label, dst.NodeIsolation.LabelValue = src.NodeIsolation.Label, src.NodeIsolation.LabelValue
 		},
+		"eks-auto-mode":   func() { dst.NodeIsolation.EKSAutoMode = src.NodeIsolation.EKSAutoMode },
 		"taint-key":       func() { dst.NodeIsolation.TaintKey = src.NodeIsolation.TaintKey },
 		"api-server-cidr": func() { dst.APIServerCIDR = src.APIServerCIDR },
 		"ingress-class": func() {
@@ -158,6 +162,11 @@ func answerFlags(dst *previewsetup.Answers, src previewsetup.Answers) map[string
 // defaults.
 func resolveAnswers(cmd *cobra.Command, opts *Options, f *setupPreviewsFlags,
 	flags previewsetup.Answers) (previewsetup.Answers, bool, error) {
+	eks, err := previewsetup.ParseEKSAutoMode(f.eksAutoMode)
+	if err != nil {
+		return flags, false, errUsage(err)
+	}
+	flags.NodeIsolation.EKSAutoMode = eks
 	if f.nodeLabel != "" {
 		key, value, ok := strings.Cut(f.nodeLabel, "=")
 		if !ok {

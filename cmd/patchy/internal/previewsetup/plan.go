@@ -150,17 +150,7 @@ func commonValues(a Answers) values {
 	p["imagePathPrefix"] = a.ImagePathPrefix
 	p["legacyIngress"] = false
 	v.at("preview", "placeholder")["enabled"] = false
-	iso := v.at("preview", "nodeIsolation")
-	switch a.IsolationMode() {
-	case IsolationNone:
-		iso["mode"] = IsolationNone
-		iso["selector"] = map[string]any{}
-		iso["taintKey"] = ""
-	default:
-		iso["mode"] = IsolationRequired
-		iso["selector"] = map[string]any{a.NodeIsolation.Label: a.NodeIsolation.LabelValue}
-		iso["taintKey"] = a.NodeIsolation.TaintKey
-	}
+	nodeIsolationValues(a, v.at("preview", "nodeIsolation"))
 	pc := v.at("previewController")
 	pc["enabled"] = true
 	v.at("previewController", "config")["apiServerCIDR"] = a.APIServerCIDR
@@ -177,6 +167,34 @@ func commonValues(a Answers) values {
 	viewers["users"] = stringsOrEmpty(a.Viewers.Users)
 	v.at("previewAuth", "gateway")["enabled"] = true
 	return v
+}
+
+// nodeIsolationValues fills preview.nodeIsolation. The file is layered
+// after the operator's own values and Helm merges maps, so every key that
+// picks the nodes is written, an EKS Auto Mode pair (and its legacy
+// spellings) as "" when unanswered: one left in the operator's values
+// would otherwise be merged with the selector and require labels no
+// preview node carries. A selector map cannot be cleared that way;
+// NEXT-STEPS.md says to remove it.
+func nodeIsolationValues(a Answers, iso map[string]any) {
+	eks := a.NodeIsolation.EKSAutoMode
+	iso["eksAutoMode"] = map[string]any{"nodePool": eks.NodePool, "nodeClass": eks.NodeClass}
+	iso["nodePool"] = ""
+	iso["nodeClass"] = ""
+	switch {
+	case a.IsolationMode() == IsolationNone:
+		iso["mode"] = IsolationNone
+		iso["selector"] = map[string]any{}
+		iso["taintKey"] = ""
+	case eks != (EKSAutoMode{}):
+		iso["mode"] = IsolationRequired
+		iso["selector"] = map[string]any{}
+		iso["taintKey"] = a.NodeIsolation.TaintKey
+	default:
+		iso["mode"] = IsolationRequired
+		iso["selector"] = map[string]any{a.NodeIsolation.Label: a.NodeIsolation.LabelValue}
+		iso["taintKey"] = a.NodeIsolation.TaintKey
+	}
 }
 
 // stringsOrEmpty is s, or an empty list: the wizard's viewers are the

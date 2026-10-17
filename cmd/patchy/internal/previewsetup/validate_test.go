@@ -375,3 +375,31 @@ func TestChartVersion(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateEKSAutoMode(t *testing.T) {
+	a := testAnswers()
+	a.Platform = PlatformEKS
+	a.NodeIsolation.EKSAutoMode = EKSAutoMode{NodePool: "previews", NodeClass: "previews"}
+	if err := a.Validate(); err != nil {
+		t.Fatalf("Auto Mode on EKS: %v", err)
+	}
+	for name, tc := range map[string]struct {
+		edit func(*Answers)
+		want string
+	}{
+		"not eks":   {func(a *Answers) { a.Platform = PlatformGKE; a.Existing.IngressClass = "nginx" }, "--platform eks"},
+		"mode none": {func(a *Answers) { a.NodeIsolation.Mode = IsolationNone }, "--node-isolation none"},
+		"bad name":  {func(a *Answers) { a.NodeIsolation.EKSAutoMode.NodePool = "Previews" }, "Previews"},
+	} {
+		b := a
+		tc.edit(&b)
+		if err := b.Validate(); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: Validate = %v, want an error naming %q", name, err, tc.want)
+		}
+	}
+	for in, ok := range map[string]bool{"": true, "pool/class": true, "pool": false, "/class": false, "pool/": false} {
+		if _, err := ParseEKSAutoMode(in); (err == nil) != ok {
+			t.Errorf("ParseEKSAutoMode(%q) = %v", in, err)
+		}
+	}
+}

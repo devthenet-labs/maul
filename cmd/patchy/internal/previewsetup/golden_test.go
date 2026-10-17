@@ -74,6 +74,13 @@ func goldenCases() map[string]Answers {
 	eksNginx.Existing.IngressClass = "nginx"
 	cases["existing-nginx-eks"] = eksNginx
 
+	autoMode := testAnswers()
+	autoMode.Platform = PlatformEKS
+	autoMode.Registry = "123456789012.dkr.ecr.eu-west-2.amazonaws.com"
+	autoMode.Existing.IngressClass = "alb"
+	autoMode.NodeIsolation.EKSAutoMode = EKSAutoMode{NodePool: "patchy-previews", NodeClass: "patchy-previews"}
+	cases["existing-alb-eks-auto-mode"] = autoMode
+
 	route := testAnswers()
 	route.Platform = PlatformAKS
 	route.Registry = "acme.azurecr.io"
@@ -178,11 +185,12 @@ func TestGolden(t *testing.T) {
 func TestPlanFileSets(t *testing.T) {
 	common := []string{AnswersFile, NextStepsFile, ValuesFile, DexClientSecretFile, RelayDexSecretFile}
 	for name, want := range map[string][]string{
-		"existing-traefik-k3s":     {CertificateFile},
-		"existing-nginx-gke":       {CertificateFile},
-		"existing-alb-eks":         nil,
-		"existing-nginx-eks":       {CertificateFile},
-		"existing-gateway-api-aks": {SignInRouteFile},
+		"existing-traefik-k3s":       {CertificateFile},
+		"existing-nginx-gke":         {CertificateFile},
+		"existing-alb-eks":           nil,
+		"existing-nginx-eks":         {CertificateFile},
+		"existing-alb-eks-auto-mode": nil,
+		"existing-gateway-api-aks":   {SignInRouteFile},
 	} {
 		files := plan(t, goldenCases()[name])
 		var got []string

@@ -144,6 +144,29 @@ type Nodes struct {
 	Label      string `json:"label"`
 	LabelValue string `json:"labelValue"`
 	TaintKey   string `json:"taintKey"`
+	// EKSAutoMode, on EKS Auto Mode, is the dedicated NodePool and its
+	// NodeClass slot Pods select instead of Label (the chart's
+	// preview.nodeIsolation.eksAutoMode); empty selects by Label.
+	EKSAutoMode EKSAutoMode `json:"eksAutoMode,omitzero"`
+}
+
+// EKSAutoMode names an EKS Auto Mode NodePool and its NodeClass.
+type EKSAutoMode struct {
+	NodePool  string `json:"nodePool"`
+	NodeClass string `json:"nodeClass"`
+}
+
+// ParseEKSAutoMode splits --eks-auto-mode's <nodePool>/<nodeClass>; ""
+// is no Auto Mode pair.
+func ParseEKSAutoMode(s string) (EKSAutoMode, error) {
+	if s == "" {
+		return EKSAutoMode{}, nil
+	}
+	pool, class, ok := strings.Cut(s, "/")
+	if !ok || pool == "" || class == "" {
+		return EKSAutoMode{}, fmt.Errorf("--eks-auto-mode %q is not <nodePool>/<nodeClass>", s)
+	}
+	return EKSAutoMode{NodePool: pool, NodeClass: class}, nil
 }
 
 // ExistingEdge is the existing-edge recipe's answers: exactly one of

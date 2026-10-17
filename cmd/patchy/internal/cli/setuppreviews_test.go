@@ -192,13 +192,15 @@ func TestSetupPreviewsRefusals(t *testing.T) {
 	}{
 		"nothing answered": {[]string{"setup", "previews", "-o", "x"},
 			"answer --platform, --edge, --host-suffix"},
-		"no recipe yet":    {previewsArgs("x", "--edge", "tailscale"), "not available yet"},
-		"same site":        {previewsArgs("x", "--sign-in-host", "auth.previews.acme-previews.dev"), "sits under"},
-		"bad node label":   {previewsArgs("x", "--node-label", "nolabel"), "key=value"},
-		"bad rotate":       {previewsArgs("x", "--rotate", "keys"), "--rotate"},
-		"registry path":    {previewsArgs("x", "--registry", "ghcr.io/acme"), "holds a path"},
-		"both edges":       {previewsArgs("x", "--gateway-parent", "gw/edge"), "exclusive"},
-		"platform unknown": {previewsArgs("x", "--platform", "openshift"), "--platform"},
+		"no recipe yet":     {previewsArgs("x", "--edge", "tailscale"), "not available yet"},
+		"same site":         {previewsArgs("x", "--sign-in-host", "auth.previews.acme-previews.dev"), "sits under"},
+		"bad node label":    {previewsArgs("x", "--node-label", "nolabel"), "key=value"},
+		"bad rotate":        {previewsArgs("x", "--rotate", "keys"), "--rotate"},
+		"registry path":     {previewsArgs("x", "--registry", "ghcr.io/acme"), "holds a path"},
+		"both edges":        {previewsArgs("x", "--gateway-parent", "gw/edge"), "exclusive"},
+		"platform unknown":  {previewsArgs("x", "--platform", "openshift"), "--platform"},
+		"auto mode form":    {previewsArgs("x", "--platform", "eks", "--eks-auto-mode", "pool"), "<nodePool>/<nodeClass>"},
+		"auto mode off eks": {previewsArgs("x", "--eks-auto-mode", "pool/class"), "--platform eks"},
 	} {
 		dir := t.TempDir()
 		args := tc.args
@@ -214,6 +216,25 @@ func TestSetupPreviewsRefusals(t *testing.T) {
 		if entries, _ := os.ReadDir(dir); len(entries) > 0 {
 			t.Errorf("%s: a refused run wrote %d entries", name, len(entries))
 		}
+	}
+}
+
+// TestSetupPreviewsEKSAutoMode: --eks-auto-mode is recorded and renders
+// the chart's Auto Mode pair instead of the node label.
+func TestSetupPreviewsEKSAutoMode(t *testing.T) {
+	dir := t.TempDir()
+	args := previewsArgs(dir, "--platform", "eks", "--ingress-class", "alb", "--eks-auto-mode", "previews/previews-class")
+	if _, errOut, err := execSetup(t, nil, args...); err != nil {
+		t.Fatalf("%v\n%s", err, errOut)
+	}
+	values := readFile(t, dir, previewsetup.ValuesFile)
+	if !strings.Contains(values, "nodePool: previews\n") || !strings.Contains(values, "nodeClass: previews-class\n") ||
+		strings.Contains(values, "patchy.bitwisemedia.uk/previews") {
+		t.Errorf("values do not select the Auto Mode pair alone:\n%s", values)
+	}
+	if _, errOut, err := execSetup(t, nil, "setup", "previews", "-o", dir); err != nil ||
+		!strings.Contains(errOut, "up to date") {
+		t.Errorf("a re-run from answers.yaml changed something: %v\n%s", err, errOut)
 	}
 }
 

@@ -10,7 +10,12 @@ preview:
   imageRegistry: europe-west2-docker.pkg.dev
   legacyIngress: false
   nodeIsolation:
+    eksAutoMode:
+      nodeClass: ""
+      nodePool: ""
     mode: required
+    nodeClass: ""
+    nodePool: ""
     selector:
       patchy.bitwisemedia.uk/previews: "true"
     taintKey: patchy.bitwisemedia.uk/preview-only
