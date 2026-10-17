@@ -33,8 +33,21 @@ func TestNewDefaults(t *testing.T) {
 	if c.cfg.Resolver != net.DefaultResolver || c.cfg.DialTLS == nil || c.cfg.HTTP == nil {
 		t.Errorf("defaults not applied: %+v", c.cfg)
 	}
-	web := doerFunc(func(*http.Request) (*http.Response, error) { return nil, errors.New("unused") })
-	if c := New(Config{HTTP: web}); c.cfg.HTTP == nil {
+	// A configured doer is kept: the Checker's doer is the caller's, so a
+	// request through it reaches web, not a default client.
+	called := false
+	web := doerFunc(func(*http.Request) (*http.Response, error) {
+		called = true
+		return nil, errors.New("unused")
+	})
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://relay.invalid/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp, err := New(Config{HTTP: web}).cfg.HTTP.Do(req); err == nil {
+		_ = resp.Body.Close()
+	}
+	if !called {
 		t.Error("a configured doer was dropped")
 	}
 }
