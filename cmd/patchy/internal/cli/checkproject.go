@@ -48,7 +48,8 @@ func newCheckProjectCmd(opts *Options) *cobra.Command {
 			"ConfigMap; and, for a previewed Project, previews are on, each previewed\n" +
 			"repository's image sits under preview-controller's prefix with\n" +
 			"sha-<default-branch head> published, <project>-0.<host suffix> resolves to\n" +
-			"the preview load balancer, and it serves a certificate trusted for that name.\n\n" +
+			"the preview load balancer (with the preview gateway on, the gateway's edge:\n" +
+			"below), and it serves a certificate trusted for that name.\n\n" +
 			"GitHub is read with GH_TOKEN, else GITHUB_TOKEN, else anonymously (public\n" +
 			"repositories only). A repository on another host (GitHub Enterprise Server)\n" +
 			"is read with GH_ENTERPRISE_TOKEN, else GITHUB_ENTERPRISE_TOKEN, only when\n" +
@@ -60,7 +61,8 @@ func newCheckProjectCmd(opts *Options) *cobra.Command {
 			"any other through your docker config. What this cannot prove is that the\n" +
 			"cluster's own credentials work; a Repository's status.runnerImage and a\n" +
 			"Preview's status are the evidence for those. The preview load balancer admits\n" +
-			"only the chart's preview.inboundCIDRs, so from any other address the TLS check\n" +
+			"only the chart's preview.inboundCIDRs, and the gateway's edge may admit only\n" +
+			"previewAuth.gateway.inboundCIDRs, so from any other address the TLS check\n" +
 			"times out and is a SKIP, not a FAIL.\n\n" +
 			"With preview sign-in on (the chart's previewAuth), three more checks run:\n" +
 			"the relay answers its discovery document at its issuer; Dex accepts the relay's\n" +
