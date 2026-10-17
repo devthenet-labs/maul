@@ -53,6 +53,14 @@ func SecretManifest(app *App, name, namespace string) ([]byte, error) {
 	if app.Credentials.HasWebhookSecret() {
 		data[KeyWebhookSecret] = []byte(app.Credentials.webhookSecret())
 	}
+	return RenderSecret(name, namespace, data)
+}
+
+// RenderSecret renders an Opaque v1 Secret named name in namespace holding
+// data, base64 under data as `kubectl create secret` writes it. It is the
+// one Secret renderer the setup commands share (setup github-app, setup
+// previews), so every Secret manifest the CLI writes has the same shape.
+func RenderSecret(name, namespace string, data map[string][]byte) ([]byte, error) {
 	out, err := yaml.Marshal(secretManifest{
 		APIVersion: "v1",
 		Kind:       "Secret",
