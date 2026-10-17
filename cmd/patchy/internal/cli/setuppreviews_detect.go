@@ -5,6 +5,7 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"time"
@@ -22,7 +23,9 @@ const detectTimeout = time.Minute
 // detectPreviews is --detect: a read-only look at the cluster the caller's
 // kubeconfig names (never a Secret, nothing written), judged into
 // Findings. A read refused is a note in the Findings; failing to reach the
-// cluster at all is an error, since the operator asked for detection.
+// cluster at all (no read the API server answered) is an error, since the
+// operator asked for detection. Connect makes no request, so that is only
+// known once the reads have been tried.
 func detectPreviews(ctx context.Context, opts *Options, namespace string) (previewdetect.Findings, error) {
 	env, err := opts.Connect()
 	if err != nil {
@@ -31,7 +34,11 @@ func detectPreviews(ctx context.Context, opts *Options, namespace string) (previ
 	ctx, cancel := context.WithTimeout(ctx, detectTimeout)
 	defer cancel()
 	opts.debugf("detecting the preview install's surroundings (release namespace %s)", namespace)
-	return previewdetect.Judge(previewdetect.Observe(ctx, env.Client, namespace)), nil
+	o := previewdetect.Observe(ctx, env.Client, namespace)
+	if o.Unreachable != nil {
+		return previewdetect.Findings{}, fmt.Errorf("--detect could not reach the cluster: %w", o.Unreachable)
+	}
+	return previewdetect.Judge(o), nil
 }
 
 // detectAndAsk runs detection when asked for, laying what it finds over a,

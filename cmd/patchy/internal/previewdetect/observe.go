@@ -5,6 +5,7 @@ package previewdetect
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -37,6 +38,13 @@ const (
 	apiServiceName      = "kubernetes"
 	systemNamespace     = "kube-system"
 	clusterDNSService   = "kube-dns"
+	// vpcCNIConfigMap is the VPC CNI's own ConfigMap in kube-system, and
+	// KeyVPCCNIPolicyController its switch for the network policy
+	// controller, without which EKS enforces no NetworkPolicy.
+	vpcCNIConfigMap           = "amazon-vpc-cni"
+	KeyVPCCNIPolicyController = "enable-network-policy-controller"
+	// policyAgentImage is the VPC CNI network policy agent's image name.
+	policyAgentImage = "aws-network-policy-agent"
 )
 
 // IngressClassDefault is the annotation that marks the cluster's default
@@ -90,29 +98,77 @@ type Observation struct {
 	Tailscale      Presence
 	// Images are the kube-system Pods' container images, sorted, each once.
 	Images []string
+	// PolicyAgentArgs are the command and arguments of each kube-system
+	// container running the VPC CNI network policy agent, which ships
+	// switched off (--enable-network-policy=false).
+	PolicyAgentArgs [][]string
+	// VPCCNIPolicyController is the kube-system/amazon-vpc-cni ConfigMap's
+	// enable-network-policy-controller setting, "" when unset or absent.
+	VPCCNIPolicyController string
 	// Release is the patchy release's preview settings, from its ConfigMaps.
 	Release previewcheck.Settings
 	// Notes are the reads that failed or were refused.
 	Notes []string
+	// Unreachable is set when no read reached the API server at all (every
+	// one failed before the server answered): the first such failure. A
+	// refusal (Forbidden) is an answer, so a cluster that refuses every
+	// read is reached.
+	Unreachable error
 }
 
 // Observe reads the cluster for detection. It reads Nodes, two Services and
 // one EndpointSlice by name, IngressClasses, GatewayClasses, two CRDs by
-// name, kube-system's Pods and namespace's patchy ConfigMaps: never a
-// Secret, and it writes nothing. A failed read becomes a note.
+// name, kube-system's Pods, the kube-system/amazon-vpc-cni ConfigMap and
+// namespace's patchy ConfigMaps: never a Secret, and it writes nothing. A
+// failed read becomes a note; when none reached the API server,
+// Unreachable says so.
 func Observe(ctx context.Context, r client.Reader, namespace string) Observation {
 	o := &Observation{}
-	o.observeNodes(ctx, r)
-	o.observeAPIServer(ctx, r)
-	o.observeEdges(ctx, r)
-	o.CertManager = o.crdPresence(ctx, r, CertManagerCRD)
-	o.Tailscale = o.crdPresence(ctx, r, TailscaleCRD)
-	o.observeSystemPods(ctx, r)
-	o.Release = previewcheck.LoadSettings(ctx, r, namespace)
+	rr := &reachReader{Reader: r}
+	o.observeNodes(ctx, rr)
+	o.observeAPIServer(ctx, rr)
+	o.observeEdges(ctx, rr)
+	o.CertManager = o.crdPresence(ctx, rr, CertManagerCRD)
+	o.Tailscale = o.crdPresence(ctx, rr, TailscaleCRD)
+	o.observeSystemPods(ctx, rr)
+	o.observeVPCCNI(ctx, rr)
+	o.Release = previewcheck.LoadSettings(ctx, rr, namespace)
 	if err := o.Release.Preview.Err; err != nil {
 		o.Notes = append(o.Notes, err.Error())
 	}
+	if !rr.reached {
+		o.Unreachable = rr.first
+	}
 	return *o
+}
+
+// reachReader records whether any read reached the API server: one that
+// succeeded, or that the server itself answered with a status (a refusal,
+// a not found) or whose kind discovery found unserved.
+type reachReader struct {
+	client.Reader
+	reached bool
+	first   error
+}
+
+func (r *reachReader) Get(ctx context.Context, key client.ObjectKey, obj client.Object,
+	opts ...client.GetOption) error {
+	return r.saw(r.Reader.Get(ctx, key, obj, opts...))
+}
+
+func (r *reachReader) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	return r.saw(r.Reader.List(ctx, list, opts...))
+}
+
+func (r *reachReader) saw(err error) error {
+	var status apierrors.APIStatus
+	switch {
+	case err == nil, errors.As(err, &status), meta.IsNoMatchError(err):
+		r.reached = true
+	case r.first == nil:
+		r.first = err
+	}
+	return err
 }
 
 // note records a read that failed.
@@ -205,9 +261,26 @@ func (o *Observation) observeSystemPods(ctx context.Context, r client.Reader) {
 	for _, p := range pods.Items {
 		for _, c := range slices.Concat(p.Spec.InitContainers, p.Spec.Containers) {
 			o.Images = append(o.Images, c.Image)
+			if strings.Contains(imageName(c.Image), policyAgentImage) {
+				o.PolicyAgentArgs = append(o.PolicyAgentArgs, slices.Concat(c.Command, c.Args))
+			}
 		}
 	}
 	o.Images = sortedUnique(o.Images)
+}
+
+// observeVPCCNI reads the VPC CNI's network policy controller switch from
+// its ConfigMap, that one key only. A cluster without the VPC CNI has no
+// such ConfigMap, which is no note.
+func (o *Observation) observeVPCCNI(ctx context.Context, r client.Reader) {
+	var cm corev1.ConfigMap
+	switch err := r.Get(ctx, client.ObjectKey{Namespace: systemNamespace, Name: vpcCNIConfigMap}, &cm); {
+	case apierrors.IsNotFound(err):
+	case err != nil:
+		o.note("the kube-system/amazon-vpc-cni ConfigMap", err)
+	default:
+		o.VPCCNIPolicyController = strings.TrimSpace(cm.Data[KeyVPCCNIPolicyController])
+	}
 }
 
 // crdPresence reads one CRD by name, metadata only.

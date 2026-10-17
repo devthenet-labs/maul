@@ -206,8 +206,10 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   `--dns-credentials-from-stdin`, a missing answer is a usage error naming its flags). It contacts no cluster unless
   `--detect` is given: then `cmd/patchy/internal/previewdetect` reads Nodes, the kubernetes and kube-dns Services, the
   API server's EndpointSlice, IngressClasses, GatewayClasses (unstructured), two CRDs by name, kube-system's Pod images
-  and the release's ConfigMaps (never a Secret, nothing written, pinned by a fake client that fails on either), and its
-  pure `Apply` fills only answers no flag or earlier run gave (seeded property). It writes, never applies, the files
+  (and the VPC CNI policy agent's command line), `kube-system/amazon-vpc-cni` and the release's ConfigMaps (never a
+  Secret, nothing written, pinned by a fake client that fails on either; no read reaching the API server is an error),
+  and its pure `Apply` fills only answers still open, even recorded ones (empty, `auto`, a false "installed"), never a
+  flag's (seeded property). It writes, never applies, the files
   that expose previews: `answers.yaml` (no secret; a re-run starts from it), `patchy-previews.values.yaml` (layered
   after the operator's own), `manifests/`, the relay's Dex client secret as two Secret manifests under `secrets/`
   (ghapp's 0600 writer and Secret renderer; read back on a re-run, drawn again only with `--rotate dex-client-secret`)

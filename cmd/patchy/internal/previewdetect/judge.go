@@ -38,6 +38,9 @@ const (
 
 // Release is what the patchy release's ConfigMaps say about previews.
 type Release struct {
+	// Unknown reports that the release's ConfigMaps could not be read, so
+	// nothing below is known (and Previews false says nothing).
+	Unknown bool
 	// Previews and SignIn report whether preview-controller and the relay
 	// are configured at all.
 	Previews, SignIn bool
@@ -68,8 +71,11 @@ type Findings struct {
 	CertManager      Presence
 	Tailscale        Presence
 	// NetworkPolicy names what enforces NetworkPolicy, "" when nothing
-	// patchy recognises was seen.
+	// patchy recognises was seen enforcing it.
 	NetworkPolicy string
+	// NetworkPolicyWarning says why an enforcer that was seen does not
+	// enforce (the VPC CNI's ships switched off), when NetworkPolicy is "".
+	NetworkPolicyWarning string
 	// EBPF reports an enforcer that judges NetworkPolicy after the Service
 	// address is translated (so the kubernetes Service's /32 alone matches
 	// nothing): kube-router and Cilium.
@@ -99,7 +105,7 @@ func Judge(o Observation) Findings {
 			f.EKSAutoMode = true
 		}
 	}
-	f.NetworkPolicy, f.EBPF = enforcer(o.Images, f.Platform)
+	f.NetworkPolicy, f.EBPF, f.NetworkPolicyWarning = enforcer(o, f.Platform, f.EKSAutoMode)
 	f.Release = release(o)
 	return f
 }
@@ -158,7 +164,9 @@ func nodePlatform(n Node) previewsetup.Platform {
 
 // enforcers are the NetworkPolicy enforcers recognised by an image's
 // repository path, first match wins, and whether each judges after the
-// Service address is translated.
+// Service address is translated. The VPC CNI's agent is judged by its
+// switches too (vpcCNI), since its image is there whether or not it
+// enforces.
 var enforcers = []struct {
 	match, name string
 	ebpf        bool
@@ -167,25 +175,81 @@ var enforcers = []struct {
 	{"anetd", "GKE Dataplane V2 (Cilium)", true},
 	{"kube-router", "kube-router", true},
 	{"calico", "Calico", false},
-	{"aws-network-policy-agent", "the VPC CNI network policy agent", false},
+	{policyAgentImage, vpcCNIAgent, false},
 	{"antrea", "Antrea", false},
 	{"weave", "Weave Net", false},
 }
 
-// enforcer names what enforces NetworkPolicy from kube-system's images. k3s
-// and k3d run kube-router inside k3s itself, with no Pod of its own.
-func enforcer(images []string, platform previewsetup.Platform) (string, bool) {
+const (
+	vpcCNIAgent      = "the VPC CNI network policy agent"
+	vpcCNIController = "the VPC CNI network policy controller (EKS Auto Mode)"
+)
+
+// enforcer names what enforces NetworkPolicy from kube-system's images (and,
+// for the VPC CNI, its switches), whether it judges after translation, and
+// otherwise why an enforcer seen does not enforce. k3s and k3d run
+// kube-router inside k3s itself, with no Pod of its own; EKS Auto Mode runs
+// the VPC CNI's agent on the node, with no Pod either.
+func enforcer(o Observation, platform previewsetup.Platform, autoMode bool) (string, bool, string) {
 	for _, e := range enforcers {
-		for _, img := range images {
-			if strings.Contains(imageName(img), e.match) {
-				return e.name, e.ebpf
+		for _, img := range o.Images {
+			if !strings.Contains(imageName(img), e.match) {
+				continue
 			}
+			if e.name == vpcCNIAgent {
+				if why := vpcCNIOff(o, true); why != "" {
+					return "", false, why
+				}
+			}
+			return e.name, e.ebpf, ""
 		}
 	}
-	if platform == previewsetup.PlatformK3s || platform == previewsetup.PlatformK3d {
-		return "kube-router, built into k3s (unless it runs with --disable-network-policy)", true
+	switch {
+	case platform == previewsetup.PlatformK3s || platform == previewsetup.PlatformK3d:
+		return "kube-router, built into k3s (unless it runs with --disable-network-policy)", true, ""
+	case platform == previewsetup.PlatformEKS && autoMode:
+		if why := vpcCNIOff(o, false); why != "" {
+			return "", false, why
+		}
+		return vpcCNIController, false, ""
 	}
-	return "", false
+	return "", false, ""
+}
+
+// vpcCNIOff says what keeps the VPC CNI from enforcing NetworkPolicy, ""
+// when nothing does: its network policy controller's ConfigMap switch,
+// and, where the agent runs as a Pod, the agent's own flag, both off by
+// default.
+func vpcCNIOff(o Observation, agentPod bool) string {
+	var off []string
+	if on, err := strconv.ParseBool(o.VPCCNIPolicyController); err != nil || !on {
+		off = append(off, fmt.Sprintf("kube-system/%s does not set %s: \"true\"", vpcCNIConfigMap,
+			KeyVPCCNIPolicyController))
+	}
+	if agentPod && !slices.ContainsFunc(o.PolicyAgentArgs, agentEnabled) {
+		off = append(off, "its agent does not run with --enable-network-policy=true (the add-on's "+
+			"enableNetworkPolicy)")
+	}
+	if len(off) == 0 {
+		return ""
+	}
+	return "the VPC CNI is present but enforces no NetworkPolicy: " + strings.Join(off, ", and ")
+}
+
+// agentEnabled reports a policy agent command line that switches
+// enforcement on.
+func agentEnabled(args []string) bool {
+	on := false
+	for _, a := range args {
+		switch v, ok := strings.CutPrefix(strings.TrimSpace(a), "--enable-network-policy"); {
+		case ok && v == "":
+			on = true
+		case ok && strings.HasPrefix(v, "="):
+			b, err := strconv.ParseBool(v[1:])
+			on = err == nil && b
+		}
+	}
+	return on
 }
 
 // imageName is an image reference's repository path, without the registry
@@ -204,7 +268,8 @@ func imageName(ref string) string {
 // release reads the release's preview settings.
 func release(o Observation) Release {
 	s := o.Release
-	r := Release{Previews: s.Preview.Found(), SignIn: s.Auth.Found(), LegacyIngress: true}
+	r := Release{Unknown: s.Preview.Err != nil || s.Auth.Err != nil, Previews: s.Preview.Found(),
+		SignIn: s.Auth.Found(), LegacyIngress: true}
 	if r.Previews {
 		r.HostSuffix = strings.TrimSpace(s.Preview.Data[KeyPreviewHostSuffix])
 		if v, ok := s.Preview.Data[KeyPreviewLegacy]; ok {
@@ -344,15 +409,21 @@ func Report(f Findings, a previewsetup.Answers) []string {
 	}
 	add("Ingress classes: %s; Gateway classes: %s", listOr(classes, "none"), listOr(f.GatewayClasses, "none"))
 	add("cert-manager: %s; Tailscale operator: %s", f.CertManager, f.Tailscale)
-	if f.NetworkPolicy != "" {
+	switch {
+	case f.NetworkPolicy != "":
 		add("NetworkPolicy: enforced by %s", f.NetworkPolicy)
-	} else {
+	case f.NetworkPolicyWarning != "":
+		add("warning: NetworkPolicy: %s; previews rely on it", f.NetworkPolicyWarning)
+	default:
 		add("warning: NetworkPolicy: no enforcer recognised in kube-system; previews rely on it, so check that " +
 			"your CNI enforces it")
 	}
 	out = append(out, nodeReport(f, a)...)
 	r := f.Release
 	switch {
+	case r.Unknown:
+		add("release in namespace %s: unknown, its ConfigMaps could not be read (see the note below)",
+			a.Namespace)
 	case !r.Previews:
 		add("release in namespace %s: previews not configured yet", a.Namespace)
 	case r.LegacyIngress:

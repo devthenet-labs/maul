@@ -8,6 +8,8 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -340,5 +342,116 @@ func TestSetupPreviewsDetectNeedsACluster(t *testing.T) {
 		"--kubeconfig", filepath.Join(t.TempDir(), "absent"))...)
 	if err == nil {
 		t.Fatal("--detect with no cluster succeeded")
+	}
+}
+
+// TestSetupPreviewsDetectUnreachableCluster: a kubeconfig that loads, but
+// whose API server refuses every connection, is an error too, not a run
+// that detects nothing (the client connects lazily, so loading it proves
+// nothing), and no file is written.
+func TestSetupPreviewsDetectUnreachableCluster(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := "https://" + l.Addr().String()
+	if err := l.Close(); err != nil {
+		t.Fatal(err)
+	}
+	kubeconfig := filepath.Join(t.TempDir(), "kubeconfig")
+	if err := os.WriteFile(kubeconfig, []byte(`apiVersion: v1
+kind: Config
+clusters:
+- name: refused
+  cluster:
+    server: `+server+`
+    insecure-skip-tls-verify: true
+users:
+- name: refused
+  user:
+    token: not-a-token
+contexts:
+- name: refused
+  context: {cluster: refused, user: refused, namespace: patchy}
+current-context: refused
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(t.TempDir(), "patchy-previews")
+	errOut, err := execPreviews(t, false, nil, "", append(previewsArgs(dir), "--detect", "--non-interactive",
+		"--kubeconfig", kubeconfig)...)
+	if err == nil || !strings.Contains(err.Error(), "--detect could not reach the cluster") {
+		t.Fatalf("err = %v, want the cluster unreachable\n%s", err, errOut)
+	}
+	if strings.Contains(errOut, "previews not configured yet") {
+		t.Errorf("judged an unreachable cluster:\n%s", errOut)
+	}
+	if exists(dir) {
+		t.Error("wrote files though detection failed")
+	}
+}
+
+// TestSetupPreviewsDetectOnATerminal: on a terminal, detection runs again
+// over the answers given at the prompts, so an answer that turns on a
+// detected fill (the edge, here: cert-manager matters only to an edge that
+// terminates TLS) gets it, and answers.yaml records it.
+func TestSetupPreviewsDetectOnATerminal(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "patchy-previews")
+	calls := 0
+	env := guardedEnv(t, detectWorld(), &calls)
+	errOut, err := execPreviews(t, true, env, answers("tailscale", "", "", ""), "setup", "previews", "-o", dir, "--detect",
+		"--dns", "route53", "--dns-option", "region=us-east-1",
+		"--viewer-team", "acme:qa", "--registry", "ghcr.io")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, errOut)
+	}
+	prompt := strings.Index(errOut, "(--edge)")
+	filled := strings.Index(errOut, "patchy: detected answer: --cert-manager-installed true")
+	if prompt < 0 || filled < prompt {
+		t.Fatalf("--cert-manager-installed not filled after the --edge prompt (prompt at %d, fill at %d):\n%s",
+			prompt, filled, errOut)
+	}
+	a, err := previewsetup.ParseAnswers([]byte(readFile(t, dir, previewsetup.AnswersFile)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Edge != previewsetup.EdgeTailscale || !a.Certificate.CertManagerInstalled {
+		t.Errorf("answers.yaml = %+v", a)
+	}
+	if exists(filepath.Join(dir, "upstream", "cert-manager.values.yaml")) {
+		t.Error("values for cert-manager written though it is installed")
+	}
+}
+
+// TestSetupPreviewsDetectOnARerun: a re-run's answers.yaml is the starting
+// point, and detection fills what is still open there, as documented: a
+// recorded false --cert-manager-installed becomes true once cert-manager's
+// CRD is found, while a recorded answer of any other kind (here the Dex
+// issuer) stays.
+func TestSetupPreviewsDetectOnARerun(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "patchy-previews")
+	args := []string{"setup", "previews", "-o", dir, "--platform", "k3d", "--edge", "tailscale",
+		"--host-suffix", "acme-previews.dev", "--sign-in-host", "preview-auth.patchy.acme.dev",
+		"--dex-issuer", "https://dex.other.dev", "--dns", "route53", "--dns-option", "region=us-east-1",
+		"--viewer-team", "acme:qa", "--registry", "ghcr.io"}
+	if errOut, err := execPreviews(t, false, nil, "", args...); err != nil {
+		t.Fatalf("%v\n%s", err, errOut)
+	}
+	calls := 0
+	errOut, err := execPreviews(t, false, guardedEnv(t, detectWorld(), &calls), "", "setup", "previews", "-o",
+		dir, "--detect", "-y")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, errOut)
+	}
+	if !strings.Contains(errOut, "patchy: detected answer: --cert-manager-installed true") ||
+		strings.Contains(errOut, "detected answer: --dex-issuer") {
+		t.Errorf("the re-run's fills:\n%s", errOut)
+	}
+	a, err := previewsetup.ParseAnswers([]byte(readFile(t, dir, previewsetup.AnswersFile)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !a.Certificate.CertManagerInstalled || a.Dex.Issuer != "https://dex.other.dev" {
+		t.Errorf("answers.yaml = %+v", a)
 	}
 }

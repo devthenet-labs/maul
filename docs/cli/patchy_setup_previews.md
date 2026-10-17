@@ -20,11 +20,14 @@ No cluster is contacted unless --detect is given. --detect reads the cluster you
 kubeconfig names, read-only and never a Secret: the nodes (the platform, and which carry
 the preview label and taint), the kubernetes Service and the API server's EndpointSlice,
 the kube-dns Service, IngressClasses, GatewayClasses, the cert-manager and Tailscale
-operator CRDs, kube-system's Pod images (what enforces NetworkPolicy) and the release's
-ConfigMaps in -n (an install's existing preview settings). It prints what it found, and
-fills in only answers neither a flag nor an earlier run gave: the platform, the host
-suffix, sign-in host and Dex issuer of an existing install, the kubernetes Service's /32
-as --api-server-cidr on EKS, and --cert-manager-installed and
+operator CRDs, kube-system's Pod images (what enforces NetworkPolicy), the
+kube-system/amazon-vpc-cni ConfigMap (whether the VPC CNI enforces it) and the release's
+ConfigMaps in -n (an install's existing preview settings). A cluster it cannot reach at
+all is an error. It prints what it found, and fills in only answers still open, even on
+a re-run (an empty one, --api-server-cidr auto, or a false --cert-manager-installed or
+--tailscale-operator-installed), never one a flag gives: the platform, the host suffix,
+sign-in host and Dex issuer of an existing install, the kubernetes Service's /32 as
+--api-server-cidr on EKS, and --cert-manager-installed and
 --tailscale-operator-installed.
 
 --edge existing routes through

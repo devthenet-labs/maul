@@ -528,20 +528,24 @@ sign-in.
 
 **`--detect`** is the only way the command reads a cluster. It uses your kubeconfig, read-only, and never reads a
 Secret. It reads the nodes, the `kubernetes` Service and the API server's EndpointSlice, the `kube-dns` Service,
-IngressClasses, GatewayClasses, the cert-manager and Tailscale operator CRDs, kube-system's Pod images and the release's
-ConfigMaps in `-n`. It prints what it found:
+IngressClasses, GatewayClasses, the cert-manager and Tailscale operator CRDs, kube-system's Pod images, the
+`kube-system/amazon-vpc-cni` ConfigMap and the release's ConfigMaps in `-n`. A cluster it cannot reach at all is an
+error. It prints what it found:
 
 - the platform;
 - the API server's and cluster DNS's addresses;
 - the edges already installed;
-- what enforces NetworkPolicy;
+- what enforces NetworkPolicy (the VPC CNI counts only once both its network policy controller and its agent are
+  switched on, since it ships with them off);
 - which nodes carry the preview label and taint;
-- whether the release already serves previews (and whether it still uses the legacy load balancer path).
+- whether the release already serves previews (and whether it still uses the legacy load balancer path), or that it
+  could not tell, when the release's ConfigMaps could not be read.
 
-It then fills in only the answers that neither a flag nor an earlier run gave: the platform, an existing install's host
-suffix, sign-in host and Dex issuer, the `kubernetes` Service's `/32` as `--api-server-cidr` on EKS, and
-`--cert-manager-installed` and `--tailscale-operator-installed`. The status page's Dex is not read, because its settings
-live in a Secret.
+It then fills in only the answers still open, never one a flag gives: an empty answer, `--api-server-cidr auto`, or a
+false `--cert-manager-installed` or `--tailscale-operator-installed`, even one an earlier run recorded in
+`answers.yaml`. What it fills: the platform, an existing install's host suffix, sign-in host and Dex issuer, the
+`kubernetes` Service's `/32` as `--api-server-cidr` on EKS, and `--cert-manager-installed` and
+`--tailscale-operator-installed`. The status page's Dex is not read, because its settings live in a Secret.
 
 A re-run starts from `answers.yaml`, and flags given override it. It shows how each file would change and writes a
 changed file only with `--force` or `-y`; on a terminal it asks first, and the default is no. The Dex client secret is

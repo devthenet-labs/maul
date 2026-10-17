@@ -74,11 +74,14 @@ func newSetupPreviewsCmd(opts *Options) *cobra.Command {
 			"kubeconfig names, read-only and never a Secret: the nodes (the platform, and which carry\n" +
 			"the preview label and taint), the kubernetes Service and the API server's EndpointSlice,\n" +
 			"the kube-dns Service, IngressClasses, GatewayClasses, the cert-manager and Tailscale\n" +
-			"operator CRDs, kube-system's Pod images (what enforces NetworkPolicy) and the release's\n" +
-			"ConfigMaps in -n (an install's existing preview settings). It prints what it found, and\n" +
-			"fills in only answers neither a flag nor an earlier run gave: the platform, the host\n" +
-			"suffix, sign-in host and Dex issuer of an existing install, the kubernetes Service's /32\n" +
-			"as --api-server-cidr on EKS, and --cert-manager-installed and\n" +
+			"operator CRDs, kube-system's Pod images (what enforces NetworkPolicy), the\n" +
+			"kube-system/amazon-vpc-cni ConfigMap (whether the VPC CNI enforces it) and the release's\n" +
+			"ConfigMaps in -n (an install's existing preview settings). A cluster it cannot reach at\n" +
+			"all is an error. It prints what it found, and fills in only answers still open, even on\n" +
+			"a re-run (an empty one, --api-server-cidr auto, or a false --cert-manager-installed or\n" +
+			"--tailscale-operator-installed), never one a flag gives: the platform, the host suffix,\n" +
+			"sign-in host and Dex issuer of an existing install, the kubernetes Service's /32 as\n" +
+			"--api-server-cidr on EKS, and --cert-manager-installed and\n" +
 			"--tailscale-operator-installed.\n\n" +
 			"--edge existing routes through\n" +
 			"an Ingress class or a Gateway API parent already in the cluster; --edge gateway-tls makes\n" +

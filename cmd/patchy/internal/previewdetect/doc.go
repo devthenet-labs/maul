@@ -13,16 +13,23 @@
 //     EndpointSlice, the kube-system/kube-dns Service, IngressClasses,
 //     GatewayClasses (gateway.networking.k8s.io, read unstructured), two
 //     CRDs by name (cert-manager's Certificate, the Tailscale operator's
-//     ProxyClass), the kube-system Pods' container images, and the patchy
-//     release's ConfigMaps (through previewcheck.LoadSettings). Nothing else:
-//     never a Secret, and nothing is written. A read that fails or is refused
-//     is recorded as a note, never an error; detection is a convenience.
+//     ProxyClass), the kube-system Pods' container images (and the VPC CNI
+//     policy agent's command line), the kube-system/amazon-vpc-cni ConfigMap
+//     (its network policy controller switch), and the patchy release's
+//     ConfigMaps (through previewcheck.LoadSettings). Nothing else: never a
+//     Secret, and nothing is written. A read that fails or is refused is
+//     recorded as a note, never an error; detection is a convenience. Only
+//     when no read reached the API server at all does Observation say the
+//     cluster is unreachable, which the command reports as an error.
 //   - Judge turns an Observation into Findings (the platform, the API
 //     server's addresses, the NetworkPolicy enforcer, what is installed, the
 //     release's own preview settings) and Apply lays Findings over the
-//     wizard's answers. Apply only fills what is still unanswered (empty, or
-//     the API server CIDR's default auto) and never an answer whose flag was
-//     given: a flag, or an answer an earlier run recorded, always wins.
+//     wizard's answers. Apply only fills what is still open (empty, the API
+//     server CIDR's default auto, or a false cert-manager or Tailscale
+//     operator "installed"), even when an earlier run recorded it in
+//     answers.yaml, and never an answer whose flag was given: a flag always
+//     wins. The VPC CNI counts as enforcing NetworkPolicy only with both of
+//     its switches on, since its agent ships switched off.
 //
 // The status page's Dex is not read: its OIDC settings live in a Secret
 // (statusServer.auth), which detection never reads. The release's own

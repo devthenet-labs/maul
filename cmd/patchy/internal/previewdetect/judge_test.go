@@ -4,6 +4,7 @@
 package previewdetect
 
 import (
+	"errors"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -67,26 +68,92 @@ func TestPlatformOf(t *testing.T) {
 }
 
 func TestEnforcer(t *testing.T) {
+	const agent = "602401143452.dkr.ecr.us-east-1.amazonaws.com/amazon/aws-network-policy-agent:v1.1"
+	on := [][]string{{"/controller", "--enable-ipv6=false", "--enable-network-policy=true"}}
 	for _, tc := range []struct {
-		images   []string
+		name     string
+		o        Observation
 		platform previewsetup.Platform
+		autoMode bool
 		want     string
 		ebpf     bool
+		warn     string
 	}{
-		{[]string{"quay.io/cilium/cilium:v1.16.0@sha256:abc"}, previewsetup.PlatformEKS, "Cilium", true},
-		{[]string{"docker.io/calico/node:v3.28"}, previewsetup.PlatformAKS, "Calico", false},
-		{[]string{"602401143452.dkr.ecr.us-east-1.amazonaws.com/amazon/aws-network-policy-agent:v1.1"},
-			previewsetup.PlatformEKS, "the VPC CNI network policy agent", false},
-		{[]string{"gke.gcr.io/anetd:v1"}, previewsetup.PlatformGKE, "GKE Dataplane V2 (Cilium)", true},
-		{nil, previewsetup.PlatformK3d, "kube-router, built into k3s", true},
-		{[]string{"rancher/mirrored-coredns-coredns:1.12.0"}, previewsetup.PlatformEKS, "", false},
+		{"cilium", Observation{Images: []string{"quay.io/cilium/cilium:v1.16.0@sha256:abc"}},
+			previewsetup.PlatformEKS, false, "Cilium", true, ""},
+		{"calico", Observation{Images: []string{"docker.io/calico/node:v3.28"}}, previewsetup.PlatformAKS, false,
+			"Calico", false, ""},
+		// The VPC CNI ships its agent in every aws-node Pod since v1.14,
+		// switched off: the image alone enforces nothing.
+		{"vpc cni default", Observation{Images: []string{agent},
+			PolicyAgentArgs: [][]string{{"/controller", "--enable-network-policy=false"}}},
+			previewsetup.PlatformEKS, false, "", false, "--enable-network-policy=true"},
+		{"vpc cni agent on, controller off", Observation{Images: []string{agent}, PolicyAgentArgs: on},
+			previewsetup.PlatformEKS, false, "", false, KeyVPCCNIPolicyController},
+		{"vpc cni controller on, agent off", Observation{Images: []string{agent},
+			VPCCNIPolicyController: "true"}, previewsetup.PlatformEKS, false, "", false, "--enable-network-policy"},
+		{"vpc cni both on", Observation{Images: []string{agent}, PolicyAgentArgs: on,
+			VPCCNIPolicyController: "true"}, previewsetup.PlatformEKS, false, vpcCNIAgent, false, ""},
+		{"vpc cni bare flag", Observation{Images: []string{agent}, VPCCNIPolicyController: "true",
+			PolicyAgentArgs: [][]string{{"--enable-network-policy"}}}, previewsetup.PlatformEKS, false,
+			vpcCNIAgent, false, ""},
+		{"vpc cni flag switched back off", Observation{Images: []string{agent}, VPCCNIPolicyController: "true",
+			PolicyAgentArgs: [][]string{{"--enable-network-policy=true", "--enable-network-policy=false"}}},
+			previewsetup.PlatformEKS, false, "", false, "--enable-network-policy=true"},
+		{"auto mode, controller on", Observation{VPCCNIPolicyController: "true"}, previewsetup.PlatformEKS, true,
+			vpcCNIController, false, ""},
+		{"auto mode, controller off", Observation{}, previewsetup.PlatformEKS, true, "", false,
+			KeyVPCCNIPolicyController},
+		{"gke", Observation{Images: []string{"gke.gcr.io/anetd:v1"}}, previewsetup.PlatformGKE, false,
+			"GKE Dataplane V2 (Cilium)", true, ""},
+		{"k3d", Observation{}, previewsetup.PlatformK3d, false, "kube-router, built into k3s", true, ""},
+		{"nothing", Observation{Images: []string{"rancher/mirrored-coredns-coredns:1.12.0"}},
+			previewsetup.PlatformEKS, false, "", false, ""},
 		// A registry host or tag naming an enforcer is not that enforcer.
-		{[]string{"cilium.example/coredns:calico"}, "", "", false},
+		{"host or tag", Observation{Images: []string{"cilium.example/coredns:calico"}}, "", false, "", false, ""},
 	} {
-		got, ebpf := enforcer(tc.images, tc.platform)
-		if !strings.HasPrefix(got, tc.want) || (tc.want == "" && got != "") || ebpf != tc.ebpf {
-			t.Errorf("enforcer(%v, %s) = %q, %v; want %q, %v", tc.images, tc.platform, got, ebpf, tc.want, tc.ebpf)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			got, ebpf, warn := enforcer(tc.o, tc.platform, tc.autoMode)
+			if !strings.HasPrefix(got, tc.want) || (tc.want == "" && got != "") || ebpf != tc.ebpf {
+				t.Errorf("enforcer = %q, %v; want %q, %v", got, ebpf, tc.want, tc.ebpf)
+			}
+			if (tc.warn == "") != (warn == "") || !strings.Contains(warn, tc.warn) {
+				t.Errorf("warning = %q, want one naming %q", warn, tc.warn)
+			}
+		})
+	}
+}
+
+// TestReportVPCCNIOff: a default EKS cluster, whose VPC CNI agent runs
+// switched off, is never reported as enforcing NetworkPolicy.
+func TestReportVPCCNIOff(t *testing.T) {
+	f := Judge(Observation{
+		Nodes: []Node{{Name: "ip-10-0-0-1", ProviderID: "aws:///us-east-1a/i-1",
+			Labels: map[string]string{"eks.amazonaws.com/nodegroup": "ng"}}},
+		Images:          []string{"602401143452.dkr.ecr.us-east-1.amazonaws.com/amazon/aws-network-policy-agent:v1.1"},
+		PolicyAgentArgs: [][]string{{"--enable-network-policy=false"}},
+	})
+	got := strings.Join(Report(f, previewsetup.Defaults()), "\n")
+	if strings.Contains(got, "NetworkPolicy: enforced") ||
+		!strings.Contains(got, "warning: NetworkPolicy: the VPC CNI is present but enforces no NetworkPolicy") {
+		t.Errorf("Report:\n%s", got)
+	}
+}
+
+// TestReportReleaseUnknown: a release whose ConfigMaps could not be read is
+// reported unknown, never "not configured yet", and gets no release
+// verdict at all.
+func TestReportReleaseUnknown(t *testing.T) {
+	refused := errors.New("configmaps is forbidden")
+	f := Judge(Observation{Release: previewcheck.Settings{Preview: previewcheck.ControllerConfig{Err: refused},
+		Auth: previewcheck.ControllerConfig{Err: refused}}, Notes: []string{refused.Error()}})
+	if !f.Release.Unknown {
+		t.Fatalf("Release = %+v, want Unknown", f.Release)
+	}
+	got := strings.Join(Report(f, previewsetup.Defaults()), "\n")
+	if !strings.Contains(got, "release in namespace patchy: unknown, its ConfigMaps could not be read") ||
+		strings.Contains(got, "not configured yet") || strings.Contains(got, "legacy") {
+		t.Errorf("Report:\n%s", got)
 	}
 }
 

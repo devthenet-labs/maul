@@ -5,6 +5,7 @@ package previewdetect
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"slices"
 	"strings"
@@ -220,5 +221,61 @@ func TestObserveEmptyCluster(t *testing.T) {
 	}
 	if o.Release.Preview.Found() || slices.Contains(o.Notes, "") {
 		t.Errorf("release found in an empty cluster")
+	}
+}
+
+// TestObserveUnreachable: when no read reaches the API server (the client
+// connects lazily, so each read fails on its own), Observe says the
+// cluster is unreachable; a cluster that refuses every read was reached.
+func TestObserveUnreachable(t *testing.T) {
+	refused := errors.New("dial tcp 127.0.0.1:1: connect: connection refused")
+	every := func(err error) interceptor.Funcs {
+		return interceptor.Funcs{
+			Get: func(context.Context, client.WithWatch, client.ObjectKey, client.Object, ...client.GetOption) error {
+				return err
+			},
+			List: func(context.Context, client.WithWatch, client.ObjectList, ...client.ListOption) error {
+				return err
+			},
+		}
+	}
+	o := observe(t, world(), every(refused))
+	if !errors.Is(o.Unreachable, refused) {
+		t.Errorf("Unreachable = %v, want %v", o.Unreachable, refused)
+	}
+	forbidden := apierrors.NewForbidden(schema.GroupResource{Resource: "nodes"}, "", nil)
+	if o := observe(t, world(), every(forbidden)); o.Unreachable != nil || len(o.Notes) == 0 {
+		t.Errorf("every read refused: Unreachable = %v, Notes = %q; want reached, with notes", o.Unreachable,
+			o.Notes)
+	}
+	if o := observe(t, world(), interceptor.Funcs{}); o.Unreachable != nil {
+		t.Errorf("a reachable cluster: Unreachable = %v", o.Unreachable)
+	}
+}
+
+// TestObserveVPCCNI: the VPC CNI network policy agent's command line and
+// the network policy controller switch are observed, nothing else of them.
+func TestObserveVPCCNI(t *testing.T) {
+	objs := append(world(),
+		&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Namespace: "kube-system", Name: "aws-node-abcde"},
+			Spec: corev1.PodSpec{Containers: []corev1.Container{
+				{Name: "aws-node", Image: "602401143452.dkr.ecr.us-east-1.amazonaws.com/amazon-k8s-cni:v1.19.0"},
+				{Name: "aws-eks-nodeagent",
+					Image:   "602401143452.dkr.ecr.us-east-1.amazonaws.com/amazon/aws-network-policy-agent:v1.1.5",
+					Command: []string{"/controller"}, Args: []string{"--enable-network-policy=false"}},
+			}}},
+		&corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Namespace: "kube-system", Name: "amazon-vpc-cni"},
+			Data: map[string]string{KeyVPCCNIPolicyController: " true ", "warm-ip-target": "5"}},
+	)
+	o := observe(t, objs, interceptor.Funcs{})
+	if want := [][]string{{"/controller", "--enable-network-policy=false"}}; !reflect.DeepEqual(o.PolicyAgentArgs,
+		want) {
+		t.Errorf("PolicyAgentArgs = %q, want %q", o.PolicyAgentArgs, want)
+	}
+	if o.VPCCNIPolicyController != "true" {
+		t.Errorf("VPCCNIPolicyController = %q", o.VPCCNIPolicyController)
+	}
+	if len(o.Notes) != 0 {
+		t.Errorf("Notes = %q", o.Notes)
 	}
 }
