@@ -76,12 +76,15 @@ is already assumed to be able to do (untrusted code with the agent's powers), so
   tool either. `Edit` and `Write` cannot be denied by name, since a bare deny removes the tool and the stage writes and
   fixes up its report with them. Writes are allowed only under the stage's `reports/` directory (a path-scoped `Edit`
   rule; a write the rules do not allow is refused), which leaves out the repository tree, its `.git` directory, and the
-  settings under `HOME` (the workspace) that the CLI reads. The CLI still lets the agent write the few files it manages
-  for itself (its memory and scratch files) whatever the rules say, so a read-only run also turns the CLI's auto memory
-  off (`CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`). A [report repair](../configuration/agent-runner.md#report-repair), which
+  settings under `HOME` (the workspace) that the CLI reads. The posture also runs with `--restricted`, which confines
+  `Read`, `Glob` and `Grep` to the directories the run adds (the tree and the workspace), so the agent cannot read
+  `/etc`, `/proc` or the projected broker token. The CLI still lets the agent write the few files it manages for itself
+  (its memory and scratch files) whatever the rules say, so a read-only run also turns the CLI's auto memory off
+  (`CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`). A [report repair](../configuration/agent-runner.md#report-repair), which
   resumes the same session with the same flags, therefore loads no settings or memory the agent wrote.
 - **Workspace-write** (`remediate`, and an intent's `build`): the CLI's built-in tools with a shell, so the agent can
-  build and test; network tools stay denied.
+  build and test; network tools stay denied. It does not run with `--restricted`, which would take its shell and refuse
+  writes to tool-configuration files and CI definitions that a fix may need to change.
 
 codex and copilot do not express these postures (see [extending](../extending.md)); on them the pod is the boundary, and
 the intent stages run on brokered claude only. An investigation on either still has a shell and unscoped writes, so its

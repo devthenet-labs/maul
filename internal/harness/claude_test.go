@@ -105,7 +105,7 @@ func TestClaudePromptSpecReadOnly(t *testing.T) {
 		"claude", "-p", "look", "--model", "m", "--output-format", "stream-json", "--verbose",
 		"--tools", "Read,Glob,Grep,Edit,Write",
 		"--allowedTools", "Read Glob Grep Write",
-		"--disallowedTools", "WebFetch WebSearch Task Bash NotebookEdit MultiEdit",
+		"--disallowedTools", "WebFetch WebSearch Task Bash NotebookEdit MultiEdit", "--restricted",
 		"--setting-sources", "user", "--permission-mode", "dontAsk",
 		"--strict-mcp-config",
 		"--add-dir", "/ws",
@@ -140,6 +140,33 @@ func TestClaudeReadOnlyDeniesTheOtherEditTools(t *testing.T) {
 		for _, tool := range []string{"Edit", "Write"} {
 			if slices.Contains(deny, tool) {
 				t.Errorf("%s: deny %q names %s, which would remove the tool the report needs", name, deny, tool)
+			}
+		}
+	}
+}
+
+// TestClaudeRestrictedOnlyReadOnly: the read-only posture runs with
+// --restricted, which confines its file tools to the directories it adds, on
+// its first run and on resume; the writable posture does not, since the flag
+// would take its shell, and an unpostured run imposes nothing.
+func TestClaudeRestrictedOnlyReadOnly(t *testing.T) {
+	c := NewClaude()
+	for _, tt := range []struct {
+		sandbox Sandbox
+		want    bool
+	}{
+		{SandboxReadOnly, true},
+		{SandboxWorkspaceWrite, false},
+		{SandboxDefault, false},
+	} {
+		req := PromptRequest{Prompt: "p", Model: "m", Sandbox: tt.sandbox, AddDirs: []string{"/workspace"}}
+		for name, argv := range map[string][]string{
+			"first run": c.PromptSpec("/workspace/repo", req).Argv,
+			"resume":    c.ResumeSpec("/workspace/repo", claudeSessionID, req).Argv,
+		} {
+			if got := countArg(argv, "--restricted"); got != map[bool]int{true: 1, false: 0}[tt.want] {
+				t.Errorf("sandbox %d, %s: --restricted given %d times in %q, want restricted = %v",
+					tt.sandbox, name, got, argv, tt.want)
 			}
 		}
 	}

@@ -38,7 +38,7 @@ func TestClaudePromptSpecReadOnlyWriteDirs(t *testing.T) {
 				"claude", "-p", "plan", "--model", "m", "--output-format", "stream-json", "--verbose",
 				"--tools", "Read,Glob,Grep,Edit,Write",
 				"--allowedTools", tt.want,
-				"--disallowedTools", "WebFetch WebSearch Task Bash NotebookEdit MultiEdit",
+				"--disallowedTools", "WebFetch WebSearch Task Bash NotebookEdit MultiEdit", "--restricted",
 				"--setting-sources", "user", "--permission-mode", "dontAsk", "--strict-mcp-config", "--add-dir", "/work/repo",
 			}
 			if !slices.Equal(spec.Argv, want) {

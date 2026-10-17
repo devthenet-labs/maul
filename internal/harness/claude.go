@@ -79,17 +79,43 @@ func NewClaude() *Claude {
 // A multi-repository intent's planner reads its other repositories' trees
 // with the same read-only tools: they sit under the workspace the stage adds
 // as a directory.
-var claudeTools = map[Sandbox]struct{ tools, allow, deny []string }{
+var claudeTools = map[Sandbox]struct {
+	tools, allow, deny []string
+	restricted         bool // render --restricted; see claudeRestricted
+}{
 	SandboxReadOnly: {
-		tools: []string{"Read", "Glob", "Grep", "Edit", "Write"},
-		allow: []string{"Read", "Glob", "Grep", "Write"},
-		deny:  []string{"WebFetch", "WebSearch", "Task", "Bash", "NotebookEdit", "MultiEdit"},
+		tools:      []string{"Read", "Glob", "Grep", "Edit", "Write"},
+		allow:      []string{"Read", "Glob", "Grep", "Write"},
+		deny:       []string{"WebFetch", "WebSearch", "Task", "Bash", "NotebookEdit", "MultiEdit"},
+		restricted: true,
 	},
 	SandboxWorkspaceWrite: {
 		allow: []string{"Read", "Glob", "Grep", "Edit", "Write", "NotebookEdit", "Bash"},
 		deny:  []string{"WebFetch", "WebSearch"},
 	},
 }
+
+// claudeRestricted documents why only the read-only posture runs with
+// --restricted. On the pinned CLI (2.1.263) the flag removes the built-in
+// tools that run commands or code (Bash among them) and WebFetch unless
+// --tools names them, ignores the user, project and local settings files
+// (managed settings still apply), confines the file tools to the working
+// directories (the run's directory and its --add-dir directories), refuses
+// bypassPermissions, and leaves writes to settings, git and
+// tool-configuration files to a person or a permission handler, which -p
+// does not have.
+//
+// The read-only posture uses none of what that removes: its --tools names
+// no code-running tool, its user source is empty in the pod, and it reads
+// only the tree, the workspace's inputs and its siblings' trees, all under
+// directories it adds. What it gains is the read confinement: without the
+// flag Read, Glob and Grep reach the whole filesystem (/etc, /proc, the
+// projected token), and with it they are refused outside the workspace
+// (probed). The writable posture does not take it: it renders no --tools,
+// so the flag would take its shell, and a remediation or a build may have
+// to change a tool-configuration file or a CI definition the flag would
+// refuse.
+const claudeRestricted = "--restricted"
 
 // claudeSettingSources is the one settings source a postured run reads, so
 // that the posture is patchy's alone. claude -p never asks whether to trust
@@ -186,6 +212,9 @@ func (c *Claude) PromptSpec(ws string, req PromptRequest) runner.CommandSpec {
 		}
 		argv = append(argv, "--allowedTools", strings.Join(claudeAllow(ws, req, t.allow), " "))
 		argv = append(argv, "--disallowedTools", strings.Join(t.deny, " "))
+		if t.restricted {
+			argv = append(argv, claudeRestricted)
+		}
 		argv = append(argv, "--setting-sources", claudeSettingSources, "--permission-mode", claudePermissionMode,
 			"--strict-mcp-config", "--add-dir", ws)
 		env = append(slices.Clip(req.Env), claudeMDFromAddDirs)
