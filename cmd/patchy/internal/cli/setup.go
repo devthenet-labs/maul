@@ -40,7 +40,7 @@ func newSetupCmd(opts *Options) *cobra.Command {
 			"namespace a written manifest carries.",
 		Args: cobra.NoArgs,
 	}
-	cmd.AddCommand(newSetupGitHubAppCmd(opts))
+	cmd.AddCommand(newSetupGitHubAppCmd(opts), newSetupPreviewsCmd(opts))
 	return cmd
 }
 
