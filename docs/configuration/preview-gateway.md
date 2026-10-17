@@ -111,12 +111,18 @@ Rules that hold on every platform:
 
 ## Platform recipes
 
-Each recipe routes `*.<hostSuffix>` and the sign-in host to the gateway. When the sign-in host is `previewAuth.host`,
-the relay's own Ingress already routes it, and the exposure carries the wildcard only. That Ingress takes the edge class
-(`edgeIngressClass`, an ALB on EKS) unless `previewAuth.ingress` names another, so every recipe off the edge ALB sets
-`previewAuth.ingress.className` and its TLS as well as the gateway's. The same holds when you set
-`previewAuth.gateway.signInHost` to a host of its own: register `https://<sign-in host>/dex/callback` at Dex for the
-relay's client first.
+Each recipe routes `*.<hostSuffix>` and the sign-in host. When the sign-in host is `previewAuth.host` (the default), the
+chart's gateway exposure carries the wildcard only, and the sign-in host reaches the relay some other way:
+
+- **Through the relay's own Ingress** (EKS, ingress-nginx, Traefik). It takes the edge class (`edgeIngressClass`, an ALB
+  on EKS) unless `previewAuth.ingress` names another, so every Ingress recipe off the edge ALB sets
+  `previewAuth.ingress.className` and its TLS as well as the gateway's.
+- **Through the gateway's Service** (Gateway API, Cloudflare Tunnel, a LoadBalancer). The gateway's listener answers the
+  relay's host as the relay does, so the recipe sends the sign-in host there too: an HTTPRoute of your own, a
+  cloudflared rule, or the same DNS address. The relay's Ingress then renders with no class and nothing serves it.
+
+A sign-in host of its own (`previewAuth.gateway.signInHost`) is carried by the gateway's Ingress or HTTPRoute beside the
+wildcard. Register `https://<sign-in host>/dex/callback` at Dex for the relay's client first.
 
 ### The wildcard certificate
 
@@ -125,7 +131,9 @@ cert-manager `Certificate` in the release namespace. It covers `*.<hostSuffix>` 
 named in values. Do not also put a `cert-manager.io/cluster-issuer` or `cert-manager.io/issuer` annotation on either
 Ingress: cert-manager would then create a second Certificate for the same Secret from the Ingress (ingress-shim), and
 the two would fight over it. On the edge ALB, Gateway API with a listener certificate, and Cloudflare, the edge holds
-the certificate and none of this applies.
+the certificate and none of this applies, but it must hold one for the sign-in host as well as `*.<hostSuffix>`: the
+wildcard never covers the sign-in host, which sits outside the suffix. On Gateway API that is a listener of its own
+(below).
 
 ```yaml
 # preview-certificate.yaml, applied in the release namespace once cert-manager runs
@@ -278,23 +286,85 @@ previewAuth:
           sectionName: https-previews
 ```
 
-The chart renders one HTTPRoute for `*.<hostSuffix>` (and a sign-in host of its own). TLS is the listener's: give the
-Gateway an HTTPS listener whose hostname is `*.<hostSuffix>`, with a wildcard certificate, and allow routes from the
-release namespace. Check `forwardedHops` against your implementation: Envoy-based ones (Envoy Gateway, Istio, Contour)
-append one entry. An allowlist at the edge is the implementation's own policy resource, where it has one. An HTTPRoute
-publishes no address of its own, so set `publishedAddresses` to the Gateway's for `patchy check project`.
+The chart renders one HTTPRoute for `*.<hostSuffix>` (and for a sign-in host of its own, which then needs a listener
+under the same `parentRefs`). The default sign-in host, `previewAuth.host`, is not on it, and on a cluster with no
+ingress controller the relay's own Ingress routes nothing, so route that host to the gateway's Service with an HTTPRoute
+of your own. TLS is the listeners': give the Gateway one HTTPS listener for `*.<hostSuffix>` and one for the sign-in
+host, each with a certificate (the wildcard never covers the sign-in host), and allow routes from the release namespace.
+
+```yaml
+# The Gateway's listeners (in the Gateway the platform team owns) and the sign-in host's route
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: edge
+  namespace: gateway-system
+spec:
+  gatewayClassName: eg # your implementation's class
+  listeners:
+    - name: https-previews
+      hostname: "*.preview.acme-apps.dev"
+      port: 443
+      protocol: HTTPS
+      tls:
+        certificateRefs:
+          - name: preview-wildcard-tls
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              kubernetes.io/metadata.name: patchy
+    - name: https-sign-in
+      hostname: preview-auth.patchy.acme.dev
+      port: 443
+      protocol: HTTPS
+      tls:
+        certificateRefs:
+          - name: preview-sign-in-tls
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              kubernetes.io/metadata.name: patchy
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: preview-sign-in
+  namespace: patchy
+spec:
+  parentRefs:
+    - name: edge
+      namespace: gateway-system
+      sectionName: https-sign-in
+  hostnames:
+    - preview-auth.patchy.acme.dev
+  rules:
+    - backendRefs:
+        - name: patchy-preview-gateway # the gateway answers the relay's host as the relay does
+          port: 80
+```
+
+A listener's certificate Secret lives in the Gateway's namespace, or in another one through a `ReferenceGrant`. Check
+`forwardedHops` against your implementation: Envoy-based ones (Envoy Gateway, Istio, Contour) append one entry. An
+allowlist at the edge is the implementation's own policy resource, where it has one. An HTTPRoute publishes no address
+of its own, so set `publishedAddresses` to the Gateway's for `patchy check project`.
 
 ### Cloudflare Tunnel
 
 No exposure in the chart. `cloudflared` runs in the cluster and connects out to Cloudflare. Leave `ingress`, `httpRoute`
-and `service.type` at their defaults, and route both hosts to the gateway's Service in cloudflared's configuration:
+and `service.type` at their defaults, and route both hosts to the gateway's Service in cloudflared's configuration. The
+sign-in host goes there too: the gateway answers the relay's host as the relay does, and nothing else routes it, because
+the relay's own Ingress has no class off the edge ALB. Cloudflare holds both certificates.
 
 ```yaml
 # cloudflared config.yaml
 ingress:
   - hostname: "*.preview.acme-apps.dev"
     service: http://patchy-preview-gateway.patchy.svc.cluster.local:80
-  - hostname: preview-auth.patchy.acme.dev # only when it is not already routed to the relay
+  - hostname: preview-auth.patchy.acme.dev # the sign-in host
     service: http://patchy-preview-gateway.patchy.svc.cluster.local:80
   - service: http_status:404
 ```
@@ -306,7 +376,8 @@ previewAuth:
     forwardedHops: 1 # Cloudflare's edge appends the client's address; cloudflared adds none
 ```
 
-- A proxied wildcard DNS record, `*.preview.acme-apps.dev`, is a CNAME to `<tunnel id>.cfargotunnel.com`.
+- Two proxied DNS records, `*.preview.acme-apps.dev` and the sign-in host, are each a CNAME to
+  `<tunnel id>.cfargotunnel.com`.
 - **Bypass the cache** for the preview hostnames: a Cache Rule matching `http.host` under `.preview.acme-apps.dev` with
   "Bypass cache". Cloudflare honours `private`, but a rule that caches by extension does not.
 - The relay's NetworkPolicy admits `previewAuth.ingressFrom` (empty is anywhere) on the gateway's port 8082. If you set
@@ -364,7 +435,8 @@ On a LAN, binding the serverlb to the host's LAN address works the same, as long
 A LoadBalancer exposure (`service.type: LoadBalancer`, with `tls.secrets` naming
 [the wildcard certificate](#the-wildcard-certificate)'s Secret, so the gateway terminates TLS itself) needs no ingress
 controller at all and suits MetalLB or a cloud L4 load balancer. Keep `externalTrafficPolicy: Local` and
-`forwardedHops: 0` there.
+`forwardedHops: 0` there, and point the sign-in host's record at the same address: the gateway answers it as the relay
+does.
 
 ## Moving off the preview ALB (EKS, release N)
 
