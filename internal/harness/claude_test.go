@@ -5,6 +5,7 @@ package harness
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -104,13 +105,43 @@ func TestClaudePromptSpecReadOnly(t *testing.T) {
 		"claude", "-p", "look", "--model", "m", "--output-format", "stream-json", "--verbose",
 		"--tools", "Read,Glob,Grep,Edit,Write",
 		"--allowedTools", "Read Glob Grep Write",
-		"--disallowedTools", "WebFetch WebSearch Task Bash",
+		"--disallowedTools", "WebFetch WebSearch Task Bash NotebookEdit MultiEdit",
 		"--setting-sources", "user",
 		"--strict-mcp-config",
 		"--add-dir", "/ws",
 	}
 	if !slices.Equal(spec.Argv, want) {
 		t.Errorf("Argv =\n%q\nwant\n%q", spec.Argv, want)
+	}
+}
+
+// TestClaudeReadOnlyDeniesTheOtherEditTools: the read-only posture denies
+// NotebookEdit and MultiEdit by name, so no allow rule from a settings source
+// the run still reads can bring either back, and never denies Edit or Write by
+// name: a bare deny removes the tool outright (probed on 2.1.263), and the
+// stages write their report with Write and fix it up in place with Edit. Both
+// are held to the write scope by the allow list instead.
+func TestClaudeReadOnlyDeniesTheOtherEditTools(t *testing.T) {
+	req := PromptRequest{Prompt: "p", Model: "m", Sandbox: SandboxReadOnly, WriteDirs: []string{"/workspace/reports"}}
+	for name, argv := range map[string][]string{
+		"first run": NewClaude().PromptSpec("/ws", req).Argv,
+		"resume":    NewClaude().ResumeSpec("/ws", claudeSessionID, req).Argv,
+	} {
+		i := slices.Index(argv, "--disallowedTools")
+		if i < 0 || i+1 >= len(argv) {
+			t.Fatalf("%s: argv lacks --disallowedTools: %q", name, argv)
+		}
+		deny := strings.Fields(argv[i+1])
+		for _, tool := range []string{"NotebookEdit", "MultiEdit", "Bash"} {
+			if !slices.Contains(deny, tool) {
+				t.Errorf("%s: deny %q lacks %s", name, deny, tool)
+			}
+		}
+		for _, tool := range []string{"Edit", "Write"} {
+			if slices.Contains(deny, tool) {
+				t.Errorf("%s: deny %q names %s, which would remove the tool the report needs", name, deny, tool)
+			}
+		}
 	}
 }
 

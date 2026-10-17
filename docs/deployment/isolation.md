@@ -63,13 +63,14 @@ Inside the pod, the claude harness renders each stage's sandbox posture into the
 from changing what a stage may run.
 
 - **Read-only** (`investigate`, and an intent's `plan`): no shell. `--tools Read,Glob,Grep,Edit,Write` is the whole
-  built-in tool set the run has, and `Bash` is denied by name as well, so neither arbitrary commands nor the CLI's
-  built-in read-only shell commands are available, and no subagent, network or notebook tool either. Writes are allowed
-  only under the stage's `reports/` directory (a path-scoped `Edit` rule; in `-p` mode a write the rules do not allow is
-  refused), which leaves out the repository tree, its `.git` directory, and the settings under `HOME` (the workspace)
-  that the CLI reads. The CLI still lets the agent write the few files it manages for itself (its memory and scratch
-  files) whatever the rules say, so a read-only run also turns the CLI's auto memory off
-  (`CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`). A [report repair](../configuration/agent-runner.md#report-repair), which
+  built-in tool set the run has, and `Bash`, `NotebookEdit` and `MultiEdit` are denied by name as well, so neither
+  arbitrary commands nor the CLI's built-in read-only shell commands are available, and no subagent, network or notebook
+  tool either. `Edit` and `Write` cannot be denied by name, since a bare deny removes the tool and the stage writes and
+  fixes up its report with them. Writes are allowed only under the stage's `reports/` directory (a path-scoped `Edit`
+  rule; a write the rules do not allow is refused), which leaves out the repository tree, its `.git` directory, and the
+  settings under `HOME` (the workspace) that the CLI reads. The CLI still lets the agent write the few files it manages
+  for itself (its memory and scratch files) whatever the rules say, so a read-only run also turns the CLI's auto memory
+  off (`CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`). A [report repair](../configuration/agent-runner.md#report-repair), which
   resumes the same session with the same flags, therefore loads no settings or memory the agent wrote.
 - **Workspace-write** (`remediate`, and an intent's `build`): the CLI's built-in tools with a shell, so the agent can
   build and test; network tools stay denied.

@@ -55,9 +55,14 @@ func NewClaude() *Claude {
 // available; subagents, notebooks and every other built-in tool are absent
 // too. Naming Glob and Grep in --tools is also what gives a Linux run those
 // two tools, which the CLI otherwise leaves out in favour of find and grep
-// through Bash. Edit is left out of the allow list and Write is allowed only
-// as the request's WriteDirs scope it (claudeAllow; in -p mode a tool call
-// that is not allowed is refused), so a stage that sets WriteDirs can write
+// through Bash. NotebookEdit and MultiEdit (which older CLIs carried) are
+// denied by name as well, so no settings source's allow rule can bring
+// either back. Edit cannot be: a deny names a tool, not a path, and a bare
+// Edit deny removes the tool outright (probed on 2.1.263), while the plan
+// stage is told to fix its report up with Edit in place. So Edit stays in
+// --tools, is left out of the allow list, and is allowed only as the
+// request's WriteDirs scope it (claudeAllow), as Write is; a call outside
+// that scope is refused, so a stage that sets WriteDirs can write
 // nowhere but its report directory: not the tree, not its .git directory, and
 // not the settings the CLI reads (claudeSettingSources), which a report
 // repair's resumed run would load. The CLI's own exceptions for files it
@@ -78,7 +83,7 @@ var claudeTools = map[Sandbox]struct{ tools, allow, deny []string }{
 	SandboxReadOnly: {
 		tools: []string{"Read", "Glob", "Grep", "Edit", "Write"},
 		allow: []string{"Read", "Glob", "Grep", "Write"},
-		deny:  []string{"WebFetch", "WebSearch", "Task", "Bash"},
+		deny:  []string{"WebFetch", "WebSearch", "Task", "Bash", "NotebookEdit", "MultiEdit"},
 	},
 	SandboxWorkspaceWrite: {
 		allow: []string{"Read", "Glob", "Grep", "Edit", "Write", "NotebookEdit", "Bash"},

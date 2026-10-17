@@ -132,7 +132,7 @@ Read Glob Grep Edit(//workspace/reports/**)
 --- argv[14]
 --disallowedTools
 --- argv[15]
-WebFetch WebSearch Task Bash
+WebFetch WebSearch Task Bash NotebookEdit MultiEdit
 --- argv[16]
 --setting-sources
 --- argv[17]
