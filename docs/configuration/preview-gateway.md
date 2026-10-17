@@ -388,6 +388,32 @@ previewAuth:
 - A proxied record resolves to Cloudflare's addresses, not the tunnel's. `patchy check project`'s DNS line then SKIPs
   with no `publishedAddresses`; check the record in the Cloudflare dashboard instead.
 
+`patchy setup previews --edge cloudflare-tunnel --tunnel-credentials ~/.cloudflared/<tunnel id>.json` (hidden while the
+command is built) writes all of this: the values above, cloudflared's namespace, config, Deployment (two replicas, the
+image pinned by digest, no ServiceAccount token, a read-only root) and a NetworkPolicy that lets it reach only DNS, the
+gateway's Pods on 8082 and Cloudflare on 443 and 7844, plus the credentials file as a Secret manifest in cloudflared's
+namespace. It never reads `cert.pem`, which stays on your workstation.
+
+**Certificate depth.** Cloudflare's free Universal SSL certificate covers a zone's apex and its first-level names only
+(`acme-previews.dev` and `*.acme-previews.dev`). A preview host is `<label>.<hostSuffix>`, so with
+`hostSuffix: preview.acme-apps.dev` every preview host is a second-level name that Universal SSL does not cover, and
+browsers are shown an invalid certificate unless the zone has Advanced Certificate Manager (a paid add-on: an advanced
+certificate for the wildcard, or Total TLS). The same holds for the sign-in host, which the tunnel also serves:
+`preview-auth.acme.dev` is covered, `preview-auth.patchy.acme.dev` is not. Put previews on a domain of their own, which
+the gateway's isolation needs anyway (preview code must never be same-site with sign-in), and make `hostSuffix` that
+domain itself. `setup previews` refuses deeper names unless `--cloudflare-acm` says the zones have Advanced Certificate
+Manager, and refuses one registrable domain for both names whatever the certificate.
+
+**Locally-managed, not remotely-managed.** The recipe uses a locally-managed tunnel: its ingress rules live in
+cloudflared's own config (a ConfigMap here), which accepts a wildcard hostname, first match wins, ending in a catch-all.
+Whether a remotely-managed tunnel (configured in the dashboard or the API, run with a token) accepts a wildcard
+published-application hostname was checked on 2026-10-17 and is not settled by Cloudflare's documentation: the
+[routing docs](https://developers.cloudflare.com/tunnel/routing/) show single hostnames only and say the dashboard
+creates each hostname's DNS record. Community reports say the dashboard does accept `*` as the subdomain but then
+creates no wildcard record, so the proxied `*` CNAME is added by hand. Not verified against a live account (patchy calls
+no provider API, owner decision Q2). Until it is, a remotely-managed tunnel works only if you add that record yourself,
+and its rules then live outside anything patchy writes or `setup previews` can diff.
+
 ### k3d with wildcard DNS and cert-manager
 
 A desktop cluster with no public load balancer. An ingress controller terminates TLS with
