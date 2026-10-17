@@ -54,6 +54,7 @@ previewController:
   enabled: true
 previewAuth:
   enabled: true
+  # no stage: a gateway-only install takes one helm upgrade (below)
   host: preview-auth.patchy.acme.dev # the sign-in host by default
   gateway:
     enabled: true
@@ -78,6 +79,14 @@ With it on:
 - The relay's host probe expects the path in force: either path's redirect while `preview.legacyIngress` is `true`, and
   only the gateway's redirect, plus its `404` for a host no Preview owns, once it is `false`
   (`--preview-auth-probe-mode`, which the chart sets).
+
+**A gateway-only install sets no `previewAuth.stage`.** The permit and require stages, and the two `helm upgrade`s
+between them, exist for the preview ALB: Helm applies a slot Ingress before the admission policies that judge its
+sign-in annotations. With `preview.legacyIngress: false` from the start no slot Ingress is ever rendered, so leave
+`stage` at its default and turn everything above on in one upgrade. What `require` adds there (the ALB's annotation sets
+in preview-controller's configuration, and a kept admission policy for slot Ingresses) has nothing to act on. An install
+that already reached `require` on the ALB path keeps it while it moves: stepping back to `permit` is the
+[rollback runbook](../intents/preview-sign-in.md#rolling-back), not a cleanup.
 
 `preview.nodeIsolation.mode: none` is an explicit opt-out for a cluster with no dedicated preview nodes. Preview code
 then shares nodes with everything else. Keep the default `required` wherever you can.

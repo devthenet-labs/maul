@@ -15,7 +15,9 @@ with its own gate ([Opening previews to the internet](#opening-previews-to-the-i
     [preview gateway](../configuration/preview-gateway.md) signs them in itself, on any cluster, and in release N runs
     beside this path. Sections 1 (Dex) and 2 (who may view) apply to it unchanged, and so do key rotation and
     [Check it](#check-it)'s `patchy check project`. The permit and require stages, the slot Ingress annotations and the
-    `aws elbv2` check are the ALB's alone. Moving an EKS install from this path to the gateway is
+    `aws elbv2` check are the ALB's alone: a fresh gateway-only install sets no `stage` and turns sign-in on in one
+    `helm upgrade` ([Turning it on](../configuration/preview-gateway.md#turning-it-on)). Moving an EKS install from this
+    path to the gateway is
     [three steps, rolled back by DNS](../configuration/preview-gateway.md#moving-off-the-preview-alb-eks-release-n).
 
 What it guarantees:
