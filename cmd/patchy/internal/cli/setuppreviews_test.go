@@ -199,6 +199,7 @@ func TestSetupPreviewsRefusals(t *testing.T) {
 		"registry path":     {previewsArgs("x", "--registry", "ghcr.io/acme"), "holds a path"},
 		"both edges":        {previewsArgs("x", "--gateway-parent", "gw/edge"), "exclusive"},
 		"platform unknown":  {previewsArgs("x", "--platform", "openshift"), "--platform"},
+		"viewers and none":  {previewsArgs("x", "--no-viewers"), "exclusive"},
 		"auto mode form":    {previewsArgs("x", "--platform", "eks", "--eks-auto-mode", "pool"), "<nodePool>/<nodeClass>"},
 		"auto mode off eks": {previewsArgs("x", "--eks-auto-mode", "pool/class"), "--platform eks"},
 	} {
@@ -215,6 +216,33 @@ func TestSetupPreviewsRefusals(t *testing.T) {
 		}
 		if entries, _ := os.ReadDir(dir); len(entries) > 0 {
 			t.Errorf("%s: a refused run wrote %d entries", name, len(entries))
+		}
+	}
+}
+
+// TestSetupPreviewsRerunConflicts: flags that clear each other's answer
+// are refused on a re-run too, where they are laid over answers.yaml.
+// Regression: there each setter cleared the other's answer in map order,
+// so one silently won and Validate never saw the conflict.
+func TestSetupPreviewsRerunConflicts(t *testing.T) {
+	dir := t.TempDir()
+	if _, errOut, err := execSetup(t, nil, previewsArgs(dir)...); err != nil {
+		t.Fatalf("first run: %v\n%s", err, errOut)
+	}
+	before := readFile(t, dir, previewsetup.AnswersFile)
+	for name, args := range map[string][]string{
+		"both edges":     {"--ingress-class", "nginx", "--gateway-parent", "gw/edge"},
+		"no viewers too": {"--no-viewers", "--viewer-team", "acme:dev"},
+		"users too":      {"--viewer-user", "octocat", "--no-viewers"},
+	} {
+		for range 5 { // map order varied the outcome run to run
+			_, _, err := execSetup(t, nil, append([]string{"setup", "previews", "-o", dir, "--force"}, args...)...)
+			if err == nil || !strings.Contains(err.Error(), "exclusive") || exitCode(err) != 2 {
+				t.Fatalf("%s: %v (exit %d), want a usage error naming exclusive flags", name, err, exitCode(err))
+			}
+		}
+		if readFile(t, dir, previewsetup.AnswersFile) != before {
+			t.Fatalf("%s: a refused re-run changed answers.yaml", name)
 		}
 	}
 }

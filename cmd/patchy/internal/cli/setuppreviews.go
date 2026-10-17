@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -157,11 +159,25 @@ func answerFlags(dst *previewsetup.Answers, src previewsetup.Answers) map[string
 	}
 }
 
+// exclusiveAnswerFlags are the answer flags that may not be given
+// together: each one's setter clears the other's answer, so on a re-run
+// the last to run would win silently.
+var exclusiveAnswerFlags = [][2]string{
+	{"ingress-class", "gateway-parent"},
+	{"no-viewers", "viewer-team"},
+	{"no-viewers", "viewer-user"},
+}
+
 // resolveAnswers is the run's answers: answers.yaml under dir when there
 // is one, with the flags given laid over it; else the flags over the
 // defaults.
 func resolveAnswers(cmd *cobra.Command, opts *Options, f *setupPreviewsFlags,
 	flags previewsetup.Answers) (previewsetup.Answers, bool, error) {
+	for _, pair := range exclusiveAnswerFlags {
+		if cmd.Flags().Changed(pair[0]) && cmd.Flags().Changed(pair[1]) {
+			return flags, false, errUsage(fmt.Errorf("--%s and --%s are exclusive", pair[0], pair[1]))
+		}
+	}
 	eks, err := previewsetup.ParseEKSAutoMode(f.eksAutoMode)
 	if err != nil {
 		return flags, false, errUsage(err)
@@ -189,9 +205,11 @@ func resolveAnswers(cmd *cobra.Command, opts *Options, f *setupPreviewsFlags,
 	if err != nil {
 		return flags, false, fmt.Errorf("%s: %w; fix it, or move it away to start afresh", path, err)
 	}
-	for name, set := range answerFlags(&a, flags) {
+	setters := answerFlags(&a, flags)
+	// In a fixed order, though no two flags given may now touch one answer.
+	for _, name := range slices.Sorted(maps.Keys(setters)) {
 		if cmd.Flags().Changed(name) {
-			set()
+			setters[name]()
 		}
 	}
 	if cmd.Flags().Changed("namespace") {
