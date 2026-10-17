@@ -81,6 +81,9 @@ type Secrets struct {
 	// DNS is the DNS-01 solver's credential, zero when the operator gave
 	// none (the Secret is then theirs to create, as NEXT-STEPS.md says).
 	DNS Credential
+	// Tunnel is the cloudflare-tunnel recipe's tunnel credentials, which
+	// that recipe cannot render without.
+	Tunnel TunnelCredentials
 }
 
 // RotateDexClientSecret names the secret a run draws anew although one is on disk.
@@ -182,7 +185,11 @@ func secretFiles(a Answers, s Secrets) ([]File, error) {
 		}
 		files = append(files, File{Path: DNSSecretFile, Data: dns, Secret: true})
 	}
-	return files, nil
+	tunnel, err := tunnelSecretFile(a, s)
+	if err != nil {
+		return nil, err
+	}
+	return append(files, tunnel...), nil
 }
 
 // Credential is a provider credential the operator hands the wizard (the

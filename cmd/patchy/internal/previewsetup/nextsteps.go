@@ -56,6 +56,12 @@ type nextSteps struct {
 	TailscaleNamespace                 string
 	TailscaleAddresses                 []string
 	TailscalePolicy                    string
+
+	// The cloudflare-tunnel recipe: cloudflared and Cloudflare's edge.
+	Cloudflare, AdvancedCertificates             bool
+	SuffixSite, SignInSite, TunnelID, TunnelName string
+	CloudflaredFile, CloudflaredSecretFile       string
+	CloudflaredNamespace, CloudflaredSecret      string
 }
 
 // fileWhat says what each file a plan can write is.
@@ -74,6 +80,9 @@ var fileWhat = map[string]string{
 		").",
 	TailscaleOperator.ValuesFile: "The Tailscale operator's values, for the chart version patchy pins (" +
 		TailscaleOperator.Version + ").",
+	CloudflaredFile: "cloudflared's namespace, config, Deployment (" + Cloudflared.Tag + ", by digest) and " +
+		"NetworkPolicy.",
+	CloudflaredSecretFile: "The tunnel's credentials, in cloudflared's namespace (0600).",
 }
 
 // renderNextSteps renders NEXT-STEPS.md for a and the recipe's own files;
@@ -102,6 +111,14 @@ func renderNextSteps(a Answers, recipeFiles, secrets []File) ([]byte, error) {
 	}
 	if a.GatewayTerminatesTLS() {
 		gatewayCertSteps(a, &d, paths)
+	}
+	if a.Edge == EdgeCloudflareTunnel {
+		d.Cloudflare, d.AdvancedCertificates = true, a.Cloudflare.AdvancedCertificates
+		d.SuffixSite, _ = Site(a.HostSuffix)
+		d.SignInSite, _ = Site(a.SignInHost)
+		d.TunnelID, d.TunnelName = a.Cloudflare.TunnelID, TunnelName
+		d.CloudflaredFile, d.CloudflaredSecretFile = CloudflaredFile, CloudflaredSecretFile
+		d.CloudflaredNamespace, d.CloudflaredSecret = a.CloudflaredNamespace(), CloudflaredSecret
 	}
 	if a.Edge == EdgeExisting {
 		if a.Existing.GatewayParent != "" {
@@ -288,6 +305,8 @@ func edgeTitle(a Answers) string {
 		return "gateway TLS on a LoadBalancer"
 	case a.Edge == EdgeTailscale:
 		return "tailnet device (Tailscale operator)"
+	case a.Edge == EdgeCloudflareTunnel:
+		return "Cloudflare Tunnel"
 	case a.Edge != EdgeExisting:
 		return string(a.Edge)
 	case a.Existing.GatewayParent != "":

@@ -143,6 +143,10 @@ func TestGoldenValuesRender(t *testing.T) {
 				checkGatewayTLS(t, a, objs, files)
 				return
 			}
+			if a.Edge == EdgeCloudflareTunnel {
+				checkCloudflare(t, a, objs, files)
+				return
+			}
 			if a.Existing.GatewayParent != "" {
 				checkRoute(t, a, objs, files)
 				return
@@ -392,4 +396,102 @@ func TestNodeIsolationOverOperatorValues(t *testing.T) {
 	if sel, ok := cfg["PATCHY_PREVIEW_NODE_SELECTOR"]; ok {
 		t.Errorf("Auto Mode also selects %s: no preview node carries a generic label there", sel)
 	}
+}
+
+// checkCloudflare: in the cloudflare-tunnel recipe the gateway has no
+// exposure of its own (no Ingress, HTTPRoute, LoadBalancer or TLS), and
+// cloudflared's config, Deployment and NetworkPolicy reach exactly what
+// the chart renders: the gateway Service's name, namespace and port 80
+// for both names, and the gateway Pods by their label and their
+// listener's port, behind forwardedHops 1.
+func checkCloudflare(t *testing.T, a Answers, objs []*unstructured.Unstructured, files []File) {
+	t.Helper()
+	gwName := a.GatewayService()
+	if find(objs, "Ingress", gwName) != nil || find(objs, "HTTPRoute", gwName) != nil {
+		t.Error("a gateway Ingress or HTTPRoute rendered beside the tunnel")
+	}
+	svc := find(objs, "Service", gwName)
+	spec, _, _ := unstructured.NestedMap(svc.Object, "spec")
+	ports, _, _ := unstructured.NestedSlice(svc.Object, "spec", "ports")
+	if spec["type"] != "ClusterIP" || len(ports) != 1 || fmt.Sprint(ports[0].(map[string]any)["port"]) != "80" ||
+		ports[0].(map[string]any)["targetPort"] != "gateway" {
+		t.Errorf("gateway Service type %v, ports %v: want ClusterIP port 80 to the gateway's listener", spec["type"],
+			ports)
+	}
+	cm := find(objs, "ConfigMap", a.Fullname()+"-preview-auth-config")
+	if cm == nil {
+		t.Fatal("no relay ConfigMap in the render")
+	}
+	hops, _, _ := unstructured.NestedString(cm.Object, "data", "PATCHY_PREVIEW_AUTH_GATEWAY_FORWARDED_HOPS")
+	if hops != "1" {
+		t.Errorf("the gateway's forwardedHops = %q, want 1 (Cloudflare's edge appends the viewer)", hops)
+	}
+	relay := find(objs, "Deployment", a.Fullname()+"-preview-auth")
+	if relay == nil {
+		t.Fatal("no relay Deployment in the render")
+	}
+	podLabels, _, _ := unstructured.NestedStringMap(relay.Object, "spec", "template", "metadata", "labels")
+	if podLabels[gatewayPodLabel] != "true" {
+		t.Errorf("the relay's Pods carry no %s label: cloudflared's NetworkPolicy reaches nothing", gatewayPodLabel)
+	}
+	if !strings.Contains(fmt.Sprint(relay.Object), fmt.Sprintf("containerPort:%d name:gateway", gatewayPodPort)) {
+		t.Errorf("the relay's gateway listener is not containerPort %d", gatewayPodPort)
+	}
+	checkCloudflared(t, a, files)
+}
+
+// checkCloudflared: cloudflared's config sends both names to the gateway
+// Service's address and 404s the rest, its NetworkPolicy reaches the
+// release namespace, and every object sits in cloudflared's namespace.
+func checkCloudflared(t *testing.T, a Answers, files []File) {
+	t.Helper()
+	gwName := a.GatewayService()
+	m := cloudflaredObjects(t, byPath(files)[CloudflaredFile])
+	var cfg struct {
+		Tunnel  string `json:"tunnel"`
+		Ingress []struct{ Hostname, Service string }
+	}
+	if err := yaml.Unmarshal([]byte(m["ConfigMap"].Object["data"].(map[string]any)["config.yaml"].(string)),
+		&cfg); err != nil {
+		t.Fatal(err)
+	}
+	origin := fmt.Sprintf("http://%s.%s.svc.cluster.local:80", gwName, a.Namespace)
+	if cfg.Tunnel != a.Cloudflare.TunnelID || len(cfg.Ingress) != 3 ||
+		cfg.Ingress[0].Hostname != "*."+a.HostSuffix || cfg.Ingress[1].Hostname != a.SignInHost ||
+		cfg.Ingress[0].Service != origin || cfg.Ingress[1].Service != origin ||
+		cfg.Ingress[2].Hostname != "" || cfg.Ingress[2].Service != "http_status:404" {
+		t.Errorf("cloudflared config %+v does not send both names to %s and 404 the rest", cfg, origin)
+	}
+	np := m["NetworkPolicy"]
+	if !strings.Contains(fmt.Sprint(np.Object), "kubernetes.io/metadata.name:"+a.Namespace) {
+		t.Errorf("cloudflared's NetworkPolicy does not reach namespace %s", a.Namespace)
+	}
+	for _, o := range m {
+		if ns := o.GetNamespace(); o.GetKind() != "Namespace" && ns != a.CloudflaredNamespace() {
+			t.Errorf("%s %s is in namespace %q, not %s", o.GetKind(), o.GetName(), ns, a.CloudflaredNamespace())
+		}
+	}
+}
+
+// cloudflaredObjects decodes manifests/cloudflared.yaml, by kind.
+func cloudflaredObjects(t *testing.T, data string) map[string]*unstructured.Unstructured {
+	t.Helper()
+	out := map[string]*unstructured.Unstructured{}
+	dec := utilyaml.NewYAMLOrJSONDecoder(strings.NewReader(data), 4096)
+	for {
+		var m map[string]any
+		if err := dec.Decode(&m); errors.Is(err, io.EOF) {
+			break
+		} else if err != nil {
+			t.Fatalf("decode %s: %v", CloudflaredFile, err)
+		}
+		if m != nil {
+			o := &unstructured.Unstructured{Object: m}
+			if out[o.GetKind()] != nil {
+				t.Fatalf("%s holds two %s objects", CloudflaredFile, o.GetKind())
+			}
+			out[o.GetKind()] = o
+		}
+	}
+	return out
 }

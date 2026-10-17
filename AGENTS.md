@@ -206,19 +206,30 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   operator's own), `manifests/`, the relay's Dex client secret as two Secret manifests under `secrets/` (ghapp's 0600
   writer and Secret renderer; read back on a re-run, drawn again only with `--rotate dex-client-secret`) and
   `NEXT-STEPS.md`. It refuses a sign-in host or Dex issuer on the host suffix's registrable domain (publicsuffix), a
-  re-run shows each file's diff and replaces a changed one only with `--force`. Three recipes have landed (only
-  `cloudflare-tunnel` is still refused): `existing` (R4: an Ingress class or a Gateway API parent), `gateway-tls` (R2:
+  re-run shows each file's diff and replaces a changed one only with `--force`. All four recipes have landed:
+  `existing` (R4: an Ingress class or a Gateway API parent), `gateway-tls` (R2:
   the gateway's own Local LoadBalancer Service terminating TLS, `forwardedHops: 0`) and `tailscale` (R3: that Service
   as ClusterIP with the Tailscale operator's `expose`, hostname and tag annotations, a public DNS record to the device's
-  100.x address, the tailnet policy as the allowlist). R2 and R3 write the wildcard Certificate, a namespaced ACME
+  100.x address, the tailnet policy as the allowlist) and `cloudflare-tunnel` (R1: `manifests/cloudflared.yaml`, a
+  locally-managed tunnel's cloudflared in namespace `patchy-cloudflared` (the recipe's own; `--cloudflared-namespace`,
+  a new one: never the release, Dex's, cert-manager's, Tailscale's, `default` or a `kube-` namespace) at the
+  digest-pinned image, both names to the gateway's Service and a 404 for the rest, egress only to DNS, the gateway Pods'
+  8082 and any public address on 443/7844 (no Cloudflare range pinned), no SA token; gateway exposure none,
+  `forwardedHops: 1`, `previewAuth.ingressFrom: []` (cloudflared's Pod addresses must reach 8082), the load balancer's
+  `--inbound-cidr`/`--load-balancer-class` refused (the allowlist is Cloudflare's); the `--tunnel-credentials` file
+  (cert.pem refused) held redacted in `TunnelCredentials`, written only into
+  `secrets/cloudflared-credentials.secret.yaml` and read back on a re-run, its tunnel ID recorded; names deeper
+  than a zone's first level refused unless `--cloudflare-acm`, since free Universal SSL does not cover them). R2 and R3
+  write the wildcard Certificate, a namespaced ACME
   Issuer with one DNS-01 solver (`--dns`, `--dns-option key=value`, never a secret; a ClusterIssuer
   `preview-dns01-<namespace>` when the solver takes no stored credential, since cert-manager lends its ambient identity
   to no namespaced Issuer by default; Route53's `hostedZoneID` refused, the two names never sharing a zone; `--dns
   manual` names the operator's issuer instead) and, unless already running, values for cert-manager and the Tailscale
-  operator at the chart versions `pins.go` pins (each a constant under a renovate comment that
-  `.github/renovate.json5`'s regex manager reads, held to it by `TestRenovateTracksPins`; `mise run preview-pins`, CI's
-  `preview-pins` job, checks each exists, renders with what is written, and holds every golden Issuer and Certificate to
-  cert-manager's CRDs at that version, unknown fields included). A DNS credential comes only from
+  operator at the chart versions `pins.go` pins (each, like R1's cloudflared image tag and digest, a constant under a
+  renovate comment that `.github/renovate.json5`'s regex managers read, held to them by `TestRenovateTracksPins`; `mise
+  run preview-pins`, CI's `preview-pins` job, checks each exists, renders with what is written, holds every golden
+  Issuer and Certificate to cert-manager's CRDs at that version, unknown fields included, and runs the cloudflared pin's
+  offline `ingress validate`/`ingress rule` over the R1 configs). A DNS credential comes only from
   `--dns-credentials-file` or `--dns-credentials-from-stdin`, is held redacted and lands only in
   `secrets/preview-dns01-credentials.secret.yaml` (read back on a re-run; a new one replaces it). Its golden trees are
   rendered through the chart in a test. The

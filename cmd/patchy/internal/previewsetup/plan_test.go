@@ -59,11 +59,46 @@ func randAnswers(r *rand.Rand) Answers {
 		if a.Platform != PlatformEKS {
 			a.Existing.IngressClass = "nginx"
 		}
+	case 3:
+		randCloudflare(r, &a)
 	default:
 		randGatewayCert(r, &a)
 	}
 	a.Normalize()
 	return a
+}
+
+// randCloudflare makes a the cloudflare-tunnel recipe: names Universal SSL
+// covers (the suffix a whole zone, the sign-in host at most one label
+// below its own), or any depth on zones with Advanced Certificate Manager.
+func randCloudflare(r *rand.Rand, a *Answers) {
+	a.Edge = EdgeCloudflareTunnel
+	a.Existing = ExistingEdge{}
+	a.Cloudflare = Cloudflare{TunnelID: randTunnelID(r), AdvancedCertificates: r.Intn(3) == 0}
+	if r.Intn(2) == 0 {
+		a.Cloudflare.Namespace = "t" + randLabel(r)
+	}
+	if !a.Cloudflare.AdvancedCertificates {
+		a.HostSuffix, _ = Site(a.HostSuffix)
+		site, _ := Site(a.SignInHost)
+		a.SignInHost = site
+		if r.Intn(2) == 0 {
+			a.SignInHost = randLabel(r) + "." + site
+		}
+		a.Dex.Issuer = "https://dex." + a.SignInHost
+	}
+}
+
+// randTunnelID is a lowercase UUID.
+func randTunnelID(r *rand.Rand) string {
+	const hexDigits = "0123456789abcdef"
+	b := []byte("xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx")
+	for i, c := range b {
+		if c == 'x' {
+			b[i] = hexDigits[r.Intn(16)]
+		}
+	}
+	return string(b)
 }
 
 // randGatewayCert makes a the gateway-tls or tailscale recipe, with any
@@ -72,6 +107,7 @@ func randAnswers(r *rand.Rand) Answers {
 func randGatewayCert(r *rand.Rand, a *Answers) {
 	a.Edge = []Edge{EdgeGatewayTLS, EdgeTailscale}[r.Intn(2)]
 	a.Certificate, a.LoadBalancer, a.Tailscale = Certificate{}, LoadBalancer{}, Tailscale{}
+	a.Cloudflare = Cloudflare{}
 	dns := DNSProviders()
 	a.Certificate.DNS = dns[r.Intn(len(dns))]
 	opts := randDNSOptions(r, a.Certificate.DNS)
@@ -170,11 +206,17 @@ func TestSecretNeverLeaves(t *testing.T) {
 		args[0] = reflect.ValueOf(a)
 		args[1] = reflect.ValueOf(randSecret(r).value)
 		args[2] = reflect.ValueOf(randCredential(r, a).value)
+		tunnel := make([]byte, 32)
+		r.Read(tunnel)
+		args[3] = reflect.ValueOf(tunnel)
 	}
-	prop := func(a Answers, secret string, dnsCred []byte) bool {
+	prop := func(a Answers, secret string, dnsCred, tunnelSecret []byte) bool {
 		s := Secrets{DexClient: ClientSecret{value: secret}}
 		if a.DNSCredentialKey() != "" {
 			s.DNS = Credential{value: dnsCred}
+		}
+		if a.Edge == EdgeCloudflareTunnel {
+			s.Tunnel = testTunnel(a.Cloudflare.TunnelID, tunnelSecret)
 		}
 		files, err := Plan(a, s, testVersion)
 		if err != nil {
@@ -186,7 +228,7 @@ func TestSecretNeverLeaves(t *testing.T) {
 		}
 		for _, f := range files {
 			dex := has(f.Data, []byte(secret))
-			if dex != (f.Secret && f.Path != DNSSecretFile) {
+			if dex != (f.Secret && f.Path != DNSSecretFile && f.Path != CloudflaredSecretFile) {
 				t.Logf("%s: holds the Dex client secret %v", f.Path, dex)
 				return false
 			}
@@ -195,6 +237,14 @@ func TestSecretNeverLeaves(t *testing.T) {
 				t.Logf("%s: holds the DNS credential %v", f.Path, dns)
 				return false
 			}
+			if a.Edge == EdgeCloudflareTunnel && !tunnelOnlyInItsSecret(t, f, s.Tunnel, tunnelSecret) {
+				return false
+			}
+		}
+		_, tunnelWritten := byPath(files)[CloudflaredSecretFile]
+		if tunnelWritten != (a.Edge == EdgeCloudflareTunnel) {
+			t.Logf("tunnel Secret written %v on --edge %s", tunnelWritten, a.Edge)
+			return false
 		}
 		_, written := byPath(files)[DNSSecretFile]
 		if written != (a.DNSCredentialKey() != "") {
@@ -215,7 +265,8 @@ func TestPlanIsByteStable(t *testing.T) {
 	cfg := quickConfig(300)
 	cfg.Values = func(args []reflect.Value, r *rand.Rand) { args[0] = reflect.ValueOf(randAnswers(r)) }
 	prop := func(a Answers) bool {
-		first, err := Plan(a, Secrets{DexClient: sentinel}, testVersion)
+		s := withTunnel(a, Secrets{DexClient: sentinel})
+		first, err := Plan(a, s, testVersion)
 		if err != nil {
 			t.Logf("Plan: %v", err)
 			return false
@@ -226,7 +277,7 @@ func TestPlanIsByteStable(t *testing.T) {
 			return false
 		}
 		read.Normalize()
-		second, err := Plan(read, Secrets{DexClient: sentinel}, testVersion)
+		second, err := Plan(read, s, testVersion)
 		if err != nil || len(first) != len(second) {
 			t.Logf("re-plan: %v", err)
 			return false
@@ -325,12 +376,11 @@ func TestPlanRefuses(t *testing.T) {
 	a := testAnswers()
 	a.Platform = PlatformK3s
 	a.Existing.IngressClass = "nginx"
-	for _, edge := range []Edge{EdgeCloudflareTunnel} {
-		b := a
-		b.Edge = edge
-		if _, err := Plan(b, Secrets{DexClient: sentinel}, testVersion); !errors.Is(err, ErrRecipeNotReady) {
-			t.Errorf("--edge %s: %v, want ErrRecipeNotReady", edge, err)
-		}
+	b := a
+	b.Edge = EdgeCloudflareTunnel
+	if _, err := Plan(b, Secrets{DexClient: sentinel}, testVersion); err == nil ||
+		!strings.Contains(err.Error(), "--tunnel-credentials") {
+		t.Errorf("--edge cloudflare-tunnel without a tunnel: %v", err)
 	}
 	for _, edge := range []Edge{EdgeGatewayTLS, EdgeTailscale} {
 		b := a
@@ -340,7 +390,7 @@ func TestPlanRefuses(t *testing.T) {
 			t.Errorf("--edge %s without --dns: %v", edge, err)
 		}
 	}
-	b := a
+	b = a
 	b.HostSuffix = ""
 	if _, err := Plan(b, Secrets{DexClient: sentinel}, testVersion); err == nil ||
 		!strings.Contains(err.Error(), "--host-suffix") {
@@ -421,6 +471,31 @@ func issuerKindHolds(t *testing.T, a Answers, iss, key, kind, name string) bool 
 	if key == "" && strings.Contains(iss, "only this namespace") {
 		t.Logf("a ClusterIssuer claims to be namespaced:\n%s", iss)
 		return false
+	}
+	return true
+}
+
+// tunnelOnlyInItsSecret: the tunnel Secret file holds exactly the
+// credentials file; any other file holds neither the tunnel secret (raw,
+// or as the base64 the credentials file holds it in) nor the file.
+func tunnelOnlyInItsSecret(t *testing.T, f File, c TunnelCredentials, secret []byte) bool {
+	t.Helper()
+	if f.Path == CloudflaredSecretFile {
+		var sec struct {
+			Data map[string][]byte `json:"data"`
+		}
+		if err := yaml.Unmarshal(f.Data, &sec); err != nil || len(sec.Data) != 1 ||
+			!bytes.Equal(sec.Data[CloudflaredSecretKey], c.raw) {
+			t.Logf("%s does not hold exactly the credentials file (%v)", f.Path, err)
+			return false
+		}
+		return true
+	}
+	for _, v := range [][]byte{secret, []byte(base64.StdEncoding.EncodeToString(secret)), c.raw} {
+		if bytes.Contains(f.Data, v) || bytes.Contains(f.Data, []byte(base64.StdEncoding.EncodeToString(v))) {
+			t.Logf("%s: holds the tunnel secret", f.Path)
+			return false
+		}
 	}
 	return true
 }

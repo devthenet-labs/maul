@@ -39,8 +39,17 @@ func randLabel(r *rand.Rand) string {
 // publicsuffix decides the registrable domain of each differently.
 var tlds = []string{"com", "dev", "net", "org", "io", "co.uk", "com.au", "github.io", "test"}
 
-// randDomain is <label>.<tld>: a registrable domain.
-func randDomain(r *rand.Rand) string { return randLabel(r) + "." + tlds[r.Intn(len(tlds))] }
+// randDomain is <label>.<tld>: a registrable domain. A draw that is a
+// public suffix itself (hu.net, say: the list holds private suffixes
+// under com and net) is drawn again.
+func randDomain(r *rand.Rand) string {
+	for {
+		d := randLabel(r) + "." + tlds[r.Intn(len(tlds))]
+		if site, err := Site(d); err == nil && site == d {
+			return d
+		}
+	}
+}
 
 // randUnder is zero to two labels in front of domain.
 func randUnder(r *rand.Rand, domain string) string {
@@ -186,6 +195,9 @@ func TestCheckHosts(t *testing.T) {
 		{"acme-previews.dev", "auth.acme-previews.dev", "sits under"},
 		{"acme-previews.dev", "acme-previews.dev", "sits under"},
 		{"co.uk", "auth.acme.dev", "no registrable domain"},
+		// A private public suffix under a generic TLD: the shrunk draw
+		// that once slipped out of randDomain as a "registrable domain".
+		{"hu.net", "auth.acme.dev", "no registrable domain"},
 		{"Acme.dev", "auth.acme.dev", "--host-suffix"},
 		{"acme.dev", "localhost", "--sign-in-host"},
 		{"*.acme.dev", "auth.other.dev", "--host-suffix"},

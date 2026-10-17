@@ -185,11 +185,14 @@ jobs:
     # The pins `patchy setup previews` recommends (`mise run preview-pins`,
     # TestLivePins): each pinned upstream chart version exists,
     # the values the recipes write render with it, and the generated Issuers
-    # and Certificates are valid against cert-manager's CRDs at that version.
+    # and Certificates are valid against cert-manager's CRDs at that version;
+    # the pinned cloudflared image runs at its tag and digest and accepts the
+    # cloudflare-tunnel recipe's config (offline: ingress validate and rule).
     # A stale or mistyped pin is a patchy-documented vulnerability (design
     # §5.3), so this runs on every pull request, renovate's bumps included. It
-    # needs the network (the charts' repositories) and helm, which mise pins;
-    # set up as in the envtest job above.
+    # needs the network (the charts' repositories, Docker Hub), helm, which
+    # mise pins, and docker, which the runner image has; set up as in the
+    # envtest job above.
     preview-pins:
         runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
         permissions:
