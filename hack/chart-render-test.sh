@@ -233,6 +233,10 @@ render preview-runtime-gateway -f "$fixtures/preview-foundation.yaml" \
   -f "$fixtures/intent-controller.yaml" -f "$fixtures/preview-controller.yaml" \
   --set previewController.config.legacyIngress=false
 cm preview-runtime-gateway preview-controller PATCHY_PREVIEW_LEGACY_INGRESS false
+# Target health is the preview ALB's: off the legacy path the controller is
+# told false whatever targetHealth says (it would only ignore it, warning at
+# every start), and on it targetHealth still decides.
+cm preview-runtime-gateway preview-controller PATCHY_PREVIEW_TARGET_HEALTH false
 # preview.legacyIngress is the value now; previewController.config.legacyIngress
 # (its spelling before the move, above) still wins while set, and NOTES ask
 # to move it. Off the legacy path the slot namespaces drop the readiness-gate
@@ -241,10 +245,12 @@ cm preview-runtime-gateway preview-controller PATCHY_PREVIEW_LEGACY_INGRESS fals
 render preview-runtime-nolegacy -f "$fixtures/preview-foundation.yaml" \
   -f "$fixtures/intent-controller.yaml" -f "$fixtures/preview-controller.yaml" --set preview.legacyIngress=false
 cm preview-runtime-nolegacy preview-controller PATCHY_PREVIEW_LEGACY_INGRESS false
+cm preview-runtime-nolegacy preview-controller PATCHY_PREVIEW_TARGET_HEALTH false
 render preview-runtime-alias-wins -f "$fixtures/preview-foundation.yaml" \
   -f "$fixtures/intent-controller.yaml" -f "$fixtures/preview-controller.yaml" --set preview.legacyIngress=false \
   --set previewController.config.legacyIngress=true
 cm preview-runtime-alias-wins preview-controller PATCHY_PREVIEW_LEGACY_INGRESS true
+cm preview-runtime-alias-wins preview-controller PATCHY_PREVIEW_TARGET_HEALTH true
 expect preview-runtime-nolegacy 'select(.kind == "Namespace" and (.metadata.name | test("^patchy-preview-"))) | .metadata.labels."eks.amazonaws.com/pod-readiness-gate-inject"' 'null
 null'
 for kind in IngressClass IngressClassParams; do
@@ -319,6 +325,15 @@ expect_fail 'preview controller without API CIDR' 'apiServerCIDR is required' \
 expect_fail 'preview controller with broad API CIDR' 'does not match pattern' \
   -f "$fixtures/preview-foundation.yaml" -f "$fixtures/intent-controller.yaml" \
   --set previewController.enabled=true --set previewController.config.apiServerCIDR=0.0.0.0/0
+# apiServerCIDR auto looks the API server's addresses up, so a render without
+# a cluster refuses it rather than render an egress rule to nothing (the
+# lookup itself is charts/patchy's TestPreviewAPIServerCIDRAutoAgainstAPIServer).
+expect_fail 'preview controller API CIDR auto without a cluster' 'apiServerCIDR auto needs a render that reaches the cluster' \
+  -f "$fixtures/preview-foundation.yaml" -f "$fixtures/intent-controller.yaml" \
+  -f "$fixtures/preview-controller.yaml" --set previewController.config.apiServerCIDR=auto
+expect_fail 'preview controller API CIDR neither /32 nor auto' 'does not match pattern' \
+  -f "$fixtures/preview-foundation.yaml" -f "$fixtures/intent-controller.yaml" \
+  -f "$fixtures/preview-controller.yaml" --set previewController.config.apiServerCIDR=Auto
 expect preview 'select(.kind == "Namespace" and (.metadata.name | test("^patchy-preview-"))) | .metadata.name' 'patchy-preview-0
 patchy-preview-1'
 expect preview 'select(.kind == "Namespace" and (.metadata.name | test("^patchy-preview-"))) | .metadata.labels."pod-security.kubernetes.io/enforce"' 'restricted
@@ -1047,6 +1062,32 @@ notes_has notes-pa-require "Every preview Ingress requires sign-in" yes
 notes notes-pa-noviewers -f "$pf" -f "$pav" --set-json 'previewAuth.viewers={"teams":[],"users":[]}'
 notes_has notes-pa-noviewers "NO VIEWERS" yes
 notes_has notes-preview-off "Preview sign-in" no
+# Without the preview ALB (legacyIngress false, albName unset) nothing carries
+# the ALB's sign-in annotations, so the stage is inert: the NOTES stage
+# nothing and speak of the relay's edge, and require needs no permit stage
+# first. With the ALB still rendered (albName set) the require stage is
+# gated exactly as before.
+notes_has notes-pa-permit "Preview sign-in: stage permit, key generation 1" yes
+notes_has notes-pa-permit "on the edge ALB" yes
+notes notes-pa-noalb -f "$pf" -f "$pav" -f "$noalb"
+notes_has notes-pa-noalb "Preview sign-in: key generation 1." yes
+notes_has notes-pa-noalb "Nothing to stage: without the preview ALB, previewAuth.stage has no" yes
+notes_has notes-pa-noalb "nothing serves the preview hosts until previewAuth.gateway is on" yes
+notes_has notes-pa-noalb "upgrade again with previewAuth.stage=require" no
+notes_has notes-pa-noalb "on the edge ALB" no
+notes_has notes-pa-noalb "Only viewers' browsers call it: there is no preview ALB." yes
+notes notes-pa-noalb-gateway -f "$pf" -f "$pav" -f "$noalb" -f "$fixtures/preview-gateway.yaml"
+notes_has notes-pa-noalb-gateway "effect and the preview gateway signs every viewer in." yes
+# shellcheck disable=SC2086
+render pa-noalb-require $pafull -f "$noalb" --set previewAuth.stage=require
+cm pa-noalb-require preview-controller PATCHY_PREVIEW_AUTH_REQUIRED true
+# shellcheck disable=SC2086
+notes notes-pa-noalb-require $pafull -f "$noalb" --set previewAuth.stage=require
+notes_has notes-pa-noalb-require "Nothing to stage" yes
+notes_has notes-pa-noalb-require "Every preview Ingress requires sign-in" no
+# shellcheck disable=SC2086
+expect_fail 'require before the permit stage, the ALB still rendered' 'does not admit key generation 1 yet' \
+  $pafull --set preview.legacyIngress=false --set previewAuth.stage=require
 # Guards.
 expect_fail 'sign-in without preview slots' 'previewAuth.enabled requires preview.enabled' -f "$pav"
 expect_fail 'sign-in without a host' 'previewAuth.host is required' -f "$pf" -f "$pav" --set previewAuth.host=
@@ -1281,6 +1322,25 @@ notes_has notes-pg-lb-cluster "CLIENT ADDRESS: previewAuth.gateway.service.exter
 notes_has notes-pg-lb-cluster "inboundCIDRs then refuses every viewer" yes
 expect_fail 'gateway externalTrafficPolicy that is not one' "'/previewAuth/gateway/service/externalTrafficPolicy'" \
   -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.service.externalTrafficPolicy=Nearest
+# loadBalancerClass picks the implementation where a cluster has several
+# (tailscale, an NLB): unset renders none, so the Service is the cluster
+# default's as before; it is refused off the LoadBalancer exposure, where
+# the API server would refuse it, and when it is no label-style name.
+expect pg-lb 'select(.kind == "Service" and .metadata.name == "patchy-preview-gateway") | .spec | has("loadBalancerClass")' false
+render pg-lb-class -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.ingress.enabled=false \
+  --set previewAuth.gateway.service.type=LoadBalancer --set previewAuth.gateway.forwardedHops=0 \
+  --set previewAuth.gateway.service.loadBalancerClass=tailscale
+expect pg-lb-class 'select(.kind == "Service" and .metadata.name == "patchy-preview-gateway") | .spec.loadBalancerClass' tailscale
+render pg-lb-class-prefixed -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.ingress.enabled=false \
+  --set previewAuth.gateway.service.type=LoadBalancer --set previewAuth.gateway.forwardedHops=0 \
+  --set previewAuth.gateway.service.loadBalancerClass=service.k8s.aws/nlb
+expect pg-lb-class-prefixed 'select(.kind == "Service" and .metadata.name == "patchy-preview-gateway") | .spec.loadBalancerClass' service.k8s.aws/nlb
+expect_fail 'gateway loadBalancerClass on a ClusterIP Service' 'loadBalancerClass tailscale needs service.type LoadBalancer' \
+  -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.service.loadBalancerClass=tailscale
+expect_fail 'gateway loadBalancerClass that is no name' "'/previewAuth/gateway/service/loadBalancerClass'" \
+  -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.ingress.enabled=false \
+  --set previewAuth.gateway.service.type=LoadBalancer --set previewAuth.gateway.forwardedHops=0 \
+  --set 'previewAuth.gateway.service.loadBalancerClass=a b'
 render pg-route -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.ingress.enabled=false \
   --set previewAuth.gateway.signInHost=signin.patchy.devthe.net \
   --set-json 'previewAuth.gateway.httpRoute.parentRefs=[{"name":"edge","namespace":"gateways"}]'
@@ -1297,6 +1357,7 @@ expect pg-none 'select(.kind == "ConfigMap" and .metadata.name == "patchy-previe
 expect pg 'select(.kind == "ConfigMap" and .metadata.name == "patchy-preview-auth-config") | .metadata.annotations."patchy.bitwisemedia.uk/preview-gateway-published-addresses"' null
 notes notes-pg-none -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.ingress.enabled=false --set previewAuth.gateway.forwardedHops=null
 notes_has notes-pg-none "none rendered. Route *.preview.patchy.devthe.net to" yes
+notes_has notes-pg-none "port 80 yourself (a tunnel, your own Ingress), terminating TLS there" yes
 # publishedAddresses is never routed by, and patchy check project compares DNS
 # with it (cmd/patchy/internal/projectcheck/gateway.go reads the annotation),
 # so no doc may still say nothing reads it.
@@ -1365,6 +1426,12 @@ expect pg 'select(.kind == "Service" and .metadata.name == "patchy-preview-gatew
 expect pg-tls 'select(.kind == "NetworkPolicy" and .metadata.name == "patchy-preview-auth") | .spec.ingress[0].ports | map(.port | tostring) | join(",")' '8080,8082,8443'
 render pg-tls-none -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.ingress.enabled=false --set-json "$pgtls"
 cm pg-tls-none preview-auth PATCHY_PREVIEW_AUTH_GATEWAY_TLS_DIR /etc/patchy/preview-gateway/tls
+# With the gateway's own TLS and no exposure (a tunnel or a tailnet device
+# passing TLS through), the edge routes to 443 and terminates nothing.
+notes notes-pg-none-tls -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.ingress.enabled=false \
+  --set previewAuth.gateway.forwardedHops=null --set-json "$pgtls"
+notes_has notes-pg-none-tls "port 443 yourself (a tunnel or a tailnet device passing" yes
+notes_has notes-pg-none-tls "terminating TLS there" no
 expect_fail 'gateway TLS with an Ingress' 'previewAuth.gateway.tls.secrets is refused with the ingress exposure' \
   -f "$pf" -f "$pav" -f "$pgw" --set-json "$pgtls"
 expect_fail 'gateway TLS with an HTTPRoute' 'previewAuth.gateway.tls.secrets is refused with the httpRoute exposure' \

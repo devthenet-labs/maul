@@ -196,6 +196,12 @@ reads/writes; one Role per fixed slot grants only Deployment, Service and Ingres
 ClusterRole is installed. Its NetworkPolicy permits only DNS and the Kubernetes API Service `/32` out; there is no
 internet or broker egress rule.
 
+`apiServerCIDR: auto` looks up that Service's address and the API server's own endpoint addresses at render time, and
+admits each as a `/32`. It is for CNIs that judge NetworkPolicy after the Service address is translated, such as
+kube-router on k3s and k3d, where the Service `/32` alone matches nothing. It needs a render that reaches the cluster
+(not `helm template` or GitOps, which fail it) and is a snapshot: run `helm upgrade` again if the API server's addresses
+change. On EKS, whose control-plane addresses rotate, keep the Service `/32`.
+
 The controller serializes slot leases, queues by creation time, waits for a Ready Pod with a recorded image ID before
 creating the `alb-preview` Ingress, and withdraws the old Ingress before a PR-head update. With
 `previewController.config.targetHealth` (the default) the Ingress comes first and stays instead, and a PR-head update

@@ -722,6 +722,11 @@ spec:
     # Cluster, kube-proxy source-NATs to a node address, which inboundCIDRs
     # would refuse and the rate limit would share among every viewer.
     externalTrafficPolicy: {{ $gwVals.service.externalTrafficPolicy | default "Local" }}
+    {{- with $gwVals.service.loadBalancerClass }}
+    # previewAuth.gateway.service.loadBalancerClass: the implementation that
+    # provisions it, where the cluster has more than one.
+    loadBalancerClass: {{ . }}
+    {{- end }}
     {{- end }}
     {{- if and (eq $gw.exposure "loadBalancer") $gwVals.inboundCIDRs }}
     # previewAuth.gateway.inboundCIDRs, kept at the load balancer.

@@ -22,9 +22,10 @@ mismatched spec fails closed and removes an exposed Ingress before releasing the
 `previewController.enabled` then adds the controller, one namespaced Role in the release namespace and one in each slot,
 and turns on intent-controller's Preview projector. Both switches default to `false`; the chart refuses to enable the
 renderer without the foundation and the intent-controller. The controller's own NetworkPolicy allows only DNS and the
-Kubernetes API Service `/32`. The slot Roles allow Deployment, Service and Ingress CRUD plus Pod and ReplicaSet reads,
-and nothing cluster-scoped. The security foundation still applies its fail-closed admission, NetworkPolicy, quota and
-dedicated-node rules to every workload.
+Kubernetes API Service `/32` (with `apiServerCIDR: auto`, also the API server's endpoint addresses, for CNIs that judge
+the policy after the Service address is translated, such as kube-router on k3s). The slot Roles allow Deployment,
+Service and Ingress CRUD plus Pod and ReplicaSet reads, and nothing cluster-scoped. The security foundation still
+applies its fail-closed admission, NetworkPolicy, quota and dedicated-node rules to every workload.
 
 To opt in one benign application Project, set a fixed runtime contract on its `Project`:
 
@@ -231,7 +232,8 @@ gateway serves:
 - No slot Ingress is rendered, and none precedes the Pods.
 - `Ready` means every component has a Ready Pod of its current spec with an image ID. There is no load balancer to wait
   for, so `--preview-target-health` is ignored (the controller logs a warning when both are set) and no readiness gate
-  is expected.
+  is expected. The chart sets it false there, whatever `previewController.config.targetHealth` says, so a gateway-only
+  install starts without that warning.
 - On every deploy pass the controller deletes the slot Ingresses its Preview owns (by its UID, name and managed-by
   labels), so a Preview made `Ready` on the legacy path loses its Ingress without restarting; a foreign Ingress is left
   alone. Cleanup deletes them too before a slot is freed, and the orphan sweep deletes every managed slot Ingress, a

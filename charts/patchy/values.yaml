@@ -263,7 +263,18 @@ previewController:
     enabled: false
     image: {}
     config:
-        apiServerCIDR: "" # In-cluster Kubernetes Service /32, never 0.0.0.0/0.
+        # The Kubernetes API, the controller's only egress besides DNS: the
+        # default/kubernetes Service's /32 (never 0.0.0.0/0), or auto. Where
+        # the CNI judges NetworkPolicy after the Service address is
+        # translated (kube-router on k3s and k3d, most eBPF datapaths), the
+        # Service /32 alone matches nothing: the API server's own endpoint
+        # address is what the policy sees. auto looks both up at render time
+        # (the Service's cluster IP and the API server's EndpointSlice), so it
+        # needs a render that reaches the cluster (helm install/upgrade, not
+        # helm template or GitOps), and is a snapshot: re-run helm upgrade if
+        # the API server's addresses change. EKS rotates its control-plane
+        # addresses, so keep the Service /32 there.
+        apiServerCIDR: ""
         rolloutTimeout: 10m
         pollInterval: 15s
         maxRetries: 3
@@ -289,8 +300,8 @@ previewController:
         # waits out rolloutTimeout and spends one of maxRetries (a Preview on
         # its last retry fails). Set false explicitly to keep the old
         # behaviour, or upgrade while no Preview is deploying.
-        # LEGACY (the preview ALB's target health); ignored with
-        # preview.legacyIngress false.
+        # LEGACY (the preview ALB's target health); inert with
+        # preview.legacyIngress false: the controller is then told false.
         targetHealth: true
         # legacyIngress moved to preview.legacyIngress. Set here (on a chart
         # before the move), it still wins, and NOTES ask to move it.
@@ -345,6 +356,10 @@ previewController:
 # A key rotation (keys.rotate) is the same pair: the first upgrade admits the
 # new generation and keeps applying the old one, the second (the same
 # values) applies the new one.
+# Both stages are the preview ALB's. Without it (preview.legacyIngress false
+# and albName unset: the preview gateway alone) nothing carries the pinned
+# sets, so the stage is inert: leave it at permit, and require, if set,
+# takes one upgrade with no permit stage first.
 #
 # preview.inboundCIDRs stays required. Emptying it (Rev C) needs the require
 # stage, and, with no preview.prefixListsIDs either, the explicit
@@ -503,6 +518,13 @@ previewAuth:
             # the load balancer keeps the client's address itself (an AWS
             # NLB with IP targets and client IP preservation).
             externalTrafficPolicy: Local
+            # The LoadBalancer exposure's spec.loadBalancerClass, for a
+            # cluster with more than one load balancer implementation (say
+            # tailscale, or service.k8s.aws/nlb). Empty sets none: the
+            # cluster's default implementation. Kubernetes refuses to change
+            # it on a live Service, so changing it means deleting the
+            # Service first. Refused unless type is LoadBalancer.
+            loadBalancerClass: ""
             annotations: {}
         ingress:
             enabled: false

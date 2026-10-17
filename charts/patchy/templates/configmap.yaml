@@ -296,7 +296,10 @@ blocks on ImageRequired. The changeset entry cap is remediation's value.
 {{- $_ := set $data "PATCHY_PREVIEW_ROLLOUT_TIMEOUT" $own.rolloutTimeout }}
 {{- $_ := set $data "PATCHY_PREVIEW_POLL_INTERVAL" $own.pollInterval }}
 {{- $_ := set $data "PATCHY_PREVIEW_MAX_RETRIES" $own.maxRetries }}
-{{- $_ := set $data "PATCHY_PREVIEW_TARGET_HEALTH" $own.targetHealth }}
+{{- /* Target health is the preview ALB's: without the legacy slot Ingress
+       there is no load balancer target to wait for, so the controller is
+       told false (it would ignore true, with a warning at every start). */}}
+{{- $_ := set $data "PATCHY_PREVIEW_TARGET_HEALTH" (and (include "patchy.previewLegacyIngress" $root | eq "true") $own.targetHealth) }}
 {{- $_ := set $data "PATCHY_PREVIEW_LEGACY_INGRESS" (include "patchy.previewLegacyIngress" $root | eq "true") }}
 {{- /*
 Preview sign-in required (previewAuth.stage require): the pinned annotation
