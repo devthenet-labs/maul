@@ -229,8 +229,10 @@ spec:
         {{- . | nindent 8 }}
         {{- end }}
         - to:
+              {{- range $cidr := include "patchy.previewAPIServerCIDRs" . | fromJsonArray }}
               - ipBlock:
-                    cidr: {{ $vals.config.apiServerCIDR }}
+                    cidr: {{ $cidr }}
+              {{- end }}
           ports:
               - {protocol: TCP, port: 443}
               - {protocol: TCP, port: 6443}

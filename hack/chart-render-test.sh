@@ -319,6 +319,15 @@ expect_fail 'preview controller without API CIDR' 'apiServerCIDR is required' \
 expect_fail 'preview controller with broad API CIDR' 'does not match pattern' \
   -f "$fixtures/preview-foundation.yaml" -f "$fixtures/intent-controller.yaml" \
   --set previewController.enabled=true --set previewController.config.apiServerCIDR=0.0.0.0/0
+# apiServerCIDR auto looks the API server's addresses up, so a render without
+# a cluster refuses it rather than render an egress rule to nothing (the
+# lookup itself is charts/patchy's TestPreviewAPIServerCIDRAutoAgainstAPIServer).
+expect_fail 'preview controller API CIDR auto without a cluster' 'apiServerCIDR auto needs a render that reaches the cluster' \
+  -f "$fixtures/preview-foundation.yaml" -f "$fixtures/intent-controller.yaml" \
+  -f "$fixtures/preview-controller.yaml" --set previewController.config.apiServerCIDR=auto
+expect_fail 'preview controller API CIDR neither /32 nor auto' 'does not match pattern' \
+  -f "$fixtures/preview-foundation.yaml" -f "$fixtures/intent-controller.yaml" \
+  -f "$fixtures/preview-controller.yaml" --set previewController.config.apiServerCIDR=Auto
 expect preview 'select(.kind == "Namespace" and (.metadata.name | test("^patchy-preview-"))) | .metadata.name' 'patchy-preview-0
 patchy-preview-1'
 expect preview 'select(.kind == "Namespace" and (.metadata.name | test("^patchy-preview-"))) | .metadata.labels."pod-security.kubernetes.io/enforce"' 'restricted

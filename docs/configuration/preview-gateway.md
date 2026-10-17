@@ -431,6 +431,9 @@ On a LAN, binding the serverlb to the host's LAN address works the same, as long
 - k3s's bundled network policy controller enforces NetworkPolicy. On the desktop, node isolation is scheduling only (one
   host): it keeps other workloads off the preview node, not off the machine. Run the
   [isolation probe](#the-isolation-probe) with `--refused-is-blocked`.
+- kube-router judges NetworkPolicy after the Service address is translated, so the Kubernetes API Service `/32` alone
+  leaves the preview-controller unable to reach the API. Set `previewController.config.apiServerCIDR: auto`: a
+  `helm upgrade` looks up the Service's address and the API server's endpoint addresses and admits both.
 
 A LoadBalancer exposure (`service.type: LoadBalancer`, with `tls.secrets` naming
 [the wildcard certificate](#the-wildcard-certificate)'s Secret, so the gateway terminates TLS itself) needs no ingress

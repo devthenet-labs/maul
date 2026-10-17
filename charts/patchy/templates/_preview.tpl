@@ -160,3 +160,54 @@ rate limit and the allowlist). Context: the root.
 {{- end -}}
 {{- $out | toJson -}}
 {{- end }}
+
+{{/*
+patchy.previewAPIServerCIDRs: the addresses preview-controller's NetworkPolicy
+lets it reach the Kubernetes API on, as a JSON list of IPv4 /32s.
+previewController.config.apiServerCIDR names one /32 (the list is exactly
+it, so an install that sets it renders as it always did), or is "auto": a
+lookup of the default/kubernetes Service's cluster IPs AND the API server's
+own endpoint addresses (its EndpointSlice, else its Endpoints), each a /32.
+Both, because CNIs judge NetworkPolicy at different points: kube-router
+(k3s) and most eBPF datapaths after the Service address is translated to an
+endpoint, others before. auto is a snapshot of the render: an API server
+whose addresses move (EKS rotates its control-plane ENIs) needs the next
+helm upgrade, so such clusters keep naming the Service /32. A render without
+a cluster (helm template, GitOps) cannot look and fails. Context: the root.
+*/}}
+{{- define "patchy.previewAPIServerCIDRs" -}}
+{{- $v := .Values.previewController.config.apiServerCIDR | toString -}}
+{{- if ne $v "auto" -}}
+{{- list $v | toJson -}}
+{{- else -}}
+{{- $ipv4 := `^(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])(\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])){3}$` -}}
+{{- $svc := lookup "v1" "Service" "default" "kubernetes" -}}
+{{- if not $svc }}{{ fail "previewController.config.apiServerCIDR auto needs a render that reaches the cluster (helm install/upgrade, or helm template --dry-run=server): it looks up the default/kubernetes Service and the API server's endpoints. A render without a cluster (helm template, Argo CD, Flux) sets the /32 itself" }}{{ end -}}
+{{- $ips := list -}}
+{{- range $ip := dig "spec" "clusterIPs" list $svc }}{{ $ips = append $ips (toString $ip) }}{{ end -}}
+{{- with dig "spec" "clusterIP" "" $svc }}{{ $ips = append $ips (toString .) }}{{ end -}}
+{{- $endpoints := list -}}
+{{- $slice := lookup "discovery.k8s.io/v1" "EndpointSlice" "default" "kubernetes" -}}
+{{- if eq (get $slice "addressType" | default "" | toString) "IPv4" -}}
+{{- range $ep := get $slice "endpoints" | default list -}}
+{{- range $a := get $ep "addresses" | default list }}{{ $endpoints = append $endpoints (toString $a) }}{{ end -}}
+{{- end -}}
+{{- end -}}
+{{- if not $endpoints -}}
+{{- range $sub := get (lookup "v1" "Endpoints" "default" "kubernetes") "subsets" | default list -}}
+{{- range $a := get $sub "addresses" | default list }}{{ $endpoints = append $endpoints (get $a "ip" | toString) }}{{ end -}}
+{{- end -}}
+{{- end -}}
+{{- $endpoints = $endpoints | uniq -}}
+{{- $v4 := list -}}
+{{- range $e := $endpoints }}{{ if regexMatch $ipv4 $e }}{{ $v4 = append $v4 $e }}{{ end }}{{ end -}}
+{{- if not $v4 }}{{ fail "previewController.config.apiServerCIDR auto found no IPv4 endpoint address for the default/kubernetes Service (its EndpointSlice or Endpoints): set the API server's /32 itself" }}{{ end -}}
+{{- $cidrs := list -}}
+{{- range $ip := concat $ips $v4 | uniq -}}
+{{- if and (regexMatch $ipv4 $ip) (ne $ip "0.0.0.0") -}}
+{{- $cidrs = append $cidrs (printf "%s/32" $ip) -}}
+{{- end -}}
+{{- end -}}
+{{- $cidrs | uniq | sortAlpha | toJson -}}
+{{- end -}}
+{{- end }}

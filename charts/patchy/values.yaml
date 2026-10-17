@@ -263,7 +263,18 @@ previewController:
     enabled: false
     image: {}
     config:
-        apiServerCIDR: "" # In-cluster Kubernetes Service /32, never 0.0.0.0/0.
+        # The Kubernetes API, the controller's only egress besides DNS: the
+        # default/kubernetes Service's /32 (never 0.0.0.0/0), or auto. Where
+        # the CNI judges NetworkPolicy after the Service address is
+        # translated (kube-router on k3s and k3d, most eBPF datapaths), the
+        # Service /32 alone matches nothing: the API server's own endpoint
+        # address is what the policy sees. auto looks both up at render time
+        # (the Service's cluster IP and the API server's EndpointSlice), so it
+        # needs a render that reaches the cluster (helm install/upgrade, not
+        # helm template or GitOps), and is a snapshot: re-run helm upgrade if
+        # the API server's addresses change. EKS rotates its control-plane
+        # addresses, so keep the Service /32 there.
+        apiServerCIDR: ""
         rolloutTimeout: 10m
         pollInterval: 15s
         maxRetries: 3

@@ -22,9 +22,10 @@ mismatched spec fails closed and removes an exposed Ingress before releasing the
 `previewController.enabled` then adds the controller, one namespaced Role in the release namespace and one in each slot,
 and turns on intent-controller's Preview projector. Both switches default to `false`; the chart refuses to enable the
 renderer without the foundation and the intent-controller. The controller's own NetworkPolicy allows only DNS and the
-Kubernetes API Service `/32`. The slot Roles allow Deployment, Service and Ingress CRUD plus Pod and ReplicaSet reads,
-and nothing cluster-scoped. The security foundation still applies its fail-closed admission, NetworkPolicy, quota and
-dedicated-node rules to every workload.
+Kubernetes API Service `/32` (with `apiServerCIDR: auto`, also the API server's endpoint addresses, for CNIs that judge
+the policy after the Service address is translated, such as kube-router on k3s). The slot Roles allow Deployment,
+Service and Ingress CRUD plus Pod and ReplicaSet reads, and nothing cluster-scoped. The security foundation still
+applies its fail-closed admission, NetworkPolicy, quota and dedicated-node rules to every workload.
 
 To opt in one benign application Project, set a fixed runtime contract on its `Project`:
 
