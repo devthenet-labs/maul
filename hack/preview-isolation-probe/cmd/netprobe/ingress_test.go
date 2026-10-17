@@ -4,10 +4,13 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -45,7 +48,11 @@ func TestIngressModeArgs(t *testing.T) {
 			t.Errorf("ingressMode(%q) handled the egress run's arguments", args)
 		}
 	}
-	for _, args := range [][]string{{"connect"}, {"connect", "a", "b"}, {"connect", "host:1"}} {
+	for _, args := range [][]string{
+		{"connect"}, {"connect", "a", "b"}, {"connect", "host:1"},
+		{"connect", refusedIsBlocked}, {"connect", refusedIsBlocked, "10.1.2.3:8080", "x"},
+		{"connect", "--refused-is-allowed", "10.1.2.3:8080"}, {"connect", "10.1.2.3:8080", refusedIsBlocked},
+	} {
 		if handled, code := ingressMode(args); !handled || code != 2 {
 			t.Errorf("ingressMode(%q) = %v, %d; want a usage error", args, handled, code)
 		}
@@ -84,5 +91,83 @@ func TestBurstReachesAListener(t *testing.T) {
 	reachable, inconclusive = burst(time.Now(), []target{blackhole}, func(result) {})
 	if got := ingressVerdict(reachable, inconclusive); got != outcomeBlocked && got != outcomeInconclusive {
 		t.Errorf("a black hole: %s", got)
+	}
+}
+
+// refusingTarget is a loopback address with nothing listening: every dial
+// is refused, as kube-router's REJECT (icmp-port-unreachable) refuses one.
+func refusingTarget(t *testing.T) target {
+	t.Helper()
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	if err := ln.Close(); err != nil {
+		t.Fatal(err)
+	}
+	tg, err := connectTarget(addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tg
+}
+
+// TestRefusedIsBlocked: a refused connection is INCONCLUSIVE by default
+// (the listener might be down) and BLOCKED with --refused-is-blocked, each
+// attempt logged as refused rather than as a timeout.
+func TestRefusedIsBlocked(t *testing.T) {
+	tg := refusingTarget(t)
+	reachable, inconclusive := burst(time.Now(), []target{tg}, func(result) {})
+	if got := ingressVerdict(reachable, inconclusive); got != outcomeInconclusive {
+		t.Errorf("a refusal by default: %s, want %s", got, outcomeInconclusive)
+	}
+	tg.refusedBlocks = true
+	var outcomes []string
+	reachable, inconclusive = burst(time.Now(), []target{tg}, func(r result) { outcomes = append(outcomes, r.Outcome) })
+	if got := ingressVerdict(reachable, inconclusive); got != outcomeBlocked {
+		t.Errorf("a refusal with %s: %s, want %s", refusedIsBlocked, got, outcomeBlocked)
+	}
+	if len(outcomes) != 16 {
+		t.Errorf("%d attempts, want the burst's 16", len(outcomes))
+	}
+	for _, o := range outcomes {
+		if o != outcomeRefused {
+			t.Errorf("an attempt logged %q, want %q", o, outcomeRefused)
+		}
+	}
+	// The flag never turns a live listener into a refusal.
+	srv := httptest.NewServer(okHandler())
+	t.Cleanup(srv.Close)
+	live, err := connectTarget(srv.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	live.refusedBlocks = true
+	reachable, inconclusive = burst(time.Now(), []target{live}, func(result) {})
+	if got := ingressVerdict(reachable, inconclusive); got != outcomeReached {
+		t.Errorf("a live listener with %s: %s", refusedIsBlocked, got)
+	}
+}
+
+// TestRefusedIsBlockedOnlyRefusals: the flag counts ECONNREFUSED alone;
+// every other error the egress run calls inconclusive stays so.
+func TestRefusedIsBlockedOnlyRefusals(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		want string
+	}{
+		{syscall.ECONNREFUSED, outcomeRefused},
+		{fmt.Errorf("dial tcp: %w", syscall.ECONNREFUSED), outcomeRefused},
+		{syscall.ECONNRESET, "inconclusive"},
+		{os.ErrDeadlineExceeded, "blocked"},
+		{nil, "REACHABLE"},
+	} {
+		if got := connectOutcome(tc.err, true); got != tc.want {
+			t.Errorf("connectOutcome(%v, true) = %q, want %q", tc.err, got, tc.want)
+		}
+		if got, want := connectOutcome(tc.err, false), classify(tc.err); got != want {
+			t.Errorf("connectOutcome(%v, false) = %q, want classify's %q", tc.err, got, want)
+		}
 	}
 }

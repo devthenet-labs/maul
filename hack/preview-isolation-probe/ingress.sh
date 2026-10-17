@@ -10,7 +10,10 @@
 # without the gateway label must be refused; one in the release namespace
 # with the label (patchy.bitwisemedia.uk/preview-gateway: "true") must be
 # admitted, which also proves the listener answers, so the refusals are the
-# policy's. See README.md.
+# policy's. With --refused-is-blocked (kube-router, k3s's policy controller,
+# REJECTs: a refused connection) the gateway client runs first and the other
+# two count a refusal as blocked only once it has reached the listener. See
+# README.md.
 set -euo pipefail
 
 usage() {
@@ -33,6 +36,11 @@ Each option falls back to the environment variable named beside it.
                                 required with --node-selector
   --no-node-isolation           the install runs preview.nodeIsolation.mode
                                 none: no selector or toleration
+  --refused-is-blocked          count a refused connection as blocked, for a
+                                policy controller that REJECTs (kube-router,
+                                k3s and k3d): the gateway client must first
+                                reach the listener, and the listener must
+                                still run after the refused clients finish
   --release-namespace <ns>      PROBE_RELEASE_NAMESPACE: patchy's namespace,
                                 where the gateway runs (default patchy)
   --agents-namespace <ns>       PROBE_AGENTS_NAMESPACE: the agents' namespace
@@ -63,6 +71,7 @@ agents_ns=${PROBE_AGENTS_NAMESPACE:-patchy-agents}
 slot=${PROBE_SLOT:-0}
 timeout=${PROBE_TIMEOUT:-300}
 isolation=1
+refused_blocks=0
 dry_run=0
 print_manifests=0
 while [[ $# -gt 0 ]]; do
@@ -74,6 +83,7 @@ while [[ $# -gt 0 ]]; do
     --dry-run) dry_run=1 ;;
     --print-manifests) print_manifests=1 ;;
     --no-node-isolation) isolation=0 ;;
+    --refused-is-blocked) refused_blocks=1 ;;
     --image | --node-selector | --taint-key | --release-namespace | --agents-namespace | --slot | --timeout)
         [[ $# -ge 2 ]] || fail "$1 needs a value"
         case $1 in
@@ -173,9 +183,14 @@ $placement  securityContext:
 EOF
 }
 
-# client NAME: the client Pod NAME, connecting to ip.
+# client IP NAME: the client Pod NAME, connecting to IP. The two clients
+# that must be refused count a refusal as blocked under --refused-is-blocked;
+# the gateway's must connect either way.
 client() {
     local target="connect, \"$1:8080\""
+    if [[ $refused_blocks -eq 1 && $2 != preview-ingress-gateway ]]; then
+        target="connect, --refused-is-blocked, \"$1:8080\""
+    fi
     case $2 in
     preview-ingress-agent) pod "$agents_ns" "$2" "$target" ;;
     preview-ingress-release) pod "$release_ns" "$2" "$target" ;;
@@ -198,6 +213,7 @@ slot:        $slot_ns (listener on port http, 8080)
 placement:   $(if [[ $isolation -eq 1 ]]; then echo "$node_selector, tolerating $taint_key"; else echo "none (nodeIsolation none)"; fi)
 refused:     $agents_ns/preview-ingress-agent, $release_ns/preview-ingress-release
 admitted:    $release_ns/preview-ingress-gateway (patchy.bitwisemedia.uk/preview-gateway=true)
+refusal:     $(if [[ $refused_blocks -eq 1 ]]; then echo "blocked, once the gateway client has reached the listener"; else echo "inconclusive"; fi)
 dry run: nothing was called
 EOF
     exit 0
@@ -249,9 +265,6 @@ if [[ ! $ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     exit 1
 fi
 echo "listener $slot_ns/$listener at $ip:8080" >&2
-for name in "${clients[@]}"; do
-    client "$ip" "$name" | kube create -f - >&2
-done
 
 # verdict NAMESPACE NAME: the client's summary once it has finished.
 verdict() {
@@ -270,6 +283,8 @@ verdict() {
 }
 
 failed=0
+# check NAMESPACE NAME WANT: the client's verdict against WANT; true when it
+# matches.
 check() {
     local ns=$1 name=$2 want=$3 got
     got=$(verdict "$ns" "$name")
@@ -278,11 +293,38 @@ check() {
     else
         echo "FAIL $ns/$name: $got, want $want" >&2
         failed=1
+        return 1
     fi
 }
-check "$agents_ns" preview-ingress-agent BLOCKED
-check "$release_ns" preview-ingress-release BLOCKED
-check "$release_ns" preview-ingress-gateway REACHED
+if [[ $refused_blocks -eq 1 ]]; then
+    # A refusal is the policy's only while the listener answers: the gateway
+    # client proves it does before the others run, and the listener must
+    # still be running once they have finished (restartPolicy Never, so a
+    # listener that died is no longer Running).
+    client "$ip" preview-ingress-gateway | kube create -f - >&2
+    if ! check "$release_ns" preview-ingress-gateway REACHED; then
+        echo "The gateway client did not reach the listener, so a refusal cannot be judged; keep previews unused" \
+            "and investigate." >&2
+        exit 1
+    fi
+    for name in preview-ingress-agent preview-ingress-release; do
+        client "$ip" "$name" | kube create -f - >&2
+    done
+    check "$agents_ns" preview-ingress-agent BLOCKED || true
+    check "$release_ns" preview-ingress-release BLOCKED || true
+    phase=$(kube get pod "$listener" -n "$slot_ns" -o jsonpath='{.status.phase}') || phase=unreadable
+    if [[ $phase != Running ]]; then
+        echo "FAIL $slot_ns/$listener: $phase after the refused clients ran, so their refusals may be its own" >&2
+        failed=1
+    fi
+else
+    for name in "${clients[@]}"; do
+        client "$ip" "$name" | kube create -f - >&2
+    done
+    check "$agents_ns" preview-ingress-agent BLOCKED || true
+    check "$release_ns" preview-ingress-release BLOCKED || true
+    check "$release_ns" preview-ingress-gateway REACHED || true
+fi
 if [[ $failed -ne 0 ]]; then
     echo "The slot policy does not admit exactly the preview gateway; keep previews unused and investigate." >&2
     exit 1

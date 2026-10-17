@@ -322,7 +322,10 @@ gateway mode it also asks for `patchy-probe-0.<suffix>`, which must be the gatew
 netprobe Pod listens in a slot. Three client Pods each try to connect to it: one in the agents namespace, one in the
 release namespace without the gateway label, and one with it. The first two must be refused and the third admitted. The
 image (under the preview image prefix, `sha-` tagged), the node selector and the taint key are flags, so it runs on k3d
-as on EKS. Run it after turning the gateway on and after any CNI or cluster upgrade. See its
+as on EKS. On k3s and k3d add `--refused-is-blocked`: their policy controller, kube-router, rejects a denied connection
+(the client sees "connection refused") rather than dropping it, and the flag counts that as blocked only after the
+gateway's client has shown the listener answers. Run it after turning the gateway on and after any CNI or cluster
+upgrade. See its
 [README](https://github.com/devthenet-labs/patchy/blob/main/hack/preview-isolation-probe/README.md#the-ingress-direction-only-the-preview-gateway-reaches-a-slot).
 On EKS, the egress run (`run.sh`) still covers the cold-start egress direction.
 
