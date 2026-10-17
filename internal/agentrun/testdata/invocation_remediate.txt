@@ -110,18 +110,22 @@ WebFetch WebSearch
 --- argv[15]
 user
 --- argv[16]
---strict-mcp-config
+--permission-mode
 --- argv[17]
---add-dir
+dontAsk
 --- argv[18]
-/workspace/repo
+--strict-mcp-config
 --- argv[19]
 --add-dir
 --- argv[20]
-/workspace
+/workspace/repo
 --- argv[21]
---session-id
+--add-dir
 --- argv[22]
+/workspace
+--- argv[23]
+--session-id
+--- argv[24]
 00000000-0000-4000-8000-000000000001
 --- env
 ANTHROPIC_CUSTOM_HEADERS=X-Patchy-Broker-Token: caller-token

@@ -62,7 +62,7 @@ func TestClaudePromptSpecAllFlags(t *testing.T) {
 		"--max-turns", "30",
 		"--allowedTools", "Read Glob Grep Edit Write NotebookEdit Bash",
 		"--disallowedTools", "WebFetch WebSearch",
-		"--setting-sources", "user",
+		"--setting-sources", "user", "--permission-mode", "dontAsk",
 		"--strict-mcp-config",
 		"--add-dir", "/work/ws",
 		"--add-dir", "/scratch",
@@ -106,7 +106,7 @@ func TestClaudePromptSpecReadOnly(t *testing.T) {
 		"--tools", "Read,Glob,Grep,Edit,Write",
 		"--allowedTools", "Read Glob Grep Write",
 		"--disallowedTools", "WebFetch WebSearch Task Bash NotebookEdit MultiEdit",
-		"--setting-sources", "user",
+		"--setting-sources", "user", "--permission-mode", "dontAsk",
 		"--strict-mcp-config",
 		"--add-dir", "/ws",
 	}
@@ -146,7 +146,7 @@ func TestClaudeReadOnlyDeniesTheOtherEditTools(t *testing.T) {
 }
 
 // TestClaudePromptSpecKeepsTheTreesSettingsOut: every posture reads settings
-// from the user source alone, so nothing under the working tree's .claude/
+// from the user source alone, pins its permission mode, so nothing under the working tree's .claude/
 // (hooks, env, allow rules, skills) or its .mcp.json can change what the run
 // may do, and loads CLAUDE.md through the workspace added as a directory
 // instead. The request's Env is extended, never written through: the
@@ -174,6 +174,15 @@ func TestClaudePromptSpecKeepsTheTreesSettingsOut(t *testing.T) {
 			}
 			if !slices.Contains(argv, "--strict-mcp-config") {
 				t.Errorf("argv = %q, want --strict-mcp-config", argv)
+			}
+			// The mode is pinned too, so no settings source the run still
+			// reads (the user source, a managed file) can pick acceptEdits,
+			// bypassPermissions or plan.
+			if n := countArg(argv, "--permission-mode"); n != 1 {
+				t.Fatalf("--permission-mode given %d times, want once: %q", n, argv)
+			}
+			if got := argv[slices.Index(argv, "--permission-mode")+1]; got != "dontAsk" {
+				t.Errorf("--permission-mode = %q, want dontAsk", got)
 			}
 			if !hasAddDir(argv, "/ws") || !hasAddDir(argv, "/workspace") {
 				t.Errorf("argv = %q, want the working tree added as a directory beside the request's", argv)

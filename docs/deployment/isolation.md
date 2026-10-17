@@ -60,7 +60,15 @@ and agent Jobs — runs as non-root uid 65532 with a read-only root filesystem, 
 
 Inside the pod, the claude harness renders each stage's sandbox posture into the CLI's tool flags, beside a settings pin
 (`--setting-sources user`, `--strict-mcp-config`) that keeps the working tree's own `.claude/` settings and `.mcp.json`
-from changing what a stage may run.
+from changing what a stage may run, and a pinned permission mode (`--permission-mode dontAsk`): no settings file the run
+still reads can start it in `acceptEdits`, `bypassPermissions` or `plan`, and a tool call no allow rule covers is denied
+by the mode itself rather than left to `-p` having no one to ask.
+
+One settings source cannot be pinned away: a managed settings file (`/etc/claude-code/managed-settings.json`) is read
+whatever `--setting-sources` says, and only its mode gives way to the command line. Only a
+[repository-declared image](#repository-declared-images) can carry one patchy did not write, and its hooks, env block,
+allow rules or MCP servers would apply in every stage on that image, investigation included. That is what such an image
+is already assumed to be able to do (untrusted code with the agent's powers), so the pin is the mode alone.
 
 - **Read-only** (`investigate`, and an intent's `plan`): no shell. `--tools Read,Glob,Grep,Edit,Write` is the whole
   built-in tool set the run has, and `Bash`, `NotebookEdit` and `MultiEdit` are denied by name as well, so neither

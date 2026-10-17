@@ -138,18 +138,22 @@ WebFetch WebSearch Task Bash NotebookEdit MultiEdit
 --- argv[17]
 user
 --- argv[18]
---strict-mcp-config
+--permission-mode
 --- argv[19]
---add-dir
+dontAsk
 --- argv[20]
-/workspace/repo
+--strict-mcp-config
 --- argv[21]
 --add-dir
 --- argv[22]
-/workspace
+/workspace/repo
 --- argv[23]
---session-id
+--add-dir
 --- argv[24]
+/workspace
+--- argv[25]
+--session-id
+--- argv[26]
 00000000-0000-4000-8000-000000000001
 --- env
 ANTHROPIC_CUSTOM_HEADERS=X-Patchy-Broker-Token: caller-token

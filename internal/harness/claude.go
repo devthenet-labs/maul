@@ -125,6 +125,29 @@ var claudeTools = map[Sandbox]struct{ tools, allow, deny []string }{
 // which needs the local one.
 const claudeSettingSources = "user"
 
+// claudePermissionMode is the permission mode every postured run is started
+// in, so that the mode is patchy's and not a settings file's. A settings
+// source the run still reads can name a defaultMode: the user source under
+// HOME, and a managed settings file, which a repository image can bake in
+// and which outranks everything else. Probed on 2.1.263, a defaultMode of
+// acceptEdits from the user source let a read-only run edit and create files
+// in the tree, and one from a managed file became the run's mode as well;
+// the command-line mode wins over both.
+//
+// The mode is dontAsk rather than default (manual): in dontAsk a call that
+// no allow rule covers is denied by the mode itself, where default would
+// ask, and leave the refusal to -p having no one to ask. Both refuse the
+// same calls on 2.1.263 (probed in both postures, writes under .git and
+// .claude included); dontAsk does not depend on how -p treats a prompt.
+//
+// What a managed settings file can still do is the residue: hooks, an env
+// block, allow rules and MCP servers of its own, in every stage that runs on
+// the image. Only a repository image can carry one patchy did not write, and
+// such an image is already treated as untrusted code with the agent's powers
+// (docs/deployment/isolation.md), which is what a hook or an allow rule there
+// buys; the mode is the one thing it can no longer choose.
+const claudePermissionMode = "dontAsk"
+
 // claudeMDFromAddDirs is the environment entry that has the CLI load
 // CLAUDE.md from its --add-dir directories; see claudeSettingSources.
 const claudeMDFromAddDirs = "CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1"
@@ -144,8 +167,8 @@ const claudeNoAutoMemory = "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1"
 // stream-json with --verbose emits one JSON event per line, which is what
 // ParseResult and ScanUsage parse. Optional request fields append their flag
 // only when set, in a stable order. A posture also pins where the run's
-// settings come from (claudeSettingSources); the request's Env is never
-// written through.
+// settings come from (claudeSettingSources) and its permission mode
+// (claudePermissionMode); the request's Env is never written through.
 func (c *Claude) PromptSpec(ws string, req PromptRequest) runner.CommandSpec {
 	argv := []string{
 		"claude", "-p", req.Prompt,
@@ -163,7 +186,8 @@ func (c *Claude) PromptSpec(ws string, req PromptRequest) runner.CommandSpec {
 		}
 		argv = append(argv, "--allowedTools", strings.Join(claudeAllow(ws, req, t.allow), " "))
 		argv = append(argv, "--disallowedTools", strings.Join(t.deny, " "))
-		argv = append(argv, "--setting-sources", claudeSettingSources, "--strict-mcp-config", "--add-dir", ws)
+		argv = append(argv, "--setting-sources", claudeSettingSources, "--permission-mode", claudePermissionMode,
+			"--strict-mcp-config", "--add-dir", ws)
 		env = append(slices.Clip(req.Env), claudeMDFromAddDirs)
 		if req.Sandbox == SandboxReadOnly {
 			env = append(env, claudeNoAutoMemory)
