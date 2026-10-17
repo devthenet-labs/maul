@@ -500,6 +500,31 @@ source-controller's and the preview nodes' own credentials can is shown by a Rep
 Preview's status. The exit status is 1 when any check fails, 3 when the Project does not exist and 4 when you may not
 read it.
 
+## Checking the preview install
+
+`patchy check previews -n <release namespace>` is the install-level preflight for
+[previews](configuration/preview-gateway.md): it judges what every Project's previews stand on, before any Project
+exists, and reports the same way as `check project`, with one more status, WARN, for something that works but is weaker
+than it should be. A WARN never fails the run.
+
+```sh
+patchy check previews -n patchy
+patchy check previews -n patchy -o json | jq '.checks[] | select(.status != "PASS")'
+```
+
+| Check                           | What it reads, and what it says                                                                                                                                                                                                                                                                                                                               |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `preview-config`                | The controllers' ConfigMaps: previews and sign-in are on and agree on the host suffix, the sign-in host sits outside the suffix, and the suffix has a registrable domain of its own. WARN while the legacy load balancer path still serves preview hosts, and when the suffix shares its registrable domain with the sign-in host, the relay's issuer or Dex. |
+| `preview-dns`, `preview-tls`    | As in `check project`, for `patchy-probe-0.<host suffix>`: the relay's own probe host, which no Preview owns.                                                                                                                                                                                                                                                 |
+| `preview-auth`, `-dex`, `-host` | As in `check project`, but `preview-auth-host` asks the probe host and every Ready preview, whatever its Project.                                                                                                                                                                                                                                             |
+| `preview-gateway-allowlist`     | As in `check project`.                                                                                                                                                                                                                                                                                                                                        |
+| `preview-viewers`               | The RoleBindings in the release namespace and the ClusterRoleBindings of the chart's `<release>-preview-viewer` ClusterRole: at least one User or Group carrying the relay's claim prefix, or every sign-in is refused `403`. Subjects the relay can never sign in (a ServiceAccount, a name without the prefix) are named.                                   |
+| `preview-nodes`                 | The nodes, with node isolation required: at least one carries preview-controller's node selector and its `<taint key>=true:NoExecute` taint, and none carries only one of them. With an EKS Auto Mode NodePool, no node yet is a SKIP (it launches them on demand); `preview.nodeIsolation.mode: none` is a WARN.                                             |
+
+The check never reads a Secret. Its cluster reads are ConfigMaps, the preview placeholder and gateway Ingresses, the
+gateway's Service, Previews, RoleBindings, ClusterRoleBindings and Nodes; a read your kubeconfig may not make is a SKIP,
+not a FAIL. The exit status is 1 when any check fails.
+
 ## Scaffolding an application repository
 
 `patchy init app` is the fifth cluster-free command. It writes the files an application repository needs before patchy

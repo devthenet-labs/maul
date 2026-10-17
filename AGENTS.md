@@ -203,17 +203,23 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   project` is `check image`'s cluster-reading sibling: a read-only Project preflight (engine in
   `cmd/patchy/internal/projectcheck`) that reads Ready/IntentNameConflict, resolves every repository over the Forge CRs,
   and judges agent and preview images with the caller's own credentials; its preview DNS, TLS and sign-in checks are
-  `cmd/patchy/internal/previewcheck` (`Checker.Host`, `Checker.Auth`, `LoadSettings`), shared so a later install-level
-  `check previews` cannot drift from it. Those judge DNS and TLS and, while the chart's
+  `cmd/patchy/internal/previewcheck` (`Checker.Host`, `Checker.Auth`, `LoadSettings`), shared with the install-level
+  `check previews` so the two cannot drift. Those judge DNS and TLS and, while the chart's
   `previewAuth` is on, the relay's discovery, Dex's acceptance of the relay's one redirect URI and (once sign-in is
   required) each Ready preview host's unauthenticated redirect to the relay for its own slot (`previewauth.JudgeProbe`).
   With the preview gateway on it judges the mode in force (`previewauth.ProbeModeFor` of the relay's gateway switch and
   preview-controller's legacy Ingress switch; `previewcheck/gateway.go`): DNS against `publishedAddresses` or the
   gateway's Ingress/Service status (a private edge not in this resolver is a SKIP), the gateway's 404 on
   `<project>-0.<suffix>` and its `/start` redirect on each Ready preview, and `preview-gateway-allowlist` (a spoofed
-  `X-Forwarded-For` from a refused address must stay refused).
-  It never reads a Secret, so never the App key. Both `check` nouns render through `cmd/patchy/internal/checkreport`
-  (PASS/FAIL/SKIP lines, `-o json|yaml`, inert reasons). Builds for windows too, and ships a `kubectl-patchy` alias.
+  `X-Forwarded-For` from a refused address must stay refused). `check previews` (`previewcheck.Install`) runs those
+  for the install as a whole, before any Project exists: against `patchy-probe-0.<suffix>` and every Ready preview of
+  any Project, plus `preview-config` (gateway-only, sign-in host outside the suffix, the suffix's own registrable
+  domain by `x/net/publicsuffix`), `preview-viewers` (the bindings of `<release>-preview-viewer`, since a
+  SelfSubjectAccessReview cannot ask for someone else) and `preview-nodes` (selector and NoExecute taint together on
+  the nodes; the selector parsed by preview-controller's own `preview.ParseNodeSelector`).
+  None reads a Secret, so never the App key. Every `check` noun renders through `cmd/patchy/internal/checkreport`
+  (PASS/FAIL/SKIP lines, plus WARN, which never fails a run and only `check previews` reports; `-o json|yaml`, inert
+  reasons). Builds for windows too, and ships a `kubectl-patchy` alias.
   Ships no container image: it is distributed as its own `patchy-cli` release archive (separate from the cluster
   binaries' `patchy` archive) and as a Homebrew cask in bitwise-media-group/homebrew-tap.
 

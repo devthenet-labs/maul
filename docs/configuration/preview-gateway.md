@@ -97,10 +97,10 @@ Rules that hold on every platform:
 
 - **The host suffix gets a registrable domain of its own.** Put `*.<hostSuffix>` on a different registrable domain from
   the sign-in host and the status page (`preview.acme-apps.dev` beside `patchy.acme.dev`). Every preview host is
-  same-site with every other, and only the gateway's `__Host-` cookies and its origin rules keep them apart. Nothing
-  enforces this yet: neither the chart nor `patchy check project` looks at registrable domains, so check it yourself.
-  The [Public Suffix List](https://publicsuffix.org/) decides what is registrable: `acme-apps.dev` is, and so is
-  `acme.github.io`, because `github.io` is a public suffix.
+  same-site with every other, and only the gateway's `__Host-` cookies and its origin rules keep them apart. The chart
+  does not enforce this; `patchy check previews` WARNs (its `preview-config` line) when the suffix shares a registrable
+  domain with the sign-in host, the relay's issuer or Dex. The [Public Suffix List](https://publicsuffix.org/) decides
+  what is registrable: `acme-apps.dev` is, and so is `acme.github.io`, because `github.io` is a public suffix.
 - **The sign-in host sits outside the host suffix.** The chart refuses one under it.
 - **`forwardedHops` is the number of proxies that append to `X-Forwarded-For` in front of the gateway.** The rate limit
   and the inbound allowlist judge the address it names, so a value too high lets a client choose its own.
@@ -494,6 +494,12 @@ mode, checks:
 | `preview-auth-dex`          | Dex accepts the relay's client with `<issuer>/dex/callback`, as before                                                                                                                                                                                                                 |
 | `preview-auth-host`         | `<project>-0.<suffix>`, which no Preview owns, answers with the gateway's own `404` page. Every Ready preview answers an unauthenticated navigation with the `302` to `https://<sign-in host>/start` for its own label. A host the gateway refuses (outside `inboundCIDRs`) is a SKIP. |
 | `preview-gateway-allowlist` | From an address the gateway refuses, a request whose `X-Forwarded-For` names an address inside `inboundCIDRs` is still refused. From an admitted address it is a SKIP: run it from outside.                                                                                            |
+
+`patchy check previews -n <release namespace>` runs the same checks for the install as a whole, before any Project
+exists: it asks `patchy-probe-0.<suffix>` (the relay's own probe host) and every Ready preview whatever its Project, and
+adds `preview-config` (gateway-only, the sign-in host outside the suffix, the suffix on a registrable domain of its
+own), `preview-viewers` (someone the relay can sign in is bound to the viewer role) and `preview-nodes` (the preview
+nodes carry both the selector and the taint). See [the CLI guide](../cli.md#checking-the-preview-install).
 
 The relay's background probe applies the same verdicts every minute (`patchy.preview_auth.unprotected_hosts`). In
 gateway mode it also asks for `patchy-probe-0.<suffix>`, which must be the gateway's `404`.

@@ -10,7 +10,9 @@ from your workstation, and report every verdict as a PASS, FAIL or SKIP line.
 check image needs no cluster: it checks an agent image a repository means to
 declare, and the kubeconfig flags are inert for it. check project reads the
 cluster with your own kubeconfig, and GitHub and the registry with your own
-credentials, to tell whether a Project is ready for its first intent.
+credentials, to tell whether a Project is ready for its first intent. check
+previews reads the cluster too, to tell whether the preview install every
+Project's previews stand on is ready, before any Project exists.
 
 ### Options
 
@@ -35,5 +37,6 @@ credentials, to tell whether a Project is ready for its first intent.
 
 * [patchy](patchy.md)	 - Work with patchy security findings from the terminal
 * [patchy check image](patchy_check_image.md)	 - Check an agent image a repository means to declare
+* [patchy check previews](patchy_check_previews.md)	 - Check that the preview install is ready, before any Project uses it
 * [patchy check project](patchy_check_project.md)	 - Check that a Project is ready for its first intent
 
