@@ -11,7 +11,8 @@ every Project's previews stand on, with the same checks where they overlap.
 
 preview-config reads the controllers' ConfigMaps: previews and sign-in are
 on and agree on the host suffix, the preview gateway alone serves preview
-hosts (the legacy load balancer path still serving is a WARN), the sign-in
+hosts (the legacy load balancer path still serving is a WARN, and serving
+without sign-in, previewAuth.stage permit, a FAIL), the sign-in
 host sits outside the suffix, and the suffix is a registrable domain of its
 own, shared with neither the sign-in host, the relay's issuer nor Dex (a
 WARN: preview code would run same-site with sign-in).
@@ -27,11 +28,14 @@ previewAuth.gateway.inboundCIDRs.
 
 preview-viewers reads the bindings of the chart's <release>-preview-viewer
 ClusterRole: at least one User or Group carrying the relay's claim prefix
-must be bound, or every sign-in is refused 403. preview-nodes reads the
-nodes: with node isolation required, at least one carries preview-
+should be bound, or every sign-in is refused 403 unless another role grants
+get on projects/previews, which this cannot see (a WARN). preview-nodes
+reads the nodes: with node isolation required, at least one carries preview-
 controller's node selector and its <taint key>=true:NoExecute taint, and no
-node carries only one of them (with an EKS Auto Mode NodePool, no node yet
-is a SKIP; isolation off is a WARN).
+node carries the selector without that taint (a FAIL: any Pod could run
+beside preview code there). A node with the taint but not the selector is
+another install's or a label typo (a WARN); with an EKS Auto Mode NodePool,
+no node yet is a SKIP; isolation off is a WARN.
 
 The check never reads a Secret. Its cluster reads, with your kubeconfig, are
 ConfigMaps, the preview placeholder and gateway Ingresses, the gateway's

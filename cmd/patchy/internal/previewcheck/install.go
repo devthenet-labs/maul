@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 
 	"golang.org/x/net/publicsuffix"
@@ -55,9 +56,9 @@ func (r Report) Lines() []checkreport.Line {
 func (r Report) Failed() int { return checkreport.Failed(r.Lines()) }
 
 // Install runs the install-level checks, before any Project exists: the
-// preview configuration as a whole (preview-config), the shared host and
-// sign-in checks against the probe host and every Ready Preview, who may
-// view previews (preview-viewers) and the preview nodes (preview-nodes).
+// preview configuration as a whole (preview-config), who may view previews
+// (preview-viewers), the preview nodes (preview-nodes), then the shared host
+// and sign-in checks against the probe host and every Ready Preview.
 // cfg.Project and cfg.AllPreviews are set here. It reads ConfigMaps, the
 // gateway's exposure, Previews, RoleBindings, ClusterRoleBindings and Nodes;
 // never a Secret.
@@ -66,17 +67,20 @@ func Install(ctx context.Context, cfg Config) Report {
 	c := New(cfg)
 	s := LoadSettings(ctx, cfg.Reader, cfg.Namespace)
 	suffix := c.previewConfig(s)
-	c.Host(ctx, s, suffix)
-	c.Auth(ctx, s, suffix)
+	// The cluster-only checks run before the network ones, whose timeouts
+	// (from outside an allowlist) could otherwise spend the run's deadline.
 	c.viewers(ctx, s)
 	c.nodes(ctx, s)
+	c.Host(ctx, s, suffix)
+	c.Auth(ctx, s, suffix)
 	return Report{Namespace: cfg.Namespace, Checks: c.Lines()}
 }
 
 // previewConfig judges the preview install's configuration as a whole and
 // returns the host suffix the host checks probe under ("" when unknown):
 // previews and sign-in are on and agree on the suffix, the preview gateway
-// alone serves preview hosts, the sign-in host sits outside the suffix, and
+// alone serves preview hosts (the legacy path serving too is a WARN, and
+// serving without sign-in a FAIL), the sign-in host sits outside the suffix, and
 // the suffix is a registrable domain of its own, shared with neither the
 // sign-in host, the relay's issuer nor Dex (a WARN otherwise: those hosts'
 // cookies would be same-site with every preview's).
@@ -108,7 +112,9 @@ func (c *Checker) previewConfig(s Settings) string {
 		issuer:     s.Auth.Data[keyAuthIssuer],
 		signIn:     strings.TrimSpace(s.Auth.Data[keyAuthGatewaySignIn]),
 		dexIssuer:  s.Auth.Data[keyAuthDexIssuer],
-		mode:       s.probeMode(),
+		gateway:    s.Auth.Bool(keyAuthGateway),
+		legacy:     s.legacyIngress(),
+		required:   s.Preview.Bool(keyAuthRequired),
 	})
 	c.add(CheckPreviewConfig, v.status, "%s", v.reason)
 	return suffix
@@ -118,7 +124,21 @@ func (c *Checker) previewConfig(s Settings) string {
 // hold them.
 type configInput struct {
 	suffix, authSuffix, issuer, signIn, dexIssuer string
-	mode                                          previewauth.ProbeMode
+	// gateway is the relay's gateway switch, legacy preview-controller's
+	// legacy slot Ingress switch, and required whether that Ingress is put
+	// behind sign-in (the legacy path's require stage).
+	gateway, legacy, required bool
+}
+
+// legacyIngress is preview-controller's legacy slot Ingress switch, its
+// flag's default (true) when unset or unreadable.
+func (s Settings) legacyIngress() bool {
+	v, ok := s.Preview.Data[keyPreviewLegacyIngress]
+	if !ok {
+		return true
+	}
+	b, err := strconv.ParseBool(strings.TrimSpace(v))
+	return err != nil || b
 }
 
 // configVerdict is preview-config's line.
@@ -147,11 +167,17 @@ func judgeConfig(in configInput) configVerdict {
 	if signIn == "" {
 		signIn = issuerHost
 	}
-	switch in.mode {
-	case previewauth.ProbeALB:
+	switch {
+	case !in.gateway && !in.legacy:
+		fails = append(fails, "nothing serves preview hosts: the preview gateway is off "+
+			"(previewAuth.gateway.enabled) and so is the legacy slot Ingress (preview.legacyIngress)")
+	case in.legacy && !in.required:
+		fails = append(fails, "the legacy slot Ingress serves preview hosts without sign-in "+
+			"(previewAuth.stage permit): require it, or turn the legacy path off once the gateway serves")
+	case !in.gateway:
 		warns = append(warns, "the preview gateway is off (previewAuth.gateway.enabled), so the legacy load "+
 			"balancer path serves preview hosts")
-	case previewauth.ProbeEither:
+	case in.legacy:
 		warns = append(warns, "both the preview gateway and the legacy slot Ingress serve preview hosts: once the "+
 			"wildcard record points at the gateway's edge, set preview.legacyIngress false")
 	}

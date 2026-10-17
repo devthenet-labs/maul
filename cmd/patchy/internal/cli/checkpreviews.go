@@ -33,7 +33,8 @@ func newCheckPreviewsCmd(opts *Options) *cobra.Command {
 			"every Project's previews stand on, with the same checks where they overlap.\n\n" +
 			"preview-config reads the controllers' ConfigMaps: previews and sign-in are\n" +
 			"on and agree on the host suffix, the preview gateway alone serves preview\n" +
-			"hosts (the legacy load balancer path still serving is a WARN), the sign-in\n" +
+			"hosts (the legacy load balancer path still serving is a WARN, and serving\n" +
+			"without sign-in, previewAuth.stage permit, a FAIL), the sign-in\n" +
 			"host sits outside the suffix, and the suffix is a registrable domain of its\n" +
 			"own, shared with neither the sign-in host, the relay's issuer nor Dex (a\n" +
 			"WARN: preview code would run same-site with sign-in).\n\n" +
@@ -47,11 +48,14 @@ func newCheckPreviewsCmd(opts *Options) *cobra.Command {
 			"previewAuth.gateway.inboundCIDRs.\n\n" +
 			"preview-viewers reads the bindings of the chart's <release>-preview-viewer\n" +
 			"ClusterRole: at least one User or Group carrying the relay's claim prefix\n" +
-			"must be bound, or every sign-in is refused 403. preview-nodes reads the\n" +
-			"nodes: with node isolation required, at least one carries preview-\n" +
+			"should be bound, or every sign-in is refused 403 unless another role grants\n" +
+			"get on projects/previews, which this cannot see (a WARN). preview-nodes\n" +
+			"reads the nodes: with node isolation required, at least one carries preview-\n" +
 			"controller's node selector and its <taint key>=true:NoExecute taint, and no\n" +
-			"node carries only one of them (with an EKS Auto Mode NodePool, no node yet\n" +
-			"is a SKIP; isolation off is a WARN).\n\n" +
+			"node carries the selector without that taint (a FAIL: any Pod could run\n" +
+			"beside preview code there). A node with the taint but not the selector is\n" +
+			"another install's or a label typo (a WARN); with an EKS Auto Mode NodePool,\n" +
+			"no node yet is a SKIP; isolation off is a WARN.\n\n" +
 			"The check never reads a Secret. Its cluster reads, with your kubeconfig, are\n" +
 			"ConfigMaps, the preview placeholder and gateway Ingresses, the gateway's\n" +
 			"Service, Previews, RoleBindings, ClusterRoleBindings and Nodes; a read you\n" +

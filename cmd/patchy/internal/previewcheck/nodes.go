@@ -40,10 +40,11 @@ const nodeNamesShown = 5
 // nodes checks the preview nodes, with node isolation required: at least
 // one node carries both the selector every slot Pod renders and the
 // <taint key>=true:NoExecute taint every slot Pod tolerates, and no node
-// carries only one of them. A node selected but not so tainted lets any Pod
-// run beside preview code; a node tainted but not selected is a preview node
-// no slot Pod reaches, usually a label typo. With an EKS Auto Mode NodePool
-// no node is a SKIP: the NodePool launches them when a slot Pod asks.
+// carries the selector alone. A node selected but not so tainted lets any Pod
+// run beside preview code (a FAIL); a node tainted but not selected is one no
+// slot Pod of this install reaches, another install's or a label typo (a
+// WARN). With an EKS Auto Mode NodePool no node is a SKIP: the NodePool
+// launches them when a slot Pod asks.
 func (c *Checker) nodes(ctx context.Context, s Settings) {
 	switch {
 	case s.Preview.Err != nil:
@@ -52,9 +53,17 @@ func (c *Checker) nodes(ctx context.Context, s Settings) {
 	case !s.Preview.Found():
 		c.add(CheckPreviewNodes, checkreport.Skip, "previews are off")
 		return
-	case strings.TrimSpace(s.Preview.Data[keyPreviewNodeIsolation]) == preview.NodeIsolationNone:
+	}
+	switch mode := s.Preview.Data[keyPreviewNodeIsolation]; mode {
+	case "", preview.NodeIsolationRequired:
+	case preview.NodeIsolationNone:
 		c.add(CheckPreviewNodes, checkreport.Warn, "node isolation is off (preview.nodeIsolation.mode none): "+
 			"preview Pods run agent-written code on the same nodes as everything else")
+		return
+	default:
+		c.add(CheckPreviewNodes, checkreport.Fail, "%s sets %s to %q, which preview-controller refuses to start "+
+			"with: it is %s or %s", s.Preview.From, keyPreviewNodeIsolation, mode, preview.NodeIsolationRequired,
+			preview.NodeIsolationNone)
 		return
 	}
 	selector, err := nodeSelector(s.Preview)
@@ -75,18 +84,26 @@ func (c *Checker) nodes(ctx context.Context, s Settings) {
 	}
 	v := judgeNodes(selector, taint, list.Items)
 	want := fmt.Sprintf("the node selector %s and the taint %s=true:NoExecute", formatSelector(selector), taint)
+	// A node tainted but not selected is no risk: slot Pods never land there
+	// and the taint keeps everything else off. It is another install's
+	// preview node sharing the default taint key, or a label typo.
+	other := ""
+	if len(v.unselected) > 0 {
+		other = fmt.Sprintf("%s carr%s the taint without the node selector's labels, so no slot Pod of this "+
+			"install lands there (another install's preview node, or a label typo)", names(v.unselected),
+			plural(len(v.unselected), "ies", "y"))
+	}
 	switch {
-	case len(v.untainted) > 0 || len(v.unselected) > 0:
-		var why []string
-		if len(v.untainted) > 0 {
-			why = append(why, fmt.Sprintf("%s match%s the node selector without the taint, so any Pod may run "+
-				"beside preview code there", names(v.untainted), plural(len(v.untainted), "es", "")))
+	case len(v.untainted) > 0:
+		why := fmt.Sprintf("%s match%s the node selector without the taint, so any Pod may run beside preview "+
+			"code there", names(v.untainted), plural(len(v.untainted), "es", ""))
+		if other != "" {
+			why += "; " + other
 		}
-		if len(v.unselected) > 0 {
-			why = append(why, fmt.Sprintf("%s carr%s the taint without the node selector's labels, so no slot Pod "+
-				"lands there", names(v.unselected), plural(len(v.unselected), "ies", "y")))
-		}
-		c.add(CheckPreviewNodes, checkreport.Fail, "every preview node needs %s: %s", want, strings.Join(why, "; "))
+		c.add(CheckPreviewNodes, checkreport.Fail, "every preview node needs %s: %s", want, why)
+	case len(v.isolated) > 0 && other != "":
+		c.add(CheckPreviewNodes, checkreport.Warn, "%s carr%s %s; %s", names(v.isolated),
+			plural(len(v.isolated), "ies", "y"), want, other)
 	case len(v.isolated) > 0:
 		c.add(CheckPreviewNodes, checkreport.Pass, "%s carr%s %s, and no other node carries either", names(v.isolated),
 			plural(len(v.isolated), "ies", "y"), want)
@@ -96,8 +113,16 @@ func (c *Checker) nodes(ctx context.Context, s Settings) {
 	default:
 		c.add(CheckPreviewNodes, checkreport.Fail, "no node carries %s, so no slot Pod can schedule: add a "+
 			"preview node with both set at registration (the label and taint before it joins, never a taint "+
-			"added after other Pods landed)", want)
+			"added after other Pods landed)%s", want, prefixed("; ", other))
 	}
+}
+
+// prefixed is s after p, or "" when s is.
+func prefixed(p, s string) string {
+	if s == "" {
+		return ""
+	}
+	return p + s
 }
 
 // nodeSelector is the node selector every slot Pod renders, as

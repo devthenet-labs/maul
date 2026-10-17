@@ -251,8 +251,8 @@ func TestInstallAllPass(t *testing.T) {
 			order = append(order, l.Name)
 		}
 	}
-	want := []string{CheckPreviewConfig, CheckPreviewDNS, CheckPreviewTLS, CheckPreviewAuth, CheckPreviewAuthDex,
-		CheckPreviewAuthHost, CheckPreviewGatewayAllowlist, CheckPreviewViewers, CheckPreviewNodes}
+	want := []string{CheckPreviewConfig, CheckPreviewViewers, CheckPreviewNodes, CheckPreviewDNS, CheckPreviewTLS,
+		CheckPreviewAuth, CheckPreviewAuthDex, CheckPreviewAuthHost, CheckPreviewGatewayAllowlist}
 	if !reflect.DeepEqual(order, want) {
 		t.Errorf("order = %v, want %v", order, want)
 	}
@@ -321,6 +321,7 @@ func TestInstallSettingsUnreadable(t *testing.T) {
 	}}
 	r := newInstallWorld().run(t, forbidden)
 	expect(t, r.Checks, CheckPreviewConfig, checkreport.Skip, "cannot read the controllers' settings")
+	expect(t, r.Checks, CheckPreviewViewers, checkreport.Skip, "cannot read the controllers' settings")
 	expect(t, r.Checks, CheckPreviewNodes, checkreport.Skip, "cannot read the controllers' settings")
 	if n := r.Failed(); n != 0 {
 		t.Errorf("Failed = %d:\n%s", n, dump(r.Checks))
@@ -332,6 +333,7 @@ func TestInstallSettingsUnreadable(t *testing.T) {
 func TestInstallConfigWarns(t *testing.T) {
 	w := newInstallWorld()
 	w.setting("patchy-preview-controller", keyPreviewLegacyIngress, "")
+	w.setting("patchy-preview-controller", keyAuthRequired, "true")
 	w.setting("patchy-preview-controller", keyPreviewHostSuffix, "previews.acme.test")
 	w.setting("patchy-preview-auth-config", keyAuthHostSuffix, "previews.acme.test")
 	r := w.run(t, interceptor.Funcs{})
@@ -339,11 +341,17 @@ func TestInstallConfigWarns(t *testing.T) {
 		"Ingress serve", "shares its registrable domain acme.test with preview-auth.acme.test, dex.acme.test")
 }
 
+// TestProbeProject: the install-level probe host is the relay's own.
+func TestProbeProject(t *testing.T) {
+	if ProbeProject+"-0" != previewauth.UnknownProbeLabel {
+		t.Errorf("ProbeProject %q does not name %q", ProbeProject, previewauth.UnknownProbeLabel)
+	}
+}
+
 // TestJudgeConfig: each finding maps onto its status, failures before
 // warnings, every one named.
 func TestJudgeConfig(t *testing.T) {
-	base := configInput{suffix: iSuffix, authSuffix: iSuffix, issuer: iIssuer, dexIssuer: iDex,
-		mode: previewauth.ProbeGateway}
+	base := configInput{suffix: iSuffix, authSuffix: iSuffix, issuer: iIssuer, dexIssuer: iDex, gateway: true}
 	cases := []struct {
 		name   string
 		edit   func(*configInput)
@@ -354,10 +362,16 @@ func TestJudgeConfig(t *testing.T) {
 			iSuffix}},
 		{"separate sign-in host", func(in *configInput) { in.signIn = "go.acme.test" }, checkreport.Pass,
 			[]string{"sign in at go.acme.test"}},
-		{"legacy only", func(in *configInput) { in.mode = previewauth.ProbeALB }, checkreport.Warn,
-			[]string{"the preview gateway is off"}},
-		{"both paths", func(in *configInput) { in.mode = previewauth.ProbeEither }, checkreport.Warn,
+		{"legacy only", func(in *configInput) { in.gateway, in.legacy, in.required = false, true, true },
+			checkreport.Warn, []string{"the preview gateway is off"}},
+		{"both paths", func(in *configInput) { in.legacy, in.required = true, true }, checkreport.Warn,
 			[]string{"set preview.legacyIngress false"}},
+		{"legacy path without sign-in", func(in *configInput) { in.legacy = true }, checkreport.Fail,
+			[]string{"serves preview hosts without sign-in (previewAuth.stage permit)"}},
+		{"legacy only without sign-in", func(in *configInput) { in.gateway, in.legacy = false, true },
+			checkreport.Fail, []string{"without sign-in"}},
+		{"nothing serves", func(in *configInput) { in.gateway = false }, checkreport.Fail,
+			[]string{"nothing serves preview hosts"}},
 		{"relay suffix differs", func(in *configInput) { in.authSuffix = "other.test" }, checkreport.Fail,
 			[]string{"the relay's host suffix other.test is not preview-controller's " + iSuffix}},
 		{"bad issuer", func(in *configInput) { in.issuer = "http://relay" }, checkreport.Fail,
@@ -369,7 +383,7 @@ func TestJudgeConfig(t *testing.T) {
 		{"shared with dex", func(in *configInput) { in.dexIssuer = "https://dex." + iSuffix + ":8443" },
 			checkreport.Warn, []string{"shares its registrable domain " + iSuffix + " with dex." + iSuffix}},
 		{"fail and warn", func(in *configInput) {
-			in.authSuffix, in.mode = "other.test", previewauth.ProbeALB
+			in.authSuffix, in.gateway, in.legacy, in.required = "other.test", false, true, true
 		}, checkreport.Fail, []string{"is not preview-controller's", "; the preview gateway is off"}},
 	}
 	for _, tc := range cases {
@@ -395,7 +409,7 @@ func TestJudgeConfig(t *testing.T) {
 // y6.de.com are two sites and share nothing.
 func TestJudgeConfigPrivateSuffix(t *testing.T) {
 	v := judgeConfig(configInput{suffix: "z7cn7.de.com", issuer: "https://auth.m.net", signIn: "y6.de.com",
-		dexIssuer: "https://dex.m.net", mode: previewauth.ProbeGateway})
+		dexIssuer: "https://dex.m.net", gateway: true})
 	if v.status != checkreport.Pass {
 		t.Errorf("judgeConfig = %+v, want PASS", v)
 	}
@@ -440,7 +454,7 @@ func TestJudgeConfigProperties(t *testing.T) {
 			b += "x"
 		}
 		ok := configInput{suffix: a + "." + site, issuer: "https://auth." + other, dexIssuer: "https://dex." + other,
-			mode: previewauth.ProbeGateway}
+			gateway: true}
 		if v := judgeConfig(ok); v.status != checkreport.Pass {
 			t.Logf("own domain: %+v -> %+v", ok, v)
 			return false
@@ -512,26 +526,35 @@ func TestViewers(t *testing.T) {
 		want   []string
 	}{
 		{"none", func(w *installWorld) { w.drop("patchy-preview-viewers", &rbacv1.RoleBinding{}) },
-			interceptor.Funcs{}, checkreport.Fail, []string{"every sign-in is refused 403", "previewAuth.viewers"}},
+			interceptor.Funcs{}, checkreport.Warn, []string{"unless another role grants get on projects/previews",
+				"every sign-in is refused 403", "previewAuth.viewers"}},
 		{"another role only", func(w *installWorld) {
 			w.drop("patchy-preview-viewers", &rbacv1.RoleBinding{})
 			w.objs = append(w.objs, other)
-		}, interceptor.Funcs{}, checkreport.Fail, []string{"nothing binds ClusterRole patchy-preview-viewer"}},
+		}, interceptor.Funcs{}, checkreport.Warn, []string{"nothing binds ClusterRole patchy-preview-viewer"}},
 		{"unusable subjects", func(w *installWorld) {
 			w.drop("patchy-preview-viewers", &rbacv1.RoleBinding{})
 			w.objs = append(w.objs, unusable)
-		}, interceptor.Funcs{}, checkreport.Fail, []string{"ServiceAccount default, User octocat never sign in"}},
+		}, interceptor.Funcs{}, checkreport.Warn, []string{"ServiceAccount default, User octocat never sign in"}},
+		{"only the granting binding is credited", func(w *installWorld) {
+			w.drop("patchy-preview-viewers", &rbacv1.RoleBinding{})
+			w.objs = append(w.objs, unusable, cluster)
+		}, interceptor.Funcs{}, checkreport.Pass, []string{"ClusterRoleBinding everyone-qa binds ClusterRole",
+			"User octocat never sign in"}},
 		{"cluster binding", func(w *installWorld) {
 			w.drop("patchy-preview-viewers", &rbacv1.RoleBinding{})
 			w.objs = append(w.objs, cluster)
 		}, interceptor.Funcs{}, checkreport.Pass, []string{"ClusterRoleBinding everyone-qa binds", "1 team and 0 users"}},
 		{"cluster bindings unreadable", func(w *installWorld) {
 			w.drop("patchy-preview-viewers", &rbacv1.RoleBinding{})
-		}, forbidCRB, checkreport.Skip, []string{"ClusterRoleBindings cannot be listed"}},
+		}, forbidCRB, checkreport.Skip, []string{"not every binding could be listed"}},
 		{"cluster bindings unreadable but a role binding", func(*installWorld) {}, forbidCRB, checkreport.Pass,
 			[]string{"RoleBinding patchy-preview-viewers"}},
 		{"role bindings unreadable", func(*installWorld) {}, forbidRB, checkreport.Skip,
-			[]string{"cannot list the RoleBindings in namespace patchy"}},
+			[]string{"not every binding could be listed", "rolebindings"}},
+		{"role bindings unreadable but a cluster binding", func(w *installWorld) {
+			w.objs = append(w.objs, cluster)
+		}, forbidRB, checkreport.Pass, []string{"ClusterRoleBinding everyone-qa binds"}},
 		{"relay misnamed", func(w *installWorld) {
 			for _, o := range w.objs {
 				if cm, ok := o.(*corev1.ConfigMap); ok && cm.Name == "patchy-preview-auth-config" {
@@ -614,7 +637,16 @@ func TestNodes(t *testing.T) {
 		{"tainted, not selected", func(w *installWorld) {
 			w.objs = append(w.objs, node("typo", map[string]string{iNodeLabel: "yes"},
 				taint(iTaint, "true", corev1.TaintEffectNoExecute)))
-		}, interceptor.Funcs{}, checkreport.Fail, []string{"node typo carries the taint without"}},
+		}, interceptor.Funcs{}, checkreport.Warn, []string{"node preview-1 carries",
+			"node typo carries the taint without", "another install's preview node"}},
+		{"only another install's node", func(w *installWorld) {
+			w.drop("preview-1", &corev1.Node{})
+			w.objs = append(w.objs, node("theirs", map[string]string{iNodeLabel: "other"},
+				taint(iTaint, "true", corev1.TaintEffectNoExecute)))
+		}, interceptor.Funcs{}, checkreport.Fail, []string{"no node carries", "; node theirs carries the taint"}},
+		{"unknown isolation mode", func(w *installWorld) {
+			w.setting(pc, keyPreviewNodeIsolation, "None")
+		}, interceptor.Funcs{}, checkreport.Fail, []string{`to "None", which preview-controller refuses`}},
 		{"many named, bounded", many, interceptor.Funcs{}, checkreport.Fail,
 			[]string{"nodes bare-0, bare-1, bare-2, bare-3, bare-4 and 2 more match"}},
 	}

@@ -12,19 +12,22 @@
 //
 //   - preview-config: previews and sign-in are on and agree on the host
 //     suffix, the preview gateway alone serves preview hosts (the legacy
-//     path still serving is a WARN), the sign-in host sits outside the
+//     path still serving is a WARN, and serving without sign-in a FAIL), the
+//     sign-in host sits outside the
 //     suffix, and the suffix is a registrable domain (publicsuffix) shared
 //     with neither the sign-in host, the relay's issuer nor Dex (a WARN);
 //   - preview-viewers: a RoleBinding in the release namespace or a
 //     ClusterRoleBinding binds the chart's <release>-preview-viewer
 //     ClusterRole to at least one User or Group carrying the relay's claim
 //     prefix (a SelfSubjectAccessReview cannot ask for someone else, so the
-//     bindings are read);
+//     bindings are read; none is a WARN, since another role may grant the
+//     same);
 //   - preview-nodes: with node isolation required, at least one node
 //     carries preview-controller's node selector and its
-//     <taint key>=true:NoExecute taint, and none carries only one of them
-//     (an EKS Auto Mode NodePool with no node yet is a SKIP; isolation off
-//     is a WARN).
+//     <taint key>=true:NoExecute taint, and none carries the selector alone
+//     (the taint alone, another install's node or a typo, is a WARN; an EKS
+//     Auto Mode NodePool with no node yet is a SKIP; isolation off is a
+//     WARN).
 //
 // It reads the controllers' settings from their ConfigMaps (LoadSettings:
 // each controller's own over kustomize's shared one; never a Secret), and

@@ -5,6 +5,7 @@ package previewcheck
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -32,9 +33,15 @@ const viewerRoleSuffix = "-preview-viewer"
 // preview-viewer ClusterRole to at least one subject the relay can sign in
 // (a User or Group carrying the relay's claim prefix). The relay's access
 // review is for someone else, so no SelfSubjectAccessReview can stand in:
-// the check reads the bindings. With none, every sign-in is refused 403.
+// the check reads the bindings. With none, every sign-in is refused 403
+// unless another role grants get on projects/previews, which this cannot
+// see, so that is a WARN rather than a FAIL.
 func (c *Checker) viewers(ctx context.Context, s Settings) {
-	if !s.Auth.Found() {
+	switch {
+	case s.Auth.Err != nil:
+		c.add(CheckPreviewViewers, checkreport.Skip, "cannot read the controllers' settings: %v", s.Auth.Err)
+		return
+	case !s.Auth.Found():
 		c.add(CheckPreviewViewers, checkreport.Skip, "preview sign-in is off, so nobody views previews through it")
 		return
 	}
@@ -45,42 +52,41 @@ func (c *Checker) viewers(ctx context.Context, s Settings) {
 		return
 	}
 	role := base + viewerRoleSuffix
-	var rbs rbacv1.RoleBindingList
-	if err := c.cfg.Reader.List(ctx, &rbs, client.InNamespace(c.cfg.Namespace)); err != nil {
-		c.add(CheckPreviewViewers, checkreport.Skip, "cannot list the RoleBindings in namespace %s: %v",
-			c.cfg.Namespace, err)
-		return
-	}
-	var bindings []string
-	var subjects []rbacv1.Subject
-	for _, rb := range rbs.Items {
-		if rb.RoleRef.Kind == "ClusterRole" && rb.RoleRef.Name == role {
-			bindings = append(bindings, "RoleBinding "+rb.Name)
-			subjects = append(subjects, rb.Subjects...)
+	userPrefix, groupPrefix := s.Auth.Data[keyAuthUsernamePrefix], s.Auth.Data[keyAuthGroupsPrefix]
+	var granting []string
+	var all []rbacv1.Subject
+	judge := func(kind, name string, ref rbacv1.RoleRef, subjects []rbacv1.Subject) {
+		if ref.Kind != "ClusterRole" || ref.Name != role {
+			return
 		}
+		all = append(all, subjects...)
+		if v := judgeViewers(subjects, userPrefix, groupPrefix); v.teams+v.users > 0 {
+			granting = append(granting, kind+" "+name)
+		}
+	}
+	var rbs rbacv1.RoleBindingList
+	rbErr := c.cfg.Reader.List(ctx, &rbs, client.InNamespace(c.cfg.Namespace))
+	for _, rb := range rbs.Items {
+		judge("RoleBinding", rb.Name, rb.RoleRef, rb.Subjects)
 	}
 	var crbs rbacv1.ClusterRoleBindingList
 	crbErr := c.cfg.Reader.List(ctx, &crbs)
 	for _, crb := range crbs.Items {
-		if crb.RoleRef.Kind == "ClusterRole" && crb.RoleRef.Name == role {
-			bindings = append(bindings, "ClusterRoleBinding "+crb.Name)
-			subjects = append(subjects, crb.Subjects...)
-		}
+		judge("ClusterRoleBinding", crb.Name, crb.RoleRef, crb.Subjects)
 	}
-	v := judgeViewers(subjects, s.Auth.Data[keyAuthUsernamePrefix], s.Auth.Data[keyAuthGroupsPrefix])
+	v := judgeViewers(all, userPrefix, groupPrefix)
 	switch {
 	case v.teams+v.users > 0:
 		c.add(CheckPreviewViewers, checkreport.Pass, "%s bind%s ClusterRole %s to %d team%s and %d user%s the "+
-			"relay can sign in%s", strings.Join(bindings, ", "), plural(len(bindings), "s", ""), role, v.teams,
+			"relay can sign in%s", strings.Join(granting, ", "), plural(len(granting), "s", ""), role, v.teams,
 			plural(v.teams, "", "s"), v.users, plural(v.users, "", "s"), v.ignoredNote())
-	case crbErr != nil:
-		c.add(CheckPreviewViewers, checkreport.Skip, "no RoleBinding in namespace %s binds ClusterRole %s to a "+
-			"viewer, and the ClusterRoleBindings cannot be listed (%v)%s", c.cfg.Namespace, role, crbErr,
-			v.ignoredNote())
+	case rbErr != nil || crbErr != nil:
+		c.add(CheckPreviewViewers, checkreport.Skip, "no readable binding grants ClusterRole %s to a viewer, "+
+			"and not every binding could be listed (%v)%s", role, errors.Join(rbErr, crbErr), v.ignoredNote())
 	default:
-		c.add(CheckPreviewViewers, checkreport.Fail, "nothing binds ClusterRole %s to a viewer the relay can "+
-			"sign in, so every sign-in is refused 403: set previewAuth.viewers.teams or users%s", role,
-			v.ignoredNote())
+		c.add(CheckPreviewViewers, checkreport.Warn, "nothing binds ClusterRole %s to a viewer the relay can "+
+			"sign in, so unless another role grants get on projects/previews in namespace %s, every sign-in is "+
+			"refused 403: set previewAuth.viewers.teams or users%s", role, c.cfg.Namespace, v.ignoredNote())
 	}
 }
 

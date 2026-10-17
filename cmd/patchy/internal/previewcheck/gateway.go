@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/netip"
 	"slices"
-	"strconv"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -50,13 +49,7 @@ const gatewayAdmits = "the gateway's edge may admit only previewAuth.gateway.inb
 // it is on, and the legacy slot Ingress only while preview-controller
 // renders it (its flag's default, true, when unset).
 func (s Settings) probeMode() previewauth.ProbeMode {
-	legacy := true
-	if v, ok := s.Preview.Data[keyPreviewLegacyIngress]; ok {
-		if b, err := strconv.ParseBool(strings.TrimSpace(v)); err == nil {
-			legacy = b
-		}
-	}
-	return previewauth.ProbeModeFor(s.Auth.Found() && s.Auth.Bool(keyAuthGateway), legacy)
+	return previewauth.ProbeModeFor(s.Auth.Found() && s.Auth.Bool(keyAuthGateway), s.legacyIngress())
 }
 
 // gatewayEdge is where the wildcard record should point for the gateway:
