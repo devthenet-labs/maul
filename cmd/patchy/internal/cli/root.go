@@ -50,6 +50,9 @@ type Options struct {
 	// setupDeps stands in for what `setup github-app` reaches beyond its
 	// flags (GitHub, the browser, the terminal), which tests fake.
 	setupDeps *setupDeps
+	// promptTerminal stands in for `setup previews`' check that standard
+	// input is a terminal, which tests pin.
+	promptTerminal func(io.Reader) bool
 }
 
 // WithEnv pins a pre-built environment, bypassing kubeconfig resolution.

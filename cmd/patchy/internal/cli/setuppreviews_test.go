@@ -268,14 +268,14 @@ func TestSetupPreviewsEKSAutoMode(t *testing.T) {
 	}
 }
 
-// TestSetupPreviewsIsHidden: the command stays out of help and the
-// generated docs until it asks its questions (W9).
-func TestSetupPreviewsIsHidden(t *testing.T) {
+// TestSetupPreviewsIsListed: now that it asks its questions (W9), the
+// command is in help and the generated docs.
+func TestSetupPreviewsIsListed(t *testing.T) {
 	out, _, err := execSetup(t, nil, "setup", "--help")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(out, "previews") {
-		t.Errorf("setup --help lists previews:\n%s", out)
+	if !strings.Contains(out, "previews    Write the files that expose previews") {
+		t.Errorf("setup --help does not list previews:\n%s", out)
 	}
 }

@@ -4,6 +4,7 @@
 package cli
 
 import (
+	"bufio"
 	"crypto/rand"
 	"errors"
 	"fmt"
@@ -41,24 +42,45 @@ type setupPreviewsFlags struct {
 	// tunnelCredentials is the locally-managed Cloudflare tunnel's
 	// credentials file (~/.cloudflared/<tunnel id>.json).
 	tunnelCredentials string
+	// detect reads the cluster (read-only, never a Secret) to fill in
+	// answers; off, the command never contacts a cluster.
+	detect bool
+	// nonInteractive asks nothing even on a terminal; yes accepts the
+	// changes shown without asking, as --force does.
+	nonInteractive bool
+	yes            bool
 }
 
 // newSetupPreviewsCmd is `setup previews` (design
-// .claude/plans/preview-setup-design.md §4). Hidden while it is built: it
-// asks nothing yet (every answer is a flag).
+// .claude/plans/preview-setup-design.md §4): flags are the contract, and on
+// a terminal it asks for whatever they leave unanswered.
 func newSetupPreviewsCmd(opts *Options) *cobra.Command {
 	f := &setupPreviewsFlags{}
 	a := previewsetup.Defaults()
 	cmd := &cobra.Command{
-		Use:    "previews",
-		Hidden: true,
-		Short:  "Write the files that expose previews and sign viewers in to them (incomplete)",
+		Use:   "previews",
+		Short: "Write the files that expose previews and sign viewers in to them",
 		Long: "Write the files that expose patchy's previews at https://<project>-<issue>.<host suffix>\n" +
 			"and sign viewers in to them: patchy's chart values, the manifests the edge needs, the\n" +
 			"relay's Dex client secret as two Secret manifests, answers.yaml and NEXT-STEPS.md, all\n" +
 			"in -o (default ./patchy-previews, created 0700, every file 0600). Nothing is applied and\n" +
-			"no cluster or provider is contacted: NEXT-STEPS.md lists the commands, in order.\n\n" +
-			"Still being built: every answer is a flag (no prompts yet). --edge existing routes through\n" +
+			"no provider is contacted: NEXT-STEPS.md lists the commands, in order.\n\n" +
+			"Every answer is a flag. On a terminal, the command asks for each one the flags leave\n" +
+			"unanswered, naming the flag that answers it, so a session can be repeated with\n" +
+			"--non-interactive; without a terminal (or with --non-interactive) a missing answer is\n" +
+			"an error naming its flag. A credential is never typed at a prompt: only the path of the\n" +
+			"file that holds it.\n\n" +
+			"No cluster is contacted unless --detect is given. --detect reads the cluster your\n" +
+			"kubeconfig names, read-only and never a Secret: the nodes (the platform, and which carry\n" +
+			"the preview label and taint), the kubernetes Service and the API server's EndpointSlice,\n" +
+			"the kube-dns Service, IngressClasses, GatewayClasses, the cert-manager and Tailscale\n" +
+			"operator CRDs, kube-system's Pod images (what enforces NetworkPolicy) and the release's\n" +
+			"ConfigMaps in -n (an install's existing preview settings). It prints what it found, and\n" +
+			"fills in only answers neither a flag nor an earlier run gave: the platform, the host\n" +
+			"suffix, sign-in host and Dex issuer of an existing install, the kubernetes Service's /32\n" +
+			"as --api-server-cidr on EKS, and --cert-manager-installed and\n" +
+			"--tailscale-operator-installed.\n\n" +
+			"--edge existing routes through\n" +
 			"an Ingress class or a Gateway API parent already in the cluster; --edge gateway-tls makes\n" +
 			"the gateway's Service a LoadBalancer that\n" +
 			"terminates TLS itself; --edge tailscale gives that Service a tailnet device through the\n" +
@@ -81,10 +103,12 @@ func newSetupPreviewsCmd(opts *Options) *cobra.Command {
 			"on the --host-suffix's registrable domain is refused, because preview code would run\n" +
 			"same-site with sign-in. With only one domain, register a second, cheap one for previews.\n\n" +
 			"A re-run starts from answers.yaml; flags given override it. It shows how each file would\n" +
-			"change and writes nothing changed without --force. The Dex client secret is read back\n" +
+			"change and writes nothing changed without --force or -y (on a terminal it asks). The\n" +
+			"Dex client secret is read back\n" +
 			"from the Secret files, never drawn again, unless --rotate dex-client-secret. --dry-run\n" +
 			"prints the files and their differences (never a secret) and writes nothing.",
-		Example: "  patchy setup previews --platform k3s --edge existing --ingress-class traefik \\\n" +
+		Example: "  patchy setup previews --detect -n patchy\n\n" +
+			"  patchy setup previews --platform k3s --edge existing --ingress-class traefik \\\n" +
 			"    --host-suffix acme-previews.dev --sign-in-host preview-auth.patchy.acme.dev \\\n" +
 			"    --dex-issuer https://dex.patchy.acme.dev --viewer-team acme:qa --registry ghcr.io \\\n" +
 			"    --image-path-prefix acme/patchy/previews\n\n" +
@@ -172,6 +196,10 @@ func newSetupPreviewsCmd(opts *Options) *cobra.Command {
 	fl.BoolVar(&f.dryRun, "dry-run", false, "print the files and their differences; write nothing")
 	fl.StringVar(&f.rotate, "rotate", "", "draw a new secret although one is written: "+
 		previewsetup.RotateDexClientSecret)
+	fl.BoolVar(&f.detect, "detect", false, "read the cluster (read-only, never a Secret) to fill in answers")
+	fl.BoolVar(&f.nonInteractive, "non-interactive", false, "ask nothing, even on a terminal: a missing answer "+
+		"is an error")
+	fl.BoolVarP(&f.yes, "yes", "y", false, "write the changes shown without asking (as --force)")
 	_ = cmd.RegisterFlagCompletionFunc("platform", fixedCompletion(previewsetup.Platforms()))
 	_ = cmd.RegisterFlagCompletionFunc("edge", fixedCompletion(previewsetup.Edges()))
 	_ = cmd.RegisterFlagCompletionFunc("node-isolation", fixedCompletion([]string{
@@ -332,19 +360,9 @@ func runSetupPreviews(cmd *cobra.Command, opts *Options, f *setupPreviewsFlags, 
 		return err
 	}
 	a.Normalize()
-	tunnel, err := resolveTunnel(cmd, opts.ErrOut, f, &a)
+	p, tunnel, err := completeAnswers(cmd, opts, f, &a)
 	if err != nil {
 		return err
-	}
-	if m := a.Missing(); len(m) > 0 {
-		return errUsage(fmt.Errorf("answer %s (setup previews asks nothing yet: every answer is a flag)",
-			strings.Join(m, ", ")))
-	}
-	if err := a.Validate(); err != nil {
-		return errUsage(err)
-	}
-	if !previewsetup.Ready(a.Edge) {
-		return errUsage(fmt.Errorf("--edge %s: %w", a.Edge, previewsetup.ErrRecipeNotReady))
 	}
 	given, err := readDNSCredential(cmd.InOrStdin(), opts.ErrOut, f, a)
 	if err != nil {
@@ -374,18 +392,68 @@ func runSetupPreviews(cmd *cobra.Command, opts *Options, f *setupPreviewsFlags, 
 	}
 	// A secret file changes only when the operator asked for it: a
 	// rotation, or a DNS credential or tunnel credentials given anew.
-	written, err := previewsetup.Write(c, previewsetup.Accept{All: f.force,
-		Secrets: rotate || !given.IsZero() || f.tunnelCredentials != ""})
-	var conflict *previewsetup.ConflictError
-	if errors.As(err, &conflict) {
-		printComparison(opts.Out, c, false)
-		return err
-	}
+	accept := previewsetup.Accept{All: f.force || f.yes,
+		Secrets: rotate || !given.IsZero() || f.tunnelCredentials != ""}
+	written, err := writePreviews(opts.Out, p, c, accept)
 	if err != nil {
 		return err
 	}
 	reportWrite(opts.ErrOut, f.output, c, written, secrets, rerun)
 	return nil
+}
+
+// completeAnswers finishes a's answers: detection when asked for, the
+// prompts on a terminal (the returned prompter, nil off one), the tunnel
+// credentials, and then every answer present and valid.
+func completeAnswers(cmd *cobra.Command, opts *Options, f *setupPreviewsFlags, a *previewsetup.Answers) (
+	*prompter, previewsetup.TunnelCredentials, error) {
+	var p *prompter
+	if !f.nonInteractive && !f.dnsCredentialsStdin && opts.previewsTerminal(cmd.InOrStdin()) {
+		p = &prompter{in: bufio.NewReader(cmd.InOrStdin()), out: opts.ErrOut}
+	}
+	if err := detectAndAsk(cmd, opts, f, a, p); err != nil {
+		return p, previewsetup.TunnelCredentials{}, err
+	}
+	tunnel, err := resolveTunnel(cmd, opts.ErrOut, f, a)
+	if err != nil {
+		return p, tunnel, err
+	}
+	if m := a.Missing(); len(m) > 0 {
+		how := "run it in a terminal to be asked, or give them as flags"
+		if p != nil {
+			how = "give them as flags"
+		}
+		return p, tunnel, errUsage(fmt.Errorf("answer %s (%s)", strings.Join(m, ", "), how))
+	}
+	if err := a.Validate(); err != nil {
+		return p, tunnel, errUsage(err)
+	}
+	if !previewsetup.Ready(a.Edge) {
+		return p, tunnel, errUsage(fmt.Errorf("--edge %s: %w", a.Edge, previewsetup.ErrRecipeNotReady))
+	}
+	return p, tunnel, nil
+}
+
+// writePreviews writes the comparison as accept allows. A changed file
+// not accepted lists every change on out, and on a terminal (p) asks
+// whether to write them all, no by default.
+func writePreviews(out io.Writer, p *prompter, c previewsetup.Comparison, accept previewsetup.Accept) ([]string,
+	error) {
+	written, err := previewsetup.Write(c, accept)
+	var conflict *previewsetup.ConflictError
+	if !errors.As(err, &conflict) {
+		return written, err
+	}
+	printComparison(out, c, false)
+	if p == nil {
+		return nil, err
+	}
+	ok, aerr := p.confirm("write these changes")
+	if aerr != nil || !ok {
+		return nil, errors.Join(err, aerr)
+	}
+	accept.All = true
+	return previewsetup.Write(c, accept)
 }
 
 // parseDNSOptions turns --dns-option key=value pairs into the solver's

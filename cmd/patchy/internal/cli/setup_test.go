@@ -295,7 +295,8 @@ func neverOpen(t *testing.T) func(string) error {
 func execSetup(t *testing.T, deps *setupDeps, args ...string) (string, string, error) {
 	t.Helper()
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
-	opts := &Options{Out: out, ErrOut: errOut, Output: "table", NoColor: true, setupDeps: deps}
+	opts := &Options{Out: out, ErrOut: errOut, Output: "table", NoColor: true, setupDeps: deps,
+		promptTerminal: func(io.Reader) bool { return false }}
 	root := NewRoot(opts)
 	root.SetOut(out)
 	root.SetErr(errOut)

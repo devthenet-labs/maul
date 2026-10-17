@@ -32,7 +32,8 @@ func tailscaleArgs(dir string, extra ...string) []string {
 func execSetupIn(t *testing.T, stdin io.Reader, args ...string) (string, string, error) {
 	t.Helper()
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
-	opts := &Options{Out: out, ErrOut: errOut, Output: "table", NoColor: true}
+	opts := &Options{Out: out, ErrOut: errOut, Output: "table", NoColor: true,
+		promptTerminal: func(io.Reader) bool { return false }}
 	root := NewRoot(opts)
 	root.SetOut(out)
 	root.SetErr(errOut)

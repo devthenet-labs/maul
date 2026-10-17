@@ -30,14 +30,15 @@ import (
 const defaultSetupNamespace = "patchy"
 
 // newSetupCmd is the `setup` verb: create what patchy needs outside the
-// cluster. Cluster-free, like `dev`, `mirror` and `check image`.
+// cluster. Cluster-free, like `dev`, `mirror` and `check image`, except for
+// `setup previews --detect`'s read-only look.
 func newSetupCmd(opts *Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "setup",
 		Short: "Create what patchy needs outside the cluster",
 		Long: "Create the things patchy needs before it is installed, from your workstation. Nothing\n" +
-			"here talks to a cluster: the kubeconfig flags are inert, and -n only names the\n" +
-			"namespace a written manifest carries.",
+			"here talks to a cluster unless setup previews --detect asks it to read one: otherwise the\n" +
+			"kubeconfig flags are inert, and -n only names the namespace a written manifest carries.",
 		Args: cobra.NoArgs,
 	}
 	cmd.AddCommand(newSetupGitHubAppCmd(opts), newSetupPreviewsCmd(opts))
