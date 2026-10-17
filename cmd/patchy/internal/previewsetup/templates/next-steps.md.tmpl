@@ -82,7 +82,7 @@ kubectl apply -f {{.SignInRouteFile}}
 {{- else -}}
 The edge terminates TLS: it must hold a certificate for `*.{{.Suffix}}` and one for `{{.SignIn}}` (the wildcard never
 covers the sign-in host).
-{{- if eq .Platform "eks"}} Both Ingresses take the chart's edge class: set `edgeIngressClass.create: true` in your
+{{- if .EdgeClass}} Both Ingresses take the chart's edge class: set `edgeIngressClass.create: true` in your
 values if it is not already, and add the two ACM certificates' ARNs to `edgeIngressClass.certificateARNs` (the ALB
 picks one by SNI).{{end}}
 {{- end}}

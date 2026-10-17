@@ -332,7 +332,13 @@ func TestDerived(t *testing.T) {
 	}{
 		{PlatformK3s, ExistingEdge{IngressClass: "traefik"}, TLSCertificate},
 		{PlatformK3s, ExistingEdge{IngressClass: "alb"}, TLSEdge},
-		{PlatformEKS, ExistingEdge{IngressClass: "nginx"}, TLSEdge},
+		{PlatformEKS, ExistingEdge{}, TLSEdge},
+		{PlatformEKS, ExistingEdge{IngressClass: "alb"}, TLSEdge},
+		// Regression: EKS alone made every class edge-held, so ingress-nginx
+		// or Traefik there served its default certificate.
+		{PlatformEKS, ExistingEdge{IngressClass: "nginx"}, TLSCertificate},
+		{PlatformEKS, ExistingEdge{IngressClass: "traefik"}, TLSCertificate},
+		{PlatformEKS, ExistingEdge{IngressClass: "nginx", TLS: TLSEdge}, TLSEdge},
 		{PlatformEKS, ExistingEdge{IngressClass: "nginx", TLS: TLSCertificate}, TLSCertificate},
 		{PlatformGKE, ExistingEdge{GatewayParent: "gw/edge"}, TLSEdge},
 	} {

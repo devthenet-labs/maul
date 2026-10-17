@@ -66,6 +66,14 @@ func goldenCases() map[string]Answers {
 	alb.APIServerCIDR = "172.20.0.1/32"
 	cases["existing-alb-eks"] = alb
 
+	// ingress-nginx on EKS terminates TLS in the cluster: a Certificate,
+	// never the chart's edge class or ACM.
+	eksNginx := testAnswers()
+	eksNginx.Platform = PlatformEKS
+	eksNginx.Registry = "123456789012.dkr.ecr.eu-west-2.amazonaws.com"
+	eksNginx.Existing.IngressClass = "nginx"
+	cases["existing-nginx-eks"] = eksNginx
+
 	route := testAnswers()
 	route.Platform = PlatformAKS
 	route.Registry = "acme.azurecr.io"
@@ -173,6 +181,7 @@ func TestPlanFileSets(t *testing.T) {
 		"existing-traefik-k3s":     {CertificateFile},
 		"existing-nginx-gke":       {CertificateFile},
 		"existing-alb-eks":         nil,
+		"existing-nginx-eks":       {CertificateFile},
 		"existing-gateway-api-aks": {SignInRouteFile},
 	} {
 		files := plan(t, goldenCases()[name])

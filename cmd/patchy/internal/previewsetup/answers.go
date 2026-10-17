@@ -216,16 +216,27 @@ func (a Answers) IsolationMode() string {
 
 // EdgeTLS is how the existing edge gets its certificate: the answer, else
 // derived (design §4.3 R4: the edge holds it on ALB/ACM and a Gateway
-// listener, a cert-manager Certificate otherwise).
+// listener, a cert-manager Certificate otherwise). EKS alone says nothing:
+// an ingress-nginx or Traefik class there terminates TLS in the cluster
+// like anywhere else; only the chart's edge class (no --ingress-class on
+// EKS) and an alb class are ALBs.
 func (a Answers) EdgeTLS() string {
 	e := a.Existing
 	switch {
 	case e.TLS != "":
 		return e.TLS
-	case e.GatewayParent != "", e.IngressClass == "alb", a.Platform == PlatformEKS:
+	case e.GatewayParent != "", e.IngressClass == "alb", a.ChartEdgeClass():
 		return TLSEdge
 	}
 	return TLSCertificate
+}
+
+// ChartEdgeClass reports whether both Ingresses take the chart's own edge
+// class (edgeIngressClass, the ALB the webhook and status page share): an
+// existing edge on EKS with no --ingress-class and no --gateway-parent.
+func (a Answers) ChartEdgeClass() bool {
+	return a.Edge == EdgeExisting && a.Platform == PlatformEKS && a.Existing.IngressClass == "" &&
+		a.Existing.GatewayParent == ""
 }
 
 // Issuer is the cert-manager issuer the Certificate names.

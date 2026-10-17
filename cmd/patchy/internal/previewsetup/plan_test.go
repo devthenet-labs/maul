@@ -165,3 +165,35 @@ func TestParseAnswersRefusesUnknownFields(t *testing.T) {
 		t.Errorf("ParseAnswers = %v, want ErrAnswers", err)
 	}
 }
+
+// TestNextStepsEdgeTLS: NEXT-STEPS.md sends the operator to the chart's
+// edge class and ACM only when both Ingresses take it. Regression: any EKS
+// install was told so, though an ingress-nginx or alb class rendered the
+// Ingresses with its own class.
+func TestNextStepsEdgeTLS(t *testing.T) {
+	for _, tc := range []struct {
+		class     string
+		edgeClass bool
+		cert      bool
+	}{
+		{"", true, false},
+		{"alb", false, false},
+		{"nginx", false, true},
+		{"traefik", false, true},
+	} {
+		a := testAnswers()
+		a.Platform = PlatformEKS
+		a.Existing.IngressClass = tc.class
+		files := byPath(plan(t, a))
+		next := files[NextStepsFile]
+		if got := strings.Contains(next, "edgeIngressClass"); got != tc.edgeClass {
+			t.Errorf("class %q: NEXT-STEPS.md names the chart's edge class %v, want %v", tc.class, got, tc.edgeClass)
+		}
+		if _, got := files[CertificateFile]; got != tc.cert {
+			t.Errorf("class %q: Certificate generated %v, want %v", tc.class, got, tc.cert)
+		}
+		if got := strings.Contains(files[ValuesFile], "secretName: "+CertificateSecret); got != tc.cert {
+			t.Errorf("class %q: Ingress TLS names the Certificate %v, want %v", tc.class, got, tc.cert)
+		}
+	}
+}

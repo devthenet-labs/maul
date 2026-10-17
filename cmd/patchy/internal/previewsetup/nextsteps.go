@@ -33,6 +33,7 @@ type nextSteps struct {
 	IssuerKind, IssuerName, CertificateFile, CertificateName       string
 	CertificateSecret                                              string
 	Route                                                          bool
+	EdgeClass                                                      bool
 	GatewayNamespace, GatewayName, GatewaySection, SignInRouteFile string
 	Files                                                          []fileEntry
 }
@@ -66,7 +67,7 @@ func renderNextSteps(a Answers, recipeFiles []File) ([]byte, error) {
 		ChartVersion: ChartVersion(a.CLIVersion), APIServerCIDR: a.APIServerCIDR, GatewayService: a.GatewayService(),
 		NetworkPolicy: networkPolicyNote(a.Platform), Nodes: nodesNote(a), Pulls: pullsNote(a),
 		CertificateFile: CertificateFile, CertificateName: CertificateName, CertificateSecret: CertificateSecret,
-		SignInRouteFile: SignInRouteFile,
+		SignInRouteFile: SignInRouteFile, EdgeClass: a.ChartEdgeClass(),
 	}
 	for _, p := range paths {
 		d.Files = append(d.Files, fileEntry{Path: p, What: fileWhat[p]})
