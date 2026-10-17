@@ -366,3 +366,23 @@ func TestAmbientSolverIsAClusterIssuer(t *testing.T) {
 		t.Errorf("a stored credential's Issuer is not namespaced:\n%s", iss)
 	}
 }
+
+// TestTailnetPolicyNamesTheAllowAllRule: grants only add access, so the
+// 443-only grant restricts nothing beside a new tailnet's allow-all rule,
+// which also reaches the gateway's port 80. NEXT-STEPS.md must say to
+// remove or narrow it before calling the policy the allowlist.
+func TestTailnetPolicyNamesTheAllowAllRule(t *testing.T) {
+	const name = "tailscale-route53-k3d"
+	next := byPath(planWith(t, goldenCases()[name], goldenSecrets(name)))[NextStepsFile]
+	for _, want := range []string{
+		`{"src": ["*"], "dst": ["*"], "ip": ["*"]}`,
+		`{"action": "accept", "src": ["*"], "dst": ["*:*"]}`,
+		"80 (the gateway's plain-HTTP listener)",
+		"Remove it, or narrow it",
+		"once no allow-all rule is left in it",
+	} {
+		if !strings.Contains(next, want) {
+			t.Errorf("NEXT-STEPS.md does not say %q:\n%s", want, next)
+		}
+	}
+}

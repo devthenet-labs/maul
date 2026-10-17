@@ -165,6 +165,12 @@ each still signs in):
 }
 ```
 
+Grants and ACLs only add access, so this grant restricts nothing while another rule reaches the device. A new tailnet
+ships with an allow-all rule (the grant `{"src": ["*"], "dst": ["*"], "ip": ["*"]}`, or the ACL
+`{"action": "accept", "src": ["*"], "dst": ["*:*"]}`): while it stands, every member, shared-in user and tagged device
+reaches `tag:patchy-previews` on every port, 80 (the gateway's plain-HTTP listener) included. Remove it, or narrow it so
+that no rule but the one above has `tag:patchy-previews` (or `*`) as a destination.
+
 Create an OAuth client in the Tailscale admin console with the write scopes the operator's guide
 (https://tailscale.com/kb/1236/kubernetes-operator) names, tagged `tag:k8s-operator`. Put its ID and secret
 in two files, never on a command line, then:
@@ -201,7 +207,7 @@ records, so these are records in your public DNS that point at a tailnet address
 (`previewAuth.gateway.publishedAddresses`, which `patchy check previews` compares DNS with).
 
 The gateway sees the tailnet proxy's address, not the viewer's, so `previewAuth.gateway.forwardedHops` is 0 and
-`inboundCIDRs` stays empty: the tailnet policy above is the allowlist.
+`inboundCIDRs` stays empty: the tailnet policy in step 6 is the allowlist, once no allow-all rule is left in it.
 
 ## 8. Check
 

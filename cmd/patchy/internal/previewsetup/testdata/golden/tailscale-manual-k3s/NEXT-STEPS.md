@@ -106,6 +106,12 @@ each still signs in):
 }
 ```
 
+Grants and ACLs only add access, so this grant restricts nothing while another rule reaches the device. A new tailnet
+ships with an allow-all rule (the grant `{"src": ["*"], "dst": ["*"], "ip": ["*"]}`, or the ACL
+`{"action": "accept", "src": ["*"], "dst": ["*:*"]}`): while it stands, every member, shared-in user and tagged device
+reaches `tag:previews` on every port, 80 (the gateway's plain-HTTP listener) included. Remove it, or narrow it so
+that no rule but the one above has `tag:previews` (or `*`) as a destination.
+
 Then patchy:
 
 ```sh
@@ -130,7 +136,7 @@ records, so these are records in your public DNS that point at a tailnet address
 `previewAuth.gateway.publishedAddresses` records it for `patchy check previews`.
 
 The gateway sees the tailnet proxy's address, not the viewer's, so `previewAuth.gateway.forwardedHops` is 0 and
-`inboundCIDRs` stays empty: the tailnet policy above is the allowlist.
+`inboundCIDRs` stays empty: the tailnet policy in step 6 is the allowlist, once no allow-all rule is left in it.
 
 ## 8. Check
 
