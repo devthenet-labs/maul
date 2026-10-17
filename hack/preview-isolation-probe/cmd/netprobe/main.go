@@ -21,6 +21,9 @@ type target struct {
 	name string
 	addr string
 	imds bool
+	// refusedBlocks counts ECONNREFUSED as blocked (outcomeRefused): only
+	// the ingress run's connect --refused-is-blocked sets it.
+	refusedBlocks bool
 }
 
 type result struct {
@@ -120,6 +123,16 @@ func classify(err error) string {
 	return "inconclusive"
 }
 
+// connectOutcome is a TCP attempt's outcome: classify's, except that a
+// refusal is outcomeRefused when refusedBlocks says the listener is known to
+// answer, so only the policy can have refused it.
+func connectOutcome(err error, refusedBlocks bool) string {
+	if refusedBlocks && errors.Is(err, syscall.ECONNREFUSED) {
+		return outcomeRefused
+	}
+	return classify(err)
+}
+
 func probe(ctx context.Context, dialer *net.Dialer, t target, worker, attempt int, start time.Time) result {
 	ctx, cancel := context.WithTimeout(ctx, 750*time.Millisecond)
 	defer cancel()
@@ -137,7 +150,7 @@ func probe(ctx context.Context, dialer *net.Dialer, t target, worker, attempt in
 		if conn != nil {
 			_ = conn.Close()
 		}
-		r.Outcome = classify(err)
+		r.Outcome = connectOutcome(err, t.refusedBlocks)
 	}
 	r.ElapsedMS = time.Since(start).Milliseconds()
 	return r

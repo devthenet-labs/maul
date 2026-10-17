@@ -19,8 +19,9 @@ const ingressImage = "registry.example/patchy/previews/netprobe:sha-" + headSHA
 // kubectlStub stands in for kubectl in ingress.sh's run. It logs each call's
 // argv (after --request-timeout), keeps what each create was sent, and
 // answers: the slot policy from STUB_POLICY; a Pod's existence check as not
-// found; the listener's IP; every client's phase as Succeeded; and each
-// client's log from STUB_LOG_<name>, the name's dashes as underscores.
+// found; the listener's IP; the listener's phase from STUB_LISTENER_PHASE
+// (Running by default); every client's phase as Succeeded; and each client's
+// log from STUB_LOG_<name>, the name's dashes as underscores.
 const kubectlStub = `#!/bin/sh
 case "$1" in --request-timeout=*) shift ;; esac
 { printf 'kubectl'; for arg in "$@"; do printf '\t%s' "$arg"; done; printf '\n'; } >>"$STUB_LOG"
@@ -29,6 +30,7 @@ case "$1 $2" in
 "get pod")
     case "$*" in
     *podIP*) printf '10.42.0.9' ;;
+    *preview-ingress-listener*phase*) printf '%s' "${STUB_LISTENER_PHASE:-Running}" ;;
     *phase*) printf 'Succeeded' ;;
     *) exit 1 ;;
     esac ;;
@@ -68,6 +70,14 @@ type ingressRun struct {
 // each client to its summary outcome.
 func runIngress(t *testing.T, policy string, logs map[string]string, args ...string) ingressRun {
 	t.Helper()
+	return runIngressEnv(t, policy, logs, nil, args...)
+}
+
+// runIngressEnv is runIngress with extra environment for the stub.
+func runIngressEnv(t *testing.T, policy string, logs map[string]string, extra []string,
+	args ...string,
+) ingressRun {
+	t.Helper()
 	bash, err := exec.LookPath("bash")
 	if err != nil {
 		t.Skip("bash not on PATH")
@@ -85,6 +95,7 @@ func runIngress(t *testing.T, policy string, logs map[string]string, args ...str
 		"PATH=" + bin + string(os.PathListSeparator) + os.Getenv("PATH"),
 		"STUB_LOG=" + log, "STUB_CREATED=" + created, "STUB_POLICY=" + policy,
 	}
+	env = append(env, extra...)
 	for name, outcome := range logs {
 		env = append(env, "STUB_LOG_"+strings.ReplaceAll(name, "-", "_")+"="+summary(outcome))
 	}
@@ -244,5 +255,82 @@ func TestIngressWarnsOfAddressRanges(t *testing.T) {
 	run = runIngress(t, gatewayOnlyPolicy, expected(), ingressArgs()...)
 	if run.code != 0 || strings.Contains(run.stderr, "WARNING") {
 		t.Errorf("gateway alone: exit %d, stderr:\n%s", run.code, run.stderr)
+	}
+}
+
+// createdDocs splits what the stub was sent to create, in order.
+func (r ingressRun) createdDocs() []string {
+	if r.created == "" {
+		return nil
+	}
+	return strings.Split(strings.TrimSuffix(r.created, "---\n"), "---\n")
+}
+
+// TestIngressRefusedIsBlocked: under --refused-is-blocked the gateway
+// client goes first, the two clients that must be refused count a refusal
+// as blocked, and the run passes when the listener still runs after them.
+func TestIngressRefusedIsBlocked(t *testing.T) {
+	run := runIngress(t, gatewayOnlyPolicy, expected(), ingressArgs("--refused-is-blocked")...)
+	if run.code != 0 || !strings.Contains(run.stderr, "Ingress isolation passed") {
+		t.Fatalf("exit %d, stderr:\n%s", run.code, run.stderr)
+	}
+	docs := run.createdDocs()
+	if len(docs) != 4 {
+		t.Fatalf("created %d objects, want the listener and three clients:\n%s", len(docs), run.created)
+	}
+	for i, want := range []struct{ name, args string }{
+		{"preview-ingress-listener", "args: [listen]"},
+		{"preview-ingress-gateway", `args: [connect, "10.42.0.9:8080"]`},
+		{"preview-ingress-agent", `args: [connect, --refused-is-blocked, "10.42.0.9:8080"]`},
+		{"preview-ingress-release", `args: [connect, --refused-is-blocked, "10.42.0.9:8080"]`},
+	} {
+		if !strings.Contains(docs[i], "name: "+want.name+"\n") || !strings.Contains(docs[i], want.args) {
+			t.Errorf("object %d, want %s with %s:\n%s", i, want.name, want.args, docs[i])
+		}
+	}
+	// Without the flag nothing changes: every client is told to call a
+	// refusal inconclusive.
+	run = runIngress(t, gatewayOnlyPolicy, expected(), ingressArgs()...)
+	if run.code != 0 || strings.Contains(run.created, "--refused-is-blocked") {
+		t.Errorf("without the flag: exit %d, created:\n%s", run.code, run.created)
+	}
+}
+
+// TestIngressRefusedNeedsTheGateway: under --refused-is-blocked, a gateway
+// client that does not reach the listener stops the run before the refused
+// clients exist, since a refusal could then be the listener's own.
+func TestIngressRefusedNeedsTheGateway(t *testing.T) {
+	logs := expected()
+	logs["preview-ingress-gateway"] = "BLOCKED"
+	run := runIngress(t, gatewayOnlyPolicy, logs, ingressArgs("--refused-is-blocked")...)
+	if run.code != 1 || !strings.Contains(run.stderr, "cannot be judged") {
+		t.Fatalf("exit %d, stderr:\n%s", run.code, run.stderr)
+	}
+	if docs := run.createdDocs(); len(docs) != 2 || strings.Contains(run.created, "preview-ingress-agent") {
+		t.Errorf("created %d objects, want the listener and the gateway client only:\n%s", len(docs), run.created)
+	}
+}
+
+// TestIngressRefusedNeedsALiveListener: under --refused-is-blocked, a
+// listener that stopped before the refused clients finished fails the run,
+// though both clients were BLOCKED; a client that connected fails it too.
+func TestIngressRefusedNeedsALiveListener(t *testing.T) {
+	run := runIngressEnv(t, gatewayOnlyPolicy, expected(), []string{"STUB_LISTENER_PHASE=Failed"},
+		ingressArgs("--refused-is-blocked")...)
+	if run.code != 1 || !strings.Contains(run.stderr, "FAIL patchy-preview-0/preview-ingress-listener: Failed") {
+		t.Errorf("a stopped listener: exit %d, stderr:\n%s", run.code, run.stderr)
+	}
+	for _, name := range []string{"preview-ingress-agent", "preview-ingress-release"} {
+		logs := expected()
+		logs[name] = "REACHED"
+		run = runIngress(t, gatewayOnlyPolicy, logs, ingressArgs("--refused-is-blocked")...)
+		if run.code != 1 || !strings.Contains(run.stderr, "FAIL ") || !strings.Contains(run.stderr, name) {
+			t.Errorf("%s reached: exit %d, stderr:\n%s", name, run.code, run.stderr)
+		}
+	}
+	run = runIngress(t, gatewayOnlyPolicy, expected(), ingressArgs("--refused-is-blocked", "--dry-run")...)
+	if run.code != 0 || len(run.calls) != 0 ||
+		!strings.Contains(run.stdout, "blocked, once the gateway client has reached the listener") {
+		t.Errorf("--dry-run: exit %d, %d calls, stdout:\n%s", run.code, len(run.calls), run.stdout)
 	}
 }

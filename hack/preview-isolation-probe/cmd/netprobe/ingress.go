@@ -27,12 +27,25 @@ const (
 	outcomeInconclusive = "INCONCLUSIVE"
 )
 
+// refusedIsBlocked is the connect flag that counts a refused connection as
+// blocked. kube-router (k3s's network policy controller) ends a connection
+// its policy denies with REJECT --reject-with icmp-port-unreachable, which a
+// TCP client sees as ECONNREFUSED, the same error a dead listener gives. So
+// the refusal is the policy's only once something else has shown the
+// listener answers: ingress.sh passes this flag only after the gateway
+// client has REACHED it, and checks the listener is still running after.
+const refusedIsBlocked = "--refused-is-blocked"
+
+// outcomeRefused is an attempt refused under refusedIsBlocked: counted as
+// blocked, but logged as what it was.
+const outcomeRefused = "refused"
+
 // listenAddr is the slot listener's address: its containerPort named http,
 // the one port the slot policy admits the gateway on.
 const listenAddr = ":8080"
 
-// ingressMode runs `listen` or `connect <ipv4>:<port>`; false when args name
-// neither, so main runs the egress burst as before.
+// ingressMode runs `listen` or `connect [--refused-is-blocked] <ipv4>:<port>`;
+// false when args name neither, so main runs the egress burst as before.
 func ingressMode(args []string) (handled bool, code int) {
 	if len(args) == 0 {
 		return false, 0
@@ -41,15 +54,21 @@ func ingressMode(args []string) (handled bool, code int) {
 	case "listen":
 		return true, listen(listenAddr)
 	case "connect":
-		if len(args) != 2 {
-			fmt.Fprintln(os.Stderr, "usage: probe connect <ipv4>:<port>")
+		rest := args[1:]
+		refusedBlocks := len(rest) == 2 && rest[0] == refusedIsBlocked
+		if refusedBlocks {
+			rest = rest[1:]
+		}
+		if len(rest) != 1 {
+			fmt.Fprintln(os.Stderr, "usage: probe connect ["+refusedIsBlocked+"] <ipv4>:<port>")
 			return true, 2
 		}
-		t, err := connectTarget(args[1])
+		t, err := connectTarget(rest[0])
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return true, 2
 		}
+		t.refusedBlocks = refusedBlocks
 		start := time.Now()
 		reachable, inconclusive := burst(start, []target{t}, emit)
 		emit(result{Name: "summary", Outcome: ingressVerdict(reachable, inconclusive),
@@ -75,9 +94,9 @@ func connectTarget(addr string) (target, error) {
 }
 
 // ingressVerdict is a client's summary: REACHED when any attempt connected,
-// BLOCKED when every attempt timed out or was unreachable, INCONCLUSIVE
-// otherwise (a refusal says nothing about policy: the listener might be
-// down).
+// BLOCKED when every attempt timed out or was unreachable (or, with
+// refusedIsBlocked, refused), INCONCLUSIVE otherwise (by default a refusal
+// says nothing about policy: the listener might be down).
 func ingressVerdict(reachable, inconclusive bool) string {
 	switch {
 	case reachable:
