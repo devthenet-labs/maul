@@ -86,6 +86,12 @@ is already assumed to be able to do (untrusted code with the agent's powers), so
   build and test; network tools stay denied. It does not run with `--restricted`, which would take its shell and refuse
   writes to tool-configuration files and CI definitions that a fix may need to change.
 
+These flags are checked against the real CLI, not only as rendered argv: a probe runs the claude version the runner
+image pins with each posture's argv against a scratch repository whose hooks, `env` block, settings, untracked
+`settings.local.json` and `.mcp.json` must all stay inert, and asserts the read-only posture's file grammar on the first
+run and on a report repair's resume, with a scripted model on loopback and no credential
+(`mise run claude-posture-probe`; CI runs it whenever the CLI pin or the posture changes).
+
 codex and copilot do not express these postures (see [extending](../extending.md)); on them the pod is the boundary, and
 the intent stages run on brokered claude only. An investigation on either still has a shell and unscoped writes, so its
 prompt asks the agent to stay read-only without telling it that the sandbox enforces it.

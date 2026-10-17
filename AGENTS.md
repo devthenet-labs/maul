@@ -437,7 +437,11 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   both the verdict resolver and the enhancer call. The enhancer fan-out itself is
   `enhancers.DynamicGeneric`/`MultiEnhancer` (internal seam; `pkg/enhance` stays one-plugin-one-identity).
 - `harness`, `runner` — adapted from evolve: harness builds argv, runner executes (observe-and-collect with a
-  token-budget kill switch), harness parses stdout. Keep that separation.
+  token-budget kill switch), harness parses stdout. Keep that separation. The claude postures (`claudeTools`: tool
+  grammar, `--setting-sources user`, `--permission-mode dontAsk`, `--strict-mcp-config`, and `--restricted` for the
+  read-only one) are probed against the REAL pinned CLI by `TestClaudePostureProbe` (`mise run claude-posture-probe`;
+  CI runs it when the `CLAUDE_VERSION` pin or the posture changes): a scratch tree whose hooks, env block, settings and
+  `.mcp.json` must stay inert, a scripted fake model on loopback, no credential.
 - `agentrun` — the in-pod stage flow (`investigate` | `remediate`, and the intent stages `plan` | `build`, which
   reuse investigate's and remediate's configuration and helpers and run on brokered claude only);
   `report`/`envelope` are its contracts (frontmatter schemas in, JSONL events out — a `plan` event beside the
