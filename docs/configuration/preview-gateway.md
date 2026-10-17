@@ -86,7 +86,10 @@ Rules that hold on every platform:
 
 - **The host suffix gets a registrable domain of its own.** Put `*.<hostSuffix>` on a different registrable domain from
   the sign-in host and the status page (`preview.acme-apps.dev` beside `patchy.acme.dev`). Every preview host is
-  same-site with every other, and only the gateway's `__Host-` cookies and its origin rules keep them apart.
+  same-site with every other, and only the gateway's `__Host-` cookies and its origin rules keep them apart. Nothing
+  enforces this yet: neither the chart nor `patchy check project` looks at registrable domains, so check it yourself.
+  The [Public Suffix List](https://publicsuffix.org/) decides what is registrable: `acme-apps.dev` is, and so is
+  `acme.github.io`, because `github.io` is a public suffix.
 - **The sign-in host sits outside the host suffix.** The chart refuses one under it.
 - **`forwardedHops` is the number of proxies that append to `X-Forwarded-For` in front of the gateway.** The rate limit
   and the inbound allowlist judge the address it names, so a value too high lets a client choose its own.
@@ -100,9 +103,63 @@ Rules that hold on every platform:
 ## Platform recipes
 
 Each recipe routes `*.<hostSuffix>` and the sign-in host to the gateway. When the sign-in host is `previewAuth.host`,
-the relay's own Ingress already routes it, and the exposure carries the wildcard only. The same holds when you set
+the relay's own Ingress already routes it, and the exposure carries the wildcard only. That Ingress takes the edge class
+(`edgeIngressClass`, an ALB on EKS) unless `previewAuth.ingress` names another, so every recipe off the edge ALB sets
+`previewAuth.ingress.className` and its TLS as well as the gateway's. The same holds when you set
 `previewAuth.gateway.signInHost` to a host of its own: register `https://<sign-in host>/dex/callback` at Dex for the
 relay's client first.
+
+### The wildcard certificate
+
+Every recipe where TLS ends in the cluster (ingress-nginx, Traefik, k3d, and the gateway's own TLS) uses one explicit
+cert-manager `Certificate` in the release namespace. It covers `*.<hostSuffix>` and the sign-in host, and its Secret is
+named in values. Do not also put a `cert-manager.io/cluster-issuer` or `cert-manager.io/issuer` annotation on either
+Ingress: cert-manager would then create a second Certificate for the same Secret from the Ingress (ingress-shim), and
+the two would fight over it. On the edge ALB, Gateway API with a listener certificate, and Cloudflare, the edge holds
+the certificate and none of this applies.
+
+```yaml
+# preview-certificate.yaml, applied in the release namespace once cert-manager runs
+apiVersion: cert-manager.io/v1
+kind: Issuer # namespaced: the DNS credential lives beside the one Certificate that uses it
+metadata:
+  name: preview-dns01
+  namespace: patchy
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: ops@acme.dev
+    privateKeySecretRef:
+      name: preview-dns01-account
+    solvers:
+      - dns01: # a wildcard needs DNS-01; any solver cert-manager supports, here Cloudflare
+          cloudflare:
+            apiTokenSecretRef:
+              name: preview-dns01-token # DNS edit and zone read on the two names' zones only
+              key: api-token
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: preview-wildcard
+  namespace: patchy
+spec:
+  secretName: preview-wildcard-tls
+  issuerRef:
+    kind: Issuer
+    name: preview-dns01
+  dnsNames:
+    - "*.preview.acme-apps.dev"
+    - preview-auth.patchy.acme.dev # the sign-in host
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+```
+
+The two names sit on different registrable domains (the first rule above), so usually in two DNS zones: the solver's
+credential must be able to answer for both, or give each zone a solver of its own (`selector.dnsZones`). A
+`ClusterIssuer` works too, but it lets any namespace's Certificate use the DNS credential.
 
 ### EKS: an ALB Ingress
 
@@ -129,8 +186,15 @@ IngressClass and `ingress.inboundCIDRsAnnotation: alb.ingress.kubernetes.io/inbo
 
 ### ingress-nginx
 
+With [the wildcard certificate](#the-wildcard-certificate) issued:
+
 ```yaml
 previewAuth:
+  ingress: # the relay's own Ingress, for the sign-in host
+    className: nginx
+    tls:
+      - hosts: [preview-auth.patchy.acme.dev]
+        secretName: preview-wildcard-tls
   gateway:
     enabled: true
     forwardedHops: 1
@@ -140,7 +204,6 @@ previewAuth:
       className: nginx
       inboundCIDRsAnnotation: nginx.ingress.kubernetes.io/whitelist-source-range
       annotations:
-        cert-manager.io/cluster-issuer: letsencrypt-dns # a DNS-01 issuer: a wildcard needs it
         nginx.ingress.kubernetes.io/proxy-body-size: 32m # the gateway's own body limit
         nginx.ingress.kubernetes.io/proxy-read-timeout: "3600" # streams and WebSockets
         nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
@@ -152,12 +215,22 @@ previewAuth:
 
 `forwardedHops: 1` holds when the controller sees the client's address: its Service has `externalTrafficPolicy: Local`,
 or it trusts the PROXY protocol from its load balancer. Behind a cloud L7 load balancer that also appends, it is `2`.
-ingress-nginx passes WebSockets through without further annotations.
+ingress-nginx passes WebSockets through without further annotations. The relay's Ingress also carries the chart's ALB
+annotations; ingress-nginx ignores them.
 
 ### Traefik
 
+With [the wildcard certificate](#the-wildcard-certificate) issued:
+
 ```yaml
 previewAuth:
+  ingress: # the relay's own Ingress, for the sign-in host
+    className: traefik
+    annotations:
+      traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    tls:
+      - hosts: [preview-auth.patchy.acme.dev]
+        secretName: preview-wildcard-tls
   gateway:
     enabled: true
     forwardedHops: 1
@@ -166,7 +239,6 @@ previewAuth:
       enabled: true
       className: traefik
       annotations:
-        cert-manager.io/cluster-issuer: letsencrypt-dns
         traefik.ingress.kubernetes.io/router.entrypoints: websecure
         # traefik.ingress.kubernetes.io/router.middlewares: patchy-preview-allowlist@kubernetescrd
       tls:
@@ -177,7 +249,9 @@ previewAuth:
 Traefik reads no allowlist from an annotation value, so leave `inboundCIDRsAnnotation` empty. To hold the allowlist at
 the edge too, create an `IPAllowList` Middleware (`ipWhiteList` before Traefik v3) in the release namespace and name it
 in `router.middlewares`. The gateway checks `inboundCIDRs` either way. Like ingress-nginx, Traefik sees the client's
-address only with `externalTrafficPolicy: Local` or the PROXY protocol from its load balancer.
+address only with `externalTrafficPolicy: Local` or the PROXY protocol from its load balancer. For streams and
+WebSockets, lift the `websecure` entrypoint's read and write timeouts (`ports.websecure.transport.respondingTimeouts` in
+Traefik's chart, `0` for none), as the proxy timeouts do for ingress-nginx above.
 
 ### Gateway API
 
@@ -234,32 +308,54 @@ previewAuth:
 
 ### k3d with wildcard DNS and cert-manager
 
-A desktop cluster with no public load balancer: k3d's serverlb publishes the bundled Traefik on an address you choose (a
-tailnet or LAN address), a public wildcard record points at it, and cert-manager issues the wildcard certificate by
-DNS-01. Nothing here is desktop-only patchy configuration: it is the Traefik recipe plus an address.
+A desktop cluster with no public load balancer. An ingress controller terminates TLS with
+[the wildcard certificate](#the-wildcard-certificate), k3d's serverlb publishes it on the host's loopback, and something
+that owns an address viewers reach (a tailnet device of its own, or the host's LAN address) forwards its `:443` there. A
+public wildcard record points at that address. Nothing here is desktop-only patchy configuration: it is the
+[Traefik](#traefik) recipe plus an address.
+
+**The ingress controller.** k3s bundles Traefik, but k3d clusters are often created without it
+(`--k3s-arg "--disable=traefik@server:*"`). Check with `kubectl get ingressclass`. If there is none, install one
+yourself (the Traefik chart with only the `websecure` entrypoint, as a NodePort, or ingress-nginx) and use its recipe.
 
 ```sh
-# The cluster, its load balancer bound to the address viewers reach (a tailnet address here). Firewall the host, or
-# use `tailscale serve`, so nothing else reaches it.
-k3d cluster create patchy -p "100.101.102.103:443:443@loadbalancer" -p "100.101.102.103:80:80@loadbalancer"
-# The dedicated preview node: added any time, without a rebuild.
-k3d node create preview --cluster patchy --role agent
-kubectl label node k3d-preview-0 patchy.acme.dev/previews=true
-kubectl taint node k3d-preview-0 patchy.acme.dev/preview-only=true:NoExecute
+# The cluster, its load balancer bound to loopback only. With k3s's bundled Traefik, map 443; with a Traefik you
+# installed as a NodePort, map that NodePort instead (127.0.0.1:18443:30443@loadbalancer).
+k3d cluster create patchy -p "127.0.0.1:18443:443@loadbalancer"
+# The dedicated preview node: added any time, without a rebuild. Its label and NoExecute taint are set when it
+# registers, so no other Pod can land on it before the taint (a `kubectl taint` afterwards leaves that window open).
+k3d node create preview --cluster patchy --role agent \
+  --k3s-node-label patchy.acme.dev/previews=true \
+  --k3s-arg "--node-taint=patchy.acme.dev/preview-only=true:NoExecute"
 ```
 
-- DNS: an A record `*.preview.desktop.acme.dev` (and the sign-in host) to `100.101.102.103`.
-- cert-manager: a ClusterIssuer that answers DNS-01 in your zone (Route 53, Cloudflare, ...) and a `Certificate` for
-  `*.preview.desktop.acme.dev` in the release namespace. Name its Secret in `previewAuth.gateway.ingress.tls`.
-- Values: the Traefik recipe, with `preview.hostSuffix: preview.desktop.acme.dev`, `preview.legacyIngress: false` and
-  `publishedAddresses: [100.101.102.103]`.
-- k3d's serverlb is an L4 proxy, so Traefik sees the serverlb's address rather than the viewer's. Leave `inboundCIDRs`
-  empty and restrict who reaches the address instead (tailnet ACLs, the host firewall).
-- k3s's bundled network policy controller enforces NetworkPolicy. On the desktop, node isolation is scheduling only (one
-  host): it keeps other workloads off the preview node, not off the machine.
+**The address viewers reach.** Do not bind the serverlb to a tailnet address's `:443` on a host that also uses Tailscale
+Funnel or `tailscale serve` on 443: tailscaled already holds that port on its own address, and the two collide. Give the
+previews a tailnet device of their own instead, for example the `tailscale/tailscale` container on the host network with
+a serve configuration that forwards TCP, so TLS and SNI pass through to Traefik untouched:
 
-A LoadBalancer exposure (`service.type: LoadBalancer`, with `tls.secrets` so the gateway terminates TLS itself) suits
-MetalLB or a cloud L4 load balancer. Keep `externalTrafficPolicy: Local` and `forwardedHops: 0` there.
+```json
+{ "TCP": { "443": { "TCPForward": "127.0.0.1:18443" } } }
+```
+
+On a LAN, binding the serverlb to the host's LAN address works the same, as long as nothing else holds its `:443`.
+
+- DNS: an A record `*.preview.desktop.acme-apps.dev` (and the sign-in host) to that device's address, here
+  `100.101.102.103`. MagicDNS has no wildcard records, so this is a public record pointing at a tailnet address: only
+  the tailnet can reach it.
+- Values: the Traefik recipe, with `preview.hostSuffix: preview.desktop.acme-apps.dev`, `preview.legacyIngress: false`
+  and `publishedAddresses: [100.101.102.103]`.
+- k3d's serverlb and a TCP forward are L4 proxies, so Traefik sees their address rather than the viewer's. Leave
+  `inboundCIDRs` empty and restrict who reaches the address instead (tailnet ACLs, the host firewall). Traefik appends
+  the address it sees, so `forwardedHops` stays `1`.
+- k3s's bundled network policy controller enforces NetworkPolicy. On the desktop, node isolation is scheduling only (one
+  host): it keeps other workloads off the preview node, not off the machine. Run the
+  [isolation probe](#the-isolation-probe) with `--refused-is-blocked`.
+
+A LoadBalancer exposure (`service.type: LoadBalancer`, with `tls.secrets` naming
+[the wildcard certificate](#the-wildcard-certificate)'s Secret, so the gateway terminates TLS itself) needs no ingress
+controller at all and suits MetalLB or a cloud L4 load balancer. Keep `externalTrafficPolicy: Local` and
+`forwardedHops: 0` there.
 
 ## Moving off the preview ALB (EKS, release N)
 
