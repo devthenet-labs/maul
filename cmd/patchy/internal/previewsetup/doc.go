@@ -25,9 +25,22 @@
 //   - Plan renders the tree for a recipe: the patchy values layered after
 //     the operator's own, the manifests, the two Dex client Secret
 //     manifests, answers.yaml and NEXT-STEPS.md. It is byte-stable for the
-//     same answers and CLI version. The existing-edge recipe (R4: an
-//     Ingress class or a Gateway API parent) is the first; the others
-//     report ErrRecipeNotReady until they land.
+//     same answers and CLI version. Three recipes have landed: the
+//     existing edge (R4: an Ingress class or a Gateway API parent),
+//     gateway-tls (R2: the gateway's own LoadBalancer Service terminating
+//     TLS) and tailscale (R3: that Service as a tailnet device through the
+//     Tailscale operator). cloudflare-tunnel reports ErrRecipeNotReady
+//     until it lands.
+//   - R2 and R3 share the certificate pieces: the wildcard Certificate, the
+//     namespaced ACME Issuer with one DNS-01 solver (dnsProviders, every
+//     setting non-secret; --dns manual names the operator's own issuer
+//     instead), and the DNS credential the operator hands over in a file or
+//     on stdin, held in a redacted Credential and written only into its
+//     Secret manifest (read back on a re-run, as the Dex client secret is).
+//   - Pins are the upstream charts the recipes write values for
+//     (cert-manager, the Tailscale operator), each version a constant under
+//     a renovate comment; TestLivePins (`mise run preview-pins`, CI's
+//     preview-pins job) checks each exists and accepts what is written.
 //   - Compare reads what is on disk and says, per file, whether it is new,
 //     changed or unchanged (with a unified diff for every file that is not
 //     a secret), and which files an earlier run wrote that this one no

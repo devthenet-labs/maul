@@ -1,0 +1,32 @@
+# The answers `patchy setup previews` last rendered this directory from. A re-run starts
+# from them; flags given then override them. No secret is ever recorded here.
+apiServerCIDR: auto
+certificate:
+  acmeEmail: ops@acme.dev
+  dns: cloudflare
+cliVersion: v0.12.40
+dex:
+  clientID: patchy-preview-auth
+  issuer: https://dex.patchy.acme.dev
+  namespace: dex
+edge: gateway-tls
+hostSuffix: acme-previews.dev
+imagePathPrefix: acme/patchy/previews
+loadBalancer:
+  inboundCIDRs:
+  - 198.51.100.7/32
+  - 203.0.113.0/24
+namespace: patchy
+nodeIsolation:
+  label: patchy.bitwisemedia.uk/previews
+  labelValue: "true"
+  taintKey: patchy.bitwisemedia.uk/preview-only
+platform: k3s
+registry: ghcr.io
+release: patchy
+signInHost: preview-auth.patchy.acme.dev
+viewers:
+  teams:
+  - acme:qa
+  users:
+  - octocat

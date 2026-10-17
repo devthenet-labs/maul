@@ -156,11 +156,17 @@ func ParseGatewayParent(s string) (namespace, name, section string, err error) {
 // isolation forbids. Missing answers are Missing's, not reported here.
 func (a Answers) Validate() error {
 	var errs []error
-	for _, part := range []func() []error{a.validateNames, a.validateSignIn, a.validateImages, a.validateNodes} {
+	for _, part := range []func() []error{a.validateNames, a.validateSignIn, a.validateImages, a.validateNodes,
+		a.validateCertificate} {
 		errs = append(errs, part()...)
 	}
-	if a.Edge == EdgeExisting {
+	switch a.Edge {
+	case EdgeExisting:
 		errs = append(errs, a.validateExisting()...)
+	case EdgeGatewayTLS:
+		errs = append(errs, a.validateLoadBalancer()...)
+	case EdgeTailscale:
+		errs = append(errs, a.validateTailscale()...)
 	}
 	return errors.Join(errs...)
 }
@@ -308,12 +314,7 @@ func (a Answers) validateExisting() []error {
 	default:
 		errs = append(errs, fmt.Errorf("--edge-tls %q is none of certificate, edge", e.TLS))
 	}
-	if e.CertificateIssuer != "" {
-		kind, name, ok := strings.Cut(e.CertificateIssuer, "/")
-		if !ok || (kind != "Issuer" && kind != "ClusterIssuer") || len(validation.IsDNS1123Subdomain(name)) > 0 {
-			errs = append(errs, fmt.Errorf("--certificate-issuer %q is not Issuer/<name> or ClusterIssuer/<name>",
-				e.CertificateIssuer))
-		}
-	}
 	return errs
 }
+
+func validSubdomain(name string) bool { return len(validation.IsDNS1123Subdomain(name)) == 0 }

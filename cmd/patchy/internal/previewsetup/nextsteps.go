@@ -36,6 +36,24 @@ type nextSteps struct {
 	EdgeClass                                                      bool
 	GatewayNamespace, GatewayName, GatewaySection, SignInRouteFile string
 	Files                                                          []fileEntry
+
+	// The gateway-tls and tailscale recipes: the gateway terminates TLS.
+	GatewayCert, GatewayTLS, Tailscale bool
+	Issuer                             bool // the recipe writes the Issuer
+	IssuerFile, DNS, DNSSecret         string
+	DNSSecretFile, DNSSecretKey        string
+	DNSCredentialNeeded                bool // the solver reads DNSSecret
+	DNSCredentialWritten               bool // and the wizard wrote it
+	DNSLeastPrivilege                  string
+	CertManager, TailscaleOperator     *Pin // nil: already installed, or not needed
+	LBClass                            string
+	InboundCIDRs                       []string
+	ServiceLB                          bool // k3s's ServiceLB gives the LoadBalancer its address
+	TailscaleHostname, TailscaleTag    string
+	TailscaleOperatorTag, OAuthSecret  string
+	TailscaleNamespace                 string
+	TailscaleAddresses                 []string
+	TailscalePolicy                    string
 }
 
 // fileWhat says what each file a plan can write is.
@@ -47,13 +65,20 @@ var fileWhat = map[string]string{
 	SignInRouteFile:     "The HTTPRoute that sends the sign-in host to the preview gateway.",
 	RelayDexSecretFile:  "The relay's Dex client secret, in the release namespace (0600).",
 	DexClientSecretFile: "The same secret, in Dex's namespace, for its static client (0600).",
+	IssuerFile:          "The namespaced ACME Issuer that answers the Certificate's DNS-01 challenge.",
+	DNSSecretFile:       "The DNS-01 solver's credential, in the release namespace (0600).",
+	CertManager.ValuesFile: "cert-manager's values, for the chart version patchy pins (" + CertManager.Version +
+		").",
+	TailscaleOperator.ValuesFile: "The Tailscale operator's values, for the chart version patchy pins (" +
+		TailscaleOperator.Version + ").",
 }
 
-// renderNextSteps renders NEXT-STEPS.md for a and the recipe's own files.
-func renderNextSteps(a Answers, recipeFiles []File) ([]byte, error) {
-	paths := make([]string, 0, 5+len(recipeFiles))
-	paths = append(paths, AnswersFile, ValuesFile, NextStepsFile, RelayDexSecretFile, DexClientSecretFile)
-	for _, f := range recipeFiles {
+// renderNextSteps renders NEXT-STEPS.md for a and the recipe's own files;
+// secrets are the secret files the plan writes.
+func renderNextSteps(a Answers, recipeFiles, secrets []File) ([]byte, error) {
+	paths := make([]string, 0, 3+len(recipeFiles)+len(secrets))
+	paths = append(paths, AnswersFile, ValuesFile, NextStepsFile)
+	for _, f := range append(slices.Clone(recipeFiles), secrets...) {
 		paths = append(paths, f.Path)
 	}
 	slices.Sort(paths)
@@ -72,6 +97,9 @@ func renderNextSteps(a Answers, recipeFiles []File) ([]byte, error) {
 	for _, p := range paths {
 		d.Files = append(d.Files, fileEntry{Path: p, What: fileWhat[p]})
 	}
+	if a.GatewayTerminatesTLS() {
+		gatewayCertSteps(a, &d, paths)
+	}
 	if a.Edge == EdgeExisting {
 		if a.Existing.GatewayParent != "" {
 			d.Route = true
@@ -88,9 +116,138 @@ func renderNextSteps(a Answers, recipeFiles []File) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// gatewayCertSteps fills NEXT-STEPS.md's data for the recipes in which the
+// gateway terminates TLS with the Certificate they write.
+func gatewayCertSteps(a Answers, d *nextSteps, paths []string) {
+	d.GatewayCert, d.Certificate = true, true
+	d.GatewayTLS, d.Tailscale = a.Edge == EdgeGatewayTLS, a.Edge == EdgeTailscale
+	d.IssuerKind, d.IssuerName = a.Issuer()
+	d.Issuer, d.IssuerFile, d.DNS = a.WritesIssuer(), IssuerFile, a.Certificate.DNS
+	d.DNSSecret, d.DNSSecretFile, d.DNSSecretKey = DNSSecret, DNSSecretFile, a.DNSCredentialKey()
+	d.DNSCredentialNeeded = d.DNSSecretKey != ""
+	d.DNSCredentialWritten = slices.Contains(paths, DNSSecretFile)
+	d.DNSLeastPrivilege = leastPrivilegeNote(a)
+	if !a.Certificate.CertManagerInstalled {
+		d.CertManager = &CertManager
+	}
+	d.LBClass, d.InboundCIDRs = a.LoadBalancer.Class, a.LoadBalancer.InboundCIDRs
+	d.ServiceLB = a.Platform == PlatformK3s || a.Platform == PlatformK3d
+	if d.Tailscale {
+		if !a.Tailscale.OperatorInstalled {
+			d.TailscaleOperator = &TailscaleOperator
+		}
+		d.TailscaleHostname, d.TailscaleTag = a.TailscaleHostname(), a.TailscaleTag()
+		d.TailscaleOperatorTag, d.OAuthSecret = TailscaleOperatorTag, tailscaleOAuthSecret
+		d.TailscaleNamespace = TailscaleOperator.Namespace
+		d.TailscaleAddresses = a.Tailscale.Addresses
+		d.TailscalePolicy = tailscalePolicy(a)
+	}
+}
+
+// leastPrivilegeNote is the narrowest grant the DNS-01 solver needs
+// (design §6): only the two challenge names' TXT records, in only their
+// zones. Printed, never applied (owner decision Q2).
+func leastPrivilegeNote(a Answers) string {
+	suffix, signIn := "_acme-challenge."+a.HostSuffix, "_acme-challenge."+a.SignInHost
+	who := "cert-manager's own identity (its ServiceAccount's IAM role)"
+	switch a.Certificate.DNS {
+	case "route53":
+		if a.Certificate.DNSOptions["accessKeyID"] != "" {
+			who = "the IAM user whose access key you give"
+		}
+		return "Grant " + who + " this policy and nothing else: only TXT records, only the two challenge " +
+			"names, in only the zones that hold them.\n\n```json\n" + route53Policy(suffix, signIn) + "```"
+	case "cloudflare":
+		return "Create an API token from Cloudflare's \"Edit zone DNS\" template with exactly `Zone:DNS:Edit` " +
+			"and `Zone:Zone:Read`, its zone resources limited to the zones holding `" + a.HostSuffix + "` and `" +
+			a.SignInHost + "` (never \"All zones\", never the Global API Key)."
+	case "google":
+		return "Give the solver's service account `roles/dns.admin` on only the managed zones holding `" +
+			a.HostSuffix + "` and `" + a.SignInHost + "` where your organisation allows zone-level IAM, else on " +
+			"a project that holds DNS and nothing else."
+	case "azure":
+		return "Give the solver's identity `DNS Zone Contributor` on only the DNS zones holding `" + a.HostSuffix +
+			"` and `" + a.SignInHost + "`, never on the resource group or the subscription."
+	case "digitalocean":
+		return "Create a custom-scoped token with only `domain:read` and `domain:update`. DigitalOcean cannot " +
+			"scope a token to one domain: it can change every record of every domain in the account."
+	case "rfc2136":
+		return "Let the TSIG key update only the TXT records `" + suffix + "` and `" + signIn + "` (BIND: " +
+			"`update-policy { grant " + a.Certificate.DNSOptions["tsigKeyName"] + " name " + suffix + ". TXT; " +
+			"grant " + a.Certificate.DNSOptions["tsigKeyName"] + " name " + signIn + ". TXT; };`)."
+	}
+	return ""
+}
+
+// route53Policy is the desktop's DNS-01 policy (terraform-devthenet
+// patchy-desktop-previews.tf), parameterised by the two challenge names.
+func route53Policy(suffix, signIn string) string {
+	return `{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AcmeChallengeRecordsOnly",
+      "Effect": "Allow",
+      "Action": ["route53:ChangeResourceRecordSets"],
+      "Resource": [
+        "arn:aws:route53:::hostedzone/<the zone holding ` + strings.TrimPrefix(suffix, "_acme-challenge.") + `>",
+        "arn:aws:route53:::hostedzone/<the zone holding ` + strings.TrimPrefix(signIn, "_acme-challenge.") + `>"
+      ],
+      "Condition": {
+        "ForAllValues:StringEquals": {
+          "route53:ChangeResourceRecordSetsNormalizedRecordNames": [
+            "` + suffix + `",
+            "` + signIn + `"
+          ],
+          "route53:ChangeResourceRecordSetsRecordTypes": ["TXT"],
+          "route53:ChangeResourceRecordSetsActions": ["UPSERT", "DELETE"]
+        }
+      }
+    },
+    {
+      "Sid": "ChangeStatus",
+      "Effect": "Allow",
+      "Action": ["route53:GetChange"],
+      "Resource": "arn:aws:route53:::change/*"
+    },
+    {
+      "Sid": "FindZone",
+      "Effect": "Allow",
+      "Action": ["route53:ListHostedZonesByName"],
+      "Resource": "*"
+    }
+  ]
+}
+`
+}
+
+// tailscalePolicy is the tailnet policy the tailscale recipe needs
+// (design §6): the operator owns the previews' tag, and viewers reach that
+// device on 443 alone.
+func tailscalePolicy(a Answers) string {
+	return `{
+  "tagOwners": {
+    "` + TailscaleOperatorTag + `": ["autogroup:admin"],
+    "` + a.TailscaleTag() + `": ["` + TailscaleOperatorTag + `"]
+  },
+  "grants": [
+    {
+      "src": ["group:preview-viewers"],
+      "dst": ["` + a.TailscaleTag() + `"],
+      "ip": ["tcp:443"]
+    }
+  ]
+}
+`
+}
+
 // edgeTitle names the recipe as NEXT-STEPS.md's heading does.
 func edgeTitle(a Answers) string {
 	switch {
+	case a.Edge == EdgeGatewayTLS:
+		return "gateway TLS on a LoadBalancer"
+	case a.Edge == EdgeTailscale:
+		return "tailnet device (Tailscale operator)"
 	case a.Edge != EdgeExisting:
 		return string(a.Edge)
 	case a.Existing.GatewayParent != "":

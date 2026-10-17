@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -138,6 +139,10 @@ func TestGoldenValuesRender(t *testing.T) {
 			if relay == nil {
 				t.Fatal("no relay Ingress in the render")
 			}
+			if a.GatewayTerminatesTLS() {
+				checkGatewayTLS(t, a, objs, files)
+				return
+			}
 			if a.Existing.GatewayParent != "" {
 				checkRoute(t, a, objs, files)
 				return
@@ -225,6 +230,97 @@ func checkRoute(t *testing.T, a Answers, objs []*unstructured.Unstructured, file
 		len(signIn.Spec.Rules[0].BackendRefs) != 1 || signIn.Spec.Rules[0].BackendRefs[0].Name != svc.GetName() ||
 		fmt.Sprint(signIn.Spec.Rules[0].BackendRefs[0].Port) != fmt.Sprint(port[0].(map[string]any)["port"]) {
 		t.Errorf("sign-in route %+v does not send %s to %s:%v", signIn.Spec, a.SignInHost, svc.GetName(), port)
+	}
+}
+
+// checkGatewayTLS: in the gateway-tls and tailscale recipes the gateway's
+// own Service is the only exposure (no gateway Ingress or HTTPRoute), it
+// serves 443 with the Certificate's Secret projected into the relay, and
+// it is a LoadBalancer of its own (Local, the answered class and source
+// ranges) or a ClusterIP Service the Tailscale operator exposes as the
+// answered device.
+func checkGatewayTLS(t *testing.T, a Answers, objs []*unstructured.Unstructured, files []File) {
+	t.Helper()
+	gw := a.GatewayService()
+	if find(objs, "Ingress", gw) != nil || find(objs, "HTTPRoute", gw) != nil {
+		t.Error("a gateway Ingress or HTTPRoute rendered beside the gateway's own TLS")
+	}
+	svc := find(objs, "Service", gw)
+	ports, _, _ := unstructured.NestedSlice(svc.Object, "spec", "ports")
+	var https bool
+	for _, p := range ports {
+		if fmt.Sprint(p.(map[string]any)["port"]) == "443" {
+			https = true
+		}
+	}
+	if !https {
+		t.Errorf("the gateway Service serves no 443: %v", ports)
+	}
+	checkGatewayService(t, a, svc)
+	checkGatewayCertificate(t, a, objs, files)
+}
+
+// checkGatewayService: the gateway's Service is the recipe's exposure.
+func checkGatewayService(t *testing.T, a Answers, svc *unstructured.Unstructured) {
+	t.Helper()
+	spec, _, _ := unstructured.NestedMap(svc.Object, "spec")
+	ann := svc.GetAnnotations()
+	switch a.Edge {
+	case EdgeGatewayTLS:
+		ranges, _, _ := unstructured.NestedStringSlice(svc.Object, "spec", "loadBalancerSourceRanges")
+		class, _, _ := unstructured.NestedString(svc.Object, "spec", "loadBalancerClass")
+		if spec["type"] != "LoadBalancer" || spec["externalTrafficPolicy"] != "Local" ||
+			class != a.LoadBalancer.Class || !slices.Equal(ranges, a.LoadBalancer.InboundCIDRs) {
+			t.Errorf("gateway Service spec = %v, want a Local LoadBalancer of class %q admitting %v", spec,
+				a.LoadBalancer.Class, a.LoadBalancer.InboundCIDRs)
+		}
+	case EdgeTailscale:
+		if spec["type"] != "ClusterIP" || ann["tailscale.com/expose"] != "true" ||
+			ann["tailscale.com/hostname"] != a.TailscaleHostname() || ann["tailscale.com/tags"] != a.TailscaleTag() {
+			t.Errorf("gateway Service type %v, annotations %v: not the tailnet device %s (%s)", spec["type"], ann,
+				a.TailscaleHostname(), a.TailscaleTag())
+		}
+	}
+}
+
+// checkGatewayCertificate: the Certificate covers both names, the relay
+// mounts its Secret, and it names the Issuer the recipe wrote.
+func checkGatewayCertificate(t *testing.T, a Answers, objs []*unstructured.Unstructured, files []File) {
+	t.Helper()
+	var cert struct {
+		Spec struct {
+			SecretName string   `json:"secretName"`
+			DNSNames   []string `json:"dnsNames"`
+			IssuerRef  struct {
+				Kind string `json:"kind"`
+				Name string `json:"name"`
+			} `json:"issuerRef"`
+		} `json:"spec"`
+	}
+	if err := yaml.Unmarshal([]byte(byPath(files)[CertificateFile]), &cert); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(cert.Spec.DNSNames, []string{"*." + a.HostSuffix, a.SignInHost}) {
+		t.Errorf("Certificate covers %v", cert.Spec.DNSNames)
+	}
+	relay := find(objs, "Deployment", a.Fullname()+"-preview-auth")
+	if relay == nil {
+		t.Fatal("no relay Deployment in the render")
+	}
+	if !strings.Contains(fmt.Sprint(relay.Object), "name:"+cert.Spec.SecretName) {
+		t.Errorf("the relay does not mount the Certificate's Secret %s", cert.Spec.SecretName)
+	}
+	if issuerFile, ok := byPath(files)[IssuerFile]; ok {
+		var iss struct {
+			Metadata struct{ Name, Namespace string } `json:"metadata"`
+		}
+		if err := yaml.Unmarshal([]byte(issuerFile), &iss); err != nil {
+			t.Fatal(err)
+		}
+		if cert.Spec.IssuerRef.Kind != "Issuer" || cert.Spec.IssuerRef.Name != iss.Metadata.Name ||
+			iss.Metadata.Namespace != a.Namespace {
+			t.Errorf("Certificate names %+v, the Issuer written is %+v", cert.Spec.IssuerRef, iss.Metadata)
+		}
 	}
 }
 

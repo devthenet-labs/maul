@@ -32,12 +32,18 @@ type setupPreviewsFlags struct {
 	rotate      string
 	nodeLabel   string
 	eksAutoMode string
+	dnsOptions  []string
+	// dnsCredentialsFile and dnsCredentialsStdin are where the DNS-01
+	// credential is read from: never a flag value, which would land in
+	// shell history.
+	dnsCredentialsFile  string
+	dnsCredentialsStdin bool
 }
 
 // newSetupPreviewsCmd is `setup previews` (design
 // .claude/plans/preview-setup-design.md §4). Hidden while it is built: it
-// asks nothing yet (every answer is a flag), and only the existing-edge
-// recipe has landed.
+// asks nothing yet (every answer is a flag), and the cloudflare-tunnel
+// recipe has not landed.
 func newSetupPreviewsCmd(opts *Options) *cobra.Command {
 	f := &setupPreviewsFlags{}
 	a := previewsetup.Defaults()
@@ -50,8 +56,15 @@ func newSetupPreviewsCmd(opts *Options) *cobra.Command {
 			"relay's Dex client secret as two Secret manifests, answers.yaml and NEXT-STEPS.md, all\n" +
 			"in -o (default ./patchy-previews, created 0700, every file 0600). Nothing is applied and\n" +
 			"no cluster or provider is contacted: NEXT-STEPS.md lists the commands, in order.\n\n" +
-			"Still being built: every answer is a flag (no prompts yet), and only --edge existing (an\n" +
-			"Ingress class, or a Gateway API parent, already in the cluster) has a recipe.\n\n" +
+			"Still being built: every answer is a flag (no prompts yet), and --edge cloudflare-tunnel\n" +
+			"has no recipe yet. --edge existing routes through an Ingress class or a Gateway API parent\n" +
+			"already in the cluster; --edge gateway-tls makes the gateway's Service a LoadBalancer that\n" +
+			"terminates TLS itself; --edge tailscale gives that Service a tailnet device through the\n" +
+			"Tailscale operator. The last two write a cert-manager Certificate and, unless --dns manual,\n" +
+			"the namespaced ACME Issuer that answers its DNS-01 challenge, plus values for cert-manager\n" +
+			"and the Tailscale operator at the chart versions patchy pins. A DNS credential is read\n" +
+			"from --dns-credentials-file or --dns-credentials-from-stdin, never a flag value, and is\n" +
+			"written only into a Secret manifest.\n\n" +
 			"Previews must sit on a registrable domain of their own: a --sign-in-host or --dex-issuer\n" +
 			"on the --host-suffix's registrable domain is refused, because preview code would run\n" +
 			"same-site with sign-in.\n\n" +
@@ -62,7 +75,10 @@ func newSetupPreviewsCmd(opts *Options) *cobra.Command {
 		Example: "  patchy setup previews --platform k3s --edge existing --ingress-class traefik \\\n" +
 			"    --host-suffix acme-previews.dev --sign-in-host preview-auth.patchy.acme.dev \\\n" +
 			"    --dex-issuer https://dex.patchy.acme.dev --viewer-team acme:qa --registry ghcr.io \\\n" +
-			"    --image-path-prefix acme/patchy/previews",
+			"    --image-path-prefix acme/patchy/previews\n\n" +
+			"  patchy setup previews --platform k3d --edge tailscale --dns route53 \\\n" +
+			"    --dns-option region=us-east-1 --dns-option accessKeyID=AKIAIOSFODNN7EXAMPLE \\\n" +
+			"    --dns-credentials-file ~/.config/dns01-secret-access-key ...",
 		Args:              cobra.NoArgs,
 		ValidArgsFunction: noFileCompletion,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -100,8 +116,33 @@ func newSetupPreviewsCmd(opts *Options) *cobra.Command {
 		"that routes both names, <namespace>/<name>[/<section>]")
 	fl.StringVar(&a.Existing.TLS, "edge-tls", "", "--edge existing: certificate (a cert-manager Certificate in "+
 		"the release namespace) or edge (the edge holds it); default from the edge")
-	fl.StringVar(&a.Existing.CertificateIssuer, "certificate-issuer", "", "--edge existing: the cert-manager "+
-		"issuer, Issuer/<name> or ClusterIssuer/<name> (default "+previewsetup.DefaultCertificateIssuer+")")
+	fl.StringVar(&a.Certificate.Issuer, "certificate-issuer", "", "--edge existing, or --dns manual: your "+
+		"cert-manager issuer, Issuer/<name> or ClusterIssuer/<name> (default "+previewsetup.DefaultCertificateIssuer+")")
+	fl.StringVar(&a.Certificate.DNS, "dns", "", "--edge gateway-tls or tailscale: the DNS-01 solver of the Issuer "+
+		"written: "+strings.Join(previewsetup.DNSProviders(), ", ")+" (manual: your own --certificate-issuer)")
+	fl.StringArrayVar(&f.dnsOptions, "dns-option", nil, "a setting of the DNS-01 solver, key=value, never a "+
+		"secret (repeatable; route53: region, hostedZoneID, accessKeyID; google: project, serviceAccountKey; "+
+		"azure: subscriptionID, resourceGroupName, environment, clientID, tenantID; rfc2136: nameserver, "+
+		"tsigKeyName, tsigAlgorithm)")
+	fl.StringVar(&f.dnsCredentialsFile, "dns-credentials-file", "", "a file holding the DNS-01 solver's "+
+		"credential (a token, a secret key, or google's JSON key), written only into a Secret manifest")
+	fl.BoolVar(&f.dnsCredentialsStdin, "dns-credentials-from-stdin", false, "read the DNS-01 solver's "+
+		"credential from standard input instead")
+	fl.StringVar(&a.Certificate.ACMEEmail, "acme-email", "", "the ACME account's contact address (optional)")
+	fl.BoolVar(&a.Certificate.CertManagerInstalled, "cert-manager-installed", false, "cert-manager already runs: "+
+		"write no values for it")
+	fl.StringVar(&a.LoadBalancer.Class, "load-balancer-class", "", "--edge gateway-tls: the gateway Service's "+
+		"loadBalancerClass, where the cluster has more than one implementation")
+	fl.StringArrayVar(&a.LoadBalancer.InboundCIDRs, "inbound-cidr", nil, "--edge gateway-tls: a client CIDR "+
+		"that may open previews, kept at the load balancer (repeatable; default all)")
+	fl.StringVar(&a.Tailscale.Hostname, "tailscale-hostname", "", "--edge tailscale: the gateway's device name "+
+		"(default "+previewsetup.DefaultTailscaleHostname+")")
+	fl.StringVar(&a.Tailscale.Tag, "tailscale-tag", "", "--edge tailscale: the device's ACL tag (default "+
+		previewsetup.DefaultTailscaleTag+")")
+	fl.StringArrayVar(&a.Tailscale.Addresses, "tailscale-address", nil, "--edge tailscale: the device's tailnet "+
+		"address once it has appeared, what the DNS records hold (repeatable)")
+	fl.BoolVar(&a.Tailscale.OperatorInstalled, "tailscale-operator-installed", false, "--edge tailscale: the "+
+		"Tailscale operator already runs: write no values for it")
 	fl.StringVar(&a.Release, "release", a.Release, "the patchy Helm release")
 	// -o names a directory here, not an output format.
 	fl.StringVarP(&f.output, "output", "o", defaultPreviewsDir, "the directory to write to")
@@ -116,9 +157,12 @@ func newSetupPreviewsCmd(opts *Options) *cobra.Command {
 	_ = cmd.RegisterFlagCompletionFunc("edge-tls", fixedCompletion([]string{
 		previewsetup.TLSCertificate, previewsetup.TLSEdge}))
 	_ = cmd.RegisterFlagCompletionFunc("rotate", fixedCompletion([]string{previewsetup.RotateDexClientSecret}))
+	_ = cmd.RegisterFlagCompletionFunc("dns", fixedCompletion(previewsetup.DNSProviders()))
 	for _, name := range []string{"host-suffix", "sign-in-host", "dex-issuer", "dex-namespace", "dex-client-id",
 		"viewer-team", "viewer-user", "registry", "image-path-prefix", "node-label", "eks-auto-mode", "taint-key",
-		"api-server-cidr", "ingress-class", "gateway-parent", "certificate-issuer", "release"} {
+		"api-server-cidr", "ingress-class", "gateway-parent", "certificate-issuer", "release", "dns-option",
+		"acme-email", "load-balancer-class", "inbound-cidr", "tailscale-hostname", "tailscale-tag",
+		"tailscale-address"} {
 		_ = cmd.RegisterFlagCompletionFunc(name, noFileCompletion)
 	}
 	return cmd
@@ -154,8 +198,27 @@ func answerFlags(dst *previewsetup.Answers, src previewsetup.Answers) map[string
 			dst.Existing.GatewayParent, dst.Existing.IngressClass = src.Existing.GatewayParent, ""
 		},
 		"edge-tls":           func() { dst.Existing.TLS = src.Existing.TLS },
-		"certificate-issuer": func() { dst.Existing.CertificateIssuer = src.Existing.CertificateIssuer },
+		"certificate-issuer": func() { dst.Certificate.Issuer = src.Certificate.Issuer },
 		"release":            func() { dst.Release = src.Release },
+		// Another solver takes other options: the ones answered for the
+		// last are dropped (dns-option, given too, sorts after it).
+		"dns": func() {
+			if dst.Certificate.DNS != src.Certificate.DNS {
+				dst.Certificate.DNSOptions = nil
+			}
+			dst.Certificate.DNS = src.Certificate.DNS
+		},
+		"dns-option":             func() { dst.Certificate.DNSOptions = src.Certificate.DNSOptions },
+		"acme-email":             func() { dst.Certificate.ACMEEmail = src.Certificate.ACMEEmail },
+		"cert-manager-installed": func() { dst.Certificate.CertManagerInstalled = src.Certificate.CertManagerInstalled },
+		"load-balancer-class":    func() { dst.LoadBalancer.Class = src.LoadBalancer.Class },
+		"inbound-cidr":           func() { dst.LoadBalancer.InboundCIDRs = src.LoadBalancer.InboundCIDRs },
+		"tailscale-hostname":     func() { dst.Tailscale.Hostname = src.Tailscale.Hostname },
+		"tailscale-tag":          func() { dst.Tailscale.Tag = src.Tailscale.Tag },
+		"tailscale-address":      func() { dst.Tailscale.Addresses = src.Tailscale.Addresses },
+		"tailscale-operator-installed": func() {
+			dst.Tailscale.OperatorInstalled = src.Tailscale.OperatorInstalled
+		},
 	}
 }
 
@@ -164,6 +227,7 @@ func answerFlags(dst *previewsetup.Answers, src previewsetup.Answers) map[string
 // the last to run would win silently.
 var exclusiveAnswerFlags = [][2]string{
 	{"ingress-class", "gateway-parent"},
+	{"dns-credentials-file", "dns-credentials-from-stdin"},
 	{"no-viewers", "viewer-team"},
 	{"no-viewers", "viewer-user"},
 }
@@ -183,6 +247,11 @@ func resolveAnswers(cmd *cobra.Command, opts *Options, f *setupPreviewsFlags,
 		return flags, false, errUsage(err)
 	}
 	flags.NodeIsolation.EKSAutoMode = eks
+	dnsOptions, err := parseDNSOptions(f.dnsOptions)
+	if err != nil {
+		return flags, false, errUsage(err)
+	}
+	flags.Certificate.DNSOptions = dnsOptions
 	if f.nodeLabel != "" {
 		key, value, ok := strings.Cut(f.nodeLabel, "=")
 		if !ok {
@@ -237,13 +306,20 @@ func runSetupPreviews(cmd *cobra.Command, opts *Options, f *setupPreviewsFlags, 
 		return errUsage(err)
 	}
 	if !previewsetup.Ready(a.Edge) {
-		return errUsage(fmt.Errorf("--edge %s: %w; use --edge existing for now", a.Edge,
+		return errUsage(fmt.Errorf("--edge %s: %w; use --edge existing, gateway-tls or tailscale for now", a.Edge,
 			previewsetup.ErrRecipeNotReady))
+	}
+	given, err := readDNSCredential(cmd.InOrStdin(), opts.ErrOut, f, a)
+	if err != nil {
+		return err
 	}
 	rotate := f.rotate != ""
 	secrets, err := previewsetup.ResolveSecrets(f.output, rotate, rand.Reader)
 	if err != nil {
 		return err
+	}
+	if secrets.DNS, err = previewsetup.ResolveDNSCredential(f.output, a, given); err != nil {
+		return errUsage(err)
 	}
 	files, err := previewsetup.Plan(a, secrets, version.Version)
 	if err != nil {
@@ -258,7 +334,9 @@ func runSetupPreviews(cmd *cobra.Command, opts *Options, f *setupPreviewsFlags, 
 		notef(opts.ErrOut, "patchy: dry run: nothing written to %s.\n", f.output)
 		return nil
 	}
-	written, err := previewsetup.Write(c, previewsetup.Accept{All: f.force, Secrets: rotate})
+	// A secret file changes only when the operator asked for it: a
+	// rotation, or a DNS credential given anew.
+	written, err := previewsetup.Write(c, previewsetup.Accept{All: f.force, Secrets: rotate || !given.IsZero()})
 	var conflict *previewsetup.ConflictError
 	if errors.As(err, &conflict) {
 		printComparison(opts.Out, c, false)
@@ -270,6 +348,75 @@ func runSetupPreviews(cmd *cobra.Command, opts *Options, f *setupPreviewsFlags, 
 	reportWrite(opts.ErrOut, f.output, c, written, secrets, rerun)
 	return nil
 }
+
+// parseDNSOptions turns --dns-option key=value pairs into the solver's
+// settings; a key given twice is refused rather than one silently winning.
+func parseDNSOptions(pairs []string) (map[string]string, error) {
+	if len(pairs) == 0 {
+		return nil, nil
+	}
+	opts := make(map[string]string, len(pairs))
+	for _, kv := range pairs {
+		k, v, ok := strings.Cut(kv, "=")
+		k, v = strings.TrimSpace(k), strings.TrimSpace(v)
+		switch _, dup := opts[k]; {
+		case !ok || k == "" || v == "":
+			return nil, fmt.Errorf("--dns-option %q is not key=value", kv)
+		case dup:
+			return nil, fmt.Errorf("--dns-option %s given twice", k)
+		}
+		opts[k] = v
+	}
+	return opts, nil
+}
+
+// readDNSCredential reads the DNS-01 credential from the file or standard
+// input named, bounded, and warns when the file is readable by others. It
+// is never echoed, and nothing is read when neither is given.
+func readDNSCredential(in io.Reader, errOut io.Writer, f *setupPreviewsFlags,
+	a previewsetup.Answers) (previewsetup.Credential, error) {
+	var raw []byte
+	switch {
+	case f.dnsCredentialsStdin:
+		b, err := io.ReadAll(io.LimitReader(in, maxCredentialRead))
+		if err != nil {
+			return previewsetup.Credential{}, fmt.Errorf("read the DNS credential from standard input: %w", err)
+		}
+		raw = b
+	case f.dnsCredentialsFile != "":
+		file, err := os.Open(f.dnsCredentialsFile)
+		if err != nil {
+			return previewsetup.Credential{}, errUsage(fmt.Errorf("--dns-credentials-file: %w", err))
+		}
+		defer func() { _ = file.Close() }()
+		info, err := file.Stat()
+		if err != nil {
+			return previewsetup.Credential{}, err
+		}
+		if !info.Mode().IsRegular() {
+			return previewsetup.Credential{}, errUsage(fmt.Errorf("--dns-credentials-file %s is not a regular "+
+				"file: use --dns-credentials-from-stdin for a pipe", f.dnsCredentialsFile))
+		}
+		if info.Mode().Perm()&0o077 != 0 {
+			notef(errOut, "patchy: warning: %s is readable by other users (mode %04o): chmod 600 it.\n",
+				f.dnsCredentialsFile, info.Mode().Perm())
+		}
+		if raw, err = io.ReadAll(io.LimitReader(file, maxCredentialRead)); err != nil {
+			return previewsetup.Credential{}, fmt.Errorf("read --dns-credentials-file: %w", err)
+		}
+	default:
+		return previewsetup.Credential{}, nil
+	}
+	c, err := previewsetup.ParseCredential(a, raw)
+	if err != nil {
+		return previewsetup.Credential{}, errUsage(err)
+	}
+	return c, nil
+}
+
+// maxCredentialRead bounds a credential read: past previewsetup's limit,
+// so an oversized one is refused rather than cut.
+const maxCredentialRead = 1 << 20
 
 // printComparison lists every file with its state, then the differences of
 // the files that are not secrets. all lists unchanged files too.
@@ -309,6 +456,10 @@ func reportWrite(w io.Writer, dir string, c previewsetup.Comparison, written []s
 	}
 	for _, p := range c.Stale {
 		notef(w, "patchy: %s is no longer generated: delete it once nothing applies it.\n", p)
+	}
+	if slices.Contains(written, previewsetup.DNSSecretFile) {
+		notef(w, "patchy: wrote the DNS credential into %s: apply or encrypt it; never commit it as it is.\n",
+			filepath.Join(dir, previewsetup.DNSSecretFile))
 	}
 	switch {
 	case s.Fresh && rerun:
