@@ -105,3 +105,19 @@ func TestRender(t *testing.T) {
 		t.Errorf("Failed = %d, want 1", n)
 	}
 }
+
+// TestWarnDoesNotFail: a warning is reported, never counted as a failure.
+func TestWarnDoesNotFail(t *testing.T) {
+	lines := []Line{{Status: Warn, Cells: []string{"preview-config"}, Reason: "shares a site"},
+		{Status: Pass, Cells: []string{"preview-nodes"}, Reason: "ok"}}
+	if n := Failed(lines); n != 0 {
+		t.Errorf("Failed = %d, want 0", n)
+	}
+	var b strings.Builder
+	if err := Render(&b, printer.FormatTable, nil, lines); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(b.String(), "WARN  preview-config") {
+		t.Errorf("Render =\n%s", b.String())
+	}
+}

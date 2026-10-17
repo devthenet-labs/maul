@@ -10,8 +10,8 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"slices"
-	"strconv"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -50,13 +50,7 @@ const gatewayAdmits = "the gateway's edge may admit only previewAuth.gateway.inb
 // it is on, and the legacy slot Ingress only while preview-controller
 // renders it (its flag's default, true, when unset).
 func (s Settings) probeMode() previewauth.ProbeMode {
-	legacy := true
-	if v, ok := s.Preview.Data[keyPreviewLegacyIngress]; ok {
-		if b, err := strconv.ParseBool(strings.TrimSpace(v)); err == nil {
-			legacy = b
-		}
-	}
-	return previewauth.ProbeModeFor(s.Auth.Found() && s.Auth.Bool(keyAuthGateway), legacy)
+	return previewauth.ProbeModeFor(s.Auth.Found() && s.Auth.Bool(keyAuthGateway), s.legacyIngress())
 }
 
 // gatewayEdge is where the wildcard record should point for the gateway:
@@ -176,15 +170,30 @@ func allPrivate(addrs []string) bool {
 
 // gatewayHost checks the preview host in gateway mode: <project>-0.<suffix>
 // resolves to the gateway's edge (or, while both paths serve, to the legacy
-// preview load balancer) and serves a certificate trusted for it.
+// preview load balancer) and serves a certificate trusted for it. A
+// sign-in host other than the relay's own (previewAuth.gateway.signInHost)
+// is routed through the gateway's exposure too, so it gets the same two
+// checks: every viewer's /start redirect lands there.
 func (c *Checker) gatewayHost(ctx context.Context, s Settings, suffix string, mode previewauth.ProbeMode) {
+	signIn := distinctSignIn(s)
 	if suffix == "" {
 		c.add(CheckPreviewDNS, checkreport.Skip, "preview-controller's host suffix is unknown")
 		c.add(CheckPreviewTLS, checkreport.Skip, "preview-controller's host suffix is unknown")
+		if signIn != "" {
+			c.gatewaySignInHost(ctx, signIn, c.gatewayEdge(ctx, s))
+		}
 		return
 	}
-	host := c.cfg.Project + "-0." + suffix
 	edge := c.gatewayEdge(ctx, s)
+	c.gatewayProbeHost(ctx, suffix, edge, mode)
+	if signIn != "" {
+		c.gatewaySignInHost(ctx, signIn, edge)
+	}
+}
+
+// gatewayProbeHost is gatewayHost's <project>-0.<suffix> half.
+func (c *Checker) gatewayProbeHost(ctx context.Context, suffix string, edge gatewayEdge, mode previewauth.ProbeMode) {
+	host := c.cfg.Project + "-0." + suffix
 	addrs, err := c.cfg.Resolver.LookupHost(ctx, host)
 	var dnsErr *net.DNSError
 	switch {
@@ -207,7 +216,68 @@ func (c *Checker) gatewayHost(ctx context.Context, s Settings, suffix string, mo
 	}
 	slices.Sort(addrs)
 	c.judgeGatewayDNS(ctx, host, suffix, addrs, edge, mode)
-	c.previewTLS(ctx, host, suffix, gatewayAdmits)
+	c.previewTLS(ctx, host, "*."+suffix, gatewayAdmits)
+}
+
+// distinctSignIn is the gateway's sign-in host when it is not the relay's
+// own (whose discovery the sign-in checks already reach), else "".
+func distinctSignIn(s Settings) string {
+	signIn := strings.ToLower(strings.TrimSpace(s.Auth.Data[keyAuthGatewaySignIn]))
+	if signIn == "" {
+		return ""
+	}
+	if u, err := url.Parse(strings.TrimSpace(s.Auth.Data[keyAuthIssuer])); err == nil &&
+		strings.EqualFold(u.Host, signIn) {
+		return ""
+	}
+	return signIn
+}
+
+// gatewaySignInHost checks a sign-in host of its own: it resolves to the
+// gateway's edge, through which the chart routes it, and serves a
+// certificate trusted for it.
+func (c *Checker) gatewaySignInHost(ctx context.Context, host string, edge gatewayEdge) {
+	const record = "previewAuth.gateway.signInHost is routed through the preview gateway's exposure"
+	addrs, err := c.cfg.Resolver.LookupHost(ctx, host)
+	var dnsErr *net.DNSError
+	switch {
+	case err != nil && errors.As(err, &dnsErr) && dnsErr.IsNotFound && edge.private:
+		c.add(CheckPreviewDNS, checkreport.Skip, "the sign-in host %s does not resolve here (%v), and the "+
+			"gateway's edge %s is private, which a split-horizon or tailnet resolver may hold: run this where "+
+			"viewers resolve it", host, err, edge.name)
+		c.add(CheckPreviewTLS, checkreport.Skip, "the sign-in host %s does not resolve here", host)
+		return
+	case err != nil && errors.As(err, &dnsErr) && dnsErr.IsNotFound:
+		c.add(CheckPreviewDNS, checkreport.Fail, "the sign-in host %s does not resolve (%v), so every viewer's "+
+			"sign-in redirect lands nowhere: %s, and its record must point at that edge%s", host, err, record,
+			edgeHint(edge))
+		c.add(CheckPreviewTLS, checkreport.Skip, "the sign-in host %s does not resolve", host)
+		return
+	case err != nil:
+		c.add(CheckPreviewDNS, checkreport.Skip, "cannot look the sign-in host %s up (%v), which does not say "+
+			"whether the record exists; run this again", host, err)
+		c.add(CheckPreviewTLS, checkreport.Skip, "the sign-in host %s could not be looked up", host)
+		return
+	}
+	slices.Sort(addrs)
+	got := strings.Join(addrs, ", ")
+	switch {
+	case edge.why != "":
+		c.add(CheckPreviewDNS, edge.status, "the sign-in host %s resolves to %s, but it cannot be compared with "+
+			"the preview gateway's edge: %s", host, got, edge.why)
+	case slices.ContainsFunc(addrs, func(a string) bool { return slices.Contains(edge.addrs, a) }):
+		c.add(CheckPreviewDNS, checkreport.Pass, "the sign-in host %s resolves to the preview gateway's edge %s "+
+			"(%s)", host, edge.name, got)
+	case edge.private:
+		c.add(CheckPreviewDNS, checkreport.Skip, "the sign-in host %s resolves to %s here, not to the gateway's "+
+			"private edge %s (%s), which a split-horizon or tailnet resolver may hold: run this where viewers "+
+			"resolve it", host, got, edge.name, strings.Join(edge.addrs, ", "))
+	default:
+		c.add(CheckPreviewDNS, checkreport.Fail, "the sign-in host %s resolves to %s, but the preview gateway's "+
+			"edge %s is at %s: %s, and its record must point at that edge", host, got, edge.name,
+			strings.Join(edge.addrs, ", "), record)
+	}
+	c.previewTLS(ctx, host, host, gatewayAdmits)
 }
 
 // edgeHint names the gateway's edge, when known, for a reason.
@@ -326,8 +396,8 @@ type previewHostRef struct {
 	slot  int
 }
 
-// readyPreviews lists the Project's Ready Previews; a failed list is a SKIP
-// line and none.
+// readyPreviews lists the Ready Previews the run probes (Checker.probes); a
+// failed list is a SKIP line and none.
 func (c *Checker) readyPreviews(ctx context.Context) []previewHostRef {
 	var list v1alpha1.PreviewList
 	if err := c.cfg.Reader.List(ctx, &list, client.InNamespace(c.cfg.Namespace)); err != nil {
@@ -338,12 +408,18 @@ func (c *Checker) readyPreviews(ctx context.Context) []previewHostRef {
 	var out []previewHostRef
 	for i := range list.Items {
 		p := &list.Items[i]
-		if p.Spec.Project == c.cfg.Project && p.Status.Phase == v1alpha1.PreviewReady && p.Status.Slot != nil &&
-			p.DeletionTimestamp == nil {
+		if c.probes(p) {
 			out = append(out, previewHostRef{label: p.Spec.HostLabel, slot: int(*p.Status.Slot)})
 		}
 	}
 	return out
+}
+
+// probes reports whether the run probes p's host: a Ready Preview with a
+// slot, not being deleted, of the run's Project (any, with AllPreviews).
+func (c *Checker) probes(p *v1alpha1.Preview) bool {
+	return (c.cfg.AllPreviews || p.Spec.Project == c.cfg.Project) && p.Status.Phase == v1alpha1.PreviewReady &&
+		p.Status.Slot != nil && p.DeletionTimestamp == nil
 }
 
 // gatewayUnknownHost probes <project>-0.<suffix>, which no Preview owns:

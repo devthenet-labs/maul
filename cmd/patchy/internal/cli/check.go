@@ -30,7 +30,8 @@ const staticCheckTimeout = 2 * time.Minute
 // newCheckCmd is the `check` verb: judge something the way the pipeline
 // will, before it reaches the pipeline. `check image` is cluster-free like
 // `dev` and `mirror` (the persistent kubeconfig flags are inert there);
-// `check project` reads the cluster with the caller's own kubeconfig.
+// `check project` and `check previews` read the cluster with the caller's
+// own kubeconfig.
 func newCheckCmd(opts *Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "check",
@@ -40,10 +41,12 @@ func newCheckCmd(opts *Options) *cobra.Command {
 			"check image needs no cluster: it checks an agent image a repository means to\n" +
 			"declare, and the kubeconfig flags are inert for it. check project reads the\n" +
 			"cluster with your own kubeconfig, and GitHub and the registry with your own\n" +
-			"credentials, to tell whether a Project is ready for its first intent.",
+			"credentials, to tell whether a Project is ready for its first intent. check\n" +
+			"previews reads the cluster too, to tell whether the preview install every\n" +
+			"Project's previews stand on is ready, before any Project exists.",
 		Args: cobra.NoArgs,
 	}
-	cmd.AddCommand(newCheckImageCmd(opts), newCheckProjectCmd(opts))
+	cmd.AddCommand(newCheckImageCmd(opts), newCheckProjectCmd(opts), newCheckPreviewsCmd(opts))
 	return cmd
 }
 

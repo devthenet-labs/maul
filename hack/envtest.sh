@@ -13,4 +13,4 @@ KUBEBUILDER_ASSETS=$(setup-envtest use --bin-dir "${HOME}/.cache/kubebuilder-env
 export KUBEBUILDER_ASSETS
 go test ./api/... ./charts/patchy/... ./internal/action/... ./internal/controller/preview/... ./internal/controller/source/... \
 	./internal/controller/investigation/... ./internal/controller/remediation/... ./internal/web/authz/... \
-	./internal/web ./cmd/patchy/internal/cli "$@"
+	./internal/web ./cmd/patchy/internal/cli ./cmd/patchy/internal/previewcheck "$@"

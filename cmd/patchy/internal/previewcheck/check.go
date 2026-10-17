@@ -39,6 +39,10 @@ type Config struct {
 	// which no Preview owns, and only the Project's Ready Previews are
 	// probed.
 	Project string
+	// AllPreviews probes every Ready Preview in the namespace, whatever its
+	// Project: the install-level run (Install), whose Project names only the
+	// probe host.
+	AllPreviews bool
 	// Resolver looks the preview host up; nil is net.DefaultResolver.
 	Resolver Resolver
 	// DialTLS completes the preview TLS handshake; nil is DialTLS.
@@ -51,11 +55,11 @@ type Config struct {
 // Line is one check's verdict. A run's lines are about the install as a
 // whole, never about one repository.
 type Line struct {
-	Name   string
-	Status checkreport.Status
+	Name   string             `json:"name"`
+	Status checkreport.Status `json:"status"`
 	// Reason is printable: it carries text from outside the CLI (DNS, TLS
 	// and HTTP errors, Dex's pages), escaped by checkreport.Printable.
-	Reason string
+	Reason string `json:"reason"`
 }
 
 // Checker runs the preview path's checks and collects their lines in the
