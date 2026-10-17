@@ -111,7 +111,8 @@ with fromJson). Fields:
 It fails the render on a gateway without the relay, a sign-in host under
 the preview suffix, TLS secrets with an edge that terminates TLS (ingress,
 httpRoute) or whose hosts are not *.<hostSuffix> and the sign-in host, both
-covered, two exposures at once, and an exposure without
+covered, a loadBalancerClass on a Service that is no LoadBalancer, two
+exposures at once, and an exposure without
 forwardedHops (no default: how many proxies append X-Forwarded-For is the
 platform's, and a wrong guess lets a client name its own address to the
 rate limit and the allowlist). Context: the root.
@@ -132,6 +133,7 @@ rate limit and the allowlist). Context: the root.
 {{- if $ing.enabled }}{{ $exposures = append $exposures "ingress" }}{{ end -}}
 {{- if $route.parentRefs }}{{ $exposures = append $exposures "httpRoute" }}{{ end -}}
 {{- if eq ($svc.type | default "ClusterIP") "LoadBalancer" }}{{ $exposures = append $exposures "loadBalancer" }}{{ end -}}
+{{- if and $svc.loadBalancerClass (ne ($svc.type | default "ClusterIP") "LoadBalancer") }}{{ fail (printf "previewAuth.gateway.service.loadBalancerClass %s needs service.type LoadBalancer: Kubernetes sets a load balancer class only on a LoadBalancer Service" $svc.loadBalancerClass) }}{{ end -}}
 {{- if gt (len $exposures) 1 }}{{ fail (printf "previewAuth.gateway exposes the gateway %s at once: pick one of ingress.enabled, httpRoute.parentRefs and service.type LoadBalancer" (join " and " $exposures)) }}{{ end -}}
 {{- $exposure := "none" -}}
 {{- if $exposures }}{{ $exposure = first $exposures }}{{ end -}}

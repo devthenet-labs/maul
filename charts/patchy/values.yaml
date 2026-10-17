@@ -518,6 +518,13 @@ previewAuth:
             # the load balancer keeps the client's address itself (an AWS
             # NLB with IP targets and client IP preservation).
             externalTrafficPolicy: Local
+            # The LoadBalancer exposure's spec.loadBalancerClass, for a
+            # cluster with more than one load balancer implementation (say
+            # tailscale, or service.k8s.aws/nlb). Empty sets none: the
+            # cluster's default implementation. Kubernetes refuses to change
+            # it on a live Service, so changing it means deleting the
+            # Service first. Refused unless type is LoadBalancer.
+            loadBalancerClass: ""
             annotations: {}
         ingress:
             enabled: false

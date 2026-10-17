@@ -1322,6 +1322,25 @@ notes_has notes-pg-lb-cluster "CLIENT ADDRESS: previewAuth.gateway.service.exter
 notes_has notes-pg-lb-cluster "inboundCIDRs then refuses every viewer" yes
 expect_fail 'gateway externalTrafficPolicy that is not one' "'/previewAuth/gateway/service/externalTrafficPolicy'" \
   -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.service.externalTrafficPolicy=Nearest
+# loadBalancerClass picks the implementation where a cluster has several
+# (tailscale, an NLB): unset renders none, so the Service is the cluster
+# default's as before; it is refused off the LoadBalancer exposure, where
+# the API server would refuse it, and when it is no label-style name.
+expect pg-lb 'select(.kind == "Service" and .metadata.name == "patchy-preview-gateway") | .spec | has("loadBalancerClass")' false
+render pg-lb-class -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.ingress.enabled=false \
+  --set previewAuth.gateway.service.type=LoadBalancer --set previewAuth.gateway.forwardedHops=0 \
+  --set previewAuth.gateway.service.loadBalancerClass=tailscale
+expect pg-lb-class 'select(.kind == "Service" and .metadata.name == "patchy-preview-gateway") | .spec.loadBalancerClass' tailscale
+render pg-lb-class-prefixed -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.ingress.enabled=false \
+  --set previewAuth.gateway.service.type=LoadBalancer --set previewAuth.gateway.forwardedHops=0 \
+  --set previewAuth.gateway.service.loadBalancerClass=service.k8s.aws/nlb
+expect pg-lb-class-prefixed 'select(.kind == "Service" and .metadata.name == "patchy-preview-gateway") | .spec.loadBalancerClass' service.k8s.aws/nlb
+expect_fail 'gateway loadBalancerClass on a ClusterIP Service' 'loadBalancerClass tailscale needs service.type LoadBalancer' \
+  -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.service.loadBalancerClass=tailscale
+expect_fail 'gateway loadBalancerClass that is no name' "'/previewAuth/gateway/service/loadBalancerClass'" \
+  -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.ingress.enabled=false \
+  --set previewAuth.gateway.service.type=LoadBalancer --set previewAuth.gateway.forwardedHops=0 \
+  --set 'previewAuth.gateway.service.loadBalancerClass=a b'
 render pg-route -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.ingress.enabled=false \
   --set previewAuth.gateway.signInHost=signin.patchy.devthe.net \
   --set-json 'previewAuth.gateway.httpRoute.parentRefs=[{"name":"edge","namespace":"gateways"}]'
