@@ -51,7 +51,10 @@ const claudeProbeCLIEnv = "PATCHY_CLAUDE_PROBE_CLI"
 // A control run first renders the same argv with the settings pins taken
 // out and asserts every trap DOES fire there. Without it a CLI bump that
 // renamed a hook event or the settings schema would leave the probe passing
-// for the wrong reason.
+// for the wrong reason. A second control renders the read-only argv with only
+// --restricted taken out and asserts the reads outside the workspace succeed
+// there, so the read-only run's refusal of them is the flag's doing and not,
+// say, the pinned mode's.
 func TestClaudePostureProbe(t *testing.T) {
 	cli := os.Getenv(claudeProbeCLIEnv)
 	if cli == "" {
@@ -79,6 +82,21 @@ func TestClaudePostureProbe(t *testing.T) {
 		}
 		if t.Failed() {
 			t.Log("the control proves the probe's traps; a CLI that changed hooks, MCP or settings needs the probe updated")
+		}
+	})
+
+	t.Run("control: reads outside the workspace succeed without --restricted", func(t *testing.T) {
+		p := newPostureProbe(t, cli)
+		spec := NewClaude().PromptSpec(p.tree, p.request(SandboxReadOnly))
+		if !slices.Contains(spec.Argv, claudeRestricted) {
+			t.Fatalf("argv %q: the read-only posture no longer renders %s", spec.Argv, claudeRestricted)
+		}
+		spec.Argv = withoutRestricted(spec.Argv)
+		script := outsideReadsScript(true)
+		got := p.run(t, spec, script)
+		got.assertPinned(t, script)
+		if t.Failed() {
+			t.Log("the read-only run's out-of-tree refusals are not --restricted's doing on this CLI; the probe needs updating")
 		}
 	})
 
@@ -299,6 +317,12 @@ func unpinned(argv []string) []string {
 	return out
 }
 
+// withoutRestricted is argv with only --restricted taken out and every other
+// pin kept, so a run of it shows what the flag alone refuses.
+func withoutRestricted(argv []string) []string {
+	return slices.DeleteFunc(slices.Clone(argv), func(a string) bool { return a == claudeRestricted })
+}
+
 // probeOutcome is what one run left behind.
 type probeOutcome struct {
 	markers    []string
@@ -429,11 +453,7 @@ func readOnlyScript(p *postureProbe) probeScript {
 	claudeMD := filepath.Join(p.tree, "CLAUDE.md")
 	return probeScript{
 		steps: [][]toolCall{
-			{
-				{"toolu_read", "Read", map[string]any{"file_path": claudeMD}},
-				{"toolu_read_outside", "Read", map[string]any{"file_path": "/etc/hosts"}},
-				{"toolu_grep_outside", "Grep", map[string]any{"pattern": "root", "path": "/etc"}},
-			},
+			append([]toolCall{{"toolu_read", "Read", map[string]any{"file_path": claudeMD}}}, outsideReads()...),
 			{
 				editCall("toolu_edit_tree", claudeMD, probeCodeword, "PWNED"),
 				writeCall("toolu_write_tree", filepath.Join(p.tree, "planted.txt"), "x\n"),
@@ -456,6 +476,24 @@ func readOnlyScript(p *postureProbe) probeScript {
 			"toolu_write_report": true,
 			"toolu_edit_report":  true,
 		},
+	}
+}
+
+// outsideReads are the reads of files outside every directory the run adds,
+// which the read-only posture refuses through --restricted.
+func outsideReads() []toolCall {
+	return []toolCall{
+		{"toolu_read_outside", "Read", map[string]any{"file_path": "/etc/hosts"}},
+		{"toolu_grep_outside", "Grep", map[string]any{"pattern": "root", "path": "/etc"}},
+	}
+}
+
+// outsideReadsScript makes only the outside reads, each expected to succeed
+// (allowed) or to be refused.
+func outsideReadsScript(allowed bool) probeScript {
+	return probeScript{
+		steps:  [][]toolCall{outsideReads()},
+		expect: map[string]bool{"toolu_read_outside": allowed, "toolu_grep_outside": allowed},
 	}
 }
 
