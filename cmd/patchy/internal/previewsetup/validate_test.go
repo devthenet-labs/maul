@@ -277,8 +277,8 @@ func TestValidateExisting(t *testing.T) {
 		"reserved class": {func(a *Answers) { a.Existing.IngressClass = "alb-preview" }, "reserved"},
 		"bad class":      {func(a *Answers) { a.Existing.IngressClass = "Nginx" }, "--ingress-class"},
 		"bad tls":        {func(a *Answers) { a.Existing.TLS = "acm" }, "--edge-tls"},
-		"bad issuer":     {func(a *Answers) { a.Existing.CertificateIssuer = "Issuer" }, "--certificate-issuer"},
-		"issuer kind":    {func(a *Answers) { a.Existing.CertificateIssuer = "Foo/bar" }, "--certificate-issuer"},
+		"bad issuer":     {func(a *Answers) { a.Certificate.Issuer = "Issuer" }, "--certificate-issuer"},
+		"issuer kind":    {func(a *Answers) { a.Certificate.Issuer = "Foo/bar" }, "--certificate-issuer"},
 		"certificate on a gateway": {func(a *Answers) {
 			a.Existing = ExistingEdge{GatewayParent: "gw/edge", TLS: TLSCertificate}
 		}, "listener"},

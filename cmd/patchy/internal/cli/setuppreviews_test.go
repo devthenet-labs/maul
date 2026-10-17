@@ -192,7 +192,7 @@ func TestSetupPreviewsRefusals(t *testing.T) {
 	}{
 		"nothing answered": {[]string{"setup", "previews", "-o", "x"},
 			"answer --platform, --edge, --host-suffix"},
-		"no recipe yet":     {previewsArgs("x", "--edge", "tailscale"), "not available yet"},
+		"no recipe yet":     {previewsArgs("x", "--edge", "cloudflare-tunnel"), "not available yet"},
 		"same site":         {previewsArgs("x", "--sign-in-host", "auth.previews.acme-previews.dev"), "sits under"},
 		"bad node label":    {previewsArgs("x", "--node-label", "nolabel"), "key=value"},
 		"bad rotate":        {previewsArgs("x", "--rotate", "keys"), "--rotate"},

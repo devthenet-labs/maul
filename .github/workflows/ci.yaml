@@ -182,6 +182,44 @@ jobs:
             - name: Run scaffold-check
               run: mise run scaffold-check
 
+    # The pins `patchy setup previews` recommends (`mise run preview-pins`,
+    # TestLivePins): each pinned upstream chart version exists,
+    # the values the recipes write render with it, and the generated Issuers
+    # and Certificates are valid against cert-manager's CRDs at that version.
+    # A stale or mistyped pin is a patchy-documented vulnerability (design
+    # §5.3), so this runs on every pull request, renovate's bumps included. It
+    # needs the network (the charts' repositories) and helm, which mise pins;
+    # set up as in the envtest job above.
+    preview-pins:
+        runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
+        permissions:
+            # check out the repository
+            contents: read
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false # read-only checkout; don't leave the token in .git/config
+                  submodules: true # the shared toolchain (tasks + pinned tools) at .mise/
+
+            - name: Setup go
+              uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+              with:
+                  go-version-file: go.mod
+                  cache: true
+                  cache-dependency-path: go.sum
+
+            - name: Setup mise
+              uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+              with:
+                  version: v2026.9.1
+                  # sha256 of the linux-x64 mise binary for the version above, from the release's
+                  # SHASUMS256.txt -- the action verifies the extracted binary, not the archive
+                  sha256: c98423c8470d6dc416d9f7036d0646d8ef5ae92ad9186907f8fcc84cbe7db4ea
+
+            - name: Run preview-pins
+              run: mise run preview-pins
+
     # The claude CLI posture probe (hack/claude-posture-probe.sh): the REAL
     # claude CLI at the version Dockerfile.claude-agent-runner pins, run with
     # the postured argv against a scratch tree whose hooks, env block,

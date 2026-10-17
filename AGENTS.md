@@ -206,8 +206,22 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   operator's own), `manifests/`, the relay's Dex client secret as two Secret manifests under `secrets/` (ghapp's 0600
   writer and Secret renderer; read back on a re-run, drawn again only with `--rotate dex-client-secret`) and
   `NEXT-STEPS.md`. It refuses a sign-in host or Dex issuer on the host suffix's registrable domain (publicsuffix), a
-  re-run shows each file's diff and replaces a changed one only with `--force`, and only the existing-edge recipe (R4:
-  an Ingress class or a Gateway API parent) has landed; its golden trees are rendered through the chart in a test. The
+  re-run shows each file's diff and replaces a changed one only with `--force`. Three recipes have landed (only
+  `cloudflare-tunnel` is still refused): `existing` (R4: an Ingress class or a Gateway API parent), `gateway-tls` (R2:
+  the gateway's own Local LoadBalancer Service terminating TLS, `forwardedHops: 0`) and `tailscale` (R3: that Service
+  as ClusterIP with the Tailscale operator's `expose`, hostname and tag annotations, a public DNS record to the device's
+  100.x address, the tailnet policy as the allowlist). R2 and R3 write the wildcard Certificate, a namespaced ACME
+  Issuer with one DNS-01 solver (`--dns`, `--dns-option key=value`, never a secret; a ClusterIssuer
+  `preview-dns01-<namespace>` when the solver takes no stored credential, since cert-manager lends its ambient identity
+  to no namespaced Issuer by default; Route53's `hostedZoneID` refused, the two names never sharing a zone; `--dns
+  manual` names the operator's issuer instead) and, unless already running, values for cert-manager and the Tailscale
+  operator at the chart versions `pins.go` pins (each a constant under a renovate comment that
+  `.github/renovate.json5`'s regex manager reads, held to it by `TestRenovateTracksPins`; `mise run preview-pins`, CI's
+  `preview-pins` job, checks each exists, renders with what is written, and holds every golden Issuer and Certificate to
+  cert-manager's CRDs at that version, unknown fields included). A DNS credential comes only from
+  `--dns-credentials-file` or `--dns-credentials-from-stdin`, is held redacted and lands only in
+  `secrets/preview-dns01-credentials.secret.yaml` (read back on a re-run; a new one replaces it). Its golden trees are
+  rendered through the chart in a test. The
   values file sets every key of `preview.nodeIsolation` that picks nodes (an EKS Auto Mode pair only with
   `--eks-auto-mode`, else cleared), so an operator's own isolation is never merged into it, and only the chart's edge
   class or an `alb` class leaves TLS to the edge (ingress-nginx or Traefik on EKS gets the Certificate).

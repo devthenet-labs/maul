@@ -4,13 +4,16 @@
 package previewsetup
 
 import (
+	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"sigs.k8s.io/yaml"
 
@@ -75,6 +78,9 @@ type Secrets struct {
 	DexClient ClientSecret
 	// Fresh is set when DexClient was drawn by this run, not read back.
 	Fresh bool
+	// DNS is the DNS-01 solver's credential, zero when the operator gave
+	// none (the Secret is then theirs to create, as NEXT-STEPS.md says).
+	DNS Credential
 }
 
 // RotateDexClientSecret names the secret a run draws anew although one is on disk.
@@ -101,12 +107,13 @@ func ResolveSecrets(dir string, rotate bool, rand io.Reader) (Secrets, error) {
 		{RelayDexSecretFile, RelayDexSecretKey},
 		{DexClientSecretFile, DexClientSecretKey},
 	} {
-		s, ok, err := readSecretKey(filepath.Join(dir, filepath.FromSlash(f.path)), f.key)
+		v, ok, err := readSecretKey(filepath.Join(dir, filepath.FromSlash(f.path)), f.key,
+			"--rotate "+RotateDexClientSecret)
 		if err != nil {
 			return Secrets{}, err
 		}
 		if ok {
-			found = append(found, s)
+			found = append(found, ClientSecret{value: string(v)})
 			from = append(from, f.path)
 		}
 	}
@@ -122,31 +129,31 @@ func ResolveSecrets(dir string, rotate bool, rand io.Reader) (Secrets, error) {
 }
 
 // readSecretKey reads one key of a Secret manifest; ok is false when the
-// file does not exist.
-func readSecretKey(path, key string) (ClientSecret, bool, error) {
+// file does not exist. fix is the flag that replaces it, for the refusal.
+func readSecretKey(path, key, fix string) ([]byte, bool, error) {
 	info, err := os.Lstat(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return ClientSecret{}, false, nil
+		return nil, false, nil
 	}
 	if err != nil {
-		return ClientSecret{}, false, err
+		return nil, false, err
 	}
 	if !info.Mode().IsRegular() {
-		return ClientSecret{}, false, fmt.Errorf("%s is not a regular file: never read through", path)
+		return nil, false, fmt.Errorf("%s is not a regular file: never read through", path)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return ClientSecret{}, false, err
+		return nil, false, err
 	}
 	var m struct {
 		Kind string            `json:"kind"`
 		Data map[string][]byte `json:"data"`
 	}
 	if err := yaml.Unmarshal(data, &m); err != nil || m.Kind != "Secret" || len(m.Data[key]) == 0 {
-		return ClientSecret{}, false, fmt.Errorf("%s is not a Secret holding %s: restore it, delete it with its "+
-			"twin, or pass --rotate %s", path, key, RotateDexClientSecret)
+		return nil, false, fmt.Errorf("%s is not a Secret holding %s: restore it, delete it, or pass %s",
+			path, key, fix)
 	}
-	return ClientSecret{value: string(m.Data[key])}, true, nil
+	return m.Data[key], true, nil
 }
 
 // secretFiles renders the two Dex client Secret manifests.
@@ -164,8 +171,94 @@ func secretFiles(a Answers, s Secrets) ([]File, error) {
 	if err != nil {
 		return nil, err
 	}
-	return []File{
+	files := []File{
 		{Path: RelayDexSecretFile, Data: relay, Secret: true},
 		{Path: DexClientSecretFile, Data: dex, Secret: true},
-	}, nil
+	}
+	if key := a.DNSCredentialKey(); key != "" && !s.DNS.IsZero() {
+		dns, err := ghapp.RenderSecret(DNSSecret, a.Namespace, map[string][]byte{key: s.DNS.bytes()})
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, File{Path: DNSSecretFile, Data: dns, Secret: true})
+	}
+	return files, nil
+}
+
+// Credential is a provider credential the operator hands the wizard (the
+// DNS-01 solver's token or key), held only to be written into a Secret
+// manifest. Its formatting is redacted, as ClientSecret's is.
+type Credential struct{ value []byte }
+
+func (Credential) String() string               { return redacted }
+func (Credential) GoString() string             { return redacted }
+func (Credential) Format(f fmt.State, _ rune)   { _, _ = io.WriteString(f, redacted) }
+func (Credential) MarshalJSON() ([]byte, error) { return []byte(`"` + redacted + `"`), nil }
+func (Credential) MarshalText() ([]byte, error) { return []byte(redacted), nil }
+
+// IsZero reports no credential.
+func (c Credential) IsZero() bool { return len(c.value) == 0 }
+
+func (c Credential) bytes() []byte { return c.value }
+
+// maxCredential bounds a credential file: a token is tens of bytes, a
+// service account key a few kilobytes.
+const maxCredential = 64 << 10
+
+// ErrCredential reports a credential the wizard refuses to write. It
+// never quotes the credential.
+var ErrCredential = errors.New("DNS credential")
+
+// ParseCredential reads a DNS credential as given (a file's or stdin's
+// bytes) for a's solver: a JSON document is kept as it is, every other
+// credential is one token, trimmed of surrounding white space and refused
+// if anything else is left in it (two lines are a mistake, never a token).
+func ParseCredential(a Answers, raw []byte) (Credential, error) {
+	if len(raw) > maxCredential {
+		return Credential{}, fmt.Errorf("%w: more than %d bytes", ErrCredential, maxCredential)
+	}
+	if a.DNSCredentialIsJSON() {
+		var doc map[string]any
+		if err := json.Unmarshal(raw, &doc); err != nil {
+			return Credential{}, fmt.Errorf("%w: --dns %s takes a JSON key file, and this is not one",
+				ErrCredential, a.Certificate.DNS)
+		}
+		return Credential{value: slices.Clone(raw)}, nil
+	}
+	tok := bytes.TrimSpace(raw)
+	if len(tok) == 0 {
+		return Credential{}, fmt.Errorf("%w: empty", ErrCredential)
+	}
+	for _, c := range tok {
+		if c <= ' ' || c == 0x7f {
+			return Credential{}, fmt.Errorf("%w: white space or a control character inside it: give a file "+
+				"holding the one token", ErrCredential)
+		}
+	}
+	return Credential{value: slices.Clone(tok)}, nil
+}
+
+// ResolveDNSCredential is the DNS credential a plan renders (design §4.1:
+// a secret file is never regenerated while it exists): the one given this
+// run, else the one an earlier run wrote under dir, else none. A credential
+// given to a solver that takes none is refused, and so is one on disk
+// under another provider's key (pass a new one).
+func ResolveDNSCredential(dir string, a Answers, given Credential) (Credential, error) {
+	key := a.DNSCredentialKey()
+	if !given.IsZero() {
+		if key == "" {
+			return Credential{}, fmt.Errorf("%w: --dns %s with these options takes none (an ambient identity, or "+
+				"your own issuer)", ErrCredential, a.Certificate.DNS)
+		}
+		return given, nil
+	}
+	if key == "" {
+		return Credential{}, nil
+	}
+	v, ok, err := readSecretKey(filepath.Join(dir, filepath.FromSlash(DNSSecretFile)), key,
+		"--dns-credentials-file")
+	if err != nil || !ok {
+		return Credential{}, err
+	}
+	return Credential{value: v}, nil
 }

@@ -6,6 +6,7 @@ package previewsetup
 import (
 	"errors"
 	"fmt"
+	"net/netip"
 	"slices"
 	"strings"
 
@@ -87,8 +88,13 @@ const (
 	// .apiServerCIDR).
 	DefaultAPIServerCIDR = "auto"
 	// DefaultCertificateIssuer is the namespaced Issuer the docs' wildcard
-	// certificate names, and the one the gateway-tls recipe generates.
+	// certificate names, and the one the gateway-tls and tailscale recipes
+	// generate.
 	DefaultCertificateIssuer = "Issuer/preview-dns01"
+	// DefaultTailscaleHostname and DefaultTailscaleTag are the tailnet
+	// device's name and ACL tag (design §6).
+	DefaultTailscaleHostname = "patchy-previews"
+	DefaultTailscaleTag      = "tag:patchy-previews"
 )
 
 // Answers is every answer `setup previews` takes. answers.yaml records it,
@@ -122,6 +128,13 @@ type Answers struct {
 	APIServerCIDR string `json:"apiServerCIDR"`
 	// Existing is the existing-edge recipe's answers.
 	Existing ExistingEdge `json:"existing,omitzero"`
+	// Certificate is how the wildcard certificate is issued, for every
+	// recipe whose TLS ends in the cluster.
+	Certificate Certificate `json:"certificate,omitzero"`
+	// LoadBalancer is the gateway-tls recipe's answers.
+	LoadBalancer LoadBalancer `json:"loadBalancer,omitzero"`
+	// Tailscale is the tailscale recipe's answers.
+	Tailscale Tailscale `json:"tailscale,omitzero"`
 }
 
 // Dex is the relay's static client at the operator's Dex.
@@ -179,9 +192,57 @@ type ExistingEdge struct {
 	// TLS is TLSCertificate or TLSEdge; empty derives it (TLSEdge on a
 	// Gateway parent, an ALB class or EKS, else TLSCertificate).
 	TLS string `json:"tls,omitempty"`
-	// CertificateIssuer is the cert-manager issuer the Certificate names,
+}
+
+// Certificate is how the wildcard certificate (*.<suffix> and the sign-in
+// host) is issued: by an issuer the operator already runs (the existing
+// edge, or DNSManual), or by the namespaced ACME Issuer the gateway-tls and
+// tailscale recipes write, whose DNS-01 solver DNS names.
+type Certificate struct {
+	// Issuer is the operator's cert-manager issuer the Certificate names,
 	// <Issuer|ClusterIssuer>/<name>; empty is DefaultCertificateIssuer.
-	CertificateIssuer string `json:"certificateIssuer,omitempty"`
+	// The gateway-tls and tailscale recipes take it only with DNSManual:
+	// otherwise they write DefaultCertificateIssuer themselves.
+	Issuer string `json:"issuer,omitempty"`
+	// DNS is the DNS-01 solver of the Issuer the gateway-tls and tailscale
+	// recipes write: one of DNSProviders, or DNSManual (no Issuer written).
+	DNS string `json:"dns,omitempty"`
+	// DNSOptions are the solver's settings, none of them secret
+	// (--dns-option key=value; the keys DNS takes are DNSOptionKeys').
+	DNSOptions map[string]string `json:"dnsOptions,omitempty"`
+	// ACMEEmail is the ACME account's contact address; empty is none.
+	ACMEEmail string `json:"acmeEmail,omitempty"`
+	// CertManagerInstalled says cert-manager already runs in the cluster,
+	// so no values are written for it.
+	CertManagerInstalled bool `json:"certManagerInstalled,omitempty"`
+}
+
+// LoadBalancer is the gateway-tls recipe's answers: the gateway's own
+// LoadBalancer Service.
+type LoadBalancer struct {
+	// Class is the Service's spec.loadBalancerClass, for a cluster with
+	// more than one load balancer implementation; empty is the default.
+	Class string `json:"class,omitempty"`
+	// InboundCIDRs are the client CIDRs that may open preview hosts,
+	// kept at the load balancer (loadBalancerSourceRanges); empty is all.
+	InboundCIDRs []string `json:"inboundCIDRs,omitempty"`
+}
+
+// Tailscale is the tailscale recipe's answers: the tailnet device the
+// Tailscale operator gives the gateway's Service.
+type Tailscale struct {
+	// Hostname is the device's name on the tailnet; empty is
+	// DefaultTailscaleHostname.
+	Hostname string `json:"hostname,omitempty"`
+	// Tag is the ACL tag the device carries, which the tailnet policy
+	// grants the viewers port 443 on; empty is DefaultTailscaleTag.
+	Tag string `json:"tag,omitempty"`
+	// Addresses are the device's tailnet addresses, once it has appeared:
+	// what the two DNS records hold (previewAuth.gateway.publishedAddresses).
+	Addresses []string `json:"addresses,omitempty"`
+	// OperatorInstalled says the Tailscale operator already runs in the
+	// cluster, so no values are written for it.
+	OperatorInstalled bool `json:"operatorInstalled,omitempty"`
 }
 
 // Defaults are the answers before the operator gives any.
@@ -207,6 +268,40 @@ func (a *Answers) Normalize() {
 	a.Dex.Issuer = strings.TrimSpace(a.Dex.Issuer)
 	a.Viewers.Teams = sortedUnique(a.Viewers.Teams)
 	a.Viewers.Users = sortedUnique(a.Viewers.Users)
+	a.Certificate.DNS = strings.ToLower(strings.TrimSpace(a.Certificate.DNS))
+	a.Certificate.ACMEEmail = strings.TrimSpace(a.Certificate.ACMEEmail)
+	if len(a.Certificate.DNSOptions) == 0 {
+		a.Certificate.DNSOptions = nil
+	}
+	a.LoadBalancer.InboundCIDRs = sortedUnique(canonicalPrefixes(a.LoadBalancer.InboundCIDRs))
+	a.Tailscale.Addresses = sortedUnique(canonicalAddrs(a.Tailscale.Addresses))
+}
+
+// canonicalPrefixes writes each CIDR that parses in its one form
+// (lowercase, IPv6 compressed); the others are left for Validate to name.
+// Host bits are kept, never masked: 10.0.0.1/8 meant to admit one host
+// would otherwise quietly admit a /8, so Validate refuses it instead.
+func canonicalPrefixes(in []string) []string {
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		if p, err := netip.ParsePrefix(strings.TrimSpace(s)); err == nil {
+			s = p.String()
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+// canonicalAddrs writes each address that parses in its one form.
+func canonicalAddrs(in []string) []string {
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		if ip, err := netip.ParseAddr(strings.TrimSpace(s)); err == nil {
+			s = ip.String()
+		}
+		out = append(out, s)
+	}
+	return out
 }
 
 func normHost(h string) string {
@@ -262,10 +357,15 @@ func (a Answers) ChartEdgeClass() bool {
 		a.Existing.GatewayParent == ""
 }
 
-// Issuer is the cert-manager issuer the Certificate names.
+// Issuer is the cert-manager issuer the Certificate names: the one the
+// recipe writes (a ClusterIssuer for an ambient identity), else the
+// operator's.
 func (a Answers) Issuer() (kind, name string) {
-	ref := a.Existing.CertificateIssuer
-	if ref == "" {
+	if a.AmbientIssuer() {
+		return "ClusterIssuer", ambientIssuerPrefix + a.Namespace
+	}
+	ref := a.Certificate.Issuer
+	if ref == "" || a.WritesIssuer() {
 		ref = DefaultCertificateIssuer
 	}
 	kind, name, _ = strings.Cut(ref, "/")
@@ -292,6 +392,7 @@ func (a Answers) Missing() []string {
 	add(a.Platform == PlatformOther && a.NodeIsolation.Mode == "", "--node-isolation")
 	add(a.Edge == EdgeExisting && a.Platform != PlatformEKS && a.Platform != "" &&
 		a.Existing.IngressClass == "" && a.Existing.GatewayParent == "", "--ingress-class or --gateway-parent")
+	add(a.GatewayTerminatesTLS() && a.Certificate.DNS == "", "--dns")
 	return out
 }
 
@@ -331,4 +432,34 @@ func ParseAnswers(data []byte) (Answers, error) {
 		return Answers{}, fmt.Errorf("%w: %w", ErrAnswers, err)
 	}
 	return a, nil
+}
+
+// GatewayTerminatesTLS reports a recipe in which the gateway terminates
+// TLS itself (previewAuth.gateway.tls.secrets), with the Certificate the
+// recipe writes: gateway-tls and tailscale.
+func (a Answers) GatewayTerminatesTLS() bool {
+	return a.Edge == EdgeGatewayTLS || a.Edge == EdgeTailscale
+}
+
+// WritesIssuer reports whether the recipe writes the ACME Issuer the
+// Certificate names: gateway-tls and tailscale, unless the operator brings
+// their own issuer (DNSManual).
+func (a Answers) WritesIssuer() bool {
+	return a.GatewayTerminatesTLS() && a.Certificate.DNS != DNSManual
+}
+
+// TailscaleHostname is the tailnet device's name.
+func (a Answers) TailscaleHostname() string {
+	if a.Tailscale.Hostname != "" {
+		return a.Tailscale.Hostname
+	}
+	return DefaultTailscaleHostname
+}
+
+// TailscaleTag is the tailnet device's ACL tag.
+func (a Answers) TailscaleTag() string {
+	if a.Tailscale.Tag != "" {
+		return a.Tailscale.Tag
+	}
+	return DefaultTailscaleTag
 }

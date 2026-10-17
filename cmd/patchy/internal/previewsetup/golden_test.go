@@ -56,7 +56,7 @@ func goldenCases() map[string]Answers {
 	nginx.Platform = PlatformGKE
 	nginx.Registry = "europe-west2-docker.pkg.dev"
 	nginx.Existing.IngressClass = "nginx"
-	nginx.Existing.CertificateIssuer = "ClusterIssuer/letsencrypt-dns01"
+	nginx.Certificate.Issuer = "ClusterIssuer/letsencrypt-dns01"
 	cases["existing-nginx-gke"] = nginx
 
 	alb := testAnswers()
@@ -96,14 +96,104 @@ func goldenCases() map[string]Answers {
 	other.Viewers = Viewers{}
 	other.Existing.IngressClass = "haproxy"
 	cases["existing-haproxy-other"] = other
+
+	for name, a := range gatewayCertCases() {
+		cases[name] = a
+	}
 	return cases
+}
+
+// gatewayCertCases are the gateway-tls (R2) and tailscale (R3) trees: one
+// of every DNS-01 solver, with and without a credential the wizard writes,
+// and with cert-manager and the Tailscale operator already running.
+func gatewayCertCases() map[string]Answers {
+	cases := map[string]Answers{}
+	tls := func(p Platform, dns string, opts map[string]string) Answers {
+		a := testAnswers()
+		a.Edge = EdgeGatewayTLS
+		a.Platform = p
+		a.Certificate = Certificate{DNS: dns, DNSOptions: opts}
+		return a
+	}
+	cf := tls(PlatformK3s, "cloudflare", nil)
+	cf.Certificate.ACMEEmail = "ops@acme.dev"
+	cf.LoadBalancer.InboundCIDRs = []string{"203.0.113.0/24", "198.51.100.7/32"}
+	cases["gateway-tls-cloudflare-k3s"] = cf
+
+	r53 := tls(PlatformEKS, "route53", map[string]string{"region": "eu-west-2"})
+	r53.Registry = "123456789012.dkr.ecr.eu-west-2.amazonaws.com"
+	r53.LoadBalancer.Class = "service.k8s.aws/nlb"
+	cases["gateway-tls-route53-eks"] = r53
+
+	gcp := tls(PlatformGKE, "google", map[string]string{"project": "acme-previews", "serviceAccountKey": "true"})
+	gcp.Registry = "europe-west2-docker.pkg.dev"
+	cases["gateway-tls-google-gke"] = gcp
+
+	az := tls(PlatformAKS, "azure", map[string]string{"subscriptionID": "00000000-0000-4000-8000-000000000001",
+		"resourceGroupName": "dns", "clientID": "00000000-0000-4000-8000-000000000002",
+		"tenantID": "00000000-0000-4000-8000-000000000003"})
+	az.Registry = "acme.azurecr.io"
+	cases["gateway-tls-azure-aks"] = az
+
+	do := tls(PlatformK3s, "digitalocean", nil)
+	cases["gateway-tls-digitalocean-k3s"] = do
+
+	rfc := tls(PlatformOther, "rfc2136", map[string]string{"nameserver": "ns1.acme.dev:53",
+		"tsigKeyName": "patchy-previews"})
+	rfc.NodeIsolation.Mode = IsolationRequired
+	cases["gateway-tls-rfc2136-other"] = rfc
+
+	// The desktop (owner decision Q7): k3d, Route53 finding each name's
+	// zone, an IAM user's key, and the device's address once it appeared.
+	desk := tls(PlatformK3d, "route53", map[string]string{"region": "us-east-1",
+		"accessKeyID": "AKIAIOSFODNN7EXAMPLE"})
+	desk.Edge = EdgeTailscale
+	desk.Registry = "123456789012.dkr.ecr.us-east-1.amazonaws.com"
+	desk.ImagePathPrefix = DefaultImagePathPrefix
+	desk.Tailscale.Addresses = []string{"100.101.12.58"}
+	cases["tailscale-route53-k3d"] = desk
+
+	own := tls(PlatformK3s, DNSManual, nil)
+	own.Edge = EdgeTailscale
+	own.Certificate.Issuer = "ClusterIssuer/letsencrypt-dns01"
+	own.Certificate.CertManagerInstalled = true
+	own.Tailscale = Tailscale{Hostname: "acme-previews", Tag: "tag:previews", OperatorInstalled: true}
+	cases["tailscale-manual-k3s"] = own
+	return cases
+}
+
+// dnsSentinel is the DNS credential the golden trees carry where the
+// wizard writes one: no credential at all.
+var dnsSentinel = Credential{value: []byte("DNS-SENTINEL-not-a-credential-fedcba9876543210")}
+
+// withDNSCredential are the cases whose operator gave a DNS credential.
+var withDNSCredential = map[string]bool{
+	"gateway-tls-cloudflare-k3s": true,
+	"gateway-tls-azure-aks":      true,
+	"gateway-tls-rfc2136-other":  true,
+	"tailscale-route53-k3d":      true,
+}
+
+// goldenSecrets are the secrets case name renders with.
+func goldenSecrets(name string) Secrets {
+	s := Secrets{DexClient: sentinel}
+	if withDNSCredential[name] {
+		s.DNS = dnsSentinel
+	}
+	return s
 }
 
 // plan renders a with the sentinel secret, failing the test on an error.
 func plan(t *testing.T, a Answers) []File {
 	t.Helper()
+	return planWith(t, a, Secrets{DexClient: sentinel})
+}
+
+// planWith renders a with s, failing the test on an error.
+func planWith(t *testing.T, a Answers, s Secrets) []File {
+	t.Helper()
 	a.Normalize()
-	files, err := Plan(a, Secrets{DexClient: sentinel}, testVersion)
+	files, err := Plan(a, s, testVersion)
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
 	}
@@ -148,7 +238,7 @@ func readTree(t *testing.T, dir string) map[string]string {
 func TestGolden(t *testing.T) {
 	for name, a := range goldenCases() {
 		t.Run(name, func(t *testing.T) {
-			files := plan(t, a)
+			files := planWith(t, a, goldenSecrets(name))
 			dir := filepath.Join("testdata", "golden", name)
 			if *update {
 				if err := os.RemoveAll(dir); err != nil {

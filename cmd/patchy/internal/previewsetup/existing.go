@@ -127,8 +127,17 @@ func certificate(a Answers) ([]byte, error) {
 			"dnsNames":   []string{"*." + a.HostSuffix, a.SignInHost},
 			"privateKey": map[string]any{"algorithm": "ECDSA", "size": 256, "rotationPolicy": "Always"},
 		},
-	}, "The wildcard certificate both Ingresses name: every preview host and the sign-in host.",
-		"Apply it once cert-manager runs and its issuer can answer DNS-01 for both names.")
+	}, certificateComment(a)...)
+}
+
+// certificateComment says who serves the Certificate's Secret.
+func certificateComment(a Answers) []string {
+	who := "The wildcard certificate both Ingresses name"
+	if a.GatewayTerminatesTLS() {
+		who = "The wildcard certificate the gateway terminates TLS with"
+	}
+	return []string{who + ": every preview host and the sign-in host.",
+		"Apply it once cert-manager runs and its issuer can answer DNS-01 for both names."}
 }
 
 // signInRoute sends the sign-in host to the gateway's Service on a Gateway
