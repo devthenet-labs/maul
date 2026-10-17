@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.12.39](https://github.com/devthenet-labs/patchy/compare/v0.12.38...v0.12.39) (2026-10-16)
+
+
+### Features
+
+* attribute every agent run to a person ([#224](https://github.com/devthenet-labs/patchy/issues/224)) ([b03c4a2](https://github.com/devthenet-labs/patchy/commit/b03c4a29f5f84f86a4d57aadd960c005b00d98d4))
+* **broker:** cost-weighted limits and per-pod budgets ([#229](https://github.com/devthenet-labs/patchy/issues/229)) ([3f7e18d](https://github.com/devthenet-labs/patchy/commit/3f7e18d69b855ba5211b4f10d573be562d4cb27b))
+* **broker:** per-model usage ledger and trusted usage at settle ([#227](https://github.com/devthenet-labs/patchy/issues/227)) ([e800a6c](https://github.com/devthenet-labs/patchy/commit/e800a6c3e63febf1a2ce1811a8b9dc127ec5ad92))
+* **chart:** preview gateway exposure and a portable preview foundation ([#228](https://github.com/devthenet-labs/patchy/issues/228)) ([8bca0d3](https://github.com/devthenet-labs/patchy/commit/8bca0d3fc7946df9721ebd5867fc0b59b0504c92))
+* durable per-user usage rollups ([#230](https://github.com/devthenet-labs/patchy/issues/230)) ([19e1c55](https://github.com/devthenet-labs/patchy/commit/19e1c55361a4dcdab3c464843c991cc08406a0f8))
+* **intent:** stage cost caps, timeouts and per-run broker budgets ([#235](https://github.com/devthenet-labs/patchy/issues/235)) ([b574e7d](https://github.com/devthenet-labs/patchy/commit/b574e7d4b818d8beaeafae757384f4021dd9123e))
+* **preview-auth:** gateway sign-in and authenticating proxy ([#226](https://github.com/devthenet-labs/patchy/issues/226)) ([25f990d](https://github.com/devthenet-labs/patchy/commit/25f990daecc7ceda344641a73f383210ba1072dc))
+* **preview:** gateway end to end, check project, isolation probe and docs ([#231](https://github.com/devthenet-labs/patchy/issues/231)) ([026faf0](https://github.com/devthenet-labs/patchy/commit/026faf039ea5cfb7ba93132716d3007f0faf87c8))
+* **preview:** serving snapshot, shared routing helpers and generic node isolation ([#223](https://github.com/devthenet-labs/patchy/issues/223)) ([662dc9f](https://github.com/devthenet-labs/patchy/commit/662dc9f2c7468d95abcd193ec999a112d654f4ea))
+* **status:** usage page, API and CLI ([#233](https://github.com/devthenet-labs/patchy/issues/233)) ([d05931b](https://github.com/devthenet-labs/patchy/commit/d05931bd8f9b53111fa2f7a103945980bd11d863))
+
 ## [0.12.38](https://github.com/devthenet-labs/patchy/compare/v0.12.37...v0.12.38) (2026-10-15)
 
 
