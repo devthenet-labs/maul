@@ -11,11 +11,47 @@
 > documentation values `111122223333` and `203.0.113.10/32`. The real ones are in terraform-devthenet's `k8s/` values
 > (private).
 
-## Unreleased on main — 2026-10-16 (merged, not yet released or live)
+## Current checkpoint — 2026-10-16 (night): 0.12.39 on both clusters, everything new off
 
-Everything here is off by default. Both clusters still run 0.12.38. Also merged and not described below: the preview
-serving snapshot and generic node isolation (#223), the gateway sign-in and proxy (#226), and the preview policy probe
-deflake (#232). The release that ships these replaces this section with a checkpoint.
+**0.12.39 ships three tracks: portable previews release N, per-user attribution and usage (L1, L2), and cost-weighted
+limits for large features.** Every new feature is off by default, and neither cluster has turned any of it on yet.
+
+- **Live:** EKS devthenet-dev Helm patchy rev 103 and patchy-config rev 62 (rollback 102 and 61 = 0.12.38). Desktop
+  (destroyer k3d) patchy rev 2 and patchy-config rev 2 (rollback 1 and 1); its pin is pushed in `~/.config`. No ERROR
+  lines on either cluster after the upgrade; the EKS egress proxy re-minted its CodeArtifact credentials.
+- **Also in this release, not described below:** the preview serving snapshot and generic node isolation (#223), the
+  gateway sign-in and proxy (#226), the preview policy probe deflake (#232), and this file's once-per-release rule
+  (#234).
+- **Next, per cluster, in this order:** `attribution.mode: attribute` (pause the agents first, see L1 below); the Usage
+  page; on the desktop, the preview gateway (tainted k3d preview node, wildcard DNS and a DNS-01 certificate on the
+  Route53 zone, `publishedAddresses`); then the EKS gateway migration (needs terraform W8). Cost limits stay on `tokens`
+  until a Project needs the large preset.
+- **Later:** L3 (per-user keys and the dashboard Account page), the cross-repo integration check, previews N+1, the
+  large-features splitting design, and showing spend against a run's budget (design §1.5).
+
+### Cost-weighted limits and per-stage budgets (large features: LF1 to LF3) (#229, #235, #236)
+
+**Large features fit, measured in dollars rather than tokens.** Design `.claude/plans/large-features-limits-design.md`.
+The broker's token limits counted cache reads at full weight, so a long-context build hit them at a fraction of its real
+cost (one 232-turn implementer: 67.7M tokens, about \$42). Off by default; `egressBroker.limits.unit` stays `tokens`:
+
+- **LF1, the broker (#229):** `--limit-unit=tokens|cost`; under `cost`, `--cost-per-pod` (required) and
+  `--cost-per-hour` in micro-USD, priced by the shared `model.MeasuredCostUSD` (an unknown model at the highest rate of
+  each token class). A pod may carry its own budget, `patchy.bitwisemedia.uk/budget-micro-usd`, which the broker reads
+  with `get pods` in the agents namespace (Role rendered only under `cost`), checked against the pod UID; a failed read
+  is a 503 and is not cached. Also fixed: the pricer rounded a half-micro tie differently on arm64 and amd64.
+- **LF2, intent stages (#235):** `StageLimits.maxCostMicroUSD` (capped by the Project's per-intent ceiling) and
+  `timeout` (1m to 4h, clamped to the controller's stage timeout); under `cost` every intent run's grant records
+  `budgetMicroUSD` and its Job and pod carry the budget annotation. Each intent Job's deadline is its stage timeout plus
+  15m, at most `--intent-job-deadline-max` (4h30m) and never below `--intent-job-deadline`. A Project whose run budget
+  is over half `costPerHour` is not Ready (`RunBudgetOverHourlyLimit`). Three admission policies (chart only) keep the
+  annotation and the grant field to intent-controller and the Job controller.
+- **LF3 (#236):** the sizing guide [docs/intents/sizing.md](docs/intents/sizing.md) (evidence, the large preset: build
+  300 turns, 90m, \$60; revise 200, 45m, \$20; switching an install to `cost`) and an e2e with heavy cache-read usage
+  that cost mode admits and token mode refuses.
+
+Known gaps: investigation and remediation Jobs carry no per-run budget (they stay under `--cost-per-pod`), and nothing
+shows spend against a run's budget yet.
 
 ### Portable previews, release N (end to end, check project, isolation probe, docs) (#231)
 
@@ -61,9 +97,9 @@ with `attribution.mode: attribute`:
 - chart: `patchy-status-server-usage` Role (usagerollups get/list/watch) and, with `rbac.userRoles`, the
   `patchy-usage-admin` ClusterRole.
 
-See [docs/configuration/status-server.md](docs/configuration/status-server.md#usage-views). Not yet live. To enable: add
-`federated:id` to the status page's Dex scopes, set `statusServer.usage.enabled`, bind `patchy-usage-admin` for admins,
-and have everyone sign out and in again. No kustomize component yet (chart only).
+See [docs/configuration/status-server.md](docs/configuration/status-server.md#usage-views). Off on both clusters. To
+enable: add `federated:id` to the status page's Dex scopes, set `statusServer.usage.enabled`, bind `patchy-usage-admin`
+for admins, and have everyone sign out and in again. No kustomize component yet (chart only).
 
 ### Durable per-user usage rollups (per-user credentials, L2: W3) (#230)
 
@@ -79,8 +115,8 @@ L2). Off by default; chart `attribution.mode: attribute` turns it on with L1 and
   most 120);
 - `patchy.usage.tokens` and `patchy.usage.cost` carry `user`, `project`, `kind`.
 
-See [docs/configuration/attribution.md](docs/configuration/attribution.md#usage-rollups). Not yet live. The Usage page
-and `patchy get usage` (W4) are in flight above. Known gaps: Finding and evaluation runs have no Project, so they count
+See [docs/configuration/attribution.md](docs/configuration/attribution.md#usage-rollups). Off on both clusters. The
+Usage page and `patchy get usage` (W4) are above. Known gaps: Finding and evaluation runs have no Project, so they count
 in user scopes only; the demo reset (Integration `spec.reset`) does not delete `UsageRollup`s; turning attribution off
 releases runs still settling unaggregated (`RollupForbidden`).
 
@@ -102,7 +138,7 @@ its default an install renders as before (only YAML comments differ):
 - `preview.nodeIsolation.{selector,mode,eksAutoMode}`: generic node isolation; the legacy `nodePool`/`nodeClass` render
   byte for byte the same and warn in NOTES. `preview.imageRegistry` accepts any registry host.
 
-Not live anywhere. Order on EKS: enable the gateway with its Ingress, flip the wildcard record to it, then set
+Off on both clusters. Order on EKS: enable the gateway with its Ingress, flip the wildcard record to it, then set
 `preview.legacyIngress: false` (design §8 as revised). N+1 (removing the ALB path and its values) is not started.
 
 ### Trusted usage (per-user credentials, L2: measured usage) (#227)
@@ -117,9 +153,9 @@ while the broker deploys:
   `model.PriceTableVersion`, `source` (`measured` only when the broker booted before the Job), `final` after at most a
   2-minute wait for in-flight requests.
 
-See [docs/configuration/attribution.md](docs/configuration/attribution.md#trusted-usage). Not yet live. `UsageRollup`
-aggregation and the OTel user attribute are in flight above; the dashboard Usage page and `patchy get usage` (W4) are
-still to come; the Intent's own `status.usage` totals and the issue's cost line still sum the pod-reported figures.
+See [docs/configuration/attribution.md](docs/configuration/attribution.md#trusted-usage). Off on both clusters.
+`UsageRollup` aggregation, the OTel user attribute, the Usage page and `patchy get usage` (W4) are above; the Intent's
+own `status.usage` totals and the issue's cost line still sum the pod-reported figures.
 
 ### Run attribution (per-user credentials, L1) (#224)
 
@@ -136,8 +172,8 @@ design (attribution; L2 usage and L3 per-user credentials follow). It is off by 
 
 See [docs/configuration/attribution.md](docs/configuration/attribution.md).
 
-Not yet live anywhere. To enable: pause the agents, set `attribution.mode: attribute`, upgrade, then resume, so no
-launch from a pod on the old configuration meets the new Job policy.
+Off on both clusters. To enable: pause the agents, set `attribution.mode: attribute`, upgrade, then resume, so no launch
+from a pod on the old configuration meets the new Job policy.
 
 Known gaps, for later groups:
 
@@ -145,7 +181,7 @@ Known gaps, for later groups:
   Capturing Dex's `federated_claims.user_id` at sign-in closes this.
 - The kustomize base has no attribution policies; the chart is the only rendering.
 
-## Current checkpoint — 2026-10-15 (night): the CONNECT tunnel, 0.12.35 and 0.12.36
+## Earlier checkpoint — 2026-10-15 (night): the CONNECT tunnel, 0.12.35 and 0.12.36
 
 **Agents can install npm, pip, NuGet and Cargo dependencies through a hostname-allowlisted tunnel.** 0.12.36 completes
 egress proxy step 3: a network profile can list exact public hosts, and its Jobs get `HTTPS_PROXY` and client presets
