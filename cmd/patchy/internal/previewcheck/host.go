@@ -77,12 +77,13 @@ func (c *Checker) previewHost(ctx context.Context, suffix string) {
 			strings.Join(lb.addrs, ", "), suffix)
 	}
 
-	c.previewTLS(ctx, host, suffix, "the preview load balancer admits only the chart's preview.inboundCIDRs")
+	c.previewTLS(ctx, host, "*."+suffix, "the preview load balancer admits only the chart's preview.inboundCIDRs")
 }
 
-// previewTLS checks host serves a certificate trusted for it. admits says
-// who answers only some addresses, for a timeout's reason.
-func (c *Checker) previewTLS(ctx context.Context, host, suffix, admits string) {
+// previewTLS checks host serves a certificate trusted for it. cover is the
+// name the certificate must cover (*.<suffix>, or the sign-in host itself),
+// and admits says who answers only some addresses, for a timeout's reason.
+func (c *Checker) previewTLS(ctx context.Context, host, cover, admits string) {
 	dctx, cancel := context.WithTimeout(ctx, tlsTimeout)
 	state, err := c.cfg.DialTLS(dctx, host)
 	cancel()
@@ -101,7 +102,7 @@ func (c *Checker) previewTLS(ctx context.Context, host, suffix, admits string) {
 			"from any other address; run it from an admitted one", host, tlsTimeout, admits)
 	case errors.As(err, &verify) || errors.As(err, &hostname):
 		c.add(CheckPreviewTLS, checkreport.Fail, "%s serves a certificate that is not trusted for it (it must "+
-			"cover *.%s): %v", host, suffix, err)
+			"cover %s): %v", host, cover, err)
 	default:
 		c.add(CheckPreviewTLS, checkreport.Fail, "%s:443: %v", host, err)
 	}

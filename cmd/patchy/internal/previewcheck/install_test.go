@@ -98,6 +98,9 @@ type installWorld struct {
 	web      iWeb
 	resolver iResolver
 	reads    *[]string
+	// dial, when set, answers TLS dials instead of a certificate for
+	// *.<suffix> everywhere.
+	dial func(context.Context, string) (tls.ConnectionState, error)
 }
 
 func newInstallWorld() *installWorld {
@@ -228,6 +231,9 @@ func (w *installWorld) run(t *testing.T, fn interceptor.Funcs) Report {
 	dial := func(_ context.Context, host string) (tls.ConnectionState, error) {
 		return tls.ConnectionState{PeerCertificates: []*x509.Certificate{{DNSNames: []string{"*." + iSuffix},
 			Issuer: pkix.Name{CommonName: "Test CA"}, NotAfter: time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)}}}, nil
+	}
+	if w.dial != nil {
+		dial = w.dial
 	}
 	return Install(context.Background(), Config{Reader: reader, Namespace: "patchy", Resolver: w.resolver,
 		DialTLS: dial, HTTP: w.web})
@@ -795,4 +801,113 @@ func mergeLabels(a, b map[string]string) map[string]string {
 		out[k] = v
 	}
 	return out
+}
+
+// signInWorld is the install world with a sign-in host of its own,
+// previewAuth.gateway.signInHost, which the chart routes through the
+// gateway's exposure.
+func signInWorld(signIn string) *installWorld {
+	w := newInstallWorld()
+	w.setting("patchy-preview-auth-config", keyAuthGatewaySignIn, signIn)
+	for _, label := range []string{"shop-7", "blog-3"} {
+		w.web[label+"."+iSuffix+"/"] = func(*http.Request) (int, http.Header, string) {
+			return http.StatusFound, http.Header{"Location": {"https://" + signIn + "/start?h=" + label +
+				"&s=pa1.t.1.sealed"}}, ""
+		}
+	}
+	return w
+}
+
+// linesOf are the lines of one check, in order.
+func linesOf(lines []Line, check string) []Line {
+	var out []Line
+	for _, l := range lines {
+		if l.Name == check {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// TestInstallSignInHost: a sign-in host other than the relay's own gets
+// preview-dns and preview-tls lines of its own (design §4.4: both names),
+// so a missing record, a record pointing elsewhere or an untrusted
+// certificate there fails the run; the relay's own host gets none, as its
+// discovery already reaches it.
+func TestInstallSignInHost(t *testing.T) {
+	const signIn = "login.acme.test"
+	trusted := func(_ context.Context, host string) (tls.ConnectionState, error) {
+		names := []string{"*." + iSuffix}
+		if host == signIn {
+			names = []string{signIn}
+		}
+		return tls.ConnectionState{PeerCertificates: []*x509.Certificate{{DNSNames: names,
+			Issuer: pkix.Name{CommonName: "Test CA"}, NotAfter: time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)}}}, nil
+	}
+	untrusted := func(ctx context.Context, host string) (tls.ConnectionState, error) {
+		if host == signIn {
+			return tls.ConnectionState{}, x509.HostnameError{Certificate: &x509.Certificate{
+				DNSNames: []string{"*." + iSuffix}}, Host: signIn}
+		}
+		return trusted(ctx, host)
+	}
+	cases := []struct {
+		name      string
+		addrs     []string // nil: NXDOMAIN
+		dial      func(context.Context, string) (tls.ConnectionState, error)
+		dns, cert checkreport.Status
+		dnsWant   string
+		certWant  string
+	}{
+		{"routed", []string{iGateway}, trusted, checkreport.Pass, checkreport.Pass,
+			"sign-in host " + signIn + " resolves to the preview gateway's edge", "serves a trusted certificate"},
+		{"no record", nil, trusted, checkreport.Fail, checkreport.Skip,
+			"sign-in host " + signIn + " does not resolve", "does not resolve"},
+		{"elsewhere", []string{"192.0.2.99"}, trusted, checkreport.Fail, checkreport.Pass,
+			"resolves to 192.0.2.99, but the preview gateway's edge", "serves a trusted certificate"},
+		{"untrusted certificate", []string{iGateway}, untrusted, checkreport.Pass, checkreport.Fail,
+			"resolves to the preview gateway's edge", "must cover " + signIn},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := signInWorld(signIn)
+			if tc.addrs != nil {
+				w.resolver[signIn] = tc.addrs
+			}
+			w.dial = tc.dial
+			r := w.run(t, interceptor.Funcs{})
+			dns, cert := linesOf(r.Checks, CheckPreviewDNS), linesOf(r.Checks, CheckPreviewTLS)
+			if len(dns) != 2 || len(cert) != 2 {
+				t.Fatalf("want two preview-dns and two preview-tls lines:\n%s", dump(r.Checks))
+			}
+			if dns[0].Status != checkreport.Pass || cert[0].Status != checkreport.Pass {
+				t.Errorf("probe host lines: %+v, %+v", dns[0], cert[0])
+			}
+			if l := dns[1]; l.Status != tc.dns || !strings.Contains(l.Reason, tc.dnsWant) {
+				t.Errorf("sign-in preview-dns = %s %q, want %s with %q", l.Status, l.Reason, tc.dns, tc.dnsWant)
+			}
+			if l := cert[1]; l.Status != tc.cert || !strings.Contains(l.Reason, tc.certWant) {
+				t.Errorf("sign-in preview-tls = %s %q, want %s with %q", l.Status, l.Reason, tc.cert, tc.certWant)
+			}
+			wantFailed := 0
+			for _, s := range []checkreport.Status{tc.dns, tc.cert} {
+				if s == checkreport.Fail {
+					wantFailed++
+				}
+			}
+			if n := r.Failed(); n != wantFailed {
+				t.Errorf("Failed = %d, want %d:\n%s", n, wantFailed, dump(r.Checks))
+			}
+		})
+	}
+
+	// The relay's own host as the sign-in host is no second name.
+	w := signInWorld(strings.TrimPrefix(iIssuer, "https://"))
+	r := w.run(t, interceptor.Funcs{})
+	if dns := linesOf(r.Checks, CheckPreviewDNS); len(dns) != 1 {
+		t.Errorf("%d preview-dns lines for the relay's own host:\n%s", len(dns), dump(r.Checks))
+	}
+	if n := r.Failed(); n != 0 {
+		t.Errorf("Failed = %d:\n%s", n, dump(r.Checks))
+	}
 }
