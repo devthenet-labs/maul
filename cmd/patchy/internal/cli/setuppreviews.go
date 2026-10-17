@@ -38,12 +38,14 @@ type setupPreviewsFlags struct {
 	// shell history.
 	dnsCredentialsFile  string
 	dnsCredentialsStdin bool
+	// tunnelCredentials is the locally-managed Cloudflare tunnel's
+	// credentials file (~/.cloudflared/<tunnel id>.json).
+	tunnelCredentials string
 }
 
 // newSetupPreviewsCmd is `setup previews` (design
 // .claude/plans/preview-setup-design.md §4). Hidden while it is built: it
-// asks nothing yet (every answer is a flag), and the cloudflare-tunnel
-// recipe has not landed.
+// asks nothing yet (every answer is a flag).
 func newSetupPreviewsCmd(opts *Options) *cobra.Command {
 	f := &setupPreviewsFlags{}
 	a := previewsetup.Defaults()
@@ -56,9 +58,9 @@ func newSetupPreviewsCmd(opts *Options) *cobra.Command {
 			"relay's Dex client secret as two Secret manifests, answers.yaml and NEXT-STEPS.md, all\n" +
 			"in -o (default ./patchy-previews, created 0700, every file 0600). Nothing is applied and\n" +
 			"no cluster or provider is contacted: NEXT-STEPS.md lists the commands, in order.\n\n" +
-			"Still being built: every answer is a flag (no prompts yet), and --edge cloudflare-tunnel\n" +
-			"has no recipe yet. --edge existing routes through an Ingress class or a Gateway API parent\n" +
-			"already in the cluster; --edge gateway-tls makes the gateway's Service a LoadBalancer that\n" +
+			"Still being built: every answer is a flag (no prompts yet). --edge existing routes through\n" +
+			"an Ingress class or a Gateway API parent already in the cluster; --edge gateway-tls makes\n" +
+			"the gateway's Service a LoadBalancer that\n" +
 			"terminates TLS itself; --edge tailscale gives that Service a tailnet device through the\n" +
 			"Tailscale operator. The last two write a cert-manager Certificate and, unless --dns manual,\n" +
 			"the ACME Issuer that answers its DNS-01 challenge (a ClusterIssuer when cert-manager's own\n" +
@@ -66,9 +68,18 @@ func newSetupPreviewsCmd(opts *Options) *cobra.Command {
 			"and the Tailscale operator at the chart versions patchy pins. A DNS credential is read\n" +
 			"from --dns-credentials-file or --dns-credentials-from-stdin, never a flag value, and is\n" +
 			"written only into a Secret manifest.\n\n" +
+			"--edge cloudflare-tunnel runs cloudflared in a namespace of its own, sending both names to\n" +
+			"the gateway's Service through a locally-managed tunnel; Cloudflare's edge holds the\n" +
+			"certificates. Create the tunnel first (cloudflared tunnel login, then cloudflared tunnel\n" +
+			"create patchy-previews) and give its credentials file to --tunnel-credentials: it is\n" +
+			"written only into a Secret manifest in cloudflared's namespace (cert.pem is refused, and\n" +
+			"never leaves your workstation). Cloudflare's free Universal SSL covers a zone's first-level\n" +
+			"names only, so the --host-suffix must be a registrable domain itself and the\n" +
+			"--sign-in-host at most one label below its own, unless --cloudflare-acm says the zones\n" +
+			"have Advanced Certificate Manager.\n\n" +
 			"Previews must sit on a registrable domain of their own: a --sign-in-host or --dex-issuer\n" +
 			"on the --host-suffix's registrable domain is refused, because preview code would run\n" +
-			"same-site with sign-in.\n\n" +
+			"same-site with sign-in. With only one domain, register a second, cheap one for previews.\n\n" +
 			"A re-run starts from answers.yaml; flags given override it. It shows how each file would\n" +
 			"change and writes nothing changed without --force. The Dex client secret is read back\n" +
 			"from the Secret files, never drawn again, unless --rotate dex-client-secret. --dry-run\n" +
@@ -79,7 +90,10 @@ func newSetupPreviewsCmd(opts *Options) *cobra.Command {
 			"    --image-path-prefix acme/patchy/previews\n\n" +
 			"  patchy setup previews --platform k3d --edge tailscale --dns route53 \\\n" +
 			"    --dns-option region=us-east-1 --dns-option accessKeyID=AKIAIOSFODNN7EXAMPLE \\\n" +
-			"    --dns-credentials-file ~/.config/dns01-secret-access-key ...",
+			"    --dns-credentials-file ~/.config/dns01-secret-access-key ...\n\n" +
+			"  patchy setup previews --platform k3s --edge cloudflare-tunnel \\\n" +
+			"    --tunnel-credentials ~/.cloudflared/<tunnel id>.json --host-suffix acme-previews.dev \\\n" +
+			"    --sign-in-host preview-auth.acme.dev ...",
 		Args:              cobra.NoArgs,
 		ValidArgsFunction: noFileCompletion,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -144,6 +158,12 @@ func newSetupPreviewsCmd(opts *Options) *cobra.Command {
 		"address once it has appeared, what the DNS records hold (repeatable)")
 	fl.BoolVar(&a.Tailscale.OperatorInstalled, "tailscale-operator-installed", false, "--edge tailscale: the "+
 		"Tailscale operator already runs: write no values for it")
+	fl.StringVar(&f.tunnelCredentials, "tunnel-credentials", "", "--edge cloudflare-tunnel: the locally-managed "+
+		"tunnel's credentials file (~/.cloudflared/<tunnel id>.json), written only into a Secret manifest")
+	fl.BoolVar(&a.Cloudflare.AdvancedCertificates, "cloudflare-acm", false, "--edge cloudflare-tunnel: the zones "+
+		"have Advanced Certificate Manager, so names deeper than Universal SSL's first level are allowed")
+	fl.StringVar(&a.Cloudflare.Namespace, "cloudflared-namespace", "", "--edge cloudflare-tunnel: the namespace "+
+		"cloudflared runs in, which its manifest creates (default "+previewsetup.DefaultCloudflaredNamespace+")")
 	fl.StringVar(&a.Release, "release", a.Release, "the patchy Helm release")
 	// -o names a directory here, not an output format.
 	fl.StringVarP(&f.output, "output", "o", defaultPreviewsDir, "the directory to write to")
@@ -163,7 +183,7 @@ func newSetupPreviewsCmd(opts *Options) *cobra.Command {
 		"viewer-team", "viewer-user", "registry", "image-path-prefix", "node-label", "eks-auto-mode", "taint-key",
 		"api-server-cidr", "ingress-class", "gateway-parent", "certificate-issuer", "release", "dns-option",
 		"acme-email", "load-balancer-class", "inbound-cidr", "tailscale-hostname", "tailscale-tag",
-		"tailscale-address"} {
+		"tailscale-address", "cloudflared-namespace"} {
 		_ = cmd.RegisterFlagCompletionFunc(name, noFileCompletion)
 	}
 	return cmd
@@ -173,8 +193,15 @@ func newSetupPreviewsCmd(opts *Options) *cobra.Command {
 // lay only the flags given over answers.yaml.
 func answerFlags(dst *previewsetup.Answers, src previewsetup.Answers) map[string]func() {
 	return map[string]func(){
-		"platform":          func() { dst.Platform = src.Platform },
-		"edge":              func() { dst.Edge = src.Edge },
+		"platform": func() { dst.Platform = src.Platform },
+		// Leaving the tunnel drops its answers, which no other edge takes
+		// (a flag of its given with another edge is refused before this).
+		"edge": func() {
+			if src.Edge != previewsetup.EdgeCloudflareTunnel {
+				dst.Cloudflare = previewsetup.Cloudflare{}
+			}
+			dst.Edge = src.Edge
+		},
 		"host-suffix":       func() { dst.HostSuffix = src.HostSuffix },
 		"sign-in-host":      func() { dst.SignInHost = src.SignInHost },
 		"dex-issuer":        func() { dst.Dex.Issuer = src.Dex.Issuer },
@@ -220,8 +247,13 @@ func answerFlags(dst *previewsetup.Answers, src previewsetup.Answers) map[string
 		"tailscale-operator-installed": func() {
 			dst.Tailscale.OperatorInstalled = src.Tailscale.OperatorInstalled
 		},
+		"cloudflare-acm":        func() { dst.Cloudflare.AdvancedCertificates = src.Cloudflare.AdvancedCertificates },
+		"cloudflared-namespace": func() { dst.Cloudflare.Namespace = src.Cloudflare.Namespace },
 	}
 }
+
+// cloudflareFlags are the flags only --edge cloudflare-tunnel takes.
+var cloudflareFlags = []string{"tunnel-credentials", "cloudflare-acm", "cloudflared-namespace"}
 
 // exclusiveAnswerFlags are the answer flags that may not be given
 // together: each one's setter clears the other's answer, so on a re-run
@@ -299,6 +331,10 @@ func runSetupPreviews(cmd *cobra.Command, opts *Options, f *setupPreviewsFlags, 
 		return err
 	}
 	a.Normalize()
+	tunnel, err := resolveTunnel(cmd, opts.ErrOut, f, &a)
+	if err != nil {
+		return err
+	}
 	if m := a.Missing(); len(m) > 0 {
 		return errUsage(fmt.Errorf("answer %s (setup previews asks nothing yet: every answer is a flag)",
 			strings.Join(m, ", ")))
@@ -307,8 +343,7 @@ func runSetupPreviews(cmd *cobra.Command, opts *Options, f *setupPreviewsFlags, 
 		return errUsage(err)
 	}
 	if !previewsetup.Ready(a.Edge) {
-		return errUsage(fmt.Errorf("--edge %s: %w; use --edge existing, gateway-tls or tailscale for now", a.Edge,
-			previewsetup.ErrRecipeNotReady))
+		return errUsage(fmt.Errorf("--edge %s: %w", a.Edge, previewsetup.ErrRecipeNotReady))
 	}
 	given, err := readDNSCredential(cmd.InOrStdin(), opts.ErrOut, f, a)
 	if err != nil {
@@ -322,6 +357,7 @@ func runSetupPreviews(cmd *cobra.Command, opts *Options, f *setupPreviewsFlags, 
 	if secrets.DNS, err = previewsetup.ResolveDNSCredential(f.output, a, given); err != nil {
 		return errUsage(err)
 	}
+	secrets.Tunnel = tunnel
 	files, err := previewsetup.Plan(a, secrets, version.Version)
 	if err != nil {
 		return err
@@ -336,8 +372,9 @@ func runSetupPreviews(cmd *cobra.Command, opts *Options, f *setupPreviewsFlags, 
 		return nil
 	}
 	// A secret file changes only when the operator asked for it: a
-	// rotation, or a DNS credential given anew.
-	written, err := previewsetup.Write(c, previewsetup.Accept{All: f.force, Secrets: rotate || !given.IsZero()})
+	// rotation, or a DNS credential or tunnel credentials given anew.
+	written, err := previewsetup.Write(c, previewsetup.Accept{All: f.force,
+		Secrets: rotate || !given.IsZero() || f.tunnelCredentials != ""})
 	var conflict *previewsetup.ConflictError
 	if errors.As(err, &conflict) {
 		printComparison(opts.Out, c, false)
@@ -415,6 +452,65 @@ func readDNSCredential(in io.Reader, errOut io.Writer, f *setupPreviewsFlags,
 	return c, nil
 }
 
+// resolveTunnel reads the tunnel credentials file named, else the one an
+// earlier run wrote, and records the tunnel it runs in a. The file is
+// never echoed; nothing is read off the cloudflare-tunnel recipe, whose
+// flags are refused with any other edge.
+func resolveTunnel(cmd *cobra.Command, errOut io.Writer, f *setupPreviewsFlags, a *previewsetup.Answers) (
+	previewsetup.TunnelCredentials, error) {
+	var given previewsetup.TunnelCredentials
+	if a.Edge != previewsetup.EdgeCloudflareTunnel {
+		for _, name := range cloudflareFlags {
+			if cmd.Flags().Changed(name) {
+				return given, errUsage(fmt.Errorf("--%s is for --edge %s", name, previewsetup.EdgeCloudflareTunnel))
+			}
+		}
+	}
+	if f.tunnelCredentials != "" {
+		raw, err := readCredentialFile(errOut, "--tunnel-credentials", f.tunnelCredentials)
+		if err != nil {
+			return given, err
+		}
+		if given, err = previewsetup.ParseTunnelCredentials(raw); err != nil {
+			return given, errUsage(fmt.Errorf("--tunnel-credentials %s: %w", f.tunnelCredentials, err))
+		}
+	}
+	c, err := previewsetup.ResolveTunnelCredentials(f.output, *a, given)
+	if err != nil {
+		return c, errUsage(err)
+	}
+	if !c.IsZero() {
+		a.Cloudflare.TunnelID = c.TunnelID()
+	}
+	return c, nil
+}
+
+// readCredentialFile reads a credential file, bounded: a regular file
+// only, with a warning when other users can read it.
+func readCredentialFile(errOut io.Writer, flag, path string) ([]byte, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, errUsage(fmt.Errorf("%s: %w", flag, err))
+	}
+	defer func() { _ = file.Close() }()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, errUsage(fmt.Errorf("%s %s is not a regular file", flag, path))
+	}
+	if info.Mode().Perm()&0o077 != 0 {
+		notef(errOut, "patchy: warning: %s is readable by other users (mode %04o): chmod 600 it.\n", path,
+			info.Mode().Perm())
+	}
+	raw, err := io.ReadAll(io.LimitReader(file, maxCredentialRead))
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", flag, err)
+	}
+	return raw, nil
+}
+
 // maxCredentialRead bounds a credential read: past previewsetup's limit,
 // so an oversized one is refused rather than cut.
 const maxCredentialRead = 1 << 20
@@ -457,6 +553,10 @@ func reportWrite(w io.Writer, dir string, c previewsetup.Comparison, written []s
 	}
 	for _, p := range c.Stale {
 		notef(w, "patchy: %s is no longer generated: delete it once nothing applies it.\n", p)
+	}
+	if slices.Contains(written, previewsetup.CloudflaredSecretFile) {
+		notef(w, "patchy: wrote the tunnel credentials into %s: apply or encrypt it; never commit it as it is.\n",
+			filepath.Join(dir, previewsetup.CloudflaredSecretFile))
 	}
 	if slices.Contains(written, previewsetup.DNSSecretFile) {
 		notef(w, "patchy: wrote the DNS credential into %s: apply or encrypt it; never commit it as it is.\n",

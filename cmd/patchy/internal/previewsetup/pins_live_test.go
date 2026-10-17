@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions"
@@ -27,11 +28,12 @@ import (
 )
 
 // TestLivePins is the CI pin check (`mise run preview-pins`; opt-in, it
-// needs the network and helm): every pinned chart version exists in its
-// repository, the values the recipes write for it render with that chart
-// (so its schema accepts them), and every Issuer and Certificate the
+// needs the network, helm and docker): every pinned chart version exists
+// in its repository, the values the recipes write for it render with that
+// chart (so its schema accepts them), every Issuer and Certificate the
 // golden trees hold is valid against the cert-manager CRDs at the pinned
-// version, unknown fields included.
+// version, unknown fields included, and the pinned cloudflared image runs
+// and accepts the config the cloudflare-tunnel recipe writes.
 func TestLivePins(t *testing.T) {
 	if os.Getenv("PATCHY_LIVE_PINS") == "" {
 		t.Skip("set PATCHY_LIVE_PINS=1 (mise run preview-pins): needs the network and helm")
@@ -46,6 +48,70 @@ func TestLivePins(t *testing.T) {
 
 	liveCertManager(t, charts[CertManager.Chart])
 	liveTailscaleOperator(t, charts[TailscaleOperator.Chart])
+	liveCloudflared(t)
+}
+
+// liveCloudflared: the pinned cloudflared image exists at its tag and
+// digest and is the release its tag says, and that cloudflared accepts
+// every golden tree's config and routes as the recipe promised: each
+// preview host and the sign-in host to the gateway, anything else to the
+// 404. It runs the image with docker, offline (`ingress validate` and
+// `ingress rule` never contact Cloudflare).
+func liveCloudflared(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("docker"); err != nil {
+		t.Fatal("docker not on PATH: the cloudflared pin is checked by running it")
+	}
+	img := Cloudflared.Ref()
+	out, err := exec.Command("docker", "run", "--rm", img, "--version").CombinedOutput()
+	if err != nil {
+		t.Fatalf("image pin %s does not run: %v\n%s", img, err, out)
+	}
+	if !strings.Contains(string(out), "cloudflared version "+Cloudflared.Tag+" ") {
+		t.Errorf("image pin %s is not release %s: %s", img, Cloudflared.Tag, out)
+	}
+	checked := 0
+	for name, a := range goldenCases() {
+		if a.Edge != EdgeCloudflareTunnel {
+			continue
+		}
+		a.Normalize()
+		cfg, err := cloudflaredConfig(a)
+		if err != nil {
+			t.Fatal(err)
+		}
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "config.yaml"), cfg, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		run := func(args ...string) string {
+			t.Helper()
+			full := append([]string{"run", "--rm", "-v", dir + ":/etc/cloudflared/config:ro", img, "tunnel",
+				"--config", "/etc/cloudflared/config/config.yaml", "ingress"}, args...)
+			out, err := exec.Command("docker", full...).CombinedOutput()
+			if err != nil {
+				t.Fatalf("%s: cloudflared ingress %v: %v\n%s", name, args, err, out)
+			}
+			return string(out)
+		}
+		run("validate")
+		origin := "service: http://" + a.GatewayService() + "." + a.Namespace + ".svc.cluster.local:80"
+		for url, want := range map[string]string{
+			"https://pr-1." + a.HostSuffix + "/x": "Matched rule #0",
+			"https://" + a.SignInHost + "/start":  "Matched rule #1",
+			"https://" + a.HostSuffix + "/":       "Matched rule #2",
+			"https://elsewhere.example.invalid/":  "Matched rule #2",
+		} {
+			got := run("rule", url)
+			if !strings.Contains(got, want) || (want != "Matched rule #2") != strings.Contains(got, origin) {
+				t.Errorf("%s: cloudflared routes %s as\n%s\nwant %s", name, url, got, want)
+			}
+		}
+		checked++
+	}
+	if checked == 0 {
+		t.Fatal("no golden tree is a cloudflare-tunnel recipe")
+	}
 }
 
 // liveCertManager: cert-manager at the pin renders with the recipe's

@@ -223,9 +223,10 @@ run = "./hack/scaffold-check.sh"
 # its repository, the values the recipes write render with that chart (so its
 # schema accepts them), and every Issuer and Certificate in the golden trees
 # is valid against cert-manager's CRDs at the pinned version, unknown fields
-# included. Needs the network and helm, so not in `make pr`; CI's preview-pins
-# job runs it on every pull request, which is where a renovate bump of a pin is
-# checked before it merges.
+# included; the pinned cloudflared image runs at its tag and digest and accepts
+# the cloudflare-tunnel recipe's config. Needs the network, helm and docker, so
+# not in `make pr`; CI's preview-pins job runs it on every pull request, which
+# is where a renovate bump of a pin is checked before it merges.
 [preview-pins]
 description = "check the setup previews recipes' pinned upstream charts against their repositories"
 dir = "{{cwd}}"

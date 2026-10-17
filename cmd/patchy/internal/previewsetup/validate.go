@@ -168,6 +168,7 @@ func (a Answers) Validate() error {
 	case EdgeTailscale:
 		errs = append(errs, a.validateTailscale()...)
 	}
+	errs = append(errs, a.validateCloudflare()...)
 	return errors.Join(errs...)
 }
 

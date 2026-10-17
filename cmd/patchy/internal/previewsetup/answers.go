@@ -135,6 +135,8 @@ type Answers struct {
 	LoadBalancer LoadBalancer `json:"loadBalancer,omitzero"`
 	// Tailscale is the tailscale recipe's answers.
 	Tailscale Tailscale `json:"tailscale,omitzero"`
+	// Cloudflare is the cloudflare-tunnel recipe's answers.
+	Cloudflare Cloudflare `json:"cloudflare,omitzero"`
 }
 
 // Dex is the relay's static client at the operator's Dex.
@@ -275,6 +277,7 @@ func (a *Answers) Normalize() {
 	}
 	a.LoadBalancer.InboundCIDRs = sortedUnique(canonicalPrefixes(a.LoadBalancer.InboundCIDRs))
 	a.Tailscale.Addresses = sortedUnique(canonicalAddrs(a.Tailscale.Addresses))
+	a.Cloudflare.Namespace = strings.TrimSpace(a.Cloudflare.Namespace)
 }
 
 // canonicalPrefixes writes each CIDR that parses in its one form
@@ -393,6 +396,7 @@ func (a Answers) Missing() []string {
 	add(a.Edge == EdgeExisting && a.Platform != PlatformEKS && a.Platform != "" &&
 		a.Existing.IngressClass == "" && a.Existing.GatewayParent == "", "--ingress-class or --gateway-parent")
 	add(a.GatewayTerminatesTLS() && a.Certificate.DNS == "", "--dns")
+	add(a.Edge == EdgeCloudflareTunnel && a.Cloudflare.TunnelID == "", "--tunnel-credentials")
 	return out
 }
 

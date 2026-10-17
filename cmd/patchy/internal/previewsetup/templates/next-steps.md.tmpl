@@ -15,7 +15,7 @@ change before it replaces a file, and never draws a new Dex client secret unless
 {{- end}}
 
 The files under `secrets/` (mode 0600) hold the only copy of the Dex client secret{{if .DNSCredentialWritten}} and of
-the DNS credential you gave{{end}}. Apply them, or encrypt them (sops,
+the DNS credential you gave{{end}}{{if .Cloudflare}} and of the tunnel credentials{{end}}. Apply them, or encrypt them (sops,
 sealed-secrets) before they go anywhere else; never commit them as they are.
 
 ## 1. Before you start
@@ -37,6 +37,22 @@ sealed-secrets) before they go anywhere else; never commit them as they are.
 - Your {{.IssuerKind}} `{{.IssuerName}}`{{if eq .IssuerKind "Issuer"}} in namespace `{{.Namespace}}`{{end}} can answer an
   ACME DNS-01 challenge for both `*.{{.Suffix}}` and `{{.SignIn}}` (`--dns manual`).
 {{- end}}
+{{- else if .Cloudflare}}
+- Both names sit on zones in your Cloudflare account: `{{.SuffixSite}}` for the previews and `{{.SignInSite}}` for the
+  sign-in host. They are two registrable domains by design (preview code must never be same-site with sign-in): with
+  only one domain, register a second, cheap one for previews. A preview suffix that is a whole zone is also what lets
+  Cloudflare's free certificate cover the previews.
+- The locally-managed tunnel `{{.TunnelID}}` exists. You created it on your workstation, where its login certificate
+  stays (`cert.pem` never enters the cluster):
+
+  ```sh
+  cloudflared tunnel login
+  cloudflared tunnel create {{.TunnelName}}
+  ```
+
+  and this command read its credentials file (`~/.cloudflared/{{.TunnelID}}.json`) into `{{.CloudflaredSecretFile}}`.
+- Cloudflare's edge terminates TLS for both names, so Cloudflare sees preview traffic in the clear. Previews should
+  hold staging data only.
 {{- else if .Certificate}}
 - cert-manager runs in the cluster, and the {{.IssuerKind}} `{{.IssuerName}}`{{if eq .IssuerKind "Issuer"}} in
   namespace `{{.Namespace}}`{{end}} can answer an ACME DNS-01 challenge for both `*.{{.Suffix}}` and `{{.SignIn}}`
@@ -131,6 +147,15 @@ kubectl -n {{.Namespace}} wait certificate/{{.CertificateName}} --for=condition=
 
 `previewAuth.gateway.tls.secrets` names its Secret, `{{.CertificateSecret}}`. The two names sit on different
 registrable domains, so usually in two DNS zones: the solver must be able to answer for both.
+{{- else if .Cloudflare -}}
+Cloudflare's edge holds both certificates; nothing in the cluster does, and cloudflared reaches the gateway inside the
+cluster over plain HTTP.
+{{- if .AdvancedCertificates}} You said the zones have Advanced Certificate Manager (`--cloudflare-acm`): order an
+advanced certificate covering `*.{{.Suffix}}` in `{{.SuffixSite}}` and one covering `{{.SignIn}}` in `{{.SignInSite}}`
+(or turn on Total TLS) before the records in step 7 are proxied, or browsers are shown an invalid certificate.
+{{- else}} Universal SSL, free on every plan, covers each zone's apex and first-level names: `*.{{.Suffix}}` and
+`{{.SignIn}}` are both, so there is nothing to order.
+{{- end}} Turn on **Always Use HTTPS** in both zones.
 {{- else if .Certificate -}}
 ```sh
 kubectl apply -f {{.CertificateFile}}
@@ -187,6 +212,18 @@ helm upgrade --install {{.TailscaleOperator.Release}} {{.TailscaleOperator.Chart
 {{- end}}
 
 Then patchy:
+{{- else if .Cloudflare}}
+
+cloudflared runs in namespace `{{.CloudflaredNamespace}}`, which its manifest creates, with the tunnel credentials
+mounted from Secret `{{.CloudflaredSecret}}` and egress to DNS, the gateway and Cloudflare (443, and 7844 over TCP and
+QUIC) alone:
+
+```sh
+kubectl apply -f {{.CloudflaredFile}} -f {{.CloudflaredSecretFile}}
+kubectl -n {{.CloudflaredNamespace}} rollout status deployment/cloudflared
+```
+
+It sends `*.{{.Suffix}}` and `{{.SignIn}}` to `{{.GatewayService}}` and answers 404 for any other name. Then patchy:
 {{- end}}
 
 ```sh
@@ -201,6 +238,29 @@ One upgrade: the gateway needs no permit stage. `previewController.config.apiSer
 address the preview-controller may reach{{end}}.
 
 ## 7. DNS
+{{- if .Cloudflare}}
+
+Two proxied records, each a CNAME to `{{.TunnelID}}.cfargotunnel.com`:
+
+- `*.{{.Suffix}}`
+- `{{.SignIn}}`
+
+```sh
+cloudflared tunnel route dns {{.TunnelID}} '*.{{.Suffix}}'
+```
+
+`cloudflared tunnel route dns` writes into the zone of the `cert.pem` that `cloudflared tunnel login` chose, so it
+creates the wildcard when you chose `{{.SuffixSite}}`. Create the sign-in host's record in `{{.SignInSite}}`'s DNS
+settings by hand (a proxied CNAME `{{.SignIn}}` to `{{.TunnelID}}.cfargotunnel.com`), or run `cloudflared tunnel login`
+again for that zone and `cloudflared tunnel --origincert <its cert.pem> route dns {{.TunnelID}} {{.SignIn}}`.
+
+Then, in `{{.SuffixSite}}`, add a Cache Rule that bypasses the cache for every request whose host ends in
+`.{{.Suffix}}`: Cloudflare honours the gateway's `private`, but a rule that caches by file extension does not, and
+would serve one viewer's preview to another. Keep the allowlist at Cloudflare too, if you want one (a WAF custom rule,
+or Cloudflare Access): `previewAuth.gateway.forwardedHops` is 1 (Cloudflare's edge appends the viewer's address to
+`X-Forwarded-For`; cloudflared adds none), and `inboundCIDRs` stays empty. A proxied record resolves to Cloudflare's
+addresses, not the cluster's, so `patchy check previews` skips its DNS line: check both records in the dashboard.
+{{- else}}
 
 Point two records at the edge's address:
 
@@ -244,6 +304,7 @@ once it is admitted). `previewAuth.gateway.forwardedHops: 1` holds when the cont
 (its Service has `externalTrafficPolicy: Local`, or it trusts the PROXY protocol); behind a cloud L7 load balancer
 that also appends `X-Forwarded-For`, it is 2.
 {{- end}}
+{{- end}}
 
 ## 8. Check
 
@@ -262,6 +323,9 @@ In reverse order, all by deletion:
 2. `kubectl delete -f {{.CertificateFile}}`{{if .Issuer}} and `kubectl delete -f {{.IssuerFile}}`{{end}}
 {{- if .Tailscale}}, then remove the device `{{.TailscaleHostname}}` from the tailnet if
    the operator has not{{end}}.
+{{- else if .Cloudflare}}
+2. `kubectl delete -f {{.CloudflaredFile}}`, which deletes namespace `{{.CloudflaredNamespace}}` and the tunnel
+   credentials' Secret with it.
 {{- else if .Certificate}}
 2. `kubectl delete -f {{.CertificateFile}}`
 {{- else if .Route}}
@@ -269,8 +333,9 @@ In reverse order, all by deletion:
 {{- else}}
 2. Remove the certificates from the edge, if nothing else uses them.
 {{- end}}
-3. Remove the two DNS records.
-4. Remove the static client from Dex, and delete the Secrets (`kubectl delete -f secrets/`).
+3. Remove the two DNS records.{{if .Cloudflare}} Then delete the tunnel on your workstation (`cloudflared tunnel delete
+   {{.TunnelID}}`): its credentials stop working everywhere they were copied.{{end}}
+4. Remove the static client from Dex, and delete the Secrets (`kubectl delete {{if .Cloudflare}}--ignore-not-found {{end}}-f secrets/`).
 {{- if or .CertManager .TailscaleOperator}}
    Uninstall what this recipe installed if nothing else uses it:{{if .TailscaleOperator}} `helm uninstall
    {{.TailscaleOperator.Release}} -n {{.TailscaleOperator.Namespace}}`{{end}}{{if and .CertManager .TailscaleOperator}},{{end}}

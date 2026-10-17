@@ -36,12 +36,13 @@ var ErrRecipeNotReady = errors.New("this recipe is not available yet")
 // recipe renders an edge's own files and values over the common ones.
 type recipe func(a Answers, v values) ([]File, error)
 
-// recipes are the edges with a recipe. cloudflare-tunnel follows in a
-// change of its own.
+// recipes are the edges with a recipe: every edge, now that each has
+// landed.
 var recipes = map[Edge]recipe{
-	EdgeExisting:   existingRecipe,
-	EdgeGatewayTLS: gatewayTLSRecipe,
-	EdgeTailscale:  tailscaleRecipe,
+	EdgeExisting:         existingRecipe,
+	EdgeGatewayTLS:       gatewayTLSRecipe,
+	EdgeTailscale:        tailscaleRecipe,
+	EdgeCloudflareTunnel: cloudflareTunnelRecipe,
 }
 
 // Ready reports whether edge has a recipe in this CLI.

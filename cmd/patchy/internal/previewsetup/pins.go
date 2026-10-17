@@ -3,22 +3,28 @@
 
 package previewsetup
 
-// The upstream charts the recipes write values for, each pinned to one
-// version (design §5.3): a pin is patchy's recommendation, so a stale one
-// is a patchy-documented vulnerability. Each version is a constant of its
-// own under a renovate comment, so a bump is one line; TestPinsAreTracked
-// holds every pin to its comment, TestRenovateTracksPins holds
-// .github/renovate.json5's regex manager to extracting each one (the org
-// preset scans only Dockerfiles), and `mise run preview-pins` (CI's
+import "strings"
+
+// The upstream charts the recipes write values for, and the images their
+// manifests run, each pinned to one version (design §5.3): a pin is
+// patchy's recommendation, so a stale one is a patchy-documented
+// vulnerability. Each version (an image's tag and digest) is a constant of
+// its own under a renovate comment, so a bump is one line;
+// TestPinsAreTracked holds every pin to its comment, TestRenovateTracksPins
+// holds .github/renovate.json5's regex manager to extracting each one (the
+// org preset scans only Dockerfiles), and `mise run preview-pins` (CI's
 // preview-pins job) checks that each version exists upstream and that the
-// generated values and manifests are accepted by the chart and CRDs at
-// that version.
+// generated values and manifests are accepted by the chart, the CRDs and
+// the image at that version.
 
 // renovate: datasource=helm registryUrl=https://charts.jetstack.io depName=cert-manager
 const certManagerVersion = "v1.21.2"
 
 // renovate: datasource=helm registryUrl=https://pkgs.tailscale.com/helmcharts depName=tailscale-operator
 const tailscaleOperatorVersion = "1.104.1"
+
+// renovate: datasource=docker depName=docker.io/cloudflare/cloudflared
+const cloudflaredImage = "2026.10.1@sha256:a15a3b50b8dabd57ac2090e9484c0247dba9dfa1f0df4d298d4317f9d69eb2d5"
 
 // Pin is an upstream Helm chart at the version the recipes are written
 // for, and where NEXT-STEPS.md installs it.
@@ -49,6 +55,31 @@ var (
 
 // Pins lists every pinned chart.
 func Pins() []Pin { return []Pin{CertManager, TailscaleOperator} }
+
+// ImagePin is an upstream container image a recipe's manifests run, pinned
+// to one release tag and that tag's multi-platform index digest: the tag
+// says which release it is, the digest is what the kubelet pulls.
+type ImagePin struct {
+	// Repository is the image's repository, registry host included.
+	Repository string
+	// Tag and Digest are the release and its index digest (sha256:...).
+	Tag, Digest string
+}
+
+// Ref is the image reference the manifests name: repository, tag and digest.
+func (p ImagePin) Ref() string { return p.Repository + ":" + p.Tag + "@" + p.Digest }
+
+// Cloudflared is the cloudflare-tunnel recipe's connector image.
+var Cloudflared = imagePin("docker.io/cloudflare/cloudflared", cloudflaredImage)
+
+// ImagePins lists every pinned image.
+func ImagePins() []ImagePin { return []ImagePin{Cloudflared} }
+
+// imagePin splits a pin constant, <tag>@<digest>.
+func imagePin(repo, pinned string) ImagePin {
+	tag, digest, _ := strings.Cut(pinned, "@")
+	return ImagePin{Repository: repo, Tag: tag, Digest: digest}
+}
 
 // tailscaleOAuthSecret is the Secret the Tailscale operator's chart mounts
 // its OAuth client from when its values name none (the chart's fullname,

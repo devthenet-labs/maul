@@ -4,6 +4,7 @@
 package previewsetup
 
 import (
+	"encoding/base64"
 	"flag"
 	"io/fs"
 	"os"
@@ -100,7 +101,61 @@ func goldenCases() map[string]Answers {
 	for name, a := range gatewayCertCases() {
 		cases[name] = a
 	}
+	for name, a := range cloudflareCases() {
+		cases[name] = a
+	}
 	return cases
+}
+
+// testTunnelID is the tunnel the golden cloudflare-tunnel trees run.
+const testTunnelID = "6ff42ae2-765d-4adf-8112-31c55c1551ef"
+
+// cloudflareCases are the cloudflare-tunnel (R1) trees: previews on a
+// whole zone and a first-level sign-in host, which Universal SSL covers;
+// and deeper names on zones with Advanced Certificate Manager.
+func cloudflareCases() map[string]Answers {
+	cases := map[string]Answers{}
+	free := testAnswers()
+	free.Edge = EdgeCloudflareTunnel
+	free.Platform = PlatformK3s
+	free.SignInHost = "preview-auth.acme.dev"
+	free.Cloudflare.TunnelID = testTunnelID
+	cases["cloudflare-tunnel-k3s"] = free
+
+	acm := testAnswers()
+	acm.Edge = EdgeCloudflareTunnel
+	acm.Platform = PlatformEKS
+	acm.Registry = "123456789012.dkr.ecr.eu-west-2.amazonaws.com"
+	acm.HostSuffix = "preview.acme-apps.dev"
+	acm.Cloudflare = Cloudflare{TunnelID: testTunnelID, Namespace: "edge-tunnel", AdvancedCertificates: true}
+	cases["cloudflare-tunnel-acm-eks"] = acm
+	return cases
+}
+
+// tunnelSentinel is the tunnel secret the golden trees carry: no secret
+// at all (32 bytes, so it parses), and easy to find in a file it must
+// never reach.
+var tunnelSentinel = []byte("TUNNEL-SENTINEL-not-a-secret-012")
+
+// testTunnel is a credentials file for tunnel id holding secret, as
+// `cloudflared tunnel create` writes one.
+func testTunnel(id string, secret []byte) TunnelCredentials {
+	raw := `{"AccountTag":"0123456789abcdef0123456789abcdef","TunnelSecret":"` +
+		base64.StdEncoding.EncodeToString(secret) + `","TunnelID":"` + id + `","Endpoint":""}`
+	c, err := ParseTunnelCredentials([]byte(raw))
+	if err != nil {
+		panic(err)
+	}
+	return c
+}
+
+// withTunnel gives s the sentinel tunnel credentials for a's tunnel when
+// a is the cloudflare-tunnel recipe, which cannot render without them.
+func withTunnel(a Answers, s Secrets) Secrets {
+	if a.Edge == EdgeCloudflareTunnel && s.Tunnel.IsZero() {
+		s.Tunnel = testTunnel(a.Cloudflare.TunnelID, tunnelSentinel)
+	}
+	return s
 }
 
 // gatewayCertCases are the gateway-tls (R2) and tailscale (R3) trees: one
@@ -180,13 +235,13 @@ func goldenSecrets(name string) Secrets {
 	if withDNSCredential[name] {
 		s.DNS = dnsSentinel
 	}
-	return s
+	return withTunnel(goldenCases()[name], s)
 }
 
 // plan renders a with the sentinel secret, failing the test on an error.
 func plan(t *testing.T, a Answers) []File {
 	t.Helper()
-	return planWith(t, a, Secrets{DexClient: sentinel})
+	return planWith(t, a, withTunnel(a, Secrets{DexClient: sentinel}))
 }
 
 // planWith renders a with s, failing the test on an error.
@@ -281,6 +336,8 @@ func TestPlanFileSets(t *testing.T) {
 		"existing-nginx-eks":         {CertificateFile},
 		"existing-alb-eks-auto-mode": nil,
 		"existing-gateway-api-aks":   {SignInRouteFile},
+		"cloudflare-tunnel-k3s":      {CloudflaredFile, CloudflaredSecretFile},
+		"cloudflare-tunnel-acm-eks":  {CloudflaredFile, CloudflaredSecretFile},
 	} {
 		files := plan(t, goldenCases()[name])
 		var got []string
