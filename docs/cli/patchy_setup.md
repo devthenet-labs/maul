@@ -5,8 +5,8 @@ Create what patchy needs outside the cluster
 ### Synopsis
 
 Create the things patchy needs before it is installed, from your workstation. Nothing
-here talks to a cluster: the kubeconfig flags are inert, and -n only names the
-namespace a written manifest carries.
+here talks to a cluster unless setup previews --detect asks it to read one: otherwise the
+kubeconfig flags are inert, and -n only names the namespace a written manifest carries.
 
 ### Options
 
@@ -31,4 +31,5 @@ namespace a written manifest carries.
 
 * [patchy](patchy.md)	 - Work with patchy security findings from the terminal
 * [patchy setup github-app](patchy_setup_github-app.md)	 - Create the GitHub App patchy authenticates as, and write its Secret
+* [patchy setup previews](patchy_setup_previews.md)	 - Write the files that expose previews and sign viewers in to them
 

@@ -200,13 +200,20 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   `cmd/patchy/internal/ghapp`, plain net/http, no GitHub client) and `init app` (scaffolds an application repository's
   agent image, CI builds and split trusted ECR publishers from embedded templates; engine in
   `cmd/patchy/internal/scaffold`, golden trees checked as their own CI would by `mise run scaffold-check`). `setup
-  previews` is HIDDEN while it is built (`.claude/plans/preview-setup-design.md`, W5 of §10; engine in
-  `cmd/patchy/internal/previewsetup`): from flags alone (no prompts yet) it writes, never applies, the files that expose
-  previews: `answers.yaml` (no secret; a re-run starts from it), `patchy-previews.values.yaml` (layered after the
-  operator's own), `manifests/`, the relay's Dex client secret as two Secret manifests under `secrets/` (ghapp's 0600
-  writer and Secret renderer; read back on a re-run, drawn again only with `--rotate dex-client-secret`) and
-  `NEXT-STEPS.md`. It refuses a sign-in host or Dex issuer on the host suffix's registrable domain (publicsuffix), a
-  re-run shows each file's diff and replaces a changed one only with `--force`. All four recipes have landed:
+  previews` (`.claude/plans/preview-setup-design.md`; engine in `cmd/patchy/internal/previewsetup`) takes every answer
+  as a flag and, on a terminal, asks for the ones left open (`setuppreviews_prompt.go`: each prompt names its flag, a
+  credential only ever by its file's path; off a terminal, with `--non-interactive` or with
+  `--dns-credentials-from-stdin`, a missing answer is a usage error naming its flags). It contacts no cluster unless
+  `--detect` is given: then `cmd/patchy/internal/previewdetect` reads Nodes, the kubernetes and kube-dns Services, the
+  API server's EndpointSlice, IngressClasses, GatewayClasses (unstructured), two CRDs by name, kube-system's Pod images
+  and the release's ConfigMaps (never a Secret, nothing written, pinned by a fake client that fails on either), and its
+  pure `Apply` fills only answers no flag or earlier run gave (seeded property). It writes, never applies, the files
+  that expose previews: `answers.yaml` (no secret; a re-run starts from it), `patchy-previews.values.yaml` (layered
+  after the operator's own), `manifests/`, the relay's Dex client secret as two Secret manifests under `secrets/`
+  (ghapp's 0600 writer and Secret renderer; read back on a re-run, drawn again only with `--rotate dex-client-secret`)
+  and `NEXT-STEPS.md`. It refuses a sign-in host or Dex issuer on the host suffix's registrable domain (publicsuffix),
+  a re-run shows each file's diff and replaces a changed one only with `--force` or `-y` (on a terminal it asks, no by
+  default). All four recipes have landed:
   `existing` (R4: an Ingress class or a Gateway API parent), `gateway-tls` (R2:
   the gateway's own Local LoadBalancer Service terminating TLS, `forwardedHops: 0`) and `tailscale` (R3: that Service
   as ClusterIP with the Tailscale operator's `expose`, hostname and tag annotations, a public DNS record to the device's
