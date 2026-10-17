@@ -55,9 +55,14 @@ func NewClaude() *Claude {
 // available; subagents, notebooks and every other built-in tool are absent
 // too. Naming Glob and Grep in --tools is also what gives a Linux run those
 // two tools, which the CLI otherwise leaves out in favour of find and grep
-// through Bash. Edit is left out of the allow list and Write is allowed only
-// as the request's WriteDirs scope it (claudeAllow; in -p mode a tool call
-// that is not allowed is refused), so a stage that sets WriteDirs can write
+// through Bash. NotebookEdit and MultiEdit (which older CLIs carried) are
+// denied by name as well, so no settings source's allow rule can bring
+// either back. Edit cannot be: a deny names a tool, not a path, and a bare
+// Edit deny removes the tool outright (probed on 2.1.263), while the plan
+// stage is told to fix its report up with Edit in place. So Edit stays in
+// --tools, is left out of the allow list, and is allowed only as the
+// request's WriteDirs scope it (claudeAllow), as Write is; a call outside
+// that scope is refused, so a stage that sets WriteDirs can write
 // nowhere but its report directory: not the tree, not its .git directory, and
 // not the settings the CLI reads (claudeSettingSources), which a report
 // repair's resumed run would load. The CLI's own exceptions for files it
@@ -74,17 +79,43 @@ func NewClaude() *Claude {
 // A multi-repository intent's planner reads its other repositories' trees
 // with the same read-only tools: they sit under the workspace the stage adds
 // as a directory.
-var claudeTools = map[Sandbox]struct{ tools, allow, deny []string }{
+var claudeTools = map[Sandbox]struct {
+	tools, allow, deny []string
+	restricted         bool // render --restricted; see claudeRestricted
+}{
 	SandboxReadOnly: {
-		tools: []string{"Read", "Glob", "Grep", "Edit", "Write"},
-		allow: []string{"Read", "Glob", "Grep", "Write"},
-		deny:  []string{"WebFetch", "WebSearch", "Task", "Bash"},
+		tools:      []string{"Read", "Glob", "Grep", "Edit", "Write"},
+		allow:      []string{"Read", "Glob", "Grep", "Write"},
+		deny:       []string{"WebFetch", "WebSearch", "Task", "Bash", "NotebookEdit", "MultiEdit"},
+		restricted: true,
 	},
 	SandboxWorkspaceWrite: {
 		allow: []string{"Read", "Glob", "Grep", "Edit", "Write", "NotebookEdit", "Bash"},
 		deny:  []string{"WebFetch", "WebSearch"},
 	},
 }
+
+// claudeRestricted documents why only the read-only posture runs with
+// --restricted. On the pinned CLI (2.1.263) the flag removes the built-in
+// tools that run commands or code (Bash among them) and WebFetch unless
+// --tools names them, ignores the user, project and local settings files
+// (managed settings still apply), confines the file tools to the working
+// directories (the run's directory and its --add-dir directories), refuses
+// bypassPermissions, and leaves writes to settings, git and
+// tool-configuration files to a person or a permission handler, which -p
+// does not have.
+//
+// The read-only posture uses none of what that removes: its --tools names
+// no code-running tool, its user source is empty in the pod, and it reads
+// only the tree, the workspace's inputs and its siblings' trees, all under
+// directories it adds. What it gains is the read confinement: without the
+// flag Read, Glob and Grep reach the whole filesystem (/etc, /proc, the
+// projected token), and with it they are refused outside the workspace
+// (probed). The writable posture does not take it: it renders no --tools,
+// so the flag would take its shell, and a remediation or a build may have
+// to change a tool-configuration file or a CI definition the flag would
+// refuse.
+const claudeRestricted = "--restricted"
 
 // claudeSettingSources is the one settings source a postured run reads, so
 // that the posture is patchy's alone. claude -p never asks whether to trust
@@ -120,6 +151,29 @@ var claudeTools = map[Sandbox]struct{ tools, allow, deny []string }{
 // which needs the local one.
 const claudeSettingSources = "user"
 
+// claudePermissionMode is the permission mode every postured run is started
+// in, so that the mode is patchy's and not a settings file's. A settings
+// source the run still reads can name a defaultMode: the user source under
+// HOME, and a managed settings file, which a repository image can bake in
+// and which outranks everything else. Probed on 2.1.263, a defaultMode of
+// acceptEdits from the user source let a read-only run edit and create files
+// in the tree, and one from a managed file became the run's mode as well;
+// the command-line mode wins over both.
+//
+// The mode is dontAsk rather than default (manual): in dontAsk a call that
+// no allow rule covers is denied by the mode itself, where default would
+// ask, and leave the refusal to -p having no one to ask. Both refuse the
+// same calls on 2.1.263 (probed in both postures, writes under .git and
+// .claude included); dontAsk does not depend on how -p treats a prompt.
+//
+// What a managed settings file can still do is the residue: hooks, an env
+// block, allow rules and MCP servers of its own, in every stage that runs on
+// the image. Only a repository image can carry one patchy did not write, and
+// such an image is already treated as untrusted code with the agent's powers
+// (docs/deployment/isolation.md), which is what a hook or an allow rule there
+// buys; the mode is the one thing it can no longer choose.
+const claudePermissionMode = "dontAsk"
+
 // claudeMDFromAddDirs is the environment entry that has the CLI load
 // CLAUDE.md from its --add-dir directories; see claudeSettingSources.
 const claudeMDFromAddDirs = "CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1"
@@ -139,8 +193,8 @@ const claudeNoAutoMemory = "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1"
 // stream-json with --verbose emits one JSON event per line, which is what
 // ParseResult and ScanUsage parse. Optional request fields append their flag
 // only when set, in a stable order. A posture also pins where the run's
-// settings come from (claudeSettingSources); the request's Env is never
-// written through.
+// settings come from (claudeSettingSources) and its permission mode
+// (claudePermissionMode); the request's Env is never written through.
 func (c *Claude) PromptSpec(ws string, req PromptRequest) runner.CommandSpec {
 	argv := []string{
 		"claude", "-p", req.Prompt,
@@ -158,7 +212,11 @@ func (c *Claude) PromptSpec(ws string, req PromptRequest) runner.CommandSpec {
 		}
 		argv = append(argv, "--allowedTools", strings.Join(claudeAllow(ws, req, t.allow), " "))
 		argv = append(argv, "--disallowedTools", strings.Join(t.deny, " "))
-		argv = append(argv, "--setting-sources", claudeSettingSources, "--strict-mcp-config", "--add-dir", ws)
+		if t.restricted {
+			argv = append(argv, claudeRestricted)
+		}
+		argv = append(argv, "--setting-sources", claudeSettingSources, "--permission-mode", claudePermissionMode,
+			"--strict-mcp-config", "--add-dir", ws)
 		env = append(slices.Clip(req.Env), claudeMDFromAddDirs)
 		if req.Sandbox == SandboxReadOnly {
 			env = append(env, claudeNoAutoMemory)

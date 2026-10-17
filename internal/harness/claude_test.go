@@ -5,6 +5,7 @@ package harness
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -61,7 +62,7 @@ func TestClaudePromptSpecAllFlags(t *testing.T) {
 		"--max-turns", "30",
 		"--allowedTools", "Read Glob Grep Edit Write NotebookEdit Bash",
 		"--disallowedTools", "WebFetch WebSearch",
-		"--setting-sources", "user",
+		"--setting-sources", "user", "--permission-mode", "dontAsk",
 		"--strict-mcp-config",
 		"--add-dir", "/work/ws",
 		"--add-dir", "/scratch",
@@ -104,8 +105,8 @@ func TestClaudePromptSpecReadOnly(t *testing.T) {
 		"claude", "-p", "look", "--model", "m", "--output-format", "stream-json", "--verbose",
 		"--tools", "Read,Glob,Grep,Edit,Write",
 		"--allowedTools", "Read Glob Grep Write",
-		"--disallowedTools", "WebFetch WebSearch Task Bash",
-		"--setting-sources", "user",
+		"--disallowedTools", "WebFetch WebSearch Task Bash NotebookEdit MultiEdit", "--restricted",
+		"--setting-sources", "user", "--permission-mode", "dontAsk",
 		"--strict-mcp-config",
 		"--add-dir", "/ws",
 	}
@@ -114,8 +115,65 @@ func TestClaudePromptSpecReadOnly(t *testing.T) {
 	}
 }
 
+// TestClaudeReadOnlyDeniesTheOtherEditTools: the read-only posture denies
+// NotebookEdit and MultiEdit by name, so no allow rule from a settings source
+// the run still reads can bring either back, and never denies Edit or Write by
+// name: a bare deny removes the tool outright (probed on 2.1.263), and the
+// stages write their report with Write and fix it up in place with Edit. Both
+// are held to the write scope by the allow list instead.
+func TestClaudeReadOnlyDeniesTheOtherEditTools(t *testing.T) {
+	req := PromptRequest{Prompt: "p", Model: "m", Sandbox: SandboxReadOnly, WriteDirs: []string{"/workspace/reports"}}
+	for name, argv := range map[string][]string{
+		"first run": NewClaude().PromptSpec("/ws", req).Argv,
+		"resume":    NewClaude().ResumeSpec("/ws", claudeSessionID, req).Argv,
+	} {
+		i := slices.Index(argv, "--disallowedTools")
+		if i < 0 || i+1 >= len(argv) {
+			t.Fatalf("%s: argv lacks --disallowedTools: %q", name, argv)
+		}
+		deny := strings.Fields(argv[i+1])
+		for _, tool := range []string{"NotebookEdit", "MultiEdit", "Bash"} {
+			if !slices.Contains(deny, tool) {
+				t.Errorf("%s: deny %q lacks %s", name, deny, tool)
+			}
+		}
+		for _, tool := range []string{"Edit", "Write"} {
+			if slices.Contains(deny, tool) {
+				t.Errorf("%s: deny %q names %s, which would remove the tool the report needs", name, deny, tool)
+			}
+		}
+	}
+}
+
+// TestClaudeRestrictedOnlyReadOnly: the read-only posture runs with
+// --restricted, which confines its file tools to the directories it adds, on
+// its first run and on resume; the writable posture does not, since the flag
+// would take its shell, and an unpostured run imposes nothing.
+func TestClaudeRestrictedOnlyReadOnly(t *testing.T) {
+	c := NewClaude()
+	for _, tt := range []struct {
+		sandbox Sandbox
+		want    bool
+	}{
+		{SandboxReadOnly, true},
+		{SandboxWorkspaceWrite, false},
+		{SandboxDefault, false},
+	} {
+		req := PromptRequest{Prompt: "p", Model: "m", Sandbox: tt.sandbox, AddDirs: []string{"/workspace"}}
+		for name, argv := range map[string][]string{
+			"first run": c.PromptSpec("/workspace/repo", req).Argv,
+			"resume":    c.ResumeSpec("/workspace/repo", claudeSessionID, req).Argv,
+		} {
+			if got := countArg(argv, "--restricted"); got != map[bool]int{true: 1, false: 0}[tt.want] {
+				t.Errorf("sandbox %d, %s: --restricted given %d times in %q, want restricted = %v",
+					tt.sandbox, name, got, argv, tt.want)
+			}
+		}
+	}
+}
+
 // TestClaudePromptSpecKeepsTheTreesSettingsOut: every posture reads settings
-// from the user source alone, so nothing under the working tree's .claude/
+// from the user source alone, pins its permission mode, so nothing under the working tree's .claude/
 // (hooks, env, allow rules, skills) or its .mcp.json can change what the run
 // may do, and loads CLAUDE.md through the workspace added as a directory
 // instead. The request's Env is extended, never written through: the
@@ -143,6 +201,15 @@ func TestClaudePromptSpecKeepsTheTreesSettingsOut(t *testing.T) {
 			}
 			if !slices.Contains(argv, "--strict-mcp-config") {
 				t.Errorf("argv = %q, want --strict-mcp-config", argv)
+			}
+			// The mode is pinned too, so no settings source the run still
+			// reads (the user source, a managed file) can pick acceptEdits,
+			// bypassPermissions or plan.
+			if n := countArg(argv, "--permission-mode"); n != 1 {
+				t.Fatalf("--permission-mode given %d times, want once: %q", n, argv)
+			}
+			if got := argv[slices.Index(argv, "--permission-mode")+1]; got != "dontAsk" {
+				t.Errorf("--permission-mode = %q, want dontAsk", got)
 			}
 			if !hasAddDir(argv, "/ws") || !hasAddDir(argv, "/workspace") {
 				t.Errorf("argv = %q, want the working tree added as a directory beside the request's", argv)

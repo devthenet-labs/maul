@@ -60,19 +60,37 @@ and agent Jobs — runs as non-root uid 65532 with a read-only root filesystem, 
 
 Inside the pod, the claude harness renders each stage's sandbox posture into the CLI's tool flags, beside a settings pin
 (`--setting-sources user`, `--strict-mcp-config`) that keeps the working tree's own `.claude/` settings and `.mcp.json`
-from changing what a stage may run.
+from changing what a stage may run, and a pinned permission mode (`--permission-mode dontAsk`): no settings file the run
+still reads can start it in `acceptEdits`, `bypassPermissions` or `plan`, and a tool call no allow rule covers is denied
+by the mode itself rather than left to `-p` having no one to ask.
+
+One settings source cannot be pinned away: a managed settings file (`/etc/claude-code/managed-settings.json`) is read
+whatever `--setting-sources` says, and only its mode gives way to the command line. Only a
+[repository-declared image](#repository-declared-images) can carry one patchy did not write, and its hooks, env block,
+allow rules or MCP servers would apply in every stage on that image, investigation included. That is what such an image
+is already assumed to be able to do (untrusted code with the agent's powers), so the pin is the mode alone.
 
 - **Read-only** (`investigate`, and an intent's `plan`): no shell. `--tools Read,Glob,Grep,Edit,Write` is the whole
-  built-in tool set the run has, and `Bash` is denied by name as well, so neither arbitrary commands nor the CLI's
-  built-in read-only shell commands are available, and no subagent, network or notebook tool either. Writes are allowed
-  only under the stage's `reports/` directory (a path-scoped `Edit` rule; in `-p` mode a write the rules do not allow is
-  refused), which leaves out the repository tree, its `.git` directory, and the settings under `HOME` (the workspace)
-  that the CLI reads. The CLI still lets the agent write the few files it manages for itself (its memory and scratch
-  files) whatever the rules say, so a read-only run also turns the CLI's auto memory off
+  built-in tool set the run has, and `Bash`, `NotebookEdit` and `MultiEdit` are denied by name as well, so neither
+  arbitrary commands nor the CLI's built-in read-only shell commands are available, and no subagent, network or notebook
+  tool either. `Edit` and `Write` cannot be denied by name, since a bare deny removes the tool and the stage writes and
+  fixes up its report with them. Writes are allowed only under the stage's `reports/` directory (a path-scoped `Edit`
+  rule; a write the rules do not allow is refused), which leaves out the repository tree, its `.git` directory, and the
+  settings under `HOME` (the workspace) that the CLI reads. The posture also runs with `--restricted`, which confines
+  `Read`, `Glob` and `Grep` to the directories the run adds (the tree and the workspace), so the agent cannot read
+  `/etc`, `/proc` or the projected broker token. The CLI still lets the agent write the few files it manages for itself
+  (its memory and scratch files) whatever the rules say, so a read-only run also turns the CLI's auto memory off
   (`CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`). A [report repair](../configuration/agent-runner.md#report-repair), which
   resumes the same session with the same flags, therefore loads no settings or memory the agent wrote.
 - **Workspace-write** (`remediate`, and an intent's `build`): the CLI's built-in tools with a shell, so the agent can
-  build and test; network tools stay denied.
+  build and test; network tools stay denied. It does not run with `--restricted`, which would take its shell and refuse
+  writes to tool-configuration files and CI definitions that a fix may need to change.
+
+These flags are checked against the real CLI, not only as rendered argv: a probe runs the claude version the runner
+image pins with each posture's argv against a scratch repository whose hooks, `env` block, settings, untracked
+`settings.local.json` and `.mcp.json` must all stay inert, and asserts the read-only posture's file grammar on the first
+run and on a report repair's resume, with a scripted model on loopback and no credential
+(`mise run claude-posture-probe`; CI runs it whenever the CLI pin or the posture changes).
 
 codex and copilot do not express these postures (see [extending](../extending.md)); on them the pod is the boundary, and
 the intent stages run on brokered claude only. An investigation on either still has a shell and unscoped writes, so its

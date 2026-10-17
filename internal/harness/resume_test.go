@@ -52,7 +52,7 @@ func TestClaudeResumeSpec(t *testing.T) {
 			t.Errorf("sandbox %d: Argv %q carries --session-id beside --resume", sandbox, got.Argv)
 		}
 		for _, flag := range []string{
-			"--allowedTools", "--disallowedTools", "--setting-sources", "--strict-mcp-config",
+			"--allowedTools", "--disallowedTools", "--setting-sources", "--permission-mode", "--strict-mcp-config",
 			"--add-dir", "--max-turns", "--model",
 		} {
 			if !slices.Contains(got.Argv, flag) {

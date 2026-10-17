@@ -132,24 +132,30 @@ Read Glob Grep Edit(//workspace/reports/**)
 --- argv[14]
 --disallowedTools
 --- argv[15]
-WebFetch WebSearch Task Bash
+WebFetch WebSearch Task Bash NotebookEdit MultiEdit
 --- argv[16]
---setting-sources
+--restricted
 --- argv[17]
-user
+--setting-sources
 --- argv[18]
---strict-mcp-config
+user
 --- argv[19]
---add-dir
+--permission-mode
 --- argv[20]
-/workspace/repo
+dontAsk
 --- argv[21]
---add-dir
+--strict-mcp-config
 --- argv[22]
-/workspace
+--add-dir
 --- argv[23]
---session-id
+/workspace/repo
 --- argv[24]
+--add-dir
+--- argv[25]
+/workspace
+--- argv[26]
+--session-id
+--- argv[27]
 00000000-0000-4000-8000-000000000001
 --- env
 ANTHROPIC_CUSTOM_HEADERS=X-Patchy-Broker-Token: caller-token

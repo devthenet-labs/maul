@@ -76,6 +76,16 @@ dir = "{{cwd}}"
 env = { PATCHY_LIVE_GO = "1" }
 run = "go test -count=1 -v -run '^TestLiveGo$' ./internal/egressproxy"
 
+# The claude CLI posture against the REAL CLI at the version
+# Dockerfile.claude-agent-runner pins (CLAUDE_VERSION=x.y.z to try another):
+# the postured argv against a scratch tree whose hooks, env block, settings
+# and .mcp.json must all stay inert, with a scripted fake model on loopback,
+# so no credential is needed. CI runs it when the pin or the posture changes.
+[claude-posture-probe]
+description = "run the claude CLI posture probe against the pinned CLI version"
+dir = "{{cwd}}"
+run = "./hack/claude-posture-probe.sh"
+
 # The egress proxy's registry routes against the real npm, pip and go
 # commands: loopback TLS registries that demand a login only the proxy holds,
 # a fake proxy.golang.org and a fake signing sum.golang.org. Opt-in (it needs

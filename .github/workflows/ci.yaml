@@ -181,3 +181,40 @@ jobs:
 
             - name: Run scaffold-check
               run: mise run scaffold-check
+
+    # The claude CLI posture probe (hack/claude-posture-probe.sh): the REAL
+    # claude CLI at the version Dockerfile.claude-agent-runner pins, run with
+    # the postured argv against a scratch tree whose hooks, env block,
+    # settings and .mcp.json must all stay inert, beside a scripted fake model
+    # on loopback (no credential). It runs only when the CLI pin (a renovate
+    # bump) or the posture changed against the base; `mise run
+    # claude-posture-probe` runs it on demand. The full history is fetched so
+    # the base commit is there to diff against.
+    claude-posture-probe:
+        runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
+        permissions:
+            # check out the repository
+            contents: read
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false # read-only checkout; don't leave the token in .git/config
+                  fetch-depth: 0
+
+            - name: Setup go
+              uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+              with:
+                  go-version-file: go.mod
+                  cache: true
+                  cache-dependency-path: go.sum
+
+            - name: Run the probe if the CLI pin or the posture changed
+              env:
+                  BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+              run: |
+                  if [ -n "$BASE" ] && [ "$BASE" != 0000000000000000000000000000000000000000 ]; then
+                    ./hack/claude-posture-probe.sh --if-changed "$BASE"
+                  else
+                    ./hack/claude-posture-probe.sh
+                  fi

@@ -48,6 +48,8 @@ RUN apk add --no-cache curl jq
 # reproducible and a harness regression is attributable to a known version.
 # 2.1.203 is the floor for CLAUDE_CODE_SKIP_FOUNDRY_AUTH (the egress-broker
 # gateway mode); the bedrock/vertex gateway vars also want a modern CLI.
+# A bump runs the posture probe in CI (hack/claude-posture-probe.sh), which
+# checks the harness's flags against the new version before it ships.
 # renovate: datasource=npm depName=@anthropic-ai/claude-code
 ARG CLAUDE_VERSION=2.1.263
 
