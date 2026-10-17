@@ -4,8 +4,10 @@
 package previewsetup
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -69,5 +71,95 @@ func TestUpstreamValuesNameTheirPin(t *testing.T) {
 		if !strings.Contains(string(data), want) || !strings.Contains(string(data), "-f "+p.ValuesFile) {
 			t.Errorf("%s header does not install its pin:\n%s", p.ValuesFile, data)
 		}
+	}
+}
+
+// renovateConfig is the repository's own renovate config, which extends
+// the org preset (that one scans only Dockerfiles).
+const renovateConfig = "../../../../.github/renovate.json5"
+
+// pinsPath is pins.go as renovate sees it, from the repository root.
+const pinsPath = "cmd/patchy/internal/previewsetup/pins.go"
+
+// json5ToJSON reads the JSON5 subset prettier writes renovate.json5 in
+// (whole-line comments, bare keys, single-quoted strings, trailing
+// commas) as JSON.
+func json5ToJSON(src string) []byte {
+	var lines []string
+	for _, l := range strings.Split(src, "\n") {
+		if !strings.HasPrefix(strings.TrimSpace(l), "//") {
+			lines = append(lines, l)
+		}
+	}
+	s := strings.Join(lines, "\n")
+	s = regexp.MustCompile(`'((?:[^'\\]|\\.)*)'`).ReplaceAllStringFunc(s, func(q string) string {
+		inner := strings.ReplaceAll(q[1:len(q)-1], `\'`, `'`)
+		return `"` + strings.ReplaceAll(inner, `"`, `\"`) + `"`
+	})
+	s = regexp.MustCompile(`(?m)^(\s*)(\$?[A-Za-z_]\w*):`).ReplaceAllString(s, `$1"$2":`)
+	return []byte(regexp.MustCompile(`,(\s*[\]}])`).ReplaceAllString(s, `$1`))
+}
+
+// TestRenovateTracksPins: a renovate manager actually reads pins.go, so
+// the renovate comments TestPinsAreTracked holds every pin to are bumped,
+// not decoration. Each pin is matched as one helm dependency at its
+// chart, repository and version, exactly as renovate's regex manager
+// would extract it (the same named groups, through Go's RE2, which reads
+// renovate's (?<name>) groups).
+func TestRenovateTracksPins(t *testing.T) {
+	raw, err := os.ReadFile(filepath.FromSlash(renovateConfig))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg struct {
+		CustomManagers []struct {
+			CustomType          string   `json:"customType"`
+			ManagerFilePatterns []string `json:"managerFilePatterns"`
+			MatchStrings        []string `json:"matchStrings"`
+		} `json:"customManagers"`
+	}
+	if err := json.Unmarshal(json5ToJSON(string(raw)), &cfg); err != nil {
+		t.Fatalf("%s: %v", renovateConfig, err)
+	}
+	src, err := os.ReadFile("pins.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	type dep struct{ datasource, registryURL, depName, currentValue string }
+	var deps []dep
+	for _, m := range cfg.CustomManagers {
+		scans := false
+		for _, p := range m.ManagerFilePatterns {
+			if body, ok := strings.CutPrefix(p, "/"); ok && strings.HasSuffix(body, "/") {
+				scans = scans || regexp.MustCompile(strings.TrimSuffix(body, "/")).MatchString(pinsPath)
+			} else if p == pinsPath {
+				scans = true
+			}
+		}
+		if m.CustomType != "regex" || !scans {
+			continue
+		}
+		for _, ms := range m.MatchStrings {
+			re, err := regexp.Compile(ms)
+			if err != nil {
+				t.Fatalf("matchString %q: %v", ms, err)
+			}
+			for _, sub := range re.FindAllStringSubmatch(string(src), -1) {
+				g := map[string]string{}
+				for i, name := range re.SubexpNames() {
+					g[name] = sub[i]
+				}
+				deps = append(deps, dep{g["datasource"], g["registryUrl"], g["depName"], g["currentValue"]})
+			}
+		}
+	}
+	for _, p := range Pins() {
+		if !slices.Contains(deps, dep{"helm", p.Repo, p.Chart, p.Version}) {
+			t.Errorf("no renovate manager in %s extracts pin %s %s from %s (found %v)", renovateConfig, p.Chart,
+				p.Version, p.Repo, deps)
+		}
+	}
+	if len(deps) != len(Pins()) {
+		t.Errorf("renovate extracts %d dependencies from pins.go, %d pins: %v", len(deps), len(Pins()), deps)
 	}
 }

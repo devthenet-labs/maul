@@ -214,9 +214,10 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   Issuer with one DNS-01 solver (`--dns`, `--dns-option key=value`, never a secret; a ClusterIssuer
   `preview-dns01-<namespace>` when the solver takes no stored credential, since cert-manager lends its ambient identity
   to no namespaced Issuer by default; Route53's `hostedZoneID` refused, the two names never sharing a zone; `--dns
-  manual` names the operator's issuer instead) and, unless already running, values for cert-manager and the Tailscale operator at the
-  chart versions `pins.go` pins (each a constant under a renovate comment; `mise run preview-pins`, CI's `preview-pins`
-  job, checks each exists, renders with what is written, and holds every golden Issuer and Certificate to
+  manual` names the operator's issuer instead) and, unless already running, values for cert-manager and the Tailscale
+  operator at the chart versions `pins.go` pins (each a constant under a renovate comment that
+  `.github/renovate.json5`'s regex manager reads, held to it by `TestRenovateTracksPins`; `mise run preview-pins`, CI's
+  `preview-pins` job, checks each exists, renders with what is written, and holds every golden Issuer and Certificate to
   cert-manager's CRDs at that version, unknown fields included). A DNS credential comes only from
   `--dns-credentials-file` or `--dns-credentials-from-stdin`, is held redacted and lands only in
   `secrets/preview-dns01-credentials.secret.yaml` (read back on a re-run; a new one replaces it). Its golden trees are

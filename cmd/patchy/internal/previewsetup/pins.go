@@ -7,7 +7,9 @@ package previewsetup
 // version (design §5.3): a pin is patchy's recommendation, so a stale one
 // is a patchy-documented vulnerability. Each version is a constant of its
 // own under a renovate comment, so a bump is one line; TestPinsAreTracked
-// holds every pin to its comment, and `mise run preview-pins` (CI's
+// holds every pin to its comment, TestRenovateTracksPins holds
+// .github/renovate.json5's regex manager to extracting each one (the org
+// preset scans only Dockerfiles), and `mise run preview-pins` (CI's
 // preview-pins job) checks that each version exists upstream and that the
 // generated values and manifests are accepted by the chart and CRDs at
 // that version.
