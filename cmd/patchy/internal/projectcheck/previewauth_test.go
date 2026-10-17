@@ -430,22 +430,3 @@ func containsAll(s string, want []string) bool {
 	}
 	return true
 }
-
-// TestExcerpt quotes the sentence holding the key, bounded in runes.
-func TestExcerpt(t *testing.T) {
-	tests := []struct{ text, key, want string }{
-		{"dex Bad Request Unregistered redirect_uri (x).", "redirect_uri",
-			"dex Bad Request Unregistered redirect_uri (x)."},
-		{"Title. Invalid client_id (y).", "client_id", "Invalid client_id (y)."},
-		{"no key here", "client_id", "no key here"},
-		{strings.Repeat("é", 200), "", strings.Repeat("é", excerptRunes) + "..."},
-	}
-	for _, tc := range tests {
-		if got := excerpt(tc.text, tc.key); got != tc.want {
-			t.Errorf("excerpt(%q, %q) = %q, want %q", tc.text, tc.key, got, tc.want)
-		}
-	}
-	if got := pageText([]byte("<p>a\n  <b>b</b></p>\tc")); got != "a b c" {
-		t.Errorf("pageText = %q", got)
-	}
-}

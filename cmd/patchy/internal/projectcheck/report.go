@@ -3,7 +3,10 @@
 
 package projectcheck
 
-import "github.com/bitwise-media-group/patchy/cmd/patchy/internal/checkreport"
+import (
+	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/checkreport"
+	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/previewcheck"
+)
 
 // The checks, in the order a report lists them.
 const (
@@ -14,16 +17,15 @@ const (
 	CheckAgentImage   = "agent-image"
 	CheckPreviews     = "previews"
 	CheckPreviewImage = "preview-image"
-	CheckPreviewDNS   = "preview-dns"
-	CheckPreviewTLS   = "preview-tls"
-	// The preview sign-in checks, reported only while the chart's
-	// previewAuth is on.
-	CheckPreviewAuth     = "preview-auth"
-	CheckPreviewAuthDex  = "preview-auth-dex"
-	CheckPreviewAuthHost = "preview-auth-host"
-	// CheckPreviewGatewayAllowlist is reported only while the preview
-	// gateway is on.
-	CheckPreviewGatewayAllowlist = "preview-gateway-allowlist"
+	// The preview path's checks, previewcheck's (the sign-in ones only while
+	// the chart's previewAuth is on, the allowlist only while the preview
+	// gateway is).
+	CheckPreviewDNS              = previewcheck.CheckPreviewDNS
+	CheckPreviewTLS              = previewcheck.CheckPreviewTLS
+	CheckPreviewAuth             = previewcheck.CheckPreviewAuth
+	CheckPreviewAuthDex          = previewcheck.CheckPreviewAuthDex
+	CheckPreviewAuthHost         = previewcheck.CheckPreviewAuthHost
+	CheckPreviewGatewayAllowlist = previewcheck.CheckPreviewGatewayAllowlist
 )
 
 // IntentRepository is the Repository of a check about the Project's intent

@@ -5,22 +5,17 @@ package projectcheck
 
 import (
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"regexp"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
-	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -29,24 +24,10 @@ import (
 	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
 	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/checkreport"
 	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/imagecheck"
+	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/previewcheck"
 	"github.com/bitwise-media-group/patchy/internal/forge"
-	"github.com/bitwise-media-group/patchy/internal/previewauth"
 	"github.com/bitwise-media-group/patchy/internal/runnerimage"
 )
-
-// The placeholder Ingress the chart keeps in slot 0 so the preview load
-// balancer, and so its address, outlives every Preview
-// (charts/patchy/templates/preview-foundation.yaml). Its status address is
-// the load balancer the wildcard record must point at.
-const (
-	placeholderNamespace = "patchy-preview-0"
-	placeholderName      = "patchy-preview-placeholder"
-)
-
-// tlsTimeout bounds the preview TLS handshake. The preview load balancer
-// drops connections from outside its inbound CIDRs, so a timeout is the
-// expected answer from anywhere else and must not hang the run.
-const tlsTimeout = 10 * time.Second
 
 // leafPattern is the one path segment preview-controller admits after its
 // image prefix (controller/preview's namePattern).
@@ -68,12 +49,13 @@ type Config struct {
 	// resolve.NewKeychain, the caller's own cloud and docker credentials.
 	Keychain authn.Keychain
 	// Resolver looks the preview host up; nil is net.DefaultResolver.
-	Resolver Resolver
-	// DialTLS completes the preview TLS handshake; nil is DialTLS.
-	DialTLS TLSDialer
+	Resolver previewcheck.Resolver
+	// DialTLS completes the preview TLS handshake; nil is
+	// previewcheck.DialTLS.
+	DialTLS previewcheck.TLSDialer
 	// HTTP sends the preview sign-in checks' requests, never following a
-	// redirect; nil is NewHTTPDoer.
-	HTTP HTTPDoer
+	// redirect; nil is previewcheck.NewHTTPDoer.
+	HTTP previewcheck.HTTPDoer
 }
 
 // run is one check of one Project.
@@ -96,15 +78,6 @@ type headResult struct {
 // readable, as the API server reported it (not found, forbidden); every
 // other failure to find something out is a SKIP line with its reason.
 func Run(ctx context.Context, cfg Config) (Report, error) {
-	if cfg.Resolver == nil {
-		cfg.Resolver = net.DefaultResolver
-	}
-	if cfg.DialTLS == nil {
-		cfg.DialTLS = DialTLS
-	}
-	if cfg.HTTP == nil {
-		cfg.HTTP = NewHTTPDoer()
-	}
 	var p v1alpha1.Project
 	if err := cfg.Reader.Get(ctx, types.NamespacedName{Namespace: cfg.Namespace, Name: cfg.Project}, &p); err != nil {
 		return Report{}, err
@@ -261,16 +234,16 @@ func (r *run) head(ctx context.Context, repoURL string) (Head, error) {
 func (r *run) agentImages(ctx context.Context, s settings) {
 	require := r.p.Spec.RequireRepositoryImage == nil || *r.p.Spec.RequireRepositoryImage
 	pol, polErr := s.policy()
-	if s.source.err != nil {
-		polErr = s.source.err
+	if s.Source.Err != nil {
+		polErr = s.Source.Err
 	}
 	for _, repo := range r.p.Spec.Repositories {
-		r.agentImage(ctx, repo, require, s.source, pol, polErr)
+		r.agentImage(ctx, repo, require, s.Source, pol, polErr)
 	}
 }
 
-func (r *run) agentImage(ctx context.Context, repo v1alpha1.ProjectRepository, require bool, cfg controllerConfig,
-	pol imagePolicy, polErr error) {
+func (r *run) agentImage(ctx context.Context, repo v1alpha1.ProjectRepository, require bool,
+	cfg previewcheck.ControllerConfig, pol imagePolicy, polErr error) {
 	key := repo.Name
 	head, err := r.head(ctx, repo.URL)
 	if err != nil {
@@ -309,14 +282,14 @@ func (r *run) agentImage(ctx context.Context, repo v1alpha1.ProjectRepository, r
 
 // judgeAgentImage judges one declared image under source-controller's
 // policy; declared names it and where it was declared, for the reasons.
-func (r *run) judgeAgentImage(ctx context.Context, key, image, declared string, require bool, cfg controllerConfig,
-	pol imagePolicy, polErr error) {
+func (r *run) judgeAgentImage(ctx context.Context, key, image, declared string, require bool,
+	cfg previewcheck.ControllerConfig, pol imagePolicy, polErr error) {
 	switch {
 	case polErr != nil:
 		r.add(CheckAgentImage, key, checkreport.Skip, "%s: cannot read source-controller's policy: %v; "+
 			"`patchy check image %s --allow <registry path>` checks it by hand", declared, polErr, image)
 		return
-	case !cfg.found():
+	case !cfg.Found():
 		r.add(CheckAgentImage, key, checkreport.Skip, "%s: no source-controller ConfigMap in namespace %s, so its "+
 			"policy is unknown; `patchy check image %s` checks it by hand", declared, r.p.Namespace, image)
 		return
@@ -416,20 +389,20 @@ func (r *run) previews(ctx context.Context, s settings) {
 		r.add(CheckPreviewTLS, "", checkreport.Skip, "no preview")
 		return
 	}
-	prefix := s.preview.data[keyPreviewImagePrefix]
-	suffix := s.preview.data[keyPreviewHostSuffix]
+	prefix := s.Preview.Data[keyPreviewImagePrefix]
+	suffix := s.Preview.Data[keyPreviewHostSuffix]
 	switch {
-	case s.intent.err != nil || s.preview.err != nil:
+	case s.Intent.Err != nil || s.Preview.Err != nil:
 		r.add(CheckPreviews, "", checkreport.Skip, "cannot read the controllers' settings: %v",
-			errors.Join(s.intent.err, s.preview.err))
-	case !s.intent.bool(keyIntentPreviewsEnabled):
+			errors.Join(s.Intent.Err, s.Preview.Err))
+	case !s.Intent.Bool(keyIntentPreviewsEnabled):
 		r.add(CheckPreviews, "", checkreport.Fail, "intent-controller writes no Preview: %s is not true in %s "+
-			"(the chart's previewController.enabled)", keyIntentPreviewsEnabled, orNone(s.intent.from, p.Namespace))
-	case !s.preview.found():
+			"(the chart's previewController.enabled)", keyIntentPreviewsEnabled, orNone(s.Intent.From, p.Namespace))
+	case !s.Preview.Found():
 		r.add(CheckPreviews, "", checkreport.Fail, "no preview-controller ConfigMap in namespace %s: is "+
 			"previewController.enabled set in the patchy chart?", p.Namespace)
 	case prefix == "" || suffix == "":
-		r.add(CheckPreviews, "", checkreport.Fail, "%s sets no %s or %s", s.preview.from, keyPreviewImagePrefix,
+		r.add(CheckPreviews, "", checkreport.Fail, "%s sets no %s or %s", s.Preview.From, keyPreviewImagePrefix,
 			keyPreviewHostSuffix)
 	default:
 		r.add(CheckPreviews, "", checkreport.Pass, "intent-controller writes Previews, and preview-controller serves "+
@@ -443,12 +416,14 @@ func (r *run) previews(ctx context.Context, s settings) {
 	for _, rp := range previews {
 		r.previewImage(ctx, rp, prefix, baseRuns)
 	}
-	if mode := s.probeMode(); mode != previewauth.ProbeALB {
-		r.gatewayHost(ctx, s, suffix, mode)
-	} else {
-		r.previewHost(ctx, suffix)
+	pc := previewcheck.New(previewcheck.Config{Reader: r.cfg.Reader, Namespace: p.Namespace, Project: p.Name,
+		Resolver: r.cfg.Resolver, DialTLS: r.cfg.DialTLS, HTTP: r.cfg.HTTP})
+	pc.Host(ctx, s.Settings, suffix)
+	pc.Auth(ctx, s.Settings, suffix)
+	for _, l := range pc.Lines() {
+		// previewcheck has made each reason printable already.
+		r.report.Checks = append(r.report.Checks, Check{Name: l.Name, Status: l.Status, Reason: l.Reason})
 	}
-	r.previewAuth(ctx, s, suffix)
 }
 
 // previewImage checks one previewed repository's image repository: under
@@ -590,117 +565,6 @@ func registryCode(err error) transport.ErrorCode {
 		return "404"
 	}
 	return ""
-}
-
-// previewHost checks the preview host: <project>-0.<suffix> resolves to the
-// placeholder Ingress's load balancer, and serves a certificate trusted for
-// it. No Intent is numbered 0, so no Preview owns that name.
-func (r *run) previewHost(ctx context.Context, suffix string) {
-	if suffix == "" {
-		r.add(CheckPreviewDNS, "", checkreport.Skip, "preview-controller's host suffix is unknown")
-		r.add(CheckPreviewTLS, "", checkreport.Skip, "preview-controller's host suffix is unknown")
-		return
-	}
-	host := r.p.Name + "-0." + suffix
-	addrs, err := r.cfg.Resolver.LookupHost(ctx, host)
-	var dnsErr *net.DNSError
-	switch {
-	case err != nil && errors.As(err, &dnsErr) && dnsErr.IsNotFound:
-		r.add(CheckPreviewDNS, "", checkreport.Fail, "%s does not resolve (%v): a wildcard record *.%s must point "+
-			"at the preview load balancer", host, err, suffix)
-		r.add(CheckPreviewTLS, "", checkreport.Skip, "%s does not resolve", host)
-		return
-	case err != nil:
-		// A timeout, a SERVFAIL or the run's own deadline says nothing
-		// about the record: only NXDOMAIN is evidence that it is missing.
-		r.add(CheckPreviewDNS, "", checkreport.Skip, "cannot look %s up (%v), which does not say whether the "+
-			"record exists; run this again", host, err)
-		r.add(CheckPreviewTLS, "", checkreport.Skip, "%s could not be looked up", host)
-		return
-	}
-	slices.Sort(addrs)
-	switch lb := r.loadBalancer(ctx); {
-	case lb.why != "" && lb.status == checkreport.Fail:
-		r.add(CheckPreviewDNS, "", checkreport.Fail, "%s resolves to %s, but there is no preview load balancer for "+
-			"it to point at: %s", host, strings.Join(addrs, ", "), lb.why)
-	case lb.why != "":
-		r.add(CheckPreviewDNS, "", checkreport.Skip, "%s resolves to %s, but it cannot be compared with the preview "+
-			"load balancer: %s", host, strings.Join(addrs, ", "), lb.why)
-	case slices.ContainsFunc(addrs, func(a string) bool { return slices.Contains(lb.addrs, a) }):
-		r.add(CheckPreviewDNS, "", checkreport.Pass, "%s resolves to the preview load balancer %s (%s)", host,
-			lb.name, strings.Join(addrs, ", "))
-	default:
-		r.add(CheckPreviewDNS, "", checkreport.Fail, "%s resolves to %s, but the preview load balancer %s is at %s: "+
-			"the wildcard record *.%s must point at it", host, strings.Join(addrs, ", "), lb.name,
-			strings.Join(lb.addrs, ", "), suffix)
-	}
-
-	r.previewTLS(ctx, host, suffix, "the preview load balancer admits only the chart's preview.inboundCIDRs")
-}
-
-// previewTLS checks host serves a certificate trusted for it. admits says
-// who answers only some addresses, for a timeout's reason.
-func (r *run) previewTLS(ctx context.Context, host, suffix, admits string) {
-	dctx, cancel := context.WithTimeout(ctx, tlsTimeout)
-	state, err := r.cfg.DialTLS(dctx, host)
-	cancel()
-	var verify *tls.CertificateVerificationError
-	var hostname x509.HostnameError
-	switch {
-	case err == nil && len(state.PeerCertificates) > 0:
-		leaf := state.PeerCertificates[0]
-		r.add(CheckPreviewTLS, "", checkreport.Pass, "%s serves a trusted certificate for %s (issued by %s, valid "+
-			"until %s)", host, strings.Join(leaf.DNSNames, ", "), leaf.Issuer.CommonName,
-			leaf.NotAfter.UTC().Format(time.DateOnly))
-	case err == nil:
-		r.add(CheckPreviewTLS, "", checkreport.Fail, "%s completed a handshake without a certificate", host)
-	case timedOut(err):
-		r.add(CheckPreviewTLS, "", checkreport.Skip, "no answer from %s:443 within %s: %s, so this is expected "+
-			"from any other address; run it from an admitted one", host, tlsTimeout, admits)
-	case errors.As(err, &verify) || errors.As(err, &hostname):
-		r.add(CheckPreviewTLS, "", checkreport.Fail, "%s serves a certificate that is not trusted for it (it must "+
-			"cover *.%s): %v", host, suffix, err)
-	default:
-		r.add(CheckPreviewTLS, "", checkreport.Fail, "%s:443: %v", host, err)
-	}
-}
-
-// previewLB is the preview load balancer as the placeholder Ingress reports
-// it: its name and addresses, or why it cannot be compared against.
-type previewLB struct {
-	name  string
-	addrs []string
-	// why is set when it cannot be compared against, and status then says
-	// what that makes the DNS check: Skip when it could not be found out,
-	// Fail when the Ingress shows there is no load balancer.
-	why    string
-	status checkreport.Status
-}
-
-// loadBalancer reads the placeholder Ingress's load balancer.
-func (r *run) loadBalancer(ctx context.Context) previewLB {
-	var ing networkingv1.Ingress
-	key := types.NamespacedName{Namespace: placeholderNamespace, Name: placeholderName}
-	if err := r.cfg.Reader.Get(ctx, key, &ing); err != nil {
-		return previewLB{status: checkreport.Skip, why: fmt.Sprintf("cannot read the placeholder Ingress %s: %v",
-			key, err)}
-	}
-	for _, in := range ing.Status.LoadBalancer.Ingress {
-		switch {
-		case in.Hostname != "":
-			addrs, err := r.cfg.Resolver.LookupHost(ctx, in.Hostname)
-			if err != nil {
-				return previewLB{status: checkreport.Skip, why: fmt.Sprintf("its address %s does not resolve: %v",
-					in.Hostname, err)}
-			}
-			return previewLB{name: in.Hostname, addrs: addrs}
-		case in.IP != "":
-			return previewLB{name: in.IP, addrs: []string{in.IP}}
-		}
-	}
-	return previewLB{status: checkreport.Fail, why: fmt.Sprintf("the placeholder Ingress %s has no load balancer "+
-		"address, so the preview load balancer is not provisioned (the Ingress's events say why; one created "+
-		"minutes ago may still be provisioning)", key)}
 }
 
 // orNone names the ConfigMaps a setting was read from, or says there were

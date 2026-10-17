@@ -1359,10 +1359,10 @@ notes notes-pg-none -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.ingre
 notes_has notes-pg-none "none rendered. Route *.preview.patchy.devthe.net to" yes
 notes_has notes-pg-none "port 80 yourself (a tunnel, your own Ingress), terminating TLS there" yes
 # publishedAddresses is never routed by, and patchy check project compares DNS
-# with it (cmd/patchy/internal/projectcheck/gateway.go reads the annotation),
+# with it (cmd/patchy/internal/previewcheck/gateway.go reads the annotation),
 # so no doc may still say nothing reads it.
 if ! grep -q 'publishedAnnotation = "patchy.bitwisemedia.uk/preview-gateway-published-addresses"' \
-  cmd/patchy/internal/projectcheck/gateway.go; then
+  cmd/patchy/internal/previewcheck/gateway.go; then
   fail "publishedAddresses: patchy check project no longer reads the annotation the chart writes"
 fi
 if grep -rn -i 'published' charts/patchy/values.yaml charts/patchy/values.schema.json charts/patchy/templates \
