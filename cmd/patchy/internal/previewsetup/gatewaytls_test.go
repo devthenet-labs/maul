@@ -320,8 +320,49 @@ func TestNextStepsCreatesAnUnwrittenCredential(t *testing.T) {
 		t.Errorf("NEXT-STEPS.md does not say how to create the credential:\n%s", next[NextStepsFile])
 	}
 	next = byPath(planWith(t, goldenCases()["gateway-tls-route53-eks"], Secrets{DexClient: sentinel}))
-	if !strings.Contains(next[NextStepsFile], "It takes no credential") ||
+	if !strings.Contains(next[NextStepsFile], "It takes no stored credential") ||
 		strings.Contains(next[NextStepsFile], "create secret generic "+DNSSecret) {
 		t.Errorf("an ambient solver is told to create a credential:\n%s", next[NextStepsFile])
+	}
+}
+
+// TestAmbientSolverIsAClusterIssuer: cert-manager lends its own identity
+// (IRSA, Pod Identity, workload identity, a managed identity) only to
+// ClusterIssuers unless --issuer-ambient-credentials is set, so a
+// namespaced Issuer with no stored credential could never answer the
+// challenge. Each ambient solver gets a ClusterIssuer the Certificate
+// names, never claims to be namespaced, and NEXT-STEPS.md says how
+// cert-manager gets the identity and that it is cluster-wide.
+func TestAmbientSolverIsAClusterIssuer(t *testing.T) {
+	for dns, opts := range map[string]map[string]string{
+		"route53": {"region": "eu-west-2"},
+		"google":  {"project": "acme-previews"},
+		"azure":   {"subscriptionID": "00000000-0000-4000-8000-000000000001", "resourceGroupName": "dns"},
+	} {
+		a := gatewayAnswers()
+		a.Certificate = Certificate{DNS: dns, DNSOptions: opts}
+		files := byPath(planWith(t, a, Secrets{DexClient: sentinel}))
+		iss, next := files[IssuerFile], files[NextStepsFile]
+		if !strings.Contains(iss, "kind: ClusterIssuer") || strings.Contains(iss, "namespace:") ||
+			strings.Contains(iss, "only this namespace") {
+			t.Errorf("--dns %s: not a ClusterIssuer:\n%s", dns, iss)
+		}
+		if !strings.Contains(files[CertificateFile], "kind: ClusterIssuer\n    name: preview-dns01-"+a.Namespace) {
+			t.Errorf("--dns %s: the Certificate does not name the ClusterIssuer:\n%s", dns, files[CertificateFile])
+		}
+		for _, want := range []string{"Give cert-manager's ServiceAccount `cert-manager/cert-manager`",
+			"It is cluster-wide", "do not set `--issuer-ambient-credentials`"} {
+			if !strings.Contains(next, want) {
+				t.Errorf("--dns %s: NEXT-STEPS.md does not say %q:\n%s", dns, want, next)
+			}
+		}
+	}
+	// A stored credential keeps the Issuer namespaced.
+	a := gatewayAnswers()
+	a.Certificate = Certificate{DNS: "route53", DNSOptions: map[string]string{"region": "eu-west-2",
+		"accessKeyID": "AKIAIOSFODNN7EXAMPLE"}}
+	iss := byPath(planWith(t, a, Secrets{DexClient: sentinel}))[IssuerFile]
+	if !strings.Contains(iss, "kind: Issuer\n") || !strings.Contains(iss, "namespace: "+a.Namespace) {
+		t.Errorf("a stored credential's Issuer is not namespaced:\n%s", iss)
 	}
 }

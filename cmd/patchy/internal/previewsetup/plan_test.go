@@ -289,6 +289,9 @@ func TestIssuerNamesItsCredential(t *testing.T) {
 		if !written {
 			return true
 		}
+		if !issuerKindHolds(t, a, iss, key, kind, name) {
+			return false
+		}
 		refs := regexp.MustCompile(`key: (\S+)\n\s+name: `+DNSSecret+`\n`).FindAllStringSubmatch(iss, -1)
 		if key == "" {
 			if len(refs) > 0 || strings.Contains(iss, DNSSecret) {
@@ -389,4 +392,35 @@ func TestNextStepsEdgeTLS(t *testing.T) {
 			t.Errorf("class %q: Ingress TLS names the Certificate %v, want %v", tc.class, got, tc.cert)
 		}
 	}
+}
+
+// issuerKindHolds: an ambient identity is a ClusterIssuer (cert-manager
+// lends it to no namespaced Issuer by default) that never claims to be
+// namespaced; a stored credential stays in a namespaced Issuer beside its
+// Secret. kind and name are a.Issuer(), what the Certificate names.
+func issuerKindHolds(t *testing.T, a Answers, iss, key, kind, name string) bool {
+	t.Helper()
+	var meta struct {
+		Kind     string `json:"kind"`
+		Metadata struct{ Name, Namespace string }
+	}
+	if err := yaml.Unmarshal([]byte(iss), &meta); err != nil {
+		t.Logf("the Issuer does not parse: %v", err)
+		return false
+	}
+	wantKind, wantNS := "Issuer", a.Namespace
+	if key == "" {
+		wantKind, wantNS = "ClusterIssuer", ""
+	}
+	if meta.Kind != wantKind || meta.Metadata.Namespace != wantNS || meta.Metadata.Name != name ||
+		kind != wantKind {
+		t.Logf("--dns %s (credential key %q): %s %s/%s, want %s in %q", a.Certificate.DNS, key, meta.Kind,
+			meta.Metadata.Namespace, meta.Metadata.Name, wantKind, wantNS)
+		return false
+	}
+	if key == "" && strings.Contains(iss, "only this namespace") {
+		t.Logf("a ClusterIssuer claims to be namespaced:\n%s", iss)
+		return false
+	}
+	return true
 }

@@ -13,7 +13,7 @@ change before it replaces a file, and never draws a new Dex client secret unless
 | `NEXT-STEPS.md` | This file. |
 | `answers.yaml` | Every answer, the edge and the CLI version: a re-run starts from it. No secret. |
 | `manifests/certificate.yaml` | The cert-manager Certificate for `*.<suffix>` and the sign-in host. |
-| `manifests/issuer.yaml` | The namespaced ACME Issuer that answers the Certificate's DNS-01 challenge. |
+| `manifests/issuer.yaml` | The ACME Issuer that answers the Certificate's DNS-01 challenge (a ClusterIssuer when cert-manager's own identity answers). |
 | `patchy-previews.values.yaml` | patchy's chart values for previews, layered after your own. |
 | `secrets/dex-patchy-preview-auth-client.secret.yaml` | The same secret, in Dex's namespace, for its static client (0600). |
 | `secrets/patchy-preview-auth-dex.secret.yaml` | The relay's Dex client secret, in the release namespace (0600). |

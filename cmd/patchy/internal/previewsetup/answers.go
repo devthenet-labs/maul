@@ -358,8 +358,12 @@ func (a Answers) ChartEdgeClass() bool {
 }
 
 // Issuer is the cert-manager issuer the Certificate names: the one the
-// recipe writes, else the operator's.
+// recipe writes (a ClusterIssuer for an ambient identity), else the
+// operator's.
 func (a Answers) Issuer() (kind, name string) {
+	if a.AmbientIssuer() {
+		return "ClusterIssuer", ambientIssuerPrefix + a.Namespace
+	}
 	ref := a.Certificate.Issuer
 	if ref == "" || a.WritesIssuer() {
 		ref = DefaultCertificateIssuer

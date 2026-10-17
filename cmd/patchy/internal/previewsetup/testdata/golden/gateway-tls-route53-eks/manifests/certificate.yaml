@@ -11,8 +11,8 @@ spec:
   - '*.acme-previews.dev'
   - preview-auth.patchy.acme.dev
   issuerRef:
-    kind: Issuer
-    name: preview-dns01
+    kind: ClusterIssuer
+    name: preview-dns01-patchy
   privateKey:
     algorithm: ECDSA
     rotationPolicy: Always

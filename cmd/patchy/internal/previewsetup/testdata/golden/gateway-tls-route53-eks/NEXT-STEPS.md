@@ -13,7 +13,7 @@ change before it replaces a file, and never draws a new Dex client secret unless
 | `NEXT-STEPS.md` | This file. |
 | `answers.yaml` | Every answer, the edge and the CLI version: a re-run starts from it. No secret. |
 | `manifests/certificate.yaml` | The cert-manager Certificate for `*.<suffix>` and the sign-in host. |
-| `manifests/issuer.yaml` | The namespaced ACME Issuer that answers the Certificate's DNS-01 challenge. |
+| `manifests/issuer.yaml` | The ACME Issuer that answers the Certificate's DNS-01 challenge (a ClusterIssuer when cert-manager's own identity answers). |
 | `patchy-previews.values.yaml` | patchy's chart values for previews, layered after your own. |
 | `secrets/dex-patchy-preview-auth-client.secret.yaml` | The same secret, in Dex's namespace, for its static client (0600). |
 | `secrets/patchy-preview-auth-dex.secret.yaml` | The relay's Dex client secret, in the release namespace (0600). |
@@ -115,7 +115,15 @@ The Issuer answers the challenge with the `route53` DNS-01 solver. Grant cert-ma
 }
 ```
 
-It takes no credential: cert-manager's own identity answers, so give that identity the grant above.
+It takes no stored credential: cert-manager's own identity answers, so give that identity the grant above.
+Give cert-manager's ServiceAccount `cert-manager/cert-manager` an IAM role: an EKS Pod Identity association, or IRSA (`serviceAccount.annotations: {eks.amazonaws.com/role-arn: <the role's ARN>}` in cert-manager's values).
+
+cert-manager lends its own identity only to a ClusterIssuer, so `manifests/issuer.yaml` is the ClusterIssuer
+`preview-dns01-patchy`, not a namespaced Issuer: do not set `--issuer-ambient-credentials` instead, which would let every
+namespace's Issuer spend that identity. It is cluster-wide either way: a Certificate in any namespace can name
+`preview-dns01-patchy` and be issued any name the identity can answer for, so keep the grant to the two challenge records.
+To keep it to this namespace instead, run the command again with a stored credential (`--dns-option accessKeyID=<AKIA...>` and
+`--dns-credentials-file`): the recipe then writes a namespaced Issuer that reads it from a Secret.
 
 ```sh
 kubectl apply -f manifests/issuer.yaml

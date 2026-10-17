@@ -109,7 +109,15 @@ kubectl -n {{.Namespace}} create secret generic {{.DNSSecret}} --from-file={{.DN
 ```
 {{- else}}
 
-It takes no credential: cert-manager's own identity answers, so give that identity the grant above.
+It takes no stored credential: cert-manager's own identity answers, so give that identity the grant above.
+{{.AmbientIdentity}}
+
+cert-manager lends its own identity only to a ClusterIssuer, so `{{.IssuerFile}}` is the ClusterIssuer
+`{{.IssuerName}}`, not a namespaced Issuer: do not set `--issuer-ambient-credentials` instead, which would let every
+namespace's Issuer spend that identity. It is cluster-wide either way: a Certificate in any namespace can name
+`{{.IssuerName}}` and be issued any name the identity can answer for, so keep the grant to the two challenge records.
+To keep it to this namespace instead, run the command again with a stored credential (`{{.AmbientStored}}` and
+`--dns-credentials-file`): the recipe then writes a namespaced Issuer that reads it from a Secret.
 {{- end}}
 {{- end}}
 

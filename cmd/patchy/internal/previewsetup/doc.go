@@ -33,8 +33,10 @@
 //     until it lands.
 //   - R2 and R3 share the certificate pieces: the wildcard Certificate, the
 //     namespaced ACME Issuer with one DNS-01 solver (dnsProviders, every
-//     setting non-secret; --dns manual names the operator's own issuer
-//     instead), and the DNS credential the operator hands over in a file or
+//     setting non-secret; a ClusterIssuer when the solver takes no stored
+//     credential, since cert-manager lends its own identity to no
+//     namespaced Issuer by default; --dns manual names the operator's own
+//     issuer instead), and the DNS credential the operator hands over in a file or
 //     on stdin, held in a redacted Credential and written only into its
 //     Secret manifest (read back on a re-run, as the Dex client secret is).
 //   - Pins are the upstream charts the recipes write values for

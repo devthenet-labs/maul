@@ -312,14 +312,19 @@ func checkGatewayCertificate(t *testing.T, a Answers, objs []*unstructured.Unstr
 	}
 	if issuerFile, ok := byPath(files)[IssuerFile]; ok {
 		var iss struct {
+			Kind     string                           `json:"kind"`
 			Metadata struct{ Name, Namespace string } `json:"metadata"`
 		}
 		if err := yaml.Unmarshal([]byte(issuerFile), &iss); err != nil {
 			t.Fatal(err)
 		}
-		if cert.Spec.IssuerRef.Kind != "Issuer" || cert.Spec.IssuerRef.Name != iss.Metadata.Name ||
-			iss.Metadata.Namespace != a.Namespace {
-			t.Errorf("Certificate names %+v, the Issuer written is %+v", cert.Spec.IssuerRef, iss.Metadata)
+		wantNS := a.Namespace
+		if iss.Kind == "ClusterIssuer" {
+			wantNS = ""
+		}
+		if cert.Spec.IssuerRef.Kind != iss.Kind || cert.Spec.IssuerRef.Name != iss.Metadata.Name ||
+			iss.Metadata.Namespace != wantNS {
+			t.Errorf("Certificate names %+v, the %s written is %+v", cert.Spec.IssuerRef, iss.Kind, iss.Metadata)
 		}
 	}
 }

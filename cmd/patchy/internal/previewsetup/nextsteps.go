@@ -45,7 +45,9 @@ type nextSteps struct {
 	DNSCredentialNeeded                bool // the solver reads DNSSecret
 	DNSCredentialWritten               bool // and the wizard wrote it
 	DNSLeastPrivilege                  string
-	CertManager, TailscaleOperator     *Pin // nil: already installed, or not needed
+	AmbientIdentity                    string // how cert-manager gets the identity a ClusterIssuer spends
+	AmbientStored                      string // the options that give the solver a stored credential instead
+	CertManager, TailscaleOperator     *Pin   // nil: already installed, or not needed
 	LBClass                            string
 	InboundCIDRs                       []string
 	ServiceLB                          bool // k3s's ServiceLB gives the LoadBalancer its address
@@ -65,8 +67,9 @@ var fileWhat = map[string]string{
 	SignInRouteFile:     "The HTTPRoute that sends the sign-in host to the preview gateway.",
 	RelayDexSecretFile:  "The relay's Dex client secret, in the release namespace (0600).",
 	DexClientSecretFile: "The same secret, in Dex's namespace, for its static client (0600).",
-	IssuerFile:          "The namespaced ACME Issuer that answers the Certificate's DNS-01 challenge.",
-	DNSSecretFile:       "The DNS-01 solver's credential, in the release namespace (0600).",
+	IssuerFile: "The ACME Issuer that answers the Certificate's DNS-01 challenge (a ClusterIssuer when " +
+		"cert-manager's own identity answers).",
+	DNSSecretFile: "The DNS-01 solver's credential, in the release namespace (0600).",
 	CertManager.ValuesFile: "cert-manager's values, for the chart version patchy pins (" + CertManager.Version +
 		").",
 	TailscaleOperator.ValuesFile: "The Tailscale operator's values, for the chart version patchy pins (" +
@@ -127,6 +130,10 @@ func gatewayCertSteps(a Answers, d *nextSteps, paths []string) {
 	d.DNSCredentialNeeded = d.DNSSecretKey != ""
 	d.DNSCredentialWritten = slices.Contains(paths, DNSSecretFile)
 	d.DNSLeastPrivilege = leastPrivilegeNote(a)
+	if a.AmbientIssuer() {
+		d.AmbientIdentity = ambientIdentityNote(a)
+		d.AmbientStored = storedCredentialOptions[a.Certificate.DNS]
+	}
 	if !a.Certificate.CertManagerInstalled {
 		d.CertManager = &CertManager
 	}
@@ -175,6 +182,39 @@ func leastPrivilegeNote(a Answers) string {
 		return "Let the TSIG key update only the TXT records `" + suffix + "` and `" + signIn + "` (BIND: " +
 			"`update-policy { grant " + a.Certificate.DNSOptions["tsigKeyName"] + " name " + suffix + ". TXT; " +
 			"grant " + a.Certificate.DNSOptions["tsigKeyName"] + " name " + signIn + ". TXT; };`)."
+	}
+	return ""
+}
+
+// storedCredentialOptions are the --dns-option values that turn an ambient
+// solver into one reading a stored credential.
+var storedCredentialOptions = map[string]string{
+	"route53": "--dns-option accessKeyID=<AKIA...>",
+	"google":  "--dns-option serviceAccountKey=true",
+	"azure":   "--dns-option clientID=<id> --dns-option tenantID=<id>",
+}
+
+// ambientIdentityNote is how cert-manager's own ServiceAccount (release
+// and namespace as NEXT-STEPS.md installs it) gets the identity an
+// ambient solver answers with. Printed, never applied (owner decision Q2).
+func ambientIdentityNote(a Answers) string {
+	sa := "`" + CertManager.Namespace + "/" + CertManager.Release + "`"
+	switch a.Certificate.DNS {
+	case "route53":
+		return "Give cert-manager's ServiceAccount " + sa + " an IAM role: an EKS Pod Identity association, or " +
+			"IRSA (`serviceAccount.annotations: {eks.amazonaws.com/role-arn: <the role's ARN>}` in cert-manager's " +
+			"values)."
+	case "google":
+		return "Give cert-manager's ServiceAccount " + sa + " a Google service account through GKE Workload " +
+			"Identity: `serviceAccount.annotations: {iam.gke.io/gcp-service-account: <its email>}` in cert-manager's " +
+			"values, and `roles/iam.workloadIdentityUser` on that service account for `serviceAccount:" +
+			a.Certificate.DNSOptions["project"] + ".svc.id.goog[" + CertManager.Namespace + "/" +
+			CertManager.Release + "]` (the cluster's own project, if DNS is in another)."
+	case "azure":
+		return "Give cert-manager's ServiceAccount " + sa + " a managed identity through Azure Workload Identity: " +
+			"`podLabels` and `serviceAccount.labels` `{azure.workload.identity/use: \"true\"}` in cert-manager's " +
+			"values, and a federated credential on the identity for `system:serviceaccount:" +
+			CertManager.Namespace + ":" + CertManager.Release + "`."
 	}
 	return ""
 }

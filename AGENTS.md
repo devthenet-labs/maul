@@ -211,8 +211,10 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   the gateway's own Local LoadBalancer Service terminating TLS, `forwardedHops: 0`) and `tailscale` (R3: that Service
   as ClusterIP with the Tailscale operator's `expose`, hostname and tag annotations, a public DNS record to the device's
   100.x address, the tailnet policy as the allowlist). R2 and R3 write the wildcard Certificate, a namespaced ACME
-  Issuer with one DNS-01 solver (`--dns`, `--dns-option key=value`, never a secret; `--dns manual` names the
-  operator's issuer instead) and, unless already running, values for cert-manager and the Tailscale operator at the
+  Issuer with one DNS-01 solver (`--dns`, `--dns-option key=value`, never a secret; a ClusterIssuer
+  `preview-dns01-<namespace>` when the solver takes no stored credential, since cert-manager lends its ambient identity
+  to no namespaced Issuer by default; Route53's `hostedZoneID` refused, the two names never sharing a zone; `--dns
+  manual` names the operator's issuer instead) and, unless already running, values for cert-manager and the Tailscale operator at the
   chart versions `pins.go` pins (each a constant under a renovate comment; `mise run preview-pins`, CI's `preview-pins`
   job, checks each exists, renders with what is written, and holds every golden Issuer and Certificate to
   cert-manager's CRDs at that version, unknown fields included). A DNS credential comes only from

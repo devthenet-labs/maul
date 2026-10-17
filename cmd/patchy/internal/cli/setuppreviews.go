@@ -61,7 +61,8 @@ func newSetupPreviewsCmd(opts *Options) *cobra.Command {
 			"already in the cluster; --edge gateway-tls makes the gateway's Service a LoadBalancer that\n" +
 			"terminates TLS itself; --edge tailscale gives that Service a tailnet device through the\n" +
 			"Tailscale operator. The last two write a cert-manager Certificate and, unless --dns manual,\n" +
-			"the namespaced ACME Issuer that answers its DNS-01 challenge, plus values for cert-manager\n" +
+			"the ACME Issuer that answers its DNS-01 challenge (a ClusterIssuer when cert-manager's own\n" +
+			"identity answers, with no stored credential), plus values for cert-manager\n" +
 			"and the Tailscale operator at the chart versions patchy pins. A DNS credential is read\n" +
 			"from --dns-credentials-file or --dns-credentials-from-stdin, never a flag value, and is\n" +
 			"written only into a Secret manifest.\n\n" +

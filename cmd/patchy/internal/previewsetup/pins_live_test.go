@@ -67,7 +67,8 @@ func liveCertManager(t *testing.T, chart string) {
 		}
 		crds[o.GetName()] = newStructuralValidator(t, o)
 	}
-	for _, name := range []string{"issuers.cert-manager.io", "certificates.cert-manager.io"} {
+	for _, name := range []string{"issuers.cert-manager.io", "clusterissuers.cert-manager.io",
+		"certificates.cert-manager.io"} {
 		if crds[name] == nil {
 			t.Fatalf("cert-manager %s renders no CRD %s with crds.enabled", CertManager.Version, name)
 		}
@@ -80,6 +81,9 @@ func liveCertManager(t *testing.T, chart string) {
 			data, ok := files[path]
 			if !ok {
 				continue
+			}
+			if path == IssuerFile && a.AmbientIssuer() {
+				crd = "clusterissuers.cert-manager.io"
 			}
 			if errs := crds[crd].validate(t, []byte(data)); len(errs) > 0 {
 				t.Errorf("%s/%s is not valid against cert-manager %s: %v", name, path, CertManager.Version, errs)

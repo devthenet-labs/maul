@@ -18,7 +18,13 @@ const DNSManual = "manual"
 
 // The DNS-01 Issuer's names, in the release namespace beside the one
 // Certificate that uses it (design §4.3 R2: a namespaced Issuer, not a
-// ClusterIssuer, so no other namespace can spend the DNS credential).
+// ClusterIssuer, so no other namespace can spend the DNS credential). A
+// solver with no stored credential (an ambient identity: IRSA, EKS Pod
+// Identity, GKE workload identity, an Azure managed identity) is the
+// exception: cert-manager lends its own identity only to ClusterIssuers
+// unless --issuer-ambient-credentials is set, which would let every
+// namespace's Issuer spend it, so those get a ClusterIssuer of their own
+// (AmbientIssuer) and NEXT-STEPS.md says plainly that it is cluster-wide.
 const (
 	IssuerFile = "manifests/issuer.yaml"
 	// issuerAccountSecret holds the ACME account key cert-manager creates.
@@ -27,6 +33,10 @@ const (
 	// provider's solver names (dnsProvider.secretKey).
 	DNSSecret     = "preview-dns01-credentials"
 	DNSSecretFile = "secrets/" + DNSSecret + ".secret.yaml"
+	// ambientIssuerPrefix names the ClusterIssuer an ambient identity
+	// answers through, suffixed with the release namespace so two releases
+	// in one cluster never share it.
+	ambientIssuerPrefix = "preview-dns01-"
 	// ACMEServer is Let's Encrypt's production directory.
 	ACMEServer = "https://acme-v02.api.letsencrypt.org/directory"
 )
@@ -328,12 +338,21 @@ func sortedKeys(m map[string]string) []string {
 	return keys
 }
 
-// issuer is the namespaced ACME Issuer the gateway-tls and tailscale
-// recipes write: Let's Encrypt, one DNS-01 solver, its credential (when it
-// takes one) in DNSSecret beside it.
+// AmbientIssuer reports a recipe-written issuer whose solver takes no
+// stored credential: cert-manager's own identity answers, so it is a
+// ClusterIssuer (see the const block above).
+func (a Answers) AmbientIssuer() bool {
+	_, known := dnsProviders[a.Certificate.DNS]
+	return known && a.WritesIssuer() && a.DNSCredentialKey() == ""
+}
+
+// issuer is the ACME issuer the gateway-tls and tailscale recipes write:
+// Let's Encrypt, one DNS-01 solver, its credential (when it takes one) in
+// DNSSecret beside it. Namespaced, but a ClusterIssuer for an ambient
+// identity.
 func issuer(a Answers) ([]byte, error) {
 	p := dnsProviders[a.Certificate.DNS]
-	_, name := a.Issuer()
+	kind, name := a.Issuer()
 	acme := map[string]any{
 		"server":              ACMEServer,
 		"privateKeySecretRef": map[string]any{"name": issuerAccountSecret},
@@ -344,15 +363,26 @@ func issuer(a Answers) ([]byte, error) {
 	if a.Certificate.ACMEEmail != "" {
 		acme["email"] = a.Certificate.ACMEEmail
 	}
+	meta := map[string]any{"name": name, "namespace": a.Namespace}
 	comment := []string{"The ACME Issuer the wildcard Certificate names: namespaced, so only this namespace's " +
 		"Certificates can", "spend the DNS credential. A wildcard needs DNS-01."}
+	if a.AmbientIssuer() {
+		delete(meta, "namespace")
+		comment = []string{
+			"The ACME ClusterIssuer the wildcard Certificate names. A wildcard needs DNS-01. Its solver takes no",
+			"stored credential: cert-manager's own identity answers, and cert-manager lends that identity only to",
+			"ClusterIssuers (unless --issuer-ambient-credentials, which would let every namespace's Issuer spend it).",
+			"It is cluster-wide: a Certificate in any namespace can name it, and get a certificate for any name that",
+			"identity can answer for. Grant the identity the two challenge records and nothing more.",
+		}
+	}
 	if a.DNSCredentialKey() != "" {
 		comment = append(comment, fmt.Sprintf("Its credential is Secret %s, key %s.", DNSSecret, a.DNSCredentialKey()))
 	}
 	return manifest(map[string]any{
 		"apiVersion": "cert-manager.io/v1",
-		"kind":       "Issuer",
-		"metadata":   map[string]any{"name": name, "namespace": a.Namespace},
+		"kind":       kind,
+		"metadata":   meta,
 		"spec":       map[string]any{"acme": acme},
 	}, comment...)
 }
