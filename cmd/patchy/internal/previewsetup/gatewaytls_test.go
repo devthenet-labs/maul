@@ -135,6 +135,18 @@ func TestNormalizeGatewayAnswers(t *testing.T) {
 	if a.Certificate.DNS != "route53" || a.Certificate.DNSOptions != nil {
 		t.Errorf("certificate = %+v", a.Certificate)
 	}
+
+	// Host bits survive Normalize, so Validate refuses them in the order
+	// the command runs the two.
+	b := gatewayAnswers()
+	b.LoadBalancer.InboundCIDRs = []string{"10.0.0.1/8"}
+	b.Normalize()
+	if want := []string{"10.0.0.1/8"}; !slices.Equal(b.LoadBalancer.InboundCIDRs, want) {
+		t.Errorf("inbound CIDRs = %v, want %v", b.LoadBalancer.InboundCIDRs, want)
+	}
+	if err := b.Validate(); err == nil || !strings.Contains(err.Error(), "--inbound-cidr") {
+		t.Errorf("Validate after Normalize = %v, want the host bits refused", err)
+	}
 }
 
 func TestDNSCredentialKey(t *testing.T) {

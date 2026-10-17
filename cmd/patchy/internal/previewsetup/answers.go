@@ -277,13 +277,15 @@ func (a *Answers) Normalize() {
 	a.Tailscale.Addresses = sortedUnique(canonicalAddrs(a.Tailscale.Addresses))
 }
 
-// canonicalPrefixes writes each CIDR that parses in its one form (the
-// network address, lowercase); the others are left for Validate to name.
+// canonicalPrefixes writes each CIDR that parses in its one form
+// (lowercase, IPv6 compressed); the others are left for Validate to name.
+// Host bits are kept, never masked: 10.0.0.1/8 meant to admit one host
+// would otherwise quietly admit a /8, so Validate refuses it instead.
 func canonicalPrefixes(in []string) []string {
 	out := make([]string, 0, len(in))
 	for _, s := range in {
 		if p, err := netip.ParsePrefix(strings.TrimSpace(s)); err == nil {
-			s = p.Masked().String()
+			s = p.String()
 		}
 		out = append(out, s)
 	}

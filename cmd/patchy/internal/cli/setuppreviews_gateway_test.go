@@ -182,6 +182,9 @@ func TestSetupPreviewsGatewayRefusals(t *testing.T) {
 		"not a file":      {[]string{"--dns-credentials-file", "/"}, "not a regular file"},
 		"two-line token":  {[]string{"--dns-credentials-file", "TWO"}, "white space"},
 		"public address":  {[]string{"--tailscale-address", "203.0.113.4"}, "--tailscale-address"},
+		// Host bits set: refused, never quietly widened to the network.
+		"host bits": {[]string{"--edge", "gateway-tls", "--inbound-cidr", "10.0.0.1/8"},
+			"--inbound-cidr \"10.0.0.1/8\" is not a CIDR in its network form"},
 	} {
 		dir := t.TempDir()
 		args := tailscaleArgs(dir)
