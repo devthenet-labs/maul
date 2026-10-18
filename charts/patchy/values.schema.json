@@ -2510,6 +2510,39 @@
                         "token"
                     ]
                 },
+                "userCredentials": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "description": "Per-user model credentials (design L3): off (default) renders nothing new; attribute and enforce render the credential store, its RBAC and admission policies. Needs attribution.mode attribute and an anthropic provider.",
+                    "properties": {
+                        "mode": {
+                            "type": "string",
+                            "description": "off (default), attribute (people may store their credentials; the org credential pays) or enforce (a person's run uses their own credential or none)",
+                            "enum": [
+                                "off",
+                                "attribute",
+                                "enforce"
+                            ]
+                        },
+                        "namespace": {
+                            "type": "string",
+                            "description": "The namespace the credential Secrets live in",
+                            "pattern": "^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$"
+                        },
+                        "createNamespace": {
+                            "type": "boolean",
+                            "description": "Create that namespace with the chart"
+                        },
+                        "orgCredentialIsPersonal": {
+                            "type": "string",
+                            "description": "The subscription guard: acknowledged admits attribute or enforce while the org credential is a setup-token (anthropicAuth token)",
+                            "enum": [
+                                "",
+                                "acknowledged"
+                            ]
+                        }
+                    }
+                },
                 "foundrySecret": {
                     "type": "string",
                     "description": "Secret (release namespace) holding the Foundry API key under api-key; empty selects Entra via the broker's workload identity"

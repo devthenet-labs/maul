@@ -29,8 +29,10 @@ const (
 	ModelCredentialSecretKey = "credential"
 
 	// ModelCredentialSecretMaxBytes bounds a stored credential. An Anthropic
-	// API key or setup-token is a little over a hundred bytes.
-	ModelCredentialSecretMaxBytes = 4096
+	// API key or setup-token is a little over a hundred bytes. A multiple of
+	// three, so the admission policy can bound the value exactly whether its
+	// CEL sees bytes or their base64 text (4096 characters).
+	ModelCredentialSecretMaxBytes = 3072
 
 	// ModelCredentialNamePattern is the grammar of a ModelCredential's name.
 	ModelCredentialNamePattern = `^[0-9a-f]{16}-(anthropic)$`

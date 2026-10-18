@@ -75,6 +75,7 @@ nav = [
     { "egress-proxy" = "configuration/egress-proxy.md" },
     { "status-server" = "configuration/status-server.md" },
     { "Run attribution" = "configuration/attribution.md" },
+    { "Per-user model credentials" = "configuration/user-credentials.md" },
   ] },
   { "Deployment" = [
     { "Helm charts" = "deployment/helm.md" },

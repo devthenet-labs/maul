@@ -38,6 +38,11 @@ A route exists exactly when its identifying flag is set; at least one is require
 | `/vertex`    | `--vertex-region` + `--vertex-project` | `https://<region>-aiplatform.googleapis.com`     | OAuth bearer from Application Default Credentials (GKE Workload Identity in-cluster), cached/refreshed; only requests naming that project and location (the region) are admitted                                |
 | `/foundry`   | `--foundry-resource`                   | `https://<resource>.services.ai.azure.com`       | `--foundry-auth key`: `x-api-key` from a file; `entra`: a cached, auto-refreshed Entra bearer                                                                                                                   |
 
+Per-user model credentials (`egressBroker.userCredentials`, off by default) are the planned exception to one credential
+per route: on the anthropic route, a run attributed to a person is to use that person's own key. This release ships only
+their store and the broker's read grants; the broker still attaches the org credential to every request. See
+[Per-user model credentials](user-credentials.md).
+
 Cross-cutting behavior: responses stream back with an immediate flush per write; when an event-stream goes quiet for
 `--sse-ping-interval` (30s) the broker injects a spec-legal `: ping` comment frame so intermediaries do not idle-close a
 long thinking pause; the Bedrock route buffers request bodies (SigV4 signs a payload hash) up to `--max-request-bytes`

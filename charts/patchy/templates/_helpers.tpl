@@ -422,6 +422,16 @@ yes
 {{- end }}
 
 {{/*
+Whether per-user model credentials (egressBroker.userCredentials.mode,
+design L3) are on: attribute or enforce. Returns a non-empty string for yes.
+*/}}
+{{- define "patchy.userCredentialsOn" -}}
+{{- if ne (((.Values.egressBroker | default dict).userCredentials | default dict).mode | default "off") "off" -}}
+yes
+{{- end -}}
+{{- end }}
+
+{{/*
 One container's operator env (<component>.extraEnv: EnvVar entries, valueFrom
 allowed), rendered as list items for the caller to indent. The names patchy
 itself sets are refused, so a Secret-backed variable can add credentials or

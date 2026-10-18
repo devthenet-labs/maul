@@ -1418,6 +1418,37 @@ egressBroker:
     # a long-lived OAuth token minted with `claude setup-token` (the
     # brokered replacement for the old secretEnv: CLAUDE_CODE_OAUTH_TOKEN).
     anthropicAuth: key
+    # Per-user model credentials (design L3): each person's own Anthropic API
+    # key or setup-token pays for the runs attributed to them. off (the
+    # default) renders nothing new (the ModelCredential CRD alone is
+    # installed, as every kind is). attribute and enforce render the
+    # credential store: the namespace below for one Secret per (person,
+    # provider), the ModelCredential records' RBAC (the status server writes
+    # them and the Secrets, write-only, never reading a Secret back; the
+    # broker reads them, its pods' annotations and the Secrets, and patches
+    # the records' health), the self-service and admin ClusterRoles, and the
+    # admission policies that pin who writes what. Under
+    # attribute the org credential still pays for every run; under enforce a
+    # run attributed to a person is to use that person's credential or none,
+    # and a run with no human behind it the org's. The broker's per-request
+    # resolution and the status page's Account page land in later releases:
+    # today both modes render the same store and the org credential pays for
+    # every run. Both need attribution.mode attribute and an anthropic
+    # provider.
+    # See docs/configuration/user-credentials.md.
+    userCredentials:
+        mode: "off"
+        # The namespace the credential Secrets live in: nothing else, no
+        # pods. Chart-created unless createNamespace is false.
+        namespace: patchy-credentials
+        createNamespace: true
+        # The subscription guard. With anthropicAuth token the org
+        # credential is a Claude subscription's setup-token, which belongs
+        # to a person; using it for every org run while people bring their
+        # own is refused at render unless the operator records here that
+        # they know: set it to `acknowledged`. An org API key (anthropicAuth
+        # key) needs nothing, and switching to one is config alone.
+        orgCredentialIsPersonal: ""
     # Secret (release namespace) holding the Foundry API key under `api-key`.
     # Set when provider foundry authenticates by key; leave empty for Entra
     # (the broker's Azure workload identity).

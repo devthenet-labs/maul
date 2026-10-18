@@ -3307,6 +3307,118 @@ patchy-remediation-controller usagerollups:create,get,list
 patchy-remediation-controller usagerollups/status:get,update"
 expect attribution 'select(.kind == "Role" or .kind == "ClusterRole") | .rules[] | select(.resources[] | test("usagerollups")) | .verbs[] | select(. == "delete" or . == "deletecollection" or . == "watch")' ""
 
+# ---- per-user model credentials (design L3): the store and its admission ------
+# Off (the default, attribution on or not) renders nothing new: no credentials
+# namespace, no grant on modelcredentials or their Secrets, no policy (the CRD
+# alone is installed). attribute and enforce render the same store: the
+# namespace, the status server's write-only Secret Role and its record Role, the
+# broker's three read Roles (pods by name, the Secrets, the records) with only a
+# status write, the self and admin ClusterRoles, and three policies bound to
+# the release and credentials namespaces.
+# shellcheck disable=SC2016 # $n is a yq variable, not the shell's
+cred_objects='select(.kind != "CustomResourceDefinition") | select(.metadata.name | test("credential")) | .kind + " " + .metadata.name'
+# shellcheck disable=SC2016
+cred_rules='select(.kind == "Role" or .kind == "ClusterRole") | .metadata.name as $n | .metadata.namespace as $ns | .rules[] | select(.resources[0] | test("^(modelcredentials|secrets)")) | select($n | test("credential")) | $n + "@" + ($ns // "-") + " " + (.resources | join(",")) + ":" + (.verbs | join(","))'
+expect extras-none "$cred_objects" ""
+expect attribution "$cred_objects" ""
+expect attribution 'select(.kind == "Role" or .kind == "ClusterRole") | .rules[] | select(.resources[] | test("modelcredentials")) | .resources[0]' ""
+# shellcheck disable=SC2086
+render user-creds $allcomponents --set attribution.mode=attribute --set egressBroker.userCredentials.mode=enforce
+# shellcheck disable=SC2086
+render user-creds-attribute $allcomponents --set attribution.mode=attribute --set egressBroker.userCredentials.mode=attribute
+cred_want="Namespace patchy-credentials
+ClusterRole patchy-credentials-self
+ClusterRole patchy-credentials-admin
+Role patchy-status-server-credential-secrets
+Role patchy-status-server-credentials
+Role patchy-egress-broker-credential-pods
+Role patchy-egress-broker-credential-secrets
+Role patchy-egress-broker-credentials
+RoleBinding patchy-status-server-credential-secrets
+RoleBinding patchy-status-server-credentials
+RoleBinding patchy-egress-broker-credential-pods
+RoleBinding patchy-egress-broker-credential-secrets
+RoleBinding patchy-egress-broker-credentials
+ValidatingAdmissionPolicy patchy-credentials-records
+ValidatingAdmissionPolicy patchy-credentials-status
+ValidatingAdmissionPolicy patchy-credential-secrets
+ValidatingAdmissionPolicyBinding patchy-credentials-records
+ValidatingAdmissionPolicyBinding patchy-credentials-status
+ValidatingAdmissionPolicyBinding patchy-credential-secrets"
+expect user-creds "$cred_objects" "$cred_want"
+expect user-creds-attribute "$cred_objects" "$cred_want"
+expect user-creds "$cred_rules" \
+  "patchy-credentials-self@- modelcredentials/self:get,update,delete
+patchy-credentials-admin@- modelcredentials/all:get,update,delete
+patchy-credentials-admin@- modelcredentials:get,list,watch,create,update,patch,delete
+patchy-status-server-credential-secrets@patchy-credentials secrets:create,update,patch,delete
+patchy-status-server-credentials@patchy modelcredentials:get,list,watch,create,update,patch,delete
+patchy-status-server-credentials@patchy modelcredentials/status:get,update,patch
+patchy-egress-broker-credential-secrets@patchy-credentials secrets:get,list,watch
+patchy-egress-broker-credentials@patchy modelcredentials:get,list,watch
+patchy-egress-broker-credentials@patchy modelcredentials/status:update,patch"
+expect user-creds 'select(.kind == "Role" and .metadata.name == "patchy-egress-broker-credential-pods") | .metadata.namespace + " " + (.rules[0].resources | join(",")) + ":" + (.rules[0].verbs | join(","))' "patchy-agents pods:get"
+expect user-creds 'select(.kind == "RoleBinding" and (.metadata.name | test("^patchy-status-server-credential"))) | .subjects[0].name' \
+  "$(printf '%s\n' patchy-status-server patchy-status-server)"
+expect user-creds 'select(.kind == "RoleBinding" and (.metadata.name | test("^patchy-egress-broker-credential"))) | .subjects[0].name' \
+  "$(printf '%s\n' patchy-egress-broker patchy-egress-broker patchy-egress-broker)"
+expect user-creds 'select(.kind == "Namespace" and .metadata.name == "patchy-credentials") | .metadata.labels."pod-security.kubernetes.io/enforce"' restricted
+expect user-creds 'select(.kind == "Namespace" and .metadata.name == "patchy-credentials") | .metadata.annotations."helm.sh/resource-policy"' keep
+expect user-creds 'select(.kind == "ValidatingAdmissionPolicyBinding" and (.metadata.name | test("credential"))) | .metadata.name + " " + .spec.matchResources.namespaceSelector.matchLabels."kubernetes.io/metadata.name"' \
+  "patchy-credentials-records patchy
+patchy-credentials-status patchy
+patchy-credential-secrets patchy-credentials"
+expect user-creds 'select(.kind == "ValidatingAdmissionPolicy" and (.metadata.name | test("credential"))) | .spec.failurePolicy' \
+  "$(printf '%s\n' Fail Fail Fail)"
+expect user-creds 'select(.kind == "ValidatingAdmissionPolicy" and .metadata.name == "patchy-credentials-records") | .spec.matchConditions[0].expression' \
+  "request.userInfo.username != 'system:serviceaccount:patchy:patchy-status-server'"
+# Nothing on the status server's side ever reads a credential Secret, and no
+# other component gets a credential grant.
+expect user-creds 'select(.kind == "Role" and .metadata.name == "patchy-status-server-credential-secrets") | .rules[].verbs[] | select(. == "get" or . == "list" or . == "watch")' ""
+expect user-creds 'select(.kind == "RoleBinding" or .kind == "ClusterRoleBinding") | select(.roleRef.name | test("credential")) | .subjects[].name | select(. != "patchy-status-server" and . != "patchy-egress-broker")' ""
+# Without the status server: no status-server Roles, and the policies exempt
+# no one but the broker's own status writes.
+# shellcheck disable=SC2086
+render user-creds-no-status $allcomponents --set attribution.mode=attribute --set egressBroker.userCredentials.mode=enforce \
+  --set statusServer.enabled=false
+expect user-creds-no-status 'select(.metadata.name | test("^patchy-status-server-credential")) | .metadata.name' ""
+expect user-creds-no-status 'select(.kind == "ValidatingAdmissionPolicy" and .metadata.name == "patchy-credentials-records") | .spec.matchConditions' null
+if get user-creds-no-status 'select(.kind == "ValidatingAdmissionPolicy" and (.metadata.name | test("credential")))' | grep -qF patchy-status-server; then
+  fail "user-creds-no-status: a credential policy names the status server, which is not installed"
+fi
+# An operator-made namespace, under another name.
+render user-creds-ns --set attribution.mode=attribute --set egressBroker.userCredentials.mode=enforce \
+  --set egressBroker.userCredentials.namespace=team-keys --set egressBroker.userCredentials.createNamespace=false
+expect user-creds-ns 'select(.kind == "Namespace") | .metadata.name' patchy-agents
+expect user-creds-ns 'select(.kind == "ValidatingAdmissionPolicyBinding" and .metadata.name == "patchy-credential-secrets") | .spec.matchResources.namespaceSelector.matchLabels."kubernetes.io/metadata.name"' team-keys
+expect user-creds-ns 'select(.kind == "Role" and (.metadata.name | test("credential-secrets$"))) | .metadata.namespace' \
+  "$(printf '%s\n' team-keys team-keys)"
+# The guards. The subscription guard refuses a setup-token org credential
+# until the operator acknowledges it is a person's; an API key needs nothing.
+expect_fail 'user credentials over a setup-token org credential' 'set egressBroker.userCredentials.orgCredentialIsPersonal acknowledged' \
+  --set attribution.mode=attribute --set egressBroker.userCredentials.mode=attribute --set egressBroker.anthropicAuth=token
+render user-creds-ack --set attribution.mode=attribute --set egressBroker.userCredentials.mode=enforce \
+  --set egressBroker.anthropicAuth=token --set egressBroker.userCredentials.orgCredentialIsPersonal=acknowledged
+expect user-creds-ack 'select(.kind == "ValidatingAdmissionPolicy" and .metadata.name == "patchy-credential-secrets") | .metadata.name' patchy-credential-secrets
+expect_fail 'user credentials without attribution' 'but attribution.mode is off' \
+  --set egressBroker.userCredentials.mode=enforce
+expect_fail 'user credentials on bedrock' 'per-user credentials are Anthropic API keys and setup-tokens only' \
+  --set attribution.mode=attribute --set egressBroker.userCredentials.mode=attribute \
+  --set agent.runners.claude.provider.name=bedrock --set agent.runners.claude.provider.region=us-east-1
+expect_fail 'user credentials without the broker' 'the egress broker is not deployed' \
+  --set attribution.mode=attribute --set egressBroker.userCredentials.mode=enforce \
+  --set agent.runners.claude.enabled=false --set agent.runners.codex.enabled=true
+expect_fail 'user credentials in the release namespace' 'must be a namespace of its own' \
+  --set attribution.mode=attribute --set egressBroker.userCredentials.mode=enforce \
+  --set egressBroker.userCredentials.namespace=patchy
+expect_fail 'user credentials in the agent namespace' 'must be a namespace of its own' \
+  --set attribution.mode=attribute --set egressBroker.userCredentials.mode=enforce \
+  --set egressBroker.userCredentials.namespace=patchy-agents
+expect_fail 'user credentials mode not in the enum' '/egressBroker/userCredentials/mode' \
+  --set egressBroker.userCredentials.mode=on
+expect_fail 'an acknowledgement not in the enum' '/egressBroker/userCredentials/orgCredentialIsPersonal' \
+  --set egressBroker.userCredentials.orgCredentialIsPersonal=yes
+
 # ---- NOTES: the agent egress posture as rendered -----------------------------
 # The NOTES once said "TCP 443 to anywhere" whatever broadEgress resolved to.
 notes_has default-notes 'base NetworkPolicy allows TCP 443 to anywhere' yes
