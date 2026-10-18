@@ -581,3 +581,37 @@ func TestLedgerKeepsCredentialKindsApart(t *testing.T) {
 		}
 	}
 }
+
+// TestAttributeModeProbesStoredCredentials pins what the security notes
+// say: under attribute, where the org pays for every run, the broker still
+// reads a stored credential and probes it with no request of its owner's,
+// and nothing it probed reaches the upstream proxy or the log.
+func TestAttributeModeProbesStoredCredentials(t *testing.T) {
+	up := newCredentialUpstream(t)
+	store := newFakeStore()
+	store.put(personID, v1alpha1.ModelCredentialAPIKey, userKey)
+	var probed atomic.Int64
+	s, buf := credServer(t, up.URL, credServerOpts{
+		mode: UserCredentialsAttribute, store: store,
+		probe: func(_ context.Context, _ v1alpha1.ModelCredentialKind, cred string) ProbeResult {
+			if cred == userKey {
+				probed.Add(1)
+			}
+			return ProbeValid
+		},
+	}, nil)
+	store.fire(v1alpha1.ModelCredentialName(person, v1alpha1.ModelCredentialProviderAnthropic))
+	s.creds.health.step(t.Context())
+	if probed.Load() != 1 {
+		t.Fatalf("probes = %d, want the stored credential probed once under attribute", probed.Load())
+	}
+	if store.reads == 0 {
+		t.Error("the probe did not read the Secret's data")
+	}
+	if len(up.requests()) != 0 {
+		t.Errorf("upstream saw %+v, want nothing: no run called", up.requests())
+	}
+	if strings.Contains(buf.String(), userKey) {
+		t.Error("the probed credential reached the log")
+	}
+}

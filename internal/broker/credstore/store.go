@@ -77,7 +77,7 @@ func (s *Store) build() error {
 
 // secretMeta is the metadata-only form of a Secret the informer lists and
 // watches: names, labels and resourceVersions, never data, so no stored
-// credential sits in the broker's memory unless a request needed it.
+// credential is cached; data is read live only for a request or a probe.
 func secretMeta() *metav1.PartialObjectMetadata {
 	m := &metav1.PartialObjectMetadata{}
 	m.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("Secret"))

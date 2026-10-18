@@ -23,7 +23,8 @@ patchy kind is, but nothing grants access to it and no policy judges it.
 | `egressBroker.userCredentials.orgCredentialIsPersonal` | `""`                 | `acknowledged` admits a setup-token org credential |
 
 - `attribute` renders the store and has the broker read each run's attribution. People can register their credentials,
-  and their health is probed, but the org credential still pays for every run; the audit line records the person.
+  and their health is probed (the broker reads each stored credential and checks it with Anthropic), but the org
+  credential still pays for every run; the audit line records the person.
 - `enforce` makes a run attributed to a person use that person's own credential or none. A run attributed to the org
   keeps the org credential. See [What the broker does](#what-the-broker-does).
 
@@ -207,8 +208,11 @@ Three `ValidatingAdmissionPolicies` fail closed:
 - The broker gains reads beyond TokenReview: its callers' pods, the records and the credential Secrets. A broker
   compromise already meant an org-credential compromise; with this on, it also means every stored key. Agent pods still
   hold no credential at all: a person's credential is attached by the broker on the way out, exactly as the org's is.
-- The broker keeps no credential in memory that no request needed: its Secret informer is metadata only, and a Secret's
-  data is read when a run of its owner calls, then kept for at most a minute.
+- The broker's Secret informer is metadata only, so no credential's data is cached with it. A Secret's data is read live
+  in two cases. A run of its owner calls, and the credential is then kept for at most a minute. Or the broker probes the
+  credential's health, which it does under both `attribute` and `enforce`: once per new Secret version, at every broker
+  start for each credential whose health is `Unknown`, and on a throttled recheck after a refusal. A probe sends the
+  credential to Anthropic and keeps only its verdict and fingerprint, never the credential.
 - Which credential pays is decided by the run's attribution, which only the run controllers may set (the attribution
   policies), read from the caller's own pod, UID-checked. A prompt-injected agent cannot choose another person's.
 - A setup-token probe spends one output token of that person's subscription per new credential version, and at most one
