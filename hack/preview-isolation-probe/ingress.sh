@@ -266,14 +266,23 @@ if [[ ! $ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
 fi
 echo "listener $slot_ns/$listener at $ip:8080" >&2
 
-# verdict NAMESPACE NAME: the client's summary once it has finished.
+# verdict NAMESPACE NAME: the client's summary once it has finished. A log
+# line that is not JSON (an image older than this script prints its usage)
+# is skipped; a log with no summary is NO_SUMMARY with its first line, which
+# matches no wanted outcome, so the run fails.
 verdict() {
-    local ns=$1 name=$2 phase tries=0 logs
+    local ns=$1 name=$2 phase tries=0 logs got
     while ((tries < timeout / 5)); do
         phase=$(kube get pod "$name" -n "$ns" -o jsonpath='{.status.phase}')
         if [[ $phase == Succeeded || $phase == Failed ]]; then
-            logs=$(kube logs "$name" -n "$ns" -c probe)
-            jq -r 'select(.name == "summary") | .outcome' <<<"$logs" | tail -1
+            logs=$(kube logs "$name" -n "$ns" -c probe) || logs=
+            got=$(jq -Rr 'fromjson? | select(type == "object" and .name == "summary") | .outcome // empty' \
+                <<<"$logs" | tail -1) || got=
+            if [[ -z $got ]]; then
+                got="NO_SUMMARY (first log line: \"$(head -n 1 <<<"$logs" | cut -c 1-200)\"): the probe image may"
+                got+=" predate this script; rebuild it from this commit"
+            fi
+            echo "$got"
             return 0
         fi
         sleep 5

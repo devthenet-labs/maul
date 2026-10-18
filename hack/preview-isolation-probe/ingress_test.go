@@ -334,3 +334,50 @@ func TestIngressRefusedNeedsALiveListener(t *testing.T) {
 		t.Errorf("--dry-run: exit %d, %d calls, stdout:\n%s", run.code, len(run.calls), run.stdout)
 	}
 }
+
+// TestIngressOldImageFails: a netprobe image older than the script prints
+// its usage instead of a JSON summary. The verdict skips the non-JSON line,
+// says there is no summary and quotes it, and the run fails, never passes.
+func TestIngressOldImageFails(t *testing.T) {
+	const usage = "usage: probe connect <ipv4>:<port>"
+	old := func(names ...string) []string {
+		var env []string
+		for _, n := range names {
+			env = append(env, "STUB_LOG_"+strings.ReplaceAll(n, "-", "_")+"="+usage)
+		}
+		return env
+	}
+	for name, tc := range map[string]struct {
+		env  []string
+		args []string
+		fail string
+	}{
+		"every client": {old("preview-ingress-agent", "preview-ingress-release", "preview-ingress-gateway"),
+			ingressArgs(), "FAIL patchy-agents/preview-ingress-agent: NO_SUMMARY"},
+		"a refused client": {old("preview-ingress-agent"), ingressArgs("--refused-is-blocked"),
+			"FAIL patchy-agents/preview-ingress-agent: NO_SUMMARY"},
+		"the gateway client": {old("preview-ingress-gateway"), ingressArgs("--refused-is-blocked"),
+			"FAIL patchy/preview-ingress-gateway: NO_SUMMARY"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// The old clients' logs come from tc.env alone, verbatim.
+			logs := expected()
+			for _, kv := range tc.env {
+				name, _, _ := strings.Cut(strings.TrimPrefix(kv, "STUB_LOG_"), "=")
+				delete(logs, strings.ReplaceAll(name, "_", "-"))
+			}
+			run := runIngressEnv(t, gatewayOnlyPolicy, logs, tc.env, tc.args...)
+			if run.code != 1 || strings.Contains(run.stderr, "Ingress isolation passed") {
+				t.Fatalf("exit %d, stderr:\n%s", run.code, run.stderr)
+			}
+			for _, want := range []string{tc.fail, `first log line: "` + usage + `"`, "rebuild it from this commit"} {
+				if !strings.Contains(run.stderr, want) {
+					t.Errorf("stderr lacks %q:\n%s", want, run.stderr)
+				}
+			}
+			if strings.Contains(run.stderr, "parse error") {
+				t.Errorf("jq choked on the log:\n%s", run.stderr)
+			}
+		})
+	}
+}

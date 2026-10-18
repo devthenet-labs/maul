@@ -75,8 +75,11 @@ admission guards and slot quotas match the approved configuration for that rollo
 ## The ingress direction: only the preview gateway reaches a slot
 
 `ingress.sh` checks the other half of slot isolation on **any cluster, with no cloud API**: that the slot NetworkPolicy
-lets only the preview gateway open a connection to a slot Pod. Run it on the desktop and on EKS once
-`previewAuth.gateway` is on, and again before release N+1 turns the legacy ALB path off. It never calls `gh` or `aws`.
+lets only the preview gateway open a connection to a slot Pod. `patchy check previews --isolation` runs the same probe
+from the CLI (its `preview-netpol` line), always in the `--refused-is-blocked` order below, with the same four Pods (a
+test pins them to `--print-manifests`), reading the placement, the namespaces and the image prefix from the install. Run
+it on the desktop and on EKS once `previewAuth.gateway` is on, and again before release N+1 turns the legacy ALB path
+off. It never calls `gh` or `aws`.
 
 The run creates four Pods from one netprobe image (`cmd/netprobe`, the same binary, in its `listen` and `connect`
 modes):
@@ -129,9 +132,12 @@ there. The egress run (`run.sh`) has no such flag; it runs on EKS only.
 
 The listener runs in a slot, so it must pass the slot admission policies: its image must be under preview-controller's
 image prefix as `<leaf>:sha-<40 hex>`. Build the image from this directory's `Dockerfile` (any build, no trusted
-publisher needed) and give it such a tag. Either push it to that registry, or, on k3d, import it straight onto the
-nodes: the Pods pull `IfNotPresent`, so a node that holds the image never contacts the registry, and the prefix needs no
-repository of that name there. On the desktop the prefix is an ECR one, and the netprobe image ran from an import alone:
+publisher needed) and give it such a tag. **Rebuild it from the same commit as the script** (and as the CLI, for
+`patchy check previews --isolation`): an older netprobe has no `connect --refused-is-blocked`, prints its usage instead
+of a summary, and every client it runs then fails as `NO_SUMMARY`, quoting that first log line. Either push it to that
+registry, or, on k3d, import it straight onto the nodes: the Pods pull `IfNotPresent`, so a node that holds the image
+never contacts the registry, and the prefix needs no repository of that name there. On the desktop the prefix is an ECR
+one, and the netprobe image ran from an import alone:
 
 ```sh
 # <imageRegistry>/<imagePathPrefix>/netprobe:sha-<40 hex>; the commit keeps the tag traceable
