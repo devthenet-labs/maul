@@ -5,6 +5,7 @@ package intent
 
 import (
 	"context"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -214,5 +215,124 @@ func TestCredentialBlockNeverUnderAttribute(t *testing.T) {
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 	if meta.FindStatusCondition(in.Status.Conditions, v1alpha1.ConditionCredentialRequired) != nil {
 		t.Error("a CredentialRequired condition was written under attribute")
+	}
+}
+
+// heldFromReview drives an Intent built by the approver (whose credential
+// is Valid) to InReview under enforce, with reviewer an approver too.
+func heldFromReview(t *testing.T, checks bool) (*env, *fakeCredentials, string, *v1alpha1.Intent) {
+	t.Helper()
+	p := testProject()
+	p.Spec.Approvers.Logins = append(p.Spec.Approvers.Logins, reviewer)
+	if checks {
+		p.Spec.Checks.Fix = []string{"test"}
+	}
+	e := newEnv(t, p)
+	e.gh.perms[reviewer] = ghclient.PermissionWrite
+	creds := e.enforcing(approver)
+	name := e.discovered()
+	e.drive(name, v1alpha1.IntentAwaitingApproval, repoImage)
+	e.clock.Advance(time.Minute)
+	e.gh.label(1, "patchy:approved", approver)
+	return e, creds, name, e.drive(name, v1alpha1.IntentInReview, repoImage)
+}
+
+// assertHeldFromReview: the Intent is Blocked from InReview on who's
+// credential, and no revise run was created.
+func assertHeldFromReview(t *testing.T, e *env, name, who string) {
+	t.Helper()
+	in := e.get(name)
+	c := credentialBlock(in)
+	if in.Status.Phase != v1alpha1.IntentBlocked || c == nil || !strings.Contains(c.Message, "@"+who) {
+		t.Fatalf("phase %s, CredentialRequired %+v; want Blocked naming %s", in.Status.Phase, c, who)
+	}
+	if from := v1alpha1.IntentBlockedFrom(in); from != v1alpha1.IntentInReview {
+		t.Fatalf("blocked from %s, want InReview", from)
+	}
+	if h := in.Status.CredentialHold; h == nil || h.ID != actorOf(who).ID {
+		t.Fatalf("credentialHold = %+v, want %s", h, who)
+	}
+	if n := len(e.runsOf(name, v1alpha1.IntentStageRevise)); n != 0 {
+		t.Fatalf("%d revise runs were created while held", n)
+	}
+}
+
+// TestCredentialBlockHoldsCommandRevise: a /patchy revise by an approver
+// with no valid credential creates no revise run; the Intent is Blocked
+// from InReview naming the commenter, and once their credential is Valid
+// the same command is read again and starts its round, theirs.
+func TestCredentialBlockHoldsCommandRevise(t *testing.T) {
+	e, creds, name, in := heldFromReview(t, false)
+	pr := in.Status.PullRequests[0]
+	e.gh.prComments[pr.Number] = []*ghclient.Comment{{ID: 940, NodeID: "comment-940",
+		UserLogin: reviewer, UserID: actorOf(reviewer).ID, UserType: "User",
+		Body:      "/patchy revise Please check the response header.",
+		CreatedAt: e.clock.Now(), UpdatedAt: e.clock.Now()}}
+	e.clock.Advance(time.Second)
+	e.drive(name, v1alpha1.IntentBlocked, repoImage)
+	assertHeldFromReview(t, e, name, reviewer)
+
+	creds.set(reviewer, v1alpha1.ModelCredentialValid)
+	e.driveUntil(name, func(*v1alpha1.Intent) bool {
+		return len(e.runsOf(name, v1alpha1.IntentStageRevise)) == 1
+	})
+	run := e.runsOf(name, v1alpha1.IntentStageRevise)[0]
+	if run.Spec.Trigger != v1alpha1.IntentRunTriggerCommand || run.Spec.Inputs.CommandID != 940 ||
+		!reflect.DeepEqual(run.Spec.AttributedTo, person(reviewer, v1alpha1.AttributionCommenter)) {
+		t.Fatalf("revise run = %+v, want command 940's round, the commenter's", run.Spec)
+	}
+	if in := e.get(name); credentialBlock(in) != nil || in.Status.CredentialHold != nil {
+		t.Errorf("the block did not lift cleanly: %+v, hold %+v", in.Status.Conditions, in.Status.CredentialHold)
+	}
+}
+
+// TestCredentialBlockHoldsReviewRound: a changes-requested review by an
+// approver with no valid credential creates no revise run; the Intent is
+// Blocked naming the newest reviewer, and the round starts, theirs, once
+// their credential is Valid.
+func TestCredentialBlockHoldsReviewRound(t *testing.T) {
+	e, creds, name, in := heldFromReview(t, false)
+	e.gh.reviews[in.Status.PullRequests[0].Number] = []ghclient.Review{{ID: 501, NodeID: "review-501",
+		Author: actorOf(reviewer), State: "CHANGES_REQUESTED", Body: "Add a test.", SubmittedAt: e.clock.Now()}}
+	e.clock.Advance(3 * time.Minute)
+	e.drive(name, v1alpha1.IntentBlocked, repoImage)
+	assertHeldFromReview(t, e, name, reviewer)
+
+	creds.set(reviewer, v1alpha1.ModelCredentialValid)
+	e.driveUntil(name, func(*v1alpha1.Intent) bool {
+		return len(e.runsOf(name, v1alpha1.IntentStageRevise)) == 1
+	})
+	run := e.runsOf(name, v1alpha1.IntentStageRevise)[0]
+	if run.Spec.Trigger != v1alpha1.IntentRunTriggerReview ||
+		!reflect.DeepEqual(run.Spec.AttributedTo, person(reviewer, v1alpha1.AttributionReviewer)) {
+		t.Fatalf("revise run = %+v, want the review round, the reviewer's", run.Spec)
+	}
+}
+
+// TestCredentialBlockHoldsCheckFix: a check-fix round is the build's
+// approver's, so once that approver's credential is rejected a failing
+// check creates no run; the Intent is Blocked naming the approver, and the
+// fix round starts once the credential is Valid again.
+func TestCredentialBlockHoldsCheckFix(t *testing.T) {
+	e, creds, name, in := heldFromReview(t, true)
+	creds.set(approver, v1alpha1.ModelCredentialRejected)
+	head := in.Status.PullRequests[0].HeadSHA
+	e.gh.checks[head] = []ghclient.CheckRun{{ID: 71, Name: "test", HeadSHA: head,
+		Status: "completed", Conclusion: "failure", AppSlug: "github-actions",
+		Output: ghclient.CheckOutput{Title: "Go failed", Summary: "failure"}}}
+	e.drive(name, v1alpha1.IntentBlocked, repoImage)
+	assertHeldFromReview(t, e, name, approver)
+	if c := credentialBlock(e.get(name)); c.Reason != credgate.ReasonRejected {
+		t.Errorf("reason %s, want %s", c.Reason, credgate.ReasonRejected)
+	}
+
+	creds.set(approver, v1alpha1.ModelCredentialValid)
+	e.driveUntil(name, func(*v1alpha1.Intent) bool {
+		return len(e.runsOf(name, v1alpha1.IntentStageRevise)) == 1
+	})
+	run := e.runsOf(name, v1alpha1.IntentStageRevise)[0]
+	if run.Spec.Trigger != v1alpha1.IntentRunTriggerChecks ||
+		!reflect.DeepEqual(run.Spec.AttributedTo, person(approver, v1alpha1.AttributionApprover)) {
+		t.Fatalf("check-fix run = %+v, want the build's approver's", run.Spec)
 	}
 }
