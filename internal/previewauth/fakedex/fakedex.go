@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"sync"
 	"time"
 
@@ -31,6 +32,7 @@ type Server struct {
 
 	mu             sync.Mutex
 	claims         map[string]any
+	redirects      []string
 	codes          map[string]pending
 	authorizations int
 }
@@ -95,13 +97,39 @@ func (s *Server) SignIn(claims map[string]any) {
 	s.claims = claims
 }
 
+// Register makes the client's redirect URIs exactly these, as a Dex static
+// client's redirectURIs: /auth then refuses any other with Dex's
+// "Unregistered redirect_uri" page. Without it, any redirect URI is the
+// client's.
+func (s *Server) Register(redirects ...string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.redirects = slices.Clone(redirects)
+}
+
+// LoginPage is the page /auth answers a bare authorization request with
+// (one with neither PKCE nor a nonce, as patchy check previews sends to
+// learn whether Dex knows the client and redirect URI): Dex would show its
+// login page there rather than sign anyone in.
+const LoginPage = "Log in to fakedex"
+
 func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	s.mu.Lock()
 	s.authorizations++
-	claims := s.claims
+	claims, redirects := s.claims, s.redirects
 	s.mu.Unlock()
 	redirect := q.Get("redirect_uri")
+	if len(redirects) > 0 && !slices.Contains(redirects, redirect) {
+		http.Error(w, "Unregistered redirect_uri", http.StatusBadRequest)
+		return
+	}
+	if q.Get("client_id") == s.ClientID && redirect != "" && q.Get("response_type") == "code" &&
+		q.Get("code_challenge") == "" && q.Get("nonce") == "" {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = fmt.Fprintf(w, "<!doctype html><title>%s</title>", LoginPage)
+		return
+	}
 	if q.Get("client_id") != s.ClientID || redirect == "" || q.Get("response_type") != "code" ||
 		q.Get("code_challenge_method") != "S256" || q.Get("code_challenge") == "" || q.Get("nonce") == "" {
 		http.Error(w, "bad authorization request", http.StatusBadRequest)

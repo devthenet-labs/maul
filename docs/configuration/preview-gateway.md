@@ -20,6 +20,12 @@ viewer --https--> [your edge: one route for *.<hostSuffix> and the sign-in host]
             patchy-preview-<n>: ClusterIP Services and Deployments only
 ```
 
+!!! tip "Setting up a new install"
+
+    Start with [Set up previews](../intents/set-up-previews.md): `patchy setup previews` writes the values, manifests
+    and Secret manifests for one of four recipes, and the ordered steps for the rest. This page is the reference for
+    what it writes and for building an exposure by hand.
+
 This page covers turning the gateway on, exposing it on each platform, moving an EKS install off the preview ALB,
 checking the result, and what changes for security. The protocol, the proxy's rules, the flags and the metrics are in
 [preview-auth](preview-auth.md#the-preview-gateway-off-by-default). preview-controller's side is described in
@@ -112,6 +118,13 @@ Rules that hold on every platform:
   open to the cluster network. Prove it with the [isolation probe](#the-isolation-probe).
 
 ## Platform recipes
+
+`patchy setup previews` writes four of these, one per `--edge`: `cloudflare-tunnel` is
+[Cloudflare Tunnel](#cloudflare-tunnel), `gateway-tls` is
+[the gateway's own TLS](#the-gateways-own-tls-on-a-load-balancer), `tailscale` is
+[a tailnet device](#a-tailnet-device-through-the-tailscale-operator), and `existing` is the [ALB](#eks-an-alb-ingress),
+[ingress-nginx](#ingress-nginx), [Traefik](#traefik) or [Gateway API](#gateway-api) recipe for the class or parent you
+name. Every recipe that ends TLS in the cluster uses [the wildcard certificate](#the-wildcard-certificate).
 
 Each recipe routes `*.<hostSuffix>` and the sign-in host. When the sign-in host is `previewAuth.host` (the default), the
 chart's gateway exposure carries the wildcard only, and the sign-in host reaches the relay some other way:
@@ -417,7 +430,74 @@ creates no wildcard record, so the proxied `*` CNAME is added by hand. Not verif
 no provider API, owner decision Q2). Until it is, a remotely-managed tunnel works only if you add that record yourself,
 and its rules then live outside anything patchy writes or `setup previews` can diff.
 
+### The gateway's own TLS on a load balancer
+
+No ingress controller: the gateway's Service is the load balancer, and the gateway terminates TLS itself from
+[the wildcard certificate](#the-wildcard-certificate)'s Secret, re-reading it at every renewal. It suits MetalLB, k3s's
+ServiceLB and a cloud L4 load balancer (`setup previews --edge gateway-tls`).
+
+```yaml
+previewAuth:
+  gateway:
+    enabled: true
+    forwardedHops: 0 # the client connects to the gateway directly
+    inboundCIDRs: [203.0.113.10/32] # optional; also the Service's loadBalancerSourceRanges
+    ingress:
+      enabled: false
+    service:
+      type: LoadBalancer
+      externalTrafficPolicy: Local # keeps the client's address as the peer
+      loadBalancerClass: "" # name one where the cluster has several implementations
+    tls:
+      secrets:
+        - secretName: preview-wildcard-tls
+          hosts: ["*.preview.acme-apps.dev", preview-auth.patchy.acme.dev]
+```
+
+Point both records, `*.<hostSuffix>` and the sign-in host, at the load balancer's address: the gateway answers the
+sign-in host as the relay does. Under `externalTrafficPolicy: Cluster` kube-proxy source-NATs to a node address, which
+`inboundCIDRs` would refuse and the rate limit would share among every viewer, so keep `Local`.
+
+### A tailnet device through the Tailscale operator
+
+The [Tailscale operator](https://tailscale.com/kb/1439/kubernetes-operator-cluster-ingress) gives the gateway's
+ClusterIP Service a tailnet device of its own, and the gateway terminates TLS as in the
+[load balancer recipe](#the-gateways-own-tls-on-a-load-balancer) (`setup previews --edge tailscale`). Only the tailnet
+reaches the device, so this suits a desktop or home box; it needs no ingress controller and no port on the host, and
+does not collide with Tailscale Funnel or `tailscale serve` there.
+
+```yaml
+previewAuth:
+  gateway:
+    enabled: true
+    forwardedHops: 0 # the gateway sees the tailnet proxy's address, not the viewer's
+    inboundCIDRs: [] # the tailnet policy is the allowlist
+    ingress:
+      enabled: false
+    service:
+      type: ClusterIP
+      annotations:
+        tailscale.com/expose: "true"
+        tailscale.com/hostname: patchy-previews
+        tailscale.com/tags: tag:patchy-previews
+    tls:
+      secrets:
+        - secretName: preview-wildcard-tls
+          hosts: ["*.preview.acme-apps.dev", preview-auth.patchy.acme.dev]
+```
+
+- **DNS.** MagicDNS takes no wildcard or custom records. Create both records in public DNS, pointing at the device's
+  tailnet address (`tailscale ip -4 patchy-previews`): only the tailnet can reach it. Set `publishedAddresses` to that
+  address for `patchy check previews`.
+- **The tailnet policy is the allowlist.** Let viewers' group reach `tag:patchy-previews` on `tcp:443` alone. Grants
+  only add access, so a new tailnet's allow-all rule must go first: while it stands, every member reaches the device on
+  every port, the gateway's plain listener on 80 included. Viewers still sign in.
+- **The operator's OAuth client** is its own Secret, created per Tailscale's guide; patchy's values never hold it.
+
 ### k3d with wildcard DNS and cert-manager
+
+[A tailnet device](#a-tailnet-device-through-the-tailscale-operator) is the simpler way to run previews on a desktop k3d
+cluster. This recipe is the alternative with an ingress controller.
 
 A desktop cluster with no public load balancer. An ingress controller terminates TLS with
 [the wildcard certificate](#the-wildcard-certificate), k3d's serverlb publishes it on the host's loopback, and something
@@ -466,11 +546,7 @@ On a LAN, binding the serverlb to the host's LAN address works the same, as long
   leaves the preview-controller unable to reach the API. Set `previewController.config.apiServerCIDR: auto`: a
   `helm upgrade` looks up the Service's address and the API server's endpoint addresses and admits both.
 
-A LoadBalancer exposure (`service.type: LoadBalancer`, with `tls.secrets` naming
-[the wildcard certificate](#the-wildcard-certificate)'s Secret, so the gateway terminates TLS itself) needs no ingress
-controller at all and suits MetalLB or a cloud L4 load balancer. Keep `externalTrafficPolicy: Local` and
-`forwardedHops: 0` there, and point the sign-in host's record at the same address: the gateway answers it as the relay
-does.
+A [LoadBalancer exposure](#the-gateways-own-tls-on-a-load-balancer) needs no ingress controller at all.
 
 ## Moving off the preview ALB (EKS, release N)
 

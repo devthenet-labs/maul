@@ -64,16 +64,18 @@ func (a *previewApp) requests() []*http.Request {
 // sign-in host and every preview host go to the gateway's plain listener
 // (the edge's TLS is not under test; the cookie jar still sees https, so
 // __Host- cookies behave as in a browser), and every other request to Dex.
+// With gw empty, base itself reaches the gateway, over its own TLS.
 type gatewayBrowser struct {
-	t    *testing.T
-	gw   string
-	base http.RoundTripper
-	c    *http.Client
+	t                 *testing.T
+	gw                string
+	relayHost, suffix string
+	base              http.RoundTripper
+	c                 *http.Client
 }
 
 func (b *gatewayBrowser) RoundTrip(r *http.Request) (*http.Response, error) {
 	h := r.URL.Hostname()
-	if h != signInRelayHost && !strings.HasSuffix(h, "."+signInSuffix) {
+	if b.gw == "" || h != b.relayHost && !strings.HasSuffix(h, "."+b.suffix) {
 		return b.base.RoundTrip(r)
 	}
 	out := r.Clone(r.Context())
@@ -84,11 +86,17 @@ func (b *gatewayBrowser) RoundTrip(r *http.Request) (*http.Response, error) {
 
 func newGatewayBrowser(t *testing.T, gw string, base http.RoundTripper) *gatewayBrowser {
 	t.Helper()
+	return newBrowserFor(t, gw, signInRelayHost, signInSuffix, base)
+}
+
+// newBrowserFor is newGatewayBrowser for another sign-in host and suffix.
+func newBrowserFor(t *testing.T, gw, relayHost, suffix string, base http.RoundTripper) *gatewayBrowser {
+	t.Helper()
 	jar, err := cookiejar.New(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b := &gatewayBrowser{t: t, gw: gw, base: base}
+	b := &gatewayBrowser{t: t, gw: gw, relayHost: relayHost, suffix: suffix, base: base}
 	b.c = &http.Client{Transport: b, Jar: jar, Timeout: 10 * time.Second,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	return b
@@ -144,14 +152,14 @@ func (b *gatewayBrowser) follow(u, prefix string) string {
 // to the host. It returns where the handoff sent it.
 func (b *gatewayBrowser) signIn(label, path string, viaDex bool) string {
 	b.t.Helper()
-	origin := "https://" + label + "." + signInSuffix
-	start := b.follow(origin+path, "https://"+signInRelayHost+"/start?")
+	origin := "https://" + label + "." + b.suffix
+	start := b.follow(origin+path, "https://"+b.relayHost+"/start?")
 	next := b.follow(start, "https://")
 	if viaDex {
 		if strings.HasPrefix(next, origin) {
 			b.t.Fatalf("/start skipped Dex without a relay session: %s", next)
 		}
-		next = b.follow(next, "https://"+signInRelayHost+"/dex/callback?")
+		next = b.follow(next, "https://"+b.relayHost+"/dex/callback?")
 		next = b.follow(next, origin+previewauth.HandoffPath+"?")
 	} else if !strings.HasPrefix(next, origin+previewauth.HandoffPath+"?") {
 		b.t.Fatalf("/start with a relay session sent the browser to %s", next)
@@ -162,7 +170,7 @@ func (b *gatewayBrowser) signIn(label, path string, viaDex bool) string {
 // hostCookie is the browser's host session for label's host.
 func (b *gatewayBrowser) hostCookie(label string) string {
 	b.t.Helper()
-	u, _ := url.Parse("https://" + label + "." + signInSuffix + "/")
+	u, _ := url.Parse("https://" + label + "." + b.suffix + "/")
 	for _, c := range b.c.Jar.Cookies(u) {
 		if c.Name == previewauth.HostSessionCookie {
 			return c.Value

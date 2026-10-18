@@ -37,8 +37,10 @@ type recipeSection struct {
 // doc's own host names, and holds that the sign-in host reaches the relay or
 // the gateway: by a classed relay Ingress (with TLS off the edge ALB), an
 // HTTPRoute the chart renders or the recipe shows (on a Gateway listener the
-// recipe shows for that host, with a certificate), or a cloudflared rule. A
-// recipe that routes only *.<hostSuffix> leaves sign-in unreachable off EKS.
+// recipe shows for that host, with a certificate), a cloudflared rule, or the
+// gateway's own TLS listener (its Service exposing 443 on a load balancer or
+// a tailnet device, with a certificate in tls.secrets for the host). A recipe
+// that routes only *.<hostSuffix> leaves sign-in unreachable off EKS.
 func TestPreviewGatewayRecipesRouteTheSignInHost(t *testing.T) {
 	if _, err := exec.LookPath("helm"); err != nil {
 		t.Skip("helm not on PATH")
@@ -46,7 +48,8 @@ func TestPreviewGatewayRecipesRouteTheSignInHost(t *testing.T) {
 	sections := recipeSections(t)
 	// The recipes with chart values; k3d is the Traefik recipe plus an
 	// address, and the wildcard certificate is no recipe.
-	want := []string{"EKS: an ALB Ingress", "ingress-nginx", "Traefik", "Gateway API", "Cloudflare Tunnel"}
+	want := []string{"EKS: an ALB Ingress", "ingress-nginx", "Traefik", "Gateway API", "Cloudflare Tunnel",
+		"The gateway's own TLS on a load balancer", "A tailnet device through the Tailscale operator"}
 	var got []string
 	for _, sec := range sections {
 		if sec.values != "" {
@@ -83,10 +86,65 @@ func TestPreviewGatewayRecipesRouteTheSignInHost(t *testing.T) {
 				t.Logf("routed: %s", why)
 				return
 			}
+			if why := gatewayTLSRoute(t, objs, sec.values); why != "" {
+				t.Logf("routed: %s", why)
+				return
+			}
 			t.Errorf("recipe %q leaves the sign-in host %s unrouted: no classed relay Ingress with its TLS, no HTTPRoute "+
 				"on a listener for it, no cloudflared rule", sec.title, recipeSignInHost)
 		})
 	}
+}
+
+// gatewayTLSRoute names the gateway's own TLS listener when it serves the
+// sign-in host: the gateway Service exposes 443 on a LoadBalancer or a
+// Tailscale operator device, and the recipe's tls.secrets cover the host;
+// "" otherwise.
+func gatewayTLSRoute(t *testing.T, rendered []*unstructured.Unstructured, values string) string {
+	t.Helper()
+	var v struct {
+		PreviewAuth struct {
+			Gateway struct {
+				TLS struct {
+					Secrets []struct {
+						SecretName string   `json:"secretName"`
+						Hosts      []string `json:"hosts"`
+					} `json:"secrets"`
+				} `json:"tls"`
+			} `json:"gateway"`
+		} `json:"previewAuth"`
+	}
+	if err := yaml.NewYAMLOrJSONDecoder(strings.NewReader(values), 4096).Decode(&v); err != nil {
+		t.Fatalf("recipe values: %v", err)
+	}
+	covered := false
+	for _, s := range v.PreviewAuth.Gateway.TLS.Secrets {
+		covered = covered || s.SecretName != "" && slices.Contains(s.Hosts, recipeSignInHost)
+	}
+	if !covered {
+		return ""
+	}
+	for _, o := range rendered {
+		if o.GetKind() != "Service" || o.GetName() != recipeGateway {
+			continue
+		}
+		ports, _, _ := unstructured.NestedSlice(o.Object, "spec", "ports")
+		https := false
+		for _, p := range ports {
+			m, _ := p.(map[string]any)
+			https = https || m["port"] == int64(443) || m["port"] == float64(443)
+		}
+		typ, _, _ := unstructured.NestedString(o.Object, "spec", "type")
+		switch {
+		case !https:
+			return ""
+		case typ == "LoadBalancer":
+			return "the gateway's TLS on its LoadBalancer Service"
+		case o.GetAnnotations()["tailscale.com/expose"] == "true":
+			return "the gateway's TLS on its tailnet device"
+		}
+	}
+	return ""
 }
 
 // signInRoute names what routes the sign-in host, or "" for nothing.
