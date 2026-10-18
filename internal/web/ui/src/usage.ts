@@ -6,8 +6,56 @@ import type { UsageDay, UsageFigures, UsageSegment } from "./types";
 // Measure is what the chart's bars measure.
 export type UsageMeasure = "tokens" | "cost" | "notional";
 
-// StackBy is what a day's bar is split by.
-export type StackBy = "project" | "kind";
+// DEFAULT_MEASURE is what the chart opens on: cost. A token total is mostly
+// cache reads, which cost a tenth of input, so it says little about spend.
+export const DEFAULT_MEASURE: UsageMeasure = "cost";
+
+// StackBy is what a day's bar is split by. "type" (input, output, cache
+// read, cache write) applies to tokens only: no cost is recorded per type.
+export type StackBy = "project" | "kind" | "type";
+
+// TokenType is a metered token class. The rollups record cache writes
+// (five-minute and one-hour) as one figure, so the page shows one.
+export type TokenType = "input" | "output" | "cacheRead" | "cacheWrite";
+
+export const TOKEN_TYPES: TokenType[] = ["input", "output", "cacheRead", "cacheWrite"];
+
+export const TOKEN_TYPE_LABELS: Record<TokenType, string> = {
+  input: "input",
+  output: "output",
+  cacheRead: "cache read",
+  cacheWrite: "cache write",
+};
+
+// tokenTypeValue is one class's tokens of a figure.
+export function tokenTypeValue(f: UsageFigures, t: TokenType): number {
+  if (t === "input") return f.inputTokens ?? 0;
+  if (t === "output") return f.outputTokens ?? 0;
+  if (t === "cacheRead") return f.cacheReadTokens ?? 0;
+  return f.cacheWriteTokens ?? 0;
+}
+
+// stackOptions are the splits a measure offers: by token type only for
+// tokens, since the rollups record no cost per type.
+export function stackOptions(measure: UsageMeasure): StackBy[] {
+  return measure === "tokens" ? ["type", "project", "kind"] : ["project", "kind"];
+}
+
+// stackFor is the split after the measure changes from previous: tokens
+// open split by type (a token total alone hides that most of it is cheap
+// cache reads), and a split the new measure does not offer falls back to
+// by project.
+export function stackFor(by: StackBy, measure: UsageMeasure, previous: UsageMeasure): StackBy {
+  if (measure === "tokens" && previous !== "tokens") return "type";
+  return stackOptions(measure).includes(by) ? by : "project";
+}
+
+// stackKeys are the display keys of a split: the token types in their fixed
+// order, or the report's Project or kind keys folded by displayKeys.
+export function stackKeys(by: StackBy, projectKeys: string[], kindKeys: string[]): string[] {
+  if (by === "type") return [...TOKEN_TYPES];
+  return displayKeys(by === "project" ? projectKeys : kindKeys);
+}
 
 // NO_PROJECT mirrors usageview.NoProject: usage of no Project (Finding and
 // evaluation runs).
@@ -52,8 +100,15 @@ export interface StackPart {
 }
 
 // stackDay is one day's bar: a part per display key with a value, in
-// display order, folded keys summed into OTHER.
+// display order, folded keys summed into OTHER. Split by type, the parts
+// are the day's token classes (tokens only: nothing for a cost).
 export function stackDay(day: UsageDay, by: StackBy, measure: UsageMeasure, shown: string[]): StackPart[] {
+  if (by === "type") {
+    if (measure !== "tokens") return [];
+    return TOKEN_TYPES.filter((t) => shown.includes(t))
+      .map((t): StackPart => ({ key: t, value: tokenTypeValue(day, t) }))
+      .filter((p) => p.value > 0);
+  }
   const segs = by === "project" ? day.projects : day.kinds;
   const sums = new Map<string, number>();
   for (const s of segs ?? []) {

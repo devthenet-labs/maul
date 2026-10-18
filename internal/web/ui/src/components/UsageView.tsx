@@ -2,7 +2,9 @@
 // tokens and cost, or, for holders of usage/all, everyone's. It gates on its
 // own answers (401, 403), never on the findings grant. The chart is inline
 // SVG, no chart library: one stacked bar per day, split by Project or run
-// kind, measuring tokens, cost or a subscription's equivalent API cost.
+// kind (and, for tokens, by token type), measuring cost (the default), a
+// subscription's equivalent API cost or tokens. Tokens are shown split by
+// type wherever the rollups record the split.
 // Trusted figures are the broker's; the unmetered worst case and the pods'
 // own reported figures are shown apart and never added to a cost.
 
@@ -14,18 +16,25 @@ import { signInURL } from "../auth";
 import { formatMicroUSD } from "../format";
 import { hrefForUsage } from "../router";
 import {
+  DEFAULT_MEASURE,
   KIND_LABELS,
   MEASURE_LABELS,
   NO_PROJECT,
   OTHER,
-  displayKeys,
+  TOKEN_TYPES,
+  TOKEN_TYPE_LABELS,
   latestOnly,
   layoutBars,
   niceMax,
   personLabel,
   segmentValue,
   stackDay,
+  stackFor,
+  stackKeys,
+  stackOptions,
+  tokenTypeValue,
   type StackBy,
+  type TokenType,
   type UsageMeasure,
 } from "../usage";
 
@@ -64,7 +73,14 @@ function colorOf(key: string, shown: string[]): string {
   return `var(--usage-${(i % 6) + 1})`;
 }
 
+const STACK_LABELS: Record<StackBy, string> = {
+  type: "by token type",
+  project: "by project",
+  kind: "by run kind",
+};
+
 function keyLabel(key: string, by: StackBy): string {
+  if (by === "type") return TOKEN_TYPE_LABELS[key as TokenType] ?? key;
   if (by === "kind") return KIND_LABELS[key] ?? key;
   return key === OTHER ? "other projects" : key;
 }
@@ -91,21 +107,29 @@ function Toggle<T extends string | number>({
   );
 }
 
+// tokenSplit is a figure's tokens by type, as one line.
+function tokenSplit(f: UsageFigures): string {
+  return TOKEN_TYPES.map((t) => `${count(tokenTypeValue(f, t))} ${TOKEN_TYPE_LABELS[t]}`).join(" · ");
+}
+
 function Tiles({ t }: { t: UsageFigures }) {
   const tiles: [string, string, string?][] = [
-    ["tokens (metered)", count(t.tokens)],
     ["cost (list rates)", formatMicroUSD(t.costMicroUSD)],
     ["equivalent API cost", formatMicroUSD(t.notionalCostMicroUSD), "subscription: not money spent"],
+    ["tokens (metered)", count(t.tokens), tokenSplit(t)],
     ["runs", count(t.runs)],
   ];
   return (
-    <section class="grid grid-cols-4 overflow-hidden rounded-xl border border-line-2 bg-surface max-lg:grid-cols-2" aria-label="Usage totals">
-      {tiles.map(([label, value, note]) => (
-        <div class="ps-stat" key={label} title={note}>
-          <strong>{value}</strong>
-          <span>{label}</span>
-        </div>
-      ))}
+    <section aria-label="Usage totals">
+      <div class="grid grid-cols-4 overflow-hidden rounded-xl border border-line-2 bg-surface max-lg:grid-cols-2">
+        {tiles.map(([label, value, note]) => (
+          <div class="ps-stat" key={label} title={note}>
+            <strong>{value}</strong>
+            <span>{label}</span>
+          </div>
+        ))}
+      </div>
+      <p class="mt-1.5 mb-0 text-[12px] text-muted">Metered tokens by type: {tokenSplit(t)}.</p>
     </section>
   );
 }
@@ -150,10 +174,13 @@ const CHART_W = 720;
 const CHART_H = 180;
 
 function DailyChart({ report }: { report: UsageReport }) {
-  const [measure, setMeasure] = useState<UsageMeasure>("tokens");
+  const [measure, setMeasureState] = useState<UsageMeasure>(DEFAULT_MEASURE);
   const [by, setBy] = useState<StackBy>("project");
-  const keys = by === "project" ? report.projectKeys : report.kindKeys;
-  const shown = useMemo(() => displayKeys(keys), [keys]);
+  const setMeasure = (m: UsageMeasure) => {
+    setBy(stackFor(by, m, measure));
+    setMeasureState(m);
+  };
+  const shown = useMemo(() => stackKeys(by, report.projectKeys, report.kindKeys), [by, report.projectKeys, report.kindKeys]);
   const peak = Math.max(0, ...report.daily.map((d) => stackDay(d, by, measure, shown).reduce((a, p) => a + p.value, 0)));
   const max = niceMax(peak);
   const bars = layoutBars(report.daily, by, measure, shown, CHART_W, CHART_H, max);
@@ -165,8 +192,8 @@ function DailyChart({ report }: { report: UsageReport }) {
       <header class="flex flex-wrap items-center justify-between gap-3.5">
         <h2 class="ps-heading">Daily {MEASURE_LABELS[measure]}</h2>
         <div class="flex flex-wrap gap-2">
-          <Toggle label="Measure" value={measure} onChange={setMeasure} options={[["tokens", "tokens"], ["cost", "cost"], ["notional", "equivalent API cost"]]} />
-          <Toggle label="Stack by" value={by} onChange={setBy} options={[["project", "by project"], ["kind", "by run kind"]]} />
+          <Toggle label="Measure" value={measure} onChange={setMeasure} options={[["cost", "cost"], ["notional", "equivalent API cost"], ["tokens", "tokens"]]} />
+          <Toggle label="Stack by" value={by} onChange={setBy} options={stackOptions(measure).map((s) => [s, STACK_LABELS[s]] as [StackBy, string])} />
         </div>
       </header>
       {measure === "notional" ? (
@@ -187,7 +214,7 @@ function DailyChart({ report }: { report: UsageReport }) {
           viewBox={`0 -14 ${CHART_W} ${CHART_H + 30}`}
           class="block h-auto w-full"
           role="img"
-          aria-label={`${MEASURE_LABELS[measure]} per day, ${report.from} to ${report.to}, stacked ${by === "project" ? "by project" : "by run kind"}`}
+          aria-label={`${MEASURE_LABELS[measure]} per day, ${report.from} to ${report.to}, stacked ${STACK_LABELS[by]}`}
           onMouseLeave={() => setHover(null)}
         >
           <line x1={0} x2={CHART_W} y1={0} y2={0} stroke="var(--patchy-line)" stroke-dasharray="3 4" />
@@ -241,6 +268,7 @@ function DayTip({ day, by, measure, shown }: { day: UsageDay; by: StackBy; measu
       <div class="text-muted">
         {measureValue(segmentValue(day, measure), measure)} {measure === "tokens" ? "tokens" : ""} · {count(day.runs)} runs
       </div>
+      {measure === "tokens" && by !== "type" ? <div class="text-muted">{tokenSplit(day)}</div> : null}
       {parts.map((p) => (
         <div key={p.key} class="flex items-center justify-between gap-3">
           <span class="inline-flex items-center gap-1.5">
@@ -262,9 +290,14 @@ function DailyTable({ days }: { days: UsageDay[] }) {
           <tr class="text-left text-muted">
             <th class="py-1 pr-3">day</th>
             <th class="py-1 pr-3 text-right">runs</th>
-            <th class="py-1 pr-3 text-right">tokens</th>
             <th class="py-1 pr-3 text-right">cost</th>
             <th class="py-1 pr-3 text-right">equivalent API cost</th>
+            {TOKEN_TYPES.map((t) => (
+              <th key={t} class="py-1 pr-3 text-right">
+                {TOKEN_TYPE_LABELS[t]}
+              </th>
+            ))}
+            <th class="py-1 pr-3 text-right">tokens</th>
             <th class="py-1 text-right">unmetered</th>
           </tr>
         </thead>
@@ -273,9 +306,14 @@ function DailyTable({ days }: { days: UsageDay[] }) {
             <tr key={d.day} class="border-t border-line">
               <td class="py-1 pr-3">{d.day}</td>
               <td class="py-1 pr-3 text-right">{count(d.runs)}</td>
-              <td class="py-1 pr-3 text-right">{count(d.tokens)}</td>
               <td class="py-1 pr-3 text-right">{formatMicroUSD(d.costMicroUSD)}</td>
               <td class="py-1 pr-3 text-right">{formatMicroUSD(d.notionalCostMicroUSD)}</td>
+              {TOKEN_TYPES.map((t) => (
+                <td key={t} class="py-1 pr-3 text-right">
+                  {count(tokenTypeValue(d, t))}
+                </td>
+              ))}
+              <td class="py-1 pr-3 text-right">{count(d.tokens)}</td>
               <td class="py-1 text-right">{count(d.unmeteredTokens)}</td>
             </tr>
           ))}
@@ -300,14 +338,20 @@ function FiguresTable<T extends UsageFigures>({
   return (
     <section class="mt-3.5 rounded-xl border border-line bg-surface px-4.5 py-4" aria-label={title}>
       <h2 class="ps-heading">{title}</h2>
+      <div class="overflow-x-auto">
       <table class="mt-2 w-full border-collapse text-[12.5px]">
         <thead>
           <tr class="text-left text-muted">
             <th class="py-1 pr-3 font-normal" />
             <th class="py-1 pr-3 text-right font-normal">runs</th>
-            <th class="py-1 pr-3 text-right font-normal">tokens</th>
             <th class="py-1 pr-3 text-right font-normal">cost</th>
             <th class="py-1 pr-3 text-right font-normal">equivalent API cost</th>
+            {TOKEN_TYPES.map((t) => (
+              <th key={t} class="py-1 pr-3 text-right font-normal">
+                {TOKEN_TYPE_LABELS[t]}
+              </th>
+            ))}
+            <th class="py-1 pr-3 text-right font-normal">tokens</th>
             <th class="py-1 text-right font-normal">unmetered</th>
           </tr>
         </thead>
@@ -324,14 +368,20 @@ function FiguresTable<T extends UsageFigures>({
                 )}
               </td>
               <td class="py-1.5 pr-3 text-right font-mono">{count(r.runs)}</td>
-              <td class="py-1.5 pr-3 text-right font-mono">{count(r.tokens)}</td>
               <td class="py-1.5 pr-3 text-right font-mono">{formatMicroUSD(r.costMicroUSD)}</td>
               <td class="py-1.5 pr-3 text-right font-mono">{formatMicroUSD(r.notionalCostMicroUSD)}</td>
+              {TOKEN_TYPES.map((t) => (
+                <td key={t} class="py-1.5 pr-3 text-right font-mono">
+                  {count(tokenTypeValue(r, t))}
+                </td>
+              ))}
+              <td class="py-1.5 pr-3 text-right font-mono">{count(r.tokens)}</td>
               <td class="py-1.5 text-right font-mono">{count(r.unmeteredTokens)}</td>
             </tr>
           ))}
         </tbody>
       </table>
+      </div>
     </section>
   );
 }
@@ -342,7 +392,7 @@ function TopIntents({ report }: { report: UsageReport }) {
       <h2 class="ps-heading">Top intents</h2>
       <p class="mt-1 mb-0 text-[12px] text-muted">
         The most expensive intents of {report.topIntentMonths.length > 0 ? report.topIntentMonths.join(", ") : "the window"} (kept
-        per month).
+        per month). Their tokens are one total: a month's top intents do not record the split by type.
       </p>
       {report.topIntents.length === 0 ? (
         <p class="mt-2 mb-0 text-muted">No intent runs.</p>
@@ -355,8 +405,9 @@ function TopIntents({ report }: { report: UsageReport }) {
                 <span class="text-muted">{ti.project}</span>
               </span>
               <span class="font-mono text-muted">
-                {count(ti.runs)} runs · {count(ti.tokens)} tokens · {formatMicroUSD(ti.costMicroUSD)}
-                {ti.notionalCostMicroUSD > 0 ? ` + ${formatMicroUSD(ti.notionalCostMicroUSD)} equivalent` : ""}
+                {formatMicroUSD(ti.costMicroUSD)}
+                {ti.notionalCostMicroUSD > 0 ? ` + ${formatMicroUSD(ti.notionalCostMicroUSD)} equivalent` : ""} · {count(ti.runs)} runs ·{" "}
+                {count(ti.tokens)} tokens
               </span>
             </li>
           ))}

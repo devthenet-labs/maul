@@ -194,3 +194,36 @@ func TestParseSince(t *testing.T) {
 		}
 	}
 }
+
+// Cost leads every usage table and the tokens are split by type: a total
+// that is mostly cache reads says little about spend.
+func TestUsageTablesLeadWithCostAndSplitTokens(t *testing.T) {
+	rep := usageview.UsageReport{From: "2026-07-01", To: "2026-07-30", Days: 30, Totals: usageview.UsageFigures{
+		Runs: 1, Tokens: 1_260_000, InputTokens: 60_000, OutputTokens: 30_000, CacheReadTokens: 1_150_000,
+		CacheWriteTokens: 20_000, CostMicroUSD: 940_000,
+	}}
+	groups := usageTables(rep)
+	if len(groups) == 0 {
+		t.Fatal("no tables")
+	}
+	tbl := groups[0].Table
+	cols := make([]string, 0, len(tbl.ColumnDefinitions))
+	for _, c := range tbl.ColumnDefinitions {
+		cols = append(cols, c.Name)
+	}
+	wantCols := []string{"WINDOW", "RUNS", "COST", "EQUIVALENT", "INPUT", "OUTPUT", "CACHE READ", "CACHE WRITE",
+		"TOKENS", "UNMETERED", "REPORTED"}
+	if strings.Join(cols, ",") != strings.Join(wantCols, ",") {
+		t.Fatalf("columns = %v, want %v", cols, wantCols)
+	}
+	wantCells := []any{"30d", "1", "$0.94", "$0.00", "60000", "30000", "1150000", "20000", "1260000", "0", "0"}
+	if got := tbl.Rows[0].Cells; len(got) != len(wantCells) {
+		t.Fatalf("cells = %v, want %v", got, wantCells)
+	} else {
+		for i := range got {
+			if got[i] != wantCells[i] {
+				t.Errorf("cell %s = %v, want %v", wantCols[i], got[i], wantCells[i])
+			}
+		}
+	}
+}

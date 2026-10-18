@@ -301,7 +301,8 @@ func segSum(segs []UsageSegment) UsageSegment {
 }
 
 // The report conserves every run: the window's totals are exactly the
-// generated runs completed inside it; every day's Project segments (with
+// generated runs completed inside it; every figure's tokens are exactly its
+// input, output, cache-read and cache-write split; every day's Project segments (with
 // the remainder) and kind segments sum to the day; the people sum to the
 // whole; each person's own report agrees with their row; and every report
 // lists each day of the window once, in order, ending today.
@@ -328,11 +329,19 @@ func TestBuildConservationProperty(t *testing.T) {
 			t.Logf("totals %+v, want %+v", all.Totals, want)
 			return false
 		}
-		if !checkDays(t, all, keys) {
+		if !checkDays(t, all, keys) || !splitSums(t, "totals", all.Totals) {
 			return false
+		}
+		for _, p := range all.Projects {
+			if !splitSums(t, p.Project, p.UsageFigures) {
+				return false
+			}
 		}
 		var people UsageFigures
 		for _, p := range all.People {
+			if !splitSums(t, p.User, p.UsageFigures) {
+				return false
+			}
 			addTotals(&people, p.UsageFigures)
 			own := Build(rollups, Filter{User: p.User, Self: true}, testNow, days)
 			if own.Totals != p.UsageFigures || !checkDays(t, own, keys) {
@@ -371,7 +380,7 @@ func checkDays(t *testing.T, rep UsageReport, keys []string) bool {
 		return false
 	}
 	for i, d := range rep.Daily {
-		if d.Day != keys[i] {
+		if d.Day != keys[i] || !splitSums(t, rep.View+" "+d.Day, d.UsageFigures) {
 			return false
 		}
 		total := dayTotalSegment(d.UsageFigures)
@@ -393,6 +402,17 @@ func checkDays(t *testing.T, rep UsageReport, keys []string) bool {
 				return false
 			}
 		}
+	}
+	return true
+}
+
+// splitSums holds a figure's tokens to its split by type, the four classes
+// the page and the CLI show in place of one total.
+func splitSums(t *testing.T, what string, f UsageFigures) bool {
+	t.Helper()
+	if split := f.InputTokens + f.OutputTokens + f.CacheReadTokens + f.CacheWriteTokens; split != f.Tokens {
+		t.Logf("%s: tokens %d, split sums to %d", what, f.Tokens, split)
+		return false
 	}
 	return true
 }

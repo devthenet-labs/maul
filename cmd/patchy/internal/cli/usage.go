@@ -145,15 +145,21 @@ func runGetUsage(ctx context.Context, opts *Options, f *getFlags, names []string
 }
 
 // figureColumns are the columns every usage table shares after its first.
-var figureColumns = []string{"RUNS", "TOKENS", "COST", "EQUIVALENT", "UNMETERED", "REPORTED"}
+// Cost leads: a token total is mostly cache reads, which cost a tenth of
+// input, so it says little about spend; the tokens follow split by type.
+var figureColumns = []string{"RUNS", "COST", "EQUIVALENT", "INPUT", "OUTPUT", "CACHE READ", "CACHE WRITE",
+	"TOKENS", "UNMETERED", "REPORTED"}
 
-// figureCells renders a figures row: metered tokens, list-rate cost, a
-// subscription's equivalent API cost, the broker's worst-case unmetered
-// tokens and the reported runs, which no total includes.
+// figureCells renders a figures row: list-rate cost, a subscription's
+// equivalent API cost, the metered tokens by type and in total, the
+// broker's worst-case unmetered tokens and the reported runs, which no
+// total includes.
 func figureCells(f usageview.UsageFigures) []any {
 	return []any{
-		strconv.FormatInt(f.Runs, 10), strconv.FormatInt(f.Tokens, 10), microUSD(f.CostMicroUSD),
-		microUSD(f.NotionalCostMicroUSD), strconv.FormatInt(f.UnmeteredTokens, 10),
+		strconv.FormatInt(f.Runs, 10), microUSD(f.CostMicroUSD), microUSD(f.NotionalCostMicroUSD),
+		strconv.FormatInt(f.InputTokens, 10), strconv.FormatInt(f.OutputTokens, 10),
+		strconv.FormatInt(f.CacheReadTokens, 10), strconv.FormatInt(f.CacheWriteTokens, 10),
+		strconv.FormatInt(f.Tokens, 10), strconv.FormatInt(f.UnmeteredTokens, 10),
 		strconv.FormatInt(f.ReportedRuns, 10),
 	}
 }
@@ -214,14 +220,16 @@ func usageTables(rep usageview.UsageReport) []printer.Group {
 		groups = append(groups, printer.Group{Title: "Days", Table: usageTable("DAY", figureColumns, rows)})
 	}
 	if len(rep.TopIntents) > 0 {
+		// A month bucket's top intents record one token total, not its
+		// split by type, so TOKENS is all the table can say.
 		rows := make([][]any, 0, len(rep.TopIntents))
 		for _, ti := range rep.TopIntents {
 			rows = append(rows, []any{ti.Intent, ti.Project, strconv.FormatInt(ti.Runs, 10),
-				strconv.FormatInt(ti.Tokens, 10), microUSD(ti.CostMicroUSD), microUSD(ti.NotionalCostMicroUSD)})
+				microUSD(ti.CostMicroUSD), microUSD(ti.NotionalCostMicroUSD), strconv.FormatInt(ti.Tokens, 10)})
 		}
 		groups = append(groups, printer.Group{
 			Title: "Top intents (" + strings.Join(rep.TopIntentMonths, ", ") + ")",
-			Table: usageTable("INTENT", []string{"PROJECT", "RUNS", "TOKENS", "COST", "EQUIVALENT"}, rows),
+			Table: usageTable("INTENT", []string{"PROJECT", "RUNS", "COST", "EQUIVALENT", "TOKENS"}, rows),
 		})
 	}
 	return groups

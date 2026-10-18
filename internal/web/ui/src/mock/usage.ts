@@ -71,6 +71,11 @@ function projectTotals(daily: UsageDay[], project: string) {
       t.costMicroUSD += s.costMicroUSD;
     }
   }
+  // The same split by type as the days', summing to the total.
+  t.inputTokens = Math.round(t.tokens * 0.2);
+  t.outputTokens = Math.round(t.tokens * 0.05);
+  t.cacheWriteTokens = Math.round(t.tokens * 0.03);
+  t.cacheReadTokens = t.tokens - t.inputTokens - t.outputTokens - t.cacheWriteTokens;
   return t;
 }
 
