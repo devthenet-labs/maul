@@ -163,23 +163,19 @@ func startBroker(t *testing.T, cl *cluster, upstream, keyFile string, limits ...
 // budget read.
 func agentPod(t *testing.T, cs kubernetes.Interface, name, budget string) string {
 	t.Helper()
-	ctx := context.Background()
-	pod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: agentsNS},
-		Spec: corev1.PodSpec{
-			ServiceAccountName: agentSA,
-			Containers:         []corev1.Container{{Name: "agent", Image: "patchy/claude-agent-runner:e2e"}},
-		},
-	}
+	var annotations map[string]string
 	if budget != "" {
-		pod.Annotations = map[string]string{provider.BudgetAnnotation: budget}
+		annotations = map[string]string{provider.BudgetAnnotation: budget}
 	}
-	pod, err := cs.CoreV1().Pods(agentsNS).Create(ctx, pod, metav1.CreateOptions{})
-	if err != nil {
-		t.Fatalf("create pod %s: %v", name, err)
-	}
+	return agentPodWith(t, cs, name, annotations)
+}
+
+// podToken returns a projected token for the agent ServiceAccount bound to
+// pod, as the kubelet mounts one into a brokered claude pod.
+func podToken(t *testing.T, cs kubernetes.Interface, pod *corev1.Pod) string {
+	t.Helper()
 	ttl := int64(3600)
-	tr, err := cs.CoreV1().ServiceAccounts(agentsNS).CreateToken(ctx, agentSA, &authnv1.TokenRequest{
+	tr, err := cs.CoreV1().ServiceAccounts(agentsNS).CreateToken(context.Background(), agentSA, &authnv1.TokenRequest{
 		Spec: authnv1.TokenRequestSpec{
 			Audiences:         []string{brokerAudience},
 			ExpirationSeconds: &ttl,
@@ -187,7 +183,7 @@ func agentPod(t *testing.T, cs kubernetes.Interface, name, budget string) string
 		},
 	}, metav1.CreateOptions{})
 	if err != nil {
-		t.Fatalf("token for pod %s: %v", name, err)
+		t.Fatalf("token for pod %s: %v", pod.Name, err)
 	}
 	return tr.Status.Token
 }
