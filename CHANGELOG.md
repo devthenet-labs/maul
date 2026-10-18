@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.12.40](https://github.com/devthenet-labs/patchy/compare/v0.12.39...v0.12.40) (2026-10-18)
+
+
+### Features
+
+* **cli:** patchy check previews ([#243](https://github.com/devthenet-labs/patchy/issues/243)) ([f253a2c](https://github.com/devthenet-labs/patchy/commit/f253a2cde10e3d66c4a183775010ae4b4894cd5b))
+* **cli:** setup previews --detect and the finished command ([#247](https://github.com/devthenet-labs/patchy/issues/247)) ([eed0560](https://github.com/devthenet-labs/patchy/commit/eed0560714789a6ef5898adbd35a21a48a65233b))
+* **cli:** setup previews core and the existing-edge recipe ([#244](https://github.com/devthenet-labs/patchy/issues/244)) ([436a9de](https://github.com/devthenet-labs/patchy/commit/436a9de017d0c1ea9a4eec0e196536874ed659f9))
+* **cli:** setup previews recipe for Cloudflare Tunnel ([#246](https://github.com/devthenet-labs/patchy/issues/246)) ([f763d0e](https://github.com/devthenet-labs/patchy/commit/f763d0e60a68e1bdc2fde97b571fb412235db4de))
+* **cli:** setup previews recipes for a load balancer and for tailnet-only ([#245](https://github.com/devthenet-labs/patchy/issues/245)) ([3501967](https://github.com/devthenet-labs/patchy/commit/3501967d114007b3f8a3b10d37216593e4204296))
+
+
+### Bug Fixes
+
+* **chart:** gateway-mode defaults (apiServerCIDR auto, inert targetHealth and stage, loadBalancerClass) ([#241](https://github.com/devthenet-labs/patchy/issues/241)) ([eb0fe5a](https://github.com/devthenet-labs/patchy/commit/eb0fe5a09dddc8698abe4202a72781a5d568e785))
+* **harness:** deny edit tools, pin the permission mode, and probe the CLI posture on bumps ([#238](https://github.com/devthenet-labs/patchy/issues/238)) ([bafe7d7](https://github.com/devthenet-labs/patchy/commit/bafe7d7c76c3645b747cb79deb0b3b2ec1a473af))
+
 ## [0.12.39](https://github.com/devthenet-labs/patchy/compare/v0.12.38...v0.12.39) (2026-10-16)
 
 
