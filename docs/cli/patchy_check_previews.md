@@ -28,8 +28,9 @@ previewAuth.gateway.inboundCIDRs.
 
 On a Cloudflare Tunnel edge (the cloudflare-tunnel recipe), whose gateway
 publishes no address, preview-dns passes when the record is a CNAME to the
-tunnel cloudflared serves (<tunnel id>.cfargotunnel.com), or shows no CNAME
-and resolves to Cloudflare's proxy alone; anything else is a WARN or a SKIP
+tunnel cloudflared serves (<tunnel id>.cfargotunnel.com). A proxied record
+shows only Cloudflare's addresses and hides its target: a SKIP, and
+preview-auth-host proves the routing. Anything else is a WARN or a SKIP
 saying what to look at. cloudflared's ConfigMap names the tunnel; its
 credentials are never read.
 

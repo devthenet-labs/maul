@@ -26,8 +26,10 @@ import (
 // <tunnel id>.cfargotunnel.com. Cloudflare answers a proxied record with
 // its own anycast addresses and hides the CNAME, so from outside the DNS
 // line can see one of two things: the CNAME itself (a resolver that shows
-// it), or Cloudflare's addresses. preview-auth-host's request through that
-// edge then shows whether the record routes to this install's gateway.
+// it), or Cloudflare's addresses. Only the CNAME names a target: every
+// proxied record answers with Cloudflare's addresses, whatever origin it
+// routes to, so those are a SKIP, and preview-auth-host's request through
+// that edge is what shows the record routes to this install's gateway.
 
 // cfargotunnelSuffix is the zone every tunnel's CNAME target sits in.
 const cfargotunnelSuffix = ".cfargotunnel.com"
@@ -169,8 +171,9 @@ type tunnelDNSInput struct {
 
 // judgeTunnelDNS is the DNS line for an exposure that publishes no
 // address, pure. ok is false when nothing about the record or the cluster
-// says a tunnel serves it, and the generic reason stands. A record proven
-// to point at the recipe's tunnel passes; one pointing elsewhere, or at a
+// says a tunnel serves it, and the generic reason stands. Only a visible
+// CNAME to the recipe's tunnel passes; a proxied record, whose target is
+// hidden, is a SKIP; one pointing elsewhere, or at a
 // tunnel not known to be this install's, is a WARN or a SKIP that says
 // what to look at, never a PASS.
 func judgeTunnelDNS(in tunnelDNSInput) (status checkreport.Status, reason string, ok bool) {
@@ -202,9 +205,12 @@ func judgeTunnelDNS(in tunnelDNSInput) (status checkreport.Status, reason string
 		return checkreport.Warn, fmt.Sprintf("%s is a CNAME to %s, not to %s%s, the tunnel %s serves: route it "+
 			"with %s", in.host, in.cname, in.tunnel.id, cfargotunnelSuffix, in.tunnel.where, route), true
 	case cloudflareProxied(in.addrs) && in.tunnel.id != "":
-		return checkreport.Pass, fmt.Sprintf("%s resolves to Cloudflare's proxy (%s), the edge of Cloudflare Tunnel "+
-			"%s, which %s serves; a proxied record hides its CNAME, so preview-auth-host's answer through that edge "+
-			"shows the record routes to the tunnel", in.host, got, in.tunnel.id, in.tunnel.where), true
+		// Any proxied record answers with these addresses, whatever origin
+		// it routes to, so they prove nothing about the tunnel.
+		return checkreport.Skip, fmt.Sprintf("%s resolves to Cloudflare's proxy (%s): proxied; the target is "+
+			"hidden, preview-auth-host proves routing to Cloudflare Tunnel %s, which %s serves (or check in the "+
+			"Cloudflare dashboard that the record is a proxied CNAME to %s%s)", in.host, got, in.tunnel.id,
+			in.tunnel.where, in.tunnel.id, cfargotunnelSuffix), true
 	case cloudflareProxied(in.addrs):
 		return checkreport.Skip, fmt.Sprintf("%s resolves to Cloudflare's proxy (%s), which hides where the record "+
 			"routes, and no cloudflared from `patchy setup previews --edge cloudflare-tunnel` routes this host "+

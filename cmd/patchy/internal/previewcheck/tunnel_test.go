@@ -113,9 +113,9 @@ func TestInstallTunnel(t *testing.T) {
 		want   []string
 	}{
 		"proxied record": {
-			status: checkreport.Pass,
+			status: checkreport.Skip,
 			want: []string{"Cloudflare's proxy (" + cfAddr + ")", "Cloudflare Tunnel " + goldenTunnelID,
-				"cloudflared in patchy-cloudflared/cloudflared", "preview-auth-host"},
+				"cloudflared in patchy-cloudflared/cloudflared", "proxied; the target is hidden", "preview-auth-host proves routing"},
 		},
 		"CNAME to the tunnel": {
 			change: func(w *installWorld) { w.cnames[probe] = goldenTunnelID + ".cfargotunnel.com" },
@@ -241,10 +241,10 @@ func TestPublishedAddressesNamedOnce(t *testing.T) {
 
 // TestJudgeTunnelDNSNeverPassesUnproven (seeded): whatever the record, the
 // addresses and the cluster hold, the tunnel verdict passes only when the
-// recipe's tunnel is known and the record is a CNAME to exactly that
-// tunnel, or shows no CNAME and resolves to Cloudflare's proxy alone (a
-// visible CNAME to anything else, even a malformed cfargotunnel.com name
-// that ends at Cloudflare, is no proof); a known tunnel always
+// recipe's tunnel is known and the record is a visible CNAME to exactly
+// that tunnel (a proxied record, which shows only Cloudflare's addresses,
+// hides its target, and a CNAME to anything else is no proof); a known
+// tunnel always
 // gives a verdict, and with no tunnel and no Cloudflare in sight there is
 // none.
 func TestJudgeTunnelDNSNeverPassesUnproven(t *testing.T) {
@@ -268,13 +268,12 @@ func TestJudgeTunnelDNSNeverPassesUnproven(t *testing.T) {
 	}
 	prop := func(in tunnelDNSInput) bool {
 		status, reason, ok := judgeTunnelDNS(in)
-		proxied := cloudflareProxied(in.addrs)
 		exact := in.tunnel.id != "" && in.cname == in.tunnel.id+".cfargotunnel.com"
 		switch {
 		case status == checkreport.Pass && in.tunnel.id == "":
 			t.Logf("PASS with no known tunnel: %+v: %s", in, reason)
 			return false
-		case status == checkreport.Pass && !exact && (!proxied || in.cname != ""):
+		case status == checkreport.Pass && !exact:
 			t.Logf("PASS without proof: %+v: %s", in, reason)
 			return false
 		case in.tunnel.id != "" && !ok:

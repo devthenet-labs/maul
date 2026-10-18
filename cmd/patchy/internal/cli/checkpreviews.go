@@ -52,8 +52,9 @@ func newCheckPreviewsCmd(opts *Options) *cobra.Command {
 			"previewAuth.gateway.inboundCIDRs.\n\n" +
 			"On a Cloudflare Tunnel edge (the cloudflare-tunnel recipe), whose gateway\n" +
 			"publishes no address, preview-dns passes when the record is a CNAME to the\n" +
-			"tunnel cloudflared serves (<tunnel id>.cfargotunnel.com), or shows no CNAME\n" +
-			"and resolves to Cloudflare's proxy alone; anything else is a WARN or a SKIP\n" +
+			"tunnel cloudflared serves (<tunnel id>.cfargotunnel.com). A proxied record\n" +
+			"shows only Cloudflare's addresses and hides its target: a SKIP, and\n" +
+			"preview-auth-host proves the routing. Anything else is a WARN or a SKIP\n" +
 			"saying what to look at. cloudflared's ConfigMap names the tunnel; its\n" +
 			"credentials are never read.\n\n" +
 			"preview-viewers reads the bindings of the chart's <release>-preview-viewer\n" +

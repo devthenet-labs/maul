@@ -401,10 +401,11 @@ previewAuth:
 - Hold the allowlist at Cloudflare (a WAF custom rule or Cloudflare Access) and in `inboundCIDRs`. The setup command
   refuses `--inbound-cidr` on this edge and leaves `inboundCIDRs` empty: keep the allowlist at Cloudflare.
 - A proxied record resolves to Cloudflare's addresses, not the tunnel's. `patchy check project` and `check previews`
-  recognise the tunnel from the setup command's cloudflared ConfigMap: the DNS line passes when the record shows no
-  CNAME and resolves to Cloudflare's proxy alone (`preview-auth-host` then shows it routes to the gateway), or is a
-  CNAME to that tunnel, and is a WARN naming the `cloudflared tunnel route dns` command otherwise. Without that
-  ConfigMap (a cloudflared of your own) it is a SKIP: check the record in the Cloudflare dashboard instead.
+  recognise the tunnel from the setup command's cloudflared ConfigMap. The DNS line passes only for a visible CNAME to
+  that tunnel. A proxied record answers with Cloudflare's addresses whatever it targets, so it is a SKIP, and
+  `preview-auth-host` (the gateway's own `404` for the probe host) proves the routing. An address off Cloudflare, or a
+  CNAME to anything else, is a WARN naming the `cloudflared tunnel route dns` command. Without that ConfigMap (a
+  cloudflared of your own) it is a SKIP: check the record in the Cloudflare dashboard instead.
 
 `patchy setup previews --edge cloudflare-tunnel --tunnel-credentials ~/.cloudflared/<tunnel id>.json`
 ([Setting up previews](../cli.md#setting-up-previews)) writes all of this: the values above, cloudflared's namespace,
