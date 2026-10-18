@@ -400,8 +400,12 @@ The genuinely shared settings stay global:
   grants, the `-credentials-self` and `-credentials-admin` ClusterRoles and three admission policies, and pass the
   broker the mode: under `attribute` it records each run's person and the org credential pays; under `enforce` a run
   attributed to a person uses that person's own credential or is refused. A setup-token org credential
-  (`anthropicAuth: token`) is refused unless `orgCredentialIsPersonal: acknowledged`. See
-  [Per-user model credentials](../../docs/configuration/user-credentials.md).
+  (`anthropicAuth: token`) is refused unless `orgCredentialIsPersonal: acknowledged`. Under `enforce`, remediation- and
+  intent-controller also hold a run attributed to a person until that person's credential is `Valid`, and say so on the
+  issue. See [Per-user model credentials](../../docs/configuration/user-credentials.md).
+- `statusServer.account.enabled` — the status page's Account page (default `false`), where each person stores their own
+  model credential, write-only. Needs `egressBroker.userCredentials.mode` on and the usage views' auth posture; with
+  `statusServer.host` set, every credential notice links it.
 - `agent.*` — the sandbox: namespace, service account, `jobDeadline`/`jobTTL`, and the two stages' limits:
   `modelAllowlist` (canonical, provider-qualified model ids), `investigate.*` (absolute), `remediate.*` (`auto.*` is
   what an unattended fix gets and the line past which an estimate needs approval, `manual.*` the most an approval can

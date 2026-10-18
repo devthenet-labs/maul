@@ -85,7 +85,11 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   (`credhealth.go`), written by a patch conditional on the record's resourceVersion and only while the probed Secret
   version (`status.secretVersion`, `ModelCredentialStatus.HealthFor`) is current; readiness stays the org
   credential's. Startup refuses a setup-token org credential unless acknowledged, and any non-anthropic route
-  (docs/configuration/user-credentials.md).
+  (docs/configuration/user-credentials.md). Under `enforce` remediation- and intent-controller (`--user-credentials`,
+  `internal/credgate`) never create a run attributed to a person whose record is not `Valid`: the Finding stays
+  `Queued` with `CredentialRequired`, the Intent is `Blocked` (`CredentialRequired`, `status.credentialHold`); the
+  issue names the person and links `--account-url`, and a re-approval by an approver holding a valid credential
+  replaces the attribution. The status page's Account page (`--account-enabled`) is where people store theirs.
 - `cmd/egress-proxy` — OPTIONAL (default-off; chart `egressProxy`, chart-only, no kustomize component): the
   operator's Go dependency route (NOT a controller: no reconcilers, no leases). A GOPROXY-protocol reverse proxy to
   proxy.golang.org and sum.golang.org with one listener per operator network profile (`agent.networkProfiles`);
@@ -202,7 +206,13 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   (internal/web/usage.go): a person's own usage keyed by their GitHub numeric id (`auth.Identity.GitHubID`, read from
   Dex `federated_claims` of the configured GitHub connector; any other identity refused), everyone's behind an access
   review on the virtual `usage/all`; startup needs `auth.Config.RequireForUsage` (oidc, prefixes, `federated:id`). Read
-  only, over a cached `UsageRollup` informer.
+  only, over a cached `UsageRollup` informer. With `--account-enabled` (chart `statusServer.account.enabled`; default
+  off, chart only, refused without `egressBroker.userCredentials.mode`) it serves the Account page and `/api/account*`
+  (internal/web/account.go): a person sets, replaces and deletes their own model credential (POST only, JSON capped at
+  8 KiB, owner stamped from the GitHub id, an access review on the virtual `modelcredentials/self`), and sees its
+  fingerprint, health and last use, never the credential. Its store (`internal/web/credstore`) writes the Secret in
+  `--credentials-namespace` by create or unconditional update and never reads one: the status server's first Secret
+  write, and its only write outside spec.
 - `cmd/patchy` — the workstation CLI (the only binary not deployed): `patchy <verb> <noun>` over the caller's own
   kubeconfig, no channel through any controller. get/describe/review/browse/can-i plus the five action verbs; `get
   usage` is the usage report (not a kind; `internal/usageview`), admin-only by a SelfSubjectAccessReview on `usage/all`.
@@ -443,9 +453,17 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   run's `spec.attributedTo` only from its own kind's controller on CREATE, an Intent's `requestedBy.userID` only from
   intent-controller; a render test pins the Job policy's grammar to `ValuePattern`).
   Stdlib and `api/v1alpha1` only (a test pins that). Operator guide `docs/configuration/attribution.md`.
+- `credgate` — the run controllers' side of per-user credentials (design L3 "Fallback", revision 1), PURE (stdlib +
+  `api/v1alpha1`, a test pins that): the `--user-credentials` mode (`off`, `attribute`, `enforce`), `Judge`/`Check`
+  (under `enforce` a run attributed to a person is held unless that person's own anthropic `ModelCredential` is
+  `Valid`; org runs and the other modes never; seeded property), the hold's reasons and `Message`, and
+  `CheckAccountURL` (`--account-url`, written into Markdown). `credgate/kubecred` is the `Lookup` over an uncached
+  reader (get by derived name only). Consumers: remediation's spawner (`credential_hold.go`), intent
+  (`credential_hold.go`), and integration-controller's held-Finding comment (`templates.RenderCredentialHoldComment`).
 - `action` — the human-action vocabulary (the custom verbs) and the state-machine gating behind each one:
   `Apply` mutates spec (`ApplyWithID` also records a GitHub commenter's numeric id as `byID`, which attribution keys
-  on), `Available` reports what a finding currently admits. Owned here so the status
+  on), `Available` reports what a finding currently admits. `approve` is also admitted on a `Queued` finding held
+  for its approver's model credential (`CredentialRequired`), replacing the approval. Owned here so the status
   server and the CLI cannot drift; `web/authz` re-exports the verb constants. It decides whether an action
   is MEANINGFUL, never whether the caller may take it. The intent verbs (replan/cancel/revise) are constants
   here too, deliberately in none of the Finding verb lists.
@@ -470,7 +488,9 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   through `guardedConfigMap` (the intent's label and a controller reference to its very owner), strips the live run
   stream per subscriber (turns, and the `PATCHY-OUTPUT` command output the tail hub keeps on its own replay ring and
   channel: tier 2 only, live only, never part of the activity), and pins its wire types to `types.ts` by parsing it
-  (`TestIntentWireTypesMatchTypeScript`).
+  (`TestIntentWireTypesMatchTypeScript`). The Account page (`account.go`) writes through the `CredentialStore` port
+  (adapter `web/credstore`: Secret, then record, then status, never a Secret read); its wire types are pinned by
+  `TestAccountWireTypesMatchTypeScript`.
 - `sealed` — the shared authenticated-encryption primitives for sign-in surfaces: `PurposeKey` (HKDF-SHA256 of one
   secret, one key per purpose), `Seal`/`Open` (AES-256-GCM of a JSON value with caller-supplied AAD, so a token of one
   kind never opens as another; every failure is `ErrOpen`) and `RandomToken`. Stdlib only (a test pins that), so a pure

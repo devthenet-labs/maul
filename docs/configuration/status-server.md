@@ -60,6 +60,13 @@ One flag turns on the [usage views](#usage-views):
 | ----------------- | ---------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `--usage-enabled` | `PATCHY_USAGE_ENABLED` | `false` | Serve the Usage page: each person's own usage, everyone's for holders of `usage/all`. Needs mode `oidc` as above plus the `federated:id` scope; hardens the page |
 
+One more turns on the [Account page](#account-page):
+
+| Flag                      | Env                            | Default              | Purpose                                                                                                                    |
+| ------------------------- | ------------------------------ | -------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `--account-enabled`       | `PATCHY_ACCOUNT_ENABLED`       | `false`              | Serve the Account page: each person sets, replaces and deletes their own model credential. Needs what the usage views need |
+| `--credentials-namespace` | `PATCHY_CREDENTIALS_NAMESPACE` | `patchy-credentials` | The namespace the page writes credential Secrets to (write-only)                                                           |
+
 ## Usage views
 
 The Usage page answers "who is producing what, and what does it cost" from the `UsageRollup`s that
@@ -108,6 +115,38 @@ refused both views with a 403 saying why, even when it holds `usage/all`. The vi
 envelope as the intents views. The API is `GET /api/usage?days=N` (own), `GET /api/usage/all?days=N&user=&project=`
 (everyone's; `user` is a login, `github-id:<id>` or `org`) and `GET /api/usage/access` (what the caller may see); `days`
 is 1 to 400, default 30.
+
+## Account page
+
+The Account page is where each person stores the model credential that pays for the runs attributed to them
+([per-user model credentials](user-credentials.md)). Helm: `statusServer.account.enabled: true` (default `false`),
+refused unless `egressBroker.userCredentials.mode` is `attribute` or `enforce`, whose store and grants it writes to.
+
+- **What it shows.** For each provider (Anthropic in v1): the kind (API key or setup-token), the fingerprint (the last
+  four characters and a SHA-256 prefix), the health the egress broker's own probe found (`Valid`, `Rejected` or
+  `Unknown`), and when the broker last used it and last saw it rejected. Never the credential: no route returns it, and
+  the server cannot read a stored one back.
+- **What it does.** Set or replace the credential (a password field), or delete it. Pasting a credential picks the kind
+  its Anthropic prefix names. A setup-token must be the person's own subscription's: it is used only for runs attributed
+  to them.
+- **Who.** A person is their GitHub numeric id, as on the Usage page, so the server refuses to start without what the
+  usage views need (mode `oidc`, both claim prefixes, the `federated:id` scope), and an identity without a GitHub id is
+  refused with a 403 saying why. Every route also needs an access review on the virtual `modelcredentials/self`: bind
+  the chart's `<release>-credentials-self` ClusterRole with a RoleBinding in the release namespace (see
+  [who may do what](user-credentials.md#who-may-do-what)). The owner of what is stored is always the signed-in GitHub
+  id, never anything in the request.
+- **The API.** `GET /api/account` (each provider's facts, or why the caller cannot manage one),
+  `POST /api/account/credentials/<provider>` with a JSON body `{"kind": "api-key" | "oauth-token", "credential": "..."}`
+  (`Content-Type: application/json`, at most 8 KiB, no other field), and
+  `POST /api/account/credentials/<provider>/delete` with no body. The credential must be one token of printable
+  characters, at most 3072 bytes, surrounding whitespace trimmed; a value carrying the other kind's Anthropic prefix is
+  refused.
+- **Envelope.** The page turns on the hardened browser envelope of the intents views, so every write needs a same-origin
+  `Sec-Fetch-Site`. Each change is one audit line (`model credential stored` or `deleted`, with the person, the
+  provider, the kind and the fingerprint, never the value).
+
+With `statusServer.host` set, every notice that a run waits for someone's credential links the page
+(`https://<host>/#/account`).
 
 ## Authentication configuration
 
