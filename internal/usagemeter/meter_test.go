@@ -237,6 +237,83 @@ func TestPriceNotional(t *testing.T) {
 	}
 }
 
+// TestPriceKeepsCredentialKindsApart: a model one pod paid for with an API
+// key and then a setup-token (the broker's ledger reports the two apart)
+// stays two entries, each priced as what it is, so the subscription's
+// notional cost is never counted as money spent, nor the reverse.
+func TestPriceKeepsCredentialKindsApart(t *testing.T) {
+	got := Price(model.Builtins(), []usagewire.Pod{pod(0,
+		usagewire.Model{Model: "claude-sonnet-5", Credential: usagewire.CredentialAPIKey, Input: 1_000_000},
+		usagewire.Model{Model: "claude-sonnet-5", Credential: usagewire.CredentialOAuthToken, Input: 2_000_000},
+	)}, metaTime(t0))
+	if len(got.Models) != 2 {
+		t.Fatalf("models = %+v, want the two kinds apart", got.Models)
+	}
+	key, sub := got.Models[0], got.Models[1]
+	if key.Credential != usagewire.CredentialAPIKey || key.Pricing != v1alpha1.UsagePricingList ||
+		key.InputTokens != 1_000_000 || key.CostUSD != "3.000000" {
+		t.Errorf("api-key entry = %+v", key)
+	}
+	if sub.Credential != usagewire.CredentialOAuthToken || sub.Pricing != v1alpha1.UsagePricingSubscription ||
+		sub.InputTokens != 2_000_000 || sub.CostUSD != "6.000000" {
+		t.Errorf("oauth-token entry = %+v", sub)
+	}
+	if got.InputTokens != 3_000_000 || got.CostUSD != "9.000000" {
+		t.Errorf("totals = %+v", got)
+	}
+}
+
+// TestPriceCredentialProperty (seeded): with fewer distinct (model, kind)
+// pairs than the bound, every kind's tokens arrive under that kind and no
+// other, and no entry repeats a (model, kind) pair.
+func TestPriceCredentialProperty(t *testing.T) {
+	ids := []string{"claude-sonnet-5", "claude-haiku-4-5-20251001", "claude-opus-5@20260101", "claude-unknown-1"}
+	kinds := []string{usagewire.CredentialAPIKey, usagewire.CredentialOAuthToken, usagewire.CredentialCloudIdentity}
+	cfg := &quick.Config{MaxCount: 2000, Rand: rand.New(rand.NewSource(seed))}
+	cfg.Values = func(args []reflect.Value, rnd *rand.Rand) {
+		pods := make([]usagewire.Pod, 0, 3)
+		for range 1 + rnd.Intn(3) {
+			n := rnd.Intn(6)
+			models := make([]usagewire.Model, 0, n)
+			for range n {
+				models = append(models, usagewire.Model{
+					Model: ids[rnd.Intn(len(ids))], Credential: kinds[rnd.Intn(len(kinds))],
+					Input: rnd.Int63n(1e7), Output: rnd.Int63n(1e7),
+				})
+			}
+			pods = append(pods, pod(0, models...))
+		}
+		args[0] = reflect.ValueOf(pods)
+	}
+	prop := func(pods []usagewire.Pod) bool {
+		want := map[string]int64{}
+		for _, p := range pods {
+			for _, m := range p.Models {
+				want[m.Credential] += m.Input + m.Output
+			}
+		}
+		got := map[string]int64{}
+		seen := map[string]bool{}
+		for _, m := range Price(model.Builtins(), pods, nil).Models {
+			pair := m.Model + "|" + m.Credential
+			if seen[pair] {
+				return false
+			}
+			seen[pair] = true
+			got[m.Credential] += m.InputTokens + m.OutputTokens
+		}
+		for _, k := range kinds {
+			if got[k] != want[k] {
+				return false
+			}
+		}
+		return true
+	}
+	if err := quick.Check(prop, cfg); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // TestPriceBoundsCredential: an unexpected credential kind is recorded as
 // "unknown" (priced list), never as the broker's string.
 func TestPriceBoundsCredential(t *testing.T) {
