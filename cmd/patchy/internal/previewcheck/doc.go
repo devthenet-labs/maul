@@ -59,7 +59,13 @@
 //     with the gateway's edge instead: the chart's publishedAddresses (an
 //     annotation on the relay's ConfigMap), else the status of the
 //     gateway's Ingress or LoadBalancer Service (<release>-preview-gateway),
-//     else a SKIP (an HTTPRoute or a tunnel); a private edge (RFC 1918, ULA,
+//     else a Cloudflare Tunnel (tunnel.go: the cloudflare-tunnel recipe's
+//     cloudflared ConfigMap, found by its labels in any namespace, names the
+//     tunnel routing *.<suffix>; a record that is a CNAME to
+//     <tunnel id>.cfargotunnel.com, or shows no CNAME and resolves to
+//     Cloudflare's proxy alone, passes; any other answer is a WARN or a SKIP
+//     saying what to look at), else a SKIP (an HTTPRoute, or a tunnel the
+//     check cannot identify); a private edge (RFC 1918, ULA,
 //     CGNAT, so a tailnet) that this resolver does not answer with is a SKIP;
 //     while both paths serve, the legacy load balancer passes too.
 //     preview-auth-host asks every host as a navigation: the probe host,

@@ -46,6 +46,12 @@ func newCheckPreviewsCmd(opts *Options) *cobra.Command {
 			"answer, the probe host is the gateway's 404 page, each Ready Preview\n" +
 			"redirects to sign in, and a spoofed X-Forwarded-For cannot get past\n" +
 			"previewAuth.gateway.inboundCIDRs.\n\n" +
+			"On a Cloudflare Tunnel edge (the cloudflare-tunnel recipe), whose gateway\n" +
+			"publishes no address, preview-dns passes when the record is a CNAME to the\n" +
+			"tunnel cloudflared serves (<tunnel id>.cfargotunnel.com), or shows no CNAME\n" +
+			"and resolves to Cloudflare's proxy alone; anything else is a WARN or a SKIP\n" +
+			"saying what to look at. cloudflared's ConfigMap names the tunnel; its\n" +
+			"credentials are never read.\n\n" +
 			"preview-viewers reads the bindings of the chart's <release>-preview-viewer\n" +
 			"ClusterRole: at least one User or Group carrying the relay's claim prefix\n" +
 			"should be bound, or every sign-in is refused 403 unless another role grants\n" +

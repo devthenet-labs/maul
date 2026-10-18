@@ -65,6 +65,9 @@ type gatewayEdge struct {
 	// says what that makes the DNS check.
 	why    string
 	status checkreport.Status
+	// tunnel is set when the exposure publishes no address, which a
+	// Cloudflare Tunnel may serve (tunnel.go).
+	tunnel *tunnelEdge
 }
 
 // gatewayEdge reads where the gateway is published: the chart's
@@ -73,14 +76,24 @@ type gatewayEdge struct {
 func (c *Checker) gatewayEdge(ctx context.Context, s Settings) gatewayEdge {
 	if v := strings.TrimSpace(s.Auth.Annotations[publishedAnnotation]); v != "" {
 		var e gatewayEdge
-		e.name = "previewAuth.gateway.publishedAddresses (" + v + ")"
+		named := false
 		for a := range strings.SplitSeq(v, ",") {
-			addrs, err := c.addresses(ctx, strings.TrimSpace(a))
+			a = strings.TrimSpace(a)
+			addrs, err := c.addresses(ctx, a)
 			if err != nil {
 				return gatewayEdge{status: checkreport.Skip, why: fmt.Sprintf("the published address %s does not "+
 					"resolve: %v", a, err)}
 			}
+			_, perr := netip.ParseAddr(a)
+			named = named || perr != nil
 			e.addrs = append(e.addrs, addrs...)
+		}
+		// Every reason puts addresses after the edge's name, so the
+		// published value joins the name only when it holds a host name,
+		// whose addresses are not the value itself.
+		e.name = "previewAuth.gateway.publishedAddresses"
+		if named {
+			e.name += " " + v
 		}
 		e.private = allPrivate(e.addrs)
 		return e
@@ -119,8 +132,18 @@ func (c *Checker) gatewayEdge(ctx context.Context, s Settings) gatewayEdge {
 		return gatewayEdge{status: checkreport.Skip, why: fmt.Sprintf("cannot read the gateway's Service %s: %v",
 			key, err)}
 	}
-	return gatewayEdge{status: checkreport.Skip, why: "the gateway's exposure publishes no address (an HTTPRoute, " +
-		"whose Gateway holds it, or a tunnel): set previewAuth.gateway.publishedAddresses to compare against"}
+	t := c.findTunnel(ctx, strings.TrimSpace(s.Preview.Data[keyPreviewHostSuffix]))
+	if t.id != "" {
+		return gatewayEdge{status: checkreport.Skip, tunnel: &t, name: "Cloudflare Tunnel " + t.id,
+			why: fmt.Sprintf("the gateway's exposure is Cloudflare Tunnel %s (%s), which publishes no address of "+
+				"its own", t.id, t.where)}
+	}
+	why := "the gateway's exposure publishes no address (an HTTPRoute, whose Gateway holds it, or a tunnel): set " +
+		"previewAuth.gateway.publishedAddresses to compare against"
+	if t.lookup != "" {
+		why += " (" + t.lookup + ", so a cloudflare-tunnel recipe's tunnel could not be looked for)"
+	}
+	return gatewayEdge{status: checkreport.Skip, tunnel: &t, why: why}
 }
 
 // statusEdge is an exposure's status address, resolved when a hostname.
@@ -198,9 +221,9 @@ func (c *Checker) gatewayProbeHost(ctx context.Context, suffix string, edge gate
 	var dnsErr *net.DNSError
 	switch {
 	case err != nil && errors.As(err, &dnsErr) && dnsErr.IsNotFound && edge.private:
-		c.add(CheckPreviewDNS, checkreport.Skip, "%s does not resolve here (%v), and the gateway's edge %s is "+
+		c.add(CheckPreviewDNS, checkreport.Skip, "%s does not resolve here (%v), and the gateway's edge%s is "+
 			"private, which a split-horizon or tailnet resolver may hold: run this where viewers resolve it", host,
-			err, edge.name)
+			err, edgeHint(edge))
 		c.add(CheckPreviewTLS, checkreport.Skip, "%s does not resolve here", host)
 		return
 	case err != nil && errors.As(err, &dnsErr) && dnsErr.IsNotFound:
@@ -261,7 +284,10 @@ func (c *Checker) gatewaySignInHost(ctx context.Context, host string, edge gatew
 	}
 	slices.Sort(addrs)
 	got := strings.Join(addrs, ", ")
+	tStatus, tReason, tunnel := c.tunnelVerdict(ctx, host, host, addrs, edge)
 	switch {
+	case tunnel:
+		c.add(CheckPreviewDNS, tStatus, "the sign-in host %s", tReason)
 	case edge.why != "":
 		c.add(CheckPreviewDNS, edge.status, "the sign-in host %s resolves to %s, but it cannot be compared with "+
 			"the preview gateway's edge: %s", host, got, edge.why)
@@ -283,9 +309,21 @@ func (c *Checker) gatewaySignInHost(ctx context.Context, host string, edge gatew
 // edgeHint names the gateway's edge, when known, for a reason.
 func edgeHint(edge gatewayEdge) string {
 	if edge.why != "" {
-		return ""
+		return tunnelHint(edge.tunnel)
 	}
 	return " " + edge.name + " (" + strings.Join(edge.addrs, ", ") + ")"
+}
+
+// tunnelVerdict is the DNS line for host when the gateway's exposure
+// publishes no address (judgeTunnelDNS); ok is false when nothing says a
+// Cloudflare Tunnel serves it. record names the DNS record host is under.
+func (c *Checker) tunnelVerdict(ctx context.Context, host, record string, addrs []string,
+	edge gatewayEdge) (status checkreport.Status, reason string, ok bool) {
+	if edge.tunnel == nil {
+		return "", "", false
+	}
+	return judgeTunnelDNS(tunnelDNSInput{host: host, record: record, tunnel: *edge.tunnel,
+		cname: c.cname(ctx, host), addrs: addrs})
 }
 
 // judgeGatewayDNS compares the preview host's addresses with the gateway's
@@ -301,6 +339,11 @@ func (c *Checker) judgeGatewayDNS(ctx context.Context, host, suffix string, addr
 			edge.name, got)
 		return
 	}
+	tStatus, tReason, tunnel := c.tunnelVerdict(ctx, host, "*."+suffix, addrs, edge)
+	if tunnel && tStatus == checkreport.Pass {
+		c.add(CheckPreviewDNS, tStatus, "%s", tReason)
+		return
+	}
 	if mode == previewauth.ProbeEither {
 		if lb := c.loadBalancer(ctx); lb.why == "" && shares(lb.addrs) {
 			c.add(CheckPreviewDNS, checkreport.Pass, "%s still resolves to the legacy preview load balancer %s "+
@@ -310,6 +353,8 @@ func (c *Checker) judgeGatewayDNS(ctx context.Context, host, suffix string, addr
 		}
 	}
 	switch {
+	case tunnel:
+		c.add(CheckPreviewDNS, tStatus, "%s", tReason)
 	case edge.why != "":
 		c.add(CheckPreviewDNS, edge.status, "%s resolves to %s, but it cannot be compared with the preview "+
 			"gateway's edge: %s", host, got, edge.why)
