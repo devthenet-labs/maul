@@ -11,7 +11,67 @@
 > documentation values `111122223333` and `203.0.113.10/32`. The real ones are in terraform-devthenet's `k8s/` values
 > (private).
 
-## Current checkpoint — 2026-10-16 (night): 0.12.39 on both clusters, everything new off
+## Current checkpoint — 2026-10-18: 0.12.40 on the desktop, EKS down
+
+**0.12.40 ships easy previews (`patchy setup previews`, `patchy check previews`) and the Claude CLI posture hardening.**
+Design `.claude/plans/preview-setup-design.md` (the owner took every recommended default in its §11).
+
+- **Live:** only the desktop (destroyer k3d): patchy and patchy-config upgraded to 0.12.40, its pin pushed in
+  `~/.config`. It runs attribution, the Usage page, Findings (moved from EKS) and the preview gateway. EKS devthenet-dev
+  is down and can be restored: terraform-devthenet `scripts/eks-up` (never run yet), state in SSM
+  `/devthenet/patchy-eks/cluster/state`.
+- **Verified live:** `patchy check previews` on the desktop passes every line but one WARN (below). An intent plan run
+  (intents#37, cancelled after) ran on the 0.12.40 runner image under the hardened posture: outcome ok, 13 turns, no
+  tool refusals, \$0.24.
+- **Known on the desktop:** its preview suffix and sign-in host share `devthe.net`, which the new command refuses and
+  `check previews` warns about. It is fixed by moving the desktop to recipe R3 on a second registrable domain.
+- **Next:** the live gates. First, the desktop on R3 (needs a second domain and a Tailscale operator OAuth client;
+  retires the docker tailscaled and Traefik). Then R1 on a throwaway Cloudflare zone. Then R4 on EKS when it is up.
+  After those: L3 (per-user keys), and the Usage page opening on cost with tokens split by type.
+
+### Claude CLI posture hardening (#238)
+
+Every postured run passes `--permission-mode dontAsk`, so no settings file can choose a looser mode. Read-only runs also
+pass `--restricted`. NotebookEdit and MultiEdit are denied; Edit stays, because the plan stage writes its report with
+it. `TestClaudePostureProbe` (`mise run claude-posture-probe`, and a CI job when the CLI pin or the posture files
+change) runs the real pinned CLI against a fake model on loopback, with a control run, and asserts that no hook, `env`
+block, MCP server or local settings file fires. Residue: a managed-settings file baked into a repository image still
+applies, investigations included.
+
+### Easy previews: `setup previews` and `check previews` (#240 to #248)
+
+- **`patchy setup previews`** (`cmd/patchy/internal/previewsetup`, `previewdetect`) writes files only: chart values,
+  manifests, upstream values at pinned versions, 0600 secrets, `answers.yaml` and an ordered `NEXT-STEPS.md`. It never
+  applies anything and never calls a provider API. Its recipes, chosen by `--edge`:
+  - R1 `cloudflare-tunnel`: a locally-managed tunnel, plus the Universal SSL depth rule.
+  - R2 `gateway-tls`: the gateway's own TLS from a cert-manager DNS-01 certificate.
+  - R3 `tailscale`: the Tailscale operator.
+  - R4 `existing`: an Ingress class or a Gateway API parent.
+
+  It refuses a preview suffix that shares a registrable domain with the sign-in host or Dex. `--detect` reads the
+  cluster read-only and never reads a Secret (a test pins that). A CI job (`preview-pins`) checks the pinned
+  cert-manager, Tailscale operator and cloudflared versions.
+
+- **`patchy check previews`** (`cmd/patchy/internal/previewcheck`, shared with `check project`): `preview-config`,
+  `preview-nodes`, `preview-viewers` and the gateway checks. It now also checks the sign-in host's DNS and TLS when it
+  is separate, and `checkreport` has a WARN status.
+- **Chart (#241):** `previewController.config.apiServerCIDR: auto` (from the API server's own `kubernetes`
+  EndpointSlice; a render-time snapshot, so EKS keeps the Service /32). In gateway mode, `targetHealth` and the
+  permit-first stage gate are inert. The gateway Service takes an optional `loadBalancerClass`.
+- **Isolation probe (#240):** `ingress.sh --refused-is-blocked` for k3s, whose kube-router rejects denied traffic with
+  ECONNREFUSED. The gateway client must be reached first and the listener must still be up afterwards. Not yet run live
+  on k3d.
+- **Docs:** `docs/intents/set-up-previews.md`, and corrected recipes in `docs/configuration/preview-gateway.md`.
+  `TestPreviewSetupEndToEnd` drives the gateway e2e from the values the command generates (R2).
+- **Open follow-ups:**
+  - a Go `--isolation` check in `check previews`;
+  - DNS recognition of a tunnel CNAME;
+  - a WARN when an installed upstream is older than its pin;
+  - terraform-module variables for R4 on EKS;
+  - letting `previewAuth.ingressFrom` take a namespace selector, so R1 admits only cloudflared;
+  - an edge-to-edge migration that serves both edges at once.
+
+## Checkpoint — 2026-10-16 (night): 0.12.39 on both clusters, everything new off
 
 **0.12.39 ships three tracks: portable previews release N, per-user attribution and usage (L1, L2), and cost-weighted
 limits for large features.** Every new feature is off by default, and neither cluster has turned any of it on yet.
