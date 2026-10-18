@@ -158,11 +158,7 @@ func checkAccountStore(t *testing.T, admin client.Client, as func(string) client
 	if got := stored(); got != "sk-ant-api03-first-credential-aaaa" {
 		t.Fatalf("stored %q", got)
 	}
-	if first.Spec.Owner != owner || first.Spec.Kind != v1alpha1.ModelCredentialAPIKey ||
-		first.Status.Fingerprint != v1alpha1.ModelCredentialFingerprint([]byte("sk-ant-api03-first-credential-aaaa")) ||
-		first.Status.Health != v1alpha1.ModelCredentialUnknown {
-		t.Fatalf("record after the first store = %+v", first)
-	}
+	checkRecord(t, first, owner, v1alpha1.ModelCredentialAPIKey, "sk-ant-api03-first-credential-aaaa")
 
 	// The broker found it Valid; replacing it (an unconditional update of
 	// a Secret the status server cannot read) resets the health for the
@@ -180,16 +176,34 @@ func checkAccountStore(t *testing.T, admin client.Client, as func(string) client
 	if got := stored(); got != "sk-ant-oat01-second-credential-bbbb" {
 		t.Fatalf("replaced with %q", got)
 	}
-	if second.Spec.Kind != v1alpha1.ModelCredentialOAuthToken || second.Status.Health != v1alpha1.ModelCredentialUnknown ||
-		second.Status.SecretVersion != "" || !strings.HasPrefix(second.Status.Fingerprint, "bbbb:") {
-		t.Fatalf("record after the replace = %+v", second)
-	}
+	checkRecord(t, second, owner, v1alpha1.ModelCredentialOAuthToken, "sk-ant-oat01-second-credential-bbbb")
 
-	if err := store.Delete(ctx, owner, provider); err != nil {
-		t.Fatalf("delete: %v", err)
+	checkAccountDelete(t, admin, store, owner)
+}
+
+// checkRecord: a record as the Account page leaves it after storing cred
+// as kind: the owner's, its fingerprint, and health Unknown for the
+// Secret version no probe has judged.
+func checkRecord(t *testing.T, rec *v1alpha1.ModelCredential, owner string, kind v1alpha1.ModelCredentialKind,
+	cred string) {
+	t.Helper()
+	if rec.Spec.Owner != owner || rec.Spec.Kind != kind ||
+		rec.Status.Fingerprint != v1alpha1.ModelCredentialFingerprint([]byte(cred)) ||
+		rec.Status.Health != v1alpha1.ModelCredentialUnknown || rec.Status.SecretVersion != "" {
+		t.Fatalf("record after storing %s = %+v", kind, rec)
 	}
-	if err := store.Delete(ctx, owner, provider); err != nil {
-		t.Fatalf("delete again: %v", err)
+}
+
+// checkAccountDelete: deleting removes the Secret and the record, and
+// deleting again is no error.
+func checkAccountDelete(t *testing.T, admin client.Client, store *credstore.Store, owner string) {
+	t.Helper()
+	ctx := t.Context()
+	provider := v1alpha1.ModelCredentialProviderAnthropic
+	for range 2 {
+		if err := store.Delete(ctx, owner, provider); err != nil {
+			t.Fatalf("delete: %v", err)
+		}
 	}
 	if got, err := store.Record(ctx, owner, provider); err != nil || got != nil {
 		t.Fatalf("record after delete = %+v, %v", got, err)

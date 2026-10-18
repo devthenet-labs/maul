@@ -21,6 +21,7 @@ import (
 	"github.com/bitwise-media-group/patchy/internal/cli"
 	"github.com/bitwise-media-group/patchy/internal/controller/remediation"
 	"github.com/bitwise-media-group/patchy/internal/controller/rollup"
+	"github.com/bitwise-media-group/patchy/internal/credgate"
 	"github.com/bitwise-media-group/patchy/internal/credgate/kubecred"
 	"github.com/bitwise-media-group/patchy/internal/forge"
 	"github.com/bitwise-media-group/patchy/internal/jobs"
@@ -109,16 +110,32 @@ func agentEnv(opts *cli.Options) map[string]string {
 	}
 }
 
+// modes are the switches ownSettings reads.
+type modes struct {
+	attribution attribution.Mode
+	credentials credgate.Mode
+	accountURL  string
+}
+
 // ownSettings checks the settings remediation-controller alone reads and
-// returns --attribution-mode, so a bad value stops startup.
-func ownSettings(opts *cli.Options) (attribution.Mode, error) {
+// returns --attribution-mode and --user-credentials, so a bad value stops
+// startup.
+func ownSettings(opts *cli.Options) (modes, error) {
 	if opts.Int("changeset-max-entries") <= 0 {
-		return "", errors.New("--changeset-max-entries must be positive")
+		return modes{}, errors.New("--changeset-max-entries must be positive")
 	}
 	if opts.Duration("remediate-idle-timeout") < 0 {
-		return "", errors.New("--remediate-idle-timeout must not be negative (0 disables it)")
+		return modes{}, errors.New("--remediate-idle-timeout must not be negative (0 disables it)")
 	}
-	return runnercfg.Attribution(opts)
+	attr, err := runnercfg.Attribution(opts)
+	if err != nil {
+		return modes{}, err
+	}
+	creds, accountURL, err := runnercfg.UserCredentials(opts, attr)
+	if err != nil {
+		return modes{}, err
+	}
+	return modes{attribution: attr, credentials: creds, accountURL: accountURL}, nil
 }
 
 func serve(ctx context.Context, opts *cli.Options) error {
@@ -158,14 +175,11 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		return err
 	}
 	cpuRequest, memoryRequest, cpuLimit, memoryLimit := agentResources.Strings()
-	attributionMode, err := ownSettings(opts)
+	own, err := ownSettings(opts)
 	if err != nil {
 		return err
 	}
-	credMode, accountURL, err := runnercfg.UserCredentials(opts, attributionMode)
-	if err != nil {
-		return err
-	}
+	attributionMode, credMode, accountURL := own.attribution, own.credentials, own.accountURL
 	meter, err := runnercfg.UsageMeter(opts, log)
 	if err != nil {
 		return err

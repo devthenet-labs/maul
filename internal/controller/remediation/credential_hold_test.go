@@ -65,6 +65,34 @@ func reconcileSpawner(t *testing.T, r *SpawnerReconciler) ctrl.Result {
 	return res
 }
 
+// checkHeld fails unless fnd is held, Queued with no attempt spent, for
+// alice with reason, naming her and the Account page.
+func checkHeld(t *testing.T, fnd *v1alpha1.Finding, reason string) {
+	t.Helper()
+	cond := meta.FindStatusCondition(fnd.Status.Conditions, v1alpha1.ConditionCredentialRequired)
+	if cond == nil || cond.Status != metav1.ConditionTrue || cond.Reason != reason ||
+		!strings.Contains(cond.Message, "@alice") || !strings.Contains(cond.Message, accountURL) {
+		t.Fatalf("CredentialRequired = %+v", cond)
+	}
+	if fnd.Status.Phase != v1alpha1.PhaseQueued || fnd.Status.Attempts.Remediation != 0 {
+		t.Fatalf("phase %s, attempts %d: a hold must leave the Finding Queued with no attempt spent",
+			fnd.Status.Phase, fnd.Status.Attempts.Remediation)
+	}
+}
+
+// setHealth writes the broker's verdict on id's record.
+func setHealth(t *testing.T, c client.Client, id int64, h v1alpha1.ModelCredentialHealth) {
+	t.Helper()
+	var mc v1alpha1.ModelCredential
+	if err := c.Get(t.Context(), client.ObjectKeyFromObject(credential(id, "")), &mc); err != nil {
+		t.Fatal(err)
+	}
+	mc.Status.Health = h
+	if err := c.Update(t.Context(), &mc); err != nil { // no status subresource in this fake
+		t.Fatal(err)
+	}
+}
+
 // TestSpawnerHoldsForCredential: under enforce, an attempt attributed to an
 // approver with no Valid credential is not created; the Finding stays
 // Queued with CredentialRequired naming them and the Account page, and the
@@ -82,15 +110,7 @@ func TestSpawnerHoldsForCredential(t *testing.T) {
 		t.Errorf("requeue = %v, want %v", res.RequeueAfter, CredentialRecheck)
 	}
 	got := findingNow(t, c)
-	cond := meta.FindStatusCondition(got.Status.Conditions, v1alpha1.ConditionCredentialRequired)
-	if cond == nil || cond.Status != metav1.ConditionTrue || cond.Reason != credgate.ReasonMissing ||
-		!strings.Contains(cond.Message, "@alice") || !strings.Contains(cond.Message, accountURL) {
-		t.Fatalf("CredentialRequired = %+v", cond)
-	}
-	if got.Status.Phase != v1alpha1.PhaseQueued || got.Status.Attempts.Remediation != 0 {
-		t.Fatalf("phase %s, attempts %d: a hold must leave the Finding Queued with no attempt spent",
-			got.Status.Phase, got.Status.Attempts.Remediation)
-	}
+	checkHeld(t, got, credgate.ReasonMissing)
 	rv := got.ResourceVersion
 	reconcileSpawner(t, r)
 	if findingNow(t, c).ResourceVersion != rv {
@@ -102,28 +122,18 @@ func TestSpawnerHoldsForCredential(t *testing.T) {
 		t.Fatal(err)
 	}
 	reconcileSpawner(t, r)
-	cond = meta.FindStatusCondition(findingNow(t, c).Status.Conditions, v1alpha1.ConditionCredentialRequired)
-	if remediationExists(t, c) || cond.Reason != credgate.ReasonUnverified {
-		t.Fatalf("unverified: created=%v cond=%+v", remediationExists(t, c), cond)
-	}
+	checkHeld(t, findingNow(t, c), credgate.ReasonUnverified)
 
 	// The broker found it Valid: the attempt is created, attributed to alice,
 	// and the condition is resolved.
-	var mc v1alpha1.ModelCredential
-	if err := c.Get(t.Context(), client.ObjectKeyFromObject(credential(42, "")), &mc); err != nil {
-		t.Fatal(err)
-	}
-	mc.Status.Health = v1alpha1.ModelCredentialValid
-	if err := c.Update(t.Context(), &mc); err != nil { // no status subresource in this fake
-		t.Fatal(err)
-	}
+	setHealth(t, c, 42, v1alpha1.ModelCredentialValid)
 	if res := reconcileSpawner(t, r); res.RequeueAfter != 0 {
 		t.Errorf("requeue after the hold lifted = %v", res.RequeueAfter)
 	}
 	if !remediationExists(t, c) {
 		t.Fatal("the attempt was not created once the credential was valid")
 	}
-	cond = meta.FindStatusCondition(findingNow(t, c).Status.Conditions, v1alpha1.ConditionCredentialRequired)
+	cond := meta.FindStatusCondition(findingNow(t, c).Status.Conditions, v1alpha1.ConditionCredentialRequired)
 	if cond == nil || cond.Status != metav1.ConditionFalse {
 		t.Errorf("CredentialRequired after lifting = %+v, want False", cond)
 	}

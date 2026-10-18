@@ -190,21 +190,27 @@ func TestAccountStoresWriteOnly(t *testing.T) {
 		t.Errorf("write = %+v, want the signed-in person's", w)
 	}
 
-	rec := store.records[name]
+	checkAfterVerdict(t, ts, store.records[name])
+
+	code, _ = post(t, ts, putPath+"/delete", "same-origin", "", "")
+	if code != http.StatusNoContent || store.records[name] != nil {
+		t.Fatalf("delete = %d, record %+v", code, store.records[name])
+	}
+}
+
+// checkAfterVerdict: once the broker found rec Valid and used it, GET shows
+// so, and still not the credential.
+func checkAfterVerdict(t *testing.T, ts *httptest.Server, rec *v1alpha1.ModelCredential) {
+	t.Helper()
 	rec.Status.Health = v1alpha1.ModelCredentialValid
 	used := metav1.NewTime(testClock)
 	rec.Status.LastUsedAt = &used
-	_, body = get(t, ts, "/api/account")
+	_, body := get(t, ts, "/api/account")
 	if strings.Contains(body, apiKey) {
 		t.Fatalf("GET carries the credential: %s", body)
 	}
 	if c := decode[Account](t, body).Credentials[0]; c.Health != "Valid" || c.LastUsedAt == "" || c.LastRejectedAt != "" {
 		t.Errorf("GET after the broker's verdict = %+v", c)
-	}
-
-	code, _ = post(t, ts, putPath+"/delete", "same-origin", "", "")
-	if code != http.StatusNoContent || store.records[name] != nil {
-		t.Fatalf("delete = %d, record %+v", code, store.records[name])
 	}
 }
 

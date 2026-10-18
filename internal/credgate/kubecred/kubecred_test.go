@@ -44,7 +44,7 @@ func TestReader(t *testing.T) {
 		t.Fatalf("a record in another namespace was found: %+v, %v", got, err)
 	}
 
-	failing := interceptor.NewClient(fake.NewClientBuilder().WithScheme(kube.Scheme()).Build().(client.WithWatch),
+	failing := interceptor.NewClient(fake.NewClientBuilder().WithScheme(kube.Scheme()).Build(),
 		interceptor.Funcs{Get: func(context.Context, client.WithWatch, client.ObjectKey, client.Object,
 			...client.GetOption) error {
 			return errors.New("api down")

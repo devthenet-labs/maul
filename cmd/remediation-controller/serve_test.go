@@ -14,6 +14,7 @@ import (
 
 	"github.com/bitwise-media-group/patchy/internal/attribution"
 	"github.com/bitwise-media-group/patchy/internal/cli"
+	"github.com/bitwise-media-group/patchy/internal/credgate"
 )
 
 // serveOpts resolves args through the real serve flag surface, as the
@@ -126,11 +127,31 @@ func TestUsageCompactorOnlyUnderAttribute(t *testing.T) {
 	if c == nil || c.Namespace != "patchy" {
 		t.Errorf("mode attribute compactor = %+v, want one for namespace patchy", c)
 	}
-	mode, err := ownSettings(serveOpts(t))
+	own, err := ownSettings(serveOpts(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c := usageCompactor(nil, nil, "patchy", mode, nil); c != nil {
-		t.Errorf("the default flags (mode %q) register a compactor", mode)
+	if c := usageCompactor(nil, nil, "patchy", own.attribution, nil); c != nil {
+		t.Errorf("the default flags (mode %q) register a compactor", own.attribution)
+	}
+	if own.credentials != credgate.ModeOff || own.accountURL != "" {
+		t.Errorf("the default flags hold runs: %+v", own)
+	}
+}
+
+// TestUserCredentialsFromEnv: the chart's PATCHY_USER_CREDENTIALS and
+// PATCHY_ACCOUNT_URL reach the settings; enforce without attribution stops
+// startup.
+func TestUserCredentialsFromEnv(t *testing.T) {
+	t.Setenv("PATCHY_ATTRIBUTION_MODE", "attribute")
+	t.Setenv("PATCHY_USER_CREDENTIALS", "enforce")
+	t.Setenv("PATCHY_ACCOUNT_URL", "https://status.example.com/#/account")
+	own, err := ownSettings(serveOpts(t))
+	if err != nil || own.credentials != credgate.ModeEnforce || own.accountURL != "https://status.example.com/#/account" {
+		t.Fatalf("ownSettings = %+v, %v", own, err)
+	}
+	t.Setenv("PATCHY_ATTRIBUTION_MODE", "off")
+	if _, err := ownSettings(serveOpts(t)); err == nil {
+		t.Error("enforce without attribution started")
 	}
 }

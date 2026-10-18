@@ -711,6 +711,11 @@ func (p *pass) settleApprove(ctx context.Context, a humanAction, issue *ghclient
 	if p.credentialReapproval() {
 		return p.settleCredentialReapproval(ctx, a, issue)
 	}
+	return p.settlePlanApproval(ctx, a, issue)
+}
+
+// settlePlanApproval is settleApprove for a plan waiting for approval.
+func (p *pass) settlePlanApproval(ctx context.Context, a humanAction, issue *ghclient.Issue) error {
 	pl := p.in.Status.Plan
 	if p.in.Status.Phase != v1alpha1.IntentAwaitingApproval || pl == nil || pl.PostedAt == nil {
 		return p.notAvailable(ctx, a, p.in.Status.Phase, false)
