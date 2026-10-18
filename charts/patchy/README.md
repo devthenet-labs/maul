@@ -397,8 +397,10 @@ The genuinely shared settings stay global:
 - `egressBroker.userCredentials.*` — per-user model credentials: `mode` `off` (the default) renders nothing new;
   `attribute` and `enforce` (both need `attribution.mode: attribute` and the anthropic provider) render the credential
   store: its namespace (`namespace`, `createNamespace`), the status server's write-only Secret grant, the broker's read
-  grants, the `-credentials-self` and `-credentials-admin` ClusterRoles and three admission policies. A setup-token org
-  credential (`anthropicAuth: token`) is refused unless `orgCredentialIsPersonal: acknowledged`. See
+  grants, the `-credentials-self` and `-credentials-admin` ClusterRoles and three admission policies, and pass the
+  broker the mode: under `attribute` it records each run's person and the org credential pays; under `enforce` a run
+  attributed to a person uses that person's own credential or is refused. A setup-token org credential
+  (`anthropicAuth: token`) is refused unless `orgCredentialIsPersonal: acknowledged`. See
   [Per-user model credentials](../../docs/configuration/user-credentials.md).
 - `agent.*` — the sandbox: namespace, service account, `jobDeadline`/`jobTTL`, and the two stages' limits:
   `modelAllowlist` (canonical, provider-qualified model ids), `investigate.*` (absolute), `remediate.*` (`auto.*` is

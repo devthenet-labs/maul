@@ -1428,13 +1428,13 @@ egressBroker:
     # broker reads them, its pods' annotations and the Secrets, and patches
     # the records' health), the self-service and admin ClusterRoles, and the
     # admission policies that pin who writes what. Under
-    # attribute the org credential still pays for every run; under enforce a
-    # run attributed to a person is to use that person's credential or none,
-    # and a run with no human behind it the org's. The broker's per-request
-    # resolution and the status page's Account page land in later releases:
-    # today both modes render the same store and the org credential pays for
-    # every run. Both need attribution.mode attribute and an anthropic
-    # provider.
+    # attribute the org credential still pays for every run and the broker
+    # records the person in its audit line; under enforce a run attributed
+    # to a person uses that person's credential or is refused (a 403 naming
+    # why, never the org credential), and a run with no human behind it the
+    # org's. The broker probes each stored credential's health itself. The
+    # status page's Account page lands in a later release. Both need
+    # attribution.mode attribute and an anthropic provider.
     # See docs/configuration/user-credentials.md.
     userCredentials:
         mode: "off"

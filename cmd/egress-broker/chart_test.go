@@ -5,6 +5,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"regexp"
 	"slices"
 	"strings"
@@ -53,5 +54,48 @@ func TestChartOverrideKeysMatchFlags(t *testing.T) {
 	slices.Sort(got)
 	if !slices.Equal(got, want) {
 		t.Errorf("patchy.egressBrokerOverrideHosts reads %v; the broker's -base-url flags are %v", got, want)
+	}
+}
+
+// TestChartBrokerEnvAreFlags: every key the chart puts in the broker's
+// ConfigMap, per-user credentials on, names one of this binary's flags, so
+// a renamed flag cannot leave the chart setting nothing (viper ignores an
+// environment name no flag reads).
+func TestChartBrokerEnvAreFlags(t *testing.T) {
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm not on PATH")
+	}
+	out, err := exec.Command("helm", "template", "patchy", "../../charts/patchy", "--namespace", "patchy",
+		"--set", "attribution.mode=attribute", "--set", "egressBroker.userCredentials.mode=enforce",
+		"--set", "egressBroker.anthropicAuth=token",
+		"--set", "egressBroker.userCredentials.orgCredentialIsPersonal=acknowledged",
+		"--show-only", "templates/egress-broker.yaml").CombinedOutput()
+	if err != nil {
+		t.Fatalf("helm template: %v: %s", err, out)
+	}
+	flags := map[string]bool{}
+	opts := cli.NewOptions()
+	root := cli.NewControllerRoot("egress-broker", "test", opts)
+	serve := newServeCmd(opts)
+	root.AddCommand(serve)
+	for _, fs := range []*pflag.FlagSet{root.PersistentFlags(), serve.Flags()} {
+		fs.VisitAll(func(f *pflag.Flag) {
+			flags["PATCHY_"+strings.ToUpper(strings.ReplaceAll(f.Name, "-", "_"))] = true
+		})
+	}
+	keys := regexp.MustCompile(`(?m)^\s+(PATCHY_[A-Z0-9_]+):`).FindAllSubmatch(out, -1)
+	seen := make([]string, 0, len(keys))
+	for _, k := range keys {
+		key := string(k[1])
+		seen = append(seen, key)
+		if !flags[key] {
+			t.Errorf("the chart sets %s, which no broker flag reads", key)
+		}
+	}
+	for _, want := range []string{"PATCHY_USER_CREDENTIALS", "PATCHY_CREDENTIALS_NAMESPACE",
+		"PATCHY_CREDENTIAL_RECORDS_NAMESPACE", "PATCHY_ORG_CREDENTIAL_IS_PERSONAL"} {
+		if !slices.Contains(seen, want) {
+			t.Errorf("the chart does not set %s with per-user credentials on (keys %v)", want, seen)
+		}
 	}
 }

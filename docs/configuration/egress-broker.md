@@ -38,10 +38,10 @@ A route exists exactly when its identifying flag is set; at least one is require
 | `/vertex`    | `--vertex-region` + `--vertex-project` | `https://<region>-aiplatform.googleapis.com`     | OAuth bearer from Application Default Credentials (GKE Workload Identity in-cluster), cached/refreshed; only requests naming that project and location (the region) are admitted                                |
 | `/foundry`   | `--foundry-resource`                   | `https://<resource>.services.ai.azure.com`       | `--foundry-auth key`: `x-api-key` from a file; `entra`: a cached, auto-refreshed Entra bearer                                                                                                                   |
 
-Per-user model credentials (`egressBroker.userCredentials`, off by default) are the planned exception to one credential
-per route: on the anthropic route, a run attributed to a person is to use that person's own key. This release ships only
-their store and the broker's read grants; the broker still attaches the org credential to every request. See
-[Per-user model credentials](user-credentials.md).
+Per-user model credentials (`--user-credentials`, chart `egressBroker.userCredentials.mode`, off by default) are the one
+exception to one credential per route: on the anthropic route, under `enforce`, a run attributed to a person uses that
+person's own API key or setup-token, or is refused with a reason; a run attributed to the org keeps the org credential.
+See [Per-user model credentials](user-credentials.md).
 
 Cross-cutting behavior: responses stream back with an immediate flush per write; when an event-stream goes quiet for
 `--sse-ping-interval` (30s) the broker injects a spec-legal `: ping` comment frame so intermediaries do not idle-close a
@@ -81,6 +81,16 @@ The route flags are in [Routes and credentials](#routes-and-credentials): `--ant
 (`key`), `--anthropic-base-url` (`https://api.anthropic.com`), `--bedrock-region`, `--bedrock-base-url`,
 `--vertex-region`, `--vertex-project` (the only GCP project the vertex route admits; required with `--vertex-region`),
 `--vertex-base-url`, `--foundry-resource`, `--foundry-base-url`, `--foundry-auth` (`key`) and `--foundry-api-key-file`.
+
+The per-user credential flags (see [Per-user model credentials](user-credentials.md)):
+
+| Flag                             | Default              | Purpose                                                                                               |
+| -------------------------------- | -------------------- | ----------------------------------------------------------------------------------------------------- |
+| `--user-credentials`             | `off`                | `off`, `attribute` (record the person, org credential pays) or `enforce` (the person's own, or a 403) |
+| `--credential-records-namespace` | `patchy`             | Namespace of the `ModelCredential` records (the release namespace)                                    |
+| `--credentials-namespace`        | `patchy-credentials` | Namespace of the credential Secrets                                                                   |
+| `--org-credential-is-personal`   | empty                | `acknowledged` admits a setup-token org credential under either mode; refused otherwise               |
+| `--credential-probe-model`       | `claude-haiku-4-5`   | Model a setup-token health probe asks for one output token of                                         |
 
 ### Limit flags
 
@@ -238,13 +248,16 @@ Invoke-class permissions only — the broker needs to call models, never to mana
 
 - RBAC: `create tokenreviews` is the broker's entire Kubernetes surface — no Secret API access (credential files are
   mounted volumes), no writes, no leases — except under the cost limit unit, which adds `get` on pods in the agent
-  namespace (no list, no watch) for the budget annotation.
+  namespace (no list, no watch) for the budget annotation, and under per-user credentials, which adds that same pod
+  read, reads of the `ModelCredential` records and the credential Secrets (their own namespace only), and patches of the
+  records' status (health) only.
 - The Deployment runs under the restricted Pod Security posture like every other patchy component: non-root 65532,
   read-only root filesystem, no capabilities.
 - Its NetworkPolicy admits the proxy port from the agent namespace only, the usage port (when on) from the run
   controllers only, and egress to DNS, TCP 443, and the API server.
-- Every request produces one audit log line — caller pod, route, method, path, status, duration, bytes — and never
-  bodies or headers.
+- Every request produces one audit log line — caller pod, route, method, path, status, duration, bytes, and under
+  per-user credentials the attributed person and the paying credential's fingerprint — and never bodies, headers or a
+  credential.
 - In-cluster traffic to the broker is plaintext HTTP carrying an audience-scoped identity token, the same posture as the
   artifact server; broker TLS or mesh mTLS is a hardening follow-up.
 
