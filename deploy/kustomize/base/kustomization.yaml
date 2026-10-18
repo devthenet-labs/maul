@@ -17,6 +17,7 @@ resources:
     - crds/patchy.bitwisemedia.uk_intents.yaml
     - crds/patchy.bitwisemedia.uk_intentruns.yaml
     - crds/patchy.bitwisemedia.uk_investigations.yaml
+    - crds/patchy.bitwisemedia.uk_modelcredentials.yaml
     - crds/patchy.bitwisemedia.uk_projects.yaml
     - crds/patchy.bitwisemedia.uk_previews.yaml
     - crds/patchy.bitwisemedia.uk_remediations.yaml
