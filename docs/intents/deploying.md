@@ -795,7 +795,8 @@ Then, each step with its rollback point and `patchy check project shop-web` afte
    every Ready preview's slot Ingress, then move the record back.
 
 [Moving off the preview ALB](../configuration/preview-gateway.md#moving-off-the-preview-alb-eks-release-n) has the
-details. The next release removes the preview ALB path.
+details. The next release removes the preview ALB path. A new install, on EKS or any other cluster, can start on the
+gateway alone: [Set up previews](set-up-previews.md) writes its files with `patchy setup previews`.
 
 ## Several repositories in one Project
 

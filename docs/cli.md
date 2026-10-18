@@ -506,6 +506,7 @@ read it.
 `https://<project>-<issue>.<host suffix>` and sign viewers in to them. It applies nothing and calls no provider API: it
 writes patchy's chart values, the manifests the edge needs, the relay's Dex client secret as two Secret manifests,
 `answers.yaml` and an ordered `NEXT-STEPS.md` into `-o` (default `./patchy-previews`, created 0700, every file 0600).
+[Set up previews](intents/set-up-previews.md) is the walkthrough: what an install needs, and which recipe to pick.
 
 ```sh
 patchy setup previews                       # asks for every answer on a terminal

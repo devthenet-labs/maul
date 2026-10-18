@@ -200,9 +200,10 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   `cmd/patchy/internal/ghapp`, plain net/http, no GitHub client) and `init app` (scaffolds an application repository's
   agent image, CI builds and split trusted ECR publishers from embedded templates; engine in
   `cmd/patchy/internal/scaffold`, golden trees checked as their own CI would by `mise run scaffold-check`). `setup
-  previews` (`.claude/plans/preview-setup-design.md`; engine in `cmd/patchy/internal/previewsetup`) takes every answer
-  as a flag and, on a terminal, asks for the ones left open (`setuppreviews_prompt.go`: each prompt names its flag, a
-  credential only ever by its file's path; off a terminal, with `--non-interactive` or with
+  previews` (`.claude/plans/preview-setup-design.md`; engine in `cmd/patchy/internal/previewsetup`; operator guide
+  `docs/intents/set-up-previews.md`, its recipes' reference `docs/configuration/preview-gateway.md`) takes every
+  answer as a flag and, on a terminal, asks for the ones left open (`setuppreviews_prompt.go`: each prompt names its
+  flag, a credential only ever by its file's path; off a terminal, with `--non-interactive` or with
   `--dns-credentials-from-stdin`, a missing answer is a usage error naming its flags). It contacts no cluster unless
   `--detect` is given: then `cmd/patchy/internal/previewdetect` reads Nodes, the kubernetes and kube-dns Services, the
   API server's EndpointSlice, IngressClasses, GatewayClasses (unstructured), two CRDs by name, kube-system's Pod images
@@ -476,11 +477,11 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   critique F5). `previewauth/httpapi` is the HTTP surface (endpoints, pages, envelope headers, rate
   limit, audit line, OTel counters, and the preview gateway: `gateway*.go` and `streams.go`, off unless
   `Config.Gateway` is set); `previewauth/fakedex` is test support only (an in-memory Dex: `Register` makes a client's
-  redirect URIs exact, and a bare authorization request gets its login page, as Dex answers `check previews`). The gateway's pure side is
-  in the core: `gateway.go` (the state, handoff code, gateway login and host session kinds t, o, g and h, and
-  `Handoff.Redeem`, the fixation check; a code failing `CheckState` is spent at once) and `hygiene.go` (the `Hosts`
-  grammar and `Location`, `CheckOrigin`, `CleanRequest`, `CleanResponse`), each with seeded properties; `View.Routes`
-  are read from `status.serving`.
+  redirect URIs exact, and a bare authorization request gets its login page, as Dex answers `check previews`). The
+  gateway's pure side is in the core: `gateway.go` (the state, handoff code, gateway login and host session kinds t, o,
+  g and h, and `Handoff.Redeem`, the fixation check; a code failing `CheckState` is spent at once) and `hygiene.go` (the
+  `Hosts` grammar and `Location`, `CheckOrigin`, `CleanRequest`, `CleanResponse`), each with seeded properties;
+  `View.Routes` are read from `status.serving`.
 - `rbactest` — test support only: `WaitAllowed` polls SubjectAccessReviews until a real API server's RBAC authorizer
   has observed a grant a suite just stored, so envtest suites (action policy, authz, chart, e2e) never act inside the
   informer window and flake on a refusal.
