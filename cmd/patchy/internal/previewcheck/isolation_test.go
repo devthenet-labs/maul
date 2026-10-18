@@ -442,15 +442,15 @@ func TestRunIsolationSparesAForeignPod(t *testing.T) {
 	}
 
 	// A Create that made the Pod but answered with an error (a timeout).
-	var ambiguous client.WithWatch
-	ambiguous = fake.NewClientBuilder().WithScheme(kube.Scheme()).WithInterceptorFuncs(interceptor.Funcs{
-		Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
-			if err := c.Create(ctx, obj, opts...); err != nil {
-				return err
-			}
-			return apierrors.NewTimeoutError("the request timed out", 1)
-		},
-	}).Build()
+	ambiguous := fake.NewClientBuilder().WithScheme(kube.Scheme()).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+				if err := c.Create(ctx, obj, opts...); err != nil {
+					return err
+				}
+				return apierrors.NewTimeoutError("the request timed out", 1)
+			},
+		}).Build()
 	iso := &Isolation{Client: ambiguous, Logs: f.logs, Timeout: 50 * time.Millisecond, Poll: time.Millisecond}
 	_ = runIsolation(context.Background(), iso, testPlan())
 	var list corev1.PodList
@@ -494,14 +494,14 @@ func slotPolicyObject(gateway bool, blocks ...string) *networkingv1.NetworkPolic
 		peers = append(peers, networkingv1.NetworkPolicyPeer{IPBlock: &networkingv1.IPBlock{CIDR: b}})
 	}
 	if len(peers) == 0 { // the chart's `ingress: []`: nothing may reach the slot
-		return policyWith("patchy-preview-0", slotPolicyName)
+		return policyWith(slotPolicyName)
 	}
-	return policyWith("patchy-preview-0", slotPolicyName, networkingv1.NetworkPolicyIngressRule{From: peers})
+	return policyWith(slotPolicyName, networkingv1.NetworkPolicyIngressRule{From: peers})
 }
 
-// policyWith is a NetworkPolicy over every Pod of namespace with rules.
-func policyWith(namespace, name string, rules ...networkingv1.NetworkPolicyIngressRule) *networkingv1.NetworkPolicy {
-	return &networkingv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name},
+// policyWith is a NetworkPolicy over every Pod of slot 0 with rules.
+func policyWith(name string, rules ...networkingv1.NetworkPolicyIngressRule) *networkingv1.NetworkPolicy {
+	return &networkingv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: "patchy-preview-0", Name: name},
 		Spec: networkingv1.NetworkPolicySpec{PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress,
 			networkingv1.PolicyTypeEgress}, Ingress: rules}}
 }
@@ -552,16 +552,16 @@ func TestInstallIsolation(t *testing.T) {
 		"subnets admitted with the legacy path off": {policy: slotPolicyObject(true, "10.40.128.0/24"),
 			status: checkreport.Fail, want: []string{"ipBlock 10.40.128.0/24", "preview.legacyIngress is false"}},
 		"the agents' namespace admitted too": {status: checkreport.Fail,
-			policy: policyWith("patchy-preview-0", slotPolicyName, rule(gatewayPeer("patchy"),
+			policy: policyWith(slotPolicyName, rule(gatewayPeer("patchy"),
 				namespacePeer("patchy-agents"))),
 			want: []string{"patchy-preview-0/preview-isolation", "an ingress peer other than the preview gateway's",
 				"patchy-agents"}},
 		"a rule from anywhere": {status: checkreport.Fail,
-			policy: policyWith("patchy-preview-0", slotPolicyName, rule(gatewayPeer("patchy")),
+			policy: policyWith(slotPolicyName, rule(gatewayPeer("patchy")),
 				networkingv1.NetworkPolicyIngressRule{}),
 			want: []string{"an ingress rule with no from, which admits every source"}},
 		"the gateway's label in any namespace": {status: checkreport.Fail,
-			policy: policyWith("patchy-preview-0", slotPolicyName, rule(networkingv1.NetworkPolicyPeer{
+			policy: policyWith(slotPolicyName, rule(networkingv1.NetworkPolicyPeer{
 				PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{gatewayLabel: "true"}}})),
 			want: []string{"an ingress peer other than the preview gateway's"}},
 		"a gateway peer widened by an expression": {status: checkreport.Fail,
@@ -569,11 +569,11 @@ func TestInstallIsolation(t *testing.T) {
 				peer := gatewayPeer("patchy")
 				peer.PodSelector.MatchExpressions = []metav1.LabelSelectorRequirement{{Key: "app",
 					Operator: metav1.LabelSelectorOpExists}}
-				return policyWith("patchy-preview-0", slotPolicyName, rule(peer))
+				return policyWith(slotPolicyName, rule(peer))
 			}(),
 			want: []string{"an ingress peer other than the preview gateway's"}},
 		"another policy admits the agents": {status: checkreport.Fail, policy: slotPolicyObject(true),
-			extra: []client.Object{policyWith("patchy-preview-0", "allow-agents", rule(namespacePeer("patchy-agents")))},
+			extra: []client.Object{policyWith("allow-agents", rule(namespacePeer("patchy-agents")))},
 			want:  []string{"patchy-preview-0/allow-agents", "patchy-agents"}},
 		"a policy over some Pods only": {status: checkreport.Fail,
 			policy: func() client.Object {

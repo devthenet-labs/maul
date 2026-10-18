@@ -115,7 +115,8 @@ func TestInstallTunnel(t *testing.T) {
 		"proxied record": {
 			status: checkreport.Skip,
 			want: []string{"Cloudflare's proxy (" + cfAddr + ")", "Cloudflare Tunnel " + goldenTunnelID,
-				"cloudflared in patchy-cloudflared/cloudflared", "proxied; the target is hidden", "preview-auth-host proves routing"},
+				"cloudflared in patchy-cloudflared/cloudflared", "proxied; the target is hidden",
+				"preview-auth-host proves routing"},
 		},
 		"CNAME to the tunnel": {
 			change: func(w *installWorld) { w.cnames[probe] = goldenTunnelID + ".cfargotunnel.com" },

@@ -210,8 +210,8 @@ func TestIngressFails(t *testing.T) {
 // TestIngressNeedsTheGatewayPeer: a slot policy that admits no gateway Pod
 // stops the run before anything is created.
 func TestIngressNeedsTheGatewayPeer(t *testing.T) {
-	run := runIngress(t, `{"metadata":{"name":"preview-isolation"},"spec":{"ingress":[{"from":[{"ipBlock":{"cidr":"10.40.128.0/24"}}]}]}}`, expected(),
-		ingressArgs()...)
+	run := runIngress(t, `{"metadata":{"name":"preview-isolation"},`+
+		`"spec":{"ingress":[{"from":[{"ipBlock":{"cidr":"10.40.128.0/24"}}]}]}}`, expected(), ingressArgs()...)
 	if run.code != 1 || !strings.Contains(run.stderr, "previewAuth.gateway.enabled") || run.created != "" {
 		t.Errorf("exit %d, created %q, stderr:\n%s", run.code, run.created, run.stderr)
 	}

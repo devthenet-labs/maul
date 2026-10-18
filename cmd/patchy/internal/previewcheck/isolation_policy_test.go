@@ -55,7 +55,7 @@ func TestJudgeSlotPoliciesAdmitsOnlyTheGateway(t *testing.T) {
 		names := []string{slotPolicyName, "allow-x"}
 		for range 1 + r.Intn(2) {
 			name := names[r.Intn(len(names))]
-			np := policyWith("patchy-preview-0", name)
+			np := policyWith(name)
 			if r.Intn(10) == 0 {
 				np.Spec.PodSelector = metav1.LabelSelector{MatchLabels: map[string]string{"app": "web"}}
 			}
@@ -83,32 +83,7 @@ func TestJudgeSlotPoliciesAdmitsOnlyTheGateway(t *testing.T) {
 	}
 	accepted := 0
 	prop := func(c policyCase) bool {
-		want, found, admits := true, false, false
-		for _, np := range c.policies {
-			if np.Name == slotPolicyName {
-				found = true
-				if len(np.Spec.PodSelector.MatchLabels) > 0 ||
-					(len(np.Spec.PolicyTypes) > 0 && np.Spec.PolicyTypes[0] == networkingv1.PolicyTypeEgress &&
-						len(np.Spec.PolicyTypes) == 1) {
-					want = false
-				}
-			}
-			for _, rl := range np.Spec.Ingress {
-				if len(rl.From) == 0 {
-					want = false
-				}
-				for _, p := range rl.From {
-					switch {
-					case reflect.DeepEqual(p, gw):
-						admits = admits || np.Name == slotPolicyName
-					case reflect.DeepEqual(p, block) && c.legacy:
-					default:
-						want = false
-					}
-				}
-			}
-		}
-		want = want && found && admits
+		want := oracleAccepts(c, gw, block)
 		_, err := judgeSlotPolicies(append([]networkingv1.NetworkPolicy(nil), c.policies...), "patchy-preview-0",
 			"patchy", c.legacy)
 		if err == nil {
@@ -127,6 +102,33 @@ func TestJudgeSlotPoliciesAdmitsOnlyTheGateway(t *testing.T) {
 	if accepted == 0 {
 		t.Error("no generated slot namespace was accepted: the property only ever saw refusals")
 	}
+}
+
+// oracleAccepts is the property's own statement of an acceptable slot
+// namespace, over the generator's peers: gw the gateway's exact peer,
+// block the one ipBlock (allowed only with the legacy path).
+func oracleAccepts(c policyCase, gw, block networkingv1.NetworkPolicyPeer) bool {
+	ok, found, admits := true, false, false
+	for _, np := range c.policies {
+		if np.Name == slotPolicyName {
+			found = true
+			egressOnly := len(np.Spec.PolicyTypes) == 1 && np.Spec.PolicyTypes[0] == networkingv1.PolicyTypeEgress
+			ok = ok && len(np.Spec.PodSelector.MatchLabels) == 0 && !egressOnly
+		}
+		for _, rl := range np.Spec.Ingress {
+			ok = ok && len(rl.From) > 0
+			for _, p := range rl.From {
+				switch {
+				case reflect.DeepEqual(p, gw):
+					admits = admits || np.Name == slotPolicyName
+				case reflect.DeepEqual(p, block) && c.legacy:
+				default:
+					ok = false
+				}
+			}
+		}
+	}
+	return ok && found && admits
 }
 
 // TestJudgeSlotPoliciesAcceptsTheChart: the slot policy the chart renders
