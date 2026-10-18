@@ -369,6 +369,15 @@ func (cl *cluster) stoppableBinary(t *testing.T, name, bin string, extra ...stri
 // that is not one, such as the egress broker, does not.
 func (cl *cluster) serveBinary(t *testing.T, name, bin string, args ...string) (pid int, stop func()) {
 	t.Helper()
+	return cl.serveBinaryEnv(t, name, bin, nil, args...)
+}
+
+// serveBinaryEnv is serveBinary with env added to the test's own
+// environment, as a Deployment's envFrom adds a ConfigMap's data: flags
+// still win over it.
+func (cl *cluster) serveBinaryEnv(t *testing.T, name, bin string, env []string, args ...string) (pid int,
+	stop func()) {
+	t.Helper()
 	health := fmt.Sprintf("127.0.0.1:%d", freePort(t))
 	args = append([]string{
 		"serve",
@@ -378,6 +387,9 @@ func (cl *cluster) serveBinary(t *testing.T, name, bin string, args ...string) (
 	}, args...)
 
 	cmd := exec.Command(bin, args...)
+	if env != nil {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	var logs bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &logs, &logs
 	if err := cmd.Start(); err != nil {

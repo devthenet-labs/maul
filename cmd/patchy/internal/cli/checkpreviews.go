@@ -24,7 +24,7 @@ const checkPreviewsTimeout = 2 * time.Minute
 
 // newCheckPreviewsCmd checks the preview install as a whole.
 func newCheckPreviewsCmd(opts *Options) *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "previews",
 		Short: "Check that the preview install is ready, before any Project uses it",
 		Long: "Check the preview install in the release namespace (-n) from your workstation,\n" +
@@ -69,12 +69,24 @@ func newCheckPreviewsCmd(opts *Options) *cobra.Command {
 		Args:              cobra.NoArgs,
 		ValidArgsFunction: noFileCompletion,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runCheckPreviews(cmd.Context(), opts, checkPreviewsDeps{
-				resolver: net.DefaultResolver,
-				dialTLS:  previewcheck.DialTLS,
-				http:     previewcheck.NewHTTPDoer(),
-			})
+			deps, err := checkPreviewsNetwork(cmd)
+			if err != nil {
+				return errUsage(err)
+			}
+			return runCheckPreviews(cmd.Context(), opts, deps)
 		},
+	}
+	checkPreviewsTestFlags(cmd)
+	return cmd
+}
+
+// networkCheckPreviewsDeps is what a released binary reaches: the caller's
+// own DNS, the system's roots and the hosts by name.
+func networkCheckPreviewsDeps() checkPreviewsDeps {
+	return checkPreviewsDeps{
+		resolver: net.DefaultResolver,
+		dialTLS:  previewcheck.DialTLS,
+		http:     previewcheck.NewHTTPDoer(),
 	}
 }
 

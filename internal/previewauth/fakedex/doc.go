@@ -6,6 +6,8 @@
 // the test says (as if the viewer were already signed in at GitHub) and
 // redirects straight back, and a token endpoint that checks the client's
 // secret, the redirect URI and the PKCE verifier before minting an RS256 ID
-// token with the requested nonce. It is test support only: no binary
-// imports it.
+// token with the requested nonce. Like a Dex static client it can register
+// its redirect URIs (Register), refusing any other, and it answers a bare
+// authorization request (no PKCE, no nonce: patchy check previews' probe)
+// with a login page. It is test support only: no binary imports it.
 package fakedex

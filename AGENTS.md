@@ -261,7 +261,10 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   any Project, plus `preview-config` (gateway-only, sign-in host outside the suffix, the suffix's own registrable
   domain by `x/net/publicsuffix`), `preview-viewers` (the bindings of `<release>-preview-viewer`, since a
   SelfSubjectAccessReview cannot ask for someone else) and `preview-nodes` (selector and NoExecute taint together on
-  the nodes; the selector parsed by preview-controller's own `preview.ParseNodeSelector`).
+  the nodes; the selector parsed by preview-controller's own `preview.ParseNodeSelector`). Only a build with the
+  `e2edial` tag (the e2e suite's, `cli/checkpreviews_e2e.go`) adds `check previews`' hidden `--e2e-dial-map` and
+  `--e2e-ca-file`, which point its resolver, TLS dialer and HTTP client at loopback listeners and a test CA; a released
+  binary has neither (`checkpreviews_net.go`).
   None reads a Secret, so never the App key. Every `check` noun renders through `cmd/patchy/internal/checkreport`
   (PASS/FAIL/SKIP lines, plus WARN, which never fails a run and only `check previews` reports; `-o json|yaml`, inert
   reasons). Builds for windows too, and ships a `kubectl-patchy` alias.
@@ -313,6 +316,11 @@ e2e/                SEPARATE Go module: envtest carries the CRDs, the real binar
                     preview_gateway_test.go does the same with the gateway on and the legacy
                     Ingress off, preview-auth built by buildTagged with the e2edial tag so
                     slot Service names dial local listeners (no kube-proxy under envtest).
+                    preview_setup_test.go configures that gateway from `patchy setup previews`
+                    (gateway-tls): helm renders the wizard's values, the rendered ConfigMaps
+                    become the controllers' environment (cluster.serveBinaryEnv, as envFrom),
+                    a viewer signs in over the gateway's own TLS, and an e2edial `patchy check
+                    previews` passes against it; fakedex.Register holds Dex's redirect URIs.
                     broker_cost_test.go runs egress-broker (cluster.serveBinary: not a
                     controller, so no --namespace) on envtest's real TokenReview with
                     pod-bound tokens and a fake model upstream of heavy cache-read turns:
@@ -467,7 +475,8 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   one projected subdirectory each, by SNI, re-read keep-last-good) and `hostprobe` (the unauthenticated host probe,
   critique F5). `previewauth/httpapi` is the HTTP surface (endpoints, pages, envelope headers, rate
   limit, audit line, OTel counters, and the preview gateway: `gateway*.go` and `streams.go`, off unless
-  `Config.Gateway` is set); `previewauth/fakedex` is test support only (an in-memory Dex). The gateway's pure side is
+  `Config.Gateway` is set); `previewauth/fakedex` is test support only (an in-memory Dex: `Register` makes a client's
+  redirect URIs exact, and a bare authorization request gets its login page, as Dex answers `check previews`). The gateway's pure side is
   in the core: `gateway.go` (the state, handoff code, gateway login and host session kinds t, o, g and h, and
   `Handoff.Redeem`, the fixation check; a code failing `CheckState` is spent at once) and `hygiene.go` (the `Hosts`
   grammar and `Location`, `CheckOrigin`, `CleanRequest`, `CleanResponse`), each with seeded properties; `View.Routes`
