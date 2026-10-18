@@ -22,6 +22,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 
 	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	"github.com/bitwise-media-group/patchy/internal/credgate"
 	"github.com/bitwise-media-group/patchy/internal/ghclient"
 	"github.com/bitwise-media-group/patchy/internal/resourceclass"
 	"github.com/bitwise-media-group/patchy/internal/runnerguard"
@@ -58,6 +59,9 @@ type IntentReconciler struct {
 	// waits on one it does not define is Blocked (ResourcesUnavailable).
 	// Held here rather than in Settings, which stays comparable.
 	Classes resourceclass.Set
+	// Credentials reads a person's ModelCredential, for the credential
+	// block under Settings.UserCredentials enforce; unused otherwise.
+	Credentials credgate.Lookup
 	// Nudger delivers discovery's hand-offs of ended Intents.
 	Nudger *Nudger
 	Now    func() time.Time

@@ -17,6 +17,7 @@ import (
 
 	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
 	"github.com/bitwise-media-group/patchy/internal/attribution"
+	"github.com/bitwise-media-group/patchy/internal/credgate"
 	"github.com/bitwise-media-group/patchy/internal/forge"
 )
 
@@ -176,6 +177,15 @@ type Settings struct {
 	// agent Job carries its run's attributed-to annotation; under off (the
 	// zero value) neither is.
 	Attribution attribution.Mode
+	// UserCredentials is --user-credentials: under enforce a plan, build
+	// or revise run attributed to a person is not created while that
+	// person has no Valid ModelCredential, and the Intent is Blocked
+	// (CredentialRequired) until it is (credential_hold.go); off and
+	// attribute (the zero value is off) create every run as before.
+	UserCredentials credgate.Mode
+	// AccountURL is the status page's Account page (--account-url), named
+	// in a credential block's message; may be empty.
+	AccountURL string
 	// CostBudgets is --broker-limit-unit cost: the egress broker counts
 	// spend in micro-USD, so every run is granted a cost budget
 	// (IntentRunGrant.BudgetMicroUSD) and its agent Job and pod carry it as

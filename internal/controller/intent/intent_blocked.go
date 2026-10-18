@@ -23,6 +23,7 @@ var blockingConditions = []string{
 	v1alpha1.ConditionBudgetExhausted, v1alpha1.ConditionImageRequired, v1alpha1.ConditionBranchConflict,
 	v1alpha1.ConditionRevisionLimitReached, v1alpha1.ConditionChecksFailing,
 	v1alpha1.ConditionUnsupportedRepositories, v1alpha1.ConditionResourcesUnavailable,
+	v1alpha1.ConditionCredentialRequired,
 }
 
 // BranchConflict reasons.
@@ -202,6 +203,7 @@ func (p *pass) blocked(ctx context.Context) (bool, error) {
 				setCondition(cur, c, metav1.ConditionFalse, "Resolved", "the block no longer holds")
 			}
 		}
+		cur.Status.CredentialHold = nil
 		if active != nil {
 			cur.Status.ActiveRun = &v1alpha1.ObjectReference{Name: active.Name, UID: active.UID}
 		}
@@ -333,6 +335,9 @@ func (p *pass) blockHolds(ctx context.Context) (bool, error) {
 	}
 	if p.resourceBlockHolds() {
 		return true, nil
+	}
+	if holds, err := p.credentialBlockHolds(ctx); holds || err != nil {
+		return holds, err
 	}
 	if holds, err := p.branchBlockHolds(ctx); holds || err != nil {
 		return holds, err

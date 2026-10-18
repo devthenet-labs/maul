@@ -50,3 +50,34 @@ func TestRenderCredentialHoldComment(t *testing.T) {
 		})
 	}
 }
+
+func TestRenderCredentialApprovalNotice(t *testing.T) {
+	got, err := RenderCredentialApprovalNotice(CredentialApprovalNotice{
+		Namespace: "patchy", Intent: "demo-7", Key: "c:9", Actor: "bob", Verb: "approve",
+		AccountURL: "https://status.example.com/#/account",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, w := range []string{NoticeMarker("patchy", "demo-7", "c:9"), "`/patchy approve` was not applied",
+		"@bob has none", "[Account page](https://status.example.com/#/account)"} {
+		if !strings.Contains(got, w) {
+			t.Errorf("missing %q in:\n%s", w, got)
+		}
+	}
+	got, err = RenderCredentialApprovalNotice(CredentialApprovalNotice{
+		Namespace: "patchy", Intent: "demo-7", Key: "l:9", Actor: "bob", Label: "patchy:approve",
+		LabelRemoved: true, AccountURL: "https://e.com/)(x",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, w := range []string{"label was not applied", "patchy removed the label", "status page's Account page"} {
+		if !strings.Contains(got, w) {
+			t.Errorf("missing %q in:\n%s", w, got)
+		}
+	}
+	if strings.Contains(got, "e.com") {
+		t.Errorf("a URL that reshapes the link was linked:\n%s", got)
+	}
+}

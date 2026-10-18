@@ -23,6 +23,7 @@ import (
 	"github.com/bitwise-media-group/patchy/internal/attribution"
 	"github.com/bitwise-media-group/patchy/internal/cli"
 	"github.com/bitwise-media-group/patchy/internal/controller/intent"
+	"github.com/bitwise-media-group/patchy/internal/credgate"
 	"github.com/bitwise-media-group/patchy/internal/runnercfg"
 )
 
@@ -141,9 +142,10 @@ func TestComponentConfigReachesSettings(t *testing.T) {
 		Revise: intent.StageCeiling{MaxTurns: 80, TokenBudget: 400000, Timeout: 45 * time.Minute,
 			IdleTimeout: 20 * time.Minute},
 		// Off unless the operator turns it on.
-		Attribution:    attribution.ModeOff,
-		JobDeadline:    90 * time.Minute,
-		JobDeadlineMax: 4*time.Hour + 30*time.Minute,
+		Attribution:     attribution.ModeOff,
+		UserCredentials: credgate.ModeOff,
+		JobDeadline:     90 * time.Minute,
+		JobDeadlineMax:  4*time.Hour + 30*time.Minute,
 		// No cost budgets until the broker counts cost.
 		CostBudgets: false,
 	}
@@ -358,6 +360,37 @@ func TestAttributionModeReachesSettings(t *testing.T) {
 	if _, err := settings(opts, "patchy", "patchy-agents"); err == nil ||
 		!strings.Contains(err.Error(), "--attribution-mode") {
 		t.Errorf("settings with mode enforce = %v, want the --attribution-mode refusal", err)
+	}
+}
+
+// TestUserCredentialsReachSettings: PATCHY_USER_CREDENTIALS and
+// PATCHY_ACCOUNT_URL (the chart's egressBroker.userCredentials.mode and
+// Account page) reach the reconcilers' settings, and enforce without
+// attribution stops startup rather than promising holds it cannot make.
+func TestUserCredentialsReachSettings(t *testing.T) {
+	for key, value := range componentData(t) {
+		t.Setenv(key, value)
+	}
+	t.Setenv("PATCHY_ATTRIBUTION_MODE", "attribute")
+	t.Setenv("PATCHY_USER_CREDENTIALS", "enforce")
+	t.Setenv("PATCHY_ACCOUNT_URL", "https://status.example.com/#/account")
+	opts, root, _ := command(t)
+	if err := root.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	s, err := settings(opts, "patchy", "patchy-agents")
+	if err != nil || s.UserCredentials != credgate.ModeEnforce || s.AccountURL != "https://status.example.com/#/account" {
+		t.Fatalf("settings = %q %q, %v; want enforce and the URL", s.UserCredentials, s.AccountURL, err)
+	}
+
+	t.Setenv("PATCHY_ATTRIBUTION_MODE", "off")
+	opts, root, _ = command(t)
+	if err := root.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if _, err := settings(opts, "patchy", "patchy-agents"); err == nil ||
+		!strings.Contains(err.Error(), "needs --attribution-mode attribute") {
+		t.Errorf("settings with enforce and no attribution = %v, want the refusal", err)
 	}
 }
 
