@@ -27,7 +27,31 @@
 //     <taint key>=true:NoExecute taint, and none carries the selector alone
 //     (the taint alone, another install's node or a typo, is a WARN; an EKS
 //     Auto Mode NodePool with no node yet is a SKIP; isolation off is a
-//     WARN).
+//     WARN);
+//   - preview-upstreams (upstreams.go): each Deployment running an upstream
+//     the preview recipes pin (cert-manager's controller, the Tailscale
+//     operator, cloudflared; previewsetup's pin table, design §5.3), found
+//     by its image's repository path, is compared with its pin by the
+//     image's tag, else its app.kubernetes.io/version label. Older is a
+//     WARN, no readable version a SKIP, none running no line at all;
+//   - preview-netpol (isolation*.go), only with Config.Isolation (`check
+//     previews --isolation`): the Go port of
+//     hack/preview-isolation-probe/ingress.sh --refused-is-blocked, and the
+//     one check that writes to the cluster. Every NetworkPolicy in the slot
+//     namespace is first judged as written (isolation_policy.go): none may
+//     admit a peer but the gateway's exact one and, on the legacy path,
+//     ipBlocks, since the agents' client is also held back by its own
+//     namespace's default-deny and so cannot prove the slot policy's shape.
+//     A netprobe listener starts in
+//     a slot (in ingress.sh's exact Pod shape, pinned by a test that runs
+//     its --print-manifests); the gateway-labelled client runs alone and
+//     must REACH it; only then do the agents' client and an unlabelled
+//     release client run, both of which must be BLOCKED (a refusal counted
+//     as blocked); and the listener must still be the same running Pod with
+//     no restart. judgeIsolation, pure and property-tested, passes nothing
+//     else, so a dead listener never passes as a block. Every Pod the run
+//     created is deleted, UID-checked, on a context that outlives an
+//     interrupt.
 //
 // It reads the controllers' settings from their ConfigMaps (LoadSettings:
 // each controller's own over kustomize's shared one; never a Secret), and
@@ -59,7 +83,14 @@
 //     with the gateway's edge instead: the chart's publishedAddresses (an
 //     annotation on the relay's ConfigMap), else the status of the
 //     gateway's Ingress or LoadBalancer Service (<release>-preview-gateway),
-//     else a SKIP (an HTTPRoute or a tunnel); a private edge (RFC 1918, ULA,
+//     else a Cloudflare Tunnel (tunnel.go: the cloudflare-tunnel recipe's
+//     cloudflared ConfigMap, found by its labels in any namespace, names the
+//     tunnel routing *.<suffix>; a record that is a CNAME to
+//     <tunnel id>.cfargotunnel.com passes; one resolving to Cloudflare's
+//     proxy alone hides its target and is a SKIP that leaves routing to
+//     preview-auth-host; any other answer is a WARN or a SKIP
+//     saying what to look at), else a SKIP (an HTTPRoute, or a tunnel the
+//     check cannot identify); a private edge (RFC 1918, ULA,
 //     CGNAT, so a tailnet) that this resolver does not answer with is a SKIP;
 //     while both paths serve, the legacy load balancer passes too.
 //     preview-auth-host asks every host as a navigation: the probe host,
@@ -76,5 +107,5 @@
 // through seams (client.Reader, Resolver, TLSDialer and HTTPDoer) so tests
 // need no network at all. Cluster reads are ConfigMaps, the placeholder and
 // gateway Ingresses, the gateway's Service, Previews and, for Install,
-// RoleBindings, ClusterRoleBindings and Nodes; never a Secret.
+// RoleBindings, ClusterRoleBindings, Nodes and Deployments; never a Secret.
 package previewcheck

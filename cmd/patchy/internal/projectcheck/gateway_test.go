@@ -289,7 +289,8 @@ func TestGatewayFailures(t *testing.T) {
 		},
 		"published addresses win over the Ingress": {
 			change: published("192.0.2.77"),
-			check:  CheckPreviewDNS, status: checkreport.Fail, want: []string{"publishedAddresses (192.0.2.77)"},
+			check:  CheckPreviewDNS, status: checkreport.Fail,
+			want: []string{"previewAuth.gateway.publishedAddresses is at 192.0.2.77"},
 		},
 		"published private address, not in this DNS": {
 			change: func(w *world, f *fakeWeb) {

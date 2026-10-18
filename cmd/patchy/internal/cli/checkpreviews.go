@@ -11,10 +11,14 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 
 	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/checkreport"
 	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/previewcheck"
 	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/printer"
+	"github.com/bitwise-media-group/patchy/internal/version"
 )
 
 // checkPreviewsTimeout bounds a whole `check previews` run: a few cluster
@@ -46,6 +50,13 @@ func newCheckPreviewsCmd(opts *Options) *cobra.Command {
 			"answer, the probe host is the gateway's 404 page, each Ready Preview\n" +
 			"redirects to sign in, and a spoofed X-Forwarded-For cannot get past\n" +
 			"previewAuth.gateway.inboundCIDRs.\n\n" +
+			"On a Cloudflare Tunnel edge (the cloudflare-tunnel recipe), whose gateway\n" +
+			"publishes no address, preview-dns passes when the record is a CNAME to the\n" +
+			"tunnel cloudflared serves (<tunnel id>.cfargotunnel.com). A proxied record\n" +
+			"shows only Cloudflare's addresses and hides its target: a SKIP, and\n" +
+			"preview-auth-host proves the routing. Anything else is a WARN or a SKIP\n" +
+			"saying what to look at. cloudflared's ConfigMap names the tunnel; its\n" +
+			"credentials are never read.\n\n" +
 			"preview-viewers reads the bindings of the chart's <release>-preview-viewer\n" +
 			"ClusterRole: at least one User or Group carrying the relay's claim prefix\n" +
 			"should be bound, or every sign-in is refused 403 unless another role grants\n" +
@@ -56,16 +67,43 @@ func newCheckPreviewsCmd(opts *Options) *cobra.Command {
 			"beside preview code there). A node with the taint but not the selector is\n" +
 			"another install's or a label typo (a WARN); with an EKS Auto Mode NodePool,\n" +
 			"no node yet is a SKIP; isolation off is a WARN.\n\n" +
-			"The check never reads a Secret. Its cluster reads, with your kubeconfig, are\n" +
-			"ConfigMaps, the preview placeholder and gateway Ingresses, the gateway's\n" +
-			"Service, Previews, RoleBindings, ClusterRoleBindings and Nodes; a read you\n" +
-			"may not make is a SKIP. The gateway's edge may admit only\n" +
+			"preview-upstreams compares cert-manager, the Tailscale operator and\n" +
+			"cloudflared, where a Deployment runs them, with the versions setup previews\n" +
+			"pins, by the image's tag or the app.kubernetes.io/version label: older is a\n" +
+			"WARN, and none running reports no line.\n\n" +
+			"The check never reads a Secret, and without --isolation it never writes. Its\n" +
+			"cluster reads, with your kubeconfig, are ConfigMaps, the preview placeholder\n" +
+			"and gateway Ingresses, the gateway's Service, Previews, RoleBindings,\n" +
+			"ClusterRoleBindings, Nodes and Deployments; a read you may not make is a\n" +
+			"SKIP. The gateway's edge may admit only\n" +
 			"previewAuth.gateway.inboundCIDRs, so from any other address the host checks\n" +
 			"time out or are refused, and that is a SKIP, not a FAIL.\n\n" +
+			"--isolation adds preview-netpol, the one check that writes to the cluster:\n" +
+			"it proves the slot NetworkPolicy lets only the preview gateway reach a slot\n" +
+			"Pod, as hack/preview-isolation-probe/ingress.sh --refused-is-blocked does.\n" +
+			"First every NetworkPolicy in the slot namespace is read as written: none may\n" +
+			"admit a peer but the gateway's exact one (the release namespace AND its\n" +
+			"label) and, while the legacy load balancer path serves, ipBlocks; anything\n" +
+			"else is a FAIL before a Pod exists. That proves the slot policy's shape; the\n" +
+			"live run then proves the path end to end.\n" +
+			"A netprobe listener starts in patchy-preview-<--isolation-slot> (on the\n" +
+			"preview nodes); a client labelled as the gateway must reach it first; only\n" +
+			"then do a client in the agents' namespace and an unlabelled one in the\n" +
+			"release namespace run, and both must be blocked (a refused connection counts\n" +
+			"as blocked only after that reach); and the listener must still be the same\n" +
+			"running Pod afterwards, so a dead listener never passes as a block. All four\n" +
+			"Pods are deleted at the end, on failure and on interrupt too. The image must\n" +
+			"sit under preview-controller's image prefix as <prefix>netprobe:sha-<40 hex>\n" +
+			"(--isolation-image; by default that tag at this CLI's commit): build it from\n" +
+			"hack/preview-isolation-probe at the same commit. Anything short of a proven\n" +
+			"block is a FAIL; slot policy ipBlocks (the legacy load balancer's subnets)\n" +
+			"or a Pod left behind is a WARN.\n\n" +
 			"-o json or -o yaml prints the whole report as data. The exit status is 1 when\n" +
 			"any check fails; a WARN never fails the run.",
 		Example: "  patchy check previews -n patchy\n" +
-			"  patchy check previews -n patchy -o json | jq '.checks[] | select(.status != \"PASS\")'",
+			"  patchy check previews -n patchy -o json | jq '.checks[] | select(.status != \"PASS\")'\n" +
+			"  patchy check previews -n patchy --isolation \\\n" +
+			"    --isolation-image registry.example/patchy/previews/netprobe:sha-0123456789abcdef0123456789abcdef01234567",
 		Args:              cobra.NoArgs,
 		ValidArgsFunction: noFileCompletion,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -73,11 +111,53 @@ func newCheckPreviewsCmd(opts *Options) *cobra.Command {
 			if err != nil {
 				return errUsage(err)
 			}
+			if deps.isolation, err = isolationFromFlags(cmd); err != nil {
+				return errUsage(err)
+			}
 			return runCheckPreviews(cmd.Context(), opts, deps)
 		},
 	}
+	f := cmd.Flags()
+	f.Bool(isolationFlag, false, "also run preview-netpol: create four short-lived probe Pods (a listener in a "+
+		"slot, three clients) to prove only the preview gateway reaches a slot, then delete them; the one part "+
+		"of the check that writes to the cluster")
+	f.String(isolationImageFlag, "", "the netprobe image for --isolation, under the preview image prefix as "+
+		"<prefix>netprobe:sha-<40 hex> (default: that tag at this CLI's commit)")
+	f.Int(isolationSlotFlag, 0, "the slot the --isolation listener runs in")
+	f.Duration(isolationTimeoutFlag, previewcheck.DefaultIsolationTimeout, "how long each --isolation Pod may "+
+		"take to start or finish")
 	checkPreviewsTestFlags(cmd)
 	return cmd
+}
+
+// The --isolation flags.
+const (
+	isolationFlag        = "isolation"
+	isolationImageFlag   = "isolation-image"
+	isolationSlotFlag    = "isolation-slot"
+	isolationTimeoutFlag = "isolation-timeout"
+)
+
+// isolationFromFlags is the probe the flags ask for, nil without
+// --isolation; an --isolation-* flag without it is a usage error.
+func isolationFromFlags(cmd *cobra.Command) (*previewcheck.Isolation, error) {
+	f := cmd.Flags()
+	on, _ := f.GetBool(isolationFlag)
+	if !on {
+		for _, name := range []string{isolationImageFlag, isolationSlotFlag, isolationTimeoutFlag} {
+			if f.Changed(name) {
+				return nil, fmt.Errorf("--%s needs --%s", name, isolationFlag)
+			}
+		}
+		return nil, nil //nolint:nilnil // no probe asked for
+	}
+	image, _ := f.GetString(isolationImageFlag)
+	slot, _ := f.GetInt(isolationSlotFlag)
+	timeout, _ := f.GetDuration(isolationTimeoutFlag)
+	if timeout <= 0 {
+		return nil, fmt.Errorf("--%s must be positive", isolationTimeoutFlag)
+	}
+	return &previewcheck.Isolation{Image: image, Commit: version.Commit, Slot: slot, Timeout: timeout}, nil
 }
 
 // networkCheckPreviewsDeps is what a released binary reaches: the caller's
@@ -96,6 +176,10 @@ type checkPreviewsDeps struct {
 	resolver previewcheck.Resolver
 	dialTLS  previewcheck.TLSDialer
 	http     previewcheck.HTTPDoer
+	// isolation is the --isolation probe, nil without the flag; its Client
+	// is the caller's kubeconfig client, and its Logs, when nil, read
+	// through the kubeconfig's REST config.
+	isolation *previewcheck.Isolation
 }
 
 // runCheckPreviews runs the install-level checks and renders the report;
@@ -115,12 +199,24 @@ func runCheckPreviews(ctx context.Context, opts *Options, deps checkPreviewsDeps
 	if env.Namespace == "" {
 		return errUsage(errors.New("check previews needs the release namespace: pass -n"))
 	}
-	ctx, cancel := context.WithTimeout(ctx, checkPreviewsTimeout)
+	timeout := checkPreviewsTimeout
+	if iso := deps.isolation; iso != nil {
+		iso.Client = env.Client
+		if iso.Logs == nil {
+			if iso.Logs, err = podLogReader(env.Config); err != nil {
+				return err
+			}
+		}
+		// The listener's start, the gateway client, then the other two
+		// together, each bounded by the timeout; cleanup has its own.
+		timeout += 3*iso.Timeout + time.Minute
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	opts.debugf("checking the preview install in namespace %s", env.Namespace)
 	report := previewcheck.Install(ctx, previewcheck.Config{
 		Reader: env.Client, Namespace: env.Namespace,
-		Resolver: deps.resolver, DialTLS: deps.dialTLS, HTTP: deps.http,
+		Resolver: deps.resolver, DialTLS: deps.dialTLS, HTTP: deps.http, Isolation: deps.isolation,
 	})
 	if err := checkreport.Render(opts.Out, format, report, report.Lines()); err != nil {
 		return err
@@ -129,4 +225,25 @@ func runCheckPreviews(ctx context.Context, opts *Options, deps checkPreviewsDeps
 		return fmt.Errorf("%d check%s failed", n, plural(n, "", "s"))
 	}
 	return nil
+}
+
+// probeLogLimit bounds a probe client's log read: its burst writes a few
+// dozen short lines.
+const probeLogLimit = 1 << 20
+
+// podLogReader reads a probe Pod's log through the kubeconfig's REST
+// config.
+func podLogReader(cfg *rest.Config) (previewcheck.LogReader, error) {
+	if cfg == nil {
+		return nil, errors.New("no REST config to read the probe Pods' logs with")
+	}
+	cs, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("build a client for the probe Pods' logs: %w", err)
+	}
+	limit := int64(probeLogLimit)
+	return func(ctx context.Context, namespace, pod string) ([]byte, error) {
+		return cs.CoreV1().Pods(namespace).GetLogs(pod, &corev1.PodLogOptions{Container: "probe",
+			LimitBytes: &limit}).DoRaw(ctx)
+	}, nil
 }

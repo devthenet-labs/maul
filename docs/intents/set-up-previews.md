@@ -104,7 +104,9 @@ Then follow `NEXT-STEPS.md`. Every recipe has the same eight steps:
 6. **Install:** the edge's own pieces, then one `helm upgrade` of patchy. A gateway-only install has no permit stage.
 7. **DNS:** the two records, `*.<host suffix>` and the sign-in host, and where they point.
 8. **Check:** `patchy check previews -n <release namespace>`. Every line should pass before the first intent's preview
-   is opened ([what each check reads](../cli.md#checking-the-preview-install)).
+   is opened ([what each check reads](../cli.md#checking-the-preview-install)). Then prove slot isolation once with
+   `--isolation`, which creates four short-lived probe Pods and deletes them
+   ([how](../cli.md#proving-slot-isolation---isolation)).
 
 It ends with a rollback section for the recipe, all by deletion in reverse order.
 
@@ -209,7 +211,7 @@ the way back.
   users.
 - It ships no in-cluster component. cloudflared, cert-manager and the Tailscale operator are upstream projects you
   install; the command writes their values at versions patchy pins and tests, and `check previews` is how you prove the
-  result.
+  result. Its `preview-upstreams` line WARNs when one you run is older than the pin.
 - `forwardedHops`, the number of proxies in front of the gateway that append `X-Forwarded-For`, is fixed per recipe (R1:
   1, R2 and R3: 0, R4: 1) rather than asked. A wrong value lets a client choose the address the rate limit and the
   allowlist judge.

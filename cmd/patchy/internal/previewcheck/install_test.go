@@ -97,7 +97,9 @@ type installWorld struct {
 	objs     []client.Object
 	web      iWeb
 	resolver iResolver
-	reads    *[]string
+	// cnames, when set, also answers CNAME lookups (tunnel_test.go).
+	cnames map[string]string
+	reads  *[]string
 	// dial, when set, answers TLS dials instead of a certificate for
 	// *.<suffix> everywhere.
 	dial func(context.Context, string) (tls.ConnectionState, error)
@@ -228,15 +230,22 @@ func (w *installWorld) run(t *testing.T, fn interceptor.Funcs) Report {
 	}
 	reader := fake.NewClientBuilder().WithScheme(kube.Scheme()).WithObjects(w.objs...).
 		WithInterceptorFuncs(fn).Build()
-	dial := func(_ context.Context, host string) (tls.ConnectionState, error) {
-		return tls.ConnectionState{PeerCertificates: []*x509.Certificate{{DNSNames: []string{"*." + iSuffix},
-			Issuer: pkix.Name{CommonName: "Test CA"}, NotAfter: time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)}}}, nil
-	}
+	dial := iDial
 	if w.dial != nil {
 		dial = w.dial
 	}
-	return Install(context.Background(), Config{Reader: reader, Namespace: "patchy", Resolver: w.resolver,
+	var res Resolver = w.resolver
+	if w.cnames != nil {
+		res = cnameWorld{iResolver: w.resolver, cnames: w.cnames}
+	}
+	return Install(context.Background(), Config{Reader: reader, Namespace: "patchy", Resolver: res,
 		DialTLS: dial, HTTP: w.web})
+}
+
+// iDial answers every TLS dial with a certificate for *.<suffix>.
+func iDial(context.Context, string) (tls.ConnectionState, error) {
+	return tls.ConnectionState{PeerCertificates: []*x509.Certificate{{DNSNames: []string{"*." + iSuffix},
+		Issuer: pkix.Name{CommonName: "Test CA"}, NotAfter: time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)}}}, nil
 }
 
 // TestInstallAllPass: a gateway-only install with viewers and an isolated

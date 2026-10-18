@@ -35,6 +35,12 @@ const (
 	// cloudflaredName names the Deployment, its ConfigMap, its
 	// ServiceAccount and its NetworkPolicy.
 	cloudflaredName = "cloudflared"
+	// CloudflaredAppName is cloudflared's app.kubernetes.io/name label,
+	// beside app.kubernetes.io/instance TunnelName: what `check previews`
+	// finds the recipe's ConfigMap and Deployment by.
+	CloudflaredAppName = cloudflaredName
+	// CloudflaredConfigKey is the ConfigMap key holding config.yaml.
+	CloudflaredConfigKey = "config.yaml"
 	// CloudflaredSecret holds the tunnel credentials file under
 	// CloudflaredSecretKey.
 	CloudflaredSecret    = "cloudflared-credentials"
@@ -428,7 +434,7 @@ func cloudflaredManifests(a Answers) ([]byte, error) {
 		},
 		{
 			"apiVersion": "v1", "kind": "ConfigMap", "metadata": meta(),
-			"data": map[string]any{"config.yaml": string(cfg)},
+			"data": map[string]any{CloudflaredConfigKey: string(cfg)},
 		},
 		{
 			"apiVersion": "apps/v1", "kind": "Deployment", "metadata": meta(),
