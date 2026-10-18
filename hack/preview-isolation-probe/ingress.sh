@@ -232,18 +232,48 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# The slot policy must exist and name the gateway's label as a peer, or the
-# admitted client would fail for a reason this run is not about.
-policy=$(kube get networkpolicy preview-isolation -n "$slot_ns" -o json)
-if ! jq -e '[.spec.ingress[]?.from[]? | .podSelector.matchLabels["patchy.bitwisemedia.uk/preview-gateway"]?] |
-    index("true") != null' <<<"$policy" >/dev/null; then
+# Every NetworkPolicy in the slot namespace, read as written. The agents'
+# client is held back by the agents namespace's own default-deny too, so its
+# refusal proves agents reach no slot by any path, not that the slot policy
+# refuses them: the slot's policies themselves must admit nothing but the
+# gateway's peer (the release namespace AND the gateway's label, exactly) and
+# ipBlocks. preview-isolation must exist, select every Pod, govern ingress
+# and name that peer, or the admitted client would fail for a reason this run
+# is not about.
+policies=$(kube get networkpolicy -n "$slot_ns" -o json)
+if ! jq -e '.items[]? | select(.metadata.name == "preview-isolation")' <<<"$policies" >/dev/null; then
+    echo "there is no slot NetworkPolicy $slot_ns/preview-isolation: is the slot created (preview.enabled)?" >&2
+    exit 1
+fi
+offenders=$(jq -r --arg rel "$release_ns" '
+    def gateway: . == {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": $rel}},
+        "podSelector": {"matchLabels": {"patchy.bitwisemedia.uk/preview-gateway": "true"}}};
+    def block: (keys == ["ipBlock"]) and ((.ipBlock.cidr // "") != "");
+    .items[] | .metadata.name as $n |
+    (if $n == "preview-isolation" and ((.spec.podSelector // {}) != {}) then
+        "\($n) selects only some of the slot'"'"'s Pods (its podSelector is not {})" else empty end),
+    (if $n == "preview-isolation" and ((.spec.policyTypes // ["Ingress"]) | index("Ingress") == null) then
+        "\($n) does not govern ingress (its policyTypes lack Ingress)" else empty end),
+    (.spec.ingress[]? | if ((.from // []) | length) == 0 then
+        "\($n) has an ingress rule with no from, which admits every source"
+    else .from[] | select((gateway or block) | not) |
+        "\($n) admits an ingress peer other than the preview gateway'"'"'s: \(tojson)" end)' <<<"$policies")
+if [[ -n $offenders ]]; then
+    echo "the slot's NetworkPolicies in $slot_ns admit more than the preview gateway:" >&2
+    printf '  %s\n' "$offenders" >&2
+    exit 1
+fi
+if ! jq -e --arg rel "$release_ns" '[.items[] | select(.metadata.name == "preview-isolation") |
+    .spec.ingress[]?.from[]? | select(. == {"namespaceSelector": {"matchLabels":
+    {"kubernetes.io/metadata.name": $rel}}, "podSelector": {"matchLabels":
+    {"patchy.bitwisemedia.uk/preview-gateway": "true"}}})] | length > 0' <<<"$policies" >/dev/null; then
     echo "$slot_ns/preview-isolation admits no preview gateway Pod: is previewAuth.gateway.enabled set?" >&2
     exit 1
 fi
 # An ipBlock peer admits every address in it (the preview ALB's subnets, while
 # preview.legacyIngress serves), and so whatever else runs there, past the
 # gateway's sign-in. This run's clients are never in it, so say so plainly.
-blocks=$(jq -r '[.spec.ingress[]?.from[]? | .ipBlock.cidr? // empty] | join(", ")' <<<"$policy")
+blocks=$(jq -r '[.items[].spec.ingress[]?.from[]? | .ipBlock.cidr? // empty] | unique | join(", ")' <<<"$policies")
 if [[ -n $blocks ]]; then
     echo "WARNING: $slot_ns/preview-isolation also admits the address ranges $blocks on port http, bypassing the" \
         "preview gateway; this run does not test them. They go once preview.legacyIngress is false." >&2

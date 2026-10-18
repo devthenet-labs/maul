@@ -293,7 +293,8 @@ func TestRunIsolationScenarios(t *testing.T) {
 		want   []string
 	}{
 		"isolated": {status: checkreport.Pass, want: []string{"patchy/preview-ingress-gateway REACHED",
-			"patchy-agents/preview-ingress-agent and patchy/preview-ingress-release were BLOCKED",
+			"patchy-agents/preview-ingress-agent was BLOCKED, so agents cannot reach a slot by any path",
+			"patchy/preview-ingress-release was BLOCKED by the slot policy",
 			"every probe Pod was deleted"}},
 		"agent leaks": {change: func(s *scenario) { s.agent = outcomeReached }, status: checkreport.Fail,
 			want: []string{"patchy-agents/preview-ingress-agent REACHED the listener"}},
@@ -483,19 +484,47 @@ func TestDeleteProbesReportsFailures(t *testing.T) {
 }
 
 // slotPolicyObject is the chart's slot policy in slot 0: the gateway's
-// label, plus blocks when given.
+// peer, plus blocks when given.
 func slotPolicyObject(gateway bool, blocks ...string) *networkingv1.NetworkPolicy {
 	var peers []networkingv1.NetworkPolicyPeer
 	if gateway {
-		peers = append(peers, networkingv1.NetworkPolicyPeer{
-			PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{gatewayLabel: "true"}}})
+		peers = append(peers, gatewayPeer("patchy"))
 	}
 	for _, b := range blocks {
 		peers = append(peers, networkingv1.NetworkPolicyPeer{IPBlock: &networkingv1.IPBlock{CIDR: b}})
 	}
-	return &networkingv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: "patchy-preview-0",
-		Name: slotPolicyName}, Spec: networkingv1.NetworkPolicySpec{Ingress: []networkingv1.NetworkPolicyIngressRule{
-		{From: peers}}}}
+	if len(peers) == 0 { // the chart's `ingress: []`: nothing may reach the slot
+		return policyWith("patchy-preview-0", slotPolicyName)
+	}
+	return policyWith("patchy-preview-0", slotPolicyName, networkingv1.NetworkPolicyIngressRule{From: peers})
+}
+
+// policyWith is a NetworkPolicy over every Pod of namespace with rules.
+func policyWith(namespace, name string, rules ...networkingv1.NetworkPolicyIngressRule) *networkingv1.NetworkPolicy {
+	return &networkingv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name},
+		Spec: networkingv1.NetworkPolicySpec{PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress,
+			networkingv1.PolicyTypeEgress}, Ingress: rules}}
+}
+
+// gatewayPeer is the chart's gateway peer: the release namespace AND the
+// gateway's label.
+func gatewayPeer(releaseNS string) networkingv1.NetworkPolicyPeer {
+	return networkingv1.NetworkPolicyPeer{
+		NamespaceSelector: &metav1.LabelSelector{MatchLabels: map[string]string{
+			"kubernetes.io/metadata.name": releaseNS}},
+		PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{gatewayLabel: "true"}},
+	}
+}
+
+// namespacePeer admits every Pod of namespace.
+func namespacePeer(namespace string) networkingv1.NetworkPolicyPeer {
+	return networkingv1.NetworkPolicyPeer{NamespaceSelector: &metav1.LabelSelector{MatchLabels: map[string]string{
+		"kubernetes.io/metadata.name": namespace}}}
+}
+
+// rule is one ingress rule from peers.
+func rule(peers ...networkingv1.NetworkPolicyPeer) networkingv1.NetworkPolicyIngressRule {
+	return networkingv1.NetworkPolicyIngressRule{From: peers}
 }
 
 // TestInstallIsolation: preview-netpol through Install, from the
@@ -508,14 +537,58 @@ func TestInstallIsolation(t *testing.T) {
 	tests := map[string]struct {
 		change  func(*installWorld, *Isolation)
 		policy  client.Object
+		extra   []client.Object
 		status  checkreport.Status
 		want    []string
 		created bool
 	}{
 		"passes": {policy: slotPolicyObject(true), status: checkreport.Pass, created: true,
-			want: []string{"only the preview gateway's label reaches the slot"}},
+			want: []string{"the slot's NetworkPolicies admit no peer but the preview gateway's"}},
 		"legacy subnets admitted": {policy: slotPolicyObject(true, "10.40.128.0/24"), status: checkreport.Warn,
-			created: true, want: []string{"also admits 10.40.128.0/24"}},
+			created: true, want: []string{"also admits 10.40.128.0/24"},
+			change: func(w *installWorld, _ *Isolation) {
+				w.setting("patchy-preview-controller", keyPreviewLegacyIngress, "true")
+			}},
+		"subnets admitted with the legacy path off": {policy: slotPolicyObject(true, "10.40.128.0/24"),
+			status: checkreport.Fail, want: []string{"ipBlock 10.40.128.0/24", "preview.legacyIngress is false"}},
+		"the agents' namespace admitted too": {status: checkreport.Fail,
+			policy: policyWith("patchy-preview-0", slotPolicyName, rule(gatewayPeer("patchy"),
+				namespacePeer("patchy-agents"))),
+			want: []string{"patchy-preview-0/preview-isolation", "an ingress peer other than the preview gateway's",
+				"patchy-agents"}},
+		"a rule from anywhere": {status: checkreport.Fail,
+			policy: policyWith("patchy-preview-0", slotPolicyName, rule(gatewayPeer("patchy")),
+				networkingv1.NetworkPolicyIngressRule{}),
+			want: []string{"an ingress rule with no from, which admits every source"}},
+		"the gateway's label in any namespace": {status: checkreport.Fail,
+			policy: policyWith("patchy-preview-0", slotPolicyName, rule(networkingv1.NetworkPolicyPeer{
+				PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{gatewayLabel: "true"}}})),
+			want: []string{"an ingress peer other than the preview gateway's"}},
+		"a gateway peer widened by an expression": {status: checkreport.Fail,
+			policy: func() client.Object {
+				peer := gatewayPeer("patchy")
+				peer.PodSelector.MatchExpressions = []metav1.LabelSelectorRequirement{{Key: "app",
+					Operator: metav1.LabelSelectorOpExists}}
+				return policyWith("patchy-preview-0", slotPolicyName, rule(peer))
+			}(),
+			want: []string{"an ingress peer other than the preview gateway's"}},
+		"another policy admits the agents": {status: checkreport.Fail, policy: slotPolicyObject(true),
+			extra: []client.Object{policyWith("patchy-preview-0", "allow-agents", rule(namespacePeer("patchy-agents")))},
+			want:  []string{"patchy-preview-0/allow-agents", "patchy-agents"}},
+		"a policy over some Pods only": {status: checkreport.Fail,
+			policy: func() client.Object {
+				np := slotPolicyObject(true)
+				np.Spec.PodSelector = metav1.LabelSelector{MatchLabels: map[string]string{"app": "web"}}
+				return np
+			}(),
+			want: []string{"selects only some of the slot's Pods"}},
+		"a policy that does not govern ingress": {status: checkreport.Fail,
+			policy: func() client.Object {
+				np := slotPolicyObject(true)
+				np.Spec.PolicyTypes = []networkingv1.PolicyType{networkingv1.PolicyTypeEgress}
+				return np
+			}(),
+			want: []string{"does not govern ingress"}},
 		"no slot policy": {status: checkreport.Fail, want: []string{"no slot NetworkPolicy"}},
 		"policy without the gateway": {policy: slotPolicyObject(false), status: checkreport.Fail,
 			want: []string{"admits no preview gateway Pod"}},
@@ -546,6 +619,7 @@ func TestInstallIsolation(t *testing.T) {
 			if tc.policy != nil {
 				w.objs = append(w.objs, tc.policy)
 			}
+			w.objs = append(w.objs, tc.extra...)
 			iso := &Isolation{Commit: probeCommit, Timeout: 50 * time.Millisecond, Poll: time.Millisecond}
 			if tc.change != nil {
 				tc.change(w, iso)

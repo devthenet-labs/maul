@@ -589,14 +589,22 @@ SKIP, not a FAIL. The exit status is 1 when any check fails.
 `--isolation` adds `preview-netpol`, the Go port of
 [`ingress.sh --refused-is-blocked`](https://github.com/devthenet-labs/patchy/blob/main/hack/preview-isolation-probe/README.md#the-ingress-direction-only-the-preview-gateway-reaches-a-slot).
 It proves, from inside the cluster, that the slot NetworkPolicy lets only the preview gateway open a connection to a
-slot Pod, on any CNI, whether its policy drops a denied connection or refuses it (kube-router, so k3s and k3d). It
-creates four short-lived netprobe Pods, in `ingress.sh`'s exact shape, and judges them in a fixed order:
+slot Pod, on any CNI, whether its policy drops a denied connection or refuses it (kube-router, so k3s and k3d). It first
+reads every NetworkPolicy in the slot namespace as written: `preview-isolation` must select every Pod, govern ingress
+and admit the gateway's peer (the release namespace AND the gateway's label, exactly), and no policy there may admit any
+other peer (a rule with no `from`, another namespace or Pod selector, a match expression) or, once
+`preview.legacyIngress` is `false`, an `ipBlock`. Any of those is a FAIL before a Pod exists. This static check is what
+proves the slot policy's own shape: the agents' client below is held back by the agents namespace's default-deny too, so
+its refusal proves agents reach no slot by any path, not which policy refused it. Then it creates four short-lived
+netprobe Pods, in `ingress.sh`'s exact shape (plus a per-run marker annotation, so cleanup never deletes a Pod it did
+not make), and judges them in a fixed order:
 
 1. A listener in `patchy-preview-<--isolation-slot>`, on the preview nodes (preview-controller's selector and taint).
 2. A client in the release namespace carrying the gateway's label runs alone and must **reach** the listener. If it does
    not, the run stops: a refusal could then be a dead listener's.
 3. Only then, a client in the agents' namespace and an unlabelled one in the release namespace run, and both must be
-   **blocked**. A refused connection counts as blocked here, and only here.
+   **blocked**: the agents' end to end, the release one by the slot policy, which no egress policy holds it back from. A
+   refused connection counts as blocked here, and only here.
 4. The listener must still be the same Running Pod, its container never restarted, so a listener that died in between
    can never pass as a block.
 

@@ -81,6 +81,11 @@ func newCheckPreviewsCmd(opts *Options) *cobra.Command {
 			"--isolation adds preview-netpol, the one check that writes to the cluster:\n" +
 			"it proves the slot NetworkPolicy lets only the preview gateway reach a slot\n" +
 			"Pod, as hack/preview-isolation-probe/ingress.sh --refused-is-blocked does.\n" +
+			"First every NetworkPolicy in the slot namespace is read as written: none may\n" +
+			"admit a peer but the gateway's exact one (the release namespace AND its\n" +
+			"label) and, while the legacy load balancer path serves, ipBlocks; anything\n" +
+			"else is a FAIL before a Pod exists. That proves the slot policy's shape; the\n" +
+			"live run then proves the path end to end.\n" +
 			"A netprobe listener starts in patchy-preview-<--isolation-slot> (on the\n" +
 			"preview nodes); a client labelled as the gateway must reach it first; only\n" +
 			"then do a client in the agents' namespace and an unlabelled one in the\n" +

@@ -37,7 +37,12 @@
 //   - preview-netpol (isolation*.go), only with Config.Isolation (`check
 //     previews --isolation`): the Go port of
 //     hack/preview-isolation-probe/ingress.sh --refused-is-blocked, and the
-//     one check that writes to the cluster. A netprobe listener starts in
+//     one check that writes to the cluster. Every NetworkPolicy in the slot
+//     namespace is first judged as written (isolation_policy.go): none may
+//     admit a peer but the gateway's exact one and, on the legacy path,
+//     ipBlocks, since the agents' client is also held back by its own
+//     namespace's default-deny and so cannot prove the slot policy's shape.
+//     A netprobe listener starts in
 //     a slot (in ingress.sh's exact Pod shape, pinned by a test that runs
 //     its --print-manifests); the gateway-labelled client runs alone and
 //     must REACH it; only then do the agents' client and an unlabelled

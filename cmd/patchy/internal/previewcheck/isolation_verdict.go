@@ -111,9 +111,11 @@ func judgeIsolation(r isolationRun) isolationVerdict {
 		return isolationVerdict{checkreport.Fail, strings.Join(fails, "; ") + ": keep previews unused and " +
 			"investigate" + cleanupNote}
 	}
-	reason := fmt.Sprintf("only the preview gateway's label reaches the slot: %s REACHED the listener at %s, then "+
-		"%s and %s were BLOCKED (a refusal counted only after that reach), and the listener was still Running "+
-		"after them", r.gatewayWhere, r.listener, r.agentWhere, r.releaseWhere)
+	reason := fmt.Sprintf("the slot's NetworkPolicies admit no peer but the preview gateway's (checked as "+
+		"written), and end to end %s REACHED the listener at %s; then %s was BLOCKED, so agents cannot reach a "+
+		"slot by any path (their own namespace's default-deny may be what stops them), and %s was BLOCKED by the "+
+		"slot policy (a refusal counted only after that reach); and the listener was still Running after them",
+		r.gatewayWhere, r.listener, r.agentWhere, r.releaseWhere)
 	switch {
 	case len(r.cleanup) > 0:
 		return isolationVerdict{checkreport.Warn, reason + cleanupNote}

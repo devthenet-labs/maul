@@ -97,9 +97,13 @@ admitted client also proves the listener answers, so the two refusals are the po
 gateway label is `patchy.bitwisemedia.uk/preview-gateway: "true"`, the one the slot policy names; the script refuses to
 run when the slot policy does not name it (the gateway is off). The agents namespace's own default-deny egress may
 refuse its client before the slot policy does; either fence is a pass, and the release-namespace client, which no egress
-policy holds back, is the one that proves the slot policy. While `preview.legacyIngress` is `true` the slot policy also
-admits the preview ALB's subnets by `ipBlock`; no client here is in them, so the run prints a `WARNING` naming those
-ranges instead of judging them. They are gone once `preview.legacyIngress` is `false`.
+policy holds back, is the one that proves the slot policy. Because the agents' refusal cannot show that the slot policy
+itself refuses them, the script also reads every NetworkPolicy in the slot namespace first and refuses to run when any
+admits a peer other than the gateway's exact one (the release namespace AND the gateway's label) or an `ipBlock`: a rule
+with no `from`, another namespace or Pod selector, a match expression, or a `preview-isolation` that selects only some
+Pods or does not govern ingress. While `preview.legacyIngress` is `true` the slot policy also admits the preview ALB's
+subnets by `ipBlock`; no client here is in them, so the run prints a `WARNING` naming those ranges instead of judging
+them. They are gone once `preview.legacyIngress` is `false`.
 
 ### A policy controller that refuses: `--refused-is-blocked`
 

@@ -8,13 +8,11 @@ import (
 	"fmt"
 	"maps"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -214,7 +212,7 @@ func (c *Checker) planIsolation(ctx context.Context, s Settings, iso *Isolation)
 	if p.selector, p.taintKey, err = probePlacement(s); err != nil {
 		return probePlan{}, err
 	}
-	if p.ipBlocks, err = slotPolicy(ctx, iso.Client, p.slotNS); err != nil {
+	if p.ipBlocks, err = slotPolicy(ctx, iso.Client, p.slotNS, p.releaseNS, s.legacyIngress()); err != nil {
 		return probePlan{}, err
 	}
 	for _, key := range p.probePods() {
@@ -318,36 +316,4 @@ func agentNamespace(s Settings) string {
 		}
 	}
 	return defaultAgentNamespace
-}
-
-// slotPolicy reads the slot's NetworkPolicy, which must name the gateway's
-// label as a peer, or the admitted client would fail for a reason the run
-// is not about; it returns the ipBlock ranges the policy also admits.
-func slotPolicy(ctx context.Context, r client.Reader, slotNS string) ([]string, error) {
-	var np networkingv1.NetworkPolicy
-	key := types.NamespacedName{Namespace: slotNS, Name: slotPolicyName}
-	if err := r.Get(ctx, key, &np); err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil, fmt.Errorf("there is no slot NetworkPolicy %s: is the slot created (preview.enabled)?", key)
-		}
-		return nil, fmt.Errorf("cannot read the slot NetworkPolicy %s: %w", key, err)
-	}
-	admits := false
-	var blocks []string
-	for _, rule := range np.Spec.Ingress {
-		for _, peer := range rule.From {
-			if peer.PodSelector != nil && peer.PodSelector.MatchLabels[gatewayLabel] == "true" {
-				admits = true
-			}
-			if peer.IPBlock != nil && peer.IPBlock.CIDR != "" {
-				blocks = append(blocks, peer.IPBlock.CIDR)
-			}
-		}
-	}
-	if !admits {
-		return nil, fmt.Errorf("the slot NetworkPolicy %s admits no preview gateway Pod: is "+
-			"previewAuth.gateway.enabled set?", key)
-	}
-	slices.Sort(blocks)
-	return slices.Compact(blocks), nil
 }

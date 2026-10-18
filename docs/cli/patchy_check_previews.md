@@ -61,6 +61,11 @@ time out or are refused, and that is a SKIP, not a FAIL.
 --isolation adds preview-netpol, the one check that writes to the cluster:
 it proves the slot NetworkPolicy lets only the preview gateway reach a slot
 Pod, as hack/preview-isolation-probe/ingress.sh --refused-is-blocked does.
+First every NetworkPolicy in the slot namespace is read as written: none may
+admit a peer but the gateway's exact one (the release namespace AND its
+label) and, while the legacy load balancer path serves, ipBlocks; anything
+else is a FAIL before a Pod exists. That proves the slot policy's shape; the
+live run then proves the path end to end.
 A netprobe listener starts in patchy-preview-<--isolation-slot> (on the
 preview nodes); a client labelled as the gateway must reach it first; only
 then do a client in the agents' namespace and an unlabelled one in the

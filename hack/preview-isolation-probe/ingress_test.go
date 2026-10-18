@@ -5,20 +5,24 @@ package probe_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 )
 
 const ingressImage = "registry.example/patchy/previews/netprobe:sha-" + headSHA
 
 // kubectlStub stands in for kubectl in ingress.sh's run. It logs each call's
 // argv (after --request-timeout), keeps what each create was sent, and
-// answers: the slot policy from STUB_POLICY; a Pod's existence check as not
+// answers: the slot namespace's policies as STUB_POLICY and, if set, STUB_EXTRA_POLICY; a Pod's existence check as not
 // found; the listener's IP; the listener's phase from STUB_LISTENER_PHASE
 // (Running by default); every client's phase as Succeeded; and each client's
 // log from STUB_LOG_<name>, the name's dashes as underscores.
@@ -26,7 +30,7 @@ const kubectlStub = `#!/bin/sh
 case "$1" in --request-timeout=*) shift ;; esac
 { printf 'kubectl'; for arg in "$@"; do printf '\t%s' "$arg"; done; printf '\n'; } >>"$STUB_LOG"
 case "$1 $2" in
-"get networkpolicy") printf '%s\n' "$STUB_POLICY" ;;
+"get networkpolicy") printf '{"items":[%s%s]}\n' "$STUB_POLICY" "${STUB_EXTRA_POLICY:+,$STUB_EXTRA_POLICY}" ;;
 "get pod")
     case "$*" in
     *podIP*) printf '10.42.0.9' ;;
@@ -43,13 +47,14 @@ esac
 
 // gatewayOnlyPolicy is a slot policy admitting the gateway's label alone,
 // as one off the legacy path is.
-const gatewayOnlyPolicy = `{"spec":{"ingress":[{"from":[` +
+const gatewayOnlyPolicy = `{"metadata":{"name":"preview-isolation"},"spec":{"ingress":[{"from":[` +
 	`{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"patchy"}},` +
 	`"podSelector":{"matchLabels":{"patchy.bitwisemedia.uk/preview-gateway":"true"}}}]}]}}`
 
 // gatewayPolicy is a slot policy admitting the gateway's label beside the
 // ALB's subnets, as one on the legacy path is.
-const gatewayPolicy = `{"spec":{"ingress":[{"from":[{"ipBlock":{"cidr":"10.40.128.0/24"}},` +
+const gatewayPolicy = `{"metadata":{"name":"preview-isolation"},` +
+	`"spec":{"ingress":[{"from":[{"ipBlock":{"cidr":"10.40.128.0/24"}},` +
 	`{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"patchy"}},` +
 	`"podSelector":{"matchLabels":{"patchy.bitwisemedia.uk/preview-gateway":"true"}}}]}]}}`
 
@@ -205,7 +210,7 @@ func TestIngressFails(t *testing.T) {
 // TestIngressNeedsTheGatewayPeer: a slot policy that admits no gateway Pod
 // stops the run before anything is created.
 func TestIngressNeedsTheGatewayPeer(t *testing.T) {
-	run := runIngress(t, `{"spec":{"ingress":[{"from":[{"ipBlock":{"cidr":"10.40.128.0/24"}}]}]}}`, expected(),
+	run := runIngress(t, `{"metadata":{"name":"preview-isolation"},"spec":{"ingress":[{"from":[{"ipBlock":{"cidr":"10.40.128.0/24"}}]}]}}`, expected(),
 		ingressArgs()...)
 	if run.code != 1 || !strings.Contains(run.stderr, "previewAuth.gateway.enabled") || run.created != "" {
 		t.Errorf("exit %d, created %q, stderr:\n%s", run.code, run.created, run.stderr)
@@ -332,6 +337,93 @@ func TestIngressRefusedNeedsALiveListener(t *testing.T) {
 	if run.code != 0 || len(run.calls) != 0 ||
 		!strings.Contains(run.stdout, "blocked, once the gateway client has reached the listener") {
 		t.Errorf("--dry-run: exit %d, %d calls, stdout:\n%s", run.code, len(run.calls), run.stdout)
+	}
+}
+
+// TestIngressRefusesExtraPeers: the agents' client is held back by their
+// own namespace's default-deny too, so it cannot show the slot policy
+// refuses them; the script reads every policy in the slot namespace and
+// refuses, before creating anything, any peer but the gateway's exact one
+// and ipBlocks, a rule from anywhere, and a slot policy that leaves Pods or
+// ingress ungoverned.
+func TestIngressRefusesExtraPeers(t *testing.T) {
+	const gw = `{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"patchy"}},` +
+		`"podSelector":{"matchLabels":{"patchy.bitwisemedia.uk/preview-gateway":"true"}}}`
+	slot := func(spec string) string { return `{"metadata":{"name":"preview-isolation"},"spec":` + spec + `}` }
+	for name, tc := range map[string]struct{ policy, extra, want string }{
+		"the agents' namespace": {policy: slot(`{"ingress":[{"from":[` + gw + `,` +
+			`{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"patchy-agents"}}}]}]}`),
+			want: "admits an ingress peer other than the preview gateway's"},
+		"a rule from anywhere": {policy: slot(`{"ingress":[{"from":[` + gw + `]},{"ports":[{"port":8080}]}]}`),
+			want: "has an ingress rule with no from, which admits every source"},
+		"the gateway's label in any namespace": {policy: slot(`{"ingress":[{"from":[` +
+			`{"podSelector":{"matchLabels":{"patchy.bitwisemedia.uk/preview-gateway":"true"}}}]}]}`),
+			want: "admits an ingress peer other than the preview gateway's"},
+		"a match expression": {policy: slot(`{"ingress":[{"from":[{"namespaceSelector":{"matchLabels":` +
+			`{"kubernetes.io/metadata.name":"patchy"}},"podSelector":{"matchLabels":` +
+			`{"patchy.bitwisemedia.uk/preview-gateway":"true"},"matchExpressions":[{"key":"a","operator":"Exists"}]}}]}]}`),
+			want: "admits an ingress peer other than the preview gateway's"},
+		"some Pods only": {policy: slot(`{"podSelector":{"matchLabels":{"app":"web"}},"ingress":[{"from":[` + gw +
+			`]}]}`), want: "selects only some of the slot's Pods"},
+		"no ingress governed": {policy: slot(`{"policyTypes":["Egress"],"ingress":[{"from":[` + gw + `]}]}`),
+			want: "does not govern ingress"},
+		"another policy": {policy: gatewayOnlyPolicy, extra: `{"metadata":{"name":"allow-agents"},"spec":` +
+			`{"ingress":[{"from":[{"namespaceSelector":{}}]}]}}`, want: "allow-agents admits an ingress peer"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var env []string
+			if tc.extra != "" {
+				env = append(env, "STUB_EXTRA_POLICY="+tc.extra)
+			}
+			run := runIngressEnv(t, tc.policy, expected(), env, ingressArgs("--refused-is-blocked")...)
+			if run.code != 1 || !strings.Contains(run.stderr, "admit more than the preview gateway") ||
+				!strings.Contains(run.stderr, tc.want) || run.created != "" {
+				t.Errorf("exit %d, created %q, stderr:\n%s", run.code, run.created, run.stderr)
+			}
+		})
+	}
+}
+
+// TestIngressAcceptsTheChartPolicy: the slot policy the chart renders for
+// a gateway-only install passes the script's static check, so the check
+// is no stricter than the chart.
+func TestIngressAcceptsTheChartPolicy(t *testing.T) {
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm not on PATH")
+	}
+	out, err := exec.CommandContext(t.Context(), "helm", "template", "patchy", "../../charts/patchy", "-n", "patchy",
+		"-f", "../testdata/chart-render/intent-controller.yaml",
+		"-f", "../../cmd/patchy/internal/previewsetup/testdata/golden/cloudflare-tunnel-k3s/patchy-previews.values.yaml",
+		"--set", "previewAuth.keys.renderOffline=true",
+		"--set", "previewController.config.apiServerCIDR=10.43.0.1/32").Output()
+	if err != nil {
+		t.Fatalf("helm template: %v", err)
+	}
+	var items []string
+	dec := utilyaml.NewYAMLOrJSONDecoder(bytes.NewReader(out), 4096)
+	for {
+		var obj map[string]any
+		if err := dec.Decode(&obj); errors.Is(err, io.EOF) {
+			break
+		} else if err != nil {
+			t.Fatal(err)
+		}
+		meta, _ := obj["metadata"].(map[string]any)
+		if obj["kind"] != "NetworkPolicy" || meta["namespace"] != "patchy-preview-0" {
+			continue
+		}
+		b, err := json.Marshal(obj)
+		if err != nil {
+			t.Fatal(err)
+		}
+		items = append(items, string(b))
+	}
+	if len(items) == 0 {
+		t.Fatal("the render has no NetworkPolicy in patchy-preview-0")
+	}
+	run := runIngress(t, strings.Join(items, ","), expected(), ingressArgs("--refused-is-blocked")...)
+	if run.code != 0 || !strings.Contains(run.stderr, "Ingress isolation passed") {
+		t.Errorf("the chart's slot policy: exit %d, stderr:\n%s", run.code, run.stderr)
 	}
 }
 
