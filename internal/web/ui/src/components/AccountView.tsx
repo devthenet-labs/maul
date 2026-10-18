@@ -173,12 +173,10 @@ function CredentialCard({
             if (g) setKind(g);
           }}
         />
-        {kind === "oauth-token" ? (
-          <p class="ps-note m-0">
-            A setup-token (<code>claude setup-token</code>) is a Claude subscription's. Store only your own: it is
-            used only for runs attributed to you, and they count against your subscription's limits.
-          </p>
-        ) : null}
+        <p class={`m-0 text-[12.5px] ${kind === "oauth-token" ? "ps-note" : "text-muted"}`}>
+          A setup-token, made with claude setup-token, belongs to a Claude subscription. Store only your own: it is
+          used only for runs attributed to you, and they count against your subscription's limits.
+        </p>
         {problem ? <p class="m-0 text-[12.5px] text-red">{problem}</p> : null}
         {error ? <p class="ps-note ps-note--red m-0">{error}</p> : null}
         {saved ? <p class="ps-note ps-note--green m-0">{saved}</p> : null}
