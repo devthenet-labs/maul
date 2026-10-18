@@ -11,9 +11,11 @@ import (
 	authorizationv1 "k8s.io/api/authorization/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -118,7 +120,7 @@ func checkCredentialRBAC(t *testing.T, admin client.Client) {
 	records := authorizationv1.ResourceAttributes{Namespace: egressRelease, Group: group, Resource: "modelcredentials"}
 	status := records
 	status.Subresource = "status"
-	allowed := rbactest.Verbs(saStatus, nil, secretsIn(credNamespace), "create", "update", "patch", "delete")
+	allowed := rbactest.Verbs(saStatus, nil, secretsIn(credNamespace), "create", "update", "delete")
 	allowed = append(allowed, rbactest.Verbs(saStatus, nil, records, "get", "list", "create", "update", "delete")...)
 	allowed = append(allowed, rbactest.Verbs(saStatus, nil, status, "update", "patch")...)
 	allowed = append(allowed, rbactest.Verbs(saBroker, nil, secretsIn(credNamespace), "get", "list", "watch")...)
@@ -129,7 +131,9 @@ func checkCredentialRBAC(t *testing.T, admin client.Client) {
 	}))
 	rbactest.WaitAllowed(t, admin, allowed...)
 
-	denied := rbactest.Verbs(saStatus, nil, secretsIn(credNamespace), "get", "list", "watch")
+	// No patch either: a PATCH response is the whole stored object, so
+	// even a no-op patch would read a key back.
+	denied := rbactest.Verbs(saStatus, nil, secretsIn(credNamespace), "get", "list", "watch", "patch")
 	denied = append(denied, rbactest.Verbs(saStatus, nil, secretsIn(egressRelease), "create", "get")...)
 	denied = append(denied, rbactest.Verbs(saBroker, nil, secretsIn(egressRelease), "get")...)
 	denied = append(denied, rbactest.Verbs(saBroker, nil, secretsIn(credNamespace), "create", "update")...)
@@ -338,6 +342,18 @@ func checkCredentialSecrets(t *testing.T, admin client.Client, as func(string) c
 	s.Data[v1alpha1.ModelCredentialSecretKey] = []byte("sk-ant-oat01-replacement-token")
 	if err := status.Update(ctx, s); err != nil {
 		t.Errorf("the status server replacing a credential was refused: %v", err)
+	}
+	// The status server may not read a stored key back through a PATCH,
+	// whose response is the whole object: a no-op dry-run patch is
+	// refused by RBAC before admission (which would admit the unchanged,
+	// well-formed Secret).
+	noop := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: s.Name, Namespace: s.Namespace}}
+	err := status.Patch(ctx, noop, client.RawPatch(types.MergePatchType, []byte("{}")), client.DryRunAll)
+	if !apierrors.IsForbidden(err) {
+		t.Errorf("a no-op patch of a credential Secret as the status server: got %v, want Forbidden", err)
+	}
+	if len(noop.Data) != 0 || len(noop.StringData) != 0 {
+		t.Error("a refused patch handed the status server a stored credential")
 	}
 	relabel := s.DeepCopy()
 	relabel.Labels[v1alpha1.LabelCredentialOwner] = otherHash

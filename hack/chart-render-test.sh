@@ -3351,7 +3351,7 @@ expect user-creds "$cred_rules" \
   "patchy-credentials-self@- modelcredentials/self:get,update,delete
 patchy-credentials-admin@- modelcredentials/all:get,update,delete
 patchy-credentials-admin@- modelcredentials:get,list,watch,create,update,patch,delete
-patchy-status-server-credential-secrets@patchy-credentials secrets:create,update,patch,delete
+patchy-status-server-credential-secrets@patchy-credentials secrets:create,update,delete
 patchy-status-server-credentials@patchy modelcredentials:get,list,watch,create,update,patch,delete
 patchy-status-server-credentials@patchy modelcredentials/status:get,update,patch
 patchy-egress-broker-credential-secrets@patchy-credentials secrets:get,list,watch

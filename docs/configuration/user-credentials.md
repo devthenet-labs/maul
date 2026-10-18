@@ -83,12 +83,12 @@ deliberately not in the `patchy` category, so `kubectl get patchy` does not list
 
 ## Who may do what
 
-| Who                   | Grants                                                                                                                                                                                           |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| status server         | Secrets in the credentials namespace: `create`, `update`, `patch`, `delete`. Never `get`, `list` or `watch`: a stored key is never read back. Records and their status in the release namespace. |
-| egress broker         | `get` pods in the agent namespace; `get`, `list`, `watch` Secrets in the credentials namespace; read records and write their status.                                                             |
-| everyone who signs in | `<release>-credentials-self`: `get`, `update`, `delete` on the virtual `modelcredentials/self`.                                                                                                  |
-| credentials admins    | `<release>-credentials-admin`: every record, and `get`, `update`, `delete` on the virtual `modelcredentials/all`.                                                                                |
+| Who                   | Grants                                                                                                                                                                                                                                            |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| status server         | Secrets in the credentials namespace: `create`, `update`, `delete`. Never `get`, `list`, `watch` or `patch`: a stored key is never read back, and a PATCH response is the whole stored object. Records and their status in the release namespace. |
+| egress broker         | `get` pods in the agent namespace; `get`, `list`, `watch` Secrets in the credentials namespace; read records and write their status.                                                                                                              |
+| everyone who signs in | `<release>-credentials-self`: `get`, `update`, `delete` on the virtual `modelcredentials/self`.                                                                                                                                                   |
+| credentials admins    | `<release>-credentials-admin`: every record, and `get`, `update`, `delete` on the virtual `modelcredentials/all`.                                                                                                                                 |
 
 The virtual subresources are served by nothing on the API server, so they grant kubectl nothing. The status server's
 access reviews read `modelcredentials/self`, and the admission policies and the status server recognise an admin by

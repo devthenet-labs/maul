@@ -72,10 +72,11 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   refused unless `orgCredentialIsPersonal: acknowledged`) render the credential store: the `ModelCredential` kind
   (release namespace, named `<sha256(owner)[:16]>-<provider>`, owner and provider immutable, no Secret pointer; the
   naming contract and fingerprint in `api/v1alpha1/modelcredential_names.go`), one Secret per person and provider in
-  `patchy-credentials` (`cred-<record name>`, owner-hash label), the status server's write-only Secret grant, the
-  broker's read grants, the `-credentials-self`/`-credentials-admin` ClusterRoles (virtual `modelcredentials/self` and
-  `/all`) and three policies (`templates/user-credentials-policy.yaml`). The broker does not use them yet: the org
-  credential pays for every run (docs/configuration/user-credentials.md).
+  `patchy-credentials` (`cred-<record name>`, owner-hash label), the status server's write-only Secret grant (create,
+  update, delete; no patch, whose response is the stored object), the broker's read grants, the
+  `-credentials-self`/`-credentials-admin` ClusterRoles (virtual `modelcredentials/self` and `/all`) and three policies
+  (`templates/user-credentials-policy.yaml`). The broker does not use them yet: the org credential pays for every run
+  (docs/configuration/user-credentials.md).
 - `cmd/egress-proxy` — OPTIONAL (default-off; chart `egressProxy`, chart-only, no kustomize component): the
   operator's Go dependency route (NOT a controller: no reconcilers, no leases). A GOPROXY-protocol reverse proxy to
   proxy.golang.org and sum.golang.org with one listener per operator network profile (`agent.networkProfiles`);
