@@ -5,8 +5,6 @@ package runnercfg
 
 import (
 	"fmt"
-	"net/url"
-	"strings"
 
 	"github.com/spf13/pflag"
 
@@ -14,9 +12,6 @@ import (
 	"github.com/bitwise-media-group/patchy/internal/cli"
 	"github.com/bitwise-media-group/patchy/internal/credgate"
 )
-
-// maxAccountURL bounds --account-url: it is written into GitHub comments.
-const maxAccountURL = 512
 
 // RegisterUserCredentialsFlags adds --user-credentials and --account-url,
 // shared by the controllers that hold a person's run until their credential
@@ -29,13 +24,9 @@ func RegisterUserCredentialsFlags(f *pflag.FlagSet) {
 	RegisterAccountURLFlag(f)
 }
 
-// RegisterAccountURLFlag adds --account-url alone, for a controller that
-// only tells people where to add a credential (integration-controller's
-// tracking issue projection).
+// RegisterAccountURLFlag adds --account-url alone.
 func RegisterAccountURLFlag(f *pflag.FlagSet) {
-	f.String(credgate.AccountURLFlag, "",
-		"the status page's Account page, linked from every notice that a run waits for a person's credential "+
-			"(empty: the notice names the page without a link)")
+	f.String(credgate.AccountURLFlag, "", credgate.AccountURLUsage)
 }
 
 // UserCredentials reads --user-credentials and --account-url. enforce is
@@ -57,32 +48,15 @@ func UserCredentials(opts *cli.Options, attr attribution.Mode) (credgate.Mode, s
 	return mode, u, nil
 }
 
-// AccountURL reads --account-url: empty, or an absolute http(s) URL with no
-// whitespace, at most 512 bytes.
+// AccountURL reads --account-url: empty, or a URL credgate.CheckAccountURL
+// accepts.
 func AccountURL(opts *cli.Options) (string, error) {
 	raw := opts.String(credgate.AccountURLFlag)
 	if raw == "" {
 		return "", nil
 	}
-	if err := checkAccountURL(raw); err != nil {
+	if err := credgate.CheckAccountURL(raw); err != nil {
 		return "", fmt.Errorf("--%s: %w", credgate.AccountURLFlag, err)
 	}
 	return raw, nil
-}
-
-func checkAccountURL(raw string) error {
-	if len(raw) > maxAccountURL {
-		return fmt.Errorf("longer than %d bytes", maxAccountURL)
-	}
-	if strings.ContainsFunc(raw, func(r rune) bool { return r <= ' ' || r == 0x7f || r > 0x7e }) {
-		return fmt.Errorf("%q holds whitespace, control or non-ASCII characters", raw)
-	}
-	u, err := url.Parse(raw)
-	if err != nil {
-		return err
-	}
-	if (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.User != nil {
-		return fmt.Errorf("%q is not an absolute http or https URL without credentials", raw)
-	}
-	return nil
 }

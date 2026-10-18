@@ -6,6 +6,7 @@ package credgate
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/bitwise-media-group/patchy/api/v1alpha1"
@@ -33,6 +34,38 @@ const Flag = "user-credentials"
 // AccountURLFlag names the status page Account page's URL, which every
 // notice of a hold links to.
 const AccountURLFlag = "account-url"
+
+// AccountURLUsage is --account-url's help text, shared by every binary
+// that takes it.
+const AccountURLUsage = "the status page's Account page, linked from every notice that a run waits for a " +
+	"person's credential (empty: the notice names the page without a link)"
+
+// maxAccountURL bounds --account-url: it is written into GitHub comments.
+const maxAccountURL = 512
+
+// CheckAccountURL holds --account-url to what may be written into a GitHub
+// comment as a Markdown link target: an absolute http(s) URL without
+// credentials, at most 512 bytes of printable ASCII, and none of the
+// characters that could end or reshape the link.
+func CheckAccountURL(raw string) error {
+	if len(raw) > maxAccountURL {
+		return fmt.Errorf("longer than %d bytes", maxAccountURL)
+	}
+	if strings.ContainsFunc(raw, func(r rune) bool { return r <= ' ' || r == 0x7f || r > 0x7e }) {
+		return fmt.Errorf("%q holds whitespace, control or non-ASCII characters", raw)
+	}
+	if strings.ContainsAny(raw, "()<>[]\"'`\\|*_{}!") {
+		return fmt.Errorf("%q holds a character Markdown would read (one of ()<>[]\"'`\\|*_{}!)", raw)
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return err
+	}
+	if (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.User != nil {
+		return fmt.Errorf("%q is not an absolute http or https URL without credentials", raw)
+	}
+	return nil
+}
 
 // ParseMode reads --user-credentials; empty is ModeOff.
 func ParseMode(s string) (Mode, error) {

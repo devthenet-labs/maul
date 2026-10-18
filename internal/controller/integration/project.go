@@ -119,6 +119,9 @@ type FindingReconciler struct {
 	// finding's Repository: on, the reconciler also watches Repositories and
 	// needs get/list/watch on them; off (the default), it reads none.
 	RunnerImages bool
+	// AccountURL is the status page's Account page (--account-url), linked
+	// from the credential-hold comment; empty names the page unlinked.
+	AccountURL string
 	// Ingest re-ingests an alert whose reopen was set aside as stale once it
 	// is seen where the fix does not supersede it (recheckStale); nil
 	// disables the re-check.
@@ -550,6 +553,9 @@ func (r *FindingReconciler) projectComments(
 		return err
 	}
 	if err := r.projectRunnerImage(ctx, fnd, comments); err != nil {
+		return err
+	}
+	if err := r.projectCredentialHold(ctx, fnd, comments); err != nil {
 		return err
 	}
 

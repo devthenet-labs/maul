@@ -53,6 +53,9 @@ func TestServeFlagDefaults(t *testing.T) {
 	if got := opts.Duration("tracking-recheck-interval"); got != integration.DefaultTrackingRecheck {
 		t.Errorf("tracking-recheck-interval = %v, want %v", got, integration.DefaultTrackingRecheck)
 	}
+	if got := opts.String("account-url"); got != "" {
+		t.Errorf("account-url = %q, want empty", got)
+	}
 	if got := opts.String("google-oidc-issuer"); got != "" {
 		t.Errorf("google-oidc-issuer = %q, want empty (Google)", got)
 	}
@@ -73,6 +76,10 @@ func TestServeFlagsFromEnv(t *testing.T) {
 	}
 	if !opts.Bool("repository-images") {
 		t.Error("repository-images not read from PATCHY_REPOSITORY_IMAGES")
+	}
+	t.Setenv("PATCHY_ACCOUNT_URL", "https://status.example.com/#/account")
+	if got := serveOpts(t).String("account-url"); got != "https://status.example.com/#/account" {
+		t.Errorf("account-url = %q, not read from PATCHY_ACCOUNT_URL", got)
 	}
 }
 
