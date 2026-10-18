@@ -308,6 +308,10 @@ func TestSchemaValidation(t *testing.T) {
 		testUsageRollupSchema(ctx, t, c)
 	})
 
+	t.Run("model credential is named for its owner hash and provider, owner immutable", func(t *testing.T) {
+		testModelCredentialSchema(ctx, t, c)
+	})
+
 	t.Run("evaluation spec is immutable and bounded", func(t *testing.T) {
 		testEvaluationSchema(ctx, t, c)
 	})

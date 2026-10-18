@@ -39,6 +39,7 @@ func addKnownTypes(s *runtime.Scheme) error {
 		&Intent{}, &IntentList{},
 		&IntentRun{}, &IntentRunList{},
 		&Investigation{}, &InvestigationList{},
+		&ModelCredential{}, &ModelCredentialList{},
 		&Project{}, &ProjectList{},
 		&Preview{}, &PreviewList{},
 		&Remediation{}, &RemediationList{},

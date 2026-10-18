@@ -4,6 +4,9 @@ Run attribution records whom every agent run is for. It is the first layer of pe
 credential still pays for every run. Attribution only records who caused each one. It is off by default. With it off,
 run specs, agent Jobs, issue comments and the chart's admission policies are exactly what they were before it existed.
 
+The next layer, [per-user model credentials](user-credentials.md), lets each person's own key pay for the runs
+attributed to them.
+
 ## Turning it on
 
 | Helm                          | Flag                 | Env                       | Default |
