@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.12.41](https://github.com/devthenet-labs/patchy/compare/v0.12.40...v0.12.41) (2026-10-18)
+
+
+### Features
+
+* **api:** ModelCredential, the credentials namespace and its admission ([#253](https://github.com/devthenet-labs/patchy/issues/253)) ([7559e19](https://github.com/devthenet-labs/patchy/commit/7559e19152a205f731e3b48afb7a4fc369d3fbec))
+* Blocked CredentialRequired and the Account page ([#255](https://github.com/devthenet-labs/patchy/issues/255)) ([5a31f0a](https://github.com/devthenet-labs/patchy/commit/5a31f0a6c22eb3473db6407f3c6c94f9622830eb))
+* **broker:** resolve each request's model credential per user ([#254](https://github.com/devthenet-labs/patchy/issues/254)) ([53e3b01](https://github.com/devthenet-labs/patchy/commit/53e3b01abc719b7c9840efd57cc2d9166461a6e1))
+* **cli:** check previews --isolation, tunnel DNS and upstream versions ([#252](https://github.com/devthenet-labs/patchy/issues/252)) ([0934412](https://github.com/devthenet-labs/patchy/commit/0934412b21aed0e5fd400b4c67a3aa09196174e4))
+* **usage:** open the Usage page on cost and split tokens by type ([#250](https://github.com/devthenet-labs/patchy/issues/250)) ([e7498e4](https://github.com/devthenet-labs/patchy/commit/e7498e4af4d660dd2b7b14236d8b7c731612e487))
+
 ## [0.12.40](https://github.com/devthenet-labs/patchy/compare/v0.12.39...v0.12.40) (2026-10-18)
 
 
