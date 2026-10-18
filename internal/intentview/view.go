@@ -248,6 +248,7 @@ var BlockingConditions = []string{
 	v1alpha1.ConditionBudgetExhausted, v1alpha1.ConditionImageRequired, v1alpha1.ConditionBranchConflict,
 	v1alpha1.ConditionRevisionLimitReached, v1alpha1.ConditionChecksFailing,
 	v1alpha1.ConditionUnsupportedRepositories, v1alpha1.ConditionResourcesUnavailable,
+	v1alpha1.ConditionCredentialRequired,
 }
 
 // blockText is the public wording per blocking condition and reason; the ""
@@ -283,6 +284,15 @@ var blockText = map[string]map[string]string{
 		"UnknownResourceClass": "the repository asks for a resource class the cluster does not define",
 		"Unschedulable":        "no node in the cluster could fit the agent",
 		"":                     "the agent's resources are not available",
+	},
+	// Never the person's name: the board is read by everyone with the
+	// Project's first tier, and whose credential is missing is theirs and
+	// the issue's to say.
+	v1alpha1.ConditionCredentialRequired: {
+		"CredentialMissing":    "the person the next run is for has no model credential stored",
+		"CredentialRejected":   "the model credential of the person the next run is for was rejected",
+		"CredentialUnverified": "the model credential of the person the next run is for is not verified yet",
+		"":                     "the next run waits for a person's model credential",
 	},
 }
 

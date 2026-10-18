@@ -524,6 +524,15 @@ type FindingStatus struct {
 	// applies it and replies, retrying while GitHub fails.
 	// +optional
 	Commands *FindingCommands `json:"commands,omitempty"`
+	// CredentialHold is the person whose missing or unusable model
+	// credential holds the next remediation attempt (ConditionCredentialRequired,
+	// egressBroker.userCredentials.mode enforce only), written with the
+	// condition by remediation-controller's spawner. While it is set, a
+	// later approval moves the attempt to its approver only when that
+	// approver holds a Valid credential; any other approval leaves the hold
+	// on this person. Cleared when the hold lifts.
+	// +optional
+	CredentialHold *UserRef `json:"credentialHold,omitempty"`
 }
 
 // Bounds on status.commands. The schema markers repeat the first three as

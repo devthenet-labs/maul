@@ -160,7 +160,12 @@
 // → Blocked while multi-repository intents are off for a Project that lists
 // several repositories (UnsupportedRepositories), and Building → Blocked when
 // a build's name is another repository's run (UnsupportedRepositories,
-// RepositoryKeyChanged).
+// RepositoryKeyChanged). Under --user-credentials enforce, Pending,
+// Planning, Building or InReview → Blocked (CredentialRequired) before a
+// plan, build or revise run attributed to a person with no Valid
+// ModelCredential is created (credential_hold.go); status.credentialHold
+// names the person, and while blocked from Building an approval by an
+// approver holding a Valid credential replaces the approval.
 //
 // # Authority
 //

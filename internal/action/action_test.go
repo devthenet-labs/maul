@@ -594,3 +594,55 @@ func TestApplyWithIDRecordsTheAccount(t *testing.T) {
 		}
 	}
 }
+
+// TestApplyApproveWhileCredentialHeld: a Queued finding whose remediation
+// is held for its approver's model credential takes a later approval from a
+// GitHub commenter, which may replace whom the attempt is for; the same
+// approver again changes nothing, one with no GitHub id (the status page,
+// the CLI) is refused, and a Queued finding with no hold still refuses
+// approve.
+func TestApplyApproveWhileCredentialHeld(t *testing.T) {
+	held := func(f *v1alpha1.Finding) {
+		f.Spec.Approval = &v1alpha1.Approval{By: "alice", ByID: 42, At: at(0)}
+		f.Status.Conditions = []metav1.Condition{{Type: v1alpha1.ConditionCredentialRequired,
+			Status: metav1.ConditionTrue, Reason: "CredentialMissing", LastTransitionTime: at(0)}}
+	}
+	f := finding(v1alpha1.PhaseQueued, held)
+	changed, err := ApplyWithID(f, VerbApprove, "bob", 7, "mine", testClock.Add(time.Minute))
+	if err != nil || !changed {
+		t.Fatalf("re-approval while held: changed=%v err=%v", changed, err)
+	}
+	if ap := f.Spec.Approval; ap.By != "bob" || ap.ByID != 7 || ap.Note != "mine" {
+		t.Errorf("approval = %+v, want bob's", ap)
+	}
+	if changed, err := ApplyWithID(f, VerbApprove, "bob", 7, "", testClock.Add(2*time.Minute)); err != nil ||
+		changed {
+		t.Errorf("the same approver again: changed=%v err=%v", changed, err)
+	}
+	// Available asks as the status page and the CLI do, with no GitHub id:
+	// such an approval would make the run the org's, so it is refused
+	// while held (only a GitHub commenter's approval can move the hold).
+	if slices.Contains(Available(f, testClock), VerbApprove) {
+		t.Error("approve is offered to a caller with no GitHub id while held")
+	}
+	for _, apply := range []func() (bool, error){
+		func() (bool, error) { return Apply(f, VerbApprove, "github:carol", "", testClock.Add(3*time.Minute)) },
+		func() (bool, error) {
+			return ApplyWithID(f, VerbApprove, "carol", 0, "", testClock.Add(3*time.Minute))
+		},
+	} {
+		if changed, err := apply(); changed || !errors.Is(err, ErrUnavailable) {
+			t.Errorf("an approval with no GitHub id while held: changed=%v err=%v, want ErrUnavailable", changed, err)
+		}
+	}
+	if ap := f.Spec.Approval; ap.By != "bob" || ap.ByID != 7 {
+		t.Errorf("approval after refused re-approvals = %+v, want bob's still", ap)
+	}
+
+	resolved := finding(v1alpha1.PhaseQueued, held, func(f *v1alpha1.Finding) {
+		f.Status.Conditions[0].Status = metav1.ConditionFalse
+	})
+	if _, err := Apply(resolved, VerbApprove, "bob", "", testClock); !errors.Is(err, ErrUnavailable) {
+		t.Errorf("approve on a Queued finding with no hold: %v, want ErrUnavailable", err)
+	}
+}

@@ -432,6 +432,56 @@ yes
 {{- end }}
 
 {{/*
+"yes" when the status page serves the Account page (statusServer.account
+.enabled, per-user credentials design L3): people store their own model
+credential there. It needs the credential store, so it is refused unless
+egressBroker.userCredentials.mode is on.
+*/}}
+{{- define "patchy.accountOn" -}}
+{{- if and .Values.statusServer.enabled ((.Values.statusServer.account | default dict).enabled) -}}
+{{- if not (include "patchy.userCredentialsOn" .) -}}
+{{- fail "statusServer.account.enabled needs egressBroker.userCredentials.mode attribute or enforce: the Account page stores credentials in the store that mode renders" -}}
+{{- end -}}
+yes
+{{- end -}}
+{{- end }}
+
+{{/*
+The Account page's URL, linked from every notice that a run waits for a
+person's credential: https://<statusServer.host>/#/account while the page is
+served and the host is set, else empty (the notice names the page unlinked).
+*/}}
+{{- define "patchy.accountURL" -}}
+{{- if and (include "patchy.accountOn" .) .Values.statusServer.host -}}
+{{- printf "https://%s/#/account" .Values.statusServer.host -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+PATCHY_USER_CREDENTIALS and PATCHY_ACCOUNT_URL for the controllers that hold
+a person's run until their credential is valid (remediation, intent):
+egressBroker.userCredentials.mode, set into .data only while it is on, so the
+default leaves every ConfigMap as it was. Only enforce holds anything.
+Context: dict "root" $ "data" <dict>.
+*/}}
+{{- define "patchy.userCredentialsData" -}}
+{{- if include "patchy.userCredentialsOn" .root -}}
+{{- $_ := set .data "PATCHY_USER_CREDENTIALS" .root.Values.egressBroker.userCredentials.mode -}}
+{{- end -}}
+{{- include "patchy.accountURLData" . -}}
+{{- end }}
+
+{{/*
+PATCHY_ACCOUNT_URL alone, while there is one (patchy.accountURL).
+Context: dict "root" $ "data" <dict>.
+*/}}
+{{- define "patchy.accountURLData" -}}
+{{- with include "patchy.accountURL" .root -}}
+{{- $_ := set $.data "PATCHY_ACCOUNT_URL" . -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 One container's operator env (<component>.extraEnv: EnvVar entries, valueFrom
 allowed), rendered as list items for the caller to indent. The names patchy
 itself sets are refused, so a Secret-backed variable can add credentials or

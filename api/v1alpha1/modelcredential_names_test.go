@@ -197,3 +197,69 @@ func TestHealthForProperty(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestModelCredentialValue(t *testing.T) {
+	for _, tc := range []struct {
+		raw  string
+		kind ModelCredentialKind
+		want string
+		ok   bool
+	}{
+		{"sk-ant-api03-abc", ModelCredentialAPIKey, "sk-ant-api03-abc", true},
+		{"  sk-ant-oat01-abc\n", ModelCredentialOAuthToken, "sk-ant-oat01-abc", true},
+		{"sk-ant-oat01-abc", ModelCredentialAPIKey, "", false},
+		{"sk-ant-api03-abc", ModelCredentialOAuthToken, "", false},
+		{"some-other-key", ModelCredentialAPIKey, "some-other-key", true},
+		{"two words", ModelCredentialAPIKey, "", false},
+		{"crlf\r\nX-Inject: 1", ModelCredentialAPIKey, "", false},
+		{"   ", ModelCredentialAPIKey, "", false},
+		{"ключ", ModelCredentialAPIKey, "", false},
+		{"sk-ant-api03-abc", "password", "", false},
+		{strings.Repeat("a", ModelCredentialSecretMaxBytes), ModelCredentialAPIKey,
+			strings.Repeat("a", ModelCredentialSecretMaxBytes), true},
+		{strings.Repeat("a", ModelCredentialSecretMaxBytes+1), ModelCredentialAPIKey, "", false},
+	} {
+		got, ok := ModelCredentialValue(tc.raw, tc.kind)
+		if got != tc.want || ok != tc.ok {
+			t.Errorf("ModelCredentialValue(%q, %s) = %q, %v; want %q, %v", tc.raw, tc.kind, got, ok, tc.want, tc.ok)
+		}
+	}
+}
+
+// TestModelCredentialValueProperty: whatever is offered, an accepted value
+// is a single token of printable ASCII within the bound, the input trimmed
+// and nothing else changed, so what the status server stores is exactly
+// what the broker will send.
+func TestModelCredentialValueProperty(t *testing.T) {
+	cfg := &quick.Config{MaxCount: 5000, Rand: rand.New(rand.NewSource(20261018))}
+	cfg.Values = func(args []reflect.Value, r *rand.Rand) {
+		const alphabet = "abcXYZ019-_.~ \t\r\n\x00\x7f:/é"
+		b := make([]byte, 0, 64)
+		if r.Intn(3) == 0 {
+			b = append(b, []string{"sk-ant-api", "sk-ant-oat", " ", "\n"}[r.Intn(4)]...)
+		}
+		for range r.Intn(48) {
+			b = append(b, alphabet[r.Intn(len(alphabet))])
+		}
+		kinds := []ModelCredentialKind{ModelCredentialAPIKey, ModelCredentialOAuthToken}
+		args[0], args[1] = reflect.ValueOf(string(b)), reflect.ValueOf(kinds[r.Intn(2)])
+	}
+	prop := func(raw string, kind ModelCredentialKind) bool {
+		v, ok := ModelCredentialValue(raw, kind)
+		if !ok {
+			return v == ""
+		}
+		if v != strings.TrimSpace(raw) || len(v) == 0 || len(v) > ModelCredentialSecretMaxBytes {
+			return false
+		}
+		for i := 0; i < len(v); i++ {
+			if v[i] < 0x21 || v[i] > 0x7e {
+				return false
+			}
+		}
+		return true
+	}
+	if err := quick.Check(prop, cfg); err != nil {
+		t.Error(err)
+	}
+}

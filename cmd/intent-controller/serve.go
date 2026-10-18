@@ -19,6 +19,7 @@ import (
 	"github.com/bitwise-media-group/patchy/internal/changeset"
 	"github.com/bitwise-media-group/patchy/internal/cli"
 	"github.com/bitwise-media-group/patchy/internal/controller/intent"
+	"github.com/bitwise-media-group/patchy/internal/credgate/kubecred"
 	"github.com/bitwise-media-group/patchy/internal/forge"
 	"github.com/bitwise-media-group/patchy/internal/jobs"
 	"github.com/bitwise-media-group/patchy/internal/kube"
@@ -113,6 +114,7 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	runnercfg.RegisterAgentDNSFlag(f)
 	runnercfg.RegisterAgentsPausedFlag(f)
 	runnercfg.RegisterAttributionFlag(f)
+	runnercfg.RegisterUserCredentialsFlags(f)
 	runnercfg.RegisterUsageFlags(f)
 	f.Int("changeset-max-entries", changeset.DefaultMaxEntries,
 		"most files (upserts plus deletes) a build's changeset may touch before it is rejected without any forge call")
@@ -195,6 +197,9 @@ func settings(opts *cli.Options, namespace, agentNS string) (intent.Settings, er
 		return intent.Settings{}, err
 	}
 	s.Attribution = mode
+	if s.UserCredentials, s.AccountURL, err = runnercfg.UserCredentials(opts, mode); err != nil {
+		return intent.Settings{}, err
+	}
 	return s, nil
 }
 
@@ -470,6 +475,9 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	if err := (&intent.IntentReconciler{
 		Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), GitHub: gh, Settings: set, Images: images,
 		Classes: sizes.classes, Nudger: nudger, Log: log,
+		// Under --user-credentials enforce, a person's run waits for their
+		// credential: the record is read uncached by name (get only).
+		Credentials: kubecred.Reader{Client: mgr.GetAPIReader(), Namespace: set.Namespace},
 	}).SetupWithManager(mgr); err != nil {
 		return err
 	}
@@ -505,6 +513,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		slog.Bool("agents_paused", opts.Bool(runnercfg.AgentsPausedFlag)),
 		slog.Bool("multi_repo", set.MultiRepo),
 		slog.String("attribution_mode", string(set.Attribution)),
+		slog.String("user_credentials", string(set.UserCredentials)),
 		slog.Bool("usage_measurement", meter.On()),
 		slog.Bool("repository_images", sizes.repositoryImages),
 		slog.String("agent_resources", sizes.defaults.String()),

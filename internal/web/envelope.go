@@ -96,7 +96,7 @@ func inlineScripts(html string) []string {
 }
 
 // hardened reports whether the hardened envelope is on.
-func (s *Server) hardened() bool { return s.intents != nil || s.usage != nil }
+func (s *Server) hardened() bool { return s.intents != nil || s.usage != nil || s.account != nil }
 
 // hardenedRequest applies the hardened envelope's request checks and
 // headers, answering a refused request itself; ok is false when it did.

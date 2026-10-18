@@ -16,12 +16,13 @@ integration-controller serve --namespace patchy --accumulation-window 1h
 
 The [shared flags](index.md#shared-flags-every-controller), plus:
 
-| Flag                          | Env                                | Default | Purpose                                                                                       |
-| ----------------------------- | ---------------------------------- | ------- | --------------------------------------------------------------------------------------------- |
-| `--accumulation-window`       | `PATCHY_ACCUMULATION_WINDOW`       | `1h`    | How long alerts of one finding family accumulate into a single Finding                        |
-| `--projection-concurrency`    | `PATCHY_PROJECTION_CONCURRENCY`    | `2`     | Findings projected to tracking issues in parallel (each projection may spend GitHub requests) |
-| `--repository-images`         | `PATCHY_REPOSITORY_IMAGES`         | `false` | Project the runner-image comment onto tracking issues; reads and watches Repositories         |
-| `--tracking-recheck-interval` | `PATCHY_TRACKING_RECHECK_INTERVAL` | `6h`    | How often a tracking issue GitHub refused for good (Issues disabled) is asked for again       |
+| Flag                          | Env                                | Default   | Purpose                                                                                                                                                                               |
+| ----------------------------- | ---------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--accumulation-window`       | `PATCHY_ACCUMULATION_WINDOW`       | `1h`      | How long alerts of one finding family accumulate into a single Finding                                                                                                                |
+| `--projection-concurrency`    | `PATCHY_PROJECTION_CONCURRENCY`    | `2`       | Findings projected to tracking issues in parallel (each projection may spend GitHub requests)                                                                                         |
+| `--repository-images`         | `PATCHY_REPOSITORY_IMAGES`         | `false`   | Project the runner-image comment onto tracking issues; reads and watches Repositories                                                                                                 |
+| `--account-url`               | `PATCHY_ACCOUNT_URL`               | _(unset)_ | The status page's Account page, linked from the comment on a Finding whose remediation waits for its approver's model credential ([holding a run](user-credentials.md#holding-a-run)) |
+| `--tracking-recheck-interval` | `PATCHY_TRACKING_RECHECK_INTERVAL` | `6h`      | How often a tracking issue GitHub refused for good (Issues disabled) is asked for again                                                                                               |
 
 `--repository-images` is the integration-controller's half of
 [repository-declared runner images](../integrations/agent-images.md): turn it on together with source-controller's. It

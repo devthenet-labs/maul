@@ -5,10 +5,10 @@ them. A run with no human behind it (a Finding investigation, an unheld remediat
 not an approver) keeps using the org credential. It builds on [run attribution](attribution.md): whose credential pays
 is read from the run's attribution.
 
-The feature arrives in stages. The credential store (the `ModelCredential` kind, the credentials namespace, its RBAC and
-its admission policies) and the broker's per-request resolution and health probes have shipped. The status page's
-Account page, where people store their own credential, follows in a later release; until then a credentials admin writes
-the records and Secrets.
+The credential store (the `ModelCredential` kind, the credentials namespace, its RBAC and its admission policies), the
+broker's per-request resolution and health probes, the run controllers' hold on a person's run while their credential is
+not valid, and the status page's [Account page](status-server.md#account-page), where people store their own, are all in
+place. Without the Account page a credentials admin writes the records and Secrets.
 
 It is off by default. With it off, the chart renders nothing new. The `ModelCredential` CRD is installed, as every
 patchy kind is, but nothing grants access to it and no policy judges it.
@@ -21,12 +21,14 @@ patchy kind is, but nothing grants access to it and no policy judges it.
 | `egressBroker.userCredentials.namespace`               | `patchy-credentials` | the namespace the credential Secrets live in       |
 | `egressBroker.userCredentials.createNamespace`         | `true`               | create that namespace with the chart               |
 | `egressBroker.userCredentials.orgCredentialIsPersonal` | `""`                 | `acknowledged` admits a setup-token org credential |
+| `statusServer.account.enabled`                         | `false`              | serve the Account page                             |
 
 - `attribute` renders the store and has the broker read each run's attribution. People can register their credentials,
   and their health is probed (the broker reads each stored credential and checks it with Anthropic), but the org
   credential still pays for every run; the audit line records the person.
 - `enforce` makes a run attributed to a person use that person's own credential or none. A run attributed to the org
-  keeps the org credential. See [What the broker does](#what-the-broker-does).
+  keeps the org credential. See [What the broker does](#what-the-broker-does). Remediation- and intent-controller do not
+  create such a run until the person's credential is `Valid`: see [Holding a run](#holding-a-run).
 
 Either mode is refused at render time unless all of the following hold:
 
@@ -122,7 +124,47 @@ the provider, and the reason is in the error the agent sees, the audit line and 
 | `credential_unavailable`    | 503    | the Secret could not be read from the API server                                       |
 | `credential_rejected`       | 403    | the provider rejected the stored credential: its health is `Rejected` for this version |
 
-Holding a refused run as Blocked, and telling the person, is the run controllers' part and ships with the Account page.
+The run controllers hold a person's run before it gets here: see [Holding a run](#holding-a-run).
+
+## Holding a run
+
+Under `enforce`, a run the broker would refuse would spend its attempt on a 403. So remediation-controller and
+intent-controller ask first: before they create a run attributed to a person, that person's `ModelCredential` must be
+`Valid`. They read only the record, by its derived name (`get` on `modelcredentials`, granted only with the mode on),
+never a Secret. The chart passes them the mode as `--user-credentials` (`PATCHY_USER_CREDENTIALS`) and, once the Account
+page is on with `statusServer.host` set, its URL as `--account-url` (`PATCHY_ACCOUNT_URL`; integration-controller gets
+it too). Under `off` and `attribute` nothing is held, and a run attributed to the org (or to an approver with no GitHub
+id on record, such as every status-page approval) is never held.
+
+| Run                       | Held as                                                                                    | Who must add a credential  |
+| ------------------------- | ------------------------------------------------------------------------------------------ | -------------------------- |
+| Finding remediation       | the Finding stays `Queued`, condition `CredentialRequired`, no Remediation created         | the Finding's approver     |
+| Intent plan               | the Intent is `Blocked`, condition `CredentialRequired`, `status.credentialHold` names who | the approver who triggered |
+| Intent build or check-fix | the same, blocked from `Building` or `InReview`                                            | the plan's approver        |
+| Intent revise (command)   | the same, blocked from `InReview`; the command is read again once the block lifts          | the commenter              |
+| Intent revise (reviews)   | the same                                                                                   | the newest reviewer        |
+
+The condition's reason says what is wrong: `CredentialMissing` (none stored), `CredentialRejected` (Anthropic rejected
+it) or `CredentialUnverified` (stored, not yet probed: the broker probes a new credential within moments).
+
+**Telling the person.** An Intent's status comment says who must add a credential and links the Account page. A held
+Finding's tracking issue gets one comment that names the person held and links the page, edited once the hold lifts; it
+is rendered from the Finding's `status.credentialHold` (else its approval), never from the condition's message. The
+public intents board says only that a person's credential is missing, never whose.
+
+**Lifting.** Nothing is replanned or re-investigated. The hold lifts on its own once the credential is `Valid`: a
+Finding is looked at again every minute, a blocked Intent on its poll. It also lifts when someone holding a valid
+credential approves again, which replaces whom the run is for (design revision 1), so one person's missing key cannot
+park the work:
+
+- A held Finding takes `/patchy approve` again on its issue while held. The remediation becomes the new approver's only
+  if their own credential is `Valid`; otherwise the hold stays with the person in `status.credentialHold`, and the
+  remediation runs as theirs once their credential is valid. A status-page or CLI approval carries no GitHub id, which
+  would make the remediation the org's, so neither offers or takes `approve` while a Finding is held.
+- An Intent blocked from `Building` takes an approval again (`/patchy approve` or the approve label) of the same plan.
+  It is accepted only from an approver whose own credential is `Valid`, and only while the plan comment and the issue
+  are as they were approved; an approver without one is told so and nothing changes. A plan or revise block has no such
+  path: it lifts when the person's credential is valid, or an approver cancels.
 
 **Revocation.** Deleting or replacing a credential Secret reaches the broker as soon as its informer sees the change. If
 the informer's watch stalls, the broker still reads the Secret again at least once a minute, so a revoked credential is
@@ -156,6 +198,9 @@ A credential's `status.health` comes only from probes the broker issues itself, 
 Each health write is logged with the record, the health, the Secret version and the fingerprint.
 
 ## Who may do what
+
+Remediation- and intent-controller also get `get` on `modelcredentials` in the release namespace while the mode is on,
+to hold a run (no list, no watch, no Secret).
 
 | Who                   | Grants                                                                                                                                                                                                                                            |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -217,7 +262,18 @@ Three `ValidatingAdmissionPolicies` fail closed:
   policies), read from the caller's own pod, UID-checked. A prompt-injected agent cannot choose another person's.
 - A setup-token probe spends one output token of that person's subscription per new credential version, and at most one
   more every ten minutes while their runs are refused.
-- Under both modes the namespace and grants exist before anything uses them, so people can register ahead of `enforce`.
+- Under both modes the namespace and grants exist before anything uses them, so people can register ahead of `enforce`
+  (the Account page works under `attribute` too).
+- The Account page is the status server's first Secret write. It stamps the owner from the signed-in GitHub id, never
+  from the request; it is behind an access review on `modelcredentials/self`, a same-origin JSON POST capped at 8 KiB,
+  and the hardened browser envelope; and its store writes a Secret with create, or an unconditional update, never
+  reading one. No answer carries a credential.
+- A re-approval moves whom a held run is for only when the approver's own credential is valid. For an Intent it is
+  refused otherwise; for a Finding the approval is recorded but remediation-controller keeps the hold on the person
+  held, so neither a keyless approver nor an approval without a GitHub id (one written straight to the API) can move it,
+  or put the run on the org credential.
+- Turning `enforce` off resolves every hold on the next pass: the Finding's `CredentialRequired` goes `False`, its issue
+  comment is edited to say so, and the run is created as under `attribute`.
 
 ## Turning it off
 

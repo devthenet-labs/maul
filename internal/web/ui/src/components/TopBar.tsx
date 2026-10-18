@@ -9,6 +9,7 @@ import {
   hrefForList,
   hrefForRollups,
   hrefForUsage,
+  hrefForAccount,
   isIntentsRoute,
   type Route,
 } from "../router";
@@ -158,6 +159,7 @@ export function TopBar({
   configView,
   intentsNav,
   usageNav,
+  accountNav,
   themeMode,
   onToggleTheme,
   persona,
@@ -176,6 +178,8 @@ export function TopBar({
   intentsNav: boolean;
   // Whether the server has the usage views on for this signed-in caller.
   usageNav: boolean;
+  // Whether the server has the Account page on for this signed-in caller.
+  accountNav: boolean;
   themeMode: ThemeMode;
   onToggleTheme: () => void;
   persona: Persona;
@@ -198,7 +202,11 @@ export function TopBar({
           <a
             href={hrefForList()}
             class={navClass(
-              route.view !== "rollups" && route.view !== "config" && route.view !== "usage" && !isIntentsRoute(route),
+              route.view !== "rollups" &&
+                route.view !== "config" &&
+                route.view !== "usage" &&
+                route.view !== "account" &&
+                !isIntentsRoute(route),
             )}
           >
             Findings
@@ -219,6 +227,11 @@ export function TopBar({
           {configView ? (
             <a href={hrefForConfig()} class={navClass(route.view === "config")}>
               Config
+            </a>
+          ) : null}
+          {accountNav ? (
+            <a href={hrefForAccount()} class={navClass(route.view === "account")}>
+              Account
             </a>
           ) : null}
         </nav>

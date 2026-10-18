@@ -225,14 +225,19 @@ func (p *pass) mayLaunch(ctx context.Context) (ok, stop bool, err error) {
 
 // launchPlan creates the next run of the plan round, unless the Project is
 // suspended (no run is launched until it is resumed), the Intent's spend has
-// reached the Project's ceiling (Blocked), or the round has used every
-// attempt ordinal (Failed).
+// reached the Project's ceiling (Blocked), the round has used every attempt
+// ordinal (Failed), or the person the plan would be attributed to has no
+// valid model credential under enforce (Blocked: holdForCredential).
 func (p *pass) launchPlan(ctx context.Context, round, attempt int32, prev *v1alpha1.PreviousAttempt) (bool, error) {
 	if ok, stop, err := p.mayLaunch(ctx); !ok {
 		return stop, err
 	}
 	if attempt > v1alpha1.MaxIntentRunAttempt {
 		return true, p.fail(ctx)
+	}
+	if held, err := p.holdForCredential(ctx,
+		p.set.Attribution.Stamp(p.attributeRun(v1alpha1.IntentStagePlan)), false); held || err != nil {
+		return held, err
 	}
 	run, err := p.createRun(ctx, v1alpha1.IntentStagePlan, p.proj.Spec.Repositories[0], round, attempt, prev)
 	if err != nil {
@@ -251,8 +256,9 @@ type buildLaunch struct {
 // launchBuilds creates the next build run of each of launches, in one pass,
 // unless the Project is suspended or the spend is at its ceiling (checked
 // once, for the whole fan-out), an attempt ordinal is past the last (Failed),
-// or a repository's intent branch is not this round's to use (Blocked,
-// before any build is spent). Each create is its own lease: a pass that
+// or a repository's intent branch is not this round's to use, or the
+// approver has no valid model credential under enforce (Blocked, before any
+// build is spent). Each create is its own lease: a pass that
 // stops between two creates adopts the first on the next one.
 func (p *pass) launchBuilds(ctx context.Context, round int32, launches []buildLaunch) (
 	runs []*v1alpha1.IntentRun, stop bool, err error) {
@@ -268,6 +274,10 @@ func (p *pass) launchBuilds(ctx context.Context, round int32, launches []buildLa
 		if blocked, err := p.blockOnBranch(ctx, round, l.repo); blocked || err != nil {
 			return nil, blocked, err
 		}
+	}
+	if held, err := p.holdForCredential(ctx,
+		p.set.Attribution.Stamp(p.attributeRun(v1alpha1.IntentStageBuild)), true); held || err != nil {
+		return nil, held, err
 	}
 	for _, l := range launches {
 		run, err := p.createRun(ctx, v1alpha1.IntentStageBuild, l.repo, round, l.attempt, l.prev)

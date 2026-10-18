@@ -7,6 +7,7 @@ import (
 	"errors"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
@@ -126,18 +127,7 @@ func ApplyWithID(f *v1alpha1.Finding, verb, user string, id int64, note string, 
 		f.Spec.Suspend = false
 
 	case VerbApprove:
-		phase := f.Status.Phase
-		if phase != v1alpha1.PhaseAwaitingApproval && phase != v1alpha1.PhaseHandedOff {
-			return false, ErrUnavailable
-		}
-		// First approval wins — except a HandedOff finding whose recorded
-		// approval predates completion: that approval can never revive it
-		// (the spawner requires approval newer than completedAt), so a fresh
-		// one replaces it.
-		if f.Spec.Approval != nil && !staleApproval(f) {
-			return false, nil
-		}
-		f.Spec.Approval = &v1alpha1.Approval{By: user, ByID: id, At: metav1.NewTime(now), Note: note}
+		return applyApprove(f, user, id, note, now)
 
 	case VerbRetry:
 		if v1alpha1.RetryTarget(f) == "" {
@@ -178,6 +168,52 @@ func Available(f *v1alpha1.Finding, now time.Time) []string {
 		}
 	}
 	return out
+}
+
+// applyApprove is ApplyWithID's approve: admitted while the finding awaits
+// approval or is handed off, and while its remediation is held for its
+// approver's model credential.
+func applyApprove(f *v1alpha1.Finding, user string, id int64, note string, now time.Time) (bool, error) {
+	phase := f.Status.Phase
+	if credentialHeld(f) {
+		// Held for the approver's model credential (per-user credentials,
+		// enforce): a later approval may replace whom the next attempt is
+		// for, so someone holding a valid credential can let it run. Only a
+		// GitHub commenter's approval carries the id a credential is keyed
+		// by: one without (the status page, the CLI) would make the run the
+		// org's, so it is refused while held. Whether the approver's own
+		// credential is valid is the spawner's to judge (it keeps the hold
+		// on the person held otherwise). The same approver again changes
+		// nothing.
+		if id < 1 {
+			return false, ErrUnavailable
+		}
+		if ap := f.Spec.Approval; ap != nil && ap.By == user && ap.ByID == id {
+			return false, nil
+		}
+		f.Spec.Approval = &v1alpha1.Approval{By: user, ByID: id, At: metav1.NewTime(now), Note: note}
+		return true, nil
+	}
+	if phase != v1alpha1.PhaseAwaitingApproval && phase != v1alpha1.PhaseHandedOff {
+		return false, ErrUnavailable
+	}
+	// First approval wins — except a HandedOff finding whose recorded
+	// approval predates completion: that approval can never revive it
+	// (the spawner requires approval newer than completedAt), so a fresh
+	// one replaces it.
+	if f.Spec.Approval != nil && !staleApproval(f) {
+		return false, nil
+	}
+	f.Spec.Approval = &v1alpha1.Approval{By: user, ByID: id, At: metav1.NewTime(now), Note: note}
+	return true, nil
+}
+
+// credentialHeld reports a Queued finding whose next remediation attempt is
+// held for its approver's model credential (CredentialRequired True, set by
+// remediation-controller's spawner only under per-user credentials enforce).
+func credentialHeld(f *v1alpha1.Finding) bool {
+	return f.Status.Phase == v1alpha1.PhaseQueued &&
+		meta.IsStatusConditionTrue(f.Status.Conditions, v1alpha1.ConditionCredentialRequired)
 }
 
 // expeditable reports the phases where an expedite still has waiting stages

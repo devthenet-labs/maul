@@ -11,10 +11,12 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/sync/errgroup"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -28,6 +30,7 @@ import (
 	"github.com/bitwise-media-group/patchy/internal/web"
 	"github.com/bitwise-media-group/patchy/internal/web/auth"
 	"github.com/bitwise-media-group/patchy/internal/web/authz"
+	"github.com/bitwise-media-group/patchy/internal/web/credstore"
 )
 
 func newServeCmd(opts *cli.Options) *cobra.Command {
@@ -51,6 +54,13 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 		"serve the usage views (a signed-in person's own usage, and everyone's for holders of get on the "+
 			"virtual usage/all); needs auth mode oidc as the intents views do plus Dex's federated:id scope, "+
 			"since a person is their GitHub id; turns on the hardened browser envelope")
+	f.Bool("account-enabled", false,
+		"serve the Account page (a signed-in person sets, replaces and deletes their own model credential, "+
+			"write-only, behind an access review on the virtual modelcredentials/self); needs auth mode oidc as the "+
+			"usage views do, the credential store the chart renders under egressBroker.userCredentials.mode, and "+
+			"turns on the hardened browser envelope")
+	f.String("credentials-namespace", v1alpha1.DefaultCredentialsNamespace,
+		"the namespace the Account page writes credential Secrets to (write-only)")
 	f.Bool("agents-paused", false,
 		"show the operator's agent pause (the chart's agent.paused) on the signed-in page; display only, the job "+
 			"controllers enforce it")
@@ -85,6 +95,7 @@ func newIntentsWiring(opts *cli.Options, authCfg *auth.Config) (intentsWiring, e
 type viewsWiring struct {
 	intents intentsWiring
 	usage   usageWiring
+	account accountWiring
 }
 
 func newViewsWiring(opts *cli.Options, authCfg *auth.Config) (viewsWiring, error) {
@@ -96,7 +107,11 @@ func newViewsWiring(opts *cli.Options, authCfg *auth.Config) (viewsWiring, error
 	if err != nil {
 		return viewsWiring{}, err
 	}
-	return viewsWiring{intents: intents, usage: usage}, nil
+	account, err := newAccountWiring(opts.Bool("account-enabled"), opts.String("credentials-namespace"), authCfg)
+	if err != nil {
+		return viewsWiring{}, err
+	}
+	return viewsWiring{intents: intents, usage: usage, account: account}, nil
 }
 
 // registerIndexes installs the indexes of every view that is on.
@@ -107,9 +122,50 @@ func (vw viewsWiring) registerIndexes(ctx context.Context, idx client.FieldIndex
 	return vw.usage.registerIndexes(ctx, idx)
 }
 
-// apply turns on every view that is on.
-func (vw viewsWiring) apply(srv *web.Server, c client.Client, namespace string, tailer web.Tailer) *web.Server {
-	return vw.usage.apply(vw.intents.apply(srv, c, namespace, tailer), c, namespace)
+// apply turns on every view that is on. reader reads uncached.
+func (vw viewsWiring) apply(srv *web.Server, c client.Client, reader client.Reader, namespace string,
+	tailer web.Tailer) *web.Server {
+	srv = vw.usage.apply(vw.intents.apply(srv, c, namespace, tailer), c, namespace)
+	return vw.account.apply(srv, c, reader, namespace)
+}
+
+// accountWiring is what --account-enabled adds to the server, decided
+// before anything starts.
+type accountWiring struct {
+	on                   bool
+	credentialsNamespace string
+}
+
+// newAccountWiring checks the auth posture may serve the Account page: as
+// the usage views, oidc with the federated:id scope, since a credential is
+// kept under the person's GitHub id. There is no development bypass.
+func newAccountWiring(enabled bool, credentialsNamespace string, authCfg *auth.Config) (accountWiring, error) {
+	if !enabled {
+		return accountWiring{}, nil
+	}
+	if err := authCfg.RequireForUsage(); err != nil {
+		return accountWiring{}, fmt.Errorf("--account-enabled: %w", err)
+	}
+	if errs := validation.IsDNS1123Label(credentialsNamespace); len(errs) > 0 {
+		return accountWiring{}, fmt.Errorf("--credentials-namespace %q: %s", credentialsNamespace,
+			strings.Join(errs, "; "))
+	}
+	return accountWiring{on: true, credentialsNamespace: credentialsNamespace}, nil
+}
+
+// apply turns the Account page on in srv; with it off it returns srv
+// unchanged. Records are read uncached (no informer, so no list/watch on
+// them), Secrets only ever written.
+func (aw accountWiring) apply(srv *web.Server, c client.Client, reader client.Reader, namespace string) *web.Server {
+	if !aw.on {
+		return srv
+	}
+	return srv.WithAccount(web.AccountOptions{
+		Self: authz.NewSubresourceReviewer(c, namespace, v1alpha1.GroupVersion.Group,
+			web.AccountSelfResource, web.AccountSelfSubresource, 0),
+		Store: &credstore.Store{Client: c, Reader: reader, Namespace: namespace,
+			CredentialsNamespace: aw.credentialsNamespace},
+	})
 }
 
 // usageWiring is what --usage-enabled adds to the server, decided before
@@ -310,7 +366,8 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		log.LogAttrs(ctx, slog.LevelWarn, "live transcripts unavailable",
 			slog.String("agent_namespace", agentNS), slog.Any("error", err))
 	}
-	srv = views.apply(srv.WithTranscripts(mgr.GetAPIReader(), tailer), mgr.GetClient(), namespace, tailer)
+	srv = views.apply(srv.WithTranscripts(mgr.GetAPIReader(), tailer), mgr.GetClient(), mgr.GetAPIReader(),
+		namespace, tailer)
 
 	err = mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
 		return srv.StartWatch(ctx, mgr.GetCache())
@@ -334,7 +391,8 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		slog.String("listen_addr", httpSrv.Addr),
 		slog.String("auth_mode", mode),
 		slog.Bool("intents", views.intents.on),
-		slog.Bool("usage", views.usage.on))
+		slog.Bool("usage", views.usage.on),
+		slog.Bool("account", views.account.on))
 
 	g, ctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return mgr.Start(ctx) })

@@ -104,6 +104,43 @@ func RenderEditedCommandNotice(n EditedCommandNotice) (string, error) {
 	})
 }
 
+// CredentialApprovalNotice answers an approval made while the intent is
+// Blocked on its approver's model credential (per-user credentials,
+// enforce) by an approver who has no valid credential either: it is not
+// taken, since it would only move the block to them.
+type CredentialApprovalNotice struct {
+	// Namespace, Intent and Key make the notice's marker (NoticeMarker).
+	Namespace string
+	Intent    string
+	Key       string
+	// Actor is the approver's GitHub login.
+	Actor string
+	// Label is the approve label, for an approval by label; Verb the
+	// command's verb otherwise.
+	Label string
+	Verb  string
+	// LabelRemoved says patchy removed the label.
+	LabelRemoved bool
+	// AccountURL is the Account page; empty names it unlinked. Only a URL
+	// that cannot reshape the Markdown link is linked (holdURLRE).
+	AccountURL string
+}
+
+// RenderCredentialApprovalNotice renders a CredentialApprovalNotice.
+func RenderCredentialApprovalNotice(n CredentialApprovalNotice) (string, error) {
+	u := n.AccountURL
+	if !holdURLRE.MatchString(u) {
+		u = ""
+	}
+	return render("intent_notice_credential.md.tmpl", struct {
+		Marker, Command, Label, Actor, AccountURL string
+		LabelRemoved                              bool
+	}{
+		Marker: NoticeMarker(n.Namespace, n.Intent, n.Key), Command: slashCommand(n.Verb), Label: n.Label,
+		Actor: oneLine(n.Actor), AccountURL: u, LabelRemoved: n.LabelRemoved,
+	})
+}
+
 // RenderAmbiguousApprovalNotice explains why a shared issue cannot approve
 // either of its Intents. The approval label is left alone for the human to
 // remove and reapply after resolving the conflict.

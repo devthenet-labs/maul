@@ -832,3 +832,28 @@ export interface UsageReport {
   people?: UsagePerson[];
   projects?: UsageProject[];
 }
+
+// ---- Account page (internal/web/account.go) --------------------------------
+// Write-only: no field ever carries a stored credential.
+
+export type CredentialKind = "api-key" | "oauth-token";
+
+export type CredentialHealth = "Valid" | "Rejected" | "Unknown";
+
+export interface AccountCredential {
+  provider: string;
+  stored: boolean;
+  kind: CredentialKind | "";
+  fingerprint: string;
+  health: CredentialHealth | "";
+  lastUsedAt: string;
+  lastRejectedAt: string;
+}
+
+export interface Account {
+  name: string;
+  self: boolean;
+  allowed: boolean;
+  reason: string;
+  credentials: AccountCredential[];
+}

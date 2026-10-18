@@ -21,6 +21,8 @@ import (
 	"github.com/bitwise-media-group/patchy/internal/cli"
 	"github.com/bitwise-media-group/patchy/internal/controller/remediation"
 	"github.com/bitwise-media-group/patchy/internal/controller/rollup"
+	"github.com/bitwise-media-group/patchy/internal/credgate"
+	"github.com/bitwise-media-group/patchy/internal/credgate/kubecred"
 	"github.com/bitwise-media-group/patchy/internal/forge"
 	"github.com/bitwise-media-group/patchy/internal/jobs"
 	"github.com/bitwise-media-group/patchy/internal/kube"
@@ -67,6 +69,7 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	runnercfg.RegisterAgentDNSFlag(f)
 	runnercfg.RegisterAgentsPausedFlag(f)
 	runnercfg.RegisterAttributionFlag(f)
+	runnercfg.RegisterUserCredentialsFlags(f)
 	runnercfg.RegisterUsageFlags(f)
 	f.Duration("job-deadline", time.Hour, "activeDeadlineSeconds for an agent Job")
 	f.Duration("job-ttl", time.Hour, "ttlSecondsAfterFinished for a finished agent Job")
@@ -107,16 +110,32 @@ func agentEnv(opts *cli.Options) map[string]string {
 	}
 }
 
+// modes are the switches ownSettings reads.
+type modes struct {
+	attribution attribution.Mode
+	credentials credgate.Mode
+	accountURL  string
+}
+
 // ownSettings checks the settings remediation-controller alone reads and
-// returns --attribution-mode, so a bad value stops startup.
-func ownSettings(opts *cli.Options) (attribution.Mode, error) {
+// returns --attribution-mode and --user-credentials, so a bad value stops
+// startup.
+func ownSettings(opts *cli.Options) (modes, error) {
 	if opts.Int("changeset-max-entries") <= 0 {
-		return "", errors.New("--changeset-max-entries must be positive")
+		return modes{}, errors.New("--changeset-max-entries must be positive")
 	}
 	if opts.Duration("remediate-idle-timeout") < 0 {
-		return "", errors.New("--remediate-idle-timeout must not be negative (0 disables it)")
+		return modes{}, errors.New("--remediate-idle-timeout must not be negative (0 disables it)")
 	}
-	return runnercfg.Attribution(opts)
+	attr, err := runnercfg.Attribution(opts)
+	if err != nil {
+		return modes{}, err
+	}
+	creds, accountURL, err := runnercfg.UserCredentials(opts, attr)
+	if err != nil {
+		return modes{}, err
+	}
+	return modes{attribution: attr, credentials: creds, accountURL: accountURL}, nil
 }
 
 func serve(ctx context.Context, opts *cli.Options) error {
@@ -156,10 +175,11 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		return err
 	}
 	cpuRequest, memoryRequest, cpuLimit, memoryLimit := agentResources.Strings()
-	attributionMode, err := ownSettings(opts)
+	own, err := ownSettings(opts)
 	if err != nil {
 		return err
 	}
+	attributionMode, credMode, accountURL := own.attribution, own.credentials, own.accountURL
 	meter, err := runnercfg.UsageMeter(opts, log)
 	if err != nil {
 		return err
@@ -241,7 +261,12 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		ManualMaxTurns:    int32(opts.Int("remediate-manual-max-turns")),
 		ManualTokenBudget: int64(opts.Int("remediate-manual-token-budget")),
 		Attribution:       attributionMode,
-		Log:               log,
+		// Under enforce a person's attempt waits for their credential; the
+		// record is read uncached by name (get only, granted with the mode).
+		UserCredentials: credMode,
+		Credentials:     kubecred.Reader{Client: mgr.GetAPIReader(), Namespace: namespace},
+		AccountURL:      accountURL,
+		Log:             log,
 	}
 	if err := spawner.SetupWithManager(mgr); err != nil {
 		return err
@@ -287,6 +312,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		slog.Int("max_concurrent", opts.Int("max-concurrent-remediations")),
 		slog.Bool("agents_paused", opts.Bool(runnercfg.AgentsPausedFlag)),
 		slog.String("attribution_mode", string(attributionMode)),
+		slog.String("user_credentials", string(credMode)),
 		slog.Bool("usage_measurement", meter.On()),
 		slog.Duration("finding_ttl", opts.Duration("finding-ttl")),
 		slog.Bool("repository_images", repositoryImages))

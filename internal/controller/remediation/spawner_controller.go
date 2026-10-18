@@ -21,6 +21,7 @@ import (
 	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
 	"github.com/bitwise-media-group/patchy/internal/agentresult"
 	"github.com/bitwise-media-group/patchy/internal/attribution"
+	"github.com/bitwise-media-group/patchy/internal/credgate"
 	"github.com/bitwise-media-group/patchy/internal/harness"
 	"github.com/bitwise-media-group/patchy/internal/model"
 	"github.com/bitwise-media-group/patchy/internal/priority"
@@ -61,6 +62,16 @@ type SpawnerReconciler struct {
 	// Remediation is stamped with whom it is for (Attribute); under off (the
 	// zero value) nothing is stamped.
 	Attribution attribution.Mode
+	// UserCredentials is --user-credentials: under enforce, a remediation
+	// attributed to a person with no Valid ModelCredential is not created
+	// (holdForCredential); off and attribute (the zero value is off) create
+	// every attempt as before.
+	UserCredentials credgate.Mode
+	// Credentials reads a person's ModelCredential; required under enforce.
+	Credentials credgate.Lookup
+	// AccountURL is the status page's Account page, named in the hold's
+	// message (--account-url; may be empty).
+	AccountURL string
 	// Now is the clock seam; nil means time.Now.
 	Now func() time.Time
 	// Log receives diagnostics; nil discards.
@@ -169,7 +180,8 @@ func (r *SpawnerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 		return ctrl.Result{}, r.retryAdmit(ctx, &fnd)
 	case v1alpha1.PhaseQueued:
-		return ctrl.Result{}, r.spawn(ctx, &fnd)
+		wait, err := r.spawn(ctx, &fnd)
+		return ctrl.Result{RequeueAfter: wait}, err
 	default:
 		return ctrl.Result{}, nil
 	}
@@ -250,11 +262,12 @@ func (r *SpawnerReconciler) retryAdmit(ctx context.Context, fnd *v1alpha1.Findin
 	return err
 }
 
-// spawn ensures the Queued finding has its Pending Remediation child.
-func (r *SpawnerReconciler) spawn(ctx context.Context, fnd *v1alpha1.Finding) error {
+// spawn ensures the Queued finding has its Pending Remediation child. wait
+// is when to look again while the attempt is held for a credential.
+func (r *SpawnerReconciler) spawn(ctx context.Context, fnd *v1alpha1.Finding) (wait time.Duration, err error) {
 	inv := fnd.Status.Investigation
 	if inv == nil || fnd.Spec.Repository == nil {
-		return nil // nothing to execute; the phase table prevents this in practice
+		return 0, nil // nothing to execute; the phase table prevents this in practice
 	}
 	// Spawn the next attempt only when the latest one is settled: a Pending
 	// or Running child must not breed a sibling. A settled child (Failed, or
@@ -266,9 +279,9 @@ func (r *SpawnerReconciler) spawn(ctx context.Context, fnd *v1alpha1.Finding) er
 		err := r.Get(ctx, types.NamespacedName{Namespace: fnd.Namespace, Name: latestName}, &cur)
 		switch {
 		case err == nil && cur.Status.Phase != v1alpha1.RunFailed && cur.Status.Phase != v1alpha1.RunComplete:
-			return nil // in flight ("", Pending, Running)
+			return 0, nil // in flight ("", Pending, Running)
 		case err != nil && !kerrors.IsNotFound(err):
-			return err
+			return 0, err
 		}
 	}
 	attempt := fnd.Status.Attempts.Remediation + 1
@@ -289,11 +302,15 @@ func (r *SpawnerReconciler) spawn(ctx context.Context, fnd *v1alpha1.Finding) er
 	params.MaxTurns, params.TokenBudget = r.resolveGrant(params.Estimate, fnd.Spec.Approval != nil)
 	prev, err := r.previousAttempt(ctx, fnd)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	score := priority.Score(fnd.Spec.Severity, inv.Exploitability, inv.Likelihood, inv.Impact, r.Weights)
 	attributedTo := r.Attribution.Stamp(Attribute(fnd))
+	attributedTo, held, err := r.holdForCredential(ctx, fnd, attributedTo, params.Harness)
+	if held || err != nil {
+		return CredentialRecheck, err
+	}
 	rem := &v1alpha1.Remediation{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -330,10 +347,10 @@ func (r *SpawnerReconciler) spawn(ctx context.Context, fnd *v1alpha1.Finding) er
 		},
 	}
 	if err := r.Create(ctx, rem); err != nil && !kerrors.IsAlreadyExists(err) {
-		return fmt.Errorf("create remediation %s: %w", name, err)
+		return 0, fmt.Errorf("create remediation %s: %w", name, err)
 	}
 
-	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+	return 0, retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		var cur v1alpha1.Finding
 		if err := r.Get(ctx, client.ObjectKeyFromObject(fnd), &cur); err != nil {
 			return client.IgnoreNotFound(err)

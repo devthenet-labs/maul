@@ -118,3 +118,24 @@ func TestUsageWireTypesMatchTypeScript(t *testing.T) {
 		}
 	}
 }
+
+// TestAccountWireTypesMatchTypeScript pins the Account page's wire types to
+// their ui/src/types.ts mirrors.
+func TestAccountWireTypesMatchTypeScript(t *testing.T) {
+	src, err := os.ReadFile("ui/src/types.ts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := tsInterfaces(t, string(src))
+	for _, v := range []any{Account{}, AccountCredential{}} {
+		typ := reflect.TypeOf(v)
+		want, ok := ts[typ.Name()]
+		if !ok {
+			t.Errorf("ui/src/types.ts has no interface %s", typ.Name())
+			continue
+		}
+		if got := jsonFields(typ); !slices.Equal(got, want) {
+			t.Errorf("%s: Go fields %v, TypeScript fields %v", typ.Name(), got, want)
+		}
+	}
+}

@@ -14,6 +14,13 @@
 // never moves a phase: approve records spec.approval and suspend/resume
 // toggle spec.suspend, leaving every phase edge to its owning controller.
 //
+// With the Account page on (account.go, --account-enabled) the server is
+// also the one writer of people's model credentials: a signed-in person
+// sets, replaces or deletes their own, behind an access review on the
+// virtual modelcredentials/self, through the CredentialStore port
+// (credstore is its Kubernetes adapter), which can write a credential
+// Secret but never read one. No route returns a stored credential.
+//
 // The wire types in data.go mirror the status page's TypeScript contract
 // (ui/src/types.ts) field for field; keep the two in lockstep.
 package web

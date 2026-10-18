@@ -526,9 +526,12 @@ func (p *pass) commandRound(ctx context.Context, pr *v1alpha1.IntentPullRequest)
 				fmt.Sprintf("PR command%s waits: %d of %d permitted revision rounds have started",
 					p.inRepository(pr.Repository), p.revisionRounds(), limit))
 		}
+		attributed := attribution.To(c.UserLogin, c.UserID, v1alpha1.AttributionCommenter)
+		if held, err := p.holdForCredential(ctx, p.set.Attribution.Stamp(attributed), false); held || err != nil {
+			return held, err
+		}
 		run, err := p.createReviseRun(ctx, pr, p.in.Status.Rounds+1,
-			v1alpha1.IntentRunTriggerCommand, nil, nil, nil, c.ID,
-			attribution.To(c.UserLogin, c.UserID, v1alpha1.AttributionCommenter))
+			v1alpha1.IntentRunTriggerCommand, nil, nil, nil, c.ID, attributed)
 		if err != nil {
 			return false, err
 		}
@@ -782,8 +785,11 @@ func (p *pass) reviewRound(ctx context.Context, pr *v1alpha1.IntentPullRequest) 
 		ids = append(ids, r.ID)
 	}
 	newest := eligible[len(eligible)-1].Author
-	run, err := p.createReviseRun(ctx, pr, round, v1alpha1.IntentRunTriggerReview, ids, nil, nil, 0,
-		attribution.To(newest.Login, newest.ID, v1alpha1.AttributionReviewer))
+	attributed := attribution.To(newest.Login, newest.ID, v1alpha1.AttributionReviewer)
+	if held, err := p.holdForCredential(ctx, p.set.Attribution.Stamp(attributed), false); held || err != nil {
+		return held, err
+	}
+	run, err := p.createReviseRun(ctx, pr, round, v1alpha1.IntentRunTriggerReview, ids, nil, nil, 0, attributed)
 	if err != nil {
 		return false, err
 	}

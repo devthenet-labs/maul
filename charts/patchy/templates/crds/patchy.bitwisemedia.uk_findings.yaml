@@ -670,6 +670,33 @@ spec:
                   - type
                   type: object
                 type: array
+              credentialHold:
+                description: |-
+                  CredentialHold is the person whose missing or unusable model
+                  credential holds the next remediation attempt (ConditionCredentialRequired,
+                  egressBroker.userCredentials.mode enforce only), written with the
+                  condition by remediation-controller's spawner. While it is set, a
+                  later approval moves the attempt to its approver only when that
+                  approver holds a Valid credential; any other approval leaves the hold
+                  on this person. Cleared when the hold lifts.
+                properties:
+                  id:
+                    description: 'ID is GitHub''s numeric account id: the identity.'
+                    format: int64
+                    minimum: 1
+                    type: integer
+                  login:
+                    description: |-
+                      Login is the GitHub login when the reference was recorded, for display
+                      only. Never a Bot: no bot is ever attributed a run.
+                    maxLength: 64
+                    minLength: 1
+                    pattern: ^[A-Za-z0-9][A-Za-z0-9_.-]*$
+                    type: string
+                required:
+                - id
+                - login
+                type: object
               enrichments:
                 description: Enrichments are the enhancer contributions (context).
                 items:
