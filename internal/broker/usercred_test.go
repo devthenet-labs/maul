@@ -615,3 +615,51 @@ func TestAttributeModeProbesStoredCredentials(t *testing.T) {
 		t.Error("the probed credential reached the log")
 	}
 }
+
+// TestOwnersShapeSetupTokenOrgCredential runs the recorded owner decision
+// end to end: the org credential a setup-token (a bearer) with
+// orgCredentialIsPersonal acknowledged. An org-paid run carries only the
+// org bearer; a person's API key arrives as x-api-key with no org
+// Authorization beside it; a person's setup-token replaces the org bearer;
+// and under attribute a person's run still carries only the org bearer.
+func TestOwnersShapeSetupTokenOrgCredential(t *testing.T) {
+	orgBearer := arrived{authorization: "Bearer " + orgKey}
+	for _, tc := range []struct {
+		name       string
+		mode       UserCredentialMode
+		annotation string
+		kind       v1alpha1.ModelCredentialKind
+		credential string
+		want       arrived
+		reads      bool
+	}{
+		{"enforce, org", UserCredentialsEnforce, "org", v1alpha1.ModelCredentialAPIKey, userKey, orgBearer, false},
+		{"enforce, a person's api key", UserCredentialsEnforce, person, v1alpha1.ModelCredentialAPIKey, userKey,
+			arrived{apiKey: userKey}, true},
+		{"enforce, a person's setup-token", UserCredentialsEnforce, person, v1alpha1.ModelCredentialOAuthToken,
+			userTok, arrived{authorization: "Bearer " + userTok}, true},
+		{"attribute, a person", UserCredentialsAttribute, person, v1alpha1.ModelCredentialAPIKey, userKey,
+			orgBearer, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			up := newCredentialUpstream(t)
+			store := newFakeStore()
+			store.put(personID, tc.kind, tc.credential)
+			s, buf := credServer(t, up.URL, credServerOpts{
+				mode: tc.mode, bearer: true, ack: true, pod: attributedPod(tc.annotation), store: store,
+			}, nil)
+			if rec := postAs(s.Handler(), "jobpod"); rec.Code != http.StatusOK {
+				t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+			}
+			if got := up.requests(); len(got) != 1 || got[0] != tc.want {
+				t.Fatalf("upstream saw %+v, want %+v", got, tc.want)
+			}
+			if got := store.reads != 0; got != tc.reads {
+				t.Errorf("secret read = %v, want %v", got, tc.reads)
+			}
+			if strings.Contains(buf.String(), orgKey) || strings.Contains(buf.String(), tc.credential) {
+				t.Error("a credential reached the audit log")
+			}
+		})
+	}
+}
