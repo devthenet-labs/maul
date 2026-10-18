@@ -400,8 +400,11 @@ previewAuth:
   set it to `[]`, overriding a narrowing in your own values.
 - Hold the allowlist at Cloudflare (a WAF custom rule or Cloudflare Access) and in `inboundCIDRs`. The setup command
   refuses `--inbound-cidr` on this edge and leaves `inboundCIDRs` empty: keep the allowlist at Cloudflare.
-- A proxied record resolves to Cloudflare's addresses, not the tunnel's. `patchy check project`'s DNS line then SKIPs
-  with no `publishedAddresses`; check the record in the Cloudflare dashboard instead.
+- A proxied record resolves to Cloudflare's addresses, not the tunnel's. `patchy check project` and `check previews`
+  recognise the tunnel from the setup command's cloudflared ConfigMap: the DNS line passes when the record shows no
+  CNAME and resolves to Cloudflare's proxy alone (`preview-auth-host` then shows it routes to the gateway), or is a
+  CNAME to that tunnel, and is a WARN naming the `cloudflared tunnel route dns` command otherwise. Without that
+  ConfigMap (a cloudflared of your own) it is a SKIP: check the record in the Cloudflare dashboard instead.
 
 `patchy setup previews --edge cloudflare-tunnel --tunnel-credentials ~/.cloudflared/<tunnel id>.json`
 ([Setting up previews](../cli.md#setting-up-previews)) writes all of this: the values above, cloudflared's namespace,
@@ -603,8 +606,10 @@ mode, checks:
 `patchy check previews -n <release namespace>` runs the same checks for the install as a whole, before any Project
 exists: it asks `patchy-probe-0.<suffix>` (the relay's own probe host) and every Ready preview whatever its Project, and
 adds `preview-config` (gateway-only, the sign-in host outside the suffix, the suffix on a registrable domain of its
-own), `preview-viewers` (someone the relay can sign in is bound to the viewer role) and `preview-nodes` (the preview
-nodes carry both the selector and the taint). See [the CLI guide](../cli.md#checking-the-preview-install).
+own), `preview-viewers` (someone the relay can sign in is bound to the viewer role), `preview-nodes` (the preview nodes
+carry both the selector and the taint) and `preview-upstreams` (cert-manager, the Tailscale operator and cloudflared,
+where they run, are not older than the versions `setup previews` pins; older is a WARN). With `--isolation` it also runs
+`preview-netpol`, the isolation probe below, from the CLI. See [the CLI guide](../cli.md#checking-the-preview-install).
 
 The relay's background probe applies the same verdicts every minute (`patchy.preview_auth.unprotected_hosts`). In
 gateway mode it also asks for `patchy-probe-0.<suffix>`, which must be the gateway's `404`.
@@ -618,7 +623,10 @@ image (under the preview image prefix, `sha-` tagged), the node selector and the
 as on EKS. On k3s and k3d add `--refused-is-blocked`: their policy controller, kube-router, rejects a denied connection
 (the client sees "connection refused") rather than dropping it, and the flag counts that as blocked only after the
 gateway's client has shown the listener answers. Run it after turning the gateway on and after any CNI or cluster
-upgrade. See its
+upgrade. `patchy check previews -n <release namespace> --isolation` runs the same probe from the CLI, always in the
+`--refused-is-blocked` order, reading the placement, the namespaces and the image prefix from the install, and deletes
+its Pods when done ([how](../cli.md#proving-slot-isolation---isolation)). Build the netprobe image from the same commit
+as the script or the CLI. See its
 [README](https://github.com/devthenet-labs/patchy/blob/main/hack/preview-isolation-probe/README.md#the-ingress-direction-only-the-preview-gateway-reaches-a-slot).
 On EKS, the egress run (`run.sh`) still covers the cold-start egress direction.
 
