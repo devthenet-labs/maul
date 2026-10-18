@@ -75,7 +75,16 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   `patchy-credentials` (`cred-<record name>`, owner-hash label), the status server's write-only Secret grant (create,
   update, delete; no patch, whose response is the stored object), the broker's read grants, the
   `-credentials-self`/`-credentials-admin` ClusterRoles (virtual `modelcredentials/self` and `/all`) and three policies
-  (`templates/user-credentials-policy.yaml`). The broker does not use them yet: the org credential pays for every run
+  (`templates/user-credentials-policy.yaml`), and pass the broker `--user-credentials` (`internal/broker/usercred.go`).
+  It then reads each caller pod's attributed-to annotation with the verdict (the budget's UID-checked get); under
+  `attribute` the org credential pays and the audit line records the person, under `enforce` a person's run carries that
+  person's own credential (record and Secret found by derived names through the `CredentialStore` port: adapter
+  `internal/broker/credstore`, a controller-runtime cache of the records and the Secrets' metadata only, the Secret
+  read live at most once a minute while its version holds) or is refused with a distinct 403 reason, never the org
+  key; an org-attributed run keeps the org credential. Health comes only from the broker's own throttled probes
+  (`credhealth.go`), written by a patch conditional on the record's resourceVersion and only while the probed Secret
+  version (`status.secretVersion`, `ModelCredentialStatus.HealthFor`) is current; readiness stays the org
+  credential's. Startup refuses a setup-token org credential unless acknowledged, and any non-anthropic route
   (docs/configuration/user-credentials.md).
 - `cmd/egress-proxy` — OPTIONAL (default-off; chart `egressProxy`, chart-only, no kustomize component): the
   operator's Go dependency route (NOT a controller: no reconcilers, no leases). A GOPROXY-protocol reverse proxy to
@@ -568,11 +577,12 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   `egress broker not reachable yet; claude jobs will fail until it is` and never gates startup; intent-controller uses
   `ResolveWithoutBrokerProbe`).
 - `broker`, `provider` — the egress-broker engine (TokenReview auth + verdict cache, per-route credential
-  strategies, SSE-safe reverse proxy, audit, and the ledger: per pod name and UID the limits' counters plus, per bare
-  model id, observed input/output/cache-read/5m-and-1h cache-write tokens kept apart from the estimated shortfall,
-  served by `UsageHandler`) and the pure logic of brokered claude runners (gateway env,
-  canonical→provider model-id maps with per-provider derived defaults, the `PATCHY_MODEL_MAP` codec both the
-  controllers and agentrun share). `provider.BrokerTokenHeader` is the one definition of the caller-token
+  strategies, per-user credential resolution and health probes behind `Config.UserCredentials` with its adapter in
+  `broker/credstore`, SSE-safe reverse proxy, audit, and the ledger: per pod name and UID the limits' counters plus,
+  per bare model id and the kind of credential that paid, observed input/output/cache-read/5m-and-1h cache-write tokens
+  kept apart from the estimated shortfall, served by `UsageHandler`) and the pure logic of brokered claude runners
+  (gateway env, canonical→provider model-id maps with per-provider derived defaults, the `PATCHY_MODEL_MAP` codec both
+  the controllers and agentrun share). `provider.BrokerTokenHeader` is the one definition of the caller-token
   header.
 - `usagewire`, `usagemeter` — trusted usage (per-user credentials design, revision 1, L2). `usagewire` is the
   stdlib-only wire contract of the broker's usage endpoint (Job-name keying, `PodOfJob`, audience, credential kinds,

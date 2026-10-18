@@ -3400,6 +3400,15 @@ expect_fail 'user credentials over a setup-token org credential' 'set egressBrok
 render user-creds-ack --set attribution.mode=attribute --set egressBroker.userCredentials.mode=enforce \
   --set egressBroker.anthropicAuth=token --set egressBroker.userCredentials.orgCredentialIsPersonal=acknowledged
 expect user-creds-ack 'select(.kind == "ValidatingAdmissionPolicy" and .metadata.name == "patchy-credential-secrets") | .metadata.name' patchy-credential-secrets
+# The broker is told the mode and where to read: off renders none of it.
+cm user-creds egress-broker PATCHY_USER_CREDENTIALS enforce
+cm user-creds-attribute egress-broker PATCHY_USER_CREDENTIALS attribute
+cm user-creds egress-broker PATCHY_CREDENTIAL_RECORDS_NAMESPACE patchy
+cm user-creds egress-broker PATCHY_CREDENTIALS_NAMESPACE patchy-credentials
+cm user-creds egress-broker PATCHY_ORG_CREDENTIAL_IS_PERSONAL null
+cm user-creds-ns egress-broker PATCHY_CREDENTIALS_NAMESPACE team-keys
+cm user-creds-ack egress-broker PATCHY_ORG_CREDENTIAL_IS_PERSONAL acknowledged
+expect attribution 'select(.kind == "ConfigMap" and .metadata.name == "patchy-egress-broker-config") | .data | keys | .[] | select(test("CREDENTIAL"))' ""
 expect_fail 'user credentials without attribution' 'but attribution.mode is off' \
   --set egressBroker.userCredentials.mode=enforce
 expect_fail 'user credentials on bedrock' 'per-user credentials are Anthropic API keys and setup-tokens only' \

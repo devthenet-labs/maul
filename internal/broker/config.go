@@ -203,6 +203,9 @@ type Config struct {
 	// Usage configures the usage endpoint (UsageHandler); its zero value
 	// leaves the endpoint off.
 	Usage UsageConfig
+	// UserCredentials configures per-user model credentials; its zero
+	// value is off, the org credential paying for every request.
+	UserCredentials UserCredentialConfig
 }
 
 // UsageConfig configures the usage endpoint the run controllers read a
@@ -250,6 +253,12 @@ func (c Config) withDefaults() Config {
 	if c.Usage.Audience == "" {
 		c.Usage.Audience = usagewire.Audience
 	}
+	if c.UserCredentials.Mode == "" {
+		c.UserCredentials.Mode = UserCredentialsOff
+	}
+	if c.UserCredentials.MaxSecretAge <= 0 {
+		c.UserCredentials.MaxSecretAge = DefaultMaxSecretAge
+	}
 	return c
 }
 
@@ -290,7 +299,10 @@ func (c Config) validate() error {
 			return fmt.Errorf("broker: beta deny pattern %q: %w", p, err)
 		}
 	}
-	return c.Usage.validate(c)
+	if err := c.Usage.validate(c); err != nil {
+		return err
+	}
+	return c.UserCredentials.validate(c)
 }
 
 // validate rejects a negative limit, cost limits that would not be

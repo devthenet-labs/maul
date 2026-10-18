@@ -10,43 +10,67 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
+	"github.com/bitwise-media-group/patchy/api/v1alpha1"
 	"github.com/bitwise-media-group/patchy/internal/provider"
 )
 
-// budgetReader reads a caller pod's provider.BudgetAnnotation under the cost
-// limits: one get of the pod TokenReview bound the token to, in the agent
-// namespace only (the chart's Role grants get on pods there and nothing
-// else: no list, no watch). The result rides on the cached verdict, so it
-// costs one read per token per verdict TTL.
-type budgetReader struct {
+// podReader reads what the broker needs to know of a caller pod: one get of
+// the pod TokenReview bound the token to, in the agent namespace only (the
+// chart's Roles grant get on pods there and nothing else: no list, no
+// watch). It reads the provider.BudgetAnnotation under the cost limits and
+// the attributed-to annotation under per-user credentials. The result rides
+// on the cached verdict, so it costs one read per token per verdict TTL.
+type podReader struct {
 	cs        kubernetes.Interface
 	namespace string
+	// budget and attribution say which annotations to read.
+	budget, attribution bool
 }
 
-// read returns the pod's budget in micro-USD, or 0 when there is none to
-// honour: a token bound to no pod UID, a pod that is gone, a pod whose UID is
-// not the token's (the name now belongs to another pod, whose budget is not
-// this caller's), or an absent or malformed annotation. 0 falls back to
-// --cost-per-pod, never to unlimited. A read the API server did not answer is
-// an error, so the verdict is not cached and the request is refused as an
-// unavailable review rather than served under a budget the broker did not
-// see.
-func (b *budgetReader) read(ctx context.Context, name, uid string) (int64, error) {
+// podFacts is what one read found.
+type podFacts struct {
+	// verified is whether the token's pod was read and is the pod the token
+	// is bound to: a name and UID were reported and the pod by that name
+	// has that UID.
+	verified bool
+	// budget is the pod's budget in micro-USD; 0 when there is none to
+	// honour (or it was not read).
+	budget int64
+	// attributedTo is the pod's attributed-to annotation as written, ""
+	// when absent (or not read). Only a verified pod's is ever set.
+	attributedTo string
+}
+
+// read returns the facts of the pod named name with UID uid. A token bound
+// to no pod UID, a pod that is gone, or a pod whose UID is not the token's
+// (the name now belongs to another pod, whose annotations are not this
+// caller's) is unverified: no budget (0 falls back to --cost-per-pod, never
+// to unlimited) and no attribution (which per-user credentials under
+// enforce refuse). An absent or malformed budget is 0. A read the API
+// server did not answer is an error, so the verdict is not cached and the
+// request is refused as an unavailable review rather than served under
+// facts the broker did not see.
+func (p *podReader) read(ctx context.Context, name, uid string) (podFacts, error) {
 	if name == "" || uid == "" {
-		return 0, nil
+		return podFacts{}, nil
 	}
-	pod, err := b.cs.CoreV1().Pods(b.namespace).Get(ctx, name, metav1.GetOptions{})
+	pod, err := p.cs.CoreV1().Pods(p.namespace).Get(ctx, name, metav1.GetOptions{})
 	switch {
 	case apierrors.IsNotFound(err):
-		return 0, nil
+		return podFacts{}, nil
 	case err != nil:
-		return 0, err
+		return podFacts{}, err
 	case string(pod.UID) != uid:
-		return 0, nil
+		return podFacts{}, nil
 	}
-	budget, ok := provider.ParseBudget(pod.Annotations[provider.BudgetAnnotation])
-	if !ok {
-		return 0, nil
+	facts := podFacts{verified: true}
+	if p.budget {
+		if budget, ok := provider.ParseBudget(pod.Annotations[provider.BudgetAnnotation]); ok {
+			facts.budget = budget
+		}
 	}
-	return budget, nil
+	if p.attribution {
+		facts.attributedTo = pod.Annotations[v1alpha1.AnnotationAttributedTo]
+	}
+	return facts, nil
 }

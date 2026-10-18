@@ -16,6 +16,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/bitwise-media-group/patchy/internal/broker"
 	"github.com/bitwise-media-group/patchy/internal/cli"
 )
 
@@ -294,6 +295,29 @@ func TestServeStartupErrors(t *testing.T) {
 			wantErr: "the cost limit unit needs a cost per pod",
 		},
 		{
+			name: "the subscription guard",
+			args: []string{"--kubeconfig", kc, "--anthropic-api-key-file", "/k", "--anthropic-auth", "token",
+				"--user-credentials", "attribute"},
+			wantErr: "org credential is a setup-token",
+		},
+		{
+			name: "per-user credentials over a cloud route",
+			args: []string{"--kubeconfig", kc, "--vertex-region", "us-east5", "--vertex-project", "p",
+				"--user-credentials", "enforce"},
+			wantErr: "anthropic route must be the only route",
+		},
+		{
+			name:    "unknown user credentials mode",
+			args:    []string{"--kubeconfig", kc, "--anthropic-api-key-file", "/k", "--user-credentials", "on"},
+			wantErr: "--user-credentials",
+		},
+		{
+			name: "one namespace for records and secrets",
+			args: []string{"--kubeconfig", kc, "--anthropic-api-key-file", "/k", "--user-credentials", "enforce",
+				"--credentials-namespace", "patchy"},
+			wantErr: "must both be set and differ",
+		},
+		{
 			name:    "unknown limit unit",
 			args:    []string{"--kubeconfig", kc, "--anthropic-api-key-file", "/k", "--limit-unit", "usd"},
 			wantErr: `limit unit "usd" is not tokens or cost`,
@@ -382,5 +406,33 @@ func TestUsageConfig(t *testing.T) {
 		"system:serviceaccount:patchy:patchy-evaluation-controller"}
 	if addr != ":8082" || !slices.Equal(cfg.Callers, want) || cfg.Audience != "patchy-egress-broker-usage" {
 		t.Errorf("addr %q cfg %+v", addr, cfg)
+	}
+}
+
+// TestUserCredentialsFlags: per-user credentials are off unless set, the
+// mode and the subscription guard's acknowledgement are held to their
+// grammars, and the namespaces default to the chart's.
+func TestUserCredentialsFlags(t *testing.T) {
+	cfg, records, secrets, err := userCredentials(serveOpts(t))
+	if err != nil || cfg.Mode != broker.UserCredentialsOff || cfg.OrgCredentialIsPersonal {
+		t.Fatalf("defaults = %+v, %v", cfg, err)
+	}
+	if records != "patchy" || secrets != "patchy-credentials" || cfg.Health.ProbeModel != broker.DefaultProbeModel {
+		t.Errorf("default namespaces, probe model = %s, %s, %s", records, secrets, cfg.Health.ProbeModel)
+	}
+	cfg, records, secrets, err = userCredentials(serveOpts(t, "--user-credentials", "enforce",
+		"--org-credential-is-personal", "acknowledged", "--credential-records-namespace", "rel",
+		"--credentials-namespace", "creds"))
+	if err != nil || cfg.Mode != broker.UserCredentialsEnforce || !cfg.OrgCredentialIsPersonal ||
+		records != "rel" || secrets != "creds" {
+		t.Errorf("enforce = %+v, %s, %s, %v", cfg, records, secrets, err)
+	}
+	for _, args := range [][]string{
+		{"--user-credentials", "on"},
+		{"--user-credentials", "attribute", "--org-credential-is-personal", "yes"},
+	} {
+		if _, _, _, err := userCredentials(serveOpts(t, args...)); err == nil {
+			t.Errorf("%v = nil error", args)
+		}
 	}
 }

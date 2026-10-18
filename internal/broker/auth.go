@@ -39,6 +39,11 @@ type identity struct {
 	// the verdict under the cost limits; 0 when absent, unreadable, or not
 	// read.
 	budget int64
+	// podVerified and attributedTo are read with the verdict under per-user
+	// credentials: whether the bound pod was read and is the token's (its
+	// UID checked), and its attributed-to annotation as written.
+	podVerified  bool
+	attributedTo string
 }
 
 // key is the ledger key: the pod name, and its UID when the review reported
@@ -81,10 +86,11 @@ type authenticator struct {
 	refusal string
 	ttl     time.Duration
 	reviews *reviewLimiter // nil: unlimited
-	// budgets reads the bound pod's budget annotation into each allowed
-	// verdict; nil reads none (the token unit, and the usage endpoint).
-	budgets *budgetReader
-	now     func() time.Time
+	// pods reads the bound pod's budget and attributed-to annotations into
+	// each allowed verdict; nil reads nothing (the token unit with per-user
+	// credentials off, and the usage endpoint).
+	pods *podReader
+	now  func() time.Time
 
 	mu    sync.Mutex
 	cache map[[sha256.Size]byte]verdict
@@ -102,8 +108,9 @@ func newAuthenticator(cs kubernetes.Interface, cfg Config, reviews *reviewLimite
 		now:      time.Now,
 		cache:    map[[sha256.Size]byte]verdict{},
 	}
-	if cfg.Limits.cost() {
-		a.budgets = &budgetReader{cs: cs, namespace: cfg.AgentNamespace}
+	if cfg.Limits.cost() || cfg.UserCredentials.Mode.on() {
+		a.pods = &podReader{cs: cs, namespace: cfg.AgentNamespace,
+			budget: cfg.Limits.cost(), attribution: cfg.UserCredentials.Mode.on()}
 	}
 	return a
 }
@@ -193,10 +200,12 @@ func (a *authenticator) review(r *http.Request, token string) (verdict, error) {
 	if uids := tr.Status.User.Extra[podUIDExtraKey]; len(uids) > 0 {
 		id.uid = uids[0]
 	}
-	if a.budgets != nil {
-		if id.budget, err = a.budgets.read(r.Context(), id.pod, id.uid); err != nil {
+	if a.pods != nil {
+		facts, err := a.pods.read(r.Context(), id.pod, id.uid)
+		if err != nil {
 			return verdict{}, errReviewUnavailable
 		}
+		id.budget, id.podVerified, id.attributedTo = facts.budget, facts.verified, facts.attributedTo
 	}
 	return verdict{allowed: true, id: id, expiry: expiry}, nil
 }

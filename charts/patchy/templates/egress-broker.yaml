@@ -11,9 +11,12 @@
 # credential outbound. The model credentials therefore live HERE, in the
 # release namespace, not in the agent sandbox.
 {{- if include "patchy.brokerEnabled" . }}
-{{- /* The one exception to TokenReview-only: with egressBroker.limits.unit
+{{- /* The exceptions to TokenReview-only: with egressBroker.limits.unit
 cost the broker also gets pods in the agent namespace, for the budget
-annotation (the -budgets Role below). */}}
+annotation (the -budgets Role below); with egressBroker.userCredentials.mode
+attribute or enforce it reads its callers' pods, the ModelCredential records
+and the credential Secrets, and writes the records' health
+(user-credentials.yaml). */}}
 {{- $vals := .Values.egressBroker }}
 {{- $name := "egress-broker" }}
 {{- $provider := .Values.agent.runners.claude.provider | default dict }}
@@ -118,6 +121,22 @@ replica: the usage figures depend on one ledger seeing all of a pod's traffic.
 {{- if include "patchy.usageMeasured" . }}
 {{- $_ := set $data "PATCHY_USAGE_ADDR" ":8082" }}
 {{- $_ := set $data "PATCHY_USAGE_CALLERS" (include "patchy.usageCallers" .) }}
+{{- end }}
+{{- /*
+Per-user model credentials (design L3): rendered only while
+egressBroker.userCredentials.mode is not off, which user-credentials.yaml
+holds to its guards (attribution on, the anthropic provider, its own
+namespace, the subscription guard) and gives the grants the broker reads
+with. Off renders nothing here, so the broker keeps its default: off.
+*/}}
+{{- if include "patchy.userCredentialsOn" . }}
+{{- $uc := $vals.userCredentials }}
+{{- $_ := set $data "PATCHY_USER_CREDENTIALS" $uc.mode }}
+{{- $_ := set $data "PATCHY_CREDENTIAL_RECORDS_NAMESPACE" .Release.Namespace }}
+{{- $_ := set $data "PATCHY_CREDENTIALS_NAMESPACE" ($uc.namespace | default "patchy-credentials") }}
+{{- with $uc.orgCredentialIsPersonal }}
+{{- $_ := set $data "PATCHY_ORG_CREDENTIAL_IS_PERSONAL" . }}
+{{- end }}
 {{- end }}
 {{- with $limits.modelAllowlist }}
 {{- $_ := set $data "PATCHY_MODEL_ALLOWLIST" (join "," .) }}

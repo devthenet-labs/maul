@@ -33,18 +33,27 @@ type auditEntry struct {
 	// --cost-per-pod and its budget annotation); 0 unless the cost limits
 	// are enforced.
 	costLimit int64
+	// creds is whether per-user credentials are on; only then does the
+	// line carry user and credential.
+	creds bool
+	// user is the run's attributed person ("github-id:<id>", "org", or why
+	// there is none); credential the paying credential's fingerprint, or
+	// "org".
+	user, credential string
 }
 
 // audit emits the one slog line every request gets: caller pod, route,
 // method, path, status, duration, bytes, the model named, the tokens and
-// micro-USD charged and the pod's running totals. Never bodies, never headers — model
+// micro-USD charged and the pod's running totals, and under per-user
+// credentials the attributed person and the paying credential's
+// fingerprint. Never bodies, never headers, never a credential — model
 // prompts and completions must not land in the broker's logs.
 func audit(log *slog.Logger, r *http.Request, e auditEntry) {
 	msg := "proxied"
 	if e.reason != "" {
 		msg = "rejected"
 	}
-	log.LogAttrs(r.Context(), slog.LevelInfo, msg,
+	attrs := []slog.Attr{
 		slog.String("pod", e.pod),
 		slog.String("route", e.route),
 		slog.String("method", r.Method),
@@ -60,5 +69,10 @@ func audit(log *slog.Logger, r *http.Request, e auditEntry) {
 		slog.Int64("pod_tokens", e.totals.tokens),
 		slog.Int64("cost_micro_usd", e.cost),
 		slog.Int64("pod_cost_micro_usd", e.totals.cost),
-		slog.Int64("pod_cost_limit_micro_usd", e.costLimit))
+		slog.Int64("pod_cost_limit_micro_usd", e.costLimit),
+	}
+	if e.creds {
+		attrs = append(attrs, slog.String("user", e.user), slog.String("credential", e.credential))
+	}
+	log.LogAttrs(r.Context(), slog.LevelInfo, msg, attrs...)
 }
