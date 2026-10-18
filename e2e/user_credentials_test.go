@@ -44,6 +44,9 @@ const (
 	// personalKey is the approver's own Anthropic API key, as they paste it
 	// into the Account page.
 	personalKey = "sk-ant-api03-octocat-e2e-personal-key"
+	// replacementKey is the key the approver stores in place of
+	// personalKey, so the broker's cached copy of the Secret must go.
+	replacementKey = "sk-ant-api03-octocat-e2e-replacement"
 	// revocationCap is the most time a revoked credential may still be used
 	// (design revision 1, L3 "Enforce fails closed").
 	revocationCap = 60 * time.Second
@@ -66,8 +69,10 @@ const (
 // person's key, never the org's, while an org-attributed pod still pays
 // with the org key; enforce fails closed for a pod with no attribution and
 // for a person with no credential, and nothing it refuses reaches the
-// upstream; and once the person deletes their credential, their pod is
-// refused within the revocation cap.
+// upstream; once the person replaces their key, the old one stops paying
+// within the revocation cap, though the broker holds a warm copy of the
+// Secret it came from; and once they delete their credential, their pod is
+// refused.
 func TestUserCredentials(t *testing.T) {
 	ctx := context.Background()
 	listen := fmt.Sprintf("127.0.0.1:%d", freePort(t))
@@ -82,7 +87,7 @@ func TestUserCredentials(t *testing.T) {
 	}
 	ensureAgentSA(t, cs)
 
-	up := newCredentialUpstream(orgModelKey, personalKey)
+	up := newCredentialUpstream(orgModelKey, personalKey, replacementKey)
 	t.Cleanup(up.Close)
 	keyFile := filepath.Join(t.TempDir(), "api-key")
 	if err := os.WriteFile(keyFile, []byte(orgModelKey), 0o600); err != nil {
@@ -213,8 +218,42 @@ func TestUserCredentials(t *testing.T) {
 		t.Errorf("a refused request reached the upstream: %d requests, want %d", n, sent)
 	}
 
-	// 6. Revocation: once the approver deletes their credential, their pod
-	// is refused within the cap, however warm the broker's caches are.
+	// 6. Replacement: the record stays and only the Secret changes, so this
+	// is the path through the broker's Secret data cache, warm from step 4.
+	// The old key must stop paying within the cap, and once the new one has
+	// paid, the old one must never pay again.
+	if code, body := accountPost(t, browser, base+"/api/account/credentials/anthropic",
+		`{"kind":"api-key","credential":"`+replacementKey+`"}`); code != http.StatusOK ||
+		strings.Contains(body, replacementKey) {
+		t.Fatalf("replace the credential = %d %s, want 200 without the credential echoed", code, body)
+	}
+	replaced := time.Now()
+	for up.count("/v1/messages", replacementKey) == 0 {
+		if code, body := brokerTurn(t, brokerURL, person); code != http.StatusOK {
+			t.Fatalf("after replacement: %d %s, want 200", code, body)
+		}
+		if up.count("/v1/messages", replacementKey) == 0 && time.Since(replaced) > revocationCap {
+			t.Fatalf("a replaced key still paid %s after its replacement, past the %s cap: %v",
+				time.Since(replaced).Round(time.Second), revocationCap, up.messages())
+		}
+		if up.count("/v1/messages", replacementKey) == 0 {
+			time.Sleep(250 * time.Millisecond)
+		}
+	}
+	t.Logf("replaced key stopped paying %s after its replacement", time.Since(replaced).Round(time.Millisecond))
+	oldPaid := up.count("/v1/messages", personalKey)
+	for range 3 {
+		if code, body := brokerTurn(t, brokerURL, person); code != http.StatusOK {
+			t.Fatalf("on the replacement key: %d %s, want 200", code, body)
+		}
+	}
+	if n := up.count("/v1/messages", personalKey); n != oldPaid {
+		t.Errorf("the replaced key paid again after its replacement had: %v", up.messages())
+	}
+
+	// 7. Deletion: once the approver deletes their credential, their pod is
+	// refused within the cap. Deleting removes the record too, so this is
+	// the record informer's path, not the Secret cache's (step 6 is that).
 	if code, body := accountPost(t, browser, base+"/api/account/credentials/anthropic/delete", ""); code !=
 		http.StatusNoContent {
 		t.Fatalf("delete the credential = %d %s, want 204", code, body)
@@ -304,15 +343,15 @@ func (u *credentialUpstream) count(path string, credential ...string) int {
 	return n
 }
 
-// messages is each Messages request's credential, by its last four
-// characters, for a failure message.
+// messages is each Messages request's credential, by its last eight
+// characters (enough to tell the test's keys apart), for a failure message.
 func (u *credentialUpstream) messages() []string {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	var out []string
 	for _, s := range u.seen {
 		if s.path == "/v1/messages" {
-			out = append(out, "…"+s.credential[max(len(s.credential)-4, 0):])
+			out = append(out, "…"+s.credential[max(len(s.credential)-8, 0):])
 		}
 	}
 	return out

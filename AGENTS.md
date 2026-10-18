@@ -366,7 +366,8 @@ e2e/                SEPARATE Go module: envtest carries the CRDs, the real binar
                     federated_claims for a user with a GitHub id under federated:id); it
                     asserts the hold, the resume once the broker's probe says Valid, the
                     person's key on their pod and the org key on an org pod, the fail-closed
-                    refusals, and a deleted credential refused within the 60s cap.
+                    refusals, a replaced key no longer paying within the 60s cap though
+                    the broker's Secret cache is warm, and a deleted credential refused.
 docs/ overrides/    Zensical docs site (zensical.toml at the root; patchy-branded theme in
                     docs/stylesheets/extra.css + overrides/). `mise run serve` to preview,
                     `mise run docs-build` to build; the reusable release workflow publishes it
