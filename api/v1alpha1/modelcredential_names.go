@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"strconv"
+	"strings"
 )
 
 // The credential store's naming contract (per-user credentials design, L3,
@@ -113,4 +114,46 @@ func (s ModelCredentialStatus) HealthFor(current string) ModelCredentialHealth {
 		return s.Health
 	}
 	return ModelCredentialUnknown
+}
+
+// Credential value prefixes Anthropic issues, used only to catch a
+// credential stored under the wrong kind before the provider rejects it.
+const (
+	anthropicAPIKeyPrefix     = "sk-ant-api"
+	anthropicOAuthTokenPrefix = "sk-ant-oat"
+)
+
+// ModelCredentialValue is the credential a person stores, as the egress
+// broker will use it: raw trimmed of surrounding whitespace, then 1 to
+// ModelCredentialSecretMaxBytes of printable ASCII with no space (a single
+// token: nothing in it can split or inject a header). ok is false for
+// anything else, and for a value that carries the other kind's Anthropic
+// prefix (a setup-token stored as an API key, or the reverse), which the
+// provider would only reject.
+func ModelCredentialValue(raw string, kind ModelCredentialKind) (value string, ok bool) {
+	if len(raw) > ModelCredentialSecretMaxBytes {
+		return "", false
+	}
+	v := strings.TrimSpace(raw)
+	if v == "" {
+		return "", false
+	}
+	for i := 0; i < len(v); i++ {
+		if c := v[i]; c < 0x21 || c > 0x7e {
+			return "", false
+		}
+	}
+	switch kind {
+	case ModelCredentialAPIKey:
+		if strings.HasPrefix(v, anthropicOAuthTokenPrefix) {
+			return "", false
+		}
+	case ModelCredentialOAuthToken:
+		if strings.HasPrefix(v, anthropicAPIKeyPrefix) {
+			return "", false
+		}
+	default:
+		return "", false
+	}
+	return v, true
 }

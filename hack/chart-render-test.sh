@@ -3447,11 +3447,23 @@ expect attribution "$held_rules" ""
 # with a host; refused without the store it writes to.
 # shellcheck disable=SC2086
 render user-creds-account $allcomponents --set attribution.mode=attribute --set egressBroker.userCredentials.mode=enforce \
-  --set statusServer.account.enabled=true --set statusServer.host=status.example.com
+  --set statusServer.account.enabled=true --set statusServer.host=status.example.com \
+  --set statusServer.auth.existingSecret=patchy-status-auth
 cm user-creds-account remediation-controller PATCHY_ACCOUNT_URL "https://status.example.com/#/account"
 cm user-creds-account intent-controller PATCHY_ACCOUNT_URL "https://status.example.com/#/account"
 cm user-creds-account integration-controller PATCHY_ACCOUNT_URL "https://status.example.com/#/account"
 cm user-creds-account investigation-controller PATCHY_ACCOUNT_URL null
+cm user-creds-account status-server PATCHY_ACCOUNT_ENABLED true
+cm user-creds-account status-server PATCHY_CREDENTIALS_NAMESPACE patchy-credentials
+cm user-creds status-server PATCHY_ACCOUNT_ENABLED null
+cm user-creds status-server PATCHY_CREDENTIALS_NAMESPACE null
+expect_fail 'the Account page without oidc' 'statusServer.account.enabled requires statusServer.auth.config.mode oidc' \
+  --set attribution.mode=attribute --set egressBroker.userCredentials.mode=enforce \
+  --set statusServer.account.enabled=true --set statusServer.auth.config.mode=none
+expect_fail 'the Account page without federated:id' 'statusServer.account.enabled requires federated:id' \
+  --set attribution.mode=attribute --set egressBroker.userCredentials.mode=enforce \
+  --set statusServer.account.enabled=true --set statusServer.auth.config.mode=oidc \
+  --set statusServer.auth.config.oidc.claims.usernamePrefix=github: --set statusServer.auth.config.oidc.claims.groupsPrefix=github:
 expect_fail 'the Account page without the credential store' 'statusServer.account.enabled needs egressBroker.userCredentials.mode' \
   --set statusServer.account.enabled=true
 

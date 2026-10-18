@@ -23,6 +23,8 @@ import (
 	"github.com/bitwise-media-group/patchy/api/v1alpha1"
 	"github.com/bitwise-media-group/patchy/internal/kube"
 	"github.com/bitwise-media-group/patchy/internal/rbactest"
+	"github.com/bitwise-media-group/patchy/internal/web"
+	"github.com/bitwise-media-group/patchy/internal/web/credstore"
 )
 
 // The user-credentials policies' refusals, each distinct so a case cannot
@@ -109,6 +111,94 @@ func TestUserCredentialPoliciesAgainstAPIServer(t *testing.T) {
 	t.Run("records", func(t *testing.T) { checkCredentialRecords(t, admin, as) })
 	t.Run("status", func(t *testing.T) { checkCredentialStatus(t, admin, as) })
 	t.Run("secrets", func(t *testing.T) { checkCredentialSecrets(t, admin, as) })
+	t.Run("account store", func(t *testing.T) { checkAccountStore(t, admin, as) })
+}
+
+// checkAccountStore drives the status server's Account page store
+// (internal/web/credstore) as the status server's own ServiceAccount,
+// against the chart's RBAC and policies: it can store, replace and delete a
+// person's credential without ever reading a Secret, every write it makes
+// passes the policies, and the record's status ends as the design says
+// (the new fingerprint, health reset to Unknown for a new credential).
+func checkAccountStore(t *testing.T, admin client.Client, as func(string) client.Client) {
+	ctx := t.Context()
+	status := as(saStatus)
+	store := &credstore.Store{Client: status, Reader: status, Namespace: egressRelease,
+		CredentialsNamespace: credNamespace}
+	owner := v1alpha1.ModelCredentialOwner(31)
+	provider := v1alpha1.ModelCredentialProviderAnthropic
+	put := func(cred string, kind v1alpha1.ModelCredentialKind) *v1alpha1.ModelCredential {
+		t.Helper()
+		var rec *v1alpha1.ModelCredential
+		waitFor(t, func() error {
+			var err error
+			rec, err = store.Put(ctx, web.CredentialWrite{Owner: owner, OwnerLogin: "erin", Provider: provider,
+				Kind: kind, Credential: cred, By: "github:erin"})
+			if err != nil {
+				return &waitError{err: err, want: "no error"}
+			}
+			return nil
+		})
+		return rec
+	}
+	stored := func() string {
+		t.Helper()
+		var s corev1.Secret
+		if err := admin.Get(ctx, types.NamespacedName{Namespace: credNamespace,
+			Name: v1alpha1.ModelCredentialSecretName(owner, provider)}, &s); err != nil {
+			t.Fatalf("read the stored secret: %v", err)
+		}
+		if s.Labels[v1alpha1.LabelCredentialOwner] != v1alpha1.ModelCredentialOwnerHash(owner) {
+			t.Errorf("owner label = %v", s.Labels)
+		}
+		return string(s.Data[v1alpha1.ModelCredentialSecretKey])
+	}
+
+	first := put("sk-ant-api03-first-credential-aaaa", v1alpha1.ModelCredentialAPIKey)
+	if got := stored(); got != "sk-ant-api03-first-credential-aaaa" {
+		t.Fatalf("stored %q", got)
+	}
+	if first.Spec.Owner != owner || first.Spec.Kind != v1alpha1.ModelCredentialAPIKey ||
+		first.Status.Fingerprint != v1alpha1.ModelCredentialFingerprint([]byte("sk-ant-api03-first-credential-aaaa")) ||
+		first.Status.Health != v1alpha1.ModelCredentialUnknown {
+		t.Fatalf("record after the first store = %+v", first)
+	}
+
+	// The broker found it Valid; replacing it (an unconditional update of
+	// a Secret the status server cannot read) resets the health for the
+	// new credential and changes the kind.
+	var rec v1alpha1.ModelCredential
+	if err := admin.Get(ctx, client.ObjectKeyFromObject(first), &rec); err != nil {
+		t.Fatal(err)
+	}
+	rec.Status.Health = v1alpha1.ModelCredentialValid
+	rec.Status.SecretVersion = "1"
+	if err := as(saBroker).Status().Update(ctx, &rec); err != nil {
+		t.Fatalf("the broker's verdict: %v", err)
+	}
+	second := put("sk-ant-oat01-second-credential-bbbb", v1alpha1.ModelCredentialOAuthToken)
+	if got := stored(); got != "sk-ant-oat01-second-credential-bbbb" {
+		t.Fatalf("replaced with %q", got)
+	}
+	if second.Spec.Kind != v1alpha1.ModelCredentialOAuthToken || second.Status.Health != v1alpha1.ModelCredentialUnknown ||
+		second.Status.SecretVersion != "" || !strings.HasPrefix(second.Status.Fingerprint, "bbbb:") {
+		t.Fatalf("record after the replace = %+v", second)
+	}
+
+	if err := store.Delete(ctx, owner, provider); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if err := store.Delete(ctx, owner, provider); err != nil {
+		t.Fatalf("delete again: %v", err)
+	}
+	if got, err := store.Record(ctx, owner, provider); err != nil || got != nil {
+		t.Fatalf("record after delete = %+v, %v", got, err)
+	}
+	var gone corev1.Secret
+	if err := admin.Get(ctx, types.NamespacedName{Namespace: credNamespace,
+		Name: v1alpha1.ModelCredentialSecretName(owner, provider)}, &gone); !apierrors.IsNotFound(err) {
+		t.Fatalf("secret after delete: %v", err)
+	}
 }
 
 // checkCredentialRBAC: what the chart grants, and what it must not.

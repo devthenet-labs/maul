@@ -61,6 +61,9 @@ type Server struct {
 	// usage is the usage views' state, nil while they are off. Its presence
 	// also turns on the hardened browser envelope.
 	usage *usageState
+	// account is the Account page's state, nil while it is off. Its
+	// presence also turns on the hardened browser envelope.
+	account *accountState
 	// agentsPaused is the operator's agent pause (agent.paused), shown on
 	// the signed-in page; display only, the job controllers enforce it.
 	agentsPaused bool
@@ -124,6 +127,9 @@ func (s *Server) Handler() http.Handler {
 	}
 	if s.usage != nil {
 		s.registerUsage(mux)
+	}
+	if s.account != nil {
+		s.registerAccount(mux)
 	}
 	if s.hardened() {
 		assets, _ := uiAssets()

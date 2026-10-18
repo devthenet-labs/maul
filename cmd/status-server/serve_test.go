@@ -107,3 +107,41 @@ func TestUsageAuthGate(t *testing.T) {
 		})
 	}
 }
+
+// The Account page comes up only under the usage views' posture (oidc,
+// both prefixes, federated:id) and with a valid credentials namespace; off,
+// any posture starts.
+func TestAccountAuthGate(t *testing.T) {
+	dex := auth.ClaimsConfig{Username: "preferred_username", UsernamePrefix: "github:", GroupsPrefix: "github:",
+		GitHubConnector: "github"}
+	oidc := func(scopes ...string) *auth.Config {
+		return &auth.Config{Mode: auth.ModeOIDC, OIDC: &auth.OIDCConfig{Claims: dex, Scopes: scopes}}
+	}
+	cases := []struct {
+		name    string
+		on      bool
+		ns      string
+		cfg     *auth.Config
+		wantErr string
+	}{
+		{"off and unconfigured", false, "patchy-credentials", nil, ""},
+		{"mode none", true, "patchy-credentials", &auth.Config{Mode: auth.ModeNone}, `not "none"`},
+		{"oidc without federated:id", true, "patchy-credentials", oidc("openid"), "federated:id"},
+		{"a namespace outside the grammar", true, "Patchy_Creds", oidc("openid", "federated:id"),
+			"--credentials-namespace"},
+		{"dex with federated:id", true, "patchy-credentials", oidc("openid", "federated:id"), ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			aw, err := newAccountWiring(tc.on, tc.ns, tc.cfg)
+			switch {
+			case tc.wantErr == "" && err != nil:
+				t.Fatalf("newAccountWiring = %v", err)
+			case tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)):
+				t.Fatalf("newAccountWiring = %v, want an error containing %q", err, tc.wantErr)
+			case tc.wantErr == "" && aw.on != tc.on:
+				t.Errorf("on = %v, want %v", aw.on, tc.on)
+			}
+		})
+	}
+}

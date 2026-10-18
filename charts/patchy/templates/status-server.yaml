@@ -63,6 +63,29 @@ config is checked here (the server refuses the rest at startup).
 {{- end }}
 {{- end }}
 {{- end }}
+{{- /*
+The Account page keeps a credential under the person's GitHub id, as the
+usage views keep usage: the same posture (patchy.accountOn has already
+refused it without the credential store).
+*/}}
+{{- if include "patchy.accountOn" . }}
+{{- if not (or $vals.auth.config $vals.auth.existingSecret) }}
+{{- fail "statusServer.account.enabled requires an auth config in mode oidc (statusServer.auth.existingSecret or statusServer.auth.config)" }}
+{{- end }}
+{{- with $vals.auth.config }}
+{{- if ne (.mode | default "") "oidc" }}
+{{- fail "statusServer.account.enabled requires statusServer.auth.config.mode oidc: a credential is kept per GitHub account, which only a Dex sign-in through the GitHub connector names" }}
+{{- end }}
+{{- $oidc := .oidc | default dict }}
+{{- $claims := $oidc.claims | default dict }}
+{{- if or (not $claims.usernamePrefix) (not $claims.groupsPrefix) }}
+{{- fail "statusServer.account.enabled requires statusServer.auth.config.oidc.claims.usernamePrefix and groupsPrefix" }}
+{{- end }}
+{{- if not (has "federated:id" ($oidc.scopes | default list)) }}
+{{- fail "statusServer.account.enabled requires federated:id in statusServer.auth.config.oidc.scopes, so Dex's ID token names the GitHub connector and the person's GitHub id" }}
+{{- end }}
+{{- end }}
+{{- end }}
 {{- if $vals.auth.config }}
 ---
 apiVersion: v1
@@ -108,6 +131,10 @@ metadata:
 {{- end }}
 {{- if $vals.usage.enabled }}
 {{- $_ := set $data "PATCHY_USAGE_ENABLED" "true" }}
+{{- end }}
+{{- if include "patchy.accountOn" . }}
+{{- $_ := set $data "PATCHY_ACCOUNT_ENABLED" "true" }}
+{{- $_ := set $data "PATCHY_CREDENTIALS_NAMESPACE" (.Values.egressBroker.userCredentials.namespace | default "patchy-credentials") }}
 {{- end }}
 {{- /* agent.paused, shown on the page; the job controllers enforce it. */}}
 {{- $_ := include "patchy.agentsPausedData" (dict "root" . "data" $data) }}
