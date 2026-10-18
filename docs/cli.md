@@ -127,7 +127,7 @@ mean the same thing.
 (every CRD declares the `patchy` category), and no other verb accepts it — there is nothing sensible to describe, review
 or approve collectively.
 
-`get` also takes `usage`, which is not a kind but the usage report: metered tokens and cost per person and per Project,
+`get` also takes `usage`, which is not a kind but the usage report: metered cost and tokens per person and per Project,
 read from the `UsageRollup`s (see [Reading usage](#reading-usage)).
 
 The intent nouns (`intent`, `intentrun`, `project`) are for reading only: intents are driven from their GitHub issue
@@ -180,10 +180,12 @@ patchy get usage --user octocat --project storefront -o json
 The report is the one the status page's Usage view shows (`-o json` is the same document as its API), built from the
 `UsageRollup`s that attribution writes ([attribution](configuration/attribution.md#usage-rollups)). It is an admin view:
 the CLI first asks for `get` on the virtual `usage/all` and stops, exit 4, without it; the rollups are then read with
-your own kubeconfig, so RBAC on `usagerollups` applies too. A person's own usage is on the status page. `COST` is
-metered tokens at list rates, `EQUIVALENT` what a Claude subscription's runs would have cost at those rates (never money
-spent), `UNMETERED` the broker's worst-case shortfall (never priced) and `REPORTED` the runs with only their pod's own,
-untrusted figure, which no total includes. A login two GitHub accounts have held is refused: name one as
+your own kubeconfig, so RBAC on `usagerollups` applies too. A person's own usage is on the status page. Cost leads:
+`COST` is metered tokens at list rates and `EQUIVALENT` what a Claude subscription's runs would have cost at those rates
+(never money spent). The tokens follow by type, `INPUT`, `OUTPUT`, `CACHE READ` and `CACHE WRITE` (five-minute and
+one-hour together), then their total, `TOKENS`; the top intents carry only that total, as their month buckets record no
+split. `UNMETERED` is the broker's worst-case shortfall (never priced) and `REPORTED` the runs with only their pod's
+own, untrusted figure, which no total includes. A login two GitHub accounts have held is refused: name one as
 `github-id:<id>`.
 
 `patchy get all` is the whole pipeline in one screen — every kind, each in its own table, in the order the pipeline uses

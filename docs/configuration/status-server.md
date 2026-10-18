@@ -66,18 +66,23 @@ The Usage page answers "who is producing what, and what does it cost" from the `
 [attribution](attribution.md#usage-rollups) writes, so it shows something only with `attribution.mode: attribute`. Helm:
 `statusServer.usage.enabled: true` (default `false`).
 
-- **Your own usage.** Every signed-in person sees their own daily tokens and cost over the last 30 or 90 days, stacked
-  by Project or by run kind, their top intents, and the totals. No grant is needed: the server reads only the rollups
-  keyed by the caller's own GitHub id.
+- **Your own usage.** Every signed-in person sees their own daily cost and tokens over the last 30 or 90 days, stacked
+  by Project or by run kind, their top intents, and the totals. The chart opens on cost; tokens are a toggle away and
+  open split by type (input, output, cache read, cache write), since a token total is mostly cache reads, which cost a
+  tenth of input. No grant is needed: the server reads only the rollups keyed by the caller's own GitHub id.
 - **Everyone's usage.** A holder of `get` on the virtual subresource `usage/all` (group `patchy.bitwisemedia.uk`, the
   release namespace) also sees every person, the org's runs (no person behind them), every Project and the totals, and
   can open one person or one Project. With `statusServer.rbac.userRoles` the chart renders the `patchy-usage-admin`
   ClusterRole (that grant plus `get`/`list` on `usagerollups`, for [`patchy get usage`](../cli.md#reading-usage)); bind
   it with a RoleBinding in the release namespace.
-- **What the figures are.** Tokens and cost are what the egress broker metered, priced at list rates. A Claude
-  subscription's tokens are priced too, as an _equivalent API cost_, never as money spent. The broker's worst-case
-  unmetered shortfall and the runs with only their pod's own (untrusted) report are shown in their own panel, never in a
-  total. Top intents come from month buckets, so they cover the whole months the window touches.
+- **What the figures are.** Tokens and cost are what the egress broker metered, priced at list rates. Wherever the page
+  shows tokens (totals, the daily table, people, Projects) it shows them by type; cache writes are one figure (the
+  rollups record five-minute and one-hour writes together). The stacks by Project and by run kind and the top intents
+  show one token total: run-kind shares and top intents are recorded without the split, and the chart's stack by token
+  type covers each day. A Claude subscription's tokens are priced too, as an _equivalent API cost_, never as money
+  spent. The broker's worst-case unmetered shortfall and the runs with only their pod's own (untrusted) report are shown
+  in their own panel, never in a total. Top intents come from month buckets, so they cover the whole months the window
+  touches.
 
 A person is their **GitHub numeric id**, never a login, which can be renamed and taken by someone else. The page reads
 it from the Dex ID token's `federated_claims`: `connector_id` must equal `oidc.claims.githubConnector` (default

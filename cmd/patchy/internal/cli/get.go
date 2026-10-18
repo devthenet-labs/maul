@@ -82,7 +82,8 @@ func newGetCmd(opts *Options) *cobra.Command {
 			"The resource `all` lists every patchy kind, each in its own table, in the\n" +
 			"order the pipeline uses them. Kinds with nothing in them are left out.\n\n" +
 			"The resource `usage` is the usage report the status page's Usage view shows:\n" +
-			"metered tokens and cost per person and per Project, read from the UsageRollups.\n" +
+			"metered cost, then tokens split by type (input, output, cache read, cache\n" +
+			"write), per person and per Project, read from the UsageRollups.\n" +
 			"It needs get on the virtual usage/all (the admin usage grant) and filters with\n" +
 			"--user (a GitHub login, github-id:<id> or org), --project and --since\n" +
 			"(30d, 720h or 2026-09-01; default 30 days, at most 400).",

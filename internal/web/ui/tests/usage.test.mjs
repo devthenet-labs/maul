@@ -4,15 +4,22 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  DEFAULT_MEASURE,
   MAX_SERIES,
   NO_PROJECT,
   OTHER,
+  TOKEN_TYPES,
+  TOKEN_TYPE_LABELS,
   displayKeys,
   latestOnly,
   layoutBars,
   niceMax,
   personLabel,
   stackDay,
+  stackFor,
+  stackKeys,
+  stackOptions,
+  tokenTypeValue,
 } from "../src/usage.ts";
 import { hrefForUsage, parseRoute } from "../src/router.ts";
 import { mockUsage } from "../src/mock/usage.ts";
@@ -75,6 +82,49 @@ test("stackDay sums folded keys and measures what it is asked", () => {
   assert.deepEqual(stackDay(d, "kind", "tokens", shown), []);
 });
 
+test("the chart opens on cost, and tokens open split by type", () => {
+  assert.equal(DEFAULT_MEASURE, "cost");
+  assert.deepEqual(stackOptions("cost"), ["project", "kind"]);
+  assert.deepEqual(stackOptions("notional"), ["project", "kind"]);
+  assert.deepEqual(stackOptions("tokens"), ["type", "project", "kind"]);
+  // Switching to tokens splits by type; leaving tokens drops the type split.
+  assert.equal(stackFor("project", "tokens", "cost"), "type");
+  assert.equal(stackFor("kind", "tokens", "tokens"), "kind");
+  assert.equal(stackFor("type", "cost", "tokens"), "project");
+  assert.equal(stackFor("kind", "notional", "tokens"), "kind");
+  assert.equal(stackFor("kind", "cost", "notional"), "kind");
+});
+
+test("stackDay by type splits a day's tokens and nothing else", () => {
+  // The case the owner saw: 1.26M tokens, 91% of them cache reads.
+  const d = {
+    ...day([]),
+    tokens: 1_260_000,
+    inputTokens: 60_000,
+    outputTokens: 30_000,
+    cacheReadTokens: 1_150_000,
+    cacheWriteTokens: 20_000,
+  };
+  const shown = stackKeys("type", ["a"], ["build"]);
+  assert.deepEqual(shown, TOKEN_TYPES);
+  const parts = stackDay(d, "type", "tokens", shown);
+  assert.deepEqual(parts, [
+    { key: "input", value: 60_000 },
+    { key: "output", value: 30_000 },
+    { key: "cacheRead", value: 1_150_000 },
+    { key: "cacheWrite", value: 20_000 },
+  ]);
+  assert.equal(
+    parts.reduce((a, p) => a + p.value, 0),
+    d.tokens,
+  );
+  assert.deepEqual(stackDay(d, "type", "cost", shown), [], "no cost is recorded per type");
+  assert.deepEqual(stackDay({ ...d, outputTokens: 0 }, "type", "tokens", shown).map((p) => p.key), ["input", "cacheRead", "cacheWrite"]);
+  for (const t of TOKEN_TYPES) assert.equal(typeof TOKEN_TYPE_LABELS[t], "string");
+  assert.equal(tokenTypeValue(d, "cacheRead"), 1_150_000);
+  assert.deepEqual(stackKeys("project", ["a", NO_PROJECT], []), ["a", NO_PROJECT]);
+});
+
 test("niceMax rounds up to 1, 2 or 5 times a power of ten", () => {
   assert.equal(niceMax(0), 1);
   assert.equal(niceMax(7), 10);
@@ -121,6 +171,10 @@ test("the demo report covers its window and its kinds sum to each day", () => {
       d.tokens,
       d.day,
     );
+    assert.equal(d.inputTokens + d.outputTokens + d.cacheReadTokens + d.cacheWriteTokens, d.tokens, d.day);
+  }
+  for (const p of r.projects) {
+    assert.equal(p.inputTokens + p.outputTokens + p.cacheReadTokens + p.cacheWriteTokens, p.tokens, p.project);
   }
   assert.ok(mockUsage(90, true).people.length > 0);
 });
