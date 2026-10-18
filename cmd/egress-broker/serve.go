@@ -19,7 +19,9 @@ import (
 	"golang.org/x/sync/errgroup"
 	"k8s.io/client-go/kubernetes"
 
+	"github.com/bitwise-media-group/patchy/api/v1alpha1"
 	"github.com/bitwise-media-group/patchy/internal/broker"
+	"github.com/bitwise-media-group/patchy/internal/broker/credstore"
 	"github.com/bitwise-media-group/patchy/internal/cli"
 	"github.com/bitwise-media-group/patchy/internal/kube"
 	"github.com/bitwise-media-group/patchy/internal/telemetry"
@@ -108,7 +110,43 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 			"controllers); required with --usage-addr")
 	f.String("usage-audience", usagewire.Audience,
 		"audience the usage callers' projected tokens must be bound to; must differ from --token-audience")
+
+	// Per-user model credentials (design L3): off unless set.
+	f.String("user-credentials", string(broker.UserCredentialsOff),
+		"per-user model credentials: off (the org credential pays for everything), attribute (read each "+
+			"caller pod's attributed-to annotation and record the person; the org credential still pays) or "+
+			"enforce (a run attributed to a person uses that person's own credential or is refused)")
+	f.String("credential-records-namespace", "patchy",
+		"namespace of the ModelCredential records (the release namespace); with --user-credentials only")
+	f.String("credentials-namespace", v1alpha1.DefaultCredentialsNamespace,
+		"namespace of the people's credential Secrets; with --user-credentials only")
+	f.String("org-credential-is-personal", "",
+		"set to acknowledged to run --user-credentials while the org credential is a setup-token (a person's "+
+			"Claude subscription keeps paying for every run with no human behind it); refused otherwise")
+	f.String("credential-probe-model", broker.DefaultProbeModel,
+		"model a setup-token health probe asks for one output token of")
 	return cmd
+}
+
+// userCredentials reads the per-user credential flags: the engine config
+// (without its store) and the two namespaces the store reads.
+func userCredentials(opts *cli.Options) (broker.UserCredentialConfig, string, string, error) {
+	mode, err := broker.ParseUserCredentialMode(opts.String("user-credentials"))
+	if err != nil {
+		return broker.UserCredentialConfig{}, "", "", fmt.Errorf("--user-credentials: %w", err)
+	}
+	cfg := broker.UserCredentialConfig{Mode: mode, Health: broker.HealthConfig{
+		ProbeModel: opts.String("credential-probe-model"),
+	}}
+	switch ack := opts.String("org-credential-is-personal"); ack {
+	case "":
+	case "acknowledged":
+		cfg.OrgCredentialIsPersonal = true
+	default:
+		return broker.UserCredentialConfig{}, "", "", fmt.Errorf(
+			"--org-credential-is-personal %q is not empty or acknowledged", ack)
+	}
+	return cfg, opts.String("credential-records-namespace"), opts.String("credentials-namespace"), nil
 }
 
 // usageConfig reads the usage endpoint's flags: its listen address (empty
@@ -292,6 +330,17 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	if err != nil {
 		return err
 	}
+	creds, recordsNS, secretsNS, err := userCredentials(opts)
+	if err != nil {
+		return err
+	}
+	var store *credstore.Store
+	if creds.Mode != broker.UserCredentialsOff {
+		if store, err = credstore.New(restCfg, cs, recordsNS, secretsNS); err != nil {
+			return err
+		}
+		creds.Store = store
+	}
 	// --beta-denylist: empty keeps the engine's built-in list, "none" strips
 	// nothing, anything else is the operator's own patterns.
 	betas := opts.StringList("beta-denylist")
@@ -326,6 +375,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		TokenReviewsPerSecond:    opts.Float("token-reviews-per-second"),
 		Upstreams:                routes,
 		Usage:                    usage,
+		UserCredentials:          creds,
 	}, log)
 	if err != nil {
 		return err
@@ -364,9 +414,16 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		slog.String("health_addr", healthSrv.Addr),
 		slog.String("usage_addr", usageAddr),
 		slog.String("limit_unit", opts.String("limit-unit")),
+		slog.String("user_credentials", string(creds.Mode)),
 		slog.Any("routes", names))
 
 	g, ctx := errgroup.WithContext(ctx)
+	if store != nil {
+		// The credential informers and the health probes. Neither gates
+		// readiness, which stays the org credential's alone.
+		g.Go(func() error { return store.Start(ctx) })
+		g.Go(func() error { srv.Run(ctx); return nil })
+	}
 	for _, s := range servers {
 		g.Go(func() error {
 			if err := s.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
