@@ -48,6 +48,11 @@ deliberately suspended, hence the `suspended` pill on each row.
   everyone's, per person and per Project. The unmetered worst case and pod-reported figures are shown apart, never in a
   total, and a subscription's cost is shown as an equivalent API cost, not money spent.
 
+- **Account** — only when the server has the [Account page](configuration/status-server.md#account-page) on: your own
+  model credential, which pays for the runs attributed to you under
+  [per-user model credentials](configuration/user-credentials.md). Store, replace or delete an Anthropic API key or a
+  setup-token, and see its fingerprint and health, never the credential. See [Your model credential](account.md).
+
 While the operator's [agent pause](configuration/investigation-controller.md#pausing-agents) (`agent.paused`) is on, the
 page shows a banner saying no new investigation, remediation, intent or evaluation Jobs start. Only signed-in users see
 it: the public rollups view, without signing in, does not. Nothing else on the page marks held work: paused findings

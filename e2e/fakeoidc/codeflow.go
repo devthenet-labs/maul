@@ -13,6 +13,8 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -22,12 +24,19 @@ import (
 
 // User is someone the authorization-code flow signs in, shaped like an
 // identity Dex's GitHub connector issues: a GitHub login as
-// preferred_username, org:team groups, and a verified email.
+// preferred_username, org:team groups, and a verified email. With GitHubID
+// set, a sign-in that asks for the federated:id scope also gets Dex's
+// federated_claims naming the github connector and that numeric id, as the
+// usage views and the Account page need.
 type User struct {
-	Login  string
-	Name   string
-	Groups []string
+	Login    string
+	Name     string
+	Groups   []string
+	GitHubID int64
 }
+
+// federatedIDScope is the Dex scope that adds federated_claims.
+const federatedIDScope = "federated:id"
 
 // codeFlow is the authorization-code + PKCE half of the fake issuer: what a
 // browser-facing relying party (the status server) signs users in through.
@@ -47,7 +56,9 @@ type pendingCode struct {
 	redirectURI string
 	nonce       string
 	challenge   string
-	issued      time.Time
+	// federated says the authorization asked for the federated:id scope.
+	federated bool
+	issued    time.Time
 }
 
 // AddUser registers a user the code flow can sign in.
@@ -99,6 +110,7 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 	s.flow.codes[code] = pendingCode{
 		user: user, clientID: q.Get("client_id"), redirectURI: q.Get("redirect_uri"),
 		nonce: q.Get("nonce"), challenge: q.Get("code_challenge"), issued: time.Now(),
+		federated: slices.Contains(strings.Fields(q.Get("scope")), federatedIDScope),
 	}
 	s.flow.mu.Unlock()
 	back, err := url.Parse(q.Get("redirect_uri"))
@@ -142,7 +154,7 @@ func (s *Server) handleToken(w http.ResponseWriter, r *http.Request) {
 		writeOAuthError(w, "invalid_grant")
 		return
 	}
-	idToken, err := s.userToken(pc.user, clientID, pc.nonce)
+	idToken, err := s.userToken(pc.user, clientID, pc.nonce, pc.federated)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -152,8 +164,10 @@ func (s *Server) handleToken(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// userToken signs an ID token for u, as a Dex GitHub connector would issue it.
-func (s *Server) userToken(u User, audience, nonce string) (string, error) {
+// userToken signs an ID token for u, as a Dex GitHub connector would issue
+// it: with federated_claims when federated (the federated:id scope was
+// asked for) and u has a GitHub id.
+func (s *Server) userToken(u User, audience, nonce string, federated bool) (string, error) {
 	signer, err := jose.NewSigner(
 		jose.SigningKey{Algorithm: jose.RS256, Key: s.key},
 		(&jose.SignerOptions{}).WithType("JWT").WithHeader(jose.HeaderKey("kid"), keyID),
@@ -164,12 +178,13 @@ func (s *Server) userToken(u User, audience, nonce string) (string, error) {
 	now := time.Now()
 	claims := struct {
 		jwt.Claims
-		Nonce             string   `json:"nonce,omitempty"`
-		PreferredUsername string   `json:"preferred_username"`
-		Name              string   `json:"name,omitempty"`
-		Email             string   `json:"email"`
-		Verified          bool     `json:"email_verified"`
-		Groups            []string `json:"groups,omitempty"`
+		Nonce             string           `json:"nonce,omitempty"`
+		PreferredUsername string           `json:"preferred_username"`
+		Name              string           `json:"name,omitempty"`
+		Email             string           `json:"email"`
+		Verified          bool             `json:"email_verified"`
+		Groups            []string         `json:"groups,omitempty"`
+		Federated         *federatedClaims `json:"federated_claims,omitempty"`
 	}{
 		Claims: jwt.Claims{
 			Issuer: s.URL, Subject: u.Login, Audience: jwt.Audience{audience},
@@ -178,11 +193,21 @@ func (s *Server) userToken(u User, audience, nonce string) (string, error) {
 		Nonce: nonce, PreferredUsername: u.Login, Name: u.Name,
 		Email: u.Login + "@users.example.com", Verified: true, Groups: u.Groups,
 	}
+	if federated && u.GitHubID > 0 {
+		claims.Federated = &federatedClaims{ConnectorID: "github", UserID: strconv.FormatInt(u.GitHubID, 10)}
+	}
 	raw, err := jwt.Signed(signer).Claims(claims).Serialize()
 	if err != nil {
 		return "", fmt.Errorf("fakeoidc: sign: %w", err)
 	}
 	return raw, nil
+}
+
+// federatedClaims is Dex's federated_claims: the connector that signed the
+// person in and their id there.
+type federatedClaims struct {
+	ConnectorID string `json:"connector_id"`
+	UserID      string `json:"user_id"`
 }
 
 func writeOAuthError(w http.ResponseWriter, code string) {

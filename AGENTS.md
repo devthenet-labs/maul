@@ -56,12 +56,13 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
 - `cmd/egress-broker` — the egress credential broker (NOT a controller: no reconcilers, no leases): the reverse
   proxy all claude model traffic goes through, one route per provider (anthropic — key or `claude setup-token`
   bearer via `--anthropic-auth` — plus bedrock SigV4, vertex OAuth, foundry key/entra). Validates caller
-  tokens via TokenReview (its only Kubernetes access but one, below), strips them, injects/signs the model credential
+  tokens via TokenReview (its only Kubernetes access but the pod read and, with per-user credentials on, the credential
+  store, both below), strips them, injects/signs the model credential
   outbound, streams SSE with idle keep-alive pings, audits one slog line per request. Spend limits count tokens, or
   with `--limit-unit=cost` (chart `egressBroker.limits.unit`; default tokens) micro-USD priced by
   `model.MeasuredCostUSD` (an unpriced model at the dearest rate), each pod capped by the smaller of `--cost-per-pod`
-  and its `patchy.bitwisemedia.uk/budget-micro-usd` annotation (`provider.BudgetAnnotation`), read under `cost` only
-  by `get pods` in the agent namespace, UID-checked and cached with the verdict. With `--usage-addr`
+  and its `patchy.bitwisemedia.uk/budget-micro-usd` annotation (`provider.BudgetAnnotation`), read under `cost` (or
+  with per-user credentials on) by `get pods` in the agent namespace, UID-checked and cached with the verdict. With `--usage-addr`
   (chart: under `attribution.mode: attribute`; off by default) it also serves its per-Job, per-model usage ledger on a
   listener of its own (`GET /v1/usage/jobs/<job>`, port 8082) to the run controllers' ServiceAccounts only
   (`--usage-callers`, their own token audience, `internal/usagewire`). Engine in
@@ -91,7 +92,8 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   `status.credentialHold`); the issue names the person and links `--account-url`, and only a re-approval by an
   approver holding a valid credential replaces the attribution (a Finding's spawner keeps the hold on the person held
   otherwise; an approval with no GitHub id is refused while held). The status page's Account page
-  (`--account-enabled`) is where people store theirs.
+  (`--account-enabled`) is where people store theirs. Operator guide (modes, the subscription guard, rollout
+  `attribute` then `enforce`, rollback) docs/configuration/user-credentials.md; the people's guide docs/account.md.
 - `cmd/egress-proxy` — OPTIONAL (default-off; chart `egressProxy`, chart-only, no kustomize component): the
   operator's Go dependency route (NOT a controller: no reconcilers, no leases). A GOPROXY-protocol reverse proxy to
   proxy.golang.org and sum.golang.org with one listener per operator network profile (`agent.networkProfiles`);
@@ -357,7 +359,15 @@ e2e/                SEPARATE Go module: envtest carries the CRDs, the real binar
                     controller, so no --namespace) on envtest's real TokenReview with
                     pod-bound tokens and a fake model upstream of heavy cache-read turns:
                     the token unit cuts the run, the cost unit admits it, a budget
-                    annotation still bounds it.
+                    annotation still bounds it. user_credentials_test.go runs per-user
+                    credentials under enforce: the broker on a fake Anthropic upstream that
+                    records each request's credential, intent-controller's CredentialRequired
+                    hold, and status-server's Account page signed in through fakeoidc (Dex's
+                    federated_claims for a user with a GitHub id under federated:id); it
+                    asserts the hold, the resume once the broker's probe says Valid, the
+                    person's key on their pod and the org key on an org pod, the fail-closed
+                    refusals, a replaced key no longer paying within the 60s cap though
+                    the broker's Secret cache is warm, and a deleted credential refused.
 docs/ overrides/    Zensical docs site (zensical.toml at the root; patchy-branded theme in
                     docs/stylesheets/extra.css + overrides/). `mise run serve` to preview,
                     `mise run docs-build` to build; the reusable release workflow publishes it
