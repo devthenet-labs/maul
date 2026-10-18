@@ -341,7 +341,7 @@ func TestIngressRefusedNeedsALiveListener(t *testing.T) {
 func TestIngressOldImageFails(t *testing.T) {
 	const usage = "usage: probe connect <ipv4>:<port>"
 	old := func(names ...string) []string {
-		var env []string
+		env := make([]string, 0, len(names))
 		for _, n := range names {
 			env = append(env, "STUB_LOG_"+strings.ReplaceAll(n, "-", "_")+"="+usage)
 		}

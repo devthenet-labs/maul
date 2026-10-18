@@ -32,15 +32,15 @@ import (
 )
 
 const (
-	probeCommit = "0123456789abcdef0123456789abcdef01234567"
-	probePrefix = "registry.acme.test/patchy/previews/"
-	probeImage  = probePrefix + "netprobe:sha-" + probeCommit
-	ingressSh   = "../../../../hack/preview-isolation-probe/ingress.sh"
+	probeCommit    = "0123456789abcdef0123456789abcdef01234567"
+	probePrefix    = "registry.acme.test/patchy/previews/"
+	testProbeImage = probePrefix + "netprobe:sha-" + probeCommit
+	ingressSh      = "../../../../hack/preview-isolation-probe/ingress.sh"
 )
 
 // testPlan is a probe in slot 1 with node isolation.
 func testPlan() probePlan {
-	return probePlan{image: probeImage, slotNS: "patchy-preview-1", releaseNS: "patchy", agentsNS: "patchy-agents",
+	return probePlan{image: testProbeImage, slotNS: "patchy-preview-1", releaseNS: "patchy", agentsNS: "patchy-agents",
 		selector: map[string]string{iNodeLabel: "true", "karpenter.sh/nodepool": "patchy-preview"}, taintKey: iTaint}
 }
 
@@ -64,7 +64,7 @@ func TestProbePodsMatchIngressSh(t *testing.T) {
 		"no isolation": {none, []string{"--no-node-isolation"}},
 	} {
 		t.Run(name, func(t *testing.T) {
-			args := append([]string{ingressSh, "--print-manifests", "--refused-is-blocked", "--image", probeImage,
+			args := append([]string{ingressSh, "--print-manifests", "--refused-is-blocked", "--image", testProbeImage,
 				"--slot", "1", "--release-namespace", "patchy", "--agents-namespace", "patchy-agents"}, tc.flags...)
 			out, err := exec.CommandContext(t.Context(), "bash", args...).Output()
 			if err != nil {
@@ -272,7 +272,7 @@ func (f *fakeProbeCluster) remaining(t *testing.T) []string {
 	if err := f.client.List(context.Background(), &list); err != nil {
 		t.Fatal(err)
 	}
-	var out []string
+	out := make([]string, 0, len(list.Items))
 	for _, p := range list.Items {
 		out = append(out, p.Namespace+"/"+p.Name)
 	}
@@ -496,7 +496,7 @@ func TestInstallIsolation(t *testing.T) {
 				w.objs = append(w.objs, &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Namespace: "patchy",
 					Name: probeGatewayClient}})
 			},
-			want: []string{"Pod patchy/preview-ingress-gateway already exists"}},
+			want: []string{"the Pod patchy/preview-ingress-gateway already exists"}},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {

@@ -144,8 +144,9 @@ func TestParseImageRecovers(t *testing.T) {
 	tags := []string{"", "v1.21.2", "2026.10.1", "latest", "v1.2.3-rc.1"}
 	cfg := quickConfig(5000)
 	cfg.Values = func(args []reflect.Value, r *rand.Rand) {
-		var path []string
-		for range 1 + r.Intn(3) {
+		n := 1 + r.Intn(3)
+		path := make([]string, 0, n)
+		for range n {
 			path = append(path, segs[r.Intn(len(segs))])
 		}
 		args[0] = reflect.ValueOf(registries[r.Intn(len(registries))])
@@ -187,8 +188,9 @@ func TestJudgeUpstreamsWarnsOnlyWhenOlder(t *testing.T) {
 		"v9999.0.0", "v1.21.2-rc.1"}
 	cfg := quickConfig(3000)
 	cfg.Values = func(args []reflect.Value, r *rand.Rand) {
-		var found []installed
-		for range 1 + r.Intn(4) {
+		n := 1 + r.Intn(4)
+		found := make([]installed, 0, n)
+		for range n {
 			up := upstreams()[r.Intn(len(upstreams()))]
 			found = append(found, installed{up: up, where: "ns/d", version: versions[r.Intn(len(versions))]})
 		}

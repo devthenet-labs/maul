@@ -277,7 +277,8 @@ func deleteProbes(ctx context.Context, c client.Client, pods []*corev1.Pod) []st
 	defer cancel()
 	var failed []string
 	for _, p := range pods {
-		opts := []client.DeleteOption{client.GracePeriodSeconds(0), client.PropagationPolicy(metav1.DeletePropagationBackground)}
+		opts := []client.DeleteOption{client.GracePeriodSeconds(0),
+			client.PropagationPolicy(metav1.DeletePropagationBackground)}
 		if p.UID != "" {
 			uid := p.UID
 			opts = append(opts, client.Preconditions{UID: &uid})

@@ -199,74 +199,99 @@ func (c *Checker) planIsolation(ctx context.Context, s Settings, iso *Isolation)
 			c.cfg.Namespace)
 	}
 	p := probePlan{releaseNS: c.cfg.Namespace, agentsNS: agentNamespace(s)}
-	prefix := strings.TrimSpace(s.Preview.Data[keyPreviewImagePrefix])
-	p.image = iso.Image
-	if p.image == "" {
-		if prefix == "" || !commitPattern.MatchString(iso.Commit) {
-			return probePlan{}, fmt.Errorf("no --isolation-image, and no default: the default is "+
-				"<preview image prefix>netprobe:sha-<this CLI's commit>, and %s", missingDefault(s, prefix, iso.Commit))
-		}
-		p.image = prefix + "netprobe:sha-" + iso.Commit
+	var err error
+	if p.image, err = probeImage(s, iso); err != nil {
+		return probePlan{}, err
 	}
-	if !probeImagePattern.MatchString(p.image) {
-		return probePlan{}, fmt.Errorf("the probe image %s is not <registry>/<path>:sha-<40 hex>, the one shape a "+
-			"slot admits", p.image)
+	if p.slotNS, err = probeSlot(s, iso.Slot); err != nil {
+		return probePlan{}, err
 	}
-	if prefix != "" && !strings.HasPrefix(p.image, prefix) {
-		return probePlan{}, fmt.Errorf("the probe image %s is not under preview-controller's image prefix %s, so "+
-			"the slot admission policy would refuse the listener", p.image, prefix)
-	}
-	slots := defaultSlotCount
-	if v := strings.TrimSpace(s.Preview.Data[keyPreviewSlotCount]); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 {
-			return probePlan{}, fmt.Errorf("%s sets %s to %q, not a slot count", s.Preview.From, keyPreviewSlotCount, v)
-		}
-		slots = n
-	}
-	if iso.Slot < 0 || iso.Slot >= slots {
-		return probePlan{}, fmt.Errorf("slot %d is not one of the install's %d slots (0 to %d)", iso.Slot, slots,
-			slots-1)
-	}
-	p.slotNS = v1alpha1.PreviewSlotNamespace(int32(iso.Slot)) //nolint:gosec // bounded by the slot count above
 	for _, ns := range []string{p.releaseNS, p.agentsNS} {
 		if errs := validation.IsDNS1123Label(ns); len(errs) > 0 {
 			return probePlan{}, fmt.Errorf("namespace %q is not a DNS label: %s", ns, strings.Join(errs, "; "))
 		}
 	}
-	switch mode := s.Preview.Data[keyPreviewNodeIsolation]; mode {
-	case preview.NodeIsolationNone:
-	case "", preview.NodeIsolationRequired:
-		selector, err := nodeSelector(s.Preview)
-		if err != nil {
-			return probePlan{}, fmt.Errorf("%s: %w", s.Preview.From, err)
-		}
-		p.taintKey = strings.TrimSpace(s.Preview.Data[keyPreviewTaintKey])
-		if len(selector) == 0 || p.taintKey == "" {
-			return probePlan{}, fmt.Errorf("%s requires node isolation but sets no node selector or taint key, so "+
-				"the listener cannot be placed on the preview nodes", s.Preview.From)
-		}
-		p.selector = selector
-	default:
-		return probePlan{}, fmt.Errorf("%s sets %s to %q, which preview-controller refuses", s.Preview.From,
-			keyPreviewNodeIsolation, mode)
-	}
-	blocks, err := slotPolicy(ctx, iso.Client, p.slotNS)
-	if err != nil {
+	if p.selector, p.taintKey, err = probePlacement(s); err != nil {
 		return probePlan{}, err
 	}
-	p.ipBlocks = blocks
+	if p.ipBlocks, err = slotPolicy(ctx, iso.Client, p.slotNS); err != nil {
+		return probePlan{}, err
+	}
 	for _, key := range p.probePods() {
 		var pod corev1.Pod
 		switch err := iso.Client.Get(ctx, key, &pod); {
 		case err == nil:
-			return probePlan{}, fmt.Errorf("Pod %s already exists: refusing to overwrite another probe "+
+			return probePlan{}, fmt.Errorf("the Pod %s already exists: refusing to overwrite another probe "+
 				"(delete it once no probe runs)", key)
 		case !apierrors.IsNotFound(err):
 			return probePlan{}, fmt.Errorf("cannot read Pod %s: %w", key, err)
 		}
 	}
 	return p, nil
+}
+
+// probeImage is the netprobe image: the flag's, else the prefix's tag at
+// the CLI's commit; either must be the one shape a slot admits, under the
+// prefix.
+func probeImage(s Settings, iso *Isolation) (string, error) {
+	prefix := strings.TrimSpace(s.Preview.Data[keyPreviewImagePrefix])
+	image := iso.Image
+	if image == "" {
+		if prefix == "" || !commitPattern.MatchString(iso.Commit) {
+			return "", fmt.Errorf("no --isolation-image, and no default: the default is "+
+				"<preview image prefix>netprobe:sha-<this CLI's commit>, and %s", missingDefault(s, prefix, iso.Commit))
+		}
+		image = prefix + "netprobe:sha-" + iso.Commit
+	}
+	if !probeImagePattern.MatchString(image) {
+		return "", fmt.Errorf("the probe image %s is not <registry>/<path>:sha-<40 hex>, the one shape a slot admits",
+			image)
+	}
+	if prefix != "" && !strings.HasPrefix(image, prefix) {
+		return "", fmt.Errorf("the probe image %s is not under preview-controller's image prefix %s, so the slot "+
+			"admission policy would refuse the listener", image, prefix)
+	}
+	return image, nil
+}
+
+// probeSlot is the slot namespace the listener runs in, one of the
+// install's slots.
+func probeSlot(s Settings, slot int) (string, error) {
+	slots := defaultSlotCount
+	if v := strings.TrimSpace(s.Preview.Data[keyPreviewSlotCount]); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 {
+			return "", fmt.Errorf("%s sets %s to %q, not a slot count", s.Preview.From, keyPreviewSlotCount, v)
+		}
+		slots = n
+	}
+	if slot < 0 || slot >= slots {
+		return "", fmt.Errorf("slot %d is not one of the install's %d slots (0 to %d)", slot, slots, slots-1)
+	}
+	return v1alpha1.PreviewSlotNamespace(int32(slot)), nil //nolint:gosec // bounded by the slot count above
+}
+
+// probePlacement is the listener's node selector and taint key, as every
+// slot Pod's; both empty with node isolation off.
+func probePlacement(s Settings) (map[string]string, string, error) {
+	switch mode := s.Preview.Data[keyPreviewNodeIsolation]; mode {
+	case preview.NodeIsolationNone:
+		return nil, "", nil
+	case "", preview.NodeIsolationRequired:
+		selector, err := nodeSelector(s.Preview)
+		if err != nil {
+			return nil, "", fmt.Errorf("%s: %w", s.Preview.From, err)
+		}
+		taint := strings.TrimSpace(s.Preview.Data[keyPreviewTaintKey])
+		if len(selector) == 0 || taint == "" {
+			return nil, "", fmt.Errorf("%s requires node isolation but sets no node selector or taint key, so the "+
+				"listener cannot be placed on the preview nodes", s.Preview.From)
+		}
+		return selector, taint, nil
+	default:
+		return nil, "", fmt.Errorf("%s sets %s to %q, which preview-controller refuses", s.Preview.From,
+			keyPreviewNodeIsolation, mode)
+	}
 }
 
 // missingDefault says which half of the default image is missing.
