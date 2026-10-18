@@ -10,6 +10,7 @@ import {
   fetchMe,
   fetchRollups,
   fetchUsageAccess,
+  fetchAccount,
   postAction,
   postAdmin,
   postBackfill,
@@ -17,11 +18,22 @@ import {
   subscribeConfig,
 } from "./api";
 import { consumeLogoutMarker, readAuthError, readProvider, signInURL, signOut } from "./auth";
-import type { ActionVerb, AdminVerb, ConfigDataset, Dataset, Finding, Me, Phase, UsageAccess } from "./types";
+import type {
+  Account,
+  ActionVerb,
+  AdminVerb,
+  ConfigDataset,
+  Dataset,
+  Finding,
+  Me,
+  Phase,
+  UsageAccess,
+} from "./types";
 import { emptySelection, filterFindings, repoOptions, sortFindings, type Selection } from "./filters";
 import { isIntentsRoute, useRoute } from "./router";
 import { IntentsArea } from "./components/IntentsArea";
 import { UsageView } from "./components/UsageView";
+import { AccountView } from "./components/AccountView";
 import { DEFAULT_PERSONA, type Persona } from "./mock/personas";
 import { ConfigView } from "./components/ConfigView";
 import { FilterBar } from "./components/FilterBar";
@@ -100,6 +112,12 @@ export function App() {
   const [usageAccess, setUsageAccess] = useState<UsageAccess | null>(null);
   useEffect(() => {
     void fetchUsageAccess().then(setUsageAccess);
+  }, []);
+
+  // The Account page likewise: /api/account answering at all means it is on.
+  const [account, setAccount] = useState<Account | null>(null);
+  useEffect(() => {
+    void fetchAccount().then(setAccount);
   }, []);
 
   // The detail view lazily fetches its finding: the list payload carries
@@ -342,6 +360,10 @@ export function App() {
       ) : (
         <UsageView all={route.all} access={usageAccess} />
       );
+  } else if (route.view === "account") {
+    // The Account page gates itself: a person's own credential needs no
+    // findings grant.
+    body = <AccountView />;
   } else if (findingsBlocked !== null && route.view !== "rollups") {
     body = authPanel();
   } else if (error && !dataset) {
@@ -398,6 +420,7 @@ export function App() {
         configView={configView}
         intentsNav={intentsNav}
         usageNav={usageAccess !== null}
+        accountNav={account !== null}
         themeMode={themeMode}
         onToggleTheme={toggleTheme}
         persona={persona}

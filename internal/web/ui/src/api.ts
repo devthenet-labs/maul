@@ -23,6 +23,9 @@ import type {
   TranscriptTurn,
   UsageAccess,
   UsageReport,
+  Account,
+  AccountCredential,
+  CredentialKind,
 } from "./types";
 import { availableActions, retryTarget } from "./actions";
 import { mockConfig } from "./mock/config";
@@ -38,6 +41,7 @@ import {
 } from "./mock/intents";
 import { DEFAULT_PERSONA, type Persona } from "./mock/personas";
 import { mockUsage, mockUsageAccess } from "./mock/usage";
+import { mockAccount, mockDeleteCredential, mockPutCredential } from "./mock/account";
 
 // AuthRequiredError: the server wants a signed-in user (HTTP 401).
 export class AuthRequiredError extends Error {
@@ -582,4 +586,64 @@ export async function fetchUsage(all: boolean, q: UsageQuery): Promise<UsageRepo
   if (all && q.user) params.set("user", q.user);
   if (all && q.project) params.set("project", q.project);
   return request<UsageReport>(`/api/usage${all ? "/all" : ""}?${params.toString()}`);
+}
+
+// ---- Account page ----------------------------------------------------------
+// fetchAccount is how the SPA learns the Account page is on: anything but a
+// JSON answer (the bare 404 of a server with it off, a 401 before sign-in)
+// means "no Account nav". The page is write-only: no answer ever carries a
+// stored credential.
+
+export async function fetchAccount(): Promise<Account | null> {
+  const mode = dataMode();
+  if (mode === "demo") return structuredClone(mockAccount());
+  if (mode === "snapshot") return null;
+  try {
+    const res = await fetch("/api/account");
+    if (!res.ok || !(res.headers.get("Content-Type") ?? "").includes("application/json")) return null;
+    return (await res.json()) as Account;
+  } catch {
+    return null;
+  }
+}
+
+// errorText is a refused write's own explanation, or its status.
+async function errorText(res: Response, path: string): Promise<string> {
+  const text = (await res.text()).trim();
+  return text || `${path}: HTTP ${res.status}`;
+}
+
+// putCredential sets or replaces the caller's credential for provider. The
+// value travels once, in the body of a same-origin POST, and is never sent
+// back.
+export async function putCredential(
+  provider: string,
+  kind: CredentialKind,
+  credential: string,
+): Promise<AccountCredential> {
+  if (dataMode() === "demo") return mockPutCredential(provider, kind, credential);
+  const path = `/api/account/credentials/${encodeURIComponent(provider)}`;
+  const res = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind, credential }),
+    credentials: "same-origin",
+  });
+  if (res.status === 401) throw new AuthRequiredError();
+  if (res.status === 403) throw new ForbiddenError(await errorText(res, path));
+  if (!res.ok) throw new Error(await errorText(res, path));
+  return (await res.json()) as AccountCredential;
+}
+
+// deleteCredential deletes the caller's credential for provider.
+export async function deleteCredential(provider: string): Promise<void> {
+  if (dataMode() === "demo") {
+    mockDeleteCredential(provider);
+    return;
+  }
+  const path = `/api/account/credentials/${encodeURIComponent(provider)}/delete`;
+  const res = await fetch(path, { method: "POST", credentials: "same-origin" });
+  if (res.status === 401) throw new AuthRequiredError();
+  if (res.status === 403) throw new ForbiddenError(await errorText(res, path));
+  if (!res.ok) throw new Error(await errorText(res, path));
 }
