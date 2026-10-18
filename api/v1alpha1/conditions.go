@@ -171,6 +171,20 @@ const (
 	// by intent-controller's run reconciler, and False once the run settles.
 	ConditionPushHeld = "PushHeld"
 
+	// ConditionCredentialRequired holds a run that would be attributed to a
+	// person while egressBroker.userCredentials.mode is enforce and that
+	// person has no Valid ModelCredential (none stored, rejected by the
+	// provider, or not yet probed): the broker would refuse it, so no run is
+	// created. On an Intent it is a block (Blocked, its message naming who
+	// must add a credential and where), set by intent-controller; on a
+	// Finding it holds the next remediation attempt while the Finding stays
+	// Queued, set by remediation-controller's spawner. Either lifts on its
+	// own once the credential is Valid, or once a later approval by an
+	// approver holding a Valid one replaces the attribution. Reasons are
+	// the credgate reasons (CredentialMissing, CredentialRejected,
+	// CredentialUnverified). Never set under any other mode.
+	ConditionCredentialRequired = "CredentialRequired"
+
 	// ConditionAgentsPaused marks an Investigation, Remediation, IntentRun or
 	// EvaluationUnit that waits only because the operator paused agents
 	// (Helm agent.paused, --agents-paused): it is pending, or was granted a

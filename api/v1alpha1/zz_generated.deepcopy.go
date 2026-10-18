@@ -2247,6 +2247,11 @@ func (in *IntentStatus) DeepCopyInto(out *IntentStatus) {
 		*out = new(IntentApproval)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.CredentialHold != nil {
+		in, out := &in.CredentialHold, &out.CredentialHold
+		*out = new(UserRef)
+		**out = **in
+	}
 	if in.LastTrigger != nil {
 		in, out := &in.LastTrigger, &out.LastTrigger
 		*out = new(IntentAction)

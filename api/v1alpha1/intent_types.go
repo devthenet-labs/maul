@@ -699,6 +699,15 @@ type IntentStatus struct {
 	// is accepted, and cleared by a replan.
 	// +optional
 	Approval *IntentApproval `json:"approval,omitempty"`
+	// CredentialHold is the person whose missing or unusable model
+	// credential holds the Intent Blocked (ConditionCredentialRequired,
+	// egressBroker.userCredentials.mode enforce only): the one the run it
+	// would have launched is attributed to. The block lifts once that
+	// person's ModelCredential is Valid; a block from Building is read from
+	// the current approval instead, so a later approval by an approver who
+	// holds a Valid credential lifts it. Cleared when the block lifts.
+	// +optional
+	CredentialHold *UserRef `json:"credentialHold,omitempty"`
 	// LastTrigger is the newest trigger action consumed after the one that
 	// created the intent (spec.requestedBy, which is immutable): the
 	// trigger label re-applied, or /patchy replan. Every trigger action the

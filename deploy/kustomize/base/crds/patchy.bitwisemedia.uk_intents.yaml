@@ -414,6 +414,33 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              credentialHold:
+                description: |-
+                  CredentialHold is the person whose missing or unusable model
+                  credential holds the Intent Blocked (ConditionCredentialRequired,
+                  egressBroker.userCredentials.mode enforce only): the one the run it
+                  would have launched is attributed to. The block lifts once that
+                  person's ModelCredential is Valid; a block from Building is read from
+                  the current approval instead, so a later approval by an approver who
+                  holds a Valid credential lifts it. Cleared when the block lifts.
+                properties:
+                  id:
+                    description: 'ID is GitHub''s numeric account id: the identity.'
+                    format: int64
+                    minimum: 1
+                    type: integer
+                  login:
+                    description: |-
+                      Login is the GitHub login when the reference was recorded, for display
+                      only. Never a Bot: no bot is ever attributed a run.
+                    maxLength: 64
+                    minLength: 1
+                    pattern: ^[A-Za-z0-9][A-Za-z0-9_.-]*$
+                    type: string
+                required:
+                - id
+                - login
+                type: object
               input:
                 description: Input is the current issue snapshot.
                 properties:
