@@ -30,25 +30,32 @@ const ReasonCredentialResolved = "Resolved"
 
 // holdForCredential reports whether the next attempt of fnd, attributed by
 // attributedTo and run on harness, must wait for a person's credential
-// (design L3, "Fallback"): under --user-credentials enforce, a brokered run
-// attributed to a person who has no Valid ModelCredential would be refused
-// by the broker, so it is not created. The Finding stays Queued with
-// CredentialRequired True, its message naming the person and the Account
-// page (the tracking issue projects it); the spawner looks again every
-// CredentialRecheck. A later approval by someone else changes whom the
-// attempt is for (Attribute reads the current approval), so it is judged
-// afresh. Once not held, a True condition is set False, in the same pass
-// that creates the attempt. Off and attribute never hold and never write.
+// (design L3, "Fallback"), and whom the attempt is for: under
+// --user-credentials enforce, a brokered run attributed to a person who has
+// no Valid ModelCredential would be refused by the broker, so it is not
+// created. The Finding stays Queued with CredentialRequired True, its
+// message naming the person and the Account page, and status.credentialHold
+// recording them (the tracking issue projects both); the spawner looks
+// again every CredentialRecheck.
+//
+// While held, a later approval (Attribute reads the current one) moves the
+// attempt only to an approver who holds a Valid credential (design revision
+// 1: no keyless approver's approval can park the work, or re-park it on
+// themselves). Any other approval, including one that would make the run
+// the org's, leaves the attempt with the person held, so it runs as theirs
+// once their credential is Valid.
+//
+// Once not held, a True condition is set False and the person cleared, in
+// the same pass that creates the attempt; that includes a mode that is no
+// longer enforce, so turning enforce off never strands a hold. Off and
+// attribute otherwise never hold and never write.
 func (r *SpawnerReconciler) holdForCredential(ctx context.Context, fnd *v1alpha1.Finding,
-	attributedTo *v1alpha1.Attribution, harness string) (bool, error) {
-	if !r.UserCredentials.Enforced() {
-		return false, nil
-	}
+	attributedTo *v1alpha1.Attribution, harness string) (*v1alpha1.Attribution, bool, error) {
 	var v credgate.Verdict
-	if usagemeter.Brokered(harness) {
+	if r.UserCredentials.Enforced() && usagemeter.Brokered(harness) {
 		var err error
-		if v, err = credgate.Check(ctx, r.UserCredentials, attributedTo, r.Credentials); err != nil {
-			return false, err
+		if attributedTo, v, err = r.judgeHeld(ctx, fnd, attributedTo); err != nil {
+			return attributedTo, false, err
 		}
 	}
 	cond := metav1.Condition{
@@ -58,12 +65,13 @@ func (r *SpawnerReconciler) holdForCredential(ctx context.Context, fnd *v1alpha1
 	if v.Hold {
 		cond.Status, cond.Reason = metav1.ConditionTrue, v.Reason
 		cond.Message = credgate.Message(v, r.AccountURL, true)
-	} else if !meta.IsStatusConditionTrue(fnd.Status.Conditions, v1alpha1.ConditionCredentialRequired) {
-		return false, nil
+	} else if !meta.IsStatusConditionTrue(fnd.Status.Conditions, v1alpha1.ConditionCredentialRequired) &&
+		fnd.Status.CredentialHold == nil {
+		return attributedTo, false, nil
 	}
 	if c := meta.FindStatusCondition(fnd.Status.Conditions, cond.Type); c != nil && c.Status == cond.Status &&
-		c.Reason == cond.Reason && c.Message == cond.Message {
-		return v.Hold, nil
+		c.Reason == cond.Reason && c.Message == cond.Message && sameUser(fnd.Status.CredentialHold, v.User) {
+		return attributedTo, v.Hold, nil
 	}
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		var cur v1alpha1.Finding
@@ -74,13 +82,18 @@ func (r *SpawnerReconciler) holdForCredential(ctx context.Context, fnd *v1alpha1
 			return nil
 		}
 		cond.ObservedGeneration = cur.Generation
-		if !meta.SetStatusCondition(&cur.Status.Conditions, cond) {
+		changed := meta.SetStatusCondition(&cur.Status.Conditions, cond)
+		if !sameUser(cur.Status.CredentialHold, v.User) {
+			cur.Status.CredentialHold = v.User.DeepCopy()
+			changed = true
+		}
+		if !changed {
 			return nil
 		}
 		return r.Status().Update(ctx, &cur)
 	})
 	if err != nil {
-		return false, err
+		return attributedTo, false, err
 	}
 	if v.Hold {
 		r.log().LogAttrs(ctx, slog.LevelInfo, "remediation held for a person's model credential",
@@ -88,5 +101,36 @@ func (r *SpawnerReconciler) holdForCredential(ctx context.Context, fnd *v1alpha1
 	} else {
 		r.log().LogAttrs(ctx, slog.LevelInfo, "remediation credential hold lifted", slog.String("finding", fnd.Name))
 	}
-	return v.Hold, nil
+	return attributedTo, v.Hold, nil
+}
+
+// judgeHeld is Check for the attempt, attributed by attributedTo, under
+// enforce. On a Finding already held for someone else (status.credentialHold),
+// the current approval's attribution stands only when it is a person whose
+// credential is Valid: otherwise the attempt stays the held person's, and
+// is judged as theirs.
+func (r *SpawnerReconciler) judgeHeld(ctx context.Context, fnd *v1alpha1.Finding,
+	attributedTo *v1alpha1.Attribution) (*v1alpha1.Attribution, credgate.Verdict, error) {
+	v, err := credgate.Check(ctx, r.UserCredentials, attributedTo, r.Credentials)
+	if err != nil {
+		return attributedTo, v, err
+	}
+	held := fnd.Status.CredentialHold
+	if held == nil || held.ID < 1 ||
+		!meta.IsStatusConditionTrue(fnd.Status.Conditions, v1alpha1.ConditionCredentialRequired) {
+		return attributedTo, v, nil
+	}
+	if p := credgate.Person(attributedTo); p != nil && (p.ID == held.ID || !v.Hold) {
+		return attributedTo, v, nil
+	}
+	keep := r.Attribution.Stamp(&v1alpha1.Attribution{User: held.DeepCopy(), Reason: v1alpha1.AttributionApprover})
+	v, err = credgate.Check(ctx, r.UserCredentials, keep, r.Credentials)
+	return keep, v, err
+}
+
+func sameUser(a, b *v1alpha1.UserRef) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }

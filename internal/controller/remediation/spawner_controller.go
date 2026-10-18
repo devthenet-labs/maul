@@ -307,7 +307,8 @@ func (r *SpawnerReconciler) spawn(ctx context.Context, fnd *v1alpha1.Finding) (w
 
 	score := priority.Score(fnd.Spec.Severity, inv.Exploitability, inv.Likelihood, inv.Impact, r.Weights)
 	attributedTo := r.Attribution.Stamp(Attribute(fnd))
-	if held, err := r.holdForCredential(ctx, fnd, attributedTo, params.Harness); held || err != nil {
+	attributedTo, held, err := r.holdForCredential(ctx, fnd, attributedTo, params.Harness)
+	if held || err != nil {
 		return CredentialRecheck, err
 	}
 	rem := &v1alpha1.Remediation{

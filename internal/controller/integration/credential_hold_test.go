@@ -85,3 +85,28 @@ func TestProjectCredentialHold(t *testing.T) {
 		t.Fatalf("after the hold lifted: %q", got)
 	}
 }
+
+// TestProjectCredentialHoldNamesThePersonHeld: after a later approval by
+// someone the hold did not move to (no valid credential of their own), the
+// comment still names the person held (status.credentialHold), not the
+// newest approver.
+func TestProjectCredentialHoldNamesThePersonHeld(t *testing.T) {
+	fnd := projectable(v1alpha1.PhaseQueued)
+	fnd.Status.Tracking = &v1alpha1.TrackingStatus{
+		Integration: "gh", IssueNumber: 7, URL: "https://github.com/acme/orders/issues/7", State: "open",
+	}
+	fnd.Spec.Approval = &v1alpha1.Approval{By: "bob", ByID: 7, At: metav1.NewTime(testClock)}
+	fnd.Status.CredentialHold = &v1alpha1.UserRef{Login: "alice", ID: 42}
+	fnd.Status.Conditions = []metav1.Condition{{Type: v1alpha1.ConditionCredentialRequired,
+		Status: metav1.ConditionTrue, Reason: "CredentialUnverified", Message: "x",
+		LastTransitionTime: metav1.NewTime(testClock)}}
+	tracker := newFakeTracker()
+	tracker.issues[7] = &ghclient.Issue{Number: 7, State: "open"}
+	r, _ := newProjector(t, tracker, testIntegration(), fnd)
+
+	reconcileFinding(t, r)
+	got := holdComments(tracker)
+	if len(got) != 1 || !strings.Contains(got[0], "@alice") || strings.Contains(got[0], "@bob") {
+		t.Fatalf("hold comments = %q, want alice named", got)
+	}
+}

@@ -177,9 +177,17 @@ func applyApprove(f *v1alpha1.Finding, user string, id int64, note string, now t
 	phase := f.Status.Phase
 	if credentialHeld(f) {
 		// Held for the approver's model credential (per-user credentials,
-		// enforce): a later approval replaces whom the next attempt is
-		// for, so someone holding a valid credential can let it run. The
-		// same approver again changes nothing.
+		// enforce): a later approval may replace whom the next attempt is
+		// for, so someone holding a valid credential can let it run. Only a
+		// GitHub commenter's approval carries the id a credential is keyed
+		// by: one without (the status page, the CLI) would make the run the
+		// org's, so it is refused while held. Whether the approver's own
+		// credential is valid is the spawner's to judge (it keeps the hold
+		// on the person held otherwise). The same approver again changes
+		// nothing.
+		if id < 1 {
+			return false, ErrUnavailable
+		}
 		if ap := f.Spec.Approval; ap != nil && ap.By == user && ap.ByID == id {
 			return false, nil
 		}

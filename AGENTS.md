@@ -87,9 +87,11 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   credential's. Startup refuses a setup-token org credential unless acknowledged, and any non-anthropic route
   (docs/configuration/user-credentials.md). Under `enforce` remediation- and intent-controller (`--user-credentials`,
   `internal/credgate`) never create a run attributed to a person whose record is not `Valid`: the Finding stays
-  `Queued` with `CredentialRequired`, the Intent is `Blocked` (`CredentialRequired`, `status.credentialHold`); the
-  issue names the person and links `--account-url`, and a re-approval by an approver holding a valid credential
-  replaces the attribution. The status page's Account page (`--account-enabled`) is where people store theirs.
+  `Queued` with `CredentialRequired` and `status.credentialHold`, the Intent is `Blocked` (`CredentialRequired`,
+  `status.credentialHold`); the issue names the person and links `--account-url`, and only a re-approval by an
+  approver holding a valid credential replaces the attribution (a Finding's spawner keeps the hold on the person held
+  otherwise; an approval with no GitHub id is refused while held). The status page's Account page
+  (`--account-enabled`) is where people store theirs.
 - `cmd/egress-proxy` — OPTIONAL (default-off; chart `egressProxy`, chart-only, no kustomize component): the
   operator's Go dependency route (NOT a controller: no reconcilers, no leases). A GOPROXY-protocol reverse proxy to
   proxy.golang.org and sum.golang.org with one listener per operator network profile (`agent.networkProfiles`);

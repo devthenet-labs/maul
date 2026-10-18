@@ -148,18 +148,19 @@ The condition's reason says what is wrong: `CredentialMissing` (none stored), `C
 it) or `CredentialUnverified` (stored, not yet probed: the broker probes a new credential within moments).
 
 **Telling the person.** An Intent's status comment says who must add a credential and links the Account page. A held
-Finding's tracking issue gets one comment that names the approver and links the page, edited once the hold lifts; it is
-rendered from the Finding's approval, never from the condition's message. The public intents board says only that a
-person's credential is missing, never whose.
+Finding's tracking issue gets one comment that names the person held and links the page, edited once the hold lifts; it
+is rendered from the Finding's `status.credentialHold` (else its approval), never from the condition's message. The
+public intents board says only that a person's credential is missing, never whose.
 
 **Lifting.** Nothing is replanned or re-investigated. The hold lifts on its own once the credential is `Valid`: a
 Finding is looked at again every minute, a blocked Intent on its poll. It also lifts when someone holding a valid
 credential approves again, which replaces whom the run is for (design revision 1), so one person's missing key cannot
 park the work:
 
-- A held Finding takes `approve` again (`/patchy approve` on its issue, or the status page's action) while held, and the
-  newest approval decides whom the remediation is for. A status-page or CLI approval carries no GitHub id, so it makes
-  the remediation the org's.
+- A held Finding takes `/patchy approve` again on its issue while held. The remediation becomes the new approver's only
+  if their own credential is `Valid`; otherwise the hold stays with the person in `status.credentialHold`, and the
+  remediation runs as theirs once their credential is valid. A status-page or CLI approval carries no GitHub id, which
+  would make the remediation the org's, so neither offers or takes `approve` while a Finding is held.
 - An Intent blocked from `Building` takes an approval again (`/patchy approve` or the approve label) of the same plan.
   It is accepted only from an approver whose own credential is `Valid`, and only while the plan comment and the issue
   are as they were approved; an approver without one is told so and nothing changes. A plan or revise block has no such
@@ -267,9 +268,12 @@ Three `ValidatingAdmissionPolicies` fail closed:
   from the request; it is behind an access review on `modelcredentials/self`, a same-origin JSON POST capped at 8 KiB,
   and the hardened browser envelope; and its store writes a Secret with create, or an unconditional update, never
   reading one. No answer carries a credential.
-- A re-approval moves whom a held run is for. For an Intent it is taken only from an approver whose own credential is
-  valid; for a Finding the newest approval decides, as it already decides attribution (a direct API writer needs the
-  `approve` verb, and the attribution policies pin `spec.approval.by` to the writer).
+- A re-approval moves whom a held run is for only when the approver's own credential is valid. For an Intent it is
+  refused otherwise; for a Finding the approval is recorded but remediation-controller keeps the hold on the person
+  held, so neither a keyless approver nor an approval without a GitHub id (one written straight to the API) can move it,
+  or put the run on the org credential.
+- Turning `enforce` off resolves every hold on the next pass: the Finding's `CredentialRequired` goes `False`, its issue
+  comment is edited to say so, and the run is created as under `attribute`.
 
 ## Turning it off
 

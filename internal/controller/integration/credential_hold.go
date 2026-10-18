@@ -24,8 +24,11 @@ const AnnotationProjectedCredentialHold = "patchy.bitwisemedia.uk/projected-cred
 // credential (CredentialRequired True, under enforce only), one comment
 // names the approver and links the Account page; once the hold lifts it is
 // edited to say so. A finding never held gets no comment and no write. The
-// comment is rendered from patchy's own facts (the approval's login, the
-// condition's reason, --account-url), never from the condition's message.
+// comment is rendered from patchy's own facts (the person held,
+// status.credentialHold, else the approval's login; the condition's reason;
+// --account-url), never from the condition's message. The person held, not
+// the newest approval, is named: an approval by someone without a valid
+// credential leaves the hold where it was.
 func (r *FindingReconciler) projectCredentialHold(
 	ctx context.Context, fnd *v1alpha1.Finding, comments *issueComments,
 ) error {
@@ -37,7 +40,9 @@ func (r *FindingReconciler) projectCredentialHold(
 	c := templates.CredentialHoldComment{
 		Reason: cond.Reason, AccountURL: r.AccountURL, Resolved: cond.Status != metav1.ConditionTrue,
 	}
-	if ap := fnd.Spec.Approval; ap != nil {
+	if h := fnd.Status.CredentialHold; h != nil && h.ID > 0 && h.Login != "" {
+		c.Login = h.Login
+	} else if ap := fnd.Spec.Approval; ap != nil {
 		if a := attribution.To(ap.By, ap.ByID, v1alpha1.AttributionApprover); a.User != nil {
 			c.Login = a.User.Login
 		}

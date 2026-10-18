@@ -4,6 +4,7 @@
 package remediation
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -74,6 +75,9 @@ func checkHeld(t *testing.T, fnd *v1alpha1.Finding, reason string) {
 		!strings.Contains(cond.Message, "@alice") || !strings.Contains(cond.Message, accountURL) {
 		t.Fatalf("CredentialRequired = %+v", cond)
 	}
+	if h := fnd.Status.CredentialHold; h == nil || h.Login != "alice" || h.ID != 42 {
+		t.Fatalf("credentialHold = %+v, want alice", h)
+	}
 	if fnd.Status.Phase != v1alpha1.PhaseQueued || fnd.Status.Attempts.Remediation != 0 {
 		t.Fatalf("phase %s, attempts %d: a hold must leave the Finding Queued with no attempt spent",
 			fnd.Status.Phase, fnd.Status.Attempts.Remediation)
@@ -136,6 +140,9 @@ func TestSpawnerHoldsForCredential(t *testing.T) {
 	cond := meta.FindStatusCondition(findingNow(t, c).Status.Conditions, v1alpha1.ConditionCredentialRequired)
 	if cond == nil || cond.Status != metav1.ConditionFalse {
 		t.Errorf("CredentialRequired after lifting = %+v, want False", cond)
+	}
+	if h := findingNow(t, c).Status.CredentialHold; h != nil {
+		t.Errorf("credentialHold after lifting = %+v, want none", h)
 	}
 	var rem v1alpha1.Remediation
 	_ = c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1-rem-1"}, &rem)
@@ -206,6 +213,116 @@ func TestSpawnerNeverHoldsOutsideEnforce(t *testing.T) {
 			if meta.FindStatusCondition(findingNow(t, c).Status.Conditions,
 				v1alpha1.ConditionCredentialRequired) != nil {
 				t.Error("a CredentialRequired condition was written")
+			}
+		})
+	}
+}
+
+// approveAs writes an approval onto the stored Finding as a direct API
+// writer would (or, with apply, through action.ApplyWithID as the tracking
+// issue and the status page do).
+func approveAs(t *testing.T, c client.Client, by string, id int64, apply bool) {
+	t.Helper()
+	cur := findingNow(t, c)
+	if apply {
+		if changed, err := action.ApplyWithID(cur, action.VerbApprove, by, id, "", crdClock.Add(1)); err != nil ||
+			!changed {
+			t.Fatalf("approve as %s: changed=%v err=%v", by, changed, err)
+		}
+	} else {
+		cur.Spec.Approval = &v1alpha1.Approval{By: by, ByID: id, At: metav1.NewTime(crdClock.Add(1))}
+	}
+	if err := c.Update(t.Context(), cur); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestSpawnerReapprovalByKeylessApproverKeepsHold: while alice's attempt is
+// held (her credential stored, not yet verified), a later approval by bob,
+// who has no credential, does not move the hold onto him: the condition and
+// status.credentialHold still name alice, and once her credential is Valid
+// the attempt runs as hers.
+func TestSpawnerReapprovalByKeylessApproverKeepsHold(t *testing.T) {
+	fnd := queuedFinding(v1alpha1.PhaseQueued)
+	fnd.Spec.Approval = &v1alpha1.Approval{By: "alice", ByID: 42, At: metav1.NewTime(crdClock)}
+	r, c := enforcingSpawner(t, credgate.ModeEnforce, fnd, invChild(),
+		credential(42, v1alpha1.ModelCredentialUnknown))
+	reconcileSpawner(t, r)
+	checkHeld(t, findingNow(t, c), credgate.ReasonUnverified)
+
+	approveAs(t, c, "bob", 7, true)
+	reconcileSpawner(t, r)
+	if remediationExists(t, c) {
+		t.Fatal("created after a keyless approver's approval")
+	}
+	got := findingNow(t, c)
+	checkHeld(t, got, credgate.ReasonUnverified)
+	if cond := meta.FindStatusCondition(got.Status.Conditions, v1alpha1.ConditionCredentialRequired); strings.Contains(
+		cond.Message, "@bob") {
+		t.Errorf("the hold moved onto the keyless approver: %s", cond.Message)
+	}
+
+	setHealth(t, c, 42, v1alpha1.ModelCredentialValid)
+	reconcileSpawner(t, r)
+	var rem v1alpha1.Remediation
+	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1-rem-1"},
+		&rem); err != nil {
+		t.Fatalf("not created once the held person's credential was valid: %v", err)
+	}
+	if u := rem.Spec.AttributedTo.User; u == nil || u.Login != "alice" || u.ID != 42 {
+		t.Errorf("attributedTo = %+v, want alice", rem.Spec.AttributedTo)
+	}
+}
+
+// TestSpawnerReapprovalWithoutIDKeepsHold: while held, an approval with no
+// GitHub id (refused by action.Apply, so only a direct API writer makes
+// one) would make the run the org's; it neither lifts the hold nor spends
+// the org credential.
+func TestSpawnerReapprovalWithoutIDKeepsHold(t *testing.T) {
+	fnd := queuedFinding(v1alpha1.PhaseQueued)
+	fnd.Spec.Approval = &v1alpha1.Approval{By: "alice", ByID: 42, At: metav1.NewTime(crdClock)}
+	r, c := enforcingSpawner(t, credgate.ModeEnforce, fnd, invChild())
+	reconcileSpawner(t, r)
+	checkHeld(t, findingNow(t, c), credgate.ReasonMissing)
+
+	cur := findingNow(t, c)
+	if _, err := action.Apply(cur, action.VerbApprove, "github:carol", "", crdClock.Add(1)); !errors.Is(err,
+		action.ErrUnavailable) {
+		t.Fatalf("a status-page approval while held: %v, want ErrUnavailable", err)
+	}
+	approveAs(t, c, "github:carol", 0, false)
+	reconcileSpawner(t, r)
+	if remediationExists(t, c) {
+		t.Fatal("an approval with no GitHub id lifted the hold onto the org credential")
+	}
+	checkHeld(t, findingNow(t, c), credgate.ReasonMissing)
+}
+
+// TestSpawnerHoldClearedWhenEnforceTurnedOff: a Finding held under enforce
+// whose controller then runs under attribute (or off) gets its attempt and
+// the hold resolved, so the tracking issue's comment is edited to say so
+// and approve stops being taken outside its usual phases.
+func TestSpawnerHoldClearedWhenEnforceTurnedOff(t *testing.T) {
+	for _, mode := range []credgate.Mode{credgate.ModeAttribute, credgate.ModeOff} {
+		t.Run(string(mode), func(t *testing.T) {
+			fnd := queuedFinding(v1alpha1.PhaseQueued)
+			fnd.Spec.Approval = &v1alpha1.Approval{By: "alice", ByID: 42, At: metav1.NewTime(crdClock)}
+			r, c := enforcingSpawner(t, credgate.ModeEnforce, fnd, invChild())
+			reconcileSpawner(t, r)
+			checkHeld(t, findingNow(t, c), credgate.ReasonMissing)
+
+			r.UserCredentials = mode
+			reconcileSpawner(t, r)
+			if !remediationExists(t, c) {
+				t.Fatal("still held once enforce was turned off")
+			}
+			got := findingNow(t, c)
+			if cond := meta.FindStatusCondition(got.Status.Conditions,
+				v1alpha1.ConditionCredentialRequired); cond == nil || cond.Status != metav1.ConditionFalse {
+				t.Errorf("CredentialRequired = %+v, want False", cond)
+			}
+			if got.Status.CredentialHold != nil {
+				t.Errorf("credentialHold = %+v, want none", got.Status.CredentialHold)
 			}
 		})
 	}
