@@ -390,12 +390,12 @@ previewAuth:
 - A proxied record resolves to Cloudflare's addresses, not the tunnel's. `patchy check project`'s DNS line then SKIPs
   with no `publishedAddresses`; check the record in the Cloudflare dashboard instead.
 
-`patchy setup previews --edge cloudflare-tunnel --tunnel-credentials ~/.cloudflared/<tunnel id>.json` (hidden while the
-command is built) writes all of this: the values above, cloudflared's namespace, config, Deployment (two replicas, the
-image pinned by digest, no ServiceAccount token, a read-only root) and a NetworkPolicy that lets it reach only DNS, the
-gateway's Pods on 8082 and any public address on 443 and 7844 (where Cloudflare's edge answers; the policy names no
-Cloudflare range), plus the credentials file as a Secret manifest in cloudflared's namespace. It never reads `cert.pem`,
-which stays on your workstation.
+`patchy setup previews --edge cloudflare-tunnel --tunnel-credentials ~/.cloudflared/<tunnel id>.json`
+([Setting up previews](../cli.md#setting-up-previews)) writes all of this: the values above, cloudflared's namespace,
+config, Deployment (two replicas, the image pinned by digest, no ServiceAccount token, a read-only root) and a
+NetworkPolicy that lets it reach only DNS, the gateway's Pods on 8082 and any public address on 443 and 7844 (where
+Cloudflare's edge answers; the policy names no Cloudflare range), plus the credentials file as a Secret manifest in
+cloudflared's namespace. It never reads `cert.pem`, which stays on your workstation.
 
 **Certificate depth.** Cloudflare's free Universal SSL certificate covers a zone's apex and its first-level names only
 (`acme-previews.dev` and `*.acme-previews.dev`). A preview host is `<label>.<hostSuffix>`, so with

@@ -500,6 +500,59 @@ source-controller's and the preview nodes' own credentials can is shown by a Rep
 Preview's status. The exit status is 1 when any check fails, 3 when the Project does not exist and 4 when you may not
 read it.
 
+## Setting up previews
+
+`patchy setup previews` writes the files that expose [previews](configuration/preview-gateway.md) at
+`https://<project>-<issue>.<host suffix>` and sign viewers in to them. It applies nothing and calls no provider API: it
+writes patchy's chart values, the manifests the edge needs, the relay's Dex client secret as two Secret manifests,
+`answers.yaml` and an ordered `NEXT-STEPS.md` into `-o` (default `./patchy-previews`, created 0700, every file 0600).
+
+```sh
+patchy setup previews                       # asks for every answer on a terminal
+patchy setup previews --detect -n patchy    # reads the cluster first to fill in what it can
+patchy setup previews --non-interactive --platform k3s --edge tailscale --dns route53 \
+  --dns-option region=us-east-1 --host-suffix acme-previews.dev --sign-in-host preview-auth.patchy.acme.dev \
+  --dex-issuer https://dex.patchy.acme.dev --viewer-team acme:qa --registry ghcr.io
+```
+
+Every answer is a flag. On a terminal the command asks for each one the flags leave open, and each question names the
+flag that answers it, so a session can be repeated with `--non-interactive`. Without a terminal, or with
+`--non-interactive`, a missing answer is an error naming its flag. A credential is never typed at a prompt, only the
+path of the file that holds it (`--tunnel-credentials`, `--dns-credentials-file`).
+
+The edge (`--edge`) picks the recipe: `cloudflare-tunnel` (cloudflared, TLS at Cloudflare, no open port), `gateway-tls`
+(the gateway's own load balancer, a cert-manager DNS-01 certificate), `tailscale` (a tailnet device through the
+Tailscale operator) or `existing` (an Ingress class or Gateway API parent you already run). The sign-in host and Dex
+must sit on a registrable domain other than the host suffix's, because preview code would otherwise run same-site with
+sign-in.
+
+**`--detect`** is the only way the command reads a cluster. It uses your kubeconfig, read-only, and never reads a
+Secret. It reads the nodes, the `kubernetes` Service and the API server's EndpointSlice, the `kube-dns` Service,
+IngressClasses, GatewayClasses, the cert-manager and Tailscale operator CRDs, kube-system's Pod images, the
+`kube-system/amazon-vpc-cni` ConfigMap and the release's ConfigMaps in `-n`. A cluster it cannot reach at all is an
+error. It prints what it found:
+
+- the platform;
+- the API server's and cluster DNS's addresses;
+- the edges already installed;
+- what enforces NetworkPolicy (the VPC CNI counts only once both its network policy controller and its agent are
+  switched on, since it ships with them off);
+- which nodes carry the preview label and taint;
+- whether the release already serves previews (and whether it still uses the legacy load balancer path), or that it
+  could not tell, when the release's ConfigMaps could not be read.
+
+It then fills in only the answers still open, never one a flag gives: an empty answer, `--api-server-cidr auto`, or a
+false `--cert-manager-installed` or `--tailscale-operator-installed`, even one an earlier run recorded in
+`answers.yaml`. What it fills: the platform, an existing install's host suffix, sign-in host and Dex issuer, the
+`kubernetes` Service's `/32` as `--api-server-cidr` on EKS, and `--cert-manager-installed` and
+`--tailscale-operator-installed`. The status page's Dex is not read, because its settings live in a Secret.
+
+A re-run starts from `answers.yaml`, and flags given override it. It shows how each file would change and writes a
+changed file only with `--force` or `-y`; on a terminal it asks first, and the default is no. The Dex client secret is
+read back from the Secret files and never drawn again, unless you pass `--rotate dex-client-secret`. `--dry-run` prints
+the files and their differences (never a secret) and writes nothing. The last step in `NEXT-STEPS.md` is
+`patchy check previews`.
+
 ## Checking the preview install
 
 `patchy check previews -n <release namespace>` is the install-level preflight for

@@ -211,6 +211,29 @@ func DNSOptionKeys(provider string) []string {
 	return out
 }
 
+// DNSOptionSpec describes one --dns-option a provider takes, for the
+// wizard's prompts: its key, whether it is required, and what a valid
+// value is.
+type DNSOptionSpec struct {
+	Key      string
+	Required bool
+	What     string
+	valid    func(string) bool
+}
+
+// Valid reports whether v is a valid value of the option.
+func (s DNSOptionSpec) Valid(v string) bool { return s.valid(v) }
+
+// DNSOptionSpecs lists the options a provider takes, in order.
+func DNSOptionSpecs(provider string) []DNSOptionSpec {
+	opts := dnsProviders[provider].options
+	out := make([]DNSOptionSpec, 0, len(opts))
+	for _, o := range opts {
+		out = append(out, DNSOptionSpec{Key: o.key, Required: o.required, What: o.what, valid: o.valid})
+	}
+	return out
+}
+
 // validNameserver is an rfc2136 nameserver: an address or a DNS name,
 // with an optional port.
 func validNameserver(v string) bool {
