@@ -3427,6 +3427,33 @@ expect_fail 'user credentials mode not in the enum' '/egressBroker/userCredentia
   --set egressBroker.userCredentials.mode=on
 expect_fail 'an acknowledgement not in the enum' '/egressBroker/userCredentials/orgCredentialIsPersonal' \
   --set egressBroker.userCredentials.orgCredentialIsPersonal=yes
+# The run controllers that hold a person's run under enforce (remediation,
+# intent) are told the mode and may get a record by name, nothing more; off
+# tells them nothing and grants nothing.
+cm user-creds remediation-controller PATCHY_USER_CREDENTIALS enforce
+cm user-creds intent-controller PATCHY_USER_CREDENTIALS enforce
+cm user-creds-attribute remediation-controller PATCHY_USER_CREDENTIALS attribute
+cm attribution remediation-controller PATCHY_USER_CREDENTIALS null
+cm user-creds investigation-controller PATCHY_USER_CREDENTIALS null
+cm user-creds remediation-controller PATCHY_ACCOUNT_URL null
+# shellcheck disable=SC2016
+held_rules='select(.kind == "Role" or .kind == "ClusterRole") | .metadata.name as $n | .rules[] | select(.resources[0] == "modelcredentials") | select($n | test("credential") | not) | $n + " " + (.verbs | join(","))'
+expect user-creds "$held_rules" "patchy-intent-controller get
+patchy-remediation-controller get"
+expect user-creds-attribute "$held_rules" "patchy-intent-controller get
+patchy-remediation-controller get"
+expect attribution "$held_rules" ""
+# The Account page's URL reaches every notice's writer once the page is on
+# with a host; refused without the store it writes to.
+# shellcheck disable=SC2086
+render user-creds-account $allcomponents --set attribution.mode=attribute --set egressBroker.userCredentials.mode=enforce \
+  --set statusServer.account.enabled=true --set statusServer.host=status.example.com
+cm user-creds-account remediation-controller PATCHY_ACCOUNT_URL "https://status.example.com/#/account"
+cm user-creds-account intent-controller PATCHY_ACCOUNT_URL "https://status.example.com/#/account"
+cm user-creds-account integration-controller PATCHY_ACCOUNT_URL "https://status.example.com/#/account"
+cm user-creds-account investigation-controller PATCHY_ACCOUNT_URL null
+expect_fail 'the Account page without the credential store' 'statusServer.account.enabled needs egressBroker.userCredentials.mode' \
+  --set statusServer.account.enabled=true
 
 # ---- NOTES: the agent egress posture as rendered -----------------------------
 # The NOTES once said "TCP 443 to anywhere" whatever broadEgress resolved to.

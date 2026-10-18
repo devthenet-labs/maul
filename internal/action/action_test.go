@@ -594,3 +594,37 @@ func TestApplyWithIDRecordsTheAccount(t *testing.T) {
 		}
 	}
 }
+
+// TestApplyApproveWhileCredentialHeld: a Queued finding whose remediation
+// is held for its approver's model credential takes a later approval, which
+// replaces whom the attempt is for; the same approver again changes
+// nothing, and a Queued finding with no hold still refuses approve.
+func TestApplyApproveWhileCredentialHeld(t *testing.T) {
+	held := func(f *v1alpha1.Finding) {
+		f.Spec.Approval = &v1alpha1.Approval{By: "alice", ByID: 42, At: at(0)}
+		f.Status.Conditions = []metav1.Condition{{Type: v1alpha1.ConditionCredentialRequired,
+			Status: metav1.ConditionTrue, Reason: "CredentialMissing", LastTransitionTime: at(0)}}
+	}
+	f := finding(v1alpha1.PhaseQueued, held)
+	changed, err := ApplyWithID(f, VerbApprove, "bob", 7, "mine", testClock.Add(time.Minute))
+	if err != nil || !changed {
+		t.Fatalf("re-approval while held: changed=%v err=%v", changed, err)
+	}
+	if ap := f.Spec.Approval; ap.By != "bob" || ap.ByID != 7 || ap.Note != "mine" {
+		t.Errorf("approval = %+v, want bob's", ap)
+	}
+	if changed, err := ApplyWithID(f, VerbApprove, "bob", 7, "", testClock.Add(2*time.Minute)); err != nil ||
+		changed {
+		t.Errorf("the same approver again: changed=%v err=%v", changed, err)
+	}
+	if !slices.Contains(Available(f, testClock), VerbApprove) {
+		t.Error("approve is not available while held")
+	}
+
+	resolved := finding(v1alpha1.PhaseQueued, held, func(f *v1alpha1.Finding) {
+		f.Status.Conditions[0].Status = metav1.ConditionFalse
+	})
+	if _, err := Apply(resolved, VerbApprove, "bob", "", testClock); !errors.Is(err, ErrUnavailable) {
+		t.Errorf("approve on a Queued finding with no hold: %v, want ErrUnavailable", err)
+	}
+}

@@ -77,6 +77,8 @@ finding's Repository record and projects rejections and fallbacks to owners.
 */}}
 {{- $_ := set $data "PATCHY_REPOSITORY_IMAGES" "true" }}
 {{- end }}
+{{- /* The tracking issue's credential notice links the Account page. */}}
+{{- $_ := include "patchy.accountURLData" (dict "root" $root "data" $data) }}
 {{- else if eq $c.name "context-controller" }}
 {{- $_ := set $data "PATCHY_ENHANCE_CONCURRENCY" $own.enhanceConcurrency }}
 {{- $_ := set $data "PATCHY_ENHANCE_MAX_OUTBOUND" $own.enhanceMaxOutbound }}
@@ -190,6 +192,7 @@ namespace for claude anymore.
 {{- $_ := set $data "PATCHY_INVESTIGATE_TOKEN_BUDGET" $root.Values.agent.investigate.tokenBudget }}
 {{- else }}
 {{- $_ := set $data "PATCHY_MAX_CONCURRENT_REMEDIATIONS" $own.maxConcurrentRemediations }}
+{{- $_ := include "patchy.userCredentialsData" (dict "root" $root "data" $data) }}
 {{- $_ := set $data "PATCHY_FINDING_TTL" $own.findingTTL }}
 {{- $_ := set $data "PATCHY_REMEDIATE_MODEL" $root.Values.agent.remediate.model }}
 {{- $_ := set $data "PATCHY_REMEDIATE_TIMEOUT" $root.Values.agent.remediate.timeout }}
@@ -265,6 +268,7 @@ ConfigMap is unchanged.
 {{- $_ := include "patchy.attributionData" (dict "root" $root "data" $data) }}
 {{- $_ := include "patchy.usageMeterData" (dict "root" $root "data" $data) }}
 {{- $_ := include "patchy.brokerBudgetData" (dict "root" $root "data" $data) }}
+{{- $_ := include "patchy.userCredentialsData" (dict "root" $root "data" $data) }}
 {{- with ($root.Values.agent.resources | default dict).classes }}
 {{- $_ := set $data "PATCHY_INTENT_RESOURCE_CLASSES" (toJson .) }}
 {{- end }}

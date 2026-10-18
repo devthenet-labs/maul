@@ -21,6 +21,7 @@ import (
 	"github.com/bitwise-media-group/patchy/internal/cli"
 	"github.com/bitwise-media-group/patchy/internal/controller/remediation"
 	"github.com/bitwise-media-group/patchy/internal/controller/rollup"
+	"github.com/bitwise-media-group/patchy/internal/credgate/kubecred"
 	"github.com/bitwise-media-group/patchy/internal/forge"
 	"github.com/bitwise-media-group/patchy/internal/jobs"
 	"github.com/bitwise-media-group/patchy/internal/kube"
@@ -67,6 +68,7 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	runnercfg.RegisterAgentDNSFlag(f)
 	runnercfg.RegisterAgentsPausedFlag(f)
 	runnercfg.RegisterAttributionFlag(f)
+	runnercfg.RegisterUserCredentialsFlags(f)
 	runnercfg.RegisterUsageFlags(f)
 	f.Duration("job-deadline", time.Hour, "activeDeadlineSeconds for an agent Job")
 	f.Duration("job-ttl", time.Hour, "ttlSecondsAfterFinished for a finished agent Job")
@@ -160,6 +162,10 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	if err != nil {
 		return err
 	}
+	credMode, accountURL, err := runnercfg.UserCredentials(opts, attributionMode)
+	if err != nil {
+		return err
+	}
 	meter, err := runnercfg.UsageMeter(opts, log)
 	if err != nil {
 		return err
@@ -241,7 +247,12 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		ManualMaxTurns:    int32(opts.Int("remediate-manual-max-turns")),
 		ManualTokenBudget: int64(opts.Int("remediate-manual-token-budget")),
 		Attribution:       attributionMode,
-		Log:               log,
+		// Under enforce a person's attempt waits for their credential; the
+		// record is read uncached by name (get only, granted with the mode).
+		UserCredentials: credMode,
+		Credentials:     kubecred.Reader{Client: mgr.GetAPIReader(), Namespace: namespace},
+		AccountURL:      accountURL,
+		Log:             log,
 	}
 	if err := spawner.SetupWithManager(mgr); err != nil {
 		return err
@@ -287,6 +298,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		slog.Int("max_concurrent", opts.Int("max-concurrent-remediations")),
 		slog.Bool("agents_paused", opts.Bool(runnercfg.AgentsPausedFlag)),
 		slog.String("attribution_mode", string(attributionMode)),
+		slog.String("user_credentials", string(credMode)),
 		slog.Bool("usage_measurement", meter.On()),
 		slog.Duration("finding_ttl", opts.Duration("finding-ttl")),
 		slog.Bool("repository_images", repositoryImages))

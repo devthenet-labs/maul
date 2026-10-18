@@ -1243,6 +1243,19 @@ statusServer:
     # docs/configuration/status-server.md#usage-views.
     usage:
         enabled: false
+    # The Account page (per-user credentials design, L3): each signed-in
+    # person sets, replaces or deletes their own Anthropic API key or Claude
+    # setup-token, and sees its fingerprint, health and when it was last used.
+    # Write-only: a stored credential is never shown again, to anyone. It
+    # needs egressBroker.userCredentials.mode attribute or enforce (the store
+    # and the status server's write-only grants render with that mode), auth
+    # mode oidc with federated:id as the usage views do (a person is their
+    # GitHub id), and a binding of <release>-credentials-self (see
+    # docs/configuration/user-credentials.md). With host set, every notice
+    # that a run waits for someone's credential links the page. It hardens the
+    # page as the intents views do.
+    account:
+        enabled: false
     config:
         # Extra PATCHY_* keys for the status server only.
         extra: {}

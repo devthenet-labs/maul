@@ -189,6 +189,15 @@ rollup finalizer removal.
   resources: [usagerollups/status]
   verbs: [get, update]
 {{- end }}
+{{- if include "patchy.userCredentialsOn" .root }}
+# Per-user model credentials (design L3): under enforce the spawner holds a
+# person's remediation until their ModelCredential is Valid, reading the
+# record uncached by its derived name. get only: no list, no watch, and no
+# Secret in the credentials namespace.
+- apiGroups: [patchy.bitwisemedia.uk]
+  resources: [modelcredentials]
+  verbs: [get]
+{{- end }}
 - apiGroups: [patchy.bitwisemedia.uk]
   resources: [forges]
   verbs: [get, list, watch]

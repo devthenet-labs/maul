@@ -124,6 +124,15 @@ rules:
       resources: [usagerollups/status]
       verbs: [get, update]
     {{- end }}
+    {{- /* modelcredentials get, under egressBroker.userCredentials.mode on
+           only: under enforce a person's run waits until their record is
+           Valid (design L3), read uncached by its derived name. No list, no
+           watch, no Secret. */}}
+    {{- if include "patchy.userCredentialsOn" . }}
+    - apiGroups: [patchy.bitwisemedia.uk]
+      resources: [modelcredentials]
+      verbs: [get]
+    {{- end }}
     - apiGroups: [""]
       resources: [configmaps]
       verbs: [create, get, list, watch, update]

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
@@ -127,6 +128,17 @@ func ApplyWithID(f *v1alpha1.Finding, verb, user string, id int64, note string, 
 
 	case VerbApprove:
 		phase := f.Status.Phase
+		if credentialHeld(f) {
+			// Held for the approver's model credential (per-user credentials,
+			// enforce): a later approval replaces whom the next attempt is
+			// for, so someone holding a valid credential can let it run. The
+			// same approver again changes nothing.
+			if ap := f.Spec.Approval; ap != nil && ap.By == user && ap.ByID == id {
+				return false, nil
+			}
+			f.Spec.Approval = &v1alpha1.Approval{By: user, ByID: id, At: metav1.NewTime(now), Note: note}
+			return true, nil
+		}
 		if phase != v1alpha1.PhaseAwaitingApproval && phase != v1alpha1.PhaseHandedOff {
 			return false, ErrUnavailable
 		}
@@ -178,6 +190,14 @@ func Available(f *v1alpha1.Finding, now time.Time) []string {
 		}
 	}
 	return out
+}
+
+// credentialHeld reports a Queued finding whose next remediation attempt is
+// held for its approver's model credential (CredentialRequired True, set by
+// remediation-controller's spawner only under per-user credentials enforce).
+func credentialHeld(f *v1alpha1.Finding) bool {
+	return f.Status.Phase == v1alpha1.PhaseQueued &&
+		meta.IsStatusConditionTrue(f.Status.Conditions, v1alpha1.ConditionCredentialRequired)
 }
 
 // expeditable reports the phases where an expedite still has waiting stages
