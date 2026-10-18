@@ -35,24 +35,34 @@ func modelKey(wire string) string {
 	return usagewire.ModelInvalid
 }
 
-// modelLocked returns p's entry for the model, creating it; past
-// usagewire.MaxModels distinct ids every new one shares
+// modelEntry keys a pod's ledger entry: the bare model id and the kind of
+// credential that paid. Under per-user credentials the kind is the
+// request's, not the route's, so a run that switched credential kind
+// midway (its person replaced an API key with a setup-token) keeps the two
+// apart rather than pricing either as the other.
+type modelEntry struct {
+	model, credential string
+}
+
+// modelLocked returns p's entry for the model and credential kind,
+// creating it; past usagewire.MaxModels entries every new one shares
 // usagewire.ModelOther. Called under the ledger lock.
 func (p *podCounters) modelLocked(model, route, credential string) *modelUsage {
 	if p.models == nil {
-		p.models = map[string]*modelUsage{}
+		p.models = map[modelEntry]*modelUsage{}
 	}
-	if m, ok := p.models[model]; ok {
+	key := modelEntry{model: model, credential: credential}
+	if m, ok := p.models[key]; ok {
 		return m
 	}
 	if len(p.models) >= usagewire.MaxModels {
-		model = usagewire.ModelOther
-		if m, ok := p.models[model]; ok {
+		key.model = usagewire.ModelOther
+		if m, ok := p.models[key]; ok {
 			return m
 		}
 	}
 	m := &modelUsage{route: route, credential: credential}
-	p.models[model] = m
+	p.models[key] = m
 	return m
 }
 
@@ -103,15 +113,20 @@ func (l *ledger) jobUsage(job string) []usagewire.Pod {
 		}
 		pod := usagewire.Pod{Name: name, UID: uid, FirstSeen: p.firstSeen.UTC(), Inflight: p.inflight,
 			Models: []usagewire.Model{}}
-		for id, m := range p.models {
+		for key, m := range p.models {
 			pod.Models = append(pod.Models, usagewire.Model{
-				Model: id, Route: m.route, Credential: m.credential,
+				Model: key.model, Route: m.route, Credential: m.credential,
 				Input: m.observed.input, Output: m.observed.output, CacheRead: m.observed.cacheRead,
 				CacheWrite5m: m.observed.cacheWrite5m(), CacheWrite1h: m.observed.cacheWrite1h,
 				EstimatedShortfall: m.shortfall,
 			})
 		}
-		slices.SortFunc(pod.Models, func(a, b usagewire.Model) int { return strings.Compare(a.Model, b.Model) })
+		slices.SortFunc(pod.Models, func(a, b usagewire.Model) int {
+			if c := strings.Compare(a.Model, b.Model); c != 0 {
+				return c
+			}
+			return strings.Compare(a.Credential, b.Credential)
+		})
 		out = append(out, pod)
 	}
 	slices.SortFunc(out, func(a, b usagewire.Pod) int {

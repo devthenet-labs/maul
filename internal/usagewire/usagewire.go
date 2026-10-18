@@ -84,7 +84,10 @@ type Pod struct {
 	FirstSeen time.Time `json:"firstSeen"`
 	// Inflight is the pod's requests not yet settled.
 	Inflight int64 `json:"inflight"`
-	// Models is the pod's usage per bare model id.
+	// Models is the pod's usage per bare model id and credential kind:
+	// one entry per model, two when the pod's requests were paid with two
+	// kinds of credential (under per-user credentials the kind is each
+	// request's, not the route's).
 	Models []Model `json:"models"`
 }
 
@@ -97,7 +100,9 @@ type Model struct {
 	Model string `json:"model"`
 	// Route is the broker route that served it.
 	Route string `json:"route"`
-	// Credential is the route's credential kind.
+	// Credential is the kind of credential that paid for these tokens:
+	// the route's, or under per-user credentials the attributed person's
+	// own (an oauth-token is a subscription: its cost is notional).
 	Credential string `json:"credential"`
 	// Observed tokens, from the responses' usage objects.
 	Input        int64 `json:"input"`

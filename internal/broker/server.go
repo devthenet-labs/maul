@@ -16,6 +16,7 @@ import (
 
 	"k8s.io/client-go/kubernetes"
 
+	"github.com/bitwise-media-group/patchy/api/v1alpha1"
 	"github.com/bitwise-media-group/patchy/internal/httpguard"
 	"github.com/bitwise-media-group/patchy/internal/provider"
 )
@@ -36,13 +37,18 @@ type Server struct {
 	ledger *ledger
 	models *modelPolicy
 	betas  []string
-	now    func() time.Time
-	log    *slog.Logger
+	// creds resolves each request's credential under per-user credentials;
+	// nil while they are off.
+	creds *userCredentials
+	now   func() time.Time
+	log   *slog.Logger
 }
 
 // New builds a Server. cs performs the TokenReviews and, under the cost
-// limit unit only, reads the caller pod's budget annotation (get pods in the
-// agent namespace); the broker needs no other Kubernetes access of any kind.
+// limit unit or per-user credentials only, reads the caller pod's budget and
+// attributed-to annotations (get pods in the agent namespace). Per-user
+// credentials also read the records and Secrets through
+// Config.UserCredentials.Store, the broker's only other Kubernetes access.
 func New(cs kubernetes.Interface, cfg Config, log *slog.Logger) (*Server, error) {
 	cfg = cfg.withDefaults()
 	if err := cfg.validate(); err != nil {
@@ -71,7 +77,39 @@ func New(cs kubernetes.Interface, cfg Config, log *slog.Logger) (*Server, error)
 	if cfg.Usage.Enabled() {
 		s.usageAuth = newUsageAuthenticator(cs, cfg, reviews)
 	}
+	if uc := cfg.UserCredentials; uc.Mode.on() {
+		health := uc.Health
+		if health.Probe == nil {
+			org := cfg.Upstreams["anthropic"]
+			health.Probe = AnthropicProbe(org.Target, health.withDefaults().ProbeModel, probeClient())
+		}
+		s.creds = &userCredentials{
+			mode: uc.Mode, provider: v1alpha1.ModelCredentialProviderAnthropic, store: uc.Store,
+			maxAge: uc.MaxSecretAge, now: now, secrets: map[string]cachedSecret{},
+			health: newCredentialHealth(health, uc.Store, v1alpha1.ModelCredentialProviderAnthropic, now, log),
+		}
+	}
 	return s, nil
+}
+
+// probeClient is the health probe's HTTP client: the proxy's transport and
+// no redirects, so a credential is only ever sent to the route's own
+// target.
+func probeClient() *http.Client {
+	return &http.Client{
+		Transport:     newTransport(),
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+}
+
+// Run runs the broker's background work until ctx ends: the per-user
+// credentials' health probes, when they are on. It never affects
+// readiness.
+func (s *Server) Run(ctx context.Context) {
+	if s.creds == nil {
+		return
+	}
+	s.creds.health.run(ctx)
 }
 
 // Handler is the proxy surface: one subtree per configured route, everything
@@ -111,7 +149,10 @@ type admission struct {
 	// usage is never final: its max_tokens, else the configured ceiling;
 	// 0 when neither is known.
 	outputBound int64
-	release     func()
+	// cred is the credential decision under per-user credentials; its
+	// zero value (the org credential, no user) while they are off.
+	cred    credDecision
+	release func()
 }
 
 // handle runs the enforcement layers in order — pre-authentication,
@@ -119,7 +160,7 @@ type admission struct {
 // forwards only what passes all of them.
 func (s *Server) handle(rt *route) http.Handler {
 	steps := []func(*http.Request, *route, *admission) *rejection{
-		s.preauthenticate, s.authenticate, s.checkRequest, s.reserve,
+		s.preauthenticate, s.authenticate, s.checkRequest, s.resolveCredential, s.reserve,
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		adm := &admission{start: s.now(), release: func() {}}
@@ -255,6 +296,19 @@ func (s *Server) inspectRequest(r *http.Request, rt *route, adm *admission) *rej
 	return nil
 }
 
+// resolveCredential decides whose credential the request carries under
+// per-user credentials (usercred.go): under enforce a run attributed to a
+// person carries that person's own or is refused with the reason, never
+// the org credential.
+func (s *Server) resolveCredential(r *http.Request, _ *route, adm *admission) *rejection {
+	if s.creds == nil {
+		adm.cred = credDecision{org: true}
+		return nil
+	}
+	adm.cred = s.creds.resolve(r.Context(), adm.id)
+	return adm.cred.refusal
+}
+
 // reserve admits the request to the spend ledger: request count, in-flight
 // slot, the pod's token total and the hourly ceiling. A metered request
 // reserves its worst case — the size estimate plus its output bound — under
@@ -291,8 +345,22 @@ func (s *Server) reject(w http.ResponseWriter, r *http.Request, rt *route, adm *
 	audit(s.log, r, auditEntry{
 		pod: adm.id.pod, route: rt.name, model: adm.model, reason: rej.reason,
 		status: rej.status, elapsed: s.now().Sub(adm.start), totals: s.ledger.totals(adm.id.key()),
-		costLimit: s.costLimit(adm.id),
+		costLimit: s.costLimit(adm.id), creds: s.creds != nil, user: adm.cred.user,
+		credential: s.auditCredential(adm.cred),
 	})
+}
+
+// auditCredential is the audit line's credential attribute: the person's
+// credential's fingerprint (never the credential), "org" for the org
+// credential, "" for a request refused before one was chosen.
+func (s *Server) auditCredential(d credDecision) string {
+	switch {
+	case s.creds == nil || d.refusal != nil:
+		return ""
+	case d.org:
+		return auditCredentialOrg
+	}
+	return d.fingerprint
 }
 
 // costLimit is the caller pod's cost cap in micro-USD for the audit line;
@@ -309,6 +377,10 @@ func (s *Server) costLimit(id identity) int64 {
 func (s *Server) proxy(w http.ResponseWriter, r *http.Request, rt *route, adm *admission) {
 	key := adm.id.key()
 	cred := rt.upstream.CredentialKind
+	if !adm.cred.org {
+		cred = usageKind(adm.cred.kind)
+		r = r.WithContext(withAttached(r.Context(), &attached{kind: adm.cred.kind, credential: adm.cred.credential}))
+	}
 	aw := &httpguard.CountingWriter{ResponseWriter: w}
 	var inner http.ResponseWriter = aw
 	var uw *usageWriter
@@ -349,11 +421,18 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, rt *route, adm *a
 		// ServeHTTP, so the slot frees after the response has gone out. A
 		// request sent straight after waits for it in ledger.admit.
 		adm.release()
+		if !adm.cred.org && aw.Status == http.StatusUnauthorized {
+			// The provider refused a person's credential on a run's
+			// request: ask the health probe to look (throttled). The run's
+			// own answer is never the verdict.
+			s.creds.health.recheck(adm.cred.record)
+		}
 		countRequest(r.Context(), rt.name, "proxied")
 		audit(s.log, r, auditEntry{
 			pod: adm.id.pod, route: rt.name, model: adm.model, status: aw.Status, bytes: aw.Bytes,
 			elapsed: s.now().Sub(adm.start), tokens: charged.total() + estimated, estimated: estimated > 0,
 			cost: cost + estimatedCost, totals: s.ledger.totals(key), costLimit: s.costLimit(adm.id),
+			creds: s.creds != nil, user: adm.cred.user, credential: s.auditCredential(adm.cred),
 		})
 	}()
 	defer sw.stop()

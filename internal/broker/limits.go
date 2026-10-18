@@ -69,7 +69,7 @@ type podCounters struct {
 	// consumed per bare model id (usageledger.go). Both are for the usage
 	// endpoint and decide nothing here.
 	firstSeen time.Time
-	models    map[string]*modelUsage
+	models    map[modelEntry]*modelUsage
 	// freed is closed, and cleared, when one of the pod's in-flight slots is
 	// released: requests waiting for a slot select on it. Nil while nobody
 	// waits.

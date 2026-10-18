@@ -61,4 +61,23 @@
 // that restarted mid-run is never taken for a whole one. The broker runs as
 // a single replica, and the usage figures depend on it: a second replica
 // would hold half of a pod's traffic.
+//
+// Per-user model credentials (Config.UserCredentials, design L3; off by
+// default) let a run attributed to a person be paid with that person's own
+// Anthropic API key or setup-token (usercred.go). The caller pod's
+// attributed-to annotation is read with the verdict (the same UID-checked
+// get as the budget); under attribute the org credential still pays and the
+// audit line records the person, and under enforce a person's run carries
+// that person's credential, found by derived names through a
+// CredentialStore (informers on the ModelCredential records and the
+// credential Secrets' versions, a live read of the Secret at most once a
+// minute while its version holds), or is refused with a 403 naming which
+// link broke, never sent with the org credential. A run attributed to the
+// org keeps the org credential in every mode. The credential travels to the
+// route's CredentialFunc in the request context; the audit line carries
+// the person and the credential's fingerprint, and the ledger the kind that
+// paid. Each record's health comes only from probes the broker issues
+// itself (credhealth.go), throttled, written by a patch conditional on the
+// record's resourceVersion and only while the probed Secret version is
+// still current; readiness stays tied to the org credential alone.
 package broker
