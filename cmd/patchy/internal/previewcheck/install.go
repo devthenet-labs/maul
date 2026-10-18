@@ -57,11 +57,12 @@ func (r Report) Failed() int { return checkreport.Failed(r.Lines()) }
 
 // Install runs the install-level checks, before any Project exists: the
 // preview configuration as a whole (preview-config), who may view previews
-// (preview-viewers), the preview nodes (preview-nodes), then the shared host
-// and sign-in checks against the probe host and every Ready Preview.
-// cfg.Project and cfg.AllPreviews are set here. It reads ConfigMaps, the
-// gateway's exposure, Previews, RoleBindings, ClusterRoleBindings and Nodes;
-// never a Secret.
+// (preview-viewers), the preview nodes (preview-nodes), the pinned upstreams'
+// versions (preview-upstreams), then the shared host and sign-in checks
+// against the probe host and every Ready Preview. cfg.Project and
+// cfg.AllPreviews are set here. It reads ConfigMaps, the gateway's exposure,
+// Previews, RoleBindings, ClusterRoleBindings, Nodes and Deployments; never a
+// Secret.
 func Install(ctx context.Context, cfg Config) Report {
 	cfg.Project, cfg.AllPreviews = ProbeProject, true
 	c := New(cfg)
@@ -71,6 +72,7 @@ func Install(ctx context.Context, cfg Config) Report {
 	// (from outside an allowlist) could otherwise spend the run's deadline.
 	c.viewers(ctx, s)
 	c.nodes(ctx, s)
+	c.upstreamsCheck(ctx)
 	c.Host(ctx, s, suffix)
 	c.Auth(ctx, s, suffix)
 	return Report{Namespace: cfg.Namespace, Checks: c.Lines()}

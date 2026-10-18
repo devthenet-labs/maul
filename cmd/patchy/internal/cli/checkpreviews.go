@@ -62,10 +62,14 @@ func newCheckPreviewsCmd(opts *Options) *cobra.Command {
 			"beside preview code there). A node with the taint but not the selector is\n" +
 			"another install's or a label typo (a WARN); with an EKS Auto Mode NodePool,\n" +
 			"no node yet is a SKIP; isolation off is a WARN.\n\n" +
+			"preview-upstreams compares cert-manager, the Tailscale operator and\n" +
+			"cloudflared, where a Deployment runs them, with the versions setup previews\n" +
+			"pins, by the image's tag or the app.kubernetes.io/version label: older is a\n" +
+			"WARN, and none running reports no line.\n\n" +
 			"The check never reads a Secret. Its cluster reads, with your kubeconfig, are\n" +
 			"ConfigMaps, the preview placeholder and gateway Ingresses, the gateway's\n" +
-			"Service, Previews, RoleBindings, ClusterRoleBindings and Nodes; a read you\n" +
-			"may not make is a SKIP. The gateway's edge may admit only\n" +
+			"Service, Previews, RoleBindings, ClusterRoleBindings, Nodes and\n" +
+			"Deployments; a read you may not make is a SKIP. The gateway's edge may admit only\n" +
 			"previewAuth.gateway.inboundCIDRs, so from any other address the host checks\n" +
 			"time out or are refused, and that is a SKIP, not a FAIL.\n\n" +
 			"-o json or -o yaml prints the whole report as data. The exit status is 1 when\n" +

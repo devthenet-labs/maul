@@ -27,7 +27,13 @@
 //     <taint key>=true:NoExecute taint, and none carries the selector alone
 //     (the taint alone, another install's node or a typo, is a WARN; an EKS
 //     Auto Mode NodePool with no node yet is a SKIP; isolation off is a
-//     WARN).
+//     WARN);
+//   - preview-upstreams (upstreams.go): each Deployment running an upstream
+//     the preview recipes pin (cert-manager's controller, the Tailscale
+//     operator, cloudflared; previewsetup's pin table, design §5.3), found
+//     by its image's repository path, is compared with its pin by the
+//     image's tag, else its app.kubernetes.io/version label. Older is a
+//     WARN, no readable version a SKIP, none running no line at all.
 //
 // It reads the controllers' settings from their ConfigMaps (LoadSettings:
 // each controller's own over kustomize's shared one; never a Secret), and
@@ -82,5 +88,5 @@
 // through seams (client.Reader, Resolver, TLSDialer and HTTPDoer) so tests
 // need no network at all. Cluster reads are ConfigMaps, the placeholder and
 // gateway Ingresses, the gateway's Service, Previews and, for Install,
-// RoleBindings, ClusterRoleBindings and Nodes; never a Secret.
+// RoleBindings, ClusterRoleBindings, Nodes and Deployments; never a Secret.
 package previewcheck
