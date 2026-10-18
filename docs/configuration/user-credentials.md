@@ -30,6 +30,8 @@ patchy kind is, but nothing grants access to it and no policy judges it.
   keeps the org credential. See [What the broker does](#what-the-broker-does). Remediation- and intent-controller do not
   create such a run until the person's credential is `Valid`: see [Holding a run](#holding-a-run).
 
+Turn them on in that order, `attribute` before `enforce`: see [Rolling it out](#rolling-it-out).
+
 Either mode is refused at render time unless all of the following hold:
 
 - `attribution.mode` is `attribute`.
@@ -275,9 +277,62 @@ Three `ValidatingAdmissionPolicies` fail closed:
 - Turning `enforce` off resolves every hold on the next pass: the Finding's `CredentialRequired` goes `False`, its issue
   comment is edited to say so, and the run is created as under `attribute`.
 
-## Turning it off
+## Rolling it out
 
-Set `egressBroker.userCredentials.mode: off`. The chart removes the grants and the policies. It keeps the credentials
-namespace it created (`helm.sh/resource-policy: keep`), and with it every stored credential, because deleting them is
-the operator's decision, never a side effect of an upgrade. With the grants gone nothing reads or writes them. To remove
-them, delete the namespace. The `ModelCredential` records stay in the release namespace until deleted.
+Turn it on in two steps, `attribute` first and then `enforce`, so that nobody's run waits on a credential they never had
+a chance to store.
+
+1. **Attribution.** Set `attribution.mode: attribute` ([run attribution](attribution.md)) and let it run. Every new run
+   is then stamped with whom it is for, and `patchy get usage` (or the status page's Usage page) shows who those people
+   are.
+2. **`attribute`, with the Account page.** Set `egressBroker.userCredentials.mode: attribute` and
+   `statusServer.account.enabled: true`, with `statusServer.host` set so every notice links the page. Bind the
+   `<release>-credentials-self` ClusterRole to the people who run work (see [Who may do what](#who-may-do-what)) and
+   `<release>-credentials-admin` to whoever checks the rollout. Nothing is held and the org credential still pays for
+   every run, but people can store their credential (the [Account page guide](../account.md) is the page to send them)
+   and the broker probes each one, so its health is known before anything depends on it.
+3. **Check.** Before `enforce`, list the records as a credentials admin:
+
+   ```sh
+   kubectl get modelcredentials -n patchy
+   ```
+
+   Each person whose runs are attributed to them needs a row with `Health` `Valid`: whoever approves intent plans or
+   Findings on GitHub, triggers plans as an approver, comments `/patchy revise` or reviews an intent's pull request.
+   Compare the list with the people in `patchy get usage --since 30d`. Under `attribute` the broker's audit line already
+   names the person on every request (`user`) beside `credential=org`, so the logs show whose runs would change hands.
+
+4. **`enforce`.** Set `egressBroker.userCredentials.mode: enforce`. The chart rolls the broker, remediation-controller
+   and intent-controller together. From then on a run attributed to a person is held until their credential is `Valid`
+   ([Holding a run](#holding-a-run)), and the broker refuses to pay for a person's run with anything but their own
+   credential.
+
+Do the switch to `enforce` while no run attributed to a person is in flight, or accept that one may fail. Holding
+happens before a run is created: a run that started under `attribute` is not held, and once the broker restarts under
+`enforce` each of its requests is judged afresh, so a run of someone with no valid credential is refused mid-way
+(`credential_missing`, or another reason from the table above), which the run is unlikely to survive.
+
+Org-attributed runs (Finding investigations, unheld remediations, a plan whose trigger was not an approver) are never
+held and keep the org credential through every step.
+
+## Rolling back
+
+Each step back is a values change alone, and none of them deletes a stored credential.
+
+- **`enforce` to `attribute`.** Every run goes back to the org credential at once: the broker stops reading people's
+  credentials for payment (it still probes their health). The controllers resolve every hold on their next pass: a held
+  Finding's `CredentialRequired` goes `False` and its issue comment is edited to say so, a blocked Intent unblocks, and
+  each run is created as under `attribute`. Nothing is replanned. This is the step to take if `enforce` holds work it
+  should not, while you find out why.
+- **`attribute` to `off`.** Set `egressBroker.userCredentials.mode: off` (and `statusServer.account.enabled: false`,
+  which the chart refuses without a mode). The chart removes the grants, the policies and the broker's flags, so the
+  audit line loses `user` and `credential`. Attribution and usage stay as they are; turn those off separately
+  ([run attribution](attribution.md#turning-it-off)).
+- **The org credential.** If the org route uses a setup-token under the [subscription guard](#the-subscription-guard),
+  swapping it for an org API key is independent of the mode: change the `patchy-anthropic` Secret and set
+  `anthropicAuth: key`, then drop `orgCredentialIsPersonal`.
+
+With the mode `off`, the chart keeps the credentials namespace it created (`helm.sh/resource-policy: keep`), and with it
+every stored credential, because deleting them is the operator's decision, never a side effect of an upgrade. With the
+grants gone nothing reads or writes them. To remove them, delete the namespace. The `ModelCredential` records stay in
+the release namespace until deleted. Turning the mode on again finds them as they were.

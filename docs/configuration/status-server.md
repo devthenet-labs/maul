@@ -146,7 +146,8 @@ refused unless `egressBroker.userCredentials.mode` is `attribute` or `enforce`, 
   provider, the kind and the fingerprint, never the value).
 
 With `statusServer.host` set, every notice that a run waits for someone's credential links the page
-(`https://<host>/#/account`).
+(`https://<host>/#/account`). What the page looks like to the people who use it is in
+[Your model credential](../account.md).
 
 ## Authentication configuration
 

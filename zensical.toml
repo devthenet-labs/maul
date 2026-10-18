@@ -87,6 +87,7 @@ nav = [
   ] },
   { "Operations" = [
     { "The status page" = "status-ui.md" },
+    { "Your model credential" = "account.md" },
     { "Observability" = "observability.md" },
     { "Benchmarks & load tests" = "dev/benchmarks.md" },
   ] },
