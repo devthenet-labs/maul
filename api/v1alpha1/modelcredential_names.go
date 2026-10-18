@@ -98,3 +98,19 @@ func ModelCredentialFingerprint(credential []byte) string {
 func fingerprintChar(c byte) bool {
 	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '-'
 }
+
+// HealthFor is the credential's health for the Secret at resourceVersion
+// current: the recorded Health when it was judged against that very version,
+// Unknown otherwise (never probed, judged against an earlier credential, or
+// no Secret at all). A health is never carried over to a credential nobody
+// probed.
+func (s ModelCredentialStatus) HealthFor(current string) ModelCredentialHealth {
+	if current == "" || s.SecretVersion != current {
+		return ModelCredentialUnknown
+	}
+	switch s.Health {
+	case ModelCredentialValid, ModelCredentialRejected:
+		return s.Health
+	}
+	return ModelCredentialUnknown
+}

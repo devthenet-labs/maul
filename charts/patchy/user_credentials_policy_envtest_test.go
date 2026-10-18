@@ -252,6 +252,14 @@ func checkCredentialStatus(t *testing.T, admin client.Client, as func(string) cl
 			func(s *v1alpha1.ModelCredentialStatus) {
 				s.Health, s.LastRejectedAt = v1alpha1.ModelCredentialRejected, &now
 			}, ""},
+		{"the broker judges it against the Secret version it probed", as(saBroker),
+			func(s *v1alpha1.ModelCredentialStatus) { s.SecretVersion = "41" }, ""},
+		{"the status server claiming another Secret version", as(saStatus),
+			func(s *v1alpha1.ModelCredentialStatus) { s.SecretVersion = "42" }, credStatusResetDenied},
+		{"the status server clearing the Secret version", as(saStatus),
+			func(s *v1alpha1.ModelCredentialStatus) {
+				s.SecretVersion, s.Health = "", v1alpha1.ModelCredentialUnknown
+			}, ""},
 		{"the status server clearing a rejection", as(saStatus),
 			func(s *v1alpha1.ModelCredentialStatus) { s.LastRejectedAt = nil }, credStatusResetDenied},
 		{"a credentials admin", as(credAdmin),

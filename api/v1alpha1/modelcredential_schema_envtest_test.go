@@ -5,6 +5,7 @@ package v1alpha1_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -92,6 +93,7 @@ func testModelCredentialSchema(ctx context.Context, t *testing.T, c client.Clien
 		{Fingerprint: "sk-ant-api03-abcdefghijklmnop"},
 		{Fingerprint: "mnop:2C975580F00E"},
 		{Health: "Expired"},
+		{SecretVersion: strings.Repeat("1", 65)},
 	} {
 		next := m.DeepCopy()
 		next.Status = bad

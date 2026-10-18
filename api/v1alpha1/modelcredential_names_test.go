@@ -152,3 +152,48 @@ func TestModelCredentialFingerprintProperty(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+// TestHealthForExamples: a health speaks only for the Secret version it was
+// judged against.
+func TestHealthForExamples(t *testing.T) {
+	judged := ModelCredentialStatus{Health: ModelCredentialRejected, SecretVersion: "41"}
+	for _, tc := range []struct {
+		status  ModelCredentialStatus
+		current string
+		want    ModelCredentialHealth
+	}{
+		{judged, "41", ModelCredentialRejected},
+		{judged, "42", ModelCredentialUnknown},
+		{judged, "", ModelCredentialUnknown},
+		{ModelCredentialStatus{Health: ModelCredentialValid}, "41", ModelCredentialUnknown},
+		{ModelCredentialStatus{Health: ModelCredentialValid, SecretVersion: "7"}, "7", ModelCredentialValid},
+		{ModelCredentialStatus{SecretVersion: "7"}, "7", ModelCredentialUnknown},
+	} {
+		if got := tc.status.HealthFor(tc.current); got != tc.want {
+			t.Errorf("%+v.HealthFor(%q) = %s, want %s", tc.status, tc.current, got, tc.want)
+		}
+	}
+}
+
+// TestHealthForProperty: a known health is only ever reported for the very
+// version it was judged against, and a matching version reports the
+// recorded health whenever it is a known one.
+func TestHealthForProperty(t *testing.T) {
+	healths := []ModelCredentialHealth{"", ModelCredentialUnknown, ModelCredentialValid, ModelCredentialRejected}
+	versions := []string{"", "1", "2", "41"}
+	prop := func(h, judged, current uint8) bool {
+		s := ModelCredentialStatus{Health: healths[int(h)%len(healths)], SecretVersion: versions[int(judged)%len(versions)]}
+		cur := versions[int(current)%len(versions)]
+		got := s.HealthFor(cur)
+		if got != ModelCredentialUnknown && (cur == "" || cur != s.SecretVersion || got != s.Health) {
+			return false
+		}
+		if cur != "" && cur == s.SecretVersion && (s.Health == ModelCredentialValid || s.Health == ModelCredentialRejected) {
+			return got == s.Health
+		}
+		return got == ModelCredentialUnknown
+	}
+	if err := quick.Check(prop, &quick.Config{MaxCount: 2000, Rand: rand.New(rand.NewSource(7))}); err != nil {
+		t.Fatal(err)
+	}
+}

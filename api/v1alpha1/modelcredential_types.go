@@ -91,6 +91,14 @@ type ModelCredentialStatus struct {
 	// Health is what the broker's last probe found; empty is Unknown.
 	// +optional
 	Health ModelCredentialHealth `json:"health,omitempty"`
+	// SecretVersion is the resourceVersion of the credential Secret that
+	// Health was judged against. Health speaks for that version only: while
+	// the Secret's current resourceVersion differs (the person stored a new
+	// credential since), the health is Unknown whatever Health says. The
+	// broker writes it with Health; the status server may only clear it.
+	// +optional
+	// +kubebuilder:validation:MaxLength=64
+	SecretVersion string `json:"secretVersion,omitempty"`
 	// LastUsedAt is when the broker last attached the credential to a
 	// request.
 	// +optional
