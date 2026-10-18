@@ -75,6 +75,9 @@ func Install(ctx context.Context, cfg Config) Report {
 	c.upstreamsCheck(ctx)
 	c.Host(ctx, s, suffix)
 	c.Auth(ctx, s, suffix)
+	if cfg.Isolation != nil {
+		c.isolation(ctx, s)
+	}
 	return Report{Namespace: cfg.Namespace, Checks: c.Lines()}
 }
 

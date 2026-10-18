@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -153,9 +154,61 @@ func TestCheckPreviewsHelp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"never reads a Secret", "patchy-probe-0.<host suffix>", "preview-nodes"} {
+	for _, want := range []string{"never reads a Secret", "patchy-probe-0.<host suffix>", "preview-nodes",
+		"preview-upstreams", "--isolation", "preview-netpol", "without --isolation it never writes"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("check previews --help lacks %q:\n%s", want, out)
 		}
+	}
+}
+
+// TestCheckPreviewsIsolationFlags: the --isolation-* flags need
+// --isolation, and its timeout must be positive; each is a usage error
+// before any cluster is reached.
+func TestCheckPreviewsIsolationFlags(t *testing.T) {
+	for _, args := range [][]string{
+		{"--isolation-slot", "1"},
+		{"--isolation-image", "registry.example/p/netprobe:sha-0123456789abcdef0123456789abcdef01234567"},
+		{"--isolation-timeout", "1m"},
+		{"--isolation", "--isolation-timeout", "0s"},
+	} {
+		_, err := execDev(t, append([]string{"check", "previews", "-n", "patchy"}, args...)...)
+		if code := exitCode(err); code != ExitUsage {
+			t.Errorf("%v: exit code = %d (%v), want %d", args, code, err, ExitUsage)
+		}
+	}
+}
+
+// TestCheckPreviewsIsolation: with --isolation the report ends with
+// preview-netpol, which fails when the probe cannot run (no slot policy
+// here) and then creates no Pod; no Secret is read either way.
+func TestCheckPreviewsIsolation(t *testing.T) {
+	created := 0
+	h := checkProjectHarness(t, interceptor.Funcs{
+		Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+			created++
+			return c.Create(ctx, obj, opts...)
+		},
+	}, previewControllerSettings(),
+		&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "patchy-preview-auth-dex", Namespace: testNamespace}})
+	deps := checkPreviewsDepsFake
+	deps.isolation = &previewcheck.Isolation{Image: "registry.example/p/netprobe:sha-" +
+		"0123456789abcdef0123456789abcdef01234567", Timeout: time.Second,
+		Logs: func(context.Context, string, string) ([]byte, error) { return nil, errors.New("not read") }}
+	h.opts.Output = "json"
+	if err := runCheckPreviews(context.Background(), h.opts, deps); err == nil {
+		t.Fatal("check previews passed")
+	}
+	var report previewcheck.Report
+	if err := json.Unmarshal(h.out.Bytes(), &report); err != nil {
+		t.Fatalf("not a report: %v\n%s", err, h.out)
+	}
+	last := report.Checks[len(report.Checks)-1]
+	if last.Name != previewcheck.CheckPreviewNetpol || last.Status != checkreport.Fail ||
+		!strings.Contains(last.Reason, "no slot NetworkPolicy") {
+		t.Errorf("last line = %+v", last)
+	}
+	if created != 0 {
+		t.Errorf("%d objects created when the probe could not run", created)
 	}
 }

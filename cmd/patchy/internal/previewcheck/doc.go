@@ -33,7 +33,20 @@
 //     operator, cloudflared; previewsetup's pin table, design §5.3), found
 //     by its image's repository path, is compared with its pin by the
 //     image's tag, else its app.kubernetes.io/version label. Older is a
-//     WARN, no readable version a SKIP, none running no line at all.
+//     WARN, no readable version a SKIP, none running no line at all;
+//   - preview-netpol (isolation*.go), only with Config.Isolation (`check
+//     previews --isolation`): the Go port of
+//     hack/preview-isolation-probe/ingress.sh --refused-is-blocked, and the
+//     one check that writes to the cluster. A netprobe listener starts in
+//     a slot (in ingress.sh's exact Pod shape, pinned by a test that runs
+//     its --print-manifests); the gateway-labelled client runs alone and
+//     must REACH it; only then do the agents' client and an unlabelled
+//     release client run, both of which must be BLOCKED (a refusal counted
+//     as blocked); and the listener must still be the same running Pod with
+//     no restart. judgeIsolation, pure and property-tested, passes nothing
+//     else, so a dead listener never passes as a block. Every Pod the run
+//     created is deleted, UID-checked, on a context that outlives an
+//     interrupt.
 //
 // It reads the controllers' settings from their ConfigMaps (LoadSettings:
 // each controller's own over kustomize's shared one; never a Secret), and

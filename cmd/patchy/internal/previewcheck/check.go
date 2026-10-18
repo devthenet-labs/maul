@@ -50,6 +50,10 @@ type Config struct {
 	// HTTP sends the preview sign-in checks' requests, never following a
 	// redirect; nil is NewHTTPDoer.
 	HTTP HTTPDoer
+	// Isolation, when set, runs the opt-in ingress isolation probe
+	// (preview-netpol, Install only), the one check that writes to the
+	// cluster. Nil runs every other check, all of them read-only.
+	Isolation *Isolation
 }
 
 // Line is one check's verdict. A run's lines are about the install as a
