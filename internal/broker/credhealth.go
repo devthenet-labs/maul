@@ -50,6 +50,11 @@ const (
 	probeAttempts = 5
 	// verdictRetry is how soon a refused verdict write is tried again.
 	verdictRetry = 5 * time.Second
+	// syncRetry is how soon a record queued before the store's first sync
+	// is judged again: the informers' initial Add events arrive before the
+	// store is marked synced, and dropping them would leave every record
+	// stored while the broker was down unjudged until it next changed.
+	syncRetry = time.Second
 )
 
 // HealthConfig tunes the health probe.
@@ -238,6 +243,9 @@ func (h *credentialHealth) step(ctx context.Context) time.Time {
 // recheck was asked for), a reset to Unknown and a probe. It returns how
 // long to wait before judging it again, 0 for not at all.
 func (h *credentialHealth) judge(ctx context.Context, name string) time.Duration {
+	if !h.store.Synced() {
+		return syncRetry
+	}
 	rec, ok := h.store.Record(name)
 	if !ok {
 		h.forget(name)

@@ -96,6 +96,33 @@ func TestHealthProbeJudgesTheStoredVersion(t *testing.T) {
 	}
 }
 
+// TestEventsBeforeTheFirstSyncAreKept: the informers' initial Add events
+// arrive before the store is marked synced; a record queued then is judged
+// once the store syncs, not dropped (which left every credential stored
+// while the broker was down Unknown until it next changed).
+func TestEventsBeforeTheFirstSyncAreKept(t *testing.T) {
+	f := newHealthFixture(t, ProbeValid)
+	f.store.mu.Lock()
+	f.store.synced = false
+	f.store.mu.Unlock()
+	f.store.fire(f.record)
+	next := f.h.step(t.Context())
+	if f.probe.count() != 0 {
+		t.Fatalf("probed %d times before the store synced", f.probe.count())
+	}
+	if next.IsZero() {
+		t.Fatal("record dropped from the queue before the store synced")
+	}
+	f.store.mu.Lock()
+	f.store.synced = true
+	f.store.mu.Unlock()
+	f.clock.advance(syncRetry)
+	f.h.step(t.Context())
+	if st := f.status(); st.Health != v1alpha1.ModelCredentialValid || st.SecretVersion != f.secretVersion() {
+		t.Fatalf("status = %+v after the sync, want Valid for version %s", st, f.secretVersion())
+	}
+}
+
 // TestHealthResetsOnAnySecretChange: a credential replaced after it was
 // judged is reset to Unknown (for the new version) before it is probed,
 // and the probe's verdict is then written for the new version.

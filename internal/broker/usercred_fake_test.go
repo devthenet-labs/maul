@@ -112,7 +112,7 @@ func (f *fakeStore) Record(name string) (*v1alpha1.ModelCredential, bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	r, ok := f.records[name]
-	if !ok {
+	if !ok || !f.synced { // as credstore: nothing is read before the sync
 		return nil, false
 	}
 	return r.DeepCopy(), true
@@ -121,6 +121,9 @@ func (f *fakeStore) Record(name string) (*v1alpha1.ModelCredential, bool) {
 func (f *fakeStore) SecretVersion(name string) (string, bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if !f.synced {
+		return "", false
+	}
 	v, ok := f.informer[name]
 	return v, ok
 }
