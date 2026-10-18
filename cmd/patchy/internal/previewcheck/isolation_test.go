@@ -424,6 +424,44 @@ func TestRunIsolationInterrupted(t *testing.T) {
 	}
 }
 
+// TestRunIsolationSparesAForeignPod: when a Create fails for another
+// reason than AlreadyExists, the run cannot know whether it made the Pod,
+// so cleanup deletes the Pod of that name only if it carries this run's
+// marker: one that appeared there in the meantime (another probe's) is
+// left alone, while one this run did create despite the error is deleted.
+func TestRunIsolationSparesAForeignPod(t *testing.T) {
+	foreign := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Namespace: "patchy-preview-1", Name: probeListener}}
+	f := newFakeProbeCluster(scenario{listener: "ready", failCreate: probeListener}, foreign)
+	v := judgeIsolation(runIsolation(context.Background(), f.iso(), testPlan()))
+	if v.status != checkreport.Fail {
+		t.Errorf("status = %s: %s", v.status, v.reason)
+	}
+	if left := f.remaining(t); !reflect.DeepEqual(left, []string{"patchy-preview-1/" + probeListener}) {
+		t.Errorf("the foreign Pod was not spared: left %v", left)
+	}
+
+	// A Create that made the Pod but answered with an error (a timeout).
+	var ambiguous client.WithWatch
+	ambiguous = fake.NewClientBuilder().WithScheme(kube.Scheme()).WithInterceptorFuncs(interceptor.Funcs{
+		Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+			if err := c.Create(ctx, obj, opts...); err != nil {
+				return err
+			}
+			return apierrors.NewTimeoutError("the request timed out", 1)
+		},
+	}).Build()
+	iso := &Isolation{Client: ambiguous, Logs: f.logs, Timeout: 50 * time.Millisecond, Poll: time.Millisecond}
+	_ = runIsolation(context.Background(), iso, testPlan())
+	var list corev1.PodList
+	if err := ambiguous.List(context.Background(), &list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Items) != 0 {
+		t.Errorf("a Pod the run created despite the error was left behind: %s/%s", list.Items[0].Namespace,
+			list.Items[0].Name)
+	}
+}
+
 // TestDeleteProbesReportsFailures: a Pod that cannot be deleted is named,
 // so the line can say to delete it by hand.
 func TestDeleteProbesReportsFailures(t *testing.T) {
@@ -433,7 +471,8 @@ func TestDeleteProbesReportsFailures(t *testing.T) {
 		},
 	}).Build()
 	pod := testPlan().listener()
-	got := deleteProbes(context.Background(), c, []*corev1.Pod{pod})
+	pod.UID = "listener-1"
+	got := deleteProbes(context.Background(), c, []*corev1.Pod{pod}, "run")
 	if len(got) != 1 || !strings.Contains(got[0], "patchy-preview-1/preview-ingress-listener") {
 		t.Errorf("deleteProbes = %v", got)
 	}

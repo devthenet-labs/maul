@@ -7,6 +7,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -62,12 +64,22 @@ func runIsolation(ctx context.Context, iso *Isolation, plan probePlan) (r isolat
 	r.gatewayWhere = plan.releaseNS + "/" + probeGatewayClient
 	r.agentWhere = plan.agentsNS + "/" + probeAgentClient
 	r.releaseWhere = plan.releaseNS + "/" + probeReleaseClient
+	run, err := newRunID()
+	if err != nil {
+		r.setup = err.Error()
+		return r
+	}
 	var created []*corev1.Pod
-	defer func() { r.cleanup = deleteProbes(context.WithoutCancel(ctx), iso.Client, created) }()
+	defer func() { r.cleanup = deleteProbes(context.WithoutCancel(ctx), iso.Client, created, run) }()
 	create := func(p *corev1.Pod) error {
+		if p.Annotations == nil {
+			p.Annotations = map[string]string{}
+		}
+		p.Annotations[probeRunAnnotation] = run
 		err := iso.Client.Create(ctx, p)
 		// A Pod that already exists is another's (the plan saw none); any
-		// other failure may still have created it, so it is deleted too.
+		// other failure may still have created it, so cleanup looks for it,
+		// and deletes it only when it carries this run's marker.
 		if !apierrors.IsAlreadyExists(err) {
 			created = append(created, p)
 		}
@@ -270,17 +282,46 @@ func podState(p *corev1.Pod) string {
 	return state
 }
 
-// deleteProbes deletes every Pod the run created, each held to its UID
-// when the API server gave one, and lists those it could not delete.
-func deleteProbes(ctx context.Context, c client.Client, pods []*corev1.Pod) []string {
+// probeRunAnnotation marks every Pod one probe run creates with that run's
+// random ID, so cleanup never deletes a Pod of the same name it did not
+// make. The slot admission policies leave Pod metadata alone.
+const probeRunAnnotation = "patchy.bitwisemedia.uk/isolation-probe-run"
+
+// newRunID is a random probe run ID.
+func newRunID() (string, error) {
+	b := make([]byte, 12)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("draw a probe run ID: %w", err)
+	}
+	return hex.EncodeToString(b), nil
+}
+
+// deleteProbes deletes every Pod the run created, each held to its UID by
+// a delete precondition, and lists those it could not delete. A Pod whose
+// Create failed has no UID from the API server: it is read first, and
+// deleted (held to the UID read) only when it carries this run's marker.
+func deleteProbes(ctx context.Context, c client.Client, pods []*corev1.Pod, run string) []string {
 	ctx, cancel := context.WithTimeout(ctx, cleanupTimeout)
 	defer cancel()
 	var failed []string
 	for _, p := range pods {
+		uid := p.UID
+		if uid == "" {
+			var got corev1.Pod
+			switch err := c.Get(ctx, client.ObjectKeyFromObject(p), &got); {
+			case apierrors.IsNotFound(err):
+				continue
+			case err != nil:
+				failed = append(failed, fmt.Sprintf("Pod %s/%s, if this run made it (%v)", p.Namespace, p.Name, err))
+				continue
+			case run == "" || got.Annotations[probeRunAnnotation] != run:
+				continue // not this run's Pod
+			}
+			uid = got.UID
+		}
 		opts := []client.DeleteOption{client.GracePeriodSeconds(0),
 			client.PropagationPolicy(metav1.DeletePropagationBackground)}
-		if p.UID != "" {
-			uid := p.UID
+		if uid != "" {
 			opts = append(opts, client.Preconditions{UID: &uid})
 		}
 		victim := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Namespace: p.Namespace, Name: p.Name}}
