@@ -1123,13 +1123,15 @@ func PerJobEnvNames() []string {
 // CLI without a shell, but the CLI's own shell tool does not), the dynamic
 // loader's injection points (agent-runner is static; claude is not), the
 // interpreters' startup files, git's config and helper redirections, and
-// the proxies. The gateway names and every PATCHY_* key agent-runner reads
+// the proxies, and CODEX_HOME (the codex CLI's config home, which it reads
+// as unset when empty). The gateway names and every PATCHY_* key agent-runner reads
 // join them at build time (injectEnv), minus whatever the Job sets itself.
 var scrubEnv = append([]string{
 	"BASH_ENV", "ENV", "SHELLOPTS", "PROMPT_COMMAND",
 	"LD_PRELOAD", "LD_LIBRARY_PATH", "LD_AUDIT",
 	"NODE_OPTIONS", "PYTHONSTARTUP",
 	"GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_EXEC_PATH", "GIT_SSH_COMMAND",
+	"CODEX_HOME",
 }, proxyEnv...)
 
 // injectEnv is the agent env of a repository-image Job: the usual env, then

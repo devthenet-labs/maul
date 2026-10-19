@@ -33,10 +33,15 @@ import (
 
 // credentialProvider is the provider whose credential pays for the
 // Intent's runs: their harness's (credgate.ProviderFor, the one source of
-// it, so codex intents need only choose their harness). ok is false for a
+// it), the harness being its Project's (spec.harness, which each new run
+// copies): codex is openai, and claude, the default, is anthropic, as is
+// the fake harness standing in for it in dev and tests. ok is false for a
 // harness no person's credential pays for, whose runs are never held.
-func (r *IntentReconciler) credentialProvider() (v1alpha1.ModelCredentialProvider, bool) {
-	h := r.Harness
+func (p *pass) credentialProvider() (v1alpha1.ModelCredentialProvider, bool) {
+	if p.proj.Spec.Harness.IsCodex() {
+		return credgate.ProviderFor(model.HarnessCodex)
+	}
+	h := p.r.Harness
 	if h == "" {
 		h = model.HarnessClaude
 	}
@@ -46,7 +51,7 @@ func (r *IntentReconciler) credentialProvider() (v1alpha1.ModelCredentialProvide
 // checkCredential is credgate.Check for a run of the Intent's harness: no
 // hold for a harness no person's credential pays for.
 func (p *pass) checkCredential(ctx context.Context, attributed *v1alpha1.Attribution) (credgate.Verdict, error) {
-	provider, ok := p.r.credentialProvider()
+	provider, ok := p.credentialProvider()
 	if !ok {
 		return credgate.Verdict{}, nil
 	}
@@ -169,7 +174,7 @@ func (p *pass) settleCredentialReapproval(ctx context.Context, a humanAction, is
 		return p.refuseApproval(ctx, a, issue, planChanged, issueChanged)
 	}
 	holds := false
-	provider, judged := p.r.credentialProvider()
+	provider, judged := p.credentialProvider()
 	if judged {
 		if holds, err = credgate.Holds(ctx, p.set.UserCredentials, provider, a.actor.Login, a.actor.ID,
 			p.r.Credentials); err != nil {

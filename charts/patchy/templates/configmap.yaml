@@ -223,9 +223,9 @@ cap is remediation's alone.
 {{- end }}
 {{- else if eq $c.name "intent-controller" }}
 {{/*
-intent-controller runs its agent Jobs on brokered claude and nothing else
-(no other harness honours the plan stage's read-only sandbox), so only the
-claude runner is stamped, whatever agent.runners enables for findings. Its
+intent-controller runs its agent Jobs on brokered claude, and on brokered
+codex only under intentController.codex.enabled, so only those runners are
+stamped, whatever agent.runners enables for findings. Its
 own settings carry an intent- prefix (PATCHY_INTENT_*), and its Job deadline
 is its own: a build stage alone may take an hour.
 */}}
@@ -235,6 +235,19 @@ is its own: a build stage alone may take an hour.
 {{- $_ := set $data "PATCHY_CLAUDE_AGENT_IMAGE" (include "patchy.image" (dict "root" $root "binary" "claude-agent-runner" "image" $root.Values.agent.runners.claude.image)) }}
 {{- $_ := include "patchy.claudeProviderData" (dict "root" $root "data" $data) }}
 {{- $_ := set $data "PATCHY_HARNESSES" "claude" }}
+{{- if include "patchy.intentCodex" $root }}
+{{/*
+intentController.codex.enabled: a Project choosing spec.harness codex plans
+and builds on brokered codex, on the codex runner image (the finding fleet's
+agent.runners.codex.image) through the broker's openai route. Off, none of
+these keys renders and the ConfigMap is as it was.
+*/}}
+{{- $_ := set $data "PATCHY_HARNESSES" "claude,codex" }}
+{{- $_ := set $data "PATCHY_CODEX_AGENT_IMAGE" (include "patchy.image" (dict "root" $root "binary" "codex-agent-runner" "image" $root.Values.agent.runners.codex.image)) }}
+{{- $_ := set $data "PATCHY_INTENT_CODEX" "true" }}
+{{- $_ := set $data "PATCHY_INTENT_CODEX_PLAN_MODEL" $root.Values.intentController.codex.planModel }}
+{{- $_ := set $data "PATCHY_INTENT_CODEX_BUILD_MODEL" $root.Values.intentController.codex.buildModel }}
+{{- end }}
 {{- $_ := set $data "PATCHY_INTENT_POLL_INTERVAL" $own.pollInterval }}
 {{- $_ := set $data "PATCHY_INTENT_APPROVAL_POLL_INTERVAL" $own.approvalPollInterval }}
 {{- $_ := set $data "PATCHY_INTENT_PR_POLL_INTERVAL" $own.prPollInterval }}

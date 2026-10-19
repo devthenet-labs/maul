@@ -385,7 +385,31 @@ type ProjectSpec struct {
 	// of its intents is launched. Running Jobs finish.
 	// +optional
 	Suspend bool `json:"suspend,omitempty"`
+	// Harness is the coding agent the Project's plan, build, revise and
+	// check-fix runs use: claude (the default when unset) or codex. Both
+	// run brokered, their pods holding no model credential. codex is opt-in
+	// on intent-controller (--intent-codex); while it is off, a Project
+	// asking for it is not Ready (HarnessNotEnabled) and a codex run of its
+	// intents waits Pending. Each run records the harness it was created
+	// with (IntentRun spec.harness), so a change applies to new runs only.
+	// +optional
+	Harness ProjectHarness `json:"harness,omitempty"`
 }
+
+// ProjectHarness is the coding agent an intent's runs use.
+// +kubebuilder:validation:Enum=claude;codex
+type ProjectHarness string
+
+const (
+	// ProjectHarnessClaude runs intents on brokered claude (Claude Code):
+	// the default.
+	ProjectHarnessClaude ProjectHarness = "claude"
+	// ProjectHarnessCodex runs intents on brokered codex (OpenAI Codex).
+	ProjectHarnessCodex ProjectHarness = "codex"
+)
+
+// IsCodex reports whether h is codex; an unset harness is claude.
+func (h ProjectHarness) IsCodex() bool { return h == ProjectHarnessCodex }
 
 // ProjectPreview is the operator's fixed runtime contract for one previewed
 // application repository: spec.preview for a one-repository Project, or the

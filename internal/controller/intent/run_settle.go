@@ -24,6 +24,7 @@ import (
 	"github.com/bitwise-media-group/patchy/internal/agentresult"
 	"github.com/bitwise-media-group/patchy/internal/envelope"
 	"github.com/bitwise-media-group/patchy/internal/jobs"
+	"github.com/bitwise-media-group/patchy/internal/model"
 	"github.com/bitwise-media-group/patchy/internal/runnerguard"
 	"github.com/bitwise-media-group/patchy/internal/usagemeter"
 	"github.com/bitwise-media-group/patchy/internal/usagerollup"
@@ -240,10 +241,23 @@ func (r *RunReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 // measure settles a finished run's usage against the egress broker
 // (usagemeter): a no-op while the meter is off or once the usage is final.
-// Every intent Job runs on r.Harness. The write is over a fresh read, as
+// A run is measured as the harness it launched on (measureHarness), judged
+// from its own spec, never from the pod nor from the current flags. The write is over a fresh read, as
 // every write of a run's status here is. A run deleted before it settled
 // (its Job already gone) is measured too while it owes its usage rollup, so
 // its metered spend is not lost.
+// measureHarness is the harness a run's usage is judged by: codex for a run
+// whose spec says codex, whatever --intent-codex says now. runHarness is for
+// launching, and its codex entry is zero while the flag is off; a codex run
+// launched before the flag was turned off still ran on the broker, so its
+// metered spend must still be asked for.
+func (r *RunReconciler) measureHarness(run *v1alpha1.IntentRun) string {
+	if run.Spec.Harness.IsCodex() {
+		return model.HarnessCodex
+	}
+	return r.runHarness(run).ID
+}
+
 func (r *RunReconciler) measure(ctx context.Context, run *v1alpha1.IntentRun) (ctrl.Result, error) {
 	deleting := !run.DeletionTimestamp.IsZero()
 	if deleting {
@@ -254,7 +268,7 @@ func (r *RunReconciler) measure(ctx context.Context, run *v1alpha1.IntentRun) (c
 		return ctrl.Result{}, nil
 	}
 	out, wait := r.Meter.Settle(ctx, usagemeter.RunOf(ctx, r.Jobs, run.UID, run.Status.JobRef,
-		run.CreationTimestamp.Time, r.Harness))
+		run.CreationTimestamp.Time, r.measureHarness(run)))
 	if out == nil {
 		return ctrl.Result{RequeueAfter: wait}, nil
 	}

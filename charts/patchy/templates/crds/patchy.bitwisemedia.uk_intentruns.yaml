@@ -207,6 +207,17 @@ spec:
                     minimum: 0
                     type: integer
                 type: object
+              harness:
+                description: |-
+                  Harness is the coding agent the run launches on, copied from its
+                  Project's spec.harness at creation: codex, or claude (also when
+                  unset, as on every run created before Projects chose). The run is
+                  launched, and its usage measured, on this harness whatever the
+                  Project says later. Immutable with the rest of the spec.
+                enum:
+                - claude
+                - codex
+                type: string
               imageFrom:
                 description: |-
                   ImageFrom is the build round's Repository, whose accepted runner image

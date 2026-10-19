@@ -153,6 +153,19 @@ spec:
                       rule: duration(self) >= duration('1m') && duration(self) <=
                         duration('6h')
                 type: object
+              harness:
+                description: |-
+                  Harness is the coding agent the Project's plan, build, revise and
+                  check-fix runs use: claude (the default when unset) or codex. Both
+                  run brokered, their pods holding no model credential. codex is opt-in
+                  on intent-controller (--intent-codex); while it is off, a Project
+                  asking for it is not Ready (HarnessNotEnabled) and a codex run of its
+                  intents waits Pending. Each run records the harness it was created
+                  with (IntentRun spec.harness), so a change applies to new runs only.
+                enum:
+                - claude
+                - codex
+                type: string
               intentRepository:
                 description: |-
                   IntentRepository is the https URL of the repository whose issues are

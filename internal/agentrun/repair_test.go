@@ -577,7 +577,7 @@ const (
 // and nothing after it.
 func TestRepairNeedsAResumer(t *testing.T) {
 	for _, h := range []struct{ id, stream string }{{"codex", codexStream}, {"copilot", copilotStream}} {
-		for _, c := range repairCases()[:2] { // the Finding stages; intents refuse these harnesses
+		for _, c := range repairCases()[:2] { // the Finding stages; TestCodexIntentStagesDegradeCleanly the intents
 			t.Run(h.id+"/"+string(c.phase), func(t *testing.T) {
 				var out bytes.Buffer
 				cfg, ws := c.setup(t, &out)

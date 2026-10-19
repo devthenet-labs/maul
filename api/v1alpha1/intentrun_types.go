@@ -364,6 +364,13 @@ type IntentRunSpec struct {
 	// the rest of the spec.
 	// +optional
 	AttributedTo *Attribution `json:"attributedTo,omitempty"`
+	// Harness is the coding agent the run launches on, copied from its
+	// Project's spec.harness at creation: codex, or claude (also when
+	// unset, as on every run created before Projects chose). The run is
+	// launched, and its usage measured, on this harness whatever the
+	// Project says later. Immutable with the rest of the spec.
+	// +optional
+	Harness ProjectHarness `json:"harness,omitempty"`
 }
 
 // IntentRunStatus records how the run ran. Written only by

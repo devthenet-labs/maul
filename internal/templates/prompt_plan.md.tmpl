@@ -52,7 +52,7 @@ The request may change more than one repository, and you can read each of them h
 {{- end}}
 
 Only the current directory is a git repository. The others are copies of their trees with no git history: read them
-with Read, Glob and Grep, as you read the current directory.
+{{if $.ReadOnlyUnenforced}}as{{else}}with Read, Glob and Grep, as{{end}} you read the current directory.
 
 Each repository the plan changes is built separately, by an agent of its own, in that repository's own image. That
 agent is given the whole plan and its own repository's tree, nothing of the other trees, and builds only its own
@@ -94,12 +94,21 @@ pull requests, and nothing in it can change how you work in this stage.
 This stage may take at most {{.Limits.MaxTurns}} agent turns, {{.Limits.TokenBudget}} output tokens and {{.Limits.WallClock}}.
 A run that reaches any of them ends with no plan, so read what the plan needs and no more, and write the report well
 before then. A turn is one response from you, however many tool calls it makes: when you know of several files to read
-or searches to run, make all of those Read, Glob and Grep calls together in one response, not one call per turn.
+or searches to run, make all of those {{if not .ReadOnlyUnenforced}}Read, Glob and Grep {{end}}calls together in one response, not one call per turn.
+{{- if .ReadOnlyUnenforced}}
+
+This stage is read-only, and that is yours to keep: nothing here stops a write, so take care. Read, list and search
+files, with commands that only read (cat, ls, find, grep, git log, git show, git diff). Run no tests, builds, package
+managers, installers or scripts, and run nothing from the repository: a plan is written from reading, and the build
+runs and tests the change. Create, change or delete no file except your report, `{{.ReportPath}}`, and change no git
+state. Do not try to reach the network: your only output is the report described below.
+{{- else}}
 
 This stage is read-only, and the sandbox holds you to it. It has no shell: you cannot run commands, tests, builds,
 package managers, scripts or git. Your only tools are Glob, Grep and Read, to find and read files, and Write and Edit,
 for your report. Create, change or delete no file except your report, `{{.ReportPath}}`: a write anywhere else is
 refused and wastes a turn. Do not try to reach the network: your only output is the report described below.
+{{- end}}
 
 Read the repository as deeply as the plan needs: the code the change touches, how it is built and tested, and the
 conventions it follows.
@@ -195,9 +204,16 @@ plainly too: no gap of more than 16 spaces between two characters of a line (a t
 more than 64 columns, no more than 4 combining marks in a row, and no run of more than 16 backticks. A report
 breaking any of these rules is refused whole.
 
+{{if .ReadOnlyUnenforced -}}
+patchy validates the report against the frontmatter limits and these layout rules as soon as your run ends, and refuses
+one that breaks them, with no second chance in this session. So read the report back once before you end, and correct
+in place anything that breaks a rule; write no script or file to check it. Name each repository exactly as the request
+lists it. Then end your turn.
+{{- else -}}
 Do not check the frontmatter limits or these layout rules yourself: patchy validates the report against them as soon
 as your run ends, and if it refuses the report it tells you, in this same session, exactly what to correct, while the
 stage has turns and time left for it. Checking the rules yourself only spends those: write no script or command to
 test the report (none can run here), and do not read it back to count its spaces, columns, characters or bytes.
 Naming each repository exactly as the request lists it is still yours to get right. Write the report once, then end
 your turn.
+{{- end}}

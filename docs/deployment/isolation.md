@@ -93,9 +93,11 @@ image pins with each posture's argv against a scratch repository whose hooks, `e
 run and on a report repair's resume, with a scripted model on loopback and no credential
 (`mise run claude-posture-probe`; CI runs it whenever the CLI pin or the posture changes).
 
-codex and copilot do not express these postures (see [extending](../extending.md)); on them the pod is the boundary, and
-the intent stages run on brokered claude only. An investigation on either still has a shell and unscoped writes, so its
-prompt asks the agent to stay read-only without telling it that the sandbox enforces it.
+codex and copilot do not express these postures (see [extending](../extending.md)); on them the pod is the boundary. The
+intent stages run on brokered claude, or on brokered codex for a Project that chooses it under `--intent-codex`. An
+investigation, or a codex intent plan, still has a shell and unscoped writes, so its prompt asks the agent to stay
+read-only without telling it that the sandbox enforces it. Such a plan pod holds no credential and reaches only the
+artifact server and the broker, and nothing it writes but its report leaves the pod.
 
 ## Repository-declared images
 

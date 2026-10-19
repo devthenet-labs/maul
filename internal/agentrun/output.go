@@ -163,6 +163,8 @@ func (a *Agent) followOutput(ctx context.Context, h harness.Harness, spec runner
 	}
 	tw, ok := h.(harness.TaskWatcher)
 	if !ok {
+		a.cfg.Log.Info("this harness cannot follow a running command, so its output is shown only with its result",
+			"phase", a.cfg.Phase, "harness", h.ID())
 		return nil
 	}
 	return &outputFollower{

@@ -92,6 +92,7 @@ spec:
         - name: CLAUDE_CODE_USE_FOUNDRY
         - name: CLAUDE_CODE_USE_VERTEX
         - name: CLOUD_ML_REGION
+        - name: CODEX_HOME
         - name: ENV
         - name: GIT_CONFIG_GLOBAL
         - name: GIT_CONFIG_SYSTEM

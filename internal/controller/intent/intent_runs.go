@@ -354,6 +354,7 @@ func (p *pass) createRun(ctx context.Context, stage v1alpha1.IntentStage, repo v
 			Grant:           p.set.grant(p.proj, stage),
 			PreviousAttempt: prev,
 			AttributedTo:    attributedTo,
+			Harness:         p.proj.Spec.Harness,
 		},
 	}
 	if stage == v1alpha1.IntentStagePlan {

@@ -98,6 +98,14 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 		"end a revise or check-fix run that makes no progress (no model turn, no tool result) for this long; 0 disables")
 	f.String("intent-plan-model", "anthropic/claude-sonnet-5", "canonical model the plan stage runs")
 	f.String("intent-build-model", "anthropic/claude-sonnet-5", "canonical model the build stage runs")
+	f.Bool("intent-codex", false,
+		"also run intents on brokered codex: a Project with spec.harness codex plans and builds on it (needs the "+
+			"codex runner, --codex-agent-image with --broker-url, and codex in --harnesses); off, such a Project "+
+			"is not Ready (HarnessNotEnabled) and a codex run waits Pending")
+	f.String("intent-codex-plan-model", "openai/gpt-5.3-codex",
+		"canonical model a codex Project's plan stage runs (--intent-codex)")
+	f.String("intent-codex-build-model", "openai/gpt-5.3-codex",
+		"canonical model a codex Project's build, revise and check-fix stages run (--intent-codex)")
 	f.String("intent-resource-classes", "",
 		"the operator's agent resource classes as JSON, name to {requests: {cpu, memory}, limits: {memory, cpu}} "+
 			"(a CPU limit is optional); a Project picks one per repository (agentResourceClass) for that "+
@@ -320,49 +328,95 @@ func readRunConfig(opts *cli.Options, log *slog.Logger) (jobSizes, *usagemeter.M
 	return sizes, meter, nil
 }
 
-// harness resolves the one harness both intent stages run on: intents run
-// on brokered claude only (no other harness honours the sandbox postures),
-// or on the fake harness in dev and tests.
-func harness(ctx context.Context, opts *cli.Options, cs kubernetes.Interface, agentNS string,
-	runners map[string]jobs.Runner) (string, error) {
-	planModel, buildModel := opts.String("intent-plan-model"), opts.String("intent-build-model")
+// harnesses resolves the harnesses intent stages run on: claude's, the
+// default every Project runs on unless it asks for codex (brokered claude,
+// or the fake harness in dev and tests), and codex's under --intent-codex,
+// the zero RunHarness without it. Each harness runs both stages: its plan
+// and build models must resolve to it. Both run brokered, so no intent pod
+// ever holds a model credential.
+func harnesses(ctx context.Context, opts *cli.Options, cs kubernetes.Interface, agentNS string,
+	runners map[string]jobs.Runner) (claude, codex intent.RunHarness, err error) {
+	claude = intent.RunHarness{PlanModel: opts.String("intent-plan-model"), BuildModel: opts.String("intent-build-model")}
+	models := []string{claude.PlanModel, claude.BuildModel}
+	codexOn := opts.Bool("intent-codex")
+	if codexOn {
+		codex = intent.RunHarness{ID: model.HarnessCodex, PlanModel: opts.String("intent-codex-plan-model"),
+			BuildModel: opts.String("intent-codex-build-model")}
+		models = append(models, codex.PlanModel, codex.BuildModel)
+	}
 	enabled, err := runnercfg.ResolveWithoutBrokerProbe(ctx, opts, cs, agentNS, runners, runnercfg.Restrict(opts),
-		[]string{planModel, buildModel}, planModel, buildModel)
+		models, models...)
+	if err != nil {
+		return intent.RunHarness{}, intent.RunHarness{}, err
+	}
+	if claude.ID, err = stageHarness(claude, enabled); err != nil {
+		return intent.RunHarness{}, intent.RunHarness{}, err
+	}
+	if !slices.Contains([]string{model.HarnessClaude, model.HarnessFake}, claude.ID) {
+		return intent.RunHarness{}, intent.RunHarness{}, fmt.Errorf("--intent-plan-model and --intent-build-model "+
+			"must resolve to brokered claude, and they resolve to %s (a Project runs on codex by its spec.harness, "+
+			"under --intent-codex)", claude.ID)
+	}
+	if r := runners[claude.ID]; claude.ID == model.HarnessClaude && !r.Brokered {
+		return intent.RunHarness{}, intent.RunHarness{}, errors.New(
+			"intents run on brokered claude only, and the claude runner is not brokered")
+	}
+	if !codexOn {
+		return claude, intent.RunHarness{}, nil
+	}
+	if r, ok := runners[model.HarnessCodex]; !ok || !r.Brokered || !slices.Contains(enabled, model.HarnessCodex) {
+		return intent.RunHarness{}, intent.RunHarness{}, errors.New("--intent-codex needs the brokered codex " +
+			"runner: --codex-agent-image with --broker-url, and codex among --harnesses")
+	}
+	id, err := stageHarness(codex, enabled)
+	if err != nil {
+		return intent.RunHarness{}, intent.RunHarness{}, err
+	}
+	if id != model.HarnessCodex {
+		return intent.RunHarness{}, intent.RunHarness{}, fmt.Errorf("--intent-codex-plan-model and "+
+			"--intent-codex-build-model must resolve to the codex harness, and they resolve to %s", id)
+	}
+	return claude, codex, nil
+}
+
+// stageHarness is the one harness both of h's stage models resolve to.
+func stageHarness(h intent.RunHarness, enabled []string) (string, error) {
+	plan, _, err := runnercfg.ResolveHarness(h.PlanModel, enabled)
 	if err != nil {
 		return "", err
 	}
-	plan, _, err := runnercfg.ResolveHarness(planModel, enabled)
-	if err != nil {
-		return "", err
-	}
-	build, _, err := runnercfg.ResolveHarness(buildModel, enabled)
+	build, _, err := runnercfg.ResolveHarness(h.BuildModel, enabled)
 	if err != nil {
 		return "", err
 	}
 	if plan != build {
-		return "", fmt.Errorf("the plan model runs on %s and the build model on %s; intents run both on one harness",
-			plan, build)
-	}
-	if !slices.Contains([]string{model.HarnessClaude, model.HarnessFake}, plan) {
-		return "", fmt.Errorf("intents run on brokered claude only, and the intent models resolve to %s", plan)
-	}
-	if r := runners[plan]; plan == model.HarnessClaude && !r.Brokered {
-		return "", errors.New("intents run on brokered claude only, and the claude runner is not brokered")
+		return "", fmt.Errorf("the plan model %s runs on %s and the build model %s on %s; an intent runs both "+
+			"stages on one harness", h.PlanModel, plan, h.BuildModel, build)
 	}
 	return plan, nil
 }
 
-// harnessAndDNS is harness, then --agent-dns held to that one harness: the
-// intent Jobs' pods can run without a resolver only on brokered claude or the
-// fake harness, which is all harness admits.
-func harnessAndDNS(ctx context.Context, opts *cli.Options, cs kubernetes.Interface, agentNS string,
-	runners map[string]jobs.Runner) (string, jobs.DNSMode, error) {
-	id, err := harness(ctx, opts, cs, agentNS, runners)
-	if err != nil {
-		return "", "", err
+// harnessesAndDNS is harnesses, then --agent-dns held to the harnesses
+// intents run on: the intent Jobs' pods can run without a resolver only on a
+// brokered harness (claude or codex) or the fake one, which is all harnesses
+// admits. Under --intent-codex the codex runner is also given what it
+// injects into a build's repository-declared image (agent-runner and the
+// codex CLI): intent builds run on the repository's own image, and codex,
+// brokered, carries no credential there.
+func harnessesAndDNS(ctx context.Context, opts *cli.Options, cs kubernetes.Interface, agentNS string,
+	runners map[string]jobs.Runner) (claude, codex intent.RunHarness, mode jobs.DNSMode, err error) {
+	if claude, codex, err = harnesses(ctx, opts, cs, agentNS, runners); err != nil {
+		return intent.RunHarness{}, intent.RunHarness{}, "", err
 	}
-	mode, err := runnercfg.AgentDNS(opts, runners, []string{id})
-	return id, mode, err
+	ids := []string{claude.ID}
+	if codex.ID != "" {
+		ids = append(ids, codex.ID)
+		r := runners[codex.ID]
+		r.Inject = runnercfg.Inject(codex.ID)
+		runners[codex.ID] = r
+	}
+	mode, err = runnercfg.AgentDNS(opts, runners, ids)
+	return claude, codex, mode, err
 }
 
 func serve(ctx context.Context, opts *cli.Options) error {
@@ -427,10 +481,12 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	if err != nil {
 		return fmt.Errorf("kubernetes clientset: %w", err)
 	}
-	harnessID, agentDNS, err := harnessAndDNS(ctx, opts, cs, agentNS, runners)
+	claude, codex, agentDNS, err := harnessesAndDNS(ctx, opts, cs, agentNS, runners)
 	if err != nil {
 		return err
 	}
+	set.Codex = codex
+	harnessID := claude.ID
 
 	runner := intent.NewJobRunner(cs, jobs.Config{
 		Namespace:      agentNS,
@@ -488,7 +544,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Jobs: runner, GitHub: gh, Settings: set,
 		MaxConcurrent: opts.Int("intent-max-concurrent-runs"), Harness: harnessID,
 		Paused:    opts.Bool(runnercfg.AgentsPausedFlag),
-		PlanModel: opts.String("intent-plan-model"), BuildModel: opts.String("intent-build-model"),
+		PlanModel: claude.PlanModel, BuildModel: claude.BuildModel,
 		Images: images, Classes: sizes.classes, MaxChangesetEntries: opts.Int("changeset-max-entries"),
 		Meter: meter, Usage: usagerollup.New(mgr.GetClient(), mgr.GetAPIReader(), set.Namespace, meter.On(), log),
 		Log: log,
@@ -512,6 +568,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		slog.String("namespace", namespace),
 		slog.String("agent_namespace", agentNS),
 		slog.String("harness", harnessID),
+		slog.String("codex_harness", codex.ID),
 		slog.Int("max_concurrent_runs", opts.Int("intent-max-concurrent-runs")),
 		slog.Bool("agents_paused", opts.Bool(runnercfg.AgentsPausedFlag)),
 		slog.Bool("multi_repo", set.MultiRepo),

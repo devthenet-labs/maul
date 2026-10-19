@@ -78,6 +78,12 @@ type PlanPrompt struct {
 	// PreviousAttempt is the failed plan this one retries; nil omits the
 	// section.
 	PreviousAttempt *PreviousAttempt
+	// ReadOnlyUnenforced says the stage's harness does not itself hold the
+	// plan read-only (codex: a shell, and writes anywhere), so the prompt
+	// states the read-only rule as the planner's to keep instead of naming
+	// a sandbox and a tool set it does not have. False, the zero value, is
+	// claude's prompt exactly.
+	ReadOnlyUnenforced bool
 	// Trees are the Project's repositories when the plan Job was handed
 	// more than one: the planning repository first, the working tree the
 	// agent runs in, then each other repository's read-only copy. Fewer

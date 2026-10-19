@@ -169,11 +169,11 @@ gets the default image. `status.runnerImage.manifest` records which file the ima
 Image contract, documented for repository owners and checked at resolution and by the preflight below: glibc-based Linux
 for `linux/amd64` or `linux/arm64` (a multi-arch index must satisfy the contract on both); `bash`, `sh` and `git` on the
 image's PATH; toolchains readable by uid 65532; caches under `$HOME=/workspace` or `/tmp` (the rootfs is read-only); no
-`VOLUME` instructions; no `ENV` that sets a `PATCHY_*`, `ANTHROPIC_*`, `CLAUDE_*`, `CLAUDE_CODE_*` or proxy variable;
-dependencies baked in (for Go, a populated `GOMODCACHE` or `GOFLAGS=-mod=vendor`) because the pod has no network. Image
-ENV is otherwise honoured, including its PATH. Repository owners are also told that CI must gate `patchy/**` branches
-(branch filters, or environments with required reviewers), because a pull request from patchy is untrusted input until a
-human has read it.
+`VOLUME` instructions; no `ENV` that sets a `PATCHY_*`, `ANTHROPIC_*`, `CLAUDE_*`, `CLAUDE_CODE_*`, `CODEX_*`,
+`OPENAI_*` (the codex CLI's, since a codex intent runs it in the image) or proxy variable; dependencies baked in (for
+Go, a populated `GOMODCACHE` or `GOFLAGS=-mod=vendor`) because the pod has no network. Image ENV is otherwise honoured,
+including its PATH. Repository owners are also told that CI must gate `patchy/**` branches (branch filters, or
+environments with required reviewers), because a pull request from patchy is untrusted input until a human has read it.
 
 ### Resolution and pin-once recording
 
@@ -324,17 +324,18 @@ ENTRYPOINT and PATH cannot redirect it), and its env adds `PATCHY_BIN_DIR=/patch
 `strings.Join` of `/patchy/bin` and the non-empty sanitized entries (controller-owned, never a trailing or doubled `:`,
 yet the image's `/usr/local/go/bin` survives), `GIT_CONFIG_NOSYSTEM=1`, and explicit empty values for `BASH_ENV`, `ENV`,
 `SHELLOPTS`, `PROMPT_COMMAND`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, `LD_AUDIT`, `NODE_OPTIONS`, `PYTHONSTARTUP`,
-`GIT_CONFIG_GLOBAL`, `GIT_CONFIG_SYSTEM`, `GIT_EXEC_PATH`, `GIT_SSH_COMMAND`, `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`,
-`ALL_PROXY` (both cases), every `provider.GatewayEnvNames` entry the runner's `Env` does not set, and every `PATCHY_*`
-key that `agentrun.FromEnv` reads and the Job does not set. `agentrun` exports that key list, so the pod-side backstop
-covers the whole config surface without a hand-kept list; the proxy variables join `reservedEnv`. An explicit container
-env overrides image ENV, so this is the backstop for names the resolver did not know. Git's repository redirections
-(`GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`, `GIT_OBJECT_DIRECTORY`, `GIT_COMMON_DIR`) cannot be blanked, because git
-reads an empty value as a broken path and Kubernetes cannot unset a variable, so they join `reservedEnv` instead and an
-image that sets one is refused at resolution. `agent-runner` is `CGO_ENABLED=0` (`.goreleaser.yaml`), so `LD_PRELOAD`
-cannot reach it. `agent-runner` resolves the harness CLI under `$PATCHY_BIN_DIR` alone (`harness.AvailableIn`, never
-falling back to PATH) during preflight and runs the stage by that absolute path (`pinCLI`). `git`, `sh` and `bash` come
-from the image by contract. Both containers carry the ephemeral-storage request and limit.
+`GIT_CONFIG_GLOBAL`, `GIT_CONFIG_SYSTEM`, `GIT_EXEC_PATH`, `GIT_SSH_COMMAND`, `CODEX_HOME`, `HTTP_PROXY`, `HTTPS_PROXY`,
+`NO_PROXY`, `ALL_PROXY` (both cases), every `provider.GatewayEnvNames` entry the runner's `Env` does not set, and every
+`PATCHY_*` key that `agentrun.FromEnv` reads and the Job does not set. `agentrun` exports that key list, so the pod-side
+backstop covers the whole config surface without a hand-kept list; the proxy variables join `reservedEnv`. An explicit
+container env overrides image ENV, so this is the backstop for names the resolver did not know. Git's repository
+redirections (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`, `GIT_OBJECT_DIRECTORY`, `GIT_COMMON_DIR`) cannot be blanked,
+because git reads an empty value as a broken path and Kubernetes cannot unset a variable, so they join `reservedEnv`
+instead and an image that sets one is refused at resolution. `agent-runner` is `CGO_ENABLED=0` (`.goreleaser.yaml`), so
+`LD_PRELOAD` cannot reach it. `agent-runner` resolves the harness CLI under `$PATCHY_BIN_DIR` alone
+(`harness.AvailableIn`, never falling back to PATH) during preflight and runs the stage by that absolute path
+(`pinCLI`). `git`, `sh` and `bash` come from the image by contract. Both containers carry the ephemeral-storage request
+and limit.
 
 Preflight: before the stage, `agent-runner` runs `$PATCHY_BIN_DIR/claude --version`, `git --version` and `bash -c true`;
 failure emits a terminal event with the new `envelope.OutcomeImageIncompatible` (`image_incompatible`) and the detail,

@@ -2113,6 +2113,52 @@ Sidecar/patchy-agent-egress-codex"
 render intent-off-copilot --set agent.runners.claude.enabled=false --set agent.runners.copilot.enabled=true
 expect intent-off-copilot 'select(.kind == "Deployment" and .metadata.name == "patchy-egress-broker") | .kind' ""
 
+# ---- intents on codex (intentController.codex, off by default) -------------
+# Off, intent-controller's ConfigMap has none of its keys and runs claude
+# alone, whatever the finding fleet enables.
+expect intent-codex 'select(.kind == "ConfigMap" and .metadata.name == "patchy-intent-controller-config") | .data | keys | .[] | select(test("^PATCHY_INTENT_CODEX|^PATCHY_CODEX_"))' ""
+# On, it needs the broker's openai route...
+expect_fail 'intent codex without the openai key' 'intentController.codex.enabled needs egressBroker.openai.apiKey' \
+  -f "$ifx" --set intentController.codex.enabled=true
+# ...and with it, codex is a second intent harness on the codex runner image,
+# with no credential stamped, while the finding fleet stays as it was.
+render intent-on-codex -f "$ifx" --set intentController.codex.enabled=true \
+  --set egressBroker.openai.apiKey.secret=patchy-openai
+cm intent-on-codex intent-controller PATCHY_HARNESSES claude,codex
+cm intent-on-codex intent-controller PATCHY_INTENT_CODEX true
+cm intent-on-codex intent-controller PATCHY_INTENT_CODEX_PLAN_MODEL openai/gpt-5.3-codex
+cm intent-on-codex intent-controller PATCHY_INTENT_CODEX_BUILD_MODEL openai/gpt-5.3-codex
+expect intent-on-codex 'select(.kind == "ConfigMap" and .metadata.name == "patchy-intent-controller-config") | .data.PATCHY_CODEX_AGENT_IMAGE | split(":") | .[0]' \
+  ghcr.io/devthenet-labs/patchy/codex-agent-runner
+expect intent-on-codex 'select(.kind == "ConfigMap") | .data | keys | .[] | select(test("^PATCHY_CODEX_SECRET"))' ""
+cm intent-on-codex investigation-controller PATCHY_HARNESSES claude
+cm intent-on-codex egress-broker PATCHY_OPENAI_API_KEY_FILE /etc/patchy/openai/api-key
+# The codex intent pods get their own brokered egress policy, as the finding
+# fleet's codex pods would, and the Account page offers OpenAI keys.
+render intent-on-codex-cilium -f "$ifx" --set agent.networkPolicy.mode=cilium \
+  --set intentController.codex.enabled=true --set egressBroker.openai.apiKey.secret=patchy-openai
+expect intent-on-codex-cilium "$hnp" "CiliumNetworkPolicy/patchy-agent-egress-claude
+CiliumNetworkPolicy/patchy-agent-egress-codex"
+# The hardened posture holds for codex intents: no resolver, no route but the broker.
+render intent-on-codex-hardened -f "$ifx" --set intentController.codex.enabled=true \
+  --set egressBroker.openai.apiKey.secret=patchy-openai --set agent.networkPolicy.dns=none \
+  --set agent.networkPolicy.broadEgress=never
+cm intent-on-codex-hardened intent-controller PATCHY_AGENT_DNS none
+# The removed codex keys are refused while codex runs only for intents too:
+# the codex intent pods share the codex egress policy an old dnsPatterns
+# would otherwise open a resolver name in.
+for k in secret=patchy-openai secretKey=api-key secretEnv=OPENAI_API_KEY 'hosts[0]=api.openai.com' 'dnsPatterns[0]=api.openai.com'; do
+  expect_fail "intent codex with codex.${k%%=*}" "is removed: codex runs proxy-only through the egress broker" \
+    -f "$ifx" --set intentController.codex.enabled=true --set egressBroker.openai.apiKey.secret=patchy-openai \
+    --set agent.networkPolicy.mode=cilium --set "agent.runners.codex.$k"
+done
+# With the intent controller off, its codex switch does nothing.
+render intent-off-codex --set intentController.codex.enabled=true
+expect intent-off-codex 'select(.kind == "Deployment" and .metadata.name == "patchy-egress-broker") | .spec.template.spec.volumes[].name | select(. == "openai")' ""
+expect_fail 'intent codex models of the wrong type' 'intentController/codex/planModel' -f "$ifx" \
+  --set intentController.codex.enabled=true --set egressBroker.openai.apiKey.secret=patchy-openai \
+  --set intentController.codex.planModel=''
+
 # ---- intent controller variants ----------------------------------------------
 # A bring-your-own ServiceAccount: not rendered, but still what runs and binds.
 render intent-own-sa -f "$ifx" --set intentController.serviceAccount.create=false \

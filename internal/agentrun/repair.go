@@ -97,6 +97,8 @@ func settleReport[T any](ctx context.Context, a *Agent, sr *stageRun, st *envelo
 	}
 	resumer, ok := sr.h.(harness.Resumer)
 	if !ok {
+		a.cfg.Log.Info("the report was refused, and this harness cannot continue a session, so it is not repaired",
+			"phase", a.cfg.Phase, "harness", sr.h.ID(), "outcome", outcome)
 		return v, nil, outcome, detail
 	}
 

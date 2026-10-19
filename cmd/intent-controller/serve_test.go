@@ -297,12 +297,12 @@ func TestHarnessSkipsBrokerProbe(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := harness(context.Background(), opts, fake.NewClientset(), "patchy-agents", runners)
+	got, _, err := harnesses(context.Background(), opts, fake.NewClientset(), "patchy-agents", runners)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != "claude" {
-		t.Errorf("harness = %q, want claude", got)
+	if got.ID != "claude" {
+		t.Errorf("harness = %q, want claude", got.ID)
 	}
 	if n := calls.Load(); n != 0 {
 		t.Errorf("intent controller made %d broker readiness requests, want none", n)

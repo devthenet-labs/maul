@@ -14,8 +14,8 @@ import (
 	"github.com/bitwise-media-group/patchy/internal/provider"
 )
 
-const envSuffix = "; `PATCHY_*`, `ANTHROPIC_*`, `CLAUDE_*`, proxy and patchy-reserved variables cannot come " +
-	"from the image"
+const envSuffix = "; `PATCHY_*`, `ANTHROPIC_*`, `CLAUDE_*`, `CODEX_*`, `OPENAI_*`, proxy and patchy-reserved " +
+	"variables cannot come from the image"
 
 func TestCheckEnv(t *testing.T) {
 	jobReserved := map[string]bool{"HOME": true, "GITHUB_TOKEN": true}
@@ -37,6 +37,10 @@ func TestCheckEnv(t *testing.T) {
 		{"CLAUDE_ prefix", []string{"CLAUDE_CONFIG_DIR=/x"}, nil, "image ENV sets `CLAUDE_CONFIG_DIR`" + envSuffix},
 		{"CLAUDE_CODE_ prefix", []string{"CLAUDE_CODE_USE_BEDROCK=1"}, nil,
 			"image ENV sets `CLAUDE_CODE_USE_BEDROCK`" + envSuffix},
+		{"CODEX_ prefix: the codex CLI's config home", []string{"CODEX_HOME=/opt/x"}, nil,
+			"image ENV sets `CODEX_HOME`" + envSuffix},
+		{"OPENAI_ prefix", []string{"OPENAI_BASE_URL=http://elsewhere"}, nil,
+			"image ENV sets `OPENAI_BASE_URL`" + envSuffix},
 		{"gateway name without a reserved prefix", []string{"AWS_REGION=us-east-1"}, nil,
 			"image ENV sets `AWS_REGION`" + envSuffix},
 		{"gateway name CLOUD_ML_REGION", []string{"CLOUD_ML_REGION=us-east5"}, nil,
@@ -88,7 +92,7 @@ func genEnvName(r *rand.Rand) string {
 }
 
 func TestReservedEnvPrefixProperty(t *testing.T) {
-	prefixes := []string{"PATCHY_", "ANTHROPIC_", "CLAUDE_", "CLAUDE_CODE_"}
+	prefixes := []string{"PATCHY_", "ANTHROPIC_", "CLAUDE_", "CLAUDE_CODE_", "CODEX_", "OPENAI_"}
 	cfg := &quick.Config{
 		MaxCount: 1000,
 		Rand:     rand.New(rand.NewSource(20260922)),

@@ -17,9 +17,11 @@ metadata:
         app.kubernetes.io/name: intent-controller
         app.kubernetes.io/part-of: patchy
 data:
-    # Intents run on brokered claude only (no other harness honours the plan
-    # stage's read-only sandbox), whatever the shared list enables for
+    # Intents run on brokered claude, whatever the shared list enables for
     # findings. A dev overlay running the fake harness patches this to fake.
+    # With PATCHY_INTENT_CODEX on, add codex here (claude,codex) and set
+    # PATCHY_CODEX_AGENT_IMAGE: a Project choosing spec.harness codex then
+    # plans and builds on brokered codex.
     PATCHY_HARNESSES: claude
 
     # ---- polling ------------------------------------------------------------
@@ -66,10 +68,11 @@ data:
     PATCHY_INTENT_TTL: 336h
 
     # ---- the stages ---------------------------------------------------------
-    # Ceilings a Project's limits may lower, never raise. Both models must
-    # resolve to the claude harness. Each *_IDLE_TIMEOUT ends a run of its
-    # stage that makes no progress (no model turn, no tool result) for that
-    # long, as a timeout naming the command it waited on; "0s" disables it.
+    # Ceilings a Project's limits may lower, never raise. Both models (a
+    # claude Project's, the default) must resolve to the claude harness. Each
+    # *_IDLE_TIMEOUT ends a run of its stage that makes no progress (no model
+    # turn, no tool result) for that long, as a timeout naming the command it
+    # waited on; "0s" disables it.
     PATCHY_INTENT_PLAN_MODEL: anthropic/claude-sonnet-5
     PATCHY_INTENT_PLAN_MAX_TURNS: "40"
     PATCHY_INTENT_PLAN_TOKEN_BUDGET: "200000"
@@ -80,6 +83,15 @@ data:
     PATCHY_INTENT_BUILD_TOKEN_BUDGET: "800000"
     PATCHY_INTENT_BUILD_TIMEOUT: 60m
     PATCHY_INTENT_BUILD_IDLE_TIMEOUT: 20m
+    # Codex for intents is off: a Project with spec.harness codex is not
+    # Ready (HarnessNotEnabled) and a codex run waits Pending. To turn it on,
+    # give the controller the brokered codex runner (PATCHY_CODEX_AGENT_IMAGE,
+    # the broker's openai route, and codex in PATCHY_HARNESSES above) and
+    # set these; its stages run these models, which must resolve to codex:
+    #
+    # PATCHY_INTENT_CODEX: "true"
+    # PATCHY_INTENT_CODEX_PLAN_MODEL: openai/gpt-5.3-codex
+    # PATCHY_INTENT_CODEX_BUILD_MODEL: openai/gpt-5.3-codex
     PATCHY_INTENT_REVISE_MAX_TURNS: "80"
     PATCHY_INTENT_REVISE_TOKEN_BUDGET: "400000"
     PATCHY_INTENT_REVISE_TIMEOUT: 45m
