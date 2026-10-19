@@ -26,6 +26,11 @@
 // whenever it writes the Secret, the broker probes the new one). A health
 // that is stale for any other reason is the broker's to refuse.
 //
-// The package imports only the standard library and api/v1alpha1 (a test
-// pins that); kubecred is the Lookup over a Kubernetes reader.
+// The credential that pays is the run's harness's provider (ProviderFor:
+// claude anthropic, codex openai), so a run is only ever held on, and paid
+// by, its own provider's record.
+//
+// The package imports only the standard library, api/v1alpha1 and the pure
+// internal/model registry (a test pins that); kubecred is the Lookup over a
+// Kubernetes reader.
 package credgate

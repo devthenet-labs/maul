@@ -22,7 +22,6 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 
 	"github.com/bitwise-media-group/patchy/internal/cli"
-	"github.com/bitwise-media-group/patchy/internal/credgate"
 	"github.com/bitwise-media-group/patchy/internal/jobs"
 	"github.com/bitwise-media-group/patchy/internal/model"
 )
@@ -271,30 +270,6 @@ func TestCodexSecretFlagsRemoved(t *testing.T) {
 	for _, name := range []string{"codex-secret", "codex-secret-key", "codex-secret-env"} {
 		if fl := f.Lookup(name); fl == nil || !fl.Hidden || fl.DefValue != "" {
 			t.Errorf("--%s = %+v, want registered, hidden and empty", name, fl)
-		}
-	}
-}
-
-// TestCodexUserCredentials: until per-user credentials cover OpenAI, a
-// controller with codex enabled refuses any --user-credentials but off.
-func TestCodexUserCredentials(t *testing.T) {
-	for _, tt := range []struct {
-		mode    credgate.Mode
-		enabled []string
-		wantErr bool
-	}{
-		{credgate.ModeOff, []string{"claude", "codex"}, false},
-		{credgate.ModeAttribute, []string{"claude"}, false},
-		{credgate.ModeEnforce, []string{"claude", "copilot"}, false},
-		{credgate.ModeAttribute, []string{"codex"}, true},
-		{credgate.ModeEnforce, []string{"claude", "codex"}, true},
-	} {
-		err := CodexUserCredentials(tt.mode, tt.enabled)
-		if (err != nil) != tt.wantErr {
-			t.Errorf("%s %v: err = %v, want error %v", tt.mode, tt.enabled, err, tt.wantErr)
-		}
-		if err != nil && !strings.Contains(err.Error(), "--user-credentials off") {
-			t.Errorf("err = %v, want the way out named", err)
 		}
 	}
 }

@@ -533,6 +533,12 @@ type FindingStatus struct {
 	// on this person. Cleared when the hold lifts.
 	// +optional
 	CredentialHold *UserRef `json:"credentialHold,omitempty"`
+	// CredentialHoldProvider is the provider whose credential the held
+	// attempt needs: its harness's (anthropic for claude, openai for
+	// codex), written and cleared with CredentialHold. Empty on a hold
+	// written before OpenAI credentials existed, which is anthropic.
+	// +optional
+	CredentialHoldProvider ModelCredentialProvider `json:"credentialHoldProvider,omitempty"`
 }
 
 // Bounds on status.commands. The schema markers repeat the first three as

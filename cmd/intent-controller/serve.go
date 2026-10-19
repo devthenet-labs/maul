@@ -478,6 +478,9 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		// Under --user-credentials enforce, a person's run waits for their
 		// credential: the record is read uncached by name (get only).
 		Credentials: kubecred.Reader{Client: mgr.GetAPIReader(), Namespace: set.Namespace},
+		// The run scheduler's harness: a person's run needs its provider's
+		// credential (credgate.ProviderFor).
+		Harness: harnessID,
 	}).SetupWithManager(mgr); err != nil {
 		return err
 	}

@@ -25,13 +25,16 @@ import (
 const accountURL = "https://status.example.com/#/account"
 
 func credential(id int64, health v1alpha1.ModelCredentialHealth) *v1alpha1.ModelCredential {
+	return credentialFor(v1alpha1.ModelCredentialProviderAnthropic, id, health)
+}
+
+func credentialFor(p v1alpha1.ModelCredentialProvider, id int64,
+	health v1alpha1.ModelCredentialHealth) *v1alpha1.ModelCredential {
 	owner := v1alpha1.ModelCredentialOwner(id)
 	return &v1alpha1.ModelCredential{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "patchy",
-			Name: v1alpha1.ModelCredentialName(owner, v1alpha1.ModelCredentialProviderAnthropic)},
-		Spec: v1alpha1.ModelCredentialSpec{Owner: owner, Provider: v1alpha1.ModelCredentialProviderAnthropic,
-			Kind: v1alpha1.ModelCredentialAPIKey},
-		Status: v1alpha1.ModelCredentialStatus{Health: health},
+		ObjectMeta: metav1.ObjectMeta{Namespace: "patchy", Name: v1alpha1.ModelCredentialName(owner, p)},
+		Spec:       v1alpha1.ModelCredentialSpec{Owner: owner, Provider: p, Kind: v1alpha1.ModelCredentialAPIKey},
+		Status:     v1alpha1.ModelCredentialStatus{Health: health},
 	}
 }
 
@@ -115,6 +118,9 @@ func TestSpawnerHoldsForCredential(t *testing.T) {
 	}
 	got := findingNow(t, c)
 	checkHeld(t, got, credgate.ReasonMissing)
+	if got.Status.CredentialHoldProvider != v1alpha1.ModelCredentialProviderAnthropic {
+		t.Errorf("credentialHoldProvider = %q, want anthropic", got.Status.CredentialHoldProvider)
+	}
 	rv := got.ResourceVersion
 	reconcileSpawner(t, r)
 	if findingNow(t, c).ResourceVersion != rv {
@@ -196,8 +202,6 @@ func TestSpawnerNeverHoldsOutsideEnforce(t *testing.T) {
 		{"enforce, an org run", credgate.ModeEnforce, nil, ""},
 		{"enforce, a status-page approval (no id)", credgate.ModeEnforce,
 			&v1alpha1.Approval{By: "github:alice", At: metav1.NewTime(crdClock)}, ""},
-		{"enforce, a codex run: per-user credentials are Anthropic's", credgate.ModeEnforce, approved,
-			"openai/gpt-5.3-codex"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			fnd := queuedFinding(v1alpha1.PhaseQueued)
@@ -216,6 +220,53 @@ func TestSpawnerNeverHoldsOutsideEnforce(t *testing.T) {
 				t.Error("a CredentialRequired condition was written")
 			}
 		})
+	}
+}
+
+// TestSpawnerHoldsACodexRunOnItsOpenAIRecord: a codex remediation is
+// judged on the person's OpenAI record alone. Alice's Valid Anthropic
+// record does not let it through; it is held with credentialHoldProvider
+// openai and a message naming OpenAI, and created once her OpenAI key is
+// Valid. A claude remediation of hers is not held on the missing OpenAI key.
+func TestSpawnerHoldsACodexRunOnItsOpenAIRecord(t *testing.T) {
+	fnd := queuedFinding(v1alpha1.PhaseQueued)
+	fnd.Spec.Approval = &v1alpha1.Approval{By: "alice", ByID: 42, At: metav1.NewTime(crdClock)}
+	inv := invChild()
+	inv.Status.RemediationParameters.Model = "openai/gpt-5.3-codex"
+	r, c := enforcingSpawner(t, credgate.ModeEnforce, fnd, inv, credential(42, v1alpha1.ModelCredentialValid))
+	reconcileSpawner(t, r)
+	if remediationExists(t, c) {
+		t.Fatal("a codex remediation ran on an Anthropic record")
+	}
+	got := findingNow(t, c)
+	checkHeld(t, got, credgate.ReasonMissing)
+	if got.Status.CredentialHoldProvider != v1alpha1.ModelCredentialProviderOpenAI {
+		t.Errorf("credentialHoldProvider = %q, want openai", got.Status.CredentialHoldProvider)
+	}
+	cond := meta.FindStatusCondition(got.Status.Conditions, v1alpha1.ConditionCredentialRequired)
+	if !strings.Contains(cond.Message, "no OpenAI credential") || strings.Contains(cond.Message, "setup-token") {
+		t.Errorf("message = %q, want OpenAI named", cond.Message)
+	}
+
+	if err := c.Create(t.Context(), credentialFor(v1alpha1.ModelCredentialProviderOpenAI, 42,
+		v1alpha1.ModelCredentialValid)); err != nil {
+		t.Fatal(err)
+	}
+	reconcileSpawner(t, r)
+	if !remediationExists(t, c) {
+		t.Fatal("not created once the OpenAI key was Valid")
+	}
+	if p := findingNow(t, c).Status.CredentialHoldProvider; p != "" {
+		t.Errorf("credentialHoldProvider after lifting = %q, want none", p)
+	}
+
+	// A claude remediation of hers runs on her Anthropic record.
+	fnd2 := queuedFinding(v1alpha1.PhaseQueued)
+	fnd2.Spec.Approval = &v1alpha1.Approval{By: "alice", ByID: 42, At: metav1.NewTime(crdClock)}
+	r2, c2 := enforcingSpawner(t, credgate.ModeEnforce, fnd2, invChild(), credential(42, v1alpha1.ModelCredentialValid))
+	reconcileSpawner(t, r2)
+	if !remediationExists(t, c2) {
+		t.Fatal("a claude remediation was held although her Anthropic record is Valid")
 	}
 }
 

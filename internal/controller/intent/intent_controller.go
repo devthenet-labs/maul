@@ -62,6 +62,10 @@ type IntentReconciler struct {
 	// Credentials reads a person's ModelCredential, for the credential
 	// block under Settings.UserCredentials enforce; unused otherwise.
 	Credentials credgate.Lookup
+	// Harness is the harness every intent Job runs on (the run scheduler's
+	// own): whose provider's credential a person's run needs is read from
+	// it (credgate.ProviderFor). Empty is claude, the production harness.
+	Harness string
 	// Nudger delivers discovery's hand-offs of ended Intents.
 	Nudger *Nudger
 	Now    func() time.Time

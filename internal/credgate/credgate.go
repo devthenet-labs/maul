@@ -7,9 +7,11 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/bitwise-media-group/patchy/api/v1alpha1"
+	"github.com/bitwise-media-group/patchy/internal/model"
 )
 
 // Mode is the per-user credentials switch the run controllers read
@@ -93,8 +95,52 @@ const (
 	ReasonUnverified = "CredentialUnverified"
 )
 
-// Provider is the one provider a person's credential is for in version 1.
-const Provider = v1alpha1.ModelCredentialProviderAnthropic
+// ProviderFor is the provider whose credential pays for a run on harness:
+// the vendor of the models the harness is preferred for in the model
+// registry (model.HarnessProvider), so claude is anthropic and codex
+// openai. It is the one place a run's credential provider is decided, for
+// findings and intents alike. The fake harness stands in for brokered claude
+// in dev and e2e, so its runs are judged as claude's. ok is false for a
+// harness whose runs no person's credential pays for (copilot holds its own
+// token): such a run is never held.
+func ProviderFor(harness string) (provider v1alpha1.ModelCredentialProvider, ok bool) {
+	if harness == model.HarnessFake {
+		harness = model.HarnessClaude
+	}
+	p := v1alpha1.ModelCredentialProvider(model.HarnessProvider(harness))
+	if !slices.Contains(v1alpha1.ModelCredentialProviders, p) {
+		return "", false
+	}
+	return p, true
+}
+
+// providerNames are the providers as a person reads them.
+var providerNames = map[v1alpha1.ModelCredentialProvider]string{
+	v1alpha1.ModelCredentialProviderAnthropic: "Anthropic",
+	v1alpha1.ModelCredentialProviderOpenAI:    "OpenAI",
+}
+
+// ProviderName is provider as a person reads it ("Anthropic", "OpenAI");
+// an empty provider is Anthropic, the only one before OpenAI keys existed.
+func ProviderName(provider v1alpha1.ModelCredentialProvider) string {
+	if provider == "" {
+		provider = v1alpha1.ModelCredentialProviderAnthropic
+	}
+	if n, ok := providerNames[provider]; ok {
+		return n
+	}
+	return string(provider)
+}
+
+// CredentialKinds says which credentials a person may store for provider,
+// as a person reads it: "an API key or a setup-token" for Anthropic, "an
+// API key" for OpenAI.
+func CredentialKinds(provider v1alpha1.ModelCredentialProvider) string {
+	if provider == v1alpha1.ModelCredentialProviderOpenAI {
+		return "an OpenAI API key"
+	}
+	return "an API key or a setup-token"
+}
 
 // Verdict is Check's answer for one run.
 type Verdict struct {
@@ -103,6 +149,9 @@ type Verdict struct {
 	// User is the person the run would be attributed to (whose credential
 	// is missing), set whenever Hold is.
 	User *v1alpha1.UserRef
+	// Provider is the provider whose credential was judged, set whenever
+	// Hold is.
+	Provider v1alpha1.ModelCredentialProvider
 	// Reason is the hold's condition reason, "" when not held.
 	Reason string
 }
@@ -119,20 +168,23 @@ func Person(a *v1alpha1.Attribution) *v1alpha1.UserRef {
 // Owner is the ModelCredential owner value of u.
 func Owner(u *v1alpha1.UserRef) string { return v1alpha1.ModelCredentialOwner(u.ID) }
 
-// Judge decides a run attributed by a, given cred, the person's
-// ModelCredential (nil when they have none). It never holds under off or
-// attribute, never holds an org run, and under enforce holds a person's
-// run unless cred is that very person's anthropic record and Valid.
-func Judge(mode Mode, a *v1alpha1.Attribution, cred *v1alpha1.ModelCredential) Verdict {
+// Judge decides a run attributed by a, paid for by provider's credential,
+// given cred, the person's ModelCredential for provider (nil when they have
+// none). It never holds under off or attribute, never holds an org run, and
+// under enforce holds a person's run unless cred is that very person's
+// record for provider, of a kind provider takes, and Valid.
+func Judge(mode Mode, provider v1alpha1.ModelCredentialProvider, a *v1alpha1.Attribution,
+	cred *v1alpha1.ModelCredential) Verdict {
 	u := Person(a)
 	if !mode.Enforced() || u == nil {
 		return Verdict{}
 	}
-	held := Verdict{Hold: true, User: u}
+	held := Verdict{Hold: true, User: u, Provider: provider}
 	owner := Owner(u)
 	switch {
-	case cred == nil || cred.Spec.Owner != owner || cred.Spec.Provider != Provider ||
-		cred.Name != v1alpha1.ModelCredentialName(owner, Provider):
+	case cred == nil || cred.Spec.Owner != owner || cred.Spec.Provider != provider ||
+		cred.Name != v1alpha1.ModelCredentialName(owner, provider) ||
+		!v1alpha1.ModelCredentialKindAllowed(provider, cred.Spec.Kind):
 		held.Reason = ReasonMissing
 	case cred.Status.Health == v1alpha1.ModelCredentialValid:
 		return Verdict{}
@@ -151,10 +203,11 @@ type Lookup interface {
 		*v1alpha1.ModelCredential, error)
 }
 
-// Check is Judge with the person's record read through lookup, only when
-// there is a person to read it for under enforce: off, attribute and org
-// runs read nothing.
-func Check(ctx context.Context, mode Mode, a *v1alpha1.Attribution, lookup Lookup) (Verdict, error) {
+// Check is Judge with the person's record for provider read through
+// lookup, only when there is a person to read it for under enforce: off,
+// attribute and org runs read nothing.
+func Check(ctx context.Context, mode Mode, provider v1alpha1.ModelCredentialProvider, a *v1alpha1.Attribution,
+	lookup Lookup) (Verdict, error) {
 	u := Person(a)
 	if !mode.Enforced() || u == nil {
 		return Verdict{}, nil
@@ -162,21 +215,22 @@ func Check(ctx context.Context, mode Mode, a *v1alpha1.Attribution, lookup Looku
 	if lookup == nil {
 		return Verdict{}, fmt.Errorf("user credentials are enforced but no credential lookup is configured")
 	}
-	cred, err := lookup.ModelCredential(ctx, Owner(u), Provider)
+	cred, err := lookup.ModelCredential(ctx, Owner(u), provider)
 	if err != nil {
-		return Verdict{}, fmt.Errorf("read the model credential of %s: %w", u.Login, err)
+		return Verdict{}, fmt.Errorf("read the %s model credential of %s: %w", provider, u.Login, err)
 	}
-	return Judge(mode, a, cred), nil
+	return Judge(mode, provider, a, cred), nil
 }
 
-// Holds reports whether the person (login, id) would be held: Check for a
-// run attributed to them. A re-approval while held is taken only from an
-// approver it reports false for.
-func Holds(ctx context.Context, mode Mode, login string, id int64, lookup Lookup) (bool, error) {
+// Holds reports whether the person (login, id) would be held on provider:
+// Check for a run attributed to them. A re-approval while held is taken
+// only from an approver it reports false for.
+func Holds(ctx context.Context, mode Mode, provider v1alpha1.ModelCredentialProvider, login string, id int64,
+	lookup Lookup) (bool, error) {
 	if id < 1 {
 		return mode.Enforced(), nil
 	}
-	v, err := Check(ctx, mode, &v1alpha1.Attribution{
+	v, err := Check(ctx, mode, provider, &v1alpha1.Attribution{
 		User: &v1alpha1.UserRef{Login: login, ID: id}, Reason: v1alpha1.AttributionApprover,
 	}, lookup)
 	return v.Hold, err
@@ -192,14 +246,15 @@ func Message(v Verdict, accountURL string, reapprove bool) string {
 		return ""
 	}
 	who := "@" + v.User.Login
+	name := ProviderName(v.Provider)
 	var why string
 	switch v.Reason {
 	case ReasonRejected:
-		why = who + "'s Anthropic credential was rejected by Anthropic"
+		why = who + "'s " + name + " credential was rejected by " + name
 	case ReasonUnverified:
-		why = who + "'s Anthropic credential has not been verified yet"
+		why = who + "'s " + name + " credential has not been verified yet"
 	default:
-		why = who + " has no Anthropic credential stored in patchy"
+		why = who + " has no " + name + " credential stored in patchy"
 	}
 	where := "on the status page's Account page"
 	if accountURL != "" {
@@ -211,5 +266,5 @@ func Message(v Verdict, accountURL string, reapprove bool) string {
 			"or once an approver who has a valid credential approves it."
 	}
 	return why + ", and runs attributed to them use their own credential or none. " +
-		who + " can add or replace an API key or a setup-token " + where + ". " + resume
+		who + " can add or replace " + CredentialKinds(v.Provider) + " " + where + ". " + resume
 }

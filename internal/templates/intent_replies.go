@@ -124,6 +124,11 @@ type CredentialApprovalNotice struct {
 	// AccountURL is the Account page; empty names it unlinked. Only a URL
 	// that cannot reshape the Markdown link is linked (holdURLRE).
 	AccountURL string
+	// Provider names the provider whose credential the build needs
+	// ("Anthropic", "OpenAI"; empty is Anthropic), and Kinds what may be
+	// stored for it ("an API key or a setup-token"; empty is that). Both
+	// patchy's own (credgate.ProviderName, credgate.CredentialKinds).
+	Provider, Kinds string
 }
 
 // RenderCredentialApprovalNotice renders a CredentialApprovalNotice.
@@ -132,12 +137,19 @@ func RenderCredentialApprovalNotice(n CredentialApprovalNotice) (string, error) 
 	if !holdURLRE.MatchString(u) {
 		u = ""
 	}
+	provider, kinds := oneLine(n.Provider), oneLine(n.Kinds)
+	if provider == "" {
+		provider = "Anthropic"
+	}
+	if kinds == "" {
+		kinds = "an API key or a setup-token"
+	}
 	return render("intent_notice_credential.md.tmpl", struct {
-		Marker, Command, Label, Actor, AccountURL string
-		LabelRemoved                              bool
+		Marker, Command, Label, Actor, AccountURL, Provider, Kinds string
+		LabelRemoved                                               bool
 	}{
 		Marker: NoticeMarker(n.Namespace, n.Intent, n.Key), Command: slashCommand(n.Verb), Label: n.Label,
-		Actor: oneLine(n.Actor), AccountURL: u, LabelRemoved: n.LabelRemoved,
+		Actor: oneLine(n.Actor), AccountURL: u, LabelRemoved: n.LabelRemoved, Provider: provider, Kinds: kinds,
 	})
 }
 

@@ -15,7 +15,6 @@ import (
 
 	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
 	"github.com/bitwise-media-group/patchy/internal/credgate"
-	"github.com/bitwise-media-group/patchy/internal/model"
 )
 
 // CredentialRecheck is how often a remediation held for a credential is
@@ -32,10 +31,11 @@ const ReasonCredentialResolved = "Resolved"
 // attributedTo and run on harness, must wait for a person's credential
 // (design L3, "Fallback"), and whom the attempt is for: under
 // --user-credentials enforce, a brokered run attributed to a person who has
-// no Valid ModelCredential would be refused by the broker, so it is not
-// created. The Finding stays Queued with CredentialRequired True, its
-// message naming the person and the Account page, and status.credentialHold
-// recording them (the tracking issue projects both); the spawner looks
+// no Valid ModelCredential for the harness's provider would be refused by
+// the broker, so it is not created. The Finding stays Queued with
+// CredentialRequired True, its message naming the person, the provider and
+// the Account page, and status.credentialHold and credentialHoldProvider
+// recording them (the tracking issue projects them); the spawner looks
 // again every CredentialRecheck.
 //
 // While held, a later approval (Attribute reads the current one) moves the
@@ -52,13 +52,13 @@ const ReasonCredentialResolved = "Resolved"
 func (r *SpawnerReconciler) holdForCredential(ctx context.Context, fnd *v1alpha1.Finding,
 	attributedTo *v1alpha1.Attribution, harness string) (*v1alpha1.Attribution, bool, error) {
 	var v credgate.Verdict
-	// Per-user credentials are Anthropic's alone for now, so only a claude
-	// run is judged: a codex run is never held on, or paid by, an Anthropic
-	// record (and a remediation-controller running codex refuses
-	// --user-credentials other than off at startup until they cover OpenAI).
-	if r.UserCredentials.Enforced() && harness == model.HarnessClaude {
+	// The attempt is judged on its harness's provider (credgate.ProviderFor:
+	// claude anthropic, codex openai), so a codex run is held on, and paid
+	// by, the person's OpenAI record and never their Anthropic one. A
+	// harness no person's credential pays for (copilot) is never held.
+	if provider, ok := credgate.ProviderFor(harness); ok && r.UserCredentials.Enforced() {
 		var err error
-		if attributedTo, v, err = r.judgeHeld(ctx, fnd, attributedTo); err != nil {
+		if attributedTo, v, err = r.judgeHeld(ctx, fnd, attributedTo, provider); err != nil {
 			return attributedTo, false, err
 		}
 	}
@@ -74,7 +74,8 @@ func (r *SpawnerReconciler) holdForCredential(ctx context.Context, fnd *v1alpha1
 		return attributedTo, false, nil
 	}
 	if c := meta.FindStatusCondition(fnd.Status.Conditions, cond.Type); c != nil && c.Status == cond.Status &&
-		c.Reason == cond.Reason && c.Message == cond.Message && sameUser(fnd.Status.CredentialHold, v.User) {
+		c.Reason == cond.Reason && c.Message == cond.Message && sameUser(fnd.Status.CredentialHold, v.User) &&
+		fnd.Status.CredentialHoldProvider == v.Provider {
 		return attributedTo, v.Hold, nil
 	}
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
@@ -91,6 +92,10 @@ func (r *SpawnerReconciler) holdForCredential(ctx context.Context, fnd *v1alpha1
 			cur.Status.CredentialHold = v.User.DeepCopy()
 			changed = true
 		}
+		if cur.Status.CredentialHoldProvider != v.Provider {
+			cur.Status.CredentialHoldProvider = v.Provider
+			changed = true
+		}
 		if !changed {
 			return nil
 		}
@@ -101,21 +106,23 @@ func (r *SpawnerReconciler) holdForCredential(ctx context.Context, fnd *v1alpha1
 	}
 	if v.Hold {
 		r.log().LogAttrs(ctx, slog.LevelInfo, "remediation held for a person's model credential",
-			slog.String("finding", fnd.Name), slog.String("user", v.User.Login), slog.String("reason", v.Reason))
+			slog.String("finding", fnd.Name), slog.String("user", v.User.Login), slog.String("reason", v.Reason),
+			slog.String("provider", string(v.Provider)))
 	} else {
 		r.log().LogAttrs(ctx, slog.LevelInfo, "remediation credential hold lifted", slog.String("finding", fnd.Name))
 	}
 	return attributedTo, v.Hold, nil
 }
 
-// judgeHeld is Check for the attempt, attributed by attributedTo, under
-// enforce. On a Finding already held for someone else (status.credentialHold),
-// the current approval's attribution stands only when it is a person whose
-// credential is Valid: otherwise the attempt stays the held person's, and
-// is judged as theirs.
+// judgeHeld is Check for the attempt, attributed by attributedTo and paid
+// by provider's credential, under enforce. On a Finding already held for
+// someone else (status.credentialHold), the current approval's attribution
+// stands only when it is a person whose credential for provider is Valid:
+// otherwise the attempt stays the held person's, and is judged as theirs.
 func (r *SpawnerReconciler) judgeHeld(ctx context.Context, fnd *v1alpha1.Finding,
-	attributedTo *v1alpha1.Attribution) (*v1alpha1.Attribution, credgate.Verdict, error) {
-	v, err := credgate.Check(ctx, r.UserCredentials, attributedTo, r.Credentials)
+	attributedTo *v1alpha1.Attribution, provider v1alpha1.ModelCredentialProvider,
+) (*v1alpha1.Attribution, credgate.Verdict, error) {
+	v, err := credgate.Check(ctx, r.UserCredentials, provider, attributedTo, r.Credentials)
 	if err != nil {
 		return attributedTo, v, err
 	}
@@ -128,7 +135,7 @@ func (r *SpawnerReconciler) judgeHeld(ctx context.Context, fnd *v1alpha1.Finding
 		return attributedTo, v, nil
 	}
 	keep := r.Attribution.Stamp(&v1alpha1.Attribution{User: held.DeepCopy(), Reason: v1alpha1.AttributionApprover})
-	v, err = credgate.Check(ctx, r.UserCredentials, keep, r.Credentials)
+	v, err = credgate.Check(ctx, r.UserCredentials, provider, keep, r.Credentials)
 	return keep, v, err
 }
 

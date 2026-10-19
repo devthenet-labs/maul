@@ -697,6 +697,16 @@ spec:
                 - id
                 - login
                 type: object
+              credentialHoldProvider:
+                description: |-
+                  CredentialHoldProvider is the provider whose credential the held
+                  attempt needs: its harness's (anthropic for claude, openai for
+                  codex), written and cleared with CredentialHold. Empty on a hold
+                  written before OpenAI credentials existed, which is anthropic.
+                enum:
+                - anthropic
+                - openai
+                type: string
               enrichments:
                 description: Enrichments are the enhancer contributions (context).
                 items:

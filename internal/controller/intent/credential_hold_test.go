@@ -26,6 +26,8 @@ const accountURL = "https://status.example.com/#/account"
 type fakeCredentials struct {
 	mu     sync.Mutex
 	health map[string]v1alpha1.ModelCredentialHealth
+	// asked is every provider a record was read for.
+	asked []v1alpha1.ModelCredentialProvider
 }
 
 func (f *fakeCredentials) set(login string, h v1alpha1.ModelCredentialHealth) {
@@ -38,6 +40,7 @@ func (f *fakeCredentials) ModelCredential(_ context.Context, owner string, provi
 	*v1alpha1.ModelCredential, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.asked = append(f.asked, provider)
 	for login, h := range f.health {
 		if v1alpha1.ModelCredentialOwner(actorOf(login).ID) != owner {
 			continue
@@ -200,6 +203,56 @@ func TestCredentialBlockHoldsPlan(t *testing.T) {
 	if n := len(e.runsOf(name, v1alpha1.IntentStagePlan)); n != 1 {
 		t.Errorf("%d plan runs, want 1", n)
 	}
+}
+
+// TestCredentialBlockUsesTheHarnessProvider: an intent's runs are judged
+// on their harness's provider (credgate.ProviderFor): claude's (the
+// default) Anthropic, and a codex harness's OpenAI, whose block names
+// OpenAI and asks for an OpenAI API key; a harness no person's credential
+// pays for never blocks.
+func TestCredentialBlockUsesTheHarnessProvider(t *testing.T) {
+	for _, tc := range []struct {
+		harness  string
+		provider v1alpha1.ModelCredentialProvider
+		name     string
+	}{
+		{"", v1alpha1.ModelCredentialProviderAnthropic, "Anthropic"},
+		{"claude", v1alpha1.ModelCredentialProviderAnthropic, "Anthropic"},
+		{"codex", v1alpha1.ModelCredentialProviderOpenAI, "OpenAI"},
+	} {
+		t.Run(string(tc.provider)+"/"+tc.harness, func(t *testing.T) {
+			e := newEnv(t, testProject())
+			creds := e.enforcing()
+			e.intent.Harness = tc.harness
+			name := e.discovered()
+			in := e.drive(name, v1alpha1.IntentBlocked, repoImage)
+			c := credentialBlock(in)
+			if c == nil || !strings.Contains(c.Message, "no "+tc.name+" credential") {
+				t.Fatalf("CredentialRequired = %+v, want %s named", c, tc.name)
+			}
+			if tc.provider == v1alpha1.ModelCredentialProviderOpenAI && strings.Contains(c.Message, "setup-token") {
+				t.Errorf("an OpenAI block offers a setup-token: %q", c.Message)
+			}
+			creds.mu.Lock()
+			asked := append([]v1alpha1.ModelCredentialProvider(nil), creds.asked...)
+			creds.mu.Unlock()
+			for _, p := range asked {
+				if p != tc.provider {
+					t.Errorf("read a %s record for a %q intent", p, tc.harness)
+				}
+			}
+		})
+	}
+	t.Run("copilot", func(t *testing.T) {
+		e := newEnv(t, testProject())
+		creds := e.enforcing()
+		e.intent.Harness = "copilot"
+		name := e.discovered()
+		e.drive(name, v1alpha1.IntentAwaitingApproval, repoImage)
+		if len(creds.asked) != 0 {
+			t.Errorf("read records %v for a harness no credential pays for", creds.asked)
+		}
+	})
 }
 
 // TestCredentialBlockNeverUnderAttribute: under attribute nothing blocks,

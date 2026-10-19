@@ -29,6 +29,23 @@ const (
 // the two cannot drift.
 func HarnessBrokered(id string) bool { return id == HarnessClaude || id == HarnessCodex }
 
+// HarnessProvider is the vendor whose API a brokered harness's model
+// traffic goes to: the provider of the models the registry names the
+// harness Preferred for (claude anthropic, codex openai). "" for a harness
+// that is not brokered (copilot holds its own token for both vendors, the
+// fake harness reaches no model).
+func HarnessProvider(id string) string {
+	if !HarnessBrokered(id) {
+		return ""
+	}
+	for _, m := range builtins() {
+		if m.Preferred == id {
+			return m.ProviderID
+		}
+	}
+	return ""
+}
+
 // Providers returns the model vendors in display order.
 func Providers() []Provider {
 	return []Provider{
