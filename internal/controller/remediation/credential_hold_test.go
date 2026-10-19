@@ -196,7 +196,7 @@ func TestSpawnerNeverHoldsOutsideEnforce(t *testing.T) {
 		{"enforce, an org run", credgate.ModeEnforce, nil, ""},
 		{"enforce, a status-page approval (no id)", credgate.ModeEnforce,
 			&v1alpha1.Approval{By: "github:alice", At: metav1.NewTime(crdClock)}, ""},
-		{"enforce, a non-brokered harness", credgate.ModeEnforce, approved, "openai/gpt-5.3-codex"},
+		{"enforce, a codex run: per-user credentials are Anthropic's", credgate.ModeEnforce, approved, "openai/gpt-5.3-codex"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			fnd := queuedFinding(v1alpha1.PhaseQueued)

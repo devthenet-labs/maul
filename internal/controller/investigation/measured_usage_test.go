@@ -66,7 +66,9 @@ func TestMeasureSettledInvestigation(t *testing.T) {
 		{name: "broker restarted mid-run", harness: "claude", final: true, wantSrc: v1alpha1.UsageSourcePartial,
 			wantCost: "3.000000", wantAsked: 1},
 		{name: "in flight", harness: "claude", requeue: true, wantAsked: 1},
-		{name: "not brokered", harness: "codex", final: true, wantSrc: v1alpha1.UsageSourceReported},
+		{name: "not brokered", harness: "copilot", final: true, wantSrc: v1alpha1.UsageSourceReported},
+		{name: "codex, brokered", harness: "codex", final: true, wantSrc: v1alpha1.UsageSourceMeasured,
+			wantCost: "3.000000", wantAsked: 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			runner, fnd, inv := settledInvestigation(jobCreated)

@@ -14,7 +14,8 @@
 // settled by Meter.Settle:
 //
 //   - a run with no Job, or one on a harness the broker does not carry
-//     (codex, copilot, the fake harness), is source reported at once: only
+//     (copilot, the fake harness: model.HarnessBrokered is false; claude and
+//     codex are brokered), is source reported at once: only
 //     the pod-reported counts exist, and they stay out of trusted totals;
 //   - otherwise the broker is asked for the Job's pods (Client, a projected
 //     token for usagewire.Audience read fresh per call). While a pod still

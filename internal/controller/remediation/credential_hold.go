@@ -15,7 +15,7 @@ import (
 
 	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
 	"github.com/bitwise-media-group/patchy/internal/credgate"
-	"github.com/bitwise-media-group/patchy/internal/usagemeter"
+	"github.com/bitwise-media-group/patchy/internal/model"
 )
 
 // CredentialRecheck is how often a remediation held for a credential is
@@ -52,7 +52,11 @@ const ReasonCredentialResolved = "Resolved"
 func (r *SpawnerReconciler) holdForCredential(ctx context.Context, fnd *v1alpha1.Finding,
 	attributedTo *v1alpha1.Attribution, harness string) (*v1alpha1.Attribution, bool, error) {
 	var v credgate.Verdict
-	if r.UserCredentials.Enforced() && usagemeter.Brokered(harness) {
+	// Per-user credentials are Anthropic's alone for now, so only a claude
+	// run is judged: a codex run is never held on, or paid by, an Anthropic
+	// record (and a remediation-controller running codex refuses
+	// --user-credentials other than off at startup until they cover OpenAI).
+	if r.UserCredentials.Enforced() && harness == model.HarnessClaude {
 		var err error
 		if attributedTo, v, err = r.judgeHeld(ctx, fnd, attributedTo); err != nil {
 			return attributedTo, false, err

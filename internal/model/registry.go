@@ -21,6 +21,14 @@ const (
 	HarnessFake    = "fake"
 )
 
+// HarnessBrokered reports whether a harness's model traffic goes through the
+// egress broker: claude and codex run proxy-only, their pods holding no model
+// credential, while copilot holds its own token and the fake harness reaches
+// no model at all. It is the one predicate both runnercfg (which runners are
+// brokered) and the usage meter (whose runs the broker measured) read, so
+// the two cannot drift.
+func HarnessBrokered(id string) bool { return id == HarnessClaude || id == HarnessCodex }
+
 // Providers returns the model vendors in display order.
 func Providers() []Provider {
 	return []Provider{

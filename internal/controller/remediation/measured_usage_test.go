@@ -17,8 +17,10 @@ import (
 
 // TestMeasureSettledRemediation: a finished remediation's usage is settled
 // from the broker on the harness the spawner resolved, whatever the pod
-// claims it ran: a pod reporting "codex" on a claude run is still measured,
-// and a codex run is reported without asking the broker.
+// claims it ran: a pod reporting "copilot" on a claude run is still
+// measured, a copilot run (not brokered) is reported without asking the
+// broker even when its pod claims claude, and a codex run, brokered since
+// codex runs proxy-only, is measured.
 func TestMeasureSettledRemediation(t *testing.T) {
 	jobCreated := crdClock.Add(-time.Hour)
 	for _, tc := range []struct {
@@ -26,8 +28,9 @@ func TestMeasureSettledRemediation(t *testing.T) {
 		want                          v1alpha1.UsageSource
 		asked                         int
 	}{
-		{"claude run, pod claims codex", "claude", "codex", v1alpha1.UsageSourceMeasured, 1},
-		{"codex run", "codex", "codex", v1alpha1.UsageSourceReported, 0},
+		{"claude run, pod claims copilot", "claude", "copilot", v1alpha1.UsageSourceMeasured, 1},
+		{"copilot run, pod claims claude", "copilot", "claude", v1alpha1.UsageSourceReported, 0},
+		{"codex run", "codex", "codex", v1alpha1.UsageSourceMeasured, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			objs := runningRemediation()
