@@ -34,13 +34,14 @@
 {{- $root := . }}
 {{- range $id, $r := .Values.agent.runners }}
 {{/*
-Brokered claude gets NO FQDNNetworkPolicy: its pods have no external hosts
-at all — the base agents-egress NetworkPolicy (which still renders under
-this mode) grants DNS, the artifact server, and the broker, and that is the
-whole claude egress story. Every other runner enabled on either fleet
-(patchy.harnessEnabled) gets its policy.
+A brokered runner (claude, codex: patchy.brokeredHarness) gets NO
+FQDNNetworkPolicy: its pods have no external hosts at all — the base
+agents-egress NetworkPolicy (which still renders under this mode) grants DNS,
+the artifact server, and the broker, and that is its whole egress story.
+Every other runner enabled on either fleet (patchy.harnessEnabled) gets its
+policy.
 */}}
-{{- if and (include "patchy.harnessEnabled" (dict "root" $root "id" $id)) (ne $id "claude") }}
+{{- if and (include "patchy.harnessEnabled" (dict "root" $root "id" $id)) (not (include "patchy.brokeredHarness" $id)) }}
 ---
 apiVersion: networking.gke.io/v1alpha1
 kind: FQDNNetworkPolicy
@@ -59,9 +60,9 @@ spec:
             {{- include "patchy.agentPodSelector" $root | nindent 12 }}
             patchy.bitwisemedia.uk/harness: {{ $id | quote }}
     egress:
-        # This runner's model API and nothing else. A claude pod reaches only
-        # api.anthropic.com, a codex pod only api.openai.com; no forge host
-        # appears in any of them, because the pod never talks to GitHub.
+        # This runner's model API and nothing else; no forge host appears in
+        # any of them beyond what the runner authenticates with, because the
+        # pod never talks to GitHub as a forge.
         - matches:
               {{- range $r.hosts | default list }}
               - name: {{ . | quote }}

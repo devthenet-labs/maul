@@ -25,13 +25,16 @@ The pipeline idles until two things exist:
          namespace {{ .Release.Namespace }} ({{ .Values.egressBroker.anthropicSecret }}, key api-key, when the
          provider is anthropic; for bedrock/vertex/foundry-entra the broker
          uses its workload identity instead — annotate
-         egressBroker.serviceAccount). The non-brokered runners, whether
+         egressBroker.serviceAccount).{{ if include "patchy.harnessEnabled" (dict "root" . "id" "codex") }} Codex's OpenAI API key lives
+         with the broker too, in the Secret egressBroker.openai.apiKey names
+         ({{ .Values.egressBroker.openai.apiKey.secret }}, key {{ .Values.egressBroker.openai.apiKey.key | default "api-key" }}).{{ end }} The non-brokered runners, whether
          enabled for findings or for evaluations, each need a Secret in
          namespace {{ .Values.agent.namespace }}
          ({{- range $id, $r := .Values.agent.runners }}{{ if and (include "patchy.harnessEnabled" (dict "root" $ "id" $id)) $r.secret }} {{ $r.secret }} (key {{ $r.secretKey }}, as {{ $r.secretEnv }}){{ end }}{{- end }} — none needed when claude is the only harness enabled).
          A non-brokered harness is enabled only when its runner is enabled
          AND its credential exists; claude is enabled by configuration, with
-         a missing broker credential surfacing at the broker's /readyz.
+         a missing broker credential surfacing at the broker's /readyz, and
+         so is codex.
          Every allowlisted model needs one enabled harness that supports it,
          or the controllers refuse to start.
      See deploy/kustomize/base/secrets.example.yaml in the patchy repository
@@ -302,7 +305,7 @@ https://<label>.{{ .Values.preview.hostSuffix }} is proxied to its slot by Servi
 {{- $dnsNone := include "patchy.agentDNSNone" . }}
 {{- $unbrokered := list }}
 {{- range $id, $r := .Values.agent.runners }}
-{{- if and (ne $id "claude") (include "patchy.harnessEnabled" (dict "root" $ "id" $id)) }}
+{{- if and (not (include "patchy.brokeredHarness" $id)) (include "patchy.harnessEnabled" (dict "root" $ "id" $id)) }}
 {{- $unbrokered = append $unbrokered $id }}
 {{- end }}
 {{- end }}
@@ -331,7 +334,7 @@ For defence in depth, one of:
   * Istio — set mode: istio (never auto-selected: it needs native sidecars
     and namespace injection, which CRD presence does not imply).
 {{- if not $unbrokered }}
-  * Brokered claude only (this release) — set
+  * Brokered runners only (claude, codex) — set
     agent.networkPolicy.broadEgress: never, and an agent pod reaches only the
     artifact server and the egress broker.
 {{- end }}
@@ -343,7 +346,7 @@ off-cluster `helm template` always reports none.
 Agent sandbox egress: no direct route out of the cluster
 (agent.networkPolicy.broadEgress is never). An agent pod may reach
 source-controller's artifact server{{ if include "patchy.brokerEnabled" . }} and the egress broker (all of claude's
-model traffic){{ end }}{{ if not $dnsNone }}, plus the cluster DNS resolver{{ end }}, and nothing else{{ if include "patchy.egressProxyEnabled" . }} (a Job granted a
+and codex's model traffic){{ end }}{{ if not $dnsNone }}, plus the cluster DNS resolver{{ end }}, and nothing else{{ if include "patchy.egressProxyEnabled" . }} (a Job granted a
 network profile also reaches the egress proxy){{ end }}.
 {{- if $unbrokered }}
 

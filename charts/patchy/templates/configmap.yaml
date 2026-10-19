@@ -158,6 +158,14 @@ PATCHY_CLAUDE_SECRET* keys — no model credential exists in the agent
 namespace for claude anymore.
 */}}
 {{- $_ := include "patchy.claudeProviderData" (dict "root" $root "data" $data) }}
+{{- else if eq $id "codex" }}
+{{/*
+Codex is brokered too: the broker URL is all it needs (its route is the
+broker's openai one, derived in runnercfg). No PATCHY_CODEX_SECRET* key is
+stamped: those flags are removed, and no OpenAI key exists in the agent
+namespace.
+*/}}
+{{- $_ := set $data "PATCHY_BROKER_URL" (include "patchy.brokerURL" $root) }}
 {{- else if $r.secret }}
 {{- $_ := set $data (printf "PATCHY_%s_SECRET" (upper $id)) $r.secret }}
 {{- $_ := set $data (printf "PATCHY_%s_SECRET_KEY" (upper $id)) $r.secretKey }}

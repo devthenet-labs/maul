@@ -119,12 +119,16 @@ data:
     # (+ PATCHY_FOUNDRY_AUTH / PATCHY_FOUNDRY_API_KEY_FILE) keys.
     PATCHY_ANTHROPIC_API_KEY_FILE: /etc/patchy/anthropic/api-key
     PATCHY_ANTHROPIC_AUTH: key
-    # Enable the codex runner by adding `codex` to PATCHY_HARNESSES and
-    # supplying the OpenAI credential Secret (patchy-openai):
+    # The codex runner is BROKERED too, on the broker's openai route: no
+    # credential enters a codex agent pod, and there are no
+    # PATCHY_CODEX_SECRET* keys (a leftover one fails a controller that runs
+    # codex, with the migration). Enable it by adding `codex` to
+    # PATCHY_HARNESSES and giving the broker the OpenAI API key: a
+    # patchy-openai Secret in the patchy namespace (secrets.example.yaml),
+    # mounted into patchy-egress-broker at /etc/patchy/openai, and
+    # PATCHY_OPENAI_API_KEY_FILE: /etc/patchy/openai/api-key here (an
+    # overlay; the base runs without the openai route).
     PATCHY_CODEX_AGENT_IMAGE: ghcr.io/devthenet-labs/patchy/codex-agent-runner:latest
-    PATCHY_CODEX_SECRET: patchy-openai
-    PATCHY_CODEX_SECRET_KEY: api-key
-    PATCHY_CODEX_SECRET_ENV: OPENAI_API_KEY
     # The copilot runner brokers BOTH vendors' models, so enabling it makes
     # every allowlisted model runnable without the vendor's own key. Weigh that
     # against its credential: copilot authenticates with a GitHub token, the one
@@ -211,13 +215,15 @@ data:
     # The remote-evaluation engine (optional; only read by
     # evaluation-controller). The evolve-runner images are the counterpart of
     # the agent-runner images above: evolve + the harness CLI, shipped from
-    # the evolve repository and pinned by the operator. Credentials reuse the
-    # PATCHY_<HARNESS>_SECRET* keys above — one Secret per model vendor,
-    # whichever fleet exercises it.
+    # the evolve repository and pinned by the operator. The claude one is
+    # brokered like its finding sibling; copilot's credential reuses the
+    # PATCHY_COPILOT_SECRET* keys above. There is no codex evaluation runner:
+    # codex evaluations are refused until evolve supports the broker's
+    # provider config (PATCHY_EVOLVE_CODEX_IMAGE fails startup while
+    # PATCHY_HARNESSES admits codex).
     PATCHY_MAX_CONCURRENT_UNITS: "4"
     PATCHY_EVALUATION_TTL: 72h
     PATCHY_EVOLVE_CLAUDE_IMAGE: ghcr.io/bitwise-media-group/evolve-runner-claude:latest
-    PATCHY_EVOLVE_CODEX_IMAGE: ghcr.io/bitwise-media-group/evolve-runner-codex:latest
     PATCHY_EVOLVE_COPILOT_IMAGE: ghcr.io/bitwise-media-group/evolve-runner-copilot:latest
     # PATCHY_ARTIFACT_UPLOAD_URL / PATCHY_ARTIFACT_BASE_URL default to the
     # source-controller Service (:9791 / :9790), so they only need setting

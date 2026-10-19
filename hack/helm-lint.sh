@@ -59,11 +59,15 @@ helm template patchy charts/patchy -f hack/testdata/chart-render/preview-foundat
   -f hack/testdata/chart-render/preview-controller.yaml \
   -f hack/testdata/chart-render/evaluation-controller.yaml >/dev/null
 
-# The egress broker: rendered by default (claude enabled ⇒ broker), absent
-# when only non-brokered runners are enabled, and one render per provider.
+# The egress broker: rendered by default (claude enabled ⇒ broker), for
+# codex alone (brokered on the openai route), absent when only non-brokered
+# runners are enabled, and one render per provider.
 helm template patchy charts/patchy \
   --set agent.runners.claude.enabled=false \
-  --set agent.runners.codex.enabled=true >/dev/null
+  --set agent.runners.codex.enabled=true --set egressBroker.openai.apiKey.secret=patchy-openai >/dev/null
+helm template patchy charts/patchy \
+  --set agent.runners.claude.enabled=false \
+  --set agent.runners.copilot.enabled=true >/dev/null
 helm template patchy charts/patchy \
   --set egressBroker.anthropicAuth=token >/dev/null
 helm template patchy charts/patchy \
@@ -82,7 +86,10 @@ helm template patchy charts/patchy \
   --set egressBroker.foundrySecret=patchy-foundry >/dev/null
 helm template patchy charts/patchy \
   --set agent.networkPolicy.cilium.enabled=true \
-  --set agent.runners.codex.enabled=true >/dev/null
+  --set agent.runners.codex.enabled=true --set egressBroker.openai.apiKey.secret=patchy-openai >/dev/null
+helm template patchy charts/patchy \
+  --set agent.networkPolicy.dns=none --set agent.networkPolicy.broadEgress=never \
+  --set agent.runners.codex.enabled=true --set egressBroker.openai.apiKey.secret=patchy-openai >/dev/null
 helm template patchy charts/patchy \
   --set statusServer.host=patchy-status.example.com \
   --set statusServer.ingress.enabled=true --set statusServer.ingress.className=nginx \
@@ -107,8 +114,8 @@ helm template patchy charts/patchy -f hack/testdata/chart-render/evaluation-cont
   --set-json 'evaluationController.httpRoute={"enabled":true,"annotations":{},"parentRefs":[{"name":"gw","namespace":"gateway-system"}]}' \
   --set evaluationController.rbac.userRoles=true >/dev/null
 helm template patchy charts/patchy -f hack/testdata/chart-render/evaluation-controller.yaml \
-  --set agent.runners.claude.enabled=false --set agent.runners.codex.enabled=true \
-  --set evaluationController.runners.codex.enabled=true >/dev/null
+  --set agent.runners.claude.enabled=false --set agent.runners.copilot.enabled=true \
+  --set evaluationController.runners.copilot.enabled=true >/dev/null
 
 # The optional intent controller (default off): its own template under every
 # egress mode, with repository images on, beside the evaluation controller,
@@ -128,7 +135,8 @@ helm template patchy charts/patchy -f hack/testdata/chart-render/intent-controll
 helm template patchy charts/patchy -f hack/testdata/chart-render/intent-controller.yaml \
   -f hack/testdata/chart-render/evaluation-controller.yaml >/dev/null
 helm template patchy charts/patchy -f hack/testdata/chart-render/intent-controller.yaml \
-  --set agent.runners.claude.enabled=false --set agent.runners.codex.enabled=true >/dev/null
+  --set agent.runners.claude.enabled=false --set agent.runners.codex.enabled=true \
+  --set egressBroker.openai.apiKey.secret=patchy-openai >/dev/null
 
 # The egress proxy on (two profiles, repository images, dns none), and with
 # attribution.

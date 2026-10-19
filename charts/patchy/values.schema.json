@@ -211,13 +211,16 @@
                     "$ref": "#/definitions/imageOverride"
                 },
                 "secret": {
-                    "type": "string"
+                    "type": "string",
+                    "description": "Credential Secret (agent namespace); copilot only. Ignored for claude; refused for an enabled codex, which is brokered (egressBroker.openai.apiKey)"
                 },
                 "secretKey": {
-                    "type": "string"
+                    "type": "string",
+                    "description": "Key within the credential Secret; copilot only, as secret"
                 },
                 "secretEnv": {
                     "type": "string",
+                    "description": "Env var the credential is injected as; copilot only, as secret",
                     "enum": [
                         "ANTHROPIC_API_KEY",
                         "CLAUDE_CODE_OAUTH_TOKEN",
@@ -232,12 +235,14 @@
                 },
                 "hosts": {
                     "type": "array",
+                    "description": "The runner's model hosts for the FQDN egress dialects; copilot only (a brokered runner reaches only the broker; refused for an enabled codex)",
                     "items": {
                         "type": "string"
                     }
                 },
                 "dnsPatterns": {
                     "type": "array",
+                    "description": "DNS names the Cilium policy lets the runner resolve; copilot only, as hosts",
                     "items": {
                         "type": "string"
                     }
@@ -1933,6 +1938,7 @@
                         },
                         "codex": {
                             "type": "object",
+                            "description": "Refused: enabling it fails the render until evolve supports the egress broker's provider config",
                             "additionalProperties": false,
                             "required": [
                                 "enabled",

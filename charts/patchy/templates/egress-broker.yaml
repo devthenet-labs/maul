@@ -10,11 +10,12 @@
 # API reads, no leases, no reconcilers) and injects or signs the model
 # credential outbound. The model credentials therefore live HERE, in the
 # release namespace, not in the agent sandbox.
+{{- include "patchy.codexChecks" . }}
 {{- if include "patchy.brokerEnabled" . }}
 {{- /* Not only claude: patchy.brokerEnabled also deploys the broker for a
-codex runner (findings or evaluations) once egressBroker.openai.apiKey names
-the OpenAI key. The claude provider's route renders only for claude, the
-openai (Responses) route only with that key. The egress rule below already
+codex runner, which runs proxy-only on the openai route and so needs
+egressBroker.openai.apiKey (patchy.codexChecks). The claude provider's route
+renders only for claude, the openai (Responses) route only with that key. The egress rule below already
 opens TCP 443 to any address, api.openai.com included, so the openai route
 needs no rule of its own. */}}
 {{- /* The exceptions to TokenReview-only: with egressBroker.limits.unit

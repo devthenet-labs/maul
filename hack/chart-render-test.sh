@@ -1720,16 +1720,20 @@ expect eval-own-sa 'select(.kind == "RoleBinding" and .metadata.labels["app.kube
 evals"
 # claude enabled only on the evaluation fleet still deploys the broker.
 render eval-broker -f "$fixtures/evaluation-controller.yaml" \
-  --set agent.runners.claude.enabled=false --set agent.runners.codex.enabled=true
+  --set agent.runners.claude.enabled=false --set agent.runners.copilot.enabled=true
 expect eval-broker 'select(.kind == "Deployment" and .metadata.name == "patchy-egress-broker") | .kind' Deployment
 cm eval-broker evaluation-controller PATCHY_BROKER_URL http://patchy-egress-broker.patchy.svc.cluster.local:8080
 # A non-brokered evaluation runner reuses agent.runners.<harness>'s Secret.
-render eval-codex -f "$fixtures/evaluation-controller.yaml" \
-  --set evaluationController.runners.claude.enabled=false --set evaluationController.runners.codex.enabled=true
-cm eval-codex evaluation-controller PATCHY_HARNESSES codex
-cm eval-codex evaluation-controller PATCHY_CODEX_SECRET patchy-openai
-cm eval-codex evaluation-controller PATCHY_CODEX_SECRET_ENV OPENAI_API_KEY
-cm eval-codex evaluation-controller PATCHY_BROKER_URL null
+render eval-copilot -f "$fixtures/evaluation-controller.yaml" \
+  --set evaluationController.runners.claude.enabled=false --set evaluationController.runners.copilot.enabled=true
+cm eval-copilot evaluation-controller PATCHY_HARNESSES copilot
+cm eval-copilot evaluation-controller PATCHY_COPILOT_SECRET patchy-copilot
+cm eval-copilot evaluation-controller PATCHY_COPILOT_SECRET_ENV COPILOT_GITHUB_TOKEN
+cm eval-copilot evaluation-controller PATCHY_BROKER_URL null
+# Codex evaluations are refused until evolve can be brokered: no mounted
+# OpenAI key path remains (codex broker design, owner decision (b)).
+expect_fail "codex evaluations" "codex evaluations are refused until evolve supports the egress broker" \
+  -f "$fixtures/evaluation-controller.yaml" --set evaluationController.runners.codex.enabled=true
 # Both exposure flavours and the example submitter tier.
 render eval-exposed -f "$fixtures/evaluation-controller.yaml" \
   --set evaluationController.host=patchy-evals.example.com --set evaluationController.ingress.enabled=true \
@@ -1768,19 +1772,20 @@ expect_fail "eval httpRoute without host" "evaluationController.host is required
 # or GKE pod is default-denied its model API, and an Istio pod has no
 # REGISTRY_ONLY Sidecar beside the base policy's TCP 443 to anywhere.
 hnp='select(.kind == "CiliumNetworkPolicy" or .kind == "FQDNNetworkPolicy" or .kind == "Sidecar" or .kind == "ServiceEntry") | .kind + "/" + .metadata.name'
-render eval-codex-cilium -f "$ef" --set agent.networkPolicy.mode=cilium --set evaluationController.runners.codex.enabled=true
-expect eval-codex-cilium "$hnp" "CiliumNetworkPolicy/patchy-agent-egress-claude
-CiliumNetworkPolicy/patchy-agent-egress-codex"
-expect eval-codex-cilium 'select(.kind == "CiliumNetworkPolicy" and .metadata.name == "patchy-agent-egress-codex") | .spec.endpointSelector.matchLabels["patchy.bitwisemedia.uk/harness"]' codex
-render eval-codex-gke -f "$ef" --set agent.networkPolicy.mode=gke --set evaluationController.runners.codex.enabled=true
-expect eval-codex-gke "$hnp" "FQDNNetworkPolicy/patchy-agent-egress-codex"
+render eval-copilot-cilium -f "$ef" --set agent.networkPolicy.mode=cilium --set evaluationController.runners.copilot.enabled=true
+expect eval-copilot-cilium "$hnp" "CiliumNetworkPolicy/patchy-agent-egress-claude
+CiliumNetworkPolicy/patchy-agent-egress-copilot"
+expect eval-copilot-cilium 'select(.kind == "CiliumNetworkPolicy" and .metadata.name == "patchy-agent-egress-copilot") | .spec.endpointSelector.matchLabels["patchy.bitwisemedia.uk/harness"]' copilot
+render eval-copilot-gke -f "$ef" --set agent.networkPolicy.mode=gke --set evaluationController.runners.copilot.enabled=true
+expect eval-copilot-gke "$hnp" "FQDNNetworkPolicy/patchy-agent-egress-copilot"
 render eval-claude-istio -f "$ef" --set agent.networkPolicy.mode=istio \
-  --set agent.runners.claude.enabled=false --set agent.runners.codex.enabled=true
-expect eval-claude-istio "$hnp" "ServiceEntry/patchy-agent-codex
+  --set agent.runners.claude.enabled=false --set agent.runners.copilot.enabled=true
+expect eval-claude-istio "$hnp" "ServiceEntry/patchy-agent-copilot
 Sidecar/patchy-agent-egress-claude
-Sidecar/patchy-agent-egress-codex"
+Sidecar/patchy-agent-egress-copilot"
 # ...and a harness enabled nowhere gets none: the evaluation fleet's runner
-# flags mean nothing while the controller itself is off.
+# flags mean nothing while the controller itself is off (the codex refusal
+# included).
 render eval-off-cilium --set agent.networkPolicy.mode=cilium --set evaluationController.runners.codex.enabled=true
 expect eval-off-cilium "$hnp" "CiliumNetworkPolicy/patchy-agent-egress-claude"
 
@@ -1788,13 +1793,17 @@ expect eval-off-cilium "$hnp" "CiliumNetworkPolicy/patchy-agent-egress-claude"
 # A non-brokered harness is enabled only when its credential Secret exists in
 # the agent namespace, whichever fleet runs it, so the NOTES' list of Secrets
 # to create follows the same rule as the egress policies above.
-codexsecret="patchy-openai (key api-key, as OPENAI_API_KEY)"
-notes notes-eval-codex -f "$ef" \
-  --set evaluationController.runners.claude.enabled=false --set evaluationController.runners.codex.enabled=true
-notes_has notes-eval-codex "$codexsecret" yes
-notes_has notes-eval-codex "patchy-copilot" no
-notes notes-codex --set agent.runners.codex.enabled=true
-notes_has notes-codex "$codexsecret" yes
+copilotsecret="patchy-copilot (key token, as COPILOT_GITHUB_TOKEN)"
+notes notes-eval-copilot -f "$ef" \
+  --set evaluationController.runners.claude.enabled=false --set evaluationController.runners.copilot.enabled=true
+notes_has notes-eval-copilot "$copilotsecret" yes
+notes_has notes-eval-copilot "patchy-openai" no
+# Codex is brokered: its key is the broker's, named in the release namespace,
+# and no agent-namespace Secret is asked for.
+notes notes-codex --set agent.runners.codex.enabled=true --set egressBroker.openai.apiKey.secret=openai-key
+notes_has notes-codex "Codex's OpenAI API key lives" yes
+notes_has notes-codex "(openai-key, key api-key)" yes
+notes_has notes-codex "as OPENAI_API_KEY" no
 notes notes-eval-off --set evaluationController.runners.codex.enabled=true
 notes_has notes-eval-off "patchy-openai" no
 
@@ -2061,10 +2070,15 @@ notes_has notes-dns-none-narrow "Agent DNS: none" yes
 notes_has notes-dns-none-narrow "broadEgress: never" no
 notes notes-dns-cluster
 notes_has notes-dns-cluster "Agent DNS: none" no
-# Only brokered claude can run without a resolver, and an Istio sidecar must
-# resolve istiod; a mode the schema does not know is refused.
-expect_fail "dns none with codex" "the codex runner dials its model API by name" \
-  --set agent.networkPolicy.dns=none --set agent.runners.codex.enabled=true
+# Only the brokered runners (claude, codex) can run without a resolver, and
+# an Istio sidecar must resolve istiod; a mode the schema does not know is
+# refused.
+expect_fail "dns none with copilot" "the copilot runner dials its model API by name" \
+  --set agent.networkPolicy.dns=none --set agent.runners.copilot.enabled=true
+render dns-none-codex --set agent.networkPolicy.dns=none --set agent.runners.codex.enabled=true \
+  --set egressBroker.openai.apiKey.secret=patchy-openai
+cm dns-none-codex investigation-controller PATCHY_AGENT_DNS none
+cm dns-none-codex investigation-controller PATCHY_HARNESSES claude,codex
 expect_fail "dns none with copilot on the evaluation fleet" "the copilot runner dials its model API by name" \
   -f "$ef" --set agent.networkPolicy.dns=none --set evaluationController.runners.copilot.enabled=true
 expect_fail "dns none under istio" "incompatible with mode istio" \
@@ -2078,24 +2092,26 @@ render dns-none-fixed --set agent.networkPolicy.dns=none --set agent.runners.cod
 # Intents run on claude even when the finding fleet does not: the broker
 # deploys, the agent egress admits it, and each egress dialect keeps a claude
 # policy for the intent pods.
-render intent-codex -f "$ifx" --set agent.runners.claude.enabled=false --set agent.runners.codex.enabled=true
+render intent-codex -f "$ifx" --set agent.runners.claude.enabled=false --set agent.runners.codex.enabled=true \
+  --set egressBroker.openai.apiKey.secret=patchy-openai
 expect intent-codex 'select(.kind == "Deployment" and .metadata.name == "patchy-egress-broker") | .kind' Deployment
 expect intent-codex 'select(.kind == "NetworkPolicy" and .metadata.name == "patchy-agents-egress") | .spec.egress[].to[].podSelector.matchLabels["app.kubernetes.io/name"] | select(. == "egress-broker")' \
   egress-broker
 cm intent-codex intent-controller PATCHY_HARNESSES claude
 cm intent-codex investigation-controller PATCHY_HARNESSES codex
 render intent-codex-cilium -f "$ifx" --set agent.networkPolicy.mode=cilium \
-  --set agent.runners.claude.enabled=false --set agent.runners.codex.enabled=true
+  --set agent.runners.claude.enabled=false --set agent.runners.codex.enabled=true \
+  --set egressBroker.openai.apiKey.secret=patchy-openai
 expect intent-codex-cilium "$hnp" "CiliumNetworkPolicy/patchy-agent-egress-claude
 CiliumNetworkPolicy/patchy-agent-egress-codex"
 render intent-codex-istio -f "$ifx" --set agent.networkPolicy.mode=istio \
-  --set agent.runners.claude.enabled=false --set agent.runners.codex.enabled=true
-expect intent-codex-istio "$hnp" "ServiceEntry/patchy-agent-codex
-Sidecar/patchy-agent-egress-claude
+  --set agent.runners.claude.enabled=false --set agent.runners.codex.enabled=true \
+  --set egressBroker.openai.apiKey.secret=patchy-openai
+expect intent-codex-istio "$hnp" "Sidecar/patchy-agent-egress-claude
 Sidecar/patchy-agent-egress-codex"
 # ...and with the controller off, claude disabled for findings is claude off.
-render intent-off-codex --set agent.runners.claude.enabled=false --set agent.runners.codex.enabled=true
-expect intent-off-codex 'select(.kind == "Deployment" and .metadata.name == "patchy-egress-broker") | .kind' ""
+render intent-off-copilot --set agent.runners.claude.enabled=false --set agent.runners.copilot.enabled=true
+expect intent-off-copilot 'select(.kind == "Deployment" and .metadata.name == "patchy-egress-broker") | .kind' ""
 
 # ---- intent controller variants ----------------------------------------------
 # A bring-your-own ServiceAccount: not rendered, but still what runs and binds.
@@ -2143,8 +2159,8 @@ notes notes-intent-off
 notes_has notes-intent-off "intent-controller" no
 
 # ---- egress broker: the openai (Responses) route ---------------------------
-# Off by default: no flag, no mount, no volume, and codex alone deploys no
-# broker (intent-off-codex above).
+# Off by default: no flag, no mount, no volume (and copilot alone deploys no
+# broker: intent-off-copilot above).
 bdep='select(.kind == "Deployment" and .metadata.name == "patchy-egress-broker")'
 cm default egress-broker PATCHY_OPENAI_API_KEY_FILE null
 expect default "$bdep | .spec.template.spec.volumes[].name | select(. == \"openai\")" ""
@@ -2171,11 +2187,10 @@ cm openai-codex egress-broker PATCHY_OPENAI_API_KEY_FILE /etc/patchy/openai/api-
 cm openai-codex egress-broker PATCHY_ANTHROPIC_API_KEY_FILE null
 cm openai-codex egress-broker PATCHY_ANTHROPIC_AUTH null
 expect openai-codex "$bdep | .spec.template.spec.volumes[].name | select(. == \"anthropic\")" ""
-# ...and codex on the evaluation fleet only counts too.
-render openai-codex-eval -f "$ef" --set agent.runners.claude.enabled=false \
-  --set evaluationController.runners.claude.enabled=false --set evaluationController.runners.codex.enabled=true \
-  --set egressBroker.openai.apiKey.secret=patchy-openai
-expect openai-codex-eval "$bdep | .kind" Deployment
+# ...while codex on the evaluation fleet is refused, key or not.
+expect_fail "codex evaluations with the key" "codex evaluations are refused" -f "$ef" \
+  --set agent.runners.claude.enabled=false --set evaluationController.runners.claude.enabled=false \
+  --set evaluationController.runners.codex.enabled=true --set egressBroker.openai.apiKey.secret=patchy-openai
 # No claude and no codex: nothing for the broker to front, key or not.
 render openai-nothing --set agent.runners.claude.enabled=false --set egressBroker.openai.apiKey.secret=patchy-openai
 expect openai-nothing "$bdep | .kind" ""
@@ -2186,6 +2201,63 @@ expect_fail 'user credentials beside the openai route' 'while egressBroker.opena
 expect_fail 'an empty openai key name' '/egressBroker/openai/apiKey/key' \
   --set egressBroker.openai.apiKey.secret=patchy-openai --set egressBroker.openai.apiKey.key=
 expect_fail 'an unknown openai field' '/egressBroker/openai' --set egressBroker.openai.secret=patchy-openai
+
+# ---- codex runs brokered (codex broker design, group 2) ---------------------
+# Enabled, it needs the broker's openai route; its controllers get the broker
+# URL and no credential key; its pods reach only the broker under every
+# dialect, the base policy's broker rule included.
+expect_fail 'codex without the openai key' 'agent.runners.codex.enabled needs egressBroker.openai.apiKey' \
+  --set agent.runners.codex.enabled=true
+cx="--set agent.runners.codex.enabled=true --set egressBroker.openai.apiKey.secret=patchy-openai"
+# shellcheck disable=SC2086
+render codex $cx
+cm codex investigation-controller PATCHY_HARNESSES claude,codex
+cm codex remediation-controller PATCHY_BROKER_URL http://patchy-egress-broker.patchy.svc.cluster.local:8080
+expect codex 'select(.kind == "ConfigMap") | .data | keys | .[] | select(test("^PATCHY_CODEX_SECRET"))' ""
+# shellcheck disable=SC2086
+render codex-only --set agent.runners.claude.enabled=false $cx
+expect codex-only "$bdep | .kind" Deployment
+cm codex-only investigation-controller PATCHY_BROKER_URL http://patchy-egress-broker.patchy.svc.cluster.local:8080
+cm codex-only investigation-controller PATCHY_CLAUDE_PROVIDER null
+expect codex-only 'select(.kind == "NetworkPolicy" and .metadata.name == "patchy-agents-egress") | .spec.egress[].to[].podSelector.matchLabels["app.kubernetes.io/name"] | select(. == "egress-broker")' \
+  egress-broker
+# shellcheck disable=SC2086
+render codex-cilium --set agent.networkPolicy.mode=cilium $cx
+cxcnp='select(.kind == "CiliumNetworkPolicy" and .metadata.name == "patchy-agent-egress-codex") | .spec.egress'
+expect codex-cilium "$cxcnp | .[].toFQDNs" "null
+null
+null"
+expect codex-cilium "$cxcnp | .[].toEndpoints[].matchLabels[\"app.kubernetes.io/name\"] | select(. == \"egress-broker\")" egress-broker
+expect codex-cilium "$cxcnp | .[].toPorts[].rules.dns[].matchPattern | select(test(\"openai\"))" ""
+# shellcheck disable=SC2086
+render codex-gke --set agent.networkPolicy.mode=gke $cx
+expect codex-gke "$hnp" ""
+# shellcheck disable=SC2086
+render codex-istio --set agent.networkPolicy.mode=istio $cx
+expect codex-istio "$hnp" "Sidecar/patchy-agent-egress-claude
+Sidecar/patchy-agent-egress-codex"
+# The hardened posture: no resolver and no route out but the broker.
+# shellcheck disable=SC2086
+render codex-hardened --set agent.networkPolicy.dns=none --set agent.networkPolicy.broadEgress=never $cx
+cm codex-hardened remediation-controller PATCHY_AGENT_DNS none
+# Its old credential and host keys are refused with the migration while it
+# is enabled, and ignored while it is off (an old values file copied the
+# defaults).
+for k in secret=patchy-openai secretKey=api-key secretEnv=OPENAI_API_KEY 'hosts[0]=api.openai.com' 'dnsPatterns[0]=*.openai.com'; do
+  # shellcheck disable=SC2086
+  expect_fail "codex.${k%%=*}" "is removed: codex runs proxy-only through the egress broker" \
+    $cx --set "agent.runners.codex.$k"
+  # shellcheck disable=SC2086
+  expect_fail "codex.${k%%=*} names the steps" "delete the old patchy-openai Secret from the agent namespace" \
+    $cx --set "agent.runners.codex.$k"
+done
+render codex-off-old-keys --set agent.runners.codex.secret=patchy-openai --set agent.runners.codex.secretEnv=OPENAI_API_KEY \
+  --set 'agent.runners.codex.hosts[0]=api.openai.com'
+expect codex-off-old-keys 'select(.kind == "ConfigMap") | .data | keys | .[] | select(test("^PATCHY_CODEX_SECRET"))' ""
+# Per-user credentials do not cover OpenAI yet: refused beside codex.
+# shellcheck disable=SC2086
+expect_fail 'user credentials beside codex' 'while the codex runner is enabled' \
+  --set attribution.mode=attribute --set egressBroker.userCredentials.mode=attribute $cx
 
 # ---- egress broker limits ---------------------------------------------------
 render limits -f "$fixtures/broker-limits.yaml"
@@ -3340,10 +3412,14 @@ expect attribution 'select(.kind == "NetworkPolicy" and .metadata.name == "patch
 expect attribution 'select(.kind == "NetworkPolicy" and .metadata.name == "patchy-egress-broker") | .spec.ingress[] | select(.ports[0].port == 8082) | .from[] | select(.namespaceSelector != null) | .namespaceSelector' ""
 expect attribution-core 'select(.kind == "ConfigMap" and .metadata.name == "patchy-egress-broker-config") | .data.PATCHY_USAGE_CALLERS' \
   patchy:patchy-investigation-controller,patchy:patchy-remediation-controller
-# Without a broker (a fake-only values file) nothing is measured.
+# Without a broker (no brokered runner: copilot alone) nothing is measured.
 render usage-no-broker --set attribution.mode=attribute --set agent.runners.claude.enabled=false \
-  --set agent.runners.codex.enabled=true
+  --set agent.runners.copilot.enabled=true
 expect usage-no-broker "$usage_cms" ""
+# Codex alone is brokered, so its runs are measured.
+render usage-codex --set attribution.mode=attribute --set agent.runners.claude.enabled=false \
+  --set agent.runners.codex.enabled=true --set egressBroker.openai.apiKey.secret=patchy-openai
+cm usage-codex remediation-controller PATCHY_USAGE_MEASUREMENT true
 
 # ---- usage rollups (design L2): durable per-user usage ------------------------
 # Off renders no UsageRollup grant anywhere (the CRD alone is installed). Under
@@ -3540,8 +3616,14 @@ notes np-never-dns-none --set agent.networkPolicy.broadEgress=never --set agent.
 notes_has np-never-dns-none 'TCP 443' no
 notes_has np-never-dns-none 'no direct route out of the cluster' yes
 notes_has np-never-dns-none 'plus the cluster DNS resolver' no
-notes np-never-codex --set agent.networkPolicy.broadEgress=never --set agent.runners.codex.enabled=true
-notes_has np-never-codex 'WARNING: codex is enabled, but no policy lets an agent pod reach a' yes
+notes np-never-copilot --set agent.networkPolicy.broadEgress=never --set agent.runners.copilot.enabled=true
+notes_has np-never-copilot 'WARNING: copilot is enabled, but no policy lets an agent pod reach a' yes
+# Codex is brokered: under broadEgress never it reaches the broker, so no
+# warning.
+notes np-never-codex --set agent.networkPolicy.broadEgress=never --set agent.runners.codex.enabled=true \
+  --set egressBroker.openai.apiKey.secret=patchy-openai
+notes_has np-never-codex 'is enabled, but no policy lets an agent pod reach a' no
+notes_has np-never-codex "and codex's model traffic" yes
 notes np-off --set agent.networkPolicy.create=false
 notes_has np-off 'WARNING: agent.networkPolicy.create is false' yes
 notes_has np-off 'TCP 443 to anywhere' no

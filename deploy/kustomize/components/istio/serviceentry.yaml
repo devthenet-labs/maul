@@ -13,29 +13,10 @@
 # There is deliberately no GitHub entry for the claude or codex harnesses: the
 # repository arrives as a tarball from source-controller's in-cluster artifact
 # server (a mesh-registry Service the Sidecar already exposes), and those pods
-# hold no forge credential. And there is no claude entry AT ALL: claude is
-# brokered — its model traffic goes to the in-cluster egress broker (a
-# mesh-registry Service too), so it has no external host to allow. The
+# hold no forge credential. And there is no claude or codex entry AT ALL: both
+# are brokered — their model traffic goes to the in-cluster egress broker (a
+# mesh-registry Service too), so they have no external host to allow. The
 # copilot GitHub host below is the sole auth exception — see it for why.
----
-# The codex harness's model API (inert until the codex runner is enabled).
-apiVersion: networking.istio.io/v1
-kind: ServiceEntry
-metadata:
-    name: patchy-agent-openai
-    namespace: patchy-agents
-    labels:
-        app.kubernetes.io/part-of: patchy
-spec:
-    exportTo: ["."]
-    hosts:
-        - api.openai.com
-    location: MESH_EXTERNAL
-    resolution: DNS
-    ports:
-        - number: 443
-          name: tls
-          protocol: TLS
 ---
 # The copilot harness's model API (inert until the copilot runner is enabled).
 # api.github.com is here because the Copilot CLI validates and exchanges its

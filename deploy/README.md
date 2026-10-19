@@ -42,7 +42,7 @@ Two namespaces, and the split between them is the security boundary.
 | Namespace       | Workload                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Credentials it holds                                                                                                                        |
 | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | `patchy`        | `integration-controller` (the only internet-facing workload), `source-controller`, `context-controller`, `investigation-controller`, `remediation-controller`, `evaluation-controller` (optional; the evolve-facing evaluation API — front its Service with your ingress when used), `intent-controller` (optional; intent-driven development, polling GitHub — no inbound surface), `egress-broker` (the reverse proxy all claude model traffic goes through) | reads the GitHub Secret referenced by your Integration/Forge CRs; the broker holds the claude model credential (or cloud workload identity) |
-| `patchy-agents` | ephemeral agent `Job`s, created at runtime by the job-launching controllers                                                                                                                                                                                                                                                                                                                                                                                    | nothing for claude Jobs (an identity token only); a non-brokered codex/copilot Job carries its one model key                                |
+| `patchy-agents` | ephemeral agent `Job`s, created at runtime by the job-launching controllers                                                                                                                                                                                                                                                                                                                                                                                    | nothing for claude or codex Jobs (an identity token only); a non-brokered copilot Job carries its one token                                 |
 
 The **evaluation controller** is optional: it executes remote skill evaluations submitted by
 [evolve](https://github.com/bitwise-media-group/evolve) through the same agent-Job machinery (see
@@ -176,11 +176,13 @@ kubectl -n patchy create secret generic patchy-anthropic \
 all claude model traffic goes through (`deployment-egress-broker.yaml`); its readiness probe fails while the credential
 is unusable. `PATCHY_ANTHROPIC_AUTH=token` sends a `claude setup-token` OAuth token as a bearer instead of an API key,
 and the bedrock/vertex/foundry providers need no Secret at all — the broker signs with its cloud workload identity
-(annotate the `patchy-egress-broker` ServiceAccount). Enable the codex runner and it needs `patchy-openai` (an OpenAI
-key) in **patchy-agents**, wired into the pod by `internal/jobs`, and the controllers refuse to start if an enabled
-non-brokered harness's credential is missing; the copilot runner needs `patchy-copilot`, which holds a **GitHub token**
-rather than a model API key — the one credential class no other agent pod carries, so enable that runner deliberately
-and scope the token to Copilot alone. A fake-harness run (dev) needs no model credential at all.
+(annotate the `patchy-egress-broker` ServiceAccount). The codex runner is brokered too: enable it and the broker needs
+`patchy-openai` (an OpenAI API key) in **patchy**, mounted into `patchy-egress-broker` at `/etc/patchy/openai` with
+`PATCHY_OPENAI_API_KEY_FILE` set (an overlay; no codex pod ever holds it, and a leftover `PATCHY_CODEX_SECRET*` key
+fails a controller that runs codex, with the migration). The controllers refuse to start if an enabled non-brokered
+harness's credential is missing; the copilot runner needs `patchy-copilot`, which holds a **GitHub token** rather than a
+model API key — the one credential class no other agent pod carries, so enable that runner deliberately and scope the
+token to Copilot alone. A fake-harness run (dev) needs no model credential at all.
 
 The pipeline is then switched on with two custom resources referencing that Secret — an `Integration` (webhook
 validation, alert ingestion, issue projection) and a `Forge` (repository read for the artifact, write for the push +
@@ -225,11 +227,11 @@ alert dismissal, branch push, PRs — are performed controller-side with short-l
 agent that reaches `github.com` reaches it as an anonymous member of the public.
 
 **2. NetworkPolicy — the floor.** `patchy-agents` is default-deny in both directions. Egress is re-permitted for DNS,
-the artifact port (9790) to source-controller, the broker port (8080) to the egress broker — the whole of a claude pod's
-egress, all cluster-local — and TCP 443 (the non-brokered codex/copilot runners' model APIs) with the cluster's own
-ranges and the cloud metadata endpoint (169.254.169.254) excluded. **A plain NetworkPolicy is L3/L4 and cannot match a
-hostname**, so "TCP 443" means every HTTPS host on the internet, not just the model vendor's. Adjust the `except:` CIDRs
-in `base/networkpolicy.yaml` to your cluster's pod/service/node CIDRs.
+the artifact port (9790) to source-controller, the broker port (8080) to the egress broker — the whole of a claude or
+codex pod's egress, all cluster-local — and TCP 443 (the non-brokered copilot runner's model hosts) with the cluster's
+own ranges and the cloud metadata endpoint (169.254.169.254) excluded. **A plain NetworkPolicy is L3/L4 and cannot match
+a hostname**, so "TCP 443" means every HTTPS host on the internet, not just the model vendor's. Adjust the `except:`
+CIDRs in `base/networkpolicy.yaml` to your cluster's pod/service/node CIDRs.
 
 **3. Hostname policy — defence in depth, where the infrastructure supports it.** Add exactly one component; each narrows
 that egress to the non-brokered runners' model hosts and nothing else external (brokered claude needs no entry — it has
@@ -261,10 +263,10 @@ story.
 names it does not own upstream, so data can leave in query names. `components/agent-dns-none` (list it after
 `components/cilium`) sets `PATCHY_AGENT_DNS=none` for the job controllers, which then give each agent pod
 `dnsPolicy: None`, a dead loopback nameserver, and the artifact server and broker pinned in its hosts file (resolved by
-the controller at launch), and removes the DNS rule from `patchy-agents-egress` and the claude `CiliumNetworkPolicy`.
-Brokered claude only: a controller with codex or copilot enabled refuses to start. Not with `components/istio`. A DNS
-allow policy for `patchy-agents` managed outside these manifests must be removed or narrowed too, since policies are
-additive.
+the controller at launch), and removes the DNS rule from `patchy-agents-egress` and the claude and codex
+`CiliumNetworkPolicy`. Brokered runners only (claude, codex): a controller with copilot enabled refuses to start. Not
+with `components/istio`. A DNS allow policy for `patchy-agents` managed outside these manifests must be removed or
+narrowed too, since policies are additive.
 
 **Network profiles are chart-only.** The optional egress proxy (`cmd/egress-proxy`, the operator's Go dependency route
 for remediate and build Jobs) has no kustomize component in step 1. Its profiles are a values-driven map: each profile
@@ -311,7 +313,7 @@ Three things to know about dev:
 ### prod
 
 DESIGN.md's real intervals (1h accumulation, 1h minimum age, the 14-day finding TTL), the claude harness (add codex by
-enabling its runner and supplying `patchy-openai`, or copilot with `patchy-copilot`), the Cilium FQDN policies,
+enabling its runner and giving the broker `patchy-openai`, or copilot with `patchy-copilot`), the Cilium FQDN policies,
 production-sized requests/limits, and **digest-pinned images**. The `sha256:0000…` values in
 `overlays/prod/kustomization.yaml` and `PATCHY_CLAUDE_AGENT_IMAGE` in `overlays/prod/configmap-patch.yaml` are
 placeholders — replace them with the digests your release pipeline published before applying anything. Bring your real

@@ -31,6 +31,11 @@
 # would union with — and undo — what this one restricts. Everything the pod
 # needs is below, and the namespace default-deny remains the floor, so a
 # missing CRD fails closed.
+{{- /* The comment above is rendered, and kept byte for byte so the
+egress-off goldens stay as main rendered them; it predates the broker. What
+holds now: a brokered runner's pods (claude and codex: patchy.brokeredHarness)
+reach only the egress broker, never a model API by name, and only copilot's
+policy lists its own model hosts. */}}
 {{- if and .Values.agent.networkPolicy.create (eq (include "patchy.egressMode" .) "cilium") }}
 {{- $root := . }}
 {{- $clusterDNS := .Values.agent.networkPolicy.clusterDNSPatterns | default list }}
@@ -89,13 +94,13 @@ spec:
                     - port: "9790"
                       protocol: TCP
 
-        {{- if eq $id "claude" }}
-        # Brokered claude: the agent container's ONLY destination is the
+        {{- if include "patchy.brokeredHarness" $id }}
+        # Brokered {{ $id }}: the agent container's ONLY destination is the
         # egress credential broker — a cluster-local endpoint, so this policy
         # carries no toFQDNs at all.{{ if $dnsNone }} The pod has no resolver
         # (agent.networkPolicy.dns: none), so there is no DNS rule either.{{ else }} The DNS rule above resolves only the
         # cluster-local names (clusterDNSPatterns); no external name resolves
-        # from a claude pod, period.{{ end }}
+        # from a {{ $id }} pod, period.{{ end }}
         - toEndpoints:
               - matchLabels:
                     io.kubernetes.pod.namespace: {{ $root.Release.Namespace }}
