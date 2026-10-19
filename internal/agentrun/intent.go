@@ -14,11 +14,13 @@ import (
 
 	"github.com/bitwise-media-group/patchy/internal/envelope"
 	"github.com/bitwise-media-group/patchy/internal/harness"
+	"github.com/bitwise-media-group/patchy/internal/provider"
 	"github.com/bitwise-media-group/patchy/internal/report"
 	"github.com/bitwise-media-group/patchy/internal/templates"
 )
 
-// The harnesses an intent stage may run on (see intentHarness).
+// The harnesses an intent stage may run on (see intentHarness), beside
+// codexHarness.
 const (
 	claudeHarness = "claude"
 	fakeHarness   = "fake"
@@ -59,13 +61,16 @@ func (a *Agent) runIntent(ctx context.Context) error {
 	return nil
 }
 
-// intentHarness refuses every harness an intent stage may not run on. Only
-// claude renders the sandbox postures the stages rely on — codex and copilot
-// ignore them, so a plan would not stay read-only — and only brokered claude
-// keeps the model credential out of the pod, which matters all the more on
-// a build that runs in the repository's own image. The fake harness is
-// admitted as well: it replays a fixture through cat, runs no agent and
-// reaches no model, and it is how tests drive these stages.
+// intentHarness refuses every harness an intent stage may not run on.
+// Intents run on brokered claude or brokered codex: a brokered pod holds no
+// model credential, which matters all the more on a build that runs in the
+// repository's own image, and its spend is the broker's to limit and
+// measure. Copilot holds its own credential in the pod and is refused, as is
+// an unbrokered claude or codex. Only claude renders the sandbox postures
+// itself; on codex the plan's read-only posture is the prompt's and the
+// pod's (planPrompt), never the CLI's. The fake harness is admitted as
+// well: it replays a fixture through cat, runs no agent and reaches no
+// model, and it is how tests drive these stages.
 func (a *Agent) intentHarness(id string) error {
 	switch id {
 	case claudeHarness:
@@ -74,11 +79,17 @@ func (a *Agent) intentHarness(id string) error {
 				a.cfg.Phase)
 		}
 		return nil
+	case codexHarness:
+		if a.cfg.BrokerTokenFile == "" || a.cfg.CodexBaseURL == "" {
+			return fmt.Errorf("intent %s stage: the codex harness must be brokered, and PATCHY_BROKER_TOKEN_FILE "+
+				"or %s is unset", a.cfg.Phase, provider.CodexBaseURLEnv)
+		}
+		return nil
 	case fakeHarness:
 		return nil
 	}
-	return fmt.Errorf("intent %s stage: harness %q is refused: intents run on brokered claude only, "+
-		"because no other harness honours the sandbox postures", a.cfg.Phase, id)
+	return fmt.Errorf("intent %s stage: harness %q is refused: intents run on brokered claude or brokered codex "+
+		"only, so that no model credential is ever in the pod", a.cfg.Phase, id)
 }
 
 // planLimits resolves the plan stage's turns and output tokens: the
@@ -257,10 +268,15 @@ func (a *Agent) plan(ctx context.Context, repos []manifestRepository) *envelope.
 		Limits: templates.StageLimits{
 			MaxTurns: maxTurns, TokenBudget: budget, Timeout: a.cfg.InvestigateTimeout,
 		},
-		PreviousAttempt:  a.cfg.PreviousAttempt,
-		Trees:            planTrees(repos),
-		OpenPullRequests: a.cfg.OpenPullRequests,
-		BuildProfiles:    a.cfg.BuildProfiles,
+		PreviousAttempt: a.cfg.PreviousAttempt,
+		// codex runs with full access in the pod and has a shell: the plan
+		// stays read-only by the prompt and the pod, so the prompt states
+		// the rule rather than claiming a sandbox enforces it. The fake
+		// harness stands in for claude and runs no agent.
+		ReadOnlyUnenforced: !harness.EnforcesReadOnly(h) && h.ID() != fakeHarness,
+		Trees:              planTrees(repos),
+		OpenPullRequests:   a.cfg.OpenPullRequests,
+		BuildProfiles:      a.cfg.BuildProfiles,
 	})
 	if err != nil {
 		ev.Outcome = envelope.OutcomeRuntimeError
@@ -281,7 +297,9 @@ func (a *Agent) plan(ctx context.Context, repos []manifestRepository) *envelope.
 	//
 	// The posture is the investigation's: no shell, and writes scoped to
 	// the report's directory, so the planner can write and fix up its report
-	// and nothing else, which is what its prompt tells it. A report repair
+	// and nothing else, which is what its prompt tells it. Claude renders
+	// it; codex cannot (its PromptSpec), so on codex it is the prompt's rule
+	// and the pod's isolation that hold the plan to it. A report repair
 	// resumes with this same request, so it keeps the scope.
 	sr := a.newStage(h, cli, harness.PromptRequest{
 		Prompt:    prompt,

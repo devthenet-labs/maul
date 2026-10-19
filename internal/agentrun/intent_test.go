@@ -410,11 +410,12 @@ func TestPlanFailures(t *testing.T) {
 	}
 }
 
-// TestIntentStagesRefuseHarnesses: intents run on brokered claude only —
-// codex and copilot ignore the sandbox postures, and an unbrokered claude
-// would hold a credential in the pod — so any other harness is refused
-// before a model is called, with a fatal event naming why. The fake harness,
-// which calls no model, is how the tests above drive the stages.
+// TestIntentStagesRefuseHarnesses: intents run on brokered claude or
+// brokered codex only — copilot, or an unbrokered claude or codex, would
+// hold a credential in the pod — so any other harness, and either one
+// without the broker, is refused before a model is called, with a fatal
+// event naming why. The fake harness, which calls no model, is how the
+// tests above drive the stages.
 func TestIntentStagesRefuseHarnesses(t *testing.T) {
 	tokenFile := filepath.Join(t.TempDir(), "token")
 	if err := os.WriteFile(tokenFile, []byte("caller-token\n"), 0o600); err != nil {
@@ -424,13 +425,17 @@ func TestIntentStagesRefuseHarnesses(t *testing.T) {
 		name     string
 		harness  string
 		brokered bool
+		route    string
 		want     string
 	}{
-		{"codex", "codex", false, `harness "codex" is refused`},
-		{"copilot", "copilot", false, `harness "copilot" is refused`},
-		{"codex even with a broker token", "codex", true, `harness "codex" is refused`},
-		{"unbrokered claude", "claude", false, "must be brokered"},
-		{"unknown", "nope", true, `harness "nope" is refused`},
+		{"unbrokered codex", "codex", false, "", "the codex harness must be brokered"},
+		{"codex with no broker token", "codex", false, "http://broker:8080/openai/v1",
+			"the codex harness must be brokered"},
+		{"codex with no broker route", "codex", true, "", "the codex harness must be brokered"},
+		{"copilot", "copilot", false, "", `harness "copilot" is refused`},
+		{"copilot even with a broker token", "copilot", true, "", `harness "copilot" is refused`},
+		{"unbrokered claude", "claude", false, "", "must be brokered"},
+		{"unknown", "nope", true, "", `harness "nope" is refused`},
 	}
 	for _, phase := range []Phase{PhasePlan, PhaseBuild} {
 		for _, tt := range tests {
@@ -441,6 +446,7 @@ func TestIntentStagesRefuseHarnesses(t *testing.T) {
 				if tt.brokered {
 					cfg.BrokerTokenFile = tokenFile
 				}
+				cfg.CodexBaseURL = tt.route
 				fx := &fakeExec{}
 				err := New(cfg, fx).Run(context.Background())
 				if err == nil || !strings.Contains(err.Error(), tt.want) {

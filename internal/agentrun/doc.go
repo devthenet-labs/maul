@@ -14,7 +14,9 @@
 // writable — for the first build and every revise round — and packages its
 // changeset through the remediation path's own helpers, as a remediation
 // event. They run on the Finding stages' configuration (plan on
-// investigate's, build on remediate's) and on brokered claude only.
+// investigate's, build on remediate's) and on brokered claude or brokered
+// codex only. Codex does not enforce the plan's read-only posture, so its
+// plan prompt states the rule as the planner's own.
 //
 // An intent may change several repositories. Its plan Job then holds every
 // tree — the planning repository as the working tree, the others read-only
@@ -40,13 +42,15 @@
 // refused. Only a report still refused after that ends the stage
 // report_missing or report_invalid, with how the repair went after the
 // reason. Codex and copilot cannot resume, so their stages end on the
-// first refusal, as before.
+// first refusal, as before, and the run logs that it was not repaired.
 //
 // While a run of an intent's stage (plan, build) runs a foreground shell
 // command, the runner prints that command's output as it is produced, as
 // PATCHY-OUTPUT chunks beside the turns (output.go, on a
 // harness.TaskWatcher: claude, and the fake harness whose fixtures write no
-// such file); a Finding's stages print none, as nothing shows it. The CLI's own file is read, never its
+// such file; codex cannot, so an intent stage on codex logs that a
+// command's output shows only with its result); a Finding's stages print
+// none, as nothing shows it. The CLI's own file is read, never its
 // stream, so the output is bounded per command and per process, and it is
 // live only: never persisted, never a turn, never progress to the idle
 // watchdog. All of stdout goes through one lock, so the three streams'

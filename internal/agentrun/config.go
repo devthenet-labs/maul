@@ -33,7 +33,7 @@ type Phase string
 // first build and every revise round — on the remediate stage's harness,
 // model and timeout, under the manual budget. In both, a per-Job grant may
 // lower the stage's limits but never raise them (planLimits, buildLimits).
-// Both run on brokered claude only (see intentHarness). The Job seams keep
+// Both run on brokered claude or brokered codex only (see intentHarness). The Job seams keep
 // their Finding names on an intent run: PATCHY_FINDING carries the
 // IntentRun's name, and input/investigation.md the approved plan.
 const (

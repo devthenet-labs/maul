@@ -69,6 +69,17 @@ func TestIntentPromptGoldens(t *testing.T) {
 				PreviousAttempt: &PreviousAttempt{Attempt: 1, Outcome: "timeout"},
 			})
 		}},
+		// The plan on a harness that does not hold it read-only (codex),
+		// over two repositories so the trees' sentence is pinned too.
+		{"prompt_plan_unenforced.md", func() (string, error) {
+			return RenderPlanPrompt(PlanPrompt{
+				IssuePath: "/workspace/input/issue.md", ReportPath: "/workspace/reports/plan.md",
+				Intent: testPlanRequest, BuildMaxTurns: 150, BuildTokenBudget: 800000, Limits: testPlanLimits,
+				ReadOnlyUnenforced: true,
+				Trees: []PlanTree{{URL: "https://github.com/devthenet-labs/patchy-target", Path: "/workspace/repo"},
+					{URL: "https://github.com/devthenet-labs/patchy-web", Path: "/workspace/repos/web"}},
+			})
+		}},
 		{"prompt_build.md", func() (string, error) { return renderTestBuildPrompt(nil) }},
 		// A retry after the failure the build prompt most needs to explain:
 		// the change touched a directory intent runs may never change.
@@ -213,6 +224,57 @@ func TestPlanPromptStatesTheRules(t *testing.T) {
 			t.Errorf("plan prompt still says %q", stale)
 		}
 	}
+}
+
+// TestPlanPromptUnenforced: on a harness that does not hold the plan
+// read-only (codex), the prompt names no sandbox and no tool it lacks,
+// keeps the read-only rule as the planner's own, and, since that harness
+// cannot repair a refused report in its session, asks for one read-back
+// rather than promising a correction that will not come. Every other rule
+// is the same as claude's.
+func TestPlanPromptUnenforced(t *testing.T) {
+	render := func(unenforced bool) string {
+		got, err := RenderPlanPrompt(PlanPrompt{
+			IssuePath: "/workspace/input/issue.md", ReportPath: "/workspace/reports/plan.md",
+			Intent: testPlanRequest, BuildMaxTurns: 150, BuildTokenBudget: 800000, Limits: testPlanLimits,
+			ReadOnlyUnenforced: unenforced,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	got := render(true)
+	for _, want := range []string{
+		"This stage is read-only, and that is yours to keep",
+		"Run no tests, builds, package\nmanagers",
+		"Create, change or delete no file except your report, `/workspace/reports/plan.md`",
+		"refuses\none that breaks them, with no second chance in this session",
+		"each new dependency at most 200 bytes",
+		"no gap of more than 16 spaces",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("unenforced plan prompt lacks %q", want)
+		}
+	}
+	for _, claudeOnly := range []string{"the sandbox holds you to it", "Glob", "in this same session, exactly what"} {
+		if strings.Contains(got, claudeOnly) {
+			t.Errorf("unenforced plan prompt says %q, which only claude's sandbox makes true", claudeOnly)
+		}
+	}
+	if render(false) != mustPlan(t) {
+		t.Error("the enforced plan prompt is not claude's prompt exactly")
+	}
+}
+
+// mustPlan is the default plan prompt.
+func mustPlan(t *testing.T) string {
+	t.Helper()
+	got, err := renderTestPlanPrompt(testPlanRequest, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return got
 }
 
 // TestPlanPromptEarlierWork: a replan's or revival's plan prompt names the
