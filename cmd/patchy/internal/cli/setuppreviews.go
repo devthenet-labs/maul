@@ -85,7 +85,10 @@ func newSetupPreviewsCmd(opts *Options) *cobra.Command {
 			"--tailscale-operator-installed), never one a flag gives: the platform, the host suffix,\n" +
 			"sign-in host and Dex issuer of an existing install, the kubernetes Service's /32 as\n" +
 			"--api-server-cidr on EKS, and --cert-manager-installed and\n" +
-			"--tailscale-operator-installed.\n\n" +
+			"--tailscale-operator-installed. With --edge tailscale, --detect also asks this machine's\n" +
+			"own Tailscale client (tailscale status --json, read-only) for the gateway's tailnet device,\n" +
+			"fills --tailscale-address from it while unanswered and prints the exact DNS records to\n" +
+			"create; the operator keeps that address in the cluster only in a Secret, never read.\n\n" +
 			"--edge existing routes through\n" +
 			"an Ingress class or a Gateway API parent already in the cluster; --edge gateway-tls makes\n" +
 			"the gateway's Service a LoadBalancer that\n" +
@@ -220,7 +223,8 @@ func newSetupPreviewsCmd(opts *Options) *cobra.Command {
 	fl.BoolVar(&f.dryRun, "dry-run", false, "print the files and their differences; write nothing")
 	fl.StringVar(&f.rotate, "rotate", "", "draw a new secret although one is written: "+
 		previewsetup.RotateDexClientSecret)
-	fl.BoolVar(&f.detect, "detect", false, "read the cluster (read-only, never a Secret) to fill in answers")
+	fl.BoolVar(&f.detect, "detect", false, "read the cluster (read-only, never a Secret), and for --edge "+
+		"tailscale this machine's Tailscale client, to fill in answers")
 	fl.BoolVar(&f.nonInteractive, "non-interactive", false, "ask nothing, even on a terminal: a missing answer "+
 		"is an error")
 	fl.BoolVarP(&f.yes, "yes", "y", false, "write the changes shown without asking (as --force)")

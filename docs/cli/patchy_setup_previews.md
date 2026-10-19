@@ -28,7 +28,10 @@ a re-run (an empty one, --api-server-cidr auto, or a false --cert-manager-instal
 --tailscale-operator-installed), never one a flag gives: the platform, the host suffix,
 sign-in host and Dex issuer of an existing install, the kubernetes Service's /32 as
 --api-server-cidr on EKS, and --cert-manager-installed and
---tailscale-operator-installed.
+--tailscale-operator-installed. With --edge tailscale, --detect also asks this machine's
+own Tailscale client (tailscale status --json, read-only) for the gateway's tailnet device,
+fills --tailscale-address from it while unanswered and prints the exact DNS records to
+create; the operator keeps that address in the cluster only in a Secret, never read.
 
 --edge existing routes through
 an Ingress class or a Gateway API parent already in the cluster; --edge gateway-tls makes
@@ -106,7 +109,7 @@ patchy setup previews [flags]
       --certificate-issuer string       --edge existing, or --dns manual: your cert-manager issuer, Issuer/<name> or ClusterIssuer/<name> (default Issuer/preview-dns01)
       --cloudflare-acm                  --edge cloudflare-tunnel: the zones have Advanced Certificate Manager, so names deeper than Universal SSL's first level are allowed
       --cloudflared-namespace string    --edge cloudflare-tunnel: the namespace cloudflared runs in, a new one its manifest creates and rolling back deletes (default patchy-cloudflared)
-      --detect                          read the cluster (read-only, never a Secret) to fill in answers
+      --detect                          read the cluster (read-only, never a Secret), and for --edge tailscale this machine's Tailscale client, to fill in answers
       --dex-client-id string            the relay's static client at Dex (default "patchy-preview-auth")
       --dex-issuer string               your Dex's issuer URL (https)
       --dex-namespace string            the namespace Dex runs in (default "dex")

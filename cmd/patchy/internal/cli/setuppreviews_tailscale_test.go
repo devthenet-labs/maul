@@ -4,8 +4,10 @@
 package cli
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -13,6 +15,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/previewsetup"
+	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/tailnet"
 )
 
 const (
@@ -144,5 +147,64 @@ func TestSetupPreviewsTailscaleOAuthRefusals(t *testing.T) {
 		if entries, _ := os.ReadDir(dir); len(entries) > 0 {
 			t.Errorf("%s: a refused run wrote %d entries", name, len(entries))
 		}
+	}
+}
+
+// tailnetWith is a Running client's status holding the previews' device
+// at addr.
+func tailnetWith(addr string) tailnet.StatusFunc {
+	return func(context.Context) ([]byte, error) {
+		return []byte(`{"BackendState": "Running", "Peer": {"nodekey:1": {"HostName": "patchy-previews",
+			"DNSName": "patchy-previews.tail1234.ts.net.", "TailscaleIPs": ["` + addr + `"],
+			"Tags": ["tag:patchy-previews"], "Online": true}}}`), nil
+	}
+}
+
+// TestSetupPreviewsDetectTailnet: with --detect, the tailscale recipe's
+// device is found through this machine's Tailscale client, its address
+// filled as --tailscale-address (so the values publish it without a second
+// run) and the exact DNS records printed; a device not there yet is said,
+// and fills nothing.
+func TestSetupPreviewsDetectTailnet(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "patchy-previews")
+	calls := 0
+	env := guardedEnv(t, detectWorld(), &calls)
+	args := []string{"setup", "previews", "-o", dir, "--detect", "--edge", "tailscale", "--dns", "route53",
+		"--dns-option", "region=us-east-1", "--viewer-team", "acme:qa", "--registry", "ghcr.io",
+		"--dex-issuer", "https://dex.other.dev"}
+	errOut, err := execPreviewsTailnet(t, false, env, tailnetWith("100.101.12.58"), "", args...)
+	if err != nil {
+		t.Fatalf("%v\n%s", err, errOut)
+	}
+	a, err := previewsetup.ParseAnswers([]byte(readFile(t, dir, previewsetup.AnswersFile)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"patchy: detected: tailnet device: patchy-previews.tail1234.ts.net (tag:patchy-previews): 100.101.12.58",
+		"patchy: detected answer: --tailscale-address 100.101.12.58",
+		"patchy: detected: DNS record to create: *." + a.HostSuffix + ". A 100.101.12.58",
+		"patchy: detected: DNS record to create: " + a.SignInHost + ". A 100.101.12.58",
+	} {
+		if !strings.Contains(errOut, want) {
+			t.Errorf("--detect did not say %q:\n%s", want, errOut)
+		}
+	}
+	if !slices.Equal(a.Tailscale.Addresses, []string{"100.101.12.58"}) {
+		t.Errorf("answers.yaml addresses = %v", a.Tailscale.Addresses)
+	}
+	if !strings.Contains(readFile(t, dir, previewsetup.ValuesFile), "- 100.101.12.58") {
+		t.Error("the values do not publish the device's address")
+	}
+
+	other := filepath.Join(t.TempDir(), "patchy-previews")
+	args[3] = other
+	errOut, err = execPreviews(t, false, guardedEnv(t, detectWorld(), &calls), "", args...)
+	if err != nil {
+		t.Fatalf("%v\n%s", err, errOut)
+	}
+	if !strings.Contains(errOut, "tailnet device: not found: this machine's Tailscale client could not be asked") ||
+		strings.Contains(errOut, "--tailscale-address") {
+		t.Errorf("no client:\n%s", errOut)
 	}
 }

@@ -181,9 +181,12 @@ and reads them back on a re-run. It refuses an auth key or an API token given by
 !!! note "Tailscale: no wildcard in MagicDNS"
 
     MagicDNS takes no wildcard or custom records, so the two names are records in your **public** DNS that point at the
-    device's tailnet address (`100.x.y.z`): only the tailnet can reach that address. Create them once the operator has
-    created the device, then run the command again with `--tailscale-address <address>` so `patchy check previews`
-    knows the address to expect.
+    device's tailnet address (`100.x.y.z`): only the tailnet can reach that address. The device exists once step 6 has
+    installed the operator and patchy. Nothing needs running again: on a machine on the tailnet,
+    `patchy check previews` asks its own Tailscale client (`tailscale status --json`, read-only) for the device and,
+    while a record is missing or wrong, prints the exact records to create. `patchy setup previews --detect` does the
+    same and records the address as `previewAuth.gateway.publishedAddresses`, which is optional. patchy never reads the
+    address from the cluster: the operator keeps it only in a Secret, beside the device's keys.
 
 ### R4: your existing edge
 

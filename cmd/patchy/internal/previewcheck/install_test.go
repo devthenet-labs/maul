@@ -34,6 +34,7 @@ import (
 
 	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
 	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/checkreport"
+	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/tailnet"
 	"github.com/bitwise-media-group/patchy/internal/controller/preview"
 	"github.com/bitwise-media-group/patchy/internal/kube"
 	"github.com/bitwise-media-group/patchy/internal/previewauth"
@@ -103,6 +104,8 @@ type installWorld struct {
 	// dial, when set, answers TLS dials instead of a certificate for
 	// *.<suffix> everywhere.
 	dial func(context.Context, string) (tls.ConnectionState, error)
+	// tailnet, when set, is the caller's Tailscale client (tailnet_test.go).
+	tailnet tailnet.StatusFunc
 }
 
 func newInstallWorld() *installWorld {
@@ -239,7 +242,7 @@ func (w *installWorld) run(t *testing.T, fn interceptor.Funcs) Report {
 		res = cnameWorld{iResolver: w.resolver, cnames: w.cnames}
 	}
 	return Install(context.Background(), Config{Reader: reader, Namespace: "patchy", Resolver: res,
-		DialTLS: dial, HTTP: w.web})
+		DialTLS: dial, HTTP: w.web, Tailnet: w.tailnet})
 }
 
 // iDial answers every TLS dial with a certificate for *.<suffix>.

@@ -247,7 +247,12 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   (and the VPC CNI policy agent's command line), `kube-system/amazon-vpc-cni` and the release's ConfigMaps (never a
   Secret, nothing written, pinned by a fake client that fails on either; no read reaching the API server is an error),
   and its pure `Apply` fills only answers still open, even recorded ones (empty, `auto`, a false "installed"), never a
-  flag's (seeded property). It writes, never applies, the files
+  flag's (seeded property). For `--edge tailscale` it also asks this machine's own Tailscale client for the gateway's
+  device (`cmd/patchy/internal/tailnet`: `Local` runs `tailscale status --json`, read-only, bounded; pure
+  `ParseStatus`/`Find` keep only what validates and find exactly one Running device of that hostname carrying the tag,
+  seeded property; stdlib only, a test pins that), because the operator records its address only in the proxy's state
+  Secret beside its keys; `previewdetect.ApplyTailnet` fills `--tailscale-address` while open and prints the exact DNS
+  records (`previewsetup.DNSRecords`). It writes, never applies, the files
   that expose previews: `answers.yaml` (no secret; a re-run starts from it), `patchy-previews.values.yaml` (layered
   after the operator's own), `manifests/`, the relay's Dex client secret as two Secret manifests under `secrets/`
   (ghapp's 0600 writer and Secret renderer; read back on a re-run, drawn again only with `--rotate dex-client-secret`)
@@ -296,7 +301,9 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   required) each Ready preview host's unauthenticated redirect to the relay for its own slot (`previewauth.JudgeProbe`).
   With the preview gateway on it judges the mode in force (`previewauth.ProbeModeFor` of the relay's gateway switch and
   preview-controller's legacy Ingress switch; `previewcheck/gateway.go`): DNS against `publishedAddresses` or the
-  gateway's Ingress/Service status (a private edge not in this resolver is a SKIP), the gateway's 404 on
+  gateway's Ingress/Service status (a private edge not in this resolver is a SKIP; a Service carrying the Tailscale
+  operator's `tailscale.com/expose`, under `check previews` only, is looked up through the caller's Tailscale client,
+  `Config.Tailnet`, and a missing or wrong record then fails with the exact records to create), the gateway's 404 on
   `<project>-0.<suffix>` and its `/start` redirect on each Ready preview, and `preview-gateway-allowlist` (a spoofed
   `X-Forwarded-For` from a refused address must stay refused). `check previews` (`previewcheck.Install`) runs those
   for the install as a whole, before any Project exists: against `patchy-probe-0.<suffix>` and every Ready preview of

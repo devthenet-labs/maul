@@ -150,10 +150,12 @@ Point two records at the edge's address:
 - `*.acme-previews.dev`
 - `preview-auth.patchy.acme.dev`
 
-The address is the tailnet device `acme-previews`'s, once the operator has created it (`tailscale ip -4
-acme-previews` on any machine in the tailnet, or the admin console). MagicDNS takes no wildcard or custom
-records, so these are records in your public DNS that point at a tailnet address: only the tailnet can reach it. Then run the command again with `--tailscale-address <address>`, so
-`previewAuth.gateway.publishedAddresses` records it for `patchy check previews`.
+The address is the tailnet device `acme-previews`'s, once the operator has created it in step 6. MagicDNS takes
+no wildcard or custom records, so these are records in your public DNS that point at a tailnet address: only the tailnet
+can reach it. Nothing needs running again to find it: once step 6 is done, `patchy check previews -n patchy` (step 8)
+asks this machine's Tailscale client (`tailscale status --json`, read-only; the machine must be on the tailnet) for the
+device and prints the exact records to create. `tailscale ip -4 acme-previews` says the address too. Running
+this command again with `--detect` records it as `previewAuth.gateway.publishedAddresses`, which is optional.
 
 The gateway sees the tailnet proxy's address, not the viewer's, so `previewAuth.gateway.forwardedHops` is 0 and
 `inboundCIDRs` stays empty: the tailnet policy in step 6 is the allowlist, once no allow-all rule is left in it.

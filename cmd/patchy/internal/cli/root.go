@@ -17,6 +17,7 @@ import (
 	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/kubecfg"
 	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/printer"
 	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/resource"
+	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/tailnet"
 	"github.com/bitwise-media-group/patchy/internal/version"
 )
 
@@ -53,6 +54,10 @@ type Options struct {
 	// promptTerminal stands in for `setup previews`' check that standard
 	// input is a terminal, which tests pin.
 	promptTerminal func(io.Reader) bool
+	// tailnetStatus stands in for the caller's Tailscale client, which
+	// `setup previews --detect` asks for the tailscale recipe's device;
+	// nil is tailnet.Local.
+	tailnetStatus tailnet.StatusFunc
 }
 
 // WithEnv pins a pre-built environment, bypassing kubeconfig resolution.

@@ -24,6 +24,7 @@ import (
 
 	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/kubecfg"
 	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/previewsetup"
+	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/tailnet"
 	"github.com/bitwise-media-group/patchy/internal/kube"
 )
 
@@ -32,9 +33,21 @@ import (
 // is given, and returns what it printed on stderr.
 func execPreviews(t *testing.T, terminal bool, env *kubecfg.Env, stdin string, args ...string) (string, error) {
 	t.Helper()
+	return execPreviewsTailnet(t, terminal, env, noTailnet, stdin, args...)
+}
+
+// noTailnet is a machine with no Tailscale client: the tests never ask
+// the real one.
+func noTailnet(context.Context) ([]byte, error) { return nil, tailnet.ErrNoClient }
+
+// execPreviewsTailnet is execPreviews with status standing in for this
+// machine's Tailscale client.
+func execPreviewsTailnet(t *testing.T, terminal bool, env *kubecfg.Env, status tailnet.StatusFunc, stdin string,
+	args ...string) (string, error) {
+	t.Helper()
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	opts := &Options{Out: out, ErrOut: errOut, Output: "table", NoColor: true,
-		promptTerminal: func(io.Reader) bool { return terminal }}
+		promptTerminal: func(io.Reader) bool { return terminal }, tailnetStatus: status}
 	if env != nil {
 		opts.WithEnv(env)
 	}

@@ -55,6 +55,7 @@ type nextSteps struct {
 	TailscaleOperatorTag, OAuthSecret  string
 	TailscaleNamespace                 string
 	TailscaleAddresses                 []string
+	TailscaleRecords                   []string
 	TailscalePolicy                    string
 	PolicyOwner, PolicyViewer          string
 	TailscaleOAuthFile                 string
@@ -197,6 +198,7 @@ func gatewayCertSteps(a Answers, d *nextSteps, paths []string) {
 		d.TailscaleOperatorTag, d.OAuthSecret = TailscaleOperatorTag, tailscaleOAuthSecret
 		d.TailscaleNamespace = TailscaleOperator.Namespace
 		d.TailscaleAddresses = a.Tailscale.Addresses
+		d.TailscaleRecords = DNSRecords(a.HostSuffix, a.SignInHost, a.Tailscale.Addresses)
 		d.TailscalePolicy = tailscalePolicy(a)
 		d.PolicyOwner, d.PolicyViewer = policyOwner, policyViewer
 		d.TailscaleOAuthFile = TailscaleOAuthFile

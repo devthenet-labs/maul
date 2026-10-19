@@ -255,10 +255,15 @@ Point two records at the edge's address:
 - `*.previews.acme.dev`
 - `preview-auth.acme.dev`
 
-The address is the tailnet device `patchy-previews`'s, once the operator has created it (`tailscale ip -4
-patchy-previews` on any machine in the tailnet, or the admin console). MagicDNS takes no wildcard or custom
-records, so these are records in your public DNS that point at a tailnet address: only the tailnet can reach it. You gave `100.101.12.58`
-(`previewAuth.gateway.publishedAddresses`, which `patchy check previews` compares DNS with).
+The address is the tailnet device `patchy-previews`'s, once the operator has created it in step 6. MagicDNS takes
+no wildcard or custom records, so these are records in your public DNS that point at a tailnet address: only the tailnet
+can reach it. The device is at `100.101.12.58`
+(`previewAuth.gateway.publishedAddresses`, which `patchy check previews` compares DNS with), so create exactly:
+
+```text
+*.previews.acme.dev. A 100.101.12.58
+preview-auth.acme.dev. A 100.101.12.58
+```
 
 The gateway sees the tailnet proxy's address, not the viewer's, so `previewAuth.gateway.forwardedHops` is 0 and
 `inboundCIDRs` stays empty: the tailnet policy in step 6 is the allowlist, once no allow-all rule is left in it.

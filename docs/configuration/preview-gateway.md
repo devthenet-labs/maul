@@ -563,8 +563,11 @@ previewAuth:
 ```
 
 - **DNS.** MagicDNS takes no wildcard or custom records. Create both records in public DNS, pointing at the device's
-  tailnet address (`tailscale ip -4 patchy-previews`): only the tailnet can reach it. Set `publishedAddresses` to that
-  address for `patchy check previews`.
+  tailnet address (`tailscale ip -4 patchy-previews`): only the tailnet can reach it. On a machine on the tailnet,
+  `patchy check previews` finds that address itself through the machine's own Tailscale client
+  (`tailscale status --json`, read-only; the operator keeps it in the cluster only in a Secret, which patchy never
+  reads) by the Service's hostname and tags annotations, and prints the exact records to create while one is missing or
+  wrong. `publishedAddresses`, when set, is compared instead.
 - **The tailnet policy is the allowlist.** Let viewers' group reach `tag:patchy-previews` on `tcp:443` alone. Grants
   only add access, so a new tailnet's allow-all rule must go first: while it stands, every member reaches the device on
   every port, the gateway's plain listener on 80 included. Viewers still sign in. Replacing allow-all safely keeps every
