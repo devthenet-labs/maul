@@ -246,6 +246,17 @@ func TestCodexSecretFlagsRemoved(t *testing.T) {
 			if _, err := Runners(newOpts(t, "--fake-agent-image", "fake:1", "--"+flag, "x")); err != nil {
 				t.Errorf("without codex: %v", err)
 			}
+			// The kustomize base's shape: a codex image left beside
+			// --harnesses that leaves codex out runs no codex.
+			if _, err := Runners(newOpts(t, "--fake-agent-image", "fake:1", "--codex-agent-image", "codex:1",
+				"--broker-url", "http://broker:8080", "--harnesses", "fake", "--"+flag, "x")); err != nil {
+				t.Errorf("codex left out by --harnesses: %v", err)
+			}
+			_, err = Runners(newOpts(t, "--broker-url", "http://broker:8080", "--codex-agent-image", "codex:1",
+				"--harnesses", "claude,codex", "--"+flag, "x"))
+			if err == nil || !strings.Contains(err.Error(), "--"+flag+" is removed") {
+				t.Errorf("codex named by --harnesses: err = %v, want the migration", err)
+			}
 		})
 	}
 	t.Run("from the environment", func(t *testing.T) {
@@ -1060,7 +1071,13 @@ func TestEvolveCodexRefused(t *testing.T) {
 	if !errors.Is(err, ErrCodexEvaluations) || !strings.Contains(err.Error(), "evolve supports the egress broker") {
 		t.Fatalf("err = %v, want ErrCodexEvaluations", err)
 	}
-	runners, err := EvolveRunners(newEvolveOpts(t, "--evolve-copilot-image", "evolve-copilot:1",
+	// Left out by --harnesses (the kustomize base's shape), it builds nothing.
+	runners, err := EvolveRunners(newEvolveOpts(t, "--evolve-codex-image", "evolve-codex:1",
+		"--evolve-claude-image", "evolve-claude:1", "--broker-url", "http://broker:8080", "--harnesses", "claude"))
+	if _, ok := runners["codex"]; err != nil || ok {
+		t.Fatalf("left out: %v, %v", runners, err)
+	}
+	runners, err = EvolveRunners(newEvolveOpts(t, "--evolve-copilot-image", "evolve-copilot:1",
 		"--evolve-claude-image", "evolve-claude:1", "--broker-url", "http://broker:8080"))
 	if err != nil {
 		t.Fatalf("EvolveRunners: %v", err)

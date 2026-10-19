@@ -62,7 +62,7 @@ func RegisterEvolveFlags(f *pflag.FlagSet) {
 		"evolve-runner image with the claude CLI; unset disables the claude evaluation runner")
 	f.String("evolve-codex-image", "",
 		"REFUSED: codex evaluations wait until evolve supports the egress broker's provider config; "+
-			"setting it fails startup")
+			"setting it fails startup unless --harnesses leaves codex out")
 	f.String("evolve-copilot-image", "",
 		"evolve-runner image with the copilot CLI; unset disables the copilot evaluation runner")
 	f.String("evolve-fake-image", "", "fake evolve runner for dev/e2e (replays fixtures, no credential)")
@@ -126,9 +126,10 @@ const codexSecretMigration = "codex runs proxy-only through the egress broker an
 	"--codex-secret-env (PATCHY_CODEX_SECRET*), and delete the old patchy-openai Secret from the agent namespace"
 
 // codexSecretRemoved refuses a removed --codex-secret* value on a
-// controller that runs codex (imageFlag set), naming the migration. On one
-// that does not, the value can do nothing, so it is only logged, and an
-// install that never ran codex starts as before.
+// controller that would run codex (codexWanted), naming the migration. On
+// one that would not, the value can do nothing, so it is only logged, and
+// an install that never ran codex starts as before, even on an old
+// ConfigMap that still carries the keys.
 func codexSecretRemoved(opts *cli.Options, imageFlag string) error {
 	var set []string
 	for _, name := range codexSecretFlags {
@@ -139,11 +140,20 @@ func codexSecretRemoved(opts *cli.Options, imageFlag string) error {
 	if len(set) == 0 {
 		return nil
 	}
-	if opts.String(imageFlag) == "" {
+	if !codexWanted(opts, imageFlag) {
 		opts.Log.Warn(strings.Join(set, ", ") + " is removed and ignored: " + codexSecretMigration)
 		return nil
 	}
 	return fmt.Errorf("%s is removed: %s", strings.Join(set, ", "), codexSecretMigration)
+}
+
+// codexWanted reports whether this controller would run codex: its image
+// flag is set and --harnesses either is empty (every configured runner) or
+// names codex. A codex image left beside a --harnesses that leaves codex
+// out (the kustomize base's shape) runs nothing.
+func codexWanted(opts *cli.Options, imageFlag string) bool {
+	restrict := Restrict(opts)
+	return opts.String(imageFlag) != "" && (len(restrict) == 0 || slices.Contains(restrict, model.HarnessCodex))
 }
 
 // markBrokered sets each runner's Brokered from model.HarnessBrokered, the
@@ -491,8 +501,12 @@ var ErrCodexEvaluations = errors.New("--evolve-codex-image: codex evaluations ar
 // validated against the harness's accepted channels; codex is refused
 // (ErrCodexEvaluations).
 func EvolveRunners(opts *cli.Options) (map[string]jobs.Runner, error) {
-	if opts.String("evolve-codex-image") != "" {
+	if codexWanted(opts, "evolve-codex-image") {
 		return nil, ErrCodexEvaluations
+	}
+	if opts.String("evolve-codex-image") != "" {
+		opts.Log.Warn("--evolve-codex-image is ignored: --harnesses leaves codex out, and codex evaluations are " +
+			"refused until evolve supports the egress broker's provider config")
 	}
 	if err := codexSecretRemoved(opts, "evolve-codex-image"); err != nil {
 		return nil, err
