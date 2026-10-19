@@ -137,14 +137,14 @@ func (s *Server) relayMux() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.well-known/openid-configuration", s.only(http.MethodGet, s.handleDiscovery))
 	mux.HandleFunc("/jwks", s.only(http.MethodGet, s.handleJWKS))
-	mux.HandleFunc("/authorize", s.only(http.MethodGet, s.handleAuthorize))
-	mux.HandleFunc("/dex/callback", s.only(http.MethodGet, s.handleCallback))
+	mux.HandleFunc("/authorize", s.only(http.MethodGet, s.navigation(s.handleAuthorize)))
+	mux.HandleFunc("/dex/callback", s.only(http.MethodGet, s.navigation(s.handleCallback)))
 	mux.HandleFunc("/token", s.only(http.MethodPost, s.handleToken))
 	mux.HandleFunc("/userinfo", s.handleUserinfo)
 	mux.HandleFunc("/logout", s.only(http.MethodPost, s.handleLogout))
 	mux.HandleFunc("/", s.handleRoot)
 	if s.gw != nil && s.gw.sharedHost {
-		mux.HandleFunc("/start", s.only(http.MethodGet, s.gw.handleStart))
+		mux.HandleFunc("/start", s.only(http.MethodGet, s.navigation(s.gw.handleStart)))
 	}
 	return mux
 }
@@ -318,6 +318,20 @@ func (s *Server) only(method string, h http.HandlerFunc) http.HandlerFunc {
 			rec(r).result = "method_not_allowed"
 			w.Header().Set("Allow", method)
 			renderPage(w, http.StatusMethodNotAllowed, pageNotAllowed)
+			return
+		}
+		h(w, r)
+	}
+}
+
+// navigation holds a sign-in endpoint to previewauth.CheckNavigation: a
+// request from another site that is not a top-level navigation is a 403
+// page, before the relay session is read or any cookie is set.
+func (s *Server) navigation(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if previewauth.CheckNavigation(r.Header) != nil {
+			rec(r).result = resultNotNavigation
+			renderPage(w, http.StatusForbidden, pageNotNavigation)
 			return
 		}
 		h(w, r)

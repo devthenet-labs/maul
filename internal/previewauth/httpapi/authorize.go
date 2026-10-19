@@ -21,6 +21,9 @@ const (
 	resultNoPreview  = "no_preview"
 	resultBadRequest = "bad_request"
 	resultError      = "error"
+	// resultNotNavigation is a sign-in endpoint refusing a request from
+	// another site that was not a top-level navigation.
+	resultNotNavigation = "not_navigation"
 )
 
 // handleAuthorize answers the ALB's authorization request. It never

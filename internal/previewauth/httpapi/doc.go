@@ -29,6 +29,13 @@
 //   - GET|POST /userinfo: {"sub":"<pairwise>"} and nothing else.
 //   - POST /logout: ends the relay session (same-origin only).
 //
+// /authorize, /dex/callback and the gateway's /start (on either sign-in
+// host) are held to previewauth.CheckNavigation: a request from another site
+// that is not a top-level navigation is a 403 page, before the relay session
+// is read or a cookie set. A sign-in host on the preview suffix's
+// registrable domain is same-site with preview code, whose background
+// requests would otherwise carry the SameSite=Lax relay session.
+//
 // Every response carries HSTS (without includeSubDomains), nosniff,
 // a CSP with frame-ancestors 'none', no-referrer and, but for discovery and
 // the JWKS, Cache-Control: no-store. Each source address is rate limited

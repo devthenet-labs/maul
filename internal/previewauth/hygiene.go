@@ -186,17 +186,41 @@ var ErrCrossOrigin = errors.New("previewauth: request did not come from this pre
 // Together they close cross-preview CSRF and WebSocket hijacking: every
 // preview host is same-site with every other, so SameSite cookies do not.
 func CheckOrigin(method string, h http.Header, origin string) error {
-	switch strings.ToLower(h.Get("Sec-Fetch-Site")) {
-	case "same-site", "cross-site":
-		if !strings.EqualFold(h.Get("Sec-Fetch-Mode"), "navigate") ||
-			!strings.EqualFold(h.Get("Sec-Fetch-Dest"), "document") {
-			return ErrCrossOrigin
-		}
+	if CheckNavigation(h) != nil {
+		return ErrCrossOrigin
 	}
 	unsafe := method != http.MethodGet && method != http.MethodHead
 	if unsafe || len(h.Values("Upgrade")) > 0 {
 		if o := h.Values("Origin"); len(o) != 1 || o[0] != origin {
 			return ErrCrossOrigin
+		}
+	}
+	return nil
+}
+
+// ErrNotNavigation means a request from another site (Sec-Fetch-Site
+// same-site or cross-site) was not a top-level navigation.
+var ErrNotNavigation = errors.New("previewauth: request from another site was not a top-level navigation")
+
+// CheckNavigation is the rule for a request from another site: it passes
+// only as a top-level navigation (Sec-Fetch-Mode navigate, Sec-Fetch-Dest
+// document). A request from the same origin, one the user started
+// (Sec-Fetch-Site none) and one without Sec-Fetch headers pass.
+//
+// The sign-in host holds it on every endpoint that reads the relay session
+// or sets a cookie (/authorize, /start, /dex/callback): each is reached
+// only by redirects a browser follows at the top level. On a sign-in host
+// that shares its registrable domain with the preview hosts, preview code
+// is same-site with it, and same-site background requests (fetch, img,
+// iframe) carry its SameSite=Lax session cookie and may set Lax cookies of
+// its; this rule refuses them before either happens. Across sites it costs
+// nothing: such requests carry no Lax cookie anyway.
+func CheckNavigation(h http.Header) error {
+	switch strings.ToLower(h.Get("Sec-Fetch-Site")) {
+	case "same-site", "cross-site":
+		if !strings.EqualFold(h.Get("Sec-Fetch-Mode"), "navigate") ||
+			!strings.EqualFold(h.Get("Sec-Fetch-Dest"), "document") {
+			return ErrNotNavigation
 		}
 	}
 	return nil
