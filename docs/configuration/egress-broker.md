@@ -1,15 +1,15 @@
 # egress-broker
 
-The egress credential broker: a reconciler-less reverse proxy that agent pods send **all** claude model traffic through.
-It is what makes claude agent pods fully credential-less — the pod carries only an audience-bound projected
-ServiceAccount token, and the broker injects or signs the real model credential outbound. It also makes 3rd-party model
-providers work: Amazon Bedrock, GCP Vertex AI, and Microsoft Foundry each get a route the claude CLI's documented
-gateway mode points at, with the broker holding the cloud identity that authenticates the provider-native requests.
+The egress credential broker: a reconciler-less reverse proxy that agent pods send **all** claude and codex model
+traffic through. It is what makes claude and codex agent pods fully credential-less — the pod carries only an
+audience-bound projected ServiceAccount token, and the broker injects or signs the real model credential outbound. It
+also makes 3rd-party model providers work: Amazon Bedrock, GCP Vertex AI, and Microsoft Foundry each get a route the
+claude CLI's documented gateway mode points at, with the broker holding the cloud identity that authenticates the
+provider-native requests.
 
-There is no in-pod credential mode for claude — claude-without-broker is not a configuration. The codex and copilot
-runners (both disabled by default) keep their in-pod Secret channels for now. The broker already has an
-[OpenAI Responses route](#the-openai-route) (off by default) that a later release moves the codex runner onto; nothing
-uses it yet.
+There is no in-pod credential mode for claude or codex — neither runs without the broker. Codex runs on the
+[OpenAI Responses route](#the-openai-route) (off by default; enabling the codex runner requires it). The copilot runner
+(disabled by default) keeps its in-pod Secret channel.
 
 ## How a request flows
 
@@ -166,9 +166,9 @@ the same ServiceAccount and share the per-pod limits, so size them for the longe
 ### The openai route
 
 The `/openai` route fronts the OpenAI Responses API with an org API key (`--openai-api-key-file`; chart
-`egressBroker.openai.apiKey`, a Secret in the release namespace). It is off unless that flag is set, and no runner uses
-it yet: the codex runner still holds its own key in the agent pod until a later release brokers it. API keys only;
-ChatGPT-plan sign-in and Codex access tokens are not brokered.
+`egressBroker.openai.apiKey`, a Secret in the release namespace). It is off unless that flag is set, and the codex
+runner runs on it alone (see [agent-runner](agent-runner.md#codex-runs-brokered) for the provider config a codex stage
+gets). API keys only; ChatGPT-plan sign-in and Codex access tokens are not brokered.
 
 - **Surface.** `POST /v1/responses` (metered, the model read from the body) and `GET /v1/models`. Everything else is 404
   before the upstream, including `/v1/responses/compact`, the stored-response endpoints (`/v1/responses/{id}`, its input
@@ -316,8 +316,10 @@ Invoke-class permissions only — the broker needs to call models, never to mana
 
 ## Known limitations
 
-- Codex and copilot remain in-pod-credentialed (both ship disabled). The openai route is the first step for codex;
-  moving the codex runner onto it, per-user OpenAI keys and copilot are follow-ups.
+- Copilot remains in-pod-credentialed (it ships disabled). Per-user OpenAI keys are a follow-up: until then per-user
+  credentials are refused beside codex and the openai route.
+- A spend-limit refusal on the openai route reaches the codex stage as a bare 429 (codex does not quote the message), so
+  it reads `runtime_error`, not `budget_exceeded`.
 - The limit counters live in memory, per replica, evicted after 24 hours: a broker restart resets every pod's totals,
   and more than one replica multiplies the effective limits (the chart runs one). A restart also empties the usage
   record; the boot time it reports keeps a controller from taking what is left for a whole run (`source: partial`).

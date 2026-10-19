@@ -4,9 +4,9 @@ The in-pod coding-agent runtime: one stage per Job — `investigate` or `remedia
 bundles (`claude -p` in the claude-agent-runner image, `codex exec` in the codex-agent-runner image, `copilot -p` in the
 copilot-agent-runner image). It never talks to GitHub or the Kubernetes API, and a stage has no flags — its
 configuration is exclusively `PATCHY_*` environment variables, injected into the Job pod by the job controllers (the
-[`sandbox-probe`](#sandbox-probe) and `preflight` subcommands take arguments). A claude pod holds **no credential of any
-kind**: its model traffic goes through the [egress broker](egress-broker.md), authenticated by a projected
-ServiceAccount token; a codex or copilot pod holds the one model key of its harness. Results leave the pod as a
+[`sandbox-probe`](#sandbox-probe) and `preflight` subcommands take arguments). A claude or codex pod holds **no
+credential of any kind**: its model traffic goes through the [egress broker](egress-broker.md), authenticated by a
+projected ServiceAccount token; a copilot pod holds the one token of its harness. Results leave the pod as a
 `PATCHY-EVENT:` JSONL stream on stdout (which is why all patchy logging goes to stderr).
 
 You normally never configure the agent-runner directly: the
@@ -247,18 +247,18 @@ configuration can smuggle one in. The per-Job Secret carries only the handoff ma
 
 ## Credentials in the pod
 
-| Harness | In the pod                                                                                                                                                                          |
-| ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| claude  | **None.** The broker caller token (an identity document, not a capability) is the pod's only secret material; the model credential lives with the [egress broker](egress-broker.md) |
-| codex   | `OPENAI_API_KEY` via `secretKeyRef` (`--codex-secret`; `CODEX_API_KEY` / `CODEX_ACCESS_TOKEN` when `--codex-secret-env` names one)                                                  |
-| copilot | `COPILOT_GITHUB_TOKEN` via `secretKeyRef` (`--copilot-secret`) — a GitHub token, not a model API key; `GH_TOKEN` / `GITHUB_TOKEN` when `--copilot-secret-env` names one             |
-| fake    | None — the fixture replay authenticates nothing                                                                                                                                     |
+| Harness | In the pod                                                                                                                                                                                |
+| ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| claude  | **None.** The broker caller token (an identity document, not a capability) is the pod's only secret material; the model credential lives with the [egress broker](egress-broker.md)       |
+| codex   | **None.** As claude: the broker caller token only; the OpenAI API key lives with the [egress broker](egress-broker.md#the-openai-route) (see [Codex runs brokered](#codex-runs-brokered)) |
+| copilot | `COPILOT_GITHUB_TOKEN` via `secretKeyRef` (`--copilot-secret`) — a GitHub token, not a model API key; `GH_TOKEN` / `GITHUB_TOKEN` when `--copilot-secret-env` names one                   |
+| fake    | None — the fixture replay authenticates nothing                                                                                                                                           |
 
-At most **one** credential reaches a given pod: the Job wires the `secretKeyRef` of the harness it runs, so a codex Job
-carries only the OpenAI credential. The agent container's environment passes through to the harness CLI child process,
-so an injected key — or the brokered gateway environment — is inherited by `claude` (or `codex`, or `copilot`)
-automatically. The broker caller token is registered with the transcript scrubber the same way credential values are, so
-a tool result that dumps the environment cannot leak it into a persisted transcript.
+At most **one** credential reaches a given pod: the Job wires the `secretKeyRef` of the harness it runs, and only
+copilot has one. The agent container's environment passes through to the harness CLI child process, so an injected key —
+or the brokered gateway environment — is inherited by `claude` (or `codex`, or `copilot`) automatically. The broker
+caller token is registered with the transcript scrubber the same way credential values are, so a tool result that dumps
+the environment cannot leak it into a persisted transcript.
 
 The copilot rows are the exception to "no forge credential ever reaches the pod": the Copilot CLI authenticates with a
 GitHub token, so a copilot Job does carry one. It is a model credential by role, not a forge one — the runner passes
@@ -266,6 +266,35 @@ GitHub token, so a copilot Job does carry one. It is a model credential by role,
 `api.github.com` (the token exchange) and the `*.githubcopilot.com` inference endpoints. patchy's own forge traffic is
 still controller-side only. Scope the token to Copilot with no repository permissions, and note the copilot runner ships
 disabled for exactly this reason.
+
+### Codex runs brokered
+
+Codex is configured on its command line, so agent-runner points it at the broker itself, stage by stage. The pod carries
+`PATCHY_CODEX_BASE_URL` (the broker's `/openai/v1` route, stamped by the controller) and the projected token file; each
+stage then runs `codex exec` with a `patchy` model provider (`-c model_provider=patchy` and
+`model_providers.patchy.{base_url, wire_api="responses", env_key, env_http_headers, supports_websockets=false}`, one
+request and one stream retry) and sets, in the CLI's own environment only, `PATCHY_BROKER_TOKEN` (the token, read fresh
+per stage, sent as `X-Patchy-Broker-Token` and registered for scrubbing) and `PATCHY_CODEX_PLACEHOLDER_KEY` (the fixed,
+non-secret placeholder codex's auth gate demands, sent as the bearer the broker strips). Only variable names reach the
+command line. Every codex run also sets `analytics.enabled=false`, `otel.metrics_exporter="none"`,
+`features.plugins=false` and `web_search="disabled"`. A codex stage without a broker token file or without
+`PATCHY_CODEX_BASE_URL` is a `runtime_error` before codex starts: there is no unbrokered codex. A repository's
+`.codex/config.toml` cannot set `model_provider` or `model_providers`, so it cannot point codex away from the broker,
+and the pod's network policy admits nothing else anyway. Codex's runs are measured by the broker (their usage settles
+`measured`, priced from the registry's OpenAI rates) and count toward its limits. A spend-limit refusal ends codex's
+turn after its one request, but codex (rust-v0.153.4) reports only the status
+(`exceeded retry limit, last status: 429 Too Many Requests`), not the broker's message, so such a stage reads
+`runtime_error`, not `budget_exceeded`.
+
+**Migration.** Codex used to run with the OpenAI key in the pod (`--codex-secret`, `--codex-secret-key`,
+`--codex-secret-env`; the chart's `agent.runners.codex.secret`/`secretKey`/`secretEnv`/`hosts`/`dnsPatterns`). Those are
+removed: on a controller that would run codex a leftover value fails startup (and the chart fails the render), naming
+these steps: create the OpenAI API key Secret in the release namespace, set `egressBroker.openai.apiKey` (kustomize:
+mount it into the broker and set `PATCHY_OPENAI_API_KEY_FILE`), remove the old keys, and delete the old `patchy-openai`
+Secret from the agent namespace. Nothing is translated silently: the namespace changes, and the old Secret was readable
+by agent pods. Codex evaluations are refused until evolve supports the broker's provider config. With
+`--user-credentials` other than `off`, a controller running codex refuses to start until per-user credentials cover
+OpenAI.
 
 ## The event stream
 

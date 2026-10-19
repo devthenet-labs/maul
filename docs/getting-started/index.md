@@ -33,7 +33,7 @@ Deploying the stack takes three steps, each with its own page, and an optional f
 
     The chart always renders baseline `NetworkPolicy` objects, but plain L3/L4 policies cannot match hostnames. The
     default claude runner needs no hostname layer at all — its model traffic goes through the in-cluster egress
-    credential broker, so its egress is entirely cluster-local. For the non-brokered codex/copilot runners,
+    credential broker, so its egress is entirely cluster-local, and so does codex. For the non-brokered copilot runner,
     `agent.networkPolicy.mode` selects the dialect your infrastructure enforces — `cilium`, `gke` or `istio` — and
     defaults to `auto`, which detects it from the cluster itself. There are deliberately no GitHub hosts in the
     allowlist — the agent pod never talks to a forge. See the [isolation model](../deployment/isolation.md) for what

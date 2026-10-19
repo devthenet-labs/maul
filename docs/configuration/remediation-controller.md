@@ -39,17 +39,19 @@ The four weights combine the investigation's ratings into the 0–100 scheduling
 
 The same per-harness runner flags as the [investigation-controller](investigation-controller.md#agent-job-flags):
 `--claude-agent-image` / `--codex-agent-image` / `--copilot-agent-image` / `--fake-agent-image`, `--harnesses`, the
-broker/provider flags for the brokered claude runner (`--broker-url`, `--claude-provider*`, `--claude-model-map`),
-per-harness credential triples for the non-brokered runners (`--codex-secret{,-key,-env}`,
-`--copilot-secret{,-key,-env}`), `--agent-namespace`, `--agent-service-account`, `--job-deadline`, `--job-ttl`, and the
-default CPU and memory of every agent Job (`--agent-cpu-request`, `--agent-memory-request`, `--agent-cpu-limit`,
-`--agent-memory-limit`, all unset by default), and `--agent-dns` ([agent DNS](investigation-controller.md#agent-dns),
-`cluster` by default). Each non-brokered `--<harness>-secret-env` is validated against the credential env vars that
-harness accepts (codex: `OPENAI_API_KEY` / `CODEX_API_KEY` / `CODEX_ACCESS_TOKEN`; copilot: `COPILOT_GITHUB_TOKEN` /
-`GH_TOKEN` / `GITHUB_TOKEN`) and the controller refuses to start on a mismatch, on a missing credential for an enabled
-non-brokered harness, on a claude runner without `--broker-url`, on a foundry model map that misses a claude-resolving
-allowlisted model, or on an allowlisted model no enabled harness can run. The flag's own `--help` enumerates the
-accepted set, rendered from the harness definition, so it cannot drift from what the validation allows.
+broker/provider flags for the brokered runners (`--broker-url` for claude and codex, `--claude-provider*`,
+`--claude-model-map`), the credential triple for the non-brokered copilot runner (`--copilot-secret{,-key,-env}`; the
+`--codex-secret*` flags are removed, see [Codex runs brokered](agent-runner.md#codex-runs-brokered)),
+`--agent-namespace`, `--agent-service-account`, `--job-deadline`, `--job-ttl`, and the default CPU and memory of every
+agent Job (`--agent-cpu-request`, `--agent-memory-request`, `--agent-cpu-limit`, `--agent-memory-limit`, all unset by
+default), and `--agent-dns` ([agent DNS](investigation-controller.md#agent-dns), `cluster` by default). Each
+non-brokered `--<harness>-secret-env` is validated against the credential env vars that harness accepts (copilot:
+`COPILOT_GITHUB_TOKEN` / `GH_TOKEN` / `GITHUB_TOKEN`) and the controller refuses to start on a mismatch, on a missing
+credential for an enabled non-brokered harness, on a claude or codex runner without `--broker-url`, on a leftover
+`--codex-secret*` value while it would run codex, on `--user-credentials` other than `off` while codex is enabled
+(per-user credentials cover Anthropic only for now), on a foundry model map that misses a claude-resolving allowlisted
+model, or on an allowlisted model no enabled harness can run. The flag's own `--help` enumerates the accepted set,
+rendered from the harness definition, so it cannot drift from what the validation allows.
 
 `--repository-images` and `--agent-ephemeral-storage` work exactly as on the investigation-controller (see
 [repository-declared runner images](investigation-controller.md#repository-declared-runner-images)): the remediation

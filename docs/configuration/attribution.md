@@ -124,8 +124,8 @@ How a settled run is measured:
   broker cannot be reached, it asks again every 10 seconds, for at most 2 minutes.
 - `measured` when the broker booted before the Job was created, so its ledger saw the whole pod. `partial` when it
   booted later (a restart mid-run), or the wait ended with requests still in flight. `reported` when it has no entry for
-  the Job, never answered, or the run ran on a harness the broker does not carry (codex, copilot): only the pod's own
-  counts exist, and they are kept out of trusted totals.
+  the Job, never answered, or the run ran on a harness the broker does not carry (copilot; claude and codex are
+  brokered): only the pod's own counts exist, and they are kept out of trusted totals.
 - Only tokens the responses reported are priced. The shortfall the broker charged for cut or usage-less responses is
   shown as unmetered (worst case) and never priced.
 - Model ids are normalised to the model registry (dated and provider forms included). A model the registry does not know
@@ -164,8 +164,8 @@ controller also folds the run into durable `UsageRollup` objects in the release 
   notional cost of subscription-paid tokens, and splits runs, tokens and both costs by run kind (`investigation`,
   `remediation`, `plan`, `build`, `revise`, `check-fix`, `evaluation`). All costs are integer micro-USD.
 - **Trusted and reported.** Only a run whose usage is final and `measured` or `partial` adds to the token and cost
-  totals (`partialRuns` counts the partial ones). Any other run (a codex or copilot run, no broker figure, measurement
-  off, or a run deleted before its usage settled) is counted in `reportedRuns`, with the pod's own tokens and cost in
+  totals (`partialRuns` counts the partial ones). Any other run (a copilot run, no broker figure, measurement off, or a
+  run deleted before its usage settled) is counted in `reportedRuns`, with the pod's own tokens and cost in
   `reportedTokens` and `reportedCostMicroUSD`, never in a trusted total. A metered run with tokens of a model that has
   no price is counted in `unpricedRuns`: its tokens are in, its cost is not.
 - **Top intents.** A user scope's month bucket also keeps that person's ten most expensive intents of the month (cost,

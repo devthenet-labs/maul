@@ -59,10 +59,13 @@ Running claude against Amazon Bedrock, GCP Vertex AI, or Microsoft Foundry inste
 see the [provider recipes](../deployment/helm.md#model-providers-brokered-claude).
 
 To let the investigation choose OpenAI models for remediation, enable the codex runner
-(`agent.runners.codex.enabled: true` / add `codex` to `PATCHY_HARNESSES`) and create its credential:
+(`agent.runners.codex.enabled: true` / add `codex` to `PATCHY_HARNESSES`). Codex is brokered like claude, so its OpenAI
+API key lives with the egress broker in the release namespace (chart:
+`egressBroker.openai.apiKey.secret: patchy-openai`; kustomize: mount it into the broker and set
+`PATCHY_OPENAI_API_KEY_FILE`), never in an agent pod:
 
 ```sh
-kubectl -n patchy-agents create secret generic patchy-openai --from-literal=api-key="$OPENAI_API_KEY"
+kubectl -n patchy create secret generic patchy-openai --from-literal=api-key="$OPENAI_API_KEY"
 ```
 
 The copilot runner (`agent.runners.copilot.enabled: true` / add `copilot` to `PATCHY_HARNESSES`) is the alternative to
@@ -78,7 +81,7 @@ kubectl -n patchy-agents create secret generic patchy-copilot --from-literal=tok
 | ------------------ | --------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | `patchy-github`    | `patchy`        | `appID` + `privateKey` (or `token`), `webhookSecret` | The `Integration`/`Forge` CRs' `spec.secretRef` — read on demand through the API, never mounted                                          |
 | `patchy-anthropic` | `patchy`        | `api-key`                                            | The egress broker only — never an agent pod (an API key, or a `claude setup-token` OAuth token with `egressBroker.anthropicAuth: token`) |
-| `patchy-openai`    | `patchy-agents` | `api-key`                                            | Codex runner Job pods (`OPENAI_API_KEY`) — only when the codex runner is enabled                                                         |
+| `patchy-openai`    | `patchy`        | `api-key`                                            | The egress broker only, for the codex runner (`egressBroker.openai.apiKey`) — only when the codex runner is enabled                      |
 | `patchy-copilot`   | `patchy-agents` | `token`                                              | Copilot runner Job pods (`COPILOT_GITHUB_TOKEN`) — only when the copilot runner is enabled                                               |
 
 A `token` key (a personal access token) is the dev-only fallback and wins over App auth when set. One GitHub Secret may
@@ -87,10 +90,10 @@ App still needs Contents read, for the commit comparisons ingest makes.
 
 !!! warning "Each enabled non-brokered harness needs its credential"
 
-    A codex or copilot harness is enabled only when its credential Secret exists in the agent namespace (the
-    controllers validate this at startup and refuse to start otherwise); the Job builder wires that credential into the
-    pod via a `secretKeyRef`. The claude harness is different: it is enabled by configuration alone — its credential
-    lives with the egress broker, whose readiness probe is where a missing key surfaces. The `fake` harness (dev only)
+    A copilot harness is enabled only when its credential Secret exists in the agent namespace (the controllers
+    validate this at startup and refuse to start otherwise); the Job builder wires that credential into the pod via a
+    `secretKeyRef`. The claude and codex harnesses are different: they are enabled by configuration alone — their
+    credentials live with the egress broker, whose readiness probe is where a missing key surfaces. The `fake` harness (dev only)
     needs no credential.
 
 There is deliberately **no** GitHub credential in the agent namespace — not even a per-Job one. The repository arrives

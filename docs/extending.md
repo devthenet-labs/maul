@@ -109,17 +109,21 @@ it only picks up work when a model's vendor-native harness is not enabled. Addin
 harness a new one) is a registry edit; adding a whole new provider is a new harness plus its registry entries.
 
 Each harness has its own **runner image** (`claude-agent-runner`, `codex-agent-runner`, `copilot-agent-runner`) bundling
-just that CLI, its own credential Secret, and its own egress network policy. The remediation controller resolves the
-investigation's chosen model to a harness _before_ launching, so the Job runs the matching image with the matching
-credential — a claude pod reaching only `api.anthropic.com`, a codex pod only `api.openai.com`. Which harnesses a
-deployment enables is configuration (`--harnesses`, defaulting to any whose credential Secret exists); startup fails
-unless every allowlisted model has an enabled harness that can run it.
+just that CLI and its own egress network policy. The remediation controller resolves the investigation's chosen model to
+a harness _before_ launching, so the Job runs the matching image. claude and codex are brokered (their pods hold no
+credential and reach only the egress broker, on its anthropic or openai route); copilot holds its own token. Which
+harnesses a deployment enables is configuration (`--harnesses`, defaulting to every brokered runner configured and any
+other whose credential Secret exists); startup fails unless every allowlisted model has an enabled harness that can run
+it.
 
 The `codex` harness runs `codex exec --json` with codex's own sandbox disabled — patchy confines the agent at the pod
-layer (no network beyond the model API, no credentials), so the CLI's kernel sandbox is redundant there. Codex has no
-equivalents for the tool allow/deny grammar or a turn ceiling; the wall-clock timeout and output-token budget are
-enforced by the runner as usual, though codex reports usage only per completed turn, so the budget cannot fire mid-turn.
-Codex reports token usage but not cost, so the rollup prices its tokens from the model registry's published rates.
+layer (no network beyond the egress broker, no credentials), so the CLI's kernel sandbox is redundant there. Its model
+provider is the broker's openai route, set on the command line
+([Codex runs brokered](configuration/agent-runner.md#codex-runs-brokered)). Codex has no equivalents for the tool
+allow/deny grammar or a turn ceiling; the wall-clock timeout and output-token budget are enforced by the runner as
+usual, though codex reports usage only per completed turn, so the budget cannot fire mid-turn. Codex reports token usage
+but not cost, so its own report is priced from the model registry's published rates; with usage measurement on, the
+broker's measured figures are what count.
 
 The `copilot` harness runs `copilot -p --output-format json`, whose JSONL session-event stream carries per-model-call
 usage — so unlike codex its budget _can_ fire mid-turn. It has no turn ceiling either, and its permission grammar
