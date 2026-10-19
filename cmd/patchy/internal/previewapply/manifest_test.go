@@ -13,6 +13,8 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+
+	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/previewsetup"
 )
 
 // clusterScoped are the kinds the recipes write with no namespace.
@@ -90,9 +92,16 @@ func TestDeleteCommand(t *testing.T) {
 		"kubectl -n x delete httproute.gateway.networking.k8s.io/r": obj("gateway.networking.k8s.io/v1",
 			"HTTPRoute", "x", "r"),
 	} {
-		if got := deleteCommand(o); got != want {
+		if got := deleteCommand(previewsetup.Connection{}, o); got != want {
 			t.Errorf("deleteCommand = %q, want %q", got, want)
 		}
+	}
+	// The caller's --kubeconfig and --context ride along, so a pasted undo
+	// reaches the cluster the run did, not kubectl's current context.
+	conn := previewsetup.Connection{Kubeconfig: "/home/me/kube config", Context: "staging"}
+	want := "kubectl --kubeconfig '/home/me/kube config' --context staging -n patchy delete secret/s"
+	if got := deleteCommand(conn, obj("v1", "Secret", "patchy", "s")); got != want {
+		t.Errorf("deleteCommand = %q, want %q", got, want)
 	}
 }
 

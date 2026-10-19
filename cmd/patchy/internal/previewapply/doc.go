@@ -15,7 +15,13 @@
 //     this run completed, newest first (helm rollback to the revision it
 //     replaced, or helm uninstall for one it installed; kubectl delete for
 //     manifests; the namespace it created), and NEXT-STEPS.md's "Rolling
-//     back" for the whole install. Re-running is safe: a server-side apply
+//     back" for the whole install. Each command carries the plan's
+//     previewsetup.Connection, the caller's --kubeconfig and --context, so
+//     a pasted undo reaches the cluster the run changed. A Secret that was
+//     already there is replaced in place, and the undo says no command
+//     restores it. Before any step, a NoReplace file's object (a Dex client
+//     secret drawn anew) already in the cluster stops the run
+//     (ErrWouldReplace), reading metadata only. Re-running is safe: a server-side apply
 //     of the same manifest, an upgrade to the same chart and values, and a
 //     wait already met each change nothing.
 //   - Objects decodes a manifest file into the objects to apply. A secret

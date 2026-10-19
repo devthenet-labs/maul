@@ -421,7 +421,7 @@ func runSetupPreviews(cmd *cobra.Command, opts *Options, f *setupPreviewsFlags, 
 	if secrets.TailscaleOAuth, err = resolveTailscaleOAuth(opts.ErrOut, f, a); err != nil {
 		return err
 	}
-	c, steps, err := planPreviews(f, a, secrets)
+	c, steps, err := planPreviews(opts, f, a, secrets)
 	if err != nil {
 		return err
 	}
@@ -450,7 +450,7 @@ func runSetupPreviews(cmd *cobra.Command, opts *Options, f *setupPreviewsFlags, 
 
 // planPreviews plans the files, compares them with what is on disk, and
 // plans --apply over them (nil steps without it).
-func planPreviews(f *setupPreviewsFlags, a previewsetup.Answers, secrets previewsetup.Secrets) (
+func planPreviews(opts *Options, f *setupPreviewsFlags, a previewsetup.Answers, secrets previewsetup.Secrets) (
 	previewsetup.Comparison, []previewsetup.Step, error) {
 	files, err := previewsetup.Plan(a, secrets, version.Version)
 	if err != nil {
@@ -460,7 +460,7 @@ func planPreviews(f *setupPreviewsFlags, a previewsetup.Answers, secrets preview
 	if err != nil {
 		return c, nil, err
 	}
-	steps, err := planApply(f, a, files)
+	steps, err := planApply(opts, f, a, files, secrets.Fresh && f.rotate == "")
 	return c, steps, err
 }
 

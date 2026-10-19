@@ -101,11 +101,15 @@ func checkProjectHarness(t *testing.T, fn interceptor.Funcs, objs ...client.Obje
 		}
 		return c.Get(ctx, key, obj, opts...)
 	}
-	fn.List = func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
-		if _, ok := list.(*corev1.SecretList); ok {
+	list := fn.List
+	fn.List = func(ctx context.Context, c client.WithWatch, l client.ObjectList, opts ...client.ListOption) error {
+		if _, ok := l.(*corev1.SecretList); ok {
 			t.Error("check project listed Secrets")
 		}
-		return c.List(ctx, list, opts...)
+		if list != nil {
+			return list(ctx, c, l, opts...)
+		}
+		return c.List(ctx, l, opts...)
 	}
 	h.client = fake.NewClientBuilder().WithScheme(kube.Scheme()).WithObjects(objs...).
 		WithInterceptorFuncs(fn).Build()

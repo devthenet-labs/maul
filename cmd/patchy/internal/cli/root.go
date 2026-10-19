@@ -62,6 +62,10 @@ type Options struct {
 	// (the cluster, helm, the checks), which tests fake; nil is the real
 	// ports over the kubeconfig.
 	previewApply func(env *kubecfg.Env, namespace string) previewApplyDeps
+	// previewChecksNet stands in for the network the real --apply check
+	// step reaches (DNS, the preview hosts), which tests fake; nil is
+	// networkCheckPreviewsDeps.
+	previewChecksNet func() checkPreviewsDeps
 }
 
 // WithEnv pins a pre-built environment, bypassing kubeconfig resolution.

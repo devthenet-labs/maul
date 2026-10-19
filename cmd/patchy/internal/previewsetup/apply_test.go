@@ -315,3 +315,88 @@ func TestShellQuoteProperty(t *testing.T) {
 		}
 	}
 }
+
+// TestApplyPlanConnection: with --kubeconfig and --context given, every
+// command the plan prints names them, kubectl's and patchy's as
+// --context and helm's as --kube-context, and the header names the
+// cluster; without them, no command carries a connection flag.
+func TestApplyPlanConnection(t *testing.T) {
+	conn := Connection{Kubeconfig: "/home/me/my kube.yaml", Context: "staging"}
+	for name, a := range goldenCases() {
+		t.Run(name, func(t *testing.T) {
+			a.Normalize()
+			in := testApplyInput()
+			in.Connection = conn
+			steps, err := ApplySteps(a, planWith(t, a, goldenSecrets(name)), in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, s := range steps {
+				for _, c := range s.Commands() {
+					for _, part := range strings.Split(c, " | ") {
+						var want string
+						switch {
+						case strings.HasPrefix(part, "kubectl "):
+							want = "kubectl --kubeconfig '/home/me/my kube.yaml' --context staging "
+						case strings.HasPrefix(part, "helm "):
+							want = "helm --kubeconfig '/home/me/my kube.yaml' --kube-context staging "
+						case strings.HasPrefix(part, "patchy "):
+							if !strings.HasSuffix(part, " --kubeconfig '/home/me/my kube.yaml' --context staging") {
+								t.Errorf("%q lacks the connection", part)
+							}
+							continue
+						default:
+							t.Errorf("unexpected command %q", part)
+						}
+						if !strings.HasPrefix(part, want) {
+							t.Errorf("%q lacks the connection", part)
+						}
+					}
+				}
+			}
+			plan := RenderApplyPlan(a, steps)
+			if !strings.Contains(plan, "against context staging of kubeconfig '/home/me/my kube.yaml'") {
+				t.Errorf("the header does not name the cluster:\n%s", plan)
+			}
+			if strings.Contains(RenderApplyPlan(a, applySteps(t, name)), "--context") {
+				t.Error("a plan with no connection flags carries one")
+			}
+		})
+	}
+}
+
+// TestApplyStepsFreshSecret: a Dex client secret drawn anew this run
+// marks both of its files as never to replace a Secret in the cluster,
+// and the plan says so; one read back from disk marks nothing.
+func TestApplyStepsFreshSecret(t *testing.T) {
+	const name = "tailscale-route53-k3d"
+	a := goldenCases()[name]
+	a.Normalize()
+	in := testApplyInput()
+	in.FreshDexSecret = true
+	steps, err := ApplySteps(a, planWith(t, a, goldenSecrets(name)), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var guarded []string
+	for _, s := range steps {
+		for _, f := range s.NoReplace {
+			if !slices.Contains(s.Files, f) {
+				t.Errorf("%s is guarded but not applied by its step", f)
+			}
+			guarded = append(guarded, filepath.ToSlash(f))
+		}
+	}
+	want := []string{"patchy-previews/" + RelayDexSecretFile, "patchy-previews/" + DexClientSecretFile}
+	if !slices.Equal(guarded, want) {
+		t.Errorf("guarded %v, want %v", guarded, want)
+	}
+	if !strings.Contains(RenderApplyPlan(a, steps), "refuses to go on when the Dex client secret") {
+		t.Error("the plan does not say it refuses")
+	}
+	for _, s := range applySteps(t, name) {
+		if len(s.NoReplace) > 0 {
+			t.Errorf("a secret read back guards %v", s.NoReplace)
+		}
+	}
+}

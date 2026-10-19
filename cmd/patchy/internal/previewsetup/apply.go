@@ -34,6 +34,59 @@ type ApplyInput struct {
 	ChartVersion string
 	// Timeout bounds each wait.
 	Timeout time.Duration
+	// Connection is the cluster the operator named with --kubeconfig and
+	// --context, carried into every command the plan prints.
+	Connection Connection
+	// FreshDexSecret says this run drew the Dex client secret because no
+	// secret file was on disk (not on --rotate): the plan then refuses to
+	// replace one already in the cluster.
+	FreshDexSecret bool
+}
+
+// Connection is the cluster the caller named with patchy's --kubeconfig
+// and --context. --apply reaches that cluster, so every command printed
+// for a person to run (the --dry-run plan, an undo after a failure)
+// carries the same flags: pasted, it lands on that cluster, never on
+// whatever kubectl's current context is.
+type Connection struct{ Kubeconfig, Context string }
+
+// Kubectl is the kubectl command for the connection, its flags first.
+func (c Connection) Kubectl() string {
+	return "kubectl" + c.flags("--context")
+}
+
+// Helm is the helm command for the connection, its flags first.
+func (c Connection) Helm() string {
+	return "helm" + c.flags("--kube-context")
+}
+
+// Patchy is patchy's own connection flags, each with a leading space.
+func (c Connection) Patchy() string { return c.flags("--context") }
+
+// flags are the connection's flags, contextFlag naming the context's, each
+// with a leading space; none for the defaults.
+func (c Connection) flags(contextFlag string) string {
+	var b strings.Builder
+	if c.Kubeconfig != "" {
+		b.WriteString(" --kubeconfig " + shellQuote(c.Kubeconfig))
+	}
+	if c.Context != "" {
+		b.WriteString(" " + contextFlag + " " + shellQuote(c.Context))
+	}
+	return b.String()
+}
+
+// describe names the cluster the connection reaches, for the plan.
+func (c Connection) describe() string {
+	switch {
+	case c.Context != "" && c.Kubeconfig != "":
+		return "context " + shellQuote(c.Context) + " of kubeconfig " + shellQuote(c.Kubeconfig)
+	case c.Context != "":
+		return "context " + shellQuote(c.Context) + " of your kubeconfig"
+	case c.Kubeconfig != "":
+		return "the cluster kubeconfig " + shellQuote(c.Kubeconfig) + " names"
+	}
+	return "the cluster your kubeconfig names"
 }
 
 // StepKind is what an apply step does.
@@ -82,6 +135,13 @@ type Step struct {
 	Helm *HelmRelease
 	// Timeout bounds a Helm or wait step.
 	Timeout time.Duration
+	// NoReplace are the Files whose objects must not already be in the
+	// cluster: a Dex client secret this run drew anew, which would
+	// silently replace the live one. Checked before any step changes
+	// anything.
+	NoReplace []string
+	// Conn is the cluster the commands the step prints reach.
+	Conn Connection
 }
 
 // HelmRelease is one `helm upgrade`.
@@ -173,10 +233,15 @@ func ApplySteps(a Answers, files []File, in ApplyInput) ([]Step, error) {
 		relay.Files = append(relay.Files, path(DNSSecretFile))
 		relay.Title = "Apply the relay's Dex client secret and the DNS-01 credential in namespace " + a.Namespace
 	}
-	steps = append(steps, relay, Step{Kind: StepApply, Secret: true, Files: []string{path(DexClientSecretFile)},
+	dex := Step{Kind: StepApply, Secret: true, Files: []string{path(DexClientSecretFile)},
 		SkipUnlessNamespace: a.Dex.Namespace,
 		Title: "Apply Dex's copy of the client secret in namespace " + a.Dex.Namespace + " (skipped when no " +
-			"such namespace is here: Dex runs elsewhere)"})
+			"such namespace is here: Dex runs elsewhere)"}
+	if in.FreshDexSecret {
+		relay.NoReplace = []string{path(RelayDexSecretFile)}
+		dex.NoReplace = []string{path(DexClientSecretFile)}
+	}
+	steps = append(steps, relay, dex)
 	if has[TailscaleOAuthFile] {
 		ns := TailscaleOperator.Namespace
 		steps = append(steps,
@@ -197,11 +262,15 @@ func ApplySteps(a Answers, files []File, in ApplyInput) ([]Step, error) {
 			Step{Kind: StepWaitDeployment, Namespace: ns, Name: cloudflaredName, Timeout: in.Timeout,
 				Title: "Wait for deployment/" + cloudflaredName + " in namespace " + ns + " to roll out"})
 	}
-	return append(steps,
+	steps = append(steps,
 		Step{Kind: StepHelm, Helm: &patchy, Timeout: in.Timeout,
 			Title: fmt.Sprintf("Upgrade release %s to chart %s with your values, then %s", a.Release, version,
 				ValuesFile)},
-		Step{Kind: StepCheck, Namespace: a.Namespace, Title: "Run the checks of patchy check previews"}), nil
+		Step{Kind: StepCheck, Namespace: a.Namespace, Title: "Run the checks of patchy check previews"})
+	for i := range steps {
+		steps[i].Conn = in.Connection
+	}
+	return steps, nil
 }
 
 // tlsSteps are the certificate steps: cert-manager when the recipe
@@ -245,30 +314,32 @@ func upstreamStep(p Pin, path func(string) string, timeout time.Duration) Step {
 // --apply --dry-run prints. --apply itself talks to the API server (a
 // server-side apply as ApplyFieldManager) and runs helm as HelmArgs says.
 func (s Step) Commands() []string {
+	kubectl, helm := s.Conn.Kubectl(), s.Conn.Helm()
 	switch s.Kind {
 	case StepPreflight:
-		return []string{"helm version --short", "helm status " + shellWords(s.Helm.Release, "-n", s.Helm.Namespace)}
+		return []string{helm + " version --short",
+			helm + " status " + shellWords(s.Helm.Release, "-n", s.Helm.Namespace)}
 	case StepApply:
 		args := []string{"--server-side", "--force-conflicts", "--field-manager=" + ApplyFieldManager}
 		for _, f := range s.Files {
 			args = append(args, "-f", f)
 		}
-		return []string{"kubectl apply " + shellWords(args...)}
+		return []string{kubectl + " apply " + shellWords(args...)}
 	case StepNamespace:
-		return []string{"kubectl create namespace " + shellWords(s.Namespace) +
-			" --dry-run=client -o yaml | kubectl apply -f -"}
+		return []string{kubectl + " create namespace " + shellWords(s.Namespace) +
+			" --dry-run=client -o yaml | " + kubectl + " apply -f -"}
 	case StepRequireSecret:
-		return []string{"kubectl -n " + shellWords(s.Namespace, "get", "secret", s.Name) + " -o name"}
+		return []string{kubectl + " -n " + shellWords(s.Namespace, "get", "secret", s.Name) + " -o name"}
 	case StepHelm:
-		return []string{"helm " + shellWords(HelmArgs(*s.Helm, s.Timeout)...)}
+		return []string{helm + " " + shellWords(HelmArgs(*s.Helm, s.Timeout)...)}
 	case StepWaitCertificate:
-		return []string{"kubectl -n " + shellWords(s.Namespace, "wait", "certificate/"+s.Name,
+		return []string{kubectl + " -n " + shellWords(s.Namespace, "wait", "certificate/"+s.Name,
 			"--for=condition=Ready", "--timeout="+s.Timeout.String())}
 	case StepWaitDeployment:
-		return []string{"kubectl -n " + shellWords(s.Namespace, "rollout", "status", "deployment/"+s.Name,
+		return []string{kubectl + " -n " + shellWords(s.Namespace, "rollout", "status", "deployment/"+s.Name,
 			"--timeout="+s.Timeout.String())}
 	case StepCheck:
-		return []string{"patchy check previews -n " + shellWords(s.Namespace)}
+		return []string{"patchy check previews -n " + shellWords(s.Namespace) + s.Conn.Patchy()}
 	}
 	return nil
 }
@@ -312,8 +383,16 @@ func RenderApplyPlan(a Answers, steps []Step) string {
 		}
 		b.WriteString("\n")
 	}
-	fmt.Fprintf(&b, "--apply would run these %d steps against the cluster your kubeconfig names, in order, "+
-		"stopping at the first failure:\n", len(steps))
+	var conn Connection
+	if len(steps) > 0 {
+		conn = steps[0].Conn
+	}
+	fmt.Fprintf(&b, "--apply would run these %d steps against %s, in order, stopping at the first failure:\n",
+		len(steps), conn.describe())
+	if slices.ContainsFunc(steps, func(s Step) bool { return len(s.NoReplace) > 0 }) {
+		b.WriteString("Before step 1 it refuses to go on when the Dex client secret this run drew is already " +
+			"in the cluster: a run whose output directory held no secret file would replace the live one.\n")
+	}
 	for i, s := range steps {
 		fmt.Fprintf(&b, "\n%d. %s\n", i+1, s.Title)
 		for _, c := range s.Commands() {

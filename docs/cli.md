@@ -588,11 +588,16 @@ Manifests are server-side applied as the field manager `patchy-setup-previews`, 
 `kubectl apply` set. Every step is logged and safe to repeat. When one fails, the run prints the commands that undo what
 it changed, newest first: `helm rollback` to the revision an upgrade replaced, `helm uninstall` for a release it
 installed, and `kubectl delete` for what it created (never for an object that was already there, which it updated in
-place). A Secret's contents are never printed, nor an API server's message about one. Preview nodes, image pulls, Dex's
-static client, the DNS records and the tailnet policy stay yours, and the run names them; the tailnet policy must be
-saved before it runs, since the operator's devices carry tags it owns. With `--dry-run`, `--apply` prints the steps as
-the commands that do them by hand and contacts no cluster. A failed check leaves everything applied: the checks say what
-is left, often the DNS records.
+place). A Secret that was already there is replaced in place, and the undo says that no command restores its earlier
+content. Every printed command, the undo and the `--dry-run` plan alike, carries the `--kubeconfig` and `--context` you
+gave, so a pasted command reaches the cluster `--apply` did, not kubectl's current context. When the output directory
+holds no Dex client secret file, the run draws a new secret, and `--apply` then refuses, before changing anything, to
+replace a relay or Dex copy of it already in the cluster: run it with `-o` the directory that wrote the live one, or
+pass `--rotate dex-client-secret` to replace it on purpose (then roll Dex and the relay). A Secret's contents are never
+printed, nor an API server's message about one. Preview nodes, image pulls, Dex's static client, the DNS records and the
+tailnet policy stay yours, and the run names them; the tailnet policy must be saved before it runs, since the operator's
+devices carry tags it owns. With `--dry-run`, `--apply` prints the steps as the commands that do them by hand and
+contacts no cluster. A failed check leaves everything applied: the checks say what is left, often the DNS records.
 
 ## Checking the preview install
 

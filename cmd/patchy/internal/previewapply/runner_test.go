@@ -154,6 +154,13 @@ const oauthSecret = "tskey-client-kTEST0CNTRL-not-a-real-secret-0123456789"
 // over it.
 func writeTree(t *testing.T, a previewsetup.Answers, oauth bool) []previewsetup.Step {
 	t.Helper()
+	return writeTreeWith(t, a, oauth, func(*previewsetup.ApplyInput) {})
+}
+
+// writeTreeWith is writeTree with the --apply input changed by in.
+func writeTreeWith(t *testing.T, a previewsetup.Answers, oauth bool,
+	in func(*previewsetup.ApplyInput)) []previewsetup.Step {
+	t.Helper()
 	dir := filepath.Join(t.TempDir(), "patchy-previews")
 	a.Normalize()
 	s, err := previewsetup.ResolveSecrets(dir, false, rand.Reader)
@@ -177,8 +184,10 @@ func writeTree(t *testing.T, a previewsetup.Answers, oauth bool) []previewsetup.
 	if _, err := previewsetup.Write(c, previewsetup.Accept{}); err != nil {
 		t.Fatal(err)
 	}
-	steps, err := previewsetup.ApplySteps(a, files, previewsetup.ApplyInput{Dir: dir,
-		ValuesFiles: []string{"my-values.yaml"}, ChartVersion: "0.12.41", Timeout: time.Second})
+	input := previewsetup.ApplyInput{Dir: dir, ValuesFiles: []string{"my-values.yaml"}, ChartVersion: "0.12.41",
+		Timeout: time.Second}
+	in(&input)
+	steps, err := previewsetup.ApplySteps(a, files, input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -412,4 +421,105 @@ func TestRunCertificateTimeout(t *testing.T) {
 	if slices.Contains(r.helm.released(), "tailscale-operator") {
 		t.Error("ran past the wait")
 	}
+}
+
+// TestRunUndoCarriesConnection: with --context and --kubeconfig given,
+// every undo command names them, so a pasted undo reaches the cluster the
+// run changed and never kubectl's current context.
+func TestRunUndoCarriesConnection(t *testing.T) {
+	conn := previewsetup.Connection{Kubeconfig: "/tmp/kube.yaml", Context: "staging"}
+	steps := writeTreeWith(t, tailscaleAnswers(), true, func(in *previewsetup.ApplyInput) { in.Connection = conn })
+	r := &runner{cluster: newFakeCluster("patchy", "dex"), helm: newFakeHelm()}
+	r.helm.fail["tailscale-operator"] = errors.New("timed out waiting for the condition")
+	if err := r.run(t, steps); err == nil {
+		t.Fatal("Run succeeded")
+	}
+	var undos int
+	for _, line := range strings.Split(r.log.String(), "\n") {
+		line = strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(line, "kubectl "):
+			if !strings.HasPrefix(line, "kubectl --kubeconfig /tmp/kube.yaml --context staging ") {
+				t.Errorf("undo without the connection: %q", line)
+			}
+			undos++
+		case strings.HasPrefix(line, "helm "):
+			if !strings.HasPrefix(line, "helm --kubeconfig /tmp/kube.yaml --kube-context staging ") {
+				t.Errorf("undo without the connection: %q", line)
+			}
+			undos++
+		}
+	}
+	if undos != 8 {
+		t.Errorf("%d undo commands, want 8:\n%s", undos, r.log.String())
+	}
+}
+
+// TestRunRefusesToReplaceDexSecret: a Dex client secret drawn anew this
+// run (no secret file on disk, no --rotate) is never applied over one
+// already in the cluster: the run stops before changing anything, naming
+// the way out and no secret.
+func TestRunRefusesToReplaceDexSecret(t *testing.T) {
+	fresh := func(in *previewsetup.ApplyInput) { in.FreshDexSecret = true }
+	for name, existing := range map[string]string{
+		"relay's": "Secret patchy/patchy-preview-auth-dex",
+		"Dex's":   "Secret dex/patchy-preview-auth-client",
+	} {
+		t.Run(name, func(t *testing.T) {
+			steps := writeTreeWith(t, tailscaleAnswers(), true, fresh)
+			r := &runner{cluster: newFakeCluster("patchy", "dex"), helm: newFakeHelm()}
+			r.cluster.objects[existing] = &unstructured.Unstructured{}
+			err := r.run(t, steps)
+			if !errors.Is(err, ErrWouldReplace) || !strings.Contains(err.Error(), existing) ||
+				!strings.Contains(err.Error(), "--rotate dex-client-secret") {
+				t.Fatalf("Run = %v", err)
+			}
+			if len(r.cluster.applied) > 0 || len(r.helm.runs) > 0 || r.checks > 0 {
+				t.Errorf("changed the cluster: %v %v", r.cluster.applied, r.helm.runs)
+			}
+			if strings.Contains(r.log.String(), oauthSecret) {
+				t.Error("the log carries a secret")
+			}
+		})
+	}
+	// With neither there, a fresh secret is applied as usual.
+	steps := writeTreeWith(t, tailscaleAnswers(), true, fresh)
+	r := &runner{cluster: newFakeCluster("patchy", "dex"), helm: newFakeHelm()}
+	if err := r.run(t, steps); err != nil {
+		t.Fatalf("Run: %v\n%s", err, r.log.String())
+	}
+}
+
+// TestRunUndoNamesReplacedSecret: a Secret that was there is replaced in
+// place, which no undo command restores, and the undo says so rather than
+// that the run changed nothing.
+func TestRunUndoNamesReplacedSecret(t *testing.T) {
+	steps := writeTree(t, oauthLessAnswers(), false)
+	r := &runner{cluster: newFakeCluster("patchy", "dex"), helm: newFakeHelm()}
+	r.cluster.secrets["tailscale/operator-oauth"] = true
+	r.cluster.objects["Secret patchy/patchy-preview-auth-dex"] = &unstructured.Unstructured{}
+	r.cluster.objects["Secret dex/patchy-preview-auth-client"] = &unstructured.Unstructured{}
+	r.cluster.objects["ClusterIssuer /preview-dns01-patchy"] = &unstructured.Unstructured{}
+	r.cluster.objects["Certificate patchy/preview-wildcard"] = &unstructured.Unstructured{}
+	r.helm.revisions["cert-manager/cert-manager"] = 1
+	r.helm.fail["cert-manager"] = errors.New("UPGRADE FAILED")
+	if err := r.run(t, steps); err == nil {
+		t.Fatal("Run succeeded")
+	}
+	log := r.log.String()
+	for _, want := range []string{
+		"not undone by any command here: Secret patchy/patchy-preview-auth-dex was replaced in place",
+		"not undone by any command here: Secret dex/patchy-preview-auth-client was replaced in place",
+	} {
+		if !strings.Contains(log, want) {
+			t.Errorf("log lacks %q:\n%s", want, log)
+		}
+	}
+}
+
+// oauthLessAnswers are the tailscale answers with no OAuth client given.
+func oauthLessAnswers() previewsetup.Answers {
+	a := tailscaleAnswers()
+	a.Tailscale.Hostname = "previews"
+	return a
 }

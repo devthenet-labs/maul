@@ -86,14 +86,18 @@ func checkApplyFlags(cmd *cobra.Command, f applyFlags) error {
 }
 
 // planApply is the --apply plan for the files planned, nil without
-// --apply.
-func planApply(f *setupPreviewsFlags, a previewsetup.Answers, files []previewsetup.File) ([]previewsetup.Step,
-	error) {
+// --apply. Its printed commands carry the caller's --kubeconfig and
+// --context; freshSecret (a Dex client secret drawn because no file held
+// one, not on --rotate) makes it refuse to replace one in the cluster.
+func planApply(opts *Options, f *setupPreviewsFlags, a previewsetup.Answers, files []previewsetup.File,
+	freshSecret bool) ([]previewsetup.Step, error) {
 	if !f.apply.apply {
 		return nil, nil
 	}
 	steps, err := previewsetup.ApplySteps(a, files, previewsetup.ApplyInput{Dir: f.output,
-		ValuesFiles: f.apply.values, ChartVersion: f.apply.chartVersion, Timeout: f.apply.waitTimeout})
+		ValuesFiles: f.apply.values, ChartVersion: f.apply.chartVersion, Timeout: f.apply.waitTimeout,
+		Connection:     previewsetup.Connection{Kubeconfig: opts.Kubeconfig, Context: opts.Context},
+		FreshDexSecret: freshSecret})
 	if err != nil {
 		return nil, errUsage(err)
 	}
@@ -118,10 +122,18 @@ func (o *Options) applyDeps(env *kubecfg.Env, namespace string) previewApplyDeps
 		cluster: previewapply.KubeCluster{Client: env.Client},
 		helm:    previewapply.ExecHelm{Kubeconfig: o.Kubeconfig, Context: o.Context, Out: o.ErrOut},
 		check: func(ctx context.Context) error {
-			deps := networkCheckPreviewsDeps()
+			net := networkCheckPreviewsDeps
+			if o.previewChecksNet != nil {
+				net = o.previewChecksNet
+			}
+			deps := net()
 			if o.tailnetStatus != nil {
 				deps.tailnet = o.tailnetStatus
 			}
+			// Bounded as `check previews` is: the last step must not wait
+			// on a hung resolver or preview host for ever.
+			ctx, cancel := context.WithTimeout(ctx, checkPreviewsTimeout)
+			defer cancel()
 			return installChecks(ctx, o, env, namespace, deps, printer.FormatTable)
 		},
 	}

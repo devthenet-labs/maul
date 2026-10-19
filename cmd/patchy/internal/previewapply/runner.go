@@ -72,8 +72,13 @@ var ErrCheckFailed = errors.New("the checks did not all pass")
 // kilobytes.
 const maxManifest = 1 << 20
 
-// undo is how to reverse one completed step, by hand.
-type undo struct{ commands []string }
+// ErrWouldReplace reports a run that would replace, in the cluster, a Dex
+// client secret it drew anew: refused before anything changes.
+var ErrWouldReplace = errors.New("refused to replace a Dex client secret already in the cluster")
+
+// undo is how to reverse one completed step, by hand: the commands, and
+// what no command can reverse.
+type undo struct{ commands, notes []string }
 
 // Run runs steps in order, stopping at the first failure. Each step is
 // logged as it starts and ends. On a failure before the checks it prints
@@ -81,6 +86,10 @@ type undo struct{ commands []string }
 // naming the step; a failed check returns ErrCheckFailed with everything
 // left applied.
 func (r Runner) Run(ctx context.Context, steps []previewsetup.Step) error {
+	if err := r.guard(ctx, steps); err != nil {
+		r.logf("patchy: apply: %v\n", err)
+		return err
+	}
 	var undos []undo
 	for i, s := range steps {
 		r.logf("patchy: apply %d/%d: %s\n", i+1, len(steps), s.Title)
@@ -100,7 +109,7 @@ func (r Runner) Run(ctx context.Context, steps []previewsetup.Step) error {
 			r.logf("patchy: apply %d/%d: skipped: %s\n", i+1, len(steps), skipped)
 			continue
 		}
-		if len(u.commands) > 0 {
+		if len(u.commands) > 0 || len(u.notes) > 0 {
 			undos = append(undos, u)
 		}
 		r.logf("patchy: apply %d/%d: done\n", i+1, len(steps))
@@ -112,11 +121,18 @@ func (r Runner) Run(ctx context.Context, steps []previewsetup.Step) error {
 // failed step's own undo (it may have changed part of what it does)
 // first.
 func (r Runner) printUndo(done []undo, failed undo) {
-	var cmds []string
+	var cmds, notes []string
 	cmds = append(cmds, failed.commands...)
+	notes = append(notes, failed.notes...)
 	for _, u := range slices.Backward(done) {
 		cmds = append(cmds, u.commands...)
+		notes = append(notes, u.notes...)
 	}
+	defer func() {
+		for _, n := range notes {
+			r.logf("patchy: not undone by any command here: %s\n", n)
+		}
+	}()
 	if len(cmds) == 0 {
 		r.logf("patchy: this run created nothing to delete: fix what it says and run --apply again (each step is " +
 			"safe to repeat).\n")
@@ -128,6 +144,51 @@ func (r Runner) printUndo(done []undo, failed undo) {
 		r.logf("  %s\n", c)
 	}
 	r.logf("patchy: NEXT-STEPS.md's \"Rolling back\" undoes the whole install.\n")
+}
+
+// guard refuses, before any step changes anything, a plan that would
+// replace an object a NoReplace file names: a Dex client secret drawn
+// anew this run while one is already in the cluster. Server-side apply
+// would overwrite it, breaking sign-in until Dex is rolled, and its
+// earlier content could not be put back. Only metadata is read.
+func (r Runner) guard(ctx context.Context, steps []previewsetup.Step) error {
+	for _, s := range steps {
+		for _, f := range s.NoReplace {
+			objs, err := r.objects(s, f)
+			if err != nil {
+				return err
+			}
+			for _, o := range objs {
+				existed, err := r.Cluster.Exists(ctx, o)
+				if err != nil {
+					return applyError(o, s.Secret, err)
+				}
+				if existed {
+					return fmt.Errorf("%w: %s is there, and this run drew a new secret because its output "+
+						"directory holds no secret file. Run again with -o the directory that wrote the live "+
+						"one, or pass --rotate %s to replace it on purpose (then roll Dex and the relay)",
+						ErrWouldReplace, describe(o), previewsetup.RotateDexClientSecret)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// objects reads and decodes one of the step's files.
+func (r Runner) objects(s previewsetup.Step, f string) ([]*unstructured.Unstructured, error) {
+	data, err := r.read(f)
+	if err != nil {
+		return nil, err
+	}
+	o, err := Objects(data)
+	if err != nil {
+		if s.Secret {
+			return nil, fmt.Errorf("%s is not a manifest this command wrote: run setup previews again", f)
+		}
+		return nil, fmt.Errorf("%s: %w", f, err)
+	}
+	return o, nil
 }
 
 // step runs one step: the undo for what it changes, a reason when it is
@@ -143,7 +204,7 @@ func (r Runner) step(ctx context.Context, s previewsetup.Step) (undo, string, er
 		if err != nil || !created {
 			return undo{}, "", err
 		}
-		return undo{commands: []string{"kubectl delete namespace " + s.Namespace}}, "", nil
+		return undo{commands: []string{s.Conn.Kubectl() + " delete namespace " + s.Namespace}}, "", nil
 	case previewsetup.StepRequireSecret:
 		ok, err := r.Cluster.SecretExists(ctx, s.Namespace, s.Name)
 		switch {
@@ -205,21 +266,15 @@ func (r Runner) apply(ctx context.Context, s previewsetup.Step) (undo, string, e
 	}
 	var objs []*unstructured.Unstructured
 	for _, f := range s.Files {
-		data, err := r.read(f)
+		o, err := r.objects(s, f)
 		if err != nil {
 			return undo{}, "", err
-		}
-		o, err := Objects(data)
-		if err != nil {
-			if s.Secret {
-				return undo{}, "", fmt.Errorf("%s is not a manifest this command wrote: run setup previews again", f)
-			}
-			return undo{}, "", fmt.Errorf("%s: %w", f, err)
 		}
 		objs = append(objs, o...)
 	}
 	// Only what this run creates is undone by deleting it: an object that
-	// was there is updated in place, its earlier content not kept.
+	// was there is updated in place, its earlier content not kept, which
+	// the undo says of a Secret.
 	var u undo
 	for _, o := range objs {
 		existed, err := r.Cluster.Exists(ctx, o)
@@ -231,9 +286,12 @@ func (r Runner) apply(ctx context.Context, s previewsetup.Step) (undo, string, e
 		}
 		if existed {
 			r.logf("patchy: applied %s (updated in place)\n", describe(o))
+			if s.Secret {
+				u.notes = append(u.notes, describe(o)+" was replaced in place; its earlier content is not kept")
+			}
 			continue
 		}
-		u.commands = append([]string{deleteCommand(o)}, u.commands...)
+		u.commands = append([]string{deleteCommand(s.Conn, o)}, u.commands...)
 		r.logf("patchy: applied %s (created)\n", describe(o))
 	}
 	return u, "", nil
@@ -246,9 +304,10 @@ func (r Runner) helm(ctx context.Context, s previewsetup.Step) (undo, error) {
 	if err != nil {
 		return undo{}, fmt.Errorf("read release %s in namespace %s: %w", h.Release, h.Namespace, err)
 	}
-	u := undo{commands: []string{fmt.Sprintf("helm rollback %s %d -n %s", h.Release, rev, h.Namespace)}}
+	helm := s.Conn.Helm()
+	u := undo{commands: []string{fmt.Sprintf("%s rollback %s %d -n %s", helm, h.Release, rev, h.Namespace)}}
 	if rev == 0 {
-		u.commands = []string{fmt.Sprintf("helm uninstall %s -n %s", h.Release, h.Namespace)}
+		u.commands = []string{fmt.Sprintf("%s uninstall %s -n %s", helm, h.Release, h.Namespace)}
 	}
 	return u, r.Helm.Run(ctx, previewsetup.HelmArgs(h, s.Timeout))
 }

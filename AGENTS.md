@@ -269,8 +269,12 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   `cmd/patchy/internal/previewapply` runs them over two ports, `Cluster` (`KubeCluster`: server-side apply as
   `patchy-setup-previews` with forced ownership, existence and Secrets read as metadata only) and `Helm` (`ExecHelm`:
   the helm binary on PATH with the caller's `--kubeconfig`/`--context`; the CLI links the Helm SDK only to render),
-  stopping at the first failure with the undo commands for what the run created or upgraded, newest first, and never
-  showing a Secret's content or an API server's message about one. `--apply --dry-run` prints the plan, contacting
+  stopping at the first failure with the undo commands for what the run created or upgraded, newest first (each, like
+  every `--dry-run` command, carrying the caller's `--kubeconfig`/`--context`: `previewsetup.Connection`; a Secret
+  replaced in place named as not restorable), refusing before any change to replace a Dex client secret already in the
+  cluster with one drawn anew because no secret file was on disk (`Step.NoReplace`, `ErrWouldReplace`; `--rotate
+  dex-client-secret` replaces it on purpose), and never showing a Secret's content or an API server's message about
+  one. Its check step is bounded by `check previews`' own timeout. `--apply --dry-run` prints the plan, contacting
   nothing. Dex's static client, DNS records, the tailnet policy, preview nodes and image pulls stay manual. All
   four recipes have landed: `existing` (R4: an Ingress class or a Gateway API parent), `gateway-tls` (R2:
   the gateway's own Local LoadBalancer Service terminating TLS, `forwardedHops: 0`) and `tailscale` (R3: that Service

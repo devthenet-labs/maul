@@ -13,6 +13,8 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
+
+	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/previewsetup"
 )
 
 // Objects decodes a manifest file, one object per YAML document, empty
@@ -52,8 +54,8 @@ func describe(o *unstructured.Unstructured) string {
 	return o.GetKind() + " " + o.GetName()
 }
 
-// deleteCommand is the kubectl command that deletes o.
-func deleteCommand(o *unstructured.Unstructured) string {
+// deleteCommand is the kubectl command that deletes o over conn.
+func deleteCommand(conn previewsetup.Connection, o *unstructured.Unstructured) string {
 	gvk := o.GroupVersionKind()
 	ref := strings.ToLower(gvk.Kind)
 	if gvk.Group != "" {
@@ -61,9 +63,9 @@ func deleteCommand(o *unstructured.Unstructured) string {
 	}
 	ref += "/" + o.GetName()
 	if ns := o.GetNamespace(); ns != "" {
-		return "kubectl -n " + ns + " delete " + ref
+		return conn.Kubectl() + " -n " + ns + " delete " + ref
 	}
-	return "kubectl delete " + ref
+	return conn.Kubectl() + " delete " + ref
 }
 
 // applyError is err for o. An API server's answer about a secret file's

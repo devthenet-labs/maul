@@ -13,23 +13,34 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/kubecfg"
 	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/previewapply"
 	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/previewsetup"
 )
 
-// applyCluster is a Cluster that keeps what was applied.
-type applyCluster struct{ applied []string }
+// applyCluster is a Cluster that keeps what was applied; existing are the
+// objects already there, by kind namespace/name.
+type applyCluster struct {
+	applied  []string
+	existing map[string]bool
+}
+
+func applyKey(o *unstructured.Unstructured) string {
+	return o.GetKind() + " " + o.GetNamespace() + "/" + o.GetName()
+}
 
 func (c *applyCluster) Apply(_ context.Context, o *unstructured.Unstructured) error {
-	c.applied = append(c.applied, o.GetKind()+" "+o.GetNamespace()+"/"+o.GetName())
+	c.applied = append(c.applied, applyKey(o))
 	return nil
 }
-func (*applyCluster) Exists(context.Context, *unstructured.Unstructured) (bool, error) {
-	return false, nil
+func (c *applyCluster) Exists(_ context.Context, o *unstructured.Unstructured) (bool, error) {
+	return c.existing[applyKey(o)], nil
 }
 func (*applyCluster) NamespaceExists(context.Context, string) (bool, error)         { return true, nil }
 func (*applyCluster) EnsureNamespace(context.Context, string) (bool, error)         { return false, nil }
@@ -189,6 +200,112 @@ func TestSetupPreviewsApply(t *testing.T) {
 	if failing.checks != 0 || !strings.Contains(errOut, "helm rollback patchy 1 -n patchy") {
 		t.Errorf("checks %d, stderr:\n%s", failing.checks, errOut)
 	}
+}
+
+// TestSetupPreviewsApplyConnection: --context and --kubeconfig ride into
+// every command the dry-run plan prints, so a pasted command reaches the
+// cluster --apply would.
+func TestSetupPreviewsApplyConnection(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "patchy-previews")
+	values := valuesFile(t)
+	r := &applyRun{}
+	out, errOut, err := r.exec(t, previewsArgs(dir, "--apply", "--values", values, "--chart-version", "0.12.42",
+		"--dry-run", "--context", "staging", "--kubeconfig", "/tmp/kube.yaml")...)
+	if err != nil {
+		t.Fatalf("dry run: %v\n%s", err, errOut)
+	}
+	for _, want := range []string{"against context staging of kubeconfig /tmp/kube.yaml",
+		"helm --kubeconfig /tmp/kube.yaml --kube-context staging status patchy -n patchy",
+		"kubectl --kubeconfig /tmp/kube.yaml --context staging apply --server-side",
+		"helm --kubeconfig /tmp/kube.yaml --kube-context staging upgrade patchy",
+		"patchy check previews -n patchy --kubeconfig /tmp/kube.yaml --context staging"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("dry run does not print %q:\n%s", want, out)
+		}
+	}
+}
+
+// TestSetupPreviewsApplyFreshSecret: a run whose output directory holds no
+// secret file draws a new Dex client secret, and --apply then refuses to
+// replace the relay's Secret already in the cluster, changing nothing;
+// --rotate dex-client-secret replaces it on purpose.
+func TestSetupPreviewsApplyFreshSecret(t *testing.T) {
+	values := valuesFile(t)
+	live := map[string]bool{"Secret patchy/patchy-preview-auth-dex": true}
+	dir := filepath.Join(t.TempDir(), "patchy-previews")
+	r := &applyRun{cluster: applyCluster{existing: live}}
+	_, errOut, err := r.exec(t, previewsArgs(dir, "--apply", "--values", values, "--chart-version", "0.12.42")...)
+	if !errors.Is(err, previewapply.ErrWouldReplace) || !strings.Contains(err.Error(), "--rotate dex-client-secret") {
+		t.Fatalf("apply over a live secret: %v\n%s", err, errOut)
+	}
+	if len(r.cluster.applied) > 0 || len(r.helm.runs) > 0 || r.checks > 0 {
+		t.Errorf("changed the cluster: %v %v", r.cluster.applied, r.helm.runs)
+	}
+	if strings.Contains(errOut, clientSecret(t, dir)) {
+		t.Error("the client secret was printed")
+	}
+
+	rotated := &applyRun{cluster: applyCluster{existing: live}}
+	_, errOut, err = rotated.exec(t, previewsArgs(filepath.Join(t.TempDir(), "patchy-previews"), "--apply",
+		"--values", values, "--chart-version", "0.12.42", "--rotate", "dex-client-secret")...)
+	if err != nil || !slices.Contains(rotated.cluster.applied, "Secret patchy/patchy-preview-auth-dex") {
+		t.Fatalf("--rotate: %v, applied %v\n%s", err, rotated.cluster.applied, errOut)
+	}
+	// Read back from the directory that wrote it, the secret is the live
+	// one and is applied as before.
+	again := &applyRun{cluster: applyCluster{existing: live}}
+	if _, errOut, err = again.exec(t, previewsArgs(dir, "--apply", "--values", values, "--chart-version",
+		"0.12.42")...); err != nil {
+		t.Fatalf("re-run: %v\n%s", err, errOut)
+	}
+}
+
+// TestSetupPreviewsApplyCheckBounded drives the real check step (no
+// previewApply fake): it is bounded by check previews' own timeout, as
+// every other step is by --wait-timeout.
+func TestSetupPreviewsApplyCheckBounded(t *testing.T) {
+	var reads int
+	h := checkProjectHarness(t, interceptor.Funcs{
+		List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+			reads++
+			deadline, ok := ctx.Deadline()
+			if !ok || time.Until(deadline) > checkPreviewsTimeout {
+				t.Errorf("the checks read the cluster with no bound (deadline %v, %v)", deadline, ok)
+			}
+			return c.List(ctx, list, opts...)
+		},
+	}, previewControllerSettings())
+	h.opts.tailnetStatus = noTailnet
+	h.opts.previewChecksNet = func() checkPreviewsDeps {
+		deps := checkPreviewsDepsFake
+		deps.resolver = boundedDNS{t: t, reads: &reads}
+		return deps
+	}
+	env, err := h.opts.Connect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = h.opts.applyDeps(env, testNamespace).check(context.Background())
+	if err == nil || !strings.HasSuffix(err.Error(), "check failed") {
+		t.Fatalf("check = %v\n%s", err, h.out)
+	}
+	if reads < 2 {
+		t.Errorf("the checks read the cluster and DNS %d times", reads)
+	}
+}
+
+// boundedDNS resolves nothing, failing t when asked with no bound.
+type boundedDNS struct {
+	t     *testing.T
+	reads *int
+}
+
+func (d boundedDNS) LookupHost(ctx context.Context, _ string) ([]string, error) {
+	*d.reads++
+	if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) > checkPreviewsTimeout {
+		d.t.Errorf("DNS asked with no bound (deadline %v, %v)", deadline, ok)
+	}
+	return nil, errors.New("no such host")
 }
 
 var _ previewapply.Cluster = (*applyCluster)(nil)
