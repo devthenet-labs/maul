@@ -174,19 +174,23 @@ yes
 The render-time checks of the codex runner, which runs brokered (codex broker
 design, group 2). Codex holds no credential, so its old secret, secretKey,
 secretEnv, hosts and dnsPatterns keys are refused, with the migration, while
-it is enabled (on a codex runner left off they do nothing, so an install that
-copied the old defaults renders as before); an enabled codex runner needs the
-broker's openai route; and codex evaluations are refused until evolve can be
-brokered (owner decision (b)). Context: the root; renders nothing.
+codex runs on any fleet (patchy.harnessEnabled: findings, or intents under
+intentController.codex.enabled, whose pods share the codex egress policy the
+old dnsPatterns would reach); while codex runs nowhere they do nothing, so
+an install that copied the old defaults renders as before. An enabled codex
+runner needs the broker's openai route; and codex evaluations are refused
+until evolve can be brokered (owner decision (b)). Context: the root; renders nothing.
 */}}
 {{- define "patchy.codexChecks" -}}
 {{- $codex := .Values.agent.runners.codex | default dict -}}
-{{- if $codex.enabled -}}
+{{- if include "patchy.harnessEnabled" (dict "root" . "id" "codex") -}}
 {{- range $k := list "secret" "secretKey" "secretEnv" "hosts" "dnsPatterns" -}}
 {{- if hasKey $codex $k -}}
 {{- fail (printf "agent.runners.codex.%s is removed: codex runs proxy-only through the egress broker and its pods hold no credential and reach no host but the broker. To migrate: (1) create the OpenAI API key Secret in the release namespace; (2) set egressBroker.openai.apiKey.secret (and .key) to it; (3) remove agent.runners.codex.secret, secretKey, secretEnv, hosts and dnsPatterns; (4) delete the old patchy-openai Secret from the agent namespace" $k) -}}
 {{- end -}}
 {{- end -}}
+{{- end -}}
+{{- if $codex.enabled -}}
 {{- if not (include "patchy.openaiRoute" .) -}}
 {{- fail "agent.runners.codex.enabled needs egressBroker.openai.apiKey: codex runs proxy-only through the egress broker's openai route, which holds the OpenAI API key (a Secret in the release namespace)" -}}
 {{- end -}}

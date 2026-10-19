@@ -1976,7 +1976,8 @@ agent:
             # egressBroker.openai.apiKey (the OpenAI API key Secret, in the
             # RELEASE namespace) and works under agent.networkPolicy.dns: none
             # and broadEgress: never. There are no secret/secretKey/secretEnv
-            # or hosts/dnsPatterns keys: with codex enabled, setting any of
+            # or hosts/dnsPatterns keys: with codex enabled (here, or for
+            # intents under intentController.codex.enabled), setting any of
             # them fails the render with the migration steps (move the key to
             # egressBroker.openai.apiKey, drop these keys, delete the old
             # patchy-openai Secret from the agent namespace).

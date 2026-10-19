@@ -2144,6 +2144,14 @@ render intent-on-codex-hardened -f "$ifx" --set intentController.codex.enabled=t
   --set egressBroker.openai.apiKey.secret=patchy-openai --set agent.networkPolicy.dns=none \
   --set agent.networkPolicy.broadEgress=never
 cm intent-on-codex-hardened intent-controller PATCHY_AGENT_DNS none
+# The removed codex keys are refused while codex runs only for intents too:
+# the codex intent pods share the codex egress policy an old dnsPatterns
+# would otherwise open a resolver name in.
+for k in secret=patchy-openai secretKey=api-key secretEnv=OPENAI_API_KEY 'hosts[0]=api.openai.com' 'dnsPatterns[0]=api.openai.com'; do
+  expect_fail "intent codex with codex.${k%%=*}" "is removed: codex runs proxy-only through the egress broker" \
+    -f "$ifx" --set intentController.codex.enabled=true --set egressBroker.openai.apiKey.secret=patchy-openai \
+    --set agent.networkPolicy.mode=cilium --set "agent.runners.codex.$k"
+done
 # With the intent controller off, its codex switch does nothing.
 render intent-off-codex --set intentController.codex.enabled=true
 expect intent-off-codex 'select(.kind == "Deployment" and .metadata.name == "patchy-egress-broker") | .spec.template.spec.volumes[].name | select(. == "openai")' ""
