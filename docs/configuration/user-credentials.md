@@ -1,9 +1,9 @@
 # Per-user model credentials
 
-Per-user model credentials let each person's own Anthropic API key or Claude setup-token pay for the runs attributed to
-them. A run with no human behind it (a Finding investigation, an unheld remediation, a plan triggered by someone who is
-not an approver) keeps using the org credential. It builds on [run attribution](attribution.md): whose credential pays
-is read from the run's attribution.
+Per-user model credentials let each person's own model credential pay for the runs attributed to them: an Anthropic API
+key or Claude setup-token for claude runs, an OpenAI API key for codex runs. A run with no human behind it (a Finding
+investigation, an unheld remediation, a plan triggered by someone who is not an approver) keeps using the org
+credential. It builds on [run attribution](attribution.md): whose credential pays is read from the run's attribution.
 
 The credential store (the `ModelCredential` kind, the credentials namespace, its RBAC and its admission policies), the
 broker's per-request resolution and health probes, the run controllers' hold on a person's run while their credential is
@@ -24,7 +24,7 @@ patchy kind is, but nothing grants access to it and no policy judges it.
 | `statusServer.account.enabled`                         | `false`              | serve the Account page                             |
 
 - `attribute` renders the store and has the broker read each run's attribution. People can register their credentials,
-  and their health is probed (the broker reads each stored credential and checks it with Anthropic), but the org
+  and their health is probed (the broker reads each stored credential and checks it with its provider), but the org
   credential still pays for every run; the audit line records the person.
 - `enforce` makes a run attributed to a person use that person's own credential or none. A run attributed to the org
   keeps the org credential. See [What the broker does](#what-the-broker-does). Remediation- and intent-controller do not
@@ -35,9 +35,10 @@ Turn them on in that order, `attribute` before `enforce`: see [Rolling it out](#
 Either mode is refused at render time unless all of the following hold:
 
 - `attribution.mode` is `attribute`.
-- The egress broker is deployed (a claude runner is enabled).
-- `agent.runners.claude.provider.name` is `anthropic`. Bedrock, Vertex and Foundry use the broker's one cloud identity,
-  so they get attribution and usage only.
+- The egress broker is deployed (a claude or codex runner is enabled).
+- While claude runs anywhere, `agent.runners.claude.provider.name` is `anthropic`. Bedrock, Vertex and Foundry use the
+  broker's one cloud identity, so they get attribution and usage only. With claude off and only codex on, claude's
+  provider does not matter.
 - The credentials namespace is neither the release namespace nor the agent namespace.
 - The subscription guard passes (below).
 
@@ -61,9 +62,9 @@ the `patchy-anthropic` Secret's `api-key` for the API key and set `anthropicAuth
 
 ## The store
 
-Each person's credential is one Secret per provider in the credentials namespace, and one `ModelCredential` record in
-the release namespace holds the non-secret facts about it. Both names derive from the owner's GitHub numeric id, so no
-caller ever chooses one:
+Each person's credential is one Secret per provider (`anthropic`, `openai`) in the credentials namespace, and one
+`ModelCredential` record in the release namespace holds the non-secret facts about it. Both names derive from the
+owner's GitHub numeric id, so no caller ever chooses one:
 
 | Object              | Namespace   | Name                           |
 | ------------------- | ----------- | ------------------------------ |
@@ -79,8 +80,9 @@ A `ModelCredential` (short name `mcred`) holds:
 
 - `spec.owner`: `github-id:<id>`, immutable;
 - `spec.ownerLogin`: the GitHub login, for display only;
-- `spec.provider`: `anthropic`, immutable;
-- `spec.kind`: `api-key` or `oauth-token` (a setup-token);
+- `spec.provider`: `anthropic` or `openai`, immutable;
+- `spec.kind`: `api-key` or `oauth-token` (a setup-token, Anthropic only: an `openai` record is always an `api-key`,
+  which the CRD enforces);
 - `status.fingerprint`: the credential's last four characters and a SHA-256 prefix, never more of it;
 - `status.health`: `Valid`, `Rejected` or `Unknown` (empty is `Unknown`), from probes the broker issues itself;
 - `status.secretVersion`: the credential Secret's `resourceVersion` that health was found for; a health is `Unknown` for
@@ -95,7 +97,11 @@ deliberately not in the `patchy` category, so `kubectl get patchy` does not list
 With either mode on, the chart passes the broker `--user-credentials` (the mode), `--credential-records-namespace` (the
 release namespace) and `--credentials-namespace`, and `--org-credential-is-personal acknowledged` when it is set. The
 broker itself refuses to start in either mode while the org credential is a setup-token unless that acknowledgement is
-given, or beside any route but anthropic.
+given, or beside any route but anthropic and openai.
+
+Each route resolves its own provider's credentials only: a request on the anthropic route reads the person's `anthropic`
+record, one on the openai route (codex) their `openai` record. A person's Anthropic credential never pays for a codex
+run, nor their OpenAI key for a claude run.
 
 For each request, after the TokenReview:
 
@@ -108,7 +114,8 @@ For each request, after the TokenReview:
    them (from an informer), and the Secret named for them. The Secret's version comes from a metadata-only informer, and
    its data from a live read, kept for at most a minute while its version holds. The Secret must carry the owner label
    equal to the hash in its name, be `Opaque`, hold only `credential`, and the credential must be one token of printable
-   ASCII. An API key is sent as `x-api-key`, a setup-token as an `Authorization` bearer.
+   ASCII. An Anthropic API key is sent as `x-api-key`, a setup-token as an `Authorization` bearer, an OpenAI API key as
+   an `Authorization` bearer.
 
 Under `enforce` nothing falls back to the org credential. A request that cannot be resolved is refused before it reaches
 the provider, and the reason is in the error the agent sees, the audit line and the request counter:
@@ -119,7 +126,7 @@ the provider, and the reason is in the error the agent sees, the audit line and 
 | `attribution_missing`       | 403    | the pod carries no `attributed-to` annotation                                          |
 | `attribution_invalid`       | 403    | the annotation is outside its grammar                                                  |
 | `credentials_unsynced`      | 503    | the broker's informers have not listed yet (a retry succeeds once they have)           |
-| `credential_missing`        | 403    | the person has no `ModelCredential`                                                    |
+| `credential_missing`        | 403    | the person has no `ModelCredential` for the route's provider                           |
 | `credential_mismatch`       | 403    | the record found is not the person's (owner, provider or kind)                         |
 | `credential_secret_missing` | 403    | the person has a record but no Secret                                                  |
 | `credential_secret_invalid` | 403    | the Secret breaks the store's contract (label, type, keys or value)                    |
@@ -131,12 +138,14 @@ The run controllers hold a person's run before it gets here: see [Holding a run]
 ## Holding a run
 
 Under `enforce`, a run the broker would refuse would spend its attempt on a 403. So remediation-controller and
-intent-controller ask first: before they create a run attributed to a person, that person's `ModelCredential` must be
-`Valid`. They read only the record, by its derived name (`get` on `modelcredentials`, granted only with the mode on),
-never a Secret. The chart passes them the mode as `--user-credentials` (`PATCHY_USER_CREDENTIALS`) and, once the Account
-page is on with `statusServer.host` set, its URL as `--account-url` (`PATCHY_ACCOUNT_URL`; integration-controller gets
-it too). Under `off` and `attribute` nothing is held, and a run attributed to the org (or to an approver with no GitHub
-id on record, such as every status-page approval) is never held.
+intent-controller ask first: before they create a run attributed to a person, that person's `ModelCredential` for the
+run's provider must be `Valid`. The provider is the run's harness's: claude needs the person's `anthropic` record, codex
+their `openai` record (copilot holds its own token, so its runs are never held). They read only the record, by its
+derived name (`get` on `modelcredentials`, granted only with the mode on), never a Secret. The chart passes them the
+mode as `--user-credentials` (`PATCHY_USER_CREDENTIALS`) and, once the Account page is on with `statusServer.host` set,
+its URL as `--account-url` (`PATCHY_ACCOUNT_URL`; integration-controller gets it too). Under `off` and `attribute`
+nothing is held, and a run attributed to the org (or to an approver with no GitHub id on record, such as every
+status-page approval) is never held.
 
 | Run                       | Held as                                                                                    | Who must add a credential  |
 | ------------------------- | ------------------------------------------------------------------------------------------ | -------------------------- |
@@ -146,13 +155,14 @@ id on record, such as every status-page approval) is never held.
 | Intent revise (command)   | the same, blocked from `InReview`; the command is read again once the block lifts          | the commenter              |
 | Intent revise (reviews)   | the same                                                                                   | the newest reviewer        |
 
-The condition's reason says what is wrong: `CredentialMissing` (none stored), `CredentialRejected` (Anthropic rejected
-it) or `CredentialUnverified` (stored, not yet probed: the broker probes a new credential within moments).
+The condition's reason says what is wrong: `CredentialMissing` (none stored for the provider), `CredentialRejected` (the
+provider rejected it) or `CredentialUnverified` (stored, not yet probed: the broker probes a new credential within
+moments). The message names the provider, and a held Finding records it in `status.credentialHoldProvider`.
 
 **Telling the person.** An Intent's status comment says who must add a credential and links the Account page. A held
 Finding's tracking issue gets one comment that names the person held and links the page, edited once the hold lifts; it
-is rendered from the Finding's `status.credentialHold` (else its approval), never from the condition's message. The
-public intents board says only that a person's credential is missing, never whose.
+is rendered from the Finding's `status.credentialHold` (else its approval) and `status.credentialHoldProvider`, never
+from the condition's message. The public intents board says only that a person's credential is missing, never whose.
 
 **Lifting.** Nothing is replanned or re-investigated. The hold lifts on its own once the credential is `Valid`: a
 Finding is looked at again every minute, a blocked Intent on its poll. It also lifts when someone holding a valid
@@ -184,9 +194,11 @@ apart.
 
 A credential's `status.health` comes only from probes the broker issues itself, never from a run's traffic:
 
-- An API key is probed with `GET /v1/models?limit=1`, which costs nothing. A setup-token is probed by asking
+- An Anthropic API key is probed with `GET /v1/models?limit=1`, which costs nothing. A setup-token is probed by asking
   `--credential-probe-model` (`claude-haiku-4-5`) for one output token, with the OAuth beta header, because a
   subscription authorises messages.
+- An OpenAI API key is probed with `GET /v1/models` on the openai route's base URL, which costs nothing.
+- Each provider's records are probed by that provider's probe only, against its own route's target.
 - A 2xx is `Valid`, a 401 is `Rejected`; anything else is no verdict, retried a few times, a minute apart.
 - `status.secretVersion` records the Secret version a health was found for. A health speaks only for that version: once
   the Secret changes, the broker resets health to `Unknown` and probes the new credential.
@@ -259,7 +271,8 @@ Three `ValidatingAdmissionPolicies` fail closed:
   in two cases. A run of its owner calls, and the credential is then kept for at most a minute. Or the broker probes the
   credential's health, which it does under both `attribute` and `enforce`: once per new Secret version, at every broker
   start for each credential whose health is `Unknown`, and on a throttled recheck after a refusal. A probe sends the
-  credential to Anthropic and keeps only its verdict and fingerprint, never the credential.
+  credential to its own provider (Anthropic or OpenAI, never the other) and keeps only its verdict and fingerprint,
+  never the credential.
 - Which credential pays is decided by the run's attribution, which only the run controllers may set (the attribution
   policies), read from the caller's own pod, UID-checked. A prompt-injected agent cannot choose another person's.
 - A setup-token probe spends one output token of that person's subscription per new credential version, and at most one
