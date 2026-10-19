@@ -26,6 +26,7 @@ import (
 	"github.com/bitwise-media-group/patchy/internal/agentrun"
 	"github.com/bitwise-media-group/patchy/internal/attribution"
 	"github.com/bitwise-media-group/patchy/internal/harness"
+	"github.com/bitwise-media-group/patchy/internal/model"
 	"github.com/bitwise-media-group/patchy/internal/netprofile"
 	"github.com/bitwise-media-group/patchy/internal/provider"
 	"github.com/bitwise-media-group/patchy/internal/runnerimage"
@@ -235,20 +236,20 @@ const waitProbeScript = toolsBinDir + `/` + agentRunnerBin + ` ` + sandboxprobe.
 `
 
 // Runner is one harness's agent-runner deployment surface: the container image
-// bundling that harness's CLI and the Secret its model credential is injected
-// from. A Job picks its Runner by the harness resolved for its model, so a
-// claude Job runs the claude image with the Anthropic credential, a codex Job
-// the codex image with the OpenAI credential, and a copilot Job the copilot
-// image with the GitHub token that CLI authenticates with.
+// bundling that harness's CLI and how its model traffic is authorised. A Job
+// picks its Runner by the harness resolved for its model, so a claude Job
+// runs the claude image and a codex Job the codex image, both brokered (no
+// credential in the pod: runnercfg builds them so, by
+// model.HarnessBrokered), and a copilot Job the copilot image with the
+// GitHub token that CLI authenticates with, injected from a Secret.
 type Runner struct {
 	Image     string // the agent-runner image bundling this harness's CLI
 	Secret    string // name of the Secret holding the model credential
 	SecretKey string // key within it (default "api-key")
 	// SecretEnv is the env var the credential is injected into the agent
-	// container as: ANTHROPIC_API_KEY / CLAUDE_CODE_OAUTH_TOKEN for claude,
-	// OPENAI_API_KEY for codex, COPILOT_GITHUB_TOKEN (or GH_TOKEN /
-	// GITHUB_TOKEN) for copilot. The fake runner needs no credential and may
-	// leave Secret empty.
+	// container as: COPILOT_GITHUB_TOKEN (or GH_TOKEN / GITHUB_TOKEN) for
+	// copilot, the one harness that still holds its own credential. The fake
+	// runner needs no credential and may leave Secret empty.
 	SecretEnv string
 	// Brokered routes this runner's model traffic through the egress
 	// credential broker: the pod gets no model credential at all — only an
@@ -265,8 +266,9 @@ type Runner struct {
 	// runs a repository-declared image instead: the prepare init copies each
 	// one from toolsBinDir into the patchy-bin volume, agent-runner always
 	// among them since the agent container runs it from there. Nil means this
-	// harness never runs a repository image (codex and copilot hold a real
-	// credential in-pod; the fake harness replays fixtures), whatever the
+	// harness never runs a repository image (codex is not built to inject,
+	// copilot holds a real credential in-pod; the fake harness replays
+	// fixtures), whatever the
 	// Repository declares. runnercfg sets {"agent-runner", "claude"} for the
 	// claude runner, so "claude only" is configuration, not code. A runner
 	// that injects a Secret credential (not Brokered, Secret set) may not
@@ -1313,9 +1315,11 @@ func (c *Client) agentEnv(runner Runner, spec Spec) []corev1.EnvVar {
 	// only the fixed placeholder the CLI's login gate demands, which the
 	// broker strips.
 	if runner.Brokered {
-		return append(env,
-			corev1.EnvVar{Name: "PATCHY_BROKER_TOKEN_FILE", Value: brokerTokenPath},
-			brokeredPlaceholderEnv())
+		env = append(env, corev1.EnvVar{Name: "PATCHY_BROKER_TOKEN_FILE", Value: brokerTokenPath})
+		if needsPlaceholder(spec.Harness) {
+			env = append(env, brokeredPlaceholderEnv())
+		}
+		return env
 	}
 	// The fake runner needs no credential; the fixture replay authenticates
 	// nothing.
@@ -1329,6 +1333,13 @@ func (c *Client) agentEnv(runner Runner, spec Spec) []corev1.EnvVar {
 		},
 	}})
 }
+
+// needsPlaceholder reports whether a brokered harness's container carries
+// the placeholder as a pod env (brokeredPlaceholderEnv): every brokered
+// harness but codex, whose placeholder agent-runner sets in the CLI's own
+// environment, stage by stage, beside the caller token
+// (provider.CodexPlaceholderKeyEnv).
+func needsPlaceholder(harnessID string) bool { return harnessID != model.HarnessCodex }
 
 // brokeredPlaceholderEnv is the non-secret auth token every brokered claude
 // container carries so the CLI starts (see provider.PlaceholderAuthToken).

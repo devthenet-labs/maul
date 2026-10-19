@@ -46,19 +46,22 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   Jobs, changeset push + PR via the forge write seam (the finding flow's only write credential), and hosts the
   rollup/TTL loop (and the hourly `UsageRollup` compaction).
 - `cmd/agent-runner` — the in-pod coding-agent runtime: one stage per Job (`investigate` or `remediate`) via
-  `claude -p`, results emitted as a `PATCHY-EVENT:` JSONL stream on stdout, beside the `PATCHY-TURN:` transcript and the
-  live, never-persisted `PATCHY-OUTPUT:` command output. Never talks to GitHub or the Kubernetes API; a claude pod holds
-  no credential at all (model traffic goes through the egress broker, authenticated by a projected SA token read fresh
-  per stage), a codex/copilot pod only its model key. Two subcommands share the binary: `sandbox-probe` (the
+  `claude -p` (or `codex exec`), results emitted as a `PATCHY-EVENT:` JSONL stream on stdout, beside the `PATCHY-TURN:`
+  transcript and the live, never-persisted `PATCHY-OUTPUT:` command output. Never talks to GitHub or the Kubernetes API;
+  a claude or codex pod holds no credential at all (model traffic goes through the egress broker, authenticated by a
+  projected SA token read fresh per stage; codex gets it as `PATCHY_BROKER_TOKEN` in its own environment and the broker
+  as a `patchy` provider on its command line, `harness.Gateway`), a copilot pod only its token. Two subcommands share
+  the binary: `sandbox-probe` (the
   `internal/sandboxprobe` check the trusted prepare init runs: `--mode strict`, the default, for a repository image,
   exit 78 when egress is open; `--mode wait --targets k8s,imds` for every other non-evaluation Job, exit 0 either way)
   and `preflight` (what `patchy check image --run` drives).
 - `cmd/egress-broker` — the egress credential broker (NOT a controller: no reconcilers, no leases): the reverse
-  proxy all claude model traffic goes through, one route per provider (anthropic — key or `claude setup-token`
-  bearer via `--anthropic-auth` — plus bedrock SigV4, vertex OAuth, foundry key/entra, and the OpenAI Responses route
-  `/openai`, off unless `--openai-api-key-file`, chart `egressBroker.openai.apiKey`, which no runner uses yet: POST
-  `/v1/responses` and GET `/v1/models` only, its own dialect in `internal/broker/openai.go` for inspection, usage
-  from the terminal event up to 8 MiB, and OpenAI's error envelope, a limit as `insufficient_quota`). Validates caller
+  proxy all claude and codex model traffic goes through, one route per provider (anthropic — key or `claude
+  setup-token` bearer via `--anthropic-auth` — plus bedrock SigV4, vertex OAuth, foundry key/entra, and the OpenAI
+  Responses route `/openai` the codex runner runs on, off unless `--openai-api-key-file`, chart
+  `egressBroker.openai.apiKey`: POST `/v1/responses` and GET `/v1/models` only, its own dialect in
+  `internal/broker/openai.go` for inspection (client-run tools only, a `namespace` of them included, as codex sends),
+  usage from the terminal event up to 8 MiB, and OpenAI's error envelope, a limit as `insufficient_quota`). Validates caller
   tokens via TokenReview (its only Kubernetes access but the pod read and, with per-user credentials on, the credential
   store, both below), strips them, injects/signs the model credential
   outbound, streams SSE with idle keep-alive pings, audits one slog line per request. Spend limits count tokens, or
@@ -69,9 +72,10 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   (chart: under `attribution.mode: attribute`; off by default) it also serves its per-Job, per-model usage ledger on a
   listener of its own (`GET /v1/usage/jobs/<job>`, port 8082) to the run controllers' ServiceAccounts only
   (`--usage-callers`, their own token audience, `internal/usagewire`). Engine in
-  `internal/broker`; deployed by the chart when a claude runner is enabled (claude ⇒ broker;
-  proxy-only, no in-pod credential mode), or a codex runner with `egressBroker.openai.apiKey` set. One replica,
-  always: the usage figures depend on it.
+  `internal/broker`; deployed by the chart when a claude or codex runner is enabled (claude or codex ⇒ broker;
+  proxy-only, no in-pod credential mode; codex also needs `egressBroker.openai.apiKey`, and until per-user OpenAI keys
+  exist, `userCredentials` other than off is refused beside codex). One replica, always: the usage figures depend on
+  it.
   Per-user model credentials (design L3; chart `egressBroker.userCredentials.mode` `off` by default, `attribute` or
   `enforce`, chart only, needing `attribution.mode: attribute` and the anthropic provider, a setup-token org credential
   refused unless `orgCredentialIsPersonal: acknowledged`) render the credential store: the `ModelCredential` kind
@@ -485,7 +489,8 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
 - `credgate` — the run controllers' side of per-user credentials (design L3 "Fallback", revision 1), PURE (stdlib +
   `api/v1alpha1`, a test pins that): the `--user-credentials` mode (`off`, `attribute`, `enforce`), `Judge`/`Check`
   (under `enforce` a run attributed to a person is held unless that person's own anthropic `ModelCredential` is
-  `Valid`; org runs and the other modes never; seeded property), the hold's reasons and `Message`, and
+  `Valid`; org runs and the other modes never; seeded property; remediation judges claude runs only, so a codex run is
+  never held on an Anthropic record), the hold's reasons and `Message`, and
   `CheckAccountURL` (`--account-url`, written into Markdown). `credgate/kubecred` is the `Lookup` over an uncached
   reader (get by derived name only). Consumers: remediation's spawner (`credential_hold.go`), intent
   (`credential_hold.go`), and integration-controller's held-Finding comment (`templates.RenderCredentialHoldComment`).
@@ -574,7 +579,11 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   grammar, `--setting-sources user`, `--permission-mode dontAsk`, `--strict-mcp-config`, and `--restricted` for the
   read-only one) are probed against the REAL pinned CLI by `TestClaudePostureProbe` (`mise run claude-posture-probe`;
   CI runs it when the `CLAUDE_VERSION` pin or the posture changes): a scratch tree whose hooks, env block, settings and
-  `.mcp.json` must stay inert, a scripted fake model on loopback, no credential.
+  `.mcp.json` must stay inert, a scripted fake model on loopback, no credential. Codex renders the broker as a `patchy`
+  Responses provider from `PromptRequest.Gateway` (`-c model_providers.patchy.*`, names of the token and placeholder
+  variables only, never a value; name not "OpenAI", which would turn on zstd bodies), plus analytics, OTel metrics,
+  plugins and web search off; its argv and stream are pinned from the real pinned CLI (rust-v0.153.4) run against a
+  recording Responses server (`internal/harness/testdata/codex-0.153.4-*.jsonl`).
 - `agentrun` — the in-pod stage flow (`investigate` | `remediate`, and the intent stages `plan` | `build`, which
   reuse investigate's and remediate's configuration and helpers and run on brokered claude only);
   `report`/`envelope` are its contracts (frontmatter schemas in, JSONL events out — a `plan` event beside the
@@ -587,11 +596,13 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   persisted, never a turn, never idle-watchdog progress; `jobs.scanLog` skips it), and one lock serialises every
   stdout line.
 - `jobs` — the Kubernetes Job the agent runs in. The isolation model lives here, and it STRENGTHENED with the
-  broker: a brokered (claude) pod holds no credential of any kind — its projected SA token (audience-bound,
-  agent container only, never the init) is an identity document, not a capability; its fixed, non-secret
+  broker: a brokered (claude, codex) pod holds no credential of any kind — its projected SA token (audience-bound,
+  agent container only, never the init) is an identity document, not a capability; claude's fixed, non-secret
   `ANTHROPIC_AUTH_TOKEN` placeholder (`provider.PlaceholderAuthToken`) exists only to get past the CLI's login
-  gate and is stripped by the broker — while non-brokered runners
-  keep the one SecretKeyRef; the init container fetches the digest-verified artifact tarball, identity-free.
+  gate and is stripped by the broker (codex's is set per stage by agent-runner, `PATCHY_CODEX_PLACEHOLDER_KEY`, so a
+  codex pod's env carries only `PATCHY_CODEX_BASE_URL` and the token file) — while the non-brokered copilot runner
+  keeps the one SecretKeyRef; a codex evaluation Job is refused (`ErrCodexEvaluation`: evolve cannot be brokered
+  yet); the init container fetches the digest-verified artifact tarball, identity-free.
   `reservedEnv` covers every credential channel plus the provider gateway names; `Runner.Env` is the per-runner
   gateway env (wins over `Config.Env`, can never name a credential). `eval.go` is the evaluation Job flavour
   (same posture; `evolve exec-unit` instead of `agent-runner` — wrapped in a capture-once token export when
@@ -623,9 +634,13 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   remediation, intent, evaluation): per-harness runner images and credential Secrets, harness restriction, repository
   images, network profiles, agent resources, agent DNS, `--agents-paused`, `--attribution-mode`, the `--usage-*`
   flags (`UsageMeter`), the brokered claude
-  provider config, and
+  provider config, the brokered codex runner (`Brokered` from `model.HarnessBrokered`, the predicate the usage meter
+  reads too; `--codex-secret*` removed, hidden and refused with the migration where codex would run;
+  `--evolve-codex-image` refused, `ErrCodexEvaluations`; `CodexUserCredentials`, the temporary guard against
+  `--user-credentials` beside codex), and
   `Resolve` (every allowlisted model runnable; then one advisory 5-second broker `/readyz` probe that logs
-  `egress broker not reachable yet; claude jobs will fail until it is` and never gates startup; intent-controller uses
+  `egress broker not reachable yet; brokered (claude, codex) jobs will fail until it is` and never gates startup;
+  intent-controller uses
   `ResolveWithoutBrokerProbe`).
 - `broker`, `provider` — the egress-broker engine (TokenReview auth + verdict cache, per-route credential
   strategies, per-user credential resolution and health probes behind `Config.UserCredentials` with its adapter in
@@ -643,7 +658,8 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   `attribution.mode: attribute`): at a terminal run whose usage is not `final`, `Settle` asks the broker for the run's
   Job (projected usage-audience token, read per call), waits up to 2 minutes while requests are in flight or the broker
   is unreachable, and decides `measured` (broker booted before the Job), `partial` or `reported` (no entry, no answer,
-  or a non-brokered harness, judged from the controller's own launch harness, never the pod's); `Price` normalises ids
+  or a non-brokered harness, `model.HarnessBrokered` false — claude and codex are brokered — judged from the
+  controller's own launch harness, never the pod's); `Price` normalises ids
   with `model.Resolve` and prices observed tokens only at `model.PriceTableVersion` (cache writes 1.25x/2x; unknown
   model: tokens kept, no cost; subscription: notional). Each of the four controllers writes `status.usage` (or
   `status.stage.usage`) `measured`/`source`/`final` itself. `usagemetertest` is a fake broker for their tests.

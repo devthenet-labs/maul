@@ -16,7 +16,8 @@ data:
     # from the model) the investigation may choose between. Only the claude
     # runner is enabled here; add `codex` to
     # PATCHY_HARNESSES and OpenAI models to the allowlist to let the
-    # investigation choose them. Adding `copilot` instead makes every
+    # investigation choose them (codex is brokered: give the egress broker
+    # the OpenAI key, base/secrets.example.yaml 2b). Adding `copilot` instead makes every
     # allowlisted model runnable through one credential — but that credential is
     # a GitHub token rather than a model API key, so read the note on
     # PATCHY_COPILOT_SECRET in the base ConfigMap before enabling it in prod.

@@ -203,7 +203,7 @@ func (a *Agent) repairRound(ctx context.Context, sr *stageRun, st *envelope.Stag
 			return repairResult{why: "the working tree could not be fingerprinted to guard a repair: " + err.Error()}
 		}
 	}
-	env, err := a.brokerEnv()
+	env, gateway, err := a.brokerEnv(sr.h)
 	if err != nil {
 		return repairResult{why: err.Error()}
 	}
@@ -221,7 +221,7 @@ func (a *Agent) repairRound(ctx context.Context, sr *stageRun, st *envelope.Stag
 	}
 
 	req := sr.req
-	req.Prompt, req.Env = prompt, env
+	req.Prompt, req.Env, req.Gateway = prompt, env, gateway
 	req.MaxTurns = repairMaxTurns
 	if sr.req.MaxTurns > 0 {
 		req.MaxTurns = min(repairMaxTurns, sr.req.MaxTurns-st.NumTurns)

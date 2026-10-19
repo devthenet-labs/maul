@@ -73,7 +73,7 @@ const resolveTimeout = 10 * time.Second
 
 // NeedsResolver reports whether a runner's pod reaches its model API by
 // name: a runner that injects a Secret credential and is not brokered
-// (codex, copilot) talks to its vendor's API directly, and that API's
+// (copilot) talks to its vendor's API directly, and that API's
 // addresses cannot be pinned at Job creation the way a ClusterIP Service's
 // can. Such a runner cannot run under DNSNone.
 func NeedsResolver(r Runner) bool {

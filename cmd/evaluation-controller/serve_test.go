@@ -132,7 +132,9 @@ func TestUploadClient(t *testing.T) {
 
 func TestResolveFleet(t *testing.T) {
 	log := slog.New(slog.DiscardHandler)
-	withSecret := map[string][]string{"patchy-openai": {"api-key"}}
+	// The Secret path a non-brokered evaluation runner takes is copilot's:
+	// codex evaluations are refused (TestServeStartupErrors).
+	withSecret := map[string][]string{"patchy-copilot": {"token"}}
 	for _, tt := range []struct {
 		name    string
 		args    func(t *testing.T) []string
@@ -147,31 +149,31 @@ func TestResolveFleet(t *testing.T) {
 			want: []string{"fake"},
 		},
 		{
-			name: "codex with its credential",
+			name: "copilot with its credential",
 			args: func(t *testing.T) []string {
-				return []string{"--evolve-codex-image", "codex:1", "--kubeconfig", fakeAPIServer(t, withSecret)}
+				return []string{"--evolve-copilot-image", "copilot:1", "--kubeconfig", fakeAPIServer(t, withSecret)}
 			},
-			want: []string{"codex"},
+			want: []string{"copilot"},
 		},
 		{
-			name: "codex without its credential",
+			name: "copilot without its credential",
 			args: func(t *testing.T) []string {
-				return []string{"--evolve-codex-image", "codex:1", "--kubeconfig", fakeAPIServer(t, nil)}
+				return []string{"--evolve-copilot-image", "copilot:1", "--kubeconfig", fakeAPIServer(t, nil)}
 			},
 			wantErr: "no evolve runner enabled",
 		},
 		{
-			name: "codex credential lacking its key",
+			name: "copilot credential lacking its key",
 			args: func(t *testing.T) []string {
-				return []string{"--evolve-codex-image", "codex:1", "--kubeconfig",
-					fakeAPIServer(t, map[string][]string{"patchy-openai": {"other"}})}
+				return []string{"--evolve-copilot-image", "copilot:1", "--kubeconfig",
+					fakeAPIServer(t, map[string][]string{"patchy-copilot": {"other"}})}
 			},
-			wantErr: `has no key "api-key"`,
+			wantErr: `has no key "token"`,
 		},
 		{
-			name: "codex cannot run without a resolver",
+			name: "copilot cannot run without a resolver",
 			args: func(t *testing.T) []string {
-				return []string{"--evolve-codex-image", "codex:1", "--agent-dns", "none",
+				return []string{"--evolve-copilot-image", "copilot:1", "--agent-dns", "none",
 					"--kubeconfig", fakeAPIServer(t, withSecret)}
 			},
 			wantErr: "needs a resolver",
@@ -233,6 +235,9 @@ func TestServeStartupErrors(t *testing.T) {
 			writeFile(t, "auth.yaml", "mode: oidc\n")}, wantErr: "requires oidc.issuerURL"},
 		{name: "no runner", args: []string{"--namespace", "p", "--auth-config", none},
 			wantErr: "no evolve runner configured"},
+		{name: "a codex runner", args: []string{"--namespace", "p", "--auth-config", none,
+			"--evolve-codex-image", "codex:1"},
+			wantErr: "codex evaluations are refused until evolve supports the egress broker's provider config"},
 		{name: "missing kubeconfig", args: []string{"--namespace", "p", "--auth-config", none,
 			"--evolve-fake-image", "fake:1", "--kubeconfig", filepath.Join(t.TempDir(), "absent")},
 			wantErr: "kubeconfig"},

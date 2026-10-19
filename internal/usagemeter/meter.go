@@ -60,8 +60,9 @@ type Run struct {
 }
 
 // Brokered reports whether a harness's model traffic goes through the
-// broker: brokered claude only.
-func Brokered(harness string) bool { return harness == model.HarnessClaude }
+// broker, so the broker measured its runs: model.HarnessBrokered (claude
+// and codex).
+func Brokered(harness string) bool { return model.HarnessBrokered(harness) }
 
 // Outcome is a run's settled usage.
 type Outcome struct {

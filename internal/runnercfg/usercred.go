@@ -5,12 +5,14 @@ package runnercfg
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/spf13/pflag"
 
 	"github.com/bitwise-media-group/patchy/internal/attribution"
 	"github.com/bitwise-media-group/patchy/internal/cli"
 	"github.com/bitwise-media-group/patchy/internal/credgate"
+	"github.com/bitwise-media-group/patchy/internal/model"
 )
 
 // RegisterUserCredentialsFlags adds --user-credentials and --account-url,
@@ -59,4 +61,19 @@ func AccountURL(opts *cli.Options) (string, error) {
 		return "", fmt.Errorf("--%s: %w", credgate.AccountURLFlag, err)
 	}
 	return raw, nil
+}
+
+// CodexUserCredentials refuses per-user credentials beside an enabled codex
+// harness: they are Anthropic API keys and setup-tokens only for now, the
+// broker refuses to start them beside its openai route, and a codex run
+// must never be held on, or paid by, an Anthropic record. A temporary
+// guard (codex broker design, group 2) that goes once per-user OpenAI keys
+// exist. enabled is the resolved harness set.
+func CodexUserCredentials(mode credgate.Mode, enabled []string) error {
+	if mode == credgate.ModeOff || !slices.Contains(enabled, model.HarnessCodex) {
+		return nil
+	}
+	return fmt.Errorf("--%s %s with the codex harness enabled: per-user credentials cover Anthropic only for "+
+		"now, and the egress broker refuses them beside its openai route; set --%s %s, or disable codex "+
+		"(--harnesses)", credgate.Flag, mode, credgate.Flag, credgate.ModeOff)
 }

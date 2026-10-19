@@ -582,6 +582,9 @@ func TestRepairNeedsAResumer(t *testing.T) {
 				var out bytes.Buffer
 				cfg, ws := c.setup(t, &out)
 				cfg.InvestigateHarness, cfg.RemediateHarness, cfg.BrokerTokenFile = h.id, h.id, ""
+				if h.id == "codex" { // brokered only: it refuses to start otherwise
+					cfg.BrokerTokenFile, cfg.CodexBaseURL = codexTokenFile(t), "http://broker:8080/openai/v1"
+				}
 				first := c.first(ws, c.bad)
 				first.stdout = h.stream
 				fx := &fakeExec{steps: []step{first}}

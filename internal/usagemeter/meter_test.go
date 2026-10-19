@@ -136,7 +136,7 @@ func TestSettle(t *testing.T) {
 
 	// Not brokered, or never launched: reported at once, no fetch.
 	for _, r := range []Run{
-		{UID: "a", Job: job, Created: created, Harness: model.HarnessCodex},
+		{UID: "a", Job: job, Created: created, Harness: model.HarnessCopilot},
 		{UID: "b", Job: job, Created: created, Harness: model.HarnessFake},
 		{UID: "c", Created: created, Harness: model.HarnessClaude},
 	} {
@@ -499,5 +499,38 @@ func TestPendingDeleted(t *testing.T) {
 		if got := tc.m.PendingDeleted(tc.ref, tc.u); got != tc.want {
 			t.Errorf("%s: PendingDeleted = %v, want %v", tc.name, got, tc.want)
 		}
+	}
+}
+
+// TestSettleCodexMeasured: codex runs brokered (model.HarnessBrokered), so
+// its run settles measured from the broker's ledger like claude's, priced
+// from the registry's OpenAI rates, cache reads at the cached-input rate.
+func TestSettleCodexMeasured(t *testing.T) {
+	codex := usagewire.Model{Model: "gpt-5.3-codex-2026-02-05", Route: "openai",
+		Credential: usagewire.CredentialAPIKey, Input: 1_000_000, CacheRead: 1_000_000, Output: 100_000}
+	f := &fakeFetcher{answers: []usagewire.Response{{BootTime: t0, Pods: []usagewire.Pod{pod(0, codex)}}},
+		errs: []error{nil}}
+	m := &Meter{Fetcher: f, Now: func() time.Time { return t0.Add(2 * time.Hour) }}
+	out, _ := m.Settle(t.Context(), Run{UID: "uid", Job: job, Created: created, Harness: model.HarnessCodex})
+	if out == nil || out.Source != v1alpha1.UsageSourceMeasured || out.Measured == nil {
+		t.Fatalf("settled: %+v", out)
+	}
+	// $1.75 per million input, $0.175 per million cached input, $14 per
+	// million output.
+	if got := out.Measured.CostUSD; got != "3.325000" {
+		t.Errorf("cost = %s, want 3.325000", got)
+	}
+}
+
+// TestBrokeredIsTheRegistryPredicate: the meter judges brokered exactly as
+// model.HarnessBrokered does, for every harness.
+func TestBrokeredIsTheRegistryPredicate(t *testing.T) {
+	for _, h := range []string{model.HarnessClaude, model.HarnessCodex, model.HarnessCopilot, model.HarnessFake} {
+		if Brokered(h) != model.HarnessBrokered(h) {
+			t.Errorf("Brokered(%s) = %v", h, Brokered(h))
+		}
+	}
+	if !Brokered(model.HarnessCodex) || Brokered(model.HarnessCopilot) {
+		t.Error("codex must be brokered and copilot not")
 	}
 }

@@ -168,6 +168,45 @@ var openaiClientTools = map[string]bool{
 // whatever its type says.
 var openaiServerToolFields = []string{"connector_id", "server_url", "environment", "container"}
 
+// openaiNamespaceTool is the type of a tool that only groups other tools
+// under one name: codex (0.153 onwards) sends its sub-agent tools
+// (spawn_agent, send_input, ...) as a namespace of plain function tools,
+// which codex itself runs. A namespace is forwarded only when every tool in
+// it is one the broker would forward on its own, and it may not nest.
+const openaiNamespaceTool = "namespace"
+
+// checkOpenAITools refuses a tool the client does not run itself, one that
+// names a connector, server or hosted environment, and a namespace holding
+// either or holding another namespace. top is false inside a namespace.
+func checkOpenAITools(tools []any, top bool) error {
+	for _, t := range tools {
+		tool, ok := t.(map[string]any)
+		if !ok {
+			continue
+		}
+		typ, _ := tool["type"].(string)
+		namespace := typ == openaiNamespaceTool && top
+		if !namespace && !openaiClientTools[typ] {
+			return fmt.Errorf("server tool %q is not brokered", clip(typ))
+		}
+		for _, f := range openaiServerToolFields {
+			if _, ok := tool[f]; ok {
+				return fmt.Errorf("tool field %q is not brokered", f)
+			}
+		}
+		if namespace {
+			inner, ok := tool["tools"].([]any)
+			if !ok {
+				return errors.New(`a namespace tool without a "tools" list is not brokered`)
+			}
+			if err := checkOpenAITools(inner, false); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // openaiDeniedTopLevel are request fields that bring server-side state into
 // the call: a stored conversation, a previous response, a stored prompt.
 // background (asynchronous, stored responses) is refused unless false.
@@ -198,20 +237,8 @@ func inspectOpenAIBody(body []byte, _ []string) (inspection, error) {
 		return insp, errors.New(`request field "background" is not brokered`)
 	}
 	if tools, ok := top["tools"].([]any); ok {
-		for _, t := range tools {
-			tool, ok := t.(map[string]any)
-			if !ok {
-				continue
-			}
-			typ, _ := tool["type"].(string)
-			if !openaiClientTools[typ] {
-				return insp, fmt.Errorf("server tool %q is not brokered", clip(typ))
-			}
-			for _, f := range openaiServerToolFields {
-				if _, ok := tool[f]; ok {
-					return insp, fmt.Errorf("tool field %q is not brokered", f)
-				}
-			}
+		if err := checkOpenAITools(tools, true); err != nil {
+			return insp, err
 		}
 	}
 	if err := walkOpenAIReferences(top); err != nil {

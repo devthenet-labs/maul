@@ -204,7 +204,7 @@ func TestGateSettleUnavailableDetail(t *testing.T) {
 			t.Fatalf("Reconcile: %v", err)
 		}
 		u := getUnit(t, c, "eval-1-u000")
-		if u.Status.Detail != "no enabled harness among [gemini codex] (fleet: [claude])" {
+		if u.Status.Detail != "no enabled harness among [gemini codex] (fleet: [claude])"+codexRefusedNote {
 			t.Errorf("detail = %q", u.Status.Detail)
 		}
 		if u.Status.FinishedAt == nil || !u.Status.FinishedAt.Time.Equal(clock) {
@@ -907,5 +907,19 @@ func TestPausedHoldsAGrantedLaunch(t *testing.T) {
 	}
 	if u := getUnit(t, c, unit.Name); u.Status.JobRef != nil {
 		t.Errorf("jobRef = %+v, want none", u.Status.JobRef)
+	}
+}
+
+// TestGateSettleUnavailableCodexNoteOnlyForCodex: the codex refusal is named
+// only on a unit that asked for codex.
+func TestGateSettleUnavailableCodexNoteOnlyForCodex(t *testing.T) {
+	c := newClient(t, testEval(unitPlan("gemini")))
+	g := &GateReconciler{Client: c, Namespace: "patchy", EnabledHarnesses: []string{"claude"},
+		Now: func() time.Time { return clock }}
+	if _, err := g.Reconcile(t.Context(), unitReq("eval-1")); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if d := getUnit(t, c, "eval-1-u000").Status.Detail; d != "no enabled harness among [gemini] (fleet: [claude])" {
+		t.Errorf("detail = %q", d)
 	}
 }

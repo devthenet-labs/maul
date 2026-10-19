@@ -159,10 +159,47 @@ yes
 {{- end }}
 
 {{/*
+Whether a harness runs brokered: claude and codex run proxy-only through the
+egress broker, their pods holding no model credential and dialing no model
+API by name. The chart's copy of model.HarnessBrokered. Takes the harness id;
+returns a non-empty string for yes.
+*/}}
+{{- define "patchy.brokeredHarness" -}}
+{{- if has . (list "claude" "codex") -}}
+yes
+{{- end -}}
+{{- end }}
+
+{{/*
+The render-time checks of the codex runner, which runs brokered (codex broker
+design, group 2). Codex holds no credential, so its old secret, secretKey,
+secretEnv, hosts and dnsPatterns keys are refused, with the migration, while
+it is enabled (on a codex runner left off they do nothing, so an install that
+copied the old defaults renders as before); an enabled codex runner needs the
+broker's openai route; and codex evaluations are refused until evolve can be
+brokered (owner decision (b)). Context: the root; renders nothing.
+*/}}
+{{- define "patchy.codexChecks" -}}
+{{- $codex := .Values.agent.runners.codex | default dict -}}
+{{- if $codex.enabled -}}
+{{- range $k := list "secret" "secretKey" "secretEnv" "hosts" "dnsPatterns" -}}
+{{- if hasKey $codex $k -}}
+{{- fail (printf "agent.runners.codex.%s is removed: codex runs proxy-only through the egress broker and its pods hold no credential and reach no host but the broker. To migrate: (1) create the OpenAI API key Secret in the release namespace; (2) set egressBroker.openai.apiKey.secret (and .key) to it; (3) remove agent.runners.codex.secret, secretKey, secretEnv, hosts and dnsPatterns; (4) delete the old patchy-openai Secret from the agent namespace" $k) -}}
+{{- end -}}
+{{- end -}}
+{{- if not (include "patchy.openaiRoute" .) -}}
+{{- fail "agent.runners.codex.enabled needs egressBroker.openai.apiKey: codex runs proxy-only through the egress broker's openai route, which holds the OpenAI API key (a Secret in the release namespace)" -}}
+{{- end -}}
+{{- end -}}
+{{- if and .Values.evaluationController.enabled (index .Values.evaluationController.runners "codex" | default dict).enabled -}}
+{{- fail "evaluationController.runners.codex.enabled: codex evaluations are refused until evolve supports the egress broker's provider config (codex runs brokered only, and no OpenAI key is mounted into an agent pod); set it false" -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 Whether the egress broker's openai (Responses) route renders: an OpenAI key
-Secret is named in egressBroker.openai.apiKey. Off by default; nothing uses
-the route yet (codex broker design, group 1). Returns a non-empty string for
-yes.
+Secret is named in egressBroker.openai.apiKey. Off by default; the codex
+runner requires it (patchy.codexChecks). Returns a non-empty string for yes.
 */}}
 {{- define "patchy.openaiRoute" -}}
 {{- if ((((.Values.egressBroker | default dict).openai | default dict).apiKey | default dict).secret) -}}
@@ -172,15 +209,14 @@ yes
 
 {{/*
 Whether the egress credential broker deploys: when a claude runner is enabled
-anywhere (patchy.claudeBrokered), or when a codex runner is (findings or
-evaluations) and the broker's openai route is configured. There is
-deliberately no separate enabled knob — claude runs proxy-only, so claude ⇒
-broker, and a fake-only dev/e2e values file renders none of it. A codex runner
-without egressBroker.openai.apiKey still holds its own key and deploys no
-broker, as before. Returns a non-empty string for yes.
+anywhere (patchy.claudeBrokered), or a codex runner is. There is deliberately
+no separate enabled knob — claude and codex run proxy-only, so either ⇒
+broker, and a fake-only dev/e2e values file renders none of it. A codex
+runner without egressBroker.openai.apiKey fails the render
+(patchy.codexChecks). Returns a non-empty string for yes.
 */}}
 {{- define "patchy.brokerEnabled" -}}
-{{- if or (include "patchy.claudeBrokered" .) (and (include "patchy.harnessEnabled" (dict "root" . "id" "codex")) (include "patchy.openaiRoute" .)) -}}
+{{- if or (include "patchy.claudeBrokered" .) (include "patchy.harnessEnabled" (dict "root" . "id" "codex")) -}}
 yes
 {{- end -}}
 {{- end }}
@@ -260,16 +296,17 @@ every checksum/config, exactly as it was. Context: dict "root" $ "data" <dict>.
 {{/*
 Whether the agent pods run without a resolver (agent.networkPolicy.dns: none),
 with the render-time guards that setting needs; returns a non-empty string for
-yes. Under none every runner but brokered claude is refused, on either fleet
-(patchy.harnessEnabled): codex and copilot dial their vendor's API by name, and
-an internet name cannot be pinned at launch the way a ClusterIP Service can.
+yes. Under none every runner but the brokered ones (claude, codex:
+patchy.brokeredHarness) is refused, on either fleet (patchy.harnessEnabled):
+copilot dials its vendor's API by name, and an internet name cannot be pinned
+at launch the way a ClusterIP Service can.
 So is mode istio: the agent pod's sidecar must resolve istiod before the Job
 can run at all.
 */}}
 {{- define "patchy.agentDNSNone" -}}
 {{- if eq (.Values.agent.networkPolicy.dns | default "cluster") "none" -}}
 {{- range $id, $r := .Values.agent.runners -}}
-{{- if and (ne $id "claude") (include "patchy.harnessEnabled" (dict "root" $ "id" $id)) -}}
+{{- if and (not (include "patchy.brokeredHarness" $id)) (include "patchy.harnessEnabled" (dict "root" $ "id" $id)) -}}
 {{- fail (printf "agent.networkPolicy.dns none: the %s runner dials its model API by name and needs a resolver; disable it (agent.runners.%s.enabled, evaluationController.runners.%s.enabled) or keep dns: cluster" $id $id $id) -}}
 {{- end -}}
 {{- end -}}

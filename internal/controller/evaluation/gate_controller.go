@@ -19,6 +19,7 @@ import (
 
 	"github.com/bitwise-media-group/patchy/api/v1alpha1"
 	"github.com/bitwise-media-group/patchy/internal/attribution"
+	"github.com/bitwise-media-group/patchy/internal/model"
 	"github.com/bitwise-media-group/patchy/internal/usagerollup"
 )
 
@@ -142,6 +143,12 @@ func Attribute(eval *v1alpha1.Evaluation) *v1alpha1.Attribution {
 	return attribution.To(eval.Spec.Submitter, 0, v1alpha1.AttributionSubmitter)
 }
 
+// codexRefusedNote ends the detail of a unit that asked for codex, which no
+// evaluation fleet can run (runnercfg.ErrCodexEvaluations), so the reason
+// is not left to read as a fleet that merely lacks the harness.
+const codexRefusedNote = "; codex evaluations are refused until evolve supports the egress broker's " +
+	"provider config"
+
 // settleUnavailable marks a just-created unit Failed/HarnessUnavailable.
 func (r *GateReconciler) settleUnavailable(ctx context.Context, namespace, name string, plan v1alpha1.UnitPlan) error {
 	prefs := make([]string, 0, len(plan.Harnesses))
@@ -160,6 +167,9 @@ func (r *GateReconciler) settleUnavailable(ctx context.Context, namespace, name 
 		unit.Status.Phase = v1alpha1.RunFailed
 		unit.Status.Reason = v1alpha1.UnitHarnessUnavailable
 		unit.Status.Detail = fmt.Sprintf("no enabled harness among %v (fleet: %v)", prefs, r.EnabledHarnesses)
+		if slices.Contains(prefs, model.HarnessCodex) {
+			unit.Status.Detail += codexRefusedNote
+		}
 		unit.Status.FinishedAt = &now
 		unit.Status.ObservedGeneration = unit.Generation
 		meta.SetStatusCondition(&unit.Status.Conditions, metav1.Condition{

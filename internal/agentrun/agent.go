@@ -142,7 +142,7 @@ func (a *Agent) remediate(ctx context.Context, params remediationParams) *envelo
 		ev.Detail = err.Error()
 		return ev
 	}
-	env, err := a.brokerEnv()
+	env, gateway, err := a.brokerEnv(h)
 	if err != nil {
 		ev.Outcome = envelope.OutcomeRuntimeError
 		ev.Detail = err.Error()
@@ -190,6 +190,7 @@ func (a *Agent) remediate(ctx context.Context, params remediationParams) *envelo
 		SessionID: a.newSessionID(),
 		AddDirs:   []string{a.cfg.Workspace},
 		Env:       env,
+		Gateway:   gateway,
 	}, a.cfg.RemediateTimeout, a.cfg.RemediateIdleTimeout, params.budget)
 	res, idle, runErr := a.start(ctx, sr)
 	a.fillStage(&ev.Stage, h, res)
@@ -326,26 +327,53 @@ func (a *Agent) recorder(h harness.Harness) *transcript.Recorder {
 	return transcript.NewRecorder(a.cfg.transcriptLimits(), credentialValues(h, a.scrub...), a.emitTurn)
 }
 
-// brokerEnv builds the extra child environment of a brokered run: the
-// ANTHROPIC_CUSTOM_HEADERS entry carrying the projected caller token to the
-// egress broker. The token file is read fresh each stage — the kubelet
-// rotates the projection, and a long remediation must not present a token
-// captured at pod start. The raw token is registered for transcript
-// scrubbing before any stage output can echo it. Nil on non-brokered runs.
-func (a *Agent) brokerEnv() ([]string, error) {
+// codexHarness is the harness brokerEnv gives the codex gateway.
+const codexHarness = "codex"
+
+// brokerEnv builds the extra child environment of a brokered run of h, and
+// for codex the gateway its command line points at the broker with. claude
+// gets the ANTHROPIC_CUSTOM_HEADERS entry carrying the projected caller
+// token to the egress broker. codex gets the token in
+// provider.CodexTokenEnv, which its provider config sends as
+// provider.BrokerTokenHeader, and the placeholder key its auth gate demands
+// in provider.CodexPlaceholderKeyEnv. The token file is read fresh each
+// stage — the kubelet rotates the projection, and a long remediation must
+// not present a token captured at pod start. The raw token is registered
+// for transcript scrubbing before any stage output can echo it. Nil on
+// non-brokered runs.
+//
+// Codex runs brokered only: a codex stage without a broker token file or
+// without the broker's route (PATCHY_CODEX_BASE_URL) is refused rather than
+// left to codex's own provider, which this pod could never reach and which
+// would read a credential the pod must not hold.
+func (a *Agent) brokerEnv(h harness.Harness) ([]string, *harness.Gateway, error) {
+	codex := h.ID() == codexHarness
 	if a.cfg.BrokerTokenFile == "" {
-		return nil, nil
+		if codex {
+			return nil, nil, errors.New("codex runs brokered only, and PATCHY_BROKER_TOKEN_FILE is unset")
+		}
+		return nil, nil, nil
+	}
+	if codex && a.cfg.CodexBaseURL == "" {
+		return nil, nil, fmt.Errorf("codex runs brokered only, and %s is unset", provider.CodexBaseURLEnv)
 	}
 	raw, err := os.ReadFile(a.cfg.BrokerTokenFile)
 	if err != nil {
-		return nil, fmt.Errorf("broker token: %w", err)
+		return nil, nil, fmt.Errorf("broker token: %w", err)
 	}
 	token := strings.TrimSpace(string(raw))
 	if token == "" {
-		return nil, fmt.Errorf("broker token file %s is empty", a.cfg.BrokerTokenFile)
+		return nil, nil, fmt.Errorf("broker token file %s is empty", a.cfg.BrokerTokenFile)
 	}
 	a.scrub = append(a.scrub, token)
-	return []string{"ANTHROPIC_CUSTOM_HEADERS=" + provider.BrokerTokenHeader + ": " + token}, nil
+	if codex {
+		gw := provider.CodexGateway(a.cfg.CodexBaseURL)
+		return []string{
+			provider.CodexTokenEnv + "=" + token,
+			provider.CodexPlaceholderKeyEnv + "=" + provider.PlaceholderAuthToken,
+		}, &gw, nil
+	}
+	return []string{"ANTHROPIC_CUSTOM_HEADERS=" + provider.BrokerTokenHeader + ": " + token}, nil, nil
 }
 
 // credentialValues returns the literal secret values to scrub from a
@@ -462,7 +490,7 @@ func (a *Agent) investigate(ctx context.Context) *envelope.Investigation {
 		ev.Detail = err.Error()
 		return ev
 	}
-	env, err := a.brokerEnv()
+	env, gateway, err := a.brokerEnv(h)
 	if err != nil {
 		ev.Outcome = envelope.OutcomeRuntimeError
 		ev.Detail = err.Error()
@@ -482,6 +510,7 @@ func (a *Agent) investigate(ctx context.Context) *envelope.Investigation {
 		SessionID: a.newSessionID(),
 		AddDirs:   []string{a.cfg.Workspace},
 		Env:       env,
+		Gateway:   gateway,
 		WriteDirs: []string{filepath.Dir(a.cfg.investigationPath())},
 	}, a.cfg.InvestigateTimeout, a.cfg.InvestigateIdleTimeout, a.cfg.InvestigateTokenBudget)
 	res, idle, runErr := a.start(ctx, sr)

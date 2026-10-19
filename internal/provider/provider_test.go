@@ -130,13 +130,17 @@ func TestBaseURLEnvNames(t *testing.T) {
 		t.Fatalf("the test covers %d providers, and there are %d", len(cfgs), len(ClaudeNames))
 	}
 	seen := map[string]bool{}
+	envs := map[string]map[string]string{"codex": CodexEnv(broker)}
 	for _, cfg := range cfgs {
-		for k, v := range Env(cfg, nil) {
+		envs[cfg.Name] = Env(cfg, nil)
+	}
+	for name, env := range envs {
+		for k, v := range env {
 			if !strings.HasPrefix(v, broker) {
 				continue
 			}
 			if !slices.Contains(BaseURLEnvNames, k) {
-				t.Errorf("provider %s points %s at the broker, and BaseURLEnvNames does not list it", cfg.Name, k)
+				t.Errorf("provider %s points %s at the broker, and BaseURLEnvNames does not list it", name, k)
 			}
 			seen[k] = true
 		}
@@ -354,5 +358,29 @@ func TestBedrockPrefixesNormalize(t *testing.T) {
 		if got := BareModelID(prefix + ".anthropic.claude-sonnet-5"); got != "claude-sonnet-5" {
 			t.Errorf("%s: BareModelID = %q", region, got)
 		}
+	}
+}
+
+// TestCodexGatewayNames: the codex gateway's names are gateway names (so
+// internal/jobs reserves them and a repository image's ENV may not name
+// them), its route is a base-URL name (so a pod with no resolver gets the
+// broker pinned), and CodexEnv and CodexGateway agree on them.
+func TestCodexGatewayNames(t *testing.T) {
+	for _, n := range []string{CodexBaseURLEnv, CodexTokenEnv, CodexPlaceholderKeyEnv} {
+		if !slices.Contains(GatewayEnvNames, n) {
+			t.Errorf("%s is not a gateway name", n)
+		}
+	}
+	if !slices.Contains(BaseURLEnvNames, CodexBaseURLEnv) {
+		t.Errorf("%s is not a base-URL name", CodexBaseURLEnv)
+	}
+	env := CodexEnv("http://broker.patchy.svc:8080/")
+	if got := env[CodexBaseURLEnv]; got != "http://broker.patchy.svc:8080/openai/v1" || len(env) != 1 {
+		t.Errorf("CodexEnv = %v", env)
+	}
+	gw := CodexGateway(env[CodexBaseURLEnv])
+	if gw.BaseURL != env[CodexBaseURLEnv] || gw.KeyEnv != CodexPlaceholderKeyEnv ||
+		gw.HeaderEnv[BrokerTokenHeader] != CodexTokenEnv || len(gw.HeaderEnv) != 1 {
+		t.Errorf("CodexGateway = %+v", gw)
 	}
 }

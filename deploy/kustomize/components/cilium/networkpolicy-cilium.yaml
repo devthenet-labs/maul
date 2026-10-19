@@ -10,11 +10,11 @@
 # prompt-injected agent is talked into — is dropped.
 #
 # One policy per harness, each selecting that harness's pods by their
-# patchy.bitwisemedia.uk/harness label, so a codex pod may reach only
-# api.openai.com — and a claude pod nothing external at all: claude is
-# brokered, so its policy is cluster-only (DNS, the artifact server, the
-# egress broker) with no toFQDNs and no external names resolvable. The
-# non-brokered pods need exactly two destinations:
+# patchy.bitwisemedia.uk/harness label, so a claude or codex pod reaches
+# nothing external at all: both are brokered, so their policies are
+# cluster-only (DNS, the artifact server, the egress broker) with no toFQDNs
+# and no external names resolvable. The non-brokered (copilot) pods need
+# exactly two destinations:
 #
 #   * source-controller's artifact server (in-cluster, port 9790): the init
 #     container's credential-less, digest-verified tarball fetch. No forge
@@ -91,6 +91,8 @@ spec:
             app.kubernetes.io/managed-by: patchy
             patchy.bitwisemedia.uk/harness: codex
     egress:
+        # Brokered codex, exactly like claude: only cluster-local names
+        # resolve, and no external host is reachable.
         - toEndpoints:
               - matchLabels:
                     io.kubernetes.pod.namespace: kube-system
@@ -101,7 +103,6 @@ spec:
                       protocol: ANY
                 rules:
                     dns:
-                        - matchPattern: "*.openai.com"
                         - matchPattern: "*.patchy.svc.cluster.local"
                         - matchPattern: "*.svc.cluster.local"
 
@@ -114,12 +115,15 @@ spec:
                     - port: "9790"
                       protocol: TCP
 
-        # The agent container: the codex harness's model API and nothing else.
-        - toFQDNs:
-              - matchName: api.openai.com
+        # The agent container: the egress credential broker's openai route,
+        # and nothing else. No toFQDNs.
+        - toEndpoints:
+              - matchLabels:
+                    io.kubernetes.pod.namespace: patchy
+                    app.kubernetes.io/name: egress-broker
           toPorts:
               - ports:
-                    - port: "443"
+                    - port: "8080"
                       protocol: TCP
 ---
 # The copilot harness is the one that needs a GitHub host, and the only reason

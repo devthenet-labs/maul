@@ -11,10 +11,12 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	"k8s.io/client-go/kubernetes/fake"
 
 	"github.com/bitwise-media-group/patchy/internal/attribution"
 	"github.com/bitwise-media-group/patchy/internal/cli"
 	"github.com/bitwise-media-group/patchy/internal/credgate"
+	"github.com/bitwise-media-group/patchy/internal/runnercfg"
 )
 
 // serveOpts resolves args through the real serve flag surface, as the
@@ -153,5 +155,47 @@ func TestUserCredentialsFromEnv(t *testing.T) {
 	t.Setenv("PATCHY_ATTRIBUTION_MODE", "off")
 	if _, err := ownSettings(serveOpts(t)); err == nil {
 		t.Error("enforce without attribution started")
+	}
+}
+
+// TestResolveFleetRefusesCodexWithUserCredentials: the startup path holds the
+// enabled fleet to --user-credentials. Per-user credentials cover Anthropic
+// only for now, so a fleet with codex enabled refuses any mode but off, while
+// a fleet without codex, or codex with the mode off, starts as before.
+func TestResolveFleetRefusesCodexWithUserCredentials(t *testing.T) {
+	// An unroutable broker URL: the readiness probe is advisory only.
+	const broker = "http://127.0.0.1:1"
+	for _, tt := range []struct {
+		name    string
+		args    []string
+		mode    credgate.Mode
+		wantErr string
+	}{
+		{name: "codex under attribute", args: []string{"--codex-agent-image", "codex:1", "--broker-url", broker},
+			mode: credgate.ModeAttribute, wantErr: "--user-credentials off"},
+		{name: "codex under enforce", args: []string{"--codex-agent-image", "codex:1", "--broker-url", broker},
+			mode: credgate.ModeEnforce, wantErr: "--user-credentials off"},
+		{name: "codex with credentials off", args: []string{"--codex-agent-image", "codex:1", "--broker-url", broker},
+			mode: credgate.ModeOff},
+		{name: "claude only under enforce", args: []string{"--claude-agent-image", "claude:1", "--broker-url", broker},
+			mode: credgate.ModeEnforce},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			opts := serveOpts(t, tt.args...)
+			runners, err := runnercfg.Runners(opts)
+			if err != nil {
+				t.Fatalf("Runners: %v", err)
+			}
+			enabled, err := resolveFleet(t.Context(), opts, fake.NewClientset(), "patchy-agents", runners, nil, "", tt.mode)
+			if tt.wantErr == "" {
+				if err != nil || len(enabled) != 1 {
+					t.Fatalf("resolveFleet = %v, %v; want one harness and no error", enabled, err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("resolveFleet error = %v, want %q", err, tt.wantErr)
+			}
+		})
 	}
 }

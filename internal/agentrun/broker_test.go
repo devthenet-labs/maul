@@ -14,6 +14,7 @@ import (
 
 	"github.com/bitwise-media-group/patchy/internal/envelope"
 	"github.com/bitwise-media-group/patchy/internal/harness"
+	"github.com/bitwise-media-group/patchy/internal/provider"
 )
 
 func TestCliModel(t *testing.T) {
@@ -145,5 +146,131 @@ func TestFromEnvBrokerFields(t *testing.T) {
 	if _, err := FromEnv(func(k string) string { return env[k] }); err == nil ||
 		!strings.Contains(err.Error(), "PATCHY_MODEL_MAP") {
 		t.Errorf("FromEnv() error = %v, want a PATCHY_MODEL_MAP rejection", err)
+	}
+}
+
+// codexTokenFile writes a broker token file for a codex stage.
+func codexTokenFile(t *testing.T) string {
+	t.Helper()
+	f := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(f, []byte("codex-token\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return f
+}
+
+// TestCodexBrokerEnvPerStage: a codex stage carries the caller token, read
+// at run time, in provider.CodexTokenEnv and the placeholder key in its own
+// variable, and its argv points codex's provider at the broker's route by
+// variable name: the token is in the env alone, never in argv, and it is
+// registered for scrubbing.
+func TestCodexBrokerEnvPerStage(t *testing.T) {
+	ws := newWorkspace(t)
+	tokenFile := codexTokenFile(t)
+	var out bytes.Buffer
+	cfg := newConfig(t, ws, &out)
+	cfg.InvestigateHarness, cfg.InvestigateModel = "codex", "openai/gpt-5.3-codex"
+	cfg.BrokerTokenFile, cfg.CodexBaseURL = tokenFile, "http://broker.patchy.svc:8080/openai/v1"
+	fx := &fakeExec{steps: []step{{ws: ws, stdout: codexStream, writes: map[string]string{
+		"reports/investigation.md": goodInvestigation,
+	}}}}
+	agent := New(cfg, fx)
+	if err := os.WriteFile(tokenFile, []byte("fresh-token\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := agent.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if len(fx.specs) != 1 {
+		t.Fatalf("stages run = %d, want 1", len(fx.specs))
+	}
+	if ev := events(t, out.String()); len(ev) != 1 || ev[0].Investigation == nil ||
+		ev[0].Investigation.Outcome != envelope.OutcomeOK {
+		t.Fatalf("events = %+v", ev)
+	}
+	spec := fx.specs[0]
+	for _, want := range []string{
+		provider.CodexTokenEnv + "=fresh-token",
+		provider.CodexPlaceholderKeyEnv + "=" + provider.PlaceholderAuthToken,
+	} {
+		if !slices.Contains(spec.Env, want) {
+			t.Errorf("stage env = %v, want %q", spec.Env, want)
+		}
+	}
+	for _, e := range spec.Env {
+		if strings.HasPrefix(e, "ANTHROPIC_CUSTOM_HEADERS=") {
+			t.Errorf("a codex stage got claude's header channel: %q", e)
+		}
+	}
+	argv := strings.Join(spec.Argv, "\n")
+	for _, want := range []string{
+		`model_providers.patchy.base_url="http://broker.patchy.svc:8080/openai/v1"`,
+		`model_providers.patchy.env_key="` + provider.CodexPlaceholderKeyEnv + `"`,
+		`model_providers.patchy.env_http_headers={"` + provider.BrokerTokenHeader + `"="` + provider.CodexTokenEnv + `"}`,
+	} {
+		if !strings.Contains(argv, want) {
+			t.Errorf("argv = %q, want %s", spec.Argv, want)
+		}
+	}
+	if strings.Contains(argv, "fresh-token") {
+		t.Error("the token is on the command line")
+	}
+	if !slices.Contains(agent.scrub, "fresh-token") {
+		t.Errorf("scrub values = %v, want the raw token registered", agent.scrub)
+	}
+}
+
+// TestCodexRefusedUnbrokered: codex runs brokered only. Without a broker
+// token file, or without the broker's route, a codex stage is a runtime
+// error before any command runs, never a run on codex's own provider.
+func TestCodexRefusedUnbrokered(t *testing.T) {
+	for _, tt := range []struct {
+		name, base string
+		token      bool
+		want       string
+	}{
+		{"no token file", "http://broker/openai/v1", false, "PATCHY_BROKER_TOKEN_FILE is unset"},
+		{"no route", "", true, provider.CodexBaseURLEnv + " is unset"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ws := newWorkspace(t)
+			var out bytes.Buffer
+			cfg := newConfig(t, ws, &out)
+			cfg.InvestigateHarness, cfg.InvestigateModel = "codex", "openai/gpt-5.3-codex"
+			cfg.CodexBaseURL = tt.base
+			if tt.token {
+				cfg.BrokerTokenFile = codexTokenFile(t)
+			}
+			fx := &fakeExec{}
+			if err := New(cfg, fx).Run(context.Background()); err != nil {
+				t.Fatalf("Run() error = %v", err)
+			}
+			ev := events(t, out.String())
+			if len(ev) != 1 || ev[0].Investigation == nil ||
+				ev[0].Investigation.Outcome != envelope.OutcomeRuntimeError ||
+				!strings.Contains(ev[0].Investigation.Detail, tt.want) {
+				t.Fatalf("events = %+v, want a runtime error naming %q", ev, tt.want)
+			}
+			if len(fx.specs) != 0 {
+				t.Error("codex ran unbrokered")
+			}
+		})
+	}
+}
+
+func TestFromEnvCodexBaseURL(t *testing.T) {
+	env := map[string]string{
+		"PATCHY_REPO": "acme/shop", "PATCHY_FINDING": "f",
+		provider.CodexBaseURLEnv: "http://broker:8080/openai/v1",
+	}
+	cfg, err := FromEnv(func(k string) string { return env[k] })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.CodexBaseURL != "http://broker:8080/openai/v1" {
+		t.Errorf("CodexBaseURL = %q", cfg.CodexBaseURL)
+	}
+	if !slices.Contains(ConfigEnvKeys(), provider.CodexBaseURLEnv) {
+		t.Errorf("ConfigEnvKeys misses %s", provider.CodexBaseURLEnv)
 	}
 }

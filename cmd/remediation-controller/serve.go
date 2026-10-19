@@ -210,7 +210,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	agentNS := opts.String("agent-namespace")
 	remediateModel := opts.String("remediate-model")
 	allowlist := runnercfg.SplitList(opts.String("model-allowlist"))
-	enabled, err := runnercfg.Resolve(ctx, opts, cs, agentNS, runners, runnercfg.Restrict(opts), allowlist, remediateModel)
+	enabled, err := resolveFleet(ctx, opts, cs, agentNS, runners, allowlist, remediateModel, credMode)
 	if err != nil {
 		return err
 	}
@@ -355,4 +355,16 @@ func usageCompactor(c client.Client, reader client.Reader, namespace string, mod
 		return nil
 	}
 	return &rollup.UsageCompactor{Client: c, Reader: reader, Namespace: namespace, Log: log}
+}
+
+// resolveFleet resolves the enabled harnesses and holds them to
+// --user-credentials: per-user credentials are refused beside codex until
+// they cover OpenAI (runnercfg.CodexUserCredentials).
+func resolveFleet(ctx context.Context, opts *cli.Options, cs kubernetes.Interface, agentNS string,
+	runners map[string]jobs.Runner, allowlist []string, remediateModel string, credMode credgate.Mode) ([]string, error) {
+	enabled, err := runnercfg.Resolve(ctx, opts, cs, agentNS, runners, runnercfg.Restrict(opts), allowlist, remediateModel)
+	if err != nil {
+		return nil, err
+	}
+	return enabled, runnercfg.CodexUserCredentials(credMode, enabled)
 }

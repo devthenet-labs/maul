@@ -187,3 +187,15 @@ func TestAllModelsOverride(t *testing.T) {
 		t.Error("non-overridden anthropic models should remain")
 	}
 }
+
+// TestHarnessBrokered: claude and codex run proxy-only through the egress
+// broker; copilot holds its own token and the fake harness reaches no model.
+func TestHarnessBrokered(t *testing.T) {
+	for h, want := range map[string]bool{
+		HarnessClaude: true, HarnessCodex: true, HarnessCopilot: false, HarnessFake: false, "": false,
+	} {
+		if got := HarnessBrokered(h); got != want {
+			t.Errorf("HarnessBrokered(%q) = %v, want %v", h, got, want)
+		}
+	}
+}

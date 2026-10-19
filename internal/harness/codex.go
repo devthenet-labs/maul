@@ -6,6 +6,8 @@ package harness
 import (
 	"bytes"
 	"encoding/json"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/bitwise-media-group/patchy/internal/runner"
@@ -38,8 +40,9 @@ func NewCodex() *Codex {
 // `codex exec --json` emits one JSON event per line, which is what
 // ParseResult and ScanUsage parse. Codex's own Landlock/Seatbelt sandbox is
 // always disabled: patchy confines the agent at the pod layer (no network
-// egress beyond the model API, no credentials, locked-down securityContext),
-// where codex's kernel sandbox is redundant and unavailable anyway.
+// egress beyond the egress broker, no credentials, locked-down
+// securityContext), where codex's kernel sandbox is redundant and
+// unavailable anyway.
 //
 // codex exec has no equivalents for MaxTurns or a pre-assigned SessionID, so
 // those request fields do not map; budget and timeout enforcement stay with
@@ -56,6 +59,11 @@ func NewCodex() *Codex {
 // (codex 0.145 gained --add-dir; wiring it is a follow-up). SystemPromptAppend
 // has no system-prompt channel either and is folded into the prompt so its
 // instructions still reach the agent.
+//
+// Every run switches off what would dial anything but the model provider
+// (codexQuietConfig). With a Gateway the run's provider is the egress broker
+// (codexGatewayConfig); patchy always sets one, since codex runs brokered
+// only.
 func (c *Codex) PromptSpec(ws string, req PromptRequest) runner.CommandSpec {
 	prompt := req.Prompt
 	if req.SystemPromptAppend != "" {
@@ -68,7 +76,82 @@ func (c *Codex) PromptSpec(ws string, req PromptRequest) runner.CommandSpec {
 		"--sandbox", "danger-full-access",
 		"--model", req.Model,
 	}
+	for _, kv := range codexQuietConfig {
+		argv = append(argv, "-c", kv)
+	}
+	if req.Gateway != nil {
+		for _, kv := range codexGatewayConfig(*req.Gateway) {
+			argv = append(argv, "-c", kv)
+		}
+	}
 	return runner.CommandSpec{Argv: argv, Dir: ws, Env: req.Env}
+}
+
+// codexQuietConfig are the -c overrides every codex run carries: no
+// analytics and no OpenTelemetry metrics (each would dial an OpenAI host
+// the pod cannot reach, and their failures only add noise), no plugins (a
+// plugin brings its own tools and endpoints) and no web search (a hosted
+// tool the broker refuses anyway, so offering it would fail the request).
+var codexQuietConfig = []string{
+	`analytics.enabled=false`,
+	`otel.metrics_exporter="none"`,
+	`features.plugins=false`,
+	`web_search="disabled"`,
+}
+
+// CodexProviderID is the id of the model provider codexGatewayConfig
+// defines, and codexProviderName its display name. The name must not be
+// "OpenAI": codex compares provider names to decide it is talking to
+// OpenAI itself, and then compresses request bodies (zstd), which the
+// broker's body inspection cannot read.
+const (
+	CodexProviderID   = "patchy"
+	codexProviderName = "patchy egress broker"
+)
+
+// codexRetries is how often codex retries a request or a dropped stream on
+// the broker's provider: once. The broker's limits, not codex's retry
+// loop, decide when a run has spent enough, and a refusal the broker
+// answers is not worth repeating.
+const codexRetries = "1"
+
+// codexGatewayConfig are the -c overrides that make the egress broker the
+// run's model provider: the Responses API at the broker's openai route,
+// authenticated by the placeholder key (which the broker strips) and the
+// headers carrying the caller token, both read by codex from the run's
+// environment by name, so no token is ever on the command line. Websockets
+// are off: the broker refuses a protocol upgrade. A repository's own
+// .codex/config.toml cannot override any of this: model_provider and
+// model_providers are not settable from a project config.
+func codexGatewayConfig(g Gateway) []string {
+	p := "model_providers." + CodexProviderID + "."
+	out := []string{
+		`model_provider=` + tomlString(CodexProviderID),
+		p + `name=` + tomlString(codexProviderName),
+		p + `base_url=` + tomlString(g.BaseURL),
+		p + `wire_api="responses"`,
+		p + `env_key=` + tomlString(g.KeyEnv),
+	}
+	if len(g.HeaderEnv) > 0 {
+		pairs := make([]string, 0, len(g.HeaderEnv))
+		for _, h := range slices.Sorted(maps.Keys(g.HeaderEnv)) {
+			pairs = append(pairs, tomlString(h)+"="+tomlString(g.HeaderEnv[h]))
+		}
+		out = append(out, p+`env_http_headers={`+strings.Join(pairs, ",")+`}`)
+	}
+	return append(out,
+		p+`supports_websockets=false`,
+		p+`request_max_retries=`+codexRetries,
+		p+`stream_max_retries=`+codexRetries,
+	)
+}
+
+// tomlString renders s as a TOML basic string, the form codex parses a -c
+// value in. JSON's string escapes (\", \\, \n, \uXXXX, ...) are all valid
+// TOML basic-string escapes, so a JSON encoding is a TOML one.
+func tomlString(s string) string {
+	b, _ := json.Marshal(s) // a string always encodes
+	return string(b)
 }
 
 // codexEvent is one line of `codex exec --json` output. Each event type
@@ -80,9 +163,11 @@ type codexEvent struct {
 	ThreadID string    `json:"thread_id"`
 	Item     codexItem `json:"item"`
 	Usage    *struct {
-		InputTokens       *int `json:"input_tokens"`
-		CachedInputTokens *int `json:"cached_input_tokens"`
-		OutputTokens      *int `json:"output_tokens"`
+		InputTokens           *int `json:"input_tokens"`
+		CachedInputTokens     *int `json:"cached_input_tokens"`
+		CacheWriteInputTokens *int `json:"cache_write_input_tokens"`
+		OutputTokens          *int `json:"output_tokens"`
+		ReasoningOutputTokens *int `json:"reasoning_output_tokens"`
 	} `json:"usage"`
 	Error *struct {
 		Message string `json:"message"`
@@ -219,15 +304,11 @@ type codexScan struct {
 }
 
 // scanCodexEvents walks the event stream once. Usage is summed across
-// turn.completed events; codex reports input_tokens as the whole prompt with
-// cached_input_tokens a subset of it, and the Usage contract wants fresh
-// (uncached) input on InputTokens with cache hits reported separately, so the
-// cached portion is split off rather than letting re-read context inflate the
-// headline input figure. Codex reports tokens but never cost, so CostUSD
-// stays nil.
+// turn.completed events (codexTurnUsage); codex reports tokens but never
+// cost, so CostUSD stays nil.
 func scanCodexEvents(stdout []byte) codexScan {
 	var s codexScan
-	var fresh, cacheRead, output int
+	var sum codexUsage
 	for line := range bytes.SplitSeq(stdout, []byte{'\n'}) {
 		if len(bytes.TrimSpace(line)) == 0 {
 			continue
@@ -247,19 +328,10 @@ func scanCodexEvents(stdout []byte) codexScan {
 			s.turns++
 			s.terminal = true
 			if u := ev.Usage; u != nil {
-				if u.InputTokens != nil {
-					in := *u.InputTokens
-					if u.CachedInputTokens != nil {
-						read := min(*u.CachedInputTokens, in)
-						in -= read
-						cacheRead += read
-					}
-					fresh += in
-				}
-				if u.OutputTokens != nil {
-					output += *u.OutputTokens
-				}
-				s.usage = &Usage{InputTokens: &fresh, CacheReadTokens: &cacheRead, OutputTokens: &output}
+				sum.add(codexTurnUsage(deref(u.InputTokens), deref(u.CachedInputTokens),
+					deref(u.CacheWriteInputTokens), deref(u.OutputTokens), deref(u.ReasoningOutputTokens)))
+				sum.writes = sum.writes || u.CacheWriteInputTokens != nil
+				s.usage = sum.usage()
 			}
 		case "turn.failed":
 			s.terminal = true
@@ -273,6 +345,61 @@ func scanCodexEvents(stdout []byte) codexScan {
 		}
 	}
 	return s
+}
+
+// codexUsage is the running sum of a stream's turns. writes records
+// whether any turn reported cache writes at all, so a stream from a CLI
+// that never does keeps CacheCreationTokens unreported (nil) rather than
+// claiming zero.
+type codexUsage struct {
+	fresh, cacheRead, cacheWrite, output int
+	writes                               bool
+}
+
+func (u *codexUsage) add(t codexUsage) {
+	u.fresh += t.fresh
+	u.cacheRead += t.cacheRead
+	u.cacheWrite += t.cacheWrite
+	u.output += t.output
+}
+
+func (u codexUsage) usage() *Usage {
+	out := &Usage{InputTokens: new(u.fresh), CacheReadTokens: new(u.cacheRead), OutputTokens: new(u.output)}
+	if u.writes {
+		out.CacheCreationTokens = new(u.cacheWrite)
+	}
+	return out
+}
+
+// codexTurnUsage maps one turn.completed usage onto the Usage contract.
+// Codex reports input_tokens as the whole prompt, with cached_input_tokens
+// and cache_write_input_tokens subsets of it; the contract wants fresh
+// (uncached, unwritten) input on InputTokens and the cache reads and writes
+// apart, so both subsets are split off (each clamped to what is left, so a
+// count larger than the whole cannot drive another negative) and the three
+// always sum to input_tokens. output_tokens already includes the reasoning
+// tokens (reasoning_output_tokens is its subset, as in the Responses API's
+// output_tokens_details, and as the recorded stream shows); the reasoning
+// figure is read only to hold that: an output figure below it is raised to
+// it, so a stream that ever reported them apart never under-reports. These
+// are the egress broker's figures for the same requests: it folds OpenAI's
+// cache writes into fresh input, which prices the same, since cache writes
+// bill at the input rate (model.UsageCostUSD).
+func codexTurnUsage(input, cached, cacheWrite, output, reasoning int) codexUsage {
+	input = max(input, 0)
+	read := min(max(cached, 0), input)
+	write := min(max(cacheWrite, 0), input-read)
+	return codexUsage{
+		fresh: input - read - write, cacheRead: read, cacheWrite: write,
+		output: max(output, reasoning, 0),
+	}
+}
+
+func deref(p *int) int {
+	if p == nil {
+		return 0
+	}
+	return *p
 }
 
 // ParseResult digests the codex event stream: the final answer is the
@@ -338,5 +465,5 @@ func (c *Codex) ScanUsage(line []byte) (int, bool) {
 	if ev.Type != "turn.completed" || ev.Usage == nil || ev.Usage.OutputTokens == nil {
 		return 0, false
 	}
-	return *ev.Usage.OutputTokens, true
+	return max(*ev.Usage.OutputTokens, deref(ev.Usage.ReasoningOutputTokens)), true
 }

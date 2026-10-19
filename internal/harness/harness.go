@@ -62,6 +62,27 @@ type PromptRequest struct {
 	// claude renders it as path-scoped edit rules; a harness with no path
 	// grammar ignores it, and the pod remains its boundary.
 	WriteDirs []string
+	// Gateway points a harness configured on its command line (codex) at the
+	// egress broker rather than its vendor's API; nil leaves the CLI's own
+	// provider. claude reads its gateway from the pod's environment and
+	// ignores it.
+	Gateway *Gateway
+}
+
+// Gateway is the egress broker as a harness CLI's model provider: the route
+// it is based at, and the names of the environment variables (set in the
+// run's Env, never on the command line) carrying the placeholder key the
+// CLI's auth gate demands and the headers it must send. Values never appear
+// here, only names, so argv carries no token.
+type Gateway struct {
+	// BaseURL is the broker route the CLI's provider is based at, such as
+	// http://broker:8080/openai/v1.
+	BaseURL string
+	// KeyEnv names the variable holding the non-secret placeholder key.
+	KeyEnv string
+	// HeaderEnv maps a header name to the variable whose value the CLI
+	// sends as it on every request (the broker's caller token).
+	HeaderEnv map[string]string
 }
 
 // AgentResult is the parsed terminal result of one agent run.

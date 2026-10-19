@@ -26,12 +26,12 @@
 #     (npm install, go mod download, pip, apt, git clone): every toolchain
 #     and dependency a run needs must already be in the runner image.
 #   * the DNS rule of base/networkpolicy.yaml's patchy-agents-egress and, with
-#     ../cilium, of the claude CiliumNetworkPolicy. A `test` op guards each
-#     removal, so a reordered policy fails the build instead of losing another
-#     rule.
+#     ../cilium, of the claude and codex CiliumNetworkPolicies. A `test` op
+#     guards each removal, so a reordered policy fails the build instead of
+#     losing another rule.
 #
-# Brokered claude only: a controller with codex or copilot in PATCHY_HARNESSES
-# refuses to start, since those dial their vendor's API by name. Not with
+# Brokered runners only (claude, codex): a controller with copilot in
+# PATCHY_HARNESSES refuses to start, since it dials its vendor's API by name. Not with
 # ../istio: the agent pod's sidecar must resolve istiod.
 #
 # It closes DNS, not addresses: the base policy's TCP 443 rule, wherever a
@@ -63,6 +63,15 @@ patches:
     - target:
           kind: CiliumNetworkPolicy
           name: patchy-agent-egress-claude
+      patch: |
+          - op: test
+            path: /spec/egress/0/toPorts/0/ports/0/port
+            value: "53"
+          - op: remove
+            path: /spec/egress/0
+    - target:
+          kind: CiliumNetworkPolicy
+          name: patchy-agent-egress-codex
       patch: |
           - op: test
             path: /spec/egress/0/toPorts/0/ports/0/port

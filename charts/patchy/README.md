@@ -65,12 +65,12 @@ Created out of band (SOPS, external-secrets, or `kubectl` for dev) — the chart
 See [`deploy/kustomize/base/secrets.example.yaml`](../../deploy/kustomize/base/secrets.example.yaml) for shapes and
 one-liners:
 
-| Secret               | Namespace         | Keys                                                 | What                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| -------------------- | ----------------- | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| e.g. `patchy-github` | release namespace | `appID` + `privateKey` (or `token`), `webhookSecret` | The forge/provider credential, named by each Integration/Forge CR's `spec.secretRef` — **not** mounted into any Deployment; read on demand through the API                                                                                                                                                                                                                                                                        |
-| `patchy-anthropic`   | release namespace | `api-key`                                            | The claude runner's Anthropic credential, consumed ONLY by the egress broker — never an agent pod. An API key, or a `claude setup-token` OAuth token with `egressBroker.anthropicAuth: token`. Needed when the claude provider is `anthropic`; bedrock/vertex/foundry-entra use the broker's workload identity instead. **Migration:** it previously lived in `patchy-agents` — create it here, upgrade, then delete the old copy |
-| `patchy-openai`      | `patchy-agents`   | `api-key`                                            | The codex runner's OpenAI API key. Only needed when `agent.runners.codex.enabled: true`; a ChatGPT-plan workspace token works too with `agent.runners.codex.secretEnv: CODEX_ACCESS_TOKEN` (or `CODEX_API_KEY`)                                                                                                                                                                                                                   |
-| `patchy-copilot`     | `patchy-agents`   | `token`                                              | The copilot runner's **GitHub** token — not a model API key. Only needed when `agent.runners.copilot.enabled: true`; scope it to Copilot with no repository permissions                                                                                                                                                                                                                                                           |
+| Secret               | Namespace         | Keys                                                 | What                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| -------------------- | ----------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| e.g. `patchy-github` | release namespace | `appID` + `privateKey` (or `token`), `webhookSecret` | The forge/provider credential, named by each Integration/Forge CR's `spec.secretRef` — **not** mounted into any Deployment; read on demand through the API                                                                                                                                                                                                                                                                                            |
+| `patchy-anthropic`   | release namespace | `api-key`                                            | The claude runner's Anthropic credential, consumed ONLY by the egress broker — never an agent pod. An API key, or a `claude setup-token` OAuth token with `egressBroker.anthropicAuth: token`. Needed when the claude provider is `anthropic`; bedrock/vertex/foundry-entra use the broker's workload identity instead. **Migration:** it previously lived in `patchy-agents` — create it here, upgrade, then delete the old copy                     |
+| `patchy-openai`      | release namespace | `api-key`                                            | The codex runner's OpenAI API key, consumed ONLY by the egress broker (`egressBroker.openai.apiKey`) — never an agent pod. Required when `agent.runners.codex.enabled: true`. API keys only. **Migration:** it previously lived in `patchy-agents` as the codex runner's mounted Secret — create it here, set `egressBroker.openai.apiKey`, drop `agent.runners.codex.secret`/`secretKey`/`secretEnv`/`hosts`/`dnsPatterns`, then delete the old copy |
+| `patchy-copilot`     | `patchy-agents`   | `token`                                              | The copilot runner's **GitHub** token — not a model API key. Only needed when `agent.runners.copilot.enabled: true`; scope it to Copilot with no repository permissions                                                                                                                                                                                                                                                                               |
 
 One GitHub Secret may serve both CRs, or you can split read and write identities across two GitHub Apps. The provider
 has exactly one webhook URL; point it at `https://<webhook.host>/github/webhooks` and enable one flavour of the chart's
@@ -257,19 +257,19 @@ The agent Jobs run in their own namespace (`agent.namespace`, created by the cha
 labels; `helm uninstall` deletes it, killing any running agent Job). The isolation model, in order of load-bearing:
 
 1. **Credential absence** — the agent pod holds no forge credential at all, not even in an init container, and a claude
-   pod holds **no credential of any kind**: its model traffic goes through the egress credential broker (deployed with
-   the chart whenever a claude runner is enabled), authenticated by an audience-bound projected ServiceAccount token —
-   an identity document, not a capability. The repository arrives as a digest-verified tarball fetched from the
-   source-controller's in-cluster artifact server (:9790); the only Secrets in a (non-brokered codex/copilot) pod are
-   that harness's one model credential and the per-Job handoff markdown. The agent ServiceAccount has no Role and its
+   or codex pod holds **no credential of any kind**: its model traffic goes through the egress credential broker
+   (deployed with the chart whenever a claude or codex runner is enabled), authenticated by an audience-bound projected
+   ServiceAccount token — an identity document, not a capability. The repository arrives as a digest-verified tarball
+   fetched from the source-controller's in-cluster artifact server (:9790); the only Secrets in a (non-brokered copilot)
+   pod are that harness's one credential and the per-Job handoff markdown. The agent ServiceAccount has no Role and its
    API token is not mounted.
 2. **NetworkPolicy** (`agent.networkPolicy.create`) — default-deny both directions, re-permitting only DNS, the artifact
    server, the broker, and TCP 443 externally (the non-brokered harness CLIs → their model APIs), with `clusterCIDRs`
-   excluded. A claude pod's entire egress is cluster-local.
+   excluded. A claude or codex pod's entire egress is cluster-local.
 3. **Hostname policy** (defence in depth) — `agent.networkPolicy.mode` picks the dialect the cluster can actually
    enforce. Each renders **one policy per enabled runner**, selecting that harness's pods by their
-   `patchy.bitwisemedia.uk/harness` label, so each reaches only its own model API (`agent.runners.<harness>.hosts` —
-   `api.openai.com` for codex; claude has **no external hosts at all**, its Cilium policy being cluster-only and its
+   `patchy.bitwisemedia.uk/harness` label, so each reaches only its own model API (`agent.runners.<harness>.hosts`; the
+   brokered claude and codex have **no external hosts at all**, their Cilium policies being cluster-only and their
    GKE/Istio entries skipped) plus the in-cluster endpoints. No GitHub hosts, because the pod never talks to GitHub. The
    `copilot` runner is the one exception: its CLI exchanges its token at `api.github.com` before reaching a model, so
    that host and `*.githubcopilot.com` are in its allowlist — an authentication dependency, not forge access, and the
@@ -416,18 +416,20 @@ The genuinely shared settings stay global:
   [Sizing agents](../../docs/intents/deploying.md#sizing-agents) in the docs.
 - `agent.runners.<harness>` — the per-harness runner fleet: `enabled`, the runner `image` (default
   `<prefix>/<harness>-agent-runner`; pinning its digest is one knob, unlike kustomize's two), and — for the non-brokered
-  codex/copilot — the credential `secret`/`secretKey`/`secretEnv` and egress `hosts`/`dnsPatterns`. The claude runner is
+  copilot — the credential `secret`/`secretKey`/`secretEnv` and egress `hosts`/`dnsPatterns`. The claude runner is
   brokered and carries a `provider` block instead (`name`, `region`, `regionPrefix`, `projectID`, `resource`,
-  `modelMap`, `env`) selecting which API the egress broker fronts. A non-brokered harness is enabled only when its
-  runner is enabled and its credential exists; claude is enabled by configuration alone. The model chosen for a stage
-  decides which runner (image + credential channel + egress policy) the Job runs, so an OpenAI model routes to `codex`
-  and an Anthropic model to `claude`. `copilot` brokers both vendors, so it can run any model in the registry and is the
-  fallback when a model's own harness is not enabled — never the preferred one.
-- `egressBroker.*` — the egress credential broker (deployed when a claude runner is enabled, or a codex runner with
-  `openai.apiKey` set): the credential Secrets (`anthropicSecret` + `anthropicAuth`, `foundrySecret`, and
-  `openai.apiKey` for the OpenAI Responses route, off by default and not yet used by any runner), `ssePingInterval`, and
-  — for bedrock/vertex/entra — the `serviceAccount.annotations`/`podLabels` workload-identity attachment point, with
-  `networkPolicy.extraEgress` for the cloud metadata side channels.
+  `modelMap`, `env`) selecting which API the egress broker fronts. The codex runner is brokered too, on the broker's
+  openai route, and needs `egressBroker.openai.apiKey`; with it enabled, its old credential and host keys fail the
+  render with the migration. A non-brokered harness is enabled only when its runner is enabled and its credential
+  exists; claude and codex are enabled by configuration alone. The model chosen for a stage decides which runner
+  (image + credential channel + egress policy) the Job runs, so an OpenAI model routes to `codex` and an Anthropic model
+  to `claude`. `copilot` brokers both vendors, so it can run any model in the registry and is the fallback when a
+  model's own harness is not enabled — never the preferred one.
+- `egressBroker.*` — the egress credential broker (deployed when a claude or codex runner is enabled): the credential
+  Secrets (`anthropicSecret` + `anthropicAuth`, `foundrySecret`, and `openai.apiKey` for the OpenAI Responses route the
+  codex runner runs on, off by default), `ssePingInterval`, and — for bedrock/vertex/entra — the
+  `serviceAccount.annotations`/`podLabels` workload-identity attachment point, with `networkPolicy.extraEgress` for the
+  cloud metadata side channels.
 - `egressBroker.limits.*` — what the broker enforces per pod and broker-wide before any upstream call: `requestsPerPod`,
   `concurrentPerPod` + `concurrencyWait`, `tokensPerPod`, `tokensPerHour`, `maxTokensCeiling`, `modelAllowlist`,
   `betaDenylist`, `maxAnthropicRequestBytes`, `maxRequestBytes`, and the pre-authentication `preauthRequestsPerSecond`,

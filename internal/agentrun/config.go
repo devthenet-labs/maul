@@ -74,6 +74,10 @@ type Config struct {
 	// authenticates to the egress broker with; empty on a non-brokered run.
 	// It is read fresh per stage — the kubelet rotates the projection.
 	BrokerTokenFile string
+	// CodexBaseURL is the egress broker's openai route a codex stage's
+	// provider is based at (provider.CodexEnv); empty on a pod that is not
+	// a codex one, where it is never read.
+	CodexBaseURL string
 	// ModelMap translates canonical model ids to the provider-specific CLI
 	// ids a brokered provider expects (Bedrock inference profiles, Foundry
 	// deployment names); consulted before the registry in cliModel.
@@ -286,6 +290,7 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		}
 	}
 	cfg.BrokerTokenFile = get("BROKER_TOKEN_FILE", "")
+	cfg.CodexBaseURL = get(strings.TrimPrefix(provider.CodexBaseURLEnv, "PATCHY_"), "")
 	cfg.BinDir = get(strings.TrimPrefix(BinDirEnv, "PATCHY_"), "")
 
 	var errs []string

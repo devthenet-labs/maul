@@ -276,6 +276,19 @@ func TestInspectOpenAIBody(t *testing.T) {
 		{"unknown tool type", `{"tools":[{"type":"tool_search"}]}`, `server tool "tool_search"`, "", 0},
 		{"tool without a type", `{"tools":[{"name":"x"}]}`, `server tool ""`, "", 0},
 		{"computer_use", `{"tools":[{"type":"computer_use"}]}`, "server tool", "", 0},
+		{"namespace of functions", `{"model":"m","tools":[{"type":"namespace","name":"multi_agent_v1",` +
+			`"tools":[` + fn + `,{"type":"custom","name":"x"}]}]}`, "", "m", 0},
+		{"namespace with a server tool", `{"tools":[{"type":"namespace","name":"n",` +
+			`"tools":[{"type":"web_search"}]}]}`, `server tool "web_search"`, "", 0},
+		{"namespace with a connector", `{"tools":[{"type":"namespace","name":"n",` +
+			`"tools":[{"type":"function","name":"x","connector_id":"c"}]}]}`, `tool field "connector_id"`, "", 0},
+		{"namespace naming a server", `{"tools":[{"type":"namespace","name":"n","server_url":"https://x",` +
+			`"tools":[]}]}`, `tool field "server_url"`, "", 0},
+		{"nested namespace", `{"tools":[{"type":"namespace","name":"n",` +
+			`"tools":[{"type":"namespace","name":"m","tools":[]}]}]}`, `server tool "namespace"`, "", 0},
+		{"namespace without tools", `{"tools":[{"type":"namespace","name":"n"}]}`, "without a", "", 0},
+		{"file_id in a namespace function's parameters", `{"model":"m","tools":[{"type":"namespace",` +
+			`"name":"n","tools":[` + fn + `]}]}`, "", "m", 0},
 		{"item_reference input", `{"model":"m","input":[{"type":"item_reference","id":"msg_1"}]}`,
 			"item references", "", 0},
 		{"nested item_reference", `{"input":[{"type":"function_call_output","call_id":"c",` +
@@ -705,5 +718,25 @@ func TestOpenAIRouteAndUserCredentials(t *testing.T) {
 	cfg.UserCredentials = UserCredentialConfig{}
 	if _, err := New(fakeReviews(nil), cfg, nil); err != nil {
 		t.Fatalf("New without per-user credentials = %v", err)
+	}
+}
+
+// TestInspectOpenAICodexRequest runs a request the real codex CLI sent
+// (rust-v0.153.4, the release Dockerfile.codex-agent-runner pins, pointed
+// at a recording server through the brokered provider config; instructions
+// and message texts elided) through the inspection: codex sends its
+// sub-agent tools as a namespace, which the route must forward, or every
+// brokered codex run would be refused at its first request.
+func TestInspectOpenAICodexRequest(t *testing.T) {
+	body, err := os.ReadFile("testdata/codex-0.153.4-responses-request.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	insp, err := inspectOpenAIBody(body, nil)
+	if err != nil {
+		t.Fatalf("a recorded codex request is refused: %v", err)
+	}
+	if insp.model != "gpt-5.3-codex" || insp.maxTokens != 0 {
+		t.Fatalf("inspection = %+v", insp)
 	}
 }
