@@ -259,7 +259,9 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   four recipes have landed: `existing` (R4: an Ingress class or a Gateway API parent), `gateway-tls` (R2:
   the gateway's own Local LoadBalancer Service terminating TLS, `forwardedHops: 0`) and `tailscale` (R3: that Service
   as ClusterIP with the Tailscale operator's `expose`, hostname and tag annotations, a public DNS record to the device's
-  100.x address, the tailnet policy as the allowlist) and `cloudflare-tunnel` (R1: `manifests/cloudflared.yaml`, a
+  100.x address, the tailnet policy as the allowlist; `--tailscale-oauth-dir` reads the operator's OAuth client from
+  its files `client_id` and `client_secret`, held redacted in `TailscaleOAuth` (an auth key or API token refused), and
+  writes it only into `secrets/tailscale-operator-oauth.secret.yaml`, read back on a re-run) and `cloudflare-tunnel` (R1: `manifests/cloudflared.yaml`, a
   locally-managed tunnel's cloudflared in namespace `patchy-cloudflared` (the recipe's own; `--cloudflared-namespace`,
   a new one: never the release, Dex's, cert-manager's, Tailscale's, `default` or a `kube-` namespace) at the
   digest-pinned image, both names to the gateway's Service and a 404 for the rest, egress only to DNS, the gateway Pods'

@@ -77,7 +77,8 @@ patchy setup previews --non-interactive -n patchy --platform k3d --edge tailscal
   --dex-issuer https://dex.patchy.acme.dev --viewer-team acme:qa \
   --registry ghcr.io --image-path-prefix acme/patchy/previews \
   --dns route53 --dns-option region=us-east-1 --dns-option accessKeyID=AKIAIOSFODNN7EXAMPLE \
-  --dns-credentials-file ~/.config/patchy/dns01-secret-access-key
+  --dns-credentials-file ~/.config/patchy/dns01-secret-access-key \
+  --tailscale-oauth-dir ~/.config/patchy/tailscale-oauth
 ```
 
 It writes `./patchy-previews/` (created 0700, every file 0600):
@@ -89,11 +90,12 @@ It writes `./patchy-previews/` (created 0700, every file 0600):
 | `patchy-previews.values.yaml` | patchy's chart values, layered after your own: `-f <your values> -f patchy-previews.values.yaml` |
 | `manifests/`                  | The cert-manager Issuer and Certificate (R2, R3, R4 with in-cluster TLS) or cloudflared (R1)     |
 | `upstream/`                   | Values for cert-manager and the Tailscale operator at the chart versions patchy pins             |
-| `secrets/`                    | The relay's Dex client secret (twice: Dex's namespace and patchy's), a DNS or tunnel credential  |
+| `secrets/`                    | The relay's Dex client secret (twice: Dex's namespace and patchy's), any credential you gave     |
 
 The files under `secrets/` hold the only copy of the Dex client secret and of any credential you gave. Apply them or
 encrypt them (sops, sealed-secrets); never commit them as they are. A credential is only ever read from a file
-(`--dns-credentials-file`, `--tunnel-credentials`) or standard input, never from a flag value or a prompt.
+(`--dns-credentials-file`, `--tunnel-credentials`, `--tailscale-oauth-dir`) or standard input, never from a flag value
+or a prompt.
 
 Then follow `NEXT-STEPS.md`. Every recipe has the same eight steps:
 
@@ -166,6 +168,13 @@ new tailnet's allow-all rule must go first. Viewers still sign in. This is the r
 needs no Traefik, no k3d port mapping and no second tailscaled, and it does not collide with Tailscale Funnel or
 `tailscale serve` on the host. Reference:
 [a tailnet device](../configuration/preview-gateway.md#a-tailnet-device-through-the-tailscale-operator).
+
+The Tailscale operator needs an OAuth client of its own. `NEXT-STEPS.md` gives its exact recipe: the scopes **Devices >
+Core**, **Keys > Auth Keys** and **General > Services**, each Write and tagged `tag:k8s-operator`, and a description of
+letters, digits and spaces only (at most 50 characters). Save its ID and secret as the files `client_id` and
+`client_secret` in a directory only you can read and pass it with `--tailscale-oauth-dir`: the command writes them only
+into `secrets/tailscale-operator-oauth.secret.yaml`, the operator's `operator-oauth` Secret in namespace `tailscale`,
+and reads them back on a re-run. It refuses an auth key or an API token given by mistake, and never prints either value.
 
 !!! note "Tailscale: no wildcard in MagicDNS"
 

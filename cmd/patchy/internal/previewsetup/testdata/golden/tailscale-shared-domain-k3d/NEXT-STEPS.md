@@ -181,14 +181,38 @@ ships with an allow-all rule (the grant `{"src": ["*"], "dst": ["*"], "ip": ["*"
 reaches `tag:patchy-previews` on every port, 80 (the gateway's plain-HTTP listener) included. Remove it, or narrow it so
 that no rule but the one above has `tag:patchy-previews` (or `*`) as a destination.
 
-Create an OAuth client in the Tailscale admin console with the write scopes the operator's guide
-(https://tailscale.com/kb/1236/kubernetes-operator) names, tagged `tag:k8s-operator`. Put its ID and secret
-in two files, never on a command line, then:
+Then the operator's OAuth client: once the policy above is saved (the client's tag must have an owner first), open
+**Settings > Trust credentials** in the admin console and generate an OAuth client with exactly these scopes, each
+**Write** (which includes read), each tagged `tag:k8s-operator`:
+
+- **Devices > Core**
+- **Keys > Auth Keys**
+- **General > Services**
+
+Its description may hold only letters, digits and spaces, at most 50 characters: `patchy previews operator` will do.
+The console shows the client secret once.
+
+Save the ID and the secret into two files named `client_id` and `client_secret` in a directory only you can
+read (never on a command line, which your shell's history keeps), for example:
 
 ```sh
-kubectl create namespace tailscale
+umask 077 && mkdir -p ~/.config/patchy/tailscale-oauth
+pbpaste > ~/.config/patchy/tailscale-oauth/client_id       # with the client ID copied (Linux: xclip -o)
+pbpaste > ~/.config/patchy/tailscale-oauth/client_secret   # then with the secret copied
+```
+
+then run this command again with `--tailscale-oauth-dir ~/.config/patchy/tailscale-oauth`: it writes them into
+`secrets/tailscale-operator-oauth.secret.yaml` (0600, never printed) and this step then applies that file. Or create the Secret yourself:
+
+```sh
+kubectl create namespace tailscale --dry-run=client -o yaml | kubectl apply -f -
 kubectl -n tailscale create secret generic operator-oauth \
   --from-file=client_id=<the client ID's file> --from-file=client_secret=<the client secret's file>
+```
+
+Install the operator at the version patchy pins:
+
+```sh
 helm upgrade --install tailscale-operator tailscale-operator --repo https://pkgs.tailscale.com/helmcharts \
   --version 1.104.1 -n tailscale -f upstream/tailscale-operator.values.yaml
 ```
@@ -240,4 +264,6 @@ In reverse order, all by deletion:
    Uninstall what this recipe installed if nothing else uses it: `helm uninstall
    tailscale-operator -n tailscale`, `helm uninstall cert-manager -n cert-manager` (its CRDs stay, and
    with them every Certificate in the cluster).
+   Then delete the operator's OAuth client in the admin console (Settings > Trust credentials): it stops working
+   everywhere it was copied.
 5. Delete what the chart keeps on uninstall, as `docs/intents/preview-sign-in.md` lists it.

@@ -568,7 +568,12 @@ previewAuth:
 - **The tailnet policy is the allowlist.** Let viewers' group reach `tag:patchy-previews` on `tcp:443` alone. Grants
   only add access, so a new tailnet's allow-all rule must go first: while it stands, every member reaches the device on
   every port, the gateway's plain listener on 80 included. Viewers still sign in.
-- **The operator's OAuth client** is its own Secret, created per Tailscale's guide; patchy's values never hold it.
+- **The operator's OAuth client** is its own Secret (`operator-oauth` in namespace `tailscale`, keys `client_id` and
+  `client_secret`); patchy's values never hold it. Generate it under **Settings > Trust credentials** with the scopes
+  **Devices > Core**, **Keys > Auth Keys** and **General > Services**, each Write and tagged `tag:k8s-operator`, once
+  the tailnet policy gives that tag an owner; the description takes letters, digits and spaces only, at most 50
+  characters. `patchy setup previews --tailscale-oauth-dir <dir>` writes the Secret's manifest from the two files
+  `client_id` and `client_secret` in that directory.
 
 ### k3d with wildcard DNS and cert-manager
 

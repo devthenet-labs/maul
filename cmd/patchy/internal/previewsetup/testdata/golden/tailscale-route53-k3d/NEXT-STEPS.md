@@ -18,11 +18,13 @@ change before it replaces a file, and never draws a new Dex client secret unless
 | `secrets/dex-patchy-preview-auth-client.secret.yaml` | The same secret, in Dex's namespace, for its static client (0600). |
 | `secrets/patchy-preview-auth-dex.secret.yaml` | The relay's Dex client secret, in the release namespace (0600). |
 | `secrets/preview-dns01-credentials.secret.yaml` | The DNS-01 solver's credential, in the release namespace (0600). |
+| `secrets/tailscale-operator-oauth.secret.yaml` | The Tailscale operator's OAuth client, Secret operator-oauth in its namespace tailscale (0600). |
 | `upstream/cert-manager.values.yaml` | cert-manager's values, for the chart version patchy pins (v1.21.2). |
 | `upstream/tailscale-operator.values.yaml` | The Tailscale operator's values, for the chart version patchy pins (1.104.1). |
 
 The files under `secrets/` (mode 0600) hold the only copy of the Dex client secret and of
-the DNS credential you gave. Apply them, or encrypt them (sops,
+the DNS credential you gave
+and of the Tailscale operator's OAuth client. Apply them, or encrypt them (sops,
 sealed-secrets) before they go anywhere else; never commit them as they are.
 
 ## 1. Before you start
@@ -171,14 +173,28 @@ ships with an allow-all rule (the grant `{"src": ["*"], "dst": ["*"], "ip": ["*"
 reaches `tag:patchy-previews` on every port, 80 (the gateway's plain-HTTP listener) included. Remove it, or narrow it so
 that no rule but the one above has `tag:patchy-previews` (or `*`) as a destination.
 
-Create an OAuth client in the Tailscale admin console with the write scopes the operator's guide
-(https://tailscale.com/kb/1236/kubernetes-operator) names, tagged `tag:k8s-operator`. Put its ID and secret
-in two files, never on a command line, then:
+Then the operator's OAuth client: once the policy above is saved (the client's tag must have an owner first), open
+**Settings > Trust credentials** in the admin console and generate an OAuth client with exactly these scopes, each
+**Write** (which includes read), each tagged `tag:k8s-operator`:
+
+- **Devices > Core**
+- **Keys > Auth Keys**
+- **General > Services**
+
+Its description may hold only letters, digits and spaces, at most 50 characters: `patchy previews operator` will do.
+The console shows the client secret once.
+
+You gave the client with `--tailscale-oauth-dir`: `secrets/tailscale-operator-oauth.secret.yaml` holds it as Secret `operator-oauth` in
+namespace `tailscale` (keys `client_id` and `client_secret`), which the operator's values name:
 
 ```sh
-kubectl create namespace tailscale
-kubectl -n tailscale create secret generic operator-oauth \
-  --from-file=client_id=<the client ID's file> --from-file=client_secret=<the client secret's file>
+kubectl create namespace tailscale --dry-run=client -o yaml | kubectl apply -f -
+kubectl apply -f secrets/tailscale-operator-oauth.secret.yaml
+```
+
+Install the operator at the version patchy pins:
+
+```sh
 helm upgrade --install tailscale-operator tailscale-operator --repo https://pkgs.tailscale.com/helmcharts \
   --version 1.104.1 -n tailscale -f upstream/tailscale-operator.values.yaml
 ```
@@ -229,4 +245,6 @@ In reverse order, all by deletion:
    Uninstall what this recipe installed if nothing else uses it: `helm uninstall
    tailscale-operator -n tailscale`, `helm uninstall cert-manager -n cert-manager` (its CRDs stay, and
    with them every Certificate in the cluster).
+   Then delete the operator's OAuth client in the admin console (Settings > Trust credentials): it stops working
+   everywhere it was copied.
 5. Delete what the chart keeps on uninstall, as `docs/intents/preview-sign-in.md` lists it.

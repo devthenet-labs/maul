@@ -67,6 +67,7 @@ func TestSetupPreviewsAsks(t *testing.T) {
 		"route53",                        // --dns
 		"us-east-1",                      // region
 		"",                               // accessKeyID: none, cert-manager's own identity
+		"",                               // --tailscale-oauth-dir: later
 	)
 	errOut, err := execPreviews(t, true, nil, in, "setup", "previews", "-o", dir)
 	if err != nil {
@@ -74,7 +75,8 @@ func TestSetupPreviewsAsks(t *testing.T) {
 	}
 	for _, want := range []string{"(--platform) [k3d, k3s, eks, gke, aks, other]", "(--edge)", "(tailscale)",
 		"(--host-suffix)", "sits under --host-suffix", "(--viewer-team, --viewer-user or --no-viewers)",
-		"(--dns) [route53,", "(--dns-option region=)", "(--dns-option accessKeyID=)", "(blank: none)"} {
+		"(--dns) [route53,", "(--dns-option region=)", "(--dns-option accessKeyID=)", "(blank: none)",
+		"(--tailscale-oauth-dir)"} {
 		if !strings.Contains(errOut, want) {
 			t.Errorf("the prompts lack %q:\n%s", want, errOut)
 		}

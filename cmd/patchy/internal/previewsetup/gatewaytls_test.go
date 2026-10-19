@@ -295,6 +295,8 @@ func TestGatewayCertFiles(t *testing.T) {
 		"gateway-tls-google-gke":       {IssuerFile, CertManager.ValuesFile},
 		"gateway-tls-digitalocean-k3s": {IssuerFile, CertManager.ValuesFile},
 		"tailscale-route53-k3d": {IssuerFile, CertManager.ValuesFile, TailscaleOperator.ValuesFile,
+			DNSSecretFile, TailscaleOAuthFile},
+		"tailscale-shared-domain-k3d": {IssuerFile, CertManager.ValuesFile, TailscaleOperator.ValuesFile,
 			DNSSecretFile},
 		"tailscale-manual-k3s": nil,
 	} {

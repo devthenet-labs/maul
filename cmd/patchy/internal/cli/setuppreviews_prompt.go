@@ -379,8 +379,8 @@ func askDNSOptions(p *prompter, a *previewsetup.Answers, all bool) error {
 	return nil
 }
 
-// askCredentialFiles asks where the tunnel credentials and the DNS-01
-// credential are, when the recipe needs one and neither a flag nor an
+// askCredentialFiles asks where the tunnel credentials, the Tailscale
+// operator's OAuth client and the DNS-01 credential are, when the recipe needs one and neither a flag nor an
 // earlier run gave it. Only the path is asked: the file is read as the
 // flag's would be, and its content is never typed at a prompt.
 func askCredentialFiles(p *prompter, a *previewsetup.Answers, f *setupPreviewsFlags) error {
@@ -394,6 +394,16 @@ func askCredentialFiles(p *prompter, a *previewsetup.Answers, f *setupPreviewsFl
 		}
 		f.tunnelCredentials = expandHome(s)
 	}
+	if a.WritesTailscaleOAuth() && f.tailscaleOAuthDir == "" &&
+		!exists(filepath.Join(f.output, filepath.FromSlash(previewsetup.TailscaleOAuthFile))) {
+		s, err := p.ask(question{flag: "tailscale-oauth-dir", text: "a directory holding the Tailscale operator's " +
+			"OAuth client as files client_id and client_secret (later: NEXT-STEPS.md says how to make it)",
+			optional: true, check: oauthDir})
+		if err != nil {
+			return err
+		}
+		f.tailscaleOAuthDir = expandHome(s)
+	}
 	if a.DNSCredentialKey() != "" && f.dnsCredentialsFile == "" && !f.dnsCredentialsStdin &&
 		!exists(filepath.Join(f.output, filepath.FromSlash(previewsetup.DNSSecretFile))) {
 		s, err := p.ask(question{flag: "dns-credentials-file", text: "a file holding the " + a.Certificate.DNS +
@@ -402,6 +412,16 @@ func askCredentialFiles(p *prompter, a *previewsetup.Answers, f *setupPreviewsFl
 			return err
 		}
 		f.dnsCredentialsFile = expandHome(s)
+	}
+	return nil
+}
+
+// oauthDir refuses a directory without the OAuth client's two files.
+func oauthDir(s string) error {
+	for _, name := range []string{previewsetup.TailscaleOAuthIDFile, previewsetup.TailscaleOAuthSecretFile} {
+		if err := regularFile(filepath.Join(expandHome(s), name)); err != nil {
+			return err
+		}
 	}
 	return nil
 }

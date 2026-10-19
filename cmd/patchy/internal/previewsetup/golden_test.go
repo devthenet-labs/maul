@@ -320,11 +320,25 @@ var withDNSCredential = map[string]bool{
 	"tailscale-shared-domain-k3d": true,
 }
 
+// tailscaleOAuthSentinel is the OAuth client the golden trees carry where
+// the operator gave one (--tailscale-oauth-dir): no client at all.
+var tailscaleOAuthSentinel = TailscaleOAuth{id: []byte("kSENTINEL0CNTRL"),
+	secret: []byte("tskey-client-kSENTINEL0CNTRL-SENTINEL-not-a-secret")}
+
+// withTailscaleOAuth are the cases whose operator gave the Tailscale
+// operator's OAuth client.
+var withTailscaleOAuth = map[string]bool{
+	"tailscale-route53-k3d": true,
+}
+
 // goldenSecrets are the secrets case name renders with.
 func goldenSecrets(name string) Secrets {
 	s := Secrets{DexClient: sentinel}
 	if withDNSCredential[name] {
 		s.DNS = dnsSentinel
+	}
+	if withTailscaleOAuth[name] {
+		s.TailscaleOAuth = tailscaleOAuthSentinel
 	}
 	return withTunnel(goldenCases()[name], s)
 }

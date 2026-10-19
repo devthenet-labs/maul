@@ -56,6 +56,8 @@ type nextSteps struct {
 	TailscaleNamespace                 string
 	TailscaleAddresses                 []string
 	TailscalePolicy                    string
+	TailscaleOAuthFile                 string
+	TailscaleOAuthWritten              bool // --tailscale-oauth-dir gave the operator's OAuth client
 
 	// SharedSite is the registrable domain previews share with sign-in,
 	// acknowledged ("" for none); SharedWith names what shares it, the
@@ -92,6 +94,8 @@ var fileWhat = map[string]string{
 	CloudflaredFile: "cloudflared's namespace, config, Deployment (" + Cloudflared.Tag + ", by digest) and " +
 		"NetworkPolicy.",
 	CloudflaredSecretFile: "The tunnel's credentials, in cloudflared's namespace (0600).",
+	TailscaleOAuthFile: "The Tailscale operator's OAuth client, Secret " + tailscaleOAuthSecret + " in its " +
+		"namespace " + TailscaleOperator.Namespace + " (0600).",
 }
 
 // renderNextSteps renders NEXT-STEPS.md for a and the recipe's own files;
@@ -193,6 +197,8 @@ func gatewayCertSteps(a Answers, d *nextSteps, paths []string) {
 		d.TailscaleNamespace = TailscaleOperator.Namespace
 		d.TailscaleAddresses = a.Tailscale.Addresses
 		d.TailscalePolicy = tailscalePolicy(a)
+		d.TailscaleOAuthFile = TailscaleOAuthFile
+		d.TailscaleOAuthWritten = slices.Contains(paths, TailscaleOAuthFile)
 	}
 }
 

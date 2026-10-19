@@ -42,6 +42,9 @@ type setupPreviewsFlags struct {
 	// tunnelCredentials is the locally-managed Cloudflare tunnel's
 	// credentials file (~/.cloudflared/<tunnel id>.json).
 	tunnelCredentials string
+	// tailscaleOAuthDir holds the Tailscale operator's OAuth client, as the
+	// files client_id and client_secret.
+	tailscaleOAuthDir string
 	// detect reads the cluster (read-only, never a Secret) to fill in
 	// answers; off, the command never contacts a cluster.
 	detect bool
@@ -92,7 +95,10 @@ func newSetupPreviewsCmd(opts *Options) *cobra.Command {
 			"identity answers, with no stored credential), plus values for cert-manager\n" +
 			"and the Tailscale operator at the chart versions patchy pins. A DNS credential is read\n" +
 			"from --dns-credentials-file or --dns-credentials-from-stdin, never a flag value, and is\n" +
-			"written only into a Secret manifest.\n\n" +
+			"written only into a Secret manifest. --tailscale-oauth-dir names a directory holding the\n" +
+			"Tailscale operator's OAuth client as two files, client_id and client_secret, which are\n" +
+			"written only into the operator's Secret manifest (secrets/tailscale-operator-oauth.secret.yaml);\n" +
+			"NEXT-STEPS.md gives the client's exact scopes and tag.\n\n" +
 			"--edge cloudflare-tunnel runs cloudflared in a namespace of its own, sending both names to\n" +
 			"the gateway's Service through a locally-managed tunnel; Cloudflare's edge holds the\n" +
 			"certificates. Create the tunnel first (cloudflared tunnel login, then cloudflared tunnel\n" +
@@ -127,7 +133,9 @@ func newSetupPreviewsCmd(opts *Options) *cobra.Command {
 			"    --dns-credentials-file ~/.config/dns01-secret-access-key ...\n\n" +
 			"  patchy setup previews --platform k3s --edge cloudflare-tunnel \\\n" +
 			"    --tunnel-credentials ~/.cloudflared/<tunnel id>.json --host-suffix acme-previews.dev \\\n" +
-			"    --sign-in-host preview-auth.acme.dev ...",
+			"    --sign-in-host preview-auth.acme.dev ...\n\n" +
+			"  patchy setup previews --platform k3d --edge tailscale \\\n" +
+			"    --tailscale-oauth-dir ~/.config/patchy/tailscale-oauth ...",
 		Args:              cobra.NoArgs,
 		ValidArgsFunction: noFileCompletion,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -195,6 +203,9 @@ func newSetupPreviewsCmd(opts *Options) *cobra.Command {
 		"address once it has appeared, what the DNS records hold (repeatable)")
 	fl.BoolVar(&a.Tailscale.OperatorInstalled, "tailscale-operator-installed", false, "--edge tailscale: the "+
 		"Tailscale operator already runs: write no values for it")
+	fl.StringVar(&f.tailscaleOAuthDir, "tailscale-oauth-dir", "", "--edge tailscale: a directory holding the "+
+		"Tailscale operator's OAuth client as files client_id and client_secret, written only into its Secret "+
+		"manifest")
 	fl.StringVar(&f.tunnelCredentials, "tunnel-credentials", "", "--edge cloudflare-tunnel: the locally-managed "+
 		"tunnel's credentials file (~/.cloudflared/<tunnel id>.json), written only into a Secret manifest")
 	fl.BoolVar(&a.Cloudflare.AdvancedCertificates, "cloudflare-acm", false, "--edge cloudflare-tunnel: the zones "+
@@ -223,6 +234,7 @@ func newSetupPreviewsCmd(opts *Options) *cobra.Command {
 	_ = cmd.RegisterFlagCompletionFunc("shared-domain", fixedCompletion([]string{
 		previewsetup.SharedDomainAcknowledged}))
 	_ = cmd.RegisterFlagCompletionFunc("dns", fixedCompletion(previewsetup.DNSProviders()))
+	_ = cmd.MarkFlagDirname("tailscale-oauth-dir")
 	for _, name := range []string{"host-suffix", "sign-in-host", "dex-issuer", "dex-namespace", "dex-client-id",
 		"viewer-team", "viewer-user", "registry", "image-path-prefix", "node-label", "eks-auto-mode", "taint-key",
 		"api-server-cidr", "ingress-class", "gateway-parent", "certificate-issuer", "release", "dns-option",
@@ -393,6 +405,9 @@ func runSetupPreviews(cmd *cobra.Command, opts *Options, f *setupPreviewsFlags, 
 		return errUsage(err)
 	}
 	secrets.Tunnel = tunnel
+	if secrets.TailscaleOAuth, err = resolveTailscaleOAuth(opts.ErrOut, f, a); err != nil {
+		return err
+	}
 	files, err := previewsetup.Plan(a, secrets, version.Version)
 	if err != nil {
 		return err
@@ -409,7 +424,7 @@ func runSetupPreviews(cmd *cobra.Command, opts *Options, f *setupPreviewsFlags, 
 	// A secret file changes only when the operator asked for it: a
 	// rotation, or a DNS credential or tunnel credentials given anew.
 	accept := previewsetup.Accept{All: f.force || f.yes,
-		Secrets: rotate || !given.IsZero() || f.tunnelCredentials != ""}
+		Secrets: rotate || !given.IsZero() || f.tunnelCredentials != "" || f.tailscaleOAuthDir != ""}
 	written, err := writePreviews(opts.Out, p, c, accept)
 	if err != nil {
 		return err
@@ -596,6 +611,32 @@ func readCredentialFile(errOut io.Writer, flag, path string) ([]byte, error) {
 	return raw, nil
 }
 
+// resolveTailscaleOAuth reads the OAuth client from --tailscale-oauth-dir,
+// else the one an earlier run wrote. The files are never echoed.
+func resolveTailscaleOAuth(errOut io.Writer, f *setupPreviewsFlags, a previewsetup.Answers) (
+	previewsetup.TailscaleOAuth, error) {
+	var given previewsetup.TailscaleOAuth
+	if f.tailscaleOAuthDir != "" {
+		var raw [2][]byte
+		for i, name := range []string{previewsetup.TailscaleOAuthIDFile, previewsetup.TailscaleOAuthSecretFile} {
+			b, err := readCredentialFile(errOut, "--tailscale-oauth-dir", filepath.Join(f.tailscaleOAuthDir, name))
+			if err != nil {
+				return given, err
+			}
+			raw[i] = b
+		}
+		var err error
+		if given, err = previewsetup.ParseTailscaleOAuth(raw[0], raw[1]); err != nil {
+			return given, errUsage(fmt.Errorf("--tailscale-oauth-dir %s: %w", f.tailscaleOAuthDir, err))
+		}
+	}
+	c, err := previewsetup.ResolveTailscaleOAuth(f.output, a, given)
+	if err != nil {
+		return c, errUsage(err)
+	}
+	return c, nil
+}
+
 // maxCredentialRead bounds a credential read: past previewsetup's limit,
 // so an oversized one is refused rather than cut.
 const maxCredentialRead = 1 << 20
@@ -642,6 +683,10 @@ func reportWrite(w io.Writer, dir string, c previewsetup.Comparison, written []s
 	if slices.Contains(written, previewsetup.CloudflaredSecretFile) {
 		notef(w, "patchy: wrote the tunnel credentials into %s: apply or encrypt it; never commit it as it is.\n",
 			filepath.Join(dir, previewsetup.CloudflaredSecretFile))
+	}
+	if slices.Contains(written, previewsetup.TailscaleOAuthFile) {
+		notef(w, "patchy: wrote the Tailscale operator's OAuth client into %s: apply or encrypt it; never commit it "+
+			"as it is.\n", filepath.Join(dir, previewsetup.TailscaleOAuthFile))
 	}
 	if slices.Contains(written, previewsetup.DNSSecretFile) {
 		notef(w, "patchy: wrote the DNS credential into %s: apply or encrypt it; never commit it as it is.\n",
