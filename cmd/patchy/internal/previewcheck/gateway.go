@@ -22,6 +22,8 @@ import (
 
 	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
 	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/checkreport"
+	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/previewsetup"
+	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/tailnet"
 	"github.com/bitwise-media-group/patchy/internal/previewauth"
 )
 
@@ -68,6 +70,10 @@ type gatewayEdge struct {
 	// tunnel is set when the exposure publishes no address, which a
 	// Cloudflare Tunnel may serve (tunnel.go).
 	tunnel *tunnelEdge
+	// records are the exact DNS records the edge needs, when the check
+	// found its address itself (a tailnet device), for every reason that
+	// asks for them.
+	records []string
 }
 
 // gatewayEdge reads where the gateway is published: the chart's
@@ -75,28 +81,7 @@ type gatewayEdge struct {
 // LoadBalancer Service status.
 func (c *Checker) gatewayEdge(ctx context.Context, s Settings) gatewayEdge {
 	if v := strings.TrimSpace(s.Auth.Annotations[publishedAnnotation]); v != "" {
-		var e gatewayEdge
-		named := false
-		for a := range strings.SplitSeq(v, ",") {
-			a = strings.TrimSpace(a)
-			addrs, err := c.addresses(ctx, a)
-			if err != nil {
-				return gatewayEdge{status: checkreport.Skip, why: fmt.Sprintf("the published address %s does not "+
-					"resolve: %v", a, err)}
-			}
-			_, perr := netip.ParseAddr(a)
-			named = named || perr != nil
-			e.addrs = append(e.addrs, addrs...)
-		}
-		// Every reason puts addresses after the edge's name, so the
-		// published value joins the name only when it holds a host name,
-		// whose addresses are not the value itself.
-		e.name = "previewAuth.gateway.publishedAddresses"
-		if named {
-			e.name += " " + v
-		}
-		e.private = allPrivate(e.addrs)
-		return e
+		return c.publishedEdge(ctx, v)
 	}
 	base, ok := strings.CutSuffix(s.Auth.Name, relayConfigSuffix)
 	if !ok {
@@ -131,6 +116,8 @@ func (c *Checker) gatewayEdge(ctx context.Context, s Settings) gatewayEdge {
 	case err != nil && !apierrors.IsNotFound(err):
 		return gatewayEdge{status: checkreport.Skip, why: fmt.Sprintf("cannot read the gateway's Service %s: %v",
 			key, err)}
+	case err == nil && svc.Annotations[tailscaleExpose] == "true":
+		return c.tailnetEdge(ctx, s, svc)
 	}
 	t := c.findTunnel(ctx, strings.TrimSpace(s.Preview.Data[keyPreviewHostSuffix]))
 	if t.id != "" {
@@ -144,6 +131,94 @@ func (c *Checker) gatewayEdge(ctx context.Context, s Settings) gatewayEdge {
 		why += " (" + t.lookup + ", so a cloudflare-tunnel recipe's tunnel could not be looked for)"
 	}
 	return gatewayEdge{status: checkreport.Skip, tunnel: &t, why: why}
+}
+
+// The Tailscale operator's Service annotations: expose gives the Service a
+// tailnet device, named by hostname (else <namespace>-<name>) and tagged
+// by tags (else tag:k8s, the operator's default).
+const (
+	tailscaleExpose     = "tailscale.com/expose"
+	tailscaleHostname   = "tailscale.com/hostname"
+	tailscaleTags       = "tailscale.com/tags"
+	tailscaleDefaultTag = "tag:k8s"
+)
+
+// tailnetEdge is the gateway's tailnet device, which the Tailscale
+// operator records only in its proxy's state Secret (beside the device's
+// keys, so never read): the caller's own Tailscale client is asked
+// instead. This machine is then on the tailnet, and resolves names as a
+// viewer on it does, so the edge counts as public: a missing or wrong
+// record fails, with the exact records to create.
+func (c *Checker) tailnetEdge(ctx context.Context, s Settings, svc corev1.Service) gatewayEdge {
+	hostname := strings.TrimSpace(svc.Annotations[tailscaleHostname])
+	if hostname == "" {
+		hostname = svc.Namespace + "-" + svc.Name
+	}
+	var tags []string
+	for t := range strings.SplitSeq(svc.Annotations[tailscaleTags], ",") {
+		if t = strings.TrimSpace(t); t != "" {
+			tags = append(tags, t)
+		}
+	}
+	if len(tags) == 0 {
+		tags = []string{tailscaleDefaultTag}
+	}
+	device := fmt.Sprintf("the tailnet device %s (%s)", hostname, strings.Join(tags, ", "))
+	if c.cfg.Tailnet == nil {
+		return gatewayEdge{status: checkreport.Skip, why: fmt.Sprintf("the gateway's exposure is %s, whose address "+
+			"is known to the tailnet alone: set previewAuth.gateway.publishedAddresses to compare against", device)}
+	}
+	m := tailnet.Lookup(ctx, c.cfg.Tailnet, hostname, tags)
+	if !m.Found {
+		return gatewayEdge{status: checkreport.Skip, why: fmt.Sprintf("the gateway's exposure is %s: %s; run this on "+
+			"a machine on the tailnet, or set previewAuth.gateway.publishedAddresses", device, m.Why)}
+	}
+	suffix := strings.TrimSpace(s.Preview.Data[keyPreviewHostSuffix])
+	signIn := ""
+	if u, err := url.Parse(strings.TrimSpace(s.Auth.Data[keyAuthIssuer])); err == nil {
+		signIn = u.Hostname()
+	}
+	if gw := distinctSignIn(s); gw != "" {
+		signIn = gw
+	}
+	return gatewayEdge{name: "tailnet device " + m.Device.DNSName, addrs: m.Device.IPv4,
+		records: previewsetup.DNSRecords(suffix, signIn, m.Device.IPv4)}
+}
+
+// recordsHint is the records to create, for a reason, when the edge knows
+// them.
+func recordsHint(edge gatewayEdge) string {
+	if len(edge.records) == 0 {
+		return ""
+	}
+	return "; create these records in public DNS: " + strings.Join(edge.records, "; ")
+}
+
+// publishedEdge is the edge the chart's publishedAddresses (v, comma
+// separated) name.
+func (c *Checker) publishedEdge(ctx context.Context, v string) gatewayEdge {
+	var e gatewayEdge
+	named := false
+	for a := range strings.SplitSeq(v, ",") {
+		a = strings.TrimSpace(a)
+		addrs, err := c.addresses(ctx, a)
+		if err != nil {
+			return gatewayEdge{status: checkreport.Skip, why: fmt.Sprintf("the published address %s does not "+
+				"resolve: %v", a, err)}
+		}
+		_, perr := netip.ParseAddr(a)
+		named = named || perr != nil
+		e.addrs = append(e.addrs, addrs...)
+	}
+	// Every reason puts addresses after the edge's name, so the published
+	// value joins the name only when it holds a host name, whose addresses
+	// are not the value itself.
+	e.name = "previewAuth.gateway.publishedAddresses"
+	if named {
+		e.name += " " + v
+	}
+	e.private = allPrivate(e.addrs)
+	return e
 }
 
 // statusEdge is an exposure's status address, resolved when a hostname.
@@ -228,7 +303,7 @@ func (c *Checker) gatewayProbeHost(ctx context.Context, suffix string, edge gate
 		return
 	case err != nil && errors.As(err, &dnsErr) && dnsErr.IsNotFound:
 		c.add(CheckPreviewDNS, checkreport.Fail, "%s does not resolve (%v): a wildcard record *.%s must point "+
-			"at the preview gateway's edge%s", host, err, suffix, edgeHint(edge))
+			"at the preview gateway's edge%s%s", host, err, suffix, edgeHint(edge), recordsHint(edge))
 		c.add(CheckPreviewTLS, checkreport.Skip, "%s does not resolve", host)
 		return
 	case err != nil:
@@ -272,8 +347,8 @@ func (c *Checker) gatewaySignInHost(ctx context.Context, host string, edge gatew
 		return
 	case err != nil && errors.As(err, &dnsErr) && dnsErr.IsNotFound:
 		c.add(CheckPreviewDNS, checkreport.Fail, "the sign-in host %s does not resolve (%v), so every viewer's "+
-			"sign-in redirect lands nowhere: %s, and its record must point at that edge%s", host, err, record,
-			edgeHint(edge))
+			"sign-in redirect lands nowhere: %s, and its record must point at that edge%s%s", host, err, record,
+			edgeHint(edge), recordsHint(edge))
 		c.add(CheckPreviewTLS, checkreport.Skip, "the sign-in host %s does not resolve", host)
 		return
 	case err != nil:
@@ -300,8 +375,8 @@ func (c *Checker) gatewaySignInHost(ctx context.Context, host string, edge gatew
 			"resolve it", host, got, edge.name, strings.Join(edge.addrs, ", "))
 	default:
 		c.add(CheckPreviewDNS, checkreport.Fail, "the sign-in host %s resolves to %s, but the preview gateway's "+
-			"edge %s is at %s: %s, and its record must point at that edge", host, got, edge.name,
-			strings.Join(edge.addrs, ", "), record)
+			"edge %s is at %s: %s, and its record must point at that edge%s", host, got, edge.name,
+			strings.Join(edge.addrs, ", "), record, recordsHint(edge))
 	}
 	c.previewTLS(ctx, host, host, gatewayAdmits)
 }
@@ -364,8 +439,8 @@ func (c *Checker) judgeGatewayDNS(ctx context.Context, host, suffix string, addr
 			got, edge.name, strings.Join(edge.addrs, ", "))
 	default:
 		c.add(CheckPreviewDNS, checkreport.Fail, "%s resolves to %s, but the preview gateway's edge %s is at "+
-			"%s: the wildcard record *.%s must point at it", host, got, edge.name, strings.Join(edge.addrs, ", "),
-			suffix)
+			"%s: the wildcard record *.%s must point at it%s", host, got, edge.name, strings.Join(edge.addrs, ", "),
+			suffix, recordsHint(edge))
 	}
 }
 

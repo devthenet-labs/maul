@@ -563,12 +563,52 @@ previewAuth:
 ```
 
 - **DNS.** MagicDNS takes no wildcard or custom records. Create both records in public DNS, pointing at the device's
-  tailnet address (`tailscale ip -4 patchy-previews`): only the tailnet can reach it. Set `publishedAddresses` to that
-  address for `patchy check previews`.
+  tailnet address (`tailscale ip -4 patchy-previews`): only the tailnet can reach it. On a machine on the tailnet,
+  `patchy check previews` finds that address itself through the machine's own Tailscale client
+  (`tailscale status --json`, read-only; the operator keeps it in the cluster only in a Secret, which patchy never
+  reads) by the Service's hostname and tags annotations, and prints the exact records to create while one is missing or
+  wrong. `publishedAddresses`, when set, is compared instead.
 - **The tailnet policy is the allowlist.** Let viewers' group reach `tag:patchy-previews` on `tcp:443` alone. Grants
   only add access, so a new tailnet's allow-all rule must go first: while it stands, every member reaches the device on
-  every port, the gateway's plain listener on 80 included. Viewers still sign in.
-- **The operator's OAuth client** is its own Secret, created per Tailscale's guide; patchy's values never hold it.
+  every port, the gateway's plain listener on 80 included. Viewers still sign in. Replacing allow-all safely keeps every
+  member on their own devices, and lets Tailscale test the result on save:
+
+  ```jsonc
+  {
+    "groups": { "group:preview-viewers": ["<a viewer's tailnet login>"] },
+    "tagOwners": {
+      "tag:k8s-operator": [],
+      "tag:k8s": ["tag:k8s-operator"],
+      "tag:patchy-previews": ["tag:k8s-operator"],
+    },
+    "grants": [
+      { "src": ["autogroup:member"], "dst": ["autogroup:self"], "ip": ["*"] },
+      { "src": ["group:preview-viewers"], "dst": ["tag:patchy-previews"], "ip": ["tcp:443"] },
+    ],
+    // keep "ssh", "nodeAttrs" and any other section as they are
+    "tests": [
+      { "src": "<your tailnet login>", "accept": ["<your tailnet login>:22"] },
+      {
+        "src": "<a viewer's tailnet login>",
+        "accept": ["tag:patchy-previews:443"],
+        "deny": ["tag:patchy-previews:80"],
+      },
+      { "src": "tag:k8s", "deny": ["tag:patchy-previews:443", "tag:patchy-previews:80"] },
+    ],
+  }
+  ```
+
+  `setup previews` prints this policy, for your tag, in `NEXT-STEPS.md`. It refuses `--tailscale-tag tag:k8s-operator`
+  and `tag:k8s`: the first is the operator's own, the second the tag it gives every proxy, so either would grant viewers
+  more than the previews' device. Anything else members reach today (a tagged server, a subnet router, an exit node)
+  needs a grant of its own before saving.
+
+- **The operator's OAuth client** is its own Secret (`operator-oauth` in namespace `tailscale`, keys `client_id` and
+  `client_secret`); patchy's values never hold it. Generate it under **Settings > Trust credentials** with the scopes
+  **Devices > Core**, **Keys > Auth Keys** and **General > Services**, each Write and tagged `tag:k8s-operator`, once
+  the tailnet policy gives that tag an owner; the description takes letters, digits and spaces only, at most 50
+  characters. `patchy setup previews --tailscale-oauth-dir <dir>` writes the Secret's manifest from the two files
+  `client_id` and `client_secret` in that directory.
 
 ### k3d with wildcard DNS and cert-manager
 

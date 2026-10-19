@@ -84,6 +84,9 @@ type Secrets struct {
 	// Tunnel is the cloudflare-tunnel recipe's tunnel credentials, which
 	// that recipe cannot render without.
 	Tunnel TunnelCredentials
+	// TailscaleOAuth is the Tailscale operator's OAuth client, zero when
+	// the operator gave none (its Secret is then theirs to create).
+	TailscaleOAuth TailscaleOAuth
 }
 
 // RotateDexClientSecret names the secret a run draws anew although one is on disk.
@@ -189,7 +192,11 @@ func secretFiles(a Answers, s Secrets) ([]File, error) {
 	if err != nil {
 		return nil, err
 	}
-	return append(files, tunnel...), nil
+	oauth, err := tailscaleOAuthSecretFiles(a, s)
+	if err != nil {
+		return nil, err
+	}
+	return slices.Concat(files, tunnel, oauth), nil
 }
 
 // Credential is a provider credential the operator hands the wizard (the

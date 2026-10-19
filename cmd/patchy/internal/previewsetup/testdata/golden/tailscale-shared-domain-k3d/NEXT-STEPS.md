@@ -155,40 +155,84 @@ each.
 
 ## 6. Install
 
-The gateway's device joins the tailnet through the Tailscale operator. In the tailnet policy, let the operator own the
-previews' tag and let viewers reach that device on 443 alone (put whoever views previews in `group:preview-viewers`;
-each still signs in):
+The gateway's device joins the tailnet through the Tailscale operator. First the tailnet policy (**Access controls** in
+the admin console). Grants and ACLs only add access, and a new tailnet ships with an allow-all rule (the grant
+`{"src": ["*"], "dst": ["*"], "ip": ["*"]}`, or the ACL `{"action": "accept", "src": ["*"], "dst": ["*:*"]}`): while it
+stands, every member, shared-in user and tagged device reaches `tag:patchy-previews` on every port,
+80 (the gateway's plain-HTTP listener) included. Remove it, or narrow it: the policy below replaces your `grants` and
+`acls` with exactly what is needed, and adds its `groups`, `tagOwners` and `tests` entries to yours:
 
-```json
+```jsonc
 {
+  // Who may reach the previews' device: tailnet logins (each still signs in).
+  "groups": {
+    "group:preview-viewers": ["<a viewer's tailnet login>"]
+  },
   "tagOwners": {
-    "tag:k8s-operator": ["autogroup:admin"],
+    "tag:k8s-operator": [],
+    "tag:k8s": ["tag:k8s-operator"],
     "tag:patchy-previews": ["tag:k8s-operator"]
   },
+  // These replace allow-all: nothing else is reachable unless granted here.
   "grants": [
-    {
-      "src": ["group:preview-viewers"],
-      "dst": ["tag:patchy-previews"],
-      "ip": ["tcp:443"]
-    }
+    // Every member keeps reaching their own devices, Tailscale SSH included.
+    {"src": ["autogroup:member"], "dst": ["autogroup:self"], "ip": ["*"]},
+    // Viewers reach the previews' device on 443 alone.
+    {"src": ["group:preview-viewers"], "dst": ["tag:patchy-previews"], "ip": ["tcp:443"]}
+  ],
+  // Keep your "ssh" and "nodeAttrs" sections, and any other, as they are.
+  // Tailscale runs these on every save and refuses a policy that fails one.
+  "tests": [
+    {"src": "<your tailnet login>", "accept": ["<your tailnet login>:22"]},
+    {"src": "<a viewer's tailnet login>", "accept": ["tag:patchy-previews:443"], "deny": ["tag:patchy-previews:80"]},
+    {"src": "tag:k8s", "deny": ["tag:patchy-previews:443", "tag:patchy-previews:80"]}
   ]
 }
 ```
 
-Grants and ACLs only add access, so this grant restricts nothing while another rule reaches the device. A new tailnet
-ships with an allow-all rule (the grant `{"src": ["*"], "dst": ["*"], "ip": ["*"]}`, or the ACL
-`{"action": "accept", "src": ["*"], "dst": ["*:*"]}`): while it stands, every member, shared-in user and tagged device
-reaches `tag:patchy-previews` on every port, 80 (the gateway's plain-HTTP listener) included. Remove it, or narrow it so
-that no rule but the one above has `tag:patchy-previews` (or `*`) as a destination.
+- Every member keeps reaching their own devices (`autogroup:self`), which is what Tailscale SSH's default rule needs, so
+  removing allow-all does not lock you out. Anything else your devices reach today (a tagged server, a subnet router,
+  an exit node: `{"src": ["autogroup:member"], "dst": ["autogroup:internet"], "ip": ["*"]}`) needs a grant of its own
+  before you save, or it stops.
+- `group:preview-viewers` reaches `tag:patchy-previews` on 443 alone; viewers still sign in at `https://preview-auth.acme.dev`.
+- `tag:k8s-operator` (empty: only admins may apply it) owns the tags of the devices the operator creates, `tag:k8s`
+  (its default) and `tag:patchy-previews`.
+- Replace `<your tailnet login>` and `<a viewer's tailnet login>` with real logins first (a viewer may be you). Tailscale runs the
+  `tests` on every save and refuses a policy that fails one: you must still reach your own devices, a viewer must reach
+  443 and not 80, and another tagged device must reach neither, which fails while any allow-all rule is left.
 
-Create an OAuth client in the Tailscale admin console with the write scopes the operator's guide
-(https://tailscale.com/kb/1236/kubernetes-operator) names, tagged `tag:k8s-operator`. Put its ID and secret
-in two files, never on a command line, then:
+Then the operator's OAuth client: once the policy above is saved (the client's tag must have an owner first), open
+**Settings > Trust credentials** in the admin console and generate an OAuth client with exactly these scopes, each
+**Write** (which includes read), each tagged `tag:k8s-operator`:
+
+- **Devices > Core**
+- **Keys > Auth Keys**
+- **General > Services**
+
+Its description may hold only letters, digits and spaces, at most 50 characters: `patchy previews operator` will do.
+The console shows the client secret once.
+
+Save the ID and the secret into two files named `client_id` and `client_secret` in a directory only you can
+read (never on a command line, which your shell's history keeps), for example:
 
 ```sh
-kubectl create namespace tailscale
+umask 077 && mkdir -p ~/.config/patchy/tailscale-oauth
+pbpaste > ~/.config/patchy/tailscale-oauth/client_id       # with the client ID copied (Linux: xclip -o)
+pbpaste > ~/.config/patchy/tailscale-oauth/client_secret   # then with the secret copied
+```
+
+then run this command again with `--tailscale-oauth-dir ~/.config/patchy/tailscale-oauth`: it writes them into
+`secrets/tailscale-operator-oauth.secret.yaml` (0600, never printed) and this step then applies that file. Or create the Secret yourself:
+
+```sh
+kubectl create namespace tailscale --dry-run=client -o yaml | kubectl apply -f -
 kubectl -n tailscale create secret generic operator-oauth \
   --from-file=client_id=<the client ID's file> --from-file=client_secret=<the client secret's file>
+```
+
+Install the operator at the version patchy pins:
+
+```sh
 helm upgrade --install tailscale-operator tailscale-operator --repo https://pkgs.tailscale.com/helmcharts \
   --version 1.104.1 -n tailscale -f upstream/tailscale-operator.values.yaml
 ```
@@ -211,10 +255,15 @@ Point two records at the edge's address:
 - `*.previews.acme.dev`
 - `preview-auth.acme.dev`
 
-The address is the tailnet device `patchy-previews`'s, once the operator has created it (`tailscale ip -4
-patchy-previews` on any machine in the tailnet, or the admin console). MagicDNS takes no wildcard or custom
-records, so these are records in your public DNS that point at a tailnet address: only the tailnet can reach it. You gave `100.101.12.58`
-(`previewAuth.gateway.publishedAddresses`, which `patchy check previews` compares DNS with).
+The address is the tailnet device `patchy-previews`'s, once the operator has created it in step 6. MagicDNS takes
+no wildcard or custom records, so these are records in your public DNS that point at a tailnet address: only the tailnet
+can reach it. The device is at `100.101.12.58`
+(`previewAuth.gateway.publishedAddresses`, which `patchy check previews` compares DNS with), so create exactly:
+
+```text
+*.previews.acme.dev. A 100.101.12.58
+preview-auth.acme.dev. A 100.101.12.58
+```
 
 The gateway sees the tailnet proxy's address, not the viewer's, so `previewAuth.gateway.forwardedHops` is 0 and
 `inboundCIDRs` stays empty: the tailnet policy in step 6 is the allowlist, once no allow-all rule is left in it.
@@ -240,4 +289,6 @@ In reverse order, all by deletion:
    Uninstall what this recipe installed if nothing else uses it: `helm uninstall
    tailscale-operator -n tailscale`, `helm uninstall cert-manager -n cert-manager` (its CRDs stay, and
    with them every Certificate in the cluster).
+   Then delete the operator's OAuth client in the admin console (Settings > Trust credentials): it stops working
+   everywhere it was copied.
 5. Delete what the chart keeps on uninstall, as `docs/intents/preview-sign-in.md` lists it.

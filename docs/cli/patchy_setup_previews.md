@@ -28,7 +28,10 @@ a re-run (an empty one, --api-server-cidr auto, or a false --cert-manager-instal
 --tailscale-operator-installed), never one a flag gives: the platform, the host suffix,
 sign-in host and Dex issuer of an existing install, the kubernetes Service's /32 as
 --api-server-cidr on EKS, and --cert-manager-installed and
---tailscale-operator-installed.
+--tailscale-operator-installed. With --edge tailscale, --detect also asks this machine's
+own Tailscale client (tailscale status --json, read-only) for the gateway's tailnet device,
+fills --tailscale-address from it while unanswered and prints the exact DNS records to
+create; the operator keeps that address in the cluster only in a Secret, never read.
 
 --edge existing routes through
 an Ingress class or a Gateway API parent already in the cluster; --edge gateway-tls makes
@@ -39,7 +42,10 @@ the ACME Issuer that answers its DNS-01 challenge (a ClusterIssuer when cert-man
 identity answers, with no stored credential), plus values for cert-manager
 and the Tailscale operator at the chart versions patchy pins. A DNS credential is read
 from --dns-credentials-file or --dns-credentials-from-stdin, never a flag value, and is
-written only into a Secret manifest.
+written only into a Secret manifest. --tailscale-oauth-dir names a directory holding the
+Tailscale operator's OAuth client as two files, client_id and client_secret, which are
+written only into the operator's Secret manifest (secrets/tailscale-operator-oauth.secret.yaml);
+NEXT-STEPS.md gives the client's exact scopes and tag.
 
 --edge cloudflare-tunnel runs cloudflared in a namespace of its own, sending both names to
 the gateway's Service through a locally-managed tunnel; Cloudflare's edge holds the
@@ -89,6 +95,9 @@ patchy setup previews [flags]
   patchy setup previews --platform k3s --edge cloudflare-tunnel \
     --tunnel-credentials ~/.cloudflared/<tunnel id>.json --host-suffix acme-previews.dev \
     --sign-in-host preview-auth.acme.dev ...
+
+  patchy setup previews --platform k3d --edge tailscale \
+    --tailscale-oauth-dir ~/.config/patchy/tailscale-oauth ...
 ```
 
 ### Options
@@ -100,7 +109,7 @@ patchy setup previews [flags]
       --certificate-issuer string       --edge existing, or --dns manual: your cert-manager issuer, Issuer/<name> or ClusterIssuer/<name> (default Issuer/preview-dns01)
       --cloudflare-acm                  --edge cloudflare-tunnel: the zones have Advanced Certificate Manager, so names deeper than Universal SSL's first level are allowed
       --cloudflared-namespace string    --edge cloudflare-tunnel: the namespace cloudflared runs in, a new one its manifest creates and rolling back deletes (default patchy-cloudflared)
-      --detect                          read the cluster (read-only, never a Secret) to fill in answers
+      --detect                          read the cluster (read-only, never a Secret), and for --edge tailscale this machine's Tailscale client, to fill in answers
       --dex-client-id string            the relay's static client at Dex (default "patchy-preview-auth")
       --dex-issuer string               your Dex's issuer URL (https)
       --dex-namespace string            the namespace Dex runs in (default "dex")
@@ -133,6 +142,7 @@ patchy setup previews [flags]
       --sign-in-host string             where viewers sign in, on another registrable domain unless --shared-domain
       --tailscale-address stringArray   --edge tailscale: the device's tailnet address once it has appeared, what the DNS records hold (repeatable)
       --tailscale-hostname string       --edge tailscale: the gateway's device name (default patchy-previews)
+      --tailscale-oauth-dir string      --edge tailscale: a directory holding the Tailscale operator's OAuth client as files client_id and client_secret, written only into its Secret manifest
       --tailscale-operator-installed    --edge tailscale: the Tailscale operator already runs: write no values for it
       --tailscale-tag string            --edge tailscale: the device's ACL tag (default tag:patchy-previews)
       --taint-key string                the NoExecute taint preview nodes carry (default "patchy.bitwisemedia.uk/preview-only")

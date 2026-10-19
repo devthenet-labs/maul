@@ -247,7 +247,12 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   (and the VPC CNI policy agent's command line), `kube-system/amazon-vpc-cni` and the release's ConfigMaps (never a
   Secret, nothing written, pinned by a fake client that fails on either; no read reaching the API server is an error),
   and its pure `Apply` fills only answers still open, even recorded ones (empty, `auto`, a false "installed"), never a
-  flag's (seeded property). It writes, never applies, the files
+  flag's (seeded property). For `--edge tailscale` it also asks this machine's own Tailscale client for the gateway's
+  device (`cmd/patchy/internal/tailnet`: `Local` runs `tailscale status --json`, read-only, bounded; pure
+  `ParseStatus`/`Find` keep only what validates and find exactly one Running device of that hostname carrying the tag,
+  seeded property; stdlib only, a test pins that), because the operator records its address only in the proxy's state
+  Secret beside its keys; `previewdetect.ApplyTailnet` fills `--tailscale-address` while open and prints the exact DNS
+  records (`previewsetup.DNSRecords`). It writes, never applies, the files
   that expose previews: `answers.yaml` (no secret; a re-run starts from it), `patchy-previews.values.yaml` (layered
   after the operator's own), `manifests/`, the relay's Dex client secret as two Secret manifests under `secrets/`
   (ghapp's 0600 writer and Secret renderer; read back on a re-run, drawn again only with `--rotate dex-client-secret`)
@@ -259,14 +264,16 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   four recipes have landed: `existing` (R4: an Ingress class or a Gateway API parent), `gateway-tls` (R2:
   the gateway's own Local LoadBalancer Service terminating TLS, `forwardedHops: 0`) and `tailscale` (R3: that Service
   as ClusterIP with the Tailscale operator's `expose`, hostname and tag annotations, a public DNS record to the device's
-  100.x address, the tailnet policy as the allowlist) and `cloudflare-tunnel` (R1: `manifests/cloudflared.yaml`, a
-  locally-managed tunnel's cloudflared in namespace `patchy-cloudflared` (the recipe's own; `--cloudflared-namespace`,
-  a new one: never the release, Dex's, cert-manager's, Tailscale's, `default` or a `kube-` namespace) at the
-  digest-pinned image, both names to the gateway's Service and a 404 for the rest, egress only to DNS, the gateway Pods'
-  8082 and any public address on 443/7844 (no Cloudflare range pinned), no SA token; gateway exposure none,
-  `forwardedHops: 1`, `previewAuth.ingressFrom: []` (cloudflared's Pod addresses must reach 8082), the load balancer's
-  `--inbound-cidr`/`--load-balancer-class` refused (the allowlist is Cloudflare's); the `--tunnel-credentials` file
-  (cert.pem refused) held redacted in `TunnelCredentials`, written only into
+  100.x address, the tailnet policy as the allowlist; `--tailscale-oauth-dir` reads the operator's OAuth client from
+  its files `client_id` and `client_secret`, held redacted in `TailscaleOAuth` (an auth key or API token refused), and
+  writes it only into `secrets/tailscale-operator-oauth.secret.yaml`, read back on a re-run) and `cloudflare-tunnel`
+  (R1: `manifests/cloudflared.yaml`, a locally-managed tunnel's cloudflared in namespace `patchy-cloudflared` (the
+  recipe's own; `--cloudflared-namespace`, a new one: never the release, Dex's, cert-manager's, Tailscale's, `default`
+  or a `kube-` namespace) at the digest-pinned image, both names to the gateway's Service and a 404 for the rest, egress
+  only to DNS, the gateway Pods' 8082 and any public address on 443/7844 (no Cloudflare range pinned), no SA token;
+  gateway exposure none, `forwardedHops: 1`, `previewAuth.ingressFrom: []` (cloudflared's Pod addresses must reach
+  8082), the load balancer's `--inbound-cidr`/`--load-balancer-class` refused (the allowlist is Cloudflare's); the
+  `--tunnel-credentials` file (cert.pem refused) held redacted in `TunnelCredentials`, written only into
   `secrets/cloudflared-credentials.secret.yaml` and read back on a re-run, its tunnel ID recorded; names deeper
   than a zone's first level refused unless `--cloudflare-acm`, since free Universal SSL does not cover them). R2 and R3
   write the wildcard Certificate, a namespaced ACME
@@ -294,7 +301,9 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   required) each Ready preview host's unauthenticated redirect to the relay for its own slot (`previewauth.JudgeProbe`).
   With the preview gateway on it judges the mode in force (`previewauth.ProbeModeFor` of the relay's gateway switch and
   preview-controller's legacy Ingress switch; `previewcheck/gateway.go`): DNS against `publishedAddresses` or the
-  gateway's Ingress/Service status (a private edge not in this resolver is a SKIP), the gateway's 404 on
+  gateway's Ingress/Service status (a private edge not in this resolver is a SKIP; a Service carrying the Tailscale
+  operator's `tailscale.com/expose`, under `check previews` only, is looked up through the caller's Tailscale client,
+  `Config.Tailnet`, and a missing or wrong record then fails with the exact records to create), the gateway's 404 on
   `<project>-0.<suffix>` and its `/start` redirect on each Ready preview, and `preview-gateway-allowlist` (a spoofed
   `X-Forwarded-For` from a refused address must stay refused). `check previews` (`previewcheck.Install`) runs those
   for the install as a whole, before any Project exists: against `patchy-probe-0.<suffix>` and every Ready preview of

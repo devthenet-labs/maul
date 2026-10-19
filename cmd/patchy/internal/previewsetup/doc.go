@@ -43,6 +43,11 @@
 //     CheckCloudflareDepth refuses names Cloudflare's free Universal SSL
 //     does not cover (deeper than a zone's first level) unless the zone has
 //     Advanced Certificate Manager (--cloudflare-acm).
+//   - R3 takes the Tailscale operator's OAuth client from a directory's
+//     client_id and client_secret files (--tailscale-oauth-dir), held in a
+//     redacted TailscaleOAuth and written only into the operator's Secret
+//     manifest (read back on a re-run), while the recipe installs the
+//     operator; an auth key or API token given by mistake is refused.
 //   - R2 and R3 share the certificate pieces: the wildcard Certificate, the
 //     namespaced ACME Issuer with one DNS-01 solver (dnsProviders, every
 //     setting non-secret; a ClusterIssuer when the solver takes no stored

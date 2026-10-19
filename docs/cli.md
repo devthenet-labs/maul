@@ -521,7 +521,7 @@ patchy setup previews --non-interactive --platform k3s --edge tailscale --dns ro
 Every answer is a flag. On a terminal the command asks for each one the flags leave open, and each question names the
 flag that answers it, so a session can be repeated with `--non-interactive`. Without a terminal, or with
 `--non-interactive`, a missing answer is an error naming its flag. A credential is never typed at a prompt, only the
-path of the file that holds it (`--tunnel-credentials`, `--dns-credentials-file`).
+path of the file that holds it (`--tunnel-credentials`, `--dns-credentials-file`, `--tailscale-oauth-dir`).
 
 The edge (`--edge`) picks the recipe: `cloudflare-tunnel` (cloudflared, TLS at Cloudflare, no open port), `gateway-tls`
 (the gateway's own load balancer, a cert-manager DNS-01 certificate), `tailscale` (a tailnet device through the

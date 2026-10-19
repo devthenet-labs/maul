@@ -86,31 +86,51 @@ registrable domains, so usually in two DNS zones: the solver must be able to ans
 
 ## 6. Install
 
-The gateway's device joins the tailnet through the Tailscale operator. In the tailnet policy, let the operator own the
-previews' tag and let viewers reach that device on 443 alone (put whoever views previews in `group:preview-viewers`;
-each still signs in):
+The gateway's device joins the tailnet through the Tailscale operator. First the tailnet policy (**Access controls** in
+the admin console). Grants and ACLs only add access, and a new tailnet ships with an allow-all rule (the grant
+`{"src": ["*"], "dst": ["*"], "ip": ["*"]}`, or the ACL `{"action": "accept", "src": ["*"], "dst": ["*:*"]}`): while it
+stands, every member, shared-in user and tagged device reaches `tag:previews` on every port,
+80 (the gateway's plain-HTTP listener) included. Remove it, or narrow it: the policy below replaces your `grants` and
+`acls` with exactly what is needed, and adds its `groups`, `tagOwners` and `tests` entries to yours:
 
-```json
+```jsonc
 {
+  // Who may reach the previews' device: tailnet logins (each still signs in).
+  "groups": {
+    "group:preview-viewers": ["<a viewer's tailnet login>"]
+  },
   "tagOwners": {
-    "tag:k8s-operator": ["autogroup:admin"],
+    "tag:k8s-operator": [],
+    "tag:k8s": ["tag:k8s-operator"],
     "tag:previews": ["tag:k8s-operator"]
   },
+  // These replace allow-all: nothing else is reachable unless granted here.
   "grants": [
-    {
-      "src": ["group:preview-viewers"],
-      "dst": ["tag:previews"],
-      "ip": ["tcp:443"]
-    }
+    // Every member keeps reaching their own devices, Tailscale SSH included.
+    {"src": ["autogroup:member"], "dst": ["autogroup:self"], "ip": ["*"]},
+    // Viewers reach the previews' device on 443 alone.
+    {"src": ["group:preview-viewers"], "dst": ["tag:previews"], "ip": ["tcp:443"]}
+  ],
+  // Keep your "ssh" and "nodeAttrs" sections, and any other, as they are.
+  // Tailscale runs these on every save and refuses a policy that fails one.
+  "tests": [
+    {"src": "<your tailnet login>", "accept": ["<your tailnet login>:22"]},
+    {"src": "<a viewer's tailnet login>", "accept": ["tag:previews:443"], "deny": ["tag:previews:80"]},
+    {"src": "tag:k8s", "deny": ["tag:previews:443", "tag:previews:80"]}
   ]
 }
 ```
 
-Grants and ACLs only add access, so this grant restricts nothing while another rule reaches the device. A new tailnet
-ships with an allow-all rule (the grant `{"src": ["*"], "dst": ["*"], "ip": ["*"]}`, or the ACL
-`{"action": "accept", "src": ["*"], "dst": ["*:*"]}`): while it stands, every member, shared-in user and tagged device
-reaches `tag:previews` on every port, 80 (the gateway's plain-HTTP listener) included. Remove it, or narrow it so
-that no rule but the one above has `tag:previews` (or `*`) as a destination.
+- Every member keeps reaching their own devices (`autogroup:self`), which is what Tailscale SSH's default rule needs, so
+  removing allow-all does not lock you out. Anything else your devices reach today (a tagged server, a subnet router,
+  an exit node: `{"src": ["autogroup:member"], "dst": ["autogroup:internet"], "ip": ["*"]}`) needs a grant of its own
+  before you save, or it stops.
+- `group:preview-viewers` reaches `tag:previews` on 443 alone; viewers still sign in at `https://preview-auth.patchy.acme.dev`.
+- `tag:k8s-operator` (empty: only admins may apply it) owns the tags of the devices the operator creates, `tag:k8s`
+  (its default) and `tag:previews`.
+- Replace `<your tailnet login>` and `<a viewer's tailnet login>` with real logins first (a viewer may be you). Tailscale runs the
+  `tests` on every save and refuses a policy that fails one: you must still reach your own devices, a viewer must reach
+  443 and not 80, and another tagged device must reach neither, which fails while any allow-all rule is left.
 
 Then patchy:
 
@@ -130,10 +150,12 @@ Point two records at the edge's address:
 - `*.acme-previews.dev`
 - `preview-auth.patchy.acme.dev`
 
-The address is the tailnet device `acme-previews`'s, once the operator has created it (`tailscale ip -4
-acme-previews` on any machine in the tailnet, or the admin console). MagicDNS takes no wildcard or custom
-records, so these are records in your public DNS that point at a tailnet address: only the tailnet can reach it. Then run the command again with `--tailscale-address <address>`, so
-`previewAuth.gateway.publishedAddresses` records it for `patchy check previews`.
+The address is the tailnet device `acme-previews`'s, once the operator has created it in step 6. MagicDNS takes
+no wildcard or custom records, so these are records in your public DNS that point at a tailnet address: only the tailnet
+can reach it. Nothing needs running again to find it: once step 6 is done, `patchy check previews -n patchy` (step 8)
+asks this machine's Tailscale client (`tailscale status --json`, read-only; the machine must be on the tailnet) for the
+device and prints the exact records to create. `tailscale ip -4 acme-previews` says the address too. Running
+this command again with `--detect` records it as `previewAuth.gateway.publishedAddresses`, which is optional.
 
 The gateway sees the tailnet proxy's address, not the viewer's, so `previewAuth.gateway.forwardedHops` is 0 and
 `inboundCIDRs` stays empty: the tailnet policy in step 6 is the allowlist, once no allow-all rule is left in it.

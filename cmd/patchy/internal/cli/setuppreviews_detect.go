@@ -15,6 +15,7 @@ import (
 
 	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/previewdetect"
 	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/previewsetup"
+	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/tailnet"
 )
 
 // detectTimeout bounds detection's reads: a dozen list and get calls.
@@ -58,17 +59,34 @@ func detectAndAsk(cmd *cobra.Command, opts *Options, f *setupPreviewsFlags, a *p
 		filled := previewdetect.Apply(fd, a, given)
 		reportDetected(opts.ErrOut, previewdetect.Report(fd, *a), filled)
 	}
-	if p == nil || !needsAsking(*a) {
-		return nil
+	if p != nil && needsAsking(*a) {
+		if err := askPreviews(p, a, f, found); err != nil {
+			return err
+		}
+		a.Normalize()
+		if found != nil {
+			reportFilled(opts.ErrOut, previewdetect.Apply(*found, a, given))
+		}
 	}
-	if err := askPreviews(p, a, f, found); err != nil {
-		return err
-	}
-	a.Normalize()
-	if found != nil {
-		reportFilled(opts.ErrOut, previewdetect.Apply(*found, a, given))
+	if f.detect && a.Edge == previewsetup.EdgeTailscale {
+		detectTailnet(cmd.Context(), opts, a, given)
 	}
 	return nil
+}
+
+// detectTailnet is --detect's tailnet half, for the tailscale recipe: the
+// gateway's device as this machine's own Tailscale client sees it
+// (`tailscale status --json`, read-only; the cluster records the device's
+// address only in a Secret, which detection never reads), its address
+// filled while unanswered and the exact DNS records printed.
+func detectTailnet(ctx context.Context, opts *Options, a *previewsetup.Answers, given previewdetect.Given) {
+	status := opts.tailnetStatus
+	if status == nil {
+		status = tailnet.Local
+	}
+	m := tailnet.Lookup(ctx, status, a.TailscaleHostname(), []string{a.TailscaleTag()})
+	report, filled := previewdetect.ApplyTailnet(m, a, given)
+	reportDetected(opts.ErrOut, report, filled)
 }
 
 // needsAsking reports answers a still lacks: a flag Missing names, a

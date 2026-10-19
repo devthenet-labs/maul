@@ -38,6 +38,15 @@ preview-auth-host proves the routing. Anything else is a WARN or a SKIP
 saying what to look at. cloudflared's ConfigMap names the tunnel; its
 credentials are never read.
 
+On a tailnet edge (the tailscale recipe: the gateway's Service carries the
+Tailscale operator's tailscale.com/expose annotation) with no
+previewAuth.gateway.publishedAddresses, the operator records the device's
+address only in a Secret, which is never read: this machine's own Tailscale
+client is asked instead (tailscale status --json, read-only) for the device
+of that hostname and tags. preview-dns then compares both records with its
+address and, when one is missing or wrong, prints the exact records to
+create. Off the tailnet, or without a tailscale command, it is a SKIP.
+
 preview-viewers reads the bindings of the chart's <release>-preview-viewer
 ClusterRole: at least one User or Group carrying the relay's claim prefix
 should be bound, or every sign-in is refused 403 unless another role grants

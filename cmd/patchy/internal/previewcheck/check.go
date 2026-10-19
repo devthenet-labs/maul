@@ -11,6 +11,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/checkreport"
+	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/tailnet"
 	"github.com/bitwise-media-group/patchy/internal/previewauth"
 )
 
@@ -50,6 +51,12 @@ type Config struct {
 	// HTTP sends the preview sign-in checks' requests, never following a
 	// redirect; nil is NewHTTPDoer.
 	HTTP HTTPDoer
+	// Tailnet, when set, is the caller's Tailscale client: in gateway mode
+	// a gateway Service the Tailscale operator exposes (its
+	// tailscale.com/expose annotation) publishes no address in the
+	// cluster but a Secret, so its tailnet device is looked up there
+	// instead (tailnet.Lookup), read-only. Nil looks nothing up.
+	Tailnet tailnet.StatusFunc
 	// Isolation, when set, runs the opt-in ingress isolation probe
 	// (preview-netpol, Install only), the one check that writes to the
 	// cluster. Nil runs every other check, all of them read-only.

@@ -18,6 +18,7 @@ import (
 	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/checkreport"
 	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/previewcheck"
 	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/printer"
+	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/tailnet"
 	"github.com/bitwise-media-group/patchy/internal/version"
 )
 
@@ -61,6 +62,14 @@ func newCheckPreviewsCmd(opts *Options) *cobra.Command {
 			"preview-auth-host proves the routing. Anything else is a WARN or a SKIP\n" +
 			"saying what to look at. cloudflared's ConfigMap names the tunnel; its\n" +
 			"credentials are never read.\n\n" +
+			"On a tailnet edge (the tailscale recipe: the gateway's Service carries the\n" +
+			"Tailscale operator's tailscale.com/expose annotation) with no\n" +
+			"previewAuth.gateway.publishedAddresses, the operator records the device's\n" +
+			"address only in a Secret, which is never read: this machine's own Tailscale\n" +
+			"client is asked instead (tailscale status --json, read-only) for the device\n" +
+			"of that hostname and tags. preview-dns then compares both records with its\n" +
+			"address and, when one is missing or wrong, prints the exact records to\n" +
+			"create. Off the tailnet, or without a tailscale command, it is a SKIP.\n\n" +
 			"preview-viewers reads the bindings of the chart's <release>-preview-viewer\n" +
 			"ClusterRole: at least one User or Group carrying the relay's claim prefix\n" +
 			"should be bound, or every sign-in is refused 403 unless another role grants\n" +
@@ -171,6 +180,7 @@ func networkCheckPreviewsDeps() checkPreviewsDeps {
 		resolver: net.DefaultResolver,
 		dialTLS:  previewcheck.DialTLS,
 		http:     previewcheck.NewHTTPDoer(),
+		tailnet:  tailnet.Local,
 	}
 }
 
@@ -180,6 +190,9 @@ type checkPreviewsDeps struct {
 	resolver previewcheck.Resolver
 	dialTLS  previewcheck.TLSDialer
 	http     previewcheck.HTTPDoer
+	// tailnet is the caller's Tailscale client, asked (read-only) for a
+	// gateway the Tailscale operator exposes; nil asks nothing.
+	tailnet tailnet.StatusFunc
 	// isolation is the --isolation probe, nil without the flag; its Client
 	// is the caller's kubeconfig client, and its Logs, when nil, read
 	// through the kubeconfig's REST config.
@@ -221,6 +234,7 @@ func runCheckPreviews(ctx context.Context, opts *Options, deps checkPreviewsDeps
 	report := previewcheck.Install(ctx, previewcheck.Config{
 		Reader: env.Client, Namespace: env.Namespace,
 		Resolver: deps.resolver, DialTLS: deps.dialTLS, HTTP: deps.http, Isolation: deps.isolation,
+		Tailnet: deps.tailnet,
 	})
 	if err := checkreport.Render(opts.Out, format, report, report.Lines()); err != nil {
 		return err

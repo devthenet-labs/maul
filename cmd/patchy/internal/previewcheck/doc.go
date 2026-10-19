@@ -92,7 +92,15 @@
 //     proxy alone hides its target and is a SKIP that leaves routing to
 //     preview-auth-host; any other answer is a WARN or a SKIP
 //     saying what to look at), else a SKIP (an HTTPRoute, or a tunnel the
-//     check cannot identify); a private edge (RFC 1918, ULA,
+//     check cannot identify); a gateway Service the Tailscale operator
+//     exposes (tailscale.com/expose) is looked up, when Config.Tailnet is
+//     set (`check previews` sets it), through the caller's own Tailscale
+//     client (package tailnet; the operator keeps the address only in a
+//     Secret, never read), by its hostname and tags annotations: the
+//     machine is then on the tailnet and resolves as a viewer does, so a
+//     missing or wrong record fails with the exact records to create
+//     (previewsetup.DNSRecords), and a device it cannot see is a SKIP; a
+//     private edge (RFC 1918, ULA,
 //     CGNAT, so a tailnet) that this resolver does not answer with is a SKIP;
 //     while both paths serve, the legacy load balancer passes too.
 //     preview-auth-host asks every host as a navigation: the probe host,

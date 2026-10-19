@@ -31,6 +31,13 @@
 //     wins. The VPC CNI counts as enforcing NetworkPolicy only with both of
 //     its switches on, since its agent ships switched off.
 //
+// ApplyTailnet is the tailscale recipe's other half, off the cluster: the
+// operator records the gateway device's address only in its proxy's state
+// Secret, beside the device's keys, so detection asks the caller's own
+// Tailscale client instead (package tailnet) and lays what it found over
+// the answers as Apply does: --tailscale-address only while open, with
+// the exact DNS records to create.
+//
 // The status page's Dex is not read: its OIDC settings live in a Secret
 // (statusServer.auth), which detection never reads. The release's own
 // preview-auth ConfigMap names Dex when previews are already installed.

@@ -73,6 +73,8 @@ func TestValidateGatewayCert(t *testing.T) {
 		}, "--tailscale-address"},
 		"operator's tag": {func(a *Answers) { a.Edge = EdgeTailscale; a.Tailscale.Tag = TailscaleOperatorTag },
 			"the operator's own"},
+		"operator's proxy tag": {func(a *Answers) { a.Edge = EdgeTailscale; a.Tailscale.Tag = TailscaleProxyTag },
+			"every proxy it creates"},
 		"bad tag":      {func(a *Answers) { a.Edge = EdgeTailscale; a.Tailscale.Tag = "previews" }, "--tailscale-tag"},
 		"bad hostname": {func(a *Answers) { a.Edge = EdgeTailscale; a.Tailscale.Hostname = "Previews" }, "hostname"},
 	} {
@@ -295,6 +297,8 @@ func TestGatewayCertFiles(t *testing.T) {
 		"gateway-tls-google-gke":       {IssuerFile, CertManager.ValuesFile},
 		"gateway-tls-digitalocean-k3s": {IssuerFile, CertManager.ValuesFile},
 		"tailscale-route53-k3d": {IssuerFile, CertManager.ValuesFile, TailscaleOperator.ValuesFile,
+			DNSSecretFile, TailscaleOAuthFile},
+		"tailscale-shared-domain-k3d": {IssuerFile, CertManager.ValuesFile, TailscaleOperator.ValuesFile,
 			DNSSecretFile},
 		"tailscale-manual-k3s": nil,
 	} {
