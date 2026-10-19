@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -61,6 +62,9 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 			"turns on the hardened browser envelope")
 	f.String("credentials-namespace", v1alpha1.DefaultCredentialsNamespace,
 		"the namespace the Account page writes credential Secrets to (write-only)")
+	f.String("account-providers", string(v1alpha1.ModelCredentialProviderAnthropic),
+		"comma-separated providers the Account page offers a credential for, in order: anthropic (claude) "+
+			"and openai (codex); the chart sets the providers its enabled runners use")
 	f.Bool("agents-paused", false,
 		"show the operator's agent pause (the chart's agent.paused) on the signed-in page; display only, the job "+
 			"controllers enforce it")
@@ -107,7 +111,8 @@ func newViewsWiring(opts *cli.Options, authCfg *auth.Config) (viewsWiring, error
 	if err != nil {
 		return viewsWiring{}, err
 	}
-	account, err := newAccountWiring(opts.Bool("account-enabled"), opts.String("credentials-namespace"), authCfg)
+	account, err := newAccountWiring(opts.Bool("account-enabled"), opts.String("credentials-namespace"),
+		opts.StringList("account-providers"), authCfg)
 	if err != nil {
 		return viewsWiring{}, err
 	}
@@ -134,12 +139,14 @@ func (vw viewsWiring) apply(srv *web.Server, c client.Client, reader client.Read
 type accountWiring struct {
 	on                   bool
 	credentialsNamespace string
+	providers            []v1alpha1.ModelCredentialProvider
 }
 
 // newAccountWiring checks the auth posture may serve the Account page: as
 // the usage views, oidc with the federated:id scope, since a credential is
 // kept under the person's GitHub id. There is no development bypass.
-func newAccountWiring(enabled bool, credentialsNamespace string, authCfg *auth.Config) (accountWiring, error) {
+func newAccountWiring(enabled bool, credentialsNamespace string, providers []string, authCfg *auth.Config) (
+	accountWiring, error) {
 	if !enabled {
 		return accountWiring{}, nil
 	}
@@ -150,7 +157,31 @@ func newAccountWiring(enabled bool, credentialsNamespace string, authCfg *auth.C
 		return accountWiring{}, fmt.Errorf("--credentials-namespace %q: %s", credentialsNamespace,
 			strings.Join(errs, "; "))
 	}
-	return accountWiring{on: true, credentialsNamespace: credentialsNamespace}, nil
+	ps, err := accountProviders(providers)
+	if err != nil {
+		return accountWiring{}, err
+	}
+	return accountWiring{on: true, credentialsNamespace: credentialsNamespace, providers: ps}, nil
+}
+
+// accountProviders reads --account-providers: one or more of the
+// providers a person may store a credential for, each once.
+func accountProviders(raw []string) ([]v1alpha1.ModelCredentialProvider, error) {
+	out := make([]v1alpha1.ModelCredentialProvider, 0, len(raw))
+	for _, r := range raw {
+		p := v1alpha1.ModelCredentialProvider(strings.TrimSpace(r))
+		if !slices.Contains(v1alpha1.ModelCredentialProviders, p) {
+			return nil, fmt.Errorf("--account-providers: %q is not one of %v", r, v1alpha1.ModelCredentialProviders)
+		}
+		if slices.Contains(out, p) {
+			return nil, fmt.Errorf("--account-providers: %s is listed twice", p)
+		}
+		out = append(out, p)
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("--account-providers: name at least one of %v", v1alpha1.ModelCredentialProviders)
+	}
+	return out, nil
 }
 
 // apply turns the Account page on in srv; with it off it returns srv
@@ -165,6 +196,7 @@ func (aw accountWiring) apply(srv *web.Server, c client.Client, reader client.Re
 			web.AccountSelfResource, web.AccountSelfSubresource, 0),
 		Store: &credstore.Store{Client: c, Reader: reader, Namespace: namespace,
 			CredentialsNamespace: aw.credentialsNamespace},
+		Providers: aw.providers,
 	})
 }
 
