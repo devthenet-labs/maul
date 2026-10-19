@@ -51,7 +51,8 @@ deliberately suspended, hence the `suspended` pill on each row.
 - **Account** — only when the server has the [Account page](configuration/status-server.md#account-page) on: your own
   model credential, which pays for the runs attributed to you under
   [per-user model credentials](configuration/user-credentials.md). Store, replace or delete an Anthropic API key or a
-  setup-token, and see its fingerprint and health, never the credential. See [Your model credential](account.md).
+  setup-token, or an OpenAI API key, and see its fingerprint and health, never the credential. See
+  [Your model credential](account.md).
 
 While the operator's [agent pause](configuration/investigation-controller.md#pausing-agents) (`agent.paused`) is on, the
 page shows a banner saying no new investigation, remediation, intent or evaluation Jobs start. Only signed-in users see

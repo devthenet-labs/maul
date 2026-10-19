@@ -110,3 +110,36 @@ func TestProjectCredentialHoldNamesThePersonHeld(t *testing.T) {
 		t.Fatalf("hold comments = %q, want alice named", got)
 	}
 }
+
+// TestProjectCredentialHoldNamesTheProvider: the comment names the provider
+// the held attempt needs, from status.credentialHoldProvider (a codex
+// remediation's OpenAI), and a hold written without one (before OpenAI
+// credentials existed) still reads as Anthropic.
+func TestProjectCredentialHoldNamesTheProvider(t *testing.T) {
+	for _, tc := range []struct {
+		provider v1alpha1.ModelCredentialProvider
+		want     string
+		not      string
+	}{
+		{v1alpha1.ModelCredentialProviderOpenAI, "no OpenAI credential", "setup-token"},
+		{"", "no Anthropic credential", "OpenAI"},
+	} {
+		t.Run(string(tc.provider), func(t *testing.T) {
+			fnd := projectable(v1alpha1.PhaseQueued)
+			fnd.Status.Tracking = &v1alpha1.TrackingStatus{
+				Integration: "gh", IssueNumber: 7, URL: "https://github.com/acme/orders/issues/7", State: "open",
+			}
+			fnd.Spec.Approval = &v1alpha1.Approval{By: "alice", ByID: 42, At: metav1.NewTime(testClock)}
+			fnd.Status.CredentialHoldProvider = tc.provider
+			tracker := newFakeTracker()
+			tracker.issues[7] = &ghclient.Issue{Number: 7, State: "open"}
+			r, c := newProjector(t, tracker, testIntegration(), fnd)
+			setHold(t, c, metav1.ConditionTrue, "CredentialMissing")
+			reconcileFinding(t, r)
+			got := holdComments(tracker)
+			if len(got) != 1 || !strings.Contains(got[0], tc.want) || strings.Contains(got[0], tc.not) {
+				t.Fatalf("hold comments = %q, want %q and no %q", got, tc.want, tc.not)
+			}
+		})
+	}
+}

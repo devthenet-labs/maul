@@ -14,6 +14,7 @@ import (
 	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
 	"github.com/bitwise-media-group/patchy/internal/credgate"
 	"github.com/bitwise-media-group/patchy/internal/ghclient"
+	"github.com/bitwise-media-group/patchy/internal/model"
 	"github.com/bitwise-media-group/patchy/internal/templates"
 )
 
@@ -30,13 +31,35 @@ import (
 // plan again (settleCredentialReapproval), which makes the build theirs.
 // Off and attribute, and runs attributed to the org, never block.
 
+// credentialProvider is the provider whose credential pays for the
+// Intent's runs: their harness's (credgate.ProviderFor, the one source of
+// it, so codex intents need only choose their harness). ok is false for a
+// harness no person's credential pays for, whose runs are never held.
+func (r *IntentReconciler) credentialProvider() (v1alpha1.ModelCredentialProvider, bool) {
+	h := r.Harness
+	if h == "" {
+		h = model.HarnessClaude
+	}
+	return credgate.ProviderFor(h)
+}
+
+// checkCredential is credgate.Check for a run of the Intent's harness: no
+// hold for a harness no person's credential pays for.
+func (p *pass) checkCredential(ctx context.Context, attributed *v1alpha1.Attribution) (credgate.Verdict, error) {
+	provider, ok := p.r.credentialProvider()
+	if !ok {
+		return credgate.Verdict{}, nil
+	}
+	return credgate.Check(ctx, p.set.UserCredentials, provider, attributed, p.r.Credentials)
+}
+
 // holdForCredential blocks the Intent, before a run attributed by
 // attributed is created, while that person has no Valid credential.
 // reapprove says a later approval would lift it (a build). held reports
 // the block (a status write).
 func (p *pass) holdForCredential(ctx context.Context, attributed *v1alpha1.Attribution, reapprove bool) (
 	held bool, err error) {
-	v, err := credgate.Check(ctx, p.set.UserCredentials, attributed, p.r.Credentials)
+	v, err := p.checkCredential(ctx, attributed)
 	if err != nil || !v.Hold {
 		return false, err
 	}
@@ -71,7 +94,7 @@ func (p *pass) credentialBlockHolds(ctx context.Context) (bool, error) {
 	case p.in.Status.CredentialHold != nil:
 		attributed = &v1alpha1.Attribution{User: p.in.Status.CredentialHold, Reason: v1alpha1.AttributionApprover}
 	}
-	v, err := credgate.Check(ctx, p.set.UserCredentials, p.set.Attribution.Stamp(attributed), p.r.Credentials)
+	v, err := p.checkCredential(ctx, p.set.Attribution.Stamp(attributed))
 	if err != nil || !v.Hold {
 		return false, err
 	}
@@ -145,14 +168,19 @@ func (p *pass) settleCredentialReapproval(ctx context.Context, a humanAction, is
 	if planChanged || issueChanged {
 		return p.refuseApproval(ctx, a, issue, planChanged, issueChanged)
 	}
-	holds, err := credgate.Holds(ctx, p.set.UserCredentials, a.actor.Login, a.actor.ID, p.r.Credentials)
-	if err != nil {
-		return err
+	holds := false
+	provider, judged := p.r.credentialProvider()
+	if judged {
+		if holds, err = credgate.Holds(ctx, p.set.UserCredentials, provider, a.actor.Login, a.actor.ID,
+			p.r.Credentials); err != nil {
+			return err
+		}
 	}
 	if holds {
 		n := templates.CredentialApprovalNotice{
 			Namespace: p.in.Namespace, Intent: p.in.Name, Key: a.key(), Actor: a.actor.Login,
 			LabelRemoved: isLabel && hasLabel(issue, approve), AccountURL: p.set.AccountURL,
+			Provider: credgate.ProviderName(provider), Kinds: credgate.CredentialKinds(provider),
 		}
 		if isLabel {
 			n.Label = approve

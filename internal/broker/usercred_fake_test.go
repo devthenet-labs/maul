@@ -54,32 +54,43 @@ func (f *fakeStore) nextRV() string {
 	return strconv.Itoa(f.rv)
 }
 
-// put stores (or replaces) owner's record and Secret, both seen by the
-// informer at once, and returns the Secret's version.
+// put stores (or replaces) owner's anthropic record and Secret, both seen
+// by the informer at once, and returns the Secret's version.
 func (f *fakeStore) put(id int64, kind v1alpha1.ModelCredentialKind, credential string) string {
+	return f.putFor(id, v1alpha1.ModelCredentialProviderAnthropic, kind, credential)
+}
+
+// putFor is put for provider's record and Secret.
+func (f *fakeStore) putFor(id int64, provider v1alpha1.ModelCredentialProvider, kind v1alpha1.ModelCredentialKind,
+	credential string) string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	owner := v1alpha1.ModelCredentialOwner(id)
-	name := v1alpha1.ModelCredentialName(owner, v1alpha1.ModelCredentialProviderAnthropic)
+	name := v1alpha1.ModelCredentialName(owner, provider)
 	rec := f.records[name]
 	if rec == nil {
 		rec = &v1alpha1.ModelCredential{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "patchy"}}
 	}
-	rec.Spec = v1alpha1.ModelCredentialSpec{Owner: owner, Provider: v1alpha1.ModelCredentialProviderAnthropic, Kind: kind}
+	rec.Spec = v1alpha1.ModelCredentialSpec{Owner: owner, Provider: provider, Kind: kind}
 	rec.ResourceVersion = f.nextRV()
 	f.records[name] = rec
-	s := credentialSecret(owner, credential)
+	s := credentialSecretFor(owner, provider, credential)
 	s.ResourceVersion = f.nextRV()
 	f.secrets[s.Name] = s
 	f.informer[s.Name] = s.ResourceVersion
 	return s.ResourceVersion
 }
 
-// credentialSecret is owner's well-formed credential Secret.
+// credentialSecret is owner's well-formed anthropic credential Secret.
 func credentialSecret(owner, credential string) *corev1.Secret {
+	return credentialSecretFor(owner, v1alpha1.ModelCredentialProviderAnthropic, credential)
+}
+
+// credentialSecretFor is owner's well-formed credential Secret for provider.
+func credentialSecretFor(owner string, provider v1alpha1.ModelCredentialProvider, credential string) *corev1.Secret {
 	return &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      v1alpha1.ModelCredentialSecretName(owner, v1alpha1.ModelCredentialProviderAnthropic),
+			Name:      v1alpha1.ModelCredentialSecretName(owner, provider),
 			Namespace: v1alpha1.DefaultCredentialsNamespace,
 			Labels:    map[string]string{v1alpha1.LabelCredentialOwner: v1alpha1.ModelCredentialOwnerHash(owner)},
 		},

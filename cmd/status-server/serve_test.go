@@ -4,9 +4,11 @@
 package main
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
+	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
 	"github.com/bitwise-media-group/patchy/internal/web/auth"
 	"github.com/bitwise-media-group/patchy/internal/web/authz"
 )
@@ -108,6 +110,37 @@ func TestUsageAuthGate(t *testing.T) {
 	}
 }
 
+// TestAccountProviders: --account-providers names one or more of the
+// providers a credential may be stored for, each once, in the page's order.
+func TestAccountProviders(t *testing.T) {
+	dex := auth.ClaimsConfig{Username: "preferred_username", UsernamePrefix: "github:", GroupsPrefix: "github:",
+		GitHubConnector: "github"}
+	cfg := &auth.Config{Mode: auth.ModeOIDC, OIDC: &auth.OIDCConfig{Claims: dex, Scopes: []string{"federated:id"}}}
+	for _, tc := range []struct {
+		in      []string
+		want    []v1alpha1.ModelCredentialProvider
+		wantErr string
+	}{
+		{[]string{"anthropic"}, []v1alpha1.ModelCredentialProvider{"anthropic"}, ""},
+		{[]string{"openai"}, []v1alpha1.ModelCredentialProvider{"openai"}, ""},
+		{[]string{"anthropic", "openai"}, []v1alpha1.ModelCredentialProvider{"anthropic", "openai"}, ""},
+		{nil, nil, "at least one"},
+		{[]string{"bedrock"}, nil, `"bedrock" is not one of`},
+		{[]string{"openai", "openai"}, nil, "listed twice"},
+	} {
+		aw, err := newAccountWiring(true, "patchy-credentials", tc.in, cfg)
+		switch {
+		case tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)):
+			t.Errorf("%v: err = %v, want %q", tc.in, err, tc.wantErr)
+		case tc.wantErr == "" && (err != nil || !slices.Equal(aw.providers, tc.want)):
+			t.Errorf("%v: providers = %v, %v, want %v", tc.in, aw.providers, err, tc.want)
+		}
+	}
+	if aw, err := newAccountWiring(false, "patchy-credentials", []string{"bedrock"}, cfg); err != nil || aw.on {
+		t.Errorf("off with a bad provider list = %+v, %v; want off and no error", aw, err)
+	}
+}
+
 // The Account page comes up only under the usage views' posture (oidc,
 // both prefixes, federated:id) and with a valid credentials namespace; off,
 // any posture starts.
@@ -133,7 +166,7 @@ func TestAccountAuthGate(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			aw, err := newAccountWiring(tc.on, tc.ns, tc.cfg)
+			aw, err := newAccountWiring(tc.on, tc.ns, []string{"anthropic"}, tc.cfg)
 			switch {
 			case tc.wantErr == "" && err != nil:
 				t.Fatalf("newAccountWiring = %v", err)

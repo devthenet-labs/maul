@@ -510,6 +510,22 @@ yes
 {{- end }}
 
 {{/*
+The providers a person may store a credential for, comma-separated in the
+Account page's order (the status server's --account-providers): anthropic
+while claude runs anywhere, openai while codex does. Empty when neither.
+*/}}
+{{- define "patchy.credentialProviders" -}}
+{{- $ps := list -}}
+{{- if include "patchy.claudeBrokered" . -}}
+{{- $ps = append $ps "anthropic" -}}
+{{- end -}}
+{{- if include "patchy.harnessEnabled" (dict "root" . "id" "codex") -}}
+{{- $ps = append $ps "openai" -}}
+{{- end -}}
+{{- join "," $ps -}}
+{{- end }}
+
+{{/*
 The Account page's URL, linked from every notice that a run waits for a
 person's credential: https://<statusServer.host>/#/account while the page is
 served and the host is set, else empty (the notice names the page unlinked).

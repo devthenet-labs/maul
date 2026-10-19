@@ -394,18 +394,21 @@ The genuinely shared settings stay global:
   every agent Job and pod (`patchy.bitwisemedia.uk/attributed-to`), and renders up to six admission policies that keep
   the annotation, each run's own stamp and the Finding, Evaluation and Intent identity stamps honest. See
   [Run attribution](../../docs/configuration/attribution.md).
-- `egressBroker.userCredentials.*` — per-user model credentials: `mode` `off` (the default) renders nothing new;
-  `attribute` and `enforce` (both need `attribution.mode: attribute` and the anthropic provider) render the credential
-  store: its namespace (`namespace`, `createNamespace`), the status server's write-only Secret grant, the broker's read
-  grants, the `-credentials-self` and `-credentials-admin` ClusterRoles and three admission policies, and pass the
-  broker the mode: under `attribute` it records each run's person and the org credential pays; under `enforce` a run
-  attributed to a person uses that person's own credential or is refused. A setup-token org credential
-  (`anthropicAuth: token`) is refused unless `orgCredentialIsPersonal: acknowledged`. Under `enforce`, remediation- and
-  intent-controller also hold a run attributed to a person until that person's credential is `Valid`, and say so on the
-  issue. See [Per-user model credentials](../../docs/configuration/user-credentials.md).
+- `egressBroker.userCredentials.*` — per-user model credentials (a person's own Anthropic API key or setup-token for
+  claude runs, OpenAI API key for codex runs): `mode` `off` (the default) renders nothing new; `attribute` and `enforce`
+  (both need `attribution.mode: attribute`, and while claude runs anywhere its provider must be anthropic) render the
+  credential store: its namespace (`namespace`, `createNamespace`), the status server's write-only Secret grant, the
+  broker's read grants, the `-credentials-self` and `-credentials-admin` ClusterRoles and three admission policies, and
+  pass the broker the mode: under `attribute` it records each run's person and the org credential pays; under `enforce`
+  a run attributed to a person uses that person's own credential for the run's provider or is refused. A setup-token org
+  credential (`anthropicAuth: token`) is refused unless `orgCredentialIsPersonal: acknowledged`. Under `enforce`,
+  remediation- and intent-controller also hold a run attributed to a person until that person's credential for the run's
+  harness's provider (claude Anthropic, codex OpenAI) is `Valid`, and say so on the issue. See
+  [Per-user model credentials](../../docs/configuration/user-credentials.md).
 - `statusServer.account.enabled` — the status page's Account page (default `false`), where each person stores their own
-  model credential, write-only. Needs `egressBroker.userCredentials.mode` on and the usage views' auth posture; with
-  `statusServer.host` set, every credential notice links it.
+  model credential, write-only: for Anthropic while claude runs anywhere, for OpenAI while codex does. Needs
+  `egressBroker.userCredentials.mode` on and the usage views' auth posture; with `statusServer.host` set, every
+  credential notice links it.
 - `agent.*` — the sandbox: namespace, service account, `jobDeadline`/`jobTTL`, and the two stages' limits:
   `modelAllowlist` (canonical, provider-qualified model ids), `investigate.*` (absolute), `remediate.*` (`auto.*` is
   what an unattended fix gets and the line past which an estimate needs approval, `manual.*` the most an approval can

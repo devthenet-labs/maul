@@ -9,10 +9,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
 
+	"github.com/bitwise-media-group/patchy/api/v1alpha1"
 	"github.com/bitwise-media-group/patchy/internal/provider"
 	"github.com/bitwise-media-group/patchy/internal/usagewire"
 )
@@ -23,17 +25,22 @@ import (
 // Only an API key: ChatGPT-plan sign-in and Codex access tokens are not
 // brokered (owner decision D1).
 //
-// Per-user credentials are Anthropic only for now (UserCredentialConfig
-// refuses to start with this route), so a request carrying a person's
-// credential never reaches here; if one did, it fails rather than going
-// out with the org key.
+// Under per-user credentials a request whose run is attributed to a person
+// carries that person's OpenAI API key in its context (resolved by the
+// server from the person's openai record), and the route sends it instead
+// of the org key. A person's credential of any other kind is never sent:
+// the request fails rather than going out with the org key.
 func OpenAI(target *url.URL, keyFile string) Upstream {
 	return Upstream{
 		Target:         target,
 		CredentialKind: usagewire.CredentialAPIKey,
 		Credential: func(ctx context.Context, req *http.Request) error {
-			if attachedFrom(ctx) != nil {
-				return errors.New("per-user credentials are not served on the openai route")
+			if a := attachedFrom(ctx); a != nil {
+				if a.kind != v1alpha1.ModelCredentialAPIKey {
+					return fmt.Errorf("a %s is not an OpenAI credential", a.kind)
+				}
+				req.Header.Set("Authorization", "Bearer "+a.credential)
+				return nil
 			}
 			key, err := readKeyFile(keyFile)
 			if err != nil {
@@ -46,6 +53,39 @@ func OpenAI(target *url.URL, keyFile string) Upstream {
 			_, err := readKeyFile(keyFile)
 			return err
 		},
+	}
+}
+
+// OpenAIProbe is the health probe of a person's OpenAI API key (design
+// revision 1: health comes only from probes the broker issues itself): it
+// lists one model (GET /v1/models), which costs nothing. A 2xx is Valid
+// and a 401 Rejected; anything else (a 403, a 429, a 5xx, no answer) is
+// not a verdict on the key. Only an api-key is ever probed.
+func OpenAIProbe(target *url.URL, client *http.Client) ProbeFunc {
+	return func(ctx context.Context, kind v1alpha1.ModelCredentialKind, credential string) ProbeResult {
+		if kind != v1alpha1.ModelCredentialAPIKey {
+			return ProbeInconclusive
+		}
+		ctx, cancel := context.WithTimeout(ctx, probeTimeout)
+		defer cancel()
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, target.JoinPath("v1", "models").String(), nil)
+		if err != nil {
+			return ProbeInconclusive
+		}
+		req.Header.Set("Authorization", "Bearer "+credential)
+		resp, err := client.Do(req)
+		if err != nil {
+			return ProbeInconclusive
+		}
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
+		_ = resp.Body.Close()
+		switch {
+		case resp.StatusCode/100 == 2:
+			return ProbeValid
+		case resp.StatusCode == http.StatusUnauthorized:
+			return ProbeRejected
+		}
+		return ProbeInconclusive
 	}
 }
 

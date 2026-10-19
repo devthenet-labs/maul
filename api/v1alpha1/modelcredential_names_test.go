@@ -42,6 +42,9 @@ func TestModelCredentialNamesExample(t *testing.T) {
 		"cred-bf39649e29052e0e-anthropic" {
 		t.Errorf("ModelCredentialSecretName = %q", got)
 	}
+	if got := ModelCredentialSecretName(owner, ModelCredentialProviderOpenAI); got != "cred-bf39649e29052e0e-openai" {
+		t.Errorf("ModelCredentialSecretName(openai) = %q", got)
+	}
 }
 
 func TestModelCredentialFingerprintExamples(t *testing.T) {
@@ -90,18 +93,20 @@ func (githubID) Generate(r *rand.Rand, _ int) reflect.Value {
 // the gate is deterministic.
 func TestModelCredentialNamesProperty(t *testing.T) {
 	cfg := &quick.Config{MaxCount: 5000, Rand: rand.New(rand.NewSource(20261018))}
-	check := func(id githubID) bool {
+	check := func(id githubID, p uint8) bool {
+		provider := ModelCredentialProviders[int(p)%len(ModelCredentialProviders)]
 		owner := ModelCredentialOwner(int64(id))
 		hash := ModelCredentialOwnerHash(owner)
-		name := ModelCredentialName(owner, ModelCredentialProviderAnthropic)
-		secret := ModelCredentialSecretName(owner, ModelCredentialProviderAnthropic)
-		return modelCredentialOwnerRE.MatchString(owner) && len(owner) <= 29 &&
+		name := ModelCredentialName(owner, provider)
+		secret := ModelCredentialSecretName(owner, provider)
+		return strings.HasSuffix(name, "-"+string(provider)) && modelCredentialOwnerRE.MatchString(owner) &&
+			len(owner) <= 29 &&
 			owner == ModelCredentialOwnerPrefix+strconv.FormatInt(int64(id), 10) &&
 			modelCredentialNameRE.MatchString(name) && modelCredentialSecretRE.MatchString(secret) &&
 			len(validation.IsDNS1123Label(name)) == 0 && len(validation.IsDNS1123Subdomain(secret)) == 0 &&
 			secret == "cred-"+name && strings.HasPrefix(name, hash+"-") &&
 			len(validation.IsValidLabelValue(hash)) == 0 &&
-			ModelCredentialName(owner, ModelCredentialProviderAnthropic) == name
+			ModelCredentialName(owner, provider) == name
 	}
 	if err := quick.Check(check, cfg); err != nil {
 		t.Error(err)
@@ -114,11 +119,18 @@ func TestModelCredentialNamesProperty(t *testing.T) {
 func TestModelCredentialNamesDistinctProperty(t *testing.T) {
 	cfg := &quick.Config{MaxCount: 5000, Rand: rand.New(rand.NewSource(20261018))}
 	check := func(a, b githubID) bool {
+		oa, ob := ModelCredentialOwner(int64(a)), ModelCredentialOwner(int64(b))
+		// One person's records for two providers never share a name either.
+		if ModelCredentialName(oa, ModelCredentialProviderAnthropic) ==
+			ModelCredentialName(oa, ModelCredentialProviderOpenAI) {
+			return false
+		}
 		if a == b {
 			return true
 		}
-		return ModelCredentialName(ModelCredentialOwner(int64(a)), ModelCredentialProviderAnthropic) !=
-			ModelCredentialName(ModelCredentialOwner(int64(b)), ModelCredentialProviderAnthropic)
+		return ModelCredentialName(oa, ModelCredentialProviderAnthropic) !=
+			ModelCredentialName(ob, ModelCredentialProviderAnthropic) &&
+			ModelCredentialName(oa, ModelCredentialProviderOpenAI) != ModelCredentialName(ob, ModelCredentialProviderOpenAI)
 	}
 	if err := quick.Check(check, cfg); err != nil {
 		t.Error(err)
@@ -199,57 +211,116 @@ func TestHealthForProperty(t *testing.T) {
 }
 
 func TestModelCredentialValue(t *testing.T) {
+	const (
+		anthropic = ModelCredentialProviderAnthropic
+		openai    = ModelCredentialProviderOpenAI
+	)
 	for _, tc := range []struct {
-		raw  string
-		kind ModelCredentialKind
-		want string
-		ok   bool
+		raw      string
+		provider ModelCredentialProvider
+		kind     ModelCredentialKind
+		want     string
+		ok       bool
 	}{
-		{"sk-ant-api03-abc", ModelCredentialAPIKey, "sk-ant-api03-abc", true},
-		{"  sk-ant-oat01-abc\n", ModelCredentialOAuthToken, "sk-ant-oat01-abc", true},
-		{"sk-ant-oat01-abc", ModelCredentialAPIKey, "", false},
-		{"sk-ant-api03-abc", ModelCredentialOAuthToken, "", false},
-		{"some-other-key", ModelCredentialAPIKey, "some-other-key", true},
-		{"two words", ModelCredentialAPIKey, "", false},
-		{"crlf\r\nX-Inject: 1", ModelCredentialAPIKey, "", false},
-		{"   ", ModelCredentialAPIKey, "", false},
-		{"ключ", ModelCredentialAPIKey, "", false},
-		{"sk-ant-api03-abc", "password", "", false},
-		{strings.Repeat("a", ModelCredentialSecretMaxBytes), ModelCredentialAPIKey,
+		{"sk-ant-api03-abc", anthropic, ModelCredentialAPIKey, "sk-ant-api03-abc", true},
+		{"  sk-ant-oat01-abc\n", anthropic, ModelCredentialOAuthToken, "sk-ant-oat01-abc", true},
+		{"sk-ant-oat01-abc", anthropic, ModelCredentialAPIKey, "", false},
+		{"sk-ant-api03-abc", anthropic, ModelCredentialOAuthToken, "", false},
+		{"some-other-key", anthropic, ModelCredentialAPIKey, "some-other-key", true},
+		{"two words", anthropic, ModelCredentialAPIKey, "", false},
+		{"crlf\r\nX-Inject: 1", anthropic, ModelCredentialAPIKey, "", false},
+		{"   ", anthropic, ModelCredentialAPIKey, "", false},
+		{"ключ", anthropic, ModelCredentialAPIKey, "", false},
+		{"sk-ant-api03-abc", anthropic, "password", "", false},
+		{strings.Repeat("a", ModelCredentialSecretMaxBytes), anthropic, ModelCredentialAPIKey,
 			strings.Repeat("a", ModelCredentialSecretMaxBytes), true},
-		{strings.Repeat("a", ModelCredentialSecretMaxBytes+1), ModelCredentialAPIKey, "", false},
+		{strings.Repeat("a", ModelCredentialSecretMaxBytes+1), anthropic, ModelCredentialAPIKey, "", false},
+		// An OpenAI key stored as an Anthropic credential, of either kind.
+		{"sk-proj-abc", anthropic, ModelCredentialAPIKey, "", false},
+		{"sk-abc", anthropic, ModelCredentialAPIKey, "", false},
+		{"sk-proj-abc", anthropic, ModelCredentialOAuthToken, "", false},
+		// OpenAI: API keys only, and never an Anthropic value.
+		{"sk-proj-abc", openai, ModelCredentialAPIKey, "sk-proj-abc", true},
+		{" sk-svcacct-abc\n", openai, ModelCredentialAPIKey, "sk-svcacct-abc", true},
+		{"sk-abc", openai, ModelCredentialAPIKey, "sk-abc", true},
+		{"some-other-key", openai, ModelCredentialAPIKey, "some-other-key", true},
+		{"sk-proj-abc", openai, ModelCredentialOAuthToken, "", false},
+		{"sk-ant-api03-abc", openai, ModelCredentialAPIKey, "", false},
+		{"sk-ant-oat01-abc", openai, ModelCredentialAPIKey, "", false},
+		{"two words", openai, ModelCredentialAPIKey, "", false},
+		// A provider that takes nothing.
+		{"sk-proj-abc", "bedrock", ModelCredentialAPIKey, "", false},
+		{"sk-ant-api03-abc", "", ModelCredentialAPIKey, "", false},
 	} {
-		got, ok := ModelCredentialValue(tc.raw, tc.kind)
+		got, ok := ModelCredentialValue(tc.raw, tc.provider, tc.kind)
 		if got != tc.want || ok != tc.ok {
-			t.Errorf("ModelCredentialValue(%q, %s) = %q, %v; want %q, %v", tc.raw, tc.kind, got, ok, tc.want, tc.ok)
+			t.Errorf("ModelCredentialValue(%q, %s, %s) = %q, %v; want %q, %v",
+				tc.raw, tc.provider, tc.kind, got, ok, tc.want, tc.ok)
 		}
+	}
+}
+
+// TestModelCredentialKinds: Anthropic takes an API key or a setup-token,
+// OpenAI an API key only, anything else nothing.
+func TestModelCredentialKinds(t *testing.T) {
+	for _, tc := range []struct {
+		provider ModelCredentialProvider
+		want     []ModelCredentialKind
+	}{
+		{ModelCredentialProviderAnthropic, []ModelCredentialKind{ModelCredentialAPIKey, ModelCredentialOAuthToken}},
+		{ModelCredentialProviderOpenAI, []ModelCredentialKind{ModelCredentialAPIKey}},
+		{"bedrock", nil},
+	} {
+		if got := ModelCredentialKinds(tc.provider); !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("ModelCredentialKinds(%s) = %v, want %v", tc.provider, got, tc.want)
+		}
+	}
+	if ModelCredentialKindAllowed(ModelCredentialProviderOpenAI, ModelCredentialOAuthToken) {
+		t.Error("an openai setup-token is allowed")
+	}
+	if !reflect.DeepEqual(ModelCredentialProviders,
+		[]ModelCredentialProvider{ModelCredentialProviderAnthropic, ModelCredentialProviderOpenAI}) {
+		t.Errorf("ModelCredentialProviders = %v", ModelCredentialProviders)
 	}
 }
 
 // TestModelCredentialValueProperty: whatever is offered, an accepted value
 // is a single token of printable ASCII within the bound, the input trimmed
 // and nothing else changed, so what the status server stores is exactly
-// what the broker will send.
+// what the broker will send; it is of a kind its provider takes, and never
+// carries the other provider's prefix.
 func TestModelCredentialValueProperty(t *testing.T) {
 	cfg := &quick.Config{MaxCount: 5000, Rand: rand.New(rand.NewSource(20261018))}
 	cfg.Values = func(args []reflect.Value, r *rand.Rand) {
 		const alphabet = "abcXYZ019-_.~ \t\r\n\x00\x7f:/é"
 		b := make([]byte, 0, 64)
 		if r.Intn(3) == 0 {
-			b = append(b, []string{"sk-ant-api", "sk-ant-oat", " ", "\n"}[r.Intn(4)]...)
+			b = append(b, []string{"sk-ant-api", "sk-ant-oat", "sk-proj-", "sk-", " ", "\n"}[r.Intn(6)]...)
 		}
 		for range r.Intn(48) {
 			b = append(b, alphabet[r.Intn(len(alphabet))])
 		}
 		kinds := []ModelCredentialKind{ModelCredentialAPIKey, ModelCredentialOAuthToken}
-		args[0], args[1] = reflect.ValueOf(string(b)), reflect.ValueOf(kinds[r.Intn(2)])
+		providers := []ModelCredentialProvider{ModelCredentialProviderAnthropic, ModelCredentialProviderOpenAI}
+		args[0], args[1] = reflect.ValueOf(string(b)), reflect.ValueOf(providers[r.Intn(2)])
+		args[2] = reflect.ValueOf(kinds[r.Intn(2)])
 	}
-	prop := func(raw string, kind ModelCredentialKind) bool {
-		v, ok := ModelCredentialValue(raw, kind)
+	prop := func(raw string, provider ModelCredentialProvider, kind ModelCredentialKind) bool {
+		v, ok := ModelCredentialValue(raw, provider, kind)
 		if !ok {
 			return v == ""
 		}
 		if v != strings.TrimSpace(raw) || len(v) == 0 || len(v) > ModelCredentialSecretMaxBytes {
+			return false
+		}
+		// Never a kind the provider does not take, and never the other
+		// provider's value.
+		if !ModelCredentialKindAllowed(provider, kind) {
+			return false
+		}
+		ant := strings.HasPrefix(v, "sk-ant-")
+		if provider == ModelCredentialProviderOpenAI && ant ||
+			provider == ModelCredentialProviderAnthropic && strings.HasPrefix(v, "sk-") && !ant {
 			return false
 		}
 		for i := 0; i < len(v); i++ {

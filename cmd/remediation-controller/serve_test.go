@@ -7,16 +7,17 @@ import (
 	"io"
 	"maps"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
 
 	"github.com/bitwise-media-group/patchy/internal/attribution"
 	"github.com/bitwise-media-group/patchy/internal/cli"
 	"github.com/bitwise-media-group/patchy/internal/credgate"
-	"github.com/bitwise-media-group/patchy/internal/runnercfg"
 )
 
 // serveOpts resolves args through the real serve flag surface, as the
@@ -158,44 +159,37 @@ func TestUserCredentialsFromEnv(t *testing.T) {
 	}
 }
 
-// TestResolveFleetRefusesCodexWithUserCredentials: the startup path holds the
-// enabled fleet to --user-credentials. Per-user credentials cover Anthropic
-// only for now, so a fleet with codex enabled refuses any mode but off, while
-// a fleet without codex, or codex with the mode off, starts as before.
-func TestResolveFleetRefusesCodexWithUserCredentials(t *testing.T) {
+// TestCodexStartsUnderUserCredentials: per-user credentials cover OpenAI
+// keys, so a fleet with codex enabled starts under every
+// --user-credentials mode (the temporary guard of the codex broker design's
+// group 2 is gone), and so does a claude-only fleet. It drives startupFleet,
+// serve's one path from the flags and the credentials mode to the fleet, so
+// a guard put back there fails it.
+func TestCodexStartsUnderUserCredentials(t *testing.T) {
 	// An unroutable broker URL: the readiness probe is advisory only.
 	const broker = "http://127.0.0.1:1"
-	for _, tt := range []struct {
-		name    string
-		args    []string
-		mode    credgate.Mode
-		wantErr string
-	}{
-		{name: "codex under attribute", args: []string{"--codex-agent-image", "codex:1", "--broker-url", broker},
-			mode: credgate.ModeAttribute, wantErr: "--user-credentials off"},
-		{name: "codex under enforce", args: []string{"--codex-agent-image", "codex:1", "--broker-url", broker},
-			mode: credgate.ModeEnforce, wantErr: "--user-credentials off"},
-		{name: "codex with credentials off", args: []string{"--codex-agent-image", "codex:1", "--broker-url", broker},
-			mode: credgate.ModeOff},
-		{name: "claude only under enforce", args: []string{"--claude-agent-image", "claude:1", "--broker-url", broker},
-			mode: credgate.ModeEnforce},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			opts := serveOpts(t, tt.args...)
-			runners, err := runnercfg.Runners(opts)
-			if err != nil {
-				t.Fatalf("Runners: %v", err)
-			}
-			enabled, err := resolveFleet(t.Context(), opts, fake.NewClientset(), "patchy-agents", runners, nil, "", tt.mode)
-			if tt.wantErr == "" {
-				if err != nil || len(enabled) != 1 {
-					t.Fatalf("resolveFleet = %v, %v; want one harness and no error", enabled, err)
+	for _, mode := range []string{"off", "attribute", "enforce"} {
+		for _, tc := range []struct {
+			harness string
+			args    []string
+		}{
+			{"codex", []string{"--codex-agent-image", "codex:1", "--broker-url", broker,
+				"--model-allowlist", "openai/gpt-5.3-codex", "--remediate-model", "openai/gpt-5.3-codex"}},
+			{"claude", []string{"--claude-agent-image", "claude:1", "--broker-url", broker}},
+		} {
+			t.Run(mode+" "+tc.harness, func(t *testing.T) {
+				t.Setenv("PATCHY_ATTRIBUTION_MODE", "attribute")
+				t.Setenv("PATCHY_USER_CREDENTIALS", mode)
+				fl, _, err := startupFleet(t.Context(), serveOpts(t, tc.args...), func() (kubernetes.Interface, error) {
+					return fake.NewClientset(), nil
+				})
+				if err != nil {
+					t.Fatalf("startupFleet: %v", err)
 				}
-				return
-			}
-			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-				t.Fatalf("resolveFleet error = %v, want %q", err, tt.wantErr)
-			}
-		})
+				if string(fl.credentials) != mode || !slices.Equal(fl.enabled, []string{tc.harness}) {
+					t.Fatalf("fleet = %s %v, want %s [%s]", fl.credentials, fl.enabled, mode, tc.harness)
+				}
+			})
+		}
 	}
 }

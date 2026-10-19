@@ -135,6 +135,9 @@ metadata:
 {{- if include "patchy.accountOn" . }}
 {{- $_ := set $data "PATCHY_ACCOUNT_ENABLED" "true" }}
 {{- $_ := set $data "PATCHY_CREDENTIALS_NAMESPACE" (.Values.egressBroker.userCredentials.namespace | default "patchy-credentials") }}
+{{- /* The providers the enabled runners use: anthropic (claude), openai
+(codex). user-credentials.yaml has already refused a render with neither. */}}
+{{- $_ := set $data "PATCHY_ACCOUNT_PROVIDERS" (include "patchy.credentialProviders" .) }}
 {{- end }}
 {{- /* agent.paused, shown on the page; the job controllers enforce it. */}}
 {{- $_ := include "patchy.agentsPausedData" (dict "root" . "data" $data) }}

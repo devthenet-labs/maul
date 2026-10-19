@@ -158,7 +158,50 @@ func TestEnvtestStore(t *testing.T) {
 		t.Fatalf("ReadSecret = %v, %v", got, err)
 	}
 	checkPatch(t, f, rec, secret.ResourceVersion)
+	checkOpenAI(t, f, owner)
 	checkChanges(t, f, secret, name)
+}
+
+// checkOpenAI: the same person's OpenAI record and Secret are their own:
+// seen by the informers under the openai names, and a change to the Secret
+// notifies the openai record, not the anthropic one.
+func checkOpenAI(t *testing.T, f *storeFixture, owner string) {
+	t.Helper()
+	ctx := t.Context()
+	name := v1alpha1.ModelCredentialName(owner, v1alpha1.ModelCredentialProviderOpenAI)
+	anthropic := v1alpha1.ModelCredentialName(owner, v1alpha1.ModelCredentialProviderAnthropic)
+	secretName := v1alpha1.ModelCredentialSecretName(owner, v1alpha1.ModelCredentialProviderOpenAI)
+	rec := &v1alpha1.ModelCredential{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: recordsNS},
+		Spec: v1alpha1.ModelCredentialSpec{Owner: owner, Provider: v1alpha1.ModelCredentialProviderOpenAI,
+			Kind: v1alpha1.ModelCredentialAPIKey},
+	}
+	if err := f.admin.Create(ctx, rec); err != nil {
+		t.Fatal(err)
+	}
+	f.reset()
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: secretsNS,
+			Labels: map[string]string{v1alpha1.LabelCredentialOwner: v1alpha1.ModelCredentialOwnerHash(owner)}},
+		Type: corev1.SecretTypeOpaque,
+		Data: map[string][]byte{v1alpha1.ModelCredentialSecretKey: []byte("sk-proj-user42")},
+	}
+	if err := f.admin.Create(ctx, secret); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "the openai record and Secret version", func() bool {
+		r, okR := f.store.Record(name)
+		v, okS := f.store.SecretVersion(secretName)
+		return okR && r.Spec.Provider == v1alpha1.ModelCredentialProviderOpenAI && okS &&
+			v == secret.ResourceVersion && f.seen(name)
+	})
+	if f.seen(anthropic) {
+		t.Error("the openai Secret notified the anthropic record")
+	}
+	got, err := f.store.ReadSecret(ctx, secretName)
+	if err != nil || string(got.Data[v1alpha1.ModelCredentialSecretKey]) != "sk-proj-user42" {
+		t.Fatalf("ReadSecret(openai) = %v, %v", got, err)
+	}
 }
 
 // checkPatch: a stale resourceVersion is a conflict, the current one

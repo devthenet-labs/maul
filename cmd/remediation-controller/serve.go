@@ -138,6 +138,44 @@ func ownSettings(opts *cli.Options) (modes, error) {
 	return modes{attribution: attr, credentials: creds, accountURL: accountURL}, nil
 }
 
+// fleet is what serve's startup settles from the flags before any
+// reconciler runs: the settings ownSettings reads, the runners and the
+// harnesses Resolve enabled.
+type fleet struct {
+	modes
+	runners map[string]jobs.Runner
+	enabled []string
+}
+
+// startupFleet is serve's one path from the flags to the fleet it runs:
+// ownSettings (--attribution-mode, --user-credentials among them), the
+// runners and the harnesses enabled. Per-user credentials cover every
+// brokered provider, so no --user-credentials mode refuses a harness here
+// (the codex broker design's temporary codex guard is gone). The clientset
+// is built only once the flag-only checks pass, so a misconfiguration fails
+// startup before any cluster config is read.
+func startupFleet(ctx context.Context, opts *cli.Options,
+	clientset func() (kubernetes.Interface, error)) (fleet, kubernetes.Interface, error) {
+	own, err := ownSettings(opts)
+	if err != nil {
+		return fleet{}, nil, err
+	}
+	runners, err := runnercfg.Runners(opts)
+	if err != nil {
+		return fleet{}, nil, err
+	}
+	cs, err := clientset()
+	if err != nil {
+		return fleet{}, nil, err
+	}
+	enabled, err := runnercfg.Resolve(ctx, opts, cs, opts.String("agent-namespace"), runners,
+		runnercfg.Restrict(opts), runnercfg.SplitList(opts.String("model-allowlist")), opts.String("remediate-model"))
+	if err != nil {
+		return fleet{}, nil, err
+	}
+	return fleet{modes: own, runners: runners, enabled: enabled}, cs, nil
+}
+
 func serve(ctx context.Context, opts *cli.Options) error {
 	prov, shutdown, err := telemetry.Init(ctx, telemetry.Config{
 		Dir:            os.Getenv("PATCHY_TELEMETRY_DIR"),
@@ -158,10 +196,6 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	if namespace == "" {
 		return errors.New("namespace is required (--namespace or POD_NAMESPACE)")
 	}
-	runners, err := runnercfg.Runners(opts)
-	if err != nil {
-		return err
-	}
 	repositoryImages, ephemeralStorage, err := runnercfg.RepositoryImages(opts)
 	if err != nil {
 		return err
@@ -175,15 +209,26 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		return err
 	}
 	cpuRequest, memoryRequest, cpuLimit, memoryLimit := agentResources.Strings()
-	own, err := ownSettings(opts)
-	if err != nil {
-		return err
-	}
-	attributionMode, credMode, accountURL := own.attribution, own.credentials, own.accountURL
 	meter, err := runnercfg.UsageMeter(opts, log)
 	if err != nil {
 		return err
 	}
+	fl, cs, err := startupFleet(ctx, opts, func() (kubernetes.Interface, error) {
+		cfg, err := kube.RestConfig(opts.String("kubeconfig"))
+		if err != nil {
+			return nil, err
+		}
+		cs, err := kubernetes.NewForConfig(cfg)
+		if err != nil {
+			return nil, fmt.Errorf("kubernetes clientset: %w", err)
+		}
+		return cs, nil
+	})
+	if err != nil {
+		return err
+	}
+	runners, enabled := fl.runners, fl.enabled
+	attributionMode, credMode, accountURL := fl.attribution, fl.credentials, fl.accountURL
 
 	mgr, err := kube.NewManager(kube.Options{
 		Kubeconfig:              opts.String("kubeconfig"),
@@ -198,22 +243,9 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		return err
 	}
 
-	cfg, err := kube.RestConfig(opts.String("kubeconfig"))
-	if err != nil {
-		return err
-	}
-	cs, err := kubernetes.NewForConfig(cfg)
-	if err != nil {
-		return fmt.Errorf("kubernetes clientset: %w", err)
-	}
-
 	agentNS := opts.String("agent-namespace")
 	remediateModel := opts.String("remediate-model")
 	allowlist := runnercfg.SplitList(opts.String("model-allowlist"))
-	enabled, err := resolveFleet(ctx, opts, cs, agentNS, runners, allowlist, remediateModel, credMode)
-	if err != nil {
-		return err
-	}
 	agentDNS, err := runnercfg.AgentDNS(opts, runners, enabled)
 	if err != nil {
 		return err
@@ -355,16 +387,4 @@ func usageCompactor(c client.Client, reader client.Reader, namespace string, mod
 		return nil
 	}
 	return &rollup.UsageCompactor{Client: c, Reader: reader, Namespace: namespace, Log: log}
-}
-
-// resolveFleet resolves the enabled harnesses and holds them to
-// --user-credentials: per-user credentials are refused beside codex until
-// they cover OpenAI (runnercfg.CodexUserCredentials).
-func resolveFleet(ctx context.Context, opts *cli.Options, cs kubernetes.Interface, agentNS string,
-	runners map[string]jobs.Runner, allowlist []string, remediateModel string, credMode credgate.Mode) ([]string, error) {
-	enabled, err := runnercfg.Resolve(ctx, opts, cs, agentNS, runners, runnercfg.Restrict(opts), allowlist, remediateModel)
-	if err != nil {
-		return nil, err
-	}
-	return enabled, runnercfg.CodexUserCredentials(credMode, enabled)
 }

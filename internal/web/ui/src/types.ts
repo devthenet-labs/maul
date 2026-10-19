@@ -842,6 +842,11 @@ export type CredentialHealth = "Valid" | "Rejected" | "Unknown";
 
 export interface AccountCredential {
   provider: string;
+  // kinds the provider takes, in the order the page offers them:
+  // Anthropic ["api-key", "oauth-token"], OpenAI ["api-key"]. Empty for a
+  // stored credential whose provider the page no longer offers: it can be
+  // seen and deleted, never replaced.
+  kinds: CredentialKind[];
   stored: boolean;
   kind: CredentialKind | "";
   fingerprint: string;

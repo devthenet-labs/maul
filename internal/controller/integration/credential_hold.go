@@ -11,6 +11,7 @@ import (
 
 	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
 	"github.com/bitwise-media-group/patchy/internal/attribution"
+	"github.com/bitwise-media-group/patchy/internal/credgate"
 	"github.com/bitwise-media-group/patchy/internal/templates"
 )
 
@@ -25,8 +26,9 @@ const AnnotationProjectedCredentialHold = "patchy.bitwisemedia.uk/projected-cred
 // names the approver and links the Account page; once the hold lifts it is
 // edited to say so. A finding never held gets no comment and no write. The
 // comment is rendered from patchy's own facts (the person held,
-// status.credentialHold, else the approval's login; the condition's reason;
-// --account-url), never from the condition's message. The person held, not
+// status.credentialHold, else the approval's login; the provider,
+// status.credentialHoldProvider; the condition's reason; --account-url),
+// never from the condition's message. The person held, not
 // the newest approval, is named: an approval by someone without a valid
 // credential leaves the hold where it was.
 func (r *FindingReconciler) projectCredentialHold(
@@ -39,6 +41,8 @@ func (r *FindingReconciler) projectCredentialHold(
 	}
 	c := templates.CredentialHoldComment{
 		Reason: cond.Reason, AccountURL: r.AccountURL, Resolved: cond.Status != metav1.ConditionTrue,
+		Provider: credgate.ProviderName(fnd.Status.CredentialHoldProvider),
+		Kinds:    credgate.CredentialKinds(fnd.Status.CredentialHoldProvider),
 	}
 	if h := fnd.Status.CredentialHold; h != nil && h.ID > 0 && h.Login != "" {
 		c.Login = h.Login

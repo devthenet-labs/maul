@@ -73,34 +73,41 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   listener of its own (`GET /v1/usage/jobs/<job>`, port 8082) to the run controllers' ServiceAccounts only
   (`--usage-callers`, their own token audience, `internal/usagewire`). Engine in
   `internal/broker`; deployed by the chart when a claude or codex runner is enabled (claude or codex ⇒ broker;
-  proxy-only, no in-pod credential mode; codex also needs `egressBroker.openai.apiKey`, and until per-user OpenAI keys
-  exist, `userCredentials` other than off is refused beside codex). One replica, always: the usage figures depend on
-  it.
+  proxy-only, no in-pod credential mode; codex also needs `egressBroker.openai.apiKey`). One replica, always: the usage
+  figures depend on it.
   Per-user model credentials (design L3; chart `egressBroker.userCredentials.mode` `off` by default, `attribute` or
-  `enforce`, chart only, needing `attribution.mode: attribute` and the anthropic provider, a setup-token org credential
-  refused unless `orgCredentialIsPersonal: acknowledged`) render the credential store: the `ModelCredential` kind
-  (release namespace, named `<sha256(owner)[:16]>-<provider>`, owner and provider immutable, no Secret pointer; the
-  naming contract and fingerprint in `api/v1alpha1/modelcredential_names.go`), one Secret per person and provider in
+  `enforce`, chart only, needing `attribution.mode: attribute` and, while claude runs anywhere, the anthropic provider,
+  a setup-token org credential refused unless `orgCredentialIsPersonal: acknowledged`) render the credential store: the
+  `ModelCredential` kind (release namespace, named `<sha256(owner)[:16]>-<provider>`, provider `anthropic` (API key or
+  setup-token) or `openai` (API key only, `ModelCredentialKinds`), owner and provider immutable, no Secret pointer; the
+  naming contract, the per-provider value rules and the fingerprint in `api/v1alpha1/modelcredential_names.go`), one
+  Secret per person and provider in
   `patchy-credentials` (`cred-<record name>`, owner-hash label), the status server's write-only Secret grant (create,
   update, delete; no patch, whose response is the stored object), the broker's read grants, the
   `-credentials-self`/`-credentials-admin` ClusterRoles (virtual `modelcredentials/self` and `/all`) and three policies
   (`templates/user-credentials-policy.yaml`), and pass the broker `--user-credentials` (`internal/broker/usercred.go`).
   It then reads each caller pod's attributed-to annotation with the verdict (the budget's UID-checked get); under
   `attribute` the org credential pays and the audit line records the person, under `enforce` a person's run carries that
-  person's own credential (record and Secret found by derived names through the `CredentialStore` port: adapter
+  person's own credential for the route's provider (one resolver and one health probe per route, anthropic and openai,
+  each reading only its own provider's records; record and Secret found by derived names through the `CredentialStore`
+  port: adapter
   `internal/broker/credstore`, a controller-runtime cache of the records and the Secrets' metadata only, the Secret
   read live at most once a minute while its version holds) or is refused with a distinct 403 reason, never the org
   key; an org-attributed run keeps the org credential. Health comes only from the broker's own throttled probes
-  (`credhealth.go`), written by a patch conditional on the record's resourceVersion and only while the probed Secret
-  version (`status.secretVersion`, `ModelCredentialStatus.HealthFor`) is current; readiness stays the org
-  credential's. Startup refuses a setup-token org credential unless acknowledged, and any non-anthropic route
-  (docs/configuration/user-credentials.md). Under `enforce` remediation- and intent-controller (`--user-credentials`,
-  `internal/credgate`) never create a run attributed to a person whose record is not `Valid`: the Finding stays
-  `Queued` with `CredentialRequired` and `status.credentialHold`, the Intent is `Blocked` (`CredentialRequired`,
+  (`credhealth.go`; `AnthropicProbe`, `OpenAIProbe` `GET /v1/models`), written by a patch conditional on the
+  record's resourceVersion and only while the probed Secret version (`status.secretVersion`,
+  `ModelCredentialStatus.HealthFor`) is current; readiness stays the org credential's. Startup refuses a setup-token
+  anthropic org credential unless acknowledged, and any route but anthropic and openai
+  (docs/configuration/user-credentials.md). Under `enforce` remediation- and intent-controller
+  (`--user-credentials`, `internal/credgate`) never create a run attributed to a person whose record for the run's
+  harness's provider (`credgate.ProviderFor`: claude anthropic, codex openai) is not `Valid`: the Finding stays
+  `Queued` with `CredentialRequired`, `status.credentialHold` and `status.credentialHoldProvider`, the Intent is
+  `Blocked` (`CredentialRequired`,
   `status.credentialHold`); the issue names the person and links `--account-url`, and only a re-approval by an
   approver holding a valid credential replaces the attribution (a Finding's spawner keeps the hold on the person held
   otherwise; an approval with no GitHub id is refused while held). The status page's Account page
-  (`--account-enabled`) is where people store theirs. Operator guide (modes, the subscription guard, rollout
+  (`--account-enabled`, offering `--account-providers`, which the chart sets to the providers its runners use) is where
+  people store theirs. Operator guide (modes, the subscription guard, rollout
   `attribute` then `enforce`, rollback) docs/configuration/user-credentials.md; the people's guide docs/account.md.
 - `cmd/egress-proxy` — OPTIONAL (default-off; chart `egressProxy`, chart-only, no kustomize component): the
   operator's Go dependency route (NOT a controller: no reconcilers, no leases). A GOPROXY-protocol reverse proxy to
@@ -221,10 +228,11 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   only, over a cached `UsageRollup` informer. With `--account-enabled` (chart `statusServer.account.enabled`; default
   off, chart only, refused without `egressBroker.userCredentials.mode`) it serves the Account page and `/api/account*`
   (internal/web/account.go): a person sets, replaces and deletes their own model credential (POST only, JSON capped at
-  8 KiB, owner stamped from the GitHub id, an access review on the virtual `modelcredentials/self`), and sees its
-  fingerprint, health and last use, never the credential. Its store (`internal/web/credstore`) writes the Secret in
-  `--credentials-namespace` by create or unconditional update and never reads one: the status server's first Secret
-  write, and its only write outside spec.
+  8 KiB, owner stamped from the GitHub id, an access review on the virtual `modelcredentials/self`; one card per
+  `--account-providers` entry, default `anthropic`, the chart adding `openai` while codex runs, plus a delete-only card
+  for a credential stored under a provider no longer offered), and sees its fingerprint, health and last use, never the
+  credential. Its store (`internal/web/credstore`) writes the Secret in `--credentials-namespace` by create or
+  unconditional update and never reads one: the status server's first Secret write, and its only write outside spec.
 - `cmd/patchy` — the workstation CLI (the only binary not deployed): `patchy <verb> <noun>` over the caller's own
   kubeconfig, no channel through any controller. get/describe/review/browse/can-i plus the five action verbs; `get
   usage` is the usage report (not a kind; `internal/usageview`), admin-only by a SelfSubjectAccessReview on `usage/all`.
@@ -501,11 +509,13 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   run's `spec.attributedTo` only from its own kind's controller on CREATE, an Intent's `requestedBy.userID` only from
   intent-controller; a render test pins the Job policy's grammar to `ValuePattern`).
   Stdlib and `api/v1alpha1` only (a test pins that). Operator guide `docs/configuration/attribution.md`.
-- `credgate` — the run controllers' side of per-user credentials (design L3 "Fallback", revision 1), PURE (stdlib +
-  `api/v1alpha1`, a test pins that): the `--user-credentials` mode (`off`, `attribute`, `enforce`), `Judge`/`Check`
-  (under `enforce` a run attributed to a person is held unless that person's own anthropic `ModelCredential` is
-  `Valid`; org runs and the other modes never; seeded property; remediation judges claude runs only, so a codex run is
-  never held on an Anthropic record), the hold's reasons and `Message`, and
+- `credgate` — the run controllers' side of per-user credentials (design L3 "Fallback", revision 1), PURE (stdlib,
+  `api/v1alpha1` and the pure `internal/model` registry, a test pins that): the `--user-credentials` mode (`off`,
+  `attribute`, `enforce`), `ProviderFor` (the one place a run's credential provider is decided: its harness's vendor in
+  the model registry, `model.HarnessProvider`, claude anthropic, codex openai, the fake harness as claude, copilot
+  none), `Judge`/`Check`/`Holds` (under `enforce` a run attributed to a person is held unless that person's own
+  `ModelCredential` for the provider is `Valid`; org runs and the other modes never; seeded property), the hold's
+  reasons and `Message` (naming the provider), and
   `CheckAccountURL` (`--account-url`, written into Markdown). `credgate/kubecred` is the `Lookup` over an uncached
   reader (get by derived name only). Consumers: remediation's spawner (`credential_hold.go`), intent
   (`credential_hold.go`), and integration-controller's held-Finding comment (`templates.RenderCredentialHoldComment`).
@@ -651,8 +661,7 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   flags (`UsageMeter`), the brokered claude
   provider config, the brokered codex runner (`Brokered` from `model.HarnessBrokered`, the predicate the usage meter
   reads too; `--codex-secret*` removed, hidden and refused with the migration where codex would run;
-  `--evolve-codex-image` refused, `ErrCodexEvaluations`; `CodexUserCredentials`, the temporary guard against
-  `--user-credentials` beside codex), and
+  `--evolve-codex-image` refused, `ErrCodexEvaluations`), and
   `Resolve` (every allowlisted model runnable; then one advisory 5-second broker `/readyz` probe that logs
   `egress broker not reachable yet; brokered (claude, codex) jobs will fail until it is` and never gates startup;
   intent-controller uses

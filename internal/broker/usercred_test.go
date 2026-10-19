@@ -23,14 +23,17 @@ import (
 	k8stesting "k8s.io/client-go/testing"
 
 	"github.com/bitwise-media-group/patchy/api/v1alpha1"
+	"github.com/bitwise-media-group/patchy/internal/provider"
 	"github.com/bitwise-media-group/patchy/internal/usagewire"
 )
 
 const (
-	orgKey   = "sk-ant-org-0000000000000000"
-	userKey  = "sk-ant-api03-user42-abcdefghijkl"
-	userTok  = "sk-ant-oat01-user42-mnopqrstuvwx"
-	personID = 42
+	orgKey        = "sk-ant-org-0000000000000000"
+	orgOpenAIKey  = "sk-proj-org-000000000000000"
+	userOpenAIKey = "sk-proj-user42-abcdefghijklmn"
+	userKey       = "sk-ant-api03-user42-abcdefghijkl"
+	userTok       = "sk-ant-oat01-user42-mnopqrstuvwx"
+	personID      = 42
 )
 
 var person = v1alpha1.ModelCredentialOwner(personID)
@@ -97,6 +100,9 @@ type credServerOpts struct {
 	pod    *corev1.Pod
 	store  *fakeStore
 	probe  ProbeFunc
+	// openai, when set, is the URL of an openai route's upstream beside
+	// the anthropic route (org key orgOpenAIKey).
+	openai string
 }
 
 func credServer(t *testing.T, upstream string, o credServerOpts, gets *atomic.Int64) (*Server, *syncBuffer) {
@@ -124,10 +130,14 @@ func credServer(t *testing.T, upstream string, o credServerOpts, gets *atomic.In
 	if o.store != nil {
 		store = o.store
 	}
+	routes := map[string]Upstream{"anthropic": Anthropic(mustTarget(t, upstream), keyFile(t, orgKey), o.bearer)}
+	if o.openai != "" {
+		routes[provider.OpenAI] = OpenAI(mustTarget(t, o.openai), keyFile(t, orgOpenAIKey))
+	}
 	var buf syncBuffer
 	s, err := New(cs, Config{
 		AgentNamespace: testNamespace, AgentServiceAccount: testSA,
-		Upstreams: map[string]Upstream{"anthropic": Anthropic(mustTarget(t, upstream), keyFile(t, orgKey), o.bearer)},
+		Upstreams: routes,
 		UserCredentials: UserCredentialConfig{
 			Mode: o.mode, Store: store, OrgCredentialIsPersonal: o.ack, Health: HealthConfig{Probe: probe},
 		},
@@ -353,7 +363,7 @@ func TestRevocationReachesTheBroker(t *testing.T) {
 		s, _ := credServer(t, up.URL, credServerOpts{mode: UserCredentialsEnforce, pod: attributedPod(person),
 			store: store}, nil)
 		clock := newFakeClock()
-		s.creds.now = clock.now
+		s.creds[provider.Anthropic].now = clock.now
 		h := s.Handler()
 		if rec := postAs(h, "jobpod"); rec.Code != http.StatusOK {
 			t.Fatalf("first request: %d", rec.Code)
@@ -489,7 +499,7 @@ func TestAgentTrafficRejectionAsksForARecheck(t *testing.T) {
 	if got := store.record(name).Status.Health; got != v1alpha1.ModelCredentialValid {
 		t.Fatalf("health = %s after agent traffic alone, want Valid", got)
 	}
-	s.creds.health.step(t.Context())
+	s.creds[provider.Anthropic].health.step(t.Context())
 	if probes.Load() != 1 {
 		t.Fatalf("probes = %d, want 1", probes.Load())
 	}
@@ -502,6 +512,7 @@ func TestUserCredentialConfigValidation(t *testing.T) {
 	target := mustTarget(t, "https://api.anthropic.com")
 	key := Anthropic(target, "/dev/null", false)
 	token := Anthropic(target, "/dev/null", true)
+	openai := OpenAI(mustTarget(t, "https://api.openai.com"), "/dev/null")
 	store := newFakeStore()
 	for _, tc := range []struct {
 		name    string
@@ -515,9 +526,15 @@ func TestUserCredentialConfigValidation(t *testing.T) {
 		{"no store", map[string]Upstream{"anthropic": key},
 			UserCredentialConfig{Mode: UserCredentialsAttribute}, "credential store"},
 		{"a cloud route", map[string]Upstream{"bedrock": {Target: target}},
-			UserCredentialConfig{Mode: UserCredentialsEnforce, Store: store}, "anthropic route"},
-		{"a second route", map[string]Upstream{"anthropic": key, "bedrock": {Target: target}},
-			UserCredentialConfig{Mode: UserCredentialsEnforce, Store: store}, "anthropic route"},
+			UserCredentialConfig{Mode: UserCredentialsEnforce, Store: store}, "the bedrock route"},
+		{"a cloud route beside anthropic", map[string]Upstream{"anthropic": key, "bedrock": {Target: target}},
+			UserCredentialConfig{Mode: UserCredentialsEnforce, Store: store}, "the bedrock route"},
+		{"anthropic and openai", map[string]Upstream{"anthropic": key, "openai": openai},
+			UserCredentialConfig{Mode: UserCredentialsEnforce, Store: store}, ""},
+		{"openai alone", map[string]Upstream{"openai": openai},
+			UserCredentialConfig{Mode: UserCredentialsAttribute, Store: store}, ""},
+		{"the subscription guard beside openai", map[string]Upstream{"anthropic": token, "openai": openai},
+			UserCredentialConfig{Mode: UserCredentialsEnforce, Store: store}, "setup-token"},
 		{"the subscription guard", map[string]Upstream{"anthropic": token},
 			UserCredentialConfig{Mode: UserCredentialsAttribute, Store: store}, "setup-token"},
 		{"the guard acknowledged", map[string]Upstream{"anthropic": token},
@@ -601,7 +618,7 @@ func TestAttributeModeProbesStoredCredentials(t *testing.T) {
 		},
 	}, nil)
 	store.fire(v1alpha1.ModelCredentialName(person, v1alpha1.ModelCredentialProviderAnthropic))
-	s.creds.health.step(t.Context())
+	s.creds[provider.Anthropic].health.step(t.Context())
 	if probed.Load() != 1 {
 		t.Fatalf("probes = %d, want the stored credential probed once under attribute", probed.Load())
 	}

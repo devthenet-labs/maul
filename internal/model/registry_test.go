@@ -199,3 +199,23 @@ func TestHarnessBrokered(t *testing.T) {
 		}
 	}
 }
+
+// TestHarnessProvider: a brokered harness's traffic goes to its vendor,
+// read from the registry; every builtin model a brokered harness is
+// preferred for is that vendor's, so the answer is not an accident of
+// order.
+func TestHarnessProvider(t *testing.T) {
+	for h, want := range map[string]string{
+		HarnessClaude: ProviderAnthropic, HarnessCodex: ProviderOpenAI, HarnessCopilot: "", HarnessFake: "", "": "",
+	} {
+		if got := HarnessProvider(h); got != want {
+			t.Errorf("HarnessProvider(%q) = %q, want %q", h, got, want)
+		}
+	}
+	for _, m := range Builtins() {
+		if HarnessBrokered(m.Preferred) && m.ProviderID != HarnessProvider(m.Preferred) {
+			t.Errorf("%s is preferred by %s but is %s's, not %s's", m.ID, m.Preferred, m.ProviderID,
+				HarnessProvider(m.Preferred))
+		}
+	}
+}

@@ -196,8 +196,10 @@ gets). API keys only; ChatGPT-plan sign-in and Codex access tokens are not broke
 - **Errors.** In OpenAI's envelope, `{"error": {"message", "type", "code", "param"}}`. A spend-limit refusal keeps the
   `egress broker: per-pod limit` message prefix and carries type and code `insufficient_quota`, which the client treats
   as final rather than retrying; any other 429 is `rate_limit_exceeded`.
-- **Per-user credentials** stay Anthropic only: the broker refuses to start with `--user-credentials` beside the openai
-  route, and the chart refuses to render the two together.
+- **Per-user credentials.** Under `--user-credentials enforce` a codex run attributed to a person sends that person's
+  own OpenAI API key as the bearer instead of the org key, read from their `openai` record and Secret; their health is
+  probed with `GET /v1/models` (2xx `Valid`, 401 `Rejected`, anything else no verdict), and a 401 on a run asks for a
+  recheck. See [per-user model credentials](user-credentials.md).
 
 ### Cost limits
 
@@ -316,8 +318,7 @@ Invoke-class permissions only — the broker needs to call models, never to mana
 
 ## Known limitations
 
-- Copilot remains in-pod-credentialed (it ships disabled). Per-user OpenAI keys are a follow-up: until then per-user
-  credentials are refused beside codex and the openai route.
+- Copilot remains in-pod-credentialed (it ships disabled).
 - A spend-limit refusal on the openai route reaches the codex stage as a bare 429 (codex does not quote the message), so
   it reads `runtime_error`, not `budget_exceeded`.
 - The limit counters live in memory, per replica, evicted after 24 hours: a broker restart resets every pod's totals,

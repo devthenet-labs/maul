@@ -26,6 +26,12 @@ type CredentialHoldComment struct {
 	Reason string
 	// AccountURL is the Account page; empty names the page without a link.
 	AccountURL string
+	// Provider is the provider whose credential the attempt needs, as a
+	// person reads it ("Anthropic", "OpenAI"); empty is Anthropic. Kinds
+	// is what may be stored for it ("an API key or a setup-token", "an
+	// OpenAI API key"); empty is the former. Both patchy's own
+	// (credgate.ProviderName, credgate.CredentialKinds).
+	Provider, Kinds string
 	// Resolved says the hold lifted: the comment is edited to say so.
 	Resolved bool
 }
@@ -37,6 +43,18 @@ var holdLoginRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{0,38}$`)
 // holdURLRE admits an absolute http(s) URL of characters that cannot end or
 // reshape a Markdown link (runnercfg holds --account-url to the same).
 var holdURLRE = regexp.MustCompile(`^https?://[A-Za-z0-9.:/#?&=%~+,;@$-]+$`)
+
+// holdWordRE admits the plain words a provider name or kinds phrase is
+// made of, so neither can carry markup into the comment.
+var holdWordRE = regexp.MustCompile(`^[A-Za-z][A-Za-z -]{0,60}$`)
+
+// holdWord is s when it is plain words, else def.
+func holdWord(s, def string) string {
+	if holdWordRE.MatchString(s) {
+		return s
+	}
+	return def
+}
 
 // RenderCredentialHoldComment renders the sticky comment, headed by
 // CredentialHoldMarker.
@@ -52,20 +70,21 @@ func RenderCredentialHoldComment(c CredentialHoldComment) string {
 		b.WriteString("The remediation no longer waits for a model credential; patchy has resumed it.\n")
 		return b.String()
 	}
+	provider, kinds := holdWord(c.Provider, "Anthropic"), holdWord(c.Kinds, "an API key or a setup-token")
 	b.WriteString("### ⏸️ Waiting for a model credential\n\n")
 	switch c.Reason {
 	case "CredentialRejected":
-		b.WriteString("This remediation is attributed to " + who + ", and Anthropic rejected the credential " +
-			who + " stored in patchy. ")
+		b.WriteString("This remediation is attributed to " + who + ", and " + provider + " rejected the " +
+			"credential " + who + " stored in patchy. ")
 	case "CredentialUnverified":
-		b.WriteString("This remediation is attributed to " + who + ", whose stored credential patchy has not " +
-			"verified yet. ")
+		b.WriteString("This remediation is attributed to " + who + ", whose stored " + provider + " credential " +
+			"patchy has not verified yet. ")
 	default:
-		b.WriteString("This remediation is attributed to " + who + ", who has no Anthropic credential stored in " +
-			"patchy. ")
+		b.WriteString("This remediation is attributed to " + who + ", who has no " + provider + " credential " +
+			"stored in patchy. ")
 	}
-	b.WriteString("Runs attributed to a person use their own API key or setup-token, so patchy holds it rather " +
-		"than spend an attempt on a refusal.\n\n")
+	b.WriteString("Runs attributed to a person use their own credential (" + kinds + "), so patchy holds it " +
+		"rather than spend an attempt on a refusal.\n\n")
 	where := "on the status page's Account page"
 	if holdURLRE.MatchString(c.AccountURL) {
 		where = "on the [Account page](" + c.AccountURL + ")"

@@ -48,8 +48,7 @@ default), and `--agent-dns` ([agent DNS](investigation-controller.md#agent-dns),
 non-brokered `--<harness>-secret-env` is validated against the credential env vars that harness accepts (copilot:
 `COPILOT_GITHUB_TOKEN` / `GH_TOKEN` / `GITHUB_TOKEN`) and the controller refuses to start on a mismatch, on a missing
 credential for an enabled non-brokered harness, on a claude or codex runner without `--broker-url`, on a leftover
-`--codex-secret*` value while it would run codex, on `--user-credentials` other than `off` while codex is enabled
-(per-user credentials cover Anthropic only for now), on a foundry model map that misses a claude-resolving allowlisted
+`--codex-secret*` value while it would run codex, on a foundry model map that misses a claude-resolving allowlisted
 model, or on an allowlisted model no enabled harness can run. The flag's own `--help` enumerates the accepted set,
 rendered from the harness definition, so it cannot drift from what the validation allows.
 

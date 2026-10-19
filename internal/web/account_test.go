@@ -75,12 +75,12 @@ func (f *fakeStore) Delete(_ context.Context, owner string, p v1alpha1.ModelCred
 	return nil
 }
 
-func accountServer(t *testing.T) (*Server, *fakeStore) {
+func accountServer(t *testing.T, providers ...v1alpha1.ModelCredentialProvider) (*Server, *fakeStore) {
 	t.Helper()
 	c := fake.NewClientBuilder().WithScheme(kube.Scheme()).Build()
 	store := newFakeStore()
 	s := NewServer(c, "patchy", stubAuth{}, stubGranter{grants: allGrants()}, nil).
-		WithAccount(AccountOptions{Self: &accountGranter{}, Store: store})
+		WithAccount(AccountOptions{Self: &accountGranter{}, Store: store, Providers: providers})
 	return s, store
 }
 
@@ -255,5 +255,148 @@ func TestAccountRefusesBadWrites(t *testing.T) {
 	}
 	if len(store.writes)+len(store.deletes) != 0 {
 		t.Errorf("a refused write reached the store: %+v %+v", store.writes, store.deletes)
+	}
+}
+
+const (
+	openaiPath = "/api/account/credentials/openai"
+	openaiKey  = "sk-proj-0123456789abcdefghijwxyz"
+)
+
+// TestAccountOpenAI: with OpenAI offered (--account-providers anthropic,
+// openai), the page lists both providers in order with the kinds each
+// takes; an OpenAI API key is stored under the person's openai record,
+// beside and apart from their Anthropic one; and an OpenAI write is held
+// to OpenAI's rules (an API key only, never an Anthropic value), as an
+// Anthropic one is to Anthropic's (never an OpenAI key).
+func TestAccountOpenAI(t *testing.T) {
+	s, store := accountServer(t, v1alpha1.ModelCredentialProviderAnthropic, v1alpha1.ModelCredentialProviderOpenAI)
+	ts := as(t, s, accountOctocat)
+	checkAccountListsBoth(t, ts)
+
+	checkAccountProviderRules(t, ts, store)
+
+	code, body := post(t, ts, openaiPath, "same-origin", "application/json",
+		`{"kind":"api-key","credential":"`+openaiKey+`"}`)
+	if code != http.StatusOK || strings.Contains(body, openaiKey) {
+		t.Fatalf("store openai = %d %q", code, body)
+	}
+	got := decode[AccountCredential](t, body)
+	if got.Provider != "openai" || !got.Stored || got.Kind != "api-key" || len(got.Kinds) != 1 {
+		t.Errorf("stored facts = %+v", got)
+	}
+	name := v1alpha1.ModelCredentialName("github-id:42", v1alpha1.ModelCredentialProviderOpenAI)
+	if store.stored[name] != openaiKey || store.writes[0].Provider != v1alpha1.ModelCredentialProviderOpenAI {
+		t.Errorf("stored %q via %+v", store.stored[name], store.writes[0])
+	}
+	_, body = get(t, ts, "/api/account")
+	if a := decode[Account](t, body); a.Credentials[0].Stored || !a.Credentials[1].Stored {
+		t.Errorf("after storing openai: %+v", a.Credentials)
+	}
+	if code, _ := post(t, ts, openaiPath+"/delete", "same-origin", "", ""); code != http.StatusNoContent ||
+		store.records[name] != nil {
+		t.Errorf("delete openai = %d", code)
+	}
+}
+
+// checkAccountListsBoth: anthropic then openai, each with its kinds.
+func checkAccountListsBoth(t *testing.T, ts *httptest.Server) {
+	t.Helper()
+	_, body := get(t, ts, "/api/account")
+	a := decode[Account](t, body)
+	if len(a.Credentials) != 2 || a.Credentials[0].Provider != "anthropic" || a.Credentials[1].Provider != "openai" {
+		t.Fatalf("credentials = %+v, want anthropic then openai", a.Credentials)
+	}
+	if k := a.Credentials[0].Kinds; len(k) != 2 || k[0] != "api-key" || k[1] != "oauth-token" {
+		t.Errorf("anthropic kinds = %v", k)
+	}
+	if k := a.Credentials[1].Kinds; len(k) != 1 || k[0] != "api-key" {
+		t.Errorf("openai kinds = %v", k)
+	}
+}
+
+// checkAccountProviderRules: each provider's write is held to its own
+// rules before the store is touched.
+func checkAccountProviderRules(t *testing.T, ts *httptest.Server, store *fakeStore) {
+	t.Helper()
+	for _, tc := range []struct {
+		name, path, body string
+	}{
+		{"an openai setup-token", openaiPath, `{"kind":"oauth-token","credential":"` + openaiKey + `"}`},
+		{"an anthropic key as openai's", openaiPath, `{"kind":"api-key","credential":"sk-ant-api03-abc"}`},
+		{"an openai key as anthropic's", putPath, `{"kind":"api-key","credential":"` + openaiKey + `"}`},
+	} {
+		if code, body := post(t, ts, tc.path, "same-origin", "application/json", tc.body); code !=
+			http.StatusBadRequest {
+			t.Errorf("%s = %d %q, want 400", tc.name, code, body)
+		}
+	}
+	if len(store.writes) != 0 {
+		t.Fatalf("a refused write reached the store: %+v", store.writes)
+	}
+
+}
+
+// TestAccountOffersOnlyItsProviders: by default (no providers configured)
+// the page offers Anthropic alone, as before OpenAI keys existed, and an
+// OpenAI write is a 404.
+func TestAccountOffersOnlyItsProviders(t *testing.T) {
+	s, store := accountServer(t)
+	ts := as(t, s, accountOctocat)
+	_, body := get(t, ts, "/api/account")
+	if a := decode[Account](t, body); len(a.Credentials) != 1 || a.Credentials[0].Provider != "anthropic" {
+		t.Fatalf("credentials = %+v, want anthropic alone", a.Credentials)
+	}
+	if code, _ := post(t, ts, openaiPath, "same-origin", "application/json",
+		`{"kind":"api-key","credential":"`+openaiKey+`"}`); code != http.StatusNotFound {
+		t.Errorf("an openai write while not offered = %d, want 404", code)
+	}
+	if len(store.writes) != 0 {
+		t.Errorf("writes = %+v", store.writes)
+	}
+}
+
+// TestAccountKeepsAStoredCredentialItNoLongerOffers: a key stored while its
+// runner was on stays visible and deletable after the operator turns the
+// runner off (the provider drops out of --account-providers); it can no
+// longer be replaced, and a provider with nothing stored stays hidden.
+func TestAccountKeepsAStoredCredentialItNoLongerOffers(t *testing.T) {
+	s, store := accountServer(t, v1alpha1.ModelCredentialProviderAnthropic)
+	if _, err := store.Put(t.Context(), CredentialWrite{Owner: "github-id:42", OwnerLogin: "octocat",
+		Provider: v1alpha1.ModelCredentialProviderOpenAI, Kind: v1alpha1.ModelCredentialAPIKey,
+		Credential: openaiKey, By: "github:octocat"}); err != nil {
+		t.Fatal(err)
+	}
+	store.writes = nil
+	ts := as(t, s, accountOctocat)
+
+	_, body := get(t, ts, "/api/account")
+	a := decode[Account](t, body)
+	if len(a.Credentials) != 2 || a.Credentials[0].Provider != "anthropic" || len(a.Credentials[0].Kinds) == 0 {
+		t.Fatalf("credentials = %+v, want the offered anthropic card first", a.Credentials)
+	}
+	if c := a.Credentials[1]; c.Provider != "openai" || !c.Stored || len(c.Kinds) != 0 {
+		t.Fatalf("the stored openai card = %+v, want stored with no kinds", c)
+	}
+
+	if code, _ := post(t, ts, openaiPath, "same-origin", "application/json",
+		`{"kind":"api-key","credential":"`+openaiKey+`"}`); code != http.StatusNotFound {
+		t.Errorf("replacing a credential no longer offered = %d, want 404", code)
+	}
+	if len(store.writes) != 0 {
+		t.Errorf("writes = %+v", store.writes)
+	}
+	name := v1alpha1.ModelCredentialName("github-id:42", v1alpha1.ModelCredentialProviderOpenAI)
+	if code, _ := post(t, ts, openaiPath+"/delete", "same-origin", "", ""); code != http.StatusNoContent ||
+		store.records[name] != nil {
+		t.Fatalf("deleting a credential no longer offered = %d", code)
+	}
+	_, body = get(t, ts, "/api/account")
+	if a := decode[Account](t, body); len(a.Credentials) != 1 || a.Credentials[0].Provider != "anthropic" {
+		t.Errorf("after the delete: %+v, want anthropic alone", a.Credentials)
+	}
+	if code, _ := post(t, ts, "/api/account/credentials/gemini/delete", "same-origin", "", ""); code !=
+		http.StatusNotFound {
+		t.Errorf("deleting an unknown provider = %d, want 404", code)
 	}
 }

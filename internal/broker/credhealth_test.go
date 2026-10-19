@@ -356,3 +356,48 @@ func TestAnthropicProbe(t *testing.T) {
 		}
 	}
 }
+
+// TestHealthJudgesOnlyItsOwnProvider: the store notifies every provider's
+// records, and each provider's health judges only its own: an openai
+// record's change never makes the anthropic health probe (an OpenAI key
+// sent to Anthropic), and the openai health probes it with its own probe.
+func TestHealthJudgesOnlyItsOwnProvider(t *testing.T) {
+	f := newHealthFixture(t, ProbeValid)
+	openaiProbe := &scriptedProbe{results: []ProbeResult{ProbeValid}}
+	oh := newCredentialHealth(HealthConfig{Probe: openaiProbe.probe}, f.store, v1alpha1.ModelCredentialProviderOpenAI,
+		f.clock.now, slog.New(slog.DiscardHandler))
+	f.store.putFor(personID, v1alpha1.ModelCredentialProviderOpenAI, v1alpha1.ModelCredentialAPIKey, userOpenAIKey)
+	openaiRecord := v1alpha1.ModelCredentialName(person, v1alpha1.ModelCredentialProviderOpenAI)
+	f.store.fire(openaiRecord)
+	f.h.step(t.Context())
+	oh.step(t.Context())
+	if f.probe.count() != 0 {
+		t.Errorf("the anthropic health probed %v", f.probe.asked)
+	}
+	if got := openaiProbe.asked; len(got) != 1 || got[0] != "api-key:"+userOpenAIKey {
+		t.Errorf("openai probes = %v", got)
+	}
+	if st := f.store.record(openaiRecord).Status; st.Health != v1alpha1.ModelCredentialValid {
+		t.Errorf("openai record status = %+v, want Valid", st)
+	}
+	f.store.fire(f.record)
+	oh.step(t.Context())
+	if openaiProbe.count() != 1 {
+		t.Errorf("the openai health probed an anthropic record: %v", openaiProbe.asked)
+	}
+}
+
+// TestHealthRefusesAnOpenAISetupToken: an openai record of a kind OpenAI
+// does not take (the CRD refuses it; a hand-edited one) is never probed.
+func TestHealthRefusesAnOpenAISetupToken(t *testing.T) {
+	store := newFakeStore()
+	probe := &scriptedProbe{results: []ProbeResult{ProbeValid}}
+	h := newCredentialHealth(HealthConfig{Probe: probe.probe}, store, v1alpha1.ModelCredentialProviderOpenAI,
+		newFakeClock().now, slog.New(slog.DiscardHandler))
+	store.putFor(personID, v1alpha1.ModelCredentialProviderOpenAI, v1alpha1.ModelCredentialOAuthToken, userOpenAIKey)
+	store.fire(v1alpha1.ModelCredentialName(person, v1alpha1.ModelCredentialProviderOpenAI))
+	h.step(t.Context())
+	if probe.count() != 0 {
+		t.Errorf("probes = %v, want none", probe.asked)
+	}
+}

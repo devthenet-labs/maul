@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"maps"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -59,7 +60,8 @@ const (
 
 // HealthConfig tunes the health probe.
 type HealthConfig struct {
-	// Probe overrides the probe (tests); nil probes the anthropic route.
+	// Probe overrides every route's probe (tests); nil probes each
+	// provider's own route (AnthropicProbe, OpenAIProbe).
 	Probe ProbeFunc
 	// ProbeModel is the model an oauth-token probe asks for one token of;
 	// empty takes DefaultProbeModel.
@@ -100,8 +102,8 @@ type healthVerdict struct {
 	at                   time.Time
 }
 
-// credentialHealth keeps each record's status.health true to the stored
-// credential (design revision 1): health comes only from probes the broker
+// credentialHealth keeps each of one provider's records' status.health true
+// to the stored credential (design revision 1): health comes only from probes the broker
 // issues itself, never from agent traffic; any change of the Secret resets
 // it to Unknown; and a verdict is written by a patch conditional on the
 // record's resourceVersion, and only while the Secret it probed is still at
@@ -140,7 +142,14 @@ func newCredentialHealth(cfg HealthConfig, store CredentialStore, provider v1alp
 		probed: map[string]probeMark{}, verdicts: map[string]healthVerdict{},
 		usedPending: map[string]time.Time{}, usedWritten: map[string]time.Time{},
 	}
-	store.Notify(h.enqueue)
+	suffix := "-" + string(provider)
+	store.Notify(func(record string) {
+		// The store notifies every provider's records; each provider's
+		// health judges only its own.
+		if strings.HasSuffix(record, suffix) {
+			h.enqueue(record)
+		}
+	})
 	return h
 }
 
@@ -304,7 +313,7 @@ func (h *credentialHealth) probe(ctx context.Context, rec *v1alpha1.ModelCredent
 		return 0
 	}
 	cred, ok := validateSecret(rec.Spec.Owner, h.provider, s)
-	if !ok || !knownKind(rec.Spec.Kind) {
+	if !ok || rec.Spec.Provider != h.provider || !v1alpha1.ModelCredentialKindAllowed(h.provider, rec.Spec.Kind) {
 		h.log.LogAttrs(ctx, slog.LevelWarn, "credential not probed: stored credential is malformed",
 			slog.String("record", name))
 		h.done(name)

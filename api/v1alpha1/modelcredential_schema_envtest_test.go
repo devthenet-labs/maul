@@ -16,8 +16,8 @@ import (
 
 // testModelCredentialSchema: a ModelCredential is named for its provider
 // behind a 16-hex-digit hash, its owner is a GitHub id in the attributed-to
-// person grammar, owner and provider are immutable while kind may change,
-// and its status holds a fingerprint and health only in their grammars.
+// person grammar, owner and provider are immutable while kind may change
+// (an openai record is an API key only), and its status holds a fingerprint and health only in their grammars.
 func testModelCredentialSchema(ctx context.Context, t *testing.T, c client.Client) {
 	t.Helper()
 	owner := patchyv1.ModelCredentialOwner(42)
@@ -58,6 +58,10 @@ func testModelCredentialSchema(ctx context.Context, t *testing.T, c client.Clien
 		{"a kind outside the enum", cred("0123456789abcdef-anthropic", func(s *patchyv1.ModelCredentialSpec) {
 			s.Kind = "password"
 		}), "kind"},
+		{"an openai name for an anthropic record", cred("0123456789abcdef-openai", nil), "name"},
+		{"an openai setup-token", cred("0123456789abcdef-openai", func(s *patchyv1.ModelCredentialSpec) {
+			s.Provider, s.Kind = patchyv1.ModelCredentialProviderOpenAI, patchyv1.ModelCredentialOAuthToken
+		}), "kind"},
 	} {
 		if err := c.Create(ctx, tc.obj); err == nil {
 			t.Errorf("Create(%s) = nil, want a %s rejection", tc.name, tc.reason)
@@ -68,8 +72,13 @@ func testModelCredentialSchema(ctx context.Context, t *testing.T, c client.Clien
 	if err := c.Create(ctx, m); err != nil {
 		t.Fatalf("Create(the derived name) = %v", err)
 	}
-	// The provider is immutable too, but with one provider in the enum no
-	// update can reach that rule past the enum.
+	// The provider is immutable too (the name rule would also refuse the
+	// move, so this is belt and braces).
+	switched := m.DeepCopy()
+	switched.Spec.Provider = patchyv1.ModelCredentialProviderOpenAI
+	if err := c.Update(ctx, switched); err == nil {
+		t.Error("Update of spec.provider = nil, want rejection (immutable)")
+	}
 	moved := m.DeepCopy()
 	moved.Spec.Owner = patchyv1.ModelCredentialOwner(43)
 	if err := c.Update(ctx, moved); err == nil {
@@ -79,6 +88,18 @@ func testModelCredentialSchema(ctx context.Context, t *testing.T, c client.Clien
 	m.Spec.OwnerLogin = "octocat-renamed"
 	if err := c.Update(ctx, m); err != nil {
 		t.Fatalf("Update of kind and login = %v, want nil", err)
+	}
+
+	// An OpenAI record: an API key under its own derived name, which may
+	// never become a setup-token.
+	o := cred(patchyv1.ModelCredentialName(owner, patchyv1.ModelCredentialProviderOpenAI),
+		func(s *patchyv1.ModelCredentialSpec) { s.Provider = patchyv1.ModelCredentialProviderOpenAI })
+	if err := c.Create(ctx, o); err != nil {
+		t.Fatalf("Create(an openai record) = %v", err)
+	}
+	o.Spec.Kind = patchyv1.ModelCredentialOAuthToken
+	if err := c.Update(ctx, o); err == nil {
+		t.Error("Update of an openai record to a setup-token = nil, want rejection")
 	}
 
 	now := metav1.Now()

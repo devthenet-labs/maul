@@ -66,6 +66,7 @@ One more turns on the [Account page](#account-page):
 | ------------------------- | ------------------------------ | -------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | `--account-enabled`       | `PATCHY_ACCOUNT_ENABLED`       | `false`              | Serve the Account page: each person sets, replaces and deletes their own model credential. Needs what the usage views need |
 | `--credentials-namespace` | `PATCHY_CREDENTIALS_NAMESPACE` | `patchy-credentials` | The namespace the page writes credential Secrets to (write-only)                                                           |
+| `--account-providers`     | `PATCHY_ACCOUNT_PROVIDERS`     | `anthropic`          | The providers the page offers, in order: `anthropic` (claude), `openai` (codex). The chart sets those its runners use      |
 
 ## Usage views
 
@@ -122,13 +123,15 @@ The Account page is where each person stores the model credential that pays for 
 ([per-user model credentials](user-credentials.md)). Helm: `statusServer.account.enabled: true` (default `false`),
 refused unless `egressBroker.userCredentials.mode` is `attribute` or `enforce`, whose store and grants it writes to.
 
-- **What it shows.** For each provider (Anthropic in v1): the kind (API key or setup-token), the fingerprint (the last
-  four characters and a SHA-256 prefix), the health the egress broker's own probe found (`Valid`, `Rejected` or
-  `Unknown`), and when the broker last used it and last saw it rejected. Never the credential: no route returns it, and
-  the server cannot read a stored one back.
-- **What it does.** Set or replace the credential (a password field), or delete it. Pasting a credential picks the kind
-  its Anthropic prefix names. A setup-token must be the person's own subscription's: it is used only for runs attributed
-  to them.
+- **What it shows.** For each provider it offers (`--account-providers`; the chart sets Anthropic while claude runs
+  anywhere and OpenAI while codex does): the kind (an Anthropic API key or setup-token, an OpenAI API key), the
+  fingerprint (the last four characters and a SHA-256 prefix), the health the egress broker's own probe found (`Valid`,
+  `Rejected` or `Unknown`), and when the broker last used it and last saw it rejected. Never the credential: no route
+  returns it, and the server cannot read a stored one back. A credential stored for a provider the page no longer offers
+  (its runner since turned off) still gets its card, so its owner can see and delete it; it cannot be replaced.
+- **What it does.** Set or replace the credential (a password field), or delete it. Pasting an Anthropic credential
+  picks the kind its prefix names; OpenAI takes an API key only, so its card offers no kind choice. A setup-token must
+  be the person's own subscription's: it is used only for runs attributed to them.
 - **Who.** A person is their GitHub numeric id, as on the Usage page, so the server refuses to start without what the
   usage views need (mode `oidc`, both claim prefixes, the `federated:id` scope), and an identity without a GitHub id is
   refused with a 403 saying why. Every route also needs an access review on the virtual `modelcredentials/self`: bind
@@ -137,10 +140,11 @@ refused unless `egressBroker.userCredentials.mode` is `attribute` or `enforce`, 
   id, never anything in the request.
 - **The API.** `GET /api/account` (each provider's facts, or why the caller cannot manage one),
   `POST /api/account/credentials/<provider>` with a JSON body `{"kind": "api-key" | "oauth-token", "credential": "..."}`
-  (`Content-Type: application/json`, at most 8 KiB, no other field), and
+  (`oauth-token` for `anthropic` only) (`Content-Type: application/json`, at most 8 KiB, no other field), and
   `POST /api/account/credentials/<provider>/delete` with no body. The credential must be one token of printable
-  characters, at most 3072 bytes, surrounding whitespace trimmed; a value carrying the other kind's Anthropic prefix is
-  refused.
+  characters, at most 3072 bytes, surrounding whitespace trimmed; a value carrying the other kind's Anthropic prefix, or
+  the other provider's prefix (`sk-ant-` stored as an OpenAI key, an OpenAI `sk-` key stored as an Anthropic one), is
+  refused. A provider the page does not offer is a 404.
 - **Envelope.** The page turns on the hardened browser envelope of the intents views, so every write needs a same-origin
   `Sec-Fetch-Site`. Each change is one audit line (`model credential stored` or `deleted`, with the person, the
   provider, the kind and the fingerprint, never the value).

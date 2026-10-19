@@ -292,9 +292,9 @@ removed: on a controller that would run codex a leftover value fails startup (an
 these steps: create the OpenAI API key Secret in the release namespace, set `egressBroker.openai.apiKey` (kustomize:
 mount it into the broker and set `PATCHY_OPENAI_API_KEY_FILE`), remove the old keys, and delete the old `patchy-openai`
 Secret from the agent namespace. Nothing is translated silently: the namespace changes, and the old Secret was readable
-by agent pods. Codex evaluations are refused until evolve supports the broker's provider config. With
-`--user-credentials` other than `off`, a controller running codex refuses to start until per-user credentials cover
-OpenAI.
+by agent pods. Codex evaluations are refused until evolve supports the broker's provider config. Under
+[per-user credentials](user-credentials.md), a codex run attributed to a person pays with that person's own OpenAI API
+key (`enforce`).
 
 ## The event stream
 
