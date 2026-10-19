@@ -16,6 +16,7 @@ import (
 
 	"github.com/bitwise-media-group/patchy/api/v1alpha1"
 	"github.com/bitwise-media-group/patchy/internal/attribution"
+	"github.com/bitwise-media-group/patchy/internal/provider"
 	"github.com/bitwise-media-group/patchy/internal/usagewire"
 )
 
@@ -248,7 +249,7 @@ func decide(f credFacts) credDecision {
 	case r == nil:
 		return refuse(reasonCredentialMissing)
 	case r.Name != v1alpha1.ModelCredentialName(owner, f.provider) || r.Spec.Owner != owner ||
-		r.Spec.Provider != f.provider || !knownKind(r.Spec.Kind):
+		r.Spec.Provider != f.provider || !v1alpha1.ModelCredentialKindAllowed(f.provider, r.Spec.Kind):
 		return refuse(reasonCredentialMismatch)
 	case f.secretUnavailable:
 		return refuse(reasonCredentialUnavailable)
@@ -279,11 +280,6 @@ func auditUser(f credFacts) string {
 		return auditUserInvalid
 	}
 	return f.attribution
-}
-
-// knownKind reports whether kind is one the broker can attach.
-func knownKind(kind v1alpha1.ModelCredentialKind) bool {
-	return kind == v1alpha1.ModelCredentialAPIKey || kind == v1alpha1.ModelCredentialOAuthToken
 }
 
 // validateSecret holds a credential Secret to the store's contract before
@@ -323,10 +319,12 @@ type cachedSecret struct {
 	facts   secretFacts
 }
 
-// userCredentials resolves each request's credential (design L3): the
-// pod's attribution (read with the verdict), then under enforce the
-// person's record and Secret, keeping a Secret only while the informer
-// reports the version it was read at and for at most maxAge.
+// userCredentials resolves each request's credential for one provider's
+// route (design L3): the pod's attribution (read with the verdict), then
+// under enforce the person's record and Secret for that provider, keeping a
+// Secret only while the informer reports the version it was read at and for
+// at most maxAge. The server keeps one per route (anthropic, openai), so a
+// request is only ever paid by its own provider's record.
 type userCredentials struct {
 	mode     UserCredentialMode
 	provider v1alpha1.ModelCredentialProvider
@@ -417,7 +415,7 @@ type attached struct {
 
 type attachedKey struct{}
 
-// withAttached puts a person's credential in ctx for the anthropic route's
+// withAttached puts a person's credential in ctx for the route's
 // CredentialFunc to send instead of the org credential.
 func withAttached(ctx context.Context, a *attached) context.Context {
 	return context.WithValue(ctx, attachedKey{}, a)
@@ -438,11 +436,18 @@ func usageKind(kind v1alpha1.ModelCredentialKind) string {
 	return usagewire.CredentialAPIKey
 }
 
+// credentialRoutes are the routes per-user credentials cover, each by the
+// provider of the same name: Anthropic API keys and setup-tokens, OpenAI API
+// keys. Bedrock, Vertex and Foundry use the broker's one cloud identity.
+var credentialRoutes = map[string]v1alpha1.ModelCredentialProvider{
+	provider.Anthropic: v1alpha1.ModelCredentialProviderAnthropic,
+	provider.OpenAI:    v1alpha1.ModelCredentialProviderOpenAI,
+}
+
 // validate rejects a per-user credential config the broker cannot serve:
-// any mode but off needs a store and exactly the anthropic route (v1
-// carries Anthropic API keys and setup-tokens only; Bedrock, Vertex and
-// Foundry use the broker's one cloud identity), and the subscription guard
-// refuses a setup-token org credential unless it is acknowledged.
+// any mode but off needs a store and only routes a person's credential can
+// stand in for (anthropic and openai), and the subscription guard refuses a
+// setup-token anthropic org credential unless it is acknowledged.
 func (u UserCredentialConfig) validate(c Config) error {
 	switch u.Mode {
 	case UserCredentialsOff:
@@ -454,12 +459,15 @@ func (u UserCredentialConfig) validate(c Config) error {
 	if u.Store == nil {
 		return errors.New("broker: per-user credentials need a credential store")
 	}
-	org, ok := c.Upstreams["anthropic"]
-	if !ok || len(c.Upstreams) != 1 {
-		return errors.New("broker: per-user credentials are Anthropic API keys and setup-tokens only; " +
-			"the anthropic route must be the only route")
+	for name := range c.Upstreams {
+		if _, ok := credentialRoutes[name]; !ok {
+			return fmt.Errorf("broker: per-user credentials are Anthropic and OpenAI credentials only; "+
+				"the %s route uses the broker's own identity, so only the anthropic and openai routes may be "+
+				"configured", name)
+		}
 	}
-	if org.CredentialKind == usagewire.CredentialOAuthToken && !u.OrgCredentialIsPersonal {
+	if org, ok := c.Upstreams[provider.Anthropic]; ok && org.CredentialKind == usagewire.CredentialOAuthToken &&
+		!u.OrgCredentialIsPersonal {
 		return errors.New("broker: per-user credentials are refused while the org credential is a " +
 			"setup-token (a person's Claude subscription would pay for every run with no human behind it); " +
 			"use an org API key, or acknowledge it with --org-credential-is-personal=acknowledged")

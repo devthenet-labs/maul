@@ -381,10 +381,11 @@ func TestOpenAIUpstream(t *testing.T) {
 			t.Errorf("%s key file: Ready succeeded", name)
 		}
 	}
-	// A person's credential is never replaced by the org key.
+	// A person's credential goes out instead of the org key, never
+	// replaced by it.
 	ctx := withAttached(context.Background(), &attached{kind: v1alpha1.ModelCredentialAPIKey, credential: "x"})
 	req = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
-	if err := up.Credential(ctx, req); err == nil || req.Header.Get("Authorization") != "" {
+	if err := up.Credential(ctx, req); err != nil || req.Header.Get("Authorization") != "Bearer x" {
 		t.Errorf("an attached credential: Credential = %v, Authorization %q", err, req.Header.Get("Authorization"))
 	}
 }
@@ -698,26 +699,6 @@ func TestOpenAICutStreamChargesOutputBound(t *testing.T) {
 				t.Error("a cut stream is not marked estimated")
 			}
 		})
-	}
-}
-
-// TestOpenAIRouteAndUserCredentials: per-user credentials stay Anthropic
-// only, so the broker refuses to start with them beside the openai route.
-func TestOpenAIRouteAndUserCredentials(t *testing.T) {
-	cfg := Config{
-		AgentNamespace: testNamespace, AgentServiceAccount: testSA,
-		Upstreams: map[string]Upstream{
-			provider.Anthropic: Anthropic(mustTarget(t, "https://api.anthropic.com"), keyFile(t, "k"), false),
-			provider.OpenAI:    OpenAI(mustTarget(t, "https://api.openai.com"), keyFile(t, "k")),
-		},
-		UserCredentials: UserCredentialConfig{Mode: UserCredentialsEnforce, Store: newFakeStore()},
-	}
-	if _, err := New(fakeReviews(nil), cfg, nil); err == nil || !strings.Contains(err.Error(), "only route") {
-		t.Fatalf("New = %v, want the anthropic-only refusal", err)
-	}
-	cfg.UserCredentials = UserCredentialConfig{}
-	if _, err := New(fakeReviews(nil), cfg, nil); err != nil {
-		t.Fatalf("New without per-user credentials = %v", err)
 	}
 }
 

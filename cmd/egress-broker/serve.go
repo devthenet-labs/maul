@@ -118,7 +118,8 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	f.String("user-credentials", string(broker.UserCredentialsOff),
 		"per-user model credentials: off (the org credential pays for everything), attribute (read each "+
 			"caller pod's attributed-to annotation and record the person; the org credential still pays) or "+
-			"enforce (a run attributed to a person uses that person's own credential or is refused)")
+			"enforce (a run attributed to a person uses that person's own credential for the route's provider, "+
+			"anthropic or openai, or is refused); the anthropic and openai routes only")
 	f.String("credential-records-namespace", "patchy",
 		"namespace of the ModelCredential records (the release namespace); with --user-credentials only")
 	f.String("credentials-namespace", v1alpha1.DefaultCredentialsNamespace,

@@ -74,7 +74,10 @@
 //
 // Per-user model credentials (Config.UserCredentials, design L3; off by
 // default) let a run attributed to a person be paid with that person's own
-// Anthropic API key or setup-token (usercred.go). The caller pod's
+// Anthropic API key or setup-token on the anthropic route, or OpenAI API key
+// on the openai route (usercred.go): one resolver and one health probe per
+// route, each reading only its own provider's records, so a request is
+// never paid by another provider's credential. The caller pod's
 // attributed-to annotation is read with the verdict (the same UID-checked
 // get as the budget); under attribute the org credential still pays and the
 // audit line records the person, and under enforce a person's run carries

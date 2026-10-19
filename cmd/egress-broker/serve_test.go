@@ -326,7 +326,7 @@ func TestServeStartupErrors(t *testing.T) {
 			name: "per-user credentials over a cloud route",
 			args: []string{"--kubeconfig", kc, "--vertex-region", "us-east5", "--vertex-project", "p",
 				"--user-credentials", "enforce"},
-			wantErr: "anthropic route must be the only route",
+			wantErr: "the vertex route uses the broker's own identity",
 		},
 		{
 			name:    "unknown user credentials mode",

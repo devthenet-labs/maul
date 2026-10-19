@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"sync"
 	"time"
 
 	"k8s.io/client-go/kubernetes"
@@ -37,9 +38,10 @@ type Server struct {
 	ledger *ledger
 	models *modelPolicy
 	betas  []string
-	// creds resolves each request's credential under per-user credentials;
-	// nil while they are off.
-	creds *userCredentials
+	// creds resolves each request's credential under per-user credentials,
+	// one resolver per route (keyed by route name, which is its provider's);
+	// empty while they are off.
+	creds map[string]*userCredentials
 	now   func() time.Time
 	log   *slog.Logger
 }
@@ -78,18 +80,30 @@ func New(cs kubernetes.Interface, cfg Config, log *slog.Logger) (*Server, error)
 		s.usageAuth = newUsageAuthenticator(cs, cfg, reviews)
 	}
 	if uc := cfg.UserCredentials; uc.Mode.on() {
-		health := uc.Health
-		if health.Probe == nil {
-			org := cfg.Upstreams["anthropic"]
-			health.Probe = AnthropicProbe(org.Target, health.withDefaults().ProbeModel, probeClient())
-		}
-		s.creds = &userCredentials{
-			mode: uc.Mode, provider: v1alpha1.ModelCredentialProviderAnthropic, store: uc.Store,
-			maxAge: uc.MaxSecretAge, now: now, secrets: map[string]cachedSecret{},
-			health: newCredentialHealth(health, uc.Store, v1alpha1.ModelCredentialProviderAnthropic, now, log),
+		s.creds = map[string]*userCredentials{}
+		for name := range cfg.Upstreams {
+			p := credentialRoutes[name]
+			health := uc.Health
+			if health.Probe == nil {
+				health.Probe = defaultProbe(p, cfg.Upstreams[name], health.withDefaults().ProbeModel)
+			}
+			s.creds[name] = &userCredentials{
+				mode: uc.Mode, provider: p, store: uc.Store,
+				maxAge: uc.MaxSecretAge, now: now, secrets: map[string]cachedSecret{},
+				health: newCredentialHealth(health, uc.Store, p, now, log),
+			}
 		}
 	}
 	return s, nil
+}
+
+// defaultProbe is the health probe of provider's credentials, sent to its
+// route's own target.
+func defaultProbe(p v1alpha1.ModelCredentialProvider, route Upstream, model string) ProbeFunc {
+	if p == v1alpha1.ModelCredentialProviderOpenAI {
+		return OpenAIProbe(route.Target, probeClient())
+	}
+	return AnthropicProbe(route.Target, model, probeClient())
 }
 
 // probeClient is the health probe's HTTP client: the proxy's transport and
@@ -106,10 +120,11 @@ func probeClient() *http.Client {
 // credentials' health probes, when they are on. It never affects
 // readiness.
 func (s *Server) Run(ctx context.Context) {
-	if s.creds == nil {
-		return
+	var wg sync.WaitGroup
+	for _, c := range s.creds {
+		wg.Go(func() { c.health.run(ctx) })
 	}
-	s.creds.health.run(ctx)
+	wg.Wait()
 }
 
 // Handler is the proxy surface: one subtree per configured route, everything
@@ -298,14 +313,15 @@ func (s *Server) inspectRequest(r *http.Request, rt *route, adm *admission) *rej
 
 // resolveCredential decides whose credential the request carries under
 // per-user credentials (usercred.go): under enforce a run attributed to a
-// person carries that person's own or is refused with the reason, never
-// the org credential.
-func (s *Server) resolveCredential(r *http.Request, _ *route, adm *admission) *rejection {
-	if s.creds == nil {
+// person carries that person's own credential for the route's provider or
+// is refused with the reason, never the org credential.
+func (s *Server) resolveCredential(r *http.Request, rt *route, adm *admission) *rejection {
+	c := s.creds[rt.name]
+	if c == nil {
 		adm.cred = credDecision{org: true}
 		return nil
 	}
-	adm.cred = s.creds.resolve(r.Context(), adm.id)
+	adm.cred = c.resolve(r.Context(), adm.id)
 	return adm.cred.refusal
 }
 
@@ -345,7 +361,7 @@ func (s *Server) reject(w http.ResponseWriter, r *http.Request, rt *route, adm *
 	audit(s.log, r, auditEntry{
 		pod: adm.id.pod, route: rt.name, model: adm.model, reason: rej.reason,
 		status: rej.status, elapsed: s.now().Sub(adm.start), totals: s.ledger.totals(adm.id.key()),
-		costLimit: s.costLimit(adm.id), creds: s.creds != nil, user: adm.cred.user,
+		costLimit: s.costLimit(adm.id), creds: len(s.creds) > 0, user: adm.cred.user,
 		credential: s.auditCredential(adm.cred),
 	})
 }
@@ -355,7 +371,7 @@ func (s *Server) reject(w http.ResponseWriter, r *http.Request, rt *route, adm *
 // credential, "" for a request refused before one was chosen.
 func (s *Server) auditCredential(d credDecision) string {
 	switch {
-	case s.creds == nil || d.refusal != nil:
+	case len(s.creds) == 0 || d.refusal != nil:
 		return ""
 	case d.org:
 		return auditCredentialOrg
@@ -425,14 +441,14 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, rt *route, adm *a
 			// The provider refused a person's credential on a run's
 			// request: ask the health probe to look (throttled). The run's
 			// own answer is never the verdict.
-			s.creds.health.recheck(adm.cred.record)
+			s.creds[rt.name].health.recheck(adm.cred.record)
 		}
 		countRequest(r.Context(), rt.name, "proxied")
 		audit(s.log, r, auditEntry{
 			pod: adm.id.pod, route: rt.name, model: adm.model, status: aw.Status, bytes: aw.Bytes,
 			elapsed: s.now().Sub(adm.start), tokens: charged.total() + estimated, estimated: estimated > 0,
 			cost: cost + estimatedCost, totals: s.ledger.totals(key), costLimit: s.costLimit(adm.id),
-			creds: s.creds != nil, user: adm.cred.user, credential: s.auditCredential(adm.cred),
+			creds: len(s.creds) > 0, user: adm.cred.user, credential: s.auditCredential(adm.cred),
 		})
 	}()
 	defer sw.stop()

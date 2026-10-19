@@ -24,7 +24,8 @@ const propertySeed = 20261018
 // genFacts is a random credFacts over the values that matter: every mode,
 // verified or not, attributions valid, org, absent and malformed, records
 // matching or not, Secrets present, absent, invalid, unreadable, and every
-// health against the current or another version.
+// health against the current or another version, for either provider's
+// route, the record sometimes another provider's.
 type genFacts credFacts
 
 func (genFacts) Generate(r *rand.Rand, _ int) reflect.Value {
@@ -32,8 +33,9 @@ func (genFacts) Generate(r *rand.Rand, _ int) reflect.Value {
 	modes := []UserCredentialMode{UserCredentialsOff, UserCredentialsAttribute, UserCredentialsEnforce}
 	attributions := []string{"", "org", "github-id:42", "github-id:43", "github-id:042", "github:octocat", "ORG",
 		"github-id:9223372036854775807"}
+	providers := v1alpha1.ModelCredentialProviders
 	f := credFacts{
-		mode: modes[pick(len(modes))], provider: v1alpha1.ModelCredentialProviderAnthropic,
+		mode: modes[pick(len(modes))], provider: providers[pick(len(providers))],
 		podVerified: pick(4) > 0, attribution: attributions[pick(len(attributions))], synced: pick(5) > 0,
 	}
 	owner := []string{"github-id:42", "github-id:43", "github-id:9223372036854775807"}[pick(3)]
@@ -42,13 +44,17 @@ func (genFacts) Generate(r *rand.Rand, _ int) reflect.Value {
 			"password"}
 		healths := []v1alpha1.ModelCredentialHealth{"", v1alpha1.ModelCredentialUnknown, v1alpha1.ModelCredentialValid,
 			v1alpha1.ModelCredentialRejected}
-		name := v1alpha1.ModelCredentialName(owner, v1alpha1.ModelCredentialProviderAnthropic)
+		recProvider := f.provider
+		if pick(4) == 0 {
+			recProvider = providers[pick(len(providers))]
+		}
+		name := v1alpha1.ModelCredentialName(owner, []v1alpha1.ModelCredentialProvider{recProvider, f.provider}[pick(2)])
 		if pick(6) == 0 {
-			name = "0123456789abcdef-anthropic"
+			name = "0123456789abcdef-" + string(recProvider)
 		}
 		f.record = &v1alpha1.ModelCredential{
 			ObjectMeta: metav1.ObjectMeta{Name: name},
-			Spec: v1alpha1.ModelCredentialSpec{Owner: owner, Provider: v1alpha1.ModelCredentialProviderAnthropic,
+			Spec: v1alpha1.ModelCredentialSpec{Owner: owner, Provider: recProvider,
 				Kind: kinds[pick(len(kinds))]},
 			Status: v1alpha1.ModelCredentialStatus{Health: healths[pick(len(healths))],
 				SecretVersion: []string{"", "1", "2"}[pick(3)]},
@@ -72,7 +78,10 @@ func (genFacts) Generate(r *rand.Rand, _ int) reflect.Value {
 //   - enforce never pays a person's run with the org credential, and pays a
 //     person's run only with that person's own record, valid Secret and a
 //     health that is not Rejected for the very version stored;
-//   - a run attributed to the org (verified) is always paid by the org.
+//   - a run attributed to the org (verified) is always paid by the org;
+//   - a person's run on one provider's route is never paid by a record of
+//     another provider, nor by a kind that provider does not take (an
+//     OpenAI setup-token).
 func TestDecideProperties(t *testing.T) {
 	prop := func(g genFacts) bool {
 		f := credFacts(g)
@@ -118,7 +127,7 @@ func personsOwn(f credFacts, d credDecision) bool {
 	owner := v1alpha1.ModelCredentialOwner(id)
 	r := f.record
 	return r.Spec.Owner == owner && r.Name == v1alpha1.ModelCredentialName(owner, f.provider) &&
-		knownKind(r.Spec.Kind) && r.Status.HealthFor(f.secret.version) != v1alpha1.ModelCredentialRejected &&
+		r.Spec.Provider == f.provider && v1alpha1.ModelCredentialKindAllowed(f.provider, r.Spec.Kind) && r.Status.HealthFor(f.secret.version) != v1alpha1.ModelCredentialRejected &&
 		d.credential == f.secret.credential && d.kind == r.Spec.Kind && d.record == r.Name
 }
 
