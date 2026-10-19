@@ -256,7 +256,7 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   `ParseStatus`/`Find` keep only what validates and find exactly one Running device of that hostname carrying the tag,
   seeded property; stdlib only, a test pins that), because the operator records its address only in the proxy's state
   Secret beside its keys; `previewdetect.ApplyTailnet` fills `--tailscale-address` while open and prints the exact DNS
-  records (`previewsetup.DNSRecords`). It writes, never applies, the files
+  records (`previewsetup.DNSRecords`). It writes, and applies only with `--apply` (below), the files
   that expose previews: `answers.yaml` (no secret; a re-run starts from it), `patchy-previews.values.yaml` (layered
   after the operator's own), `manifests/`, the relay's Dex client secret as two Secret manifests under `secrets/`
   (ghapp's 0600 writer and Secret renderer; read back on a re-run, drawn again only with `--rotate dex-client-secret`)
@@ -264,7 +264,22 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   unless `--shared-domain acknowledged` (recorded in `answers.yaml`; a terminal explains the residual risk and asks for
   the word; the values then carry `previewAuth.sharedSiteAcknowledged: <registrable domain>`, `Answers.SharedSite`;
   under the suffix is refused however acknowledged, and on Cloudflare it needs `--cloudflare-acm`), a re-run shows
-  each file's diff and replaces a changed one only with `--force` or `-y` (on a terminal it asks, no by default). All
+  each file's diff and replaces a changed one only with `--force` or `-y` (on a terminal it asks, no by default).
+  `--apply` (off by default; needs `--values`, repeatable, and `--chart-version`, never guessed) then runs the
+  in-cluster steps: pure `previewsetup.ApplySteps` plans them (preflight, Secrets, Dex's copy skipped where its
+  namespace is absent, cert-manager and the Tailscale operator by `helm upgrade --install` at the pins, Issuer,
+  Certificate and its Ready wait, route or cloudflared and its rollout, `helm upgrade` of the existing release, the
+  `check previews` checks; `HelmArgs` is the one helm command line; goldens in `previewsetup/testdata/apply-plan`), and
+  `cmd/patchy/internal/previewapply` runs them over two ports, `Cluster` (`KubeCluster`: server-side apply as
+  `patchy-setup-previews` with forced ownership, existence and Secrets read as metadata only) and `Helm` (`ExecHelm`:
+  the helm binary on PATH with the caller's `--kubeconfig`/`--context`; the CLI links the Helm SDK only to render),
+  stopping at the first failure with the undo commands for what the run created or upgraded, newest first (each, like
+  every `--dry-run` command, carrying the caller's `--kubeconfig`/`--context`: `previewsetup.Connection`; a Secret
+  replaced in place named as not restorable), refusing before any change to replace a Dex client secret already in the
+  cluster with one drawn anew because no secret file was on disk (`Step.NoReplace`, `ErrWouldReplace`; `--rotate
+  dex-client-secret` replaces it on purpose), and never showing a Secret's content or an API server's message about
+  one. Its check step is bounded by `check previews`' own timeout. `--apply --dry-run` prints the plan, contacting
+  nothing. Dex's static client, DNS records, the tailnet policy, preview nodes and image pulls stay manual. All
   four recipes have landed: `existing` (R4: an Ingress class or a Gateway API parent), `gateway-tls` (R2:
   the gateway's own Local LoadBalancer Service terminating TLS, `forwardedHops: 0`) and `tailscale` (R3: that Service
   as ClusterIP with the Tailscale operator's `expose`, hostname and tag annotations, a public DNS record to the device's

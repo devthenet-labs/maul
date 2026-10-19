@@ -7,8 +7,9 @@ Write the files that expose previews and sign viewers in to them
 Write the files that expose patchy's previews at https://<project>-<issue>.<host suffix>
 and sign viewers in to them: patchy's chart values, the manifests the edge needs, the
 relay's Dex client secret as two Secret manifests, answers.yaml and NEXT-STEPS.md, all
-in -o (default ./patchy-previews, created 0700, every file 0600). Nothing is applied and
-no provider is contacted: NEXT-STEPS.md lists the commands, in order.
+in -o (default ./patchy-previews, created 0700, every file 0600). Nothing is applied
+(unless --apply, below) and no provider is contacted: NEXT-STEPS.md lists the commands,
+in order.
 
 Every answer is a flag. On a terminal, the command asks for each one the flags leave
 unanswered, naming the flag that answers it, so a session can be repeated with
@@ -16,7 +17,7 @@ unanswered, naming the flag that answers it, so a session can be repeated with
 an error naming its flag. A credential is never typed at a prompt: only the path of the
 file that holds it.
 
-No cluster is contacted unless --detect is given. --detect reads the cluster your
+No cluster is contacted unless --detect or --apply is given. --detect reads the cluster your
 kubeconfig names, read-only and never a Secret: the nodes (the platform, and which carry
 the preview label and taint), the kubernetes Service and the API server's EndpointSlice,
 the kube-dns Service, IngressClasses, GatewayClasses, the cert-manager and Tailscale
@@ -98,6 +99,8 @@ patchy setup previews [flags]
 
   patchy setup previews --platform k3d --edge tailscale \
     --tailscale-oauth-dir ~/.config/patchy/tailscale-oauth ...
+
+  patchy setup previews -n patchy --apply --values values/patchy.yaml --chart-version 0.12.42 --dry-run
 ```
 
 ### Options
@@ -105,8 +108,10 @@ patchy setup previews [flags]
 ```
       --acme-email string               the ACME account's contact address (optional)
       --api-server-cidr string          the kubernetes Service's /32 the preview-controller may reach, or auto (a render-time lookup) (default "auto")
+      --apply                           after writing the files, run the in-cluster steps of NEXT-STEPS.md with your kubeconfig and helm: the Secrets, cert-manager and the Tailscale operator at the pinned versions, the Certificate, the patchy upgrade, then the checks (with --dry-run: print them)
       --cert-manager-installed          cert-manager already runs: write no values for it
       --certificate-issuer string       --edge existing, or --dns manual: your cert-manager issuer, Issuer/<name> or ClusterIssuer/<name> (default Issuer/preview-dns01)
+      --chart-version string            --apply: the patchy chart version to upgrade the release to, such as 0.12.41
       --cloudflare-acm                  --edge cloudflare-tunnel: the zones have Advanced Certificate Manager, so names deeper than Universal SSL's first level are allowed
       --cloudflared-namespace string    --edge cloudflare-tunnel: the namespace cloudflared runs in, a new one its manifest creates and rolling back deletes (default patchy-cloudflared)
       --detect                          read the cluster (read-only, never a Secret), and for --edge tailscale this machine's Tailscale client, to fill in answers
@@ -147,8 +152,10 @@ patchy setup previews [flags]
       --tailscale-tag string            --edge tailscale: the device's ACL tag (default tag:patchy-previews)
       --taint-key string                the NoExecute taint preview nodes carry (default "patchy.bitwisemedia.uk/preview-only")
       --tunnel-credentials string       --edge cloudflare-tunnel: the locally-managed tunnel's credentials file (~/.cloudflared/<tunnel id>.json), written only into a Secret manifest
+      --values stringArray              --apply: a values file the patchy release already runs with (repeatable, in order); the upgrade layers patchy-previews.values.yaml after them
       --viewer-team stringArray         a Dex GitHub group that may view previews, <org>:<team-slug> (repeatable)
       --viewer-user stringArray         a GitHub login that may view previews (repeatable)
+      --wait-timeout duration           --apply: how long each Helm install and each wait may take (default 10m0s)
   -y, --yes                             write the changes shown without asking (as --force)
 ```
 

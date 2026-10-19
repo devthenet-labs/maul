@@ -1,0 +1,31 @@
+--apply would run these 7 steps against the cluster your kubeconfig names, in order, stopping at the first failure:
+
+1. Check that helm runs and release patchy is installed in namespace patchy
+     helm version --short
+     helm status patchy -n patchy
+
+2. Apply the relay's Dex client secret in namespace patchy
+     kubectl apply --server-side --force-conflicts --field-manager=patchy-setup-previews -f patchy-previews/secrets/patchy-preview-auth-dex.secret.yaml
+
+3. Apply Dex's copy of the client secret in namespace dex (skipped when no such namespace is here: Dex runs elsewhere)
+     kubectl apply --server-side --force-conflicts --field-manager=patchy-setup-previews -f patchy-previews/secrets/dex-patchy-preview-auth-client.secret.yaml
+
+4. Apply cloudflared and the tunnel credentials in namespace patchy-cloudflared
+     kubectl apply --server-side --force-conflicts --field-manager=patchy-setup-previews -f patchy-previews/manifests/cloudflared.yaml -f patchy-previews/secrets/cloudflared-credentials.secret.yaml
+
+5. Wait for deployment/cloudflared in namespace patchy-cloudflared to roll out
+     kubectl -n patchy-cloudflared rollout status deployment/cloudflared --timeout=10m0s
+
+6. Upgrade release patchy to chart 0.12.41 with your values, then patchy-previews.values.yaml
+     helm upgrade patchy oci://ghcr.io/devthenet-labs/patchy/charts/patchy --version 0.12.41 -n patchy -f values/patchy.yaml -f patchy-previews/patchy-previews.values.yaml --wait --timeout 10m0s
+
+7. Run the checks of patchy check previews
+     patchy check previews -n patchy
+
+Manifests are server-side applied as patchy-setup-previews; a Secret's contents are never printed.
+
+Left to you after it, as NEXT-STEPS.md says:
+  - preview nodes, labelled and tainted (NEXT-STEPS.md step 2)
+  - preview image pulls on those nodes (step 3)
+  - Dex: its static client patchy-preview-auth and the secret's environment variable, then roll Dex (step 4)
+  - the two proxied DNS records and the Cache Rule in Cloudflare (step 7)

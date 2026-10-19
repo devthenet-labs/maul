@@ -23,8 +23,9 @@ viewer --https--> [your edge: one route for *.<hostSuffix> and the sign-in host]
 !!! tip "Setting up a new install"
 
     Start with [Set up previews](../intents/set-up-previews.md): `patchy setup previews` writes the values, manifests
-    and Secret manifests for one of four recipes, and the ordered steps for the rest. This page is the reference for
-    what it writes and for building an exposure by hand.
+    and Secret manifests for one of four recipes, and the ordered steps for the rest; with `--apply` it also runs the
+    in-cluster steps (the Secrets, cert-manager and the Tailscale operator, the Certificate, the patchy upgrade and the
+    checks). This page is the reference for what it writes and for building an exposure by hand.
 
 This page covers turning the gateway on, exposing it on each platform, moving an EKS install off the preview ALB,
 checking the result, and what changes for security. The protocol, the proxy's rules, the flags and the metrics are in

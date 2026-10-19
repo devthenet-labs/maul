@@ -68,8 +68,17 @@
 //     while a changed file is not accepted, and every file is written with
 //     mode 0600 through internal ghapp's writer, in a directory created
 //     0700.
+//   - ApplySteps plans `setup previews --apply` (setup-previews-easy (d)):
+//     NEXT-STEPS.md's in-cluster steps for the files planned, in order,
+//     from a preflight to the checks, with the values files and chart
+//     version the operator names (never guessed). HelmArgs is the one helm
+//     command line both --apply and its --dry-run use; Commands and
+//     RenderApplyPlan print a plan as the commands that do it by hand, and
+//     ApplyManual names what stays the operator's. cmd/patchy/internal/
+//     previewapply runs a plan.
 //
 // Nothing here applies anything to a cluster or calls a provider API: the
-// operator, or their GitOps, applies the files, and NEXT-STEPS.md lists the
-// steps patchy cannot take (DNS records, a Dex client, preview nodes).
+// operator, their GitOps or previewapply applies the files, and
+// NEXT-STEPS.md lists the steps patchy cannot take (DNS records, a Dex
+// client, preview nodes).
 package previewsetup

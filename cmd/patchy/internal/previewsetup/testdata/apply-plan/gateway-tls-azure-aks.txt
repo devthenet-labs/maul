@@ -1,0 +1,37 @@
+--apply would run these 9 steps against the cluster your kubeconfig names, in order, stopping at the first failure:
+
+1. Check that helm runs and release patchy is installed in namespace patchy
+     helm version --short
+     helm status patchy -n patchy
+
+2. Apply the relay's Dex client secret and the DNS-01 credential in namespace patchy
+     kubectl apply --server-side --force-conflicts --field-manager=patchy-setup-previews -f patchy-previews/secrets/patchy-preview-auth-dex.secret.yaml -f patchy-previews/secrets/preview-dns01-credentials.secret.yaml
+
+3. Apply Dex's copy of the client secret in namespace dex (skipped when no such namespace is here: Dex runs elsewhere)
+     kubectl apply --server-side --force-conflicts --field-manager=patchy-setup-previews -f patchy-previews/secrets/dex-patchy-preview-auth-client.secret.yaml
+
+4. Install or upgrade cert-manager v1.21.2 (release cert-manager in namespace cert-manager)
+     helm upgrade --install cert-manager cert-manager --repo https://charts.jetstack.io --version v1.21.2 -n cert-manager --create-namespace -f patchy-previews/upstream/cert-manager.values.yaml --wait --timeout 10m0s
+
+5. Apply the Issuer preview-dns01
+     kubectl apply --server-side --force-conflicts --field-manager=patchy-setup-previews -f patchy-previews/manifests/issuer.yaml
+
+6. Apply the Certificate preview-wildcard in namespace patchy
+     kubectl apply --server-side --force-conflicts --field-manager=patchy-setup-previews -f patchy-previews/manifests/certificate.yaml
+
+7. Wait for certificate/preview-wildcard to be Ready
+     kubectl -n patchy wait certificate/preview-wildcard --for=condition=Ready --timeout=10m0s
+
+8. Upgrade release patchy to chart 0.12.41 with your values, then patchy-previews.values.yaml
+     helm upgrade patchy oci://ghcr.io/devthenet-labs/patchy/charts/patchy --version 0.12.41 -n patchy -f values/patchy.yaml -f patchy-previews/patchy-previews.values.yaml --wait --timeout 10m0s
+
+9. Run the checks of patchy check previews
+     patchy check previews -n patchy
+
+Manifests are server-side applied as patchy-setup-previews; a Secret's contents are never printed.
+
+Left to you after it, as NEXT-STEPS.md says:
+  - preview nodes, labelled and tainted (NEXT-STEPS.md step 2)
+  - preview image pulls on those nodes (step 3)
+  - Dex: its static client patchy-preview-auth and the secret's environment variable, then roll Dex (step 4)
+  - the two DNS records (step 7)
