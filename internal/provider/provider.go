@@ -75,6 +75,44 @@ const (
 	PlaceholderAuthToken = "patchy-brokered-placeholder"
 )
 
+// The codex gateway (codex broker design, group 2). Codex is pointed at the
+// broker on its command line (harness.Gateway), so its env names differ from
+// claude's: the controller stamps CodexBaseURLEnv on the pod (CodexEnv), and
+// agent-runner sets the other two in the CLI's own environment, stage by
+// stage. CodexTokenEnv carries the projected caller token, read fresh per
+// stage, which codex sends as BrokerTokenHeader; CodexPlaceholderKeyEnv the
+// non-secret PlaceholderAuthToken codex's auth gate demands, which it sends
+// as the bearer the broker strips. All three are gateway names: Config.Env
+// can never set them, a repository image's ENV may not name them, and a
+// repository-image Job blanks the ones it does not set.
+const (
+	CodexBaseURLEnv        = "PATCHY_CODEX_BASE_URL"
+	CodexTokenEnv          = "PATCHY_BROKER_TOKEN"
+	CodexPlaceholderKeyEnv = "PATCHY_CODEX_PLACEHOLDER_KEY"
+)
+
+// CodexRoutePath is the broker route codex's provider is based at: the
+// openai route's Responses API, to which codex appends /responses.
+const CodexRoutePath = "/" + OpenAI + "/v1"
+
+// CodexEnv renders the agent-pod gateway environment of a brokered codex
+// runner: the broker's openai route as CodexBaseURLEnv. It is a base-URL
+// name, so a pod with no resolver gets the broker's address pinned.
+func CodexEnv(brokerURL string) map[string]string {
+	return map[string]string{CodexBaseURLEnv: strings.TrimRight(brokerURL, "/") + CodexRoutePath}
+}
+
+// CodexGateway is the harness.Gateway a codex stage runs with, at baseURL
+// (CodexEnv's value): the placeholder key and the caller-token header by
+// variable name.
+func CodexGateway(baseURL string) harness.Gateway {
+	return harness.Gateway{
+		BaseURL:   baseURL,
+		KeyEnv:    CodexPlaceholderKeyEnv,
+		HeaderEnv: map[string]string{BrokerTokenHeader: CodexTokenEnv},
+	}
+}
+
 // Provider names — the model APIs the egress broker can front. The first
 // four are what a brokered claude runner can front (ClaudeNames); OpenAI is
 // the Responses API the codex harness speaks (codex broker design, group 1).
@@ -142,10 +180,14 @@ var GatewayEnvNames = []string{
 	"AWS_REGION",
 	"PATCHY_BROKER_TOKEN_FILE",
 	"PATCHY_MODEL_MAP",
+	CodexBaseURLEnv,
+	CodexTokenEnv,
+	CodexPlaceholderKeyEnv,
 }
 
 // BaseURLEnvNames are the gateway names whose value is a URL the agent pod
-// dials: the broker's provider route Env sets, one per provider. internal/jobs
+// dials: the broker's provider route Env sets, one per provider, and the
+// codex runner's (CodexEnv). internal/jobs
 // reads their hosts off a runner's env to pin them in the hosts file of a pod
 // that has no resolver.
 var BaseURLEnvNames = []string{
@@ -153,6 +195,7 @@ var BaseURLEnvNames = []string{
 	"ANTHROPIC_BEDROCK_BASE_URL",
 	"ANTHROPIC_VERTEX_BASE_URL",
 	"ANTHROPIC_FOUNDRY_BASE_URL",
+	CodexBaseURLEnv,
 }
 
 // Validate rejects a config the gateway env cannot be built from.

@@ -267,7 +267,7 @@ func (a *Agent) plan(ctx context.Context, repos []manifestRepository) *envelope.
 		ev.Detail = err.Error()
 		return ev
 	}
-	env, err := a.brokerEnv()
+	env, gateway, err := a.brokerEnv(h)
 	if err != nil {
 		ev.Outcome = envelope.OutcomeRuntimeError
 		ev.Detail = err.Error()
@@ -291,6 +291,7 @@ func (a *Agent) plan(ctx context.Context, repos []manifestRepository) *envelope.
 		SessionID: a.newSessionID(),
 		AddDirs:   []string{a.cfg.Workspace},
 		Env:       env,
+		Gateway:   gateway,
 		WriteDirs: []string{filepath.Dir(a.cfg.planPath())},
 	}, a.cfg.InvestigateTimeout, a.cfg.InvestigateIdleTimeout, budget)
 	res, idle, runErr := a.start(ctx, sr)
@@ -365,7 +366,7 @@ func (a *Agent) build(ctx context.Context, params remediationParams, scope build
 		ev.Detail = err.Error()
 		return ev
 	}
-	env, err := a.brokerEnv()
+	env, gateway, err := a.brokerEnv(h)
 	if err != nil {
 		ev.Outcome = envelope.OutcomeRuntimeError
 		ev.Detail = err.Error()
@@ -426,6 +427,7 @@ func (a *Agent) build(ctx context.Context, params remediationParams, scope build
 		SessionID: a.newSessionID(),
 		AddDirs:   []string{a.cfg.Workspace},
 		Env:       env,
+		Gateway:   gateway,
 	}, a.cfg.RemediateTimeout, a.cfg.RemediateIdleTimeout, params.budget)
 	res, idle, runErr := a.start(ctx, sr)
 	a.fillStage(&ev.Stage, h, res)

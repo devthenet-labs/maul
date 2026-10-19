@@ -104,9 +104,12 @@ spec:
         - name: LD_PRELOAD
         - name: NODE_OPTIONS
         - name: NO_PROXY
+        - name: PATCHY_BROKER_TOKEN
         - name: PATCHY_BUILD_NETWORK_PROFILES
         - name: PATCHY_CALIBRATION
         - name: PATCHY_CHANGESET_MAX_BYTES
+        - name: PATCHY_CODEX_BASE_URL
+        - name: PATCHY_CODEX_PLACEHOLDER_KEY
         - name: PATCHY_GRANTED_MAX_TURNS
         - name: PATCHY_GRANTED_TOKEN_BUDGET
         - name: PATCHY_INVESTIGATE_HARNESS
