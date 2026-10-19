@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.12.42](https://github.com/devthenet-labs/patchy/compare/v0.12.41...v0.12.42) (2026-10-19)
+
+
+### Features
+
+* **broker:** OpenAI Responses route ([#257](https://github.com/devthenet-labs/patchy/issues/257)) ([efb107c](https://github.com/devthenet-labs/patchy/commit/efb107c9d42afe2eb169626e7bc7954d15b33475))
+* **cli:** allow previews on the sign-in host's domain, acknowledged ([#258](https://github.com/devthenet-labs/patchy/issues/258)) ([8db61c6](https://github.com/devthenet-labs/patchy/commit/8db61c6f261e7e75cd2db4f12b05589f44450fe2))
+* **cli:** setup previews --apply ([#262](https://github.com/devthenet-labs/patchy/issues/262)) ([cf62d1b](https://github.com/devthenet-labs/patchy/commit/cf62d1b9c4e2a3566d6d51e3e65ce23c26431ca9))
+* **cli:** setup previews writes the Tailscale operator's Secret, the safe tailnet policy and one-pass DNS ([#260](https://github.com/devthenet-labs/patchy/issues/260)) ([6ffa95e](https://github.com/devthenet-labs/patchy/commit/6ffa95e74d2f865562955f42a00c842928d240bc))
+* **codex:** run codex through the egress broker ([#261](https://github.com/devthenet-labs/patchy/issues/261)) ([2a31651](https://github.com/devthenet-labs/patchy/commit/2a31651f85913d5740d78b41812c3614733d0802))
+* **credentials:** per-user OpenAI API keys ([#263](https://github.com/devthenet-labs/patchy/issues/263)) ([73f8f38](https://github.com/devthenet-labs/patchy/commit/73f8f3812449d9833c81ff6e07f6e45d141f18a0))
+* **intent:** plan and build intents on brokered codex ([#264](https://github.com/devthenet-labs/patchy/issues/264)) ([e0f71a2](https://github.com/devthenet-labs/patchy/commit/e0f71a26108504b34ff1a2f73de94a46bdad3b8e))
+
 ## [0.12.41](https://github.com/devthenet-labs/patchy/compare/v0.12.40...v0.12.41) (2026-10-18)
 
 
