@@ -377,6 +377,14 @@ previewAuth:
     # IP-allowlisted: the preview ALB's token calls come from dynamic public
     # addresses), never under preview.hostSuffix.
     host: ""
+    # The registrable domain (eTLD+1, e.g. example.com) the preview hosts
+    # share with the sign-in host or Dex, when the operator has accepted
+    # previews being same-site with sign-in instead of giving them a domain
+    # of their own (docs/configuration/preview-gateway.md, "Previews on the
+    # sign-in host's domain"). Recorded on the relay's ConfigMap only, never
+    # acted on: patchy check previews then reports that sharing as INFO, not
+    # WARN. It must be preview.hostSuffix or a parent of it. "" is none.
+    sharedSiteAcknowledged: ""
     # The generation the live slot Ingress policy is known to admit, for a
     # render that cannot look it up (helm template, GitOps). 0 is none.
     permitConfirmedGeneration: 0

@@ -15,7 +15,9 @@
 //     path still serving is a WARN, and serving without sign-in a FAIL), the
 //     sign-in host sits outside the
 //     suffix, and the suffix is a registrable domain (publicsuffix) shared
-//     with neither the sign-in host, the relay's issuer nor Dex (a WARN);
+//     with neither the sign-in host, the relay's issuer nor Dex (a WARN, or
+//     INFO when the relay ConfigMap's shared-site annotation, the chart's
+//     previewAuth.sharedSiteAcknowledged, names that very domain);
 //   - preview-viewers: a RoleBinding in the release namespace or a
 //     ClusterRoleBinding binds the chart's <release>-preview-viewer
 //     ClusterRole to at least one User or Group carrying the relay's claim

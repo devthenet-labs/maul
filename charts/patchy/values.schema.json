@@ -890,6 +890,12 @@
                     "type": "string",
                     "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)+$"
                 },
+                "sharedSiteAcknowledged": {
+                    "type": "string",
+                    "maxLength": 253,
+                    "description": "The registrable domain the preview hosts share with the sign-in host or Dex, acknowledged by the operator; recorded on the relay ConfigMap for patchy check previews, never acted on. preview.hostSuffix or a parent of it; empty is none",
+                    "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)+$"
+                },
                 "permitConfirmedGeneration": {
                     "type": "integer",
                     "minimum": 0,

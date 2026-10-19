@@ -36,6 +36,12 @@ const (
 	keyAuthHostSuffix    = "PATCHY_PREVIEW_AUTH_HOST_SUFFIX"
 )
 
+// sharedSiteAnnotation is the chart's previewAuth.sharedSiteAcknowledged on
+// the relay's ConfigMap: the registrable domain the operator accepted the
+// preview hosts sharing with sign-in. Recorded only; nothing but this check
+// reads it.
+const sharedSiteAnnotation = "patchy.bitwisemedia.uk/preview-shared-site-acknowledged"
+
 // Report is an install-level run's outcome: every line is about the
 // namespace's preview install as a whole.
 type Report struct {
@@ -88,7 +94,8 @@ func Install(ctx context.Context, cfg Config) Report {
 // serving without sign-in a FAIL), the sign-in host sits outside the suffix, and
 // the suffix is a registrable domain of its own, shared with neither the
 // sign-in host, the relay's issuer nor Dex (a WARN otherwise: those hosts'
-// cookies would be same-site with every preview's).
+// cookies would be same-site with every preview's; INFO once the operator
+// has acknowledged that very domain, previewAuth.sharedSiteAcknowledged).
 func (c *Checker) previewConfig(s Settings) string {
 	switch {
 	case s.Preview.Err != nil:
@@ -120,6 +127,7 @@ func (c *Checker) previewConfig(s Settings) string {
 		gateway:    s.Auth.Bool(keyAuthGateway),
 		legacy:     s.legacyIngress(),
 		required:   s.Preview.Bool(keyAuthRequired),
+		sharedSite: strings.TrimSpace(s.Auth.Annotations[sharedSiteAnnotation]),
 	})
 	c.add(CheckPreviewConfig, v.status, "%s", v.reason)
 	return suffix
@@ -133,6 +141,9 @@ type configInput struct {
 	// legacy slot Ingress switch, and required whether that Ingress is put
 	// behind sign-in (the legacy path's require stage).
 	gateway, legacy, required bool
+	// sharedSite is the registrable domain the operator acknowledged the
+	// suffix sharing with sign-in ("" for none).
+	sharedSite string
 }
 
 // legacyIngress is preview-controller's legacy slot Ingress switch, its
@@ -154,10 +165,11 @@ type configVerdict struct {
 
 // judgeConfig is preview-config's verdict, pure. A problem that breaks
 // previews fails; one that leaves them working but weaker (the legacy path
-// still serving, a registrable domain shared with a sign-in host) warns;
-// every finding is named, the worst deciding the status.
+// still serving, a registrable domain shared with a sign-in host) warns; a
+// shared registrable domain the operator acknowledged is INFO; every
+// finding is named, the worst deciding the status.
 func judgeConfig(in configInput) configVerdict {
-	var fails, warns []string
+	var fails, warns, infos []string
 	if in.authSuffix != "" && in.authSuffix != in.suffix {
 		fails = append(fails, fmt.Sprintf("the relay's host suffix %s is not preview-controller's %s", in.authSuffix,
 			in.suffix))
@@ -198,20 +210,47 @@ func judgeConfig(in configInput) configVerdict {
 			"previews must sit under a domain you register", in.suffix, err))
 	default:
 		site = reg
-		if shared := sameSite(reg, signIn, issuerHost, hostOf(in.dexIssuer)); len(shared) > 0 {
-			warns = append(warns, fmt.Sprintf("the host suffix %s shares its registrable domain %s with %s, so "+
-				"preview code runs same-site with sign-in: put previews on a domain of their own", in.suffix, reg,
-				strings.Join(shared, ", ")))
-		}
+		w, i := judgeSharedSite(in, reg, sameSite(reg, signIn, issuerHost, hostOf(in.dexIssuer)))
+		warns, infos = append(warns, w...), append(infos, i...)
 	}
 	switch {
 	case len(fails) > 0:
-		return configVerdict{checkreport.Fail, strings.Join(append(fails, warns...), "; ")}
+		return configVerdict{checkreport.Fail, strings.Join(slices.Concat(fails, warns, infos), "; ")}
 	case len(warns) > 0:
-		return configVerdict{checkreport.Warn, strings.Join(warns, "; ")}
+		return configVerdict{checkreport.Warn, strings.Join(slices.Concat(warns, infos), "; ")}
+	case len(infos) > 0:
+		return configVerdict{checkreport.Info, fmt.Sprintf("the preview gateway alone serves <label>.%s and "+
+			"viewers sign in at %s; %s", in.suffix, signIn, strings.Join(infos, "; "))}
 	}
 	return configVerdict{checkreport.Pass, fmt.Sprintf("the preview gateway alone serves <label>.%s, viewers "+
 		"sign in at %s, and %s is a registrable domain shared with no sign-in host", in.suffix, signIn, site)}
+}
+
+// judgeSharedSite is the shared-registrable-domain finding: shared lists
+// the sign-in hosts on reg, the suffix's registrable domain. Sharing it
+// warns unless in.sharedSite acknowledges reg itself, when it is INFO; an
+// acknowledgement nothing needs is INFO too.
+func judgeSharedSite(in configInput, reg string, shared []string) (warns, infos []string) {
+	with := strings.Join(shared, ", ")
+	switch {
+	case len(shared) > 0 && in.sharedSite == reg:
+		infos = append(infos, fmt.Sprintf("the host suffix %s shares its registrable domain %s with %s, "+
+			"acknowledged (previewAuth.sharedSiteAcknowledged): preview code runs same-site with sign-in, so "+
+			"no other app on %s may rely on parent-domain cookies or SameSite for CSRF", in.suffix, reg, with, reg))
+	case len(shared) > 0 && in.sharedSite != "":
+		warns = append(warns, fmt.Sprintf("the host suffix %s shares its registrable domain %s with %s, so "+
+			"preview code runs same-site with sign-in, and previewAuth.sharedSiteAcknowledged names %s, not %s",
+			in.suffix, reg, with, in.sharedSite, reg))
+	case len(shared) > 0:
+		warns = append(warns, fmt.Sprintf("the host suffix %s shares its registrable domain %s with %s, so "+
+			"preview code runs same-site with sign-in: put previews on a domain of their own, or accept it "+
+			"with previewAuth.sharedSiteAcknowledged: %s (patchy setup previews --shared-domain acknowledged)",
+			in.suffix, reg, with, reg))
+	case in.sharedSite != "":
+		infos = append(infos, fmt.Sprintf("previewAuth.sharedSiteAcknowledged names %s, but no sign-in host "+
+			"shares the host suffix's registrable domain %s: the acknowledgement is unused", in.sharedSite, reg))
+	}
+	return warns, infos
 }
 
 // sameSite lists the hosts whose registrable domain is reg, each once.

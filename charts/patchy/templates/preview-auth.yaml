@@ -113,6 +113,14 @@ metadata:
     {{- /* Where the wildcard record should point when the exposure
            publishes no address. Recorded only, never routed by; patchy check
            project compares DNS with it. */}}
+    {{- /* The registrable domain the operator accepted previews sharing
+           with sign-in. Recorded only, never acted on; patchy check
+           previews reports the sharing as INFO instead of WARN. */}}
+    {{- with $vals.sharedSiteAcknowledged }}
+    {{- $suffix := $.Values.preview.hostSuffix }}
+    {{- if not (or (eq $suffix .) (hasSuffix (printf ".%s" .) $suffix)) }}{{ fail (printf "previewAuth.sharedSiteAcknowledged %s is neither preview.hostSuffix %s nor a parent of it: acknowledge the registrable domain the previews are on" . $suffix) }}{{ end }}
+    {{- $_ := set $marker "patchy.bitwisemedia.uk/preview-shared-site-acknowledged" . }}
+    {{- end }}
     {{- if and $gw.enabled $gwVals.publishedAddresses }}
     {{- $_ := set $marker "patchy.bitwisemedia.uk/preview-gateway-published-addresses" (join "," $gwVals.publishedAddresses) }}
     {{- end }}
