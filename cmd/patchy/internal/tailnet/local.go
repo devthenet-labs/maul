@@ -15,7 +15,12 @@ import (
 )
 
 // localTimeout bounds one status read: the client answers from memory.
-const localTimeout = 10 * time.Second
+// A variable so a test can hold a client past it.
+var localTimeout = 10 * time.Second
+
+// localWaitDelay is how long Run waits, past the deadline, for a child of
+// the client that still holds stdout open.
+const localWaitDelay = time.Second
 
 // macAppCLI is the CLI the macOS app bundles, for a Mac whose PATH has no
 // tailscale.
@@ -44,7 +49,7 @@ func Local(ctx context.Context) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, bin, "status", "--json")
 	cmd.Stdout = out
 	// A child that keeps stdout open past the deadline must not hold Run.
-	cmd.WaitDelay = time.Second
+	cmd.WaitDelay = localWaitDelay
 	if err := cmd.Run(); err != nil {
 		// stderr is never quoted: it is the client's, and says nothing a
 		// re-run on a machine on the tailnet would not.
@@ -56,20 +61,29 @@ func Local(ctx context.Context) ([]byte, error) {
 	return out.Bytes(), nil
 }
 
-// limitedBuffer keeps at most max bytes and notes any more.
+// limitedBuffer keeps at most max bytes and notes any more. Its buffer is
+// a field, not embedded: an embedded bytes.Buffer would promote ReadFrom,
+// and io.Copy (which exec uses for Stdout) would then read the whole
+// stream past Write and its limit.
 type limitedBuffer struct {
-	bytes.Buffer
+	buf  bytes.Buffer
 	max  int
 	over bool
 }
 
 func (b *limitedBuffer) Write(p []byte) (int, error) {
-	if room := b.max - b.Len(); len(p) > room {
+	if room := b.max - b.buf.Len(); len(p) > room {
 		b.over = true
 		if room > 0 {
-			b.Buffer.Write(p[:room])
+			b.buf.Write(p[:room])
 		}
 		return len(p), nil
 	}
-	return b.Buffer.Write(p)
+	return b.buf.Write(p)
 }
+
+// Bytes is what was kept.
+func (b *limitedBuffer) Bytes() []byte { return b.buf.Bytes() }
+
+// String is what was kept, as a string.
+func (b *limitedBuffer) String() string { return b.buf.String() }

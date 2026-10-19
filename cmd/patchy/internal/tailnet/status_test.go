@@ -6,6 +6,7 @@ package tailnet
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/rand"
 	"net/netip"
 	"reflect"
@@ -210,5 +211,17 @@ func TestLimitedBuffer(t *testing.T) {
 	}
 	if n, err := b.Write([]byte("def")); n != 3 || err != nil || !b.over || b.String() != "abcd" {
 		t.Errorf("second write: %d %v %v %q", n, err, b.over, b.String())
+	}
+}
+
+// TestLimitedBufferIsNotAReaderFrom: io.Copy must go through Write, so the
+// limit holds when exec copies a client's stdout into the buffer.
+func TestLimitedBufferIsNotAReaderFrom(t *testing.T) {
+	b := &limitedBuffer{max: 4}
+	if _, ok := any(b).(io.ReaderFrom); ok {
+		t.Fatal("limitedBuffer is an io.ReaderFrom, so io.Copy bypasses its limit")
+	}
+	if _, err := io.Copy(b, strings.NewReader("abcdefgh")); err != nil || !b.over || b.String() != "abcd" {
+		t.Errorf("io.Copy: %v %v %q", err, b.over, b.String())
 	}
 }
