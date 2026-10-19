@@ -247,10 +247,12 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   that expose previews: `answers.yaml` (no secret; a re-run starts from it), `patchy-previews.values.yaml` (layered
   after the operator's own), `manifests/`, the relay's Dex client secret as two Secret manifests under `secrets/`
   (ghapp's 0600 writer and Secret renderer; read back on a re-run, drawn again only with `--rotate dex-client-secret`)
-  and `NEXT-STEPS.md`. It refuses a sign-in host or Dex issuer on the host suffix's registrable domain (publicsuffix),
-  a re-run shows each file's diff and replaces a changed one only with `--force` or `-y` (on a terminal it asks, no by
-  default). All four recipes have landed:
-  `existing` (R4: an Ingress class or a Gateway API parent), `gateway-tls` (R2:
+  and `NEXT-STEPS.md`. It refuses a sign-in host or Dex issuer on the host suffix's registrable domain (publicsuffix)
+  unless `--shared-domain acknowledged` (recorded in `answers.yaml`; a terminal explains the residual risk and asks for
+  the word; the values then carry `previewAuth.sharedSiteAcknowledged: <registrable domain>`, `Answers.SharedSite`;
+  under the suffix is refused however acknowledged, and on Cloudflare it needs `--cloudflare-acm`), a re-run shows
+  each file's diff and replaces a changed one only with `--force` or `-y` (on a terminal it asks, no by default). All
+  four recipes have landed: `existing` (R4: an Ingress class or a Gateway API parent), `gateway-tls` (R2:
   the gateway's own Local LoadBalancer Service terminating TLS, `forwardedHops: 0`) and `tailscale` (R3: that Service
   as ClusterIP with the Tailscale operator's `expose`, hostname and tag annotations, a public DNS record to the device's
   100.x address, the tailnet policy as the allowlist) and `cloudflare-tunnel` (R1: `manifests/cloudflared.yaml`, a
@@ -293,15 +295,17 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   `X-Forwarded-For` from a refused address must stay refused). `check previews` (`previewcheck.Install`) runs those
   for the install as a whole, before any Project exists: against `patchy-probe-0.<suffix>` and every Ready preview of
   any Project, plus `preview-config` (gateway-only, sign-in host outside the suffix, the suffix's own registrable
-  domain by `x/net/publicsuffix`), `preview-viewers` (the bindings of `<release>-preview-viewer`, since a
-  SelfSubjectAccessReview cannot ask for someone else) and `preview-nodes` (selector and NoExecute taint together on
-  the nodes; the selector parsed by preview-controller's own `preview.ParseNodeSelector`). Only a build with the
-  `e2edial` tag (the e2e suite's, `cli/checkpreviews_e2e.go`) adds `check previews`' hidden `--e2e-dial-map` and
-  `--e2e-ca-file`, which point its resolver, TLS dialer and HTTP client at loopback listeners and a test CA; a released
-  binary has neither (`checkpreviews_net.go`).
+  domain by `x/net/publicsuffix`: shared is a WARN, INFO once the relay ConfigMap's
+  `preview-shared-site-acknowledged` annotation, the chart's `previewAuth.sharedSiteAcknowledged`, names that domain),
+  `preview-viewers` (the bindings of `<release>-preview-viewer`, since a SelfSubjectAccessReview cannot ask for
+  someone else) and `preview-nodes` (selector and NoExecute taint together on the nodes; the selector parsed by
+  preview-controller's own `preview.ParseNodeSelector`). Only a build with the `e2edial` tag (the e2e suite's,
+  `cli/checkpreviews_e2e.go`) adds `check previews`' hidden `--e2e-dial-map` and `--e2e-ca-file`, which point its
+  resolver, TLS dialer and HTTP client at loopback listeners and a test CA; a released binary has neither
+  (`checkpreviews_net.go`).
   None reads a Secret, so never the App key. Every `check` noun renders through `cmd/patchy/internal/checkreport`
-  (PASS/FAIL/SKIP lines, plus WARN, which never fails a run and only `check previews` reports; `-o json|yaml`, inert
-  reasons). Builds for windows too, and ships a `kubectl-patchy` alias.
+  (PASS/FAIL/SKIP lines, plus WARN and INFO, which never fail a run and only `check previews` reports; `-o json|yaml`,
+  inert reasons). Builds for windows too, and ships a `kubectl-patchy` alias.
   Ships no container image: it is distributed as its own `patchy-cli` release archive (separate from the cluster
   binaries' `patchy` archive) and as a Homebrew cask in bitwise-media-group/homebrew-tap.
 
@@ -531,7 +535,9 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   redirect URIs exact, and a bare authorization request gets its login page, as Dex answers `check previews`). The
   gateway's pure side is in the core: `gateway.go` (the state, handoff code, gateway login and host session kinds t, o,
   g and h, and `Handoff.Redeem`, the fixation check; a code failing `CheckState` is spent at once) and `hygiene.go` (the
-  `Hosts` grammar and `Location`, `CheckOrigin`, `CleanRequest`, `CleanResponse`), each with seeded properties;
+  `Hosts` grammar and `Location`, `CheckOrigin`, `CheckNavigation`, `CleanRequest`, `CleanResponse`; the sign-in
+  endpoints `/authorize`, `/start` and `/dex/callback` are held to `CheckNavigation`, so a same-site preview's
+  background request never reaches the relay session), each with seeded properties;
   `View.Routes` are read from `status.serving`.
 - `rbactest` — test support only: `WaitAllowed` polls SubjectAccessReviews until a real API server's RBAC authorizer
   has observed a grant a suite just stored, so envtest suites (action policy, authz, chart, e2e) never act inside the
