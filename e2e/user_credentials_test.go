@@ -280,10 +280,10 @@ func TestUserCredentials(t *testing.T) {
 	}
 }
 
-// credentialUpstream is a fake Anthropic API: it accepts the credentials it
-// was given (as x-api-key or a bearer), answers the broker's health probe
-// (GET /v1/models) and Messages, and records which credential each request
-// carried.
+// credentialUpstream is a fake model API, Anthropic's and OpenAI's at once:
+// it accepts the credentials it was given (as x-api-key or a bearer),
+// answers the broker's health probe (GET /v1/models), Anthropic Messages
+// and OpenAI Responses, and records which credential each request carried.
 type credentialUpstream struct {
 	*httptest.Server
 	valid map[string]bool
@@ -322,6 +322,11 @@ func (u *credentialUpstream) serve(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/v1/models":
 		_, _ = io.WriteString(w, `{"data":[{"type":"model","id":"claude-opus-5"}],"has_more":false}`)
+	case "/v1/responses":
+		_, _ = io.WriteString(w, `{"id":"resp_e2e","object":"response","status":"completed",`+
+			`"model":"gpt-5.3-codex","output":[{"type":"message","role":"assistant",`+
+			`"content":[{"type":"output_text","text":"ok"}]}],`+
+			`"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12}}`)
 	default:
 		_, _ = io.WriteString(w, `{"id":"msg_e2e","type":"message","role":"assistant","model":"claude-opus-5",`+
 			`"content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn",`+
@@ -345,12 +350,16 @@ func (u *credentialUpstream) count(path string, credential ...string) int {
 
 // messages is each Messages request's credential, by its last eight
 // characters (enough to tell the test's keys apart), for a failure message.
-func (u *credentialUpstream) messages() []string {
+func (u *credentialUpstream) messages() []string { return u.byPath("/v1/messages") }
+
+// byPath is each request to path's credential, by its last eight
+// characters, for a failure message.
+func (u *credentialUpstream) byPath(path string) []string {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	var out []string
 	for _, s := range u.seen {
-		if s.path == "/v1/messages" {
+		if s.path == path {
 			out = append(out, "…"+s.credential[max(len(s.credential)-8, 0):])
 		}
 	}
