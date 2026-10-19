@@ -83,14 +83,15 @@ data:
     PATCHY_INTENT_BUILD_TOKEN_BUDGET: "800000"
     PATCHY_INTENT_BUILD_TIMEOUT: 60m
     PATCHY_INTENT_BUILD_IDLE_TIMEOUT: 20m
-    # Codex for intents, off: a Project with spec.harness codex is not Ready
-    # (HarnessNotEnabled) and a codex run waits Pending. On, it needs the
-    # brokered codex runner (PATCHY_CODEX_AGENT_IMAGE, the broker's openai
-    # route and codex in PATCHY_HARNESSES), and its stages run these models,
-    # which must resolve to codex.
-    PATCHY_INTENT_CODEX: "false"
-    PATCHY_INTENT_CODEX_PLAN_MODEL: openai/gpt-5.3-codex
-    PATCHY_INTENT_CODEX_BUILD_MODEL: openai/gpt-5.3-codex
+    # Codex for intents is off: a Project with spec.harness codex is not
+    # Ready (HarnessNotEnabled) and a codex run waits Pending. To turn it on,
+    # give the controller the brokered codex runner (PATCHY_CODEX_AGENT_IMAGE,
+    # the broker's openai route, and codex in PATCHY_HARNESSES above) and
+    # set these; its stages run these models, which must resolve to codex:
+    #
+    # PATCHY_INTENT_CODEX: "true"
+    # PATCHY_INTENT_CODEX_PLAN_MODEL: openai/gpt-5.3-codex
+    # PATCHY_INTENT_CODEX_BUILD_MODEL: openai/gpt-5.3-codex
     PATCHY_INTENT_REVISE_MAX_TURNS: "80"
     PATCHY_INTENT_REVISE_TOKEN_BUDGET: "400000"
     PATCHY_INTENT_REVISE_TIMEOUT: 45m

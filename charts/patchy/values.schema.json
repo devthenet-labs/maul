@@ -2014,7 +2014,7 @@
         },
         "intentController": {
             "type": "object",
-            "description": "Intent-driven development: polls each Project's intent repository, plans in a read-only agent Job, builds the approved plan and opens the pull request. Optional, off by default; runs on brokered claude only.",
+            "description": "Intent-driven development: polls each Project's intent repository, plans in a read-only agent Job, builds the approved plan and opens the pull request. Optional, off by default; runs on brokered claude, and on brokered codex under codex.enabled.",
             "additionalProperties": false,
             "required": [
                 "enabled",
@@ -2029,6 +2029,26 @@
                 },
                 "image": {
                     "$ref": "#/definitions/imageOverride"
+                },
+                "codex": {
+                    "type": "object",
+                    "description": "Intents on brokered codex, chosen per Project by spec.harness codex. Off by default; on, it needs egressBroker.openai.apiKey.",
+                    "additionalProperties": false,
+                    "properties": {
+                        "enabled": {
+                            "type": "boolean"
+                        },
+                        "planModel": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "Canonical model a codex Project's plan stage runs; must resolve to codex"
+                        },
+                        "buildModel": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "Canonical model a codex Project's build, revise and check-fix stages run; must resolve to codex"
+                        }
+                    }
                 },
                 "config": {
                     "type": "object",

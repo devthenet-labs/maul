@@ -191,8 +191,27 @@ brokered (owner decision (b)). Context: the root; renders nothing.
 {{- fail "agent.runners.codex.enabled needs egressBroker.openai.apiKey: codex runs proxy-only through the egress broker's openai route, which holds the OpenAI API key (a Secret in the release namespace)" -}}
 {{- end -}}
 {{- end -}}
+{{- if include "patchy.intentCodex" . -}}
+{{- if not (include "patchy.openaiRoute" .) -}}
+{{- fail "intentController.codex.enabled needs egressBroker.openai.apiKey: codex runs proxy-only through the egress broker's openai route, which holds the OpenAI API key (a Secret in the release namespace)" -}}
+{{- end -}}
+{{- end -}}
 {{- if and .Values.evaluationController.enabled (index .Values.evaluationController.runners "codex" | default dict).enabled -}}
 {{- fail "evaluationController.runners.codex.enabled: codex evaluations are refused until evolve supports the egress broker's provider config (codex runs brokered only, and no OpenAI key is mounted into an agent pod); set it false" -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Whether intent-controller also runs intents on brokered codex
+(intentController.codex.enabled, under intentController.enabled): a Project
+with spec.harness codex then plans and builds on it. Independent of
+agent.runners.codex.enabled (the finding fleet), whose image it shares; it
+needs the broker's openai route (patchy.codexChecks). Returns a non-empty
+string for yes.
+*/}}
+{{- define "patchy.intentCodex" -}}
+{{- if and .Values.intentController.enabled ((.Values.intentController.codex | default dict).enabled) -}}
+yes
 {{- end -}}
 {{- end }}
 
@@ -226,13 +245,14 @@ Whether a harness runs anywhere (findings, evaluations or intents), by the
 same rule as patchy.brokerEnabled. Evaluation and intent Jobs carry the same
 harness label as finding Jobs, so the per-harness egress policies (Cilium,
 GKE FQDN, Istio) render for a harness enabled on any fleet; hosts and
-dnsPatterns still come from agent.runners.<id>. Intents run on claude only.
+dnsPatterns still come from agent.runners.<id>. Intents run on claude, and on
+codex under intentController.codex.enabled (patchy.intentCodex).
 Takes (dict "root" $ "id" $id); returns a non-empty string for yes.
 */}}
 {{- define "patchy.harnessEnabled" -}}
 {{- $agent := index .root.Values.agent.runners .id | default dict -}}
 {{- $eval := index .root.Values.evaluationController.runners .id | default dict -}}
-{{- $intent := and .root.Values.intentController.enabled (eq .id "claude") -}}
+{{- $intent := or (and .root.Values.intentController.enabled (eq .id "claude")) (and (eq .id "codex") (include "patchy.intentCodex" .root)) -}}
 {{- if or $agent.enabled (and .root.Values.evaluationController.enabled $eval.enabled) $intent -}}
 yes
 {{- end -}}

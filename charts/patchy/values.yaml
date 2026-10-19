@@ -1150,10 +1150,11 @@ intentController:
         # the controller refuses to start otherwise).
         jobDeadlineMax: 4h30m
         # The per-stage ceilings. A Project's limits may lower them, never
-        # raise them. The models must resolve to the claude harness. Each
-        # idleTimeout ends a run of its stage that makes no progress (no
-        # model turn, no tool result) for that long, as a timeout naming the
-        # command it waited on; "0s" disables it.
+        # raise them. The models (a claude Project's, the default) must
+        # resolve to the claude harness. Each idleTimeout ends a run of its
+        # stage that makes no progress (no model turn, no tool result) for
+        # that long, as a timeout naming the command it waited on; "0s"
+        # disables it.
         plan:
             model: anthropic/claude-sonnet-5
             maxTurns: 40
@@ -1173,6 +1174,23 @@ intentController:
             idleTimeout: 20m
         # Extra PATCHY_* keys for the intent controller only.
         extra: {}
+    # Intents on brokered codex. Off by default: a Project with spec.harness
+    # codex is then not Ready (HarnessNotEnabled) and a codex run waits
+    # Pending. On, such a Project plans and builds on the codex runner image
+    # (agent.runners.codex.image; agent.runners.codex.enabled, the finding
+    # fleet's switch, is not needed) through the egress broker's openai route,
+    # so it requires egressBroker.openai.apiKey. Codex pods hold no
+    # credential, like claude's; under userCredentials enforce a codex run
+    # waits for its person's OpenAI API key. Both models must resolve to
+    # codex. A build runs on the repository's own image, as on claude, with
+    # agent-runner and the static codex CLI injected; codex's shell tool
+    # needs bash in that image. Codex cannot hold the plan read-only (its
+    # prompt says so), repair a refused report, or stream a running
+    # command's output.
+    codex:
+        enabled: false
+        planModel: openai/gpt-5.3-codex
+        buildModel: openai/gpt-5.3-codex
     # The Secrets your Forges reference (spec.secretRef): intent-controller's
     # `secrets get` is restricted to exactly these names. Required and
     # non-empty — RBAC reads an empty resourceNames list as every Secret.
