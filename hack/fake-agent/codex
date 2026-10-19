@@ -1,0 +1,104 @@
+#!/bin/sh
+# Copyright 2026 Bitwise Media Group Ltd.
+# SPDX-License-Identifier: MIT
+#
+# The scripted stand-in for the codex CLI, hack/fake-agent/claude's sibling:
+# the REAL agent-runner drives it exactly as it drives `codex exec`, so the
+# stage flow around the CLI (the harness refusal, the broker provider config,
+# the report check, commit.sh, the changeset, the accounting) runs for real.
+# The e2e fake kubelet runs it for the Jobs a test asks for (useAgentRunner).
+#
+# It speaks the parts of codex 0.153.4 agent-runner relies on: `--version`;
+# `exec <prompt> --json ... -c key=value ...`, printing the --json events
+# (thread.started, turn.started, item.completed, turn.completed with usage).
+# Codex has no session to resume and no task output file, so neither exists
+# here.
+#
+# Unlike the scripted claude it reaches a model: every run sends one
+# Responses request to the provider its -c overrides configure, as codex
+# does, with the placeholder key its env_key names as the bearer and each
+# env_http_headers header filled from the variable it names. In e2e that is
+# the real egress broker in front of a fake OpenAI upstream, so a test sees
+# what the broker attached upstream. A refused request is a turn.failed event
+# and exit status 1, as codex reports one.
+#
+# Both intent stages are scripted. A plan (PATCHY_PHASE=plan) writes a plan
+# naming the repositories the request lists under "## Repositories"; a build
+# adds VERSION, commit.sh and its report.
+#
+# Every invocation appends "<phase> <model> <status>" to $HOME/.fake-codex/calls.
+set -eu
+
+if [ "${1:-}" = "--version" ]; then
+  echo "codex-cli 0.153.4 (patchy scripted stand-in)"
+  exit 0
+fi
+
+model='' base_url='' env_key='' headers=''
+while [ $# -gt 0 ]; do
+  case "$1" in
+  --model) model=$2; shift 2 ;;
+  -c)
+    case "$2" in
+    model_providers.patchy.base_url=*) base_url=$(printf '%s' "${2#*=}" | tr -d '"') ;;
+    model_providers.patchy.env_key=*) env_key=$(printf '%s' "${2#*=}" | tr -d '"') ;;
+    model_providers.patchy.env_http_headers=*) headers=$(printf '%s' "${2#*=}" | tr -d '{}"') ;;
+    esac
+    shift 2
+    ;;
+  *) shift ;;
+  esac
+done
+
+workspace="${PATCHY_WORKSPACE:?PATCHY_WORKSPACE is unset}"
+state="$HOME/.fake-codex"
+mkdir -p "$state"
+
+# The one model request: the bearer is the placeholder key, every header is
+# filled from the variable it names. Neither is ever on this command line.
+set -- -sS -o "$state/response" -w '%{http_code}' -X POST "$base_url/responses" \
+  -H 'Content-Type: application/json'
+if [ -n "$env_key" ]; then
+  set -- "$@" -H "Authorization: Bearer $(printenv "$env_key" || true)"
+fi
+for pair in $(printf '%s' "$headers" | tr ',' ' '); do
+  set -- "$@" -H "${pair%%=*}: $(printenv "${pair#*=}" || true)"
+done
+status=$(curl "$@" --data "{\"model\":\"$model\",\"input\":\"scripted ${PATCHY_PHASE:-}\",\"max_output_tokens\":1000,\"stream\":false}" || echo 000)
+printf '%s %s %s\n' "${PATCHY_PHASE:-}" "$model" "$status" >>"$state/calls"
+
+printf '{"type":"thread.started","thread_id":"thread-scripted-%s"}\n' "${PATCHY_PHASE:-run}"
+printf '{"type":"turn.started"}\n'
+if [ "$status" != 200 ]; then
+  printf '{"type":"turn.failed","error":{"message":"model request refused with status %s"}}\n' "$status"
+  exit 1
+fi
+
+case "${PATCHY_PHASE:-}" in
+plan)
+  repos=$(sed -n '/^## Repositories/,/^## /p' "$workspace/input/issue.md" | sed -n 's/^- \(https:[^ ]*\).*/  - "\1"/p')
+  mkdir -p "$workspace/reports"
+  printf '%s\n' '---' 'summary: "Add a VERSION file (scripted plan from hack/fake-agent/codex)"' 'repositories:' \
+    "$repos" 'new_dependencies: []' 'questions: []' 'confidence: 0.8' 'estimated_max_turns: 20' \
+    'estimated_token_budget: 100000' '---' '' '## Approach' '' 'Add a VERSION file at the repository root.' '' \
+    '## Steps' '' '1. Create VERSION.' '' '## Test plan' '' '- go test ./...' '' '## Risks' '' 'None.' \
+    >"$workspace/reports/plan.md"
+  ;;
+build)
+  printf '0.1.0\n' >VERSION
+  printf '%s\n' '#!/bin/sh' 'set -e' 'git add VERSION' 'git commit -qm "feat: add a VERSION file"' \
+    >"$workspace/commit.sh"
+  mkdir -p "$workspace/reports"
+  printf '%s\n' '---' 'success: true' 'summary: "Add a VERSION file"' 'tests:' '  ran: true' '  passed: true' \
+    '  command: "go test ./..."' 'notes: []' '---' '' '## What changed' '' \
+    'Scripted build from hack/fake-agent/codex: VERSION names the current version.' \
+    >"$workspace/reports/build.md"
+  ;;
+*)
+  printf '{"type":"turn.failed","error":{"message":"the scripted codex only plans and builds"}}\n'
+  exit 1
+  ;;
+esac
+
+printf '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"Report written."}}\n'
+printf '{"type":"turn.completed","usage":{"input_tokens":1200,"cached_input_tokens":200,"output_tokens":300}}\n'

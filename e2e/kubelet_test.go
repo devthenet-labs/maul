@@ -27,6 +27,7 @@ import (
 	"testing"
 	"time"
 
+	authnv1 "k8s.io/api/authentication/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -89,11 +90,66 @@ type kubelet struct {
 	// whose Jobs it runs in hack/fake-agent's place (useAgentRunner).
 	runner       string
 	runnerPhases map[string]bool
+	// tokens, when set (useBrokerTokens), mints each agent-runner Job's
+	// caller token as the kubelet projects it: bound to the Job's pod,
+	// which then exists while the agent runs, for the audience the Job's
+	// projected volume names. Unset, the token is a placeholder no broker
+	// would accept.
+	tokens kubernetes.Interface
 }
 
-// fakeClaudeScript is the scripted claude CLI the real agent-runner drives
-// in the model's place (useAgentRunner).
-const fakeClaudeScript = "../hack/fake-agent/claude"
+// fakeClaudeScript and fakeCodexScript are the scripted claude and codex
+// CLIs the real agent-runner drives in the model's place (useAgentRunner).
+const (
+	fakeClaudeScript = "../hack/fake-agent/claude"
+	fakeCodexScript  = "../hack/fake-agent/codex"
+)
+
+// useBrokerTokens makes the kubelet give every Job it runs on the real
+// agent-runner a real caller token: the pod is created before its agent
+// runs, and a token bound to it, for the audience the Job's projected
+// volume names, is minted through cs, as the kubelet projects one. The real
+// egress broker then admits the run's model requests by TokenReview.
+func (k *kubelet) useBrokerTokens(cs kubernetes.Interface) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.tokens = cs
+}
+
+// brokerToken mints the caller token the kubelet would project into pod,
+// or "" when the kubelet mints none (useBrokerTokens) or the pod projects
+// none.
+func (k *kubelet) brokerToken(ctx context.Context, pod *corev1.Pod) (string, error) {
+	k.mu.Lock()
+	cs := k.tokens
+	k.mu.Unlock()
+	if cs == nil {
+		return "", nil
+	}
+	for _, v := range pod.Spec.Volumes {
+		if v.Projected == nil {
+			continue
+		}
+		for _, src := range v.Projected.Sources {
+			if src.ServiceAccountToken == nil {
+				continue
+			}
+			ttl := int64(3600)
+			tr, err := cs.CoreV1().ServiceAccounts(pod.Namespace).CreateToken(ctx, pod.Spec.ServiceAccountName,
+				&authnv1.TokenRequest{Spec: authnv1.TokenRequestSpec{
+					Audiences:         []string{src.ServiceAccountToken.Audience},
+					ExpirationSeconds: &ttl,
+					BoundObjectRef: &authnv1.BoundObjectReference{
+						Kind: "Pod", APIVersion: "v1", Name: pod.Name, UID: pod.UID},
+				}}, metav1.CreateOptions{})
+			if err != nil {
+				return "", fmt.Errorf("mint the caller token of pod %s: %w", pod.Name, err)
+			}
+			return tr.Status.Token, nil
+		}
+	}
+	return "", nil
+}
 
 // useAgentRunner makes the kubelet run, for every Job of the given phases
 // from now on, the REAL agent-runner (cmd/agent-runner, built once) with
@@ -114,6 +170,14 @@ func (k *kubelet) useAgentRunner(t *testing.T, phases ...string) {
 	for _, p := range phases {
 		k.runnerPhases[p] = true
 	}
+}
+
+// mintsTokens reports whether the kubelet mints real caller tokens
+// (useBrokerTokens).
+func (k *kubelet) mintsTokens() bool {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return k.tokens != nil
 }
 
 // agentRunnerFor is the agent-runner binary to run a Job of phase with, or
@@ -315,10 +379,21 @@ func (k *kubelet) run(ctx context.Context, job *batchv1.Job) error {
 		prepareExit = 1
 	}
 
-	// The agent container, when the prepare step let it start.
+	// The agent container, when the prepare step let it start. A Job whose
+	// agent gets a real caller token has its pod first, the token bound to it.
+	var pod *corev1.Pod
 	if prepareExit == 0 {
 		if bin := k.agentRunnerFor(rec.Env["PATCHY_PHASE"]); bin != "" {
-			rec.Stdout, rec.ExitCode, err = k.runAgentRunner(ctx, bin, workspace, rec.Env)
+			token := ""
+			if k.mintsTokens() {
+				if pod, err = k.createPod(ctx, job); err != nil {
+					return err
+				}
+				if token, err = k.brokerToken(ctx, pod); err != nil {
+					return err
+				}
+			}
+			rec.Stdout, rec.ExitCode, err = k.runAgentRunner(ctx, bin, workspace, rec.Env, token)
 		} else {
 			rec.Stdout, rec.ExitCode, err = k.runAgent(ctx, workspace, rec.Env)
 		}
@@ -327,9 +402,10 @@ func (k *kubelet) run(ctx context.Context, job *batchv1.Job) error {
 		}
 	}
 
-	pod, err := k.createPod(ctx, job)
-	if err != nil {
-		return err
+	if pod == nil {
+		if pod, err = k.createPod(ctx, job); err != nil {
+			return err
+		}
 	}
 	k.mu.Lock()
 	k.logs[pod.Namespace+"/"+pod.Name+"/"+agent.Name] = rec.Stdout
@@ -572,8 +648,8 @@ func runContainer(cmd *exec.Cmd, what string) ([]byte, int, error) {
 // never needed: the synthetic base commit over the working tree. The pod
 // paths outside the workspace — the injected binaries' directory and the
 // projected caller token — are stood in for by a directory beside it.
-func (k *kubelet) runAgentRunner(ctx context.Context, bin, workspace string, env map[string]string) ([]byte, int,
-	error) {
+func (k *kubelet) runAgentRunner(ctx context.Context, bin, workspace string, env map[string]string,
+	callerToken string) ([]byte, int, error) {
 	repo := filepath.Join(workspace, "repo")
 	gitEnv := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + workspace, "GIT_CONFIG_NOSYSTEM=1"}
 	for _, args := range [][]string{
@@ -595,15 +671,20 @@ func (k *kubelet) runAgentRunner(ctx context.Context, bin, workspace string, env
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		return nil, 0, err
 	}
-	script, err := os.ReadFile(fakeClaudeScript)
-	if err != nil {
-		return nil, 0, err
+	for name, path := range map[string]string{"claude": fakeClaudeScript, "codex": fakeCodexScript} {
+		script, err := os.ReadFile(path)
+		if err != nil {
+			return nil, 0, err
+		}
+		if err := os.WriteFile(filepath.Join(binDir, name), script, 0o755); err != nil {
+			return nil, 0, err
+		}
 	}
-	if err := os.WriteFile(filepath.Join(binDir, "claude"), script, 0o755); err != nil {
-		return nil, 0, err
+	if callerToken == "" {
+		callerToken = "e2e-projected-caller-token"
 	}
 	token := filepath.Join(pod, "token")
-	if err := os.WriteFile(token, []byte("e2e-projected-caller-token\n"), 0o600); err != nil {
+	if err := os.WriteFile(token, []byte(callerToken+"\n"), 0o600); err != nil {
 		return nil, 0, err
 	}
 
