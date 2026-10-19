@@ -1443,7 +1443,8 @@ egressBroker:
     # brokered replacement for the old secretEnv: CLAUDE_CODE_OAUTH_TOKEN).
     anthropicAuth: key
     # Per-user model credentials (design L3): each person's own Anthropic API
-    # key or setup-token pays for the runs attributed to them. off (the
+    # key or setup-token (claude runs) or OpenAI API key (codex runs) pays
+    # for the runs attributed to them. off (the
     # default) renders nothing new (the ModelCredential CRD alone is
     # installed, as every kind is). attribute and enforce render the
     # credential store: the namespace below for one Secret per (person,
@@ -1456,9 +1457,12 @@ egressBroker:
     # records the person in its audit line; under enforce a run attributed
     # to a person uses that person's credential or is refused (a 403 naming
     # why, never the org credential), and a run with no human behind it the
-    # org's. The broker probes each stored credential's health itself. The
-    # status page's Account page lands in a later release. Both need
-    # attribution.mode attribute and an anthropic provider.
+    # org's. The broker probes each stored credential's health itself. A run
+    # is held on, and paid by, its own harness's provider only. Both modes
+    # need attribution.mode attribute, and while claude runs anywhere its
+    # provider must be anthropic (bedrock, vertex and foundry keep the
+    # broker's one identity). The status page's Account page
+    # (statusServer.account) offers the providers the enabled runners use.
     # See docs/configuration/user-credentials.md.
     userCredentials:
         mode: "off"
@@ -1487,8 +1491,9 @@ egressBroker:
     # claude is off. The
     # Secret lives in the RELEASE namespace, like anthropicSecret, and is
     # mounted into the broker alone. API keys only (no ChatGPT sign-in).
-    # Refused while userCredentials.mode is not off (per-user credentials
-    # are Anthropic only for now).
+    # Under userCredentials.mode a codex run attributed to a person pays with
+    # that person's own OpenAI API key instead (enforce) or the org key
+    # (attribute).
     openai:
         apiKey:
             # Secret name; empty leaves the route off.

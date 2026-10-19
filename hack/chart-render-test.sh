@@ -2194,10 +2194,12 @@ expect_fail "codex evaluations with the key" "codex evaluations are refused" -f 
 # No claude and no codex: nothing for the broker to front, key or not.
 render openai-nothing --set agent.runners.claude.enabled=false --set egressBroker.openai.apiKey.secret=patchy-openai
 expect openai-nothing "$bdep | .kind" ""
-# Per-user credentials are Anthropic only: the broker would refuse to start.
-expect_fail 'user credentials beside the openai route' 'while egressBroker.openai.apiKey is set' \
-  --set attribution.mode=attribute --set egressBroker.userCredentials.mode=enforce \
+# Per-user credentials cover the openai route too: the broker gets the mode
+# beside both routes.
+render user-creds-openai-route --set attribution.mode=attribute --set egressBroker.userCredentials.mode=enforce \
   --set egressBroker.openai.apiKey.secret=patchy-openai
+cm user-creds-openai-route egress-broker PATCHY_USER_CREDENTIALS enforce
+cm user-creds-openai-route egress-broker PATCHY_OPENAI_API_KEY_FILE /etc/patchy/openai/api-key
 expect_fail 'an empty openai key name' '/egressBroker/openai/apiKey/key' \
   --set egressBroker.openai.apiKey.secret=patchy-openai --set egressBroker.openai.apiKey.key=
 expect_fail 'an unknown openai field' '/egressBroker/openai' --set egressBroker.openai.secret=patchy-openai
@@ -2254,10 +2256,26 @@ done
 render codex-off-old-keys --set agent.runners.codex.secret=patchy-openai --set agent.runners.codex.secretEnv=OPENAI_API_KEY \
   --set 'agent.runners.codex.hosts[0]=api.openai.com'
 expect codex-off-old-keys 'select(.kind == "ConfigMap") | .data | keys | .[] | select(test("^PATCHY_CODEX_SECRET"))' ""
-# Per-user credentials do not cover OpenAI yet: refused beside codex.
+# Per-user credentials cover OpenAI: codex renders beside them, its
+# controllers told the mode, and the Account page offers OpenAI beside
+# Anthropic (codex alone: OpenAI alone, whatever claude's provider).
 # shellcheck disable=SC2086
-expect_fail 'user credentials beside codex' 'while the codex runner is enabled' \
-  --set attribution.mode=attribute --set egressBroker.userCredentials.mode=attribute $cx
+render codex-user-creds --set attribution.mode=attribute --set egressBroker.userCredentials.mode=enforce \
+  --set statusServer.account.enabled=true --set statusServer.auth.existingSecret=patchy-status-auth $cx
+cm codex-user-creds remediation-controller PATCHY_USER_CREDENTIALS enforce
+cm codex-user-creds egress-broker PATCHY_USER_CREDENTIALS enforce
+cm codex-user-creds status-server PATCHY_ACCOUNT_PROVIDERS anthropic,openai
+# shellcheck disable=SC2086
+render codex-only-user-creds --set attribution.mode=attribute \
+  --set egressBroker.userCredentials.mode=attribute --set agent.runners.claude.enabled=false \
+  --set statusServer.account.enabled=true --set statusServer.auth.existingSecret=patchy-status-auth $cx
+cm codex-only-user-creds status-server PATCHY_ACCOUNT_PROVIDERS openai
+cm codex-only-user-creds egress-broker PATCHY_ANTHROPIC_API_KEY_FILE null
+# shellcheck disable=SC2086
+render codex-only-user-creds-bedrock --set attribution.mode=attribute \
+  --set egressBroker.userCredentials.mode=enforce --set agent.runners.claude.enabled=false \
+  --set agent.runners.claude.provider.name=bedrock --set agent.runners.claude.provider.region=us-east-1 $cx
+cm codex-only-user-creds-bedrock egress-broker PATCHY_USER_CREDENTIALS enforce
 
 # ---- egress broker limits ---------------------------------------------------
 render limits -f "$fixtures/broker-limits.yaml"
@@ -3549,12 +3567,12 @@ cm user-creds-ack egress-broker PATCHY_ORG_CREDENTIAL_IS_PERSONAL acknowledged
 expect attribution 'select(.kind == "ConfigMap" and .metadata.name == "patchy-egress-broker-config") | .data | keys | .[] | select(test("CREDENTIAL"))' ""
 expect_fail 'user credentials without attribution' 'but attribution.mode is off' \
   --set egressBroker.userCredentials.mode=enforce
-expect_fail 'user credentials on bedrock' 'per-user credentials are Anthropic API keys and setup-tokens only' \
+expect_fail 'user credentials on bedrock' 'per-user credentials are Anthropic API keys and setup-tokens (on the anthropic route)' \
   --set attribution.mode=attribute --set egressBroker.userCredentials.mode=attribute \
   --set agent.runners.claude.provider.name=bedrock --set agent.runners.claude.provider.region=us-east-1
 expect_fail 'user credentials without the broker' 'the egress broker is not deployed' \
   --set attribution.mode=attribute --set egressBroker.userCredentials.mode=enforce \
-  --set agent.runners.claude.enabled=false --set agent.runners.codex.enabled=true
+  --set agent.runners.claude.enabled=false --set agent.runners.copilot.enabled=true
 expect_fail 'user credentials in the release namespace' 'must be a namespace of its own' \
   --set attribution.mode=attribute --set egressBroker.userCredentials.mode=enforce \
   --set egressBroker.userCredentials.namespace=patchy
@@ -3593,7 +3611,9 @@ cm user-creds-account integration-controller PATCHY_ACCOUNT_URL "https://status.
 cm user-creds-account investigation-controller PATCHY_ACCOUNT_URL null
 cm user-creds-account status-server PATCHY_ACCOUNT_ENABLED true
 cm user-creds-account status-server PATCHY_CREDENTIALS_NAMESPACE patchy-credentials
+cm user-creds-account status-server PATCHY_ACCOUNT_PROVIDERS anthropic
 cm user-creds status-server PATCHY_ACCOUNT_ENABLED null
+cm user-creds status-server PATCHY_ACCOUNT_PROVIDERS null
 cm user-creds status-server PATCHY_CREDENTIALS_NAMESPACE null
 expect_fail 'the Account page without oidc' 'statusServer.account.enabled requires statusServer.auth.config.mode oidc' \
   --set attribution.mode=attribute --set egressBroker.userCredentials.mode=enforce \
