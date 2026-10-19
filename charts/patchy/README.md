@@ -423,10 +423,11 @@ The genuinely shared settings stay global:
   decides which runner (image + credential channel + egress policy) the Job runs, so an OpenAI model routes to `codex`
   and an Anthropic model to `claude`. `copilot` brokers both vendors, so it can run any model in the registry and is the
   fallback when a model's own harness is not enabled — never the preferred one.
-- `egressBroker.*` — the egress credential broker (deployed exactly when a claude runner is enabled): the credential
-  Secrets (`anthropicSecret` + `anthropicAuth`, `foundrySecret`), `ssePingInterval`, and — for bedrock/vertex/entra —
-  the `serviceAccount.annotations`/`podLabels` workload-identity attachment point, with `networkPolicy.extraEgress` for
-  the cloud metadata side channels.
+- `egressBroker.*` — the egress credential broker (deployed when a claude runner is enabled, or a codex runner with
+  `openai.apiKey` set): the credential Secrets (`anthropicSecret` + `anthropicAuth`, `foundrySecret`, and
+  `openai.apiKey` for the OpenAI Responses route, off by default and not yet used by any runner), `ssePingInterval`, and
+  — for bedrock/vertex/entra — the `serviceAccount.annotations`/`podLabels` workload-identity attachment point, with
+  `networkPolicy.extraEgress` for the cloud metadata side channels.
 - `egressBroker.limits.*` — what the broker enforces per pod and broker-wide before any upstream call: `requestsPerPod`,
   `concurrentPerPod` + `concurrencyWait`, `tokensPerPod`, `tokensPerHour`, `maxTokensCeiling`, `modelAllowlist`,
   `betaDenylist`, `maxAnthropicRequestBytes`, `maxRequestBytes`, and the pre-authentication `preauthRequestsPerSecond`,

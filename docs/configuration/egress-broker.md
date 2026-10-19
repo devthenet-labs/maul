@@ -7,7 +7,9 @@ providers work: Amazon Bedrock, GCP Vertex AI, and Microsoft Foundry each get a 
 gateway mode points at, with the broker holding the cloud identity that authenticates the provider-native requests.
 
 There is no in-pod credential mode for claude — claude-without-broker is not a configuration. The codex and copilot
-runners (both disabled by default) keep their in-pod Secret channels; brokering them is future work.
+runners (both disabled by default) keep their in-pod Secret channels for now. The broker already has an
+[OpenAI Responses route](#the-openai-route) (off by default) that a later release moves the codex runner onto; nothing
+uses it yet.
 
 ## How a request flows
 
@@ -37,6 +39,7 @@ A route exists exactly when its identifying flag is set; at least one is require
 | `/bedrock`   | `--bedrock-region`                     | `https://bedrock-runtime.<region>.amazonaws.com` | SigV4, signed with the broker's ambient AWS identity (IRSA / EKS Pod Identity / env credentials)                                                                                                                |
 | `/vertex`    | `--vertex-region` + `--vertex-project` | `https://<region>-aiplatform.googleapis.com`     | OAuth bearer from Application Default Credentials (GKE Workload Identity in-cluster), cached/refreshed; only requests naming that project and location (the region) are admitted                                |
 | `/foundry`   | `--foundry-resource`                   | `https://<resource>.services.ai.azure.com`       | `--foundry-auth key`: `x-api-key` from a file; `entra`: a cached, auto-refreshed Entra bearer                                                                                                                   |
+| `/openai`    | `--openai-api-key-file`                | `https://api.openai.com`                         | An OpenAI API key from the mounted Secret file, read per request, sent as an `Authorization` bearer; see [The openai route](#the-openai-route)                                                                  |
 
 Per-user model credentials (`--user-credentials`, chart `egressBroker.userCredentials.mode`, off by default) are the one
 exception to one credential per route: on the anthropic route, under `enforce`, a run attributed to a person uses that
@@ -46,7 +49,8 @@ See [Per-user model credentials](user-credentials.md).
 Cross-cutting behavior: responses stream back with an immediate flush per write; when an event-stream goes quiet for
 `--sse-ping-interval` (30s) the broker injects a spec-legal `: ping` comment frame so intermediaries do not idle-close a
 long thinking pause; the Bedrock route buffers request bodies (SigV4 signs a payload hash) up to `--max-request-bytes`
-(10 MiB). Errors are emitted as Anthropic-style JSON error envelopes.
+(10 MiB). Errors are emitted as Anthropic-style JSON error envelopes, except on the openai route, which answers in
+OpenAI's.
 
 `/healthz` is liveness; `/readyz` additionally requires every configured route's credential source to be usable — a
 missing Anthropic key file or unresolvable cloud credentials fail readiness. This replaces the job controllers' old
@@ -80,7 +84,8 @@ As everywhere, each flag is also the matching `PATCHY_*` environment variable (`
 The route flags are in [Routes and credentials](#routes-and-credentials): `--anthropic-api-key-file`, `--anthropic-auth`
 (`key`), `--anthropic-base-url` (`https://api.anthropic.com`), `--bedrock-region`, `--bedrock-base-url`,
 `--vertex-region`, `--vertex-project` (the only GCP project the vertex route admits; required with `--vertex-region`),
-`--vertex-base-url`, `--foundry-resource`, `--foundry-base-url`, `--foundry-auth` (`key`) and `--foundry-api-key-file`.
+`--vertex-base-url`, `--foundry-resource`, `--foundry-base-url`, `--foundry-auth` (`key`), `--foundry-api-key-file`,
+`--openai-api-key-file` and `--openai-base-url` (`https://api.openai.com`).
 
 The per-user credential flags (see [Per-user model credentials](user-credentials.md)):
 
@@ -96,22 +101,22 @@ The per-user credential flags (see [Per-user model credentials](user-credentials
 
 Every limit is off at `0` (or empty), so an unconfigured broker behaves as it always has; the Helm chart sizes them.
 
-| Flag                            | Default  | Purpose                                                                                                                                                                                         |
-| ------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--requests-per-pod`            | `0`      | Requests one agent pod may make in its lifetime                                                                                                                                                 |
-| `--concurrent-per-pod`          | `0`      | In-flight requests one agent pod may hold                                                                                                                                                       |
-| `--concurrency-wait`            | `2s`     | How long a request over `--concurrent-per-pod` waits for one of the pod's slots before it is refused; `0` takes the default, negative refuses at once                                           |
-| `--tokens-per-pod`              | `0`      | Tokens (input, cache creation, cache read and output) one agent pod may consume                                                                                                                 |
-| `--tokens-per-hour`             | `0`      | Broker-wide trailing-hour token ceiling across every pod                                                                                                                                        |
-| `--limit-unit`                  | `tokens` | What the spend limits count: `tokens` (the two token flags) or `cost` (the two cost flags, with the token flags kept as optional backstops); see [Cost limits](#cost-limits)                    |
-| `--cost-per-pod`                | `0`      | Micro-USD one agent pod may spend (`60000000` is $60), lowered per pod by its budget annotation; required with `--limit-unit=cost`, refused otherwise                                           |
-| `--cost-per-hour`               | `0`      | Broker-wide trailing-hour cost ceiling in micro-USD; `--limit-unit=cost` only                                                                                                                   |
-| `--max-tokens-ceiling`          | `0`      | Largest `max_tokens` a request may set                                                                                                                                                          |
-| `--model-allowlist`             | empty    | Comma-separated model ids pods may name (canonical or wire form; dated variants and the `claude-haiku` helper family are admitted); empty admits every model                                    |
-| `--beta-denylist`               | empty    | Comma-separated `anthropic-beta` glob patterns to strip; empty uses the built-in list (`mcp-client-*`, `web-fetch-*`, `code-execution-*`, `files-api-*`, `context-1m-*`), `none` strips nothing |
-| `--preauth-requests-per-second` | `0`      | Per-source-IP request rate admitted before authentication                                                                                                                                       |
-| `--preauth-burst`               | `0`      | Per-source-IP burst and in-flight cap before authentication                                                                                                                                     |
-| `--token-reviews-per-second`    | `0`      | Broker-wide TokenReview rate, with a short queue                                                                                                                                                |
+| Flag                            | Default  | Purpose                                                                                                                                                                                                  |
+| ------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--requests-per-pod`            | `0`      | Requests one agent pod may make in its lifetime                                                                                                                                                          |
+| `--concurrent-per-pod`          | `0`      | In-flight requests one agent pod may hold                                                                                                                                                                |
+| `--concurrency-wait`            | `2s`     | How long a request over `--concurrent-per-pod` waits for one of the pod's slots before it is refused; `0` takes the default, negative refuses at once                                                    |
+| `--tokens-per-pod`              | `0`      | Tokens (input, cache creation, cache read and output) one agent pod may consume                                                                                                                          |
+| `--tokens-per-hour`             | `0`      | Broker-wide trailing-hour token ceiling across every pod                                                                                                                                                 |
+| `--limit-unit`                  | `tokens` | What the spend limits count: `tokens` (the two token flags) or `cost` (the two cost flags, with the token flags kept as optional backstops); see [Cost limits](#cost-limits)                             |
+| `--cost-per-pod`                | `0`      | Micro-USD one agent pod may spend (`60000000` is $60), lowered per pod by its budget annotation; required with `--limit-unit=cost`, refused otherwise                                                    |
+| `--cost-per-hour`               | `0`      | Broker-wide trailing-hour cost ceiling in micro-USD; `--limit-unit=cost` only                                                                                                                            |
+| `--max-tokens-ceiling`          | `0`      | Largest `max_tokens` (on the openai route, `max_output_tokens`) a request may set                                                                                                                        |
+| `--model-allowlist`             | empty    | Comma-separated model ids pods may name (canonical or wire form; dated variants, OpenAI's `-YYYY-MM-DD` snapshots included, and the `claude-haiku` helper family are admitted); empty admits every model |
+| `--beta-denylist`               | empty    | Comma-separated `anthropic-beta` glob patterns to strip; empty uses the built-in list (`mcp-client-*`, `web-fetch-*`, `code-execution-*`, `files-api-*`, `context-1m-*`), `none` strips nothing          |
+| `--preauth-requests-per-second` | `0`      | Per-source-IP request rate admitted before authentication                                                                                                                                                |
+| `--preauth-burst`               | `0`      | Per-source-IP burst and in-flight cap before authentication                                                                                                                                              |
+| `--token-reviews-per-second`    | `0`      | Broker-wide TokenReview rate, with a short queue                                                                                                                                                         |
 
 ## Enforcement
 
@@ -132,8 +137,9 @@ contact:
 3. **Route surface.** Each route forwards a positive list of methods and paths and answers 404 to everything else, so
    the Files, Batches and other upstream APIs are unreachable: `POST /v1/messages`, `POST /v1/messages/count_tokens` and
    `GET /v1/models` on anthropic; `invoke` and `invoke-with-response-stream` on bedrock; `rawPredict` and
-   `streamRawPredict` in the configured project and location on vertex; the messages API on foundry. On bedrock and
-   vertex the model id is read from the path and checked against `--model-allowlist` there.
+   `streamRawPredict` in the configured project and location on vertex; the messages API on foundry;
+   `POST /v1/responses` and `GET /v1/models` on openai. On bedrock and vertex the model id is read from the path and
+   checked against `--model-allowlist` there.
 4. **Body inspection.** Every body is buffered (`--max-anthropic-request-bytes`, 2 MiB, on every route but bedrock,
    which keeps `--max-request-bytes`) and refused when it asks for a server-side tool that reaches the internet or a
    container (`web_search_*`, `web_fetch_*`, `code_execution_*`, `mcp_toolset`), carries `mcp_servers`, `container`, a
@@ -156,6 +162,39 @@ pod's running totals, so the limits can be sized from observed runs; the `patchy
 `patchy.broker.preauth.rejections` counters carry the same figures. Aggregate spend is bounded by
 `max concurrent Jobs x --tokens-per-pod x Job turnover`, and by `--tokens-per-hour` when set. Evaluation pods run under
 the same ServiceAccount and share the per-pod limits, so size them for the longest legitimate evaluation too.
+
+### The openai route
+
+The `/openai` route fronts the OpenAI Responses API with an org API key (`--openai-api-key-file`; chart
+`egressBroker.openai.apiKey`, a Secret in the release namespace). It is off unless that flag is set, and no runner uses
+it yet: the codex runner still holds its own key in the agent pod until a later release brokers it. API keys only;
+ChatGPT-plan sign-in and Codex access tokens are not brokered.
+
+- **Surface.** `POST /v1/responses` (metered, the model read from the body) and `GET /v1/models`. Everything else is 404
+  before the upstream, including `/v1/responses/compact`, the stored-response endpoints (`/v1/responses/{id}`, its input
+  items and cancel), input-token counting, Files, Conversations and Chat Completions, and any request asking for a
+  protocol upgrade (Responses over WebSocket).
+- **Headers.** Beside the broker token, `Authorization` and `x-api-key`, the broker strips `OpenAI-Organization`,
+  `OpenAI-Project`, `ChatGPT-Account-Id` and `OpenAI-Beta` on every route, so a pod cannot bill another organization or
+  project the key can reach.
+- **Body inspection.** A request is refused (403) when it lists a server tool (`web_search`, `web_search_preview*` and
+  the other dated `web_search_*` types, `file_search`, `code_interpreter`, `mcp`, `image_generation`,
+  `computer_use_preview`, `computer_use`) or a tool naming a `connector_id` or `server_url`; when it sets
+  `background: true`, `previous_response_id`, `conversation` or a stored `prompt`; or when, anywhere outside a function
+  tool's `parameters` or a `json_schema` format's `schema`, it carries a `file_id`, a `file_url` or an `image_url` that
+  is not an inline `data:` URI. `max_output_tokens` is the request's output bound and is held to `--max-tokens-ceiling`.
+- **Usage.** Usage arrives once, in the terminal `response.completed`, `response.incomplete` or `response.failed` event
+  (or a JSON body's `usage`). Cached input (`input_tokens_details.cached_tokens`) is charged as cache reads and the rest
+  of `input_tokens` as input; `output_tokens` (reasoning included) as output. OpenAI reports no separate cache writes,
+  so there are none. The terminal event carries the whole response, so its line may be up to 8 MiB (the Anthropic routes
+  skip lines over 64 KiB); a larger one, a stream cut before its terminal event, or a terminal event without usage is
+  charged its worst case, bounded by `max_output_tokens`. Dated snapshots (`gpt-5.3-codex-2026-02-05`) are priced as
+  their model, at its registry rates.
+- **Errors.** In OpenAI's envelope, `{"error": {"message", "type", "code", "param"}}`. A spend-limit refusal keeps the
+  `egress broker: per-pod limit` message prefix and carries type and code `insufficient_quota`, which the client treats
+  as final rather than retrying; any other 429 is `rate_limit_exceeded`.
+- **Per-user credentials** stay Anthropic only: the broker refuses to start with `--user-credentials` beside the openai
+  route, and the chart refuses to render the two together.
 
 ### Cost limits
 
@@ -274,7 +313,8 @@ Invoke-class permissions only — the broker needs to call models, never to mana
 
 ## Known limitations
 
-- Codex and copilot remain in-pod-credentialed (both ship disabled); routing them through the broker is a follow-up.
+- Codex and copilot remain in-pod-credentialed (both ship disabled). The openai route is the first step for codex;
+  moving the codex runner onto it, per-user OpenAI keys and copilot are follow-ups.
 - The limit counters live in memory, per replica, evicted after 24 hours: a broker restart resets every pod's totals,
   and more than one replica multiplies the effective limits (the chart runs one). A restart also empties the usage
   record; the boot time it reports keeps a controller from taking what is left for a whole run (`source: partial`).
