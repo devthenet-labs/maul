@@ -9,10 +9,12 @@ import (
 	"go/parser"
 	"go/token"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/bitwise-media-group/patchy/internal/broker"
 	"github.com/bitwise-media-group/patchy/internal/netprofile"
 )
 
@@ -49,8 +51,16 @@ func TestModelHostsDenied(t *testing.T) {
 			return true
 		})
 	}
-	if len(literals) < 5 {
+	if len(literals) < 6 {
 		t.Fatalf("found %d https literals (%v); the broker's base URLs moved", len(literals), literals)
+	}
+	// Every default base URL is a literal the loop below judges; the
+	// OpenAI one is named explicitly so the Responses route cannot lose
+	// its deny entry by moving.
+	for _, def := range []string{broker.DefaultAnthropicBaseURL, broker.DefaultOpenAIBaseURL} {
+		if !slices.Contains(literals, def) {
+			t.Errorf("%s is not among the broker's https literals %v", def, literals)
+		}
 	}
 	for _, lit := range literals {
 		n := strings.Count(lit, "%s")

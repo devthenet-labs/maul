@@ -152,11 +152,33 @@ func TestUpstreams(t *testing.T) {
 			wantErr: `--foundry-auth "password" is not key or entra`,
 		},
 		{
+			name:  "openai",
+			args:  []string{"--openai-api-key-file", "/o"},
+			want:  []string{"openai"},
+			hosts: map[string]string{"openai": "api.openai.com"},
+		},
+		{
+			name:  "openai base url override",
+			args:  []string{"--openai-api-key-file", "/o", "--openai-base-url", "https://openai.example"},
+			want:  []string{"openai"},
+			hosts: map[string]string{"openai": "openai.example"},
+		},
+		{
+			name:    "openai base url alone enables nothing",
+			args:    []string{"--openai-base-url", "https://openai.example"},
+			wantErr: "no upstream configured",
+		},
+		{
+			name:    "openai bad base url",
+			args:    []string{"--openai-api-key-file", "/o", "--openai-base-url", "::"},
+			wantErr: "upstream URL",
+		},
+		{
 			name: "every route",
 			args: []string{"--anthropic-api-key-file", "/k", "--bedrock-region", "us-east-1",
 				"--vertex-region", "us-east5", "--vertex-project", "p",
-				"--foundry-resource", "res", "--foundry-api-key-file", "/f"},
-			want: []string{"anthropic", "bedrock", "foundry", "vertex"},
+				"--foundry-resource", "res", "--foundry-api-key-file", "/f", "--openai-api-key-file", "/o"},
+			want: []string{"anthropic", "bedrock", "foundry", "openai", "vertex"},
 		},
 	}
 	for _, tt := range tests {
@@ -366,6 +388,7 @@ func TestUpstreamFlagSurface(t *testing.T) {
 			"Bedrock runtime base URL (default: https://bedrock-runtime.<bedrock-region>.amazonaws.com)"},
 		{"vertex-base-url", "", "Vertex AI base URL (default: https://<vertex-region>-aiplatform.googleapis.com)"},
 		{"foundry-base-url", "", "Foundry base URL (default: https://<foundry-resource>.services.ai.azure.com)"},
+		{"openai-base-url", "https://api.openai.com", "OpenAI API base URL"},
 	} {
 		f := cmd.Flags().Lookup(c.flag)
 		if f == nil {

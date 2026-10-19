@@ -78,7 +78,7 @@ func registerSharedFlags(f *pflag.FlagSet) {
 	f.String("broker-token-audience", jobs.DefaultBrokerAudience,
 		"audience the agent pods' projected broker caller tokens are bound to")
 	f.String("claude-provider", provider.Anthropic,
-		"model provider behind the broker for claude runs: "+strings.Join(provider.Names, ", "))
+		"model provider behind the broker for claude runs: "+strings.Join(provider.ClaudeNames, ", "))
 	f.String("claude-provider-region", "", "provider region (required for bedrock and vertex)")
 	f.String("claude-provider-region-prefix", "",
 		"bedrock inference-profile prefix override when it cannot be derived from the region")

@@ -16,7 +16,7 @@ type modelSource int
 
 const (
 	modelNone modelSource = iota // no model (a listing)
-	modelBody                    // the body's "model" field (anthropic, foundry)
+	modelBody                    // the body's "model" field (anthropic, foundry, openai)
 	modelPath                    // the path's {id} segment (bedrock, vertex)
 )
 
@@ -53,6 +53,8 @@ func surfaceFor(name string, u Upstream) surface {
 		// name in the body; the CLI reaches it under /anthropic on the
 		// resource host, so both spellings are admitted.
 		return append(anthropicSurface(""), anthropicSurface("/anthropic")...)
+	case provider.OpenAI:
+		return openaiSurface()
 	case provider.Bedrock:
 		return surface{
 			{method: http.MethodPost, pattern: segs("/model/{id}/invoke"),

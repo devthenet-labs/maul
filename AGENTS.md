@@ -55,7 +55,10 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   and `preflight` (what `patchy check image --run` drives).
 - `cmd/egress-broker` — the egress credential broker (NOT a controller: no reconcilers, no leases): the reverse
   proxy all claude model traffic goes through, one route per provider (anthropic — key or `claude setup-token`
-  bearer via `--anthropic-auth` — plus bedrock SigV4, vertex OAuth, foundry key/entra). Validates caller
+  bearer via `--anthropic-auth` — plus bedrock SigV4, vertex OAuth, foundry key/entra, and the OpenAI Responses route
+  `/openai`, off unless `--openai-api-key-file`, chart `egressBroker.openai.apiKey`, which no runner uses yet: POST
+  `/v1/responses` and GET `/v1/models` only, its own dialect in `internal/broker/openai.go` for inspection, usage
+  from the terminal event up to 8 MiB, and OpenAI's error envelope, a limit as `insufficient_quota`). Validates caller
   tokens via TokenReview (its only Kubernetes access but the pod read and, with per-user credentials on, the credential
   store, both below), strips them, injects/signs the model credential
   outbound, streams SSE with idle keep-alive pings, audits one slog line per request. Spend limits count tokens, or
@@ -66,8 +69,9 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   (chart: under `attribution.mode: attribute`; off by default) it also serves its per-Job, per-model usage ledger on a
   listener of its own (`GET /v1/usage/jobs/<job>`, port 8082) to the run controllers' ServiceAccounts only
   (`--usage-callers`, their own token audience, `internal/usagewire`). Engine in
-  `internal/broker`; deployed by the chart exactly when a claude runner is enabled (claude ⇒ broker;
-  proxy-only, no in-pod credential mode). One replica, always: the usage figures depend on it.
+  `internal/broker`; deployed by the chart when a claude runner is enabled (claude ⇒ broker;
+  proxy-only, no in-pod credential mode), or a codex runner with `egressBroker.openai.apiKey` set. One replica,
+  always: the usage figures depend on it.
   Per-user model credentials (design L3; chart `egressBroker.userCredentials.mode` `off` by default, `attribute` or
   `enforce`, chart only, needing `attribution.mode: attribute` and the anthropic provider, a setup-token org credential
   refused unless `orgCredentialIsPersonal: acknowledged`) render the credential store: the `ModelCredential` kind
@@ -610,11 +614,13 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   `ResolveWithoutBrokerProbe`).
 - `broker`, `provider` — the egress-broker engine (TokenReview auth + verdict cache, per-route credential
   strategies, per-user credential resolution and health probes behind `Config.UserCredentials` with its adapter in
-  `broker/credstore`, SSE-safe reverse proxy, audit, and the ledger: per pod name and UID the limits' counters plus,
+  `broker/credstore`, SSE-safe reverse proxy, a dialect per route (`dialect.go`: inspection, usage, error envelope;
+  Anthropic-shaped or OpenAI Responses), audit, and the ledger: per pod name and UID the limits' counters plus,
   per bare model id and the kind of credential that paid, observed input/output/cache-read/5m-and-1h cache-write tokens
   kept apart from the estimated shortfall, served by `UsageHandler`) and the pure logic of brokered claude runners
   (gateway env, canonical→provider model-id maps with per-provider derived defaults, the `PATCHY_MODEL_MAP` codec both
-  the controllers and agentrun share). `provider.BrokerTokenHeader` is the one definition of the caller-token
+  the controllers and agentrun share). `provider.Names` is the broker's closed route table, `provider.ClaudeNames` the
+  four a claude runner can front (not openai). `provider.BrokerTokenHeader` is the one definition of the caller-token
   header.
 - `usagewire`, `usagemeter` — trusted usage (per-user credentials design, revision 1, L2). `usagewire` is the
   stdlib-only wire contract of the broker's usage endpoint (Job-name keying, `PodOfJob`, audience, credential kinds,

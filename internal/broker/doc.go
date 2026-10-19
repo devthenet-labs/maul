@@ -7,14 +7,24 @@
 // credential outbound. It is what makes agent pods fully credential-less —
 // the pod authenticates to the broker with an audience-bound projected
 // ServiceAccount token (an identity document, not a capability), and the
-// broker alone holds the Anthropic API key or the cloud workload identity
-// that signs Bedrock/Vertex/Foundry traffic.
+// broker alone holds the Anthropic or OpenAI API key or the cloud workload
+// identity that signs Bedrock/Vertex/Foundry traffic.
 //
 // One route per upstream, keyed by path prefix. The route set is closed:
 // Config.validate admits only the model providers in provider.Names
-// (anthropic, bedrock, vertex, foundry), because every route is a positive
-// method+path surface (surface.go) and a metered model-inference contract,
-// not an open proxy. Brokering another upstream (forge-minted GitHub tokens,
+// (anthropic, bedrock, vertex, foundry, openai), because every route is a
+// positive method+path surface (surface.go) and a metered model-inference
+// contract, not an open proxy. Each route also has a dialect (dialect.go):
+// how its bodies are inspected, how its responses report usage and how it
+// answers an error. The four Anthropic-shaped routes share one; the openai
+// route (openai.go: the Responses API, POST /v1/responses and GET
+// /v1/models only, no websocket) has its own, reading usage from the
+// terminal response.completed, response.incomplete or response.failed
+// event, which carries the whole response and so is bounded at 8 MiB
+// rather than 64 KiB, and refusing OpenAI's server tools, server-side state
+// (background, previous_response_id, conversation, stored prompts) and
+// remote files and images. Its errors use OpenAI's envelope, a spend-limit
+// refusal as insufficient_quota. Brokering another upstream (forge-minted GitHub tokens,
 // package registries) means adding its name and a surface for it, not only a
 // route. Every request is audited as a single slog line (never bodies or
 // headers) and streamed through with immediate flushing so SSE responses

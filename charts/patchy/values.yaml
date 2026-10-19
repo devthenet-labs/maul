@@ -1466,6 +1466,23 @@ egressBroker:
     # Set when provider foundry authenticates by key; leave empty for Entra
     # (the broker's Azure workload identity).
     foundrySecret: ""
+    # The OpenAI (Responses) route: an OpenAI API key the broker sends as a
+    # bearer to api.openai.com (override the base URL with
+    # config.extra.PATCHY_OPENAI_BASE_URL). Off while secret is empty, the
+    # default. With it set the broker serves POST /v1/responses and GET
+    # /v1/models under /openai, metered and limited like every route; the
+    # broker also deploys when only a codex runner is enabled. Nothing uses
+    # the route yet: a later release moves the codex runner onto it. The
+    # Secret lives in the RELEASE namespace, like anthropicSecret, and is
+    # mounted into the broker alone. API keys only (no ChatGPT sign-in).
+    # Refused while userCredentials.mode is not off (per-user credentials
+    # are Anthropic only for now).
+    openai:
+        apiKey:
+            # Secret name; empty leaves the route off.
+            secret: ""
+            # The key within it holding the API key.
+            key: api-key
     resources:
         requests:
             cpu: 50m

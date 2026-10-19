@@ -62,8 +62,19 @@ func MeasuredCostUSD(m Model, t MeasuredTokens) *float64 {
 
 // datedSuffix is what a provider may append to a registry model's bare id
 // on the wire: a dated snapshot ("-20260514", vertex's "@20260514"), with or
-// without a bedrock version ("-v1:0"), or the version alone.
-var datedSuffix = regexp.MustCompile(`^([-@][0-9]{8}(-v[0-9]+:[0-9]+)?|-v[0-9]+:[0-9]+)?$`)
+// without a bedrock version ("-v1:0"), the version alone, or an OpenAI dated
+// snapshot ("-2026-05-14"), which carries no rate change of its own.
+var datedSuffix = regexp.MustCompile(`^(` +
+	`[-@][0-9]{8}(-v[0-9]+:[0-9]+)?` + // dated, optionally versioned
+	`|-v[0-9]+:[0-9]+` + // a bedrock version alone
+	`|-[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])` + // an OpenAI snapshot
+	`)?$`)
+
+// IsDatedSuffix reports whether rest, what follows a model id's bare form
+// on the wire, is nothing or one of the dated or versioned suffixes Resolve
+// accepts. The broker's model allowlist admits exactly these, so a snapshot
+// it admits is one the registry prices rather than the ceiling.
+func IsDatedSuffix(rest string) bool { return datedSuffix.MatchString(rest) }
 
 // Resolve normalises a model id as a provider or the broker reports it to
 // the registry model it names: a canonical id ("anthropic/claude-sonnet-5"),

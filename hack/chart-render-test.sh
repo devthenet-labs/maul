@@ -2125,6 +2125,51 @@ notes_has notes-intent-ri "every intent build blocks on" no
 notes notes-intent-off
 notes_has notes-intent-off "intent-controller" no
 
+# ---- egress broker: the openai (Responses) route ---------------------------
+# Off by default: no flag, no mount, no volume, and codex alone deploys no
+# broker (intent-off-codex above).
+bdep='select(.kind == "Deployment" and .metadata.name == "patchy-egress-broker")'
+cm default egress-broker PATCHY_OPENAI_API_KEY_FILE null
+expect default "$bdep | .spec.template.spec.volumes[].name | select(. == \"openai\")" ""
+# Beside claude: both routes, the key mounted as the file the flag names.
+render openai-route --set egressBroker.openai.apiKey.secret=patchy-openai
+cm openai-route egress-broker PATCHY_OPENAI_API_KEY_FILE /etc/patchy/openai/api-key
+cm openai-route egress-broker PATCHY_ANTHROPIC_API_KEY_FILE /etc/patchy/anthropic/api-key
+expect openai-route "$bdep | .spec.template.spec.volumes[] | select(.name == \"openai\") | .secret.secretName" patchy-openai
+expect openai-route "$bdep | .spec.template.spec.volumes[] | select(.name == \"openai\") | .secret.items[0].key + \"=\" + .secret.items[0].path" api-key=api-key
+expect openai-route "$bdep | .spec.template.spec.containers[0].volumeMounts[] | select(.name == \"openai\") | .mountPath + \" \" + (.readOnly | tostring)" "/etc/patchy/openai true"
+if [ "$(get default "$bdep | .spec.template.metadata.annotations[\"checksum/config\"]")" = \
+  "$(get openai-route "$bdep | .spec.template.metadata.annotations[\"checksum/config\"]")" ]; then
+  fail "openai-route: enabling the openai route does not roll the broker"
+fi
+# The key within the Secret is the operator's to name.
+render openai-route-key --set egressBroker.openai.apiKey.secret=keys --set egressBroker.openai.apiKey.key=openai
+expect openai-route-key "$bdep | .spec.template.spec.volumes[] | select(.name == \"openai\") | .secret.items[0].key + \"=\" + .secret.items[0].path" openai=api-key
+# Codex alone with the key: the broker deploys with the openai route and no
+# claude provider route at all.
+render openai-codex --set agent.runners.claude.enabled=false --set agent.runners.codex.enabled=true \
+  --set egressBroker.openai.apiKey.secret=patchy-openai
+expect openai-codex "$bdep | .kind" Deployment
+cm openai-codex egress-broker PATCHY_OPENAI_API_KEY_FILE /etc/patchy/openai/api-key
+cm openai-codex egress-broker PATCHY_ANTHROPIC_API_KEY_FILE null
+cm openai-codex egress-broker PATCHY_ANTHROPIC_AUTH null
+expect openai-codex "$bdep | .spec.template.spec.volumes[].name | select(. == \"anthropic\")" ""
+# ...and codex on the evaluation fleet only counts too.
+render openai-codex-eval -f "$ef" --set agent.runners.claude.enabled=false \
+  --set evaluationController.runners.claude.enabled=false --set evaluationController.runners.codex.enabled=true \
+  --set egressBroker.openai.apiKey.secret=patchy-openai
+expect openai-codex-eval "$bdep | .kind" Deployment
+# No claude and no codex: nothing for the broker to front, key or not.
+render openai-nothing --set agent.runners.claude.enabled=false --set egressBroker.openai.apiKey.secret=patchy-openai
+expect openai-nothing "$bdep | .kind" ""
+# Per-user credentials are Anthropic only: the broker would refuse to start.
+expect_fail 'user credentials beside the openai route' 'while egressBroker.openai.apiKey is set' \
+  --set attribution.mode=attribute --set egressBroker.userCredentials.mode=enforce \
+  --set egressBroker.openai.apiKey.secret=patchy-openai
+expect_fail 'an empty openai key name' '/egressBroker/openai/apiKey/key' \
+  --set egressBroker.openai.apiKey.secret=patchy-openai --set egressBroker.openai.apiKey.key=
+expect_fail 'an unknown openai field' '/egressBroker/openai' --set egressBroker.openai.secret=patchy-openai
+
 # ---- egress broker limits ---------------------------------------------------
 render limits -f "$fixtures/broker-limits.yaml"
 cm limits egress-broker PATCHY_REQUESTS_PER_POD 2000

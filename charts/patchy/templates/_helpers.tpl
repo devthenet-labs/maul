@@ -146,15 +146,41 @@ root; include it with nindent 8 inside `with`.
 {{- end }}
 
 {{/*
-Whether the egress credential broker deploys: exactly when a claude runner is
-enabled anywhere (findings, evaluations or intents). There is deliberately no
-separate enabled knob — claude runs proxy-only, so claude ⇒ broker, and a
-fake-only dev/e2e values file renders none of it. intent-controller runs
-brokered claude and nothing else, so enabling it enables claude whatever
-agent.runners.claude says. Returns a non-empty string for yes.
+Whether a brokered claude runner is enabled anywhere (findings, evaluations or
+intents): what the broker's claude-provider route renders for.
+intent-controller runs brokered claude and nothing else, so enabling it
+enables claude whatever agent.runners.claude says. Returns a non-empty string
+for yes.
+*/}}
+{{- define "patchy.claudeBrokered" -}}
+{{- if or .Values.agent.runners.claude.enabled (and .Values.evaluationController.enabled .Values.evaluationController.runners.claude.enabled) .Values.intentController.enabled -}}
+yes
+{{- end -}}
+{{- end }}
+
+{{/*
+Whether the egress broker's openai (Responses) route renders: an OpenAI key
+Secret is named in egressBroker.openai.apiKey. Off by default; nothing uses
+the route yet (codex broker design, group 1). Returns a non-empty string for
+yes.
+*/}}
+{{- define "patchy.openaiRoute" -}}
+{{- if ((((.Values.egressBroker | default dict).openai | default dict).apiKey | default dict).secret) -}}
+yes
+{{- end -}}
+{{- end }}
+
+{{/*
+Whether the egress credential broker deploys: when a claude runner is enabled
+anywhere (patchy.claudeBrokered), or when a codex runner is (findings or
+evaluations) and the broker's openai route is configured. There is
+deliberately no separate enabled knob — claude runs proxy-only, so claude ⇒
+broker, and a fake-only dev/e2e values file renders none of it. A codex runner
+without egressBroker.openai.apiKey still holds its own key and deploys no
+broker, as before. Returns a non-empty string for yes.
 */}}
 {{- define "patchy.brokerEnabled" -}}
-{{- if or .Values.agent.runners.claude.enabled (and .Values.evaluationController.enabled .Values.evaluationController.runners.claude.enabled) .Values.intentController.enabled -}}
+{{- if or (include "patchy.claudeBrokered" .) (and (include "patchy.harnessEnabled" (dict "root" . "id" "codex")) (include "patchy.openaiRoute" .)) -}}
 yes
 {{- end -}}
 {{- end }}
@@ -1621,7 +1647,7 @@ npm yarn pip uv nuget cargo jvm
 
 {{/*
 The hosts of the egress broker's base-URL overrides
-(PATCHY_{ANTHROPIC,BEDROCK,VERTEX,FOUNDRY}_BASE_URL in config.extra or
+(PATCHY_{ANTHROPIC,BEDROCK,VERTEX,FOUNDRY,OPENAI}_BASE_URL in config.extra or
 egressBroker.config.extra), sorted and space-separated: model API hosts the
 fixed table cannot know, denied to every registry, file host and redirect
 hop (guard 13, and PATCHY_DENY_HOSTS for the proxy's request-time check). An
@@ -1632,7 +1658,7 @@ the broker's -base-url flags by cmd/egress-broker TestChartOverrideKeysMatchFlag
 {{- $hosts := list -}}
 {{- $broker := (.Values.egressBroker | default dict).config | default dict -}}
 {{- range $src := list (.Values.config.extra | default dict) ($broker.extra | default dict) -}}
-{{- range $k := list "PATCHY_ANTHROPIC_BASE_URL" "PATCHY_BEDROCK_BASE_URL" "PATCHY_VERTEX_BASE_URL" "PATCHY_FOUNDRY_BASE_URL" -}}
+{{- range $k := list "PATCHY_ANTHROPIC_BASE_URL" "PATCHY_BEDROCK_BASE_URL" "PATCHY_VERTEX_BASE_URL" "PATCHY_FOUNDRY_BASE_URL" "PATCHY_OPENAI_BASE_URL" -}}
 {{- with index $src $k -}}
 {{- with lower (urlParse (toString .)).hostname -}}
 {{- $hosts = append $hosts . -}}

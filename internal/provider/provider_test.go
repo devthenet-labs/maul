@@ -22,7 +22,9 @@ func TestValidate(t *testing.T) {
 		wantErr string
 	}{
 		{"anthropic ok", Config{Name: Anthropic, BrokerURL: broker}, ""},
-		{"unknown provider", Config{Name: "openai", BrokerURL: broker}, "not one of"},
+		{"unknown provider", Config{Name: "acme", BrokerURL: broker}, "not one of"},
+		// OpenAI is a broker route, never a claude runner's provider.
+		{"openai is not a claude provider", Config{Name: OpenAI, BrokerURL: broker}, "not one of"},
 		{"no broker url", Config{Name: Anthropic}, "broker URL is required"},
 		{"bedrock needs region", Config{Name: Bedrock, BrokerURL: broker}, "region is required"},
 		{"bedrock ok", Config{Name: Bedrock, BrokerURL: broker, Region: "us-east-1"}, ""},
@@ -124,8 +126,8 @@ func TestBaseURLEnvNames(t *testing.T) {
 		{Name: Vertex, BrokerURL: broker, Region: "europe-west1", ProjectID: "proj"},
 		{Name: Foundry, BrokerURL: broker},
 	}
-	if len(cfgs) != len(Names) {
-		t.Fatalf("the test covers %d providers, and there are %d", len(cfgs), len(Names))
+	if len(cfgs) != len(ClaudeNames) {
+		t.Fatalf("the test covers %d providers, and there are %d", len(cfgs), len(ClaudeNames))
 	}
 	seen := map[string]bool{}
 	for _, cfg := range cfgs {
@@ -256,7 +258,7 @@ func TestPlaceholderAuthChannel(t *testing.T) {
 	if PlaceholderAuthToken == "" || !strings.Contains(PlaceholderAuthToken, "placeholder") {
 		t.Errorf("PlaceholderAuthToken = %q, want a self-describing non-secret", PlaceholderAuthToken)
 	}
-	for _, name := range Names {
+	for _, name := range ClaudeNames {
 		if _, ok := Env(Config{Name: name, BrokerURL: broker}, nil)[PlaceholderAuthEnv]; ok {
 			t.Errorf("provider %s gateway env emits %s; only internal/jobs sets it", name, PlaceholderAuthEnv)
 		}

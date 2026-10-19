@@ -86,35 +86,104 @@ func (j *usageJSON) usage() usage {
 	return u
 }
 
-// Scanner bounds: an SSE data line longer than maxSSELine is skipped (usage
-// events are a few hundred bytes), and a JSON body longer than maxJSONBody
-// is abandoned (its usage then counts as unseen, so the estimate applies).
+// Scanner bounds on the Anthropic-shaped routes: an SSE data line longer
+// than maxSSELine is skipped (usage events are a few hundred bytes), and a
+// JSON body longer than maxJSONBody is abandoned (its usage then counts as
+// unseen, so the estimate applies). The OpenAI route has its own
+// (openai.go): its usage rides the terminal event, which carries the whole
+// response.
 const (
 	maxSSELine  = 64 << 10
 	maxJSONBody = 1 << 20
 )
 
+// usageDialect is how one route's responses report usage: the SSE events
+// and the JSON body shape, and how large a line or body may grow before the
+// scanner gives up on it.
+type usageDialect interface {
+	// event parses one SSE data payload (a JSON object): the cumulative
+	// usage it reports (ok false when it reports none) and whether it ends
+	// the response with its usage final.
+	event(data []byte) (u usage, ok, final bool)
+	// body parses a whole JSON response body: its usage, ok false when it
+	// carries none.
+	body(data []byte) (u usage, ok bool)
+	// maxLine bounds one SSE line and maxBody one JSON body, in bytes.
+	maxLine() int
+	maxBody() int
+}
+
+// anthropicUsage is the Messages API's usage dialect: message_start carries
+// the input side, message_delta the running output, message_stop ends it.
+type anthropicUsage struct{}
+
+func (anthropicUsage) maxLine() int { return maxSSELine }
+func (anthropicUsage) maxBody() int { return maxJSONBody }
+
+func (anthropicUsage) event(data []byte) (usage, bool, bool) {
+	var ev struct {
+		Type    string `json:"type"`
+		Message struct {
+			Usage *usageJSON `json:"usage"`
+		} `json:"message"`
+		Usage *usageJSON `json:"usage"`
+	}
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return usage{}, false, false
+	}
+	switch ev.Type {
+	case "message_start":
+		return ev.Message.Usage.usage(), true, false
+	case "message_delta":
+		return ev.Usage.usage(), true, false
+	case "message_stop":
+		return usage{}, false, true
+	}
+	return usage{}, false, false
+}
+
+func (anthropicUsage) body(data []byte) (usage, bool) {
+	var resp struct {
+		Usage *usageJSON `json:"usage"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil || resp.Usage == nil {
+		return usage{}, false
+	}
+	return resp.Usage.usage(), true
+}
+
 type scanMode int
 
 const (
 	scanOpaque scanMode = iota // nothing parseable (a binary event stream)
-	scanSSE                    // text/event-stream: message_start/message_delta
+	scanSSE                    // text/event-stream: the dialect's events
 	scanJSON                   // application/json: a top-level usage object
 )
 
 // usageScanner reads token usage off a response as it streams through the
-// proxy. Every observed increment is reported at once, so a stream cut right
-// after message_start has already charged its input tokens; complete reports
-// whether the response reached its end (message_stop, or a JSON body with a
-// usage object), which is what decides whether the estimate applies.
+// proxy, in its route's dialect (nil is the Anthropic one). Every observed
+// increment is reported at once, so a stream cut right after message_start
+// has already charged its input tokens; complete reports whether the
+// response reached its end with its usage final (message_stop, a terminal
+// Responses event with usage, or a JSON body with a usage object), which is
+// what decides whether the estimate applies.
 type usageScanner struct {
+	dialect  usageDialect
 	mode     scanMode
 	line     []byte // SSE: the partial current line
 	skipping bool   // SSE: inside an over-long line
 	body     []byte // JSON: the accumulated body
-	over     bool   // JSON: body exceeded maxJSONBody
+	over     bool   // JSON: body exceeded the dialect's maxBody
 	seen     usage  // cumulative last-seen values
 	complete bool
+}
+
+// wire is the scanner's dialect, the Anthropic one by default.
+func (s *usageScanner) wire() usageDialect {
+	if s.dialect == nil {
+		return anthropicUsage{}
+	}
+	return s.dialect
 }
 
 // start picks the mode from the response content type.
@@ -138,7 +207,7 @@ func (s *usageScanner) write(p []byte) usage {
 		return s.writeSSE(p)
 	case scanJSON:
 		if !s.over {
-			if len(s.body)+len(p) > maxJSONBody {
+			if len(s.body)+len(p) > s.wire().maxBody() {
 				s.over, s.body = true, nil
 			} else {
 				s.body = append(s.body, p...)
@@ -180,12 +249,12 @@ func (u usage) mergeAdd(o usage) usage {
 }
 
 // appendLine buffers part of a line, dropping the line once it exceeds the
-// bound.
+// dialect's bound.
 func (s *usageScanner) appendLine(p []byte) {
 	if s.skipping {
 		return
 	}
-	if len(s.line)+len(p) > maxSSELine {
+	if len(s.line)+len(p) > s.wire().maxLine() {
 		s.skipping, s.line = true, s.line[:0]
 		return
 	}
@@ -204,25 +273,14 @@ func (s *usageScanner) parseLine(line []byte) usage {
 	if len(data) == 0 || data[0] != '{' {
 		return usage{}
 	}
-	var ev struct {
-		Type    string `json:"type"`
-		Message struct {
-			Usage *usageJSON `json:"usage"`
-		} `json:"message"`
-		Usage *usageJSON `json:"usage"`
-	}
-	if err := json.Unmarshal(data, &ev); err != nil {
-		return usage{}
-	}
-	switch ev.Type {
-	case "message_start":
-		return s.observe(ev.Message.Usage.usage())
-	case "message_delta":
-		return s.observe(ev.Usage.usage())
-	case "message_stop":
+	u, ok, final := s.wire().event(data)
+	if final {
 		s.complete = true
 	}
-	return usage{}
+	if !ok {
+		return usage{}
+	}
+	return s.observe(u)
 }
 
 // observe merges a cumulative usage report and returns the increment.
@@ -239,14 +297,12 @@ func (s *usageScanner) finish() usage {
 	if s.mode != scanJSON || s.over || len(s.body) == 0 {
 		return usage{}
 	}
-	var resp struct {
-		Usage *usageJSON `json:"usage"`
-	}
-	if err := json.Unmarshal(s.body, &resp); err != nil || resp.Usage == nil {
+	u, ok := s.wire().body(s.body)
+	if !ok {
 		return usage{}
 	}
 	s.complete = true
-	return s.observe(resp.Usage.usage())
+	return s.observe(u)
 }
 
 // usageWriter tees the response through a usageScanner. It sits between the

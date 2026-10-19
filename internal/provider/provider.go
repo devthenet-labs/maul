@@ -75,20 +75,30 @@ const (
 	PlaceholderAuthToken = "patchy-brokered-placeholder"
 )
 
-// Provider names — the model APIs a brokered claude runner can front.
+// Provider names — the model APIs the egress broker can front. The first
+// four are what a brokered claude runner can front (ClaudeNames); OpenAI is
+// the Responses API the codex harness speaks (codex broker design, group 1).
 const (
 	Anthropic = "anthropic"
 	Bedrock   = "bedrock"
 	Vertex    = "vertex"
 	Foundry   = "foundry"
+	OpenAI    = "openai"
 )
 
-// Names lists the valid provider names, in display order.
-var Names = []string{Anthropic, Bedrock, Vertex, Foundry}
+// Names lists every provider the egress broker has a route for, in display
+// order: its closed route table.
+var Names = []string{Anthropic, Bedrock, Vertex, Foundry, OpenAI}
+
+// ClaudeNames lists the providers a brokered claude runner can front (a
+// Config's Name), in display order. OpenAI is not one: the claude CLI does
+// not speak the Responses API.
+var ClaudeNames = []string{Anthropic, Bedrock, Vertex, Foundry}
 
 // Config describes one brokered claude runner's model provider.
 type Config struct {
-	// Name is the provider: anthropic, bedrock, vertex, or foundry.
+	// Name is the provider: anthropic, bedrock, vertex, or foundry
+	// (ClaudeNames).
 	Name string
 	// BrokerURL is the egress broker's base URL; the per-provider route
 	// (/anthropic, /bedrock, ...) is appended. Required always — brokered is
@@ -147,8 +157,8 @@ var BaseURLEnvNames = []string{
 
 // Validate rejects a config the gateway env cannot be built from.
 func (c Config) Validate() error {
-	if !slices.Contains(Names, c.Name) {
-		return fmt.Errorf("provider %q is not one of %s", c.Name, strings.Join(Names, ", "))
+	if !slices.Contains(ClaudeNames, c.Name) {
+		return fmt.Errorf("provider %q is not one of %s", c.Name, strings.Join(ClaudeNames, ", "))
 	}
 	if c.BrokerURL == "" {
 		return fmt.Errorf("provider %s: broker URL is required (claude runs proxy-only)", c.Name)

@@ -94,6 +94,12 @@ func TestResolve(t *testing.T) {
 		"claude-opus-5-v2:0":                "anthropic/claude-opus-5",
 		"anthropic/claude-opus-5-20260101":  "anthropic/claude-opus-5",
 		"gpt-5.6-sol":                       "openai/gpt-5.6-sol",
+		"gpt-5.3-codex-2026-02-05":          "openai/gpt-5.3-codex",
+		"openai/gpt-5.6-luna-2026-10-01":    "openai/gpt-5.6-luna",
+		"gpt-5.6-sol-2026-13-01":            "",
+		"gpt-5.6-sol-2026-10-32":            "",
+		"gpt-5.6-sol-2026-1001":             "",
+		"gpt-5.6-sol-2026-10-01-v1:0":       "",
 		"claude-sonnet-5-1":                 "",
 		"claude-sonnet-5x":                  "",
 		"claude-sonnet":                     "",
@@ -113,7 +119,7 @@ func TestResolve(t *testing.T) {
 // canonical id, its bare id and any dated or versioned form of it.
 func TestResolveProperty(t *testing.T) {
 	models := Builtins()
-	suffixes := []string{"", "-20260514", "@20251231", "-20251001-v1:0", "-v3:12"}
+	suffixes := []string{"", "-20260514", "@20251231", "-20251001-v1:0", "-v3:12", "-2026-05-14"}
 	cfg := quickConfig(2000)
 	cfg.Values = func(args []reflect.Value, rnd *rand.Rand) {
 		args[0] = reflect.ValueOf(rnd.Intn(len(models)))
