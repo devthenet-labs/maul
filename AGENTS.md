@@ -186,8 +186,9 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   `spec.harness: codex` (`--intent-codex-plan-model`/`--intent-codex-build-model`; the codex runner injects agent-runner
   and the codex CLI into a build's repository image). Each IntentRun records its Project's harness at creation
   (`spec.harness`, immutable) and is launched, held for a credential (`credgate.ProviderFor`: codex waits for an OpenAI
-  key) and measured on it; off, a codex Project is not Ready (`HarnessNotEnabled`) and a codex run waits Pending. A Project's stage `timeout` (clamped to the stage flag) sets
-  each run's wall clock and its Job deadline (timeout + 15m, never under `--intent-job-deadline`, capped by
+  key) and measured on it; off, a codex Project is not Ready (`HarnessNotEnabled`) and a codex run waits Pending. A
+  Project's stage `timeout` (clamped to the stage flag) sets each run's wall clock and its Job deadline (timeout + 15m,
+  never under `--intent-job-deadline`, capped by
   `--intent-job-deadline-max`, under which every stage flag plus 15m must fit; the floor is not tied to the stage
   timeouts, so a longer stage stretches only its own Jobs). With `--broker-limit-unit cost` (chart:
   `egressBroker.limits.unit: cost`; default tokens, nothing stamped) every run's immutable grant records a cost
