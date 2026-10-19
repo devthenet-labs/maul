@@ -4,8 +4,14 @@
 package harness
 
 import (
+	"math/rand"
+	"os"
 	"slices"
+	"strings"
 	"testing"
+	"testing/quick"
+
+	"github.com/bitwise-media-group/patchy/internal/transcript"
 )
 
 // codex exec --json emits one JSON event per line: thread.started carries the
@@ -56,6 +62,10 @@ func TestCodexPromptSpec(t *testing.T) {
 		"--skip-git-repo-check",
 		"--sandbox", "danger-full-access",
 		"--model", "gpt-5.2-codex",
+		"-c", "analytics.enabled=false",
+		"-c", `otel.metrics_exporter="none"`,
+		"-c", "features.plugins=false",
+		"-c", `web_search="disabled"`,
 	}
 	if !slices.Equal(spec.Argv, want) {
 		t.Errorf("Argv =\n%q\nwant\n%q", spec.Argv, want)
@@ -198,5 +208,173 @@ func TestCodexEnvKeys(t *testing.T) {
 	want := []string{"OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_ACCESS_TOKEN"}
 	if !slices.Equal(got, want) {
 		t.Errorf("EnvKeys() = %v, want %v", got, want)
+	}
+}
+
+// TestCodexPromptSpecGateway pins the brokered provider config, the argv
+// a real codex (rust-v0.153.4) was run with against a recording server to
+// capture testdata/codex-0.153.4-exec.jsonl: the broker's route as the
+// Responses provider, the placeholder key and the caller-token header named
+// by variable only, no websockets, one retry. No token value is in argv.
+func TestCodexPromptSpecGateway(t *testing.T) {
+	spec := NewCodex().PromptSpec("/ws", PromptRequest{
+		Prompt: "p", Model: "gpt-5.3-codex",
+		Gateway: &Gateway{
+			BaseURL:   "http://broker.patchy.svc:8080/openai/v1",
+			KeyEnv:    "PATCHY_CODEX_PLACEHOLDER_KEY",
+			HeaderEnv: map[string]string{"X-Patchy-Broker-Token": "PATCHY_BROKER_TOKEN"},
+		},
+		Env: []string{"PATCHY_BROKER_TOKEN=secret-token"},
+	})
+	want := []string{
+		"codex", "exec", "p", "--json", "--skip-git-repo-check", "--sandbox", "danger-full-access",
+		"--model", "gpt-5.3-codex",
+		"-c", "analytics.enabled=false",
+		"-c", `otel.metrics_exporter="none"`,
+		"-c", "features.plugins=false",
+		"-c", `web_search="disabled"`,
+		"-c", `model_provider="patchy"`,
+		"-c", `model_providers.patchy.name="patchy egress broker"`,
+		"-c", `model_providers.patchy.base_url="http://broker.patchy.svc:8080/openai/v1"`,
+		"-c", `model_providers.patchy.wire_api="responses"`,
+		"-c", `model_providers.patchy.env_key="PATCHY_CODEX_PLACEHOLDER_KEY"`,
+		"-c", `model_providers.patchy.env_http_headers={"X-Patchy-Broker-Token"="PATCHY_BROKER_TOKEN"}`,
+		"-c", "model_providers.patchy.supports_websockets=false",
+		"-c", "model_providers.patchy.request_max_retries=1",
+		"-c", "model_providers.patchy.stream_max_retries=1",
+	}
+	if !slices.Equal(spec.Argv, want) {
+		t.Errorf("Argv =\n%q\nwant\n%q", spec.Argv, want)
+	}
+	for _, a := range spec.Argv {
+		if strings.Contains(a, "secret-token") {
+			t.Errorf("argv carries the token: %q", a)
+		}
+	}
+	if !slices.Equal(spec.Env, []string{"PATCHY_BROKER_TOKEN=secret-token"}) {
+		t.Errorf("Env = %q, want the request env", spec.Env)
+	}
+}
+
+// TestCodexProviderNameIsNotOpenAI: codex treats a provider named OpenAI as
+// OpenAI itself and compresses its request bodies, which the broker's
+// inspection could not read.
+func TestCodexProviderNameIsNotOpenAI(t *testing.T) {
+	if strings.EqualFold(codexProviderName, "openai") || CodexProviderID == "openai" {
+		t.Fatalf("provider %q named %q", CodexProviderID, codexProviderName)
+	}
+}
+
+// TestCodexGatewayConfigQuotesValues: a value is a TOML basic string, so a
+// quote or backslash in it cannot end the string and set another key.
+func TestCodexGatewayConfigQuotesValues(t *testing.T) {
+	got := codexGatewayConfig(Gateway{BaseURL: `http://x/"y\z`, KeyEnv: "K"})
+	if want := `model_providers.patchy.base_url="http://x/\"y\\z"`; got[2] != want {
+		t.Errorf("base_url = %s, want %s", got[2], want)
+	}
+	for _, kv := range got {
+		if strings.Contains(kv, "env_http_headers") {
+			t.Errorf("no headers asked for, got %s", kv)
+		}
+	}
+}
+
+// TestCodexRecordedStream parses a stream the real codex CLI wrote
+// (rust-v0.153.4, the pinned release, run with the brokered provider
+// config of TestCodexPromptSpecGateway against a recording Responses server
+// that answered one exec_command call, then a message, each with usage
+// input 1200, cached 1024, output 40, reasoning 12). Codex sums the two
+// requests into one turn and reports cache writes and reasoning beside the
+// rest.
+func TestCodexRecordedStream(t *testing.T) {
+	stdout, err := os.ReadFile("testdata/codex-0.153.4-exec.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := NewCodex()
+	res, ok := c.ParseResult(stdout)
+	if !ok || res.IsError || res.FinalText != "Done: the report is written." || res.NumTurns != 1 ||
+		res.SessionID != "01a152a3-d587-7513-a33c-85ebd73b2853" {
+		t.Fatalf("ParseResult = %+v, %v", res, ok)
+	}
+	if got, want := usageOf(res.Usage), [4]int{2400 - 2048, 2048, 0, 80}; got != want {
+		t.Errorf("usage = %v, want %v", got, want)
+	}
+	if got := c.RuntimeError(stdout, 0, false); got != "" {
+		t.Errorf("RuntimeError = %q", got)
+	}
+	var turns []transcript.Turn
+	var budget int
+	for line := range strings.SplitSeq(string(stdout), "\n") {
+		turns = append(turns, c.ScanTurns([]byte(line))...)
+		if n, ok := c.ScanUsage([]byte(line)); ok {
+			budget += n
+		}
+	}
+	if budget != 80 {
+		t.Errorf("ScanUsage summed %d, want 80", budget)
+	}
+	var kinds []string
+	for _, tr := range turns {
+		kinds = append(kinds, string(tr.Kind)+":"+tr.Tool)
+	}
+	want := []string{
+		string(transcript.KindNotice) + ":",
+		string(transcript.KindToolUse) + ":Bash",
+		string(transcript.KindToolResult) + ":",
+		string(transcript.KindText) + ":",
+	}
+	if !slices.Equal(kinds, want) {
+		t.Errorf("turns = %q, want %q", kinds, want)
+	}
+}
+
+// TestCodexRecordedRefusal: a 429 the broker answers (here a spend-limit
+// refusal, insufficient_quota) ends the real CLI's turn after one request
+// with no agent output, so the run is a runtime error. Codex does not quote
+// the refusal's message, only its status.
+func TestCodexRecordedRefusal(t *testing.T) {
+	stdout, err := os.ReadFile("testdata/codex-0.153.4-exec-429.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := NewCodex().RuntimeError(stdout, 1, false)
+	if !strings.HasPrefix(got, "codex run error: ") || !strings.Contains(got, "429") {
+		t.Errorf("RuntimeError = %q", got)
+	}
+}
+
+// TestCodexTurnUsageProperty (seeded): whatever a turn reports, fresh input,
+// cache reads and cache writes are never negative and sum to the turn's
+// input, and output is never below the reasoning figure.
+func TestCodexTurnUsageProperty(t *testing.T) {
+	prop := func(in, cached, write, out, reasoning int32) bool {
+		u := codexTurnUsage(int(in), int(cached), int(write), int(out), int(reasoning))
+		return u.fresh >= 0 && u.cacheRead >= 0 && u.cacheWrite >= 0 &&
+			u.fresh+u.cacheRead+u.cacheWrite == max(int(in), 0) &&
+			u.output >= max(int(reasoning), 0) && u.output >= max(int(out), 0)
+	}
+	cfg := &quick.Config{MaxCount: 500, Rand: rand.New(rand.NewSource(20261018))}
+	if err := quick.Check(prop, cfg); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCodexTurnUsage(t *testing.T) {
+	tests := []struct {
+		name                          string
+		in, cached, write, out, think int
+		want                          codexUsage
+	}{
+		{"split", 1000, 600, 100, 50, 10, codexUsage{fresh: 300, cacheRead: 600, cacheWrite: 100, output: 50}},
+		{"cached over input", 100, 150, 0, 1, 0, codexUsage{cacheRead: 100, output: 1}},
+		{"writes over the rest", 100, 60, 90, 1, 0, codexUsage{cacheRead: 60, cacheWrite: 40, output: 1}},
+		{"negatives", -5, -1, -1, -3, -2, codexUsage{}},
+		{"reasoning apart", 10, 0, 0, 4, 9, codexUsage{fresh: 10, output: 9}},
+	}
+	for _, tt := range tests {
+		if got := codexTurnUsage(tt.in, tt.cached, tt.write, tt.out, tt.think); got != tt.want {
+			t.Errorf("%s: %+v, want %+v", tt.name, got, tt.want)
+		}
 	}
 }

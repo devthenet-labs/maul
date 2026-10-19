@@ -1,0 +1,7 @@
+{"type":"thread.started","thread_id":"01a152a3-d587-7513-a33c-85ebd73b2853"}
+{"type":"item.completed","item":{"id":"item_0","type":"error","message":"Model metadata for `gpt-5.3-codex` not found. Defaulting to fallback metadata; this can degrade performance and cause issues."}}
+{"type":"turn.started"}
+{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"/bin/zsh -lc 'echo hello-from-tool'","aggregated_output":"","exit_code":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"/bin/zsh -lc 'echo hello-from-tool'","aggregated_output":"hello-from-tool\n","exit_code":0,"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"Done: the report is written."}}
+{"type":"turn.completed","usage":{"input_tokens":2400,"cached_input_tokens":2048,"cache_write_input_tokens":0,"output_tokens":80,"reasoning_output_tokens":24}}
