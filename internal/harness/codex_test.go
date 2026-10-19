@@ -314,7 +314,7 @@ func TestCodexRecordedStream(t *testing.T) {
 	if budget != 80 {
 		t.Errorf("ScanUsage summed %d, want 80", budget)
 	}
-	var kinds []string
+	kinds := make([]string, 0, len(turns))
 	for _, tr := range turns {
 		kinds = append(kinds, string(tr.Kind)+":"+tr.Tool)
 	}
