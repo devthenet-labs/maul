@@ -1356,6 +1356,23 @@ expect pg-none 'select((.kind == "Ingress" or .kind == "HTTPRoute") and .metadat
 expect pg-none 'select(.kind == "ConfigMap" and .metadata.name == "patchy-preview-auth-config") | .metadata.annotations."patchy.bitwisemedia.uk/preview-gateway-published-addresses"' '100.64.0.7,fd7a:115c:a1e0::7'
 expect pg 'select(.kind == "ConfigMap" and .metadata.name == "patchy-preview-auth-config") | .metadata.annotations."patchy.bitwisemedia.uk/preview-gateway-published-addresses"' null
 notes notes-pg-none -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.gateway.ingress.enabled=false --set previewAuth.gateway.forwardedHops=null
+# previewAuth.sharedSiteAcknowledged is recorded on the relay ConfigMap for
+# patchy check previews (cmd/patchy/internal/previewcheck/install.go reads it),
+# only when set, and must name the suffix or a parent of it.
+psa='select(.kind == "ConfigMap" and .metadata.name == "patchy-preview-auth-config") | .metadata.annotations."patchy.bitwisemedia.uk/preview-shared-site-acknowledged"'
+render pg-shared -f "$pf" -f "$pav" -f "$pgw" --set previewAuth.sharedSiteAcknowledged=devthe.net
+expect pg-shared "$psa" devthe.net
+expect pg "$psa" null
+render pa-shared -f "$pf" -f "$pav" --set previewAuth.sharedSiteAcknowledged=preview.patchy.devthe.net
+expect pa-shared "$psa" preview.patchy.devthe.net
+expect_fail 'shared site not over the preview suffix' 'is neither preview.hostSuffix' \
+  -f "$pf" -f "$pav" --set previewAuth.sharedSiteAcknowledged=example.com
+expect_fail 'shared site a sibling of the preview suffix' 'is neither preview.hostSuffix' \
+  -f "$pf" -f "$pav" --set previewAuth.sharedSiteAcknowledged=view.patchy.devthe.net
+if ! grep -q 'sharedSiteAnnotation = "patchy.bitwisemedia.uk/preview-shared-site-acknowledged"' \
+  cmd/patchy/internal/previewcheck/install.go; then
+  fail "sharedSiteAcknowledged: patchy check previews no longer reads the annotation the chart writes"
+fi
 notes_has notes-pg-none "none rendered. Route *.preview.patchy.devthe.net to" yes
 notes_has notes-pg-none "port 80 yourself (a tunnel, your own Ingress), terminating TLS there" yes
 # publishedAddresses is never routed by, and patchy check project compares DNS

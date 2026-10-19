@@ -57,7 +57,9 @@ var (
 	pageSignedOut = pageData{Title: "Signed out",
 		Message: "You are signed out of preview sign-in. Previews you already opened stay open until their " +
 			"own session ends."}
-	pageForbidden   = pageData{Title: "Refused", Message: "This request must come from this page."}
+	pageForbidden     = pageData{Title: "Refused", Message: "This request must come from this page."}
+	pageNotNavigation = pageData{Title: "Refused",
+		Message: "Sign-in only answers your browser opening it, never a request from inside another page."}
 	pageRateLimited = pageData{Title: "Too many requests", Message: "Slow down and try again in a moment."}
 	pageNotAllowed  = pageData{Title: "Method not allowed", Message: "Only GET and POST are served."}
 

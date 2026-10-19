@@ -107,8 +107,10 @@ func TestValidHostAgreesWithTheGateway(t *testing.T) {
 }
 
 // TestCheckHostsProperties (seeded): a sign-in host under the suffix (or
-// equal to it) is always refused; for any two valid hosts outside each
-// other, CheckHosts passes exactly when their registrable domains differ.
+// equal to it) is always refused, acknowledged or not; for any two valid
+// hosts outside each other, CheckHosts passes exactly when their
+// registrable domains differ, and acknowledged (--shared-domain) exactly
+// when the suffix has one; SharesSite is exactly that sharing.
 func TestCheckHostsProperties(t *testing.T) {
 	cfg := quickConfig(5000)
 	cfg.Values = func(args []reflect.Value, r *rand.Rand) {
@@ -126,18 +128,28 @@ func TestCheckHostsProperties(t *testing.T) {
 		args[2] = reflect.ValueOf(signIn)
 	}
 	prop := func(suffix, under, signIn string) bool {
-		if CheckHosts(suffix, under) == nil || CheckHosts(suffix, suffix) == nil {
+		if CheckHosts(suffix, under, false) == nil || CheckHosts(suffix, suffix, false) == nil ||
+			CheckHosts(suffix, under, true) == nil || CheckHosts(suffix, suffix, true) == nil {
 			t.Logf("%s: a sign-in host under or at it passed", suffix)
 			return false
 		}
 		if Under(signIn, suffix) {
-			return CheckHosts(suffix, signIn) != nil
+			return CheckHosts(suffix, signIn, false) != nil && CheckHosts(suffix, signIn, true) != nil
 		}
 		a, errA := Site(suffix)
 		b, errB := Site(signIn)
 		want := errA == nil && (errB != nil || a != b)
-		if got := CheckHosts(suffix, signIn) == nil; got != want {
+		if got := CheckHosts(suffix, signIn, false) == nil; got != want {
 			t.Logf("CheckHosts(%s, %s) passed=%v, want %v (sites %s, %s)", suffix, signIn, got, want, a, b)
+			return false
+		}
+		// Acknowledged, only the suffix's own registrable domain matters.
+		if got := CheckHosts(suffix, signIn, true) == nil; got != (errA == nil) {
+			t.Logf("CheckHosts(%s, %s, shared) passed=%v, want %v", suffix, signIn, got, errA == nil)
+			return false
+		}
+		if SharesSite(suffix, signIn) != (errA == nil && errB == nil && a == b) {
+			t.Logf("SharesSite(%s, %s) = %v (sites %s, %s)", suffix, signIn, SharesSite(suffix, signIn), a, b)
 			return false
 		}
 		return true
@@ -148,7 +160,8 @@ func TestCheckHostsProperties(t *testing.T) {
 }
 
 // TestCheckIssuerProperties (seeded): a Dex issuer on the suffix's
-// registrable domain is always refused; one on another domain passes.
+// registrable domain is refused unless acknowledged, and under the suffix
+// always; one on another domain passes.
 func TestCheckIssuerProperties(t *testing.T) {
 	cfg := quickConfig(5000)
 	cfg.Values = func(args []reflect.Value, r *rand.Rand) {
@@ -163,17 +176,22 @@ func TestCheckIssuerProperties(t *testing.T) {
 	}
 	prop := func(suffix, other, label string) bool {
 		site, _ := Site(suffix)
-		if CheckIssuer("https://"+label+"."+site, suffix) == nil {
+		if CheckIssuer("https://"+label+"."+site, suffix, false) == nil {
 			t.Logf("issuer on %s passed for suffix %s", site, suffix)
 			return false
 		}
-		if CheckIssuer("https://"+label+"."+suffix+"/dex", suffix) == nil {
+		if !Under(label+"."+site, suffix) && CheckIssuer("https://"+label+"."+site, suffix, true) != nil {
+			t.Logf("issuer on %s refused for suffix %s, acknowledged", site, suffix)
+			return false
+		}
+		if CheckIssuer("https://"+label+"."+suffix+"/dex", suffix, false) == nil ||
+			CheckIssuer("https://"+label+"."+suffix+"/dex", suffix, true) == nil {
 			return false
 		}
 		if s, _ := Site(other); s == site {
 			return true
 		}
-		if err := CheckIssuer("https://"+other+"/dex", suffix); err != nil {
+		if err := CheckIssuer("https://"+other+"/dex", suffix, false); err != nil {
 			t.Logf("issuer on %s refused for suffix %s: %v", other, suffix, err)
 			return false
 		}
@@ -202,7 +220,7 @@ func TestCheckHosts(t *testing.T) {
 		{"acme.dev", "localhost", "--sign-in-host"},
 		{"*.acme.dev", "auth.other.dev", "--host-suffix"},
 	} {
-		err := CheckHosts(tc.suffix, tc.signIn)
+		err := CheckHosts(tc.suffix, tc.signIn, false)
 		switch {
 		case tc.want == "" && err != nil:
 			t.Errorf("CheckHosts(%s, %s) = %v", tc.suffix, tc.signIn, err)
@@ -223,7 +241,7 @@ func TestCheckIssuer(t *testing.T) {
 		{"https://dex.acme-previews.dev", "sits under"},
 		{"https://dex.previews.dev", ""},
 	} {
-		err := CheckIssuer(tc.issuer, "acme-previews.dev")
+		err := CheckIssuer(tc.issuer, "acme-previews.dev", false)
 		switch {
 		case tc.want == "" && err != nil:
 			t.Errorf("CheckIssuer(%s) = %v", tc.issuer, err)
@@ -231,9 +249,40 @@ func TestCheckIssuer(t *testing.T) {
 			t.Errorf("CheckIssuer(%s) = %v, want %q", tc.issuer, err, tc.want)
 		}
 	}
-	if err := CheckIssuer("https://dex.acme.dev", "previews.acme.dev"); err == nil ||
-		!strings.Contains(err.Error(), "registrable domain acme.dev") {
+	if err := CheckIssuer("https://dex.acme.dev", "previews.acme.dev", false); err == nil ||
+		!strings.Contains(err.Error(), "registrable domain acme.dev") ||
+		!strings.Contains(err.Error(), "--shared-domain acknowledged") {
 		t.Errorf("an issuer same-site with the suffix: %v", err)
+	}
+	if err := CheckIssuer("https://dex.acme.dev", "previews.acme.dev", true); err != nil {
+		t.Errorf("an issuer same-site with the suffix, acknowledged: %v", err)
+	}
+}
+
+// TestCheckHostsShared: the owner's one-domain install passes once
+// acknowledged; a sign-in host under the suffix never does.
+func TestCheckHostsShared(t *testing.T) {
+	for _, tc := range []struct {
+		suffix, signIn, want string
+	}{
+		{"preview.patchy.devthe.net", "preview-auth.patchy.devthe.net", ""},
+		{"previews.devthe.net", "devthe.net", ""},
+		{"acme-previews.dev", "preview-auth.patchy.acme.dev", ""},
+		{"previews.devthe.net", "auth.previews.devthe.net", "sits under"},
+		{"devthe.net", "auth.devthe.net", "sits under"},
+		{"co.uk", "auth.acme.dev", "no registrable domain"},
+	} {
+		err := CheckHosts(tc.suffix, tc.signIn, true)
+		switch {
+		case tc.want == "" && err != nil:
+			t.Errorf("CheckHosts(%s, %s, shared) = %v", tc.suffix, tc.signIn, err)
+		case tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)):
+			t.Errorf("CheckHosts(%s, %s, shared) = %v, want %q", tc.suffix, tc.signIn, err, tc.want)
+		}
+	}
+	if err := CheckHosts("preview.patchy.devthe.net", "preview-auth.patchy.devthe.net", false); err == nil ||
+		!strings.Contains(err.Error(), "--shared-domain acknowledged") {
+		t.Errorf("an unacknowledged shared domain does not name the flag: %v", err)
 	}
 }
 

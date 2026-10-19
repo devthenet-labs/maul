@@ -97,9 +97,10 @@ func TestCheckCloudflareDepth(t *testing.T) {
 	}
 }
 
-// TestCloudflareOneDomainRefused (owner decision Q3): previews and sign-in
-// on one registrable domain are refused on Cloudflare too, with the second
-// domain as the way out; no flag lets it through.
+// TestCloudflareOneDomainRefused (owner decision Q3, as revised 2026-10-18:
+// a shared domain is allowed, acknowledged): previews and sign-in on one
+// registrable domain are refused on Cloudflare without --shared-domain,
+// naming both ways out, the second domain and the acknowledgement.
 func TestCloudflareOneDomainRefused(t *testing.T) {
 	for _, acm := range []bool{false, true} {
 		a := cloudflareAnswers()
@@ -108,9 +109,39 @@ func TestCloudflareOneDomainRefused(t *testing.T) {
 		a.Cloudflare.AdvancedCertificates = acm
 		err := a.Validate()
 		if err == nil || !strings.Contains(err.Error(), "share the registrable domain acme.dev") ||
-			!strings.Contains(err.Error(), "a second, cheap domain") {
+			!strings.Contains(err.Error(), "a second, cheap domain") ||
+			!strings.Contains(err.Error(), "--shared-domain acknowledged") {
 			t.Errorf("acm %v: one domain: %v", acm, err)
 		}
+	}
+}
+
+// TestCloudflareSharedDomain: acknowledged, one registrable domain needs
+// Advanced Certificate Manager on Cloudflare, since every preview host is
+// then a second-level name; with it, it passes.
+func TestCloudflareSharedDomain(t *testing.T) {
+	a := cloudflareAnswers()
+	a.HostSuffix, a.SignInHost = "previews.acme.dev", "preview-auth.acme.dev"
+	a.Dex.Issuer = "https://dex.acme.dev"
+	a.SharedDomainAck = SharedDomainAcknowledged
+	err := a.Validate()
+	if err == nil || !strings.Contains(err.Error(), "--shared-domain acknowledged with --edge cloudflare-tunnel") ||
+		!strings.Contains(err.Error(), "--cloudflare-acm") || strings.Contains(err.Error(), "--sign-in-host") ||
+		!strings.Contains(err.Error(), "the sign-in host or Dex is on") {
+		t.Errorf("shared domain without ACM: %v", err)
+	}
+	a.SignInHost = "sign-in.patchy.acme.dev"
+	if err := a.Validate(); err == nil || !strings.Contains(err.Error(), "--sign-in-host sign-in.patchy.acme.dev "+
+		"is more than one label below") {
+		t.Errorf("shared domain without ACM, deep sign-in host: %v", err)
+	}
+	a.SignInHost = "preview-auth.acme.dev"
+	a.Cloudflare.AdvancedCertificates = true
+	if err := a.Validate(); err != nil {
+		t.Errorf("shared domain with ACM: %v", err)
+	}
+	if got := a.SharedSite(); got != "acme.dev" {
+		t.Errorf("SharedSite = %q, want acme.dev", got)
 	}
 }
 

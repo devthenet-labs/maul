@@ -102,9 +102,16 @@ func newSetupPreviewsCmd(opts *Options) *cobra.Command {
 			"names only, so the --host-suffix must be a registrable domain itself and the\n" +
 			"--sign-in-host at most one label below its own, unless --cloudflare-acm says the zones\n" +
 			"have Advanced Certificate Manager.\n\n" +
-			"Previews must sit on a registrable domain of their own: a --sign-in-host or --dex-issuer\n" +
-			"on the --host-suffix's registrable domain is refused, because preview code would run\n" +
-			"same-site with sign-in. With only one domain, register a second, cheap one for previews.\n\n" +
+			"Previews are best on a registrable domain of their own: a --sign-in-host or --dex-issuer\n" +
+			"on the --host-suffix's registrable domain is refused unless you accept it with\n" +
+			"--shared-domain acknowledged (on a terminal the command explains and asks), because\n" +
+			"preview code then runs same-site with sign-in. patchy's own side holds (its cookies are\n" +
+			"__Host-, its sign-in endpoints and the status page's writes refuse same-site background\n" +
+			"requests); what does not is\n" +
+			"every other app on that domain, which must not rely on parent-domain cookies or on\n" +
+			"SameSite for CSRF. The chart values then record the domain\n" +
+			"(previewAuth.sharedSiteAcknowledged), and patchy check previews reports the sharing as\n" +
+			"INFO. A sign-in host under the --host-suffix is refused however acknowledged.\n\n" +
 			"A re-run starts from answers.yaml; flags given override it. It shows how each file would\n" +
 			"change and writes nothing changed without --force or -y (on a terminal it asks). The\n" +
 			"Dex client secret is read back\n" +
@@ -131,7 +138,10 @@ func newSetupPreviewsCmd(opts *Options) *cobra.Command {
 	fl.StringVar((*string)(&a.Platform), "platform", "", "the cluster: "+strings.Join(previewsetup.Platforms(), ", "))
 	fl.StringVar((*string)(&a.Edge), "edge", "", "how previews reach viewers: "+strings.Join(previewsetup.Edges(), ", "))
 	fl.StringVar(&a.HostSuffix, "host-suffix", "", "previews are https://<label>.<host suffix>: a domain of their own")
-	fl.StringVar(&a.SignInHost, "sign-in-host", "", "where viewers sign in, on another registrable domain")
+	fl.StringVar(&a.SignInHost, "sign-in-host", "", "where viewers sign in, on another registrable domain "+
+		"unless --shared-domain")
+	fl.StringVar(&a.SharedDomainAck, "shared-domain", "", "acknowledged: accept the sign-in host or Dex on the "+
+		"--host-suffix's registrable domain, preview code then running same-site with them (\"\" withdraws it)")
 	fl.StringVar(&a.Dex.Issuer, "dex-issuer", "", "your Dex's issuer URL (https)")
 	fl.StringVar(&a.Dex.Namespace, "dex-namespace", a.Dex.Namespace, "the namespace Dex runs in")
 	fl.StringVar(&a.Dex.ClientID, "dex-client-id", a.Dex.ClientID, "the relay's static client at Dex")
@@ -210,6 +220,8 @@ func newSetupPreviewsCmd(opts *Options) *cobra.Command {
 	_ = cmd.RegisterFlagCompletionFunc("edge-tls", fixedCompletion([]string{
 		previewsetup.TLSCertificate, previewsetup.TLSEdge}))
 	_ = cmd.RegisterFlagCompletionFunc("rotate", fixedCompletion([]string{previewsetup.RotateDexClientSecret}))
+	_ = cmd.RegisterFlagCompletionFunc("shared-domain", fixedCompletion([]string{
+		previewsetup.SharedDomainAcknowledged}))
 	_ = cmd.RegisterFlagCompletionFunc("dns", fixedCompletion(previewsetup.DNSProviders()))
 	for _, name := range []string{"host-suffix", "sign-in-host", "dex-issuer", "dex-namespace", "dex-client-id",
 		"viewer-team", "viewer-user", "registry", "image-path-prefix", "node-label", "eks-auto-mode", "taint-key",
@@ -236,6 +248,7 @@ func answerFlags(dst *previewsetup.Answers, src previewsetup.Answers) map[string
 		},
 		"host-suffix":       func() { dst.HostSuffix = src.HostSuffix },
 		"sign-in-host":      func() { dst.SignInHost = src.SignInHost },
+		"shared-domain":     func() { dst.SharedDomainAck = src.SharedDomainAck },
 		"dex-issuer":        func() { dst.Dex.Issuer = src.Dex.Issuer },
 		"dex-namespace":     func() { dst.Dex.Namespace = src.Dex.Namespace },
 		"dex-client-id":     func() { dst.Dex.ClientID = src.Dex.ClientID },

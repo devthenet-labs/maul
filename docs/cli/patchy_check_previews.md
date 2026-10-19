@@ -5,9 +5,10 @@ Check that the preview install is ready, before any Project uses it
 ### Synopsis
 
 Check the preview install in the release namespace (-n) from your workstation,
-before any Project uses it: one line per check, PASS, FAIL, WARN or SKIP, then
-the reason. check project judges one Project's previews; this judges what
-every Project's previews stand on, with the same checks where they overlap.
+before any Project uses it: one line per check, PASS, FAIL, WARN, INFO or
+SKIP, then the reason. check project judges one Project's previews; this
+judges what every Project's previews stand on, with the same checks where
+they overlap.
 
 preview-config reads the controllers' ConfigMaps: previews and sign-in are
 on and agree on the host suffix, the preview gateway alone serves preview
@@ -15,7 +16,10 @@ hosts (the legacy load balancer path still serving is a WARN, and serving
 without sign-in, previewAuth.stage permit, a FAIL), the sign-in
 host sits outside the suffix, and the suffix is a registrable domain of its
 own, shared with neither the sign-in host, the relay's issuer nor Dex (a
-WARN: preview code would run same-site with sign-in).
+WARN: preview code would run same-site with sign-in). Once the chart's
+previewAuth.sharedSiteAcknowledged names that registrable domain (setup
+previews --shared-domain acknowledged writes it), the sharing is INFO
+instead. INFO, like WARN, never fails the run.
 
 preview-dns, preview-tls, preview-auth, preview-auth-dex, preview-auth-host and
 preview-gateway-allowlist are check project's, asked of

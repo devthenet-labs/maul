@@ -356,6 +356,23 @@ func TestInstallConfigWarns(t *testing.T) {
 		"Ingress serve", "shares its registrable domain acme.test with preview-auth.acme.test, dex.acme.test")
 }
 
+// TestInstallConfigSharedSiteAcknowledged: a shared registrable domain the
+// chart's previewAuth.sharedSiteAcknowledged names is INFO, read from the
+// relay ConfigMap's annotation.
+func TestInstallConfigSharedSiteAcknowledged(t *testing.T) {
+	w := newInstallWorld()
+	w.setting("patchy-preview-controller", keyPreviewHostSuffix, "previews.acme.test")
+	w.setting("patchy-preview-auth-config", keyAuthHostSuffix, "previews.acme.test")
+	for _, o := range w.objs {
+		if cm, ok := o.(*corev1.ConfigMap); ok && cm.Name == "patchy-preview-auth-config" {
+			cm.Annotations = map[string]string{sharedSiteAnnotation: "acme.test"}
+		}
+	}
+	r := w.run(t, interceptor.Funcs{})
+	expect(t, r.Checks, CheckPreviewConfig, checkreport.Info, "shares its registrable domain acme.test with "+
+		"preview-auth.acme.test, dex.acme.test, acknowledged")
+}
+
 // TestProbeProject: the install-level probe host is the relay's own.
 func TestProbeProject(t *testing.T) {
 	if ProbeProject+"-0" != previewauth.UnknownProbeLabel {
@@ -397,6 +414,22 @@ func TestJudgeConfig(t *testing.T) {
 			[]string{"has no registrable domain of its own"}},
 		{"shared with dex", func(in *configInput) { in.dexIssuer = "https://dex." + iSuffix + ":8443" },
 			checkreport.Warn, []string{"shares its registrable domain " + iSuffix + " with dex." + iSuffix}},
+		{"shared, acknowledged", func(in *configInput) {
+			in.suffix, in.authSuffix, in.sharedSite = "previews.acme.test", "previews.acme.test", "acme.test"
+		}, checkreport.Info, []string{"shares its registrable domain acme.test with preview-auth.acme.test, " +
+			"dex.acme.test, acknowledged", "no other app on acme.test may rely on parent-domain cookies"}},
+		{"shared, another domain acknowledged", func(in *configInput) {
+			in.suffix, in.authSuffix, in.sharedSite = "previews.acme.test", "previews.acme.test", "previews.acme.test"
+		}, checkreport.Warn, []string{"names previews.acme.test, not acme.test"}},
+		{"shared, unacknowledged", func(in *configInput) {
+			in.suffix, in.authSuffix = "previews.acme.test", "previews.acme.test"
+		}, checkreport.Warn, []string{"or accept it with previewAuth.sharedSiteAcknowledged: acme.test"}},
+		{"acknowledged, nothing shared", func(in *configInput) { in.sharedSite = iSuffix }, checkreport.Info,
+			[]string{"the acknowledgement is unused"}},
+		{"acknowledged with a warning", func(in *configInput) {
+			in.suffix, in.authSuffix, in.sharedSite = "previews.acme.test", "previews.acme.test", "acme.test"
+			in.legacy, in.required = true, true
+		}, checkreport.Warn, []string{"set preview.legacyIngress false", "acknowledged"}},
 		{"fail and warn", func(in *configInput) {
 			in.authSuffix, in.gateway, in.legacy, in.required = "other.test", false, true, true
 		}, checkreport.Fail, []string{"is not preview-controller's", "; the preview gateway is off"}},
@@ -430,6 +463,20 @@ func TestJudgeConfigPrivateSuffix(t *testing.T) {
 	}
 }
 
+// TestJudgeConfigSuffixIsTheSite pins the shared-site property's shrunk
+// counterexample: z7cn7.de.com is its own registrable domain (de.com is a
+// public suffix), so a sign-in host "sharing" it is under the suffix, a
+// FAIL however the shared site is acknowledged.
+func TestJudgeConfigSuffixIsTheSite(t *testing.T) {
+	for _, ack := range []string{"", "z7cn7.de.com"} {
+		v := judgeConfig(configInput{suffix: "z7cn7.de.com", issuer: "https://auth.m.net", signIn: "y6.z7cn7.de.com",
+			dexIssuer: "https://dex.m.net", gateway: true, sharedSite: ack})
+		if v.status != checkreport.Fail || !strings.Contains(v.reason, "sits under the preview host suffix") {
+			t.Errorf("acknowledged %q: judgeConfig = %+v, want FAIL for a sign-in host under the suffix", ack, v)
+		}
+	}
+}
+
 // randLabel is a lowercase DNS label.
 func randLabel(r *rand.Rand) string {
 	const chars = "abcdefghijklmnopqrstuvwxyz0123456789"
@@ -451,7 +498,8 @@ func randDomain(r *rand.Rand) string {
 // always fails; previews on their own registrable domain, with sign-in and
 // Dex on another and the gateway alone serving, always pass; and a sign-in
 // host sharing the suffix's registrable domain (as publicsuffix decides it),
-// outside it, never passes.
+// outside it, warns, unless that very domain is acknowledged, when it is
+// INFO (another domain acknowledged still warns).
 func TestJudgeConfigProperties(t *testing.T) {
 	cfg := quickConfig(5000)
 	cfg.Values = func(args []reflect.Value, r *rand.Rand) {
@@ -487,8 +535,25 @@ func TestJudgeConfigProperties(t *testing.T) {
 		}
 		shared := ok
 		shared.signIn = b + "." + reg
-		if v := judgeConfig(shared); v.status == checkreport.Pass {
+		if reg == ok.suffix {
+			// The suffix is its own registrable domain (de.com is a public
+			// suffix), so b.<reg> is under it: the case above, a FAIL
+			// (TestJudgeConfigSuffixIsTheSite).
+			return judgeConfig(shared).status == checkreport.Fail
+		}
+		if v := judgeConfig(shared); v.status != checkreport.Warn {
 			t.Logf("shared: %+v -> %+v", shared, v)
+			return false
+		}
+		acked := shared
+		acked.sharedSite = reg
+		if v := judgeConfig(acked); v.status != checkreport.Info {
+			t.Logf("shared, acknowledged: %+v -> %+v", acked, v)
+			return false
+		}
+		acked.sharedSite = other
+		if v := judgeConfig(acked); v.status != checkreport.Warn {
+			t.Logf("shared, another domain acknowledged: %+v -> %+v", acked, v)
 			return false
 		}
 		return true

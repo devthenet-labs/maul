@@ -617,3 +617,71 @@ func TestServiceWorkerScript(t *testing.T) {
 		t.Error("IsServiceWorkerScript misreads the header")
 	}
 }
+
+// TestCheckNavigationProperty: the sign-in host's rule as an independent
+// statement. A request passes exactly when it is not from another site, or
+// is a top-level navigation; the method and every other header are
+// irrelevant.
+func TestCheckNavigationProperty(t *testing.T) {
+	sites := []string{"", "same-origin", "same-site", "cross-site", "none", "Same-Site", "CROSS-SITE", "bogus"}
+	modes := []string{"", "navigate", "cors", "no-cors", "websocket", "same-origin", "Navigate", "NAVIGATE"}
+	dests := []string{"", "document", "iframe", "image", "empty", "script", "Document", "frame"}
+	cfg := quickConfig(20000)
+	cfg.Values = func(args []reflect.Value, rnd *rand.Rand) {
+		h := http.Header{}
+		set := func(k string, vals []string) {
+			if v := vals[rnd.Intn(len(vals))]; v != "" {
+				h.Set(k, v)
+			}
+		}
+		set("Sec-Fetch-Site", sites)
+		set("Sec-Fetch-Mode", modes)
+		set("Sec-Fetch-Dest", dests)
+		if rnd.Intn(2) == 0 {
+			h.Set("Origin", "https://demo."+testSuffix)
+		}
+		if rnd.Intn(2) == 0 {
+			h.Set("Accept", "text/html")
+		}
+		args[0] = reflect.ValueOf(h)
+	}
+	prop := func(h http.Header) bool {
+		site := strings.ToLower(h.Get("Sec-Fetch-Site"))
+		nav := strings.ToLower(h.Get("Sec-Fetch-Mode")) == "navigate" &&
+			strings.ToLower(h.Get("Sec-Fetch-Dest")) == "document"
+		want := site != "same-site" && site != "cross-site" || nav
+		err := CheckNavigation(h)
+		return (err == nil) == want && (err == nil || err == ErrNotNavigation)
+	}
+	if err := quick.Check(prop, cfg); err != nil {
+		t.Error(err)
+	}
+}
+
+// TestCheckNavigationExamples pins what a preview page on the sign-in host's
+// registrable domain can send it: every background request is refused,
+// and the redirects of a real sign-in pass.
+func TestCheckNavigationExamples(t *testing.T) {
+	hdr := func(site, mode, dest string) http.Header {
+		return http.Header{"Sec-Fetch-Site": {site}, "Sec-Fetch-Mode": {mode}, "Sec-Fetch-Dest": {dest}}
+	}
+	for name, tc := range map[string]struct {
+		h    http.Header
+		pass bool
+	}{
+		"same-site fetch":           {hdr("same-site", "cors", "empty"), false},
+		"same-site no-cors fetch":   {hdr("same-site", "no-cors", "empty"), false},
+		"same-site image":           {hdr("same-site", "no-cors", "image"), false},
+		"same-site iframe":          {hdr("same-site", "navigate", "iframe"), false},
+		"cross-site iframe":         {hdr("cross-site", "navigate", "iframe"), false},
+		"same-site navigation":      {hdr("same-site", "navigate", "document"), true},
+		"cross-site navigation":     {hdr("cross-site", "navigate", "document"), true},
+		"typed into the address":    {hdr("none", "navigate", "document"), true},
+		"the relay's own form post": {hdr("same-origin", "navigate", "document"), true},
+		"no Sec-Fetch headers":      {http.Header{}, true},
+	} {
+		if got := CheckNavigation(tc.h) == nil; got != tc.pass {
+			t.Errorf("%s: passed %v, want %v", name, got, tc.pass)
+		}
+	}
+}

@@ -23,6 +23,17 @@ sealed-secrets) before they go anywhere else; never commit them as they are.
 - patchy is installed in namespace `{{.Namespace}}` as release `{{.Release}}`, with `intentController.enabled: true`
   in your values: previews are built for intents, and the preview-controller needs intent-controller.
 - NetworkPolicy is enforced. {{.NetworkPolicy}}
+{{- if .SharedSite}}
+- You accepted previews on `{{.SharedSite}}`, the registrable domain {{.SharedWith}} {{if .SharedBoth}}are{{else}}is{{end}} on
+  (`--shared-domain acknowledged`), so preview code runs same-site, never same-origin, with {{if .SharedBoth}}them{{else}}it{{end}}.
+  patchy's own side holds: its cookies are `__Host-` (no preview can set or overwrite one) and its sign-in endpoints
+  refuse a same-site request that is not a top-level navigation. What it cannot hold is every other app on
+  `{{.SharedSite}}`: a preview can set cookies for all of `{{.SharedSite}}` and send same-site requests, so no app there
+  may rely on a parent-domain cookie or on SameSite for CSRF{{if .SharedDex}}, Dex included (its cookies and forms are
+  its own){{end}}. The values file records the domain (`previewAuth.sharedSiteAcknowledged: {{.SharedSite}}`), and
+  `patchy check previews` reports the sharing as INFO. See "Previews on the sign-in host's domain" in
+  `docs/configuration/preview-gateway.md`.
+{{- end}}
 {{- if .GatewayCert}}
 - {{if .CertManager}}cert-manager is installed in step 5 from `{{.CertManager.ValuesFile}}` (chart {{.CertManager.Version}}),
   unless it already runs: then run the command again with `--cert-manager-installed`.{{else}}cert-manager runs in the
@@ -38,10 +49,16 @@ sealed-secrets) before they go anywhere else; never commit them as they are.
   ACME DNS-01 challenge for both `*.{{.Suffix}}` and `{{.SignIn}}` (`--dns manual`).
 {{- end}}
 {{- else if .Cloudflare}}
+{{- if .SignInShared}}
+- Both names sit on the zone `{{.SuffixSite}}` in your Cloudflare account, the registrable domain you accepted previews
+  sharing with sign-in (above). The sign-in host must stay outside `{{.Suffix}}`, so every preview host is a
+  second-level name, which only an advanced certificate covers (`--cloudflare-acm`, step 5).
+{{- else}}
 - Both names sit on zones in your Cloudflare account: `{{.SuffixSite}}` for the previews and `{{.SignInSite}}` for the
-  sign-in host. They are two registrable domains by design (preview code must never be same-site with sign-in): with
-  only one domain, register a second, cheap one for previews. A preview suffix that is a whole zone is also what lets
-  Cloudflare's free certificate cover the previews.
+  sign-in host. Two registrable domains keep preview code off sign-in's site; with only one domain, register a second,
+  cheap one for previews, or accept sharing it with `--shared-domain acknowledged`. A preview suffix that is a whole
+  zone is also what lets Cloudflare's free certificate cover the previews.
+{{- end}}
 - The locally-managed tunnel `{{.TunnelID}}` exists. You created it on your workstation, where its login certificate
   stays (`cert.pem` never enters the cluster):
 
@@ -56,8 +73,9 @@ sealed-secrets) before they go anywhere else; never commit them as they are.
 {{- else if .Certificate}}
 - cert-manager runs in the cluster, and the {{.IssuerKind}} `{{.IssuerName}}`{{if eq .IssuerKind "Issuer"}} in
   namespace `{{.Namespace}}`{{end}} can answer an ACME DNS-01 challenge for both `*.{{.Suffix}}` and `{{.SignIn}}`
-  (a wildcard needs DNS-01). The two names sit on different registrable domains, so usually in two DNS zones: the
-  solver's credential must answer for both. See "The wildcard certificate" in
+  (a wildcard needs DNS-01). {{if .SignInShared}}Both names sit on `{{.SharedSite}}`, usually in one DNS zone (two if
+  `{{.Suffix}}` is delegated): the solver's credential must answer for each.{{else}}The two names sit on different registrable domains, so usually in two DNS zones: the
+  solver's credential must answer for both.{{end}} See "The wildcard certificate" in
   `docs/configuration/preview-gateway.md` for an Issuer to start from.
 {{- end}}
 
@@ -145,8 +163,10 @@ kubectl apply -f {{.CertificateFile}}
 kubectl -n {{.Namespace}} wait certificate/{{.CertificateName}} --for=condition=Ready --timeout=10m
 ```
 
-`previewAuth.gateway.tls.secrets` names its Secret, `{{.CertificateSecret}}`. The two names sit on different
-registrable domains, so usually in two DNS zones: the solver must be able to answer for both.
+`previewAuth.gateway.tls.secrets` names its Secret, `{{.CertificateSecret}}`.{{if .SignInShared}} Both names sit on
+`{{.SharedSite}}`, usually in one DNS zone (two if `{{.Suffix}}` is delegated): the solver must be able to answer for
+each.{{else}} The two names sit on different
+registrable domains, so usually in two DNS zones: the solver must be able to answer for both.{{end}}
 {{- else if .Cloudflare -}}
 Cloudflare's edge holds both certificates; nothing in the cluster does, and cloudflared reaches the gateway inside the
 cluster over plain HTTP.
@@ -315,7 +335,8 @@ that also appends `X-Forwarded-For`, it is 2.
 patchy check previews -n {{.Namespace}}
 ```
 
-Every line should PASS before the first intent's preview is opened.
+Every line should PASS before the first intent's preview is opened{{if .SharedSite}}, but for `preview-config`, which
+is INFO: it restates the shared domain you accepted{{end}}.
 
 ## Rolling back
 

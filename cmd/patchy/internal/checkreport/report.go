@@ -23,12 +23,15 @@ type Status string
 // The outcomes. Only Fail makes the check as a whole fail; Skip means the
 // check could not or need not run, and its reason says which; Warn means it
 // ran and found something that works but is weaker than it should be, which
-// the reason names (only `check previews` reports it so far).
+// the reason names (only `check previews` reports it so far); Info means it
+// ran and found something the operator has explicitly accepted, which the
+// reason restates (only `check previews` reports it).
 const (
 	Pass Status = "PASS"
 	Fail Status = "FAIL"
 	Skip Status = "SKIP"
 	Warn Status = "WARN"
+	Info Status = "INFO"
 )
 
 // Line is one check as the table prints it.

@@ -139,8 +139,8 @@ func newGateway(s *Server, cfg GatewayConfig) *gateway {
 	g.proxy = g.newProxy()
 	if !g.sharedHost {
 		mux := http.NewServeMux()
-		mux.HandleFunc("/start", s.only(http.MethodGet, g.handleStart))
-		mux.HandleFunc("/dex/callback", s.only(http.MethodGet, g.handleSignInCallback))
+		mux.HandleFunc("/start", s.only(http.MethodGet, s.navigation(g.handleStart)))
+		mux.HandleFunc("/dex/callback", s.only(http.MethodGet, s.navigation(g.handleSignInCallback)))
 		mux.HandleFunc("/logout", s.only(http.MethodPost, s.handleLogout))
 		mux.HandleFunc("/", s.handleRoot)
 		g.signIn = s.envelope(mux, g.limiter)

@@ -160,6 +160,9 @@ func commonValues(a Answers) values {
 	pa := v.at("previewAuth")
 	pa["enabled"] = true
 	pa["host"] = a.SignInHost
+	if site := a.SharedSite(); site != "" {
+		pa["sharedSiteAcknowledged"] = site
+	}
 	dex := v.at("previewAuth", "dex")
 	dex["issuerURL"] = a.Dex.Issuer
 	dex["clientID"] = a.Dex.ClientID

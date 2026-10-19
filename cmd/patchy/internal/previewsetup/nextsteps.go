@@ -57,6 +57,15 @@ type nextSteps struct {
 	TailscaleAddresses                 []string
 	TailscalePolicy                    string
 
+	// SharedSite is the registrable domain previews share with sign-in,
+	// acknowledged ("" for none); SharedWith names what shares it, the
+	// sign-in host, Dex or both (SharedBoth), and SharedDex says Dex does.
+	SharedSite, SharedWith string
+	// SignInShared is whether the sign-in host itself is on SharedSite, so
+	// that one zone serves both names; Dex alone sharing leaves two.
+	SignInShared          bool
+	SharedBoth, SharedDex bool
+
 	// The cloudflare-tunnel recipe: cloudflared and Cloudflare's edge.
 	Cloudflare, AdvancedCertificates             bool
 	SuffixSite, SignInSite, TunnelID, TunnelName string
@@ -109,6 +118,7 @@ func renderNextSteps(a Answers, recipeFiles, secrets []File) ([]byte, error) {
 	for _, p := range paths {
 		d.Files = append(d.Files, fileEntry{Path: p, What: fileWhat[p]})
 	}
+	sharedSiteSteps(a, &d)
 	if a.GatewayTerminatesTLS() {
 		gatewayCertSteps(a, &d, paths)
 	}
@@ -134,6 +144,24 @@ func renderNextSteps(a Answers, recipeFiles, secrets []File) ([]byte, error) {
 		return nil, fmt.Errorf("render %s: %w", NextStepsFile, err)
 	}
 	return buf.Bytes(), nil
+}
+
+// sharedSiteSteps fills NEXT-STEPS.md's data for an acknowledged shared
+// registrable domain: what shares it.
+func sharedSiteSteps(a Answers, d *nextSteps) {
+	if d.SharedSite = a.SharedSite(); d.SharedSite == "" {
+		return
+	}
+	var with []string
+	if SharesSite(a.HostSuffix, a.SignInHost) {
+		with = append(with, "the sign-in host `"+a.SignInHost+"`")
+		d.SignInShared = true
+	}
+	if dex := issuerHost(a.Dex.Issuer); SharesSite(a.HostSuffix, dex) {
+		with = append(with, "Dex (`"+dex+"`)")
+		d.SharedDex = true
+	}
+	d.SharedWith, d.SharedBoth = strings.Join(with, " and "), len(with) > 1
 }
 
 // gatewayCertSteps fills NEXT-STEPS.md's data for the recipes in which the

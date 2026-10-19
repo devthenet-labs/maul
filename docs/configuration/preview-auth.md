@@ -220,7 +220,11 @@ preview hosts keep theirs until it ends.
 The sign-in host is the issuer's by default, sharing its `/dex/callback`. A sign-in host of its own needs
 `https://<sign-in host>/dex/callback` registered at Dex for the same client, serves only `/start`, `/dex/callback`, `/`
 and `/logout`, and must sit outside the host suffix. Put the host suffix on a different registrable domain from the
-sign-in host and the status page.
+sign-in host and the status page, or accept sharing one
+([Previews on the sign-in host's domain](preview-gateway.md#previews-on-the-sign-in-hosts-domain)). On every sign-in
+host, `/authorize`, `/start` and `/dex/callback` refuse a request from another site that is not a top-level navigation
+(`Sec-Fetch-Site` `same-site` or `cross-site` without `Sec-Fetch-Mode: navigate` and `Sec-Fetch-Dest: document`) with a
+`403` page.
 
 | Cookie                       | Host             | Attributes                                         | Holds                                                                               |
 | ---------------------------- | ---------------- | -------------------------------------------------- | ----------------------------------------------------------------------------------- |

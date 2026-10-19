@@ -111,9 +111,13 @@ type Answers struct {
 	// https://<label>.<HostSuffix>.
 	HostSuffix string `json:"hostSuffix"`
 	// SignInHost is where viewers sign in: previewAuth.host, outside the
-	// suffix and on another registrable domain.
+	// suffix and on another registrable domain unless SharedDomainAck.
 	SignInHost string `json:"signInHost"`
-	Dex        Dex    `json:"dex"`
+	// SharedDomainAck is --shared-domain: SharedDomainAcknowledged when the
+	// operator accepts the sign-in host or Dex on the suffix's registrable
+	// domain, preview code then running same-site with them.
+	SharedDomainAck string `json:"sharedDomain,omitempty"`
+	Dex             Dex    `json:"dex"`
 	// Viewers are previewAuth.viewers. Empty needs NoViewers: an empty
 	// list refuses every sign-in.
 	Viewers   Viewers `json:"viewers"`

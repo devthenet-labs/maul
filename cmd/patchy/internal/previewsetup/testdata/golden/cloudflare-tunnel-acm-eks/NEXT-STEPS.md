@@ -27,9 +27,9 @@ sealed-secrets) before they go anywhere else; never commit them as they are.
   in your values: previews are built for intents, and the preview-controller needs intent-controller.
 - NetworkPolicy is enforced. On EKS, turn on the VPC CNI's network policy support (on Auto Mode, `enable-network-policy-controller: "true"` in the `amazon-vpc-cni` ConfigMap in kube-system), or run a CNI that enforces it.
 - Both names sit on zones in your Cloudflare account: `acme-apps.dev` for the previews and `acme.dev` for the
-  sign-in host. They are two registrable domains by design (preview code must never be same-site with sign-in): with
-  only one domain, register a second, cheap one for previews. A preview suffix that is a whole zone is also what lets
-  Cloudflare's free certificate cover the previews.
+  sign-in host. Two registrable domains keep preview code off sign-in's site; with only one domain, register a second,
+  cheap one for previews, or accept sharing it with `--shared-domain acknowledged`. A preview suffix that is a whole
+  zone is also what lets Cloudflare's free certificate cover the previews.
 - The locally-managed tunnel `6ff42ae2-765d-4adf-8112-31c55c1551ef` exists. You created it on your workstation, where its login certificate
   stays (`cert.pem` never enters the cluster):
 

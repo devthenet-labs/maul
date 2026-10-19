@@ -32,16 +32,20 @@ func newCheckPreviewsCmd(opts *Options) *cobra.Command {
 		Use:   "previews",
 		Short: "Check that the preview install is ready, before any Project uses it",
 		Long: "Check the preview install in the release namespace (-n) from your workstation,\n" +
-			"before any Project uses it: one line per check, PASS, FAIL, WARN or SKIP, then\n" +
-			"the reason. check project judges one Project's previews; this judges what\n" +
-			"every Project's previews stand on, with the same checks where they overlap.\n\n" +
+			"before any Project uses it: one line per check, PASS, FAIL, WARN, INFO or\n" +
+			"SKIP, then the reason. check project judges one Project's previews; this\n" +
+			"judges what every Project's previews stand on, with the same checks where\n" +
+			"they overlap.\n\n" +
 			"preview-config reads the controllers' ConfigMaps: previews and sign-in are\n" +
 			"on and agree on the host suffix, the preview gateway alone serves preview\n" +
 			"hosts (the legacy load balancer path still serving is a WARN, and serving\n" +
 			"without sign-in, previewAuth.stage permit, a FAIL), the sign-in\n" +
 			"host sits outside the suffix, and the suffix is a registrable domain of its\n" +
 			"own, shared with neither the sign-in host, the relay's issuer nor Dex (a\n" +
-			"WARN: preview code would run same-site with sign-in).\n\n" +
+			"WARN: preview code would run same-site with sign-in). Once the chart's\n" +
+			"previewAuth.sharedSiteAcknowledged names that registrable domain (setup\n" +
+			"previews --shared-domain acknowledged writes it), the sharing is INFO\n" +
+			"instead. INFO, like WARN, never fails the run.\n\n" +
 			"preview-dns, preview-tls, preview-auth, preview-auth-dex, preview-auth-host and\n" +
 			"preview-gateway-allowlist are check project's, asked of\n" +
 			"patchy-probe-0.<host suffix> (the relay's own probe host, which no Preview\n" +

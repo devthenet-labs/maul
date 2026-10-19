@@ -101,12 +101,15 @@ then shares nodes with everything else. Keep the default `required` wherever you
 
 Rules that hold on every platform:
 
-- **The host suffix gets a registrable domain of its own.** Put `*.<hostSuffix>` on a different registrable domain from
-  the sign-in host and the status page (`preview.acme-apps.dev` beside `patchy.acme.dev`). Every preview host is
-  same-site with every other, and only the gateway's `__Host-` cookies and its origin rules keep them apart. The chart
-  does not enforce this; `patchy check previews` WARNs (its `preview-config` line) when the suffix shares a registrable
-  domain with the sign-in host, the relay's issuer or Dex. The [Public Suffix List](https://publicsuffix.org/) decides
-  what is registrable: `acme-apps.dev` is, and so is `acme.github.io`, because `github.io` is a public suffix.
+- **The host suffix gets a registrable domain of its own, unless you accept sharing one.** Put `*.<hostSuffix>` on a
+  different registrable domain from the sign-in host and the status page (`preview.acme-apps.dev` beside
+  `patchy.acme.dev`). Every preview host is same-site with every other, and only the gateway's `__Host-` cookies and its
+  origin rules keep them apart. The chart does not enforce this; `patchy check previews` WARNs (its `preview-config`
+  line) when the suffix shares a registrable domain with the sign-in host, the relay's issuer or Dex. With only one
+  domain, accept the sharing explicitly: see
+  [Previews on the sign-in host's domain](#previews-on-the-sign-in-hosts-domain) for what that leaves exposed. The
+  [Public Suffix List](https://publicsuffix.org/) decides what is registrable: `acme-apps.dev` is, and so is
+  `acme.github.io`, because `github.io` is a public suffix.
 - **The sign-in host sits outside the host suffix.** The chart refuses one under it.
 - **`forwardedHops` is the number of proxies that append to `X-Forwarded-For` in front of the gateway.** The rate limit
   and the inbound allowlist judge the address it names, so a value too high lets a client choose its own.
@@ -116,6 +119,72 @@ Rules that hold on every platform:
 - **Edge health check:** `/.patchy/healthz` answers `200` on any Host and is never forwarded to a preview.
 - **The CNI must enforce NetworkPolicy.** Slot isolation is NetworkPolicy, and a CNI that ignores it leaves every slot
   open to the cluster network. Prove it with the [isolation probe](#the-isolation-probe).
+
+### Previews on the sign-in host's domain
+
+One registrable domain for the previews, the sign-in host and Dex (`*.previews.acme.dev`, `preview-auth.acme.dev`,
+`dex.acme.dev`) works, but it has a cost, so it is an explicit choice.
+`patchy setup previews --shared-domain acknowledged` makes it (on a terminal the command explains it and asks you to
+type the word), and the values it writes then carry:
+
+```yaml
+previewAuth:
+  sharedSiteAcknowledged: acme.dev # the registrable domain previews share with sign-in
+```
+
+The chart records the value as an annotation on the relay's ConfigMap and acts on nothing else. It must be
+`preview.hostSuffix` or a parent of it. `patchy check previews` then reports the sharing as INFO instead of WARN, but
+only while the value names the suffix's registrable domain: move the previews to another domain and the WARN returns.
+
+**What changes.** Preview code (any page a preview serves, which is pull-request code) is then same-site, though never
+same-origin, with the sign-in host, with Dex and with every other host on `acme.dev`. A site boundary would otherwise
+stop two things:
+
+- _Cookie tossing._ A preview can set a cookie for the whole of `acme.dev` (`Domain=acme.dev`, from script or a response
+  header), which the browser then sends to every host on it. It can also fill that domain's cookie jar.
+- _Same-site requests._ A preview's background requests (`fetch`, an image, an iframe, a form post) to any host on
+  `acme.dev` are same-site, so they carry that host's `SameSite=Lax` and `SameSite=Strict` cookies, and `SameSite` stops
+  nothing.
+
+**What patchy holds.**
+
+- Every cookie the relay and the gateway set is `__Host-` (`__Host-patchy-pa`, `__Host-patchy-pa-login-*`,
+  `__Host-patchy-pv`, `__Host-patchy-pv-state-*`): host-only, `Secure`, `Path=/`. No other host, a preview included, can
+  set, overwrite or shadow one in a browser that enforces the prefix, which every current browser does. The status
+  page's cookies are `__Host-` too.
+- The sign-in endpoints that read the relay session or set a cookie (`/authorize`, `/start`, `/dex/callback`) refuse a
+  request from another site that is not a top-level navigation: `Sec-Fetch-Site` `same-site` or `cross-site` with
+  anything but `Sec-Fetch-Mode: navigate` and `Sec-Fetch-Dest: document` gets a `403` page, with no code and no cookie.
+  `/logout` takes only `Sec-Fetch-Site: same-origin`. A navigation a preview starts (a link, `window.open`) still signs
+  the viewer in, as one from another site would. The handoff code goes only to the preview host the sealed state names,
+  and is spent only with that host's own state cookie, so no preview can take another's code or fix a viewer's session.
+- The status page refuses a same-site write (`Sec-Fetch-Site` `same-site` or `cross-site`, or, from a browser that sends
+  no `Sec-Fetch-Site`, an `Origin` other than its own), and same-site requests on its API and streams too while its
+  intents or usage views are on, when it also refuses a write with no `Sec-Fetch-Site` at all. Its session cookie is
+  `SameSite=Lax`, so these checks, not `SameSite`, are what keep a preview on its registrable domain from approving,
+  retrying or resetting with a viewer's session.
+
+**What patchy cannot hold.**
+
+- _Every other app on `acme.dev`_ (a wiki, Grafana, Argo CD, the status page's own neighbours). None may rely on a
+  cookie set for the parent domain, nor on `SameSite` alone for CSRF protection: each needs host-only (ideally
+  `__Host-`) session cookies and its own CSRF defence (tokens, or `Origin` and `Sec-Fetch-Site` checks). Audit them
+  before you accept the sharing.
+- _Dex_, when it is on `acme.dev`: its cookies and forms are Dex's, held to whatever Dex holds them to.
+- _Cookie-jar flooding._ A preview that sets many cookies for `acme.dev` can push the relay's session out of the
+  browser's jar, or make requests to the sign-in host too large to serve. Viewers then sign in again, or cannot until
+  the cookies expire. This denies service; it grants no access.
+- _A browser without `Sec-Fetch-*` headers_ (Safari before 16.4): the sign-in endpoints cannot tell its background
+  requests from navigations. Its `SameSite=Lax` relay session cookie then reaches them from a preview, which can make a
+  sign-in happen in the background but gains nothing by it: the code still goes only to the preview host the sealed
+  state names, and is spent only with that host's own `HttpOnly` state cookie. The status page, when it is on
+  `acme.dev`, falls back to the `Origin` header such a browser still sends on a `POST`; with its intents and usage views
+  off, a browser that sent neither header could still make a same-site write there with the viewer's session.
+
+What stays refused however acknowledged: a sign-in host or a Dex issuer under the host suffix (same-origin with a
+preview, which the chart refuses too). On Cloudflare, a shared domain needs Advanced Certificate Manager, since the
+sign-in host must sit outside the suffix and every preview host is then a second-level name
+([Certificate depth](#cloudflare-tunnel)).
 
 ## Platform recipes
 
@@ -420,9 +489,12 @@ cloudflared's namespace. It never reads `cert.pem`, which stays on your workstat
 browsers are shown an invalid certificate unless the zone has Advanced Certificate Manager (a paid add-on: an advanced
 certificate for the wildcard, or Total TLS). The same holds for the sign-in host, which the tunnel also serves:
 `preview-auth.acme.dev` is covered, `preview-auth.patchy.acme.dev` is not. Put previews on a domain of their own, which
-the gateway's isolation needs anyway (preview code must never be same-site with sign-in), and make `hostSuffix` that
-domain itself. `setup previews` refuses deeper names unless `--cloudflare-acm` says the zones have Advanced Certificate
-Manager, and refuses one registrable domain for both names whatever the certificate.
+keeps preview code off sign-in's site too, and make `hostSuffix` that domain itself. `setup previews` refuses deeper
+names unless `--cloudflare-acm` says the zones have Advanced Certificate Manager. One registrable domain for both names
+is refused unless acknowledged (`--shared-domain acknowledged`,
+[Previews on the sign-in host's domain](#previews-on-the-sign-in-hosts-domain)), and then needs Advanced Certificate
+Manager whatever the names: the sign-in host must sit outside the suffix, so the suffix cannot be the zone itself, and
+every preview host is a second-level name.
 
 **Locally-managed, not remotely-managed.** The recipe uses a locally-managed tunnel: its ingress rules live in
 cloudflared's own config (a ConfigMap here), which accepts a wildcard hostname, first match wins, ending in a catch-all.
@@ -654,3 +726,6 @@ What to keep in mind:
   minutes by default). A removed RoleBinding applies within the review cache.
 - Anyone on the cluster network who can bypass NetworkPolicy can reach a preview. A CNI that does not enforce
   NetworkPolicy is not supported.
+- Previews on the sign-in host's registrable domain are same-site with it and with every other host there. patchy's own
+  endpoints hold up to that; other apps on the domain may not. See
+  [Previews on the sign-in host's domain](#previews-on-the-sign-in-hosts-domain).

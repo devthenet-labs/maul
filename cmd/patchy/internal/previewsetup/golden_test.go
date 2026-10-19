@@ -104,7 +104,97 @@ func goldenCases() map[string]Answers {
 	for name, a := range cloudflareCases() {
 		cases[name] = a
 	}
+	for name, a := range sharedDomainCases() {
+		cases[name] = a
+	}
 	return cases
+}
+
+// sharedDomainCases are runs with one registrable domain for previews,
+// sign-in and Dex, acknowledged (--shared-domain acknowledged): the
+// owner's desktop on a tailnet, and a Cloudflare tunnel, which then needs
+// Advanced Certificate Manager.
+func sharedDomainCases() map[string]Answers {
+	cases := map[string]Answers{}
+	shared := func(a Answers) Answers {
+		a.HostSuffix, a.SignInHost, a.Dex.Issuer = "previews.acme.dev", "preview-auth.acme.dev", "https://dex.acme.dev"
+		a.SharedDomainAck = SharedDomainAcknowledged
+		return a
+	}
+	desk := shared(testAnswers())
+	desk.Edge, desk.Platform = EdgeTailscale, PlatformK3d
+	desk.Certificate = Certificate{DNS: "route53", DNSOptions: map[string]string{"region": "us-east-1",
+		"accessKeyID": "AKIAIOSFODNN7EXAMPLE"}}
+	desk.Registry = "123456789012.dkr.ecr.us-east-1.amazonaws.com"
+	desk.ImagePathPrefix = DefaultImagePathPrefix
+	desk.Tailscale.Addresses = []string{"100.101.12.58"}
+	cases["tailscale-shared-domain-k3d"] = desk
+
+	cf := shared(testAnswers())
+	cf.Edge, cf.Platform = EdgeCloudflareTunnel, PlatformK3s
+	cf.Cloudflare = Cloudflare{TunnelID: testTunnelID, AdvancedCertificates: true}
+	cases["cloudflare-tunnel-shared-domain-k3s"] = cf
+
+	// Only Dex shares the previews' registrable domain: the sign-in host is
+	// on another, so the certificate's two names still sit in two zones.
+	dex := testAnswers()
+	dex.Edge, dex.Platform = EdgeGatewayTLS, PlatformK3s
+	dex.HostSuffix, dex.SignInHost, dex.Dex.Issuer = "previews.acme.dev", "preview-auth.acme-auth.dev",
+		"https://dex.acme.dev"
+	dex.SharedDomainAck = SharedDomainAcknowledged
+	dex.Certificate = Certificate{DNS: "digitalocean"}
+	cases["gateway-tls-dex-shared-domain-k3s"] = dex
+	return cases
+}
+
+// TestNextStepsDexOnlySharedZones: when only Dex shares the previews'
+// registrable domain, NEXT-STEPS.md never says the previews and the
+// sign-in host sit on one zone, on any edge that names the zones: the
+// DNS-01 solver or Cloudflare must still answer for two.
+func TestNextStepsDexOnlySharedZones(t *testing.T) {
+	dexOnly := func(a Answers) Answers {
+		a.HostSuffix, a.SignInHost, a.Dex.Issuer = "previews.acme.dev", "preview-auth.acme-auth.dev",
+			"https://dex.acme.dev"
+		a.SharedDomainAck = SharedDomainAcknowledged
+		return a
+	}
+	gw := dexOnly(testAnswers())
+	gw.Edge, gw.Platform, gw.Certificate = EdgeGatewayTLS, PlatformK3s, Certificate{DNS: "digitalocean"}
+	existing := dexOnly(testAnswers())
+	existing.Platform = PlatformGKE
+	existing.Existing.IngressClass = "nginx"
+	existing.Certificate.Issuer = "ClusterIssuer/letsencrypt-dns01"
+	cf := dexOnly(testAnswers())
+	cf.Edge, cf.Platform = EdgeCloudflareTunnel, PlatformK3s
+	cf.Cloudflare = Cloudflare{TunnelID: testTunnelID, AdvancedCertificates: true}
+	for name, a := range map[string]Answers{"gateway-tls": gw, "existing": existing, "cloudflare-tunnel": cf} {
+		t.Run(name, func(t *testing.T) {
+			a.Normalize()
+			if err := a.Validate(); err != nil {
+				t.Fatalf("Validate: %v", err)
+			}
+			if a.SharedSite() != "acme.dev" {
+				t.Fatalf("SharedSite = %q, want acme.dev", a.SharedSite())
+			}
+			next := byPath(planWith(t, a, withTunnel(a, Secrets{DexClient: sentinel})))[NextStepsFile]
+			flat := strings.Join(strings.Fields(next), " ")
+			for _, wrong := range []string{"Both names sit on `acme.dev`", "Both names sit on the zone",
+				"accepted previews sharing with sign-in"} {
+				if strings.Contains(flat, wrong) {
+					t.Errorf("NEXT-STEPS.md says %q though the sign-in host is on acme-auth.dev", wrong)
+				}
+			}
+			if !strings.Contains(flat, "Dex (`dex.acme.dev`)") {
+				t.Error("NEXT-STEPS.md does not name Dex as what shares acme.dev")
+			}
+			if name != "cloudflare-tunnel" && !strings.Contains(flat, "different registrable domains") {
+				t.Error("NEXT-STEPS.md does not say the certificate's names sit on two registrable domains")
+			}
+			if name == "cloudflare-tunnel" && !strings.Contains(flat, "`acme-auth.dev` for the sign-in host") {
+				t.Error("NEXT-STEPS.md does not name the sign-in host's own zone")
+			}
+		})
+	}
 }
 
 // testTunnelID is the tunnel the golden cloudflare-tunnel trees run.
@@ -223,10 +313,11 @@ var dnsSentinel = Credential{value: []byte("DNS-SENTINEL-not-a-credential-fedcba
 
 // withDNSCredential are the cases whose operator gave a DNS credential.
 var withDNSCredential = map[string]bool{
-	"gateway-tls-cloudflare-k3s": true,
-	"gateway-tls-azure-aks":      true,
-	"gateway-tls-rfc2136-other":  true,
-	"tailscale-route53-k3d":      true,
+	"gateway-tls-cloudflare-k3s":  true,
+	"gateway-tls-azure-aks":       true,
+	"gateway-tls-rfc2136-other":   true,
+	"tailscale-route53-k3d":       true,
+	"tailscale-shared-domain-k3d": true,
 }
 
 // goldenSecrets are the secrets case name renders with.

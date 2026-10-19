@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -192,21 +193,74 @@ func askNames(p *prompter, a *previewsetup.Answers) error {
 	if a.SignInHost == "" {
 		s, err := p.ask(question{flag: "sign-in-host", text: "where viewers sign in, on another registrable " +
 			"domain (preview-auth.patchy.acme.dev)", check: func(s string) error {
-			return previewsetup.CheckHosts(a.HostSuffix, strings.ToLower(s))
+			// A shared registrable domain is asked about next, on its own.
+			return previewsetup.CheckHosts(a.HostSuffix, strings.ToLower(s), true)
 		}})
 		if err != nil {
 			return err
 		}
 		a.SignInHost = strings.ToLower(s)
 	}
+	if err := askSharedDomain(p, a, a.SignInHost); err != nil {
+		return err
+	}
 	if a.Dex.Issuer == "" {
 		s, err := p.ask(question{flag: "dex-issuer", text: "your Dex's issuer URL (https://dex.patchy.acme.dev)",
-			check: func(s string) error { return previewsetup.CheckIssuer(s, a.HostSuffix) }})
+			check: func(s string) error { return previewsetup.CheckIssuer(s, a.HostSuffix, true) }})
 		if err != nil {
 			return err
 		}
 		a.Dex.Issuer = s
 	}
+	if u, err := url.Parse(a.Dex.Issuer); err == nil {
+		return askSharedDomain(p, a, strings.ToLower(u.Hostname()))
+	}
+	return nil
+}
+
+// sharedDomainExplanation is what the wizard says before it asks for the
+// acknowledgement: the residual risk, precisely (docs/configuration/
+// preview-gateway.md, "Previews on the sign-in host's domain").
+const sharedDomainExplanation = `  %[1]s is on %[2]s, the registrable domain the previews (<label>.%[3]s) are on, so
+  preview code runs same-site, but never same-origin, with it. patchy holds its own side to that: every
+  cookie it sets is __Host- (no preview can set or overwrite one), its sign-in endpoints refuse a
+  same-site request that is not a top-level navigation, and the status page refuses a same-site write
+  (by Sec-Fetch-Site, else by Origin). What it cannot hold:
+    - every other app on %[2]s: a preview can set cookies for the whole of %[2]s and send it same-site
+      requests, so no app there may rely on a parent-domain cookie or on SameSite for CSRF;
+    - Dex, when it is on %[2]s too: its cookies and forms are its own;
+    - a browser that ignores __Host- prefixes or sends no Sec-Fetch headers (one that sends no Origin
+      either could still write to a status page on %[2]s with the viewer's session).
+  A domain of its own for previews avoids all of it.
+`
+
+// askSharedDomain asks for --shared-domain when host shares the suffix's
+// registrable domain and the operator has not acknowledged it yet: it
+// explains what that means and takes only "acknowledged". Anything else is
+// a refusal naming the flags to change instead.
+func askSharedDomain(p *prompter, a *previewsetup.Answers, host string) error {
+	if a.SharedDomain() || !previewsetup.SharesSite(a.HostSuffix, host) {
+		return nil
+	}
+	site, _ := previewsetup.Site(a.HostSuffix)
+	notef(p.out, sharedDomainExplanation, host, site, a.HostSuffix)
+	s, err := p.ask(question{flag: "shared-domain", text: "type " + previewsetup.SharedDomainAcknowledged +
+		" to accept previews being same-site with " + host + ", or blank to stop and choose other names",
+		optional: true, check: func(s string) error {
+			if s != previewsetup.SharedDomainAcknowledged {
+				return fmt.Errorf("answer %s, or leave it blank", previewsetup.SharedDomainAcknowledged)
+			}
+			return nil
+		}})
+	if err != nil {
+		return err
+	}
+	if s == "" {
+		return errUsage(fmt.Errorf("%s shares the registrable domain %s with --host-suffix %s: give another "+
+			"--host-suffix (a domain of its own), --sign-in-host or --dex-issuer, or --shared-domain %s", host, site,
+			a.HostSuffix, previewsetup.SharedDomainAcknowledged))
+	}
+	a.SharedDomainAck = s
 	return nil
 }
 

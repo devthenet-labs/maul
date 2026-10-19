@@ -24,10 +24,13 @@ would share one origin.
 
 Before you run the command, have these ready:
 
-- **Two registrable domains.** The previews get one of their own, such as `acme-previews.dev`, and the sign-in host and
-  Dex sit on another, such as `preview-auth.patchy.acme.dev`. Preview code is same-site with every name on its own
-  registrable domain, so sign-in there would share its site with code you did not write. The command refuses one domain
-  for both. If you own only one domain, register a second, cheap one for previews.
+- **Two registrable domains, ideally.** The previews get one of their own, such as `acme-previews.dev`, and the sign-in
+  host and Dex sit on another, such as `preview-auth.patchy.acme.dev`. Preview code is same-site with every name on its
+  own registrable domain, so sign-in there would share its site with code you did not write. The command refuses one
+  domain for both unless you accept it with `--shared-domain acknowledged`; read
+  [Previews on the sign-in host's domain](../configuration/preview-gateway.md#previews-on-the-sign-in-hosts-domain)
+  first, since every other app on that domain is then exposed to preview code. On Cloudflare a shared domain also needs
+  Advanced Certificate Manager.
 - **patchy installed with intents on** (`intentController.enabled: true`). Previews are built for intents. See
   [Deploying intents and previews](deploying.md) for the install itself.
 - **Dex**, with its GitHub connector, as the [status page](../status-ui.md) already uses. The command generates the
