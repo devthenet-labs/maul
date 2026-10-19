@@ -158,8 +158,11 @@ stop two things:
   `/logout` takes only `Sec-Fetch-Site: same-origin`. A navigation a preview starts (a link, `window.open`) still signs
   the viewer in, as one from another site would. The handoff code goes only to the preview host the sealed state names,
   and is spent only with that host's own state cookie, so no preview can take another's code or fix a viewer's session.
-- The status page refuses same-site requests on its writes, and on its API and streams too while its intents or usage
-  views are on.
+- The status page refuses a same-site write (`Sec-Fetch-Site` `same-site` or `cross-site`, or, from a browser that sends
+  no `Sec-Fetch-Site`, an `Origin` other than its own), and same-site requests on its API and streams too while its
+  intents or usage views are on, when it also refuses a write with no `Sec-Fetch-Site` at all. Its session cookie is
+  `SameSite=Lax`, so these checks, not `SameSite`, are what keep a preview on its registrable domain from approving,
+  retrying or resetting with a viewer's session.
 
 **What patchy cannot hold.**
 
@@ -174,7 +177,9 @@ stop two things:
 - _A browser without `Sec-Fetch-*` headers_ (Safari before 16.4): the sign-in endpoints cannot tell its background
   requests from navigations. Its `SameSite=Lax` relay session cookie then reaches them from a preview, which can make a
   sign-in happen in the background but gains nothing by it: the code still goes only to the preview host the sealed
-  state names, and is spent only with that host's own `HttpOnly` state cookie.
+  state names, and is spent only with that host's own `HttpOnly` state cookie. The status page, when it is on
+  `acme.dev`, falls back to the `Origin` header such a browser still sends on a `POST`; with its intents and usage views
+  off, a browser that sent neither header could still make a same-site write there with the viewer's session.
 
 What stays refused however acknowledged: a sign-in host or a Dex issuer under the host suffix (same-origin with a
 preview, which the chart refuses too). On Cloudflare, a shared domain needs Advanced Certificate Manager, since the

@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -147,7 +148,8 @@ func (s *Server) Handler() http.Handler {
 // middleware applies the security envelope to every response: conservative
 // browser headers, no caching on the data surface, a body cap, and a
 // same-origin check on mutations (defense in depth on top of SameSite=Lax
-// cookies). With the intents views on, the hardened envelope (envelope.go)
+// cookies: Sec-Fetch-Site, or the Origin header where a browser sends no
+// Sec-Fetch-Site). With the intents views on, the hardened envelope (envelope.go)
 // runs first.
 func (s *Server) middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -162,7 +164,8 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 			return
 		}
 		if r.Method == http.MethodPost {
-			if site := r.Header.Get("Sec-Fetch-Site"); site != "" && site != "same-origin" && site != "none" {
+			if site := r.Header.Get("Sec-Fetch-Site"); (site != "" && site != "same-origin" && site != "none") ||
+				(site == "" && foreignOrigin(r)) {
 				http.Error(w, "cross-origin request rejected", http.StatusForbidden)
 				return
 			}
@@ -170,6 +173,22 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// foreignOrigin reports a request whose Origin header names another origin
+// than the page's own host, "null" included: what a browser without
+// Sec-Fetch-* (Safari before 16.4) still sends on a POST, so a same-site
+// page, such as a preview on a shared registrable domain, cannot write
+// with the viewer's SameSite=Lax cookie there. No Origin at all is a
+// non-browser client, or a browser old enough to send neither header, and
+// is let through as before.
+func foreignOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return false
+	}
+	u, err := url.Parse(origin)
+	return err != nil || u.Host == "" || !strings.EqualFold(u.Host, r.Host)
 }
 
 // authorize resolves the caller and enforces the view gate every finding-data

@@ -342,3 +342,42 @@ func TestDatasetGzipNegotiation(t *testing.T) {
 		t.Fatalf("decode identity body: %v", err)
 	}
 }
+
+// TestSameSitePostWithoutFetchMetadataRejected: a browser without
+// Sec-Fetch-* (Safari before 16.4) still sends Origin on a POST, so a
+// same-site page, such as a preview on the registrable domain the status
+// page is on, cannot write with the viewer's SameSite=Lax cookie through
+// the plain envelope; the page's own origin, and a client sending no
+// Origin at all, still can.
+func TestSameSitePostWithoutFetchMetadataRejected(t *testing.T) {
+	s := testServer(t, fullFinding())
+	s.auth, s.granter = stubAuth{id: operator}, stubGranter{grants: allGrants()}
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+
+	self := ts.URL
+	for _, tc := range []struct {
+		origin string
+		want   int
+	}{
+		{"https://pr-7.previews.acme.dev", http.StatusForbidden},
+		{"null", http.StatusForbidden},
+		{"not a url", http.StatusForbidden},
+		{self, http.StatusOK},
+		{strings.ToUpper(self[:4]) + self[4:], http.StatusOK},
+		{"", http.StatusOK},
+	} {
+		req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/findings/gh-cs-orders-1/actions/suspend", nil)
+		if tc.origin != "" {
+			req.Header.Set("Origin", tc.origin)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("POST: %v", err)
+		}
+		_ = res.Body.Close()
+		if res.StatusCode != tc.want {
+			t.Errorf("POST with Origin %q and no Sec-Fetch-Site = %d, want %d", tc.origin, res.StatusCode, tc.want)
+		}
+	}
+}

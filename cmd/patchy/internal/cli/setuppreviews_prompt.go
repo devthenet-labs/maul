@@ -223,12 +223,14 @@ func askNames(p *prompter, a *previewsetup.Answers) error {
 // preview-gateway.md, "Previews on the sign-in host's domain").
 const sharedDomainExplanation = `  %[1]s is on %[2]s, the registrable domain the previews (<label>.%[3]s) are on, so
   preview code runs same-site, but never same-origin, with it. patchy holds its own side to that: every
-  cookie it sets is __Host- (no preview can set or overwrite one), and its sign-in endpoints refuse a
-  same-site request that is not a top-level navigation. What it cannot hold:
+  cookie it sets is __Host- (no preview can set or overwrite one), its sign-in endpoints refuse a
+  same-site request that is not a top-level navigation, and the status page refuses a same-site write
+  (by Sec-Fetch-Site, else by Origin). What it cannot hold:
     - every other app on %[2]s: a preview can set cookies for the whole of %[2]s and send it same-site
       requests, so no app there may rely on a parent-domain cookie or on SameSite for CSRF;
     - Dex, when it is on %[2]s too: its cookies and forms are its own;
-    - a browser that ignores __Host- prefixes or sends no Sec-Fetch headers.
+    - a browser that ignores __Host- prefixes or sends no Sec-Fetch headers (one that sends no Origin
+      either could still write to a status page on %[2]s with the viewer's session).
   A domain of its own for previews avoids all of it.
 `
 

@@ -55,7 +55,8 @@ Previews are best on a registrable domain of their own: a --sign-in-host or --de
 on the --host-suffix's registrable domain is refused unless you accept it with
 --shared-domain acknowledged (on a terminal the command explains and asks), because
 preview code then runs same-site with sign-in. patchy's own side holds (its cookies are
-__Host-, its sign-in endpoints refuse same-site background requests); what does not is
+__Host-, its sign-in endpoints and the status page's writes refuse same-site background
+requests); what does not is
 every other app on that domain, which must not rely on parent-domain cookies or on
 SameSite for CSRF. The chart values then record the domain
 (previewAuth.sharedSiteAcknowledged), and patchy check previews reports the sharing as
