@@ -177,12 +177,14 @@ ChatGPT-plan sign-in and Codex access tokens are not brokered.
 - **Headers.** Beside the broker token, `Authorization` and `x-api-key`, the broker strips `OpenAI-Organization`,
   `OpenAI-Project`, `ChatGPT-Account-Id` and `OpenAI-Beta` on every route, so a pod cannot bill another organization or
   project the key can reach.
-- **Body inspection.** A request is refused (403) when it lists a server tool (`web_search`, `web_search_preview*` and
-  the other dated `web_search_*` types, `file_search`, `code_interpreter`, `mcp`, `image_generation`,
-  `computer_use_preview`, `computer_use`) or a tool naming a `connector_id` or `server_url`; when it sets
-  `background: true`, `previous_response_id`, `conversation` or a stored `prompt`; or when, anywhere outside a function
-  tool's `parameters` or a `json_schema` format's `schema`, it carries a `file_id`, a `file_url` or an `image_url` that
-  is not an inline `data:` URI. `max_output_tokens` is the request's output bound and is held to `--max-tokens-ceiling`.
+- **Body inspection.** Tools are an allowlist of the ones the client runs itself: `function`, `custom`, `local_shell`,
+  and `shell` and `apply_patch` executed locally. A request is refused (403) when it lists any other tool type (the
+  hosted ones, such as `web_search` and its dated variants, `file_search`, `code_interpreter`, `mcp`, `image_generation`
+  and `computer_use`, and any server tool OpenAI adds later) or a tool naming a `connector_id`, a `server_url`, a hosted
+  `environment` or a `container`; when it sets `background: true`, `previous_response_id`, `conversation` or a stored
+  `prompt`; or when, anywhere outside a function tool's `parameters` or a `json_schema` format's `schema`, it carries an
+  `item_reference` input item (a stored item loaded by id), a `file_id`, a `file_url` or an `image_url` that is not an
+  inline `data:` URI. `max_output_tokens` is the request's output bound and is held to `--max-tokens-ceiling`.
 - **Usage.** Usage arrives once, in the terminal `response.completed`, `response.incomplete` or `response.failed` event
   (or a JSON body's `usage`). Cached input (`input_tokens_details.cached_tokens`) is charged as cache reads and the rest
   of `input_tokens` as input; `output_tokens` (reasoning included) as output. OpenAI reports no separate cache writes,

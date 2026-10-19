@@ -11,6 +11,7 @@ import (
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -264,6 +265,23 @@ func TestInspectOpenAIBody(t *testing.T) {
 			`"schema":{"properties":{"file_id":{"type":"string"}}}}}}`, "", "m", 0},
 		{"file_id in a non-function's parameters", `{"tools":[{"type":"custom","parameters":{"file_id":"x"}}]}`,
 			"file references", "", 0},
+		{"local shell and apply_patch", `{"model":"m","tools":[{"type":"shell"},{"type":"apply_patch"}]}`, "",
+			"m", 0},
+		{"hosted shell environment", `{"tools":[{"type":"shell","environment":{"type":"container_auto"}}]}`,
+			`tool field "environment"`, "", 0},
+		{"hosted shell container reference", `{"tools":[{"type":"shell","environment":` +
+			`{"type":"container_reference","container_id":"cntr_1"}}]}`, `tool field "environment"`, "", 0},
+		{"tool with a container", `{"tools":[{"type":"function","name":"x","container":{"type":"auto"}}]}`,
+			`tool field "container"`, "", 0},
+		{"unknown tool type", `{"tools":[{"type":"tool_search"}]}`, `server tool "tool_search"`, "", 0},
+		{"tool without a type", `{"tools":[{"name":"x"}]}`, `server tool ""`, "", 0},
+		{"computer_use", `{"tools":[{"type":"computer_use"}]}`, "server tool", "", 0},
+		{"item_reference input", `{"model":"m","input":[{"type":"item_reference","id":"msg_1"}]}`,
+			"item references", "", 0},
+		{"nested item_reference", `{"input":[{"type":"function_call_output","call_id":"c",` +
+			`"output":[{"type":"item_reference","id":"msg_1"}]}]}`, "item references", "", 0},
+		{"item_reference in a function's parameters", `{"model":"m","tools":[{"type":"function","name":"x",` +
+			`"parameters":{"type":"item_reference","properties":{}}}]}`, "", "m", 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -556,6 +574,10 @@ func TestOpenAIRouteRefusals(t *testing.T) {
 			"server tool"},
 		{`{"model":"gpt-5.3-codex","previous_response_id":"resp_1"}`, http.StatusForbidden, "permission_error",
 			"previous_response_id"},
+		{`{"model":"gpt-5.3-codex","input":[{"type":"item_reference","id":"msg_1"}]}`, http.StatusForbidden,
+			"permission_error", "item references"},
+		{`{"model":"gpt-5.3-codex","tools":[{"type":"shell","environment":{"type":"container_auto"}}]}`,
+			http.StatusForbidden, "permission_error", "environment"},
 		{`{"model":"gpt-5.3-codex","max_output_tokens":1.5}`, http.StatusBadRequest, "invalid_request_error",
 			"max_output_tokens"},
 		{`{"model":"gpt-5.3-codex","max_output_tokens":9000}`, http.StatusTooManyRequests, "insufficient_quota",
@@ -577,6 +599,56 @@ func TestOpenAIRouteRefusals(t *testing.T) {
 			!strings.Contains(e.Error.Message, tt.inMsg) {
 			t.Errorf("%s: %s", tt.body, rec.Body.String())
 		}
+	}
+}
+
+// TestOpenAIUpstreamErrorEnvelope: when the upstream cannot be reached, or
+// the key file is gone, the openai route answers 502 in OpenAI's envelope
+// ({"error":{message,type,code,param}}, no top-level "type"), not the
+// Anthropic one the other routes use.
+func TestOpenAIUpstreamErrorEnvelope(t *testing.T) {
+	live := newOpenAIUpstream(t, openaiStream(0, "response.completed", openaiUsageObject(1, 0, 1)))
+	missing := keyFile(t, "sk-org")
+	if err := os.Remove(missing); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name     string
+		upstream Upstream
+	}{
+		{"unreachable upstream", OpenAI(mustTarget(t, "http://127.0.0.1:1"), keyFile(t, "sk-org"))},
+		{"missing key file", OpenAI(mustTarget(t, live.URL), missing)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newTestServer(t, Config{Upstreams: map[string]Upstream{provider.OpenAI: tt.upstream}}, nil)
+			rec := post(s.Handler(), "/openai/v1/responses", `{"model":"gpt-5.3-codex"}`)
+			if rec.Code != http.StatusBadGateway {
+				t.Fatalf("status = %d, want 502: %s", rec.Code, rec.Body.String())
+			}
+			var e map[string]json.RawMessage
+			if err := json.Unmarshal(rec.Body.Bytes(), &e); err != nil {
+				t.Fatalf("502 body is not JSON: %s", rec.Body.String())
+			}
+			if _, ok := e["type"]; ok {
+				t.Errorf("502 body has the Anthropic top-level type: %s", rec.Body.String())
+			}
+			var inner map[string]any
+			if err := json.Unmarshal(e["error"], &inner); err != nil {
+				t.Fatalf("502 body has no error object: %s", rec.Body.String())
+			}
+			for _, k := range []string{"message", "type", "code", "param"} {
+				if _, ok := inner[k]; !ok {
+					t.Errorf("error object lacks %q: %s", k, rec.Body.String())
+				}
+			}
+			if inner["type"] != "api_error" || !strings.Contains(fmt.Sprint(inner["message"]), "unavailable") {
+				t.Errorf("502 error = %v", inner)
+			}
+		})
+	}
+	if live.hits.Load() != 0 {
+		t.Error("a request without a key reached the upstream")
 	}
 }
 

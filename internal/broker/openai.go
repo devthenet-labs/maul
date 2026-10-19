@@ -151,31 +151,33 @@ func (j *openaiUsageJSON) usage() usage {
 	return usage{input: in - cached, cacheRead: cached, output: d(j.Output)}
 }
 
-// openaiDeniedTools are the server-side tool types that reach the internet,
-// a vector store, a sandbox or an MCP server on the pod's behalf, by exact
-// type; openaiDeniedToolPrefixes catches the dated web-search variants
-// (web_search_preview, web_search_preview_2025_03_11, web_search_2025_08_26).
-var (
-	openaiDeniedTools = map[string]bool{
-		"web_search": true, "file_search": true, "code_interpreter": true, "mcp": true,
-		"image_generation": true, "computer_use_preview": true, "computer_use": true,
-	}
-	openaiDeniedToolPrefixes = []string{"web_search_"}
-)
+// openaiClientTools are the tool types the broker forwards: the ones the
+// client runs itself (function and custom tools, codex's local_shell, and
+// shell and apply_patch executed locally). It is an allowlist on purpose:
+// every other type, the hosted tools that reach the internet, a vector
+// store, a sandbox or an MCP server on the pod's behalf (web_search and its
+// dated variants, file_search, code_interpreter, mcp, image_generation,
+// computer_use) and any server tool OpenAI adds later, is refused, so a new
+// hosted tool fails closed.
+var openaiClientTools = map[string]bool{
+	"function": true, "custom": true, "local_shell": true, "shell": true, "apply_patch": true,
+}
 
-// openaiConnectorFields mark a tool that names a remote server or a
-// connector, whatever its type says.
-var openaiConnectorFields = []string{"connector_id", "server_url"}
+// openaiServerToolFields mark a tool that names a remote server or a
+// connector, or that runs in an OpenAI-hosted environment or container,
+// whatever its type says.
+var openaiServerToolFields = []string{"connector_id", "server_url", "environment", "container"}
 
 // openaiDeniedTopLevel are request fields that bring server-side state into
 // the call: a stored conversation, a previous response, a stored prompt.
 // background (asynchronous, stored responses) is refused unless false.
 var openaiDeniedTopLevel = []string{"previous_response_id", "conversation", "prompt"}
 
-// inspectOpenAIBody is inspectBody's Responses counterpart: it refuses a
-// server tool or connector, server-side state, a Files API reference, a
-// file URL or an image the upstream would fetch, and reads the model and
-// max_output_tokens. It never rewrites the body (there are no betas in it).
+// inspectOpenAIBody is inspectBody's Responses counterpart: it refuses any
+// tool the client does not run itself or that names a connector, server or
+// hosted environment, server-side state (including an item_reference), a
+// Files API reference, a file URL or an image the upstream would fetch, and
+// reads the model and max_output_tokens. It never rewrites the body (there are no betas in it).
 func inspectOpenAIBody(body []byte, _ []string) (inspection, error) {
 	insp := inspection{estimate: int64(len(body)) / 4}
 	if len(bytes.TrimSpace(body)) == 0 {
@@ -202,10 +204,10 @@ func inspectOpenAIBody(body []byte, _ []string) (inspection, error) {
 				continue
 			}
 			typ, _ := tool["type"].(string)
-			if openaiDeniedToolType(typ) {
+			if !openaiClientTools[typ] {
 				return insp, fmt.Errorf("server tool %q is not brokered", clip(typ))
 			}
-			for _, f := range openaiConnectorFields {
+			for _, f := range openaiServerToolFields {
 				if _, ok := tool[f]; ok {
 					return insp, fmt.Errorf("tool field %q is not brokered", f)
 				}
@@ -226,29 +228,21 @@ func inspectOpenAIBody(body []byte, _ []string) (inspection, error) {
 	return insp, nil
 }
 
-// openaiDeniedToolType reports whether a tools[].type is a denied server
-// tool.
-func openaiDeniedToolType(typ string) bool {
-	if openaiDeniedTools[typ] {
-		return true
-	}
-	for _, p := range openaiDeniedToolPrefixes {
-		if strings.HasPrefix(typ, p) {
-			return true
-		}
-	}
-	return false
-}
-
 // walkOpenAIReferences refuses, at any depth outside caller-defined data, a
 // Files API reference (file_id), a file the upstream would download
-// (file_url) and an image_url that is not an inline data: URI. A function
+// (file_url), an image_url that is not an inline data: URI, and an
+// item_reference input item, which loads an item stored by an earlier
+// response under the org key (the stored state previous_response_id would
+// reach, by another field). A function
 // tool's parameters and a json_schema format's schema are the caller's own
 // data, never dereferenced, so a property named file_id there is not a
 // reference.
 func walkOpenAIReferences(v any) error {
 	switch x := v.(type) {
 	case map[string]any:
+		if typ, _ := x["type"].(string); typ == "item_reference" {
+			return errors.New("item references are not brokered; send the item itself")
+		}
 		for _, key := range []string{"file_id", "file_url"} {
 			if _, ok := x[key]; ok {
 				return errFileReference
