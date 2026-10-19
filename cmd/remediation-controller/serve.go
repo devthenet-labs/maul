@@ -138,6 +138,37 @@ func ownSettings(opts *cli.Options) (modes, error) {
 	return modes{attribution: attr, credentials: creds, accountURL: accountURL}, nil
 }
 
+// fleet is what serve's startup settles from the flags before any
+// reconciler runs: the settings ownSettings reads, the runners and the
+// harnesses Resolve enabled.
+type fleet struct {
+	modes
+	runners map[string]jobs.Runner
+	enabled []string
+}
+
+// startupFleet is serve's one path from the flags to the fleet it runs:
+// ownSettings (--attribution-mode, --user-credentials among them), the
+// runners and the harnesses enabled. Per-user credentials cover every
+// brokered provider, so no --user-credentials mode refuses a harness here
+// (the codex broker design's temporary codex guard is gone).
+func startupFleet(ctx context.Context, opts *cli.Options, cs kubernetes.Interface) (fleet, error) {
+	own, err := ownSettings(opts)
+	if err != nil {
+		return fleet{}, err
+	}
+	runners, err := runnercfg.Runners(opts)
+	if err != nil {
+		return fleet{}, err
+	}
+	enabled, err := runnercfg.Resolve(ctx, opts, cs, opts.String("agent-namespace"), runners,
+		runnercfg.Restrict(opts), runnercfg.SplitList(opts.String("model-allowlist")), opts.String("remediate-model"))
+	if err != nil {
+		return fleet{}, err
+	}
+	return fleet{modes: own, runners: runners, enabled: enabled}, nil
+}
+
 func serve(ctx context.Context, opts *cli.Options) error {
 	prov, shutdown, err := telemetry.Init(ctx, telemetry.Config{
 		Dir:            os.Getenv("PATCHY_TELEMETRY_DIR"),
@@ -158,10 +189,20 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	if namespace == "" {
 		return errors.New("namespace is required (--namespace or POD_NAMESPACE)")
 	}
-	runners, err := runnercfg.Runners(opts)
+	cfg, err := kube.RestConfig(opts.String("kubeconfig"))
 	if err != nil {
 		return err
 	}
+	cs, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		return fmt.Errorf("kubernetes clientset: %w", err)
+	}
+	fl, err := startupFleet(ctx, opts, cs)
+	if err != nil {
+		return err
+	}
+	runners, enabled := fl.runners, fl.enabled
+	attributionMode, credMode, accountURL := fl.attribution, fl.credentials, fl.accountURL
 	repositoryImages, ephemeralStorage, err := runnercfg.RepositoryImages(opts)
 	if err != nil {
 		return err
@@ -175,11 +216,6 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		return err
 	}
 	cpuRequest, memoryRequest, cpuLimit, memoryLimit := agentResources.Strings()
-	own, err := ownSettings(opts)
-	if err != nil {
-		return err
-	}
-	attributionMode, credMode, accountURL := own.attribution, own.credentials, own.accountURL
 	meter, err := runnercfg.UsageMeter(opts, log)
 	if err != nil {
 		return err
@@ -198,23 +234,9 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		return err
 	}
 
-	cfg, err := kube.RestConfig(opts.String("kubeconfig"))
-	if err != nil {
-		return err
-	}
-	cs, err := kubernetes.NewForConfig(cfg)
-	if err != nil {
-		return fmt.Errorf("kubernetes clientset: %w", err)
-	}
-
 	agentNS := opts.String("agent-namespace")
 	remediateModel := opts.String("remediate-model")
 	allowlist := runnercfg.SplitList(opts.String("model-allowlist"))
-	enabled, err := runnercfg.Resolve(ctx, opts, cs, agentNS, runners, runnercfg.Restrict(opts), allowlist,
-		remediateModel)
-	if err != nil {
-		return err
-	}
 	agentDNS, err := runnercfg.AgentDNS(opts, runners, enabled)
 	if err != nil {
 		return err

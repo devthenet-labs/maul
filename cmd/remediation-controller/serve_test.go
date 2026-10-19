@@ -7,6 +7,7 @@ import (
 	"io"
 	"maps"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -16,7 +17,6 @@ import (
 	"github.com/bitwise-media-group/patchy/internal/attribution"
 	"github.com/bitwise-media-group/patchy/internal/cli"
 	"github.com/bitwise-media-group/patchy/internal/credgate"
-	"github.com/bitwise-media-group/patchy/internal/runnercfg"
 )
 
 // serveOpts resolves args through the real serve flag surface, as the
@@ -161,30 +161,30 @@ func TestUserCredentialsFromEnv(t *testing.T) {
 // TestCodexStartsUnderUserCredentials: per-user credentials cover OpenAI
 // keys, so a fleet with codex enabled starts under every
 // --user-credentials mode (the temporary guard of the codex broker design's
-// group 2 is gone), and so does a claude-only fleet.
+// group 2 is gone), and so does a claude-only fleet. It drives startupFleet,
+// serve's one path from the flags and the credentials mode to the fleet, so
+// a guard put back there fails it.
 func TestCodexStartsUnderUserCredentials(t *testing.T) {
 	// An unroutable broker URL: the readiness probe is advisory only.
 	const broker = "http://127.0.0.1:1"
 	for _, mode := range []string{"off", "attribute", "enforce"} {
-		for _, args := range [][]string{
-			{"--codex-agent-image", "codex:1", "--broker-url", broker},
-			{"--claude-agent-image", "claude:1", "--broker-url", broker},
+		for _, tc := range []struct {
+			harness string
+			args    []string
+		}{
+			{"codex", []string{"--codex-agent-image", "codex:1", "--broker-url", broker,
+				"--model-allowlist", "openai/gpt-5.3-codex", "--remediate-model", "openai/gpt-5.3-codex"}},
+			{"claude", []string{"--claude-agent-image", "claude:1", "--broker-url", broker}},
 		} {
-			t.Run(mode+" "+args[0], func(t *testing.T) {
+			t.Run(mode+" "+tc.harness, func(t *testing.T) {
 				t.Setenv("PATCHY_ATTRIBUTION_MODE", "attribute")
 				t.Setenv("PATCHY_USER_CREDENTIALS", mode)
-				opts := serveOpts(t, args...)
-				if _, err := ownSettings(opts); err != nil {
-					t.Fatalf("ownSettings: %v", err)
-				}
-				runners, err := runnercfg.Runners(opts)
+				fl, err := startupFleet(t.Context(), serveOpts(t, tc.args...), fake.NewClientset())
 				if err != nil {
-					t.Fatalf("Runners: %v", err)
+					t.Fatalf("startupFleet: %v", err)
 				}
-				enabled, err := runnercfg.Resolve(t.Context(), opts, fake.NewClientset(), "patchy-agents", runners,
-					runnercfg.Restrict(opts), nil, "")
-				if err != nil || len(enabled) != 1 {
-					t.Fatalf("Resolve = %v, %v; want one harness and no error", enabled, err)
+				if string(fl.credentials) != mode || !slices.Equal(fl.enabled, []string{tc.harness}) {
+					t.Fatalf("fleet = %s %v, want %s [%s]", fl.credentials, fl.enabled, mode, tc.harness)
 				}
 			})
 		}
