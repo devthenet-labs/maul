@@ -13,6 +13,7 @@ import (
 
 	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
 	"github.com/bitwise-media-group/patchy/internal/jobs"
+	"github.com/bitwise-media-group/patchy/internal/model"
 	"github.com/bitwise-media-group/patchy/internal/usagemeter/usagemetertest"
 	"github.com/bitwise-media-group/patchy/internal/usagewire"
 )
@@ -182,34 +183,84 @@ func TestCodexIntentHoldsOnOpenAICredential(t *testing.T) {
 	}
 }
 
+// codexUsage is a broker answer's usage of gpt-5.3-codex on an OpenAI API
+// key: a million input tokens.
+func codexUsage() usagewire.Model {
+	return usagewire.Model{Model: "gpt-5.3-codex", Route: "openai",
+		Credential: usagewire.CredentialAPIKey, Input: 1_000_000}
+}
+
+// assertCodexMeasured fails unless every run of the intent settled as
+// measured from the broker with the codex model's usage.
+func assertCodexMeasured(t *testing.T, e *env, name string, broker *usagemetertest.Broker) {
+	t.Helper()
+	runs := e.intentRuns(name)
+	if len(runs) == 0 {
+		t.Fatal("no runs")
+	}
+	for _, run := range runs {
+		u := run.Status.Usage
+		if !u.Final || u.Source != v1alpha1.UsageSourceMeasured || u.Measured == nil {
+			t.Errorf("codex run %s usage = %+v, want measured", run.Name, u)
+			continue
+		}
+		if len(u.Measured.Models) != 1 || u.Measured.Models[0].Model != "openai/gpt-5.3-codex" {
+			t.Errorf("codex run %s measured models = %+v, want openai/gpt-5.3-codex", run.Name, u.Measured.Models)
+		}
+	}
+	if len(broker.Asked()) == 0 {
+		t.Error("the broker was never asked for a codex run's usage")
+	}
+}
+
 // TestMeasureCodexRuns: a codex run's usage is settled from the broker as
-// measured, judged by the harness the run records: codex runs brokered.
+// measured, judged by the harness the run records: codex runs brokered. The
+// controller's own harness is fake, which the meter does not ask the broker
+// about, so a run measured as the controller's harness would be reported.
 func TestMeasureCodexRuns(t *testing.T) {
 	e := newEnv(t, codexProject())
 	e.withCodex(codexHarness)
+	e.runs.Harness = model.HarnessFake
 	start := e.clock.Now()
 	e.jobs.statusFn = func(jobs.Spec) (jobs.Status, bool) {
 		return jobs.Status{Done: true, Succeeded: 1, Created: start}, true
 	}
 	broker, meter := usagemetertest.New(t, e.clock.Now)
 	broker.SetDefault(func(job string) usagewire.Response {
-		return usagemetertest.Answer(job, start.Add(-time.Hour), start.Add(time.Minute), 0,
-			usagemetertest.Sonnet(250))
+		return usagemetertest.Answer(job, start.Add(-time.Hour), start.Add(time.Minute), 0, codexUsage())
 	})
 	e.runs.Meter = meter
 	name := e.newIntent(approver)
 	e.drive(name, v1alpha1.IntentAwaitingApproval, repoImage)
 	e.runRuns()
+	assertCodexMeasured(t, e, name, broker)
+}
+
+// TestMeasureCodexRunAfterCodexTurnedOff: a codex run launched while
+// --intent-codex was on, and settled after it was turned off, is still
+// measured from the broker: it ran brokered whatever the flag says now.
+func TestMeasureCodexRunAfterCodexTurnedOff(t *testing.T) {
+	e := newEnv(t, codexProject())
+	e.withCodex(codexHarness)
+	e.runs.Harness = model.HarnessFake
+	start := e.clock.Now()
+	e.jobs.statusFn = func(jobs.Spec) (jobs.Status, bool) {
+		return jobs.Status{Done: true, Succeeded: 1, Created: start}, true
+	}
+	name := e.newIntent(approver)
+	// The plan run launches and completes with the meter off, so its usage
+	// is still owed when the operator turns codex off.
+	e.drive(name, v1alpha1.IntentAwaitingApproval, repoImage)
 	runs := e.intentRuns(name)
-	if len(runs) == 0 {
-		t.Fatal("no runs")
+	if len(runs) == 0 || runs[0].Status.Usage.Final {
+		t.Fatalf("runs before the flag flip = %+v, want an unsettled run", runs)
 	}
-	for _, run := range runs {
-		if u := run.Status.Usage; !u.Final || u.Source != v1alpha1.UsageSourceMeasured {
-			t.Errorf("codex run %s usage = %+v, want measured", run.Name, u)
-		}
-	}
-	if len(broker.Asked()) == 0 {
-		t.Error("the broker was never asked for a codex run's usage")
-	}
+	e.runs.Settings.Codex = RunHarness{}
+	broker, meter := usagemetertest.New(t, e.clock.Now)
+	broker.SetDefault(func(job string) usagewire.Response {
+		return usagemetertest.Answer(job, start.Add(-time.Hour), start.Add(time.Minute), 0, codexUsage())
+	})
+	e.runs.Meter = meter
+	e.runRuns()
+	assertCodexMeasured(t, e, name, broker)
 }
