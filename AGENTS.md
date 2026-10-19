@@ -50,7 +50,8 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   transcript and the live, never-persisted `PATCHY-OUTPUT:` command output. Never talks to GitHub or the Kubernetes API;
   a claude or codex pod holds no credential at all (model traffic goes through the egress broker, authenticated by a
   projected SA token read fresh per stage; codex gets it as `PATCHY_BROKER_TOKEN` in its own environment and the broker
-  as a `patchy` provider on its command line, `harness.Gateway`), a copilot pod only its token. Two subcommands share the binary: `sandbox-probe` (the
+  as a `patchy` provider on its command line, `harness.Gateway`), a copilot pod only its token. Two subcommands share
+  the binary: `sandbox-probe` (the
   `internal/sandboxprobe` check the trusted prepare init runs: `--mode strict`, the default, for a repository image,
   exit 78 when egress is open; `--mode wait --targets k8s,imds` for every other non-evaluation Job, exit 0 either way)
   and `preflight` (what `patchy check image --run` drives).
@@ -629,7 +630,8 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   `--evolve-codex-image` refused, `ErrCodexEvaluations`; `CodexUserCredentials`, the temporary guard against
   `--user-credentials` beside codex), and
   `Resolve` (every allowlisted model runnable; then one advisory 5-second broker `/readyz` probe that logs
-  `egress broker not reachable yet; brokered (claude, codex) jobs will fail until it is` and never gates startup; intent-controller uses
+  `egress broker not reachable yet; brokered (claude, codex) jobs will fail until it is` and never gates startup;
+  intent-controller uses
   `ResolveWithoutBrokerProbe`).
 - `broker`, `provider` — the egress-broker engine (TokenReview auth + verdict cache, per-route credential
   strategies, per-user credential resolution and health probes behind `Config.UserCredentials` with its adapter in
