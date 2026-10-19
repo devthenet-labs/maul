@@ -238,6 +238,29 @@ func (r *ProjectReconciler) revalidate(ctx context.Context, p, cur *v1alpha1.Pro
 	return nil
 }
 
+// refusal is why this controller's own settings keep p from being Ready,
+// with the message saying what lifts it, or "" when they admit it: several
+// repositories without --intent-multi-repo, a harness it does not run
+// intents on, or a run budget over half the broker's hourly cost limit.
+func (s Settings) refusal(p *v1alpha1.Project) (reason, msg string) {
+	if n := len(p.Spec.Repositories); n != 1 && !s.MultiRepo {
+		return ReasonUnsupportedRepositories, fmt.Sprintf("intents build in exactly one repository unless "+
+			"intent-controller runs with --intent-multi-repo, and this Project lists %d", n)
+	}
+	if s.harnessOff(p.Spec.Harness) {
+		return ReasonHarnessNotEnabled, fmt.Sprintf("spec.harness is %s, and intent-controller runs intents on %s "+
+			"only with --intent-codex (intentController.codex.enabled); until it does, no intent of this project is "+
+			"discovered and a %s run of one already open waits Pending", p.Spec.Harness, p.Spec.Harness, p.Spec.Harness)
+	}
+	if stage, budget := s.budgetOverHourly(p); stage != "" {
+		return ReasonRunBudgetOverHourlyLimit, fmt.Sprintf("a %s run's cost budget of %d micro-USD is more than half "+
+			"the egress broker's hourly cost limit of %d micro-USD, so one run could spend the cluster's hour alone; "+
+			"lower limits.%s.maxCostMicroUSD (or limits.maxCostMicroUSD, its default) or raise the broker's "+
+			"costPerHour", stage, budget, s.BrokerCostPerHour, stage)
+	}
+	return "", ""
+}
+
 // validate checks the Project and returns its Ready condition. An error is a
 // transient failure to find out; a check that fails is a False condition.
 func (r *ProjectReconciler) validate(ctx context.Context, p *v1alpha1.Project) (metav1.Condition, error) {
@@ -245,23 +268,8 @@ func (r *ProjectReconciler) validate(ctx context.Context, p *v1alpha1.Project) (
 		return metav1.Condition{Type: v1alpha1.ConditionReady, Status: metav1.ConditionFalse,
 			Reason: reason, Message: fmt.Sprintf(format, args...)}, nil
 	}
-	if n := len(p.Spec.Repositories); n != 1 && !r.Settings.MultiRepo {
-		return notReady(ReasonUnsupportedRepositories,
-			"intents build in exactly one repository unless intent-controller runs with --intent-multi-repo, "+
-				"and this Project lists %d", n)
-	}
-	if r.Settings.harnessOff(p.Spec.Harness) {
-		return notReady(ReasonHarnessNotEnabled,
-			"spec.harness is %s, and intent-controller runs intents on %s only with --intent-codex "+
-				"(intentController.codex.enabled); until it does, no intent of this project is discovered and a "+
-				"%s run of one already open waits Pending", p.Spec.Harness, p.Spec.Harness, p.Spec.Harness)
-	}
-	if stage, budget := r.Settings.budgetOverHourly(p); stage != "" {
-		return notReady(ReasonRunBudgetOverHourlyLimit,
-			"a %s run's cost budget of %d micro-USD is more than half the egress broker's hourly cost limit of %d "+
-				"micro-USD, so one run could spend the cluster's hour alone; lower limits.%s.maxCostMicroUSD (or "+
-				"limits.maxCostMicroUSD, its default) or raise the broker's costPerHour",
-			stage, budget, r.Settings.BrokerCostPerHour, stage)
+	if reason, msg := r.Settings.refusal(p); reason != "" {
+		return notReady(reason, "%s", msg)
 	}
 	trigger := v1alpha1.ProjectTriggerLabel(p)
 	var projects v1alpha1.ProjectList
