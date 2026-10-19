@@ -273,7 +273,8 @@ disabled for exactly this reason.
 
 ### Codex runs brokered
 
-Codex is configured on its command line, so agent-runner points it at the broker itself, stage by stage. The pod carries
+For turning codex on, the migration and checking it on a live cluster, see [The codex runner](codex.md). Codex is
+configured on its command line, so agent-runner points it at the broker itself, stage by stage. The pod carries
 `PATCHY_CODEX_BASE_URL` (the broker's `/openai/v1` route, stamped by the controller) and the projected token file; each
 stage then runs `codex exec` with a `patchy` model provider (`-c model_provider=patchy` and
 `model_providers.patchy.{base_url, wire_api="responses", env_key, env_http_headers, supports_websockets=false}`, one

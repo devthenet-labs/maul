@@ -62,7 +62,8 @@ To let the investigation choose OpenAI models for remediation, enable the codex 
 (`agent.runners.codex.enabled: true` / add `codex` to `PATCHY_HARNESSES`). Codex is brokered like claude, so its OpenAI
 API key lives with the egress broker in the release namespace (chart:
 `egressBroker.openai.apiKey.secret: patchy-openai`; kustomize: mount it into the broker and set
-`PATCHY_OPENAI_API_KEY_FILE`), never in an agent pod:
+`PATCHY_OPENAI_API_KEY_FILE`), never in an agent pod ([The codex runner](../configuration/codex.md) has the values, the
+migration from the old in-pod key and a live check):
 
 ```sh
 kubectl -n patchy create secret generic patchy-openai --from-literal=api-key="$OPENAI_API_KEY"

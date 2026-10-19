@@ -71,6 +71,7 @@ nav = [
     { "preview-auth" = "configuration/preview-auth.md" },
     { "Preview gateway" = "configuration/preview-gateway.md" },
     { "agent-runner" = "configuration/agent-runner.md" },
+    { "The codex runner" = "configuration/codex.md" },
     { "egress-broker" = "configuration/egress-broker.md" },
     { "egress-proxy" = "configuration/egress-proxy.md" },
     { "status-server" = "configuration/status-server.md" },

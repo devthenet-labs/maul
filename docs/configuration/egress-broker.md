@@ -168,7 +168,8 @@ the same ServiceAccount and share the per-pod limits, so size them for the longe
 The `/openai` route fronts the OpenAI Responses API with an org API key (`--openai-api-key-file`; chart
 `egressBroker.openai.apiKey`, a Secret in the release namespace). It is off unless that flag is set, and the codex
 runner runs on it alone (see [agent-runner](agent-runner.md#codex-runs-brokered) for the provider config a codex stage
-gets). API keys only; ChatGPT-plan sign-in and Codex access tokens are not brokered.
+gets, and [The codex runner](codex.md) for turning it on). API keys only; ChatGPT-plan sign-in and Codex access tokens
+are not brokered.
 
 - **Surface.** `POST /v1/responses` (metered, the model read from the body) and `GET /v1/models`. Everything else is 404
   before the upstream, including `/v1/responses/compact`, the stored-response endpoints (`/v1/responses/{id}`, its input
