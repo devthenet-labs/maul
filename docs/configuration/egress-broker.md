@@ -178,7 +178,8 @@ ChatGPT-plan sign-in and Codex access tokens are not brokered.
   `OpenAI-Project`, `ChatGPT-Account-Id` and `OpenAI-Beta` on every route, so a pod cannot bill another organization or
   project the key can reach.
 - **Body inspection.** Tools are an allowlist of the ones the client runs itself: `function`, `custom`, `local_shell`,
-  and `shell` and `apply_patch` executed locally. A request is refused (403) when it lists any other tool type (the
+  and `shell` and `apply_patch` executed locally, plus a `namespace` that only groups such tools (codex sends its
+  sub-agent tools as one; a namespace may not nest). A request is refused (403) when it lists any other tool type (the
   hosted ones, such as `web_search` and its dated variants, `file_search`, `code_interpreter`, `mcp`, `image_generation`
   and `computer_use`, and any server tool OpenAI adds later) or a tool naming a `connector_id`, a `server_url`, a hosted
   `environment` or a `container`; when it sets `background: true`, `previous_response_id`, `conversation` or a stored
