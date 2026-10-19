@@ -192,15 +192,16 @@ func (a Answers) validateCloudflare() []error {
 }
 
 // sharedDomainDepth is why a shared registrable domain needs Advanced
-// Certificate Manager on Cloudflare: the sign-in host must sit outside the
-// suffix, so the suffix cannot be the registrable domain itself, and every
-// preview host is a second-level name Universal SSL does not cover.
+// Certificate Manager on Cloudflare: whichever of the sign-in host and Dex
+// shares it must sit outside the suffix, so the suffix cannot be the
+// registrable domain itself, and every preview host is a second-level name
+// Universal SSL does not cover.
 func sharedDomainDepth(suffix, site string) error {
-	return fmt.Errorf("--shared-domain %s with --edge cloudflare-tunnel: previews on the sign-in host's domain sit "+
-		"below it (--host-suffix %s, never %s itself, which would put the sign-in host under the preview "+
-		"wildcard), so every preview host <label>.%s is a second-level name Cloudflare's free Universal SSL "+
-		"certificate does not cover: pass --cloudflare-acm once the zone %s has Advanced Certificate Manager (or "+
-		"Total TLS), or use --edge tailscale or gateway-tls, whose certificate cert-manager issues",
+	return fmt.Errorf("--shared-domain %s with --edge cloudflare-tunnel: previews on the registrable domain the "+
+		"sign-in host or Dex is on sit below it (--host-suffix %s, never %s itself, which would put what shares it "+
+		"under the preview wildcard), so every preview host <label>.%s is a second-level name Cloudflare's free "+
+		"Universal SSL certificate does not cover: pass --cloudflare-acm once the zone %s has Advanced Certificate "+
+		"Manager (or Total TLS), or use --edge tailscale or gateway-tls, whose certificate cert-manager issues",
 		SharedDomainAcknowledged, suffix, site, suffix, site)
 }
 

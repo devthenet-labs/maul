@@ -126,7 +126,8 @@ func TestCloudflareSharedDomain(t *testing.T) {
 	a.SharedDomainAck = SharedDomainAcknowledged
 	err := a.Validate()
 	if err == nil || !strings.Contains(err.Error(), "--shared-domain acknowledged with --edge cloudflare-tunnel") ||
-		!strings.Contains(err.Error(), "--cloudflare-acm") || strings.Contains(err.Error(), "--sign-in-host") {
+		!strings.Contains(err.Error(), "--cloudflare-acm") || strings.Contains(err.Error(), "--sign-in-host") ||
+		!strings.Contains(err.Error(), "the sign-in host or Dex is on") {
 		t.Errorf("shared domain without ACM: %v", err)
 	}
 	a.SignInHost = "sign-in.patchy.acme.dev"

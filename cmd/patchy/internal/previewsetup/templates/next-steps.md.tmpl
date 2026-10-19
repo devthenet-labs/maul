@@ -49,7 +49,7 @@ sealed-secrets) before they go anywhere else; never commit them as they are.
   ACME DNS-01 challenge for both `*.{{.Suffix}}` and `{{.SignIn}}` (`--dns manual`).
 {{- end}}
 {{- else if .Cloudflare}}
-{{- if .SharedSite}}
+{{- if .SignInShared}}
 - Both names sit on the zone `{{.SuffixSite}}` in your Cloudflare account, the registrable domain you accepted previews
   sharing with sign-in (above). The sign-in host must stay outside `{{.Suffix}}`, so every preview host is a
   second-level name, which only an advanced certificate covers (`--cloudflare-acm`, step 5).
@@ -73,7 +73,7 @@ sealed-secrets) before they go anywhere else; never commit them as they are.
 {{- else if .Certificate}}
 - cert-manager runs in the cluster, and the {{.IssuerKind}} `{{.IssuerName}}`{{if eq .IssuerKind "Issuer"}} in
   namespace `{{.Namespace}}`{{end}} can answer an ACME DNS-01 challenge for both `*.{{.Suffix}}` and `{{.SignIn}}`
-  (a wildcard needs DNS-01). {{if .SharedSite}}Both names sit on `{{.SharedSite}}`, usually in one DNS zone (two if
+  (a wildcard needs DNS-01). {{if .SignInShared}}Both names sit on `{{.SharedSite}}`, usually in one DNS zone (two if
   `{{.Suffix}}` is delegated): the solver's credential must answer for each.{{else}}The two names sit on different registrable domains, so usually in two DNS zones: the
   solver's credential must answer for both.{{end}} See "The wildcard certificate" in
   `docs/configuration/preview-gateway.md` for an Issuer to start from.
@@ -163,7 +163,7 @@ kubectl apply -f {{.CertificateFile}}
 kubectl -n {{.Namespace}} wait certificate/{{.CertificateName}} --for=condition=Ready --timeout=10m
 ```
 
-`previewAuth.gateway.tls.secrets` names its Secret, `{{.CertificateSecret}}`.{{if .SharedSite}} Both names sit on
+`previewAuth.gateway.tls.secrets` names its Secret, `{{.CertificateSecret}}`.{{if .SignInShared}} Both names sit on
 `{{.SharedSite}}`, usually in one DNS zone (two if `{{.Suffix}}` is delegated): the solver must be able to answer for
 each.{{else}} The two names sit on different
 registrable domains, so usually in two DNS zones: the solver must be able to answer for both.{{end}}

@@ -61,7 +61,10 @@ type nextSteps struct {
 	// acknowledged ("" for none); SharedWith names what shares it, the
 	// sign-in host, Dex or both (SharedBoth), and SharedDex says Dex does.
 	SharedSite, SharedWith string
-	SharedBoth, SharedDex  bool
+	// SignInShared is whether the sign-in host itself is on SharedSite, so
+	// that one zone serves both names; Dex alone sharing leaves two.
+	SignInShared          bool
+	SharedBoth, SharedDex bool
 
 	// The cloudflare-tunnel recipe: cloudflared and Cloudflare's edge.
 	Cloudflare, AdvancedCertificates             bool
@@ -152,6 +155,7 @@ func sharedSiteSteps(a Answers, d *nextSteps) {
 	var with []string
 	if SharesSite(a.HostSuffix, a.SignInHost) {
 		with = append(with, "the sign-in host `"+a.SignInHost+"`")
+		d.SignInShared = true
 	}
 	if dex := issuerHost(a.Dex.Issuer); SharesSite(a.HostSuffix, dex) {
 		with = append(with, "Dex (`"+dex+"`)")
