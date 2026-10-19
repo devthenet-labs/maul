@@ -58,20 +58,12 @@ func TestChartOverrideKeysMatchFlags(t *testing.T) {
 }
 
 // TestChartBrokerEnvAreFlags: every key the chart puts in the broker's
-// ConfigMap, per-user credentials on, names one of this binary's flags, so
-// a renamed flag cannot leave the chart setting nothing (viper ignores an
-// environment name no flag reads).
+// ConfigMap, per-user credentials on or the openai route on, names one of
+// this binary's flags, so a renamed flag cannot leave the chart setting
+// nothing (viper ignores an environment name no flag reads).
 func TestChartBrokerEnvAreFlags(t *testing.T) {
 	if _, err := exec.LookPath("helm"); err != nil {
 		t.Skip("helm not on PATH")
-	}
-	out, err := exec.Command("helm", "template", "patchy", "../../charts/patchy", "--namespace", "patchy",
-		"--set", "attribution.mode=attribute", "--set", "egressBroker.userCredentials.mode=enforce",
-		"--set", "egressBroker.anthropicAuth=token",
-		"--set", "egressBroker.userCredentials.orgCredentialIsPersonal=acknowledged",
-		"--show-only", "templates/egress-broker.yaml").CombinedOutput()
-	if err != nil {
-		t.Fatalf("helm template: %v: %s", err, out)
 	}
 	flags := map[string]bool{}
 	opts := cli.NewOptions()
@@ -83,19 +75,43 @@ func TestChartBrokerEnvAreFlags(t *testing.T) {
 			flags["PATCHY_"+strings.ToUpper(strings.ReplaceAll(f.Name, "-", "_"))] = true
 		})
 	}
-	keys := regexp.MustCompile(`(?m)^\s+(PATCHY_[A-Z0-9_]+):`).FindAllSubmatch(out, -1)
-	seen := make([]string, 0, len(keys))
-	for _, k := range keys {
-		key := string(k[1])
-		seen = append(seen, key)
-		if !flags[key] {
-			t.Errorf("the chart sets %s, which no broker flag reads", key)
-		}
-	}
-	for _, want := range []string{"PATCHY_USER_CREDENTIALS", "PATCHY_CREDENTIALS_NAMESPACE",
-		"PATCHY_CREDENTIAL_RECORDS_NAMESPACE", "PATCHY_ORG_CREDENTIAL_IS_PERSONAL"} {
-		if !slices.Contains(seen, want) {
-			t.Errorf("the chart does not set %s with per-user credentials on (keys %v)", want, seen)
-		}
+	for _, c := range []struct {
+		name string
+		sets []string
+		want []string
+	}{
+		{"user credentials", []string{"attribution.mode=attribute", "egressBroker.userCredentials.mode=enforce",
+			"egressBroker.anthropicAuth=token", "egressBroker.userCredentials.orgCredentialIsPersonal=acknowledged"},
+			[]string{"PATCHY_USER_CREDENTIALS", "PATCHY_CREDENTIALS_NAMESPACE",
+				"PATCHY_CREDENTIAL_RECORDS_NAMESPACE", "PATCHY_ORG_CREDENTIAL_IS_PERSONAL"}},
+		{"openai route", []string{"egressBroker.openai.apiKey.secret=patchy-openai"},
+			[]string{"PATCHY_OPENAI_API_KEY_FILE", "PATCHY_ANTHROPIC_API_KEY_FILE"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			args := make([]string, 0, 7+2*len(c.sets))
+			args = append(args, "template", "patchy", "../../charts/patchy", "--namespace", "patchy",
+				"--show-only", "templates/egress-broker.yaml")
+			for _, set := range c.sets {
+				args = append(args, "--set", set)
+			}
+			out, err := exec.Command("helm", args...).CombinedOutput()
+			if err != nil {
+				t.Fatalf("helm template: %v: %s", err, out)
+			}
+			keys := regexp.MustCompile(`(?m)^\s+(PATCHY_[A-Z0-9_]+):`).FindAllSubmatch(out, -1)
+			seen := make([]string, 0, len(keys))
+			for _, k := range keys {
+				key := string(k[1])
+				seen = append(seen, key)
+				if !flags[key] {
+					t.Errorf("the chart sets %s, which no broker flag reads", key)
+				}
+			}
+			for _, want := range c.want {
+				if !slices.Contains(seen, want) {
+					t.Errorf("the chart does not set %s (keys %v)", want, seen)
+				}
+			}
+		})
 	}
 }

@@ -2393,7 +2393,7 @@
         },
         "egressBroker": {
             "type": "object",
-            "description": "The egress credential broker all claude model traffic goes through; deploys exactly when a claude runner is enabled",
+            "description": "The egress credential broker all claude model traffic goes through; deploys when a claude runner is enabled, or a codex runner with openai.apiKey set",
             "additionalProperties": false,
             "required": [
                 "serviceAccount",
@@ -2557,6 +2557,29 @@
                 "foundrySecret": {
                     "type": "string",
                     "description": "Secret (release namespace) holding the Foundry API key under api-key; empty selects Entra via the broker's workload identity"
+                },
+                "openai": {
+                    "type": "object",
+                    "description": "The OpenAI Responses route; off while apiKey.secret is empty",
+                    "additionalProperties": false,
+                    "properties": {
+                        "apiKey": {
+                            "type": "object",
+                            "description": "Secret (release namespace) holding the OpenAI API key the broker sends as a bearer",
+                            "additionalProperties": false,
+                            "properties": {
+                                "secret": {
+                                    "type": "string",
+                                    "description": "Secret name; empty leaves the openai route off"
+                                },
+                                "key": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "description": "The key within the Secret holding the API key"
+                                }
+                            }
+                        }
+                    }
                 },
                 "resources": {
                     "type": "object"
