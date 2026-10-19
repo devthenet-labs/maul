@@ -10,10 +10,10 @@ import (
 	"fmt"
 	"net/http"
 	"path"
-	"regexp"
 	"strconv"
 	"strings"
 
+	"github.com/bitwise-media-group/patchy/internal/model"
 	"github.com/bitwise-media-group/patchy/internal/provider"
 )
 
@@ -246,9 +246,10 @@ func callerData(obj map[string]any, key string) bool {
 // their bare, lower-case form (a canonical "anthropic/claude-sonnet-5" and
 // the wire "claude-sonnet-5" are the same entry), and a wire id matches an
 // entry exactly or with only a dated/versioned suffix appended: the
-// "-20260514", "@20260514" and "-v1:0" forms the providers add. The CLI's
-// helper model family is always admitted beside the configured entries,
-// because every run calls it.
+// "-20260514", "@20260514", "-v1:0" and OpenAI's "-2026-05-14" forms the
+// providers add (model.IsDatedSuffix, the grammar the pricer resolves
+// with). The CLI's helper model family is always admitted beside the
+// configured entries, because every run calls it.
 type modelPolicy struct {
 	entries []string
 }
@@ -267,10 +268,6 @@ func newModelPolicy(list []string) *modelPolicy {
 	return p
 }
 
-// modelSuffix is what may follow an entry in a wire id: nothing, a dated
-// snapshot with an optional bedrock version, or a bare bedrock version.
-var modelSuffix = regexp.MustCompile(`^([-@][0-9]{8}(-v[0-9]+:[0-9]+)?|-v[0-9]+:[0-9]+)?$`)
-
 // allows reports whether wire, a model id as it appears on the request, is
 // admitted. A nil policy admits everything.
 func (p *modelPolicy) allows(wire string) bool {
@@ -282,7 +279,7 @@ func (p *modelPolicy) allows(wire string) bool {
 		return false
 	}
 	for _, e := range p.entries {
-		if rest, ok := strings.CutPrefix(w, e); ok && modelSuffix.MatchString(rest) {
+		if rest, ok := strings.CutPrefix(w, e); ok && model.IsDatedSuffix(rest) {
 			return true
 		}
 	}

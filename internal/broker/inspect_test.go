@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"testing/quick"
+
+	"github.com/bitwise-media-group/patchy/internal/model"
 )
 
 // quickConfig is the seeded, deterministic configuration every property in
@@ -118,7 +120,7 @@ func TestModelPolicy(t *testing.T) {
 	if newModelPolicy(nil) != nil || newModelPolicy([]string{" ", ""}) == nil {
 		t.Fatal("empty list must yield a nil policy; blank entries must not")
 	}
-	p := newModelPolicy([]string{"anthropic/claude-sonnet-5", "Claude-Opus-5", "my-deployment",
+	p := newModelPolicy([]string{"anthropic/claude-sonnet-5", "Claude-Opus-5", "my-deployment", "openai/gpt-5.3-codex",
 		"arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-fable-5-1-v1:0"})
 	tests := []struct {
 		wire string
@@ -162,6 +164,12 @@ func TestModelPolicy(t *testing.T) {
 		{"arn:aws:sagemaker:us-east-1:1:inference-profile/claude-sonnet-5", false},
 		{"arn:aws:bedrock:us-east-1", false},
 		{"claude-fable-5-1-v1:0", true}, // admitted by the ARN entry
+		{"gpt-5.3-codex", true},
+		{"gpt-5.3-codex-2026-02-05", true}, // an OpenAI dated snapshot
+		{"openai/gpt-5.3-codex-2026-02-05", true},
+		{"gpt-5.3-codex-2026-02", false},
+		{"gpt-5.3-codex-2026-13-05", false},
+		{"gpt-5.3-codex-mini", false},
 	}
 	for _, tt := range tests {
 		if got := p.allows(tt.wire); got != tt.want {
@@ -312,5 +320,30 @@ func TestInspectBodyStripsBodyBetas(t *testing.T) {
 				t.Fatalf("rewritten = %s, want %s", insp.rewritten, tt.want)
 			}
 		})
+	}
+}
+
+// TestDatedSnapshotAllowedAndPricedProperty (seeded): for every priced
+// registry model and any OpenAI-style dated snapshot of it, the allowlist
+// naming the model admits the snapshot and the pricer prices it at the
+// model's own rates, never at the ceiling: a snapshot carries no rate
+// change.
+func TestDatedSnapshotAllowedAndPricedProperty(t *testing.T) {
+	models := model.Builtins()
+	prices := newPricer(models)
+	prop := func(i uint8, y, m, d uint16) bool {
+		mod := models[int(i)%len(models)]
+		if mod.InputUSD == nil || mod.OutputUSD == nil {
+			return true
+		}
+		wire := fmt.Sprintf("%s-%04d-%02d-%02d", mod.BareID(), 2000+int(y)%100, 1+int(m)%12, 1+int(d)%28)
+		if !newModelPolicy([]string{mod.ID}).allows(wire) {
+			return false
+		}
+		u := usage{input: 1000, cacheRead: 500, output: 200}
+		return prices.modelFor(wire).ID == mod.ID && prices.cost(wire, u) == prices.cost(mod.BareID(), u)
+	}
+	if err := quick.Check(prop, quickConfig()); err != nil {
+		t.Fatal(err)
 	}
 }
