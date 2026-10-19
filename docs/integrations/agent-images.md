@@ -97,13 +97,14 @@ Whatever the image says, the agent container:
 - runs with `PATH=/patchy/bin:<the image's PATH>`, `HOME=/workspace` and `GIT_CONFIG_NOSYSTEM=1` (the image's
   `/etc/gitconfig` is ignored), and with `BASH_ENV`, `ENV`, `SHELLOPTS`, `PROMPT_COMMAND`, `LD_PRELOAD`,
   `LD_LIBRARY_PATH`, `LD_AUDIT`, `NODE_OPTIONS`, `PYTHONSTARTUP`, `GIT_CONFIG_GLOBAL`, `GIT_CONFIG_SYSTEM`,
-  `GIT_EXEC_PATH`, `GIT_SSH_COMMAND`, the proxy variables and every unused `PATCHY_*` setting set empty, so an image
-  that relies on any of them breaks.
+  `GIT_EXEC_PATH`, `GIT_SSH_COMMAND`, `CODEX_HOME`, the proxy variables and every unused `PATCHY_*` setting set empty,
+  so an image that relies on any of them breaks.
 
 The image's `ENV` may not set any of these names; source-controller rejects the image (`ReservedEnv`) if it does:
 
 - `HOME`;
-- any name starting `PATCHY_`, `ANTHROPIC_` or `CLAUDE_`;
+- any name starting `PATCHY_`, `ANTHROPIC_`, `CLAUDE_`, `CODEX_` or `OPENAI_` (an intent on brokered codex runs the
+  codex CLI in your image, and `CODEX_HOME` would point it at a config of the image's own);
 - a model or forge credential name: `OPENAI_API_KEY`, `CODEX_API_KEY`, `CODEX_ACCESS_TOKEN`, `COPILOT_GITHUB_TOKEN`,
   `GH_TOKEN`, `GITHUB_TOKEN`;
 - a model gateway name: `AWS_REGION`, `CLOUD_ML_REGION`;
