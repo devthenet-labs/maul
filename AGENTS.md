@@ -423,6 +423,15 @@ e2e/                SEPARATE Go module: envtest carries the CRDs, the real binar
                     sends one Responses request to its -c provider) through the shipped
                     broker to a fake OpenAI upstream; the kubelet's useBrokerTokens creates
                     each pod first and mints it a real pod-bound caller token.
+                    broker_cost_openai_test.go is broker_cost_test.go on the openai route
+                    (codex-shaped Responses turns): also reads the usage endpoint
+                    (--usage-addr, a pod-bound usage-audience token) to assert the turns
+                    are measured. user_credentials_openai_test.go runs a codex remediation
+                    under enforce: remediation-controller holds it on openai, the Account
+                    page stores an OpenAI key, the hold lifts within CredentialRecheck,
+                    the Job's pod pays with the person's key, replace and delete take
+                    effect within the cap. pipeline_test.go asserts a codex Job holds no
+                    SecretKeyRef and mounts the projected broker token.
 docs/ overrides/    Zensical docs site (zensical.toml at the root; patchy-branded theme in
                     docs/stylesheets/extra.css + overrides/). `mise run serve` to preview,
                     `mise run docs-build` to build; the reusable release workflow publishes it
@@ -684,11 +693,11 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   `broker/credstore`, SSE-safe reverse proxy, a dialect per route (`dialect.go`: inspection, usage, error envelope;
   Anthropic-shaped or OpenAI Responses), audit, and the ledger: per pod name and UID the limits' counters plus,
   per bare model id and the kind of credential that paid, observed input/output/cache-read/5m-and-1h cache-write tokens
-  kept apart from the estimated shortfall, served by `UsageHandler`) and the pure logic of brokered claude runners
-  (gateway env, canonical→provider model-id maps with per-provider derived defaults, the `PATCHY_MODEL_MAP` codec both
-  the controllers and agentrun share). `provider.Names` is the broker's closed route table, `provider.ClaudeNames` the
-  four a claude runner can front (not openai). `provider.BrokerTokenHeader` is the one definition of the caller-token
-  header.
+  kept apart from the estimated shortfall, served by `UsageHandler`) and the pure logic of the brokered runners
+  (claude's gateway env and codex's gateway names, `provider.CodexEnv`; canonical→provider model-id maps with
+  per-provider derived defaults, the `PATCHY_MODEL_MAP` codec both the controllers and agentrun share).
+  `provider.Names` is the broker's closed route table, `provider.ClaudeNames` the four a claude runner can front (not
+  openai). `provider.BrokerTokenHeader` is the one definition of the caller-token header.
 - `usagewire`, `usagemeter` — trusted usage (per-user credentials design, revision 1, L2). `usagewire` is the
   stdlib-only wire contract of the broker's usage endpoint (Job-name keying, `PodOfJob`, audience, credential kinds,
   reserved model keys). `usagemeter` is the run controllers' side, behind `--usage-measurement` (off; chart on under
