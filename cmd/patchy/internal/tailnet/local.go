@@ -43,6 +43,8 @@ func Local(ctx context.Context) ([]byte, error) {
 	out := &limitedBuffer{max: MaxStatus}
 	cmd := exec.CommandContext(ctx, bin, "status", "--json")
 	cmd.Stdout = out
+	// A child that keeps stdout open past the deadline must not hold Run.
+	cmd.WaitDelay = time.Second
 	if err := cmd.Run(); err != nil {
 		// stderr is never quoted: it is the client's, and says nothing a
 		// re-run on a machine on the tailnet would not.
