@@ -567,7 +567,37 @@ previewAuth:
   address for `patchy check previews`.
 - **The tailnet policy is the allowlist.** Let viewers' group reach `tag:patchy-previews` on `tcp:443` alone. Grants
   only add access, so a new tailnet's allow-all rule must go first: while it stands, every member reaches the device on
-  every port, the gateway's plain listener on 80 included. Viewers still sign in.
+  every port, the gateway's plain listener on 80 included. Viewers still sign in. Replacing allow-all safely keeps every
+  member on their own devices, and lets Tailscale test the result on save:
+
+  ```jsonc
+  {
+    "groups": { "group:preview-viewers": ["<a viewer's tailnet login>"] },
+    "tagOwners": {
+      "tag:k8s-operator": [],
+      "tag:k8s": ["tag:k8s-operator"],
+      "tag:patchy-previews": ["tag:k8s-operator"],
+    },
+    "grants": [
+      { "src": ["autogroup:member"], "dst": ["autogroup:self"], "ip": ["*"] },
+      { "src": ["group:preview-viewers"], "dst": ["tag:patchy-previews"], "ip": ["tcp:443"] },
+    ],
+    // keep "ssh", "nodeAttrs" and any other section as they are
+    "tests": [
+      { "src": "<your tailnet login>", "accept": ["<your tailnet login>:22"] },
+      {
+        "src": "<a viewer's tailnet login>",
+        "accept": ["tag:patchy-previews:443"],
+        "deny": ["tag:patchy-previews:80"],
+      },
+      { "src": "tag:k8s", "deny": ["tag:patchy-previews:443", "tag:patchy-previews:80"] },
+    ],
+  }
+  ```
+
+  `setup previews` prints this policy, for your tag, in `NEXT-STEPS.md`. Anything else members reach today (a tagged
+  server, a subnet router, an exit node) needs a grant of its own before saving.
+
 - **The operator's OAuth client** is its own Secret (`operator-oauth` in namespace `tailscale`, keys `client_id` and
   `client_secret`); patchy's values never hold it. Generate it under **Settings > Trust credentials** with the scopes
   **Devices > Core**, **Keys > Auth Keys** and **General > Services**, each Write and tagged `tag:k8s-operator`, once

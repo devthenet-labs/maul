@@ -56,6 +56,7 @@ type nextSteps struct {
 	TailscaleNamespace                 string
 	TailscaleAddresses                 []string
 	TailscalePolicy                    string
+	PolicyOwner, PolicyViewer          string
 	TailscaleOAuthFile                 string
 	TailscaleOAuthWritten              bool // --tailscale-oauth-dir gave the operator's OAuth client
 
@@ -197,6 +198,7 @@ func gatewayCertSteps(a Answers, d *nextSteps, paths []string) {
 		d.TailscaleNamespace = TailscaleOperator.Namespace
 		d.TailscaleAddresses = a.Tailscale.Addresses
 		d.TailscalePolicy = tailscalePolicy(a)
+		d.PolicyOwner, d.PolicyViewer = policyOwner, policyViewer
 		d.TailscaleOAuthFile = TailscaleOAuthFile
 		d.TailscaleOAuthWritten = slices.Contains(paths, TailscaleOAuthFile)
 	}
@@ -312,21 +314,46 @@ func route53Policy(suffix, signIn string) string {
 `
 }
 
-// tailscalePolicy is the tailnet policy the tailscale recipe needs
-// (design §6): the operator owns the previews' tag, and viewers reach that
-// device on 443 alone.
+// The placeholders the tailnet policy carries: tailnet logins patchy
+// cannot know (viewers sign in to previews with GitHub, not with these).
+const (
+	policyOwner  = "<your tailnet login>"
+	policyViewer = "<a viewer's tailnet login>"
+)
+
+// tailscalePolicy is the complete, safe tailnet policy the tailscale
+// recipe needs (design §6, setup-previews-easy (c)), in Tailscale's HuJSON:
+// it replaces allow-all with every member reaching their own devices
+// (autogroup:self, so Tailscale SSH keeps its network access) and the
+// viewers reaching the previews' device on 443 alone, lets the operator
+// own its tags, and carries tests Tailscale runs on every save, so a
+// policy that locks the owner out, or leaves the device open on 80 or to
+// another tagged device, is refused before it applies.
 func tailscalePolicy(a Answers) string {
+	tag := a.TailscaleTag()
 	return `{
-  "tagOwners": {
-    "` + TailscaleOperatorTag + `": ["autogroup:admin"],
-    "` + a.TailscaleTag() + `": ["` + TailscaleOperatorTag + `"]
+  // Who may reach the previews' device: tailnet logins (each still signs in).
+  "groups": {
+    "group:preview-viewers": ["` + policyViewer + `"]
   },
+  "tagOwners": {
+    "` + TailscaleOperatorTag + `": [],
+    "tag:k8s": ["` + TailscaleOperatorTag + `"],
+    "` + tag + `": ["` + TailscaleOperatorTag + `"]
+  },
+  // These replace allow-all: nothing else is reachable unless granted here.
   "grants": [
-    {
-      "src": ["group:preview-viewers"],
-      "dst": ["` + a.TailscaleTag() + `"],
-      "ip": ["tcp:443"]
-    }
+    // Every member keeps reaching their own devices, Tailscale SSH included.
+    {"src": ["autogroup:member"], "dst": ["autogroup:self"], "ip": ["*"]},
+    // Viewers reach the previews' device on 443 alone.
+    {"src": ["group:preview-viewers"], "dst": ["` + tag + `"], "ip": ["tcp:443"]}
+  ],
+  // Keep your "ssh" and "nodeAttrs" sections, and any other, as they are.
+  // Tailscale runs these on every save and refuses a policy that fails one.
+  "tests": [
+    {"src": "` + policyOwner + `", "accept": ["` + policyOwner + `:22"]},
+    {"src": "` + policyViewer + `", "accept": ["` + tag + `:443"], "deny": ["` + tag + `:80"]},
+    {"src": "tag:k8s", "deny": ["` + tag + `:443", "` + tag + `:80"]}
   ]
 }
 `

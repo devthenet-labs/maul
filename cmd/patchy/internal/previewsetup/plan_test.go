@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"math/rand"
 	"reflect"
 	"regexp"
@@ -198,7 +199,9 @@ func randSecret(r *rand.Rand) ClientSecret {
 // secret, raw or base64-encoded, is in no file but the two Secret
 // manifests, and in both of those; a DNS credential given is in no file
 // but its own Secret manifest, and in that one exactly when the solver
-// reads it.
+// reads it; and the Tailscale operator's OAuth client is in no file but
+// its Secret manifest, written exactly when the recipe installs the
+// operator.
 func TestSecretNeverLeaves(t *testing.T) {
 	cfg := quickConfig(500)
 	cfg.Values = func(args []reflect.Value, r *rand.Rand) {
@@ -209,14 +212,23 @@ func TestSecretNeverLeaves(t *testing.T) {
 		tunnel := make([]byte, 32)
 		r.Read(tunnel)
 		args[3] = reflect.ValueOf(tunnel)
+		args[4] = reflect.ValueOf(fmt.Sprintf("tskey-client-k%dCNTRL-%x", r.Intn(1e6), r.Int63()))
 	}
-	prop := func(a Answers, secret string, dnsCred, tunnelSecret []byte) bool {
+	prop := func(a Answers, secret string, dnsCred, tunnelSecret []byte, oauthSecret string) bool {
 		s := Secrets{DexClient: ClientSecret{value: secret}}
 		if a.DNSCredentialKey() != "" {
 			s.DNS = Credential{value: dnsCred}
 		}
 		if a.Edge == EdgeCloudflareTunnel {
 			s.Tunnel = testTunnel(a.Cloudflare.TunnelID, tunnelSecret)
+		}
+		if a.WritesTailscaleOAuth() {
+			oauth, err := ParseTailscaleOAuth([]byte("kOAUTHCNTRL"), []byte(oauthSecret))
+			if err != nil {
+				t.Logf("ParseTailscaleOAuth: %v", err)
+				return false
+			}
+			s.TailscaleOAuth = oauth
 		}
 		files, err := Plan(a, s, testVersion)
 		if err != nil {
@@ -228,13 +240,18 @@ func TestSecretNeverLeaves(t *testing.T) {
 		}
 		for _, f := range files {
 			dex := has(f.Data, []byte(secret))
-			if dex != (f.Secret && f.Path != DNSSecretFile && f.Path != CloudflaredSecretFile) {
+			if dex != (f.Secret && f.Path != DNSSecretFile && f.Path != CloudflaredSecretFile &&
+				f.Path != TailscaleOAuthFile) {
 				t.Logf("%s: holds the Dex client secret %v", f.Path, dex)
 				return false
 			}
 			dns := has(f.Data, dnsCred)
 			if dns != (f.Path == DNSSecretFile) {
 				t.Logf("%s: holds the DNS credential %v", f.Path, dns)
+				return false
+			}
+			if oauth := has(f.Data, []byte(oauthSecret)); oauth != (f.Path == TailscaleOAuthFile) {
+				t.Logf("%s: holds the OAuth client secret %v", f.Path, oauth)
 				return false
 			}
 			if a.Edge == EdgeCloudflareTunnel && !tunnelOnlyInItsSecret(t, f, s.Tunnel, tunnelSecret) {
@@ -244,6 +261,11 @@ func TestSecretNeverLeaves(t *testing.T) {
 		_, tunnelWritten := byPath(files)[CloudflaredSecretFile]
 		if tunnelWritten != (a.Edge == EdgeCloudflareTunnel) {
 			t.Logf("tunnel Secret written %v on --edge %s", tunnelWritten, a.Edge)
+			return false
+		}
+		if _, w := byPath(files)[TailscaleOAuthFile]; w != a.WritesTailscaleOAuth() {
+			t.Logf("OAuth Secret written %v on --edge %s, operator installed %v", w, a.Edge,
+				a.Tailscale.OperatorInstalled)
 			return false
 		}
 		_, written := byPath(files)[DNSSecretFile]

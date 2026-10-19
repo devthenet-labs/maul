@@ -205,18 +205,26 @@ picks one by SNI).{{end}}
 ## 6. Install
 {{- if .Tailscale}}
 
-The gateway's device joins the tailnet through the Tailscale operator. In the tailnet policy, let the operator own the
-previews' tag and let viewers reach that device on 443 alone (put whoever views previews in `group:preview-viewers`;
-each still signs in):
+The gateway's device joins the tailnet through the Tailscale operator. First the tailnet policy (**Access controls** in
+the admin console). Grants and ACLs only add access, and a new tailnet ships with an allow-all rule (the grant
+`{"src": ["*"], "dst": ["*"], "ip": ["*"]}`, or the ACL `{"action": "accept", "src": ["*"], "dst": ["*:*"]}`): while it
+stands, every member, shared-in user and tagged device reaches `{{.TailscaleTag}}` on every port,
+80 (the gateway's plain-HTTP listener) included. Remove it, or narrow it: the policy below replaces your `grants` and
+`acls` with exactly what is needed, and adds its `groups`, `tagOwners` and `tests` entries to yours:
 
-```json
+```jsonc
 {{.TailscalePolicy}}```
 
-Grants and ACLs only add access, so this grant restricts nothing while another rule reaches the device. A new tailnet
-ships with an allow-all rule (the grant `{"src": ["*"], "dst": ["*"], "ip": ["*"]}`, or the ACL
-`{"action": "accept", "src": ["*"], "dst": ["*:*"]}`): while it stands, every member, shared-in user and tagged device
-reaches `{{.TailscaleTag}}` on every port, 80 (the gateway's plain-HTTP listener) included. Remove it, or narrow it so
-that no rule but the one above has `{{.TailscaleTag}}` (or `*`) as a destination.
+- Every member keeps reaching their own devices (`autogroup:self`), which is what Tailscale SSH's default rule needs, so
+  removing allow-all does not lock you out. Anything else your devices reach today (a tagged server, a subnet router,
+  an exit node: `{"src": ["autogroup:member"], "dst": ["autogroup:internet"], "ip": ["*"]}`) needs a grant of its own
+  before you save, or it stops.
+- `group:preview-viewers` reaches `{{.TailscaleTag}}` on 443 alone; viewers still sign in at `https://{{.SignIn}}`.
+- `{{.TailscaleOperatorTag}}` (empty: only admins may apply it) owns the tags of the devices the operator creates, `tag:k8s`
+  (its default) and `{{.TailscaleTag}}`.
+- Replace `{{.PolicyOwner}}` and `{{.PolicyViewer}}` with real logins first (a viewer may be you). Tailscale runs the
+  `tests` on every save and refuses a policy that fails one: you must still reach your own devices, a viewer must reach
+  443 and not 80, and another tagged device must reach neither, which fails while any allow-all rule is left.
 {{- if .TailscaleOperator}}
 
 Then the operator's OAuth client: once the policy above is saved (the client's tag must have an owner first), open

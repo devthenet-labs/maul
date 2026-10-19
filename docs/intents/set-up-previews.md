@@ -163,10 +163,12 @@ balancer's address once it has one. Reference:
 
 R2's certificate, but instead of a load balancer the Tailscale operator gives the gateway's Service a tailnet device of
 its own (`patchy-previews`, tagged `tag:patchy-previews`). Only the tailnet reaches it, and the tailnet policy is the
-allowlist: `NEXT-STEPS.md` prints a grant that lets your viewers' group reach the device on 443 alone, and warns that a
-new tailnet's allow-all rule must go first. Viewers still sign in. This is the recipe for a desktop or home box: it
-needs no Traefik, no k3d port mapping and no second tailscaled, and it does not collide with Tailscale Funnel or
-`tailscale serve` on the host. Reference:
+allowlist: `NEXT-STEPS.md` prints a complete policy that replaces a new tailnet's allow-all rule, so every member keeps
+reaching their own devices (Tailscale SSH included) and your viewers' group reaches the device on 443 alone, with a
+`tests` block Tailscale runs on every save: a policy that would lock you out of your own devices, or leave the device
+open on port 80 or to another tagged device, is refused before it applies. Viewers still sign in. This is the recipe for
+a desktop or home box: it needs no Traefik, no k3d port mapping and no second tailscaled, and it does not collide with
+Tailscale Funnel or `tailscale serve` on the host. Reference:
 [a tailnet device](../configuration/preview-gateway.md#a-tailnet-device-through-the-tailscale-operator).
 
 The Tailscale operator needs an OAuth client of its own. `NEXT-STEPS.md` gives its exact recipe: the scopes **Devices >
