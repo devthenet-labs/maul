@@ -69,13 +69,34 @@ func Site(h string) (string, error) {
 	return publicsuffix.EffectiveTLDPlusOne(h)
 }
 
+// SharedDomainAcknowledged is --shared-domain's one value: the operator
+// accepts previews on the sign-in host's (or Dex's) registrable domain.
+const SharedDomainAcknowledged = "acknowledged"
+
+// SharesSite reports whether host sits on the registrable domain of the
+// preview host suffix without being under the suffix itself: preview code
+// is then same-site, but not same-origin, with it.
+func SharesSite(suffix, host string) bool {
+	if Under(host, suffix) {
+		return false
+	}
+	site, err := Site(suffix)
+	if err != nil {
+		return false
+	}
+	s, err := Site(host)
+	return err == nil && s == site
+}
+
 // CheckHosts holds the preview host suffix and the sign-in host to what
 // the gateway's isolation assumes (design §0, G11, owner decision Q3):
 // both valid hosts, the sign-in host outside the suffix, and the two on
-// different registrable domains. Preview code is same-site with every name
-// on the suffix's registrable domain, so a sign-in host there would hand
-// it the viewer's session cookies' site: refused, never warned.
-func CheckHosts(suffix, signIn string) error {
+// different registrable domains unless shared (--shared-domain
+// acknowledged). Preview code is same-site with every name on the suffix's
+// registrable domain, so a sign-in host there is same-site with it: refused
+// without the acknowledgement, never only warned. Under the suffix it is
+// same-origin with a preview's wildcard, and refused however acknowledged.
+func CheckHosts(suffix, signIn string, shared bool) error {
 	if !ValidHost(suffix) {
 		return fmt.Errorf("--host-suffix %q is not a lowercase DNS name of two or more labels", suffix)
 	}
@@ -91,18 +112,21 @@ func CheckHosts(suffix, signIn string) error {
 		return fmt.Errorf("--host-suffix %s has no registrable domain of its own (%v): previews must sit under a "+
 			"domain you register", suffix, err)
 	}
-	if s, err := Site(signIn); err == nil && s == site {
+	if !shared && SharesSite(suffix, signIn) {
 		return fmt.Errorf("--sign-in-host %s and --host-suffix %s share the registrable domain %s, so preview code "+
 			"would run same-site with sign-in: put previews on a domain of their own (a second, cheap domain; on "+
-			"Cloudflare it is also what makes the free certificate cover them)", signIn, suffix, site)
+			"Cloudflare it is also what makes the free certificate cover them), or accept it with --shared-domain "+
+			"%s (docs/configuration/preview-gateway.md, \"Previews on the sign-in host's domain\")", signIn, suffix,
+			site, SharedDomainAcknowledged)
 	}
 	return nil
 }
 
 // CheckIssuer holds the Dex issuer to an https URL whose host is neither
-// under the preview suffix nor on its registrable domain: Dex holds the
-// viewer's GitHub session, which preview code must not share a site with.
-func CheckIssuer(issuer, suffix string) error {
+// under the preview suffix nor, unless shared (--shared-domain
+// acknowledged), on its registrable domain: Dex holds the viewer's GitHub
+// sign-in, which preview code should not share a site with.
+func CheckIssuer(issuer, suffix string, shared bool) error {
 	u, err := url.Parse(issuer)
 	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		return fmt.Errorf("--dex-issuer %q is not an https URL without credentials, query or fragment", issuer)
@@ -118,15 +142,48 @@ func CheckIssuer(issuer, suffix string) error {
 		return fmt.Errorf("--dex-issuer %s sits under --host-suffix %s: preview code would be same-origin with Dex",
 			issuer, suffix)
 	}
-	site, err := Site(suffix)
-	if err != nil {
-		return nil // CheckHosts reports it
-	}
-	if s, err := Site(host); err == nil && s == site {
+	if !shared && SharesSite(suffix, host) {
+		site, _ := Site(suffix)
 		return fmt.Errorf("--dex-issuer %s shares the registrable domain %s with --host-suffix %s, so preview code "+
-			"would run same-site with Dex: put previews on a domain of their own", issuer, site, suffix)
+			"would run same-site with Dex: put previews on a domain of their own, or accept it with "+
+			"--shared-domain %s", issuer, site, suffix, SharedDomainAcknowledged)
 	}
 	return nil
+}
+
+// issuerHost is the Dex issuer's host, "" when it has none.
+func issuerHost(issuer string) string {
+	u, err := url.Parse(issuer)
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(u.Hostname())
+}
+
+// SharedDomain reports whether the operator acknowledged a shared
+// registrable domain (--shared-domain acknowledged).
+func (a Answers) SharedDomain() bool { return a.SharedDomainAck == SharedDomainAcknowledged }
+
+// SharedSite is the registrable domain previews share with the sign-in
+// host or Dex, acknowledged: the chart's previewAuth.sharedSiteAcknowledged.
+// "" when nothing is shared or the sharing is not acknowledged.
+func (a Answers) SharedSite() string {
+	if !a.SharedDomain() || !a.sharesAny() {
+		return ""
+	}
+	site, _ := Site(a.HostSuffix)
+	return site
+}
+
+// SharedUnacknowledged reports a sign-in host or Dex on the suffix's
+// registrable domain without --shared-domain acknowledged: what a terminal
+// session asks about.
+func (a Answers) SharedUnacknowledged() bool { return !a.SharedDomain() && a.sharesAny() }
+
+// sharesAny reports whether the sign-in host or Dex sits on the suffix's
+// registrable domain.
+func (a Answers) sharesAny() bool {
+	return SharesSite(a.HostSuffix, a.SignInHost) || SharesSite(a.HostSuffix, issuerHost(a.Dex.Issuer))
 }
 
 // ParseGatewayParent splits a Gateway API parent, <namespace>/<name> or
@@ -203,15 +260,19 @@ func (a Answers) validateNames() []error {
 func (a Answers) validateSignIn() []error {
 	var errs []error
 	bad := func(format string, args ...any) { errs = append(errs, fmt.Errorf(format, args...)) }
+	shared := a.SharedDomain()
 	if a.HostSuffix != "" && a.SignInHost != "" {
-		if err := CheckHosts(a.HostSuffix, a.SignInHost); err != nil {
+		if err := CheckHosts(a.HostSuffix, a.SignInHost, shared); err != nil {
 			errs = append(errs, err)
 		}
 	}
 	if a.Dex.Issuer != "" {
-		if err := CheckIssuer(a.Dex.Issuer, a.HostSuffix); err != nil {
+		if err := CheckIssuer(a.Dex.Issuer, a.HostSuffix, shared); err != nil {
 			errs = append(errs, err)
 		}
+	}
+	if err := a.validateSharedDomain(); err != nil {
+		errs = append(errs, err)
 	}
 	if !clientIDPattern.MatchString(a.Dex.ClientID) {
 		bad("--dex-client-id %q is not a client ID (letters, digits, '.', '_' and '-', at most 128)", a.Dex.ClientID)
@@ -230,6 +291,22 @@ func (a Answers) validateSignIn() []error {
 		bad("--no-viewers and --viewer-team/--viewer-user are exclusive")
 	}
 	return errs
+}
+
+// validateSharedDomain checks --shared-domain: acknowledged or empty, and
+// acknowledged only while something does share the suffix's registrable
+// domain, so a stale acknowledgement is never recorded.
+func (a Answers) validateSharedDomain() error {
+	switch {
+	case a.SharedDomainAck != "" && !a.SharedDomain():
+		return fmt.Errorf("--shared-domain %q is not %s (or empty, to withdraw it)", a.SharedDomainAck,
+			SharedDomainAcknowledged)
+	case a.SharedDomain() && a.HostSuffix != "" && a.SignInHost != "" && a.Dex.Issuer != "" && !a.sharesAny():
+		return fmt.Errorf("--shared-domain %s, but neither --sign-in-host %s nor --dex-issuer %s shares "+
+			"--host-suffix %s's registrable domain: withdraw it with --shared-domain \"\"", SharedDomainAcknowledged,
+			a.SignInHost, a.Dex.Issuer, a.HostSuffix)
+	}
+	return nil
 }
 
 // validateImages checks where preview images come from.

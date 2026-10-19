@@ -16,7 +16,11 @@
 //     the sign-in host to the gateway's grammar, keeps the sign-in host
 //     outside the suffix, and refuses a sign-in host or Dex issuer on the
 //     suffix's registrable domain (golang.org/x/net/publicsuffix decides it),
-//     so preview code is never same-site with sign-in (owner decision Q3).
+//     so preview code is never same-site with sign-in (owner decision Q3),
+//     unless the operator acknowledges it (--shared-domain acknowledged, the
+//     owner's revision of Q3): SharedSite is then the domain the chart
+//     values record as previewAuth.sharedSiteAcknowledged. A sign-in host
+//     under the suffix is refused however acknowledged.
 //   - Secrets carries the one secret the core generates, the relay's Dex
 //     client secret (32 bytes from crypto/rand, base64url), in a type whose
 //     formatting is redacted. ResolveSecrets keeps it stable across re-runs:

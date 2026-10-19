@@ -176,11 +176,32 @@ func (a Answers) validateCloudflare() []error {
 			"reached through Cloudflare, so keep the allowlist there (a WAF custom rule, or Cloudflare Access)"))
 	}
 	if a.HostSuffix != "" && a.SignInHost != "" && ValidHost(a.HostSuffix) && ValidHost(a.SignInHost) {
-		if err := CheckCloudflareDepth(a.HostSuffix, a.SignInHost, c.AdvancedCertificates); err != nil {
+		suffix := a.HostSuffix
+		if site, err := Site(suffix); err == nil && a.SharedDomain() && !c.AdvancedCertificates &&
+			!UniversalSSLCovers("preview."+suffix) {
+			errs = append(errs, sharedDomainDepth(suffix, site))
+			// The suffix is reported; the sign-in host is still judged,
+			// against the registrable domain, which Universal SSL covers.
+			suffix = site
+		}
+		if err := CheckCloudflareDepth(suffix, a.SignInHost, c.AdvancedCertificates); err != nil {
 			errs = append(errs, err)
 		}
 	}
 	return errs
+}
+
+// sharedDomainDepth is why a shared registrable domain needs Advanced
+// Certificate Manager on Cloudflare: the sign-in host must sit outside the
+// suffix, so the suffix cannot be the registrable domain itself, and every
+// preview host is a second-level name Universal SSL does not cover.
+func sharedDomainDepth(suffix, site string) error {
+	return fmt.Errorf("--shared-domain %s with --edge cloudflare-tunnel: previews on the sign-in host's domain sit "+
+		"below it (--host-suffix %s, never %s itself, which would put the sign-in host under the preview "+
+		"wildcard), so every preview host <label>.%s is a second-level name Cloudflare's free Universal SSL "+
+		"certificate does not cover: pass --cloudflare-acm once the zone %s has Advanced Certificate Manager (or "+
+		"Total TLS), or use --edge tailscale or gateway-tls, whose certificate cert-manager issues",
+		SharedDomainAcknowledged, suffix, site, suffix, site)
 }
 
 // sharedNamespace names what else already lives in namespace ns, or ""

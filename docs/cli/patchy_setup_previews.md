@@ -51,9 +51,15 @@ names only, so the --host-suffix must be a registrable domain itself and the
 --sign-in-host at most one label below its own, unless --cloudflare-acm says the zones
 have Advanced Certificate Manager.
 
-Previews must sit on a registrable domain of their own: a --sign-in-host or --dex-issuer
-on the --host-suffix's registrable domain is refused, because preview code would run
-same-site with sign-in. With only one domain, register a second, cheap one for previews.
+Previews are best on a registrable domain of their own: a --sign-in-host or --dex-issuer
+on the --host-suffix's registrable domain is refused unless you accept it with
+--shared-domain acknowledged (on a terminal the command explains and asks), because
+preview code then runs same-site with sign-in. patchy's own side holds (its cookies are
+__Host-, its sign-in endpoints refuse same-site background requests); what does not is
+every other app on that domain, which must not rely on parent-domain cookies or on
+SameSite for CSRF. The chart values then record the domain
+(previewAuth.sharedSiteAcknowledged), and patchy check previews reports the sharing as
+INFO. A sign-in host under the --host-suffix is refused however acknowledged.
 
 A re-run starts from answers.yaml; flags given override it. It shows how each file would
 change and writes nothing changed without --force or -y (on a terminal it asks). The
@@ -122,7 +128,8 @@ patchy setup previews [flags]
       --registry string                 the registry host preview images come from
       --release string                  the patchy Helm release (default "patchy")
       --rotate string                   draw a new secret although one is written: dex-client-secret
-      --sign-in-host string             where viewers sign in, on another registrable domain
+      --shared-domain string            acknowledged: accept the sign-in host or Dex on the --host-suffix's registrable domain, preview code then running same-site with them ("" withdraws it)
+      --sign-in-host string             where viewers sign in, on another registrable domain unless --shared-domain
       --tailscale-address stringArray   --edge tailscale: the device's tailnet address once it has appeared, what the DNS records hold (repeatable)
       --tailscale-hostname string       --edge tailscale: the gateway's device name (default patchy-previews)
       --tailscale-operator-installed    --edge tailscale: the Tailscale operator already runs: write no values for it

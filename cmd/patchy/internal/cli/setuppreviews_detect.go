@@ -71,10 +71,11 @@ func detectAndAsk(cmd *cobra.Command, opts *Options, f *setupPreviewsFlags, a *p
 	return nil
 }
 
-// needsAsking reports answers a still lacks: a flag Missing names, or a
-// setting the DNS-01 solver requires.
+// needsAsking reports answers a still lacks: a flag Missing names, a
+// setting the DNS-01 solver requires, or the acknowledgement a shared
+// registrable domain needs.
 func needsAsking(a previewsetup.Answers) bool {
-	if len(a.Missing()) > 0 {
+	if len(a.Missing()) > 0 || a.SharedUnacknowledged() {
 		return true
 	}
 	if !a.WritesIssuer() {

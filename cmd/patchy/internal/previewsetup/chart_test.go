@@ -20,6 +20,10 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+// sharedSiteAnnotation is the chart's record of
+// previewAuth.sharedSiteAcknowledged, which patchy check previews reads.
+const sharedSiteAnnotation = "patchy.bitwisemedia.uk/preview-shared-site-acknowledged"
+
 const (
 	chartDir      = "../../../../charts/patchy"
 	renderFixture = "../../../../hack/testdata/chart-render/intent-controller.yaml"
@@ -139,6 +143,7 @@ func TestGoldenValuesRender(t *testing.T) {
 			if relay == nil {
 				t.Fatal("no relay Ingress in the render")
 			}
+			checkSharedSite(t, a, objs)
 			if a.GatewayTerminatesTLS() {
 				checkGatewayTLS(t, a, objs, files)
 				return
@@ -189,6 +194,20 @@ func TestGoldenValuesRender(t *testing.T) {
 				t.Errorf("Certificate covers %v, the Ingresses route %v and %v", cert.Spec.DNSNames, gwRules, relayRules)
 			}
 		})
+	}
+}
+
+// checkSharedSite: the acknowledged shared site reaches the relay's
+// ConfigMap, where patchy check previews reads it, and only then.
+func checkSharedSite(t *testing.T, a Answers, objs []*unstructured.Unstructured) {
+	t.Helper()
+	cm := find(objs, "ConfigMap", a.Fullname()+"-preview-auth-config")
+	if cm == nil {
+		t.Error("no relay ConfigMap in the render")
+		return
+	}
+	if got := cm.GetAnnotations()[sharedSiteAnnotation]; got != a.SharedSite() {
+		t.Errorf("relay ConfigMap %s = %q, want %q", sharedSiteAnnotation, got, a.SharedSite())
 	}
 }
 

@@ -455,3 +455,50 @@ func TestSetupPreviewsDetectOnARerun(t *testing.T) {
 		t.Errorf("answers.yaml = %+v", a)
 	}
 }
+
+// TestSetupPreviewsAsksSharedDomain: on a terminal, a sign-in host on the
+// suffix's registrable domain is explained and the acknowledgement asked
+// for, once, taking only "acknowledged"; a blank answer stops with the
+// flags to change.
+func TestSetupPreviewsAsksSharedDomain(t *testing.T) {
+	base := []string{"setup", "previews", "--platform", "k3s", "--edge", "existing", "--ingress-class", "traefik",
+		"--viewer-team", "acme:qa", "--registry", "ghcr.io"}
+	dir := filepath.Join(t.TempDir(), "out")
+	in := answers(
+		"previews.acme.dev",     // --host-suffix
+		"preview-auth.acme.dev", // --sign-in-host, same-site with the previews
+		"yes",                   // --shared-domain, refused
+		"acknowledged",          // --shared-domain
+		"https://dex.acme.dev",  // --dex-issuer: already acknowledged, not asked again
+	)
+	errOut, err := execPreviews(t, true, nil, in, append(base, "-o", dir)...)
+	if err != nil {
+		t.Fatalf("%v\n%s", err, errOut)
+	}
+	for _, want := range []string{"preview-auth.acme.dev is on acme.dev", "never same-origin", "__Host-",
+		"no app there may rely on a parent-domain cookie or on SameSite for CSRF", "(--shared-domain)",
+		"answer acknowledged, or leave it blank"} {
+		if !strings.Contains(errOut, want) {
+			t.Errorf("the prompts lack %q:\n%s", want, errOut)
+		}
+	}
+	if n := strings.Count(errOut, "(--shared-domain)"); n != 2 {
+		t.Errorf("asked --shared-domain %d times, want 2 (one refused answer):\n%s", n, errOut)
+	}
+	a, err := previewsetup.ParseAnswers([]byte(readFile(t, dir, previewsetup.AnswersFile)))
+	if err != nil || a.SharedDomainAck != previewsetup.SharedDomainAcknowledged {
+		t.Errorf("answers.yaml: %+v, %v", a, err)
+	}
+
+	// Every name given by flag: the terminal still explains and asks.
+	dir = filepath.Join(t.TempDir(), "out")
+	errOut, err = execPreviews(t, true, nil, answers(""), append(base, "-o", dir, "--host-suffix",
+		"previews.acme.dev", "--sign-in-host", "preview-auth.acme.dev", "--dex-issuer", "https://dex.acme.dev")...)
+	var u *usageError
+	if !errors.As(err, &u) || !strings.Contains(err.Error(), "give another --host-suffix") {
+		t.Errorf("a blank acknowledgement: %v\n%s", err, errOut)
+	}
+	if exists(dir) {
+		t.Error("wrote files without the acknowledgement")
+	}
+}

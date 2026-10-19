@@ -1,0 +1,34 @@
+# The answers `patchy setup previews` last rendered this directory from. A re-run starts
+# from them; flags given then override them. No secret is ever recorded here.
+apiServerCIDR: auto
+certificate:
+  dns: route53
+  dnsOptions:
+    accessKeyID: AKIAIOSFODNN7EXAMPLE
+    region: us-east-1
+cliVersion: v0.12.40
+dex:
+  clientID: patchy-preview-auth
+  issuer: https://dex.acme.dev
+  namespace: dex
+edge: tailscale
+hostSuffix: previews.acme.dev
+imagePathPrefix: patchy/previews
+namespace: patchy
+nodeIsolation:
+  label: patchy.bitwisemedia.uk/previews
+  labelValue: "true"
+  taintKey: patchy.bitwisemedia.uk/preview-only
+platform: k3d
+registry: 123456789012.dkr.ecr.us-east-1.amazonaws.com
+release: patchy
+sharedDomain: acknowledged
+signInHost: preview-auth.acme.dev
+tailscale:
+  addresses:
+  - 100.101.12.58
+viewers:
+  teams:
+  - acme:qa
+  users:
+  - octocat

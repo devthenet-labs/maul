@@ -204,6 +204,13 @@ func TestSetupPreviewsRefusals(t *testing.T) {
 		"viewers and none":  {previewsArgs("x", "--no-viewers"), "exclusive"},
 		"auto mode form":    {previewsArgs("x", "--platform", "eks", "--eks-auto-mode", "pool"), "<nodePool>/<nodeClass>"},
 		"auto mode off eks": {previewsArgs("x", "--eks-auto-mode", "pool/class"), "--platform eks"},
+		"one domain": {previewsArgs("x", "--host-suffix", "previews.acme.dev"),
+			"accept it with --shared-domain acknowledged"},
+		"shared domain word": {previewsArgs("x", "--host-suffix", "previews.acme.dev", "--shared-domain", "yes"),
+			`--shared-domain "yes" is not acknowledged`},
+		"shared domain unused": {previewsArgs("x", "--shared-domain", "acknowledged"), "withdraw it"},
+		"shared and under": {previewsArgs("x", "--host-suffix", "acme.dev", "--sign-in-host", "auth.acme.dev",
+			"--shared-domain", "acknowledged"), "sits under"},
 	} {
 		dir := t.TempDir()
 		args := tc.args
@@ -277,5 +284,34 @@ func TestSetupPreviewsIsListed(t *testing.T) {
 	}
 	if !strings.Contains(out, "previews    Write the files that expose previews") {
 		t.Errorf("setup --help does not list previews:\n%s", out)
+	}
+}
+
+// TestSetupPreviewsSharedDomain: --shared-domain acknowledged lets previews,
+// sign-in and Dex share one registrable domain, records it in answers.yaml
+// and the chart values, survives a re-run from answers.yaml, and is
+// withdrawn by --shared-domain "".
+func TestSetupPreviewsSharedDomain(t *testing.T) {
+	r := &previewsRun{t: t, dir: t.TempDir()}
+	shared := []string{"--platform", "k3s", "--edge", "existing", "--ingress-class", "traefik",
+		"--host-suffix", "previews.acme.dev", "--sign-in-host", "preview-auth.acme.dev",
+		"--dex-issuer", "https://dex.acme.dev", "--viewer-team", "acme:qa", "--registry", "ghcr.io",
+		"--shared-domain", "acknowledged"}
+	if _, errOut, err := r.run(shared...); err != nil {
+		t.Fatalf("%v\n%s", err, errOut)
+	}
+	a, err := previewsetup.ParseAnswers([]byte(readFile(t, r.dir, previewsetup.AnswersFile)))
+	if err != nil || a.SharedDomainAck != previewsetup.SharedDomainAcknowledged {
+		t.Fatalf("answers.yaml: %+v, %v", a, err)
+	}
+	if v := readFile(t, r.dir, previewsetup.ValuesFile); !strings.Contains(v, "sharedSiteAcknowledged: acme.dev") {
+		t.Errorf("the values do not record the shared site:\n%s", v)
+	}
+	if _, errOut, err := r.run(); err != nil || !strings.Contains(errOut, "up to date") {
+		t.Errorf("a re-run from answers.yaml: %v\n%s", err, errOut)
+	}
+	_, _, err = r.run("--shared-domain", "")
+	if err == nil || !strings.Contains(err.Error(), "accept it with --shared-domain acknowledged") {
+		t.Errorf("withdrawn, a shared domain is refused again: %v", err)
 	}
 }

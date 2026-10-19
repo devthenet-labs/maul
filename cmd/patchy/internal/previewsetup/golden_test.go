@@ -104,6 +104,36 @@ func goldenCases() map[string]Answers {
 	for name, a := range cloudflareCases() {
 		cases[name] = a
 	}
+	for name, a := range sharedDomainCases() {
+		cases[name] = a
+	}
+	return cases
+}
+
+// sharedDomainCases are runs with one registrable domain for previews,
+// sign-in and Dex, acknowledged (--shared-domain acknowledged): the
+// owner's desktop on a tailnet, and a Cloudflare tunnel, which then needs
+// Advanced Certificate Manager.
+func sharedDomainCases() map[string]Answers {
+	cases := map[string]Answers{}
+	shared := func(a Answers) Answers {
+		a.HostSuffix, a.SignInHost, a.Dex.Issuer = "previews.acme.dev", "preview-auth.acme.dev", "https://dex.acme.dev"
+		a.SharedDomainAck = SharedDomainAcknowledged
+		return a
+	}
+	desk := shared(testAnswers())
+	desk.Edge, desk.Platform = EdgeTailscale, PlatformK3d
+	desk.Certificate = Certificate{DNS: "route53", DNSOptions: map[string]string{"region": "us-east-1",
+		"accessKeyID": "AKIAIOSFODNN7EXAMPLE"}}
+	desk.Registry = "123456789012.dkr.ecr.us-east-1.amazonaws.com"
+	desk.ImagePathPrefix = DefaultImagePathPrefix
+	desk.Tailscale.Addresses = []string{"100.101.12.58"}
+	cases["tailscale-shared-domain-k3d"] = desk
+
+	cf := shared(testAnswers())
+	cf.Edge, cf.Platform = EdgeCloudflareTunnel, PlatformK3s
+	cf.Cloudflare = Cloudflare{TunnelID: testTunnelID, AdvancedCertificates: true}
+	cases["cloudflare-tunnel-shared-domain-k3s"] = cf
 	return cases
 }
 
@@ -223,10 +253,11 @@ var dnsSentinel = Credential{value: []byte("DNS-SENTINEL-not-a-credential-fedcba
 
 // withDNSCredential are the cases whose operator gave a DNS credential.
 var withDNSCredential = map[string]bool{
-	"gateway-tls-cloudflare-k3s": true,
-	"gateway-tls-azure-aks":      true,
-	"gateway-tls-rfc2136-other":  true,
-	"tailscale-route53-k3d":      true,
+	"gateway-tls-cloudflare-k3s":  true,
+	"gateway-tls-azure-aks":       true,
+	"gateway-tls-rfc2136-other":   true,
+	"tailscale-route53-k3d":       true,
+	"tailscale-shared-domain-k3d": true,
 }
 
 // goldenSecrets are the secrets case name renders with.
