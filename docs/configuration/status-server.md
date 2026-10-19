@@ -127,7 +127,8 @@ refused unless `egressBroker.userCredentials.mode` is `attribute` or `enforce`, 
   anywhere and OpenAI while codex does): the kind (an Anthropic API key or setup-token, an OpenAI API key), the
   fingerprint (the last four characters and a SHA-256 prefix), the health the egress broker's own probe found (`Valid`,
   `Rejected` or `Unknown`), and when the broker last used it and last saw it rejected. Never the credential: no route
-  returns it, and the server cannot read a stored one back.
+  returns it, and the server cannot read a stored one back. A credential stored for a provider the page no longer offers
+  (its runner since turned off) still gets its card, so its owner can see and delete it; it cannot be replaced.
 - **What it does.** Set or replace the credential (a password field), or delete it. Pasting an Anthropic credential
   picks the kind its prefix names; OpenAI takes an API key only, so its card offers no kind choice. A setup-token must
   be the person's own subscription's: it is used only for runs attributed to them.

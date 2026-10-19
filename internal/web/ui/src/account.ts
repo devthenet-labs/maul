@@ -128,3 +128,10 @@ export function credentialProblem(
 export function healthOf(c: AccountCredential): CredentialHealth {
   return c.health === "" ? "Unknown" : c.health;
 }
+
+// offered is whether the page still takes a credential for c's provider: a
+// stored one it no longer offers (its runner turned off) comes with no kinds
+// and may only be deleted.
+export function offered(c: AccountCredential): boolean {
+  return c.kinds.length > 0;
+}

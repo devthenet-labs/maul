@@ -10,6 +10,7 @@ import {
   healthOf,
   healthText,
   kindLabel,
+  offered,
   placeholder,
   providerLabel,
 } from "../src/account.ts";
@@ -76,4 +77,20 @@ test("healthOf reads an empty health as Unknown", () => {
   const c = { provider: "anthropic", kinds: ANTHROPIC, stored: true, kind: "api-key", fingerprint: "", health: "", lastUsedAt: "", lastRejectedAt: "" };
   assert.equal(healthOf(c), "Unknown");
   assert.equal(healthOf({ ...c, health: "Rejected" }), "Rejected");
+});
+
+test("offered: a stored credential with no kinds may only be deleted", () => {
+  const card = (kinds, stored) => ({
+    provider: "openai",
+    kinds,
+    stored,
+    kind: stored ? "api-key" : "",
+    fingerprint: "",
+    health: "",
+    lastUsedAt: "",
+    lastRejectedAt: "",
+  });
+  assert.equal(offered(card(OPENAI, false)), true);
+  assert.equal(offered(card(OPENAI, true)), true);
+  assert.equal(offered(card([], true)), false);
 });

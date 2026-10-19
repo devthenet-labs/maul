@@ -229,10 +229,10 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   off, chart only, refused without `egressBroker.userCredentials.mode`) it serves the Account page and `/api/account*`
   (internal/web/account.go): a person sets, replaces and deletes their own model credential (POST only, JSON capped at
   8 KiB, owner stamped from the GitHub id, an access review on the virtual `modelcredentials/self`; one card per
-  `--account-providers` entry, default `anthropic`, the chart adding `openai` while codex runs), and sees its
-  fingerprint, health and last use, never the credential. Its store (`internal/web/credstore`) writes the Secret in
-  `--credentials-namespace` by create or unconditional update and never reads one: the status server's first Secret
-  write, and its only write outside spec.
+  `--account-providers` entry, default `anthropic`, the chart adding `openai` while codex runs, plus a delete-only card
+  for a credential stored under a provider no longer offered), and sees its fingerprint, health and last use, never the
+  credential. Its store (`internal/web/credstore`) writes the Secret in `--credentials-namespace` by create or
+  unconditional update and never reads one: the status server's first Secret write, and its only write outside spec.
 - `cmd/patchy` — the workstation CLI (the only binary not deployed): `patchy <verb> <noun>` over the caller's own
   kubeconfig, no channel through any controller. get/describe/review/browse/can-i plus the five action verbs; `get
   usage` is the usage report (not a kind; `internal/usageview`), admin-only by a SelfSubjectAccessReview on `usage/all`.

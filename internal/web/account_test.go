@@ -355,3 +355,48 @@ func TestAccountOffersOnlyItsProviders(t *testing.T) {
 		t.Errorf("writes = %+v", store.writes)
 	}
 }
+
+// TestAccountKeepsAStoredCredentialItNoLongerOffers: a key stored while its
+// runner was on stays visible and deletable after the operator turns the
+// runner off (the provider drops out of --account-providers); it can no
+// longer be replaced, and a provider with nothing stored stays hidden.
+func TestAccountKeepsAStoredCredentialItNoLongerOffers(t *testing.T) {
+	s, store := accountServer(t, v1alpha1.ModelCredentialProviderAnthropic)
+	if _, err := store.Put(t.Context(), CredentialWrite{Owner: "github-id:42", OwnerLogin: "octocat",
+		Provider: v1alpha1.ModelCredentialProviderOpenAI, Kind: v1alpha1.ModelCredentialAPIKey,
+		Credential: openaiKey, By: "github:octocat"}); err != nil {
+		t.Fatal(err)
+	}
+	store.writes = nil
+	ts := as(t, s, accountOctocat)
+
+	_, body := get(t, ts, "/api/account")
+	a := decode[Account](t, body)
+	if len(a.Credentials) != 2 || a.Credentials[0].Provider != "anthropic" || len(a.Credentials[0].Kinds) == 0 {
+		t.Fatalf("credentials = %+v, want the offered anthropic card first", a.Credentials)
+	}
+	if c := a.Credentials[1]; c.Provider != "openai" || !c.Stored || len(c.Kinds) != 0 {
+		t.Fatalf("the stored openai card = %+v, want stored with no kinds", c)
+	}
+
+	if code, _ := post(t, ts, openaiPath, "same-origin", "application/json",
+		`{"kind":"api-key","credential":"`+openaiKey+`"}`); code != http.StatusNotFound {
+		t.Errorf("replacing a credential no longer offered = %d, want 404", code)
+	}
+	if len(store.writes) != 0 {
+		t.Errorf("writes = %+v", store.writes)
+	}
+	name := v1alpha1.ModelCredentialName("github-id:42", v1alpha1.ModelCredentialProviderOpenAI)
+	if code, _ := post(t, ts, openaiPath+"/delete", "same-origin", "", ""); code != http.StatusNoContent ||
+		store.records[name] != nil {
+		t.Fatalf("deleting a credential no longer offered = %d", code)
+	}
+	_, body = get(t, ts, "/api/account")
+	if a := decode[Account](t, body); len(a.Credentials) != 1 || a.Credentials[0].Provider != "anthropic" {
+		t.Errorf("after the delete: %+v, want anthropic alone", a.Credentials)
+	}
+	if code, _ := post(t, ts, "/api/account/credentials/gemini/delete", "same-origin", "", ""); code !=
+		http.StatusNotFound {
+		t.Errorf("deleting an unknown provider = %d, want 404", code)
+	}
+}

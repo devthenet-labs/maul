@@ -132,7 +132,9 @@ type AccountCredential struct {
 	Provider string `json:"provider"`
 	// Kinds are the kinds the provider takes, in the order the page offers
 	// them (v1alpha1.ModelCredentialKinds): an Anthropic API key or
-	// setup-token, an OpenAI API key.
+	// setup-token, an OpenAI API key. Empty for a stored credential whose
+	// provider the page no longer offers (no enabled runner uses it): it can
+	// be seen and deleted, never replaced.
 	Kinds []string `json:"kinds"`
 	// Stored is whether a credential is stored for the provider.
 	Stored bool `json:"stored"`
@@ -224,23 +226,45 @@ func (s *Server) handleAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	owner := v1alpha1.ModelCredentialOwner(id.GitHubID)
-	for _, p := range s.account.providers {
+	for _, p := range s.accountListed() {
 		rec, err := s.account.store.Record(r.Context(), owner, p)
 		if err != nil {
 			s.log.LogAttrs(r.Context(), slog.LevelError, "read model credential", slog.Any("error", err))
 			http.Error(w, "failed to load credentials", http.StatusInternalServerError)
 			return
 		}
-		out.Credentials = append(out.Credentials, accountCredential(p, rec))
+		offered := slices.Contains(s.account.providers, p)
+		if !offered && rec == nil {
+			continue
+		}
+		out.Credentials = append(out.Credentials, accountCredential(p, rec, offered))
 	}
 	writeJSON(w, out)
 }
 
-// accountCredential is what the page shows of rec, nil when none.
-func accountCredential(p v1alpha1.ModelCredentialProvider, rec *v1alpha1.ModelCredential) AccountCredential {
+// accountListed is every provider the page may show: the offered ones in
+// their order, then every other known provider, shown only while a
+// credential is stored for it, so a person can still see and delete a key
+// after the operator turns its runner off.
+func (s *Server) accountListed() []v1alpha1.ModelCredentialProvider {
+	out := slices.Clone(s.account.providers)
+	for _, p := range v1alpha1.ModelCredentialProviders {
+		if !slices.Contains(out, p) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// accountCredential is what the page shows of rec, nil when none; kinds are
+// listed only while the page offers the provider.
+func accountCredential(p v1alpha1.ModelCredentialProvider, rec *v1alpha1.ModelCredential,
+	offered bool) AccountCredential {
 	out := AccountCredential{Provider: string(p), Kinds: []string{}}
-	for _, k := range v1alpha1.ModelCredentialKinds(p) {
-		out.Kinds = append(out.Kinds, string(k))
+	if offered {
+		for _, k := range v1alpha1.ModelCredentialKinds(p) {
+			out.Kinds = append(out.Kinds, string(k))
+		}
 	}
 	if rec == nil {
 		return out
@@ -262,10 +286,13 @@ func accountCredential(p v1alpha1.ModelCredentialProvider, rec *v1alpha1.ModelCr
 }
 
 // accountProvider reads the {provider} path value, answering one the page
-// does not offer itself.
-func (s *Server) accountProvider(w http.ResponseWriter, r *http.Request) (v1alpha1.ModelCredentialProvider, bool) {
+// does not offer itself. A delete takes any known provider, offered or not,
+// so a credential stored before its runner was turned off can still be
+// revoked; a write only an offered one.
+func (s *Server) accountProvider(w http.ResponseWriter, r *http.Request,
+	write bool) (v1alpha1.ModelCredentialProvider, bool) {
 	p := v1alpha1.ModelCredentialProvider(r.PathValue("provider"))
-	if slices.Contains(s.account.providers, p) {
+	if slices.Contains(s.account.providers, p) || (!write && slices.Contains(v1alpha1.ModelCredentialProviders, p)) {
 		return p, true
 	}
 	notFound(w)
@@ -287,7 +314,7 @@ var loginRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{0,38}$`)
 // bytes, Content-Type application/json, no other field. The answer is the
 // stored credential's facts, never the credential.
 func (s *Server) handleCredentialPut(w http.ResponseWriter, r *http.Request) {
-	provider, ok := s.accountProvider(w, r)
+	provider, ok := s.accountProvider(w, r, true)
 	if !ok {
 		return
 	}
@@ -347,13 +374,13 @@ func (s *Server) handleCredentialPut(w http.ResponseWriter, r *http.Request) {
 	s.log.LogAttrs(r.Context(), slog.LevelInfo, "model credential stored", slog.String("by", id.Username),
 		slog.String("owner", owner), slog.String("provider", string(provider)), slog.String("kind", string(kind)),
 		slog.String("fingerprint", rec.Status.Fingerprint))
-	writeJSON(w, accountCredential(provider, rec))
+	writeJSON(w, accountCredential(provider, rec, true))
 }
 
 // handleCredentialDelete deletes the caller's credential for the provider.
 // It takes no body.
 func (s *Server) handleCredentialDelete(w http.ResponseWriter, r *http.Request) {
-	provider, ok := s.accountProvider(w, r)
+	provider, ok := s.accountProvider(w, r, false)
 	if !ok {
 		return
 	}
