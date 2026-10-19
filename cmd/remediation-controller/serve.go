@@ -151,22 +151,29 @@ type fleet struct {
 // ownSettings (--attribution-mode, --user-credentials among them), the
 // runners and the harnesses enabled. Per-user credentials cover every
 // brokered provider, so no --user-credentials mode refuses a harness here
-// (the codex broker design's temporary codex guard is gone).
-func startupFleet(ctx context.Context, opts *cli.Options, cs kubernetes.Interface) (fleet, error) {
+// (the codex broker design's temporary codex guard is gone). The clientset
+// is built only once the flag-only checks pass, so a misconfiguration fails
+// startup before any cluster config is read.
+func startupFleet(ctx context.Context, opts *cli.Options,
+	clientset func() (kubernetes.Interface, error)) (fleet, kubernetes.Interface, error) {
 	own, err := ownSettings(opts)
 	if err != nil {
-		return fleet{}, err
+		return fleet{}, nil, err
 	}
 	runners, err := runnercfg.Runners(opts)
 	if err != nil {
-		return fleet{}, err
+		return fleet{}, nil, err
+	}
+	cs, err := clientset()
+	if err != nil {
+		return fleet{}, nil, err
 	}
 	enabled, err := runnercfg.Resolve(ctx, opts, cs, opts.String("agent-namespace"), runners,
 		runnercfg.Restrict(opts), runnercfg.SplitList(opts.String("model-allowlist")), opts.String("remediate-model"))
 	if err != nil {
-		return fleet{}, err
+		return fleet{}, nil, err
 	}
-	return fleet{modes: own, runners: runners, enabled: enabled}, nil
+	return fleet{modes: own, runners: runners, enabled: enabled}, cs, nil
 }
 
 func serve(ctx context.Context, opts *cli.Options) error {
@@ -189,20 +196,6 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	if namespace == "" {
 		return errors.New("namespace is required (--namespace or POD_NAMESPACE)")
 	}
-	cfg, err := kube.RestConfig(opts.String("kubeconfig"))
-	if err != nil {
-		return err
-	}
-	cs, err := kubernetes.NewForConfig(cfg)
-	if err != nil {
-		return fmt.Errorf("kubernetes clientset: %w", err)
-	}
-	fl, err := startupFleet(ctx, opts, cs)
-	if err != nil {
-		return err
-	}
-	runners, enabled := fl.runners, fl.enabled
-	attributionMode, credMode, accountURL := fl.attribution, fl.credentials, fl.accountURL
 	repositoryImages, ephemeralStorage, err := runnercfg.RepositoryImages(opts)
 	if err != nil {
 		return err
@@ -220,6 +213,22 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	if err != nil {
 		return err
 	}
+	fl, cs, err := startupFleet(ctx, opts, func() (kubernetes.Interface, error) {
+		cfg, err := kube.RestConfig(opts.String("kubeconfig"))
+		if err != nil {
+			return nil, err
+		}
+		cs, err := kubernetes.NewForConfig(cfg)
+		if err != nil {
+			return nil, fmt.Errorf("kubernetes clientset: %w", err)
+		}
+		return cs, nil
+	})
+	if err != nil {
+		return err
+	}
+	runners, enabled := fl.runners, fl.enabled
+	attributionMode, credMode, accountURL := fl.attribution, fl.credentials, fl.accountURL
 
 	mgr, err := kube.NewManager(kube.Options{
 		Kubeconfig:              opts.String("kubeconfig"),

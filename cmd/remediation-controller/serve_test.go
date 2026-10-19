@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
 
 	"github.com/bitwise-media-group/patchy/internal/attribution"
@@ -179,7 +180,9 @@ func TestCodexStartsUnderUserCredentials(t *testing.T) {
 			t.Run(mode+" "+tc.harness, func(t *testing.T) {
 				t.Setenv("PATCHY_ATTRIBUTION_MODE", "attribute")
 				t.Setenv("PATCHY_USER_CREDENTIALS", mode)
-				fl, err := startupFleet(t.Context(), serveOpts(t, tc.args...), fake.NewClientset())
+				fl, _, err := startupFleet(t.Context(), serveOpts(t, tc.args...), func() (kubernetes.Interface, error) {
+					return fake.NewClientset(), nil
+				})
 				if err != nil {
 					t.Fatalf("startupFleet: %v", err)
 				}
