@@ -1621,7 +1621,7 @@ npm yarn pip uv nuget cargo jvm
 
 {{/*
 The hosts of the egress broker's base-URL overrides
-(PATCHY_{ANTHROPIC,BEDROCK,VERTEX,FOUNDRY}_BASE_URL in config.extra or
+(PATCHY_{ANTHROPIC,BEDROCK,VERTEX,FOUNDRY,OPENAI}_BASE_URL in config.extra or
 egressBroker.config.extra), sorted and space-separated: model API hosts the
 fixed table cannot know, denied to every registry, file host and redirect
 hop (guard 13, and PATCHY_DENY_HOSTS for the proxy's request-time check). An
@@ -1632,7 +1632,7 @@ the broker's -base-url flags by cmd/egress-broker TestChartOverrideKeysMatchFlag
 {{- $hosts := list -}}
 {{- $broker := (.Values.egressBroker | default dict).config | default dict -}}
 {{- range $src := list (.Values.config.extra | default dict) ($broker.extra | default dict) -}}
-{{- range $k := list "PATCHY_ANTHROPIC_BASE_URL" "PATCHY_BEDROCK_BASE_URL" "PATCHY_VERTEX_BASE_URL" "PATCHY_FOUNDRY_BASE_URL" -}}
+{{- range $k := list "PATCHY_ANTHROPIC_BASE_URL" "PATCHY_BEDROCK_BASE_URL" "PATCHY_VERTEX_BASE_URL" "PATCHY_FOUNDRY_BASE_URL" "PATCHY_OPENAI_BASE_URL" -}}
 {{- with index $src $k -}}
 {{- with lower (urlParse (toString .)).hostname -}}
 {{- $hosts = append $hosts . -}}

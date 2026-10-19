@@ -31,6 +31,7 @@ type route struct {
 	name     string
 	upstream Upstream
 	surface  surface
+	dialect  dialect
 	proxy    *httputil.ReverseProxy
 }
 
@@ -40,7 +41,7 @@ type route struct {
 // not see, and the credential transport attaches the real credential last —
 // so nothing caller-controlled can survive into the authenticated request.
 func newRoute(name string, u Upstream, log *slog.Logger) *route {
-	rt := &route{name: name, upstream: u, surface: surfaceFor(name, u)}
+	rt := &route{name: name, upstream: u, surface: surfaceFor(name, u), dialect: dialectFor(name)}
 	rt.proxy = &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.SetURL(u.Target)
@@ -57,7 +58,7 @@ func newRoute(name string, u Upstream, log *slog.Logger) *route {
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			log.LogAttrs(r.Context(), slog.LevelError, "upstream error",
 				slog.String("route", name), slog.Any("error", err))
-			writeAPIError(w, http.StatusBadGateway, "api_error",
+			rt.dialect.writeError(w, http.StatusBadGateway, "api_error",
 				fmt.Sprintf("egress broker: upstream %s unavailable", name))
 		},
 	}
@@ -68,17 +69,28 @@ func newRoute(name string, u Upstream, log *slog.Logger) *route {
 // header the caller may have sent: the skip-auth CLI paths leave
 // Authorization empty, but nothing stops a compromised pod from setting one,
 // and a SigV4 signature must be computed over exactly the headers the broker
-// controls.
+// controls. The OpenAI account selectors go too: OpenAI-Organization and
+// OpenAI-Project would bill another organization or project the org key
+// can reach, ChatGPT-Account-Id names a ChatGPT workspace, and OpenAI-Beta
+// opts into features (the Assistants and realtime betas) the broker does
+// not inspect.
 func stripCallerHeaders(h http.Header) {
 	h.Del(TokenHeader)
 	h.Del("Authorization")
 	h.Del("X-Api-Key")
+	for _, name := range callerAccountHeaders {
+		h.Del(name)
+	}
 	for name := range h {
 		if strings.HasPrefix(strings.ToLower(name), "x-amz-") {
 			h.Del(name)
 		}
 	}
 }
+
+// callerAccountHeaders are the OpenAI account and beta selectors a caller
+// may never set (stripCallerHeaders).
+var callerAccountHeaders = []string{"OpenAI-Organization", "OpenAI-Project", "ChatGPT-Account-Id", "OpenAI-Beta"}
 
 // credentialTransport attaches the upstream credential immediately before the
 // request leaves. Running here rather than in Rewrite lets a failed token
@@ -124,7 +136,8 @@ func setBody(r *http.Request, body []byte) {
 }
 
 // writeAPIError emits an Anthropic-style JSON error envelope, which is what
-// every client on these routes knows how to surface.
+// every client on the Anthropic-shaped routes knows how to surface (the
+// OpenAI route answers writeOpenAIError's).
 func writeAPIError(w http.ResponseWriter, status int, kind, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

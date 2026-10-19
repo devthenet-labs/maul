@@ -11,6 +11,7 @@ package broker
 // and Vertex, the resource name for Foundry.
 const (
 	DefaultAnthropicBaseURL = "https://api.anthropic.com"
+	DefaultOpenAIBaseURL    = "https://api.openai.com"
 	BedrockBaseURLFormat    = "https://bedrock-runtime.%s.amazonaws.com"
 	VertexBaseURLFormat     = "https://%s-aiplatform.googleapis.com"
 	FoundryBaseURLFormat    = "https://%s.services.ai.azure.com"

@@ -99,6 +99,9 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 		"Foundry base URL (default: https://<foundry-resource>.services.ai.azure.com)")
 	f.String("foundry-auth", "key", "foundry credential mode: key (x-api-key from file) or entra (bearer)")
 	f.String("foundry-api-key-file", "", "mounted Secret file holding the Foundry API key (foundry-auth key)")
+	f.String("openai-api-key-file", "",
+		"mounted Secret file holding the OpenAI API key; set to enable the openai (Responses) route")
+	f.String("openai-base-url", broker.DefaultOpenAIBaseURL, "OpenAI API base URL")
 
 	// The usage endpoint (per-user credentials design, L2): off unless an
 	// address is set, and then only for the named controllers.
@@ -187,6 +190,7 @@ func upstreams(ctx context.Context, opts *cli.Options) (map[string]broker.Upstre
 		{"bedrock", bedrockUpstream},
 		{"vertex", vertexUpstream},
 		{"foundry", foundryUpstream},
+		{"openai", openaiUpstream},
 	}
 	for _, b := range builders {
 		up, err := b.build(ctx, opts)
@@ -199,7 +203,7 @@ func upstreams(ctx context.Context, opts *cli.Options) (map[string]broker.Upstre
 	}
 	if len(routes) == 0 {
 		return nil, errors.New("no upstream configured (set at least one of --anthropic-api-key-file / " +
-			"--bedrock-region / --vertex-region / --foundry-resource)")
+			"--bedrock-region / --vertex-region / --foundry-resource / --openai-api-key-file)")
 	}
 	return routes, nil
 }
@@ -298,6 +302,19 @@ func foundryUpstream(_ context.Context, opts *cli.Options) (*broker.Upstream, er
 	default:
 		return nil, fmt.Errorf("--foundry-auth %q is not key or entra", mode)
 	}
+}
+
+func openaiUpstream(_ context.Context, opts *cli.Options) (*broker.Upstream, error) {
+	keyFile := opts.String("openai-api-key-file")
+	if keyFile == "" {
+		return nil, nil
+	}
+	target, err := broker.ParseTarget(opts.String("openai-base-url"))
+	if err != nil {
+		return nil, err
+	}
+	up := broker.OpenAI(target, keyFile)
+	return &up, nil
 }
 
 func serve(ctx context.Context, opts *cli.Options) error {

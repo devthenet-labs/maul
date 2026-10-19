@@ -231,7 +231,7 @@ func (s *Server) authenticate(r *http.Request, _ *route, adm *admission) *reject
 // checks the model against the allowlist and strips denied betas.
 func (s *Server) checkRequest(r *http.Request, rt *route, adm *admission) *rejection {
 	ep, pathModel, ok := rt.surface.match(r.Method, r.URL.EscapedPath())
-	if !ok {
+	if !ok || rt.dialect.refuseUpgrade && isUpgrade(r) {
 		return &rejection{status: http.StatusNotFound, kind: "not_found_error",
 			msg: "egress broker: not a brokered endpoint", reason: "surface"}
 	}
@@ -266,7 +266,7 @@ func (s *Server) inspectRequest(r *http.Request, rt *route, adm *admission) *rej
 		return &rejection{status: http.StatusRequestEntityTooLarge, kind: "invalid_request_error",
 			msg: fmt.Sprintf("egress broker: request body exceeds %d bytes", limit), reason: "body_size"}
 	}
-	insp, err := inspectBody(body, s.betas)
+	insp, err := rt.dialect.inspect(body, s.betas)
 	var invalid invalidRequestError
 	switch {
 	case errors.As(err, &invalid):
@@ -286,8 +286,8 @@ func (s *Server) inspectRequest(r *http.Request, rt *route, adm *admission) *rej
 	c := s.cfg.Limits.MaxTokensCeiling
 	if c > 0 && insp.maxTokens > c {
 		return &rejection{status: http.StatusTooManyRequests, kind: "rate_limit_error",
-			msg: fmt.Sprintf("%s: max_tokens %d exceeds the ceiling %d", provider.LimitMessagePrefix,
-				insp.maxTokens, c), reason: "max_tokens"}
+			msg: fmt.Sprintf("%s: %s %d exceeds the ceiling %d", provider.LimitMessagePrefix,
+				rt.dialect.maxTokensField, insp.maxTokens, c), reason: "max_tokens"}
 	}
 	adm.outputBound = insp.maxTokens
 	if adm.outputBound == 0 {
@@ -340,7 +340,7 @@ func (s *Server) reject(w http.ResponseWriter, r *http.Request, rt *route, adm *
 	if rej.retryAfter != "" {
 		w.Header().Set("Retry-After", rej.retryAfter)
 	}
-	writeAPIError(w, rej.status, rej.kind, rej.msg)
+	rt.dialect.writeError(w, rej.status, rej.kind, rej.msg)
 	countRequest(r.Context(), rt.name, rej.reason)
 	audit(s.log, r, auditEntry{
 		pod: adm.id.pod, route: rt.name, model: adm.model, reason: rej.reason,
@@ -387,7 +387,7 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request, rt *route, adm *a
 	var charged usage
 	var cost, estimatedCost int64
 	if adm.ep.metered {
-		uw = &usageWriter{ResponseWriter: aw, scan: &usageScanner{}, onUsage: func(d usage) {
+		uw = &usageWriter{ResponseWriter: aw, scan: &usageScanner{dialect: rt.dialect.usage}, onUsage: func(d usage) {
 			charged = charged.mergeAdd(d)
 			cost += s.ledger.observe(key, adm.model, rt.name, cred, d)
 		}}

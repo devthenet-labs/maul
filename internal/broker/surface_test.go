@@ -56,6 +56,21 @@ func TestSurfaceMatch(t *testing.T) {
 		{"foundry", http.MethodPost, "/anthropic/v1/messages", true, "", true, modelBody},
 		{"foundry", http.MethodGet, "/anthropic/v1/models", true, "", false, modelNone},
 		{"foundry", http.MethodPost, "/openai/v1/chat/completions", false, "", false, modelNone},
+		{"openai", http.MethodPost, "/v1/responses", true, "", true, modelBody},
+		{"openai", http.MethodGet, "/v1/models", true, "", false, modelNone},
+		{"openai", http.MethodGet, "/v1/responses", false, "", false, modelNone},
+		{"openai", http.MethodPost, "/v1/responses/", false, "", false, modelNone},
+		{"openai", http.MethodPost, "/v1/responses/compact", false, "", false, modelNone},
+		{"openai", http.MethodGet, "/v1/responses/resp_1", false, "", false, modelNone},
+		{"openai", http.MethodGet, "/v1/responses/resp_1/input_items", false, "", false, modelNone},
+		{"openai", http.MethodPost, "/v1/responses/resp_1/cancel", false, "", false, modelNone},
+		{"openai", http.MethodPost, "/v1/responses/input_tokens", false, "", false, modelNone},
+		{"openai", http.MethodPost, "/v1/chat/completions", false, "", false, modelNone},
+		{"openai", http.MethodPost, "/v1/messages", false, "", false, modelNone},
+		{"openai", http.MethodGet, "/v1/models/gpt-5.3-codex", false, "", false, modelNone},
+		{"openai", http.MethodPost, "/v1/files", false, "", false, modelNone},
+		{"openai", http.MethodPost, "/v1/conversations", false, "", false, modelNone},
+		{"anthropic", http.MethodPost, "/v1/responses", false, "", false, modelNone},
 	}
 	for _, tt := range tests {
 		t.Run(tt.route+" "+tt.method+" "+tt.path, func(t *testing.T) {
