@@ -299,7 +299,7 @@ func (s *Server) handleCredentialPut(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "kind must be api-key or oauth-token", http.StatusBadRequest)
 		return
 	}
-	value, ok := v1alpha1.ModelCredentialValue(req.Credential, kind)
+	value, ok := v1alpha1.ModelCredentialValue(req.Credential, provider, kind)
 	if !ok {
 		http.Error(w, "the credential must be one token of printable characters, at most 3072 bytes, of the "+
 			"kind chosen (an Anthropic API key starts sk-ant-api, a setup-token sk-ant-oat)", http.StatusBadRequest)

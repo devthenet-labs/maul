@@ -129,29 +129,11 @@ func checkAccountStore(t *testing.T, admin client.Client, as func(string) client
 	provider := v1alpha1.ModelCredentialProviderAnthropic
 	put := func(cred string, kind v1alpha1.ModelCredentialKind) *v1alpha1.ModelCredential {
 		t.Helper()
-		var rec *v1alpha1.ModelCredential
-		waitFor(t, func() error {
-			var err error
-			rec, err = store.Put(ctx, web.CredentialWrite{Owner: owner, OwnerLogin: "erin", Provider: provider,
-				Kind: kind, Credential: cred, By: "github:erin"})
-			if err != nil {
-				return &waitError{err: err, want: "no error"}
-			}
-			return nil
-		})
-		return rec
+		return putAs(t, store, owner, provider, cred, kind)
 	}
 	stored := func() string {
 		t.Helper()
-		var s corev1.Secret
-		if err := admin.Get(ctx, types.NamespacedName{Namespace: credNamespace,
-			Name: v1alpha1.ModelCredentialSecretName(owner, provider)}, &s); err != nil {
-			t.Fatalf("read the stored secret: %v", err)
-		}
-		if s.Labels[v1alpha1.LabelCredentialOwner] != v1alpha1.ModelCredentialOwnerHash(owner) {
-			t.Errorf("owner label = %v", s.Labels)
-		}
-		return string(s.Data[v1alpha1.ModelCredentialSecretKey])
+		return storedCredential(t, admin, owner, provider)
 	}
 
 	first := put("sk-ant-api03-first-credential-aaaa", v1alpha1.ModelCredentialAPIKey)
@@ -178,7 +160,54 @@ func checkAccountStore(t *testing.T, admin client.Client, as func(string) client
 	}
 	checkRecord(t, second, owner, v1alpha1.ModelCredentialOAuthToken, "sk-ant-oat01-second-credential-bbbb")
 
-	checkAccountDelete(t, admin, store, owner)
+	// The same person's OpenAI key is a record and Secret of its own, beside
+	// the Anthropic one, and outlives its deletion.
+	openai := v1alpha1.ModelCredentialProviderOpenAI
+	third := putAs(t, store, owner, openai, "sk-proj-third-credential-cccc", v1alpha1.ModelCredentialAPIKey)
+	if got := storedCredential(t, admin, owner, openai); got != "sk-proj-third-credential-cccc" {
+		t.Fatalf("stored openai %q", got)
+	}
+	checkRecord(t, third, owner, v1alpha1.ModelCredentialAPIKey, "sk-proj-third-credential-cccc")
+
+	checkAccountDelete(t, admin, store, owner, provider)
+	if got := storedCredential(t, admin, owner, openai); got != "sk-proj-third-credential-cccc" {
+		t.Fatalf("the openai credential after deleting the anthropic one = %q", got)
+	}
+	checkAccountDelete(t, admin, store, owner, openai)
+}
+
+// putAs stores cred for owner and provider through the Account page store,
+// waiting out the RBAC informer window.
+func putAs(t *testing.T, store *credstore.Store, owner string, provider v1alpha1.ModelCredentialProvider,
+	cred string, kind v1alpha1.ModelCredentialKind) *v1alpha1.ModelCredential {
+	t.Helper()
+	ctx := t.Context()
+	var rec *v1alpha1.ModelCredential
+	waitFor(t, func() error {
+		var err error
+		rec, err = store.Put(ctx, web.CredentialWrite{Owner: owner, OwnerLogin: "erin", Provider: provider,
+			Kind: kind, Credential: cred, By: "github:erin"})
+		if err != nil {
+			return &waitError{err: err, want: "no error"}
+		}
+		return nil
+	})
+	return rec
+}
+
+// storedCredential reads owner's stored credential for provider as an
+// admin, checking its owner label.
+func storedCredential(t *testing.T, admin client.Client, owner string, provider v1alpha1.ModelCredentialProvider) string {
+	t.Helper()
+	var s corev1.Secret
+	if err := admin.Get(t.Context(), types.NamespacedName{Namespace: credNamespace,
+		Name: v1alpha1.ModelCredentialSecretName(owner, provider)}, &s); err != nil {
+		t.Fatalf("read the stored secret: %v", err)
+	}
+	if s.Labels[v1alpha1.LabelCredentialOwner] != v1alpha1.ModelCredentialOwnerHash(owner) {
+		t.Errorf("owner label = %v", s.Labels)
+	}
+	return string(s.Data[v1alpha1.ModelCredentialSecretKey])
 }
 
 // checkRecord: a record as the Account page leaves it after storing cred
@@ -196,10 +225,10 @@ func checkRecord(t *testing.T, rec *v1alpha1.ModelCredential, owner string, kind
 
 // checkAccountDelete: deleting removes the Secret and the record, and
 // deleting again is no error.
-func checkAccountDelete(t *testing.T, admin client.Client, store *credstore.Store, owner string) {
+func checkAccountDelete(t *testing.T, admin client.Client, store *credstore.Store, owner string,
+	provider v1alpha1.ModelCredentialProvider) {
 	t.Helper()
 	ctx := t.Context()
-	provider := v1alpha1.ModelCredentialProviderAnthropic
 	for range 2 {
 		if err := store.Delete(ctx, owner, provider); err != nil {
 			t.Fatalf("delete: %v", err)
@@ -411,7 +440,11 @@ func checkCredentialSecrets(t *testing.T, admin client.Client, as func(string) c
 		}, credSecretNameDenied},
 		{"a name of the caller's choosing", status, func(s *corev1.Secret) { s.Name = "anthropic-key" },
 			credSecretNameDenied},
-		{"a provider outside v1", status, func(s *corev1.Secret) {
+		{"an openai credential", status, func(s *corev1.Secret) {
+			s.Name = v1alpha1.ModelCredentialSecretName(owner, v1alpha1.ModelCredentialProviderOpenAI)
+			s.Data[v1alpha1.ModelCredentialSecretKey] = []byte("sk-proj-abcdefghijklmnop")
+		}, ""},
+		{"a provider outside the enum", status, func(s *corev1.Secret) {
 			s.Name = "cred-" + v1alpha1.ModelCredentialOwnerHash(owner) + "-bedrock"
 		}, credSecretNameDenied},
 		{"a second key", status, func(s *corev1.Secret) { s.Data["extra"] = []byte("x") }, credSecretDataDenied},

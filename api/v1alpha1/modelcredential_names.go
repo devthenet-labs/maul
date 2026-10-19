@@ -6,6 +6,7 @@ package v1alpha1
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -30,17 +31,18 @@ const (
 	ModelCredentialSecretKey = "credential"
 
 	// ModelCredentialSecretMaxBytes bounds a stored credential. An Anthropic
-	// API key or setup-token is a little over a hundred bytes. A multiple of
+	// API key or setup-token, or an OpenAI API key, is a few hundred bytes at
+	// most. A multiple of
 	// three, so the admission policy can bound the value exactly whether its
 	// CEL sees bytes or their base64 text (4096 characters).
 	ModelCredentialSecretMaxBytes = 3072
 
 	// ModelCredentialNamePattern is the grammar of a ModelCredential's name.
-	ModelCredentialNamePattern = `^[0-9a-f]{16}-(anthropic)$`
+	ModelCredentialNamePattern = `^[0-9a-f]{16}-(anthropic|openai)$`
 
 	// ModelCredentialSecretNamePattern is the grammar of a credential
 	// Secret's name.
-	ModelCredentialSecretNamePattern = `^cred-[0-9a-f]{16}-(anthropic)$`
+	ModelCredentialSecretNamePattern = `^cred-[0-9a-f]{16}-(anthropic|openai)$`
 
 	// ModelCredentialOwnerPrefix starts every owner value.
 	ModelCredentialOwnerPrefix = "github-id:"
@@ -116,22 +118,58 @@ func (s ModelCredentialStatus) HealthFor(current string) ModelCredentialHealth {
 	return ModelCredentialUnknown
 }
 
-// Credential value prefixes Anthropic issues, used only to catch a
-// credential stored under the wrong kind before the provider rejects it.
+// ModelCredentialProviders are the providers a person may store a
+// credential for, in display order.
+var ModelCredentialProviders = []ModelCredentialProvider{
+	ModelCredentialProviderAnthropic, ModelCredentialProviderOpenAI,
+}
+
+// ModelCredentialKinds are the kinds a credential for provider may be:
+// Anthropic takes an API key or a setup-token, OpenAI an API key only
+// (owner decision D1: no ChatGPT-plan sign-in, no Codex access tokens). nil
+// for a provider that takes none.
+func ModelCredentialKinds(provider ModelCredentialProvider) []ModelCredentialKind {
+	switch provider {
+	case ModelCredentialProviderAnthropic:
+		return []ModelCredentialKind{ModelCredentialAPIKey, ModelCredentialOAuthToken}
+	case ModelCredentialProviderOpenAI:
+		return []ModelCredentialKind{ModelCredentialAPIKey}
+	}
+	return nil
+}
+
+// ModelCredentialKindAllowed reports whether provider takes a credential of
+// kind.
+func ModelCredentialKindAllowed(provider ModelCredentialProvider, kind ModelCredentialKind) bool {
+	return slices.Contains(ModelCredentialKinds(provider), kind)
+}
+
+// Credential value prefixes the providers issue, used only to catch a
+// credential stored under the wrong kind or provider before the provider
+// rejects it.
 const (
+	anthropicPrefix           = "sk-ant-"
 	anthropicAPIKeyPrefix     = "sk-ant-api"
 	anthropicOAuthTokenPrefix = "sk-ant-oat"
+	// openaiPrefix starts every OpenAI secret key (sk-, sk-proj-,
+	// sk-svcacct-, sk-admin-); an Anthropic one starts with it too, so it
+	// marks OpenAI only when anthropicPrefix does not follow.
+	openaiPrefix = "sk-"
 )
 
-// ModelCredentialValue is the credential a person stores, as the egress
-// broker will use it: raw trimmed of surrounding whitespace, then 1 to
-// ModelCredentialSecretMaxBytes of printable ASCII with no space (a single
-// token: nothing in it can split or inject a header). ok is false for
-// anything else, and for a value that carries the other kind's Anthropic
-// prefix (a setup-token stored as an API key, or the reverse), which the
+// ModelCredentialValue is the credential a person stores for provider, as
+// the egress broker will use it: raw trimmed of surrounding whitespace, then
+// 1 to ModelCredentialSecretMaxBytes of printable ASCII with no space (a
+// single token: nothing in it can split or inject a header). ok is false for
+// anything else; for a kind provider does not take (ModelCredentialKinds);
+// for a value that carries the other kind's Anthropic prefix (a setup-token
+// stored as an API key, or the reverse); and for a value that carries the
+// other provider's prefix (an sk-ant- value stored as an OpenAI key, an
+// OpenAI sk- value stored as an Anthropic credential), each of which the
 // provider would only reject.
-func ModelCredentialValue(raw string, kind ModelCredentialKind) (value string, ok bool) {
-	if len(raw) > ModelCredentialSecretMaxBytes {
+func ModelCredentialValue(raw string, provider ModelCredentialProvider, kind ModelCredentialKind) (
+	value string, ok bool) {
+	if len(raw) > ModelCredentialSecretMaxBytes || !ModelCredentialKindAllowed(provider, kind) {
 		return "", false
 	}
 	v := strings.TrimSpace(raw)
@@ -143,16 +181,16 @@ func ModelCredentialValue(raw string, kind ModelCredentialKind) (value string, o
 			return "", false
 		}
 	}
-	switch kind {
-	case ModelCredentialAPIKey:
-		if strings.HasPrefix(v, anthropicOAuthTokenPrefix) {
+	anthropic := strings.HasPrefix(v, anthropicPrefix)
+	switch {
+	case provider == ModelCredentialProviderOpenAI:
+		if anthropic {
 			return "", false
 		}
-	case ModelCredentialOAuthToken:
-		if strings.HasPrefix(v, anthropicAPIKeyPrefix) {
-			return "", false
-		}
-	default:
+	case strings.HasPrefix(v, openaiPrefix) && !anthropic:
+		return "", false
+	case kind == ModelCredentialAPIKey && strings.HasPrefix(v, anthropicOAuthTokenPrefix),
+		kind == ModelCredentialOAuthToken && strings.HasPrefix(v, anthropicAPIKeyPrefix):
 		return "", false
 	}
 	return v, true

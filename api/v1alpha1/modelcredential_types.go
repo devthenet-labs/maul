@@ -8,16 +8,19 @@ import (
 )
 
 // ModelCredentialProvider is the model provider a person's credential is
-// for. Version 1 carries Anthropic only: Bedrock, Vertex and Foundry Entra
-// authenticate with the broker's one cloud identity, so they get attribution
-// and usage but no per-person credential.
-// +kubebuilder:validation:Enum=anthropic
+// for: the Anthropic API (claude) or the OpenAI API (codex). Bedrock, Vertex
+// and Foundry Entra authenticate with the broker's one cloud identity, so
+// they get attribution and usage but no per-person credential.
+// +kubebuilder:validation:Enum=anthropic;openai
 type ModelCredentialProvider string
 
 // Model credential providers.
 const (
 	// ModelCredentialProviderAnthropic is the Anthropic API.
 	ModelCredentialProviderAnthropic ModelCredentialProvider = "anthropic"
+	// ModelCredentialProviderOpenAI is the OpenAI API, API keys only (codex
+	// broker design, owner decision D1).
+	ModelCredentialProviderOpenAI ModelCredentialProvider = "openai"
 )
 
 // ModelCredentialKind is how a stored credential authenticates.
@@ -26,11 +29,12 @@ type ModelCredentialKind string
 
 // Model credential kinds.
 const (
-	// ModelCredentialAPIKey is an Anthropic API key, sent as x-api-key.
+	// ModelCredentialAPIKey is a provider API key: Anthropic's sent as
+	// x-api-key, OpenAI's as an Authorization bearer.
 	ModelCredentialAPIKey ModelCredentialKind = "api-key"
 	// ModelCredentialOAuthToken is a long-lived OAuth token minted with
 	// `claude setup-token`, sent as an Authorization bearer. It is a Claude
-	// subscription's, so it must be its owner's own.
+	// subscription's, so it must be its owner's own. Anthropic only.
 	ModelCredentialOAuthToken ModelCredentialKind = "oauth-token"
 )
 
@@ -57,6 +61,7 @@ const (
 // of their choosing.
 // +kubebuilder:validation:XValidation:rule="self.owner == oldSelf.owner",message="spec.owner is immutable"
 // +kubebuilder:validation:XValidation:rule="self.provider == oldSelf.provider",message="spec.provider is immutable"
+// +kubebuilder:validation:XValidation:rule="self.provider != 'openai' || self.kind == 'api-key'",message="an openai credential is an API key (kind api-key)"
 type ModelCredentialSpec struct {
 	// Owner is the person the credential belongs to and pays for, in the
 	// attributed-to grammar: "github-id:<numeric id>". A run attributed to
@@ -73,7 +78,8 @@ type ModelCredentialSpec struct {
 	// Provider the credential is for.
 	Provider ModelCredentialProvider `json:"provider"`
 	// Kind is how it authenticates; replacing an API key with a setup-token
-	// (or back) changes it.
+	// (or back) changes it. An openai credential is always an api-key
+	// (ModelCredentialKinds).
 	Kind ModelCredentialKind `json:"kind"`
 }
 

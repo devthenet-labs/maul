@@ -33,7 +33,7 @@ func TestStoredValueIsWhatTheBrokerSends(t *testing.T) {
 		args[0], args[1] = reflect.ValueOf(string(b)), reflect.ValueOf(kinds[r.Intn(2)])
 	}
 	prop := func(raw string, kind v1alpha1.ModelCredentialKind) bool {
-		value, ok := v1alpha1.ModelCredentialValue(raw, kind)
+		value, ok := v1alpha1.ModelCredentialValue(raw, provider, kind)
 		if !ok {
 			return true
 		}
