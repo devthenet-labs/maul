@@ -148,6 +148,11 @@ func (a Answers) validateTailscale() []error {
 		errs = append(errs, errors.New("--tailscale-tag "+TailscaleOperatorTag+" is the operator's own: give the "+
 			"previews a tag of their own, so the tailnet policy can grant viewers that device alone"))
 	}
+	if a.TailscaleTag() == TailscaleProxyTag {
+		errs = append(errs, errors.New("--tailscale-tag "+TailscaleProxyTag+" is the tag the operator gives "+
+			"every proxy it creates: give the previews a tag of their own, so the tailnet policy grants viewers "+
+			"that device alone and its tests can check another tagged device is refused"))
+	}
 	for _, s := range t.Addresses {
 		ip, err := netip.ParseAddr(s)
 		if err != nil || !inTailnet(ip) {

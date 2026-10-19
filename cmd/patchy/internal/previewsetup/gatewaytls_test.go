@@ -73,6 +73,8 @@ func TestValidateGatewayCert(t *testing.T) {
 		}, "--tailscale-address"},
 		"operator's tag": {func(a *Answers) { a.Edge = EdgeTailscale; a.Tailscale.Tag = TailscaleOperatorTag },
 			"the operator's own"},
+		"operator's proxy tag": {func(a *Answers) { a.Edge = EdgeTailscale; a.Tailscale.Tag = TailscaleProxyTag },
+			"every proxy it creates"},
 		"bad tag":      {func(a *Answers) { a.Edge = EdgeTailscale; a.Tailscale.Tag = "previews" }, "--tailscale-tag"},
 		"bad hostname": {func(a *Answers) { a.Edge = EdgeTailscale; a.Tailscale.Hostname = "Previews" }, "hostname"},
 	} {

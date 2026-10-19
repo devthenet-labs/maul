@@ -92,6 +92,12 @@ const tailscaleOAuthSecret = "operator-oauth"
 // which must own the gateway device's tag.
 const TailscaleOperatorTag = "tag:k8s-operator"
 
+// TailscaleProxyTag is the tag the operator gives every proxy device it
+// creates by default. The tailnet policy names it as "another tagged
+// device" the previews' device must refuse, so the previews need a tag
+// distinct from it as well as from the operator's own.
+const TailscaleProxyTag = "tag:k8s"
+
 // upstreamValues renders one pinned chart's values under a header naming
 // the pin and the install command.
 func upstreamValues(p Pin, body map[string]any, comment ...string) ([]byte, error) {

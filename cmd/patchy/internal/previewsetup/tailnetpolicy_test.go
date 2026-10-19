@@ -5,6 +5,9 @@ package previewsetup
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"math/rand"
 	"reflect"
 	"slices"
@@ -33,7 +36,9 @@ type policyTest struct {
 }
 
 // parsePolicy reads the HuJSON policy as Tailscale would: its line
-// comments dropped, then strict JSON (no field the recipe does not know).
+// comments dropped, then strict JSON (no field the recipe does not know,
+// and no object key twice, which Tailscale's parser refuses where
+// encoding/json would silently keep the last).
 func parsePolicy(t *testing.T, hujson string) (tailnetPolicy, error) {
 	t.Helper()
 	var lines []string
@@ -42,11 +47,63 @@ func parsePolicy(t *testing.T, hujson string) (tailnetPolicy, error) {
 			lines = append(lines, l)
 		}
 	}
-	dec := json.NewDecoder(strings.NewReader(strings.Join(lines, "\n")))
+	body := strings.Join(lines, "\n")
+	if err := noDuplicateKeys(body); err != nil {
+		return tailnetPolicy{}, err
+	}
+	dec := json.NewDecoder(strings.NewReader(body))
 	dec.DisallowUnknownFields()
 	var p tailnetPolicy
 	err := dec.Decode(&p)
 	return p, err
+}
+
+// noDuplicateKeys walks the JSON's tokens and refuses an object that holds
+// a key twice.
+func noDuplicateKeys(body string) error {
+	dec := json.NewDecoder(strings.NewReader(body))
+	type frame struct {
+		object bool
+		keys   map[string]bool
+		key    bool // the next string token in this object is a key
+	}
+	var stack []*frame
+	for {
+		tok, err := dec.Token()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		var top *frame
+		if len(stack) > 0 {
+			top = stack[len(stack)-1]
+		}
+		if k, ok := tok.(string); ok && top != nil && top.object && top.key {
+			if top.keys[k] {
+				return fmt.Errorf("duplicate key %q", k)
+			}
+			top.keys[k] = true
+			top.key = false
+			continue
+		}
+		switch tok {
+		case json.Delim('{'):
+			stack = append(stack, &frame{object: true, keys: map[string]bool{}, key: true})
+			continue
+		case json.Delim('['):
+			stack = append(stack, &frame{})
+			continue
+		case json.Delim('}'), json.Delim(']'):
+			stack = stack[:len(stack)-1]
+		}
+		// A value ended (scalar or closed container): the enclosing
+		// object's next token is a key again.
+		if len(stack) > 0 && stack[len(stack)-1].object {
+			stack[len(stack)-1].key = true
+		}
+	}
 }
 
 // judgePolicy says what is wrong with the policy for tag, "" when nothing:
@@ -68,7 +125,7 @@ func judgeOwners(p tailnetPolicy, tag string) string {
 	case p.TagOwners[TailscaleOperatorTag] == nil || len(p.TagOwners[TailscaleOperatorTag]) != 0:
 		return "the operator's tag is not admins' alone"
 	case !slices.Equal(p.TagOwners[tag], []string{TailscaleOperatorTag}),
-		!slices.Equal(p.TagOwners["tag:k8s"], []string{TailscaleOperatorTag}):
+		!slices.Equal(p.TagOwners[TailscaleProxyTag], []string{TailscaleOperatorTag}):
 		return "the operator does not own the device tags"
 	case !slices.Equal(p.Groups["group:preview-viewers"], []string{policyViewer}):
 		return "the viewers' group is not the placeholder"
@@ -108,7 +165,7 @@ func judgeTests(p tailnetPolicy, tag string) string {
 		return "no test that the owner keeps their own devices"
 	case !test(policyViewer, tag+":443", tag+":80"):
 		return "no test that a viewer reaches 443 and not 80"
-	case !test("tag:k8s", "", tag+":443"):
+	case !test(TailscaleProxyTag, "", tag+":443"):
 		return "no test that another tagged device is refused"
 	}
 	return ""
@@ -139,7 +196,13 @@ func TestTailnetPolicyProperties(t *testing.T) {
 	cfg := quickConfig(500)
 	cfg.Values = func(args []reflect.Value, r *rand.Rand) {
 		a := tailscaleAnswers()
-		if r.Intn(4) > 0 {
+		switch r.Intn(8) {
+		case 0, 1:
+		case 2:
+			a.Tailscale.Tag = TailscaleProxyTag // the operator's own proxy tag, an obvious choice
+		case 3:
+			a.Tailscale.Tag = TailscaleOperatorTag
+		default:
 			a.Tailscale.Tag = "tag:" + randLabel(r)
 		}
 		args[0] = reflect.ValueOf(a)
@@ -191,6 +254,41 @@ func TestJudgePolicyRefusesAllowAll(t *testing.T) {
 		}
 		if judgePolicy(p, tag) == "" {
 			t.Errorf("%s: judged safe", name)
+		}
+	}
+}
+
+// TestTailnetPolicyRefusesProxyTag pins the counterexample review found:
+// --tailscale-tag tag:k8s (the tag the operator gives every proxy) would
+// write tagOwners with "tag:k8s" twice, which Tailscale refuses, grant
+// viewers every proxy the operator creates, and make the "another tagged
+// device" test a self-reference. The recipe refuses the tag, and the
+// policy it would have written does not parse.
+func TestTailnetPolicyRefusesProxyTag(t *testing.T) {
+	a := tailscaleAnswers()
+	a.Tailscale.Tag = TailscaleProxyTag
+	if err := a.Validate(); err == nil || !strings.Contains(err.Error(), "every proxy it creates") {
+		t.Errorf("Validate with --tailscale-tag %s = %v", TailscaleProxyTag, err)
+	}
+	if _, err := parsePolicy(t, tailscalePolicy(a)); err == nil || !strings.Contains(err.Error(), "duplicate key") {
+		t.Errorf("the policy for %s parsed: %v", TailscaleProxyTag, err)
+	}
+}
+
+// TestNoDuplicateKeys: the strict parser's duplicate check sees a repeat
+// at any depth and nothing else.
+func TestNoDuplicateKeys(t *testing.T) {
+	for in, dup := range map[string]bool{
+		`{"a": 1, "b": {"a": [1, {"a": 2}]}}`: false,
+		`{"a": 1, "a": 2}`:                    true,
+		`{"x": {"k": [], "k": []}}`:           true,
+		`[{"a": 1}, {"a": 1}]`:                false,
+		`{"a": "a", "b": "b"}`:                false,
+		`{"a": {}, "b": {}}`:                  false,
+		`{"a": {}, "a": {}}`:                  true,
+	} {
+		if err := noDuplicateKeys(in); (err != nil) != dup {
+			t.Errorf("noDuplicateKeys(%s) = %v, want duplicate %v", in, err, dup)
 		}
 	}
 }

@@ -340,7 +340,7 @@ func tailscalePolicy(a Answers) string {
   },
   "tagOwners": {
     "` + TailscaleOperatorTag + `": [],
-    "tag:k8s": ["` + TailscaleOperatorTag + `"],
+    "` + TailscaleProxyTag + `": ["` + TailscaleOperatorTag + `"],
     "` + tag + `": ["` + TailscaleOperatorTag + `"]
   },
   // These replace allow-all: nothing else is reachable unless granted here.
@@ -355,7 +355,7 @@ func tailscalePolicy(a Answers) string {
   "tests": [
     {"src": "` + policyOwner + `", "accept": ["` + policyOwner + `:22"]},
     {"src": "` + policyViewer + `", "accept": ["` + tag + `:443"], "deny": ["` + tag + `:80"]},
-    {"src": "tag:k8s", "deny": ["` + tag + `:443", "` + tag + `:80"]}
+    {"src": "` + TailscaleProxyTag + `", "deny": ["` + tag + `:443", "` + tag + `:80"]}
   ]
 }
 `

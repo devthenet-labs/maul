@@ -598,8 +598,10 @@ previewAuth:
   }
   ```
 
-  `setup previews` prints this policy, for your tag, in `NEXT-STEPS.md`. Anything else members reach today (a tagged
-  server, a subnet router, an exit node) needs a grant of its own before saving.
+  `setup previews` prints this policy, for your tag, in `NEXT-STEPS.md`. It refuses `--tailscale-tag tag:k8s-operator`
+  and `tag:k8s`: the first is the operator's own, the second the tag it gives every proxy, so either would grant viewers
+  more than the previews' device. Anything else members reach today (a tagged server, a subnet router, an exit node)
+  needs a grant of its own before saving.
 
 - **The operator's OAuth client** is its own Secret (`operator-oauth` in namespace `tailscale`, keys `client_id` and
   `client_secret`); patchy's values never hold it. Generate it under **Settings > Trust credentials** with the scopes
