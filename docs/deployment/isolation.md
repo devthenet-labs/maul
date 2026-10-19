@@ -325,10 +325,10 @@ operator-defined registries ([below](#registry-grants)); then the proxy holds th
 still holds none.
 
 What the egress is without profiles depends on your values; do not read one deployment's as the chart's. Under
-`dns: none` with brokered claude only, an agent pod reaches the artifact server and the egress broker and has no
-resolver. With `dns: cluster` it also has a DNS rule; under mode `cilium` a non-brokered runner gets `toFQDNs` to its
-model API; and with repository images off under mode `none`, the base policy's "TCP 443 to anywhere" rule stays.
-Profiles require repository images, which require narrow egress, so that last case never carries a profile.
+`dns: none` with brokered runners only (claude, codex), an agent pod reaches the artifact server and the egress broker
+and has no resolver. With `dns: cluster` it also has a DNS rule; under mode `cilium` a non-brokered runner gets
+`toFQDNs` to its model API; and with repository images off under mode `none`, the base policy's "TCP 443 to anywhere"
+rule stays. Profiles require repository images, which require narrow egress, so that last case never carries a profile.
 
 ### How it is enforced
 

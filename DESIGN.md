@@ -122,12 +122,13 @@ consistent across the estate.
   or Secret access.
 - **agent-runner** — the in-pod coding-agent runtime: one stage per Job (`investigate` or `remediate`, and the
   intent stages `plan` and `build`), reports as `PATCHY-EVENT:` JSONL on stdout. Never talks to GitHub or the
-  Kubernetes API; a claude pod holds no credential at all (model traffic authenticates at the egress broker), a
-  codex/copilot pod only its model key.
-- **egress-broker** — the egress credential broker: the reverse proxy all claude model traffic goes through
-  (Anthropic, Amazon Bedrock, GCP Vertex AI, Microsoft Foundry). Validates each agent pod's audience-bound
-  projected ServiceAccount token via TokenReview, then injects or signs the model credential outbound — the one
-  place model credentials and cloud workload identity live. Not a controller: no reconcilers, no leases.
+  Kubernetes API; a claude or codex pod holds no credential at all (model traffic authenticates at the egress
+  broker), a copilot pod only its model key.
+- **egress-broker** — the egress credential broker: the reverse proxy all claude and codex model traffic goes
+  through (Anthropic, Amazon Bedrock, GCP Vertex AI, Microsoft Foundry for claude; OpenAI's Responses API for
+  codex). Validates each agent pod's audience-bound projected ServiceAccount token via TokenReview, then injects
+  or signs the model credential outbound — the one place model credentials and cloud workload identity live. Not a
+  controller: no reconcilers, no leases.
 
 ### The state machine
 
@@ -144,18 +145,18 @@ enforced by `SetPhase`.
 ### Isolation model
 
 The agent pod is the least-trusted component and holds **no credential of any kind** — not even in the init
-container, and for the default (claude) runner not even a model key. The repository arrives as a digest-verified
-tarball from source-controller over the cluster network; claude model traffic goes through the egress credential
-broker, authenticated by an audience-bound projected ServiceAccount token — an identity document, not a
-capability — so the broker (a trusted Deployment) is where the model credential or cloud workload identity
-lives, and claude egress collapses to DNS + the artifact server + the broker, all cluster-local. The optional
+container, and for the brokered (claude, codex) runners not even a model key. The repository arrives as a
+digest-verified tarball from source-controller over the cluster network; claude and codex model traffic goes through
+the egress credential broker, authenticated by an audience-bound projected ServiceAccount token — an identity
+document, not a capability — so the broker (a trusted Deployment) is where the model credential or cloud workload
+identity lives, and brokered egress collapses to DNS + the artifact server + the broker, all cluster-local.
 The claude pod does carry one fixed, non-secret placeholder `ANTHROPIC_AUTH_TOKEN`
 (`patchy-brokered-placeholder`), set only by patchy, because the CLI refuses to start without some token; the
-broker strips it with every other inbound credential header. The optional
-non-brokered runners (codex/copilot) still carry their one model key, with NetworkPolicies (plus optional
-Cilium FQDN / Istio allowlists) restricting their egress to their model APIs. All GitHub side effects — issue
-projection, alert dismissal, branch push, pull requests — happen controller-side with short-lived,
-per-repository scoped tokens.
+broker strips it with every other inbound credential header; a codex pod's placeholder key, set by agent-runner per
+stage, is stripped the same way. The optional non-brokered runner (copilot) still carries its one model key, with
+NetworkPolicies (plus optional Cilium FQDN / Istio allowlists) restricting its egress to its model API. All GitHub
+side effects — issue projection, alert dismissal, branch push, pull requests — happen controller-side with
+short-lived, per-repository scoped tokens.
 
 One operator-granted exception, off by default: a **network profile** (chart `egressProxy` and
 `agent.networkProfiles`) gives a remediate or build/revise/check-fix pod that runs an accepted repository image,
@@ -235,7 +236,8 @@ repositories per project.
 
   An approval binds the plan and input digests. It is refused if the plan comment or the issue has changed since the
   plan was posted.
-- **Isolation, tightened.** Agent pods are unchanged: brokered claude only, no credential of any kind. The controller:
+- **Isolation, tightened.** Agent pods are unchanged: brokered claude (or brokered codex for a Project that chooses
+  it), no credential of any kind. The controller:
   - has `secrets get` restricted by `resourceNames` to the Forge Secrets in the release namespace, but its agent-jobs
     Role can get, create, update and delete any Secret in the agents namespace, including model keys, image-pull
     credentials and other Jobs' handoffs;

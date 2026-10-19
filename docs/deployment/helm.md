@@ -306,7 +306,7 @@ Secret in the release namespace. The keys reach source-controller's own pod only
 | `agent.networkPolicy.clusterDNSPatterns` | `*.svc.cluster.local`                                      | Cilium only: cluster-local names every runner may resolve (for the artifact fetch)                                                                                                                                                                                                                                                                          |
 | `agent.networkPolicy.mode`               | `auto`                                                     | Hostname-egress dialect: `auto`/`none`/`cilium`/`gke`/`istio` — one policy per runner                                                                                                                                                                                                                                                                       |
 | `agent.networkPolicy.broadEgress`        | `auto`                                                     | Keep the base "443 to anywhere" rule: `auto`/`always`/`never` — see the warning below                                                                                                                                                                                                                                                                       |
-| `agent.networkPolicy.dns`                | `cluster`                                                  | Agent pod name resolution: `cluster` (the cluster resolver) or `none` (no resolver; the artifact server and broker pinned in the hosts file, no DNS egress; brokered claude only) — see [Closing DNS](isolation.md#closing-dns)                                                                                                                             |
+| `agent.networkPolicy.dns`                | `cluster`                                                  | Agent pod name resolution: `cluster` (the cluster resolver) or `none` (no resolver; the artifact server and broker pinned in the hosts file, no DNS egress; brokered runners only: claude, codex) — see [Closing DNS](isolation.md#closing-dns)                                                                                                             |
 | `agent.networkPolicy.cilium.enabled`     | `false`                                                    | Deprecated alias for `mode: cilium`, honoured only while `mode` is `auto`                                                                                                                                                                                                                                                                                   |
 | `agent.networkPolicy.istio.enabled`      | `false`                                                    | Deprecated alias for `mode: istio`, honoured only while `mode` is `auto`                                                                                                                                                                                                                                                                                    |
 
@@ -487,9 +487,9 @@ baked module cache plus the build cache: a profile run copies its modules into `
 ### Model providers (brokered claude)
 
 All claude model traffic goes through the [egress credential broker](../configuration/egress-broker.md), which deploys
-automatically whenever a claude or codex runner is enabled (codex runs on its openai route:
-[Codex runs brokered](../configuration/agent-runner.md#codex-runs-brokered)). `agent.runners.claude.provider` picks the
-API it fronts:
+automatically whenever a claude or codex runner is enabled (codex runs on its openai route; enabling it, the migration
+from its old in-pod key and a live check are in [The codex runner](../configuration/codex.md)).
+`agent.runners.claude.provider` picks the API it fronts:
 
 ```yaml
 # First-party Anthropic (the default): the API key lives with the broker in
@@ -548,7 +548,7 @@ Scope the cloud role to Invoke only: `bedrock:InvokeModel*`, `aiplatform.endpoin
     `agent.runners.claude.secret*` values are ignored (a NOTES warning fires if they are still set); if the old
     `secretEnv` was `CLAUDE_CODE_OAUTH_TOKEN`, set `egressBroker.anthropicAuth: token` so the broker sends the OAuth
     token as a bearer. Copilot is unaffected; codex has its own migration
-    ([Codex runs brokered](../configuration/agent-runner.md#codex-runs-brokered)).
+    ([Migrating from the in-pod key](../configuration/codex.md#migrating-from-the-in-pod-key)).
 
 ### Egress broker limits
 

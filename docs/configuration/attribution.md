@@ -130,6 +130,9 @@ How a settled run is measured:
   shown as unmetered (worst case) and never priced.
 - Model ids are normalised to the model registry (dated and provider forms included). A model the registry does not know
   keeps its tokens with no cost, and the run's total cost is then absent rather than understated.
+- Codex runs are measured too, now that codex runs through the broker's openai route: they settle `measured`, are priced
+  from the registry's OpenAI rates and count in trusted totals. A codex run settled before that upgrade stays
+  `reported`. See [The codex runner](codex.md#usage-limits-and-pricing).
 - Prices are the registry's list rates, cache writes at 1.25x (five-minute) and 2x (one-hour) the input rate. Each
   priced figure records the price-table version it used, `<date>.<digest>`, whose digest changes with any rate. A run
   paid by a Claude subscription (`--anthropic-auth token`) is priced `subscription`: the list-price equivalent,
