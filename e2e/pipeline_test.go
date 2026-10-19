@@ -71,10 +71,9 @@ const (
 )
 
 // runnerArgs configures both per-harness runner images on a job controller.
-// The codex credential Secret created in newCluster enables that harness; the
-// claude runner is brokered — enabled by configuration, requiring only the
-// broker URL (nothing dials it here: no Job ever runs a real agent under
-// envtest).
+// Both runners are brokered — enabled by configuration, requiring only the
+// broker URL, with no credential Secret anywhere (nothing dials the broker
+// here: no Job ever runs a real agent under envtest).
 var runnerArgs = []string{
 	"--claude-agent-image", "patchy/claude-agent-runner:e2e",
 	"--codex-agent-image", "patchy/codex-agent-runner:e2e",
@@ -204,18 +203,9 @@ func startCluster(t *testing.T) *cluster {
 			t.Fatalf("create namespace %s: %v", ns, err)
 		}
 	}
-	// The per-harness model credentials the job controllers probe at startup
-	// to decide which harnesses are enabled: with both present, the claude and
-	// codex runners are both enabled, so a finding routes to whichever the
-	// chosen model belongs to.
-	for _, name := range []string{"patchy-anthropic", "patchy-openai"} {
-		if err := c.Create(context.Background(), &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: agentsNS},
-			StringData: map[string]string{"api-key": "e2e-model-key"},
-		}); err != nil {
-			t.Fatalf("create agent credential %s: %v", name, err)
-		}
-	}
+	// No model credential exists in the agent namespace: the claude and codex
+	// runners are both brokered, so both are enabled by configuration and a
+	// finding routes to whichever the chosen model belongs to.
 	return cl
 }
 
@@ -896,6 +886,9 @@ func TestRemediationPriorityOrder(t *testing.T) {
 	if got := grantedJob.Spec.Template.Spec.Containers[0].Image; got != "patchy/codex-agent-runner:e2e" {
 		t.Errorf("job image = %q, want the codex runner image", got)
 	}
+	// Codex runs brokered: its pod reads no Secret for a credential and
+	// carries the projected broker token instead.
+	assertBrokeredCodexPod(t, grantedJob.Spec.Template.Spec)
 
 	// The low-priority one keeps waiting for the slot (the Job above never
 	// completes — envtest has no kubelet).
@@ -1076,5 +1069,44 @@ func TestForgedSignatureRejected(t *testing.T) {
 	}
 	if len(list.Items) != 0 {
 		t.Errorf("a forged delivery created %d findings", len(list.Items))
+	}
+}
+
+// assertBrokeredCodexPod: a codex agent pod holds no model credential in any
+// form (no env from a Secret, no credential channel) and mounts the
+// projected broker caller token in its agent container, with the broker's
+// openai route as its gateway.
+func assertBrokeredCodexPod(t *testing.T, pod corev1.PodSpec) {
+	t.Helper()
+	var projected bool
+	for _, v := range pod.Volumes {
+		if v.Projected != nil {
+			for _, src := range v.Projected.Sources {
+				projected = projected || src.ServiceAccountToken != nil
+			}
+		}
+	}
+	if !projected {
+		t.Error("codex pod has no projected broker token")
+	}
+	agent := pod.Containers[0]
+	env := map[string]string{}
+	for _, c := range append(slices.Clone(pod.InitContainers), pod.Containers...) {
+		for _, e := range c.Env {
+			if e.ValueFrom != nil && e.ValueFrom.SecretKeyRef != nil {
+				t.Errorf("%s env %s reads Secret %s", c.Name, e.Name, e.ValueFrom.SecretKeyRef.Name)
+			}
+		}
+	}
+	for _, e := range agent.Env {
+		env[e.Name] = e.Value
+	}
+	for _, k := range []string{"OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_ACCESS_TOKEN"} {
+		if _, ok := env[k]; ok {
+			t.Errorf("codex pod env carries %s", k)
+		}
+	}
+	if got := env["PATCHY_CODEX_BASE_URL"]; got != "http://patchy-egress-broker.patchy.svc.cluster.local:8080/openai/v1" {
+		t.Errorf("PATCHY_CODEX_BASE_URL = %q, want the broker's openai route", got)
 	}
 }
