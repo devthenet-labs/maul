@@ -5,6 +5,7 @@ package runnercfg
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand"
 	"os"
@@ -21,6 +22,7 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 
 	"github.com/bitwise-media-group/patchy/internal/cli"
+	"github.com/bitwise-media-group/patchy/internal/credgate"
 	"github.com/bitwise-media-group/patchy/internal/jobs"
 	"github.com/bitwise-media-group/patchy/internal/model"
 )
@@ -77,21 +79,15 @@ func TestRunnersSecretEnvValidation(t *testing.T) {
 			wantEnv: map[string]string{"claude": ""},
 		},
 		{
-			name:    "codex defaults to the api key",
-			args:    []string{"--codex-agent-image", "codex:1"},
-			wantEnv: map[string]string{"codex": "OPENAI_API_KEY"},
+			// Codex is brokered like claude: no credential channel at all.
+			name:    "codex is brokered with no secret env",
+			args:    []string{"--codex-agent-image", "codex:1", "--broker-url", "http://broker:8080"},
+			wantEnv: map[string]string{"codex": ""},
 		},
 		{
-			name: "codex accepts the chatgpt-plan access token",
-			args: []string{"--codex-agent-image", "codex:1",
-				"--codex-secret-env", "CODEX_ACCESS_TOKEN"},
-			wantEnv: map[string]string{"codex": "CODEX_ACCESS_TOKEN"},
-		},
-		{
-			name: "codex accepts the codex api key",
-			args: []string{"--codex-agent-image", "codex:1",
-				"--codex-secret-env", "CODEX_API_KEY"},
-			wantEnv: map[string]string{"codex": "CODEX_API_KEY"},
+			name:     "codex without a broker url is not a configuration",
+			args:     []string{"--codex-agent-image", "codex:1"},
+			wantErrs: []string{"--broker-url", "codex runs proxy-only"},
 		},
 		{
 			name:    "copilot defaults to the copilot github token",
@@ -119,24 +115,10 @@ func TestRunnersSecretEnvValidation(t *testing.T) {
 			wantErrs: []string{"--copilot-secret-env", "ANTHROPIC_API_KEY", "COPILOT_GITHUB_TOKEN"},
 		},
 		{
-			name: "codex rejects a claude channel",
-			args: []string{"--codex-agent-image", "codex:1",
-				"--codex-secret-env", "ANTHROPIC_API_KEY"},
-			wantErrs: []string{"--codex-secret-env", "ANTHROPIC_API_KEY", "CODEX_ACCESS_TOKEN"},
-		},
-		{
-			// The error must enumerate the accepted channels; a bare rejection
-			// leaves the operator guessing at the spelling.
-			name: "codex rejects a typo and lists the alternatives",
-			args: []string{"--codex-agent-image", "codex:1",
-				"--codex-secret-env", "CODEX_TOKEN"},
-			wantErrs: []string{"--codex-secret-env", "OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_ACCESS_TOKEN"},
-		},
-		{
 			// The fake runner carries no credential, so there is no channel to
-			// validate and a stale --codex-secret-env must not fail startup.
+			// validate and a stale --copilot-secret-env must not fail startup.
 			name:    "fake runner needs no credential",
-			args:    []string{"--fake-agent-image", "fake:1", "--codex-secret-env", "CODEX_TOKEN"},
+			args:    []string{"--fake-agent-image", "fake:1", "--copilot-secret-env", "CODEX_TOKEN"},
 			wantEnv: map[string]string{"fake": ""},
 		},
 		{
@@ -181,17 +163,19 @@ func TestRunnersSecretEnvValidation(t *testing.T) {
 	}
 }
 
-// TestRunnersCredentialWiring: the Secret name and key ride the same flags as
-// the env var, so a validated channel is only half the credential. Claude is
-// brokered — no Secret reference of any kind — while codex keeps its channel.
+// TestRunnersCredentialWiring: claude and codex are brokered — no Secret
+// reference of any kind, the broker's routes as their gateway env — while
+// copilot's Secret name and key ride the same flags as its env var, so a
+// validated channel is only half the credential.
 func TestRunnersCredentialWiring(t *testing.T) {
 	runners, err := Runners(newOpts(t,
 		"--claude-agent-image", "claude:1",
 		"--broker-url", "http://broker:8080",
 		"--codex-agent-image", "codex:1",
-		"--codex-secret", "chatgpt-workspace",
-		"--codex-secret-key", "token",
-		"--codex-secret-env", "CODEX_ACCESS_TOKEN",
+		"--copilot-agent-image", "copilot:1",
+		"--copilot-secret", "copilot-token",
+		"--copilot-secret-key", "gh",
+		"--copilot-secret-env", "GH_TOKEN",
 	))
 	if err != nil {
 		t.Fatalf("Runners: %v", err)
@@ -202,7 +186,7 @@ func TestRunnersCredentialWiring(t *testing.T) {
 		t.Errorf("claude runner = %+v, want brokered with no Secret channel", claude)
 	}
 	// Only the brokered claude runner may run a repository-declared image;
-	// codex holds a real credential in-pod and never injects.
+	// codex and copilot never inject.
 	if want := []string{"agent-runner", "claude"}; !slices.Equal(claude.Inject, want) {
 		t.Errorf("claude Inject = %v, want %v", claude.Inject, want)
 	}
@@ -211,24 +195,95 @@ func TestRunnersCredentialWiring(t *testing.T) {
 	}
 
 	codex := runners["codex"]
-	if codex.Inject != nil {
-		t.Errorf("codex Inject = %v, want nil (a credential-holding runner never injects)", codex.Inject)
+	want := jobs.Runner{Image: "codex:1", Brokered: true,
+		Env: map[string]string{"PATCHY_CODEX_BASE_URL": "http://broker:8080/openai/v1"}}
+	if !reflect.DeepEqual(codex, want) {
+		t.Errorf("codex runner = %+v, want %+v", codex, want)
 	}
-	want := map[string]string{
-		"image":     "codex:1",
-		"secret":    "chatgpt-workspace",
-		"secretKey": "token",
-		"secretEnv": "CODEX_ACCESS_TOKEN",
+
+	copilot := runners["copilot"]
+	if copilot.Brokered || copilot.Inject != nil || copilot.Secret != "copilot-token" || copilot.SecretKey != "gh" ||
+		copilot.SecretEnv != "GH_TOKEN" {
+		t.Errorf("copilot runner = %+v", copilot)
 	}
-	got := map[string]string{
-		"image":     codex.Image,
-		"secret":    codex.Secret,
-		"secretKey": codex.SecretKey,
-		"secretEnv": codex.SecretEnv,
+}
+
+// TestRunnersBrokeredIsTheRegistryPredicate: whichever runners are
+// configured, a runner is brokered exactly when model.HarnessBrokered says
+// its harness is, the predicate the usage meter reads too.
+func TestRunnersBrokeredIsTheRegistryPredicate(t *testing.T) {
+	runners, err := Runners(newOpts(t, "--broker-url", "http://broker:8080",
+		"--claude-agent-image", "claude:1", "--codex-agent-image", "codex:1",
+		"--copilot-agent-image", "copilot:1", "--fake-agent-image", "fake:1"))
+	if err != nil {
+		t.Fatalf("Runners: %v", err)
 	}
-	for k, w := range want {
-		if got[k] != w {
-			t.Errorf("codex %s = %q, want %q", k, got[k], w)
+	if len(runners) != 4 {
+		t.Fatalf("runners = %v", keys(runners))
+	}
+	for id, r := range runners {
+		if r.Brokered != model.HarnessBrokered(id) {
+			t.Errorf("%s Brokered = %v, want %v", id, r.Brokered, model.HarnessBrokered(id))
+		}
+	}
+}
+
+// TestCodexSecretFlagsRemoved: the --codex-secret* flags are gone. A value
+// left on a controller that runs codex, by flag or from the environment the
+// chart and the kustomize base used to stamp, fails startup with the
+// migration; on one that does not run codex it can do nothing and is
+// ignored, so an install that never ran codex starts as before.
+func TestCodexSecretFlagsRemoved(t *testing.T) {
+	for _, flag := range []string{"codex-secret", "codex-secret-key", "codex-secret-env"} {
+		t.Run(flag, func(t *testing.T) {
+			_, err := Runners(newOpts(t, "--broker-url", "http://broker:8080", "--codex-agent-image", "codex:1",
+				"--"+flag, "x"))
+			if err == nil || !strings.Contains(err.Error(), "--"+flag+" is removed") ||
+				!strings.Contains(err.Error(), "egressBroker.openai.apiKey") ||
+				!strings.Contains(err.Error(), "patchy-openai") {
+				t.Fatalf("err = %v, want the migration", err)
+			}
+			if _, err := Runners(newOpts(t, "--fake-agent-image", "fake:1", "--"+flag, "x")); err != nil {
+				t.Errorf("without codex: %v", err)
+			}
+		})
+	}
+	t.Run("from the environment", func(t *testing.T) {
+		t.Setenv("PATCHY_CODEX_SECRET", "patchy-openai")
+		_, err := Runners(newOpts(t, "--broker-url", "http://broker:8080", "--codex-agent-image", "codex:1"))
+		if err == nil || !strings.Contains(err.Error(), "--codex-secret is removed") {
+			t.Fatalf("err = %v, want the migration", err)
+		}
+	})
+	f := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	RegisterFlags(f)
+	for _, name := range []string{"codex-secret", "codex-secret-key", "codex-secret-env"} {
+		if fl := f.Lookup(name); fl == nil || !fl.Hidden || fl.DefValue != "" {
+			t.Errorf("--%s = %+v, want registered, hidden and empty", name, fl)
+		}
+	}
+}
+
+// TestCodexUserCredentials: until per-user credentials cover OpenAI, a
+// controller with codex enabled refuses any --user-credentials but off.
+func TestCodexUserCredentials(t *testing.T) {
+	for _, tt := range []struct {
+		mode    credgate.Mode
+		enabled []string
+		wantErr bool
+	}{
+		{credgate.ModeOff, []string{"claude", "codex"}, false},
+		{credgate.ModeAttribute, []string{"claude"}, false},
+		{credgate.ModeEnforce, []string{"claude", "copilot"}, false},
+		{credgate.ModeAttribute, []string{"codex"}, true},
+		{credgate.ModeEnforce, []string{"claude", "codex"}, true},
+	} {
+		err := CodexUserCredentials(tt.mode, tt.enabled)
+		if (err != nil) != tt.wantErr {
+			t.Errorf("%s %v: err = %v, want error %v", tt.mode, tt.enabled, err, tt.wantErr)
+		}
+		if err != nil && !strings.Contains(err.Error(), "--user-credentials off") {
+			t.Errorf("err = %v, want the way out named", err)
 		}
 	}
 }
@@ -385,7 +440,7 @@ func TestSecretEnvFlagsMatchAcceptedChannels(t *testing.T) {
 	// claude-secret-env is absent on purpose: the claude runner is brokered,
 	// the flag is ignored, and its usage says so instead of naming channels.
 	for _, tt := range []struct{ flag, harness string }{
-		{"codex-secret-env", model.HarnessCodex},
+		{"copilot-secret-env", model.HarnessCopilot},
 	} {
 		t.Run(tt.flag, func(t *testing.T) {
 			flag := f.Lookup(tt.flag)
@@ -853,9 +908,10 @@ func newDNSOpts(t *testing.T, args ...string) *cli.Options {
 // fails startup, naming it, unless it is configured but not enabled.
 func TestAgentDNS(t *testing.T) {
 	runners := map[string]jobs.Runner{
-		"claude": {Image: "claude:1", Brokered: true},
-		"codex":  {Image: "codex:1", Secret: "patchy-openai", SecretEnv: "OPENAI_API_KEY"},
-		"fake":   {Image: "fake:1"},
+		"claude":  {Image: "claude:1", Brokered: true},
+		"codex":   {Image: "codex:1", Brokered: true},
+		"copilot": {Image: "copilot:1", Secret: "patchy-copilot", SecretEnv: "COPILOT_GITHUB_TOKEN"},
+		"fake":    {Image: "fake:1"},
 	}
 	tests := []struct {
 		name    string
@@ -864,17 +920,19 @@ func TestAgentDNS(t *testing.T) {
 		want    jobs.DNSMode
 		wantErr string
 	}{
-		{name: "the default", enabled: []string{"claude", "codex"}, want: jobs.DNSCluster},
-		{name: "cluster, named", args: []string{"--agent-dns", "cluster"}, enabled: []string{"codex"},
+		{name: "the default", enabled: []string{"claude", "copilot"}, want: jobs.DNSCluster},
+		{name: "cluster, named", args: []string{"--agent-dns", "cluster"}, enabled: []string{"copilot"},
 			want: jobs.DNSCluster},
+		{name: "none, brokered codex", args: []string{"--agent-dns", "none"}, enabled: []string{"claude", "codex"},
+			want: jobs.DNSNone},
 		{name: "none, brokered claude", args: []string{"--agent-dns", "none"}, enabled: []string{"claude"},
 			want: jobs.DNSNone},
 		{name: "none, the fake harness", args: []string{"--agent-dns", "none"}, enabled: []string{"fake"},
 			want: jobs.DNSNone},
-		{name: "none, codex configured but not enabled", args: []string{"--agent-dns", "none"},
+		{name: "none, copilot configured but not enabled", args: []string{"--agent-dns", "none"},
 			enabled: []string{"claude"}, want: jobs.DNSNone},
-		{name: "none, codex enabled", args: []string{"--agent-dns", "none"}, enabled: []string{"claude", "codex"},
-			wantErr: "--agent-dns none: the codex harness dials its model API by name"},
+		{name: "none, copilot enabled", args: []string{"--agent-dns", "none"}, enabled: []string{"claude", "copilot"},
+			wantErr: "--agent-dns none: the copilot harness dials its model API by name"},
 		{name: "a typo", args: []string{"--agent-dns", "off"}, enabled: []string{"claude"},
 			wantErr: `--agent-dns: agent DNS "off" is not cluster or none`},
 	}
@@ -990,5 +1048,24 @@ func TestNetworkProfiles(t *testing.T) {
 				t.Errorf("NetworkProfiles = %d profiles, base %v", set.Len(), base)
 			}
 		})
+	}
+}
+
+// TestEvolveCodexRefused: no codex evaluation runner is built, so no mounted
+// OpenAI key path remains: --evolve-codex-image fails startup with the
+// reason, and the copilot and claude evaluation runners are unaffected.
+func TestEvolveCodexRefused(t *testing.T) {
+	_, err := EvolveRunners(newEvolveOpts(t, "--evolve-codex-image", "evolve-codex:1",
+		"--evolve-claude-image", "evolve-claude:1", "--broker-url", "http://broker:8080"))
+	if !errors.Is(err, ErrCodexEvaluations) || !strings.Contains(err.Error(), "evolve supports the egress broker") {
+		t.Fatalf("err = %v, want ErrCodexEvaluations", err)
+	}
+	runners, err := EvolveRunners(newEvolveOpts(t, "--evolve-copilot-image", "evolve-copilot:1",
+		"--evolve-claude-image", "evolve-claude:1", "--broker-url", "http://broker:8080"))
+	if err != nil {
+		t.Fatalf("EvolveRunners: %v", err)
+	}
+	if _, ok := runners["codex"]; ok || runners["copilot"].Secret != "patchy-copilot" || !runners["claude"].Brokered {
+		t.Errorf("runners = %+v", runners)
 	}
 }

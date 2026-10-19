@@ -6,6 +6,7 @@ package jobs
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -19,6 +20,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/bitwise-media-group/patchy/api/v1alpha1"
+	"github.com/bitwise-media-group/patchy/internal/model"
 	"github.com/bitwise-media-group/patchy/internal/provider"
 )
 
@@ -163,7 +165,19 @@ func (c *Client) buildEval(ctx context.Context, name string, spec EvalSpec) (*ba
 	return job, nil
 }
 
+// ErrCodexEvaluation refuses an evaluation Job on the codex harness. Codex
+// runs brokered only, and an evaluation pod runs evolve's own codex runner,
+// which cannot yet take the broker's provider config, so the only way it
+// could reach a model would be an OpenAI key mounted into the pod. Until
+// evolve supports the brokered provider, codex evaluations are refused
+// (codex broker design, owner decision (b)).
+var ErrCodexEvaluation = errors.New("jobs: codex evaluations are refused until evolve supports the egress " +
+	"broker's provider config; codex runs brokered only, and no OpenAI key is mounted into an agent pod")
+
 func (c *Client) buildEvalJob(name string, spec EvalSpec) (*batchv1.Job, error) {
+	if spec.Harness == model.HarnessCodex {
+		return nil, ErrCodexEvaluation
+	}
 	// An evaluation Job always runs on the controller's default resources:
 	// no selector picks a class for one.
 	res, err := c.cfg.resources(nil)

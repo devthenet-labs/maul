@@ -48,7 +48,7 @@ func TestHarnessChoice(t *testing.T) {
 		{name: "fake", args: []string{"--fake-agent-image", "fake:1"}, want: "fake"},
 		{
 			name: "codex is refused",
-			args: []string{"--codex-agent-image", "codex:1",
+			args: []string{"--codex-agent-image", "codex:1", "--broker-url", "http://broker.invalid",
 				"--intent-plan-model", codexModel, "--intent-build-model", codexModel},
 			wantErr: "intents run on brokered claude only, and the intent models resolve to codex",
 		},

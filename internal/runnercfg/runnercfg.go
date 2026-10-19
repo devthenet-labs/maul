@@ -61,7 +61,8 @@ func RegisterEvolveFlags(f *pflag.FlagSet) {
 	f.String("evolve-claude-image", "",
 		"evolve-runner image with the claude CLI; unset disables the claude evaluation runner")
 	f.String("evolve-codex-image", "",
-		"evolve-runner image with the codex CLI; unset disables the codex evaluation runner")
+		"REFUSED: codex evaluations wait until evolve supports the egress broker's provider config; "+
+			"setting it fails startup")
 	f.String("evolve-copilot-image", "",
 		"evolve-runner image with the copilot CLI; unset disables the copilot evaluation runner")
 	f.String("evolve-fake-image", "", "fake evolve runner for dev/e2e (replays fixtures, no credential)")
@@ -70,11 +71,11 @@ func RegisterEvolveFlags(f *pflag.FlagSet) {
 }
 
 // registerSharedFlags adds the credential and restrict flags common to both
-// runner fleets, plus the broker/provider flags brokered claude runners are
-// configured with.
+// runner fleets, plus the broker/provider flags brokered runners (claude and
+// codex) are configured with.
 func registerSharedFlags(f *pflag.FlagSet) {
 	f.String("broker-url", "",
-		"egress credential broker base URL (required for the claude runner; claude runs proxy-only)")
+		"egress credential broker base URL (required for the claude and codex runners; both run proxy-only)")
 	f.String("broker-token-audience", jobs.DefaultBrokerAudience,
 		"audience the agent pods' projected broker caller tokens are bound to")
 	f.String("claude-provider", provider.Anthropic,
@@ -96,9 +97,14 @@ func registerSharedFlags(f *pflag.FlagSet) {
 	f.String("claude-secret-env", "ANTHROPIC_API_KEY",
 		"IGNORED: the claude model credential lives in the egress broker")
 
-	f.String("codex-secret", "patchy-openai", "Secret (agent namespace) holding the OpenAI credential")
-	f.String("codex-secret-key", "api-key", "key within the OpenAI credential Secret")
-	f.String("codex-secret-env", "OPENAI_API_KEY", secretEnvUsage("OpenAI", model.HarnessCodex))
+	// The --codex-secret* flags are REMOVED: codex runs proxy-only and its
+	// pods hold no credential. They stay registered, hidden and empty, only
+	// so a leftover value meets the migration message (codexSecretRemoved)
+	// rather than an unknown-flag error or, from the environment, silence.
+	for _, name := range codexSecretFlags {
+		f.String(name, "", "REMOVED: the OpenAI key lives in the egress broker (egressBroker.openai.apiKey)")
+		_ = f.MarkHidden(name) // registered just above
+	}
 
 	// Copilot's credential is a GitHub token rather than a model API key, so
 	// the default Secret is named for the harness, not a vendor.
@@ -110,14 +116,57 @@ func registerSharedFlags(f *pflag.FlagSet) {
 		"restrict enabled harnesses to this comma list (default: any harness whose credential Secret exists)")
 }
 
+// codexSecretFlags are the removed codex credential flags.
+var codexSecretFlags = []string{"codex-secret", "codex-secret-key", "codex-secret-env"}
+
+// codexSecretMigration is how to move off the removed flags.
+const codexSecretMigration = "codex runs proxy-only through the egress broker and its pods hold no credential: " +
+	"create the OpenAI API key Secret in the release namespace, point the broker at it " +
+	"(egressBroker.openai.apiKey, or --openai-api-key-file), drop --codex-secret, --codex-secret-key and " +
+	"--codex-secret-env (PATCHY_CODEX_SECRET*), and delete the old patchy-openai Secret from the agent namespace"
+
+// codexSecretRemoved refuses a removed --codex-secret* value on a
+// controller that runs codex (imageFlag set), naming the migration. On one
+// that does not, the value can do nothing, so it is only logged, and an
+// install that never ran codex starts as before.
+func codexSecretRemoved(opts *cli.Options, imageFlag string) error {
+	var set []string
+	for _, name := range codexSecretFlags {
+		if opts.String(name) != "" {
+			set = append(set, "--"+name)
+		}
+	}
+	if len(set) == 0 {
+		return nil
+	}
+	if opts.String(imageFlag) == "" {
+		opts.Log.Warn(strings.Join(set, ", ") + " is removed and ignored: " + codexSecretMigration)
+		return nil
+	}
+	return fmt.Errorf("%s is removed: %s", strings.Join(set, ", "), codexSecretMigration)
+}
+
+// markBrokered sets each runner's Brokered from model.HarnessBrokered, the
+// one predicate the usage meter reads too, so a brokered runner's runs are
+// exactly the ones measured.
+func markBrokered(runners map[string]jobs.Runner) {
+	for id, r := range runners {
+		r.Brokered = model.HarnessBrokered(id)
+		runners[id] = r
+	}
+}
+
 // Runners builds the configured runner fleet from the flags. A harness is a
-// candidate runner only when its image flag is set. The claude runner is
-// always brokered — its model traffic goes through the egress credential
-// broker and no credential enters the pod; codex/copilot keep the Secret
-// channel, whose env var is validated against the harness's accepted
-// credential channels so a typo'd --codex-secret-env fails at startup rather
-// than in the pod.
+// candidate runner only when its image flag is set. The claude and codex
+// runners are always brokered — their model traffic goes through the egress
+// credential broker and no credential enters the pod, so each needs
+// --broker-url; copilot keeps the Secret channel, whose env var is validated
+// against the harness's accepted credential channels so a typo'd
+// --copilot-secret-env fails at startup rather than in the pod.
 func Runners(opts *cli.Options) (map[string]jobs.Runner, error) {
+	if err := codexSecretRemoved(opts, "codex-agent-image"); err != nil {
+		return nil, err
+	}
 	runners := map[string]jobs.Runner{}
 
 	if img := opts.String("claude-agent-image"); img != "" {
@@ -134,15 +183,11 @@ func Runners(opts *cli.Options) (map[string]jobs.Runner, error) {
 		runners[model.HarnessClaude] = r
 	}
 	if img := opts.String("codex-agent-image"); img != "" {
-		env := opts.String("codex-secret-env")
-		if !accepts(model.HarnessCodex, env) {
-			return nil, fmt.Errorf("--codex-secret-env %q is not a credential the codex harness accepts (one of %v)",
-				env, envKeys(model.HarnessCodex))
+		r, err := codexRunner(opts, img)
+		if err != nil {
+			return nil, err
 		}
-		runners[model.HarnessCodex] = jobs.Runner{
-			Image: img, Secret: opts.String("codex-secret"),
-			SecretKey: opts.String("codex-secret-key"), SecretEnv: env,
-		}
+		runners[model.HarnessCodex] = r
 	}
 	if img := opts.String("copilot-agent-image"); img != "" {
 		env := opts.String("copilot-secret-env")
@@ -163,7 +208,21 @@ func Runners(opts *cli.Options) (map[string]jobs.Runner, error) {
 		return nil, errors.New("no agent runner configured (set at least one of " +
 			"--claude-agent-image / --codex-agent-image / --copilot-agent-image / --fake-agent-image)")
 	}
+	markBrokered(runners)
 	return runners, nil
+}
+
+// codexRunner builds the brokered codex runner: the broker's openai route
+// as its only gateway env, and nothing to inject (codex never runs a
+// repository-declared image). --broker-url is required, as for claude:
+// codex-without-broker is not a configuration.
+func codexRunner(opts *cli.Options, img string) (jobs.Runner, error) {
+	broker := opts.String("broker-url")
+	if broker == "" {
+		return jobs.Runner{}, errors.New(
+			"--broker-url is required when a codex runner is configured (codex runs proxy-only)")
+	}
+	return jobs.Runner{Image: img, Brokered: true, Env: provider.CodexEnv(broker)}, nil
 }
 
 // claudeInject is what the claude runner image contributes to a Job that
@@ -395,8 +454,8 @@ func Attribution(opts *cli.Options) (attribution.Mode, error) {
 }
 
 // AgentDNS reads --agent-dns and holds it to the harnesses this controller
-// runs: under none, a harness whose pod dials its model API by name (codex,
-// copilot: a credential in the pod, no broker) could never reach it, so
+// runs: under none, a harness whose pod dials its model API by name
+// (copilot: a credential in the pod, no broker) could never reach it, so
 // startup fails naming it rather than every one of its Jobs failing.
 // enabled is the resolved harness set; a configured runner left disabled
 // never runs, so it does not count.
@@ -417,12 +476,27 @@ func AgentDNS(opts *cli.Options, runners map[string]jobs.Runner, enabled []strin
 	return mode, nil
 }
 
+// ErrCodexEvaluations refuses --evolve-codex-image: evolve's codex runner
+// cannot yet take the egress broker's provider config, and codex runs
+// brokered only, so a codex evaluation could reach a model only through an
+// OpenAI key mounted in its pod (codex broker design, owner decision (b)).
+var ErrCodexEvaluations = errors.New("--evolve-codex-image: codex evaluations are refused until evolve " +
+	"supports the egress broker's provider config (codex runs brokered only, and no OpenAI key is mounted " +
+	"into an agent pod); unset it")
+
 // EvolveRunners builds the evolve-runner fleet from the flags, mirroring
 // Runners: a harness is a candidate only when its evolve image flag is set.
-// The claude evolve runner is brokered like its finding sibling; codex and
-// copilot reuse the shared --<harness>-secret flags, with the credential env
-// var validated against the harness's accepted channels.
+// The claude evolve runner is brokered like its finding sibling; copilot
+// reuses the shared --copilot-secret flags, with the credential env var
+// validated against the harness's accepted channels; codex is refused
+// (ErrCodexEvaluations).
 func EvolveRunners(opts *cli.Options) (map[string]jobs.Runner, error) {
+	if opts.String("evolve-codex-image") != "" {
+		return nil, ErrCodexEvaluations
+	}
+	if err := codexSecretRemoved(opts, "evolve-codex-image"); err != nil {
+		return nil, err
+	}
 	runners := map[string]jobs.Runner{}
 
 	if img := opts.String("evolve-claude-image"); img != "" {
@@ -434,7 +508,7 @@ func EvolveRunners(opts *cli.Options) (map[string]jobs.Runner, error) {
 	}
 	// Flag names derive from the harness ids: evolve-<id>-image and
 	// <id>-secret{,-key,-env}.
-	for _, h := range []string{model.HarnessCodex, model.HarnessCopilot} {
+	for _, h := range []string{model.HarnessCopilot} {
 		img := opts.String("evolve-" + h + "-image")
 		if img == "" {
 			continue
@@ -455,8 +529,9 @@ func EvolveRunners(opts *cli.Options) (map[string]jobs.Runner, error) {
 
 	if len(runners) == 0 {
 		return nil, errors.New("no evolve runner configured (set at least one of " +
-			"--evolve-claude-image / --evolve-codex-image / --evolve-copilot-image / --evolve-fake-image)")
+			"--evolve-claude-image / --evolve-copilot-image / --evolve-fake-image)")
 	}
+	markBrokered(runners)
 	return runners, nil
 }
 
@@ -614,9 +689,9 @@ func resolve(ctx context.Context, opts *cli.Options, cs kubernetes.Interface, na
 		if err := provider.ValidateCoverage(pcfg, model.Builtins(), mm, required); err != nil {
 			return nil, err
 		}
-		if probe {
-			probeBroker(ctx, pcfg.BrokerURL, opts.Log)
-		}
+	}
+	if probe && slices.ContainsFunc(enabled, func(id string) bool { return runners[id].Brokered }) {
+		probeBroker(ctx, opts.String("broker-url"), opts.Log)
 	}
 	return enabled, nil
 }
@@ -635,7 +710,7 @@ func probeBroker(ctx context.Context, brokerURL string, log *slog.Logger) {
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		log.Warn("egress broker not reachable yet; claude jobs will fail until it is",
+		log.Warn("egress broker not reachable yet; brokered (claude, codex) jobs will fail until it is",
 			"url", readyz, "error", err)
 		return
 	}

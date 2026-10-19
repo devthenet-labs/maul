@@ -214,6 +214,9 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	if err != nil {
 		return err
 	}
+	if err := runnercfg.CodexUserCredentials(credMode, enabled); err != nil {
+		return err
+	}
 	agentDNS, err := runnercfg.AgentDNS(opts, runners, enabled)
 	if err != nil {
 		return err
