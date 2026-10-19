@@ -40,7 +40,8 @@ func record(id int64, health v1alpha1.ModelCredentialHealth) *v1alpha1.ModelCred
 	return recordFor(anthropic, id, health)
 }
 
-func recordFor(p v1alpha1.ModelCredentialProvider, id int64, health v1alpha1.ModelCredentialHealth) *v1alpha1.ModelCredential {
+func recordFor(p v1alpha1.ModelCredentialProvider, id int64,
+	health v1alpha1.ModelCredentialHealth) *v1alpha1.ModelCredential {
 	owner := v1alpha1.ModelCredentialOwner(id)
 	c := &v1alpha1.ModelCredential{
 		Spec: v1alpha1.ModelCredentialSpec{Owner: owner, Provider: p, Kind: v1alpha1.ModelCredentialAPIKey},
@@ -131,8 +132,8 @@ func TestJudge(t *testing.T) {
 // (a setup-token) counts as none.
 func TestJudgeOpenAI(t *testing.T) {
 	alice := person("alice", 42)
-	token := recordFor(openai, 42, v1alpha1.ModelCredentialValid)
-	token.Spec.Kind = v1alpha1.ModelCredentialOAuthToken
+	setupToken := recordFor(openai, 42, v1alpha1.ModelCredentialValid)
+	setupToken.Spec.Kind = v1alpha1.ModelCredentialOAuthToken
 	for _, tc := range []struct {
 		name   string
 		cred   *v1alpha1.ModelCredential
@@ -141,7 +142,7 @@ func TestJudgeOpenAI(t *testing.T) {
 		{"valid openai key", recordFor(openai, 42, v1alpha1.ModelCredentialValid), ""},
 		{"valid anthropic record", record(42, v1alpha1.ModelCredentialValid), ReasonMissing},
 		{"none", nil, ReasonMissing},
-		{"an openai setup-token", token, ReasonMissing},
+		{"an openai setup-token", setupToken, ReasonMissing},
 		{"rejected", recordFor(openai, 42, v1alpha1.ModelCredentialRejected), ReasonRejected},
 		{"unknown", recordFor(openai, 42, v1alpha1.ModelCredentialUnknown), ReasonUnverified},
 	} {
@@ -232,7 +233,8 @@ func TestCheckReadsOnlyUnderEnforceForAPerson(t *testing.T) {
 			t.Errorf("Check(%s) = %+v, %v", mode, v, err)
 		}
 	}
-	if v, err := Check(ctx, ModeEnforce, anthropic, &v1alpha1.Attribution{Reason: v1alpha1.AttributionOrg}, l); err != nil ||
+	org := &v1alpha1.Attribution{Reason: v1alpha1.AttributionOrg}
+	if v, err := Check(ctx, ModeEnforce, anthropic, org, l); err != nil ||
 		v.Hold {
 		t.Errorf("Check(org) = %+v, %v", v, err)
 	}
@@ -242,7 +244,8 @@ func TestCheckReadsOnlyUnderEnforceForAPerson(t *testing.T) {
 	if v, err := Check(ctx, ModeEnforce, anthropic, person("alice", 42), l); err != nil || v.Hold {
 		t.Errorf("Check(valid) = %+v, %v", v, err)
 	}
-	if v, err := Check(ctx, ModeEnforce, anthropic, person("bob", 9), l); err != nil || !v.Hold || v.Reason != ReasonMissing {
+	if v, err := Check(ctx, ModeEnforce, anthropic, person("bob", 9), l); err != nil || !v.Hold ||
+		v.Reason != ReasonMissing {
 		t.Errorf("Check(missing) = %+v, %v", v, err)
 	}
 	// alice's Valid record is Anthropic's: a codex run of hers is held.

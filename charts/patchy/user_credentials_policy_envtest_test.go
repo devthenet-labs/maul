@@ -197,7 +197,8 @@ func putAs(t *testing.T, store *credstore.Store, owner string, provider v1alpha1
 
 // storedCredential reads owner's stored credential for provider as an
 // admin, checking its owner label.
-func storedCredential(t *testing.T, admin client.Client, owner string, provider v1alpha1.ModelCredentialProvider) string {
+func storedCredential(t *testing.T, admin client.Client, owner string,
+	provider v1alpha1.ModelCredentialProvider) string {
 	t.Helper()
 	var s corev1.Secret
 	if err := admin.Get(t.Context(), types.NamespacedName{Namespace: credNamespace,

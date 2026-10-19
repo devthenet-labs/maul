@@ -272,33 +272,9 @@ const (
 func TestAccountOpenAI(t *testing.T) {
 	s, store := accountServer(t, v1alpha1.ModelCredentialProviderAnthropic, v1alpha1.ModelCredentialProviderOpenAI)
 	ts := as(t, s, accountOctocat)
-	_, body := get(t, ts, "/api/account")
-	a := decode[Account](t, body)
-	if len(a.Credentials) != 2 || a.Credentials[0].Provider != "anthropic" || a.Credentials[1].Provider != "openai" {
-		t.Fatalf("credentials = %+v, want anthropic then openai", a.Credentials)
-	}
-	if k := a.Credentials[0].Kinds; len(k) != 2 || k[0] != "api-key" || k[1] != "oauth-token" {
-		t.Errorf("anthropic kinds = %v", k)
-	}
-	if k := a.Credentials[1].Kinds; len(k) != 1 || k[0] != "api-key" {
-		t.Errorf("openai kinds = %v", k)
-	}
+	checkAccountListsBoth(t, ts)
 
-	for _, tc := range []struct {
-		name, path, body string
-	}{
-		{"an openai setup-token", openaiPath, `{"kind":"oauth-token","credential":"` + openaiKey + `"}`},
-		{"an anthropic key as openai's", openaiPath, `{"kind":"api-key","credential":"sk-ant-api03-abc"}`},
-		{"an openai key as anthropic's", putPath, `{"kind":"api-key","credential":"` + openaiKey + `"}`},
-	} {
-		if code, body := post(t, ts, tc.path, "same-origin", "application/json", tc.body); code !=
-			http.StatusBadRequest {
-			t.Errorf("%s = %d %q, want 400", tc.name, code, body)
-		}
-	}
-	if len(store.writes) != 0 {
-		t.Fatalf("a refused write reached the store: %+v", store.writes)
-	}
+	checkAccountProviderRules(t, ts, store)
 
 	code, body := post(t, ts, openaiPath, "same-origin", "application/json",
 		`{"kind":"api-key","credential":"`+openaiKey+`"}`)
@@ -321,6 +297,44 @@ func TestAccountOpenAI(t *testing.T) {
 		store.records[name] != nil {
 		t.Errorf("delete openai = %d", code)
 	}
+}
+
+// checkAccountListsBoth: anthropic then openai, each with its kinds.
+func checkAccountListsBoth(t *testing.T, ts *httptest.Server) {
+	t.Helper()
+	_, body := get(t, ts, "/api/account")
+	a := decode[Account](t, body)
+	if len(a.Credentials) != 2 || a.Credentials[0].Provider != "anthropic" || a.Credentials[1].Provider != "openai" {
+		t.Fatalf("credentials = %+v, want anthropic then openai", a.Credentials)
+	}
+	if k := a.Credentials[0].Kinds; len(k) != 2 || k[0] != "api-key" || k[1] != "oauth-token" {
+		t.Errorf("anthropic kinds = %v", k)
+	}
+	if k := a.Credentials[1].Kinds; len(k) != 1 || k[0] != "api-key" {
+		t.Errorf("openai kinds = %v", k)
+	}
+}
+
+// checkAccountProviderRules: each provider's write is held to its own
+// rules before the store is touched.
+func checkAccountProviderRules(t *testing.T, ts *httptest.Server, store *fakeStore) {
+	t.Helper()
+	for _, tc := range []struct {
+		name, path, body string
+	}{
+		{"an openai setup-token", openaiPath, `{"kind":"oauth-token","credential":"` + openaiKey + `"}`},
+		{"an anthropic key as openai's", openaiPath, `{"kind":"api-key","credential":"sk-ant-api03-abc"}`},
+		{"an openai key as anthropic's", putPath, `{"kind":"api-key","credential":"` + openaiKey + `"}`},
+	} {
+		if code, body := post(t, ts, tc.path, "same-origin", "application/json", tc.body); code !=
+			http.StatusBadRequest {
+			t.Errorf("%s = %d %q, want 400", tc.name, code, body)
+		}
+	}
+	if len(store.writes) != 0 {
+		t.Fatalf("a refused write reached the store: %+v", store.writes)
+	}
+
 }
 
 // TestAccountOffersOnlyItsProviders: by default (no providers configured)

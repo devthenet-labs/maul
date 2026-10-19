@@ -99,7 +99,8 @@ func TestModelCredentialNamesProperty(t *testing.T) {
 		hash := ModelCredentialOwnerHash(owner)
 		name := ModelCredentialName(owner, provider)
 		secret := ModelCredentialSecretName(owner, provider)
-		return strings.HasSuffix(name, "-"+string(provider)) && modelCredentialOwnerRE.MatchString(owner) && len(owner) <= 29 &&
+		return strings.HasSuffix(name, "-"+string(provider)) && modelCredentialOwnerRE.MatchString(owner) &&
+			len(owner) <= 29 &&
 			owner == ModelCredentialOwnerPrefix+strconv.FormatInt(int64(id), 10) &&
 			modelCredentialNameRE.MatchString(name) && modelCredentialSecretRE.MatchString(secret) &&
 			len(validation.IsDNS1123Label(name)) == 0 && len(validation.IsDNS1123Subdomain(secret)) == 0 &&

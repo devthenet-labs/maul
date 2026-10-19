@@ -127,7 +127,8 @@ func personsOwn(f credFacts, d credDecision) bool {
 	owner := v1alpha1.ModelCredentialOwner(id)
 	r := f.record
 	return r.Spec.Owner == owner && r.Name == v1alpha1.ModelCredentialName(owner, f.provider) &&
-		r.Spec.Provider == f.provider && v1alpha1.ModelCredentialKindAllowed(f.provider, r.Spec.Kind) && r.Status.HealthFor(f.secret.version) != v1alpha1.ModelCredentialRejected &&
+		r.Spec.Provider == f.provider && v1alpha1.ModelCredentialKindAllowed(f.provider, r.Spec.Kind) &&
+		r.Status.HealthFor(f.secret.version) != v1alpha1.ModelCredentialRejected &&
 		d.credential == f.secret.credential && d.kind == r.Spec.Kind && d.record == r.Name
 }
 

@@ -94,10 +94,11 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   `internal/broker/credstore`, a controller-runtime cache of the records and the Secrets' metadata only, the Secret
   read live at most once a minute while its version holds) or is refused with a distinct 403 reason, never the org
   key; an org-attributed run keeps the org credential. Health comes only from the broker's own throttled probes
-  (`credhealth.go`; `AnthropicProbe`, `OpenAIProbe` `GET /v1/models`), written by a patch conditional on the record's resourceVersion and only while the probed Secret
-  version (`status.secretVersion`, `ModelCredentialStatus.HealthFor`) is current; readiness stays the org
-  credential's. Startup refuses a setup-token anthropic org credential unless acknowledged, and any route but anthropic
-  and openai (docs/configuration/user-credentials.md). Under `enforce` remediation- and intent-controller
+  (`credhealth.go`; `AnthropicProbe`, `OpenAIProbe` `GET /v1/models`), written by a patch conditional on the
+  record's resourceVersion and only while the probed Secret version (`status.secretVersion`,
+  `ModelCredentialStatus.HealthFor`) is current; readiness stays the org credential's. Startup refuses a setup-token
+  anthropic org credential unless acknowledged, and any route but anthropic and openai
+  (docs/configuration/user-credentials.md). Under `enforce` remediation- and intent-controller
   (`--user-credentials`, `internal/credgate`) never create a run attributed to a person whose record for the run's
   harness's provider (`credgate.ProviderFor`: claude anthropic, codex openai) is not `Valid`: the Finding stays
   `Queued` with `CredentialRequired`, `status.credentialHold` and `status.credentialHoldProvider`, the Intent is

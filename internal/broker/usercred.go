@@ -16,7 +16,6 @@ import (
 
 	"github.com/bitwise-media-group/patchy/api/v1alpha1"
 	"github.com/bitwise-media-group/patchy/internal/attribution"
-	"github.com/bitwise-media-group/patchy/internal/provider"
 	"github.com/bitwise-media-group/patchy/internal/usagewire"
 )
 
@@ -437,11 +436,11 @@ func usageKind(kind v1alpha1.ModelCredentialKind) string {
 }
 
 // credentialRoutes are the routes per-user credentials cover, each by the
-// provider of the same name: Anthropic API keys and setup-tokens, OpenAI API
+// provider of the same name (provider.Anthropic, provider.OpenAI): Anthropic API keys and setup-tokens, OpenAI API
 // keys. Bedrock, Vertex and Foundry use the broker's one cloud identity.
 var credentialRoutes = map[string]v1alpha1.ModelCredentialProvider{
-	provider.Anthropic: v1alpha1.ModelCredentialProviderAnthropic,
-	provider.OpenAI:    v1alpha1.ModelCredentialProviderOpenAI,
+	string(v1alpha1.ModelCredentialProviderAnthropic): v1alpha1.ModelCredentialProviderAnthropic,
+	string(v1alpha1.ModelCredentialProviderOpenAI):    v1alpha1.ModelCredentialProviderOpenAI,
 }
 
 // validate rejects a per-user credential config the broker cannot serve:
@@ -466,8 +465,8 @@ func (u UserCredentialConfig) validate(c Config) error {
 				"configured", name)
 		}
 	}
-	if org, ok := c.Upstreams[provider.Anthropic]; ok && org.CredentialKind == usagewire.CredentialOAuthToken &&
-		!u.OrgCredentialIsPersonal {
+	org, ok := c.Upstreams[string(v1alpha1.ModelCredentialProviderAnthropic)]
+	if ok && org.CredentialKind == usagewire.CredentialOAuthToken && !u.OrgCredentialIsPersonal {
 		return errors.New("broker: per-user credentials are refused while the org credential is a " +
 			"setup-token (a person's Claude subscription would pay for every run with no human behind it); " +
 			"use an org API key, or acknowledge it with --org-credential-is-personal=acknowledged")
