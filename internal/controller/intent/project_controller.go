@@ -51,6 +51,10 @@ const (
 	// stage's run budget is more than half the broker's hourly cost limit,
 	// so one run could spend the whole cluster's hour.
 	ReasonRunBudgetOverHourlyLimit = "RunBudgetOverHourlyLimit"
+	// ReasonHarnessNotEnabled: the Project asks for a harness this
+	// controller does not run intents on (spec.harness codex without
+	// --intent-codex).
+	ReasonHarnessNotEnabled = "HarnessNotEnabled"
 )
 
 // revalidateEvery re-checks a Ready Project's forge, installation and labels
@@ -245,6 +249,12 @@ func (r *ProjectReconciler) validate(ctx context.Context, p *v1alpha1.Project) (
 		return notReady(ReasonUnsupportedRepositories,
 			"intents build in exactly one repository unless intent-controller runs with --intent-multi-repo, "+
 				"and this Project lists %d", n)
+	}
+	if r.Settings.harnessOff(p.Spec.Harness) {
+		return notReady(ReasonHarnessNotEnabled,
+			"spec.harness is %s, and intent-controller runs intents on %s only with --intent-codex "+
+				"(intentController.codex.enabled); until it does, no intent of this project is discovered and a "+
+				"%s run of one already open waits Pending", p.Spec.Harness, p.Spec.Harness, p.Spec.Harness)
 	}
 	if stage, budget := r.Settings.budgetOverHourly(p); stage != "" {
 		return notReady(ReasonRunBudgetOverHourlyLimit,

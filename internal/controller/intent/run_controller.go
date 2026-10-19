@@ -81,9 +81,10 @@ type RunReconciler struct {
 	// scheduler grants no slot and a run granted before the pause took
 	// effect does not launch, while running Jobs are still collected.
 	Paused bool
-	// Harness runs every intent Job (brokered claude in production, the
-	// fake harness in dev); PlanModel and BuildModel are the canonical
-	// models of the two stages.
+	// Harness runs every intent Job of a claude Project (brokered claude
+	// in production, the fake harness in dev); PlanModel and BuildModel are
+	// the canonical models of its two stages. A codex Project's runs launch
+	// on Settings.Codex instead (runHarness).
 	Harness    string
 	PlanModel  string
 	BuildModel string
@@ -105,6 +106,18 @@ type RunReconciler struct {
 	Usage *usagerollup.Aggregator
 	Now   func() time.Time
 	Log   *slog.Logger
+}
+
+// runHarness is the harness and stage models run launches on: its own
+// spec.harness, recorded at creation, never its Project's current one.
+// Codex launches on Settings.Codex, which is zero while --intent-codex is
+// off (such a run is not launchable and waits Pending: harnessOff);
+// claude, also when unset, on Harness with PlanModel and BuildModel.
+func (r *RunReconciler) runHarness(run *v1alpha1.IntentRun) RunHarness {
+	if run.Spec.Harness.IsCodex() {
+		return r.Settings.Codex
+	}
+	return RunHarness{ID: r.Harness, PlanModel: r.PlanModel, BuildModel: r.BuildModel}
 }
 
 func (r *RunReconciler) now() time.Time {
@@ -228,9 +241,11 @@ func pushHeld(run *v1alpha1.IntentRun) bool {
 	return meta.IsStatusConditionTrue(run.Status.Conditions, v1alpha1.ConditionPushHeld)
 }
 
-// launchable reports a pending run that could launch now: its input and the
-// artifact of its Repository, and of every tree Repository of a plan run,
-// ready; its Intent active and not suspended (and, for a revise round, its
+// launchable reports a pending run that could launch now: its harness one
+// this controller runs (a codex run waits while --intent-codex is off:
+// Settings.harnessOff); its input and the artifact of its Repository, and of
+// every tree Repository of a plan run, ready; its Intent active and not
+// suspended (and, for a revise round, its
 // pull request still open: roundEnded); its Project present, not suspended,
 // one this controller runs intents of (Settings.multiRepoOff), and, for a
 // build or a revise round, still listing the run's repository
@@ -241,7 +256,8 @@ func pushHeld(run *v1alpha1.IntentRun) bool {
 func (r *RunReconciler) launchable(ctx context.Context, run *v1alpha1.IntentRun) bool {
 	var in v1alpha1.Intent
 	if err := r.Get(ctx, types.NamespacedName{Namespace: run.Namespace, Name: run.Spec.IntentRef.Name}, &in); err != nil ||
-		in.UID != run.Spec.IntentRef.UID || in.Spec.Suspend || terminal(in.Status.Phase) || roundEnded(&in, run) {
+		in.UID != run.Spec.IntentRef.UID || in.Spec.Suspend || terminal(in.Status.Phase) || roundEnded(&in, run) ||
+		r.Settings.harnessOff(run.Spec.Harness) {
 		return false
 	}
 	var proj v1alpha1.Project
@@ -595,7 +611,7 @@ func (r *RunReconciler) launch(ctx context.Context, run *v1alpha1.IntentRun) err
 		Repo:            repoSlug(run.Spec.Repository.URL),
 		Attempt:         int(run.Spec.Attempt),
 		Phase:           jobPhase[stage],
-		Harness:         r.Harness,
+		Harness:         r.runHarness(run).ID,
 		BaseSHA:         repo.Status.ResolvedSHA,
 		IssueMarkdown:   cm.Data[keyIssue],
 		Kind:            KindIntent,
@@ -641,14 +657,16 @@ func (r *RunReconciler) launch(ctx context.Context, run *v1alpha1.IntentRun) err
 // Project deleted after the grant (retrying the error instead would keep the
 // slot, Running with no Job, for as long as the Project stays gone, and stall
 // every other Project's intents in the pool); or its Project one this
-// controller runs no intent of (granted before --intent-multi-repo went off).
+// controller runs no intent of (granted before --intent-multi-repo went off);
+// or the run's harness one it does not run (a codex run while --intent-codex
+// is off).
 func (r *RunReconciler) launchProject(ctx context.Context, run *v1alpha1.IntentRun) (
 	proj *v1alpha1.Project, wait bool, err error) {
 	var in v1alpha1.Intent
 	if err := r.Get(ctx, types.NamespacedName{Namespace: run.Namespace, Name: run.Spec.IntentRef.Name}, &in); err != nil {
 		return nil, false, err
 	}
-	if in.Spec.Suspend {
+	if in.Spec.Suspend || r.Settings.harnessOff(run.Spec.Harness) {
 		return nil, true, nil
 	}
 	proj = &v1alpha1.Project{}
@@ -854,11 +872,11 @@ func (r *RunReconciler) stageSpec(run *v1alpha1.IntentRun, spec *jobs.Spec, cm *
 					digest([]byte(planCtx)), pin)}
 		}
 		spec.InvestigationMarkdown = planCtx
-		spec.Model = r.PlanModel
+		spec.Model = r.runHarness(run).PlanModel
 		spec.OpenPullRequests = r.planOpenPullRequests(run, cm)
 		return false, nil
 	case v1alpha1.IntentStageBuild:
-		spec.Model = r.BuildModel
+		spec.Model = r.runHarness(run).BuildModel
 		plan := cm.Data[keyInvestigation]
 		if got := digest([]byte(plan)); got != run.Spec.Inputs.PlanDigest {
 			return false, &result{outcome: OutcomeAborted,
@@ -879,7 +897,7 @@ func (r *RunReconciler) stageSpec(run *v1alpha1.IntentRun, spec *jobs.Spec, cm *
 		r.networkProfile(run, spec)
 		return requireImage, nil
 	case v1alpha1.IntentStageRevise:
-		spec.Model = r.BuildModel
+		spec.Model = r.runHarness(run).BuildModel
 		if reason := cm.Data[keyNoFeedback]; reason != "" {
 			return true, &result{outcome: OutcomeNoUsableFeedback, detail: reason}
 		}

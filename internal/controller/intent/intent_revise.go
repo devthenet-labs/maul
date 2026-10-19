@@ -950,6 +950,7 @@ func (p *pass) createReviseRun(ctx context.Context, pr *v1alpha1.IntentPullReque
 		ImageFrom:    &v1alpha1.ObjectReference{Name: imageRepo.Name, UID: imageRepo.UID},
 		Grant:        p.set.grant(p.proj, v1alpha1.IntentStageRevise),
 		AttributedTo: p.set.Attribution.Stamp(attributed),
+		Harness:      p.proj.Spec.Harness,
 	}
 	run := &v1alpha1.IntentRun{ObjectMeta: metav1.ObjectMeta{
 		Name: name, Namespace: p.in.Namespace,

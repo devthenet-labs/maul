@@ -238,9 +238,17 @@ func codexRunner(opts *cli.Options, img string) (jobs.Runner, error) {
 // claudeInject is what the claude runner image contributes to a Job that
 // runs a repository-declared image: agent-runner and the claude CLI, where
 // the Dockerfile puts them.
-func claudeInject() []string {
+func claudeInject() []string { return Inject(model.HarnessClaude) }
+
+// Inject is what a brokered runner of harnessID injects into a Job that
+// runs a repository-declared image: agent-runner, then the harness's CLI,
+// each copied from the runner image's tools directory. The finding runners
+// inject only for claude (Runners); intent-controller also gives it to
+// codex under --intent-codex, whose builds run on the repository's image.
+// The codex CLI is a self-contained static binary, so it runs on any image.
+func Inject(harnessID string) []string {
 	inject := []string{"agent-runner"}
-	if h, ok := harness.ByID(model.HarnessClaude); ok {
+	if h, ok := harness.ByID(harnessID); ok {
 		inject = append(inject, h.CLI()...)
 	}
 	return inject

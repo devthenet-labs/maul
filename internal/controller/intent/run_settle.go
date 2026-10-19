@@ -240,7 +240,8 @@ func (r *RunReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 // measure settles a finished run's usage against the egress broker
 // (usagemeter): a no-op while the meter is off or once the usage is final.
-// Every intent Job runs on r.Harness. The write is over a fresh read, as
+// A run is measured as the harness it launched on (runHarness), judged from
+// its own spec, never from the pod. The write is over a fresh read, as
 // every write of a run's status here is. A run deleted before it settled
 // (its Job already gone) is measured too while it owes its usage rollup, so
 // its metered spend is not lost.
@@ -254,7 +255,7 @@ func (r *RunReconciler) measure(ctx context.Context, run *v1alpha1.IntentRun) (c
 		return ctrl.Result{}, nil
 	}
 	out, wait := r.Meter.Settle(ctx, usagemeter.RunOf(ctx, r.Jobs, run.UID, run.Status.JobRef,
-		run.CreationTimestamp.Time, r.Harness))
+		run.CreationTimestamp.Time, r.runHarness(run).ID))
 	if out == nil {
 		return ctrl.Result{RequeueAfter: wait}, nil
 	}

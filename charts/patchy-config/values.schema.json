@@ -701,6 +701,11 @@
                     "type": "object",
                     "additionalProperties": false
                 },
+                "harness": {
+                    "description": "Harness is the coding agent the Project's plan, build, revise and\ncheck-fix runs use: claude (the default when unset) or codex. Both\nrun brokered, their pods holding no model credential. codex is opt-in\non intent-controller (--intent-codex); while it is off, a Project\nasking for it is not Ready (HarnessNotEnabled) and a codex run of its\nintents waits Pending. Each run records the harness it was created\nwith (IntentRun spec.harness), so a change applies to new runs only.",
+                    "enum": ["claude", "codex"],
+                    "type": "string"
+                },
                 "intentRepository": {
                     "description": "IntentRepository is the https URL of the repository whose issues are\nthis Project's intents (e.g. https://github.com/acme/intents). Several\nProjects may share one, told apart by their trigger labels. The App\nmust be installed on it and it must resolve to exactly one Forge. It\nis immutable (CEL-enforced): an Intent is named <project>-<issue>,\nwhich leaves the repository out, so a Project moved to another intent\nrepository would find its new issues' names held by the old\nrepository's Intents. To move a project, create a new Project, under a\nnew name, on the new repository.",
                     "maxLength": 256,

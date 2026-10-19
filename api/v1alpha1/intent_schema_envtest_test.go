@@ -289,6 +289,8 @@ func testProjectUpdates(ctx context.Context, t *testing.T, c client.Client) {
 		}, false},
 		{"the limits", func(s *patchyv1.ProjectSpec) { s.Limits.MaxActiveIntents = 5 }, false},
 		{"suspend", func(s *patchyv1.ProjectSpec) { s.Suspend = true }, false},
+		// A Project may change harness: each run records its own.
+		{"the harness", func(s *patchyv1.ProjectSpec) { s.Harness = patchyv1.ProjectHarnessCodex }, false},
 	} {
 		t.Run("update "+tt.name, func(t *testing.T) {
 			got := &patchyv1.Project{}
@@ -418,6 +420,9 @@ func testProjectBounds(ctx context.Context, t *testing.T, c client.Client) {
 				patchyv1.ProjectRepository{Name: "pages", URL: "https://github.com/acme/app0.github.io"})
 		}, false},
 		{"repository key not a DNS label", func(p *patchyv1.Project) { p.Spec.Repositories[0].Name = "Shop" }, true},
+		{"harness claude", func(p *patchyv1.Project) { p.Spec.Harness = patchyv1.ProjectHarnessClaude }, false},
+		{"harness codex", func(p *patchyv1.Project) { p.Spec.Harness = patchyv1.ProjectHarnessCodex }, false},
+		{"harness not in the enum", func(p *patchyv1.Project) { p.Spec.Harness = "copilot" }, true},
 		{"repository key at the name budget", func(p *patchyv1.Project) {
 			p.Spec.Repositories[0].Name = strings.Repeat("a", patchyv1.MaxRepositoryKeyLength)
 		}, false},
@@ -991,6 +996,7 @@ func testIntentRunSchema(ctx context.Context, t *testing.T, c client.Client) {
 		{"consumed reviews", func(s *patchyv1.IntentRunSpec) { s.Inputs.ReviewIDs = append(s.Inputs.ReviewIDs, 5002) }},
 		{"image source", func(s *patchyv1.IntentRunSpec) { s.ImageFrom.Name = "target-1-rev1-shop-a1-src" }},
 		{"grant", func(s *patchyv1.IntentRunSpec) { s.Grant.MaxTurns = 1000 }},
+		{"harness", func(s *patchyv1.IntentRunSpec) { s.Harness = patchyv1.ProjectHarnessCodex }},
 		{"previous attempt added", func(s *patchyv1.IntentRunSpec) {
 			s.PreviousAttempt = &patchyv1.PreviousAttempt{Name: "x", Attempt: 1, Outcome: "timeout"}
 		}},

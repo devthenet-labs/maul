@@ -5,6 +5,7 @@ package main
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -13,6 +14,7 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 
 	"github.com/bitwise-media-group/patchy/internal/cli"
+	"github.com/bitwise-media-group/patchy/internal/controller/intent"
 	"github.com/bitwise-media-group/patchy/internal/jobs"
 	"github.com/bitwise-media-group/patchy/internal/runnercfg"
 )
@@ -35,28 +37,70 @@ func openAISecret() *corev1.Secret {
 	}
 }
 
-// TestHarnessChoice: intents run both stages on one harness, and only on
-// brokered claude or the fake harness.
+// TestHarnessChoice: intents run both stages on one harness, and a claude
+// Project's only on brokered claude or the fake harness; codex is a second
+// harness, chosen by a Project under --intent-codex alone.
 func TestHarnessChoice(t *testing.T) {
 	const codexModel = "openai/gpt-5.3-codex"
+	codexOn := []string{"--claude-agent-image", "claude:1", "--codex-agent-image", "codex:1",
+		"--broker-url", "http://broker.invalid", "--intent-codex"}
 	for _, tt := range []struct {
-		name    string
-		args    []string
-		want    string
-		wantErr string
+		name      string
+		args      []string
+		want      string
+		wantCodex intent.RunHarness
+		wantErr   string
 	}{
 		{name: "fake", args: []string{"--fake-agent-image", "fake:1"}, want: "fake"},
+		{
+			name: "codex runner without --intent-codex runs no intent on codex",
+			args: []string{"--claude-agent-image", "claude:1", "--codex-agent-image", "codex:1",
+				"--broker-url", "http://broker.invalid"},
+			want: "claude",
+		},
+		{
+			name: "--intent-codex", args: codexOn, want: "claude",
+			wantCodex: intent.RunHarness{ID: "codex", PlanModel: codexModel, BuildModel: codexModel},
+		},
+		{
+			name:      "--intent-codex with its own models",
+			args:      append(slices.Clone(codexOn), "--intent-codex-build-model", "openai/gpt-5.6-sol"),
+			want:      "claude",
+			wantCodex: intent.RunHarness{ID: "codex", PlanModel: codexModel, BuildModel: "openai/gpt-5.6-sol"},
+		},
+		{
+			name:    "--intent-codex without the codex runner",
+			args:    []string{"--claude-agent-image", "claude:1", "--broker-url", "http://broker.invalid", "--intent-codex"},
+			wantErr: "openai/gpt-5.3-codex",
+		},
+		{
+			name:    "--intent-codex with codex left out of --harnesses",
+			args:    append(slices.Clone(codexOn), "--harnesses", "claude"),
+			wantErr: "openai/gpt-5.3-codex",
+		},
+		{
+			name: "--intent-codex models that are not codex's",
+			args: append(slices.Clone(codexOn), "--intent-codex-plan-model", "anthropic/claude-sonnet-5",
+				"--intent-codex-build-model", "anthropic/claude-opus-5"),
+			wantErr: "must resolve to the codex harness, and they resolve to claude",
+		},
+		{
+			name: "--intent-codex models on two harnesses",
+			args: append(slices.Clone(codexOn), "--intent-codex-plan-model", "anthropic/claude-sonnet-5",
+				"--intent-codex-build-model", codexModel),
+			wantErr: "an intent runs both stages on one harness",
+		},
 		{
 			name: "codex is refused",
 			args: []string{"--codex-agent-image", "codex:1", "--broker-url", "http://broker.invalid",
 				"--intent-plan-model", codexModel, "--intent-build-model", codexModel},
-			wantErr: "intents run on brokered claude only, and the intent models resolve to codex",
+			wantErr: "must resolve to brokered claude, and they resolve to codex",
 		},
 		{
 			name: "stages on different harnesses",
 			args: []string{"--codex-agent-image", "codex:1", "--claude-agent-image", "claude:1",
 				"--broker-url", "http://broker.invalid", "--intent-build-model", codexModel},
-			wantErr: "intents run both on one harness",
+			wantErr: "an intent runs both stages on one harness",
 		},
 		{
 			name:    "unknown model",
@@ -75,15 +119,15 @@ func TestHarnessChoice(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			got, err := harness(t.Context(), opts, fake.NewClientset(openAISecret()), "patchy-agents", runners)
+			got, codex, err := harnesses(t.Context(), opts, fake.NewClientset(openAISecret()), "patchy-agents", runners)
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-					t.Fatalf("harness = %q, %v; want an error containing %q", got, err, tt.wantErr)
+					t.Fatalf("harnesses = %q, %v; want an error containing %q", got.ID, err, tt.wantErr)
 				}
 				return
 			}
-			if err != nil || got != tt.want {
-				t.Fatalf("harness = %q, %v; want %q", got, err, tt.want)
+			if err != nil || got.ID != tt.want || codex != tt.wantCodex {
+				t.Fatalf("harnesses = %+v, %+v, %v; want %q and %+v", got, codex, err, tt.want, tt.wantCodex)
 			}
 		})
 	}
@@ -112,7 +156,8 @@ func TestHarnessAndDNS(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			id, mode, err := harnessAndDNS(t.Context(), opts, fake.NewClientset(), "patchy-agents", runners)
+			claude, _, mode, err := harnessesAndDNS(t.Context(), opts, fake.NewClientset(), "patchy-agents", runners)
+			id := claude.ID
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 					t.Fatalf("harnessAndDNS error = %v, want %q", err, tt.wantErr)
@@ -239,6 +284,47 @@ func TestServeStartupErrors(t *testing.T) {
 			err := serve(t.Context(), resolved(t, tt.args...))
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("serve error = %v, want %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestCodexHarnessAndDNS: under --intent-codex the codex runner is given
+// what it injects into a build's repository-declared image (agent-runner
+// and the codex CLI, as claude's carries the claude CLI), and the intent
+// Jobs run without a resolver on either brokered harness. Without the flag
+// the codex runner injects nothing, as on the finding fleet.
+func TestCodexHarnessAndDNS(t *testing.T) {
+	base := []string{"--claude-agent-image", "claude:1", "--codex-agent-image", "codex:1",
+		"--broker-url", "http://broker.invalid", "--agent-dns", "none"}
+	for _, tt := range []struct {
+		name       string
+		args       []string
+		wantCodex  string
+		wantInject []string
+	}{
+		{name: "off", args: base},
+		{name: "on", args: append(slices.Clone(base), "--intent-codex"), wantCodex: "codex",
+			wantInject: []string{"agent-runner", "codex"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			opts := resolved(t, tt.args...)
+			runners, err := runnercfg.Runners(opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			claude, codex, mode, err := harnessesAndDNS(t.Context(), opts, fake.NewClientset(), "patchy-agents", runners)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if claude.ID != "claude" || codex.ID != tt.wantCodex || mode != jobs.DNSNone {
+				t.Fatalf("harnessesAndDNS = %q, %q, %q; want claude, %q, none", claude.ID, codex.ID, mode, tt.wantCodex)
+			}
+			if got := runners["codex"].Inject; !slices.Equal(got, tt.wantInject) {
+				t.Errorf("codex runner injects %v, want %v", got, tt.wantInject)
+			}
+			if got := runners["claude"].Inject; !slices.Equal(got, []string{"agent-runner", "claude"}) {
+				t.Errorf("claude runner injects %v, want agent-runner and claude", got)
 			}
 		})
 	}

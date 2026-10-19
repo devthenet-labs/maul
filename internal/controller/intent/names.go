@@ -205,6 +205,28 @@ type Settings struct {
 	// JobDeadlineMargin fits under.
 	JobDeadline    time.Duration
 	JobDeadlineMax time.Duration
+	// Codex is the codex harness intents may run on (--intent-codex): the
+	// harness id and the canonical model of each stage. The zero value, the
+	// default, runs no intent on codex: a Project asking for it is not Ready
+	// (ReasonHarnessNotEnabled), and a codex run of its intents is not
+	// launched but waits Pending (harnessOff).
+	Codex RunHarness
+}
+
+// RunHarness is a harness intent runs launch on: its harness id (claude,
+// codex, or fake in dev and tests) and the canonical model each stage runs.
+// A revise or check-fix run runs the build model.
+type RunHarness struct {
+	ID         string
+	PlanModel  string
+	BuildModel string
+}
+
+// harnessOff reports whether h is a harness intents of this controller do
+// not run on: codex while --intent-codex is off. Claude, the default, is
+// always on.
+func (s Settings) harnessOff(h v1alpha1.ProjectHarness) bool {
+	return h.IsCodex() && s.Codex.ID == ""
 }
 
 // JobDeadlineMargin is what an intent Job's deadline allows past its stage
