@@ -56,13 +56,13 @@ that ConfigMap key) to run without it; in the Helm chart the whole feature sits 
 The **intent controller** is optional too, and is not in the base: add `components/intent-controller` to an overlay to
 run intent-driven development (see `docs/configuration/intent-controller.md`). It polls each `Project`'s intent
 repository, plans each labelled issue in a read-only agent Job, and builds the approved plan into a pull request. It
-reads the shared ConfigMap plus its own (`PATCHY_INTENT_*`), runs on brokered claude only, and its `secrets get` is
-restricted by `resourceNames` to the Forge Secret in the release namespace (`patchy-github`; patch `rbac.yaml` in the
-component for others). Its agent-jobs Role can get, create, update and delete any Secret in the agents namespace,
-including model keys, image-pull credentials and other Jobs' handoffs. Builds need an accepted repository-declared
-image, so set the repository-image keys the component's `configmap.yaml` lists, or give each Project
-`requireRepositoryImage: false`. In the Helm chart it sits behind `intentController.enabled: false`, and Projects come
-from the patchy-config chart's `projects` values.
+reads the shared ConfigMap plus its own (`PATCHY_INTENT_*`), runs on brokered claude (and on brokered codex for a
+Project that chooses it, once `PATCHY_INTENT_CODEX` is on), and its `secrets get` is restricted by `resourceNames` to
+the Forge Secret in the release namespace (`patchy-github`; patch `rbac.yaml` in the component for others). Its
+agent-jobs Role can get, create, update and delete any Secret in the agents namespace, including model keys, image-pull
+credentials and other Jobs' handoffs. Builds need an accepted repository-declared image, so set the repository-image
+keys the component's `configmap.yaml` lists, or give each Project `requireRepositoryImage: false`. In the Helm chart it
+sits behind `intentController.enabled: false`, and Projects come from the patchy-config chart's `projects` values.
 
 The custom resources in `patchy` — `Finding`, `Repository`, `Investigation`, `Remediation`, `FindingRollup`, plus the
 `Integration`/`Forge` configuration kinds — **are** the state machine; etcd is the only state store. The CRDs render

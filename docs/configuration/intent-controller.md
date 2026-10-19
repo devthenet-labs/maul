@@ -142,15 +142,46 @@ IntentRun with a budget.
 [Sizing limits for large features](../intents/sizing.md) gives a "large" preset (build 300 turns, 90m, \$60; revise 200
 turns, 45m, \$20), the stage ceilings and broker limits it needs, and the evidence it is sized from.
 
-### Brokered claude only
+### Brokered claude, and brokered codex by choice
 
-Intents run on brokered claude and nothing else, because no other harness honours the plan stage's read-only sandbox.
-The runner flags are the shared ones (`--claude-agent-image`, `--broker-url`, `--broker-token-audience`,
-`--claude-provider*`, `--claude-model-map`, `--claude-provider-env`, `--harnesses`; see the
+Intents run on brokered claude by default. The runner flags are the shared ones (`--claude-agent-image`, `--broker-url`,
+`--broker-token-audience`, `--claude-provider*`, `--claude-model-map`, `--claude-provider-env`, `--harnesses`; see the
 [investigation-controller](investigation-controller.md#agent-job-flags)). At startup the controller refuses both stage
-models unless they resolve to the same harness, and that harness is brokered claude (or the fake harness in dev; the e2e
-suite runs it on brokered claude, as production does). The Helm chart stamps `PATCHY_HARNESSES=claude` for it and
-deploys the egress broker whenever it is enabled, even if the finding fleet runs no claude.
+models (`--intent-plan-model`, `--intent-build-model`) unless they resolve to the same harness, and that harness is
+brokered claude (or the fake harness in dev; the e2e suite runs it on brokered claude, as production does). The Helm
+chart stamps `PATCHY_HARNESSES=claude` for it and deploys the egress broker whenever it is enabled, even if the finding
+fleet runs no claude.
+
+A Project may choose codex instead (`spec.harness: codex`; unset or `claude` is claude). That is opt-in on the
+controller, and off by default:
+
+| Flag                         | Default                | Meaning                                                                    |
+| ---------------------------- | ---------------------- | -------------------------------------------------------------------------- |
+| `--intent-codex`             | `false`                | Run the intents of a Project with `spec.harness: codex` on brokered codex. |
+| `--intent-codex-plan-model`  | `openai/gpt-5.3-codex` | Canonical model a codex Project's plan stage runs.                         |
+| `--intent-codex-build-model` | `openai/gpt-5.3-codex` | Canonical model a codex Project's build, revise and check-fix stages run.  |
+
+With it off, a codex Project is not Ready (`HarnessNotEnabled`), so none of its intents is discovered, and a codex run
+of an intent already open waits `Pending`, spending no attempt, until it is on again. With it on, the controller needs
+the brokered codex runner (`--codex-agent-image` with `--broker-url`, the broker's openai route holding the OpenAI API
+key, and codex among `--harnesses`), both codex models must resolve to codex, and startup fails otherwise. In the Helm
+chart, `intentController.codex.enabled: true` sets all of it (it requires `egressBroker.openai.apiKey`; the finding
+fleet's `agent.runners.codex.enabled` is not needed, though its `image` is used).
+
+Every IntentRun records the harness its Project had when the run was created (`spec.harness`, immutable), and is
+launched and measured on that harness, so changing a Project's harness affects its new runs only. On codex:
+
+- Pods hold no model credential, as on claude: the codex CLI's provider is the egress broker's openai route,
+  authenticated by the pod's projected caller token. Broker limits, the per-run cost budget (`--broker-limit-unit cost`)
+  and usage measurement apply as for claude, and attribution is unchanged.
+- Under `--user-credentials enforce` a person's codex run waits for their **OpenAI** API key (the hold names OpenAI),
+  never an Anthropic one.
+- A build runs on the repository's accepted image, as on claude, with agent-runner and the codex CLI (a static binary)
+  injected from the codex runner image. Codex's shell tool needs `bash` in that image.
+- Codex cannot hold the plan read-only: its prompt states the rule as the planner's own, and the pod (no credential,
+  only the artifact server and the broker reachable, nothing but the report collected) is the boundary.
+- Codex cannot repair a refused report in its session, nor stream a running command's output to the run panel; a refused
+  report ends the stage, which retries as any failed run does, and the run logs both.
 
 ### Repository-declared images
 
@@ -214,11 +245,13 @@ projects:
       # limits: {maxActiveIntents: 2, maxCostMicroUSD: 10000000, plan: {...}, build: {...}}
       # checks: {fix: [test], timeout: 30m, rerunFailed: false}  (see CI-fix rounds below)
       # requireRepositoryImage: true
+      # harness: claude  # or codex, under --intent-codex (see Brokered claude, and brokered codex by choice)
 ```
 
 The Project reports `Ready` once:
 
 - it lists one repository, or `--intent-multi-repo` is on (`UnsupportedRepositories` otherwise);
+- it asks for claude, or for codex with `--intent-codex` on (`HarnessNotEnabled` otherwise);
 - each of its repositories resolves to exactly one Forge (`ForgeUnresolved` otherwise), whose credential Secret
   intent-controller may read (`ForgeSecretUnreadable` otherwise); the message names the repository;
 - the App is installed on the intent repository and every app repository, with the permissions intents use: issues write

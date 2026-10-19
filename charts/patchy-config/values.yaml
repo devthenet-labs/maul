@@ -301,4 +301,5 @@ projects: []
 #       #     # every app repository, or the Project is not Ready.
 #       #     rerunFailed: false
 #       # requireRepositoryImage: true                  # the default
+#       # harness: claude                              # the default; codex needs intentController.codex.enabled
 #       # suspend: false

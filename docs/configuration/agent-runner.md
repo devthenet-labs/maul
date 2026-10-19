@@ -66,9 +66,13 @@ grant the Project's build will receive. Since the planner cannot run anything, t
 repository's own guidance (CLAUDE.md, AGENTS.md, CONTRIBUTING.md, the README and the CI workflows) for which tests the
 build should run, and states every bound the plan report's frontmatter is held to.
 
-Both run on **brokered claude only**: any other harness, or claude without `PATCHY_BROKER_TOKEN_FILE`, is refused with a
-fatal event before a model is called, because codex and copilot do not honour the sandbox postures. No configuration key
-exists for the intent phases alone.
+Both run on **brokered claude or brokered codex only**: copilot, any other harness, claude without
+`PATCHY_BROKER_TOKEN_FILE`, or codex without it or without `PATCHY_CODEX_BASE_URL` is refused with a fatal event before
+a model is called, so no intent pod ever holds a model credential. No configuration key exists for the intent phases
+alone. Codex does not render the sandbox postures, so on codex the plan prompt states the read-only rule as the
+planner's own to keep, without the claude sandbox and tool names, and asks for one read-back of the report instead of
+promising a repair. Codex can neither continue a session nor follow a running command: a refused report ends the stage
+at once and a command's output shows only with its result, and the run logs both.
 
 The plan and build reports, and the build's `input/investigation.md` with any revise round after the plan (the working
 notes, its feedback, the earlier approver thread, a failed previous round's outcome and the compare patch), must be

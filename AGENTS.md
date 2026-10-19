@@ -181,7 +181,12 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   model keys, image-pull credentials and other Jobs' handoffs. It uses a GitHub token per operation
   (`forge.Store.TokenWith`), has no ClusterRole and no inbound surface. Only
   writer of Project status, Intent and IntentRun. Its own flags carry an `intent-` prefix (`PATCHY_INTENT_*`); it runs
-  on brokered claude only (or the fake harness in dev). A Project's stage `timeout` (clamped to the stage flag) sets
+  on brokered claude (or the fake harness in dev), and with `--intent-codex` (default off; chart
+  `intentController.codex.enabled`, which needs the broker's openai route) also on brokered codex for a Project with
+  `spec.harness: codex` (`--intent-codex-plan-model`/`--intent-codex-build-model`; the codex runner injects agent-runner
+  and the codex CLI into a build's repository image). Each IntentRun records its Project's harness at creation
+  (`spec.harness`, immutable) and is launched, held for a credential (`credgate.ProviderFor`: codex waits for an OpenAI
+  key) and measured on it; off, a codex Project is not Ready (`HarnessNotEnabled`) and a codex run waits Pending. A Project's stage `timeout` (clamped to the stage flag) sets
   each run's wall clock and its Job deadline (timeout + 15m, never under `--intent-job-deadline`, capped by
   `--intent-job-deadline-max`, under which every stage flag plus 15m must fit; the floor is not tied to the stage
   timeouts, so a longer stage stretches only its own Jobs). With `--broker-limit-unit cost` (chart:
@@ -412,6 +417,11 @@ e2e/                SEPARATE Go module: envtest carries the CRDs, the real binar
                     person's key on their pod and the org key on an org pod, the fail-closed
                     refusals, a replaced key no longer paying within the 60s cap though
                     the broker's Secret cache is warm, and a deleted credential refused.
+                    intent_codex_test.go runs a codex Project's plan and build on the real
+                    agent-runner driving hack/fake-agent/codex (a scripted codex CLI that
+                    sends one Responses request to its -c provider) through the shipped
+                    broker to a fake OpenAI upstream; the kubelet's useBrokerTokens creates
+                    each pod first and mints it a real pod-bound caller token.
 docs/ overrides/    Zensical docs site (zensical.toml at the root; patchy-branded theme in
                     docs/stylesheets/extra.css + overrides/). `mise run serve` to preview,
                     `mise run docs-build` to build; the reusable release workflow publishes it
@@ -610,7 +620,9 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   plugins and web search off; its argv and stream are pinned from the real pinned CLI (rust-v0.153.4) run against a
   recording Responses server (`internal/harness/testdata/codex-0.153.4-*.jsonl`).
 - `agentrun` — the in-pod stage flow (`investigate` | `remediate`, and the intent stages `plan` | `build`, which
-  reuse investigate's and remediate's configuration and helpers and run on brokered claude only);
+  reuse investigate's and remediate's configuration and helpers and run on brokered claude or brokered codex only;
+  codex cannot render the read-only posture, so its plan prompt states the rule as the planner's own,
+  `templates.PlanPrompt.ReadOnlyUnenforced`);
   `report`/`envelope` are its contracts (frontmatter schemas in, JSONL events out — a `plan` event beside the
   others at v4); `agentresult` converts envelope results onto CR status (`FromPlan` re-derives a plan from its
   report). A missing or refused report is first repaired in the agent's own session (`repair.go`: the optional

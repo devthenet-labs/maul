@@ -157,7 +157,9 @@ status-page approval) is never held.
 
 The condition's reason says what is wrong: `CredentialMissing` (none stored for the provider), `CredentialRejected` (the
 provider rejected it) or `CredentialUnverified` (stored, not yet probed: the broker probes a new credential within
-moments). The message names the provider, and a held Finding records it in `status.credentialHoldProvider`.
+moments). The message names the provider, and a held Finding records it in `status.credentialHoldProvider`. The provider
+is the run's harness's: a claude run needs an Anthropic credential and a codex run an OpenAI one, for a Finding by its
+remediation's harness and for an Intent by its Project's `spec.harness`.
 
 **Telling the person.** An Intent's status comment says who must add a credential and links the Account page. A held
 Finding's tracking issue gets one comment that names the person held and links the page, edited once the hold lifts; it
