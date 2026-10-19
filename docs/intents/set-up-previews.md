@@ -6,8 +6,8 @@ file an install needs and an ordered `NEXT-STEPS.md` for the rest. It replaces r
 [preview gateway](../configuration/preview-gateway.md), [preview-auth](../configuration/preview-auth.md) and
 [preview sign-in](preview-sign-in.md) pages end to end: those are now the reference for what the command writes.
 
-The command applies nothing and calls no provider API. You (or your GitOps) apply the files. Without `--detect` it does
-not read the cluster either.
+The command calls no provider API. You (or your GitOps) apply the files, or `--apply` runs the in-cluster steps for you
+([below](#applying-it-for-you)). Without `--detect` or `--apply` it does not read the cluster either.
 
 ## What every install needs
 
@@ -114,6 +114,24 @@ Then follow `NEXT-STEPS.md`. Every recipe has the same eight steps:
    ([how](../cli.md#proving-slot-isolation---isolation)).
 
 It ends with a rollback section for the recipe, all by deletion in reverse order.
+
+### Applying it for you
+
+`--apply` runs the in-cluster parts of steps 4 to 8 itself, with your kubeconfig and the `helm` on your `PATH`: the
+Secrets, cert-manager and the Tailscale operator at the pinned versions, the Issuer and the Certificate (waiting until
+it is Ready) or cloudflared, one `helm upgrade` of patchy, then the checks. Name the values files the release already
+runs with and the chart version to upgrade to; it never guesses either, and it upgrades a release that is already
+installed, never installs one:
+
+```sh
+patchy setup previews -n patchy --apply --values values/patchy.yaml --chart-version 0.12.42 --dry-run
+patchy setup previews -n patchy --apply --values values/patchy.yaml --chart-version 0.12.42
+```
+
+The first prints the steps as the commands that do them by hand. Each step is safe to repeat, and the first failure
+stops the run with the commands that undo what it changed. Preview nodes (step 2), image pulls (step 3), Dex's static
+client (step 4), the tailnet policy (step 6, saved before `--apply` runs) and the DNS records (step 7) stay yours. The
+[CLI reference](../cli.md#setting-up-previews) lists every step.
 
 ## The recipes
 

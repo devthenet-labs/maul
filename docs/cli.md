@@ -505,10 +505,11 @@ read it.
 ## Setting up previews
 
 `patchy setup previews` writes the files that expose [previews](configuration/preview-gateway.md) at
-`https://<project>-<issue>.<host suffix>` and sign viewers in to them. It applies nothing and calls no provider API: it
-writes patchy's chart values, the manifests the edge needs, the relay's Dex client secret as two Secret manifests,
-`answers.yaml` and an ordered `NEXT-STEPS.md` into `-o` (default `./patchy-previews`, created 0700, every file 0600).
-[Set up previews](intents/set-up-previews.md) is the walkthrough: what an install needs, and which recipe to pick.
+`https://<project>-<issue>.<host suffix>` and sign viewers in to them. It calls no provider API, and applies nothing
+unless you add `--apply` (below): it writes patchy's chart values, the manifests the edge needs, the relay's Dex client
+secret as two Secret manifests, `answers.yaml` and an ordered `NEXT-STEPS.md` into `-o` (default `./patchy-previews`,
+created 0700, every file 0600). [Set up previews](intents/set-up-previews.md) is the walkthrough: what an install needs,
+and which recipe to pick.
 
 ```sh
 patchy setup previews                       # asks for every answer on a terminal
@@ -560,6 +561,38 @@ changed file only with `--force` or `-y`; on a terminal it asks first, and the d
 read back from the Secret files and never drawn again, unless you pass `--rotate dex-client-secret`. `--dry-run` prints
 the files and their differences (never a secret) and writes nothing. The last step in `NEXT-STEPS.md` is
 `patchy check previews`.
+
+**`--apply`** goes on, after writing the files, to run the in-cluster steps of `NEXT-STEPS.md` with your kubeconfig, in
+order, and stops at the first failure:
+
+1. a preflight, before anything changes: helm runs (the `helm` on your `PATH`, 3.8 or later, given your `--kubeconfig`
+   and `--context`), the release is installed in `-n` (`--apply` upgrades it, never installs it), and, for the
+   `tailscale` recipe without `--tailscale-oauth-dir`, the operator's OAuth Secret exists (its metadata only);
+2. the Secrets: the relay's Dex client secret, the DNS-01 credential and the Tailscale operator's OAuth client where the
+   command wrote them, and Dex's copy only where Dex's namespace is in this cluster (otherwise skipped, to apply where
+   Dex runs);
+3. cert-manager and the Tailscale operator, where the recipe installs them, by `helm upgrade --install` at the versions
+   patchy pins, from the values written for them, waiting for them;
+4. the Issuer and the Certificate, waiting until it is Ready, the sign-in route, or cloudflared, waiting for its
+   rollout;
+5. `helm upgrade` of the release to the chart version you name (`--chart-version`), with the values files you name
+   (`--values`, repeatable, in order: the ones the release already runs with) and then `patchy-previews.values.yaml`;
+6. the checks of `patchy check previews`.
+
+```sh
+patchy setup previews -n patchy --apply --values values/patchy.yaml --chart-version 0.12.42 --dry-run
+patchy setup previews -n patchy --apply --values values/patchy.yaml --chart-version 0.12.42
+```
+
+Manifests are server-side applied as the field manager `patchy-setup-previews`, taking over fields a hand-run
+`kubectl apply` set. Every step is logged and safe to repeat. When one fails, the run prints the commands that undo what
+it changed, newest first: `helm rollback` to the revision an upgrade replaced, `helm uninstall` for a release it
+installed, and `kubectl delete` for what it created (never for an object that was already there, which it updated in
+place). A Secret's contents are never printed, nor an API server's message about one. Preview nodes, image pulls, Dex's
+static client, the DNS records and the tailnet policy stay yours, and the run names them; the tailnet policy must be
+saved before it runs, since the operator's devices carry tags it owns. With `--dry-run`, `--apply` prints the steps as
+the commands that do them by hand and contacts no cluster. A failed check leaves everything applied: the checks say what
+is left, often the DNS records.
 
 ## Checking the preview install
 

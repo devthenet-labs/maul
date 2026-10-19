@@ -6,6 +6,10 @@ Nothing here has been applied: run the steps below in order. Running `patchy set
 change before it replaces a file, and never draws a new Dex client secret unless you pass
 `--rotate dex-client-secret`.
 
+`patchy setup previews -n patchy-system --apply --values <your values> --chart-version <version>` runs the in-cluster
+steps below for you, in order, with your kubeconfig and helm, stopping at the first failure (add `--dry-run` to list
+them first). Preview nodes, image pulls, Dex's static client, the DNS records stay yours.
+
 ## Files
 
 | File | What it is |

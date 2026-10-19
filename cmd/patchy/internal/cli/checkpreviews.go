@@ -16,6 +16,7 @@ import (
 	"k8s.io/client-go/rest"
 
 	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/checkreport"
+	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/kubecfg"
 	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/previewcheck"
 	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/printer"
 	"github.com/bitwise-media-group/patchy/cmd/patchy/internal/tailnet"
@@ -230,9 +231,17 @@ func runCheckPreviews(ctx context.Context, opts *Options, deps checkPreviewsDeps
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	opts.debugf("checking the preview install in namespace %s", env.Namespace)
+	return installChecks(ctx, opts, env, env.Namespace, deps, format)
+}
+
+// installChecks runs the install-level checks in namespace and renders
+// the report in format; any failed check is an error. `setup previews
+// --apply` ends with it.
+func installChecks(ctx context.Context, opts *Options, env *kubecfg.Env, namespace string, deps checkPreviewsDeps,
+	format printer.Format) error {
+	opts.debugf("checking the preview install in namespace %s", namespace)
 	report := previewcheck.Install(ctx, previewcheck.Config{
-		Reader: env.Client, Namespace: env.Namespace,
+		Reader: env.Client, Namespace: namespace,
 		Resolver: deps.resolver, DialTLS: deps.dialTLS, HTTP: deps.http, Isolation: deps.isolation,
 		Tailnet: deps.tailnet,
 	})

@@ -52,6 +52,8 @@ type setupPreviewsFlags struct {
 	// changes shown without asking, as --force does.
 	nonInteractive bool
 	yes            bool
+	// apply runs the in-cluster steps after writing (--apply).
+	apply applyFlags
 }
 
 // newSetupPreviewsCmd is `setup previews` (design
@@ -66,14 +68,15 @@ func newSetupPreviewsCmd(opts *Options) *cobra.Command {
 		Long: "Write the files that expose patchy's previews at https://<project>-<issue>.<host suffix>\n" +
 			"and sign viewers in to them: patchy's chart values, the manifests the edge needs, the\n" +
 			"relay's Dex client secret as two Secret manifests, answers.yaml and NEXT-STEPS.md, all\n" +
-			"in -o (default ./patchy-previews, created 0700, every file 0600). Nothing is applied and\n" +
-			"no provider is contacted: NEXT-STEPS.md lists the commands, in order.\n\n" +
+			"in -o (default ./patchy-previews, created 0700, every file 0600). Nothing is applied\n" +
+			"(unless --apply, below) and no provider is contacted: NEXT-STEPS.md lists the commands,\n" +
+			"in order.\n\n" +
 			"Every answer is a flag. On a terminal, the command asks for each one the flags leave\n" +
 			"unanswered, naming the flag that answers it, so a session can be repeated with\n" +
 			"--non-interactive; without a terminal (or with --non-interactive) a missing answer is\n" +
 			"an error naming its flag. A credential is never typed at a prompt: only the path of the\n" +
 			"file that holds it.\n\n" +
-			"No cluster is contacted unless --detect is given. --detect reads the cluster your\n" +
+			"No cluster is contacted unless --detect or --apply is given. --detect reads the cluster your\n" +
 			"kubeconfig names, read-only and never a Secret: the nodes (the platform, and which carry\n" +
 			"the preview label and taint), the kubernetes Service and the API server's EndpointSlice,\n" +
 			"the kube-dns Service, IngressClasses, GatewayClasses, the cert-manager and Tailscale\n" +
@@ -138,7 +141,8 @@ func newSetupPreviewsCmd(opts *Options) *cobra.Command {
 			"    --tunnel-credentials ~/.cloudflared/<tunnel id>.json --host-suffix acme-previews.dev \\\n" +
 			"    --sign-in-host preview-auth.acme.dev ...\n\n" +
 			"  patchy setup previews --platform k3d --edge tailscale \\\n" +
-			"    --tailscale-oauth-dir ~/.config/patchy/tailscale-oauth ...",
+			"    --tailscale-oauth-dir ~/.config/patchy/tailscale-oauth ...\n\n" +
+			"  patchy setup previews -n patchy --apply --values values/patchy.yaml --chart-version 0.12.42 --dry-run",
 		Args:              cobra.NoArgs,
 		ValidArgsFunction: noFileCompletion,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -228,6 +232,7 @@ func newSetupPreviewsCmd(opts *Options) *cobra.Command {
 	fl.BoolVar(&f.nonInteractive, "non-interactive", false, "ask nothing, even on a terminal: a missing answer "+
 		"is an error")
 	fl.BoolVarP(&f.yes, "yes", "y", false, "write the changes shown without asking (as --force)")
+	addApplyFlags(fl, &f.apply)
 	_ = cmd.RegisterFlagCompletionFunc("platform", fixedCompletion(previewsetup.Platforms()))
 	_ = cmd.RegisterFlagCompletionFunc("edge", fixedCompletion(previewsetup.Edges()))
 	_ = cmd.RegisterFlagCompletionFunc("node-isolation", fixedCompletion([]string{
@@ -239,11 +244,12 @@ func newSetupPreviewsCmd(opts *Options) *cobra.Command {
 		previewsetup.SharedDomainAcknowledged}))
 	_ = cmd.RegisterFlagCompletionFunc("dns", fixedCompletion(previewsetup.DNSProviders()))
 	_ = cmd.MarkFlagDirname("tailscale-oauth-dir")
+	_ = cmd.MarkFlagFilename(valuesFlag, "yaml", "yml")
 	for _, name := range []string{"host-suffix", "sign-in-host", "dex-issuer", "dex-namespace", "dex-client-id",
 		"viewer-team", "viewer-user", "registry", "image-path-prefix", "node-label", "eks-auto-mode", "taint-key",
 		"api-server-cidr", "ingress-class", "gateway-parent", "certificate-issuer", "release", "dns-option",
 		"acme-email", "load-balancer-class", "inbound-cidr", "tailscale-hostname", "tailscale-tag",
-		"tailscale-address", "cloudflared-namespace"} {
+		"tailscale-address", "cloudflared-namespace", chartVersionFlag, waitTimeoutFlag} {
 		_ = cmd.RegisterFlagCompletionFunc(name, noFileCompletion)
 	}
 	return cmd
@@ -387,6 +393,9 @@ func runSetupPreviews(cmd *cobra.Command, opts *Options, f *setupPreviewsFlags, 
 		return errUsage(fmt.Errorf("--rotate %q: the one secret to rotate is %s", f.rotate,
 			previewsetup.RotateDexClientSecret))
 	}
+	if err := checkApplyFlags(cmd, f.apply); err != nil {
+		return err
+	}
 	a, rerun, err := resolveAnswers(cmd, opts, f, flags)
 	if err != nil {
 		return err
@@ -412,17 +421,16 @@ func runSetupPreviews(cmd *cobra.Command, opts *Options, f *setupPreviewsFlags, 
 	if secrets.TailscaleOAuth, err = resolveTailscaleOAuth(opts.ErrOut, f, a); err != nil {
 		return err
 	}
-	files, err := previewsetup.Plan(a, secrets, version.Version)
-	if err != nil {
-		return err
-	}
-	c, err := previewsetup.Compare(f.output, files)
+	c, steps, err := planPreviews(f, a, secrets)
 	if err != nil {
 		return err
 	}
 	if f.dryRun {
 		printComparison(opts.Out, c, true)
-		notef(opts.ErrOut, "patchy: dry run: nothing written to %s.\n", f.output)
+		if steps != nil {
+			_, _ = fmt.Fprintf(opts.Out, "\n%s", previewsetup.RenderApplyPlan(a, steps))
+		}
+		notef(opts.ErrOut, "patchy: dry run: nothing written to %s, nothing applied.\n", f.output)
 		return nil
 	}
 	// A secret file changes only when the operator asked for it: a
@@ -434,7 +442,26 @@ func runSetupPreviews(cmd *cobra.Command, opts *Options, f *setupPreviewsFlags, 
 		return err
 	}
 	reportWrite(opts.ErrOut, f.output, c, written, secrets, rerun)
+	if steps != nil {
+		return runApply(cmd.Context(), opts, a, steps)
+	}
 	return nil
+}
+
+// planPreviews plans the files, compares them with what is on disk, and
+// plans --apply over them (nil steps without it).
+func planPreviews(f *setupPreviewsFlags, a previewsetup.Answers, secrets previewsetup.Secrets) (
+	previewsetup.Comparison, []previewsetup.Step, error) {
+	files, err := previewsetup.Plan(a, secrets, version.Version)
+	if err != nil {
+		return previewsetup.Comparison{}, nil, err
+	}
+	c, err := previewsetup.Compare(f.output, files)
+	if err != nil {
+		return c, nil, err
+	}
+	steps, err := planApply(f, a, files)
+	return c, steps, err
 }
 
 // completeAnswers finishes a's answers: detection when asked for, the
