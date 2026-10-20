@@ -39,6 +39,9 @@ type setupPreviewsFlags struct {
 	// shell history.
 	dnsCredentialsFile  string
 	dnsCredentialsStdin bool
+	// dnsAWSProfile names the one profile of an AWS shared credentials
+	// file the route53 solver's key is read from.
+	dnsAWSProfile string
 	// tunnelCredentials is the locally-managed Cloudflare tunnel's
 	// credentials file (~/.cloudflared/<tunnel id>.json).
 	tunnelCredentials string
@@ -101,7 +104,10 @@ func newSetupPreviewsCmd(opts *Options) *cobra.Command {
 			"identity answers, with no stored credential), plus values for cert-manager\n" +
 			"and the Tailscale operator at the chart versions patchy pins. A DNS credential is read\n" +
 			"from --dns-credentials-file or --dns-credentials-from-stdin, never a flag value, and is\n" +
-			"written only into a Secret manifest. --tailscale-oauth-dir names a directory holding the\n" +
+			"written only into a Secret manifest. For route53, --dns-aws-profile reads one profile's\n" +
+			"access key out of an AWS shared credentials file (that file, else $AWS_SHARED_CREDENTIALS_FILE,\n" +
+			"else ~/.aws/credentials) and sets accessKeyID from it; no other profile is read.\n" +
+			"--tailscale-oauth-dir names a directory holding the\n" +
 			"Tailscale operator's OAuth client as two files, client_id and client_secret, which are\n" +
 			"written only into the operator's Secret manifest (secrets/tailscale-operator-oauth.secret.yaml);\n" +
 			"NEXT-STEPS.md gives the client's exact scopes and tag.\n\n" +
@@ -137,6 +143,8 @@ func newSetupPreviewsCmd(opts *Options) *cobra.Command {
 			"  patchy setup previews --platform k3d --edge tailscale --dns route53 \\\n" +
 			"    --dns-option region=us-east-1 --dns-option accessKeyID=AKIAIOSFODNN7EXAMPLE \\\n" +
 			"    --dns-credentials-file ~/.config/dns01-secret-access-key ...\n\n" +
+			"  patchy setup previews --platform k3d --edge tailscale --dns route53 \\\n" +
+			"    --dns-option region=us-east-1 --dns-aws-profile dns01 ...\n\n" +
 			"  patchy setup previews --platform k3s --edge cloudflare-tunnel \\\n" +
 			"    --tunnel-credentials ~/.cloudflared/<tunnel id>.json --host-suffix acme-previews.dev \\\n" +
 			"    --sign-in-host preview-auth.acme.dev ...\n\n" +
@@ -195,6 +203,9 @@ func newSetupPreviewsCmd(opts *Options) *cobra.Command {
 		"credential (a token, a secret key, or google's JSON key), written only into a Secret manifest")
 	fl.BoolVar(&f.dnsCredentialsStdin, "dns-credentials-from-stdin", false, "read the DNS-01 solver's "+
 		"credential from standard input instead")
+	fl.StringVar(&f.dnsAWSProfile, "dns-aws-profile", "", "--dns route53: read the access key of this profile "+
+		"of an AWS shared credentials file (--dns-credentials-file, else $AWS_SHARED_CREDENTIALS_FILE, else "+
+		"~/.aws/credentials), and set accessKeyID from it")
 	fl.StringVar(&a.Certificate.ACMEEmail, "acme-email", "", "the ACME account's contact address (optional)")
 	fl.BoolVar(&a.Certificate.CertManagerInstalled, "cert-manager-installed", false, "cert-manager already runs: "+
 		"write no values for it")
@@ -405,7 +416,7 @@ func runSetupPreviews(cmd *cobra.Command, opts *Options, f *setupPreviewsFlags, 
 	if err != nil {
 		return err
 	}
-	given, err := readDNSCredential(cmd.InOrStdin(), opts.ErrOut, f, a)
+	given, err := readDNSCredential(cmd.InOrStdin(), opts.ErrOut, f, &a)
 	if err != nil {
 		return err
 	}
@@ -541,9 +552,22 @@ func parseDNSOptions(pairs []string) (map[string]string, error) {
 
 // readDNSCredential reads the DNS-01 credential from the file or standard
 // input named, bounded, and warns when the file is readable by others. It
-// is never echoed, and nothing is read when neither is given.
+// is never echoed, and nothing is read when neither is given. With
+// --dns-aws-profile it reads that one profile of an AWS shared credentials
+// file (the default file when none is named) and sets a's accessKeyID from
+// it: a --dns-option accessKeyID given this run must agree, one from an
+// earlier run's answers is replaced.
 func readDNSCredential(in io.Reader, errOut io.Writer, f *setupPreviewsFlags,
-	a previewsetup.Answers) (previewsetup.Credential, error) {
+	a *previewsetup.Answers) (previewsetup.Credential, error) {
+	path := f.dnsCredentialsFile
+	if f.dnsAWSProfile != "" {
+		if a.Certificate.DNS != "route53" {
+			return previewsetup.Credential{}, errUsage(fmt.Errorf("--dns-aws-profile is for --dns route53"))
+		}
+		if path == "" && !f.dnsCredentialsStdin {
+			path = defaultAWSCredentialsFile()
+		}
+	}
 	var raw []byte
 	switch {
 	case f.dnsCredentialsStdin:
@@ -552,35 +576,61 @@ func readDNSCredential(in io.Reader, errOut io.Writer, f *setupPreviewsFlags,
 			return previewsetup.Credential{}, fmt.Errorf("read the DNS credential from standard input: %w", err)
 		}
 		raw = b
-	case f.dnsCredentialsFile != "":
-		file, err := os.Open(f.dnsCredentialsFile)
-		if err != nil {
-			return previewsetup.Credential{}, errUsage(fmt.Errorf("--dns-credentials-file: %w", err))
+	case path != "":
+		flag := "--dns-credentials-file"
+		if f.dnsCredentialsFile == "" {
+			flag = "--dns-aws-profile"
 		}
-		defer func() { _ = file.Close() }()
-		info, err := file.Stat()
+		b, err := readCredentialFile(errOut, flag, path)
 		if err != nil {
 			return previewsetup.Credential{}, err
 		}
-		if !info.Mode().IsRegular() {
-			return previewsetup.Credential{}, errUsage(fmt.Errorf("--dns-credentials-file %s is not a regular "+
-				"file: use --dns-credentials-from-stdin for a pipe", f.dnsCredentialsFile))
-		}
-		if info.Mode().Perm()&0o077 != 0 {
-			notef(errOut, "patchy: warning: %s is readable by other users (mode %04o): chmod 600 it.\n",
-				f.dnsCredentialsFile, info.Mode().Perm())
-		}
-		if raw, err = io.ReadAll(io.LimitReader(file, maxCredentialRead)); err != nil {
-			return previewsetup.Credential{}, fmt.Errorf("read --dns-credentials-file: %w", err)
-		}
+		raw = b
 	default:
 		return previewsetup.Credential{}, nil
 	}
-	c, err := previewsetup.ParseCredential(a, raw)
+	if f.dnsAWSProfile != "" {
+		return useAWSProfile(f, a, raw)
+	}
+	c, err := previewsetup.ParseCredential(*a, raw)
 	if err != nil {
 		return previewsetup.Credential{}, errUsage(err)
 	}
 	return c, nil
+}
+
+// useAWSProfile reads --dns-aws-profile's key out of raw and records its
+// access key ID in a, which is then checked again.
+func useAWSProfile(f *setupPreviewsFlags, a *previewsetup.Answers, raw []byte) (previewsetup.Credential, error) {
+	key, err := previewsetup.ParseAWSProfile(raw, f.dnsAWSProfile)
+	if err != nil {
+		return previewsetup.Credential{}, errUsage(err)
+	}
+	given, err := parseDNSOptions(f.dnsOptions)
+	if err != nil {
+		return previewsetup.Credential{}, errUsage(err)
+	}
+	if id, set := given["accessKeyID"]; set && id != key.ID {
+		return previewsetup.Credential{}, errUsage(fmt.Errorf("--dns-option accessKeyID is not profile %s's "+
+			"access key ID: drop it, the profile sets it", f.dnsAWSProfile))
+	}
+	if a.Certificate.DNSOptions == nil {
+		a.Certificate.DNSOptions = map[string]string{}
+	}
+	a.Certificate.DNSOptions["accessKeyID"] = key.ID
+	if err := a.Validate(); err != nil {
+		return previewsetup.Credential{}, errUsage(err)
+	}
+	return key.Secret, nil
+}
+
+// defaultAWSCredentialsFile is where the AWS CLI and SDKs read shared
+// credentials from: $AWS_SHARED_CREDENTIALS_FILE, else ~/.aws/credentials.
+func defaultAWSCredentialsFile() string {
+	if p := os.Getenv("AWS_SHARED_CREDENTIALS_FILE"); p != "" {
+		return expandHome(p)
+	}
+	return expandHome("~/.aws/credentials")
 }
 
 // resolveTunnel reads the tunnel credentials file named, else the one an
@@ -629,7 +679,11 @@ func readCredentialFile(errOut io.Writer, flag, path string) ([]byte, error) {
 		return nil, err
 	}
 	if !info.Mode().IsRegular() {
-		return nil, errUsage(fmt.Errorf("%s %s is not a regular file", flag, path))
+		hint := ""
+		if flag == "--dns-credentials-file" {
+			hint = ": use --dns-credentials-from-stdin for a pipe"
+		}
+		return nil, errUsage(fmt.Errorf("%s %s is not a regular file%s", flag, path, hint))
 	}
 	if info.Mode().Perm()&0o077 != 0 {
 		notef(errOut, "patchy: warning: %s is readable by other users (mode %04o): chmod 600 it.\n", path,

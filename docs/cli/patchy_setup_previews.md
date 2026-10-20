@@ -43,7 +43,10 @@ the ACME Issuer that answers its DNS-01 challenge (a ClusterIssuer when cert-man
 identity answers, with no stored credential), plus values for cert-manager
 and the Tailscale operator at the chart versions patchy pins. A DNS credential is read
 from --dns-credentials-file or --dns-credentials-from-stdin, never a flag value, and is
-written only into a Secret manifest. --tailscale-oauth-dir names a directory holding the
+written only into a Secret manifest. For route53, --dns-aws-profile reads one profile's
+access key out of an AWS shared credentials file (that file, else $AWS_SHARED_CREDENTIALS_FILE,
+else ~/.aws/credentials) and sets accessKeyID from it; no other profile is read.
+--tailscale-oauth-dir names a directory holding the
 Tailscale operator's OAuth client as two files, client_id and client_secret, which are
 written only into the operator's Secret manifest (secrets/tailscale-operator-oauth.secret.yaml);
 NEXT-STEPS.md gives the client's exact scopes and tag.
@@ -93,6 +96,9 @@ patchy setup previews [flags]
     --dns-option region=us-east-1 --dns-option accessKeyID=AKIAIOSFODNN7EXAMPLE \
     --dns-credentials-file ~/.config/dns01-secret-access-key ...
 
+  patchy setup previews --platform k3d --edge tailscale --dns route53 \
+    --dns-option region=us-east-1 --dns-aws-profile dns01 ...
+
   patchy setup previews --platform k3s --edge cloudflare-tunnel \
     --tunnel-credentials ~/.cloudflared/<tunnel id>.json --host-suffix acme-previews.dev \
     --sign-in-host preview-auth.acme.dev ...
@@ -119,6 +125,7 @@ patchy setup previews [flags]
       --dex-issuer string               your Dex's issuer URL (https)
       --dex-namespace string            the namespace Dex runs in (default "dex")
       --dns string                      --edge gateway-tls or tailscale: the DNS-01 solver of the Issuer written: route53, cloudflare, google, azure, digitalocean, rfc2136, manual (manual: your own --certificate-issuer)
+      --dns-aws-profile string          --dns route53: read the access key of this profile of an AWS shared credentials file (--dns-credentials-file, else $AWS_SHARED_CREDENTIALS_FILE, else ~/.aws/credentials), and set accessKeyID from it
       --dns-credentials-file string     a file holding the DNS-01 solver's credential (a token, a secret key, or google's JSON key), written only into a Secret manifest
       --dns-credentials-from-stdin      read the DNS-01 solver's credential from standard input instead
       --dns-option stringArray          a setting of the DNS-01 solver, key=value, never a secret (repeatable; route53: region, accessKeyID; google: project, serviceAccountKey; azure: subscriptionID, resourceGroupName, environment, clientID, tenantID; rfc2136: nameserver, tsigKeyName, tsigAlgorithm)
