@@ -81,6 +81,14 @@ patchy setup previews --non-interactive -n patchy --platform k3d --edge tailscal
   --tailscale-oauth-dir ~/.config/patchy/tailscale-oauth
 ```
 
+If the IAM user's key is already a profile in your AWS shared credentials file, name the profile instead of giving
+`--dns-option accessKeyID` and a file of the secret:
+`--dns route53 --dns-option region=us-east-1 --dns-aws-profile dns01`. The wizard reads that one profile (from
+`--dns-credentials-file` if you give it, else `$AWS_SHARED_CREDENTIALS_FILE`, else `~/.aws/credentials`), sets
+`accessKeyID` from it and writes only its secret access key into the Secret manifest; the file's other profiles are
+never read. It refuses a profile holding a session token: temporary credentials expire, and cert-manager cannot renew
+them.
+
 It writes `./patchy-previews/` (created 0700, every file 0600):
 
 | File                          | What it is                                                                                       |

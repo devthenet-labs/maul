@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -56,14 +57,14 @@ func writeCredential(t *testing.T, value string, perm os.FileMode) string {
 	return p
 }
 
-// dnsCredential reads the credential the DNS Secret file holds.
-func dnsCredential(t *testing.T, dir, key string) string {
+// dnsCredential reads the route53 secret access key the DNS Secret file holds.
+func dnsCredential(t *testing.T, dir string) string {
 	t.Helper()
 	var s corev1.Secret
 	if err := yaml.Unmarshal([]byte(readFile(t, dir, previewsetup.DNSSecretFile)), &s); err != nil {
 		t.Fatal(err)
 	}
-	return string(s.Data[key])
+	return string(s.Data["secret-access-key"])
 }
 
 // TestSetupPreviewsTailscale drives the tailscale recipe across runs: the
@@ -87,7 +88,7 @@ func TestSetupPreviewsTailscale(t *testing.T) {
 	if !strings.Contains(errOut, "wrote the DNS credential") {
 		t.Errorf("no word of the DNS credential written:\n%s", errOut)
 	}
-	if got := dnsCredential(t, dir, "secret-access-key"); got != first {
+	if got := dnsCredential(t, dir); got != first {
 		t.Errorf("the Secret holds %q", got)
 	}
 	for _, rel := range []string{previewsetup.IssuerFile, previewsetup.CertificateFile,
@@ -112,7 +113,7 @@ func TestSetupPreviewsTailscale(t *testing.T) {
 	}
 	// A new credential replaces the old one without --force.
 	run("setup", "previews", "-o", dir, "--dns-credentials-file", writeCredential(t, second, 0o600))
-	if got := dnsCredential(t, dir, "secret-access-key"); got != second {
+	if got := dnsCredential(t, dir); got != second {
 		t.Errorf("the Secret holds %q after a new credential", got)
 	}
 	for _, s := range []string{first, second} {
@@ -134,7 +135,7 @@ func TestSetupPreviewsCredentialFromStdin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v\n%s", err, errOut)
 	}
-	if got := dnsCredential(t, dir, "secret-access-key"); got != "piped-token" {
+	if got := dnsCredential(t, dir); got != "piped-token" {
 		t.Errorf("the Secret holds %q", got)
 	}
 	if strings.Contains(errOut, "chmod 600") {
@@ -206,4 +207,117 @@ func TestSetupPreviewsGatewayRefusals(t *testing.T) {
 			t.Errorf("%s: a refused run wrote %d entries", name, len(entries))
 		}
 	}
+}
+
+// awsCredentialsFile is a shared credentials file of two profiles: the
+// one the tests read, and one whose secret must never leave the file.
+const awsCredentialsFile = `[default]
+aws_access_key_id = AKIAOTHERPROFILE0000
+aws_secret_access_key = other-profile-secret-never-read
+
+[dns01]
+aws_access_key_id = AKIAIOSFODNN7EXAMPLE
+aws_secret_access_key = dns01-profile-secret-0123456789
+`
+
+// profileArgs are tailscaleArgs without the access key ID, which
+// --dns-aws-profile sets.
+func profileArgs(dir string, extra ...string) []string {
+	args := tailscaleArgs(dir)
+	return append(args[:len(args)-2], extra...)
+}
+
+// TestSetupPreviewsAWSProfile: --dns-aws-profile reads only that profile
+// of a shared credentials file: its secret into the Secret manifest, its
+// key ID into the answers and the Issuer, the other profile's secret
+// nowhere; from the named file, else $AWS_SHARED_CREDENTIALS_FILE.
+func TestSetupPreviewsAWSProfile(t *testing.T) {
+	check := func(t *testing.T, dir, printed string) {
+		t.Helper()
+		if got := dnsCredential(t, dir); got != "dns01-profile-secret-0123456789" {
+			t.Errorf("the Secret holds %q", got)
+		}
+		for _, rel := range []string{previewsetup.AnswersFile, previewsetup.IssuerFile} {
+			if !strings.Contains(readFile(t, dir, rel), "AKIAIOSFODNN7EXAMPLE") {
+				t.Errorf("%s lacks the profile's access key ID", rel)
+			}
+		}
+		err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return err
+			}
+			data, err := os.ReadFile(path)
+			if strings.Contains(string(data), "other-profile-secret") || strings.Contains(string(data), "AKIAOTHER") {
+				t.Errorf("%s holds the other profile", path)
+			}
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(printed, "dns01-profile-secret") || strings.Contains(printed, "other-profile-secret") {
+			t.Errorf("a secret was printed:\n%s", printed)
+		}
+	}
+
+	t.Run("named file", func(t *testing.T) {
+		dir := t.TempDir()
+		out, errOut, err := execSetupIn(t, nil, profileArgs(dir, "--dns-aws-profile", "dns01",
+			"--dns-credentials-file", writeCredential(t, awsCredentialsFile, 0o600))...)
+		if err != nil {
+			t.Fatalf("%v\n%s", err, errOut)
+		}
+		check(t, dir, out+errOut)
+	})
+	t.Run("from the environment", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Setenv("AWS_SHARED_CREDENTIALS_FILE", writeCredential(t, awsCredentialsFile, 0o600))
+		out, errOut, err := execSetupIn(t, nil, profileArgs(dir, "--dns-aws-profile", "dns01")...)
+		if err != nil {
+			t.Fatalf("%v\n%s", err, errOut)
+		}
+		check(t, dir, out+errOut)
+	})
+	t.Run("an agreeing --dns-option accessKeyID", func(t *testing.T) {
+		dir := t.TempDir()
+		_, errOut, err := execSetupIn(t, nil, tailscaleArgs(dir, "--dns-aws-profile", "dns01",
+			"--dns-credentials-file", writeCredential(t, awsCredentialsFile, 0o600))...)
+		if err != nil {
+			t.Fatalf("%v\n%s", err, errOut)
+		}
+	})
+
+	for name, tc := range map[string]struct {
+		args []string
+		want string
+	}{
+		"another key ID": {[]string{"--dns-option", "accessKeyID=AKIAANOTHERKEY000000", "--dns-aws-profile", "dns01"},
+			"is not profile dns01's access key ID"},
+		"missing profile": {[]string{"--dns-aws-profile", "prod"}, "no profile prod in the file (it has: default, dns01)"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			args := append(profileArgs(dir, "--dns-credentials-file", writeCredential(t, awsCredentialsFile, 0o600)),
+				tc.args...)
+			_, _, err := execSetupIn(t, nil, args...)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("got %v, want %q", err, tc.want)
+			}
+			if strings.Contains(err.Error(), "profile-secret") {
+				t.Errorf("the error quotes a secret: %v", err)
+			}
+		})
+	}
+	t.Run("not route53", func(t *testing.T) {
+		dir := t.TempDir()
+		args := []string{"setup", "previews", "-o", dir, "--platform", "k3d", "--edge", "tailscale",
+			"--host-suffix", "acme-previews.dev", "--sign-in-host", "preview-auth.patchy.acme.dev",
+			"--dex-issuer", "https://dex.patchy.acme.dev", "--viewer-team", "acme:qa", "--registry", "ghcr.io",
+			"--dns", "cloudflare", "--dns-aws-profile", "dns01",
+			"--dns-credentials-file", writeCredential(t, awsCredentialsFile, 0o600)}
+		if _, _, err := execSetupIn(t, nil, args...); err == nil ||
+			!strings.Contains(err.Error(), "--dns-aws-profile is for --dns route53") {
+			t.Fatalf("got %v", err)
+		}
+	})
 }

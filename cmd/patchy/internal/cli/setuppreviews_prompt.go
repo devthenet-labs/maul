@@ -404,7 +404,7 @@ func askCredentialFiles(p *prompter, a *previewsetup.Answers, f *setupPreviewsFl
 		}
 		f.tailscaleOAuthDir = expandHome(s)
 	}
-	if a.DNSCredentialKey() != "" && f.dnsCredentialsFile == "" && !f.dnsCredentialsStdin &&
+	if a.DNSCredentialKey() != "" && f.dnsCredentialsFile == "" && !f.dnsCredentialsStdin && f.dnsAWSProfile == "" &&
 		!exists(filepath.Join(f.output, filepath.FromSlash(previewsetup.DNSSecretFile))) {
 		s, err := p.ask(question{flag: "dns-credentials-file", text: "a file holding the " + a.Certificate.DNS +
 			" DNS-01 credential (later: NEXT-STEPS.md says how to add it)", optional: true, check: regularFile})
