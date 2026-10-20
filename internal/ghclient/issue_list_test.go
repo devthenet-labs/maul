@@ -20,12 +20,12 @@ func TestListIssuesConditional(t *testing.T) {
 	current := `W/"v1"`
 	payload := `[{"number":1,"title":"Add GET /version","state":"open",
 		"html_url":"https://github.com/o/r/issues/1","user":{"login":"octocat"},
-		"labels":[{"name":"patchy:target"}],"created_at":"2026-09-24T10:00:00Z"}]`
+		"labels":[{"name":"maul:target"}],"created_at":"2026-09-24T10:00:00Z"}]`
 	var sent []string
 	mux.HandleFunc("GET /repos/o/r/issues", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		for key, want := range map[string]string{
-			"labels": "patchy:target", "state": "open", "sort": "updated", "direction": "desc", "per_page": "100",
+			"labels": "maul:target", "state": "open", "sort": "updated", "direction": "desc", "per_page": "100",
 		} {
 			if got := q.Get(key); got != want {
 				t.Errorf("%s = %q, want %q", key, got, want)
@@ -42,13 +42,13 @@ func TestListIssuesConditional(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	first, err := c.ListIssues(ctx, testRepo, []string{"patchy:target"}, "open", "")
+	first, err := c.ListIssues(ctx, testRepo, []string{"maul:target"}, "open", "")
 	if err != nil {
 		t.Fatalf("first ListIssues() error = %v", err)
 	}
 	want := []*Issue{{
 		Repo: testRepo, Number: 1, Title: "Add GET /version", State: "open",
-		Labels: []string{"patchy:target"}, Author: "octocat",
+		Labels: []string{"maul:target"}, Author: "octocat",
 		CreatedAt: time.Date(2026, 9, 24, 10, 0, 0, 0, time.UTC),
 		HTMLURL:   "https://github.com/o/r/issues/1",
 	}}
@@ -56,7 +56,7 @@ func TestListIssuesConditional(t *testing.T) {
 		t.Errorf("first ListIssues() = %+v, want the issues and ETag W/\"v1\"", first)
 	}
 
-	again, err := c.ListIssues(ctx, testRepo, []string{"patchy:target"}, "open", first.ETag)
+	again, err := c.ListIssues(ctx, testRepo, []string{"maul:target"}, "open", first.ETag)
 	if err != nil {
 		t.Fatalf("conditional ListIssues() error = %v, want the 304 as success", err)
 	}
@@ -65,7 +65,7 @@ func TestListIssuesConditional(t *testing.T) {
 	}
 
 	current = `W/"v2"`
-	changed, err := c.ListIssues(ctx, testRepo, []string{"patchy:target"}, "open", again.ETag)
+	changed, err := c.ListIssues(ctx, testRepo, []string{"maul:target"}, "open", again.ETag)
 	if err != nil {
 		t.Fatalf("changed ListIssues() error = %v", err)
 	}
@@ -129,7 +129,7 @@ func TestListIssuesError(t *testing.T) {
 	mux.HandleFunc("GET /repos/o/r/issues", func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, `{"message":"Not Found"}`, http.StatusNotFound)
 	})
-	got, err := c.ListIssues(context.Background(), testRepo, []string{"patchy:target"}, "open", `W/"v1"`)
+	got, err := c.ListIssues(context.Background(), testRepo, []string{"maul:target"}, "open", `W/"v1"`)
 	if !IsNotFound(err) {
 		t.Errorf("ListIssues() error = %v, want the not-found API error", err)
 	}

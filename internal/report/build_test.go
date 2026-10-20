@@ -246,7 +246,7 @@ func TestParseBuildErrors(t *testing.T) {
 
 // TestParseBuildAcceptsLongNotes: a note over ItemMaxChars is accepted
 // whole rather than refusing the report and with it the whole build
-// (overdub-10 lost one to a 574-character note). It is not cut: patchy
+// (overdub-10 lost one to a 574-character note). It is not cut: maul
 // records the report's raw bytes, so a cut would reach no reader.
 func TestParseBuildAcceptsLongNotes(t *testing.T) {
 	tests := []struct {

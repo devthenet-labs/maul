@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/netprofile"
 )
 
 // npmCorgi is the Accept npm sends for a packument (the abbreviated

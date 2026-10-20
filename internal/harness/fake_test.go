@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/runner"
+	"github.com/devthenet-labs/maul/internal/runner"
 )
 
 func TestFakePromptSpec(t *testing.T) {

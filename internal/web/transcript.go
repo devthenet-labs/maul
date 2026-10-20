@@ -15,10 +15,10 @@ import (
 
 	"k8s.io/apimachinery/pkg/types"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/transcript"
-	"github.com/bitwise-media-group/patchy/internal/transcriptstore"
-	"github.com/bitwise-media-group/patchy/internal/web/auth"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/transcript"
+	"github.com/devthenet-labs/maul/internal/transcriptstore"
+	"github.com/devthenet-labs/maul/internal/web/auth"
 )
 
 // Transcript SSE event names. Turns arrive one per event and the stream always

@@ -17,8 +17,8 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/jobs"
 )
 
 const pinned = "ghcr.io/acme/go-env@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -48,7 +48,7 @@ func trippedBreaker() *Breaker {
 // source-controller actually pinned.
 func TestPin(t *testing.T) {
 	accepted := &v1alpha1.RunnerImage{
-		Declared: "ghcr.io/acme/go-env:1.26", Manifest: ".patchy/agent.yaml",
+		Declared: "ghcr.io/acme/go-env:1.26", Manifest: ".maul/agent.yaml",
 		Image: pinned, SearchPath: "/usr/local/go/bin:/usr/bin:/bin", Verified: true,
 	}
 	fresh := findingThrough(v1alpha1.PhaseOpened, v1alpha1.PhaseEnhanced, v1alpha1.PhaseInvestigating)
@@ -66,7 +66,7 @@ func TestPin(t *testing.T) {
 			Manifest: ".devcontainer/devcontainer.json", Message: "builds its image",
 		}), fresh, false, ""},
 		{"rejected under onReject default", Guard{Enabled: true}, repoWith(&v1alpha1.RunnerImage{
-			Declared: "docker.io/evil/x:1", Manifest: ".patchy/agent.yaml",
+			Declared: "docker.io/evil/x:1", Manifest: ".maul/agent.yaml",
 			Rejected: "NotAllowlisted", Message: "not allowlisted",
 		}), fresh, false, ""},
 		{"kill switch off", Guard{}, repoWith(accepted), fresh, false, SkipDisabled},
@@ -226,12 +226,12 @@ func gauge(t *testing.T, component string) int64 {
 	}
 	for _, sm := range rm.ScopeMetrics {
 		for _, m := range sm.Metrics {
-			if m.Name != "patchy.sandbox.breaker" {
+			if m.Name != "maul.sandbox.breaker" {
 				continue
 			}
 			g, ok := m.Data.(metricdata.Gauge[int64])
 			if !ok {
-				t.Fatalf("patchy.sandbox.breaker is %T, want an int64 gauge", m.Data)
+				t.Fatalf("maul.sandbox.breaker is %T, want an int64 gauge", m.Data)
 			}
 			for _, dp := range g.DataPoints {
 				if v, ok := dp.Attributes.Value(attribute.Key("component")); ok && v.AsString() == component {

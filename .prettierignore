@@ -28,8 +28,8 @@ CHANGELOG.md
 .mise/
 
 # helm templates are Go templates, not YAML prettier can parse
-charts/patchy/templates/
-charts/patchy-config/templates/
+charts/maul/templates/
+charts/maul-config/templates/
 
 # Docs site build output (zensical)
 /site/

@@ -22,23 +22,23 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	"github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/cli"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/previewauth"
-	"github.com/bitwise-media-group/patchy/internal/previewauth/adapters/access"
-	"github.com/bitwise-media-group/patchy/internal/previewauth/adapters/dex"
-	"github.com/bitwise-media-group/patchy/internal/previewauth/adapters/hostprobe"
-	"github.com/bitwise-media-group/patchy/internal/previewauth/adapters/keydir"
-	"github.com/bitwise-media-group/patchy/internal/previewauth/adapters/kubeview"
-	"github.com/bitwise-media-group/patchy/internal/previewauth/adapters/ledger"
-	"github.com/bitwise-media-group/patchy/internal/previewauth/adapters/signer"
-	"github.com/bitwise-media-group/patchy/internal/previewauth/adapters/tlsdir"
-	"github.com/bitwise-media-group/patchy/internal/previewauth/httpapi"
-	"github.com/bitwise-media-group/patchy/internal/telemetry"
-	"github.com/bitwise-media-group/patchy/internal/version"
-	"github.com/bitwise-media-group/patchy/internal/web/auth"
-	"github.com/bitwise-media-group/patchy/internal/web/authz"
+	"github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/cli"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/previewauth"
+	"github.com/devthenet-labs/maul/internal/previewauth/adapters/access"
+	"github.com/devthenet-labs/maul/internal/previewauth/adapters/dex"
+	"github.com/devthenet-labs/maul/internal/previewauth/adapters/hostprobe"
+	"github.com/devthenet-labs/maul/internal/previewauth/adapters/keydir"
+	"github.com/devthenet-labs/maul/internal/previewauth/adapters/kubeview"
+	"github.com/devthenet-labs/maul/internal/previewauth/adapters/ledger"
+	"github.com/devthenet-labs/maul/internal/previewauth/adapters/signer"
+	"github.com/devthenet-labs/maul/internal/previewauth/adapters/tlsdir"
+	"github.com/devthenet-labs/maul/internal/previewauth/httpapi"
+	"github.com/devthenet-labs/maul/internal/telemetry"
+	"github.com/devthenet-labs/maul/internal/version"
+	"github.com/devthenet-labs/maul/internal/web/auth"
+	"github.com/devthenet-labs/maul/internal/web/authz"
 )
 
 func newServeCmd(opts *cli.Options) *cobra.Command {
@@ -56,7 +56,7 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	f.String("preview-auth-host-suffix", "", "the preview host suffix; codes go only to "+
 		"https://<label>.<suffix>/oauth2/idpresponse")
 	f.Int("preview-auth-slot-count", 2, "number of preview slots (one ALB client each)")
-	f.String("preview-auth-keys-dir", "/etc/patchy/preview-auth/keys", "the mounted keys Secret: master, "+
+	f.String("preview-auth-keys-dir", "/etc/maul/preview-auth/keys", "the mounted keys Secret: master, "+
 		"generation, signingKey and, during a rotation, previousMaster, previousGeneration, previousSigningKey")
 	f.String("preview-auth-dex-issuer-url", "", "Dex's issuer URL (https)")
 	f.String("preview-auth-dex-client-id", "", "the relay's static client id at Dex")
@@ -362,7 +362,7 @@ func probeMode(s string, gateway bool) (previewauth.ProbeMode, error) {
 
 func serve(ctx context.Context, opts *cli.Options) error {
 	prov, shutdown, err := telemetry.Init(ctx, telemetry.Config{
-		Dir: os.Getenv("PATCHY_TELEMETRY_DIR"), Level: opts.LogLevel,
+		Dir: os.Getenv("MAUL_TELEMETRY_DIR"), Level: opts.LogLevel,
 		ServiceName: "preview-auth", ServiceVersion: version.Version,
 	})
 	if err != nil {

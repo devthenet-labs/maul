@@ -18,7 +18,7 @@ import (
 // the account of any credentials the run has (it has none; aws is a stub).
 const (
 	imageAccount = "222222222222"
-	imageRepo    = "patchy/previews/hello-web"
+	imageRepo    = "maul/previews/hello-web"
 	image        = imageAccount + ".dkr.ecr.us-east-1.amazonaws.com/" + imageRepo
 	headSHA      = "0123456789abcdef0123456789abcdef01234567"
 	imageDigest  = "sha256:89abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567"

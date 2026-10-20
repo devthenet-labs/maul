@@ -20,10 +20,10 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/forge"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/intentperm"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/forge"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/intentperm"
 )
 
 func (e *env) getProject() *v1alpha1.Project {
@@ -56,17 +56,17 @@ func TestProjectValidation(t *testing.T) {
 		{name: "shared intent repository and trigger", other: &v1alpha1.Project{
 			ObjectMeta: metav1.ObjectMeta{Name: "other", Namespace: testNS},
 			Spec: v1alpha1.ProjectSpec{IntentRepository: "https://github.com/ACME/intents.git",
-				Labels: v1alpha1.ProjectLabels{Trigger: "Patchy:Target"}},
+				Labels: v1alpha1.ProjectLabels{Trigger: "Maul:Target"}},
 		}, wantReason: v1alpha1.ReasonAmbiguousIntentRepository},
 		{name: "no forge", resolveErr: fmt.Errorf("x: %w", forge.ErrNoMatch), wantReason: v1alpha1.ReasonForgeUnresolved},
 		{name: "not installed", installErr: ghError(http.StatusNotFound, "Not Found"),
 			wantReason: v1alpha1.ReasonAppNotInstalled},
 		{name: "repository not in the installation", installErr: ghError(http.StatusUnprocessableEntity, "x"),
 			wantReason: v1alpha1.ReasonAppNotInstalled},
-		{name: "forge secret not readable", installErr: fmt.Errorf("get forge secret patchy/other: %w",
+		{name: "forge secret not readable", installErr: fmt.Errorf("get forge secret maul/other: %w",
 			kerrors.NewForbidden(schema.GroupResource{Resource: "secrets"}, "other", errors.New("not in resourceNames"))),
 			wantReason: ReasonForgeSecretUnreadable},
-		{name: "forge secret missing", installErr: fmt.Errorf("get forge secret patchy/gone: %w",
+		{name: "forge secret missing", installErr: fmt.Errorf("get forge secret maul/gone: %w",
 			kerrors.NewNotFound(schema.GroupResource{Resource: "secrets"}, "gone")),
 			wantReason: ReasonForgeSecretUnreadable},
 	}
@@ -91,7 +91,7 @@ func TestProjectValidation(t *testing.T) {
 				t.Errorf("Ready status = %s", c.Status)
 			}
 			if tt.wantReason == ReasonValidated &&
-				(!e.gh.labels["patchy:target"] || !e.gh.labels["patchy:approved"]) {
+				(!e.gh.labels["maul:target"] || !e.gh.labels["maul:approved"]) {
 				t.Errorf("labels created = %v", e.gh.createdLabels)
 			}
 		})
@@ -315,7 +315,7 @@ func TestSharedIntentIssueHasOneProject(t *testing.T) {
 			if tt.labelFirst {
 				e.reconcileProject()
 			}
-			e.gh.label(1, "patchy:other", approver)
+			e.gh.label(1, "maul:other", approver)
 			e.clock.Advance(time.Minute)
 			e.reconcileProject()
 			if _, err := e.project.Reconcile(context.Background(), req("other")); err != nil {
@@ -339,7 +339,7 @@ func TestSharedIntentIssueHasOneProject(t *testing.T) {
 			}
 			if tt.labelFirst {
 				e.drive("target-1", v1alpha1.IntentAwaitingApproval, repoImage)
-				e.gh.label(1, "patchy:approved", approver)
+				e.gh.label(1, "maul:approved", approver)
 				e.drive("target-1", v1alpha1.IntentInReview, repoImage)
 				if len(e.gh.prs) != 1 {
 					t.Errorf("pull requests = %d, want only the first Project's", len(e.gh.prs))
@@ -536,7 +536,7 @@ func TestRevival(t *testing.T) {
 				e.jobs.output = failingBuild
 			}
 			name := e.awaiting()
-			e.gh.label(1, "patchy:approved", approver)
+			e.gh.label(1, "maul:approved", approver)
 			if tt.end == v1alpha1.IntentFailed {
 				e.drive(name, v1alpha1.IntentFailed, repoImage)
 			} else {
@@ -553,7 +553,7 @@ func TestRevival(t *testing.T) {
 			if tt.end == v1alpha1.IntentMerged {
 				e.gh.removeTrigger()
 			}
-			id := e.gh.label(1, "patchy:target", tt.actor)
+			id := e.gh.label(1, "maul:target", tt.actor)
 			e.reconcileProject()
 			e.mustIntent(name)
 			in := e.get(name)
@@ -573,7 +573,7 @@ func TestRevival(t *testing.T) {
 			if len(n) != 1 || !strings.Contains(n[0].Body, tt.wantText) {
 				t.Fatalf("notices = %+v", n)
 			}
-			if e.gh.hasLabel("patchy:target") {
+			if e.gh.hasLabel("maul:target") {
 				t.Error("the trigger label was left on an ended intent's issue")
 			}
 			// Handed over again, nothing more is posted.
@@ -607,7 +607,7 @@ func TestHandOffSurvivesAFailure(t *testing.T) {
 				e.jobs.output = failingBuild
 			}
 			name := e.awaiting()
-			e.gh.label(1, "patchy:approved", approver)
+			e.gh.label(1, "maul:approved", approver)
 			if tt.end == v1alpha1.IntentFailed {
 				e.drive(name, v1alpha1.IntentFailed, repoImage)
 			} else {
@@ -622,7 +622,7 @@ func TestHandOffSurvivesAFailure(t *testing.T) {
 			e.mustIntent(name)
 			e.jobs.output = defaultOutput
 			e.clock.Advance(time.Minute)
-			id := e.gh.label(1, "patchy:target", approver)
+			id := e.gh.label(1, "maul:target", approver)
 			e.reconcileProject() // a full listing: the nudge
 			e.gh.failNext(tt.fail, errTransient)
 			if err := e.reconcileIntent(name); err == nil {
@@ -639,9 +639,9 @@ func TestHandOffSurvivesAFailure(t *testing.T) {
 					in.Status.LastTrigger, tt.wantPhase, id)
 			}
 			if tt.end == v1alpha1.IntentMerged {
-				if n := e.gh.withMarker("event-" + itoa(id)); len(n) != 1 || e.gh.hasLabel("patchy:target") {
+				if n := e.gh.withMarker("event-" + itoa(id)); len(n) != 1 || e.gh.hasLabel("maul:target") {
 					t.Errorf("notices %d, label left %v; want one notice and the label removed", len(n),
-						e.gh.hasLabel("patchy:target"))
+						e.gh.hasLabel("maul:target"))
 				}
 			}
 		})

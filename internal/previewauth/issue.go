@@ -6,7 +6,7 @@ package previewauth
 import (
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/sealed"
+	"github.com/devthenet-labs/maul/internal/sealed"
 )
 
 // IssueCode issues an authorization code for an authorize request that the

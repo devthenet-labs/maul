@@ -1,4 +1,4 @@
-# patchy — triage and remediation pipeline for security findings, driven by
+# maul — triage and remediation pipeline for security findings, driven by
 # GitHub issues as the state machine.
 #
 # Everything lives in mise tasks: the go-cli archetype (test/lint/release

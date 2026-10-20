@@ -10,7 +10,7 @@
 # (dockers_v2 over the repo-root Dockerfile.*) to ghcr, and their digests
 # (dist/digests.txt) get the same build-provenance attestation as the archives.
 # The workstation CLI — the one binary that runs on a laptop rather than in the
-# cluster — ships as the patchy-cli archive on the release; this fork publishes
+# cluster — ships as the maul-cli archive on the release; this fork publishes
 # no Homebrew cask (.goreleaser.yaml has no homebrew_casks block).
 # When a release was actually cut, the helm job then packages, cosign-signs,
 # and pushes the chart to ghcr (helm.yaml, called at the release tag) — it runs

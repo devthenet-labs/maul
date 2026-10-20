@@ -17,12 +17,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/stats"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/stats"
 )
 
-const ns = "patchy"
+const ns = "maul"
 
 var (
 	clock    = time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)

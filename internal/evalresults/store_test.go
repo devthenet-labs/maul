@@ -12,7 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/bitwise-media-group/patchy/api/v1alpha1"
+	"github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 func newClient(t *testing.T) *fake.ClientBuilder {
@@ -31,12 +31,12 @@ func TestPersistLoadRoundTrip(t *testing.T) {
 	c := newClient(t).Build()
 	ctx := context.Background()
 	unit := &v1alpha1.EvaluationUnit{
-		ObjectMeta: metav1.ObjectMeta{Name: "eval-1-u000", Namespace: "patchy", UID: "uid-1"},
+		ObjectMeta: metav1.ObjectMeta{Name: "eval-1-u000", Namespace: "maul", UID: "uid-1"},
 	}
 	gvk := metav1.TypeMeta{APIVersion: v1alpha1.GroupVersion.String(), Kind: "EvaluationUnit"}
 	entry := []byte(`{"schema":5,"cases":[{"id":"a","pass":true}]}`)
 
-	ref, err := Persist(ctx, c, "patchy", map[string]string{v1alpha1.LabelEvaluation: "eval-1"}, unit, gvk, entry)
+	ref, err := Persist(ctx, c, "maul", map[string]string{v1alpha1.LabelEvaluation: "eval-1"}, unit, gvk, entry)
 	if err != nil {
 		t.Fatalf("Persist: %v", err)
 	}
@@ -44,7 +44,7 @@ func TestPersistLoadRoundTrip(t *testing.T) {
 		t.Fatalf("ref = %+v, want name eval-1-u000-results", ref)
 	}
 
-	got, err := Load(ctx, c, "patchy", ref.Name)
+	got, err := Load(ctx, c, "maul", ref.Name)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -54,10 +54,10 @@ func TestPersistLoadRoundTrip(t *testing.T) {
 
 	// Re-persist (idempotent overwrite).
 	entry2 := []byte(`{"schema":5,"cases":[]}`)
-	if _, err := Persist(ctx, c, "patchy", nil, unit, gvk, entry2); err != nil {
+	if _, err := Persist(ctx, c, "maul", nil, unit, gvk, entry2); err != nil {
 		t.Fatalf("Persist(again): %v", err)
 	}
-	got, err = Load(ctx, c, "patchy", ref.Name)
+	got, err = Load(ctx, c, "maul", ref.Name)
 	if err != nil {
 		t.Fatalf("Load(again): %v", err)
 	}
@@ -68,9 +68,9 @@ func TestPersistLoadRoundTrip(t *testing.T) {
 
 func TestPersistEmptyEntryIsNil(t *testing.T) {
 	c := newClient(t).Build()
-	unit := &v1alpha1.EvaluationUnit{ObjectMeta: metav1.ObjectMeta{Name: "u", Namespace: "patchy"}}
+	unit := &v1alpha1.EvaluationUnit{ObjectMeta: metav1.ObjectMeta{Name: "u", Namespace: "maul"}}
 	gvk := metav1.TypeMeta{APIVersion: v1alpha1.GroupVersion.String(), Kind: "EvaluationUnit"}
-	ref, err := Persist(context.Background(), c, "patchy", nil, unit, gvk, nil)
+	ref, err := Persist(context.Background(), c, "maul", nil, unit, gvk, nil)
 	if err != nil || ref != nil {
 		t.Errorf("Persist(empty) = (%v, %v), want (nil, nil)", ref, err)
 	}
@@ -78,7 +78,7 @@ func TestPersistEmptyEntryIsNil(t *testing.T) {
 
 func TestLoadMissingIsNil(t *testing.T) {
 	c := newClient(t).Build()
-	entry, err := Load(context.Background(), c, "patchy", "absent-results")
+	entry, err := Load(context.Background(), c, "maul", "absent-results")
 	if err != nil || entry != nil {
 		t.Errorf("Load(missing) = (%q, %v), want (nil, nil)", entry, err)
 	}

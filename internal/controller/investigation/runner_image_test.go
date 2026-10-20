@@ -14,10 +14,10 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/runnerguard"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/runnerguard"
 )
 
 const pinnedImage = "ghcr.io/acme/go-env@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -25,7 +25,7 @@ const pinnedImage = "ghcr.io/acme/go-env@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 // acceptedImage is a declaration source-controller resolved and pinned.
 func acceptedImage() *v1alpha1.RunnerImage {
 	return &v1alpha1.RunnerImage{
-		Declared: "ghcr.io/acme/go-env:1.26", Manifest: ".patchy/agent.yaml",
+		Declared: "ghcr.io/acme/go-env:1.26", Manifest: ".maul/agent.yaml",
 		Image: pinnedImage, SearchPath: "/usr/local/go/bin:/usr/bin:/bin", Verified: true,
 	}
 }
@@ -33,7 +33,7 @@ func acceptedImage() *v1alpha1.RunnerImage {
 // rejectedImage is a declaration source-controller refused.
 func rejectedImage() *v1alpha1.RunnerImage {
 	return &v1alpha1.RunnerImage{
-		Declared: "docker.io/evil/env:1", Manifest: ".patchy/agent.yaml",
+		Declared: "docker.io/evil/env:1", Manifest: ".maul/agent.yaml",
 		Rejected: "NotAllowlisted", Message: "`docker.io/evil/env:1` is not under an allowlisted registry",
 	}
 }
@@ -43,7 +43,7 @@ func rejectedImage() *v1alpha1.RunnerImage {
 func srcRepo(ri *v1alpha1.RunnerImage, conds ...metav1.Condition) *v1alpha1.Repository {
 	return &v1alpha1.Repository{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: fndName + "-src", Namespace: "patchy",
+			Name: fndName + "-src", Namespace: "maul",
 			Labels: map[string]string{v1alpha1.LabelFinding: fndName},
 		},
 		Spec: v1alpha1.RepositorySpec{URL: "https://github.com/acme/orders"},
@@ -132,13 +132,13 @@ func launchable(repo *v1alpha1.Repository, history ...v1alpha1.Phase) []client.O
 }
 
 func reqFor(name string) ctrl.Request {
-	return ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "patchy", Name: name}}
+	return ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "maul", Name: name}}
 }
 
 func getInv(t *testing.T, c client.Client) *v1alpha1.Investigation {
 	t.Helper()
 	var inv v1alpha1.Investigation
-	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: fndName + "-inv-1"}, &inv); err != nil {
+	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: fndName + "-inv-1"}, &inv); err != nil {
 		t.Fatalf("Get investigation: %v", err)
 	}
 	return &inv
@@ -198,8 +198,8 @@ func TestLaunchPinsRunnerImage(t *testing.T) {
 				t.Errorf("status.runnerImage.source = %q, want %q", got, tt.wantSource)
 			}
 			if tt.wantSource == v1alpha1.RunnerImageSourceRepository &&
-				(inv.Status.RunnerImage.Image != pinnedImage || inv.Status.RunnerImage.Manifest != ".patchy/agent.yaml") {
-				t.Errorf("status.runnerImage = %+v, want the pinned image from .patchy/agent.yaml", inv.Status.RunnerImage)
+				(inv.Status.RunnerImage.Image != pinnedImage || inv.Status.RunnerImage.Manifest != ".maul/agent.yaml") {
+				t.Errorf("status.runnerImage = %+v, want the pinned image from .maul/agent.yaml", inv.Status.RunnerImage)
 			}
 		})
 	}

@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/netprofile"
 )
 
 // echoHandler answers with its inbound Authorization inside a body of the
@@ -129,7 +129,7 @@ func TestNeverEchoed(t *testing.T) {
 		t.Errorf("go zip 404 = %d", res.status)
 	}
 	seen = append(seen, res.body, headerText(res.header), npm.log.String(), gor.log.String())
-	pair := base64.StdEncoding.EncodeToString([]byte("patchy:" + sentinel))
+	pair := base64.StdEncoding.EncodeToString([]byte("maul:" + sentinel))
 	for _, s := range seen {
 		for _, leak := range []string{sentinel, pair, "internal.example", base64.StdEncoding.EncodeToString(
 			[]byte(sentinel))} {
@@ -431,7 +431,7 @@ func TestRegistryAuditGolden(t *testing.T) {
 	w.host(goHost, okBody("v1.0.0\n"))
 	creds := newFakeCreds()
 	bearer, _ := BearerCredential(sentinel)
-	basic, _ := BasicCredential("patchy", sentinel)
+	basic, _ := BasicCredential("maul", sentinel)
 	creds.set("art-npm", bearer)
 	creds.set("art-go", basic)
 	goReg := goRegistry(false)
@@ -475,14 +475,14 @@ func TestRegistryMetrics(t *testing.T) {
 	h, _ := npmRig(t, okBody("{}"), nil)
 	attrs := map[string]string{"profile": "web", "route": "r/art-npm", "outcome": "proxied", "ecosystem": "npm",
 		"registry": "art-npm"}
-	before := sum(t, "patchy.egress_proxy.requests", attrs)
+	before := sum(t, "maul.egress_proxy.requests", attrs)
 	h.web(t, "/r/art-npm/left-pad", nil)
 	h.web(t, "/r/art-npm/left-pad", nil)
-	if got := sum(t, "patchy.egress_proxy.requests", attrs) - before; got != 2 {
+	if got := sum(t, "maul.egress_proxy.requests", attrs) - before; got != 2 {
 		t.Errorf("requests grew by %d, want 2", got)
 	}
 	CountCredentialRefresh(t.Context(), "art-npm", CredentialStatic, "reloaded")
-	if got := sum(t, "patchy.egress_proxy.credential.refreshes", map[string]string{"registry": "art-npm",
+	if got := sum(t, "maul.egress_proxy.credential.refreshes", map[string]string{"registry": "art-npm",
 		"kind": "static", "result": "reloaded"}); got < 1 {
 		t.Errorf("refreshes = %d", got)
 	}
@@ -493,7 +493,7 @@ func TestRegistryMetrics(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = stop() }()
-	if got := gauge(t, "patchy.egress_proxy.credential.expiry", "ca-npm"); got != 600 {
+	if got := gauge(t, "maul.egress_proxy.credential.expiry", "ca-npm"); got != 600 {
 		t.Errorf("expiry gauge = %d, want 600", got)
 	}
 }

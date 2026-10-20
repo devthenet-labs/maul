@@ -2,7 +2,7 @@
 // node in a pre-wrapped block, no markdown, no link detection, nothing a
 // string can turn into markup. The server has already made every invisible
 // character visible ([U+XXXX]). The frame says who wrote it, so a plan that
-// claims "approved by @owner" cannot pass for patchy's own words.
+// claims "approved by @owner" cannot pass for maul's own words.
 
 export function PlainText({ text, label, maxHeight = true }: { text: string; label: string; maxHeight?: boolean }) {
   return (

@@ -14,10 +14,10 @@ import (
 
 	"k8s.io/apimachinery/pkg/types"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/agentresult"
-	"github.com/bitwise-media-group/patchy/internal/model"
-	"github.com/bitwise-media-group/patchy/internal/transcript"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/agentresult"
+	"github.com/devthenet-labs/maul/internal/model"
+	"github.com/devthenet-labs/maul/internal/transcript"
 )
 
 // The in-pod report repair, end to end. The kubelet runs the real
@@ -51,8 +51,8 @@ func startRepairIntent(t *testing.T, report, repair string) (*intentEnv, string)
 	t.Helper()
 	e := startIntents(t)
 	e.kubelet.useAgentRunner(t, "build")
-	e.kubelet.setAgentEnv("PATCHY_FAKE_CLAUDE_REPORT", report)
-	e.kubelet.setAgentEnv("PATCHY_FAKE_CLAUDE_REPAIR", repair)
+	e.kubelet.setAgentEnv("MAUL_FAKE_CLAUDE_REPORT", report)
+	e.kubelet.setAgentEnv("MAUL_FAKE_CLAUDE_REPAIR", repair)
 	number, name := e.fileIntent(t)
 	in := e.waitPhase(t, name, v1alpha1.IntentAwaitingApproval)
 	afterSecond(in.Status.Plan.PostedAt.Time)
@@ -87,7 +87,7 @@ func (e *intentEnv) buildAttempt(t *testing.T, name string, n int32) (agentRun, 
 	t.Helper()
 	runName := v1alpha1.IntentRunName(name, v1alpha1.IntentStageBuild, 1, appRepo, n)
 	job := e.kubelet.waitRun(t, "build attempt "+runName+" to run", func(r agentRun) bool {
-		return r.Env["PATCHY_PHASE"] == "build" && r.Env["PATCHY_FINDING"] == runName
+		return r.Env["MAUL_PHASE"] == "build" && r.Env["MAUL_FINDING"] == runName
 	})
 	var run v1alpha1.IntentRun
 	eventually(t, "build attempt "+runName+" to be collected", func() bool {
@@ -118,7 +118,7 @@ func checkOneTranscript(t *testing.T, r agentRun) {
 	}
 }
 
-// TestIntentBuildReportRepaired: a build whose report patchy refuses — notes
+// TestIntentBuildReportRepaired: a build whose report maul refuses — notes
 // written as one string, a slip that threw a build away live — is repaired in
 // the same session and pushed. The resumed run continued the first run's
 // session under its tool grammar, the run records both runs' spend without
@@ -145,9 +145,9 @@ func TestIntentBuildReportRepaired(t *testing.T) {
 		u.CacheCreationTokens != scriptedFirst.CacheCreationTokens+scriptedRepair.CacheCreationTokens {
 		t.Errorf("usage = %+v, want both runs' tokens summed", u)
 	}
-	m, ok := model.ModelByID(model.Builtins(), job.Env["PATCHY_REMEDIATE_MODEL"])
+	m, ok := model.ModelByID(model.Builtins(), job.Env["MAUL_REMEDIATE_MODEL"])
 	if !ok {
-		t.Fatalf("build model %q is not in the registry", job.Env["PATCHY_REMEDIATE_MODEL"])
+		t.Fatalf("build model %q is not in the registry", job.Env["MAUL_REMEDIATE_MODEL"])
 	}
 	repairCost := model.UsageCostUSD(m, int(scriptedRepair.InputTokens), int(scriptedRepair.CacheReadTokens),
 		int(scriptedRepair.CacheCreationTokens), int(scriptedRepair.OutputTokens))
@@ -215,7 +215,7 @@ func TestIntentBuildReportNotRepaired(t *testing.T) {
 	checkOneTranscript(t, job)
 
 	retry, _ := e.buildAttempt(t, name, 2)
-	if prev := retry.Env["PATCHY_PREVIOUS_ATTEMPT"]; !strings.Contains(prev, `"outcome":"report_invalid"`) ||
+	if prev := retry.Env["MAUL_PREVIOUS_ATTEMPT"]; !strings.Contains(prev, `"outcome":"report_invalid"`) ||
 		!strings.Contains(prev, "not repaired in 2 rounds") {
 		t.Errorf("the retry's previous attempt = %s, want the refusal and the failed repair", prev)
 	}

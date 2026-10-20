@@ -16,7 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 // slotServiceQuota plays slot 0's ResourceQuota for Services, which the fake
@@ -32,7 +32,7 @@ func (q *slotServiceQuota) funcs() interceptor.Funcs {
 	return interceptor.Funcs{Create: func(ctx context.Context, c client.WithWatch, obj client.Object,
 		opts ...client.CreateOption) error {
 		svc, ok := obj.(*corev1.Service)
-		if !ok || svc.Namespace != "patchy-preview-0" {
+		if !ok || svc.Namespace != "maul-preview-0" {
 			return c.Create(ctx, obj, opts...)
 		}
 		if q.used >= q.limit {
@@ -51,7 +51,7 @@ func (q *slotServiceQuota) funcs() interceptor.Funcs {
 func (q *slotServiceQuota) resync(e *testEnv) {
 	e.t.Helper()
 	var services corev1.ServiceList
-	if err := e.c.List(context.Background(), &services, client.InNamespace("patchy-preview-0")); err != nil {
+	if err := e.c.List(context.Background(), &services, client.InNamespace("maul-preview-0")); err != nil {
 		e.t.Fatal(err)
 	}
 	q.used = len(services.Items)
@@ -98,7 +98,7 @@ func TestRenamedComponentFitsTheSlotQuota(t *testing.T) {
 			at := time.Date(2026, 10, 1, 11, 0, 0, 0, time.UTC)
 			project, in, p := fourComponentShop(t, at)
 			placeholder := &corev1.Service{ObjectMeta: metav1.ObjectMeta{
-				Name: "patchy-preview-placeholder", Namespace: "patchy-preview-0",
+				Name: "maul-preview-placeholder", Namespace: "maul-preview-0",
 			}, Spec: corev1.ServiceSpec{Type: corev1.ServiceTypeClusterIP}}
 			quota := &slotServiceQuota{limit: 5}
 			e := newTestEnvWith(t, quota.funcs(), project, in, p, placeholder)

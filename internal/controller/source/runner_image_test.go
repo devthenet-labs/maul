@@ -23,10 +23,10 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/artifact"
-	"github.com/bitwise-media-group/patchy/internal/mirror/imageref"
-	"github.com/bitwise-media-group/patchy/internal/runnerimage"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/artifact"
+	"github.com/devthenet-labs/maul/internal/mirror/imageref"
+	"github.com/devthenet-labs/maul/internal/runnerimage"
 )
 
 // tarball builds the gzip-compressed archive the forge serves: every file
@@ -109,7 +109,7 @@ func imageHarness(t *testing.T, gh *fakeForgeClient, fr *fakeResolver) (*Reposit
 func reconcileErr(t *testing.T, r *RepositoryReconciler) (ctrl.Result, error) {
 	t.Helper()
 	return r.Reconcile(t.Context(), ctrl.Request{
-		NamespacedName: types.NamespacedName{Namespace: "patchy", Name: repoName},
+		NamespacedName: types.NamespacedName{Namespace: "maul", Name: repoName},
 	})
 }
 
@@ -144,7 +144,7 @@ func TestRunnerImageDeclarations(t *testing.T) {
 			map[string]string{runnerimage.AgentYAMLPath: yamlDecl, runnerimage.DevcontainerPath: dcBuild},
 			"ghcr.io/acme/go-env:1.26", runnerimage.AgentYAMLPath, resolved.Image, "", 1},
 		{"build-based devcontainer is not applicable", map[string]string{runnerimage.DevcontainerPath: dcBuild},
-			"", runnerimage.DevcontainerPath, "", "builds its image (`build`); patchy does not build images", 0},
+			"", runnerimage.DevcontainerPath, "", "builds its image (`build`); maul does not build images", 0},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -249,7 +249,7 @@ func TestRunnerImageRejections(t *testing.T) {
 			&fakeResolver{err: &runnerimage.Rejection{Reason: "Unsigned", Message: "image `x` carries no signature"}},
 			"Unsigned", "carries no signature", "ghcr.io/acme/go-env:1.26", 1},
 		{"resolver rejection without a reason is labelled by stage", map[string]string{runnerimage.AgentYAMLPath: yamlDecl},
-			&fakeResolver{err: &runnerimage.Rejection{Message: "image ENV sets `PATCHY_X`"}},
+			&fakeResolver{err: &runnerimage.Rejection{Message: "image ENV sets `MAUL_X`"}},
 			"Resolve", "image ENV sets", "ghcr.io/acme/go-env:1.26", 1},
 	}
 	for _, tc := range cases {
@@ -282,7 +282,7 @@ func TestRunnerImageRejections(t *testing.T) {
 			if repo.Status.Artifact == nil || repo.Status.ResolvedSHA != "abc123" {
 				t.Errorf("artifact/sha = %+v/%q, want retained", repo.Status.Artifact, repo.Status.ResolvedSHA)
 			}
-			if _, ok := r.Artifacts.Get("patchy/" + repoName); !ok {
+			if _, ok := r.Artifacts.Get("maul/" + repoName); !ok {
 				t.Error("artifact dropped from the store on rejection")
 			}
 			if len(tc.resolver.calls) != tc.wantCalls {
@@ -433,7 +433,7 @@ func TestRunnerImageRejectionSurvivesRestart(t *testing.T) {
 	if len(fr.calls) != 1 {
 		t.Errorf("resolver calls = %d, want 1: a rejection is pinned too", len(fr.calls))
 	}
-	if _, ok := fresh.Get("patchy/" + repoName); !ok {
+	if _, ok := fresh.Get("maul/" + repoName); !ok {
 		t.Error("artifact not re-fetched into the fresh store")
 	}
 }
@@ -488,7 +488,7 @@ func TestRunnerImageMessageTruncated(t *testing.T) {
 // Repository: dir is the directory the store was built over.
 func storedPath(t *testing.T, r *RepositoryReconciler, dir string) string {
 	t.Helper()
-	info, ok := r.Artifacts.Get("patchy/" + repoName)
+	info, ok := r.Artifacts.Get("maul/" + repoName)
 	if !ok {
 		t.Fatal("no stored artifact")
 	}
@@ -558,7 +558,7 @@ func TestRunnerImageUnreadableArtifactRefetched(t *testing.T) {
 	if condition(t, repo, v1alpha1.ConditionStalled) != nil {
 		t.Error("an unreadable artifact must not stall")
 	}
-	if _, ok := r.Artifacts.Get("patchy/" + repoName); ok {
+	if _, ok := r.Artifacts.Get("maul/" + repoName); ok {
 		t.Error("the unreadable artifact is still stored, so the retry would re-read it")
 	}
 

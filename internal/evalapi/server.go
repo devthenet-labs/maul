@@ -13,8 +13,8 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/bitwise-media-group/patchy/internal/web/auth"
-	"github.com/bitwise-media-group/patchy/pkg/evaluation"
+	"github.com/devthenet-labs/maul/internal/web/auth"
+	"github.com/devthenet-labs/maul/pkg/evaluation"
 )
 
 // Verbs the API access-reviews on the evaluations resource.

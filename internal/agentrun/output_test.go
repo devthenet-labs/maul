@@ -22,10 +22,10 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/harness"
-	"github.com/bitwise-media-group/patchy/internal/runner"
-	"github.com/bitwise-media-group/patchy/internal/transcript"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/harness"
+	"github.com/devthenet-labs/maul/internal/runner"
+	"github.com/devthenet-labs/maul/internal/transcript"
 )
 
 // syncBuffer is the runner's stdout as a test reads it while the stage's
@@ -1099,7 +1099,7 @@ func TestOutputScrubsTheRepairsToken(t *testing.T) {
 		{writes: reported, script: func(feed func(string)) {
 			f, _ := commandFile(t, tmp, "benv")
 			feed(startedLine("benv", "toolu_env"))
-			put(t, f, "x-patchy-broker-token: "+rotated+"\nearlier: "+first+"\n")
+			put(t, f, "x-maul-broker-token: "+rotated+"\nearlier: "+first+"\n")
 			feed(notifiedLine("benv", "toolu_env"))
 		}},
 	}}
@@ -1107,7 +1107,7 @@ func TestOutputScrubsTheRepairsToken(t *testing.T) {
 		t.Fatalf("outcome = %s (%s), want the repaired report", st.Outcome, st.Detail)
 	}
 	lines := joined(t, chunks(out.String()))
-	want := []string{"x-patchy-broker-token: " + transcript.Redacted, "earlier: " + transcript.Redacted}
+	want := []string{"x-maul-broker-token: " + transcript.Redacted, "earlier: " + transcript.Redacted}
 	if !slices.Equal(lines, want) {
 		t.Errorf("repair command lines = %q, want %q", lines, want)
 	}

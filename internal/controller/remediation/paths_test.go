@@ -23,10 +23,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/kube"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/kube"
 )
 
 // errRunner is fakeCRRunner with per-call failures injected.
@@ -101,7 +101,7 @@ func remWith(
 		Client:        c,
 		Runner:        runner,
 		Forge:         fw,
-		Namespace:     "patchy",
+		Namespace:     "maul",
 		MaxConcurrent: 1,
 		MaxAttempts:   2,
 		Enabled:       []string{"claude", "codex"},
@@ -111,7 +111,7 @@ func remWith(
 
 func remReconcileErr(t *testing.T, r *RemediationReconciler, name string) (ctrl.Result, error) {
 	t.Helper()
-	return r.Reconcile(t.Context(), ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "patchy", Name: name}})
+	return r.Reconcile(t.Context(), ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "maul", Name: name}})
 }
 
 // TestRemediationCollectFailurePaths: every way a finished (or vanished)
@@ -609,14 +609,14 @@ func TestRemediationEmptyOutcomeReason(t *testing.T) {
 func scheduleOnce(t *testing.T, r *RemediationReconciler) (ctrl.Result, error) {
 	t.Helper()
 	return r.Reconcile(t.Context(), ctrl.Request{
-		NamespacedName: types.NamespacedName{Namespace: "patchy", Name: remSchedulerRequest},
+		NamespacedName: types.NamespacedName{Namespace: "maul", Name: remSchedulerRequest},
 	})
 }
 
 // pendingRem is a Pending Remediation of finding at prio.
 func pendingRem(name, finding string, prio int32) *v1alpha1.Remediation {
 	return &v1alpha1.Remediation{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "patchy", CreationTimestamp: metav1.NewTime(crdClock)},
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "maul", CreationTimestamp: metav1.NewTime(crdClock)},
 		Spec: v1alpha1.RemediationSpec{
 			FindingRef:       v1alpha1.ObjectReference{Name: finding},
 			InvestigationRef: v1alpha1.ObjectReference{Name: "i"},
@@ -648,7 +648,7 @@ func TestRemediationSchedulerGrantMovesFinding(t *testing.T) {
 		t.Errorf("activeRun = %+v, want rem-a", f.Status.ActiveRun)
 	}
 	var rem v1alpha1.Remediation
-	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: "rem-a"}, &rem); err != nil {
+	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: "rem-a"}, &rem); err != nil {
 		t.Fatal(err)
 	}
 	if rem.Status.Phase != v1alpha1.RunRunning || rem.Status.GrantedAt == nil ||
@@ -755,7 +755,7 @@ func TestRemediationSchedulerGrantError(t *testing.T) {
 func spawnErr(t *testing.T, r *SpawnerReconciler) error {
 	t.Helper()
 	_, err := r.Reconcile(t.Context(), ctrl.Request{
-		NamespacedName: types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1"},
+		NamespacedName: types.NamespacedName{Namespace: "maul", Name: "finding-aa-1"},
 	})
 	return err
 }
@@ -772,7 +772,7 @@ func TestSpawnerIgnores(t *testing.T) {
 		{"suspended", func(f *v1alpha1.Finding) { f.Spec.Suspend = true }},
 		{"deleting", func(f *v1alpha1.Finding) {
 			f.DeletionTimestamp = &now
-			f.Finalizers = []string{"patchy.bitwisemedia.uk/test"}
+			f.Finalizers = []string{"maul.run/test"}
 		}},
 		{"awaiting approval without approval", func(f *v1alpha1.Finding) {
 			f.Status.Phase = v1alpha1.PhaseAwaitingApproval
@@ -829,7 +829,7 @@ func TestSpawnerHoldsWhileAttemptInFlight(t *testing.T) {
 				t.Fatalf("Reconcile: %v", err)
 			}
 			var rem v1alpha1.Remediation
-			err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1-rem-2"}, &rem)
+			err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: "finding-aa-1-rem-2"}, &rem)
 			if !kerrors.IsNotFound(err) {
 				t.Errorf("attempt 2 lookup error = %v, want not found", err)
 			}
@@ -845,7 +845,7 @@ func TestSpawnerWithoutInvestigationChild(t *testing.T) {
 		t.Fatalf("Reconcile: %v", err)
 	}
 	var rem v1alpha1.Remediation
-	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1-rem-1"}, &rem); err != nil {
+	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: "finding-aa-1-rem-1"}, &rem); err != nil {
 		t.Fatalf("Remediation not created: %v", err)
 	}
 	p := rem.Spec.Parameters

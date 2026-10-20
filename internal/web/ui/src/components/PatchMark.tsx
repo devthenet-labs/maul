@@ -1,5 +1,5 @@
 // The CSS patch mark — a square of new turf sliding over a soil hole, with
-// two grass blades. Ported from the patchy marketing kit.
+// two grass blades. Ported from the maul marketing kit.
 
 export function PatchMark({ size = 30 }: { size?: number }) {
   return (

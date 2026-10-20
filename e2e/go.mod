@@ -1,13 +1,13 @@
 // The e2e suite is a separate module so its harness dependencies never reach
 // the product binaries.
-module github.com/bitwise-media-group/patchy/e2e
+module github.com/devthenet-labs/maul/e2e
 
 go 1.26.10
 
-replace github.com/bitwise-media-group/patchy => ..
+replace github.com/devthenet-labs/maul => ..
 
 require (
-	github.com/bitwise-media-group/patchy v0.0.0-00010101000000-000000000000
+	github.com/devthenet-labs/maul v0.0.0-00010101000000-000000000000
 	github.com/go-jose/go-jose/v4 v4.1.5
 	github.com/go-logr/logr v1.4.4
 	github.com/google/go-containerregistry v0.22.1

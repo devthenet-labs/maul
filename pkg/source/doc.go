@@ -1,7 +1,7 @@
 // Copyright 2026 Bitwise Media Group Ltd.
 // SPDX-License-Identifier: MIT
 
-// Package source is patchy's public plugin seam for security-finding
+// Package source is maul's public plugin seam for security-finding
 // sources. A source turns tool-specific deliveries — GitHub Advanced Security
 // code-scanning alerts, Google Cloud Security Command Center notifications,
 // other SAST tools, agentic findings — into normalized Findings. The
@@ -9,7 +9,7 @@
 // projection, labels), so a new source implements Handler and nothing more.
 //
 // A source may also implement Resolver, the optional write-back: telling the
-// originating tool what patchy decided, so a finding dismissed here does not
+// originating tool what maul decided, so a finding dismissed here does not
 // stay open there.
 //
 // Findings are not always about code. A cloud finding names a CloudResource

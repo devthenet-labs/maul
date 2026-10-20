@@ -7,10 +7,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/forge"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/ghpush"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/forge"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/ghpush"
 )
 
 // forgeWriter is the production ForgeWriter: resolve the Forge covering the

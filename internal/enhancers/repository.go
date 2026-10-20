@@ -6,7 +6,7 @@ package enhancers
 import (
 	"strings"
 
-	"github.com/bitwise-media-group/patchy/pkg/source"
+	"github.com/devthenet-labs/maul/pkg/source"
 )
 
 // maxTagAttributes bounds how many of a resource's tags become finding

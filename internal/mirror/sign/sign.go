@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/mirror/spec"
+	"github.com/devthenet-labs/maul/internal/mirror/spec"
 )
 
 // signTimeout bounds one signing operation (OIDC exchange, Fulcio, Rekor,

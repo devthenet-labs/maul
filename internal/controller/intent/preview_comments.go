@@ -9,9 +9,9 @@ import (
 	"log/slog"
 	"slices"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/templates"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // previewNotes is what syncPreviewComments remembers of one Intent between
@@ -19,7 +19,7 @@ import (
 // so a status write lost after posting never posts a second one even when the
 // preview has moved on by the next pass; and the body digest GitHub last
 // refused there (a locked conversation, a permission the App lost, a
-// repository patchy can no longer reach), not tried again until what the
+// repository maul can no longer reach), not tried again until what the
 // comment would say changes.
 type previewNotes struct {
 	ids     map[string]int64
@@ -68,7 +68,7 @@ type previewRecord struct {
 // the Project. Each write asks the rate floor of the pull request's own
 // repository first; under it, or on a failure that may pass, the comment is
 // left as it is and retry reports it, for an ended intent to come back to. A
-// refusal, or a repository patchy can no longer reach (unreachable), is
+// refusal, or a repository maul can no longer reach (unreachable), is
 // logged and not tried again until the comment would say something else. A
 // failed read of the Preview changes nothing (loadPreview). changed reports
 // a status write; only errConflict and a render error are returned.
@@ -167,7 +167,7 @@ func (p *pass) syncPreviewComment(ctx context.Context, view previewView, pr v1al
 }
 
 // previewWriteFailed logs a preview comment write that failed, and reports
-// whether to try it again later: a refusal, or a repository patchy can no
+// whether to try it again later: a refusal, or a repository maul can no
 // longer reach (unreachable), is remembered against what the comment would
 // have said (d) instead, and not tried again until that changes.
 func (p *pass) previewWriteFailed(ctx context.Context, pr v1alpha1.IntentPullRequest, d string, err error) bool {

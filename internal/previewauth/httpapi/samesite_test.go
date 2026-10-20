@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bitwise-media-group/patchy/internal/previewauth"
+	"github.com/devthenet-labs/maul/internal/previewauth"
 )
 
 // The same-site attacker: preview code on <x>.<suffix> when the sign-in host

@@ -4,42 +4,42 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-    name: patchy-config
-    namespace: patchy
+    name: maul-config
+    namespace: maul
 data:
     # DESIGN.md requirements 2 and 5, literally: accumulate for an hour, pick
     # up only what is older than an hour.
-    PATCHY_ACCUMULATION_WINDOW: 1h
-    PATCHY_FINDING_MIN_AGE: 1h
+    MAUL_ACCUMULATION_WINDOW: 1h
+    MAUL_FINDING_MIN_AGE: 1h
 
     # The real models (canonical, provider-qualified; the harness is derived
     # from the model) the investigation may choose between. Only the claude
     # runner is enabled here; add `codex` to
-    # PATCHY_HARNESSES and OpenAI models to the allowlist to let the
+    # MAUL_HARNESSES and OpenAI models to the allowlist to let the
     # investigation choose them (codex is brokered: give the egress broker
     # the OpenAI key, base/secrets.example.yaml 2b). Adding `copilot` instead makes every
     # allowlisted model runnable through one credential — but that credential is
     # a GitHub token rather than a model API key, so read the note on
-    # PATCHY_COPILOT_SECRET in the base ConfigMap before enabling it in prod.
-    PATCHY_HARNESSES: claude
-    PATCHY_INVESTIGATE_MODEL: anthropic/claude-sonnet-5
-    PATCHY_REMEDIATE_MODEL: anthropic/claude-sonnet-5
-    PATCHY_MODEL_ALLOWLIST: anthropic/claude-sonnet-5,anthropic/claude-opus-5
-    PATCHY_CONFIDENCE_THRESHOLD: "0.75"
-    PATCHY_MAX_ATTEMPTS: "2"
+    # MAUL_COPILOT_SECRET in the base ConfigMap before enabling it in prod.
+    MAUL_HARNESSES: claude
+    MAUL_INVESTIGATE_MODEL: anthropic/claude-sonnet-5
+    MAUL_REMEDIATE_MODEL: anthropic/claude-sonnet-5
+    MAUL_MODEL_ALLOWLIST: anthropic/claude-sonnet-5,anthropic/claude-opus-5
+    MAUL_CONFIDENCE_THRESHOLD: "0.75"
+    MAUL_MAX_ATTEMPTS: "2"
 
     # Completed findings live two weeks; the FindingRollups keep the all-time
     # statistics after deletion.
-    PATCHY_FINDING_TTL: 336h
+    MAUL_FINDING_TTL: 336h
 
     # An agent Job that has not finished in 90 minutes is not going to.
-    PATCHY_JOB_DEADLINE: 90m
+    MAUL_JOB_DEADLINE: 90m
     # Keep finished Jobs around long enough to debug a bad run.
-    PATCHY_JOB_TTL: 6h
+    MAUL_JOB_TTL: 6h
 
     # PIN ME. Must be the same digest as the claude-agent-runner entry in
     # kustomization.yaml's `images:` block — this string is copied verbatim
     # into every claude Job the controllers create. (Pin
-    # PATCHY_CODEX_AGENT_IMAGE / PATCHY_COPILOT_AGENT_IMAGE too when those
+    # MAUL_CODEX_AGENT_IMAGE / MAUL_COPILOT_AGENT_IMAGE too when those
     # runners are enabled.)
-    PATCHY_CLAUDE_AGENT_IMAGE: ghcr.io/devthenet-labs/patchy/claude-agent-runner@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    MAUL_CLAUDE_AGENT_IMAGE: ghcr.io/devthenet-labs/maul/claude-agent-runner@sha256:0000000000000000000000000000000000000000000000000000000000000000

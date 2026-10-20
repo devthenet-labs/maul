@@ -12,7 +12,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/bitwise-media-group/patchy/internal/previewauth"
+	"github.com/devthenet-labs/maul/internal/previewauth"
 )
 
 const (
@@ -70,7 +70,7 @@ func (h hosts) RoundTrip(r *http.Request) (*http.Response, error) {
 		rec.WriteHeader(http.StatusNotFound)
 		return rec.Result(), nil
 	}
-	q := url.Values{"client_id": {"patchy-preview-s" + slot}, "response_type": {"code"},
+	q := url.Values{"client_id": {"maul-preview-s" + slot}, "response_type": {"code"},
 		"redirect_uri": {"https://" + label + "." + suffix + "/oauth2/idpresponse"}}
 	rec.Header().Set("Location", issuer+"/authorize?"+q.Encode())
 	rec.WriteHeader(http.StatusFound)

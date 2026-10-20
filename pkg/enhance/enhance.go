@@ -6,7 +6,7 @@ package enhance
 import (
 	"context"
 
-	"github.com/bitwise-media-group/patchy/pkg/source"
+	"github.com/devthenet-labs/maul/pkg/source"
 )
 
 // Issue is the minimal view of a security-finding issue an Enhancer sees.

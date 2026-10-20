@@ -84,7 +84,7 @@ func (s *Server) rendered(p *pull) pull {
 
 // MergePull records pull request number, from branch head, as merged into
 // mergeCommitSHA — the state a merge leaves behind — creating it when the
-// fake has not seen it (a test fabricating a PR patchy opened earlier).
+// fake has not seen it (a test fabricating a PR maul opened earlier).
 func (s *Server) MergePull(number int, head, mergeCommitSHA string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -114,7 +114,7 @@ func (s *Server) ClosePull(number int) bool {
 }
 
 // OpenPull records pull request number, from branch head, as open — a PR
-// patchy opened earlier, fabricated by a test that runs no job controllers.
+// maul opened earlier, fabricated by a test that runs no job controllers.
 func (s *Server) OpenPull(number int, head string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

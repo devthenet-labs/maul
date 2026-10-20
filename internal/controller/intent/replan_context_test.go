@@ -14,10 +14,10 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/report"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/report"
 )
 
 // inputSnapshotOf reads the Intent's current input snapshot ConfigMap.
@@ -98,7 +98,7 @@ func TestReplanContext(t *testing.T) {
 
 	e.gh.comment(approver, "Also add a unit test.")
 	e.gh.removeTrigger()
-	e.gh.label(1, "patchy:target", approver)
+	e.gh.label(1, "maul:target", approver)
 	e.settleActions(name)
 	in = e.get(name)
 	if in.Status.Input.Revision != 2 || in.Status.Input.ContextDigest == "" {
@@ -126,7 +126,7 @@ func TestReplanContext(t *testing.T) {
 
 	// The approval is bound to the request alone: approving the new plan
 	// works, and its build is handed the plan and nothing of the context.
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in = e.drive(name, v1alpha1.IntentInReview, repoImage)
 	if in.Status.Approval == nil || in.Status.Approval.InputDigest != in.Status.Input.Digest {
 		t.Fatalf("approval = %+v, want it bound to the request digest", in.Status.Approval)
@@ -178,12 +178,12 @@ func TestRevivalContext(t *testing.T) {
 	e := newEnv(t, testProject())
 	e.jobs.output = failingBuild
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	e.drive(name, v1alpha1.IntentFailed, repoImage)
 	e.mustIntent(name)
 	e.jobs.output = defaultOutput
 	e.clock.Advance(time.Minute)
-	e.gh.label(1, "patchy:target", approver)
+	e.gh.label(1, "maul:target", approver)
 	e.reconcileProject()
 	e.mustIntent(name)
 	in := e.get(name)
@@ -278,7 +278,7 @@ func TestPlanContextChangedInTheSnapshotIsRefused(t *testing.T) {
 	e.drive(name, v1alpha1.IntentAwaitingApproval, repoImage)
 	e.clock.Advance(time.Minute)
 	e.gh.removeTrigger()
-	e.gh.label(1, "patchy:target", approver)
+	e.gh.label(1, "maul:target", approver)
 	// The replan's snapshot is taken; then someone changes its context
 	// file.
 	e.mustIntent(name)

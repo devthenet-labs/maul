@@ -8,7 +8,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/bitwise-media-group/patchy/pkg/enhance"
+	"github.com/devthenet-labs/maul/pkg/enhance"
 )
 
 // dynamicHarness wires a DynamicGoogleCloud to a mutable config and a

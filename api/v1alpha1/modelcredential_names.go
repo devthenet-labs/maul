@@ -19,13 +19,13 @@ import (
 const (
 	// DefaultCredentialsNamespace is the namespace the person's credential
 	// Secrets live in (chart egressBroker.userCredentials.namespace).
-	DefaultCredentialsNamespace = "patchy-credentials"
+	DefaultCredentialsNamespace = "maul-credentials"
 
 	// LabelCredentialOwner is on every credential Secret: its owner's hash
 	// (ModelCredentialOwnerHash), which must equal the hash in the Secret's
 	// own name. The broker checks it before using the Secret, so a Secret
 	// renamed or copied into place under another person's name is refused.
-	LabelCredentialOwner = "patchy.bitwisemedia.uk/credential-owner"
+	LabelCredentialOwner = "maul.run/credential-owner"
 
 	// ModelCredentialSecretKey is the one data key of a credential Secret.
 	ModelCredentialSecretKey = "credential"

@@ -101,7 +101,7 @@ func TestRemediationChangesetRoundTrip(t *testing.T) {
 		Remediation: &Remediation{
 			Stage:   Stage{Outcome: OutcomeOK, Harness: "claude", Model: "claude-sonnet-5"},
 			Success: true,
-			Branch:  "patchy/finding-abc123def0-1",
+			Branch:  "maul/finding-abc123def0-1",
 			Changeset: &Changeset{
 				BaseSHA:       "0123456789abcdef0123456789abcdef01234567",
 				CommitMessage: "fix(security): escape sink",

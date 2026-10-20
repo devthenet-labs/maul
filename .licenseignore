@@ -11,6 +11,6 @@ internal/mirror/spec/testdata/**
 overrides/**
 internal/jobs/testdata/**
 internal/controller/preview/testdata/**
-cmd/patchy/internal/scaffold/testdata/**
+cmd/maul/internal/scaffold/testdata/**
 hack/testdata/chart-render/golden/**
-cmd/patchy/internal/previewsetup/testdata/**
+cmd/maul/internal/previewsetup/testdata/**

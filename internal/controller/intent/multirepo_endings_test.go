@@ -13,8 +13,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/ghclient"
 )
 
 // checkOn sets the one named check, "test", on sha: passed, or failed with
@@ -104,7 +104,7 @@ func TestIntentLevelChecksObservationIsHonouredOnUpgrade(t *testing.T) {
 	project.Spec.Checks.Fix = []string{"test"}
 	e := newEnv(t, project)
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 	head := in.Status.PullRequests[0].HeadSHA
 	in.Status.ChecksObservedHeadSHA, in.Status.ChecksObservedProjectGeneration = head, 1
@@ -218,7 +218,7 @@ func TestEndingsOfSeveralPullRequests(t *testing.T) {
 	t.Run("one pull request closed", func(t *testing.T) {
 		e := newEnv(t, testProject())
 		name := e.awaiting()
-		e.gh.label(1, "patchy:approved", approver)
+		e.gh.label(1, "maul:approved", approver)
 		e.drive(name, v1alpha1.IntentInReview, repoImage)
 		e.gh.closePR(false)
 		e.drive(name, v1alpha1.IntentClosed, repoImage)

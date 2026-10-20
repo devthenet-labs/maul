@@ -1,10 +1,10 @@
 # Onboarding an application
 
-An application repository is ready for intents when patchy can build in it and, with previews, run it. Three things make
-that so: an **agent image**, the toolchain patchy's coding agent builds and tests in, declared in `.patchy/agent.yaml`;
-a **runtime image** of every pull request head, which a preview runs; and **trusted publishers** that push both to ECR
-from the repository's default branch, never from pull request code. `patchy init app` writes all of it, the reference
-terraform module creates the registry repositories and the publisher roles, and a `Project` points patchy at the
+An application repository is ready for intents when maul can build in it and, with previews, run it. Three things make
+that so: an **agent image**, the toolchain maul's coding agent builds and tests in, declared in `.maul/agent.yaml`; a
+**runtime image** of every pull request head, which a preview runs; and **trusted publishers** that push both to ECR
+from the repository's default branch, never from pull request code. `maul init app` writes all of it, the reference
+terraform module creates the registry repositories and the publisher roles, and a `Project` points maul at the
 repository.
 
 This page uses the example site of [Deploying intents and previews](deploying.md): the application `acme/Shop.Web`, the
@@ -29,59 +29,59 @@ and the Preview says why:
 
 The generated Go service meets all of it: a static binary on distroless, uid 65532, port 8080 and `/healthz`.
 
-Behind the [preview gateway](../configuration/preview-gateway.md), the app also never sees a path under `/.patchy/`,
-must not set cookies named `__Host-patchy-*`, and receives a non-GET request or a WebSocket only with its own `Origin`
-(a browser sends it for the app's own requests).
+Behind the [preview gateway](../configuration/preview-gateway.md), the app also never sees a path under `/.maul/`, must
+not set cookies named `__Host-maul-*`, and receives a non-GET request or a WebSocket only with its own `Origin` (a
+browser sends it for the app's own requests).
 [Preview sign-in, for application authors](preview-sign-in.md#for-application-authors) lists what the app sees on each
 path.
 
 ## Naming: the repository name is yours
 
-Nothing in patchy constrains a repository's name: `acme/Shop.Web`, `acme/billing_api` and `acme/patchy-anything` all
-work. Three short, DNS-safe names are derived beside it, each chosen once:
+Nothing in maul constrains a repository's name: `acme/Shop.Web`, `acme/billing_api` and `acme/maul-anything` all work.
+Three short, DNS-safe names are derived beside it, each chosen once:
 
-| Name               | Example    | Where it shows                                                                                          | Rule                                        |
-| ------------------ | ---------- | ------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
-| **Image slug**     | `shop-web` | The ECR repositories `patchy/app-envs/shop-web` and `patchy/previews/shop-web`, the publisher roles     | Lowercase letters, digits and inner hyphens |
-| **Project name**   | `shop-web` | Intent names `shop-web-<issue>`, the trigger label `patchy:shop-web`, preview hosts `shop-web-<issue>.` | A DNS label of at most 25 characters        |
-| **Repository key** | `shop-web` | The Project's `repositories[].name`: run and Repository names                                           | A DNS label of at most 16 characters        |
+| Name               | Example    | Where it shows                                                                                        | Rule                                        |
+| ------------------ | ---------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| **Image slug**     | `shop-web` | The ECR repositories `maul/app-envs/shop-web` and `maul/previews/shop-web`, the publisher roles       | Lowercase letters, digits and inner hyphens |
+| **Project name**   | `shop-web` | Intent names `shop-web-<issue>`, the trigger label `maul:shop-web`, preview hosts `shop-web-<issue>.` | A DNS label of at most 25 characters        |
+| **Repository key** | `shop-web` | The Project's `repositories[].name`: run and Repository names                                         | A DNS label of at most 16 characters        |
 
-`patchy init app` derives the slug from the repository name (`Shop.Web` becomes `shop-web`; `--image-name` sets
-another), and the module keys the app by it. A GitHub rename later changes only the module's `github.name` and the
-Project's `url`: the slug, and every AWS name with it, stays. Keep the slug short: it is part of the publisher role
-names, which IAM caps at 64 characters.
+`maul init app` derives the slug from the repository name (`Shop.Web` becomes `shop-web`; `--image-name` sets another),
+and the module keys the app by it. A GitHub rename later changes only the module's `github.name` and the Project's
+`url`: the slug, and every AWS name with it, stays. Keep the slug short: it is part of the publisher role names, which
+IAM caps at 64 characters.
 
 ## Scaffold the repository
 
-Run `patchy init app` in a checkout of the repository, with the CLI of the release you deploy (it pins the agent base
+Run `maul init app` in a checkout of the repository, with the CLI of the release you deploy (it pins the agent base
 image and the module to its own release):
 
 ```sh
 gh repo create acme/Shop.Web --private --clone && cd Shop.Web
-patchy init app --registry 123456789012.dkr.ecr.us-west-2.amazonaws.com
-git add -A && git commit -m "chore: scaffold with patchy init app" && git branch -M main && git push -u origin main
+maul init app --registry 123456789012.dkr.ecr.us-west-2.amazonaws.com
+git add -A && git commit -m "chore: scaffold with maul init app" && git branch -M main && git push -u origin main
 ```
 
-The repository and its default branch are read from `origin`. A new application gets a small Go service besides the
-patchy files; [the CLI page](../cli.md#scaffolding-an-application-repository) lists every file and what it does. Its CI
+The repository and its default branch are read from `origin`. A new application gets a small Go service besides the maul
+files; [the CLI page](../cli.md#scaffolding-an-application-repository) lists every file and what it does. Its CI
 (`test`) runs on the push; both publishers skip, because none of their variables is set yet. Then follow the **next
 steps** `init app` prints on stderr: they are the rest of this page, with your names filled in, including the terraform
 block for this application.
 
 ### An application that already exists
 
-`--existing` writes only `.patchy/` and the CI publishers, builds the runtime image in a workflow of its own
+`--existing` writes only `.maul/` and the CI publishers, builds the runtime image in a workflow of its own
 (`runtime-image.yml`, named `runtime image`) so your CI is untouched, and ends its next steps with what to adapt:
 
 ```sh
-patchy init app --existing --registry 123456789012.dkr.ecr.us-west-2.amazonaws.com
+maul init app --existing --registry 123456789012.dkr.ecr.us-west-2.amazonaws.com
 ```
 
 - **`./Dockerfile`**, at the repository root, is the runtime image `runtime-image.yml` builds, with the repository root
   as its context, for `linux/amd64` only, with a `BUILD_SHA` build argument. It must meet the runtime contract above
   (`USER 65532:65532`, nothing written to disk, one `EXPOSE`d port, the readiness path) and stay under 128 MiB as an OCI
   archive. Add one if the repository has none.
-- **`.patchy/Dockerfile`** builds the agent's Go module cache from the root `go.mod` and `go.sum`: keep both out of
+- **`.maul/Dockerfile`** builds the agent's Go module cache from the root `go.mod` and `go.sum`: keep both out of
   `.dockerignore`'s exclusions. It pins Go 1.26.6 with `GOTOOLCHAIN=local`, so a `go.mod` that asks for a newer Go fails
   the agent image's build until you change its toolchain stage. Without a root `go.mod`, adapt it to where the module
   lives.
@@ -91,7 +91,7 @@ patchy init app --existing --registry 123456789012.dkr.ecr.us-west-2.amazonaws.c
   the publishers' own tests write `__pycache__` under `.github/actions/publish` when run locally: add `__pycache__/` to
   `.gitignore`.
 
-There is then no `test` check from patchy: a Project's `checks.fix` names your own CI's check runs
+There is then no `test` check from maul: a Project's `checks.fix` names your own CI's check runs
 ([The Project](#the-project)).
 
 `--existing` is for an application `init app` did not scaffold. Over a full scaffold (a copy of a template repository,
@@ -105,8 +105,8 @@ A template repository saves running `init app` from scratch for every new applic
 
 ```sh
 gh repo create acme/app-template --private --clone && cd app-template
-patchy init app --image-name app-template --registry 123456789012.dkr.ecr.us-west-2.amazonaws.com
-git add -A && git commit -m "chore: scaffold with patchy init app" && git branch -M main && git push -u origin main
+maul init app --image-name app-template --registry 123456789012.dkr.ecr.us-west-2.amazonaws.com
+git add -A && git commit -m "chore: scaffold with maul init app" && git branch -M main && git push -u origin main
 gh repo edit acme/app-template --template
 ```
 
@@ -114,24 +114,24 @@ Never set the publish variables on the template, and never at the organization l
 nothing, and neither does a copy until its own variables are set.
 
 A repository created from the template still carries the template's names: `app-template` in `go.mod`, the page, the
-READMEs and the image `.patchy/agent.yaml` declares. **Retarget** it with a full `init app --force`, after removing the
+READMEs and the image `.maul/agent.yaml` declares. **Retarget** it with a full `init app --force`, after removing the
 two toolchain files, which `--force` keeps and which still name the template's agent image:
 
 ```sh
 gh repo create acme/Shop.Web --private --template acme/app-template --clone && cd Shop.Web
-rm .patchy/agent.yaml .patchy/Dockerfile
-patchy init app --force --registry 123456789012.dkr.ecr.us-west-2.amazonaws.com
+rm .maul/agent.yaml .maul/Dockerfile
+maul init app --force --registry 123456789012.dkr.ecr.us-west-2.amazonaws.com
 git add -A && git commit -m "chore: retarget the template to Shop.Web" && git push
 ```
 
 Not `--existing`: that would keep the template's names and its `ci.yml` runtime build beside a second one. `--force`
 rewrites the application's files too, which in a fresh copy are the template's. The template is a snapshot of one CLI
-release; regenerate it with `init app --force` when you upgrade patchy.
+release; regenerate it with `init app --force` when you upgrade maul.
 
 ### Tell the planner how to test
 
-patchy's planner reads the repository but cannot run anything in it: no tests, no builds, no package managers. Its
-prompt tells it to take the build's test plan from what the repository says about testing (`CLAUDE.md`, `AGENTS.md`,
+maul's planner reads the repository but cannot run anything in it: no tests, no builds, no package managers. Its prompt
+tells it to take the build's test plan from what the repository says about testing (`CLAUDE.md`, `AGENTS.md`,
 `CONTRIBUTING.md`, the README's development notes and the CI workflows under `.github/workflows/`), to name the test
 command your CI runs, and to leave out the tests that guidance calls slow, flaky, platform-specific or not run in CI. So
 write down, in one of those places, the command that runs the tests and which tests need something the agent image lacks
@@ -140,9 +140,9 @@ runs `go test -race ./...`.
 
 ## The registry repositories and publisher roles
 
-Each application gets two ECR repositories with immutable tags, `patchy/app-envs/<slug>` (the agent image) and
-`patchy/previews/<slug>` (the runtime images), and one publisher role for each. A role trusts only this repository (by
-its numeric IDs and GitHub's immutable OIDC subject), only its default branch, and only its own publisher workflow,
+Each application gets two ECR repositories with immutable tags, `maul/app-envs/<slug>` (the agent image) and
+`maul/previews/<slug>` (the runtime images), and one publisher role for each. A role trusts only this repository (by its
+numeric IDs and GitHub's immutable OIDC subject), only its default branch, and only its own publisher workflow,
 `.github/workflows/publish-agent.yml` or `publish-runtime.yml`. No other workflow can assume these roles, and neither
 role can write the other's repository. Any other IAM principal with ECR write on these repositories can still push to
 them, though: account administrators, broad CI roles, anything holding `ecr:*`. Under `allowUnsigned`, that write access
@@ -155,8 +155,8 @@ release, with the values only GitHub knows left as placeholders beside the `gh` 
 `init app` prints no block, and a `gh variable set` command per variable):
 
 ```hcl
-module "patchy_app_shop_web" {
-  source = "git::https://github.com/devthenet-labs/patchy.git//deploy/terraform/aws/modules/app?ref=vX.Y.Z"
+module "maul_app_shop_web" {
+  source = "git::https://github.com/devthenet-labs/maul.git//deploy/terraform/aws/modules/app?ref=vX.Y.Z"
 
   slug = "shop-web"
   github = {
@@ -172,8 +172,8 @@ module "patchy_app_shop_web" {
   # Optional: sign the agent image with this KMS key (.github/actions/publish/README.md).
   # agent_signing_key_arn = "arn:aws:kms:us-west-2:123456789012:key/<key-id>"
 }
-output "patchy_app_shop_web_variables" {
-  value = module.patchy_app_shop_web.github_variables_dotenv
+output "maul_app_shop_web_variables" {
+  value = module.maul_app_shop_web.github_variables_dotenv
 }
 ```
 
@@ -193,7 +193,7 @@ trust, not the values, decides who can publish. The module emits all of them as 
 
 ```sh
 # The app module on its own, through the root output above:
-terraform output -raw patchy_app_shop_web_variables | gh variable set -f - --repo acme/Shop.Web
+terraform output -raw maul_app_shop_web_variables | gh variable set -f - --repo acme/Shop.Web
 # The platform module, through a root output that re-exports github_variables_dotenv:
 terraform output -json github_variables_dotenv | jq -r '."shop-web"' | gh variable set -f - --repo acme/Shop.Web
 ```
@@ -204,10 +204,10 @@ terraform output -json github_variables_dotenv | jq -r '."shop-web"' | gh variab
 | `ECR_REGISTRY`             | `123456789012.dkr.ecr.us-west-2.amazonaws.com`                    |
 | `PUBLISH_REPOSITORY_ID`    | The repository's numeric ID, which the publisher's guard compares |
 | `PUBLISH_OWNER_ID`         | The owner's numeric ID                                            |
-| `AGENT_IMAGE_REPOSITORY`   | `patchy/app-envs/shop-web`                                        |
+| `AGENT_IMAGE_REPOSITORY`   | `maul/app-envs/shop-web`                                          |
 | `AGENT_ROLE_ARN`           | The agent publisher role                                          |
 | `AGENT_SIGNING_KEY`        | Optional: the KMS key that signs the agent image (see below)      |
-| `RUNTIME_IMAGE_REPOSITORY` | `patchy/previews/shop-web` (with previews)                        |
+| `RUNTIME_IMAGE_REPOSITORY` | `maul/previews/shop-web` (with previews)                          |
 | `RUNTIME_ROLE_ARN`         | The runtime publisher role (with previews)                        |
 | `AGENT_PUBLISH_ENABLED`    | `true` to publish the agent image: yours to set, never emitted    |
 | `PREVIEW_PUBLISH_ENABLED`  | `true` to publish runtime images: yours to set, never emitted     |
@@ -222,7 +222,7 @@ terraform output -json github_variables_dotenv | jq -r '."shop-web"' | gh variab
 
 1. **The configuration**, from the module's dotenv, first: a publisher fails closed on any variable it reads unset or
    malformed.
-2. **`AGENT_PUBLISH_ENABLED=true`**, then build the agent image. A push to the default branch that changes `.patchy/`,
+2. **`AGENT_PUBLISH_ENABLED=true`**, then build the agent image. A push to the default branch that changes `.maul/`,
    `go.mod` or `go.sum` builds it, and the dispatcher then publishes it; a push made before the gate was set published
    nothing, so run the build by hand. Confirm the tag before the Project exists: a Project whose application has no
    accepted agent image blocks every build with `ImageRequired`.
@@ -231,7 +231,7 @@ terraform output -json github_variables_dotenv | jq -r '."shop-web"' | gh variab
    gh variable set AGENT_PUBLISH_ENABLED --repo acme/Shop.Web --body true
    gh workflow run "agent image" --repo acme/Shop.Web
    # once "agent image" and then "publish images" have succeeded:
-   aws ecr describe-images --region us-west-2 --repository-name patchy/app-envs/shop-web --image-ids imageTag=toolchain-v1
+   aws ecr describe-images --region us-west-2 --repository-name maul/app-envs/shop-web --image-ids imageTag=toolchain-v1
    ```
 
 3. **`PREVIEW_PUBLISH_ENABLED=true`**, last, once the Project previews this repository (or for the operator's isolation
@@ -273,19 +273,19 @@ that already verifies: the signature's tag is immutable too. So an image publish
 the publisher's next run. To sign it now, run `gh workflow run "agent image" --repo acme/Shop.Web`: the build is
 reproducible, so the publisher finds the same digest already published and only signs it. Or run the publisher's
 `cosign sign` command once by hand, as `.github/actions/publish/README.md` shows. Check the result with
-`patchy check image "$image" --cosign-key cosign.pub`, below.
+`maul check image "$image" --cosign-key cosign.pub`, below.
 
 ### Check the agent image before the Project
 
-`patchy check image` judges an image the way source-controller will, and takes an image reference, not a repository.
-Read the reference from the repository's declaration, in a checkout or from GitHub:
+`maul check image` judges an image the way source-controller will, and takes an image reference, not a repository. Read
+the reference from the repository's declaration, in a checkout or from GitHub:
 
 ```sh
-image=$(awk '$1 == "image:" {print $2}' .patchy/agent.yaml)
+image=$(awk '$1 == "image:" {print $2}' .maul/agent.yaml)
 # without a checkout:
-image=$(gh api -H 'Accept: application/vnd.github.raw' repos/acme/Shop.Web/contents/.patchy/agent.yaml \
+image=$(gh api -H 'Accept: application/vnd.github.raw' repos/acme/Shop.Web/contents/.maul/agent.yaml \
   | awk '$1 == "image:" {print $2}')
-patchy check image "$image" --allow 123456789012.dkr.ecr.us-west-2.amazonaws.com/patchy/app-envs/ --run
+maul check image "$image" --allow 123456789012.dkr.ecr.us-west-2.amazonaws.com/maul/app-envs/ --run
 ```
 
 `--allow` stands in for the operator's allowlist (`agent.repositoryImages.registries`), and `--run` runs the agent's
@@ -306,20 +306,20 @@ be under `allowUnsigned`. `check image` reads the registry with **your docker cr
     | docker login --username AWS --password-stdin 123456789012.dkr.ecr.us-west-2.amazonaws.com
   ```
 
-`patchy check project`, below, reads ECR through the AWS SDK directly instead, so `AWS_PROFILE` is enough there.
+`maul check project`, below, reads ECR through the AWS SDK directly instead, so `AWS_PROFILE` is enough there.
 
 ### Changing the toolchain
 
-Published tags are immutable. Edit `.patchy/Dockerfile` (or the dependencies) and bump the tag in `.patchy/agent.yaml`
-to `toolchain-v2`, `toolchain-v3` and so on, in the same commit; the agent publisher reads the tag from that file and
+Published tags are immutable. Edit `.maul/Dockerfile` (or the dependencies) and bump the tag in `.maul/agent.yaml` to
+`toolchain-v2`, `toolchain-v3` and so on, in the same commit; the agent publisher reads the tag from that file and
 refuses a changed image at a published tag. A dependency change needs a bump too: the agent has no network, so a module
-missing from the baked cache fails its build. Intents can never change `.patchy/` or `.github/` (their changesets refuse
+missing from the baked cache fails its build. Intents can never change `.maul/` or `.github/` (their changesets refuse
 both), so a toolchain change is always a human's commit. If the registry moves, change `ECR_REGISTRY`,
-`AGENT_IMAGE_REPOSITORY` and the image in `.patchy/agent.yaml` together.
+`AGENT_IMAGE_REPOSITORY` and the image in `.maul/agent.yaml` together.
 
 ## The Project
 
-The Project is the operator's: it lives in the `patchy-config` chart's `projects` array, and writing one is admin-only,
+The Project is the operator's: it lives in the `maul-config` chart's `projects` array, and writing one is admin-only,
 because a Project is the power to point agents at repositories.
 
 ```yaml
@@ -334,13 +334,13 @@ projects:
           url: https://github.com/acme/Shop.Web
           # agentResourceClass: large # a heavy test suite: one of the operator's classes
       preview: # leave out for intents without previews
-        imageRepository: 123456789012.dkr.ecr.us-west-2.amazonaws.com/patchy/previews/shop-web
+        imageRepository: 123456789012.dkr.ecr.us-west-2.amazonaws.com/maul/previews/shop-web
         port: 8080
         readinessPath: /healthz
       checks:
-        fix: [test] # failing checks on patchy's own PR that start a fix round
+        fix: [test] # failing checks on maul's own PR that start a fix round
         # rerunFailed: true # re-run a failed Actions check once before a round
-      # labels: {trigger: patchy:shop-web, approve: patchy:approved}   the defaults
+      # labels: {trigger: maul:shop-web, approve: maul:approved}   the defaults
       # limits: {maxActiveIntents: 2, maxCostMicroUSD: 10000000}        $10 per intent
 ```
 
@@ -351,22 +351,22 @@ class the operator defined: its builds otherwise run with no CPU or memory reser
 `checks.fix` names check runs or commit statuses (`test` is the generated CI's job); the App then needs checks, statuses
 and actions read on the repository. `checks.rerunFailed: true` re-runs the failed jobs of a failed Actions check once
 before a fix round is spent on it, so a flaky test costs no round; the App then needs Actions at read and write instead.
-Under `--existing` there is no `test` check from patchy (`runtime-image.yml`'s job is `build`): name your own CI's check
+Under `--existing` there is no `test` check from maul (`runtime-image.yml`'s job is `build`): name your own CI's check
 runs, as GitHub lists them for the default branch's head
 (`gh api repos/acme/Shop.Web/commits/main/check-runs --jq '.check_runs[].name'`). The App must be installed on the
-repository before the Project is `Ready`. Upgrade `patchy-config`, then run the preflight:
+repository before the Project is `Ready`. Upgrade `maul-config`, then run the preflight:
 
 ```sh
-helm upgrade patchy-config oci://ghcr.io/devthenet-labs/patchy/charts/patchy-config --version X.Y.Z \
-  --namespace patchy -f patchy-config-values.yaml
-GH_TOKEN=$(gh auth token) patchy check project shop-web -n patchy
+helm upgrade maul-config oci://ghcr.io/devthenet-labs/maul/charts/maul-config --version X.Y.Z \
+  --namespace maul -f maul-config-values.yaml
+GH_TOKEN=$(gh auth token) maul check project shop-web -n maul
 ```
 
 Every line should be PASS, except two expected SKIPs: `preview-tls` from an address the preview load balancer (or the
 preview gateway's edge) does not admit, and `preview-image` until a default-branch commit is published after
 `PREVIEW_PUBLISH_ENABLED` was set (push one, or re-run the default branch's latest `test` run; with one previewed
 repository it is never a FAIL). [Deploying, verification](deploying.md#verification) lists what each check proves and
-what none of them can. An issue in the intent repository with the label `patchy:shop-web`, opened or labelled by an
+what none of them can. An issue in the intent repository with the label `maul:shop-web`, opened or labelled by an
 approver with write access to it, is then the first intent. A label an issue form applies as the issue is created counts
 as the issue author's, so a form with the trigger label starts an intent only for an approver.
 

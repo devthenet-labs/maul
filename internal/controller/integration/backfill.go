@@ -12,10 +12,10 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/ghas"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/pkg/source"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/ghas"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/pkg/source"
 )
 
 // pendingBackfill returns the spec.backfill request not yet echoed by

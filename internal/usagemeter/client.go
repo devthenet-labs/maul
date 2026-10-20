@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/usagewire"
+	"github.com/devthenet-labs/maul/internal/usagewire"
 )
 
 // Fetcher reads one Job's metered usage from the broker.

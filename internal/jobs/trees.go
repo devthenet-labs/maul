@@ -10,8 +10,8 @@ import (
 	"strings"
 	"unicode"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/agentrun"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/agentrun"
 )
 
 // Tree is one more repository a multi-repository intent's plan Job reads,

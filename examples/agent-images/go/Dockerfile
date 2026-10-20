@@ -1,7 +1,7 @@
 # Copyright 2026 Bitwise Media Group Ltd.
 # SPDX-License-Identifier: MIT
 
-# Go agent image: patchy's agent-base plus a Go toolchain and the module's
+# Go agent image: maul's agent-base plus a Go toolchain and the module's
 # dependencies, so the agent can build and test with no network. Build it
 # with the repository root as the context (it needs go.mod and go.sum):
 #
@@ -10,10 +10,10 @@
 # Rebuild whenever go.mod changes: a module missing from the baked cache fails
 # the agent's build with "module lookup disabled by GOPROXY=off".
 
-# The base, pinned to a patchy release (release-please stamps the version).
+# The base, pinned to a maul release (release-please stamps the version).
 # Pin its digest as well once you have built against it.
 # x-release-please-start-version
-ARG AGENT_BASE=ghcr.io/devthenet-labs/patchy/agent-base:v0.12.43
+ARG AGENT_BASE=ghcr.io/devthenet-labs/maul/agent-base:v0.12.43
 # x-release-please-end
 FROM ${AGENT_BASE}
 
@@ -51,7 +51,7 @@ ENV GOPROXY=off \
 
 # Describe your image, not the base (labels are inherited).
 LABEL org.opencontainers.image.source="https://github.com/your-org/your-repo" \
-      org.opencontainers.image.description="patchy agent image: Go 1.24 with the module cache baked in"
+      org.opencontainers.image.description="maul agent image: Go 1.24 with the module cache baked in"
 
 WORKDIR /workspace
 USER 65532:65532

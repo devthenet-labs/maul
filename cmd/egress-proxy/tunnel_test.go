@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/egressproxy"
+	"github.com/devthenet-labs/maul/internal/egressproxy"
 )
 
 // tunnelProfile is a tunnel-only profile beside a go profile.
@@ -57,7 +57,7 @@ func TestConfigureTunnelDefaults(t *testing.T) {
 }
 
 // TestConfigureTunnelFlags: every tunnel flag reaches the engine, from the
-// command line and from its PATCHY_TUNNEL_* variable; 0 turns the progress
+// command line and from its MAUL_TUNNEL_* variable; 0 turns the progress
 // line off.
 func TestConfigureTunnelFlags(t *testing.T) {
 	s, err := configure(serveOpts(t, "--network-profiles", tunnelProfile,
@@ -89,9 +89,9 @@ func TestConfigureTunnelFlags(t *testing.T) {
 			s.engine.Policy.Deny)
 	}
 
-	t.Setenv("PATCHY_TUNNEL_MAX_SOURCES", "77")
-	t.Setenv("PATCHY_TUNNEL_DENY_CIDRS", "192.0.2.1/32")
-	t.Setenv("PATCHY_TUNNEL_IDLE_TIMEOUT", "90s")
+	t.Setenv("MAUL_TUNNEL_MAX_SOURCES", "77")
+	t.Setenv("MAUL_TUNNEL_DENY_CIDRS", "192.0.2.1/32")
+	t.Setenv("MAUL_TUNNEL_IDLE_TIMEOUT", "90s")
 	s, err = configure(serveOpts(t, "--network-profiles", tunnelProfile))
 	if err != nil {
 		t.Fatal(err)

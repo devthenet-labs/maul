@@ -12,7 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/bitwise-media-group/patchy/internal/transcript"
+	"github.com/devthenet-labs/maul/internal/transcript"
 )
 
 // DefaultIdleTimeout is how long a run may go without progress (no model

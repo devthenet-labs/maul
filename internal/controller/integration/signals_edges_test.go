@@ -17,9 +17,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/action"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/action"
+	"github.com/devthenet-labs/maul/internal/ghclient"
 )
 
 // A credential GitHub refuses the collaborator-permission lookup (403)
@@ -28,11 +28,11 @@ func TestCommandRefusedWhenPermissionUnreadable(t *testing.T) {
 	s, r, tracker, c := newReview(t, trackedFinding(v1alpha1.PhaseAwaitingApproval))
 	tracker.perms[maintainer] = ghclient.PermissionAdmin // what the lookup would have said
 	tracker.permErrs = []error{forbidden("collaborator permission")}
-	handle(t, s, "issue_comment", commentPayload(t, 41, "/patchy approve"))
+	handle(t, s, "issue_comment", commentPayload(t, 41, "/maul approve"))
 
 	settleAll(t, r, c)
 	f := get(t, c, "finding-aa-1")
-	assertRefused(t, tracker, f, 41, maintainer, "you may not use `/patchy approve` here")
+	assertRefused(t, tracker, f, 41, maintainer, "you may not use `/maul approve` here")
 	if f.Spec.Approval != nil {
 		t.Errorf("approval = %+v, want none: an unreadable permission must not authorise", f.Spec.Approval)
 	}
@@ -64,18 +64,18 @@ func TestSignalsHandleEdges(t *testing.T) {
 			name: "a deleted comment", typ: "issue_comment",
 			payload: `{"action":"deleted",` +
 				`"issue":{"number":7,"html_url":"https://github.com/acme/orders/issues/7"},` +
-				`"comment":{"id":41,"body":"/patchy approve"}}`,
+				`"comment":{"id":41,"body":"/maul approve"}}`,
 		},
 		{
 			name: "a pull request opened", typ: "pull_request",
-			payload: `{"action":"opened","pull_request":{"number":11,"head":{"ref":"patchy/finding-aa-1"}}}`,
+			payload: `{"action":"opened","pull_request":{"number":11,"head":{"ref":"maul/finding-aa-1"}}}`,
 		},
 		{
-			name: "a closed pull request off patchy's branches", typ: "pull_request",
+			name: "a closed pull request off maul's branches", typ: "pull_request",
 			payload: `{"action":"closed","pull_request":{"number":11,"merged":true,"head":{"ref":"feature/x"}}}`,
 		},
 		{name: "an issue with no URL", typ: "issues", payload: `{"action":"closed","issue":{"number":7}}`},
-		{name: "an event type patchy does not consume", typ: "push", payload: `{}`},
+		{name: "an event type maul does not consume", typ: "push", payload: `{}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -179,7 +179,7 @@ func TestIsBot(t *testing.T) {
 		want  bool
 	}{
 		{actor: v1alpha1.CommandActor{Login: "dependabot[bot]", Type: "Bot"}, want: true},
-		{actor: v1alpha1.CommandActor{Login: "patchy[bot]", Type: "User"}, want: true},
+		{actor: v1alpha1.CommandActor{Login: "maul[bot]", Type: "User"}, want: true},
 		{actor: v1alpha1.CommandActor{Login: "robot", Type: "Bot"}, want: true},
 		{actor: v1alpha1.CommandActor{Login: "botanist", Type: "User"}, want: false},
 	}
@@ -258,7 +258,7 @@ func TestProjectionReadEdges(t *testing.T) {
 		fnd := projectable(v1alpha1.PhaseOpened)
 		now := metav1.NewTime(testClock)
 		fnd.DeletionTimestamp = &now
-		fnd.Finalizers = []string{"patchy.bitwisemedia.uk/test"}
+		fnd.Finalizers = []string{"maul.run/test"}
 		tracker := newFakeTracker()
 		r, _ := newProjector(t, tracker, testIntegration(), fnd)
 		res, err := r.Reconcile(t.Context(), findingRequest(fnd.Name))
@@ -277,7 +277,7 @@ func TestProjectionReadEdges(t *testing.T) {
 				return boom
 			},
 		})
-		r := &FindingReconciler{Client: c, Namespace: "patchy"}
+		r := &FindingReconciler{Client: c, Namespace: "maul"}
 		_, err := r.Reconcile(t.Context(), findingRequest("finding-aa-1"))
 		if !errors.Is(err, boom) {
 			t.Errorf("Reconcile() = %v, want the read error", err)
@@ -285,7 +285,7 @@ func TestProjectionReadEdges(t *testing.T) {
 	})
 
 	t.Run("a missing finding is a no-op", func(t *testing.T) {
-		r := &FindingReconciler{Client: receiverClient(nil), Namespace: "patchy"}
+		r := &FindingReconciler{Client: receiverClient(nil), Namespace: "maul"}
 		res, err := r.Reconcile(t.Context(), findingRequest("gone"))
 		if err != nil || res != (ctrl.Result{}) {
 			t.Errorf("Reconcile() = %+v, %v; want zero, nil", res, err)
@@ -295,5 +295,5 @@ func TestProjectionReadEdges(t *testing.T) {
 
 // findingRequest is the reconcile request for the named finding.
 func findingRequest(name string) ctrl.Request {
-	return ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "patchy", Name: name}}
+	return ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "maul", Name: name}}
 }

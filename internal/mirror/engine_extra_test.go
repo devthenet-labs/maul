@@ -16,8 +16,8 @@ import (
 
 	"github.com/google/go-containerregistry/pkg/crane"
 
-	"github.com/bitwise-media-group/patchy/internal/mirror/spec"
-	"github.com/bitwise-media-group/patchy/internal/mirror/verify"
+	"github.com/devthenet-labs/maul/internal/mirror/spec"
+	"github.com/devthenet-labs/maul/internal/mirror/verify"
 )
 
 // recordingVerifier captures every verification subject and answers with
@@ -157,7 +157,7 @@ scan:
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			f.write("artifacts/bundle/manifest.yaml",
-				"apiVersion: mirror.patchy.bitwisemedia.uk/v1alpha1\nkind: Artifact\nname: bundle\n"+tc.manifest)
+				"apiVersion: mirror.maul.run/v1alpha1\nkind: Artifact\nname: bundle\n"+tc.manifest)
 			eng := f.engine()
 			entry, err := eng.Entry("bundle")
 			if err != nil {
@@ -243,7 +243,7 @@ func TestEngineArtifactCooldownPick(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			f.write("artifacts/bundle/manifest.yaml", fmt.Sprintf(`apiVersion: mirror.patchy.bitwisemedia.uk/v1alpha1
+			f.write("artifacts/bundle/manifest.yaml", fmt.Sprintf(`apiVersion: mirror.maul.run/v1alpha1
 kind: Artifact
 name: bundle
 artifact:
@@ -318,7 +318,7 @@ func TestCheckUpdatesErrors(t *testing.T) {
 
 	t.Run("unparseable pinned version", func(t *testing.T) {
 		f.pushChart(f.host+"/upstream", "weird", "1.0.0", f.chartTgz("weird", "1.0.0", "1.0.0", appCanonical+":1.0.0"))
-		f.write("charts/weird/manifest.yaml", fmt.Sprintf(`apiVersion: mirror.patchy.bitwisemedia.uk/v1alpha1
+		f.write("charts/weird/manifest.yaml", fmt.Sprintf(`apiVersion: mirror.maul.run/v1alpha1
 kind: Chart
 name: weird
 chart:
@@ -361,7 +361,7 @@ func verifyRulesFixture(t *testing.T, converge bool) (*fixture, func(repo, chart
 	f.pushChart(f.host+"/upstream", "demo", "1.0.0", f.chartTgz("demo", "1.0.0", "1.0.0", appCanonical+":1.0.0"))
 	f.write("charts/demo/values/discovery.yaml", "{}\n")
 	writeChart := func(repo, chartRule, imageRules string) {
-		f.write("charts/demo/manifest.yaml", fmt.Sprintf(`apiVersion: mirror.patchy.bitwisemedia.uk/v1alpha1
+		f.write("charts/demo/manifest.yaml", fmt.Sprintf(`apiVersion: mirror.maul.run/v1alpha1
 kind: Chart
 name: demo
 chart:
@@ -508,7 +508,7 @@ func TestEngineVerifyUpstreamArtifact(t *testing.T) {
 	ctx := context.Background()
 
 	write := func(rule string) {
-		f.write("artifacts/bundle/manifest.yaml", `apiVersion: mirror.patchy.bitwisemedia.uk/v1alpha1
+		f.write("artifacts/bundle/manifest.yaml", `apiVersion: mirror.maul.run/v1alpha1
 kind: Artifact
 name: bundle
 artifact:
@@ -821,7 +821,7 @@ func TestEngineDeriveDistribution(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	f.write("charts/flux/manifest.yaml", fmt.Sprintf(`apiVersion: mirror.patchy.bitwisemedia.uk/v1alpha1
+	f.write("charts/flux/manifest.yaml", fmt.Sprintf(`apiVersion: mirror.maul.run/v1alpha1
 kind: Chart
 name: flux
 chart:
@@ -901,7 +901,7 @@ func TestApplyTracksErrors(t *testing.T) {
 	f.pushImage(runner+":2.320.0", testNow.AddDate(0, 0, -40))
 
 	manifest := func(discovery, track string) string {
-		return fmt.Sprintf(`apiVersion: mirror.patchy.bitwisemedia.uk/v1alpha1
+		return fmt.Sprintf(`apiVersion: mirror.maul.run/v1alpha1
 kind: Chart
 name: demo
 chart:
@@ -969,7 +969,7 @@ func TestApplyTracksAlreadyPinnedAndZeroCooldown(t *testing.T) {
 	f.pushImage(runner+":2.321.0", testNow.AddDate(0, 0, -1))
 
 	write := func(cooldown string) {
-		f.write("charts/demo/manifest.yaml", fmt.Sprintf(`apiVersion: mirror.patchy.bitwisemedia.uk/v1alpha1
+		f.write("charts/demo/manifest.yaml", fmt.Sprintf(`apiVersion: mirror.maul.run/v1alpha1
 kind: Chart
 name: demo
 chart:

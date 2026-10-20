@@ -18,7 +18,7 @@ import (
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 )
 
-const ingressImage = "registry.example/patchy/previews/netprobe:sha-" + headSHA
+const ingressImage = "registry.example/maul/previews/netprobe:sha-" + headSHA
 
 // kubectlStub stands in for kubectl in ingress.sh's run. It logs each call's
 // argv (after --request-timeout), keeps what each create was sent, and
@@ -48,15 +48,15 @@ esac
 // gatewayOnlyPolicy is a slot policy admitting the gateway's label alone,
 // as one off the legacy path is.
 const gatewayOnlyPolicy = `{"metadata":{"name":"preview-isolation"},"spec":{"ingress":[{"from":[` +
-	`{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"patchy"}},` +
-	`"podSelector":{"matchLabels":{"patchy.bitwisemedia.uk/preview-gateway":"true"}}}]}]}}`
+	`{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"maul"}},` +
+	`"podSelector":{"matchLabels":{"maul.run/preview-gateway":"true"}}}]}]}}`
 
 // gatewayPolicy is a slot policy admitting the gateway's label beside the
 // ALB's subnets, as one on the legacy path is.
 const gatewayPolicy = `{"metadata":{"name":"preview-isolation"},` +
 	`"spec":{"ingress":[{"from":[{"ipBlock":{"cidr":"10.40.128.0/24"}},` +
-	`{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"patchy"}},` +
-	`"podSelector":{"matchLabels":{"patchy.bitwisemedia.uk/preview-gateway":"true"}}}]}]}}`
+	`{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"maul"}},` +
+	`"podSelector":{"matchLabels":{"maul.run/preview-gateway":"true"}}}]}]}}`
 
 // summary is a client's log ending with outcome.
 func summary(outcome string) string {
@@ -136,8 +136,8 @@ func runIngressEnv(t *testing.T, policy string, logs map[string]string, extra []
 }
 
 func ingressArgs(extra ...string) []string {
-	return slices.Concat([]string{"--image", ingressImage, "--node-selector", "patchy.example.com/previews=true",
-		"--taint-key", "patchy.example.com/preview-only", "--timeout", "10"}, extra)
+	return slices.Concat([]string{"--image", ingressImage, "--node-selector", "maul.example.com/previews=true",
+		"--taint-key", "maul.example.com/preview-only", "--timeout", "10"}, extra)
 }
 
 // expected is every client's outcome on a correct install.
@@ -158,18 +158,18 @@ func TestIngressPasses(t *testing.T) {
 	if len(docs) != 4 {
 		t.Fatalf("created %d objects, want the listener and three clients:\n%s", len(docs), run.created)
 	}
-	if !strings.Contains(docs[0], "namespace: patchy-preview-0") || !strings.Contains(docs[0], "args: [listen]") ||
-		!strings.Contains(docs[0], `patchy.example.com/previews: "true"`) ||
-		!strings.Contains(docs[0], "key: patchy.example.com/preview-only") {
+	if !strings.Contains(docs[0], "namespace: maul-preview-0") || !strings.Contains(docs[0], "args: [listen]") ||
+		!strings.Contains(docs[0], `maul.example.com/previews: "true"`) ||
+		!strings.Contains(docs[0], "key: maul.example.com/preview-only") {
 		t.Errorf("listener:\n%s", docs[0])
 	}
-	for i, ns := range []string{"patchy-agents", "patchy", "patchy"} {
+	for i, ns := range []string{"maul-agents", "maul", "maul"} {
 		doc := docs[i+1]
 		if !strings.Contains(doc, "namespace: "+ns) || !strings.Contains(doc, `args: [connect, "10.42.0.9:8080"]`) ||
 			strings.Contains(doc, "tolerations") || strings.Contains(doc, "nodeSelector") {
 			t.Errorf("client %d:\n%s", i, doc)
 		}
-		if gw := strings.Contains(doc, `patchy.bitwisemedia.uk/preview-gateway: "true"`); gw != (i == 2) {
+		if gw := strings.Contains(doc, `maul.run/preview-gateway: "true"`); gw != (i == 2) {
 			t.Errorf("client %d carries the gateway label: %v", i, gw)
 		}
 	}
@@ -221,13 +221,13 @@ func TestIngressNeedsTheGatewayPeer(t *testing.T) {
 // anything runs, and --dry-run and --print-manifests never call kubectl.
 func TestIngressValidatesAndDryRunCallsNothing(t *testing.T) {
 	for _, args := range [][]string{
-		{"--image", "registry.example/patchy/previews/netprobe:latest", "--no-node-isolation"},
+		{"--image", "registry.example/maul/previews/netprobe:latest", "--no-node-isolation"},
 		{"--image", ingressImage},
 		{"--image", ingressImage, "--node-selector", "a=b"},
 		{"--image", ingressImage, "--node-selector", "a=b c", "--taint-key", "k"},
 		{"--image", ingressImage, "--no-node-isolation", "--taint-key", "k"},
 		{"--image", ingressImage, "--no-node-isolation", "--slot", "x"},
-		{"--image", ingressImage, "--no-node-isolation", "--release-namespace", "Patchy"},
+		{"--image", ingressImage, "--no-node-isolation", "--release-namespace", "Maul"},
 	} {
 		run := runIngress(t, gatewayPolicy, expected(), args...)
 		if run.code != 2 || len(run.calls) != 0 {
@@ -253,7 +253,7 @@ func TestIngressValidatesAndDryRunCallsNothing(t *testing.T) {
 // the verdict.
 func TestIngressWarnsOfAddressRanges(t *testing.T) {
 	run := runIngress(t, gatewayPolicy, expected(), ingressArgs()...)
-	if run.code != 0 || !strings.Contains(run.stderr, "WARNING: patchy-preview-0/preview-isolation also admits "+
+	if run.code != 0 || !strings.Contains(run.stderr, "WARNING: maul-preview-0/preview-isolation also admits "+
 		"the address ranges 10.40.128.0/24") {
 		t.Errorf("with an ipBlock: exit %d, stderr:\n%s", run.code, run.stderr)
 	}
@@ -322,7 +322,7 @@ func TestIngressRefusedNeedsTheGateway(t *testing.T) {
 func TestIngressRefusedNeedsALiveListener(t *testing.T) {
 	run := runIngressEnv(t, gatewayOnlyPolicy, expected(), []string{"STUB_LISTENER_PHASE=Failed"},
 		ingressArgs("--refused-is-blocked")...)
-	if run.code != 1 || !strings.Contains(run.stderr, "FAIL patchy-preview-0/preview-ingress-listener: Failed") {
+	if run.code != 1 || !strings.Contains(run.stderr, "FAIL maul-preview-0/preview-ingress-listener: Failed") {
 		t.Errorf("a stopped listener: exit %d, stderr:\n%s", run.code, run.stderr)
 	}
 	for _, name := range []string{"preview-ingress-agent", "preview-ingress-release"} {
@@ -347,21 +347,21 @@ func TestIngressRefusedNeedsALiveListener(t *testing.T) {
 // and ipBlocks, a rule from anywhere, and a slot policy that leaves Pods or
 // ingress ungoverned.
 func TestIngressRefusesExtraPeers(t *testing.T) {
-	const gw = `{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"patchy"}},` +
-		`"podSelector":{"matchLabels":{"patchy.bitwisemedia.uk/preview-gateway":"true"}}}`
+	const gw = `{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"maul"}},` +
+		`"podSelector":{"matchLabels":{"maul.run/preview-gateway":"true"}}}`
 	slot := func(spec string) string { return `{"metadata":{"name":"preview-isolation"},"spec":` + spec + `}` }
 	for name, tc := range map[string]struct{ policy, extra, want string }{
 		"the agents' namespace": {policy: slot(`{"ingress":[{"from":[` + gw + `,` +
-			`{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"patchy-agents"}}}]}]}`),
+			`{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"maul-agents"}}}]}]}`),
 			want: "admits an ingress peer other than the preview gateway's"},
 		"a rule from anywhere": {policy: slot(`{"ingress":[{"from":[` + gw + `]},{"ports":[{"port":8080}]}]}`),
 			want: "has an ingress rule with no from, which admits every source"},
 		"the gateway's label in any namespace": {policy: slot(`{"ingress":[{"from":[` +
-			`{"podSelector":{"matchLabels":{"patchy.bitwisemedia.uk/preview-gateway":"true"}}}]}]}`),
+			`{"podSelector":{"matchLabels":{"maul.run/preview-gateway":"true"}}}]}]}`),
 			want: "admits an ingress peer other than the preview gateway's"},
 		"a match expression": {policy: slot(`{"ingress":[{"from":[{"namespaceSelector":{"matchLabels":` +
-			`{"kubernetes.io/metadata.name":"patchy"}},"podSelector":{"matchLabels":` +
-			`{"patchy.bitwisemedia.uk/preview-gateway":"true"},"matchExpressions":[{"key":"a","operator":"Exists"}]}}]}]}`),
+			`{"kubernetes.io/metadata.name":"maul"}},"podSelector":{"matchLabels":` +
+			`{"maul.run/preview-gateway":"true"},"matchExpressions":[{"key":"a","operator":"Exists"}]}}]}]}`),
 			want: "admits an ingress peer other than the preview gateway's"},
 		"some Pods only": {policy: slot(`{"podSelector":{"matchLabels":{"app":"web"}},"ingress":[{"from":[` + gw +
 			`]}]}`), want: "selects only some of the slot's Pods"},
@@ -391,9 +391,9 @@ func TestIngressAcceptsTheChartPolicy(t *testing.T) {
 	if _, err := exec.LookPath("helm"); err != nil {
 		t.Skip("helm not on PATH")
 	}
-	out, err := exec.CommandContext(t.Context(), "helm", "template", "patchy", "../../charts/patchy", "-n", "patchy",
+	out, err := exec.CommandContext(t.Context(), "helm", "template", "maul", "../../charts/maul", "-n", "maul",
 		"-f", "../testdata/chart-render/intent-controller.yaml",
-		"-f", "../../cmd/patchy/internal/previewsetup/testdata/golden/cloudflare-tunnel-k3s/patchy-previews.values.yaml",
+		"-f", "../../cmd/maul/internal/previewsetup/testdata/golden/cloudflare-tunnel-k3s/maul-previews.values.yaml",
 		"--set", "previewAuth.keys.renderOffline=true",
 		"--set", "previewController.config.apiServerCIDR=10.43.0.1/32").Output()
 	if err != nil {
@@ -409,7 +409,7 @@ func TestIngressAcceptsTheChartPolicy(t *testing.T) {
 			t.Fatal(err)
 		}
 		meta, _ := obj["metadata"].(map[string]any)
-		if obj["kind"] != "NetworkPolicy" || meta["namespace"] != "patchy-preview-0" {
+		if obj["kind"] != "NetworkPolicy" || meta["namespace"] != "maul-preview-0" {
 			continue
 		}
 		b, err := json.Marshal(obj)
@@ -419,7 +419,7 @@ func TestIngressAcceptsTheChartPolicy(t *testing.T) {
 		items = append(items, string(b))
 	}
 	if len(items) == 0 {
-		t.Fatal("the render has no NetworkPolicy in patchy-preview-0")
+		t.Fatal("the render has no NetworkPolicy in maul-preview-0")
 	}
 	run := runIngress(t, strings.Join(items, ","), expected(), ingressArgs("--refused-is-blocked")...)
 	if run.code != 0 || !strings.Contains(run.stderr, "Ingress isolation passed") {
@@ -445,11 +445,11 @@ func TestIngressOldImageFails(t *testing.T) {
 		fail string
 	}{
 		"every client": {old("preview-ingress-agent", "preview-ingress-release", "preview-ingress-gateway"),
-			ingressArgs(), "FAIL patchy-agents/preview-ingress-agent: NO_SUMMARY"},
+			ingressArgs(), "FAIL maul-agents/preview-ingress-agent: NO_SUMMARY"},
 		"a refused client": {old("preview-ingress-agent"), ingressArgs("--refused-is-blocked"),
-			"FAIL patchy-agents/preview-ingress-agent: NO_SUMMARY"},
+			"FAIL maul-agents/preview-ingress-agent: NO_SUMMARY"},
 		"the gateway client": {old("preview-ingress-gateway"), ingressArgs("--refused-is-blocked"),
-			"FAIL patchy/preview-ingress-gateway: NO_SUMMARY"},
+			"FAIL maul/preview-ingress-gateway: NO_SUMMARY"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// The old clients' logs come from tc.env alone, verbatim.

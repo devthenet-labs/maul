@@ -11,13 +11,13 @@ import (
 	"testing"
 	"testing/quick"
 
-	"github.com/bitwise-media-group/patchy/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/envelope"
 )
 
 // proxyForms are the egress proxy's host forms a profile run's rules
 // forbid (runnerguard.Guard.ProxyHostForms of the chart's Service name).
-var proxyForms = []string{"patchy-egress-proxy.patchy.svc.cluster.local", "patchy-egress-proxy.patchy.svc",
-	"patchy-egress-proxy.patchy", "http://patchy-egress-proxy"}
+var proxyForms = []string{"maul-egress-proxy.maul.svc.cluster.local", "maul-egress-proxy.maul.svc",
+	"maul-egress-proxy.maul", "http://maul-egress-proxy"}
 
 func upsert(path, content string) envelope.FileChange {
 	return envelope.FileChange{Path: path, Mode: "100644",
@@ -31,11 +31,11 @@ func upsert(path, content string) envelope.FileChange {
 func TestValidateForbidden(t *testing.T) {
 	refused := []envelope.FileChange{
 		upsert("requirements.txt",
-			"--index-url http://patchy-egress-proxy.patchy.svc.cluster.local:8091/r/ca-pypi/simple/\nsix==1.16.0\n"),
-		upsert(".npmrc", "registry=HTTP://Patchy-Egress-Proxy.PATCHY.svc:8091/r/ca-npm/\n"),
-		upsert("Makefile", "GOPROXY=http://patchy-egress-proxy:8090/go\n"),
-		upsert("uv.lock", `url = "http://patchy-egress-proxy.patchy:8091/r/ca-pypi/f/1/six.whl"`),
-		upsert("docs/patchy-egress-proxy.patchy.svc.md", "nothing\n"),
+			"--index-url http://maul-egress-proxy.maul.svc.cluster.local:8091/r/ca-pypi/simple/\nsix==1.16.0\n"),
+		upsert(".npmrc", "registry=HTTP://Maul-Egress-Proxy.MAUL.svc:8091/r/ca-npm/\n"),
+		upsert("Makefile", "GOPROXY=http://maul-egress-proxy:8090/go\n"),
+		upsert("uv.lock", `url = "http://maul-egress-proxy.maul:8091/r/ca-pypi/f/1/six.whl"`),
+		upsert("docs/maul-egress-proxy.maul.svc.md", "nothing\n"),
 	}
 	for _, up := range refused {
 		cs := &envelope.Changeset{BaseSHA: "abc123", Upserts: []envelope.FileChange{upsert("ok.go", "package ok\n"), up}}
@@ -47,10 +47,10 @@ func TestValidateForbidden(t *testing.T) {
 			t.Errorf("%s: without Forbidden Validate = %v, want nil", up.Path, err)
 		}
 	}
-	clean := &envelope.Changeset{BaseSHA: "abc123", Deletes: []string{"patchy-egress-proxy.patchy.svc.md"},
+	clean := &envelope.Changeset{BaseSHA: "abc123", Deletes: []string{"maul-egress-proxy.maul.svc.md"},
 		Upserts: []envelope.FileChange{
 			upsert("package-lock.json", `"resolved": "https://acme.jfrog.io/artifactory/api/npm/npm/x/-/x-1.0.0.tgz"`),
-			upsert("README.md", "the patchy egress proxy fetches packages\n"),
+			upsert("README.md", "the maul egress proxy fetches packages\n"),
 		}}
 	if err := Validate(clean, Rules{Base: "abc123", MaxEntries: 10, Forbidden: proxyForms}); err != nil {
 		t.Errorf("a changeset with canonical URLs was refused: %v", err)

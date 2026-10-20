@@ -11,7 +11,7 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 
-	"github.com/bitwise-media-group/patchy/internal/previewauth"
+	"github.com/devthenet-labs/maul/internal/previewauth"
 )
 
 // Stream close reasons, the streams-closed counter's.

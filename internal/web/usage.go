@@ -14,9 +14,9 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/usageview"
-	"github.com/bitwise-media-group/patchy/internal/web/auth"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/usageview"
+	"github.com/devthenet-labs/maul/internal/web/auth"
 )
 
 // The usage views (statusServer.usage.enabled; design L2, Dashboard): a
@@ -63,7 +63,7 @@ func (s *Server) WithUsage(o UsageOptions) *Server {
 
 // UsageUserIndex indexes UsageRollups by spec.scope.user, so a person's own
 // report reads only their scopes from the cache.
-const UsageUserIndex = "patchy.web/usage-user"
+const UsageUserIndex = "maul.web/usage-user"
 
 // RegisterUsageIndexes installs the usage views' index on the manager's
 // cache; call it before the manager starts, and only with the views on (the

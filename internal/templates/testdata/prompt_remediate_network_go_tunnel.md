@@ -77,7 +77,7 @@ reproduction:
 remediation is complete AND breaks no functionality. `reproduced` is true only when you saw the regression test fail on
 the unfixed code for the expected reason and then pass with the fix; `command`, `before` and `after` are then
 required. With `reproduced: false`, give whatever of them you have. Quote output exactly, keeping each excerpt to the
-lines that matter: patchy cuts an excerpt at 2000 bytes and the command at 500.
+lines that matter: maul cuts an excerpt at 2000 bytes and the command at 500.
 The reproduction is shown to the pull request's reviewer as your account of it.
 
 After the frontmatter, describe in markdown what you changed and why, how you verified it, and anything reviewers

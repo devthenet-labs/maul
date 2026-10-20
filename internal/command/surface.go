@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/bitwise-media-group/patchy/internal/action"
+	"github.com/devthenet-labs/maul/internal/action"
 )
 
 // Surface is where on GitHub a command was made. Each surface offers its own
@@ -22,7 +22,7 @@ const (
 	FindingIssue Surface = "finding-issue"
 	// IntentIssue is the issue an intent was written in.
 	IntentIssue Surface = "intent-issue"
-	// IntentPR is a pull request patchy opened for an intent.
+	// IntentPR is a pull request maul opened for an intent.
 	IntentPR Surface = "intent-pr"
 )
 

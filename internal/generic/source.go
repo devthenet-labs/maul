@@ -10,11 +10,11 @@ import (
 	"fmt"
 	"strconv"
 
-	pkggeneric "github.com/bitwise-media-group/patchy/pkg/generic"
-	"github.com/bitwise-media-group/patchy/pkg/source"
+	pkggeneric "github.com/devthenet-labs/maul/pkg/generic"
+	"github.com/devthenet-labs/maul/pkg/source"
 )
 
-// severityRank orders patchy's severity vocabulary so a minimum can be
+// severityRank orders maul's severity vocabulary so a minimum can be
 // applied. Membership doubles as validation: a severity outside the map is
 // rejected, never silently admitted.
 var severityRank = map[string]int{

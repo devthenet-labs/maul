@@ -14,31 +14,31 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	patchyv1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	maulv1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 func testPreviewSchema(ctx context.Context, t *testing.T, c client.Client) {
 	t.Helper()
-	valid := func(name string) *patchyv1.Preview {
-		return &patchyv1.Preview{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
-			Spec: patchyv1.PreviewSpec{
-				IntentRef: patchyv1.ObjectReference{Name: name, UID: types.UID("uid-1")},
+	valid := func(name string) *maulv1.Preview {
+		return &maulv1.Preview{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+			Spec: maulv1.PreviewSpec{
+				IntentRef: maulv1.ObjectReference{Name: name, UID: types.UID("uid-1")},
 				HostLabel: name,
-				Components: []patchyv1.PreviewComponent{{
-					Name: "demo", ImageRepository: "registry.example/patchy/previews/demo",
+				Components: []maulv1.PreviewComponent{{
+					Name: "demo", ImageRepository: "registry.example/maul/previews/demo",
 					Revision: strings.Repeat("a", 40), Port: 8080, ReadinessPath: "/health",
 				}},
 				TTL: metav1.Duration{Duration: 72 * time.Hour},
 			}}
 	}
-	component := func(name, path string) patchyv1.PreviewComponent {
-		return patchyv1.PreviewComponent{
-			Name: name, ImageRepository: "registry.example/patchy/previews/" + name,
+	component := func(name, path string) maulv1.PreviewComponent {
+		return maulv1.PreviewComponent{
+			Name: name, ImageRepository: "registry.example/maul/previews/" + name,
 			Revision: strings.Repeat("a", 40), Port: 8080, ReadinessPath: "/healthz", Path: path,
 		}
 	}
-	components := func(n int) []patchyv1.PreviewComponent {
-		out := []patchyv1.PreviewComponent{component("c0", "")}
+	components := func(n int) []maulv1.PreviewComponent {
+		out := []maulv1.PreviewComponent{component("c0", "")}
 		for i := 1; i < n; i++ {
 			out = append(out, component(fmt.Sprintf("c%d", i), fmt.Sprintf("/c%d", i)))
 		}
@@ -46,15 +46,15 @@ func testPreviewSchema(ctx context.Context, t *testing.T, c client.Client) {
 	}
 	for _, tc := range []struct {
 		name   string
-		mutate func(*patchyv1.Preview)
+		mutate func(*maulv1.Preview)
 	}{
-		{"short-sha", func(p *patchyv1.Preview) { p.Spec.Components[0].Revision = "abc" }},
-		{"overlong-ttl", func(p *patchyv1.Preview) { p.Spec.TTL.Duration = 73 * time.Hour }},
+		{"short-sha", func(p *maulv1.Preview) { p.Spec.Components[0].Revision = "abc" }},
+		{"overlong-ttl", func(p *maulv1.Preview) { p.Spec.TTL.Duration = 73 * time.Hour }},
 		// A repeated component: the same name (the list key) at the same path.
-		{"repeated-component", func(p *patchyv1.Preview) {
+		{"repeated-component", func(p *maulv1.Preview) {
 			p.Spec.Components = append(p.Spec.Components, p.Spec.Components[0])
 		}},
-		{"unsafe-path", func(p *patchyv1.Preview) { p.Spec.Components[0].ReadinessPath = "/health?token=1" }},
+		{"unsafe-path", func(p *maulv1.Preview) { p.Spec.Components[0].ReadinessPath = "/health?token=1" }},
 		// The image prefix is the operator's (preview.imagePathPrefix), so the
 		// schema checks the repository's shape and its leaf, and the
 		// preview-controller and the slot admission policy refuse a
@@ -62,39 +62,39 @@ func testPreviewSchema(ctx context.Context, t *testing.T, c client.Client) {
 		// included (TestSettingsValidate, TestMultiComponentValidation and
 		// the chart's preview policy envtests). The leaf is a DNS label: the
 		// schema refused neither of the first two before it said so.
-		{"image-leaf-trailing-hyphen", func(p *patchyv1.Preview) {
+		{"image-leaf-trailing-hyphen", func(p *maulv1.Preview) {
 			p.Spec.Components[0].ImageRepository = "registry.example/acme/previews/demo-"
 		}},
-		{"image-leaf-leading-hyphen", func(p *patchyv1.Preview) {
-			p.Spec.Components[0].ImageRepository = "registry.example/patchy/previews/-demo"
+		{"image-leaf-leading-hyphen", func(p *maulv1.Preview) {
+			p.Spec.Components[0].ImageRepository = "registry.example/maul/previews/-demo"
 		}},
-		{"image-without-path", func(p *patchyv1.Preview) {
+		{"image-without-path", func(p *maulv1.Preview) {
 			p.Spec.Components[0].ImageRepository = "registry.example/demo"
 		}},
-		{"image-with-tag", func(p *patchyv1.Preview) {
-			p.Spec.Components[0].ImageRepository = "registry.example/patchy/previews/demo:latest"
+		{"image-with-tag", func(p *maulv1.Preview) {
+			p.Spec.Components[0].ImageRepository = "registry.example/maul/previews/demo:latest"
 		}},
-		{"image-uppercase-segment", func(p *patchyv1.Preview) {
+		{"image-uppercase-segment", func(p *maulv1.Preview) {
 			p.Spec.Components[0].ImageRepository = "registry.example/Acme/previews/demo"
 		}},
-		{"image-empty-segment", func(p *patchyv1.Preview) {
+		{"image-empty-segment", func(p *maulv1.Preview) {
 			p.Spec.Components[0].ImageRepository = "registry.example/acme//demo"
 		}},
 		// Slice 3: up to four components, each under its own path.
-		{"five-components", func(p *patchyv1.Preview) { p.Spec.Components = components(5) }},
-		{"duplicate-component-name", func(p *patchyv1.Preview) {
-			p.Spec.Components = []patchyv1.PreviewComponent{component("web", ""), component("web", "/api")}
+		{"five-components", func(p *maulv1.Preview) { p.Spec.Components = components(5) }},
+		{"duplicate-component-name", func(p *maulv1.Preview) {
+			p.Spec.Components = []maulv1.PreviewComponent{component("web", ""), component("web", "/api")}
 		}},
-		{"duplicate-component-path", func(p *patchyv1.Preview) {
-			p.Spec.Components = []patchyv1.PreviewComponent{component("web", "/api"), component("api", "/api")}
+		{"duplicate-component-path", func(p *maulv1.Preview) {
+			p.Spec.Components = []maulv1.PreviewComponent{component("web", "/api"), component("api", "/api")}
 		}},
 		// An omitted path is "/", so it collides with an explicit one.
-		{"omitted-path-beside-root", func(p *patchyv1.Preview) {
-			p.Spec.Components = []patchyv1.PreviewComponent{component("web", ""), component("api", "/")}
+		{"omitted-path-beside-root", func(p *maulv1.Preview) {
+			p.Spec.Components = []maulv1.PreviewComponent{component("web", ""), component("api", "/")}
 		}},
-		{"uppercase-component-path", func(p *patchyv1.Preview) { p.Spec.Components[0].Path = "/API" }},
-		{"component-path-trailing-slash", func(p *patchyv1.Preview) { p.Spec.Components[0].Path = "/api/" }},
-		{"relative-component-path", func(p *patchyv1.Preview) { p.Spec.Components[0].Path = "api" }},
+		{"uppercase-component-path", func(p *maulv1.Preview) { p.Spec.Components[0].Path = "/API" }},
+		{"component-path-trailing-slash", func(p *maulv1.Preview) { p.Spec.Components[0].Path = "/api/" }},
+		{"relative-component-path", func(p *maulv1.Preview) { p.Spec.Components[0].Path = "api" }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p := valid("preview-" + tc.name)
@@ -109,7 +109,7 @@ func testPreviewSchema(ctx context.Context, t *testing.T, c client.Client) {
 		t.Fatalf("valid Preview rejected: %v", err)
 	}
 	// An operator's own image prefix, nested segments with ECR's separators
-	// included: the schema has no fixed patchy/previews/ path.
+	// included: the schema has no fixed maul/previews/ path.
 	for i, repo := range []string{
 		"registry.example/acme/previews/demo",
 		"123456789012.dkr.ecr.us-east-1.amazonaws.com/team_a/runtime.images/web-app",
@@ -131,7 +131,7 @@ func testPreviewSchema(ctx context.Context, t *testing.T, c client.Client) {
 	}
 	testPreviewProject(ctx, t, c, valid)
 
-	for n, comps := range [][]patchyv1.PreviewComponent{
+	for n, comps := range [][]maulv1.PreviewComponent{
 		components(2), components(4),
 		{component("api", "/api"), component("web", "/")},
 		{component("api", "/api/v1"), component("docs", "/api")},
@@ -146,7 +146,7 @@ func testPreviewSchema(ctx context.Context, t *testing.T, c client.Client) {
 	// A component's path is never defaulted: a single-repository Preview
 	// written without one reads back without one, so a writer comparing
 	// specs keeps it as it is.
-	got := &patchyv1.Preview{}
+	got := &maulv1.Preview{}
 	if err := c.Get(ctx, client.ObjectKey{Name: "preview-valid", Namespace: "default"}, got); err != nil {
 		t.Fatal(err)
 	}
@@ -156,10 +156,10 @@ func testPreviewSchema(ctx context.Context, t *testing.T, c client.Client) {
 
 	// Status: one record per component, with the revision it serves.
 	slot := int32(0)
-	got.Status = patchyv1.PreviewStatus{Phase: patchyv1.PreviewReady, Slot: &slot,
+	got.Status = maulv1.PreviewStatus{Phase: maulv1.PreviewReady, Slot: &slot,
 		URL: "https://preview-valid.preview.example", ObservedRevision: strings.Repeat("b", 40)}
 	for i := range 4 {
-		got.Status.Components = append(got.Status.Components, patchyv1.PreviewComponentStatus{
+		got.Status.Components = append(got.Status.Components, maulv1.PreviewComponentStatus{
 			Name: fmt.Sprintf("c%d", i), Revision: strings.Repeat("b", 40), ImageID: "repo@sha256:" + strings.Repeat("1", 64),
 		})
 	}
@@ -173,12 +173,12 @@ func testPreviewSchema(ctx context.Context, t *testing.T, c client.Client) {
 	sameJSON(t, "preview status", got.Status, *want)
 	for _, tc := range []struct {
 		name   string
-		mutate func(*patchyv1.PreviewStatus)
+		mutate func(*maulv1.PreviewStatus)
 	}{
-		{"five component records", func(s *patchyv1.PreviewStatus) {
+		{"five component records", func(s *maulv1.PreviewStatus) {
 			s.Components = append(s.Components, s.Components[0])
 		}},
-		{"a short component revision", func(s *patchyv1.PreviewStatus) { s.Components[0].Revision = "abc" }},
+		{"a short component revision", func(s *maulv1.PreviewStatus) { s.Components[0].Revision = "abc" }},
 	} {
 		bad := got.DeepCopy()
 		tc.mutate(&bad.Status)
@@ -192,7 +192,7 @@ func testPreviewSchema(ctx context.Context, t *testing.T, c client.Client) {
 // before it existed still updates), set once onto such a Preview, and then
 // neither changed nor removed, since the sign-in relay authorises a viewer
 // against it alone. Its shape is a Project name's.
-func testPreviewProject(ctx context.Context, t *testing.T, c client.Client, valid func(string) *patchyv1.Preview) {
+func testPreviewProject(ctx context.Context, t *testing.T, c client.Client, valid func(string) *maulv1.Preview) {
 	t.Helper()
 	for _, bad := range []string{"Demo", "-demo", "demo-", strings.Repeat("a", 26), "a/b"} {
 		p := valid("preview-project-bad")
@@ -219,7 +219,7 @@ func testPreviewProject(ctx context.Context, t *testing.T, c client.Client, vali
 	if err := c.Create(ctx, stamped); err != nil {
 		t.Fatalf("Preview with spec.project rejected: %v", err)
 	}
-	for _, p := range []*patchyv1.Preview{legacy, stamped} {
+	for _, p := range []*maulv1.Preview{legacy, stamped} {
 		if err := c.Get(ctx, client.ObjectKeyFromObject(p), p); err != nil {
 			t.Fatal(err)
 		}

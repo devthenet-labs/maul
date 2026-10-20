@@ -3,7 +3,7 @@
 
 package generic
 
-import "github.com/bitwise-media-group/patchy/pkg/source"
+import "github.com/devthenet-labs/maul/pkg/source"
 
 // Issue is the view of a finding an external enhancer receives — the same
 // projection in-tree enhancers see, JSON-tagged for the wire.
@@ -24,7 +24,7 @@ type Issue struct {
 	CloudResource *source.CloudResource `json:"cloudResource,omitempty"`
 }
 
-// EnhanceRequest is what patchy POSTs to the integration's enhancer URL.
+// EnhanceRequest is what maul POSTs to the integration's enhancer URL.
 type EnhanceRequest struct {
 	// Version is the contract version, always Version.
 	Version string `json:"version"`

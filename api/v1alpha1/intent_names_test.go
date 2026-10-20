@@ -84,8 +84,8 @@ func TestIntentNameBudget(t *testing.T) {
 func TestProjectTriggerLabel(t *testing.T) {
 	p := &Project{}
 	p.Name = "target"
-	if got := ProjectTriggerLabel(p); got != "patchy:target" {
-		t.Errorf("derived trigger = %q, want patchy:target", got)
+	if got := ProjectTriggerLabel(p); got != "maul:target" {
+		t.Errorf("derived trigger = %q, want maul:target", got)
 	}
 	p.Spec.Labels.Trigger = "intent:target"
 	if got := ProjectTriggerLabel(p); got != "intent:target" {

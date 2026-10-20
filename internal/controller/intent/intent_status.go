@@ -11,14 +11,14 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/templates"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // syncStatusComment keeps the one status comment on the issue up to date. It
 // exists once the trigger was accepted (an Intent refused at Pending gets
-// its notice alone). It is created exactly once: before creating it patchy
+// its notice alone). It is created exactly once: before creating it maul
 // looks for its own among the comments since the trigger, so a restart
 // between posting and recording adopts it. It is edited only when what it
 // would say changed (its digest), and a status comment someone deleted is

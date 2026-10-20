@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/transcript"
-	"github.com/bitwise-media-group/patchy/internal/web/auth"
-	"github.com/bitwise-media-group/patchy/internal/web/authz"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/transcript"
+	"github.com/devthenet-labs/maul/internal/web/auth"
+	"github.com/devthenet-labs/maul/internal/web/authz"
 )
 
 const liveRunStream = "/api/intents/alpha-7/runs/alpha-7-bld-r1-app-a2/stream"

@@ -228,7 +228,7 @@ function CredentialCard({
         <div class="flex flex-col gap-3">
           {credential.stored ? (
             <p class="m-0 text-[13px] text-muted">
-              patchy no longer runs {provider} agents, so it no longer uses this credential and it cannot be
+              maul no longer runs {provider} agents, so it no longer uses this credential and it cannot be
               replaced here. Delete it if you no longer need it stored.
             </p>
           ) : null}
@@ -299,7 +299,7 @@ export function AccountView() {
         <h1 class="mx-0 mt-0 mb-1.5 text-[21px] tracking-tight">Account</h1>
         <p class="m-0 text-[13px] text-muted">
           Signed in as {account.name}. Runs attributed to you, the builds you approve and the plans you trigger, are
-          paid for with your own model credential. patchy never shows a stored credential again, to you or anyone:
+          paid for with your own model credential. maul never shows a stored credential again, to you or anyone:
           only its last four characters and a fingerprint.
         </p>
       </header>

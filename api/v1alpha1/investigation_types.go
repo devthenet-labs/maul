@@ -120,7 +120,7 @@ type InvestigationStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:shortName=inv,categories=patchy
+// +kubebuilder:resource:shortName=inv,categories=maul
 // +kubebuilder:printcolumn:name="Finding",type=string,JSONPath=`.spec.findingRef.name`
 // +kubebuilder:printcolumn:name="Attempt",type=integer,JSONPath=`.spec.attempt`
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`

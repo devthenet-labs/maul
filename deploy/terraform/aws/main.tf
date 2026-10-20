@@ -1,7 +1,7 @@
 # Copyright 2026 Bitwise Media Group Ltd.
 # SPDX-License-Identifier: MIT
 #
-# The AWS side of a patchy install on an EKS Auto Mode cluster with intents
+# The AWS side of a maul install on an EKS Auto Mode cluster with intents
 # and previews: the identities, image repositories, certificates and DNS the
 # chart's values point at. It configures no provider and no backend; the
 # caller does both. Kubernetes objects stay the chart's.

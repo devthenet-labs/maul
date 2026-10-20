@@ -12,17 +12,17 @@ It has two layers:
   role, the preview node role and its EKS access entry, the preview and edge certificates and, in a second apply, the
   alias records; and one `modules/app` per `apps` entry.
 - **The app module**, `deploy/terraform/aws/modules/app`: one application's two ECR repositories and two publisher
-  roles. It works on its own, for an account whose platform half is managed some other way; `patchy init app` prints its
+  roles. It works on its own, for an account whose platform half is managed some other way; `maul init app` prints its
   block.
 
 ```hcl
-module "patchy" {
-  source = "git::https://github.com/devthenet-labs/patchy.git//deploy/terraform/aws?ref=vX.Y.Z"
+module "maul" {
+  source = "git::https://github.com/devthenet-labs/maul.git//deploy/terraform/aws?ref=vX.Y.Z"
   # ...
 }
 
-module "patchy_app_shop_web" {
-  source = "git::https://github.com/devthenet-labs/patchy.git//deploy/terraform/aws/modules/app?ref=vX.Y.Z"
+module "maul_app_shop_web" {
+  source = "git::https://github.com/devthenet-labs/maul.git//deploy/terraform/aws/modules/app?ref=vX.Y.Z"
   # ...
 }
 ```
@@ -32,27 +32,27 @@ so re-export the ones you read:
 
 ```hcl
 output "helm_values" {
-  value = module.patchy.helm_values
+  value = module.maul.helm_values
 }
 output "github_variables_dotenv" {
-  value = module.patchy.github_variables_dotenv
+  value = module.maul.github_variables_dotenv
 }
 output "preview_node_class" {
-  value = module.patchy.preview_node_class
+  value = module.maul.preview_node_class
 }
 ```
 
 ## What the outputs are for
 
-| Output                          | Read by                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `helm_values`                   | The `patchy` chart, passed **last** (`-f <(terraform output -raw helm_values)`). Infrastructure-derived keys only: `sourceController.serviceAccount.name`, `agent.repositoryImages.registries`, the `preview.*` infrastructure keys, `previewController.config.apiServerCIDR`, the edge hosts with their certificate annotations, and with `preview_auth` the relay's `previewAuth.host` and Ingress annotations. It carries no enable flag and no security opt-out. |
-| `github_variables_dotenv`       | Each application repository's Actions variables, keyed by slug, as dotenv: `terraform output -json github_variables_dotenv`, piped through `jq -r '."<slug>"'` to `gh variable set -f - --repo <owner>/<name>`                                                                                                                                                                                                                                                       |
-| `github_variables`              | The same, as a map                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `preview_node_class`            | The chart's `preview.nodeIsolation.role`, `subnetIDs` and `securityGroupIDs`, for `preview.nodeIsolation.create`                                                                                                                                                                                                                                                                                                                                                     |
-| `apps`                          | Per slug: the repository URLs, the publisher role ARNs and the OIDC subject the roles trust. A Project's `preview.imageRepository` is its `runtime_repository_url`                                                                                                                                                                                                                                                                                                   |
-| `registry`                      | The ECR registry host, `patchy init app --registry`                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `preview_auth_dex_redirect_uri` | With `preview_auth`: the one redirect URI of Dex's static client for the preview sign-in relay, `https://<host>/dex/callback` ([Preview sign-in](preview-sign-in.md))                                                                                                                                                                                                                                                                                                |
+| Output                          | Read by                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `helm_values`                   | The `maul` chart, passed **last** (`-f <(terraform output -raw helm_values)`). Infrastructure-derived keys only: `sourceController.serviceAccount.name`, `agent.repositoryImages.registries`, the `preview.*` infrastructure keys, `previewController.config.apiServerCIDR`, the edge hosts with their certificate annotations, and with `preview_auth` the relay's `previewAuth.host` and Ingress annotations. It carries no enable flag and no security opt-out. |
+| `github_variables_dotenv`       | Each application repository's Actions variables, keyed by slug, as dotenv: `terraform output -json github_variables_dotenv`, piped through `jq -r '."<slug>"'` to `gh variable set -f - --repo <owner>/<name>`                                                                                                                                                                                                                                                     |
+| `github_variables`              | The same, as a map                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `preview_node_class`            | The chart's `preview.nodeIsolation.role`, `subnetIDs` and `securityGroupIDs`, for `preview.nodeIsolation.create`                                                                                                                                                                                                                                                                                                                                                   |
+| `apps`                          | Per slug: the repository URLs, the publisher role ARNs and the OIDC subject the roles trust. A Project's `preview.imageRepository` is its `runtime_repository_url`                                                                                                                                                                                                                                                                                                 |
+| `registry`                      | The ECR registry host, `maul init app --registry`                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `preview_auth_dex_redirect_uri` | With `preview_auth`: the one redirect URI of Dex's static client for the preview sign-in relay, `https://<host>/dex/callback` ([Preview sign-in](preview-sign-in.md))                                                                                                                                                                                                                                                                                              |
 
 ## Security properties
 
@@ -60,8 +60,8 @@ output "preview_node_class" {
   (`publish-agent.yml` or `publish-runtime.yml`, as `job_workflow_ref`), in one repository (by its numeric repository
   and owner IDs and GitHub's immutable OIDC subject), on its default branch, and may push to one ECR repository, with no
   delete. A repository on the classic `repo:<owner>/<name>` subject fails the plan.
-- **Disjoint prefixes.** Agent images live under `agent_path_prefix` (default `patchy/app-envs`), runtime images under
-  `preview_path_prefix` (default `patchy/previews`), which reaches the chart as `preview.imagePathPrefix` through
+- **Disjoint prefixes.** Agent images live under `agent_path_prefix` (default `maul/app-envs`), runtime images under
+  `preview_path_prefix` (default `maul/previews`), which reaches the chart as `preview.imagePathPrefix` through
   `helm_values`. A runtime image is built from an unreviewed pull request, so it must never be admissible as an agent
   image: the module refuses overlapping prefixes, compared on path segment boundaries, and the chart refuses an agent
   allowlist that overlaps the preview prefix.
@@ -75,7 +75,7 @@ output "preview_node_class" {
   run the isolation probe ([Deploying, step 12](deploying.md#12-the-isolation-probe)).
 
 Adopting existing resources with `import` blocks, and the exact trust conditions, are in the module's own
-[README](https://github.com/devthenet-labs/patchy/blob/main/deploy/terraform/aws/README.md#adopting-existing-resources).
+[README](https://github.com/devthenet-labs/maul/blob/main/deploy/terraform/aws/README.md#adopting-existing-resources).
 
 ## Reference
 

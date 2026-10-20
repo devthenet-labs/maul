@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bitwise-media-group/patchy/internal/model"
+	"github.com/devthenet-labs/maul/internal/model"
 )
 
 func mdl(t *testing.T, id string) model.Model {

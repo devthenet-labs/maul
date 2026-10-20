@@ -17,10 +17,10 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/transcript"
-	"github.com/bitwise-media-group/patchy/internal/web/auth"
-	"github.com/bitwise-media-group/patchy/internal/web/authz"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/transcript"
+	"github.com/devthenet-labs/maul/internal/web/auth"
+	"github.com/devthenet-labs/maul/internal/web/authz"
 )
 
 // leaks are strings that must never reach a viewer: a node name, a private
@@ -172,7 +172,7 @@ func TestBoardCountsRoundsAsTheLimitsDo(t *testing.T) {
 	}
 	revise := func(round, attempt int32, trigger v1alpha1.IntentRunTrigger, outcome string) *v1alpha1.IntentRun {
 		return &v1alpha1.IntentRun{
-			ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("beta-3-rev-r%d-a%d", round, attempt), Namespace: "patchy",
+			ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("beta-3-rev-r%d-a%d", round, attempt), Namespace: "maul",
 				UID: types.UID(fmt.Sprintf("uid-rev-%d-%d", round, attempt))},
 			Spec: v1alpha1.IntentRunSpec{
 				IntentRef: v1alpha1.ObjectReference{Name: "beta-3", UID: "uid-beta-3"},
@@ -393,7 +393,7 @@ func TestConfigMapGuards(t *testing.T) {
 	}{
 		{"plan with another intent's label", func(objs []clientObject) {
 			cm := findConfigMap(objs, "alpha-7-plan-r1")
-			cm.Labels["patchy.bitwisemedia.uk/intent"] = "beta-3"
+			cm.Labels["maul.run/intent"] = "beta-3"
 		}},
 		{"plan with no label", func(objs []clientObject) {
 			cm := findConfigMap(objs, "alpha-7-plan-r1")
@@ -427,7 +427,7 @@ func TestConfigMapGuards(t *testing.T) {
 			findConfigMap(objs, "alpha-7-plan-r1-a1-transcript").OwnerReferences[0].UID = "uid-build-run"
 		}},
 		{"transcript with another intent's label", func(objs []clientObject) {
-			findConfigMap(objs, "alpha-7-plan-r1-a1-transcript").Labels["patchy.bitwisemedia.uk/intent"] = "beta-3"
+			findConfigMap(objs, "alpha-7-plan-r1-a1-transcript").Labels["maul.run/intent"] = "beta-3"
 		}},
 		{"status naming a ConfigMap that is not the run's own", func(objs []clientObject) {
 			run := findRun(objs, "alpha-7-plan-r1-a1")
@@ -684,7 +684,7 @@ func TestRunStreamWaitsForLaunch(t *testing.T) {
 		t.Fatal(err)
 	}
 	run.Status.Phase = v1alpha1.RunRunning
-	run.Status.JobRef = &v1alpha1.JobReference{Namespace: "patchy-agents", Name: "job-alpha-7-bld"}
+	run.Status.JobRef = &v1alpha1.JobReference{Namespace: "maul-agents", Name: "job-alpha-7-bld"}
 	if err := s.client.Update(ctx, &run); err != nil {
 		t.Fatal(err)
 	}

@@ -1,0 +1,54 @@
+# Copyright 2026 Bitwise Media Group Ltd.
+# SPDX-License-Identifier: MIT
+#
+# The webhook entry point, Gateway API flavour (webhook.httpRoute): one
+# HTTPRoute on one hostname, in front of the integration-controller — the
+# only component that faces the internet.
+#
+# The paths are fixed to one per provider on purpose: those are the only
+# endpoints a provider needs, and each authenticates its own way —
+# /github/webhooks by HMAC over the raw body, /google-cloud/webhooks by the
+# OIDC token a Pub/Sub push subscription signs, /wiz/webhooks by the shared
+# bearer token a Wiz automation action carries. /generic/ is the one prefix
+# covering many paths — each generic Integration listens at
+# /generic/<name>/webhooks under its own HMAC secret, so the list stays
+# static however many there are. The probes stay cluster-internal. Requires
+# the Gateway API CRDs and a Gateway to attach to via parentRefs — see
+# docs/deployment/webhook.md.
+{{- if .Values.webhook.httpRoute.enabled }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+    name: {{ include "maul.fullname" . }}-webhook
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" "integration-controller") | nindent 8 }}
+    {{- with include "maul.annotations" (dict "root" . "extra" .Values.webhook.httpRoute.annotations) }}
+    annotations:
+        {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    {{- with .Values.webhook.httpRoute.parentRefs }}
+    parentRefs:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+    hostnames:
+        - {{ required "webhook.host is required when webhook.httpRoute is enabled" .Values.webhook.host | quote }}
+    rules:
+        - matches:
+              - path:
+                    type: PathPrefix
+                    value: /github/webhooks
+              - path:
+                    type: PathPrefix
+                    value: /google-cloud/webhooks
+              - path:
+                    type: PathPrefix
+                    value: /wiz/webhooks
+              - path:
+                    type: PathPrefix
+                    value: /generic/
+          backendRefs:
+              - name: {{ include "maul.fullname" . }}-integration-controller
+                port: {{ .Values.integrationController.service.port }}
+{{- end }}

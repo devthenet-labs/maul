@@ -25,12 +25,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	"github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/artifact"
-	"github.com/bitwise-media-group/patchy/internal/evalresults"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/web/auth"
-	"github.com/bitwise-media-group/patchy/pkg/evaluation"
+	"github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/artifact"
+	"github.com/devthenet-labs/maul/internal/evalresults"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/web/auth"
+	"github.com/devthenet-labs/maul/pkg/evaluation"
 )
 
 // scriptedWorkspaces answers Stat and Put with fixed results.
@@ -69,7 +69,7 @@ func serverWith(t *testing.T, funcs interceptor.Funcs, ws WorkspaceClient, limit
 	if ws == nil {
 		ws = &fakeWorkspaces{present: map[string]bool{digestA: true}}
 	}
-	return NewServer(c, "patchy", headerAuth{}, evaluation.AuthInfo{}, FullAccess{}, ws, limits, nil)
+	return NewServer(c, "maul", headerAuth{}, evaluation.AuthInfo{}, FullAccess{}, ws, limits, nil)
 }
 
 func errorBody(t *testing.T, rr *httptest.ResponseRecorder) string {
@@ -92,7 +92,7 @@ func TestFullAccessAllowsEverything(t *testing.T) {
 
 func TestAccessReviewFailureIs500(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(kube.Scheme()).Build()
-	srv := NewServer(c, "patchy", headerAuth{}, evaluation.AuthInfo{}, errGranter{},
+	srv := NewServer(c, "maul", headerAuth{}, evaluation.AuthInfo{}, errGranter{},
 		&fakeWorkspaces{present: map[string]bool{}}, Limits{}, nil)
 	rr := doReq(t, srv, "GET", "/api/v1/evaluations/x", "dev", "")
 	if rr.Code != http.StatusInternalServerError || errorBody(t, rr) != "access review failed" {
@@ -396,10 +396,10 @@ func TestSnapshotUnitShapes(t *testing.T) {
 	badEntry.Status.ResultsRef = &v1alpha1.TranscriptRef{Name: evalresults.NameFor(badEntry.Name)}
 
 	good := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "patchy", Name: evalresults.NameFor(withEntry.Name)},
+		ObjectMeta: metav1.ObjectMeta{Namespace: "maul", Name: evalresults.NameFor(withEntry.Name)},
 		BinaryData: map[string][]byte{evalresults.DataKey: gz(t, `{"score":1}`)}}
 	corrupt := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "patchy", Name: evalresults.NameFor(badEntry.Name)},
+		ObjectMeta: metav1.ObjectMeta{Namespace: "maul", Name: evalresults.NameFor(badEntry.Name)},
 		BinaryData: map[string][]byte{evalresults.DataKey: []byte("not gzip")}}
 
 	srv, _, _ := newTestServer(t, eval, running, failed, withEntry, badEntry, good, corrupt)
@@ -544,7 +544,7 @@ func TestStartWatchPublishes(t *testing.T) {
 		}
 	}
 
-	ev := &v1alpha1.Evaluation{ObjectMeta: metav1.ObjectMeta{Name: "eval-w", Namespace: "patchy"}}
+	ev := &v1alpha1.Evaluation{ObjectMeta: metav1.ObjectMeta{Name: "eval-w", Namespace: "maul"}}
 	evalInf.Add(ev)
 	expectWake("evaluation add", true)
 	evalInf.Update(ev, ev)
@@ -552,13 +552,13 @@ func TestStartWatchPublishes(t *testing.T) {
 	evalInf.Delete(ev)
 	expectWake("evaluation delete", true)
 
-	labelled := &v1alpha1.EvaluationUnit{ObjectMeta: metav1.ObjectMeta{Name: "eval-w-u000", Namespace: "patchy",
+	labelled := &v1alpha1.EvaluationUnit{ObjectMeta: metav1.ObjectMeta{Name: "eval-w-u000", Namespace: "maul",
 		Labels: map[string]string{v1alpha1.LabelEvaluation: "eval-w"}}}
 	unitInf.Add(labelled)
 	expectWake("labelled unit add", true)
-	unitInf.Add(&v1alpha1.EvaluationUnit{ObjectMeta: metav1.ObjectMeta{Name: "stray", Namespace: "patchy"}})
+	unitInf.Add(&v1alpha1.EvaluationUnit{ObjectMeta: metav1.ObjectMeta{Name: "stray", Namespace: "maul"}})
 	expectWake("unlabelled unit add", false)
-	other := &v1alpha1.Evaluation{ObjectMeta: metav1.ObjectMeta{Name: "eval-other", Namespace: "patchy"}}
+	other := &v1alpha1.Evaluation{ObjectMeta: metav1.ObjectMeta{Name: "eval-other", Namespace: "maul"}}
 	evalInf.Add(other)
 	expectWake("another evaluation", false)
 

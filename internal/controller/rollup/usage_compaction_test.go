@@ -12,14 +12,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/stats"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/stats"
 )
 
 func usageRollup(name string, days ...string) *v1alpha1.UsageRollup {
 	r := &v1alpha1.UsageRollup{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "patchy"},
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "maul"},
 		Spec:       v1alpha1.UsageRollupSpec{Scope: v1alpha1.UsageScope{Type: v1alpha1.UsageScopeUser, User: "org"}},
 		Status: v1alpha1.UsageRollupStatus{
 			Days:   map[string]v1alpha1.UsageBucket{},
@@ -51,7 +51,7 @@ func TestUsageCompactor(t *testing.T) {
 	if err := c.Get(context.Background(), client.ObjectKeyFromObject(fresh), &before); err != nil {
 		t.Fatal(err)
 	}
-	comp := &UsageCompactor{Client: c, Reader: c, Namespace: "patchy", Now: func() time.Time { return now }}
+	comp := &UsageCompactor{Client: c, Reader: c, Namespace: "maul", Now: func() time.Time { return now }}
 
 	n, err := comp.Compact(context.Background())
 	if err != nil || n != 1 {
@@ -93,7 +93,7 @@ func TestUsageCompactorAfterApply(t *testing.T) {
 		Source: v1alpha1.UsageSourceMeasured, Usage: v1alpha1.UsageAggregate{Runs: 1}}, "", true, now)
 	c := fake.NewClientBuilder().WithScheme(kube.Scheme()).
 		WithStatusSubresource(&v1alpha1.UsageRollup{}).WithObjects(r).Build()
-	comp := &UsageCompactor{Client: c, Reader: c, Namespace: "patchy",
+	comp := &UsageCompactor{Client: c, Reader: c, Namespace: "maul",
 		Now: func() time.Time { return now.Add(24 * time.Hour) }}
 	if n, err := comp.Compact(context.Background()); err != nil || n != 1 {
 		t.Fatalf("Compact = %d, %v", n, err)
@@ -116,7 +116,7 @@ func TestUsageCompactorStart(t *testing.T) {
 	r := usageRollup("usage-user-b", old)
 	c := fake.NewClientBuilder().WithScheme(kube.Scheme()).
 		WithStatusSubresource(&v1alpha1.UsageRollup{}).WithObjects(r).Build()
-	comp := &UsageCompactor{Client: c, Reader: c, Namespace: "patchy", Interval: time.Hour,
+	comp := &UsageCompactor{Client: c, Reader: c, Namespace: "maul", Interval: time.Hour,
 		Now: func() time.Time { return now }}
 	if !comp.NeedLeaderElection() {
 		t.Error("compaction must run on the leader only")

@@ -12,7 +12,7 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 
-	"github.com/bitwise-media-group/patchy/internal/previewauth"
+	"github.com/devthenet-labs/maul/internal/previewauth"
 )
 
 func resultAttr(result string) attribute.KeyValue { return attribute.String("result", result) }

@@ -32,7 +32,7 @@ const (
 // resolver's own tests use) and publishes an application repository's
 // runner image in it: one linux/amd64 image with a PATH and nothing the
 // resolver refuses. It returns the registry's host and the image's tag
-// reference, which the repository's .patchy/agent.yaml declares, so
+// reference, which the repository's .maul/agent.yaml declares, so
 // source-controller resolves, checks and pins it exactly as it would a real
 // one. The registry is on loopback, which go-containerregistry reaches over
 // plain http.

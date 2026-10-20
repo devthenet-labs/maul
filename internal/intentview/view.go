@@ -15,8 +15,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/templates"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // Column is a board column.
@@ -209,7 +209,7 @@ var outcomeText = map[string]string{
 	"image_required":      "the build needs an accepted repository agent image",
 	"not_built":           "the agent reported it could not build the plan",
 	"dependency_refused":  "the egress proxy refused a dependency the build needs",
-	"branch_exists":       "the intent branch exists at a commit patchy did not push",
+	"branch_exists":       "the intent branch exists at a commit maul did not push",
 	"hold_expired":        "the finished build expired while the intent was suspended",
 	"push_refused":        "GitHub refused the push",
 	"launch_refused":      "the cluster refused the agent Job",
@@ -263,13 +263,13 @@ var blockText = map[string]map[string]string{
 		"":                         "the build needs an accepted repository agent image",
 	},
 	v1alpha1.ConditionBranchConflict: {
-		"BranchExists":       "the intent branch exists at a commit patchy did not push",
-		"ForeignPullRequest": "a pull request patchy did not open holds the intent branch",
+		"BranchExists":       "the intent branch exists at a commit maul did not push",
+		"ForeignPullRequest": "a pull request maul did not open holds the intent branch",
 		"BranchMissing":      "the intent branch vanished before its pull request opened",
 		"BranchChanged":      "the intent branch moved away from the build's commit",
 		"PullRequestRefused": "GitHub refused to open the pull request",
 		"StaleRoundBranch":   "the intent branch holds an earlier round's commit",
-		"":                   "the intent branch is in a state patchy will not build on",
+		"":                   "the intent branch is in a state maul will not build on",
 	},
 	v1alpha1.ConditionChecksFailing: {
 		"RepeatedFailure": "the same check failure came back after a fix round",

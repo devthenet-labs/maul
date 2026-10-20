@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/usagemeter/usagemetertest"
-	"github.com/bitwise-media-group/patchy/internal/usagewire"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/usagemeter/usagemetertest"
+	"github.com/devthenet-labs/maul/internal/usagewire"
 )
 
 // TestMeasureSettledRuns: with the meter on, every intent run that settles
@@ -32,7 +32,7 @@ func TestMeasureSettledRuns(t *testing.T) {
 	name := e.newIntent(approver)
 	e.drive(name, v1alpha1.IntentAwaitingApproval, repoImage)
 	e.clock.Advance(time.Minute)
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	e.drive(name, v1alpha1.IntentInReview, repoImage)
 	e.runRuns() // a pass after the last run settled
 

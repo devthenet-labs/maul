@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 // Window bounds, in days.

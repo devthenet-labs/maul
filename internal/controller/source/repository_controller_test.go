@@ -16,11 +16,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/artifact"
-	"github.com/bitwise-media-group/patchy/internal/forge"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/kube"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/artifact"
+	"github.com/devthenet-labs/maul/internal/forge"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/kube"
 )
 
 // fakeForgeClient serves canned branch/SHA/tarball answers.
@@ -48,7 +48,7 @@ func (f *fakeForgeClient) Tarball(context.Context, ghclient.Repo, string) (io.Re
 
 func testForge(name string) *v1alpha1.Forge {
 	return &v1alpha1.Forge{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "patchy"},
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "maul"},
 		Spec: v1alpha1.ForgeSpec{
 			Provider:  v1alpha1.ForgeProviderGitHub,
 			SecretRef: v1alpha1.LocalSecretReference{Name: "creds"},
@@ -58,7 +58,7 @@ func testForge(name string) *v1alpha1.Forge {
 
 func testRepository() *v1alpha1.Repository {
 	return &v1alpha1.Repository{
-		ObjectMeta: metav1.ObjectMeta{Name: "finding-ab-1-src", Namespace: "patchy"},
+		ObjectMeta: metav1.ObjectMeta{Name: "finding-ab-1-src", Namespace: "maul"},
 		Spec:       v1alpha1.RepositorySpec{URL: "https://github.com/acme/orders"},
 	}
 }
@@ -90,7 +90,7 @@ const repoName = "finding-ab-1-src"
 func reconcile(t *testing.T, r *RepositoryReconciler) ctrl.Result {
 	t.Helper()
 	res, err := r.Reconcile(t.Context(), ctrl.Request{
-		NamespacedName: types.NamespacedName{Namespace: "patchy", Name: repoName},
+		NamespacedName: types.NamespacedName{Namespace: "maul", Name: repoName},
 	})
 	if err != nil {
 		t.Fatalf("Reconcile(%s): %v", repoName, err)
@@ -101,7 +101,7 @@ func reconcile(t *testing.T, r *RepositoryReconciler) ctrl.Result {
 func getRepo(t *testing.T, c client.Client) *v1alpha1.Repository {
 	t.Helper()
 	var out v1alpha1.Repository
-	key := types.NamespacedName{Namespace: "patchy", Name: repoName}
+	key := types.NamespacedName{Namespace: "maul", Name: repoName}
 	if err := c.Get(t.Context(), key, &out); err != nil {
 		t.Fatalf("Get(%s): %v", repoName, err)
 	}
@@ -165,7 +165,7 @@ func TestReconcileRefetchesAfterRestart(t *testing.T) {
 	if repo.Status.Artifact == nil || repo.Status.Artifact.URL == first.URL {
 		t.Errorf("artifact URL = %+v, want re-served under a fresh id", repo.Status.Artifact)
 	}
-	if _, ok := fresh.Get("patchy/finding-ab-1-src"); !ok {
+	if _, ok := fresh.Get("maul/finding-ab-1-src"); !ok {
 		t.Error("fresh store has no artifact after reconcile")
 	}
 }
@@ -207,7 +207,7 @@ func TestReconcileTooLargeStalls(t *testing.T) {
 	if !meta.IsStatusConditionTrue(repo.Status.Conditions, v1alpha1.ConditionStalled) {
 		t.Errorf("Stalled condition = %+v, want True", repo.Status.Conditions)
 	}
-	if _, ok := r.Artifacts.Get("patchy/finding-ab-1-src"); ok {
+	if _, ok := r.Artifacts.Get("maul/finding-ab-1-src"); ok {
 		t.Error("over-cap artifact left in store")
 	}
 }
@@ -216,7 +216,7 @@ func TestReconcileDeletionDropsArtifact(t *testing.T) {
 	gh := &fakeForgeClient{defaultBranch: "main", headSHA: "abc123", tarball: "v"}
 	r, c := harness(t, gh, testForge("gh"), testRepository())
 	reconcile(t, r)
-	if _, ok := r.Artifacts.Get("patchy/finding-ab-1-src"); !ok {
+	if _, ok := r.Artifacts.Get("maul/finding-ab-1-src"); !ok {
 		t.Fatal("artifact missing after first reconcile")
 	}
 
@@ -224,7 +224,7 @@ func TestReconcileDeletionDropsArtifact(t *testing.T) {
 		t.Fatalf("Delete: %v", err)
 	}
 	reconcile(t, r)
-	if _, ok := r.Artifacts.Get("patchy/finding-ab-1-src"); ok {
+	if _, ok := r.Artifacts.Get("maul/finding-ab-1-src"); ok {
 		t.Error("artifact still in store after Repository deletion")
 	}
 }

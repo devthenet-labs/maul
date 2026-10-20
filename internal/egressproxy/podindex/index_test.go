@@ -14,11 +14,11 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
 
-	"github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/egressproxy"
+	"github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/egressproxy"
 )
 
-const ns = "patchy-agents"
+const ns = "maul-agents"
 
 var epoch = time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
 
@@ -32,7 +32,7 @@ func agentPod(name, ip string, phase corev1.PodPhase, age time.Duration) *corev1
 			CreationTimestamp: metav1.NewTime(epoch.Add(-age)),
 			Labels: map[string]string{
 				labelApp:                       appName,
-				"app.kubernetes.io/managed-by": "patchy",
+				"app.kubernetes.io/managed-by": "maul",
 				v1alpha1.LabelFinding:          "f-" + name,
 				v1alpha1.LabelOwner:            "devthenet-labs",
 				v1alpha1.LabelRunKind:          "remediation",
@@ -42,7 +42,7 @@ func agentPod(name, ip string, phase corev1.PodPhase, age time.Duration) *corev1
 			},
 			Annotations: map[string]string{
 				v1alpha1.AnnotationRepo:                     "devthenet-labs/patchy-target",
-				"patchy.bitwisemedia.uk/runner-image":       "registry.example/app@sha256:abc",
+				"maul.run/runner-image":                     "registry.example/app@sha256:abc",
 				"kubectl.kubernetes.io/last-applied-config": "{}",
 			},
 		},
@@ -189,7 +189,7 @@ func TestSelectorListsAgentPodsOnly(t *testing.T) {
 	if !listed {
 		t.Error("the index never listed pods")
 	}
-	if Selector != "app.kubernetes.io/name=patchy-agent" {
+	if Selector != "app.kubernetes.io/name=maul-agent" {
 		t.Errorf("Selector = %q", Selector)
 	}
 }

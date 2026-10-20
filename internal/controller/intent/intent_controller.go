@@ -21,18 +21,18 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/credgate"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/resourceclass"
-	"github.com/bitwise-media-group/patchy/internal/runnerguard"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/credgate"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/resourceclass"
+	"github.com/devthenet-labs/maul/internal/runnerguard"
 )
 
 // projectIndex indexes Intents by spec.project, so a Project change finds
 // its Intents without a full scan.
 const projectIndex = "spec.project"
 
-// clockSkew widens a look for patchy's own earlier comment when the moment it
+// clockSkew widens a look for maul's own earlier comment when the moment it
 // is anchored to is this controller's clock rather than GitHub's.
 const clockSkew = 5 * time.Minute
 
@@ -168,7 +168,7 @@ type pass struct {
 	// issue then waits for it too (issueClosed).
 	endingWaits bool
 	// comments are the issue's comments listed since commentsSince this
-	// pass (nil: none listed); own indexes patchy's own among them by their
+	// pass (nil: none listed); own indexes maul's own among them by their
 	// marker line.
 	comments      []*ghclient.Comment
 	commentsSince time.Time
@@ -270,7 +270,7 @@ func (p *pass) run(ctx context.Context) (ctrl.Result, error) {
 // notice on pull requests it left open while opening them, the preview
 // comments' last edit (the preview was removed), any hand-off discovery
 // made, and the status comment. Each notice asks only the repository it is
-// owed in, so no other pull request's repository, one patchy can no longer
+// owed in, so no other pull request's repository, one maul can no longer
 // reach included, holds an ended intent. A round notice still owed holds back
 // the hand-off, never the status comment. The preview comments hold back
 // nothing: one that could not be edited is tried again a poll interval later.

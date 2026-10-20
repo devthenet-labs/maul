@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/bitwise-media-group/patchy/internal/usagewire"
+	"github.com/devthenet-labs/maul/internal/usagewire"
 )
 
 // TestRouteCredentialKind: each route constructor declares the credential

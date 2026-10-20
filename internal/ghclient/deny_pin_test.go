@@ -9,11 +9,11 @@ import (
 
 	"github.com/google/go-github/v90/github"
 
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/netprofile"
 )
 
 // TestForgeHostsDenied pins the egress proxy's hard-deny tables to the
-// hosts patchy's GitHub client really reaches: go-github's default API and
+// hosts maul's GitHub client really reaches: go-github's default API and
 // upload hosts, read from a fresh client so a moved default fails here,
 // plus the archive (codeload) and release-asset hosts its redirects lead
 // to. No registry may be any of them (DeniedHost), and no tunnel may open

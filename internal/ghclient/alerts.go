@@ -67,7 +67,7 @@ func (c *Client) OpenAlert(ctx context.Context, repo Repo, number int) error {
 	return nil
 }
 
-// alertFromGitHub maps a go-github alert onto patchy's Alert: rule
+// alertFromGitHub maps a go-github alert onto maul's Alert: rule
 // metadata and tags, security_severity_level falling back to the rule
 // severity, and the most recent instance's commit, ref, message, and
 // location.

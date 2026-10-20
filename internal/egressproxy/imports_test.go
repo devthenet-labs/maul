@@ -37,7 +37,7 @@ func TestNoKubernetesInTheCore(t *testing.T) {
 		for _, imp := range f.Imports {
 			path, _ := strconv.Unquote(imp.Path.Value)
 			if strings.HasPrefix(path, "k8s.io/") || strings.HasPrefix(path, "sigs.k8s.io/") ||
-				strings.Contains(path, "/patchy/api/") || strings.Contains(path, "/patchy/internal/kube") {
+				strings.Contains(path, "/maul/api/") || strings.Contains(path, "/maul/internal/kube") {
 				t.Errorf("%s imports %s: the egress proxy core imports no Kubernetes package", name, path)
 			}
 		}

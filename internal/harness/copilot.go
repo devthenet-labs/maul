@@ -8,8 +8,8 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/bitwise-media-group/patchy/internal/runner"
-	"github.com/bitwise-media-group/patchy/internal/transcript"
+	"github.com/devthenet-labs/maul/internal/runner"
+	"github.com/devthenet-labs/maul/internal/transcript"
 )
 
 // Copilot drives GitHub's agentic Copilot CLI (`copilot -p`, the
@@ -75,7 +75,7 @@ var copilotDeny = map[Sandbox][]string{
 // Three flags exist for the pod rather than the prompt. --disable-builtin-mcps
 // stops the bundled github-mcp-server from spending the GitHub token the CLI
 // authenticated with (see the type comment). --no-remote and --no-remote-export
-// keep the session off GitHub's web and mobile surfaces: patchy's sessions carry
+// keep the session off GitHub's web and mobile surfaces: maul's sessions carry
 // unremediated vulnerability detail, which must not leave the pod through a
 // side channel the operator never opted into. --no-auto-update is belt and
 // braces over the image's COPILOT_AUTO_UPDATE=false — the rootfs is read-only

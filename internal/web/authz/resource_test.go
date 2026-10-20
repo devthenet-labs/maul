@@ -14,8 +14,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/web/auth"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/web/auth"
 )
 
 // resourceSARClient fabricates SubjectAccessReview responses for the
@@ -32,8 +32,8 @@ func resourceSARClient(t *testing.T, calls *int, allow func(user, verb string) b
 				}
 				*calls++
 				attrs := sar.Spec.ResourceAttributes
-				if attrs.Namespace != "patchy" || attrs.Group != "patchy.bitwisemedia.uk" || attrs.Resource != "evaluations" {
-					t.Errorf("review attributes = %s/%s/%s, want patchy/patchy.bitwisemedia.uk/evaluations",
+				if attrs.Namespace != "maul" || attrs.Group != "maul.run" || attrs.Resource != "evaluations" {
+					t.Errorf("review attributes = %s/%s/%s, want maul/maul.run/evaluations",
 						attrs.Namespace, attrs.Group, attrs.Resource)
 				}
 				sar.Status.Allowed = allow(sar.Spec.User, attrs.Verb)
@@ -48,7 +48,7 @@ func TestResourceReviewerAllowed(t *testing.T) {
 	c := resourceSARClient(t, &calls, func(user, verb string) bool {
 		return user == "dev" && verb != "delete"
 	})
-	r := NewResourceReviewer(c, "patchy", "patchy.bitwisemedia.uk", "evaluations", time.Minute)
+	r := NewResourceReviewer(c, "maul", "maul.run", "evaluations", time.Minute)
 
 	cases := []struct {
 		name string
@@ -76,7 +76,7 @@ func TestResourceReviewerAllowed(t *testing.T) {
 func TestResourceReviewerCache(t *testing.T) {
 	calls := 0
 	r := NewResourceReviewer(resourceSARClient(t, &calls, func(string, string) bool { return true }),
-		"patchy", "patchy.bitwisemedia.uk", "evaluations", time.Minute)
+		"maul", "maul.run", "evaluations", time.Minute)
 	now := time.Date(2026, 8, 12, 12, 0, 0, 0, time.UTC)
 	r.now = func() time.Time { return now }
 
@@ -124,7 +124,7 @@ func TestResourceReviewerError(t *testing.T) {
 			},
 		}).
 		Build()
-	r := NewResourceReviewer(c, "patchy", "patchy.bitwisemedia.uk", "evaluations", 0)
+	r := NewResourceReviewer(c, "maul", "maul.run", "evaluations", 0)
 	if _, err := r.Allowed(t.Context(), auth.Identity{Username: "dev"}, "get"); !errors.Is(err, boom) {
 		t.Fatalf("Allowed error = %v, want wrapped %v", err, boom)
 	}
@@ -142,7 +142,7 @@ func TestSubresourceReviewer(t *testing.T) {
 			return nil
 		},
 	}).Build()
-	r := NewSubresourceReviewer(c, "patchy", "patchy.bitwisemedia.uk", "usage", "all", time.Minute)
+	r := NewSubresourceReviewer(c, "maul", "maul.run", "usage", "all", time.Minute)
 	for _, tc := range []struct {
 		user string
 		want bool
@@ -152,7 +152,7 @@ func TestSubresourceReviewer(t *testing.T) {
 			t.Errorf("Allowed(%s) = %t, %v; want %t", tc.user, ok, err, tc.want)
 		}
 	}
-	want := authorizationv1.ResourceAttributes{Namespace: "patchy", Group: "patchy.bitwisemedia.uk",
+	want := authorizationv1.ResourceAttributes{Namespace: "maul", Group: "maul.run",
 		Resource: "usage", Subresource: "all", Verb: "get"}
 	if len(got) != 2 || got[0] != want || got[1] != want {
 		t.Errorf("reviews = %+v, want two of %+v", got, want)

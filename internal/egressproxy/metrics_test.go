@@ -66,15 +66,15 @@ func TestMetrics(t *testing.T) {
 		attrs map[string]string
 		delta int64
 	}{
-		{"patchy.egress_proxy.requests", map[string]string{"profile": "go", "route": "go", "outcome": "proxied"}, 2},
-		{"patchy.egress_proxy.requests", map[string]string{"profile": "go", "route": "sumdb", "outcome": "proxied"}, 2},
-		{"patchy.egress_proxy.requests", map[string]string{"profile": "go", "route": "go", "outcome": "not_allowed"}, 1},
-		{"patchy.egress_proxy.requests", map[string]string{"profile": "go", "route": "none", "outcome": "bad_path"}, 1},
-		{"patchy.egress_proxy.requests", map[string]string{"profile": "go", "outcome": "method"}, 1},
+		{"maul.egress_proxy.requests", map[string]string{"profile": "go", "route": "go", "outcome": "proxied"}, 2},
+		{"maul.egress_proxy.requests", map[string]string{"profile": "go", "route": "sumdb", "outcome": "proxied"}, 2},
+		{"maul.egress_proxy.requests", map[string]string{"profile": "go", "route": "go", "outcome": "not_allowed"}, 1},
+		{"maul.egress_proxy.requests", map[string]string{"profile": "go", "route": "none", "outcome": "bad_path"}, 1},
+		{"maul.egress_proxy.requests", map[string]string{"profile": "go", "outcome": "method"}, 1},
 		// Both uuid answers and the refusal body of rsc.io/quote.
-		{"patchy.egress_proxy.bytes", map[string]string{"profile": "go", "route": "go"}, -1},
-		{"patchy.egress_proxy.bytes", map[string]string{"profile": "go", "route": "sumdb"}, 4},
-		{"patchy.egress_proxy.inflight", map[string]string{"profile": "go"}, 0},
+		{"maul.egress_proxy.bytes", map[string]string{"profile": "go", "route": "go"}, -1},
+		{"maul.egress_proxy.bytes", map[string]string{"profile": "go", "route": "sumdb"}, 4},
+		{"maul.egress_proxy.inflight", map[string]string{"profile": "go"}, 0},
 	}
 	before := make([]int64, len(probes))
 	for i, p := range probes {

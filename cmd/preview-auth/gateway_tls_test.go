@@ -24,7 +24,7 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	"github.com/bitwise-media-group/patchy/internal/previewauth/adapters/tlsdir"
+	"github.com/devthenet-labs/maul/internal/previewauth/adapters/tlsdir"
 )
 
 // tlsPair writes a self-signed pair for names into dir/sub, as the chart

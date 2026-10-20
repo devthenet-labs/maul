@@ -14,7 +14,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/bitwise-media-group/patchy/api/v1alpha1"
+	"github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 // gatewayFlow is one sign-in's tokens at t0: the state, its cookie value,
@@ -81,7 +81,7 @@ func TestGatewayHandoff(t *testing.T) {
 	if h.Return != "/dash?tab=2" || h.RelaySID == "" || h.Sub != r.Sub(ClientID(1), "uid-1", "intent-7", "github:alice") {
 		t.Errorf("handoff = %+v", h)
 	}
-	if h.StateCookie() != StateCookieName(f.state) || !strings.HasPrefix(h.StateCookie(), "__Host-patchy-pv-state-") {
+	if h.StateCookie() != StateCookieName(f.state) || !strings.HasPrefix(h.StateCookie(), "__Host-maul-pv-state-") {
 		t.Errorf("state cookie %q, want %q", h.StateCookie(), StateCookieName(f.state))
 	}
 	if h.Expires-h.IssuedAt != int64(time.Minute/time.Second) {
@@ -356,7 +356,7 @@ func TestViewRoutes(t *testing.T) {
 			t.Errorf("Pick(%q) = %+v, want %s", path, got, want)
 		}
 	}
-	if got := v.Routes[1].Upstream(v.Slot); got != "preview-intent-7-api.patchy-preview-2.svc:80" {
+	if got := v.Routes[1].Upstream(v.Slot); got != "preview-intent-7-api.maul-preview-2.svc:80" {
 		t.Errorf("Upstream = %s", got)
 	}
 

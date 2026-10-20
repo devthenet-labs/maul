@@ -17,9 +17,9 @@ import (
 
 	"k8s.io/client-go/kubernetes"
 
-	"github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/httpguard"
-	"github.com/bitwise-media-group/patchy/internal/provider"
+	"github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/httpguard"
+	"github.com/devthenet-labs/maul/internal/provider"
 )
 
 // Server is the broker engine: authenticated, audited, limit-enforcing

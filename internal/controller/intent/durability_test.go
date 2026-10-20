@@ -12,8 +12,8 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/templates"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // restart replaces every reconciler with a fresh one, as a controller
@@ -67,7 +67,7 @@ func (e *env) settleEnded(name string, restart bool) {
 		_ = e.reconcileIntent(name)
 		e.clock.Advance(30 * time.Second)
 	}
-	st := e.gh.withMarker("patchy:intent")
+	st := e.gh.withMarker("maul:intent")
 	if len(st) != 1 || !strings.Contains(st[0].Body, "`"+string(e.get(name).Status.Phase)+"`") {
 		e.t.Errorf("the status comment did not catch up with the phase %s", e.get(name).Status.Phase)
 	}
@@ -78,8 +78,8 @@ func (e *env) settleEnded(name string, restart bool) {
 func (e *env) checkExactlyOnce(name string) {
 	e.t.Helper()
 	for key, want := range map[string]int{
-		"patchy:plan":        1,
-		"patchy:intent":      1,
+		"maul:plan":          1,
+		"maul:intent":        1,
 		templates.SummaryKey: 1,
 	} {
 		if got := len(e.gh.withMarker(key)); got != want {
@@ -118,7 +118,7 @@ func TestRunStatusFailures(t *testing.T) {
 			name := e.newIntent(approver)
 			e.tolerantDrive(name, v1alpha1.IntentAwaitingApproval, false)
 			e.clock.Advance(time.Minute)
-			e.gh.label(1, "patchy:approved", approver)
+			e.gh.label(1, "maul:approved", approver)
 			e.tolerantDrive(name, v1alpha1.IntentInReview, false)
 			e.gh.closePR(true)
 			e.tolerantDrive(name, v1alpha1.IntentMerged, false)
@@ -126,7 +126,7 @@ func TestRunStatusFailures(t *testing.T) {
 				t.Errorf("pull requests %d branches %d commits %d", len(e.gh.prs), len(e.gh.branches),
 					len(e.gh.commits))
 			}
-			if n := len(e.gh.withMarker("patchy:plan")); n != 1 {
+			if n := len(e.gh.withMarker("maul:plan")); n != 1 {
 				t.Errorf("plan comments = %d", n)
 			}
 		})
@@ -142,7 +142,7 @@ func TestRestartEveryPass(t *testing.T) {
 	name := v1alpha1.IntentName("target", 1)
 	e.tolerantDrive(name, v1alpha1.IntentAwaitingApproval, true)
 	e.clock.Advance(time.Minute)
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	e.tolerantDrive(name, v1alpha1.IntentInReview, true)
 	e.gh.closePR(true)
 	e.tolerantDrive(name, v1alpha1.IntentMerged, true)
@@ -187,7 +187,7 @@ func transientFailures(t *testing.T, every int, restart bool) {
 	}
 	e.tolerantDrive(name, v1alpha1.IntentAwaitingApproval, restart)
 	e.clock.Advance(time.Minute)
-	approve := e.gh.comment(approver, "/patchy approve")
+	approve := e.gh.comment(approver, "/maul approve")
 	e.tolerantDrive(name, v1alpha1.IntentInReview, restart)
 	e.gh.closePR(true)
 	e.tolerantDrive(name, v1alpha1.IntentMerged, restart)

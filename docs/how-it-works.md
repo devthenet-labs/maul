@@ -1,12 +1,11 @@
 # How it works
 
-Patchy is a set of Go binaries — the five pipeline controllers below, the in-pod agent runtime, the egress broker and
-the status server, the optional intent, preview and evaluation controllers, and the workstation CLI — sharing one source
-of truth: the Kubernetes API. The `patchy.bitwisemedia.uk/v1alpha1` custom resources — `Integration`, `Forge`,
-`Finding`, `Repository`, `Investigation`, `Remediation`, `FindingRollup` — carry all pipeline state; etcd is the only
-state store, and there is no shadow database or queue. GitHub issues are a **one-way, human-facing projection**: labels
-and comments are rendered from the Finding, and human actions flow back in as webhook signals, never by re-parsing issue
-state.
+Maul is a set of Go binaries — the five pipeline controllers below, the in-pod agent runtime, the egress broker and the
+status server, the optional intent, preview and evaluation controllers, and the workstation CLI — sharing one source of
+truth: the Kubernetes API. The `maul.run/v1alpha1` custom resources — `Integration`, `Forge`, `Finding`, `Repository`,
+`Investigation`, `Remediation`, `FindingRollup` — carry all pipeline state; etcd is the only state store, and there is
+no shadow database or queue. GitHub issues are a **one-way, human-facing projection**: labels and comments are rendered
+from the Finding, and human actions flow back in as webhook signals, never by re-parsing issue state.
 
 Webhooks enter through one door: the GitHub App's single webhook URL points at the **integration-controller**'s
 `/github/webhooks` receiver, which validates each delivery against the webhook secrets of your configured `Integration`
@@ -27,15 +26,15 @@ flowchart LR
     VC -->|Job| AR[agent-runner<br/>sandboxed pod]
     RC -->|Job| AR
     SC -->|digest-verified tarball| AR
-    AR -->|PATCHY-EVENT: stream| VC
-    AR -->|PATCHY-EVENT: stream| RC
+    AR -->|MAUL-EVENT: stream| VC
+    AR -->|MAUL-EVENT: stream| RC
     RC -->|branch push · pull request| GH
 ```
 
-Two namespaces, and the split is the security boundary: the controllers run in `patchy` (single replicas, leader
-election as rollout insurance) alongside the egress credential broker and the status server, and the ephemeral agent
-Jobs run in `patchy-agents`, which holds no model credential for the default claude runner at all — its model traffic
-authenticates at the broker. See the [isolation model](deployment/isolation.md).
+Two namespaces, and the split is the security boundary: the controllers run in `maul` (single replicas, leader election
+as rollout insurance) alongside the egress credential broker and the status server, and the ephemeral agent Jobs run in
+`maul-agents`, which holds no model credential for the default claude runner at all — its model traffic authenticates at
+the broker. See the [isolation model](deployment/isolation.md).
 
 ## 1. Findings arrive and accumulate
 
@@ -59,7 +58,7 @@ The same controller projects every Finding out as a GitHub tracking issue — bo
 trimmed [label vocabulary](labels.md#the-projected-labels) (source, advisories, phase, severity, priority,
 recommendation). The projection is one-way: nothing ever parses issue state back into the pipeline. Human signals do
 flow back — an issue closed by a human hands the finding off (in review, only if GitHub does not report its PR closed),
-a `/patchy approve` comment releases a held finding, and the merge of the finding's recorded PR completes it.
+a `/maul approve` comment releases a held finding, and the merge of the finding's recorded PR completes it.
 
 ## 3. Context before code
 
@@ -89,10 +88,10 @@ writes a report with parseable YAML frontmatter: `exploitability`, `likelihood`,
 `recommendation` (`ignore` | `remediate` | `manual`), `severity`, `priority`, a `confidence` value in [0, 1], and — for
 `remediate` — the model it wants for the fix (clamped later to an operator allowlist) and its **estimate** of the turns
 and tokens the fix will take. The estimate never shrinks the run: every remediation gets at least the operator's
-ceiling. Estimating _above_ that ceiling instead holds the finding for a human `/patchy approve`, and approving grants
-the larger budget. Backwards-compatible fixes are always favoured; if a better-but-breaking fix exists, the report says
-so and the pipeline holds the same way. The runtime never talks to GitHub or the Kubernetes API — results leave the pod
-as a `PATCHY-EVENT:` JSONL stream on stdout.
+ceiling. Estimating _above_ that ceiling instead holds the finding for a human `/maul approve`, and approving grants the
+larger budget. Backwards-compatible fixes are always favoured; if a better-but-breaking fix exists, the report says so
+and the pipeline holds the same way. The runtime never talks to GitHub or the Kubernetes API — results leave the pod as
+a `MAUL-EVENT:` JSONL stream on stdout.
 
 ## 6. Verdicts route
 
@@ -102,8 +101,8 @@ the ratings feed a 0–100 scheduling priority) and routes:
 | Verdict                                                 | Route                                                                            |
 | ------------------------------------------------------- | -------------------------------------------------------------------------------- |
 | `ignore` (false positive)                               | Dismiss the accumulated alerts, close the issue — `Dismissed`                    |
-| `manual`                                                | Hand to the repository owners — `HandedOff` (revivable by `/patchy approve`)     |
-| `remediate`, confidence < threshold, or a breaking hold | `AwaitingApproval` — a human `/patchy approve` comment releases it               |
+| `manual`                                                | Hand to the repository owners — `HandedOff` (revivable by `/maul approve`)       |
+| `remediate`, confidence < threshold, or a breaking hold | `AwaitingApproval` — a human `/maul approve` comment releases it                 |
 | `remediate`, confidence ≥ threshold (0.75)              | `Queued` for remediation                                                         |
 | Stage failed (timeout, budget, invalid report, …)       | Retry within `--max-attempts`, then `Failed` — a partial report is never trusted |
 
@@ -125,16 +124,16 @@ and see it fail for the expected reason, then apply the fix and see the same tes
 block records the result: `reproduced`, the test command, and short excerpts of the output before and after the fix
 (each cut to 2000 bytes, the command to 500). The pull request says plainly whether the agent reproduced the bug and
 quotes that evidence; when it reports it could not, or the report has no `reproduction` block, the pull request opens
-with a warning that patchy could not reproduce the bug before fixing it. The result is also recorded on the
-Remediation's `status.reproduction`. **These fields are the agent's own account.** patchy does not run the test itself,
-so they tell the reviewer what to check, not what was checked. A remediation on patchy's default image cannot run the
-repository's tests at all; its pull request says so too, and a reproduction the agent claims there is not accepted: the
-pull request carries the could-not-reproduce warning and quotes the claim as unverified. `status.reproduction` keeps the
-agent's account as reported; read it beside `status.runnerImage`. The block is optional, so a report without it is still
-valid, and no reproduction result holds a finding: every pull request already waits for a human merge.
+with a warning that maul could not reproduce the bug before fixing it. The result is also recorded on the Remediation's
+`status.reproduction`. **These fields are the agent's own account.** maul does not run the test itself, so they tell the
+reviewer what to check, not what was checked. A remediation on maul's default image cannot run the repository's tests at
+all; its pull request says so too, and a reproduction the agent claims there is not accepted: the pull request carries
+the could-not-reproduce warning and quotes the claim as unverified. `status.reproduction` keeps the agent's account as
+reported; read it beside `status.runnerImage`. The block is optional, so a report without it is still valid, and no
+reproduction result holds a finding: every pull request already waits for a human merge.
 
 The controller — the only holder of a forge **write** credential — then replays the changeset through the GitHub Git
-Data API (blob → tree → commit → ref) onto a `patchy/<finding>` branch, opens the pull request, and moves the finding to
+Data API (blob → tree → commit → ref) onto a `maul/<finding>` branch, opens the pull request, and moves the finding to
 `InReview`.
 
 Everything the agent writes is untrusted, so none of it reaches GitHub as it was written. The report, in the pull
@@ -143,14 +142,14 @@ tables are shown literally rather than rendered, mentions and issue references (
 code, and characters that render as nothing are shown by their code point. Headings, lists, emphasis and code blocks
 still render. The pull request body and the agent's commit message can also land on the default branch as plain text, so
 every mention and issue reference in them is broken apart as well (`# 7`, `@ name`): the only issue the pull request
-closes is the tracking issue, through patchy's own `Fixes #N`. A report that would take a body or comment past GitHub's
+closes is the tracking issue, through maul's own `Fixes #N`. A report that would take a body or comment past GitHub's
 size limit is cut and says so.
 
 ## 8. Humans close the loop
 
 Merging the PR fires a `pull_request` webhook: the integration-controller moves the finding to `Remediated`. Closing the
 PR unmerged, or exhausting retries anywhere above, lands it at `Failed`; `manual` verdicts and human-closed issues land
-at `HandedOff`, which a later `/patchy approve` can revive back into the queue. The merge closes the tracking issue too
+at `HandedOff`, which a later `/maul approve` can revive back into the queue. The merge closes the tracking issue too
 (`Fixes #N`), and the two webhooks arrive in either order, so an issue closed during review is checked against the PR
 first: merged or closed, the PR's outcome applies; otherwise (still open, or unreadable) a human closed the issue, as
 long as GitHub still reports it closed. Completed findings are kept for a TTL (14 days by default) and then deleted;
@@ -160,7 +159,7 @@ per repository, harness, and model.
 Watch it all with the shared kubectl category:
 
 ```sh
-kubectl get patchy -n patchy          # everything patchy owns
+kubectl get maul -n maul          # everything maul owns
 kubectl get findings -w               # the pipeline, live
 kubectl get investigations,remediations,findingrollups
 ```

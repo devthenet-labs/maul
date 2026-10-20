@@ -14,7 +14,7 @@
 # CRD and rejects every L7 rule in it.
 #
 # Besides adding the CiliumNetworkPolicies, this DELETES the base
-# patchy-agents-egress policy. Network policies are ADDITIVE — a packet
+# maul-agents-egress policy. Network policies are ADDITIVE — a packet
 # matching ANY policy that selects the pod is allowed, and no policy can
 # subtract from another — so leaving it in place would union its "TCP 443 to
 # anywhere" rule with the FQDN allowlist and make the allowlist decorative,
@@ -32,11 +32,11 @@ resources:
 patches:
     - target:
           kind: NetworkPolicy
-          name: patchy-agents-egress
+          name: maul-agents-egress
       patch: |
           apiVersion: networking.k8s.io/v1
           kind: NetworkPolicy
           metadata:
-              name: patchy-agents-egress
-              namespace: patchy-agents
+              name: maul-agents-egress
+              namespace: maul-agents
           $patch: delete

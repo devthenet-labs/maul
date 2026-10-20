@@ -1,6 +1,6 @@
 # GitHub code scanning
 
-GitHub is the only **two-way** source: findings come in from code scanning, and patchy writes back — tracking issues,
+GitHub is the only **two-way** source: findings come in from code scanning, and maul writes back — tracking issues,
 dismissals, remediation branches and pull requests. Everything else in the system is one-way.
 
 !!! info "One provider, two resources"
@@ -20,15 +20,15 @@ against the `webhookSecret` of every configured `Integration`, before any handli
 the delivery-queue behaviour.
 
 ```yaml
-apiVersion: patchy.bitwisemedia.uk/v1alpha1
+apiVersion: maul.run/v1alpha1
 kind: Integration
 metadata:
   name: github
-  namespace: patchy
+  namespace: maul
 spec:
   provider: github
   secretRef:
-    name: patchy-github # appID + privateKey (or token), plus webhookSecret
+    name: maul-github # appID + privateKey (or token), plus webhookSecret
   interval: 10m # credential revalidation
   github:
     # baseURL: https://ghes.example.com/api/v3   # GHES only
@@ -36,7 +36,7 @@ spec:
       enabled: true # ingestion, and dismissal on an "ignore" verdict
     issues:
       enabled: true # the tracking projection and the human signals back
-      # approveComment: /approve   # the default; a deprecated alias of "/patchy approve"
+      # approveComment: /approve   # the default; a deprecated alias of "/maul approve"
 ```
 
 Each capability block is independent. An `Integration` with only `codeScanningAlerts` ingests findings and never opens
@@ -45,11 +45,10 @@ how a [Google Cloud SCC](google-scc.md) estate gets its tracking issues.
 
 Only `created` and `reopened` alert actions produce a finding. `fixed`, `closed_by_user`, `appeared_in_branch` and the
 rest are state GitHub already manages. Only alerts on the repository's default branch are ingested: an alert whose most
-recent instance is on another branch (including patchy's own `patchy/<finding>` remediation branches) or on a
-pull-request ref (`refs/pull/<n>/merge`) is skipped, so a fix CodeQL rejects on its PR cannot loop back in as a new
-finding.
+recent instance is on another branch (including maul's own `maul/<finding>` remediation branches) or on a pull-request
+ref (`refs/pull/<n>/merge`) is skipped, so a fix CodeQL rejects on its PR cannot loop back in as a new finding.
 
-## What patchy keeps
+## What maul keeps
 
 Unlike an SCC notification, the webhook payload is only a summary — the rule help markdown comes from the API — so
 ingest fetches the full alert before building the `Finding`:
@@ -67,7 +66,7 @@ Advisories are ordered most-authoritative-first, and a rule with no recognizable
 so accumulation still has a stable key. Alerts sharing an advisory family against the same repository fold into one
 `Finding` until the accumulation window closes.
 
-## What patchy writes back
+## What maul writes back
 
 Three write paths, each gated differently:
 
@@ -91,58 +90,58 @@ the issue is a human surface, not a work tree.
 
 These are the only things on GitHub that move `Finding` state:
 
-| Signal                                   | Effect                                                                        |
-| ---------------------------------------- | ----------------------------------------------------------------------------- |
-| Issue closed                             | → `HandedOff`                                                                 |
-| Issue reopened                           | `Dismissed` → `HandedOff`                                                     |
-| `/patchy <verb>` comment                 | the verb's spec field, as the status page sets it (see [Commands](#commands)) |
-| PR on `patchy/<finding>` merged          | `InReview` → `Remediated`                                                     |
-| PR on `patchy/<finding>` closed unmerged | → `Failed`                                                                    |
+| Signal                                 | Effect                                                                        |
+| -------------------------------------- | ----------------------------------------------------------------------------- |
+| Issue closed                           | → `HandedOff`                                                                 |
+| Issue reopened                         | `Dismissed` → `HandedOff`                                                     |
+| `/maul <verb>` comment                 | the verb's spec field, as the status page sets it (see [Commands](#commands)) |
+| PR on `maul/<finding>` merged          | `InReview` → `Remediated`                                                     |
+| PR on `maul/<finding>` closed unmerged | → `Failed`                                                                    |
 
 A PR close counts only when it is the PR the finding recorded — the same number, in the finding's repository, from a
-branch there, not a fork's — so a stray branch named `patchy/<finding>` moves nothing. The PR body's `Fixes #N` closes
-the tracking issue as the PR merges, and the two deliveries can arrive in either order: an issue closed while its
-finding is `InReview` is checked against the PR first. Merged or closed, the PR's outcome applies; still open, or one
-GitHub answers 404 or 403 for, means a human closed the issue (`HandedOff`) — provided GitHub still reports the issue
-closed, since a close and a quick reopen can be delivered reopen first. Renaming the repository during review is covered
-too: a close from the new name is checked against the recorded PR, which GitHub still serves under the old name. A
-transfer to another owner is covered only while the App's installation on the old owner (or the token) can still read
-the repository; otherwise GitHub answers 404, the close moves nothing, and the finding stays `InReview` for a human to
-close out. Until GitHub answers, the close waits on the finding as the `ReviewClosePending` condition and is retried, so
-an API outage delays it rather than losing it. Suspending the Integration, turning its issues off, or deleting it holds
-the close too: it settles once an issues-enabled Integration is back.
+branch there, not a fork's — so a stray branch named `maul/<finding>` moves nothing. The PR body's `Fixes #N` closes the
+tracking issue as the PR merges, and the two deliveries can arrive in either order: an issue closed while its finding is
+`InReview` is checked against the PR first. Merged or closed, the PR's outcome applies; still open, or one GitHub
+answers 404 or 403 for, means a human closed the issue (`HandedOff`) — provided GitHub still reports the issue closed,
+since a close and a quick reopen can be delivered reopen first. Renaming the repository during review is covered too: a
+close from the new name is checked against the recorded PR, which GitHub still serves under the old name. A transfer to
+another owner is covered only while the App's installation on the old owner (or the token) can still read the
+repository; otherwise GitHub answers 404, the close moves nothing, and the finding stays `InReview` for a human to close
+out. Until GitHub answers, the close waits on the finding as the `ReviewClosePending` condition and is retried, so an
+API outage delays it rather than losing it. Suspending the Integration, turning its issues off, or deleting it holds the
+close too: it settles once an issues-enabled Integration is back.
 
 ### Commands
 
-A comment on a finding's tracking issue whose first line is `/patchy <verb> [note]` is a command. The verbs are the ones
+A comment on a finding's tracking issue whose first line is `/maul <verb> [note]` is a command. The verbs are the ones
 the [status page](../../status-ui.md) and the [CLI](../../cli.md) offer, and each means exactly what it means there:
 
-| Command                  | Effect                                                           |
-| ------------------------ | ---------------------------------------------------------------- |
-| `/patchy approve [note]` | releases the hold on a held finding, or revives a handed-off one |
-| `/patchy retry`          | retries a failed finding from the state it failed in             |
-| `/patchy expedite`       | skips the accumulation window, the minimum age and the queue     |
-| `/patchy suspend`        | pauses the finding's progress through the pipeline               |
-| `/patchy resume`         | resumes it                                                       |
+| Command                | Effect                                                           |
+| ---------------------- | ---------------------------------------------------------------- |
+| `/maul approve [note]` | releases the hold on a held finding, or revives a handed-off one |
+| `/maul retry`          | retries a failed finding from the state it failed in             |
+| `/maul expedite`       | skips the accumulation window, the minimum age and the queue     |
+| `/maul suspend`        | pauses the finding's progress through the pipeline               |
+| `/maul resume`         | resumes it                                                       |
 
-Only the first non-blank line counts: a command below other text, quoted (`> /patchy approve`) or inside a code block is
+Only the first non-blank line counts: a command below other text, quoted (`> /maul approve`) or inside a code block is
 just text. The prefix is case-insensitive, and the note is everything after the verb, up to 1 KiB, with control and
 text-reordering characters stripped. `/approve` still approves, matched exactly as before, as a deprecated alias of
-`/patchy approve`; `approveComment` replaces it with a different alias.
+`/maul approve`; `approveComment` replaces it with a different alias.
 
 **Who may command a finding.** The commenter needs write access to the tracking issue's repository — `admin`, `maintain`
 or `write`, read from GitHub's collaborator-permission API when the command is answered. `read` is not enough, since a
 public repository grants it to every GitHub account; neither is organization membership (`author_association` plays no
 part), and an account GitHub does not know is refused. The check comes first, whatever the verb: a command from an
-account without write access is not allowed even when its verb is one patchy does not know. A command from a bot, the
+account without write access is not allowed even when its verb is one maul does not know. A command from a bot, the
 App's own `<slug>[bot]` included, is ignored without a reply. The status page and the CLI keep their own RBAC checks; a
 command on the issue is authorised by the repository's write access alone.
 
-**The answer.** A command recorded on the finding gets an `eyes` reaction, then one reply from patchy saying what
+**The answer.** A command recorded on the finding gets an `eyes` reaction, then one reply from maul saying what
 happened: done; not available in the finding's current phase, listing the commands that are; not allowed; superseded (a
-`suspend` or `resume` written before the last one patchy applied); or, for a verb patchy does not know from someone with
+`suspend` or `resume` written before the last one maul applied); or, for a verb maul does not know from someone with
 write access, the list of commands a tracking issue accepts. An account without write access gets one "not allowed"
-reply per finding: its later commands there get the reaction alone, so commenting cannot make patchy post a reply per
+reply per finding: its later commands there get the reaction alone, so commenting cannot make maul post a reply per
 comment. An account with write access is never quietened: every command from it, a mistyped verb or one not available in
 the finding's current phase included, gets its reply. The phase gate is the status page's own: `approve` means something
 only on a held (`AwaitingApproval`) or handed-off finding, for instance, so an approval written while the finding is
@@ -218,8 +217,8 @@ with) a repository never produced a delivery, so no replay finds them. The backf
 provider's **open** alerts through the list API, ingesting each one exactly as a webhook delivery would (idempotent —
 alerts that already have findings fold in).
 
-Request it by stamping `spec.backfill` — from the status page's configuration view, with
-`patchy backfill <integration>`, or directly. The RBAC verb is `backfill` on `integrations` (enforced by the
+Request it by stamping `spec.backfill` — from the status page's configuration view, with `maul backfill <integration>`,
+or directly. The RBAC verb is `backfill` on `integrations` (enforced by the
 [admission policy](../../deployment/kustomize.md) for every client). The controller consumes the request once, echoes it
 on `status.backfill.backfilledAt`, and reports the walk (`listed`, `ingested`, `truncated`, `error`) beside it.
 

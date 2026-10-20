@@ -91,7 +91,7 @@ func LoadArtifactLock(path string) (*ArtifactLock, error) {
 func legacyLockHint(err error) error {
 	if strings.Contains(err.Error(), "field target not found") {
 		return fmt.Errorf("%w (lock predates the multi-registry schema; "+
-			"run 'patchy mirror upgrade' to regenerate it)", err)
+			"run 'maul mirror upgrade' to regenerate it)", err)
 	}
 	return err
 }

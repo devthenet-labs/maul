@@ -12,8 +12,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/kube"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/kube"
 )
 
 var testClock = time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
@@ -25,7 +25,7 @@ func fullFinding() *v1alpha1.Finding {
 	return &v1alpha1.Finding{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:              "gh-cs-orders-1",
-			Namespace:         "patchy",
+			Namespace:         "maul",
 			CreationTimestamp: at,
 		},
 		Spec: v1alpha1.FindingSpec{
@@ -85,7 +85,7 @@ func fullFinding() *v1alpha1.Finding {
 			},
 			Remediation: &v1alpha1.RemediationSummary{
 				Name: "gh-cs-orders-1-rem-1", Attempt: 1, Outcome: "ok",
-				Success: true, Branch: "patchy/gh-cs-orders-1", CompletedAt: &done,
+				Success: true, Branch: "maul/gh-cs-orders-1", CompletedAt: &done,
 			},
 			PullRequest: &v1alpha1.PullRequestStatus{
 				Number: 11, URL: "https://github.com/acme/orders/pull/11",
@@ -102,7 +102,7 @@ func fullFinding() *v1alpha1.Finding {
 func testRollup(scope v1alpha1.ScopeType, key, name string) *v1alpha1.FindingRollup {
 	at := metav1.NewTime(testClock.Add(-24 * time.Hour))
 	return &v1alpha1.FindingRollup{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "patchy"},
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "maul"},
 		Spec:       v1alpha1.FindingRollupSpec{Scope: v1alpha1.RollupScope{Type: scope, Key: key}},
 		Status: v1alpha1.FindingRollupStatus{
 			SchemaVersion:  1,
@@ -135,7 +135,7 @@ func testServer(t *testing.T, objs ...client.Object) *Server {
 		WithIndex(&v1alpha1.Investigation{}, RunFindingIndex, RunFindingIndexer).
 		WithIndex(&v1alpha1.Remediation{}, RunFindingIndex, RunFindingIndexer).
 		Build()
-	s := NewServer(c, "patchy", stubAuth{}, stubGranter{}, nil)
+	s := NewServer(c, "maul", stubAuth{}, stubGranter{}, nil)
 	s.now = func() time.Time { return testClock }
 	return s
 }
@@ -160,7 +160,7 @@ func TestBuildDatasetProjection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildDataset: %v", err)
 	}
-	if ds.GeneratedAt != "2026-07-21T12:00:00Z" || ds.Namespace != "patchy" {
+	if ds.GeneratedAt != "2026-07-21T12:00:00Z" || ds.Namespace != "maul" {
 		t.Errorf("stamps = %q/%q", ds.GeneratedAt, ds.Namespace)
 	}
 	if ds.User == nil || ds.User.Name != "dev" || !ds.User.LoggedIn {
@@ -241,7 +241,7 @@ func TestBuildFindingDetailProjection(t *testing.T) {
 func TestBuildFindingDetailAttachesRunDetail(t *testing.T) {
 	childMeta := func(name string) metav1.ObjectMeta {
 		return metav1.ObjectMeta{
-			Name: name, Namespace: "patchy",
+			Name: name, Namespace: "maul",
 			Labels: map[string]string{v1alpha1.LabelFinding: "gh-cs-orders-1"},
 		}
 	}
@@ -321,7 +321,7 @@ func TestBuildFindingDetailAttachesRunDetail(t *testing.T) {
 func TestBuildFindingDetailIsolatesSiblings(t *testing.T) {
 	inv := &v1alpha1.Investigation{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "gh-cs-orders-1-inv-1", Namespace: "patchy",
+			Name: "gh-cs-orders-1-inv-1", Namespace: "maul",
 			Labels: map[string]string{v1alpha1.LabelFinding: "gh-cs-orders-1"},
 		},
 		Status: v1alpha1.InvestigationStatus{
@@ -373,7 +373,7 @@ func TestBuildDatasetRollupProjection(t *testing.T) {
 
 func TestBuildDatasetMinimalFinding(t *testing.T) {
 	fnd := &v1alpha1.Finding{
-		ObjectMeta: metav1.ObjectMeta{Name: "bare", Namespace: "patchy"},
+		ObjectMeta: metav1.ObjectMeta{Name: "bare", Namespace: "maul"},
 		Spec: v1alpha1.FindingSpec{
 			IntegrationRef: v1alpha1.LocalObjectReference{Name: "gh"},
 			Source:         "github-code-scanning",

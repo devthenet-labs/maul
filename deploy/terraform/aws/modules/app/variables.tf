@@ -84,11 +84,11 @@ variable "preview" {
 variable "agent_path_prefix" {
   description = "ECR path the agent image repository goes under (no leading or trailing slash). Must match the platform module's agent_path_prefix, and must never overlap preview_path_prefix."
   type        = string
-  default     = "patchy/app-envs"
+  default     = "maul/app-envs"
 
   validation {
     condition     = can(regex("^[a-z0-9]+([._-][a-z0-9]+)*(/[a-z0-9]+([._-][a-z0-9]+)*)*$", var.agent_path_prefix))
-    error_message = "agent_path_prefix must be one or more ECR path segments separated by '/', with no leading or trailing slash (for example \"patchy/app-envs\")."
+    error_message = "agent_path_prefix must be one or more ECR path segments separated by '/', with no leading or trailing slash (for example \"maul/app-envs\")."
   }
   validation {
     # A runtime image is built from an unreviewed same-repository PR head. It
@@ -103,18 +103,18 @@ variable "agent_path_prefix" {
 variable "preview_path_prefix" {
   description = "ECR path the runtime image repository goes under (no leading or trailing slash). Must match the platform module's preview_path_prefix and the chart's preview.imagePathPrefix, and must never overlap agent_path_prefix."
   type        = string
-  default     = "patchy/previews"
+  default     = "maul/previews"
 
   validation {
     condition     = can(regex("^[a-z0-9]+([._-][a-z0-9]+)*(/[a-z0-9]+([._-][a-z0-9]+)*)*$", var.preview_path_prefix))
-    error_message = "preview_path_prefix must be one or more ECR path segments separated by '/', with no leading or trailing slash (for example \"patchy/previews\")."
+    error_message = "preview_path_prefix must be one or more ECR path segments separated by '/', with no leading or trailing slash (for example \"maul/previews\")."
   }
 }
 
 variable "role_name_prefix" {
   description = "Prefix of both IAM role and policy names: `<role_name_prefix><slug>-agent-push` and `<role_name_prefix><slug>-runtime-push`. IAM names are account-wide, so the prefix keeps two installs in one account apart."
   type        = string
-  default     = "patchy-app-"
+  default     = "maul-app-"
 
   validation {
     condition     = can(regex("^[A-Za-z0-9+=,.@_-]*$", var.role_name_prefix))

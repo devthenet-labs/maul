@@ -27,4 +27,4 @@ for doc in "$tmp"/doc*.yaml; do
 done
 
 echo "status demo data seeded; port-forward the status page to inspect:"
-echo "  kubectl -n patchy port-forward svc/patchy-status-server 8080:8080"
+echo "  kubectl -n maul port-forward svc/maul-status-server 8080:8080"

@@ -14,10 +14,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/harness"
-	"github.com/bitwise-media-group/patchy/internal/provider"
-	"github.com/bitwise-media-group/patchy/internal/runner"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/harness"
+	"github.com/devthenet-labs/maul/internal/provider"
+	"github.com/devthenet-labs/maul/internal/runner"
 )
 
 func TestConfigEnvKeys(t *testing.T) {
@@ -26,20 +26,20 @@ func TestConfigEnvKeys(t *testing.T) {
 		t.Errorf("ConfigEnvKeys() = %v, want sorted", keys)
 	}
 	for _, k := range keys {
-		if !strings.HasPrefix(k, "PATCHY_") {
-			t.Errorf("ConfigEnvKeys() carries %q, want only PATCHY_* names", k)
+		if !strings.HasPrefix(k, "MAUL_") {
+			t.Errorf("ConfigEnvKeys() carries %q, want only MAUL_* names", k)
 		}
 	}
 	// The names the Job sets itself, the gateway names and the ones only an
 	// image could otherwise smuggle in must all be there: the jobs package
 	// blanks whatever is on this list and not on the pod.
 	for _, want := range []string{
-		"PATCHY_REPO", "PATCHY_PHASE", "PATCHY_FINDING", "PATCHY_BASE_SHA", "PATCHY_WORKSPACE",
-		"PATCHY_INVESTIGATE_HARNESS", "PATCHY_REMEDIATE_MODEL", "PATCHY_MODEL_ALLOWLIST",
-		"PATCHY_BROKER_TOKEN_FILE", "PATCHY_MODEL_MAP", "PATCHY_BIN_DIR",
-		"PATCHY_GRANTED_TOKEN_BUDGET", "PATCHY_CHANGESET_MAX_BYTES", "PATCHY_CALIBRATION",
-		"PATCHY_PREVIOUS_ATTEMPT", "PATCHY_TRANSCRIPT_MAX_TOTAL_BYTES", "PATCHY_REMEDIATE_TIMEOUT",
-		"PATCHY_OPEN_PULL_REQUESTS",
+		"MAUL_REPO", "MAUL_PHASE", "MAUL_FINDING", "MAUL_BASE_SHA", "MAUL_WORKSPACE",
+		"MAUL_INVESTIGATE_HARNESS", "MAUL_REMEDIATE_MODEL", "MAUL_MODEL_ALLOWLIST",
+		"MAUL_BROKER_TOKEN_FILE", "MAUL_MODEL_MAP", "MAUL_BIN_DIR",
+		"MAUL_GRANTED_TOKEN_BUDGET", "MAUL_CHANGESET_MAX_BYTES", "MAUL_CALIBRATION",
+		"MAUL_PREVIOUS_ATTEMPT", "MAUL_TRANSCRIPT_MAX_TOTAL_BYTES", "MAUL_REMEDIATE_TIMEOUT",
+		"MAUL_OPEN_PULL_REQUESTS",
 	} {
 		if !slices.Contains(keys, want) {
 			t.Errorf("ConfigEnvKeys() lacks %s", want)
@@ -49,9 +49,9 @@ func TestConfigEnvKeys(t *testing.T) {
 	// A fully populated, valid environment reads exactly the same keys: the
 	// enumeration is the parser's real surface, not a subset the empty
 	// environment happens to reach.
-	full := map[string]string{"PATCHY_REPO": "acme/shop", "PATCHY_FINDING": "finding-abc123def0-1",
-		"PATCHY_MODEL_MAP": "anthropic/claude-sonnet-5=claude-sonnet-5", "PATCHY_CALIBRATION": `{}`,
-		"PATCHY_PREVIOUS_ATTEMPT": `{}`, "PATCHY_OPEN_PULL_REQUESTS": `[]`}
+	full := map[string]string{"MAUL_REPO": "acme/shop", "MAUL_FINDING": "finding-abc123def0-1",
+		"MAUL_MODEL_MAP": "anthropic/claude-sonnet-5=claude-sonnet-5", "MAUL_CALIBRATION": `{}`,
+		"MAUL_PREVIOUS_ATTEMPT": `{}`, "MAUL_OPEN_PULL_REQUESTS": `[]`}
 	seen := map[string]bool{}
 	if _, err := FromEnv(func(k string) string { seen[k] = true; return full[k] }); err != nil {
 		t.Fatalf("FromEnv: %v", err)
@@ -67,7 +67,7 @@ func TestConfigEnvKeys(t *testing.T) {
 }
 
 func TestFromEnvBinDir(t *testing.T) {
-	env := map[string]string{"PATCHY_REPO": "acme/shop", "PATCHY_FINDING": "f-1"}
+	env := map[string]string{"MAUL_REPO": "acme/shop", "MAUL_FINDING": "f-1"}
 	cfg, err := FromEnv(func(k string) string { return env[k] })
 	if err != nil {
 		t.Fatal(err)
@@ -75,12 +75,12 @@ func TestFromEnvBinDir(t *testing.T) {
 	if cfg.BinDir != "" {
 		t.Errorf("BinDir = %q on the default image, want empty", cfg.BinDir)
 	}
-	env["PATCHY_BIN_DIR"] = "/patchy/bin"
+	env["MAUL_BIN_DIR"] = "/maul/bin"
 	if cfg, err = FromEnv(func(k string) string { return env[k] }); err != nil {
 		t.Fatal(err)
 	}
-	if cfg.BinDir != "/patchy/bin" {
-		t.Errorf("BinDir = %q, want /patchy/bin", cfg.BinDir)
+	if cfg.BinDir != "/maul/bin" {
+		t.Errorf("BinDir = %q, want /maul/bin", cfg.BinDir)
 	}
 }
 
@@ -326,8 +326,8 @@ func TestPinCLI(t *testing.T) {
 	if got := pinCLI(spec, ""); !slices.Equal(got.Argv, spec.Argv) {
 		t.Errorf("pinCLI(spec, \"\") = %v, want unchanged", got.Argv)
 	}
-	got := pinCLI(spec, "/patchy/bin/claude")
-	if !slices.Equal(got.Argv, []string{"/patchy/bin/claude", "-p", "hi"}) || got.Dir != "/w" {
+	got := pinCLI(spec, "/maul/bin/claude")
+	if !slices.Equal(got.Argv, []string{"/maul/bin/claude", "-p", "hi"}) || got.Dir != "/w" {
 		t.Errorf("pinCLI = %+v", got)
 	}
 	if spec.Argv[0] != "claude" {
@@ -355,7 +355,7 @@ const streamBrokerLimit = `{"type":"system","subtype":"init",` +
 // the CLI's terminal error, the harness's reason, or the CLI's stderr — and
 // never because the prefix appears somewhere else in the stream. Tool
 // results and the model's own text carry whatever the repository holds
-// (patchy's own source quotes the prefix), and a limit relayed earlier in a
+// (maul's own source quotes the prefix), and a limit relayed earlier in a
 // run that then died of something else is not what ended it.
 func TestStageOutcomeBrokerLimit(t *testing.T) {
 	limit := provider.LimitMessagePrefix + ": tokens_per_pod 400000 exceeded"
@@ -455,7 +455,7 @@ func TestPreflightMain(t *testing.T) {
 				writeTool(t, pathDir, name, body)
 			}
 			t.Setenv("PATH", pathDir)
-			env := map[string]string{BinDirEnv: binDir, "PATCHY_WORKSPACE": t.TempDir()}
+			env := map[string]string{BinDirEnv: binDir, "MAUL_WORKSPACE": t.TempDir()}
 			if tt.noBinDir {
 				delete(env, BinDirEnv)
 			}

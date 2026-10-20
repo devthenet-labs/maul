@@ -8,28 +8,28 @@
 # pushed). Put your real ones in an environment overlay.
 #
 # ---------------------------------------------------------------------------
-# 1. Integration — the external system patchy exchanges events with.
+# 1. Integration — the external system maul exchanges events with.
 #
 # The integration-controller validates each webhook delivery against this
 # object's secret, ingests code-scanning alerts into Findings, projects
 # Findings out as tracking issues, and applies the human signals (the
 # approve comment, issue close, PR merge) back onto the Findings.
 #
-# apiVersion: patchy.bitwisemedia.uk/v1alpha1
+# apiVersion: maul.run/v1alpha1
 # kind: Integration
 # metadata:
 #     name: github
-#     namespace: patchy
+#     namespace: maul
 # spec:
 #     provider: github
 #     secretRef:
-#         name: patchy-github        # keys: appID+privateKey (or token) + webhookSecret
+#         name: maul-github        # keys: appID+privateKey (or token) + webhookSecret
 #     interval: 10m                  # credential revalidation
 #     github:
 #         # baseURL: https://ghes.example.com/api/v3   # GHES only
 #         issues:
 #             enabled: true          # tracking projection + human signals
-#             # approveComment: /approve   # deprecated alias of /patchy approve
+#             # approveComment: /approve   # deprecated alias of /maul approve
 #         codeScanningAlerts:
 #             enabled: true          # scanner ingestion + alert dismissal
 #
@@ -40,16 +40,16 @@
 # Matching: host equality, then the optional orgs allowlist, then the
 # optional repository-name regexes; the most-constrained matching Forge wins.
 #
-# apiVersion: patchy.bitwisemedia.uk/v1alpha1
+# apiVersion: maul.run/v1alpha1
 # kind: Forge
 # metadata:
 #     name: github
-#     namespace: patchy
+#     namespace: maul
 # spec:
 #     provider: github
 #     # baseURL: https://ghes.example.com/api/v3       # GHES only
 #     secretRef:
-#         name: patchy-github        # appID+privateKey or token
+#         name: maul-github        # appID+privateKey or token
 #     # orgs: [acme]                 # optional org allowlist
 #     # repositories: ["^acme/payments-.*$"]           # optional regexes
 #     interval: 10m

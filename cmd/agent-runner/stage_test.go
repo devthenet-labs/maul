@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bitwise-media-group/patchy/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/envelope"
 )
 
 // captureStdout points os.Stdout, where a stage writes its envelope stream,
@@ -45,10 +45,10 @@ func captureStdout(t *testing.T) func() string {
 func TestRunStageFailureExitsTwo(t *testing.T) {
 	stdout := captureStdout(t)
 	env := map[string]string{
-		"PATCHY_WORKSPACE": t.TempDir(),
-		"PATCHY_REPO":      "acme/api",
-		"PATCHY_FINDING":   "finding-1",
-		"PATCHY_PHASE":     "investigate",
+		"MAUL_WORKSPACE": t.TempDir(),
+		"MAUL_REPO":      "acme/api",
+		"MAUL_FINDING":   "finding-1",
+		"MAUL_PHASE":     "investigate",
 	}
 	var stderr bytes.Buffer
 	code := run(context.Background(), []string{"agent-runner"}, func(k string) string { return env[k] },
@@ -77,12 +77,12 @@ func TestRunStageFailureExitsTwo(t *testing.T) {
 // 2) before any stage starts, so nothing is emitted on stdout.
 func TestRunRejectsBadPhase(t *testing.T) {
 	stdout := captureStdout(t)
-	env := map[string]string{"PATCHY_REPO": "acme/api", "PATCHY_FINDING": "f", "PATCHY_PHASE": "deploy"}
+	env := map[string]string{"MAUL_REPO": "acme/api", "MAUL_FINDING": "f", "MAUL_PHASE": "deploy"}
 	var stderr bytes.Buffer
 	code := run(context.Background(), []string{"agent-runner"}, func(k string) string { return env[k] },
 		io.Discard, &stderr)
 	if code != 2 || !strings.Contains(stderr.String(), "invalid configuration") ||
-		!strings.Contains(stderr.String(), `PATCHY_PHASE=\"deploy\"`) {
+		!strings.Contains(stderr.String(), `MAUL_PHASE=\"deploy\"`) {
 		t.Errorf("run = %d, stderr %q; want the phase configuration error", code, stderr.String())
 	}
 	if out := stdout(); strings.Contains(out, envelope.Prefix) {

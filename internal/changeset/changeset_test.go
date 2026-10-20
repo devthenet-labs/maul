@@ -11,7 +11,7 @@ import (
 	"testing/quick"
 	"unicode"
 
-	"github.com/bitwise-media-group/patchy/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/envelope"
 )
 
 func changesetOf(paths ...string) *envelope.Changeset {

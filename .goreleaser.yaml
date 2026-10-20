@@ -10,15 +10,15 @@
 # Produces cross-platform binary archives + checksums + SBOMs + keyless cosign
 # signatures, the container images (multi-arch manifests built by buildx from
 # the repo-root Dockerfile.* — dockers_v2 below — and pushed to the release
-# registry, PATCHY_IMAGE_REGISTRY under env below, on release). No Homebrew
+# registry, MAUL_IMAGE_REGISTRY under env below, on release). No Homebrew
 # cask: this fork has no tap to push to, so the workstation CLI ships only as
-# the patchy-cli archive attached to the GitHub release.
+# the maul-cli archive attached to the GitHub release.
 version: 2
 
 # ^ref: https://goreleaser.com/errors/multiple-tokens/
 force_token: github
 
-project_name: patchy
+project_name: maul
 
 before:
     hooks:
@@ -32,12 +32,12 @@ env:
     - CGO_ENABLED=0
     # The release registry: every image below is pushed under it, and the CLI
     # is stamped with its runner and agent-base repositories
-    # (internal/version), so `patchy check image --run` takes the runner image
+    # (internal/version), so `maul check image --run` takes the runner image
     # this release published rather than one written into the code. One value
     # feeds both, so they cannot drift; a fork releasing elsewhere sets
-    # PATCHY_IMAGE_REGISTRY (hack/dev-colima.sh names its snapshot images this
+    # MAUL_IMAGE_REGISTRY (hack/dev-colima.sh names its snapshot images this
     # way too). Default: this repository's own ghcr namespace.
-    - PATCHY_IMAGE_REGISTRY={{ if index .Env "PATCHY_IMAGE_REGISTRY" }}{{ .Env.PATCHY_IMAGE_REGISTRY }}{{ else }}ghcr.io/devthenet-labs/patchy{{ end }}
+    - MAUL_IMAGE_REGISTRY={{ if index .Env "MAUL_IMAGE_REGISTRY" }}{{ .Env.MAUL_IMAGE_REGISTRY }}{{ else }}ghcr.io/devthenet-labs/maul{{ end }}
 
 builds:
     - id: source-controller
@@ -47,9 +47,9 @@ builds:
           - -trimpath
       ldflags:
           - -s -w
-          - -X github.com/bitwise-media-group/patchy/internal/version.Version={{ .Version }}
-          - -X github.com/bitwise-media-group/patchy/internal/version.Commit={{ .ShortCommit }}
-          - -X github.com/bitwise-media-group/patchy/internal/version.BuildDate={{ .Date }}
+          - -X github.com/devthenet-labs/maul/internal/version.Version={{ .Version }}
+          - -X github.com/devthenet-labs/maul/internal/version.Commit={{ .ShortCommit }}
+          - -X github.com/devthenet-labs/maul/internal/version.BuildDate={{ .Date }}
       goos:
           - linux
       goarch:
@@ -62,9 +62,9 @@ builds:
           - -trimpath
       ldflags:
           - -s -w
-          - -X github.com/bitwise-media-group/patchy/internal/version.Version={{ .Version }}
-          - -X github.com/bitwise-media-group/patchy/internal/version.Commit={{ .ShortCommit }}
-          - -X github.com/bitwise-media-group/patchy/internal/version.BuildDate={{ .Date }}
+          - -X github.com/devthenet-labs/maul/internal/version.Version={{ .Version }}
+          - -X github.com/devthenet-labs/maul/internal/version.Commit={{ .ShortCommit }}
+          - -X github.com/devthenet-labs/maul/internal/version.BuildDate={{ .Date }}
       goos:
           - linux
       goarch:
@@ -77,9 +77,9 @@ builds:
           - -trimpath
       ldflags:
           - -s -w
-          - -X github.com/bitwise-media-group/patchy/internal/version.Version={{ .Version }}
-          - -X github.com/bitwise-media-group/patchy/internal/version.Commit={{ .ShortCommit }}
-          - -X github.com/bitwise-media-group/patchy/internal/version.BuildDate={{ .Date }}
+          - -X github.com/devthenet-labs/maul/internal/version.Version={{ .Version }}
+          - -X github.com/devthenet-labs/maul/internal/version.Commit={{ .ShortCommit }}
+          - -X github.com/devthenet-labs/maul/internal/version.BuildDate={{ .Date }}
       goos:
           - linux
       goarch:
@@ -92,9 +92,9 @@ builds:
           - -trimpath
       ldflags:
           - -s -w
-          - -X github.com/bitwise-media-group/patchy/internal/version.Version={{ .Version }}
-          - -X github.com/bitwise-media-group/patchy/internal/version.Commit={{ .ShortCommit }}
-          - -X github.com/bitwise-media-group/patchy/internal/version.BuildDate={{ .Date }}
+          - -X github.com/devthenet-labs/maul/internal/version.Version={{ .Version }}
+          - -X github.com/devthenet-labs/maul/internal/version.Commit={{ .ShortCommit }}
+          - -X github.com/devthenet-labs/maul/internal/version.BuildDate={{ .Date }}
       goos:
           - linux
       goarch:
@@ -107,9 +107,9 @@ builds:
           - -trimpath
       ldflags:
           - -s -w
-          - -X github.com/bitwise-media-group/patchy/internal/version.Version={{ .Version }}
-          - -X github.com/bitwise-media-group/patchy/internal/version.Commit={{ .ShortCommit }}
-          - -X github.com/bitwise-media-group/patchy/internal/version.BuildDate={{ .Date }}
+          - -X github.com/devthenet-labs/maul/internal/version.Version={{ .Version }}
+          - -X github.com/devthenet-labs/maul/internal/version.Commit={{ .ShortCommit }}
+          - -X github.com/devthenet-labs/maul/internal/version.BuildDate={{ .Date }}
       goos:
           - linux
       goarch:
@@ -122,9 +122,9 @@ builds:
           - -trimpath
       ldflags:
           - -s -w
-          - -X github.com/bitwise-media-group/patchy/internal/version.Version={{ .Version }}
-          - -X github.com/bitwise-media-group/patchy/internal/version.Commit={{ .ShortCommit }}
-          - -X github.com/bitwise-media-group/patchy/internal/version.BuildDate={{ .Date }}
+          - -X github.com/devthenet-labs/maul/internal/version.Version={{ .Version }}
+          - -X github.com/devthenet-labs/maul/internal/version.Commit={{ .ShortCommit }}
+          - -X github.com/devthenet-labs/maul/internal/version.BuildDate={{ .Date }}
       goos:
           - linux
       goarch:
@@ -137,9 +137,9 @@ builds:
           - -trimpath
       ldflags:
           - -s -w
-          - -X github.com/bitwise-media-group/patchy/internal/version.Version={{ .Version }}
-          - -X github.com/bitwise-media-group/patchy/internal/version.Commit={{ .ShortCommit }}
-          - -X github.com/bitwise-media-group/patchy/internal/version.BuildDate={{ .Date }}
+          - -X github.com/devthenet-labs/maul/internal/version.Version={{ .Version }}
+          - -X github.com/devthenet-labs/maul/internal/version.Commit={{ .ShortCommit }}
+          - -X github.com/devthenet-labs/maul/internal/version.BuildDate={{ .Date }}
       goos:
           - linux
       goarch:
@@ -152,9 +152,9 @@ builds:
           - -trimpath
       ldflags:
           - -s -w
-          - -X github.com/bitwise-media-group/patchy/internal/version.Version={{ .Version }}
-          - -X github.com/bitwise-media-group/patchy/internal/version.Commit={{ .ShortCommit }}
-          - -X github.com/bitwise-media-group/patchy/internal/version.BuildDate={{ .Date }}
+          - -X github.com/devthenet-labs/maul/internal/version.Version={{ .Version }}
+          - -X github.com/devthenet-labs/maul/internal/version.Commit={{ .ShortCommit }}
+          - -X github.com/devthenet-labs/maul/internal/version.BuildDate={{ .Date }}
       goos:
           - linux
       goarch:
@@ -167,9 +167,9 @@ builds:
           - -trimpath
       ldflags:
           - -s -w
-          - -X github.com/bitwise-media-group/patchy/internal/version.Version={{ .Version }}
-          - -X github.com/bitwise-media-group/patchy/internal/version.Commit={{ .ShortCommit }}
-          - -X github.com/bitwise-media-group/patchy/internal/version.BuildDate={{ .Date }}
+          - -X github.com/devthenet-labs/maul/internal/version.Version={{ .Version }}
+          - -X github.com/devthenet-labs/maul/internal/version.Commit={{ .ShortCommit }}
+          - -X github.com/devthenet-labs/maul/internal/version.BuildDate={{ .Date }}
       goos:
           - linux
       goarch:
@@ -182,9 +182,9 @@ builds:
           - -trimpath
       ldflags:
           - -s -w
-          - -X github.com/bitwise-media-group/patchy/internal/version.Version={{ .Version }}
-          - -X github.com/bitwise-media-group/patchy/internal/version.Commit={{ .ShortCommit }}
-          - -X github.com/bitwise-media-group/patchy/internal/version.BuildDate={{ .Date }}
+          - -X github.com/devthenet-labs/maul/internal/version.Version={{ .Version }}
+          - -X github.com/devthenet-labs/maul/internal/version.Commit={{ .ShortCommit }}
+          - -X github.com/devthenet-labs/maul/internal/version.BuildDate={{ .Date }}
       goos:
           - linux
       goarch:
@@ -197,9 +197,9 @@ builds:
           - -trimpath
       ldflags:
           - -s -w
-          - -X github.com/bitwise-media-group/patchy/internal/version.Version={{ .Version }}
-          - -X github.com/bitwise-media-group/patchy/internal/version.Commit={{ .ShortCommit }}
-          - -X github.com/bitwise-media-group/patchy/internal/version.BuildDate={{ .Date }}
+          - -X github.com/devthenet-labs/maul/internal/version.Version={{ .Version }}
+          - -X github.com/devthenet-labs/maul/internal/version.Commit={{ .ShortCommit }}
+          - -X github.com/devthenet-labs/maul/internal/version.BuildDate={{ .Date }}
       goos:
           - linux
       goarch:
@@ -212,9 +212,9 @@ builds:
           - -trimpath
       ldflags:
           - -s -w
-          - -X github.com/bitwise-media-group/patchy/internal/version.Version={{ .Version }}
-          - -X github.com/bitwise-media-group/patchy/internal/version.Commit={{ .ShortCommit }}
-          - -X github.com/bitwise-media-group/patchy/internal/version.BuildDate={{ .Date }}
+          - -X github.com/devthenet-labs/maul/internal/version.Version={{ .Version }}
+          - -X github.com/devthenet-labs/maul/internal/version.Commit={{ .ShortCommit }}
+          - -X github.com/devthenet-labs/maul/internal/version.BuildDate={{ .Date }}
       goos:
           - linux
       goarch:
@@ -230,9 +230,9 @@ builds:
           - withui
       ldflags:
           - -s -w
-          - -X github.com/bitwise-media-group/patchy/internal/version.Version={{ .Version }}
-          - -X github.com/bitwise-media-group/patchy/internal/version.Commit={{ .ShortCommit }}
-          - -X github.com/bitwise-media-group/patchy/internal/version.BuildDate={{ .Date }}
+          - -X github.com/devthenet-labs/maul/internal/version.Version={{ .Version }}
+          - -X github.com/devthenet-labs/maul/internal/version.Commit={{ .ShortCommit }}
+          - -X github.com/devthenet-labs/maul/internal/version.BuildDate={{ .Date }}
       goos:
           - linux
       goarch:
@@ -243,18 +243,18 @@ builds:
     # image: nothing would ever run it in a pod. It alone is also stamped with
     # the release registry's repositories: it is the only binary that reaches
     # this release's images itself (check image --run's runner image).
-    - id: patchy
-      main: ./cmd/patchy
-      binary: patchy
+    - id: maul
+      main: ./cmd/maul
+      binary: maul
       flags:
           - -trimpath
       ldflags:
           - -s -w
-          - -X github.com/bitwise-media-group/patchy/internal/version.Version={{ .Version }}
-          - -X github.com/bitwise-media-group/patchy/internal/version.Commit={{ .ShortCommit }}
-          - -X github.com/bitwise-media-group/patchy/internal/version.BuildDate={{ .Date }}
-          - -X github.com/bitwise-media-group/patchy/internal/version.RunnerImageRepository={{ .Env.PATCHY_IMAGE_REGISTRY }}/claude-agent-runner
-          - -X github.com/bitwise-media-group/patchy/internal/version.AgentBaseRepository={{ .Env.PATCHY_IMAGE_REGISTRY }}/agent-base
+          - -X github.com/devthenet-labs/maul/internal/version.Version={{ .Version }}
+          - -X github.com/devthenet-labs/maul/internal/version.Commit={{ .ShortCommit }}
+          - -X github.com/devthenet-labs/maul/internal/version.BuildDate={{ .Date }}
+          - -X github.com/devthenet-labs/maul/internal/version.RunnerImageRepository={{ .Env.MAUL_IMAGE_REGISTRY }}/claude-agent-runner
+          - -X github.com/devthenet-labs/maul/internal/version.AgentBaseRepository={{ .Env.MAUL_IMAGE_REGISTRY }}/agent-base
       goos:
           - linux
           - darwin
@@ -262,22 +262,22 @@ builds:
       goarch:
           - amd64
           - arm64
-    # The name kubectl looks for on PATH, so `kubectl patchy get findings`
+    # The name kubectl looks for on PATH, so `kubectl maul get findings`
     # works for anyone who would rather not learn a second binary. A tiny exec
-    # shim around the real patchy binary rather than a second full build (which
+    # shim around the real maul binary rather than a second full build (which
     # would double the archive), and a real file rather than a symlink because
     # the archives have to stay extractable on windows, where symlinks need a
     # privilege most users do not have.
-    - id: kubectl-patchy
-      main: ./cmd/kubectl-patchy
-      binary: kubectl-patchy
+    - id: kubectl-maul
+      main: ./cmd/kubectl-maul
+      binary: kubectl-maul
       flags:
           - -trimpath
       ldflags:
           - -s -w
-          - -X github.com/bitwise-media-group/patchy/internal/version.Version={{ .Version }}
-          - -X github.com/bitwise-media-group/patchy/internal/version.Commit={{ .ShortCommit }}
-          - -X github.com/bitwise-media-group/patchy/internal/version.BuildDate={{ .Date }}
+          - -X github.com/devthenet-labs/maul/internal/version.Version={{ .Version }}
+          - -X github.com/devthenet-labs/maul/internal/version.Commit={{ .ShortCommit }}
+          - -X github.com/devthenet-labs/maul/internal/version.BuildDate={{ .Date }}
       goos:
           - linux
           - darwin
@@ -288,14 +288,14 @@ builds:
 
 # Two archives, split by where the binary runs: the cluster components in one,
 # the workstation CLI in the other. The split is what keeps the Homebrew cask
-# below honest — `brew install patchy` puts the CLI (and its kubectl-plugin
+# below honest — `brew install maul` puts the CLI (and its kubectl-plugin
 # alias) on a laptop without also unpacking seven binaries that only ever run
 # in a pod — and the CLI archive is the only one carrying darwin and windows:
 # the cluster binaries build linux-only, since they only ever run in a pod
 # (they are pure API clients and would run anywhere, but nobody deploys a
 # released server binary on a workstation — local dev builds from source).
 archives:
-    - id: patchy
+    - id: maul
       ids:
           - source-controller
           - context-controller
@@ -314,8 +314,8 @@ archives:
       name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
       files:
           - LICENSE
-    - id: patchy-cli
-      ids: [patchy, kubectl-patchy]
+    - id: maul-cli
+      ids: [maul, kubectl-maul]
       formats: [tar.gz]
       name_template: "{{ .ProjectName }}-cli_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
       files:
@@ -323,9 +323,9 @@ archives:
           # Pre-generated shell completions (committed by `mise run docs`), so
           # the cask installs them as static files instead of executing the
           # binary at install time (see homebrew_casks.completions below).
-          # kubectl_complete-patchy is in there too — it is not a shell
+          # kubectl_complete-maul is in there too — it is not a shell
           # completion script but the executable kubectl runs to complete
-          # `kubectl patchy …`, so it ships as a cask binary rather than a
+          # `kubectl maul …`, so it ships as a cask binary rather than a
           # completion.
           - completions/*
 
@@ -345,7 +345,7 @@ dockers_v2:
       ids: [source-controller]
       dockerfile: Dockerfile.controller
       images:
-          - "{{ .Env.PATCHY_IMAGE_REGISTRY }}/source-controller"
+          - "{{ .Env.MAUL_IMAGE_REGISTRY }}/source-controller"
       tags:
           - v{{ .Version }}
           - latest
@@ -356,7 +356,7 @@ dockers_v2:
           TARGET: source-controller
       labels:
           # the source label is what links the ghcr package to this repository
-          org.opencontainers.image.source: https://github.com/devthenet-labs/patchy
+          org.opencontainers.image.source: https://github.com/devthenet-labs/maul
           org.opencontainers.image.licenses: MIT
           org.opencontainers.image.revision: "{{ .FullCommit }}"
           org.opencontainers.image.version: "{{ .Version }}"
@@ -364,7 +364,7 @@ dockers_v2:
       ids: [context-controller]
       dockerfile: Dockerfile.controller
       images:
-          - "{{ .Env.PATCHY_IMAGE_REGISTRY }}/context-controller"
+          - "{{ .Env.MAUL_IMAGE_REGISTRY }}/context-controller"
       tags:
           - v{{ .Version }}
           - latest
@@ -374,7 +374,7 @@ dockers_v2:
       build_args:
           TARGET: context-controller
       labels:
-          org.opencontainers.image.source: https://github.com/devthenet-labs/patchy
+          org.opencontainers.image.source: https://github.com/devthenet-labs/maul
           org.opencontainers.image.licenses: MIT
           org.opencontainers.image.revision: "{{ .FullCommit }}"
           org.opencontainers.image.version: "{{ .Version }}"
@@ -382,7 +382,7 @@ dockers_v2:
       ids: [evaluation-controller]
       dockerfile: Dockerfile.controller
       images:
-          - "{{ .Env.PATCHY_IMAGE_REGISTRY }}/evaluation-controller"
+          - "{{ .Env.MAUL_IMAGE_REGISTRY }}/evaluation-controller"
       tags:
           - v{{ .Version }}
           - latest
@@ -392,7 +392,7 @@ dockers_v2:
       build_args:
           TARGET: evaluation-controller
       labels:
-          org.opencontainers.image.source: https://github.com/devthenet-labs/patchy
+          org.opencontainers.image.source: https://github.com/devthenet-labs/maul
           org.opencontainers.image.licenses: MIT
           org.opencontainers.image.revision: "{{ .FullCommit }}"
           org.opencontainers.image.version: "{{ .Version }}"
@@ -400,7 +400,7 @@ dockers_v2:
       ids: [intent-controller]
       dockerfile: Dockerfile.controller
       images:
-          - "{{ .Env.PATCHY_IMAGE_REGISTRY }}/intent-controller"
+          - "{{ .Env.MAUL_IMAGE_REGISTRY }}/intent-controller"
       tags:
           - v{{ .Version }}
           - latest
@@ -410,7 +410,7 @@ dockers_v2:
       build_args:
           TARGET: intent-controller
       labels:
-          org.opencontainers.image.source: https://github.com/devthenet-labs/patchy
+          org.opencontainers.image.source: https://github.com/devthenet-labs/maul
           org.opencontainers.image.licenses: MIT
           org.opencontainers.image.revision: "{{ .FullCommit }}"
           org.opencontainers.image.version: "{{ .Version }}"
@@ -418,7 +418,7 @@ dockers_v2:
       ids: [preview-controller]
       dockerfile: Dockerfile.controller
       images:
-          - "{{ .Env.PATCHY_IMAGE_REGISTRY }}/preview-controller"
+          - "{{ .Env.MAUL_IMAGE_REGISTRY }}/preview-controller"
       tags:
           - v{{ .Version }}
           - latest
@@ -428,7 +428,7 @@ dockers_v2:
       build_args:
           TARGET: preview-controller
       labels:
-          org.opencontainers.image.source: https://github.com/devthenet-labs/patchy
+          org.opencontainers.image.source: https://github.com/devthenet-labs/maul
           org.opencontainers.image.licenses: MIT
           org.opencontainers.image.revision: "{{ .FullCommit }}"
           org.opencontainers.image.version: "{{ .Version }}"
@@ -436,7 +436,7 @@ dockers_v2:
       ids: [remediation-controller]
       dockerfile: Dockerfile.controller
       images:
-          - "{{ .Env.PATCHY_IMAGE_REGISTRY }}/remediation-controller"
+          - "{{ .Env.MAUL_IMAGE_REGISTRY }}/remediation-controller"
       tags:
           - v{{ .Version }}
           - latest
@@ -446,7 +446,7 @@ dockers_v2:
       build_args:
           TARGET: remediation-controller
       labels:
-          org.opencontainers.image.source: https://github.com/devthenet-labs/patchy
+          org.opencontainers.image.source: https://github.com/devthenet-labs/maul
           org.opencontainers.image.licenses: MIT
           org.opencontainers.image.revision: "{{ .FullCommit }}"
           org.opencontainers.image.version: "{{ .Version }}"
@@ -454,7 +454,7 @@ dockers_v2:
       ids: [integration-controller]
       dockerfile: Dockerfile.controller
       images:
-          - "{{ .Env.PATCHY_IMAGE_REGISTRY }}/integration-controller"
+          - "{{ .Env.MAUL_IMAGE_REGISTRY }}/integration-controller"
       tags:
           - v{{ .Version }}
           - latest
@@ -464,7 +464,7 @@ dockers_v2:
       build_args:
           TARGET: integration-controller
       labels:
-          org.opencontainers.image.source: https://github.com/devthenet-labs/patchy
+          org.opencontainers.image.source: https://github.com/devthenet-labs/maul
           org.opencontainers.image.licenses: MIT
           org.opencontainers.image.revision: "{{ .FullCommit }}"
           org.opencontainers.image.version: "{{ .Version }}"
@@ -472,7 +472,7 @@ dockers_v2:
       ids: [investigation-controller]
       dockerfile: Dockerfile.controller
       images:
-          - "{{ .Env.PATCHY_IMAGE_REGISTRY }}/investigation-controller"
+          - "{{ .Env.MAUL_IMAGE_REGISTRY }}/investigation-controller"
       tags:
           - v{{ .Version }}
           - latest
@@ -482,7 +482,7 @@ dockers_v2:
       build_args:
           TARGET: investigation-controller
       labels:
-          org.opencontainers.image.source: https://github.com/devthenet-labs/patchy
+          org.opencontainers.image.source: https://github.com/devthenet-labs/maul
           org.opencontainers.image.licenses: MIT
           org.opencontainers.image.revision: "{{ .FullCommit }}"
           org.opencontainers.image.version: "{{ .Version }}"
@@ -490,7 +490,7 @@ dockers_v2:
       ids: [egress-broker]
       dockerfile: Dockerfile.controller
       images:
-          - "{{ .Env.PATCHY_IMAGE_REGISTRY }}/egress-broker"
+          - "{{ .Env.MAUL_IMAGE_REGISTRY }}/egress-broker"
       tags:
           - v{{ .Version }}
           - latest
@@ -500,7 +500,7 @@ dockers_v2:
       build_args:
           TARGET: egress-broker
       labels:
-          org.opencontainers.image.source: https://github.com/devthenet-labs/patchy
+          org.opencontainers.image.source: https://github.com/devthenet-labs/maul
           org.opencontainers.image.licenses: MIT
           org.opencontainers.image.revision: "{{ .FullCommit }}"
           org.opencontainers.image.version: "{{ .Version }}"
@@ -508,7 +508,7 @@ dockers_v2:
       ids: [egress-proxy]
       dockerfile: Dockerfile.controller
       images:
-          - "{{ .Env.PATCHY_IMAGE_REGISTRY }}/egress-proxy"
+          - "{{ .Env.MAUL_IMAGE_REGISTRY }}/egress-proxy"
       tags:
           - v{{ .Version }}
           - latest
@@ -518,7 +518,7 @@ dockers_v2:
       build_args:
           TARGET: egress-proxy
       labels:
-          org.opencontainers.image.source: https://github.com/devthenet-labs/patchy
+          org.opencontainers.image.source: https://github.com/devthenet-labs/maul
           org.opencontainers.image.licenses: MIT
           org.opencontainers.image.revision: "{{ .FullCommit }}"
           org.opencontainers.image.version: "{{ .Version }}"
@@ -526,7 +526,7 @@ dockers_v2:
       ids: [preview-auth]
       dockerfile: Dockerfile.controller
       images:
-          - "{{ .Env.PATCHY_IMAGE_REGISTRY }}/preview-auth"
+          - "{{ .Env.MAUL_IMAGE_REGISTRY }}/preview-auth"
       tags:
           - v{{ .Version }}
           - latest
@@ -536,7 +536,7 @@ dockers_v2:
       build_args:
           TARGET: preview-auth
       labels:
-          org.opencontainers.image.source: https://github.com/devthenet-labs/patchy
+          org.opencontainers.image.source: https://github.com/devthenet-labs/maul
           org.opencontainers.image.licenses: MIT
           org.opencontainers.image.revision: "{{ .FullCommit }}"
           org.opencontainers.image.version: "{{ .Version }}"
@@ -544,7 +544,7 @@ dockers_v2:
       ids: [agent-runner]
       dockerfile: Dockerfile.claude-agent-runner
       images:
-          - "{{ .Env.PATCHY_IMAGE_REGISTRY }}/claude-agent-runner"
+          - "{{ .Env.MAUL_IMAGE_REGISTRY }}/claude-agent-runner"
       tags:
           - v{{ .Version }}
           - latest
@@ -552,7 +552,7 @@ dockers_v2:
           - linux/amd64
           - linux/arm64
       labels:
-          org.opencontainers.image.source: https://github.com/devthenet-labs/patchy
+          org.opencontainers.image.source: https://github.com/devthenet-labs/maul
           org.opencontainers.image.licenses: MIT
           org.opencontainers.image.revision: "{{ .FullCommit }}"
           org.opencontainers.image.version: "{{ .Version }}"
@@ -560,7 +560,7 @@ dockers_v2:
       ids: [agent-runner]
       dockerfile: Dockerfile.codex-agent-runner
       images:
-          - "{{ .Env.PATCHY_IMAGE_REGISTRY }}/codex-agent-runner"
+          - "{{ .Env.MAUL_IMAGE_REGISTRY }}/codex-agent-runner"
       tags:
           - v{{ .Version }}
           - latest
@@ -568,7 +568,7 @@ dockers_v2:
           - linux/amd64
           - linux/arm64
       labels:
-          org.opencontainers.image.source: https://github.com/devthenet-labs/patchy
+          org.opencontainers.image.source: https://github.com/devthenet-labs/maul
           org.opencontainers.image.licenses: MIT
           org.opencontainers.image.revision: "{{ .FullCommit }}"
           org.opencontainers.image.version: "{{ .Version }}"
@@ -576,7 +576,7 @@ dockers_v2:
       ids: [agent-runner]
       dockerfile: Dockerfile.copilot-agent-runner
       images:
-          - "{{ .Env.PATCHY_IMAGE_REGISTRY }}/copilot-agent-runner"
+          - "{{ .Env.MAUL_IMAGE_REGISTRY }}/copilot-agent-runner"
       tags:
           - v{{ .Version }}
           - latest
@@ -584,12 +584,12 @@ dockers_v2:
           - linux/amd64
           - linux/arm64
       labels:
-          org.opencontainers.image.source: https://github.com/devthenet-labs/patchy
+          org.opencontainers.image.source: https://github.com/devthenet-labs/maul
           org.opencontainers.image.licenses: MIT
           org.opencontainers.image.revision: "{{ .FullCommit }}"
           org.opencontainers.image.version: "{{ .Version }}"
     # The base image application teams extend for a repository-declared agent
-    # image (docs/integrations/agent-images.md). It contains no patchy binary —
+    # image (docs/integrations/agent-images.md). It contains no maul binary —
     # agent-runner and the claude CLI are injected at pod start — so the
     # Dockerfile copies nothing from the context; `ids` names one build only to
     # keep that context small instead of carrying every binary goreleaser built.
@@ -597,7 +597,7 @@ dockers_v2:
       ids: [agent-runner]
       dockerfile: Dockerfile.agent-base
       images:
-          - "{{ .Env.PATCHY_IMAGE_REGISTRY }}/agent-base"
+          - "{{ .Env.MAUL_IMAGE_REGISTRY }}/agent-base"
       tags:
           - v{{ .Version }}
           - latest
@@ -605,7 +605,7 @@ dockers_v2:
           - linux/amd64
           - linux/arm64
       labels:
-          org.opencontainers.image.source: https://github.com/devthenet-labs/patchy
+          org.opencontainers.image.source: https://github.com/devthenet-labs/maul
           org.opencontainers.image.licenses: MIT
           org.opencontainers.image.revision: "{{ .FullCommit }}"
           org.opencontainers.image.version: "{{ .Version }}"
@@ -613,13 +613,13 @@ dockers_v2:
       # annotation, not from the per-platform config labels.
       annotations:
           "index:org.opencontainers.image.description": >-
-              Base image for repository-declared patchy agent images: glibc (wolfi),
+              Base image for repository-declared maul agent images: glibc (wolfi),
               bash, git and core build tools, uid 65532, caches under /tmp.
     - id: status-server
       ids: [status-server]
       dockerfile: Dockerfile.controller
       images:
-          - "{{ .Env.PATCHY_IMAGE_REGISTRY }}/status-server"
+          - "{{ .Env.MAUL_IMAGE_REGISTRY }}/status-server"
       tags:
           - v{{ .Version }}
           - latest
@@ -629,7 +629,7 @@ dockers_v2:
       build_args:
           TARGET: status-server
       labels:
-          org.opencontainers.image.source: https://github.com/devthenet-labs/patchy
+          org.opencontainers.image.source: https://github.com/devthenet-labs/maul
           org.opencontainers.image.licenses: MIT
           org.opencontainers.image.revision: "{{ .FullCommit }}"
           org.opencontainers.image.version: "{{ .Version }}"
@@ -640,7 +640,7 @@ dockers_v2:
 # actions/attest so the images get the same GitHub build-provenance
 # attestation as every file in checksums.txt. Verify with:
 #   gh attestation verify --owner devthenet-labs \
-#     oci://ghcr.io/devthenet-labs/patchy/<name>:vX.Y.Z
+#     oci://ghcr.io/devthenet-labs/maul/<name>:vX.Y.Z
 docker_digest:
     name_template: digests.txt
 
@@ -656,7 +656,7 @@ docker_digest:
 # a legacy-format (.sig tag) pin.
 # Runs only on publish; `make snapshot` additionally skips it via --skip=sign.
 # Verify with:
-#   cosign verify ghcr.io/devthenet-labs/patchy/<name>:vX.Y.Z \
+#   cosign verify ghcr.io/devthenet-labs/maul/<name>:vX.Y.Z \
 #     --certificate-oidc-issuer=https://token.actions.githubusercontent.com \
 #     --certificate-identity-regexp='^https://github.com/bitwise-media-group/github-workflows/'
 docker_signs:
@@ -688,7 +688,7 @@ binary_signs:
 # source-controller?". A binary-scoped SBOM can: syft reads the module list Go
 # embeds at link time, which contains only what that binary actually links.
 # The CLI's rendering stack (glamour, chroma, bluemonday) therefore appears in
-# patchy's SBOM and in none of the controllers' — the dependency boundary as
+# maul's SBOM and in none of the controllers' — the dependency boundary as
 # evidence attached to the shipped artifact, rather than as an assertion about
 # how the Go linker behaves. Verify by hand with:
 #   go version -m bin/source-controller | grep charmbracelet
@@ -733,7 +733,7 @@ changelog:
 release:
     github:
         owner: devthenet-labs
-        name: patchy
+        name: maul
     # The release-please job in release.yaml leaves a draft release named after
     # the tag it pushes. Adopt that draft instead of creating a second release,
     # swap its release-please notes for the grouped changelog above, and

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/netprofile"
 )
 
 const npmHost = "npm.reg.example"

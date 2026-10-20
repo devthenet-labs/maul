@@ -55,8 +55,8 @@
 // SiblingsLinked, never holding a phase back, and after a refusal tried again
 // only once the Project or a pull request's head changes. In review, rounds
 // stay serialised per Intent, each on the pull request of one repository: a
-// review on A revises A, a /patchy revise on B revises B, a failed named check
-// on C's patchy head fixes C. A round already leased is adopted before any
+// review on A revises A, a /maul revise on B revises B, a failed named check
+// on C's maul head fixes C. A round already leased is adopted before any
 // other is considered, whatever its repository (read live before a round is
 // leased, so a cache that lags a lease cannot give its number twice), and the
 // open pull requests are then served in turn; a round needs only its own
@@ -97,7 +97,7 @@
 // exists again. The Intent is Merged only
 // when every pull request has merged; once every one has settled with any
 // closed unmerged it is Closed, the issue closed as not planned after a
-// notice naming what merged and what did not. patchy never closes one pull
+// notice naming what merged and what did not. maul never closes one pull
 // request because another closed. With the preview projection on, the first
 // review pass records the default-branch head of each previewed repository
 // without a pull request (status.previewBases), once: its preview component
@@ -155,7 +155,7 @@
 // least one closed unmerged,
 // and Planning or Building → Blocked on the cost ceiling, a missing,
 // rejected or unusable repository image, or an intent branch or pull request
-// that is not patchy's own (BranchConflict), resuming to the phase it was
+// that is not maul's own (BranchConflict), resuming to the phase it was
 // blocked from once the block no longer holds. Any phase but a terminal one
 // → Blocked while multi-repository intents are off for a Project that lists
 // several repositories (UnsupportedRepositories), and Building → Blocked when
@@ -197,7 +197,7 @@
 // A command from someone refused without asking GitHub (not an approver, or
 // a bot) is refused whatever it says, and its author gets that refusal once
 // per intent (status.commands.refusedActors); later ones get neither
-// reaction nor reply, so commenting cannot make patchy write to GitHub once
+// reaction nor reply, so commenting cannot make maul write to GitHub once
 // per comment.
 //
 // # Durable settle
@@ -205,7 +205,7 @@
 // Every GitHub side effect is idempotent, and every effect a retry could
 // repeat is recorded before or found after it:
 //
-//   - A comment patchy posts is headed by a marker. Before posting, patchy
+//   - A comment maul posts is headed by a marker. Before posting, maul
 //     looks for its own comment with that marker among the comments since
 //     the moment the thing it answers happened (never the whole thread),
 //     so a restart between posting and recording never posts twice. The
@@ -219,17 +219,17 @@
 //     repository's own rate floor, skip a repository that left the Project,
 //     and never hold a phase step or an ended intent's hand-off.
 //   - A human action is consumed exactly once. Trigger actions (the trigger
-//     label re-applied, /patchy replan) are consumed by status.lastTrigger,
+//     label re-applied, /maul replan) are consumed by status.lastTrigger,
 //     written in the same status write as their effect, and only actions
 //     GitHub dates after it are considered. An accepted approval is
 //     status.approval. Every comment is consumed by status.commands.seen, the
 //     newest comment the poll has settled, written as soon as a command's
 //     reply is posted and for the whole listing once every command in it is
 //     answered; no later poll reads a comment at or before it, so a command
-//     is never answered twice, even after patchy's reply is deleted, and the
+//     is never answered twice, even after maul's reply is deleted, and the
 //     thread is listed only from there. Until then, a command's reply marker
 //     is found in the same listing that carries the command. An approver's
-//     /patchy approve made while the plan is recorded but its posting not
+//     /maul approve made while the plan is recorded but its posting not
 //     yet waits for that record, as the approve label does: the listing is
 //     settled only up to it, and a later poll answers it. A refused label
 //     is recorded by its notice and the label's removal. A refusal is
@@ -242,7 +242,7 @@
 //     between repeats the effects, which are idempotent, and completedAt is
 //     never set while the trigger is still in place.
 //   - The build push is two-phase: the commit is created, its SHA recorded
-//     on the run, and only then the branch patchy-intent/<intent> created,
+//     on the run, and only then the branch maul-intent/<intent> created,
 //     create-only; an existing branch is adopted only if it already points
 //     at the recorded commit, and is otherwise branch_exists. Nothing is ever
 //     forced, and the default branch is never touched.

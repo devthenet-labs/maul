@@ -16,7 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 var testMetrics = sync.OnceValue(func() *sdkmetric.ManualReader {
@@ -65,22 +65,22 @@ func usageSum(t *testing.T, name string, attrs map[string]string) float64 {
 	return total
 }
 
-// TestSettleRecordsUsageOnce: settling a run emits patchy.usage.tokens and
-// patchy.usage.cost once, attributed to its user, project and kind, even
+// TestSettleRecordsUsageOnce: settling a run emits maul.usage.tokens and
+// maul.usage.cost once, attributed to its user, project and kind, even
 // when a crash between the rollup writes and the run's marker replays the
 // whole settle; the user x project and project scopes never emit again.
 func TestSettleRecordsUsageOnce(t *testing.T) {
 	testMetrics()
 	attrs := map[string]string{"user": "github-id:42", "project": "web", "kind": "build"}
 	tokens := func() float64 {
-		return usageSum(t, "patchy.usage.tokens", attrs)
+		return usageSum(t, "maul.usage.tokens", attrs)
 	}
 	input := func() float64 {
-		return usageSum(t, "patchy.usage.tokens", map[string]string{"user": "github-id:42", "project": "web",
+		return usageSum(t, "maul.usage.tokens", map[string]string{"user": "github-id:42", "project": "web",
 			"kind": "build", "source": "measured", "class": "input"})
 	}
 	cost := func() float64 {
-		return usageSum(t, "patchy.usage.cost", map[string]string{"user": "github-id:42", "project": "web",
+		return usageSum(t, "maul.usage.cost", map[string]string{"user": "github-id:42", "project": "web",
 			"kind": "build", "pricing": "list"})
 	}
 	beforeTokens, beforeInput, beforeCost := tokens(), input(), cost()

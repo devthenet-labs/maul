@@ -18,7 +18,7 @@ set -eu
 
 top="${SIZE_TOP:-10}"
 tags="${BUILD_TAGS-withui}"
-tmp="$(mktemp -d "${TMPDIR:-/tmp}/patchy-size.XXXXXX")"
+tmp="$(mktemp -d "${TMPDIR:-/tmp}/maul-size.XXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
 
 apps=""

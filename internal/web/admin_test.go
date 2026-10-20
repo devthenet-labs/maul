@@ -14,14 +14,14 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/web/authz"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/web/authz"
 )
 
 // testIntegration is a minimal github Integration.
 func testIntegration(name string, mutate ...func(*v1alpha1.Integration)) *v1alpha1.Integration {
 	i := &v1alpha1.Integration{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "patchy"},
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "maul"},
 		Spec: v1alpha1.IntegrationSpec{
 			Provider:  v1alpha1.IntegrationProviderGitHub,
 			SecretRef: &v1alpha1.LocalSecretReference{Name: "creds"},
@@ -60,7 +60,7 @@ func TestHandleAdminReplay(t *testing.T) {
 	}
 
 	var integ v1alpha1.Integration
-	if err := mustClient(s).Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: "gh"}, &integ); err != nil {
+	if err := mustClient(s).Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: "gh"}, &integ); err != nil {
 		t.Fatalf("get integration: %v", err)
 	}
 	rep := integ.Spec.Replay
@@ -69,7 +69,7 @@ func TestHandleAdminReplay(t *testing.T) {
 	}
 
 	var suspended v1alpha1.Integration
-	key := types.NamespacedName{Namespace: "patchy", Name: "gh-suspended"}
+	key := types.NamespacedName{Namespace: "maul", Name: "gh-suspended"}
 	if err := mustClient(s).Get(t.Context(), key, &suspended); err != nil {
 		t.Fatalf("get suspended integration: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestHandleAdminReplayNoIntegration(t *testing.T) {
 }
 
 func TestHandleAdminReset(t *testing.T) {
-	inv := &v1alpha1.Investigation{ObjectMeta: metav1.ObjectMeta{Name: "inv-1", Namespace: "patchy"}}
+	inv := &v1alpha1.Investigation{ObjectMeta: metav1.ObjectMeta{Name: "inv-1", Namespace: "maul"}}
 	rollup := testRollup("total", "", "total")
 	s := testServer(t, fullFinding(), inv, rollup, testIntegration("gh"))
 	s.auth, s.granter = stubAuth{id: operator}, stubGranter{grants: allGrants()}
@@ -104,7 +104,7 @@ func TestHandleAdminReset(t *testing.T) {
 	for _, list := range []client.ObjectList{
 		&v1alpha1.FindingList{}, &v1alpha1.InvestigationList{}, &v1alpha1.FindingRollupList{},
 	} {
-		if err := mustClient(s).List(t.Context(), list, client.InNamespace("patchy")); err != nil {
+		if err := mustClient(s).List(t.Context(), list, client.InNamespace("maul")); err != nil {
 			t.Fatalf("list %T: %v", list, err)
 		}
 		if n := len(asMap(t, list)["items"].([]any)); n == 0 {
@@ -112,7 +112,7 @@ func TestHandleAdminReset(t *testing.T) {
 		}
 	}
 	var integs v1alpha1.IntegrationList
-	if err := mustClient(s).List(t.Context(), &integs, client.InNamespace("patchy")); err != nil {
+	if err := mustClient(s).List(t.Context(), &integs, client.InNamespace("maul")); err != nil {
 		t.Fatalf("list integrations: %v", err)
 	}
 	if len(integs.Items) != 1 {
@@ -125,7 +125,7 @@ func TestHandleAdminReset(t *testing.T) {
 }
 
 func TestHandleAdminResetNoIntegrationFallsBack(t *testing.T) {
-	inv := &v1alpha1.Investigation{ObjectMeta: metav1.ObjectMeta{Name: "inv-1", Namespace: "patchy"}}
+	inv := &v1alpha1.Investigation{ObjectMeta: metav1.ObjectMeta{Name: "inv-1", Namespace: "maul"}}
 	s := testServer(t, fullFinding(), inv, testRollup("total", "", "total"))
 	s.auth, s.granter = stubAuth{id: operator}, stubGranter{grants: allGrants()}
 
@@ -139,7 +139,7 @@ func TestHandleAdminResetNoIntegrationFallsBack(t *testing.T) {
 	for _, list := range []client.ObjectList{
 		&v1alpha1.FindingList{}, &v1alpha1.InvestigationList{}, &v1alpha1.FindingRollupList{},
 	} {
-		if err := mustClient(s).List(t.Context(), list, client.InNamespace("patchy")); err != nil {
+		if err := mustClient(s).List(t.Context(), list, client.InNamespace("maul")); err != nil {
 			t.Fatalf("list %T: %v", list, err)
 		}
 		if n := len(asMap(t, list)["items"].([]any)); n != 0 {
@@ -154,15 +154,15 @@ func TestHandleAdminResetNoIntegrationFallsBack(t *testing.T) {
 // never carry the Finding label) survive; the findings' Repositories go.
 func TestHandleAdminResetFallbackLeavesIntentFlow(t *testing.T) {
 	findingRepo := &v1alpha1.Repository{ObjectMeta: metav1.ObjectMeta{
-		Name: "fnd-1", Namespace: "patchy", Labels: map[string]string{v1alpha1.LabelFinding: "fnd-1"},
+		Name: "fnd-1", Namespace: "maul", Labels: map[string]string{v1alpha1.LabelFinding: "fnd-1"},
 	}}
 	intentRepo := &v1alpha1.Repository{ObjectMeta: metav1.ObjectMeta{
-		Name: "web-12-r0", Namespace: "patchy", Labels: map[string]string{v1alpha1.LabelIntent: "web-12"},
+		Name: "web-12-r0", Namespace: "maul", Labels: map[string]string{v1alpha1.LabelIntent: "web-12"},
 	}}
 	s := testServer(t, fullFinding(), findingRepo, intentRepo,
-		&v1alpha1.Intent{ObjectMeta: metav1.ObjectMeta{Name: "web-12", Namespace: "patchy"}},
-		&v1alpha1.IntentRun{ObjectMeta: metav1.ObjectMeta{Name: "web-12-plan-1", Namespace: "patchy"}},
-		&v1alpha1.Project{ObjectMeta: metav1.ObjectMeta{Name: "web", Namespace: "patchy"}},
+		&v1alpha1.Intent{ObjectMeta: metav1.ObjectMeta{Name: "web-12", Namespace: "maul"}},
+		&v1alpha1.IntentRun{ObjectMeta: metav1.ObjectMeta{Name: "web-12-plan-1", Namespace: "maul"}},
+		&v1alpha1.Project{ObjectMeta: metav1.ObjectMeta{Name: "web", Namespace: "maul"}},
 	)
 	s.auth, s.granter = stubAuth{id: operator}, stubGranter{grants: allGrants()}
 
@@ -171,7 +171,7 @@ func TestHandleAdminResetFallbackLeavesIntentFlow(t *testing.T) {
 	}
 
 	var repos v1alpha1.RepositoryList
-	if err := mustClient(s).List(t.Context(), &repos, client.InNamespace("patchy")); err != nil {
+	if err := mustClient(s).List(t.Context(), &repos, client.InNamespace("maul")); err != nil {
 		t.Fatalf("list repositories: %v", err)
 	}
 	if len(repos.Items) != 1 || repos.Items[0].Name != intentRepo.Name {
@@ -180,7 +180,7 @@ func TestHandleAdminResetFallbackLeavesIntentFlow(t *testing.T) {
 	for _, list := range []client.ObjectList{
 		&v1alpha1.IntentList{}, &v1alpha1.IntentRunList{}, &v1alpha1.ProjectList{},
 	} {
-		if err := mustClient(s).List(t.Context(), list, client.InNamespace("patchy")); err != nil {
+		if err := mustClient(s).List(t.Context(), list, client.InNamespace("maul")); err != nil {
 			t.Fatalf("list %T: %v", list, err)
 		}
 		if n := len(asMap(t, list)["items"].([]any)); n != 1 {

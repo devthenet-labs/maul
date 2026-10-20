@@ -13,7 +13,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/bitwise-media-group/patchy/api/v1alpha1"
+	"github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 // errConflict is the fake store's optimistic-lock refusal.
@@ -69,7 +69,7 @@ func (f *fakeStore) putFor(id int64, provider v1alpha1.ModelCredentialProvider, 
 	name := v1alpha1.ModelCredentialName(owner, provider)
 	rec := f.records[name]
 	if rec == nil {
-		rec = &v1alpha1.ModelCredential{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "patchy"}}
+		rec = &v1alpha1.ModelCredential{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "maul"}}
 	}
 	rec.Spec = v1alpha1.ModelCredentialSpec{Owner: owner, Provider: provider, Kind: kind}
 	rec.ResourceVersion = f.nextRV()

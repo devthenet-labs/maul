@@ -25,13 +25,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/pkg/enhance"
-	"github.com/bitwise-media-group/patchy/pkg/source"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/pkg/enhance"
+	"github.com/devthenet-labs/maul/pkg/source"
 )
 
-var findingGR = schema.GroupResource{Group: "patchy.bitwisemedia.uk", Resource: "findings"}
+var findingGR = schema.GroupResource{Group: "maul.run", Resource: "findings"}
 
 // interceptedReconciler builds a reconciler over a fake client whose writes
 // go through funcs, so write failures can be injected.
@@ -163,7 +163,7 @@ func TestReconcileSkipsDeletingFinding(t *testing.T) {
 	fnd := openedFinding()
 	now := metav1.NewTime(crdClock)
 	fnd.DeletionTimestamp = &now
-	fnd.Finalizers = []string{"patchy.bitwisemedia.uk/test"}
+	fnd.Finalizers = []string{"maul.run/test"}
 	called := false
 	r, c := newCRDReconciler(t, []enhance.Enhancer{enhancerFunc(func() { called = true })}, fnd)
 	run(t, r)
@@ -345,10 +345,10 @@ func TestConfigSourcesSurfaceAmbiguity(t *testing.T) {
 		azureIntegration("az-a", &v1alpha1.AzureResourceTags{Enabled: true, ManagementGroup: "a"}),
 		azureIntegration("az-b", &v1alpha1.AzureResourceTags{Enabled: true, ManagementGroup: "b"}),
 	).Build()
-	if cfg, err := AWSTagsConfigSource(c, "patchy")(t.Context()); err == nil {
+	if cfg, err := AWSTagsConfigSource(c, "maul")(t.Context()); err == nil {
 		t.Errorf("AWSTagsConfigSource() = %+v, nil; want the ambiguity surfaced", cfg)
 	}
-	if cfg, err := AzureTagsConfigSource(c, "patchy")(t.Context()); err == nil {
+	if cfg, err := AzureTagsConfigSource(c, "maul")(t.Context()); err == nil {
 		t.Errorf("AzureTagsConfigSource() = %+v, nil; want the ambiguity surfaced", cfg)
 	}
 }
@@ -358,7 +358,7 @@ func TestGenericEnhancerConfigSourceListError(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(kube.Scheme()).WithInterceptorFuncs(interceptor.Funcs{
 		List: func(context.Context, client.WithWatch, client.ObjectList, ...client.ListOption) error { return boom },
 	}).Build()
-	if _, err := GenericEnhancerConfigSource(c, c, "patchy", nil)(t.Context()); !errors.Is(err, boom) {
+	if _, err := GenericEnhancerConfigSource(c, c, "maul", nil)(t.Context()); !errors.Is(err, boom) {
 		t.Errorf("GenericEnhancerConfigSource() = %v, want the list error wrapped", err)
 	}
 }
@@ -373,7 +373,7 @@ func TestGenericEnhancerConfigSourceSecrets(t *testing.T) {
 
 	var buf bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&buf, nil))
-	cfgs, err := GenericEnhancerConfigSource(c, c, "patchy", log)(t.Context())
+	cfgs, err := GenericEnhancerConfigSource(c, c, "maul", log)(t.Context())
 	if err != nil {
 		t.Fatalf("GenericEnhancerConfigSource() = %v", err)
 	}

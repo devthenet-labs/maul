@@ -15,8 +15,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/pkg/evaluation"
+	"github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/pkg/evaluation"
 )
 
 // keepalivePeriod paces SSE comment pings so intermediaries keep the

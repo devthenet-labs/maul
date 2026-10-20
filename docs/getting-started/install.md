@@ -1,19 +1,19 @@
 # Install with Helm
 
-Two charts are published to GHCR as OCI artifacts on every release: `patchy` installs the whole stack — the
-`patchy.bitwisemedia.uk` CRDs, the five pipeline controllers, the egress broker and the status page as Deployments with
-their RBAC and ConfigMaps (plus the optional intent, preview and evaluation controllers when enabled), their Services,
-the agent namespace, and the baseline network policies — and `patchy-config` installs the `Integration`/`Forge` custom
-resources that switch the pipeline on, as a second release once the CRDs exist.
+Two charts are published to GHCR as OCI artifacts on every release: `maul` installs the whole stack — the `maul.run`
+CRDs, the five pipeline controllers, the egress broker and the status page as Deployments with their RBAC and ConfigMaps
+(plus the optional intent, preview and evaluation controllers when enabled), their Services, the agent namespace, and
+the baseline network policies — and `maul-config` installs the `Integration`/`Forge` custom resources that switch the
+pipeline on, as a second release once the CRDs exist.
 
 ## Create the namespaces
 
-The chart creates the agent namespace (`patchy-agents`) itself, but the release namespace is yours. Both must carry the
+The chart creates the agent namespace (`maul-agents`) itself, but the release namespace is yours. Both must carry the
 `restricted` Pod Security Standard — the chart labels the agent namespace; label the release namespace yourself:
 
 ```sh
-kubectl create namespace patchy
-kubectl label namespace patchy \
+kubectl create namespace maul
+kubectl label namespace maul \
   pod-security.kubernetes.io/enforce=restricted \
   pod-security.kubernetes.io/audit=restricted \
   pod-security.kubernetes.io/warn=restricted
@@ -21,27 +21,27 @@ kubectl label namespace patchy \
 
 ## Create the secrets
 
-Patchy references two Secrets but refuses to own them — create them out of band (SOPS, external-secrets, or plain
+Maul references two Secrets but refuses to own them — create them out of band (SOPS, external-secrets, or plain
 `kubectl` for a first run). One lives in the release namespace, one in the agent namespace:
 
 ```sh
 # The GitHub credential + webhook secret (all three values from the previous page)
-kubectl -n patchy create secret generic patchy-github \
+kubectl -n maul create secret generic maul-github \
   --from-literal=appID=123456 \
-  --from-file=privateKey=./patchy.private-key.pem \
+  --from-file=privateKey=./maul.private-key.pem \
   --from-literal=webhookSecret="$WEBHOOK_SECRET"
 
 # The claude model credential — in the RELEASE namespace, where the egress
 # credential broker (the only thing that ever holds it) runs. It never
 # enters an agent pod.
-kubectl -n patchy create secret generic patchy-anthropic \
+kubectl -n maul create secret generic maul-anthropic \
   --from-literal=api-key="$ANTHROPIC_API_KEY"
 ```
 
 No Anthropic API key? A Claude subscription works too: mint a long-lived OAuth token with
 [`claude setup-token`](https://code.claude.com/docs/en/cli-reference), store it in the same secret, and set
-`egressBroker.anthropicAuth: token` (Helm) or `PATCHY_ANTHROPIC_AUTH=token` (kustomize) so the broker sends it as a
-bearer rather than an API key:
+`egressBroker.anthropicAuth: token` (Helm) or `MAUL_ANTHROPIC_AUTH=token` (kustomize) so the broker sends it as a bearer
+rather than an API key:
 
 Run `claude setup-token` on its own first: it is interactive (it opens a browser to sign in) and prints the token among
 other output, so capturing it with `$(claude setup-token)` stores that whole output as the "token". Then paste only the
@@ -51,7 +51,7 @@ token (it starts `sk-ant-oat01-`; a wrapped token pasted across two lines is fin
 read -rs "TOKEN?Token: "; echo   # zsh; in bash: read -rsp "Token: " TOKEN; echo
 TOKEN=${TOKEN//[[:space:]]/}
 [[ $TOKEN == sk-ant-oat01-* ]] && echo "looks right" || echo "not a setup-token"
-printf %s "$TOKEN" | kubectl -n patchy create secret generic patchy-anthropic --from-file=api-key=/dev/stdin
+printf %s "$TOKEN" | kubectl -n maul create secret generic maul-anthropic --from-file=api-key=/dev/stdin
 unset TOKEN
 ```
 
@@ -59,31 +59,30 @@ Running claude against Amazon Bedrock, GCP Vertex AI, or Microsoft Foundry inste
 see the [provider recipes](../deployment/helm.md#model-providers-brokered-claude).
 
 To let the investigation choose OpenAI models for remediation, enable the codex runner
-(`agent.runners.codex.enabled: true` / add `codex` to `PATCHY_HARNESSES`). Codex is brokered like claude, so its OpenAI
-API key lives with the egress broker in the release namespace (chart:
-`egressBroker.openai.apiKey.secret: patchy-openai`; kustomize: mount it into the broker and set
-`PATCHY_OPENAI_API_KEY_FILE`), never in an agent pod ([The codex runner](../configuration/codex.md) has the values, the
-migration from the old in-pod key and a live check):
+(`agent.runners.codex.enabled: true` / add `codex` to `MAUL_HARNESSES`). Codex is brokered like claude, so its OpenAI
+API key lives with the egress broker in the release namespace (chart: `egressBroker.openai.apiKey.secret: maul-openai`;
+kustomize: mount it into the broker and set `MAUL_OPENAI_API_KEY_FILE`), never in an agent pod
+([The codex runner](../configuration/codex.md) has the values, the migration from the old in-pod key and a live check):
 
 ```sh
-kubectl -n patchy create secret generic patchy-openai --from-literal=api-key="$OPENAI_API_KEY"
+kubectl -n maul create secret generic maul-openai --from-literal=api-key="$OPENAI_API_KEY"
 ```
 
-The copilot runner (`agent.runners.copilot.enabled: true` / add `copilot` to `PATCHY_HARNESSES`) is the alternative to
+The copilot runner (`agent.runners.copilot.enabled: true` / add `copilot` to `MAUL_HARNESSES`) is the alternative to
 both: it brokers Anthropic **and** OpenAI models, so one credential covers every model in the registry. That credential
 is a GitHub token rather than a model API key, which is why it is off by default — scope it to Copilot with no
 repository permissions (the CLI rejects classic PATs; use a fine-grained token):
 
 ```sh
-kubectl -n patchy-agents create secret generic patchy-copilot --from-literal=token="$COPILOT_GITHUB_TOKEN"
+kubectl -n maul-agents create secret generic maul-copilot --from-literal=token="$COPILOT_GITHUB_TOKEN"
 ```
 
-| Secret             | Namespace       | Keys                                                 | Consumed by                                                                                                                              |
-| ------------------ | --------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `patchy-github`    | `patchy`        | `appID` + `privateKey` (or `token`), `webhookSecret` | The `Integration`/`Forge` CRs' `spec.secretRef` — read on demand through the API, never mounted                                          |
-| `patchy-anthropic` | `patchy`        | `api-key`                                            | The egress broker only — never an agent pod (an API key, or a `claude setup-token` OAuth token with `egressBroker.anthropicAuth: token`) |
-| `patchy-openai`    | `patchy`        | `api-key`                                            | The egress broker only, for the codex runner (`egressBroker.openai.apiKey`) — only when the codex runner is enabled                      |
-| `patchy-copilot`   | `patchy-agents` | `token`                                              | Copilot runner Job pods (`COPILOT_GITHUB_TOKEN`) — only when the copilot runner is enabled                                               |
+| Secret           | Namespace     | Keys                                                 | Consumed by                                                                                                                              |
+| ---------------- | ------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `maul-github`    | `maul`        | `appID` + `privateKey` (or `token`), `webhookSecret` | The `Integration`/`Forge` CRs' `spec.secretRef` — read on demand through the API, never mounted                                          |
+| `maul-anthropic` | `maul`        | `api-key`                                            | The egress broker only — never an agent pod (an API key, or a `claude setup-token` OAuth token with `egressBroker.anthropicAuth: token`) |
+| `maul-openai`    | `maul`        | `api-key`                                            | The egress broker only, for the codex runner (`egressBroker.openai.apiKey`) — only when the codex runner is enabled                      |
+| `maul-copilot`   | `maul-agents` | `token`                                              | Copilot runner Job pods (`COPILOT_GITHUB_TOKEN`) — only when the copilot runner is enabled                                               |
 
 A `token` key (a personal access token) is the dev-only fallback and wins over App auth when set. One GitHub Secret may
 serve both CRs, or you can split read and write identities across two GitHub Apps and two Secrets — the `Integration`'s
@@ -103,7 +102,7 @@ as a digest-verified tarball from the source-controller's in-cluster artifact se
 
 ## Install the chart
 
-The `patchy` chart installs the stack — CRDs, controllers, agent sandbox — and nothing pipeline-specific:
+The `maul` chart installs the stack — CRDs, controllers, agent sandbox — and nothing pipeline-specific:
 
 ```yaml
 # values.yaml
@@ -115,8 +114,8 @@ agent:
 ```
 
 ```sh
-helm install patchy oci://ghcr.io/devthenet-labs/patchy/charts/patchy \
-  --version <X.Y.Z> --namespace patchy -f values.yaml
+helm install maul oci://ghcr.io/devthenet-labs/maul/charts/maul \
+  --version <X.Y.Z> --namespace maul -f values.yaml
 ```
 
 The chart's `appVersion` is stamped 1:1 with each release, and the default image tag is derived from it — installing
@@ -144,14 +143,14 @@ traffic, and `config.extra` (per-controller: `<controller>.config.extra`) remain
 derived keys. Reaching a proxy on a port like 3128 also needs `<controller>.networkPolicy.extraEgress` — see the
 [isolation model](../deployment/isolation.md#egress-proxies).
 
-## Switch the pipeline on: the `patchy-config` chart
+## Switch the pipeline on: the `maul-config` chart
 
 The controllers idle until two custom resources exist: an [**Integration**](../integrations/sources/github.md) (where
 findings come from, where the tracking issues go, webhook validation) and a
 [**Forge**](../integrations/forges/github.md) (how repositories are fetched and pushed). They ship as the separate
-`patchy-config` chart — separate because Helm validates every manifest against the API server before applying anything,
-so the CRs cannot install in the same first release as the CRDs they depend on. Install it **after** the `patchy` chart,
-into the **same namespace**:
+`maul-config` chart — separate because Helm validates every manifest against the API server before applying anything, so
+the CRs cannot install in the same first release as the CRDs they depend on. Install it **after** the `maul` chart, into
+the **same namespace**:
 
 ```yaml
 # config-values.yaml
@@ -160,12 +159,12 @@ integrations:
     spec:
       provider: github
       secretRef:
-        name: patchy-github
+        name: maul-github
       interval: 10m
       github:
         issues:
           enabled: true
-          # approveComment: /approve   # the default; a deprecated alias of "/patchy approve"
+          # approveComment: /approve   # the default; a deprecated alias of "/maul approve"
         codeScanningAlerts:
           enabled: true
 
@@ -174,18 +173,18 @@ forges:
     spec:
       provider: github
       secretRef:
-        name: patchy-github
+        name: maul-github
       interval: 10m
 ```
 
 ```sh
-helm install patchy-config oci://ghcr.io/devthenet-labs/patchy/charts/patchy-config \
-  --version <X.Y.Z> --namespace patchy -f config-values.yaml
+helm install maul-config oci://ghcr.io/devthenet-labs/maul/charts/maul-config \
+  --version <X.Y.Z> --namespace maul -f config-values.yaml
 ```
 
 Each entry's `spec` is validated client-side by the chart's values schema (generated from the CRDs, so a typo'd field
 fails the install before anything is applied) and again server-side by the CRD —
-[`deploy/kustomize/base/crs.example.yaml`](https://github.com/devthenet-labs/patchy/blob/main/deploy/kustomize/base/crs.example.yaml)
+[`deploy/kustomize/base/crs.example.yaml`](https://github.com/devthenet-labs/maul/blob/main/deploy/kustomize/base/crs.example.yaml)
 is the full field walkthrough (GHES base URLs, org allowlists, repository regexes). Prefer applying the CRs yourself?
 Skip this chart and `kubectl apply` the same objects after the install.
 
@@ -196,13 +195,13 @@ Expose the **integration-controller** — the single internet-facing component �
 
 ```yaml
 webhook:
-  host: patchy.example.com
+  host: maul.example.com
   ingress: # or httpRoute — see the webhook exposure page
     enabled: true
     className: nginx
     tls:
-      - secretName: patchy-webhook-tls
-        hosts: [patchy.example.com]
+      - secretName: maul-webhook-tls
+        hosts: [maul.example.com]
 ```
 
 Flavours, TLS, and the EKS / AKS / GKE notes live in [Deployment → Webhook exposure](../deployment/webhook.md). The
@@ -226,7 +225,7 @@ Every chart version and container image carries a GitHub build-provenance attest
 
 ```sh
 gh attestation verify --owner devthenet-labs \
-  oci://ghcr.io/devthenet-labs/patchy/charts/patchy:X.Y.Z
+  oci://ghcr.io/devthenet-labs/maul/charts/maul:X.Y.Z
 ```
 
 Next: [follow one finding end to end](verify.md).

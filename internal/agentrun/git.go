@@ -56,10 +56,10 @@ func ensureIdentity(ctx context.Context, dir string) error {
 	if _, err := git(ctx, dir, "config", "user.email"); err == nil {
 		return nil
 	}
-	if _, err := git(ctx, dir, "config", "user.email", "patchy[bot]@users.noreply.github.com"); err != nil {
+	if _, err := git(ctx, dir, "config", "user.email", "maul[bot]@users.noreply.github.com"); err != nil {
 		return err
 	}
-	_, err := git(ctx, dir, "config", "user.name", "patchy[bot]")
+	_, err := git(ctx, dir, "config", "user.name", "maul[bot]")
 	return err
 }
 
@@ -122,7 +122,7 @@ func treeFingerprint(ctx context.Context, dir string) (fingerprint, error) {
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fingerprint{}, err
 	}
-	tmp, err := os.CreateTemp(gitDir, "patchy-fingerprint-index-")
+	tmp, err := os.CreateTemp(gitDir, "maul-fingerprint-index-")
 	if err != nil {
 		return fingerprint{}, err
 	}

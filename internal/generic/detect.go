@@ -11,7 +11,7 @@ import (
 	"net/http"
 	"strings"
 
-	pkggeneric "github.com/bitwise-media-group/patchy/pkg/generic"
+	pkggeneric "github.com/devthenet-labs/maul/pkg/generic"
 )
 
 // EventFindings is the internal event discriminator for a findings delivery.

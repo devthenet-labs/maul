@@ -12,7 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 // testKubeconfig is a two-context file: dev declares a namespace, prod does
@@ -32,7 +32,7 @@ contexts:
     context:
       cluster: dev-cluster
       user: dev-user
-      namespace: patchy-dev
+      namespace: maul-dev
   - name: prod
     context:
       cluster: prod-cluster
@@ -69,7 +69,7 @@ func TestClientConfig(t *testing.T) {
 		{
 			name:      "current context",
 			wantHost:  "https://dev.example.test:6443",
-			wantNS:    "patchy-dev",
+			wantNS:    "maul-dev",
 			wantToken: "dev-token",
 		},
 		{
@@ -78,7 +78,7 @@ func TestClientConfig(t *testing.T) {
 			wantHost:  "https://prod.example.test:6443",
 			wantToken: "prod-token",
 			// kubectl reports "default" for a context declaring no namespace;
-			// matching that keeps patchy and kubectl pointed at the same place.
+			// matching that keeps maul and kubectl pointed at the same place.
 			wantNS: "default",
 		},
 	}
@@ -126,8 +126,8 @@ func TestClientConfigHonoursKubeconfigEnv(t *testing.T) {
 	if cfg.Host != "https://dev.example.test:6443" {
 		t.Errorf("host = %q, want the KUBECONFIG cluster", cfg.Host)
 	}
-	if ns != "patchy-dev" {
-		t.Errorf("namespace = %q, want patchy-dev", ns)
+	if ns != "maul-dev" {
+		t.Errorf("namespace = %q, want maul-dev", ns)
 	}
 }
 
@@ -136,10 +136,10 @@ func TestClientConfigHonoursKubeconfigEnv(t *testing.T) {
 func TestScheme(t *testing.T) {
 	s := Scheme()
 	for _, gvk := range []schema.GroupVersionKind{
-		{Group: "patchy.bitwisemedia.uk", Version: "v1alpha1", Kind: "Finding"},
-		{Group: "patchy.bitwisemedia.uk", Version: "v1alpha1", Kind: "Investigation"},
-		{Group: "patchy.bitwisemedia.uk", Version: "v1alpha1", Kind: "Remediation"},
-		{Group: "patchy.bitwisemedia.uk", Version: "v1alpha1", Kind: "FindingRollup"},
+		{Group: "maul.run", Version: "v1alpha1", Kind: "Finding"},
+		{Group: "maul.run", Version: "v1alpha1", Kind: "Investigation"},
+		{Group: "maul.run", Version: "v1alpha1", Kind: "Remediation"},
+		{Group: "maul.run", Version: "v1alpha1", Kind: "FindingRollup"},
 		{Group: "batch", Version: "v1", Kind: "Job"},
 		{Version: "v1", Kind: "Secret"},
 	} {
@@ -160,10 +160,10 @@ func TestManagerOptionsConfigMapSelector(t *testing.T) {
 		want  labels.Selector
 		kinds int
 	}{
-		{"none", Options{Namespaces: []string{"patchy"}}, nil, 0},
-		{"with the agent namespace", Options{Namespaces: []string{"patchy"}, AgentNamespace: "agents",
+		{"none", Options{Namespaces: []string{"maul"}}, nil, 0},
+		{"with the agent namespace", Options{Namespaces: []string{"maul"}, AgentNamespace: "agents",
 			ConfigMapSelector: sel}, sel, 3},
-		{"alone", Options{Namespaces: []string{"patchy"}, ConfigMapSelector: sel}, sel, 1},
+		{"alone", Options{Namespaces: []string{"maul"}, ConfigMapSelector: sel}, sel, 1},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			byObject := managerOptions(tt.opts).Cache.ByObject
@@ -187,8 +187,8 @@ func TestManagerOptionsConfigMapSelector(t *testing.T) {
 }
 
 func TestManagerOptionsRepositorySelector(t *testing.T) {
-	sel := labels.SelectorFromSet(labels.Set{"patchy.bitwisemedia.uk/intent": "target-1"})
-	byObject := managerOptions(Options{Namespaces: []string{"patchy"}, RepositorySelector: sel}).Cache.ByObject
+	sel := labels.SelectorFromSet(labels.Set{"maul.run/intent": "target-1"})
+	byObject := managerOptions(Options{Namespaces: []string{"maul"}, RepositorySelector: sel}).Cache.ByObject
 	var got labels.Selector
 	for obj, by := range byObject {
 		if _, ok := obj.(*v1alpha1.Repository); ok {

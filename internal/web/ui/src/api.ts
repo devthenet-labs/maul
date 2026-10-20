@@ -59,16 +59,16 @@ export interface SnapshotPayload {
 
 declare global {
   interface Window {
-    __PATCHY_STATUS_SNAPSHOT__?: SnapshotPayload;
-    __PATCHY_STATUS_DEMO__?: boolean;
+    __MAUL_STATUS_SNAPSHOT__?: SnapshotPayload;
+    __MAUL_STATUS_DEMO__?: boolean;
   }
 }
 
 export type DataMode = "snapshot" | "demo" | "live";
 
 export function dataMode(): DataMode {
-  if (window.__PATCHY_STATUS_SNAPSHOT__?.dataset) return "snapshot";
-  if (window.__PATCHY_STATUS_DEMO__) return "demo";
+  if (window.__MAUL_STATUS_SNAPSHOT__?.dataset) return "snapshot";
+  if (window.__MAUL_STATUS_DEMO__) return "demo";
   return "live";
 }
 
@@ -130,7 +130,7 @@ function demoPostAction(name: string, verb: ActionVerb, persona: Persona): void 
 
 export async function fetchFindings(persona: Persona = DEFAULT_PERSONA): Promise<Dataset> {
   const mode = dataMode();
-  if (mode === "snapshot") return window.__PATCHY_STATUS_SNAPSHOT__!.dataset;
+  if (mode === "snapshot") return window.__MAUL_STATUS_SNAPSHOT__!.dataset;
   if (mode === "demo") {
     const data = demoDataset();
     return {
@@ -152,7 +152,7 @@ export async function fetchFinding(
   const mode = dataMode();
   if (mode !== "live") {
     const data =
-      mode === "snapshot" ? window.__PATCHY_STATUS_SNAPSHOT__!.dataset : demoDataset();
+      mode === "snapshot" ? window.__MAUL_STATUS_SNAPSHOT__!.dataset : demoDataset();
     const f = data.findings.find((x) => x.name === name);
     if (!f) return null;
     return mode === "demo" ? { ...f, userActions: [...persona.grants] } : f;

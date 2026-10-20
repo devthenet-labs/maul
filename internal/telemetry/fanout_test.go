@@ -45,7 +45,7 @@ func TestFanoutGatesPerChildLevel(t *testing.T) {
 func TestFanoutWithAttrsAndGroupPropagate(t *testing.T) {
 	a := newCaptureHandler(slog.LevelDebug)
 	b := newCaptureHandler(slog.LevelDebug)
-	h := newFanoutHandler(a, b).WithAttrs([]slog.Attr{slog.String("svc", "patchy")}).WithGroup("g")
+	h := newFanoutHandler(a, b).WithAttrs([]slog.Attr{slog.String("svc", "maul")}).WithGroup("g")
 
 	// Both children should still receive records after WithAttrs/WithGroup.
 	if err := h.Handle(context.Background(), slog.Record{Level: slog.LevelInfo}); err != nil {

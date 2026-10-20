@@ -12,7 +12,7 @@ import (
 )
 
 func TestHeldByPause(t *testing.T) {
-	job := &JobReference{Namespace: "patchy-agents", Name: "j"}
+	job := &JobReference{Namespace: "maul-agents", Name: "j"}
 	tests := []struct {
 		paused bool
 		phase  RunPhase

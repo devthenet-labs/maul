@@ -14,8 +14,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/bitwise-media-group/patchy/internal/action"
-	"github.com/bitwise-media-group/patchy/internal/command"
+	"github.com/devthenet-labs/maul/internal/action"
+	"github.com/devthenet-labs/maul/internal/command"
 )
 
 // Every property runs seeded, so the gate is deterministic. A failure prints
@@ -26,7 +26,7 @@ import (
 // whitespace, control and format characters, quote and code markers,
 // multi-byte runes and invalid UTF-8.
 var hostile = []string{
-	"/patchy", "/PATCHY", "/Patchy", "/patchy ", "/approve", "/approve ", "/approved", "@patchy approve",
+	"/maul", "/MAUL", "/Maul", "/maul ", "/approve", "/approve ", "/approved", "@maul approve",
 	"approve", "retry", "revise", "cancel", "replan", "Approve",
 	" ", "  ", "\t", "\n", "\n\n", "\r\n", "\r", "\v", "\f", "\u0085", "\u00a0", "\u2028", "\u2029", "\u3000",
 	"\x00", "\x1b", "\x7f", "\u200b", "\u200c", "\u200d", "\u00ad", "\u202e", "\u2066", "\ufeff",
@@ -87,7 +87,7 @@ func genAlias(r *rand.Rand) string {
 	case 0:
 		return ""
 	case 1:
-		return "@patchy approve"
+		return "@maul approve"
 	case 2:
 		return command.LegacyApprove
 	}
@@ -312,13 +312,13 @@ func genBlankLines(r *rand.Rand) string {
 
 // genTextStart opens a line with something other than "/" or whitespace.
 func genTextStart(r *rand.Rand) string {
-	starts := []string{"x", "patchy", "Thanks", ">", "`", "```", "#", "-", "é", "\u200b", "\ufeff", "@patchy approve"}
+	starts := []string{"x", "maul", "Thanks", ">", "`", "```", "#", "-", "é", "\u200b", "\ufeff", "@maul approve"}
 	return starts[r.Intn(len(starts))]
 }
 
 // noteText is hostile text that cannot spell any part of a command line: no
 // "/" and no letter of any verb genVerb draws, in either case. So the only
-// "/patchy", "/approve" or verb in a generated command is its command line,
+// "/maul", "/approve" or verb in a generated command is its command line,
 // and one found in the note was leaked there by the parser.
 func noteText(r *rand.Rand) string {
 	var clean []string
@@ -497,7 +497,7 @@ func approveToday(body, cmd string) (note string, ok bool) {
 	return cut, true
 }
 
-// withoutPrefix keeps the fragments that cannot put the /patchy prefix in a
+// withoutPrefix keeps the fragments that cannot put the /maul prefix in a
 // body, so every hit is the alias and never the grammar.
 func withoutPrefix(fragments []string) []string {
 	var out []string
@@ -515,7 +515,7 @@ func withoutPrefix(fragments []string) []string {
 // the same note, except for whitespace the 1 KiB cut leaves at the end,
 // which the note rule trims.
 func TestParseLegacyMatchesTodayProperty(t *testing.T) {
-	aliases := []string{command.LegacyApprove, "@patchy approve"}
+	aliases := []string{command.LegacyApprove, "@maul approve"}
 	genConfigured := func(r *rand.Rand) string { return aliases[r.Intn(len(aliases))] }
 	// Lead with an alias half the time, so hits are common.
 	leadWith := func(r *rand.Rand, sep string) string {
@@ -540,7 +540,7 @@ func TestParseLegacyMatchesTodayProperty(t *testing.T) {
 	}
 
 	clean := append([]string{
-		"/approve", "/approve ", "/approved", "@patchy approve", "@patchy approve ", "approve",
+		"/approve", "/approve ", "/approved", "@maul approve", "@maul approve ", "approve",
 	}, ordinaryText...)
 	genClean := func(r *rand.Rand) string { return leadWith(r, " ") + genFrom(r, clean) }
 	sameNote := func(alias, body string) bool {

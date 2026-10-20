@@ -15,11 +15,11 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/action"
-	"github.com/bitwise-media-group/patchy/internal/attribution"
-	"github.com/bitwise-media-group/patchy/internal/credgate"
-	"github.com/bitwise-media-group/patchy/internal/credgate/kubecred"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/action"
+	"github.com/devthenet-labs/maul/internal/attribution"
+	"github.com/devthenet-labs/maul/internal/credgate"
+	"github.com/devthenet-labs/maul/internal/credgate/kubecred"
 )
 
 const accountURL = "https://status.example.com/#/account"
@@ -32,7 +32,7 @@ func credentialFor(p v1alpha1.ModelCredentialProvider, id int64,
 	health v1alpha1.ModelCredentialHealth) *v1alpha1.ModelCredential {
 	owner := v1alpha1.ModelCredentialOwner(id)
 	return &v1alpha1.ModelCredential{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "patchy", Name: v1alpha1.ModelCredentialName(owner, p)},
+		ObjectMeta: metav1.ObjectMeta{Namespace: "maul", Name: v1alpha1.ModelCredentialName(owner, p)},
 		Spec:       v1alpha1.ModelCredentialSpec{Owner: owner, Provider: p, Kind: v1alpha1.ModelCredentialAPIKey},
 		Status:     v1alpha1.ModelCredentialStatus{Health: health},
 	}
@@ -43,7 +43,7 @@ func enforcingSpawner(t *testing.T, mode credgate.Mode, objs ...client.Object) (
 	r, c := newSpawner(t, objs...)
 	r.Attribution = attribution.ModeAttribute
 	r.UserCredentials = mode
-	r.Credentials = kubecred.Reader{Client: c, Namespace: "patchy"}
+	r.Credentials = kubecred.Reader{Client: c, Namespace: "maul"}
 	r.AccountURL = accountURL
 	return r, c
 }
@@ -51,7 +51,7 @@ func enforcingSpawner(t *testing.T, mode credgate.Mode, objs ...client.Object) (
 func remediationExists(t *testing.T, c client.Client) bool {
 	t.Helper()
 	var rem v1alpha1.Remediation
-	err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1-rem-1"}, &rem)
+	err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: "finding-aa-1-rem-1"}, &rem)
 	if err != nil && !kerrors.IsNotFound(err) {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func remediationExists(t *testing.T, c client.Client) bool {
 func reconcileSpawner(t *testing.T, r *SpawnerReconciler) ctrl.Result {
 	t.Helper()
 	res, err := r.Reconcile(t.Context(), ctrl.Request{
-		NamespacedName: types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1"},
+		NamespacedName: types.NamespacedName{Namespace: "maul", Name: "finding-aa-1"},
 	})
 	if err != nil {
 		t.Fatalf("Reconcile: %v", err)
@@ -151,7 +151,7 @@ func TestSpawnerHoldsForCredential(t *testing.T) {
 		t.Errorf("credentialHold after lifting = %+v, want none", h)
 	}
 	var rem v1alpha1.Remediation
-	_ = c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1-rem-1"}, &rem)
+	_ = c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: "finding-aa-1-rem-1"}, &rem)
 	if u := rem.Spec.AttributedTo.User; u == nil || u.ID != 42 {
 		t.Errorf("attributedTo = %+v, want alice", rem.Spec.AttributedTo)
 	}
@@ -178,7 +178,7 @@ func TestSpawnerReapprovalReplacesAttribution(t *testing.T) {
 	}
 	reconcileSpawner(t, r)
 	var rem v1alpha1.Remediation
-	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1-rem-1"},
+	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: "finding-aa-1-rem-1"},
 		&rem); err != nil {
 		t.Fatalf("not created after a key holder's approval: %v", err)
 	}
@@ -317,7 +317,7 @@ func TestSpawnerReapprovalByKeylessApproverKeepsHold(t *testing.T) {
 	setHealth(t, c, 42, v1alpha1.ModelCredentialValid)
 	reconcileSpawner(t, r)
 	var rem v1alpha1.Remediation
-	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1-rem-1"},
+	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: "finding-aa-1-rem-1"},
 		&rem); err != nil {
 		t.Fatalf("not created once the held person's credential was valid: %v", err)
 	}

@@ -14,10 +14,10 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/runnerguard"
-	"github.com/bitwise-media-group/patchy/internal/templates"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/runnerguard"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // Pull request states an Intent records.
@@ -261,12 +261,12 @@ func (p *pass) openPullRequests(ctx context.Context, round int32, repos []v1alph
 // openPullRequest opens the pull request for a build that pushed the intent
 // branch, or adopts the one a failed pass opened, and records it, upserted
 // by repository; the record that completes the approved set moves the Intent
-// to InReview in the same write. Only patchy's own is adopted
+// to InReview in the same write. Only maul's own is adopted
 // (ownPullRequest); an open pull request from the branch that is anyone
 // else's blocks the Intent on BranchConflict until it is closed, since GitHub
 // keeps one open pull request per head and base. A block names the
-// repository, and on resume patchy carries on with the rest. The title and
-// body are patchy's own, from the approved plan: the body says "Part of" the
+// repository, and on resume maul carries on with the rest. The title and
+// body are maul's own, from the approved plan: the body says "Part of" the
 // intent issue and holds no closing keyword; with more than one repository
 // it also says which, and that the intent completes when every one merges.
 // It lists the Go module requirements the build added or changed, marking
@@ -286,11 +286,11 @@ func (p *pass) openPullRequest(ctx context.Context, run *v1alpha1.IntentRun,
 		return false, err
 	}
 	if pr != nil && !own {
-		p.r.log().LogAttrs(ctx, slog.LevelWarn, "an open pull request patchy did not open holds the intent branch",
+		p.r.log().LogAttrs(ctx, slog.LevelWarn, "an open pull request maul did not open holds the intent branch",
 			slog.String("intent", p.in.Name), slog.String("pullRequest", pr.HTMLURL), slog.String("author", pr.Author))
 		return true, p.block(ctx, v1alpha1.ConditionBranchConflict, ReasonForeignPullRequest,
-			fmt.Sprintf("an open pull request patchy did not open, %s (by %s, from %s into %s), already holds the "+
-				"branch %s; patchy neither adopts it nor opens its own beside it. Close it to resume.",
+			fmt.Sprintf("an open pull request maul did not open, %s (by %s, from %s into %s), already holds the "+
+				"branch %s; maul neither adopts it nor opens its own beside it. Close it to resume.",
 				pr.HTMLURL, pr.Author, pr.HeadRepo, pr.Base, branch))
 	}
 	if pr == nil {
@@ -311,7 +311,7 @@ func (p *pass) openPullRequest(ctx context.Context, run *v1alpha1.IntentRun,
 			return false, fmt.Errorf("read the intent branch before opening its pull request: %w", headErr)
 		case head != run.Status.PushedCommit:
 			return true, p.block(ctx, v1alpha1.ConditionBranchConflict, ReasonBranchChanged,
-				fmt.Sprintf("branch %s%s moved from the build's commit %s to %s before patchy opened its pull request; "+
+				fmt.Sprintf("branch %s%s moved from the build's commit %s to %s before maul opened its pull request; "+
 					"restore it to the build's commit to resume", branch, in, run.Status.PushedCommit, head))
 		}
 		goReqs, err := p.goRequirements(ctx, run)
@@ -387,7 +387,7 @@ func everyRecorded(prs []v1alpha1.IntentPullRequest, repos []v1alpha1.ProjectRep
 }
 
 // findPullRequest reads the default branch of repoURL and the open pull
-// request from the intent branch into it, if any, and whether it is patchy's
+// request from the intent branch into it, if any, and whether it is maul's
 // own.
 func (p *pass) findPullRequest(ctx context.Context, repoURL string) (pr *ghclient.PR, own bool, base string,
 	err error) {
@@ -407,10 +407,10 @@ func (p *pass) findPullRequest(ctx context.Context, repoURL string) (pr *ghclien
 }
 
 // ownPullRequest reports a pull request found open from the intent branch
-// that patchy opened: one a pass that failed after opening it left behind.
+// that maul opened: one a pass that failed after opening it left behind.
 // On a public repository anyone can open a pull request from an existing
-// branch, with any title, body and base, so it is patchy's only when
-// patchy's bot opened it, into the default branch, from the repository itself
+// branch, with any title, body and base, so it is maul's only when
+// maul's bot opened it, into the default branch, from the repository itself
 // (never a fork). With a personal access token there is no bot identity (dev
 // only), and only the base and the head repository are checked. Its head
 // commit is not: humans may push to the branch.
@@ -548,7 +548,7 @@ func (p *pass) roundOrder(prs []v1alpha1.IntentPullRequest) []int {
 // planned, when any closed unmerged. A multi-repository intent's Closed
 // first posts the notice naming what merged (already on its repository's
 // default branch, never reverted) and what did not; a one-repository
-// intent's ends as it always has, with no notice. patchy never closes one
+// intent's ends as it always has, with no notice. maul never closes one
 // pull request because another closed: while any is still open, the Intent
 // stays in review. While the pull requests are still being opened (Building,
 // one record per pass) the ones recorded are not every one the intent opens,
@@ -567,7 +567,7 @@ func (p *pass) endReview(ctx context.Context, prs []v1alpha1.IntentPullRequest, 
 				return false, err
 			}
 		}
-		// Every pull request settled and not all merged: patchy closes the
+		// Every pull request settled and not all merged: maul closes the
 		// issue.
 		if err := p.r.GitHub.CloseIssue(ctx, p.repo(), p.number(), ghclient.CloseNotPlanned); err != nil {
 			return false, fmt.Errorf("close the issue: %w", err)

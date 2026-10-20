@@ -25,10 +25,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/pkg/evaluation"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/pkg/evaluation"
 )
 
 var errBoom = errors.New("boom")
@@ -82,7 +82,7 @@ func clientWith(t *testing.T, funcs interceptor.Funcs, objs ...client.Object) cl
 }
 
 func unitReq(name string) ctrl.Request {
-	return ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "patchy", Name: name}}
+	return ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "maul", Name: name}}
 }
 
 var present = fakeWorkspaces{present: map[string]bool{digestA: true}}
@@ -103,7 +103,7 @@ func TestGateIgnores(t *testing.T) {
 	}{
 		{"deleting", func(e *v1alpha1.Evaluation) {
 			e.DeletionTimestamp = &now
-			e.Finalizers = []string{"patchy.bitwisemedia.uk/test"}
+			e.Finalizers = []string{"maul.run/test"}
 		}},
 		{"running", func(e *v1alpha1.Evaluation) { e.Status.Phase = v1alpha1.EvaluationRunning }},
 		{"complete", func(e *v1alpha1.Evaluation) { e.Status.Phase = v1alpha1.EvaluationComplete }},
@@ -113,7 +113,7 @@ func TestGateIgnores(t *testing.T) {
 			eval := testEval(unitPlan("claude"))
 			tt.mut(eval)
 			c := newClient(t, eval)
-			g := &GateReconciler{Client: c, Namespace: "patchy", EnabledHarnesses: []string{"claude"}}
+			g := &GateReconciler{Client: c, Namespace: "maul", EnabledHarnesses: []string{"claude"}}
 			if _, err := g.Reconcile(t.Context(), unitReq("eval-1")); err != nil {
 				t.Fatalf("Reconcile: %v", err)
 			}
@@ -126,7 +126,7 @@ func TestGateIgnores(t *testing.T) {
 			}
 		})
 	}
-	g := &GateReconciler{Client: newClient(t), Namespace: "patchy"}
+	g := &GateReconciler{Client: newClient(t), Namespace: "maul"}
 	if _, err := g.Reconcile(t.Context(), unitReq("missing")); err != nil {
 		t.Errorf("Reconcile(missing) error = %v, want nil", err)
 	}
@@ -136,7 +136,7 @@ func TestGateIgnores(t *testing.T) {
 // the start time and the UnitsCreated condition.
 func TestGateRealClockStampsStart(t *testing.T) {
 	c := newClient(t, testEval(unitPlan("claude"), unitPlan("fake")))
-	g := &GateReconciler{Client: c, Namespace: "patchy", EnabledHarnesses: []string{"claude", "fake"}}
+	g := &GateReconciler{Client: c, Namespace: "maul", EnabledHarnesses: []string{"claude", "fake"}}
 	before := time.Now().Add(-time.Second)
 	if _, err := g.Reconcile(t.Context(), unitReq("eval-1")); err != nil {
 		t.Fatalf("Reconcile: %v", err)
@@ -174,7 +174,7 @@ func TestGateErrors(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			c := clientWith(t, funcs, testEval(unitPlan("claude")))
-			g := &GateReconciler{Client: c, Namespace: "patchy", EnabledHarnesses: []string{"claude"}}
+			g := &GateReconciler{Client: c, Namespace: "maul", EnabledHarnesses: []string{"claude"}}
 			if _, err := g.Reconcile(t.Context(), unitReq("eval-1")); !errors.Is(err, errBoom) {
 				t.Fatalf("Reconcile error = %v, want %v", err, errBoom)
 			}
@@ -192,13 +192,13 @@ func TestGateSettleUnavailableDetail(t *testing.T) {
 	plan.Harnesses = append(plan.Harnesses, v1alpha1.HarnessOption{Harness: "codex"})
 	eval := testEval(plan)
 	settled := &v1alpha1.EvaluationUnit{
-		ObjectMeta: metav1.ObjectMeta{Name: "eval-1-u000", Namespace: "patchy"},
+		ObjectMeta: metav1.ObjectMeta{Name: "eval-1-u000", Namespace: "maul"},
 		Spec:       v1alpha1.EvaluationUnitSpec{EvaluationRef: v1alpha1.ObjectReference{Name: "eval-1"}, Unit: plan},
 		Status:     v1alpha1.EvaluationUnitStatus{Phase: v1alpha1.RunComplete},
 	}
 	t.Run("fresh", func(t *testing.T) {
 		c := newClient(t, eval.DeepCopy())
-		g := &GateReconciler{Client: c, Namespace: "patchy", EnabledHarnesses: []string{"claude"},
+		g := &GateReconciler{Client: c, Namespace: "maul", EnabledHarnesses: []string{"claude"},
 			Now: func() time.Time { return clock }}
 		if _, err := g.Reconcile(t.Context(), unitReq("eval-1")); err != nil {
 			t.Fatalf("Reconcile: %v", err)
@@ -213,7 +213,7 @@ func TestGateSettleUnavailableDetail(t *testing.T) {
 	})
 	t.Run("already settled", func(t *testing.T) {
 		c := newClient(t, eval.DeepCopy(), settled)
-		g := &GateReconciler{Client: c, Namespace: "patchy", EnabledHarnesses: []string{"claude"}}
+		g := &GateReconciler{Client: c, Namespace: "maul", EnabledHarnesses: []string{"claude"}}
 		if _, err := g.Reconcile(t.Context(), unitReq("eval-1")); err != nil {
 			t.Fatalf("Reconcile: %v", err)
 		}
@@ -273,7 +273,7 @@ func TestTTLKeeps(t *testing.T) {
 	now := metav1.NewTime(clock)
 	deleting := ttlEval(v1alpha1.EvaluationComplete, 1000*time.Hour, nil)
 	deleting.DeletionTimestamp = &now
-	deleting.Finalizers = []string{"patchy.bitwisemedia.uk/test"}
+	deleting.Finalizers = []string{"maul.run/test"}
 	tests := []struct {
 		name string
 		eval *v1alpha1.Evaluation
@@ -288,7 +288,7 @@ func TestTTLKeeps(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := newClient(t, tt.eval)
-			r := &TTLReconciler{Client: c, Namespace: "patchy", TTL: tt.ttl, Now: func() time.Time { return clock }}
+			r := &TTLReconciler{Client: c, Namespace: "maul", TTL: tt.ttl, Now: func() time.Time { return clock }}
 			res, err := r.Reconcile(t.Context(), unitReq("eval-1"))
 			if err != nil {
 				t.Fatalf("Reconcile: %v", err)
@@ -299,7 +299,7 @@ func TestTTLKeeps(t *testing.T) {
 			getEval(t, c) // still present
 		})
 	}
-	r := &TTLReconciler{Client: newClient(t), Namespace: "patchy"}
+	r := &TTLReconciler{Client: newClient(t), Namespace: "maul"}
 	if _, err := r.Reconcile(t.Context(), unitReq("missing")); err != nil {
 		t.Errorf("Reconcile(missing) error = %v, want nil", err)
 	}
@@ -313,12 +313,12 @@ func TestTTLConfiguredRetention(t *testing.T) {
 	done := metav1.NewTime(time.Now().Add(-2 * time.Hour))
 	eval.Status.CompletedAt = &done
 	c := newClient(t, eval)
-	r := &TTLReconciler{Client: c, Namespace: "patchy", TTL: time.Hour, Log: slog.New(slog.DiscardHandler)}
+	r := &TTLReconciler{Client: c, Namespace: "maul", TTL: time.Hour, Log: slog.New(slog.DiscardHandler)}
 	if _, err := r.Reconcile(t.Context(), unitReq("eval-1")); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
 	var e v1alpha1.Evaluation
-	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: "eval-1"}, &e); !kerrors.IsNotFound(err) {
+	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: "eval-1"}, &e); !kerrors.IsNotFound(err) {
 		t.Errorf("evaluation lookup error = %v, want deleted after its 1h TTL", err)
 	}
 }
@@ -336,7 +336,7 @@ func TestTTLDeleteErrors(t *testing.T) {
 				...client.DeleteOption) error {
 				return tt.err
 			}}, ttlEval(v1alpha1.EvaluationComplete, 1000*time.Hour, nil))
-			r := &TTLReconciler{Client: c, Namespace: "patchy", TTL: -1, Now: func() time.Time { return clock }}
+			r := &TTLReconciler{Client: c, Namespace: "maul", TTL: -1, Now: func() time.Time { return clock }}
 			if _, err := r.Reconcile(t.Context(), unitReq("eval-1")); (err != nil) != tt.wantErr {
 				t.Errorf("Reconcile error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -348,7 +348,7 @@ func TestTTLDeleteErrors(t *testing.T) {
 func pendingUnit(i int) *v1alpha1.EvaluationUnit {
 	return &v1alpha1.EvaluationUnit{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: UnitName("eval-1", i), Namespace: "patchy",
+			Name: UnitName("eval-1", i), Namespace: "maul",
 			Labels:            map[string]string{v1alpha1.LabelEvaluation: "eval-1"},
 			CreationTimestamp: metav1.NewTime(clock.Add(time.Duration(i) * time.Second)),
 		},
@@ -841,10 +841,10 @@ func TestFinalizeEdges(t *testing.T) {
 		wantFins []string
 	}{
 		{"delete fails", errBoom, []string{v1alpha1.FinalizerJobs}, true, []string{v1alpha1.FinalizerJobs}},
-		{"job already gone", gone, []string{v1alpha1.FinalizerJobs, "patchy.bitwisemedia.uk/other"}, false,
-			[]string{"patchy.bitwisemedia.uk/other"}},
-		{"no jobs finalizer", nil, []string{"patchy.bitwisemedia.uk/other"}, false,
-			[]string{"patchy.bitwisemedia.uk/other"}},
+		{"job already gone", gone, []string{v1alpha1.FinalizerJobs, "maul.run/other"}, false,
+			[]string{"maul.run/other"}},
+		{"no jobs finalizer", nil, []string{"maul.run/other"}, false,
+			[]string{"maul.run/other"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -914,7 +914,7 @@ func TestPausedHoldsAGrantedLaunch(t *testing.T) {
 // only on a unit that asked for codex.
 func TestGateSettleUnavailableCodexNoteOnlyForCodex(t *testing.T) {
 	c := newClient(t, testEval(unitPlan("gemini")))
-	g := &GateReconciler{Client: c, Namespace: "patchy", EnabledHarnesses: []string{"claude"},
+	g := &GateReconciler{Client: c, Namespace: "maul", EnabledHarnesses: []string{"claude"},
 		Now: func() time.Time { return clock }}
 	if _, err := g.Reconcile(t.Context(), unitReq("eval-1")); err != nil {
 		t.Fatalf("Reconcile: %v", err)

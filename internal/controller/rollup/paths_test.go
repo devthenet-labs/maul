@@ -20,17 +20,17 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/stats"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/stats"
 )
 
 var errBoom = errors.New("boom")
 
 var (
-	remReq = ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1-rem-1"}}
-	invReq = ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1-inv-1"}}
-	fndReq = ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1"}}
+	remReq = ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "maul", Name: "finding-aa-1-rem-1"}}
+	invReq = ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "maul", Name: "finding-aa-1-inv-1"}}
+	fndReq = ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "maul", Name: "finding-aa-1"}}
 )
 
 // reconcilerWith is newReconciler with interceptors on the fake client.
@@ -45,14 +45,14 @@ func reconcilerWith(t *testing.T, funcs interceptor.Funcs, objs ...client.Object
 		).
 		WithInterceptorFuncs(funcs).
 		Build()
-	return &Reconciler{Client: c, Namespace: "patchy", TTL: DefaultTTL, Now: func() time.Time { return clock }}, c
+	return &Reconciler{Client: c, Namespace: "maul", TTL: DefaultTTL, Now: func() time.Time { return clock }}, c
 }
 
 // remediationRun is a settled remediation run with an estimate.
 func remediationRun(phase v1alpha1.RunPhase, success bool) *v1alpha1.Remediation {
 	return &v1alpha1.Remediation{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "finding-aa-1-rem-1", Namespace: "patchy", UID: "rem-uid-1",
+			Name: "finding-aa-1-rem-1", Namespace: "maul", UID: "rem-uid-1",
 			Annotations: map[string]string{v1alpha1.AnnotationRepo: "acme/orders"},
 			Finalizers: []string{
 				v1alpha1.FinalizerJobs, v1alpha1.FinalizerRollupTotal, v1alpha1.FinalizerRollupRepository,
@@ -136,7 +136,7 @@ func TestChildIgnoresInFlight(t *testing.T) {
 		"remediation": r.ReconcileRemediation, "investigation": r.ReconcileInvestigation, "finding": r.ReconcileFinding,
 	} {
 		if _, err := fn(t.Context(), ctrl.Request{NamespacedName: types.NamespacedName{
-			Namespace: "patchy", Name: "missing"}}); err != nil {
+			Namespace: "maul", Name: "missing"}}); err != nil {
 			t.Errorf("%s Reconcile(missing) error = %v, want nil", name, err)
 		}
 	}
@@ -421,7 +421,7 @@ func TestFindingDeletionReleasesOnlyAggregatedScopes(t *testing.T) {
 	fnd := terminalFinding(v1alpha1.PhaseDismissed)
 	now := metav1.NewTime(clock)
 	fnd.DeletionTimestamp = &now
-	fnd.Finalizers = append(fnd.Finalizers, "patchy.bitwisemedia.uk/other")
+	fnd.Finalizers = append(fnd.Finalizers, "maul.run/other")
 	r, c := newReconciler(t, fnd)
 	if _, err := r.ReconcileFinding(t.Context(), fndReq); err != nil {
 		t.Fatalf("Reconcile: %v", err)
@@ -430,7 +430,7 @@ func TestFindingDeletionReleasesOnlyAggregatedScopes(t *testing.T) {
 	if err := c.Get(t.Context(), fndReq.NamespacedName, &cur); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(cur.Finalizers, []string{"patchy.bitwisemedia.uk/other"}) {
+	if !slices.Equal(cur.Finalizers, []string{"maul.run/other"}) {
 		t.Errorf("finalizers = %v, want only the foreign one", cur.Finalizers)
 	}
 	if got := rollup(t, c, "total").Status.Bucket.Phases["dismissed"]; got != 1 {

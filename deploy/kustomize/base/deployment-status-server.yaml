@@ -4,12 +4,12 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-    name: patchy-status-server
-    namespace: patchy
+    name: maul-status-server
+    namespace: maul
     labels:
         app: status-server
         app.kubernetes.io/name: status-server
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
         # Deliberately `server`, not `controller`: the status server runs no
         # reconcilers — it serves humans. The NetworkPolicies select on this.
         app.kubernetes.io/component: server
@@ -20,16 +20,16 @@ spec:
     selector:
         matchLabels:
             app.kubernetes.io/name: status-server
-            app.kubernetes.io/part-of: patchy
+            app.kubernetes.io/part-of: maul
     template:
         metadata:
             labels:
                 app: status-server
                 app.kubernetes.io/name: status-server
-                app.kubernetes.io/part-of: patchy
+                app.kubernetes.io/part-of: maul
                 app.kubernetes.io/component: server
         spec:
-            serviceAccountName: patchy-status-server
+            serviceAccountName: maul-status-server
             securityContext:
                 runAsNonRoot: true
                 runAsUser: 65532
@@ -41,11 +41,11 @@ spec:
                 - name: server
                   # Built from Dockerfile.controller (repo root)
                   # (TARGET=status-server in .goreleaser.yaml).
-                  image: ghcr.io/devthenet-labs/patchy/status-server:latest
+                  image: ghcr.io/devthenet-labs/maul/status-server:latest
                   args: ["serve"]
                   envFrom:
                       - configMapRef:
-                            name: patchy-config
+                            name: maul-config
                   env:
                       - name: POD_NAMESPACE
                         valueFrom:
@@ -57,8 +57,8 @@ spec:
                       # statistics, no findings access, no sign-in. Mount a
                       # real config (see secrets.example.yaml) to enable the
                       # findings surface.
-                      - name: PATCHY_AUTH_CONFIG
-                        value: /etc/patchy/auth/config.yaml
+                      - name: MAUL_AUTH_CONFIG
+                        value: /etc/maul/auth/config.yaml
                   ports:
                       - name: http
                         containerPort: 8080
@@ -94,7 +94,7 @@ spec:
                           type: RuntimeDefault
                   volumeMounts:
                       - name: auth
-                        mountPath: /etc/patchy/auth
+                        mountPath: /etc/maul/auth
                         readOnly: true
                       - name: tmp
                         mountPath: /tmp
@@ -103,7 +103,7 @@ spec:
                 # absent means rollups-only.
                 - name: auth
                   secret:
-                      secretName: patchy-status-auth
+                      secretName: maul-status-auth
                       optional: true
                 # The root filesystem is read-only; Go's os.CreateTemp and
                 # the HTTP stack want a writable /tmp.

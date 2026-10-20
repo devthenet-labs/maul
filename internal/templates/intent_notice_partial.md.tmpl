@@ -1,12 +1,12 @@
 {{- /* Posted once every pull request of an intent has settled with some
-merged and some closed unmerged, before patchy closes the issue as not
-planned. The pull requests are patchy's own, linked on purpose. One line per
+merged and some closed unmerged, before maul closes the issue as not
+planned. The pull requests are maul's own, linked on purpose. One line per
 paragraph: GitHub renders a line break inside an issue comment as a hard
 break. */ -}}
 {{ .Marker }}
-### patchy: ended
+### maul: ended
 
-Every pull request patchy opened for this intent has merged or been closed, and not all of them merged, so patchy closes the issue as not planned. What merged is already on its repository's default branch, and patchy reverts none of it. patchy never closes a pull request because another one was closed.
+Every pull request maul opened for this intent has merged or been closed, and not all of them merged, so maul closes the issue as not planned. What merged is already on its repository's default branch, and maul reverts none of it. maul never closes a pull request because another one was closed.
 {{- with .Merged }}
 
 **Merged:**

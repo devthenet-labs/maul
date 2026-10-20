@@ -13,67 +13,67 @@ import (
 // in the owning object's spec — labels exist only for selectors.
 const (
 	// LabelKeyHash carries the hex-encoded accumulation-key hash on a Finding.
-	LabelKeyHash = "patchy.bitwisemedia.uk/key-hash"
+	LabelKeyHash = "maul.run/key-hash"
 	// LabelSource carries the source handler ID (e.g. github-code-scanning).
-	LabelSource = "patchy.bitwisemedia.uk/source"
+	LabelSource = "maul.run/source"
 	// LabelIntegration names the Integration that ingested a Finding.
-	LabelIntegration = "patchy.bitwisemedia.uk/integration"
+	LabelIntegration = "maul.run/integration"
 	// LabelRepoHash carries the hex-encoded repository-URL hash.
-	LabelRepoHash = "patchy.bitwisemedia.uk/repo-hash"
+	LabelRepoHash = "maul.run/repo-hash"
 	// LabelSeverity mirrors spec.severity for selectors.
-	LabelSeverity = "patchy.bitwisemedia.uk/severity"
+	LabelSeverity = "maul.run/severity"
 	// LabelFinding names the owning Finding on children and agent Jobs.
-	LabelFinding = "patchy.bitwisemedia.uk/finding"
+	LabelFinding = "maul.run/finding"
 	// LabelAttempt carries the attempt ordinal on Investigation/Remediation.
-	LabelAttempt = "patchy.bitwisemedia.uk/attempt"
+	LabelAttempt = "maul.run/attempt"
 	// LabelOwner names the owning Investigation or Remediation on agent Jobs.
-	LabelOwner = "patchy.bitwisemedia.uk/owner"
+	LabelOwner = "maul.run/owner"
 	// LabelRunKind discriminates agent Jobs ("investigation"/"remediation") so
 	// the two job controllers sharing one namespace never touch each other's
 	// Jobs.
-	LabelRunKind = "patchy.bitwisemedia.uk/kind"
+	LabelRunKind = "maul.run/kind"
 	// LabelHarness names the agent harness a Job's pod runs ("claude"/"codex"),
 	// the selector the per-harness egress network policies match on so each
 	// runner reaches only its own model API.
-	LabelHarness = "patchy.bitwisemedia.uk/harness"
+	LabelHarness = "maul.run/harness"
 	// LabelScope carries the rollup scope type on FindingRollup objects.
-	LabelScope = "patchy.bitwisemedia.uk/scope"
+	LabelScope = "maul.run/scope"
 	// LabelUsageScope carries the scope type on UsageRollup objects.
-	LabelUsageScope = "patchy.bitwisemedia.uk/usage-scope"
+	LabelUsageScope = "maul.run/usage-scope"
 	// LabelEvaluation names the owning Evaluation on EvaluationUnit children
 	// and evaluation agent Jobs.
-	LabelEvaluation = "patchy.bitwisemedia.uk/evaluation"
+	LabelEvaluation = "maul.run/evaluation"
 	// LabelUnitIndex carries the unit's 0-based index within its Evaluation.
-	LabelUnitIndex = "patchy.bitwisemedia.uk/unit-index"
+	LabelUnitIndex = "maul.run/unit-index"
 	// LabelIntent names the owning Intent on IntentRuns and on the
 	// Repositories intent-controller creates. Intent Repositories never
 	// carry LabelFinding, so the Finding flow's mappers ignore them.
-	LabelIntent = "patchy.bitwisemedia.uk/intent"
+	LabelIntent = "maul.run/intent"
 	// LabelIntentRun names the owning IntentRun on the Repositories
 	// intent-controller creates.
-	LabelIntentRun = "patchy.bitwisemedia.uk/intent-run"
+	LabelIntentRun = "maul.run/intent-run"
 
 	// AnnotationRepo carries the true "owner/name" on Investigation and
 	// Remediation children (label values cannot hold it), so the rollup can
 	// attribute spend to the repository even after the Finding is gone.
-	AnnotationRepo = "patchy.bitwisemedia.uk/repo"
+	AnnotationRepo = "maul.run/repo"
 )
 
 // Finalizers. The rollup finalizers guarantee no object is deleted before its
 // spend is aggregated into every scope (see FindingRollup); the jobs finalizer
 // guarantees leftover Jobs/Secrets in the agents namespace are cleaned up.
 const (
-	FinalizerJobs             = "patchy.bitwisemedia.uk/jobs"
-	FinalizerRollupTotal      = "patchy.bitwisemedia.uk/rollup-total"
-	FinalizerRollupRepository = "patchy.bitwisemedia.uk/rollup-repository"
-	FinalizerRollupHarness    = "patchy.bitwisemedia.uk/rollup-harness"
-	FinalizerRollupModel      = "patchy.bitwisemedia.uk/rollup-model"
+	FinalizerJobs             = "maul.run/jobs"
+	FinalizerRollupTotal      = "maul.run/rollup-total"
+	FinalizerRollupRepository = "maul.run/rollup-repository"
+	FinalizerRollupHarness    = "maul.run/rollup-harness"
+	FinalizerRollupModel      = "maul.run/rollup-model"
 	// FinalizerUsageRollup is put on a run created with spec.attributedTo
 	// (--attribution-mode attribute) by its own controller, and removed by
 	// that controller only once the run's usage is folded into its
 	// UsageRollups (ConditionUsageRolledUp): no run can be deleted, by TTL or
 	// by hand, before its usage is aggregated.
-	FinalizerUsageRollup = "patchy.bitwisemedia.uk/usage-rollup"
+	FinalizerUsageRollup = "maul.run/usage-rollup"
 )
 
 // LocalSecretReference names a Secret in the same namespace as the referring
@@ -164,7 +164,7 @@ type RunnerImageRef struct {
 // RunnerImageRef sources.
 const (
 	// RunnerImageSourceRepository: the pod ran the image the repository
-	// declared, injected with patchy's harness binaries.
+	// declared, injected with maul's harness binaries.
 	RunnerImageSourceRepository = "repository"
 	// RunnerImageSourceDefault: the pod ran the per-harness runner image.
 	RunnerImageSourceDefault = "default"
@@ -223,7 +223,7 @@ const (
 	// configured threshold.
 	HoldLowConfidence HoldReason = "lowConfidence"
 	// HoldExceedsAutomatedTurns: the fix is predicted to need more turns than
-	// patchy will spend unattended, so a human must authorize the larger
+	// maul will spend unattended, so a human must authorize the larger
 	// budget before it runs.
 	HoldExceedsAutomatedTurns HoldReason = "exceedsAutomatedTurns"
 	// HoldExceedsAutomatedTokens: as above, for output tokens.
@@ -255,7 +255,7 @@ const (
 
 // AgentEstimate is the investigation's prediction of what a remediation will
 // need. It is advisory: it never reduces a run's budget. Its only operational
-// effect is the approval gate — an estimate above what patchy will spend
+// effect is the approval gate — an estimate above what maul will spend
 // unattended holds the finding in AwaitingApproval, and approving it grants
 // the estimate (bounded by the manual budget). Everything else it does is
 // reporting: estimate against granted against actual, and the skew averages

@@ -457,22 +457,22 @@ func TestGetIssueMapsFields(t *testing.T) {
 func TestFindPRByHead(t *testing.T) {
 	mux, c := newFakeClient(t)
 	mux.HandleFunc("GET /repos/o/r/pulls", func(w http.ResponseWriter, r *http.Request) {
-		if got := r.URL.Query().Get("head"); got != "o:patchy/fix" {
-			t.Errorf("head filter = %q, want o:patchy/fix", got)
+		if got := r.URL.Query().Get("head"); got != "o:maul/fix" {
+			t.Errorf("head filter = %q, want o:maul/fix", got)
 		}
 		if got := r.URL.Query().Get("state"); got != "open" {
 			t.Errorf("state = %q, want open", got)
 		}
 		writeJSON(t, w, `[{"number":5,"html_url":"https://x/pull/5","head":{"sha":"h1"},"base":{"ref":"main"}}]`)
 	})
-	pr, err := c.FindPRByHead(context.Background(), testRepo, "patchy/fix")
+	pr, err := c.FindPRByHead(context.Background(), testRepo, "maul/fix")
 	if err != nil || pr == nil || pr.Number != 5 || pr.HeadSHA != "h1" || pr.Base != "main" {
 		t.Fatalf("FindPRByHead = (%+v, %v)", pr, err)
 	}
 
 	none, c2 := newFakeClient(t)
 	none.HandleFunc("GET /repos/o/r/pulls", func(w http.ResponseWriter, _ *http.Request) { writeJSON(t, w, `[]`) })
-	if pr, err := c2.FindPRByHead(context.Background(), testRepo, "patchy/fix"); err != nil || pr != nil {
+	if pr, err := c2.FindPRByHead(context.Background(), testRepo, "maul/fix"); err != nil || pr != nil {
 		t.Errorf("FindPRByHead(none) = (%+v, %v), want nil, nil", pr, err)
 	}
 }

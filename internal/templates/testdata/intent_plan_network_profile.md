@@ -1,4 +1,4 @@
-<!-- patchy:plan patchy/target-1 r2 sha256:05126c8813d2 -->
+<!-- maul:plan maul/target-1 r2 sha256:05126c8813d2 -->
 ## Plan r2
 
 **Summary:** Add GET /version returning {sha, built} as JSON
@@ -7,16 +7,16 @@
 
 The plan has 1 line longer than 100 columns. GitHub does not wrap a code block, so on most screens such a line runs past the right edge of the block below: scroll the block sideways to read each to its end, since at the edge a line can look finished when it is not.
 
-The build runs in the image this repository declares, with the operator's network profile `go`: it fetches new Go modules through patchy's egress proxy, but only tagged releases of module paths the operator allows. This plan adds dependencies: each one the build cannot fetch that way (a module outside those paths, a branch or commit version, a dependency of any other kind) must be in that image on the default branch before you approve, or the build will fail.
+The build runs in the image this repository declares, with the operator's network profile `go`: it fetches new Go modules through maul's egress proxy, but only tagged releases of module paths the operator allows. This plan adds dependencies: each one the build cannot fetch that way (a module outside those paths, a branch or commit version, a dependency of any other kind) must be in that image on the default branch before you approve, or the build will fail.
 
 - `github.com/google/uuid v1.6.0`
 - `libvips 8.15`
 
 ### To approve
 
-Add the `patchy:approved` label to this issue, or comment `/patchy approve`. patchy then builds exactly the plan below: r2, `sha256:05126c8813d2`. If this comment or the issue description is edited after patchy posted the plan, the approval is refused and patchy asks for a new plan.
+Add the `maul:approved` label to this issue, or comment `/maul approve`. maul then builds exactly the plan below: r2, `sha256:05126c8813d2`. If this comment or the issue description is edited after maul posted the plan, the approval is refused and maul asks for a new plan.
 
-For a different plan, say what should change in a comment, then re-apply the `patchy:target` label or comment `/patchy replan`. `/patchy cancel` stops work on this intent.
+For a different plan, say what should change in a comment, then re-apply the `maul:target` label or comment `/maul replan`. `/maul cancel` stops work on this intent.
 
 ### The plan
 

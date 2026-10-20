@@ -14,9 +14,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/rbactest"
-	"github.com/bitwise-media-group/patchy/internal/web/auth"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/rbactest"
+	"github.com/devthenet-labs/maul/internal/web/auth"
 )
 
 // TestProjectReviewerRealRBAC is the proof behind the per-Project tiers: the
@@ -44,7 +44,7 @@ func TestProjectReviewerRealRBAC(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := t.Context()
-	if err := admin.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "patchy"}}); err != nil {
+	if err := admin.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "maul"}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -75,7 +75,7 @@ func TestProjectReviewerRealRBAC(t *testing.T) {
 	}
 	for name, rules := range roles {
 		if err := admin.Create(ctx, &rbacv1.Role{
-			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "patchy"}, Rules: rules,
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "maul"}, Rules: rules,
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -97,14 +97,14 @@ func TestProjectReviewerRealRBAC(t *testing.T) {
 		t.Helper()
 		bindings++
 		if err := admin.Create(ctx, &rbacv1.RoleBinding{
-			ObjectMeta: metav1.ObjectMeta{Name: role + "-" + string(rune('a'+bindings)), Namespace: "patchy"},
+			ObjectMeta: metav1.ObjectMeta{Name: role + "-" + string(rune('a'+bindings)), Namespace: "maul"},
 			RoleRef:    rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: "Role", Name: role},
 			Subjects:   []rbacv1.Subject{subject},
 		}); err != nil {
 			t.Fatal(err)
 		}
 		attrs := allows[role]
-		attrs.Namespace, attrs.Group, attrs.Resource, attrs.Verb = "patchy", group, "projects", "get"
+		attrs.Namespace, attrs.Group, attrs.Resource, attrs.Verb = "maul", group, "projects", "get"
 		if subject.Kind == rbacv1.GroupKind {
 			granted = append(granted, rbactest.Review("github:probe", []string{subject.Name}, attrs))
 		} else {
@@ -149,7 +149,7 @@ func TestProjectReviewerRealRBAC(t *testing.T) {
 		{"a stranger sees nothing", auth.Identity{Username: "github:mallory"},
 			map[string]Tier{"alpha": TierNone, "beta": TierNone, "gamma": TierNone}},
 	}
-	r := NewProjectReviewer(admin, "patchy", 0)
+	r := NewProjectReviewer(admin, "maul", 0)
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Twice: the second answer comes from the cache and must agree.

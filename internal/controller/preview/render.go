@@ -19,19 +19,19 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 const (
-	labelPreview    = "patchy.bitwisemedia.uk/preview"
-	labelPreviewUID = "patchy.bitwisemedia.uk/preview-uid"
+	labelPreview    = "maul.run/preview"
+	labelPreviewUID = "maul.run/preview-uid"
 	// labelComponent names the component a multi-component Preview's
 	// Deployment, Service and Pods belong to; their selectors carry it, so
 	// no Service selects a sibling's Pods.
-	labelComponent = "patchy.bitwisemedia.uk/preview-component"
+	labelComponent = "maul.run/preview-component"
 	labelManagedBy = "app.kubernetes.io/managed-by"
-	managedBy      = "patchy-preview-controller"
-	finalizer      = "patchy.bitwisemedia.uk/preview-cleanup"
+	managedBy      = "maul-preview-controller"
+	finalizer      = "maul.run/preview-cleanup"
 	// annotationHealthcheck is the one annotation a preview Service or
 	// Ingress carries, the only one the slot admission policy admits there.
 	annotationHealthcheck = "alb.ingress.kubernetes.io/healthcheck-path"

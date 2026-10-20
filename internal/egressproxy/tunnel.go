@@ -18,8 +18,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/httpguard"
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/httpguard"
+	"github.com/devthenet-labs/maul/internal/netprofile"
 )
 
 // The TLS alerts a refused ClientHello is answered with (RFC 8446 §6).

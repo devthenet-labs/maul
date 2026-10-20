@@ -22,15 +22,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
-	"github.com/bitwise-media-group/patchy/internal/provider"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/provider"
 )
 
 // liveTunnelEnv opts into TestLiveTunnel, which runs the real package
 // managers found on PATH through the CONNECT tunnel against the real public
 // registries (mise run live-tunnel). Never in CI.
-const liveTunnelEnv = "PATCHY_LIVE_TUNNEL"
+const liveTunnelEnv = "MAUL_LIVE_TUNNEL"
 
 // liveTunnelTimeout bounds one client run; a refused install retries, and
 // npm's retries back off for tens of seconds.
@@ -316,7 +316,7 @@ func num(v any) float64 {
 // prints on the refused CONNECT. The last subtest runs the claude CLI with
 // the tunnel environment against a loopback fake broker: the model path
 // must bypass the proxy. Absent clients are skipped and listed. Opt-in:
-// PATCHY_LIVE_TUNNEL=1.
+// MAUL_LIVE_TUNNEL=1.
 func TestLiveTunnel(t *testing.T) {
 	if os.Getenv(liveTunnelEnv) != "1" {
 		t.Skipf("set %s=1 to run the live tunnel client fixtures (reaches the public package registries)",
@@ -381,7 +381,7 @@ func TestLiveTunnel(t *testing.T) {
 // liveInstall runs c's fixture with every host listed: it must succeed
 // through the tunnel only.
 func liveInstall(t *testing.T, c liveClient, version string, bulk bool) measurement {
-	r := newLiveTunnelRun(t, c.hosts, []string{c.preset}, "http://broker.patchy.invalid:8080", bulk)
+	r := newLiveTunnelRun(t, c.hosts, []string{c.preset}, "http://broker.maul.invalid:8080", bulk)
 	dir := t.TempDir()
 	argv, extra := c.fixture(t, r, dir, bulk)
 	start := time.Now()
@@ -421,7 +421,7 @@ func liveRefused(t *testing.T, c liveClient, version string) measurement {
 	if refusedHost == "" {
 		refusedHost = c.hosts[0]
 	}
-	r := newLiveTunnelRun(t, hosts, []string{c.preset}, "http://broker.patchy.invalid:8080", false)
+	r := newLiveTunnelRun(t, hosts, []string{c.preset}, "http://broker.maul.invalid:8080", false)
 	dir := t.TempDir()
 	argv, extra := c.fixture(t, r, dir, false)
 	start := time.Now()
@@ -704,7 +704,7 @@ func livePnpmWorkspace(t *testing.T, version string) []measurement {
 	} {
 		t.Run(v.name, func(t *testing.T) {
 			r := newLiveTunnelRun(t, []string{"registry.npmjs.org"}, []string{netprofile.ClientNPM},
-				"http://broker.patchy.invalid:8080", false)
+				"http://broker.maul.invalid:8080", false)
 			dir := t.TempDir()
 			write(t, filepath.Join(dir, "package.json"), `{"name":"live","version":"0.0.0","private":true}`+"\n")
 			write(t, filepath.Join(dir, "pnpm-workspace.yaml"), v.yaml)
@@ -744,7 +744,7 @@ type fakeBroker struct {
 	paths sync.Map
 }
 
-const fakeBrokerReply = "patchy-live-tunnel-ok"
+const fakeBrokerReply = "maul-live-tunnel-ok"
 
 func newFakeBroker(t *testing.T) *fakeBroker {
 	t.Helper()

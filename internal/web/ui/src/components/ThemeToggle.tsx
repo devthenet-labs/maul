@@ -1,6 +1,6 @@
 // Theme switch — a controlled sun/moon pill plus the body-class mechanism
-// shared with the other patchy surfaces: dark-default `theme-patchy` paired
-// with `theme-patchy-light`, persisted under the same localStorage key so
+// shared with the other maul surfaces: dark-default `theme-maul` paired
+// with `theme-maul-light`, persisted under the same localStorage key so
 // the visitor's choice follows them across pages. A pre-paint script in
 // index.html restores the class before first render; this hook seeds from
 // the DOM and flips both classes on toggle.
@@ -8,9 +8,9 @@
 import { useState } from "preact/hooks";
 import { Icon } from "./icons";
 
-const BASE = "theme-patchy";
-const LIGHT = "theme-patchy-light";
-const STORAGE_KEY = "patchy-theme";
+const BASE = "theme-maul";
+const LIGHT = "theme-maul-light";
+const STORAGE_KEY = "maul-theme";
 
 export type ThemeMode = "dark" | "light";
 

@@ -8,7 +8,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 func TestValidateAWS(t *testing.T) {
@@ -28,7 +28,7 @@ func TestValidateAWS(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			integ := &v1alpha1.Integration{
-				ObjectMeta: metav1.ObjectMeta{Name: "aws", Namespace: "patchy"},
+				ObjectMeta: metav1.ObjectMeta{Name: "aws", Namespace: "maul"},
 				Spec: v1alpha1.IntegrationSpec{
 					Provider: v1alpha1.IntegrationProviderAWS,
 					AWS:      tt.aws,

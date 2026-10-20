@@ -42,7 +42,7 @@ type CaseStatus struct {
 }
 
 // ResultSummary is the typed, bounded portion of a unit result — everything
-// patchy stamps into the EvaluationUnit status.
+// maul stamps into the EvaluationUnit status.
 type ResultSummary struct {
 	CasesPassed  int `json:"casesPassed"`
 	CasesFailed  int `json:"casesFailed"`
@@ -70,10 +70,10 @@ type UnitResult struct {
 	// Failed reports whether any executed case failed — the client's
 	// --strict signal, not a scheduling failure.
 	Failed bool `json:"failed"`
-	// Summary is the bounded, typed digest patchy stores in CR status.
+	// Summary is the bounded, typed digest maul stores in CR status.
 	Summary ResultSummary `json:"summary"`
 	// Entry is the finished results entry (the client's TriggerEntry or
-	// EvalEntry, schema 5), OPAQUE to patchy: stored whole in the results
+	// EvalEntry, schema 5), OPAQUE to maul: stored whole in the results
 	// ConfigMap and handed back to the client, which merges it into its
 	// local results file. At most MaxEntryBytes.
 	Entry json.RawMessage `json:"entry,omitempty"`

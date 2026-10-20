@@ -21,7 +21,7 @@ import (
 
 // scopeName is the instrumentation scope for telemetry's own logger bridge;
 // the instrumented packages use their own package paths.
-const scopeName = "github.com/bitwise-media-group/patchy"
+const scopeName = "github.com/devthenet-labs/maul"
 
 // ShutdownFunc flushes the providers and closes any open files. It is safe to
 // call once; later calls are no-ops.

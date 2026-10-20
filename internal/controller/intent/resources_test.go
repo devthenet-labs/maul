@@ -13,10 +13,10 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/resourceclass"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/resourceclass"
 )
 
 // testClasses are the operator's menu in these tests: large, the docs'
@@ -138,7 +138,7 @@ func TestResourceClassPerRepository(t *testing.T) {
 	e.classes(testClasses(t))
 	e.pick("web", "large")
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 
 	plan := e.runsOf(name, v1alpha1.IntentStagePlan)[0]
@@ -181,7 +181,7 @@ func TestResourceClassReachesCheckFix(t *testing.T) {
 	e := newEnv(t, project)
 	e.classes(testClasses(t))
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 	if got := e.specOf(e.runsOf(name, v1alpha1.IntentStageBuild)[0]).Resources; !sameResources(got,
 		mediumResources) {
@@ -212,7 +212,7 @@ func TestUnknownClassHoldsAReviseRound(t *testing.T) {
 	e := newEnv(t, project)
 	e.classes(testClasses(t))
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 
 	e.pick("app", "xl")
@@ -271,7 +271,7 @@ func TestUnknownClassHoldsOnlyItsRepository(t *testing.T) {
 	e.classes(testClasses(t))
 	e.pick("web", "xl")
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentBlocked, repoImage)
 	wantCondition(t, in.Status.Conditions, v1alpha1.ConditionResourcesUnavailable, metav1.ConditionTrue,
 		ReasonUnknownResourceClass, `"xl"`, "in "+webSlug, "defined: large, medium")
@@ -445,7 +445,7 @@ func TestUnschedulableBuildStopsOnce(t *testing.T) {
 	e.classes(testClasses(t))
 	e.unschedulableFor("build")
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	got := e.stopUnschedulable(name, e.buildLaunched(name))
 	if !strings.Contains(got.Status.Detail, "resource class large") ||
 		!strings.Contains(got.Status.Detail, "Insufficient cpu") {
@@ -460,7 +460,7 @@ func TestUnschedulableBuildStopsOnce(t *testing.T) {
 		t.Fatalf("ResourcesUnavailable = %q, which carries the scheduler's words", c.Message)
 	}
 	e.mustIntent(name)
-	for _, comment := range e.gh.withMarker("patchy:intent") {
+	for _, comment := range e.gh.withMarker("maul:intent") {
 		if strings.Contains(comment.Body, "Insufficient") || !strings.Contains(comment.Body, "could not be scheduled") {
 			t.Errorf("status comment = %q", comment.Body)
 		}
@@ -529,7 +529,7 @@ func TestUnschedulableStatusWriteBeforeDelete(t *testing.T) {
 	e := newEnv(t, testProject())
 	e.unschedulableFor("build")
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	run := e.buildLaunched(name)
 	ctx := context.Background()
 	if _, err := e.runs.Reconcile(ctx, req(run.Name)); err != nil {
@@ -564,7 +564,7 @@ func TestUnschedulableDeleteRetries(t *testing.T) {
 	e := newEnv(t, testProject())
 	e.unschedulableFor("build")
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	run := e.buildLaunched(name)
 	ctx := context.Background()
 	if _, err := e.runs.Reconcile(ctx, req(run.Name)); err != nil {
@@ -620,7 +620,7 @@ func TestUnschedulableReviseRoundEnds(t *testing.T) {
 	e := newEnv(t, project)
 	e.classes(testClasses(t))
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 	number := in.Status.PullRequests[0].Number
 	e.unschedulableFor("build") // revise runs are build-phase Jobs
@@ -668,7 +668,7 @@ func TestOOMKilledBuildSaysWhy(t *testing.T) {
 			AgentExitCode: &code, MemoryLimit: "10Gi", ResourceClass: spec.Resources.Class}, true
 	}
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	e.drive(name, v1alpha1.IntentFailed, repoImage)
 	run := e.runsOf(name, v1alpha1.IntentStageBuild)[0]
 	for _, want := range []string{"no build event", "OOM-killed (exit 137)", "memory limit of 10Gi",
@@ -698,7 +698,7 @@ func TestEvictionDetailStaysOnRun(t *testing.T) {
 			PodMessage: "private-node-identifier was low on memory"}, true
 	}
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	e.drive(name, v1alpha1.IntentFailed, repoImage)
 	runs := e.runsOf(name, v1alpha1.IntentStageBuild)
 	if len(runs) != 2 || runs[1].Status.Outcome != OutcomeEvicted ||
@@ -706,7 +706,7 @@ func TestEvictionDetailStaysOnRun(t *testing.T) {
 		t.Fatalf("build runs = %+v, want two evictions with the pod message on their detail", runs)
 	}
 	e.mustIntent(name)
-	for _, c := range e.gh.withMarker("patchy:intent") {
+	for _, c := range e.gh.withMarker("maul:intent") {
 		if strings.Contains(c.Body, "private-node-identifier") ||
 			!strings.Contains(c.Body, "agent pod was evicted") {
 			t.Errorf("intent status comment = %q, want a redacted eviction cause", c.Body)

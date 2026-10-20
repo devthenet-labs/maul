@@ -10,9 +10,9 @@
 // 302 to this relay's /authorize for that slot's client and that host's
 // callback, or the host is unprotected.
 //
-// It exports two gauges: patchy.preview_auth.unprotected_hosts (hosts that
+// It exports two gauges: maul.preview_auth.unprotected_hosts (hosts that
 // answered something else, an app's 200 above all) and
-// patchy.preview_auth.probe.unreachable_hosts (no answer, which is expected
+// maul.preview_auth.probe.unreachable_hosts (no answer, which is expected
 // while the preview ALB's IP allowlist does not admit the relay's egress
 // addresses). Each unprotected host is also logged at warn.
 package hostprobe

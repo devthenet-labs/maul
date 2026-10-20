@@ -18,13 +18,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
-	"github.com/bitwise-media-group/patchy/internal/runnerimage"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/runnerimage"
 )
 
 // proxyHost is the egress proxy's Service name the profile fixtures dial.
-const proxyHost = "patchy-egress-proxy.patchy.svc.cluster.local"
+const proxyHost = "maul-egress-proxy.maul.svc.cluster.local"
 
 // goProfile is the devthenet "go" profile as a controller hands it to a Job.
 func goProfile() *NetworkProfile {
@@ -70,15 +70,15 @@ var wantGoEnv = []corev1.EnvVar{
 	{Name: "GOENV", Value: "off"},
 	{Name: "GOPROXY", Value: "http://" + proxyHost + ":8090/go,file:///opt/go/pkg/mod/cache/download"},
 	{Name: "GOSUMDB", Value: "sum.golang.org"},
-	{Name: "GONOSUMDB", Value: "patchy.invalid"},
-	{Name: "GONOPROXY", Value: "patchy.invalid"},
-	{Name: "GOPRIVATE", Value: "patchy.invalid"},
-	{Name: "GOINSECURE", Value: "patchy.invalid"},
+	{Name: "GONOSUMDB", Value: "maul.invalid"},
+	{Name: "GONOPROXY", Value: "maul.invalid"},
+	{Name: "GOPRIVATE", Value: "maul.invalid"},
+	{Name: "GOINSECURE", Value: "maul.invalid"},
 	{Name: "GOAUTH", Value: "off"},
 	{Name: "GOTOOLCHAIN", Value: "local"},
 	{Name: "GOPATH", Value: "/tmp/go"},
 	{Name: "GOMODCACHE", Value: "/tmp/go/pkg/mod"},
-	{Name: "PATCHY_NETWORK_PROFILE", Value: "go"},
+	{Name: "MAUL_NETWORK_PROFILE", Value: "go"},
 }
 
 func agentOf(t *testing.T, pod corev1.PodSpec) corev1.Container {
@@ -288,8 +288,8 @@ func TestNetworkProfileRefused(t *testing.T) {
 			if !errors.Is(err, ErrNetworkProfileRefused) {
 				t.Fatalf("Create = %v, want ErrNetworkProfileRefused", err)
 			}
-			secrets, _ := cs.CoreV1().Secrets("patchy-agents").List(context.Background(), metav1.ListOptions{})
-			jobsList, _ := cs.BatchV1().Jobs("patchy-agents").List(context.Background(), metav1.ListOptions{})
+			secrets, _ := cs.CoreV1().Secrets("maul-agents").List(context.Background(), metav1.ListOptions{})
+			jobsList, _ := cs.BatchV1().Jobs("maul-agents").List(context.Background(), metav1.ListOptions{})
 			if len(secrets.Items) != 0 || len(jobsList.Items) != 0 {
 				t.Errorf("a refused Create left %d Secrets and %d Jobs", len(secrets.Items), len(jobsList.Items))
 			}
@@ -394,8 +394,8 @@ func TestNetworkProfileSecretUnchanged(t *testing.T) {
 	plain := spec
 	plain.NetworkProfile = nil
 	name := NameFor(spec.Finding, spec.Kind, int32(spec.Attempt))
-	if got, want := marshal(t, buildSecret(name, "patchy-agents", spec)),
-		marshal(t, buildSecret(name, "patchy-agents", plain)); got != want {
+	if got, want := marshal(t, buildSecret(name, "maul-agents", spec)),
+		marshal(t, buildSecret(name, "maul-agents", plain)); got != want {
 		t.Errorf("the profile changed the Secret:\n--- want\n%s\n--- got\n%s", want, got)
 	}
 }
@@ -418,7 +418,7 @@ func TestNetworkProfileOf(t *testing.T) {
 
 // TestGoProfileNamesNotReserved: no go name a profile owns is reserved, so
 // an image whose ENV sets GOPROXY=off, GOMODCACHE or GOTOOLCHAIN (every
-// scaffolded image does) still resolves; PATCHY_NETWORK_PROFILE alone is,
+// scaffolded image does) still resolves; MAUL_NETWORK_PROFILE alone is,
 // and no profile name is blanked on a repository-image Job without one.
 func TestGoProfileNamesNotReserved(t *testing.T) {
 	reserved := ReservedEnvNames()
@@ -450,8 +450,8 @@ func TestGoProfileNamesNotReserved(t *testing.T) {
 // repository's image, profiles are on and a profile was asked for; a
 // profile asked for on any other pair is an error, never a Job. A profile
 // adds no credential, no SecretKeyRef and no reserved name but
-// PATCHY_NETWORK_PROFILE (and, with tunnel hosts, PATCHY_NETWORK_ROUTES and
-// PATCHY_NETWORK_HOSTS), and the proxy variables stay blanked on every Job
+// MAUL_NETWORK_PROFILE (and, with tunnel hosts, MAUL_NETWORK_ROUTES and
+// MAUL_NETWORK_HOSTS), and the proxy variables stay blanked on every Job
 // except a tunnel-profile Job, where exactly HTTPS_PROXY, https_proxy,
 // NO_PROXY and no_proxy carry the controller's values and the plain-http
 // and ALL_PROXY names stay blank (step 3, §4.3). The profile is drawn from

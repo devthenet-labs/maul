@@ -14,10 +14,10 @@ import (
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sync/semaphore"
 
-	"github.com/bitwise-media-group/patchy/internal/generic"
-	"github.com/bitwise-media-group/patchy/pkg/enhance"
-	pkggeneric "github.com/bitwise-media-group/patchy/pkg/generic"
-	"github.com/bitwise-media-group/patchy/pkg/source"
+	"github.com/devthenet-labs/maul/internal/generic"
+	"github.com/devthenet-labs/maul/pkg/enhance"
+	pkggeneric "github.com/devthenet-labs/maul/pkg/generic"
+	"github.com/devthenet-labs/maul/pkg/source"
 )
 
 // AttributedEnrichment is one enrichment with its own attribution: what a

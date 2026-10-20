@@ -4,7 +4,7 @@
 package scc
 
 // The decoded slices of the Pub/Sub push envelope and the SCC
-// NotificationMessage inside it. Only the fields patchy consumes are declared;
+// NotificationMessage inside it. Only the fields maul consumes are declared;
 // a real notification carries dozens more, and the finding's markdown
 // rendering reads them from the generic map rather than growing this file.
 
@@ -119,7 +119,7 @@ type securityMarks struct {
 
 // resource is the affected cloud resource, as SCC describes it. Note it
 // carries no arbitrary GCP resource labels — those live on the resource
-// itself and reach patchy only through a Cloud Asset Inventory lookup.
+// itself and reach maul only through a Cloud Asset Inventory lookup.
 type resource struct {
 	Name               string   `json:"name"`
 	DisplayName        string   `json:"displayName"`

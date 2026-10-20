@@ -168,7 +168,7 @@ func TestParsePlanInputKeepsSourceLayout(t *testing.T) {
 // tool output its report quoted — pytest right-aligns its progress after a
 // run of 40 or more spaces, and go tool cover aligns its columns with
 // several tabs. No approver reads a build report in a code block, and the
-// pull request's description is patchy's own, so the report is held to the
+// pull request's description is maul's own, so the report is held to the
 // visible-text rule alone: whatever it lays out is accepted, and a
 // character that renders invisibly is still refused.
 func TestParseBuildKeepsItsLayout(t *testing.T) {
@@ -308,7 +308,7 @@ func TestOneLineRefusesInvalidUTF8(t *testing.T) {
 			!strings.Contains(err.Error(), "summary is not valid UTF-8") {
 			t.Errorf("oneLine(%q) error = %v, want it refused as not UTF-8", bad.seq, err)
 		}
-		u := "https://github.com/devthenet-labs/patchy" + bad.seq
+		u := "https://github.com/devthenet-labs/maul" + bad.seq
 		if err := validRepositories([]string{u}); err == nil || !strings.Contains(err.Error(), "not an https") {
 			t.Errorf("validRepositories(%q) error = %v, want it refused", u, err)
 		}

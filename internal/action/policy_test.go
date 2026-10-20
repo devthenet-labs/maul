@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 // The admission policy has to enumerate FindingSpec's fields, because CEL
@@ -40,7 +40,7 @@ var freeFields = map[string]bool{"related": true}
 // writable — the exact regression this file exists to catch.
 var policyFiles = map[string]string{
 	"kustomize": "../../deploy/kustomize/base/admission-policy.yaml",
-	"helm":      "../../charts/patchy/templates/admission-policy.yaml",
+	"helm":      "../../charts/maul/templates/admission-policy.yaml",
 }
 
 func TestAdmissionPolicyCoversEveryFindingSpecField(t *testing.T) {
@@ -173,17 +173,17 @@ func TestAdmissionPolicyExemptsEveryController(t *testing.T) {
 		// The evaluation controller owns the Evaluation/EvaluationUnit kinds
 		// only — it never writes Finding spec, so it needs no exemption. The
 		// egress broker's whole Kubernetes surface is TokenReview — it never
-		// reads or writes any patchy kind at all. The intent controller writes
+		// reads or writes any maul kind at all. The intent controller writes
 		// no Finding spec: it owns the Project/Intent/IntentRun kinds and
 		// creates Repositories, and nothing of a Finding.
-		if !strings.HasPrefix(name, "patchy-") || name == "patchy-agent" ||
-			name == "patchy-evaluation-controller" ||
-			name == "patchy-egress-broker" ||
-			name == "patchy-intent-controller" ||
+		if !strings.HasPrefix(name, "maul-") || name == "maul-agent" ||
+			name == "maul-evaluation-controller" ||
+			name == "maul-egress-broker" ||
+			name == "maul-intent-controller" ||
 			strings.Contains(line, "app.kubernetes.io") {
 			continue
 		}
-		subject := "system:serviceaccount:patchy:" + name
+		subject := "system:serviceaccount:maul:" + name
 		if !strings.Contains(policy, subject) {
 			t.Errorf("service account %s is not exempt from the admission policy; if it writes "+
 				"Finding spec it will be denied, and if it does not, say so here", name)

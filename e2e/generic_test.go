@@ -22,9 +22,9 @@ import (
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/e2e/fakegithub"
-	pkggeneric "github.com/bitwise-media-group/patchy/pkg/generic"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/e2e/fakegithub"
+	pkggeneric "github.com/devthenet-labs/maul/pkg/generic"
 )
 
 // The shared HMAC secrets of the two generic integrations this test seeds.
@@ -36,7 +36,7 @@ const (
 )
 
 // externalProcess is the fake counterparty: one HTTP server standing in for
-// every external process, recording each signed call patchy makes.
+// every external process, recording each signed call maul makes.
 type externalProcess struct {
 	mu       sync.Mutex
 	secrets  map[string][]byte
@@ -59,7 +59,7 @@ func (p *externalProcess) handler(w http.ResponseWriter, r *http.Request) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	secret := p.secrets[envelope.Integration]
-	if !p.validSignature(secret, body, r.Header.Get("X-Patchy-Signature-256")) {
+	if !p.validSignature(secret, body, r.Header.Get("X-Maul-Signature-256")) {
 		p.badSigs++
 		w.WriteHeader(http.StatusUnauthorized)
 		return
@@ -305,7 +305,7 @@ func seedGenericIntegrations(t *testing.T, cl *cluster, extURL string) {
 	ctx := t.Context()
 	for name, secret := range map[string]string{"warehouse": warehouseSecret, "cmdb": cmdbSecret} {
 		if err := cl.client.Create(ctx, &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{Name: "patchy-" + name, Namespace: namespace},
+			ObjectMeta: metav1.ObjectMeta{Name: "maul-" + name, Namespace: namespace},
 			StringData: map[string]string{"webhookSecret": secret},
 		}); err != nil {
 			t.Fatal(err)
@@ -315,7 +315,7 @@ func seedGenericIntegrations(t *testing.T, cl *cluster, extURL string) {
 		ObjectMeta: metav1.ObjectMeta{Name: "warehouse", Namespace: namespace},
 		Spec: v1alpha1.IntegrationSpec{
 			Provider:  v1alpha1.IntegrationProviderGeneric,
-			SecretRef: &v1alpha1.LocalSecretReference{Name: "patchy-warehouse"},
+			SecretRef: &v1alpha1.LocalSecretReference{Name: "maul-warehouse"},
 			Generic: &v1alpha1.GenericIntegration{
 				Source: &v1alpha1.GenericSource{
 					Enabled:  true,
@@ -331,7 +331,7 @@ func seedGenericIntegrations(t *testing.T, cl *cluster, extURL string) {
 		ObjectMeta: metav1.ObjectMeta{Name: "cmdb", Namespace: namespace},
 		Spec: v1alpha1.IntegrationSpec{
 			Provider:  v1alpha1.IntegrationProviderGeneric,
-			SecretRef: &v1alpha1.LocalSecretReference{Name: "patchy-cmdb"},
+			SecretRef: &v1alpha1.LocalSecretReference{Name: "maul-cmdb"},
 			Generic: &v1alpha1.GenericIntegration{
 				Enhance: &v1alpha1.GenericEnhancer{Enabled: true, URL: extURL + "/enhance"},
 			},
@@ -371,10 +371,10 @@ func postGeneric(t *testing.T, url, secret, deliveryID string, payload []byte) i
 	if secret != "" {
 		mac := hmac.New(sha256.New, []byte(secret))
 		mac.Write(payload)
-		req.Header.Set("X-Patchy-Signature-256", "sha256="+hex.EncodeToString(mac.Sum(nil)))
+		req.Header.Set("X-Maul-Signature-256", "sha256="+hex.EncodeToString(mac.Sum(nil)))
 	}
 	if deliveryID != "" {
-		req.Header.Set("X-Patchy-Delivery", deliveryID)
+		req.Header.Set("X-Maul-Delivery", deliveryID)
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

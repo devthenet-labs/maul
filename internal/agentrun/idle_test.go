@@ -15,9 +15,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/runner"
-	"github.com/bitwise-media-group/patchy/internal/transcript"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/runner"
+	"github.com/devthenet-labs/maul/internal/transcript"
 )
 
 // The stream lines the watchdog tests feed: a Bash call that never returns
@@ -401,7 +401,7 @@ func TestShortDuration(t *testing.T) {
 }
 
 func TestFromEnvIdleTimeouts(t *testing.T) {
-	env := map[string]string{"PATCHY_REPO": "acme/shop", "PATCHY_FINDING": "f-1"}
+	env := map[string]string{"MAUL_REPO": "acme/shop", "MAUL_FINDING": "f-1"}
 	cfg, err := FromEnv(func(k string) string { return env[k] })
 	if err != nil {
 		t.Fatal(err)
@@ -411,7 +411,7 @@ func TestFromEnvIdleTimeouts(t *testing.T) {
 			cfg.InvestigateIdleTimeout, cfg.RemediateIdleTimeout, DefaultIdleTimeout)
 	}
 
-	env["PATCHY_INVESTIGATE_IDLE_TIMEOUT"], env["PATCHY_REMEDIATE_IDLE_TIMEOUT"] = "0s", "35m"
+	env["MAUL_INVESTIGATE_IDLE_TIMEOUT"], env["MAUL_REMEDIATE_IDLE_TIMEOUT"] = "0s", "35m"
 	if cfg, err = FromEnv(func(k string) string { return env[k] }); err != nil {
 		t.Fatal(err)
 	}
@@ -420,9 +420,9 @@ func TestFromEnvIdleTimeouts(t *testing.T) {
 			cfg.RemediateIdleTimeout)
 	}
 
-	env["PATCHY_REMEDIATE_IDLE_TIMEOUT"] = "-1m"
+	env["MAUL_REMEDIATE_IDLE_TIMEOUT"] = "-1m"
 	if _, err := FromEnv(func(k string) string { return env[k] }); err == nil ||
-		!strings.Contains(err.Error(), "PATCHY_REMEDIATE_IDLE_TIMEOUT") {
-		t.Errorf("FromEnv error = %v, want one naming PATCHY_REMEDIATE_IDLE_TIMEOUT", err)
+		!strings.Contains(err.Error(), "MAUL_REMEDIATE_IDLE_TIMEOUT") {
+		t.Errorf("FromEnv error = %v, want one naming MAUL_REMEDIATE_IDLE_TIMEOUT", err)
 	}
 }

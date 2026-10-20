@@ -17,7 +17,7 @@ import (
 // of the same Project, not ended, with the pull request open in one of the
 // Project's repositories. The intent controller reads it from GitHub when
 // it creates the plan run and carries it to the pod as JSON
-// (PATCHY_OPEN_PULL_REQUESTS, EncodeOpenPullRequests), like
+// (MAUL_OPEN_PULL_REQUESTS, EncodeOpenPullRequests), like
 // PreviousAttempt: the runner has no GitHub access.
 //
 // Every string in it is UNTRUSTED. The title is whatever anyone who can
@@ -131,7 +131,7 @@ func listablePath(p string) bool {
 }
 
 // EncodeOpenPullRequests is the JSON a plan Job hands agent-runner as
-// PATCHY_OPEN_PULL_REQUESTS: prs bounded (BoundOpenPullRequests), with
+// MAUL_OPEN_PULL_REQUESTS: prs bounded (BoundOpenPullRequests), with
 // HTML left unescaped so only a quote or a backslash grows in the
 // encoding, which keeps it within OpenPullRequestsMaxBytes. "" for none.
 func EncodeOpenPullRequests(prs []OpenPullRequest) string {

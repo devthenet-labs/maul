@@ -9,8 +9,8 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/templates"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 func TestPreviousAttempt(t *testing.T) {

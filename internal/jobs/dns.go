@@ -17,7 +17,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/validation"
 
-	"github.com/bitwise-media-group/patchy/internal/provider"
+	"github.com/devthenet-labs/maul/internal/provider"
 )
 
 // DNSMode is how an agent pod resolves names (Config.DNS).

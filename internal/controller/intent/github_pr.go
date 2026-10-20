@@ -7,7 +7,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/ghclient"
 )
 
 // PR conversation comments share REST endpoints and wire types with issue

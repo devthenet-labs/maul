@@ -26,7 +26,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/static"
 	"github.com/google/go-containerregistry/pkg/v1/types"
 
-	"github.com/bitwise-media-group/patchy/internal/mirror/ocireg"
+	"github.com/devthenet-labs/maul/internal/mirror/ocireg"
 )
 
 // makeTgz builds a tgz from name->content pairs.

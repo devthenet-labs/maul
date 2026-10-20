@@ -15,9 +15,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/previewauth"
-	"github.com/bitwise-media-group/patchy/internal/previewauth/fakedex"
-	"github.com/bitwise-media-group/patchy/internal/web/auth"
+	"github.com/devthenet-labs/maul/internal/previewauth"
+	"github.com/devthenet-labs/maul/internal/previewauth/fakedex"
+	"github.com/devthenet-labs/maul/internal/web/auth"
 )
 
 const redirect = "https://preview-auth.example.com/dex/callback"

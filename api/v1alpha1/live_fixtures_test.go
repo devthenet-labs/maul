@@ -17,7 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 
-	patchyv1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	maulv1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 // The live fixtures are the objects devthenet-dev held before the slice-3
@@ -68,22 +68,22 @@ func decodeLive(t *testing.T, name string, raw []byte, into any) {
 // keeps, and the writer will not rewrite them once it derives too.
 func TestLiveFixturesDeriveTheirPreview(t *testing.T) {
 	fixtures := readLiveFixtures(t)
-	var project patchyv1.Project
+	var project maulv1.Project
 	decodeLive(t, "project", fixtures["project_preview-demo.yaml"], &project)
-	var in patchyv1.Intent
+	var in maulv1.Intent
 	decodeLive(t, "intent", fixtures["intent_preview-demo-5.yaml"], &in)
-	var preview patchyv1.Preview
+	var preview maulv1.Preview
 	decodeLive(t, "preview", fixtures["preview_preview-demo-5.yaml"], &preview)
 
-	in.Status.Phase = patchyv1.IntentInReview
+	in.Status.Phase = maulv1.IntentInReview
 	in.Status.PullRequests[0].State = "open"
-	got, ok := patchyv1.DesiredPreviewComponents(&project, &in)
+	got, ok := maulv1.DesiredPreviewComponents(&project, &in)
 	if !ok || !reflect.DeepEqual(got, preview.Spec.Components) {
 		t.Errorf("derived %+v, %v; the slice-2 writer wrote %+v", got, ok, preview.Spec.Components)
 	}
-	var target patchyv1.Project
+	var target maulv1.Project
 	decodeLive(t, "project", fixtures["project_target.yaml"], &target)
-	if previews := patchyv1.EffectivePreviews(&target); len(previews) != 0 {
+	if previews := maulv1.EffectivePreviews(&target); len(previews) != 0 {
 		t.Errorf("target, never previewed, previews %+v", previews)
 	}
 }
@@ -97,9 +97,9 @@ func TestLiveFixturesDeriveTheirPreview(t *testing.T) {
 // evaluated against the stored object too.
 func testLiveObjectsRoundTrip(ctx context.Context, t *testing.T, c client.Client) {
 	t.Helper()
-	if err := c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "patchy"}}); err != nil &&
+	if err := c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "maul"}}); err != nil &&
 		!kerrors.IsAlreadyExists(err) {
-		t.Fatalf("create namespace patchy: %v", err)
+		t.Fatalf("create namespace maul: %v", err)
 	}
 	for name, raw := range readLiveFixtures(t) {
 		t.Run(name, func(t *testing.T) {

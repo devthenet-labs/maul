@@ -45,7 +45,7 @@ const (
 	// ConditionDefaultImageHeld marks a failed Remediation that was never
 	// launched: its repository declares an accepted agent image, this launch
 	// could not run it (repository images switched off, the sandbox breaker
-	// tripped, or a revival), and patchy's default image carries none of the
+	// tripped, or a revival), and maul's default image carries none of the
 	// repository's toolchain, so the finding was handed to a human instead of
 	// remediated untested. The agent never ran, so the attempt does not count
 	// toward MaxAttempts, and a later launch for the same finding (only an
@@ -101,12 +101,12 @@ const (
 	// after a check-fix round with the same failure signature (slice 1b).
 	ConditionChecksFailing = "ChecksFailing"
 	// ConditionBranchConflict marks a Blocked Intent whose branch
-	// patchy-intent/<intent> is not patchy's to use: it exists at a commit
+	// maul-intent/<intent> is not maul's to use: it exists at a commit
 	// none of the Intent's runs pushed (left by an earlier Intent under the
 	// same name, or made by someone else; reason BranchExists), or an open
-	// pull request patchy did not open already holds it (reason
+	// pull request maul did not open already holds it (reason
 	// ForeignPullRequest), or it is at a commit an earlier round of this
-	// same Intent pushed (reason StaleRoundBranch: patchy's own, safe to
+	// same Intent pushed (reason StaleRoundBranch: maul's own, safe to
 	// delete). Nothing is forced and nothing foreign adopted: the block lifts
 	// once the branch, or that pull request, is gone. On a multi-repository
 	// intent the message names the repository.
@@ -146,7 +146,7 @@ const (
 	// one pull request, whether the comment cross-linking them was posted on
 	// every one whose repository the Project still holds: True once it was
 	// (naming any whose repository left the Project, which gets none), False
-	// with GitHub's refusal, or the repository patchy can no longer reach,
+	// with GitHub's refusal, or the repository maul can no longer reach,
 	// while it could not be. The comment is cosmetic: it is posted after the
 	// Intent entered InReview, and never holds a phase back.
 	ConditionSiblingsLinked = "SiblingsLinked"
@@ -155,8 +155,8 @@ const (
 	// ones already opened open with nothing tracking them. It is set once
 	// each of them carries the notice saying so (reason Noticed), or once
 	// any that could not be told is named (NoticeRefused: GitHub refused the
-	// notice, patchy can no longer reach the repository, or the repository
-	// left the Project, which patchy then writes nothing to), and cleared
+	// notice, maul can no longer reach the repository, or the repository
+	// left the Project, which maul then writes nothing to), and cleared
 	// when the Intent is revived. A revival waits for it; nothing else does.
 	ConditionUntrackedPullRequests = "UntrackedPullRequests"
 

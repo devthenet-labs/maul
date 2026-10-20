@@ -24,7 +24,7 @@ type IssueEvent struct {
 	Label string
 	// ViaApp is performed_via_github_app's slug. GitHub reports none on
 	// label events even when an App applied the label, so it never
-	// identifies patchy's own label events — Actor does.
+	// identifies maul's own label events — Actor does.
 	ViaApp string
 }
 

@@ -101,7 +101,7 @@ func newKnobbedIssuer(t *testing.T) *knobbedIssuer {
 }
 
 func oidcConfig(issuer string) *Config {
-	cfg := &Config{Mode: ModeOIDC, OIDC: &OIDCConfig{IssuerURL: issuer, ClientID: "patchy", ClientSecret: "s3cret"}}
+	cfg := &Config{Mode: ModeOIDC, OIDC: &OIDCConfig{IssuerURL: issuer, ClientID: "maul", ClientSecret: "s3cret"}}
 	cfg.applyDefaults()
 	return cfg
 }

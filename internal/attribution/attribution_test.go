@@ -17,7 +17,7 @@ import (
 	"testing"
 	"testing/quick"
 
-	"github.com/bitwise-media-group/patchy/api/v1alpha1"
+	"github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 // seed keeps every property deterministic in the gate.
@@ -91,7 +91,7 @@ func TestTo(t *testing.T) {
 			v1alpha1.Attribution{Reason: v1alpha1.AttributionApproverUnregistered}},
 		{"an EKS ARN", "arn:aws:iam::111122223333:role/x", 0, v1alpha1.AttributionApprover,
 			v1alpha1.Attribution{Reason: v1alpha1.AttributionApproverUnregistered}},
-		{"a bot", "patchy[bot]", 3, v1alpha1.AttributionCommenter,
+		{"a bot", "maul[bot]", 3, v1alpha1.AttributionCommenter,
 			v1alpha1.Attribution{Reason: v1alpha1.AttributionApproverUnregistered}},
 		{"a login too long", strings.Repeat("a", 65), 3, v1alpha1.AttributionRequester,
 			v1alpha1.Attribution{Reason: v1alpha1.AttributionApproverUnregistered}},
@@ -260,7 +260,7 @@ func TestImportsOnlyStdlibAndAPI(t *testing.T) {
 		for _, imp := range f.Imports {
 			path, _ := strconv.Unquote(imp.Path.Value)
 			first, _, _ := strings.Cut(path, "/")
-			if strings.Contains(first, ".") && path != "github.com/bitwise-media-group/patchy/api/v1alpha1" {
+			if strings.Contains(first, ".") && path != "github.com/devthenet-labs/maul/api/v1alpha1" {
 				t.Errorf("%s imports %s: package attribution imports only the stdlib and api/v1alpha1", name, path)
 			}
 		}

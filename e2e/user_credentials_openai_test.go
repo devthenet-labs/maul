@@ -22,11 +22,11 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/e2e/fakegithub"
-	"github.com/bitwise-media-group/patchy/e2e/fakeoidc"
-	"github.com/bitwise-media-group/patchy/internal/controller/remediation"
-	"github.com/bitwise-media-group/patchy/internal/provider"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/e2e/fakegithub"
+	"github.com/devthenet-labs/maul/e2e/fakeoidc"
+	"github.com/devthenet-labs/maul/internal/controller/remediation"
+	"github.com/devthenet-labs/maul/internal/provider"
 )
 
 // personalOpenAIKey is the approver's own OpenAI API key, as they paste it

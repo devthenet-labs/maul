@@ -11,25 +11,25 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	patchyv1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	maulv1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 // schemaTrees is n extra trees for a plan run, keyed app0..app<n-1>.
-func schemaTrees(n int) []patchyv1.IntentRunTree {
-	out := make([]patchyv1.IntentRunTree, n)
+func schemaTrees(n int) []maulv1.IntentRunTree {
+	out := make([]maulv1.IntentRunTree, n)
 	for k := range out {
 		key := fmt.Sprintf("app%d", k)
-		out[k] = patchyv1.IntentRunTree{Name: key, URL: "https://github.com/acme/" + key,
-			RepositoryRef: patchyv1.LocalObjectReference{Name: patchyv1.IntentRunTreeRepositoryName("r", key)}}
+		out[k] = maulv1.IntentRunTree{Name: key, URL: "https://github.com/acme/" + key,
+			RepositoryRef: maulv1.LocalObjectReference{Name: maulv1.IntentRunTreeRepositoryName("r", key)}}
 	}
 	return out
 }
 
 // treeRecords is the launch record of n extra trees.
-func treeRecords(n int) []patchyv1.IntentRunTreeStatus {
-	out := make([]patchyv1.IntentRunTreeStatus, n)
+func treeRecords(n int) []maulv1.IntentRunTreeStatus {
+	out := make([]maulv1.IntentRunTreeStatus, n)
 	for k := range out {
-		out[k] = patchyv1.IntentRunTreeStatus{Name: fmt.Sprintf("app%d", k), BaseSHA: schemaSHA,
+		out[k] = maulv1.IntentRunTreeStatus{Name: fmt.Sprintf("app%d", k), BaseSHA: schemaSHA,
 			ArtifactDigest: strings.Repeat("f", 64)}
 	}
 	return out
@@ -44,47 +44,47 @@ func testIntentRunTreesSchema(ctx context.Context, t *testing.T, c client.Client
 	t.Helper()
 	for n, tt := range []struct {
 		name    string
-		stage   patchyv1.IntentStage
-		mutate  func(*patchyv1.IntentRunSpec)
+		stage   maulv1.IntentStage
+		mutate  func(*maulv1.IntentRunSpec)
 		wantErr bool
 	}{
-		{"a plan run reading seven more trees", patchyv1.IntentStagePlan, func(s *patchyv1.IntentRunSpec) {
-			s.Trees = schemaTrees(patchyv1.MaxIntentRunTrees)
+		{"a plan run reading seven more trees", maulv1.IntentStagePlan, func(s *maulv1.IntentRunSpec) {
+			s.Trees = schemaTrees(maulv1.MaxIntentRunTrees)
 		}, false},
-		{"a plan run reading eight more trees", patchyv1.IntentStagePlan, func(s *patchyv1.IntentRunSpec) {
-			s.Trees = schemaTrees(patchyv1.MaxIntentRunTrees + 1)
+		{"a plan run reading eight more trees", maulv1.IntentStagePlan, func(s *maulv1.IntentRunSpec) {
+			s.Trees = schemaTrees(maulv1.MaxIntentRunTrees + 1)
 		}, true},
-		{"a freely named tree", patchyv1.IntentStagePlan, func(s *patchyv1.IntentRunSpec) {
-			s.Trees = []patchyv1.IntentRunTree{{Name: "web", URL: "https://github.com/acme/Acme.Web_App",
-				RepositoryRef: patchyv1.LocalObjectReference{Name: "r-src-web"}}}
+		{"a freely named tree", maulv1.IntentStagePlan, func(s *maulv1.IntentRunSpec) {
+			s.Trees = []maulv1.IntentRunTree{{Name: "web", URL: "https://github.com/acme/Acme.Web_App",
+				RepositoryRef: maulv1.LocalObjectReference{Name: "r-src-web"}}}
 		}, false},
-		{"trees on a build run", patchyv1.IntentStageBuild, func(s *patchyv1.IntentRunSpec) {
+		{"trees on a build run", maulv1.IntentStageBuild, func(s *maulv1.IntentRunSpec) {
 			s.Trees = schemaTrees(1)
 		}, true},
-		{"trees on a revise run", patchyv1.IntentStageRevise, func(s *patchyv1.IntentRunSpec) {
+		{"trees on a revise run", maulv1.IntentStageRevise, func(s *maulv1.IntentRunSpec) {
 			s.Trees = schemaTrees(1)
 		}, true},
-		{"a tree key twice", patchyv1.IntentStagePlan, func(s *patchyv1.IntentRunSpec) {
-			s.Trees = append(schemaTrees(1), patchyv1.IntentRunTree{Name: "app0", URL: "https://github.com/acme/other",
-				RepositoryRef: patchyv1.LocalObjectReference{Name: "r-src-other"}})
+		{"a tree key twice", maulv1.IntentStagePlan, func(s *maulv1.IntentRunSpec) {
+			s.Trees = append(schemaTrees(1), maulv1.IntentRunTree{Name: "app0", URL: "https://github.com/acme/other",
+				RepositoryRef: maulv1.LocalObjectReference{Name: "r-src-other"}})
 		}, true},
-		{"a tree key that is not a DNS label", patchyv1.IntentStagePlan, func(s *patchyv1.IntentRunSpec) {
+		{"a tree key that is not a DNS label", maulv1.IntentStagePlan, func(s *maulv1.IntentRunSpec) {
 			s.Trees = schemaTrees(1)
 			s.Trees[0].Name = "Web"
 		}, true},
-		{"a tree key past the name budget", patchyv1.IntentStagePlan, func(s *patchyv1.IntentRunSpec) {
+		{"a tree key past the name budget", maulv1.IntentStagePlan, func(s *maulv1.IntentRunSpec) {
 			s.Trees = schemaTrees(1)
-			s.Trees[0].Name = strings.Repeat("k", patchyv1.MaxRepositoryKeyLength+1)
+			s.Trees[0].Name = strings.Repeat("k", maulv1.MaxRepositoryKeyLength+1)
 		}, true},
-		{"a tree that is the planning repository", patchyv1.IntentStagePlan, func(s *patchyv1.IntentRunSpec) {
+		{"a tree that is the planning repository", maulv1.IntentStagePlan, func(s *maulv1.IntentRunSpec) {
 			s.Trees = schemaTrees(1)
 			s.Trees[0].URL = "https://GitHub.com/Acme/Shop.git"
 		}, true},
-		{"two trees for one repository", patchyv1.IntentStagePlan, func(s *patchyv1.IntentRunSpec) {
+		{"two trees for one repository", maulv1.IntentStagePlan, func(s *maulv1.IntentRunSpec) {
 			s.Trees = schemaTrees(2)
 			s.Trees[1].URL = "https://github.com/Acme/App0"
 		}, true},
-		{"credentials in a tree url", patchyv1.IntentStagePlan, func(s *patchyv1.IntentRunSpec) {
+		{"credentials in a tree url", maulv1.IntentStagePlan, func(s *maulv1.IntentRunSpec) {
 			s.Trees = schemaTrees(1)
 			s.Trees[0].URL = "https://x:token@github.com/acme/app0"
 		}, true},
@@ -100,7 +100,7 @@ func testIntentRunTreesSchema(ctx context.Context, t *testing.T, c client.Client
 
 	key := client.ObjectKey{Name: "target-1-trees-0", Namespace: "default"} // the seven-tree plan run
 	t.Run("spec trees are immutable", func(t *testing.T) {
-		r := &patchyv1.IntentRun{}
+		r := &maulv1.IntentRun{}
 		if err := c.Get(ctx, key, r); err != nil {
 			t.Fatalf("Get(plan run) = %v", err)
 		}
@@ -111,12 +111,12 @@ func testIntentRunTreesSchema(ctx context.Context, t *testing.T, c client.Client
 	})
 
 	t.Run("the launch record round-trips", func(t *testing.T) {
-		r := &patchyv1.IntentRun{}
+		r := &maulv1.IntentRun{}
 		if err := c.Get(ctx, key, r); err != nil {
 			t.Fatalf("Get(plan run) = %v", err)
 		}
-		r.Status = patchyv1.IntentRunStatus{Phase: patchyv1.RunRunning, BaseSHA: schemaSHA,
-			Trees: treeRecords(patchyv1.MaxIntentRunTrees)}
+		r.Status = maulv1.IntentRunStatus{Phase: maulv1.RunRunning, BaseSHA: schemaSHA,
+			Trees: treeRecords(maulv1.MaxIntentRunTrees)}
 		want := r.Status.DeepCopy()
 		if err := c.Status().Update(ctx, r); err != nil {
 			t.Fatalf("Status().Update(tree records) = %v, want nil", err)
@@ -129,22 +129,22 @@ func testIntentRunTreesSchema(ctx context.Context, t *testing.T, c client.Client
 
 	for _, tt := range []struct {
 		name   string
-		mutate func(*patchyv1.IntentRunStatus)
+		mutate func(*maulv1.IntentRunStatus)
 	}{
-		{"eight tree records", func(s *patchyv1.IntentRunStatus) {
-			s.Trees = treeRecords(patchyv1.MaxIntentRunTrees + 1)
+		{"eight tree records", func(s *maulv1.IntentRunStatus) {
+			s.Trees = treeRecords(maulv1.MaxIntentRunTrees + 1)
 		}},
-		{"a tree recorded twice", func(s *patchyv1.IntentRunStatus) { s.Trees = append(s.Trees, s.Trees[0]) }},
-		{"a tree without its commit", func(s *patchyv1.IntentRunStatus) { s.Trees[0].BaseSHA = "" }},
-		{"a tree at a short commit", func(s *patchyv1.IntentRunStatus) { s.Trees[0].BaseSHA = "abc123" }},
+		{"a tree recorded twice", func(s *maulv1.IntentRunStatus) { s.Trees = append(s.Trees, s.Trees[0]) }},
+		{"a tree without its commit", func(s *maulv1.IntentRunStatus) { s.Trees[0].BaseSHA = "" }},
+		{"a tree at a short commit", func(s *maulv1.IntentRunStatus) { s.Trees[0].BaseSHA = "abc123" }},
 		// The digest is recorded as the Repository holds it: bare hex.
-		{"a tree digest with a prefix", func(s *patchyv1.IntentRunStatus) {
+		{"a tree digest with a prefix", func(s *maulv1.IntentRunStatus) {
 			s.Trees[0].ArtifactDigest = "sha256:" + strings.Repeat("f", 64)
 		}},
-		{"a short tree digest", func(s *patchyv1.IntentRunStatus) { s.Trees[0].ArtifactDigest = "abc" }},
+		{"a short tree digest", func(s *maulv1.IntentRunStatus) { s.Trees[0].ArtifactDigest = "abc" }},
 	} {
 		t.Run("status with "+tt.name, func(t *testing.T) {
-			r := &patchyv1.IntentRun{}
+			r := &maulv1.IntentRun{}
 			if err := c.Get(ctx, key, r); err != nil {
 				t.Fatalf("Get(plan run) = %v", err)
 			}

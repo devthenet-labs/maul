@@ -15,7 +15,7 @@ import (
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 // readyDemo brings the single-component demo-1 Preview to Ready in slot 0.
@@ -140,7 +140,7 @@ func TestServingSnapshotClearedWhenNothingServes(t *testing.T) {
 			}
 			e.collectGarbage()
 			var pods corev1.PodList
-			if err := e.c.List(context.Background(), &pods, client.InNamespace("patchy-preview-0")); err != nil {
+			if err := e.c.List(context.Background(), &pods, client.InNamespace("maul-preview-0")); err != nil {
 				t.Fatal(err)
 			}
 			for i := range pods.Items {

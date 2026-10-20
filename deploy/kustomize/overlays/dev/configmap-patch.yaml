@@ -7,26 +7,26 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-    name: patchy-config
-    namespace: patchy
+    name: maul-config
+    namespace: maul
 data:
     # Chatty logs: the binaries default to warn, which makes a healthy dev
     # cluster look silent. Every controller reads this via envFrom.
-    PATCHY_LOG_LEVEL: info
+    MAUL_LOG_LEVEL: info
 
     # Tight loops: a demo should not wait an hour to see anything happen.
-    PATCHY_ACCUMULATION_WINDOW: 2m
-    PATCHY_FINDING_MIN_AGE: 2m
+    MAUL_ACCUMULATION_WINDOW: 2m
+    MAUL_FINDING_MIN_AGE: 2m
     # Watch the TTL sweep actually delete findings within a coffee break.
-    PATCHY_FINDING_TTL: 30m
+    MAUL_FINDING_TTL: 30m
 
     # The fake CMDB (internal/enhancers.StaticFile) instead of the Noop
-    # placeholder. The file is mounted from the patchy-static-context
+    # placeholder. The file is mounted from the maul-static-context
     # ConfigMap; see deployment-context-controller-patch.yaml.
-    PATCHY_STATIC_CONTEXT_FILE: /etc/patchy/context/cmdb.yaml
+    MAUL_STATIC_CONTEXT_FILE: /etc/maul/context/cmdb.yaml
 
     # ---- the fake harness --------------------------------------------------
-    # PATCHY_HARNESSES restricts the enabled set to just the fake runner
+    # MAUL_HARNESSES restricts the enabled set to just the fake runner
     # (internal/harness.Fake: scripted output, no model call), so dev needs no
     # model credential at all — the fake runner wires no Secret, and the
     # claude/codex runners configured in the base are simply not enabled. The
@@ -34,10 +34,10 @@ data:
     # string is what the job controllers write into the Job spec, so it must
     # match the `images:` rename in kustomization.yaml (kustomize does not
     # rewrite ConfigMap values).
-    PATCHY_HARNESSES: fake
-    PATCHY_FAKE_AGENT_IMAGE: patchy/claude-agent-runner:dev
+    MAUL_HARNESSES: fake
+    MAUL_FAKE_AGENT_IMAGE: maul/claude-agent-runner:dev
 
     # Fail fast in dev rather than burning an hour of wall clock.
-    PATCHY_JOB_DEADLINE: 10m
-    PATCHY_JOB_TTL: 30m
-    PATCHY_MAX_ATTEMPTS: "1"
+    MAUL_JOB_DEADLINE: 10m
+    MAUL_JOB_TTL: 30m
+    MAUL_MAX_ATTEMPTS: "1"

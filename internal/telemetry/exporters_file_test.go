@@ -34,17 +34,17 @@ func TestFileExportersWriteEachSignal(t *testing.T) {
 	lp := sdklog.NewLoggerProvider(sdklog.WithProcessor(sdklog.NewBatchProcessor(exp.logs)))
 
 	ctx := context.Background()
-	_, span := tp.Tracer("test").Start(ctx, "patchy.test.span")
+	_, span := tp.Tracer("test").Start(ctx, "maul.test.span")
 	span.End()
 
-	counter, err := mp.Meter("test").Int64Counter("patchy.test.counter")
+	counter, err := mp.Meter("test").Int64Counter("maul.test.counter")
 	if err != nil {
 		t.Fatalf("counter: %v", err)
 	}
 	counter.Add(ctx, 1)
 
 	logger := slog.New(otelslog.NewHandler("test", otelslog.WithLoggerProvider(lp)))
-	logger.InfoContext(ctx, "patchy test log", slog.String("k", "v"))
+	logger.InfoContext(ctx, "maul test log", slog.String("k", "v"))
 
 	for _, shutdown := range []func(context.Context) error{tp.Shutdown, mp.Shutdown, lp.Shutdown} {
 		if err := shutdown(ctx); err != nil {

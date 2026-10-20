@@ -3,10 +3,10 @@
 
 package generic
 
-import "github.com/bitwise-media-group/patchy/pkg/source"
+import "github.com/devthenet-labs/maul/pkg/source"
 
 // Version is the contract version this package describes. Every exchanged
-// body carries it; patchy rejects any other value.
+// body carries it; maul rejects any other value.
 const Version = "v1"
 
 // Headers of the generic exchanges. Both directions sign the raw JSON body
@@ -15,18 +15,18 @@ const Version = "v1"
 // received and compares in constant time.
 const (
 	// SignatureHeader carries "sha256=<hex of HMAC-SHA256(secret, body)>".
-	SignatureHeader = "X-Patchy-Signature-256"
+	SignatureHeader = "X-Maul-Signature-256"
 	// DeliveryHeader optionally carries a caller-chosen unique id for an
-	// inbound delivery, used for deduplication. Absent, patchy derives one
+	// inbound delivery, used for deduplication. Absent, maul derives one
 	// from the body, so byte-identical redeliveries still dedup.
-	DeliveryHeader = "X-Patchy-Delivery"
+	DeliveryHeader = "X-Maul-Delivery"
 )
 
 // Payload event discriminators.
 const (
 	// EventFindings delivers findings.
 	EventFindings = "findings"
-	// EventPing is a connectivity test; patchy answers 204 and ingests
+	// EventPing is a connectivity test; maul answers 204 and ingests
 	// nothing.
 	EventPing = "ping"
 )
@@ -52,7 +52,7 @@ type Repo struct {
 }
 
 // Finding is one normalized security finding. The external process does its
-// own normalization — patchy validates the shape and ingests, it does not
+// own normalization — maul validates the shape and ingests, it does not
 // interpret tool-native payloads.
 //
 // A finding names a Repo, a CloudResource, or both; one with neither is
@@ -74,7 +74,7 @@ type Finding struct {
 	AlertNumber int `json:"alertNumber,omitempty"`
 	// Advisories are the categorization identifiers (GHSA/CVE/CWE numbers,
 	// or tool-native rule keys), most authoritative first: Advisories[0] is
-	// the accumulation key. Empty, patchy falls back to a key derived from
+	// the accumulation key. Empty, maul falls back to a key derived from
 	// RuleID (else AlertID/AlertNumber), so findings of the same rule fold.
 	Advisories []string `json:"advisories,omitempty"`
 	// RuleID is the tool's rule identifier.

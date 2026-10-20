@@ -14,11 +14,11 @@ import (
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
-	"github.com/bitwise-media-group/patchy/internal/runnerguard"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/runnerguard"
 )
 
 // profileGuard is a guard with repository images and network profiles on
@@ -30,7 +30,7 @@ func profileGuard(t *testing.T) runnerguard.Guard {
 	if err != nil {
 		t.Fatal(err)
 	}
-	base, err := url.Parse("http://patchy-egress-proxy.patchy.svc.cluster.local")
+	base, err := url.Parse("http://maul-egress-proxy.maul.svc.cluster.local")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestRemediationLaunchAppliesNetworkProfile(t *testing.T) {
 			r, c := newRemediation(t, &fakeCRRunner{}, &fakeForge{}, objs...)
 			cs := k8sfake.NewClientset()
 			r.Runner = jobs.New(cs, jobs.Config{
-				Namespace: "patchy-agents", AllowRepositoryImages: true, NetworkProfiles: true,
+				Namespace: "maul-agents", AllowRepositoryImages: true, NetworkProfiles: true,
 				EphemeralStorage: "8Gi",
 				Runners: map[string]jobs.Runner{"claude": {Image: "claude-agent-runner:1", Brokered: true,
 					Inject: []string{"agent-runner", "claude"}}},
@@ -77,7 +77,7 @@ func TestRemediationLaunchAppliesNetworkProfile(t *testing.T) {
 			r.Images = profileGuard(t)
 			remOnce(t, r, rem.Name)
 
-			list, err := cs.BatchV1().Jobs("patchy-agents").List(t.Context(), metav1.ListOptions{})
+			list, err := cs.BatchV1().Jobs("maul-agents").List(t.Context(), metav1.ListOptions{})
 			if err != nil || len(list.Items) != 1 {
 				t.Fatalf("jobs = %v, %v; want one", list, err)
 			}
@@ -166,7 +166,7 @@ func TestRemediationChangesetNamingTheProxyIsRefused(t *testing.T) {
 			events := crdRemediationEvent(true)
 			events[0].Remediation.Changeset.Upserts = append(events[0].Remediation.Changeset.Upserts,
 				envelope.FileChange{Path: "package-lock.json", Mode: "100644", ContentB64: base64.StdEncoding.EncodeToString(
-					[]byte(`"resolved": "http://patchy-egress-proxy.patchy.svc.cluster.local:8091/r/ca-npm/x/-/x-1.0.0.tgz"`))})
+					[]byte(`"resolved": "http://maul-egress-proxy.maul.svc.cluster.local:8091/r/ca-npm/x/-/x-1.0.0.tgz"`))})
 			objs := withImage(acceptedImage(), v1alpha1.RunnerImageSourceRepository)
 			objs[1].(*v1alpha1.Remediation).Status.RunnerImage.NetworkProfile = profile
 			fw := &fakeForge{}

@@ -47,7 +47,7 @@ func (f AuthenticatorFunc) Authenticate(ctx context.Context, r *http.Request, bo
 type Decoder func(r *http.Request, body []byte) (eventType, deliveryID string, err error)
 
 // Endpoint is one provider's receiver route. The whole point of the type is
-// that patchy exposes a single internet-facing port: providers differ in how
+// that maul exposes a single internet-facing port: providers differ in how
 // they authenticate and label a delivery, not in how it is queued and handled.
 type Endpoint struct {
 	// Path the provider POSTs to, e.g. "/github/webhooks".

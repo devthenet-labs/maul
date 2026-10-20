@@ -13,7 +13,7 @@ import (
 	authorizationv1 "k8s.io/api/authorization/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/bitwise-media-group/patchy/internal/web/auth"
+	"github.com/devthenet-labs/maul/internal/web/auth"
 )
 
 // Tier is how much of one Project's intents a caller may read. The tiers
@@ -21,7 +21,7 @@ import (
 type Tier int
 
 // The read tiers, each a SubjectAccessReview for get on a virtual
-// subresource of projects.patchy.bitwisemedia.uk, by Project name.
+// subresource of projects.maul.run, by Project name.
 const (
 	// TierNone: the Project is invisible. Its intents answer 404, exactly
 	// like an intent that does not exist.

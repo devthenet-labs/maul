@@ -13,7 +13,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/bitwise-media-group/patchy/internal/mirror/ocireg"
+	"github.com/devthenet-labs/maul/internal/mirror/ocireg"
 )
 
 // OSV shells out to osv-scanner: the image is exported to a local archive
@@ -53,7 +53,7 @@ func (o *OSV) ScanImage(ctx context.Context, ref string) ([]Finding, error) {
 	if reg == nil {
 		reg = ocireg.New(nil)
 	}
-	dir, err := os.MkdirTemp("", "patchy-mirror-osv-*")
+	dir, err := os.MkdirTemp("", "maul-mirror-osv-*")
 	if err != nil {
 		return nil, err
 	}

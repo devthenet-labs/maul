@@ -23,14 +23,14 @@
 // carry a model credential into the pod, for a reference not pinned to a
 // sha256 digest, and without an ephemeral-storage limit. Otherwise the
 // trusted prepare init still runs the runner image and, after the fetch,
-// copies patchy's static agent-runner and the harness CLI into a read-only
+// copies maul's static agent-runner and the harness CLI into a read-only
 // emptyDir the agent container starts from by absolute path, then runs the
 // sandbox probe (`agent-runner sandbox-probe`) and refuses to hand over —
 // exit ExitSandboxUnenforced — while the pod can still reach the internet,
 // the API server or the metadata service. The agent container gets a
 // controller-owned PATH, git told to ignore the image's config, and an
 // explicit empty value for the known shell, loader, interpreter, git,
-// proxy, gateway and PATCHY_* redirection points the Job does not set. That
+// proxy, gateway and MAUL_* redirection points the Job does not set. That
 // is a backstop against configuration an image carries by accident, not a
 // boundary: the image supplies git, bash and the libc the CLI runs on, so
 // its ENV is exactly as untrusted as its binaries, and the trust boundaries

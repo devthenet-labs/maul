@@ -18,14 +18,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/ghclient"
 )
 
 const defaultChecksTimeout = 30 * time.Minute
 
 // checkRound starts a check-fix round on pr when a named check failed on the
-// head patchy last pushed in its repository, once the checks settled (or
+// head maul last pushed in its repository, once the checks settled (or
 // their timeout passed). Each pull request's checks are its own: observed per
 // pull request, against its own repository's pushes and earlier fixes. With
 // the Project's checks.rerunFailed, the first failure at a head re-runs the
@@ -38,7 +38,7 @@ func (p *pass) checkRound(ctx context.Context, pr *v1alpha1.IntentPullRequest) (
 	}
 	latest := p.latestPushedRun(pr.Repository)
 	if latest == nil || latest.Status.PushedCommit != pr.HeadSHA {
-		// A human moved the branch. Patchy may report the failure, but does
+		// A human moved the branch. Maul may report the failure, but does
 		// not launch an automatic fix on a head it did not push.
 		return false, nil
 	}

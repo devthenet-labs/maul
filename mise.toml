@@ -1,7 +1,7 @@
 # Copyright 2026 Bitwise Media Group Ltd.
 # SPDX-License-Identifier: MIT
 #
-# patchy consumes the shared toolchain (bitwise-media-group/toolchain) as the
+# maul consumes the shared toolchain (bitwise-media-group/toolchain) as the
 # .mise/ submodule: pinned tools + the go-cli task archetype come from there,
 # and the Makefile is a thin forwarder (.mise/mise.mk). Structural knobs live
 # in [vars]; repo-local tasks live in tasks.toml (see [task_config] below).
@@ -12,10 +12,10 @@ locked = true
 minimum_release_age = "7d"
 
 [vars]
-# patchy is multi-binary (six entrypoints under cmd/), so tasks.toml redefines
+# maul is multi-binary (six entrypoints under cmd/), so tasks.toml redefines
 # the archetype's `build` with a loop; app/app_pkg exist only so the archetype's
 # single-app go-build task stays renderable.
-app = "patchy"
+app = "maul"
 app_pkg = "./cmd/source-controller"
 
 [task_config]
@@ -28,7 +28,7 @@ includes = [".mise/tasks/go-cli.toml", "tasks.toml"]
 # code/CRD generator and the envtest binary manager for api/v1alpha1.
 # controller-gen floats on its own release line; setup-envtest tracks the
 # controller-runtime minor pinned in go.mod (v0.24.x). yq extracts the CRD
-# spec schemas into the patchy-config values schema (hack/codegen.sh).
+# spec schemas into the maul-config values schema (hack/codegen.sh).
 [tools]
 # Overrides the shared toolchain's go, which locks 1.26.6: go.mod asks for
 # 1.26.10, the release that fixes GO-2026-6809 (crypto/x509 distrusts
@@ -37,7 +37,7 @@ includes = [".mise/tasks/go-cli.toml", "tasks.toml"]
 # GOTOOLCHAIN=local. Toolchain v3 moved the go pin into each repo's root, so
 # this pin stays when the submodule moves to v3.
 go = "1.26.10"
-# osv-scanner is a runtime dependency of `patchy mirror` image scanning
+# osv-scanner is a runtime dependency of `maul mirror` image scanning
 # (the scan stage shells out to it); cosign — which sign/verify shell out
 # to — is already pinned by the shared toolchain.
 "aqua:google/osv-scanner" = "2.5.1"

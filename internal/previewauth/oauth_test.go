@@ -19,7 +19,7 @@ import (
 func authorizeQuery(mutate func(url.Values)) url.Values {
 	q := url.Values{
 		"response_type": {"code"},
-		"client_id":     {"patchy-preview-s1"},
+		"client_id":     {"maul-preview-s1"},
 		"redirect_uri":  {"https://intent-7." + testSuffix + CallbackPath},
 		"scope":         {"openid"},
 		"state":         {"st"},
@@ -52,7 +52,7 @@ func TestParseAuthorize(t *testing.T) {
 		{"token response", func(q url.Values) { q.Set("response_type", "token") }, CodeUnsupportedResponseType},
 		{"hybrid response", func(q url.Values) { q.Set("response_type", "code id_token") }, CodeUnsupportedResponseType},
 		{"no client", func(q url.Values) { q.Del("client_id") }, CodeInvalidRequest},
-		{"slot beyond count", func(q url.Values) { q.Set("client_id", "patchy-preview-s2") }, CodeInvalidRequest},
+		{"slot beyond count", func(q url.Values) { q.Set("client_id", "maul-preview-s2") }, CodeInvalidRequest},
 		{"foreign redirect", func(q url.Values) { q.Set("redirect_uri", "https://evil.com"+CallbackPath) },
 			CodeInvalidRequest},
 		{"no redirect", func(q url.Values) { q.Del("redirect_uri") }, CodeInvalidRequest},
@@ -89,7 +89,7 @@ func TestParseAuthorize(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := AuthorizeRequest{ClientID: "patchy-preview-s1", Slot: 1, Label: "intent-7",
+	want := AuthorizeRequest{ClientID: "maul-preview-s1", Slot: 1, Label: "intent-7",
 		RedirectURI: "https://intent-7." + testSuffix + CallbackPath, State: "st"}
 	if req != want {
 		t.Errorf("ParseAuthorize = %+v, want %+v", req, want)

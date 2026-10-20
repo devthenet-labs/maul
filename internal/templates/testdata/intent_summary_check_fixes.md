@@ -1,7 +1,7 @@
-<!-- patchy:notice patchy/preview-demo-5 summary -->
-### patchy: done
+<!-- maul:notice maul/preview-demo-5 summary -->
+### maul: done
 
-Every pull request patchy opened for this intent has merged, so patchy closes the issue as completed.
+Every pull request maul opened for this intent has merged, so maul closes the issue as completed.
 
 **Merged:**
 

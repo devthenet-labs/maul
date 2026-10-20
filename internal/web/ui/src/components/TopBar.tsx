@@ -128,7 +128,7 @@ function UserMenu({
           {adminActions.includes("reset") ? (
             <button
               type="button"
-              class={`${MENU_ITEM} ${armedReset ? "bg-[color-mix(in_oklab,var(--patchy-red)_12%,transparent)] text-red hover:bg-[color-mix(in_oklab,var(--patchy-red)_18%,transparent)]" : "text-red"}`}
+              class={`${MENU_ITEM} ${armedReset ? "bg-[color-mix(in_oklab,var(--maul-red)_12%,transparent)] text-red hover:bg-[color-mix(in_oklab,var(--maul-red)_18%,transparent)]" : "text-red"}`}
               role="menuitem"
               disabled={adminBusy !== null}
               onClick={() => (armedReset ? run("reset") : setArmedReset(true))}
@@ -190,12 +190,12 @@ export function TopBar({
   const navClass = (active: boolean) =>
     `${NAV_LINK} ${active ? "bg-surface-2 text-fg" : "text-muted"}`;
   return (
-    <header class="sticky top-0 z-30 border-b border-line bg-[color-mix(in_oklab,var(--patchy-bg)_86%,transparent)] backdrop-blur-xl">
+    <header class="sticky top-0 z-30 border-b border-line bg-[color-mix(in_oklab,var(--maul-bg)_86%,transparent)] backdrop-blur-xl">
       <div class="mx-auto flex min-h-[58px] w-[min(1240px,calc(100%-40px))] flex-wrap items-center gap-4 py-1.5 max-sm:w-[calc(100%-28px)]">
         <a class="inline-flex items-center gap-2 font-mono text-[15px] font-bold tracking-tight text-fg no-underline" href={hrefForList()} aria-label="Findings list">
           <PatchMark />
           <span>
-            patchy <em class="font-medium text-muted not-italic">· status</em>
+            maul <em class="font-medium text-muted not-italic">· status</em>
           </span>
         </a>
         <nav class="flex gap-1 rounded-[9px] border border-line bg-surface p-[3px]" aria-label="Views">

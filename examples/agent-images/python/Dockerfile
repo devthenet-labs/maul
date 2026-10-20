@@ -1,7 +1,7 @@
 # Copyright 2026 Bitwise Media Group Ltd.
 # SPDX-License-Identifier: MIT
 
-# Python agent image: patchy's agent-base plus Python and a virtualenv with
+# Python agent image: maul's agent-base plus Python and a virtualenv with
 # the project's dependencies installed, so the agent can run the tests with
 # no network. Build it with the repository root as the context (it needs
 # requirements.txt; pin versions there, or use a lock such as
@@ -11,10 +11,10 @@
 #
 # Rebuild whenever requirements.txt changes: pip cannot fetch in the pod.
 
-# The base, pinned to a patchy release (release-please stamps the version).
+# The base, pinned to a maul release (release-please stamps the version).
 # Pin its digest as well once you have built against it.
 # x-release-please-start-version
-ARG AGENT_BASE=ghcr.io/devthenet-labs/patchy/agent-base:v0.12.43
+ARG AGENT_BASE=ghcr.io/devthenet-labs/maul/agent-base:v0.12.43
 # x-release-please-end
 FROM ${AGENT_BASE}
 
@@ -49,7 +49,7 @@ ENV PIP_NO_INDEX=1 \
 
 # Describe your image, not the base (labels are inherited).
 LABEL org.opencontainers.image.source="https://github.com/your-org/your-repo" \
-      org.opencontainers.image.description="patchy agent image: Python 3.13 with the project's dependencies in /opt/venv"
+      org.opencontainers.image.description="maul agent image: Python 3.13 with the project's dependencies in /opt/venv"
 
 WORKDIR /workspace
 USER 65532:65532

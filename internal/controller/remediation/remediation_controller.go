@@ -23,19 +23,19 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/agentresult"
-	"github.com/bitwise-media-group/patchy/internal/attribution"
-	"github.com/bitwise-media-group/patchy/internal/changeset"
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/report"
-	"github.com/bitwise-media-group/patchy/internal/runnerguard"
-	"github.com/bitwise-media-group/patchy/internal/schedule"
-	"github.com/bitwise-media-group/patchy/internal/templates"
-	"github.com/bitwise-media-group/patchy/internal/transcriptstore"
-	"github.com/bitwise-media-group/patchy/internal/usagemeter"
-	"github.com/bitwise-media-group/patchy/internal/usagerollup"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/agentresult"
+	"github.com/devthenet-labs/maul/internal/attribution"
+	"github.com/devthenet-labs/maul/internal/changeset"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/report"
+	"github.com/devthenet-labs/maul/internal/runnerguard"
+	"github.com/devthenet-labs/maul/internal/schedule"
+	"github.com/devthenet-labs/maul/internal/templates"
+	"github.com/devthenet-labs/maul/internal/transcriptstore"
+	"github.com/devthenet-labs/maul/internal/usagemeter"
+	"github.com/devthenet-labs/maul/internal/usagerollup"
 )
 
 // remSchedulerRequest is the singleton request every watch event maps to.
@@ -638,7 +638,7 @@ func (r *RemediationReconciler) succeed(
 	if err := changeset.Validate(result.Changeset, rules); err != nil {
 		return r.fail(ctx, rem, string(envelope.OutcomeChangesetRejected), err.Error(), &result.Stage, transcript)
 	}
-	branch := "patchy/" + fnd.Name
+	branch := "maul/" + fnd.Name
 	// The commit message is the agent's, and lands on the default branch as
 	// plain text when the pull request is merged or rebased: defanged, it
 	// closes, references and mentions nothing there.
@@ -656,15 +656,15 @@ func (r *RemediationReconciler) succeed(
 	// The stored report carries its machine frontmatter; the PR body is
 	// presentation, so render the markdown body only.
 	reportBody := report.StripFrontmatter(result.ReportMarkdown)
-	// A run on patchy's default image had none of the repository's
-	// toolchain, so whatever the report says, patchy built and tested
+	// A run on maul's default image had none of the repository's
+	// toolchain, so whatever the report says, maul built and tested
 	// nothing: the body says so, plainly, ahead of the report.
 	untested := !ranRepositoryImage(rem.Status.RunnerImage)
 	// Whether the agent reports it reproduced the bug before fixing it is
 	// stated plainly, with its evidence, and its absence is a warning: the
 	// claim is the agent's own, so the body attributes it to the agent.
 	// The report is agent text: PRBody sanitises it, and a body it cannot
-	// render falls back to patchy's own words, never to the raw report.
+	// render falls back to maul's own words, never to the raw report.
 	// A run whose Job carried a network profile could fetch dependencies;
 	// the body says so, from what the launch recorded off the Job, and
 	// names the profile's routes as the operator's profile set holds them

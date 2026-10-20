@@ -6,29 +6,29 @@ The `Forge` and `Repository` reconcilers, plus the artifact server. It validates
 pods fetch **credential-lessly**: the URL carries an unguessable 128-bit id and the Job pins the sha256 digest.
 
 ```sh
-source-controller serve --namespace patchy --artifact-addr :9790
+source-controller serve --namespace maul --artifact-addr :9790
 ```
 
 ## Flags
 
 The [shared flags](index.md#shared-flags-every-controller), plus:
 
-| Flag                                   | Env                                         | Default              | Purpose                                                                                                                                         |
-| -------------------------------------- | ------------------------------------------- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--artifact-addr`                      | `PATCHY_ARTIFACT_ADDR`                      | `:9790`              | Listen address of the artifact server                                                                                                           |
-| `--artifact-base-url`                  | `PATCHY_ARTIFACT_BASE_URL`                  | in-cluster Service   | Base URL minted into Repository statuses for agent fetches                                                                                      |
-| `--artifact-dir`                       | `PATCHY_ARTIFACT_DIR`                       | `/data/artifacts`    | Directory the artifact tarballs are stored in                                                                                                   |
-| `--max-artifact-bytes`                 | `PATCHY_MAX_ARTIFACT_BYTES`                 | `1073741824` (1 GiB) | Largest repository tarball stored; larger repositories stall (`Stalled` condition)                                                              |
-| `--repository-images`                  | `PATCHY_REPOSITORY_IMAGES`                  | `false`              | Read each tree's runner-image declaration and pin the image; the kill switch                                                                    |
-| `--repository-image-registries`        | `PATCHY_REPOSITORY_IMAGE_REGISTRIES`        | —                    | Comma-separated `host/path/` prefixes a declared image must sit under; required with the feature on                                             |
-| `--repository-image-denied-registries` | `PATCHY_REPOSITORY_IMAGE_DENIED_REGISTRIES` | —                    | Comma-separated `host/path/` prefixes a declared image may never sit under, even inside an allowed one; the chart sets the preview image prefix |
-| `--repository-image-max-bytes`         | `PATCHY_REPOSITORY_IMAGE_MAX_BYTES`         | `4294967296` (4 GiB) | Largest compressed layer total per platform of a declared image                                                                                 |
-| `--repository-image-cosign-key-file`   | `PATCHY_REPOSITORY_IMAGE_COSIGN_KEY_FILE`   | —                    | PEM cosign public key every declared image must be signed with; required unless unsigned is allowed                                             |
-| `--repository-image-allow-unsigned`    | `PATCHY_REPOSITORY_IMAGE_ALLOW_UNSIGNED`    | `false`              | Admit declared images without a signature (an explicit opt-out)                                                                                 |
-| `--repository-image-on-reject`         | `PATCHY_REPOSITORY_IMAGE_ON_REJECT`         | `default`            | What a rejected declaration does: `default` runs the default runner image, `handoff` parks the finding                                          |
+| Flag                                   | Env                                       | Default              | Purpose                                                                                                                                         |
+| -------------------------------------- | ----------------------------------------- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--artifact-addr`                      | `MAUL_ARTIFACT_ADDR`                      | `:9790`              | Listen address of the artifact server                                                                                                           |
+| `--artifact-base-url`                  | `MAUL_ARTIFACT_BASE_URL`                  | in-cluster Service   | Base URL minted into Repository statuses for agent fetches                                                                                      |
+| `--artifact-dir`                       | `MAUL_ARTIFACT_DIR`                       | `/data/artifacts`    | Directory the artifact tarballs are stored in                                                                                                   |
+| `--max-artifact-bytes`                 | `MAUL_MAX_ARTIFACT_BYTES`                 | `1073741824` (1 GiB) | Largest repository tarball stored; larger repositories stall (`Stalled` condition)                                                              |
+| `--repository-images`                  | `MAUL_REPOSITORY_IMAGES`                  | `false`              | Read each tree's runner-image declaration and pin the image; the kill switch                                                                    |
+| `--repository-image-registries`        | `MAUL_REPOSITORY_IMAGE_REGISTRIES`        | —                    | Comma-separated `host/path/` prefixes a declared image must sit under; required with the feature on                                             |
+| `--repository-image-denied-registries` | `MAUL_REPOSITORY_IMAGE_DENIED_REGISTRIES` | —                    | Comma-separated `host/path/` prefixes a declared image may never sit under, even inside an allowed one; the chart sets the preview image prefix |
+| `--repository-image-max-bytes`         | `MAUL_REPOSITORY_IMAGE_MAX_BYTES`         | `4294967296` (4 GiB) | Largest compressed layer total per platform of a declared image                                                                                 |
+| `--repository-image-cosign-key-file`   | `MAUL_REPOSITORY_IMAGE_COSIGN_KEY_FILE`   | —                    | PEM cosign public key every declared image must be signed with; required unless unsigned is allowed                                             |
+| `--repository-image-allow-unsigned`    | `MAUL_REPOSITORY_IMAGE_ALLOW_UNSIGNED`    | `false`              | Admit declared images without a signature (an explicit opt-out)                                                                                 |
+| `--repository-image-on-reject`         | `MAUL_REPOSITORY_IMAGE_ON_REJECT`         | `default`            | What a rejected declaration does: `default` runs the default runner image, `handoff` parks the finding                                          |
 
 `--artifact-base-url` only needs setting when the Service name differs from the default
-`http://patchy-source-controller.<namespace>.svc.cluster.local:<port>` — the deployments leave it unset.
+`http://maul-source-controller.<namespace>.svc.cluster.local:<port>` — the deployments leave it unset.
 
 The `--repository-image-*` flags take effect only with `--repository-images`; see
 [repository runner images](#repository-runner-images). `--repository-image-registries` and a valid key file (or
@@ -50,7 +50,7 @@ The `--repository-image-*` flags take effect only with `--repository-images`; se
 
 ## Repository runner images
 
-With `--repository-images`, a repository may name the image its agent runs in — `.patchy/agent.yaml`, or the top-level
+With `--repository-images`, a repository may name the image its agent runs in — `.maul/agent.yaml`, or the top-level
 `image` of `.devcontainer/devcontainer.json` — and source-controller is the one component that reads the declaration and
 decides what becomes of it. The [repository-owner guide](../integrations/agent-images.md) covers the file formats and
 the image contract; the [design](../design/repository-runner-images.md) the threat model. Turn the feature on together
@@ -66,8 +66,8 @@ with `--repository-images` on the [investigation](investigation-controller.md#ag
   `HEAD` resolves a tag and every later call uses the digest: each `linux/amd64` and `linux/arm64` manifest's compressed
   layers against `--repository-image-max-bytes`, its platform, no `VOLUME`, no reserved `ENV` name, an absolute `PATH`
   (the same on every platform), and a signature by the `--repository-image-cosign-key-file` key, in either the sigstore
-  bundle form (cosign v3, `patchy mirror sign`) or the legacy `.sig` tag. Verification is in-process: no cosign binary
-  and no Fulcio or Rekor traffic.
+  bundle form (cosign v3, `maul mirror sign`) or the legacy `.sig` tag. Verification is in-process: no cosign binary and
+  no Fulcio or Rekor traffic.
 - **Allowlist entries** are `host/path` prefixes with at least one path segment, matched on segment boundaries
   (`ghcr.io/acme/` never matches `ghcr.io/acme-evil/`), without globs, `index.docker.io` read as `docker.io`; a bad
   entry fails startup. A `--repository-image-denied-registries` entry takes the same form and wins over the allowlist:
@@ -89,7 +89,7 @@ with `--repository-images` on the [investigation](investigation-controller.md#ag
   (or does not answer within three minutes) leaves `Ready=False` / `RunnerImageResolveFailed` and backs off. Verdicts
   are cached for ten minutes by digest, never by tag.
 - **Outcomes.** An accepted image records `declared`, `manifest` (the declaring file), `image` (`name@sha256:…`),
-  `searchPath` and `verified`. A devcontainer.json patchy cannot honour (it builds its image, adds features, or names no
+  `searchPath` and `verified`. A devcontainer.json maul cannot honour (it builds its image, adds features, or names no
   usable `image`) is not a declaration: `manifest` and `message` record why, and the default runner image runs. A
   deterministic failure is a rejection: `rejected` carries the reason label and `message` the explanation (the guide's
   [troubleshooting table](../integrations/agent-images.md#troubleshooting) lists every label). Under

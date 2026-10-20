@@ -3,13 +3,13 @@
 #
 # Read from devthenet-dev on 2026-10-03 (kubectl get -o yaml) before the slice-3 schema change,
 # server-owned metadata removed. live_envtest_test.go round-trips it under the current schema.
-apiVersion: patchy.bitwisemedia.uk/v1alpha1
+apiVersion: maul.run/v1alpha1
 kind: IntentRun
 metadata:
   labels:
-    patchy.bitwisemedia.uk/intent: preview-demo-5
+    maul.run/intent: preview-demo-5
   name: preview-demo-5-plan-r1-a1
-  namespace: patchy
+  namespace: maul
 spec:
   attempt: 1
   grant:
@@ -39,14 +39,14 @@ status:
       type: Complete
   finishedAt: "2026-10-03T06:57:23Z"
   jobRef:
-    name: patchy-69ef7c9356-int-a1
-    namespace: patchy-agents
+    name: maul-69ef7c9356-int-a1
+    namespace: maul-agents
   observedGeneration: 1
   outcome: ok
   phase: Complete
   report: |
     ---
-    summary: "Add a static 'Deployed by patchy' footer to the welcome card in main.go, below revision/build, with a test asserting it renders"
+    summary: "Add a static 'Deployed by maul' footer to the welcome card in main.go, below revision/build, with a test asserting it renders"
     repositories:
       - "https://github.com/devthenet-labs/patchy-preview-demo"
     new_dependencies: []
@@ -61,7 +61,7 @@ status:
 
     The welcome page is rendered by a single inline `html/template` defined in
     `main.go` (the `page` variable). The requested change is purely additive and
-    textual: add one static line of markup, `<footer>Deployed by patchy</footer>`,
+    textual: add one static line of markup, `<footer>Deployed by maul</footer>`,
     as the last element inside `<main class="card">`, after the existing
     `<nav>` links row. This satisfies the request's wording literally: the
     footer sits below the revision and build-time paragraphs, and the card
@@ -76,7 +76,7 @@ status:
 
     Alternative rejected: adding a new template field (e.g. `Deployer string`)
     threaded through `newHandler`/`main.go`'s build-time variables. Rejected
-    because the requested text is fixed ("Deployed by patchy"), not configurable,
+    because the requested text is fixed ("Deployed by maul"), not configurable,
     so a new parameter would add surface area and a new linker flag for no
     behavioural benefit.
 
@@ -91,7 +91,7 @@ status:
     Repository: https://github.com/devthenet-labs/patchy-preview-demo
 
     1. `main.go`: in the `page` template string, insert a new line
-       `<footer>Deployed by patchy</footer>` immediately before the closing
+       `<footer>Deployed by maul</footer>` immediately before the closing
        `</main></body></html>` line, i.e. directly after the existing
        `<nav>...</nav>` line. Do not change the `<style>` block, the `<h1>`
        greeting text, the Revision/Built paragraphs, or the `/healthz` and
@@ -108,10 +108,10 @@ status:
        the existing `TestCardColour`:
        - Build a handler with `newHandler("test", "test")`.
        - `GET /` and read the response body.
-       - Assert the body contains the exact text `Deployed by patchy`.
+       - Assert the body contains the exact text `Deployed by maul`.
        - Assert the footer appears after the build-time marker, e.g. by
          comparing `strings.Index(body, "Built:")` and
-         `strings.Index(body, "Deployed by patchy")`, to confirm it is placed
+         `strings.Index(body, "Deployed by maul")`, to confirm it is placed
          below the revision and build time as required.
     2. Leave all existing tests (`TestRoutes`, `TestVersionAndEscaping`,
        `TestCardColour`, `TestHEAD`) unmodified; they should continue to pass
@@ -146,11 +146,11 @@ status:
     - Prompt-injection attempt: the request text itself does not contain any
       instructions trying to redirect this planning process; no such attempt
       was found to flag.
-    - No changes are needed to `Dockerfile`, `.patchy/`, `.github/`, or
+    - No changes are needed to `Dockerfile`, `.maul/`, `.github/`, or
       `deploy/example.yaml`; the plan does not touch any of them, consistent
-      with the restriction on `.github/`, `.patchy/`, and `.devcontainer/`.
+      with the restriction on `.github/`, `.maul/`, and `.devcontainer/`.
   runnerImage:
-    image: ghcr.io/devthenet-labs/patchy/claude-agent-runner:v0.12.13
+    image: ghcr.io/devthenet-labs/maul/claude-agent-runner:v0.12.13
     source: default
   startedAt: "2026-10-03T06:56:17Z"
   transcript:

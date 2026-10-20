@@ -1,0 +1,662 @@
+// Copyright 2026 Bitwise Media Group Ltd.
+// SPDX-License-Identifier: MIT
+
+package previewcheck
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net"
+	"net/http"
+	"net/netip"
+	"net/url"
+	"slices"
+	"strings"
+
+	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/cmd/maul/internal/checkreport"
+	"github.com/devthenet-labs/maul/cmd/maul/internal/previewsetup"
+	"github.com/devthenet-labs/maul/cmd/maul/internal/tailnet"
+	"github.com/devthenet-labs/maul/internal/previewauth"
+)
+
+// The preview gateway's checks (design §5, Revision 1), run instead of the
+// legacy ALB path's while previewAuth.gateway is on.
+
+// publishedAnnotation is where the chart records
+// previewAuth.gateway.publishedAddresses on the relay's ConfigMap: the
+// addresses the wildcard record should hold when the exposure publishes
+// none.
+const publishedAnnotation = "maul.run/preview-gateway-published-addresses"
+
+// relayConfigSuffix and gatewaySuffix name the chart's objects:
+// <fullname>-preview-auth-config is the relay's ConfigMap, and
+// <fullname>-preview-gateway the gateway's Service, Ingress and HTTPRoute.
+const (
+	relayConfigSuffix = "-preview-auth-config"
+	gatewaySuffix     = "-preview-gateway"
+)
+
+// gatewayAdmits is the TLS and host checks' reason for a timeout in gateway
+// mode.
+const gatewayAdmits = "the gateway's edge may admit only previewAuth.gateway.inboundCIDRs"
+
+// probeMode is the path that serves preview hosts: the gateway only while
+// it is on, and the legacy slot Ingress only while preview-controller
+// renders it (its flag's default, true, when unset).
+func (s Settings) probeMode() previewauth.ProbeMode {
+	return previewauth.ProbeModeFor(s.Auth.Found() && s.Auth.Bool(keyAuthGateway), s.legacyIngress())
+}
+
+// gatewayEdge is where the wildcard record should point for the gateway:
+// the published addresses, else its exposure's status.
+type gatewayEdge struct {
+	name  string
+	addrs []string
+	// private: every address is private (RFC 1918, ULA, CGNAT and so a
+	// tailnet, loopback or link-local), which public DNS rarely holds.
+	private bool
+	// why is set when there is nothing to compare against, and status then
+	// says what that makes the DNS check.
+	why    string
+	status checkreport.Status
+	// tunnel is set when the exposure publishes no address, which a
+	// Cloudflare Tunnel may serve (tunnel.go).
+	tunnel *tunnelEdge
+	// records are the exact DNS records the edge needs, when the check
+	// found its address itself (a tailnet device), for every reason that
+	// asks for them.
+	records []string
+}
+
+// gatewayEdge reads where the gateway is published: the chart's
+// publishedAddresses (an override), else the gateway's Ingress or
+// LoadBalancer Service status.
+func (c *Checker) gatewayEdge(ctx context.Context, s Settings) gatewayEdge {
+	if v := strings.TrimSpace(s.Auth.Annotations[publishedAnnotation]); v != "" {
+		return c.publishedEdge(ctx, v)
+	}
+	base, ok := strings.CutSuffix(s.Auth.Name, relayConfigSuffix)
+	if !ok {
+		return gatewayEdge{status: checkreport.Skip, why: fmt.Sprintf("the relay's ConfigMap %q is not named "+
+			"<release>%s, so the gateway's exposure cannot be found", s.Auth.Name, relayConfigSuffix)}
+	}
+	key := types.NamespacedName{Namespace: c.cfg.Namespace, Name: base + gatewaySuffix}
+	var ing networkingv1.Ingress
+	switch err := c.cfg.Reader.Get(ctx, key, &ing); {
+	case err == nil:
+		for _, in := range ing.Status.LoadBalancer.Ingress {
+			if e, ok := c.statusEdge(ctx, "Ingress "+key.String(), in.Hostname, in.IP); ok {
+				return e
+			}
+		}
+		return gatewayEdge{status: checkreport.Skip, why: fmt.Sprintf("the gateway's Ingress %s has no address "+
+			"yet (an ingress controller that publishes none needs previewAuth.gateway.publishedAddresses)", key)}
+	case !apierrors.IsNotFound(err):
+		return gatewayEdge{status: checkreport.Skip, why: fmt.Sprintf("cannot read the gateway's Ingress %s: %v",
+			key, err)}
+	}
+	var svc corev1.Service
+	switch err := c.cfg.Reader.Get(ctx, key, &svc); {
+	case err == nil && svc.Spec.Type == corev1.ServiceTypeLoadBalancer:
+		for _, in := range svc.Status.LoadBalancer.Ingress {
+			if e, ok := c.statusEdge(ctx, "Service "+key.String(), in.Hostname, in.IP); ok {
+				return e
+			}
+		}
+		return gatewayEdge{status: checkreport.Fail, why: fmt.Sprintf("the gateway's LoadBalancer Service %s has "+
+			"no address, so its load balancer is not provisioned (the Service's events say why)", key)}
+	case err != nil && !apierrors.IsNotFound(err):
+		return gatewayEdge{status: checkreport.Skip, why: fmt.Sprintf("cannot read the gateway's Service %s: %v",
+			key, err)}
+	case err == nil && svc.Annotations[tailscaleExpose] == "true":
+		return c.tailnetEdge(ctx, s, svc)
+	}
+	t := c.findTunnel(ctx, strings.TrimSpace(s.Preview.Data[keyPreviewHostSuffix]))
+	if t.id != "" {
+		return gatewayEdge{status: checkreport.Skip, tunnel: &t, name: "Cloudflare Tunnel " + t.id,
+			why: fmt.Sprintf("the gateway's exposure is Cloudflare Tunnel %s (%s), which publishes no address of "+
+				"its own", t.id, t.where)}
+	}
+	why := "the gateway's exposure publishes no address (an HTTPRoute, whose Gateway holds it, or a tunnel): set " +
+		"previewAuth.gateway.publishedAddresses to compare against"
+	if t.lookup != "" {
+		why += " (" + t.lookup + ", so a cloudflare-tunnel recipe's tunnel could not be looked for)"
+	}
+	return gatewayEdge{status: checkreport.Skip, tunnel: &t, why: why}
+}
+
+// The Tailscale operator's Service annotations: expose gives the Service a
+// tailnet device, named by hostname (else <namespace>-<name>) and tagged
+// by tags (else tag:k8s, the operator's default).
+const (
+	tailscaleExpose     = "tailscale.com/expose"
+	tailscaleHostname   = "tailscale.com/hostname"
+	tailscaleTags       = "tailscale.com/tags"
+	tailscaleDefaultTag = "tag:k8s"
+)
+
+// tailnetEdge is the gateway's tailnet device, which the Tailscale
+// operator records only in its proxy's state Secret (beside the device's
+// keys, so never read): the caller's own Tailscale client is asked
+// instead. This machine is then on the tailnet, and resolves names as a
+// viewer on it does, so the edge counts as public: a missing or wrong
+// record fails, with the exact records to create.
+func (c *Checker) tailnetEdge(ctx context.Context, s Settings, svc corev1.Service) gatewayEdge {
+	hostname := strings.TrimSpace(svc.Annotations[tailscaleHostname])
+	if hostname == "" {
+		hostname = svc.Namespace + "-" + svc.Name
+	}
+	var tags []string
+	for t := range strings.SplitSeq(svc.Annotations[tailscaleTags], ",") {
+		if t = strings.TrimSpace(t); t != "" {
+			tags = append(tags, t)
+		}
+	}
+	if len(tags) == 0 {
+		tags = []string{tailscaleDefaultTag}
+	}
+	device := fmt.Sprintf("the tailnet device %s (%s)", hostname, strings.Join(tags, ", "))
+	if c.cfg.Tailnet == nil {
+		return gatewayEdge{status: checkreport.Skip, why: fmt.Sprintf("the gateway's exposure is %s, whose address "+
+			"is known to the tailnet alone: set previewAuth.gateway.publishedAddresses to compare against", device)}
+	}
+	m := tailnet.Lookup(ctx, c.cfg.Tailnet, hostname, tags)
+	if !m.Found {
+		return gatewayEdge{status: checkreport.Skip, why: fmt.Sprintf("the gateway's exposure is %s: %s; run this on "+
+			"a machine on the tailnet, or set previewAuth.gateway.publishedAddresses", device, m.Why)}
+	}
+	suffix := strings.TrimSpace(s.Preview.Data[keyPreviewHostSuffix])
+	signIn := ""
+	if u, err := url.Parse(strings.TrimSpace(s.Auth.Data[keyAuthIssuer])); err == nil {
+		signIn = u.Hostname()
+	}
+	if gw := distinctSignIn(s); gw != "" {
+		signIn = gw
+	}
+	return gatewayEdge{name: "tailnet device " + m.Device.DNSName, addrs: m.Device.IPv4,
+		records: previewsetup.DNSRecords(suffix, signIn, m.Device.IPv4)}
+}
+
+// recordsHint is the records to create, for a reason, when the edge knows
+// them.
+func recordsHint(edge gatewayEdge) string {
+	if len(edge.records) == 0 {
+		return ""
+	}
+	return "; create these records in public DNS: " + strings.Join(edge.records, "; ")
+}
+
+// publishedEdge is the edge the chart's publishedAddresses (v, comma
+// separated) name.
+func (c *Checker) publishedEdge(ctx context.Context, v string) gatewayEdge {
+	var e gatewayEdge
+	named := false
+	for a := range strings.SplitSeq(v, ",") {
+		a = strings.TrimSpace(a)
+		addrs, err := c.addresses(ctx, a)
+		if err != nil {
+			return gatewayEdge{status: checkreport.Skip, why: fmt.Sprintf("the published address %s does not "+
+				"resolve: %v", a, err)}
+		}
+		_, perr := netip.ParseAddr(a)
+		named = named || perr != nil
+		e.addrs = append(e.addrs, addrs...)
+	}
+	// Every reason puts addresses after the edge's name, so the published
+	// value joins the name only when it holds a host name, whose addresses
+	// are not the value itself.
+	e.name = "previewAuth.gateway.publishedAddresses"
+	if named {
+		e.name += " " + v
+	}
+	e.private = allPrivate(e.addrs)
+	return e
+}
+
+// statusEdge is an exposure's status address, resolved when a hostname.
+func (c *Checker) statusEdge(ctx context.Context, what, hostname, ip string) (gatewayEdge, bool) {
+	switch {
+	case hostname != "":
+		addrs, err := c.cfg.Resolver.LookupHost(ctx, hostname)
+		if err != nil {
+			return gatewayEdge{status: checkreport.Skip, why: fmt.Sprintf("the %s address %s does not resolve: %v",
+				what, hostname, err)}, true
+		}
+		return gatewayEdge{name: hostname, addrs: addrs, private: allPrivate(addrs)}, true
+	case ip != "":
+		return gatewayEdge{name: ip, addrs: []string{ip}, private: allPrivate([]string{ip})}, true
+	}
+	return gatewayEdge{}, false
+}
+
+// addresses is a published address: an IP as itself, a name looked up.
+func (c *Checker) addresses(ctx context.Context, a string) ([]string, error) {
+	if _, err := netip.ParseAddr(a); err == nil {
+		return []string{a}, nil
+	}
+	return c.cfg.Resolver.LookupHost(ctx, a)
+}
+
+// cgnat is RFC 6598 shared address space, where tailnet addresses live.
+var cgnat = netip.MustParsePrefix("100.64.0.0/10")
+
+// allPrivate reports whether every address is one public DNS rarely holds.
+func allPrivate(addrs []string) bool {
+	if len(addrs) == 0 {
+		return false
+	}
+	for _, a := range addrs {
+		ip, err := netip.ParseAddr(a)
+		if err != nil {
+			return false
+		}
+		ip = ip.Unmap()
+		if !ip.IsPrivate() && !ip.IsLoopback() && !ip.IsLinkLocalUnicast() && !cgnat.Contains(ip) {
+			return false
+		}
+	}
+	return true
+}
+
+// gatewayHost checks the preview host in gateway mode: <project>-0.<suffix>
+// resolves to the gateway's edge (or, while both paths serve, to the legacy
+// preview load balancer) and serves a certificate trusted for it. A
+// sign-in host other than the relay's own (previewAuth.gateway.signInHost)
+// is routed through the gateway's exposure too, so it gets the same two
+// checks: every viewer's /start redirect lands there.
+func (c *Checker) gatewayHost(ctx context.Context, s Settings, suffix string, mode previewauth.ProbeMode) {
+	signIn := distinctSignIn(s)
+	if suffix == "" {
+		c.add(CheckPreviewDNS, checkreport.Skip, "preview-controller's host suffix is unknown")
+		c.add(CheckPreviewTLS, checkreport.Skip, "preview-controller's host suffix is unknown")
+		if signIn != "" {
+			c.gatewaySignInHost(ctx, signIn, c.gatewayEdge(ctx, s))
+		}
+		return
+	}
+	edge := c.gatewayEdge(ctx, s)
+	c.gatewayProbeHost(ctx, suffix, edge, mode)
+	if signIn != "" {
+		c.gatewaySignInHost(ctx, signIn, edge)
+	}
+}
+
+// gatewayProbeHost is gatewayHost's <project>-0.<suffix> half.
+func (c *Checker) gatewayProbeHost(ctx context.Context, suffix string, edge gatewayEdge, mode previewauth.ProbeMode) {
+	host := c.cfg.Project + "-0." + suffix
+	addrs, err := c.cfg.Resolver.LookupHost(ctx, host)
+	var dnsErr *net.DNSError
+	switch {
+	case err != nil && errors.As(err, &dnsErr) && dnsErr.IsNotFound && edge.private:
+		c.add(CheckPreviewDNS, checkreport.Skip, "%s does not resolve here (%v), and the gateway's edge%s is "+
+			"private, which a split-horizon or tailnet resolver may hold: run this where viewers resolve it", host,
+			err, edgeHint(edge))
+		c.add(CheckPreviewTLS, checkreport.Skip, "%s does not resolve here", host)
+		return
+	case err != nil && errors.As(err, &dnsErr) && dnsErr.IsNotFound:
+		c.add(CheckPreviewDNS, checkreport.Fail, "%s does not resolve (%v): a wildcard record *.%s must point "+
+			"at the preview gateway's edge%s%s", host, err, suffix, edgeHint(edge), recordsHint(edge))
+		c.add(CheckPreviewTLS, checkreport.Skip, "%s does not resolve", host)
+		return
+	case err != nil:
+		c.add(CheckPreviewDNS, checkreport.Skip, "cannot look %s up (%v), which does not say whether the "+
+			"record exists; run this again", host, err)
+		c.add(CheckPreviewTLS, checkreport.Skip, "%s could not be looked up", host)
+		return
+	}
+	slices.Sort(addrs)
+	c.judgeGatewayDNS(ctx, host, suffix, addrs, edge, mode)
+	c.previewTLS(ctx, host, "*."+suffix, gatewayAdmits)
+}
+
+// distinctSignIn is the gateway's sign-in host when it is not the relay's
+// own (whose discovery the sign-in checks already reach), else "".
+func distinctSignIn(s Settings) string {
+	signIn := strings.ToLower(strings.TrimSpace(s.Auth.Data[keyAuthGatewaySignIn]))
+	if signIn == "" {
+		return ""
+	}
+	if u, err := url.Parse(strings.TrimSpace(s.Auth.Data[keyAuthIssuer])); err == nil &&
+		strings.EqualFold(u.Host, signIn) {
+		return ""
+	}
+	return signIn
+}
+
+// gatewaySignInHost checks a sign-in host of its own: it resolves to the
+// gateway's edge, through which the chart routes it, and serves a
+// certificate trusted for it.
+func (c *Checker) gatewaySignInHost(ctx context.Context, host string, edge gatewayEdge) {
+	const record = "previewAuth.gateway.signInHost is routed through the preview gateway's exposure"
+	addrs, err := c.cfg.Resolver.LookupHost(ctx, host)
+	var dnsErr *net.DNSError
+	switch {
+	case err != nil && errors.As(err, &dnsErr) && dnsErr.IsNotFound && edge.private:
+		c.add(CheckPreviewDNS, checkreport.Skip, "the sign-in host %s does not resolve here (%v), and the "+
+			"gateway's edge %s is private, which a split-horizon or tailnet resolver may hold: run this where "+
+			"viewers resolve it", host, err, edge.name)
+		c.add(CheckPreviewTLS, checkreport.Skip, "the sign-in host %s does not resolve here", host)
+		return
+	case err != nil && errors.As(err, &dnsErr) && dnsErr.IsNotFound:
+		c.add(CheckPreviewDNS, checkreport.Fail, "the sign-in host %s does not resolve (%v), so every viewer's "+
+			"sign-in redirect lands nowhere: %s, and its record must point at that edge%s%s", host, err, record,
+			edgeHint(edge), recordsHint(edge))
+		c.add(CheckPreviewTLS, checkreport.Skip, "the sign-in host %s does not resolve", host)
+		return
+	case err != nil:
+		c.add(CheckPreviewDNS, checkreport.Skip, "cannot look the sign-in host %s up (%v), which does not say "+
+			"whether the record exists; run this again", host, err)
+		c.add(CheckPreviewTLS, checkreport.Skip, "the sign-in host %s could not be looked up", host)
+		return
+	}
+	slices.Sort(addrs)
+	got := strings.Join(addrs, ", ")
+	tStatus, tReason, tunnel := c.tunnelVerdict(ctx, host, host, addrs, edge)
+	switch {
+	case tunnel:
+		c.add(CheckPreviewDNS, tStatus, "the sign-in host %s", tReason)
+	case edge.why != "":
+		c.add(CheckPreviewDNS, edge.status, "the sign-in host %s resolves to %s, but it cannot be compared with "+
+			"the preview gateway's edge: %s", host, got, edge.why)
+	case slices.ContainsFunc(addrs, func(a string) bool { return slices.Contains(edge.addrs, a) }):
+		c.add(CheckPreviewDNS, checkreport.Pass, "the sign-in host %s resolves to the preview gateway's edge %s "+
+			"(%s)", host, edge.name, got)
+	case edge.private:
+		c.add(CheckPreviewDNS, checkreport.Skip, "the sign-in host %s resolves to %s here, not to the gateway's "+
+			"private edge %s (%s), which a split-horizon or tailnet resolver may hold: run this where viewers "+
+			"resolve it", host, got, edge.name, strings.Join(edge.addrs, ", "))
+	default:
+		c.add(CheckPreviewDNS, checkreport.Fail, "the sign-in host %s resolves to %s, but the preview gateway's "+
+			"edge %s is at %s: %s, and its record must point at that edge%s", host, got, edge.name,
+			strings.Join(edge.addrs, ", "), record, recordsHint(edge))
+	}
+	c.previewTLS(ctx, host, host, gatewayAdmits)
+}
+
+// edgeHint names the gateway's edge, when known, for a reason.
+func edgeHint(edge gatewayEdge) string {
+	if edge.why != "" {
+		return tunnelHint(edge.tunnel)
+	}
+	return " " + edge.name + " (" + strings.Join(edge.addrs, ", ") + ")"
+}
+
+// tunnelVerdict is the DNS line for host when the gateway's exposure
+// publishes no address (judgeTunnelDNS); ok is false when nothing says a
+// Cloudflare Tunnel serves it. record names the DNS record host is under.
+func (c *Checker) tunnelVerdict(ctx context.Context, host, record string, addrs []string,
+	edge gatewayEdge) (status checkreport.Status, reason string, ok bool) {
+	if edge.tunnel == nil {
+		return "", "", false
+	}
+	return judgeTunnelDNS(tunnelDNSInput{host: host, record: record, tunnel: *edge.tunnel,
+		cname: c.cname(ctx, host), addrs: addrs})
+}
+
+// judgeGatewayDNS compares the preview host's addresses with the gateway's
+// edge and, while both paths serve, the legacy load balancer.
+func (c *Checker) judgeGatewayDNS(ctx context.Context, host, suffix string, addrs []string, edge gatewayEdge,
+	mode previewauth.ProbeMode) {
+	shares := func(want []string) bool {
+		return slices.ContainsFunc(addrs, func(a string) bool { return slices.Contains(want, a) })
+	}
+	got := strings.Join(addrs, ", ")
+	if edge.why == "" && shares(edge.addrs) {
+		c.add(CheckPreviewDNS, checkreport.Pass, "%s resolves to the preview gateway's edge %s (%s)", host,
+			edge.name, got)
+		return
+	}
+	tStatus, tReason, tunnel := c.tunnelVerdict(ctx, host, "*."+suffix, addrs, edge)
+	if tunnel && tStatus == checkreport.Pass {
+		c.add(CheckPreviewDNS, tStatus, "%s", tReason)
+		return
+	}
+	if mode == previewauth.ProbeEither {
+		if lb := c.loadBalancer(ctx); lb.why == "" && shares(lb.addrs) {
+			c.add(CheckPreviewDNS, checkreport.Pass, "%s still resolves to the legacy preview load balancer %s "+
+				"(%s): both paths sign viewers in, and the gateway serves these hosts once the record points at "+
+				"its edge%s (point it back here to roll back)", host, lb.name, got, edgeHint(edge))
+			return
+		}
+	}
+	switch {
+	case tunnel:
+		c.add(CheckPreviewDNS, tStatus, "%s", tReason)
+	case edge.why != "":
+		c.add(CheckPreviewDNS, edge.status, "%s resolves to %s, but it cannot be compared with the preview "+
+			"gateway's edge: %s", host, got, edge.why)
+	case edge.private:
+		c.add(CheckPreviewDNS, checkreport.Skip, "%s resolves to %s here, not to the gateway's private edge "+
+			"%s (%s), which a split-horizon or tailnet resolver may hold: run this where viewers resolve it", host,
+			got, edge.name, strings.Join(edge.addrs, ", "))
+	default:
+		c.add(CheckPreviewDNS, checkreport.Fail, "%s resolves to %s, but the preview gateway's edge %s is at "+
+			"%s: the wildcard record *.%s must point at it%s", host, got, edge.name, strings.Join(edge.addrs, ", "),
+			suffix, recordsHint(edge))
+	}
+}
+
+// navigation is how a browser opens a preview host, as far as the gateway
+// tells navigations from background requests without Sec-Fetch metadata.
+var navigation = http.Header{"Accept": {"text/html"}}
+
+// gatewayHosts probes the preview hosts without credentials as the relay's
+// own probe does in mode: each Ready Preview of the Project must answer
+// with a redirect to sign in for its own label (the gateway's, or while
+// both paths serve, either), and a host no Preview owns with the gateway's
+// own 404 page, never an app's answer. While both paths serve and sign-in
+// is not required on the legacy one (the permit stage), a host behind the
+// ALB answers without sign-in, so only the gateway's answers pass and any
+// other is a SKIP.
+func (c *Checker) gatewayHosts(ctx context.Context, s Settings, issuer, suffix string, mode previewauth.ProbeMode,
+	required bool) {
+	cb, err := previewauth.NewCallbacks(suffix)
+	if err != nil {
+		c.add(CheckPreviewAuthHost, checkreport.Skip, "preview-controller's host suffix %q is unusable: %v",
+			suffix, err)
+		return
+	}
+	signIn := s.Auth.Data[keyAuthGatewaySignIn]
+	if signIn == "" {
+		signIn = strings.TrimPrefix(issuer, "https://")
+	}
+	hosts, err := previewauth.NewHosts(suffix, signIn)
+	if err != nil {
+		c.add(CheckPreviewAuthHost, checkreport.Skip, "the gateway's hosts are unusable: %v", err)
+		return
+	}
+	expect := previewauth.ProbeExpect{Mode: mode, Issuer: issuer, Callbacks: cb, Gateway: hosts}
+	permit := mode == previewauth.ProbeEither && !required
+	if permit {
+		expect.Mode = previewauth.ProbeGateway
+	}
+	c.gatewayUnknownHost(ctx, suffix, mode)
+	if mode == previewauth.ProbeEither && required {
+		c.gatewayPlaceholder(ctx, expect, suffix)
+	}
+	for _, p := range c.readyPreviews(ctx) {
+		name := p.label + "." + suffix
+		status, body, h, err := c.httpDo(ctx, "https://"+name+"/", navigation)
+		location := h.Get("Location")
+		switch {
+		case err != nil && timedOut(err):
+			c.add(CheckPreviewAuthHost, checkreport.Skip, "no answer from %s within %s: %s, so run this from "+
+				"an admitted address", name, httpTimeout, gatewayAdmits)
+		case err != nil:
+			c.add(CheckPreviewAuthHost, checkreport.Fail, "%s: %v", name, err)
+		case expect.Live(status, location, p.slot, p.label) == nil:
+			c.add(CheckPreviewAuthHost, checkreport.Pass, "%s (slot %d) answers without credentials with a "+
+				"redirect to sign in for its own preview (%s)", name, p.slot, location)
+		case previewauth.IsAllowlistRefusal(status, h, body):
+			c.add(CheckPreviewAuthHost, checkreport.Skip, "the preview gateway refuses this address (it is "+
+				"outside previewAuth.gateway.inboundCIDRs), so %s (slot %d) cannot be judged from here", name, p.slot)
+		case permit:
+			c.add(CheckPreviewAuthHost, checkreport.Skip, "%s (slot %d) answered %d without credentials, not the "+
+				"gateway's redirect: sign-in is not required on the legacy ALB path yet (previewAuth.stage=permit), "+
+				"which may still answer here", name, p.slot, status)
+		default:
+			c.add(CheckPreviewAuthHost, checkreport.Fail, "%s (slot %d) answered %d (Location %q) without "+
+				"credentials, not a redirect to sign in at https://%s/start for %s: something other than the "+
+				"preview gateway serves it", name, p.slot, status, location, signIn, p.label)
+		}
+	}
+}
+
+// previewHostRef is one Ready Preview's host.
+type previewHostRef struct {
+	label string
+	slot  int
+}
+
+// readyPreviews lists the Ready Previews the run probes (Checker.probes); a
+// failed list is a SKIP line and none.
+func (c *Checker) readyPreviews(ctx context.Context) []previewHostRef {
+	var list v1alpha1.PreviewList
+	if err := c.cfg.Reader.List(ctx, &list, client.InNamespace(c.cfg.Namespace)); err != nil {
+		c.add(CheckPreviewAuthHost, checkreport.Skip, "cannot list the Previews in namespace %s: %v",
+			c.cfg.Namespace, err)
+		return nil
+	}
+	var out []previewHostRef
+	for i := range list.Items {
+		p := &list.Items[i]
+		if c.probes(p) {
+			out = append(out, previewHostRef{label: p.Spec.HostLabel, slot: int(*p.Status.Slot)})
+		}
+	}
+	return out
+}
+
+// probes reports whether the run probes p's host: a Ready Preview with a
+// slot, not being deleted, of the run's Project (any, with AllPreviews).
+func (c *Checker) probes(p *v1alpha1.Preview) bool {
+	return (c.cfg.AllPreviews || p.Spec.Project == c.cfg.Project) && p.Status.Phase == v1alpha1.PreviewReady &&
+		p.Status.Slot != nil && p.DeletionTimestamp == nil
+}
+
+// gatewayUnknownHost probes <project>-0.<suffix>, which no Preview owns:
+// the gateway answers it with its own 404 page. While both paths serve, the
+// record may still point at the legacy load balancer, so another answer is
+// a SKIP rather than a FAIL.
+func (c *Checker) gatewayUnknownHost(ctx context.Context, suffix string, mode previewauth.ProbeMode) {
+	name := c.cfg.Project + "-0." + suffix
+	status, body, h, err := c.httpDo(ctx, "https://"+name+"/", navigation)
+	switch {
+	case err != nil && timedOut(err):
+		c.add(CheckPreviewAuthHost, checkreport.Skip, "no answer from %s within %s: %s, so run this from an "+
+			"admitted address", name, httpTimeout, gatewayAdmits)
+	case err != nil:
+		c.add(CheckPreviewAuthHost, checkreport.Fail, "%s: %v", name, err)
+	case previewauth.JudgeGatewayUnknown(status, h, body) == nil:
+		c.add(CheckPreviewAuthHost, checkreport.Pass, "%s, which no preview owns, answers with the preview "+
+			"gateway's 404 page", name)
+	case previewauth.IsAllowlistRefusal(status, h, body):
+		c.add(CheckPreviewAuthHost, checkreport.Skip, "the preview gateway refuses this address (it is "+
+			"outside previewAuth.gateway.inboundCIDRs), so %s cannot be judged from here", name)
+	case mode == previewauth.ProbeEither:
+		c.add(CheckPreviewAuthHost, checkreport.Skip, "%s, which no preview owns, answered %d, not the preview "+
+			"gateway's 404 page: the wildcard record may still point at the legacy preview load balancer", name,
+			status)
+	default:
+		c.add(CheckPreviewAuthHost, checkreport.Fail, "%s, which no preview owns, answered %d without "+
+			"credentials, not the preview gateway's 404 page: point the wildcard record *.%s at the gateway's edge, "+
+			"and have the edge send every host under it to the gateway", name, status, suffix)
+	}
+}
+
+// gatewayPlaceholder probes the legacy placeholder host while both paths
+// serve: the ALB's redirect for slot 0 there, or the gateway's 404 (no
+// Preview is named placeholder) once the record points at the gateway.
+func (c *Checker) gatewayPlaceholder(ctx context.Context, expect previewauth.ProbeExpect, suffix string) {
+	name := placeholderLabel + "." + suffix
+	status, body, h, err := c.httpDo(ctx, "https://"+name+"/", navigation)
+	switch {
+	case err != nil && timedOut(err):
+		c.add(CheckPreviewAuthHost, checkreport.Skip, "no answer from %s within %s: run this from an admitted "+
+			"address", name, httpTimeout)
+	case err != nil:
+		c.add(CheckPreviewAuthHost, checkreport.Fail, "%s: %v", name, err)
+	case expect.Live(status, h.Get("Location"), 0, placeholderLabel) == nil ||
+		previewauth.JudgeGatewayUnknown(status, h, body) == nil:
+		c.add(CheckPreviewAuthHost, checkreport.Pass, "%s answers without credentials with the legacy redirect "+
+			"to the relay or the gateway's 404 page", name)
+	case previewauth.IsAllowlistRefusal(status, h, body):
+		c.add(CheckPreviewAuthHost, checkreport.Skip, "the preview gateway refuses this address (it is "+
+			"outside previewAuth.gateway.inboundCIDRs), so %s cannot be judged from here", name)
+	default:
+		c.add(CheckPreviewAuthHost, checkreport.Fail, "%s answered %d (Location %q) without credentials, "+
+			"neither the redirect to %s/authorize for client %s nor the gateway's 404 page", name, status,
+			h.Get("Location"), expect.Issuer, previewauth.ClientID(0))
+	}
+}
+
+// gatewayAllowlist checks the gateway's inbound allowlist cannot be talked
+// round: from an address it refuses, a request to a preview host naming an
+// admitted address in X-Forwarded-For must still be refused. A gateway
+// trusting more forwarded hops than the proxies in front of it would take
+// the spoofed entry for the client. Without inboundCIDRs there is nothing to
+// check; from an admitted address a spoof proves nothing.
+func (c *Checker) gatewayAllowlist(ctx context.Context, s Settings, suffix string) {
+	cidrs := s.Auth.List(keyAuthGatewayInbound)
+	if len(cidrs) == 0 {
+		c.add(CheckPreviewGatewayAllowlist, checkreport.Skip, "previewAuth.gateway.inboundCIDRs is empty: "+
+			"every address may open the gateway's sign-in, and every preview host still requires it")
+		return
+	}
+	prefix, err := netip.ParsePrefix(cidrs[0])
+	if err != nil {
+		c.add(CheckPreviewGatewayAllowlist, checkreport.Fail, "%s sets %s to %q, which the gateway refuses to "+
+			"start with: %v", s.Auth.From, keyAuthGatewayInbound, cidrs[0], err)
+		return
+	}
+	spoof := prefix.Masked().Addr()
+	if next := spoof.Next(); next.IsValid() && prefix.Contains(next) {
+		spoof = next
+	}
+	name := c.cfg.Project + "-0." + suffix
+	u := "https://" + name + "/"
+	status, body, h, err := c.httpDo(ctx, u, navigation)
+	switch {
+	case err == nil && previewauth.JudgeGatewayUnknown(status, h, body) == nil:
+		c.add(CheckPreviewGatewayAllowlist, checkreport.Skip, "the preview gateway admits this address (it is "+
+			"inside previewAuth.gateway.inboundCIDRs), so a spoofed X-Forwarded-For proves nothing from here: run "+
+			"this from outside them")
+		return
+	case err != nil && !timedOut(err):
+		c.add(CheckPreviewGatewayAllowlist, checkreport.Skip, "%s: %v", name, err)
+		return
+	case err == nil && status != http.StatusForbidden:
+		c.add(CheckPreviewGatewayAllowlist, checkreport.Skip, "%s answered %d, neither the gateway's 404 "+
+			"page nor a refusal, so the allowlist cannot be judged from here", name, status)
+		return
+	}
+	spoofed := http.Header{"Accept": {"text/html"}, "X-Forwarded-For": {spoof.String()}}
+	status, body, h, err = c.httpDo(ctx, u, spoofed)
+	switch {
+	case err != nil || status == http.StatusForbidden:
+		c.add(CheckPreviewGatewayAllowlist, checkreport.Pass, "this address is refused, and still is with "+
+			"X-Forwarded-For %s, an address inside previewAuth.gateway.inboundCIDRs", spoof)
+	default:
+		c.add(CheckPreviewGatewayAllowlist, checkreport.Fail, "this address is refused, but %s answered %d "+
+			"once X-Forwarded-For named %s, inside previewAuth.gateway.inboundCIDRs: the gateway trusts more "+
+			"forwarded hops (previewAuth.gateway.forwardedHops) than there are proxies in front of it%s", name, status,
+			spoof, gatewayPageNote(status, h, body))
+	}
+}
+
+// gatewayPageNote says when an answer was the gateway's own 404, the proof
+// the spoof got past the allowlist.
+func gatewayPageNote(status int, h http.Header, body []byte) string {
+	if previewauth.JudgeGatewayUnknown(status, h, body) == nil {
+		return " (it answered with the gateway's 404 page, which comes only after the allowlist)"
+	}
+	return ""
+}

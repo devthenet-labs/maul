@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
-	"github.com/bitwise-media-group/patchy/internal/report"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/report"
 )
 
 // intents#33's refusal, as its build agent quoted it.
@@ -38,7 +38,7 @@ func pyProfiles(t *testing.T) netprofile.Set {
 func withTunnelProfile(t *testing.T, e *env) {
 	t.Helper()
 	set := pyProfiles(t)
-	base, err := url.Parse("http://patchy-egress-proxy.patchy.svc.cluster.local")
+	base, err := url.Parse("http://maul-egress-proxy.maul.svc.cluster.local")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +85,7 @@ func TestRefusedDependencyEndsTheBuild(t *testing.T) {
 	withTunnelProfile(t, e)
 	e.jobs.output = notBuilt(refusedReport(torchRefusal))
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentFailed, repoImage)
 	runs := e.runsOf(name, v1alpha1.IntentStageBuild)
 	if len(runs) != 1 {
@@ -105,12 +105,12 @@ func TestRefusedDependencyEndsTheBuild(t *testing.T) {
 			t.Errorf("detail lacks %q:\n%s", want, run.Status.Detail)
 		}
 	}
-	if e.gh.hasLabel("patchy:target") || in.Status.CompletedAt == nil {
-		t.Errorf("failed intent: trigger label present %v, completedAt %v", e.gh.hasLabel("patchy:target"),
+	if e.gh.hasLabel("maul:target") || in.Status.CompletedAt == nil {
+		t.Errorf("failed intent: trigger label present %v, completedAt %v", e.gh.hasLabel("maul:target"),
 			in.Status.CompletedAt)
 	}
 	e.mustIntent(name)
-	st := e.gh.withMarker("patchy:intent")
+	st := e.gh.withMarker("maul:intent")
 	if len(st) != 1 || !strings.Contains(st[0].Body, OutcomeDependencyRefused) ||
 		!strings.Contains(st[0].Body, "download.pytorch.org") {
 		t.Errorf("status comment does not explain the refusal: %+v", st)
@@ -150,7 +150,7 @@ func TestBuildFailuresThatStillRetry(t *testing.T) {
 			}
 			e.jobs.output = tt.output
 			name := e.awaiting()
-			e.gh.label(1, "patchy:approved", approver)
+			e.gh.label(1, "maul:approved", approver)
 			e.drive(name, v1alpha1.IntentFailed, repoImage)
 			runs := e.runsOf(name, v1alpha1.IntentStageBuild)
 			if len(runs) != 2 {
@@ -174,7 +174,7 @@ func TestRefusedDependencyEndsTheReviseRound(t *testing.T) {
 	e := newEnv(t, testProject())
 	withTunnelProfile(t, e)
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 	number := in.Status.PullRequests[0].Number
 	e.jobs.output = notBuilt(refusedReport(torchRefusal))
@@ -229,7 +229,7 @@ func TestDependencyRefusedDetail(t *testing.T) {
 }
 
 // TestHostRefusalIsHeldToTheProfile: the agent's refused lines are
-// untrusted, so a host refusal counts (and becomes patchy's instruction to
+// untrusted, so a host refusal counts (and becomes maul's instruction to
 // add the host) only when the proxy could have written it for the run: it
 // names the recorded profile, that profile is known and has a tunnel, does
 // not list the host already, and the host is not one the proxy never
@@ -255,7 +255,7 @@ func TestHostRefusalIsHeldToTheProfile(t *testing.T) {
 		{"the recorded profile's refusal", torchRefusal, "py", pyProfiles(t), true},
 		{"another profile named", "403 egress-proxy: paste.attacker.dev is not in profile x's hosts", "py",
 			pyProfiles(t), false},
-		{"a profile patchy no longer knows", torchRefusal, "web", pyProfiles(t), false},
+		{"a profile maul no longer knows", torchRefusal, "web", pyProfiles(t), false},
 		{"a profile without a tunnel", torchRefusal, "py", goOnly, false},
 		{"a host the profile lists", "403 egress-proxy: pypi.org is not in profile py's hosts", "py", pyProfiles(t),
 			false},

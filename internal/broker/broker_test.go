@@ -24,18 +24,18 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
 
-	"github.com/bitwise-media-group/patchy/internal/provider"
+	"github.com/devthenet-labs/maul/internal/provider"
 )
 
 const (
-	testNamespace = "patchy-agents"
-	testSA        = "patchy-agent"
+	testNamespace = "maul-agents"
+	testSA        = "maul-agent"
 	testSubject   = "system:serviceaccount:" + testNamespace + ":" + testSA
 	// testJob is an agent Job and testJobPod the pod the Job controller
 	// would name for it; testController is a run controller's identity.
-	testJob        = "patchy-0a1b2c3d4e-inv-a1"
+	testJob        = "maul-0a1b2c3d4e-inv-a1"
 	testJobPod     = testJob + "-x7k2p"
-	testController = "system:serviceaccount:patchy:patchy-investigation-controller"
+	testController = "system:serviceaccount:maul:maul-investigation-controller"
 )
 
 // tokenExp is a fixed far-future expiry so a minted token is byte-stable

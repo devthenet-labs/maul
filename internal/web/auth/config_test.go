@@ -48,7 +48,7 @@ func TestLoadConfigModes(t *testing.T) {
 		},
 		{
 			name: "anonymous",
-			yaml: "mode: anonymous\nanonymous:\n  username: viewer\n  groups: [patchy-viewers]\n",
+			yaml: "mode: anonymous\nanonymous:\n  username: viewer\n  groups: [maul-viewers]\n",
 			check: func(t *testing.T, cfg *Config) {
 				if cfg.Anonymous.Username != "viewer" || len(cfg.Anonymous.Groups) != 1 {
 					t.Errorf("anonymous = %+v", cfg.Anonymous)
@@ -58,7 +58,7 @@ func TestLoadConfigModes(t *testing.T) {
 		{
 			name: "oidc with defaults",
 			yaml: "mode: oidc\nsessionDuration: 12h\noidc:\n  issuerURL: https://sso.acme.test\n" +
-				"  clientID: patchy\n  clientSecret: s3cret\n",
+				"  clientID: maul\n  clientSecret: s3cret\n",
 			check: func(t *testing.T, cfg *Config) {
 				if cfg.SessionDuration.Duration != 12*time.Hour {
 					t.Errorf("sessionDuration = %v", cfg.SessionDuration.Duration)

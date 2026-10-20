@@ -1,7 +1,7 @@
 // Copyright 2026 Bitwise Media Group Ltd.
 // SPDX-License-Identifier: MIT
 
-// Package ghclient is patchy's GitHub REST client: GitHub App and
+// Package ghclient is maul's GitHub REST client: GitHub App and
 // personal-access-token authentication, installation-scoped clients and
 // short-lived scoped tokens, and a narrow, fake-able surface (IssueStore,
 // AlertStore, RepoStore) over the handful of endpoints the controllers

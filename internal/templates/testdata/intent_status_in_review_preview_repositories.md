@@ -1,5 +1,5 @@
-<!-- patchy:intent patchy/marigold-3 -->
-### patchy
+<!-- maul:intent maul/marigold-3 -->
+### maul
 
 **Phase:** `InReview`: the pull requests are open for review.
 
@@ -14,11 +14,11 @@
 - [devthenet-labs/marigold-web#4](https://github.com/devthenet-labs/marigold-web/pull/4) (open)
 - [devthenet-labs/Acme.Web_App#9](https://github.com/devthenet-labs/Acme.Web_App/pull/9) (open)
 
-**Preview:** [`marigold-3.preview.patchy.example.com`](https://marigold-3.preview.patchy.example.com)
+**Preview:** [`marigold-3.preview.maul.example.com`](https://marigold-3.preview.maul.example.com)
 
 - `/`: `devthenet-labs/marigold-web` at `4b825dc642cb`
 - `/api`: `devthenet-labs/Acme.Web_App` at `9f1c0e5d2a7b`
 
-**Commands now:** `/patchy cancel`
+**Commands now:** `/maul cancel`
 
-_patchy updates this comment as the work progresses._
+_maul updates this comment as the work progresses._

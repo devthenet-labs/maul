@@ -128,7 +128,7 @@ func repoURL(i int) string { return fmt.Sprintf("https://github.com/devthenet-la
 
 // projectCRD is the Project CRD generated from api/v1alpha1, whose
 // repositories[].url pattern repositoryURL copies.
-const projectCRD = "../../deploy/kustomize/base/crds/patchy.bitwisemedia.uk_projects.yaml"
+const projectCRD = "../../deploy/kustomize/base/crds/maul.run_projects.yaml"
 
 // TestRepositoryURLMatchesProjectSchema guards the copy repositoryURL holds
 // of the Project schema's repository URL pattern. report does not import
@@ -235,7 +235,7 @@ func TestParsePlanErrors(t *testing.T) {
   - "one\u2029two"`), "questions[0] holds U+2029, a line or paragraph separator"},
 		{"dependency with a next line", planWith(deps, `new_dependencies:
   - "example.com/dep\u0085v1"`), "new_dependencies[0] holds U+0085, a control character"},
-		{"repository with a line separator", repo(`https://github.com/devthenet-labs/patchy\u2028target`),
+		{"repository with a line separator", repo(`https://github.com/devthenet-labs/maul\u2028target`),
 			"not an https"},
 		{"missing repositories", planWith(repos+"\n", ""), "repositories is required"},
 		{"empty repositories", planWith(repos, "repositories: []"), "repositories is required"},

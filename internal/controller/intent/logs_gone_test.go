@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/jobs"
 )
 
 // evictionMessage is the kubelet's message on the live eviction this
@@ -38,7 +38,7 @@ func TestEvictedBuildWithLogGoneSettles(t *testing.T) {
 			jobs.ErrLogsGone)
 	}
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	if errs := e.driveCollectingErrors(name, v1alpha1.IntentFailed); len(errs) != 0 {
 		t.Fatalf("collecting an evicted build failed %d times, want none: %v", len(errs), errs)
 	}
@@ -100,7 +100,7 @@ func TestTransientLogReadRetries(t *testing.T) {
 		return nil
 	}
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	errs := e.driveCollectingErrors(name, v1alpha1.IntentInReview)
 	if len(errs) != 2 || !errors.Is(errs[0], errFlaky) {
 		t.Fatalf("errors = %v, want the two transient read failures returned for a retry", errs)

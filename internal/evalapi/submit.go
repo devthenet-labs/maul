@@ -15,9 +15,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/bitwise-media-group/patchy/api/v1alpha1"
-	ctrleval "github.com/bitwise-media-group/patchy/internal/controller/evaluation"
-	"github.com/bitwise-media-group/patchy/pkg/evaluation"
+	"github.com/devthenet-labs/maul/api/v1alpha1"
+	ctrleval "github.com/devthenet-labs/maul/internal/controller/evaluation"
+	"github.com/devthenet-labs/maul/pkg/evaluation"
 )
 
 // maxExecJSONBytes mirrors the CRD's UnitPlan.ExecJSON MaxLength.
@@ -134,7 +134,7 @@ func (s *Server) buildEvaluation(sub *evaluation.Submission, submitter string) (
 }
 
 // unitPlanFor validates one UnitSpec and renders its CR plan: the fields
-// patchy schedules on typed, everything the pod needs serialized whole into
+// maul schedules on typed, everything the pod needs serialized whole into
 // ExecJSON.
 func unitPlanFor(u evaluation.UnitSpec) (v1alpha1.UnitPlan, error) {
 	switch {

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/report"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/report"
 )
 
 const planReport = `---

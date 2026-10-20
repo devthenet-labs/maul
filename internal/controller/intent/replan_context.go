@@ -12,8 +12,8 @@ import (
 
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/ghclient"
 )
 
 // A replan's or a revival's planner starts from what the intent already
@@ -140,7 +140,7 @@ func later(a, b *v1alpha1.IntentRun) bool {
 
 // earlierIssueComments is the approvers' comments on the issue from the
 // trigger up to the previous plan's posting, under feedbackSince's filters
-// (not patchy's, not a bot's, an approver's, never edited), the newest kept
+// (not maul's, not a bot's, an approver's, never edited), the newest kept
 // within maxEarlierFeedbackBytes with a visible count of the older ones left
 // out. An edited or vanished comment, or one whose edit check fails, is
 // skipped. "" when there is no

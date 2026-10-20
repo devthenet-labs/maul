@@ -1,4 +1,4 @@
-# patchy
+# maul
 
 An end-to-end workflow for triaging and remediating security findings from multiple sources, using Kubernetes custom
 resources as the state machine and GitHub issues as a human-facing projection.
@@ -21,12 +21,12 @@ statistics.
 | `remediation-controller`   | Queue admission, priority-ordered remediation Jobs, changeset push + pull requests, rollup statistics and the finding TTL                  |
 | `agent-runner`             | In-pod coding-agent runtime: investigate or remediate via `claude -p`                                                                      |
 | `status-server`            | The human-facing status page: findings/rollup projection, OIDC sign-in, the RBAC-gated actions                                             |
-| `patchy`                   | The workstation CLI: list, review and act on findings over your own kubeconfig — never through a controller                                |
+| `maul`                     | The workstation CLI: list, review and act on findings over your own kubeconfig — never through a controller                                |
 
 See [DESIGN.md](DESIGN.md) for the full requirements and the state machine, and [AGENTS.md](AGENTS.md) for a map of the
 repository. Full documentation — getting started, configuration and deployment references — lives at
-[oss.bitwisemedia.uk/patchy](https://oss.bitwisemedia.uk/patchy/) (source under [`docs/`](docs/); build locally with
-`mise run serve`).
+[devthenet-labs.github.io/maul](https://devthenet-labs.github.io/maul/) (source under [`docs/`](docs/); build locally
+with `mise run serve`).
 
 ## Building
 
@@ -56,30 +56,30 @@ the secrets and custom resources to create, and how the agent's isolation actual
 kubectl apply -k deploy/kustomize/overlays/dev
 ```
 
-Helm charts rendering the same stack are published to OCI on every release — [`charts/patchy`](charts/patchy/README.md)
-is the stack; [`charts/patchy-config`](charts/patchy-config/README.md) carries the Integration/Forge custom resources,
+Helm charts rendering the same stack are published to OCI on every release — [`charts/maul`](charts/maul/README.md) is
+the stack; [`charts/maul-config`](charts/maul-config/README.md) carries the Integration/Forge custom resources,
 installed as a second release once the CRDs exist:
 
 ```sh
-helm install patchy oci://ghcr.io/devthenet-labs/patchy/charts/patchy --namespace patchy --create-namespace
+helm install maul oci://ghcr.io/devthenet-labs/maul/charts/maul --namespace maul --create-namespace
 ```
 
 ## The CLI
 
-The workstation CLI ships separately from the cluster components, as the `patchy-cli` archive attached to each
-[release](https://github.com/devthenet-labs/patchy/releases), with a keyless cosign signature for each binary:
+The workstation CLI ships separately from the cluster components, as the `maul-cli` archive attached to each
+[release](https://github.com/devthenet-labs/maul/releases), with a keyless cosign signature for each binary:
 
 ```sh
-gh release download vX.Y.Z --repo devthenet-labs/patchy --pattern 'patchy-cli_X.Y.Z_darwin_arm64.tar.gz'
+gh release download vX.Y.Z --repo devthenet-labs/maul --pattern 'maul-cli_X.Y.Z_darwin_arm64.tar.gz'
 ```
 
 [`docs/cli.md`](docs/cli.md#install) has the verification and install steps. The Homebrew tap
-`bitwise-media-group/tap/patchy` is the upstream project's older CLI, without `setup`, `init` or `check project`.
+`bitwise-media-group/tap/maul` is the upstream project's older CLI, without `setup`, `init` or `check project`.
 
 It talks to the Kubernetes API with your own kubeconfig, so what you can do is exactly what your RBAC allows. The
-archive also carries `kubectl-patchy`, so every command works as `kubectl patchy …`, with shell completion for both
-spellings. See [`docs/cli.md`](docs/cli.md) for the tour and [`docs/cli/patchy.md`](docs/cli/patchy.md) for the
-generated command reference.
+archive also carries `kubectl-maul`, so every command works as `kubectl maul …`, with shell completion for both
+spellings. See [`docs/cli.md`](docs/cli.md) for the tour and [`docs/cli/maul.md`](docs/cli/maul.md) for the generated
+command reference.
 
 ## Status
 

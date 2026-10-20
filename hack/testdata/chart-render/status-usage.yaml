@@ -8,6 +8,6 @@ statusServer:
     usage:
         enabled: true
     auth:
-        existingSecret: patchy-status-auth
+        existingSecret: maul-status-auth
     rbac:
         userRoles: true

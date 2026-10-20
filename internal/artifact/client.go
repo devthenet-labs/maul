@@ -17,7 +17,7 @@ import (
 // upload through to the cache.
 type Client struct {
 	// BaseURL of the internal endpoint, e.g.
-	// http://patchy-source-controller.patchy.svc.cluster.local:9791.
+	// http://maul-source-controller.maul.svc.cluster.local:9791.
 	BaseURL string
 	// Token is the optional shared bearer token.
 	Token string

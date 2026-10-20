@@ -4,8 +4,8 @@
 // Tier-1 microbenchmarks for the status-server dataset path: projecting one
 // Finding, assembling the list dataset at backlog scale, encoding it, the
 // one-finding detail build, and the SSE fan-out. Run via `mise run bench`; the TestComplexity* assertions
-// are opt-in (PATCHY_BENCH_ASSERT=1). The 2M-findings dataset build needs
-// ~16GB and is additionally gated on PATCHY_BENCH_HUGE=1 (run it with
+// are opt-in (MAUL_BENCH_ASSERT=1). The 2M-findings dataset build needs
+// ~16GB and is additionally gated on MAUL_BENCH_HUGE=1 (run it with
 // -benchtime=1x).
 
 package web
@@ -20,9 +20,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/loadgen"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/loadgen"
 )
 
 // benchPhaseMix is a realistic brownfield distribution: most findings
@@ -96,7 +96,7 @@ func maximalFinding() *v1alpha1.Finding {
 	}
 	f.Status.Remediation = &v1alpha1.RemediationSummary{
 		Name: f.Name + "-rem-1", Attempt: 1, Outcome: "ok", Success: true,
-		Branch: "patchy/" + f.Name, CompletedAt: &now,
+		Branch: "maul/" + f.Name, CompletedAt: &now,
 	}
 	f.Status.PullRequest = &v1alpha1.PullRequestStatus{
 		Number: 7, URL: "https://github.com/loadgen/repo-0/pull/7", State: "merged", MergedAt: &now,
@@ -145,10 +145,10 @@ func BenchmarkBuildDataset(b *testing.B) {
 }
 
 // BenchmarkBuildDatasetHuge is the full 2M design target. ~16GB of working
-// set: opt in with PATCHY_BENCH_HUGE=1 and run with -benchtime=1x.
+// set: opt in with MAUL_BENCH_HUGE=1 and run with -benchtime=1x.
 func BenchmarkBuildDatasetHuge(b *testing.B) {
-	if os.Getenv("PATCHY_BENCH_HUGE") == "" {
-		b.Skip("set PATCHY_BENCH_HUGE=1 (and -benchtime=1x) to build the 2M dataset")
+	if os.Getenv("MAUL_BENCH_HUGE") == "" {
+		b.Skip("set MAUL_BENCH_HUGE=1 (and -benchtime=1x) to build the 2M dataset")
 	}
 	benchBuildDataset(b, 2_000_000)
 }
@@ -230,8 +230,8 @@ func BenchmarkSSEFanout(b *testing.B) {
 // (n log n from the sort is tolerated; anything superlinear beyond that is
 // a regression).
 func TestComplexityBuildDataset(t *testing.T) {
-	if os.Getenv("PATCHY_BENCH_ASSERT") == "" {
-		t.Skip("set PATCHY_BENCH_ASSERT=1 to run complexity assertions")
+	if os.Getenv("MAUL_BENCH_ASSERT") == "" {
+		t.Skip("set MAUL_BENCH_ASSERT=1 to run complexity assertions")
 	}
 	small := testing.Benchmark(func(b *testing.B) { benchBuildDataset(b, 10_000) })
 	large := testing.Benchmark(func(b *testing.B) { benchBuildDataset(b, 100_000) })

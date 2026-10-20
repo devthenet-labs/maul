@@ -12,8 +12,8 @@ import (
 	"testing"
 	"testing/quick"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/envelope"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/envelope"
 )
 
 func TestFromStageCost(t *testing.T) {
@@ -120,7 +120,7 @@ func TestFormatConfidenceProperty(t *testing.T) {
 }
 
 // TestFormatConfidenceOfDecodedNegativeZero pins the path a negative zero
-// takes to FormatConfidence. patchy's own agent-runner never writes one
+// takes to FormatConfidence. maul's own agent-runner never writes one
 // (omitempty drops a zero), but envelope.Decode is a plain json.Unmarshal,
 // which reads the literal -0, or a negative literal that underflows, as a
 // float64 with its sign bit set. On a repository-declared image the pod's

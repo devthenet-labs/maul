@@ -15,9 +15,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/evalresults"
-	"github.com/bitwise-media-group/patchy/pkg/evaluation"
+	"github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/evalresults"
+	"github.com/devthenet-labs/maul/pkg/evaluation"
 )
 
 // handleSnapshot serves the point-in-time EvaluationStatusWire, unit results

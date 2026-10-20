@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/bitwise-media-group/patchy/internal/awsinv"
-	"github.com/bitwise-media-group/patchy/pkg/enhance"
+	"github.com/devthenet-labs/maul/internal/awsinv"
+	"github.com/devthenet-labs/maul/pkg/enhance"
 )
 
 // AWSTagsConfig is one snapshot of the resourceTags capability, as read off

@@ -9,15 +9,15 @@ import (
 
 // RunnerImageMarker heads the runner-image sticky tracking comment; the
 // projection finds the comment to edit in place by it.
-const RunnerImageMarker = "<!-- patchy:runner-image -->"
+const RunnerImageMarker = "<!-- maul:runner-image -->"
 
 // AgentImageGuideURL is the repository-owner guide to agent images (the
 // docs site's integrations/agent-images page), which the runner-image
 // comment links to and whose troubleshooting table it points at.
-const AgentImageGuideURL = "https://devthenet-labs.github.io/patchy/integrations/agent-images/"
+const AgentImageGuideURL = "https://devthenet-labs.github.io/maul/integrations/agent-images/"
 
 // RunnerImageComment is the data behind the runner-image sticky comment:
-// what patchy did with the agent image a repository declared, for an owner
+// what maul did with the agent image a repository declared, for an owner
 // who has no cluster access. Exactly one of three outcomes holds — the
 // declaring file was not applicable, the declaration was rejected, or the
 // image was accepted — and an accepted image may add what went wrong when
@@ -26,7 +26,7 @@ type RunnerImageComment struct {
 	// Manifest is the declaring file's repository-relative path.
 	Manifest string
 	// Declared is the reference exactly as the file names it; empty for a
-	// not-applicable devcontainer.json and for a .patchy/agent.yaml that
+	// not-applicable devcontainer.json and for a .maul/agent.yaml that
 	// could not be read.
 	Declared string
 	// Image is the digest-pinned reference the declaration resolved to;
@@ -34,7 +34,7 @@ type RunnerImageComment struct {
 	Image string
 	// Verified reports that the image's signature was checked.
 	Verified bool
-	// NotApplicable marks a .devcontainer/devcontainer.json patchy cannot
+	// NotApplicable marks a .devcontainer/devcontainer.json maul cannot
 	// honour, which is no declaration at all: the default image ran.
 	NotApplicable bool
 	// Rejected is the rejection's reason label (NotAllowlisted, Unsigned,
@@ -78,7 +78,7 @@ type RunnerImageRun struct {
 }
 
 // CheckRef is the reference the comment tells the owner to run
-// `patchy check image` on: the declared one, or a placeholder when there is
+// `maul check image` on: the declared one, or a placeholder when there is
 // none to quote.
 func (c RunnerImageComment) CheckRef() string {
 	if c.Declared != "" {

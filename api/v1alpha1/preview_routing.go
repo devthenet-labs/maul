@@ -20,10 +20,10 @@ import (
 // named port "http".
 const PreviewServicePort int32 = 80
 
-// PreviewSlotNamespace is slot n's fixed namespace, patchy-preview-<n>: where
+// PreviewSlotNamespace is slot n's fixed namespace, maul-preview-<n>: where
 // preview-controller renders the slot's objects and where the gateway
 // addresses its Services.
-func PreviewSlotNamespace(n int32) string { return "patchy-preview-" + strconv.Itoa(int(n)) }
+func PreviewSlotNamespace(n int32) string { return "maul-preview-" + strconv.Itoa(int(n)) }
 
 // PreviewComponentServiceName names component i's Service (and Deployment)
 // in the Preview's slot. The first component keeps preview-<preview>, the

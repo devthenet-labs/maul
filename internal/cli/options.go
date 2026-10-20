@@ -15,8 +15,8 @@ import (
 )
 
 // envPrefix namespaces every environment variable: flag --listen-addr is
-// PATCHY_LISTEN_ADDR, and so on (dashes become underscores).
-const envPrefix = "PATCHY"
+// MAUL_LISTEN_ADDR, and so on (dashes become underscores).
+const envPrefix = "MAUL"
 
 // NewOptions builds Options with the conventional stderr logger and shared
 // verbosity level every binary starts from.
@@ -38,7 +38,7 @@ func NewControllerRoot(name, short string, opts *Options) *cobra.Command {
 }
 
 // Options carries the configuration shared by every controller binary.
-// Precedence: explicit flag > PATCHY_* environment > default.
+// Precedence: explicit flag > MAUL_* environment > default.
 type Options struct {
 	// Log is the process logger; main constructs it, telemetry may replace
 	// it with a fanout after Init.

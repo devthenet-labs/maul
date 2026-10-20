@@ -125,8 +125,8 @@ func TestNodeIsolationRender(t *testing.T) {
 	s := testSettings()
 	s.NodeSelector = map[string]string{"node-role.example.com/preview": "true"}
 	pod := s.deployment(p, 0, 0).Spec.Template.Spec
-	want := map[string]string{"node-role.example.com/preview": "true", nodePoolLabel: "patchy-preview",
-		nodeClassLabel: "patchy-preview"}
+	want := map[string]string{"node-role.example.com/preview": "true", nodePoolLabel: "maul-preview",
+		nodeClassLabel: "maul-preview"}
 	if !maps.Equal(pod.NodeSelector, want) {
 		t.Errorf("node selector = %v, want %v", pod.NodeSelector, want)
 	}
@@ -154,9 +154,9 @@ type isolationCase struct{ Settings Settings }
 func (isolationCase) Generate(r *rand.Rand, _ int) reflect.Value {
 	pick := func(xs ...string) string { return xs[r.Intn(len(xs))] }
 	s := testSettings()
-	s.NodePool = pick("", "", "patchy-preview", "other", "-bad")
-	s.NodeClass = pick("", "", "patchy-preview", "other")
-	s.TaintKey = pick("", "", "patchy.devthe.net/preview-only", "preview", "a/b/c")
+	s.NodePool = pick("", "", "maul-preview", "other", "-bad")
+	s.NodeClass = pick("", "", "maul-preview", "other")
+	s.TaintKey = pick("", "", "maul.devthe.net/preview-only", "preview", "a/b/c")
 	s.NodeIsolation = pick("", NodeIsolationRequired, NodeIsolationNone, "optional")
 	s.NodeSelector = nil
 	for range r.Intn(3) {
@@ -164,7 +164,7 @@ func (isolationCase) Generate(r *rand.Rand, _ int) reflect.Value {
 			s.NodeSelector = map[string]string{}
 		}
 		s.NodeSelector[pick("node-role.example.com/preview", nodePoolLabel, nodeClassLabel, "zone", "bad key")] =
-			pick("true", "patchy-preview", "other", "", "not a value")
+			pick("true", "maul-preview", "other", "", "not a value")
 	}
 	return reflect.ValueOf(isolationCase{Settings: s})
 }

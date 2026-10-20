@@ -1,7 +1,7 @@
 # Copyright 2026 Bitwise Media Group Ltd.
 # SPDX-License-Identifier: MIT
 
-# Node agent image: patchy's agent-base plus Node.js and the project's
+# Node agent image: maul's agent-base plus Node.js and the project's
 # node_modules, so the agent can build and test with no network. Build it
 # with the repository root as the context (it needs package.json and
 # package-lock.json):
@@ -11,10 +11,10 @@
 # Rebuild whenever the lockfile changes: npm cannot fetch in the pod, so the
 # agent runs `npm test` (or the tools directly), never `npm ci`.
 
-# The base, pinned to a patchy release (release-please stamps the version).
+# The base, pinned to a maul release (release-please stamps the version).
 # Pin its digest as well once you have built against it.
 # x-release-please-start-version
-ARG AGENT_BASE=ghcr.io/devthenet-labs/patchy/agent-base:v0.12.43
+ARG AGENT_BASE=ghcr.io/devthenet-labs/maul/agent-base:v0.12.43
 # x-release-please-end
 FROM ${AGENT_BASE}
 
@@ -52,7 +52,7 @@ ENV npm_config_offline=true \
 
 # Describe your image, not the base (labels are inherited).
 LABEL org.opencontainers.image.source="https://github.com/your-org/your-repo" \
-      org.opencontainers.image.description="patchy agent image: Node.js 24 with the project's node_modules in /node_modules"
+      org.opencontainers.image.description="maul agent image: Node.js 24 with the project's node_modules in /node_modules"
 
 WORKDIR /workspace
 USER 65532:65532

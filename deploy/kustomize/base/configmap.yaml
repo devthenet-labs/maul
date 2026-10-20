@@ -3,14 +3,14 @@
 #
 # The one settings surface for all five controllers, consumed with envFrom.
 #
-# Every key is a PATCHY_* environment variable, which internal/cli/options.go
-# maps back onto a cobra flag: prefix PATCHY, dashes become underscores
-# (--claude-agent-image -> PATCHY_CLAUDE_AGENT_IMAGE). Precedence is flag > env > default,
+# Every key is a MAUL_* environment variable, which internal/cli/options.go
+# maps back onto a cobra flag: prefix MAUL, dashes become underscores
+# (--claude-agent-image -> MAUL_CLAUDE_AGENT_IMAGE). Precedence is flag > env > default,
 # and the Deployments pass no flags other than the `serve` subcommand, so what
 # is here is what runs.
 #
 # A key a given binary does not bind is simply ignored by that binary, which
-# is why one ConfigMap can serve all five (PATCHY_ACCUMULATION_WINDOW is inert
+# is why one ConfigMap can serve all five (MAUL_ACCUMULATION_WINDOW is inert
 # in the remediation-controller, and so on).
 #
 # NOT here: GitHub credentials and webhook secrets. Provider and forge
@@ -20,115 +20,115 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-    name: patchy-config
-    namespace: patchy
+    name: maul-config
+    namespace: maul
     labels:
-        app.kubernetes.io/name: patchy
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/name: maul
+        app.kubernetes.io/part-of: maul
 data:
     # ---- shared (internal/cli.Options, every binary) ------------------------
-    PATCHY_LISTEN_ADDR: ":8080"
-    PATCHY_HEALTH_ADDR: ":8081"
+    MAUL_LISTEN_ADDR: ":8080"
+    MAUL_HEALTH_ADDR: ":8081"
 
     # ---- integration-controller ---------------------------------------------
     # DESIGN.md requirement 2: alerts of one advisory type accumulate into a
     # single finding for an hour.
-    PATCHY_ACCUMULATION_WINDOW: 1h
+    MAUL_ACCUMULATION_WINDOW: 1h
     # Findings projected to tracking issues in parallel; conservative because
     # every projection may spend GitHub API requests.
-    PATCHY_PROJECTION_CONCURRENCY: "2"
+    MAUL_PROJECTION_CONCURRENCY: "2"
 
     # ---- source-controller --------------------------------------------------
     # The artifact server: SHA-pinned repository tarballs the agent pods fetch
     # (credential-less; the URL carries a random 128-bit id and the Job pins
-    # the sha256 digest). PATCHY_ARTIFACT_BASE_URL defaults to the in-cluster
+    # the sha256 digest). MAUL_ARTIFACT_BASE_URL defaults to the in-cluster
     # Service address, so it only needs setting when the Service name differs.
-    PATCHY_ARTIFACT_ADDR: ":9790"
-    PATCHY_ARTIFACT_DIR: /data/artifacts
+    MAUL_ARTIFACT_ADDR: ":9790"
+    MAUL_ARTIFACT_DIR: /data/artifacts
     # The internal workspace-blob endpoint evaluation-controller streams
     # uploads to (NetworkPolicy-gated to that one client). Unset disables it —
     # remove this key when the evaluation controller is not deployed.
-    PATCHY_ARTIFACT_INTERNAL_ADDR: ":9791"
+    MAUL_ARTIFACT_INTERNAL_ADDR: ":9791"
     # Workspace bundles unused this long are swept; a needed-but-swept bundle
     # surfaces as WorkspaceLost and the client re-uploads.
-    PATCHY_WORKSPACE_RETENTION: 168h
+    MAUL_WORKSPACE_RETENTION: 168h
 
     # ---- context-controller -------------------------------------------------
-    # PATCHY_STATIC_CONTEXT_FILE: unset in base -> the Noop enhancer (the CMDB
+    # MAUL_STATIC_CONTEXT_FILE: unset in base -> the Noop enhancer (the CMDB
     # placeholder). The dev overlay points it at a mounted YAML file.
     # Findings enhanced in parallel (each finding's chain still runs serially).
-    PATCHY_ENHANCE_CONCURRENCY: "4"
+    MAUL_ENHANCE_CONCURRENCY: "4"
     # Concurrent outbound generic enhancer calls across ALL findings ("0"
     # means unbounded).
-    PATCHY_ENHANCE_MAX_OUTBOUND: "8"
+    MAUL_ENHANCE_MAX_OUTBOUND: "8"
     # How long the generic enhancer endpoint list and signing secrets are
     # cached; a rotated webhook secret takes effect within this window.
-    PATCHY_ENHANCER_CONFIG_TTL: 10s
+    MAUL_ENHANCER_CONFIG_TTL: 10s
 
     # ---- investigation-controller -------------------------------------------
     # DESIGN.md requirement 5: only findings older than an hour are picked up.
-    PATCHY_FINDING_MIN_AGE: 1h
+    MAUL_FINDING_MIN_AGE: 1h
     # Findings admitted through the investigation gate in parallel.
-    PATCHY_GATE_CONCURRENCY: "4"
-    PATCHY_MAX_ATTEMPTS: "2"
-    PATCHY_MAX_CONCURRENT_INVESTIGATIONS: "3"
+    MAUL_GATE_CONCURRENCY: "4"
+    MAUL_MAX_ATTEMPTS: "2"
+    MAUL_MAX_CONCURRENT_INVESTIGATIONS: "3"
     # DESIGN.md requirement 6: below this, remediation waits for approval.
-    PATCHY_CONFIDENCE_THRESHOLD: "0.75"
+    MAUL_CONFIDENCE_THRESHOLD: "0.75"
 
     # ---- remediation-controller ---------------------------------------------
-    PATCHY_MAX_CONCURRENT_REMEDIATIONS: "1"
+    MAUL_MAX_CONCURRENT_REMEDIATIONS: "1"
     # Completed findings are kept this long, then deleted; the FindingRollup
     # objects retain the all-time statistics. "0" keeps findings forever.
-    PATCHY_FINDING_TTL: 336h
+    MAUL_FINDING_TTL: 336h
     # Long-waiting remediations gain +1 effective priority per interval, up to
     # the cap — starvation protection for low-priority findings.
-    PATCHY_PRIORITY_AGING_INTERVAL: 24h
-    PATCHY_PRIORITY_AGING_CAP: "25"
+    MAUL_PRIORITY_AGING_INTERVAL: 24h
+    MAUL_PRIORITY_AGING_CAP: "25"
 
     # ---- the agent Jobs (both job controllers) ------------------------------
     # The status server reads AGENT_NAMESPACE too, to follow a running agent's
     # pod log for the live transcript.
-    PATCHY_AGENT_NAMESPACE: patchy-agents
-    PATCHY_AGENT_SERVICE_ACCOUNT: patchy-agent
+    MAUL_AGENT_NAMESPACE: maul-agents
+    MAUL_AGENT_SERVICE_ACCOUNT: maul-agent
     # The per-harness runner fleet. A harness is enabled only when it is in
-    # PATCHY_HARNESSES AND its credential Secret exists; the model chosen for a
+    # MAUL_HARNESSES AND its credential Secret exists; the model chosen for a
     # stage decides which runner (image + credential + egress policy) the Job
     # uses. Each runner image is ALSO pinned by the `images:` block in
     # kustomization.yaml for provenance, so overlays must keep the two in step
     # (the `images:` block does not rewrite these ConfigMap values).
-    PATCHY_HARNESSES: claude
-    PATCHY_CLAUDE_AGENT_IMAGE: ghcr.io/devthenet-labs/patchy/claude-agent-runner:latest
+    MAUL_HARNESSES: claude
+    MAUL_CLAUDE_AGENT_IMAGE: ghcr.io/devthenet-labs/maul/claude-agent-runner:latest
     # The claude runner is BROKERED: all of its model traffic goes through
     # the egress credential broker (deployment-egress-broker.yaml), and no
     # credential of any kind enters a claude agent pod — the Anthropic key
-    # lives with the broker in the patchy namespace (see
-    # secrets.example.yaml), never in patchy-agents. There are therefore no
-    # PATCHY_CLAUDE_SECRET* keys anymore; the broker URL and provider
+    # lives with the broker in the maul namespace (see
+    # secrets.example.yaml), never in maul-agents. There are therefore no
+    # MAUL_CLAUDE_SECRET* keys anymore; the broker URL and provider
     # selection replace them. Provider one of anthropic|bedrock|vertex|
-    # foundry; bedrock needs PATCHY_CLAUDE_PROVIDER_REGION, vertex that plus
-    # PATCHY_CLAUDE_PROVIDER_PROJECT_ID, foundry a PATCHY_CLAUDE_MODEL_MAP of
+    # foundry; bedrock needs MAUL_CLAUDE_PROVIDER_REGION, vertex that plus
+    # MAUL_CLAUDE_PROVIDER_PROJECT_ID, foundry a MAUL_CLAUDE_MODEL_MAP of
     # canonical-id=deployment-name pairs.
-    PATCHY_BROKER_URL: http://patchy-egress-broker.patchy.svc.cluster.local:8080
-    PATCHY_CLAUDE_PROVIDER: anthropic
+    MAUL_BROKER_URL: http://maul-egress-broker.maul.svc.cluster.local:8080
+    MAUL_CLAUDE_PROVIDER: anthropic
     # Read only by egress-broker: the mounted Anthropic credential file
     # (matches the Secret volume in deployment-egress-broker.yaml) and how it
     # authenticates — `key` injects x-api-key (an API key); `token` sends an
     # Authorization bearer, for a `claude setup-token` OAuth token. A
     # bedrock/vertex/foundry overlay replaces these with the broker's own
-    # PATCHY_BEDROCK_REGION / PATCHY_VERTEX_REGION / PATCHY_FOUNDRY_RESOURCE
-    # (+ PATCHY_FOUNDRY_AUTH / PATCHY_FOUNDRY_API_KEY_FILE) keys.
-    PATCHY_ANTHROPIC_API_KEY_FILE: /etc/patchy/anthropic/api-key
-    PATCHY_ANTHROPIC_AUTH: key
+    # MAUL_BEDROCK_REGION / MAUL_VERTEX_REGION / MAUL_FOUNDRY_RESOURCE
+    # (+ MAUL_FOUNDRY_AUTH / MAUL_FOUNDRY_API_KEY_FILE) keys.
+    MAUL_ANTHROPIC_API_KEY_FILE: /etc/maul/anthropic/api-key
+    MAUL_ANTHROPIC_AUTH: key
     # The codex runner is BROKERED too, on the broker's openai route: no
     # credential enters a codex agent pod, and there are no
-    # PATCHY_CODEX_SECRET* keys (a leftover one fails a controller that runs
+    # MAUL_CODEX_SECRET* keys (a leftover one fails a controller that runs
     # codex, with the migration). Enable it by adding `codex` to
-    # PATCHY_HARNESSES and giving the broker the OpenAI API key: a
-    # patchy-openai Secret in the patchy namespace (secrets.example.yaml),
-    # mounted into patchy-egress-broker at /etc/patchy/openai, and
-    # PATCHY_OPENAI_API_KEY_FILE: /etc/patchy/openai/api-key here (an
+    # MAUL_HARNESSES and giving the broker the OpenAI API key: a
+    # maul-openai Secret in the maul namespace (secrets.example.yaml),
+    # mounted into maul-egress-broker at /etc/maul/openai, and
+    # MAUL_OPENAI_API_KEY_FILE: /etc/maul/openai/api-key here (an
     # overlay; the base runs without the openai route).
-    PATCHY_CODEX_AGENT_IMAGE: ghcr.io/devthenet-labs/patchy/codex-agent-runner:latest
+    MAUL_CODEX_AGENT_IMAGE: ghcr.io/devthenet-labs/maul/codex-agent-runner:latest
     # The copilot runner brokers BOTH vendors' models, so enabling it makes
     # every allowlisted model runnable without the vendor's own key. Weigh that
     # against its credential: copilot authenticates with a GitHub token, the one
@@ -137,13 +137,13 @@ data:
     # --disable-builtin-mcps and the egress policy admits only the Copilot
     # endpoints), but it is still the broadest credential in any agent pod, so
     # scope the token to Copilot alone and enable this deliberately. Add
-    # `copilot` to PATCHY_HARNESSES and supply the Secret (patchy-copilot):
-    PATCHY_COPILOT_AGENT_IMAGE: ghcr.io/devthenet-labs/patchy/copilot-agent-runner:latest
-    PATCHY_COPILOT_SECRET: patchy-copilot
-    PATCHY_COPILOT_SECRET_KEY: token
-    PATCHY_COPILOT_SECRET_ENV: COPILOT_GITHUB_TOKEN
-    PATCHY_JOB_DEADLINE: 1h
-    PATCHY_JOB_TTL: 1h
+    # `copilot` to MAUL_HARNESSES and supply the Secret (maul-copilot):
+    MAUL_COPILOT_AGENT_IMAGE: ghcr.io/devthenet-labs/maul/copilot-agent-runner:latest
+    MAUL_COPILOT_SECRET: maul-copilot
+    MAUL_COPILOT_SECRET_KEY: token
+    MAUL_COPILOT_SECRET_ENV: COPILOT_GITHUB_TOKEN
+    MAUL_JOB_DEADLINE: 1h
+    MAUL_JOB_TTL: 1h
     # CPU and memory on both containers of every agent Job (both job
     # controllers, intent-controller's plans and evaluation-controller's units
     # read them too), each a quantity such as 500m or 2Gi. Unset (as here),
@@ -152,10 +152,10 @@ data:
     # and 64 CPUs or 128Mi and 512Gi, and each request at or below its limit.
     # A CPU limit throttles browser and Node test suites; prefer none.
     #
-    # PATCHY_AGENT_CPU_REQUEST: 500m
-    # PATCHY_AGENT_MEMORY_REQUEST: 1Gi
-    # PATCHY_AGENT_MEMORY_LIMIT: 2Gi
-    # PATCHY_AGENT_CPU_LIMIT: "2"
+    # MAUL_AGENT_CPU_REQUEST: 500m
+    # MAUL_AGENT_MEMORY_REQUEST: 1Gi
+    # MAUL_AGENT_MEMORY_LIMIT: 2Gi
+    # MAUL_AGENT_CPU_LIMIT: "2"
 
     # ---- the agent stages ---------------------------------------------------
     # The job controllers pass these through to every agent pod, where
@@ -169,7 +169,7 @@ data:
     #
     # The remediation budget is split by who authorized the run:
     #
-    #   REMEDIATE_AUTO_* is what patchy will spend on a fix nobody is
+    #   REMEDIATE_AUTO_* is what maul will spend on a fix nobody is
     #   watching. Every remediation gets it whatever the investigation
     #   predicted (including when it predicted nothing), and it is the line
     #   past which a fix stops being automatic — an estimate above it holds
@@ -195,21 +195,21 @@ data:
     # tool result) for that long, as a timeout whose detail names the command
     # it waited on; "0s" disables it. 20m is twice the longest a healthy
     # claude command can run (its Bash tool's 10m maximum).
-    PATCHY_MODEL_ALLOWLIST: anthropic/claude-sonnet-5,anthropic/claude-opus-5
+    MAUL_MODEL_ALLOWLIST: anthropic/claude-sonnet-5,anthropic/claude-opus-5
 
-    PATCHY_INVESTIGATE_MODEL: anthropic/claude-sonnet-5
-    PATCHY_INVESTIGATE_TIMEOUT: 15m
-    PATCHY_INVESTIGATE_IDLE_TIMEOUT: 20m
-    PATCHY_INVESTIGATE_MAX_TURNS: "25"
-    PATCHY_INVESTIGATE_TOKEN_BUDGET: "150000"
+    MAUL_INVESTIGATE_MODEL: anthropic/claude-sonnet-5
+    MAUL_INVESTIGATE_TIMEOUT: 15m
+    MAUL_INVESTIGATE_IDLE_TIMEOUT: 20m
+    MAUL_INVESTIGATE_MAX_TURNS: "25"
+    MAUL_INVESTIGATE_TOKEN_BUDGET: "150000"
 
-    PATCHY_REMEDIATE_MODEL: anthropic/claude-sonnet-5
-    PATCHY_REMEDIATE_TIMEOUT: 45m
-    PATCHY_REMEDIATE_IDLE_TIMEOUT: 20m
-    PATCHY_REMEDIATE_AUTO_MAX_TURNS: "80"
-    PATCHY_REMEDIATE_AUTO_TOKEN_BUDGET: "400000"
-    PATCHY_REMEDIATE_MANUAL_MAX_TURNS: "240"
-    PATCHY_REMEDIATE_MANUAL_TOKEN_BUDGET: "1200000"
+    MAUL_REMEDIATE_MODEL: anthropic/claude-sonnet-5
+    MAUL_REMEDIATE_TIMEOUT: 45m
+    MAUL_REMEDIATE_IDLE_TIMEOUT: 20m
+    MAUL_REMEDIATE_AUTO_MAX_TURNS: "80"
+    MAUL_REMEDIATE_AUTO_TOKEN_BUDGET: "400000"
+    MAUL_REMEDIATE_MANUAL_MAX_TURNS: "240"
+    MAUL_REMEDIATE_MANUAL_TOKEN_BUDGET: "1200000"
 
     # ---- evaluation-controller ----------------------------------------------
     # The remote-evaluation engine (optional; only read by
@@ -217,14 +217,14 @@ data:
     # the agent-runner images above: evolve + the harness CLI, shipped from
     # the evolve repository and pinned by the operator. The claude one is
     # brokered like its finding sibling; copilot's credential reuses the
-    # PATCHY_COPILOT_SECRET* keys above. There is no codex evaluation runner:
+    # MAUL_COPILOT_SECRET* keys above. There is no codex evaluation runner:
     # codex evaluations are refused until evolve supports the broker's
-    # provider config (PATCHY_EVOLVE_CODEX_IMAGE fails startup while
-    # PATCHY_HARNESSES admits codex).
-    PATCHY_MAX_CONCURRENT_UNITS: "4"
-    PATCHY_EVALUATION_TTL: 72h
-    PATCHY_EVOLVE_CLAUDE_IMAGE: ghcr.io/bitwise-media-group/evolve-runner-claude:latest
-    PATCHY_EVOLVE_COPILOT_IMAGE: ghcr.io/bitwise-media-group/evolve-runner-copilot:latest
-    # PATCHY_ARTIFACT_UPLOAD_URL / PATCHY_ARTIFACT_BASE_URL default to the
+    # provider config (MAUL_EVOLVE_CODEX_IMAGE fails startup while
+    # MAUL_HARNESSES admits codex).
+    MAUL_MAX_CONCURRENT_UNITS: "4"
+    MAUL_EVALUATION_TTL: 72h
+    MAUL_EVOLVE_CLAUDE_IMAGE: ghcr.io/bitwise-media-group/evolve-runner-claude:latest
+    MAUL_EVOLVE_COPILOT_IMAGE: ghcr.io/bitwise-media-group/evolve-runner-copilot:latest
+    # MAUL_ARTIFACT_UPLOAD_URL / MAUL_ARTIFACT_BASE_URL default to the
     # source-controller Service (:9791 / :9790), so they only need setting
     # when the Service name differs.

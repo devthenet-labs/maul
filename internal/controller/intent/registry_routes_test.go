@@ -10,11 +10,11 @@ import (
 	"strings"
 	"testing"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
-	"github.com/bitwise-media-group/patchy/internal/templates"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // webProfiles is a profile set with one registry-only profile, web, for
@@ -31,7 +31,7 @@ func withRegistryProfiles(t *testing.T, e *env) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	base, err := url.Parse("http://patchy-egress-proxy.patchy.svc.cluster.local")
+	base, err := url.Parse("http://maul-egress-proxy.maul.svc.cluster.local")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func TestRegistryProfileReachesPlanBuildAndPR(t *testing.T) {
 		return defaultOutput(spec)
 	}
 	name := e.awaiting()
-	plans := e.gh.withMarker("patchy:plan")
+	plans := e.gh.withMarker("maul:plan")
 	if len(plans) != 1 {
 		t.Fatalf("plan comments = %d, want 1", len(plans))
 	}
@@ -71,7 +71,7 @@ func TestRegistryProfileReachesPlanBuildAndPR(t *testing.T) {
 		}
 	}
 
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 	builds := e.specsOf("build")
 	if len(builds) != 1 || builds[0].NetworkProfile == nil || builds[0].NetworkProfile.Name != "web" ||
@@ -96,7 +96,7 @@ func TestRegistryGrantNamingAForgeIsRefused(t *testing.T) {
 	withRegistryProfiles(t, e)
 	e.runs.Images.Forges = forgeHosts{"github.com", "jfrog.io"}
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	e.drive(name, v1alpha1.IntentFailed, repoImage)
 	if builds := e.specsOf("build"); len(builds) != 0 {
 		t.Errorf("build Jobs created = %d, want none", len(builds))
@@ -130,12 +130,12 @@ func TestProfileBuildNamingTheProxyIsRefused(t *testing.T) {
 					out.Events[0].Remediation.Changeset.Upserts = append(out.Events[0].Remediation.Changeset.Upserts,
 						envelope.FileChange{Path: "requirements.txt", Mode: "100644",
 							ContentB64: base64.StdEncoding.EncodeToString([]byte("--index-url " +
-								"http://patchy-egress-proxy.patchy.svc.cluster.local:8091/r/art-pypi/simple/\nsix\n"))})
+								"http://maul-egress-proxy.maul.svc.cluster.local:8091/r/art-pypi/simple/\nsix\n"))})
 				}
 				return out
 			}
 			name := e.awaiting()
-			e.gh.label(1, "patchy:approved", approver)
+			e.gh.label(1, "maul:approved", approver)
 			if !profile {
 				e.drive(name, v1alpha1.IntentInReview, repoImage)
 				return
@@ -198,7 +198,7 @@ func TestPlanJobIsToldItsBuildsTunnel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	base, err := url.Parse("http://patchy-egress-proxy.patchy.svc.cluster.local")
+	base, err := url.Parse("http://maul-egress-proxy.maul.svc.cluster.local")
 	if err != nil {
 		t.Fatal(err)
 	}

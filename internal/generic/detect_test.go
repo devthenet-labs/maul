@@ -38,7 +38,7 @@ func TestDetect(t *testing.T) {
 func TestDeliveryID(t *testing.T) {
 	body := []byte(`{"version":"v1","event":"findings"}`)
 	withHeader, _ := http.NewRequest(http.MethodPost, "/generic/x/webhooks", nil)
-	withHeader.Header.Set("X-Patchy-Delivery", "d-42")
+	withHeader.Header.Set("X-Maul-Delivery", "d-42")
 	if got := DeliveryID(withHeader, body); got != "d-42" {
 		t.Errorf("DeliveryID(with header) = %q, want the header value", got)
 	}

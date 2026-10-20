@@ -17,10 +17,10 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/attribution"
-	"github.com/bitwise-media-group/patchy/internal/model"
-	"github.com/bitwise-media-group/patchy/internal/usagerollup"
+	"github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/attribution"
+	"github.com/devthenet-labs/maul/internal/model"
+	"github.com/devthenet-labs/maul/internal/usagerollup"
 )
 
 // UnitName is the deterministic child name for one unit index.
@@ -136,7 +136,7 @@ func (r *GateReconciler) ensureUnit(ctx context.Context, eval *v1alpha1.Evaluati
 
 // Attribute is whom a unit of eval is for (design §2): its submitter. The
 // submitter is the username the evaluation API verified, which names no
-// GitHub account by id, so it is never a patchy identity yet: the unit is
+// GitHub account by id, so it is never a maul identity yet: the unit is
 // re-attributed to the org with reason submitter-unregistered, and the
 // submitter stays on the Evaluation's spec.
 func Attribute(eval *v1alpha1.Evaluation) *v1alpha1.Attribution {

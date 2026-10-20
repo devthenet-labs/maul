@@ -4,25 +4,25 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 # Namespaces are created here, so nothing sets a global `namespace:` — each
-# resource names its own (patchy or patchy-agents).
+# resource names its own (maul or maul-agents).
 resources:
     # CRDs first: everything else may reference the kinds they define. The
     # files are controller-gen output (mise run codegen) — never hand-edited.
-    - crds/patchy.bitwisemedia.uk_evaluations.yaml
-    - crds/patchy.bitwisemedia.uk_evaluationunits.yaml
-    - crds/patchy.bitwisemedia.uk_findings.yaml
-    - crds/patchy.bitwisemedia.uk_findingrollups.yaml
-    - crds/patchy.bitwisemedia.uk_forges.yaml
-    - crds/patchy.bitwisemedia.uk_integrations.yaml
-    - crds/patchy.bitwisemedia.uk_intents.yaml
-    - crds/patchy.bitwisemedia.uk_intentruns.yaml
-    - crds/patchy.bitwisemedia.uk_investigations.yaml
-    - crds/patchy.bitwisemedia.uk_modelcredentials.yaml
-    - crds/patchy.bitwisemedia.uk_projects.yaml
-    - crds/patchy.bitwisemedia.uk_previews.yaml
-    - crds/patchy.bitwisemedia.uk_remediations.yaml
-    - crds/patchy.bitwisemedia.uk_repositories.yaml
-    - crds/patchy.bitwisemedia.uk_usagerollups.yaml
+    - crds/maul.run_evaluations.yaml
+    - crds/maul.run_evaluationunits.yaml
+    - crds/maul.run_findings.yaml
+    - crds/maul.run_findingrollups.yaml
+    - crds/maul.run_forges.yaml
+    - crds/maul.run_integrations.yaml
+    - crds/maul.run_intents.yaml
+    - crds/maul.run_intentruns.yaml
+    - crds/maul.run_investigations.yaml
+    - crds/maul.run_modelcredentials.yaml
+    - crds/maul.run_projects.yaml
+    - crds/maul.run_previews.yaml
+    - crds/maul.run_remediations.yaml
+    - crds/maul.run_repositories.yaml
+    - crds/maul.run_usagerollups.yaml
     - namespace.yaml
     - serviceaccount.yaml
     - rbac.yaml
@@ -46,36 +46,36 @@ resources:
 labels:
     - includeSelectors: false
       pairs:
-          app.kubernetes.io/part-of: patchy
+          app.kubernetes.io/part-of: maul
           app.kubernetes.io/managed-by: kustomize
 
 # Overlays pin tags/digests by patching these entries.
 #
 # NOTE: each per-harness agent-runner image appears TWICE in the rendered
 # output — here (so the transformer knows it) and as the
-# PATCHY_<HARNESS>_AGENT_IMAGE value in configmap.yaml, which is the string the
+# MAUL_<HARNESS>_AGENT_IMAGE value in configmap.yaml, which is the string the
 # job controllers stamp into the Jobs they create. `images:` does not rewrite
 # ConfigMap values, so an overlay that pins a runner image must patch BOTH.
 images:
-    - name: ghcr.io/devthenet-labs/patchy/integration-controller
+    - name: ghcr.io/devthenet-labs/maul/integration-controller
       newTag: latest
-    - name: ghcr.io/devthenet-labs/patchy/source-controller
+    - name: ghcr.io/devthenet-labs/maul/source-controller
       newTag: latest
-    - name: ghcr.io/devthenet-labs/patchy/context-controller
+    - name: ghcr.io/devthenet-labs/maul/context-controller
       newTag: latest
-    - name: ghcr.io/devthenet-labs/patchy/investigation-controller
+    - name: ghcr.io/devthenet-labs/maul/investigation-controller
       newTag: latest
-    - name: ghcr.io/devthenet-labs/patchy/remediation-controller
+    - name: ghcr.io/devthenet-labs/maul/remediation-controller
       newTag: latest
-    - name: ghcr.io/devthenet-labs/patchy/evaluation-controller
+    - name: ghcr.io/devthenet-labs/maul/evaluation-controller
       newTag: latest
-    - name: ghcr.io/devthenet-labs/patchy/claude-agent-runner
+    - name: ghcr.io/devthenet-labs/maul/claude-agent-runner
       newTag: latest
-    - name: ghcr.io/devthenet-labs/patchy/codex-agent-runner
+    - name: ghcr.io/devthenet-labs/maul/codex-agent-runner
       newTag: latest
-    - name: ghcr.io/devthenet-labs/patchy/copilot-agent-runner
+    - name: ghcr.io/devthenet-labs/maul/copilot-agent-runner
       newTag: latest
-    - name: ghcr.io/devthenet-labs/patchy/status-server
+    - name: ghcr.io/devthenet-labs/maul/status-server
       newTag: latest
-    - name: ghcr.io/devthenet-labs/patchy/egress-broker
+    - name: ghcr.io/devthenet-labs/maul/egress-broker
       newTag: latest

@@ -16,8 +16,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/bitwise-media-group/patchy/internal/report"
-	"github.com/bitwise-media-group/patchy/internal/templates"
+	"github.com/devthenet-labs/maul/internal/report"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // The pod layout of a multi-repository plan, shared with internal/jobs,
@@ -204,7 +204,7 @@ type buildScope struct {
 }
 
 // scopeBuild resolves which of an approved plan's repositories this build
-// is in: the one entry naming the Job's repository (PATCHY_REPO, the
+// is in: the one entry naming the Job's repository (MAUL_REPO, the
 // "owner/name" the controller launched it in), compared as the plan's own
 // entries are (report.SameRepository). A plan naming one repository needs
 // none. Naming several, a build that finds its repository in none of them,

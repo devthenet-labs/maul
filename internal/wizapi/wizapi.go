@@ -40,7 +40,7 @@ const (
 // updateIssueMutation rejects an issue with a note. The patch shape is Wiz's
 // UpdateIssuePatch; status REJECTED is Wiz's terminal "will not fix" state,
 // the analogue of dismissing a code-scanning alert.
-const updateIssueMutation = `mutation PatchyRejectIssue($id: ID!, $patch: UpdateIssuePatch) {
+const updateIssueMutation = `mutation MaulRejectIssue($id: ID!, $patch: UpdateIssuePatch) {
   updateIssue(input: {id: $id, patch: $patch}) {
     issue { id status }
   }

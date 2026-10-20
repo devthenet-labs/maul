@@ -16,7 +16,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/bitwise-media-group/patchy/internal/transcript"
+	"github.com/devthenet-labs/maul/internal/transcript"
 )
 
 // A live follow skips a stage result far past maxTailLine (a build's
@@ -24,18 +24,18 @@ import (
 // either side of it, a turn split across the buffer boundary included.
 func TestTailSkipsOverLongLines(t *testing.T) {
 	const jobName = "demo-1-bld-r1-app-a1"
-	huge := "PATCHY-EVENT: " + strings.Repeat("A", 3*maxTailLine)
+	huge := "MAUL-EVENT: " + strings.Repeat("A", 3*maxTailLine)
 	body := strings.Join([]string{
 		turnLine(t, transcript.Turn{Seq: 1, Role: transcript.RoleAssistant, Kind: transcript.KindText, Text: "one"}),
 		huge,
 		// An over-long line that also happens to carry the turn prefix is
 		// still dropped whole: a viewer never sees half a turn.
-		"PATCHY-TURN: " + strings.Repeat("B", 2*maxTailLine),
+		"MAUL-TURN: " + strings.Repeat("B", 2*maxTailLine),
 		turnLine(t, transcript.Turn{Seq: 2, Role: transcript.RoleAssistant, Kind: transcript.KindText, Text: "two"}),
 		"no newline at the end, and not a turn",
 	}, "\n")
 
-	tl := NewTailer(fake.NewClientset(runningPod(jobName)), "patchy-agents")
+	tl := NewTailer(fake.NewClientset(runningPod(jobName)), "maul-agents")
 	tl.logs = &fakeLogs{body: body}
 	var got []string
 	err := tl.Tail(t.Context(), jobName, Sink{Turn: func(turn transcript.Turn) error {
@@ -54,7 +54,7 @@ func TestTailSkipsOverLongLines(t *testing.T) {
 // write of its last newline) is still delivered.
 func TestTailDeliversUnterminatedLastTurn(t *testing.T) {
 	const jobName = "demo-1-plan-r1-a1"
-	tl := NewTailer(fake.NewClientset(runningPod(jobName)), "patchy-agents")
+	tl := NewTailer(fake.NewClientset(runningPod(jobName)), "maul-agents")
 	tl.logs = &fakeLogs{body: turnLine(t, transcript.Turn{Seq: 1, Role: transcript.RoleAssistant,
 		Kind: transcript.KindText, Text: "last"})}
 	var got []string
@@ -82,30 +82,30 @@ func outputLine(t *testing.T, o transcript.Output) string {
 // log order, and nothing else: not stage results, not stray lines, not an
 // output line that fails its own checks. A line is the kind of the first
 // prefix it carries, so a command that prints the turn prefix (a grep
-// through patchy's own source) is still output, and a turn that quotes the
+// through maul's own source) is still output, and a turn that quotes the
 // output prefix is still a turn.
 func TestTailSplitsTurnsFromOutput(t *testing.T) {
 	const jobName = "demo-1-bld-r1-app-a1"
 	body := strings.Join([]string{
 		turnLine(t, transcript.Turn{Seq: 1, Role: transcript.RoleAssistant, Kind: transcript.KindToolUse,
-			Tool: "Bash", Text: "grep -rn PATCHY-OUTPUT: internal"}),
+			Tool: "Bash", Text: "grep -rn MAUL-OUTPUT: internal"}),
 		outputLine(t, transcript.Output{Task: "b1", Line: 1, Lines: []string{"ok  internal/web", "ok  internal/jobs"}}),
 		"2026-10-06T09:00:01.5Z " + outputLine(t, transcript.Output{Task: "b1", Line: 3,
-			Lines: []string{`follow.go:12: if transcript.HasPrefix(line) // "PATCHY-TURN: "`}}),
+			Lines: []string{`follow.go:12: if transcript.HasPrefix(line) // "MAUL-TURN: "`}}),
 		eventLine(t, remediationEvent("finding-abc123def0-1")),
 		"plain agent chatter on stdout",
 		// Output lines that fail their own checks: a future version, no
 		// task, no line number, and a body that is not JSON at all.
-		`PATCHY-OUTPUT: {"v":2,"task":"b1","line":4,"lines":["future"]}`,
-		`PATCHY-OUTPUT: {"v":1,"task":"","line":4,"lines":["no task"]}`,
-		`PATCHY-OUTPUT: {"v":1,"task":"b1","line":0,"lines":["no line"]}`,
-		`PATCHY-OUTPUT: not json`,
+		`MAUL-OUTPUT: {"v":2,"task":"b1","line":4,"lines":["future"]}`,
+		`MAUL-OUTPUT: {"v":1,"task":"","line":4,"lines":["no task"]}`,
+		`MAUL-OUTPUT: {"v":1,"task":"b1","line":0,"lines":["no line"]}`,
+		`MAUL-OUTPUT: not json`,
 		outputLine(t, transcript.Output{Task: "b1", Line: 4, Done: true}),
 		turnLine(t, transcript.Turn{Seq: 2, Role: transcript.RoleUser, Kind: transcript.KindToolResult,
-			Text: "PATCHY-OUTPUT: lines are the output format"}),
+			Text: "MAUL-OUTPUT: lines are the output format"}),
 	}, "\n") + "\n"
 
-	tl := NewTailer(fake.NewClientset(runningPod(jobName)), "patchy-agents")
+	tl := NewTailer(fake.NewClientset(runningPod(jobName)), "maul-agents")
 	tl.logs = &fakeLogs{body: body}
 	var log []string
 	err := tl.Tail(t.Context(), jobName, Sink{
@@ -139,7 +139,7 @@ func TestTailSinkHandlers(t *testing.T) {
 		outputLine(t, transcript.Output{Task: "b1", Line: 2, Lines: []string{"two"}}),
 	}, "\n") + "\n"
 	follow := func(sink Sink) error {
-		tl := NewTailer(fake.NewClientset(runningPod(jobName)), "patchy-agents")
+		tl := NewTailer(fake.NewClientset(runningPod(jobName)), "maul-agents")
 		tl.logs = &fakeLogs{body: body}
 		return tl.Tail(t.Context(), jobName, sink)
 	}
@@ -165,7 +165,7 @@ func TestFactsProjectsClockAndIdleLimits(t *testing.T) {
 	started := metav1.NewTime(created.Add(5 * time.Second))
 	deadline := int64(5400)
 	job := &batchv1.Job{
-		ObjectMeta: metav1.ObjectMeta{Name: "demo-1-bld-r1-app-a1", Namespace: "patchy-agents",
+		ObjectMeta: metav1.ObjectMeta{Name: "demo-1-bld-r1-app-a1", Namespace: "maul-agents",
 			CreationTimestamp: created},
 		Spec: batchv1.JobSpec{
 			ActiveDeadlineSeconds: &deadline,
@@ -180,7 +180,7 @@ func TestFactsProjectsClockAndIdleLimits(t *testing.T) {
 		},
 		Status: batchv1.JobStatus{StartTime: &started},
 	}
-	tl := NewTailer(fake.NewClientset(job), "patchy-agents")
+	tl := NewTailer(fake.NewClientset(job), "maul-agents")
 	f, err := tl.Facts(t.Context(), job.Name)
 	if err != nil {
 		t.Fatalf("Facts: %v", err)

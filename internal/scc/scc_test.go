@@ -11,13 +11,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bitwise-media-group/patchy/pkg/source"
+	"github.com/devthenet-labs/maul/pkg/source"
 )
 
 // notificationJSON is a Security Command Center NotificationMessage, trimmed
-// to the fields patchy reads but otherwise shaped as SCC emits them.
+// to the fields maul reads but otherwise shaped as SCC emits them.
 const notificationJSON = `{
-	"notificationConfigName": "organizations/1234567890/locations/global/notificationConfigs/patchy",
+	"notificationConfigName": "organizations/1234567890/locations/global/notificationConfigs/maul",
 	"finding": {
 		"name": "organizations/1234567890/sources/555/findings/abc123",
 		"parent": "organizations/1234567890/sources/555",
@@ -57,7 +57,7 @@ const notificationJSON = `{
 func push(t *testing.T, notificationJSON string) []byte {
 	t.Helper()
 	body, err := json.Marshal(map[string]any{
-		"subscription": "projects/acme-prod/subscriptions/patchy-scc-push",
+		"subscription": "projects/acme-prod/subscriptions/maul-scc-push",
 		"message": map[string]any{
 			"data":            base64.StdEncoding.EncodeToString([]byte(notificationJSON)),
 			"messageId":       "2070443601311540",
@@ -154,7 +154,7 @@ func TestFindingsSkips(t *testing.T) {
 			payload: func(t *testing.T) []byte { return push(t, notificationJSON) },
 		},
 		{
-			// SCC re-notifies when a finding is resolved; patchy triages open
+			// SCC re-notifies when a finding is resolved; maul triages open
 			// problems, and its own TTL handles the rest.
 			name:    "an inactive finding",
 			event:   EventType,
@@ -198,7 +198,7 @@ func TestFindingsMinSeverity(t *testing.T) {
 		{"below the floor", "high", "MEDIUM", false},
 		{"unrated is below every floor", "low", "SEVERITY_UNSPECIFIED", false},
 		{"no floor admits an unrated finding", "", "SEVERITY_UNSPECIFIED", true},
-		// A floor patchy does not recognize must not silently swallow
+		// A floor maul does not recognize must not silently swallow
 		// findings; failing open is the safe direction for a security tool.
 		{"an unrecognized floor admits everything", "nonsense", "LOW", true},
 	} {

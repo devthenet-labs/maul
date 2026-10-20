@@ -9,9 +9,9 @@ attributed to them.
 
 ## Turning it on
 
-| Helm                          | Flag                 | Env                       | Default |
-| ----------------------------- | -------------------- | ------------------------- | ------- |
-| `attribution.mode: attribute` | `--attribution-mode` | `PATCHY_ATTRIBUTION_MODE` | `off`   |
+| Helm                          | Flag                 | Env                     | Default |
+| ----------------------------- | -------------------- | ----------------------- | ------- |
+| `attribution.mode: attribute` | `--attribution-mode` | `MAUL_ATTRIBUTION_MODE` | `off`   |
 
 The flag is shared by the four controllers that launch agent Jobs: investigation-, remediation-, intent- and
 evaluation-controller. The chart sets it on all four from `attribution.mode`. It also renders the admission policies
@@ -30,34 +30,34 @@ Each new `Investigation`, `Remediation`, `IntentRun` and `EvaluationUnit` gets `
 It names a user (`login` and GitHub numeric `id`) and a `reason`. Every run spec is immutable, so the stamp is written
 once and never changes.
 
-| Run                     | Attributed to                                                     | `reason`    |
-| ----------------------- | ----------------------------------------------------------------- | ----------- |
-| Intent plan             | whoever opened the plan's revision, if they are an approver       | `requester` |
-| Intent plan             | otherwise, the organisation                                       | `org`       |
-| Intent build            | the plan's approver                                               | `approver`  |
-| Intent revise (command) | the approver whose `/patchy revise` or `/patchy retry` started it | `commenter` |
-| Intent revise (review)  | the author of the newest approver review the round consumed       | `reviewer`  |
-| Intent check-fix        | the plan's approver                                               | `approver`  |
-| Finding investigation   | the organisation: no human is behind an investigation             | `org`       |
-| Finding remediation     | the Finding's approver when its approval is held, else the org    | `approver`  |
-| Evaluation unit         | its Evaluation's submitter                                        | `submitter` |
+| Run                     | Attributed to                                                  | `reason`    |
+| ----------------------- | -------------------------------------------------------------- | ----------- |
+| Intent plan             | whoever opened the plan's revision, if they are an approver    | `requester` |
+| Intent plan             | otherwise, the organisation                                    | `org`       |
+| Intent build            | the plan's approver                                            | `approver`  |
+| Intent revise (command) | the approver whose `/maul revise` or `/maul retry` started it  | `commenter` |
+| Intent revise (review)  | the author of the newest approver review the round consumed    | `reviewer`  |
+| Intent check-fix        | the plan's approver                                            | `approver`  |
+| Finding investigation   | the organisation: no human is behind an investigation          | `org`       |
+| Finding remediation     | the Finding's approver when its approval is held, else the org | `approver`  |
+| Evaluation unit         | its Evaluation's submitter                                     | `submitter` |
 
 A plan's revision is opened by the trigger that created the Intent, or by the replan or revival that started it again.
 Every attempt of that revision is attributed to the same person. A trigger action consumed while it runs, a refused or
 unavailable one included, starts no plan and changes no attempt's attribution.
 
 A person is identified by their GitHub numeric id. A login can be renamed, and a freed login can be taken by someone
-else, so the login is kept for display only. patchy records the id wherever GitHub supplies it:
+else, so the login is kept for display only. maul records the id wherever GitHub supplies it:
 
 - an Intent's `spec.requestedBy.userID`;
 - every consumed trigger action (`status.lastTrigger.userID`);
 - the trigger action that opened the current plan revision (`status.input.trigger.userID`);
 - the accepted approval (`status.approval.byID`);
-- a Finding's approval, retry and expedite made by a `/patchy` comment (`spec.approval.byID` and the same field on
-  `retry` and `expedite`).
+- a Finding's approval, retry and expedite made by a `/maul` comment (`spec.approval.byID` and the same field on `retry`
+  and `expedite`).
 
-**Re-attribution.** A person the table names may have no patchy identity, meaning no GitHub id is on record for them.
-The run is then attributed to the organisation, with reason `approver-unregistered`, or `submitter-unregistered` for an
+**Re-attribution.** A person the table names may have no maul identity, meaning no GitHub id is on record for them. The
+run is then attributed to the organisation, with reason `approver-unregistered`, or `submitter-unregistered` for an
 evaluation unit. This applies to:
 
 - an approval made on the status page or in the CLI, whose usernames are not GitHub accounts;
@@ -67,8 +67,8 @@ evaluation unit. This applies to:
 No one is attributed a run on the strength of a login alone.
 
 **On the Job.** Every agent Job, and the pod template its pods are made from, carries the annotation
-`patchy.bitwisemedia.uk/attributed-to`. Its value is `org`, or `github-id:<id>` for a person. The launching controller
-takes it from the run's own stamp. A run with no stamp (one created before the mode was turned on) is annotated `org`.
+`maul.run/attributed-to`. Its value is `org`, or `github-id:<id>` for a person. The launching controller takes it from
+the run's own stamp. A run with no stamp (one created before the mode was turned on) is annotated `org`.
 investigation-controller only ever writes `org`.
 
 **On the issue.** The intent issue's status comment gains a line beside the cost:
@@ -86,9 +86,9 @@ With `attribution.mode` other than `off`, the chart renders up to six Validating
 - **`<release>-attribution-pods`** applies in the agent namespace. A pod carrying the annotation is admitted only when
   the Kubernetes Job controller (`admissionPolicy.jobControllerUsernames`) creates it, with a controlling owner
   reference to a `batch/v1` Job. No update, nor a `pods/status` write, may set, change or remove it.
-- **`<release>-attribution-finding-stamps`** applies in the release namespace. Anyone but patchy's controllers, the
-  status server and `admissionPolicy.extraExemptSubjects` who sets or changes a Finding's `spec.approval`, `spec.retry`
-  or `spec.expedite` must name themselves in `by` (their Kubernetes username) and must not set `byID`. The
+- **`<release>-attribution-finding-stamps`** applies in the release namespace. Anyone but maul's controllers, the status
+  server and `admissionPolicy.extraExemptSubjects` who sets or changes a Finding's `spec.approval`, `spec.retry` or
+  `spec.expedite` must name themselves in `by` (their Kubernetes username) and must not set `byID`. The
   [finding-actions policy](../cli.md#permissions) still decides whether they may take the action at all.
 - **`<release>-attribution-evaluation-submitter`** applies in the release namespace, and only with the
   evaluation-controller. An Evaluation created by anyone but the evaluation-controller (whose API stamps the verified
@@ -138,13 +138,13 @@ How a settled run is measured:
   paid by a Claude subscription (`--anthropic-auth token`) is priced `subscription`: the list-price equivalent,
   notional, never money spent.
 
-| Helm                          | Flag                                                  | Env                                                   |
-| ----------------------------- | ----------------------------------------------------- | ----------------------------------------------------- |
-| `attribution.mode: attribute` | `--usage-measurement`, `--usage-broker-url`           | `PATCHY_USAGE_MEASUREMENT`, `PATCHY_USAGE_BROKER_URL` |
-| `attribution.mode: attribute` | `--usage-addr`, `--usage-callers` (the egress broker) | `PATCHY_USAGE_ADDR`, `PATCHY_USAGE_CALLERS`           |
+| Helm                          | Flag                                                  | Env                                               |
+| ----------------------------- | ----------------------------------------------------- | ------------------------------------------------- |
+| `attribution.mode: attribute` | `--usage-measurement`, `--usage-broker-url`           | `MAUL_USAGE_MEASUREMENT`, `MAUL_USAGE_BROKER_URL` |
+| `attribution.mode: attribute` | `--usage-addr`, `--usage-callers` (the egress broker) | `MAUL_USAGE_ADDR`, `MAUL_USAGE_CALLERS`           |
 
-The controllers authenticate to the broker with a projected ServiceAccount token for the `patchy-egress-broker-usage`
-audience, which the chart mounts at `/var/run/secrets/patchy/broker-usage/token`. The broker accepts it on the usage
+The controllers authenticate to the broker with a projected ServiceAccount token for the `maul-egress-broker-usage`
+audience, which the chart mounts at `/var/run/secrets/maul/broker-usage/token`. The broker accepts it on the usage
 endpoint only, from those ServiceAccounts only; see [the egress broker](egress-broker.md#usage-endpoint). The broker
 must run as one replica.
 
@@ -177,13 +177,13 @@ controller also folds the run into durable `UsageRollup` objects in the release 
 
 How a run is folded in, exactly once:
 
-- A run created under `attribute` carries the `patchy.bitwisemedia.uk/usage-rollup` finalizer. It is folded in once it
-  is `Complete` or `Failed` and its usage is `final` (at once when measurement is off, or the run never reported a
-  stage), or when it is deleted. A run deleted before it settled (an evaluation cancelled, a finding deleted under its
-  remediation) is first measured against the broker when measurement is on and it had launched a Job, waiting at most as
-  long as a settled run would, so its metered spend still reaches the trusted totals. Each rollup's `status.recent`
-  ledger records the run's UID (`u:<uid>`), so a crash or a conflict between the rollup write and the run's own write
-  never counts it twice.
+- A run created under `attribute` carries the `maul.run/usage-rollup` finalizer. It is folded in once it is `Complete`
+  or `Failed` and its usage is `final` (at once when measurement is off, or the run never reported a stage), or when it
+  is deleted. A run deleted before it settled (an evaluation cancelled, a finding deleted under its remediation) is
+  first measured against the broker when measurement is on and it had launched a Job, waiting at most as long as a
+  settled run would, so its metered spend still reaches the trusted totals. Each rollup's `status.recent` ledger records
+  the run's UID (`u:<uid>`), so a crash or a conflict between the rollup write and the run's own write never counts it
+  twice.
 - The run is then marked `UsageRolledUp` and the finalizer removed, so its deletion, by TTL or by hand, never waits on
   the rollup. A run created before the feature, or under `off`, has no finalizer and is never folded in or held.
 - remediation-controller, which hosts the FindingRollup loop, compacts the rollups hourly under `attribute`: day buckets
@@ -197,7 +197,7 @@ may delete a rollup through the chart's roles. Rollups live only in etcd, so a c
 
 `kubectl get usagerollups` (short name `ur`) lists them. The status page's [Usage page](status-server.md#usage-views)
 (`statusServer.usage.enabled`) shows each person their own and admins everyone's, and
-[`patchy get usage`](../cli.md#reading-usage) prints the same report.
+[`maul get usage`](../cli.md#reading-usage) prints the same report.
 
 ## Turning it off
 

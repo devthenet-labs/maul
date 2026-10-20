@@ -22,16 +22,16 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/cli"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/telemetry"
-	"github.com/bitwise-media-group/patchy/internal/version"
-	"github.com/bitwise-media-group/patchy/internal/web"
-	"github.com/bitwise-media-group/patchy/internal/web/auth"
-	"github.com/bitwise-media-group/patchy/internal/web/authz"
-	"github.com/bitwise-media-group/patchy/internal/web/credstore"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/cli"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/telemetry"
+	"github.com/devthenet-labs/maul/internal/version"
+	"github.com/devthenet-labs/maul/internal/web"
+	"github.com/devthenet-labs/maul/internal/web/auth"
+	"github.com/devthenet-labs/maul/internal/web/authz"
+	"github.com/devthenet-labs/maul/internal/web/credstore"
 )
 
 func newServeCmd(opts *cli.Options) *cobra.Command {
@@ -41,8 +41,8 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 		RunE:  func(cmd *cobra.Command, _ []string) error { return serve(cmd.Context(), opts) },
 	}
 	f := cmd.Flags()
-	f.String("namespace", "", "namespace the patchy resources live in (default: POD_NAMESPACE)")
-	f.String("agent-namespace", "patchy-agents",
+	f.String("namespace", "", "namespace the maul resources live in (default: POD_NAMESPACE)")
+	f.String("agent-namespace", "maul-agents",
 		"namespace the agent Jobs run in; live transcripts are followed from their pod logs")
 	f.String("kubeconfig", "", "kubeconfig path (default: in-cluster config)")
 	f.String("health-addr", ":8081", "healthz/readyz probe listen address")
@@ -304,7 +304,7 @@ func loopback(addr string) bool {
 // agentTailer builds the read-only pod-log reader for the agent namespace.
 // It is a plain clientset rather than the manager's client: pod logs are a
 // subresource stream, not a cacheable object, and the manager's cache is
-// scoped to the patchy namespace anyway.
+// scoped to the maul namespace anyway.
 func agentTailer(kubeconfig, agentNamespace string) (web.Tailer, error) {
 	if agentNamespace == "" {
 		return nil, errors.New("no agent namespace configured")
@@ -322,7 +322,7 @@ func agentTailer(kubeconfig, agentNamespace string) (web.Tailer, error) {
 
 func serve(ctx context.Context, opts *cli.Options) error {
 	prov, shutdown, err := telemetry.Init(ctx, telemetry.Config{
-		Dir:            os.Getenv("PATCHY_TELEMETRY_DIR"),
+		Dir:            os.Getenv("MAUL_TELEMETRY_DIR"),
 		Level:          opts.LogLevel,
 		ServiceName:    "status-server",
 		ServiceVersion: version.Version,

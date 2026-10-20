@@ -7,8 +7,8 @@ export interface ToastItem {
 }
 
 const TONE = {
-  red: "text-red border-[color-mix(in_oklab,var(--patchy-red)_40%,var(--patchy-line-2))]",
-  green: "text-ink border-[color-mix(in_oklab,var(--patchy-green)_40%,var(--patchy-line-2))]",
+  red: "text-red border-[color-mix(in_oklab,var(--maul-red)_40%,var(--maul-line-2))]",
+  green: "text-ink border-[color-mix(in_oklab,var(--maul-green)_40%,var(--maul-line-2))]",
 };
 
 export function Toasts({ toasts, onDismiss }: { toasts: ToastItem[]; onDismiss: (id: number) => void }) {

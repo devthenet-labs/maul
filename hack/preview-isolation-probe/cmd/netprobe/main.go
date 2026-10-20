@@ -45,10 +45,10 @@ type envTarget struct{ name, key, port string }
 var (
 	requiredTargets = []envTarget{
 		{"kubernetes-api", "PROBE_KUBERNETES_API", "443"},
-		{"patchy-egress-broker", "PROBE_EGRESS_BROKER", "8080"},
-		{"patchy-integration-controller", "PROBE_INTEGRATION_CONTROLLER", "8080"},
-		{"patchy-source-controller", "PROBE_SOURCE_CONTROLLER", "9790"},
-		{"patchy-status-server", "PROBE_STATUS_SERVER", "8080"},
+		{"maul-egress-broker", "PROBE_EGRESS_BROKER", "8080"},
+		{"maul-integration-controller", "PROBE_INTEGRATION_CONTROLLER", "8080"},
+		{"maul-source-controller", "PROBE_SOURCE_CONTROLLER", "9790"},
+		{"maul-status-server", "PROBE_STATUS_SERVER", "8080"},
 	}
 	siblingTargets = []envTarget{
 		{"same-slot-sibling-pod", "PROBE_SIBLING_POD", "8080"},

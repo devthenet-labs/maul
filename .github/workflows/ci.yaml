@@ -35,7 +35,7 @@ jobs:
         with:
             # The reusable workflow's e2e job is opt-in (its default is off,
             # since e2e often needs services or secrets); without this it is
-            # skipped on every run. patchy's suite needs neither: `mise run e2e`
+            # skipped on every run. maul's suite needs neither: `mise run e2e`
             # boots an envtest kube-apiserver, builds the real binaries and
             # drives them against the in-memory fake GitHub — the only network
             # it touches is setup-envtest's asset download.
@@ -147,7 +147,7 @@ jobs:
             - name: Run tf-lint
               run: mise run tf-lint
 
-    # The trees `patchy init app` generates, checked the way their own CI
+    # The trees `maul init app` generates, checked the way their own CI
     # would (hack/scaffold-check.sh): actionlint, shellcheck and hadolint over
     # the golden trees, the guard's node tests, the publishers' python tests
     # and a vet and race test of the generated Go service. The golden test in
@@ -182,13 +182,13 @@ jobs:
             - name: Run scaffold-check
               run: mise run scaffold-check
 
-    # The pins `patchy setup previews` recommends (`mise run preview-pins`,
+    # The pins `maul setup previews` recommends (`mise run preview-pins`,
     # TestLivePins): each pinned upstream chart version exists,
     # the values the recipes write render with it, and the generated Issuers
     # and Certificates are valid against cert-manager's CRDs at that version;
     # the pinned cloudflared image runs at its tag and digest and accepts the
     # cloudflare-tunnel recipe's config (offline: ingress validate and rule).
-    # A stale or mistyped pin is a patchy-documented vulnerability (design
+    # A stale or mistyped pin is a maul-documented vulnerability (design
     # §5.3), so this runs on every pull request, renovate's bumps included. It
     # needs the network (the charts' repositories, Docker Hub), helm, which
     # mise pins, and docker, which the runner image has; set up as in the

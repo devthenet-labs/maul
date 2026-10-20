@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/mirror/scan"
-	"github.com/bitwise-media-group/patchy/internal/mirror/spec"
-	"github.com/bitwise-media-group/patchy/internal/mirror/verify"
+	"github.com/devthenet-labs/maul/internal/mirror/scan"
+	"github.com/devthenet-labs/maul/internal/mirror/spec"
+	"github.com/devthenet-labs/maul/internal/mirror/verify"
 )
 
 // seams carries the injectable collaborators a stage-error test varies.

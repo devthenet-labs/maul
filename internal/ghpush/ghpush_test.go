@@ -13,8 +13,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/ghclient"
 )
 
 var testChangeset = &envelope.Changeset{
@@ -59,15 +59,15 @@ func TestPushTranslatesChangeset(t *testing.T) {
 		var body struct{ Ref, SHA string }
 		readJSON(t, r, &body)
 		refSHA = body.SHA
-		if body.Ref != "refs/heads/patchy/issue-7" {
+		if body.Ref != "refs/heads/maul/issue-7" {
 			t.Errorf("ref = %q", body.Ref)
 		}
-		writeJSON(w, `{"ref":"refs/heads/patchy/issue-7","object":{"sha":"commit1"}}`)
+		writeJSON(w, `{"ref":"refs/heads/maul/issue-7","object":{"sha":"commit1"}}`)
 	})
 
 	p := New(srv.URL)
 	repo := ghclient.Repo{Owner: "o", Name: "r"}
-	sha, err := p.Push(context.Background(), repo, "write-token", "patchy/issue-7", testChangeset)
+	sha, err := p.Push(context.Background(), repo, "write-token", "maul/issue-7", testChangeset)
 	if err != nil {
 		t.Fatalf("Push() error = %v", err)
 	}

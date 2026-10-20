@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/previewauth"
+	"github.com/devthenet-labs/maul/internal/previewauth"
 )
 
 // MaxBodyBytes caps every request body.

@@ -14,11 +14,11 @@ import (
 	"github.com/spf13/cobra"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/bitwise-media-group/patchy/internal/cli"
-	"github.com/bitwise-media-group/patchy/internal/controller/preview"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/telemetry"
-	"github.com/bitwise-media-group/patchy/internal/version"
+	"github.com/devthenet-labs/maul/internal/cli"
+	"github.com/devthenet-labs/maul/internal/controller/preview"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/telemetry"
+	"github.com/devthenet-labs/maul/internal/version"
 )
 
 func newServeCmd(opts *cli.Options) *cobra.Command {
@@ -67,7 +67,7 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 
 func serve(ctx context.Context, opts *cli.Options) error {
 	prov, shutdown, err := telemetry.Init(ctx, telemetry.Config{
-		Dir: os.Getenv("PATCHY_TELEMETRY_DIR"), Level: opts.LogLevel,
+		Dir: os.Getenv("MAUL_TELEMETRY_DIR"), Level: opts.LogLevel,
 		ServiceName: "preview-controller", ServiceVersion: version.Version,
 	})
 	if err != nil {
@@ -102,7 +102,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		return err
 	}
 	mgr, err := kube.NewManager(kube.Options{
-		Kubeconfig: opts.String("kubeconfig"), LeaderElectionID: "patchy-preview-controller-leader",
+		Kubeconfig: opts.String("kubeconfig"), LeaderElectionID: "maul-preview-controller-leader",
 		LeaderElectionNamespace: namespace, Namespaces: []string{namespace},
 		HealthAddr: opts.String("health-addr"), Log: prov.Logger,
 	})
@@ -116,7 +116,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	if err != nil {
 		return fmt.Errorf("preview direct client: %w", err)
 	}
-	recorder := mgr.GetEventRecorder("patchy-preview-controller")
+	recorder := mgr.GetEventRecorder("maul-preview-controller")
 	reconciler := &preview.Reconciler{Client: direct, Settings: settings, Log: prov.Logger, Events: recorder}
 	if err := reconciler.SetupWithManager(mgr); err != nil {
 		return err

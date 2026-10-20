@@ -11,18 +11,18 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/bitwise-media-group/patchy/internal/mirror/helmchart"
-	"github.com/bitwise-media-group/patchy/internal/mirror/spec"
+	"github.com/devthenet-labs/maul/internal/mirror/helmchart"
+	"github.com/devthenet-labs/maul/internal/mirror/spec"
 )
 
 // TestMirrorStoreParity discovers images from a real mirror store's
 // committed rendered trees and compares the result with the committed
-// images.lock.yaml sources. Runs only when PATCHY_MIRROR_PARITY_DIR points
+// images.lock.yaml sources. Runs only when MAUL_MIRROR_PARITY_DIR points
 // at a checkout.
 func TestMirrorStoreParity(t *testing.T) {
-	root := os.Getenv("PATCHY_MIRROR_PARITY_DIR")
+	root := os.Getenv("MAUL_MIRROR_PARITY_DIR")
 	if root == "" {
-		t.Skip("PATCHY_MIRROR_PARITY_DIR not set")
+		t.Skip("MAUL_MIRROR_PARITY_DIR not set")
 	}
 	manifests, err := filepath.Glob(filepath.Join(root, "charts", "*", "manifest.yaml"))
 	if err != nil || len(manifests) == 0 {

@@ -109,7 +109,7 @@ func TestLoadConfigRejects(t *testing.T) {
 	}{
 		{
 			name:    "wrong kind",
-			content: "apiVersion: mirror.patchy.bitwisemedia.uk/v1alpha1\nkind: Chart\n" + registries,
+			content: "apiVersion: mirror.maul.run/v1alpha1\nkind: Chart\n" + registries,
 			wantErr: "kind",
 		},
 		{
@@ -119,60 +119,60 @@ func TestLoadConfigRejects(t *testing.T) {
 		},
 		{
 			name:    "no registries",
-			content: "apiVersion: mirror.patchy.bitwisemedia.uk/v1alpha1\nkind: MirrorConfig\n",
+			content: "apiVersion: mirror.maul.run/v1alpha1\nkind: MirrorConfig\n",
 			wantErr: "at least one registry",
 		},
 		{
 			name: "legacy singular registry block",
-			content: "apiVersion: mirror.patchy.bitwisemedia.uk/v1alpha1\nkind: MirrorConfig\n" +
+			content: "apiVersion: mirror.maul.run/v1alpha1\nkind: MirrorConfig\n" +
 				"registry: {url: r.example.com/x}\n",
 			wantErr: "registry",
 		},
 		{
 			name: "missing registry name",
-			content: "apiVersion: mirror.patchy.bitwisemedia.uk/v1alpha1\nkind: MirrorConfig\n" +
+			content: "apiVersion: mirror.maul.run/v1alpha1\nkind: MirrorConfig\n" +
 				"registries: [{url: r.example.com/x}]\n",
 			wantErr: "name",
 		},
 		{
 			name: "bad registry name charset",
-			content: "apiVersion: mirror.patchy.bitwisemedia.uk/v1alpha1\nkind: MirrorConfig\n" +
+			content: "apiVersion: mirror.maul.run/v1alpha1\nkind: MirrorConfig\n" +
 				"registries: [{name: \"Prod Registry\", url: r.example.com/x}]\n",
 			wantErr: "name",
 		},
 		{
 			name: "missing registry url",
-			content: "apiVersion: mirror.patchy.bitwisemedia.uk/v1alpha1\nkind: MirrorConfig\n" +
+			content: "apiVersion: mirror.maul.run/v1alpha1\nkind: MirrorConfig\n" +
 				"registries: [{name: r}]\n",
 			wantErr: "url is required",
 		},
 		{
 			name: "duplicate registry names",
-			content: "apiVersion: mirror.patchy.bitwisemedia.uk/v1alpha1\nkind: MirrorConfig\n" +
+			content: "apiVersion: mirror.maul.run/v1alpha1\nkind: MirrorConfig\n" +
 				"registries: [{name: r, url: a.example.com/x}, {name: r, url: b.example.com/x}]\n",
 			wantErr: "duplicate name",
 		},
 		{
 			name: "invalid per-registry signing",
-			content: "apiVersion: mirror.patchy.bitwisemedia.uk/v1alpha1\nkind: MirrorConfig\n" +
+			content: "apiVersion: mirror.maul.run/v1alpha1\nkind: MirrorConfig\n" +
 				"registries: [{name: r, url: r.example.com/x, signing: {provider: kms}}]\n",
 			wantErr: "kms.key",
 		},
 		{
 			name: "unknown field",
-			content: "apiVersion: mirror.patchy.bitwisemedia.uk/v1alpha1\nkind: MirrorConfig\n" +
+			content: "apiVersion: mirror.maul.run/v1alpha1\nkind: MirrorConfig\n" +
 				registries + "bogus: true\n",
 			wantErr: "bogus",
 		},
 		{
 			name: "kms without key",
-			content: "apiVersion: mirror.patchy.bitwisemedia.uk/v1alpha1\nkind: MirrorConfig\n" +
+			content: "apiVersion: mirror.maul.run/v1alpha1\nkind: MirrorConfig\n" +
 				registries + "signing: {provider: kms}\n",
 			wantErr: "kms.key",
 		},
 		{
 			name: "newDays beyond maxDays",
-			content: "apiVersion: mirror.patchy.bitwisemedia.uk/v1alpha1\nkind: MirrorConfig\n" +
+			content: "apiVersion: mirror.maul.run/v1alpha1\nkind: MirrorConfig\n" +
 				registries + "scan: {allowlistMaxDays: 30, allowlistNewDays: 60}\n",
 			wantErr: "allowlistNewDays",
 		},
@@ -478,7 +478,7 @@ func TestNameMismatchRejected(t *testing.T) {
 	if err := os.MkdirAll(entry, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	manifest := "apiVersion: mirror.patchy.bitwisemedia.uk/v1alpha1\nkind: Chart\nname: other\n" +
+	manifest := "apiVersion: mirror.maul.run/v1alpha1\nkind: Chart\nname: other\n" +
 		"chart: {repo: oci://x/y, name: other, version: \"1.0.0\"}\n"
 	if err := os.WriteFile(filepath.Join(entry, "manifest.yaml"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)

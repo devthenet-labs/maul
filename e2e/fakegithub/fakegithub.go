@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 // Package fakegithub is an in-memory GitHub REST API good enough to run the
-// patchy controllers against: code-scanning alerts, issues, labels (on
+// maul controllers against: code-scanning alerts, issues, labels (on
 // issues and the repository's own), comments, issue events, reactions,
 // search, pull requests, the Git Data surface (refs, blobs, trees, commits)
 // the API push uses, repository tarballs, the rate-limit budget, and the App
@@ -46,7 +46,7 @@ import (
 // is made as its bot user, the actor GitHub records on everything an
 // installation token does (a PAT's writes are PATUser's).
 const (
-	AppSlug   = "patchy"
+	AppSlug   = "maul"
 	BotLogin  = AppSlug + "[bot]"
 	BotUserID = int64(100000001)
 )
@@ -76,7 +76,7 @@ type Issue struct {
 	// StateReason is why a closed issue was closed ("completed",
 	// "not_planned"), "" when no reason was given.
 	StateReason string `json:"state_reason,omitempty"`
-	// User opened the issue: patchy[bot], the login its comments carry too,
+	// User opened the issue: maul[bot], the login its comments carry too,
 	// unless a test opened it as a human (OpenIssue).
 	User Actor `json:"user"`
 }

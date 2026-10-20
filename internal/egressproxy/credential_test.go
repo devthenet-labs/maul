@@ -35,7 +35,7 @@ func sampleCredentials(t *testing.T) map[string]Credential {
 	if err != nil {
 		t.Fatal(err)
 	}
-	basic, err := BasicCredential("svc-patchy", sentinel)
+	basic, err := BasicCredential("svc-maul", sentinel)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func sampleCredentials(t *testing.T) map[string]Credential {
 // prints [redacted], directly, as a struct field, through a pointer and
 // wrapped in an error.
 func TestCredentialNeverPrinted(t *testing.T) {
-	forbidden := leakForms(sentinel, "svc-patchy:"+sentinel, "aws:"+sentinel)
+	forbidden := leakForms(sentinel, "svc-maul:"+sentinel, "aws:"+sentinel)
 	for name, c := range sampleCredentials(t) {
 		t.Run(name, func(t *testing.T) {
 			holder := struct {
@@ -111,8 +111,8 @@ func TestCredentialHeaders(t *testing.T) {
 		needles []string
 	}{
 		"bearer": {"Bearer " + sentinel, CredentialStatic, []string{sentinel}},
-		"basic": {"Basic " + pair("svc-patchy:"+sentinel), CredentialStatic,
-			[]string{pair("svc-patchy:" + sentinel), sentinel}},
+		"basic": {"Basic " + pair("svc-maul:"+sentinel), CredentialStatic,
+			[]string{pair("svc-maul:" + sentinel), sentinel}},
 		"codeartifact-npm": {"Bearer " + sentinel, CredentialCodeArtifact, []string{sentinel}},
 		"codeartifact-pypi": {"Basic " + pair("aws:"+sentinel), CredentialCodeArtifact,
 			[]string{pair("aws:" + sentinel), sentinel}},

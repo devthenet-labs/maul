@@ -18,15 +18,15 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/agentresult"
-	"github.com/bitwise-media-group/patchy/internal/attribution"
-	"github.com/bitwise-media-group/patchy/internal/credgate"
-	"github.com/bitwise-media-group/patchy/internal/harness"
-	"github.com/bitwise-media-group/patchy/internal/model"
-	"github.com/bitwise-media-group/patchy/internal/priority"
-	"github.com/bitwise-media-group/patchy/internal/runnerguard"
-	"github.com/bitwise-media-group/patchy/internal/usagerollup"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/agentresult"
+	"github.com/devthenet-labs/maul/internal/attribution"
+	"github.com/devthenet-labs/maul/internal/credgate"
+	"github.com/devthenet-labs/maul/internal/harness"
+	"github.com/devthenet-labs/maul/internal/model"
+	"github.com/devthenet-labs/maul/internal/priority"
+	"github.com/devthenet-labs/maul/internal/runnerguard"
+	"github.com/devthenet-labs/maul/internal/usagerollup"
 )
 
 // SpawnerReconciler is the queue-admission writer: it turns approvals and
@@ -47,10 +47,10 @@ type SpawnerReconciler struct {
 	Enabled      []string
 	Allowlist    []string
 	DefaultModel string
-	// AutoMaxTurns/AutoTokenBudget is what patchy spends unattended: the
+	// AutoMaxTurns/AutoTokenBudget is what maul spends unattended: the
 	// budget every remediation is entitled to, and the line past which an
 	// estimate needs human approval. These must match the runner's
-	// PATCHY_REMEDIATE_AUTO_* configuration — the pod re-derives the same
+	// MAUL_REMEDIATE_AUTO_* configuration — the pod re-derives the same
 	// floor, so a mismatch merely wastes the larger of the two rather than
 	// misbehaving.
 	AutoMaxTurns    int32
@@ -188,7 +188,7 @@ func (r *SpawnerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 }
 
 // revivable reports whether a handed-off finding carries an approval newer
-// than its completion — the human asked patchy to take it back.
+// than its completion — the human asked maul to take it back.
 func revivable(fnd *v1alpha1.Finding) bool {
 	ap := fnd.Spec.Approval
 	if ap == nil || fnd.Spec.Repository == nil || fnd.Status.Investigation == nil {
@@ -412,7 +412,7 @@ func approvedBy(fnd *v1alpha1.Finding) string {
 
 // Attribute is whom a remediation of fnd is for (design §2): the Finding's
 // approver when its approval is held, re-attributed to the org (reason
-// approver-unregistered) when that approver has no patchy identity, which
+// approver-unregistered) when that approver has no maul identity, which
 // is every approval made on the status page or in the CLI, whose usernames
 // carry no GitHub id; the org when no human approved it.
 func Attribute(fnd *v1alpha1.Finding) *v1alpha1.Attribution {

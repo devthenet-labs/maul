@@ -12,7 +12,7 @@ import (
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 
-	"github.com/bitwise-media-group/patchy/internal/usagewire"
+	"github.com/devthenet-labs/maul/internal/usagewire"
 )
 
 // vertexScope is the OAuth scope the Vertex AI prediction API accepts.

@@ -5,13 +5,13 @@
 # sibling run. run.sh creates it with `kubectl create` and never a
 # client-side `kubectl apply`, which would add its last-applied annotation:
 # the slot Service admission policy admits no annotation but a health-check
-# path. charts/patchy/preview_probe_envtest_test.go runs run.sh's own
+# path. charts/maul/preview_probe_envtest_test.go runs run.sh's own
 # command on this file against the rendered policies.
 apiVersion: v1
 kind: Service
 metadata:
   name: preview-isolation-sibling
-  namespace: patchy-preview-0
+  namespace: maul-preview-0
 spec:
   type: ClusterIP
   selector: {app: preview-isolation-sibling}

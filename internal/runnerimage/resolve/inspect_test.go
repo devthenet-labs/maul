@@ -13,7 +13,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 
-	"github.com/bitwise-media-group/patchy/internal/runnerimage"
+	"github.com/devthenet-labs/maul/internal/runnerimage"
 )
 
 // errText is an error's message, "" for nil, so verdicts compare as text.
@@ -111,7 +111,7 @@ func TestInspectAgreesWithResolve(t *testing.T) {
 			signLegacy(t, priv, repo, push(t, repo.Tag("v1"), amd))
 		}},
 		{"reserved env and unsigned", Config{PublicKey: pub}, func(t *testing.T, repo name.Repository) {
-			push(t, repo.Tag("v1"), image(t, &v1.ConfigFile{Config: v1.Config{Env: []string{"PATCHY_X=1"}}}))
+			push(t, repo.Tag("v1"), image(t, &v1.ConfigFile{Config: v1.Config{Env: []string{"MAUL_X=1"}}}))
 		}},
 	}
 	for _, tc := range cases {

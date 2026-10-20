@@ -9,9 +9,9 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/runnerguard"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/runnerguard"
 )
 
 // investigatedThen is a finding's phase history from ingest through its
@@ -94,7 +94,7 @@ func TestRemediationHoldsDefaultImageFallback(t *testing.T) {
 // TestRemediationRunsDefaultImageOnceHoldApproved: approving the hold is a
 // human accepting an untested run. The next attempt launches on the default
 // image, the held attempt does not count toward MaxAttempts, and the pull
-// request the run opens says plainly that patchy did not build or test it.
+// request the run opens says plainly that maul did not build or test it.
 func TestRemediationRunsDefaultImageOnceHoldApproved(t *testing.T) {
 	// Attempt 1 was held; the approval revived the finding into attempt 2.
 	held := runningRemediation()[1].(*v1alpha1.Remediation)
@@ -151,7 +151,7 @@ func TestRemediationHeldAttemptConsumesNoAttempt(t *testing.T) {
 	}
 }
 
-// TestRemediationPRBodySaysWhetherTested: a run on patchy's default image —
+// TestRemediationPRBodySaysWhetherTested: a run on maul's default image —
 // here a repository that declares nothing, which keeps today's behaviour of
 // remediating there — opens a pull request that says it was not built or
 // tested; a run on the repository's own image does not.
@@ -190,7 +190,7 @@ func TestRemediationNoDeclarationLaunchesDefaultImage(t *testing.T) {
 	}{
 		{"nothing declared", nil},
 		{"rejected under onReject default", &v1alpha1.RunnerImage{
-			Declared: "ghcr.io/acme/go-env:1.26", Manifest: ".patchy/agent.yaml", Rejected: "NotAllowlisted",
+			Declared: "ghcr.io/acme/go-env:1.26", Manifest: ".maul/agent.yaml", Rejected: "NotAllowlisted",
 		}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -212,7 +212,7 @@ func TestRemediationNoDeclarationLaunchesDefaultImage(t *testing.T) {
 
 // untestedMarker is the sentence the pull request body opens its untested
 // warning with.
-const untestedMarker = "patchy did not build or test this change"
+const untestedMarker = "maul did not build or test this change"
 
 // crdFatal is a run that ended in a fatal event: an ordinary failure.
 func crdFatal() []envelope.Event {

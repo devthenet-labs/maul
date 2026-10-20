@@ -19,9 +19,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/report"
-	"github.com/bitwise-media-group/patchy/internal/runner"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/report"
+	"github.com/devthenet-labs/maul/internal/runner"
 )
 
 // Captured claude stream-json shapes.
@@ -406,8 +406,8 @@ func TestRemediatePackagesChangeset(t *testing.T) {
 	if rem.Outcome != envelope.OutcomeOK || !rem.Success {
 		t.Fatalf("remediation = %q/success:%v (detail: %q)", rem.Outcome, rem.Success, rem.Detail)
 	}
-	if rem.Branch != "patchy/finding-abc123def0-1" {
-		t.Errorf("Branch = %q, want patchy/finding-abc123def0-1", rem.Branch)
+	if rem.Branch != "maul/finding-abc123def0-1" {
+		t.Errorf("Branch = %q, want maul/finding-abc123def0-1", rem.Branch)
 	}
 	if rem.Confidence != 0.88 {
 		t.Errorf("Confidence = %v, want 0.88", rem.Confidence)
@@ -972,18 +972,18 @@ func TestManualBudgetBelowAutomatedIsRejected(t *testing.T) {
 		want string
 	}{
 		{"turns inverted", map[string]string{
-			"PATCHY_REMEDIATE_AUTO_MAX_TURNS":   "80",
-			"PATCHY_REMEDIATE_MANUAL_MAX_TURNS": "10",
-		}, "PATCHY_REMEDIATE_MANUAL_MAX_TURNS=10 is below the automated budget 80"},
+			"MAUL_REMEDIATE_AUTO_MAX_TURNS":   "80",
+			"MAUL_REMEDIATE_MANUAL_MAX_TURNS": "10",
+		}, "MAUL_REMEDIATE_MANUAL_MAX_TURNS=10 is below the automated budget 80"},
 		{"tokens inverted", map[string]string{
-			"PATCHY_REMEDIATE_AUTO_TOKEN_BUDGET":   "400000",
-			"PATCHY_REMEDIATE_MANUAL_TOKEN_BUDGET": "1000",
-		}, "PATCHY_REMEDIATE_MANUAL_TOKEN_BUDGET=1000 is below the automated budget 400000"},
+			"MAUL_REMEDIATE_AUTO_TOKEN_BUDGET":   "400000",
+			"MAUL_REMEDIATE_MANUAL_TOKEN_BUDGET": "1000",
+		}, "MAUL_REMEDIATE_MANUAL_TOKEN_BUDGET=1000 is below the automated budget 400000"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			env := map[string]string{
-				"PATCHY_REPO": "acme/shop", "PATCHY_FINDING": "f-1", "PATCHY_PHASE": "remediate",
+				"MAUL_REPO": "acme/shop", "MAUL_FINDING": "f-1", "MAUL_PHASE": "remediate",
 			}
 			maps.Copy(env, tt.env)
 			if _, err := FromEnv(func(k string) string { return env[k] }); err == nil {
@@ -999,9 +999,9 @@ func TestManualBudgetBelowAutomatedIsRejected(t *testing.T) {
 // nothing extra, which is a legitimate posture, not a misconfiguration.
 func TestEqualBudgetsAreAccepted(t *testing.T) {
 	env := map[string]string{
-		"PATCHY_REPO": "acme/shop", "PATCHY_FINDING": "f-1", "PATCHY_PHASE": "remediate",
-		"PATCHY_REMEDIATE_AUTO_MAX_TURNS":   "80",
-		"PATCHY_REMEDIATE_MANUAL_MAX_TURNS": "80",
+		"MAUL_REPO": "acme/shop", "MAUL_FINDING": "f-1", "MAUL_PHASE": "remediate",
+		"MAUL_REMEDIATE_AUTO_MAX_TURNS":   "80",
+		"MAUL_REMEDIATE_MANUAL_MAX_TURNS": "80",
 	}
 	if _, err := FromEnv(func(k string) string { return env[k] }); err != nil {
 		t.Errorf("FromEnv() error = %v, want equal budgets accepted", err)

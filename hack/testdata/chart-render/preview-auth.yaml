@@ -11,11 +11,11 @@ previewAuth:
     enabled: true
     keys:
         renderOffline: true
-    host: preview-auth.patchy.devthe.net
+    host: preview-auth.maul.devthe.net
     dex:
-        issuerURL: https://dex.patchy.devthe.net
-        clientID: patchy-preview-auth
-        existingSecret: patchy-preview-auth-dex
+        issuerURL: https://dex.maul.devthe.net
+        clientID: maul-preview-auth
+        existingSecret: maul-preview-auth-dex
     viewers:
         teams:
             - devthenet-labs:reviewers

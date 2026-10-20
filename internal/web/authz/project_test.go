@@ -17,8 +17,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/web/auth"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/web/auth"
 )
 
 // projectReview is one review the fake API server answered.
@@ -39,8 +39,8 @@ func projectSARClient(t *testing.T, mu *sync.Mutex, seen *[]projectReview,
 					t.Fatalf("unexpected create of %T", obj)
 				}
 				ra := sar.Spec.ResourceAttributes
-				if ra.Group != group || ra.Resource != ProjectResource || ra.Verb != "get" || ra.Namespace != "patchy" {
-					t.Errorf("review = %+v, want get on projects in patchy", ra)
+				if ra.Group != group || ra.Resource != ProjectResource || ra.Verb != "get" || ra.Namespace != "maul" {
+					t.Errorf("review = %+v, want get on projects in maul", ra)
 				}
 				mu.Lock()
 				*seen = append(*seen, projectReview{sar.Spec.User, ra.Name, ra.Subresource})
@@ -100,7 +100,7 @@ func TestProjectReviewerTiers(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var mu sync.Mutex
 			var seen []projectReview
-			r := NewProjectReviewer(projectSARClient(t, &mu, &seen, tc.allow), "patchy", 0)
+			r := NewProjectReviewer(projectSARClient(t, &mu, &seen, tc.allow), "maul", 0)
 			got, err := r.Tiers(t.Context(), auth.Identity{Username: "github:dev"}, projects)
 			if err != nil {
 				t.Fatalf("Tiers: %v", err)
@@ -118,7 +118,7 @@ func TestProjectReviewerNamespaceWideShortcut(t *testing.T) {
 	var mu sync.Mutex
 	var seen []projectReview
 	r := NewProjectReviewer(projectSARClient(t, &mu, &seen,
-		func(_, name, _ string) bool { return name == "" }), "patchy", 0)
+		func(_, name, _ string) bool { return name == "" }), "maul", 0)
 	many := make([]string, 50)
 	for i := range many {
 		many[i] = "p" + string(rune('a'+i%26)) + string(rune('a'+i/26))
@@ -145,7 +145,7 @@ func TestProjectReviewerCacheKeys(t *testing.T) {
 	allow := func(user, name, sub string) bool {
 		return user == "github:alice" && name == "alpha"
 	}
-	r := NewProjectReviewer(projectSARClient(t, &mu, &seen, allow), "patchy", time.Minute)
+	r := NewProjectReviewer(projectSARClient(t, &mu, &seen, allow), "maul", time.Minute)
 	alice := auth.Identity{Username: "github:alice"}
 	bob := auth.Identity{Username: "github:bob"}
 	for range 3 {
@@ -179,7 +179,7 @@ func TestProjectReviewerCacheExpires(t *testing.T) {
 	var seen []projectReview
 	granted := true
 	r := NewProjectReviewer(projectSARClient(t, &mu, &seen,
-		func(_, name, _ string) bool { return granted && name == "alpha" }), "patchy", time.Minute)
+		func(_, name, _ string) bool { return granted && name == "alpha" }), "maul", time.Minute)
 	now := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
 	r.now = func() time.Time { return now }
 	id := auth.Identity{Username: "github:dev"}
@@ -248,7 +248,7 @@ func TestProjectReviewerAllowed(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var mu sync.Mutex
 			var seen []projectReview
-			r := NewProjectReviewer(projectSARClient(t, &mu, &seen, tc.allow), "patchy", time.Minute)
+			r := NewProjectReviewer(projectSARClient(t, &mu, &seen, tc.allow), "maul", time.Minute)
 			id := auth.Identity{Username: "github:dev"}
 			// Twice: the second answer comes from the cache, with no review.
 			for range 2 {
@@ -273,7 +273,7 @@ func TestProjectReviewerAllowedCacheSeparation(t *testing.T) {
 	var mu sync.Mutex
 	var seen []projectReview
 	r := NewProjectReviewer(projectSARClient(t, &mu, &seen,
-		func(_, _, sub string) bool { return sub == SubresourcePreviews }), "patchy", time.Minute)
+		func(_, _, sub string) bool { return sub == SubresourcePreviews }), "maul", time.Minute)
 	id := auth.Identity{Username: "github:dev"}
 	if ok, err := r.Allowed(t.Context(), id, "alpha", SubresourcePreviews); err != nil || !ok {
 		t.Fatalf("previews = %v, %v; want allowed", ok, err)
@@ -301,7 +301,7 @@ func TestProjectReviewerAllowedRefusesBadInput(t *testing.T) {
 			var mu sync.Mutex
 			var seen []projectReview
 			r := NewProjectReviewer(projectSARClient(t, &mu, &seen,
-				func(string, string, string) bool { return true }), "patchy", 0)
+				func(string, string, string) bool { return true }), "maul", 0)
 			ok, err := r.Allowed(t.Context(), auth.Identity{Username: "github:dev"}, tc.project, tc.subresource)
 			if err == nil || ok {
 				t.Errorf("Allowed = %v, %v; want an error and no grant", ok, err)
@@ -325,7 +325,7 @@ func TestProjectReviewerAllowedReviewError(t *testing.T) {
 			},
 		}).
 		Build()
-	r := NewProjectReviewer(c, "patchy", time.Minute)
+	r := NewProjectReviewer(c, "maul", time.Minute)
 	for range 2 {
 		ok, err := r.Allowed(t.Context(), auth.Identity{Username: "github:dev"}, "alpha", SubresourcePreviews)
 		if err == nil || ok {

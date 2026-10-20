@@ -151,14 +151,14 @@ override_resource {
     arn = "arn:aws:acm:eu-west-2:111122223333:certificate/22222222-2222-2222-2222-222222222222"
     domain_validation_options = [
       {
-        domain_name           = "patchy.acme.dev"
-        resource_record_name  = "_a2.patchy.acme.dev."
+        domain_name           = "maul.acme.dev"
+        resource_record_name  = "_a2.maul.acme.dev."
         resource_record_type  = "CNAME"
         resource_record_value = "_b2.acm-validations.aws."
       },
       {
-        domain_name           = "status.patchy.acme.dev"
-        resource_record_name  = "_a3.status.patchy.acme.dev."
+        domain_name           = "status.maul.acme.dev"
+        resource_record_name  = "_a3.status.maul.acme.dev."
         resource_record_type  = "CNAME"
         resource_record_value = "_b3.acm-validations.aws."
       },
@@ -187,8 +187,8 @@ run "platform_only" {
       Condition = {
         StringEquals = {
           "aws:RequestTag/eks-cluster-arn"            = "arn:aws:eks:eu-west-2:111122223333:cluster/acme-prod"
-          "aws:RequestTag/kubernetes-namespace"       = "patchy"
-          "aws:RequestTag/kubernetes-service-account" = "patchy-source-controller"
+          "aws:RequestTag/kubernetes-namespace"       = "maul"
+          "aws:RequestTag/kubernetes-service-account" = "maul-source-controller"
         }
       }
     }]
@@ -197,17 +197,17 @@ run "platform_only" {
 
   assert {
     condition = (
-      aws_iam_role.source_controller.name == "acme-prod-patchy-source-controller" &&
+      aws_iam_role.source_controller.name == "acme-prod-maul-source-controller" &&
       aws_iam_role.source_controller.path == null &&
-      aws_eks_pod_identity_association.source_controller.namespace == "patchy" &&
-      aws_eks_pod_identity_association.source_controller.service_account == "patchy-source-controller"
+      aws_eks_pod_identity_association.source_controller.namespace == "maul" &&
+      aws_eks_pod_identity_association.source_controller.service_account == "maul-source-controller"
     )
-    error_message = "The source-controller role is <name_prefix>-patchy-source-controller with no IAM path (the provider's default /), associated with the configured ServiceAccount."
+    error_message = "The source-controller role is <name_prefix>-maul-source-controller with no IAM path (the provider's default /), associated with the configured ServiceAccount."
   }
 
   assert {
     condition = (
-      jsondecode(aws_iam_policy.source_controller.policy).Statement[1].Resource == "arn:aws:ecr:eu-west-2:111122223333:repository/patchy/app-envs/*" &&
+      jsondecode(aws_iam_policy.source_controller.policy).Statement[1].Resource == "arn:aws:ecr:eu-west-2:111122223333:repository/maul/app-envs/*" &&
       toset(jsondecode(aws_iam_policy.source_controller.policy).Statement[1].Action) == toset([
         "ecr:BatchGetImage",
         "ecr:GetDownloadUrlForLayer",
@@ -229,8 +229,8 @@ run "platform_only" {
 
   assert {
     condition = yamldecode(output.helm_values) == {
-      sourceController = { serviceAccount = { name = "patchy-source-controller" } }
-      agent            = { repositoryImages = { registries = ["111122223333.dkr.ecr.eu-west-2.amazonaws.com/patchy/app-envs/"] } }
+      sourceController = { serviceAccount = { name = "maul-source-controller" } }
+      agent            = { repositoryImages = { registries = ["111122223333.dkr.ecr.eu-west-2.amazonaws.com/maul/app-envs/"] } }
     }
     error_message = "Without previews or edge, helm_values names only the source-controller ServiceAccount and the agent registry prefix."
   }
@@ -288,19 +288,19 @@ run "full_install" {
     }
     edge = {
       zone_id      = "Z0EDGE"
-      webhook_host = "patchy.acme.dev"
-      status_host  = "status.patchy.acme.dev"
+      webhook_host = "maul.acme.dev"
+      status_host  = "status.maul.acme.dev"
       alb_name     = "acme-prod"
     }
   }
 
   assert {
     condition = yamldecode(output.helm_values) == {
-      sourceController = { serviceAccount = { name = "patchy-source-controller" } }
-      agent            = { repositoryImages = { registries = ["111122223333.dkr.ecr.eu-west-2.amazonaws.com/patchy/app-envs/"] } }
+      sourceController = { serviceAccount = { name = "maul-source-controller" } }
+      agent            = { repositoryImages = { registries = ["111122223333.dkr.ecr.eu-west-2.amazonaws.com/maul/app-envs/"] } }
       preview = {
         imageRegistry   = "111122223333.dkr.ecr.eu-west-2.amazonaws.com"
-        imagePathPrefix = "patchy/previews"
+        imagePathPrefix = "maul/previews"
         dnsCIDR         = "172.20.0.10/32"
         albSubnetCIDRs  = ["10.40.128.0/24", "10.40.129.0/24"]
         albSubnetIDs    = ["subnet-alb-a", "subnet-alb-b"]
@@ -311,7 +311,7 @@ run "full_install" {
       }
       previewController = { config = { apiServerCIDR = "172.20.0.1/32" } }
       webhook = {
-        host = "patchy.acme.dev"
+        host = "maul.acme.dev"
         ingress = { annotations = {
           "alb.ingress.kubernetes.io/certificate-arn" = "arn:aws:acm:eu-west-2:111122223333:certificate/22222222-2222-2222-2222-222222222222"
           "alb.ingress.kubernetes.io/listen-ports"    = "[{\"HTTP\": 80}, {\"HTTPS\": 443}]"
@@ -319,7 +319,7 @@ run "full_install" {
         } }
       }
       statusServer = {
-        host = "status.patchy.acme.dev"
+        host = "status.maul.acme.dev"
         ingress = { annotations = {
           "alb.ingress.kubernetes.io/certificate-arn" = "arn:aws:acm:eu-west-2:111122223333:certificate/22222222-2222-2222-2222-222222222222"
           "alb.ingress.kubernetes.io/listen-ports"    = "[{\"HTTP\": 80}, {\"HTTPS\": 443}]"
@@ -332,7 +332,7 @@ run "full_install" {
 
   assert {
     condition = (
-      aws_iam_role.preview_node[0].name == "acme-prod-patchy-preview-node" &&
+      aws_iam_role.preview_node[0].name == "acme-prod-maul-preview-node" &&
       jsondecode(aws_iam_role.preview_node[0].assume_role_policy).Statement[0].Principal == { Service = "ec2.amazonaws.com" } &&
       aws_eks_access_entry.preview_node[0].type == "EC2" &&
       aws_eks_access_policy_association.preview_node[0].policy_arn == "arn:aws:eks::aws:cluster-access-policy/AmazonEKSAutoNodePolicy" &&
@@ -359,10 +359,10 @@ run "full_install" {
         Sid      = "PullPreviewRuntimeOnly"
         Effect   = "Allow"
         Action   = ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"]
-        Resource = "arn:aws:ecr:eu-west-2:111122223333:repository/patchy/previews/*"
+        Resource = "arn:aws:ecr:eu-west-2:111122223333:repository/maul/previews/*"
       },
     ]
-    error_message = "Preview nodes may join this cluster's Pod Identity and pull patchy/previews/* only."
+    error_message = "Preview nodes may join this cluster's Pod Identity and pull maul/previews/* only."
   }
 
   assert {
@@ -378,10 +378,10 @@ run "full_install" {
 
   assert {
     condition = (
-      aws_acm_certificate.edge[0].domain_name == "patchy.acme.dev" &&
-      aws_acm_certificate.edge[0].subject_alternative_names == toset(["status.patchy.acme.dev"]) &&
-      sort(keys(aws_route53_record.edge_validation)) == tolist(["patchy.acme.dev", "status.patchy.acme.dev"]) &&
-      aws_route53_record.edge_validation["status.patchy.acme.dev"].records == toset(["_b3.acm-validations.aws."])
+      aws_acm_certificate.edge[0].domain_name == "maul.acme.dev" &&
+      aws_acm_certificate.edge[0].subject_alternative_names == toset(["status.maul.acme.dev"]) &&
+      sort(keys(aws_route53_record.edge_validation)) == tolist(["maul.acme.dev", "status.maul.acme.dev"]) &&
+      aws_route53_record.edge_validation["status.maul.acme.dev"].records == toset(["_b3.acm-validations.aws."])
     )
     error_message = "The edge certificate covers both hosts, each validated by its own record."
   }
@@ -397,9 +397,9 @@ run "full_install" {
       ECR_REGISTRY             = "111122223333.dkr.ecr.eu-west-2.amazonaws.com"
       PUBLISH_REPOSITORY_ID    = "123456789"
       PUBLISH_OWNER_ID         = "987654"
-      AGENT_IMAGE_REPOSITORY   = "patchy/app-envs/hello-web"
+      AGENT_IMAGE_REPOSITORY   = "maul/app-envs/hello-web"
       AGENT_ROLE_ARN           = "arn:aws:iam::111122223333:role/mocked"
-      RUNTIME_IMAGE_REPOSITORY = "patchy/previews/hello-web"
+      RUNTIME_IMAGE_REPOSITORY = "maul/previews/hello-web"
       RUNTIME_ROLE_ARN         = "arn:aws:iam::111122223333:role/mocked"
     }
     error_message = "An app with previews gets exactly the eight contract variables."
@@ -412,7 +412,7 @@ run "full_install" {
 
   assert {
     condition = output.github_variables_dotenv["tools"] == join("", [
-      "AGENT_IMAGE_REPOSITORY=patchy/app-envs/tools\n",
+      "AGENT_IMAGE_REPOSITORY=maul/app-envs/tools\n",
       "AGENT_ROLE_ARN=arn:aws:iam::111122223333:role/mocked\n",
       "AWS_REGION=eu-west-2\n",
       "ECR_REGISTRY=111122223333.dkr.ecr.eu-west-2.amazonaws.com\n",
@@ -434,7 +434,7 @@ run "full_install" {
 
   assert {
     condition = jsonencode(output.preview_node_class) == jsonencode({
-      role               = "acme-prod-patchy-preview-node"
+      role               = "acme-prod-maul-preview-node"
       role_arn           = "arn:aws:iam::111122223333:role/mocked"
       subnet_ids         = ["subnet-node-a", "subnet-node-b"]
       security_group_ids = ["sg-0cluster"]
@@ -459,15 +459,15 @@ run "edge_aliases_before_previews_are_on" {
     }
     edge = {
       zone_id      = "Z0EDGE"
-      webhook_host = "patchy.acme.dev"
-      status_host  = "status.patchy.acme.dev"
+      webhook_host = "maul.acme.dev"
+      status_host  = "status.maul.acme.dev"
       alb_name     = "acme-prod"
     }
     create_edge_alias_records = true
   }
 
   assert {
-    condition     = data.aws_lb.edge[0].name == "acme-prod" && sort(keys(aws_route53_record.edge)) == tolist(["patchy.acme.dev", "status.patchy.acme.dev"])
+    condition     = data.aws_lb.edge[0].name == "acme-prod" && sort(keys(aws_route53_record.edge)) == tolist(["maul.acme.dev", "status.maul.acme.dev"])
     error_message = "The edge flag aliases both edge hosts to the edge ALB."
   }
 
@@ -491,8 +491,8 @@ run "preview_alias_after_previews_are_on" {
     }
     edge = {
       zone_id      = "Z0EDGE"
-      webhook_host = "patchy.acme.dev"
-      status_host  = "status.patchy.acme.dev"
+      webhook_host = "maul.acme.dev"
+      status_host  = "status.maul.acme.dev"
       alb_name     = "acme-prod"
     }
     create_edge_alias_records   = true
@@ -510,7 +510,7 @@ run "preview_alias_after_previews_are_on" {
   }
 
   assert {
-    condition     = data.aws_lb.edge[0].name == "acme-prod" && sort(keys(aws_route53_record.edge)) == tolist(["patchy.acme.dev", "status.patchy.acme.dev"])
+    condition     = data.aws_lb.edge[0].name == "acme-prod" && sort(keys(aws_route53_record.edge)) == tolist(["maul.acme.dev", "status.maul.acme.dev"])
     error_message = "The edge flag aliases both edge hosts to the edge ALB."
   }
 }
@@ -521,15 +521,15 @@ run "wildcard_edge_certificate_shares_one_validation_record" {
   variables {
     edge = {
       zone_id             = "Z0EDGE"
-      webhook_host        = "patchy.acme.dev"
-      status_host         = "status.patchy.acme.dev"
-      certificate_domains = ["patchy.acme.dev", "*.patchy.acme.dev"]
+      webhook_host        = "maul.acme.dev"
+      status_host         = "status.maul.acme.dev"
+      certificate_domains = ["maul.acme.dev", "*.maul.acme.dev"]
       alb_name            = "acme-prod"
     }
   }
 
   assert {
-    condition     = toset(keys(aws_route53_record.edge_validation)) == toset(["patchy.acme.dev"]) && aws_acm_certificate.edge[0].subject_alternative_names == toset(["*.patchy.acme.dev"])
+    condition     = toset(keys(aws_route53_record.edge_validation)) == toset(["maul.acme.dev"]) && aws_acm_certificate.edge[0].subject_alternative_names == toset(["*.maul.acme.dev"])
     error_message = "A name and its wildcard share one validation record."
   }
 }
@@ -727,7 +727,7 @@ run "publisher_role_names_fit_iam" {
   command = plan
 
   variables {
-    app_role_name_prefix = "acme-production-cluster-eu-west-2-patchy-app-"
+    app_role_name_prefix = "acme-production-cluster-eu-west-2-maul-app-"
     apps = {
       hello-web-frontend = {
         github = {
@@ -797,7 +797,7 @@ run "agent_prefix_must_be_disjoint_from_previews" {
   command = plan
 
   variables {
-    agent_path_prefix = "patchy"
+    agent_path_prefix = "maul"
   }
 
   expect_failures = [var.agent_path_prefix]
@@ -933,7 +933,7 @@ run "preview_prefix_must_be_a_path" {
   command = plan
 
   variables {
-    preview_path_prefix = "patchy/previews/"
+    preview_path_prefix = "maul/previews/"
   }
 
   expect_failures = [var.preview_path_prefix]
@@ -1156,7 +1156,7 @@ run "preview_alb_must_not_be_the_edge_alb" {
     }
     edge = {
       zone_id      = "Z0EDGE"
-      webhook_host = "patchy.acme.dev"
+      webhook_host = "maul.acme.dev"
       alb_name     = "acme-prod"
     }
   }
@@ -1179,7 +1179,7 @@ run "default_preview_alb_name_must_not_be_the_edge_alb" {
     }
     edge = {
       zone_id      = "Z0EDGE"
-      webhook_host = "patchy.acme.dev"
+      webhook_host = "maul.acme.dev"
       alb_name     = "Acme-Prod-Preview"
     }
   }
@@ -1193,9 +1193,9 @@ run "edge_certificate_must_cover_both_hosts" {
   variables {
     edge = {
       zone_id             = "Z0EDGE"
-      webhook_host        = "patchy.acme.dev"
+      webhook_host        = "maul.acme.dev"
       status_host         = "status.acme.dev"
-      certificate_domains = ["patchy.acme.dev", "*.patchy.acme.dev"]
+      certificate_domains = ["maul.acme.dev", "*.maul.acme.dev"]
       alb_name            = "acme-prod"
     }
   }
@@ -1225,20 +1225,20 @@ run "preview_auth_on_the_edge" {
       arn = "arn:aws:acm:eu-west-2:111122223333:certificate/22222222-2222-2222-2222-222222222222"
       domain_validation_options = [
         {
-          domain_name           = "patchy.acme.dev"
-          resource_record_name  = "_a2.patchy.acme.dev."
+          domain_name           = "maul.acme.dev"
+          resource_record_name  = "_a2.maul.acme.dev."
           resource_record_type  = "CNAME"
           resource_record_value = "_b2.acm-validations.aws."
         },
         {
-          domain_name           = "status.patchy.acme.dev"
-          resource_record_name  = "_a3.status.patchy.acme.dev."
+          domain_name           = "status.maul.acme.dev"
+          resource_record_name  = "_a3.status.maul.acme.dev."
           resource_record_type  = "CNAME"
           resource_record_value = "_b3.acm-validations.aws."
         },
         {
-          domain_name           = "preview-auth.patchy.acme.dev"
-          resource_record_name  = "_a4.preview-auth.patchy.acme.dev."
+          domain_name           = "preview-auth.maul.acme.dev"
+          resource_record_name  = "_a4.preview-auth.maul.acme.dev."
           resource_record_type  = "CNAME"
           resource_record_value = "_b4.acm-validations.aws."
         },
@@ -1256,19 +1256,19 @@ run "preview_auth_on_the_edge" {
     }
     edge = {
       zone_id      = "Z0EDGE"
-      webhook_host = "patchy.acme.dev"
-      status_host  = "status.patchy.acme.dev"
+      webhook_host = "maul.acme.dev"
+      status_host  = "status.maul.acme.dev"
       alb_name     = "acme-prod"
     }
     preview_auth = {
-      host = "preview-auth.patchy.acme.dev"
+      host = "preview-auth.maul.acme.dev"
     }
     create_edge_alias_records = true
   }
 
   assert {
     condition = yamldecode(output.helm_values).previewAuth == {
-      host = "preview-auth.patchy.acme.dev"
+      host = "preview-auth.maul.acme.dev"
       ingress = { annotations = {
         "alb.ingress.kubernetes.io/certificate-arn" = "arn:aws:acm:eu-west-2:111122223333:certificate/22222222-2222-2222-2222-222222222222"
         "alb.ingress.kubernetes.io/listen-ports"    = "[{\"HTTP\": 80}, {\"HTTPS\": 443}]"
@@ -1285,15 +1285,15 @@ run "preview_auth_on_the_edge" {
 
   assert {
     condition = (
-      contains(aws_acm_certificate.edge[0].subject_alternative_names, "preview-auth.patchy.acme.dev") &&
-      contains(keys(aws_route53_record.edge_validation), "preview-auth.patchy.acme.dev") &&
-      sort(keys(aws_route53_record.edge)) == tolist(["patchy.acme.dev", "preview-auth.patchy.acme.dev", "status.patchy.acme.dev"])
+      contains(aws_acm_certificate.edge[0].subject_alternative_names, "preview-auth.maul.acme.dev") &&
+      contains(keys(aws_route53_record.edge_validation), "preview-auth.maul.acme.dev") &&
+      sort(keys(aws_route53_record.edge)) == tolist(["maul.acme.dev", "preview-auth.maul.acme.dev", "status.maul.acme.dev"])
     )
     error_message = "The relay's host is on the edge certificate, validated, and aliased to the edge ALB."
   }
 
   assert {
-    condition     = output.preview_auth_dex_redirect_uri == "https://preview-auth.patchy.acme.dev/dex/callback"
+    condition     = output.preview_auth_dex_redirect_uri == "https://preview-auth.maul.acme.dev/dex/callback"
     error_message = "The output is the relay's one Dex redirect URI."
   }
 }
@@ -1304,7 +1304,7 @@ run "preview_auth_off_renders_nothing" {
   variables {
     edge = {
       zone_id      = "Z0EDGE"
-      webhook_host = "patchy.acme.dev"
+      webhook_host = "maul.acme.dev"
       alb_name     = "acme-prod"
     }
   }
@@ -1330,12 +1330,12 @@ run "preview_auth_admits_an_empty_allowlist" {
     }
     edge = {
       zone_id             = "Z0EDGE"
-      webhook_host        = "patchy.acme.dev"
-      certificate_domains = ["patchy.acme.dev", "*.patchy.acme.dev"]
+      webhook_host        = "maul.acme.dev"
+      certificate_domains = ["maul.acme.dev", "*.maul.acme.dev"]
       alb_name            = "acme-prod"
     }
     preview_auth = {
-      host = "preview-auth.patchy.acme.dev"
+      host = "preview-auth.maul.acme.dev"
     }
   }
 
@@ -1374,8 +1374,8 @@ run "preview_auth_host_under_the_preview_suffix_is_refused" {
     }
     edge = {
       zone_id             = "Z0EDGE"
-      webhook_host        = "patchy.acme.dev"
-      certificate_domains = ["patchy.acme.dev", "*.preview.acme-apps.dev"]
+      webhook_host        = "maul.acme.dev"
+      certificate_domains = ["maul.acme.dev", "*.preview.acme-apps.dev"]
       alb_name            = "acme-prod"
     }
     preview_auth = {
@@ -1391,7 +1391,7 @@ run "preview_auth_needs_previews_and_edge" {
 
   variables {
     preview_auth = {
-      host = "preview-auth.patchy.acme.dev"
+      host = "preview-auth.maul.acme.dev"
     }
   }
 
@@ -1411,12 +1411,12 @@ run "preview_auth_host_must_be_its_own" {
     }
     edge = {
       zone_id      = "Z0EDGE"
-      webhook_host = "patchy.acme.dev"
-      status_host  = "status.patchy.acme.dev"
+      webhook_host = "maul.acme.dev"
+      status_host  = "status.maul.acme.dev"
       alb_name     = "acme-prod"
     }
     preview_auth = {
-      host = "status.patchy.acme.dev"
+      host = "status.maul.acme.dev"
     }
   }
 
@@ -1436,12 +1436,12 @@ run "edge_certificate_must_cover_the_relay" {
     }
     edge = {
       zone_id             = "Z0EDGE"
-      webhook_host        = "patchy.acme.dev"
-      certificate_domains = ["patchy.acme.dev"]
+      webhook_host        = "maul.acme.dev"
+      certificate_domains = ["maul.acme.dev"]
       alb_name            = "acme-prod"
     }
     preview_auth = {
-      host = "preview-auth.patchy.acme.dev"
+      host = "preview-auth.maul.acme.dev"
     }
   }
 
@@ -1508,9 +1508,9 @@ run "agent_signing_key_is_created_and_shared_by_every_app" {
       length(aws_kms_key.agent_signing) == 1 &&
       aws_kms_key.agent_signing[0].customer_master_key_spec == "ECC_NIST_P256" &&
       aws_kms_key.agent_signing[0].key_usage == "SIGN_VERIFY" &&
-      aws_kms_alias.agent_signing[0].name == "alias/acme-prod-patchy-agent-image-signing"
+      aws_kms_alias.agent_signing[0].name == "alias/acme-prod-maul-agent-image-signing"
     )
-    error_message = "create_agent_signing_key creates one ECC_NIST_P256 SIGN_VERIFY key, aliased <name_prefix>-patchy-agent-image-signing."
+    error_message = "create_agent_signing_key creates one ECC_NIST_P256 SIGN_VERIFY key, aliased <name_prefix>-maul-agent-image-signing."
   }
 
   assert {
@@ -1565,7 +1565,7 @@ run "agent_signing_key_alias_is_refused" {
   command = plan
 
   variables {
-    agent_signing_key_arn = "arn:aws:kms:eu-west-2:111122223333:alias/patchy-agent-image-signing"
+    agent_signing_key_arn = "arn:aws:kms:eu-west-2:111122223333:alias/maul-agent-image-signing"
   }
 
   expect_failures = [var.agent_signing_key_arn]

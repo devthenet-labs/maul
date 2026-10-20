@@ -14,7 +14,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/bitwise-media-group/patchy/internal/previewauth"
+	"github.com/devthenet-labs/maul/internal/previewauth"
 )
 
 // The six annotations that put a slot's Ingress behind the sign-in relay. A
@@ -44,7 +44,7 @@ var authKeys = []string{
 var secretNamePattern = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`)
 
 // AuthAnnotations is the pinned annotation set of every slot, keyed by slot
-// namespace (patchy-preview-<n>), as the chart renders it: the same JSON the
+// namespace (maul-preview-<n>), as the chart renders it: the same JSON the
 // slot admission policy's per-namespace expectation is rendered from, so an
 // Ingress the controller writes carries exactly the bytes the policy
 // compares (auth-idp-oidc is itself a JSON string, carried verbatim).

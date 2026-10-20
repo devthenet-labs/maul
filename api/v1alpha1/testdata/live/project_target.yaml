@@ -3,22 +3,22 @@
 #
 # Read from devthenet-dev on 2026-10-03 (kubectl get -o yaml) before the slice-3 schema change,
 # server-owned metadata removed. live_envtest_test.go round-trips it under the current schema.
-apiVersion: patchy.bitwisemedia.uk/v1alpha1
+apiVersion: maul.run/v1alpha1
 kind: Project
 metadata:
   annotations:
-    meta.helm.sh/release-name: patchy-config
-    meta.helm.sh/release-namespace: patchy
+    meta.helm.sh/release-name: maul-config
+    meta.helm.sh/release-namespace: maul
   labels:
     app: intent-controller
-    app.kubernetes.io/instance: patchy-config
+    app.kubernetes.io/instance: maul-config
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: intent-controller
-    app.kubernetes.io/part-of: patchy
+    app.kubernetes.io/part-of: maul
     app.kubernetes.io/version: 0.12.13
-    helm.sh/chart: patchy-config-0.12.13
+    helm.sh/chart: maul-config-0.12.13
   name: target
-  namespace: patchy
+  namespace: maul
 spec:
   approvers:
     logins:
@@ -29,7 +29,7 @@ spec:
     timeout: 30m
   intentRepository: https://github.com/devthenet-labs/intents
   labels:
-    approve: patchy:approved
+    approve: maul:approved
   limits:
     maxActiveIntents: 2
     maxCheckFixes: 2

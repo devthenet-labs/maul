@@ -13,32 +13,32 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-    name: patchy-status-server-intents
-    namespace: patchy
+    name: maul-status-server-intents
+    namespace: maul
     labels:
         app.kubernetes.io/name: status-server
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 rules:
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [projects, intents, intentruns, previews]
       verbs: [get, list, watch]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-    name: patchy-status-server-intents
-    namespace: patchy
+    name: maul-status-server-intents
+    namespace: maul
     labels:
         app.kubernetes.io/name: status-server
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 roleRef:
     apiGroup: rbac.authorization.k8s.io
     kind: Role
-    name: patchy-status-server-intents
+    name: maul-status-server-intents
 subjects:
     - kind: ServiceAccount
-      name: patchy-status-server
-      namespace: patchy
+      name: maul-status-server
+      namespace: maul
 ---
 # A live intent run's Job clock (creation, start, activeDeadlineSeconds, the
 # stage idle limit) for the run panel, and the live follow's "has the Job
@@ -47,11 +47,11 @@ subjects:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-    name: patchy-status-server-agent-jobs
-    namespace: patchy-agents
+    name: maul-status-server-agent-jobs
+    namespace: maul-agents
     labels:
         app.kubernetes.io/name: status-server
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 rules:
     - apiGroups: [batch]
       resources: [jobs]
@@ -60,16 +60,16 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-    name: patchy-status-server-agent-jobs
-    namespace: patchy-agents
+    name: maul-status-server-agent-jobs
+    namespace: maul-agents
     labels:
         app.kubernetes.io/name: status-server
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 roleRef:
     apiGroup: rbac.authorization.k8s.io
     kind: Role
-    name: patchy-status-server-agent-jobs
+    name: maul-status-server-agent-jobs
 subjects:
     - kind: ServiceAccount
-      name: patchy-status-server
-      namespace: patchy
+      name: maul-status-server
+      namespace: maul

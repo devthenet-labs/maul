@@ -15,9 +15,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/forge"
-	"github.com/bitwise-media-group/patchy/internal/kube"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/forge"
+	"github.com/devthenet-labs/maul/internal/kube"
 )
 
 func forgeHarness(t *testing.T, objs ...client.Object) (*ForgeReconciler, client.Client) {
@@ -32,11 +32,11 @@ func forgeHarness(t *testing.T, objs ...client.Object) (*ForgeReconciler, client
 
 func TestForgeReconcile(t *testing.T) {
 	tokenSecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "creds", Namespace: "patchy"},
+		ObjectMeta: metav1.ObjectMeta{Name: "creds", Namespace: "maul"},
 		Data:       map[string][]byte{forge.SecretKeyToken: []byte("ghp_dev")},
 	}
 	emptySecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "creds", Namespace: "patchy"},
+		ObjectMeta: metav1.ObjectMeta{Name: "creds", Namespace: "maul"},
 		Data:       map[string][]byte{},
 	}
 
@@ -56,7 +56,7 @@ func TestForgeReconcile(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			r, cl := forgeHarness(t, c.objs...)
 			res, err := r.Reconcile(t.Context(), ctrl.Request{
-				NamespacedName: types.NamespacedName{Namespace: "patchy", Name: "gh"},
+				NamespacedName: types.NamespacedName{Namespace: "maul", Name: "gh"},
 			})
 			if err != nil {
 				t.Fatalf("Reconcile: %v", err)
@@ -65,7 +65,7 @@ func TestForgeReconcile(t *testing.T) {
 				t.Errorf("RequeueAfter = %v, want %v", res.RequeueAfter, defaultRevalidate)
 			}
 			var f v1alpha1.Forge
-			if err := cl.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: "gh"}, &f); err != nil {
+			if err := cl.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: "gh"}, &f); err != nil {
 				t.Fatalf("Get: %v", err)
 			}
 			cond := meta.FindStatusCondition(f.Status.Conditions, v1alpha1.ConditionReady)
@@ -80,12 +80,12 @@ func TestForgeReconcileHonorsInterval(t *testing.T) {
 	f := testForge("gh")
 	f.Spec.Interval = metav1.Duration{Duration: time.Hour}
 	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "creds", Namespace: "patchy"},
+		ObjectMeta: metav1.ObjectMeta{Name: "creds", Namespace: "maul"},
 		Data:       map[string][]byte{forge.SecretKeyToken: []byte("t")},
 	}
 	r, _ := forgeHarness(t, f, secret)
 	res, err := r.Reconcile(t.Context(), ctrl.Request{
-		NamespacedName: types.NamespacedName{Namespace: "patchy", Name: "gh"},
+		NamespacedName: types.NamespacedName{Namespace: "maul", Name: "gh"},
 	})
 	if err != nil {
 		t.Fatalf("Reconcile: %v", err)
@@ -100,7 +100,7 @@ func TestForgeReconcileSuspended(t *testing.T) {
 	f.Spec.Suspend = true
 	r, _ := forgeHarness(t, f)
 	res, err := r.Reconcile(t.Context(), ctrl.Request{
-		NamespacedName: types.NamespacedName{Namespace: "patchy", Name: "gh"},
+		NamespacedName: types.NamespacedName{Namespace: "maul", Name: "gh"},
 	})
 	if err != nil {
 		t.Fatalf("Reconcile: %v", err)

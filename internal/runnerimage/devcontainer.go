@@ -16,7 +16,7 @@ import (
 var buildKeys = []string{"build", "dockerFile", "dockerComposeFile"}
 
 // judgeDevcontainer reads the top-level string image out of a
-// .devcontainer/devcontainer.json. A file patchy cannot honour (unparseable,
+// .devcontainer/devcontainer.json. A file maul cannot honour (unparseable,
 // build-based, adding features, or naming no usable image) yields an empty
 // image and the reason; the caller records that as not applicable, never as
 // a rejection, because the file was written for editor tooling and every
@@ -32,13 +32,13 @@ func judgeDevcontainer(data []byte) (image, reason string) {
 	}
 	for _, key := range buildKeys {
 		if _, ok := doc[key]; ok {
-			return "", fmt.Sprintf("`%s` builds its image (`%s`); patchy does not build images. "+
+			return "", fmt.Sprintf("`%s` builds its image (`%s`); maul does not build images. "+
 				"Publish the image and set `image`, or declare one in `%s`, which takes precedence.",
 				DevcontainerPath, key, AgentYAMLPath)
 		}
 	}
 	if raw, ok := doc["features"]; ok && !emptyJSON(raw) {
-		return "", fmt.Sprintf("`%s` adds features, which patchy would have to build; patchy does not build "+
+		return "", fmt.Sprintf("`%s` adds features, which maul would have to build; maul does not build "+
 			"images. Publish the image with the features applied and set `image`, or declare one in `%s`, "+
 			"which takes precedence.", DevcontainerPath, AgentYAMLPath)
 	}
@@ -53,7 +53,7 @@ func judgeDevcontainer(data []byte) (image, reason string) {
 		return "", fmt.Sprintf("`%s` `image` is empty", DevcontainerPath)
 	}
 	if strings.Contains(image, "${") {
-		return "", fmt.Sprintf("`%s` `image` uses variable substitution (`${`), which patchy does not perform",
+		return "", fmt.Sprintf("`%s` `image` uses variable substitution (`${`), which maul does not perform",
 			DevcontainerPath)
 	}
 	return image, ""

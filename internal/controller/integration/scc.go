@@ -11,9 +11,9 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/scc"
-	"github.com/bitwise-media-group/patchy/internal/webhook"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/scc"
+	"github.com/devthenet-labs/maul/internal/webhook"
 )
 
 // SCCPath is the receiver route Pub/Sub push subscriptions target. It matches

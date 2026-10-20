@@ -14,8 +14,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/templates"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // TestPreviewHost: a Preview's URL is linked only when it is https and a
@@ -27,7 +27,7 @@ func TestPreviewHost(t *testing.T) {
 		url, label string
 		want       string
 	}{
-		{"https://hello-web-13.preview.patchy.example.com", intent, "hello-web-13.preview.patchy.example.com"},
+		{"https://hello-web-13.preview.maul.example.com", intent, "hello-web-13.preview.maul.example.com"},
 		{"https://hello-web-13.preview.example.com/", intent, "hello-web-13.preview.example.com"},
 		{"https://hello-web-13.example.com", intent, "hello-web-13.example.com"},
 		{"http://hello-web-13.preview.example.com", intent, ""},
@@ -232,7 +232,7 @@ type previewCase struct {
 }
 
 // previewURLs are URLs a Preview's status could hold, most of them not ones
-// patchy links.
+// maul links.
 var previewURLs = []string{
 	"https://target-1.preview.example.com", "https://target-1.preview.example.com/",
 	"https://target-1.a.b", "", "http://target-1.preview.example.com", "https://evil.example",

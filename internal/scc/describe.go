@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/bitwise-media-group/patchy/internal/templates"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // maxProperties caps how many detector properties are rendered. Some

@@ -13,7 +13,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
-const scopeName = "github.com/bitwise-media-group/patchy/internal/previewauth/httpapi"
+const scopeName = "github.com/devthenet-labs/maul/internal/previewauth/httpapi"
 
 func counter(name, desc string) func() metric.Int64Counter {
 	return sync.OnceValue(func() metric.Int64Counter {
@@ -26,20 +26,20 @@ func counter(name, desc string) func() metric.Int64Counter {
 }
 
 var (
-	authorizeCounter = counter("patchy.preview_auth.authorize",
+	authorizeCounter = counter("maul.preview_auth.authorize",
 		"authorize requests by result: issued, login, denied, no_preview, bad_request, error")
-	tokenCounter    = counter("patchy.preview_auth.token", "token requests by grant type and result")
-	userinfoCounter = counter("patchy.preview_auth.userinfo", "userinfo requests by result")
-	sarCounter      = counter("patchy.preview_auth.sar", "decided preview access reviews by answer")
-	ledgerCounter   = counter("patchy.preview_auth.ledger", "code ledger results: ok, replay, conflict, full, error")
-	upstreamCounter = counter("patchy.preview_auth.upstream_login", "Dex sign-ins by result")
-	limitedCounter  = counter("patchy.preview_auth.rate_limited", "requests refused by the per-address rate limit")
-	gatewayCounter  = counter("patchy.preview_auth.gateway",
+	tokenCounter    = counter("maul.preview_auth.token", "token requests by grant type and result")
+	userinfoCounter = counter("maul.preview_auth.userinfo", "userinfo requests by result")
+	sarCounter      = counter("maul.preview_auth.sar", "decided preview access reviews by answer")
+	ledgerCounter   = counter("maul.preview_auth.ledger", "code ledger results: ok, replay, conflict, full, error")
+	upstreamCounter = counter("maul.preview_auth.upstream_login", "Dex sign-ins by result")
+	limitedCounter  = counter("maul.preview_auth.rate_limited", "requests refused by the per-address rate limit")
+	gatewayCounter  = counter("maul.preview_auth.gateway",
 		"preview gateway requests by result: proxied, sign_in, unauthenticated, session, denied, cross_origin, ...")
-	streamsClosedCounter = counter("patchy.preview_auth.gateway.streams_closed",
+	streamsClosedCounter = counter("maul.preview_auth.gateway.streams_closed",
 		"proxied streams and connections closed early, by reason: preview_changed, revoked")
 	durationHist = sync.OnceValue(func() metric.Float64Histogram {
-		h, err := otel.Meter(scopeName).Float64Histogram("patchy.preview_auth.request.duration",
+		h, err := otel.Meter(scopeName).Float64Histogram("maul.preview_auth.request.duration",
 			metric.WithDescription("relay request latency by endpoint"), metric.WithUnit("s"))
 		if err != nil {
 			otel.Handle(err)

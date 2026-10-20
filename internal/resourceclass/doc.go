@@ -4,7 +4,7 @@
 // Package resourceclass is the operator's menu of agent Job sizes and the
 // rules every size must follow.
 //
-// The operator configures two things (the patchy chart's agent.resources):
+// The operator configures two things (the maul chart's agent.resources):
 //
 //   - a default: the CPU and memory requests and limits every agent Job gets
 //     (Finding investigate and remediate Jobs, intent plan Jobs, evaluation

@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/ghclient"
 )
 
 // rerunEnv is an intent in review on a Project that fixes the check "test"
@@ -23,7 +23,7 @@ func rerunEnv(t *testing.T) (*env, string, string) {
 	project.Spec.Checks.RerunFailed = true
 	e := newEnv(t, project)
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 	return e, name, in.Status.PullRequests[0].HeadSHA
 }
@@ -69,7 +69,7 @@ func (e *env) poll(name string) {
 }
 
 // TestFlakyCheckPassesOnRerunWithoutAFixRound is the field note's case: a
-// flaky named check fails once on patchy's head. The failed Actions jobs are
+// flaky named check fails once on maul's head. The failed Actions jobs are
 // re-run once, recorded on the pull request, and while GitHub has not yet
 // reported the re-run's check run nothing more happens; the re-run passing
 // settles the head with no check-fix round spent and nothing re-run again.
@@ -190,7 +190,7 @@ func TestRerunGoesStraightToTheFixRound(t *testing.T) {
 			project.Spec.Checks.RerunFailed = !tt.off
 			e := newEnv(t, project)
 			name := e.awaiting()
-			e.gh.label(1, "patchy:approved", approver)
+			e.gh.label(1, "maul:approved", approver)
 			head := e.drive(name, v1alpha1.IntentInReview, repoImage).Status.PullRequests[0].HeadSHA
 			tt.setup(e, head)
 			e.drive(name, v1alpha1.IntentRevising, repoImage)

@@ -14,7 +14,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 // wizWebhookToken is the shared bearer token the wiz Integration's automation
@@ -187,7 +187,7 @@ func seedWizIntegration(t *testing.T, cl *cluster) {
 	t.Helper()
 	ctx := t.Context()
 	if err := cl.client.Create(ctx, &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "patchy-wiz", Namespace: namespace},
+		ObjectMeta: metav1.ObjectMeta{Name: "maul-wiz", Namespace: namespace},
 		StringData: map[string]string{"webhookToken": wizWebhookToken},
 	}); err != nil {
 		t.Fatal(err)
@@ -196,7 +196,7 @@ func seedWizIntegration(t *testing.T, cl *cluster) {
 		ObjectMeta: metav1.ObjectMeta{Name: "wiz", Namespace: namespace},
 		Spec: v1alpha1.IntegrationSpec{
 			Provider:  v1alpha1.IntegrationProviderWiz,
-			SecretRef: &v1alpha1.LocalSecretReference{Name: "patchy-wiz"},
+			SecretRef: &v1alpha1.LocalSecretReference{Name: "maul-wiz"},
 			Wiz: &v1alpha1.WizIntegration{
 				Issues: &v1alpha1.WizIssues{Enabled: true, MinSeverity: v1alpha1.LevelLow},
 				Defend: &v1alpha1.WizDefend{Enabled: true, MinSeverity: v1alpha1.LevelLow},

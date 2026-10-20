@@ -17,10 +17,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/report"
-	"github.com/bitwise-media-group/patchy/internal/templates"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/report"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // errNotOwned: an object exists under a derived name but belongs to someone
@@ -140,7 +140,7 @@ func (p *pass) startPlanning(ctx context.Context, issue *ghclient.Issue, trigger
 }
 
 // feedbackSince is the approvers' comments since since, oldest first:
-// patchy's own and anyone else's left out (non-approvers' comments never
+// maul's own and anyone else's left out (non-approvers' comments never
 // reach a prompt), and so is any comment edited after it was posted. GitHub
 // lets anyone with write access edit an approver's comment and still names
 // the approver as its author, so an edited comment is not certainly an
@@ -429,7 +429,7 @@ func (p *pass) writeBack(ctx context.Context, run *v1alpha1.IntentRun) (bool, er
 	if changed {
 		// Not found, or found edited before it was recorded (even back to
 		// its original bytes, which an approval would refuse): post the plan
-		// afresh, so what is recorded is what patchy posted, unedited. No
+		// afresh, so what is recorded is what maul posted, unedited. No
 		// approve label may predate the plan it approves, so any is removed
 		// first. Once the plan is posted the label is left alone: a retry
 		// that finds the plan must not take away an approver's label added

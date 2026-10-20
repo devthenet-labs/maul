@@ -36,16 +36,16 @@ namespace cannot; the blast radius is one namespace that holds only the agent po
 ## configmaps-c0012-key-name-regex-false-positives (C-0012)
 
 C-0012 pattern-matches key NAMES against `secret|key|token|...`. Covers the per-controller helm ConfigMaps and the
-kustomize base's shared `patchy-config`. Every flagged key holds a non-credential value: `*_FILE` keys are mount paths,
-`PATCHY_ANTHROPIC_SECRET`/`_KEY`/`_ENV` name the Secret object, its key, and the env var the agent Job should use, and
-`PATCHY_*_TOKEN_BUDGET` are integer LLM token budgets. The actual credentials (webhook HMAC, App private key) are
+kustomize base's shared `maul-config`. Every flagged key holds a non-credential value: `*_FILE` keys are mount paths,
+`MAUL_ANTHROPIC_SECRET`/`_KEY`/`_ENV` name the Secret object, its key, and the env var the agent Job should use, and
+`MAUL_*_TOKEN_BUDGET` are integer LLM token budgets. The actual credentials (webhook HMAC, App private key) are
 file-mounted Secrets and never appear in a ConfigMap.
 
 ## controllers-c0207-github-app-id-is-not-a-credential (C-0207)
 
-`PATCHY_GITHUB_APP_ID` arrives as env via `secretKeyRef`. The App ID is a public identifier (it appears in webhook
+`MAUL_GITHUB_APP_ID` arrives as env via `secretKeyRef`. The App ID is a public identifier (it appears in webhook
 payloads and on the App's public page); it lives in the App Secret only so the App's identity is one object. The
-sensitive half — the private key — is file-mounted (`PATCHY_GITHUB_APP_PRIVATE_KEY_FILE`), which is exactly what this
+sensitive half — the private key — is file-mounted (`MAUL_GITHUB_APP_PRIVATE_KEY_FILE`), which is exactly what this
 control asks for.
 
 ## controllers-c0255-c0258-mount-their-own-credentials (C-0255, C-0258)
@@ -53,7 +53,7 @@ control asks for.
 Fires only in the dev overlay, the one variant that renders real `Secret` objects (`secret-dev.yaml`, throwaway kind
 credentials) and the static-context ConfigMap — giving the scanner Secret/ConfigMap resources to correlate against the
 controllers' mounts. The mounts are the design: every controller file-mounts the webhook HMAC secret, and the
-GitHub-facing three mount the App key (charts/patchy values and base manifests do the same; those scans just have no
+GitHub-facing three mount the App key (charts/maul values and base manifests do the same; those scans just have no
 Secret objects in scope). Flagging "workload can read a secret it mounts" is tautological here.
 
 ## images-c0237-signed-but-scanner-cannot-see-it (C-0237)
@@ -66,6 +66,6 @@ scheme kubescape's check looks for. Verify for yourself:
     cosign verify \
       --certificate-identity-regexp '^https://github.com/bitwise-media-group/' \
       --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-      ghcr.io/devthenet-labs/patchy/source-controller:v0.3.0
+      ghcr.io/devthenet-labs/maul/source-controller:v0.3.0
 
 Drop this entry if/when kubescape's signature rule learns the bundle format.

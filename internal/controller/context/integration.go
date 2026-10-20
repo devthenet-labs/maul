@@ -16,11 +16,11 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/awsinv"
-	"github.com/bitwise-media-group/patchy/internal/enhancers"
-	"github.com/bitwise-media-group/patchy/internal/ghsecret"
-	"github.com/bitwise-media-group/patchy/internal/integrationcap"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/awsinv"
+	"github.com/devthenet-labs/maul/internal/enhancers"
+	"github.com/devthenet-labs/maul/internal/ghsecret"
+	"github.com/devthenet-labs/maul/internal/integrationcap"
 )
 
 // AssetConfigSource reads the cloudAssetInventory capability off the

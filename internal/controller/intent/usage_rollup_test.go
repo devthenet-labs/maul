@@ -12,13 +12,13 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/stats"
-	"github.com/bitwise-media-group/patchy/internal/usagemeter/usagemetertest"
-	"github.com/bitwise-media-group/patchy/internal/usagerollup"
-	"github.com/bitwise-media-group/patchy/internal/usagewire"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/stats"
+	"github.com/devthenet-labs/maul/internal/usagemeter/usagemetertest"
+	"github.com/devthenet-labs/maul/internal/usagerollup"
+	"github.com/devthenet-labs/maul/internal/usagewire"
 )
 
 // TestUsageRollups: under mode attribute every intent run is created with
@@ -50,7 +50,7 @@ func TestUsageRollups(t *testing.T) {
 				t.Fatalf("plan run: finalizers %v, conditions %+v", plan[0].Finalizers, plan[0].Status.Conditions)
 			}
 			e.clock.Advance(time.Minute)
-			e.gh.label(1, "patchy:approved", reviewer)
+			e.gh.label(1, "maul:approved", reviewer)
 			e.drive(intent, v1alpha1.IntentInReview, repoImage)
 			e.runRuns()
 			e.runRuns() // nothing is counted twice

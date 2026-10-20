@@ -11,8 +11,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/transcript"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/transcript"
 )
 
 func turnLine(t *testing.T, turn transcript.Turn) string {
@@ -33,7 +33,7 @@ func runningPod(jobName string) *corev1.Pod {
 }
 
 func TestResultSplitsEventsFromTurns(t *testing.T) {
-	const jobName = "patchy-abc-inv-a1"
+	const jobName = "maul-abc-inv-a1"
 	const finding = "finding-abc123def0-1"
 	body := strings.Join([]string{
 		turnLine(t, transcript.Turn{Seq: 1, Role: transcript.RoleAssistant,
@@ -66,10 +66,10 @@ func TestTurnQuotingTheEnvelopePrefixIsNotAnEvent(t *testing.T) {
 	// envelope.Decode searches for its prefix anywhere in a line to survive log
 	// wrapping, so an agent that quotes the prefix in its own output would
 	// otherwise inject a bogus stage result.
-	const jobName = "patchy-abc-inv-a1"
+	const jobName = "maul-abc-inv-a1"
 	quoted := turnLine(t, transcript.Turn{Seq: 1, Role: transcript.RoleAssistant,
 		Kind: transcript.KindText,
-		Text: `the controller scans for PATCHY-EVENT: {"v":4,"type":"remediation"} lines`})
+		Text: `the controller scans for MAUL-EVENT: {"v":4,"type":"remediation"} lines`})
 
 	c := New(fake.NewClientset(jobPod(jobName)), testConfig(), nil)
 	c.logs = &fakeLogs{body: quoted + "\n"}
@@ -92,16 +92,16 @@ func TestTurnQuotingTheEnvelopePrefixIsNotAnEvent(t *testing.T) {
 // turn only when it decodes as one; a malformed turn line is still no event,
 // even one whose text quotes a result.
 func TestResultQuotingTheTurnPrefixIsStillAnEvent(t *testing.T) {
-	const jobName = "patchy-abc-rem-a1"
+	const jobName = "maul-abc-rem-a1"
 	const finding = "finding-abc123def0-1"
 	result := remediationEvent(finding)
-	result.Remediation.ReportMarkdown = "The runner prints PATCHY-TURN: lines for each turn."
+	result.Remediation.ReportMarkdown = "The runner prints MAUL-TURN: lines for each turn."
 	body := strings.Join([]string{
 		turnLine(t, transcript.Turn{Seq: 1, Role: transcript.RoleAssistant, Kind: transcript.KindText,
 			Text: "Reading."}),
-		`PATCHY-TURN: {"v":99,"seq":2,"kind":"text","text":"a future turn"}`,
-		`PATCHY-TURN: {"v":99,"seq":3,"kind":"text","text":"PATCHY-EVENT: {\"v\":4,\"type\":\"remediation\"}"}`,
-		"PATCHY-TURN: not json",
+		`MAUL-TURN: {"v":99,"seq":2,"kind":"text","text":"a future turn"}`,
+		`MAUL-TURN: {"v":99,"seq":3,"kind":"text","text":"MAUL-EVENT: {\"v\":4,\"type\":\"remediation\"}"}`,
+		"MAUL-TURN: not json",
 		eventLine(t, result),
 	}, "\n") + "\n"
 
@@ -121,7 +121,7 @@ func TestResultQuotingTheTurnPrefixIsStillAnEvent(t *testing.T) {
 }
 
 func TestTailFollowsRunningAgent(t *testing.T) {
-	const jobName = "patchy-abc-rem-a1"
+	const jobName = "maul-abc-rem-a1"
 	body := strings.Join([]string{
 		turnLine(t, transcript.Turn{Seq: 1, Role: transcript.RoleSystem,
 			Kind: transcript.KindNotice, Text: "session s1 started"}),
@@ -131,7 +131,7 @@ func TestTailFollowsRunningAgent(t *testing.T) {
 	}, "\n") + "\n"
 
 	logs := &fakeLogs{body: body}
-	tl := NewTailer(fake.NewClientset(runningPod(jobName)), "patchy-agents")
+	tl := NewTailer(fake.NewClientset(runningPod(jobName)), "maul-agents")
 	tl.logs = logs
 
 	var got []transcript.Turn
@@ -159,13 +159,13 @@ func TestTailFollowsRunningAgent(t *testing.T) {
 }
 
 func TestTailStopsOnHandlerError(t *testing.T) {
-	const jobName = "patchy-abc-inv-a1"
+	const jobName = "maul-abc-inv-a1"
 	body := strings.Join([]string{
 		turnLine(t, transcript.Turn{Seq: 1, Role: transcript.RoleAssistant, Kind: transcript.KindText, Text: "a"}),
 		turnLine(t, transcript.Turn{Seq: 2, Role: transcript.RoleAssistant, Kind: transcript.KindText, Text: "b"}),
 	}, "\n") + "\n"
 
-	tl := NewTailer(fake.NewClientset(runningPod(jobName)), "patchy-agents")
+	tl := NewTailer(fake.NewClientset(runningPod(jobName)), "maul-agents")
 	tl.logs = &fakeLogs{body: body}
 
 	seen := 0
@@ -183,8 +183,8 @@ func TestTailStopsOnHandlerError(t *testing.T) {
 
 func TestTailCancelledContextIsNotAnError(t *testing.T) {
 	// A viewer closing the page is the normal end of a follow.
-	const jobName = "patchy-abc-inv-a1"
-	tl := NewTailer(fake.NewClientset(runningPod(jobName)), "patchy-agents")
+	const jobName = "maul-abc-inv-a1"
+	tl := NewTailer(fake.NewClientset(runningPod(jobName)), "maul-agents")
 	tl.logs = &fakeLogs{body: turnLine(t, transcript.Turn{
 		Seq: 1, Role: transcript.RoleAssistant, Kind: transcript.KindText, Text: "a"}) + "\n"}
 
@@ -199,9 +199,9 @@ func TestTailCancelledContextIsNotAnError(t *testing.T) {
 }
 
 func TestTailNoPod(t *testing.T) {
-	tl := NewTailer(fake.NewClientset(), "patchy-agents")
+	tl := NewTailer(fake.NewClientset(), "maul-agents")
 	tl.logs = &fakeLogs{}
-	err := tl.Tail(context.Background(), "patchy-none-inv-a1", Sink{Turn: func(transcript.Turn) error { return nil }})
+	err := tl.Tail(context.Background(), "maul-none-inv-a1", Sink{Turn: func(transcript.Turn) error { return nil }})
 	if err == nil {
 		t.Fatal("Tail without a pod succeeded, want error")
 	}
@@ -212,7 +212,7 @@ func TestTailNoPod(t *testing.T) {
 // stream, and the result is found after a run's worth of it. A turn or a
 // result that quotes an output line is still what it is.
 func TestResultSkipsLiveOutput(t *testing.T) {
-	const jobName = "patchy-out-bld-a1"
+	const jobName = "maul-out-bld-a1"
 	const finding = "finding-out-1"
 	quotedTurn := turnLine(t, transcript.Turn{Seq: 1, Role: transcript.RoleAssistant, Kind: transcript.KindText})
 	const chunks = 5000

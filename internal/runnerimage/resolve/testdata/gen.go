@@ -48,7 +48,7 @@ func run() error {
 	if _, err := os.Stat(filepath.Join(dir, "key.pem")); err != nil {
 		return fmt.Errorf("run from the repository root: %w", err)
 	}
-	keyDir, err := os.MkdirTemp("", "patchy-cosign-key")
+	keyDir, err := os.MkdirTemp("", "maul-cosign-key")
 	if err != nil {
 		return err
 	}
@@ -67,14 +67,14 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	repo, err := name.NewRepository(u.Host + "/patchy/fixture")
+	repo, err := name.NewRepository(u.Host + "/maul/fixture")
 	if err != nil {
 		return err
 	}
 
 	img := mutate.MediaType(empty.Image, types.OCIManifestSchema1)
 	img = mutate.ConfigMediaType(img, types.OCIConfigJSON)
-	img, err = mutate.AppendLayers(img, static.NewLayer([]byte("patchy signature fixture layer\n"), types.OCILayer))
+	img, err = mutate.AppendLayers(img, static.NewLayer([]byte("maul signature fixture layer\n"), types.OCILayer))
 	if err != nil {
 		return err
 	}

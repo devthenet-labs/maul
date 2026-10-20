@@ -7,8 +7,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/bitwise-media-group/patchy/internal/awsinv"
-	"github.com/bitwise-media-group/patchy/pkg/enhance"
+	"github.com/devthenet-labs/maul/internal/awsinv"
+	"github.com/devthenet-labs/maul/pkg/enhance"
 )
 
 // AWSTagsID is the enhancer's id.

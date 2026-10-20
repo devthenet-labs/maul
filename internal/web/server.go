@@ -18,8 +18,8 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/bitwise-media-group/patchy/internal/web/auth"
-	"github.com/bitwise-media-group/patchy/internal/web/authz"
+	"github.com/devthenet-labs/maul/internal/web/auth"
+	"github.com/devthenet-labs/maul/internal/web/authz"
 )
 
 // maxBodyBytes caps action POST bodies; the endpoints take no payload, so
@@ -309,7 +309,7 @@ func stubPage(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusServiceUnavailable)
 	_, _ = w.Write([]byte(`<!doctype html><meta charset="utf-8">` +
-		`<title>patchy status</title>` +
+		`<title>maul status</title>` +
 		`<body style="font-family:system-ui;max-width:40rem;margin:4rem auto;padding:0 1rem">` +
 		`<h1>Status page not bundled</h1>` +
 		`<p>This build of <code>status-server</code> was compiled without the status page assets. ` +

@@ -22,9 +22,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	k8stesting "k8s.io/client-go/testing"
 
-	"github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/provider"
-	"github.com/bitwise-media-group/patchy/internal/usagewire"
+	"github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/provider"
+	"github.com/devthenet-labs/maul/internal/usagewire"
 )
 
 const (

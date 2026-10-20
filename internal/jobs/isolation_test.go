@@ -15,8 +15,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/provider"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/provider"
 )
 
 // credentialFindings lists every way a model credential reaches a pod: an
@@ -214,7 +214,7 @@ func TestPropertyNoCredentialInRepositoryImagePod(t *testing.T) {
 		cfg.Runners = map[string]Runner{}
 		for _, id := range []string{"claude", "codex", "fake"} {
 			r := Runner{
-				Image:     "ghcr.io/bitwise-media-group/patchy/" + id + "-agent-runner:1",
+				Image:     "ghcr.io/devthenet-labs/maul/" + id + "-agent-runner:1",
 				Brokered:  rng.Intn(2) == 0,
 				Secret:    pick("", "model-credential"),
 				SecretEnv: pick(channels...),
@@ -232,7 +232,7 @@ func TestPropertyNoCredentialInRepositoryImagePod(t *testing.T) {
 		spec.RunnerSearchPath = repoSearchPath
 
 		c := New(fake.NewClientset(), cfg, nil)
-		job, err := c.buildJob(fmt.Sprintf("patchy-prop-%d", i), spec)
+		job, err := c.buildJob(fmt.Sprintf("maul-prop-%d", i), spec)
 		if err != nil {
 			refused++
 			continue
@@ -330,10 +330,10 @@ func TestInjectAlwaysCopiesAgentRunner(t *testing.T) {
 			claude.Inject = tt.inject
 			cfg.Runners["claude"] = claude
 			pod := buildJobForTest(t, cfg, injectedSpec()).Spec.Template.Spec
-			if got := envMap(pod.InitContainers[0])["PATCHY_INJECT"].Value; got != tt.want {
-				t.Errorf("PATCHY_INJECT = %q, want %q", got, tt.want)
+			if got := envMap(pod.InitContainers[0])["MAUL_INJECT"].Value; got != tt.want {
+				t.Errorf("MAUL_INJECT = %q, want %q", got, tt.want)
 			}
-			if got := pod.Containers[0].Command; len(got) != 1 || got[0] != "/patchy/bin/agent-runner" {
+			if got := pod.Containers[0].Command; len(got) != 1 || got[0] != "/maul/bin/agent-runner" {
 				t.Errorf("agent command = %v, want the injected agent-runner", got)
 			}
 		})

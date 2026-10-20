@@ -25,7 +25,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 
-	"github.com/bitwise-media-group/patchy/internal/runnerimage"
+	"github.com/devthenet-labs/maul/internal/runnerimage"
 )
 
 const (

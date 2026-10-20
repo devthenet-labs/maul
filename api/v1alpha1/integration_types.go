@@ -27,10 +27,10 @@ const (
 type GitHubIssues struct {
 	// Enabled turns the issues capability on.
 	Enabled bool `json:"enabled"`
-	// ApproveComment is the deprecated alias of "/patchy approve" on a
+	// ApproveComment is the deprecated alias of "/maul approve" on a
 	// finding's tracking issue: a comment that is exactly it, or starts
-	// with it and a space, approves as "/patchy approve" does, with the same
-	// write-access check and reply. "/patchy <verb>" is the command grammar
+	// with it and a space, approves as "/maul approve" does, with the same
+	// write-access check and reply. "/maul <verb>" is the command grammar
 	// every tracking issue accepts whatever this says.
 	// +optional
 	// +kubebuilder:default="/approve"
@@ -349,13 +349,13 @@ type AzureIntegration struct {
 }
 
 // GenericResolver configures verdict write-back to the external process: on a
-// dismissed finding patchy POSTs the verdict and the finding's alerts to the
+// dismissed finding maul POSTs the verdict and the finding's alerts to the
 // URL, signing the body the same way inbound deliveries are signed. The
-// process must treat the call as idempotent — patchy retries on failure.
+// process must treat the call as idempotent — maul retries on failure.
 type GenericResolver struct {
 	// Enabled turns the write-back on.
 	Enabled bool `json:"enabled"`
-	// URL patchy POSTs verdicts to.
+	// URL maul POSTs verdicts to.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:Pattern=`^https?://.+$`
 	URL string `json:"url"`
@@ -366,7 +366,7 @@ type GenericResolver struct {
 }
 
 // GenericSource configures the inbound findings webhook: the external process
-// POSTs patchy's documented findings payload (docs/integrations/generic.md)
+// POSTs maul's documented findings payload (docs/integrations/generic.md)
 // to /generic/<integration-name>/webhooks, HMAC-signing each body with the
 // shared secret. Built for sources that are not event-driven — a process that
 // queries a warehouse store on its own schedule pushes whatever it found.
@@ -383,13 +383,13 @@ type GenericSource struct {
 }
 
 // GenericEnhancer configures the external context enhancer: during
-// enhancement patchy POSTs each finding's issue view to the URL and the
+// enhancement maul POSTs each finding's issue view to the URL and the
 // response body is the enrichment (empty or 204 contributes nothing). The
 // call is synchronous and signed like every other generic exchange.
 type GenericEnhancer struct {
 	// Enabled turns the enhancer capability on.
 	Enabled bool `json:"enabled"`
-	// URL patchy POSTs enhancement requests to.
+	// URL maul POSTs enhancement requests to.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:Pattern=`^https?://.+$`
 	URL string `json:"url"`
@@ -416,7 +416,7 @@ type GenericIntegration struct {
 // IntegrationSpec configures one external system. Exactly the provider block
 // matching spec.provider must be set (CEL-enforced) — integrations are
 // strongly typed; the generic provider is the deliberate escape hatch, typed
-// around patchy's own HTTP contract rather than a vendor's.
+// around maul's own HTTP contract rather than a vendor's.
 // +kubebuilder:validation:XValidation:rule="(self.provider == 'github') == has(self.github) && (self.provider == 'google-cloud') == has(self.googleCloud) && (self.provider == 'wiz') == has(self.wiz) && (self.provider == 'aws') == has(self.aws) && (self.provider == 'azure') == has(self.azure) && (self.provider == 'generic') == has(self.generic)",message="exactly the provider block matching spec.provider must be set"
 // +kubebuilder:validation:XValidation:rule="!(self.provider in ['github', 'wiz', 'generic']) || has(self.secretRef)",message="spec.secretRef is required for the github, wiz, and generic providers"
 type IntegrationSpec struct {
@@ -430,7 +430,7 @@ type IntegrationSpec struct {
 	// "webhookToken" (the shared bearer token deliveries carry), plus keys
 	// "clientId" + "clientSecret" when spec.wiz.api enables write-back. For
 	// generic: key "webhookSecret", the shared HMAC secret signing both
-	// inbound deliveries and patchy's outbound resolver/enhancer calls.
+	// inbound deliveries and maul's outbound resolver/enhancer calls.
 	// Required for github, wiz, and generic, optional otherwise — a
 	// google-cloud integration holds no credential, since Pub/Sub
 	// authenticates itself with a signed OIDC token. It stays permitted for
@@ -627,13 +627,13 @@ type IntegrationStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:categories=patchy
+// +kubebuilder:resource:categories=maul
 // +kubebuilder:printcolumn:name="Provider",type=string,JSONPath=`.spec.provider`
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
 // +kubebuilder:printcolumn:name="Webhook",type=string,JSONPath=`.status.webhookPath`,priority=1
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
-// Integration configures one external system patchy exchanges finding state
+// Integration configures one external system maul exchanges finding state
 // with: scanners in (code-scanning alerts, Security Command Center, Wiz, or
 // any process speaking the generic HTTP contract), context enhancers (Cloud
 // Asset Inventory, AWS resource tags, Azure resource tags, generic HTTP),

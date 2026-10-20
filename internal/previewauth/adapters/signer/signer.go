@@ -15,7 +15,7 @@ import (
 
 	jose "github.com/go-jose/go-jose/v4"
 
-	"github.com/bitwise-media-group/patchy/internal/previewauth"
+	"github.com/devthenet-labs/maul/internal/previewauth"
 )
 
 // MinRSABits is the smallest RSA key the signer accepts.

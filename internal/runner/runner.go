@@ -21,11 +21,11 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/bitwise-media-group/patchy/internal/ansi"
+	"github.com/devthenet-labs/maul/internal/ansi"
 )
 
 // scopeName is this package's OpenTelemetry instrumentation scope.
-const scopeName = "github.com/bitwise-media-group/patchy/internal/runner"
+const scopeName = "github.com/devthenet-labs/maul/internal/runner"
 
 // CommandSpec describes a runner invocation. Harnesses build specs but never
 // touch os/exec; this package executes them, so callers can fake execution
@@ -50,13 +50,13 @@ type observability struct {
 
 func newObservability() *observability {
 	m := otel.Meter(scopeName)
-	dur, err := m.Float64Histogram("patchy.agent.exec.duration",
+	dur, err := m.Float64Histogram("maul.agent.exec.duration",
 		metric.WithUnit("s"),
 		metric.WithDescription("Wall-clock duration of one agent CLI invocation."))
 	if err != nil {
 		otel.Handle(err)
 	}
-	to, err := m.Int64Counter("patchy.agent.exec.timeout",
+	to, err := m.Int64Counter("maul.agent.exec.timeout",
 		metric.WithUnit("{exec}"),
 		metric.WithDescription("Agent CLI invocations that hit the per-run timeout."))
 	if err != nil {
@@ -129,7 +129,7 @@ type Exec struct{}
 func (e *Exec) Run(ctx context.Context, spec CommandSpec, timeout time.Duration,
 	onLine func(line []byte) (abort bool, reason string)) (Result, error) {
 	o := obs()
-	ctx, span := o.tracer.Start(ctx, "patchy.agent.exec")
+	ctx, span := o.tracer.Start(ctx, "maul.agent.exec")
 	defer span.End()
 
 	runCtx, cancel := context.WithTimeout(ctx, timeout)

@@ -1,0 +1,465 @@
+<!--
+Copyright 2026 Bitwise Media Group Ltd.
+SPDX-License-Identifier: MIT
+-->
+
+# maul Helm chart
+
+Deploys the maul stack: the `maul.run` CRDs, the five pipeline controllers (integration, source, context, investigation,
+remediation), the egress broker and the status server into the release namespace, plus the agent sandbox namespace,
+RBAC, ConfigMaps, Services, and NetworkPolicies. The intent, preview and evaluation controllers are opt-in. It is the
+Helm rendering of [`deploy/kustomize`](../../deploy/kustomize) — same resources, same defaults, same isolation model —
+published to OCI on every release.
+
+```sh
+helm install maul oci://ghcr.io/devthenet-labs/maul/charts/maul \
+    --version <X.Y.Z> --namespace maul --create-namespace
+```
+
+The chart version tracks the app release 1:1, and the default image tag is `v<appVersion>` — installing chart `X.Y.Z`
+runs images `vX.Y.Z`.
+
+## Architecture
+
+The custom resources are the state machine: findings, investigations, and remediations live as CRs in the release
+namespace, and the Kubernetes API is the only state store (`kubectl get maul -n <namespace>` shows the pipeline). The
+five pipeline controllers split the work:
+
+| Controller                   | Role                                                                                                                                                                                           |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **integration-controller**   | The single internet-facing entry point: provider webhook receivers on :8080 (GitHub: `POST /github/webhooks`), scanner-alert ingestion into Findings, tracking-issue projection, human signals |
+| **source-controller**        | Forge/Repository reconcilers plus the artifact server on :9790 — SHA-pinned repository tarballs the agent pods fetch credential-lessly                                                         |
+| **context-controller**       | The enhancer chain over Opened findings (the CMDB placeholder); no external access at all                                                                                                      |
+| **investigation-controller** | The gate and the analysis scheduler: launches analysis agent Jobs, routes the verdict edges                                                                                                    |
+| **remediation-controller**   | Queue admission, the remediation agent Jobs, push/PR, and the rollup/TTL loop                                                                                                                  |
+
+All five run as singletons (`replicas: 1` + `Recreate`, with leader election as rollout insurance) and mount their
+service-account tokens; [`templates/rbac.yaml`](templates/rbac.yaml) pins verb-by-verb what each identity may do. Of the
+five, only two have Services — the integration-controller's :8080 and the source-controller's :9790; every other port is
+a kubelet-probed :8081.
+
+The CRDs render as templates gated by `crds.install` — living in `templates/crds/` rather than the chart's install-only
+`crds/` directory means `helm upgrade` keeps them current — with `helm.sh/resource-policy: keep` stamped when
+`crds.keep` is true so uninstall never deletes them — and with them the all-time FindingRollup statistics.
+
+## Switching the pipeline on
+
+The controllers idle until two custom resources exist: an **Integration** (where findings come from, where the tracking
+issues go, webhook validation) and a **Forge** (how repositories are cloned and pushed). Those CRs live in the sibling
+[`maul-config`](../maul-config) chart, installed **after** this one into the same namespace — Helm validates every
+manifest against the API server before applying anything, so the CRs cannot ride in the same first install as the CRDs
+they depend on:
+
+```sh
+helm install maul-config oci://ghcr.io/devthenet-labs/maul/charts/maul-config \
+    --version <X.Y.Z> --namespace maul -f values.yaml
+```
+
+See the [`maul-config` README](../maul-config/README.md) for the values shape, or apply the CRs yourself with `kubectl`
+— [`deploy/kustomize/base/crs.example.yaml`](../../deploy/kustomize/base/crs.example.yaml) is the full field walkthrough
+(GHES base URLs, org allowlists, repository regexes).
+
+## Secrets
+
+Created out of band (SOPS, external-secrets, or `kubectl` for dev) — the chart references them and refuses to own them.
+See [`deploy/kustomize/base/secrets.example.yaml`](../../deploy/kustomize/base/secrets.example.yaml) for shapes and
+one-liners:
+
+| Secret             | Namespace         | Keys                                                 | What                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------ | ----------------- | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| e.g. `maul-github` | release namespace | `appID` + `privateKey` (or `token`), `webhookSecret` | The forge/provider credential, named by each Integration/Forge CR's `spec.secretRef` — **not** mounted into any Deployment; read on demand through the API                                                                                                                                                                                                                                                                                          |
+| `maul-anthropic`   | release namespace | `api-key`                                            | The claude runner's Anthropic credential, consumed ONLY by the egress broker — never an agent pod. An API key, or a `claude setup-token` OAuth token with `egressBroker.anthropicAuth: token`. Needed when the claude provider is `anthropic`; bedrock/vertex/foundry-entra use the broker's workload identity instead. **Migration:** it previously lived in `maul-agents` — create it here, upgrade, then delete the old copy                     |
+| `maul-openai`      | release namespace | `api-key`                                            | The codex runner's OpenAI API key, consumed ONLY by the egress broker (`egressBroker.openai.apiKey`) — never an agent pod. Required when `agent.runners.codex.enabled: true`. API keys only. **Migration:** it previously lived in `maul-agents` as the codex runner's mounted Secret — create it here, set `egressBroker.openai.apiKey`, drop `agent.runners.codex.secret`/`secretKey`/`secretEnv`/`hosts`/`dnsPatterns`, then delete the old copy |
+| `maul-copilot`     | `maul-agents`     | `token`                                              | The copilot runner's **GitHub** token — not a model API key. Only needed when `agent.runners.copilot.enabled: true`; scope it to Copilot with no repository permissions                                                                                                                                                                                                                                                                             |
+
+One GitHub Secret may serve both CRs, or you can split read and write identities across two GitHub Apps. The provider
+has exactly one webhook URL; point it at `https://<webhook.host>/github/webhooks` and enable one flavour of the chart's
+entry point — `webhook.ingress` (plain Ingress, works anywhere) or `webhook.httpRoute` (Gateway API). Both front the
+**integration-controller**, which validates each delivery against the matching Integration's `webhookSecret`. See the
+[webhook exposure docs](../../docs/deployment/webhook.md) for details and per-platform (EKS, AKS, GKE) notes.
+
+## Preview security foundation (opt-in)
+
+`preview.enabled` defaults to `false`. Enabling it creates **empty** `maul-preview-0` and `maul-preview-1` namespaces
+(or 1–4 slots), their isolation NetworkPolicies, quotas, limits, and fail-closed admission policies, plus a non-default
+EKS Auto Mode `alb-preview` class. It does **not** create an Ingress, ALB, wildcard DNS record, preview workload,
+Project, or preview-controller: that controller has its own default-off `previewController.enabled` switch. Supply the
+ECR registry host, node-local DNS `/32`, ALB public subnet CIDRs, tightly scoped operator `/32` inbound CIDRs, issued
+wildcard ACM certificate ARN, preview host suffix, and a distinct ALB name. Before enabling the foundation, supply the
+dedicated preview nodes: `preview.nodeIsolation.selector` (any node labels, on any cluster) and/or
+`preview.nodeIsolation.eksAutoMode.nodePool` and `nodeClass` (the legacy `preview.nodeIsolation.nodePool` and
+`nodeClass` still work), plus `taintKey`, from nodes tainted `<taintKey>=true:NoExecute`; on EKS Auto Mode a dedicated
+NodePool whose NodeClass uses `networkPolicy: DefaultDeny`. `preview.nodeIsolation.mode: none` is the explicit opt-out
+(no selector, no toleration, preview Pods share nodes with everything else). `DefaultAllow` has a start-up interval with
+unrestricted egress even when the slot NetworkPolicy exists. The chart renders that NodeClass (with `DefaultDeny` fixed,
+not a value) and NodePool only with `preview.nodeIsolation.create: true` plus the node `role`, `subnetIDs` and
+`securityGroupIDs` (see `values.yaml`); otherwise they must already exist. It never creates the node IAM role. The
+[chart-render fixture](../../hack/testdata/chart-render/preview-foundation.yaml) shows the shape; these are
+cluster-specific values, not defaults. The default `alb` class must already be limited to the maul namespace before
+slots are enabled; `edgeIngressClass.create` renders an edge class that is limited to the release namespace and is never
+the default. On EKS Auto Mode set `clusterDNSCIDR` (or `preview.dnsCIDR`) to the node-local DNS `/32`: the slot policy
+allows DNS only there.
+
+Preview images are `<preview.imageRegistry>/<preview.imagePathPrefix>/<app>:sha-<full SHA>`. `preview.imagePathPrefix`
+(default `maul/previews`) is lowercase registry path segments with no leading or trailing slash, never empty. One helper
+renders it into the slot admission policy and the preview-controller's `MAUL_PREVIEW_IMAGE_PREFIX`, so with the default
+both are byte for byte what they were when the path was fixed. It must be disjoint from the agent image allowlist: the
+render fails when an `agent.repositoryImages.registries` entry equals the preview prefix, contains it or sits under it,
+compared on path segment boundaries after folding case, an explicit `:443` and ECR's dual-stack and FIPS endpoint names.
+A runtime image is built from an unreviewed pull request head, so it must never be admissible as an agent sandbox image,
+nor a toolchain image as a preview. With repository images enabled, source-controller also refuses any declared agent
+image under the preview prefix on its own (`MAUL_REPOSITORY_IMAGE_DENIED_REGISTRIES`).
+
+The slot policy selects every pod. Inbound traffic can reach only a port named `http` from the configured ALB subnets;
+outbound traffic can reach only the configured DNS IP on UDP/TCP 53. There is no API, broker, maul Service, metadata,
+Pod Identity, or internet exception. Admission matches the actual namespace name in CEL, not only the automatic
+`kubernetes.io/metadata.name` label. An unselected workload in an ordinary namespace is unaffected; only the
+outside-slot toleration and IngressClass rules below change its workload admission. Slot Ingresses must use
+`alb-preview`, which is non-default and refused outside the slots. Slot Pods/Deployments must use immutable full-SHA
+images one leaf beneath `<preview.imageRegistry>/<preview.imagePathPrefix>/` (`maul/previews` by default), exactly one
+container, the default ServiceAccount with token automount explicitly disabled, no init/ephemeral containers, and only
+`emptyDir` volumes. Services must remain ClusterIP, and a Service may carry only a safe healthcheck-path annotation (a
+multi-component Preview's per-component health check). Ingress hosts are single-label subdomains of
+`preview.hostSuffix`; only a safe healthcheck-path annotation is allowed. An Ingress has one rule of at most four
+`Prefix` paths in the component path grammar, each backed by a `preview-` Service on port 80; the kept placeholder backs
+`/` with its own Service. The slot quota fits one Preview of up to four components: five Services (one each, plus slot
+0's placeholder) and eight Pods. With `previewController.config.targetHealth: true` (the default, since previews run
+only on EKS Auto Mode and Auto Mode was seen injecting the gate on a live preview) the slot namespaces are labelled
+`eks.amazonaws.com/pod-readiness-gate-inject: enabled`, so EKS Auto Mode's load balancer injects a target-health
+readiness gate into each slot Pod, and the preview-controller marks a Preview Ready only once its targets are healthy;
+`false` restores the ungated Ready. See `docs/configuration/preview-controller.md`. The default was `false` up to
+0.12.15, so an upgrade from there that never set it turns it on, and a Preview deploying during that upgrade may spend
+one retry (the upgrade note in `docs/deployment/helm.md`).
+
+Slot Pods and Deployment templates must also select the configured preview nodes (the EKS NodePool and NodeClass labels,
+then the generic selector's), tolerate the exact `NoExecute` taint, use the default scheduler, and leave `nodeName`
+unset. A second fail-closed policy on **all other namespaces** rejects both the named preview taint toleration and an
+empty-key `Exists` toleration (which would tolerate every taint), plus direct `nodeName` placement on new Pods and
+Deployment templates. An ordinary scheduled Pod without those tolerations is unaffected, including later metadata
+updates after its node is assigned. Keep both policies while any preview node or slot workload exists; both policies
+have cluster-wide bindings and their match conditions use the actual namespace name. Another name-based policy refuses
+`alb-preview` Ingresses outside slots. No workload should be admitted until the NodePool and node IAM role are ready and
+a Deployment-managed first-instruction probe proves isolation on a fresh node.
+
+Every slot namespace **and every chart-owned guardrail** carries `helm.sh/resource-policy: keep`. Helm uninstall or
+rollback to a revision without previews therefore orphans them rather than silently deleting an occupied slot or leaving
+its workloads without admission/network controls. The slot policies still match every supported slot name (0–3) when
+`slotCount` is reduced, while outside-slot policies deny new tolerations and `alb-preview` Ingresses in retired slots.
+Retained per-slot bindings and NetworkPolicies remain until drained. The operator must not treat rollback as cleanup.
+With `preview.enabled: true` and the default `preview.placeholder.enabled: true`, the chart also keeps a selectorless
+`maul-preview-placeholder` Service and Ingress in slot 0. The Service has no endpoints and schedules no Pod; the Ingress
+keeps the separate `alb-preview` ALB and its DNS name stable between previews. The only slot resources allowed Helm
+ownership/keep annotations are that exact Service and Ingress in slot 0. **Creating the placeholder starts ALB charges
+even while `previewController.enabled: false`.** If re-enabling previews after a rollback that kept an older slot
+admission policy, first upgrade with `preview.enabled: true` and `preview.placeholder.enabled: false` to update the
+guardrails without creating an ALB. Verify the new policy admits the placeholder via a server-side dry run, then enable
+the placeholder in a separate, approved Helm revision. Drain deliberately:
+
+1. Disable new preview scheduling and wait for or delete the Preview CRs after their finalizers complete. Before
+   removing the chart or namespace, inspect **each** slot with
+   `kubectl get pods,deployments,replicasets,statefulsets,daemonsets,jobs,cronjobs,services,ingresses -n maul-preview-0`
+   (and `maul-preview-1`, or every configured slot). Empty means no application objects, not merely no Ready pods.
+   Investigate and delete leftovers explicitly.
+2. Remove the wildcard DNS alias before deleting the kept placeholder Ingress and Service; then verify the preview ALB
+   is gone. Remove any other preview Ingress using the infrastructure rollback plan. Only after the slots are empty,
+   remove the kept namespace resources and their cluster-scoped `maul-preview-*` admission policies/bindings and
+   `alb-preview` class/params intentionally. Retain the guards if any workload remains. Helm will no longer manage kept
+   resources after uninstall/rollback, so a later reinstall needs an explicit adoption/cleanup check.
+
+The render gate checks the exact DNS-only egress, ALB source ingress, exact namespace selectors, and keep annotations.
+The envtest gate applies the _rendered_ admission policies to a real API server and proves slot placement and
+outside-slot toleration rejections plus an unaffected ordinary workload. NetworkPolicies require a real dataplane test
+after rollout: run a disposable diagnostic **Deployment** using an approved immutable preview image on the dedicated
+node. Probe forbidden endpoints at the first executable instruction, with no start-up delay; prove metadata, Pod
+Identity, the Kubernetes API endpoint, every maul Service (including the egress broker), and an external internet
+address are unreachable. DNS may initially be denied by `DefaultDeny` until its allow rule is programmed, then must
+resolve. Repeat cold starts and inspect the node agent for reconciliation errors. Do not claim this property from an
+envtest API server, which has no kubelet or networking dataplane.
+
+The repeatable [cold-start isolation probe](../../hack/preview-isolation-probe/README.md) uses a disposable, unmerged
+demo-repo PR image, not the demo app's main image. Re-run it after every EKS, Auto Mode or VPC CNI upgrade and before
+relying on previews again. The 2026-09-30 observed network result passed; direct Auto Mode policy-agent log inspection
+remains an open validation gap. Never call those logs checked merely because Pod events are clean.
+
+## Preview controller (opt-in, off by default)
+
+`previewController.enabled` requires `preview.enabled`, `intentController.enabled`, and an exact Kubernetes Service
+`/32` in `previewController.config.apiServerCIDR`. With it off, neither a Preview spec projector nor the
+preview-controller runs. With it on, only Projects that have an operator-authored `spec.preview` block, or a `preview`
+block on any of their `repositories` (a Project with several, which needs `intentController.config.multiRepo: true`),
+get previews; a Project whose application must never be exposed (a deliberately vulnerable test target, say) has none.
+The fixed renderer takes each component's runtime repository, HTTP port, readiness path and route path only from those
+Project blocks, and the tag only from the recorded PR head, or for a repository the intent did not change, its
+default-branch head recorded once when review began. It never reads issue/agent text as deployment configuration, and
+holds no GitHub, registry, cloud or Secret credential. Its release-namespace Role is limited to Preview and Intent
+reads/writes; one Role per fixed slot grants only Deployment, Service and Ingress CRUD and Pod/ReplicaSet reads. No
+ClusterRole is installed. Its NetworkPolicy permits only DNS and the Kubernetes API Service `/32` out; there is no
+internet or broker egress rule.
+
+`apiServerCIDR: auto` looks up that Service's address and the API server's own endpoint addresses at render time, and
+admits each as a `/32`. It is for CNIs that judge NetworkPolicy after the Service address is translated, such as
+kube-router on k3s and k3d, where the Service `/32` alone matches nothing. It needs a render that reaches the cluster
+(not `helm template` or GitOps, which fail it) and is a snapshot: run `helm upgrade` again if the API server's addresses
+change. On EKS, whose control-plane addresses rotate, keep the Service `/32`.
+
+The controller serializes slot leases, queues by creation time, waits for a Ready Pod with a recorded image ID before
+creating the `alb-preview` Ingress, and withdraws the old Ingress before a PR-head update. With
+`previewController.config.targetHealth` (the default) the Ingress comes first and stays instead, and a PR-head update
+rolls out beside the serving revision, whose Pod stops only once the new one's target is healthy. Each new head gets at
+most three rollout attempts (10 minutes each by default). Failed and expired Previews free their slot only after all
+rendered resources and Pod/ReplicaSet children are gone. An open PR's preview expires after 72 hours from its last
+successful deployment; a new PR head can start a new preview. Deletion uses a finalizer, and a periodic orphan sweep
+cleans owned resources even after a lost CR. **Do not reduce `slotCount` or disable the controller while a Preview owns
+a slot**: restore the old slot count and drain via the Preview finalizer first. Helm's `keep` annotations protect the
+namespace and guardrails but are not a substitute for that drain.
+
+The chart renders the placeholder only when both `preview.enabled` and `preview.placeholder.enabled` are true. The
+separate ALB and the wildcard DNS record are staged with the infrastructure, in order:
+[Deploying intents and previews](../../docs/intents/deploying.md) walks through the stages and their rollback points.
+
+## Preview sign-in (opt-in, off by default)
+
+`previewAuth.enabled` deploys the sign-in relay (`cmd/preview-auth`, two replicas behind a PodDisruptionBudget, on the
+edge class at `previewAuth.host`) and puts every preview Ingress behind it in two `helm upgrade`s, because Helm applies
+an Ingress before the admission policies that judge it:
+
+1. `previewAuth.stage: permit` renders the relay, its keys (generated on first enablement and reused by `lookup`
+   afterwards, kept on uninstall), each slot's ALB client Secret `maul-preview-oidc-g<generation>` with a Role that lets
+   Auto Mode (`Group eks:managed`) get exactly that Secret, and the `<fullname>-preview-viewer` ClusterRole bound to
+   `previewAuth.viewers`. The slot Ingress policy now admits the pinned sign-in annotations and records the generation
+   in its `maul.run/preview-auth-admits` annotation. Nothing requires sign-in yet.
+2. `previewAuth.stage: require` puts the preview-controller and the placeholder on those annotations and adds the kept
+   `maul-preview-ingress-auth` policy, which refuses a slot Ingress without them. The render fails unless the live
+   policy admits the generation; a render without a cluster (`helm template`, GitOps) confirms it with
+   `previewAuth.permitConfirmedGeneration`. Such a render must also use an operator-owned
+   `previewAuth.keys.existingSecret`: with chart-managed keys it is refused, since it cannot look the keys up and would
+   generate new ones on every render (`previewAuth.keys.renderOffline=true` renders anyway, with throwaway keys, for
+   inspection only).
+
+A key rotation (`previewAuth.keys.rotate`) is the same pair: the first upgrade admits the new generation and keeps the
+old one on the Ingresses, the second (the same values) moves them; `keys.dropPrevious` ends the overlap. Raising
+`previewAuth.sessionTimeout` in the require stage is a pair too (the slot policies admit any session up to it, and the
+first upgrade only raises that ceiling); lowering it is one upgrade. The relay reads no Secret through the API (its keys
+and Dex client secret are mounted) and holds only Previews read, access reviews and its one code-ledger Lease. The one
+per-install IdP setup is a Dex static client whose redirect URI is `https://<previewAuth.host>/dex/callback`, which the
+install NOTES print. `preview.inboundCIDRs` stays required until the require stage, and emptying it with no
+`preview.prefixListsIDs` needs `preview.allowPublicWithAuth: confirmed` and `previewAuth.sessionTimeout` of at most 900.
+To roll back from the require stage, scale the preview-controller to zero and delete the
+`maul-preview-all-slots-ingress-auth` binding (only while `preview.inboundCIDRs` is set) first: the kept policy
+otherwise refuses the placeholder dropping its annotations. The operator guide,
+[Preview sign-in](../../docs/intents/preview-sign-in.md), walks through Dex, the viewers, both stages, rotation,
+rollback and the gate before the allowlist may go; [preview-auth](../../docs/configuration/preview-auth.md) is the
+relay's reference.
+
+## Agent isolation
+
+The agent Jobs run in their own namespace (`agent.namespace`, created by the chart with the `restricted` Pod Security
+labels; `helm uninstall` deletes it, killing any running agent Job). The isolation model, in order of load-bearing:
+
+1. **Credential absence** — the agent pod holds no forge credential at all, not even in an init container, and a claude
+   or codex pod holds **no credential of any kind**: its model traffic goes through the egress credential broker
+   (deployed with the chart whenever a claude or codex runner is enabled), authenticated by an audience-bound projected
+   ServiceAccount token — an identity document, not a capability. The repository arrives as a digest-verified tarball
+   fetched from the source-controller's in-cluster artifact server (:9790); the only Secrets in a (non-brokered copilot)
+   pod are that harness's one credential and the per-Job handoff markdown. The agent ServiceAccount has no Role and its
+   API token is not mounted.
+2. **NetworkPolicy** (`agent.networkPolicy.create`) — default-deny both directions, re-permitting only DNS, the artifact
+   server, the broker, and TCP 443 externally (the non-brokered harness CLIs → their model APIs), with `clusterCIDRs`
+   excluded. A claude or codex pod's entire egress is cluster-local.
+3. **Hostname policy** (defence in depth) — `agent.networkPolicy.mode` picks the dialect the cluster can actually
+   enforce. Each renders **one policy per enabled runner**, selecting that harness's pods by their `maul.run/harness`
+   label, so each reaches only its own model API (`agent.runners.<harness>.hosts`; the brokered claude and codex have
+   **no external hosts at all**, their Cilium policies being cluster-only and their GKE/Istio entries skipped) plus the
+   in-cluster endpoints. No GitHub hosts, because the pod never talks to GitHub. The `copilot` runner is the one
+   exception: its CLI exchanges its token at `api.github.com` before reaching a model, so that host and
+   `*.githubcopilot.com` are in its allowlist — an authentication dependency, not forge access, and the runner disables
+   the built-in GitHub MCP server so no tool in the session can spend the token against the API.
+
+| `mode`   | renders                                     | requires                                                                     |
+| -------- | ------------------------------------------- | ---------------------------------------------------------------------------- |
+| `auto`   | whichever of the below the cluster supports | nothing — the default                                                        |
+| `gke`    | `FQDNNetworkPolicy` (networking.gke.io)     | GKE Dataplane V2 created/updated with `--enable-fqdn-network-policy`         |
+| `cilium` | `CiliumNetworkPolicy` with `toFQDNs`        | a real Cilium with DNS-based policy (the DNS proxy). **Not GKE** — see below |
+| `istio`  | `Sidecar` (REGISTRY_ONLY) + `ServiceEntry`  | native sidecars (`ENABLE_NATIVE_SIDECARS=true`) + the Istio CNI node agent   |
+| `none`   | nothing beyond the base NetworkPolicy       | —                                                                            |
+
+**`auto` detection.** Helm resolves `.Capabilities` against the live cluster on every `install`/`upgrade` and every
+helm-controller reconcile, so `auto` reads the API surface: `gke` when GKE's `FQDNNetworkPolicy` CRD is present (that
+CRD only exists once `--enable-fqdn-network-policy` is on, which is what makes the signal trustworthy), `cilium` when a
+real Cilium is, `none` otherwise. Two deliberate exclusions. It never selects `istio`, because CRD presence says nothing
+about native sidecars, without which the agent Job never completes. And it never selects `cilium` on GKE, because
+Dataplane V2 publishes cilium.io CRDs but has not honoured `CiliumNetworkPolicy` since 1.21.5-gke.1300 and rejects every
+L7 rule — a CNP there enforces nothing while reading as protection in `kubectl get`. Setting `mode: cilium` explicitly
+on GKE is trusted (a self-managed Cilium without Dataplane V2). An off-cluster `helm template` sees no cluster and
+resolves to `none`; pin `mode` when you need a deterministic render.
+
+**Why the base policy shrinks under an FQDN mode.** Network policies are **additive** — a packet matching _any_ policy
+that selects the pod is allowed, and no policy can subtract from another. A `CiliumNetworkPolicy` or `FQDNNetworkPolicy`
+naming `api.anthropic.com`, rendered next to a NetworkPolicy that already allows 443 to `0.0.0.0/0`, therefore
+constrains nothing: the union is still "443 to anywhere". So `agent.networkPolicy.broadEgress: auto` drops that broad
+rule under `cilium` and `gke`, and keeps it under `none` and `istio` (the sidecar enforces on SNI in a separate plane
+and still wants the L3 floor beneath it). Under `cilium` the whole `-agents-egress` policy goes, since the CNP itself
+grants DNS — through the proxy, which is what learns the resolved addresses — plus the artifact server and the model
+API. Under `gke` it stays minus the 443 rule, because an `FQDNNetworkPolicy` is egress-only and can name neither a
+resolver nor a ClusterIP Service. Set `broadEgress: always` to keep the broad rule while soaking a new mode: a mode that
+turns out not to be enforcing then fails open rather than blackholing every runner. The namespace default-deny is never
+dropped, so a missing CRD fails the sandbox closed.
+
+## Network profiles (opt-in, off by default)
+
+`egressProxy.enabled` deploys `cmd/egress-proxy`, the operator's Go dependency route, and grants each
+`agent.networkProfiles` entry to Finding remediate and Intent build/revise/check-fix Jobs that run an accepted
+repository image of a repository matching exactly one profile (RE2, anchored against the lowercased `owner/name`). Such
+a pod gains one destination, the proxy on its profile's port, enforced by NetworkPolicy on both sides: the agent-side
+`<release>-agents-network-<profile>` policy and the proxy's ingress rule both select the `maul.run/network-<profile>`
+label. With `admissionPolicy.enabled`, a ValidatingAdmissionPolicy admits that label only from remediation-controller
+(kind remediation) or intent-controller (kind intent) on a repository-image Job, and a second admits a Pod carrying it
+only from the Kubernetes Job controller (`admissionPolicy.jobControllerUsernames`) for its controlling `batch/v1` Job,
+so a bare Pod cannot claim a profile. Repositories declare nothing.
+
+It requires `agent.repositoryImages.enabled` and is refused under mode `istio`; the guards are listed in the
+[Helm docs](../../docs/deployment/helm.md). `egressProxy.suspendProfiles: true` is the kill switch: the controllers
+apply no profile from their next Job, and the proxy rolls into answering every profile request `410 suspended`, while
+every policy stays rendered. `enabled: false` removes everything. The proxy runs two replicas behind a
+PodDisruptionBudget, caches nothing, and never inherits the global `proxy` block.
+
+**Registries** (also opt-in; `egressProxy.registries` is empty by default). A profile can be granted operator-defined
+upstream registries (Artifactory, Nexus, AWS CodeArtifact) for Go, npm and pip: `egressProxy.registries.<name>` defines
+one (`ecosystem`, `url`, `auth`, and optionally `fileHosts`, `redirectHosts`, `internal`, `ca`, `healthPackage`,
+`maxArtifactBytes`; a `go` registry must state `privateModules` and `publicChecksumLookups`), and
+`agent.networkProfiles.<profile>.registries.<name>` grants it with `packages` (an allowlist) or
+`packagePolicy: registry` (there is no default), at most one grant per ecosystem. The proxy then holds that registry's
+credential, and only the proxy: a `bearer` or `basic` Secret you create in the release namespace (`auth.secretName`;
+never created by the chart, mounted read-only into the proxy alone and re-read without a restart), or a CodeArtifact
+token it mints with its own identity (`egressProxy.cloudCredentials`: `irsa` with the role on
+`egressProxy.serviceAccount.annotations`, or `podIdentity`, which adds egress to the node-local Pod Identity agent). The
+render refuses a registry on a forge, model API or Kubernetes API host, a CodeArtifact URL that is not its domain's
+endpoint, a private address without `internal`, and a grant that names no registry or no package policy.
+`egressProxy.networkPolicy.extraEgress` appends rules to the proxy's policy (an in-cluster OTLP collector), and
+`egressProxy.config.logLevel` sets its log level (default: the shared level, but never quieter than `info`, so its audit
+lines are kept). The [egress proxy docs](../../docs/configuration/egress-proxy.md#registries) cover every field, the IAM
+policy, rotation and debugging without a log sink.
+
+**Tunnel hosts** (also opt-in; no profile lists hosts by default). `agent.networkProfiles.<profile>.hosts` lists exact
+public host names (no wildcard or IP) the profile's Jobs reach over an HTTPS `CONNECT` tunnel through the proxy on the
+profile's own port, for npm, pnpm, Yarn, pip, uv, NuGet, Cargo, Maven and Gradle; `route: tunnel` makes a tunnel-only
+profile (no `modules`), and `route: go` may list hosts beside its Go route. `clients` adds per-package-manager
+environment presets (`npm`, `yarn`, `pip`, `uv`, `nuget`, `cargo`, `jvm`) and `upload` (`perTunnel`, `perSource`, in
+bytes) overrides the upload caps. `egressProxy.tunnel` holds the tunnel's limits (defaults measured with real package
+managers: 1 MiB upload a tunnel, 8 MiB a source per profile per replica, 64 open tunnels and 50 new a second per source,
+512 open in all) and `denyCIDRs`, addresses the tunnel never dials beside `attribution.apiServerCIDRs`; its keys render
+only while some profile lists hosts, so other installs render exactly as before. The render refuses forges, model APIs,
+managed Kubernetes control planes, in-cluster and special-use names, publish endpoints (`upload.pypi.org`,
+`www.nuget.org`), the Go route's own upstreams beside `route: go`, a grant's hosts, and a `sourceBudgetIdle` below the
+longest Job deadline. **An npm or Yarn registry host is a public publish channel** bounded only by the upload caps (the
+install NOTES say so); see the [isolation model](../../docs/deployment/isolation.md#tunnel-hosts) and the
+[tunnel docs](../../docs/configuration/egress-proxy.md#tunnel).
+
+## Values worth knowing
+
+Per-controller blocks — `integrationController`, `sourceController`, `contextController`, `investigationController`,
+`remediationController` — all share one shape:
+
+- `<controller>.image` — key-by-key override of the global `image.*` prefix/tag; a `digest` pins that image.
+- `<controller>.config` — the `MAUL_*` keys that binary binds (integration: `accumulationWindow`; investigation:
+  `findingMinAge`, `maxConcurrentInvestigations`, `confidenceThreshold`; remediation: `maxConcurrentRemediations`,
+  `findingTTL`), rendered into a per-controller ConfigMap. `config.*` holds the shared keys (`logLevel`, `maxAttempts`,
+  `priorityAgingInterval`, `priorityAgingCap`), each overridable per controller by repeating it under
+  `<controller>.config`; `config.extra` and `<controller>.config.extra` render arbitrary `MAUL_*` keys and win over
+  anything the chart derives. Each pod template carries a `checksum/config` annotation of its own ConfigMap (plus
+  `checksum/auth` for a chart-rendered auth Secret), so a `helm upgrade` that changes a component's configuration rolls
+  exactly that component — no manual `kubectl rollout restart`.
+- `<controller>.serviceAccount` / `networkPolicy` — that controller's identity and L3/L4 policy; `service` exists only
+  on the two controllers anything dials (integration :8080, source :9790; NodePort covers the kind/dev flow).
+- `<controller>.resources`, `podAnnotations`, `podLabels`, `nodeSelector`, `tolerations`, `affinity` — per-controller
+  pod tuning.
+- `<component>.extraEnv`, `extraEnvFrom`, `extraVolumes`, `extraVolumeMounts` — on every Deployment the chart renders:
+  container env (`valueFrom` allowed, so a Secret-backed credential such as `AWS_ACCESS_KEY_ID`), envFrom sources
+  (listed before the chart's ConfigMap, so the chart's keys win a clash), pod volumes and container mounts. A name maul
+  sets itself (`MAUL_*`, `POD_NAMESPACE`, `DOCKER_CONFIG`) in `extraEnv` fails the render; `MAUL_*` settings belong in
+  `config.extra`.
+
+The genuinely shared settings stay global:
+
+- `image.*` — repository prefix (registry included), tag (default `v<appVersion>`), pull policy, pull secrets.
+- `webhook.*` — the single external entry point (`host`, plus one of `ingress` / `httpRoute`) in front of the
+  integration-controller; a provider has one webhook URL, so exposure is a chart-level concern.
+- `agent.paused` — the cluster-wide pause: while `true`, investigation-, remediation-, intent- and evaluation-controller
+  launch no new agent Job (running ones finish; pending work queues in order). The status page shows a banner to
+  signed-in users only; each held run carries the condition `AgentsPaused`, and an intent's issue status comment says
+  the agents are paused.
+- `attribution.mode` — run attribution: `off` (the default) changes nothing; `attribute` makes investigation-,
+  remediation-, intent- and evaluation-controller stamp whom each new run is for (`spec.attributedTo`) and annotate
+  every agent Job and pod (`maul.run/attributed-to`), and renders up to six admission policies that keep the annotation,
+  each run's own stamp and the Finding, Evaluation and Intent identity stamps honest. See
+  [Run attribution](../../docs/configuration/attribution.md).
+- `egressBroker.userCredentials.*` — per-user model credentials (a person's own Anthropic API key or setup-token for
+  claude runs, OpenAI API key for codex runs): `mode` `off` (the default) renders nothing new; `attribute` and `enforce`
+  (both need `attribution.mode: attribute`, and while claude runs anywhere its provider must be anthropic) render the
+  credential store: its namespace (`namespace`, `createNamespace`), the status server's write-only Secret grant, the
+  broker's read grants, the `-credentials-self` and `-credentials-admin` ClusterRoles and three admission policies, and
+  pass the broker the mode: under `attribute` it records each run's person and the org credential pays; under `enforce`
+  a run attributed to a person uses that person's own credential for the run's provider or is refused. A setup-token org
+  credential (`anthropicAuth: token`) is refused unless `orgCredentialIsPersonal: acknowledged`. Under `enforce`,
+  remediation- and intent-controller also hold a run attributed to a person until that person's credential for the run's
+  harness's provider (claude Anthropic, codex OpenAI) is `Valid`, and say so on the issue. See
+  [Per-user model credentials](../../docs/configuration/user-credentials.md).
+- `statusServer.account.enabled` — the status page's Account page (default `false`), where each person stores their own
+  model credential, write-only: for Anthropic while claude runs anywhere, for OpenAI while codex does. Needs
+  `egressBroker.userCredentials.mode` on and the usage views' auth posture; with `statusServer.host` set, every
+  credential notice links it.
+- `agent.*` — the sandbox: namespace, service account, `jobDeadline`/`jobTTL`, and the two stages' limits:
+  `modelAllowlist` (canonical, provider-qualified model ids), `investigate.*` (absolute), `remediate.*` (`auto.*` is
+  what an unattended fix gets and the line past which an estimate needs approval, `manual.*` the most an approval can
+  grant; `model` is the fallback when the report's choice is off the allowlist).
+- `agent.resources.*` — CPU and memory for the agent Jobs: `default` (every Job without a class; `{}`, the default, sets
+  none) and `classes` (named sizes a Project picks per repository with `agentResourceClass`, for its intent builds,
+  revise and check-fix rounds; the largest is the most any agent Job can request). Each key renders only when set. See
+  [Sizing agents](../../docs/intents/deploying.md#sizing-agents) in the docs.
+- `agent.runners.<harness>` — the per-harness runner fleet: `enabled`, the runner `image` (default
+  `<prefix>/<harness>-agent-runner`; pinning its digest is one knob, unlike kustomize's two), and — for the non-brokered
+  copilot — the credential `secret`/`secretKey`/`secretEnv` and egress `hosts`/`dnsPatterns`. The claude runner is
+  brokered and carries a `provider` block instead (`name`, `region`, `regionPrefix`, `projectID`, `resource`,
+  `modelMap`, `env`) selecting which API the egress broker fronts. The codex runner is brokered too, on the broker's
+  openai route, and needs `egressBroker.openai.apiKey`; with it enabled, its old credential and host keys fail the
+  render with the migration. A non-brokered harness is enabled only when its runner is enabled and its credential
+  exists; claude and codex are enabled by configuration alone. The model chosen for a stage decides which runner
+  (image + credential channel + egress policy) the Job runs, so an OpenAI model routes to `codex` and an Anthropic model
+  to `claude`. `copilot` brokers both vendors, so it can run any model in the registry and is the fallback when a
+  model's own harness is not enabled — never the preferred one.
+- `egressBroker.*` — the egress credential broker (deployed when a claude or codex runner is enabled): the credential
+  Secrets (`anthropicSecret` + `anthropicAuth`, `foundrySecret`, and `openai.apiKey` for the OpenAI Responses route the
+  codex runner runs on, off by default), `ssePingInterval`, and — for bedrock/vertex/entra — the
+  `serviceAccount.annotations`/`podLabels` workload-identity attachment point, with `networkPolicy.extraEgress` for the
+  cloud metadata side channels.
+- `egressBroker.limits.*` — what the broker enforces per pod and broker-wide before any upstream call: `requestsPerPod`,
+  `concurrentPerPod` + `concurrencyWait`, `tokensPerPod`, `tokensPerHour`, `maxTokensCeiling`, `modelAllowlist`,
+  `betaDenylist`, `maxAnthropicRequestBytes`, `maxRequestBytes`, and the pre-authentication `preauthRequestsPerSecond`,
+  `preauthBurst` and `tokenReviewsPerSecond`. Each defaults to the binary's own default (off, or its built-in value) and
+  renders only when set; `egressBroker.config.extra` still wins. Size them before enabling repository images, under
+  which the in-pod budget is advisory.
+- `agent.repositoryImages.*` — off by default: lets a watched repository name the image its claude agent runs in
+  (`.maul/agent.yaml`, or the `image` of `.devcontainer/devcontainer.json`). `registries` (the allowlist of `host/path/`
+  prefixes), `cosignPublicKey` (or `allowUnsigned: true`) and `ephemeralStorage` (the disk wall on every agent Job) are
+  required when `enabled`; `maxBytes`, `onReject` (`default` runs a rejected declaration on the default image, `handoff`
+  parks the finding), `changesetMaxEntries`, and `pullSecret`/`pullSecretData` (a dockerconfigjson Secret; an entry
+  naming a registry host wins, ECR and Artifact Registry included, so a cluster off those clouds can use one; the
+  kubelet needs a same-named copy in `agent.namespace`, and `pullSecretData` renders both) tune it. Enabling it fails
+  the render while the agent egress is broad — set `agent.networkPolicy.broadEgress: never` under `mode: none` or
+  `istio` — and adds the EKS Pod Identity agent to source-controller's NetworkPolicy, so an ECR allowlist needs only a
+  Pod Identity association on the source-controller ServiceAccount. See
+  [Helm charts](../../docs/deployment/helm.md#repository-runner-images) in the docs.
+- `agent.networkPolicy.*` — the sandbox policies (above).
+- `commonLabels` / `commonAnnotations` — stamped on every object the chart renders (annotations reach the pods too;
+  per-object annotations win key-by-key).
+- `crds.install` / `crds.keep` — CRD lifecycle.
+
+Do not scale the controllers: all five are singletons by construction, so the Deployments hardcode `replicas: 1` with
+`strategy: Recreate`; the leader-election Lease is insurance against a botched rollout, not a scaling mechanism.
+
+## Publishing
+
+`charts/maul` (and the sibling `charts/maul-config`) is packaged and pushed to
+`oci://ghcr.io/devthenet-labs/maul/charts` by [`.github/workflows/helm.yaml`](../../.github/workflows/helm.yaml) when a
+release is published; release-please stamps `version`/`appVersion` in each `Chart.yaml` as part of the release PR. Lint
+locally with `mise run helm-lint`.

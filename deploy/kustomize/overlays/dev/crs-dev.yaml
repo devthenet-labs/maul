@@ -2,39 +2,39 @@
 # SPDX-License-Identifier: MIT
 #
 # The dev pipeline switch-on: one GitHub Integration and one GitHub Forge,
-# both referencing the throwaway patchy-github Secret (secret-dev.yaml).
+# both referencing the throwaway maul-github Secret (secret-dev.yaml).
 # With the placeholder token every GitHub call fails until the Secret is
 # replaced — but webhook validation, ingestion, and the CR state machine all
 # run, which is exactly what `mise run replay` exercises.
 ---
-apiVersion: patchy.bitwisemedia.uk/v1alpha1
+apiVersion: maul.run/v1alpha1
 kind: Integration
 metadata:
     name: github
-    namespace: patchy
+    namespace: maul
     labels:
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 spec:
     provider: github
     secretRef:
-        name: patchy-github
+        name: maul-github
     interval: 10m
     github:
         issues:
             enabled: true
-            approveComment: "@patchy approve"
+            approveComment: "@maul approve"
         codeScanningAlerts:
             enabled: true
 ---
-apiVersion: patchy.bitwisemedia.uk/v1alpha1
+apiVersion: maul.run/v1alpha1
 kind: Forge
 metadata:
     name: github
-    namespace: patchy
+    namespace: maul
     labels:
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 spec:
     provider: github
     secretRef:
-        name: patchy-github
+        name: maul-github
     interval: 10m

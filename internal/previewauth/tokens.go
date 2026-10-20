@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/sealed"
+	"github.com/devthenet-labs/maul/internal/sealed"
 )
 
 // Kind is a sealed token's kind. Each kind has its own purpose key and its own

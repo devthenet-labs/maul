@@ -94,7 +94,7 @@ type IntentCard struct {
 	CompletedAt  string `json:"completedAt,omitempty"`
 }
 
-// IntentPR is one pull request patchy opened for an intent.
+// IntentPR is one pull request maul opened for an intent.
 type IntentPR struct {
 	Repository string `json:"repository"`
 	Number     int64  `json:"number"`

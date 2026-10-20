@@ -8,8 +8,8 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/bitwise-media-group/patchy/internal/harness"
-	"github.com/bitwise-media-group/patchy/internal/runner"
+	"github.com/devthenet-labs/maul/internal/harness"
+	"github.com/devthenet-labs/maul/internal/runner"
 )
 
 // TestOutputToolResultEndsTheCommandItAnswers: a tool result ends the command

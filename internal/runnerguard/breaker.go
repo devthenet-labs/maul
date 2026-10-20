@@ -14,7 +14,7 @@ import (
 )
 
 // scopeName identifies this package's meter.
-const scopeName = "github.com/bitwise-media-group/patchy/internal/runnerguard"
+const scopeName = "github.com/devthenet-labs/maul/internal/runnerguard"
 
 // breakerMetrics is the gauge reporting 1 while a component's breaker is
 // tripped, and the meter it came from: a callback must be registered on the
@@ -27,7 +27,7 @@ type breakerMetrics struct {
 
 var sandboxMetrics = sync.OnceValue(func() breakerMetrics {
 	m := otel.Meter(scopeName)
-	g, err := m.Int64ObservableGauge("patchy.sandbox.breaker",
+	g, err := m.Int64ObservableGauge("maul.sandbox.breaker",
 		metric.WithDescription("1 while the sandbox circuit breaker refuses repository-declared "+
 			"runner images (until the controller restarts), by component"))
 	if err != nil {

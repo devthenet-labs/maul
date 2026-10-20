@@ -1,9 +1,9 @@
-<!-- patchy:plan patchy/target-1 r2 sha256:5f051fa7769d -->
+<!-- maul:plan maul/target-1 r2 sha256:5f051fa7769d -->
 ## Plan r2
 
 **Summary:** Show the API's greeting on the home page
 
-**Repositories:** patchy opens one pull request in each of: `devthenet-labs/marigold-web`, `devthenet-labs/Acme.Web_App`.
+**Repositories:** maul opens one pull request in each of: `devthenet-labs/marigold-web`, `devthenet-labs/Acme.Web_App`.
 
 ### Before you approve
 
@@ -13,9 +13,9 @@ Each build runs offline, in the image its own repository declares, so it cannot 
 
 ### To approve
 
-Add the `patchy:approved` label to this issue, or comment `/patchy approve`. patchy then builds exactly the plan below: r2, `sha256:5f051fa7769d`. If this comment or the issue description is edited after patchy posted the plan, the approval is refused and patchy asks for a new plan.
+Add the `maul:approved` label to this issue, or comment `/maul approve`. maul then builds exactly the plan below: r2, `sha256:5f051fa7769d`. If this comment or the issue description is edited after maul posted the plan, the approval is refused and maul asks for a new plan.
 
-For a different plan, say what should change in a comment, then re-apply the `patchy:target` label or comment `/patchy replan`. `/patchy cancel` stops work on this intent.
+For a different plan, say what should change in a comment, then re-apply the `maul:target` label or comment `/maul replan`. `/maul cancel` stops work on this intent.
 
 ### The plan
 

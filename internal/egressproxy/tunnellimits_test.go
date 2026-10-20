@@ -19,7 +19,7 @@ import (
 	"testing/quick"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/netprofile"
 )
 
 // fakeClock is a settable clock.
@@ -525,8 +525,8 @@ func TestTunnelMetrics(t *testing.T) {
 	tunnelled := map[string]string{"profile": "web", "outcome": OutcomeTunnelled, "host": "pkg.registry.dev"}
 	refused := map[string]string{"profile": "web", "outcome": OutcomeNotAllowed, "host": ""}
 	bytesUp := map[string]string{"profile": "web", "host": "pkg.registry.dev", "direction": "up"}
-	before := [3]int64{sum(t, "patchy.egress_proxy.tunnels", tunnelled),
-		sum(t, "patchy.egress_proxy.tunnels", refused), sum(t, "patchy.egress_proxy.tunnel_bytes", bytesUp)}
+	before := [3]int64{sum(t, "maul.egress_proxy.tunnels", tunnelled),
+		sum(t, "maul.egress_proxy.tunnels", refused), sum(t, "maul.egress_proxy.tunnel_bytes", bytesUp)}
 	h := newTunnelHarness(t, Config{})
 	tc, err := h.open(t, "web", "pkg.registry.dev", "")
 	if err != nil {
@@ -538,19 +538,19 @@ func TestTunnelMetrics(t *testing.T) {
 	_ = readRaw(t, br)
 	_ = c.Close()
 	h.closeLine(t, 2)
-	if got := sum(t, "patchy.egress_proxy.tunnels", tunnelled) - before[0]; got != 1 {
+	if got := sum(t, "maul.egress_proxy.tunnels", tunnelled) - before[0]; got != 1 {
 		t.Errorf("tunnelled count +%d, want +1", got)
 	}
-	if got := sum(t, "patchy.egress_proxy.tunnels", refused) - before[1]; got != 1 {
+	if got := sum(t, "maul.egress_proxy.tunnels", refused) - before[1]; got != 1 {
 		t.Errorf("refused count with host=\"\" +%d, want +1", got)
 	}
-	if sum(t, "patchy.egress_proxy.tunnels", map[string]string{"host": "other.registry.dev"}) != 0 {
+	if sum(t, "maul.egress_proxy.tunnels", map[string]string{"host": "other.registry.dev"}) != 0 {
 		t.Error("a refused host became a metric attribute")
 	}
-	if got := sum(t, "patchy.egress_proxy.tunnel_bytes", bytesUp) - before[2]; got <= 0 {
+	if got := sum(t, "maul.egress_proxy.tunnel_bytes", bytesUp) - before[2]; got <= 0 {
 		t.Errorf("tunnel bytes up +%d, want some", got)
 	}
-	if got := sum(t, "patchy.egress_proxy.tunnels_open", map[string]string{"profile": "web"}); got != 0 {
+	if got := sum(t, "maul.egress_proxy.tunnels_open", map[string]string{"profile": "web"}); got != 0 {
 		t.Errorf("tunnels_open = %d after every tunnel closed", got)
 	}
 }

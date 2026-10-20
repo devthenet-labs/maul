@@ -3,13 +3,13 @@ Copyright 2026 Bitwise Media Group Ltd.
 SPDX-License-Identifier: MIT
 -->
 
-# modules/app: one application's patchy images
+# modules/app: one application's maul images
 
 Creates, for one application repository:
 
 - an agent toolchain ECR repository, `<agent_path_prefix>/<slug>`;
 - with `preview = true` (the default), a runtime ECR repository, `<preview_path_prefix>/<slug>` (by default
-  `patchy/previews/<slug>`);
+  `maul/previews/<slug>`);
 - one trusted publisher role per repository, `<role_name_prefix><slug>-<agent|runtime>-push`, with no IAM path. The
   agent role trusts only `.github/workflows/publish-agent.yml` and the runtime role only
   `.github/workflows/publish-runtime.yml`, each on the repository's default branch.
@@ -24,7 +24,7 @@ suits an account whose platform half is managed elsewhere:
 
 ```hcl
 module "app_hello_web" {
-  source = "git::https://github.com/devthenet-labs/patchy.git//deploy/terraform/aws/modules/app?ref=vX.Y.Z"
+  source = "git::https://github.com/devthenet-labs/maul.git//deploy/terraform/aws/modules/app?ref=vX.Y.Z"
 
   slug = "hello-web"
   github = {
@@ -101,19 +101,19 @@ immutable subject claims
 | github | The app's GitHub repository. Take every value from the API, exactly as it is returned (IAM compares them<br/>case-sensitively):<br/>- owner, name, repository\_id, owner\_id, default\_branch: from `gh api repos/<owner>/<name>`, as `.owner.login`,<br/>  `.name`, `.id`, `.owner.id` and `.default_branch`<br/>- sub\_claim\_prefix: `gh api repos/<owner>/<name>/actions/oidc/customization/sub --jq .sub_claim_prefix` | <pre>object({<br/>    owner            = string<br/>    name             = string<br/>    repository_id    = string<br/>    owner_id         = string<br/>    default_branch   = optional(string, "main")<br/>    sub_claim_prefix = string<br/>  })</pre> | n/a | yes |
 | github\_oidc\_provider\_arn | ARN of the account's IAM OIDC provider for token.actions.githubusercontent.com. The platform module creates one, or passes on the existing one it was given. | `string` | n/a | yes |
 | slug | Short name for the app. It is the leaf of both ECR repository names and part of both IAM role names, and it is independent of the GitHub repository name (Hello.Web -> hello-web). A rename on GitHub never changes it. | `string` | n/a | yes |
-| agent\_path\_prefix | ECR path the agent image repository goes under (no leading or trailing slash). Must match the platform module's agent\_path\_prefix, and must never overlap preview\_path\_prefix. | `string` | `"patchy/app-envs"` | no |
+| agent\_path\_prefix | ECR path the agent image repository goes under (no leading or trailing slash). Must match the platform module's agent\_path\_prefix, and must never overlap preview\_path\_prefix. | `string` | `"maul/app-envs"` | no |
 | agent\_signing\_enabled | Whether the agent publisher signs, when agent\_signing\_key\_arn is only known after apply (a key created in the same configuration, as the platform module's create\_agent\_signing\_key does): resource counts cannot depend on an unknown value. Null (the default) means signing is on exactly when agent\_signing\_key\_arn is set. | `bool` | `null` | no |
 | agent\_signing\_key\_arn | Optional ARN of an AWS KMS key (key spec ECC\_NIST\_P256, key usage SIGN\_VERIFY) the agent publisher signs the agent image with, using cosign. When set, the agent publisher role, and only it, may use the key (kms:Sign, kms:GetPublicKey, kms:DescribeKey), plus layer reads on the agent repository so cosign can verify the signature, and github\_variables carries AGENT\_SIGNING\_KEY = awskms:///<this ARN>. Give the key's ARN, not an alias's: IAM grants on the key. Null (the default) signs nothing and changes nothing. | `string` | `null` | no |
 | preview | Whether the app has previews: a runtime ECR repository under preview\_path\_prefix and its own runtime publisher role. The agent repository and role are always created. | `bool` | `true` | no |
-| preview\_path\_prefix | ECR path the runtime image repository goes under (no leading or trailing slash). Must match the platform module's preview\_path\_prefix and the chart's preview.imagePathPrefix, and must never overlap agent\_path\_prefix. | `string` | `"patchy/previews"` | no |
-| role\_name\_prefix | Prefix of both IAM role and policy names: `<role_name_prefix><slug>-agent-push` and `<role_name_prefix><slug>-runtime-push`. IAM names are account-wide, so the prefix keeps two installs in one account apart. | `string` | `"patchy-app-"` | no |
+| preview\_path\_prefix | ECR path the runtime image repository goes under (no leading or trailing slash). Must match the platform module's preview\_path\_prefix and the chart's preview.imagePathPrefix, and must never overlap agent\_path\_prefix. | `string` | `"maul/previews"` | no |
+| role\_name\_prefix | Prefix of both IAM role and policy names: `<role_name_prefix><slug>-agent-push` and `<role_name_prefix><slug>-runtime-push`. IAM names are account-wide, so the prefix keeps two installs in one account apart. | `string` | `"maul-app-"` | no |
 | tags | Tags added to every taggable resource. | `map(string)` | `{}` | no |
 
 ### Outputs
 
 | Name | Description |
 | ---- | ----------- |
-| agent\_repository\_url | Agent image repository URL. .patchy/agent.yaml names `<this>:toolchain-v<N>`; tags are immutable, so a toolchain change bumps N |
+| agent\_repository\_url | Agent image repository URL. .maul/agent.yaml names `<this>:toolchain-v<N>`; tags are immutable, so a toolchain change bumps N |
 | agent\_role\_arn | IAM role the agent publisher (.github/workflows/publish-agent.yml) assumes |
 | github\_variables | The app repository's Actions variables, as a map |
 | github\_variables\_dotenv | The same variables as a sorted dotenv string, for: `gh variable set --repo <owner>/<name> -f <file>` |

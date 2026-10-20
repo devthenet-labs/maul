@@ -16,8 +16,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/jobs"
 )
 
 // The tunnel profile test runs intent-controller as the chart would with a
@@ -28,7 +28,7 @@ import (
 // proxy, so this proves what the Jobs carry and what the controller
 // refuses (§8.8 of the step-3 spec).
 const (
-	tunnelLabel = "patchy.bitwisemedia.uk/network-py"
+	tunnelLabel = "maul.run/network-py"
 	// tunnelBroker is the broker given as an IP literal, which NO_PROXY
 	// must still name (critique #10), or the CLI's model traffic would go
 	// to the proxy.
@@ -54,13 +54,13 @@ func tunnelProfilesFor(ownerName string) string {
 // agent-runner reads, and the pip preset. The plain-http and ALL_PROXY
 // names stay blank.
 var wantTunnelEnv = map[string]string{
-	"PATCHY_NETWORK_PROFILE":        "py",
+	"MAUL_NETWORK_PROFILE":          "py",
 	"HTTPS_PROXY":                   "http://localhost:8092",
 	"https_proxy":                   "http://localhost:8092",
 	"NO_PROXY":                      ".cluster.local,.svc,10.0.0.5,127.0.0.1,::1,localhost",
 	"no_proxy":                      ".cluster.local,.svc,10.0.0.5,127.0.0.1,::1,localhost",
-	"PATCHY_NETWORK_ROUTES":         "tunnel",
-	"PATCHY_NETWORK_HOSTS":          "files.pythonhosted.org," + ghesHost + "," + octoHost + ",pypi.org",
+	"MAUL_NETWORK_ROUTES":           "tunnel",
+	"MAUL_NETWORK_HOSTS":            "files.pythonhosted.org," + ghesHost + "," + octoHost + ",pypi.org",
 	"PIP_PROXY":                     "http://localhost:8092",
 	"PIP_DISABLE_PIP_VERSION_CHECK": "1",
 	"PIP_NO_INPUT":                  "1",
@@ -163,7 +163,7 @@ func TestIntentTunnelProfile(t *testing.T) {
 			forge := &v1alpha1.Forge{
 				ObjectMeta: metav1.ObjectMeta{Name: f.name, Namespace: namespace},
 				Spec: v1alpha1.ForgeSpec{Provider: v1alpha1.ForgeProviderGitHub, BaseURL: f.baseURL,
-					SecretRef: v1alpha1.LocalSecretReference{Name: "patchy-forge"}},
+					SecretRef: v1alpha1.LocalSecretReference{Name: "maul-forge"}},
 			}
 			if err := e.cl.client.Create(ctx, forge); err != nil {
 				t.Fatal(err)

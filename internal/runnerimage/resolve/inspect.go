@@ -13,13 +13,13 @@ import (
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 
-	"github.com/bitwise-media-group/patchy/internal/mirror/imageref"
-	"github.com/bitwise-media-group/patchy/internal/runnerimage"
+	"github.com/devthenet-labs/maul/internal/mirror/imageref"
+	"github.com/devthenet-labs/maul/internal/runnerimage"
 )
 
 // Report is how every check judged one pinned reference. Resolve builds it
 // stopping at the first rejection and returns Err; Inspect builds it whole,
-// for the workstation check (patchy check image), which shows every
+// for the workstation check (maul check image), which shows every
 // verdict at once so an owner fixes the image in one pass.
 //
 // Each verdict is nil when the check passed and a *runnerimage.Rejection

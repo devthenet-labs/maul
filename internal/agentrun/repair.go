@@ -8,16 +8,16 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/harness"
-	"github.com/bitwise-media-group/patchy/internal/model"
-	"github.com/bitwise-media-group/patchy/internal/runner"
-	"github.com/bitwise-media-group/patchy/internal/templates"
-	"github.com/bitwise-media-group/patchy/internal/transcript"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/harness"
+	"github.com/devthenet-labs/maul/internal/model"
+	"github.com/devthenet-labs/maul/internal/runner"
+	"github.com/devthenet-labs/maul/internal/templates"
+	"github.com/devthenet-labs/maul/internal/transcript"
 )
 
 // Report repair bounds. They are constants, not configuration: a new
-// PATCHY_* key would change the environment a repository-image Job blanks.
+// MAUL_* key would change the environment a repository-image Job blanks.
 // A round is one resumed run of the agent's own session. It gets at most
 // repairMaxTurns turns and repairTimeout of wall clock, and never more than
 // the stage has left of its turns, its output tokens and its wall clock; a
@@ -124,7 +124,7 @@ func settleReport[T any](ctx context.Context, a *Agent, sr *stageRun, st *envelo
 		if nextOutcome == envelope.OutcomeOK {
 			a.cfg.Log.Info("the agent repaired its report", "phase", a.cfg.Phase, "round", round)
 			if sr.rec != nil {
-				sr.rec.Notice("patchy accepted the report repaired in round %d", round)
+				sr.rec.Notice("maul accepted the report repaired in round %d", round)
 			}
 			return next, nextRaw, nextOutcome, ""
 		}
@@ -242,7 +242,7 @@ func (a *Agent) repairRound(ctx context.Context, sr *stageRun, st *envelope.Stag
 		// The caller token was read afresh: the shared recorder must scrub
 		// the new value from the turns this run records.
 		sr.rec.AddSecrets(a.scrub...)
-		sr.rec.Notice("patchy refused the report (%s); asking the agent to repair it, round %d of %d",
+		sr.rec.Notice("maul refused the report (%s); asking the agent to repair it, round %d of %d",
 			oneLine(detail, repairFailureBytes), round, repairRounds)
 	}
 	a.cfg.Log.Info("asking the agent to repair its report", "phase", a.cfg.Phase, "round", round,
@@ -267,7 +267,7 @@ func (a *Agent) repairRound(ctx context.Context, sr *stageRun, st *envelope.Stag
 			r.refused = changed(ctx, a.cfg.repoDir(), before, after)
 		}
 		if r.refused != "" && sr.rec != nil {
-			sr.rec.Notice("patchy refused repair round %d: %s", round, r.refused)
+			sr.rec.Notice("maul refused repair round %d: %s", round, r.refused)
 		}
 	}
 	return r

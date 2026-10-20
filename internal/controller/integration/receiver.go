@@ -12,14 +12,14 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/ghas"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/scc"
-	"github.com/bitwise-media-group/patchy/internal/webhook"
-	"github.com/bitwise-media-group/patchy/internal/wiz"
-	pkggeneric "github.com/bitwise-media-group/patchy/pkg/generic"
-	"github.com/bitwise-media-group/patchy/pkg/source"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/ghas"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/scc"
+	"github.com/devthenet-labs/maul/internal/webhook"
+	"github.com/devthenet-labs/maul/internal/wiz"
+	pkggeneric "github.com/devthenet-labs/maul/pkg/generic"
+	"github.com/devthenet-labs/maul/pkg/source"
 )
 
 // GitHubPath is the receiver route GitHub webhooks target.

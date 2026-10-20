@@ -56,7 +56,7 @@ func designIntentEdges() map[[2]IntentPhase]bool {
 		{IntentPending, IntentClosed}:            true, // non-approver trigger (and cancel)
 	}
 	for _, p := range nonTerminalIntentPhases {
-		edges[[2]IntentPhase{p, IntentClosed}] = true // issue closed, /patchy cancel, PRs closed
+		edges[[2]IntentPhase{p, IntentClosed}] = true // issue closed, /maul cancel, PRs closed
 		if p != IntentBlocked {
 			edges[[2]IntentPhase{p, IntentBlocked}] = true // a limit or precondition
 		}

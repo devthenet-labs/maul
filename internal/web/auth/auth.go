@@ -60,7 +60,7 @@ func New(ctx context.Context, cfg *Config, log *slog.Logger) (Authenticator, err
 	}
 	switch cfg.Mode {
 	case ModeNone:
-		return fixed{id: Identity{Username: "patchy-status-dev", DisplayName: "dev (auth disabled)"}}, nil
+		return fixed{id: Identity{Username: "maul-status-dev", DisplayName: "dev (auth disabled)"}}, nil
 	case ModeAnonymous:
 		return fixed{id: Identity{
 			Username:    cfg.Anonymous.Username,

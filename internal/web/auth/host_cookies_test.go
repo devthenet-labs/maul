@@ -23,11 +23,11 @@ func assertHostCookies(t *testing.T, rec *httptest.ResponseRecorder) {
 		t.Fatal("no cookies to check")
 	}
 	for _, c := range rec.Result().Cookies() {
-		if !strings.HasPrefix(c.Name, "__Host-patchy-") || !c.Secure || c.Path != "/" || c.Domain != "" {
+		if !strings.HasPrefix(c.Name, "__Host-maul-") || !c.Secure || c.Path != "/" || c.Domain != "" {
 			t.Errorf("cookie is not host-bound: %s", c.Name)
 		}
-		wantHTTPOnly := c.Name != "__Host-patchy-auth-provider" &&
-			c.Name != "__Host-patchy-auth-error" && c.Name != "__Host-patchy-auth-logout"
+		wantHTTPOnly := c.Name != "__Host-maul-auth-provider" &&
+			c.Name != "__Host-maul-auth-error" && c.Name != "__Host-maul-auth-logout"
 		if c.MaxAge >= 0 && c.HttpOnly != wantHTTPOnly {
 			t.Errorf("cookie %s HttpOnly = %v, want %v", c.Name, c.HttpOnly, wantHTTPOnly)
 		}
@@ -42,9 +42,9 @@ func TestCookieNamespacesProperty(t *testing.T) {
 			return false
 		}
 		for _, c := range rec.Result().Cookies() {
-			prefix := "__Host-patchy-auth"
+			prefix := "__Host-maul-auth"
 			if !secure {
-				prefix = "patchy-dev-auth"
+				prefix = "maul-dev-auth"
 			}
 			if !strings.HasPrefix(c.Name, prefix) || c.Secure != secure ||
 				c.Domain != "" || c.Path != "/" || !c.HttpOnly {
@@ -64,7 +64,7 @@ func TestOIDCHostCookieLifecycle(t *testing.T) {
 	a, mux := newTestOIDC(t, fi)
 	a.cfg.Insecure = false
 	loc, state := authorize(t, mux, "/")
-	if state.Name != "__Host-patchy-oauth2-state" || state.Path != "/" || !state.Secure || state.Domain != "" {
+	if state.Name != "__Host-maul-oauth2-state" || state.Path != "/" || !state.Secure || state.Domain != "" {
 		t.Errorf("OAuth state is not host-bound: name=%s path=%s secure=%v domain=%s",
 			state.Name, state.Path, state.Secure, state.Domain)
 	}
@@ -95,7 +95,7 @@ func TestOIDCHostCookieLifecycle(t *testing.T) {
 	assertHostCookies(t, logout)
 	jar.SetCookies(callbackURL, logout.Result().Cookies())
 	for _, c := range jar.Cookies(callbackURL) {
-		if c.Name == "__Host-patchy-auth" {
+		if c.Name == "__Host-maul-auth" {
 			t.Error("logout left the session cookie in the jar")
 		}
 	}
@@ -107,7 +107,7 @@ func TestOIDCHostCookieLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertHostCookies(t, chunks)
-	if got := chunks.Result().Cookies()[1].Name; got != "__Host-patchy-auth-1" {
+	if got := chunks.Result().Cookies()[1].Name; got != "__Host-maul-auth-1" {
 		t.Errorf("second chunk = %s", got)
 	}
 }
@@ -124,8 +124,8 @@ func TestOIDCLegacyInjectionCannotOverrideProtectedSession(t *testing.T) {
 	req.Header.Set("X-Forwarded-Proto", "http")
 	// Send legacy and dev cookies first, as a sibling's more-specific cookie
 	// might arrive. Neither order nor forwarded headers may select them.
-	req.AddCookie(&http.Cookie{Name: "patchy-auth", Value: "injected"})
-	req.AddCookie(&http.Cookie{Name: "patchy-dev-auth", Value: "injected"})
+	req.AddCookie(&http.Cookie{Name: "maul-auth", Value: "injected"})
+	req.AddCookie(&http.Cookie{Name: "maul-dev-auth", Value: "injected"})
 	for _, c := range sessionRequest(t, sessionCookies, "/").Cookies() {
 		req.AddCookie(c)
 	}
@@ -137,7 +137,7 @@ func TestOIDCLegacyInjectionCannotOverrideProtectedSession(t *testing.T) {
 func TestLegacyCookieCleanupBounded(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/oauth2/callback", nil)
 	names := [maxChunks + 4]string{
-		"patchy-oauth2-state", "patchy-auth-provider", "patchy-auth-error", "patchy-auth-logout",
+		"maul-oauth2-state", "maul-auth-provider", "maul-auth-error", "maul-auth-logout",
 	}
 	for i := range maxChunks {
 		names[i+4] = strings.TrimPrefix(chunkName(i), "__Host-")
@@ -146,7 +146,7 @@ func TestLegacyCookieCleanupBounded(t *testing.T) {
 		req.AddCookie(&http.Cookie{Name: name, Value: "injected"})
 		req.AddCookie(&http.Cookie{Name: name, Value: "duplicate"})
 	}
-	req.AddCookie(&http.Cookie{Name: "patchy-auth-999", Value: "unrecognised"})
+	req.AddCookie(&http.Cookie{Name: "maul-auth-999", Value: "unrecognised"})
 	req.AddCookie(&http.Cookie{Name: cookieSession, Value: "protected"})
 	for range 2 {
 		rec := httptest.NewRecorder()
@@ -172,7 +172,7 @@ func TestOIDCRejectsLegacyAndDevSessions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"patchy-auth", "patchy-dev-auth"} {
+	for _, name := range []string{"maul-auth", "maul-dev-auth"} {
 		t.Run(name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, "/", nil)
 			req.AddCookie(&http.Cookie{Name: name, Value: blob})
@@ -187,7 +187,7 @@ func TestOIDCRejectsLegacyAndDevOAuthState(t *testing.T) {
 	fi := newFakeIssuer(t)
 	a, mux := newTestOIDC(t, fi)
 	a.cfg.Insecure = false
-	for _, name := range []string{"patchy-oauth2-state", "patchy-dev-oauth2-state"} {
+	for _, name := range []string{"maul-oauth2-state", "maul-dev-oauth2-state"} {
 		t.Run(name, func(t *testing.T) {
 			loc, state := authorize(t, mux, "/")
 			fi.setNext(userClaims(loc.Query().Get("nonce")), "")
@@ -208,13 +208,13 @@ func TestOIDCInsecureDevCookieNamespace(t *testing.T) {
 	a, mux := newTestOIDC(t, fi)
 	a.cfg.Insecure = true
 	loc, state := authorize(t, mux, "/")
-	if state.Name != "patchy-dev-oauth2-state" || state.Secure || state.Path != "/" {
+	if state.Name != "maul-dev-oauth2-state" || state.Secure || state.Path != "/" {
 		t.Errorf("dev state attributes: name=%s secure=%v path=%s", state.Name, state.Secure, state.Path)
 	}
 	fi.setNext(userClaims(loc.Query().Get("nonce")), "")
 	rec := callback(t, mux, loc.Query().Get("state"), state)
 	for _, c := range rec.Result().Cookies() {
-		if !strings.HasPrefix(c.Name, "patchy-dev-") || c.Secure || c.Domain != "" || c.Path != "/" {
+		if !strings.HasPrefix(c.Name, "maul-dev-") || c.Secure || c.Domain != "" || c.Path != "/" {
 			t.Errorf("invalid dev cookie: %s", c.Name)
 		}
 	}
@@ -228,19 +228,19 @@ func TestOIDCLegacyCookiesDoNotSuppressProviderUpdate(t *testing.T) {
 	a, _ := newTestOIDC(t, fi)
 	a.cfg.Insecure = false
 	old := httptest.NewRecorder()
-	if err := setJSONCookie(old, "patchy-auth-provider", providerState{Provider: "oidc"}, 0, true); err != nil {
+	if err := setJSONCookie(old, "maul-auth-provider", providerState{Provider: "oidc"}, 0, true); err != nil {
 		t.Fatal(err)
 	}
 	req := carry(t, old)
-	req.AddCookie(&http.Cookie{Name: "patchy-auth", Value: "old-session"})
-	req.AddCookie(&http.Cookie{Name: "patchy-auth-1", Value: "old-chunk"})
-	req.AddCookie(&http.Cookie{Name: "patchy-oauth2-state", Value: "old-state"})
+	req.AddCookie(&http.Cookie{Name: "maul-auth", Value: "old-session"})
+	req.AddCookie(&http.Cookie{Name: "maul-auth-1", Value: "old-chunk"})
+	req.AddCookie(&http.Cookie{Name: "maul-oauth2-state", Value: "old-state"})
 	out := httptest.NewRecorder()
 	_, _ = a.Identify(out, req)
 	cleared := map[string]bool{}
 	provider := false
 	for _, c := range out.Result().Cookies() {
-		if c.Name == "__Host-patchy-auth-provider" && c.Value != "" {
+		if c.Name == "__Host-maul-auth-provider" && c.Value != "" {
 			provider = true
 		}
 		if c.MaxAge < 0 && c.Domain == "" {
@@ -251,7 +251,7 @@ func TestOIDCLegacyCookiesDoNotSuppressProviderUpdate(t *testing.T) {
 		t.Error("legacy provider cookie suppressed the protected provider cookie")
 	}
 	for _, key := range []string{
-		"patchy-auth:/", "patchy-auth-1:/", "patchy-auth-provider:/", "patchy-oauth2-state:/oauth2/",
+		"maul-auth:/", "maul-auth-1:/", "maul-auth-provider:/", "maul-oauth2-state:/oauth2/",
 	} {
 		if !cleared[key] {
 			t.Errorf("legacy host-only cookie not expired: %s", key)

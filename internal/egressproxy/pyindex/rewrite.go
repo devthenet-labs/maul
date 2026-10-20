@@ -17,7 +17,7 @@ import (
 
 	xhtml "golang.org/x/net/html"
 
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/netprofile"
 )
 
 // MaxPageBytes is the largest upstream page Rewrite takes.

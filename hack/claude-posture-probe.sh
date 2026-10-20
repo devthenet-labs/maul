@@ -59,7 +59,7 @@ sha256() {
   fi
 }
 
-cache="${XDG_CACHE_HOME:-$HOME/.cache}/patchy/claude-cli/$version/$platform"
+cache="${XDG_CACHE_HOME:-$HOME/.cache}/maul/claude-cli/$version/$platform"
 cli="$cache/claude"
 if [[ ! -x "$cli" ]]; then
   base="https://downloads.claude.ai/claude-code-releases/$version"
@@ -83,4 +83,4 @@ if [[ ! -x "$cli" ]]; then
 fi
 
 echo "claude-posture-probe: $("$cli" --version) ($platform)"
-PATCHY_CLAUDE_PROBE_CLI="$cli" go test -count=1 -v -run '^TestClaudePostureProbe$' ./internal/harness
+MAUL_CLAUDE_PROBE_CLI="$cli" go test -count=1 -v -run '^TestClaudePostureProbe$' ./internal/harness

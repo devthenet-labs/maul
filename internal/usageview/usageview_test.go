@@ -19,8 +19,8 @@ import (
 	"testing/quick"
 	"time"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/stats"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/stats"
 )
 
 var testNow = time.Date(2026, 10, 16, 15, 4, 5, 0, time.UTC)
@@ -438,7 +438,7 @@ func TestImportsOnlyStdlibAndAPI(t *testing.T) {
 		for _, imp := range f.Imports {
 			path, _ := strconv.Unquote(imp.Path.Value)
 			first, _, _ := strings.Cut(path, "/")
-			if strings.Contains(first, ".") && path != "github.com/bitwise-media-group/patchy/api/v1alpha1" {
+			if strings.Contains(first, ".") && path != "github.com/devthenet-labs/maul/api/v1alpha1" {
 				t.Errorf("%s imports %s: package usageview imports only the stdlib and api/v1alpha1", name, path)
 			}
 		}

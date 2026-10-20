@@ -215,7 +215,7 @@ type PreviewStatus struct {
 // isolated slots. It owns no namespace or infrastructure resource.
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:categories=patchy
+// +kubebuilder:resource:categories=maul
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Slot",type=integer,JSONPath=`.status.slot`
 // +kubebuilder:printcolumn:name="URL",type=string,JSONPath=`.status.url`

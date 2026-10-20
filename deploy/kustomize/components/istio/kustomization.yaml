@@ -17,7 +17,7 @@
 #     BEFORE the proxy exists — its `git clone` is redirected into a black
 #     hole. Native sidecars start the proxy first and stop it last, which
 #     fixes both.
-#   * The Istio CNI node agent. patchy-agents enforces the "restricted" Pod
+#   * The Istio CNI node agent. maul-agents enforces the "restricted" Pod
 #     Security Standard; the classic istio-init container needs
 #     NET_ADMIN/NET_RAW and would be rejected at admission.
 #
@@ -35,7 +35,7 @@ resources:
 patches:
     - target:
           kind: Namespace
-          name: patchy-agents
+          name: maul-agents
       patch: |-
           - op: add
             path: /metadata/labels/istio-injection

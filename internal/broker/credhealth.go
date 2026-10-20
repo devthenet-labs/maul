@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/api/v1alpha1"
+	"github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 // ProbeResult is what one health probe learned of a credential.

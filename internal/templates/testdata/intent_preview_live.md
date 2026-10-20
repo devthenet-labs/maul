@@ -1,6 +1,6 @@
-<!-- patchy:notice patchy/marigold-3 preview -->
-### patchy: preview
+<!-- maul:notice maul/marigold-3 preview -->
+### maul: preview
 
-This pull request's head, `9f1c0e5d2a7b`, is live at [`marigold-3.preview.patchy.example.com`](https://marigold-3.preview.patchy.example.com).
+This pull request's head, `9f1c0e5d2a7b`, is live at [`marigold-3.preview.maul.example.com`](https://marigold-3.preview.maul.example.com).
 
-_patchy updates this comment as the preview changes, and removes the preview when the intent ends._
+_maul updates this comment as the preview changes, and removes the preview when the intent ends._

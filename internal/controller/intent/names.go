@@ -15,10 +15,10 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/attribution"
-	"github.com/bitwise-media-group/patchy/internal/credgate"
-	"github.com/bitwise-media-group/patchy/internal/forge"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/attribution"
+	"github.com/devthenet-labs/maul/internal/credgate"
+	"github.com/devthenet-labs/maul/internal/forge"
 )
 
 // Names derived from an Intent or an IntentRun. Each is created under its
@@ -63,7 +63,7 @@ const (
 	keyNoFeedback   = "no-usable-feedback"
 	// keyOpenPullRequests is a plan run's list of the other intents' open
 	// pull requests (templates.EncodeOpenPullRequests), absent for none:
-	// the plan Job's PATCHY_OPEN_PULL_REQUESTS, never part of its request or
+	// the plan Job's MAUL_OPEN_PULL_REQUESTS, never part of its request or
 	// its digest.
 	keyOpenPullRequests = "open-pull-requests.json"
 	// keyPlan is the plan report exactly as the planner wrote it.

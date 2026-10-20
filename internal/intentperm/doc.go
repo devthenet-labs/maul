@@ -1,7 +1,7 @@
 // Copyright 2026 Bitwise Media Group Ltd.
 // SPDX-License-Identifier: MIT
 
-// Package intentperm is the one table of the GitHub App permissions patchy
+// Package intentperm is the one table of the GitHub App permissions maul
 // needs. It has two views of the same rows.
 //
 // Per repository of a Project (For), what intents need:

@@ -11,7 +11,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/bitwise-media-group/patchy/pkg/source"
+	"github.com/devthenet-labs/maul/pkg/source"
 )
 
 // Source identifiers stamped into the security-source label — one per feed,
@@ -52,16 +52,16 @@ var severityRank = map[string]int{
 	"CRITICAL":      4,
 }
 
-// patchySeverity maps the Wiz vocabulary onto patchy's label scale. An
+// maulSeverity maps the Wiz vocabulary onto maul's label scale. An
 // informational finding gets no severity rather than a made-up one.
-var patchySeverity = map[string]string{
+var maulSeverity = map[string]string{
 	"LOW":      "low",
 	"MEDIUM":   "medium",
 	"HIGH":     "high",
 	"CRITICAL": "critical",
 }
 
-// cloudPlatforms maps Wiz's platform vocabulary onto patchy's CloudProvider
+// cloudPlatforms maps Wiz's platform vocabulary onto maul's CloudProvider
 // values. Platforms outside the map (Kubernetes, OCI, Alibaba, ...) are not
 // supported in v1: their findings are skipped, because a Finding's cloud
 // resource must carry a provider the rest of the pipeline understands.
@@ -82,7 +82,7 @@ var actionableTriggers = map[string]bool{
 
 // Options configure a handler.
 type Options struct {
-	// MinSeverity drops findings below this level, using patchy's vocabulary
+	// MinSeverity drops findings below this level, using maul's vocabulary
 	// (low/medium/high/critical). Empty admits everything above
 	// informational; informational is always dropped when a floor is set.
 	MinSeverity string
@@ -123,7 +123,7 @@ type IssuesHandler struct {
 var _ source.Handler = (*IssuesHandler)(nil)
 
 // NewIssues builds the Issues handler. It takes no client: the documented
-// webhook template carries everything patchy needs.
+// webhook template carries everything maul needs.
 func NewIssues(o Options) *IssuesHandler { return &IssuesHandler{opts: o} }
 
 // ID implements source.Handler.
@@ -163,7 +163,7 @@ func (h *IssuesHandler) Findings(_ context.Context, event string, payload []byte
 		RuleID:        iss.Control.ID,
 		Title:         issueTitle(&env),
 		Description:   description,
-		Severity:      patchySeverity[strings.ToUpper(iss.Severity)],
+		Severity:      maulSeverity[strings.ToUpper(iss.Severity)],
 		HTMLURL:       iss.URL,
 	}}, nil
 }
@@ -211,7 +211,7 @@ func (h *DefendHandler) Findings(_ context.Context, event string, payload []byte
 		RuleID:      th.RuleID,
 		Title:       threatTitle(th),
 		Description: description,
-		Severity:    patchySeverity[strings.ToUpper(th.Severity)],
+		Severity:    maulSeverity[strings.ToUpper(th.Severity)],
 		HTMLURL:     th.URL,
 	}
 	var out []source.Finding

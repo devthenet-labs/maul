@@ -8,8 +8,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/bitwise-media-group/patchy/internal/azureinv"
-	"github.com/bitwise-media-group/patchy/pkg/enhance"
+	"github.com/devthenet-labs/maul/internal/azureinv"
+	"github.com/devthenet-labs/maul/pkg/enhance"
 )
 
 // dynamicAzureHarness wires a DynamicAzure to a mutable config and a

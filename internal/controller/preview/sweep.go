@@ -17,7 +17,7 @@ import (
 	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 // Sweeper runs even when there are no Preview events, so orphaned rendered
@@ -48,7 +48,7 @@ const unauthenticatedGrace = 3
 
 // placeholderName is the chart's Helm-owned placeholder Ingress in slot 0,
 // which the sweeper reports but never deletes.
-const placeholderName = "patchy-preview-placeholder"
+const placeholderName = "maul-preview-placeholder"
 
 // previewIngressClass is the IngressClass of every slot Ingress.
 const previewIngressClass = "alb-preview"

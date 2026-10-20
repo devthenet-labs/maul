@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bitwise-media-group/patchy/internal/usageview"
+	"github.com/devthenet-labs/maul/internal/usageview"
 )
 
 // tsInterfaces reads every `export interface` in a TypeScript source into
@@ -95,7 +95,7 @@ func TestIntentWireTypesMatchTypeScript(t *testing.T) {
 }
 
 // TestUsageWireTypesMatchTypeScript keeps the usage report (internal/usageview,
-// which `patchy get usage -o json` prints too) and UsageAccess in lockstep with
+// which `maul get usage -o json` prints too) and UsageAccess in lockstep with
 // the SPA's interfaces of the same names.
 func TestUsageWireTypesMatchTypeScript(t *testing.T) {
 	src, err := os.ReadFile("ui/src/types.ts")

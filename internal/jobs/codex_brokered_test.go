@@ -13,8 +13,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/bitwise-media-group/patchy/internal/harness"
-	"github.com/bitwise-media-group/patchy/internal/provider"
+	"github.com/devthenet-labs/maul/internal/harness"
+	"github.com/devthenet-labs/maul/internal/provider"
 )
 
 // brokeredCodexConfig is brokeredConfig with the codex runner brokered as
@@ -25,7 +25,7 @@ func brokeredCodexConfig() Config {
 	env := provider.CodexEnv("http://" + brokerHost + ":8080")
 	env["OPENAI_API_KEY"] = "must-never-pass-through"
 	cfg.Runners["codex"] = Runner{
-		Image:    "ghcr.io/bitwise-media-group/patchy/codex-agent-runner:1",
+		Image:    "ghcr.io/devthenet-labs/maul/codex-agent-runner:1",
 		Brokered: true,
 		Env:      env,
 	}
@@ -53,7 +53,7 @@ func TestGoldenBrokeredCodexJob(t *testing.T) {
 
 // TestGoldenBrokeredCodexDNSNoneJob: a brokered codex Job needs no
 // resolver, so it runs under DNSNone with the broker, read off
-// PATCHY_CODEX_BASE_URL, pinned in its hosts file beside the artifact
+// MAUL_CODEX_BASE_URL, pinned in its hosts file beside the artifact
 // server; clearing the three DNS fields gives back the cluster-DNS Job.
 func TestGoldenBrokeredCodexDNSNoneJob(t *testing.T) {
 	cfg := brokeredCodexConfig()
@@ -94,8 +94,8 @@ func TestBrokeredCodexJobShape(t *testing.T) {
 	}
 	agent, prepare := pod.Containers[0], pod.InitContainers[0]
 	envs := envMap(agent)
-	if got := envs["PATCHY_BROKER_TOKEN_FILE"].Value; got != brokerTokenPath {
-		t.Errorf("PATCHY_BROKER_TOKEN_FILE = %q", got)
+	if got := envs["MAUL_BROKER_TOKEN_FILE"].Value; got != brokerTokenPath {
+		t.Errorf("MAUL_BROKER_TOKEN_FILE = %q", got)
 	}
 	if got := envs[provider.CodexBaseURLEnv].Value; got != "http://"+brokerHost+":8080/openai/v1" {
 		t.Errorf("%s = %q, want the broker's openai route", provider.CodexBaseURLEnv, got)

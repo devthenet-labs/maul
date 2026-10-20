@@ -14,7 +14,7 @@ import (
 
 // Sanitize makes agent-authored markdown safe to post to GitHub. Every piece
 // of agent text that reaches an issue, a comment or a pull request as
-// markdown passes through it, or through SanitizeInline; patchy's own
+// markdown passes through it, or through SanitizeInline; maul's own
 // markers and headings are added around the result, never inside it, so the
 // controller's marker is the only HTML comment a posted body carries. The
 // plan put up for approval does not: it is shown verbatim in a code block,
@@ -44,7 +44,7 @@ import (
 // nothing written as its code point, "[U+200B]"). Then:
 //
 //   - a fenced code block at the top level keeps its content but gets a
-//     fence patchy chose, which nothing in the block can close; its info
+//     fence maul chose, which nothing in the block can close; its info
 //     string survives only when it is one of a few plain language names,
 //     otherwise the whole block, fence lines included, is shown inside a
 //     plain text block;
@@ -62,7 +62,7 @@ import (
 //
 // Everything else (headings, lists, emphasis, block quotes) renders as
 // written; a table shows as the text it was written as, every cell visible.
-// The recognition of code is deliberately conservative: code patchy does not
+// The recognition of code is deliberately conservative: code maul does not
 // recognise is treated as prose and neutralised, which can only make a block
 // look busier, never let text through. Sanitize is idempotent, and never
 // fails.
@@ -251,7 +251,7 @@ type part struct {
 }
 
 // sanitizeLine neutralises one line of prose; see Sanitize. It never looks
-// past the line, so a code span, a mention or a reference patchy recognises
+// past the line, so a code span, a mention or a reference maul recognises
 // never depends on anything a block structure could split off.
 func sanitizeLine(line string) string {
 	var parts []part

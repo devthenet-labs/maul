@@ -9,7 +9,7 @@
 //
 // Canonical ids ("anthropic/claude-sonnet-5") stay canonical everywhere
 // controller-side — CRDs, allowlists, pricing; translation happens in-pod at
-// agentrun's cliModel, fed by the PATCHY_MODEL_MAP this package renders. The
+// agentrun's cliModel, fed by the MAUL_MODEL_MAP this package renders. The
 // per-provider derived defaults (Bedrock's region-prefixed ids, Vertex's bare
 // ids) mean operators only write a model map for Foundry, whose deployment
 // names cannot be derived, or to override a default.

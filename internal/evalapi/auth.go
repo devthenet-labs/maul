@@ -14,8 +14,8 @@ import (
 	gooidc "github.com/coreos/go-oidc/v3/oidc"
 	"gopkg.in/yaml.v3"
 
-	"github.com/bitwise-media-group/patchy/internal/web/auth"
-	"github.com/bitwise-media-group/patchy/pkg/evaluation"
+	"github.com/devthenet-labs/maul/internal/web/auth"
+	"github.com/devthenet-labs/maul/pkg/evaluation"
 )
 
 // Auth modes.
@@ -115,7 +115,7 @@ type Authenticator interface {
 func NewAuthenticator(ctx context.Context, cfg *Config) (Authenticator, error) {
 	switch cfg.Mode {
 	case ModeNone:
-		return fixed{id: auth.Identity{Username: "patchy-eval-dev", DisplayName: "dev (auth disabled)"}}, nil
+		return fixed{id: auth.Identity{Username: "maul-eval-dev", DisplayName: "dev (auth disabled)"}}, nil
 	case ModeOIDC:
 		provider, err := gooidc.NewProvider(ctx, cfg.OIDC.IssuerURL)
 		if err != nil {

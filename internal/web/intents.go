@@ -21,12 +21,12 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/intentview"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/report"
-	"github.com/bitwise-media-group/patchy/internal/web/auth"
-	"github.com/bitwise-media-group/patchy/internal/web/authz"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/intentview"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/report"
+	"github.com/devthenet-labs/maul/internal/web/auth"
+	"github.com/devthenet-labs/maul/internal/web/authz"
 )
 
 // ProjectGranter resolves a caller's read tier per Project;
@@ -118,9 +118,9 @@ func (s *Server) registerIntents(mux *http.ServeMux) {
 // Cache field indexes the intents views look objects up by.
 const (
 	// IntentRunIntentIndex indexes IntentRuns by spec.intentRef.name.
-	IntentRunIntentIndex = "patchy.web/intent"
+	IntentRunIntentIndex = "maul.web/intent"
 	// IntentProjectIndex indexes Intents by spec.project.
-	IntentProjectIndex = "patchy.web/project"
+	IntentProjectIndex = "maul.web/project"
 )
 
 // RegisterIntentIndexes installs the intents views' indexes on the manager's

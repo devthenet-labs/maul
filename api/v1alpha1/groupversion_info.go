@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 // +kubebuilder:object:generate=true
-// +groupName=patchy.bitwisemedia.uk
+// +groupName=maul.run
 
 package v1alpha1
 
@@ -17,7 +17,7 @@ import (
 // UI.
 var (
 	// GroupVersion is the group and version used to register these objects.
-	GroupVersion = schema.GroupVersion{Group: "patchy.bitwisemedia.uk", Version: "v1alpha1"}
+	GroupVersion = schema.GroupVersion{Group: "maul.run", Version: "v1alpha1"}
 
 	// SchemeBuilder collects the functions that register this group-version's
 	// types into a scheme.

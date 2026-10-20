@@ -15,8 +15,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/e2e/fakegithub"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/e2e/fakegithub"
 )
 
 // commentDelivery is the issue_comment.created delivery of a comment the
@@ -41,19 +41,19 @@ func commentDelivery(t *testing.T, issueURL string, number int, id int64, body s
 	return payload
 }
 
-// commandReplies are the replies patchy posted on issue number to the
+// commandReplies are the replies maul posted on issue number to the
 // command in comment id.
 func commandReplies(gh *fakegithub.Server, number int, id int64) []string {
 	var out []string
 	for _, body := range gh.Comments(number) {
-		if strings.HasPrefix(body, fmt.Sprintf("<!-- patchy:command %d -->\n", id)) {
+		if strings.HasPrefix(body, fmt.Sprintf("<!-- maul:command %d -->\n", id)) {
 			out = append(out, body)
 		}
 	}
 	return out
 }
 
-// TestFindingCommands drives "/patchy approve" on a held finding's tracking
+// TestFindingCommands drives "/maul approve" on a held finding's tracking
 // issue through the shipped integration-controller and remediation-
 // controller. The webhook handler only records each command; the
 // projection asks GitHub for the commenter's permission on the repository,
@@ -129,28 +129,28 @@ func TestFindingCommands(t *testing.T) {
 	eventually(t, "the held finding's tracking issue and its approval notice", func() bool {
 		cur := get()
 		if cur.Status.Tracking == nil ||
-			cur.GetAnnotations()["patchy.bitwisemedia.uk/projected-notice"] != string(v1alpha1.PhaseAwaitingApproval) {
+			cur.GetAnnotations()["maul.run/projected-notice"] != string(v1alpha1.PhaseAwaitingApproval) {
 			return false
 		}
 		tracking = *cur.Status.Tracking
 		return true
 	})
 	number := int(tracking.IssueNumber)
-	if notices := strings.Join(gh.Comments(number), "\n"); !strings.Contains(notices, "`/patchy approve`") {
-		t.Errorf("the hold's notice does not offer /patchy approve:\n%s", notices)
+	if notices := strings.Join(gh.Comments(number), "\n"); !strings.Contains(notices, "`/maul approve`") {
+		t.Errorf("the hold's notice does not offer /maul approve:\n%s", notices)
 	}
 
 	// A drive-by commenter reads as "read": refused, and the hold stays.
 	driveBy := fakegithub.Actor{Login: "drive-by", ID: 300001, Type: "User"}
-	refused := gh.CommentAs(number, "/patchy approve", driveBy)
+	refused := gh.CommentAs(number, "/maul approve", driveBy)
 	deliver(t, webhookURL, "issue_comment",
-		commentDelivery(t, tracking.URL, number, refused, "/patchy approve", driveBy))
+		commentDelivery(t, tracking.URL, number, refused, "/maul approve", driveBy))
 	eventually(t, "the drive-by's command to be refused and answered", func() bool {
 		return slices.Equal(gh.Reactions(refused), []string{"eyes"}) &&
 			len(commandReplies(gh, number, refused)) == 1 && refusedFor(refused, driveBy)
 	})
 	if reply := commandReplies(gh, number, refused)[0]; !strings.Contains(reply,
-		"@drive-by you may not use `/patchy approve` here") {
+		"@drive-by you may not use `/maul approve` here") {
 		t.Errorf("refusal reply:\n%s", reply)
 	}
 	if cur := get(); cur.Spec.Approval != nil || cur.Status.Phase != v1alpha1.PhaseAwaitingApproval {
@@ -159,10 +159,10 @@ func TestFindingCommands(t *testing.T) {
 	}
 
 	// The same account refused again gets the reaction alone: commenting
-	// cannot make patchy post a reply per comment.
-	again := gh.CommentAs(number, "/patchy approve", driveBy)
+	// cannot make maul post a reply per comment.
+	again := gh.CommentAs(number, "/maul approve", driveBy)
 	deliver(t, webhookURL, "issue_comment",
-		commentDelivery(t, tracking.URL, number, again, "/patchy approve", driveBy))
+		commentDelivery(t, tracking.URL, number, again, "/maul approve", driveBy))
 	eventually(t, "the drive-by's second command to be refused with the reaction alone", func() bool {
 		cmds := get().Status.Commands
 		return slices.Equal(gh.Reactions(again), []string{"eyes"}) && cmds != nil &&
@@ -177,15 +177,15 @@ func TestFindingCommands(t *testing.T) {
 	// refused, and its later answers are never quietened.
 	gh.SetRole("maintainer", "write")
 	maintainer := fakegithub.Actor{Login: "maintainer", ID: 300002, Type: "User"}
-	typo := gh.CommentAs(number, "/patchy frobnicate", maintainer)
+	typo := gh.CommentAs(number, "/maul frobnicate", maintainer)
 	deliver(t, webhookURL, "issue_comment",
-		commentDelivery(t, tracking.URL, number, typo, "/patchy frobnicate", maintainer))
+		commentDelivery(t, tracking.URL, number, typo, "/maul frobnicate", maintainer))
 	eventually(t, "the maintainer's unknown verb to be answered with the help", func() bool {
 		return slices.Equal(gh.Reactions(typo), []string{"eyes"}) &&
 			len(commandReplies(gh, number, typo)) == 1 && consumed(typo)
 	})
 	if reply := commandReplies(gh, number, typo)[0]; !strings.Contains(reply,
-		"@maintainer `/patchy frobnicate` is not a command patchy knows") {
+		"@maintainer `/maul frobnicate` is not a command maul knows") {
 		t.Errorf("unknown-verb reply:\n%s", reply)
 	}
 	if cmds := get().Status.Commands; slices.Contains(cmds.RefusedActors, maintainer.ID) {
@@ -193,8 +193,8 @@ func TestFindingCommands(t *testing.T) {
 	}
 
 	// The maintainer approves; GitHub delivers it twice.
-	approved := gh.CommentAs(number, "/patchy approve ship it", maintainer)
-	payload := commentDelivery(t, tracking.URL, number, approved, "/patchy approve ship it", maintainer)
+	approved := gh.CommentAs(number, "/maul approve ship it", maintainer)
+	payload := commentDelivery(t, tracking.URL, number, approved, "/maul approve ship it", maintainer)
 	deliver(t, webhookURL, "issue_comment", payload)
 	deliver(t, webhookURL, "issue_comment", payload)
 	eventually(t, "the maintainer's approval to release the hold", func() bool {
@@ -208,7 +208,7 @@ func TestFindingCommands(t *testing.T) {
 			len(commandReplies(gh, number, approved)) == 1 && consumed(approved)
 	})
 	if reply := commandReplies(gh, number, approved)[0]; !strings.Contains(reply,
-		"@maintainer `/patchy approve` is done") {
+		"@maintainer `/maul approve` is done") {
 		t.Errorf("approval reply:\n%s", reply)
 	}
 	consistently(t, "exactly one reply to each command, and none to the repeated refusal", func() bool {

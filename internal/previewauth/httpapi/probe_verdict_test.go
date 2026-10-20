@@ -9,13 +9,13 @@ import (
 	"net/netip"
 	"testing"
 
-	"github.com/bitwise-media-group/patchy/internal/previewauth"
+	"github.com/devthenet-labs/maul/internal/previewauth"
 )
 
 // TestGatewayProbeVerdictsMatchThePages holds the probes' verdicts
 // (previewauth.ProbeExpect, JudgeGatewayUnknown, IsAllowlistRefusal) to the
 // pages and redirects the gateway really answers with, as the relay's
-// background probe and patchy check project ask: no cookies, an HTML
+// background probe and maul check project ask: no cookies, an HTML
 // navigation without Sec-Fetch metadata, redirects not followed.
 func TestGatewayProbeVerdictsMatchThePages(t *testing.T) {
 	e := newGatewayEnv(t, nil, func(g *GatewayConfig) {

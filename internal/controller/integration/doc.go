@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 // Package integration is the integration-controller's engine: the edge
-// between patchy and its external systems, driven by Integration resources.
+// between maul and its external systems, driven by Integration resources.
 //
 // Inbound, the receiver terminates the provider webhook paths
 // (/github/webhooks), validates each delivery against the configured
@@ -13,14 +13,14 @@
 // Remediation children — as a tracking issue: body, labels, comments,
 // assignment, alert dismissal, and closure. With RunnerImages on it also
 // reads the finding's Repository and keeps one sticky comment telling the
-// repository owner what patchy did with the agent image the repository
+// repository owner what maul did with the agent image the repository
 // declared (used, not applicable, rejected, or failed in a run), so falling
 // back to the default image is never silent. A finding whose remediation
 // remediation-controller holds for its approver's model credential
 // (CredentialRequired, per-user credentials under enforce) gets one sticky
 // comment naming the approver and linking the Account page (--account-url),
 // edited once the hold lifts. Human signals on the tracking
-// item (issue close/reopen, pull-request merge, and "/patchy <verb>"
+// item (issue close/reopen, pull-request merge, and "/maul <verb>"
 // commands in internal/command's grammar) flow back as Finding writes. A
 // command is only recorded by the webhook handler, which never calls
 // GitHub; the projection authorises it (write access to the repository),

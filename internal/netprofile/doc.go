@@ -11,7 +11,7 @@
 // Repositories declare nothing. A Set answers which profile, if any, a
 // repository gets (Set.For): its host must equal the profile's and one of the
 // profile's patterns must match the lowercased owner/name ANCHORED, so
-// devthenet-labs/patchy never matches devthenet-labs/patchy-target. This
+// devthenet-labs/maul never matches devthenet-labs/patchy-target. This
 // deliberately differs from a Forge's unanchored repository match. A
 // repository matching two profiles gets neither (fail closed).
 //

@@ -12,9 +12,9 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/templates"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // UntrackedPullRequests reasons.
@@ -24,7 +24,7 @@ const (
 	ReasonUntrackedNoticed = "Noticed"
 	// ReasonUntrackedNoticeRefused: at least one of them was not told:
 	// GitHub refused the notice (a locked conversation, a permission the
-	// App lost), patchy can no longer reach its repository (no Forge
+	// App lost), maul can no longer reach its repository (no Forge
 	// covers it, the installation refuses it), or its repository left the
 	// Project. The message names each, and why.
 	ReasonUntrackedNoticeRefused = "NoticeRefused"
@@ -68,14 +68,14 @@ func (p *pass) untrackedPullRequests() []v1alpha1.IntentPullRequest {
 
 // noticeUntracked posts, once, on each pull request an ended Intent left open
 // (untrackedPullRequests) the notice that it is not part of a completed change
-// and that patchy no longer tracks it (templates.IntentUntrackedNotice),
+// and that maul no longer tracks it (templates.IntentUntrackedNotice),
 // adopting one the App's bot already posted by its marker; the
 // UntrackedPullRequests condition then records it done, so nothing is listed
 // for it again.
 //
 // Each pull request's outcome is its own, because the notice is advice and the
 // Intent has ended: one whose repository left the Project is not written to
-// (its token is no longer one Ready proved), and one GitHub refuses or patchy
+// (its token is no longer one Ready proved), and one GitHub refuses or maul
 // can no longer reach (no Forge covers its repository, or the installation
 // refuses it: unreachable) is recorded and never retried. Only a pull request
 // repository under its rate floor holds the notice back (wait), and only a
@@ -121,7 +121,7 @@ func (p *pass) noticeUntracked(ctx context.Context) (changed, wait bool, err err
 		}
 	}
 	reason := ReasonUntrackedNoticed
-	msg := "the intent ended before every one of its pull requests was opened; patchy no longer tracks the ones " +
+	msg := "the intent ended before every one of its pull requests was opened; maul no longer tracks the ones " +
 		"it opened"
 	switch len(noticed) {
 	case 0:

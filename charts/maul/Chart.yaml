@@ -1,0 +1,23 @@
+# Copyright 2026 Bitwise Media Group Ltd.
+# SPDX-License-Identifier: MIT
+apiVersion: v2
+name: maul
+description: >-
+    Automated triage and remediation of GHAS/CodeQL security findings — Kubernetes custom resources as the state
+    machine, sandboxed coding agents as the fix.
+type: application
+# Only Kubernetes lines that have not reached end-of-life are supported.
+kubeVersion: ">=1.34.0-0"
+home: https://devthenet-labs.github.io/maul
+icon: https://devthenet-labs.github.io/maul/assets/images/favicon.svg
+sources:
+    - https://github.com/devthenet-labs/maul
+maintainers:
+    - name: Bitwise Media Group
+      url: https://github.com/bitwise-media-group
+
+# Both stamped by release-please (extra-files generic updater, see
+# release-please-config.json): the chart version tracks the app release 1:1,
+# and the default image tag is v<appVersion>.
+version: 0.12.43 # x-release-please-version
+appVersion: 0.12.43 # x-release-please-version

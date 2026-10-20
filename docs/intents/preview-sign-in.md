@@ -2,7 +2,7 @@
 
 Previews run agent-written code against staging data, so who can open one is a security boundary. Until now the only
 guard was the preview load balancer's IP allowlist (`preview.inboundCIDRs`). Preview sign-in adds a second one: every
-preview Ingress gets the load balancer's `authenticate-oidc` action, pointed at patchy's own sign-in relay
+preview Ingress gets the load balancer's `authenticate-oidc` action, pointed at maul's own sign-in relay
 ([preview-auth](../configuration/preview-auth.md)), which signs viewers in with GitHub through your Dex, once per
 browser session, and admits only the people and teams you list.
 
@@ -14,9 +14,9 @@ with its own gate ([Opening previews to the internet](#opening-previews-to-the-i
     This page is the legacy path: the preview ALB signs viewers in through the relay. The
     [preview gateway](../configuration/preview-gateway.md) signs them in itself, on any cluster, and in release N runs
     beside this path. Sections 1 (Dex) and 2 (who may view) apply to it unchanged, and so do key rotation and
-    [Check it](#check-it)'s `patchy check project`. The permit and require stages, the slot Ingress annotations and the
+    [Check it](#check-it)'s `maul check project`. The permit and require stages, the slot Ingress annotations and the
     `aws elbv2` check are the ALB's alone: a fresh gateway-only install sets no `stage` and turns sign-in on in one
-    `helm upgrade` ([Turning it on](../configuration/preview-gateway.md#turning-it-on); `patchy setup previews` writes
+    `helm upgrade` ([Turning it on](../configuration/preview-gateway.md#turning-it-on); `maul setup previews` writes
     it, see [Set up previews](set-up-previews.md)). Moving an EKS install from this
     path to the gateway is
     [three steps, rolled back by DNS](../configuration/preview-gateway.md#moving-off-the-preview-alb-eks-release-n).
@@ -27,7 +27,7 @@ What it guarantees:
 - Nothing the load balancer forwards to the preview identifies the viewer or works anywhere else: a pairwise subject per
   viewer and Preview, and an opaque access token that lasts minutes and works only at the relay's `/userinfo` for that
   same Preview. No GitHub login, email, group or Dex token reaches the app.
-- The app's own `Authorization` header and login are untouched, and patchy's cookies have names no app uses
+- The app's own `Authorization` header and login are untouched, and maul's cookies have names no app uses
   ([For application authors](#for-application-authors)).
 
 ## Before you start
@@ -35,9 +35,9 @@ What it guarantees:
 - Previews work with the allowlist: you have finished [Deploying intents and previews](deploying.md) through step 14,
   with `previewController.enabled`.
 - Dex runs for your installation, with its GitHub connector, as the [status page sign-in](../status-ui.md) uses it.
-- The relay's host, for example `preview-auth.patchy.acme.dev`, on the edge load balancer beside the webhook: a DNS
+- The relay's host, for example `preview-auth.maul.acme.dev`, on the edge load balancer beside the webhook: a DNS
   record and a certificate covering it. With the [Terraform module](terraform-module.md), set
-  `preview_auth = { host = "preview-auth.patchy.acme.dev" }`: it adds the host to the edge certificate and the edge
+  `preview_auth = { host = "preview-auth.maul.acme.dev" }`: it adds the host to the edge certificate and the edge
   alias records, and `helm_values` gains `previewAuth.host` and the relay Ingress's annotations. The host must not sit
   under the preview host suffix (the preview wildcard would send it to the preview load balancer).
 - The edge load balancer must stay reachable from the whole internet. The preview load balancer calls the relay's
@@ -49,11 +49,11 @@ The only identity-provider setup sign-in needs is one Dex static client for the 
 
 ```yaml
 staticClients:
-  - id: patchy-preview-auth
-    name: patchy previews
-    secretEnv: PATCHY_PREVIEW_AUTH_CLIENT_SECRET
+  - id: maul-preview-auth
+    name: maul previews
+    secretEnv: MAUL_PREVIEW_AUTH_CLIENT_SECRET
     redirectURIs:
-      - https://preview-auth.patchy.acme.dev/dex/callback
+      - https://preview-auth.maul.acme.dev/dex/callback
 ```
 
 The preview hosts never talk to Dex, so no wildcard and no per-preview URI is needed. The Terraform module prints this
@@ -61,7 +61,7 @@ URI as `preview_auth_dex_redirect_uri`, and the chart's install notes print it t
 Secret in the release namespace:
 
 ```sh
-kubectl -n patchy create secret generic patchy-preview-auth-dex --from-literal=clientSecret="$SECRET"
+kubectl -n maul create secret generic maul-preview-auth-dex --from-literal=clientSecret="$SECRET"
 ```
 
 ## 2. Who may view
@@ -103,63 +103,63 @@ Sign-in rolls out in two `helm upgrade`s, because Helm applies an Ingress before
 and a refused Ingress write must never be how you find out.
 
 ```yaml
-# patchy-previews.yaml, added
+# maul-previews.yaml, added
 previewAuth:
   enabled: true
   stage: permit
-  host: preview-auth.patchy.acme.dev # from helm_values when terraform manages it
+  host: preview-auth.maul.acme.dev # from helm_values when terraform manages it
   dex:
-    issuerURL: https://dex.patchy.acme.dev
-    clientID: patchy-preview-auth
-    existingSecret: patchy-preview-auth-dex
+    issuerURL: https://dex.maul.acme.dev
+    clientID: maul-preview-auth
+    existingSecret: maul-preview-auth-dex
   sessionTimeout: 3600 # the ALB's session; see "What a stolen session cookie can do"
   viewers:
     teams: ["acme:qa"]
 ```
 
 ```sh
-helm history patchy -n patchy --max 1   # the rollback point
-helm upgrade patchy oci://ghcr.io/devthenet-labs/patchy/charts/patchy --version X.Y.Z --namespace patchy \
-  -f patchy-values.yaml -f patchy-previews.yaml -f <(terraform -chdir=infra output -raw helm_values)
+helm history maul -n maul --max 1   # the rollback point
+helm upgrade maul oci://ghcr.io/devthenet-labs/maul/charts/maul --version X.Y.Z --namespace maul \
+  -f maul-values.yaml -f maul-previews.yaml -f <(terraform -chdir=infra output -raw helm_values)
 ```
 
 This revision deploys the relay (two replicas spread over zones and nodes, behind a PodDisruptionBudget), generates its
 keys (once; later upgrades reuse them), renders each slot's load balancer client Secret
-`patchy-preview-oidc-g<generation>` with a Role that lets EKS Auto Mode (`Group eks:managed`) read exactly that Secret,
+`maul-preview-oidc-g<generation>` with a Role that lets EKS Auto Mode (`Group eks:managed`) read exactly that Secret,
 binds the viewers, and lets the slot Ingress policy admit the pinned sign-in annotations. Nothing requires sign-in yet,
 and no Ingress changes.
 
 Check it before going on:
 
 ```sh
-kubectl get validatingadmissionpolicy patchy-preview-ingresses \
-  -o jsonpath='{.metadata.annotations.patchy\.bitwisemedia\.uk/preview-auth-admits}{"\n"}'   # g1
-kubectl -n patchy rollout status deploy/patchy-preview-auth
-patchy check project <project> -n patchy   # preview-auth and preview-auth-dex PASS
+kubectl get validatingadmissionpolicy maul-preview-ingresses \
+  -o jsonpath='{.metadata.annotations.maul\.bitwisemedia\.uk/preview-auth-admits}{"\n"}'   # g1
+kubectl -n maul rollout status deploy/maul-preview-auth
+maul check project <project> -n maul   # preview-auth and preview-auth-dex PASS
 ```
 
 `preview-auth-dex` fails when Dex does not know the client or the redirect URI; fix that now.
 
 ## 4. Stage two: require
 
-Set `stage: require` in `patchy-previews.yaml` and run the same `helm upgrade`.
+Set `stage: require` in `maul-previews.yaml` and run the same `helm upgrade`.
 
 The render refuses unless the live slot Ingress policy already admits this key generation (the marker above). A render
 without a cluster (`helm template`, GitOps) cannot look it up: set `previewAuth.permitConfirmedGeneration` to the
 generation once the permit stage is live. Such a render also cannot look up chart-managed keys, so the chart refuses it
 unless `previewAuth.keys.existingSecret` names an operator-owned keys Secret (and you supply the slot Secrets
-`patchy-preview-oidc-g<generation>`): otherwise every sync would generate new keys and sign every viewer out.
+`maul-preview-oidc-g<generation>`): otherwise every sync would generate new keys and sign every viewer out.
 
 This revision turns sign-in on in preview-controller (it patches every live preview's Ingress within one poll interval,
 without restarting a Pod), puts the placeholder Ingress on slot 0's set, and adds the kept policy
-`patchy-preview-ingress-auth`, which refuses any slot Ingress without its slot's set. preview-controller's sweep reports
-an Ingress without it (`patchy.preview.ingress.unauthenticated`) and deletes it after three poll intervals.
+`maul-preview-ingress-auth`, which refuses any slot Ingress without its slot's set. preview-controller's sweep reports
+an Ingress without it (`maul.preview.ingress.unauthenticated`) and deletes it after three poll intervals.
 
 ## Check it
 
 Gate G1, from an address the allowlist admits:
 
-1. Every preview Ingress carries its slot's set, the cookie `patchy-preview-s<slot>` in `patchy-preview-<slot>`:
+1. Every preview Ingress carries its slot's set, the cookie `maul-preview-s<slot>` in `maul-preview-<slot>`:
 
    ```sh
    kubectl get ingress -A -o custom-columns='NS:.metadata.namespace,NAME:.metadata.name,COOKIE:.metadata.annotations.alb\.ingress\.kubernetes\.io/auth-session-cookie'
@@ -167,9 +167,9 @@ Gate G1, from an address the allowlist admits:
 
 2. The load balancer's rules match: in `aws elbv2 describe-rules` on the preview load balancer's 443 listener, every
    rule but the default authenticates (`authenticate-oidc`, issuer `https://<relay host>`, the slot's client id
-   `patchy-preview-s<slot>`), and none forwards without it. A rejected Secret or Role makes Auto Mode keep a whole
+   `maul-preview-s<slot>`), and none forwards without it. A rejected Secret or Role makes Auto Mode keep a whole
    Ingress group on its old rules while the Kubernetes objects look right, so this step is not optional.
-3. `patchy check project <project> -n patchy`: `preview-auth-host` PASSes for the placeholder and every Ready preview,
+3. `maul check project <project> -n maul`: `preview-auth-host` PASSes for the placeholder and every Ready preview,
    each answering without credentials with a redirect to the relay for its own slot's client.
 4. In a browser, a viewer you bound signs in once and reaches the app; a second preview opens without Dex.
 5. Someone you did not bind gets the relay's 403 page.
@@ -177,16 +177,16 @@ Gate G1, from an address the allowlist admits:
    replayed at `https://<relay host>/userinfo` it returns that `sub` only, and after the access-token lifetime (10
    minutes) a 401.
 
-With the [preview gateway](../configuration/preview-gateway.md#checking-it) on, `patchy check project` judges the path
+With the [preview gateway](../configuration/preview-gateway.md#checking-it) on, `maul check project` judges the path
 in force instead. `preview-auth-host` expects the gateway's `302` to `https://<sign-in host>/start` on every Ready
 preview (either path's redirect while `preview.legacyIngress` is still `true`) and the gateway's `404` page on
 `<project>-0.<suffix>`. `preview-gateway-allowlist` checks that a spoofed `X-Forwarded-For` cannot get past
 `previewAuth.gateway.inboundCIDRs`. Step 2's `aws elbv2` check does not apply.
 
 The relay probes every Ready preview host the same way once a minute and exports
-`patchy.preview_auth.unprotected_hosts`; alert on anything above zero. While the allowlist is set, that probe reaches
+`maul.preview_auth.unprotected_hosts`; alert on anything above zero. While the allowlist is set, that probe reaches
 the preview load balancer only if the cluster's NAT egress addresses are in `preview.inboundCIDRs`; otherwise its hosts
-all count as unreachable (`patchy.preview_auth.probe.unreachable_hosts`) and it proves nothing, so run G1 by hand.
+all count as unreachable (`maul.preview_auth.probe.unreachable_hosts`) and it proves nothing, so run G1 by hand.
 Behind the preview gateway the same goes for `previewAuth.gateway.inboundCIDRs`: a host the gateway refuses by its
 allowlist counts as unreachable, not unprotected.
 
@@ -203,8 +203,8 @@ and its ID-token signing key, in the kept Secret `<release>-preview-auth-keys`. 
 3. Once every slot Ingress carries the new set (G1 step 1), an upgrade with `previewAuth.keys.dropPrevious: true` ends
    the overlap. Sessions signed with the old generation end at their next refresh.
 
-Each generation's slot Secrets (`patchy-preview-oidc-g<n>`) are kept on upgrade and uninstall. Delete the old ones once
-the overlap has ended: `kubectl -n patchy-preview-<n> delete secret patchy-preview-oidc-g<old>`.
+Each generation's slot Secrets (`maul-preview-oidc-g<n>`) are kept on upgrade and uninstall. Delete the old ones once
+the overlap has ended: `kubectl -n maul-preview-<n> delete secret maul-preview-oidc-g<old>`.
 
 If the keys Secret is lost, the next upgrade refuses: this release generated keys before. Restore it, or set
 `previewAuth.keys.regenerate=true`, which signs everyone out and needs the permit stage again for the new generation.
@@ -214,13 +214,13 @@ If the keys Secret is lost, the next upgrade refuses: this release generated key
 The require stage's policy is kept on rollback and uninstall, on purpose: a rollback must never leave previews without
 sign-in. So undo it in this order, and only while `preview.inboundCIDRs` is still set:
 
-1. Scale preview-controller to zero: `kubectl -n patchy scale deploy/patchy-preview-controller --replicas=0`. It would
+1. Scale preview-controller to zero: `kubectl -n maul scale deploy/maul-preview-controller --replicas=0`. It would
    otherwise retry Ingress writes the old policy refuses.
 2. Delete the kept policy's binding:
-   `kubectl delete validatingadmissionpolicybinding patchy-preview-all-slots-ingress-auth`. From here, previews are
+   `kubectl delete validatingadmissionpolicybinding maul-preview-all-slots-ingress-auth`. From here, previews are
    guarded by the allowlist alone.
-3. `helm rollback patchy <revision>` (or upgrade with `previewAuth.stage=permit`, or with `previewAuth.enabled=false`),
-   then check preview-controller is scaled back up (`kubectl -n patchy get deploy/patchy-preview-controller`), and scale
+3. `helm rollback maul <revision>` (or upgrade with `previewAuth.stage=permit`, or with `previewAuth.enabled=false`),
+   then check preview-controller is scaled back up (`kubectl -n maul get deploy/maul-preview-controller`), and scale
    it to 1 if not.
 
 Without step 2, the render refuses an upgrade that stops requiring sign-in (the binding is live), and a `helm rollback`
@@ -265,7 +265,7 @@ Until the probe has run, `sessionTimeout` is that window. Keep it short.
 A live probe on devthenet-dev (a throwaway preview that listed the cookie and header names it received) answered three
 of these questions for the AWS load balancer as it behaves today:
 
-- **T1, the cookie is not forwarded.** The load balancer removes its own `patchy-preview-s<slot>-*` cookie before the
+- **T1, the cookie is not forwarded.** The load balancer removes its own `maul-preview-s<slot>-*` cookie before the
   request reaches the target and forwards every other cookie. The app sees `x-amzn-oidc-*` headers, never the session.
 - **T2, the cookie is HttpOnly, Secure and host-only**, with `SameSite=None` and a 7-day `Expires`. The session ends at
   `sessionTimeout` regardless: the expiry is inside the cookie, not the cookie's own lifetime. So neither the preview's
@@ -285,11 +285,11 @@ Helm applies the placeholder Ingress, and the preview-controller patches the slo
 policies change, so every Ingress write in an upgrade meets the previous revision's policies. The policies therefore
 judge `auth-session-timeout` as a ceiling, not an exact value: any whole number of seconds from 1 up to `sessionTimeout`
 (a shorter load-balancer session is never weaker). Every other pinned annotation is still compared exactly. The ceiling
-is recorded on `patchy-preview-ingresses`:
+is recorded on `maul-preview-ingresses`:
 
 ```sh
-kubectl get validatingadmissionpolicy patchy-preview-ingresses \
-  -o jsonpath='{.metadata.annotations.patchy\.bitwisemedia\.uk/preview-auth-session-timeout}{"\n"}'   # 900
+kubectl get validatingadmissionpolicy maul-preview-ingresses \
+  -o jsonpath='{.metadata.annotations.maul\.bitwisemedia\.uk/preview-auth-session-timeout}{"\n"}'   # 900
 ```
 
 - **Lowering** takes one upgrade. The placeholder and the controller apply the new, shorter session at once, which the
@@ -317,7 +317,7 @@ same upgrade passed on a second run (devthenet-dev: rev 69 failed, rev 70 deploy
 What a previewed app sees, and must not do:
 
 - `/oauth2/idpresponse` is the load balancer's: the app never receives requests for it.
-- Cookie names starting `patchy-preview-s` belong to the load balancer, and `__Host-patchy-pa*` to the relay; do not use
+- Cookie names starting `maul-preview-s` belong to the load balancer, and `__Host-maul-pa*` to the relay; do not use
   them.
 - `x-amzn-oidc-identity`, `x-amzn-oidc-accesstoken` and `x-amzn-oidc-data` carry only the pairwise subject and an opaque
   token: they are not a user identity, and the app must not treat them as one. `x-amzn-oidc-data` also shows the load
@@ -332,11 +332,11 @@ What a previewed app sees, and must not do:
 
 Behind the [preview gateway](../configuration/preview-gateway.md) instead:
 
-- `/.patchy/` is the gateway's on every preview host (`/.patchy/callback`, `/.patchy/healthz`): the app never receives a
+- `/.maul/` is the gateway's on every preview host (`/.maul/callback`, `/.maul/healthz`): the app never receives a
   request under it.
-- Cookie names starting `__Host-patchy-pv` and `__Host-patchy-pa` are the gateway's: the app never sees them, and a
+- Cookie names starting `__Host-maul-pv` and `__Host-maul-pa` are the gateway's: the app never sees them, and a
   `Set-Cookie` naming one is dropped.
-- `X-Patchy-Viewer` carries a pairwise id, stable for one viewer on one preview and unrelated across previews. It is not
+- `X-Maul-Viewer` carries a pairwise id, stable for one viewer on one preview and unrelated across previews. It is not
   a user identity. Nothing else about the viewer reaches the app, and the app's `Authorization` header is untouched.
 - A request from another preview is refused unless it is a top-level navigation. Every `POST`, `PUT`, `PATCH`, `DELETE`
   and WebSocket must carry the preview's own `Origin`, which a browser sends for same-origin requests anyway. Service

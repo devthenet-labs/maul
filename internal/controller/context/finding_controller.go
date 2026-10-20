@@ -22,10 +22,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/enhancers"
-	"github.com/bitwise-media-group/patchy/pkg/enhance"
-	"github.com/bitwise-media-group/patchy/pkg/source"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/enhancers"
+	"github.com/devthenet-labs/maul/pkg/enhance"
+	"github.com/devthenet-labs/maul/pkg/source"
 )
 
 // maxEnrichmentMarkdown caps one enhancer's markdown on the Finding.
@@ -278,7 +278,7 @@ func (r *FindingReconciler) setRepository(
 }
 
 // toFindingRepository converts an enhancer's answer to the CR shape, or nil
-// when it names something the pipeline cannot act on. A forge patchy does not
+// when it names something the pipeline cannot act on. A forge maul does not
 // support is dropped rather than written: a Finding carrying a repository it
 // can never clone would stall at the gate instead of being handed off.
 func toFindingRepository(ref *source.RepositoryRef) *v1alpha1.FindingRepository {

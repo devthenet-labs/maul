@@ -10,8 +10,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/model"
+	"github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/model"
 )
 
 // Mode is the per-user credentials switch the run controllers read
@@ -254,7 +254,7 @@ func Message(v Verdict, accountURL string, reapprove bool) string {
 	case ReasonUnverified:
 		why = who + "'s " + name + " credential has not been verified yet"
 	default:
-		why = who + " has no " + name + " credential stored in patchy"
+		why = who + " has no " + name + " credential stored in maul"
 	}
 	where := "on the status page's Account page"
 	if accountURL != "" {

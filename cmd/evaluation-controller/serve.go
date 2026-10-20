@@ -18,19 +18,19 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	"github.com/bitwise-media-group/patchy/internal/artifact"
-	"github.com/bitwise-media-group/patchy/internal/attribution"
-	"github.com/bitwise-media-group/patchy/internal/cli"
-	ctrleval "github.com/bitwise-media-group/patchy/internal/controller/evaluation"
-	"github.com/bitwise-media-group/patchy/internal/evalapi"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/runnercfg"
-	"github.com/bitwise-media-group/patchy/internal/telemetry"
-	"github.com/bitwise-media-group/patchy/internal/usagemeter"
-	"github.com/bitwise-media-group/patchy/internal/usagerollup"
-	"github.com/bitwise-media-group/patchy/internal/version"
-	"github.com/bitwise-media-group/patchy/internal/web/authz"
+	"github.com/devthenet-labs/maul/internal/artifact"
+	"github.com/devthenet-labs/maul/internal/attribution"
+	"github.com/devthenet-labs/maul/internal/cli"
+	ctrleval "github.com/devthenet-labs/maul/internal/controller/evaluation"
+	"github.com/devthenet-labs/maul/internal/evalapi"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/runnercfg"
+	"github.com/devthenet-labs/maul/internal/telemetry"
+	"github.com/devthenet-labs/maul/internal/usagemeter"
+	"github.com/devthenet-labs/maul/internal/usagerollup"
+	"github.com/devthenet-labs/maul/internal/version"
+	"github.com/devthenet-labs/maul/internal/web/authz"
 )
 
 func newServeCmd(opts *cli.Options) *cobra.Command {
@@ -40,7 +40,7 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 		RunE:  func(cmd *cobra.Command, _ []string) error { return serve(cmd.Context(), opts) },
 	}
 	f := cmd.Flags()
-	f.String("namespace", "", "namespace the patchy resources live in (default: POD_NAMESPACE)")
+	f.String("namespace", "", "namespace the maul resources live in (default: POD_NAMESPACE)")
 	f.String("kubeconfig", "", "kubeconfig path (default: in-cluster config)")
 	f.String("health-addr", ":8081", "healthz/readyz probe listen address")
 	f.String("auth-config", "", "path to the API auth config (mode none|oidc)")
@@ -50,8 +50,8 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	f.Int("max-workspace-bytes", 64<<20, "largest accepted workspace bundle")
 	f.Duration("evaluation-ttl", ctrleval.DefaultTTL,
 		"retention of finished evaluations (spec.ttlSecondsAfterFinished overrides; 0 keeps forever)")
-	f.String("agent-namespace", "patchy-agents", "namespace evaluation Jobs run in")
-	f.String("agent-service-account", "patchy-agent", "service account evaluation Jobs run as")
+	f.String("agent-namespace", "maul-agents", "namespace evaluation Jobs run in")
+	f.String("agent-service-account", "maul-agent", "service account evaluation Jobs run as")
 	f.Duration("job-deadline", 2*time.Hour, "activeDeadlineSeconds on evaluation Jobs")
 	f.Duration("job-ttl", time.Hour, "ttlSecondsAfterFinished on evaluation Jobs")
 	f.String("artifact-base-url", "",
@@ -74,7 +74,7 @@ func serviceURL(opts *cli.Options, flag, namespace string, port int) string {
 	if u := opts.String(flag); u != "" {
 		return strings.TrimSuffix(u, "/")
 	}
-	return fmt.Sprintf("http://patchy-source-controller.%s.svc.cluster.local:%d", namespace, port)
+	return fmt.Sprintf("http://maul-source-controller.%s.svc.cluster.local:%d", namespace, port)
 }
 
 // resolveFleet builds the evolve-runner jobs client and the enabled harness
@@ -183,7 +183,7 @@ func setupReconcilers(mgr manager.Manager, opts *cli.Options, namespace string, 
 
 func serve(ctx context.Context, opts *cli.Options) error {
 	prov, shutdown, err := telemetry.Init(ctx, telemetry.Config{
-		Dir:            os.Getenv("PATCHY_TELEMETRY_DIR"),
+		Dir:            os.Getenv("MAUL_TELEMETRY_DIR"),
 		Level:          opts.LogLevel,
 		ServiceName:    "evaluation-controller",
 		ServiceVersion: version.Version,
@@ -227,7 +227,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	agentNS := opts.String("agent-namespace")
 	mgr, err := kube.NewManager(kube.Options{
 		Kubeconfig:              opts.String("kubeconfig"),
-		LeaderElectionID:        "patchy-evaluation-controller-leader",
+		LeaderElectionID:        "maul-evaluation-controller-leader",
 		LeaderElectionNamespace: namespace,
 		Namespaces:              []string{namespace},
 		AgentNamespace:          agentNS,
@@ -252,7 +252,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	}
 
 	var granter evalapi.Granter = authz.NewResourceReviewer(
-		mgr.GetClient(), namespace, "patchy.bitwisemedia.uk", "evaluations", 0)
+		mgr.GetClient(), namespace, "maul.run", "evaluations", 0)
 	if authCfg.Mode == evalapi.ModeNone {
 		granter = evalapi.FullAccess{}
 	}

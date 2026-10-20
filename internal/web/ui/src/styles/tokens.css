@@ -1,7 +1,7 @@
-/* Patchy design tokens — vendored from the design-system repo.
+/* Maul design tokens — vendored from the design-system repo.
  *
- * Canonical source: design-system tokens/themes.css (.theme-patchy /
- * .theme-patchy-light) plus the typography/spacing tokens the kit consumes.
+ * Canonical source: design-system tokens/themes.css (.theme-maul /
+ * .theme-maul-light) plus the typography/spacing tokens the kit consumes.
  * That file is the single source of truth — re-copy these values whenever the
  * palette changes. Vendored so the single-file build is self-contained and
  * the project lifts into the source-controller without cross-repo paths.
@@ -30,85 +30,85 @@
 }
 
 /* Shared semantic aliases — both modes. */
-.theme-patchy,
-.theme-patchy-light {
-  --color-primary: var(--patchy-green);
-  --color-primary-hover: var(--patchy-green-2);
-  --color-primary-active: var(--patchy-moss);
-  --color-on-primary: var(--patchy-on-accent);
-  --surface-page: var(--patchy-bg);
-  --surface-card: var(--patchy-surface);
-  --text-strong: var(--patchy-fg);
-  --text-body: var(--patchy-fg);
-  --text-muted: var(--patchy-muted);
-  --border-subtle: var(--patchy-line);
-  --border-default: var(--patchy-line-2);
-  --focus-ring: var(--patchy-green);
+.theme-maul,
+.theme-maul-light {
+  --color-primary: var(--maul-green);
+  --color-primary-hover: var(--maul-green-2);
+  --color-primary-active: var(--maul-moss);
+  --color-on-primary: var(--maul-on-accent);
+  --surface-page: var(--maul-bg);
+  --surface-card: var(--maul-surface);
+  --text-strong: var(--maul-fg);
+  --text-body: var(--maul-fg);
+  --text-muted: var(--maul-muted);
+  --border-subtle: var(--maul-line);
+  --border-default: var(--maul-line-2);
+  --focus-ring: var(--maul-green);
   --radius-card: 12px;
 }
 
 /* Dark (default) — damp soil at night, with bright new turf. */
-.theme-patchy {
-  --patchy-green: #78d64b;
-  --patchy-green-2: #9be66a;
-  --patchy-moss: #46a653;
-  --patchy-seedling: #c7f28a;
-  --patchy-ink-green: #8de05d;
-  --patchy-soil: #a47a55;
-  --patchy-amber: #e7b75f;
-  --patchy-red: #ef716a;
-  --patchy-on-accent: #10200d;
+.theme-maul {
+  --maul-green: #78d64b;
+  --maul-green-2: #9be66a;
+  --maul-moss: #46a653;
+  --maul-seedling: #c7f28a;
+  --maul-ink-green: #8de05d;
+  --maul-soil: #a47a55;
+  --maul-amber: #e7b75f;
+  --maul-red: #ef716a;
+  --maul-on-accent: #10200d;
 
   /* Severity ramp — hotter and wider-spectrum than the state tones so
    * severity never collides with lifecycle colours. */
-  --patchy-sev-low: #6bbf45;
-  --patchy-sev-medium: #f2d437;
-  --patchy-sev-high: #fb8b1e;
-  --patchy-sev-critical: #ff4d7e;
+  --maul-sev-low: #6bbf45;
+  --maul-sev-medium: #f2d437;
+  --maul-sev-high: #fb8b1e;
+  --maul-sev-critical: #ff4d7e;
 
-  --patchy-bg: #0c140e;
-  --patchy-surface: #121d15;
-  --patchy-surface-2: #17251a;
-  --patchy-code: #071009;
-  --patchy-code-2: #0e1811;
-  --patchy-line: #26372a;
-  --patchy-line-2: #354a39;
-  --patchy-fg: #edf7ee;
-  --patchy-muted: #98ab9b;
-  --patchy-faint: #697c6d;
-  --patchy-shadow: 0 20px 52px rgba(2, 8, 4, 0.44);
-  --patchy-shadow-strong: 0 30px 80px rgba(2, 8, 4, 0.62);
+  --maul-bg: #0c140e;
+  --maul-surface: #121d15;
+  --maul-surface-2: #17251a;
+  --maul-code: #071009;
+  --maul-code-2: #0e1811;
+  --maul-line: #26372a;
+  --maul-line-2: #354a39;
+  --maul-fg: #edf7ee;
+  --maul-muted: #98ab9b;
+  --maul-faint: #697c6d;
+  --maul-shadow: 0 20px 52px rgba(2, 8, 4, 0.44);
+  --maul-shadow-strong: 0 30px 80px rgba(2, 8, 4, 0.62);
   --shadow-glow: 0 6px 20px rgba(120, 214, 75, 0.28);
 }
 
 /* Light — garden paper, white panels, and a deep accessible turf green. */
-.theme-patchy-light {
-  --patchy-green: #2f7d36;
-  --patchy-green-2: #25672c;
-  --patchy-moss: #367a3c;
-  --patchy-seedling: #3c7630;
-  --patchy-ink-green: #286f30;
-  --patchy-soil: #77583e;
-  --patchy-amber: #9a6700;
-  --patchy-red: #c53b36;
-  --patchy-on-accent: #ffffff;
+.theme-maul-light {
+  --maul-green: #2f7d36;
+  --maul-green-2: #25672c;
+  --maul-moss: #367a3c;
+  --maul-seedling: #3c7630;
+  --maul-ink-green: #286f30;
+  --maul-soil: #77583e;
+  --maul-amber: #9a6700;
+  --maul-red: #c53b36;
+  --maul-on-accent: #ffffff;
 
-  --patchy-sev-low: #256b2e;
-  --patchy-sev-medium: #a38200;
-  --patchy-sev-high: #b04a00;
-  --patchy-sev-critical: #9f1239;
+  --maul-sev-low: #256b2e;
+  --maul-sev-medium: #a38200;
+  --maul-sev-high: #b04a00;
+  --maul-sev-critical: #9f1239;
 
-  --patchy-bg: #f3f7ef;
-  --patchy-surface: #ffffff;
-  --patchy-surface-2: #eaf2e5;
-  --patchy-code: #e1ebdd;
-  --patchy-code-2: #eaf1e6;
-  --patchy-line: #cad8c4;
-  --patchy-line-2: #afc2b0;
-  --patchy-fg: #172219;
-  --patchy-muted: #566859;
-  --patchy-faint: #708073;
-  --patchy-shadow: 0 20px 52px rgba(38, 72, 42, 0.12);
-  --patchy-shadow-strong: 0 30px 80px rgba(38, 72, 42, 0.18);
+  --maul-bg: #f3f7ef;
+  --maul-surface: #ffffff;
+  --maul-surface-2: #eaf2e5;
+  --maul-code: #e1ebdd;
+  --maul-code-2: #eaf1e6;
+  --maul-line: #cad8c4;
+  --maul-line-2: #afc2b0;
+  --maul-fg: #172219;
+  --maul-muted: #566859;
+  --maul-faint: #708073;
+  --maul-shadow: 0 20px 52px rgba(38, 72, 42, 0.12);
+  --maul-shadow-strong: 0 30px 80px rgba(38, 72, 42, 0.18);
   --shadow-glow: 0 6px 20px rgba(47, 125, 54, 0.24);
 }

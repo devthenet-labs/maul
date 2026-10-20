@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/netprofile"
 )
 
 // probeRig is an engine logging its audit lines to the returned buffer,

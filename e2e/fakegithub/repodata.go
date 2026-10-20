@@ -28,7 +28,7 @@ func (s *Server) tarballRedirect(w http.ResponseWriter, r *http.Request) {
 }
 
 // SetRepoFile adds a file to owner/repo's tree, served in its tarball beside
-// the fixed ones (a repository's .patchy/agent.yaml, say); setting a path
+// the fixed ones (a repository's .maul/agent.yaml, say); setting a path
 // again replaces its content.
 func (s *Server) SetRepoFile(owner, repo, path, content string) {
 	s.mu.Lock()

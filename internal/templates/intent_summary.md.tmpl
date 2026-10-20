@@ -1,11 +1,11 @@
 {{- /* The summary posted once every pull request of an intent has merged,
-before patchy closes the issue as completed. The pull requests are patchy's
+before maul closes the issue as completed. The pull requests are maul's
 own, linked on purpose. One line per paragraph: GitHub renders a line break
 inside an issue comment as a hard break. */ -}}
 {{ .Marker }}
-### patchy: done
+### maul: done
 
-Every pull request patchy opened for this intent has merged, so patchy closes the issue as completed.
+Every pull request maul opened for this intent has merged, so maul closes the issue as completed.
 {{- with .PullRequests }}
 
 **Merged:**

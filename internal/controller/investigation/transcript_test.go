@@ -10,9 +10,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/transcript"
-	"github.com/bitwise-media-group/patchy/internal/transcriptstore"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/transcript"
+	"github.com/devthenet-labs/maul/internal/transcriptstore"
 )
 
 func sampleTurns() []transcript.Turn {
@@ -26,7 +26,7 @@ func sampleTurns() []transcript.Turn {
 func getTranscript(t *testing.T, c client.Client, name string) *corev1.ConfigMap {
 	t.Helper()
 	var cm corev1.ConfigMap
-	key := types.NamespacedName{Namespace: "patchy", Name: name}
+	key := types.NamespacedName{Namespace: "maul", Name: name}
 	if err := c.Get(t.Context(), key, &cm); err != nil {
 		t.Fatalf("transcript %s not written: %v", name, err)
 	}
@@ -53,7 +53,7 @@ func TestCollectPersistsTranscript(t *testing.T) {
 
 	// The status points at it, so the projection needs no extra lookup.
 	var inv v1alpha1.Investigation
-	key := types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1-inv-1"}
+	key := types.NamespacedName{Namespace: "maul", Name: "finding-aa-1-inv-1"}
 	if err := c.Get(t.Context(), key, &inv); err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +107,7 @@ func TestCollectWithoutTurnsWritesNoTranscript(t *testing.T) {
 	}
 
 	var inv v1alpha1.Investigation
-	key := types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1-inv-1"}
+	key := types.NamespacedName{Namespace: "maul", Name: "finding-aa-1-inv-1"}
 	if err := c.Get(t.Context(), key, &inv); err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestFailedRunStillKeepsItsTranscript(t *testing.T) {
 	}
 
 	var inv v1alpha1.Investigation
-	key := types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1-inv-1"}
+	key := types.NamespacedName{Namespace: "maul", Name: "finding-aa-1-inv-1"}
 	if err := c.Get(t.Context(), key, &inv); err != nil {
 		t.Fatal(err)
 	}

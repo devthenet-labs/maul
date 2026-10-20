@@ -3,11 +3,11 @@
 #
 # Read from devthenet-dev on 2026-10-03 (kubectl get -o yaml) before the slice-3 schema change,
 # server-owned metadata removed. live_envtest_test.go round-trips it under the current schema.
-apiVersion: patchy.bitwisemedia.uk/v1alpha1
+apiVersion: maul.run/v1alpha1
 kind: Intent
 metadata:
   name: preview-demo-4
-  namespace: patchy
+  namespace: maul
 spec:
   issue:
     number: 4
@@ -27,7 +27,7 @@ status:
     planDigest: sha256:ef2ecae84ebe292f7fbb8d3c105dbe38c8411ab33223d16d37c01968dc3d31c1
     planRevision: 1
     source: label
-  branch: patchy-intent/preview-demo-4
+  branch: maul-intent/preview-demo-4
   commands:
     seen:
       at: "2026-10-03T02:22:00Z"
@@ -72,7 +72,7 @@ status:
     repositories:
       - https://github.com/devthenet-labs/patchy-preview-demo
     revision: 1
-    summary: Change the welcome page greeting to 'Hello from patchy' and style the page's main card teal (#0d9488)
+    summary: Change the welcome page greeting to 'Hello from maul' and style the page's main card teal (#0d9488)
   pullRequests:
     - headSHA: e2256900e8bdff280e280925952c87138487c381
       mergeCommitSHA: 0f6d1a9450aed71f5ff801c6158979b28427eff3

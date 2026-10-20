@@ -16,9 +16,9 @@ import (
 
 	"golang.org/x/sync/semaphore"
 
-	"github.com/bitwise-media-group/patchy/pkg/enhance"
-	pkggeneric "github.com/bitwise-media-group/patchy/pkg/generic"
-	"github.com/bitwise-media-group/patchy/pkg/source"
+	"github.com/devthenet-labs/maul/pkg/enhance"
+	pkggeneric "github.com/devthenet-labs/maul/pkg/generic"
+	"github.com/devthenet-labs/maul/pkg/source"
 )
 
 // genericHarness wires a DynamicGeneric to canned configs and a recording Do.

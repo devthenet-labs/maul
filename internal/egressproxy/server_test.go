@@ -20,7 +20,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/netprofile"
 )
 
 // profilesJSON is the chart's rendering of one profile (§3.4 of the spec),
@@ -523,7 +523,7 @@ func TestHeaderAllowlist(t *testing.T) {
 			t.Errorf("upstream saw header %s: %v", k, hit.header[k])
 		}
 	}
-	if got := hit.header.Get("User-Agent"); !strings.HasPrefix(got, "patchy-egress-proxy/") {
+	if got := hit.header.Get("User-Agent"); !strings.HasPrefix(got, "maul-egress-proxy/") {
 		t.Errorf("outbound User-Agent = %q", got)
 	}
 	if got := hit.header.Get("Accept-Encoding"); got != "identity" {
@@ -607,7 +607,7 @@ func waitForLine(t *testing.T, log *lockedBuffer, match func(map[string]any) boo
 // strings.
 func TestAudit(t *testing.T) {
 	goUp := newUpstream(t, okBody("v1.6.0\n"))
-	pods := fakePods{"127.0.0.1": {Name: "patchy-x-abc", Finding: "f-1", Owner: "devthenet-labs",
+	pods := fakePods{"127.0.0.1": {Name: "maul-x-abc", Finding: "f-1", Owner: "devthenet-labs",
 		RunKind: "remediation", Attempt: "2", Repo: "devthenet-labs/patchy-target"}}
 	h := newHarness(t, Config{Pods: pods}, goUp, failingUpstream(t))
 	secret := http.Header{"Authorization": {"Bearer very-secret-value"}, "Cookie": {"c=cookie-secret"}}
@@ -634,7 +634,7 @@ func TestAudit(t *testing.T) {
 	}
 	ok := lines[0]
 	want := map[string]any{"msg": "proxied", "profile": "go", "port": float64(8090), "source_ip": "127.0.0.1",
-		"pod": "patchy-x-abc", "finding": "f-1", "owner": "devthenet-labs", "run_kind": "remediation",
+		"pod": "maul-x-abc", "finding": "f-1", "owner": "devthenet-labs", "run_kind": "remediation",
 		"attempt": "2", "repo": "devthenet-labs/patchy-target", "route": "go", "kind": "list",
 		"module": "github.com/google/uuid", "method": "GET", "status": float64(200),
 		"upstream_status": float64(200), "bytes": float64(7), "outcome": OutcomeProxied}

@@ -23,7 +23,7 @@
 // under the workspace's repos/, with no git history — and a manifest of
 // them, which the plan stage checks whole before any agent runs and holds
 // the plan's repositories to afterwards. Each build is in one repository
-// of such a plan and learns which from PATCHY_REPO alone, matched against
+// of such a plan and learns which from MAUL_REPO alone, matched against
 // the approved plan's own list: no new configuration key exists for either.
 //
 // The runner trusts the repository over the agent: a remediation or build
@@ -46,7 +46,7 @@
 //
 // While a run of an intent's stage (plan, build) runs a foreground shell
 // command, the runner prints that command's output as it is produced, as
-// PATCHY-OUTPUT chunks beside the turns (output.go, on a
+// MAUL-OUTPUT chunks beside the turns (output.go, on a
 // harness.TaskWatcher: claude, and the fake harness whose fixtures write no
 // such file; codex cannot, so an intent stage on codex logs that a
 // command's output shows only with its result); a Finding's stages print

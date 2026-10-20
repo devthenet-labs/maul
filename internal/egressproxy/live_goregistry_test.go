@@ -19,7 +19,7 @@ import (
 	"golang.org/x/mod/sumdb/note"
 	modzip "golang.org/x/mod/zip"
 
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/netprofile"
 )
 
 // fakeModule is a module version a fake proxy serves.
@@ -109,7 +109,7 @@ func goProxyHandler(auth string, mods ...fakeModule) http.HandlerFunc {
 // fake Google; the public one, which the registry 404s, is served by /go
 // and verified through /r/<registry>/sumdb, the database proxy the go
 // command chose; a private path the registry lacks never reaches the fake
-// proxy.golang.org. Opt-in: PATCHY_LIVE_REGISTRY=1.
+// proxy.golang.org. Opt-in: MAUL_LIVE_REGISTRY=1.
 func TestLiveGoRegistry(t *testing.T) {
 	skipUnlessLiveRegistry(t, "go")
 	private := makeModule(t, "example.com/acme/x", "v1.0.0")
@@ -135,7 +135,7 @@ func TestLiveGoRegistry(t *testing.T) {
 	w := newWorld(t)
 	regUp := w.host(goHost, goProxyHandler(basicAuth, private))
 	creds := newFakeCreds()
-	basic, _ := BasicCredential("patchy", sentinel)
+	basic, _ := BasicCredential("maul", sentinel)
 	creds.set("art-go", basic)
 	reg := goRegistry(false)
 	// The grant admits all of example.com/, so the registry is asked for
@@ -154,9 +154,9 @@ func TestLiveGoRegistry(t *testing.T) {
 		"GOPROXY=" + h.urls["gr"] + "/r/art-go," + h.urls["gr"] + "/go",
 		"GOSUMDB=" + vkey,
 		"GONOSUMDB=example.com/acme/",
-		"GONOPROXY=patchy.invalid",
-		"GOPRIVATE=patchy.invalid",
-		"GOINSECURE=patchy.invalid",
+		"GONOPROXY=maul.invalid",
+		"GOPRIVATE=maul.invalid",
+		"GOINSECURE=maul.invalid",
 		"GOAUTH=off",
 		"GOTOOLCHAIN=local",
 		"GOPATH=" + gopath,

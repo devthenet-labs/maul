@@ -12,11 +12,11 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 // scopeName identifies this package's meter.
-const scopeName = "github.com/bitwise-media-group/patchy/internal/stats"
+const scopeName = "github.com/devthenet-labs/maul/internal/stats"
 
 // The instruments fire at rollup time — exactly once per run/finding,
 // aligned with the CR counters. Anyone with an OTLP backend gets the same
@@ -25,27 +25,27 @@ const scopeName = "github.com/bitwise-media-group/patchy/internal/stats"
 // constrained backends can drop it with a metric view.
 var (
 	stageRuns = sync.OnceValue(func() metric.Int64Counter {
-		c, _ := otel.Meter(scopeName).Int64Counter("patchy.stage.runs",
+		c, _ := otel.Meter(scopeName).Int64Counter("maul.stage.runs",
 			metric.WithDescription("agent runs by stage/harness/model/outcome"))
 		return c
 	})
 	stageTokens = sync.OnceValue(func() metric.Int64Counter {
-		c, _ := otel.Meter(scopeName).Int64Counter("patchy.stage.tokens",
+		c, _ := otel.Meter(scopeName).Int64Counter("maul.stage.tokens",
 			metric.WithDescription("agent tokens by stage and class"))
 		return c
 	})
 	stageCost = sync.OnceValue(func() metric.Float64Counter {
-		c, _ := otel.Meter(scopeName).Float64Counter("patchy.stage.cost",
+		c, _ := otel.Meter(scopeName).Float64Counter("maul.stage.cost",
 			metric.WithDescription("agent spend"), metric.WithUnit("usd"))
 		return c
 	})
 	findingCompleted = sync.OnceValue(func() metric.Int64Counter {
-		c, _ := otel.Meter(scopeName).Int64Counter("patchy.finding.completed",
+		c, _ := otel.Meter(scopeName).Int64Counter("maul.finding.completed",
 			metric.WithDescription("findings reaching a terminal phase"))
 		return c
 	})
 	findingDeleted = sync.OnceValue(func() metric.Int64Counter {
-		c, _ := otel.Meter(scopeName).Int64Counter("patchy.finding.deleted",
+		c, _ := otel.Meter(scopeName).Int64Counter("maul.finding.deleted",
 			metric.WithDescription("finding resources deleted"))
 		return c
 	})
@@ -97,12 +97,12 @@ func RecordDeleted(ctx context.Context, reason string) {
 // ("org" or "github-id:<id>"): its cardinality is bounded by headcount.
 var (
 	usageTokens = sync.OnceValue(func() metric.Int64Counter {
-		c, _ := otel.Meter(scopeName).Int64Counter("patchy.usage.tokens",
+		c, _ := otel.Meter(scopeName).Int64Counter("maul.usage.tokens",
 			metric.WithDescription("agent run tokens by user, project, run kind, source and class"))
 		return c
 	})
 	usageCost = sync.OnceValue(func() metric.Float64Counter {
-		c, _ := otel.Meter(scopeName).Float64Counter("patchy.usage.cost",
+		c, _ := otel.Meter(scopeName).Float64Counter("maul.usage.cost",
 			metric.WithDescription("agent run cost by user, project, run kind and pricing "+
 				"(list, subscription: notional, reported: the pod's own untrusted figure)"),
 			metric.WithUnit("usd"))

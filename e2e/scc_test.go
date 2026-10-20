@@ -13,16 +13,16 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/e2e/fakeoidc"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/e2e/fakeoidc"
 )
 
 // The identity and audience the Integration is configured to trust. Anything
 // else presenting a validly-signed Google token must still be rejected —
 // signing proves the issuer, not the caller.
 const (
-	sccServiceAccount = "patchy-scc-push@x-patchy-app.iam.gserviceaccount.com"
-	sccAudience       = "https://patchy.e2e.invalid/google-cloud/webhooks"
+	sccServiceAccount = "maul-scc-push@x-maul-app.iam.gserviceaccount.com"
+	sccAudience       = "https://maul.e2e.invalid/google-cloud/webhooks"
 )
 
 // TestSCCNotificationPipeline drives a recorded Security Command Center

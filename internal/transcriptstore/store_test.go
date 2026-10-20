@@ -13,8 +13,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/transcript"
+	"github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/transcript"
 )
 
 func scheme(t *testing.T) *runtime.Scheme {
@@ -28,11 +28,11 @@ func scheme(t *testing.T) *runtime.Scheme {
 
 func investigation(name string) *v1alpha1.Investigation {
 	return &v1alpha1.Investigation{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "patchy", UID: types.UID("uid-1")},
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "maul", UID: types.UID("uid-1")},
 	}
 }
 
-var invGVK = metav1.TypeMeta{APIVersion: "patchy.bitwisemedia.uk/v1alpha1", Kind: "Investigation"}
+var invGVK = metav1.TypeMeta{APIVersion: "maul.run/v1alpha1", Kind: "Investigation"}
 
 func TestMarshalUnmarshalRoundTrip(t *testing.T) {
 	want := []transcript.Turn{
@@ -85,7 +85,7 @@ func TestPersistOwnsTheConfigMap(t *testing.T) {
 	inv := investigation("fnd-abc-inv-1")
 	turns := []transcript.Turn{{Seq: 1, Role: transcript.RoleAssistant, Kind: transcript.KindText, Text: "hi"}}
 
-	ref, err := Persist(context.Background(), c, "patchy", map[string]string{"k": "v"}, inv, invGVK, turns)
+	ref, err := Persist(context.Background(), c, "maul", map[string]string{"k": "v"}, inv, invGVK, turns)
 	if err != nil {
 		t.Fatalf("Persist: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestPersistOwnsTheConfigMap(t *testing.T) {
 	}
 
 	var cm corev1.ConfigMap
-	key := types.NamespacedName{Namespace: "patchy", Name: ref.Name}
+	key := types.NamespacedName{Namespace: "maul", Name: ref.Name}
 	if err := c.Get(context.Background(), key, &cm); err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestPersistReportsTruncation(t *testing.T) {
 		{Seq: 1, Role: transcript.RoleAssistant, Kind: transcript.KindText, Text: "a"},
 		{Seq: 2, Role: transcript.RoleSystem, Kind: transcript.KindNotice, Text: "cut", Truncated: true},
 	}
-	ref, err := Persist(context.Background(), c, "patchy", nil, investigation("fnd-x-inv-1"), invGVK, turns)
+	ref, err := Persist(context.Background(), c, "maul", nil, investigation("fnd-x-inv-1"), invGVK, turns)
 	if err != nil {
 		t.Fatalf("Persist: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestPersistReportsTruncation(t *testing.T) {
 func TestPersistNoTurnsWritesNothing(t *testing.T) {
 	// A harness that cannot transcribe must not fail the collect.
 	c := fake.NewClientBuilder().WithScheme(scheme(t)).Build()
-	ref, err := Persist(context.Background(), c, "patchy", nil, investigation("fnd-y-inv-1"), invGVK, nil)
+	ref, err := Persist(context.Background(), c, "maul", nil, investigation("fnd-y-inv-1"), invGVK, nil)
 	if err != nil {
 		t.Fatalf("Persist: %v", err)
 	}
@@ -154,10 +154,10 @@ func TestPersistIsIdempotent(t *testing.T) {
 	second := append(first, transcript.Turn{Seq: 2, Role: transcript.RoleAssistant,
 		Kind: transcript.KindText, Text: "two"})
 
-	if _, err := Persist(context.Background(), c, "patchy", nil, inv, invGVK, first); err != nil {
+	if _, err := Persist(context.Background(), c, "maul", nil, inv, invGVK, first); err != nil {
 		t.Fatalf("first Persist: %v", err)
 	}
-	ref, err := Persist(context.Background(), c, "patchy", nil, inv, invGVK, second)
+	ref, err := Persist(context.Background(), c, "maul", nil, inv, invGVK, second)
 	if err != nil {
 		t.Fatalf("second Persist: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestPersistIsIdempotent(t *testing.T) {
 		t.Errorf("Turns = %d, want 2", ref.Turns)
 	}
 
-	got, err := Load(context.Background(), c, "patchy", ref.Name)
+	got, err := Load(context.Background(), c, "maul", ref.Name)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -180,11 +180,11 @@ func TestLoadRoundTrip(t *testing.T) {
 	turns := []transcript.Turn{
 		{Seq: 1, Role: transcript.RoleAssistant, Kind: transcript.KindToolUse, Tool: "Bash", Text: "go test"},
 	}
-	ref, err := Persist(context.Background(), c, "patchy", nil, inv, invGVK, turns)
+	ref, err := Persist(context.Background(), c, "maul", nil, inv, invGVK, turns)
 	if err != nil {
 		t.Fatalf("Persist: %v", err)
 	}
-	got, err := Load(context.Background(), c, "patchy", ref.Name)
+	got, err := Load(context.Background(), c, "maul", ref.Name)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestLoadRoundTrip(t *testing.T) {
 func TestLoadMissingIsEmpty(t *testing.T) {
 	// Playback of an absent transcript is an empty conversation, not an error.
 	c := fake.NewClientBuilder().WithScheme(scheme(t)).Build()
-	got, err := Load(context.Background(), c, "patchy", "nope-transcript")
+	got, err := Load(context.Background(), c, "maul", "nope-transcript")
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -208,9 +208,9 @@ func TestLoadMissingIsEmpty(t *testing.T) {
 func TestLoadMissingKeyIsEmpty(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(scheme(t)).
 		WithObjects(&corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{Name: "empty-transcript", Namespace: "patchy"},
+			ObjectMeta: metav1.ObjectMeta{Name: "empty-transcript", Namespace: "maul"},
 		}).Build()
-	got, err := Load(context.Background(), c, "patchy", "empty-transcript")
+	got, err := Load(context.Background(), c, "maul", "empty-transcript")
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}

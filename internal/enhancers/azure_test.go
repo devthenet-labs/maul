@@ -10,9 +10,9 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/bitwise-media-group/patchy/internal/azureinv"
-	"github.com/bitwise-media-group/patchy/pkg/enhance"
-	"github.com/bitwise-media-group/patchy/pkg/source"
+	"github.com/devthenet-labs/maul/internal/azureinv"
+	"github.com/devthenet-labs/maul/pkg/enhance"
+	"github.com/devthenet-labs/maul/pkg/source"
 )
 
 // fakeAzureInventory stands in for the Azure inventory.

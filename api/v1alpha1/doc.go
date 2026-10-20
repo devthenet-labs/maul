@@ -1,7 +1,7 @@
 // Copyright 2026 Bitwise Media Group Ltd.
 // SPDX-License-Identifier: MIT
 
-// Package v1alpha1 defines the patchy.bitwisemedia.uk/v1alpha1 API: the
+// Package v1alpha1 defines the maul.run/v1alpha1 API: the
 // custom resources that carry finding state through the pipeline.
 //
 // The kinds fall into three groups:

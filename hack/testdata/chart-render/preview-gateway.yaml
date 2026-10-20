@@ -7,7 +7,7 @@
 # deterministic (the goldens compare it byte for byte).
 previewAuth:
     keys:
-        existingSecret: patchy-preview-auth-keys-ops
+        existingSecret: maul-preview-auth-keys-ops
     gateway:
         enabled: true
         forwardedHops: 1

@@ -11,13 +11,13 @@ after the decisions: "Human commands: one vocabulary" and "Failed checks: automa
 
 ## Context
 
-Today patchy handles one kind of work: a security Finding, carried from a scanner alert to a PR that a human reviews.
+Today maul handles one kind of work: a security Finding, carried from a scanner alert to a PR that a human reviews.
 The goal here is general development work driven by an intent that a human writes:
 
 1. A human opens an issue in an intent repo and labels it for a project.
-2. patchy plans the work and writes the plan back to the issue.
+2. maul plans the work and writes the plan back to the issue.
 3. A human approves by adding a label.
-4. patchy builds the plan in one or more app repos and opens PRs.
+4. maul builds the plan in one or more app repos and opens PRs.
 5. Each PR is deployed as a preview on its own subdomain.
 6. Review feedback on a PR starts a revision round.
 7. On merge, the preview is torn down and the intent issue is closed.
@@ -53,17 +53,17 @@ within:
 - **The build agent receives exactly what the approving human saw.** That is the approved plan, which the approver read
   verbatim, and nothing else of the request: GitHub showed the approver the issue only as rendered markdown, which hides
   HTML comments, `<details>` blocks and characters that render as nothing.
-- **patchy never force-moves a branch it did not just create.** Human commits on a PR branch survive every revision.
+- **maul never force-moves a branch it did not just create.** Human commits on a PR branch survive every revision.
 - **Spend is bounded before it starts.** The bounds are: triggers only from authorised people, one global slot,
   per-stage budgets, `maxRevisions`, a per-intent ceiling and the broker's limits.
-- **Previews stay apart from patchy.** They never share an edge, namespace or credential with patchy, and never run a
+- **Previews stay apart from maul.** They never share an edge, namespace or credential with maul, and never run a
   deliberately vulnerable app.
 
 ## Non-goals (first slice)
 
 - Previews (slice 2).
 - Multi-repo intents (slice 3). The types are per-repo lists from the start.
-- `/patchy revise`, review-driven rounds and automatic check-fix rounds (slice 1b).
+- `/maul revise`, review-driven rounds and automatic check-fix rounds (slice 1b).
 - Status-page or CLI actions on intents.
 - Rollups.
 - Dependency egress for agent pods. Dependencies are baked into the image the app repo declares.
@@ -133,12 +133,12 @@ within:
 - **The other components are unchanged in slice 1**: integration-, investigation-, remediation- and context-controller,
   and the status-server, apart from the command-vocabulary PR (which also narrows both copies of demo reset; see open
   question 6). Three things keep the Finding flow from ever acting on intent objects:
-  - Intent branches use the `patchy-intent/` prefix, which never matches the Finding PR handler's `patchy/` check.
+  - Intent branches use the `maul-intent/` prefix, which never matches the Finding PR handler's `maul/` check.
   - Intent Repositories never carry `LabelFinding`, so the Finding mappers ignore them (gate_controller.go:391,
     project.go:929).
   - Intent Jobs carry `run-kind=intent`, which both Finding job watches filter out (investigation_controller.go:745,
     remediation_controller.go:639).
-- **patchy CLI** gains Kinds entries for `projects`, `intents` and `intentruns`, rendered from their printcolumns. It
+- **maul CLI** gains Kinds entries for `projects`, `intents` and `intentruns`, rendered from their printcolumns. It
   gains no verbs.
 
 **Credentials and RBAC.**
@@ -150,7 +150,7 @@ within:
 - _Tokens._ `ghclient.TokenPerms` gains `Issues` and `PullRequests`. `forge.Store.TokenWith` mints a token per
   operation, scoped to one repository and one permission set, and caches it per (repo, perms) until shortly before it
   expires. The unscoped installation client is never used.
-- _Role in `patchy`:_
+- _Role in `maul`:_
   - `projects`: get/list/watch; `projects/status`: update.
   - `intents` and `intentruns`: full lifecycle, plus `status` and `finalizers`.
   - `repositories`: create/get/list/watch/delete.
@@ -158,7 +158,7 @@ within:
   - `configmaps`: create/get/update/delete.
   - `secrets`: get, restricted by `resourceNames`.
   - `events` and `leases`.
-- _In `patchy-agents`:_ its own copy of the agent-jobs Role (the evaluation precedent). There is no ClusterRole.
+- _In `maul-agents`:_ its own copy of the agent-jobs Role (the evaluation precedent). There is no ClusterRole.
 - _NetworkPolicy:_ egress to the API server and to GitHub on 443.
 - _Admission policy test:_ `internal/action/policy_test.go` skip-lists its ServiceAccount with the reason "writes no
   Finding spec".
@@ -168,17 +168,17 @@ within:
 **Jobs.** The intent flow reuses `jobs.Create` unchanged rather than adding a new Job flavour:
 
 - `Spec.Kind = "intent"`. `NameFor` gains an `intent → int` entry, which gives Job names of the form
-  `patchy-<hash>-int-a<n>`.
+  `maul-<hash>-int-a<n>`.
 - `Spec.Finding` and `Spec.Owner` carry the IntentRun name.
 - `issue.md` carries the intent snapshot to a plan Job, and is empty on a build Job: agent-runner refuses a build handed
   a request, because the approved plan is the build's whole contract. On a replan or revival, a plan Job's
   `investigation.md` carries the context file of the earlier work (see Planning). A build Job's `investigation.md`
   carries the approved plan and, for a revision, that round's feedback, the pull request's earlier approver thread, the
   previous round's failure if it failed, and the compare patch.
-- `stageEnvNames` gains a `build → PATCHY_REMEDIATE_*` mapping.
+- `stageEnvNames` gains a `build → MAUL_REMEDIATE_*` mapping.
 
 The golden Job YAMLs, `prepareScript` and `buildJob` stay byte-identical. The cost is some naming debt, documented at
-each seam: `PATCHY_FINDING` and `LabelFinding` hold a run name, and `investigation.md` holds a plan. This is harmless
+each seam: `MAUL_FINDING` and `LabelFinding` hold a run name, and `investigation.md` holds a plan. This is harmless
 because the only `LabelFinding` consumers index Investigations, Remediations and Repositories by Finding name, and an
 IntentRun name matches none of them.
 
@@ -186,33 +186,33 @@ The intent `jobs.Client` sets `AllowRepositoryImages`, `EphemeralStorage` and it
 `runnerguard.PinFor(spec, repo)` is added beside `Pin`, which is not touched. It has no revival rule: an intent brought
 back by its trigger label is a new plan and a new approval, not a Finding revival.
 
-**Per-stage configuration.** Each intent stage reads its Finding counterpart's keys (plan reads `PATCHY_INVESTIGATE_*`,
-build and revise read `PATCHY_REMEDIATE_*`), and only turns and tokens have a per-Job channel. A new `PATCHY_*` key
+**Per-stage configuration.** Each intent stage reads its Finding counterpart's keys (plan reads `MAUL_INVESTIGATE_*`,
+build and revise read `MAUL_REMEDIATE_*`), and only turns and tokens have a per-Job channel. A new `MAUL_*` key
 would add a blank to the repository-image golden, which blanks every key agent-runner reads. So intent-controller builds
 the `jobs.Client` for each launch from one base Config plus that run's stage env (`jobs.New` only wraps the clientset):
 
-- _Turns and tokens._ `grant.maxTurns` and `grant.tokenBudget` reach the pod as `PATCHY_GRANTED_*`. agent-runner only
-  lowers the stage's ceiling with them: `PATCHY_INVESTIGATE_MAX_TURNS`/`_TOKEN_BUDGET` for plan, and
-  `PATCHY_REMEDIATE_MANUAL_*` for build and revise. Unlike a remediation's grant, a build's has no floor at the
-  automated budget, so a Project that tightens a stage is honoured. `PATCHY_REMEDIATE_AUTO_*` applies only to a Job with
+- _Turns and tokens._ `grant.maxTurns` and `grant.tokenBudget` reach the pod as `MAUL_GRANTED_*`. agent-runner only
+  lowers the stage's ceiling with them: `MAUL_INVESTIGATE_MAX_TURNS`/`_TOKEN_BUDGET` for plan, and
+  `MAUL_REMEDIATE_MANUAL_*` for build and revise. Unlike a remediation's grant, a build's has no floor at the
+  automated budget, so a Project that tightens a stage is honoured. `MAUL_REMEDIATE_AUTO_*` applies only to a Job with
   no grant, and intent-controller always grants.
-- _Time._ A stage's wall clock is `PATCHY_INVESTIGATE_TIMEOUT` for plan and `PATCHY_REMEDIATE_TIMEOUT` for build and
+- _Time._ A stage's wall clock is `MAUL_INVESTIGATE_TIMEOUT` for plan and `MAUL_REMEDIATE_TIMEOUT` for build and
   revise, set in the launch's env to the run's granted timeout (the stage's limit, or the Project's shorter
   `limits.<stage>.timeout`), so build (60 m) and revise (45 m) differ. `grant.timeoutMilliseconds` records that value.
   The Job deadline follows it: the timeout plus 15 minutes, never under `--intent-job-deadline` (90 m), capped by
   `--intent-job-deadline-max`, which every stage timeout plus 15 minutes must fit under. The floor is not tied to the
   stage timeouts, so a longer stage stretches only its own Jobs.
 - _The build budget the plan is sized for._ The plan prompt states the most a build can be granted, which agent-runner
-  reads from the plan Job's `PATCHY_REMEDIATE_MANUAL_*`, the build stage's own ceiling. The plan launch sets it to the
+  reads from the plan Job's `MAUL_REMEDIATE_MANUAL_*`, the build stage's own ceiling. The plan launch sets it to the
   grant the Project's build will receive (its build limit, clamped by the controller's flag), with
-  `PATCHY_REMEDIATE_AUTO_*` no higher, as agent-runner requires. The build launch uses the same ceiling.
+  `MAUL_REMEDIATE_AUTO_*` no higher, as agent-runner requires. The build launch uses the same ceiling.
 
 ### Custom resources
 
-All of them are in `patchy.bitwisemedia.uk/v1alpha1`, in namespace `patchy`, with `categories=patchy`. Every field is
+All of them are in `maul.run/v1alpha1`, in namespace `maul`, with `categories=maul`. Every field is
 bounded. Nothing goes into `transitions.go`.
 
-**Name budget.** Intent and IntentRun names are written into label values: `patchy.bitwisemedia.uk/intent` and
+**Name budget.** Intent and IntentRun names are written into label values: `maul.run/intent` and
 `intent-run` on Repositories, and `LabelOwner` and `LabelFinding` on Jobs and transcripts. Label values are capped at 63
 characters, and a Job is mapped back to its run by the exact value, so no derived name may be truncated. The longest
 name is a build run's:
@@ -232,12 +232,12 @@ names, and a seeded property test checks that they are label-safe and unique wit
 
 **Project** is operator config.
 
-- **Writers.** The operator writes the spec through the patchy-config chart; only intent-controller writes status.
+- **Writers.** The operator writes the spec through the maul-config chart; only intent-controller writes status.
   Writing `projects` is admin-only in RBAC, because a Project is the power to point agents at repositories.
 - **Spec:**
   - `intentRepository`, immutable (CEL-enforced). Intent names leave the repository out, so a Project moved to another
     intent repo would find its new issues' names held by the old repo's Intents. Moving a project means a new Project.
-  - `labels.trigger` (default `patchy:<name>`) and `labels.approve` (default `patchy:approved`). The schema refuses a
+  - `labels.trigger` (default `maul:<name>`) and `labels.approve` (default `maul:approved`). The schema refuses a
     derived trigger that equals the approve label.
   - `approvers.logins[]` (1-20): the only logins whose trigger, approval and review feedback count
   - `repositories[]` (at most 8; slice 1 enforces exactly 1) `{name, url}`, where the first entry is the planning repo.
@@ -338,7 +338,7 @@ names, and a seeded property test checks that they are label-safe and unique wit
 **Repository** is reused as it is.
 
 - intent-controller creates and deletes it. Its owner is the IntentRun. It carries the labels
-  `patchy.bitwisemedia.uk/intent` and `patchy.bitwisemedia.uk/intent-run`, and never `LabelFinding`.
+  `maul.run/intent` and `maul.run/intent-run`, and never `LabelFinding`.
 - Status is still written only by source-controller.
 - The build-round Repository (R0) is the runner-image anchor and is kept until the intent completes. Plan and revise
   Repositories are deleted once their run is collected.
@@ -353,7 +353,7 @@ in `intent_types.go`, following the idiom of `transitions.go` but separate from 
 - `AwaitingApproval` → `Building` when an approval is accepted, or back to `Planning` when an approver re-applies the
   trigger label to request a replan.
 - `Building` → `InReview` once every PR is open.
-- `InReview` → `Revising` → `InReview`, for a review round, a `/patchy revise`, or a check-fix round. A failed round
+- `InReview` → `Revising` → `InReview`, for a review round, a `/maul revise`, or a check-fix round. A failed round
   returns to `InReview` with a condition set and a notice posted.
 - Any non-terminal phase → `Blocked` on `maxRevisions`, the cost ceiling, a missing or rejected repository image, or a
   tripped breaker. `Blocked` is re-evaluated when the Project changes, so raising a limit resumes the intent.
@@ -361,8 +361,8 @@ in `intent_types.go`, following the idiom of `transitions.go` but separate from 
   `Blocked`, so `Revising` → `Merged` and `Blocked` → `Merged` exist too, mirroring the edges to `Closed`. PR state is
   polled in both phases. The running round's Job is deleted through the finalizer, and no false resume through
   `InReview` is recorded while a block still holds.
-- Any non-terminal phase → `Closed` when a human closes the intent issue or runs `/patchy cancel`, or when every PR is
-  closed unmerged. For cancel and the closed PRs, patchy closes the issue itself.
+- Any non-terminal phase → `Closed` when a human closes the intent issue or runs `/maul cancel`, or when every PR is
+  closed unmerged. For cancel and the closed PRs, maul closes the issue itself.
 - `Planning` or `Building` → `Failed` when attempts are exhausted or the plan is invalid twice. Entering `Failed`
   removes the trigger label from the issue and stamps `completedAt`. An approver applying the label again revives the
   intent to `Planning`.
@@ -372,14 +372,14 @@ in `intent_types.go`, following the idiom of `transitions.go` but separate from 
 ### End-to-end flow (slice 1)
 
 1. **Trigger.** A human opens an issue in `devthenet-labs/intents` through the project's issue form, which applies
-   `patchy:target`.
+   `maul:target`.
 2. **Discovery.** Within one poll interval (default 60 s), the conditional list returns the issue. The reconciler reads
    the issue's events and takes the actor of the newest `labeled` event for the trigger label that is newer than the
    issue's last `closed` event:
    - An actor outside `approvers.logins`, or a Bot, gets one notice, the trigger label is removed, and the Intent goes
      to `Closed`.
    - Otherwise the Intent moves from `Pending` to `Planning`, and the status comment
-     `<!-- patchy:intent patchy/target-1 -->` is posted exactly once.
+     `<!-- maul:intent maul/target-1 -->` is posted exactly once.
 3. **Planning.**
    - Snapshot the issue title and body into the immutable ConfigMap `<intent>-input-r<N>`, together with its digest. On
      a replan or revival, the snapshot also includes approver comments made since the last plan.
@@ -391,7 +391,7 @@ in `intent_types.go`, following the idiom of `transitions.go` but separate from 
      - the outcome and detail of the intent's latest build, revise or check-fix run, when that run failed, capped at 4
        KiB.
      - the approvers' comments on the issue from the trigger up to the previous plan's posting, under the snapshot's
-       filters (no outsider, no bot, nothing patchy wrote, nothing edited). The newest are kept within 16 KiB, and a
+       filters (no outsider, no bot, nothing maul wrote, nothing edited). The newest are kept within 16 KiB, and a
        line counts the older comments left out. An edited comment is skipped, never fatal.
      - the working notes of each repository's latest build, revise or check-fix run that wrote any, failed or not, each
        cut at 6 KiB (see "Working notes" below).
@@ -418,7 +418,7 @@ in `intent_types.go`, following the idiom of `transitions.go` but separate from 
      and column. The approver reads the plan verbatim and its digest covers every byte, so no byte may be one the
      approver cannot see. For the same reason no visible text may sit out of view: the layout rule (see "Plan contract
      and output sanitisation") refuses padding and stacked combining marks, with where they start. The build report
-     follows the visible-text rule but not the layout rule: no approver reads it in a code block, and patchy renders the
+     follows the visible-text rule but not the layout rule: no approver reads it in a code block, and maul renders the
      pull request's description itself.
    - A report the pod refuses for any of these rules, or does not find, is first repaired: agent-runner asks the agent,
      in its own session, to fix it, for at most two rounds within what the stage has left, and a build's repair may
@@ -430,7 +430,7 @@ in `intent_types.go`, following the idiom of `transitions.go` but separate from 
 5. **Write-back.**
    - Remove the approve label if it is present.
    - Post the plan comment, which shows the ConfigMap bytes verbatim in a code block (see below), with the marker
-     `<!-- patchy:plan patchy/target-1 r1 sha256:<12> -->`. A plan the comment cannot show in full is invalid: patchy
+     `<!-- maul:plan maul/target-1 r1 sha256:<12> -->`. A plan the comment cannot show in full is invalid: maul
      posts a refusal notice instead and asks for a new plan.
    - Record `commentID`, `commentDigest`, and `postedAt` as returned by GitHub.
    - Move to `AwaitingApproval`.
@@ -463,10 +463,10 @@ in `intent_types.go`, following the idiom of `transitions.go` but separate from 
    - Push in two phases:
      1. `CreateCommit`.
      2. Persist `pushedCommit`.
-     3. `CreateRef patchy-intent/<intent>`. This is create-only. A 422 is adopted only when the ref already points at
+     3. `CreateRef maul-intent/<intent>`. This is create-only. A 422 is adopted only when the ref already points at
         `pushedCommit`; otherwise the outcome is `branch_exists`. Nothing is ever forced.
    - Open the PR against the default branch with a controller-rendered body. An open PR already found from the branch
-     into the default branch (one a failed pass opened) is adopted only when patchy's bot opened it from the repository
+     into the default branch (one a failed pass opened) is adopted only when maul's bot opened it from the repository
      itself: anyone can open a PR from an existing branch of a public repository, with any body. Any other blocks the
      Intent with `BranchConflict` until it is closed, since GitHub keeps one open PR per head and base.
    - Record the PR's `{repository, number, url, nodeID, headSHA}`, move to `InReview`, and link the PR from the status
@@ -475,7 +475,7 @@ in `intent_types.go`, following the idiom of `transitions.go` but separate from 
    from an approver starts a 2-minute quiet window. Later reviews from approvers extend the window, up to 10 minutes.
 10. **Revise.**
     - Check limits. If one is exceeded, the Intent goes to `Blocked` with a notice.
-    - Create a Repository with `ref.branch = patchy-intent/<intent>`. This pins the current PR head, including any human
+    - Create a Repository with `ref.branch = maul-intent/<intent>`. This pins the current PR head, including any human
       commits.
     - Render into `investigation.md`, after the plan: the latest working notes, the previous round's outcome if it
       failed, the earlier approver thread as context, the round's new feedback (or its check failures) and the compare
@@ -493,7 +493,7 @@ in `intent_types.go`, following the idiom of `transitions.go` but separate from 
     `state_reason: completed`.
 
     If a human closes the intent issue, or every PR is closed unmerged, the Intent moves to `Closed` instead. When every
-    PR was closed, patchy closes the issue with `state_reason: not_planned`. Running Jobs are deleted through the
+    PR was closed, maul closes the issue with `state_reason: not_planned`. Running Jobs are deleted through the
     finalizer, and open PRs are left to the human.
 
 13. **TTL.** 14 days after `completedAt`, the Intent is deleted in the foreground and everything it owns cascades.
@@ -510,7 +510,7 @@ TTL deletes it along with the Intent. A new Intent could also meet the objects o
     the trigger label on entry. The removal comes before the status write that enters the phase and is idempotent (a
     label already gone counts as removed). A restart in between repeats it, and `completedAt`, from which the TTL
     counts, is never set while the label is still there.
-  - `/patchy cancel` and every PR closed unmerged close the issue (`state_reason: not_planned`), the same way that
+  - `/maul cancel` and every PR closed unmerged close the issue (`state_reason: not_planned`), the same way that
     `Merged` closes it as completed. A human's close needs nothing more.
   - Revival from `Failed` is therefore an approver applying the label again. That is also the new `labeled` event that
     revival needs, because GitHub records no event for a label that is already on the issue.
@@ -527,7 +527,7 @@ TTL deletes it along with the Intent. A new Intent could also meet the objects o
   its `intentRef` UID, which the schema requires, and a ConfigMap or Repository by the UID of its controller owner
   reference (this Intent, or one of this Intent's runs). Anything else is left alone, and the create is retried after a
   backoff.
-- **The branch outlives its Intent.** Nothing deletes `patchy-intent/<intent>` when an intent ends (GitHub keeps a
+- **The branch outlives its Intent.** Nothing deletes `maul-intent/<intent>` when an intent ends (GitHub keeps a
   merged or closed pull request's head branch unless the repository deletes it on merge), and the branch is named after
   the Intent alone, so a name taken again meets its first holder's branch. Before a build launches, intent-controller
   reads the branch: when it exists at a commit none of this Intent's runs pushed (a namesake's, or someone else's), the
@@ -543,12 +543,12 @@ TTL deletes it along with the Intent. A new Intent could also meet the objects o
 
 ### Human commands: one vocabulary
 
-Every human action in patchy is one verb from one vocabulary, whatever surface it arrives on. `internal/action` already
+Every human action in maul is one verb from one vocabulary, whatever surface it arrives on. `internal/action` already
 holds that vocabulary for the status page and the CLI (`approve`, `retry`, `expedite`, `suspend`, `resume`). GitHub,
 however, has only the ad-hoc `/approve` comment, and this design adds labels and reviews. Rather than three mechanisms,
 there is one grammar, and everything else is an alias for it.
 
-- **Grammar.** `/patchy <verb> [note]` as the first line of a comment. The note is at most 1 KiB, with control
+- **Grammar.** `/maul <verb> [note]` as the first line of a comment. The note is at most 1 KiB, with control
   characters stripped, and so are the characters that make text read differently from what it holds: bidi overrides and
   isolates, tag characters, U+FEFF, and stacked variation selectors. Other format characters, such as the ZWJ in emoji
   and the ZWNJ in Persian, are ordinary text and stay. Which verbs apply depends on where the comment is:
@@ -563,10 +563,10 @@ there is one grammar, and everything else is an alias for it.
   registry, so when intents gain status-page or CLI actions (slice 5) they use the same names.
 
 - **Aliases, not second mechanisms.** Each shortcut maps to a verb and gets the same authorisation and acknowledgement:
-  - adding the approve label (`patchy:approved`) is `/patchy approve`;
-  - re-applying the trigger label is `/patchy replan`;
-  - a "Request changes" review is `/patchy revise`, with the review as the note;
-  - `/approve` on a Finding tracking issue stays as a deprecated alias for `/patchy approve`.
+  - adding the approve label (`maul:approved`) is `/maul approve`;
+  - re-applying the trigger label is `/maul replan`;
+  - a "Request changes" review is `/maul revise`, with the review as the note;
+  - `/approve` on a Finding tracking issue stays as a deprecated alias for `/maul approve`.
 - **One authorisation rule.** For every verb arriving from GitHub, the actor must have write access to the repository
   (the collaborator-permission API: `admin`, `maintain` or `write`, checked by `ghclient.CanWrite`) and must not be a
   Bot. For intents the actor must also be in the Project's `approvers.logins`. `author_association` is no longer used.
@@ -583,11 +583,11 @@ there is one grammar, and everything else is an alias for it.
   the label, so the actor is the only way to recognise them. An answered action is consumed whatever the outcome, so it
   never takes effect later; for `replan` and its trigger-label alias the record is `lastTrigger`. On an intent issue
   every comment is also consumed by `status.commands.seen`, the newest comment the poll has settled: no later poll reads
-  a comment at or before it, so a command is never answered twice even after patchy's reply is deleted, and each poll
+  a comment at or before it, so a command is never answered twice even after maul's reply is deleted, and each poll
   lists the thread only from there.
 - **Edited comments are not commands.** GitHub lets anyone with write access edit anyone's comment, and the comment
   still names its original author. REST `updated_at` is only a hint: it can move when a pending review is submitted
-  without an edit, and a same-second edit can leave it equal to `created_at`. Patchy decides edited or unedited only
+  without an edit, and a same-second edit can leave it equal to `created_at`. Maul decides edited or unedited only
   from GraphQL `lastEditedAt` and `includesCreatedEdit` for issue comments, PR conversation comments, reviews and inline
   review comments. An edited command gets one reply saying so, and its author can post the command again. Edited
   approver comments are left out of replan and revise feedback; a plan comment edited in place is refused for approval
@@ -602,7 +602,7 @@ there is one grammar, and everything else is an alias for it.
   the command line.
 
 Sequencing: slice 1a ships the parser, the intent verbs `approve`, `replan` and `cancel` with their label aliases, and,
-as its own PR, the Finding migration (`/patchy <verb>`, the `/approve` alias, and the write-permission check). Slice 1b
+as its own PR, the Finding migration (`/maul <verb>`, the `/approve` alias, and the write-permission check). Slice 1b
 adds `revise` with its review alias, and `retry` on intent PRs.
 
 Status: the parser is done, and so is the Finding migration. A Finding's tracking issue takes all five verbs through
@@ -701,11 +701,11 @@ sanitiser's list of markdown tricks reaches. HTML comments, `<details>`, link re
 fence's info string and a table cell past the header's count all hide text on GitHub. A trick missing from that list, or
 one GitHub adds later, would hide text that the build agent still reads, and the approval would bind a digest of bytes
 the approver never saw. A code block needs no list. Nothing inside it renders, so markup, mentions, issue references and
-closing keywords are shown as the text they are and do nothing. The only way to end the block is its fence, and patchy
+closing keywords are shown as the text they are and do nothing. The only way to end the block is its fence, and maul
 chooses the fence after reading the plan.
 
 GitHub refuses a comment of more than 65,536 characters. The plan contract bounds the report at 64 KiB, but a report
-near that bound does not fit alongside the header, which is about 1 KiB. patchy never cuts a plan short. If the rendered
+near that bound does not fit alongside the header, which is about 1 KiB. maul never cuts a plan short. If the rendered
 comment would exceed the limit (counted in bytes, since a character is at least one byte), the renderer returns
 `ErrPlanRefused` together with a notice to post instead. The notice says the plan is too large to show and is refused,
 and quotes none of the plan. It carries a notice marker rather than the plan marker, so nothing can find it as a plan to
@@ -756,13 +756,13 @@ closing-keyword grammar never matches there. What it does:
   included. Seeded properties read the raw commit message, PR title and PR body as plain text: none holds a closing
   keyword with a reference, and the only reference is the intent issue's.
 - **The controller composes the commit message:** `<project>: <summary> (<intent repo>#N, round k)`, plus the trailers
-  `Patchy-Intent:` and `Patchy-Run:`. The agent's own commit messages are dropped. It also composes the PR title,
+  `Maul-Intent:` and `Maul-Run:`. The agent's own commit messages are dropped. It also composes the PR title,
   `<project>: <summary>`, which a squash commit uses as its subject.
 
 This matters for the security flow. A Finding's tracking issue lives in the same app repo, and `Signals.issues` moves
 any non-terminal Finding to `HandedOff` when its tracking issue is closed, no matter who closed it (webhooks.go:85-91).
 An agent-written `Fixes #N` merged to the default branch would therefore silently pull a security finding out of
-automated remediation. Intent PR bodies refer to the intent issue as `Part of devthenet-labs/intents#N`, and patchy
+automated remediation. Intent PR bodies refer to the intent issue as `Part of devthenet-labs/intents#N`, and maul
 closes the intent issue itself.
 
 ### Revise loop: inputs and bounds
@@ -780,8 +780,8 @@ closes the intent issue itself.
     omitted" line. An older item since edited, deleted or no longer an approver's, or one GitHub fails to verify, is
     left out; only the round's own consumed reviews and command fail the round that way. Items are verified newest first
     and only until the section is full, for the new feedback too.
-  - patchy's own comments (its bot, any bot account, anything carrying its marker), non-approvers' comments and bare
-    `/patchy` commands are never included; a command's note is.
+  - maul's own comments (its bot, any bot account, anything carrying its marker), non-approvers' comments and bare
+    `/maul` commands are never included; a command's note is.
   - When the round before, in the same repository and plan revision, failed, `### Previous round's outcome` carries its
     outcome and detail (at most 4 KiB), fenced as data.
   - A check-fix round gets the earlier thread and the previous outcome too, all as context: its own input is its check
@@ -804,7 +804,7 @@ closes the intent issue itself.
   - The controller re-parses `status.report` with `report.ParseBuild` (a repository's image is untrusted) and skips a
     report that does not parse. It takes the section up to the next level-1 or level-2 heading outside a code fence,
     escapes it to visible text (its backticks too when a fence around them would not fit), cuts it at 6 KiB with a
-    visible "patchy truncated these working notes" line (an over-long note is never refused) and fences it as data.
+    visible "maul truncated these working notes" line (an over-long note is never refused) and fences it as data.
   - A replan's or revival's context file carries each repository's latest notes the same way.
 - **Notes for the builder.** A plan may end with a `## Notes for the builder` section: what the build should know that
   the steps do not say, under 4 KiB by the prompt. It is part of the plan, so the approver reads it verbatim and the
@@ -816,7 +816,7 @@ closes the intent issue itself.
   included, and refuses the build otherwise. So the controller renders every character of the round that the rule
   refuses as a visible `<U+XXXX>` escape, whether it comes from feedback, the compare patch (source may hold a BOM or a
   ZWJ) or check output. CRLF passes as it is: GitHub returns comment bodies CRLF-terminated.
-- **Idempotency.** Consumed review IDs, and the command comment ID of a `/patchy revise`, are recorded on the IntentRun
+- **Idempotency.** Consumed review IDs, and the command comment ID of a `/maul revise`, are recorded on the IntentRun
   spec, so a restart or a repeated poll never runs a round twice. The round's number comes from the Intent's `rounds`
   ordinal, which a failed round advances too, so a later round never reuses a failed round's run name. When filtering
   leaves no substantive, authorised feedback, the round returns to `InReview` with one notice and no agent launch. It
@@ -847,20 +847,20 @@ closes the intent issue itself.
 
 ### Failed checks: automatic fix rounds
 
-A PR that patchy opened can fail CI even though the build agent ran the tests in the app's own image: CI covers what the
+A PR that maul opened can fail CI even though the build agent ran the tests in the app's own image: CI covers what the
 sandbox cannot, such as other platforms, integration tests and lint configuration. In slice 1b, intent-controller
 iterates on those failures itself, using the revise machinery.
 
-- **Trigger.** After every patchy push (build or revise), the controller polls the PR head's check runs and commit
+- **Trigger.** After every maul push (build or revise), the controller polls the PR head's check runs and commit
   statuses until they settle, or until `checks.timeout` (default 30 m) passes. If any check the Project names concluded
   `failure`, `timed_out` or `startup_failure`, or any commit status it names reports `failure` or `error`, a fix round
   starts without a human. The approved plan already covers the work, and the round is bounded. Cancelled, skipped and
   neutral checks do not count.
 - **Which checks.** `Project.spec.checks.fix[]` is an explicit list of check names (a check run's name, or a commit
-  status's context), such as `test` and `lint`. An empty list means patchy never auto-fixes: a failing check is reported
-  in the status comment, and an approver can run `/patchy revise`. The list is explicit because a flaky or unrelated
+  status's context), such as `test` and `lint`. An empty list means maul never auto-fixes: a failing check is reported
+  in the status comment, and an approver can run `/maul revise`. The list is explicit because a flaky or unrelated
   check would otherwise burn budget, as the CodeQL zero-rule upload glitch would have.
-- **Only on patchy's own head.** A fix round starts only when the failing head is the commit patchy pushed. If a human
+- **Only on maul's own head.** A fix round starts only when the failing head is the commit maul pushed. If a human
   has pushed since, the failure is reported and a human decides.
 - **A re-run first (opt-in).** With `checks.rerunFailed`, the first failure at a head re-runs the failed jobs of the
   GitHub Actions run behind it once (`POST .../actions/runs/{id}/rerun-failed-jobs`), recorded on the pull request so a
@@ -920,7 +920,7 @@ iterates on those failures itself, using the revise machinery.
 It must also pass a deny-list that applies whichever image the run used:
 
 - `.github/**`;
-- `.patchy/**`, including `.patchy/Dockerfile`, the agent-image recipe that main's CI builds into the allowlisted ECR
+- `.maul/**`, including `.maul/Dockerfile`, the agent-image recipe that main's CI builds into the allowlisted ECR
   prefix;
 - `.devcontainer/**`.
 
@@ -934,8 +934,8 @@ whatever tree it pins (runner_image.go:162-170), and a revise round pins the PR 
 ### Multi-repo: types now, behaviour in slice 3
 
 - One Job per app repo, each running in that repo's own image.
-- Each repo gets its own Repository, changeset and PR, all on the branch `patchy-intent/<intent>`.
-- PRs are correlated only by the (repository, number, nodeID) patchy recorded when it opened them, never by head ref.
+- Each repo gets its own Repository, changeset and PR, all on the branch `maul-intent/<intent>`.
+- PRs are correlated only by the (repository, number, nodeID) maul recorded when it opened them, never by head ref.
   PRs from forks are rejected.
 - The Intent is `Merged` when every one of its PRs is merged.
 
@@ -946,7 +946,7 @@ Slice 1 enforces one repository per Project.
 **Status:** Proposed 2026-10-03; implemented behind `--intent-multi-repo` (off by default), wave A in 0.12.14 and wave B
 in the release after it, end to end in `e2e/intent_multirepo_test.go`. The live demo (marigold) is still to run. Line
 references are to `main` at 5052706. This section replaces "Multi-repo: types now, behaviour in slice 3" and narrows the
-roadmap's slice 3: the sibling-wide `/patchy revise` and the webhook nudge are deferred. Estimate: about 7-9 dev days
+roadmap's slice 3: the sibling-wide `/maul revise` and the webhook nudge are deferred. Estimate: about 7-9 dev days
 plus 1 infra day.
 
 One intent can now change several app repositories of a Project and preview them together:
@@ -954,7 +954,7 @@ One intent can now change several app repositories of a Project and preview them
 - one read-only plan over every repository's tree;
 - one build per repository the approved plan names, each in that repository's own image, run in parallel up to the run
   pool's slots;
-- one PR per built repository on `patchy-intent/<intent>`, cross-linked;
+- one PR per built repository on `maul-intent/<intent>`, cross-linked;
 - `Merged` only when every PR has merged, with a stated partial-failure policy;
 - revise and check-fix rounds per PR repository;
 - one preview host that routes paths to one component per previewed repository, with unchanged repositories running
@@ -965,7 +965,7 @@ preview image path prefix.
 
 **Not in slice 3:**
 
-- one `/patchy revise` that revises every sibling PR;
+- one `/maul revise` that revises every sibling PR;
 - concurrent revise rounds within one intent;
 - server-side calls between preview components;
 - the webhook nudge;
@@ -1000,7 +1000,7 @@ preview image path prefix.
   - _Script:_ a trees script is appended to the prepare init after `prepareScript`, the way `injectScript` is. It
     extracts each tree, digest-verified, to `/workspace/repos/<key>`, with no git init. The primary tree stays at
     `/workspace/repo`, the cwd.
-  - _No new `PATCHY_*` key._ Every key agent-runner reads is blanked on repository-image Jobs, so a new key would change
+  - _No new `MAUL_*` key._ Every key agent-runner reads is blanked on repository-image Jobs, so a new key would change
     the injected golden and every build Job.
 - **Refusals.** `jobs.Create` refuses `Trees` together with any of:
   - a phase other than `plan`;
@@ -1033,7 +1033,7 @@ preview image path prefix.
   reads the plan verbatim and can ask for a replan.
 - **Unchanged.** The snapshot format (it already lists every repository URL) and the plan digest.
 - **Plan comment.** When the plan names more than one repository, the header gains one line outside the verbatim block,
-  built from the validated frontmatter: "patchy opens one pull request in each of: owner/a, owner/b".
+  built from the validated frontmatter: "maul opens one pull request in each of: owner/a, owner/b".
 
 ### Build: one Job per repository
 
@@ -1056,7 +1056,7 @@ preview image path prefix.
   per repository, and each build runs on its own R0 pin and accepted image.
 - **Each build's contract does not change.**
   - `investigation.md` is the approved plan, byte-identical and re-hashed at launch, and `issue.md` stays empty.
-  - The build's repository comes from the controller-set `PATCHY_REPO`, which is already
+  - The build's repository comes from the controller-set `MAUL_REPO`, which is already
     `repoSlug(run.spec.repository.url)`, matched against the plan's `repositories`.
   - With more than one repository, agent-runner requires exactly one match and renders
     `BuildPrompt.ThisRepository/Siblings`: build only this repository's steps; the siblings are built by their own runs;
@@ -1077,11 +1077,11 @@ preview image path prefix.
 - **PRs open only once every approved repository's build is Complete.** A Failed intent therefore never leaves a PR
   behind.
   - The records are upserted by repository (the list key), one per pass, while the Intent stays `Building`.
-  - A block while opening a PR (a foreign PR, a branch that moved) names its repository; on resume patchy carries on
+  - A block while opening a PR (a foreign PR, a branch that moved) names its repository; on resume maul carries on
     with the rest.
 - **Cross-links.**
-  - Once every PR is recorded, and before the status write that enters `InReview`, patchy posts one sibling comment on
-    each PR, marked `<!-- patchy:intent-siblings <intent> -->`. It lists every sibling PR by URL.
+  - Once every PR is recorded, and before the status write that enters `InReview`, maul posts one sibling comment on
+    each PR, marked `<!-- maul:intent-siblings <intent> -->`. It lists every sibling PR by URL.
   - A repeated pass adopts the bot-authored marker rather than posting again.
   - No PR body is ever edited, and the GitHub seam gains nothing. The body gains only a footer with no references: one
     of N pull requests, in owner/a and owner/b, and the intent completes when every one has merged. The plain-text
@@ -1090,7 +1090,7 @@ preview image path prefix.
   - `Merged` only when every PR has merged.
   - When every PR has settled and at least one closed unmerged, the Intent is `Closed`. The issue is closed
     `not_planned`, with a notice naming what merged (already on its default branch) and what did not.
-  - patchy never closes a sibling because another one closed.
+  - maul never closes a sibling because another one closed.
   - One-PR intents end exactly as they do today.
 
 ### Revise and check-fix rounds
@@ -1098,7 +1098,7 @@ preview image path prefix.
 - **Per PR repository, at most one round in flight per Intent.**
   - `Revising` stays a phase of the whole Intent, and each round has exactly one repository, `run.spec.repository.url`.
   - `rounds`, `revisions` and `checkFixes` stay per-intent counters, held against per-intent limits.
-  - A review on PR A revises repository A, `/patchy revise` on PR B revises B, and a failed named check on C's patchy
+  - A review on PR A revises repository A, `/maul revise` on PR B revises B, and a failed named check on C's maul
     head starts a check-fix round for C.
 - **Every one-PR assumption becomes a lookup by the round's repository:**
   - the round notice (its marker is unchanged, since round numbers never repeat);
@@ -1145,7 +1145,7 @@ preview image path prefix.
     never edited, since a squash merge can copy it onto the default branch.
   - _When live:_ the Preview is this Intent's (UID), not deleting, has observed its generation, its spec and its Ready
     components equal `DesiredPreviewComponents`, and `status.url` is `https://<intent>.<suffix>` with nothing else. A
-    Ready preview at any other URL shows as one patchy does not link.
+    Ready preview at any other URL shows as one maul does not link.
   - _Never posted:_ `status.message`, which can quote the cluster; a failure names the Preview resource instead.
   - _Best effort:_ each write asks its own repository's rate floor, a departed repository gets nothing, a refusal is
     retried only once the comment would say something else, a failed read shows no link, and an ended intent's last edit
@@ -1160,7 +1160,7 @@ preview image path prefix.
   - _An image still being published_ is covered by the rollout timeout: the pull keeps retrying.
 - **Rendering.**
   - _Per component:_ a Deployment and a Service named `preview-<preview>-<component>` (at most 58 characters). Their
-    selectors carry a new label, `patchy.bitwisemedia.uk/preview-component`, so no Service selects a sibling's pods.
+    selectors carry a new label, `maul.run/preview-component`, so no Service selects a sibling's pods.
   - _One Ingress,_ `preview-<preview>`, with one host and one `Prefix` path per component, longest first.
   - _Health checks:_ each Service carries its own `alb.ingress.kubernetes.io/healthcheck-path`, and the Ingress-level
     annotation is the `/` component's.
@@ -1184,7 +1184,7 @@ preview image path prefix.
 
 ### Naming and the preview image prefix
 
-- **patchy has no rule about repository names.**
+- **maul has no rule about repository names.**
   - URLs accept any owner and name.
   - Object names use the Project name and the repository key (a DNS label of at most 16 characters, chosen by the
     operator).
@@ -1193,7 +1193,7 @@ preview image path prefix.
     repository named `Acme.Web_App`.
 - **The prefix is the operator's.**
   - The chart's `preview.imageRepositoryPrefix` is the full `<registry>/<path>/`. Empty falls back to
-    `<imageRegistry>/patchy/previews/`, and that render is byte-identical to today's.
+    `<imageRegistry>/maul/previews/`, and that render is byte-identical to today's.
   - One helper feeds both the preview-controller ConfigMap and the slot VAP.
   - The render fails when the prefix lacks a trailing slash or a path segment. It also fails when the prefix and any
     `agent.repositoryImages.registries` entry are prefixes of one another: a PR-built runtime image must never be
@@ -1211,7 +1211,7 @@ preview image path prefix.
 ### API changes
 
 The fields are additive and the Preview bounds relax, but the new CEL rules tighten (see **Rollback** below for what
-that means for a CRD rollback). `mise run codegen` regenerates both CRD copies and the patchy-config schema.
+that means for a CRD rollback). `mise run codegen` regenerates both CRD copies and the maul-config schema.
 
 - **Project.**
   - `repositories[].preview` (optional).
@@ -1238,7 +1238,7 @@ that means for a CRD rollback). `mise run codegen` regenerates both CRD copies a
   is a header line outside the block, listing the repositories from the validated frontmatter.
 - **Builds get only the approved plan.** Every build's `investigation.md` is the approved plan, re-hashed at launch, and
   `issue.md` stays empty. No new input reaches a build:
-  - which repository a build is in comes from the controller's `PATCHY_REPO`;
+  - which repository a build is in comes from the controller's `MAUL_REPO`;
   - the sibling list comes from the approved plan's own frontmatter.
 - **Per-repository accepted images.**
   - Each build runs on its own repository's R0 pin and accepted image, under the existing `requireRepositoryImage` rule.
@@ -1303,7 +1303,7 @@ Two benign Go repositories, named freely: `devthenet-labs/marigold-web` and `dev
 
 Both serve `/healthz`, so the health check works even if Auto Mode ignores per-Service annotations. Each repository has:
 
-- its own `.patchy/agent.yaml` toolchain image under `patchy/app-envs/<slug>`;
+- its own `.maul/agent.yaml` toolchain image under `maul/app-envs/<slug>`;
 - an uncredentialed CI job named `test`;
 - a trusted `workflow_run` publisher, copied from patchy-preview-demo with its constants moved to repository variables.
 
@@ -1312,7 +1312,7 @@ Both serve `/healthz`, so the health check works even if Auto Mode ignores per-S
 - **S1. Planning.** One plan Job reads every tree read-only on the default image. The primary tree is the cwd, and the
   others sit under `/workspace/repos/<key>`. Per-repository plans would break the one-plan, one-digest approval.
 - **S2. Builds.** One build per approved repository. Each is handed the whole approved plan byte-identical, and learns
-  which repository it is in from `PATCHY_REPO`.
+  which repository it is in from `MAUL_REPO`.
 - **S3. Plan shape.** The plan's shape is asked for in the prompt, not parsed.
 - **S4. Building failures.** Attempts exhausted in any repository fail the Intent. Blocks name their repository. PRs
   open only after every build has pushed. A stale branch from an earlier round blocks before any spend.
@@ -1359,9 +1359,9 @@ The section above was critiqued adversarially; these decisions supersede it wher
 - **Cosmetic writes never gate a phase:** the sibling cross-link comment is posted after the InReview transition, best
   effort with retry and a condition on failure.
 - **The configurable preview image prefix moves to "Deployable by others"**, together with an enforced rule that the
-  preview and agent-image prefixes are disjoint. Slice 3 keeps `<registry>/patchy/previews/<leaf>`; the leaf is any
+  preview and agent-image prefixes are disjoint. Slice 3 keeps `<registry>/maul/previews/<leaf>`; the leaf is any
   operator-chosen slug, so app repositories are freely named. _Implemented in W1:_ the value is the path only,
-  `preview.imagePathPrefix` (default `patchy/previews`, never empty), beside the existing `preview.imageRegistry`, not
+  `preview.imagePathPrefix` (default `maul/previews`, never empty), beside the existing `preview.imageRegistry`, not
   the full `preview.imageRepositoryPrefix` above. The leaf did change, to the controller's DNS label (the schema
   admitted `app-` and `-app` before). Disjointness is enforced in three places: the chart's render (segment boundaries,
   with case, `:443` and ECR's dual-stack and FIPS host names folded), the terraform modules' variable validation
@@ -1378,28 +1378,28 @@ The section above was critiqued adversarially; these decisions supersede it wher
 ## Multi-project model (D3)
 
 - **Intent repos.** One private intent repo for the org, `devthenet-labs/intents`, with one issue form per project that
-  applies `patchy:<project>`. That label both triggers the work and names the project; the issue body is never parsed
+  applies `maul:<project>`. That label both triggers the work and names the project; the issue body is never parsed
   for routing. A project may instead name its own intent repo. When two Projects share a repo, their labels must differ;
   otherwise the Project reports `AmbiguousIntentRepository`.
 - **One Project per issue.** An issue with two Project trigger labels waits for one to be removed; neither Project
   creates an Intent from it. If an issue already has an Intent, a later Project's trigger is removed and the conflict is
-  reported. An approval label or `/patchy approve` is refused if two Intents somehow exist for the issue. This makes the
+  reported. An approval label or `/maul approve` is refused if two Intents somehow exist for the issue. This makes the
   approval refer to one posted plan even though Projects share an intent repository.
-- **Registration.** One Project CR per project, delivered through patchy-config values. `hack/codegen.sh` is extended to
+- **Registration.** One Project CR per project, delivered through maul-config values. `hack/codegen.sh` is extended to
   emit the Project schema; today it covers only Integration and Forge.
-- **Namespace.** Everything runs in namespace `patchy`, because the controllers are single-namespace.
+- **Namespace.** Everything runs in namespace `maul`, because the controllers are single-namespace.
 - **Limits.** Per project: `maxActiveIntents`, `maxRevisions` and the cost ceiling. The global cap is
   `--max-concurrent-runs`.
 - **Onboarding a project** takes four steps:
-  1. add a Project to the patchy-config values;
+  1. add a Project to the maul-config values;
   2. make sure the App covers its repos (it is installed on all repositories today);
-  3. give each app repo a `.patchy/agent.yaml` image;
+  3. give each app repo a `.maul/agent.yaml` image;
   4. for previews, the slice 2 onboarding.
 
 ## Previews (slice 2, D5)
 
 The recommendation is a **preview-controller**, off by default, working over a chart-provisioned pool of slot
-namespaces. patchy renders every manifest.
+namespaces. maul renders every manifest.
 
 - **Contract.** A `Preview` CR per intent. intent-controller writes the spec: `intentRef`, `hostLabel`,
   `components[]{name, imageRepository, revision (40 hex), port, readinessPath}` and `ttl`. preview-controller writes the
@@ -1407,9 +1407,9 @@ namespaces. patchy renders every manifest.
 - **Images.**
   - The app repo's CI builds the PR head's runtime Dockerfile in a job that holds no credentials.
   - A separate publish job holds an OIDC role pinned to that repo's immutable ID (`:pull_request`). It pushes
-    `patchy/previews/<app>:sha-<40hex>` to an immutable ECR repo, and it can never push to `patchy/app-envs/*`.
+    `maul/previews/<app>:sha-<40hex>` to an immutable ECR repo, and it can never push to `maul/app-envs/*`.
   - Because the tags are immutable, preview-controller needs no ECR call and no cloud identity.
-- **Slots.** The chart renders N (default 2) namespaces, `patchy-preview-<i>`. Each has:
+- **Slots.** The chart renders N (default 2) namespaces, `maul-preview-<i>`. Each has:
   - PSA `restricted`;
   - a default-deny NetworkPolicy both ways, allowing ingress only from the ALB public subnets (10.40.128.0/24 and
     10.40.129.0/24) on the app port, and egress only to DNS at 172.20.0.10/32;
@@ -1417,15 +1417,15 @@ namespaces. patchy renders every manifest.
   - a LimitRange.
 - **Node isolation.** Preview workloads run only on a dedicated, tainted EKS Auto Mode NodePool backed by a custom
   `DefaultDeny` NodeClass. The pool has no fixed replicas and consolidates when empty; an instance-type restriction and
-  CPU/node limits bound intended spend. The node IAM role can pull only `patchy/previews/*` images. On devthenet the
+  CPU/node limits bound intended spend. The node IAM role can pull only `maul/previews/*` images. On devthenet the
   NodeClass, NodePool, IAM role and EKS access entry are infrastructure prerequisites, not chart-owned resources.
 - **preview-controller's permissions.** A namespaced Role in each slot over deployments, services and ingresses, plus
   read access to pods and replicasets. It has no access to namespaces, NetworkPolicies, quotas, RBAC or Secrets, nothing
   cluster-scoped, and no GitHub access.
 - **Admission.** A fail-closed ValidatingAdmissionPolicy on the slot namespaces applies to every user:
-  - Ingresses must use class `alb-preview`, and hosts must match `^[a-z0-9-]+\.preview\.patchy\.devthe\.net$`.
+  - Ingresses must use class `alb-preview`, and hosts must match `^[a-z0-9-]+\.preview\.maul\.devthe\.net$`.
   - Ingresses may not set `tls` or `defaultBackend`, and only allowlisted annotations are accepted.
-  - Images must match `patchy/previews/<app>:sha-<40hex>`.
+  - Images must match `maul/previews/<app>:sha-<40hex>`.
   - Pods need `automountServiceAccountToken: false` and the default ServiceAccount, may use only emptyDir volumes, and
     may not have init containers.
   - Pods and Deployment templates must select the dedicated NodePool and NodeClass, tolerate its exact `NoExecute`
@@ -1441,22 +1441,22 @@ namespaces. patchy renders every manifest.
   - a TLS 1.3 policy;
   - a class-level certificate.
 
-  It also needs a free ACM certificate for `*.preview.patchy.devthe.net`, one Route53 wildcard alias, and a placeholder
-  Ingress that keeps the ALB and its DNS name stable. Hosts are `<project>-<issue>.preview.patchy.devthe.net`. This
+  It also needs a free ACM certificate for `*.preview.maul.devthe.net`, one Route53 wildcard alias, and a placeholder
+  Ingress that keeps the ALB and its DNS name stable. Hosts are `<project>-<issue>.preview.maul.devthe.net`. This
   costs about $18-24 a month. Before any preview namespace exists, the default `alb` class gets a namespaceSelector that
-  admits only `patchy`. That change must be checked live to make sure it does not recreate the webhook ALB.
+  admits only `maul`. That change must be checked live to make sure it does not recreate the webhook ALB.
 
 - **Lifecycle.**
   - A Preview is created once the intent's PRs exist.
-  - Its revision is updated on every patchy push, and on human pushes (the PR head is polled).
+  - Its revision is updated on every maul push, and on human pushes (the PR head is polled).
   - It is deleted when the intent ends; a finalizer empties the slot.
   - It expires 72 h after the last deploy, and each pass sweeps orphans.
   - The number of slots is the global cost bound.
 - **Prerequisite.** The status-server cookies become `__Host-` names. `internal/web/auth/cookies.go` uses the bare names
-  `patchy-auth` and `patchy-oauth2-state`, and every preview host is same-site with `status.patchy.devthe.net`.
+  `maul-auth` and `maul-oauth2-state`, and every preview host is same-site with `status.maul.devthe.net`.
 - **Demo app.** A new, benign repo. patchy-target is never previewed.
 
-**Alternative: app-repo GitHub Actions deploys.** patchy gains no deploy power at all. The deploy has to run from main's
+**Alternative: app-repo GitHub Actions deploys.** maul gains no deploy power at all. The deploy has to run from main's
 context:
 
 - a `workflow_run` into an Environment whose branch policy allows main only. Environments on private repos need a paid
@@ -1475,7 +1475,7 @@ on a command that takes two minutes on a CI runner (FIELD-NOTES.md).
 
 **Decision.** Operator-defined classes, picked per repository by name (option C of three):
 
-- The patchy chart defines `agent.resources.default`, which every agent Job gets (`{}`, the default, is the previous Job
+- The maul chart defines `agent.resources.default`, which every agent Job gets (`{}`, the default, is the previous Job
   exactly), and `agent.resources.classes`, name to requests (CPU and memory) and limits (memory, and optionally CPU).
   The classes reach intent-controller as `--intent-resource-classes` JSON, validated whole at startup by
   `internal/resourceclass`, which is pure (the standard library and apimachinery's quantity) so the CLI can read the
@@ -1485,10 +1485,10 @@ on a command that takes two minutes on a CI runner (FIELD-NOTES.md).
 - The class list is the spend ceiling: the largest class is the most any agent Job can request.
 
 **Alternatives.** (A) CPU and memory numbers on the Project, capped by operator ceiling flags: direct, but the first
-int-or-string quantity in these CRDs, with quantity CEL pushed through the generated patchy-config schema, and a ceiling
+int-or-string quantity in these CRDs, with quantity CEL pushed through the generated maul-config schema, and a ceiling
 reasoned from two scalars rather than read off a list. Its request-above-limit risk came from merging the Project's
 numbers into the default key by key; replacing the default as a whole, as a class does, would remove it. (B) The
-repository declares its needs in `.patchy/agent.yaml`: sizing travels with the toolchain, but it hands cluster spend to
+repository declares its needs in `.maul/agent.yaml`: sizing travels with the toolchain, but it hands cluster spend to
 repository content, including repositories no Project lists (Findings arrive for any repository a Forge covers), and the
 fail-closed parser would reject the image of a repository that adopts the key before the controllers know it. B can
 return in a safe form: a repository naming a class from the same list.
@@ -1530,7 +1530,7 @@ class JSON later; its strict decoder makes a new field an additive change.
 
 1. **A second code path writes to forges.** DESIGN.md and forgewriter.go:16-20 say remediation-controller is the only
    holder of forge write scope. That is a convention about code paths, not a credential boundary:
-   - the live Integration and Forge share the Secret `patchy-github`;
+   - the live Integration and Forge share the Secret `maul-github`;
    - integration-controller's `Creds.Client` returns the unscoped installation client (creds.go:80-98);
    - all five controllers hold unscoped `secrets get`.
 
@@ -1540,7 +1540,7 @@ class JSON later; its strict decoder makes a new field an additive change.
      handoffs;
    - a token per operation, scoped to one repository and one permission (opening a pull request adds contents read);
    - writes only to repos listed in a Project, plus issue operations on the intent repo;
-   - branches only under `patchy-intent/`, created once and then only fast-forwarded;
+   - branches only under `maul-intent/`, created once and then only fast-forwarded;
    - never the default branch; humans merge.
 
    DESIGN.md and CLAUDE.md say this plainly.
@@ -1558,7 +1558,7 @@ class JSON later; its strict decoder makes a new field an additive change.
    and all other agent text is sanitised. This closes the cross-flow path from an intent PR to a Finding's tracking
    issue.
 4. **Stricter changeset and image rules for intents:**
-   - `.github/**`, `.patchy/**` and `.devcontainer/**` are always refused;
+   - `.github/**`, `.maul/**` and `.devcontainer/**` are always refused;
    - a repository image is required;
    - revise runs take their image from R0;
    - claude only.
@@ -1574,14 +1574,14 @@ class JSON later; its strict decoder makes a new field an additive change.
    - the per-intent ceiling;
    - the broker's per-pod limits, once they are switched on.
 8. **Slice 2 only.**
-   - patchy gains namespaced deploy power, limited to chart-created slot namespaces and fenced by a VAP.
-   - Agent-built code runs as an internet service, gated by IP, in namespaces that cannot reach patchy, patchy-agents,
+   - maul gains namespaced deploy power, limited to chart-created slot namespaces and fenced by a VAP.
+   - Agent-built code runs as an internet service, gated by IP, in namespaces that cannot reach maul, maul-agents,
      the broker, the API server or link-local addresses.
    - EKS Auto Mode's `DefaultAllow` NodeClass leaves a new pod open for a few seconds while policy attaches (observed in
      the live slot probe). A dedicated `DefaultDeny` node is required before preview use, and a Deployment-managed
      first-instruction probe must confirm deny-before-policy plus DNS after the allow rule attaches.
 9. **Pre-existing, flagged separately.** The app-env push role trusts `main` of every repo in the org. The allowlist is
-   the whole `patchy/app-envs/` prefix, with `allowUnsigned: true`. So the main branch of any org repo can publish an
+   the whole `maul/app-envs/` prefix, with `allowUnsigned: true`. So the main branch of any org repo can publish an
    image the sandbox will admit. Narrow the role to registered app repos in terraform-devthenet.
 
 ## First slice, in two parts (D4)
@@ -1589,10 +1589,10 @@ class JSON later; its strict decoder makes a new field an additive change.
 **Scope:** one Project and one app repo, patchy-target. Its Go image is already live, and using it exercises coexistence
 with Findings in the same repo. No previews.
 
-- **Slice 1a (about 6-8 days):** plan, approval (the label or `/patchy approve`), replan (re-applying the trigger label
-  or `/patchy replan`), `/patchy cancel`, build, PR and merge. It also ships the shared command parser and, as its own
+- **Slice 1a (about 6-8 days):** plan, approval (the label or `/maul approve`), replan (re-applying the trigger label
+  or `/maul replan`), `/maul cancel`, build, PR and merge. It also ships the shared command parser and, as its own
   PR, the Finding command migration.
-- **Slice 1b (about 4-5 days):** revise rounds from a "Request changes" review or `/patchy revise`, automatic check-fix
+- **Slice 1b (about 4-5 days):** revise rounds from a "Request changes" review or `/maul revise`, automatic check-fix
   rounds, and the fast-forward-only push path. The GitHub calls marked (1b) below land here.
 
 **Waves.** Each wave ends with the regression gate:
@@ -1632,8 +1632,8 @@ The waves:
     - its own ConfigMap with `--intent-*` flags, so it cannot collide with the shared kustomize ConfigMap;
     - Roles and NetworkPolicy;
     - values and their schema;
-    - the `patchy.brokerEnabled` OR;
-    - `PATCHY_REPOSITORY_IMAGES` and `PATCHY_AGENT_EPHEMERAL_STORAGE` stamped for it;
+    - the `maul.brokerEnabled` OR;
+    - `MAUL_REPOSITORY_IMAGES` and `MAUL_AGENT_EPHEMERAL_STORAGE` stamped for it;
     - a render case in `helm-lint.sh` and `chart-render-test.sh`.
   - Kustomize opt-in component, goreleaser entries, the `policy_test` skip-list entry and CLI Kinds.
   - Docs: a DESIGN.md section, CLAUDE.md orientation, and a configuration page.
@@ -1648,25 +1648,25 @@ devthenet-dev in a separate Helm upgrade from the release that ships them.
 
 **Demo script.** Steps 0-5, 9 and 10 are the slice 1a demo; steps 6-8b are slice 1b.
 
-0. **Pre-flight.** Run the regression gate on main and record the Helm revisions for `patchy` and `patchy-config`.
+0. **Pre-flight.** Run the regression gate on main and record the Helm revisions for `maul` and `maul-config`.
 1. **Setup.**
-   - Create the private repo `devthenet-labs/intents` with an issue form that applies `patchy:target`.
-   - Run `helm upgrade patchy … --set intentController.enabled=true` as its own revision.
-   - Add Project `target` to patchy-config: intent repo `intents`, repositories `[patchy-target]`, and the owner's login
+   - Create the private repo `devthenet-labs/intents` with an issue form that applies `maul:target`.
+   - Run `helm upgrade maul … --set intentController.enabled=true` as its own revision.
+   - Add Project `target` to maul-config: intent repo `intents`, repositories `[patchy-target]`, and the owner's login
      as approver.
-   - Check that `kubectl get projects -n patchy` shows `Ready=True`.
+   - Check that `kubectl get projects -n maul` shows `Ready=True`.
 2. **Trigger.** Open the issue "Add GET /version returning {sha, built} as JSON". Within about a minute, `target-1` goes
    from `Pending` to `Planning` and the status comment appears. The plan Job
-   (`-l patchy.bitwisemedia.uk/run-kind=intent`) runs on the default image.
+   (`-l maul.run/run-kind=intent`) runs on the default image.
 3. **Plan and replan.**
    - Plan comment r1 appears with its digest, and the Intent is in `AwaitingApproval`.
-   - Negative check: a second account that is not an approver applies `patchy:approved`. It gets one notice, the label
+   - Negative check: a second account that is not an approver applies `maul:approved`. It gets one notice, the label
      is removed, and nothing builds.
    - Negative check: edit the plan comment, then approve. The approval is refused and a replan is requested.
-   - Comment "also add a unit test" and re-apply `patchy:target`. Plan r2 appears.
-4. **Approve.** The owner applies `patchy:approved`, and the Intent moves to `Building`. The Job runs patchy-target's
+   - Comment "also add a unit test" and re-apply `maul:target`. Plan r2 appears.
+4. **Approve.** The owner applies `maul:approved`, and the Intent moves to `Building`. The Job runs patchy-target's
    ECR image (`runner-image-source=repository`), and `go test ./...` passes in the transcript.
-5. **PR.** A PR opens from `patchy-intent/target-1`. Its body says "Part of devthenet-labs/intents#1", with no closing
+5. **PR.** A PR opens from `maul-intent/target-1`. Its body says "Part of devthenet-labs/intents#1", with no closing
    keyword. The Intent is in `InReview`.
 6. **Revise.** Push a human commit to the branch, then submit "Request changes" with an inline comment. After the quiet
    window:
@@ -1680,11 +1680,11 @@ devthenet-dev in a separate Helm upgrade from the release that ships them.
    limit and it proceeds.
 
    8b. **Failed check.** With `checks.fix: [test]`, ask in review for a change whose first attempt breaks a test that
-   only CI runs. The `test` check fails on patchy's head, a check-fix round starts on its own, and the next push turns
+   only CI runs. The `test` check fails on maul's head, a check-fix round starts on its own, and the next push turns
    the check green. A second failure with the same signature would block the Intent instead.
 
 9. **Merge.** The Intent moves to `Merged`, a summary comment is posted, and the intent issue is closed.
-   `kubectl get findings -n patchy` shows every Finding's phase unchanged, and their tracking issues are untouched.
+   `kubectl get findings -n maul` shows every Finding's phase unchanged, and their tracking issues are untouched.
 10. **Post-flight.** A fresh Finding reaches its PR. To roll back, set `intentController.enabled=false`; the CRDs stay
     but do nothing.
 
@@ -1705,14 +1705,14 @@ Make intents and previews installable without reproducing devthenet's manual set
   preview-controller owns each preview's short-lived Deployment, Service and Ingress. Operators should not need
   hand-applied cluster manifests.
 - **Outside the cluster:** provide helpers, not hidden devthenet prerequisites:
-  - a `patchy` CLI command to create the GitHub App through GitHub's App manifest flow;
+  - a `maul` CLI command to create the GitHub App through GitHub's App manifest flow;
   - a parameterised reference AWS Terraform module for image registries, narrowly scoped OIDC publisher roles, DNS and
     the certificate;
-  - `patchy init app` to scaffold an app repo's `.patchy/` toolchain image, runtime Dockerfile and split build/publish
+  - `maul init app` to scaffold an app repo's `.maul/` toolchain image, runtime Dockerfile and split build/publish
     CI. PR builds remain uncredentialed and lack `id-token`; fork PRs never publish, and the trusted publisher never
     runs PR code;
   - a template app repo based on `patchy-preview-demo`, never on the vulnerable `patchy-target`;
-  - a `patchy check` preflight for a Project's GitHub, image-publishing and preview setup before enabling it.
+  - a `maul check` preflight for a Project's GitHub, image-publishing and preview setup before enabling it.
 - Write an operator guide, **Deploying intents and previews**, covering prerequisites, installation, onboarding,
   verification, upgrades and rollback.
 - Audit the implementation and examples for anything that works only because of devthenet-specific setup; flag each
@@ -1725,7 +1725,7 @@ Make intents and previews installable without reproducing devthenet's manual set
 - **Slice 3: multi-repo and commands.** About 5-7 days.
   - Lift the one-repo guard: plan over several read-only trees, fan the build out to one Job per repo, cross-link
     sibling PRs, and add a partial-failure policy.
-  - One `/patchy revise` that revises every sibling PR of a multi-repo intent.
+  - One `/maul revise` that revises every sibling PR of a multi-repo intent.
   - A webhook "nudge", if polling latency hurts: integration-controller annotates the Project that matches a delivery
     and carries no intent semantics.
 - **Slice 4: hardening.** About 3-5 days.
@@ -1737,7 +1737,7 @@ Make intents and previews installable without reproducing devthenet's manual set
   - An allowlisted dependency proxy reachable only from `run-kind=intent` pods.
   - Check-fix rounds for security Finding PRs, which need a Finding edge out of `InReview`.
 - **Slice 5: visibility, if GitHub plus kubectl prove insufficient.**
-  - `patchy describe intent`.
+  - `maul describe intent`.
   - A read-only Intents tab on the status page.
   - Per-project cost totals.
   - Custom verbs, plus a VAP on Intent, before any human gets write RBAC on intents.
@@ -1753,7 +1753,7 @@ Make intents and previews installable without reproducing devthenet's manual set
     handles no GitHub input.
   - It creates a contract between two binaries that both write Intent status.
   - Its "only write holder" benefit is a code-path convention, not a credential boundary.
-  - The good parts are kept: no fallback image, `.patchy/**` refused, revise image taken from the build round, reusing
+  - The good parts are kept: no fallback image, `.maul/**` refused, revise image taken from the build round, reusing
     `jobs.Create` with an additive envelope type, and the demo discipline.
 - **GitHub-native.** Ingress stamps spec, and GitHub Actions deploys.
   - The GitHub-native pieces are good.
@@ -1766,7 +1766,7 @@ Make intents and previews installable without reproducing devthenet's manual set
 - **Separate subsystem as proposed.** This is the base of the recommendation. Changes made to it:
   - no slash commands, trailer adoption, ETag transport layer or multi-tree plan in slice 1;
   - reuse `jobs.Create` rather than a new Job flavour that refactors `buildJob`;
-  - no separate `PATCHY-INTENT-EVENT` stream;
+  - no separate `MAUL-INTENT-EVENT` stream;
   - previews in namespaced slots rather than with cluster-scoped namespace and workload power.
 - **Generalising Finding.** Rejected. It would need a synthetic advisory under the frozen accumulation key, bypasses for
   the accumulation and min-age gates, new edges from `InReview` back to working phases, edits to both admission copies,
@@ -1789,7 +1789,7 @@ Make intents and previews installable without reproducing devthenet's manual set
 - **Approval rests on GitHub details, all but one now verified** (2026-09-24 and 2026-10-03, live, with the App's
   installation token):
   - the events API returns `id`, `node_id`, `event`, `created_at`, `actor{login, id, type}` and `label{name}`. Label
-    events carry `performed_via_github_app: null`, so patchy recognises its own events by `actor.login == "<slug>[bot]"`
+    events carry `performed_via_github_app: null`, so maul recognises its own events by `actor.login == "<slug>[bot]"`
     with `actor.type == "Bot"`; comments do carry `performed_via_github_app.slug`;
   - `UpdateRef force=false` semantics (open question 3);
   - 304 responses are free for installation tokens (open question 2);
@@ -1809,7 +1809,7 @@ Make intents and previews installable without reproducing devthenet's manual set
   issue.
 - **Builds that need a new dependency fail offline** until a human updates the image. This friction stays until a proxy
   exists.
-- **Naming debt from reusing `jobs.Create`:** `PATCHY_FINDING` and `LabelFinding` hold run names, and `investigation.md`
+- **Naming debt from reusing `jobs.Create`:** `MAUL_FINDING` and `LabelFinding` hold run names, and `investigation.md`
   holds a plan. Each seam is documented; renaming is slice-4 work.
 - **Scope.** Three CRDs and a binary in slice 1 is more than the trimmed runner-images feature was. Hold the slice line.
 - **Slice 2 risks:**
@@ -1828,7 +1828,7 @@ Items 1-3, 5 and 6 are wave 0. Item 4 moves into wave 1 with the other ghclient 
 2. **`PushBranch` returns the commit SHA.** Remediation then records `Remediation.status.pushedCommit`, which is
    declared but never written today. Split `CreateCommit` out so that the intent push can record the commit before
    moving the ref. The zero value keeps today's force semantics for Findings.
-3. **`reservedEnv`.** Add `PATCHY_PREVIOUS_ATTEMPT` to it (internal/jobs/jobs.go:715-739; the variable is set at
+3. **`reservedEnv`.** Add `MAUL_PREVIOUS_ATTEMPT` to it (internal/jobs/jobs.go:715-739; the variable is set at
    940-942).
 4. **Scoped tokens.** `TokenPerms` gains `Issues` and `PullRequests`, and `forge.Store.TokenWith` is added. Additive
    only.
@@ -1859,7 +1859,7 @@ Made on 2026-09-23.
   still name its own intent repo.
 - **D4: First slice.** Split: 1a is plan, approve, build, PR and merge; 1b is revise and check-fix rounds. No previews.
 - **D5: Previews.** A slot-pool preview-controller on a separate, IP-restricted ALB, in slice 2.
-- **D6: Revise trigger.** A "Request changes" review from an approver, with `/patchy revise` as the command form, both
+- **D6: Revise trigger.** A "Request changes" review from an approver, with `/maul revise` as the command form, both
   in slice 1b. Commands are made consistent across Findings and intents (see "Human commands: one vocabulary"). Added
   with this decision: automatic check-fix rounds on failed CI checks (see "Failed checks: automatic fix rounds").
 
@@ -1867,7 +1867,7 @@ Made on 2026-09-23.
 
 1. ~~Is the actor of a label applied by an issue form the issue author?~~ **Answered (observed live 2026-10-03):** yes.
    `devthenet-labs/intents#4`, opened through a form whose `labels:` applies the trigger, carried that label as its
-   author's `labeled` event, and patchy took it as the author's trigger. A label applied as the issue is created, by a
+   author's `labeled` event, and maul took it as the author's trigger. A label applied as the issue is created, by a
    form or by `gh issue create --label`, therefore starts an intent only when the author is an approver; anyone else's
    issue gets one notice and its intent closes before it plans. A form meant for people who are not approvers leaves the
    trigger label out, for an approver to add.
@@ -1899,7 +1899,7 @@ Made on 2026-09-23.
    which already edits integration-controller, therefore scopes both copies' Repository delete to Finding Repositories
    (`client.HasLabels{LabelFinding}`); intent Repositories never carry that label. **Done** with the Finding migration:
    both copies delete only Finding Repositories, never Projects, Intents or IntentRuns, and the only issues reset
-   touches are findings' tracking issues, which patchy opened. Tests pin all of this. Until that release is deployed,
+   touches are findings' tracking issues, which maul opened. Tests pin all of this. Until that release is deployed,
    demo reset must not be used while any intent is active.
 7. Is a 14-day TTL right, or should intents be kept forever, with GitHub as the durable record?
 
@@ -1912,13 +1912,13 @@ Made on 2026-09-23.
   (envelope.go:198-217), and the collectors switch on type. So an additive `plan` type needs neither a v5 nor a separate
   event stream.
 - **Job labels.** The Job kind label comes from `Spec.Kind` on each call (`jobLabels`), not from the Client.
-  `jobs.Create` requires `Spec.Finding` (jobs.go:345) and stamps both `LabelFinding` and `PATCHY_FINDING` from it.
+  `jobs.Create` requires `Spec.Finding` (jobs.go:345) and stamps both `LabelFinding` and `MAUL_FINDING` from it.
 - **Handler-time `at`** (webhooks.go:148-151) is not evidence of ordering, given live redelivery and replay.
 - **A deploy triggered by `pull_request` cannot be gated by an Environment branch policy**, because GitHub evaluates
   `refs/pull/N/merge`.
 - **Panic recovery.** controller-runtime v0.25 recovers panics in reconcilers by default, but not in webhook handlers or
   other goroutines.
-- **Refusing only `.github/**`** still lets the agent choose its next sandbox through `.patchy/agent.yaml` on the PR
+- **Refusing only `.github/**`** still lets the agent choose its next sandbox through `.maul/agent.yaml` on the PR
   head.
 - **The reuse-first thin-slice preview** had a namespaced deploy Role but no VAP and no namespaceSelector on the default
-  class. That would let anyone holding the deploy role claim `patchy.devthe.net` on the webhook ALB.
+  class. That would let anyone holding the deploy role claim `maul.devthe.net` on the webhook ALB.

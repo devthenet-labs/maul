@@ -6,5 +6,5 @@
 intentController:
     enabled: true
     forgeSecrets:
-        - patchy-github
-        - patchy-github-enterprise
+        - maul-github
+        - maul-github-enterprise

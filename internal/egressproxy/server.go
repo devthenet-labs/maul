@@ -15,9 +15,9 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 
-	"github.com/bitwise-media-group/patchy/internal/httpguard"
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
-	"github.com/bitwise-media-group/patchy/internal/version"
+	"github.com/devthenet-labs/maul/internal/httpguard"
+	"github.com/devthenet-labs/maul/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/version"
 )
 
 // routePrefix is the path every profile listener serves below.
@@ -75,7 +75,7 @@ func New(cfg Config, log *slog.Logger) (*Server, error) {
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},
 		limits: newLimiter(cfg.Limits, cfg.Now),
-		ua:     "patchy-egress-proxy/" + version.Version,
+		ua:     "maul-egress-proxy/" + version.Version,
 	}
 	s.buildRegistries()
 	s.buildTunnel()

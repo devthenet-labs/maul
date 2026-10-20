@@ -11,7 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 // repoLessFinding is a cloud finding whose resource carried no ownership
@@ -37,7 +37,7 @@ func repoLessFinding(phase v1alpha1.Phase) *v1alpha1.Finding {
 // the finding never goes away.
 func TestRepoLessFindingCountsOnlyAtTotalScope(t *testing.T) {
 	r, c := newReconciler(t, repoLessFinding(v1alpha1.PhaseHandedOff))
-	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1"}}
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "maul", Name: "finding-aa-1"}}
 	if _, err := r.ReconcileFinding(t.Context(), req); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
@@ -73,7 +73,7 @@ func TestRepoLessFindingCountsOnlyAtTotalScope(t *testing.T) {
 // nothing to show why.
 func TestRepoLessFindingRevivalIsBalanced(t *testing.T) {
 	r, c := newReconciler(t, repoLessFinding(v1alpha1.PhaseHandedOff))
-	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1"}}
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "maul", Name: "finding-aa-1"}}
 	if _, err := r.ReconcileFinding(t.Context(), req); err != nil {
 		t.Fatalf("Reconcile terminal: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestResolvedCloudFindingCountsAtBothScopes(t *testing.T) {
 		Type: "github", URL: "https://github.com/acme/infra", Name: "acme/infra",
 	}
 	r, c := newReconciler(t, fnd)
-	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1"}}
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "maul", Name: "finding-aa-1"}}
 	if _, err := r.ReconcileFinding(t.Context(), req); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}

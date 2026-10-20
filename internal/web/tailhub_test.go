@@ -19,8 +19,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/transcript"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/transcript"
 )
 
 // countingTailer records how many follows were opened and streams on demand.

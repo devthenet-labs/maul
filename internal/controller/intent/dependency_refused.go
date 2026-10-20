@@ -8,8 +8,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
-	"github.com/bitwise-media-group/patchy/internal/report"
+	"github.com/devthenet-labs/maul/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/report"
 )
 
 // maxRefusedQuoted bounds the proxy lines a dependency_refused detail
@@ -28,7 +28,7 @@ const maxRefusedQuoted = 3
 // not_built, retried as before.
 //
 // The refused lines are the agent's, and the agent may have been steered by
-// the repository, so a host refusal is never taken at its word: patchy
+// the repository, so a host refusal is never taken at its word: maul
 // itself tells the operator to add that host, so the line counts only when
 // it is one the proxy could have written for this run (hostRefusalHolds).
 // Any other host line is left out like a transient one, and so cannot widen
@@ -69,7 +69,7 @@ func dependencyRefused(b *report.Build, profile string, profiles netprofile.Set)
 	}
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "the egress proxy refused a dependency the build needs, under network profile %s, and refuses "+
-		"it the same way on every attempt under that profile, so patchy did not retry it. The build agent quoted "+
+		"it the same way on every attempt under that profile, so maul did not retry it. The build agent quoted "+
 		"the proxy: %s",
 		profile, strings.Join(quoted, "; "))
 	if more := matched - len(quoted); more > 0 {
@@ -95,7 +95,7 @@ func dependencyRefused(b *report.Build, profile string, profiles netprofile.Set)
 
 // hostRefusalHolds reports whether ref, a tunnel host refusal an agent
 // quoted, is one the egress proxy could have written for a run under the
-// recorded profile, as patchy knows that profile now: it names that very
+// recorded profile, as maul knows that profile now: it names that very
 // profile, the profile is known and has a tunnel (the proxy answers a
 // CONNECT on no other), it does not already list the host, and the host is
 // not one the proxy never tunnels (it says so in other words then, and no

@@ -5,11 +5,11 @@ hide:
   - navigation
 ---
 
-# Patchy demo script
+# Maul demo script
 
 <div class="pt-demo-lede" markdown>
 
-**10–15 minutes.** Findings arrive → Patchy triage → verdicts (false positive / remediate / manual) → human review.
+**10–15 minutes.** Findings arrive → Maul triage → verdicts (false positive / remediate / manual) → human review.
 
 Timing assumes findings are already in flight or can be **Expedite**d — call out waits explicitly.
 
@@ -18,7 +18,7 @@ Timing assumes findings are already in flight or can be **Expedite**d — call o
 !!! warning "Say early, say once more at the close"
 
     **What we show live today is GitHub Advanced Security / CodeQL.** That is the first production source — not the only
-    source Patchy is designed to support. Ingestion is pluggable (`pkg/source`); the rest of the pipeline is
+    source Maul is designed to support. Ingestion is pluggable (`pkg/source`); the rest of the pipeline is
     source-agnostic.
 
 ---
@@ -35,13 +35,13 @@ Not on camera · run through before the room
 | :----: | --------------------------------------------------------------------------------------------------- | -------------------------------- |
 |   ☐    | Demo GitHub repo with CodeQL + intentional findings (FP, auto-fixable real, optional “needs human”) | Covers all three recommendations |
 |   ☐    | GitHub App / Integration + Forge already live                                                       | Webhooks land without live setup |
-|   ☐    | Patchy status page open (signed in)                                                                 | Second surface alongside GitHub  |
+|   ☐    | Maul status page open (signed in)                                                                   | Second surface alongside GitHub  |
 |   ☐    | Short accumulation + min-age **or** **Expedite** on new findings                                    | Avoid a 1h+ wait mid-demo        |
 |   ☐    | Optional safety net: one finding at `Investigating`, one `Dismissed`, one with open PR              | If the live path is slow         |
 
 !!! abstract "One-line product framing · use once"
 
-    Patchy is an end-to-end pipeline for triaging and remediating security findings **from multiple sources**.
+    Maul is an end-to-end pipeline for triaging and remediating security findings **from multiple sources**.
     Kubernetes custom resources are the state machine; GitHub issues are a one-way human projection. Findings
     accumulate, get context, get investigated by a sandboxed agent, and high-confidence fixes become pull requests
     for humans to merge. **CodeQL via GitHub Advanced Security is the first integrated source and the path in this
@@ -59,14 +59,14 @@ Not on camera · run through before the room
 
 !!! example "On screen"
 
-    Patchy status **Findings** board (or a slide with the phase rail).
+    Maul status **Findings** board (or a slide with the phase rail).
 
 !!! quote "Talk track"
 
     Static analysis is cheap to run and expensive to triage. Scanners produce real signal _and_ a lot of noise. Most
     teams either ignore the backlog or burn senior time on every alert.
 
-    Patchy is an end-to-end pipeline for **triaging and remediating security findings from multiple sources**.
+    Maul is an end-to-end pipeline for **triaging and remediating security findings from multiple sources**.
     Kubernetes custom resources are the state machine; GitHub issues are a one-way human projection. Findings
     accumulate, get context, get investigated by a sandboxed agent, and high-confidence fixes become pull requests
     for humans to merge.
@@ -111,7 +111,7 @@ Not on camera · run through before the room
 !!! quote "Talk track"
 
     We start where developers already work: a normal push to GitHub. No special CLI, no agent on the laptop. For
-    **this** source path, the GitHub App’s single webhook URL points at Patchy’s **integration-controller** — the
+    **this** source path, the GitHub App’s single webhook URL points at Maul’s **integration-controller** — the
     internet-facing entry for GitHub deliveries. Other sources would enter through the same controller surface via
     their own validated webhook/integration config — still one architectural front door, multiple handlers behind it.
 
@@ -124,7 +124,7 @@ Not on camera · run through before the room
 !!! quote "Talk track"
 
     CodeQL analyzes the tree and opens or updates **code scanning alerts**. GitHub Advanced Security remains the
-    scanner of record **for this path**. Patchy does not replace CodeQL — or any other scanner. It **consumes**
+    scanner of record **for this path**. Maul does not replace CodeQL — or any other scanner. It **consumes**
     findings: here, `code_scanning_alert` deliveries, normalized by the GHAS source handler (rule, severity,
     locations, CWE/CVE/GHSA) and folded into Findings.
 
@@ -140,10 +140,10 @@ Not on camera · run through before the room
 !!! quote "Talk track"
 
     Same alerts developers and AppSec already know for **GHAS**. Other sources may surface in their own product UIs;
-    Patchy’s job is the **shared triage and remediation layer** on top — one board, one priority model, one
+    Maul’s job is the **shared triage and remediation layer** on top — one board, one priority model, one
     investigation report contract — regardless of origin.
 
-### 1d. Patchy status page · ≈45s
+### 1d. Maul status page · ≈45s
 
 !!! example "On screen"
 
@@ -213,7 +213,7 @@ Not on camera · run through before the room
 
 !!! example "On screen"
 
-    Phase → **Investigating**; optional agent Job logs (`PATCHY-EVENT:` stream) or finding detail Timeline.
+    Phase → **Investigating**; optional agent Job logs (`MAUL-EVENT:` stream) or finding detail Timeline.
 
 !!! quote "Talk track"
 
@@ -264,7 +264,7 @@ Not on camera · run through before the room
     | Confidence path | What happens |
     | --------------- | ------------ |
     | `remediate` **≥ 0.75** and no breaking-change hold | **Queued** automatically |
-    | `remediate` **&lt; 0.75** _or_ better-but-breaking alternative | **AwaitingApproval** until `/patchy approve` (issue or status page) |
+    | `remediate` **&lt; 0.75** _or_ better-but-breaking alternative | **AwaitingApproval** until `/maul approve` (issue or status page) |
 
     Backwards-compatible fixes are always preferred. If a cleaner fix would break callers, the report can still
     recommend the safe path, set `breaking_change_available: true`, and describe the better option for a human.
@@ -275,7 +275,7 @@ Not on camera · run through before the room
 | --------------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
 | **`ignore`**    | False positive (not exploitable, bad dataflow assumption, already mitigated) | **Dismissed** — source alerts dismissed where applicable, issue closed |
 | **`remediate`** | Real issue; automated fix likely to succeed                                  | **Queued** / **AwaitingApproval** / then agent fix                     |
-| **`manual`**    | Real issue; needs domain judgment or is too risky to automate                | **HandedOff** to owners (revivable via `/patchy approve`)              |
+| **`manual`**    | Real issue; needs domain judgment or is too risky to automate                | **HandedOff** to owners (revivable via `/maul approve`)                |
 
 !!! tip "Transition"
 
@@ -353,19 +353,19 @@ Not on camera · run through before the room
 
     Critically: the agent still has **no write credential**. Only the remediation-controller holds a short-lived,
     scoped forge write token. It replays the changeset through the GitHub API onto a branch named
-    **`patchy/<finding>`**, **opens the pull request**, and moves the finding to **InReview**.
+    **`maul/<finding>`**, **opens the pull request**, and moves the finding to **InReview**.
 
     Humans stay in the merge path. Merging fires a webhook → **Remediated**. Closing the PR unmerged → **Failed**
     (retryable from the status page).
 
 !!! example "On screen · PR body"
 
-    Review this like any other PR — diff, CI, ownership. Patchy automated the _investigation_ and the _proposal_;
+    Review this like any other PR — diff, CI, ownership. Maul automated the _investigation_ and the _proposal_;
     merge remains a human judgment call. That separation is intentional: automated fix generation, human acceptance.
 
 ??? warning "If confidence is low or breaking-change hold"
 
-    Show **AwaitingApproval** → click **Approve** on the status page (or `/patchy approve` on the issue) → same machine edge
+    Show **AwaitingApproval** → click **Approve** on the status page (or `/maul approve` on the issue) → same machine edge
     into **Queued**. Status server never moves phases itself; it records approval; the controller owns the edge.
 
 ---
@@ -386,7 +386,7 @@ Not on camera · run through before the room
 
     Not everything should be auto-fixed: auth redesigns, ambiguous product risk, multi-service coordination.
     **`manual`** hands the finding to repository owners via the tracking issue — **HandedOff** — with the full
-    investigation report as context. A later `/patchy approve` can still revive it into the queue if someone decides
+    investigation report as context. A later `/maul approve` can still revive it into the queue if someone decides
     automation should try.
 
     Humans can also close the tracking issue at any non-terminal phase → **HandedOff** — always able to pull work out
@@ -394,12 +394,12 @@ Not on camera · run through before the room
 
 !!! success "Wrap · 30–45s"
 
-    End-to-end for this demo: **push → CodeQL → alerts in GitHub Security and on Patchy’s status page → context →
+    End-to-end for this demo: **push → CodeQL → alerts in GitHub Security and on Maul’s status page → context →
     investigation with three ratings and a confidence score → early-exit dismissals that save remediation tokens →
     high-confidence remediations that open real PRs → humans merge.**
 
     The **scanner stays the scanner** — today CodeQL via GitHub Advanced Security, tomorrow whatever you plug into
-    the source seam. Patchy is the **extensible triage and safe auto-remediation layer** on top: multi-source by
+    the source seam. Maul is the **extensible triage and safe auto-remediation layer** on top: multi-source by
     design, stateful, priority-aware, credential-isolated, and measurable in rollups.
 
 ---
@@ -419,7 +419,7 @@ Presenter cheat sheet · glance while talking
 |   4:00–5:30 | Context enhancement                  | `Opened → Enhanced`         | Source-agnostic stage      |
 |   5:30–8:30 | Investigation, 3 ratings, confidence | Investigating               | Same report for any source |
 |  8:30–10:30 | False positive early exit + cost     | Dismissed + Rollups         | Economic early exit        |
-| 10:30–13:00 | Remediation opens PRs                | PR `patchy/<finding>`       | Verify-don’t-trust         |
+| 10:30–13:00 | Remediation opens PRs                | PR `maul/<finding>`         | Verify-don’t-trust         |
 | 13:00–14:30 | Manual + wrap                        | HandedOff / summary         | Restate extensibility      |
 
 <div class="pt-demo-flex" markdown>
@@ -453,9 +453,9 @@ Optional · have ready, don’t force
 
 </div>
 
-??? question "Does Patchy replace CodeQL?"
+??? question "Does Maul replace CodeQL?"
 
-    No. CodeQL/GHAS is the **first** integrated source, not the product boundary. Patchy ingests findings through a
+    No. CodeQL/GHAS is the **first** integrated source, not the product boundary. Maul ingests findings through a
     **source-agnostic** `Finding` model and a **plugin seam** (`pkg/source`); other scanners and platforms are meant
     to be added as handlers without reworking accumulation, investigation, or remediation.
 
@@ -480,7 +480,7 @@ Optional · have ready, don’t force
 
 ??? question "How do we see spend?"
 
-    Rollups + OTel `patchy.stage.tokens` / `patchy.stage.cost`.
+    Rollups + OTel `maul.stage.tokens` / `maul.stage.cost`.
 
 ---
 
@@ -489,11 +489,11 @@ Optional · have ready, don’t force
 !!! warning ""
 
     **GitHub Advanced Security CodeQL is the first source we ship and the path you’ll see in this demo — not the only
-    source Patchy is designed to support.**
+    source Maul is designed to support.**
 
 ---
 
 ## Source material
 
-Drawn from Patchy product docs: `docs/how-it-works.md`, `docs/status-ui.md`, `docs/labels.md`,
+Drawn from Maul product docs: `docs/how-it-works.md`, `docs/status-ui.md`, `docs/labels.md`,
 `docs/getting-started/verify.md`, `docs/extending.md`, and the investigation prompt contract (`internal/templates`).

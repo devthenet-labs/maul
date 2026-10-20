@@ -13,9 +13,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/report"
-	"github.com/bitwise-media-group/patchy/internal/templates"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/report"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // The multi-repository Project the tests plan over: the planning
@@ -344,7 +344,7 @@ func TestPlanOutsideTheTrees(t *testing.T) {
 }
 
 // buildConfig is a build Job's config handed plan as the approved plan, in
-// the repository repo ("owner/name", as the controller's PATCHY_REPO spells
+// the repository repo ("owner/name", as the controller's MAUL_REPO spells
 // it).
 func buildConfig(t *testing.T, plan, repo string, out *bytes.Buffer) (Config, string) {
 	t.Helper()
@@ -393,7 +393,7 @@ func TestBuildScopedToItsRepository(t *testing.T) {
 }
 
 // TestBuildOneRepositoryUnscoped: a one-repository plan's build is told
-// nothing of repositories, as before slice 3, whatever PATCHY_REPO says.
+// nothing of repositories, as before slice 3, whatever MAUL_REPO says.
 func TestBuildOneRepositoryUnscoped(t *testing.T) {
 	var out bytes.Buffer
 	cfg, ws := buildConfig(t, goodPlan, "someone/else", &out)

@@ -4,12 +4,12 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-    name: patchy-intent-controller
-    namespace: patchy
+    name: maul-intent-controller
+    namespace: maul
     labels:
         app: intent-controller
         app.kubernetes.io/name: intent-controller
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
         app.kubernetes.io/component: controller
 spec:
     replicas: 1
@@ -18,17 +18,17 @@ spec:
     selector:
         matchLabels:
             app.kubernetes.io/name: intent-controller
-            app.kubernetes.io/part-of: patchy
+            app.kubernetes.io/part-of: maul
     template:
         metadata:
             labels:
                 app: intent-controller
                 app.kubernetes.io/name: intent-controller
-                app.kubernetes.io/part-of: patchy
-                # Selected by the base patchy-controllers NetworkPolicy.
+                app.kubernetes.io/part-of: maul
+                # Selected by the base maul-controllers NetworkPolicy.
                 app.kubernetes.io/component: controller
         spec:
-            serviceAccountName: patchy-intent-controller
+            serviceAccountName: maul-intent-controller
             securityContext:
                 runAsNonRoot: true
                 runAsUser: 65532
@@ -40,15 +40,15 @@ spec:
                 - name: controller
                   # Built from Dockerfile.controller (repo root)
                   # (TARGET=intent-controller in .goreleaser.yaml).
-                  image: ghcr.io/devthenet-labs/patchy/intent-controller:latest
+                  image: ghcr.io/devthenet-labs/maul/intent-controller:latest
                   args: ["serve"]
                   # The shared settings first, then its own: a key in both
                   # takes the later source's value.
                   envFrom:
                       - configMapRef:
-                            name: patchy-config
+                            name: maul-config
                       - configMapRef:
-                            name: patchy-intent-controller-config
+                            name: maul-intent-controller-config
                   env:
                       - name: POD_NAMESPACE
                         valueFrom:

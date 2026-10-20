@@ -1,0 +1,841 @@
+{{/*
+Copyright 2026 Bitwise Media Group Ltd.
+SPDX-License-Identifier: MIT
+
+The preview sign-in relay (cmd/preview-auth), in one file like the status
+server: the OpenID provider every preview host's ALB signs viewers in
+through. Off by default (previewAuth.enabled). Not a controller: no
+reconcilers, no leader election (every replica serves). Its Kubernetes
+access is Previews (get, list, watch, release namespace), access reviews,
+and get/update on its one code-ledger Lease; its keys and its Dex client
+secret are mounted, so it reads no Secret through the API.
+
+Also here, because they exist for the relay: each slot's OIDC client Secret
+(maul-preview-oidc-g<generation>), the Role and RoleBinding that let EKS
+Auto Mode (Group eks:managed) read exactly those Secrets when it builds the
+preview ALB's authenticate-oidc rules, and the preview-viewer ClusterRole
+with its viewers' RoleBinding. The derived state (keys, generations, the
+pinned annotation sets) is _preview-auth.tpl's.
+
+A template comment, not YAML, so the file renders nothing at all while
+previewAuth is off.
+*/}}
+{{- $st := include "maul.previewAuthState" . | fromJson }}
+{{- if $st.enabled }}
+{{- $vals := .Values.previewAuth }}
+{{- $name := "preview-auth" }}
+{{- $fullname := include "maul.fullname" . }}
+{{- $sa := include "maul.serviceAccountName" (dict "root" . "name" $name "vals" $vals) }}
+{{- $lease := printf "%s-preview-auth-codes" $fullname }}
+{{- $className := $vals.ingress.className | default (include "maul.edgeIngressClassName" .) }}
+{{- $gw := include "maul.previewGateway" . | fromJson }}
+{{- $gwVals := $vals.gateway | default dict }}
+{{- $gwName := printf "%s-preview-gateway" $fullname }}
+{{- if eq $className "alb-preview" }}{{ fail "previewAuth.ingress.className must not be alb-preview: the relay sits on the edge ALB, which the preview ALB's token calls reach from the internet" }}{{ end }}
+{{- if $vals.serviceAccount.create }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+    name: {{ $sa }}
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+    {{- with include "maul.annotations" (dict "root" . "extra" $vals.serviceAccount.annotations) }}
+    annotations:
+        {{- . | nindent 8 }}
+    {{- end }}
+{{- end }}
+{{- $data := dict
+    "MAUL_HEALTH_ADDR" ":8081"
+    "MAUL_LISTEN_ADDR" ":8080"
+    "MAUL_LOG_LEVEL" ($vals.config.logLevel | default .Values.config.logLevel)
+    "MAUL_PREVIEW_AUTH_ISSUER" $st.issuer
+    "MAUL_PREVIEW_AUTH_HOST_SUFFIX" .Values.preview.hostSuffix
+    "MAUL_PREVIEW_AUTH_SLOT_COUNT" .Values.preview.slotCount
+    "MAUL_PREVIEW_AUTH_KEYS_DIR" "/etc/maul/preview-auth/keys"
+    "MAUL_PREVIEW_AUTH_DEX_ISSUER_URL" $vals.dex.issuerURL
+    "MAUL_PREVIEW_AUTH_DEX_CLIENT_ID" $vals.dex.clientID
+    "MAUL_PREVIEW_AUTH_DEX_CLIENT_SECRET_FILE" "/etc/maul/preview-auth/dex/clientSecret"
+    "MAUL_PREVIEW_AUTH_USERNAME_CLAIM" $vals.claims.usernameClaim
+    "MAUL_PREVIEW_AUTH_GROUPS_CLAIM" $vals.claims.groupsClaim
+    "MAUL_PREVIEW_AUTH_USERNAME_PREFIX" $vals.claims.usernamePrefix
+    "MAUL_PREVIEW_AUTH_GROUPS_PREFIX" $vals.claims.groupsPrefix
+    "MAUL_PREVIEW_AUTH_REQUIRE_VERIFIED_EMAIL" ($vals.claims.requireVerifiedEmail | default false)
+    "MAUL_PREVIEW_AUTH_ACCESS_TOKEN_TTL" $vals.accessTokenTTL
+    "MAUL_PREVIEW_AUTH_SESSION_MAX_AGE" $vals.sessionMaxAge
+    "MAUL_PREVIEW_AUTH_LEDGER_LEASE" $lease
+    "MAUL_PREVIEW_AUTH_RATE_PER_SECOND" $vals.rateLimit.perSecond
+    "MAUL_PREVIEW_AUTH_RATE_BURST" $vals.rateLimit.burst
+    "MAUL_PREVIEW_AUTH_FORWARDED_HOPS" $vals.forwardedHops
+    "MAUL_PREVIEW_AUTH_PROBE_INTERVAL" $vals.probeInterval
+}}
+{{- if $gw.enabled }}
+{{- /* The preview gateway (previewAuth.gateway), only with it on, so an
+       install that never enables it keeps this ConfigMap as it was. */}}
+{{- $_ := set $data "MAUL_PREVIEW_AUTH_GATEWAY" true }}
+{{- $_ := set $data "MAUL_PREVIEW_AUTH_GATEWAY_SIGN_IN_HOST" $gw.signInHost }}
+{{- $_ := set $data "MAUL_PREVIEW_AUTH_GATEWAY_LISTEN_ADDR" ":8082" }}
+{{- /* With the legacy slot Ingress off only the gateway serves preview
+       hosts, so the host probe expects its answers alone (and its 404 for a
+       host no Preview owns); with it on, either path's redirect. */}}
+{{- if not (include "maul.previewLegacyIngress" .) }}
+{{- $_ := set $data "MAUL_PREVIEW_AUTH_PROBE_MODE" "gateway" }}
+{{- end }}
+{{- with $gw.hops }}{{ $_ := set $data "MAUL_PREVIEW_AUTH_GATEWAY_FORWARDED_HOPS" . }}{{ end }}
+{{- with $gwVals.inboundCIDRs }}{{ $_ := set $data "MAUL_PREVIEW_AUTH_GATEWAY_INBOUND_CIDRS" (join "," .) }}{{ end }}
+{{- if $gw.tls }}
+{{- $_ := set $data "MAUL_PREVIEW_AUTH_GATEWAY_TLS_DIR" "/etc/maul/preview-gateway/tls" }}
+{{- $_ := set $data "MAUL_PREVIEW_AUTH_GATEWAY_TLS_LISTEN_ADDR" ":8443" }}
+{{- end }}
+{{- end }}
+{{- range $k, $v := .Values.config.extra }}
+{{- $_ := set $data $k $v }}
+{{- end }}
+{{- range $k, $v := $vals.config.extra }}
+{{- $_ := set $data $k $v }}
+{{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+    name: {{ include "maul.configMapName" (dict "root" . "name" $name) }}
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+    {{- /* The keys marker: this release generated keys of this generation.
+           Should the keys Secret go missing, the next render refuses to
+           replace it silently (_preview-auth.tpl). */}}
+    {{- $marker := dict }}
+    {{- if $st.managedKeys }}
+    {{- $_ := set $marker "maul.run/preview-auth-key-generation" (toString (int $st.gen)) }}
+    {{- end }}
+    {{- /* Where the wildcard record should point when the exposure
+           publishes no address. Recorded only, never routed by; maul check
+           project compares DNS with it. */}}
+    {{- /* The registrable domain the operator accepted previews sharing
+           with sign-in. Recorded only, never acted on; maul check
+           previews reports the sharing as INFO instead of WARN. */}}
+    {{- with $vals.sharedSiteAcknowledged }}
+    {{- $suffix := $.Values.preview.hostSuffix }}
+    {{- if not (or (eq $suffix .) (hasSuffix (printf ".%s" .) $suffix)) }}{{ fail (printf "previewAuth.sharedSiteAcknowledged %s is neither preview.hostSuffix %s nor a parent of it: acknowledge the registrable domain the previews are on" . $suffix) }}{{ end }}
+    {{- $_ := set $marker "maul.run/preview-shared-site-acknowledged" . }}
+    {{- end }}
+    {{- if and $gw.enabled $gwVals.publishedAddresses }}
+    {{- $_ := set $marker "maul.run/preview-gateway-published-addresses" (join "," $gwVals.publishedAddresses) }}
+    {{- end }}
+    {{- with include "maul.annotations" (dict "root" . "extra" $marker) }}
+    annotations:
+        {{- . | nindent 8 }}
+    {{- end }}
+data:
+    {{- range $k, $v := $data }}
+    {{- $s := $v | toString }}
+    {{- if and (kindIs "float64" $v) (eq $v (floor $v)) }}
+    {{- $s = int64 $v | toString }}
+    {{- end }}
+    {{ $k }}: {{ $s | quote }}
+    {{- end }}
+{{- if $st.managedKeys }}
+---
+# The relay's keys: the master secret every token key, the pairwise key and
+# each slot's ALB client secret derive from, and the ID-token signing key; the
+# previous generation's beside them during a rotation. Generated on first
+# enablement and reused from the live Secret on every later upgrade (a
+# lookup), kept on uninstall and rollback. Mounted into the relay only.
+apiVersion: v1
+kind: Secret
+metadata:
+    name: {{ $st.keysSecret }}
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+    annotations:
+        {{- include "maul.annotations" (dict "root" . "extra" (dict "helm.sh/resource-policy" "keep")) | nindent 8 }}
+type: Opaque
+data:
+    {{- range $k, $v := $st.keys }}
+    {{ $k }}: {{ $v | quote }}
+    {{- end }}
+{{- end }}
+---
+# The single-use code ledger (redeemed authorization codes, on an
+# annotation): one Lease the relay may get and update by name and nothing
+# else, so two replicas agree on a code without create or delete rights.
+apiVersion: coordination.k8s.io/v1
+kind: Lease
+metadata:
+    name: {{ $lease }}
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+    {{- with include "maul.annotations" (dict "root" .) }}
+    annotations:
+        {{- . | nindent 8 }}
+    {{- end }}
+spec: {}
+---
+# Previews to find the one at a host label (its slot, UID and Project), and
+# the ledger Lease. No Intents, no Secrets, no writes to any maul kind.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+    name: {{ $fullname }}-{{ $name }}
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+rules:
+    - apiGroups: [maul.run]
+      resources: [previews]
+      verbs: [get, list, watch]
+    - apiGroups: [coordination.k8s.io]
+      resources: [leases]
+      resourceNames: [{{ $lease }}]
+      verbs: [get, update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+    name: {{ $fullname }}-{{ $name }}
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+roleRef:
+    apiGroup: rbac.authorization.k8s.io
+    kind: Role
+    name: {{ $fullname }}-{{ $name }}
+subjects:
+    - kind: ServiceAccount
+      name: {{ $sa }}
+      namespace: {{ .Release.Namespace }}
+---
+# SubjectAccessReview is cluster-scoped: the power to ask "may viewer V get
+# projects/previews for Project P?", not to act.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+    name: {{ $fullname }}-{{ $name }}-authz
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+rules:
+    - apiGroups: [authorization.k8s.io]
+      resources: [subjectaccessreviews]
+      verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+    name: {{ $fullname }}-{{ $name }}-authz
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+roleRef:
+    apiGroup: rbac.authorization.k8s.io
+    kind: ClusterRole
+    name: {{ $fullname }}-{{ $name }}-authz
+subjects:
+    - kind: ServiceAccount
+      name: {{ $sa }}
+      namespace: {{ .Release.Namespace }}
+---
+# Who may view previews. The subresource is virtual: nothing on the API
+# server serves it, so this grants kubectl nothing; the relay's access reviews
+# are its only reader. Without resourceNames it covers every Project; bind it
+# with a RoleBinding in the release namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+    name: {{ $fullname }}-preview-viewer
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+rules:
+    - apiGroups: [maul.run]
+      resources: [projects/previews]
+      verbs: [get]
+{{- if or $vals.viewers.teams $vals.viewers.users }}
+---
+# previewAuth.viewers, with the claim prefixes the relay maps a Dex ID token
+# through, so a binding names exactly the user and groups a review runs for.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+    name: {{ $fullname }}-preview-viewers
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+roleRef:
+    apiGroup: rbac.authorization.k8s.io
+    kind: ClusterRole
+    name: {{ $fullname }}-preview-viewer
+subjects:
+    {{- range $team := $vals.viewers.teams }}
+    - kind: Group
+      apiGroup: rbac.authorization.k8s.io
+      name: {{ printf "%s%s" $vals.claims.groupsPrefix $team | quote }}
+    {{- end }}
+    {{- range $user := $vals.viewers.users }}
+    - kind: User
+      apiGroup: rbac.authorization.k8s.io
+      name: {{ printf "%s%s" $vals.claims.usernamePrefix $user | quote }}
+    {{- end }}
+{{- end }}
+{{- /* Each slot's ALB client, one Secret per admitted key generation, and
+       the read grant Auto Mode builds the authenticate-oidc rule with. The
+       Secret name carries the generation, so a rotation changes the
+       Ingress annotation and the load balancer re-reads it. Kept, like
+       every other slot object; a generation dropped after a rotation leaves
+       its Secret behind for the operator to delete. With
+       keys.existingSecret the operator supplies these Secrets. */}}
+{{- $gens := list (int $st.gen) }}
+{{- if gt (int $st.prevGen) 0 }}{{ $gens = append $gens (int $st.prevGen) }}{{ end }}
+{{- range $i := until (int .Values.preview.slotCount) }}
+{{- $slot := printf "maul-preview-%d" $i }}
+{{- if $st.managedKeys }}
+{{- range $g := $gens }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+    name: maul-preview-oidc-g{{ $g }}
+    namespace: {{ $slot }}
+    labels:
+        {{- include "maul.labels" (dict "root" $ "name" $name) | nindent 8 }}
+    annotations:
+        {{- include "maul.annotations" (dict "root" $ "extra" (dict "helm.sh/resource-policy" "keep")) | nindent 8 }}
+type: Opaque
+stringData:
+    clientID: maul-preview-s{{ $i }}
+    clientSecret: {{ get (get $st.clientSecrets (toString $g)) (toString $i) | quote }}
+{{- end }}
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+    name: maul-preview-oidc-reader
+    namespace: {{ $slot }}
+    labels:
+        {{- include "maul.labels" (dict "root" $ "name" $name) | nindent 8 }}
+    annotations:
+        {{- include "maul.annotations" (dict "root" $ "extra" (dict "helm.sh/resource-policy" "keep")) | nindent 8 }}
+rules:
+    - apiGroups: [""]
+      resources: [secrets]
+      resourceNames:
+        {{- range $g := $gens }}
+        - maul-preview-oidc-g{{ $g }}
+        {{- end }}
+      verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+    name: maul-preview-oidc-reader
+    namespace: {{ $slot }}
+    labels:
+        {{- include "maul.labels" (dict "root" $ "name" $name) | nindent 8 }}
+    annotations:
+        {{- include "maul.annotations" (dict "root" $ "extra" (dict "helm.sh/resource-policy" "keep")) | nindent 8 }}
+roleRef:
+    apiGroup: rbac.authorization.k8s.io
+    kind: Role
+    name: maul-preview-oidc-reader
+subjects:
+    - kind: Group
+      apiGroup: rbac.authorization.k8s.io
+      name: eks:managed
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: {{ $fullname }}-{{ $name }}
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name "component" $name) | nindent 8 }}
+    {{- with include "maul.annotations" (dict "root" .) }}
+    annotations:
+        {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    replicas: {{ $vals.replicas }}
+    strategy:
+        type: RollingUpdate
+        rollingUpdate:
+            maxUnavailable: 0
+            maxSurge: 1
+    selector:
+        matchLabels:
+            {{- include "maul.selectorLabels" (dict "root" . "name" $name) | nindent 12 }}
+    template:
+        metadata:
+            labels:
+                {{- include "maul.labels" (dict "root" . "name" $name "component" $name) | nindent 16 }}
+                {{- with $vals.podLabels }}
+                {{- toYaml . | nindent 16 }}
+                {{- end }}
+                {{- if $gw.enabled }}
+                # The one label the slot NetworkPolicy admits (with the
+                # release namespace): stable, never the selector labels.
+                maul.run/preview-gateway: "true"
+                {{- end }}
+            {{- /* The relay loads its keys at start, so a changed keys Secret
+                   (a rotation) rolls it; an existingSecret is the
+                   operator's to roll. */}}
+            {{- $checksums := dict "checksum/config" (toJson $data | sha256sum) }}
+            {{- if $st.managedKeys }}
+            {{- $_ := set $checksums "checksum/keys" (toJson $st.keys | sha256sum) }}
+            {{- end }}
+            {{- with include "maul.annotations" (dict "root" . "extra" (merge $checksums ($vals.podAnnotations | default dict))) }}
+            annotations:
+                {{- . | nindent 16 }}
+            {{- end }}
+        spec:
+            serviceAccountName: {{ $sa }}
+            {{- with .Values.image.pullSecrets }}
+            imagePullSecrets:
+                {{- toYaml . | nindent 16 }}
+            {{- end }}
+            securityContext:
+                runAsNonRoot: true
+                runAsUser: 65532
+                runAsGroup: 65532
+                fsGroup: 65532
+                seccompProfile:
+                    type: RuntimeDefault
+            # Two replicas on different nodes, and zones where there are
+            # several: the relay is in every preview session's refresh path.
+            topologySpreadConstraints:
+                - maxSkew: 1
+                  topologyKey: topology.kubernetes.io/zone
+                  whenUnsatisfiable: ScheduleAnyway
+                  labelSelector:
+                      matchLabels:
+                          {{- include "maul.selectorLabels" (dict "root" . "name" $name) | nindent 26 }}
+                - maxSkew: 1
+                  topologyKey: kubernetes.io/hostname
+                  whenUnsatisfiable: ScheduleAnyway
+                  labelSelector:
+                      matchLabels:
+                          {{- include "maul.selectorLabels" (dict "root" . "name" $name) | nindent 26 }}
+            containers:
+                - name: relay
+                  image: {{ include "maul.image" (dict "root" . "binary" $name "image" $vals.image) }}
+                  imagePullPolicy: {{ .Values.image.pullPolicy }}
+                  args: ["serve"]
+                  envFrom:
+                      {{- with $vals.extraEnvFrom }}
+                      {{- toYaml . | nindent 22 }}
+                      {{- end }}
+                      - configMapRef:
+                            name: {{ include "maul.configMapName" (dict "root" . "name" $name) }}
+                  env:
+                      - name: POD_NAMESPACE
+                        valueFrom:
+                            fieldRef:
+                                fieldPath: metadata.namespace
+                      {{- with include "maul.extraEnv" (dict "path" "previewAuth" "env" $vals.extraEnv) }}
+                      {{- . | nindent 22 }}
+                      {{- end }}
+                  ports:
+                      - name: http
+                        containerPort: 8080
+                        protocol: TCP
+                      - name: health
+                        containerPort: 8081
+                        protocol: TCP
+                      {{- if $gw.enabled }}
+                      - name: gateway
+                        containerPort: 8082
+                        protocol: TCP
+                      {{- end }}
+                      {{- if $gw.tls }}
+                      - name: https
+                        containerPort: 8443
+                        protocol: TCP
+                      {{- end }}
+                  livenessProbe:
+                      httpGet:
+                          path: /healthz
+                          port: health
+                      initialDelaySeconds: 5
+                      periodSeconds: 20
+                  readinessProbe:
+                      httpGet:
+                          path: /readyz
+                          port: health
+                      initialDelaySeconds: 2
+                      periodSeconds: 10
+                  {{- with $vals.resources }}
+                  resources:
+                      {{- toYaml . | nindent 22 }}
+                  {{- end }}
+                  securityContext:
+                      allowPrivilegeEscalation: false
+                      readOnlyRootFilesystem: true
+                      capabilities:
+                          drop: ["ALL"]
+                      seccompProfile:
+                          type: RuntimeDefault
+                  volumeMounts:
+                      - name: keys
+                        mountPath: /etc/maul/preview-auth/keys
+                        readOnly: true
+                      - name: dex
+                        mountPath: /etc/maul/preview-auth/dex
+                        readOnly: true
+                      - name: tmp
+                        mountPath: /tmp
+                      {{- if $gw.tls }}
+                      - name: gateway-tls
+                        mountPath: /etc/maul/preview-gateway/tls
+                        readOnly: true
+                      {{- end }}
+                      {{- with $vals.extraVolumeMounts }}
+                      {{- toYaml . | nindent 22 }}
+                      {{- end }}
+            {{- with $vals.nodeSelector }}
+            nodeSelector:
+                {{- toYaml . | nindent 16 }}
+            {{- end }}
+            {{- with $vals.tolerations }}
+            tolerations:
+                {{- toYaml . | nindent 16 }}
+            {{- end }}
+            {{- with $vals.affinity }}
+            affinity:
+                {{- toYaml . | nindent 16 }}
+            {{- end }}
+            volumes:
+                - name: keys
+                  secret:
+                      secretName: {{ $st.keysSecret }}
+                      defaultMode: 0440
+                - name: dex
+                  secret:
+                      secretName: {{ $vals.dex.existingSecret }}
+                      defaultMode: 0440
+                      items:
+                          - key: {{ $vals.dex.clientSecretKey | default "clientSecret" }}
+                            path: clientSecret
+                - name: tmp
+                  emptyDir: {}
+                {{- if $gw.tls }}
+                # previewAuth.gateway.tls.secrets, one subdirectory each; the
+                # gateway re-reads them, so a renewal needs no restart.
+                - name: gateway-tls
+                  projected:
+                      defaultMode: 0440
+                      sources:
+                          {{- range $i, $sec := $gwVals.tls.secrets }}
+                          - secret:
+                                name: {{ $sec.secretName }}
+                                items:
+                                    - key: tls.crt
+                                      path: {{ $i }}/tls.crt
+                                    - key: tls.key
+                                      path: {{ $i }}/tls.key
+                          {{- end }}
+                {{- end }}
+                {{- with $vals.extraVolumes }}
+                {{- toYaml . | nindent 16 }}
+                {{- end }}
+{{- if gt (int $vals.replicas) 1 }}
+---
+# The relay is in every preview session's refresh path: keep one serving
+# through a node drain.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+    name: {{ $fullname }}-{{ $name }}
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+spec:
+    minAvailable: 1
+    selector:
+        matchLabels:
+            {{- include "maul.selectorLabels" (dict "root" . "name" $name) | nindent 12 }}
+{{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+    name: {{ $fullname }}-{{ $name }}
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+    {{- with include "maul.annotations" (dict "root" .) }}
+    annotations:
+        {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    type: ClusterIP
+    selector:
+        {{- include "maul.selectorLabels" (dict "root" . "name" $name) | nindent 8 }}
+    ports:
+        - name: http
+          port: 8080
+          targetPort: http
+          protocol: TCP
+{{- if $vals.networkPolicy.create }}
+---
+# Ingress: 8080 from the edge ALB (ingressFrom narrows it to the ALB's
+# subnets; it targets the pods by IP) plus 8081 probes. Egress: DNS, and TCP
+# 443 and 6443 anywhere: the API server (Previews, access reviews, the
+# Lease), Dex at its public issuer, and every preview host the probe asks.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+    name: {{ $fullname }}-{{ $name }}
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+spec:
+    podSelector:
+        matchLabels:
+            {{- include "maul.selectorLabels" (dict "root" . "name" $name) | nindent 12 }}
+    policyTypes: [Ingress, Egress]
+    ingress:
+        - ports:
+              - protocol: TCP
+                port: 8080
+              {{- if $gw.enabled }}
+              - protocol: TCP
+                port: 8082
+              {{- end }}
+              {{- if $gw.tls }}
+              - protocol: TCP
+                port: 8443
+              {{- end }}
+          {{- with $vals.ingressFrom }}
+          from:
+              {{- range $cidr := . }}
+              - ipBlock:
+                    cidr: {{ $cidr }}
+              {{- end }}
+          {{- end }}
+        - ports:
+              - protocol: TCP
+                port: 8081
+    egress:
+        - to:
+              - namespaceSelector:
+                    matchLabels:
+                        kubernetes.io/metadata.name: kube-system
+          ports:
+              - protocol: UDP
+                port: 53
+              - protocol: TCP
+                port: 53
+        {{- with include "maul.clusterDNSEgress" . }}
+        {{- . | nindent 8 }}
+        {{- end }}
+        - ports:
+              - protocol: TCP
+                port: 443
+              - protocol: TCP
+                port: 6443
+        {{- if $gw.enabled }}
+        # The gateway proxies to the slot Pods' port http (the Service
+        # resolves to them), and to nothing else in the slots.
+        - to:
+              - namespaceSelector:
+                    matchExpressions:
+                        - key: kubernetes.io/metadata.name
+                          operator: In
+                          values:
+                              {{- range $i := until (int .Values.preview.slotCount) }}
+                              - maul-preview-{{ $i }}
+                              {{- end }}
+          ports:
+              - protocol: TCP
+                port: http
+        {{- end }}
+        {{- with $vals.networkPolicy.extraEgress }}
+        # Operator-supplied additions (previewAuth.networkPolicy.extraEgress).
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+{{- end }}
+---
+# The relay's public endpoint: the browser's sign-in and the preview ALB's
+# token and userinfo calls. On the edge class, never the preview ALB. Its
+# relay-specific ALB settings are explicit rather than the IngressClass's
+# defaults: pod IP targets (the NetworkPolicy admits the ALB to the pods'
+# 8080) and a health check on /, which the relay answers 200 without
+# credentials. Off the chart's edge class it also asks for an internet-facing
+# ALB (the preview ALB calls the token endpoint from public addresses); on it,
+# edgeIngressClass.scheme governs the one shared ALB, as for the webhook and
+# status-page Ingresses, so the relay declares no scheme of its own to
+# contradict their group. previewAuth.ingress.annotations overrides each.
+{{- $albDefaults := dict
+    "alb.ingress.kubernetes.io/target-type" "ip"
+    "alb.ingress.kubernetes.io/healthcheck-path" "/" }}
+{{- if or (not $className) (ne $className (include "maul.edgeIngressClassName" .)) }}
+{{- $_ := set $albDefaults "alb.ingress.kubernetes.io/scheme" "internet-facing" }}
+{{- end }}
+{{- $ingressAnnotations := merge (dict) ($vals.ingress.annotations | default dict) $albDefaults }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+    name: {{ $fullname }}-{{ $name }}
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+    {{- with include "maul.annotations" (dict "root" . "extra" $ingressAnnotations) }}
+    annotations:
+        {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    {{- with $className }}
+    ingressClassName: {{ . }}
+    {{- end }}
+    {{- with $vals.ingress.tls }}
+    tls:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+    rules:
+        - host: {{ $vals.host | quote }}
+          http:
+              paths:
+                  - path: /
+                    pathType: Prefix
+                    backend:
+                        service:
+                            name: {{ $fullname }}-{{ $name }}
+                            port:
+                                name: http
+{{- if $gw.enabled }}
+---
+# The preview gateway's Service: what an edge (Ingress, HTTPRoute, a tunnel)
+# points at, or a LoadBalancer of its own. Port 80 is the gateway's own
+# listener (8082), where it answers every preview host and the sign-in host;
+# anything else reaching the relay's endpoints there (an edge that does not
+# filter by Host) is rate limited behind gateway.forwardedHops, never the
+# relay's.
+apiVersion: v1
+kind: Service
+metadata:
+    name: {{ $gwName }}
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+    {{- with include "maul.annotations" (dict "root" . "extra" ($gwVals.service.annotations | default dict)) }}
+    annotations:
+        {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    type: {{ $gwVals.service.type | default "ClusterIP" }}
+    {{- if eq $gw.exposure "loadBalancer" }}
+    # Local keeps the client's address as the peer (forwardedHops 0): under
+    # Cluster, kube-proxy source-NATs to a node address, which inboundCIDRs
+    # would refuse and the rate limit would share among every viewer.
+    externalTrafficPolicy: {{ $gwVals.service.externalTrafficPolicy | default "Local" }}
+    {{- with $gwVals.service.loadBalancerClass }}
+    # previewAuth.gateway.service.loadBalancerClass: the implementation that
+    # provisions it, where the cluster has more than one.
+    loadBalancerClass: {{ . }}
+    {{- end }}
+    {{- end }}
+    {{- if and (eq $gw.exposure "loadBalancer") $gwVals.inboundCIDRs }}
+    # previewAuth.gateway.inboundCIDRs, kept at the load balancer.
+    loadBalancerSourceRanges:
+        {{- toYaml $gwVals.inboundCIDRs | nindent 8 }}
+    {{- end }}
+    selector:
+        {{- include "maul.selectorLabels" (dict "root" . "name" $name) | nindent 8 }}
+    ports:
+        - name: http
+          port: 80
+          targetPort: gateway
+          protocol: TCP
+        {{- if $gw.tls }}
+        # The gateway's own TLS (previewAuth.gateway.tls.secrets).
+        - name: https
+          port: 443
+          targetPort: https
+          protocol: TCP
+        {{- end }}
+{{- $hosts := list (printf "*.%s" .Values.preview.hostSuffix) }}
+{{- if $gw.routeSignIn }}{{ $hosts = append $hosts $gw.signInHost }}{{ end }}
+{{- if eq $gw.exposure "ingress" }}
+{{- $gwClass := $gwVals.ingress.className | default (include "maul.edgeIngressClassName" .) }}
+{{- if eq $gwClass "alb-preview" }}{{ fail "previewAuth.gateway.ingress.className must not be alb-preview: that class is reserved for the slot namespaces" }}{{ end }}
+{{- $gwDefaults := dict
+    "alb.ingress.kubernetes.io/target-type" "ip"
+    "alb.ingress.kubernetes.io/healthcheck-path" "/.maul/healthz" }}
+{{- if or (not $gwClass) (ne $gwClass (include "maul.edgeIngressClassName" .)) }}
+{{- $_ := set $gwDefaults "alb.ingress.kubernetes.io/scheme" "internet-facing" }}
+{{- end }}
+{{- if and $gwVals.ingress.inboundCIDRsAnnotation $gwVals.inboundCIDRs }}
+{{- $_ := set $gwDefaults $gwVals.ingress.inboundCIDRsAnnotation (join "," $gwVals.inboundCIDRs) }}
+{{- end }}
+{{- $gwAnnotations := merge (dict) ($gwVals.ingress.annotations | default dict) $gwDefaults }}
+---
+# One Ingress for every preview host and the gateway's own sign-in host. Its
+# health check, /.maul/healthz, answers 200 on any Host and is never
+# forwarded to a preview. The edge terminates TLS.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+    name: {{ $gwName }}
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+    {{- with include "maul.annotations" (dict "root" . "extra" $gwAnnotations) }}
+    annotations:
+        {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    {{- with $gwClass }}
+    ingressClassName: {{ . }}
+    {{- end }}
+    {{- with $gwVals.ingress.tls }}
+    tls:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+    rules:
+        {{- range $host := $hosts }}
+        - host: {{ $host | quote }}
+          http:
+              paths:
+                  - path: /
+                    pathType: Prefix
+                    backend:
+                        service:
+                            name: {{ $gwName }}
+                            port:
+                                name: http
+        {{- end }}
+{{- else if eq $gw.exposure "httpRoute" }}
+---
+# Gateway API flavour: every preview host and the gateway's sign-in host on
+# the operator's Gateway, whose listener terminates TLS.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+    name: {{ $gwName }}
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+    {{- with include "maul.annotations" (dict "root" . "extra" ($gwVals.httpRoute.annotations | default dict)) }}
+    annotations:
+        {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    parentRefs:
+        {{- toYaml $gwVals.httpRoute.parentRefs | nindent 8 }}
+    hostnames:
+        {{- range $host := $hosts }}
+        - {{ $host | quote }}
+        {{- end }}
+    rules:
+        - matches:
+              - path:
+                    type: PathPrefix
+                    value: /
+          backendRefs:
+              - name: {{ $gwName }}
+                port: 80
+{{- end }}
+{{- end }}
+{{- end }}

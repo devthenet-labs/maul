@@ -8,9 +8,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/bitwise-media-group/patchy/internal/mirror/imageref"
-	"github.com/bitwise-media-group/patchy/internal/mirror/spec"
-	"github.com/bitwise-media-group/patchy/internal/mirror/verify"
+	"github.com/devthenet-labs/maul/internal/mirror/imageref"
+	"github.com/devthenet-labs/maul/internal/mirror/spec"
+	"github.com/devthenet-labs/maul/internal/mirror/verify"
 )
 
 // VerifyReport is one entry's upstream-provenance outcome. Gaps are

@@ -15,12 +15,12 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/bitwise-media-group/patchy/internal/previewauth"
+	"github.com/devthenet-labs/maul/internal/previewauth"
 )
 
 // Annotation holds the ledger on the Lease: a JSON object of hex code keys
 // to the unix second they can be forgotten at.
-const Annotation = "patchy.bitwisemedia.uk/redeemed-codes"
+const Annotation = "maul.run/redeemed-codes"
 
 const (
 	// MaxEntries caps the ledger. Codes live a minute, so this is far more

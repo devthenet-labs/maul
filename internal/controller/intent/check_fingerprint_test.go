@@ -13,8 +13,8 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/meta"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/ghclient"
 )
 
 // jobRun is what one run of a GitHub Actions job writes into its log that has
@@ -218,7 +218,7 @@ func TestCheckFingerprintIgnoresWhatEachRunDiffersBy(t *testing.T) {
 // the fingerprint: Jest and Maven write a space between a duration and its
 // unit ("Time: 2.345 s", "(5 ms)", "Time elapsed: 0.123 s"), and Node prints
 // its process id, inside the failing step's tail. Under the previous rule
-// (patchy-check-fingerprint/3) those were read as values, so the same Jest or
+// (maul-check-fingerprint/3) those were read as values, so the same Jest or
 // Maven failure fingerprinted differently on every run and RepeatedFailure
 // never fired. Another failure must still fingerprint differently.
 func TestCheckFingerprintIgnoresOtherToolsDurations(t *testing.T) {
@@ -428,7 +428,7 @@ func TestRepeatedCIFailureFromAnotherRunBlocks(t *testing.T) {
 	project.Spec.Checks.Fix = []string{"changelog"}
 	e := newEnv(t, project)
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 	failAt := func(head string, id, runID, jobID int64, r jobRun) {
 		e.gh.checks[head] = []ghclient.CheckRun{{ID: id, Name: "changelog", HeadSHA: head,

@@ -8,8 +8,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/bitwise-media-group/patchy/internal/awsinv"
-	"github.com/bitwise-media-group/patchy/pkg/enhance"
+	"github.com/devthenet-labs/maul/internal/awsinv"
+	"github.com/devthenet-labs/maul/pkg/enhance"
 )
 
 // dynamicAWSHarness wires a DynamicAWS to a mutable config and a

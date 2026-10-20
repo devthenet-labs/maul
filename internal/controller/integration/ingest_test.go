@@ -17,17 +17,17 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/webhook"
-	"github.com/bitwise-media-group/patchy/pkg/source"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/webhook"
+	"github.com/devthenet-labs/maul/pkg/source"
 )
 
 var testClock = time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
 
 func testIntegration() *v1alpha1.Integration {
 	return &v1alpha1.Integration{
-		ObjectMeta: metav1.ObjectMeta{Name: "gh", Namespace: "patchy"},
+		ObjectMeta: metav1.ObjectMeta{Name: "gh", Namespace: "maul"},
 		Spec: v1alpha1.IntegrationSpec{
 			Provider:  v1alpha1.IntegrationProviderGitHub,
 			SecretRef: &v1alpha1.LocalSecretReference{Name: "creds"},
@@ -66,7 +66,7 @@ func newIngestor(t *testing.T) (*Ingestor, client.Client) {
 		Build()
 	return &Ingestor{
 		Client:    c,
-		Namespace: "patchy",
+		Namespace: "maul",
 		Window:    time.Hour,
 		Now:       func() time.Time { return testClock },
 	}, c
@@ -75,7 +75,7 @@ func newIngestor(t *testing.T) (*Ingestor, client.Client) {
 func listFindings(t *testing.T, c client.Client) []v1alpha1.Finding {
 	t.Helper()
 	var list v1alpha1.FindingList
-	if err := c.List(t.Context(), &list, client.InNamespace("patchy")); err != nil {
+	if err := c.List(t.Context(), &list, client.InNamespace("maul")); err != nil {
 		t.Fatalf("List: %v", err)
 	}
 	return list.Items
@@ -202,7 +202,7 @@ func TestIngestOpensSuccessorGeneration(t *testing.T) {
 	}
 	// Elder carries the mirrored edge.
 	var elder v1alpha1.Finding
-	elderKey := types.NamespacedName{Namespace: "patchy", Name: gen2.Spec.Related[0].To}
+	elderKey := types.NamespacedName{Namespace: "maul", Name: gen2.Spec.Related[0].To}
 	if err := c.Get(t.Context(), elderKey, &elder); err != nil {
 		t.Fatalf("get elder: %v", err)
 	}
@@ -243,7 +243,7 @@ func TestAccumulationConditionFlips(t *testing.T) {
 	}
 	name := listFindings(t, c)[0].Name
 
-	r := &FindingReconciler{Client: c, Namespace: "patchy", Now: func() time.Time { return testClock }}
+	r := &FindingReconciler{Client: c, Namespace: "maul", Now: func() time.Time { return testClock }}
 	// Window still open: requeue for the remainder, condition not set.
 	wait, err := r.closeAccumulation(t.Context(), get(t, c, name))
 	if err != nil || wait != time.Hour {
@@ -263,7 +263,7 @@ func TestAccumulationConditionFlips(t *testing.T) {
 func get(t *testing.T, c client.Client, name string) *v1alpha1.Finding {
 	t.Helper()
 	var f v1alpha1.Finding
-	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: name}, &f); err != nil {
+	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: name}, &f); err != nil {
 		t.Fatalf("Get(%s): %v", name, err)
 	}
 	return &f

@@ -1,6 +1,6 @@
 # Webhook exposure
 
-A GitHub App has exactly **one** webhook URL, and GitHub POSTs every subscribed event to it. In patchy that URL points
+A GitHub App has exactly **one** webhook URL, and GitHub POSTs every subscribed event to it. In maul that URL points
 at the **integration-controller** — the single internet-facing component and the only webhook receiver in the system:
 
 ```text
@@ -10,7 +10,7 @@ https://<webhook.host>/github/webhooks
 Each delivery's HMAC signature is validated against the `webhookSecret` of your configured `Integration` resources
 before anything else happens; a delivery no Integration's secret matches is rejected with `401`. There is no routing
 tier and nothing to fan deliveries out to — scanner events are ingested into `Finding` resources and human signals
-(issue close, `/patchy` commands, PR merge) are applied to them, all inside this one controller.
+(issue close, `/maul` commands, PR merge) are applied to them, all inside this one controller.
 
 Two properties follow:
 
@@ -30,7 +30,7 @@ credentials (remediation-controller's push/PR) never face the internet.
 ## Missed deliveries: the redelivery sweep
 
 GitHub does **not** retry a failed webhook delivery on its own — it records the attempt in the App's 30-day delivery log
-and moves on. A delivery patchy never got a `2xx` to (receiver down, queue full, misconfigured secret) would otherwise
+and moves on. A delivery maul never got a `2xx` to (receiver down, queue full, misconfigured secret) would otherwise
 sit there until someone redelivers it by hand.
 
 The integration-controller closes that gap when `spec.github.redelivery` is enabled on the Integration:
@@ -57,7 +57,7 @@ Integration; the controller performs the redelivery on its next reconcile.
 Deliveries that never happened — alerts predating the App installation — are invisible to the sweep: there is nothing in
 the delivery log to redeliver. Those are what the **manual backfill** exists for: a one-shot list-alerts walk that
 ingests the provider's open alerts directly. Trigger it from the status page's configuration view, with
-`patchy backfill <integration> [--repo owner/ ...]`, or by stamping `spec.backfill` on the Integration directly (RBAC
+`maul backfill <integration> [--repo owner/ ...]`, or by stamping `spec.backfill` on the Integration directly (RBAC
 verb `backfill` on integrations). The walk honours an optional repository prefix filter, is bounded by a page budget
 (`status.backfill.truncated` says when to re-run with a narrower prefix), and is idempotent — alerts that already have
 findings simply fold in. See [the GitHub source](../integrations/sources/github.md) for the full semantics.
@@ -71,14 +71,14 @@ Enable one flavour under the chart's `webhook` value and point the App's webhook
 
 ```yaml
 webhook:
-  host: patchy.example.com
+  host: maul.example.com
   ingress:
     enabled: true
     className: nginx
     tls:
-      - secretName: patchy-webhook-tls
+      - secretName: maul-webhook-tls
         hosts:
-          - patchy.example.com
+          - maul.example.com
 ```
 
 GitHub should always deliver over HTTPS — set `tls` (cert-manager annotations go in `webhook.ingress.annotations`) or
@@ -89,7 +89,7 @@ certificates are the Gateway listener's concern:
 
 ```yaml
 webhook:
-  host: patchy.example.com
+  host: maul.example.com
   httpRoute:
     enabled: true
     parentRefs:
@@ -100,7 +100,7 @@ webhook:
 
 ## Managed platform notes
 
-Nothing here is patchy-specific — the chart emits standard resources with no implementation-specific annotations of its
+Nothing here is maul-specific — the chart emits standard resources with no implementation-specific annotations of its
 own (add what your controller needs via `webhook.ingress.annotations` / `webhook.httpRoute.annotations`) — but for
 orientation:
 
@@ -122,7 +122,7 @@ Any other conformant implementation (ingress-nginx, Istio, Envoy Gateway, Cilium
 
 ## Kustomize
 
-The base ships the integration-controller Deployment and its ClusterIP Service (`patchy-integration-controller:8080`)
+The base ships the integration-controller Deployment and its ClusterIP Service (`maul-integration-controller:8080`)
 but deliberately no Ingress — put your environment's Ingress or Gateway in front of that Service in your own overlay.
 The dev overlay exposes it two ways at once: NodePort 30079 (where a webhook tunnel — smee.io, ngrok,
 `gh webhook forward` — or `mise run replay` should point) and a host-less, class-less Ingress for the same path that any

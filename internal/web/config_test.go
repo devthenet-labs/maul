@@ -15,15 +15,15 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/web/authz"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/web/authz"
 )
 
 // fullConfigIntegration exercises every projected integration field.
 func fullConfigIntegration() *v1alpha1.Integration {
 	at := metav1.NewTime(testClock.Add(-time.Hour))
 	return &v1alpha1.Integration{
-		ObjectMeta: metav1.ObjectMeta{Name: "gh", Namespace: "patchy"},
+		ObjectMeta: metav1.ObjectMeta{Name: "gh", Namespace: "maul"},
 		Spec: v1alpha1.IntegrationSpec{
 			Provider:  v1alpha1.IntegrationProviderGitHub,
 			SecretRef: &v1alpha1.LocalSecretReference{Name: "creds"},
@@ -56,7 +56,7 @@ func fullConfigIntegration() *v1alpha1.Integration {
 
 func testForge() *v1alpha1.Forge {
 	return &v1alpha1.Forge{
-		ObjectMeta: metav1.ObjectMeta{Name: "github", Namespace: "patchy"},
+		ObjectMeta: metav1.ObjectMeta{Name: "github", Namespace: "maul"},
 		Spec: v1alpha1.ForgeSpec{
 			Provider:     v1alpha1.ForgeProviderGitHub,
 			SecretRef:    v1alpha1.LocalSecretReference{Name: "forge-creds"},
@@ -241,7 +241,7 @@ func TestHandleConfigWireKeys(t *testing.T) {
 func TestDeriveEnhancersAmbiguous(t *testing.T) {
 	mk := func(name string) v1alpha1.Integration {
 		return v1alpha1.Integration{
-			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "patchy"},
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "maul"},
 			Spec: v1alpha1.IntegrationSpec{
 				Provider: v1alpha1.IntegrationProviderGoogleCloud,
 				GoogleCloud: &v1alpha1.GoogleCloudIntegration{
@@ -345,7 +345,7 @@ func TestHandleBackfill(t *testing.T) {
 				return
 			}
 			var integ v1alpha1.Integration
-			key := types.NamespacedName{Namespace: "patchy", Name: "gh"}
+			key := types.NamespacedName{Namespace: "maul", Name: "gh"}
 			if err := mustClient(s).Get(t.Context(), key, &integ); err != nil {
 				t.Fatalf("get integration: %v", err)
 			}

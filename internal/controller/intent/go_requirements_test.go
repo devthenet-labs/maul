@@ -10,11 +10,11 @@ import (
 	"strings"
 	"testing"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/templates"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 const baseGoMod = `module example.com/app
@@ -59,7 +59,7 @@ func TestPullRequestBodyFlagsGoDependencyDrift(t *testing.T) {
 		return out
 	}
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 	e.gh.mu.Lock()
 	body := e.gh.prs[in.Status.PullRequests[0].Number].body
@@ -84,7 +84,7 @@ func TestPullRequestBodyFlagsGoDependencyDrift(t *testing.T) {
 func TestPullRequestBodyWithoutGoModIsUnchanged(t *testing.T) {
 	e := newEnv(t, testProject())
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 	e.gh.mu.Lock()
 	body := e.gh.prs[in.Status.PullRequests[0].Number].body
@@ -127,7 +127,7 @@ func TestPullRequestOpensWhenGoModIsNotInline(t *testing.T) {
 	e := newEnv(t, testProject())
 	e.gh.repoErrs["FileContent acme/app"] = fmt.Errorf("ghclient: read go.mod: %w", ghclient.ErrNotInline)
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 	e.gh.mu.Lock()
 	body := e.gh.prs[in.Status.PullRequests[0].Number].body

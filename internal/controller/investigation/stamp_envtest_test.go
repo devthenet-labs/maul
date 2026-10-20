@@ -17,14 +17,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/forge"
-	"github.com/bitwise-media-group/patchy/internal/kube"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/forge"
+	"github.com/devthenet-labs/maul/internal/kube"
 )
 
 // envClient boots envtest with the shipped CRDs and returns a real client
-// with the patchy namespace created. The fake client enforces none of the
+// with the maul namespace created. The fake client enforces none of the
 // CRD schema, so a status write the API server refuses passes there.
 func envClient(t *testing.T) client.Client {
 	t.Helper()
@@ -48,7 +48,7 @@ func envClient(t *testing.T) client.Client {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := c.Create(t.Context(), &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "patchy"}}); err != nil {
+	if err := c.Create(t.Context(), &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "maul"}}); err != nil {
 		t.Fatal(err)
 	}
 	return c
@@ -100,7 +100,7 @@ func TestEnvtestOversizedFailureDetailReachesTheRetry(t *testing.T) {
 		}},
 	}}}
 	rec := &InvestigationReconciler{
-		Client: c, Runner: runner, Namespace: "patchy", MaxConcurrent: 2, MaxAttempts: 2,
+		Client: c, Runner: runner, Namespace: "maul", MaxConcurrent: 2, MaxAttempts: 2,
 		ConfidenceThreshold: 0.75, Now: func() time.Time { return clock },
 	}
 	applyOnce(t, rec)
@@ -122,12 +122,12 @@ func TestEnvtestOversizedFailureDetailReachesTheRetry(t *testing.T) {
 	}
 
 	gate := &GateReconciler{
-		Client: c, Forges: forge.NewStore(c), Namespace: "patchy", MinAge: time.Hour,
+		Client: c, Forges: forge.NewStore(c), Namespace: "maul", MinAge: time.Hour,
 		Now: func() time.Time { return clock },
 	}
 	gateOnce(t, gate)
 	var inv2 v1alpha1.Investigation
-	if err := c.Get(ctx, types.NamespacedName{Namespace: "patchy", Name: fndName + "-inv-2"}, &inv2); err != nil {
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "maul", Name: fndName + "-inv-2"}, &inv2); err != nil {
 		t.Fatalf("attempt 2 not opened: %v", err)
 	}
 	p := inv2.Spec.PreviousAttempt

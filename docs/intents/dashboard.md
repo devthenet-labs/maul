@@ -2,7 +2,7 @@
 
 The status page can show every intent a person may see: a board of intents by phase, each intent's timeline, and a panel
 for each agent run that answers the three questions a running intent raises: is it stuck, what has it spent, and when
-will it stop. It is read-only. Approval stays a GitHub fact (the approve label or `/patchy approve` on the intent issue,
+will it stop. It is read-only. Approval stays a GitHub fact (the approve label or `/maul approve` on the intent issue,
 bound to the plan's digest), and nothing on the dashboard can approve, cancel or replan an intent.
 
 It is off by default. Turning it on adds per-Project access, mandatory identity hardening and a stricter browser
@@ -57,7 +57,7 @@ when it ends. There are no live token or dollar figures yet.
 
 Run details and condition messages can quote a scheduler or kubelet message naming private nodes, or an image reference
 carrying a private registry host and account ID. The dashboard shows neither. Outcomes and block reasons are fixed
-sentences keyed by patchy's own vocabulary (`evicted: the agent pod was evicted`,
+sentences keyed by maul's own vocabulary (`evicted: the agent pod was evicted`,
 `the repository's agent image was rejected`); images appear as their source and digest, never their registry. Raw
 `kubectl describe` remains the operator's tool for the rest.
 
@@ -69,7 +69,7 @@ from fields the controllers write, and only as `https`.
 ## Two read tiers, per Project
 
 Access is decided per Project by Kubernetes RBAC, through SubjectAccessReviews the status server runs for the signed-in
-user, on two **virtual** subresources of `projects.patchy.bitwisemedia.uk`:
+user, on two **virtual** subresources of `projects.maul.run`:
 
 | Grant                           | Shows                                                                                                     |
 | ------------------------------- | --------------------------------------------------------------------------------------------------------- |
@@ -84,10 +84,10 @@ are their only reader. The tiers nest: `projects/transcripts` without `projects/
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: patchy-intents-content-storefront
-  namespace: patchy
+  name: maul-intents-content-storefront
+  namespace: maul
 rules:
-  - apiGroups: [patchy.bitwisemedia.uk]
+  - apiGroups: [maul.run]
     resources: [projects/intents, projects/transcripts]
     resourceNames: [storefront] # the Project's name
     verbs: [get]
@@ -95,12 +95,12 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: patchy-intents-content-storefront
-  namespace: patchy
+  name: maul-intents-content-storefront
+  namespace: maul
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: patchy-intents-content-storefront
+  name: maul-intents-content-storefront
 subjects:
   - kind: Group
     apiGroup: rbac.authorization.k8s.io
@@ -119,15 +119,15 @@ different tiers share one log follow and still receive different streams.
 !!! warning "Native RBAC bypasses the tiers"
 
     The tiers bind the dashboard only. Plans and transcripts are stored in ConfigMaps in the release namespace, and raw
-    agent output is in the agent pods' logs. Anyone with `get` on `configmaps` in `patchy` reads every Project's plans
-    and transcripts (and every Finding's), and anyone with `get` on `pods/log` in `patchy-agents` reads the raw agent
+    agent output is in the agent pods' logs. Anyone with `get` on `configmaps` in `maul` reads every Project's plans
+    and transcripts (and every Finding's), and anyone with `get` on `pods/log` in `maul-agents` reads the raw agent
     output, which carries more than the scrubbed transcript does. The built-in `view`, `edit` and `admin` roles include
     both. Give a per-Project viewer only the virtual subresources above, never native reads in these namespaces, and
     check who holds them:
 
     ```sh
-    kubectl auth can-i get configmaps -n patchy --as <user> --as-group <group>
-    kubectl auth can-i get pods/log -n patchy-agents --as <user> --as-group <group>
+    kubectl auth can-i get configmaps -n maul --as <user> --as-group <group>
+    kubectl auth can-i get pods/log -n maul-agents --as <user> --as-group <group>
     ```
 
 Grants are by Project **name**. A Project deleted and created again under the same name while the old one's intents are
@@ -162,10 +162,10 @@ status page:
 
 ```yaml
 staticClients:
-  - id: patchy-status
-    name: patchy status
-    secretEnv: PATCHY_STATUS_CLIENT_SECRET
-    redirectURIs: [https://status.patchy.example.com/oauth2/callback]
+  - id: maul-status
+    name: maul status
+    secretEnv: MAUL_STATUS_CLIENT_SECRET
+    redirectURIs: [https://status.maul.example.com/oauth2/callback]
 connectors:
   - type: github
     id: github
@@ -185,9 +185,9 @@ and the status server's auth config (`statusServer.auth.existingSecret`, key `co
 mode: oidc
 oidc:
   issuerURL: https://dex.example.com
-  clientID: patchy-status
-  clientSecretFile: /etc/patchy/auth/client-secret # or clientSecret
-  redirectURL: https://status.patchy.example.com/oauth2/callback
+  clientID: maul-status
+  clientSecretFile: /etc/maul/auth/client-secret # or clientSecret
+  redirectURL: https://status.maul.example.com/oauth2/callback
   scopes: [openid, offline_access, profile, email, groups]
   claims:
     username: preferred_username # the GitHub login
@@ -220,7 +220,7 @@ statusServer:
   intents:
     enabled: true
   auth:
-    existingSecret: patchy-status-auth # mode oidc with both prefixes, as above
+    existingSecret: maul-status-auth # mode oidc with both prefixes, as above
   rbac:
     userRoles: true # optional: the two example ClusterRoles
 ```

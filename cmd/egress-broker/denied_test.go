@@ -14,8 +14,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bitwise-media-group/patchy/internal/broker"
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/broker"
+	"github.com/devthenet-labs/maul/internal/netprofile"
 )
 
 // brokerURLSources are the files that spell the broker's upstream hosts:

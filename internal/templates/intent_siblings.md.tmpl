@@ -1,12 +1,12 @@
 {{- /* Posted once on each pull request of an intent that opened more than
-one: the only cross-link between them, since patchy never edits a pull
-request's body. The pull requests are patchy's own, linked on purpose. One
+one: the only cross-link between them, since maul never edits a pull
+request's body. The pull requests are maul's own, linked on purpose. One
 line per paragraph: GitHub renders a line break inside a comment as a hard
 break. */ -}}
 {{ .Marker }}
-### patchy: related pull requests
+### maul: related pull requests
 
-This pull request is one of {{ .Count }} that patchy opened for the same intent, one in each repository its approved plan changes. Review each in its own repository. The intent completes when every one of them has merged.
+This pull request is one of {{ .Count }} that maul opened for the same intent, one in each repository its approved plan changes. Review each in its own repository. The intent completes when every one of them has merged.
 {{- with .Siblings }}
 
 **The others:**

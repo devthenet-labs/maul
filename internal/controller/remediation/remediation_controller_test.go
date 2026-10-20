@@ -15,11 +15,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/transcript"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/transcript"
 )
 
 var crdClock = time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
@@ -27,7 +27,7 @@ var crdClock = time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
 // queuedFinding is investigated and queued for remediation.
 func queuedFinding(phase v1alpha1.Phase) *v1alpha1.Finding {
 	return &v1alpha1.Finding{
-		ObjectMeta: metav1.ObjectMeta{Name: "finding-aa-1", Namespace: "patchy", UID: "uid-1"},
+		ObjectMeta: metav1.ObjectMeta{Name: "finding-aa-1", Namespace: "maul", UID: "uid-1"},
 		Spec: v1alpha1.FindingSpec{
 			IntegrationRef: v1alpha1.LocalObjectReference{Name: "gh"},
 			Source:         "ghas",
@@ -56,7 +56,7 @@ func queuedFinding(phase v1alpha1.Phase) *v1alpha1.Finding {
 
 func invChild() *v1alpha1.Investigation {
 	return &v1alpha1.Investigation{
-		ObjectMeta: metav1.ObjectMeta{Name: "finding-aa-1-inv-1", Namespace: "patchy"},
+		ObjectMeta: metav1.ObjectMeta{Name: "finding-aa-1-inv-1", Namespace: "maul"},
 		Spec: v1alpha1.InvestigationSpec{
 			FindingRef: v1alpha1.ObjectReference{Name: "finding-aa-1", UID: "uid-1"}, Attempt: 1,
 		},
@@ -106,7 +106,7 @@ func TestSpawnerGrantsApprovedEstimate(t *testing.T) {
 			spawnOnce(t, r)
 
 			var rem v1alpha1.Remediation
-			key := types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1-rem-1"}
+			key := types.NamespacedName{Namespace: "maul", Name: "finding-aa-1-rem-1"}
 			if err := c.Get(t.Context(), key, &rem); err != nil {
 				t.Fatalf("Remediation not created: %v", err)
 			}
@@ -129,7 +129,7 @@ func newSpawner(t *testing.T, objs ...client.Object) (*SpawnerReconciler, client
 		Build()
 	return &SpawnerReconciler{
 		Client:       c,
-		Namespace:    "patchy",
+		Namespace:    "maul",
 		Enabled:      []string{"claude", "codex"},
 		Allowlist:    []string{"anthropic/claude-sonnet-5", "anthropic/claude-opus-5", "openai/gpt-5.3-codex"},
 		DefaultModel: "anthropic/claude-sonnet-5",
@@ -146,7 +146,7 @@ func newSpawner(t *testing.T, objs ...client.Object) (*SpawnerReconciler, client
 func spawnOnce(t *testing.T, r *SpawnerReconciler) {
 	t.Helper()
 	if _, err := r.Reconcile(t.Context(), ctrl.Request{
-		NamespacedName: types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1"},
+		NamespacedName: types.NamespacedName{Namespace: "maul", Name: "finding-aa-1"},
 	}); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
@@ -155,7 +155,7 @@ func spawnOnce(t *testing.T, r *SpawnerReconciler) {
 func findingNow(t *testing.T, c client.Client) *v1alpha1.Finding {
 	t.Helper()
 	var f v1alpha1.Finding
-	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1"}, &f); err != nil {
+	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: "finding-aa-1"}, &f); err != nil {
 		t.Fatalf("Get finding: %v", err)
 	}
 	return &f
@@ -166,7 +166,7 @@ func TestSpawnerCreatesRemediation(t *testing.T) {
 	spawnOnce(t, r)
 
 	var rem v1alpha1.Remediation
-	key := types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1-rem-1"}
+	key := types.NamespacedName{Namespace: "maul", Name: "finding-aa-1-rem-1"}
 	if err := c.Get(t.Context(), key, &rem); err != nil {
 		t.Fatalf("Remediation not created: %v", err)
 	}
@@ -200,7 +200,7 @@ func TestSpawnerCreatesRemediation(t *testing.T) {
 	// Second pass is a no-op (attempt exists).
 	spawnOnce(t, r)
 	var list v1alpha1.RemediationList
-	if err := c.List(t.Context(), &list, client.InNamespace("patchy")); err != nil {
+	if err := c.List(t.Context(), &list, client.InNamespace("maul")); err != nil {
 		t.Fatalf("List: %v", err)
 	}
 	if len(list.Items) != 1 {
@@ -218,7 +218,7 @@ func TestSpawnerResolvesCrossProviderHarness(t *testing.T) {
 	spawnOnce(t, r)
 
 	var rem v1alpha1.Remediation
-	key := types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1-rem-1"}
+	key := types.NamespacedName{Namespace: "maul", Name: "finding-aa-1-rem-1"}
 	if err := c.Get(t.Context(), key, &rem); err != nil {
 		t.Fatalf("Remediation not created: %v", err)
 	}
@@ -237,7 +237,7 @@ func TestSpawnerFallsBackWhenModelNotAllowlisted(t *testing.T) {
 	spawnOnce(t, r)
 
 	var rem v1alpha1.Remediation
-	key := types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1-rem-1"}
+	key := types.NamespacedName{Namespace: "maul", Name: "finding-aa-1-rem-1"}
 	if err := c.Get(t.Context(), key, &rem); err != nil {
 		t.Fatalf("Remediation not created: %v", err)
 	}
@@ -302,7 +302,7 @@ func failedRemediationFinding(retryAt time.Time) *v1alpha1.Finding {
 
 func TestSpawnerRecoversFailedRemediationOnRetry(t *testing.T) {
 	failedChild := &v1alpha1.Remediation{
-		ObjectMeta: metav1.ObjectMeta{Name: "finding-aa-1-rem-1", Namespace: "patchy"},
+		ObjectMeta: metav1.ObjectMeta{Name: "finding-aa-1-rem-1", Namespace: "maul"},
 		Spec: v1alpha1.RemediationSpec{
 			FindingRef: v1alpha1.ObjectReference{Name: "finding-aa-1", UID: "uid-1"}, Attempt: 1,
 		},
@@ -321,7 +321,7 @@ func TestSpawnerRecoversFailedRemediationOnRetry(t *testing.T) {
 	// The Queued reconcile then spawns the next attempt.
 	spawnOnce(t, r)
 	var rem v1alpha1.Remediation
-	key := types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1-rem-2"}
+	key := types.NamespacedName{Namespace: "maul", Name: "finding-aa-1-rem-2"}
 	if err := c.Get(t.Context(), key, &rem); err != nil {
 		t.Fatalf("attempt 2 not spawned after retry: %v", err)
 	}
@@ -359,7 +359,7 @@ func TestSpawnerRespawnsAfterSettledCompleteChild(t *testing.T) {
 	fnd := queuedFinding(v1alpha1.PhaseQueued)
 	fnd.Status.Attempts.Remediation = 1
 	completeChild := &v1alpha1.Remediation{
-		ObjectMeta: metav1.ObjectMeta{Name: "finding-aa-1-rem-1", Namespace: "patchy"},
+		ObjectMeta: metav1.ObjectMeta{Name: "finding-aa-1-rem-1", Namespace: "maul"},
 		Spec: v1alpha1.RemediationSpec{
 			FindingRef: v1alpha1.ObjectReference{Name: "finding-aa-1", UID: "uid-1"}, Attempt: 1,
 		},
@@ -368,7 +368,7 @@ func TestSpawnerRespawnsAfterSettledCompleteChild(t *testing.T) {
 	r, c := newSpawner(t, fnd, invChild(), completeChild)
 	spawnOnce(t, r)
 	var rem v1alpha1.Remediation
-	key := types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1-rem-2"}
+	key := types.NamespacedName{Namespace: "maul", Name: "finding-aa-1-rem-2"}
 	if err := c.Get(t.Context(), key, &rem); err != nil {
 		t.Fatalf("attempt 2 not spawned after settled Complete child: %v", err)
 	}
@@ -454,7 +454,7 @@ func runningRemediation() []client.Object {
 	fnd.Status.Attempts.Remediation = 1
 	rem := &v1alpha1.Remediation{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "finding-aa-1-rem-1", Namespace: "patchy",
+			Name: "finding-aa-1-rem-1", Namespace: "maul",
 			Labels: map[string]string{v1alpha1.LabelFinding: "finding-aa-1"},
 		},
 		Spec: v1alpha1.RemediationSpec{
@@ -471,7 +471,7 @@ func runningRemediation() []client.Object {
 		},
 	}
 	repo := &v1alpha1.Repository{
-		ObjectMeta: metav1.ObjectMeta{Name: "finding-aa-1-src", Namespace: "patchy"},
+		ObjectMeta: metav1.ObjectMeta{Name: "finding-aa-1-src", Namespace: "maul"},
 		Spec:       v1alpha1.RepositorySpec{URL: "https://github.com/acme/orders"},
 		Status: v1alpha1.RepositoryStatus{
 			ResolvedSHA: "abc123",
@@ -494,7 +494,7 @@ func newRemediation(
 		Client:        c,
 		Runner:        runner,
 		Forge:         fw,
-		Namespace:     "patchy",
+		Namespace:     "maul",
 		MaxConcurrent: 1,
 		MaxAttempts:   2,
 		Enabled:       []string{"claude", "codex"},
@@ -505,7 +505,7 @@ func newRemediation(
 func remOnce(t *testing.T, r *RemediationReconciler, name string) {
 	t.Helper()
 	if _, err := r.Reconcile(t.Context(), ctrl.Request{
-		NamespacedName: types.NamespacedName{Namespace: "patchy", Name: name},
+		NamespacedName: types.NamespacedName{Namespace: "maul", Name: name},
 	}); err != nil {
 		t.Fatalf("Reconcile(%s): %v", name, err)
 	}
@@ -520,7 +520,7 @@ func crdRemediationEvent(success bool) []envelope.Event {
 			ReportMarkdown: "fix report",
 			Success:        success,
 			Confidence:     0.9,
-			Branch:         "patchy/finding-aa-1",
+			Branch:         "maul/finding-aa-1",
 			Changeset: &envelope.Changeset{
 				BaseSHA:       "abc123",
 				CommitMessage: "fix",
@@ -536,8 +536,8 @@ func TestRemediationSuccessPushesAndOpensPR(t *testing.T) {
 	r, c := newRemediation(t, runner, fw, runningRemediation()...)
 	remOnce(t, r, "finding-aa-1-rem-1")
 
-	if len(fw.pushed) != 1 || fw.pushed[0] != "patchy/finding-aa-1" {
-		t.Errorf("pushed = %v, want patchy/finding-aa-1", fw.pushed)
+	if len(fw.pushed) != 1 || fw.pushed[0] != "maul/finding-aa-1" {
+		t.Errorf("pushed = %v, want maul/finding-aa-1", fw.pushed)
 	}
 	if fw.prCalls != 1 {
 		t.Errorf("prCalls = %d, want 1", fw.prCalls)
@@ -550,11 +550,11 @@ func TestRemediationSuccessPushesAndOpensPR(t *testing.T) {
 		t.Errorf("pullRequest = %+v", f.Status.PullRequest)
 	}
 	var rem v1alpha1.Remediation
-	key := types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1-rem-1"}
+	key := types.NamespacedName{Namespace: "maul", Name: "finding-aa-1-rem-1"}
 	if err := c.Get(t.Context(), key, &rem); err != nil {
 		t.Fatalf("Get remediation: %v", err)
 	}
-	if !rem.Status.Success || rem.Status.Branch != "patchy/finding-aa-1" || rem.Status.PullRequest == nil {
+	if !rem.Status.Success || rem.Status.Branch != "maul/finding-aa-1" || rem.Status.PullRequest == nil {
 		t.Errorf("remediation status = %+v", rem.Status)
 	}
 	if rem.Status.Stage == nil || rem.Status.Stage.Usage.CostUSD != "3.500000" {
@@ -609,7 +609,7 @@ func TestRemediationSuccessRecordsPushedCommit(t *testing.T) {
 	remOnce(t, r, "finding-aa-1-rem-1")
 
 	var rem v1alpha1.Remediation
-	key := types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1-rem-1"}
+	key := types.NamespacedName{Namespace: "maul", Name: "finding-aa-1-rem-1"}
 	if err := c.Get(t.Context(), key, &rem); err != nil {
 		t.Fatalf("Get remediation: %v", err)
 	}
@@ -660,7 +660,7 @@ func TestRemediationFailureRequeuesThenExhausts(t *testing.T) {
 	r2, c2 := newRemediation(t, runner, &fakeForge{}, objs...)
 	remOnce(t, r2, "finding-aa-1-rem-2")
 	var f v1alpha1.Finding
-	if err := c2.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1"}, &f); err != nil {
+	if err := c2.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: "finding-aa-1"}, &f); err != nil {
 		t.Fatalf("Get: %v", err)
 	}
 	if f.Status.Phase != v1alpha1.PhaseFailed {
@@ -672,7 +672,7 @@ func TestRemediationSchedulerPriorityOrder(t *testing.T) {
 	mk := func(name string, prio int32) *v1alpha1.Remediation {
 		return &v1alpha1.Remediation{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: name, Namespace: "patchy",
+				Name: name, Namespace: "maul",
 				CreationTimestamp: metav1.NewTime(crdClock),
 			},
 			Spec: v1alpha1.RemediationSpec{
@@ -686,16 +686,16 @@ func TestRemediationSchedulerPriorityOrder(t *testing.T) {
 	runner := &fakeCRRunner{}
 	r, c := newRemediation(t, runner, &fakeForge{}, mk("rem-low", 10), mk("rem-high", 90))
 	if _, err := r.Reconcile(t.Context(), ctrl.Request{
-		NamespacedName: types.NamespacedName{Namespace: "patchy", Name: remSchedulerRequest},
+		NamespacedName: types.NamespacedName{Namespace: "maul", Name: remSchedulerRequest},
 	}); err != nil {
 		t.Fatalf("schedule: %v", err)
 	}
 
 	var high, low v1alpha1.Remediation
-	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: "rem-high"}, &high); err != nil {
+	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: "rem-high"}, &high); err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: "rem-low"}, &low); err != nil {
+	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: "rem-low"}, &low); err != nil {
 		t.Fatalf("Get: %v", err)
 	}
 	if high.Status.Phase != v1alpha1.RunRunning {
@@ -710,7 +710,7 @@ func TestRemediationSchedulerExpeditedJumpsQueue(t *testing.T) {
 	mk := func(name, finding string, prio int32) *v1alpha1.Remediation {
 		return &v1alpha1.Remediation{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: name, Namespace: "patchy",
+				Name: name, Namespace: "maul",
 				CreationTimestamp: metav1.NewTime(crdClock),
 			},
 			Spec: v1alpha1.RemediationSpec{
@@ -728,13 +728,13 @@ func TestRemediationSchedulerExpeditedJumpsQueue(t *testing.T) {
 	r, c := newRemediation(t, runner, &fakeForge{},
 		expedited, mk("rem-low", "finding-exp", 10), mk("rem-high", "other", 90))
 	if _, err := r.Reconcile(t.Context(), ctrl.Request{
-		NamespacedName: types.NamespacedName{Namespace: "patchy", Name: remSchedulerRequest},
+		NamespacedName: types.NamespacedName{Namespace: "maul", Name: remSchedulerRequest},
 	}); err != nil {
 		t.Fatalf("schedule: %v", err)
 	}
 
 	var low v1alpha1.Remediation
-	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: "rem-low"}, &low); err != nil {
+	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: "rem-low"}, &low); err != nil {
 		t.Fatalf("Get: %v", err)
 	}
 	if low.Status.Phase != v1alpha1.RunRunning {
@@ -784,7 +784,7 @@ func TestRemediationLaunchFailsWhenHarnessDisabled(t *testing.T) {
 		t.Fatalf("jobs = %d, want 0 (harness disabled)", len(runner.created))
 	}
 	var got v1alpha1.Remediation
-	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1-rem-1"}, &got); err != nil {
+	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: "finding-aa-1-rem-1"}, &got); err != nil {
 		t.Fatalf("Get: %v", err)
 	}
 	if got.Status.Phase != v1alpha1.RunFailed {

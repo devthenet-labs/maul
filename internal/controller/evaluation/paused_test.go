@@ -11,7 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/bitwise-media-group/patchy/api/v1alpha1"
+	"github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 // TestPausedMarksHeldUnits: while the agents are paused, the scheduler marks
@@ -22,7 +22,7 @@ import (
 func TestPausedMarksHeldUnits(t *testing.T) {
 	launched := pendingUnit(0)
 	launched.Status.Phase = v1alpha1.RunRunning
-	launched.Status.JobRef = &v1alpha1.JobReference{Namespace: "patchy-agents", Name: "job-0"}
+	launched.Status.JobRef = &v1alpha1.JobReference{Namespace: "maul-agents", Name: "job-0"}
 	granted := pendingUnit(1)
 	granted.Status.Phase = v1alpha1.RunRunning
 	done := pendingUnit(2)

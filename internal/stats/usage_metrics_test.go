@@ -7,10 +7,10 @@ import (
 	"context"
 	"testing"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
-// TestRecordUsage: patchy.usage.tokens and patchy.usage.cost carry the
+// TestRecordUsage: maul.usage.tokens and maul.usage.cost carry the
 // user, project and kind of the run. A metered run emits its token classes
 // under its source (zero classes skipped) and its list and subscription
 // costs in USD; a reported run emits only its pod's own totals, under class
@@ -36,16 +36,16 @@ func TestRecordUsage(t *testing.T) {
 		delta float64
 	}
 	checks := []check{
-		{"patchy.usage.tokens", with("source", "measured", "class", "input"), 100},
-		{"patchy.usage.tokens", with("source", "measured", "class", "output"), 40},
-		{"patchy.usage.tokens", with("source", "measured", "class", "cache_read"), 0},
-		{"patchy.usage.tokens", with("source", "measured", "class", "cache_write"), 7},
-		{"patchy.usage.tokens", with("source", "partial", "class", "input"), 5},
-		{"patchy.usage.tokens", with("class", "reported"), 30},
-		{"patchy.usage.tokens", with("source", "reported", "class", "input"), 0},
-		{"patchy.usage.cost", with("pricing", "list"), 1.5},
-		{"patchy.usage.cost", with("pricing", "subscription"), 0.25},
-		{"patchy.usage.cost", with("pricing", "reported"), 0.75},
+		{"maul.usage.tokens", with("source", "measured", "class", "input"), 100},
+		{"maul.usage.tokens", with("source", "measured", "class", "output"), 40},
+		{"maul.usage.tokens", with("source", "measured", "class", "cache_read"), 0},
+		{"maul.usage.tokens", with("source", "measured", "class", "cache_write"), 7},
+		{"maul.usage.tokens", with("source", "partial", "class", "input"), 5},
+		{"maul.usage.tokens", with("class", "reported"), 30},
+		{"maul.usage.tokens", with("source", "reported", "class", "input"), 0},
+		{"maul.usage.cost", with("pricing", "list"), 1.5},
+		{"maul.usage.cost", with("pricing", "subscription"), 0.25},
+		{"maul.usage.cost", with("pricing", "reported"), 0.75},
 	}
 	before := make([]float64, len(checks))
 	for i, c := range checks {
@@ -65,7 +65,7 @@ func TestRecordUsage(t *testing.T) {
 		}
 	}
 	// Another user's sums are untouched.
-	if got := sumOf(t, "patchy.usage.tokens", map[string]string{"user": user + "-other"}); got != 0 {
+	if got := sumOf(t, "maul.usage.tokens", map[string]string{"user": user + "-other"}); got != 0 {
 		t.Errorf("another user's tokens = %v", got)
 	}
 }

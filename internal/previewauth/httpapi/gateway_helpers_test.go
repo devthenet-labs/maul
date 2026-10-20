@@ -19,13 +19,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/previewauth"
+	"github.com/devthenet-labs/maul/internal/previewauth"
 )
 
 const (
 	previewHost   = label + "." + suffix
 	previewOrigin = "https://" + previewHost
-	serviceAddr   = "preview-demo-7.patchy-preview-1.svc:80"
+	serviceAddr   = "preview-demo-7.maul-preview-1.svc:80"
 )
 
 // app is the preview's own code: an httptest server that records what it
@@ -66,7 +66,7 @@ func newApp(t *testing.T) *app {
 		case r.URL.Path == "/hostile":
 			h := w.Header()
 			h.Add("Set-Cookie", previewauth.HostSessionCookie+"=forged; Path=/; Secure; HttpOnly")
-			h.Add("Set-Cookie", "__HOST-patchy-pv=forged; Path=/; Secure")
+			h.Add("Set-Cookie", "__HOST-maul-pv=forged; Path=/; Secure")
 			h.Add("Set-Cookie", "app=1; Path=/")
 			h.Set("Cache-Control", "public, s-maxage=600, max-age=60")
 			h.Set("Clear-Site-Data", `"cookies", "storage"`)
@@ -111,7 +111,7 @@ func echoUpgrade(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = conn.Close() }()
 	_, _ = brw.WriteString("HTTP/1.1 101 Switching Protocols\r\nUpgrade: " + r.Header.Get("Upgrade") +
-		"\r\nConnection: Upgrade\r\nSet-Cookie: __Host-patchy-pv=forged; Path=/; Secure\r\n\r\n")
+		"\r\nConnection: Upgrade\r\nSet-Cookie: __Host-maul-pv=forged; Path=/; Secure\r\n\r\n")
 	_ = brw.Flush()
 	_, _ = io.Copy(conn, brw)
 }

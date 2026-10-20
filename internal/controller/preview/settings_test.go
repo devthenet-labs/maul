@@ -10,20 +10,20 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 // TestSettingsValidate: the image prefix is the operator's
 // (preview.imagePathPrefix), so Validate checks its shape, never a fixed
 // path: a registry host, one or more lowercase path segments, and the
 // trailing slash an image repository continues from. A custom prefix was
-// refused while the controller pinned /patchy/previews/.
+// refused while the controller pinned /maul/previews/.
 func TestSettingsValidate(t *testing.T) {
 	for _, tc := range []struct {
 		prefix string
 		ok     bool
 	}{
-		{"123456789012.dkr.ecr.us-east-1.amazonaws.com/patchy/previews/", true},
+		{"123456789012.dkr.ecr.us-east-1.amazonaws.com/maul/previews/", true},
 		{"registry.example/acme/previews/", true},
 		{"registry.example/previews/", true},
 		{"123456789012.dkr.ecr.us-east-1.amazonaws.com/team_a/runtime.images/", true},
@@ -31,7 +31,7 @@ func TestSettingsValidate(t *testing.T) {
 		{"registry.example/acme/previews", false}, // no trailing slash
 		{"", false},
 		{"registry.example/", false}, // a host alone: every repository on it
-		{"/patchy/previews/", false}, // no host
+		{"/maul/previews/", false},   // no host
 		{"registry.example", false},  // no path, no slash
 		{"registry.example/acme//previews/", false},
 		{"registry.example/Acme/previews/", false},
@@ -92,7 +92,7 @@ func TestImageUnderCustomPrefix(t *testing.T) {
 		{"registry.example/acme/previews/a", true},
 		{"registry.example/acme/previews/web-app-2", true},
 		{"evil.example/acme/previews/demo", false},
-		{"registry.example/patchy/previews/demo", false},
+		{"registry.example/maul/previews/demo", false},
 		{"registry.example/acme/app-envs/demo", false},
 		{"registry.example/acme/previews-evil/demo", false},
 		{"registry.example/acme/previews/team/demo", false},

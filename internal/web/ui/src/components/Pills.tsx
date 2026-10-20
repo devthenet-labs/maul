@@ -1,4 +1,4 @@
-// Status pills. One base Pill with the established patchy tone grammar:
+// Status pills. One base Pill with the established maul tone grammar:
 // green = done/progress, seedling = in-flight, amber = needs a human,
 // soil = origin/handed-off/dismissed, red = failure/critical.
 

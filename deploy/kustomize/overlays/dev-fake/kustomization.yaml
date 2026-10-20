@@ -6,10 +6,10 @@
 # replaced by a scripted agent — the whole CRD pipeline runs with zero real
 # credentials and nothing on the host.
 #
-#     PATCHY_OVERLAY=dev-fake make dev-colima      # deploy (builds the fake images too)
+#     MAUL_OVERLAY=dev-fake make dev-colima      # deploy (builds the fake images too)
 #     mise run replay -- -dev-secret \
 #         fixtures/webhooks/code_scanning_alert.created.json
-#     kubectl get patchy -n patchy -w              # watch the pipeline
+#     kubectl get maul -n maul -w              # watch the pipeline
 #
 # The fake's API is reachable from the host at http://localhost:30990 (its
 # Service NodePort). See docs/deployment/colima.md for the full walkthrough.
@@ -23,31 +23,31 @@ resources:
 
 patches:
     # The scripted agent image (hack/fake-agent) as the fake runner instead of
-    # the real agent-runner: prints canned PATCHY-EVENT lines, needs no model
+    # the real agent-runner: prints canned MAUL-EVENT lines, needs no model
     # key. The dev overlay already restricts the enabled set to the fake
-    # harness (PATCHY_HARNESSES: fake); this just swaps its image.
+    # harness (MAUL_HARNESSES: fake); this just swaps its image.
     - patch: |
           apiVersion: v1
           kind: ConfigMap
           metadata:
-              name: patchy-config
-              namespace: patchy
+              name: maul-config
+              namespace: maul
           data:
-              PATCHY_FAKE_AGENT_IMAGE: patchy/fake-agent:dev
+              MAUL_FAKE_AGENT_IMAGE: maul/fake-agent:dev
     # Point the Integration and Forge at the in-cluster fake GitHub.
     - target:
-          group: patchy.bitwisemedia.uk
+          group: maul.run
           kind: Integration
           name: github
       patch: |
           - op: add
             path: /spec/github/baseURL
-            value: http://patchy-fakegithub.patchy.svc.cluster.local:9990
+            value: http://maul-fakegithub.maul.svc.cluster.local:9990
     - target:
-          group: patchy.bitwisemedia.uk
+          group: maul.run
           kind: Forge
           name: github
       patch: |
           - op: add
             path: /spec/baseURL
-            value: http://patchy-fakegithub.patchy.svc.cluster.local:9990
+            value: http://maul-fakegithub.maul.svc.cluster.local:9990

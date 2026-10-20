@@ -85,7 +85,7 @@ const (
 // see the gateway's answer to a host no Preview owns. An Intent is named
 // <project>-<issue> and no issue is numbered 0, so no Preview is ever
 // labelled with it.
-const UnknownProbeLabel = "patchy-probe-0"
+const UnknownProbeLabel = "maul-probe-0"
 
 // ProbeMode is which path is expected to answer preview hosts, and so which
 // answers protect them.

@@ -21,7 +21,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/artifact"
+	"github.com/devthenet-labs/maul/internal/artifact"
 )
 
 func writeFile(t *testing.T, name, content string) string {
@@ -79,11 +79,11 @@ func TestArtifactBaseURL(t *testing.T) {
 		want    string
 		wantErr bool
 	}{
-		{name: "default service address", want: "http://patchy-source-controller.patchy.svc.cluster.local:9790"},
+		{name: "default service address", want: "http://maul-source-controller.maul.svc.cluster.local:9790"},
 		{
 			name: "port follows the artifact address",
 			args: []string{"--artifact-addr", "0.0.0.0:7000"},
-			want: "http://patchy-source-controller.patchy.svc.cluster.local:7000",
+			want: "http://maul-source-controller.maul.svc.cluster.local:7000",
 		},
 		{
 			name: "configured wins",
@@ -93,7 +93,7 @@ func TestArtifactBaseURL(t *testing.T) {
 		{name: "bad artifact address", args: []string{"--artifact-addr", "no-port"}, wantErr: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := artifactBaseURL(serveOpts(t, tt.args...), "patchy")
+			got, err := artifactBaseURL(serveOpts(t, tt.args...), "maul")
 			if (err != nil) != tt.wantErr || got != tt.want {
 				t.Fatalf("artifactBaseURL = %q, %v; want %q (err %v)", got, err, tt.want, tt.wantErr)
 			}
@@ -273,7 +273,7 @@ func TestServeStartupErrors(t *testing.T) {
 // TestServeNamespaceFromEnv: POD_NAMESPACE stands in for --namespace, so
 // startup proceeds to the next check.
 func TestServeNamespaceFromEnv(t *testing.T) {
-	t.Setenv("POD_NAMESPACE", "patchy")
+	t.Setenv("POD_NAMESPACE", "maul")
 	err := serve(t.Context(), serveOpts(t, "--artifact-addr", "no-port"))
 	if err == nil || !strings.Contains(err.Error(), "artifact-addr") {
 		t.Fatalf("serve error = %v, want the artifact-addr error after the namespace resolved", err)

@@ -1,7 +1,7 @@
 // Copyright 2026 Bitwise Media Group Ltd.
 // SPDX-License-Identifier: MIT
 
-// Package enhance is patchy's public plugin seam for context enhancement. An
+// Package enhance is maul's public plugin seam for context enhancement. An
 // Enhancer augments a newly opened security-finding issue with first/third
 // party context — CMDB ownership, associated infrastructure, runbooks — as a
 // comment (the issue body is owned by the accumulator) plus structured

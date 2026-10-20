@@ -3,23 +3,23 @@
 #
 # Five Services, because only five things are dialled by anything:
 #
-#   * patchy-integration-controller:8080 — the machine-facing entry point
+#   * maul-integration-controller:8080 — the machine-facing entry point
 #     (the provider webhook receivers, e.g. POST /github/webhooks).
 #     Put an Ingress / Gateway in front of it in your environment overlay.
-#   * patchy-source-controller:9790 — the artifact server the agent pods
+#   * maul-source-controller:9790 — the artifact server the agent pods
 #     fetch SHA-pinned repository tarballs (and workspace bundles) from
-#     (in-cluster only; the NetworkPolicies restrict it to the patchy-agents
+#     (in-cluster only; the NetworkPolicies restrict it to the maul-agents
 #     namespace) — plus :9791, the internal blob-upload endpoint only
 #     evaluation-controller may reach.
-#   * patchy-status-server:8080 — the human-facing status page. Front it
+#   * maul-status-server:8080 — the human-facing status page. Front it
 #     with your Ingress / Gateway too (a separate hostname from the webhook
 #     endpoint keeps authn concerns apart).
-#   * patchy-evaluation-controller:8080 — the evolve-facing evaluation API.
+#   * maul-evaluation-controller:8080 — the evolve-facing evaluation API.
 #     Front it with your Ingress / Gateway (bearer-authenticated; its own
 #     hostname keeps it apart from the human surfaces).
-#   * patchy-egress-broker:8080 — the egress credential broker all claude
+#   * maul-egress-broker:8080 — the egress credential broker all claude
 #     model traffic goes through (in-cluster only; caller tokens validated
-#     via TokenReview, ingress restricted to the patchy-agents namespace).
+#     via TokenReview, ingress restricted to the maul-agents namespace).
 #
 # The other controllers serve nothing but kubelet probes on :8081, which hit
 # the pod directly — no Service needed.
@@ -27,16 +27,16 @@
 apiVersion: v1
 kind: Service
 metadata:
-    name: patchy-integration-controller
-    namespace: patchy
+    name: maul-integration-controller
+    namespace: maul
     labels:
         app.kubernetes.io/name: integration-controller
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 spec:
     type: ClusterIP
     selector:
         app.kubernetes.io/name: integration-controller
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
     ports:
         - name: http
           port: 8080
@@ -46,16 +46,16 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-    name: patchy-source-controller
-    namespace: patchy
+    name: maul-source-controller
+    namespace: maul
     labels:
         app.kubernetes.io/name: source-controller
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 spec:
     type: ClusterIP
     selector:
         app.kubernetes.io/name: source-controller
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
     ports:
         - name: artifact
           port: 9790
@@ -69,16 +69,16 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-    name: patchy-evaluation-controller
-    namespace: patchy
+    name: maul-evaluation-controller
+    namespace: maul
     labels:
         app.kubernetes.io/name: evaluation-controller
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 spec:
     type: ClusterIP
     selector:
         app.kubernetes.io/name: evaluation-controller
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
     ports:
         - name: http
           port: 8080
@@ -88,16 +88,16 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-    name: patchy-status-server
-    namespace: patchy
+    name: maul-status-server
+    namespace: maul
     labels:
         app.kubernetes.io/name: status-server
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 spec:
     type: ClusterIP
     selector:
         app.kubernetes.io/name: status-server
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
     ports:
         - name: http
           port: 8080
@@ -107,16 +107,16 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-    name: patchy-egress-broker
-    namespace: patchy
+    name: maul-egress-broker
+    namespace: maul
     labels:
         app.kubernetes.io/name: egress-broker
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 spec:
     type: ClusterIP
     selector:
         app.kubernetes.io/name: egress-broker
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
     ports:
         - name: http
           port: 8080

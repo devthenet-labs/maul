@@ -15,14 +15,14 @@ const (
 	testDigestRef = "ghcr.io/acme/go-env@sha256:" + "cd" + "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
 	// buildReason is runnerimage's not-applicable reason for a
 	// devcontainer.json that builds its image, verbatim.
-	buildReason = "`.devcontainer/devcontainer.json` builds its image (`build`); patchy does not build images. " +
-		"Publish the image and set `image`, or declare one in `.patchy/agent.yaml`, which takes precedence."
+	buildReason = "`.devcontainer/devcontainer.json` builds its image (`build`); maul does not build images. " +
+		"Publish the image and set `image`, or declare one in `.maul/agent.yaml`, which takes precedence."
 	allowlistReason = "image `docker.io/library/golang:1.26` is not under an allowlisted registry path (ghcr.io/acme/)"
 )
 
 // TestRunnerImageCommentGoldens pins the comment for every outcome a
 // repository owner can meet: an accepted image from either file, before and
-// after runs used it or skipped it, a devcontainer.json patchy cannot use, a
+// after runs used it or skipped it, a devcontainer.json maul cannot use, a
 // rejection under each onReject policy, and the two ways a run on an
 // accepted image can end early.
 func TestRunnerImageCommentGoldens(t *testing.T) {
@@ -34,19 +34,19 @@ func TestRunnerImageCommentGoldens(t *testing.T) {
 		return c
 	}
 	rejected := RunnerImageComment{
-		Manifest: ".patchy/agent.yaml", Declared: "docker.io/library/golang:1.26",
+		Manifest: ".maul/agent.yaml", Declared: "docker.io/library/golang:1.26",
 		Rejected: "NotAllowlisted", Reason: allowlistReason,
 	}
 	tests := []struct {
 		name string
 		c    RunnerImageComment
 	}{
-		{"runner_image_yaml.md", used(accepted(".patchy/agent.yaml", "ghcr.io/acme/go-env:1.26"))},
+		{"runner_image_yaml.md", used(accepted(".maul/agent.yaml", "ghcr.io/acme/go-env:1.26"))},
 		// No run has launched yet.
 		{"runner_image_devcontainer.md", accepted(".devcontainer/devcontainer.json", "ghcr.io/acme/dev-env:2")},
 		// Runs launched, all on the default runner image.
 		{"runner_image_unused.md", func() RunnerImageComment {
-			c := accepted(".patchy/agent.yaml", "ghcr.io/acme/go-env:1.26")
+			c := accepted(".maul/agent.yaml", "ghcr.io/acme/go-env:1.26")
 			c.Unused = true
 			return c
 		}()},
@@ -59,22 +59,22 @@ func TestRunnerImageCommentGoldens(t *testing.T) {
 			c.Parked = true
 			return c
 		}()},
-		// A .patchy/agent.yaml that could not be read names no reference, so
+		// A .maul/agent.yaml that could not be read names no reference, so
 		// the check command carries a placeholder.
 		{"runner_image_invalid_declaration.md", RunnerImageComment{
-			Manifest: ".patchy/agent.yaml", Rejected: "InvalidDeclaration",
-			Reason: "`.patchy/agent.yaml` has unknown key `build`; `image` is the only key",
+			Manifest: ".maul/agent.yaml", Rejected: "InvalidDeclaration",
+			Reason: "`.maul/agent.yaml` has unknown key `build`; `image` is the only key",
 		}},
 		{"runner_image_incompatible.md", func() RunnerImageComment {
-			c := used(accepted(".patchy/agent.yaml", "ghcr.io/acme/go-env:1.26"))
+			c := used(accepted(".maul/agent.yaml", "ghcr.io/acme/go-env:1.26"))
 			c.Verified = false
 			c.Incompatible = &RunnerImageRun{Stage: "investigation", Attempt: 2,
-				Detail: "preflight: /patchy/bin/claude --version: exit status 127: " +
+				Detail: "preflight: /maul/bin/claude --version: exit status 127: " +
 					"/lib/ld-linux-aarch64.so.1: not found (a musl image cannot run the claude CLI)"}
 			return c
 		}()},
 		{"runner_image_sandbox.md", func() RunnerImageComment {
-			c := accepted(".patchy/agent.yaml", "ghcr.io/acme/go-env:1.26")
+			c := accepted(".maul/agent.yaml", "ghcr.io/acme/go-env:1.26")
 			c.Unused = true
 			c.SandboxRefused = &RunnerImageRun{Stage: "remediation", Attempt: 1}
 			return c
@@ -101,7 +101,7 @@ func TestRunnerImageCommentGoldens(t *testing.T) {
 func TestRunnerImageCommentNeutralizesDeclaredText(t *testing.T) {
 	hostile := "x` @acme/everyone [pwn](https://evil.example) `"
 	got, err := RenderRunnerImageComment(RunnerImageComment{
-		Manifest: ".patchy/agent.yaml", Declared: hostile, Rejected: "InvalidReference",
+		Manifest: ".maul/agent.yaml", Declared: hostile, Rejected: "InvalidReference",
 		Reason: "image reference `" + hostile + "` contains whitespace\n```\n# heading\n```",
 	})
 	if err != nil {

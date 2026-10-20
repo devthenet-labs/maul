@@ -9,7 +9,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/bitwise-media-group/patchy/internal/model"
+	"github.com/devthenet-labs/maul/internal/model"
 )
 
 // EnabledSet turns a list of enabled harness ids into a lookup set.

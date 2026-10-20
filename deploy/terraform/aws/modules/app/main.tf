@@ -1,10 +1,10 @@
 # Copyright 2026 Bitwise Media Group Ltd.
 # SPDX-License-Identifier: MIT
 #
-# One app's patchy images. The slug, not the GitHub name, names every AWS
+# One app's maul images. The slug, not the GitHub name, names every AWS
 # resource:
 #   - an agent toolchain repository, <agent_path_prefix>/<slug>. The app's
-#     .patchy/agent.yaml names it, and source-controller may read it (the
+#     .maul/agent.yaml names it, and source-controller may read it (the
 #     platform module grants read on the whole agent prefix);
 #   - with previews, a runtime repository, <preview_path_prefix>/<slug>. Only
 #     the isolated preview nodes pull from it;
@@ -46,7 +46,7 @@ locals {
   subject = "${var.github.sub_claim_prefix}:ref:${local.default_ref}"
 }
 
-# Immutable tags: a tag patchy resolved to a digest keeps meaning the same
+# Immutable tags: a tag maul resolved to a digest keeps meaning the same
 # bits. force_delete stays off, so destroying a repository that still holds
 # images fails instead of deleting them.
 resource "aws_ecr_repository" "this" {
@@ -77,7 +77,7 @@ resource "aws_ecr_lifecycle_policy" "this" {
   # shields an image from every lower-priority rule.
   #
   # Agent repositories get the untagged rule only: their toolchain-v<N> tag
-  # is pinned in .patchy/agent.yaml and must never expire.
+  # is pinned in .maul/agent.yaml and must never expire.
   policy = jsonencode({
     rules = concat(
       [{
@@ -205,7 +205,7 @@ locals {
 }
 
 # Optional cosign signing of the agent image. The agent publisher signs the
-# digest it has just published with this key, and patchy verifies it against
+# digest it has just published with this key, and maul verifies it against
 # the key's public half (the chart's repositoryImages.cosignPublicKey). Only
 # the agent role gets the grant: the runtime publisher never signs.
 resource "aws_iam_role_policy" "agent_signing" {

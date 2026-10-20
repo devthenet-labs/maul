@@ -9,7 +9,7 @@ import "os"
 
 // openRegular opens path for reading when it is a regular file, or returns
 // nil. agent-runner runs in a Linux pod; this keeps the package building
-// where the CLI is (cmd/patchy imports it).
+// where the CLI is (cmd/maul imports it).
 func openRegular(path string) *os.File {
 	file, err := os.Open(path)
 	if err != nil {

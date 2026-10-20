@@ -23,7 +23,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 
-	"github.com/bitwise-media-group/patchy/internal/provider"
+	"github.com/devthenet-labs/maul/internal/provider"
 )
 
 // One long-context agent turn, as the fake model upstream reports it: the
@@ -45,8 +45,8 @@ const (
 	turnMaxTokens = 8_000
 	turns         = 10
 	// brokerAudience is the audience the test's caller tokens are bound to.
-	brokerAudience = "patchy-egress-broker-e2e"
-	agentSA        = "patchy-agent"
+	brokerAudience = "maul-egress-broker-e2e"
+	agentSA        = "maul-agent"
 )
 
 // TestBrokerCostLimits drives the shipped egress-broker against a fake model

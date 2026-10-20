@@ -8,9 +8,9 @@ import (
 
 	"github.com/spf13/pflag"
 
-	"github.com/bitwise-media-group/patchy/internal/attribution"
-	"github.com/bitwise-media-group/patchy/internal/cli"
-	"github.com/bitwise-media-group/patchy/internal/credgate"
+	"github.com/devthenet-labs/maul/internal/attribution"
+	"github.com/devthenet-labs/maul/internal/cli"
+	"github.com/devthenet-labs/maul/internal/credgate"
 )
 
 // RegisterUserCredentialsFlags adds --user-credentials and --account-url,

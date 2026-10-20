@@ -22,15 +22,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 
-	"github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/agentresult"
-	"github.com/bitwise-media-group/patchy/internal/attribution"
-	"github.com/bitwise-media-group/patchy/internal/evalresults"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/schedule"
-	"github.com/bitwise-media-group/patchy/internal/usagemeter"
-	"github.com/bitwise-media-group/patchy/internal/usagerollup"
-	"github.com/bitwise-media-group/patchy/pkg/evaluation"
+	"github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/agentresult"
+	"github.com/devthenet-labs/maul/internal/attribution"
+	"github.com/devthenet-labs/maul/internal/evalresults"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/schedule"
+	"github.com/devthenet-labs/maul/internal/usagemeter"
+	"github.com/devthenet-labs/maul/internal/usagerollup"
+	"github.com/devthenet-labs/maul/pkg/evaluation"
 )
 
 // schedulerRequest is the singleton request every watch event maps to — one
@@ -76,7 +76,7 @@ type UnitReconciler struct {
 	// EnabledHarnesses is the evolve-runner fleet resolved at startup.
 	EnabledHarnesses []string
 	// ArtifactBaseURL is the public artifact endpoint agent pods fetch
-	// bundles from, e.g. http://patchy-source-controller.patchy.svc:9790.
+	// bundles from, e.g. http://maul-source-controller.maul.svc:9790.
 	ArtifactBaseURL string
 	// Attribution is --attribution-mode: under attribute every Job carries
 	// the attributed-to annotation of its unit's spec.attributedTo ("org"

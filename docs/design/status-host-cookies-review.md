@@ -6,13 +6,13 @@ included.
 
 ## Security checks
 
-- Every production session chunk, OAuth state and SPA hint uses a `__Host-patchy-*` name, `Secure`, `Path=/`, and no
+- Every production session chunk, OAuth state and SPA hint uses a `__Host-maul-*` name, `Secure`, `Path=/`, and no
   Domain. The rule applies to expiry responses too. OAuth state previously used `/oauth2/`; retaining that path would
   make a prefixed cookie invalid, so both creation and deletion now use `/`.
 - Session and state remain HttpOnly; only the three non-secret SPA hints are JavaScript-readable. Neither server nor
   HTTPS SPA falls back to legacy or local-development cookies.
 - Server namespace selection depends solely on operator configuration, not request or forwarded headers. HTTP
-  development has a distinct `patchy-dev-*` namespace. A regression sends forged cookies before a valid protected
+  development has a distinct `maul-dev-*` namespace. A regression sends forged cookies before a valid protected
   session and supplies `X-Forwarded-Proto: http`; the protected session still wins.
 - Migration expires only the fixed set of old host-only cookies, using the old state's actual `/oauth2/` path.
   Parent-domain cookies cannot be identified from a Cookie header: they are ignored, not trusted or copied into the

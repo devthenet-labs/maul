@@ -12,7 +12,7 @@ agent:
     repositoryImages:
         enabled: true
         registries:
-            - 123456789012.dkr.ecr.us-east-1.amazonaws.com/patchy/
+            - 123456789012.dkr.ecr.us-east-1.amazonaws.com/maul/
             - ghcr.io/example/agent-images/
         cosignPublicKey: |
             -----BEGIN PUBLIC KEY-----
@@ -20,5 +20,5 @@ agent:
             rk7N2FzMqhjN+trpRo9SjSYa3jwbGYZOICHuVXODs8xJCY//oYraiAeR/g==
             -----END PUBLIC KEY-----
         ephemeralStorage: 8Gi
-        pullSecret: patchy-registry
+        pullSecret: maul-registry
         pullSecretData: '{"auths":{"ghcr.io":{"auth":"cGxhY2Vob2xkZXI6cGxhY2Vob2xkZXI="}}}'

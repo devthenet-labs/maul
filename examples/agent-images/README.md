@@ -1,8 +1,8 @@
 # Agent image examples
 
-Worked examples of an agent image a repository can declare in `.patchy/agent.yaml`, each built `FROM` patchy's
-[`agent-base`](../../Dockerfile.agent-base) image (`ghcr.io/devthenet-labs/patchy/agent-base`). The base supplies glibc,
-bash, git and the core build tools, the uid 65532 `patchy` account and caches under `/tmp`; each example adds one
+Worked examples of an agent image a repository can declare in `.maul/agent.yaml`, each built `FROM` maul's
+[`agent-base`](../../Dockerfile.agent-base) image (`ghcr.io/devthenet-labs/maul/agent-base`). The base supplies glibc,
+bash, git and the core build tools, the uid 65532 `maul` account and caches under `/tmp`; each example adds one
 toolchain and bakes the project's dependencies in, because the agent pod has no network.
 
 | Example                        | Toolchain       | Dependencies baked into      | Offline switch                     |
@@ -21,7 +21,7 @@ docker build -f examples/agent-images/go/Dockerfile -t ghcr.io/your-org/your-rep
 Then push it to a registry the operator has allowlisted and declare it:
 
 ```yaml
-# .patchy/agent.yaml
+# .maul/agent.yaml
 image: ghcr.io/your-org/your-repo-agent:1
 ```
 

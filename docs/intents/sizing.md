@@ -1,6 +1,6 @@
 # Sizing limits for large features
 
-patchy's default limits are sized for a security fix or a small intent: a build of at most 150 turns in an hour. A
+maul's default limits are sized for a security fix or a small intent: a build of at most 150 turns in an hour. A
 feature-sized intent, one that adds a subsystem across many files, runs for longer, over more turns and with a much
 larger context. This guide shows what such runs consume, why a token limit is the wrong measure for them, and how to
 switch an install to cost limits with a "large" preset that fits them.
@@ -10,8 +10,8 @@ before, no run carries a budget, and every intent Job keeps its 90 minute deadli
 
 ## What a feature-sized run consumes
 
-These are measured agent runs that each implemented one feature-sized pull request in patchy itself, on the same model
-family patchy's intents use:
+These are measured agent runs that each implemented one feature-sized pull request in maul itself, on the same model
+family maul's intents use:
 
 | Agent                           | Turns | Minutes | Output tokens | Total tokens (incl. cache reads) | Peak context |
 | ------------------------------- | ----: | ------: | ------------: | -------------------------------: | -----------: |
@@ -64,7 +64,7 @@ Output tokens fall to 200k because even the largest run wrote 32k. `tokenBudget`
 a good tripwire, not a spend measure. The Job deadline follows each stage: 90m plus 15 minutes for a build, under the
 default `jobDeadlineMax` of 4h30m.
 
-### patchy chart values
+### maul chart values
 
 ```yaml
 egressBroker:
@@ -103,7 +103,7 @@ agent:
 Values not shown keep their defaults. A Helm values file replaces only the keys it sets, so the stages' `model`,
 `tokenBudget` and `idleTimeout` keep the chart's values.
 
-### A large Project (patchy-config)
+### A large Project (maul-config)
 
 ```yaml
 projects:
@@ -125,23 +125,23 @@ projects:
 ```
 
 The rest of the Project (trigger, approvers, previews) is as in [deploying intents](deploying.md). A stage limit above
-the controller's ceiling is clamped to it, so the patchy chart values above must come first.
+the controller's ceiling is clamped to it, so the maul chart values above must come first.
 
 ## Switching an install to cost
 
 1. **Measure first, still under tokens.** The broker prices every request under either unit. Its audit line carries
-   `cost_micro_usd` and the pod's running `pod_cost_micro_usd`, and the `patchy.broker.cost` counter sums micro-USD by
+   `cost_micro_usd` and the pod's running `pod_cost_micro_usd`, and the `maul.broker.cost` counter sums micro-USD by
    route. Run a few intents of the size you expect, then read the largest pod totals. They tell you whether \$60 and
    \$20 fit your Projects.
-2. **Upgrade the patchy chart with the values above.** Under `unit: cost` the chart requires `costPerPod`, renders a
+2. **Upgrade the maul chart with the values above.** Under `unit: cost` the chart requires `costPerPod`, renders a
    Role that lets the broker `get` pods in the agent namespace (for the budget annotation; no list or watch), gives
    intent-controller the unit and the hourly limit, and renders the admission policies that let only intent-controller
    set a run's budget. It refuses `costPerPod` or `costPerHour` under `unit: tokens`.
-3. **Upgrade patchy-config with each large Project's limits.** Projects that set no stage budget get the per-intent
+3. **Upgrade maul-config with each large Project's limits.** Projects that set no stage budget get the per-intent
    ceiling (`limits.maxCostMicroUSD`, \$10 by default) as every run's budget.
 4. **Check it took.** `kubectl get project <name>` shows the Project Ready, and not `RunBudgetOverHourlyLimit`. A new
    run's IntentRun records `spec.grant.budgetMicroUSD`, its Job and pod carry the
-   `patchy.bitwisemedia.uk/budget-micro-usd` annotation, and the broker's audit line for that pod shows
+   `maul.run/budget-micro-usd` annotation, and the broker's audit line for that pod shows
    `pod_cost_limit_micro_usd` at the run's budget.
 
 A run that reaches its budget settles as `budget_exceeded`, and its detail names the limit:

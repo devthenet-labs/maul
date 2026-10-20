@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/usagemeter"
-	"github.com/bitwise-media-group/patchy/internal/usagemeter/usagemetertest"
-	"github.com/bitwise-media-group/patchy/pkg/evaluation"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/usagemeter"
+	"github.com/devthenet-labs/maul/internal/usagemeter/usagemetertest"
+	"github.com/devthenet-labs/maul/pkg/evaluation"
 )
 
 // TestMeasureSettledUnit: a collected unit's usage is settled from the

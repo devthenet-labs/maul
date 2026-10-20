@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/bitwise-media-group/patchy/internal/gcpasset"
-	"github.com/bitwise-media-group/patchy/pkg/enhance"
+	"github.com/devthenet-labs/maul/internal/gcpasset"
+	"github.com/devthenet-labs/maul/pkg/enhance"
 )
 
 // AssetConfig is one snapshot of the cloudAssetInventory capability, as read

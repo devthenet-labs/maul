@@ -27,7 +27,7 @@ import (
 
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/bitwise-media-group/patchy/internal/agentrun"
+	"github.com/devthenet-labs/maul/internal/agentrun"
 )
 
 // treesSpec is a multi-repository intent's plan Job: the planning
@@ -45,7 +45,7 @@ func treesSpec() Spec {
 	spec.Trees = []Tree{{
 		Key:            "api",
 		URL:            "https://github.com/devthenet-labs/Acme.Web_App",
-		ArtifactURL:    "http://patchy-source-controller.patchy.svc.cluster.local:9790/artifacts/feedface.tar.gz",
+		ArtifactURL:    "http://maul-source-controller.maul.svc.cluster.local:9790/artifacts/feedface.tar.gz",
 		ArtifactDigest: "bb22cc33dd44ee55ff6600112233445566778899aabbccddeeff00112233aa11",
 		BaseSHA:        "89abcdef0123456789abcdef0123456789abcdef",
 	}}
@@ -95,9 +95,9 @@ func TestTreesSecret(t *testing.T) {
 		ArtifactURL:    "https://artifacts.example/docs.tar.gz",
 		ArtifactDigest: strings.Repeat("0", 64), BaseSHA: strings.Repeat("1", 64),
 	})
-	secret := buildSecret("job", "patchy-agents", spec)
+	secret := buildSecret("job", "maul-agents", spec)
 	wantTrees := "api bb22cc33dd44ee55ff6600112233445566778899aabbccddeeff00112233aa11 " +
-		"http://patchy-source-controller.patchy.svc.cluster.local:9790/artifacts/feedface.tar.gz\n" +
+		"http://maul-source-controller.maul.svc.cluster.local:9790/artifacts/feedface.tar.gz\n" +
 		"docs " + strings.Repeat("0", 64) + " https://artifacts.example/docs.tar.gz\n"
 	if got := string(secret.Data["trees"]); got != wantTrees {
 		t.Errorf("trees = %q, want %q", got, wantTrees)
@@ -109,7 +109,7 @@ func TestTreesSecret(t *testing.T) {
 		t.Errorf("repositories = %q, want %q", got, wantRepos)
 	}
 
-	plain := buildSecret("job", "patchy-agents", testSpec())
+	plain := buildSecret("job", "maul-agents", testSpec())
 	for _, key := range []string{"trees", agentrun.RepositoriesManifest} {
 		if _, ok := plain.Data[key]; ok {
 			t.Errorf("a Job without trees carries %s", key)
@@ -260,7 +260,7 @@ func runTreesScript(t *testing.T, spec Spec) (string, []byte, error) {
 			t.Fatal(err)
 		}
 	}
-	for key, body := range buildSecret("job", "patchy-agents", spec).Data {
+	for key, body := range buildSecret("job", "maul-agents", spec).Data {
 		if err := os.WriteFile(filepath.Join(input, key), body, 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -520,7 +520,7 @@ func TestTreesOnlyOnTheirJob(t *testing.T) {
 			if strings.Contains(container(t, job, initContainerName).Command[2], "while read -r key digest url") {
 				t.Errorf("%s Job without trees runs the trees script", spec.Phase)
 			}
-			for key := range buildSecret(job.Name, "patchy-agents", spec).Data {
+			for key := range buildSecret(job.Name, "maul-agents", spec).Data {
 				if key != secretKeyIssue && key != secretKeyInvestigation {
 					t.Errorf("%s Job without trees carries Secret key %q", spec.Phase, key)
 				}

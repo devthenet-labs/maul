@@ -16,7 +16,7 @@
 //
 // A person is a GitHub account, identified by its numeric id; the login is
 // for display. To applies the re-attribution rule: a human the attribution
-// table names who has no patchy identity (no numeric id is known for them,
+// table names who has no maul identity (no numeric id is known for them,
 // as for an approval made on the status page or in the CLI) makes the run
 // the org's, with an "-unregistered" reason saying why.
 //

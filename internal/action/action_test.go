@@ -19,7 +19,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 // testClock anchors every relative timestamp in this file.
@@ -30,7 +30,7 @@ func at(d time.Duration) metav1.Time { return metav1.NewTime(testClock.Add(d)) }
 // finding is a minimal Finding in the given phase.
 func finding(phase v1alpha1.Phase, mutate ...func(*v1alpha1.Finding)) *v1alpha1.Finding {
 	f := &v1alpha1.Finding{
-		ObjectMeta: metav1.ObjectMeta{Name: "fnd-1", Namespace: "patchy"},
+		ObjectMeta: metav1.ObjectMeta{Name: "fnd-1", Namespace: "maul"},
 		Spec: v1alpha1.FindingSpec{
 			IntegrationRef: v1alpha1.LocalObjectReference{Name: "gh"},
 			Source:         "github-code-scanning",

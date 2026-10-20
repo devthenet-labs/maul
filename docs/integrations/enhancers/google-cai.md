@@ -46,16 +46,16 @@ spec:
 ```
 
 The credential is workload identity with `roles/cloudasset.viewer` — read-only, and the only cloud credential anywhere
-in patchy. No key file exists, and the Integration still carries no `secretRef`:
+in maul. No key file exists, and the Integration still carries no `secretRef`:
 
 ```yaml
 contextController:
   serviceAccount:
     annotations:
-      iam.gke.io/gcp-service-account: patchy-assets@x-patchy-app.iam.gserviceaccount.com
+      iam.gke.io/gcp-service-account: maul-assets@x-maul-app.iam.gserviceaccount.com
 ```
 
-(Earlier releases configured this through `PATCHY_GCP_*` environment variables on the context-controller; those flags
+(Earlier releases configured this through `MAUL_GCP_*` environment variables on the context-controller; those flags
 are gone, and the Integration block above is the only configuration surface.)
 
 A resource without ownership labels is a clean answer, not a failure — see

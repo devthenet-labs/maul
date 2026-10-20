@@ -13,8 +13,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/pkg/source"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/pkg/source"
 )
 
 // ID is the source identifier stamped into the security-source label.
@@ -175,7 +175,7 @@ func (h *Handler) Findings(ctx context.Context, event string, payload []byte) ([
 // offDefaultBranch reports whether an alert instance found on ref should be
 // skipped because it is not on the repository's default branch, and why.
 // Only default-branch alerts are findings: an alert on any other ref —
-// patchy's own patchy/<finding> remediation branches, or the
+// maul's own maul/<finding> remediation branches, or the
 // refs/pull/<n>/{merge,head} refs CodeQL analyses pull requests on — is
 // CodeQL judging an unmerged change, and ingesting it would turn a rejected
 // fix into the next generation of the same finding, which opens another PR,

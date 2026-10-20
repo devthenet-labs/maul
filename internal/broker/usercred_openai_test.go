@@ -13,9 +13,9 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/provider"
-	"github.com/bitwise-media-group/patchy/internal/usagewire"
+	"github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/provider"
+	"github.com/devthenet-labs/maul/internal/usagewire"
 )
 
 // openaiCredentialUpstream records the Authorization header of every

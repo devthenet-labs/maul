@@ -60,7 +60,7 @@ func newOIDC(ctx context.Context, cfg *Config, log *slog.Logger) (*oidcAuthentic
 	if err != nil {
 		return nil, err
 	}
-	key, err := sealKey(secret, "patchy-status-session")
+	key, err := sealKey(secret, "maul-status-session")
 	if err != nil {
 		return nil, err
 	}

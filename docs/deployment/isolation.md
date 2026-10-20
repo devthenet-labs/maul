@@ -1,6 +1,6 @@
 # Isolation model
 
-Patchy hands untrusted inputs — repository contents and security-alert text — to a coding agent. The design calls for an
+Maul hands untrusted inputs — repository contents and security-alert text — to a coding agent. The design calls for an
 agent with "no internet access and no GitHub credentials", and for the default (claude) runner both halves now hold: its
 model traffic goes through the in-cluster [egress credential broker](../configuration/egress-broker.md), so the pod
 dials no external host at all. What is delivered is layered — credential absence, RBAC, pod security, and network egress
@@ -15,19 +15,19 @@ and synthesizing the local git base. And for the claude runner there is no model
 the model credential outbound, and the pod authenticates to it with an audience-bound projected ServiceAccount token —
 **an identity document, not a capability**: it names the pod to the broker and is honoured nowhere else, so exfiltrating
 it buys model access through an audited chokepoint and nothing more. The one auth-shaped value the claude pod does carry
-is a fixed, non-secret placeholder `ANTHROPIC_AUTH_TOKEN=patchy-brokered-placeholder`, set only by patchy because the
-CLI refuses to start without some token; the broker strips it with every other inbound credential header, so it is worth
+is a fixed, non-secret placeholder `ANTHROPIC_AUTH_TOKEN=maul-brokered-placeholder`, set only by maul because the CLI
+refuses to start without some token; the broker strips it with every other inbound credential header, so it is worth
 nothing. The per-Job Secret carries only handoff markdown, and `internal/jobs` lists `GITHUB_TOKEN` (and every other
 credential channel) as a reserved env name so no configuration can smuggle a credential in.
 
-| Credential                                          | Where it lives                                                                      | Who sees it                                                                                                                |
-| --------------------------------------------------- | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| GitHub App key / token, webhook secret              | `patchy-github` Secret, release ns                                                  | Read on demand through the API by the controllers the `Integration`/`Forge` CRs point at — never mounted into a Deployment |
-| Read token (single repo, archive download)          | Minted on demand, never stored                                                      | source-controller only                                                                                                     |
-| Write token (single repo, push + PR)                | Minted on demand, never stored                                                      | remediation-controller only                                                                                                |
-| Claude model credential (API key or cloud identity) | `patchy-anthropic` Secret, **release ns** — or the broker's cloud workload identity | The egress broker only — **never an agent pod**                                                                            |
-| Codex model credential (OpenAI API key)             | `patchy-openai` Secret, **release ns** (`egressBroker.openai.apiKey`)               | The egress broker only — **never an agent pod**                                                                            |
-| Copilot credential (a GitHub token)                 | `patchy-copilot`, agent ns                                                          | The copilot agent container — the only secret value in a non-brokered pod (the runner ships disabled)                      |
+| Credential                                          | Where it lives                                                                    | Who sees it                                                                                                                |
+| --------------------------------------------------- | --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| GitHub App key / token, webhook secret              | `maul-github` Secret, release ns                                                  | Read on demand through the API by the controllers the `Integration`/`Forge` CRs point at — never mounted into a Deployment |
+| Read token (single repo, archive download)          | Minted on demand, never stored                                                    | source-controller only                                                                                                     |
+| Write token (single repo, push + PR)                | Minted on demand, never stored                                                    | remediation-controller only                                                                                                |
+| Claude model credential (API key or cloud identity) | `maul-anthropic` Secret, **release ns** — or the broker's cloud workload identity | The egress broker only — **never an agent pod**                                                                            |
+| Codex model credential (OpenAI API key)             | `maul-openai` Secret, **release ns** (`egressBroker.openai.apiKey`)               | The egress broker only — **never an agent pod**                                                                            |
+| Copilot credential (a GitHub token)                 | `maul-copilot`, agent ns                                                          | The copilot agent container — the only secret value in a non-brokered pod (the runner ships disabled)                      |
 
 All GitHub side effects — issue projection, alert dismissal, branch push, pull requests — happen controller-side with
 short-lived, per-repository scoped tokens. An agent that reaches `github.com` reaches it as an anonymous member of the
@@ -36,14 +36,14 @@ public.
 ## RBAC
 
 Every controller identity gets a verb-by-verb `Role` in the release namespace (its own CRs and status subresources,
-`get` on Secrets, its leader-election Lease); the two job controllers additionally share a Role in `patchy-agents`
+`get` on Secrets, its leader-election Lease); the two job controllers additionally share a Role in `maul-agents`
 covering exactly what `internal/jobs` uses — create/get/list/watch/delete on `batch/jobs`, get/list/watch pods,
-`pods/log` (the `PATCHY-EVENT:` stream), and create/get/delete on the per-Job handoff `secrets`.
+`pods/log` (the `MAUL-EVENT:` stream), and create/get/delete on the per-Job handoff `secrets`.
 
-The agent ServiceAccount (`patchy-agent`) has **no Role whatsoever** and the pods run with
+The agent ServiceAccount (`maul-agent`) has **no Role whatsoever** and the pods run with
 `automountServiceAccountToken: false` — Kubernetes API access from the agent pod would let a prompt-injected agent read
 the very Secrets the isolation model depends on. A brokered (claude) pod does mount a **projected** ServiceAccount
-token, but one bound to the broker's audience (`patchy-egress-broker`): the API server rejects it as a Kubernetes API
+token, but one bound to the broker's audience (`maul-egress-broker`): the API server rejects it as a Kubernetes API
 credential, and the broker — which validates it via `TokenReview` — is the only party that accepts it. The broker's own
 identity is equally narrow: `create tokenreviews` is its whole RBAC surface, with no Secret API access of any kind (its
 credential files arrive as mounted volumes).
@@ -67,7 +67,7 @@ by the mode itself rather than left to `-p` having no one to ask.
 
 One settings source cannot be pinned away: a managed settings file (`/etc/claude-code/managed-settings.json`) is read
 whatever `--setting-sources` says, and only its mode gives way to the command line. Only a
-[repository-declared image](#repository-declared-images) can carry one patchy did not write, and its hooks, env block,
+[repository-declared image](#repository-declared-images) can carry one maul did not write, and its hooks, env block,
 allow rules or MCP servers would apply in every stage on that image, investigation included. That is what such an image
 is already assumed to be able to do (untrusted code with the agent's powers), so the pin is the mode alone.
 
@@ -103,27 +103,27 @@ artifact server and the broker, and nothing it writes but its report leaves the 
 
 With repository runner images on, the agent container can run an image the target repository names
 ([the repository-owner guide](../integrations/agent-images.md)), so the image is untrusted code with the agent's powers:
-it can read the workspace and the broker caller token, call the broker directly, and write forged `PATCHY-EVENT:` lines.
+it can read the workspace and the broker caller token, call the broker directly, and write forged `MAUL-EVENT:` lines.
 The posture is built so that none of that reaches further than a default-image run:
 
-- **Same pod, same walls.** The pod security above is forced by patchy whatever the image says: uid 65532, read-only
-  root, no capabilities, the image's `USER` and `ENTRYPOINT` ignored, an image-declared `VOLUME` rejected at resolution
-  so only patchy's emptyDirs are writable, and both containers bounded by an ephemeral-storage limit (CPU and memory by
+- **Same pod, same walls.** The pod security above is forced by maul whatever the image says: uid 65532, read-only root,
+  no capabilities, the image's `USER` and `ENTRYPOINT` ignored, an image-declared `VOLUME` rejected at resolution so
+  only maul's emptyDirs are writable, and both containers bounded by an ephemeral-storage limit (CPU and memory by
   `agent.resources` only, which sets none by default). The image is pinned to a digest once per Repository and only
   allowlisted, and by default signed, images are admitted
   ([source-controller](../configuration/source-controller.md#repository-runner-images)).
-- **No Kubernetes identity.** The `patchy-agent` ServiceAccount has no Role and the pods run with
+- **No Kubernetes identity.** The `maul-agent` ServiceAccount has no Role and the pods run with
   `automountServiceAccountToken: false`; the one projected token is bound to the broker's audience, is pod-bound, and is
   honoured by the broker alone, whose per-pod limits and route surface are the enforced bound on what it buys.
 - **Trusted code first.** The `prepare` init container always runs the default runner image. It fetches and verifies the
-  tarball, synthesizes the git base, copies `agent-runner` and the claude CLI into a read-only `/patchy/bin`, and runs
-  the **sandbox probe** before any untrusted code starts: from inside the pod it tries the public internet
-  (`1.1.1.1:443`), the Kubernetes API server and the cloud metadata service (`169.254.169.254:80`). It retries for about
-  20 seconds, because on some CNIs (EKS Auto Mode among them) a new pod's NetworkPolicy attaches a few seconds after the
-  pod starts, and it concludes enforcement only after three consecutive rounds in which nothing answered. If egress is
-  still open, `prepare` exits 78, the agent container never starts, the run fails `SandboxUnenforced`, and the job
-  controller refuses repository images until it restarts. A cluster that does not enforce NetworkPolicy therefore fails
-  loudly instead of running untrusted images with open egress.
+  tarball, synthesizes the git base, copies `agent-runner` and the claude CLI into a read-only `/maul/bin`, and runs the
+  **sandbox probe** before any untrusted code starts: from inside the pod it tries the public internet (`1.1.1.1:443`),
+  the Kubernetes API server and the cloud metadata service (`169.254.169.254:80`). It retries for about 20 seconds,
+  because on some CNIs (EKS Auto Mode among them) a new pod's NetworkPolicy attaches a few seconds after the pod starts,
+  and it concludes enforcement only after three consecutive rounds in which nothing answered. If egress is still open,
+  `prepare` exits 78, the agent container never starts, the run fails `SandboxUnenforced`, and the job controller
+  refuses repository images until it restarts. A cluster that does not enforce NetworkPolicy therefore fails loudly
+  instead of running untrusted images with open egress.
 - **Untrusted output is validated.** A changeset from a repository-image run must be based on the Repository's pinned
   commit, is capped at `--changeset-max-entries` entries, and may not touch `.github/workflows/` or `.github/actions/`,
   because a pushed branch runs CI with the repository's secrets before a human has read it; a refused changeset makes no
@@ -135,7 +135,7 @@ The posture is built so that none of that reaches further than a default-image r
 
 ## Network egress — the floor and the fence
 
-**The baseline NetworkPolicy is the floor.** `patchy-agents` is default-deny in both directions. Egress is re-permitted
+**The baseline NetworkPolicy is the floor.** `maul-agents` is default-deny in both directions. Egress is re-permitted
 for DNS, the artifact port (9790) to source-controller, the broker port (8080) to the egress broker, and TCP 443 with
 the cluster's own ranges and the cloud metadata endpoint (`169.254.169.254`) excluded — adjust
 `agent.networkPolicy.clusterCIDRs` (Helm) or the `except:` CIDRs in `base/networkpolicy.yaml` (kustomize) to your
@@ -256,9 +256,9 @@ dead nameserver refuses. With only the dead nameserver configured, curl and the 
 checked to reach the broker through a hosts-file entry, with and without that `hosts:` line, so a repository-declared
 image needs nothing extra.
 
-!!! warning "A DNS policy managed outside patchy keeps the channel open"
+!!! warning "A DNS policy managed outside maul keeps the channel open"
 
-    Network policies are additive. A namespace-wide DNS allow policy for `patchy-agents` that you manage yourself (an
+    Network policies are additive. A namespace-wide DNS allow policy for `maul-agents` that you manage yourself (an
     `allow-dns` policy for EKS Auto Mode's node-local resolver, say) still lets an agent pod query the cluster resolver
     directly, whatever the chart renders. Remove it, or narrow its `podSelector` so it selects no agent pod, when you
     turn DNS off. `clusterDNSCIDR` needs nothing: it only adds an address to the chart's own DNS rules, which are dropped.
@@ -269,7 +269,7 @@ Two residuals apply to every agent pod, whatever the image and whatever the post
 
 - **The policy-attach window at pod start.** On some CNIs (EKS Auto Mode's VPC CNI among them) a new pod's NetworkPolicy
   attaches a few seconds after the pod starts, and until it does the pod's egress is open. The `prepare` init container
-  runs first, in the trusted runner image, and both containers share the pod's network, so patchy closes the window by
+  runs first, in the trusted runner image, and both containers share the pod's network, so maul closes the window by
   holding the agent container until the policy has visibly attached:
   - A [repository-image](#repository-declared-images) Job runs the **strict** sandbox probe, unchanged: three targets,
     and if any is still open when the window closes the run fails `SandboxUnenforced` and the untrusted image never
@@ -295,7 +295,7 @@ Two residuals apply to every agent pod, whatever the image and whatever the post
 - **The node's own kubelet.** On EKS Auto Mode (VPC CNI) a pod can reach the kubelet of the node it runs on (TCP 10250)
   whatever NetworkPolicy says. The kubelet answers `401 Unauthorized` to an anonymous request, and its read-only port
   (10255) is closed. An agent pod holds no credential the kubelet accepts: `automountServiceAccountToken` is off, the
-  only projected token is bound to the egress broker's audience, and the `patchy-agent` ServiceAccount has no Role, so
+  only projected token is bound to the egress broker's audience, and the `maul-agent` ServiceAccount has no Role, so
   even a token the kubelet did accept would authorise nothing. What remains is that an agent can see that a kubelet
   answers on its node. Closing that is a node-level control (a security group or host firewall), outside the chart.
 
@@ -318,9 +318,9 @@ hosts file, as it does the broker's) and no proxy variable unless the profile li
 pods and every default-image pod included, gets nothing from a profile: no label, no proxy entry and no proxy
 environment. (Two things they do carry are not part of a profile: every default-image pod ends its `prepare` with the
 wait probe [above](#what-the-agent-policy-does-not-stop), and an intent plan pod is told, as plain text for its prompt
-in `PATCHY_BUILD_NETWORK_PROFILES`, which profile its builds would get.) The proxy forwards only `GET` and `HEAD`
-requests for Go modules and checksum-database records, only for the profile's allowlisted module prefixes, and only
-tagged releases unless the profile sets `allowPseudoVersions`; it caches nothing. A profile may also be granted
+in `MAUL_BUILD_NETWORK_PROFILES`, which profile its builds would get.) The proxy forwards only `GET` and `HEAD` requests
+for Go modules and checksum-database records, only for the profile's allowlisted module prefixes, and only tagged
+releases unless the profile sets `allowPseudoVersions`; it caches nothing. A profile may also be granted
 operator-defined registries ([below](#registry-grants)); then the proxy holds those registries' credentials, but the pod
 still holds none.
 
@@ -335,8 +335,8 @@ rule stays. Profiles require repository images, which require narrow egress, so 
 **The port is the identity, checked on both sides.** Each profile has its own proxy listener and its own two rules:
 
 - an agent-side NetworkPolicy, `<release>-agents-network-<profile>` in the agent namespace, selecting only agent pods
-  labelled `patchy.bitwisemedia.uk/network-<profile>: "true"` and allowing them egress to the proxy's pods on that
-  profile's port, and nothing else (no DNS rule, no `ipBlock`);
+  labelled `maul.run/network-<profile>: "true"` and allowing them egress to the proxy's pods on that profile's port, and
+  nothing else (no DNS rule, no `ipBlock`);
 - the proxy's own NetworkPolicy, whose ingress admits that port only from agent pods carrying that label in the agent
   namespace (plus the probe port 8081 from anywhere). Its egress is DNS and TCP 443 to `0.0.0.0/0` with the cluster's
   IPv4 ranges, `10/8`, `172.16/12`, `192.168/16`, `169.254/16` (IMDS and EKS Pod Identity) and `100.64/10` excepted, and
@@ -393,9 +393,9 @@ Be plain about the residue; it is why a narrower step 2 (an exact `module@versio
 - **Typosquats** under a broad prefix are fetchable. Review `go.mod` in the pull request; its body says the run had a
   profile.
 - **Environment is not a boundary.** The job controller sets every go variable non-empty (`GOSUMDB=sum.golang.org`, the
-  pattern variables `patchy.invalid`, `GOENV=off`) so neither the image's `ENV` nor its `$GOROOT/go.env` can turn
-  checksum verification off by default, but the agent can still run `GOSUMDB=off go get …`. Integrity is restored
-  downstream: CI's go command verifies `go.sum` against what proxy.golang.org serves, and a human reviews the diff.
+  pattern variables `maul.invalid`, `GOENV=off`) so neither the image's `ENV` nor its `$GOROOT/go.env` can turn checksum
+  verification off by default, but the agent can still run `GOSUMDB=off go get …`. Integrity is restored downstream:
+  CI's go command verifies `go.sum` against what proxy.golang.org serves, and a human reviews the diff.
 - **Malicious dependency code** runs in the pod when tests run. It gains no reachability beyond the proxy, which is
   bounded by the same allowlist; the final boundary for the dependency is pull-request review.
 - **Node-local traffic.** On Cilium, traffic from the local host to local pods is allowed by default, and a CIDR rule
@@ -502,7 +502,7 @@ The residue, in plain words:
   [registry grants](#registry-grants) are.
 - **npm and Yarn hosts are a public publish channel.** `npm publish` is a `PUT` to `registry.npmjs.org`, the host reads
   use, and `registry.yarnpkg.com` fronts the same registry. The token travels inside TLS, so the proxy cannot refuse it,
-  and patchy holding no credential does not help: a dependency's install script or a prompt-injected agent can bring its
+  and maul holding no credential does not help: a dependency's install script or a prompt-injected agent can bring its
   own npm token and publish the private working tree as a world-readable package. Only the upload caps bound it: 8 MiB
   per source IP, per profile, per proxy replica (so 16 MiB with the default two replicas), compressed, which is a lot of
   source code. **This is not closed**; an npm-protocol route that serves only reads is the fix, and until then list an
@@ -512,11 +512,11 @@ The residue, in plain words:
 - **Domain fronting.** The proxy matches the server name to the `CONNECT` host, and refuses ECH so the name cannot be
   hidden, but it cannot see the HTTP `Host` inside TLS. On a shared CDN (Cloudflare for npm and Yarn, Fastly for PyPI,
   Fastly and CloudFront for crates, Azure Front Door for NuGet) a client could name another tenant inside the tunnel.
-  Some tenants refuse a mismatch, but many do not, and patchy does not rely on it. Measured live through a tunnel to
+  Some tenants refuse a mismatch, but many do not, and maul does not rely on it. Measured live through a tunnel to
   `pypi.org` and to `files.pythonhosted.org` with a correct SNI: `Host: www.python.org` answered `200`,
   `Host: www.fastly.com` `200`, `Host: docs.python.org` `421` (refused) and `Host: example.com` no response. So a PyPI
   tunnel reaches any Fastly-hosted site that does not enforce a match between SNI and `Host`. The other CDNs above were
-  not measured; assume the same. **Not closed** without decrypting the tunnel, which patchy will not do (a CA in every
+  not measured; assume the same. **Not closed** without decrypting the tunnel, which maul will not do (a CA in every
   image, broken pinning, plaintext in the proxy).
 - **NuGet revocation is offline.** The `nuget` preset sets `NUGET_CERT_REVOCATION_MODE=offline`, because revocation
   checks go to CRL and OCSP hosts over plain http, which nothing carries: signatures are verified, but a revoked signing
@@ -551,12 +551,12 @@ environment's `NO_PROXY` does not punch holes in it.
 
 ## What leaves the pod
 
-The agent's only output channel is the `PATCHY-EVENT:` JSONL stream on stdout (parsed by the owning controller from the
-pod log), which carries the remediation as a size-capped structured changeset (`PATCHY_CHANGESET_MAX_BYTES`, 5 MiB) —
-the changed files' contents against the pinned base SHA, not git objects. The remediation-controller — not the agent —
-verifies the commit claim, replays the changeset through the GitHub Git Data API to create the `patchy/<finding>`
-branch, and opens the pull request, so every forge side effect passes through code that validates the state machine
-first. The stream itself is forgeable by whatever runs in the pod, so the controller validates every changeset before
-any forge call — its base must be the pinned commit and its paths git-shaped, plus the stricter
+The agent's only output channel is the `MAUL-EVENT:` JSONL stream on stdout (parsed by the owning controller from the
+pod log), which carries the remediation as a size-capped structured changeset (`MAUL_CHANGESET_MAX_BYTES`, 5 MiB) — the
+changed files' contents against the pinned base SHA, not git objects. The remediation-controller — not the agent —
+verifies the commit claim, replays the changeset through the GitHub Git Data API to create the `maul/<finding>` branch,
+and opens the pull request, so every forge side effect passes through code that validates the state machine first. The
+stream itself is forgeable by whatever runs in the pod, so the controller validates every changeset before any forge
+call — its base must be the pinned commit and its paths git-shaped, plus the stricter
 [repository-image rules](#repository-declared-images) when the run used a repository-declared image — and every pull
 request still waits for a human to merge it.

@@ -90,7 +90,7 @@ func TestPlanCommentNetworkProfileReplacesOffline(t *testing.T) {
 // not told whether its builds get a network profile, so it must not be told
 // the build has no network access (wrong for a build with one, and a live
 // planner raised it as a question); it still names every new dependency,
-// and is told patchy, not it, tells the approver which ones the build can
+// and is told maul, not it, tells the approver which ones the build can
 // fetch.
 func TestPlanPromptDoesNotCallTheBuildOffline(t *testing.T) {
 	got, err := renderTestPlanPrompt(testPlanRequest, nil)
@@ -113,7 +113,7 @@ func TestPlanPromptDoesNotCallTheBuildOffline(t *testing.T) {
 // TestSamePlanComment: a posted plan comment is the same as a render that
 // differs from it only in its dependency advice (each build's network
 // profile, in either direction), and different whenever anything else
-// differs, or the advice is not one of patchy's own lines.
+// differs, or the advice is not one of maul's own lines.
 func TestSamePlanComment(t *testing.T) {
 	single, multi := planProfileComments()
 	offline := func(pc PlanComment) PlanComment {
@@ -148,7 +148,7 @@ func TestSamePlanComment(t *testing.T) {
 		{"another approve label", relabelled, posted, false},
 		{"no dependencies, profile changed", offline(noDeps), render(noDeps), true},
 		{"another plan", single, render(testPlanComment(testMultiPlan)), false},
-		{"advice not patchy's", single, posted[:adviceAt] + "Approve now." + posted[adviceEnd:], false},
+		{"advice not maul's", single, posted[:adviceAt] + "Approve now." + posted[adviceEnd:], false},
 		{"advice spanning lines", single,
 			posted[:adviceAt] + "The build runs\n\nanything" + posted[adviceEnd:], false},
 		{"empty", single, "", false},

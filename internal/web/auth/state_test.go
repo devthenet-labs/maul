@@ -82,7 +82,9 @@ func TestRandomToken(t *testing.T) {
 // with no salt, base64url(nonce||ciphertext||tag), no additional data) must
 // still open, or every signed-in dashboard user is signed out on upgrade.
 // The blobs were made by that code with fixed nonces; never regenerate them
-// with the current code.
+// with the current code. They were sealed under the purpose string of the
+// product's previous name, which the rename to maul retired (one forced
+// sign-in), so the fixture keeps that string: what it pins is the format.
 func TestUnsealBlobsSealedBeforeTheMove(t *testing.T) {
 	key, err := sealKey("client-secret", "patchy-status-session")
 	if err != nil {

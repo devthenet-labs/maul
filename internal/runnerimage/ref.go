@@ -8,7 +8,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/bitwise-media-group/patchy/internal/mirror/imageref"
+	"github.com/devthenet-labs/maul/internal/mirror/imageref"
 )
 
 // digestPattern is the only digest form accepted: sha256 plus 64 lowercase

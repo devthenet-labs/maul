@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/netprofile"
 )
 
 // TestTunnelRefusalAuditHost: a refused CONNECT's close line carries the
@@ -154,8 +154,8 @@ func TestTunnelRefusalMetricHost(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			labelled := map[string]string{"profile": "web", "outcome": tt.outcome, "host": "pkg.registry.dev"}
 			bare := map[string]string{"profile": "web", "outcome": tt.outcome, "host": ""}
-			before := [2]int64{sum(t, "patchy.egress_proxy.tunnels", labelled),
-				sum(t, "patchy.egress_proxy.tunnels", bare)}
+			before := [2]int64{sum(t, "maul.egress_proxy.tunnels", labelled),
+				sum(t, "maul.egress_proxy.tunnels", bare)}
 			h := newTunnelHarness(t, tt.cfg)
 			c, br := h.connect(t, "web", tt.line)
 			_ = readRaw(t, br)
@@ -165,13 +165,13 @@ func TestTunnelRefusalMetricHost(t *testing.T) {
 			}
 			// The count follows the close line; wait for it.
 			deadline := time.Now().Add(10 * time.Second)
-			for sum(t, "patchy.egress_proxy.tunnels", bare)-before[1] < 1 {
+			for sum(t, "maul.egress_proxy.tunnels", bare)-before[1] < 1 {
 				if time.Now().After(deadline) {
 					t.Fatalf("no %s tunnel counted with host=\"\"", tt.outcome)
 				}
 				time.Sleep(5 * time.Millisecond)
 			}
-			if got := sum(t, "patchy.egress_proxy.tunnels", labelled) - before[0]; got != 0 {
+			if got := sum(t, "maul.egress_proxy.tunnels", labelled) - before[0]; got != 0 {
 				t.Errorf("an unvalidated host became a metric attribute: +%d with host=pkg.registry.dev", got)
 			}
 		})

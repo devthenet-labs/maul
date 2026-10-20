@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
-	pkggeneric "github.com/bitwise-media-group/patchy/pkg/generic"
-	"github.com/bitwise-media-group/patchy/pkg/source"
+	pkggeneric "github.com/devthenet-labs/maul/pkg/generic"
+	"github.com/devthenet-labs/maul/pkg/source"
 )
 
 // recordedRequest is one call the fake external process saw.

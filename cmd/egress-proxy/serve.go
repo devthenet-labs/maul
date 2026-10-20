@@ -19,14 +19,14 @@ import (
 	"golang.org/x/sync/errgroup"
 	"k8s.io/client-go/kubernetes"
 
-	"github.com/bitwise-media-group/patchy/internal/cli"
-	"github.com/bitwise-media-group/patchy/internal/egressproxy"
-	"github.com/bitwise-media-group/patchy/internal/egressproxy/credfile"
-	"github.com/bitwise-media-group/patchy/internal/egressproxy/podindex"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
-	"github.com/bitwise-media-group/patchy/internal/telemetry"
-	"github.com/bitwise-media-group/patchy/internal/version"
+	"github.com/devthenet-labs/maul/internal/cli"
+	"github.com/devthenet-labs/maul/internal/egressproxy"
+	"github.com/devthenet-labs/maul/internal/egressproxy/credfile"
+	"github.com/devthenet-labs/maul/internal/egressproxy/podindex"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/telemetry"
+	"github.com/devthenet-labs/maul/internal/version"
 )
 
 // Server timeouts for the profile listeners. There is no server-wide write
@@ -56,7 +56,7 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	f.Bool("attribute-pods", false,
 		"attribute source IPs to agent pods in the audit line (best-effort; needs get/list/watch on pods "+
 			"in --agent-namespace)")
-	f.String("agent-namespace", "patchy-agents", "namespace of the agent pods attributed (--attribute-pods only)")
+	f.String("agent-namespace", "maul-agents", "namespace of the agent pods attributed (--attribute-pods only)")
 	f.String("kubeconfig", "", "kubeconfig path (default: in-cluster config; --attribute-pods only)")
 	return cmd
 }
@@ -90,7 +90,7 @@ func addEngineFlags(cmd *cobra.Command) {
 		"answer every profile request 410 suspended: the operator's immediate kill switch")
 	f.String("registries", "",
 		"the operator's credentialed upstream registries as the chart renders them (a JSON array; "+
-			"environment PATCHY_EGRESS_REGISTRIES); empty: no registry route")
+			"environment MAUL_EGRESS_REGISTRIES); empty: no registry route")
 	f.String("registry-credentials-dir", defaultCredentialsDir,
 		"directory of the mounted registry credentials (<registry>/token, or <registry>/username and password)")
 	f.String("registry-ca-dir", defaultCADir, "directory of the registries' CA bundles (<registry>.pem)")
@@ -217,7 +217,7 @@ func httpsUpstream(flag, raw string) (*url.URL, error) {
 
 func serve(ctx context.Context, opts *cli.Options) error {
 	prov, shutdown, err := telemetry.Init(ctx, telemetry.Config{
-		Dir:            os.Getenv("PATCHY_TELEMETRY_DIR"),
+		Dir:            os.Getenv("MAUL_TELEMETRY_DIR"),
 		Level:          opts.LogLevel,
 		ServiceName:    "egress-proxy",
 		ServiceVersion: version.Version,

@@ -16,8 +16,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/egressproxy"
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/egressproxy"
+	"github.com/devthenet-labs/maul/internal/netprofile"
 )
 
 // The poll interval's default and floor.

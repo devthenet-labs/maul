@@ -23,8 +23,8 @@ var BuildDate = "unknown"
 
 // RunnerImageRepository is the repository the release publishes its claude
 // runner image to, the trusted donor of agent-runner and the claude CLI
-// that `patchy check image --run` copies them out of. It is injected at
-// build time via -ldflags from the release registry (PATCHY_IMAGE_REGISTRY
+// that `maul check image --run` copies them out of. It is injected at
+// build time via -ldflags from the release registry (MAUL_IMAGE_REGISTRY
 // in .goreleaser.yaml and hack/build.sh), the same value the release's
 // images are pushed under, so a fork's CLI names its own registry and no
 // registry is written into the code.

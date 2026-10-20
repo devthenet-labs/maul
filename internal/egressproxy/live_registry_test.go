@@ -23,13 +23,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/netprofile"
 )
 
 // liveRegistryEnv opts into TestLiveRegistry and TestLiveGoRegistry, which
 // run the real npm, pip and go commands (mise run live-registry). They
 // reach nothing beyond loopback.
-const liveRegistryEnv = "PATCHY_LIVE_REGISTRY"
+const liveRegistryEnv = "MAUL_LIVE_REGISTRY"
 
 func skipUnlessLiveRegistry(t *testing.T, tools ...string) {
 	t.Helper()
@@ -137,7 +137,7 @@ func makeWheel(t *testing.T, project, version string) []byte {
 	files = append(files, [][2]string{
 		{project + ".py", "x = 1\n"},
 		{info + "METADATA", "Metadata-Version: 2.1\nName: " + project + "\nVersion: " + version + "\n\n"},
-		{info + "WHEEL", "Wheel-Version: 1.0\nGenerator: patchy-test\nRoot-Is-Purelib: true\nTag: py3-none-any\n"},
+		{info + "WHEEL", "Wheel-Version: 1.0\nGenerator: maul-test\nRoot-Is-Purelib: true\nTag: py3-none-any\n"},
 	}...)
 	var record strings.Builder
 	for _, f := range files {
@@ -210,7 +210,7 @@ func newLiveRegistryRig(t *testing.T) *liveRegistryRig {
 	})
 	creds := newFakeCreds()
 	bearer, _ := BearerCredential(sentinel)
-	basic, _ := BasicCredential("patchy", sentinel)
+	basic, _ := BasicCredential("maul", sentinel)
 	creds.set("art-npm", bearer)
 	creds.set("nexus-pypi", basic)
 	npmReg, pyReg := npmRegistry(), pyRegistry()
@@ -243,7 +243,7 @@ func (r *liveRegistryRig) run(t *testing.T, dir string, env []string, name strin
 // lockfile, whose resolved URLs stay the registry's canonical ones; pip
 // download through a rewritten page whose file sits on a second host; a
 // hostile .npmrc and pip.conf ignored; the credential nowhere in the
-// clients' debug output or the audit. Opt-in: PATCHY_LIVE_REGISTRY=1.
+// clients' debug output or the audit. Opt-in: MAUL_LIVE_REGISTRY=1.
 func TestLiveRegistry(t *testing.T) {
 	skipUnlessLiveRegistry(t, "npm", "python3")
 	rig := newLiveRegistryRig(t)

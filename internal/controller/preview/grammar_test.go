@@ -16,9 +16,9 @@ import (
 // The three other places a preview image's grammar lives: the Project and
 // Preview CRDs generated from api/v1alpha1, and the slot admission policy.
 const (
-	projectCRD      = "../../../deploy/kustomize/base/crds/patchy.bitwisemedia.uk_projects.yaml"
-	previewCRD      = "../../../deploy/kustomize/base/crds/patchy.bitwisemedia.uk_previews.yaml"
-	admissionPolicy = "../../../charts/patchy/templates/preview-admission.yaml"
+	projectCRD      = "../../../deploy/kustomize/base/crds/maul.run_projects.yaml"
+	previewCRD      = "../../../deploy/kustomize/base/crds/maul.run_previews.yaml"
+	admissionPolicy = "../../../charts/maul/templates/preview-admission.yaml"
 )
 
 // imageRepositoryPatterns collects every imageRepository pattern in a CRD:
@@ -156,11 +156,11 @@ func TestImageGrammarAgrees(t *testing.T) {
 func TestSchemaLeafIsADNSLabel(t *testing.T) {
 	schemas := append(imageRepositoryPatterns(t, projectCRD), imageRepositoryPatterns(t, previewCRD)...)
 	for _, repo := range []string{
-		"registry.example/patchy/previews/app-", "registry.example/patchy/previews/-app",
-		"registry.example/patchy/previews/-", "registry.example/acme/previews/demo-",
-		"registry.example/patchy/previews/Demo", "registry.example/patchy/previews/demo_app",
-		"registry.example/patchy/previews/demo.app", "registry.example/demo",
-		"registry.example/patchy/previews/demo:latest", "registry.example/acme//demo",
+		"registry.example/maul/previews/app-", "registry.example/maul/previews/-app",
+		"registry.example/maul/previews/-", "registry.example/acme/previews/demo-",
+		"registry.example/maul/previews/Demo", "registry.example/maul/previews/demo_app",
+		"registry.example/maul/previews/demo.app", "registry.example/demo",
+		"registry.example/maul/previews/demo:latest", "registry.example/acme//demo",
 	} {
 		for _, schema := range schemas {
 			if schema.MatchString(repo) {
@@ -168,7 +168,7 @@ func TestSchemaLeafIsADNSLabel(t *testing.T) {
 			}
 		}
 	}
-	for _, repo := range []string{"registry.example/patchy/previews/app", "registry.example/acme/previews/demo",
+	for _, repo := range []string{"registry.example/maul/previews/app", "registry.example/acme/previews/demo",
 		"123456789012.dkr.ecr.us-east-1.amazonaws.com/team_a/runtime.images/web-app"} {
 		for _, schema := range schemas {
 			if !schema.MatchString(repo) {

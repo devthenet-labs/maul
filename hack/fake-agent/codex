@@ -22,7 +22,7 @@
 # what the broker attached upstream. A refused request is a turn.failed event
 # and exit status 1, as codex reports one.
 #
-# Both intent stages are scripted. A plan (PATCHY_PHASE=plan) writes a plan
+# Both intent stages are scripted. A plan (MAUL_PHASE=plan) writes a plan
 # naming the repositories the request lists under "## Repositories"; a build
 # adds VERSION, commit.sh and its report.
 #
@@ -30,7 +30,7 @@
 set -eu
 
 if [ "${1:-}" = "--version" ]; then
-  echo "codex-cli 0.153.4 (patchy scripted stand-in)"
+  echo "codex-cli 0.153.4 (maul scripted stand-in)"
   exit 0
 fi
 
@@ -40,9 +40,9 @@ while [ $# -gt 0 ]; do
   --model) model=$2; shift 2 ;;
   -c)
     case "$2" in
-    model_providers.patchy.base_url=*) base_url=$(printf '%s' "${2#*=}" | tr -d '"') ;;
-    model_providers.patchy.env_key=*) env_key=$(printf '%s' "${2#*=}" | tr -d '"') ;;
-    model_providers.patchy.env_http_headers=*) headers=$(printf '%s' "${2#*=}" | tr -d '{}"') ;;
+    model_providers.maul.base_url=*) base_url=$(printf '%s' "${2#*=}" | tr -d '"') ;;
+    model_providers.maul.env_key=*) env_key=$(printf '%s' "${2#*=}" | tr -d '"') ;;
+    model_providers.maul.env_http_headers=*) headers=$(printf '%s' "${2#*=}" | tr -d '{}"') ;;
     esac
     shift 2
     ;;
@@ -50,7 +50,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-workspace="${PATCHY_WORKSPACE:?PATCHY_WORKSPACE is unset}"
+workspace="${MAUL_WORKSPACE:?MAUL_WORKSPACE is unset}"
 state="$HOME/.fake-codex"
 mkdir -p "$state"
 
@@ -64,17 +64,17 @@ fi
 for pair in $(printf '%s' "$headers" | tr ',' ' '); do
   set -- "$@" -H "${pair%%=*}: $(printenv "${pair#*=}" || true)"
 done
-status=$(curl "$@" --data "{\"model\":\"$model\",\"input\":\"scripted ${PATCHY_PHASE:-}\",\"max_output_tokens\":1000,\"stream\":false}" || echo 000)
-printf '%s %s %s\n' "${PATCHY_PHASE:-}" "$model" "$status" >>"$state/calls"
+status=$(curl "$@" --data "{\"model\":\"$model\",\"input\":\"scripted ${MAUL_PHASE:-}\",\"max_output_tokens\":1000,\"stream\":false}" || echo 000)
+printf '%s %s %s\n' "${MAUL_PHASE:-}" "$model" "$status" >>"$state/calls"
 
-printf '{"type":"thread.started","thread_id":"thread-scripted-%s"}\n' "${PATCHY_PHASE:-run}"
+printf '{"type":"thread.started","thread_id":"thread-scripted-%s"}\n' "${MAUL_PHASE:-run}"
 printf '{"type":"turn.started"}\n'
 if [ "$status" != 200 ]; then
   printf '{"type":"turn.failed","error":{"message":"model request refused with status %s"}}\n' "$status"
   exit 1
 fi
 
-case "${PATCHY_PHASE:-}" in
+case "${MAUL_PHASE:-}" in
 plan)
   repos=$(sed -n '/^## Repositories/,/^## /p' "$workspace/input/issue.md" | sed -n 's/^- \(https:[^ ]*\).*/  - "\1"/p')
   mkdir -p "$workspace/reports"

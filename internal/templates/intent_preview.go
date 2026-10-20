@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-// An intent's preview, as patchy tells reviewers about it: a line in the
+// An intent's preview, as maul tells reviewers about it: a line in the
 // issue's status comment, and one sticky comment on each previewed pull
 // request, edited in place as the preview changes. Both are rendered from
 // plain values the intent controller derived from the Preview's status and
@@ -47,7 +47,7 @@ const (
 	// PreviewExpired: it outlived its time to live without a new
 	// deployment.
 	PreviewExpired = "expired"
-	// PreviewUnlinkable: it is deployed, but its address is not one patchy
+	// PreviewUnlinkable: it is deployed, but its address is not one maul
 	// links.
 	PreviewUnlinkable = "unlinkable"
 )
@@ -111,7 +111,7 @@ type IntentPreviewComment struct {
 	Path string
 }
 
-// previewHost is a host patchy links: lowercase DNS labels, at least two.
+// previewHost is a host maul links: lowercase DNS labels, at least two.
 var previewHost = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$`)
 
 // linkable reports whether host may be linked as https://host.
@@ -156,7 +156,7 @@ func unavailableClause(reason, resource, deployed string) string {
 	case PreviewExpired:
 		return "expired after its time to live without a new deployment. A new push deploys it again."
 	case PreviewUnlinkable:
-		return deployed + ", but its address is not one patchy links" + recordedBy(resource, "it") + "."
+		return deployed + ", but its address is not one maul links" + recordedBy(resource, "it") + "."
 	}
 	return ""
 }

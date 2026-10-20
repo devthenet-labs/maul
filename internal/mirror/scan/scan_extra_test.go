@@ -17,8 +17,8 @@ import (
 
 	"github.com/google/go-containerregistry/pkg/authn"
 
-	"github.com/bitwise-media-group/patchy/internal/mirror/ocireg"
-	"github.com/bitwise-media-group/patchy/internal/mirror/spec"
+	"github.com/devthenet-labs/maul/internal/mirror/ocireg"
+	"github.com/devthenet-labs/maul/internal/mirror/spec"
 )
 
 // fakeBin writes an executable shell script named name into a fresh dir
@@ -229,7 +229,7 @@ func TestKubescapeFailModeArgs(t *testing.T) {
 		t.Errorf("args = %q, want %q", strings.Join(r.args, " "), want)
 	}
 	if len(r.envs) != 1 || !strings.HasPrefix(r.envs[0], "KUBECONFIG=") ||
-		!strings.HasSuffix(r.envs[0], "patchy-mirror-empty-kubeconfig") {
+		!strings.HasSuffix(r.envs[0], "maul-mirror-empty-kubeconfig") {
 		t.Errorf("env = %q, want an isolated empty KUBECONFIG", r.envs)
 	}
 

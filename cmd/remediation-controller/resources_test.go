@@ -9,8 +9,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/bitwise-media-group/patchy/internal/cli"
-	"github.com/bitwise-media-group/patchy/internal/runnercfg"
+	"github.com/devthenet-labs/maul/internal/cli"
+	"github.com/devthenet-labs/maul/internal/runnercfg"
 )
 
 // resourceOpts builds the binary's command tree the way main does, serve's
@@ -44,8 +44,8 @@ func TestAgentResourcesDefaultToNone(t *testing.T) {
 		t.Errorf("agent resources with no flags = %s, want none", r)
 	}
 
-	t.Setenv("PATCHY_AGENT_CPU_REQUEST", "250m")
-	t.Setenv("PATCHY_AGENT_MEMORY_LIMIT", "2Gi")
+	t.Setenv("MAUL_AGENT_CPU_REQUEST", "250m")
+	t.Setenv("MAUL_AGENT_MEMORY_LIMIT", "2Gi")
 	r, err = runnercfg.AgentResources(resourceOpts(t))
 	if err != nil {
 		t.Fatal(err)
@@ -56,7 +56,7 @@ func TestAgentResourcesDefaultToNone(t *testing.T) {
 }
 
 // TestAgentDNSFlag: the binary registers --agent-dns, defaulting to the
-// cluster resolver, so the chart's PATCHY_AGENT_DNS reaches the Jobs it
+// cluster resolver, so the chart's MAUL_AGENT_DNS reaches the Jobs it
 // builds. Viper reads the environment for an unregistered name too, so the
 // flag lookup, not the value, is the proof.
 func TestAgentDNSFlag(t *testing.T) {
@@ -70,7 +70,7 @@ func TestAgentDNSFlag(t *testing.T) {
 }
 
 // TestAgentsPausedFlag: the binary registers --agents-paused, off by
-// default, so the chart's PATCHY_AGENTS_PAUSED reaches the scheduler.
+// default, so the chart's MAUL_AGENTS_PAUSED reaches the scheduler.
 func TestAgentsPausedFlag(t *testing.T) {
 	f := newServeCmd(cli.NewOptions()).Flags().Lookup("agents-paused")
 	if f == nil {

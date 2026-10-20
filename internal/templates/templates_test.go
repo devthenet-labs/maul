@@ -12,14 +12,14 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 var update = flag.Bool("update", false, "rewrite golden files")
 
 func testFinding() *v1alpha1.Finding {
 	return &v1alpha1.Finding{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "patchy", Name: "finding-abc123def0-1"},
+		ObjectMeta: metav1.ObjectMeta{Namespace: "maul", Name: "finding-abc123def0-1"},
 		Spec: v1alpha1.FindingSpec{
 			Source: "github-code-scanning",
 			Repository: &v1alpha1.FindingRepository{
@@ -165,7 +165,7 @@ func TestGoldens(t *testing.T) {
 	}{
 		{"finding_issue.md", func() (string, error) { return RenderFindingIssue(testFinding()) }},
 		// No reproduction recorded (every report before the block existed):
-		// the body warns that patchy could not reproduce the bug.
+		// the body warns that maul could not reproduce the bug.
 		{"pr_body.md", func() (string, error) {
 			return PRBody(123, "remediation report here", false, nil, "", NetworkRoutes{})
 		}},
@@ -322,7 +322,7 @@ func TestFindingIssueTitle(t *testing.T) {
 
 func TestStageReportComment(t *testing.T) {
 	got := RenderStageReportComment("investigation", 2, "report body")
-	if !strings.Contains(got, "<!-- patchy:report investigation/2 -->") {
+	if !strings.Contains(got, "<!-- maul:report investigation/2 -->") {
 		t.Errorf("comment lacks the dedup marker:\n%s", got)
 	}
 	if !strings.Contains(got, "report body") {
@@ -332,7 +332,7 @@ func TestStageReportComment(t *testing.T) {
 
 func TestEnrichmentProjection(t *testing.T) {
 	got := RenderEnrichmentProjection(v1alpha1.Enrichment{Enhancer: "cmdb", Markdown: "**Owners:** @octocat"})
-	if !strings.Contains(got, "<!-- patchy:enrichment cmdb -->") || !strings.Contains(got, "@octocat") {
+	if !strings.Contains(got, "<!-- maul:enrichment cmdb -->") || !strings.Contains(got, "@octocat") {
 		t.Errorf("projection = %q", got)
 	}
 }

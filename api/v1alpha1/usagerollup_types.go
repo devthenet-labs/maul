@@ -227,7 +227,7 @@ type UsageRollupStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:shortName=ur,categories=patchy
+// +kubebuilder:resource:shortName=ur,categories=maul
 // +kubebuilder:printcolumn:name="Scope",type=string,JSONPath=`.spec.scope.type`
 // +kubebuilder:printcolumn:name="User",type=string,JSONPath=`.spec.scope.user`
 // +kubebuilder:printcolumn:name="Login",type=string,JSONPath=`.status.login`

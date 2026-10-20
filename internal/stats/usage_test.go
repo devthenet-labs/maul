@@ -19,7 +19,7 @@ import (
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"sigs.k8s.io/yaml"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 var usageNow = time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
@@ -559,7 +559,7 @@ func TestApplyUsageLedgerCap(t *testing.T) {
 // that many runs would be refused.
 func TestUsageLedgerCapMatchesCRD(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join("..", "..", "deploy", "kustomize", "base", "crds",
-		"patchy.bitwisemedia.uk_usagerollups.yaml"))
+		"maul.run_usagerollups.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}

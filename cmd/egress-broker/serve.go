@@ -19,14 +19,14 @@ import (
 	"golang.org/x/sync/errgroup"
 	"k8s.io/client-go/kubernetes"
 
-	"github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/broker"
-	"github.com/bitwise-media-group/patchy/internal/broker/credstore"
-	"github.com/bitwise-media-group/patchy/internal/cli"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/telemetry"
-	"github.com/bitwise-media-group/patchy/internal/usagewire"
-	"github.com/bitwise-media-group/patchy/internal/version"
+	"github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/broker"
+	"github.com/devthenet-labs/maul/internal/broker/credstore"
+	"github.com/devthenet-labs/maul/internal/cli"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/telemetry"
+	"github.com/devthenet-labs/maul/internal/usagewire"
+	"github.com/devthenet-labs/maul/internal/version"
 )
 
 func newServeCmd(opts *cli.Options) *cobra.Command {
@@ -42,8 +42,8 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	f.Duration("verdict-ttl", broker.DefaultVerdictTTL, "how long one caller token's TokenReview verdict is cached")
 	f.Duration("sse-ping-interval", broker.DefaultPingInterval,
 		"idle keep-alive period for event-stream responses; negative disables ping injection")
-	f.String("agent-namespace", "patchy-agents", "namespace whose agent service account callers must be")
-	f.String("agent-service-account", "patchy-agent", "the only service account the broker answers to")
+	f.String("agent-namespace", "maul-agents", "namespace whose agent service account callers must be")
+	f.String("agent-service-account", "maul-agent", "the only service account the broker answers to")
 	f.Int("max-request-bytes", broker.DefaultMaxRequestBytes,
 		"largest request body a payload-signing route (bedrock) accepts")
 	f.Int("max-anthropic-request-bytes", broker.DefaultMaxAnthropicRequestBytes,
@@ -120,7 +120,7 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 			"caller pod's attributed-to annotation and record the person; the org credential still pays) or "+
 			"enforce (a run attributed to a person uses that person's own credential for the route's provider, "+
 			"anthropic or openai, or is refused); the anthropic and openai routes only")
-	f.String("credential-records-namespace", "patchy",
+	f.String("credential-records-namespace", "maul",
 		"namespace of the ModelCredential records (the release namespace); with --user-credentials only")
 	f.String("credentials-namespace", v1alpha1.DefaultCredentialsNamespace,
 		"namespace of the people's credential Secrets; with --user-credentials only")
@@ -320,7 +320,7 @@ func openaiUpstream(_ context.Context, opts *cli.Options) (*broker.Upstream, err
 
 func serve(ctx context.Context, opts *cli.Options) error {
 	prov, shutdown, err := telemetry.Init(ctx, telemetry.Config{
-		Dir:            os.Getenv("PATCHY_TELEMETRY_DIR"),
+		Dir:            os.Getenv("MAUL_TELEMETRY_DIR"),
 		Level:          opts.LogLevel,
 		ServiceName:    "egress-broker",
 		ServiceVersion: version.Version,

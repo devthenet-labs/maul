@@ -11,7 +11,7 @@ import (
 )
 
 // Prefix marks an event line on the agent-runner's stdout.
-const Prefix = "PATCHY-EVENT: "
+const Prefix = "MAUL-EVENT: "
 
 // Version is the current envelope schema version. Version 2 replaced the
 // git-bundle payload with the structured Changeset; version 3 added the
@@ -178,7 +178,7 @@ type Remediation struct {
 	// Branch is the local branch carrying the fix; Changeset is its content
 	// diffed against Changeset.BaseSHA. An intent build leaves Branch empty
 	// and reports no confidence: the intent controller names the pushed
-	// branch itself (patchy-intent/<intent>), and a build report carries
+	// branch itself (maul-intent/<intent>), and a build report carries
 	// its tests rather than a confidence.
 	Branch    string     `json:"branch,omitempty"`
 	Changeset *Changeset `json:"changeset,omitempty"`
@@ -233,7 +233,7 @@ type Event struct {
 	// Finding context so events are self-contained.
 	Repo string `json:"repo"`
 	// Finding names the owning Finding resource — on an intent run, the
-	// owning IntentRun (the Job's PATCHY_FINDING).
+	// owning IntentRun (the Job's MAUL_FINDING).
 	Finding string `json:"finding,omitempty"`
 
 	Investigation *Investigation `json:"investigation,omitempty"`

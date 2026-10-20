@@ -25,7 +25,7 @@ interface ProviderUI {
   health: Record<CredentialHealth, string>;
 }
 
-const UNKNOWN_HEALTH = "Not checked yet. patchy checks a new credential within moments.";
+const UNKNOWN_HEALTH = "Not checked yet. maul checks a new credential within moments.";
 
 const PROVIDERS: Record<string, ProviderUI> = {
   anthropic: {

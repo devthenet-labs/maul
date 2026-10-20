@@ -15,9 +15,9 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/controller/intent"
-	"github.com/bitwise-media-group/patchy/internal/kube"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/controller/intent"
+	"github.com/devthenet-labs/maul/internal/kube"
 )
 
 // projectionRepos are the repositories a random Project lists from: one
@@ -34,9 +34,9 @@ var projectionRepos = []struct{ key, url, recorded string }{
 // pull requests in any state at a 40-hex head or not; bases or none.
 func randomProjection(rng *rand.Rand) (*v1alpha1.Project, *v1alpha1.Intent) {
 	n := 1 + rng.Intn(len(projectionRepos))
-	p := &v1alpha1.Project{ObjectMeta: metav1.ObjectMeta{Name: "target", Namespace: "patchy"}}
+	p := &v1alpha1.Project{ObjectMeta: metav1.ObjectMeta{Name: "target", Namespace: "maul"}}
 	contract := func(i int) v1alpha1.ProjectPreview {
-		return v1alpha1.ProjectPreview{ImageRepository: "registry.example/patchy/previews/" + projectionRepos[i].key,
+		return v1alpha1.ProjectPreview{ImageRepository: "registry.example/maul/previews/" + projectionRepos[i].key,
 			Port: int32(8080 + i), ReadinessPath: "/healthz"}
 	}
 	// Mostly each repository's own valid path; sometimes a repeated, an
@@ -66,7 +66,7 @@ func randomProjection(rng *rand.Rand) (*v1alpha1.Project, *v1alpha1.Intent) {
 	}
 	phases := []v1alpha1.IntentPhase{v1alpha1.IntentPending, v1alpha1.IntentBuilding, v1alpha1.IntentInReview,
 		v1alpha1.IntentRevising, v1alpha1.IntentBlocked, v1alpha1.IntentMerged, v1alpha1.IntentClosed}
-	in := &v1alpha1.Intent{ObjectMeta: metav1.ObjectMeta{Name: "target-1", Namespace: "patchy", UID: "intent-uid"},
+	in := &v1alpha1.Intent{ObjectMeta: metav1.ObjectMeta{Name: "target-1", Namespace: "maul", UID: "intent-uid"},
 		Spec: v1alpha1.IntentSpec{Project: "target"}}
 	in.Status.Phase = phases[rng.Intn(len(phases))]
 	if rng.Intn(2) == 0 {

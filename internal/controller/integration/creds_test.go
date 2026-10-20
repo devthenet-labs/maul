@@ -6,7 +6,7 @@ package integration
 import (
 	"testing"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 func TestGithubProxyURL(t *testing.T) {

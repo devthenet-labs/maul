@@ -111,13 +111,13 @@ func TestFindingEventWireUnchanged(t *testing.T) {
 			Type: TypeRemediation, Repo: "acme/shop", Finding: "finding-abc123def0-1",
 			Remediation: &Remediation{
 				Stage:   Stage{Outcome: OutcomeOK, Harness: "claude", Model: "claude-sonnet-5"},
-				Success: true, Confidence: 0.9, Branch: "patchy/finding-abc123def0-1",
+				Success: true, Confidence: 0.9, Branch: "maul/finding-abc123def0-1",
 				Changeset: &Changeset{BaseSHA: "0123", CommitMessage: "fix", Deletes: []string{"a.go"}},
 			},
 		}, Prefix + `{"v":4,"type":"remediation","repo":"acme/shop","finding":"finding-abc123def0-1",` +
 			`"remediation":{"outcome":"ok","harness":"claude","model":"claude-sonnet-5","usage":{"input_tokens":0,` +
 			`"output_tokens":0,"cache_read_tokens":0,"cache_creation_tokens":0,"cost_usd":0},"elapsed_seconds":0,` +
-			`"success":true,"confidence":0.9,"branch":"patchy/finding-abc123def0-1","changeset":{"base_sha":"0123",` +
+			`"success":true,"confidence":0.9,"branch":"maul/finding-abc123def0-1","changeset":{"base_sha":"0123",` +
 			`"commit_message":"fix","deletes":["a.go"]}}}`},
 		{"fatal", Event{Type: TypeFatal, Repo: "acme/shop", Error: "workspace missing"},
 			Prefix + `{"v":4,"type":"fatal","repo":"acme/shop","error":"workspace missing"}`},

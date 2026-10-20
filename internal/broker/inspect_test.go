@@ -13,7 +13,7 @@ import (
 	"testing"
 	"testing/quick"
 
-	"github.com/bitwise-media-group/patchy/internal/model"
+	"github.com/devthenet-labs/maul/internal/model"
 )
 
 // quickConfig is the seeded, deterministic configuration every property in

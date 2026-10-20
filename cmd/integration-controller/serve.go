@@ -14,13 +14,13 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/bitwise-media-group/patchy/internal/cli"
-	"github.com/bitwise-media-group/patchy/internal/controller/integration"
-	"github.com/bitwise-media-group/patchy/internal/credgate"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/telemetry"
-	"github.com/bitwise-media-group/patchy/internal/version"
-	"github.com/bitwise-media-group/patchy/internal/webhook"
+	"github.com/devthenet-labs/maul/internal/cli"
+	"github.com/devthenet-labs/maul/internal/controller/integration"
+	"github.com/devthenet-labs/maul/internal/credgate"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/telemetry"
+	"github.com/devthenet-labs/maul/internal/version"
+	"github.com/devthenet-labs/maul/internal/webhook"
 )
 
 func newServeCmd(opts *cli.Options) *cobra.Command {
@@ -32,13 +32,13 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	f := cmd.Flags()
 	f.Duration("accumulation-window", time.Hour,
 		"how long alerts of one finding family accumulate into a single finding")
-	f.String("namespace", "", "namespace the patchy resources live in (default: POD_NAMESPACE)")
+	f.String("namespace", "", "namespace the maul resources live in (default: POD_NAMESPACE)")
 	f.String("kubeconfig", "", "kubeconfig path (default: in-cluster config)")
 	f.String("health-addr", ":8081", "healthz/readyz probe listen address")
 	f.Int("projection-concurrency", 2,
 		"findings projected to tracking issues in parallel (each projection may spend GitHub API requests)")
 	f.Bool("repository-images", false,
-		"project the runner-image comment (what patchy did with a repository-declared agent image) onto "+
+		"project the runner-image comment (what maul did with a repository-declared agent image) onto "+
 			"tracking issues; reads and watches Repositories, so it needs get/list/watch on repositories")
 	f.String(credgate.AccountURLFlag, "", credgate.AccountURLUsage)
 	f.String("google-oidc-issuer", "",
@@ -56,7 +56,7 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 
 func serve(ctx context.Context, opts *cli.Options) error {
 	prov, shutdown, err := telemetry.Init(ctx, telemetry.Config{
-		Dir:            os.Getenv("PATCHY_TELEMETRY_DIR"),
+		Dir:            os.Getenv("MAUL_TELEMETRY_DIR"),
 		Level:          opts.LogLevel,
 		ServiceName:    "integration-controller",
 		ServiceVersion: version.Version,
@@ -77,7 +77,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 
 	mgr, err := kube.NewManager(kube.Options{
 		Kubeconfig:              opts.String("kubeconfig"),
-		LeaderElectionID:        "patchy-integration-controller-leader",
+		LeaderElectionID:        "maul-integration-controller-leader",
 		LeaderElectionNamespace: namespace,
 		Namespaces:              []string{namespace},
 		HealthAddr:              opts.String("health-addr"),

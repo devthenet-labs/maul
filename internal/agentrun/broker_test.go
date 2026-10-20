@@ -12,9 +12,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/harness"
-	"github.com/bitwise-media-group/patchy/internal/provider"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/harness"
+	"github.com/devthenet-labs/maul/internal/provider"
 )
 
 func TestCliModel(t *testing.T) {
@@ -74,7 +74,7 @@ func TestBrokerTokenInjectedPerStage(t *testing.T) {
 	if len(fx.specs) != 1 {
 		t.Fatalf("stages run = %d, want 1", len(fx.specs))
 	}
-	want := "ANTHROPIC_CUSTOM_HEADERS=X-Patchy-Broker-Token: fresh-token"
+	want := "ANTHROPIC_CUSTOM_HEADERS=X-Maul-Broker-Token: fresh-token"
 	if !slices.Contains(fx.specs[0].Env, want) {
 		t.Errorf("stage env = %v, want it to contain %q", fx.specs[0].Env, want)
 	}
@@ -126,26 +126,26 @@ func TestCredentialValuesIncludesRegistered(t *testing.T) {
 
 func TestFromEnvBrokerFields(t *testing.T) {
 	env := map[string]string{
-		"PATCHY_REPO":              "acme/shop",
-		"PATCHY_FINDING":           "finding-1",
-		"PATCHY_BROKER_TOKEN_FILE": "/var/run/patchy/broker/token",
-		"PATCHY_MODEL_MAP":         "anthropic/claude-sonnet-5=us.anthropic.claude-sonnet-5",
+		"MAUL_REPO":              "acme/shop",
+		"MAUL_FINDING":           "finding-1",
+		"MAUL_BROKER_TOKEN_FILE": "/var/run/maul/broker/token",
+		"MAUL_MODEL_MAP":         "anthropic/claude-sonnet-5=us.anthropic.claude-sonnet-5",
 	}
 	cfg, err := FromEnv(func(k string) string { return env[k] })
 	if err != nil {
 		t.Fatalf("FromEnv() error = %v", err)
 	}
-	if cfg.BrokerTokenFile != "/var/run/patchy/broker/token" {
+	if cfg.BrokerTokenFile != "/var/run/maul/broker/token" {
 		t.Errorf("BrokerTokenFile = %q", cfg.BrokerTokenFile)
 	}
 	if cfg.ModelMap["anthropic/claude-sonnet-5"] != "us.anthropic.claude-sonnet-5" {
 		t.Errorf("ModelMap = %v", cfg.ModelMap)
 	}
 
-	env["PATCHY_MODEL_MAP"] = "garbage"
+	env["MAUL_MODEL_MAP"] = "garbage"
 	if _, err := FromEnv(func(k string) string { return env[k] }); err == nil ||
-		!strings.Contains(err.Error(), "PATCHY_MODEL_MAP") {
-		t.Errorf("FromEnv() error = %v, want a PATCHY_MODEL_MAP rejection", err)
+		!strings.Contains(err.Error(), "MAUL_MODEL_MAP") {
+		t.Errorf("FromEnv() error = %v, want a MAUL_MODEL_MAP rejection", err)
 	}
 }
 
@@ -170,7 +170,7 @@ func TestCodexBrokerEnvPerStage(t *testing.T) {
 	var out bytes.Buffer
 	cfg := newConfig(t, ws, &out)
 	cfg.InvestigateHarness, cfg.InvestigateModel = "codex", "openai/gpt-5.3-codex"
-	cfg.BrokerTokenFile, cfg.CodexBaseURL = tokenFile, "http://broker.patchy.svc:8080/openai/v1"
+	cfg.BrokerTokenFile, cfg.CodexBaseURL = tokenFile, "http://broker.maul.svc:8080/openai/v1"
 	fx := &fakeExec{steps: []step{{ws: ws, stdout: codexStream, writes: map[string]string{
 		"reports/investigation.md": goodInvestigation,
 	}}}}
@@ -204,9 +204,9 @@ func TestCodexBrokerEnvPerStage(t *testing.T) {
 	}
 	argv := strings.Join(spec.Argv, "\n")
 	for _, want := range []string{
-		`model_providers.patchy.base_url="http://broker.patchy.svc:8080/openai/v1"`,
-		`model_providers.patchy.env_key="` + provider.CodexPlaceholderKeyEnv + `"`,
-		`model_providers.patchy.env_http_headers={"` + provider.BrokerTokenHeader + `"="` + provider.CodexTokenEnv + `"}`,
+		`model_providers.maul.base_url="http://broker.maul.svc:8080/openai/v1"`,
+		`model_providers.maul.env_key="` + provider.CodexPlaceholderKeyEnv + `"`,
+		`model_providers.maul.env_http_headers={"` + provider.BrokerTokenHeader + `"="` + provider.CodexTokenEnv + `"}`,
 	} {
 		if !strings.Contains(argv, want) {
 			t.Errorf("argv = %q, want %s", spec.Argv, want)
@@ -229,7 +229,7 @@ func TestCodexRefusedUnbrokered(t *testing.T) {
 		token      bool
 		want       string
 	}{
-		{"no token file", "http://broker/openai/v1", false, "PATCHY_BROKER_TOKEN_FILE is unset"},
+		{"no token file", "http://broker/openai/v1", false, "MAUL_BROKER_TOKEN_FILE is unset"},
 		{"no route", "", true, provider.CodexBaseURLEnv + " is unset"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -260,7 +260,7 @@ func TestCodexRefusedUnbrokered(t *testing.T) {
 
 func TestFromEnvCodexBaseURL(t *testing.T) {
 	env := map[string]string{
-		"PATCHY_REPO": "acme/shop", "PATCHY_FINDING": "f",
+		"MAUL_REPO": "acme/shop", "MAUL_FINDING": "f",
 		provider.CodexBaseURLEnv: "http://broker:8080/openai/v1",
 	}
 	cfg, err := FromEnv(func(k string) string { return env[k] })

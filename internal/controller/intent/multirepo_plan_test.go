@@ -20,14 +20,14 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/forge"
-	"github.com/bitwise-media-group/patchy/internal/intentperm"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/forge"
+	"github.com/devthenet-labs/maul/internal/intentperm"
+	"github.com/devthenet-labs/maul/internal/jobs"
 )
 
 // webRepoURL is a multi-repository Project's second repository, named the
-// way an operator may name one: mixed case, a dot and an underscore. patchy
+// way an operator may name one: mixed case, a dot and an underscore. maul
 // has no rule about repository names; its Project key is "web".
 const (
 	webRepoURL = "https://github.com/acme/Acme.Web_App"
@@ -225,7 +225,7 @@ func TestMultiRepoOffHoldsTheIntent(t *testing.T) {
 	if in := e.get(name); in.Status.Phase != v1alpha1.IntentBlocked {
 		t.Fatalf("phase %s while the flag is off, want Blocked", in.Status.Phase)
 	}
-	st := e.gh.withMarker("patchy:intent")
+	st := e.gh.withMarker("maul:intent")
 	if len(st) != 1 || !strings.Contains(st[0].Body, "--intent-multi-repo") {
 		t.Errorf("the status comment does not say what holds the intent: %+v", st)
 	}
@@ -251,7 +251,7 @@ func TestMultiRepoOffBesideAnotherBlock(t *testing.T) {
 	e.multiRepo(true)
 	e.jobs.output = multiOutput
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentBlocked, repoImage)
 	if !meta.IsStatusConditionTrue(in.Status.Conditions, v1alpha1.ConditionBudgetExhausted) {
 		t.Fatalf("conditions = %+v, want BudgetExhausted", in.Status.Conditions)
@@ -305,7 +305,7 @@ func TestMultiRepoOffHoldsAGrantedRun(t *testing.T) {
 func TestMultiRepoOffHoldsThePushAndTheReview(t *testing.T) {
 	e := newMultiEnv(t)
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	var launched *v1alpha1.IntentRun
 	for range 30 {
 		e.mustIntent(name)
@@ -367,12 +367,12 @@ func TestOneRepositoryUnchangedByTheFlag(t *testing.T) {
 		e := newEnv(t, testProject())
 		e.multiRepo(multi)
 		name := e.awaiting()
-		e.gh.label(1, "patchy:approved", approver)
+		e.gh.label(1, "maul:approved", approver)
 		e.drive(name, v1alpha1.IntentInReview, repoImage)
 		e.gh.closePR(true)
 		e.drive(name, v1alpha1.IntentMerged, repoImage)
 		l := life{runs: map[string]v1alpha1.IntentRunSpec{}, jobs: map[string]jobs.Spec{},
-			calls: maps.Clone(e.gh.calls), body: e.gh.prs[1].body, state: e.gh.withMarker("patchy:intent")[0].Body}
+			calls: maps.Clone(e.gh.calls), body: e.gh.prs[1].body, state: e.gh.withMarker("maul:intent")[0].Body}
 		for _, r := range e.intentRuns(name) {
 			l.runs[r.Name] = r.Spec
 		}
@@ -412,7 +412,7 @@ func TestOneRepositoryUnchangedByTheFlag(t *testing.T) {
 // digest-verified tarball and the manifest keys; the run records what each
 // tree was at launch; and every tree Repository is deleted with the plan
 // Repository once the run is collected. The plan comment names, in the
-// Project's spelling, each repository patchy will open a pull request in.
+// Project's spelling, each repository maul will open a pull request in.
 func TestMultiRepoPlanReadsEveryTree(t *testing.T) {
 	e := newMultiEnv(t)
 	name, run := e.leasePlan()
@@ -438,7 +438,7 @@ func TestMultiRepoPlanReadsEveryTree(t *testing.T) {
 			t.Errorf("Repository %s outlived the plan run's collection", n)
 		}
 	}
-	posted := e.gh.withMarker("patchy:plan")
+	posted := e.gh.withMarker("maul:plan")
 	if len(posted) != 1 || !strings.Contains(posted[0].Body, "`acme/app`") ||
 		!strings.Contains(posted[0].Body, "`"+webSlug+"`") || !strings.Contains(posted[0].Body, multiPlan) {
 		t.Errorf("the plan comment does not name both repositories beside the verbatim plan: %+v", posted)

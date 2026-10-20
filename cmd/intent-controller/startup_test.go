@@ -13,10 +13,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/bitwise-media-group/patchy/internal/cli"
-	"github.com/bitwise-media-group/patchy/internal/controller/intent"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/runnercfg"
+	"github.com/devthenet-labs/maul/internal/cli"
+	"github.com/devthenet-labs/maul/internal/controller/intent"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/runnercfg"
 )
 
 // resolved executes the command tree over args and returns its options.
@@ -32,7 +32,7 @@ func resolved(t *testing.T, args ...string) *cli.Options {
 // openAISecret is the codex runner's default credential Secret.
 func openAISecret() *corev1.Secret {
 	return &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "patchy-openai", Namespace: "patchy-agents"},
+		ObjectMeta: metav1.ObjectMeta{Name: "maul-openai", Namespace: "maul-agents"},
 		Data:       map[string][]byte{"api-key": []byte("x")},
 	}
 }
@@ -119,7 +119,7 @@ func TestHarnessChoice(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			got, codex, err := harnesses(t.Context(), opts, fake.NewClientset(openAISecret()), "patchy-agents", runners)
+			got, codex, err := harnesses(t.Context(), opts, fake.NewClientset(openAISecret()), "maul-agents", runners)
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 					t.Fatalf("harnesses = %q, %v; want an error containing %q", got.ID, err, tt.wantErr)
@@ -156,7 +156,7 @@ func TestHarnessAndDNS(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			claude, _, mode, err := harnessesAndDNS(t.Context(), opts, fake.NewClientset(), "patchy-agents", runners)
+			claude, _, mode, err := harnessesAndDNS(t.Context(), opts, fake.NewClientset(), "maul-agents", runners)
 			id := claude.ID
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
@@ -216,7 +216,7 @@ func TestSettingsRefusesNonPositive(t *testing.T) {
 		"--intent-revise-max-turns", "--intent-revise-token-budget", "--intent-revise-timeout",
 	} {
 		t.Run(flag, func(t *testing.T) {
-			_, err := settings(resolved(t, flag, "0"), "patchy", "patchy-agents")
+			_, err := settings(resolved(t, flag, "0"), "maul", "maul-agents")
 			if err == nil || err.Error() != flag+" must be positive" {
 				t.Fatalf("settings with %s 0 = %v, want %q", flag, err, flag+" must be positive")
 			}
@@ -240,11 +240,11 @@ func TestSettingsRefusesNonPositive(t *testing.T) {
 
 func TestSettingsCarriesFlags(t *testing.T) {
 	s, err := settings(resolved(t, "--intent-multi-repo", "--intent-previews-enabled",
-		"--intent-rate-limit-floor", "0", "--intent-plan-max-turns", "7"), "patchy", "agents")
+		"--intent-rate-limit-floor", "0", "--intent-plan-max-turns", "7"), "maul", "agents")
 	if err != nil {
 		t.Fatalf("settings: %v", err)
 	}
-	if s.Namespace != "patchy" || s.AgentNamespace != "agents" || !s.MultiRepo || !s.Previews ||
+	if s.Namespace != "maul" || s.AgentNamespace != "agents" || !s.MultiRepo || !s.Previews ||
 		s.RateLimitFloor != 0 || s.Plan.MaxTurns != 7 {
 		t.Errorf("settings = %+v", s)
 	}
@@ -266,7 +266,7 @@ func TestServeStartupErrors(t *testing.T) {
 		{name: "no namespace", wantErr: "namespace is required"},
 		{name: "bad settings", args: with("--intent-poll-interval", "0"), wantErr: "--intent-poll-interval"},
 		{name: "no runner", args: []string{"--namespace", "p"}, wantErr: "no agent runner configured"},
-		{name: "namespace from the pod", env: "patchy", wantErr: "no agent runner configured"},
+		{name: "namespace from the pod", env: "maul", wantErr: "no agent runner configured"},
 		{name: "bad job sizes", args: with("--intent-resource-classes", "["), wantErr: "--intent-resource-classes"},
 		{name: "network profiles without repository images", args: with("--network-profiles-enabled"),
 			wantErr: "--network-profiles-enabled requires --repository-images"},
@@ -313,7 +313,7 @@ func TestCodexHarnessAndDNS(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			claude, codex, mode, err := harnessesAndDNS(t.Context(), opts, fake.NewClientset(), "patchy-agents", runners)
+			claude, codex, mode, err := harnessesAndDNS(t.Context(), opts, fake.NewClientset(), "maul-agents", runners)
 			if err != nil {
 				t.Fatal(err)
 			}

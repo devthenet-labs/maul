@@ -20,8 +20,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/kube"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/kube"
 )
 
 // realEnv is a reconciler stepped by hand against a real API server holding
@@ -56,7 +56,7 @@ func startRealEnv(t *testing.T, s Settings) *realEnv {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, ns := range []string{"patchy", "patchy-preview-0", "patchy-preview-1"} {
+	for _, ns := range []string{"maul", "maul-preview-0", "maul-preview-1"} {
 		if err := c.Create(t.Context(), &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}}); err != nil {
 			t.Fatal(err)
 		}
@@ -72,7 +72,7 @@ func (e *realEnv) createDemo(sha string) (*v1alpha1.Intent, *v1alpha1.Preview) {
 	e.t.Helper()
 	ctx := e.t.Context()
 	prefix := e.r.Settings.ImagePrefix
-	project := &v1alpha1.Project{ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "patchy"},
+	project := &v1alpha1.Project{ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "maul"},
 		Spec: v1alpha1.ProjectSpec{
 			IntentRepository: "https://github.com/acme/intents",
 			Approvers:        v1alpha1.ProjectApprovers{Logins: []string{"octocat"}},
@@ -83,7 +83,7 @@ func (e *realEnv) createDemo(sha string) (*v1alpha1.Intent, *v1alpha1.Preview) {
 	if err := e.c.Create(ctx, project); err != nil {
 		e.t.Fatal(err)
 	}
-	in := &v1alpha1.Intent{ObjectMeta: metav1.ObjectMeta{Name: "demo-1", Namespace: "patchy"},
+	in := &v1alpha1.Intent{ObjectMeta: metav1.ObjectMeta{Name: "demo-1", Namespace: "maul"},
 		Spec: v1alpha1.IntentSpec{Project: "demo",
 			Issue:       v1alpha1.IntentIssue{Repository: "https://github.com/acme/intents", Number: 1},
 			RequestedBy: v1alpha1.IntentRequest{Login: "octocat", At: metav1.Now(), EventID: 1}}}
@@ -97,7 +97,7 @@ func (e *realEnv) createDemo(sha string) (*v1alpha1.Intent, *v1alpha1.Preview) {
 	if err := e.c.Status().Update(ctx, in); err != nil {
 		e.t.Fatal(err)
 	}
-	p := &v1alpha1.Preview{ObjectMeta: metav1.ObjectMeta{Name: in.Name, Namespace: "patchy"},
+	p := &v1alpha1.Preview{ObjectMeta: metav1.ObjectMeta{Name: in.Name, Namespace: "maul"},
 		Spec: v1alpha1.PreviewSpec{
 			IntentRef: v1alpha1.ObjectReference{Name: in.Name, UID: in.UID}, Project: "demo", HostLabel: in.Name,
 			Components: []v1alpha1.PreviewComponent{{Name: "demo", ImageRepository: prefix + "demo",
@@ -142,7 +142,7 @@ func (e *realEnv) runPod(p *v1alpha1.Preview, name string) *corev1.Pod {
 	e.t.Helper()
 	ctx := e.t.Context()
 	var dep appsv1.Deployment
-	key := types.NamespacedName{Namespace: "patchy-preview-0", Name: componentName(p, 0)}
+	key := types.NamespacedName{Namespace: "maul-preview-0", Name: componentName(p, 0)}
 	if err := e.c.Get(ctx, key, &dep); err != nil {
 		e.t.Fatal(err)
 	}
@@ -175,7 +175,7 @@ func TestEnvtestServingSnapshotLifecycle(t *testing.T) {
 	ctx := t.Context()
 	in, p := e.createDemo(strings.Repeat("a", 40))
 	p = e.until(p, "Deployment rendered", func(p *v1alpha1.Preview) bool {
-		return e.c.Get(ctx, types.NamespacedName{Namespace: "patchy-preview-0", Name: "preview-demo-1"},
+		return e.c.Get(ctx, types.NamespacedName{Namespace: "maul-preview-0", Name: "preview-demo-1"},
 			&appsv1.Deployment{}) == nil
 	})
 	old := e.runPod(p, "old")
@@ -242,7 +242,7 @@ func TestEnvtestServingSnapshotLifecycle(t *testing.T) {
 	if p.Status.Serving != nil {
 		t.Fatalf("serving after a retry = %+v, want none", p.Status.Serving)
 	}
-	if err := e.c.Get(ctx, types.NamespacedName{Namespace: "patchy-preview-0", Name: "preview-demo-1"},
+	if err := e.c.Get(ctx, types.NamespacedName{Namespace: "maul-preview-0", Name: "preview-demo-1"},
 		&appsv1.Deployment{}); err == nil {
 		// The retry's next pass recreates it; the snapshot stays cleared
 		// until the attempt is Ready.
@@ -270,11 +270,11 @@ func TestEnvtestGatewayMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	p = e.until(p, "Deployment rendered", func(p *v1alpha1.Preview) bool {
-		return e.c.Get(ctx, types.NamespacedName{Namespace: "patchy-preview-0", Name: "preview-demo-1"},
+		return e.c.Get(ctx, types.NamespacedName{Namespace: "maul-preview-0", Name: "preview-demo-1"},
 			&appsv1.Deployment{}) == nil
 	})
 	var ings networkingv1.IngressList
-	if err := e.c.List(ctx, &ings, client.InNamespace("patchy-preview-0")); err != nil {
+	if err := e.c.List(ctx, &ings, client.InNamespace("maul-preview-0")); err != nil {
 		t.Fatal(err)
 	}
 	for _, ing := range ings.Items {
@@ -289,7 +289,7 @@ func TestEnvtestGatewayMode(t *testing.T) {
 	if !reflect.DeepEqual(p.Status.Serving, want) || p.Status.URL == "" {
 		t.Fatalf("status = %+v, want Ready with URL and %+v", p.Status, want)
 	}
-	if err := e.c.List(ctx, &ings, client.InNamespace("patchy-preview-0")); err != nil {
+	if err := e.c.List(ctx, &ings, client.InNamespace("maul-preview-0")); err != nil {
 		t.Fatal(err)
 	}
 	if len(ings.Items) != 0 {

@@ -7,7 +7,7 @@ import (
 	"context"
 	"fmt"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 // syncPRRoundNotices repairs one settled round per pass, oldest first. The
@@ -32,7 +32,7 @@ func (p *pass) syncPRRoundNotices(ctx context.Context) (bool, error) {
 
 // syncEndedRoundNotices is syncPRRoundNotices for an ended Intent, which no
 // longer polls its pull requests: it asks the rate floor of the one
-// repository the owed notice goes to, never its siblings', so a sibling patchy
+// repository the owed notice goes to, never its siblings', so a sibling maul
 // can no longer reach (one that left the Project and lost its Forge or App
 // installation) holds nothing. A repository that has left the Project is
 // asked nothing at all: finishPRRound writes nothing there, and the cursor

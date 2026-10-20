@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
-	"github.com/bitwise-media-group/patchy/internal/templates"
+	"github.com/devthenet-labs/maul/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // TestNetworkProfileReachesThePrompt: a remediate or build stage whose

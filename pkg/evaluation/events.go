@@ -24,7 +24,7 @@ const (
 	EnvBundleDir = "EVOLVE_BUNDLE_DIR"
 )
 
-// Event types. Patchy interprets only TypeResult and TypeFatal; every other
+// Event types. Maul interprets only TypeResult and TypeFatal; every other
 // type is progress, relayed verbatim to the monitoring client, which replays
 // it onto its local reporter.
 const (

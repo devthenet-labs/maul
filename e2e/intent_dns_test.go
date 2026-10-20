@@ -12,7 +12,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 // TestIntentAgentDNSNone runs the shipped intent-controller as the chart

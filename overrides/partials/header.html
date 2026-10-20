@@ -1,5 +1,5 @@
-{#- overrides/partials/header.html — Patchy header. Drops the stock Material logo button and renders the site name as
-the SVG patch mark (docs/assets/images/logo.svg, theme.logo) plus a lowercase mono "patchy" wordmark. The wordmark
+{#- overrides/partials/header.html — Maul header. Drops the stock Material logo button and renders the site name as
+the SVG patch mark (docs/assets/images/logo.svg, theme.logo) plus a lowercase mono "maul" wordmark. The wordmark
 links home, since removing the stock logo removes the header's only home affordance. Styling lives in
 docs/stylesheets/extra.css (.pt-headmark). -#} {% set class = "md-header" %} {% if
 "navigation.tabs.sticky" in features %} {% set class = class ~ " md-header--shadow md-header--lifted" %} {% elif
@@ -26,7 +26,7 @@ docs/stylesheets/extra.css (.pt-headmark). -#} {% set class = "md-header" %} {% 
                                  width="26"
                                  height="26"
                                  aria-hidden="true">
-                            <span class="pt-headmark__name">patchy</span>
+                            <span class="pt-headmark__name">maul</span>
                         </a>
                     </span>
                 </div>

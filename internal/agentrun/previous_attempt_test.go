@@ -13,7 +13,7 @@ import (
 	"testing"
 )
 
-// TestRetryPromptCarriesPreviousAttempt: a Job whose PATCHY_PREVIOUS_ATTEMPT
+// TestRetryPromptCarriesPreviousAttempt: a Job whose MAUL_PREVIOUS_ATTEMPT
 // describes the failed run it retries renders that run's outcome and detail
 // into the stage prompt, fenced under the statement that it is data, and a
 // first attempt's prompt has no such section. The regression: remediation
@@ -57,13 +57,13 @@ func TestRetryPromptCarriesPreviousAttempt(t *testing.T) {
 				t.Fatal(err)
 			}
 			env := map[string]string{
-				"PATCHY_WORKSPACE":           ws,
-				"PATCHY_REPO":                "acme/shop",
-				"PATCHY_FINDING":             "finding-abc123def0-1",
-				"PATCHY_PHASE":               string(tt.phase),
-				"PATCHY_INVESTIGATE_HARNESS": "claude",
-				"PATCHY_REMEDIATE_HARNESS":   "claude",
-				"PATCHY_PREVIOUS_ATTEMPT":    tt.previous,
+				"MAUL_WORKSPACE":           ws,
+				"MAUL_REPO":                "acme/shop",
+				"MAUL_FINDING":             "finding-abc123def0-1",
+				"MAUL_PHASE":               string(tt.phase),
+				"MAUL_INVESTIGATE_HARNESS": "claude",
+				"MAUL_REMEDIATE_HARNESS":   "claude",
+				"MAUL_PREVIOUS_ATTEMPT":    tt.previous,
 			}
 			cfg, err := FromEnv(func(k string) string { return env[k] })
 			if err != nil {
@@ -99,7 +99,7 @@ func TestRetryPromptCarriesPreviousAttempt(t *testing.T) {
 }
 
 func TestFromEnvPreviousAttempt(t *testing.T) {
-	env := map[string]string{"PATCHY_REPO": "acme/shop", "PATCHY_FINDING": "f-1"}
+	env := map[string]string{"MAUL_REPO": "acme/shop", "MAUL_FINDING": "f-1"}
 	cfg, err := FromEnv(func(k string) string { return env[k] })
 	if err != nil {
 		t.Fatal(err)
@@ -108,7 +108,7 @@ func TestFromEnvPreviousAttempt(t *testing.T) {
 		t.Errorf("PreviousAttempt = %+v on a first attempt, want nil", cfg.PreviousAttempt)
 	}
 
-	env["PATCHY_PREVIOUS_ATTEMPT"] = `{"attempt":3,"outcome":"timeout","detail":"stage timed out after 45m0s"}`
+	env["MAUL_PREVIOUS_ATTEMPT"] = `{"attempt":3,"outcome":"timeout","detail":"stage timed out after 45m0s"}`
 	if cfg, err = FromEnv(func(k string) string { return env[k] }); err != nil {
 		t.Fatal(err)
 	}
@@ -117,9 +117,9 @@ func TestFromEnvPreviousAttempt(t *testing.T) {
 		t.Errorf("PreviousAttempt = %+v, want attempt 3 timeout with its detail", p)
 	}
 
-	env["PATCHY_PREVIOUS_ATTEMPT"] = "not json"
+	env["MAUL_PREVIOUS_ATTEMPT"] = "not json"
 	if _, err := FromEnv(func(k string) string { return env[k] }); err == nil ||
-		!strings.Contains(err.Error(), "PATCHY_PREVIOUS_ATTEMPT") {
-		t.Errorf("FromEnv error = %v, want one naming PATCHY_PREVIOUS_ATTEMPT", err)
+		!strings.Contains(err.Error(), "MAUL_PREVIOUS_ATTEMPT") {
+		t.Errorf("FromEnv error = %v, want one naming MAUL_PREVIOUS_ATTEMPT", err)
 	}
 }

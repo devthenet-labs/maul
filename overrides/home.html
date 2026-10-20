@@ -1,6 +1,6 @@
-{# overrides/home.html Custom landing for Patchy. Injected full-bleed between the (turf-skinned) Material header and the
+{# overrides/home.html Custom landing for Maul. Injected full-bleed between the (turf-skinned) Material header and the
 page body via the `tabs` block. The normal article `content` block is emptied; index.md sets `hide: [navigation, toc]`.
-Content mirrors the design-system kit (design-system/ui_kits/patchy): the hero follows one finding from alert to pull
+Content mirrors the design-system kit (design-system/ui_kits/maul): the hero follows one finding from alert to pull
 request, the lifecycle strip makes the happy-path phases visible, and the architecture specimen hangs six binaries off
 one Kubernetes-CR source of truth. #} {% extends "main.html" %} {% block tabs %} {{ super() }}
 <div class="pt">
@@ -12,7 +12,7 @@ one Kubernetes-CR source of truth. #} {% extends "main.html" %} {% block tabs %}
                 <div class="pt-kicker"><span class="pt-dot"></span>CUSTOM RESOURCES ARE THE STATE MACHINE</div>
                 <h1 class="pt-headline">Every finding gets a path to <span>solid ground.</span></h1>
                 <p class="pt-lede">
-                    Patchy gathers related security alerts into Kubernetes Finding resources — each projected to a
+                    Maul gathers related security alerts into Kubernetes Finding resources — each projected to a
                     GitHub tracking issue — adds ownership context, and sends safe fixes through an isolated coding
                     agent, with a human at the merge button.
                 </p>
@@ -21,13 +21,13 @@ one Kubernetes-CR source of truth. #} {% extends "main.html" %} {% block tabs %}
                     <div class="pt-term__body">
                         <div class="pt-term__line">
                             <code
-                                ><span class="pt-p">$</span> helm install patchy
-                                oci://ghcr.io/devthenet-labs/patchy/charts/patchy \</code
+                                ><span class="pt-p">$</span> helm install maul
+                                oci://ghcr.io/devthenet-labs/maul/charts/maul \</code
                             >
                         </div>
                         <div class="pt-term__line">
                             <code>
-                                &nbsp;&nbsp;&nbsp;&nbsp;--namespace patchy --create-namespace<span
+                                &nbsp;&nbsp;&nbsp;&nbsp;--namespace maul --create-namespace<span
                                     class="pt-cursor"
                                 ></span
                             ></code>
@@ -78,7 +78,7 @@ one Kubernetes-CR source of truth. #} {% extends "main.html" %} {% block tabs %}
                         </div>
                     </div>
                     <div class="pt-issue-card__footer">
-                        <span><span class="pt-pulse"></span> patchy/issue-184</span>
+                        <span><span class="pt-pulse"></span> maul/issue-184</span>
                         <strong>Ready for review</strong>
                     </div>
                 </article>
@@ -86,7 +86,7 @@ one Kubernetes-CR source of truth. #} {% extends "main.html" %} {% block tabs %}
         </div>
     </header>
     <!-- STATS -->
-    <section class="pt-stats" aria-label="Patchy facts">
+    <section class="pt-stats" aria-label="Maul facts">
         <div class="pt-stat"><b>1 hour</b><small>ALERT ACCUMULATION WINDOW</small></div>
         <div class="pt-stat"><b>0</b><small>AGENT FORGE CREDENTIALS</small></div>
         <div class="pt-stat"><b>6</b><small>SEPARATE GO BINARIES</small></div>
@@ -157,7 +157,7 @@ one Kubernetes-CR source of truth. #} {% extends "main.html" %} {% block tabs %}
     </section>
     <!-- PRINCIPLES -->
     <section class="pt-section">
-        <h2 class="pt-eyebrow">// THE PATCHY RULES</h2>
+        <h2 class="pt-eyebrow">// THE MAUL RULES</h2>
         <p class="pt-lead">Automation with edges you can see.</p>
         <div class="pt-cards">
             <div class="pt-card">
@@ -184,7 +184,7 @@ one Kubernetes-CR source of truth. #} {% extends "main.html" %} {% block tabs %}
             <div class="pt-card">
                 <h3>Humans finish the repair</h3>
                 <p>
-                    High-confidence fixes become branches and pull requests. Patchy opens them; people review and merge
+                    High-confidence fixes become branches and pull requests. Maul opens them; people review and merge
                     them.
                 </p>
             </div>
@@ -207,7 +207,7 @@ one Kubernetes-CR source of truth. #} {% extends "main.html" %} {% block tabs %}
                 <h3>Create the secrets</h3>
                 <p>App credentials plus the webhook HMAC, and the model API key.</p>
                 <div class="pt-cmd">
-                    <code>$ kubectl -n patchy create secret generic patchy-github …</code>
+                    <code>$ kubectl -n maul create secret generic maul-github …</code>
                     <div class="md-code__nav">
                         <button
                             class="md-code__button"
@@ -224,7 +224,7 @@ one Kubernetes-CR source of truth. #} {% extends "main.html" %} {% block tabs %}
                 <h3>Install the chart</h3>
                 <p>One Helm release: CRDs, five controllers, RBAC, network policies.</p>
                 <div class="pt-cmd">
-                    <code>$ helm install patchy oci://ghcr.io/devthenet-labs/patchy/charts/patchy</code>
+                    <code>$ helm install maul oci://ghcr.io/devthenet-labs/maul/charts/maul</code>
                     <div class="md-code__nav">
                         <button
                             class="md-code__button"

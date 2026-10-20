@@ -13,23 +13,23 @@ import (
 
 	"github.com/spf13/pflag"
 
-	"github.com/bitwise-media-group/patchy/internal/cli"
+	"github.com/devthenet-labs/maul/internal/cli"
 )
 
 // chartHelpers is the chart's helper library, which spells the broker's
 // base-URL override keys out as literals.
-const chartHelpers = "../../charts/patchy/templates/_helpers.tpl"
+const chartHelpers = "../../charts/maul/templates/_helpers.tpl"
 
-// TestChartOverrideKeysMatchFlags pins patchy.egressBrokerOverrideHosts to
+// TestChartOverrideKeysMatchFlags pins maul.egressBrokerOverrideHosts to
 // this binary's flags: the chart denies the host of every broker base-URL
-// override (guard 13 at render time, PATCHY_DENY_HOSTS at redirect time), so
+// override (guard 13 at render time, MAUL_DENY_HOSTS at redirect time), so
 // it must read exactly the environment names of the *-base-url flags. A new
 // provider override flag cannot ship without the chart denying its host.
 func TestChartOverrideKeysMatchFlags(t *testing.T) {
 	var want []string
 	newServeCmd(cli.NewOptions()).Flags().VisitAll(func(f *pflag.Flag) {
 		if strings.HasSuffix(f.Name, "-base-url") {
-			want = append(want, "PATCHY_"+strings.ToUpper(strings.ReplaceAll(f.Name, "-", "_")))
+			want = append(want, "MAUL_"+strings.ToUpper(strings.ReplaceAll(f.Name, "-", "_")))
 		}
 	})
 	if len(want) == 0 {
@@ -41,19 +41,19 @@ func TestChartOverrideKeysMatchFlags(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	def := regexp.MustCompile(`(?s)\{\{- define "patchy\.egressBrokerOverrideHosts" -\}\}\n(.*?)\n\{\{- end \}\}`).
+	def := regexp.MustCompile(`(?s)\{\{- define "maul\.egressBrokerOverrideHosts" -\}\}\n(.*?)\n\{\{- end \}\}`).
 		FindSubmatch(src)
 	if def == nil {
-		t.Fatal("_helpers.tpl does not define patchy.egressBrokerOverrideHosts")
+		t.Fatal("_helpers.tpl does not define maul.egressBrokerOverrideHosts")
 	}
-	keys := regexp.MustCompile(`"(PATCHY_[A-Z0-9_]+)"`).FindAllSubmatch(def[1], -1)
+	keys := regexp.MustCompile(`"(MAUL_[A-Z0-9_]+)"`).FindAllSubmatch(def[1], -1)
 	got := make([]string, 0, len(keys))
 	for _, k := range keys {
 		got = append(got, string(k[1]))
 	}
 	slices.Sort(got)
 	if !slices.Equal(got, want) {
-		t.Errorf("patchy.egressBrokerOverrideHosts reads %v; the broker's -base-url flags are %v", got, want)
+		t.Errorf("maul.egressBrokerOverrideHosts reads %v; the broker's -base-url flags are %v", got, want)
 	}
 }
 
@@ -72,7 +72,7 @@ func TestChartBrokerEnvAreFlags(t *testing.T) {
 	root.AddCommand(serve)
 	for _, fs := range []*pflag.FlagSet{root.PersistentFlags(), serve.Flags()} {
 		fs.VisitAll(func(f *pflag.Flag) {
-			flags["PATCHY_"+strings.ToUpper(strings.ReplaceAll(f.Name, "-", "_"))] = true
+			flags["MAUL_"+strings.ToUpper(strings.ReplaceAll(f.Name, "-", "_"))] = true
 		})
 	}
 	for _, c := range []struct {
@@ -82,14 +82,14 @@ func TestChartBrokerEnvAreFlags(t *testing.T) {
 	}{
 		{"user credentials", []string{"attribution.mode=attribute", "egressBroker.userCredentials.mode=enforce",
 			"egressBroker.anthropicAuth=token", "egressBroker.userCredentials.orgCredentialIsPersonal=acknowledged"},
-			[]string{"PATCHY_USER_CREDENTIALS", "PATCHY_CREDENTIALS_NAMESPACE",
-				"PATCHY_CREDENTIAL_RECORDS_NAMESPACE", "PATCHY_ORG_CREDENTIAL_IS_PERSONAL"}},
-		{"openai route", []string{"egressBroker.openai.apiKey.secret=patchy-openai"},
-			[]string{"PATCHY_OPENAI_API_KEY_FILE", "PATCHY_ANTHROPIC_API_KEY_FILE"}},
+			[]string{"MAUL_USER_CREDENTIALS", "MAUL_CREDENTIALS_NAMESPACE",
+				"MAUL_CREDENTIAL_RECORDS_NAMESPACE", "MAUL_ORG_CREDENTIAL_IS_PERSONAL"}},
+		{"openai route", []string{"egressBroker.openai.apiKey.secret=maul-openai"},
+			[]string{"MAUL_OPENAI_API_KEY_FILE", "MAUL_ANTHROPIC_API_KEY_FILE"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			args := make([]string, 0, 7+2*len(c.sets))
-			args = append(args, "template", "patchy", "../../charts/patchy", "--namespace", "patchy",
+			args = append(args, "template", "maul", "../../charts/maul", "--namespace", "maul",
 				"--show-only", "templates/egress-broker.yaml")
 			for _, set := range c.sets {
 				args = append(args, "--set", set)
@@ -98,7 +98,7 @@ func TestChartBrokerEnvAreFlags(t *testing.T) {
 			if err != nil {
 				t.Fatalf("helm template: %v: %s", err, out)
 			}
-			keys := regexp.MustCompile(`(?m)^\s+(PATCHY_[A-Z0-9_]+):`).FindAllSubmatch(out, -1)
+			keys := regexp.MustCompile(`(?m)^\s+(MAUL_[A-Z0-9_]+):`).FindAllSubmatch(out, -1)
 			seen := make([]string, 0, len(keys))
 			for _, k := range keys {
 				key := string(k[1])

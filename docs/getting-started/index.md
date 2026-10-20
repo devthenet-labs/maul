@@ -1,6 +1,6 @@
 # Getting started
 
-**Patchy** turns GitHub Advanced Security findings into reviewed pull requests. CodeQL alerts arrive via webhook and
+**Maul** turns GitHub Advanced Security findings into reviewed pull requests. CodeQL alerts arrive via webhook and
 accumulate into `Finding` custom resources for an hour — each projected to a GitHub tracking issue — ownership context
 is added, and a sandboxed coding agent investigates each finding: false positives are dismissed, human-only work is
 handed to the repository owner, and high-confidence remediations are queued in priority order, attempted automatically,
@@ -24,7 +24,7 @@ Deploying the stack takes three steps, each with its own page, and an optional f
 | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | Kubernetes ≥ 1.34       | The chart's `kubeVersion` floor (the oldest line not yet end-of-life); both namespaces enforce the `restricted` Pod Security Standard. |
 | Helm ≥ 3.8              | OCI registry support for `helm install oci://…`.                                                                                       |
-| GitHub org admin        | To register the GitHub App and install it on the repositories patchy should watch.                                                     |
+| GitHub org admin        | To register the GitHub App and install it on the repositories maul should watch.                                                       |
 | GHAS / CodeQL           | Code scanning must be enabled on the watched repositories — its alerts are the finding source.                                         |
 | An Anthropic credential | An API key or a `claude setup-token` OAuth token — the agent investigates and remediates via the `claude` CLI inside the sandbox pod.  |
 | Inbound HTTPS           | GitHub must reach the integration-controller's `/github/webhooks` — enable the chart's `webhook.ingress` or `webhook.httpRoute`.       |

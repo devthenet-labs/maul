@@ -12,11 +12,11 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/harness"
-	"github.com/bitwise-media-group/patchy/internal/provider"
-	"github.com/bitwise-media-group/patchy/internal/report"
-	"github.com/bitwise-media-group/patchy/internal/templates"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/harness"
+	"github.com/devthenet-labs/maul/internal/provider"
+	"github.com/devthenet-labs/maul/internal/report"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // The harnesses an intent stage may run on (see intentHarness), beside
@@ -75,13 +75,13 @@ func (a *Agent) intentHarness(id string) error {
 	switch id {
 	case claudeHarness:
 		if a.cfg.BrokerTokenFile == "" {
-			return fmt.Errorf("intent %s stage: the claude harness must be brokered, and PATCHY_BROKER_TOKEN_FILE is unset",
+			return fmt.Errorf("intent %s stage: the claude harness must be brokered, and MAUL_BROKER_TOKEN_FILE is unset",
 				a.cfg.Phase)
 		}
 		return nil
 	case codexHarness:
 		if a.cfg.BrokerTokenFile == "" || a.cfg.CodexBaseURL == "" {
-			return fmt.Errorf("intent %s stage: the codex harness must be brokered, and PATCHY_BROKER_TOKEN_FILE "+
+			return fmt.Errorf("intent %s stage: the codex harness must be brokered, and MAUL_BROKER_TOKEN_FILE "+
 				"or %s is unset", a.cfg.Phase, provider.CodexBaseURLEnv)
 		}
 		return nil
@@ -152,7 +152,7 @@ func (a *Agent) lowered(name string, grant, ceiling, fallback int) int {
 //
 // A plan naming several repositories is built once in each, so the build
 // resolves which one it is in (scopeBuild) from the controller's
-// PATCHY_REPO and the plan's own frontmatter alone: no new input reaches
+// MAUL_REPO and the plan's own frontmatter alone: no new input reaches
 // it.
 func (a *Agent) buildInput() (remediationParams, buildScope, error) {
 	request, err := os.ReadFile(a.cfg.issuePath())
@@ -258,7 +258,7 @@ func (a *Agent) plan(ctx context.Context, repos []manifestRepository) *envelope.
 		Intent:      string(intent),
 		ContextPath: contextPath,
 		// The most the build can be granted: buildLimits' ceiling, read from
-		// this Job's PATCHY_REMEDIATE_MANUAL_*. The intent controller sets it
+		// this Job's MAUL_REMEDIATE_MANUAL_*. The intent controller sets it
 		// on the plan launch to the grant the Project's build will get, so
 		// the plan is sized against the budget its build receives rather
 		// than the runner's default ceiling.
@@ -405,7 +405,7 @@ func (a *Agent) build(ctx context.Context, params remediationParams, scope build
 		ev.Detail = err.Error()
 		return ev
 	}
-	// The local branch is packageChangeset's (patchy/<run>): it never leaves
+	// The local branch is packageChangeset's (maul/<run>): it never leaves
 	// the pod, and the event does not report it — the intent controller
 	// names the pushed branch itself.
 	if err := checkoutBranch(ctx, a.cfg.repoDir(), a.cfg.branch()); err != nil {

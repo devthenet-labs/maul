@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/bitwise-media-group/patchy/internal/azureinv"
-	"github.com/bitwise-media-group/patchy/pkg/enhance"
+	"github.com/devthenet-labs/maul/internal/azureinv"
+	"github.com/devthenet-labs/maul/pkg/enhance"
 )
 
 // AzureTagsConfig is one snapshot of the resourceTags capability, as read off

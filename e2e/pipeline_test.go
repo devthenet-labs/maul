@@ -1,7 +1,7 @@
 // Copyright 2026 Bitwise Media Group Ltd.
 // SPDX-License-Identifier: MIT
 
-// Package e2e drives the real patchy binaries end to end: an envtest
+// Package e2e drives the real maul binaries end to end: an envtest
 // kube-apiserver carries the CRD state machine, a fake GitHub API stands in
 // at the network boundary, and recorded webhook deliveries drive the
 // pipeline. It is the check that the pieces fit together as shipped — no
@@ -60,14 +60,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/e2e/fakegithub"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/e2e/fakegithub"
 )
 
 const (
 	webhookSecret = "e2e-webhook-secret"
-	namespace     = "patchy"
-	agentsNS      = "patchy-agents"
+	namespace     = "maul"
+	agentsNS      = "maul-agents"
 )
 
 // runnerArgs configures both per-harness runner images on a job controller.
@@ -75,9 +75,9 @@ const (
 // broker URL, with no credential Secret anywhere (nothing dials the broker
 // here: no Job ever runs a real agent under envtest).
 var runnerArgs = []string{
-	"--claude-agent-image", "patchy/claude-agent-runner:e2e",
-	"--codex-agent-image", "patchy/codex-agent-runner:e2e",
-	"--broker-url", "http://patchy-egress-broker.patchy.svc.cluster.local:8080",
+	"--claude-agent-image", "maul/claude-agent-runner:e2e",
+	"--codex-agent-image", "maul/codex-agent-runner:e2e",
+	"--broker-url", "http://maul-egress-broker.maul.svc.cluster.local:8080",
 }
 
 // ---- binaries --------------------------------------------------------------
@@ -110,7 +110,7 @@ func buildTagged(t *testing.T, name, tags string) string {
 		return bin
 	}
 	if buildDir == "" {
-		dir, err := os.MkdirTemp("", "patchy-e2e-bin")
+		dir, err := os.MkdirTemp("", "maul-e2e-bin")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -137,7 +137,7 @@ func TestMain(m *testing.M) {
 
 // ---- cluster ---------------------------------------------------------------
 
-// cluster is one envtest API server with the patchy CRDs installed, plus the
+// cluster is one envtest API server with the maul CRDs installed, plus the
 // kubeconfig the controller binaries connect with.
 type cluster struct {
 	client     client.Client
@@ -228,7 +228,7 @@ func (cl *cluster) githubCredentials(t *testing.T, ghURL string) {
 	t.Helper()
 	ctx := context.Background()
 	if err := cl.client.Create(ctx, &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "patchy-github", Namespace: namespace},
+		ObjectMeta: metav1.ObjectMeta{Name: "maul-github", Namespace: namespace},
 		StringData: map[string]string{
 			"token":         "e2e-token",
 			"webhookSecret": webhookSecret,
@@ -241,7 +241,7 @@ func (cl *cluster) githubCredentials(t *testing.T, ghURL string) {
 		t.Fatalf("generate the forge App key: %v", err)
 	}
 	if err := cl.client.Create(ctx, &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "patchy-forge", Namespace: namespace},
+		ObjectMeta: metav1.ObjectMeta{Name: "maul-forge", Namespace: namespace},
 		Data:       map[string][]byte{"appID": []byte("1"), "privateKey": appKey},
 	}); err != nil {
 		t.Fatal(err)
@@ -250,7 +250,7 @@ func (cl *cluster) githubCredentials(t *testing.T, ghURL string) {
 		ObjectMeta: metav1.ObjectMeta{Name: "github", Namespace: namespace},
 		Spec: v1alpha1.IntegrationSpec{
 			Provider:  v1alpha1.IntegrationProviderGitHub,
-			SecretRef: &v1alpha1.LocalSecretReference{Name: "patchy-github"},
+			SecretRef: &v1alpha1.LocalSecretReference{Name: "maul-github"},
 			GitHub: &v1alpha1.GitHubIntegration{
 				BaseURL:            ghURL,
 				Issues:             &v1alpha1.GitHubIssues{Enabled: true, ApproveComment: "/approve"},
@@ -265,7 +265,7 @@ func (cl *cluster) githubCredentials(t *testing.T, ghURL string) {
 		Spec: v1alpha1.ForgeSpec{
 			Provider:  v1alpha1.ForgeProviderGitHub,
 			BaseURL:   ghURL,
-			SecretRef: v1alpha1.LocalSecretReference{Name: "patchy-forge"},
+			SecretRef: v1alpha1.LocalSecretReference{Name: "maul-forge"},
 		},
 	}); err != nil {
 		t.Fatal(err)
@@ -679,8 +679,8 @@ func (p *findingPipeline) run(t *testing.T) {
 	for _, env := range job.Spec.Template.Spec.InitContainers[0].Env {
 		initEnv[env.Name] = env.Value
 	}
-	if initEnv["PATCHY_ARTIFACT_URL"] != repo.Status.Artifact.URL {
-		t.Errorf("job artifact URL = %q, want %q", initEnv["PATCHY_ARTIFACT_URL"], repo.Status.Artifact.URL)
+	if initEnv["MAUL_ARTIFACT_URL"] != repo.Status.Artifact.URL {
+		t.Errorf("job artifact URL = %q, want %q", initEnv["MAUL_ARTIFACT_URL"], repo.Status.Artifact.URL)
 	}
 	var secret corev1.Secret
 	if err := cl.client.Get(ctx, types.NamespacedName{Namespace: agentsNS, Name: job.Name}, &secret); err != nil {
@@ -883,7 +883,7 @@ func TestRemediationPriorityOrder(t *testing.T) {
 	if got := grantedJob.Labels[v1alpha1.LabelHarness]; got != "codex" {
 		t.Errorf("job harness label = %q, want codex", got)
 	}
-	if got := grantedJob.Spec.Template.Spec.Containers[0].Image; got != "patchy/codex-agent-runner:e2e" {
+	if got := grantedJob.Spec.Template.Spec.Containers[0].Image; got != "maul/codex-agent-runner:e2e" {
 		t.Errorf("job image = %q, want the codex runner image", got)
 	}
 	// Codex runs brokered: its pod reads no Secret for a credential and
@@ -920,7 +920,7 @@ func TestSignalsRollupTTL(t *testing.T) {
 
 	now := metav1.Now()
 	// The finding the merged PR completes. Its name matches the fixture's
-	// head ref (patchy/finding-cccccccccc-1); the rollup finalizers gate its
+	// head ref (maul/finding-cccccccccc-1); the rollup finalizers gate its
 	// deletion on the statistics being recorded.
 	merged := &v1alpha1.Finding{
 		ObjectMeta: metav1.ObjectMeta{
@@ -951,7 +951,7 @@ func TestSignalsRollupTTL(t *testing.T) {
 
 	// The finding a human /approve releases (repository-less: it queues but
 	// spawns nothing, which is all this test needs). Its tracking issue is
-	// on the fake, as patchy opened it: the approval is answered there.
+	// on the fake, as maul opened it: the approval is answered there.
 	heldIssue := gh.OpenIssue("acme", "shop", "Reflected cross-site scripting", "", nil, fakegithub.PATUser)
 	heldURL := fmt.Sprintf("https://github.com/acme/shop/issues/%d", heldIssue)
 	held := fabricateFinding(t, cl, "finding-dddddddddd-1", v1alpha1.LevelHigh, "",
@@ -1106,7 +1106,7 @@ func assertBrokeredCodexPod(t *testing.T, pod corev1.PodSpec) {
 			t.Errorf("codex pod env carries %s", k)
 		}
 	}
-	if got := env["PATCHY_CODEX_BASE_URL"]; got != "http://patchy-egress-broker.patchy.svc.cluster.local:8080/openai/v1" {
-		t.Errorf("PATCHY_CODEX_BASE_URL = %q, want the broker's openai route", got)
+	if got := env["MAUL_CODEX_BASE_URL"]; got != "http://maul-egress-broker.maul.svc.cluster.local:8080/openai/v1" {
+		t.Errorf("MAUL_CODEX_BASE_URL = %q, want the broker's openai route", got)
 	}
 }

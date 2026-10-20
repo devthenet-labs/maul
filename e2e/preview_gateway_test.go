@@ -27,9 +27,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/previewauth"
-	"github.com/bitwise-media-group/patchy/internal/previewauth/fakedex"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/previewauth"
+	"github.com/devthenet-labs/maul/internal/previewauth/fakedex"
 )
 
 // previewApp is one preview component's code: it answers with its name and
@@ -194,7 +194,7 @@ func (b *gatewayBrowser) hostCookie(label string) string {
 func TestPreviewGatewayEndToEnd(t *testing.T) {
 	cl := startCluster(t)
 	ctx := context.Background()
-	for _, name := range []string{"patchy-preview-0", "patchy-preview-1"} {
+	for _, name := range []string{"maul-preview-0", "maul-preview-1"} {
 		if err := cl.client.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name}}); err != nil {
 			t.Fatal(err)
 		}
@@ -219,7 +219,7 @@ func TestPreviewGatewayEndToEnd(t *testing.T) {
 	for slot := range 2 {
 		for svc, app := range map[string]*previewApp{"preview-shop-1": web1, "preview-shop-1-api": api1,
 			"preview-shop-2": app2, "preview-shop-2-api": app2} {
-			dial[fmt.Sprintf("%s.patchy-preview-%d.svc:80", svc, slot)] = app.srv.Listener.Addr().String()
+			dial[fmt.Sprintf("%s.maul-preview-%d.svc:80", svc, slot)] = app.srv.Listener.Addr().String()
 		}
 	}
 	dialJSON, err := json.Marshal(dial)
@@ -229,7 +229,7 @@ func TestPreviewGatewayEndToEnd(t *testing.T) {
 
 	cl.controller(t, "preview-controller",
 		"--preview-slot-count", "2",
-		"--preview-image-prefix", "registry.example/patchy/previews/",
+		"--preview-image-prefix", "registry.example/maul/previews/",
 		"--preview-host-suffix", signInSuffix,
 		"--preview-node-selector", `{"node-role.example.com/preview":"true"}`,
 		"--preview-taint-key", "node-role.example.com/preview",
@@ -272,11 +272,11 @@ func TestPreviewGatewayEndToEnd(t *testing.T) {
 		}
 	}
 	for _, r := range append(web1.requests(), api1.requests()...) {
-		viewer := r.Header.Get("X-Patchy-Viewer")
+		viewer := r.Header.Get("X-Maul-Viewer")
 		if viewer == "" || strings.Contains(viewer, "alice") {
 			t.Errorf("the preview was sent viewer %q", viewer)
 		}
-		if strings.Contains(r.Header.Get("Cookie"), "patchy-p") || previewauth.ReservedPath(r.URL.Path) {
+		if strings.Contains(r.Header.Get("Cookie"), "maul-p") || previewauth.ReservedPath(r.URL.Path) {
 			t.Errorf("the preview was sent %s with Cookie %q", r.URL.Path, r.Header.Get("Cookie"))
 		}
 	}
@@ -371,7 +371,7 @@ func TestPreviewGatewayEndToEnd(t *testing.T) {
 
 	// Revoking the grant ends the session within the access review's TTL.
 	if err := cl.client.Delete(ctx, &rbacv1.RoleBinding{ObjectMeta: metav1.ObjectMeta{
-		Name: "patchy-preview-viewers", Namespace: namespace}}); err != nil {
+		Name: "maul-preview-viewers", Namespace: namespace}}); err != nil {
 		t.Fatal(err)
 	}
 	eventually(t, "alice refused once her grant is gone", func() bool {
@@ -400,7 +400,7 @@ func TestPreviewGatewayEndToEnd(t *testing.T) {
 		return status == http.StatusNotFound && strings.Contains(body, previewauth.NoPreviewTitle)
 	})
 	var ingresses networkingv1.IngressList
-	for _, ns := range []string{"patchy-preview-0", "patchy-preview-1"} {
+	for _, ns := range []string{"maul-preview-0", "maul-preview-1"} {
 		if err := cl.client.List(ctx, &ingresses, client.InNamespace(ns)); err != nil {
 			t.Fatal(err)
 		}
@@ -419,7 +419,7 @@ func gatewayProject(t *testing.T, cl *cluster) *v1alpha1.Project {
 	t.Helper()
 	preview := func(leaf, path string) *v1alpha1.ProjectRepositoryPreview {
 		return &v1alpha1.ProjectRepositoryPreview{ProjectPreview: v1alpha1.ProjectPreview{
-			ImageRepository: "registry.example/patchy/previews/" + leaf, Port: 8080, ReadinessPath: "/healthz",
+			ImageRepository: "registry.example/maul/previews/" + leaf, Port: 8080, ReadinessPath: "/healthz",
 		}, Path: path}
 	}
 	p := &v1alpha1.Project{ObjectMeta: metav1.ObjectMeta{Name: "shop", Namespace: namespace},

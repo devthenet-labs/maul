@@ -6,7 +6,7 @@ package templates
 import (
 	"fmt"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 // FindingIssueTitle is the tracking-issue title projected from a Finding.
@@ -33,7 +33,7 @@ func RenderFindingIssue(f *v1alpha1.Finding) (string, error) {
 // mention anyone, reference an issue or hide text. A report that would take
 // the comment past GitHub's limit is cut, and says so.
 func RenderStageReportComment(stage string, attempt int32, report string) string {
-	head := fmt.Sprintf("<!-- patchy:report %s/%d -->\n## %s report (attempt %d)\n\n",
+	head := fmt.Sprintf("<!-- maul:report %s/%d -->\n## %s report (attempt %d)\n\n",
 		stage, attempt, stage, attempt)
 	return head + fitReport(report, MaxCommentBytes-len(head), Sanitize)
 }
@@ -41,7 +41,7 @@ func RenderStageReportComment(stage string, attempt int32, report string) string
 // EnrichmentMarker heads one enhancer's sticky tracking comment; the
 // projection finds the comment to update in place by this prefix.
 func EnrichmentMarker(enhancer string) string {
-	return fmt.Sprintf("<!-- patchy:enrichment %s -->", enhancer)
+	return fmt.Sprintf("<!-- maul:enrichment %s -->", enhancer)
 }
 
 // RenderEnrichmentProjection renders one enhancer enrichment as its sticky

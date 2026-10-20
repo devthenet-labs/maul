@@ -19,15 +19,15 @@ A `Forge` is matched by host equality, then the optional `orgs` allowlist, then 
 ordering rules.
 
 ```yaml
-apiVersion: patchy.bitwisemedia.uk/v1alpha1
+apiVersion: maul.run/v1alpha1
 kind: Forge
 metadata:
   name: github
-  namespace: patchy
+  namespace: maul
 spec:
   provider: github
   secretRef:
-    name: patchy-github
+    name: maul-github
   # orgs: [acme]                          # optional allowlist
   # repositories: ["^acme/payments-.*$"]  # optional regexes
   interval: 10m

@@ -4,11 +4,11 @@
 // Package awsinv reads an AWS resource's tags from an organization-level
 // inventory.
 //
-// It exists because the tags patchy needs are not reliably in the payload
+// It exists because the tags maul needs are not reliably in the payload
 // that brought the finding: a scanner delivery describes the resource (ARN,
 // type, account) but its tags are optional, point-in-time extras, so
 // ownership has to be looked up separately. Two inventories can answer, and
-// which one an estate has is a deployment fact, not patchy's choice: AWS
+// which one an estate has is a deployment fact, not maul's choice: AWS
 // Config with an organization aggregator (common in large enterprises, where
 // Config already runs estate-wide for compliance) or an organization-wide
 // AWS Resource Explorer view (free, and available without Config). Exactly

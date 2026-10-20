@@ -20,9 +20,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/templates"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // newIntentFor is newIntent for issue n: the Intent discovery would create
@@ -278,7 +278,7 @@ func TestOtherOpenPullRequestsFailure(t *testing.T) {
 func TestPlanIsToldOfOtherIntentsOpenPullRequests(t *testing.T) {
 	e := newEnv(t, testProject())
 	first := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	pr := e.drive(first, v1alpha1.IntentInReview, repoImage).Status.PullRequests[0]
 	firstPlan := e.planRunOf(first)
 	if spec := e.specOf(firstPlan); spec.OpenPullRequests != "" {

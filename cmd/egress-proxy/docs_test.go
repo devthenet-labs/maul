@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bitwise-media-group/patchy/internal/cli"
+	"github.com/devthenet-labs/maul/internal/cli"
 )
 
 // egressProxyDoc is the operator page whose debugging commands this test

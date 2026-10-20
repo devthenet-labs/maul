@@ -10,12 +10,12 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 // Verbs the human-action surface understands. They are custom RBAC verbs —
-// the per-finding ones on findings.patchy.bitwisemedia.uk, the
-// integration-scoped ones on integrations.patchy.bitwisemedia.uk: plain
+// the per-finding ones on findings.maul.run, the
+// integration-scoped ones on integrations.maul.run: plain
 // strings as far as the API server is concerned, so granting one confers
 // exactly one action.
 const (
@@ -68,7 +68,7 @@ var AdminVerbs = []string{VerbReplay, VerbReset}
 
 // IntegrationVerbs lists every integration-scoped verb, in the order
 // clients present them. All are checked on
-// integrations.patchy.bitwisemedia.uk — the same resource the admission
+// integrations.maul.run — the same resource the admission
 // policy's authorizer names, which is what keeps the CLI/status-server
 // SubjectAccessReviews and the server-side enforcement in agreement.
 var IntegrationVerbs = []string{VerbBackfill, VerbReplay, VerbReset}
@@ -100,7 +100,7 @@ func Apply(f *v1alpha1.Finding, verb, user, note string, now time.Time) (changed
 	return ApplyWithID(f, verb, user, 0, note, now)
 }
 
-// ApplyWithID is Apply for an action a GitHub account took (a /patchy
+// ApplyWithID is Apply for an action a GitHub account took (a /maul
 // command on the tracking issue): the approval, retry or expedite request
 // also records the account's numeric id (byID), the identity run
 // attribution keys on, since a login can be renamed and reused. id <= 0

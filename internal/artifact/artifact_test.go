@@ -26,7 +26,7 @@ func newStore(t *testing.T) *Store {
 func TestPutGetServe(t *testing.T) {
 	s := newStore(t)
 	body := "tarball-bytes"
-	info, err := s.Put("patchy/finding-1-src", strings.NewReader(body))
+	info, err := s.Put("maul/finding-1-src", strings.NewReader(body))
 	if err != nil {
 		t.Fatalf("Put: %v", err)
 	}
@@ -42,7 +42,7 @@ func TestPutGetServe(t *testing.T) {
 		t.Errorf("Put url = %q, want http://artifacts.local/artifacts/<id>.tar.gz", info.URL)
 	}
 
-	got, ok := s.Get("patchy/finding-1-src")
+	got, ok := s.Get("maul/finding-1-src")
 	if !ok || got.Digest != info.Digest || got.URL != info.URL {
 		t.Errorf("Get = %+v (ok=%v), want %+v", got, ok, info)
 	}

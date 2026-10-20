@@ -10,7 +10,7 @@ import (
 	"github.com/google/go-github/v90/github"
 )
 
-// prFromGitHub maps a go-github pull request onto patchy's PR.
+// prFromGitHub maps a go-github pull request onto maul's PR.
 func prFromGitHub(pr *github.PullRequest) *PR {
 	return &PR{
 		Number: pr.GetNumber(), HTMLURL: pr.GetHTMLURL(),

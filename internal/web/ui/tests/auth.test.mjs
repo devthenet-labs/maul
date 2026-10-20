@@ -33,12 +33,12 @@ const encode = (value) => Buffer.from(JSON.stringify(value)).toString("base64url
 
 test("HTTPS reads only host-bound cookies, ignoring legacy and dev cookies", () => {
   browser("https:", {
-    "patchy-auth-provider": encode({ provider: "forged" }),
-    "patchy-dev-auth-provider": encode({ provider: "dev" }),
-    "patchy-auth-error": encode("forged error"),
-    "patchy-dev-auth-error": encode("dev error"),
-    "patchy-auth-logout": "true",
-    "patchy-dev-auth-logout": "true",
+    "maul-auth-provider": encode({ provider: "forged" }),
+    "maul-dev-auth-provider": encode({ provider: "dev" }),
+    "maul-auth-error": encode("forged error"),
+    "maul-dev-auth-error": encode("dev error"),
+    "maul-auth-logout": "true",
+    "maul-dev-auth-logout": "true",
   });
   assert.equal(readProvider(), null);
   assert.equal(readAuthError(), null);
@@ -47,9 +47,9 @@ test("HTTPS reads only host-bound cookies, ignoring legacy and dev cookies", () 
 
 test("HTTPS consumes host-bound error and logout cookies exactly once", () => {
   const { jar, writes } = browser("https:", {
-    "__Host-patchy-auth-provider": encode({ provider: "oidc", authenticated: true }),
-    "__Host-patchy-auth-error": encode("sign-in failed"),
-    "__Host-patchy-auth-logout": "true",
+    "__Host-maul-auth-provider": encode({ provider: "oidc", authenticated: true }),
+    "__Host-maul-auth-error": encode("sign-in failed"),
+    "__Host-maul-auth-logout": "true",
   });
   assert.deepEqual(readProvider(), { provider: "oidc", authenticated: true });
   assert.equal(readAuthError(), "sign-in failed");
@@ -64,15 +64,15 @@ test("HTTPS consumes host-bound error and logout cookies exactly once", () => {
 
 test("HTTP local development uses only its separate cookie namespace", () => {
   const { writes } = browser("http:", {
-    "patchy-dev-auth-provider": encode({ provider: "oidc", authenticated: false }),
-    "patchy-dev-auth-error": encode("dev failure"),
-    "patchy-dev-auth-logout": "true",
-    "__Host-patchy-auth-provider": encode({ provider: "wrong" }),
+    "maul-dev-auth-provider": encode({ provider: "oidc", authenticated: false }),
+    "maul-dev-auth-error": encode("dev failure"),
+    "maul-dev-auth-logout": "true",
+    "__Host-maul-auth-provider": encode({ provider: "wrong" }),
   });
   assert.deepEqual(readProvider(), { provider: "oidc", authenticated: false });
   assert.equal(readAuthError(), "dev failure");
   assert.equal(readAuthError(), null);
   assert.equal(consumeLogoutMarker(), true);
   assert.equal(consumeLogoutMarker(), false);
-  assert.ok(writes.every((s) => s.startsWith("patchy-dev-")));
+  assert.ok(writes.every((s) => s.startsWith("maul-dev-")));
 });

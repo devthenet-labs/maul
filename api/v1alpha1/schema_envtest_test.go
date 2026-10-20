@@ -18,7 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
-	patchyv1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	maulv1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 // startEnv boots an envtest API server with the generated CRDs installed and
@@ -43,7 +43,7 @@ func startEnv(t *testing.T) client.Client {
 		}
 	})
 	scheme := runtime.NewScheme()
-	if err := patchyv1.AddToScheme(scheme); err != nil {
+	if err := maulv1.AddToScheme(scheme); err != nil {
 		t.Fatalf("add scheme: %v", err)
 	}
 	if err := corev1.AddToScheme(scheme); err != nil {
@@ -61,11 +61,11 @@ func TestSchemaValidation(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("integration one-of rejects missing provider block", func(t *testing.T) {
-		bad := &patchyv1.Integration{
+		bad := &maulv1.Integration{
 			ObjectMeta: metav1.ObjectMeta{Name: "no-block", Namespace: "default"},
-			Spec: patchyv1.IntegrationSpec{
-				Provider:  patchyv1.IntegrationProviderGitHub,
-				SecretRef: &patchyv1.LocalSecretReference{Name: "s"},
+			Spec: maulv1.IntegrationSpec{
+				Provider:  maulv1.IntegrationProviderGitHub,
+				SecretRef: &maulv1.LocalSecretReference{Name: "s"},
 			},
 		}
 		if err := c.Create(ctx, bad); err == nil {
@@ -74,14 +74,14 @@ func TestSchemaValidation(t *testing.T) {
 	})
 
 	t.Run("integration with matching block is accepted", func(t *testing.T) {
-		good := &patchyv1.Integration{
+		good := &maulv1.Integration{
 			ObjectMeta: metav1.ObjectMeta{Name: "gh", Namespace: "default"},
-			Spec: patchyv1.IntegrationSpec{
-				Provider:  patchyv1.IntegrationProviderGitHub,
-				SecretRef: &patchyv1.LocalSecretReference{Name: "s"},
-				GitHub: &patchyv1.GitHubIntegration{
-					Issues:             &patchyv1.GitHubIssues{Enabled: true},
-					CodeScanningAlerts: &patchyv1.GitHubCodeScanningAlerts{Enabled: true},
+			Spec: maulv1.IntegrationSpec{
+				Provider:  maulv1.IntegrationProviderGitHub,
+				SecretRef: &maulv1.LocalSecretReference{Name: "s"},
+				GitHub: &maulv1.GitHubIntegration{
+					Issues:             &maulv1.GitHubIssues{Enabled: true},
+					CodeScanningAlerts: &maulv1.GitHubCodeScanningAlerts{Enabled: true},
 				},
 			},
 		}
@@ -91,11 +91,11 @@ func TestSchemaValidation(t *testing.T) {
 	})
 
 	t.Run("integration one-of rejects a mismatched provider block", func(t *testing.T) {
-		bad := &patchyv1.Integration{
+		bad := &maulv1.Integration{
 			ObjectMeta: metav1.ObjectMeta{Name: "gcp-with-github-block", Namespace: "default"},
-			Spec: patchyv1.IntegrationSpec{
-				Provider: patchyv1.IntegrationProviderGoogleCloud,
-				GitHub:   &patchyv1.GitHubIntegration{},
+			Spec: maulv1.IntegrationSpec{
+				Provider: maulv1.IntegrationProviderGoogleCloud,
+				GitHub:   &maulv1.GitHubIntegration{},
 			},
 		}
 		if err := c.Create(ctx, bad); err == nil {
@@ -104,14 +104,14 @@ func TestSchemaValidation(t *testing.T) {
 	})
 
 	t.Run("google-cloud integration needs no secretRef", func(t *testing.T) {
-		good := &patchyv1.Integration{
+		good := &maulv1.Integration{
 			ObjectMeta: metav1.ObjectMeta{Name: "gcp", Namespace: "default"},
-			Spec: patchyv1.IntegrationSpec{
-				Provider: patchyv1.IntegrationProviderGoogleCloud,
-				GoogleCloud: &patchyv1.GoogleCloudIntegration{
-					SecurityCommandCenter: &patchyv1.GoogleCloudSCC{
+			Spec: maulv1.IntegrationSpec{
+				Provider: maulv1.IntegrationProviderGoogleCloud,
+				GoogleCloud: &maulv1.GoogleCloudIntegration{
+					SecurityCommandCenter: &maulv1.GoogleCloudSCC{
 						Enabled:        true,
-						Audience:       "https://patchy.example/google-cloud/webhooks",
+						Audience:       "https://maul.example/google-cloud/webhooks",
 						ServiceAccount: "scc-push@x.iam.gserviceaccount.com",
 					},
 				},
@@ -123,11 +123,11 @@ func TestSchemaValidation(t *testing.T) {
 	})
 
 	t.Run("github integration still requires a secretRef", func(t *testing.T) {
-		bad := &patchyv1.Integration{
+		bad := &maulv1.Integration{
 			ObjectMeta: metav1.ObjectMeta{Name: "gh-no-secret", Namespace: "default"},
-			Spec: patchyv1.IntegrationSpec{
-				Provider: patchyv1.IntegrationProviderGitHub,
-				GitHub:   &patchyv1.GitHubIntegration{},
+			Spec: maulv1.IntegrationSpec{
+				Provider: maulv1.IntegrationProviderGitHub,
+				GitHub:   &maulv1.GitHubIntegration{},
 			},
 		}
 		if err := c.Create(ctx, bad); err == nil {
@@ -136,34 +136,34 @@ func TestSchemaValidation(t *testing.T) {
 	})
 
 	t.Run("wiz integration requires its provider block and secretRef", func(t *testing.T) {
-		noBlock := &patchyv1.Integration{
+		noBlock := &maulv1.Integration{
 			ObjectMeta: metav1.ObjectMeta{Name: "wiz-no-block", Namespace: "default"},
-			Spec: patchyv1.IntegrationSpec{
-				Provider:  patchyv1.IntegrationProviderWiz,
-				SecretRef: &patchyv1.LocalSecretReference{Name: "s"},
+			Spec: maulv1.IntegrationSpec{
+				Provider:  maulv1.IntegrationProviderWiz,
+				SecretRef: &maulv1.LocalSecretReference{Name: "s"},
 			},
 		}
 		if err := c.Create(ctx, noBlock); err == nil {
 			t.Error("Create(wiz integration without wiz block) = nil, want CEL rejection")
 		}
-		noSecret := &patchyv1.Integration{
+		noSecret := &maulv1.Integration{
 			ObjectMeta: metav1.ObjectMeta{Name: "wiz-no-secret", Namespace: "default"},
-			Spec: patchyv1.IntegrationSpec{
-				Provider: patchyv1.IntegrationProviderWiz,
-				Wiz:      &patchyv1.WizIntegration{Issues: &patchyv1.WizIssues{Enabled: true}},
+			Spec: maulv1.IntegrationSpec{
+				Provider: maulv1.IntegrationProviderWiz,
+				Wiz:      &maulv1.WizIntegration{Issues: &maulv1.WizIssues{Enabled: true}},
 			},
 		}
 		if err := c.Create(ctx, noSecret); err == nil {
 			t.Error("Create(wiz integration without secretRef) = nil, want CEL rejection")
 		}
-		good := &patchyv1.Integration{
+		good := &maulv1.Integration{
 			ObjectMeta: metav1.ObjectMeta{Name: "wiz", Namespace: "default"},
-			Spec: patchyv1.IntegrationSpec{
-				Provider:  patchyv1.IntegrationProviderWiz,
-				SecretRef: &patchyv1.LocalSecretReference{Name: "s"},
-				Wiz: &patchyv1.WizIntegration{
-					Issues: &patchyv1.WizIssues{Enabled: true},
-					Defend: &patchyv1.WizDefend{Enabled: true},
+			Spec: maulv1.IntegrationSpec{
+				Provider:  maulv1.IntegrationProviderWiz,
+				SecretRef: &maulv1.LocalSecretReference{Name: "s"},
+				Wiz: &maulv1.WizIntegration{
+					Issues: &maulv1.WizIssues{Enabled: true},
+					Defend: &maulv1.WizDefend{Enabled: true},
 				},
 			},
 		}
@@ -177,12 +177,12 @@ func TestSchemaValidation(t *testing.T) {
 	})
 
 	t.Run("asset-inventory-only google-cloud integration is accepted", func(t *testing.T) {
-		good := &patchyv1.Integration{
+		good := &maulv1.Integration{
 			ObjectMeta: metav1.ObjectMeta{Name: "gcp-cai-only", Namespace: "default"},
-			Spec: patchyv1.IntegrationSpec{
-				Provider: patchyv1.IntegrationProviderGoogleCloud,
-				GoogleCloud: &patchyv1.GoogleCloudIntegration{
-					CloudAssetInventory: &patchyv1.GoogleCloudAssetInventory{
+			Spec: maulv1.IntegrationSpec{
+				Provider: maulv1.IntegrationProviderGoogleCloud,
+				GoogleCloud: &maulv1.GoogleCloudIntegration{
+					CloudAssetInventory: &maulv1.GoogleCloudAssetInventory{
 						Enabled: true,
 						Scope:   "organizations/123456789012",
 					},
@@ -192,12 +192,12 @@ func TestSchemaValidation(t *testing.T) {
 		if err := c.Create(ctx, good); err != nil {
 			t.Errorf("Create(asset-inventory-only integration) = %v, want nil", err)
 		}
-		badScope := &patchyv1.Integration{
+		badScope := &maulv1.Integration{
 			ObjectMeta: metav1.ObjectMeta{Name: "gcp-bad-scope", Namespace: "default"},
-			Spec: patchyv1.IntegrationSpec{
-				Provider: patchyv1.IntegrationProviderGoogleCloud,
-				GoogleCloud: &patchyv1.GoogleCloudIntegration{
-					CloudAssetInventory: &patchyv1.GoogleCloudAssetInventory{
+			Spec: maulv1.IntegrationSpec{
+				Provider: maulv1.IntegrationProviderGoogleCloud,
+				GoogleCloud: &maulv1.GoogleCloudIntegration{
+					CloudAssetInventory: &maulv1.GoogleCloudAssetInventory{
 						Enabled: true,
 						Scope:   "org-123",
 					},
@@ -222,13 +222,13 @@ func TestSchemaValidation(t *testing.T) {
 	})
 
 	t.Run("finding rejects an unknown phase and accepts a legal one", func(t *testing.T) {
-		f := &patchyv1.Finding{
+		f := &maulv1.Finding{
 			ObjectMeta: metav1.ObjectMeta{Name: "finding-abc123-1", Namespace: "default"},
-			Spec: patchyv1.FindingSpec{
-				IntegrationRef: patchyv1.LocalObjectReference{Name: "gh"},
+			Spec: maulv1.FindingSpec{
+				IntegrationRef: maulv1.LocalObjectReference{Name: "gh"},
 				Source:         "github-code-scanning",
 				Advisories:     []string{"CVE-2026-0001"},
-				Severity:       patchyv1.LevelHigh,
+				Severity:       maulv1.LevelHigh,
 			},
 		}
 		if err := c.Create(ctx, f); err != nil {
@@ -238,17 +238,17 @@ func TestSchemaValidation(t *testing.T) {
 		if err := c.Status().Update(ctx, f); err == nil {
 			t.Error("Status().Update(phase=Bogus) = nil, want enum rejection")
 		}
-		f.Status.Phase = patchyv1.PhaseOpened
+		f.Status.Phase = maulv1.PhaseOpened
 		if err := c.Status().Update(ctx, f); err != nil {
 			t.Errorf("Status().Update(phase=Opened) = %v, want nil", err)
 		}
 	})
 
 	t.Run("investigation spec is immutable", func(t *testing.T) {
-		inv := &patchyv1.Investigation{
+		inv := &maulv1.Investigation{
 			ObjectMeta: metav1.ObjectMeta{Name: "finding-abc123-1-inv-1", Namespace: "default"},
-			Spec: patchyv1.InvestigationSpec{
-				FindingRef: patchyv1.ObjectReference{Name: "finding-abc123-1"},
+			Spec: maulv1.InvestigationSpec{
+				FindingRef: maulv1.ObjectReference{Name: "finding-abc123-1"},
 				Attempt:    1,
 			},
 		}
@@ -262,23 +262,23 @@ func TestSchemaValidation(t *testing.T) {
 	})
 
 	t.Run("rollup scope is immutable", func(t *testing.T) {
-		fr := &patchyv1.FindingRollup{
+		fr := &maulv1.FindingRollup{
 			ObjectMeta: metav1.ObjectMeta{Name: "total", Namespace: "default"},
-			Spec: patchyv1.FindingRollupSpec{
-				Scope: patchyv1.RollupScope{Type: patchyv1.ScopeTotal},
+			Spec: maulv1.FindingRollupSpec{
+				Scope: maulv1.RollupScope{Type: maulv1.ScopeTotal},
 			},
 		}
 		if err := c.Create(ctx, fr); err != nil {
 			t.Fatalf("Create(rollup) = %v, want nil", err)
 		}
-		fr.Spec.Scope.Type = patchyv1.ScopeRepository
+		fr.Spec.Scope.Type = maulv1.ScopeRepository
 		if err := c.Update(ctx, fr); err == nil {
 			t.Error("Update(rollup scope) = nil, want immutability rejection")
 		}
 	})
 
 	t.Run("usage cost pattern rejects non-decimal strings", func(t *testing.T) {
-		inv := &patchyv1.Investigation{}
+		inv := &maulv1.Investigation{}
 		if err := c.Get(ctx, client.ObjectKey{Name: "finding-abc123-1-inv-1", Namespace: "default"}, inv); err != nil {
 			t.Fatalf("Get(investigation) = %v", err)
 		}
@@ -349,17 +349,17 @@ func TestSchemaValidation(t *testing.T) {
 // prune) fails here rather than as a mysteriously empty status in a cluster.
 func testRepositoryRunnerImageSchema(ctx context.Context, t *testing.T, c client.Client) {
 	t.Helper()
-	repo := &patchyv1.Repository{
+	repo := &maulv1.Repository{
 		ObjectMeta: metav1.ObjectMeta{Name: "finding-abc123-1-src", Namespace: "default"},
-		Spec:       patchyv1.RepositorySpec{URL: "https://github.com/acme/shop"},
+		Spec:       maulv1.RepositorySpec{URL: "https://github.com/acme/shop"},
 	}
 	if err := c.Create(ctx, repo); err != nil {
 		t.Fatalf("Create(repository) = %v, want nil", err)
 	}
 	resolvedAt := metav1.NewTime(time.Date(2026, 9, 22, 12, 0, 0, 0, time.UTC))
-	want := &patchyv1.RunnerImage{
+	want := &maulv1.RunnerImage{
 		Declared:   "ghcr.io/acme/go-agent-env:1.26",
-		Manifest:   ".patchy/agent.yaml",
+		Manifest:   ".maul/agent.yaml",
 		Image:      "ghcr.io/acme/go-agent-env@sha256:" + strings.Repeat("a", 64),
 		SearchPath: "/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin",
 		Verified:   true,
@@ -370,7 +370,7 @@ func testRepositoryRunnerImageSchema(ctx context.Context, t *testing.T, c client
 	if err := c.Status().Update(ctx, repo); err != nil {
 		t.Fatalf("Status().Update(runnerImage) = %v, want nil", err)
 	}
-	got := &patchyv1.Repository{}
+	got := &maulv1.Repository{}
 	if err := c.Get(ctx, client.ObjectKeyFromObject(repo), got); err != nil {
 		t.Fatalf("Get(repository) = %v", err)
 	}
@@ -387,7 +387,7 @@ func testRepositoryRunnerImageSchema(ctx context.Context, t *testing.T, c client
 		t.Errorf("status.runnerImage = %+v, want %+v", got.Status.RunnerImage, want)
 	}
 
-	rejected := &patchyv1.RunnerImage{
+	rejected := &maulv1.RunnerImage{
 		Declared: "docker.io/library/golang:1.26",
 		Manifest: ".devcontainer/devcontainer.json",
 		Rejected: "NotAllowlisted",
@@ -425,16 +425,16 @@ func testRepositoryRunnerImageSchema(ctx context.Context, t *testing.T, c client
 // field the generated schema prunes fails here.
 func testRunStatusRunnerImageSchema(ctx context.Context, t *testing.T, c client.Client) {
 	t.Helper()
-	want := func() *patchyv1.RunnerImageRef {
-		return &patchyv1.RunnerImageRef{
+	want := func() *maulv1.RunnerImageRef {
+		return &maulv1.RunnerImageRef{
 			Image:    "ghcr.io/acme/go-agent-env@sha256:" + strings.Repeat("a", 64),
-			Source:   patchyv1.RunnerImageSourceRepository,
+			Source:   maulv1.RunnerImageSourceRepository,
 			Manifest: ".devcontainer/devcontainer.json",
 		}
 	}
 
 	t.Run("investigation", func(t *testing.T) {
-		inv := &patchyv1.Investigation{}
+		inv := &maulv1.Investigation{}
 		if err := c.Get(ctx, client.ObjectKey{Name: "finding-abc123-1-inv-1", Namespace: "default"}, inv); err != nil {
 			t.Fatalf("Get(investigation) = %v", err)
 		}
@@ -447,7 +447,7 @@ func testRunStatusRunnerImageSchema(ctx context.Context, t *testing.T, c client.
 		if err := c.Status().Update(ctx, inv); err != nil {
 			t.Fatalf("Status().Update(runnerImage.source=repository) = %v, want nil", err)
 		}
-		got := &patchyv1.Investigation{}
+		got := &maulv1.Investigation{}
 		if err := c.Get(ctx, client.ObjectKeyFromObject(inv), got); err != nil {
 			t.Fatalf("Get(investigation) = %v", err)
 		}
@@ -457,12 +457,12 @@ func testRunStatusRunnerImageSchema(ctx context.Context, t *testing.T, c client.
 	})
 
 	t.Run("remediation", func(t *testing.T) {
-		rem := &patchyv1.Remediation{
+		rem := &maulv1.Remediation{
 			ObjectMeta: metav1.ObjectMeta{Name: "finding-abc123-1-rem-1", Namespace: "default"},
-			Spec: patchyv1.RemediationSpec{
-				FindingRef:       patchyv1.ObjectReference{Name: "finding-abc123-1"},
-				InvestigationRef: patchyv1.ObjectReference{Name: "finding-abc123-1-inv-1"},
-				RepositoryRef:    patchyv1.LocalObjectReference{Name: "finding-abc123-1-src"},
+			Spec: maulv1.RemediationSpec{
+				FindingRef:       maulv1.ObjectReference{Name: "finding-abc123-1"},
+				InvestigationRef: maulv1.ObjectReference{Name: "finding-abc123-1-inv-1"},
+				RepositoryRef:    maulv1.LocalObjectReference{Name: "finding-abc123-1-src"},
 				Attempt:          1,
 			},
 		}
@@ -478,7 +478,7 @@ func testRunStatusRunnerImageSchema(ctx context.Context, t *testing.T, c client.
 		if err := c.Status().Update(ctx, rem); err != nil {
 			t.Fatalf("Status().Update(runnerImage) = %v, want nil", err)
 		}
-		got := &patchyv1.Remediation{}
+		got := &maulv1.Remediation{}
 		if err := c.Get(ctx, client.ObjectKeyFromObject(rem), got); err != nil {
 			t.Fatalf("Get(remediation) = %v", err)
 		}
@@ -488,11 +488,11 @@ func testRunStatusRunnerImageSchema(ctx context.Context, t *testing.T, c client.
 	})
 
 	t.Run("finding investigation mirror", func(t *testing.T) {
-		f := &patchyv1.Finding{}
+		f := &maulv1.Finding{}
 		if err := c.Get(ctx, client.ObjectKey{Name: "finding-abc123-1", Namespace: "default"}, f); err != nil {
 			t.Fatalf("Get(finding) = %v", err)
 		}
-		f.Status.Investigation = &patchyv1.InvestigationSummary{
+		f.Status.Investigation = &maulv1.InvestigationSummary{
 			Name:        "finding-abc123-1-inv-1",
 			Attempt:     1,
 			RunnerImage: want(),
@@ -505,7 +505,7 @@ func testRunStatusRunnerImageSchema(ctx context.Context, t *testing.T, c client.
 		if err := c.Status().Update(ctx, f); err != nil {
 			t.Fatalf("Status().Update(investigation.runnerImage) = %v, want nil", err)
 		}
-		got := &patchyv1.Finding{}
+		got := &maulv1.Finding{}
 		if err := c.Get(ctx, client.ObjectKeyFromObject(f), got); err != nil {
 			t.Fatalf("Get(finding) = %v", err)
 		}
@@ -519,13 +519,13 @@ func testRunStatusRunnerImageSchema(ctx context.Context, t *testing.T, c client.
 }
 
 // evalUnitPlan is a minimal valid UnitPlan for schema tests.
-func evalUnitPlan() patchyv1.UnitPlan {
-	return patchyv1.UnitPlan{
+func evalUnitPlan() maulv1.UnitPlan {
+	return maulv1.UnitPlan{
 		Skill:     "workflow-commit",
 		Tier:      2,
 		Model:     "anthropic/claude-sonnet-5",
-		Harnesses: []patchyv1.HarnessOption{{Harness: "claude", ModelID: "claude-sonnet-5"}},
-		Workspace: patchyv1.WorkspaceRef{
+		Harnesses: []maulv1.HarnessOption{{Harness: "claude", ModelID: "claude-sonnet-5"}},
+		Workspace: maulv1.WorkspaceRef{
 			Digest:    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 			SizeBytes: 1024,
 		},
@@ -539,24 +539,24 @@ func evalUnitPlan() patchyv1.UnitPlan {
 // past them, or a zero attempt, is rejected.
 func testPreviousAttemptSchema(ctx context.Context, t *testing.T, c client.Client) {
 	t.Helper()
-	atBounds := func() *patchyv1.PreviousAttempt {
-		return &patchyv1.PreviousAttempt{
+	atBounds := func() *maulv1.PreviousAttempt {
+		return &maulv1.PreviousAttempt{
 			Name: "finding-prev-1-rem-1", Attempt: 1,
 			Outcome: strings.Repeat("o", 64), Detail: strings.Repeat("d", 4096),
 		}
 	}
-	objects := func(n int, prev *patchyv1.PreviousAttempt) []client.Object {
+	objects := func(n int, prev *maulv1.PreviousAttempt) []client.Object {
 		meta := func(kind string) metav1.ObjectMeta {
 			return metav1.ObjectMeta{Name: fmt.Sprintf("finding-prev-%d-%s-2", n, kind), Namespace: "default"}
 		}
 		return []client.Object{
-			&patchyv1.Investigation{ObjectMeta: meta("inv"), Spec: patchyv1.InvestigationSpec{
-				FindingRef: patchyv1.ObjectReference{Name: "finding-prev"}, Attempt: 2, PreviousAttempt: prev,
+			&maulv1.Investigation{ObjectMeta: meta("inv"), Spec: maulv1.InvestigationSpec{
+				FindingRef: maulv1.ObjectReference{Name: "finding-prev"}, Attempt: 2, PreviousAttempt: prev,
 			}},
-			&patchyv1.Remediation{ObjectMeta: meta("rem"), Spec: patchyv1.RemediationSpec{
-				FindingRef:       patchyv1.ObjectReference{Name: "finding-prev"},
-				InvestigationRef: patchyv1.ObjectReference{Name: "finding-prev-inv-1"},
-				RepositoryRef:    patchyv1.LocalObjectReference{Name: "finding-prev-src"},
+			&maulv1.Remediation{ObjectMeta: meta("rem"), Spec: maulv1.RemediationSpec{
+				FindingRef:       maulv1.ObjectReference{Name: "finding-prev"},
+				InvestigationRef: maulv1.ObjectReference{Name: "finding-prev-inv-1"},
+				RepositoryRef:    maulv1.LocalObjectReference{Name: "finding-prev-src"},
 				Attempt:          2, PreviousAttempt: prev,
 			}},
 		}
@@ -566,24 +566,24 @@ func testPreviousAttemptSchema(ctx context.Context, t *testing.T, c client.Clien
 			t.Fatalf("Create(%T with previousAttempt at its bounds) = %v, want nil", obj, err)
 		}
 	}
-	gotInv := &patchyv1.Investigation{}
+	gotInv := &maulv1.Investigation{}
 	if err := c.Get(ctx, client.ObjectKey{Name: "finding-prev-0-inv-2", Namespace: "default"}, gotInv); err != nil {
 		t.Fatalf("Get(investigation) = %v", err)
 	}
-	gotRem := &patchyv1.Remediation{}
+	gotRem := &maulv1.Remediation{}
 	if err := c.Get(ctx, client.ObjectKey{Name: "finding-prev-0-rem-2", Namespace: "default"}, gotRem); err != nil {
 		t.Fatalf("Get(remediation) = %v", err)
 	}
-	for _, got := range []*patchyv1.PreviousAttempt{gotInv.Spec.PreviousAttempt, gotRem.Spec.PreviousAttempt} {
+	for _, got := range []*maulv1.PreviousAttempt{gotInv.Spec.PreviousAttempt, gotRem.Spec.PreviousAttempt} {
 		if !reflect.DeepEqual(got, atBounds()) {
 			t.Errorf("spec.previousAttempt round-tripped as %.80v, want it verbatim", got)
 		}
 	}
 
-	for i, mutate := range []func(*patchyv1.PreviousAttempt){
-		func(p *patchyv1.PreviousAttempt) { p.Outcome += "o" },
-		func(p *patchyv1.PreviousAttempt) { p.Detail += "d" },
-		func(p *patchyv1.PreviousAttempt) { p.Attempt = 0 },
+	for i, mutate := range []func(*maulv1.PreviousAttempt){
+		func(p *maulv1.PreviousAttempt) { p.Outcome += "o" },
+		func(p *maulv1.PreviousAttempt) { p.Detail += "d" },
+		func(p *maulv1.PreviousAttempt) { p.Attempt = 0 },
 	} {
 		prev := atBounds()
 		mutate(prev)
@@ -597,13 +597,13 @@ func testPreviousAttemptSchema(ctx context.Context, t *testing.T, c client.Clien
 
 func testEvaluationSchema(ctx context.Context, t *testing.T, c client.Client) {
 	t.Helper()
-	eval := func(name string, units []patchyv1.UnitPlan) *patchyv1.Evaluation {
-		return &patchyv1.Evaluation{
+	eval := func(name string, units []maulv1.UnitPlan) *maulv1.Evaluation {
+		return &maulv1.Evaluation{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
-			Spec:       patchyv1.EvaluationSpec{Submitter: "dev@example.com", Units: units},
+			Spec:       maulv1.EvaluationSpec{Submitter: "dev@example.com", Units: units},
 		}
 	}
-	good := eval("eval-ok", []patchyv1.UnitPlan{evalUnitPlan()})
+	good := eval("eval-ok", []maulv1.UnitPlan{evalUnitPlan()})
 	if err := c.Create(ctx, good); err != nil {
 		t.Fatalf("Create(valid evaluation) = %v, want nil", err)
 	}
@@ -616,17 +616,17 @@ func testEvaluationSchema(ctx context.Context, t *testing.T, c client.Client) {
 	}
 	badDigest := evalUnitPlan()
 	badDigest.Workspace.Digest = "not-a-digest"
-	if err := c.Create(ctx, eval("eval-bad-digest", []patchyv1.UnitPlan{badDigest})); err == nil {
+	if err := c.Create(ctx, eval("eval-bad-digest", []maulv1.UnitPlan{badDigest})); err == nil {
 		t.Error("Create(evaluation with malformed digest) = nil, want pattern rejection")
 	}
 	badTier := evalUnitPlan()
 	badTier.Tier = 3
-	if err := c.Create(ctx, eval("eval-bad-tier", []patchyv1.UnitPlan{badTier})); err == nil {
+	if err := c.Create(ctx, eval("eval-bad-tier", []maulv1.UnitPlan{badTier})); err == nil {
 		t.Error("Create(evaluation with tier 3) = nil, want range rejection")
 	}
 	noHarness := evalUnitPlan()
 	noHarness.Harnesses = nil
-	if err := c.Create(ctx, eval("eval-no-harness", []patchyv1.UnitPlan{noHarness})); err == nil {
+	if err := c.Create(ctx, eval("eval-no-harness", []maulv1.UnitPlan{noHarness})); err == nil {
 		t.Error("Create(evaluation without harness options) = nil, want MinItems rejection")
 	}
 }
@@ -635,10 +635,10 @@ func testEvaluationSchema(ctx context.Context, t *testing.T, c client.Client) {
 // immutability and the failure-reason enum.
 func testEvaluationUnitSchema(ctx context.Context, t *testing.T, c client.Client) {
 	t.Helper()
-	unit := &patchyv1.EvaluationUnit{
+	unit := &maulv1.EvaluationUnit{
 		ObjectMeta: metav1.ObjectMeta{Name: "eval-ok-u000", Namespace: "default"},
-		Spec: patchyv1.EvaluationUnitSpec{
-			EvaluationRef: patchyv1.ObjectReference{Name: "eval-ok"},
+		Spec: maulv1.EvaluationUnitSpec{
+			EvaluationRef: maulv1.ObjectReference{Name: "eval-ok"},
 			Index:         0,
 			Unit:          evalUnitPlan(),
 		},
@@ -650,16 +650,16 @@ func testEvaluationUnitSchema(ctx context.Context, t *testing.T, c client.Client
 	if err := c.Update(ctx, unit); err == nil {
 		t.Error("Update(evaluation unit spec) = nil, want immutability rejection")
 	}
-	fresh := &patchyv1.EvaluationUnit{}
+	fresh := &maulv1.EvaluationUnit{}
 	if err := c.Get(ctx, client.ObjectKey{Name: "eval-ok-u000", Namespace: "default"}, fresh); err != nil {
 		t.Fatalf("Get(evaluation unit) = %v", err)
 	}
-	fresh.Status.Phase = patchyv1.RunFailed
+	fresh.Status.Phase = maulv1.RunFailed
 	fresh.Status.Reason = "Bogus"
 	if err := c.Status().Update(ctx, fresh); err == nil {
 		t.Error("Status().Update(reason=Bogus) = nil, want enum rejection")
 	}
-	fresh.Status.Reason = patchyv1.UnitWorkspaceLost
+	fresh.Status.Reason = maulv1.UnitWorkspaceLost
 	if err := c.Status().Update(ctx, fresh); err != nil {
 		t.Errorf("Status().Update(reason=WorkspaceLost) = %v, want nil", err)
 	}
@@ -670,50 +670,50 @@ func testEvaluationUnitSchema(ctx context.Context, t *testing.T, c client.Client
 // and the reserved-source-id name guard.
 func testGenericIntegrationSchema(ctx context.Context, t *testing.T, c client.Client) {
 	t.Helper()
-	generic := func(name string, spec patchyv1.IntegrationSpec) *patchyv1.Integration {
-		return &patchyv1.Integration{
+	generic := func(name string, spec maulv1.IntegrationSpec) *maulv1.Integration {
+		return &maulv1.Integration{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
 			Spec:       spec,
 		}
 	}
-	block := &patchyv1.GenericIntegration{
-		Source: &patchyv1.GenericSource{
+	block := &maulv1.GenericIntegration{
+		Source: &maulv1.GenericSource{
 			Enabled:  true,
-			Resolver: &patchyv1.GenericResolver{Enabled: true, URL: "https://warehouse.internal/resolve"},
+			Resolver: &maulv1.GenericResolver{Enabled: true, URL: "https://warehouse.internal/resolve"},
 		},
-		Enhance: &patchyv1.GenericEnhancer{Enabled: true, URL: "https://warehouse.internal/enhance"},
+		Enhance: &maulv1.GenericEnhancer{Enabled: true, URL: "https://warehouse.internal/enhance"},
 	}
-	if err := c.Create(ctx, generic("warehouse", patchyv1.IntegrationSpec{
-		Provider:  patchyv1.IntegrationProviderGeneric,
-		SecretRef: &patchyv1.LocalSecretReference{Name: "s"},
+	if err := c.Create(ctx, generic("warehouse", maulv1.IntegrationSpec{
+		Provider:  maulv1.IntegrationProviderGeneric,
+		SecretRef: &maulv1.LocalSecretReference{Name: "s"},
 		Generic:   block,
 	})); err != nil {
 		t.Errorf("Create(valid generic integration) = %v, want nil", err)
 	}
-	if err := c.Create(ctx, generic("generic-no-block", patchyv1.IntegrationSpec{
-		Provider:  patchyv1.IntegrationProviderGeneric,
-		SecretRef: &patchyv1.LocalSecretReference{Name: "s"},
+	if err := c.Create(ctx, generic("generic-no-block", maulv1.IntegrationSpec{
+		Provider:  maulv1.IntegrationProviderGeneric,
+		SecretRef: &maulv1.LocalSecretReference{Name: "s"},
 	})); err == nil {
 		t.Error("Create(generic integration without generic block) = nil, want CEL rejection")
 	}
-	if err := c.Create(ctx, generic("generic-no-secret", patchyv1.IntegrationSpec{
-		Provider: patchyv1.IntegrationProviderGeneric,
+	if err := c.Create(ctx, generic("generic-no-secret", maulv1.IntegrationSpec{
+		Provider: maulv1.IntegrationProviderGeneric,
 		Generic:  block,
 	})); err == nil {
 		t.Error("Create(generic integration without secretRef) = nil, want CEL rejection")
 	}
-	if err := c.Create(ctx, generic("generic-bad-url", patchyv1.IntegrationSpec{
-		Provider:  patchyv1.IntegrationProviderGeneric,
-		SecretRef: &patchyv1.LocalSecretReference{Name: "s"},
-		Generic: &patchyv1.GenericIntegration{
-			Enhance: &patchyv1.GenericEnhancer{Enabled: true, URL: "warehouse.internal/enhance"},
+	if err := c.Create(ctx, generic("generic-bad-url", maulv1.IntegrationSpec{
+		Provider:  maulv1.IntegrationProviderGeneric,
+		SecretRef: &maulv1.LocalSecretReference{Name: "s"},
+		Generic: &maulv1.GenericIntegration{
+			Enhance: &maulv1.GenericEnhancer{Enabled: true, URL: "warehouse.internal/enhance"},
 		},
 	})); err == nil {
 		t.Error("Create(generic integration with schemeless URL) = nil, want pattern rejection")
 	}
-	if err := c.Create(ctx, generic("ghas", patchyv1.IntegrationSpec{
-		Provider:  patchyv1.IntegrationProviderGeneric,
-		SecretRef: &patchyv1.LocalSecretReference{Name: "s"},
+	if err := c.Create(ctx, generic("ghas", maulv1.IntegrationSpec{
+		Provider:  maulv1.IntegrationProviderGeneric,
+		SecretRef: &maulv1.LocalSecretReference{Name: "s"},
 		Generic:   block,
 	})); err == nil {
 		t.Error("Create(generic integration named ghas) = nil, want reserved-name rejection")
@@ -725,25 +725,25 @@ func testGenericIntegrationSchema(ctx context.Context, t *testing.T, c client.Cl
 // non-HTTP schemes are rejected at admission.
 func testProxySchema(ctx context.Context, t *testing.T, c client.Client) {
 	t.Helper()
-	forge := func(name, proxyURL string) *patchyv1.Forge {
-		return &patchyv1.Forge{
+	forge := func(name, proxyURL string) *maulv1.Forge {
+		return &maulv1.Forge{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
-			Spec: patchyv1.ForgeSpec{
-				Provider:  patchyv1.ForgeProviderGitHub,
-				Proxy:     &patchyv1.ProxyConfig{URL: proxyURL},
-				SecretRef: patchyv1.LocalSecretReference{Name: "s"},
+			Spec: maulv1.ForgeSpec{
+				Provider:  maulv1.ForgeProviderGitHub,
+				Proxy:     &maulv1.ProxyConfig{URL: proxyURL},
+				SecretRef: maulv1.LocalSecretReference{Name: "s"},
 			},
 		}
 	}
-	integration := func(name, proxyURL string) *patchyv1.Integration {
-		return &patchyv1.Integration{
+	integration := func(name, proxyURL string) *maulv1.Integration {
+		return &maulv1.Integration{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
-			Spec: patchyv1.IntegrationSpec{
-				Provider:  patchyv1.IntegrationProviderGitHub,
-				SecretRef: &patchyv1.LocalSecretReference{Name: "s"},
-				GitHub: &patchyv1.GitHubIntegration{
-					Proxy:  &patchyv1.ProxyConfig{URL: proxyURL},
-					Issues: &patchyv1.GitHubIssues{Enabled: true},
+			Spec: maulv1.IntegrationSpec{
+				Provider:  maulv1.IntegrationProviderGitHub,
+				SecretRef: &maulv1.LocalSecretReference{Name: "s"},
+				GitHub: &maulv1.GitHubIntegration{
+					Proxy:  &maulv1.ProxyConfig{URL: proxyURL},
+					Issues: &maulv1.GitHubIssues{Enabled: true},
 				},
 			},
 		}
@@ -777,42 +777,42 @@ func testProxySchema(ctx context.Context, t *testing.T, c client.Client) {
 // secretRef anywhere below).
 func testAWSIntegrationSchema(ctx context.Context, t *testing.T, c client.Client) {
 	t.Helper()
-	aws := func(name string, rt *patchyv1.AWSResourceTags) *patchyv1.Integration {
-		return &patchyv1.Integration{
+	aws := func(name string, rt *maulv1.AWSResourceTags) *maulv1.Integration {
+		return &maulv1.Integration{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
-			Spec: patchyv1.IntegrationSpec{
-				Provider: patchyv1.IntegrationProviderAWS,
-				AWS:      &patchyv1.AWSIntegration{ResourceTags: rt},
+			Spec: maulv1.IntegrationSpec{
+				Provider: maulv1.IntegrationProviderAWS,
+				AWS:      &maulv1.AWSIntegration{ResourceTags: rt},
 			},
 		}
 	}
-	aggregator := &patchyv1.AWSConfigAggregator{Name: "org", Region: "eu-west-2"}
-	explorer := &patchyv1.AWSResourceExplorer{
+	aggregator := &maulv1.AWSConfigAggregator{Name: "org", Region: "eu-west-2"}
+	explorer := &maulv1.AWSResourceExplorer{
 		ViewARN: "arn:aws:resource-explorer-2:eu-west-2:123456789012:view/org/abc",
 	}
-	if err := c.Create(ctx, aws("aws-aggregator", &patchyv1.AWSResourceTags{
+	if err := c.Create(ctx, aws("aws-aggregator", &maulv1.AWSResourceTags{
 		Enabled: true, ConfigAggregator: aggregator,
 	})); err != nil {
 		t.Errorf("Create(aws integration, aggregator backend) = %v, want nil", err)
 	}
-	if err := c.Create(ctx, aws("aws-explorer", &patchyv1.AWSResourceTags{
+	if err := c.Create(ctx, aws("aws-explorer", &maulv1.AWSResourceTags{
 		Enabled: true, ResourceExplorer: explorer,
 	})); err != nil {
 		t.Errorf("Create(aws integration, explorer backend) = %v, want nil", err)
 	}
-	if err := c.Create(ctx, aws("aws-both", &patchyv1.AWSResourceTags{
+	if err := c.Create(ctx, aws("aws-both", &maulv1.AWSResourceTags{
 		Enabled: true, ConfigAggregator: aggregator, ResourceExplorer: explorer,
 	})); err == nil {
 		t.Error("Create(aws integration with both backends) = nil, want CEL rejection")
 	}
-	if err := c.Create(ctx, aws("aws-neither", &patchyv1.AWSResourceTags{
+	if err := c.Create(ctx, aws("aws-neither", &maulv1.AWSResourceTags{
 		Enabled: true,
 	})); err == nil {
 		t.Error("Create(aws integration with no backend) = nil, want CEL rejection")
 	}
-	if err := c.Create(ctx, aws("aws-bad-view", &patchyv1.AWSResourceTags{
+	if err := c.Create(ctx, aws("aws-bad-view", &maulv1.AWSResourceTags{
 		Enabled:          true,
-		ResourceExplorer: &patchyv1.AWSResourceExplorer{ViewARN: "arn:aws:s3:::not-a-view"},
+		ResourceExplorer: &maulv1.AWSResourceExplorer{ViewARN: "arn:aws:s3:::not-a-view"},
 	})); err == nil {
 		t.Error("Create(aws integration with malformed view ARN) = nil, want pattern rejection")
 	}
@@ -824,12 +824,12 @@ func testAWSIntegrationSchema(ctx context.Context, t *testing.T, c client.Client
 // one-of either).
 func testAzureIntegrationSchema(ctx context.Context, t *testing.T, c client.Client) {
 	t.Helper()
-	good := &patchyv1.Integration{
+	good := &maulv1.Integration{
 		ObjectMeta: metav1.ObjectMeta{Name: "azure", Namespace: "default"},
-		Spec: patchyv1.IntegrationSpec{
-			Provider: patchyv1.IntegrationProviderAzure,
-			Azure: &patchyv1.AzureIntegration{
-				ResourceTags: &patchyv1.AzureResourceTags{
+		Spec: maulv1.IntegrationSpec{
+			Provider: maulv1.IntegrationProviderAzure,
+			Azure: &maulv1.AzureIntegration{
+				ResourceTags: &maulv1.AzureResourceTags{
 					Enabled:         true,
 					ManagementGroup: "platform-mg",
 				},
@@ -839,27 +839,27 @@ func testAzureIntegrationSchema(ctx context.Context, t *testing.T, c client.Clie
 	if err := c.Create(ctx, good); err != nil {
 		t.Errorf("Create(valid azure integration) = %v, want nil", err)
 	}
-	noBlock := &patchyv1.Integration{
+	noBlock := &maulv1.Integration{
 		ObjectMeta: metav1.ObjectMeta{Name: "azure-no-block", Namespace: "default"},
-		Spec: patchyv1.IntegrationSpec{
-			Provider: patchyv1.IntegrationProviderAzure,
+		Spec: maulv1.IntegrationSpec{
+			Provider: maulv1.IntegrationProviderAzure,
 		},
 	}
 	if err := c.Create(ctx, noBlock); err == nil {
 		t.Error("Create(azure integration without azure block) = nil, want CEL rejection")
 	}
-	strayBlock := &patchyv1.Integration{
+	strayBlock := &maulv1.Integration{
 		ObjectMeta: metav1.ObjectMeta{Name: "azure-stray-block", Namespace: "default"},
-		Spec: patchyv1.IntegrationSpec{
-			Provider: patchyv1.IntegrationProviderGoogleCloud,
-			GoogleCloud: &patchyv1.GoogleCloudIntegration{
-				CloudAssetInventory: &patchyv1.GoogleCloudAssetInventory{
+		Spec: maulv1.IntegrationSpec{
+			Provider: maulv1.IntegrationProviderGoogleCloud,
+			GoogleCloud: &maulv1.GoogleCloudIntegration{
+				CloudAssetInventory: &maulv1.GoogleCloudAssetInventory{
 					Enabled: true,
 					Scope:   "organizations/123456789012",
 				},
 			},
-			Azure: &patchyv1.AzureIntegration{
-				ResourceTags: &patchyv1.AzureResourceTags{Enabled: true},
+			Azure: &maulv1.AzureIntegration{
+				ResourceTags: &maulv1.AzureResourceTags{Enabled: true},
 			},
 		},
 	}

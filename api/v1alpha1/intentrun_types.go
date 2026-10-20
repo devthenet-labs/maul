@@ -67,10 +67,10 @@ type IntentRunTrigger string
 const (
 	// IntentRunTriggerReview: a "Request changes" review from an approver.
 	IntentRunTriggerReview IntentRunTrigger = "review"
-	// IntentRunTriggerCommand: an approver's /patchy revise (or /patchy
+	// IntentRunTriggerCommand: an approver's /maul revise (or /maul
 	// retry) comment, whose id the run records in inputs.commandID.
 	IntentRunTriggerCommand IntentRunTrigger = "command"
-	// IntentRunTriggerChecks: a named check failed on patchy's own head.
+	// IntentRunTriggerChecks: a named check failed on maul's own head.
 	IntentRunTriggerChecks IntentRunTrigger = "checks"
 )
 
@@ -215,7 +215,7 @@ type IntentRunInputs struct {
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=32
 	StatusIDs []int64 `json:"statusIDs,omitempty"`
-	// CommandID is the GitHub id of the issue comment carrying the /patchy
+	// CommandID is the GitHub id of the issue comment carrying the /maul
 	// command (revise, or retry) a command round consumed (slice 1b), so
 	// a command starts at most one round. Required on a command round, and
 	// on no other.
@@ -248,7 +248,7 @@ type IntentRunGrant struct {
 	// limits.<stage>.maxCostMicroUSD, or the Project's per-intent ceiling
 	// when that is unset. Recorded only while intent-controller runs with
 	// --broker-limit-unit cost, and copied onto the agent Job and its pod as
-	// the patchy.bitwisemedia.uk/budget-micro-usd annotation the egress
+	// the maul.run/budget-micro-usd annotation the egress
 	// broker enforces. The run spec is immutable, so the budget is fixed
 	// when the run is granted.
 	// +optional
@@ -470,7 +470,7 @@ type IntentRunStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:shortName=irun,categories=patchy
+// +kubebuilder:resource:shortName=irun,categories=maul
 // +kubebuilder:printcolumn:name="Intent",type=string,JSONPath=`.spec.intentRef.name`
 // +kubebuilder:printcolumn:name="Stage",type=string,JSONPath=`.spec.stage`
 // +kubebuilder:printcolumn:name="Round",type=integer,JSONPath=`.spec.round`

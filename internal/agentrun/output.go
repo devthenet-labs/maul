@@ -13,22 +13,22 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/ansi"
-	"github.com/bitwise-media-group/patchy/internal/harness"
-	"github.com/bitwise-media-group/patchy/internal/runner"
-	"github.com/bitwise-media-group/patchy/internal/transcript"
+	"github.com/devthenet-labs/maul/internal/ansi"
+	"github.com/devthenet-labs/maul/internal/harness"
+	"github.com/devthenet-labs/maul/internal/runner"
+	"github.com/devthenet-labs/maul/internal/transcript"
 )
 
 // Live command output. While the agent's CLI runs a foreground shell
 // command in an intent's stage, agent-runner reads the file the CLI writes
 // that command's output to and prints it as transcript.Output chunks
-// (PATCHY-OUTPUT lines), for a viewer following the pod log to watch a long
+// (MAUL-OUTPUT lines), for a viewer following the pod log to watch a long
 // command as it runs. The chunks are live only: the controller persists none
 // of them, they never pass through the transcript recorder, and they are not
 // progress to the idle watchdog or spend to the token budget, which read the
 // CLI's own stream alone.
 //
-// The bounds are constants, not configuration: a new PATCHY_* key would
+// The bounds are constants, not configuration: a new MAUL_* key would
 // change the environment a repository-image Job blanks. They keep the
 // output small beside what else the log must hold (a build's result line
 // alone can be several MiB, and the kubelet rotates a container's log at

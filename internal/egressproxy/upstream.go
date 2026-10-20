@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/bitwise-media-group/patchy/internal/httpguard"
+	"github.com/devthenet-labs/maul/internal/httpguard"
 )
 
 // copiedHeaders are the only response headers that leave the proxy.

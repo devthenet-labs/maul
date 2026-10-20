@@ -1,0 +1,730 @@
+# Copyright 2026 Bitwise Media Group Ltd.
+# SPDX-License-Identifier: MIT
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: projects.maul.run
+spec:
+  group: maul.run
+  names:
+    categories:
+    - maul
+    kind: Project
+    listKind: ProjectList
+    plural: projects
+    shortNames:
+    - proj
+    singular: project
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - description: The intent repository
+      jsonPath: .spec.intentRepository
+      name: IntentRepo
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - description: Non-terminal intents
+      jsonPath: .status.activeIntents
+      name: Active
+      type: integer
+    - jsonPath: .spec.suspend
+      name: Suspend
+      priority: 1
+      type: boolean
+    - jsonPath: .status.lastPolledAt
+      name: Polled
+      priority: 1
+      type: date
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          Project is operator configuration for intent-driven development: an intent
+          repository whose trigger-labelled issues become Intents, the approvers
+          whose actions count, the application repositories the work is built in,
+          and the limits on what it may spend. Its name is at most 25 characters
+          (MaxProjectNameLength): it prefixes every Intent's and IntentRun's name,
+          which are written into 63-character label values (see the name budget),
+          and Intent.spec.project holds it.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              ProjectSpec is operator configuration: where intents are filed, who may
+              authorise them, which repositories they build in, and what they may spend.
+              The operator writes it (through the maul-config chart); intent-controller
+              only reads it. Writing projects is admin-only in RBAC, because a Project is
+              the power to point agents at repositories.
+
+              Previews are configured per repository (repositories[].preview) or, for a
+              one-repository Project, by the spec.preview shorthand, never both. The
+              rules below hold the per-repository form to at most MaxPreviewComponents
+              previewed repositories at distinct paths. An omitted path means "/" (the
+              field's default), and the rules read it that way too.
+            properties:
+              approvers:
+                description: Approvers is the allowlist whose actions count.
+                properties:
+                  logins:
+                    description: |-
+                      Logins are the GitHub logins whose trigger, approval, commands and
+                      review feedback count; everyone else's are ignored (a trigger from
+                      anyone else closes the intent with one notice). Compared
+                      case-insensitively. A Bot never counts, so the pattern admits no
+                      "[bot]" suffix. The operator owns this list; it is never derived from
+                      author_association.
+                    items:
+                      maxLength: 64
+                      pattern: ^[A-Za-z0-9][A-Za-z0-9_.-]*$
+                      type: string
+                    maxItems: 20
+                    minItems: 1
+                    type: array
+                    x-kubernetes-list-type: set
+                required:
+                - logins
+                type: object
+              checks:
+                default: {}
+                description: Checks configures automatic check-fix rounds (slice 1b).
+                properties:
+                  fix:
+                    description: |-
+                      Fix names the checks (check-run names or commit-status contexts, e.g.
+                      "test", "lint") whose failure on maul's own head starts a fix round
+                      without a human; the round records the failed check runs and commit
+                      statuses it consumed, each by its own id (IntentRunInputs.CheckRunIDs
+                      and StatusIDs). Empty means maul never auto-fixes: a failing check is
+                      reported on the intent issue and an approver can run /maul revise.
+                      The list is explicit so a flaky or unrelated check cannot burn
+                      budget.
+                    items:
+                      maxLength: 128
+                      minLength: 1
+                      type: string
+                    maxItems: 32
+                    type: array
+                    x-kubernetes-list-type: set
+                  rerunFailed:
+                    description: |-
+                      RerunFailed re-runs the failed jobs of the GitHub Actions runs behind
+                      a failed named check once, on maul's own head, before a fix round
+                      is spent on it: a flaky test that passes again costs no round. Only a
+                      second failure at the same head starts the round, as does a failure
+                      that is not an Actions check run (a commit status, another App's
+                      check), which has no run to re-run. It acts only on the checks Fix
+                      names, and needs the App's actions write permission on every app
+                      repository (the Project is not Ready otherwise).
+                    type: boolean
+                  timeout:
+                    default: 30m
+                    description: |-
+                      Timeout is how long after a push the controller waits for the named
+                      checks to settle before it stops watching them, between 1m and 6h. A
+                      pointer so that an unset value is omitted and the schema default
+                      applies (a zero metav1.Duration would serialize as "0s").
+                    type: string
+                    x-kubernetes-validations:
+                    - message: checks.timeout must be between 1m and 6h
+                      rule: duration(self) >= duration('1m') && duration(self) <=
+                        duration('6h')
+                type: object
+              harness:
+                description: |-
+                  Harness is the coding agent the Project's plan, build, revise and
+                  check-fix runs use: claude (the default when unset) or codex. Both
+                  run brokered, their pods holding no model credential. codex is opt-in
+                  on intent-controller (--intent-codex); while it is off, a Project
+                  asking for it is not Ready (HarnessNotEnabled) and a codex run of its
+                  intents waits Pending. Each run records the harness it was created
+                  with (IntentRun spec.harness), so a change applies to new runs only.
+                enum:
+                - claude
+                - codex
+                type: string
+              intentRepository:
+                description: |-
+                  IntentRepository is the https URL of the repository whose issues are
+                  this Project's intents (e.g. https://github.com/acme/intents). Several
+                  Projects may share one, told apart by their trigger labels. The App
+                  must be installed on it and it must resolve to exactly one Forge. It
+                  is immutable (CEL-enforced): an Intent is named <project>-<issue>,
+                  which leaves the repository out, so a Project moved to another intent
+                  repository would find its new issues' names held by the old
+                  repository's Intents. To move a project, create a new Project, under a
+                  new name, on the new repository.
+                maxLength: 256
+                minLength: 1
+                pattern: ^https://[^/\s@?#]+/[^/\s?#]+/[^/\s?#]+$
+                type: string
+                x-kubernetes-validations:
+                - message: 'spec.intentRepository is immutable: Intent names leave
+                    the repository out, so create a new Project to use another intent
+                    repository'
+                  rule: self == oldSelf
+              labels:
+                default: {}
+                description: Labels names the trigger and approve labels.
+                properties:
+                  approve:
+                    default: maul:approved
+                    description: |-
+                      Approve is the label an approver adds to approve the plan posted on
+                      the intent issue — the alias of `/maul approve`. The approval is
+                      accepted only from an approver, after the plan was posted, and while
+                      both the plan comment and the issue body still hash to what was
+                      planned.
+                    maxLength: 50
+                    minLength: 1
+                    type: string
+                  trigger:
+                    description: |-
+                      Trigger is the label that both starts an intent and names this
+                      Project: an issue carrying it becomes the Intent <project>-<issue>,
+                      and an approver re-applying it asks for a replan. Empty means
+                      "maul:<project name>" (ProjectTriggerLabel), which intent-controller
+                      derives because a schema default cannot see the object's name. The
+                      name budget keeps it within GitHub's label limit. A root-level rule
+                      refuses a derived trigger that equals the approve label, so a Project
+                      named "approved" must set this, or a different approve label. Two
+                      Projects sharing an intent repository must use different triggers.
+                      50 characters is GitHub's own label-name limit.
+                    maxLength: 50
+                    minLength: 1
+                    type: string
+                type: object
+                x-kubernetes-validations:
+                - message: labels.trigger and labels.approve must differ
+                  rule: '!has(self.trigger) || !has(self.approve) || self.trigger.lowerAscii()
+                    != self.approve.lowerAscii()'
+              limits:
+                default: {}
+                description: Limits bound each intent's spend.
+                properties:
+                  build:
+                    description: Build bounds each initial build run.
+                    properties:
+                      maxCostMicroUSD:
+                        description: |-
+                          MaxCostMicroUSD is the spend budget of one run of the stage in
+                          micro-USD (60000000 = $60), at most the Project's per-intent
+                          limits.maxCostMicroUSD. It is enforced only while the egress broker
+                          counts cost (egressBroker.limits.unit cost): intent-controller then
+                          stamps every run's agent pod with it, the per-intent ceiling standing
+                          in when this is unset, and the broker ends the run's model traffic at
+                          the smaller of it and the broker's own per-pod cost limit. Under the
+                          token unit (the default) it has no effect.
+                        format: int64
+                        maximum: 1000000000
+                        minimum: 0
+                        type: integer
+                      maxTurns:
+                        description: MaxTurns the agent may take in one run of the
+                          stage.
+                        format: int32
+                        maximum: 1000
+                        minimum: 0
+                        type: integer
+                      timeout:
+                        description: |-
+                          Timeout is the wall-clock limit of one run of the stage, between 1m
+                          and 4h. Like the other limits it is clamped to the controller's stage
+                          timeout (--intent-<stage>-timeout), so a Project can shorten a stage
+                          but never lengthen it past what the operator runs. The run's Job
+                          deadline is derived from it (see --intent-job-deadline-max). Unset
+                          means the controller's stage timeout.
+                        type: string
+                        x-kubernetes-validations:
+                        - message: a stage timeout must be between 1m and 4h
+                          rule: duration(self) >= duration('1m') && duration(self)
+                            <= duration('4h')
+                      tokenBudget:
+                        description: |-
+                          TokenBudget is the output-token budget of one run of the stage (the
+                          runner's kill switch).
+                        format: int64
+                        maximum: 100000000
+                        minimum: 0
+                        type: integer
+                    type: object
+                  maxActiveIntents:
+                    default: 2
+                    description: |-
+                      MaxActiveIntents is how many of this Project's intents may be
+                      non-terminal at once; a newly triggered issue past it waits.
+                    format: int32
+                    maximum: 20
+                    minimum: 1
+                    type: integer
+                  maxCheckFixes:
+                    default: 2
+                    description: |-
+                      MaxCheckFixes is how many automatic check-fix rounds one intent may
+                      run, counted separately from MaxRevisions but under the same cost
+                      ceiling (slice 1b). Zero is meaningful (no check-fix rounds), so the
+                      field is a pointer: nil means the default.
+                    format: int32
+                    maximum: 20
+                    minimum: 0
+                    type: integer
+                  maxCostMicroUSD:
+                    default: 10000000
+                    description: |-
+                      MaxCostMicroUSD is the per-intent spend ceiling in micro-USD (10000000
+                      = $10), checked before every launch; past it the Intent goes Blocked
+                      with BudgetExhausted. Advisory for build and revise runs, whose
+                      reported usage comes from a repository-declared image and is
+                      untrusted — the per-run limits, the Job deadline and MaxRevisions are
+                      what is actually enforced there. The ceiling is capped at $1000.
+                    format: int64
+                    maximum: 1000000000
+                    minimum: 1
+                    type: integer
+                  maxRevisions:
+                    default: 3
+                    description: |-
+                      MaxRevisions is how many review-driven revise rounds one intent may
+                      run; the next is refused and the Intent goes Blocked with
+                      RevisionLimitReached until the limit is raised. A head_moved re-run
+                      does not count. Zero is meaningful (no revise rounds), so the field
+                      is a pointer: nil means the default.
+                    format: int32
+                    maximum: 20
+                    minimum: 0
+                    type: integer
+                  plan:
+                    description: Plan bounds each planning run (read-only, default
+                      runner image).
+                    properties:
+                      maxCostMicroUSD:
+                        description: |-
+                          MaxCostMicroUSD is the spend budget of one run of the stage in
+                          micro-USD (60000000 = $60), at most the Project's per-intent
+                          limits.maxCostMicroUSD. It is enforced only while the egress broker
+                          counts cost (egressBroker.limits.unit cost): intent-controller then
+                          stamps every run's agent pod with it, the per-intent ceiling standing
+                          in when this is unset, and the broker ends the run's model traffic at
+                          the smaller of it and the broker's own per-pod cost limit. Under the
+                          token unit (the default) it has no effect.
+                        format: int64
+                        maximum: 1000000000
+                        minimum: 0
+                        type: integer
+                      maxTurns:
+                        description: MaxTurns the agent may take in one run of the
+                          stage.
+                        format: int32
+                        maximum: 1000
+                        minimum: 0
+                        type: integer
+                      timeout:
+                        description: |-
+                          Timeout is the wall-clock limit of one run of the stage, between 1m
+                          and 4h. Like the other limits it is clamped to the controller's stage
+                          timeout (--intent-<stage>-timeout), so a Project can shorten a stage
+                          but never lengthen it past what the operator runs. The run's Job
+                          deadline is derived from it (see --intent-job-deadline-max). Unset
+                          means the controller's stage timeout.
+                        type: string
+                        x-kubernetes-validations:
+                        - message: a stage timeout must be between 1m and 4h
+                          rule: duration(self) >= duration('1m') && duration(self)
+                            <= duration('4h')
+                      tokenBudget:
+                        description: |-
+                          TokenBudget is the output-token budget of one run of the stage (the
+                          runner's kill switch).
+                        format: int64
+                        maximum: 100000000
+                        minimum: 0
+                        type: integer
+                    type: object
+                  revise:
+                    description: Revise bounds each revise or check-fix run.
+                    properties:
+                      maxCostMicroUSD:
+                        description: |-
+                          MaxCostMicroUSD is the spend budget of one run of the stage in
+                          micro-USD (60000000 = $60), at most the Project's per-intent
+                          limits.maxCostMicroUSD. It is enforced only while the egress broker
+                          counts cost (egressBroker.limits.unit cost): intent-controller then
+                          stamps every run's agent pod with it, the per-intent ceiling standing
+                          in when this is unset, and the broker ends the run's model traffic at
+                          the smaller of it and the broker's own per-pod cost limit. Under the
+                          token unit (the default) it has no effect.
+                        format: int64
+                        maximum: 1000000000
+                        minimum: 0
+                        type: integer
+                      maxTurns:
+                        description: MaxTurns the agent may take in one run of the
+                          stage.
+                        format: int32
+                        maximum: 1000
+                        minimum: 0
+                        type: integer
+                      timeout:
+                        description: |-
+                          Timeout is the wall-clock limit of one run of the stage, between 1m
+                          and 4h. Like the other limits it is clamped to the controller's stage
+                          timeout (--intent-<stage>-timeout), so a Project can shorten a stage
+                          but never lengthen it past what the operator runs. The run's Job
+                          deadline is derived from it (see --intent-job-deadline-max). Unset
+                          means the controller's stage timeout.
+                        type: string
+                        x-kubernetes-validations:
+                        - message: a stage timeout must be between 1m and 4h
+                          rule: duration(self) >= duration('1m') && duration(self)
+                            <= duration('4h')
+                      tokenBudget:
+                        description: |-
+                          TokenBudget is the output-token budget of one run of the stage (the
+                          runner's kill switch).
+                        format: int64
+                        maximum: 100000000
+                        minimum: 0
+                        type: integer
+                    type: object
+                type: object
+                x-kubernetes-validations:
+                - message: limits.plan.maxCostMicroUSD must not exceed limits.maxCostMicroUSD
+                  rule: '!has(self.plan) || !has(self.plan.maxCostMicroUSD) || self.plan.maxCostMicroUSD
+                    <= (has(self.maxCostMicroUSD) ? self.maxCostMicroUSD : 10000000)'
+                - message: limits.build.maxCostMicroUSD must not exceed limits.maxCostMicroUSD
+                  rule: '!has(self.build) || !has(self.build.maxCostMicroUSD) || self.build.maxCostMicroUSD
+                    <= (has(self.maxCostMicroUSD) ? self.maxCostMicroUSD : 10000000)'
+                - message: limits.revise.maxCostMicroUSD must not exceed limits.maxCostMicroUSD
+                  rule: '!has(self.revise) || !has(self.revise.maxCostMicroUSD) ||
+                    self.revise.maxCostMicroUSD <= (has(self.maxCostMicroUSD) ? self.maxCostMicroUSD
+                    : 10000000)'
+              preview:
+                description: |-
+                  Preview is the one-repository shorthand for previews: the runtime
+                  contract of repositories[0], served at "/", exactly as if it were
+                  repositories[0].preview with the default path. It needs exactly one
+                  repository and is refused beside any repositories[].preview
+                  (CEL-enforced on the spec). With neither set, the Project's PRs are never
+                  deployed, even if the preview-controller is enabled. Only
+                  operator-authored Project configuration can supply the runtime image
+                  repository and serving port; issue and agent text cannot.
+                properties:
+                  imageRepository:
+                    description: |-
+                      ImageRepository is an immutable-tag runtime repository directly under
+                      the operator's preview image prefix, such as
+                      <registry>/maul/previews/demo with the default prefix: a registry
+                      host, one or more lowercase path segments and a leaf that is a DNS
+                      label. The schema checks only that shape. The prefix itself is
+                      enforced where it is configured, by the preview-controller and the
+                      slot admission policy.
+                    maxLength: 255
+                    minLength: 1
+                    pattern: ^[a-z0-9][a-z0-9.:-]*(/[a-z0-9]+([._-][a-z0-9]+)*)+/[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                    type: string
+                  port:
+                    description: Port is the one HTTP container/service port.
+                    format: int32
+                    maximum: 65535
+                    minimum: 1
+                    type: integer
+                  readinessPath:
+                    description: |-
+                      ReadinessPath is a safe HTTP path: the Pod's readiness check, and on
+                      the legacy preview load balancer path also its health check.
+                    maxLength: 128
+                    pattern: ^/[a-zA-Z0-9/_-]*$
+                    type: string
+                required:
+                - imageRepository
+                - port
+                - readinessPath
+                type: object
+              repositories:
+                description: |-
+                  Repositories are the application repositories intents build in; the
+                  first entry is also the planning repository. The schema admits up to
+                  8. Building in more than one is opt-in on intent-controller: without
+                  the opt-in it reports a Project with more than one as not Ready
+                  (UnsupportedRepositories) rather than the schema refusing it, so
+                  turning multi-repository intents on or off never needs a CRD change.
+                  Each entry names a different repository:
+                  the Intent records its pull requests by repository URL, and every
+                  repository's branch is the same maul-intent/<intent>, so two
+                  entries for one repository would fan two builds into one branch. URLs
+                  are compared the way forges compare them — case-insensitively, with
+                  any .git suffix dropped.
+                items:
+                  description: |-
+                    ProjectRepository is one application repository the Project's intents may
+                    build in.
+                  properties:
+                    agentResourceClass:
+                      description: |-
+                        AgentResourceClass names the operator's resource class this
+                        repository's intent build, revise and check-fix runs get: the CPU and
+                        memory the maul chart defines under agent.resources.classes
+                        (intent-controller's --intent-resource-classes), in place of the
+                        default every other agent Job gets. Unset, the runs get the default.
+                        Plan runs always get the default, whatever this says. A Project can
+                        only pick a class the operator defined, so the largest class is the
+                        most any one agent Job can request. A class intent-controller does not
+                        define launches nothing: the run waits, holding no slot, its Intent
+                        Blocked with ResourcesUnavailable naming the class, and the Project's
+                        ResourceClassesResolved condition False, until the class is defined or
+                        this is changed. Plans and the other repositories are unaffected.
+                      maxLength: 32
+                      minLength: 1
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                      type: string
+                    name:
+                      description: |-
+                        Name is the repository's short key within the Project, used in the
+                        names of the IntentRuns and Repositories created for it
+                        (<intent>-bld-r<round>-<name>-a<n>), hence a DNS label of at most 16
+                        characters (MaxRepositoryKeyLength; see the name budget).
+                      maxLength: 16
+                      minLength: 1
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                      type: string
+                    preview:
+                      description: |-
+                        Preview opts this repository into the Project's previews: its fixed
+                        runtime contract, and the path its component is served under on the
+                        intent's one preview host. Unset means the repository is never
+                        previewed (a library, say); its pull request is still part of the
+                        intent. At most MaxPreviewComponents of a Project's repositories are
+                        previewed, each at its own path, and spec.preview, the one-repository
+                        shorthand, is refused beside any of them (CEL-enforced on the spec).
+                      properties:
+                        imageRepository:
+                          description: |-
+                            ImageRepository is an immutable-tag runtime repository directly under
+                            the operator's preview image prefix, such as
+                            <registry>/maul/previews/demo with the default prefix: a registry
+                            host, one or more lowercase path segments and a leaf that is a DNS
+                            label. The schema checks only that shape. The prefix itself is
+                            enforced where it is configured, by the preview-controller and the
+                            slot admission policy.
+                          maxLength: 255
+                          minLength: 1
+                          pattern: ^[a-z0-9][a-z0-9.:-]*(/[a-z0-9]+([._-][a-z0-9]+)*)+/[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                          type: string
+                        path:
+                          default: /
+                          description: |-
+                            Path is the URL path prefix the component is served under on the
+                            intent's preview host, "/" by default. The preview gateway (or the
+                            legacy load balancer) routes the longest matching prefix and does not
+                            rewrite it, so the application serves under its path (an API at /api
+                            answers /api/...), and a page calls a sibling component same-origin,
+                            from the browser. Lowercase segments only, so it is safe as an Ingress
+                            path. Paths are distinct across the Project (CEL-enforced on the spec).
+                          maxLength: 128
+                          pattern: ^/([a-z0-9-]+(/[a-z0-9-]+)*)?$
+                          type: string
+                        port:
+                          description: Port is the one HTTP container/service port.
+                          format: int32
+                          maximum: 65535
+                          minimum: 1
+                          type: integer
+                        readinessPath:
+                          description: |-
+                            ReadinessPath is a safe HTTP path: the Pod's readiness check, and on
+                            the legacy preview load balancer path also its health check.
+                          maxLength: 128
+                          pattern: ^/[a-zA-Z0-9/_-]*$
+                          type: string
+                      required:
+                      - imageRepository
+                      - port
+                      - readinessPath
+                      type: object
+                    url:
+                      description: |-
+                        URL is the repository's https URL (https://github.com/<owner>/<name>).
+                        It must resolve to exactly one Forge, and the App must be installed on
+                        it, or the Project is not Ready. No credentials in the URL.
+                      maxLength: 256
+                      minLength: 1
+                      pattern: ^https://[^/\s@?#]+/[^/\s?#]+/[^/\s?#]+$
+                      type: string
+                  required:
+                  - name
+                  - url
+                  type: object
+                maxItems: 8
+                minItems: 1
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
+                x-kubernetes-validations:
+                - message: two repositories have the same URL (compared case-insensitively,
+                    ignoring a .git suffix)
+                  rule: 'self.all(r, self.exists_one(s, (s.url.endsWith(''.git'')
+                    ? s.url.substring(0, size(s.url) - 4) : s.url).lowerAscii() ==
+                    (r.url.endsWith(''.git'') ? r.url.substring(0, size(r.url) - 4)
+                    : r.url).lowerAscii()))'
+              requireRepositoryImage:
+                default: true
+                description: |-
+                  RequireRepositoryImage, true by default, launches build and revise
+                  runs only on an accepted repository-declared runner image (the
+                  Repository's pinned, not-rejected image) and blocks the Intent with
+                  ImageRequired otherwise. False lets them fall back to the default
+                  runner image, which carries no toolchain.
+                type: boolean
+              suspend:
+                description: |-
+                  Suspend stops the Project: no new intents are discovered and no run
+                  of its intents is launched. Running Jobs finish.
+                type: boolean
+            required:
+            - approvers
+            - intentRepository
+            - repositories
+            type: object
+            x-kubernetes-validations:
+            - message: at most 4 repositories are previewed (repositories[].preview)
+              rule: self.repositories.filter(r, has(r.preview)).size() <= 4
+            - message: two previewed repositories have the same path (repositories[].preview.path,
+                default /)
+              rule: 'self.repositories.all(r, !has(r.preview) || self.repositories.exists_one(s,
+                has(s.preview) && (has(s.preview.path) ? s.preview.path : ''/'') ==
+                (has(r.preview.path) ? r.preview.path : ''/'')))'
+            - message: 'spec.preview is the one-repository shorthand: it needs exactly
+                one repository and no repositories[].preview'
+              rule: '!has(self.preview) || (size(self.repositories) == 1 && !self.repositories.exists(r,
+                has(r.preview)))'
+          status:
+            description: |-
+              ProjectStatus is the Project's observed state. Written only by
+              intent-controller's project reconciler.
+            properties:
+              activeIntents:
+                description: |-
+                  ActiveIntents counts this Project's non-terminal Intents, against
+                  spec.limits.maxActiveIntents.
+                format: int32
+                minimum: 0
+                type: integer
+              conditions:
+                description: |-
+                  Conditions of the Project. Ready is True when every repository
+                  resolves to exactly one Forge, the App is installed on the intent
+                  repository and every app repository, and the labels exist; False
+                  reasons include ForgeUnresolved, AppNotInstalled and
+                  AmbiguousIntentRepository. IntentNameConflict is True while a
+                  trigger-labelled issue cannot become an Intent because its name is
+                  held by an Intent for an issue of another repository.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                maxItems: 16
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              lastPolledAt:
+                description: |-
+                  LastPolledAt is when the intent repository's trigger-labelled issues
+                  were last listed.
+                format: date-time
+                type: string
+              observedGeneration:
+                description: ObservedGeneration is the last spec generation acted
+                  on.
+                format: int64
+                type: integer
+            type: object
+        required:
+        - spec
+        type: object
+        x-kubernetes-validations:
+        - message: Project names are at most 25 characters, so every Intent and IntentRun
+            name derived from them fits in a label value
+          rule: size(self.metadata.name) <= 25
+        - message: the derived trigger label maul:<name> equals labels.approve; set
+            labels.trigger or a different labels.approve
+          rule: '!has(self.spec.labels) || has(self.spec.labels.trigger) || !has(self.spec.labels.approve)
+            || ''maul:'' + self.metadata.name != self.spec.labels.approve.lowerAscii()'
+    served: true
+    storage: true
+    subresources:
+      status: {}

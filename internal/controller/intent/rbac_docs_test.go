@@ -21,8 +21,8 @@ func TestAgentSecretGrantIsDocumented(t *testing.T) {
 		"docs/deployment/kustomize.md",
 		"docs/configuration/intent-controller.md",
 		"docs/design/intent-driven-development.md",
-		"charts/patchy/templates/NOTES.txt",
-		"charts/patchy/templates/intent-controller.yaml",
+		"charts/maul/templates/NOTES.txt",
+		"charts/maul/templates/intent-controller.yaml",
 		"deploy/kustomize/components/intent-controller/rbac.yaml",
 	} {
 		t.Run(path, func(t *testing.T) {

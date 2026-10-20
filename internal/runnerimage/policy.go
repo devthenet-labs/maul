@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/bitwise-media-group/patchy/internal/mirror/imageref"
+	"github.com/devthenet-labs/maul/internal/mirror/imageref"
 )
 
 // Policy is the operator's registry allowlist: the host/path prefixes a
@@ -161,7 +161,7 @@ var ecrEndpoint = regexp.MustCompile(`^([0-9]{12})\.dkr[.-]ecr(-fips)?\.([a-z0-9
 // sees it: lowercased, an explicit :443 dropped (the same HTTPS endpoint),
 // and an ECR endpoint alias folded onto the plain ECR host. Two prefixes
 // name overlapping repositories exactly when one key is a prefix of the
-// other. The chart's patchy.registryPathKey is the same fold, for its
+// other. The chart's maul.registryPathKey is the same fold, for its
 // render-time disjointness check.
 func registryKey(prefix string) string {
 	host, rest, _ := strings.Cut(strings.ToLower(prefix), "/")

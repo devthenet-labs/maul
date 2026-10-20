@@ -17,13 +17,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
-	"github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/broker"
-	"github.com/bitwise-media-group/patchy/internal/kube"
+	"github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/broker"
+	"github.com/devthenet-labs/maul/internal/kube"
 )
 
 const (
-	recordsNS = "patchy"
+	recordsNS = "maul"
 	secretsNS = v1alpha1.DefaultCredentialsNamespace
 )
 

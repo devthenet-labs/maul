@@ -9,7 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/bitwise-media-group/patchy/internal/artifact"
+	"github.com/devthenet-labs/maul/internal/artifact"
 )
 
 // validDigest reports whether s is a well-formed sha256 hex digest.

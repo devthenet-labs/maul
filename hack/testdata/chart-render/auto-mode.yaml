@@ -15,14 +15,14 @@ preview:
             - sg-0123456789abcdef0
 edgeIngressClass:
     create: true
-    loadBalancerName: example-patchy
+    loadBalancerName: example-maul
     certificateARNs:
         - arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000
 webhook:
-    host: patchy.example.com
+    host: maul.example.com
     ingress:
         enabled: true
 statusServer:
-    host: status.patchy.example.com
+    host: status.maul.example.com
     ingress:
         enabled: true

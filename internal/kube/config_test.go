@@ -58,12 +58,12 @@ func TestNewManager(t *testing.T) {
 		name string
 		opts Options
 	}{
-		{"minimal", Options{Kubeconfig: path, LeaderElectionNamespace: "patchy"}},
+		{"minimal", Options{Kubeconfig: path, LeaderElectionNamespace: "maul"}},
 		{"full", Options{
 			Kubeconfig:              path,
-			LeaderElectionID:        "patchy-test",
-			LeaderElectionNamespace: "patchy",
-			Namespaces:              []string{"patchy"},
+			LeaderElectionID:        "maul-test",
+			LeaderElectionNamespace: "maul",
+			Namespaces:              []string{"maul"},
 			HealthAddr:              "127.0.0.1:0",
 			Log:                     slog.New(slog.DiscardHandler),
 		}},
@@ -73,8 +73,8 @@ func TestNewManager(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewManager: %v", err)
 			}
-			if mgr.GetScheme() == nil || !mgr.GetScheme().IsGroupRegistered("patchy.bitwisemedia.uk") {
-				t.Error("manager scheme lacks the patchy API group")
+			if mgr.GetScheme() == nil || !mgr.GetScheme().IsGroupRegistered("maul.run") {
+				t.Error("manager scheme lacks the maul API group")
 			}
 		})
 	}

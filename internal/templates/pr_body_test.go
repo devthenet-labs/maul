@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/report"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/report"
 )
 
 // TestPRBodyReproductionIsInert: the reproduction evidence is agent text —
@@ -19,7 +19,7 @@ import (
 // heading with instructions, a closing keyword, a mention, raw HTML, a bidi
 // override) stay shown and inert. Read as markdown, nothing in them is
 // prose, links or notifies; read as the plain text a squash commit copies
-// onto the default branch, nothing in the body but patchy's own first line
+// onto the default branch, nothing in the body but maul's own first line
 // references an issue or mentions anyone.
 func TestPRBodyReproductionIsInert(t *testing.T) {
 	const injected = "INJECTED heading"
@@ -37,7 +37,7 @@ func TestPRBodyReproductionIsInert(t *testing.T) {
 		}
 		first, rest, _ := strings.Cut(body, "\n")
 		if first != "Fixes #123" {
-			t.Fatalf("first line = %q, want patchy's own reference", first)
+			t.Fatalf("first line = %q, want maul's own reference", first)
 		}
 		if msg := checkSanitized(rest); msg != "" {
 			t.Errorf("reproduced=%v: %s\n%s", reproduced, msg, body)

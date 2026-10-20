@@ -4,12 +4,12 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-    name: patchy-source-controller
-    namespace: patchy
+    name: maul-source-controller
+    namespace: maul
     labels:
         app: source-controller
         app.kubernetes.io/name: source-controller
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
         app.kubernetes.io/component: controller
 spec:
     # One replica + Recreate: the artifact store is local state (the emptyDir
@@ -21,16 +21,16 @@ spec:
     selector:
         matchLabels:
             app.kubernetes.io/name: source-controller
-            app.kubernetes.io/part-of: patchy
+            app.kubernetes.io/part-of: maul
     template:
         metadata:
             labels:
                 app: source-controller
                 app.kubernetes.io/name: source-controller
-                app.kubernetes.io/part-of: patchy
+                app.kubernetes.io/part-of: maul
                 app.kubernetes.io/component: controller
         spec:
-            serviceAccountName: patchy-source-controller
+            serviceAccountName: maul-source-controller
             securityContext:
                 runAsNonRoot: true
                 runAsUser: 65532
@@ -42,11 +42,11 @@ spec:
                 - name: controller
                   # Built from Dockerfile.controller (repo root)
                   # (TARGET=source-controller in .goreleaser.yaml).
-                  image: ghcr.io/devthenet-labs/patchy/source-controller:latest
+                  image: ghcr.io/devthenet-labs/maul/source-controller:latest
                   args: ["serve"]
                   envFrom:
                       - configMapRef:
-                            name: patchy-config
+                            name: maul-config
                   env:
                       - name: POD_NAMESPACE
                         valueFrom:
@@ -94,7 +94,7 @@ spec:
                       - name: tmp
                         mountPath: /tmp
             volumes:
-                # Artifact storage (PATCHY_ARTIFACT_DIR=/data/artifacts).
+                # Artifact storage (MAUL_ARTIFACT_DIR=/data/artifacts).
                 # Artifacts are reproducible — a re-fetch at the pinned SHA
                 # rebuilds them — so an emptyDir is acceptable; swap in a PVC
                 # in your overlay if repository archives are large or the API

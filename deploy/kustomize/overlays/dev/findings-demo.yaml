@@ -18,7 +18,7 @@
 #   * no status.completedAt on terminal phases — the rollup/TTL loop only
 #     aggregates and reaps findings with completedAt set, so canned terminal
 #     findings are never folded into the (also canned) rollups and never
-#     TTL-deleted (dev's PATCHY_FINDING_TTL is 30m).
+#     TTL-deleted (dev's MAUL_FINDING_TTL is 30m).
 #
 # `kubectl apply -k overlays/dev` creates the objects but CANNOT set their
 # status (a subresource). Seed the statuses with:
@@ -27,11 +27,11 @@
 #
 # (hack/status-demo.sh; safe to re-run.)
 ---
-apiVersion: patchy.bitwisemedia.uk/v1alpha1
+apiVersion: maul.run/v1alpha1
 kind: Finding
 metadata:
     name: gh-cs-evolve-9f2c1a
-    namespace: patchy
+    namespace: maul
 spec:
     integrationRef:
         name: github-bitwise
@@ -65,11 +65,11 @@ status:
         url: https://github.com/bitwise-media-group/evolve/issues/512
         state: open
 ---
-apiVersion: patchy.bitwisemedia.uk/v1alpha1
+apiVersion: maul.run/v1alpha1
 kind: Finding
 metadata:
     name: dbot-design-system-4b77e0
-    namespace: patchy
+    namespace: maul
 spec:
     integrationRef:
         name: github-bitwise
@@ -110,11 +110,11 @@ status:
           appliedAt: "2026-07-20T23:11:02Z"
     priority: medium
 ---
-apiVersion: patchy.bitwisemedia.uk/v1alpha1
+apiVersion: maul.run/v1alpha1
 kind: Finding
 metadata:
     name: gh-cs-bitwise-site-c30d19
-    namespace: patchy
+    namespace: maul
 spec:
     integrationRef:
         name: github-bitwise
@@ -161,11 +161,11 @@ status:
         kind: investigation
         name: gh-cs-bitwise-site-c30d19-inv-1
 ---
-apiVersion: patchy.bitwisemedia.uk/v1alpha1
+apiVersion: maul.run/v1alpha1
 kind: Finding
 metadata:
     name: gh-cs-dotty-88af02
-    namespace: patchy
+    namespace: maul
 spec:
     integrationRef:
         name: github-bitwise
@@ -227,19 +227,19 @@ status:
     attempts:
         investigation: 1
 ---
-apiVersion: patchy.bitwisemedia.uk/v1alpha1
+apiVersion: maul.run/v1alpha1
 kind: Finding
 metadata:
-    name: gh-cs-patchy-51be77
-    namespace: patchy
+    name: gh-cs-maul-51be77
+    namespace: maul
 spec:
     integrationRef:
         name: github-bitwise
     source: github-code-scanning
     repository:
         type: github
-        url: https://github.com/bitwise-media-group/patchy
-        name: bitwise-media-group/patchy
+        url: https://github.com/devthenet-labs/maul
+        name: devthenet-labs/maul
         defaultBranch: main
     advisories: [CVE-2026-8801, CWE-1333]
     ruleID: go/redos
@@ -250,7 +250,7 @@ spec:
     severity: medium
     alerts:
         - id: alerts/23
-          url: https://github.com/bitwise-media-group/patchy/security/code-scanning/23
+          url: https://github.com/devthenet-labs/maul/security/code-scanning/23
     suspend: true
 status:
     phase: Queued
@@ -263,12 +263,12 @@ status:
     tracking:
         integration: github-bitwise
         issueNumber: 67
-        url: https://github.com/bitwise-media-group/patchy/issues/67
+        url: https://github.com/devthenet-labs/maul/issues/67
         state: open
-    owners: [patchy-maintainers]
+    owners: [maul-maintainers]
     priority: medium
     investigation:
-        name: gh-cs-patchy-51be77-inv-1
+        name: gh-cs-maul-51be77-inv-1
         attempt: 1
         outcome: ok
         recommendation: remediate
@@ -280,11 +280,11 @@ status:
     attempts:
         investigation: 1
 ---
-apiVersion: patchy.bitwisemedia.uk/v1alpha1
+apiVersion: maul.run/v1alpha1
 kind: Finding
 metadata:
     name: gh-cs-gh-claude-e19c44
-    namespace: patchy
+    namespace: maul
 spec:
     integrationRef:
         name: github-bitwise
@@ -342,11 +342,11 @@ status:
         kind: remediation
         name: gh-cs-gh-claude-e19c44-rem-1
 ---
-apiVersion: patchy.bitwisemedia.uk/v1alpha1
+apiVersion: maul.run/v1alpha1
 kind: Finding
 metadata:
     name: gh-cs-dke-podcast-7d01b3
-    namespace: patchy
+    namespace: maul
 spec:
     integrationRef:
         name: github-bitwise
@@ -435,11 +435,11 @@ status:
         investigation: 1
         remediation: 1
 ---
-apiVersion: patchy.bitwisemedia.uk/v1alpha1
+apiVersion: maul.run/v1alpha1
 kind: Finding
 metadata:
     name: gh-cs-bitwise-site-2a90cf
-    namespace: patchy
+    namespace: maul
 spec:
     integrationRef:
         name: github-bitwise
@@ -505,11 +505,11 @@ status:
         remediation: 1
     # completedAt deliberately unset — see the header.
 ---
-apiVersion: patchy.bitwisemedia.uk/v1alpha1
+apiVersion: maul.run/v1alpha1
 kind: Finding
 metadata:
     name: gh-cs-evolve-b8e3d6
-    namespace: patchy
+    namespace: maul
 spec:
     integrationRef:
         name: github-bitwise
@@ -571,11 +571,11 @@ status:
         changeset_too_large: fix spans 3 packages and 41 files; exceeds the
         safe unattended-change budget
 ---
-apiVersion: patchy.bitwisemedia.uk/v1alpha1
+apiVersion: maul.run/v1alpha1
 kind: Finding
 metadata:
     name: dbot-design-system-1cd208
-    namespace: patchy
+    namespace: maul
 spec:
     integrationRef:
         name: github-bitwise
@@ -625,11 +625,11 @@ status:
     attempts:
         investigation: 1
 ---
-apiVersion: patchy.bitwisemedia.uk/v1alpha1
+apiVersion: maul.run/v1alpha1
 kind: Finding
 metadata:
     name: ccs-prod-media-buckets-3391aa
-    namespace: patchy
+    namespace: maul
 spec:
     integrationRef:
         name: cloud-bitwise
@@ -682,11 +682,11 @@ status:
 # ---- rollups: all-time statistics, one object per scope value ---------------
 # Phase histogram keys are the PRODUCTION keys (internal/stats.PhaseKey lower-
 # cases the phase: handedoff, not handedOff).
-apiVersion: patchy.bitwisemedia.uk/v1alpha1
+apiVersion: maul.run/v1alpha1
 kind: FindingRollup
 metadata:
     name: demo-rollup-total
-    namespace: patchy
+    namespace: maul
 spec:
     scope:
         type: total
@@ -736,11 +736,11 @@ status:
         "2026-06": { findings: 44, runs: 82, costMicroUSD: 85600000 }
         "2026-07": { findings: 24, runs: 56, costMicroUSD: 60310000 }
 ---
-apiVersion: patchy.bitwisemedia.uk/v1alpha1
+apiVersion: maul.run/v1alpha1
 kind: FindingRollup
 metadata:
     name: demo-rollup-repo-bitwise-site
-    namespace: patchy
+    namespace: maul
 spec:
     scope:
         type: repository
@@ -758,11 +758,11 @@ status:
             investigation: { runs: 117, succeeded: 111, costMicroUSD: 84600000, elapsedMilliseconds: 48900000 }
             remediation: { runs: 81, succeeded: 70, costMicroUSD: 109800000, elapsedMilliseconds: 89200000 }
 ---
-apiVersion: patchy.bitwisemedia.uk/v1alpha1
+apiVersion: maul.run/v1alpha1
 kind: FindingRollup
 metadata:
     name: demo-rollup-repo-evolve
-    namespace: patchy
+    namespace: maul
 spec:
     scope:
         type: repository
@@ -780,11 +780,11 @@ status:
             investigation: { runs: 102, succeeded: 95, costMicroUSD: 76100000, elapsedMilliseconds: 44800000 }
             remediation: { runs: 66, succeeded: 51, costMicroUSD: 96400000, elapsedMilliseconds: 78600000 }
 ---
-apiVersion: patchy.bitwisemedia.uk/v1alpha1
+apiVersion: maul.run/v1alpha1
 kind: FindingRollup
 metadata:
     name: demo-rollup-repo-dke-podcast
-    namespace: patchy
+    namespace: maul
 spec:
     scope:
         type: repository
@@ -802,11 +802,11 @@ status:
             investigation: { runs: 84, succeeded: 80, costMicroUSD: 60900000, elapsedMilliseconds: 35100000 }
             remediation: { runs: 55, succeeded: 48, costMicroUSD: 74300000, elapsedMilliseconds: 60400000 }
 ---
-apiVersion: patchy.bitwisemedia.uk/v1alpha1
+apiVersion: maul.run/v1alpha1
 kind: FindingRollup
 metadata:
     name: demo-rollup-repo-dotty
-    namespace: patchy
+    namespace: maul
 spec:
     scope:
         type: repository
@@ -824,11 +824,11 @@ status:
             investigation: { runs: 63, succeeded: 60, costMicroUSD: 44200000, elapsedMilliseconds: 26300000 }
             remediation: { runs: 41, succeeded: 34, costMicroUSD: 56100000, elapsedMilliseconds: 46900000 }
 ---
-apiVersion: patchy.bitwisemedia.uk/v1alpha1
+apiVersion: maul.run/v1alpha1
 kind: FindingRollup
 metadata:
     name: demo-rollup-repo-design-system
-    namespace: patchy
+    namespace: maul
 spec:
     scope:
         type: repository
@@ -846,11 +846,11 @@ status:
             investigation: { runs: 52, succeeded: 50, costMicroUSD: 36800000, elapsedMilliseconds: 21500000 }
             remediation: { runs: 26, succeeded: 22, costMicroUSD: 34900000, elapsedMilliseconds: 28700000 }
 ---
-apiVersion: patchy.bitwisemedia.uk/v1alpha1
+apiVersion: maul.run/v1alpha1
 kind: FindingRollup
 metadata:
     name: demo-rollup-repo-gh-claude
-    namespace: patchy
+    namespace: maul
 spec:
     scope:
         type: repository
@@ -868,11 +868,11 @@ status:
             investigation: { runs: 50, succeeded: 45, costMicroUSD: 38700000, elapsedMilliseconds: 20900000 }
             remediation: { runs: 24, succeeded: 21, costMicroUSD: 41400000, elapsedMilliseconds: 27400000 }
 ---
-apiVersion: patchy.bitwisemedia.uk/v1alpha1
+apiVersion: maul.run/v1alpha1
 kind: FindingRollup
 metadata:
     name: demo-rollup-harness-claude-code
-    namespace: patchy
+    namespace: maul
 spec:
     scope:
         type: harness
@@ -904,11 +904,11 @@ status:
                 costMicroUSD: 356200000
                 elapsedMilliseconds: 283900000
 ---
-apiVersion: patchy.bitwisemedia.uk/v1alpha1
+apiVersion: maul.run/v1alpha1
 kind: FindingRollup
 metadata:
     name: demo-rollup-harness-codex-cli
-    namespace: patchy
+    namespace: maul
 spec:
     scope:
         type: harness
@@ -940,11 +940,11 @@ status:
                 costMicroUSD: 56740000
                 elapsedMilliseconds: 47300000
 ---
-apiVersion: patchy.bitwisemedia.uk/v1alpha1
+apiVersion: maul.run/v1alpha1
 kind: FindingRollup
 metadata:
     name: demo-rollup-model-claude-fable-5
-    namespace: patchy
+    namespace: maul
 spec:
     scope:
         type: model
@@ -976,11 +976,11 @@ status:
                 costMicroUSD: 224600000
                 elapsedMilliseconds: 118500000
 ---
-apiVersion: patchy.bitwisemedia.uk/v1alpha1
+apiVersion: maul.run/v1alpha1
 kind: FindingRollup
 metadata:
     name: demo-rollup-model-claude-opus-5
-    namespace: patchy
+    namespace: maul
 spec:
     scope:
         type: model
@@ -1012,11 +1012,11 @@ status:
                 costMicroUSD: 165300000
                 elapsedMilliseconds: 178400000
 ---
-apiVersion: patchy.bitwisemedia.uk/v1alpha1
+apiVersion: maul.run/v1alpha1
 kind: FindingRollup
 metadata:
     name: demo-rollup-model-claude-haiku-4-5
-    namespace: patchy
+    namespace: maul
 spec:
     scope:
         type: model

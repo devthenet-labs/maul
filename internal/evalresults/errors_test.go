@@ -18,7 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	"github.com/bitwise-media-group/patchy/api/v1alpha1"
+	"github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 var (
@@ -27,7 +27,7 @@ var (
 )
 
 func unitNamed(name string) *v1alpha1.EvaluationUnit {
-	return &v1alpha1.EvaluationUnit{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "patchy", UID: "uid-u"}}
+	return &v1alpha1.EvaluationUnit{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "maul", UID: "uid-u"}}
 }
 
 func gz(t *testing.T, b []byte) []byte {
@@ -47,12 +47,12 @@ func TestPersistOwnerReferenceAndLabels(t *testing.T) {
 	c := newClient(t).Build()
 	ctx := context.Background()
 	labels := map[string]string{v1alpha1.LabelEvaluation: "eval-9"}
-	ref, err := Persist(ctx, c, "patchy", labels, unitNamed("eval-9-u001"), unitGVK, []byte(`{}`))
+	ref, err := Persist(ctx, c, "maul", labels, unitNamed("eval-9-u001"), unitGVK, []byte(`{}`))
 	if err != nil {
 		t.Fatalf("Persist: %v", err)
 	}
 	var cm corev1.ConfigMap
-	if err := c.Get(ctx, client.ObjectKey{Namespace: "patchy", Name: ref.Name}, &cm); err != nil {
+	if err := c.Get(ctx, client.ObjectKey{Namespace: "maul", Name: ref.Name}, &cm); err != nil {
 		t.Fatalf("Get: %v", err)
 	}
 	if cm.Labels[v1alpha1.LabelEvaluation] != "eval-9" {
@@ -98,7 +98,7 @@ func TestPersistClientErrors(t *testing.T) {
 					return tt.update
 				},
 			}).Build()
-			ref, err := Persist(context.Background(), c, "patchy", nil, unitNamed("u"), unitGVK, []byte("x"))
+			ref, err := Persist(context.Background(), c, "maul", nil, unitNamed("u"), unitGVK, []byte("x"))
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) || !errors.Is(err, errBoom) {
 				t.Fatalf("Persist err = %v, want %q wrapping boom", err, tt.wantErr)
 			}
@@ -118,7 +118,7 @@ func TestLoadGetError(t *testing.T) {
 			return errBoom
 		},
 	}).Build()
-	entry, err := Load(context.Background(), c, "patchy", "x-results")
+	entry, err := Load(context.Background(), c, "maul", "x-results")
 	if !errors.Is(err, errBoom) || !strings.Contains(err.Error(), "evalresults: read x-results") {
 		t.Errorf("Load err = %v, want wrapped read error", err)
 	}
@@ -149,10 +149,10 @@ func TestLoadObjectShapes(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := newClient(t).WithObjects(&corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{Name: "r", Namespace: "patchy"},
+				ObjectMeta: metav1.ObjectMeta{Name: "r", Namespace: "maul"},
 				BinaryData: tt.data,
 			}).Build()
-			got, err := Load(context.Background(), c, "patchy", "r")
+			got, err := Load(context.Background(), c, "maul", "r")
 			if tt.wantErrIn != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErrIn) {
 					t.Fatalf("Load err = %v, want containing %q", err, tt.wantErrIn)
@@ -180,10 +180,10 @@ func TestLoadObjectShapes(t *testing.T) {
 func TestLoadBoundsDecompression(t *testing.T) {
 	big := bytes.Repeat([]byte("a"), maxDecodedBytes+1024)
 	c := newClient(t).WithObjects(&corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Name: "big", Namespace: "patchy"},
+		ObjectMeta: metav1.ObjectMeta{Name: "big", Namespace: "maul"},
 		BinaryData: map[string][]byte{DataKey: gz(t, big)},
 	}).Build()
-	got, err := Load(context.Background(), c, "patchy", "big")
+	got, err := Load(context.Background(), c, "maul", "big")
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}

@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/ghclient"
 )
 
 // TestPRCommandsStartRoundsOnlyWhenEligible: a PR comment starts a revise round only
-// when it is an approver's unedited /patchy revise, or a retry with a failed
+// when it is an approver's unedited /maul revise, or a retry with a failed
 // round to retry: an outsider's command, an edited one, another verb, a
 // retry with nothing failed, or a command older than the pull request's
 // review cutoff starts nothing.
@@ -28,19 +28,19 @@ func TestPRCommandsStartRoundsOnlyWhenEligible(t *testing.T) {
 		// one.
 		wantRound bool
 	}{
-		{name: "approver's revise", author: approver, body: "/patchy revise do it", wantRound: true},
-		{name: "outsider's revise", author: "outsider", body: "/patchy revise do it"},
-		{name: "edited revise", author: approver, body: "/patchy revise do it", edited: true},
-		{name: "retry with nothing failed", author: approver, body: "/patchy retry"},
-		{name: "another verb", author: approver, body: "/patchy approve"},
+		{name: "approver's revise", author: approver, body: "/maul revise do it", wantRound: true},
+		{name: "outsider's revise", author: "outsider", body: "/maul revise do it"},
+		{name: "edited revise", author: approver, body: "/maul revise do it", edited: true},
+		{name: "retry with nothing failed", author: approver, body: "/maul retry"},
+		{name: "another verb", author: approver, body: "/maul approve"},
 		{name: "not a command", author: approver, body: "please revise this"},
-		{name: "older than the cutoff", author: approver, body: "/patchy revise do it", before: true},
+		{name: "older than the cutoff", author: approver, body: "/maul revise do it", before: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newEnv(t, testProject())
 			name := e.awaiting()
-			e.gh.label(1, "patchy:approved", approver)
+			e.gh.label(1, "maul:approved", approver)
 			in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 			pr := in.Status.PullRequests[0]
 			at := e.clock.Now()
@@ -87,7 +87,7 @@ func TestPRCommandsStartRoundsOnlyWhenEligible(t *testing.T) {
 func TestReviseHeadMovedBeforeLaunch(t *testing.T) {
 	e := newEnv(t, testProject())
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 	number := in.Status.PullRequests[0].Number
 	e.gh.reviews[number] = []ghclient.Review{{ID: 961, NodeID: "review-961", Author: actorOf(approver),

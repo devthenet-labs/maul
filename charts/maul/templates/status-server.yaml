@@ -1,0 +1,789 @@
+# Copyright 2026 Bitwise Media Group Ltd.
+# SPDX-License-Identifier: MIT
+#
+# The status server, in one file (unlike the controllers, which render from
+# shared per-kind templates): it is the only optional component
+# (statusServer.enabled), the only one labelled component=server rather than
+# controller, and the only one with an auth mount and a human-facing
+# exposure — spreading its guards across six kind files would obscure all
+# three facts. Mirrors deploy/kustomize/base/{deployment-status-server,
+# rbac,service,networkpolicy}.yaml.
+{{- if .Values.statusServer.enabled }}
+{{- $vals := .Values.statusServer }}
+{{- $name := "status-server" }}
+{{- /*
+The auth Secret mounted at /etc/maul/auth: an existing Secret wins; inline
+auth.config renders a chart-managed one; with neither, the (optional) mount
+is empty and the server serves public rollup statistics only.
+*/}}
+{{- $authSecret := $vals.auth.existingSecret | default (printf "%s-status-auth" (include "maul.fullname" .)) }}
+{{- if and $vals.auth.existingSecret $vals.auth.config }}
+{{- fail "statusServer.auth.existingSecret and statusServer.auth.config are mutually exclusive" }}
+{{- end }}
+{{- /*
+The intents views show plans and transcripts per Project, so they come up only
+under oidc with both claim prefixes (the server refuses anything else at
+startup; an inline config is checked here too, so a bad one fails the render
+rather than crash-looping the pod). An existingSecret is opaque to the chart.
+*/}}
+{{- if $vals.intents.enabled }}
+{{- if not (or $vals.auth.config $vals.auth.existingSecret) }}
+{{- fail "statusServer.intents.enabled requires an auth config in mode oidc (statusServer.auth.existingSecret or statusServer.auth.config)" }}
+{{- end }}
+{{- with $vals.auth.config }}
+{{- if ne (.mode | default "") "oidc" }}
+{{- fail "statusServer.intents.enabled requires statusServer.auth.config.mode oidc: modes none and anonymous would show every Project to every visitor" }}
+{{- end }}
+{{- $claims := (.oidc | default dict).claims | default dict }}
+{{- if or (not $claims.usernamePrefix) (not $claims.groupsPrefix) }}
+{{- fail "statusServer.intents.enabled requires statusServer.auth.config.oidc.claims.usernamePrefix and groupsPrefix" }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- /*
+The usage views key a person by their GitHub id, which Dex sends only with the
+federated:id scope; otherwise they need what the intents views need. An inline
+config is checked here (the server refuses the rest at startup).
+*/}}
+{{- if $vals.usage.enabled }}
+{{- if not (or $vals.auth.config $vals.auth.existingSecret) }}
+{{- fail "statusServer.usage.enabled requires an auth config in mode oidc (statusServer.auth.existingSecret or statusServer.auth.config)" }}
+{{- end }}
+{{- with $vals.auth.config }}
+{{- if ne (.mode | default "") "oidc" }}
+{{- fail "statusServer.usage.enabled requires statusServer.auth.config.mode oidc: usage is kept per GitHub account, which only a Dex sign-in through the GitHub connector names" }}
+{{- end }}
+{{- $oidc := .oidc | default dict }}
+{{- $claims := $oidc.claims | default dict }}
+{{- if or (not $claims.usernamePrefix) (not $claims.groupsPrefix) }}
+{{- fail "statusServer.usage.enabled requires statusServer.auth.config.oidc.claims.usernamePrefix and groupsPrefix" }}
+{{- end }}
+{{- if not (has "federated:id" ($oidc.scopes | default list)) }}
+{{- fail "statusServer.usage.enabled requires federated:id in statusServer.auth.config.oidc.scopes, so Dex's ID token names the GitHub connector and the person's GitHub id" }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- /*
+The Account page keeps a credential under the person's GitHub id, as the
+usage views keep usage: the same posture (maul.accountOn has already
+refused it without the credential store).
+*/}}
+{{- if include "maul.accountOn" . }}
+{{- if not (or $vals.auth.config $vals.auth.existingSecret) }}
+{{- fail "statusServer.account.enabled requires an auth config in mode oidc (statusServer.auth.existingSecret or statusServer.auth.config)" }}
+{{- end }}
+{{- with $vals.auth.config }}
+{{- if ne (.mode | default "") "oidc" }}
+{{- fail "statusServer.account.enabled requires statusServer.auth.config.mode oidc: a credential is kept per GitHub account, which only a Dex sign-in through the GitHub connector names" }}
+{{- end }}
+{{- $oidc := .oidc | default dict }}
+{{- $claims := $oidc.claims | default dict }}
+{{- if or (not $claims.usernamePrefix) (not $claims.groupsPrefix) }}
+{{- fail "statusServer.account.enabled requires statusServer.auth.config.oidc.claims.usernamePrefix and groupsPrefix" }}
+{{- end }}
+{{- if not (has "federated:id" ($oidc.scopes | default list)) }}
+{{- fail "statusServer.account.enabled requires federated:id in statusServer.auth.config.oidc.scopes, so Dex's ID token names the GitHub connector and the person's GitHub id" }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- if $vals.auth.config }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+    name: {{ $authSecret }}
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+    {{- with include "maul.annotations" (dict "root" .) }}
+    annotations:
+        {{- . | nindent 8 }}
+    {{- end }}
+type: Opaque
+stringData:
+    config.yaml: |
+        {{- toYaml $vals.auth.config | nindent 8 }}
+{{- end }}
+{{- if $vals.serviceAccount.create }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+    name: {{ include "maul.serviceAccountName" (dict "root" . "name" $name "vals" $vals) }}
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+    {{- with include "maul.annotations" (dict "root" . "extra" $vals.serviceAccount.annotations) }}
+    annotations:
+        {{- . | nindent 8 }}
+    {{- end }}
+{{- end }}
+---
+{{- $data := dict
+    "MAUL_HEALTH_ADDR" ":8081"
+    "MAUL_LISTEN_ADDR" ":8080"
+    "MAUL_AUTH_CONFIG" "/etc/maul/auth/config.yaml"
+    "MAUL_AGENT_NAMESPACE" .Values.agent.namespace
+    "MAUL_LOG_LEVEL" .Values.config.logLevel
+}}
+{{- if $vals.intents.enabled }}
+{{- $_ := set $data "MAUL_INTENTS_ENABLED" "true" }}
+{{- end }}
+{{- if $vals.usage.enabled }}
+{{- $_ := set $data "MAUL_USAGE_ENABLED" "true" }}
+{{- end }}
+{{- if include "maul.accountOn" . }}
+{{- $_ := set $data "MAUL_ACCOUNT_ENABLED" "true" }}
+{{- $_ := set $data "MAUL_CREDENTIALS_NAMESPACE" (.Values.egressBroker.userCredentials.namespace | default "maul-credentials") }}
+{{- /* The providers the enabled runners use: anthropic (claude), openai
+(codex). user-credentials.yaml has already refused a render with neither. */}}
+{{- $_ := set $data "MAUL_ACCOUNT_PROVIDERS" (include "maul.credentialProviders" .) }}
+{{- end }}
+{{- /* agent.paused, shown on the page; the job controllers enforce it. */}}
+{{- $_ := include "maul.agentsPausedData" (dict "root" . "data" $data) }}
+{{- range $k, $v := .Values.config.extra }}
+{{- $_ := set $data $k $v }}
+{{- end }}
+{{- range $k, $v := $vals.config.extra }}
+{{- $_ := set $data $k $v }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+    name: {{ include "maul.configMapName" (dict "root" . "name" $name) }}
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+    {{- with include "maul.annotations" (dict "root" .) }}
+    annotations:
+        {{- . | nindent 8 }}
+    {{- end }}
+data:
+    {{- range $k, $v := $data }}
+    {{- /* Helm parses every values.yaml number as a float64, and toString
+           renders a large one in scientific notation ("1.2e+06"), which the
+           binaries' strconv.Atoi rejects at startup. Integral floats are
+           therefore rendered as integers; genuine fractions (confidence
+           thresholds) fall through unchanged. */ -}}
+    {{- $s := $v | toString }}
+    {{- if and (kindIs "float64" $v) (eq $v (floor $v)) }}
+    {{- $s = int64 $v | toString }}
+    {{- end }}
+    {{ $k }}: {{ $s | quote }}
+    {{- end }}
+---
+# Reads Findings/FindingRollups for the projection; writes SPEC only
+# (approve records spec.approval, retry/expedite record spec.retry /
+# spec.expedite, suspend/resume toggle spec.suspend, replay stamps
+# Integration spec.replay). Deliberately NO */status — the status server
+# never moves a phase — and no leases (no reconcilers, no leader election).
+# The delete/deletecollection verbs back the access-review-gated reset
+# action (demo tooling): wipe the pipeline state, keep the configuration.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+    name: {{ include "maul.fullname" . }}-{{ $name }}
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+rules:
+    - apiGroups: [maul.run]
+      resources: [findings]
+      verbs: [get, list, watch, update, patch, delete, deletecollection]
+    - apiGroups: [maul.run]
+      resources: [findingrollups]
+      verbs: [get, list, watch, delete, deletecollection]
+    # Read-only plus reset: the projection lifts each run's report markdown
+    # from the Investigation/Remediation children (reports live on the child
+    # only); repositories exist for reset alone.
+    - apiGroups: [maul.run]
+      resources: [investigations, remediations, repositories]
+      verbs: [get, list, watch, delete, deletecollection]
+    # Spec-only write seam for the replay and backfill actions (spec.replay,
+    # spec.backfill); the cached client's informer needs list/watch.
+    - apiGroups: [maul.run]
+      resources: [integrations]
+      verbs: [get, list, watch, update, patch]
+    # Read-only: the configuration view projects the Forges alongside the
+    # Integrations.
+    - apiGroups: [maul.run]
+      resources: [forges]
+      verbs: [get, list, watch]
+    # The persisted agent transcripts, read one at a time when a human opens a
+    # finding. Get only: they are read through the uncached API reader, so no
+    # informer and no list/watch — caching every ConfigMap in the namespace to
+    # serve these would be a poor trade.
+    - apiGroups: [""]
+      resources: [configmaps]
+      verbs: [get]
+---
+{{- if $vals.liveTranscripts }}
+# Live transcripts: the status server follows a running agent's pod log to
+# stream its conversation, through the API server — it never dials an agent
+# pod, so the agents' default-deny ingress policy is untouched. Read-only, and
+# scoped to the agents namespace: no Jobs, no Secrets, no writes.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+    name: {{ include "maul.fullname" . }}-{{ $name }}-agent-logs
+    namespace: {{ .Values.agent.namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+rules:
+    - apiGroups: [""]
+      resources: [pods]
+      verbs: [get, list]
+    - apiGroups: [""]
+      resources: [pods/log]
+      verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+    name: {{ include "maul.fullname" . }}-{{ $name }}-agent-logs
+    namespace: {{ .Values.agent.namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+roleRef:
+    apiGroup: rbac.authorization.k8s.io
+    kind: Role
+    name: {{ include "maul.fullname" . }}-{{ $name }}-agent-logs
+subjects:
+    - kind: ServiceAccount
+      name: {{ include "maul.serviceAccountName" (dict "root" . "name" $name "vals" $vals) }}
+      namespace: {{ .Release.Namespace }}
+---
+{{- end }}
+{{- if $vals.intents.enabled }}
+# The intents views: read-only on the intent kinds, cached through informers
+# (hence list and watch). Never */status, never a write, never Secrets. The
+# plan and transcript ConfigMaps are read with the configmaps get above, and
+# the server serves one only when it carries the intent's label and a
+# controller reference to its very owner.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+    name: {{ include "maul.fullname" . }}-{{ $name }}-intents
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+rules:
+    - apiGroups: [maul.run]
+      resources: [projects, intents, intentruns, previews]
+      verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+    name: {{ include "maul.fullname" . }}-{{ $name }}-intents
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+roleRef:
+    apiGroup: rbac.authorization.k8s.io
+    kind: Role
+    name: {{ include "maul.fullname" . }}-{{ $name }}-intents
+subjects:
+    - kind: ServiceAccount
+      name: {{ include "maul.serviceAccountName" (dict "root" . "name" $name "vals" $vals) }}
+      namespace: {{ .Release.Namespace }}
+---
+# A live intent run's Job clock (creation, start, activeDeadlineSeconds, the
+# stage idle limit) for the run panel, and the live follow's "has the Job
+# ended" check. get only: the server projects those fields and never passes
+# the Job (its env names SecretKeyRefs) to a viewer.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+    name: {{ include "maul.fullname" . }}-{{ $name }}-agent-jobs
+    namespace: {{ .Values.agent.namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+rules:
+    - apiGroups: [batch]
+      resources: [jobs]
+      verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+    name: {{ include "maul.fullname" . }}-{{ $name }}-agent-jobs
+    namespace: {{ .Values.agent.namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+roleRef:
+    apiGroup: rbac.authorization.k8s.io
+    kind: Role
+    name: {{ include "maul.fullname" . }}-{{ $name }}-agent-jobs
+subjects:
+    - kind: ServiceAccount
+      name: {{ include "maul.serviceAccountName" (dict "root" . "name" $name "vals" $vals) }}
+      namespace: {{ .Release.Namespace }}
+---
+{{- end }}
+{{- if $vals.usage.enabled }}
+# The usage views: read-only on the UsageRollups the run controllers write,
+# cached through an informer (hence list and watch). Never */status, never a
+# write. Who sees whose usage is the server's own decision: a person their
+# own, holders of the virtual usage/all everyone's.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+    name: {{ include "maul.fullname" . }}-{{ $name }}-usage
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+rules:
+    - apiGroups: [maul.run]
+      resources: [usagerollups]
+      verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+    name: {{ include "maul.fullname" . }}-{{ $name }}-usage
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+roleRef:
+    apiGroup: rbac.authorization.k8s.io
+    kind: Role
+    name: {{ include "maul.fullname" . }}-{{ $name }}-usage
+subjects:
+    - kind: ServiceAccount
+      name: {{ include "maul.serviceAccountName" (dict "root" . "name" $name "vals" $vals) }}
+      namespace: {{ .Release.Namespace }}
+---
+{{- end }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+    name: {{ include "maul.fullname" . }}-{{ $name }}
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+roleRef:
+    apiGroup: rbac.authorization.k8s.io
+    kind: Role
+    name: {{ include "maul.fullname" . }}-{{ $name }}
+subjects:
+    - kind: ServiceAccount
+      name: {{ include "maul.serviceAccountName" (dict "root" . "name" $name "vals" $vals) }}
+      namespace: {{ .Release.Namespace }}
+---
+# SubjectAccessReview is cluster-scoped, so this one grant needs a
+# ClusterRole. Review-only: the power to ask "may user U approve findings?",
+# not to act.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+    name: {{ include "maul.fullname" . }}-{{ $name }}-authz
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+rules:
+    - apiGroups: [authorization.k8s.io]
+      resources: [subjectaccessreviews]
+      verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+    name: {{ include "maul.fullname" . }}-{{ $name }}-authz
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+roleRef:
+    apiGroup: rbac.authorization.k8s.io
+    kind: ClusterRole
+    name: {{ include "maul.fullname" . }}-{{ $name }}-authz
+subjects:
+    - kind: ServiceAccount
+      name: {{ include "maul.serviceAccountName" (dict "root" . "name" $name "vals" $vals) }}
+      namespace: {{ .Release.Namespace }}
+{{- if $vals.rbac.userRoles }}
+---
+# Example user-facing grant tiers. Bindings are yours to bring: bind Users to
+# the OIDC username claim's values and Groups to the groups claim's values,
+# in the release namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+    name: {{ include "maul.fullname" . }}-findings-viewer
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+rules:
+    - apiGroups: [maul.run]
+      resources: [findings, findingrollups]
+      verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+    name: {{ include "maul.fullname" . }}-findings-approver
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+rules:
+    - apiGroups: [maul.run]
+      resources: [findings, findingrollups]
+      verbs: [get, list]
+    - apiGroups: [maul.run]
+      resources: [findings]
+      verbs: [approve]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+    name: {{ include "maul.fullname" . }}-findings-operator
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+rules:
+    - apiGroups: [maul.run]
+      resources: [findings, findingrollups]
+      verbs: [get, list]
+    - apiGroups: [maul.run]
+      resources: [findings]
+      verbs: [approve, retry, expedite, suspend, resume]
+---
+# Operator + the configuration view (native get on integrations), the
+# backfill trigger, and the user menu's demo tooling: replay the webhook
+# delivery log, reset (delete) all pipeline state. Grant replay/reset
+# sparingly. Migration note: replay/reset moved from findings to
+# integrations — the resource they act on and the one the integrations
+# admission policy checks.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+    name: {{ include "maul.fullname" . }}-findings-admin
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+rules:
+    - apiGroups: [maul.run]
+      resources: [findings, findingrollups]
+      verbs: [get, list]
+    - apiGroups: [maul.run]
+      resources: [findings]
+      verbs: [approve, retry, expedite, suspend, resume]
+    - apiGroups: [maul.run]
+      resources: [integrations]
+      verbs: [get, list, backfill, replay, reset]
+{{- if $vals.intents.enabled }}
+---
+# The intents views' two read tiers, one per role. The subresources are
+# virtual: nothing on the API server serves them, so these grant kubectl
+# nothing; the status server's access reviews are their only reader. As
+# ClusterRoles without resourceNames they cover every Project: bind them with
+# a RoleBinding in the release namespace. For one Project, write a Role with
+# resourceNames: [<project>] instead (docs/intents/dashboard.md).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+    name: {{ include "maul.fullname" . }}-intents-viewer
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+rules:
+    - apiGroups: [maul.run]
+      resources: [projects/intents]
+      verbs: [get]
+---
+# Viewer + private content: plan text, run reports and transcripts.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+    name: {{ include "maul.fullname" . }}-intents-content
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+rules:
+    - apiGroups: [maul.run]
+      resources: [projects/intents, projects/transcripts]
+      verbs: [get]
+{{- end }}
+{{- if $vals.usage.enabled }}
+---
+# Everyone's usage: the status page's admin usage view (get on the virtual
+# usage/all, read only by the server's access reviews) and `maul get usage`,
+# which reads the UsageRollups with the caller's own kubeconfig. A person's
+# own usage needs no grant. Bind it with a RoleBinding in the release
+# namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+    name: {{ include "maul.fullname" . }}-usage-admin
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+rules:
+    - apiGroups: [maul.run]
+      resources: [usage/all]
+      verbs: [get]
+    - apiGroups: [maul.run]
+      resources: [usagerollups]
+      verbs: [get, list]
+{{- end }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: {{ include "maul.fullname" . }}-{{ $name }}
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name "component" "server") | nindent 8 }}
+    {{- with include "maul.annotations" (dict "root" .) }}
+    annotations:
+        {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    replicas: 1
+    strategy:
+        type: Recreate
+    selector:
+        matchLabels:
+            {{- include "maul.selectorLabels" (dict "root" . "name" $name) | nindent 12 }}
+    template:
+        metadata:
+            labels:
+                {{- include "maul.labels" (dict "root" . "name" $name "component" "server") | nindent 16 }}
+                {{- with $vals.podLabels }}
+                {{- toYaml . | nindent 16 }}
+                {{- end }}
+            {{- /* checksum/config hashes the ConfigMap data above and, when the
+                   chart renders the auth Secret (auth.config), checksum/auth
+                   hashes that too, so a helm upgrade that changes either rolls
+                   the pod. An auth.existingSecret is operator-owned and not
+                   hashed. */}}
+            {{- $checksums := dict "checksum/config" (toJson $data | sha256sum) }}
+            {{- with $vals.auth.config }}
+            {{- $_ := set $checksums "checksum/auth" (toYaml . | sha256sum) }}
+            {{- end }}
+            {{- with include "maul.annotations" (dict "root" . "extra" (merge $checksums ($vals.podAnnotations | default dict))) }}
+            annotations:
+                {{- . | nindent 16 }}
+            {{- end }}
+        spec:
+            serviceAccountName: {{ include "maul.serviceAccountName" (dict "root" . "name" $name "vals" $vals) }}
+            {{- with .Values.image.pullSecrets }}
+            imagePullSecrets:
+                {{- toYaml . | nindent 16 }}
+            {{- end }}
+            securityContext:
+                runAsNonRoot: true
+                runAsUser: 65532
+                runAsGroup: 65532
+                fsGroup: 65532
+                fsGroupChangePolicy: Always
+                seccompProfile:
+                    type: RuntimeDefault
+            containers:
+                - name: server
+                  image: {{ include "maul.image" (dict "root" . "binary" $name "image" $vals.image) }}
+                  imagePullPolicy: {{ .Values.image.pullPolicy }}
+                  args: ["serve"]
+                  envFrom:
+                      {{- with $vals.extraEnvFrom }}
+                      {{- toYaml . | nindent 22 }}
+                      {{- end }}
+                      - configMapRef:
+                            name: {{ include "maul.configMapName" (dict "root" . "name" $name) }}
+                  env:
+                      - name: POD_NAMESPACE
+                        valueFrom:
+                            fieldRef:
+                                fieldPath: metadata.namespace
+                      {{- with include "maul.extraEnv" (dict "path" "statusServer" "env" $vals.extraEnv) }}
+                      {{- . | nindent 22 }}
+                      {{- end }}
+                  ports:
+                      - name: http
+                        containerPort: 8080
+                        protocol: TCP
+                      - name: health
+                        containerPort: 8081
+                        protocol: TCP
+                  livenessProbe:
+                      httpGet:
+                          path: /healthz
+                          port: health
+                      initialDelaySeconds: 5
+                      periodSeconds: 20
+                  readinessProbe:
+                      httpGet:
+                          path: /readyz
+                          port: health
+                      initialDelaySeconds: 2
+                      periodSeconds: 10
+                  {{- with $vals.resources }}
+                  resources:
+                      {{- toYaml . | nindent 22 }}
+                  {{- end }}
+                  securityContext:
+                      allowPrivilegeEscalation: false
+                      readOnlyRootFilesystem: true
+                      capabilities:
+                          drop: ["ALL"]
+                      seccompProfile:
+                          type: RuntimeDefault
+                  volumeMounts:
+                      - name: auth
+                        mountPath: /etc/maul/auth
+                        readOnly: true
+                      - name: tmp
+                        mountPath: /tmp
+                      {{- with $vals.extraVolumeMounts }}
+                      {{- toYaml . | nindent 22 }}
+                      {{- end }}
+            {{- with $vals.nodeSelector }}
+            nodeSelector:
+                {{- toYaml . | nindent 16 }}
+            {{- end }}
+            {{- with $vals.tolerations }}
+            tolerations:
+                {{- toYaml . | nindent 16 }}
+            {{- end }}
+            {{- with $vals.affinity }}
+            affinity:
+                {{- toYaml . | nindent 16 }}
+            {{- end }}
+            volumes:
+                # optional: with no auth Secret at all the server runs the
+                # rollups-only posture.
+                - name: auth
+                  secret:
+                      secretName: {{ $authSecret }}
+                      optional: true
+                - name: tmp
+                  emptyDir: {}
+                {{- with $vals.extraVolumes }}
+                {{- toYaml . | nindent 16 }}
+                {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+    name: {{ include "maul.fullname" . }}-{{ $name }}
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+    {{- with include "maul.annotations" (dict "root" . "extra" $vals.service.annotations) }}
+    annotations:
+        {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    type: {{ $vals.service.type }}
+    selector:
+        {{- include "maul.selectorLabels" (dict "root" . "name" $name) | nindent 8 }}
+    ports:
+        - name: http
+          port: {{ $vals.service.port }}
+          targetPort: http
+          protocol: TCP
+          {{- with $vals.service.nodePort }}
+          nodePort: {{ . }}
+          {{- end }}
+{{- if $vals.networkPolicy.create }}
+---
+# Ingress: 8080 from anywhere (the fronting ingress/gateway lives wherever
+# yours does; session authentication and the public-rollups-only unconfigured
+# posture carry the access control) plus 8081 probes. Egress: DNS, the
+# Kubernetes API server (cache watches + access reviews), and TCP 443 out
+# (the OIDC issuer, an OTLP collector).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+    name: {{ include "maul.fullname" . }}-{{ $name }}
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+spec:
+    podSelector:
+        matchLabels:
+            {{- include "maul.selectorLabels" (dict "root" . "name" $name) | nindent 12 }}
+    policyTypes: [Ingress, Egress]
+    ingress:
+        - ports:
+              - protocol: TCP
+                port: 8080
+              - protocol: TCP
+                port: 8081
+    egress:
+        - to:
+              - namespaceSelector:
+                    matchLabels:
+                        kubernetes.io/metadata.name: kube-system
+          ports:
+              - protocol: UDP
+                port: 53
+              - protocol: TCP
+                port: 53
+        {{- with include "maul.clusterDNSEgress" . }}
+        {{- . | nindent 8 }}
+        {{- end }}
+        - ports:
+              - protocol: TCP
+                port: 443
+              - protocol: TCP
+                port: 6443
+{{- end }}
+{{- if $vals.ingress.enabled }}
+---
+# The status page's exposure, plain-Ingress flavour. The whole site routes:
+# the SPA shell, /api, /events, and the sign-in surface (/oauth2, /logout).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+    name: {{ include "maul.fullname" . }}-{{ $name }}
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+    {{- with include "maul.annotations" (dict "root" . "extra" $vals.ingress.annotations) }}
+    annotations:
+        {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    {{- with $vals.ingress.className | default (include "maul.edgeIngressClassName" .) }}
+    ingressClassName: {{ . }}
+    {{- end }}
+    {{- with $vals.ingress.tls }}
+    tls:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+    rules:
+        - host: {{ required "statusServer.host is required when statusServer.ingress is enabled" $vals.host | quote }}
+          http:
+              paths:
+                  - path: /
+                    pathType: Prefix
+                    backend:
+                        service:
+                            name: {{ include "maul.fullname" . }}-{{ $name }}
+                            port:
+                                name: http
+{{- end }}
+{{- if $vals.httpRoute.enabled }}
+---
+# The status page's exposure, Gateway API flavour.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+    name: {{ include "maul.fullname" . }}-{{ $name }}
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+    {{- with include "maul.annotations" (dict "root" . "extra" $vals.httpRoute.annotations) }}
+    annotations:
+        {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    {{- with $vals.httpRoute.parentRefs }}
+    parentRefs:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+    hostnames:
+        - {{ required "statusServer.host is required when statusServer.httpRoute is enabled" $vals.host | quote }}
+    rules:
+        - matches:
+              - path:
+                    type: PathPrefix
+                    value: /
+          backendRefs:
+              - name: {{ include "maul.fullname" . }}-{{ $name }}
+                port: {{ $vals.service.port }}
+{{- end }}
+{{- end }}

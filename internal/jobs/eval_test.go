@@ -15,7 +15,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/bitwise-media-group/patchy/api/v1alpha1"
+	"github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 func testEvalSpec() EvalSpec {
@@ -25,7 +25,7 @@ func testEvalSpec() EvalSpec {
 		Index:      0,
 		Harness:    "claude",
 		UnitJSON:   []byte(`{"skill":"workflow-commit","tier":2}`),
-		ArtifactURL: "http://patchy-source-controller.patchy.svc.cluster.local:9790/artifacts/" +
+		ArtifactURL: "http://maul-source-controller.maul.svc.cluster.local:9790/artifacts/" +
 			"aa11bb22cc33dd44ee55ff6600112233445566778899aabbccddeeff00112233.tar.gz",
 		ArtifactDigest: "aa11bb22cc33dd44ee55ff6600112233445566778899aabbccddeeff00112233",
 	}
@@ -59,7 +59,7 @@ func TestCreateEvalJobShape(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateEval: %v", err)
 	}
-	job, err := cs.BatchV1().Jobs("patchy-agents").Get(ctx, name, metav1.GetOptions{})
+	job, err := cs.BatchV1().Jobs("maul-agents").Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("get job: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestCreateEvalJobShape(t *testing.T) {
 		t.Errorf("activeDeadlineSeconds = %v, want 3600", job.Spec.ActiveDeadlineSeconds)
 	}
 
-	secret, err := cs.CoreV1().Secrets("patchy-agents").Get(ctx, name, metav1.GetOptions{})
+	secret, err := cs.CoreV1().Secrets("maul-agents").Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("get secret: %v", err)
 	}
@@ -236,7 +236,7 @@ func TestCreateEvalIsIdempotent(t *testing.T) {
 	if first != second {
 		t.Errorf("CreateEval names differ: %q vs %q", first, second)
 	}
-	jobsList, _ := cs.BatchV1().Jobs("patchy-agents").List(ctx, metav1.ListOptions{})
+	jobsList, _ := cs.BatchV1().Jobs("maul-agents").List(ctx, metav1.ListOptions{})
 	if len(jobsList.Items) != 1 {
 		t.Errorf("jobs = %d, want 1", len(jobsList.Items))
 	}
@@ -252,7 +252,7 @@ func TestCreateEvalDeadlineOverride(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateEval: %v", err)
 	}
-	job, _ := cs.BatchV1().Jobs("patchy-agents").Get(context.Background(), name, metav1.GetOptions{})
+	job, _ := cs.BatchV1().Jobs("maul-agents").Get(context.Background(), name, metav1.GetOptions{})
 	if job.Spec.ActiveDeadlineSeconds == nil || *job.Spec.ActiveDeadlineSeconds != int64(1800) {
 		t.Errorf("activeDeadlineSeconds = %v, want 1800", job.Spec.ActiveDeadlineSeconds)
 	}

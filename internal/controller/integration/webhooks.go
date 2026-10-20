@@ -20,11 +20,11 @@ import (
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/command"
-	"github.com/bitwise-media-group/patchy/internal/forge"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/webhook"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/command"
+	"github.com/devthenet-labs/maul/internal/forge"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/webhook"
 )
 
 // TrackingURLIndex is the field-indexer key mapping a tracking item's html
@@ -34,7 +34,7 @@ const TrackingURLIndex = "status.tracking.url"
 // BranchPrefix prefixes every remediation branch; the finding name follows,
 // so pull-request webhooks resolve their Finding from the head ref (and
 // settle it only when the PR is the one recorded for it: isRecordedPR).
-const BranchPrefix = "patchy/"
+const BranchPrefix = "maul/"
 
 // Signals applies human actions on tracking items to Findings: the writer of
 // edges 16/17 (the recorded PR merged/closed), 19 (issue reopened after
@@ -125,7 +125,7 @@ func (s *Signals) issues(ctx context.Context, payload []byte) error {
 }
 
 // comment records a human command made on a tracking issue: a comment that
-// opens with "/patchy <verb>" (internal/command's grammar), or the
+// opens with "/maul <verb>" (internal/command's grammar), or the
 // deprecated approve comment. It records the command on the finding's
 // status (status.commands.pending) and does nothing more: whether the
 // commenter may issue it is for GitHub to say, and a delivery is answered
@@ -442,7 +442,7 @@ func (c prClose) settle(cur *v1alpha1.Finding, now time.Time) error {
 // a branch in headRepo (owner/name each) — is the remediation PR recorded
 // for the finding: the same number, in the repository the record names, from
 // a branch in that same repository. The head ref alone proves nothing:
-// anyone who can open a pull request can name a branch patchy/<finding>, and
+// anyone who can open a pull request can name a branch maul/<finding>, and
 // a fork's branch carries whatever name its owner chose.
 func isRecordedPR(f *v1alpha1.Finding, repo, headRepo string, number int64) bool {
 	pr := f.Status.PullRequest

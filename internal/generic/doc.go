@@ -8,7 +8,7 @@
 // context-enhancer call.
 //
 // Unlike every other source package there is no description template here:
-// the external process authors its own markdown — patchy has no tool-native
+// the external process authors its own markdown — maul has no tool-native
 // payload to render, only the normalized contract.
 //
 // A handler's source id is the Integration's NAME, not a package constant:

@@ -10,13 +10,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bitwise-media-group/patchy/internal/mirror/spec"
+	"github.com/devthenet-labs/maul/internal/mirror/spec"
 )
 
 // artifactManifest writes the "bundle" artifact entry pinned at 1.0.0.
 // extraBlocks lands after the artifact block (scan:, publish:).
 func (f *fixture) artifactManifest(canonicalRef, extraBlocks string) {
-	manifest := fmt.Sprintf(`apiVersion: mirror.patchy.bitwisemedia.uk/v1alpha1
+	manifest := fmt.Sprintf(`apiVersion: mirror.maul.run/v1alpha1
 kind: Artifact
 name: bundle
 artifact:

@@ -6,7 +6,7 @@ no reconcilers and takes no leases; a controller-runtime cache gives it live wat
 browsers to refetch when anything changes.
 
 ```sh
-status-server serve --namespace patchy --auth-config /etc/patchy/auth/config.yaml
+status-server serve --namespace maul --auth-config /etc/maul/auth/config.yaml
 ```
 
 The exposure contract is deliberately asymmetric — see [the status page](../status-ui.md) for the UI tour and the RBAC
@@ -30,21 +30,21 @@ grammar:
 The [shared flags](index.md#shared-flags-every-controller) (`--listen-addr` is the page's own address here — there is no
 webhook), plus:
 
-| Flag                | Env                      | Default         | Purpose                                                                                                                      |
-| ------------------- | ------------------------ | --------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `--namespace`       | `PATCHY_NAMESPACE`       | `POD_NAMESPACE` | Namespace the Findings and FindingRollups live in                                                                            |
-| `--agent-namespace` | `PATCHY_AGENT_NAMESPACE` | `patchy-agents` | Namespace the agent Jobs run in; live conversations are followed from their pod logs                                         |
-| `--kubeconfig`      | `PATCHY_KUBECONFIG`      | in-cluster      | Kubeconfig path for running outside the cluster                                                                              |
-| `--health-addr`     | `PATCHY_HEALTH_ADDR`     | `:8081`         | healthz/readyz probe listen address                                                                                          |
-| `--auth-config`     | `PATCHY_AUTH_CONFIG`     | _(unset)_       | Mounted authentication config; absent ⇒ rollups-only (see below)                                                             |
-| `--agents-paused`   | `PATCHY_AGENTS_PAUSED`   | `false`         | Show the [agent pause](investigation-controller.md#pausing-agents) on the signed-in page; display only. Helm: `agent.paused` |
+| Flag                | Env                    | Default         | Purpose                                                                                                                      |
+| ------------------- | ---------------------- | --------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `--namespace`       | `MAUL_NAMESPACE`       | `POD_NAMESPACE` | Namespace the Findings and FindingRollups live in                                                                            |
+| `--agent-namespace` | `MAUL_AGENT_NAMESPACE` | `maul-agents`   | Namespace the agent Jobs run in; live conversations are followed from their pod logs                                         |
+| `--kubeconfig`      | `MAUL_KUBECONFIG`      | in-cluster      | Kubeconfig path for running outside the cluster                                                                              |
+| `--health-addr`     | `MAUL_HEALTH_ADDR`     | `:8081`         | healthz/readyz probe listen address                                                                                          |
+| `--auth-config`     | `MAUL_AUTH_CONFIG`     | _(unset)_       | Mounted authentication config; absent ⇒ rollups-only (see below)                                                             |
+| `--agents-paused`   | `MAUL_AGENTS_PAUSED`   | `false`         | Show the [agent pause](investigation-controller.md#pausing-agents) on the signed-in page; display only. Helm: `agent.paused` |
 
 Two more flags turn on the [intents dashboard](../intents/dashboard.md):
 
-| Flag                     | Env                           | Default | Purpose                                                                                                                                        |
-| ------------------------ | ----------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--intents-enabled`      | `PATCHY_INTENTS_ENABLED`      | `false` | Serve the read-only intents views with per-Project access reviews. Needs mode `oidc` with both claim prefixes, and hardens the page (below)    |
-| `--intents-dev-insecure` | `PATCHY_INTENTS_DEV_INSECURE` | `false` | Development only: let the intents views run in mode `none`, showing every Project to every visitor. Refused unless `--listen-addr` is loopback |
+| Flag                     | Env                         | Default | Purpose                                                                                                                                        |
+| ------------------------ | --------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--intents-enabled`      | `MAUL_INTENTS_ENABLED`      | `false` | Serve the read-only intents views with per-Project access reviews. Needs mode `oidc` with both claim prefixes, and hardens the page (below)    |
+| `--intents-dev-insecure` | `MAUL_INTENTS_DEV_INSECURE` | `false` | Development only: let the intents views run in mode `none`, showing every Project to every visitor. Refused unless `--listen-addr` is loopback |
 
 With `--intents-enabled` the server refuses to start in mode `none` (without the development flag) or `anonymous`, with
 no auth config, or in mode `oidc` without `claims.usernamePrefix` and `claims.groupsPrefix` (and
@@ -56,17 +56,17 @@ its RBAC and its limits. With the flag off the server behaves exactly as before 
 
 One flag turns on the [usage views](#usage-views):
 
-| Flag              | Env                    | Default | Purpose                                                                                                                                                          |
-| ----------------- | ---------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--usage-enabled` | `PATCHY_USAGE_ENABLED` | `false` | Serve the Usage page: each person's own usage, everyone's for holders of `usage/all`. Needs mode `oidc` as above plus the `federated:id` scope; hardens the page |
+| Flag              | Env                  | Default | Purpose                                                                                                                                                          |
+| ----------------- | -------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--usage-enabled` | `MAUL_USAGE_ENABLED` | `false` | Serve the Usage page: each person's own usage, everyone's for holders of `usage/all`. Needs mode `oidc` as above plus the `federated:id` scope; hardens the page |
 
 One more turns on the [Account page](#account-page):
 
-| Flag                      | Env                            | Default              | Purpose                                                                                                                    |
-| ------------------------- | ------------------------------ | -------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `--account-enabled`       | `PATCHY_ACCOUNT_ENABLED`       | `false`              | Serve the Account page: each person sets, replaces and deletes their own model credential. Needs what the usage views need |
-| `--credentials-namespace` | `PATCHY_CREDENTIALS_NAMESPACE` | `patchy-credentials` | The namespace the page writes credential Secrets to (write-only)                                                           |
-| `--account-providers`     | `PATCHY_ACCOUNT_PROVIDERS`     | `anthropic`          | The providers the page offers, in order: `anthropic` (claude), `openai` (codex). The chart sets those its runners use      |
+| Flag                      | Env                          | Default            | Purpose                                                                                                                    |
+| ------------------------- | ---------------------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| `--account-enabled`       | `MAUL_ACCOUNT_ENABLED`       | `false`            | Serve the Account page: each person sets, replaces and deletes their own model credential. Needs what the usage views need |
+| `--credentials-namespace` | `MAUL_CREDENTIALS_NAMESPACE` | `maul-credentials` | The namespace the page writes credential Secrets to (write-only)                                                           |
+| `--account-providers`     | `MAUL_ACCOUNT_PROVIDERS`     | `anthropic`        | The providers the page offers, in order: `anthropic` (claude), `openai` (codex). The chart sets those its runners use      |
 
 ## Usage views
 
@@ -78,11 +78,11 @@ The Usage page answers "who is producing what, and what does it cost" from the `
   by Project or by run kind, their top intents, and the totals. The chart opens on cost; tokens are a toggle away and
   open split by type (input, output, cache read, cache write), since a token total is mostly cache reads, which cost a
   tenth of input. No grant is needed: the server reads only the rollups keyed by the caller's own GitHub id.
-- **Everyone's usage.** A holder of `get` on the virtual subresource `usage/all` (group `patchy.bitwisemedia.uk`, the
-  release namespace) also sees every person, the org's runs (no person behind them), every Project and the totals, and
-  can open one person or one Project. With `statusServer.rbac.userRoles` the chart renders the `patchy-usage-admin`
-  ClusterRole (that grant plus `get`/`list` on `usagerollups`, for [`patchy get usage`](../cli.md#reading-usage)); bind
-  it with a RoleBinding in the release namespace.
+- **Everyone's usage.** A holder of `get` on the virtual subresource `usage/all` (group `maul.run`, the release
+  namespace) also sees every person, the org's runs (no person behind them), every Project and the totals, and can open
+  one person or one Project. With `statusServer.rbac.userRoles` the chart renders the `maul-usage-admin` ClusterRole
+  (that grant plus `get`/`list` on `usagerollups`, for [`maul get usage`](../cli.md#reading-usage)); bind it with a
+  RoleBinding in the release namespace.
 - **What the figures are.** Tokens and cost are what the egress broker metered, priced at list rates. Wherever the page
   shows tokens (totals, the daily table, people, Projects) it shows them by type; cache writes are one figure (the
   rollups record five-minute and one-hour writes together). The stacks by Project and by run kind and the top intents
@@ -155,7 +155,7 @@ With `statusServer.host` set, every notice that a run waits for someone's creden
 
 ## Authentication configuration
 
-`--auth-config` points at a YAML file, conventionally a mounted Secret (`patchy-status-auth`, key `config.yaml` — the
+`--auth-config` points at a YAML file, conventionally a mounted Secret (`maul-status-auth`, key `config.yaml` — the
 deployments mount it `optional`, so removing the Secret degrades to rollups-only rather than failing the pod). A
 present-but-invalid file is a startup error: a broken configuration never silently downgrades to no authentication.
 
@@ -165,10 +165,10 @@ sessionDuration: 168h # absolute session lifetime (default 7 days)
 # insecure: true               # separate non-Secure cookies — plain-HTTP local dev ONLY
 anonymous: # mode: anonymous only
   username: status-viewer
-  groups: [patchy-viewers]
+  groups: [maul-viewers]
 oidc: # mode: oidc only
   issuerURL: https://sso.example.com
-  clientID: patchy-status
+  clientID: maul-status
   clientSecret: "..." # or clientSecretFile: /path/to/projected/key
   # scopes: [openid, offline_access, profile, email, groups]
   # authURLParams: {}        # extra authorize-endpoint query parameters
@@ -204,14 +204,13 @@ claim is `email`. The evaluation API reads the same `claims` block and applies t
 
 There is no server-side session store. The ID token, refresh token, and session start are sealed with AES-256-GCM — the
 key is derived (HKDF-SHA256) from the OIDC client secret, so **rotating the client secret signs everyone out** — and
-stored in chunked `HttpOnly` cookies (`__Host-patchy-auth`, `__Host-patchy-auth-1`, …). Every request re-verifies the ID
+stored in chunked `HttpOnly` cookies (`__Host-maul-auth`, `__Host-maul-auth-1`, …). Every request re-verifies the ID
 token; an expired token is renewed via the refresh token in place, but never past `sessionDuration` from the original
-sign-in. Three small SPA-readable cookies carry no secrets: `__Host-patchy-auth-provider` (how sign-in works),
-`__Host-patchy-auth-error` (the last failure), `__Host-patchy-auth-logout` (pauses `autoLogin` after an explicit
-sign-out).
+sign-in. Three small SPA-readable cookies carry no secrets: `__Host-maul-auth-provider` (how sign-in works),
+`__Host-maul-auth-error` (the last failure), `__Host-maul-auth-logout` (pauses `autoLogin` after an explicit sign-out).
 
-All production cookies, including the short-lived `__Host-patchy-oauth2-state` CSRF cookie, use `Secure`, `Path=/` and
-no `Domain`. The browser-enforced `__Host-` prefix prevents a sibling preview host from injecting a parent-domain cookie
+All production cookies, including the short-lived `__Host-maul-oauth2-state` CSRF cookie, use `Secure`, `Path=/` and no
+`Domain`. The browser-enforced `__Host-` prefix prevents a sibling preview host from injecting a parent-domain cookie
 with the same name. Expiry and SPA deletion use the same attributes. See the
 [cookie prefix requirements](https://httpwg.org/http-extensions/draft-ietf-httpbis-rfc6265bis.html#name-the-__host-prefix).
 
@@ -219,10 +218,9 @@ Upgrading from the old unprefixed names requires signing in again; an in-flight 
 cookies are never accepted as a fallback. Old host-only cookies are expired when encountered, including the old OAuth
 state's `/oauth2/` path. Parent-domain cookies cannot be reliably identified from a request and remain ignored.
 
-For explicit `insecure: true` local development over **HTTP only**, both server and SPA use separate `patchy-dev-*`
-names without `Secure`. Production never reads these names. Do not set `insecure` behind an HTTPS ingress; the SPA
-selects its cookie namespace from the browser's protocol, while the server uses operator configuration, not forwarded
-headers.
+For explicit `insecure: true` local development over **HTTP only**, both server and SPA use separate `maul-dev-*` names
+without `Secure`. Production never reads these names. Do not set `insecure` behind an HTTPS ingress; the SPA selects its
+cookie namespace from the browser's protocol, while the server uses operator configuration, not forwarded headers.
 
 The callback URL is derived from `X-Forwarded-Proto` / `X-Forwarded-Host` (or the Host header), which assumes a trusted
 fronting proxy — set `oidc.redirectURL` explicitly if yours cannot be trusted to strip those.
@@ -233,8 +231,8 @@ Per-user grants are ordinary Kubernetes RBAC, resolved server-side with `Subject
 (users need no kubeconfig and never talk to the API server):
 
 - native `get` on `findings` gates **viewing** the findings surface;
-- the **custom verbs** `approve`, `suspend`, `resume` on `findings.patchy.bitwisemedia.uk` gate the action buttons, one
-  verb per button.
+- the **custom verbs** `approve`, `suspend`, `resume` on `findings.maul.run` gate the action buttons, one verb per
+  button.
 
 Grants are namespace-scoped and stamped into the payload as each finding's `userActions`; the client intersects them
 with the finding's own state machine, and every `POST` is re-checked server-side. See

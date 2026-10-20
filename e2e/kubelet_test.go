@@ -37,7 +37,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 // kubeletNode is the Node the fake kubelet registers and the pods it runs
@@ -383,7 +383,7 @@ func (k *kubelet) run(ctx context.Context, job *batchv1.Job) error {
 	// agent gets a real caller token has its pod first, the token bound to it.
 	var pod *corev1.Pod
 	if prepareExit == 0 {
-		if bin := k.agentRunnerFor(rec.Env["PATCHY_PHASE"]); bin != "" {
+		if bin := k.agentRunnerFor(rec.Env["MAUL_PHASE"]); bin != "" {
 			token := ""
 			if k.mintsTokens() {
 				if pod, err = k.createPod(ctx, job); err != nil {
@@ -469,7 +469,7 @@ const (
 // repos/, then the repositories manifest staged in input/. Like the init,
 // it stops at the first failure, and the agent never starts.
 func prepareWorkspace(ctx context.Context, workspace string, env map[string]string, secret *corev1.Secret) error {
-	url, digest := env["PATCHY_ARTIFACT_URL"], env["PATCHY_ARTIFACT_DIGEST"]
+	url, digest := env["MAUL_ARTIFACT_URL"], env["MAUL_ARTIFACT_DIGEST"]
 	if url == "" || digest == "" {
 		return errors.New("the Job names no artifact URL or digest")
 	}
@@ -612,7 +612,7 @@ func (k *kubelet) runAgent(ctx context.Context, workspace string, env map[string
 	cmd.Env = []string{"PATH=" + os.Getenv("PATH")}
 	for name, value := range env {
 		switch name {
-		case "PATH", "HOME", "PATCHY_WORKSPACE":
+		case "PATH", "HOME", "MAUL_WORKSPACE":
 			continue // the pod's own; the workspace is this run's directory
 		}
 		cmd.Env = append(cmd.Env, name+"="+value)
@@ -622,7 +622,7 @@ func (k *kubelet) runAgent(ctx context.Context, workspace string, env map[string
 		cmd.Env = append(cmd.Env, name+"="+value)
 	}
 	k.mu.Unlock()
-	cmd.Env = append(cmd.Env, "HOME="+workspace, "PATCHY_WORKSPACE="+workspace, "PATCHY_FAKE_TURN_DELAY=0")
+	cmd.Env = append(cmd.Env, "HOME="+workspace, "MAUL_WORKSPACE="+workspace, "MAUL_FAKE_TURN_DELAY=0")
 	return runContainer(cmd, "the fake agent")
 }
 
@@ -655,8 +655,8 @@ func (k *kubelet) runAgentRunner(ctx context.Context, bin, workspace string, env
 	for _, args := range [][]string{
 		{"init", "-q"},
 		{"add", "-A"},
-		{"-c", "user.name=patchy", "-c", "user.email=patchy@invalid", "-c", "commit.gpgsign=false",
-			"commit", "-qm", "base " + env["PATCHY_BASE_SHA"]},
+		{"-c", "user.name=maul", "-c", "user.email=maul@invalid", "-c", "commit.gpgsign=false",
+			"commit", "-qm", "base " + env["MAUL_BASE_SHA"]},
 		{"checkout", "-q", "--detach", "HEAD"},
 	} {
 		cmd := exec.CommandContext(ctx, "git", args...)
@@ -692,23 +692,23 @@ func (k *kubelet) runAgentRunner(ctx context.Context, bin, workspace string, env
 	cmd.Env = []string{"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH")}
 	for name, value := range env {
 		switch name {
-		case "PATH", "HOME", "PATCHY_WORKSPACE", "PATCHY_BIN_DIR", "PATCHY_BROKER_TOKEN_FILE":
+		case "PATH", "HOME", "MAUL_WORKSPACE", "MAUL_BIN_DIR", "MAUL_BROKER_TOKEN_FILE":
 			continue // the pod's own paths; stood in for below
 		}
 		cmd.Env = append(cmd.Env, name+"="+value)
 	}
-	if env["PATCHY_BIN_DIR"] != "" {
-		cmd.Env = append(cmd.Env, "PATCHY_BIN_DIR="+binDir)
+	if env["MAUL_BIN_DIR"] != "" {
+		cmd.Env = append(cmd.Env, "MAUL_BIN_DIR="+binDir)
 	}
-	if env["PATCHY_BROKER_TOKEN_FILE"] != "" {
-		cmd.Env = append(cmd.Env, "PATCHY_BROKER_TOKEN_FILE="+token)
+	if env["MAUL_BROKER_TOKEN_FILE"] != "" {
+		cmd.Env = append(cmd.Env, "MAUL_BROKER_TOKEN_FILE="+token)
 	}
 	k.mu.Lock()
 	for name, value := range k.agentEnv {
 		cmd.Env = append(cmd.Env, name+"="+value)
 	}
 	k.mu.Unlock()
-	cmd.Env = append(cmd.Env, "HOME="+workspace, "PATCHY_WORKSPACE="+workspace)
+	cmd.Env = append(cmd.Env, "HOME="+workspace, "MAUL_WORKSPACE="+workspace)
 	return runContainer(cmd, "agent-runner")
 }
 
@@ -835,9 +835,9 @@ func (k *kubelet) waitRun(t *testing.T, why string, match func(agentRun) bool) a
 	return found
 }
 
-// phaseIs matches a run whose agent ran phase (its PATCHY_PHASE).
+// phaseIs matches a run whose agent ran phase (its MAUL_PHASE).
 func phaseIs(phase string) func(agentRun) bool {
-	return func(r agentRun) bool { return r.Env["PATCHY_PHASE"] == phase }
+	return func(r agentRun) bool { return r.Env["MAUL_PHASE"] == phase }
 }
 
 // tarGz is a repository archive as GitHub serves one: files under a single
@@ -945,12 +945,12 @@ func TestKubelet(t *testing.T) {
 					Spec: corev1.PodSpec{
 						RestartPolicy: corev1.RestartPolicyNever,
 						InitContainers: []corev1.Container{{Name: "prepare", Image: "tools", Env: []corev1.EnvVar{
-							{Name: "PATCHY_ARTIFACT_URL", Value: art.URL},
-							{Name: "PATCHY_ARTIFACT_DIGEST", Value: digest(artifact)},
+							{Name: "MAUL_ARTIFACT_URL", Value: art.URL},
+							{Name: "MAUL_ARTIFACT_DIGEST", Value: digest(artifact)},
 						}}},
 						Containers: []corev1.Container{{Name: "agent", Image: "agent", Env: []corev1.EnvVar{
-							{Name: "PATCHY_PHASE", Value: tc.phase},
-							{Name: "PATCHY_REPO", Value: "acme/shop"},
+							{Name: "MAUL_PHASE", Value: tc.phase},
+							{Name: "MAUL_REPO", Value: "acme/shop"},
 						}}},
 					},
 				}},

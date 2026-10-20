@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/forge"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/templates"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/forge"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // webAsks is GitHub counting the calls made on the web repository: the
@@ -115,7 +115,7 @@ func TestUnreachableDepartedRepositoryIsAskedOnlyNowAndThen(t *testing.T) {
 // floor, a server error), and its record, last read open or closed, was taken
 // as it stood: closed, it ended the all-merged intent Closed, with a notice
 // that web's pull request did not merge and the issue closed as not planned;
-// open, the issue patchy itself had closed was taken for a human's, and the
+// open, the issue maul itself had closed was taken for a human's, and the
 // intent ended Closed. Now the ending waits for web to be read, and the intent
 // is Merged once it is.
 func TestStaleDepartedRecordNeverEndsTheIntent(t *testing.T) {

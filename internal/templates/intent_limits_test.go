@@ -12,7 +12,7 @@ import (
 	"testing/quick"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/report"
+	"github.com/devthenet-labs/maul/internal/report"
 )
 
 // testPlanLimits and testBuildLimits are the runs' own limits the test
@@ -82,7 +82,7 @@ func TestPlanPromptStatesItsLimits(t *testing.T) {
 				}
 			}
 			pointer := paragraph(got, "`.github/workflows/`")
-			if !strings.Contains(pointer, "never plan changes under `.github/`, `.patchy/` or\n`.devcontainer/`") {
+			if !strings.Contains(pointer, "never plan changes under `.github/`, `.maul/` or\n`.devcontainer/`") {
 				t.Errorf("the pointer at the CI workflows is not beside the rule against changing them:\n%s", pointer)
 			}
 		})

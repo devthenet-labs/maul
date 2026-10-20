@@ -2,11 +2,11 @@
 // sign-in works through three small SPA-readable cookies; the session itself
 // lives in HttpOnly cookies the client never touches:
 //
-//   __Host-patchy-auth-provider — {provider, authenticated, autoLogin}
+//   __Host-maul-auth-provider — {provider, authenticated, autoLogin}
 //                                (base64url JSON). Absent means unconfigured.
-//   __Host-patchy-auth-error    — human-readable sign-in failure, shown once.
-//   __Host-patchy-auth-logout   — sign-out marker; suppresses autoLogin.
-// HTTP local development uses patchy-dev-* instead. HTTPS never falls back
+//   __Host-maul-auth-error    — human-readable sign-in failure, shown once.
+//   __Host-maul-auth-logout   — sign-out marker; suppresses autoLogin.
+// HTTP local development uses maul-dev-* instead. HTTPS never falls back
 // to dev or legacy cookies: a sibling preview could inject those names.
 
 export interface AuthProvider {
@@ -20,7 +20,7 @@ const ERROR_COOKIE = "auth-error";
 const LOGOUT_COOKIE = "auth-logout";
 
 function cookieName(name: string): string {
-  return (location.protocol === "https:" ? "__Host-patchy-" : "patchy-dev-") + name;
+  return (location.protocol === "https:" ? "__Host-maul-" : "maul-dev-") + name;
 }
 
 function readCookie(name: string): string | null {

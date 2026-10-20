@@ -1,6 +1,6 @@
 # Benchmarks & load tests
 
-Patchy is sized for brownfield estates: onboarding an organization with a **2M-finding backlog** must not melt the
+Maul is sized for brownfield estates: onboarding an organization with a **2M-finding backlog** must not melt the
 controllers. Two opt-in suites keep that promise honest — neither runs in `make pr` or CI:
 
 - **Tier 1 — microbenchmarks** (`mise run bench`): per-package Go benchmarks over deterministic synthetic datasets
@@ -14,18 +14,18 @@ controllers. Two opt-in suites keep that promise honest — neither runs in `mak
 
 ```sh
 mise run bench                          # benchmarks + complexity assertions, recorded under coverage/bench/
-PATCHY_LOAD_N=10000 mise run load       # load suite smoke; default N is 50000
+MAUL_LOAD_N=10000 mise run load       # load suite smoke; default N is 50000
 ```
 
 Knobs:
 
-| Variable              | Applies to | Meaning                                                                        |
-| --------------------- | ---------- | ------------------------------------------------------------------------------ |
-| `PATCHY_BENCH_ASSERT` | bench      | Arms the `TestComplexity*` ratio assertions (`hack/bench.sh` sets it)          |
-| `PATCHY_BENCH_HUGE`   | bench      | Unlocks the 2M in-memory dataset build (~16GB; run with `-benchtime=1x`)       |
-| `PATCHY_LOAD`         | load       | Gates the whole load suite (`hack/load.sh` sets it)                            |
-| `PATCHY_LOAD_N`       | load       | Findings per load test (default `50000`; budget ~15min at 50k, ~35min at 100k) |
-| `PATCHY_LOAD_ASSERT`  | load       | Arms the load suite's ratio assertion (the ingest decile check)                |
+| Variable            | Applies to | Meaning                                                                        |
+| ------------------- | ---------- | ------------------------------------------------------------------------------ |
+| `MAUL_BENCH_ASSERT` | bench      | Arms the `TestComplexity*` ratio assertions (`hack/bench.sh` sets it)          |
+| `MAUL_BENCH_HUGE`   | bench      | Unlocks the 2M in-memory dataset build (~16GB; run with `-benchtime=1x`)       |
+| `MAUL_LOAD`         | load       | Gates the whole load suite (`hack/load.sh` sets it)                            |
+| `MAUL_LOAD_N`       | load       | Findings per load test (default `50000`; budget ~15min at 50k, ~35min at 100k) |
+| `MAUL_LOAD_ASSERT`  | load       | Arms the load suite's ratio assertion (the ingest decile check)                |
 
 Every run is teed into `coverage/bench/` (git-ignored). Compare two runs with benchstat (pinned in `mise.toml`):
 
@@ -42,30 +42,30 @@ asserted.
 
 ## Targets
 
-| Measurement                                        | Target          | Checked by                                            |
-| -------------------------------------------------- | --------------- | ----------------------------------------------------- |
-| Ingest fold cost ratio, 100k ÷ 1k backlog          | ≤ 3×            | `TestComplexityIngestFold` (asserted)                 |
-| Ingest per-alert cost, last ÷ first decile at load | ≤ 2.0           | `TestLoadIngest` (asserted with `PATCHY_LOAD_ASSERT`) |
-| Sustained ingest at 100k existing findings         | ≥ 500 alerts/s  | `TestLoadIngest` (reported)                           |
-| Dataset build per-finding cost ratio, 100k ÷ 10k   | ≤ 1.3×          | `TestComplexityBuildDataset` (asserted)               |
-| `GET /api/findings` at 100k findings               | ≤ 5s            | `TestLoadStatusServer` (reported)                     |
-| integration-controller peak RSS at 100k findings   | ≤ 2GiB          | `TestLoadIngest` (reported)                           |
-| Scheduler pick cost ratio, 2M ÷ 100k pending       | ≤ 30× (n log n) | `TestComplexityPick` (asserted)                       |
+| Measurement                                        | Target          | Checked by                                          |
+| -------------------------------------------------- | --------------- | --------------------------------------------------- |
+| Ingest fold cost ratio, 100k ÷ 1k backlog          | ≤ 3×            | `TestComplexityIngestFold` (asserted)               |
+| Ingest per-alert cost, last ÷ first decile at load | ≤ 2.0           | `TestLoadIngest` (asserted with `MAUL_LOAD_ASSERT`) |
+| Sustained ingest at 100k existing findings         | ≥ 500 alerts/s  | `TestLoadIngest` (reported)                         |
+| Dataset build per-finding cost ratio, 100k ÷ 10k   | ≤ 1.3×          | `TestComplexityBuildDataset` (asserted)             |
+| `GET /api/findings` at 100k findings               | ≤ 5s            | `TestLoadStatusServer` (reported)                   |
+| integration-controller peak RSS at 100k findings   | ≤ 2GiB          | `TestLoadIngest` (reported)                         |
+| Scheduler pick cost ratio, 2M ÷ 100k pending       | ≤ 30× (n log n) | `TestComplexityPick` (asserted)                     |
 
 ## The 2M extrapolation method
 
-Etcd cannot hold 2M findings, so the claim "patchy handles 2M" decomposes into:
+Etcd cannot hold 2M findings, so the claim "maul handles 2M" decomposes into:
 
 1. **Every hot path is measured to be flat (or n log n) in the backlog size** across 1k → 100k, two orders of magnitude.
    The complexity assertions encode this; a path that is flat across 1k→100k because it does index lookups instead of
    scans stays flat at 2M, because the underlying structures (hash indexes, field indexers, the API server's own
    storage) do not change regime past 100k.
 2. **Paths that are pure arithmetic run at the actual 2M** (scheduler `Pick` over 2M candidates, the 2M dataset build
-   behind `PATCHY_BENCH_HUGE`), so nothing there is extrapolated at all.
+   behind `MAUL_BENCH_HUGE`), so nothing there is extrapolated at all.
 3. **Memory extrapolates linearly**: the informer caches dominate, at ~1–2KiB per lean finding (managedFields stripped).
    100k findings ≈ 150–300MiB per controller; 2M ≈ 3–6GiB — size controller limits to the backlog (see the comment in
-   `charts/patchy/values.yaml`). Delayed-queue entries (accumulation windows, TTL requeues) add ~150–250B each,
-   worst-case ~500MiB at 2M — real, but dominated by the cache itself.
+   `charts/maul/values.yaml`). Delayed-queue entries (accumulation windows, TTL requeues) add ~150–250B each, worst-case
+   ~500MiB at 2M — real, but dominated by the cache itself.
 
 What flatness required (all landed with this suite): the key-hash **field index** behind ingest's family lookup (a
 per-alert label-selector scan was O(backlog): the fold ratio measured **8.56×** before, **≤1.35×** after), the phase

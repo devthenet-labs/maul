@@ -12,7 +12,7 @@ import (
 	"testing"
 	"testing/quick"
 
-	"github.com/bitwise-media-group/patchy/internal/forge"
+	"github.com/devthenet-labs/maul/internal/forge"
 )
 
 func mustSet(t *testing.T, ps ...Profile) Set {
@@ -31,7 +31,7 @@ func profileFor(name string, port int, host string, repos ...string) Profile {
 
 func TestForExamples(t *testing.T) {
 	set := mustSet(t,
-		profileFor("go", 8090, "github.com", "devthenet-labs/patchy", "devthenet-labs/patchy-preview-demo"),
+		profileFor("go", 8090, "github.com", "devthenet-labs/maul", "devthenet-labs/patchy-preview-demo"),
 		profileFor("ghe", 8091, "ghe.example.com", "acme/.*"),
 	)
 	tests := []struct {
@@ -40,21 +40,21 @@ func TestForExamples(t *testing.T) {
 		want   string
 		reason Reason
 	}{
-		{"exact", "https://github.com/devthenet-labs/patchy", "go", ""},
+		{"exact", "https://github.com/devthenet-labs/maul", "go", ""},
 		{"anchored: no prefix match", "https://github.com/devthenet-labs/patchy-target", "", ReasonNoMatch},
-		{"anchored: no suffix match", "https://github.com/xdevthenet-labs/patchy", "", ReasonNoMatch},
+		{"anchored: no suffix match", "https://github.com/xdevthenet-labs/maul", "", ReasonNoMatch},
 		{"second pattern", "https://github.com/devthenet-labs/patchy-preview-demo", "go", ""},
-		{"case-insensitive owner/name", "https://github.com/DevThenet-Labs/Patchy", "go", ""},
-		{"case-insensitive host", "https://GitHub.com/devthenet-labs/patchy", "go", ""},
-		{".git suffix", "https://github.com/devthenet-labs/patchy.git", "go", ""},
-		{"trailing slash", "https://github.com/devthenet-labs/patchy/", "go", ""},
-		{"deeper path", "https://github.com/devthenet-labs/patchy/tree/main", "go", ""},
-		{"host mismatch", "https://gitlab.com/devthenet-labs/patchy", "", ReasonNoMatch},
-		{"host with a port is that host", "https://github.com:443/devthenet-labs/patchy", "go", ""},
+		{"case-insensitive owner/name", "https://github.com/DevThenet-Labs/Maul", "go", ""},
+		{"case-insensitive host", "https://GitHub.com/devthenet-labs/maul", "go", ""},
+		{".git suffix", "https://github.com/devthenet-labs/maul.git", "go", ""},
+		{"trailing slash", "https://github.com/devthenet-labs/maul/", "go", ""},
+		{"deeper path", "https://github.com/devthenet-labs/maul/tree/main", "go", ""},
+		{"host mismatch", "https://gitlab.com/devthenet-labs/maul", "", ReasonNoMatch},
+		{"host with a port is that host", "https://github.com:443/devthenet-labs/maul", "go", ""},
 		{"other host's profile", "https://ghe.example.com/acme/api", "ghe", ""},
 		{"pattern does not span the slash", "https://ghe.example.com/acme-corp/api", "", ReasonNoMatch},
-		{"not a URL", "devthenet-labs/patchy", "", ReasonBadURL},
-		{"ssh scheme", "ssh://github.com/devthenet-labs/patchy", "", ReasonBadURL},
+		{"not a URL", "devthenet-labs/maul", "", ReasonBadURL},
+		{"ssh scheme", "ssh://github.com/devthenet-labs/maul", "", ReasonBadURL},
 		{"owner only", "https://github.com/devthenet-labs", "", ReasonBadURL},
 		{"empty", "", "", ReasonBadURL},
 	}
@@ -93,11 +93,11 @@ func TestForEmptySet(t *testing.T) {
 // which it copies so this package can stay stdlib-only.
 func TestParseRepoURLAgreesWithForge(t *testing.T) {
 	corpus := []string{
-		"https://github.com/devthenet-labs/patchy",
-		"https://github.com/devthenet-labs/patchy.git",
-		"https://github.com/devthenet-labs/patchy/",
-		"https://github.com/devthenet-labs/patchy/tree/main",
-		"https://GitHub.COM/DevThenet-Labs/Patchy",
+		"https://github.com/devthenet-labs/maul",
+		"https://github.com/devthenet-labs/maul.git",
+		"https://github.com/devthenet-labs/maul/",
+		"https://github.com/devthenet-labs/maul/tree/main",
+		"https://GitHub.COM/DevThenet-Labs/Maul",
 		"http://github.com/a/b",
 		"https://github.com:8443/a/b",
 		"https://user:pass@github.com/a/b",

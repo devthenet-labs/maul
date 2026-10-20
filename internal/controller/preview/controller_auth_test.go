@@ -21,7 +21,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 // policyDenied is the error a ValidatingAdmissionPolicy's denial reaches a
@@ -30,7 +30,7 @@ import (
 func policyDenied(name string) error {
 	err := kerrors.NewInvalid(networkingv1.SchemeGroupVersion.WithKind("Ingress").GroupKind(), name, nil)
 	err.ErrStatus.Message = fmt.Sprintf("ingresses.networking.k8s.io %q is forbidden: ValidatingAdmissionPolicy "+
-		"'patchy-preview-ingresses' with binding 'patchy-preview-ingresses' denied request: only the pinned "+
+		"'maul-preview-ingresses' with binding 'maul-preview-ingresses' denied request: only the pinned "+
 		"annotations are admitted", name)
 	return err
 }
@@ -65,7 +65,7 @@ func TestAdmissionRefused(t *testing.T) {
 		{"policy denial (Invalid)", policyDenied("preview-demo-1"), true},
 		{"policy denial (Forbidden)", kerrors.NewForbidden(gr, "x", errors.New(
 			"ValidatingAdmissionPolicy 'p' with binding 'b' denied request: no")), true},
-		{"RBAC", kerrors.NewForbidden(gr, "x", errors.New(`User "system:serviceaccount:patchy:pc" cannot patch`)), true},
+		{"RBAC", kerrors.NewForbidden(gr, "x", errors.New(`User "system:serviceaccount:maul:pc" cannot patch`)), true},
 		{"webhook denial", func() error {
 			err := kerrors.NewBadRequest(`admission webhook "vingress.elbv2.k8s.aws" denied the request: no`)
 			return err
@@ -107,7 +107,7 @@ func readyLiveAuthPreview(t *testing.T, targetHealth bool, funcs interceptor.Fun
 	e.r.Settings.TargetHealth = targetHealth
 	e.r.Events = events.NewFakeRecorder(100)
 	e.markReady(p, 0)
-	return e, p, &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Namespace: "patchy-preview-0",
+	return e, p, &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Namespace: "maul-preview-0",
 		Name: componentName(p, 0) + "-pod"}}
 }
 
@@ -204,7 +204,7 @@ func TestRefusedIngressWriteNeverRestartsALivePreview(t *testing.T) {
 				if err := e.slotObject(resourceName(p), &ing); err != nil {
 					t.Fatal(err)
 				}
-				want := maps.Clone(authSettings().Auth.Annotations["patchy-preview-0"])
+				want := maps.Clone(authSettings().Auth.Annotations["maul-preview-0"])
 				want[annotationHealthcheck] = "/health"
 				if !maps.Equal(ing.Annotations, want) {
 					t.Errorf("Ingress annotations = %v, want %v", ing.Annotations, want)
@@ -252,7 +252,7 @@ func TestRefusedIngressCreateNeverSpendsARetry(t *testing.T) {
 			if err := e.slotObject(resourceName(p), &ing); err != nil {
 				t.Fatalf("Ingress not created once admitted: %v", err)
 			}
-			if !e.r.Settings.authConforms("patchy-preview-0", ing.Annotations) {
+			if !e.r.Settings.authConforms("maul-preview-0", ing.Annotations) {
 				t.Errorf("created Ingress annotations = %v, want the pinned set", ing.Annotations)
 			}
 			if targetHealth {
@@ -296,7 +296,7 @@ func TestUpgradeAddsAuthToALiveIngressWithoutARestart(t *testing.T) {
 			if err := e.slotObject(resourceName(p), &before); err != nil {
 				t.Fatal(err)
 			}
-			if e.r.Settings.authConforms("patchy-preview-0", before.Annotations) {
+			if e.r.Settings.authConforms("maul-preview-0", before.Annotations) {
 				t.Fatal("test setup: the live Ingress already carries the pinned set")
 			}
 			for range 3 {
@@ -306,7 +306,7 @@ func TestUpgradeAddsAuthToALiveIngressWithoutARestart(t *testing.T) {
 			if err := e.slotObject(resourceName(p), &after); err != nil {
 				t.Fatal(err)
 			}
-			if !e.r.Settings.authConforms("patchy-preview-0", after.Annotations) ||
+			if !e.r.Settings.authConforms("maul-preview-0", after.Annotations) ||
 				after.Annotations[annotationHealthcheck] != "/health" {
 				t.Errorf("Ingress annotations = %v, want the pinned set beside the health check", after.Annotations)
 			}

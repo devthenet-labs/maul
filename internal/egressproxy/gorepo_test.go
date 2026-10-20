@@ -13,7 +13,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/netprofile"
 )
 
 const goHost = "go.reg.example"
@@ -43,7 +43,7 @@ func goProfile(reg netprofile.Registry, mod func(*netprofile.Grant)) netprofile.
 }
 
 // goRig is an engine with reg granted to profile gr, the registry answering
-// h with the basic credential patchy:<sentinel>.
+// h with the basic credential maul:<sentinel>.
 func goRig(t *testing.T, h http.HandlerFunc, reg netprofile.Registry, mod func(*netprofile.Grant),
 	sumUp *recordingUpstream,
 ) (*regHarness, *recordingUpstream) {
@@ -51,7 +51,7 @@ func goRig(t *testing.T, h http.HandlerFunc, reg netprofile.Registry, mod func(*
 	w := newWorld(t)
 	up := w.host(goHost, h)
 	creds := newFakeCreds()
-	c, err := BasicCredential("patchy", sentinel)
+	c, err := BasicCredential("maul", sentinel)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func (h *regHarness) gr(t *testing.T, path string) result {
 // version gate refuse 410 with no contact; HEAD stays HEAD.
 func TestGoRegistryForwarded(t *testing.T) {
 	h, up := goRig(t, okBody("v1.0.0\n"), goRegistry(false), nil, nil)
-	wantAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte("patchy:"+sentinel))
+	wantAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte("maul:"+sentinel))
 	for _, p := range []string{
 		"example.com/acme/x/@v/list",
 		"example.com/acme/x/@v/v1.0.0.info",

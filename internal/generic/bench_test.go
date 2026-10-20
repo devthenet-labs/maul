@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"testing"
 
-	pkggeneric "github.com/bitwise-media-group/patchy/pkg/generic"
+	pkggeneric "github.com/devthenet-labs/maul/pkg/generic"
 )
 
 // benchPayload is a findings delivery of n findings, marshalled once.

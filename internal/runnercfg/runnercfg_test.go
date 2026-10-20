@@ -21,9 +21,9 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/bitwise-media-group/patchy/internal/cli"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/model"
+	"github.com/devthenet-labs/maul/internal/cli"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/model"
 )
 
 // newOpts builds the flag surface a controller binary presents and resolves
@@ -195,7 +195,7 @@ func TestRunnersCredentialWiring(t *testing.T) {
 
 	codex := runners["codex"]
 	want := jobs.Runner{Image: "codex:1", Brokered: true,
-		Env: map[string]string{"PATCHY_CODEX_BASE_URL": "http://broker:8080/openai/v1"}}
+		Env: map[string]string{"MAUL_CODEX_BASE_URL": "http://broker:8080/openai/v1"}}
 	if !reflect.DeepEqual(codex, want) {
 		t.Errorf("codex runner = %+v, want %+v", codex, want)
 	}
@@ -239,7 +239,7 @@ func TestCodexSecretFlagsRemoved(t *testing.T) {
 				"--"+flag, "x"))
 			if err == nil || !strings.Contains(err.Error(), "--"+flag+" is removed") ||
 				!strings.Contains(err.Error(), "egressBroker.openai.apiKey") ||
-				!strings.Contains(err.Error(), "patchy-openai") {
+				!strings.Contains(err.Error(), "maul-openai") {
 				t.Fatalf("err = %v, want the migration", err)
 			}
 			if _, err := Runners(newOpts(t, "--fake-agent-image", "fake:1", "--"+flag, "x")); err != nil {
@@ -259,7 +259,7 @@ func TestCodexSecretFlagsRemoved(t *testing.T) {
 		})
 	}
 	t.Run("from the environment", func(t *testing.T) {
-		t.Setenv("PATCHY_CODEX_SECRET", "patchy-openai")
+		t.Setenv("MAUL_CODEX_SECRET", "maul-openai")
 		_, err := Runners(newOpts(t, "--broker-url", "http://broker:8080", "--codex-agent-image", "codex:1"))
 		if err == nil || !strings.Contains(err.Error(), "--codex-secret is removed") {
 			t.Fatalf("err = %v, want the migration", err)
@@ -276,7 +276,7 @@ func TestCodexSecretFlagsRemoved(t *testing.T) {
 
 // chartSecretEnvEnum is where the Helm chart constrains
 // agent.runners.<harness>.secretEnv.
-const chartSecretEnvEnum = "../../charts/patchy/values.schema.json"
+const chartSecretEnvEnum = "../../charts/maul/values.schema.json"
 
 // TestChartSecretEnvEnumMatchesHarnesses guards the one copy of the credential
 // vocabulary that Go cannot reach: helm validates secretEnv against a hardcoded
@@ -356,7 +356,7 @@ func TestRunnersCopilotCredentialDefaults(t *testing.T) {
 	copilot := runners["copilot"]
 	want := jobs.Runner{
 		Image:     "copilot:1",
-		Secret:    "patchy-copilot",
+		Secret:    "maul-copilot",
 		SecretKey: "token",
 		SecretEnv: "COPILOT_GITHUB_TOKEN",
 	}
@@ -387,13 +387,13 @@ func TestResolveFoundryCoverage(t *testing.T) {
 
 	ctx := t.Context()
 	cs := fake.NewClientset()
-	_, err = Resolve(ctx, opts, cs, "patchy-agents", runners, nil,
+	_, err = Resolve(ctx, opts, cs, "maul-agents", runners, nil,
 		[]string{"anthropic/claude-sonnet-5", "anthropic/claude-opus-5"}, "anthropic/claude-sonnet-5")
 	if err == nil || !strings.Contains(err.Error(), "anthropic/claude-opus-5") {
 		t.Errorf("Resolve error = %v, want the uncovered model named", err)
 	}
 
-	enabled, err := Resolve(ctx, opts, cs, "patchy-agents", runners, nil,
+	enabled, err := Resolve(ctx, opts, cs, "maul-agents", runners, nil,
 		[]string{"anthropic/claude-sonnet-5"}, "anthropic/claude-sonnet-5")
 	if err != nil {
 		t.Fatalf("Resolve with full coverage: %v", err)
@@ -449,7 +449,7 @@ func TestSecretEnvFlagsMatchAcceptedChannels(t *testing.T) {
 // reaches the agent pod through the claude runner's Env, so a name a Job
 // sets itself must fail startup, naming the flag and the variable, rather
 // than be dropped from every Job without a word. That covers both fleets'
-// names (a finding retry's PATCHY_PREVIOUS_ATTEMPT, the Spec's PATCHY_REPO,
+// names (a finding retry's MAUL_PREVIOUS_ATTEMPT, the Spec's MAUL_REPO,
 // an evaluation's EVOLVE_UNIT_FILE, HOME) on both fleets' controllers,
 // since the chart stamps one provider env into all of them. Any other name
 // still passes through: HTTPS_PROXY is provider.Validate's own benign
@@ -470,7 +470,7 @@ func TestClaudeProviderEnvRefusesPerJobNames(t *testing.T) {
 	}
 	names := slices.Compact(slices.Sorted(slices.Values(
 		slices.Concat(jobs.PerJobEnvNames(), jobs.EvalJobEnvNames()))))
-	for _, want := range []string{"PATCHY_PREVIOUS_ATTEMPT", "HOME", "EVOLVE_UNIT_FILE", "EVOLVE_BUNDLE_DIR"} {
+	for _, want := range []string{"MAUL_PREVIOUS_ATTEMPT", "HOME", "EVOLVE_UNIT_FILE", "EVOLVE_BUNDLE_DIR"} {
 		if !slices.Contains(names, want) {
 			t.Errorf("refused names %v lack %s", names, want)
 		}
@@ -644,7 +644,7 @@ func genQuantity(r *rand.Rand) string {
 }
 
 // TestChartEphemeralStoragePatternIsSound: the chart renders
-// agent.repositoryImages.ephemeralStorage into PATCHY_AGENT_EPHEMERAL_STORAGE
+// agent.repositoryImages.ephemeralStorage into MAUL_AGENT_EPHEMERAL_STORAGE
 // for both job controllers, and RepositoryImages refuses a quantity that does
 // not parse — at startup, where under the chart's Recreate strategy it
 // replaces a running controller with a crash-looping one. So every value the
@@ -654,7 +654,7 @@ func genQuantity(r *rand.Rand) string {
 func TestChartEphemeralStoragePatternIsSound(t *testing.T) {
 	re := chartEphemeralStoragePattern(t)
 	accept := func(q string) error {
-		t.Setenv("PATCHY_AGENT_EPHEMERAL_STORAGE", q)
+		t.Setenv("MAUL_AGENT_EPHEMERAL_STORAGE", q)
 		o := cli.NewOptions()
 		cmd := &cobra.Command{Use: "test", RunE: func(*cobra.Command, []string) error { return nil }}
 		o.Bind(cmd)
@@ -858,11 +858,11 @@ func TestAgentResources(t *testing.T) {
 }
 
 // TestAgentResourcesFromTheEnvironment: the chart delivers the default as
-// PATCHY_AGENT_* keys, and an unquoted cpu: 4 renders as "4".
+// MAUL_AGENT_* keys, and an unquoted cpu: 4 renders as "4".
 func TestAgentResourcesFromTheEnvironment(t *testing.T) {
-	t.Setenv("PATCHY_AGENT_CPU_REQUEST", "4")
-	t.Setenv("PATCHY_AGENT_MEMORY_REQUEST", "8Gi")
-	t.Setenv("PATCHY_AGENT_MEMORY_LIMIT", "10Gi")
+	t.Setenv("MAUL_AGENT_CPU_REQUEST", "4")
+	t.Setenv("MAUL_AGENT_MEMORY_REQUEST", "8Gi")
+	t.Setenv("MAUL_AGENT_MEMORY_LIMIT", "10Gi")
 	r, err := AgentResources(newResourceOpts(t))
 	if err != nil {
 		t.Fatal(err)
@@ -896,7 +896,7 @@ func TestAgentDNS(t *testing.T) {
 	runners := map[string]jobs.Runner{
 		"claude":  {Image: "claude:1", Brokered: true},
 		"codex":   {Image: "codex:1", Brokered: true},
-		"copilot": {Image: "copilot:1", Secret: "patchy-copilot", SecretEnv: "COPILOT_GITHUB_TOKEN"},
+		"copilot": {Image: "copilot:1", Secret: "maul-copilot", SecretEnv: "COPILOT_GITHUB_TOKEN"},
 		"fake":    {Image: "fake:1"},
 	}
 	tests := []struct {
@@ -942,9 +942,9 @@ func TestAgentDNS(t *testing.T) {
 }
 
 // TestAgentDNSFromTheEnvironment: the chart delivers the mode as
-// PATCHY_AGENT_DNS.
+// MAUL_AGENT_DNS.
 func TestAgentDNSFromTheEnvironment(t *testing.T) {
-	t.Setenv("PATCHY_AGENT_DNS", "none")
+	t.Setenv("MAUL_AGENT_DNS", "none")
 	got, err := AgentDNS(newDNSOpts(t), map[string]jobs.Runner{"claude": {Brokered: true}}, []string{"claude"})
 	if err != nil || got != jobs.DNSNone {
 		t.Errorf("AgentDNS = %q, %v; want none", got, err)
@@ -957,7 +957,7 @@ const netProfilesJSON = `[{"name":"go","route":"go","port":8090,"host":"github.c
 	`"bakedModCache":"/opt/go/pkg/mod","allowPseudoVersions":false}]`
 
 func TestNetworkProfiles(t *testing.T) {
-	const proxy = "http://patchy-egress-proxy.patchy.svc.cluster.local"
+	const proxy = "http://maul-egress-proxy.maul.svc.cluster.local"
 	on := []string{"--network-profiles-enabled", "--repository-images", "--agent-ephemeral-storage", "8Gi"}
 	tests := []struct {
 		name        string
@@ -1057,7 +1057,7 @@ func TestEvolveCodexRefused(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EvolveRunners: %v", err)
 	}
-	if _, ok := runners["codex"]; ok || runners["copilot"].Secret != "patchy-copilot" || !runners["claude"].Brokered {
+	if _, ok := runners["codex"]; ok || runners["copilot"].Secret != "maul-copilot" || !runners["claude"].Brokered {
 		t.Errorf("runners = %+v", runners)
 	}
 }

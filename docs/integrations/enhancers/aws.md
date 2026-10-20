@@ -1,6 +1,6 @@
 # AWS resource tags
 
-Patchy has no AWS scanner source — AWS findings arrive through [Wiz](../sources/wiz.md) (or a future source). What the
+Maul has no AWS scanner source — AWS findings arrive through [Wiz](../sources/wiz.md) (or a future source). What the
 `aws` Integration provides is the [context enhancer](index.md): it looks a finding's AWS resource up in an
 organization-level inventory, carries its tags onto the finding, and resolves the owning repository from them. It is the
 AWS sibling of the [Cloud Asset Inventory enhancer](google-cai.md), and like every enhancer it keys purely on the
@@ -47,11 +47,11 @@ or not a repository resolved.
 ## Enabling it
 
 ```yaml
-apiVersion: patchy.bitwisemedia.uk/v1alpha1
+apiVersion: maul.run/v1alpha1
 kind: Integration
 metadata:
   name: aws
-  namespace: patchy
+  namespace: maul
 spec:
   provider: aws
   aws:
@@ -83,8 +83,8 @@ default chain, read-only (`config:SelectAggregateResourceConfig` + `config:Descr
 
   - [EKS Pod Identity](https://docs.aws.amazon.com/eks/latest/userguide/pod-identities.html) — install the
     `eks-pod-identity-agent` add-on and create a pod identity association for the context-controller's service account;
-    no patchy configuration at all. One deployment note: the SDK fetches credentials from the node-local agent at
-    `169.254.170.23:80` over HTTP, and patchy's NetworkPolicy allows that egress from the controllers — if you layer
+    no maul configuration at all. One deployment note: the SDK fetches credentials from the node-local agent at
+    `169.254.170.23:80` over HTTP, and maul's NetworkPolicy allows that egress from the controllers — if you layer
     your own tighter policy, keep that rule.
   - [IRSA](https://docs.aws.amazon.com/eks/latest/userguide/iam-roles-for-service-accounts.html) — annotate the service
     account with the role:
@@ -93,7 +93,7 @@ default chain, read-only (`config:SelectAggregateResourceConfig` + `config:Descr
     contextController:
       serviceAccount:
         annotations:
-          eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/patchy-resource-tags
+          eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/maul-resource-tags
     ```
 
   If both are configured, IRSA wins: the chain resolves web-identity credentials before container credentials.
@@ -101,7 +101,7 @@ default chain, read-only (`config:SelectAggregateResourceConfig` + `config:Descr
 - **Anywhere else** (GKE included):
   [web-identity federation](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_providers_oidc.html) — an IAM OIDC
   provider trusting the cluster's service-account token issuer, and `AWS_ROLE_ARN` + `AWS_WEB_IDENTITY_TOKEN_FILE` (a
-  projected service-account token) on the context-controller deployment. The SDK picks both up without patchy
+  projected service-account token) on the context-controller deployment. The SDK picks both up without maul
   configuration.
 
 ## When no repository resolves

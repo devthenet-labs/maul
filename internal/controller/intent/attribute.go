@@ -4,8 +4,8 @@
 package intent
 
 import (
-	"github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/attribution"
+	"github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/attribution"
 )
 
 // attributeRun is whom a new plan or build run of the Intent is for (design

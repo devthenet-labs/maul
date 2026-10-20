@@ -158,7 +158,7 @@ dontAsk
 --- argv[27]
 00000000-0000-4000-8000-000000000001
 --- env
-ANTHROPIC_CUSTOM_HEADERS=X-Patchy-Broker-Token: caller-token
+ANTHROPIC_CUSTOM_HEADERS=X-Maul-Broker-Token: caller-token
 --- env
 CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1
 --- env

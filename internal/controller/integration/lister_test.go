@@ -14,7 +14,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 // The seam-less backfill lister: a PAT credential walks the named
@@ -58,7 +58,7 @@ func TestReconcileBackfillThroughPATLister(t *testing.T) {
 			}
 			r := &IntegrationReconciler{
 				Client: c, Creds: NewCreds(c), Now: func() time.Time { return testClock },
-				Ingest: &Ingestor{Client: c, Namespace: "patchy", Window: time.Hour, Now: func() time.Time { return testClock }},
+				Ingest: &Ingestor{Client: c, Namespace: "maul", Window: time.Hour, Now: func() time.Time { return testClock }},
 			}
 			_, got := reconcileGH(t, r)
 			st := got.Status.Backfill

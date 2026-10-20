@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/bitwise-media-group/patchy/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/envelope"
 )
 
 // errChangesetTooLarge marks a changeset whose cumulative content exceeds

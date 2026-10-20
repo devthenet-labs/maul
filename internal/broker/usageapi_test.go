@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/usagewire"
+	"github.com/devthenet-labs/maul/internal/usagewire"
 )
 
 // usageTok mints a token like tok, bound to the given audience and pod.
@@ -240,8 +240,8 @@ func TestUsageConfigValidation(t *testing.T) {
 		Upstreams: map[string]Upstream{"anthropic": {Target: mustTarget(t, "https://a.example")}}}
 	for name, u := range map[string]UsageConfig{
 		"not a service account": {Callers: []string{"alice"}},
-		"no name":               {Callers: []string{"system:serviceaccount:patchy:"}},
-		"extra segment":         {Callers: []string{"system:serviceaccount:patchy:a:b"}},
+		"no name":               {Callers: []string{"system:serviceaccount:maul:"}},
+		"extra segment":         {Callers: []string{"system:serviceaccount:maul:a:b"}},
 		"the agent":             {Callers: []string{testSubject}},
 		"agent audience":        {Callers: []string{testController}, Audience: DefaultAudience},
 	} {

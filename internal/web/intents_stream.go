@@ -13,12 +13,12 @@ import (
 	"sync"
 	"time"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/intentview"
-	"github.com/bitwise-media-group/patchy/internal/transcript"
-	"github.com/bitwise-media-group/patchy/internal/transcriptstore"
-	"github.com/bitwise-media-group/patchy/internal/web/auth"
-	"github.com/bitwise-media-group/patchy/internal/web/authz"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/intentview"
+	"github.com/devthenet-labs/maul/internal/transcript"
+	"github.com/devthenet-labs/maul/internal/transcriptstore"
+	"github.com/devthenet-labs/maul/internal/web/auth"
+	"github.com/devthenet-labs/maul/internal/web/authz"
 )
 
 // Stream caps. An intents stream holds a goroutine, a socket and (for a live

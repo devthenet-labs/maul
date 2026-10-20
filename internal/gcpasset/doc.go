@@ -4,7 +4,7 @@
 // Package gcpasset reads a Google Cloud resource's labels through Cloud Asset
 // Inventory.
 //
-// It exists because the labels patchy needs are not in the notification that
+// It exists because the labels maul needs are not in the notification that
 // brought the finding: a Security Command Center message describes the
 // resource (name, type, project) but carries none of its labels, so ownership
 // has to be looked up separately. That lookup is the only reason

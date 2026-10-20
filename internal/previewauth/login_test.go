@@ -89,8 +89,8 @@ func TestLoginCookieNameProperty(t *testing.T) {
 				return false
 			}
 			name := LoginCookieName(tok)
-			if name != LoginCookieName(tok) || !strings.HasPrefix(name, "__Host-patchy-pa-login-") ||
-				len(name) != len("__Host-patchy-pa-login-")+16 || name == RelaySessionCookie {
+			if name != LoginCookieName(tok) || !strings.HasPrefix(name, "__Host-maul-pa-login-") ||
+				len(name) != len("__Host-maul-pa-login-")+16 || name == RelaySessionCookie {
 				return false
 			}
 			names = append(names, name)

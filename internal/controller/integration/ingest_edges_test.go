@@ -17,15 +17,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/pkg/source"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/pkg/source"
 )
 
 func edgeIngestor(funcs *interceptor.Funcs, objs ...client.Object) (*Ingestor, client.Client, *bytes.Buffer) {
 	c := receiverClient(funcs, objs...)
 	logs := &bytes.Buffer{}
 	return &Ingestor{
-		Client: c, Namespace: "patchy", Window: time.Hour,
+		Client: c, Namespace: "maul", Window: time.Hour,
 		Now: func() time.Time { return testClock },
 		Log: slog.New(slog.NewTextHandler(logs, nil)),
 	}, c, logs
@@ -45,7 +45,7 @@ func TestIngestCreateRaceFolds(t *testing.T) {
 	// The winner's object, not yet visible to the family listing (no
 	// key-hash label: the cache has not caught up).
 	winner := &v1alpha1.Finding{
-		ObjectMeta: metav1.ObjectMeta{Name: familyName(integ, testSourceFinding(42), 1), Namespace: "patchy"},
+		ObjectMeta: metav1.ObjectMeta{Name: familyName(integ, testSourceFinding(42), 1), Namespace: "maul"},
 		Spec: v1alpha1.FindingSpec{
 			IntegrationRef: v1alpha1.LocalObjectReference{Name: "gh"}, Source: "ghas",
 			Advisories: []string{"CVE-2026-0001"},
@@ -200,7 +200,7 @@ func TestMirrorEdgeBounds(t *testing.T) {
 	edge := v1alpha1.RelatedFinding{From: "finding-x-2", To: "finding-x-1", Relationship: v1alpha1.RelationshipSuccessorOf}
 
 	t.Run("a full related list is not extended", func(t *testing.T) {
-		elder := &v1alpha1.Finding{ObjectMeta: metav1.ObjectMeta{Name: "finding-x-1", Namespace: "patchy"}}
+		elder := &v1alpha1.Finding{ObjectMeta: metav1.ObjectMeta{Name: "finding-x-1", Namespace: "maul"}}
 		for i := range 32 {
 			elder.Spec.Related = append(elder.Spec.Related, v1alpha1.RelatedFinding{
 				From: fmt.Sprintf("finding-y-%d", i), To: "finding-x-1", Relationship: v1alpha1.RelationshipSuccessorOf,
@@ -215,7 +215,7 @@ func TestMirrorEdgeBounds(t *testing.T) {
 
 	t.Run("an existing edge is not duplicated", func(t *testing.T) {
 		elder := &v1alpha1.Finding{
-			ObjectMeta: metav1.ObjectMeta{Name: "finding-x-1", Namespace: "patchy"},
+			ObjectMeta: metav1.ObjectMeta{Name: "finding-x-1", Namespace: "maul"},
 			Spec:       v1alpha1.FindingSpec{Related: []v1alpha1.RelatedFinding{edge}},
 		}
 		in, c, _ := edgeIngestor(nil, elder)

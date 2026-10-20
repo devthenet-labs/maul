@@ -18,8 +18,8 @@ import (
 	"github.com/spf13/cobra"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/bitwise-media-group/patchy/internal/cli"
-	"github.com/bitwise-media-group/patchy/internal/runnercfg"
+	"github.com/devthenet-labs/maul/internal/cli"
+	"github.com/devthenet-labs/maul/internal/runnercfg"
 )
 
 // serveOpts resolves args through the real serve flag surface, as the
@@ -54,7 +54,7 @@ func writeFile(t *testing.T, name, content string) string {
 // server answers a missing object.
 func fakeAPIServer(t *testing.T, secrets map[string][]string) string {
 	t.Helper()
-	const prefix = "/api/v1/namespaces/patchy-agents/secrets/"
+	const prefix = "/api/v1/namespaces/maul-agents/secrets/"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		name, ok := strings.CutPrefix(r.URL.Path, prefix)
@@ -73,7 +73,7 @@ func fakeAPIServer(t *testing.T, secrets map[string][]string) string {
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"kind": "Secret", "apiVersion": "v1",
-			"metadata": map[string]any{"name": name, "namespace": "patchy-agents"}, "data": data,
+			"metadata": map[string]any{"name": name, "namespace": "maul-agents"}, "data": data,
 		})
 	}))
 	t.Cleanup(srv.Close)
@@ -102,29 +102,29 @@ users:
 }
 
 func TestServiceURL(t *testing.T) {
-	if got := serviceURL(serveOpts(t), "artifact-base-url", "patchy", 9790); got !=
-		"http://patchy-source-controller.patchy.svc.cluster.local:9790" {
+	if got := serviceURL(serveOpts(t), "artifact-base-url", "maul", 9790); got !=
+		"http://maul-source-controller.maul.svc.cluster.local:9790" {
 		t.Errorf("default serviceURL = %q", got)
 	}
 	if got := serviceURL(serveOpts(t, "--artifact-base-url", "http://artifacts.test/"), "artifact-base-url",
-		"patchy", 9790); got != "http://artifacts.test" {
+		"maul", 9790); got != "http://artifacts.test" {
 		t.Errorf("configured serviceURL = %q, want the trailing slash trimmed", got)
 	}
 }
 
 func TestUploadClient(t *testing.T) {
-	c, err := uploadClient(serveOpts(t), "patchy")
-	if err != nil || c.BaseURL != "http://patchy-source-controller.patchy.svc.cluster.local:9791" || c.Token != "" {
+	c, err := uploadClient(serveOpts(t), "maul")
+	if err != nil || c.BaseURL != "http://maul-source-controller.maul.svc.cluster.local:9791" || c.Token != "" {
 		t.Errorf("default uploadClient = %+v, %v", c, err)
 	}
 	tok := writeFile(t, "tok", " s3cret\n")
 	c, err = uploadClient(serveOpts(t, "--internal-upload-token-file", tok,
-		"--artifact-upload-url", "http://upload.test:1/"), "patchy")
+		"--artifact-upload-url", "http://upload.test:1/"), "maul")
 	if err != nil || c.BaseURL != "http://upload.test:1" || c.Token != "s3cret" {
 		t.Errorf("configured uploadClient = %+v, %v", c, err)
 	}
 	if _, err := uploadClient(serveOpts(t, "--internal-upload-token-file",
-		filepath.Join(t.TempDir(), "absent")), "patchy"); err == nil ||
+		filepath.Join(t.TempDir(), "absent")), "maul"); err == nil ||
 		!strings.Contains(err.Error(), "internal-upload-token-file") {
 		t.Errorf("uploadClient with a missing token file = %v, want an error naming the flag", err)
 	}
@@ -134,7 +134,7 @@ func TestResolveFleet(t *testing.T) {
 	log := slog.New(slog.DiscardHandler)
 	// The Secret path a non-brokered evaluation runner takes is copilot's:
 	// codex evaluations are refused (TestServeStartupErrors).
-	withSecret := map[string][]string{"patchy-copilot": {"token"}}
+	withSecret := map[string][]string{"maul-copilot": {"token"}}
 	for _, tt := range []struct {
 		name    string
 		args    func(t *testing.T) []string
@@ -166,7 +166,7 @@ func TestResolveFleet(t *testing.T) {
 			name: "copilot credential lacking its key",
 			args: func(t *testing.T) []string {
 				return []string{"--evolve-copilot-image", "copilot:1", "--kubeconfig",
-					fakeAPIServer(t, map[string][]string{"patchy-copilot": {"other"}})}
+					fakeAPIServer(t, map[string][]string{"maul-copilot": {"other"}})}
 			},
 			wantErr: `has no key "token"`,
 		},
@@ -200,7 +200,7 @@ func TestResolveFleet(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			runner, enabled, err := resolveFleet(t.Context(), opts, "patchy-agents", runners, log)
+			runner, enabled, err := resolveFleet(t.Context(), opts, "maul-agents", runners, log)
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 					t.Fatalf("resolveFleet error = %v, want %q", err, tt.wantErr)

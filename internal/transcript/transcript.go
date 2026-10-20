@@ -14,7 +14,7 @@ import (
 // Prefix marks a turn line on the agent-runner's stdout. It is deliberately
 // distinct from envelope.Prefix: the controller's result path scans for stage
 // results, and a run's few hundred turns must not ride that slice.
-const Prefix = "PATCHY-TURN: "
+const Prefix = "MAUL-TURN: "
 
 // Version is the current turn schema version.
 const Version = 1

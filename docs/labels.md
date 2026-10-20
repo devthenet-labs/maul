@@ -28,7 +28,7 @@ real phase — remediation runs in priority order with bounded concurrency, so f
 
 Terminal entry sets `status.completedAt`, which starts the [finding TTL](configuration/remediation-controller.md)
 (default 14 days — the `FindingRollup` objects retain the statistics after deletion). `Dismissed` and `HandedOff` are
-revivable terminals: reopening the issue moves `Dismissed → HandedOff`, and an approval (`/patchy approve` on the issue,
+revivable terminals: reopening the issue moves `Dismissed → HandedOff`, and an approval (`/maul approve` on the issue,
 or the status page or CLI) moves `HandedOff → Queued`, clearing `completedAt` and cancelling the TTL.
 
 ## Legal transitions
@@ -103,7 +103,7 @@ Finding **while** enhancement runs, so the window close cannot be a phase.
 | `AccumulationComplete`                                  | Finding                    | The accumulation window closed; the gate may admit                                                          |
 | `ContextEnhanced`                                       | Finding                    | The enhancer chain ran                                                                                      |
 | `Investigated`                                          | Finding                    | Analysis completed; the reason carries the recommendation                                                   |
-| `Approved`                                              | Finding                    | A human approval (`/patchy approve`, the status page or the CLI) was accepted                               |
+| `Approved`                                              | Finding                    | A human approval (`/maul approve`, the status page or the CLI) was accepted                                 |
 | `ForgeResolved`                                         | Finding                    | The repository resolved to exactly one Forge (`False` reasons: `NoRepository`, `NoForgeMatch`, `Ambiguous`) |
 | `ReviewClosePending`                                    | Finding                    | A close seen in review awaits the recorded PR's state (`TrackingIssueClosed`, `UnrecordedRepository`)       |
 | `TrackingUnavailable`                                   | Finding                    | GitHub refuses the tracking issue (`IssuesDisabled`); re-tried every 6 hours, the pipeline goes on          |
@@ -120,7 +120,7 @@ alert the suspended finding already holds stays deduplicated there.
 ## Watching it
 
 ```sh
-kubectl get patchy -n patchy                        # every patchy kind, one shot
+kubectl get maul -n maul                        # every maul kind, one shot
 kubectl get findings -w                             # phase, severity, priority, verdict, live
 kubectl get investigations                          # per-attempt analysis children (short name: inv)
 kubectl get remediations                            # per-attempt remediation children (rem)
@@ -135,8 +135,8 @@ counts, per-stage token/cost accounting — lives on these resources, nowhere el
 
 The tracking-issue projection stamps a trimmed, human-facing vocabulary, rendered from the Finding by the
 integration-controller (`internal/labels`). Every label is `<key>: <value>`, truncated to GitHub's 50-character cap; the
-multi-valued advisory key emits one label per identifier. Patchy only touches labels in the `security-` namespace,
-ignores foreign or malformed `security-*` labels, and does not manage label colors or descriptions.
+multi-valued advisory key emits one label per identifier. Maul only touches labels in the `security-` namespace, ignores
+foreign or malformed `security-*` labels, and does not manage label colors or descriptions.
 
 | Key                       | Cardinality        | Values                                                                                                                                                                      |
 | ------------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

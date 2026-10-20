@@ -15,14 +15,14 @@ import (
 	"sync"
 	"testing"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/provider"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/provider"
 )
 
 const (
 	// codexRunnerImage is the codex runner image intent-controller is
 	// configured with; a plan runs on it, a build on the repository's own.
-	codexRunnerImage = "patchy/codex-agent-runner:e2e"
+	codexRunnerImage = "maul/codex-agent-runner:e2e"
 	// openAIOrgKey is the org OpenAI key the broker holds.
 	openAIOrgKey = "sk-proj-e2e-org-openai-key"
 )
@@ -128,7 +128,7 @@ func TestIntentOnBrokeredCodex(t *testing.T) {
 	// image and the build on the repository's own, and no pod held a model
 	// credential.
 	for _, phase := range []string{"plan", "build"} {
-		r := e.kubelet.waitRun(t, "the "+phase+" Job", func(r agentRun) bool { return r.Env["PATCHY_PHASE"] == phase })
+		r := e.kubelet.waitRun(t, "the "+phase+" Job", func(r agentRun) bool { return r.Env["MAUL_PHASE"] == phase })
 		if got := r.Job.Spec.Template.Labels[v1alpha1.LabelHarness]; got != "codex" {
 			t.Errorf("%s Job harness label = %q, want codex", phase, got)
 		}

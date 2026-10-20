@@ -1,6 +1,6 @@
 # Demo tooling
 
-Three pieces exist purely to show patchy off — end to end, repeatably, and without real credentials: the **dev-fake
+Three pieces exist purely to show maul off — end to end, repeatably, and without real credentials: the **dev-fake
 overlay** (the whole pipeline against in-cluster fakes), the status page's **replay/reset demo loop**, and **canned
 status-page data**. None of them ship in a production install; the first and last belong to the
 [dev overlays](kustomize.md#the-overlays), and the demo loop hides behind RBAC verbs granted sparingly.
@@ -11,14 +11,14 @@ To watch **every custom resource** progress — `Finding` through `Repository`, 
 request, `FindingRollup`, and the TTL sweep — without a GitHub token _or_ a model key, the `dev-fake` overlay replaces
 both external dependencies:
 
-- **GitHub** becomes the e2e suite's in-memory API, run **in the cluster** as part of the overlay (`patchy-fakegithub`,
+- **GitHub** becomes the e2e suite's in-memory API, run **in the cluster** as part of the overlay (`maul-fakegithub`,
   built from `e2e/fakegithub` by `dev-colima`). It serves everything the controllers call: alert detail, the issue
   projection, repository tarballs, the Git Data push, and pull requests. The overlay points the `Integration`/`Forge`
   CRs at its Service DNS name and adds the one egress NetworkPolicy rule k3s needs; a NodePort (30990) exposes the same
   API to your host for inspection.
 - **The model** becomes a scripted agent image (`hack/fake-agent`): a shell script named `agent-runner` that prints the
-  same two stdout streams the real runner does — a paced `PATCHY-TURN` conversation followed by the stage's
-  `PATCHY-EVENT` result. The Jobs are real — init container, artifact fetch, digest check — only the verdict is scripted
+  same two stdout streams the real runner does — a paced `MAUL-TURN` conversation followed by the stage's
+  `MAUL-EVENT` result. The Jobs are real — init container, artifact fetch, digest check — only the verdict is scripted
   (remediate at 0.92 confidence, so findings flow straight through the queue). Because the turns are real turns, each
   run's conversation is captured into its transcript `ConfigMap` and streams live onto the status page while the Job is
   still running, and both stages carry a full report. It answers intent Jobs too: a plan names exactly the repositories
@@ -30,12 +30,12 @@ The walkthrough below assumes the [Colima setup](colima.md); on kind, swap `dev-
 steps.
 
 ```sh
-PATCHY_OVERLAY=dev-fake make dev-colima    # builds the fake images too
+MAUL_OVERLAY=dev-fake make dev-colima    # builds the fake images too
 
 mise run replay -- -dev-secret \
   fixtures/webhooks/code_scanning_alert.created.json
 
-kubectl get patchy -n patchy -w            # every patchy kind, live
+kubectl get maul -n maul -w            # every maul kind, live
 ```
 
 Within a couple of minutes (2-minute accumulation window + minimum age) the Finding walks
@@ -55,9 +55,9 @@ the PR number is the one the Finding recorded, so substitute the real finding na
 fixture:
 
 ```sh
-name=$(kubectl -n patchy get findings -o jsonpath='{.items[0].metadata.name}')
-number=$(kubectl -n patchy get finding "$name" -o jsonpath='{.status.pullRequest.number}')
-sed -e "s/patchy\/finding-cccccccccc-1/patchy\/$name/" -e "s/\"number\": 901/\"number\": $number/" \
+name=$(kubectl -n maul get findings -o jsonpath='{.items[0].metadata.name}')
+number=$(kubectl -n maul get finding "$name" -o jsonpath='{.status.pullRequest.number}')
+sed -e "s/maul\/finding-cccccccccc-1/maul\/$name/" -e "s/\"number\": 901/\"number\": $number/" \
   e2e/fixtures/webhooks/pull_request.merged.json > /tmp/merged.json
 mise run replay -- -dev-secret /tmp/merged.json
 ```
@@ -67,12 +67,12 @@ alive and the turns stream in as the script emits them (it paces itself for exac
 persisted, so they stay readable after the Job's TTL takes the pod:
 
 ```sh
-kubectl -n patchy get cm -l patchy.bitwisemedia.uk/finding="$name"    # one transcript per run
+kubectl -n maul get cm -l maul.run/finding="$name"    # one transcript per run
 ```
 
-The Finding goes `Remediated`, `kubectl get findingrollups -n patchy -o yaml` shows the counts and (scripted) token/cost
+The Finding goes `Remediated`, `kubectl get findingrollups -n maul -o yaml` shows the counts and (scripted) token/cost
 totals ticking, and after the dev TTL (30 minutes) the Finding and its children are deleted while the rollups remain.
-The fake's state is in-memory — `kubectl -n patchy rollout restart deployment patchy-fakegithub` for a clean slate
+The fake's state is in-memory — `kubectl -n maul rollout restart deployment maul-fakegithub` for a clean slate
 (every `dev-colima` re-run restarts it too; live Findings notice their tracking issue vanished and re-project a fresh
 one) — and other routes (`ignore`, `manual`, an `await_approval` hold) are one edit away in
 `hack/fake-agent/agent-runner`.
@@ -88,7 +88,7 @@ custom RBAC verb and hidden without the grant:
 | **Reset all data**    | `reset`  | Deletes every pipeline resource in the namespace — findings, investigation/remediation runs, pinned repositories, rollups. Configuration (Integrations, Forges) survives. Two clicks to confirm                                     |
 
 Reset then Replay re-runs the entire pipeline from ingestion — the demo loop. Grant these verbs sparingly; the
-`patchy-findings-admin` example tier in `rbac.users.example.yaml` bundles them with the operator verbs.
+`maul-findings-admin` example tier in `rbac.users.example.yaml` bundles them with the operator verbs.
 
 ## Canned status-page data
 

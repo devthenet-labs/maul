@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bitwise-media-group/patchy/internal/runner"
+	"github.com/devthenet-labs/maul/internal/runner"
 )
 
 var update = flag.Bool("update", false, "rewrite golden files")

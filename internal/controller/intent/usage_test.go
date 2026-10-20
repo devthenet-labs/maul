@@ -12,10 +12,10 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/jobs"
 )
 
 // checkUsage fails when any of the Intent's usage totals is negative, which
@@ -46,7 +46,7 @@ func TestPodUsageIsNeverNegative(t *testing.T) {
 				}}}}}}
 	}
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentFailed, repoImage)
 	for _, r := range e.runsOf(name, v1alpha1.IntentStageBuild) {
 		if u := r.Status.Usage; u != (v1alpha1.UsageSummary{}) {
@@ -87,7 +87,7 @@ func (e *env) recordedRun(intent string, round int32, usage v1alpha1.UsageSummar
 // TestUsageTallyNeverWedgesTheIntent: whatever the runs recorded, the
 // Intent's usage total is one the API server accepts, and a total it refuses
 // all the same is no reason to stop the pass: the intent still answers
-// /patchy cancel and ends.
+// /maul cancel and ends.
 func TestUsageTallyNeverWedgesTheIntent(t *testing.T) {
 	huge := v1alpha1.UsageSummary{CostUSD: "9223372036854.775807"}
 	for _, tt := range []struct {
@@ -122,7 +122,7 @@ func TestUsageTallyNeverWedgesTheIntent(t *testing.T) {
 			if tt.after != nil {
 				tt.after(e, name)
 			}
-			e.gh.comment(approver, "/patchy cancel")
+			e.gh.comment(approver, "/maul cancel")
 			in := e.drive(name, v1alpha1.IntentClosed, repoImage)
 			if !slices.Equal(e.gh.closes[1], []string{ghclient.CloseNotPlanned}) {
 				t.Errorf("issue closes = %v, want one, not planned", e.gh.closes[1])

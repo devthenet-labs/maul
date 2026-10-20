@@ -12,7 +12,7 @@ import (
 
 	"golang.org/x/mod/module"
 
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/netprofile"
 )
 
 // admitGoRegistry judges a Go request below /r/<registry>: step 1's

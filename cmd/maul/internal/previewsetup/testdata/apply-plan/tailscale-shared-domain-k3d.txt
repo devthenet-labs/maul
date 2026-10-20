@@ -1,0 +1,47 @@
+Before --apply, as NEXT-STEPS.md says:
+  - the tailnet policy, saved in the admin console (NEXT-STEPS.md step 6)
+  - the operator's OAuth client, given with --tailscale-oauth-dir or created as Secret operator-oauth in namespace tailscale (step 6)
+
+--apply would run these 11 steps against the cluster your kubeconfig names, in order, stopping at the first failure:
+
+1. Check that helm runs and release maul is installed in namespace maul
+     helm version --short
+     helm status maul -n maul
+
+2. Require the Tailscale operator's OAuth client, Secret operator-oauth in namespace tailscale (its metadata only)
+     kubectl -n tailscale get secret operator-oauth -o name
+
+3. Apply the relay's Dex client secret and the DNS-01 credential in namespace maul
+     kubectl apply --server-side --force-conflicts --field-manager=maul-setup-previews -f maul-previews/secrets/maul-preview-auth-dex.secret.yaml -f maul-previews/secrets/preview-dns01-credentials.secret.yaml
+
+4. Apply Dex's copy of the client secret in namespace dex (skipped when no such namespace is here: Dex runs elsewhere)
+     kubectl apply --server-side --force-conflicts --field-manager=maul-setup-previews -f maul-previews/secrets/dex-maul-preview-auth-client.secret.yaml
+
+5. Install or upgrade cert-manager v1.21.2 (release cert-manager in namespace cert-manager)
+     helm upgrade --install cert-manager cert-manager --repo https://charts.jetstack.io --version v1.21.2 -n cert-manager --create-namespace -f maul-previews/upstream/cert-manager.values.yaml --wait --timeout 10m0s
+
+6. Apply the Issuer preview-dns01
+     kubectl apply --server-side --force-conflicts --field-manager=maul-setup-previews -f maul-previews/manifests/issuer.yaml
+
+7. Apply the Certificate preview-wildcard in namespace maul
+     kubectl apply --server-side --force-conflicts --field-manager=maul-setup-previews -f maul-previews/manifests/certificate.yaml
+
+8. Wait for certificate/preview-wildcard to be Ready
+     kubectl -n maul wait certificate/preview-wildcard --for=condition=Ready --timeout=10m0s
+
+9. Install or upgrade tailscale-operator 1.104.1 (release tailscale-operator in namespace tailscale)
+     helm upgrade --install tailscale-operator tailscale-operator --repo https://pkgs.tailscale.com/helmcharts --version 1.104.1 -n tailscale --create-namespace -f maul-previews/upstream/tailscale-operator.values.yaml --wait --timeout 10m0s
+
+10. Upgrade release maul to chart 0.12.41 with your values, then maul-previews.values.yaml
+     helm upgrade maul oci://ghcr.io/devthenet-labs/maul/charts/maul --version 0.12.41 -n maul -f values/maul.yaml -f maul-previews/maul-previews.values.yaml --wait --timeout 10m0s
+
+11. Run the checks of maul check previews
+     maul check previews -n maul
+
+Manifests are server-side applied as maul-setup-previews; a Secret's contents are never printed.
+
+Left to you after it, as NEXT-STEPS.md says:
+  - preview nodes, labelled and tainted (NEXT-STEPS.md step 2)
+  - preview image pulls on those nodes (step 3)
+  - Dex: its static client maul-preview-auth and the secret's environment variable, then roll Dex (step 4)
+  - the two DNS records (step 7)

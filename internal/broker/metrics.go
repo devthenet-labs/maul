@@ -13,7 +13,7 @@ import (
 )
 
 // scopeName identifies this package's meter.
-const scopeName = "github.com/bitwise-media-group/patchy/internal/broker"
+const scopeName = "github.com/devthenet-labs/maul/internal/broker"
 
 // The broker's counters: every request by route and outcome (proxied or the
 // rejection reason), the pre-authentication rejections by reason (a flood
@@ -23,7 +23,7 @@ const scopeName = "github.com/bitwise-media-group/patchy/internal/broker"
 // limit unit.
 var (
 	requestsCounter = sync.OnceValue(func() metric.Int64Counter {
-		c, err := otel.Meter(scopeName).Int64Counter("patchy.broker.requests",
+		c, err := otel.Meter(scopeName).Int64Counter("maul.broker.requests",
 			metric.WithDescription("brokered requests by route and outcome"))
 		if err != nil {
 			otel.Handle(err)
@@ -31,7 +31,7 @@ var (
 		return c
 	})
 	preauthCounter = sync.OnceValue(func() metric.Int64Counter {
-		c, err := otel.Meter(scopeName).Int64Counter("patchy.broker.preauth.rejections",
+		c, err := otel.Meter(scopeName).Int64Counter("maul.broker.preauth.rejections",
 			metric.WithDescription("requests refused before any TokenReview, by reason"))
 		if err != nil {
 			otel.Handle(err)
@@ -39,7 +39,7 @@ var (
 		return c
 	})
 	costCounter = sync.OnceValue(func() metric.Int64Counter {
-		c, err := otel.Meter(scopeName).Int64Counter("patchy.broker.cost",
+		c, err := otel.Meter(scopeName).Int64Counter("maul.broker.cost",
 			metric.WithDescription("micro-USD charged to pods by route and class (observed or estimated)"),
 			metric.WithUnit("{micro-USD}"))
 		if err != nil {
@@ -48,7 +48,7 @@ var (
 		return c
 	})
 	tokensCounter = sync.OnceValue(func() metric.Int64Counter {
-		c, err := otel.Meter(scopeName).Int64Counter("patchy.broker.tokens",
+		c, err := otel.Meter(scopeName).Int64Counter("maul.broker.tokens",
 			metric.WithDescription("tokens charged to pods by route and class"))
 		if err != nil {
 			otel.Handle(err)

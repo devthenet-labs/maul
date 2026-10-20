@@ -14,7 +14,7 @@ import (
 
 	networkingv1 "k8s.io/api/networking/v1"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 // ingressBackendFor is the Service a rendered Ingress sends path to, judged

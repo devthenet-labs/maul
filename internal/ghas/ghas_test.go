@@ -9,8 +9,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/pkg/source"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/pkg/source"
 )
 
 type fakeAlerts struct {
@@ -117,7 +117,7 @@ func refPayload(ref string) string {
 }
 
 // TestFindingsRefFilter pins the default-branch-only ingest: an alert raised
-// on any other ref (patchy's own remediation branches, or the PR merge refs
+// on any other ref (maul's own remediation branches, or the PR merge refs
 // CodeQL analyses) must not become a finding, or a rejected fix loops back in
 // as the next generation of the same finding.
 func TestFindingsRefFilter(t *testing.T) {
@@ -127,7 +127,7 @@ func TestFindingsRefFilter(t *testing.T) {
 		ingest  bool
 	}{
 		{"default branch ref is ingested", refPayload("refs/heads/main"), true},
-		{"patchy remediation branch is skipped", refPayload("refs/heads/patchy/finding-x"), false},
+		{"maul remediation branch is skipped", refPayload("refs/heads/maul/finding-x"), false},
 		{"pull request merge ref is skipped", refPayload("refs/pull/7/merge"), false},
 		{"pull request head ref is skipped", refPayload("refs/pull/7/head"), false},
 		{"missing ref fails open", refPayload(""), true},

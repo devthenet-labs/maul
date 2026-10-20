@@ -17,7 +17,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 // TestPreviewRuntime drives the real shipped binary against the API server:
@@ -29,17 +29,17 @@ import (
 func TestPreviewRuntime(t *testing.T) {
 	cl := startCluster(t)
 	ctx := context.Background()
-	for _, name := range []string{"patchy-preview-0", "patchy-preview-1"} {
+	for _, name := range []string{"maul-preview-0", "maul-preview-1"} {
 		if err := cl.client.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name}}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	cl.controller(t, "preview-controller",
 		"--preview-slot-count", "2",
-		"--preview-image-prefix", "registry.example/patchy/previews/",
-		"--preview-host-suffix", "preview.patchy.example.com",
-		"--preview-node-pool", "patchy-preview", "--preview-node-class", "patchy-preview",
-		"--preview-taint-key", "patchy.devthe.net/preview-only",
+		"--preview-image-prefix", "registry.example/maul/previews/",
+		"--preview-host-suffix", "preview.maul.example.com",
+		"--preview-node-pool", "maul-preview", "--preview-node-class", "maul-preview",
+		"--preview-taint-key", "maul.devthe.net/preview-only",
 		"--preview-poll-interval", "1s")
 	sha := strings.Repeat("a", 40)
 	project := &v1alpha1.Project{ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: namespace},
@@ -47,7 +47,7 @@ func TestPreviewRuntime(t *testing.T) {
 			IntentRepository: "https://github.com/acme/intents",
 			Approvers:        v1alpha1.ProjectApprovers{Logins: []string{"octocat"}},
 			Repositories:     []v1alpha1.ProjectRepository{{Name: "demo", URL: "https://github.com/acme/demo"}},
-			Preview: &v1alpha1.ProjectPreview{ImageRepository: "registry.example/patchy/previews/demo",
+			Preview: &v1alpha1.ProjectPreview{ImageRepository: "registry.example/maul/previews/demo",
 				Port: 8080, ReadinessPath: "/health"},
 		}}
 	if err := cl.client.Create(ctx, project); err != nil {
@@ -73,18 +73,18 @@ func TestPreviewRuntime(t *testing.T) {
 		Spec: v1alpha1.PreviewSpec{
 			IntentRef: v1alpha1.ObjectReference{Name: in.Name, UID: in.UID}, HostLabel: in.Name,
 			Components: []v1alpha1.PreviewComponent{{Name: "demo",
-				ImageRepository: "registry.example/patchy/previews/demo", Revision: sha,
+				ImageRepository: "registry.example/maul/previews/demo", Revision: sha,
 				Port: 8080, ReadinessPath: "/health"}}, TTL: metav1.Duration{Duration: 72 * time.Hour},
 		}}
 	if err := cl.client.Create(ctx, p); err != nil {
 		t.Fatal(err)
 	}
-	key := types.NamespacedName{Namespace: "patchy-preview-0", Name: "preview-demo-1"}
+	key := types.NamespacedName{Namespace: "maul-preview-0", Name: "preview-demo-1"}
 	eventually(t, "preview Deployment and Service in slot 0", func() bool {
 		var dep appsv1.Deployment
 		var svc corev1.Service
 		return cl.client.Get(ctx, key, &dep) == nil && cl.client.Get(ctx, key, &svc) == nil &&
-			dep.Spec.Template.Spec.Containers[0].Image == "registry.example/patchy/previews/demo:sha-"+sha &&
+			dep.Spec.Template.Spec.Containers[0].Image == "registry.example/maul/previews/demo:sha-"+sha &&
 			svc.Spec.Type == corev1.ServiceTypeClusterIP
 	})
 	var ingress networkingv1.Ingress
@@ -121,7 +121,7 @@ func TestPreviewRuntime(t *testing.T) {
 		}
 		return current.Status.Phase == v1alpha1.PreviewReady &&
 			current.Status.Components[0].ImageID == "repo@sha256:123" &&
-			ingress.Spec.Rules[0].Host == "demo-1.preview.patchy.example.com" &&
+			ingress.Spec.Rules[0].Host == "demo-1.preview.maul.example.com" &&
 			*ingress.Spec.IngressClassName == "alb-preview"
 	})
 	if err := cl.client.Get(ctx, client.ObjectKeyFromObject(p), p); err != nil {
@@ -142,7 +142,7 @@ func TestPreviewRuntime(t *testing.T) {
 		var current appsv1.Deployment
 		return cl.client.Get(ctx, key, &ingress) != nil &&
 			cl.client.Get(ctx, key, &current) == nil &&
-			current.Spec.Template.Spec.Containers[0].Image == "registry.example/patchy/previews/demo:sha-"+strings.Repeat("b", 40)
+			current.Spec.Template.Spec.Containers[0].Image == "registry.example/maul/previews/demo:sha-"+strings.Repeat("b", 40)
 	})
 	// envtest has no Deployment controller to delete the synthetic Pod.
 	if err := cl.client.Delete(ctx, pod); err != nil {
@@ -176,17 +176,17 @@ func boolPtr(v bool) *bool { return &v }
 func TestPreviewTargetHealthRuntime(t *testing.T) {
 	cl := startCluster(t)
 	ctx := context.Background()
-	for _, name := range []string{"patchy-preview-0", "patchy-preview-1"} {
+	for _, name := range []string{"maul-preview-0", "maul-preview-1"} {
 		if err := cl.client.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name}}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	cl.controller(t, "preview-controller",
 		"--preview-slot-count", "2",
-		"--preview-image-prefix", "registry.example/patchy/previews/",
-		"--preview-host-suffix", "preview.patchy.example.com",
-		"--preview-node-pool", "patchy-preview", "--preview-node-class", "patchy-preview",
-		"--preview-taint-key", "patchy.devthe.net/preview-only",
+		"--preview-image-prefix", "registry.example/maul/previews/",
+		"--preview-host-suffix", "preview.maul.example.com",
+		"--preview-node-pool", "maul-preview", "--preview-node-class", "maul-preview",
+		"--preview-taint-key", "maul.devthe.net/preview-only",
 		"--preview-poll-interval", "1s", "--preview-target-health")
 	sha := strings.Repeat("a", 40)
 	project := &v1alpha1.Project{ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: namespace},
@@ -194,7 +194,7 @@ func TestPreviewTargetHealthRuntime(t *testing.T) {
 			IntentRepository: "https://github.com/acme/intents",
 			Approvers:        v1alpha1.ProjectApprovers{Logins: []string{"octocat"}},
 			Repositories:     []v1alpha1.ProjectRepository{{Name: "demo", URL: "https://github.com/acme/demo"}},
-			Preview: &v1alpha1.ProjectPreview{ImageRepository: "registry.example/patchy/previews/demo",
+			Preview: &v1alpha1.ProjectPreview{ImageRepository: "registry.example/maul/previews/demo",
 				Port: 8080, ReadinessPath: "/health"},
 		}}
 	if err := cl.client.Create(ctx, project); err != nil {
@@ -218,13 +218,13 @@ func TestPreviewTargetHealthRuntime(t *testing.T) {
 		Spec: v1alpha1.PreviewSpec{
 			IntentRef: v1alpha1.ObjectReference{Name: in.Name, UID: in.UID}, HostLabel: in.Name,
 			Components: []v1alpha1.PreviewComponent{{Name: "demo",
-				ImageRepository: "registry.example/patchy/previews/demo", Revision: sha,
+				ImageRepository: "registry.example/maul/previews/demo", Revision: sha,
 				Port: 8080, ReadinessPath: "/health"}}, TTL: metav1.Duration{Duration: 72 * time.Hour},
 		}}
 	if err := cl.client.Create(ctx, p); err != nil {
 		t.Fatal(err)
 	}
-	key := types.NamespacedName{Namespace: "patchy-preview-0", Name: "preview-demo-1"}
+	key := types.NamespacedName{Namespace: "maul-preview-0", Name: "preview-demo-1"}
 	var ingress networkingv1.Ingress
 	eventually(t, "the Ingress before any Pod", func() bool { return cl.client.Get(ctx, key, &ingress) == nil })
 	time.Sleep(3 * time.Second) // several one-second polls
@@ -237,7 +237,7 @@ func TestPreviewTargetHealthRuntime(t *testing.T) {
 	}
 	var dep appsv1.Deployment
 	eventually(t, "the Deployment once the Ingress is admitted", func() bool { return cl.client.Get(ctx, key, &dep) == nil })
-	const gate = corev1.PodConditionType("target-health.elbv2.k8s.aws/k8s-patchypr-previewd-0123456789")
+	const gate = corev1.PodConditionType("target-health.elbv2.k8s.aws/k8s-maulpr-previewd-0123456789")
 	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "preview-demo-1-pod", Namespace: key.Namespace,
 		Labels: dep.Spec.Template.Labels}, Spec: dep.Spec.Template.Spec}
 	pod.Spec.ReadinessGates = []corev1.PodReadinessGate{{ConditionType: gate}}
@@ -289,7 +289,7 @@ func TestPreviewTargetHealthRuntime(t *testing.T) {
 	// available; the Ingress stays; and the Preview reports the redeploy:
 	// Deploying at the new head, with no URL.
 	head := strings.Repeat("b", 40)
-	headImage := "registry.example/patchy/previews/demo:sha-" + head
+	headImage := "registry.example/maul/previews/demo:sha-" + head
 	if err := cl.client.Get(ctx, client.ObjectKeyFromObject(in), in); err != nil {
 		t.Fatal(err)
 	}
@@ -411,17 +411,17 @@ func TestPreviewTargetHealthRuntime(t *testing.T) {
 func TestPreviewUpgradeKeepsServing(t *testing.T) {
 	cl := startCluster(t)
 	ctx := context.Background()
-	for _, name := range []string{"patchy-preview-0", "patchy-preview-1"} {
+	for _, name := range []string{"maul-preview-0", "maul-preview-1"} {
 		if err := cl.client.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name}}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	args := []string{
 		"--preview-slot-count", "2",
-		"--preview-image-prefix", "registry.example/patchy/previews/",
-		"--preview-host-suffix", "preview.patchy.example.com",
-		"--preview-node-pool", "patchy-preview", "--preview-node-class", "patchy-preview",
-		"--preview-taint-key", "patchy.devthe.net/preview-only",
+		"--preview-image-prefix", "registry.example/maul/previews/",
+		"--preview-host-suffix", "preview.maul.example.com",
+		"--preview-node-pool", "maul-preview", "--preview-node-class", "maul-preview",
+		"--preview-taint-key", "maul.devthe.net/preview-only",
 		"--preview-poll-interval", "1s",
 	}
 	_, stop := cl.stoppableController(t, "preview-controller", args...)
@@ -431,7 +431,7 @@ func TestPreviewUpgradeKeepsServing(t *testing.T) {
 			IntentRepository: "https://github.com/acme/intents",
 			Approvers:        v1alpha1.ProjectApprovers{Logins: []string{"octocat"}},
 			Repositories:     []v1alpha1.ProjectRepository{{Name: "demo", URL: "https://github.com/acme/demo"}},
-			Preview: &v1alpha1.ProjectPreview{ImageRepository: "registry.example/patchy/previews/demo",
+			Preview: &v1alpha1.ProjectPreview{ImageRepository: "registry.example/maul/previews/demo",
 				Port: 8080, ReadinessPath: "/health"},
 		}}
 	if err := cl.client.Create(ctx, project); err != nil {
@@ -455,13 +455,13 @@ func TestPreviewUpgradeKeepsServing(t *testing.T) {
 		Spec: v1alpha1.PreviewSpec{
 			IntentRef: v1alpha1.ObjectReference{Name: in.Name, UID: in.UID}, HostLabel: in.Name,
 			Components: []v1alpha1.PreviewComponent{{Name: "demo",
-				ImageRepository: "registry.example/patchy/previews/demo", Revision: sha,
+				ImageRepository: "registry.example/maul/previews/demo", Revision: sha,
 				Port: 8080, ReadinessPath: "/health"}}, TTL: metav1.Duration{Duration: 72 * time.Hour},
 		}}
 	if err := cl.client.Create(ctx, p); err != nil {
 		t.Fatal(err)
 	}
-	key := types.NamespacedName{Namespace: "patchy-preview-0", Name: "preview-demo-1"}
+	key := types.NamespacedName{Namespace: "maul-preview-0", Name: "preview-demo-1"}
 	var dep appsv1.Deployment
 	eventually(t, "the preview Deployment in slot 0", func() bool { return cl.client.Get(ctx, key, &dep) == nil })
 	dep.Status.ObservedGeneration = dep.Generation
@@ -562,22 +562,22 @@ func TestPreviewUpgradeKeepsServing(t *testing.T) {
 func TestPreviewMultiComponentRuntime(t *testing.T) {
 	cl := startCluster(t)
 	ctx := context.Background()
-	for _, name := range []string{"patchy-preview-0", "patchy-preview-1"} {
+	for _, name := range []string{"maul-preview-0", "maul-preview-1"} {
 		if err := cl.client.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name}}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	cl.controller(t, "preview-controller",
 		"--preview-slot-count", "2",
-		"--preview-image-prefix", "registry.example/patchy/previews/",
-		"--preview-host-suffix", "preview.patchy.example.com",
-		"--preview-node-pool", "patchy-preview", "--preview-node-class", "patchy-preview",
-		"--preview-taint-key", "patchy.devthe.net/preview-only",
+		"--preview-image-prefix", "registry.example/maul/previews/",
+		"--preview-host-suffix", "preview.maul.example.com",
+		"--preview-node-pool", "maul-preview", "--preview-node-class", "maul-preview",
+		"--preview-taint-key", "maul.devthe.net/preview-only",
 		"--preview-poll-interval", "1s")
 	webSHA, apiSHA := strings.Repeat("a", 40), strings.Repeat("b", 40)
 	preview := func(leaf, readiness, path string) *v1alpha1.ProjectRepositoryPreview {
 		return &v1alpha1.ProjectRepositoryPreview{ProjectPreview: v1alpha1.ProjectPreview{
-			ImageRepository: "registry.example/patchy/previews/" + leaf, Port: 8080, ReadinessPath: readiness,
+			ImageRepository: "registry.example/maul/previews/" + leaf, Port: 8080, ReadinessPath: readiness,
 		}, Path: path}
 	}
 	project := &v1alpha1.Project{ObjectMeta: metav1.ObjectMeta{Name: "shop", Namespace: namespace},
@@ -625,11 +625,11 @@ func TestPreviewMultiComponentRuntime(t *testing.T) {
 		t.Fatal(err)
 	}
 	slotKey := func(name string) types.NamespacedName {
-		return types.NamespacedName{Namespace: "patchy-preview-0", Name: name}
+		return types.NamespacedName{Namespace: "maul-preview-0", Name: name}
 	}
 	names := []string{"preview-shop-1", "preview-shop-1-api"}
-	images := []string{"registry.example/patchy/previews/acme-web:sha-" + webSHA,
-		"registry.example/patchy/previews/acme-api:sha-" + apiSHA}
+	images := []string{"registry.example/maul/previews/acme-web:sha-" + webSHA,
+		"registry.example/maul/previews/acme-api:sha-" + apiSHA}
 	eventually(t, "a Deployment and Service per component in slot 0", func() bool {
 		for i, name := range names {
 			var dep appsv1.Deployment
@@ -648,8 +648,8 @@ func TestPreviewMultiComponentRuntime(t *testing.T) {
 	if err := cl.client.Get(ctx, slotKey(names[1]), &api); err != nil {
 		t.Fatal(err)
 	}
-	if web.Spec.Selector["patchy.bitwisemedia.uk/preview-component"] != "web" ||
-		api.Spec.Selector["patchy.bitwisemedia.uk/preview-component"] != "api" {
+	if web.Spec.Selector["maul.run/preview-component"] != "web" ||
+		api.Spec.Selector["maul.run/preview-component"] != "api" {
 		t.Fatalf("component selectors overlap: web %v, api %v", web.Spec.Selector, api.Spec.Selector)
 	}
 	pods := make([]*corev1.Pod, 0, len(names))
@@ -664,7 +664,7 @@ func TestPreviewMultiComponentRuntime(t *testing.T) {
 		if err := cl.client.Status().Update(ctx, &dep); err != nil {
 			t.Fatal(err)
 		}
-		pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: names[i] + "-pod", Namespace: "patchy-preview-0",
+		pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: names[i] + "-pod", Namespace: "maul-preview-0",
 			Labels: dep.Spec.Template.Labels}, Spec: dep.Spec.Template.Spec}
 		if err := cl.client.Create(ctx, pod); err != nil {
 			t.Fatal(err)

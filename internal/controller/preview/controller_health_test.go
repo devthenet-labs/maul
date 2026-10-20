@@ -17,12 +17,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 // targetHealthGate is the readiness gate the load balancer controller injects
 // into a slot Pod created after its target group binding.
-const targetHealthGate corev1.PodConditionType = "target-health.elbv2.k8s.aws/k8s-patchypr-previewd-0123456789"
+const targetHealthGate corev1.PodConditionType = "target-health.elbv2.k8s.aws/k8s-maulpr-previewd-0123456789"
 
 // newHealthEnv is a test environment whose controller waits for target
 // health before Ready.

@@ -1,7 +1,7 @@
 // Copyright 2026 Bitwise Media Group Ltd.
 // SPDX-License-Identifier: MIT
 
-// Package sealed holds the authenticated-encryption primitives patchy's
+// Package sealed holds the authenticated-encryption primitives maul's
 // sign-in surfaces share: a purpose key derived from one secret with
 // HKDF-SHA256, AES-256-GCM sealing of a JSON value into a URL-safe string,
 // and random URL-safe tokens.

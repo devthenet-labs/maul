@@ -14,9 +14,9 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/credgate"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/credgate"
+	"github.com/devthenet-labs/maul/internal/ghclient"
 )
 
 const accountURL = "https://status.example.com/#/account"
@@ -90,7 +90,7 @@ func TestCredentialBlockHoldsBuildUntilValid(t *testing.T) {
 	plans := len(e.runsOf(name, v1alpha1.IntentStagePlan))
 
 	e.clock.Advance(time.Minute)
-	e.gh.label(1, "patchy:approved", reviewer)
+	e.gh.label(1, "maul:approved", reviewer)
 	in := e.drive(name, v1alpha1.IntentBlocked, repoImage)
 	c := credentialBlock(in)
 	if c == nil || c.Reason != credgate.ReasonMissing || !strings.Contains(c.Message, "@"+reviewer) ||
@@ -149,11 +149,11 @@ func TestCredentialBlockReapproval(t *testing.T) {
 	name := e.discovered()
 	e.drive(name, v1alpha1.IntentAwaitingApproval, repoImage)
 	e.clock.Advance(time.Minute)
-	e.gh.label(1, "patchy:approved", reviewer)
+	e.gh.label(1, "maul:approved", reviewer)
 	e.drive(name, v1alpha1.IntentBlocked, repoImage)
 
 	e.clock.Advance(time.Minute)
-	e.gh.comment(third, "/patchy approve")
+	e.gh.comment(third, "/maul approve")
 	e.clock.Advance(time.Minute)
 	e.mustIntent(name)
 	in := e.get(name)
@@ -172,7 +172,7 @@ func TestCredentialBlockReapproval(t *testing.T) {
 	}
 
 	e.clock.Advance(time.Minute)
-	e.gh.comment(approver, "/patchy approve")
+	e.gh.comment(approver, "/maul approve")
 	in = e.drive(name, v1alpha1.IntentInReview, repoImage)
 	if in.Status.Approval.By != approver || in.Status.Approval.ByID != actorOf(approver).ID {
 		t.Fatalf("approval = %+v, want the key holder's", in.Status.Approval)
@@ -264,7 +264,7 @@ func TestCredentialBlockNeverUnderAttribute(t *testing.T) {
 	name := e.discovered()
 	e.drive(name, v1alpha1.IntentAwaitingApproval, repoImage)
 	e.clock.Advance(time.Minute)
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 	if meta.FindStatusCondition(in.Status.Conditions, v1alpha1.ConditionCredentialRequired) != nil {
 		t.Error("a CredentialRequired condition was written under attribute")
@@ -286,7 +286,7 @@ func heldFromReview(t *testing.T, checks bool) (*env, *fakeCredentials, string, 
 	name := e.discovered()
 	e.drive(name, v1alpha1.IntentAwaitingApproval, repoImage)
 	e.clock.Advance(time.Minute)
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	return e, creds, name, e.drive(name, v1alpha1.IntentInReview, repoImage)
 }
 
@@ -310,7 +310,7 @@ func assertHeldFromReview(t *testing.T, e *env, name, who string) {
 	}
 }
 
-// TestCredentialBlockHoldsCommandRevise: a /patchy revise by an approver
+// TestCredentialBlockHoldsCommandRevise: a /maul revise by an approver
 // with no valid credential creates no revise run; the Intent is Blocked
 // from InReview naming the commenter, and once their credential is Valid
 // the same command is read again and starts its round, theirs.
@@ -319,7 +319,7 @@ func TestCredentialBlockHoldsCommandRevise(t *testing.T) {
 	pr := in.Status.PullRequests[0]
 	e.gh.prComments[pr.Number] = []*ghclient.Comment{{ID: 940, NodeID: "comment-940",
 		UserLogin: reviewer, UserID: actorOf(reviewer).ID, UserType: "User",
-		Body:      "/patchy revise Please check the response header.",
+		Body:      "/maul revise Please check the response header.",
 		CreatedAt: e.clock.Now(), UpdatedAt: e.clock.Now()}}
 	e.clock.Advance(time.Second)
 	e.drive(name, v1alpha1.IntentBlocked, repoImage)

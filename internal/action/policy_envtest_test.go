@@ -22,10 +22,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/action"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/rbactest"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/action"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/rbactest"
 )
 
 // This suite is the proof behind the CLI's security claim: the custom verbs are
@@ -37,7 +37,7 @@ import (
 // CEL typo would otherwise ship and only fail against a live cluster.
 
 const (
-	policyNamespace = "patchy"
+	policyNamespace = "maul"
 	// policyRelPath is the shipped manifest, not a test copy. Testing a
 	// duplicate would prove only that the duplicate works.
 	policyRelPath = "../../deploy/kustomize/base/admission-policy.yaml"
@@ -457,10 +457,10 @@ func TestPolicyAllowsTheControllers(t *testing.T) {
 	env := startPolicyEnv(t)
 	env.seed(t, "controller-target", v1alpha1.PhaseOpened)
 
-	// envtest installs no patchy RBAC, so the SA needs its normal grant first —
+	// envtest installs no maul RBAC, so the SA needs its normal grant first —
 	// otherwise plain RBAC denies the write before admission ever runs and the
 	// test would pass for the wrong reason.
-	c := env.userClient(t, "system:serviceaccount:patchy:patchy-integration-controller")
+	c := env.userClient(t, "system:serviceaccount:maul:maul-integration-controller")
 
 	cur := get(t, env.admin, "controller-target")
 	// Accumulation: exactly the kind of spec write a user may never make.

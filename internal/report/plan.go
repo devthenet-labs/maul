@@ -136,7 +136,7 @@ func ParsePlan(data []byte) (*Plan, error) {
 }
 
 // ParsePlanInput parses the build stage's input: an approved plan, which on
-// a revise round patchy follows with its rendering of that round's feedback
+// a revise round maul follows with its rendering of that round's feedback
 // and compare patch. It validates the plan's frontmatter exactly as
 // ParsePlan does, but not the body and document bounds, which the appended
 // round was never meant to fit; only the frontmatter block is bounded.
@@ -261,7 +261,7 @@ func repositoryKey(u string) string { return strings.TrimSuffix(strings.ToLower(
 
 // RepositoryPath returns the "owner/name" path of a repository URL of the
 // shape a plan may name — how the controller spells the repository a Job
-// works on (PATCHY_REPO) — or "" for anything else. The path is returned as
+// works on (MAUL_REPO) — or "" for anything else. The path is returned as
 // written: compare it with SameRepository.
 func RepositoryPath(u string) string {
 	if len(u) > RepositoryURLMaxBytes || !repositoryURL.MatchString(u) {

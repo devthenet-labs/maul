@@ -10,8 +10,8 @@
     "packages": {
         ".": {
             "extra-files": [
-                { "type": "generic", "path": "charts/patchy/Chart.yaml" },
-                { "type": "generic", "path": "charts/patchy-config/Chart.yaml" },
+                { "type": "generic", "path": "charts/maul/Chart.yaml" },
+                { "type": "generic", "path": "charts/maul-config/Chart.yaml" },
                 { "type": "generic", "path": "pyproject.toml" },
                 { "type": "generic", "path": "examples/agent-images/go/Dockerfile" },
                 { "type": "generic", "path": "examples/agent-images/node/Dockerfile" },
@@ -19,7 +19,7 @@
                 {
                     "type": "toml",
                     "path": "uv.lock",
-                    "jsonpath": "$.package[?(@.name.value=='patchy')].version"
+                    "jsonpath": "$.package[?(@.name.value=='maul')].version"
                 }
             ]
         }

@@ -3,11 +3,11 @@
 The in-pod coding-agent runtime: one stage per Job — `investigate` or `remediate` — via the harness CLI its runner image
 bundles (`claude -p` in the claude-agent-runner image, `codex exec` in the codex-agent-runner image, `copilot -p` in the
 copilot-agent-runner image). It never talks to GitHub or the Kubernetes API, and a stage has no flags — its
-configuration is exclusively `PATCHY_*` environment variables, injected into the Job pod by the job controllers (the
+configuration is exclusively `MAUL_*` environment variables, injected into the Job pod by the job controllers (the
 [`sandbox-probe`](#sandbox-probe) and `preflight` subcommands take arguments). A claude or codex pod holds **no
 credential of any kind**: its model traffic goes through the [egress broker](egress-broker.md), authenticated by a
 projected ServiceAccount token; a copilot pod holds the one token of its harness. Results leave the pod as a
-`PATCHY-EVENT:` JSONL stream on stdout (which is why all patchy logging goes to stderr).
+`MAUL-EVENT:` JSONL stream on stdout (which is why all maul logging goes to stderr).
 
 You normally never configure the agent-runner directly: the
 [investigation-controller](investigation-controller.md#stage-flags) and
@@ -16,17 +16,17 @@ matters when debugging a Job spec or running the runtime standalone.
 
 ## Identity and phase
 
-| Env                | Default          | Purpose                                                                                           |
-| ------------------ | ---------------- | ------------------------------------------------------------------------------------------------- |
-| `PATCHY_REPO`      | — (**required**) | `owner/name` of the repository under analysis                                                     |
-| `PATCHY_FINDING`   | — (**required**) | Name of the owning Finding resource — echoed in every event, and the branch is `patchy/<finding>` |
-| `PATCHY_BASE_SHA`  | —                | The remote commit the workspace tree corresponds to (the changeset's push base)                   |
-| `PATCHY_PHASE`     | `investigate`    | `investigate` or `remediate`; `plan` or `build` for an intent run (below)                         |
-| `PATCHY_WORKSPACE` | `/workspace`     | Pod workspace root (`repo/`, `input/`, `reports/`)                                                |
+| Env              | Default          | Purpose                                                                                         |
+| ---------------- | ---------------- | ----------------------------------------------------------------------------------------------- |
+| `MAUL_REPO`      | — (**required**) | `owner/name` of the repository under analysis                                                   |
+| `MAUL_FINDING`   | — (**required**) | Name of the owning Finding resource — echoed in every event, and the branch is `maul/<finding>` |
+| `MAUL_BASE_SHA`  | —                | The remote commit the workspace tree corresponds to (the changeset's push base)                 |
+| `MAUL_PHASE`     | `investigate`    | `investigate` or `remediate`; `plan` or `build` for an intent run (below)                       |
+| `MAUL_WORKSPACE` | `/workspace`     | Pod workspace root (`repo/`, `input/`, `reports/`)                                              |
 
 ### Intent phases
 
-An intent run (the intent-driven development work kind) uses two more phases, over the same Job seams: `PATCHY_FINDING`
+An intent run (the intent-driven development work kind) uses two more phases, over the same Job seams: `MAUL_FINDING`
 carries the IntentRun's name, `input/issue.md` the intent snapshot for a plan, and `input/investigation.md` the approved
 plan for a build. On a replan or revival, a plan's `input/investigation.md` is the context file of the earlier work. The
 plan prompt names it under "Earlier work on this intent" as data, not instructions, and does not quote it. A plan with
@@ -35,16 +35,16 @@ build handed a request is refused with a fatal event before any agent runs: the 
 verbatim, is the build's whole contract, while the request was seen only as GitHub rendered it.
 
 - **`plan`** reads the request and the tree read-only and writes `reports/plan.md`, emitted as a `plan` event. It runs
-  on the investigate stage's configuration — `PATCHY_INVESTIGATE_HARNESS`/`_MODEL`/`_TIMEOUT`, and
-  `PATCHY_INVESTIGATE_MAX_TURNS`/`_TOKEN_BUDGET` as its ceiling, which a per-Job grant may lower but never raise. Its
+  on the investigate stage's configuration — `MAUL_INVESTIGATE_HARNESS`/`_MODEL`/`_TIMEOUT`, and
+  `MAUL_INVESTIGATE_MAX_TURNS`/`_TOKEN_BUDGET` as its ceiling, which a per-Job grant may lower but never raise. Its
   sandbox is the investigation's [read-only one](../deployment/isolation.md#agent-tool-postures): no shell, the file
   tools alone, and writes scoped to `reports/`, so the planner can fix its report in place and is refused a write
   anywhere else in the workspace.
 - **`build`** builds the approved plan with the workspace writable — the first build and every revise round — writes
   `reports/build.md` and `commit.sh`, and emits a `remediation` event with the changeset. It runs on the remediate
-  stage's configuration, with `PATCHY_REMEDIATE_MANUAL_MAX_TURNS`/`_TOKEN_BUDGET` as its ceiling, which a per-Job grant
+  stage's configuration, with `MAUL_REMEDIATE_MANUAL_MAX_TURNS`/`_TOKEN_BUDGET` as its ceiling, which a per-Job grant
   may lower but never raise. Unlike a remediation's, a build's grant has no floor: one below
-  `PATCHY_REMEDIATE_AUTO_MAX_TURNS`/`_TOKEN_BUDGET` is honoured, and those apply only to a build Job with no grant.
+  `MAUL_REMEDIATE_AUTO_MAX_TURNS`/`_TOKEN_BUDGET` is honoured, and those apply only to a build Job with no grant.
 
 Two optional report sections carry what one agent learned to the next; neither changes what a report parser accepts. The
 build prompt asks every build and round to end its report with `## Working notes`, under 6 KiB, for the next agent on
@@ -55,20 +55,20 @@ rewritten rather than added to. The intent controller hands a round the latest n
 prompt allows a plan to end with `## Notes for the builder`, under 4 KiB: part of the plan, shown to the approver
 verbatim and read by the build with the rest of it.
 
-No per-Job timeout reaches the pod, so a stage's wall clock is `PATCHY_INVESTIGATE_TIMEOUT` (plan) or
-`PATCHY_REMEDIATE_TIMEOUT` (build, and every revise round), and its idle limit `PATCHY_INVESTIGATE_IDLE_TIMEOUT` or
-`PATCHY_REMEDIATE_IDLE_TIMEOUT`: the intent controller launches each stage with its own limits there. Each intent prompt
+No per-Job timeout reaches the pod, so a stage's wall clock is `MAUL_INVESTIGATE_TIMEOUT` (plan) or
+`MAUL_REMEDIATE_TIMEOUT` (build, and every revise round), and its idle limit `MAUL_INVESTIGATE_IDLE_TIMEOUT` or
+`MAUL_REMEDIATE_IDLE_TIMEOUT`: the intent controller launches each stage with its own limits there. Each intent prompt
 states the run's own limits up front, exactly as the run is held to them: its turns and output tokens after the grant
 (clamped to the stage's ceiling, or the stage's default with no grant) and the stage's wall clock. The plan prompt also
 tells the planner the most a build can be granted, read from the plan Job's
-`PATCHY_REMEDIATE_MANUAL_MAX_TURNS`/`_TOKEN_BUDGET` (the build stage's ceiling), which the intent controller sets to the
+`MAUL_REMEDIATE_MANUAL_MAX_TURNS`/`_TOKEN_BUDGET` (the build stage's ceiling), which the intent controller sets to the
 grant the Project's build will receive. Since the planner cannot run anything, the plan prompt points it at the
 repository's own guidance (CLAUDE.md, AGENTS.md, CONTRIBUTING.md, the README and the CI workflows) for which tests the
 build should run, and states every bound the plan report's frontmatter is held to.
 
 Both run on **brokered claude or brokered codex only**: copilot, any other harness, claude without
-`PATCHY_BROKER_TOKEN_FILE`, or codex without it or without `PATCHY_CODEX_BASE_URL` is refused with a fatal event before
-a model is called, so no intent pod ever holds a model credential. No configuration key exists for the intent phases
+`MAUL_BROKER_TOKEN_FILE`, or codex without it or without `MAUL_CODEX_BASE_URL` is refused with a fatal event before a
+model is called, so no intent pod ever holds a model credential. No configuration key exists for the intent phases
 alone. Codex does not render the sandbox postures, so on codex the plan prompt states the read-only rule as the
 planner's own to keep, without the claude sandbox and tool names, and asks for one read-back of the report instead of
 promising a repair. Codex can neither continue a session nor follow a running command: a refused report ends the stage
@@ -89,7 +89,7 @@ private-use characters), no indentation past 64 columns, and no more than 4 comb
 where the run starts. A report is at most 56 KiB, its frontmatter is plain YAML (one document, no explicit tag), and a
 plan holds no run of more than 16 backticks and no new dependency over 200 bytes, so that every plan accepted here fits
 in the GitHub comment that shows it for approval. The build report and the build input are held to the visible-text rule
-only: the build report is recorded on its run, patchy renders the pull request's description from the approved plan, and
+only: the build report is recorded on its run, maul renders the pull request's description from the approved plan, and
 the tool output a build quotes routinely aligns its columns past the plan's bounds.
 
 ## Report repair
@@ -98,8 +98,8 @@ A stage whose report is missing, or refused by its parser (any rule above, and a
 manifest), is not given up at once on claude or the fake harness. agent-runner asks the agent that wrote the report to
 repair it in the same session. It resumes the session the run left under `HOME` (`claude -p --resume <id>`, from the
 same working directory, with every flag the first run had, so a plan or an investigation stays read-only, with no shell,
-and writes only under `reports/`) with one message: patchy's fixed text and the refusal reason, quoted as data in a
-fence. The message asks for the report alone, and asks for an untrue claim (tests that failed, a step not built) to be
+and writes only under `reports/`) with one message: maul's fixed text and the refusal reason, quoted as data in a fence.
+The message asks for the report alone, and asks for an untrue claim (tests that failed, a step not built) to be
 corrected rather than hidden.
 
 - At most **2 rounds**, each of at most **6 turns** and **10 minutes**, and never more than the stage has left of its
@@ -129,25 +129,25 @@ codex and copilot cannot resume a session, so a stage on them ends on the first 
 
 ## Stage configuration
 
-Mirrors of the controllers' stage flags: `PATCHY_INVESTIGATE_TIMEOUT` (`15m`), `PATCHY_INVESTIGATE_IDLE_TIMEOUT`
-(`20m`), `PATCHY_INVESTIGATE_MAX_TURNS` (`25`), `PATCHY_INVESTIGATE_TOKEN_BUDGET` (`150000`), `PATCHY_REMEDIATE_TIMEOUT`
-(`45m`), `PATCHY_REMEDIATE_IDLE_TIMEOUT` (`20m`), `PATCHY_REMEDIATE_AUTO_MAX_TURNS` (`80`),
-`PATCHY_REMEDIATE_AUTO_TOKEN_BUDGET` (`400000`), `PATCHY_REMEDIATE_MANUAL_MAX_TURNS` (`240`),
-`PATCHY_REMEDIATE_MANUAL_TOKEN_BUDGET` (`1200000`), and `PATCHY_MODEL_ALLOWLIST` (canonical model ids, rendered into the
-analysis prompt). The **per-Job** `PATCHY_<STAGE>_HARNESS` and `PATCHY_<STAGE>_MODEL` (a canonical, provider-qualified
-id) are set by the controller from the harness and model it resolved for this Job — so the pod runs the harness its
-runner image was built for on the model the controller chose, and translates that canonical id to the CLI's own model
-id. The investigate limits are absolute. The remediate values are a floor and a backstop, not a clamp: every remediation
-runs on at least the ceiling whatever the investigation estimated, the per-Job `PATCHY_GRANTED_MAX_TURNS` /
-`PATCHY_GRANTED_TOKEN_BUDGET` raise that when a human approved a larger estimate, and the `_HARD` values bound the
-result. A hard cap below its ceiling is a configuration error and the runner refuses to start.
+Mirrors of the controllers' stage flags: `MAUL_INVESTIGATE_TIMEOUT` (`15m`), `MAUL_INVESTIGATE_IDLE_TIMEOUT` (`20m`),
+`MAUL_INVESTIGATE_MAX_TURNS` (`25`), `MAUL_INVESTIGATE_TOKEN_BUDGET` (`150000`), `MAUL_REMEDIATE_TIMEOUT` (`45m`),
+`MAUL_REMEDIATE_IDLE_TIMEOUT` (`20m`), `MAUL_REMEDIATE_AUTO_MAX_TURNS` (`80`), `MAUL_REMEDIATE_AUTO_TOKEN_BUDGET`
+(`400000`), `MAUL_REMEDIATE_MANUAL_MAX_TURNS` (`240`), `MAUL_REMEDIATE_MANUAL_TOKEN_BUDGET` (`1200000`), and
+`MAUL_MODEL_ALLOWLIST` (canonical model ids, rendered into the analysis prompt). The **per-Job** `MAUL_<STAGE>_HARNESS`
+and `MAUL_<STAGE>_MODEL` (a canonical, provider-qualified id) are set by the controller from the harness and model it
+resolved for this Job — so the pod runs the harness its runner image was built for on the model the controller chose,
+and translates that canonical id to the CLI's own model id. The investigate limits are absolute. The remediate values
+are a floor and a backstop, not a clamp: every remediation runs on at least the ceiling whatever the investigation
+estimated, the per-Job `MAUL_GRANTED_MAX_TURNS` / `MAUL_GRANTED_TOKEN_BUDGET` raise that when a human approved a larger
+estimate, and the `_HARD` values bound the result. A hard cap below its ceiling is a configuration error and the runner
+refuses to start.
 
 ### The idle watchdog
 
-`PATCHY_<STAGE>_IDLE_TIMEOUT` ends a run that makes no progress for that long: no model turn and no tool result, read
-off the stream the same way the transcript is (a CLI's housekeeping lines, such as a background task update, do not
-count). It kills the CLI's process group, as the wall clock does, and the stage ends `timeout` with a detail naming what
-it waited on, for example
+`MAUL_<STAGE>_IDLE_TIMEOUT` ends a run that makes no progress for that long: no model turn and no tool result, read off
+the stream the same way the transcript is (a CLI's housekeeping lines, such as a background task update, do not count).
+It kills the CLI's process group, as the wall clock does, and the stage ends `timeout` with a detail naming what it
+waited on, for example
 `no progress for 20m while running Bash (20m without returning): npm run test:ci 2>&1 | tail -60`. The same detail is
 the transcript's last turn and reaches the retry's prompt, and the run counts as an attempt, like any timeout. Its usage
 is recorded as for any other outcome. `0s` disables it; a negative value is a configuration error.
@@ -159,11 +159,11 @@ something that will not return: overdub-10's build sat 50 minutes on `npm run te
 is longer than the investigate stage's `15m` wall clock and equal to the plan stage's `20m`, so it only ever ends a
 remediation, build or revise run early.
 
-`PATCHY_CALIBRATION` is a JSON summary of how earlier estimates in this repository compared to reality, rendered into
-the analysis prompt so the next estimate can correct for the observed skew. It is advisory — absent on a cold start, and
-the prompt then omits the section entirely.
+`MAUL_CALIBRATION` is a JSON summary of how earlier estimates in this repository compared to reality, rendered into the
+analysis prompt so the next estimate can correct for the observed skew. It is advisory — absent on a cold start, and the
+prompt then omits the section entirely.
 
-`PATCHY_PREVIOUS_ATTEMPT` is another per-Job variable: on a retry, a JSON copy of the failed attempt's
+`MAUL_PREVIOUS_ATTEMPT` is another per-Job variable: on a retry, a JSON copy of the failed attempt's
 `spec.previousAttempt` (`attempt`, `outcome`, `detail`), rendered into that stage's prompt as a "previous attempt"
 section so the agent does not repeat the failure. The outcome is one the controller recognizes as a stage failure, or
 `unknown` — the pod reports its own outcome, and the prompt states it as fact. The detail is untrusted — it can quote
@@ -171,8 +171,8 @@ the repository or its image, such as the `git status` behind a `commit_failed` �
 control characters, and quotes it in a fence no line of it can close, stated to be data, not instructions. Absent on a
 first attempt, and the prompt then omits the section.
 
-`PATCHY_OPEN_PULL_REQUESTS` is the last per-Job variable, set only on an intent's plan Job, and only when other intents
-of its Project have pull requests open in the Project's repositories: a JSON list of at most 5 of them, each with its
+`MAUL_OPEN_PULL_REQUESTS` is the last per-Job variable, set only on an intent's plan Job, and only when other intents of
+its Project have pull requests open in the Project's repositories: a JSON list of at most 5 of them, each with its
 intent, repository, number, URL and title, the first 50 files it changes and how many it changes in all. The plan prompt
 lists them in an "Other open pull requests" section, which asks the plan to avoid the files they change wherever the
 request allows, and to name each overlap it cannot avoid among its questions. Everything in it is untrusted, written by
@@ -184,10 +184,10 @@ line of it can close, stated to be data, not instructions. Absent otherwise, and
 
 Brokered (claude) Jobs add two more:
 
-| Env                        | Purpose                                                                                                                                                                                     |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PATCHY_BROKER_TOKEN_FILE` | Path of the projected ServiceAccount token (`/var/run/patchy/broker/token`); read fresh each stage — the kubelet rotates it — and sent to the broker as the `X-Patchy-Broker-Token` header  |
-| `PATCHY_MODEL_MAP`         | Comma-joined `canonical=provider-id` pairs; consulted before the registry when translating the stage model to the CLI's `--model` id (Bedrock inference profiles, Foundry deployment names) |
+| Env                      | Purpose                                                                                                                                                                                     |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MAUL_BROKER_TOKEN_FILE` | Path of the projected ServiceAccount token (`/var/run/maul/broker/token`); read fresh each stage — the kubelet rotates it — and sent to the broker as the `X-Maul-Broker-Token` header      |
+| `MAUL_MODEL_MAP`         | Comma-joined `canonical=provider-id` pairs; consulted before the registry when translating the stage model to the CLI's `--model` id (Bedrock inference profiles, Foundry deployment names) |
 
 The controllers also set the claude CLI's gateway environment on brokered Jobs — `ANTHROPIC_BASE_URL` or the
 `CLAUDE_CODE_USE_*` / `CLAUDE_CODE_SKIP_*_AUTH` / `ANTHROPIC_*_BASE_URL` switches, plus
@@ -196,15 +196,15 @@ names are reserved in `internal/jobs`, so controller-global configuration can ne
 
 Two knobs exist only here:
 
-| Env                                 | Default            | Purpose                                                             |
-| ----------------------------------- | ------------------ | ------------------------------------------------------------------- |
-| `PATCHY_CHANGESET_MAX_BYTES`        | `5242880` (5 MiB)  | Size cap on the changeset's file contents carried out of the pod    |
-| `PATCHY_TRANSCRIPT_MAX_TURN_BYTES`  | `2048`             | Per-turn text cap in the captured conversation                      |
-| `PATCHY_TRANSCRIPT_MAX_TURNS`       | `500`              | Turn cap for one run's conversation                                 |
-| `PATCHY_TRANSCRIPT_MAX_TOTAL_BYTES` | `524288` (512 KiB) | Total cap on one run's conversation, before compression             |
-| `PATCHY_FAKE_FIXTURE`               | —                  | Stream-JSON fixture the `fake` harness replays (tests, dev overlay) |
+| Env                               | Default            | Purpose                                                             |
+| --------------------------------- | ------------------ | ------------------------------------------------------------------- |
+| `MAUL_CHANGESET_MAX_BYTES`        | `5242880` (5 MiB)  | Size cap on the changeset's file contents carried out of the pod    |
+| `MAUL_TRANSCRIPT_MAX_TURN_BYTES`  | `2048`             | Per-turn text cap in the captured conversation                      |
+| `MAUL_TRANSCRIPT_MAX_TURNS`       | `500`              | Turn cap for one run's conversation                                 |
+| `MAUL_TRANSCRIPT_MAX_TOTAL_BYTES` | `524288` (512 KiB) | Total cap on one run's conversation, before compression             |
+| `MAUL_FAKE_FIXTURE`               | —                  | Stream-JSON fixture the `fake` harness replays (tests, dev overlay) |
 
-Malformed values fail fast with an error naming the exact `PATCHY_<KEY>`.
+Malformed values fail fast with an error naming the exact `MAUL_<KEY>`.
 
 ### Network profiles
 
@@ -217,12 +217,12 @@ what it can fetch; the routes themselves are the go, npm and pip variables the c
 hold together, such as grants without a profile, is a configuration error, never a prompt. The fourth is an ordinary
 configuration key, set only on an intent plan Job, which itself never carries a profile.
 
-| Env                             | Set when                                      | Purpose                                                                                                                                                |
-| ------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `PATCHY_NETWORK_PROFILE`        | the Job carries a profile                     | The profile's name; the prompts then describe its routes instead of saying the run is offline                                                          |
-| `PATCHY_NETWORK_ECOSYSTEMS`     | the profile holds registry grants             | The ecosystems the Job can fetch, comma-separated in the order `go,npm,pypi` (only those present)                                                      |
-| `PATCHY_NETWORK_GRANTS`         | the profile holds registry grants             | JSON: per grant, the registry's name and ecosystem, its first 64 allowlisted packages (and a count of the rest) and its switches; no URL or credential |
-| `PATCHY_BUILD_NETWORK_PROFILES` | an intent plan Job whose builds get a profile | JSON: for the planning repository and each tree it reads, the profile its build would get and that profile's routes; the plan prompt states it         |
+| Env                           | Set when                                      | Purpose                                                                                                                                                |
+| ----------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `MAUL_NETWORK_PROFILE`        | the Job carries a profile                     | The profile's name; the prompts then describe its routes instead of saying the run is offline                                                          |
+| `MAUL_NETWORK_ECOSYSTEMS`     | the profile holds registry grants             | The ecosystems the Job can fetch, comma-separated in the order `go,npm,pypi` (only those present)                                                      |
+| `MAUL_NETWORK_GRANTS`         | the profile holds registry grants             | JSON: per grant, the registry's name and ecosystem, its first 64 allowlisted packages (and a count of the rest) and its switches; no URL or credential |
+| `MAUL_BUILD_NETWORK_PROFILES` | an intent plan Job whose builds get a profile | JSON: for the planning repository and each tree it reads, the profile its build would get and that profile's routes; the plan prompt states it         |
 
 ## sandbox-probe
 
@@ -237,13 +237,13 @@ agent's NetworkPolicy must block and retries until three consecutive rounds find
 | `--targets` | `k8s,imds` (wait mode only) | Comma-separated targets: `internet`, `k8s` (from `KUBERNETES_SERVICE_HOST`/`_PORT`), `imds` (`169.254.169.254:80`). Refused with `--mode strict`, whose targets are fixed; an unknown or repeated key is an error                                                                                                                                        |
 
 Both forms of a flag (`--mode wait`, `--mode=wait`) are accepted; a positional argument is an error. The window is
-`PATCHY_SANDBOX_PROBE_TIMEOUT` (a Go duration, default `20s`), which the controllers set on the `prepare` container; an
+`MAUL_SANDBOX_PROBE_TIMEOUT` (a Go duration, default `20s`), which the controllers set on the `prepare` container; an
 unparseable value is an error.
 
 ## The workspace, and how it got there
 
-The pod's **init container** — not the runtime — fetches the repository: `PATCHY_ARTIFACT_URL` points at
-source-controller's in-cluster artifact server (an unguessable URL), `PATCHY_ARTIFACT_DIGEST` pins the sha256, and the
+The pod's **init container** — not the runtime — fetches the repository: `MAUL_ARTIFACT_URL` points at
+source-controller's in-cluster artifact server (an unguessable URL), `MAUL_ARTIFACT_DIGEST` pins the sha256, and the
 init script verifies the digest before extracting to `/workspace/repo` and synthesizing a local git base commit. No
 forge credential is involved at any point — `internal/jobs` even lists `GITHUB_TOKEN` as a reserved name so no
 configuration can smuggle one in. The per-Job Secret carries only the handoff markdown (`input/issue.md`, plus
@@ -267,7 +267,7 @@ the environment cannot leak it into a persisted transcript.
 The copilot rows are the exception to "no forge credential ever reaches the pod": the Copilot CLI authenticates with a
 GitHub token, so a copilot Job does carry one. It is a model credential by role, not a forge one — the runner passes
 `--disable-builtin-mcps`, so no tool in the session speaks the GitHub API, and the harness's egress policy admits only
-`api.github.com` (the token exchange) and the `*.githubcopilot.com` inference endpoints. patchy's own forge traffic is
+`api.github.com` (the token exchange) and the `*.githubcopilot.com` inference endpoints. maul's own forge traffic is
 still controller-side only. Scope the token to Copilot with no repository permissions, and note the copilot runner ships
 disabled for exactly this reason.
 
@@ -275,15 +275,15 @@ disabled for exactly this reason.
 
 For turning codex on, the migration and checking it on a live cluster, see [The codex runner](codex.md). Codex is
 configured on its command line, so agent-runner points it at the broker itself, stage by stage. The pod carries
-`PATCHY_CODEX_BASE_URL` (the broker's `/openai/v1` route, stamped by the controller) and the projected token file; each
-stage then runs `codex exec` with a `patchy` model provider (`-c model_provider=patchy` and
-`model_providers.patchy.{base_url, wire_api="responses", env_key, env_http_headers, supports_websockets=false}`, one
-request and one stream retry) and sets, in the CLI's own environment only, `PATCHY_BROKER_TOKEN` (the token, read fresh
-per stage, sent as `X-Patchy-Broker-Token` and registered for scrubbing) and `PATCHY_CODEX_PLACEHOLDER_KEY` (the fixed,
+`MAUL_CODEX_BASE_URL` (the broker's `/openai/v1` route, stamped by the controller) and the projected token file; each
+stage then runs `codex exec` with a `maul` model provider (`-c model_provider=maul` and
+`model_providers.maul.{base_url, wire_api="responses", env_key, env_http_headers, supports_websockets=false}`, one
+request and one stream retry) and sets, in the CLI's own environment only, `MAUL_BROKER_TOKEN` (the token, read fresh
+per stage, sent as `X-Maul-Broker-Token` and registered for scrubbing) and `MAUL_CODEX_PLACEHOLDER_KEY` (the fixed,
 non-secret placeholder codex's auth gate demands, sent as the bearer the broker strips). Only variable names reach the
 command line. Every codex run also sets `analytics.enabled=false`, `otel.metrics_exporter="none"`,
 `features.plugins=false` and `web_search="disabled"`. A codex stage without a broker token file or without
-`PATCHY_CODEX_BASE_URL` is a `runtime_error` before codex starts: there is no unbrokered codex. A repository's
+`MAUL_CODEX_BASE_URL` is a `runtime_error` before codex starts: there is no unbrokered codex. A repository's
 `.codex/config.toml` cannot set `model_provider` or `model_providers`, so it cannot point codex away from the broker,
 and the pod's network policy admits nothing else anyway. Codex's runs are measured by the broker (their usage settles
 `measured`, priced from the registry's OpenAI rates) and count toward its limits. A spend-limit refusal ends codex's
@@ -295,7 +295,7 @@ turn after its one request, but codex (rust-v0.153.4) reports only the status
 `--codex-secret-env`; the chart's `agent.runners.codex.secret`/`secretKey`/`secretEnv`/`hosts`/`dnsPatterns`). Those are
 removed: on a controller that would run codex a leftover value fails startup (and the chart fails the render), naming
 these steps: create the OpenAI API key Secret in the release namespace, set `egressBroker.openai.apiKey` (kustomize:
-mount it into the broker and set `PATCHY_OPENAI_API_KEY_FILE`), remove the old keys, and delete the old `patchy-openai`
+mount it into the broker and set `MAUL_OPENAI_API_KEY_FILE`), remove the old keys, and delete the old `maul-openai`
 Secret from the agent namespace. Nothing is translated silently: the namespace changes, and the old Secret was readable
 by agent pods. Codex evaluations are refused until evolve supports the broker's provider config. Under
 [per-user credentials](user-credentials.md), a codex run attributed to a person pays with that person's own OpenAI API
@@ -303,7 +303,7 @@ key (`enforce`).
 
 ## The event stream
 
-Progress and results are emitted as one JSON object per line, prefixed `PATCHY-EVENT:`, on stdout; the owning controller
+Progress and results are emitted as one JSON object per line, prefixed `MAUL-EVENT:`, on stdout; the owning controller
 tails the pod log and applies them. The event types are `investigation`, `remediation` (a fix or an intent build),
 `plan` (an intent plan, carrying the report byte-exact beside its parsed frontmatter) and `fatal`, all at envelope
 version 4. Stage outcomes are `ok`, `runtime_error`, `timeout`, `budget_exceeded`, `report_missing`, `report_invalid`,
@@ -314,9 +314,9 @@ marked failed for the controller's orphan handling.
 ## Live command output
 
 While an intent's plan or build stage runs a foreground shell command, agent-runner prints the command's output as it is
-produced, as `PATCHY-OUTPUT:` lines beside the transcript's `PATCHY-TURN:` lines, so a viewer of the intent's run panel
-can watch a long test suite while it runs rather than only when its tool result arrives. It reads the file the claude
-CLI keeps a running command's output in (under `CLAUDE_CODE_TMPDIR`, `/tmp` by default). A backgrounded command is not
+produced, as `MAUL-OUTPUT:` lines beside the transcript's `MAUL-TURN:` lines, so a viewer of the intent's run panel can
+watch a long test suite while it runs rather than only when its tool result arrives. It reads the file the claude CLI
+keeps a running command's output in (under `CLAUDE_CODE_TMPDIR`, `/tmp` by default). A backgrounded command is not
 followed, and a Finding's investigate and remediate stages print none, since nothing shows it there.
 
 A line is shown as a terminal would show it, the text after its last carriage return, so a progress bar shows its latest

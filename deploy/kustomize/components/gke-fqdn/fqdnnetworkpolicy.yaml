@@ -22,7 +22,7 @@
 #
 #   * The agent container's own model API on 443 — one policy per
 #     NON-BROKERED harness (copilot), selecting that harness's pods by their
-#     patchy.bitwisemedia.uk/harness label. There is NO claude or codex
+#     maul.run/harness label. There is NO claude or codex
 #     policy: both are brokered and have no external hosts at all — their
 #     whole egress (DNS, the artifact server, the egress broker) comes from
 #     base/networkpolicy.yaml.
@@ -50,16 +50,16 @@
 apiVersion: networking.gke.io/v1alpha1
 kind: FQDNNetworkPolicy
 metadata:
-    name: patchy-agent-egress-copilot
-    namespace: patchy-agents
+    name: maul-agent-egress-copilot
+    namespace: maul-agents
     labels:
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 spec:
     podSelector:
         matchLabels:
-            app.kubernetes.io/name: patchy-agent
-            app.kubernetes.io/managed-by: patchy
-            patchy.bitwisemedia.uk/harness: copilot
+            app.kubernetes.io/name: maul-agent
+            app.kubernetes.io/managed-by: maul
+            maul.run/harness: copilot
     egress:
         - matches:
               - name: api.github.com

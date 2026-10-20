@@ -8,8 +8,8 @@ package main
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/bitwise-media-group/patchy/internal/cli"
-	"github.com/bitwise-media-group/patchy/internal/previewauth/httpapi"
+	"github.com/devthenet-labs/maul/internal/cli"
+	"github.com/devthenet-labs/maul/internal/previewauth/httpapi"
 )
 
 // testDialFlags adds nothing: only a binary built with the e2edial tag (the

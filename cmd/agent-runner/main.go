@@ -16,7 +16,7 @@
 // it runs only the preflight a stage runs first
 // on a repository-declared image, prints the verdict on stdout and exits
 // agentrun.ExitPreflightFailed when the image cannot run the harness; the
-// workstation check `patchy check image --run` drives it.
+// workstation check `maul check image --run` drives it.
 package main
 
 import (
@@ -29,11 +29,11 @@ import (
 	"slices"
 	"syscall"
 
-	"github.com/bitwise-media-group/patchy/internal/agentrun"
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
-	"github.com/bitwise-media-group/patchy/internal/runner"
-	"github.com/bitwise-media-group/patchy/internal/sandboxprobe"
-	"github.com/bitwise-media-group/patchy/internal/templates"
+	"github.com/devthenet-labs/maul/internal/agentrun"
+	"github.com/devthenet-labs/maul/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/runner"
+	"github.com/devthenet-labs/maul/internal/sandboxprobe"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 func main() {

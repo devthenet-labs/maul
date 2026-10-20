@@ -9,7 +9,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/bitwise-media-group/patchy/internal/templates"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // maxTags caps how many resource tags are rendered; the description is read

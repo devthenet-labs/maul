@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/previewauth"
+	"github.com/devthenet-labs/maul/internal/previewauth"
 )
 
 // signedIn returns a browser holding a relay session for alice, through
@@ -47,8 +47,8 @@ func TestAuthorizeNeverRedirectsAnError(t *testing.T) {
 	tests := []tc{
 		{"no response_type", q(func(v url.Values) { v.Del("response_type") }), nil, 400},
 		{"token response_type", q(func(v url.Values) { v.Set("response_type", "token") }), nil, 400},
-		{"unknown client", q(func(v url.Values) { v.Set("client_id", "patchy-preview-s9") }), nil, 400},
-		{"client past the slot count", q(func(v url.Values) { v.Set("client_id", "patchy-preview-s2") }), nil, 400},
+		{"unknown client", q(func(v url.Values) { v.Set("client_id", "maul-preview-s9") }), nil, 400},
+		{"client past the slot count", q(func(v url.Values) { v.Set("client_id", "maul-preview-s2") }), nil, 400},
 		{"foreign redirect", q(func(v url.Values) { v.Set("redirect_uri", "https://evil.example.com/cb") }), nil, 400},
 		{"lookalike redirect", q(func(v url.Values) {
 			v.Set("redirect_uri", "https://demo-7.preview.example.com.evil/oauth2/idpresponse")
@@ -132,7 +132,7 @@ func TestSessionCookie(t *testing.T) {
 	b := r.browser()
 	resp := get(t, b, authorizeURL(nil))
 	_ = resp.Body.Close()
-	login := findCookie(resp, "__Host-patchy-pa-login-")
+	login := findCookie(resp, "__Host-maul-pa-login-")
 	if !hostOnly(login) || login.MaxAge != 300 {
 		t.Fatalf("login cookie %+v", login)
 	}

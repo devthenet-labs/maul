@@ -9,9 +9,9 @@
 #
 #   (cd e2e && CGO_ENABLED=0 GOOS=linux GOARCH=<arch> \
 #       go build -trimpath -o ../bin/fakegithub ./fakegithub/cmd)
-#   docker build -t patchy/fakegithub:dev -f hack/fakegithub/Dockerfile bin
+#   docker build -t maul/fakegithub:dev -f hack/fakegithub/Dockerfile bin
 #
-# `make dev-colima` does both automatically when PATCHY_OVERLAY=dev-fake.
+# `make dev-colima` does both automatically when MAUL_OVERLAY=dev-fake.
 
 FROM gcr.io/distroless/static-debian13:nonroot@sha256:1c2c046bc09ed40fad370b599a0b1ae7987f55b01e247cf27a7c27cd97e5bbc7
 

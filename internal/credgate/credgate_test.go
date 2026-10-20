@@ -17,7 +17,7 @@ import (
 	"testing"
 	"testing/quick"
 
-	"github.com/bitwise-media-group/patchy/api/v1alpha1"
+	"github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 // seed keeps every property deterministic in the gate.
@@ -345,8 +345,8 @@ func TestImportsOnlyStdlibAndAPI(t *testing.T) {
 		for _, imp := range f.Imports {
 			path, _ := strconv.Unquote(imp.Path.Value)
 			first, _, _ := strings.Cut(path, "/")
-			if strings.Contains(first, ".") && path != "github.com/bitwise-media-group/patchy/api/v1alpha1" &&
-				path != "github.com/bitwise-media-group/patchy/internal/model" {
+			if strings.Contains(first, ".") && path != "github.com/devthenet-labs/maul/api/v1alpha1" &&
+				path != "github.com/devthenet-labs/maul/internal/model" {
 				t.Errorf("%s imports %s: package credgate imports only the stdlib, api/v1alpha1 and "+
 					"internal/model", name, path)
 			}

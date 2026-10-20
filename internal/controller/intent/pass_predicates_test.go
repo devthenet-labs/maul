@@ -17,9 +17,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/kube"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/kube"
 )
 
 // predicatePass is a pass over a Blocked Intent of the test Project, with
@@ -164,21 +164,21 @@ func TestRoundInFlight(t *testing.T) {
 }
 
 // TestIsOwnAndEverEdited: with no bot identity only a marker makes a comment
-// patchy's, and with one only the bot's authorship does; a comment gone
+// maul's, and with one only the bot's authorship does; a comment gone
 // since it was listed counts as edited, and any other failure to read its
 // edits is returned naming it.
 func TestIsOwnAndEverEdited(t *testing.T) {
 	e := newEnv(t)
 	p := predicatePass(e, nil)
-	marked := &ghclient.Comment{ID: 1, Body: "<!-- patchy:status -->\nbody", UserLogin: "mallory"}
+	marked := &ghclient.Comment{ID: 1, Body: "<!-- maul:status -->\nbody", UserLogin: "mallory"}
 	plain := &ghclient.Comment{ID: 2, Body: "hello", UserLogin: testBot}
 	p.bot = ""
 	if !p.isOwn(marked) || p.isOwn(plain) {
-		t.Error("with no bot, a marker alone should make a comment patchy's")
+		t.Error("with no bot, a marker alone should make a comment maul's")
 	}
 	p.bot = testBot
 	if p.isOwn(marked) || !p.isOwn(plain) {
-		t.Error("with a bot, only its authorship should make a comment patchy's")
+		t.Error("with a bot, only its authorship should make a comment maul's")
 	}
 
 	gone := &ghclient.Comment{ID: 3, NodeID: "IC_gone"}
@@ -220,7 +220,7 @@ func TestRoundChecks(t *testing.T) {
 		cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "rev-input", Namespace: testNS},
 			Data: map[string]string{keyCheckNames: names}}
 		if owner != "" {
-			cm.OwnerReferences = []metav1.OwnerReference{{APIVersion: "patchy.bitwisemedia.uk/v1alpha1",
+			cm.OwnerReferences = []metav1.OwnerReference{{APIVersion: "maul.run/v1alpha1",
 				Kind: "IntentRun", Name: "rev", UID: owner, Controller: ptrTo(true)}}
 		}
 		return cm

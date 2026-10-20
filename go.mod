@@ -1,4 +1,4 @@
-module github.com/bitwise-media-group/patchy
+module github.com/devthenet-labs/maul
 
 go 1.26.10
 

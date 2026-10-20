@@ -19,20 +19,20 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/previewauth"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/previewauth"
 )
 
 var t0 = time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 
 func lease(annotations map[string]string) *coordinationv1.Lease {
 	return &coordinationv1.Lease{ObjectMeta: metav1.ObjectMeta{
-		Name: "codes", Namespace: "patchy", Annotations: annotations,
+		Name: "codes", Namespace: "maul", Annotations: annotations,
 	}}
 }
 
 func newLedger(c client.Client, now *time.Time, results *[]string) *Ledger {
-	return &Ledger{Client: c, Namespace: "patchy", Name: "codes", Now: func() time.Time { return *now },
+	return &Ledger{Client: c, Namespace: "maul", Name: "codes", Now: func() time.Time { return *now },
 		Record: func(_ context.Context, r string) { *results = append(*results, r) }}
 }
 
@@ -59,7 +59,7 @@ func TestConsumeOnceThenReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	var got coordinationv1.Lease
-	if err := c.Get(ctx, client.ObjectKey{Namespace: "patchy", Name: "codes"}, &got); err != nil {
+	if err := c.Get(ctx, client.ObjectKey{Namespace: "maul", Name: "codes"}, &got); err != nil {
 		t.Fatal(err)
 	}
 	entries, err := decode(got.Annotations[Annotation])
@@ -144,7 +144,7 @@ func TestConcurrentWritersAgree(t *testing.T) {
 	now := t0
 	var results []string
 	l := newLedger(c, &now, &results)
-	other = &Ledger{Client: c, Namespace: "patchy", Name: "codes", Now: l.Now}
+	other = &Ledger{Client: c, Namespace: "maul", Name: "codes", Now: l.Now}
 	if err := l.Consume(context.Background(), key("a"), now.Add(time.Minute)); !errors.Is(err, previewauth.ErrReplayed) {
 		t.Fatalf("err = %v", err)
 	}

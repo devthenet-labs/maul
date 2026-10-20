@@ -61,14 +61,14 @@ func TestControllerRootTypedAccessors(t *testing.T) {
 		{
 			name: "env",
 			env: map[string]string{
-				"PATCHY_INTERVAL": "90s", "PATCHY_RATE": "4", "PATCHY_COUNT": "11", "PATCHY_ENABLED": "true",
+				"MAUL_INTERVAL": "90s", "MAUL_RATE": "4", "MAUL_COUNT": "11", "MAUL_ENABLED": "true",
 			},
 			interval: 90 * time.Second, rate: 4, count: 11, enabled: true,
 		},
 		{
 			name:     "flag beats env",
 			args:     []string{"--count", "1", "--enabled=false"},
-			env:      map[string]string{"PATCHY_COUNT": "11", "PATCHY_ENABLED": "true"},
+			env:      map[string]string{"MAUL_COUNT": "11", "MAUL_ENABLED": "true"},
 			interval: 5 * time.Second, rate: 1.5, count: 1,
 		},
 	}

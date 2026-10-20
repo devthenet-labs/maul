@@ -26,16 +26,16 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/kubernetes"
 
-	"github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/attribution"
-	"github.com/bitwise-media-group/patchy/internal/cli"
-	"github.com/bitwise-media-group/patchy/internal/harness"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/model"
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
-	"github.com/bitwise-media-group/patchy/internal/provider"
-	"github.com/bitwise-media-group/patchy/internal/resourceclass"
-	"github.com/bitwise-media-group/patchy/internal/usagemeter"
+	"github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/attribution"
+	"github.com/devthenet-labs/maul/internal/cli"
+	"github.com/devthenet-labs/maul/internal/harness"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/model"
+	"github.com/devthenet-labs/maul/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/provider"
+	"github.com/devthenet-labs/maul/internal/resourceclass"
+	"github.com/devthenet-labs/maul/internal/usagemeter"
 )
 
 // RegisterFlags adds the per-harness runner flags shared by both job
@@ -92,7 +92,7 @@ func registerSharedFlags(f *pflag.FlagSet) {
 	// The --claude-secret* flags stay registered for back-compat, but the
 	// claude runner is brokered now and ignores them (a migration notice is
 	// logged when they are customized). Codex/copilot still use theirs.
-	f.String("claude-secret", "patchy-anthropic", "IGNORED: the claude model credential lives in the egress broker")
+	f.String("claude-secret", "maul-anthropic", "IGNORED: the claude model credential lives in the egress broker")
 	f.String("claude-secret-key", "api-key", "IGNORED: the claude model credential lives in the egress broker")
 	f.String("claude-secret-env", "ANTHROPIC_API_KEY",
 		"IGNORED: the claude model credential lives in the egress broker")
@@ -108,7 +108,7 @@ func registerSharedFlags(f *pflag.FlagSet) {
 
 	// Copilot's credential is a GitHub token rather than a model API key, so
 	// the default Secret is named for the harness, not a vendor.
-	f.String("copilot-secret", "patchy-copilot", "Secret (agent namespace) holding the GitHub Copilot credential")
+	f.String("copilot-secret", "maul-copilot", "Secret (agent namespace) holding the GitHub Copilot credential")
 	f.String("copilot-secret-key", "token", "key within the GitHub Copilot credential Secret")
 	f.String("copilot-secret-env", "COPILOT_GITHUB_TOKEN", secretEnvUsage("GitHub Copilot", model.HarnessCopilot))
 
@@ -123,7 +123,7 @@ var codexSecretFlags = []string{"codex-secret", "codex-secret-key", "codex-secre
 const codexSecretMigration = "codex runs proxy-only through the egress broker and its pods hold no credential: " +
 	"create the OpenAI API key Secret in the release namespace, point the broker at it " +
 	"(egressBroker.openai.apiKey, or --openai-api-key-file), drop --codex-secret, --codex-secret-key and " +
-	"--codex-secret-env (PATCHY_CODEX_SECRET*), and delete the old patchy-openai Secret from the agent namespace"
+	"--codex-secret-env (MAUL_CODEX_SECRET*), and delete the old maul-openai Secret from the agent namespace"
 
 // codexSecretRemoved refuses a removed --codex-secret* value on a
 // controller that would run codex (codexWanted), naming the migration. On
@@ -571,7 +571,7 @@ func claudeRunner(opts *cli.Options, img string) (jobs.Runner, error) {
 	if err != nil {
 		return jobs.Runner{}, err
 	}
-	if opts.String("claude-secret") != "patchy-anthropic" ||
+	if opts.String("claude-secret") != "maul-anthropic" ||
 		opts.String("claude-secret-key") != "api-key" ||
 		opts.String("claude-secret-env") != "ANTHROPIC_API_KEY" {
 		opts.Log.Warn("--claude-secret* is ignored: claude runs proxy-only and the model credential " +
@@ -617,7 +617,7 @@ func ClaudeProviderConfig(opts *cli.Options) (provider.Config, error) {
 	for _, k := range slices.Sorted(maps.Keys(extra)) {
 		if slices.Contains(perJob, k) {
 			return provider.Config{}, fmt.Errorf(
-				"--claude-provider-env: %s is set per Job by patchy; it cannot be set here", k)
+				"--claude-provider-env: %s is set per Job by maul; it cannot be set here", k)
 		}
 	}
 	return cfg, nil

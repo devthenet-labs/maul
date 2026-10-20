@@ -14,9 +14,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/web/auth"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/web/auth"
 )
 
 var (
@@ -79,7 +79,7 @@ func accountServer(t *testing.T, providers ...v1alpha1.ModelCredentialProvider) 
 	t.Helper()
 	c := fake.NewClientBuilder().WithScheme(kube.Scheme()).Build()
 	store := newFakeStore()
-	s := NewServer(c, "patchy", stubAuth{}, stubGranter{grants: allGrants()}, nil).
+	s := NewServer(c, "maul", stubAuth{}, stubGranter{grants: allGrants()}, nil).
 		WithAccount(AccountOptions{Self: &accountGranter{}, Store: store, Providers: providers})
 	return s, store
 }
@@ -111,7 +111,7 @@ const putPath = "/api/account/credentials/anthropic"
 
 func TestAccountRoutesAreOffByDefault(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(kube.Scheme()).Build()
-	s := NewServer(c, "patchy", stubAuth{}, stubGranter{grants: allGrants()}, nil)
+	s := NewServer(c, "maul", stubAuth{}, stubGranter{grants: allGrants()}, nil)
 	ts := as(t, s, accountOctocat)
 	if code, _ := get(t, ts, "/api/account"); code != http.StatusNotFound {
 		t.Errorf("GET /api/account with the page off = %d, want 404", code)

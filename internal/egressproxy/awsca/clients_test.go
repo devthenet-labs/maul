@@ -21,7 +21,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/codeartifact"
 
-	"github.com/bitwise-media-group/patchy/internal/egressproxy"
+	"github.com/devthenet-labs/maul/internal/egressproxy"
 )
 
 // isolateAWSEnv points the SDK's ambient configuration at nothing, so a
@@ -148,7 +148,7 @@ func TestLoadConfigUsesTheGuardedClients(t *testing.T) {
 		if err := os.WriteFile(tokenFile, []byte("jwt"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		t.Setenv("AWS_ROLE_ARN", "arn:aws:iam::377946145366:role/patchy-egress-proxy")
+		t.Setenv("AWS_ROLE_ARN", "arn:aws:iam::377946145366:role/maul-egress-proxy")
 		t.Setenv("AWS_WEB_IDENTITY_TOKEN_FILE", tokenFile)
 		t.Setenv("AWS_ENDPOINT_URL_STS", srv.URL)
 		c := NewClients(egressproxy.AddrPolicy{})

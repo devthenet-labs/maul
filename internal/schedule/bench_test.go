@@ -56,8 +56,8 @@ func BenchmarkPick(b *testing.B) {
 // TestComplexityPick asserts Pick stays n log n: 2M candidates may cost at
 // most 30× what 100k does (20× items plus the log factor).
 func TestComplexityPick(t *testing.T) {
-	if os.Getenv("PATCHY_BENCH_ASSERT") == "" {
-		t.Skip("set PATCHY_BENCH_ASSERT=1 to run complexity assertions")
+	if os.Getenv("MAUL_BENCH_ASSERT") == "" {
+		t.Skip("set MAUL_BENCH_ASSERT=1 to run complexity assertions")
 	}
 	small := benchCandidates(100_000)
 	large := benchCandidates(2_000_000)

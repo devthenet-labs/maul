@@ -21,13 +21,13 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/action"
-	"github.com/bitwise-media-group/patchy/internal/attribution"
-	"github.com/bitwise-media-group/patchy/internal/command"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/templates"
-	"github.com/bitwise-media-group/patchy/internal/usagerollup"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/action"
+	"github.com/devthenet-labs/maul/internal/attribution"
+	"github.com/devthenet-labs/maul/internal/command"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/templates"
+	"github.com/devthenet-labs/maul/internal/usagerollup"
 )
 
 const reviewQuiet = 2 * time.Minute
@@ -194,7 +194,7 @@ func (p *pass) endReviseRound(ctx context.Context, run *v1alpha1.IntentRun) (boo
 // round number never repeats across repositories): what the round pushed and
 // that review is requested again, or that it ended without a push. A round
 // whose repository has no recorded pull request has nowhere to say it, and
-// one whose repository has left the Project says nothing there: patchy
+// one whose repository has left the Project says nothing there: maul
 // writes nothing more to a repository the Project no longer holds, whose
 // token is no longer one Ready proved, and which it may no longer reach.
 func (p *pass) finishPRRound(ctx context.Context, run *v1alpha1.IntentRun) error {
@@ -209,7 +209,7 @@ func (p *pass) finishPRRound(ctx context.Context, run *v1alpha1.IntentRun) error
 		return nil
 	}
 	pr := *rec
-	marker := fmt.Sprintf("<!-- patchy:intent-pr-round:%s:%d -->", p.in.Name, run.Spec.Round)
+	marker := fmt.Sprintf("<!-- maul:intent-pr-round:%s:%d -->", p.in.Name, run.Spec.Round)
 	since := run.CreationTimestamp.Add(-clockSkew)
 	comments, err := p.r.GitHub.ListPullRequestComments(ctx, pr.Repository, pr.Number, since)
 	if err != nil {
@@ -599,7 +599,7 @@ func (p *pass) ackPRCommand(ctx context.Context, run *v1alpha1.IntentRun) error 
 	if err != nil {
 		return err
 	}
-	marker := fmt.Sprintf("<!-- patchy:intent-pr-command:%s:%d -->", p.in.Name, id)
+	marker := fmt.Sprintf("<!-- maul:intent-pr-command:%s:%d -->", p.in.Name, id)
 	comments, err := p.r.GitHub.ListPullRequestComments(ctx, pr.Repository, pr.Number, c.CreatedAt.Add(-time.Second))
 	if err != nil {
 		return err

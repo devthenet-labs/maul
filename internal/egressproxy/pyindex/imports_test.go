@@ -17,8 +17,8 @@ import (
 // tokenizer and netprofile's grammar (itself stdlib-only), nothing else.
 func TestImportSet(t *testing.T) {
 	allowed := map[string]bool{
-		"golang.org/x/net/html": true,
-		"github.com/bitwise-media-group/patchy/internal/netprofile": true,
+		"golang.org/x/net/html":                              true,
+		"github.com/devthenet-labs/maul/internal/netprofile": true,
 	}
 	files, err := filepath.Glob("*.go")
 	if err != nil {

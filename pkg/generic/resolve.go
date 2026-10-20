@@ -24,9 +24,9 @@ type Verdict struct {
 	Comment string `json:"comment,omitempty"`
 }
 
-// ResolveRequest is what patchy POSTs to the integration's resolver URL when
+// ResolveRequest is what maul POSTs to the integration's resolver URL when
 // a finding is dismissed, so the source system can close its own record. The
-// process must treat it as idempotent: patchy retries on failure, so the
+// process must treat it as idempotent: maul retries on failure, so the
 // same alerts may be resolved more than once. Any 2xx answer is success.
 type ResolveRequest struct {
 	// Version is the contract version, always Version.

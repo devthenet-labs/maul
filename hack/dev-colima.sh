@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: MIT
 #
 # One-command local dev loop on Colima: start the VM+k3s if needed, snapshot
-# the images, retag the host-arch ones as patchy/<app>:dev (the tags the dev
+# the images, retag the host-arch ones as maul/<app>:dev (the tags the dev
 # overlay expects — the shared Docker/k3s image store makes the tag the whole
 # "load" step), apply the overlay, and restart the deployments so a re-run
 # redeploys the fresh build. See docs/deployment/colima.md.
@@ -35,13 +35,13 @@ kubectl --context colima get ingressclass traefik >/dev/null 2>&1 || {
 }
 
 # goreleaser names its images under the release registry it reads from
-# PATCHY_IMAGE_REGISTRY (.goreleaser.yaml). A local-only name by default keeps
+# MAUL_IMAGE_REGISTRY (.goreleaser.yaml). A local-only name by default keeps
 # the snapshot apart from any pulled release image, and this script tied to
 # no one registry; nothing is pushed either way.
-registry="${PATCHY_IMAGE_REGISTRY:-patchy.snapshot.local}"
-PATCHY_IMAGE_REGISTRY="$registry" mise run snapshot
+registry="${MAUL_IMAGE_REGISTRY:-maul.snapshot.local}"
+MAUL_IMAGE_REGISTRY="$registry" mise run snapshot
 
-# retag the host-arch snapshot images as patchy/<app>:dev (dev overlay names)
+# retag the host-arch snapshot images as maul/<app>:dev (dev overlay names)
 arch=$(uname -m)
 [ "$arch" = x86_64 ] && arch=amd64
 for app in integration-controller source-controller context-controller investigation-controller remediation-controller \
@@ -52,20 +52,20 @@ for app in integration-controller source-controller context-controller investiga
     echo "error: no snapshot image for $app ($arch)" >&2
     exit 1
   }
-  docker tag "$registry/$app:$tag" "patchy/$app:dev"
+  docker tag "$registry/$app:$tag" "maul/$app:dev"
 done
 
-# PATCHY_OVERLAY=dev-fake swaps in the credential-less stack: the scripted
+# MAUL_OVERLAY=dev-fake swaps in the credential-less stack: the scripted
 # agent image (hack/fake-agent) and the fake GitHub running in-cluster
 # (e2e/fakegithub, cross-compiled here — the Dockerfile carries no Go
 # toolchain, matching Dockerfile.controller). See docs/deployment/colima.md.
-overlay="${PATCHY_OVERLAY:-dev}"
+overlay="${MAUL_OVERLAY:-dev}"
 if [ "$overlay" = dev-fake ]; then
-  docker build -t patchy/fake-agent:dev hack/fake-agent
+  docker build -t maul/fake-agent:dev hack/fake-agent
   mkdir -p bin
   (cd e2e && CGO_ENABLED=0 GOOS=linux GOARCH="$arch" \
     go build -trimpath -o ../bin/fakegithub ./fakegithub/cmd)
-  docker build -t patchy/fakegithub:dev -f hack/fakegithub/Dockerfile bin
+  docker build -t maul/fakegithub:dev -f hack/fakegithub/Dockerfile bin
 fi
 
 # CRDs first, and wait until they are Established: the overlay contains
@@ -77,14 +77,14 @@ kubectl --context colima wait --for=condition=Established -f deploy/kustomize/ba
 
 kubectl --context colima apply -k "deploy/kustomize/overlays/$overlay"
 
-# optional PAT: replace the dev overlay's placeholder patchy-github Secret
+# optional PAT: replace the dev overlay's placeholder maul-github Secret
 # (the Integration/Forge CRs reference it) with a real token so GitHub calls
 # work. The webhookSecret stays the dev placeholder unless overridden.
 if [ -n "${GITHUB_TOKEN:-}" ]; then
   printf '%s' "$GITHUB_TOKEN" |
-    kubectl --context colima -n patchy create secret generic patchy-github \
+    kubectl --context colima -n maul create secret generic maul-github \
       --from-file=token=/dev/stdin \
-      --from-literal=webhookSecret="${PATCHY_WEBHOOK_SECRET:-dev-webhook-secret-replace-me}" \
+      --from-literal=webhookSecret="${MAUL_WEBHOOK_SECRET:-dev-webhook-secret-replace-me}" \
       --dry-run=client -o yaml |
     kubectl --context colima apply -f -
 else
@@ -93,8 +93,8 @@ else
 fi
 
 # same :dev tag every run — restart so pods pick up the retagged image
-kubectl --context colima -n patchy rollout restart deployment -l app.kubernetes.io/part-of=patchy
-kubectl --context colima -n patchy rollout status deployment -l app.kubernetes.io/part-of=patchy --timeout=120s
+kubectl --context colima -n maul rollout restart deployment -l app.kubernetes.io/part-of=maul
+kubectl --context colima -n maul rollout status deployment -l app.kubernetes.io/part-of=maul --timeout=120s
 
 # where the ingress answers depends on colima's network mode: with a reachable
 # VM address colima deliberately does NOT forward guest 80/443 to the host
@@ -110,4 +110,4 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
   sleep 2
 done
 [ "$code" = "405" ] || echo "note: $ingress answered $code, not the expected 405 — traefik may still be starting" >&2
-echo "patchy dev stack ready — webhook ingress: $ingress  nodeport: http://localhost:30079/healthz"
+echo "maul dev stack ready — webhook ingress: $ingress  nodeport: http://localhost:30079/healthz"

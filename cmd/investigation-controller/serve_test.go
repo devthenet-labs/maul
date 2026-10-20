@@ -12,7 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/bitwise-media-group/patchy/internal/cli"
+	"github.com/devthenet-labs/maul/internal/cli"
 )
 
 // serveOpts resolves args through the real serve flag surface, as the
@@ -33,21 +33,21 @@ func serveOpts(t *testing.T, args ...string) *cli.Options {
 	return opts
 }
 
-// TestAgentEnvDefaults pins the PATCHY_* handoff every investigation pod
+// TestAgentEnvDefaults pins the MAUL_* handoff every investigation pod
 // receives with no flags set: the analysis budgets, and the remediation
 // budgets the analysis prompt quotes, which must match the remediation
 // controller's own defaults.
 func TestAgentEnvDefaults(t *testing.T) {
 	want := map[string]string{
-		"PATCHY_MODEL_ALLOWLIST":               "anthropic/claude-sonnet-5,anthropic/claude-opus-5",
-		"PATCHY_INVESTIGATE_TIMEOUT":           "15m0s",
-		"PATCHY_INVESTIGATE_IDLE_TIMEOUT":      "20m0s",
-		"PATCHY_INVESTIGATE_MAX_TURNS":         "25",
-		"PATCHY_INVESTIGATE_TOKEN_BUDGET":      "150000",
-		"PATCHY_REMEDIATE_AUTO_MAX_TURNS":      "80",
-		"PATCHY_REMEDIATE_AUTO_TOKEN_BUDGET":   "400000",
-		"PATCHY_REMEDIATE_MANUAL_MAX_TURNS":    "240",
-		"PATCHY_REMEDIATE_MANUAL_TOKEN_BUDGET": "1200000",
+		"MAUL_MODEL_ALLOWLIST":               "anthropic/claude-sonnet-5,anthropic/claude-opus-5",
+		"MAUL_INVESTIGATE_TIMEOUT":           "15m0s",
+		"MAUL_INVESTIGATE_IDLE_TIMEOUT":      "20m0s",
+		"MAUL_INVESTIGATE_MAX_TURNS":         "25",
+		"MAUL_INVESTIGATE_TOKEN_BUDGET":      "150000",
+		"MAUL_REMEDIATE_AUTO_MAX_TURNS":      "80",
+		"MAUL_REMEDIATE_AUTO_TOKEN_BUDGET":   "400000",
+		"MAUL_REMEDIATE_MANUAL_MAX_TURNS":    "240",
+		"MAUL_REMEDIATE_MANUAL_TOKEN_BUDGET": "1200000",
 	}
 	if got := agentEnv(serveOpts(t)); !maps.Equal(got, want) {
 		t.Errorf("agentEnv =\n%v\nwant\n%v", got, want)
@@ -55,9 +55,9 @@ func TestAgentEnvDefaults(t *testing.T) {
 }
 
 // TestAgentEnvFollowsFlags: every value comes from its flag (or the
-// PATCHY_* variable the chart renders), never a constant.
+// MAUL_* variable the chart renders), never a constant.
 func TestAgentEnvFollowsFlags(t *testing.T) {
-	t.Setenv("PATCHY_REMEDIATE_MANUAL_TOKEN_BUDGET", "7")
+	t.Setenv("MAUL_REMEDIATE_MANUAL_TOKEN_BUDGET", "7")
 	got := agentEnv(serveOpts(t,
 		"--model-allowlist", "anthropic/claude-opus-5",
 		"--investigate-timeout", "90s", "--investigate-idle-timeout", "0",
@@ -65,15 +65,15 @@ func TestAgentEnvFollowsFlags(t *testing.T) {
 		"--remediate-auto-max-turns", "5", "--remediate-auto-token-budget", "6",
 		"--remediate-manual-max-turns", "8"))
 	for k, v := range map[string]string{
-		"PATCHY_MODEL_ALLOWLIST":               "anthropic/claude-opus-5",
-		"PATCHY_INVESTIGATE_TIMEOUT":           "1m30s",
-		"PATCHY_INVESTIGATE_IDLE_TIMEOUT":      "0s",
-		"PATCHY_INVESTIGATE_MAX_TURNS":         "3",
-		"PATCHY_INVESTIGATE_TOKEN_BUDGET":      "4",
-		"PATCHY_REMEDIATE_AUTO_MAX_TURNS":      "5",
-		"PATCHY_REMEDIATE_AUTO_TOKEN_BUDGET":   "6",
-		"PATCHY_REMEDIATE_MANUAL_TOKEN_BUDGET": "7",
-		"PATCHY_REMEDIATE_MANUAL_MAX_TURNS":    "8",
+		"MAUL_MODEL_ALLOWLIST":               "anthropic/claude-opus-5",
+		"MAUL_INVESTIGATE_TIMEOUT":           "1m30s",
+		"MAUL_INVESTIGATE_IDLE_TIMEOUT":      "0s",
+		"MAUL_INVESTIGATE_MAX_TURNS":         "3",
+		"MAUL_INVESTIGATE_TOKEN_BUDGET":      "4",
+		"MAUL_REMEDIATE_AUTO_MAX_TURNS":      "5",
+		"MAUL_REMEDIATE_AUTO_TOKEN_BUDGET":   "6",
+		"MAUL_REMEDIATE_MANUAL_TOKEN_BUDGET": "7",
+		"MAUL_REMEDIATE_MANUAL_MAX_TURNS":    "8",
 	} {
 		if got[k] != v {
 			t.Errorf("%s = %q, want %q", k, got[k], v)
@@ -95,7 +95,7 @@ func TestServeStartupErrors(t *testing.T) {
 	}{
 		{name: "no namespace", wantErr: "namespace is required"},
 		{name: "no runner", args: []string{"--namespace", "p"}, wantErr: "no agent runner configured"},
-		{name: "namespace from the pod", env: "patchy", wantErr: "no agent runner configured"},
+		{name: "namespace from the pod", env: "maul", wantErr: "no agent runner configured"},
 		{name: "bad codex credential env", args: []string{"--namespace", "p", "--codex-agent-image", "c:1",
 			"--codex-secret-env", "ANTHROPIC_API_KEY"}, wantErr: "--codex-secret-env"},
 		{name: "repository images without a disk wall", args: with("--repository-images"),

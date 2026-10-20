@@ -22,10 +22,10 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/e2e/fakegithub"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/templates"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/e2e/fakegithub"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // The multi-repository intent e2e (slice 3): one Project over several
@@ -33,9 +33,9 @@ import (
 // intent-controller with --intent-multi-repo, source-controller,
 // preview-controller and the fake kubelet. One plan reads every tree; each
 // repository the approved plan names is built in its own image and gets
-// its own pull request on patchy-intent/<intent>; rounds run one at a time,
+// its own pull request on maul-intent/<intent>; rounds run one at a time,
 // each on one pull request's repository; the intent ends Merged only when
-// every pull request merged. The web repository is named the way patchy
+// every pull request merged. The web repository is named the way maul
 // places no rule on (mixed case, a dot, an underscore): its Project key
 // and its preview image leaf are the operator's.
 const (
@@ -47,7 +47,7 @@ const (
 	libRepoURL = "https://127.0.0.1/acme/" + libRepo
 	// previewPrefix is the preview image prefix preview-controller holds
 	// every component image to.
-	previewPrefix = "registry.example/patchy/previews/"
+	previewPrefix = "registry.example/maul/previews/"
 )
 
 // multiRepoArgs turn slice 3 on as the demo's values do: multi-repository
@@ -93,7 +93,7 @@ func startMultiRepo(t *testing.T, repos []v1alpha1.ProjectRepository, checks []s
 // namespaces, as TestPreviewRuntime does.
 func startPreviewController(t *testing.T, cl *cluster) {
 	t.Helper()
-	for _, name := range []string{"patchy-preview-0", "patchy-preview-1"} {
+	for _, name := range []string{"maul-preview-0", "maul-preview-1"} {
 		if err := cl.client.Create(context.Background(),
 			&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name}}); err != nil {
 			t.Fatal(err)
@@ -102,9 +102,9 @@ func startPreviewController(t *testing.T, cl *cluster) {
 	cl.controller(t, "preview-controller",
 		"--preview-slot-count", "2",
 		"--preview-image-prefix", previewPrefix,
-		"--preview-host-suffix", "preview.patchy.example.com",
-		"--preview-node-pool", "patchy-preview", "--preview-node-class", "patchy-preview",
-		"--preview-taint-key", "patchy.devthe.net/preview-only",
+		"--preview-host-suffix", "preview.maul.example.com",
+		"--preview-node-pool", "maul-preview", "--preview-node-class", "maul-preview",
+		"--preview-taint-key", "maul.devthe.net/preview-only",
 		"--preview-poll-interval", "1s")
 }
 
@@ -159,8 +159,8 @@ func (e *intentEnv) checkTreesPlanJob(t *testing.T, r agentRun, planRun, own, ow
 		t.Errorf("plan job image = %s (source %q), want the default %s: trees only ever meet the default image",
 			r.Image, r.Job.Annotations[runnerImageSourceAnnotation], claudeRunnerImage)
 	}
-	if r.Env["PATCHY_PHASE"] != "plan" || r.Env["PATCHY_REPO"] != "acme/"+repoName(ownURL) {
-		t.Errorf("plan job phase %q in %q, want plan in acme/%s", r.Env["PATCHY_PHASE"], r.Env["PATCHY_REPO"],
+	if r.Env["MAUL_PHASE"] != "plan" || r.Env["MAUL_REPO"] != "acme/"+repoName(ownURL) {
+		t.Errorf("plan job phase %q in %q, want plan in acme/%s", r.Env["MAUL_PHASE"], r.Env["MAUL_REPO"],
 			repoName(ownURL))
 	}
 	manifest := own + " /workspace/repo " + ownURL + "\n"
@@ -231,7 +231,7 @@ func (e *intentEnv) checkTreesPlanJob(t *testing.T, r agentRun, planRun, own, ow
 
 // checkBuildJob asserts one repository's build Job: in that repository's
 // own image, pinned by digest on its own Repository, told its repository
-// by PATCHY_REPO, handed the approved plan byte-identical and nothing of the
+// by MAUL_REPO, handed the approved plan byte-identical and nothing of the
 // request, and holding no credential.
 func (e *intentEnv) checkBuildJob(t *testing.T, r agentRun, buildRun, url, plan string) {
 	t.Helper()
@@ -250,8 +250,8 @@ func (e *intentEnv) checkBuildJob(t *testing.T, r agentRun, buildRun, url, plan 
 		t.Errorf("build %s image = %s (source %q), want its repository's pin %+v", buildRun, r.Image,
 			r.Job.Annotations[runnerImageSourceAnnotation], pinned)
 	}
-	if got, want := r.Env["PATCHY_REPO"], "acme/"+repoName(url); got != want {
-		t.Errorf("build %s PATCHY_REPO = %q, want %q", buildRun, got, want)
+	if got, want := r.Env["MAUL_REPO"], "acme/"+repoName(url); got != want {
+		t.Errorf("build %s MAUL_REPO = %q, want %q", buildRun, got, want)
 	}
 	if len(r.Issue) != 0 || string(r.Investigation) != plan {
 		t.Errorf("build %s was handed a request (%d bytes) or a plan other than the approved one", buildRun,
@@ -299,7 +299,7 @@ func (e *intentEnv) waitPreview(t *testing.T, name, why string, want []v1alpha1.
 		}
 		for i, c := range want {
 			var dep appsv1.Deployment
-			if e.cl.client.Get(context.Background(), types.NamespacedName{Namespace: "patchy-preview-0",
+			if e.cl.client.Get(context.Background(), types.NamespacedName{Namespace: "maul-preview-0",
 				Name: deployments[i]}, &dep) != nil ||
 				dep.Spec.Template.Spec.Containers[0].Image != c.ImageRepository+":sha-"+c.Revision {
 				return false
@@ -318,7 +318,7 @@ func (e *intentEnv) waitPreviewGone(t *testing.T, name string, components ...str
 			return false
 		}
 		for _, d := range previewObjects(name, components...) {
-			key := types.NamespacedName{Namespace: "patchy-preview-0", Name: d}
+			key := types.NamespacedName{Namespace: "maul-preview-0", Name: d}
 			if !apierrors.IsNotFound(e.cl.client.Get(context.Background(), key, &appsv1.Deployment{})) ||
 				!apierrors.IsNotFound(e.cl.client.Get(context.Background(), key, &corev1.Service{})) {
 				return false
@@ -343,7 +343,7 @@ func (e *intentEnv) readyPreview(t *testing.T, name string, want []v1alpha1.Prev
 	for i, d := range previewObjects(name, keys...) {
 		c := want[i]
 		image := c.ImageRepository + ":sha-" + c.Revision
-		key := types.NamespacedName{Namespace: "patchy-preview-0", Name: d}
+		key := types.NamespacedName{Namespace: "maul-preview-0", Name: d}
 		var dep appsv1.Deployment
 		eventually(t, "the "+c.Name+" Deployment to roll out", func() bool {
 			if e.cl.client.Get(ctx, key, &dep) != nil || dep.Spec.Template.Spec.Containers[0].Image != image {
@@ -392,7 +392,7 @@ func (e *intentEnv) clearPreviewPods(t *testing.T) {
 	t.Helper()
 	ctx := context.Background()
 	var pods corev1.PodList
-	if err := e.cl.client.List(ctx, &pods, client.InNamespace("patchy-preview-0")); err != nil {
+	if err := e.cl.client.List(ctx, &pods, client.InNamespace("maul-preview-0")); err != nil {
 		t.Fatal(err)
 	}
 	for i := range pods.Items {
@@ -402,7 +402,7 @@ func (e *intentEnv) clearPreviewPods(t *testing.T) {
 	}
 }
 
-// waitPreviewComment waits for exactly one preview comment of patchy's on
+// waitPreviewComment waits for exactly one preview comment of maul's on
 // pull request number that says says, and returns it.
 func (e *intentEnv) waitPreviewComment(t *testing.T, name string, number int64, why string,
 	says ...string) fakegithub.Comment {
@@ -477,7 +477,7 @@ func actionsLog(sec int, runner string) string {
 // TestMultiRepoIntentLifecycle drives one intent over two repositories from
 // the issue to the merge: one plan Job reading both trees, both builds (one
 // per repository, each in its own image), two pull requests on
-// patchy-intent/<intent> cross-linked by one comment each, a two-component
+// maul-intent/<intent> cross-linked by one comment each, a two-component
 // preview at both pull requests' heads, a revision round on the web pull
 // request and a CI-fix round on the API's (each pushed to its own branch
 // only, never forced), and Merged only once both have merged.
@@ -500,7 +500,7 @@ func TestMultiRepoIntentLifecycle(t *testing.T) {
 	}
 	planComments := e.own(number, templates.PlanMarker(namespace, name, 1, pl.Digest))
 	if len(planComments) != 1 || !strings.Contains(planComments[0].Body,
-		"patchy opens one pull request in each of: `acme/"+webRepo+"`, `acme/api`.") {
+		"maul opens one pull request in each of: `acme/"+webRepo+"`, `acme/api`.") {
 		t.Errorf("plan comments = %+v, want one naming both repositories in its header", planComments)
 	}
 	eventually(t, "the plan's repositories, its trees' included, to be deleted once collected", func() bool {
@@ -563,7 +563,7 @@ func TestMultiRepoIntentLifecycle(t *testing.T) {
 			t.Fatalf("%s pull request = %+v, want %s into main of its own repository", c.key, pr, branch)
 		}
 		if !strings.HasPrefix(pr.Body, fmt.Sprintf("Part of %s/%s#%d", intentOwner, intentRepo, number)) ||
-			!strings.Contains(pr.Body, "one of 2 pull requests patchy opened for the intent, one in each of: `acme/"+
+			!strings.Contains(pr.Body, "one of 2 pull requests maul opened for the intent, one in each of: `acme/"+
 				webRepo+"`, `acme/api`") {
 			t.Errorf("%s pull request body does not say it is one of two:\n%s", c.key, pr.Body)
 		}
@@ -600,7 +600,7 @@ func TestMultiRepoIntentLifecycle(t *testing.T) {
 	// Once preview-controller serves both heads, the issue links the
 	// preview and lists what it serves, and each pull request gets one
 	// comment naming its head live at the host, under its path.
-	host := name + ".preview.patchy.example.com"
+	host := name + ".preview.maul.example.com"
 	link := "[`" + host + "`](https://" + host + ")"
 	e.readyPreview(t, name, []v1alpha1.PreviewComponent{webPreview, apiPreview})
 	e.waitStatusComment(t, name, number, "the status comment to link the live preview", func(body string) bool {
@@ -615,17 +615,17 @@ func TestMultiRepoIntentLifecycle(t *testing.T) {
 	// 6. A revision round on the web pull request: the web repository
 	//    alone, in its own image, fast-forwarded.
 	e.gh.SetComparePatch(fakegithub.BaseSHA, heads["web"], "diff --git a/VERSION b/VERSION\n+0.1.0\n")
-	e.gh.CommentAs(int(prs["web"].Number), "/patchy revise Please also show the version in the footer.", approver)
+	e.gh.CommentAs(int(prs["web"].Number), "/maul revise Please also show the version in the footer.", approver)
 	e.waitPhase(t, name, v1alpha1.IntentRevising)
 	reviseRun := v1alpha1.IntentRunName(name, v1alpha1.IntentStageRevise, 1, "web", 1)
 	reviseJob := e.kubelet.waitRun(t, "the web revision job to run", func(r agentRun) bool {
 		return r.Job.Name == jobs.NameFor(reviseRun, intentRunKind, 1)
 	})
-	if reviseJob.Env["PATCHY_REPO"] != "acme/"+webRepo ||
+	if reviseJob.Env["MAUL_REPO"] != "acme/"+webRepo ||
 		reviseJob.Job.Annotations[runnerImageSourceAnnotation] != v1alpha1.RunnerImageSourceRepository ||
 		!strings.Contains(string(reviseJob.Investigation), "Please also show the version in the footer.") {
 		t.Errorf("revision job in %q (source %q), handoff %q; want web's own image and the approver's feedback",
-			reviseJob.Env["PATCHY_REPO"], reviseJob.Job.Annotations[runnerImageSourceAnnotation], reviseJob.Investigation)
+			reviseJob.Env["MAUL_REPO"], reviseJob.Job.Annotations[runnerImageSourceAnnotation], reviseJob.Investigation)
 	}
 	e.checkCredentialless(t, reviseJob)
 	in = e.waitPhase(t, name, v1alpha1.IntentInReview)
@@ -636,11 +636,11 @@ func TestMultiRepoIntentLifecycle(t *testing.T) {
 			in.Status.CheckFixes)
 	}
 	heads["web"] = revise.Status.PushedCommit
-	if got := e.own(int(prs["web"].Number), fmt.Sprintf("<!-- patchy:intent-pr-round:%s:1 -->", name)); len(got) != 1 ||
+	if got := e.own(int(prs["web"].Number), fmt.Sprintf("<!-- maul:intent-pr-round:%s:1 -->", name)); len(got) != 1 ||
 		!strings.Contains(got[0].Body, "Revision round pushed commit `"+heads["web"]+"`") {
 		t.Errorf("web round comments = %+v, want one saying the revision round pushed %s", got, heads["web"])
 	}
-	if got := e.own(int(prs["api"].Number), fmt.Sprintf("<!-- patchy:intent-pr-round:%s:1 -->", name)); len(got) != 0 {
+	if got := e.own(int(prs["api"].Number), fmt.Sprintf("<!-- maul:intent-pr-round:%s:1 -->", name)); len(got) != 0 {
 		t.Errorf("the api pull request carries the web round's comment: %+v", got)
 	}
 	webPreview.Revision = heads["web"]
@@ -662,10 +662,10 @@ func TestMultiRepoIntentLifecycle(t *testing.T) {
 	fixJob := e.kubelet.waitRun(t, "the api CI-fix job to run", func(r agentRun) bool {
 		return r.Job.Name == jobs.NameFor(fixRun, intentRunKind, 1)
 	})
-	if fixJob.Env["PATCHY_REPO"] != "acme/api" ||
+	if fixJob.Env["MAUL_REPO"] != "acme/api" ||
 		!strings.Contains(string(fixJob.Investigation), "--- FAIL: TestGreeting") {
 		t.Errorf("CI-fix job in %q, handoff %q; want the api repository and the failing check's log",
-			fixJob.Env["PATCHY_REPO"], fixJob.Investigation)
+			fixJob.Env["MAUL_REPO"], fixJob.Investigation)
 	}
 	e.checkCredentialless(t, fixJob)
 	in = e.waitPhase(t, name, v1alpha1.IntentInReview)
@@ -675,7 +675,7 @@ func TestMultiRepoIntentLifecycle(t *testing.T) {
 		t.Fatalf("CI fix = %+v, revisions %d, check fixes %d", fix.Status, in.Status.Revisions, in.Status.CheckFixes)
 	}
 	heads["api"] = fix.Status.PushedCommit
-	if got := e.own(int(prs["api"].Number), fmt.Sprintf("<!-- patchy:intent-pr-round:%s:2 -->", name)); len(got) != 1 ||
+	if got := e.own(int(prs["api"].Number), fmt.Sprintf("<!-- maul:intent-pr-round:%s:2 -->", name)); len(got) != 1 ||
 		!strings.Contains(got[0].Body, "CI-fix round for `test` pushed commit `"+heads["api"]+"`") {
 		t.Errorf("api round comments = %+v, want one saying the CI-fix round for test pushed %s", got, heads["api"])
 	}
@@ -738,13 +738,13 @@ func TestMultiRepoIntentLifecycle(t *testing.T) {
 	e.clearPreviewPods(t)
 	e.waitPreviewGone(t, name, "web", "api")
 
-	// Every comment patchy wrote, it wrote once.
+	// Every comment maul wrote, it wrote once.
 	wantIssue := map[string]int{
 		templates.IntentStatusMarker(namespace, name):       1,
 		templates.PlanMarker(namespace, name, 1, pl.Digest): 1,
 		notice(name, templates.SummaryKey):                  1,
 	}
-	consistently(t, "every comment patchy wrote to be written once", func() bool {
+	consistently(t, "every comment maul wrote to be written once", func() bool {
 		if got := e.botMarkers(number); !maps.Equal(got, wantIssue) {
 			t.Logf("issue comments = %v, want %v", got, wantIssue)
 			return false
@@ -752,7 +752,7 @@ func TestMultiRepoIntentLifecycle(t *testing.T) {
 		for key, round := range map[string]int{"web": 1, "api": 2} {
 			n := int(prs[key].Number)
 			if len(e.own(n, siblings)) != 1 || len(e.own(n, notice(name, templates.PreviewKey))) != 1 ||
-				len(e.own(n, fmt.Sprintf("<!-- patchy:intent-pr-round:%s:%d -->", name, round))) != 1 {
+				len(e.own(n, fmt.Sprintf("<!-- maul:intent-pr-round:%s:%d -->", name, round))) != 1 {
 				return false
 			}
 		}
@@ -778,7 +778,7 @@ func TestMultiRepoIntentPartialEnding(t *testing.T) {
 	}, []string{"test"}, true, multiRepoArgs...)
 	ctx := context.Background()
 	// The planner decides only the API and the library must change.
-	e.kubelet.setAgentEnv("PATCHY_FAKE_PLAN_REPOSITORIES", apiRepoURL+" "+libRepoURL)
+	e.kubelet.setAgentEnv("MAUL_FAKE_PLAN_REPOSITORIES", apiRepoURL+" "+libRepoURL)
 
 	number, name := e.fileIntent(t)
 	planRun := v1alpha1.IntentRunName(name, v1alpha1.IntentStagePlan, 1, "", 1)

@@ -82,16 +82,16 @@ run "publisher_trust_pins_every_claim" {
 
   assert {
     condition = (
-      aws_iam_role.publisher["agent"].name == "patchy-app-hello-web-agent-push" &&
-      aws_iam_role.publisher["runtime"].name == "patchy-app-hello-web-runtime-push" &&
+      aws_iam_role.publisher["agent"].name == "maul-app-hello-web-agent-push" &&
+      aws_iam_role.publisher["runtime"].name == "maul-app-hello-web-runtime-push" &&
       alltrue([for role in aws_iam_role.publisher : role.path == null])
     )
     error_message = "Role names are <role_name_prefix><slug>-<kind>-push, with no IAM path (the provider's default /), so the role ARNs the app repository stores are arn:aws:iam::<account>:role/<name>."
   }
 
   assert {
-    condition     = aws_ecr_repository.this["agent"].name == "patchy/app-envs/hello-web" && aws_ecr_repository.this["runtime"].name == "patchy/previews/hello-web"
-    error_message = "Repositories are <agent_path_prefix>/<slug> and <preview_path_prefix>/<slug>, by default patchy/previews/<slug>."
+    condition     = aws_ecr_repository.this["agent"].name == "maul/app-envs/hello-web" && aws_ecr_repository.this["runtime"].name == "maul/previews/hello-web"
+    error_message = "Repositories are <agent_path_prefix>/<slug> and <preview_path_prefix>/<slug>, by default maul/previews/<slug>."
   }
 
   assert {
@@ -157,16 +157,16 @@ run "github_variables_contract" {
       ECR_REGISTRY             = "111122223333.dkr.ecr.eu-west-2.amazonaws.com"
       PUBLISH_REPOSITORY_ID    = "123456789"
       PUBLISH_OWNER_ID         = "987654"
-      AGENT_IMAGE_REPOSITORY   = "patchy/app-envs/hello-web"
+      AGENT_IMAGE_REPOSITORY   = "maul/app-envs/hello-web"
       AGENT_ROLE_ARN           = "arn:aws:iam::111122223333:role/mocked"
-      RUNTIME_IMAGE_REPOSITORY = "patchy/previews/hello-web"
+      RUNTIME_IMAGE_REPOSITORY = "maul/previews/hello-web"
       RUNTIME_ROLE_ARN         = "arn:aws:iam::111122223333:role/mocked"
     }
     error_message = "github_variables must carry exactly the eight names the generated publish workflows read."
   }
 
   assert {
-    condition     = startswith(output.github_variables_dotenv, "AGENT_IMAGE_REPOSITORY=patchy/app-envs/hello-web\nAGENT_ROLE_ARN=") && endswith(output.github_variables_dotenv, "RUNTIME_ROLE_ARN=arn:aws:iam::111122223333:role/mocked\n") && length(split("\n", output.github_variables_dotenv)) == 9
+    condition     = startswith(output.github_variables_dotenv, "AGENT_IMAGE_REPOSITORY=maul/app-envs/hello-web\nAGENT_ROLE_ARN=") && endswith(output.github_variables_dotenv, "RUNTIME_ROLE_ARN=arn:aws:iam::111122223333:role/mocked\n") && length(split("\n", output.github_variables_dotenv)) == 9
     error_message = "github_variables_dotenv is one sorted NAME=value line per variable."
   }
 
@@ -217,7 +217,7 @@ run "agent_signing_key_must_be_a_key_arn" {
   command = plan
 
   variables {
-    agent_signing_key_arn = "arn:aws:kms:eu-west-2:111122223333:alias/patchy-agent-image-signing"
+    agent_signing_key_arn = "arn:aws:kms:eu-west-2:111122223333:alias/maul-agent-image-signing"
   }
 
   expect_failures = [var.agent_signing_key_arn]
@@ -320,7 +320,7 @@ run "role_names_stay_within_iam_limit" {
   command = plan
 
   variables {
-    role_name_prefix = "a-very-long-organisation-name-patchy-app-"
+    role_name_prefix = "a-very-long-organisation-name-maul-app-"
     slug             = "hello-web-frontend"
   }
 
@@ -331,7 +331,7 @@ run "agent_prefix_must_not_contain_previews" {
   command = plan
 
   variables {
-    agent_path_prefix = "patchy"
+    agent_path_prefix = "maul"
   }
 
   expect_failures = [var.agent_path_prefix]
@@ -341,7 +341,7 @@ run "agent_prefix_must_not_sit_under_previews" {
   command = plan
 
   variables {
-    agent_path_prefix = "patchy/previews/agents"
+    agent_path_prefix = "maul/previews/agents"
   }
 
   expect_failures = [var.agent_path_prefix]
@@ -351,7 +351,7 @@ run "agent_prefix_must_be_a_path" {
   command = plan
 
   variables {
-    agent_path_prefix = "/patchy/app-envs/"
+    agent_path_prefix = "/maul/app-envs/"
   }
 
   expect_failures = [var.agent_path_prefix]
@@ -377,7 +377,7 @@ run "agent_prefix_must_not_equal_previews" {
   command = plan
 
   variables {
-    agent_path_prefix = "patchy/previews"
+    agent_path_prefix = "maul/previews"
   }
 
   expect_failures = [var.agent_path_prefix]
@@ -386,15 +386,15 @@ run "agent_prefix_must_not_equal_previews" {
 run "sibling_prefix_sharing_a_stem_is_disjoint" {
   command = plan
 
-  # patchy/previews-agents shares a string prefix with patchy/previews but no
+  # maul/previews-agents shares a string prefix with maul/previews but no
   # path segment, so the two stay disjoint.
   variables {
-    agent_path_prefix = "patchy/previews-agents"
+    agent_path_prefix = "maul/previews-agents"
   }
 
   assert {
-    condition     = aws_ecr_repository.this["agent"].name == "patchy/previews-agents/hello-web"
-    error_message = "A sibling path is disjoint from patchy/previews and accepted."
+    condition     = aws_ecr_repository.this["agent"].name == "maul/previews-agents/hello-web"
+    error_message = "A sibling path is disjoint from maul/previews and accepted."
   }
 }
 

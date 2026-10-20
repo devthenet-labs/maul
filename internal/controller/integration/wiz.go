@@ -6,8 +6,8 @@ package integration
 import (
 	"net/http"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/wiz"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/wiz"
 )
 
 // WizPath is the receiver route Wiz automation actions target. It matches the

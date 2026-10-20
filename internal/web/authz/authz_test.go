@@ -14,8 +14,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/web/auth"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/web/auth"
 )
 
 // sarClient fabricates SubjectAccessReview responses: allow decides per
@@ -105,7 +105,7 @@ func TestReviewerGrants(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			calls := 0
-			r := NewReviewer(sarClient(t, &calls, tc.allow), "patchy", 0)
+			r := NewReviewer(sarClient(t, &calls, tc.allow), "maul", 0)
 			g, err := r.Grants(t.Context(), auth.Identity{Username: "u"})
 			if err != nil {
 				t.Fatalf("Grants: %v", err)
@@ -128,7 +128,7 @@ func TestReviewerGrants(t *testing.T) {
 
 func TestReviewerCache(t *testing.T) {
 	calls := 0
-	r := NewReviewer(sarClient(t, &calls, func(string, string, string) bool { return true }), "patchy", time.Minute)
+	r := NewReviewer(sarClient(t, &calls, func(string, string, string) bool { return true }), "maul", time.Minute)
 	now := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
 	r.now = func() time.Time { return now }
 

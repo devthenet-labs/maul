@@ -25,7 +25,7 @@ func TestResumers(t *testing.T) {
 // TestClaudeResumeSpec: a resumed run renders every flag the first run had —
 // the CLI keeps none of them, and a plan resumed without its tool grammar
 // would no longer be read-only, nor one without its settings pin confined to
-// patchy's posture — with --resume in place of --session-id, which the CLI
+// maul's posture — with --resume in place of --session-id, which the CLI
 // refuses beside it.
 func TestClaudeResumeSpec(t *testing.T) {
 	c := NewClaude()
@@ -37,7 +37,7 @@ func TestClaudeResumeSpec(t *testing.T) {
 			MaxTurns:  6,
 			Sandbox:   sandbox,
 			AddDirs:   []string{"/workspace"},
-			Env:       []string{"ANTHROPIC_CUSTOM_HEADERS=x-patchy-broker-token: t"},
+			Env:       []string{"ANTHROPIC_CUSTOM_HEADERS=x-maul-broker-token: t"},
 		}
 		got := c.ResumeSpec("/workspace/repo", claudeSessionID, req)
 

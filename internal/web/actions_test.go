@@ -21,15 +21,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/web/authz"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/web/authz"
 )
 
 // actionFinding is a minimal finding in the given phase.
 func actionFinding(phase v1alpha1.Phase, mutate ...func(*v1alpha1.Finding)) *v1alpha1.Finding {
 	f := &v1alpha1.Finding{
-		ObjectMeta: metav1.ObjectMeta{Name: "fnd-1", Namespace: "patchy"},
+		ObjectMeta: metav1.ObjectMeta{Name: "fnd-1", Namespace: "maul"},
 		Spec: v1alpha1.FindingSpec{
 			IntegrationRef: v1alpha1.LocalObjectReference{Name: "gh"},
 			Source:         "github-code-scanning",
@@ -60,7 +60,7 @@ func postAction(t *testing.T, s *Server, name, verb string) (*http.Response, str
 func getFinding(t *testing.T, c client.Client, name string) *v1alpha1.Finding {
 	t.Helper()
 	var f v1alpha1.Finding
-	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: name}, &f); err != nil {
+	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: name}, &f); err != nil {
 		t.Fatalf("get %s: %v", name, err)
 	}
 	return &f
@@ -357,7 +357,7 @@ func TestHandleActionAuth(t *testing.T) {
 			auth:       stubAuth{id: operator},
 			granter:    stubGranter{grants: authz.Grants{View: true}},
 			wantStatus: http.StatusForbidden,
-			wantBody:   `Permission denied. User "Op" may not suspend findings in namespace "patchy".`,
+			wantBody:   `Permission denied. User "Op" may not suspend findings in namespace "maul".`,
 		},
 	}
 	for _, tc := range cases {
@@ -397,14 +397,14 @@ func TestHandleActionRetriesConflict(t *testing.T) {
 				if conflicts > 0 {
 					conflicts--
 					return apierrors.NewConflict(
-						schema.GroupResource{Group: "patchy.bitwisemedia.uk", Resource: "findings"},
+						schema.GroupResource{Group: "maul.run", Resource: "findings"},
 						obj.GetName(), nil)
 				}
 				return cl.Patch(ctx, obj, patch, opts...)
 			},
 		}).
 		Build()
-	s := NewServer(c, "patchy", stubAuth{id: operator}, stubGranter{grants: allGrants()}, nil)
+	s := NewServer(c, "maul", stubAuth{id: operator}, stubGranter{grants: allGrants()}, nil)
 	s.now = func() time.Time { return testClock }
 	res, body := postAction(t, s, "fnd-1", "suspend")
 	if res.StatusCode != http.StatusOK {
@@ -449,7 +449,7 @@ func TestHandleActionPatchCarriesResourceVersion(t *testing.T) {
 			},
 		}).
 		Build()
-	s := NewServer(c, "patchy", stubAuth{id: operator}, stubGranter{grants: allGrants()}, nil)
+	s := NewServer(c, "maul", stubAuth{id: operator}, stubGranter{grants: allGrants()}, nil)
 	s.now = func() time.Time { return testClock }
 	res, body := postAction(t, s, "fnd-1", "suspend")
 	if res.StatusCode != http.StatusForbidden {

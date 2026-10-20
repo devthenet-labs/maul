@@ -1,6 +1,6 @@
 # Wiz
 
-Patchy ingests two Wiz feeds and triages them alongside code-scanning alerts and SCC findings: **Wiz Issues** (cloud
+Maul ingests two Wiz feeds and triages them alongside code-scanning alerts and SCC findings: **Wiz Issues** (cloud
 misconfigurations and toxic combinations, source `wiz-issues`) and **Wiz Defend** (runtime threat detections, source
 `wiz-defend`). Both are cloud findings — about a **resource**, not a file — so they arrive repo-less and lean on the
 [context enhancers](../enhancers/index.md) — [Cloud Asset Inventory](../enhancers/google-cai.md) for Google Cloud
@@ -12,7 +12,7 @@ Integrations side by side: `wiz` to source findings, `google-cloud` with `cloudA
 ## How findings arrive
 
 Wiz delivers through **automation rules**: a rule matches issues or detections and its webhook action POSTs a rendered
-body template to patchy's receiver at `/wiz/webhooks`. Both feeds share the one path — an automation action carries no
+body template to maul's receiver at `/wiz/webhooks`. Both feeds share the one path — an automation action carries no
 event-type header, so the receiver discriminates by the body's shape (a top-level `issue` object vs a top-level `threat`
 object). Anything that is neither — including the test delivery Wiz sends when the action is saved — is answered `204`
 and dropped, so the connectivity check passes without ingesting anything.
@@ -22,20 +22,20 @@ the body. Configure the action's authentication as a token (`Authorization: Bear
 under the `webhookToken` key of the Integration's credential Secret:
 
 ```sh
-kubectl -n patchy create secret generic patchy-wiz \
+kubectl -n maul create secret generic maul-wiz \
   --from-literal=webhookToken="$(openssl rand -hex 32)"
 ```
 
 ```yaml
-apiVersion: patchy.bitwisemedia.uk/v1alpha1
+apiVersion: maul.run/v1alpha1
 kind: Integration
 metadata:
   name: wiz
-  namespace: patchy
+  namespace: maul
 spec:
   provider: wiz
   secretRef:
-    name: patchy-wiz
+    name: maul-wiz
   wiz:
     issues:
       enabled: true
@@ -54,7 +54,7 @@ means re-triggering the automation rule from the Wiz console.
 
 ## The body templates (the payload contract)
 
-The webhook body is whatever the automation action's template renders, so **these templates are the contract**: patchy
+The webhook body is whatever the automation action's template renders, so **these templates are the contract**: maul
 decodes exactly this shape, and a rule configured differently will be answered `204` (unrecognized shape) or ingest
 incompletely.
 
@@ -144,11 +144,11 @@ incompletely.
 
 The exact mustache variable names available to an automation rule vary by Wiz release and trigger — treat the right-hand
 sides as the intent ("the issue's id", "the entity's providerId") and verify them against your tenant's template editor;
-the **left-hand keys and nesting are what patchy parses** and must match verbatim. The recorded fixtures under
+the **left-hand keys and nesting are what maul parses** and must match verbatim. The recorded fixtures under
 `e2e/fixtures/webhooks/wiz.*.json` are hand-built renderings of these templates and double as the decoder's regression
 tests.
 
-## What patchy keeps
+## What maul keeps
 
 | Finding field        | Issues                                                   | Defend                                        |
 | -------------------- | -------------------------------------------------------- | --------------------------------------------- |
@@ -162,7 +162,7 @@ tests.
   other platform (Kubernetes, OCI, ...) are skipped in v1 — there is no provider value the rest of the pipeline could
   act on.
 - **GCP identifiers are normalized at ingest.** Wiz reports Google Cloud resources by API self-link
-  (`https://www.googleapis.com/compute/v1/projects/...`); patchy rewrites that to the Cloud Asset Inventory name form
+  (`https://www.googleapis.com/compute/v1/projects/...`); maul rewrites that to the Cloud Asset Inventory name form
   (`//compute.googleapis.com/projects/...`) so the [asset-inventory enhancer](../enhancers/google-cai.md) can resolve
   ownership labels. An identifier that cannot be rewritten still ingests — the enhancer falls back to a display-name
   lookup, accepting only an unambiguous single hit. AWS and Azure identifiers need no such rewriting: `providerId` is
@@ -172,7 +172,7 @@ tests.
   into one `Finding`; a Defend threat naming several resources becomes one Finding per resource, each accumulating where
   it belongs. A threat naming no resources falls back to one Finding per cloud account.
 - **Skipped deliveries.** Trigger types other than Created/Updated/Reopened (notably `Resolved`), statuses other than
-  OPEN/IN_PROGRESS, and severities below `minSeverity`. An inbound `Resolved` does **not** yet resolve the patchy
+  OPEN/IN_PROGRESS, and severities below `minSeverity`. An inbound `Resolved` does **not** yet resolve the maul
   Finding — future work, alongside [SCC's mute](google-scc.md#what-is-not-implemented).
 
 Defend findings track like any other, but a runtime detection is rarely something a coding agent can remediate with a
@@ -198,7 +198,7 @@ The credential is a Wiz **service account** (type "Custom Integration") with `up
 same Secret:
 
 ```sh
-kubectl -n patchy patch secret patchy-wiz -p '{"stringData": {
+kubectl -n maul patch secret maul-wiz -p '{"stringData": {
   "clientId": "<service account client id>",
   "clientSecret": "<service account client secret>"
 }}'

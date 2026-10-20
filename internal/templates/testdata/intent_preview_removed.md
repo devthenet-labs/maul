@@ -1,4 +1,4 @@
-<!-- patchy:notice patchy/marigold-3 preview -->
-### patchy: preview
+<!-- maul:notice maul/marigold-3 preview -->
+### maul: preview
 
 The intent has ended, and its preview was removed.

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"testing/quick"
 
-	"github.com/bitwise-media-group/patchy/internal/mirror/imageref"
+	"github.com/devthenet-labs/maul/internal/mirror/imageref"
 )
 
 func TestNormalizeEntry(t *testing.T) {
@@ -25,8 +25,8 @@ func TestNormalizeEntry(t *testing.T) {
 		{"index.docker.io/library/", "docker.io/library/", ""},
 		{"Index.Docker.IO/library", "docker.io/library/", ""},
 		{"localhost:5000/team", "localhost:5000/team/", ""},
-		{"123456789012.dkr.ecr.us-east-1.amazonaws.com/patchy/",
-			"123456789012.dkr.ecr.us-east-1.amazonaws.com/patchy/", ""},
+		{"123456789012.dkr.ecr.us-east-1.amazonaws.com/maul/",
+			"123456789012.dkr.ecr.us-east-1.amazonaws.com/maul/", ""},
 		{"", "", "registry allowlist entry is empty"},
 		{"ghcr.io", "", "registry allowlist entry `ghcr.io` must be `host/path/` with at least one path segment"},
 		{"ghcr.io/", "", "registry allowlist entry `ghcr.io/` must be `host/path/` with at least one path segment"},

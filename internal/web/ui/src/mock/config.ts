@@ -5,7 +5,7 @@ import type { ConfigDataset } from "../types";
 
 const config: ConfigDataset = {
   generatedAt: "2026-07-21T08:45:00Z",
-  namespace: "patchy",
+  namespace: "maul",
   forges: [
     {
       name: "github",

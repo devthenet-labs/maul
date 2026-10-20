@@ -25,11 +25,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/e2e/fakeoidc"
-	"github.com/bitwise-media-group/patchy/internal/rbactest"
-	"github.com/bitwise-media-group/patchy/internal/transcript"
-	"github.com/bitwise-media-group/patchy/internal/transcriptstore"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/e2e/fakeoidc"
+	"github.com/devthenet-labs/maul/internal/rbactest"
+	"github.com/devthenet-labs/maul/internal/transcript"
+	"github.com/devthenet-labs/maul/internal/transcriptstore"
 )
 
 // TestStatusServerIntents drives the shipped status-server binary with the
@@ -39,7 +39,7 @@ import (
 // answered by the envtest API server's real RBAC from Roles written in the
 // documented grammar. One viewer per tier and Project, and a stranger.
 //
-// Set PATCHY_E2E_STATUS_HOLD to a duration to keep the cluster, the issuer
+// Set MAUL_E2E_STATUS_HOLD to a duration to keep the cluster, the issuer
 // and the server up after the assertions, for a manual browser check: the
 // test logs the URL, the kubeconfig and the auth config to point a
 // withui-built status-server at.
@@ -159,10 +159,10 @@ func TestStatusServerIntents(t *testing.T) {
 	refusesToStart(t, cl, "mode: oidc\noidc:\n  issuerURL: "+oidc.URL+"\n  clientID: c\n  clientSecret: s\n"+
 		"  claims:\n    username: preferred_username\n", "usernamePrefix and oidc.claims.groupsPrefix")
 
-	if hold := os.Getenv("PATCHY_E2E_STATUS_HOLD"); hold != "" {
+	if hold := os.Getenv("MAUL_E2E_STATUS_HOLD"); hold != "" {
 		d, err := time.ParseDuration(hold)
 		if err != nil {
-			t.Fatalf("PATCHY_E2E_STATUS_HOLD: %v", err)
+			t.Fatalf("MAUL_E2E_STATUS_HOLD: %v", err)
 		}
 		t.Logf("holding for %s: status server %s, issuer %s (users viv, rex, bea, nob), kubeconfig %s, auth config %s",
 			d, base, oidc.URL, cl.kubeconfig, authCfg)
@@ -188,7 +188,7 @@ func grantIntentTiers(t *testing.T, cl *cluster) {
 		}
 		if err := cl.client.Create(ctx, &rbacv1.Role{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
-			Rules: []rbacv1.PolicyRule{{APIGroups: []string{"patchy.bitwisemedia.uk"}, Resources: res,
+			Rules: []rbacv1.PolicyRule{{APIGroups: []string{"maul.run"}, Resources: res,
 				ResourceNames: []string{project}, Verbs: []string{"get"}}},
 		}); err != nil {
 			t.Fatal(err)
@@ -214,7 +214,7 @@ func grantIntentTiers(t *testing.T, cl *cluster) {
 	// status-server caches what its reviews are told: wait for each grant.
 	review := func(user string, groups []string, project, sub string) authorizationv1.SubjectAccessReviewSpec {
 		return rbactest.Review(user, groups, authorizationv1.ResourceAttributes{Namespace: namespace,
-			Verb: "get", Group: "patchy.bitwisemedia.uk", Resource: "projects", Subresource: sub, Name: project})
+			Verb: "get", Group: "maul.run", Resource: "projects", Subresource: sub, Name: project})
 	}
 	rbactest.WaitAllowed(t, cl.client,
 		review("github:viv", nil, "alpha", "intents"),
@@ -232,7 +232,7 @@ func fabricateIntents(t *testing.T, cl *cluster) intentRuns {
 			ObjectMeta: metav1.ObjectMeta{Name: p, Namespace: namespace},
 			Spec: v1alpha1.ProjectSpec{
 				IntentRepository: "https://github.com/acme/intents",
-				Labels:           v1alpha1.ProjectLabels{Trigger: "patchy:" + p},
+				Labels:           v1alpha1.ProjectLabels{Trigger: "maul:" + p},
 				Approvers:        v1alpha1.ProjectApprovers{Logins: []string{"octocat"}},
 				Repositories:     []v1alpha1.ProjectRepository{{Name: "app", URL: "https://github.com/acme/" + p}},
 			},
@@ -315,7 +315,7 @@ func fabricateIntents(t *testing.T, cl *cluster) intentRuns {
 		Phase: v1alpha1.RunFailed, Outcome: "evicted",
 		Detail: "the agent pod was evicted: The node ip-10-0-1-23.ec2.internal was low on resource: memory",
 		RunnerImage: &v1alpha1.RunnerImageRef{Source: v1alpha1.RunnerImageSourceDefault,
-			Image: "111122223333.dkr.ecr.us-east-1.amazonaws.com/patchy/claude@sha256:" + strings.Repeat("c", 64)},
+			Image: "111122223333.dkr.ecr.us-east-1.amazonaws.com/maul/claude@sha256:" + strings.Repeat("c", 64)},
 	})
 	cm, err := transcriptstore.ConfigMap(namespace, map[string]string{v1alpha1.LabelIntent: alpha.Name}, plan,
 		metav1.TypeMeta{APIVersion: v1alpha1.GroupVersion.String(), Kind: "IntentRun"}, []transcript.Turn{
@@ -340,7 +340,7 @@ func writeIntentsAuthConfig(t *testing.T, issuer, redirect string) string {
 insecure: true
 oidc:
   issuerURL: %s
-  clientID: patchy-status-e2e
+  clientID: maul-status-e2e
   clientSecret: e2e-status-client-secret
   redirectURL: %s
   claims:
@@ -383,7 +383,7 @@ func signIn(t *testing.T, base string, oidc *fakeoidc.Server, login string) *htt
 	}
 	_ = res.Body.Close()
 	u, _ := url.Parse(base)
-	if !slices.ContainsFunc(jar.Cookies(u), func(ck *http.Cookie) bool { return ck.Name == "patchy-dev-auth" }) {
+	if !slices.ContainsFunc(jar.Cookies(u), func(ck *http.Cookie) bool { return ck.Name == "maul-dev-auth" }) {
 		t.Fatalf("sign in %s: no session cookie (final status %d)", login, res.StatusCode)
 	}
 	return c

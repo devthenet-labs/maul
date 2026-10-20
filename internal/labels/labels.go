@@ -41,7 +41,7 @@ const (
 	RecommendationManual    Recommendation = "manual"
 )
 
-// Label keys. Every patchy label is "<key>: <value>"; the multi-valued
+// Label keys. Every maul label is "<key>: <value>"; the multi-valued
 // advisory key emits one label per value. This is the full human-facing
 // vocabulary the issue projection renders — the Finding CR is the state, so
 // no machine or usage labels exist.
@@ -55,7 +55,7 @@ const (
 	KeyContext        = "security-context"
 )
 
-// Set is the typed view of one issue's patchy labels. Zero fields render no
+// Set is the typed view of one issue's maul labels. Zero fields render no
 // label.
 type Set struct {
 	Source         string

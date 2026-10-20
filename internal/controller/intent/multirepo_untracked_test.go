@@ -14,12 +14,12 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/forge"
-	"github.com/bitwise-media-group/patchy/internal/templates"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/forge"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
-// appUntrackedNotices are patchy's untracked notices on app's pull request
+// appUntrackedNotices are maul's untracked notices on app's pull request
 // (1), the one these intents open before they end.
 func (e *env) appUntrackedNotices() []string {
 	e.gh.mu.Lock()
@@ -40,7 +40,7 @@ func (e *env) appUntrackedNotices() []string {
 func (e *env) blockedOpening() string {
 	e.t.Helper()
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	e.driveUntil(name, func(in *v1alpha1.Intent) bool { return len(in.Status.PullRequests) == 1 })
 	e.gh.mu.Lock()
 	delete(e.gh.branches, fakeRef(webRepoURL, branchName(name)))
@@ -63,12 +63,12 @@ func (e *env) blockedOpening() string {
 func TestCancelWhileOpeningNoticesTheOpenedPullRequest(t *testing.T) {
 	e := newMultiEnv(t)
 	name := e.blockedOpening()
-	e.gh.comment(approver, "/patchy cancel")
+	e.gh.comment(approver, "/maul cancel")
 	e.passUntil(name, func() bool { return e.get(name).Status.Phase == v1alpha1.IntentClosed })
 	e.settleActions(name)
 	e.settleActions(name)
 	notices := e.appUntrackedNotices()
-	if len(notices) != 1 || !strings.Contains(notices[0], "was closed before patchy had opened") ||
+	if len(notices) != 1 || !strings.Contains(notices[0], "was closed before maul had opened") ||
 		!strings.Contains(notices[0], "`"+webSlug+"`") || !strings.Contains(notices[0], "no longer reviews") {
 		t.Fatalf("untracked notices on app's pull request = %q, want one naming web as never opened", notices)
 	}
@@ -99,12 +99,12 @@ func TestFailWhileOpeningNoticesAndRevivalForgets(t *testing.T) {
 	}
 	e.passUntil(name, func() bool { return e.get(name).Status.Phase == v1alpha1.IntentFailed })
 	e.settleActions(name)
-	if notices := e.appUntrackedNotices(); len(notices) != 1 || !strings.Contains(notices[0], "failed before patchy") {
+	if notices := e.appUntrackedNotices(); len(notices) != 1 || !strings.Contains(notices[0], "failed before maul") {
 		t.Fatalf("untracked notices on app's pull request = %q, want one saying the intent failed", notices)
 	}
 
 	e.clock.Advance(time.Minute)
-	e.gh.label(1, "patchy:target", approver)
+	e.gh.label(1, "maul:target", approver)
 	e.reconcileProject()
 	e.passUntil(name, func() bool { return e.get(name).Status.Phase == v1alpha1.IntentPlanning })
 	in := e.get(name)
@@ -121,9 +121,9 @@ func TestFailWhileOpeningNoticesAndRevivalForgets(t *testing.T) {
 func TestOneRepositoryEndingPostsNoUntrackedNotice(t *testing.T) {
 	e := newEnv(t, testProject())
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	e.drive(name, v1alpha1.IntentInReview, repoImage)
-	e.gh.comment(approver, "/patchy cancel")
+	e.gh.comment(approver, "/maul cancel")
 	e.passUntil(name, func() bool { return e.get(name).Status.Phase == v1alpha1.IntentClosed })
 	e.settleActions(name)
 	if n := len(e.appUntrackedNotices()); n != 0 {
@@ -164,7 +164,7 @@ func (e *env) setRepoErrs(errs map[string]error) {
 
 // TestUnreachableUntrackedNoticeNeverHoldsARevival is the round-2 regression
 // of the untracked notice: an intent fails while its pull requests are being
-// opened, and the one already opened is in a repository patchy can no longer
+// opened, and the one already opened is in a repository maul can no longer
 // reach, or no longer may write to. Its notice is recorded as not posted,
 // never retried, and so neither the status comment nor the approver
 // re-applying the trigger label waits on it: the intent is revived. Before
@@ -231,7 +231,7 @@ func TestUnreachableUntrackedNoticeNeverHoldsARevival(t *testing.T) {
 			}
 
 			e.clock.Advance(time.Minute)
-			e.gh.label(1, "patchy:target", approver)
+			e.gh.label(1, "maul:target", approver)
 			e.reconcileProject()
 			e.passUntil(name, func() bool { return e.get(name).Status.Phase == v1alpha1.IntentPlanning })
 		})
@@ -250,7 +250,7 @@ func TestTransientUntrackedNoticeFailureHoldsOnlyTheHandOff(t *testing.T) {
 	e.dropRepository(webRepoURL)
 	e.passUntil(name, func() bool { return e.get(name).Status.Phase == v1alpha1.IntentFailed })
 	e.clock.Advance(time.Minute)
-	e.gh.label(1, "patchy:target", approver)
+	e.gh.label(1, "maul:target", approver)
 	e.reconcileProject()
 	for range 3 {
 		if err := e.reconcileIntent(name); err == nil {

@@ -17,13 +17,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/kube"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/kube"
 )
 
 // envClient boots envtest with the shipped CRDs and returns a real client
-// with the patchy namespace created. The fake client enforces none of the
+// with the maul namespace created. The fake client enforces none of the
 // CRD schema, so a status write the API server refuses passes there.
 func envClient(t *testing.T) client.Client {
 	t.Helper()
@@ -47,7 +47,7 @@ func envClient(t *testing.T) client.Client {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := c.Create(t.Context(), &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "patchy"}}); err != nil {
+	if err := c.Create(t.Context(), &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "maul"}}); err != nil {
 		t.Fatal(err)
 	}
 	return c
@@ -102,7 +102,7 @@ func TestEnvtestOversizedFailureDetailReachesTheRetry(t *testing.T) {
 		}},
 	}}}
 	rec := &RemediationReconciler{
-		Client: c, Runner: runner, Forge: &fakeForge{}, Namespace: "patchy",
+		Client: c, Runner: runner, Forge: &fakeForge{}, Namespace: "maul",
 		MaxConcurrent: 1, MaxAttempts: 2, Enabled: []string{"claude"},
 		Now: func() time.Time { return crdClock },
 	}
@@ -128,7 +128,7 @@ func TestEnvtestOversizedFailureDetailReachesTheRetry(t *testing.T) {
 	sp.Client = c
 	spawnOnce(t, sp)
 	var rem2 v1alpha1.Remediation
-	if err := c.Get(ctx, types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1-rem-2"}, &rem2); err != nil {
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "maul", Name: "finding-aa-1-rem-2"}, &rem2); err != nil {
 		t.Fatalf("attempt 2 not spawned: %v", err)
 	}
 	p := rem2.Spec.PreviousAttempt

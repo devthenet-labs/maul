@@ -22,7 +22,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 // rollingStrategy reports whether a Deployment starts its new revision's Pod
@@ -51,7 +51,7 @@ func TestRolloutKeepsTheServingPod(t *testing.T) {
 	}
 }
 
-// The slot quota (charts/patchy/templates/preview-foundation.yaml) holds the
+// The slot quota (charts/maul/templates/preview-foundation.yaml) holds the
 // surge: every component of the largest Preview runs its serving Pod and its
 // new one at once. The LimitRange's per-container maximum holds each Pod.
 func TestRolloutSurgeFitsTheSlotQuota(t *testing.T) {
@@ -306,7 +306,7 @@ func TestSpecChangeKeepingTheImageWaitsForItsOwnPod(t *testing.T) {
 	}
 	ctx := context.Background()
 	var project v1alpha1.Project
-	if err := e.c.Get(ctx, client.ObjectKey{Namespace: "patchy", Name: "demo"}, &project); err != nil {
+	if err := e.c.Get(ctx, client.ObjectKey{Namespace: "maul", Name: "demo"}, &project); err != nil {
 		t.Fatal(err)
 	}
 	project.Spec.Preview.ReadinessPath = "/ready"

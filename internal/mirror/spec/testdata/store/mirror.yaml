@@ -1,6 +1,6 @@
 # Copyright 2026 Bitwise Media Group Ltd.
 # SPDX-License-Identifier: MIT
-apiVersion: mirror.patchy.bitwisemedia.uk/v1alpha1
+apiVersion: mirror.maul.run/v1alpha1
 kind: MirrorConfig
 registries:
   - name: primary

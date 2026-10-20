@@ -15,16 +15,16 @@ There is no in-pod credential mode for claude or codex — neither runs without 
 
 ```text
 agent pod (claude CLI)                 egress-broker (release ns)              upstream
-  ANTHROPIC_BEDROCK_BASE_URL=            1. TokenReview(X-Patchy-Broker-Token)
+  ANTHROPIC_BEDROCK_BASE_URL=            1. TokenReview(X-Maul-Broker-Token)
     http://…-egress-broker:8080/bedrock  2. audit line (pod, route, path,        bedrock-runtime.<region>.amazonaws.com
   CLAUDE_CODE_SKIP_BEDROCK_AUTH=1           status, duration — never bodies)     api.anthropic.com
-  X-Patchy-Broker-Token: <projected      3. strip caller headers; SigV4-sign /   <region>-aiplatform.googleapis.com
+  X-Maul-Broker-Token: <projected      3. strip caller headers; SigV4-sign /   <region>-aiplatform.googleapis.com
     ServiceAccount token>                   inject key / attach OAuth token      <resource>.services.ai.azure.com
                                          4. stream the response back, flushing
                                             every write; SSE keep-alive pings
 ```
 
-The caller token is validated via `TokenReview` (audience `patchy-egress-broker`; only
+The caller token is validated via `TokenReview` (audience `maul-egress-broker`; only
 `system:serviceaccount:<agent-ns>:<agent-sa>` is accepted), its verdict cached briefly (`--verdict-ttl`, 1m) so the API
 server sees one review per token, not one per request, and the header is stripped before anything is forwarded. The
 audit identity — the calling pod's name — comes from the pod-bound token's claims.
@@ -66,20 +66,20 @@ nothing is gated on them: if claude Jobs then run and succeed, the warning was a
 
 ## Flags
 
-As everywhere, each flag is also the matching `PATCHY_*` environment variable (`--tokens-per-pod` is
-`PATCHY_TOKENS_PER_POD`).
+As everywhere, each flag is also the matching `MAUL_*` environment variable (`--tokens-per-pod` is
+`MAUL_TOKENS_PER_POD`).
 
-| Flag                            | Default                | Purpose                                                                                              |
-| ------------------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------- |
-| `--listen-addr`                 | `:8080`                | The proxy listener                                                                                   |
-| `--health-addr`                 | `:8081`                | `/healthz` and `/readyz`                                                                             |
-| `--token-audience`              | `patchy-egress-broker` | Audience callers' projected tokens must be bound to (the job controllers' `--broker-token-audience`) |
-| `--verdict-ttl`                 | `1m`                   | How long one caller token's TokenReview verdict is cached                                            |
-| `--sse-ping-interval`           | `30s`                  | Idle keep-alive period for event-stream responses; negative disables ping injection                  |
-| `--agent-namespace`             | `patchy-agents`        | Namespace whose agent ServiceAccount callers must be                                                 |
-| `--agent-service-account`       | `patchy-agent`         | The only ServiceAccount the broker answers to                                                        |
-| `--max-request-bytes`           | `10485760` (10 MiB)    | Largest request body the payload-signing route (bedrock) accepts                                     |
-| `--max-anthropic-request-bytes` | `2097152` (2 MiB)      | Largest request body every other route accepts; bodies are buffered so they can be inspected         |
+| Flag                            | Default              | Purpose                                                                                              |
+| ------------------------------- | -------------------- | ---------------------------------------------------------------------------------------------------- |
+| `--listen-addr`                 | `:8080`              | The proxy listener                                                                                   |
+| `--health-addr`                 | `:8081`              | `/healthz` and `/readyz`                                                                             |
+| `--token-audience`              | `maul-egress-broker` | Audience callers' projected tokens must be bound to (the job controllers' `--broker-token-audience`) |
+| `--verdict-ttl`                 | `1m`                 | How long one caller token's TokenReview verdict is cached                                            |
+| `--sse-ping-interval`           | `30s`                | Idle keep-alive period for event-stream responses; negative disables ping injection                  |
+| `--agent-namespace`             | `maul-agents`        | Namespace whose agent ServiceAccount callers must be                                                 |
+| `--agent-service-account`       | `maul-agent`         | The only ServiceAccount the broker answers to                                                        |
+| `--max-request-bytes`           | `10485760` (10 MiB)  | Largest request body the payload-signing route (bedrock) accepts                                     |
+| `--max-anthropic-request-bytes` | `2097152` (2 MiB)    | Largest request body every other route accepts; bodies are buffered so they can be inspected         |
 
 The route flags are in [Routes and credentials](#routes-and-credentials): `--anthropic-api-key-file`, `--anthropic-auth`
 (`key`), `--anthropic-base-url` (`https://api.anthropic.com`), `--bedrock-region`, `--bedrock-base-url`,
@@ -89,13 +89,13 @@ The route flags are in [Routes and credentials](#routes-and-credentials): `--ant
 
 The per-user credential flags (see [Per-user model credentials](user-credentials.md)):
 
-| Flag                             | Default              | Purpose                                                                                               |
-| -------------------------------- | -------------------- | ----------------------------------------------------------------------------------------------------- |
-| `--user-credentials`             | `off`                | `off`, `attribute` (record the person, org credential pays) or `enforce` (the person's own, or a 403) |
-| `--credential-records-namespace` | `patchy`             | Namespace of the `ModelCredential` records (the release namespace)                                    |
-| `--credentials-namespace`        | `patchy-credentials` | Namespace of the credential Secrets                                                                   |
-| `--org-credential-is-personal`   | empty                | `acknowledged` admits a setup-token org credential under either mode; refused otherwise               |
-| `--credential-probe-model`       | `claude-haiku-4-5`   | Model a setup-token health probe asks for one output token of                                         |
+| Flag                             | Default            | Purpose                                                                                               |
+| -------------------------------- | ------------------ | ----------------------------------------------------------------------------------------------------- |
+| `--user-credentials`             | `off`              | `off`, `attribute` (record the person, org credential pays) or `enforce` (the person's own, or a 403) |
+| `--credential-records-namespace` | `maul`             | Namespace of the `ModelCredential` records (the release namespace)                                    |
+| `--credentials-namespace`        | `maul-credentials` | Namespace of the credential Secrets                                                                   |
+| `--org-credential-is-personal`   | empty              | `acknowledged` admits a setup-token org credential under either mode; refused otherwise               |
+| `--credential-probe-model`       | `claude-haiku-4-5` | Model a setup-token health probe asks for one output token of                                         |
 
 ### Limit flags
 
@@ -158,8 +158,8 @@ contact:
 
 Over any limit the broker answers 429 in the Anthropic error envelope, with a message starting
 `egress broker: per-pod limit`, which `agent-runner` maps to the `budget_exceeded` outcome. The audit line carries the
-pod's running totals, so the limits can be sized from observed runs; the `patchy.broker.tokens` and
-`patchy.broker.preauth.rejections` counters carry the same figures. Aggregate spend is bounded by
+pod's running totals, so the limits can be sized from observed runs; the `maul.broker.tokens` and
+`maul.broker.preauth.rejections` counters carry the same figures. Aggregate spend is bounded by
 `max concurrent Jobs x --tokens-per-pod x Job turnover`, and by `--tokens-per-hour` when set. Evaluation pods run under
 the same ServiceAccount and share the per-pod limits, so size them for the longest legitimate evaluation too.
 
@@ -214,9 +214,9 @@ input token, so a token cap sized for a short run cuts a long one early. `--limi
   Subscription (`--anthropic-auth token`) traffic is priced the same way, notionally.
 - A request reserves its `max_tokens` (else `--max-tokens-ceiling`) at its model's output price until it settles, and a
   response whose usage never becomes final is charged its shortfall at the output price.
-- A pod's cap is the smaller of `--cost-per-pod` and the pod's own `patchy.bitwisemedia.uk/budget-micro-usd` annotation
-  (one to sixteen digits). The broker reads it with one `get` of the caller's pod in `--agent-namespace` when it reviews
-  the token, checks the pod UID against the TokenReview, and caches it with the verdict (`--verdict-ttl`). A missing,
+- A pod's cap is the smaller of `--cost-per-pod` and the pod's own `maul.run/budget-micro-usd` annotation (one to
+  sixteen digits). The broker reads it with one `get` of the caller's pod in `--agent-namespace` when it reviews the
+  token, checks the pod UID against the TokenReview, and caches it with the verdict (`--verdict-ttl`). A missing,
   malformed or zero annotation, a gone pod or a different UID falls back to `--cost-per-pod`, never to unlimited; a read
   the API server does not answer refuses the request with 503 and caches nothing. The annotation can only lower the cap.
   intent-controller stamps it on every intent run under the cost unit, from the Project's stage limits
@@ -227,10 +227,10 @@ input token, so a token cap sized for a short run cuts a long one early. `--limi
 A refusal reads `egress broker: per-pod limit: cost per pod (N micro-USD) reached`, or
 `broker-wide hourly cost ceiling (N micro-USD) reached`, and maps to `budget_exceeded` as every other limit does. Cost
 is counted under either unit: the audit line carries `cost_micro_usd` (this request), `pod_cost_micro_usd` (the pod's
-total) and `pod_cost_limit_micro_usd` (its cap, `0` under the token unit), and `patchy.broker.cost` counts micro-USD by
+total) and `pod_cost_limit_micro_usd` (its cap, `0` under the token unit), and `maul.broker.cost` counts micro-USD by
 route and class (`observed`, `estimated`), so a cost limit can be sized from live runs before an install switches. The
-chart's cost unit renders a Role granting `get` on pods in the agent namespace, nothing else; setting
-`PATCHY_LIMIT_UNIT` through `config.extra` instead leaves the broker without it, and every request then fails with 503.
+chart's cost unit renders a Role granting `get` on pods in the agent namespace, nothing else; setting `MAUL_LIMIT_UNIT`
+through `config.extra` instead leaves the broker without it, and every request then fails with 503.
 [Sizing limits for large features](../intents/sizing.md) has the measured runs behind these limits, a "large" preset and
 the steps to switch an install.
 
@@ -241,7 +241,7 @@ The job controllers (and the evaluation controller, via the shared flags) point 
 `--claude-provider-region`, `--claude-provider-region-prefix`, `--claude-provider-project-id`, `--claude-model-map`, and
 `--claude-provider-env`. Canonical model ids stay canonical everywhere controller-side; the provider-specific
 translation (Bedrock `us.anthropic.<model>` inference profiles, Vertex bare ids, Foundry deployment names) is rendered
-into `PATCHY_MODEL_MAP` and applied in-pod. Bedrock and Vertex ids are derived per registry model; **Foundry has no
+into `MAUL_MODEL_MAP` and applied in-pod. Bedrock and Vertex ids are derived per registry model; **Foundry has no
 derivable ids**, so `--claude-model-map` must cover every claude-resolving allowlisted model and stage default — the
 controllers refuse to start otherwise, which turns a would-be mid-run failure into a startup error.
 
@@ -254,11 +254,11 @@ controllers read this record when a run settles ([trusted usage](attribution.md#
 
 The record is served on a listener of its own, off unless `--usage-addr` is set:
 
-| Flag               | Default                      | Purpose                                                                                               |
-| ------------------ | ---------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `--usage-addr`     | empty (off)                  | Listen address of the usage endpoint (`:8082` in the chart)                                           |
-| `--usage-callers`  | empty                        | Comma-separated `<namespace>:<serviceaccount>` identities it answers to; required with `--usage-addr` |
-| `--usage-audience` | `patchy-egress-broker-usage` | Audience the callers' projected tokens must be bound to; must differ from `--token-audience`          |
+| Flag               | Default                    | Purpose                                                                                               |
+| ------------------ | -------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `--usage-addr`     | empty (off)                | Listen address of the usage endpoint (`:8082` in the chart)                                           |
+| `--usage-callers`  | empty                      | Comma-separated `<namespace>:<serviceaccount>` identities it answers to; required with `--usage-addr` |
+| `--usage-audience` | `maul-egress-broker-usage` | Audience the callers' projected tokens must be bound to; must differ from `--token-audience`          |
 
 `GET /v1/usage/jobs/<job>` answers with the broker's boot time and the ledger entry of each of that Job's pods (named
 `<job>-<five characters>`): the pod name and UID, when the ledger first saw it, its requests still in flight, and per
@@ -296,7 +296,7 @@ Invoke-class permissions only — the broker needs to call models, never to mana
   namespace (no list, no watch) for the budget annotation, and under per-user credentials, which adds that same pod
   read, reads of the `ModelCredential` records and the credential Secrets (their own namespace only), and patches of the
   records' status (health) only.
-- The Deployment runs under the restricted Pod Security posture like every other patchy component: non-root 65532,
+- The Deployment runs under the restricted Pod Security posture like every other maul component: non-root 65532,
   read-only root filesystem, no capabilities.
 - Its NetworkPolicy admits the proxy port from the agent namespace only, the usage port (when on) from the run
   controllers only, and egress to DNS, TCP 443, and the API server.

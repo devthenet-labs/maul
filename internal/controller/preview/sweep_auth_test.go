@@ -18,8 +18,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/kube"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/kube"
 )
 
 // sweepFixture is a two-slot install with auth required: a live Preview in
@@ -62,18 +62,18 @@ func newSweepFixture(t *testing.T, required bool) *sweepFixture {
 		// The live Preview's own Ingress, rendered before auth.
 		testSettings().ingress(live, 0),
 		// The chart's placeholder, before the chart renders it with auth.
-		plain("patchy-preview-0", placeholderName, map[string]string{"helm.sh/resource-policy": "keep"}, &class),
+		plain("maul-preview-0", placeholderName, map[string]string{"helm.sh/resource-policy": "keep"}, &class),
 		// An Ingress no Preview owns, unlabelled, unauthenticated.
-		plain("patchy-preview-1", "stray", nil, &class),
+		plain("maul-preview-1", "stray", nil, &class),
 		// The same through the legacy class annotation.
-		plain("patchy-preview-1", "legacy", map[string]string{"kubernetes.io/ingress.class": class}, nil),
+		plain("maul-preview-1", "legacy", map[string]string{"kubernetes.io/ingress.class": class}, nil),
 		// Another class: not the preview load balancer's.
-		plain("patchy-preview-1", "elsewhere", nil, &other),
+		plain("maul-preview-1", "elsewhere", nil, &other),
 		// The current generation, and the previous one during a rotation.
-		plain("patchy-preview-1", "current", withSet(testAuth(2, 1)["patchy-preview-1"]), &class),
-		plain("patchy-preview-1", "previous", withSet(testAuth(2, 0)["patchy-preview-1"]), &class),
+		plain("maul-preview-1", "current", withSet(testAuth(2, 1)["maul-preview-1"]), &class),
+		plain("maul-preview-1", "previous", withSet(testAuth(2, 0)["maul-preview-1"]), &class),
 		// Slot 0's set in slot 1: another slot's cookie.
-		plain("patchy-preview-1", "slot-0-set", withSet(testAuth(2, 1)["patchy-preview-0"]), &class),
+		plain("maul-preview-1", "slot-0-set", withSet(testAuth(2, 1)["maul-preview-0"]), &class),
 	}
 	c := fake.NewClientBuilder().WithScheme(kube.Scheme()).WithObjects(objects...).Build()
 	f := &sweepFixture{t: t, c: c, rec: events.NewFakeRecorder(100), now: time.Date(2026, 10, 1, 12, 0, 0, 0,
@@ -134,20 +134,20 @@ func TestSweeperReportsUnauthenticatedIngressesBeforeDeleting(t *testing.T) {
 	}
 	evs := f.events()
 	if len(evs) != unauthenticatedGrace || !strings.Contains(evs[0], "Warning UnauthenticatedIngress ") ||
-		!strings.Contains(evs[0], "patchy-preview-0/preview-demo-1") {
+		!strings.Contains(evs[0], "maul-preview-0/preview-demo-1") {
 		t.Errorf("events = %q, want one Warning UnauthenticatedIngress on the live Preview per sweep", evs)
 	}
 	f.sweep() // the grace period is over
 	got := f.present()
 	for name, want := range map[string]bool{
-		"patchy-preview-0/preview-demo-1":     false, // still unauthenticated: deleted
-		"patchy-preview-0/" + placeholderName: true,
-		"patchy-preview-1/stray":              false,
-		"patchy-preview-1/legacy":             false,
-		"patchy-preview-1/elsewhere":          true,
-		"patchy-preview-1/current":            true,
-		"patchy-preview-1/previous":           true,
-		"patchy-preview-1/slot-0-set":         false,
+		"maul-preview-0/preview-demo-1":     false, // still unauthenticated: deleted
+		"maul-preview-0/" + placeholderName: true,
+		"maul-preview-1/stray":              false,
+		"maul-preview-1/legacy":             false,
+		"maul-preview-1/elsewhere":          true,
+		"maul-preview-1/current":            true,
+		"maul-preview-1/previous":           true,
+		"maul-preview-1/slot-0-set":         false,
 	} {
 		if got[name] != want {
 			t.Errorf("%s present = %v, want %v", name, got[name], want)
@@ -159,7 +159,7 @@ func TestSweeperReportsUnauthenticatedIngressesBeforeDeleting(t *testing.T) {
 	// The placeholder stays reported, never deleted, however long.
 	f.now = f.now.Add(10 * interval)
 	f.sweep()
-	if !f.present()["patchy-preview-0/"+placeholderName] {
+	if !f.present()["maul-preview-0/"+placeholderName] {
 		t.Error("the placeholder was deleted")
 	}
 }
@@ -169,7 +169,7 @@ func TestSweeperReportsUnauthenticatedIngressesBeforeDeleting(t *testing.T) {
 func TestSweeperGraceRestartsOnceConforming(t *testing.T) {
 	f := newSweepFixture(t, true)
 	ctx := context.Background()
-	key := types.NamespacedName{Namespace: "patchy-preview-0", Name: resourceName(f.owned)}
+	key := types.NamespacedName{Namespace: "maul-preview-0", Name: resourceName(f.owned)}
 	setAnnotations := func(ann map[string]string) {
 		t.Helper()
 		var ing networkingv1.Ingress

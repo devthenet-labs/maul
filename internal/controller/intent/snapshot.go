@@ -9,7 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/ghclient"
 )
 
 // Bounds on the approver comments a replan's snapshot carries, the design's

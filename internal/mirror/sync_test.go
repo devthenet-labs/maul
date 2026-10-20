@@ -13,10 +13,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/mirror/scan"
-	"github.com/bitwise-media-group/patchy/internal/mirror/sign"
-	"github.com/bitwise-media-group/patchy/internal/mirror/spec"
-	"github.com/bitwise-media-group/patchy/internal/mirror/verify"
+	"github.com/devthenet-labs/maul/internal/mirror/scan"
+	"github.com/devthenet-labs/maul/internal/mirror/sign"
+	"github.com/devthenet-labs/maul/internal/mirror/spec"
+	"github.com/devthenet-labs/maul/internal/mirror/verify"
 )
 
 // keyPair generates a cosign keypair on disk for offline sign/verify,
@@ -453,7 +453,7 @@ func TestEngineVerifyUpstream(t *testing.T) {
 
 	// The manifest declares key verification for the app image and a
 	// documented gap for the chart.
-	f.write("charts/demo/manifest.yaml", `apiVersion: mirror.patchy.bitwisemedia.uk/v1alpha1
+	f.write("charts/demo/manifest.yaml", `apiVersion: mirror.maul.run/v1alpha1
 kind: Chart
 name: demo
 chart:

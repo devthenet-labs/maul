@@ -12,8 +12,8 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/ghclient"
 )
 
 // resetClient is the forge surface the demo reset needs — a slice of
@@ -26,11 +26,11 @@ type resetClient interface {
 
 // runReset performs the demo reset: permanently delete every finding's
 // tracking issue, reopen the dismissed findings' own code-scanning alerts
-// (patchy dismissed them on false-positive verdicts; only the findings we
+// (maul dismissed them on false-positive verdicts; only the findings we
 // know about — a demo reset happens within the finding TTL, so nothing
 // older lingers), then delete the Finding flow's resources
 // (deleteFindingPipeline). The only issues it touches are findings' tracking
-// issues, which patchy opened (createIssue is the only writer of the link):
+// issues, which maul opened (createIssue is the only writer of the link):
 // never an intent's issue, which a human wrote. GitHub cleanup runs
 // first and any failure aborts before the deletes — the Findings carry the
 // issue numbers, repositories, and alert numbers the cleanup needs, so

@@ -13,12 +13,12 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/generic"
-	"github.com/bitwise-media-group/patchy/internal/ghas"
-	"github.com/bitwise-media-group/patchy/internal/scc"
-	"github.com/bitwise-media-group/patchy/internal/webhook"
-	"github.com/bitwise-media-group/patchy/internal/wiz"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/generic"
+	"github.com/devthenet-labs/maul/internal/ghas"
+	"github.com/devthenet-labs/maul/internal/scc"
+	"github.com/devthenet-labs/maul/internal/webhook"
+	"github.com/devthenet-labs/maul/internal/wiz"
 )
 
 // GenericPathPattern is the wildcard route generic integrations deliver to.

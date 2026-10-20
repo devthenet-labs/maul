@@ -12,16 +12,16 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/webhook"
-	"github.com/bitwise-media-group/patchy/internal/wiz"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/webhook"
+	"github.com/devthenet-labs/maul/internal/wiz"
 )
 
 // wizIssueJSON is a Wiz Issues delivery per the documented body template,
 // trimmed to what routing and ingest read.
 const wizIssueJSON = `{
-	"trigger": {"source": "ISSUE", "type": "Created", "ruleId": "ar-1", "ruleName": "patchy-issues"},
+	"trigger": {"source": "ISSUE", "type": "Created", "ruleId": "ar-1", "ruleName": "maul-issues"},
 	"issue": {
 		"id": "iss-1", "status": "OPEN", "severity": "HIGH",
 		"url": "https://app.wiz.io/issues#~(issue~'iss-1')",
@@ -51,7 +51,7 @@ const wizThreatJSON = `{
 
 func testWizIntegration(issues, defend bool) *v1alpha1.Integration {
 	integ := &v1alpha1.Integration{
-		ObjectMeta: metav1.ObjectMeta{Name: "wiz", Namespace: "patchy"},
+		ObjectMeta: metav1.ObjectMeta{Name: "wiz", Namespace: "maul"},
 		Spec: v1alpha1.IntegrationSpec{
 			Provider:  v1alpha1.IntegrationProviderWiz,
 			SecretRef: &v1alpha1.LocalSecretReference{Name: "wiz-creds"},
@@ -78,14 +78,14 @@ func newWizReceiver(t *testing.T, objs ...client.Object) *Receiver {
 	return &Receiver{
 		Reader:    c,
 		Creds:     NewCreds(c),
-		Ingest:    &Ingestor{Client: c, Namespace: "patchy"},
-		Namespace: "patchy",
+		Ingest:    &Ingestor{Client: c, Namespace: "maul"},
+		Namespace: "maul",
 	}
 }
 
 func wizSecret(token string) *corev1.Secret {
 	return &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "wiz-creds", Namespace: "patchy"},
+		ObjectMeta: metav1.ObjectMeta{Name: "wiz-creds", Namespace: "maul"},
 		Data:       map[string][]byte{wiz.KeyWebhookToken: []byte(token)},
 	}
 }
@@ -195,7 +195,7 @@ func TestValidateWiz(t *testing.T) {
 		{
 			"missing webhook token",
 			testWizIntegration(true, false),
-			&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "wiz-creds", Namespace: "patchy"}},
+			&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "wiz-creds", Namespace: "maul"}},
 			"missing key webhookToken",
 		},
 		{

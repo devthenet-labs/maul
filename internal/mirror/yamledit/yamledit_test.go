@@ -129,7 +129,7 @@ func TestSetQuotedKeyPath(t *testing.T) {
 
 func TestSetManifestVersion(t *testing.T) {
 	// The upgrade splice: a chart manifest with comments everywhere.
-	src := `apiVersion: mirror.patchy.bitwisemedia.uk/v1alpha1
+	src := `apiVersion: mirror.maul.run/v1alpha1
 kind: Chart
 name: demo
 chart:

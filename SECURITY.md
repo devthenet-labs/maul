@@ -3,12 +3,12 @@
 ## Reporting a vulnerability
 
 Please report vulnerabilities privately via
-[GitHub Security Advisories](https://github.com/bitwise-media-group/patchy/security/advisories/new). Do not open public
+[GitHub Security Advisories](https://github.com/devthenet-labs/maul/security/advisories/new). Do not open public
 issues for security reports.
 
 ## Threat model (summary)
 
-patchy is a set of Kubernetes services that receive GitHub webhooks, mutate GitHub issues/PRs, and run a coding agent
+maul is a set of Kubernetes services that receive GitHub webhooks, mutate GitHub issues/PRs, and run a coding agent
 against cloned repositories inside ephemeral Jobs. Its security surface is webhook authenticity, GitHub credential
 scope, and the isolation of the agent from the code it operates on. It defends against:
 
@@ -23,8 +23,8 @@ scope, and the isolation of the agent from the code it operates on. It defends a
 - **Tampered release artifacts** — releases ship `checksums.txt`, a SLSA build-provenance attestation, keyless Sigstore
   (cosign) bundles per binary, and an SPDX SBOM per archive.
 
-Out of scope: the repositories patchy operates on and the model provider itself; a compromise of the release workflow's
-signing identity; and a compromise of the cluster patchy runs in.
+Out of scope: the repositories maul operates on and the model provider itself; a compromise of the release workflow's
+signing identity; and a compromise of the cluster maul runs in.
 
 ## Code scanning triage
 

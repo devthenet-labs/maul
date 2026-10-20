@@ -2,12 +2,12 @@
 # SPDX-License-Identifier: MIT
 
 # Agent base image: what application teams build FROM to make the agent image
-# their repository declares in .patchy/agent.yaml. Guide:
+# their repository declares in .maul/agent.yaml. Guide:
 # docs/integrations/agent-images.md; worked examples: examples/agent-images/.
-# It carries no patchy binary. When a repository image runs, the trusted
+# It carries no maul binary. When a repository image runs, the trusted
 # prepare init copies agent-runner and the claude CLI into a read-only
-# /patchy/bin and the agent container runs with
-# PATH=/patchy/bin:<this image's PATH> (internal/jobs).
+# /maul/bin and the agent container runs with
+# PATH=/maul/bin:<this image's PATH> (internal/jobs).
 # This image supplies the runtime around them, shaped for the sandbox the pod
 # enforces whatever the image says:
 #
@@ -19,7 +19,7 @@
 #     has to be baked in at build time.
 #
 # source-controller rejects an image whose ENV names a reserved variable
-# (HOME, PATCHY_*, ANTHROPIC_*, CLAUDE_*, the gateway and credential names,
+# (HOME, MAUL_*, ANTHROPIC_*, CLAUDE_*, the gateway and credential names,
 # proxies, git's repository redirections), that declares a VOLUME, or whose
 # PATH has no absolute entry. Every ENV below stays inside that contract, and
 # an image built FROM this one has to as well.
@@ -32,7 +32,7 @@
 # run on musl (Alpine). The digest is the pin; renovate bumps it.
 FROM cgr.dev/chainguard/wolfi-base:latest@sha256:1d95114038f76513a9ace6fca107d5582b08c65981f81f61cb56bf7fd2ef216d
 
-# bash: the claude CLI's shell tool refuses busybox sh, and patchy's preflight
+# bash: the claude CLI's shell tool refuses busybox sh, and maul's preflight
 # checks for it. git: agent-runner diffs the agent's changes with it.
 # ca-certificates: update-ca-certificates, so a derived image can add a
 # private CA (the bundle itself ships in wolfi-base). coreutils, diffutils,
@@ -54,22 +54,22 @@ RUN apk add --no-cache \
       make \
       sed
 
-# wolfi-base names uid 65532 "nonroot"; rename that one account to patchy
+# wolfi-base names uid 65532 "nonroot"; rename that one account to maul
 # rather than adding a second uid-65532 entry, which would make name lookups
 # depend on file order. Its home is /workspace, the HOME the Job sets, so tools
 # that ask getpwuid() instead of reading $HOME land in the same writable
 # place. /workspace is created and owned by 65532 so a bare `docker run` has a
 # usable home; in the pod the workspace emptyDir is mounted over it.
-RUN sed -i 's|^nonroot:x:65532:65532:.*$|patchy:x:65532:65532:patchy agent:/workspace:/bin/bash|' /etc/passwd \
-  && sed -i 's|^nonroot:x:65532:|patchy:x:65532:|' /etc/group \
-  && sed -i 's|^nonroot:|patchy:|' /etc/shadow \
+RUN sed -i 's|^nonroot:x:65532:65532:.*$|maul:x:65532:65532:maul agent:/workspace:/bin/bash|' /etc/passwd \
+  && sed -i 's|^nonroot:x:65532:|maul:x:65532:|' /etc/group \
+  && sed -i 's|^nonroot:|maul:|' /etc/shadow \
   && rm -rf /home/nonroot \
   && install -d -o 65532 -g 65532 -m 0755 /workspace \
-  && grep -q '^patchy:x:65532:65532:' /etc/passwd \
-  && grep -q '^patchy:x:65532:' /etc/group
+  && grep -q '^maul:x:65532:65532:' /etc/passwd \
+  && grep -q '^maul:x:65532:' /etc/group
 
 # An explicit, all-absolute PATH. source-controller records it (dropping empty
-# and relative entries) and the pod runs with /patchy/bin in front of it;
+# and relative entries) and the pod runs with /maul/bin in front of it;
 # setting it here keeps it stable across base image bumps. Derived images
 # prepend their toolchain directories (ENV PATH=/usr/local/go/bin:${PATH}).
 ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -91,11 +91,11 @@ ENV LANG=C.UTF-8
 
 # Metadata for the registry page. A derived image inherits these labels, so it
 # should set its own source and description (the examples do).
-LABEL org.opencontainers.image.title="patchy agent-base" \
-      org.opencontainers.image.description="Base image for repository-declared patchy agent images: glibc (wolfi), bash, git and core build tools, uid 65532, caches under /tmp. Extend it with your toolchain and dependencies." \
-      org.opencontainers.image.source="https://github.com/devthenet-labs/patchy" \
-      org.opencontainers.image.url="https://github.com/devthenet-labs/patchy/tree/main/examples/agent-images" \
-      org.opencontainers.image.documentation="https://devthenet-labs.github.io/patchy/integrations/agent-images/" \
+LABEL org.opencontainers.image.title="maul agent-base" \
+      org.opencontainers.image.description="Base image for repository-declared maul agent images: glibc (wolfi), bash, git and core build tools, uid 65532, caches under /tmp. Extend it with your toolchain and dependencies." \
+      org.opencontainers.image.source="https://github.com/devthenet-labs/maul" \
+      org.opencontainers.image.url="https://github.com/devthenet-labs/maul/tree/main/examples/agent-images" \
+      org.opencontainers.image.documentation="https://devthenet-labs.github.io/maul/integrations/agent-images/" \
       org.opencontainers.image.vendor="devthenet-labs" \
       org.opencontainers.image.licenses="MIT"
 
@@ -107,6 +107,6 @@ WORKDIR /workspace
 # honest and reminds derived images to switch back after `USER root` installs.
 USER 65532:65532
 
-# No ENTRYPOINT: the agent container runs /patchy/bin/agent-runner by absolute
+# No ENTRYPOINT: the agent container runs /maul/bin/agent-runner by absolute
 # path. The CMD only serves an interactive `docker run -it`.
 CMD ["/bin/bash"]

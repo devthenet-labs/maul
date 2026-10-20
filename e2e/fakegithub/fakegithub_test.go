@@ -22,8 +22,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/e2e/fakegithub"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
+	"github.com/devthenet-labs/maul/e2e/fakegithub"
+	"github.com/devthenet-labs/maul/internal/ghclient"
 )
 
 // These tests drive the fake with the real client, so the two cannot drift
@@ -121,9 +121,9 @@ func scopedClient(t *testing.T, srv *fakegithub.Server, app *ghclient.App,
 func TestConditionalIssueList(t *testing.T) {
 	srv, c, _ := newFake(t)
 	ctx := context.Background()
-	n := srv.OpenIssue(intents.Owner, intents.Name, "Add GET /version", "as JSON", []string{"patchy:target"}, human)
+	n := srv.OpenIssue(intents.Owner, intents.Name, "Add GET /version", "as JSON", []string{"maul:target"}, human)
 
-	first, err := c.ListIssues(ctx, intents, []string{"patchy:target"}, "open", "")
+	first, err := c.ListIssues(ctx, intents, []string{"maul:target"}, "open", "")
 	if err != nil {
 		t.Fatalf("ListIssues() error = %v", err)
 	}
@@ -135,7 +135,7 @@ func TestConditionalIssueList(t *testing.T) {
 		t.Errorf("issue = %+v, want #%d by peter with its page URL", is, n)
 	}
 
-	again, err := c.ListIssues(ctx, intents, []string{"patchy:target"}, "open", first.ETag)
+	again, err := c.ListIssues(ctx, intents, []string{"maul:target"}, "open", first.ETag)
 	if err != nil {
 		t.Fatalf("conditional ListIssues() error = %v", err)
 	}
@@ -143,8 +143,8 @@ func TestConditionalIssueList(t *testing.T) {
 		t.Errorf("conditional ListIssues() = %+v, want NotModified", again)
 	}
 
-	srv.LabelIssue(n, "patchy:approved", human)
-	changed, err := c.ListIssues(ctx, intents, []string{"patchy:target"}, "open", first.ETag)
+	srv.LabelIssue(n, "maul:approved", human)
+	changed, err := c.ListIssues(ctx, intents, []string{"maul:target"}, "open", first.ETag)
 	if err != nil {
 		t.Fatalf("changed ListIssues() error = %v", err)
 	}
@@ -154,7 +154,7 @@ func TestConditionalIssueList(t *testing.T) {
 
 	srv.CloseIssueAs(n, "not_planned", human)
 	for state, want := range map[string]int{"open": 0, "closed": 1, "all": 1} {
-		got, err := c.ListIssues(ctx, intents, []string{"patchy:target"}, state, "")
+		got, err := c.ListIssues(ctx, intents, []string{"maul:target"}, state, "")
 		if err != nil {
 			t.Fatalf("ListIssues(%s) error = %v", state, err)
 		}
@@ -194,14 +194,14 @@ func TestIssueEventActors(t *testing.T) {
 			srv, pat, _ := newFake(t)
 			c := tt.client(t, srv, pat)
 			ctx := context.Background()
-			n := srv.OpenIssue(intents.Owner, intents.Name, "t", "b", []string{"patchy:target"}, human)
-			if err := c.AddLabels(ctx, intents, n, []string{"patchy:approved"}); err != nil {
+			n := srv.OpenIssue(intents.Owner, intents.Name, "t", "b", []string{"maul:target"}, human)
+			if err := c.AddLabels(ctx, intents, n, []string{"maul:approved"}); err != nil {
 				t.Fatalf("AddLabels() error = %v", err)
 			}
-			if err := c.RemoveLabel(ctx, intents, n, "patchy:approved"); err != nil {
+			if err := c.RemoveLabel(ctx, intents, n, "maul:approved"); err != nil {
 				t.Fatalf("RemoveLabel() error = %v", err)
 			}
-			if err := c.RemoveLabel(ctx, intents, n, "patchy:approved"); err != nil {
+			if err := c.RemoveLabel(ctx, intents, n, "maul:approved"); err != nil {
 				t.Fatalf("RemoveLabel(absent) error = %v, want the 404 as success", err)
 			}
 			if err := c.CloseIssue(ctx, intents, n, ghclient.CloseCompleted); err != nil {
@@ -224,9 +224,9 @@ func TestIssueEventActors(t *testing.T) {
 				got = append(got, seen{ev.Event, ev.Label, ev.Actor})
 			}
 			want := []seen{
-				{"labeled", "patchy:target", asActor(human)},
-				{"labeled", "patchy:approved", tt.want},
-				{"unlabeled", "patchy:approved", tt.want},
+				{"labeled", "maul:target", asActor(human)},
+				{"labeled", "maul:approved", tt.want},
+				{"unlabeled", "maul:approved", tt.want},
 				{"closed", "", tt.want},
 			}
 			if !reflect.DeepEqual(got, want) {
@@ -253,13 +253,13 @@ func TestCommentsSince(t *testing.T) {
 	ctx := context.Background()
 	n := srv.OpenIssue(intents.Owner, intents.Name, "t", "b", nil, human)
 
-	planID, err := c.CreateComment(ctx, intents, n, "<!-- patchy:plan --> r1")
+	planID, err := c.CreateComment(ctx, intents, n, "<!-- maul:plan --> r1")
 	if err != nil {
 		t.Fatalf("CreateComment() error = %v", err)
 	}
 	postedAt := clk.now()
 	clk.advance(time.Minute)
-	cmdID := srv.CommentAs(n, "/patchy approve", human)
+	cmdID := srv.CommentAs(n, "/maul approve", human)
 
 	all, err := c.ListIssueComments(ctx, intents, n, time.Time{})
 	if err != nil {
@@ -309,7 +309,7 @@ func TestCommentReactions(t *testing.T) {
 	srv, c, _ := newFake(t)
 	ctx := context.Background()
 	n := srv.OpenIssue(intents.Owner, intents.Name, "t", "b", nil, human)
-	cmdID := srv.CommentAs(n, "/patchy approve", human)
+	cmdID := srv.CommentAs(n, "/maul approve", human)
 
 	for range 2 {
 		if err := c.CreateIssueCommentReaction(ctx, intents, cmdID, ghclient.ReactionEyes); err != nil {
@@ -344,7 +344,7 @@ func TestRefSemantics(t *testing.T) {
 		}
 		return sha
 	}
-	const branch = "patchy-intent/target-1"
+	const branch = "maul-intent/target-1"
 	build := commit(fakegithub.BaseSHA, "build")
 	human := commit(build, "human")
 	revise := commit(human, "revise")
@@ -366,7 +366,7 @@ func TestRefSemantics(t *testing.T) {
 			return c.CreateBranchRef(ctx, target, branch, sideways)
 		}, wantErr: true, wantIs: ghclient.ErrBranchExists, wantHead: build},
 		{name: "create at an unknown commit", do: func() error {
-			return c.CreateBranchRef(ctx, target, "patchy-intent/other", "feedface")
+			return c.CreateBranchRef(ctx, target, "maul-intent/other", "feedface")
 		}, wantErr: true, notSentry: true, wantHead: build},
 		{name: "fast-forward", do: func() error { return c.FastForwardRef(ctx, target, branch, human) }, wantHead: human},
 		{name: "same commit is a no-op", do: func() error { return c.FastForwardRef(ctx, target, branch, human) },
@@ -380,7 +380,7 @@ func TestRefSemantics(t *testing.T) {
 		{name: "unknown commit", do: func() error { return c.FastForwardRef(ctx, target, branch, "feedface") },
 			wantErr: true, notSentry: true, wantHead: revise},
 		{name: "missing branch", do: func() error {
-			return c.FastForwardRef(ctx, target, "patchy-intent/none", revise)
+			return c.FastForwardRef(ctx, target, "maul-intent/none", revise)
 		}, wantErr: true, wantIs: ghclient.ErrRefNotFound, wantHead: revise},
 	}
 	for _, step := range steps {
@@ -403,7 +403,7 @@ func TestRefSemantics(t *testing.T) {
 	// The Finding flow's push still creates, then force-moves on a retry.
 	for i := range 2 {
 		sha, err := c.PushBranch(ctx, target, ghclient.BranchPush{
-			Branch: "patchy/issue-9",
+			Branch: "maul/issue-9",
 			CommitRequest: ghclient.CommitRequest{
 				BaseSHA: fakegithub.BaseSHA, Message: "fix",
 				Files: []ghclient.CommitFile{{Path: "a.go", Mode: "100644", Content: []byte{byte(i)}}},
@@ -412,7 +412,7 @@ func TestRefSemantics(t *testing.T) {
 		if err != nil {
 			t.Fatalf("PushBranch() #%d error = %v", i, err)
 		}
-		if head := srv.BranchHead("patchy/issue-9"); head != sha {
+		if head := srv.BranchHead("maul/issue-9"); head != sha {
 			t.Errorf("PushBranch() #%d head = %s, want %s", i, head, sha)
 		}
 	}
@@ -497,7 +497,7 @@ func TestScopedTokenEnforcement(t *testing.T) {
 	intentIssue := srv.OpenIssue(intents.Owner, intents.Name, "t", "b", nil, human)
 	targetIssue := srv.OpenIssue(target.Owner, target.Name, "t", "b", nil, human)
 	issueComment := srv.CommentAs(targetIssue, "on the issue", human)
-	pr, err := pat.CreatePR(ctx, target, ghclient.PRRequest{Title: "t", Head: "patchy-intent/target-1", Base: "main"})
+	pr, err := pat.CreatePR(ctx, target, ghclient.PRRequest{Title: "t", Head: "maul-intent/target-1", Base: "main"})
 	if err != nil {
 		t.Fatalf("CreatePR() error = %v", err)
 	}
@@ -521,7 +521,7 @@ func TestScopedTokenEnforcement(t *testing.T) {
 		return err
 	}
 	openPR := func(c *ghclient.Client) error {
-		_, err := c.CreatePR(ctx, target, ghclient.PRRequest{Title: "t", Head: "patchy-intent/target-2", Base: "main"})
+		_, err := c.CreatePR(ctx, target, ghclient.PRRequest{Title: "t", Head: "maul-intent/target-2", Base: "main"})
 		return err
 	}
 	tests := []struct {
@@ -530,7 +530,7 @@ func TestScopedTokenEnforcement(t *testing.T) {
 		wantForbidden bool
 	}{
 		{name: "issues write labels", call: func() error {
-			return issuesWrite.AddLabels(ctx, intents, intentIssue, []string{"patchy:approved"})
+			return issuesWrite.AddLabels(ctx, intents, intentIssue, []string{"maul:approved"})
 		}},
 		{name: "issues write comments", call: func() error { return comment(issuesWrite, intents, intentIssue) }},
 		{name: "issues write reads repository metadata", call: func() error {
@@ -609,7 +609,7 @@ func TestScopedTokenEnforcement(t *testing.T) {
 func TestIssueListOrder(t *testing.T) {
 	srv, c, clk := newFake(t)
 	ctx := context.Background()
-	trigger := []string{"patchy:target"}
+	trigger := []string{"maul:target"}
 	open := func(title string) int {
 		clk.advance(time.Minute)
 		return srv.OpenIssue(intents.Owner, intents.Name, title, "b", trigger, human)
@@ -645,7 +645,7 @@ func TestIssueListOrder(t *testing.T) {
 	}
 
 	clk.advance(time.Minute)
-	srv.LabelIssue(b, "patchy:approved", human)
+	srv.LabelIssue(b, "maul:approved", human)
 	afterLabel, err := c.ListIssues(ctx, intents, trigger, "open", afterComment.ETag)
 	if err != nil {
 		t.Fatalf("ListIssues() after label error = %v", err)
@@ -703,26 +703,26 @@ func TestRepositoryLabels(t *testing.T) {
 	app := newApp(t, srv)
 	ctx := context.Background()
 	c := scopedClient(t, srv, app, intents, ghclient.TokenPerms{Issues: ghclient.PermWrite})
-	srv.SeedRepoLabel(intents.Owner, intents.Name, "patchy:approved", "ffffff")
+	srv.SeedRepoLabel(intents.Owner, intents.Name, "maul:approved", "ffffff")
 
 	steps := []struct {
 		name, label string
 		wantCreated bool
 	}{
-		{"a missing label is created", "patchy:target", true},
-		{"then found", "patchy:target", false},
-		{"found case-insensitively", "PATCHY:TARGET", false},
-		{"a human's label is kept", "patchy:approved", false},
+		{"a missing label is created", "maul:target", true},
+		{"then found", "maul:target", false},
+		{"found case-insensitively", "MAUL:TARGET", false},
+		{"a human's label is kept", "maul:approved", false},
 	}
 	for _, step := range steps {
-		created, err := c.EnsureLabel(ctx, intents, step.label, "5319e7", "patchy: plan this")
+		created, err := c.EnsureLabel(ctx, intents, step.label, "5319e7", "maul: plan this")
 		if err != nil || created != step.wantCreated {
 			t.Errorf("%s: EnsureLabel(%s) = %v, %v, want %v", step.name, step.label, created, err, step.wantCreated)
 		}
 	}
 	want := []fakegithub.RepoLabel{
-		{ID: 1, Name: "patchy:approved", Color: "ffffff"},
-		{ID: 2, Name: "patchy:target", Color: "5319e7", Description: "patchy: plan this"},
+		{ID: 1, Name: "maul:approved", Color: "ffffff"},
+		{ID: 2, Name: "maul:target", Color: "5319e7", Description: "maul: plan this"},
 	}
 	if got := srv.RepoLabels(intents.Owner, intents.Name); !reflect.DeepEqual(got, want) {
 		t.Errorf("labels = %+v, want %+v", got, want)
@@ -732,7 +732,7 @@ func TestRepositoryLabels(t *testing.T) {
 	}
 
 	contents := scopedClient(t, srv, app, intents, ghclient.TokenPerms{Contents: ghclient.PermWrite})
-	if _, err := contents.EnsureLabel(ctx, intents, "patchy:other", "", ""); !ghclient.IsForbidden(err) {
+	if _, err := contents.EnsureLabel(ctx, intents, "maul:other", "", ""); !ghclient.IsForbidden(err) {
 		t.Errorf("EnsureLabel with a contents token error = %v, want 403", err)
 	}
 }
@@ -758,13 +758,13 @@ func TestStoredComment(t *testing.T) {
 	srv, _, clk := newFake(t)
 	ctx := context.Background()
 	n := srv.OpenIssue(intents.Owner, intents.Name, "t", "b", nil, human)
-	got, err := botClient(t, srv).CreateIssueComment(ctx, intents, n, "<!-- patchy:plan x -->\nthe plan")
+	got, err := botClient(t, srv).CreateIssueComment(ctx, intents, n, "<!-- maul:plan x -->\nthe plan")
 	if err != nil {
 		t.Fatalf("CreateIssueComment() error = %v", err)
 	}
 	wantURL := "https://github.com/devthenet-labs/intents/issues/101#issuecomment-1"
-	if got.ID != 1 || got.Body != "<!-- patchy:plan x -->\nthe plan" || got.UserLogin != fakegithub.BotLogin ||
-		got.UserType != "Bot" || !got.CreatedAt.Equal(clk.now()) || got.HTMLURL != wantURL || got.ViaApp != "patchy" {
+	if got.ID != 1 || got.Body != "<!-- maul:plan x -->\nthe plan" || got.UserLogin != fakegithub.BotLogin ||
+		got.UserType != "Bot" || !got.CreatedAt.Equal(clk.now()) || got.HTMLURL != wantURL || got.ViaApp != "maul" {
 		t.Errorf("stored comment = %+v, want id 1 by %s at %v, %s, via the App", got, fakegithub.BotLogin, clk.now(), wantURL)
 	}
 	stored := srv.IssueComments(n)
@@ -790,7 +790,7 @@ func TestCommentEdits(t *testing.T) {
 	if edited, err := c.CommentEdited(ctx, got.NodeID); err != nil || edited {
 		t.Errorf("CommentEdited() before an edit = %v, %v; want false", edited, err)
 	}
-	if !srv.EditCommentBody(id, "/patchy approve") {
+	if !srv.EditCommentBody(id, "/maul approve") {
 		t.Fatal("EditCommentBody() found no comment")
 	}
 	after, err := c.GetIssueComment(ctx, intents, id)
@@ -871,7 +871,7 @@ func graphQLComment(t *testing.T, base, token, id string, into any) int {
 func TestPullRequestIdentity(t *testing.T) {
 	srv, c, _ := newFake(t)
 	ctx := context.Background()
-	const branch = "patchy-intent/target-1"
+	const branch = "maul-intent/target-1"
 	sha, err := c.CreateCommit(ctx, target, ghclient.CommitRequest{
 		BaseSHA: fakegithub.BaseSHA, Message: "build",
 		Files: []ghclient.CommitFile{{Path: "VERSION", Mode: "100644", Content: []byte("0.1.0\n")}},
@@ -932,17 +932,17 @@ func TestRefWriteLog(t *testing.T) {
 	}
 	build := commit(fakegithub.BaseSHA)
 	next := commit(build)
-	if err := c.CreateBranchRef(ctx, target, "patchy-intent/target-1", build); err != nil {
+	if err := c.CreateBranchRef(ctx, target, "maul-intent/target-1", build); err != nil {
 		t.Fatalf("CreateBranchRef() error = %v", err)
 	}
-	if err := c.CreateBranchRef(ctx, target, "patchy-intent/target-1", build); err != nil {
+	if err := c.CreateBranchRef(ctx, target, "maul-intent/target-1", build); err != nil {
 		t.Fatalf("CreateBranchRef() again error = %v", err)
 	}
-	if err := c.FastForwardRef(ctx, target, "patchy-intent/target-1", next); err != nil {
+	if err := c.FastForwardRef(ctx, target, "maul-intent/target-1", next); err != nil {
 		t.Fatalf("FastForwardRef() error = %v", err)
 	}
 	for range 2 {
-		if _, err := c.PushBranch(ctx, target, ghclient.BranchPush{Branch: "patchy/issue-9", CommitRequest: ghclient.CommitRequest{
+		if _, err := c.PushBranch(ctx, target, ghclient.BranchPush{Branch: "maul/issue-9", CommitRequest: ghclient.CommitRequest{
 			BaseSHA: fakegithub.BaseSHA, Message: "fix",
 		}}); err != nil {
 			t.Fatalf("PushBranch() error = %v", err)
@@ -954,12 +954,12 @@ func TestRefWriteLog(t *testing.T) {
 		t.Fatalf("ref writes = %+v, want 6", got)
 	}
 	want := []fakegithub.RefWrite{
-		{Op: "create", Ref: "heads/patchy-intent/target-1", SHA: build, Status: http.StatusCreated},
-		{Op: "create", Ref: "heads/patchy-intent/target-1", SHA: build, Status: http.StatusUnprocessableEntity},
-		{Op: "update", Ref: "heads/patchy-intent/target-1", SHA: next, Status: http.StatusOK},
-		{Op: "create", Ref: "heads/patchy/issue-9", SHA: got[3].SHA, Status: http.StatusCreated},
-		{Op: "create", Ref: "heads/patchy/issue-9", SHA: got[4].SHA, Status: http.StatusUnprocessableEntity},
-		{Op: "update", Ref: "heads/patchy/issue-9", SHA: got[4].SHA, Force: true, Status: http.StatusOK},
+		{Op: "create", Ref: "heads/maul-intent/target-1", SHA: build, Status: http.StatusCreated},
+		{Op: "create", Ref: "heads/maul-intent/target-1", SHA: build, Status: http.StatusUnprocessableEntity},
+		{Op: "update", Ref: "heads/maul-intent/target-1", SHA: next, Status: http.StatusOK},
+		{Op: "create", Ref: "heads/maul/issue-9", SHA: got[3].SHA, Status: http.StatusCreated},
+		{Op: "create", Ref: "heads/maul/issue-9", SHA: got[4].SHA, Status: http.StatusUnprocessableEntity},
+		{Op: "update", Ref: "heads/maul/issue-9", SHA: got[4].SHA, Force: true, Status: http.StatusOK},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("ref writes = %+v, want %+v", got, want)
@@ -976,7 +976,7 @@ func TestRefWriteLog(t *testing.T) {
 func TestRepoFilesInTarball(t *testing.T) {
 	srv, c, _ := newFake(t)
 	ctx := context.Background()
-	srv.SetRepoFile(target.Owner, target.Name, ".patchy/agent.yaml", "image: registry.example/app:v1\n")
+	srv.SetRepoFile(target.Owner, target.Name, ".maul/agent.yaml", "image: registry.example/app:v1\n")
 	files := func(repo ghclient.Repo) map[string]string {
 		t.Helper()
 		rc, err := c.Tarball(ctx, repo, fakegithub.HeadSHA)
@@ -1006,18 +1006,18 @@ func TestRepoFilesInTarball(t *testing.T) {
 		}
 	}
 	top := "devthenet-labs-patchy-target-" + fakegithub.HeadSHA[:7] + "/"
-	if got := files(target)[top+".patchy/agent.yaml"]; got != "image: registry.example/app:v1\n" {
+	if got := files(target)[top+".maul/agent.yaml"]; got != "image: registry.example/app:v1\n" {
 		t.Errorf("tarball agent.yaml = %q, want the added file", got)
 	}
 	for name := range files(intents) {
-		if strings.HasSuffix(name, ".patchy/agent.yaml") {
+		if strings.HasSuffix(name, ".maul/agent.yaml") {
 			t.Errorf("another repository's tarball carries %s", name)
 		}
 	}
 }
 
 // TestRefsPerRepository: a multi-repository intent pushes the same branch
-// name, patchy-intent/<intent>, to each of its repositories, and opens a
+// name, maul-intent/<intent>, to each of its repositories, and opens a
 // pull request from it in each. As on GitHub, each repository's refs and
 // pull request listing are its own: the second create is not "Reference
 // already exists", a head read in one repository never sees another's, and
@@ -1038,7 +1038,7 @@ func TestRefsPerRepository(t *testing.T) {
 		}
 		return sha
 	}
-	const branch = "patchy-intent/shop-1"
+	const branch = "maul-intent/shop-1"
 	webSHA, apiSHA := commit(web, "web"), commit(api, "api")
 	for repo, sha := range map[ghclient.Repo]string{web: webSHA, api: apiSHA} {
 		if err := c.CreateBranchRef(ctx, repo, branch, sha); err != nil {
@@ -1071,13 +1071,13 @@ func TestRefsPerRepository(t *testing.T) {
 
 	// A branch in one repository is in no other.
 	only := commit(web, "only")
-	if err := c.CreateBranchRef(ctx, web, "patchy-intent/shop-2", only); err != nil {
+	if err := c.CreateBranchRef(ctx, web, "maul-intent/shop-2", only); err != nil {
 		t.Fatalf("CreateBranchRef() error = %v", err)
 	}
-	if got, err := c.HeadSHA(ctx, api, "patchy-intent/shop-2"); err == nil {
+	if got, err := c.HeadSHA(ctx, api, "maul-intent/shop-2"); err == nil {
 		t.Errorf("HeadSHA(api) = %s, want the branch missing from a repository it was never pushed to", got)
 	}
-	if got := srv.BranchHead("patchy-intent/shop-2"); got != only {
+	if got := srv.BranchHead("maul-intent/shop-2"); got != only {
 		t.Errorf("BranchHead() = %s, want the one repository's %s", got, only)
 	}
 

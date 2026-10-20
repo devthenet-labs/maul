@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 // Package telemetry wires OpenTelemetry tracing, metrics, and structured
-// logging into the patchy binaries and owns their lifecycle.
+// logging into the maul binaries and owns their lifecycle.
 //
 // Telemetry is off by default. Init picks one of three modes, flag/config
 // winning over environment: when a directory is configured (Config.Dir, wired
@@ -12,7 +12,7 @@
 // can save the directory, ship it to us, and we replay it. When no directory is
 // set but OTEL_* environment variables are, it runs in env mode and defers to
 // contrib/exporters/autoexport (OTLP to a collector, console, or none). With
-// neither, it stays disabled and logging is the plain stderr handler patchy has
+// neither, it stays disabled and logging is the plain stderr handler maul has
 // always used.
 //
 // The package installs the global Tracer/Meter/Logger providers, so the

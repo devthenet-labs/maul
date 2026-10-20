@@ -18,7 +18,7 @@
 // issued for the audience the Integration expects:
 //
 //	replay -bearer "$(gcloud auth print-identity-token \
-//	    --audiences=https://patchy.example/google-cloud/webhooks)" \
+//	    --audiences=https://maul.example/google-cloud/webhooks)" \
 //	    ../fixtures/webhooks/scc.notification.json
 //
 // A Wiz fixture authenticates with the Integration's shared webhook token,
@@ -28,7 +28,7 @@
 //	replay -secret-file wiz.token ../fixtures/webhooks/wiz.issue.created.json
 //
 // A generic fixture is signed like a GitHub one but into the generic
-// contract's header (X-Patchy-Signature-256), and its route carries the
+// contract's header (X-Maul-Signature-256), and its route carries the
 // Integration's name — supply it with -generic-name:
 //
 //	replay -generic-name warehouse -secret-file warehouse.secret \
@@ -61,7 +61,7 @@ func main() {
 }
 
 // devWebhookSecret is the placeholder the dev overlay ships in its
-// patchy-github Secret (deploy/kustomize/overlays/dev/secret-dev.yaml);
+// maul-github Secret (deploy/kustomize/overlays/dev/secret-dev.yaml);
 // -dev-secret signs with it so replaying against the dev/dev-fake stacks
 // needs no secret file.
 const devWebhookSecret = "dev-webhook-secret-replace-me"
@@ -152,8 +152,8 @@ func run() error {
 		secret := []byte(strings.TrimRight(string(raw), "\r\n"))
 		mac := hmac.New(sha256.New, secret)
 		mac.Write(payload)
-		req.Header.Set("X-Patchy-Signature-256", "sha256="+hex.EncodeToString(mac.Sum(nil)))
-		req.Header.Set("X-Patchy-Delivery", deliveryID())
+		req.Header.Set("X-Maul-Signature-256", "sha256="+hex.EncodeToString(mac.Sum(nil)))
+		req.Header.Set("X-Maul-Delivery", deliveryID())
 	default:
 		if *bearer != "" {
 			return fmt.Errorf("-bearer applies to Pub/Sub and Wiz fixtures; GitHub deliveries are signed")

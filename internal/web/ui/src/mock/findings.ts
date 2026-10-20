@@ -1,6 +1,6 @@
 // Demo dataset — one finding per lifecycle phase, plus rollups for every
 // scope. Content is illustrative; the shapes and vocabulary come from the
-// patchy api/v1alpha1 types. Timestamps are fixed ISO strings so the demo is
+// maul api/v1alpha1 types. Timestamps are fixed ISO strings so the demo is
 // deterministic; relative times are computed at render.
 
 import type { Finding, OfflineDataset, Rollup, TranscriptTurn } from "../types";
@@ -197,14 +197,14 @@ const findings: Finding[] = [
     attempts: { investigation: 1 },
   },
   {
-    name: "gh-cs-patchy-51be77",
+    name: "gh-cs-maul-51be77",
     createdAt: "2026-07-17T13:58:20Z",
     integration: "github-bitwise",
     source: "github-code-scanning",
     repository: {
       type: "github",
-      url: "https://github.com/bitwise-media-group/patchy",
-      name: "bitwise-media-group/patchy",
+      url: "https://github.com/devthenet-labs/maul",
+      name: "devthenet-labs/maul",
       defaultBranch: "main",
     },
     advisories: ["CVE-2026-8801", "CWE-1333"],
@@ -214,7 +214,7 @@ const findings: Finding[] = [
       "A log-line pattern with nested quantifiers exhibits catastrophic backtracking on " +
       "crafted input, stalling the parser goroutine.",
     severity: "medium",
-    alerts: [{ id: "alerts/23", url: "https://github.com/bitwise-media-group/patchy/security/code-scanning/23" }],
+    alerts: [{ id: "alerts/23", url: "https://github.com/devthenet-labs/maul/security/code-scanning/23" }],
     suspend: true,
     phase: "Queued",
     phaseTimes: [
@@ -224,11 +224,11 @@ const findings: Finding[] = [
       { phase: "Queued", at: "2026-07-17T15:24:03Z" },
     ],
     firstObservedAt: "2026-07-17T13:58:20Z",
-    tracking: { issueNumber: 67, url: "https://github.com/bitwise-media-group/patchy/issues/67", state: "open" },
-    owners: ["patchy-maintainers"],
+    tracking: { issueNumber: 67, url: "https://github.com/devthenet-labs/maul/issues/67", state: "open" },
+    owners: ["maul-maintainers"],
     priority: "medium",
     investigation: {
-      name: "gh-cs-patchy-51be77-inv-1",
+      name: "gh-cs-maul-51be77-inv-1",
       attempt: 1,
       outcome: "ok",
       recommendation: "remediate",
@@ -963,7 +963,7 @@ export function mockDataset(): OfflineDataset {
   return JSON.parse(
     JSON.stringify({
       generatedAt: "2026-07-21T08:45:00Z",
-      namespace: "patchy",
+      namespace: "maul",
       version: "v0.7.2",
       findings,
       rollups,

@@ -52,7 +52,7 @@ func TestJudgeProbe(t *testing.T) {
 		{"no response type", 302, probeLocation(testIssuer, 1, "intent-7", func(q url.Values) {
 			q.Del("response_type")
 		}), false},
-		{"userinfo in location", 302, "https://u@preview-auth.example.com/authorize?client_id=patchy-preview-s1", false},
+		{"userinfo in location", 302, "https://u@preview-auth.example.com/authorize?client_id=maul-preview-s1", false},
 		{"unparseable", 302, "%zz", false},
 	}
 	for _, tt := range tests {

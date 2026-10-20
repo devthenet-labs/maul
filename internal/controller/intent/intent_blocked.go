@@ -14,8 +14,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/ghclient"
 )
 
 // blockingConditions are the conditions that hold an Intent Blocked.
@@ -28,21 +28,21 @@ var blockingConditions = []string{
 
 // BranchConflict reasons.
 const (
-	// ReasonBranchExists: patchy-intent/<intent> exists at a commit none of
+	// ReasonBranchExists: maul-intent/<intent> exists at a commit none of
 	// the Intent's runs pushed.
 	ReasonBranchExists = "BranchExists"
-	// ReasonForeignPullRequest: an open pull request patchy did not open
-	// holds patchy-intent/<intent> against the default branch.
+	// ReasonForeignPullRequest: an open pull request maul did not open
+	// holds maul-intent/<intent> against the default branch.
 	ReasonForeignPullRequest = "ForeignPullRequest"
-	// ReasonBranchMissing: the pushed branch vanished before patchy opened its PR.
+	// ReasonBranchMissing: the pushed branch vanished before maul opened its PR.
 	ReasonBranchMissing = "BranchMissing"
 	// ReasonBranchChanged: the branch no longer points at the build's commit.
 	ReasonBranchChanged = "BranchChanged"
-	// ReasonPullRequestRefused: GitHub refused to create patchy's PR.
+	// ReasonPullRequestRefused: GitHub refused to create maul's PR.
 	ReasonPullRequestRefused = "PullRequestRefused"
-	// ReasonStaleRoundBranch: patchy-intent/<intent> is at a commit an
+	// ReasonStaleRoundBranch: maul-intent/<intent> is at a commit an
 	// earlier round of this same Intent pushed (a sibling a failed round
-	// left behind, say): patchy's own, so safe to delete, but never this
+	// left behind, say): maul's own, so safe to delete, but never this
 	// round's to build on.
 	ReasonStaleRoundBranch = "StaleRoundBranch"
 )
@@ -64,7 +64,7 @@ func (p *pass) blockKeyChanged(ctx context.Context, err error) error {
 	p.r.log().LogAttrs(ctx, slog.LevelWarn, "a run's name is another repository's run; the intent is held",
 		slog.String("intent", p.in.Name), slog.Any("error", err))
 	return p.block(ctx, v1alpha1.ConditionUnsupportedRepositories, ReasonRepositoryKeyChanged,
-		fmt.Sprintf("%v. patchy never takes one repository's run for another's, so that build cannot be created. "+
+		fmt.Sprintf("%v. maul never takes one repository's run for another's, so that build cannot be created. "+
 			"Restore the Project's repository keys, or give the repository a key none of this intent's runs use, "+
 			"to resume", err))
 }
@@ -293,7 +293,7 @@ func (p *pass) resumeBuilds(ctx context.Context) (*v1alpha1.IntentRun, error) {
 // blockHolds reports whether any block still holds: the spend still at the
 // ceiling; a run still waiting on a resource class intent-controller does
 // not define, or an unschedulable pod's block made under the Project's
-// current generation; the intent branch still not patchy's to use; a repository-image
+// current generation; the intent branch still not maul's to use; a repository-image
 // block still in force (the Project still requires the image, and repository
 // images are still off or the breaker still tripped, or else neither the
 // Project nor the default branch changed since the block).
@@ -497,7 +497,7 @@ func (p *pass) imageBlockHolds(ctx context.Context) (bool, error) {
 	return p.headUnmoved(ctx)
 }
 
-// branchConflict is the commit patchy-intent/<intent> points at in repoURL
+// branchConflict is the commit maul-intent/<intent> points at in repoURL
 // when the build round round did not push it there, or "": the branch is
 // absent, or it is that round's own in repoURL. Nothing deletes an intent's
 // branch when it ends, and an Intent's name is reused once the TTL deletes it
@@ -507,7 +507,7 @@ func (p *pass) imageBlockHolds(ctx context.Context) (bool, error) {
 // never forced. Only the round's own builds in repoURL make the branch its
 // own: a commit an earlier round of this Intent pushed (a sibling a failed
 // round left behind, revived since) is stale, the run that pushed it
-// returned so a block can say the branch is patchy's and safe to delete.
+// returned so a block can say the branch is maul's and safe to delete.
 func (p *pass) branchConflict(ctx context.Context, repoURL string, round int32) (string, *v1alpha1.IntentRun,
 	error) {
 	branch := branchName(p.in.Name)

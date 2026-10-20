@@ -6,22 +6,22 @@
 # ServiceAccount token; the broker validates it via TokenReview and injects
 # or signs the model credential outbound (Anthropic API key, Bedrock SigV4,
 # Vertex OAuth, Foundry key/Entra). The model credential therefore lives
-# HERE, in the patchy namespace, and a claude agent pod holds no credential
+# HERE, in the maul namespace, and a claude agent pod holds no credential
 # of any kind. Not a controller: no reconcilers, no leases.
 #
-# The base configures the anthropic provider (PATCHY_ANTHROPIC_API_KEY_FILE
-# in configmap.yaml + the patchy-anthropic Secret volume below). For
-# bedrock/vertex/foundry, overlay the PATCHY_* provider keys and annotate
-# patchy-egress-broker's ServiceAccount with the cloud workload identity.
+# The base configures the anthropic provider (MAUL_ANTHROPIC_API_KEY_FILE
+# in configmap.yaml + the maul-anthropic Secret volume below). For
+# bedrock/vertex/foundry, overlay the MAUL_* provider keys and annotate
+# maul-egress-broker's ServiceAccount with the cloud workload identity.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-    name: patchy-egress-broker
-    namespace: patchy
+    name: maul-egress-broker
+    namespace: maul
     labels:
         app: egress-broker
         app.kubernetes.io/name: egress-broker
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
         # Deliberately `broker`: it runs no reconcilers and serves no humans
         # — it fronts model APIs for the agent sandbox.
         app.kubernetes.io/component: broker
@@ -32,16 +32,16 @@ spec:
     selector:
         matchLabels:
             app.kubernetes.io/name: egress-broker
-            app.kubernetes.io/part-of: patchy
+            app.kubernetes.io/part-of: maul
     template:
         metadata:
             labels:
                 app: egress-broker
                 app.kubernetes.io/name: egress-broker
-                app.kubernetes.io/part-of: patchy
+                app.kubernetes.io/part-of: maul
                 app.kubernetes.io/component: broker
         spec:
-            serviceAccountName: patchy-egress-broker
+            serviceAccountName: maul-egress-broker
             securityContext:
                 runAsNonRoot: true
                 runAsUser: 65532
@@ -53,11 +53,11 @@ spec:
                 - name: broker
                   # Built from Dockerfile.controller (repo root)
                   # (TARGET=egress-broker in .goreleaser.yaml).
-                  image: ghcr.io/devthenet-labs/patchy/egress-broker:latest
+                  image: ghcr.io/devthenet-labs/maul/egress-broker:latest
                   args: ["serve"]
                   envFrom:
                       - configMapRef:
-                            name: patchy-config
+                            name: maul-config
                   ports:
                       - name: http
                         containerPort: 8080
@@ -98,7 +98,7 @@ spec:
                       - name: tmp
                         mountPath: /tmp
                       - name: anthropic
-                        mountPath: /etc/patchy/anthropic
+                        mountPath: /etc/maul/anthropic
                         readOnly: true
             volumes:
                 - name: tmp
@@ -110,5 +110,5 @@ spec:
                 # route whose key is actually missing.
                 - name: anthropic
                   secret:
-                      secretName: patchy-anthropic
+                      secretName: maul-anthropic
                       optional: true

@@ -16,8 +16,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/pkg/evaluation"
+	"github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/pkg/evaluation"
 )
 
 func runningEval(name string) *v1alpha1.Evaluation {
@@ -104,7 +104,7 @@ func TestSSELiveUpdateThenEnd(t *testing.T) {
 	// The unit settles and the evaluation completes; a broker wake re-reads.
 	ctx := t.Context()
 	var u v1alpha1.EvaluationUnit
-	if err := c.Get(ctx, types.NamespacedName{Namespace: "patchy", Name: "eval-live-u000"}, &u); err != nil {
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "maul", Name: "eval-live-u000"}, &u); err != nil {
 		t.Fatalf("get unit: %v", err)
 	}
 	u.Status.Phase = v1alpha1.RunComplete
@@ -113,7 +113,7 @@ func TestSSELiveUpdateThenEnd(t *testing.T) {
 		t.Fatalf("update unit: %v", err)
 	}
 	var e v1alpha1.Evaluation
-	if err := c.Get(ctx, types.NamespacedName{Namespace: "patchy", Name: "eval-live"}, &e); err != nil {
+	if err := c.Get(ctx, types.NamespacedName{Namespace: "maul", Name: "eval-live"}, &e); err != nil {
 		t.Fatalf("get eval: %v", err)
 	}
 	e.Status.Phase = v1alpha1.EvaluationComplete
@@ -162,7 +162,7 @@ func TestSSEDeletedMidWatch(t *testing.T) {
 	}
 
 	// Cancelled (deleted) mid-watch: the monitor reports and finishes.
-	e := &v1alpha1.Evaluation{ObjectMeta: metav1.ObjectMeta{Namespace: "patchy", Name: "eval-gone"}}
+	e := &v1alpha1.Evaluation{ObjectMeta: metav1.ObjectMeta{Namespace: "maul", Name: "eval-gone"}}
 	if err := c.Delete(t.Context(), e); err != nil {
 		t.Fatalf("delete eval: %v", err)
 	}

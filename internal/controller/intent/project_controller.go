@@ -24,11 +24,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/forge"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/intentperm"
-	"github.com/bitwise-media-group/patchy/internal/resourceclass"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/forge"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/intentperm"
+	"github.com/devthenet-labs/maul/internal/resourceclass"
 )
 
 // Project Ready reasons this controller sets beside the API's own.
@@ -64,7 +64,7 @@ const (
 // change to the Project or to any Forge re-checks it on the next pass.
 const revalidateEvery = 10 * time.Minute
 
-// Label colors for the labels patchy creates; a human may restyle them.
+// Label colors for the labels maul creates; a human may restyle them.
 const (
 	triggerLabelColor = "5319e7"
 	approveLabelColor = "0e8a16"
@@ -312,8 +312,8 @@ func (r *ProjectReconciler) validate(ctx context.Context, p *v1alpha1.Project) (
 		return notReady(reason, "%s", msg)
 	}
 	for _, l := range []struct{ name, color, description string }{
-		{trigger, triggerLabelColor, "patchy: plan and build this issue in project " + p.Name},
-		{approveLabel(p), approveLabelColor, "patchy: approve the posted plan"},
+		{trigger, triggerLabelColor, "maul: plan and build this issue in project " + p.Name},
+		{approveLabel(p), approveLabelColor, "maul: approve the posted plan"},
 	} {
 		if err := r.GitHub.EnsureLabel(ctx, p.Spec.IntentRepository, l.name, l.color, l.description); err != nil {
 			if secretUnreadable(err) {

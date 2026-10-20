@@ -7,7 +7,7 @@
 // own priority level remains a display field.
 package priority
 
-import v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+import v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 
 // Weights distribute the score across the assessed dimensions; they should
 // sum to 1 (Score normalizes regardless).

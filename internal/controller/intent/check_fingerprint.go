@@ -9,7 +9,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/ghclient"
 )
 
 // A check-fix round stops the Intent (ChecksFailing, RepeatedFailure) when a
@@ -35,7 +35,7 @@ import (
 
 // fingerprintVersion heads every fingerprint, so a stable form changed later
 // never compares equal to one taken under an earlier rule.
-const fingerprintVersion = "patchy-check-fingerprint/4"
+const fingerprintVersion = "maul-check-fingerprint/4"
 
 // fingerprintLogLines bounds how many lines of a failing step's log the
 // fingerprint keeps: its last ones, which say why it failed. Fewer than a 32

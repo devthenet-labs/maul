@@ -17,14 +17,14 @@ import (
 	"testing"
 )
 
-// The chart's tunnel guards (patchy.egressTunnelGuard) refuse a profile host
+// The chart's tunnel guards (maul.egressTunnelGuard) refuse a profile host
 // the binaries would refuse, so a render that passes is a profile set the
 // proxy and both job controllers start with. These tests hold the chart's
-// copies of the tunnel tables, and its patchy.egressDeniedTunnelHost, to
+// copies of the tunnel tables, and its maul.egressDeniedTunnelHost, to
 // this package's.
 
 // TestChartTunnelDenyMatchesNetprofile: the tunnel tables the chart spells
-// out are this package's, list for list, and patchy.egressDeniedTunnelHost
+// out are this package's, list for list, and maul.egressDeniedTunnelHost
 // reaches DeniedTunnelHost's verdict over a seeded corpus of hosts built
 // from the tables' own labels, the deny table's and the forge hosts, plus
 // IP forms (run through helm on a scratch chart holding the real
@@ -34,25 +34,25 @@ func TestChartTunnelDenyMatchesNetprofile(t *testing.T) {
 		helper string
 		want   []string
 	}{
-		{"patchy.egressTunnelForgeHosts", TunnelForgeHosts},
-		{"patchy.egressTunnelModelHosts", TunnelModelAPIHosts},
-		{"patchy.egressControlPlaneHosts", ControlPlaneHosts},
-		{"patchy.egressSpecialUseSuffixes", SpecialUseSuffixes},
-		{"patchy.egressPublishHosts", PublishHosts},
-		{"patchy.egressGoRouteHosts", GoRouteHosts},
-		{"patchy.egressTunnelClients", Clients},
+		{"maul.egressTunnelForgeHosts", TunnelForgeHosts},
+		{"maul.egressTunnelModelHosts", TunnelModelAPIHosts},
+		{"maul.egressControlPlaneHosts", ControlPlaneHosts},
+		{"maul.egressSpecialUseSuffixes", SpecialUseSuffixes},
+		{"maul.egressPublishHosts", PublishHosts},
+		{"maul.egressGoRouteHosts", GoRouteHosts},
+		{"maul.egressTunnelClients", Clients},
 	} {
 		if got := strings.Fields(chartHelper(t, c.helper)); !reflect.DeepEqual(got, c.want) {
 			t.Errorf("%s = %v, want %v", c.helper, got, c.want)
 		}
 	}
 	// The client-to-grant pairs guard 24 refuses are ClientEcosystem's.
-	guard := chartHelper(t, "patchy.egressTunnelGuard")
+	guard := chartHelper(t, "maul.egressTunnelGuard")
 	for _, c := range Clients {
 		eco, ok := ClientEcosystem(c)
 		pair := fmt.Sprintf("%q %q", c, eco)
 		if got := strings.Contains(guard, pair); got != ok {
-			t.Errorf("patchy.egressTunnelGuard pairs client %s with grant ecosystem %s: %v, want %v", c, eco, got, ok)
+			t.Errorf("maul.egressTunnelGuard pairs client %s with grant ecosystem %s: %v, want %v", c, eco, got, ok)
 		}
 	}
 
@@ -78,12 +78,12 @@ func TestChartTunnelDenyMatchesNetprofile(t *testing.T) {
 }
 
 // TestChartTunnelGuardMatchesValidator: the host grammar and the numeric
-// limits patchy.egressTunnelGuard applies (guards 21 and 25, which still
+// limits maul.egressTunnelGuard applies (guards 21 and 25, which still
 // judge a render that skips the schema) are this package's, and the guard
 // reads them from those helpers rather than spelling out its own copies.
 func TestChartTunnelGuardMatchesValidator(t *testing.T) {
-	if got := chartHelper(t, "patchy.egressTunnelHostPattern"); got != TunnelHostPattern {
-		t.Errorf("patchy.egressTunnelHostPattern = %q, want TunnelHostPattern %q", got, TunnelHostPattern)
+	if got := chartHelper(t, "maul.egressTunnelHostPattern"); got != TunnelHostPattern {
+		t.Errorf("maul.egressTunnelHostPattern = %q, want TunnelHostPattern %q", got, TunnelHostPattern)
 	}
 	var limits struct {
 		MaxHosts       int64 `json:"maxHosts"`
@@ -91,10 +91,10 @@ func TestChartTunnelGuardMatchesValidator(t *testing.T) {
 		MinUploadBytes int64 `json:"minUploadBytes"`
 		MaxUploadBytes int64 `json:"maxUploadBytes"`
 	}
-	dec := json.NewDecoder(strings.NewReader(chartHelper(t, "patchy.egressTunnelLimits")))
+	dec := json.NewDecoder(strings.NewReader(chartHelper(t, "maul.egressTunnelLimits")))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&limits); err != nil {
-		t.Fatalf("patchy.egressTunnelLimits: %v", err)
+		t.Fatalf("maul.egressTunnelLimits: %v", err)
 	}
 	for _, c := range []struct {
 		name      string
@@ -106,13 +106,13 @@ func TestChartTunnelGuardMatchesValidator(t *testing.T) {
 		{"maxUploadBytes", limits.MaxUploadBytes, MaxUploadBytes},
 	} {
 		if c.got != c.want {
-			t.Errorf("patchy.egressTunnelLimits %s = %d, want %d", c.name, c.got, c.want)
+			t.Errorf("maul.egressTunnelLimits %s = %d, want %d", c.name, c.got, c.want)
 		}
 	}
-	guard := chartHelper(t, "patchy.egressTunnelGuard")
-	for _, use := range []string{`include "patchy.egressTunnelHostPattern"`, `include "patchy.egressTunnelLimits"`} {
+	guard := chartHelper(t, "maul.egressTunnelGuard")
+	for _, use := range []string{`include "maul.egressTunnelHostPattern"`, `include "maul.egressTunnelLimits"`} {
 		if !strings.Contains(guard, use) {
-			t.Errorf("patchy.egressTunnelGuard does not %s", use)
+			t.Errorf("maul.egressTunnelGuard does not %s", use)
 		}
 	}
 	// No private copy of a limit or of the grammar beside the helpers.
@@ -123,7 +123,7 @@ func TestChartTunnelGuardMatchesValidator(t *testing.T) {
 		regexp.QuoteMeta("[a-z0-9-]{0,61}"),
 	} {
 		if regexp.MustCompile(lit).MatchString(guard) {
-			t.Errorf("patchy.egressTunnelGuard spells out %s itself; read it from the limits helpers", lit)
+			t.Errorf("maul.egressTunnelGuard spells out %s itself; read it from the limits helpers", lit)
 		}
 	}
 }
@@ -181,7 +181,7 @@ func tunnelDenyCorpus() []string {
 	return out
 }
 
-// chartTunnelVerdicts runs each host through patchy.egressDeniedTunnelHost
+// chartTunnelVerdicts runs each host through maul.egressDeniedTunnelHost
 // on a scratch chart holding the real _helpers.tpl, with denyCorpusExtra as
 // the further denied hosts, rendered by helm once.
 func chartTunnelVerdicts(t *testing.T, hosts []string) []string {
@@ -198,7 +198,7 @@ metadata:
 data:
     result: |
         {{- range $i, $h := .Values.hosts }}
-        {{ $i }}|{{ include "patchy.egressDeniedTunnelHost" (dict "host" $h "extra" $.Values.extra) }}
+        {{ $i }}|{{ include "maul.egressDeniedTunnelHost" (dict "host" $h "extra" $.Values.extra) }}
         {{- end }}
 `
 	values, err := json.Marshal(map[string]any{"hosts": hosts, "extra": denyCorpusExtra})

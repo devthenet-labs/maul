@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/bitwise-media-group/patchy/internal/action"
-	"github.com/bitwise-media-group/patchy/internal/command"
+	"github.com/devthenet-labs/maul/internal/action"
+	"github.com/devthenet-labs/maul/internal/command"
 )
 
-// CommandDoneNotice answers a command on the intent issue that patchy
+// CommandDoneNotice answers a command on the intent issue that maul
 // applied: the one reply a command gets with its outcome.
 type CommandDoneNotice struct {
 	// Namespace, Intent and Key make the notice's marker (NoticeMarker).
@@ -31,11 +31,11 @@ func RenderCommandDoneNotice(n CommandDoneNotice) (string, error) {
 	var outcome string
 	switch n.Verb {
 	case action.VerbApprove:
-		outcome = fmt.Sprintf("patchy builds plan r%d exactly as it was posted.", n.PlanRevision)
+		outcome = fmt.Sprintf("maul builds plan r%d exactly as it was posted.", n.PlanRevision)
 	case action.VerbReplan:
-		outcome = "patchy is writing a new plan, which it will post here for approval."
+		outcome = "maul is writing a new plan, which it will post here for approval."
 	case action.VerbCancel:
-		outcome = "patchy has stopped work on this intent and closed the issue. Pull requests it opened are left to you."
+		outcome = "maul has stopped work on this intent and closed the issue. Pull requests it opened are left to you."
 	default:
 		return "", fmt.Errorf("render command done: no outcome for verb %q", n.Verb)
 	}
@@ -119,7 +119,7 @@ type CredentialApprovalNotice struct {
 	// command's verb otherwise.
 	Label string
 	Verb  string
-	// LabelRemoved says patchy removed the label.
+	// LabelRemoved says maul removed the label.
 	LabelRemoved bool
 	// AccountURL is the Account page; empty names it unlinked. Only a URL
 	// that cannot reshape the Markdown link is linked (holdURLRE).
@@ -127,7 +127,7 @@ type CredentialApprovalNotice struct {
 	// Provider names the provider whose credential the build needs
 	// ("Anthropic", "OpenAI"; empty is Anthropic), and Kinds what may be
 	// stored for it ("an API key or a setup-token"; empty is that). Both
-	// patchy's own (credgate.ProviderName, credgate.CredentialKinds).
+	// maul's own (credgate.ProviderName, credgate.CredentialKinds).
 	Provider, Kinds string
 }
 
@@ -214,14 +214,14 @@ func RenderEstimateNotice(n EstimateNotice) (string, error) {
 	})
 }
 
-// IntentSummaryComment is the comment patchy posts on the intent issue when
+// IntentSummaryComment is the comment maul posts on the intent issue when
 // every pull request has merged, before it closes the issue as completed.
 type IntentSummaryComment struct {
 	// Namespace and Intent name the Intent, for the marker (NoticeMarker,
 	// keyed "summary").
 	Namespace string
 	Intent    string
-	// PullRequests are the pull requests patchy opened, all merged.
+	// PullRequests are the pull requests maul opened, all merged.
 	PullRequests []IntentPullRequest
 	// Revisions counts the revision rounds review feedback started, as the
 	// Project's maxRevisions counts them: a round that failed included.
@@ -273,7 +273,7 @@ func RenderIntentSummaryComment(c IntentSummaryComment) (string, error) {
 	})
 }
 
-// linkedPRs renders pull requests patchy opened as the links a comment
+// linkedPRs renders pull requests maul opened as the links a comment
 // lists them by: "owner/name#number", to the pull request's URL.
 func linkedPRs(prs []IntentPullRequest) []statusPR {
 	out := make([]statusPR, len(prs))
@@ -287,16 +287,16 @@ func linkedPRs(prs []IntentPullRequest) []statusPR {
 	return out
 }
 
-// PartialKey is the notice key of the comment patchy posts on the intent
+// PartialKey is the notice key of the comment maul posts on the intent
 // issue when the intent ends with some of its pull requests merged and the
 // others closed unmerged.
 const PartialKey = "partial"
 
-// IntentPartialNotice is the comment patchy posts on the intent issue when
+// IntentPartialNotice is the comment maul posts on the intent issue when
 // every pull request it opened has settled and at least one closed without
 // merging while another merged, before it closes the issue as not planned:
 // what merged (already on its repository's default branch) and what did
-// not. patchy reverts nothing, and never closes a pull request because
+// not. maul reverts nothing, and never closes a pull request because
 // another one closed.
 type IntentPartialNotice struct {
 	// Namespace and Intent name the Intent, for the marker (NoticeMarker,
@@ -334,15 +334,15 @@ func RenderIntentPartialNotice(n IntentPartialNotice) (string, error) {
 	})
 }
 
-// UntrackedKey is the notice key of the comment patchy posts on each pull
+// UntrackedKey is the notice key of the comment maul posts on each pull
 // request a multi-repository intent left open when it ended before every
 // one of its pull requests was opened.
 const UntrackedKey = "untracked"
 
-// IntentUntrackedNotice is the comment patchy posts, once, on each pull
+// IntentUntrackedNotice is the comment maul posts, once, on each pull
 // request it opened for an intent that then ended (closed, or failed) while
 // the others were still to be opened: the pull request is not part of a
-// completed change, and patchy no longer tracks it. patchy closes no pull
+// completed change, and maul no longer tracks it. maul closes no pull
 // request itself.
 type IntentUntrackedNotice struct {
 	// Namespace and Intent name the Intent, for the marker (NoticeMarker,
@@ -352,7 +352,7 @@ type IntentUntrackedNotice struct {
 	// Failed is true for an intent that failed, false for one closed (a
 	// cancel, or the issue closed).
 	Failed bool
-	// Opened are the pull requests patchy opened for the intent, in plan
+	// Opened are the pull requests maul opened for the intent, in plan
 	// order; NeverOpened the repositories ("owner/name") of the approved plan
 	// that have none.
 	Opened      []IntentPullRequest
@@ -383,7 +383,7 @@ func RenderIntentUntrackedNotice(n IntentUntrackedNotice) (string, error) {
 // of them, so a repeated pass finds the one it posted.
 const SiblingsKey = "siblings"
 
-// IntentSiblingsComment is the comment patchy posts on each pull request of
+// IntentSiblingsComment is the comment maul posts on each pull request of
 // an intent that opened more than one, listing the others by URL. It is the
 // only cross-link: no pull request body is ever edited, and the body
 // references nothing but the intent issue.

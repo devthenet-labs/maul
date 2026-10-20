@@ -3,7 +3,7 @@ the bytes the approval's digest binds and the build agent reads — shown
 verbatim in a code block whose fence no line of it can close, and last, so
 nothing follows it. Of the agent's text, only the summary and the new
 dependencies are rendered outside the block, sanitised; the rest outside it
-is patchy's, including the notes on what the block cannot show at a glance.
+is maul's, including the notes on what the block cannot show at a glance.
 One line per paragraph: GitHub renders a line break inside an issue comment
 as a hard break. */ -}}
 {{ .Marker }}
@@ -14,7 +14,7 @@ as a hard break. */ -}}
 {{- end }}
 {{- with .Repositories }}
 
-**Repositories:** patchy opens one pull request in each of: {{ . }}.
+**Repositories:** maul opens one pull request in each of: {{ . }}.
 {{- end }}
 {{- if or .Invisible .Wide .BlankRun .NewDependencies .Questions .BuilderNotes }}
 
@@ -33,7 +33,7 @@ The plan has a run of {{ . }} blank lines with more of the plan below it: read t
 {{- end }}
 {{- with .NewDependencies }}
 
-{{ if $.Advice }}{{ $.Advice }}{{ else if $.RouteAdvice }}{{ $.RouteAdvice }}{{ else if and $.Repositories $.ProfileBuilds }}Each build runs in the image its own repository declares. The build of each repository listed here fetches new Go modules through patchy's egress proxy, but only tagged releases of module paths the operator allows: {{ $.ProfileBuilds }}.{{ if $.OthersOffline }} Every other build runs offline, so it cannot fetch anything new.{{ end }} This plan adds dependencies: each one a build cannot fetch that way (a module outside those paths, a branch or commit version, a dependency of any other kind) must be in the image of the repository that needs it, on that repository's default branch, before you approve, or its build will fail.{{ else if $.Repositories }}Each build runs offline, in the image its own repository declares, so it cannot fetch anything new. This plan adds dependencies: add each one to the image of the repository that needs it, on that repository's default branch, before you approve, or its build will fail.{{ else if $.Profile }}The build runs in the image this repository declares, with the operator's network profile {{ $.Profile }}: it fetches new Go modules through patchy's egress proxy, but only tagged releases of module paths the operator allows. This plan adds dependencies: each one the build cannot fetch that way (a module outside those paths, a branch or commit version, a dependency of any other kind) must be in that image on the default branch before you approve, or the build will fail.{{ else }}The build runs offline, in the image this repository declares, so it cannot fetch anything new. This plan adds dependencies: add them to that image on the default branch before you approve, or the build will fail.{{ end }}
+{{ if $.Advice }}{{ $.Advice }}{{ else if $.RouteAdvice }}{{ $.RouteAdvice }}{{ else if and $.Repositories $.ProfileBuilds }}Each build runs in the image its own repository declares. The build of each repository listed here fetches new Go modules through maul's egress proxy, but only tagged releases of module paths the operator allows: {{ $.ProfileBuilds }}.{{ if $.OthersOffline }} Every other build runs offline, so it cannot fetch anything new.{{ end }} This plan adds dependencies: each one a build cannot fetch that way (a module outside those paths, a branch or commit version, a dependency of any other kind) must be in the image of the repository that needs it, on that repository's default branch, before you approve, or its build will fail.{{ else if $.Repositories }}Each build runs offline, in the image its own repository declares, so it cannot fetch anything new. This plan adds dependencies: add each one to the image of the repository that needs it, on that repository's default branch, before you approve, or its build will fail.{{ else if $.Profile }}The build runs in the image this repository declares, with the operator's network profile {{ $.Profile }}: it fetches new Go modules through maul's egress proxy, but only tagged releases of module paths the operator allows. This plan adds dependencies: each one the build cannot fetch that way (a module outside those paths, a branch or commit version, a dependency of any other kind) must be in that image on the default branch before you approve, or the build will fail.{{ else }}The build runs offline, in the image this repository declares, so it cannot fetch anything new. This plan adds dependencies: add them to that image on the default branch before you approve, or the build will fail.{{ end }}
 {{ range . }}
 - {{ . }}
 {{- end }}
@@ -50,7 +50,7 @@ The planner asks {{ . }}, under `questions` in the plan. Answer in a comment, th
 
 ### To approve
 
-Add the {{ code .ApproveLabel }} label to this issue, or comment {{ .Approve }}. patchy then builds exactly the plan below: r{{ .Revision }}, `{{ .ShortDigest }}`. If this comment or the issue description is edited after patchy posted the plan, the approval is refused and patchy asks for a new plan.
+Add the {{ code .ApproveLabel }} label to this issue, or comment {{ .Approve }}. maul then builds exactly the plan below: r{{ .Revision }}, `{{ .ShortDigest }}`. If this comment or the issue description is edited after maul posted the plan, the approval is refused and maul asks for a new plan.
 
 For a different plan, say what should change in a comment, then re-apply the {{ code .TriggerLabel }} label or comment {{ .Replan }}. {{ .Cancel }} stops work on this intent.
 

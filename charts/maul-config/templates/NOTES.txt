@@ -1,0 +1,16 @@
+maul-config {{ .Chart.Version }} — {{ len .Values.integrations }} Integration(s), {{ len .Values.forges }} Forge(s), {{ len .Values.projects }} Project(s) rendered into {{ .Release.Namespace }}.
+{{- if and (not .Values.integrations) (not .Values.forges) }}
+
+{{ if .Values.projects }}No Integration or Forge was rendered{{ else }}Nothing was rendered{{ end }}: both `integrations` and `forges` are empty. The maul
+controllers idle until at least one of each exists.
+{{- end }}
+{{- if .Values.projects }}
+
+Projects take effect only when the maul release runs intent-controller
+(intentController.enabled), and each one's repositories must resolve to
+exactly one Forge.
+{{- end }}
+
+The CRs reference Secrets you create out of band (spec.secretRef — appID +
+privateKey or token, plus webhookSecret for Integrations). Ensure this release
+shares a namespace with the maul release whose controllers reconcile them.
