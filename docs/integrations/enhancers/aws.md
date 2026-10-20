@@ -84,8 +84,8 @@ default chain, read-only (`config:SelectAggregateResourceConfig` + `config:Descr
   - [EKS Pod Identity](https://docs.aws.amazon.com/eks/latest/userguide/pod-identities.html) — install the
     `eks-pod-identity-agent` add-on and create a pod identity association for the context-controller's service account;
     no maul configuration at all. One deployment note: the SDK fetches credentials from the node-local agent at
-    `169.254.170.23:80` over HTTP, and maul's NetworkPolicy allows that egress from the controllers — if you layer
-    your own tighter policy, keep that rule.
+    `169.254.170.23:80` over HTTP, and maul's NetworkPolicy allows that egress from the controllers — if you layer your
+    own tighter policy, keep that rule.
   - [IRSA](https://docs.aws.amazon.com/eks/latest/userguide/iam-roles-for-service-accounts.html) — annotate the service
     account with the role:
 

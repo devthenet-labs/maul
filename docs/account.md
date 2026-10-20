@@ -58,8 +58,8 @@ listing models, which costs nothing, a setup-token by asking for a single output
 
 ## When a run waits for you
 
-If the operator enforces per-user credentials and a run would be yours while you have no valid credential, maul does
-not start it. It waits instead, and tells you where you work:
+If the operator enforces per-user credentials and a run would be yours while you have no valid credential, maul does not
+start it. It waits instead, and tells you where you work:
 
 - On an intent, its status comment says that you must add a credential, for which provider, and links the Account page.
 - On a Finding, its tracking issue gets a comment that names you and the provider and links the page.
@@ -72,7 +72,7 @@ remediation again, which makes the run theirs instead.
 
 - **Replace** a credential that is `Rejected`, expiring or that you are rotating: paste the new one and press
   **Replace**. Runs move to the new one within a minute at most, and it is checked as any new credential is.
-- **Delete** removes it. Within a minute at most maul stops paying with it: a run of yours already going is refused
-  from then on and is likely to fail, and a new one waits until you add another.
+- **Delete** removes it. Within a minute at most maul stops paying with it: a run of yours already going is refused from
+  then on and is likely to fail, and a new one waits until you add another.
 
 Revoking the key at Anthropic as well is up to you: maul deleting its copy does not revoke the key itself.

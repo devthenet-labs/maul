@@ -1,7 +1,7 @@
 # Webhook exposure
 
-A GitHub App has exactly **one** webhook URL, and GitHub POSTs every subscribed event to it. In maul that URL points
-at the **integration-controller** — the single internet-facing component and the only webhook receiver in the system:
+A GitHub App has exactly **one** webhook URL, and GitHub POSTs every subscribed event to it. In maul that URL points at
+the **integration-controller** — the single internet-facing component and the only webhook receiver in the system:
 
 ```text
 https://<webhook.host>/github/webhooks
@@ -30,8 +30,8 @@ credentials (remediation-controller's push/PR) never face the internet.
 ## Missed deliveries: the redelivery sweep
 
 GitHub does **not** retry a failed webhook delivery on its own — it records the attempt in the App's 30-day delivery log
-and moves on. A delivery maul never got a `2xx` to (receiver down, queue full, misconfigured secret) would otherwise
-sit there until someone redelivers it by hand.
+and moves on. A delivery maul never got a `2xx` to (receiver down, queue full, misconfigured secret) would otherwise sit
+there until someone redelivers it by hand.
 
 The integration-controller closes that gap when `spec.github.redelivery` is enabled on the Integration:
 
@@ -57,8 +57,8 @@ Integration; the controller performs the redelivery on its next reconcile.
 Deliveries that never happened — alerts predating the App installation — are invisible to the sweep: there is nothing in
 the delivery log to redeliver. Those are what the **manual backfill** exists for: a one-shot list-alerts walk that
 ingests the provider's open alerts directly. Trigger it from the status page's configuration view, with
-`maul backfill <integration> [--repo owner/ ...]`, or by stamping `spec.backfill` on the Integration directly (RBAC
-verb `backfill` on integrations). The walk honours an optional repository prefix filter, is bounded by a page budget
+`maul backfill <integration> [--repo owner/ ...]`, or by stamping `spec.backfill` on the Integration directly (RBAC verb
+`backfill` on integrations). The walk honours an optional repository prefix filter, is bounded by a page budget
 (`status.backfill.truncated` says when to re-run with a narrower prefix), and is idempotent — alerts that already have
 findings simply fold in. See [the GitHub source](../integrations/sources/github.md) for the full semantics.
 
@@ -122,8 +122,8 @@ Any other conformant implementation (ingress-nginx, Istio, Envoy Gateway, Cilium
 
 ## Kustomize
 
-The base ships the integration-controller Deployment and its ClusterIP Service (`maul-integration-controller:8080`)
-but deliberately no Ingress — put your environment's Ingress or Gateway in front of that Service in your own overlay.
-The dev overlay exposes it two ways at once: NodePort 30079 (where a webhook tunnel — smee.io, ngrok,
-`gh webhook forward` — or `mise run replay` should point) and a host-less, class-less Ingress for the same path that any
-default ingress controller satisfies. On [Colima](colima.md) that Ingress is live out of the box.
+The base ships the integration-controller Deployment and its ClusterIP Service (`maul-integration-controller:8080`) but
+deliberately no Ingress — put your environment's Ingress or Gateway in front of that Service in your own overlay. The
+dev overlay exposes it two ways at once: NodePort 30079 (where a webhook tunnel — smee.io, ngrok, `gh webhook forward` —
+or `mise run replay` should point) and a host-less, class-less Ingress for the same path that any default ingress
+controller satisfies. On [Colima](colima.md) that Ingress is live out of the box.

@@ -133,16 +133,15 @@ the controller's ceiling is clamped to it, so the maul chart values above must c
    `cost_micro_usd` and the pod's running `pod_cost_micro_usd`, and the `maul.broker.cost` counter sums micro-USD by
    route. Run a few intents of the size you expect, then read the largest pod totals. They tell you whether \$60 and
    \$20 fit your Projects.
-2. **Upgrade the maul chart with the values above.** Under `unit: cost` the chart requires `costPerPod`, renders a
-   Role that lets the broker `get` pods in the agent namespace (for the budget annotation; no list or watch), gives
+2. **Upgrade the maul chart with the values above.** Under `unit: cost` the chart requires `costPerPod`, renders a Role
+   that lets the broker `get` pods in the agent namespace (for the budget annotation; no list or watch), gives
    intent-controller the unit and the hourly limit, and renders the admission policies that let only intent-controller
    set a run's budget. It refuses `costPerPod` or `costPerHour` under `unit: tokens`.
 3. **Upgrade maul-config with each large Project's limits.** Projects that set no stage budget get the per-intent
    ceiling (`limits.maxCostMicroUSD`, \$10 by default) as every run's budget.
 4. **Check it took.** `kubectl get project <name>` shows the Project Ready, and not `RunBudgetOverHourlyLimit`. A new
-   run's IntentRun records `spec.grant.budgetMicroUSD`, its Job and pod carry the
-   `maul.run/budget-micro-usd` annotation, and the broker's audit line for that pod shows
-   `pod_cost_limit_micro_usd` at the run's budget.
+   run's IntentRun records `spec.grant.budgetMicroUSD`, its Job and pod carry the `maul.run/budget-micro-usd`
+   annotation, and the broker's audit line for that pod shows `pod_cost_limit_micro_usd` at the run's budget.
 
 A run that reaches its budget settles as `budget_exceeded`, and its detail names the limit:
 `cost per pod (60000000 micro-USD)`. A run granted before the switch recorded no budget; it launches with its Project's

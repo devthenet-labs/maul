@@ -55,8 +55,8 @@ contextController:
       iam.gke.io/gcp-service-account: maul-assets@x-maul-app.iam.gserviceaccount.com
 ```
 
-(Earlier releases configured this through `MAUL_GCP_*` environment variables on the context-controller; those flags
-are gone, and the Integration block above is the only configuration surface.)
+(Earlier releases configured this through `MAUL_GCP_*` environment variables on the context-controller; those flags are
+gone, and the Integration block above is the only configuration surface.)
 
 A resource without ownership labels is a clean answer, not a failure — see
 [when no repository resolves](index.md#when-no-repository-resolves) for what happens next, on this cloud and every

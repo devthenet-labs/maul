@@ -51,19 +51,18 @@ tokens are not.
    and `broadEgress: never`. It needs no hosts, DNS patterns or FQDN policies of its own.
 
 The chart refuses the render when a codex runner is enabled without `egressBroker.openai.apiKey`. With kustomize, mount
-the Secret into `maul-egress-broker` at `/etc/maul/openai`, set
-`MAUL_OPENAI_API_KEY_FILE: /etc/maul/openai/api-key`, and add `codex` to `MAUL_HARNESSES`
-(`deploy/kustomize/base/secrets.example.yaml`, 2b, and `configmap.yaml`).
+the Secret into `maul-egress-broker` at `/etc/maul/openai`, set `MAUL_OPENAI_API_KEY_FILE: /etc/maul/openai/api-key`,
+and add `codex` to `MAUL_HARNESSES` (`deploy/kustomize/base/secrets.example.yaml`, 2b, and `configmap.yaml`).
 
 To turn codex off again, set `enabled: false`. The openai route can stay; with no codex runner nothing uses it.
 
 ## Migrating from the in-pod key
 
-Codex used to run with the org OpenAI key inside the agent pod: a `maul-openai` Secret in the **agent** namespace,
-named by `agent.runners.codex.secret`, `secretKey` and `secretEnv` (controller flags `--codex-secret`,
-`--codex-secret-key`, `--codex-secret-env`), plus `hosts` and `dnsPatterns` for its egress. The agent, and anything the
-agent ran, could read that key. That path is removed. There is no silent translation, because the Secret changes
-namespace and the old one was readable by agent pods.
+Codex used to run with the org OpenAI key inside the agent pod: a `maul-openai` Secret in the **agent** namespace, named
+by `agent.runners.codex.secret`, `secretKey` and `secretEnv` (controller flags `--codex-secret`, `--codex-secret-key`,
+`--codex-secret-env`), plus `hosts` and `dnsPatterns` for its egress. The agent, and anything the agent ran, could read
+that key. That path is removed. There is no silent translation, because the Secret changes namespace and the old one was
+readable by agent pods.
 
 While codex is enabled on any fleet, setting any of the old keys fails the render, naming these steps (a leftover flag
 fails the controller's startup the same way):

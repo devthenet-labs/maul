@@ -17,12 +17,12 @@ both external dependencies:
   CRs at its Service DNS name and adds the one egress NetworkPolicy rule k3s needs; a NodePort (30990) exposes the same
   API to your host for inspection.
 - **The model** becomes a scripted agent image (`hack/fake-agent`): a shell script named `agent-runner` that prints the
-  same two stdout streams the real runner does — a paced `MAUL-TURN` conversation followed by the stage's
-  `MAUL-EVENT` result. The Jobs are real — init container, artifact fetch, digest check — only the verdict is scripted
-  (remediate at 0.92 confidence, so findings flow straight through the queue). Because the turns are real turns, each
-  run's conversation is captured into its transcript `ConfigMap` and streams live onto the status page while the Job is
-  still running, and both stages carry a full report. It answers intent Jobs too: a plan names exactly the repositories
-  the request lists, and a build, handed the approved plan alone as agent-runner requires, commits a `VERSION` file. The
+  same two stdout streams the real runner does — a paced `MAUL-TURN` conversation followed by the stage's `MAUL-EVENT`
+  result. The Jobs are real — init container, artifact fetch, digest check — only the verdict is scripted (remediate at
+  0.92 confidence, so findings flow straight through the queue). Because the turns are real turns, each run's
+  conversation is captured into its transcript `ConfigMap` and streams live onto the status page while the Job is still
+  running, and both stages carry a full report. It answers intent Jobs too: a plan names exactly the repositories the
+  request lists, and a build, handed the approved plan alone as agent-runner requires, commits a `VERSION` file. The
   overlay does not deploy the [intent-controller](../configuration/intent-controller.md), though: the e2e suite is what
   runs these phases today.
 
@@ -72,10 +72,9 @@ kubectl -n maul get cm -l maul.run/finding="$name"    # one transcript per run
 
 The Finding goes `Remediated`, `kubectl get findingrollups -n maul -o yaml` shows the counts and (scripted) token/cost
 totals ticking, and after the dev TTL (30 minutes) the Finding and its children are deleted while the rollups remain.
-The fake's state is in-memory — `kubectl -n maul rollout restart deployment maul-fakegithub` for a clean slate
-(every `dev-colima` re-run restarts it too; live Findings notice their tracking issue vanished and re-project a fresh
-one) — and other routes (`ignore`, `manual`, an `await_approval` hold) are one edit away in
-`hack/fake-agent/agent-runner`.
+The fake's state is in-memory — `kubectl -n maul rollout restart deployment maul-fakegithub` for a clean slate (every
+`dev-colima` re-run restarts it too; live Findings notice their tracking issue vanished and re-project a fresh one) —
+and other routes (`ignore`, `manual`, an `await_approval` hold) are one edit away in `hack/fake-agent/agent-runner`.
 
 ## The demo loop: replay and reset
 

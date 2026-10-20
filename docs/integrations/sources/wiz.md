@@ -172,8 +172,8 @@ tests.
   into one `Finding`; a Defend threat naming several resources becomes one Finding per resource, each accumulating where
   it belongs. A threat naming no resources falls back to one Finding per cloud account.
 - **Skipped deliveries.** Trigger types other than Created/Updated/Reopened (notably `Resolved`), statuses other than
-  OPEN/IN_PROGRESS, and severities below `minSeverity`. An inbound `Resolved` does **not** yet resolve the maul
-  Finding — future work, alongside [SCC's mute](google-scc.md#what-is-not-implemented).
+  OPEN/IN_PROGRESS, and severities below `minSeverity`. An inbound `Resolved` does **not** yet resolve the maul Finding
+  — future work, alongside [SCC's mute](google-scc.md#what-is-not-implemented).
 
 Defend findings track like any other, but a runtime detection is rarely something a coding agent can remediate with a
 pull request: expect them to route to humans (the investigation gate hands off findings with no repository, and a

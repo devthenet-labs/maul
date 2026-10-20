@@ -138,8 +138,8 @@ becomes documentation or a fix, link the PR beside it. Newest first within each 
   the replan's two attempts both hit 40 ($1.46 and $0.96) while reading sensibly: the transport UI, the recording tests,
   the icon helper, the user guide. Each turn made one tool call, never several in parallel. The plan prompt gives the
   build's turn budget but not the planner's own until a retry, after it has already run out. On devthenet
-  `intentController.config.plan` is now 100 turns and 30m (chart-wide; there is no per-Project setting). Maul: tell
-  the planner its limit up front, encourage parallel reads, let a Project override its plan and build limits, and make a
+  `intentController.config.plan` is now 100 turns and 30m (chart-wide; there is no per-Project setting). Maul: tell the
+  planner its limit up front, encourage parallel reads, let a Project override its plan and build limits, and make a
   mid-run dollar cap (broker limits) the real spend guard. Docs: a transcript's `turns` counts entries (each tool call
   and each result), about twice the model turns.
 - **The 0.12.18 fresh-Finding gate passed** (2026-10-06). A new weak-key alert became one Finding and one tracking
@@ -165,18 +165,18 @@ becomes documentation or a fix, link the PR beside it. Newest first within each 
   $3.65 while the broker counted
   another 2.9 million tokens for that pod (about $1.50 to
   $2.00 more; the real total is about $5.50). The ceiling is checked against the reported usage, so spend in killed runs
-  is invisible to it. Maul: record usage for every outcome (from the stream read so far, or the broker's per-pod
-  count). Fixed in [#118](https://github.com/devthenet-labs/maul/pull/118): every outcome now records the usage its
-  stream reported, input and cache tokens exactly and output tokens as a floor (claude streams each call's output count
-  before it is final), so the broker's count remains the authoritative one.
+  is invisible to it. Maul: record usage for every outcome (from the stream read so far, or the broker's per-pod count).
+  Fixed in [#118](https://github.com/devthenet-labs/maul/pull/118): every outcome now records the usage its stream
+  reported, input and cache tokens exactly and output tokens as a floor (claude streams each call's output count before
+  it is final), so the broker's count remains the authoritative one.
 - **An agent can wait on one command until the stage times out** (overdub-10 attempt 2). After ten minutes of work it
   ran `npm run test:ci` (11 browser suites, three at a time) on the 2 vCPU, 3.7 GiB node; the command never returned and
   the agent sat idle for 50 minutes until the one-hour timeout. The same subset takes under two minutes on a 2 vCPU CI
   runner with two at a time. Maul: a no-progress watchdog (no model request for N minutes ends the run with "a command
   ran N minutes") and right-sized agents (agent resource classes,
   [#122](https://github.com/devthenet-labs/maul/pull/122)). Watchdog in
-  [#119](https://github.com/devthenet-labs/maul/pull/119): 20 minutes with no model turn or tool result ends the run
-  as a timeout naming the command (`no progress for 20m while running Bash (20m without returning): npm run test:ci …`),
+  [#119](https://github.com/devthenet-labs/maul/pull/119): 20 minutes with no model turn or tool result ends the run as
+  a timeout naming the command (`no progress for 20m while running Bash (20m without returning): npm run test:ci …`),
   which counts as an attempt; per-stage `*-idle-timeout` flags and chart values, `0s` disables it.
 - **The agent handled pre-existing failures well** (overdub-10 attempt 2). It saw `shell-test.js` fail, ran it again on
   the untouched tree with `git stash` to prove the failures were there before its change, then moved on to the CI
@@ -186,9 +186,9 @@ becomes documentation or a fix, link the PR beside it. Newest first within each 
   held.
 - **A report-format slip throws away a whole build** (overdub-10, 2026-10-04). The build ran 110 turns and 31 minutes
   ($2.20) and then failed `report_invalid`: one of its report's notes was 574 characters, over the 500 the build report
-  allows. maul discarded the changeset with it and started a second attempt from scratch in a fresh pod. Maul: a
-  report problem should never cost the work. Validate the report in the pod and let the agent fix it in the same
-  session, or trim an over-long note. Docs: until then, `report_invalid` retries are full reruns and cost as much again.
+  allows. maul discarded the changeset with it and started a second attempt from scratch in a fresh pod. Maul: a report
+  problem should never cost the work. Validate the report in the pod and let the agent fix it in the same session, or
+  trim an over-long note. Docs: until then, `report_invalid` retries are full reruns and cost as much again.
 - **The egress broker's token limits were never set on devthenet** (2026-10-04). The broker counts every pod's tokens
   (`pod_tokens` in its audit line) but enforces a limit only when `egressBroker.limits` is configured, and it was not,
   although helm.md says to size it before enabling repository images. The grant's 800k token budget evidently does not
@@ -200,16 +200,16 @@ becomes documentation or a fix, link the PR beside it. Newest first within each 
   $1.51.
 - **Agent Jobs request no CPU or memory, so heavy builds starve** (overdub-10, 2026-10-04). Pods set only
   ephemeral-storage, so EKS Auto Mode placed an overdub build (Chromium + audio rendering) on a `c6a.large`: 2 vCPU,
-  ~3.7 GiB, shared. Builds are slow and risk OOM. Addressed in
-  [#122](https://github.com/devthenet-labs/maul/pull/122): the operator defines named resource classes in the maul
-  chart (`agent.resources.classes`) and a Project picks one per repository (`agentResourceClass`) for its builds, revise
-  and check-fix rounds; plans and Findings stay on `agent.resources.default` (none, as before). A pod no node fits is
-  stopped after 10 minutes without spending an attempt, an OOM kill names the class to raise, and every agent pod
-  carries `karpenter.sh/do-not-disrupt`. Docs: "Sizing agents" in docs/intents/deploying.md. Still to measure live:
-  overdub's real peak memory and the node Auto Mode picks for `large`.
+  ~3.7 GiB, shared. Builds are slow and risk OOM. Addressed in [#122](https://github.com/devthenet-labs/maul/pull/122):
+  the operator defines named resource classes in the maul chart (`agent.resources.classes`) and a Project picks one per
+  repository (`agentResourceClass`) for its builds, revise and check-fix rounds; plans and Findings stay on
+  `agent.resources.default` (none, as before). A pod no node fits is stopped after 10 minutes without spending an
+  attempt, an OOM kill names the class to raise, and every agent pod carries `karpenter.sh/do-not-disrupt`. Docs:
+  "Sizing agents" in docs/intents/deploying.md. Still to measure live: overdub's real peak memory and the node Auto Mode
+  picks for `large`.
 - **The planner can ignore the repository's own test guidance** (overdub-10). Its plan named `tools/shell-test.js` as
-  "should run cleanly in the build image", although the app's CLAUDE.md lists `shell` among the Mac-tuned suites.
-  Maul: the plan prompt should tell the planner to read the repository's test guidance and prefer its CI test command.
+  "should run cleanly in the build image", although the app's CLAUDE.md lists `shell` among the Mac-tuned suites. Maul:
+  the plan prompt should tell the planner to read the repository's test guidance and prefer its CI test command.
 - **The planner caught that the request already existed** (overdub-10). "Add a count-in toggle": the toggle was already
   on the transport; the plan said so and reduced the change to the one missing behaviour (locking during a take). Good
   behaviour to show in the docs. Issue authors should check the app before filing.

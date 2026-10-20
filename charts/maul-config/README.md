@@ -5,16 +5,16 @@ SPDX-License-Identifier: MIT
 
 # maul-config Helm chart
 
-The pipeline switch-on for a [maul](../maul) release: the `Integration` and `Forge` custom resources, rendered from
-the `integrations` / `forges` values arrays into the release namespace. The controllers idle until at least one of each
+The pipeline switch-on for a [maul](../maul) release: the `Integration` and `Forge` custom resources, rendered from the
+`integrations` / `forges` values arrays into the release namespace. The controllers idle until at least one of each
 exists — an Integration says where findings come from and where the tracking issues go; a Forge says how repositories
 are cloned and pushed.
 
 ## Why a separate chart
 
 Helm validates every manifest in a release against the API server **before** applying anything. A single chart carrying
-both the `maul.run` CRDs and custom resources of those CRDs therefore fails its first install: the CRs are
-validated before the CRDs exist. Splitting the CRs out makes the ordering explicit:
+both the `maul.run` CRDs and custom resources of those CRDs therefore fails its first install: the CRs are validated
+before the CRDs exist. Splitting the CRs out makes the ordering explicit:
 
 ```sh
 # 1. the stack: CRDs, controllers, agent sandbox
@@ -72,9 +72,9 @@ write identities across two GitHub Apps.
 The optional `projects` array renders one `Project` per project for
 [intent-driven development](../../docs/design/intent-driven-development.md): the intent repository whose
 trigger-labelled issues become Intents, the approvers whose actions count, the app repositories the work is built in,
-and the spend limits. Projects do nothing unless the maul release runs intent-controller. Every repository must
-resolve to exactly one of the Forges above, and a Project is the power to point agents at repositories — writing
-projects is admin-only.
+and the spend limits. Projects do nothing unless the maul release runs intent-controller. Every repository must resolve
+to exactly one of the Forges above, and a Project is the power to point agents at repositories — writing projects is
+admin-only.
 
 ```yaml
 projects:
@@ -95,6 +95,6 @@ a requirement.
 ## Publishing
 
 `charts/maul-config` is packaged and pushed to `oci://ghcr.io/devthenet-labs/maul/charts` by
-[`.github/workflows/helm.yaml`](../../.github/workflows/helm.yaml) alongside the maul chart when a release is
-published; release-please stamps `version`/`appVersion` in `Chart.yaml` as part of the release PR. Lint locally with
+[`.github/workflows/helm.yaml`](../../.github/workflows/helm.yaml) alongside the maul chart when a release is published;
+release-please stamps `version`/`appVersion` in `Chart.yaml` as part of the release PR. Lint locally with
 `mise run helm-lint`.

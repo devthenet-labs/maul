@@ -49,8 +49,8 @@ switches your Docker and kubeconfig contexts to `colima`. Two k3s defaults matte
 ## Build the images
 
 `make snapshot` builds per-arch, unpushed `ghcr.io/…:v<next>-snapshot-<sha>-<arch>` images. Retag the host-arch ones
-with the `maul/<name>:dev` names the dev overlay expects — and that is the whole "load" step, because the Docker
-runtime and k3s share one image store:
+with the `maul/<name>:dev` names the dev overlay expects — and that is the whole "load" step, because the Docker runtime
+and k3s share one image store:
 
 ```sh
 make snapshot
@@ -131,17 +131,16 @@ To use real GitHub App credentials instead, write `appID` + `privateKey` keys in
 
 To watch **every custom resource** progress without a GitHub token _or_ a model key, the `dev-fake` overlay replaces
 GitHub with the e2e suite's in-memory API (run in-cluster) and the model with a scripted agent —
-`MAUL_OVERLAY=dev-fake make dev-colima` builds and deploys the fakes alongside everything above. The full walkthrough
-is on [Demo tooling](dev-fake.md#credential-less-end-to-end-the-dev-fake-overlay).
+`MAUL_OVERLAY=dev-fake make dev-colima` builds and deploys the fakes alongside everything above. The full walkthrough is
+on [Demo tooling](dev-fake.md#credential-less-end-to-end-the-dev-fake-overlay).
 
 ## Ingress for the integration-controller
 
 The NodePort works, but Colima also runs the production shape: an ingress controller in front of the
-`maul-integration-controller` Service, exposing only `/github/webhooks`. With Traefik enabled at start (above), this
-is already done — the **dev overlay ships a host-less, class-less Ingress** (`overlays/dev/ingress-integration.yaml`)
-for exactly this. Class-less on purpose: a dev cluster has one ingress controller, and the cluster's default
-IngressClass is assigned on admission — k3s marks its bundled Traefik as the default, and on stock kind the object is
-simply inert.
+`maul-integration-controller` Service, exposing only `/github/webhooks`. With Traefik enabled at start (above), this is
+already done — the **dev overlay ships a host-less, class-less Ingress** (`overlays/dev/ingress-integration.yaml`) for
+exactly this. Class-less on purpose: a dev cluster has one ingress controller, and the cluster's default IngressClass is
+assigned on admission — k3s marks its bundled Traefik as the default, and on stock kind the object is simply inert.
 
 Where it answers depends on colima's network mode. servicelb gives Traefik's `LoadBalancer` Service the node's address,
 and then:

@@ -3,8 +3,8 @@
 ## Reporting a vulnerability
 
 Please report vulnerabilities privately via
-[GitHub Security Advisories](https://github.com/devthenet-labs/maul/security/advisories/new). Do not open public
-issues for security reports.
+[GitHub Security Advisories](https://github.com/devthenet-labs/maul/security/advisories/new). Do not open public issues
+for security reports.
 
 ## Threat model (summary)
 

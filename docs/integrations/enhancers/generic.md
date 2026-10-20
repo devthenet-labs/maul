@@ -1,8 +1,8 @@
 # Generic (HTTP)
 
 The `enhance` capability of a `provider: generic` Integration turns **any external HTTP process** into a
-[context enhancer](index.md): maul POSTs each opened finding's issue view to your endpoint, and the response body is
-the enrichment — exactly what an in-tree [`pkg/enhance`](../../extending.md#context-enhancers-pkgenhance) plugin would
+[context enhancer](index.md): maul POSTs each opened finding's issue view to your endpoint, and the response body is the
+enrichment — exactly what an in-tree [`pkg/enhance`](../../extending.md#context-enhancers-pkgenhance) plugin would
 contribute. It is how a real CMDB integrates without a rebuild, and it runs for findings from **every** source, not just
 your own.
 

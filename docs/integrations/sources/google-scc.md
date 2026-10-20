@@ -1,8 +1,8 @@
 # Google Cloud Security Command Center
 
-Maul ingests Security Command Center findings and triages them alongside code-scanning alerts. A cloud finding is
-about a **resource**, not a file, so the pipeline treats it differently in two places: how it accumulates (below), and
-how it [finds a repository to work in](../enhancers/google-cai.md).
+Maul ingests Security Command Center findings and triages them alongside code-scanning alerts. A cloud finding is about
+a **resource**, not a file, so the pipeline treats it differently in two places: how it accumulates (below), and how it
+[finds a repository to work in](../enhancers/google-cai.md).
 
 !!! info "One provider, two capabilities"
 
@@ -46,8 +46,8 @@ spec:
 A `google-cloud` Integration carries **no `secretRef`**: it holds no credential, and nothing in it calls a Google API.
 
 Deliveries maul declines are retried by Pub/Sub and then dead-lettered, never silently dropped. Two signals are worth
-alerting on: anything in the dead-letter topic, and the subscription's oldest unacknowledged message age — maul
-answers 503 when its delivery queue is full, which Pub/Sub correctly treats as backpressure.
+alerting on: anything in the dead-letter topic, and the subscription's oldest unacknowledged message age — maul answers
+503 when its delivery queue is full, which Pub/Sub correctly treats as backpressure.
 
 ## What maul keeps
 
@@ -71,8 +71,8 @@ no right answer.
 
 ## What is not implemented
 
-**Muting on an `ignore` verdict.** Maul dismisses a GHAS alert when it judges a finding a false positive; the
-equivalent for SCC is muting, which needs `securitycenter.findings.setMute` — a Google Cloud _write_ permission
+**Muting on an `ignore` verdict.** Maul dismisses a GHAS alert when it judges a finding a false positive; the equivalent
+for SCC is muting, which needs `securitycenter.findings.setMute` — a Google Cloud _write_ permission
 integration-controller deliberately does not hold. The write-back seam (`pkg/source.Resolver`) is in place and the
 `googleCloud.securityCommandCenter.mute` block is accepted and validated but not yet honoured, so enabling it later is
 one implementation rather than a refactor.

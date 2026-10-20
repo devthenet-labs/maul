@@ -225,9 +225,9 @@ seeded property pins them to the Ingress this controller renders.
 
 ## Without the legacy Ingress
 
-`--preview-legacy-ingress` (`MAUL_PREVIEW_LEGACY_INGRESS`, chart `preview.legacyIngress`) defaults to `true`:
-everything above, exactly as before the preview gateway. Set to `false`, for an install whose preview hosts the preview
-gateway serves:
+`--preview-legacy-ingress` (`MAUL_PREVIEW_LEGACY_INGRESS`, chart `preview.legacyIngress`) defaults to `true`: everything
+above, exactly as before the preview gateway. Set to `false`, for an install whose preview hosts the preview gateway
+serves:
 
 - No slot Ingress is rendered, and none precedes the Pods.
 - `Ready` means every component has a Ready Pod of its current spec with an image ID. There is no load balancer to wait
@@ -264,14 +264,13 @@ controller's side:
 
 An Ingress write that the API server refuses (at admission, or for want of RBAC) is not a failed deploy attempt. The
 Preview keeps its Deployments, its retries and the Ingress it has, and a `Ready` one keeps serving. The controller
-records a Warning Event `IngressRefused` on the Preview, counts `maul.preview.ingress.refused{slot}`, and tries again
-at the next poll. A Preview still deploying notes the refusal in its message, and its attempt restarts once the write is
+records a Warning Event `IngressRefused` on the Preview, counts `maul.preview.ingress.refused{slot}`, and tries again at
+the next poll. A Preview still deploying notes the refusal in its message, and its attempt restarts once the write is
 admitted.
 
 With auth required, the orphan sweep also lists every Ingress of the `alb-preview` class in each slot, labelled or not,
 and reports each one without either generation's pinned set (its `auth-session-timeout` at most the set's, as the policy
-judges it): the gauge `maul.preview.ingress.unauthenticated{slot}`, a log line, and a Warning Event on the Preview
-that owns it. It deletes such an Ingress only after it has stayed unauthenticated for three poll intervals, which gives
-the owning reconcile time to patch it first, and counts the deletion in
-`maul.preview.ingress.unauthenticated.deleted`. It never deletes the chart's placeholder Ingress. The Events use the
-`events.k8s.io` API in the release namespace.
+judges it): the gauge `maul.preview.ingress.unauthenticated{slot}`, a log line, and a Warning Event on the Preview that
+owns it. It deletes such an Ingress only after it has stayed unauthenticated for three poll intervals, which gives the
+owning reconcile time to patch it first, and counts the deletion in `maul.preview.ingress.unauthenticated.deleted`. It
+never deletes the chart's placeholder Ingress. The Events use the `events.k8s.io` API in the release namespace.

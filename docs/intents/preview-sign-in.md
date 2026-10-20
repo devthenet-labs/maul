@@ -35,11 +35,11 @@ What it guarantees:
 - Previews work with the allowlist: you have finished [Deploying intents and previews](deploying.md) through step 14,
   with `previewController.enabled`.
 - Dex runs for your installation, with its GitHub connector, as the [status page sign-in](../status-ui.md) uses it.
-- The relay's host, for example `preview-auth.maul.acme.dev`, on the edge load balancer beside the webhook: a DNS
-  record and a certificate covering it. With the [Terraform module](terraform-module.md), set
-  `preview_auth = { host = "preview-auth.maul.acme.dev" }`: it adds the host to the edge certificate and the edge
-  alias records, and `helm_values` gains `previewAuth.host` and the relay Ingress's annotations. The host must not sit
-  under the preview host suffix (the preview wildcard would send it to the preview load balancer).
+- The relay's host, for example `preview-auth.maul.acme.dev`, on the edge load balancer beside the webhook: a DNS record
+  and a certificate covering it. With the [Terraform module](terraform-module.md), set
+  `preview_auth = { host = "preview-auth.maul.acme.dev" }`: it adds the host to the edge certificate and the edge alias
+  records, and `helm_values` gains `previewAuth.host` and the relay Ingress's annotations. The host must not sit under
+  the preview host suffix (the preview wildcard would send it to the preview load balancer).
 - The edge load balancer must stay reachable from the whole internet. The preview load balancer calls the relay's
   `/token` and `/userinfo` from its own public addresses, which change; an allowlisted edge makes every sign-in fail.
 
@@ -167,28 +167,28 @@ Gate G1, from an address the allowlist admits:
 
 2. The load balancer's rules match: in `aws elbv2 describe-rules` on the preview load balancer's 443 listener, every
    rule but the default authenticates (`authenticate-oidc`, issuer `https://<relay host>`, the slot's client id
-   `maul-preview-s<slot>`), and none forwards without it. A rejected Secret or Role makes Auto Mode keep a whole
-   Ingress group on its old rules while the Kubernetes objects look right, so this step is not optional.
-3. `maul check project <project> -n maul`: `preview-auth-host` PASSes for the placeholder and every Ready preview,
-   each answering without credentials with a redirect to the relay for its own slot's client.
+   `maul-preview-s<slot>`), and none forwards without it. A rejected Secret or Role makes Auto Mode keep a whole Ingress
+   group on its old rules while the Kubernetes objects look right, so this step is not optional.
+3. `maul check project <project> -n maul`: `preview-auth-host` PASSes for the placeholder and every Ready preview, each
+   answering without credentials with a redirect to the relay for its own slot's client.
 4. In a browser, a viewer you bound signs in once and reaches the app; a second preview opens without Dex.
 5. Someone you did not bind gets the relay's 403 page.
 6. The app sees only a pairwise `sub` in `x-amzn-oidc-identity` and an opaque access token in `x-amzn-oidc-accesstoken`;
    replayed at `https://<relay host>/userinfo` it returns that `sub` only, and after the access-token lifetime (10
    minutes) a 401.
 
-With the [preview gateway](../configuration/preview-gateway.md#checking-it) on, `maul check project` judges the path
-in force instead. `preview-auth-host` expects the gateway's `302` to `https://<sign-in host>/start` on every Ready
-preview (either path's redirect while `preview.legacyIngress` is still `true`) and the gateway's `404` page on
+With the [preview gateway](../configuration/preview-gateway.md#checking-it) on, `maul check project` judges the path in
+force instead. `preview-auth-host` expects the gateway's `302` to `https://<sign-in host>/start` on every Ready preview
+(either path's redirect while `preview.legacyIngress` is still `true`) and the gateway's `404` page on
 `<project>-0.<suffix>`. `preview-gateway-allowlist` checks that a spoofed `X-Forwarded-For` cannot get past
 `previewAuth.gateway.inboundCIDRs`. Step 2's `aws elbv2` check does not apply.
 
-The relay probes every Ready preview host the same way once a minute and exports
-`maul.preview_auth.unprotected_hosts`; alert on anything above zero. While the allowlist is set, that probe reaches
-the preview load balancer only if the cluster's NAT egress addresses are in `preview.inboundCIDRs`; otherwise its hosts
-all count as unreachable (`maul.preview_auth.probe.unreachable_hosts`) and it proves nothing, so run G1 by hand.
-Behind the preview gateway the same goes for `previewAuth.gateway.inboundCIDRs`: a host the gateway refuses by its
-allowlist counts as unreachable, not unprotected.
+The relay probes every Ready preview host the same way once a minute and exports `maul.preview_auth.unprotected_hosts`;
+alert on anything above zero. While the allowlist is set, that probe reaches the preview load balancer only if the
+cluster's NAT egress addresses are in `preview.inboundCIDRs`; otherwise its hosts all count as unreachable
+(`maul.preview_auth.probe.unreachable_hosts`) and it proves nothing, so run G1 by hand. Behind the preview gateway the
+same goes for `previewAuth.gateway.inboundCIDRs`: a host the gateway refuses by its allowlist counts as unreachable, not
+unprotected.
 
 ## Rotating the keys
 
@@ -220,8 +220,8 @@ sign-in. So undo it in this order, and only while `preview.inboundCIDRs` is stil
    `kubectl delete validatingadmissionpolicybinding maul-preview-all-slots-ingress-auth`. From here, previews are
    guarded by the allowlist alone.
 3. `helm rollback maul <revision>` (or upgrade with `previewAuth.stage=permit`, or with `previewAuth.enabled=false`),
-   then check preview-controller is scaled back up (`kubectl -n maul get deploy/maul-preview-controller`), and scale
-   it to 1 if not.
+   then check preview-controller is scaled back up (`kubectl -n maul get deploy/maul-preview-controller`), and scale it
+   to 1 if not.
 
 Without step 2, the render refuses an upgrade that stops requiring sign-in (the binding is live), and a `helm rollback`
 fails part-way, when the placeholder drops its annotations. Rolling back from the permit stage needs none of this: no
@@ -336,8 +336,8 @@ Behind the [preview gateway](../configuration/preview-gateway.md) instead:
   request under it.
 - Cookie names starting `__Host-maul-pv` and `__Host-maul-pa` are the gateway's: the app never sees them, and a
   `Set-Cookie` naming one is dropped.
-- `X-Maul-Viewer` carries a pairwise id, stable for one viewer on one preview and unrelated across previews. It is not
-  a user identity. Nothing else about the viewer reaches the app, and the app's `Authorization` header is untouched.
+- `X-Maul-Viewer` carries a pairwise id, stable for one viewer on one preview and unrelated across previews. It is not a
+  user identity. Nothing else about the viewer reaches the app, and the app's `Authorization` header is untouched.
 - A request from another preview is refused unless it is a top-level navigation. Every `POST`, `PUT`, `PATCH`, `DELETE`
   and WebSocket must carry the preview's own `Origin`, which a browser sends for same-origin requests anyway. Service
   workers cannot be registered.

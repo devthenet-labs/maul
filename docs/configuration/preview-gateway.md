@@ -1,9 +1,9 @@
 # Preview gateway
 
-The preview gateway puts every preview behind one maul-owned entry point that runs on any Kubernetes cluster. It is
-the [preview-auth](preview-auth.md) relay's Pods, with `--preview-auth-gateway` on. The gateway signs viewers in itself
-and proxies each `https://<label>.<host suffix>` to that Preview's slot Services. The platform's edge only has to route
-one wildcard and one sign-in host to a single Service. The edge can be an ALB, ingress-nginx, Traefik, a Gateway API
+The preview gateway puts every preview behind one maul-owned entry point that runs on any Kubernetes cluster. It is the
+[preview-auth](preview-auth.md) relay's Pods, with `--preview-auth-gateway` on. The gateway signs viewers in itself and
+proxies each `https://<label>.<host suffix>` to that Preview's slot Services. The platform's edge only has to route one
+wildcard and one sign-in host to a single Service. The edge can be an ALB, ingress-nginx, Traefik, a Gateway API
 implementation, a LoadBalancer Service or a tunnel. Nothing about previews depends on EKS Auto Mode any more.
 
 ```text
@@ -75,11 +75,11 @@ previewAuth:
 
 With it on:
 
-- The relay's Pods carry `maul.run/preview-gateway: "true"`. The slot NetworkPolicy admits Pods in the
-  release namespace with that label on port `http` only. The relay's own policy gains egress to that port. While
-  `preview.legacyIngress` is `true` the policy also admits the preview ALB's subnets (`preview.albSubnetCIDRs`), every
-  address in them, as before. Once it is `false`, nothing else reaches a slot Pod: no Ingress, no load balancer, no
-  subnet, no other namespace, even with the ALB values still set.
+- The relay's Pods carry `maul.run/preview-gateway: "true"`. The slot NetworkPolicy admits Pods in the release namespace
+  with that label on port `http` only. The relay's own policy gains egress to that port. While `preview.legacyIngress`
+  is `true` the policy also admits the preview ALB's subnets (`preview.albSubnetCIDRs`), every address in them, as
+  before. Once it is `false`, nothing else reaches a slot Pod: no Ingress, no load balancer, no subnet, no other
+  namespace, even with the ALB values still set.
 - The Service `<release>-preview-gateway` (port 80, and 443 with the gateway's own TLS) is what every exposure points
   at.
 - The relay keeps every endpoint it had, so the legacy ALB path keeps working while both run.
@@ -105,12 +105,11 @@ Rules that hold on every platform:
 - **The host suffix gets a registrable domain of its own, unless you accept sharing one.** Put `*.<hostSuffix>` on a
   different registrable domain from the sign-in host and the status page (`preview.acme-apps.dev` beside
   `maul.acme.dev`). Every preview host is same-site with every other, and only the gateway's `__Host-` cookies and its
-  origin rules keep them apart. The chart does not enforce this; `maul check previews` WARNs (its `preview-config`
-  line) when the suffix shares a registrable domain with the sign-in host, the relay's issuer or Dex. With only one
-  domain, accept the sharing explicitly: see
-  [Previews on the sign-in host's domain](#previews-on-the-sign-in-hosts-domain) for what that leaves exposed. The
-  [Public Suffix List](https://publicsuffix.org/) decides what is registrable: `acme-apps.dev` is, and so is
-  `acme.github.io`, because `github.io` is a public suffix.
+  origin rules keep them apart. The chart does not enforce this; `maul check previews` WARNs (its `preview-config` line)
+  when the suffix shares a registrable domain with the sign-in host, the relay's issuer or Dex. With only one domain,
+  accept the sharing explicitly: see [Previews on the sign-in host's domain](#previews-on-the-sign-in-hosts-domain) for
+  what that leaves exposed. The [Public Suffix List](https://publicsuffix.org/) decides what is registrable:
+  `acme-apps.dev` is, and so is `acme.github.io`, because `github.io` is a public suffix.
 - **The sign-in host sits outside the host suffix.** The chart refuses one under it.
 - **`forwardedHops` is the number of proxies that append to `X-Forwarded-For` in front of the gateway.** The rate limit
   and the inbound allowlist judge the address it names, so a value too high lets a client choose its own.
@@ -125,8 +124,8 @@ Rules that hold on every platform:
 
 One registrable domain for the previews, the sign-in host and Dex (`*.previews.acme.dev`, `preview-auth.acme.dev`,
 `dex.acme.dev`) works, but it has a cost, so it is an explicit choice.
-`maul setup previews --shared-domain acknowledged` makes it (on a terminal the command explains it and asks you to
-type the word), and the values it writes then carry:
+`maul setup previews --shared-domain acknowledged` makes it (on a terminal the command explains it and asks you to type
+the word), and the values it writes then carry:
 
 ```yaml
 previewAuth:
@@ -134,8 +133,8 @@ previewAuth:
 ```
 
 The chart records the value as an annotation on the relay's ConfigMap and acts on nothing else. It must be
-`preview.hostSuffix` or a parent of it. `maul check previews` then reports the sharing as INFO instead of WARN, but
-only while the value names the suffix's registrable domain: move the previews to another domain and the WARN returns.
+`preview.hostSuffix` or a parent of it. `maul check previews` then reports the sharing as INFO instead of WARN, but only
+while the value names the suffix's registrable domain: move the previews to another domain and the WARN returns.
 
 **What changes.** Preview code (any page a preview serves, which is pull-request code) is then same-site, though never
 same-origin, with the sign-in host, with Dex and with every other host on `acme.dev`. A site boundary would otherwise
@@ -149,10 +148,10 @@ stop two things:
 
 **What maul holds.**
 
-- Every cookie the relay and the gateway set is `__Host-` (`__Host-maul-pa`, `__Host-maul-pa-login-*`,
-  `__Host-maul-pv`, `__Host-maul-pv-state-*`): host-only, `Secure`, `Path=/`. No other host, a preview included, can
-  set, overwrite or shadow one in a browser that enforces the prefix, which every current browser does. The status
-  page's cookies are `__Host-` too.
+- Every cookie the relay and the gateway set is `__Host-` (`__Host-maul-pa`, `__Host-maul-pa-login-*`, `__Host-maul-pv`,
+  `__Host-maul-pv-state-*`): host-only, `Secure`, `Path=/`. No other host, a preview included, can set, overwrite or
+  shadow one in a browser that enforces the prefix, which every current browser does. The status page's cookies are
+  `__Host-` too.
 - The sign-in endpoints that read the relay session or set a cookie (`/authorize`, `/start`, `/dex/callback`) refuse a
   request from another site that is not a top-level navigation: `Sec-Fetch-Site` `same-site` or `cross-site` with
   anything but `Sec-Fetch-Mode: navigate` and `Sec-Fetch-Dest: document` gets a `403` page, with no code and no cookie.
@@ -565,13 +564,13 @@ previewAuth:
 
 - **DNS.** MagicDNS takes no wildcard or custom records. Create both records in public DNS, pointing at the device's
   tailnet address (`tailscale ip -4 maul-previews`): only the tailnet can reach it. On a machine on the tailnet,
-  `maul check previews` finds that address itself through the machine's own Tailscale client
-  (`tailscale status --json`, read-only; the operator keeps it in the cluster only in a Secret, which maul never
-  reads) by the Service's hostname and tags annotations, and prints the exact records to create while one is missing or
-  wrong. `publishedAddresses`, when set, is compared instead.
-- **The tailnet policy is the allowlist.** Let viewers' group reach `tag:maul-previews` on `tcp:443` alone. Grants
-  only add access, so a new tailnet's allow-all rule must go first: while it stands, every member reaches the device on
-  every port, the gateway's plain listener on 80 included. Viewers still sign in. Replacing allow-all safely keeps every
+  `maul check previews` finds that address itself through the machine's own Tailscale client (`tailscale status --json`,
+  read-only; the operator keeps it in the cluster only in a Secret, which maul never reads) by the Service's hostname
+  and tags annotations, and prints the exact records to create while one is missing or wrong. `publishedAddresses`, when
+  set, is compared instead.
+- **The tailnet policy is the allowlist.** Let viewers' group reach `tag:maul-previews` on `tcp:443` alone. Grants only
+  add access, so a new tailnet's allow-all rule must go first: while it stands, every member reaches the device on every
+  port, the gateway's plain listener on 80 included. Viewers still sign in. Replacing allow-all safely keeps every
   member on their own devices, and lets Tailscale test the result on save:
 
   ```jsonc
@@ -685,17 +684,17 @@ wildcard record can point at either one, and DNS is the rollback until the last 
    gateway's `404` page ("No live preview").
 
 2. **Flip the wildcard record** to the edge ALB. With the terraform module, the preview alias moves from the preview ALB
-   to the edge (a terraform PR). Wait out the record's TTL, then run `maul check project` again. `preview-dns` names
-   the gateway's edge, `preview-auth-host` sees the gateway's redirect to `/start` on every Ready preview and its `404`
-   on `<project>-0.<suffix>`, from an address inside `inboundCIDRs`. Run it again from outside them:
+   to the edge (a terraform PR). Wait out the record's TTL, then run `maul check project` again. `preview-dns` names the
+   gateway's edge, `preview-auth-host` sees the gateway's redirect to `/start` on every Ready preview and its `404` on
+   `<project>-0.<suffix>`, from an address inside `inboundCIDRs`. Run it again from outside them:
    `preview-gateway-allowlist` passes, and `preview-auth-host` skips every host the gateway refuses there. Sign in to a
    live preview in a browser.
 
    **Rollback:** point the record back at the preview ALB. Nothing else changed.
 
 3. **Retire the slot Ingresses.** Set `preview.legacyIngress: false` and upgrade. preview-controller deletes the slot
-   Ingresses it rendered, the relay's probe switches to gateway mode, `maul check project` judges the gateway alone,
-   and the slot NetworkPolicy stops admitting the ALB's subnets, so only the gateway reaches a slot. Keep
+   Ingresses it rendered, the relay's probe switches to gateway mode, `maul check project` judges the gateway alone, and
+   the slot NetworkPolicy stops admitting the ALB's subnets, so only the gateway reaches a slot. Keep
    `preview.placeholder` and the ALB values for now: they keep the idle preview ALB, and so a way back, until the next
    release removes them. **Rollback:** set `preview.legacyIngress: true`, wait until every Ready preview has its slot
    Ingress again (`kubectl get ingress -A -l app.kubernetes.io/managed-by=maul-preview-controller`), then point the
@@ -706,8 +705,8 @@ release notes list the kept objects to delete by hand.
 
 ## Checking it
 
-`maul check project` reads the mode in force from the relay's and preview-controller's ConfigMaps and, in gateway
-mode, checks:
+`maul check project` reads the mode in force from the relay's and preview-controller's ConfigMaps and, in gateway mode,
+checks:
 
 | Check                       | What passes                                                                                                                                                                                                                                                                                                                                                                             |
 | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -717,16 +716,16 @@ mode, checks:
 | `preview-auth-host`         | `<project>-0.<suffix>`, which no Preview owns, answers with the gateway's own `404` page. Every Ready preview answers an unauthenticated navigation with the `302` to `https://<sign-in host>/start` for its own label. A host the gateway refuses (outside `inboundCIDRs`) is a SKIP.                                                                                                  |
 | `preview-gateway-allowlist` | From an address the gateway refuses, a request whose `X-Forwarded-For` names an address inside `inboundCIDRs` is still refused. From an admitted address it is a SKIP: run it from outside.                                                                                                                                                                                             |
 
-`maul check previews -n <release namespace>` runs the same checks for the install as a whole, before any Project
-exists: it asks `maul-probe-0.<suffix>` (the relay's own probe host) and every Ready preview whatever its Project, and
-adds `preview-config` (gateway-only, the sign-in host outside the suffix, the suffix on a registrable domain of its
-own), `preview-viewers` (someone the relay can sign in is bound to the viewer role), `preview-nodes` (the preview nodes
-carry both the selector and the taint) and `preview-upstreams` (cert-manager, the Tailscale operator and cloudflared,
-where they run, are not older than the versions `setup previews` pins; older is a WARN). With `--isolation` it also runs
+`maul check previews -n <release namespace>` runs the same checks for the install as a whole, before any Project exists:
+it asks `maul-probe-0.<suffix>` (the relay's own probe host) and every Ready preview whatever its Project, and adds
+`preview-config` (gateway-only, the sign-in host outside the suffix, the suffix on a registrable domain of its own),
+`preview-viewers` (someone the relay can sign in is bound to the viewer role), `preview-nodes` (the preview nodes carry
+both the selector and the taint) and `preview-upstreams` (cert-manager, the Tailscale operator and cloudflared, where
+they run, are not older than the versions `setup previews` pins; older is a WARN). With `--isolation` it also runs
 `preview-netpol`, the isolation probe below, from the CLI. See [the CLI guide](../cli.md#checking-the-preview-install).
 
-The relay's background probe applies the same verdicts every minute (`maul.preview_auth.unprotected_hosts`). In
-gateway mode it also asks for `maul-probe-0.<suffix>`, which must be the gateway's `404`.
+The relay's background probe applies the same verdicts every minute (`maul.preview_auth.unprotected_hosts`). In gateway
+mode it also asks for `maul-probe-0.<suffix>`, which must be the gateway's `404`.
 
 ## The isolation probe
 

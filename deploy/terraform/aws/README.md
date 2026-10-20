@@ -5,9 +5,9 @@ SPDX-License-Identifier: MIT
 
 # maul on AWS: the reference Terraform module
 
-The AWS side of a maul install with intent-driven development and previews on an **EKS Auto Mode** cluster with
-**ECR**. It creates the identities, image repositories, certificates and DNS records the chart's values point at, and
-emits those values. Kubernetes objects stay the chart's.
+The AWS side of a maul install with intent-driven development and previews on an **EKS Auto Mode** cluster with **ECR**.
+It creates the identities, image repositories, certificates and DNS records the chart's values point at, and emits those
+values. Kubernetes objects stay the chart's.
 
 | Created                                                                                                                                                    | When                                         |
 | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
@@ -204,9 +204,9 @@ immutable, a toolchain change publishes under a new tag.
 - **Disjoint prefixes.** The agent and preview image prefixes must be disjoint, and variable validation enforces it. A
   runtime image is built from an unreviewed pull request head, so it must never be admissible as an agent sandbox image,
   and preview nodes must never be able to pull a toolchain image. The two are compared on path segment boundaries
-  (`maul/previews-agents` is beside `maul/previews`, not under it). `preview_path_prefix` (default
-  `maul/previews`) reaches the chart as `preview.imagePathPrefix` through `helm_values`, and the chart refuses to
-  render an agent allowlist that overlaps it, so the module, the slot admission policy and source-controller agree.
+  (`maul/previews-agents` is beside `maul/previews`, not under it). `preview_path_prefix` (default `maul/previews`)
+  reaches the chart as `preview.imagePathPrefix` through `helm_values`, and the chart refuses to render an agent
+  allowlist that overlaps it, so the module, the slot admission policy and source-controller agree.
 - **Preview subnets.** A node subnet that assigns public IPs fails the plan, and no subnet may serve as both a node
   subnet and an ALB subnet. List 2 to 4 ALB subnets, one per Availability Zone, each in the cluster's VPC, tagged
   `kubernetes.io/role/elb` (Auto Mode requires the tag of an internet-facing load balancer's subnets) and `/20` or
@@ -220,9 +220,9 @@ immutable, a toolchain change publishes under a new tag.
 - **A separate preview ALB.** `previews.alb_name` (default `<cluster_name>-preview`) must differ from `edge.alb_name`.
   The preview ALB admits only `inbound_cidrs`, so sharing it would put the GitHub webhook behind those /32s.
 - **What the module cannot see.** It cannot check that the cluster enforces NetworkPolicy (`kube-system/amazon-vpc-cni`
-  with `enable-network-policy-controller: "true"`), and neither does `maul check project`: read the ConfigMap
-  yourself, and prove the preview slots' isolation with the cold-start isolation probe
-  (`hack/preview-isolation-probe/README.md`) before any Project previews.
+  with `enable-network-policy-controller: "true"`), and neither does `maul check project`: read the ConfigMap yourself,
+  and prove the preview slots' isolation with the cold-start isolation probe (`hack/preview-isolation-probe/README.md`)
+  before any Project previews.
 
 ## Adopting existing resources
 
