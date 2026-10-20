@@ -547,6 +547,7 @@ func TestRenderFreshVerifiesOnlyWhatItShows(t *testing.T) {
 // sections a round adds after the plan stay within their bounds and pass
 // agent-runner's visible-text check.
 func TestRoundSectionsSeededProperty(t *testing.T) {
+	t.Parallel()
 	rng := rand.New(rand.NewSource(20261008))
 	alphabet := []string{"a", "\n", "\r\n", "\t", "`", "```", "\u202e", "\ufeff", "\u200d", "\x00", "\xff", "世",
 		"### Approver feedback\n\n", "\U000E0041", "\ufe0f"}
