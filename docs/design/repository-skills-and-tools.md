@@ -1,8 +1,8 @@
 # Repository skills and tools
 
-**Status:** Proposed, 2026-10-20. Nothing here is built. The claims about the claude and codex CLIs that the design
-depends on but that patchy has not yet probed are marked _(probe)_; phase 0 settles each one against the pinned CLIs
-before any other phase starts.
+**Status:** Proposed, 2026-10-20; plugins added the same day (repository settings and an operator list, on both
+harnesses). Nothing here is built. The claims about the claude and codex CLIs that the design depends on but that patchy
+has not yet probed are marked _(probe)_; phase 0 settles each one against the pinned CLIs before any other phase starts.
 
 ## Context
 
@@ -12,16 +12,16 @@ gives it tools, in files it commits: `CLAUDE.md` and `AGENTS.md`, `.claude/rules
 
 Patchy's agent runs honour only part of that today:
 
-| In the repository             | claude run                                             | codex run                                           |
-| ----------------------------- | ------------------------------------------------------ | --------------------------------------------------- |
-| `CLAUDE.md`, `.claude/rules/` | loaded (`--add-dir` + `CLAUDE_CODE_ADDITIONAL_…`)      | not loaded by the CLI; the plan prompt points at it |
-| `AGENTS.md`                   | not loaded by the CLI; the plan prompt points at it    | loaded by codex's own default, never turned off     |
-| `.claude/skills/`             | **ignored** (`--setting-sources user`)                 | not a codex location                                |
-| `.agents/skills/`             | not a claude location                                  | probably loaded, raw, unaudited _(probe)_           |
-| `.mcp.json`                   | **refused** (`--strict-mcp-config`, no `--mcp-config`) | not a codex location                                |
-| `.claude/settings*.json`      | ignored (deliberately)                                 | not a codex location                                |
-| `.codex/config.toml`          | not a claude location                                  | skipped while the project is untrusted _(probe)_    |
-| plugins                       | none installed in any pod                              | `features.plugins=false`                            |
+| In the repository              | claude run                                             | codex run                                           |
+| ------------------------------ | ------------------------------------------------------ | --------------------------------------------------- |
+| `CLAUDE.md`, `.claude/rules/`  | loaded (`--add-dir` + `CLAUDE_CODE_ADDITIONAL_…`)      | not loaded by the CLI; the plan prompt points at it |
+| `AGENTS.md`                    | not loaded by the CLI; the plan prompt points at it    | loaded by codex's own default, never turned off     |
+| `.claude/skills/`              | **ignored** (`--setting-sources user`)                 | not a codex location                                |
+| `.agents/skills/`              | not a claude location                                  | probably loaded, raw, unaudited _(probe)_           |
+| `.mcp.json`                    | **refused** (`--strict-mcp-config`, no `--mcp-config`) | not a codex location                                |
+| `.claude/settings*.json`       | ignored (deliberately)                                 | not a codex location                                |
+| `.codex/config.toml`           | not a claude location                                  | skipped while the project is untrusted _(probe)_    |
+| `enabledPlugins` / `[plugins]` | none installed in any pod                              | `features.plugins=false`                            |
 
 The claude side is the deliberate result of the 2026-10-06 setting-sources review
 (`.claude/plans/security-setting-sources.md`): the project settings source let a repository run hooks with no tool call,
@@ -43,19 +43,24 @@ what was dropped. "I added a skill and the agent ignored it" has no answer anywh
   permission mode and the model stay patchy's; the pod still holds no credential; network stays the proxy's to grant.
 - **One skill directory serves both harnesses.** A repository can keep its skills in either `.claude/skills/` or
   `.agents/skills/` and both claude and codex runs see them.
+- **Plugins work the way teams already share them**, from the repository's own plugin settings and from an operator
+  list, on both harnesses, pinned to a commit and taken apart under the same rules as everything else.
 - Off by default in the first release; on is one value.
 
 ## Non-goals
 
 - **Repository settings files.** `.claude/settings.json`, `.claude/settings.local.json` and `.codex/config.toml` stay
-  unread. They configure the CLI rather than describe the work (hooks, `env`, `permissions`, helper commands, model
-  routing), and taking any part of them means re-auditing every key each CLI release adds. A small allowlist of
-  presentation keys could be added later; nothing in this design needs one.
+  unread, except the plugin-enablement keys named under [Plugins](#plugins). They configure the CLI rather than describe
+  the work (hooks, `env`, `permissions`, helper commands, model routing), and taking any more of them means re-auditing
+  every key each CLI release adds.
 - **Hooks from any source**: settings, skill frontmatter, plugins.
-- **Remote MCP servers** (`http`, `sse`, `ws`). The pod has no route to them. A later design can serve them through the
-  egress proxy, which would hold their credential the way it holds registry credentials today.
-- **Whole plugins.** A plugin bundles skills, subagents, commands, hooks, monitors, MCP and LSP servers and a `bin/`
-  directory. Patchy will not load one as a unit; see phase 4 for decomposing image-baked plugins.
+- **Remote MCP servers** (`http`, `sse`, `ws`, `streamable-http`). The pod has no route to them. A later design can
+  serve them through the egress proxy, which would hold their credential the way it holds registry credentials today.
+- **Loading a plugin as a unit.** A plugin bundles skills, subagents, commands, hooks, monitors, MCP and LSP servers and
+  a `bin/` directory. Patchy takes it apart and loads only the admitted components ([Plugins](#plugins)).
+- **Plugins baked into a repository image.** The pod's `HOME` is an emptyDir, so the CLI would not find them, and
+  telling patchy where they are would be a patchy dialect. The repository's settings and the operator's list cover the
+  same need.
 - **Subagents (`.claude/agents/`) and legacy commands (`.claude/commands/`)** in the first release. Subagent definitions
   carry their own model, tools, permission mode and hooks, and need their own normaliser. Open question 2.
 - **Hardening codex's read-only stages.** Codex runs every stage with `--sandbox danger-full-access`
@@ -216,6 +221,89 @@ which agent-runner copies into its report.
 `.mcp.json` is the one declaration format for both harnesses in the first release. Codex teams declare servers in
 `.codex/config.toml`, which patchy does not read (Non-goals); open question 1.
 
+### Plugins
+
+Both CLIs package skills, MCP servers and hooks as plugins, and their formats have converged: codex reads a portable
+`plugin.json`, its own `.codex-plugin/plugin.json`, and Claude-compatible manifests; it reads a repository's
+`.claude-plugin/marketplace.json` beside its own `.agents/plugins/marketplace.json`; and it sets `CLAUDE_PLUGIN_ROOT`
+for Claude plugins' hooks. Patchy treats a plugin the same way on both harnesses: **it never loads one as a unit.** It
+resolves the plugin to a pinned commit, takes it apart, runs each component through the rule this design already has for
+it, and stages a rebuilt plugin that holds only what was admitted.
+
+**Where plugins are enabled.** Two sources, merged into one set of `(plugin, marketplace)` references:
+
+1. **The repository, in the files a team already commits for its laptops.**
+   - Claude: `enabledPlugins` and `extraKnownMarketplaces` in `.claude/settings.json`. These are the **only** two keys
+     patchy reads from that file; every other key stays unread, as in Non-goals.
+   - Codex: `[plugins."<plugin>@<marketplace>"] enabled = true` tables in `.codex/config.toml` (the only keys read from
+     it), and entries with `policy.installation: INSTALLED_BY_DEFAULT` in the repository's
+     `.agents/plugins/marketplace.json` or `.claude-plugin/marketplace.json`. Whether a project file can register a
+     remote marketplace the way Claude's `extraKnownMarketplaces` does is _(probe)_; a marketplace file in the tree
+     covers the common case regardless.
+   - A plugin enabled in either form is offered to both harnesses, so a team that uses both CLIs declares it once.
+2. **The operator, for every repository** (the operator-level guidance of open question 4): a pinned list in the chart.
+   An operator plugin and a repository plugin of the same name keep the operator's; the repository's is reported
+   `ShadowedByOperator`.
+
+**Resolution and pinning (source-controller).** Beside the image declaration, source-controller reads the plugin
+references out of the stored tarball and resolves each one exactly once per `resolvedSHA`, recording the result on the
+Repository (`status.plugins`: plugin, marketplace, source, commit, content digest, or a refusal reason):
+
+- **Marketplace sources it fetches:** a GitHub repository (Claude `github`, codex `url`/`git-subdir` on github.com) at a
+  commit. A `ref` is resolved to a commit at pin time and recorded, so a moving marketplace branch changes what runs
+  only when the repository's own head moves, and the report says which commit ran. Operator plugins name a commit, never
+  a ref.
+- **In-tree sources:** a marketplace whose entry is a local path (`directory` / `local`) is read from the same tarball.
+- **Refused in the first release:** npm sources, arbitrary URL marketplaces and non-GitHub git hosts
+  (`UnsupportedSource`).
+- **The marketplace allowlist.** A repository plugin is fetched only from a marketplace on the operator's allowlist
+  (`MarketplaceNotAllowed` otherwise), matched on `host/owner[/repo]` boundaries, as image registries are. Fetching
+  arbitrary repositories into agent runs on a committer's say-so is the supply-chain path this closes.
+- **Credentials.** A marketplace on a host a `Forge` covers is fetched with that forge's read token, through the
+  existing forge seam. An allowlisted public marketplace on a host no `Forge` covers is fetched anonymously.
+- The plugin's directory is stored content-addressed in the artifact store, beside the workspace blobs, and the prepare
+  init fetches it by digest, credential-free, as it fetches the tree.
+
+**Decomposition (`internal/repoext`).** The manifest is read in any of the three forms. Component paths must start with
+`./` and resolve inside the plugin root (no `..`, no symlink out), as both CLIs require. Then each component goes
+through its existing rule, or is refused by name:
+
+| Component                                            | Read-only stage            | Writable stage                                            |
+| ---------------------------------------------------- | -------------------------- | --------------------------------------------------------- |
+| skills, commands (as skills)                         | normalised, as repo skills | normalised, as repo skills                                |
+| stdio MCP servers (`.mcp.json`, `mcp.json`, inline)  | refused                    | admitted by the MCP rules (repository image)              |
+| `bin/` executables                                   | refused                    | on the Bash `PATH`                                        |
+| subagents (`agents/`)                                | refused (open question 2)  | refused (open question 2)                                 |
+| LSP servers                                          | refused (open question 3)  | refused (open question 3)                                 |
+| remote MCP servers, codex `apps`, browser extensions | refused                    | refused (open question 5)                                 |
+| hooks, monitors, `settings.json`, output styles      | **never**                  | **never**                                                 |
+| workflows, themes, channels                          | **never**                  | **never**                                                 |
+| anything using `userConfig` or needing auth          | refused                    | refused: `-p` cannot prompt; no credential enters the pod |
+
+A plugin's `settings.json` is never honoured because its `agent` key replaces the main-thread agent, which would change
+patchy's prompt and posture; output styles rewrite the system prompt for the same effect.
+
+**Staging a rebuilt plugin.** agent-runner writes a fresh plugin directory holding only the admitted components and a
+manifest patchy wrote (name, version, and the component paths it admitted), so namespacing (`<plugin>:<skill>`) keeps
+working:
+
+- claude: `/workspace/.patchy/plugins/<plugin>/` passed with `--plugin-dir`, one per plugin, plus allow rules for each
+  admitted plugin MCP server's tools _(probe: `--plugin-dir` loads under `--setting-sources user` and `-p`; it loads
+  only what the directory holds; `--strict-mcp-config` admits a plugin's servers or patchy lists them in `--mcp-config`;
+  the plugin MCP tool names the allow rules must match)_. If `--plugin-dir` does not hold up, the fallback flattens the
+  plugin: skills staged as personal skills named `<plugin>-<skill>`, servers merged into the MCP file.
+- codex: the rebuilt plugin under `$HOME/.codex/plugins/cache/patchy/<plugin>/local/`, a personal marketplace named
+  `patchy` in `$HOME/.agents/plugins/marketplace.json` listing it as a local source,
+  `-c plugins."<plugin>@patchy".enabled=true`, and `features.plugins=true` only when at least one plugin was admitted
+  _(probe: `codex exec` loads a plugin from a local personal marketplace with nothing fetched; the repository's own
+  marketplace files and OpenAI's curated directory install nothing when plugins are on; a plugin's hooks stay
+  untrusted)_. With no admitted plugin, today's `features.plugins=false` stays.
+
+**What this adds to the threat model.** A new principal: the authors of an allowlisted marketplace. Their code can run
+only in writable stages (`bin/`, stdio MCP servers), the same class as a dependency fetched through the egress proxy,
+and only at a commit patchy pinned and reported. Their text reaches every stage as normalised skills, like a
+`CLAUDE.md`. Nothing of theirs runs without a tool call, because hooks and monitors are never loaded.
+
 ### The report
 
 The report is what makes this intuitive. It has three layers, each reusing a surface that exists.
@@ -238,9 +326,11 @@ The report is what makes this intuitive. It has three layers, each reusing a sur
    - An intent's plan comment gains one line under patchy's header: the skills the plan run loaded and what the build
      will be offered, with refusals counted and linked to the run panel.
    - `patchy describe` on a run or a Repository prints the same table.
-   - **`patchy check skills [dir]`** (cluster-free, beside `check image`): runs `internal/repoext` over a local checkout
-     and prints each skill and server with `PASS`, `WARN` (loaded with keys dropped) or `FAIL` (refused) per stage
-     posture through `checkreport`. This is the command a team runs on their laptop before pushing.
+   - **`patchy check extensions [dir]`** (cluster-free, beside `check image`): runs `internal/repoext` over a local
+     checkout and prints each skill, server and plugin component with `PASS`, `WARN` (loaded with keys dropped) or
+     `FAIL` (refused) per stage posture through `checkreport`. With `--allow-marketplace` (repeatable) it also fetches
+     the enabled plugins at the commits they resolve to, with the caller's own GitHub access. This is the command a team
+     runs on their laptop before pushing.
 
 ### Operator control
 
@@ -253,7 +343,20 @@ agent:
     skills: off
     # off | on. "on" admits stdio MCP servers from .mcp.json in writable stages on an accepted repository image.
     mcp: off
+    # off | on. "on" honours the repository's enabled plugins from allowedMarketplaces below.
+    plugins: off
+  plugins:
+    # host/owner[/repo] prefixes repository plugins may come from; empty admits none.
+    allowedMarketplaces: []
+    # Operator plugins, offered to every repository; a commit, never a ref (renovate can track it).
+    operator: []
+    #   - plugin: house-style
+    #     marketplace: github.com/acme/agent-plugins
+    #     commit: 4f1c…
 ```
+
+Operator plugins are on whenever listed; `repositoryExtensions.plugins` governs only the repository's own. The `mcp`
+switch still governs every MCP server, a plugin's included.
 
 It renders as `PATCHY_REPOSITORY_SKILLS` and `PATCHY_REPOSITORY_MCP` for the four job controllers (`runnercfg`), which
 pass them to agent-runner as Job environment (reserved names, so neither an image nor `Config.Env` can set them), and to
@@ -275,11 +378,12 @@ repository images off, `mcp: on` admits nothing and says so in the report.
   unchanged (the invocation goldens prove it).
 - `internal/envelope`, `internal/agentresult`, `api/v1alpha1`: the event, the run status field, the Repository status
   field; codegen.
-- `internal/controller/source`: the inventory beside `pinRunnerImage`.
+- `internal/controller/source`: the inventory beside `pinRunnerImage`; plugin resolution and fetching (phase 4).
+- `internal/artifact`: plugin directories as content-addressed blobs; `internal/jobs`: the prepare init fetches them.
 - `internal/templates`, `internal/controller/integration`, `internal/controller/intent`: the comment section and the
   plan comment line, with goldens.
 - `internal/runnercfg`, `internal/jobs`, `charts/patchy`: flags, reserved env names, values and schema.
-- `cmd/patchy`: `check skills`, and `describe`.
+- `cmd/patchy`: `check extensions`, and `describe`.
 - `internal/harness/claude_probe_test.go`: new cases (phase 0). `assertPinned` currently fails on any MCP server and any
   marker, so the new cases get their own assertions.
 
@@ -301,10 +405,19 @@ Branch per phase, one draft PR each, `make pr` green at each.
       (`internal/broker/enforce_test.go`);
    6. codex 0.153.4 under `codex exec`: whether `/workspace/repo/.agents/skills` loads today, whether
       `-c skills.config=[…]` disables it, whether `$HOME/.agents/skills` loads, whether `.codex/config.toml` and its
-      hooks are skipped for the untrusted tree, and whether `-c mcp_servers.…` starts a stdio server. The probe results
-      are recorded in this document before phase 1 starts, and any _(probe)_ claim that fails changes the design first.
+      hooks are skipped for the untrusted tree, and whether `-c mcp_servers.…` starts a stdio server;
+   7. claude plugins: `--plugin-dir` under `--setting-sources user` and `-p` loads a rebuilt plugin's skills
+      (namespaced) and nothing it does not hold; how `--strict-mcp-config` treats a plugin's MCP servers and what their
+      tool names are; that a plugin with hooks removed runs no hook;
+   8. codex plugins: a plugin from a local personal marketplace loads under `codex exec` with `features.plugins=true`
+      and `-c plugins."<p>@patchy".enabled=true`; nothing else installs (repository marketplace files, the curated
+      directory, `INSTALLED_BY_DEFAULT` entries); whether `.codex/config.toml` can register a remote marketplace.
+
+   The probe results are recorded in this document before phase 1 starts, and any _(probe)_ claim that fails changes the
+   design first.
+
 1. **Skills.** `internal/repoext` (skills), agent-runner staging and the settings file, the codex disables, the
-   `extensions` event and run status, the chart's `skills` value, `patchy check skills`, the owner guide. Tests: the
+   `extensions` event and run status, the chart's `skills` value, `patchy check extensions`, the owner guide. Tests: the
    properties above; table tests per frontmatter key and posture; invocation goldens unchanged with the value off; e2e
    with the fake harness asserting the staged files and the run status.
 2. **MCP servers.** Admission, the MCP file, both harnesses' rendering, the chart's `mcp` value. Tests: admission
@@ -312,10 +425,14 @@ Branch per phase, one draft PR each, `make pr` green at each.
    init event lists the server.
 3. **Pre-run inventory and comments.** source-controller's inventory, the Repository status field, the sticky comment
    section, the plan comment line, `describe`. Tests: reconciler tests over fixture tarballs; template goldens.
-4. **Image-baked plugins (separate design).** Plugins installed in the repository image at build time
-   (`claude plugin install …` in its Dockerfile), decomposed: their skills through the same normaliser, their
-   `.mcp.json` through the same admission, their hooks, monitors, `bin/` and settings never loaded. Only worth designing
-   once phases 1 and 2 are in use.
+4. **Plugins.** Reference extraction from both settings forms and the in-tree marketplace files; source-controller
+   resolution to commits, the marketplace allowlist, fetch through the forge seam or anonymously, content-addressed
+   storage, `status.plugins`; decomposition with the manifest forms and path containment; agent-runner rebuilding and
+   staging per harness; the operator list; the chart's `plugins` value; `check extensions` fetching. Tests: seeded
+   properties that a rebuilt plugin holds no component the posture's table refuses, for any input manifest, and that
+   every component path stays inside the plugin root; reconciler tests with a fake marketplace host (a ref moved between
+   two pins records two commits; a marketplace off the allowlist is never contacted); an e2e intent build on the real
+   agent-runner with one operator and one repository plugin, asserting the staged tree and the report.
 
 ### Verification and rollout
 
@@ -338,6 +455,9 @@ the intent against what the run did. Rollback is `skills: off` / `mcp: off`, whi
    stages run with a full shell today. Options are codex's own `--sandbox read-only` (it has one; patchy never renders
    it) or keeping codex out of read-only stages. This design's claim that read-only stages execute nothing holds for
    claude only until that is done.
+5. **Plugin sources.** Decided 2026-10-20: the repository's own plugin settings and an operator list (both), not plugins
+   baked into an image. Still open: whether `allowedMarketplaces` should ship with an entry for the CLIs' official
+   marketplaces, or empty (proposed: empty, so every marketplace is the operator's explicit choice).
 
 ## Open questions
 
@@ -348,8 +468,8 @@ the intent against what the run did. Rollback is `skills: off` / `mcp: off`, whi
 3. **LSP servers.** Code intelligence (go-to-definition, references) is read-only in spirit and would help the planner
    most, but a language server runs the toolchain (`gopls` runs `go list`), so it is execution. A per-language allowlist
    of known servers in writable stages first, read-only stages only after their own review.
-4. **Operator-level guidance.** Standards that should apply to every repository without committing them to each one: a
-   chart or Project field rendered through `PromptRequest.SystemPromptAppend` (no production caller sets it today), or
-   operator skills staged beside the repository's with precedence on name clashes.
+4. **Operator-level guidance.** Mostly answered by operator plugins: an organisation's standards as skills in a plugin,
+   offered to every repository. Still open: whether a plain prompt field (a chart or Project value rendered through
+   `PromptRequest.SystemPromptAppend`, which no production caller sets today) is worth having beside them.
 5. **Remote MCP servers** through the egress proxy, which would hold their credential and inject it only toward the
    server's origin, as it does for registries.
