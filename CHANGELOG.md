@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.43](https://github.com/devthenet-labs/patchy/compare/v0.12.42...v0.12.43) (2026-10-20)
+
+
+### Features
+
+* **cli:** read the route53 key from an AWS credentials profile ([#266](https://github.com/devthenet-labs/patchy/issues/266)) ([450a26f](https://github.com/devthenet-labs/patchy/commit/450a26f6edad930b98b466f5116f01864d31d020))
+
 ## [0.12.42](https://github.com/devthenet-labs/patchy/compare/v0.12.41...v0.12.42) (2026-10-19)
 
 
