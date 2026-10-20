@@ -14,7 +14,7 @@ import {
   type Route,
 } from "../router";
 import { Icon } from "./icons";
-import { PatchMark } from "./PatchMark";
+import { MaulMark } from "./MaulMark";
 import { ThemeToggle, type ThemeMode } from "./ThemeToggle";
 
 function PersonaSwitcher({ persona, onChange }: { persona: Persona; onChange: (p: Persona) => void }) {
@@ -193,7 +193,7 @@ export function TopBar({
     <header class="sticky top-0 z-30 border-b border-line bg-[color-mix(in_oklab,var(--maul-bg)_86%,transparent)] backdrop-blur-xl">
       <div class="mx-auto flex min-h-[58px] w-[min(1240px,calc(100%-40px))] flex-wrap items-center gap-4 py-1.5 max-sm:w-[calc(100%-28px)]">
         <a class="inline-flex items-center gap-2 font-mono text-[15px] font-bold tracking-tight text-fg no-underline" href={hrefForList()} aria-label="Findings list">
-          <PatchMark />
+          <MaulMark />
           <span>
             maul <em class="font-medium text-muted not-italic">· status</em>
           </span>

@@ -6,7 +6,7 @@
 
 [project]
 site_name = "Maul"
-site_description = "Automated triage and remediation of security findings, using Kubernetes custom resources as the state machine."
+site_description = "Sandboxed AI coding agents on your own Kubernetes cluster: issues become planned, approved, previewed pull requests, with humans in control."
 site_url = "https://devthenet-labs.github.io/maul/"
 repo_url = "https://github.com/devthenet-labs/maul"
 repo_name = "devthenet-labs/maul"

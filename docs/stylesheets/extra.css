@@ -1,132 +1,132 @@
 /* ============================================================
-   Maul docs — turf & soil theme for Zensical / Material
-   Palette: design-system/tokens/themes.css (.theme-maul /
-   .theme-maul-light). Turf green means healthy progress and
-   repaired ground; soil brown marks the original hole; amber and
-   red are reserved for human attention and critical findings.
+   Maul docs — steel & timber theme for Zensical / Material
+   Palette mirrors internal/web/ui/src/styles/tokens.css. Neutral
+   steel grounds; green is the cutting edge and healthy progress;
+   ash wood (--pt-soil, a legacy token name) marks the original
+   input; amber and red are reserved for human attention.
    Dark  -> Material "slate" scheme
    Light -> Material "default" scheme
    ============================================================ */
 
-/* ---------- DARK (slate) — damp soil at night, bright new turf ---------- */
+/* ---------- DARK (slate) — forge-dark steel, green cutting edge ---------- */
 [data-md-color-scheme="slate"] {
-    --md-default-bg-color: #0c140e;
-    --md-default-bg-color--light: #121d15;
-    --md-default-fg-color: #edf7ee;
-    --md-default-fg-color--light: #c4d2c6;
-    --md-default-fg-color--lighter: #98ab9b;
-    --md-default-fg-color--lightest: rgba(237, 247, 238, 0.09);
+    --md-default-bg-color: #0f1312;
+    --md-default-bg-color--light: rgba(15, 19, 18, 0.7); /* translucent: Material paints overlays with it */
+    --md-default-fg-color: #eef3f1;
+    --md-default-fg-color--light: #c6cfcc;
+    --md-default-fg-color--lighter: #9aa6a2;
+    --md-default-fg-color--lightest: rgba(238, 243, 241, 0.09);
 
-    --md-primary-fg-color: #0c140e;
-    --md-primary-fg-color--light: #121d15;
-    --md-primary-fg-color--dark: #071009;
-    --md-primary-bg-color: #edf7ee;
-    --md-primary-bg-color--light: #c4d2c6;
+    --md-primary-fg-color: #0f1312;
+    --md-primary-fg-color--light: #151a19;
+    --md-primary-fg-color--dark: #0a0d0c;
+    --md-primary-bg-color: #eef3f1;
+    --md-primary-bg-color--light: #c6cfcc;
 
     --md-accent-fg-color: #9be66a;
     --md-accent-fg-color--transparent: rgba(155, 230, 106, 0.1);
     --md-typeset-a-color: #8de05d;
 
-    --md-code-bg-color: #071009;
-    --md-code-fg-color: #d8e5d9;
-    --md-code-hl-comment-color: #697c6d;
+    --md-code-bg-color: #0a0d0c;
+    --md-code-fg-color: #dbe3e0;
+    --md-code-hl-comment-color: #6c7774;
     --md-code-hl-keyword-color: #9be66a;
     --md-code-hl-string-color: #c7f28a;
     --md-code-hl-number-color: #e7b75f;
     --md-code-hl-function-color: #78d64b;
-    --md-code-hl-constant-color: #a47a55;
-    --md-code-hl-name-color: #d8e5d9;
+    --md-code-hl-constant-color: #d2a370;
+    --md-code-hl-name-color: #dbe3e0;
     --md-code-hl-operator-color: #8de05d;
-    --md-code-hl-punctuation-color: #98ab9b;
+    --md-code-hl-punctuation-color: #9aa6a2;
 
-    --md-footer-bg-color: #071009;
-    --md-footer-bg-color--dark: #050b06;
+    --md-footer-bg-color: #0a0d0c;
+    --md-footer-bg-color--dark: #070908;
 
-    /* maul garden ramp */
+    /* maul ramp */
     --pt-green: #78d64b;
     --pt-green-2: #9be66a;
     --pt-moss: #46a653;
     --pt-seedling: #c7f28a;
     --pt-ink: #8de05d;
-    --pt-soil: #a47a55;
+    --pt-soil: #d2a370;
     --pt-amber: #e7b75f;
     --pt-red: #ef716a;
     --pt-on-accent: #10200d;
-    --pt-bg: #0c140e;
-    --pt-alt: #121d15;
-    --pt-alt-2: #17251a;
-    --pt-code: #071009;
-    --pt-code-2: #0e1811;
-    --pt-fg: #edf7ee;
-    --pt-muted: #98ab9b;
-    --pt-faint: #697c6d;
-    --pt-line: #26372a;
-    --pt-line-2: #354a39;
-    --pt-ic-bg: #1c2b1f;
-    --pt-ic-border: rgba(237, 247, 238, 0.12);
-    --pt-shadow: 0 20px 52px rgba(2, 8, 4, 0.44);
-    --pt-shadow-strong: 0 30px 80px rgba(2, 8, 4, 0.62);
+    --pt-bg: #0f1312;
+    --pt-alt: #151a19;
+    --pt-alt-2: #1b2120;
+    --pt-code: #0a0d0c;
+    --pt-code-2: #121716;
+    --pt-fg: #eef3f1;
+    --pt-muted: #9aa6a2;
+    --pt-faint: #6c7774;
+    --pt-line: #27302d;
+    --pt-line-2: #36413e;
+    --pt-ic-bg: #1d2422;
+    --pt-ic-border: rgba(238, 243, 241, 0.12);
+    --pt-shadow: 0 20px 52px rgba(3, 6, 5, 0.44);
+    --pt-shadow-strong: 0 30px 80px rgba(3, 6, 5, 0.62);
 }
 
-/* ---------- LIGHT (default) — garden paper, deep accessible turf ---------- */
+/* ---------- LIGHT (default) — workshop paper, deep accessible green ---------- */
 [data-md-color-scheme="default"] {
-    --md-default-bg-color: #f3f7ef;
-    --md-default-fg-color: #172219;
-    --md-default-fg-color--light: #3e4d41;
-    --md-default-fg-color--lighter: #566859;
-    --md-default-fg-color--lightest: rgba(23, 34, 25, 0.12);
+    --md-default-bg-color: #f5f6f3;
+    --md-default-fg-color: #161b19;
+    --md-default-fg-color--light: #3f4945;
+    --md-default-fg-color--lighter: #56605b;
+    --md-default-fg-color--lightest: rgba(22, 27, 25, 0.12);
 
-    --md-primary-fg-color: #f3f7ef;
-    --md-primary-fg-color--light: #eaf2e5;
-    --md-primary-fg-color--dark: #e1ebdd;
-    --md-primary-bg-color: #172219;
-    --md-primary-bg-color--light: #3e4d41;
+    --md-primary-fg-color: #f5f6f3;
+    --md-primary-fg-color--light: #eceeea;
+    --md-primary-fg-color--dark: #e6e9e4;
+    --md-primary-bg-color: #161b19;
+    --md-primary-bg-color--light: #3f4945;
 
     --md-accent-fg-color: #25672c;
     --md-accent-fg-color--transparent: rgba(37, 103, 44, 0.1);
     --md-typeset-a-color: #286f30;
 
-    --md-code-bg-color: #e7efe2;
-    --md-code-fg-color: #172219;
-    --md-code-hl-comment-color: #708073;
+    --md-code-bg-color: #eceeea;
+    --md-code-fg-color: #161b19;
+    --md-code-hl-comment-color: #737d78;
     --md-code-hl-keyword-color: #25672c;
     --md-code-hl-string-color: #3c7630;
     --md-code-hl-number-color: #9a6700;
     --md-code-hl-function-color: #2f7d36;
-    --md-code-hl-constant-color: #77583e;
-    --md-code-hl-name-color: #172219;
+    --md-code-hl-constant-color: #8a6136;
+    --md-code-hl-name-color: #161b19;
     --md-code-hl-operator-color: #286f30;
-    --md-code-hl-punctuation-color: #566859;
+    --md-code-hl-punctuation-color: #56605b;
 
-    --md-footer-bg-color: #172219;
-    --md-footer-bg-color--dark: #0c140e;
+    --md-footer-bg-color: #161b19;
+    --md-footer-bg-color--dark: #0f1312;
 
     --pt-green: #2f7d36;
     --pt-green-2: #25672c;
     --pt-moss: #367a3c;
     --pt-seedling: #3c7630;
     --pt-ink: #286f30;
-    --pt-soil: #77583e;
+    --pt-soil: #8a6136;
     --pt-amber: #9a6700;
     --pt-red: #c53b36;
     --pt-on-accent: #ffffff;
-    --pt-bg: #f3f7ef;
+    --pt-bg: #f5f6f3;
     --pt-alt: #ffffff;
-    --pt-alt-2: #eaf2e5;
-    --pt-code: #e1ebdd;
-    --pt-code-2: #eaf1e6;
-    --pt-fg: #172219;
-    --pt-muted: #566859;
-    --pt-faint: #708073;
-    --pt-line: #cad8c4;
-    --pt-line-2: #afc2b0;
-    --pt-ic-bg: #eaf2e5;
-    --pt-ic-border: rgba(23, 34, 25, 0.1);
-    --pt-shadow: 0 20px 52px rgba(38, 72, 42, 0.12);
-    --pt-shadow-strong: 0 30px 80px rgba(38, 72, 42, 0.18);
+    --pt-alt-2: #eceeea;
+    --pt-code: #e6e9e4;
+    --pt-code-2: #eef0ec;
+    --pt-fg: #161b19;
+    --pt-muted: #56605b;
+    --pt-faint: #737d78;
+    --pt-line: #d3d8d2;
+    --pt-line-2: #b4bcb5;
+    --pt-ic-bg: #eceeea;
+    --pt-ic-border: rgba(22, 27, 25, 0.1);
+    --pt-shadow: 0 20px 52px rgba(30, 38, 35, 0.12);
+    --pt-shadow-strong: 0 30px 80px rgba(30, 38, 35, 0.18);
 }
 
-/* ===== Header: flat, with the soil-to-turf underline ===== */
+/* ===== Header: flat, with the timber-to-edge underline ===== */
 .md-header {
     box-shadow: none;
     border-bottom: 1px solid var(--pt-line);
@@ -152,8 +152,8 @@
 
 /* Header wordmark: the SVG patch mark + lowercase mono "maul"
    (overrides/partials/header.html, nav.html). The mark is
-   docs/assets/images/logo.svg — a square of new turf sliding over
-   a soil hole. */
+   docs/assets/images/logo.svg — a splitting maul with a green
+   cutting edge. */
 .pt-headmark {
     display: inline-flex;
     align-items: center;
@@ -180,7 +180,7 @@
     border-radius: 8px;
 }
 
-/* Active nav + links pick up the turf accent */
+/* Active nav + links pick up the green accent */
 .md-nav__link--active,
 .md-nav__item .md-nav__link--active {
     color: var(--md-accent-fg-color);
@@ -213,7 +213,7 @@
     text-decoration: none;
 }
 
-/* HERO — faint grass-blade geometry behind, product surface in front */
+/* HERO — faint timber-grain geometry behind, product surface in front */
 .pt-hero {
     position: relative;
     overflow: hidden;
@@ -422,27 +422,6 @@
 /* issue specimen */
 .pt-issue-wrap {
     position: relative;
-}
-.pt-hole {
-    position: absolute;
-    border-radius: 50%;
-    background: color-mix(in oklab, var(--pt-soil) 35%, var(--pt-code));
-    border: 1px solid color-mix(in oklab, var(--pt-soil) 55%, transparent);
-    box-shadow: inset 0 9px 16px color-mix(in oklab, var(--pt-code) 72%, transparent);
-}
-.pt-hole--one {
-    width: 100px;
-    height: 42px;
-    right: -24px;
-    top: -33px;
-    transform: rotate(8deg);
-}
-.pt-hole--two {
-    width: 72px;
-    height: 30px;
-    left: -34px;
-    bottom: -18px;
-    transform: rotate(-12deg);
 }
 .pt-issue-card {
     position: relative;
@@ -939,7 +918,7 @@
 }
 
 /* Shell code-fence accents. codecolor.js cycles a data-pt-accent per `sh`
-   block through the four garden hues; the command text takes the accent
+   block through the four accent hues; the command text takes the accent
    while comments stay at zensical's muted comment colour for contrast. */
 .language-sh.highlight[data-pt-accent="green"] code {
     color: var(--pt-ink);
@@ -975,8 +954,8 @@
 
 /* Inline-code striping. The long label/flag/values tables are otherwise a wall
    of identical chips; codecolor.js stripes each table's inline <code> by row
-   (every chip in a tbody row shares one hue, rows cycle through the garden
-   accents, reset per table) via a data-pt-ic attribute. Each chip tints its
+   (every chip in a tbody row shares one hue, rows cycle through the
+   accent hues, reset per table) via a data-pt-ic attribute. Each chip tints its
    --pt-ic-bg base toward its hue and lights its text with the brand colour —
    the same move as the sh fences. The --pt-* vars are scheme-aware, so one
    rule set serves both dark and light. */
@@ -1038,7 +1017,160 @@
     }
 }
 
+/* SCREENSHOTS — status-page captures (demo mode) in a window frame. A pair of
+   --dark/--light images follows the reader's colour scheme. */
+.pt-shot {
+    margin: 0;
+    border: 1px solid var(--pt-line-2);
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--pt-code);
+    box-shadow: var(--pt-shadow);
+}
+.pt-shot--wide {
+    margin-top: 28px;
+    box-shadow: var(--pt-shadow-strong);
+}
+.pt-shot__bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--pt-line);
+    background: var(--pt-alt);
+    font-family: var(--pt-mono);
+    font-size: 11px;
+    color: var(--pt-faint);
+}
+.pt-shot__bar i {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--pt-line-2);
+}
+.pt-shot__bar span {
+    margin-left: 8px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+.pt-shot__img {
+    display: block;
+    width: 100%;
+    height: auto;
+}
+[data-md-color-scheme="default"] .pt-shot__img--dark,
+[data-md-color-scheme="slate"] .pt-shot__img--light {
+    display: none;
+}
+
+/* FEATURES — copy beside a screenshot, alternating sides */
+.pt-feature {
+    display: grid;
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+    gap: 48px;
+    align-items: center;
+    margin-top: 40px;
+}
+.pt-feature + .pt-feature {
+    margin-top: 72px;
+}
+.pt-feature--flip .pt-feature__copy {
+    order: 2;
+}
+.pt-feature__tag {
+    display: inline-block;
+    font-family: var(--pt-mono);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--pt-ink);
+    padding: 3px 9px;
+    border: 1px solid color-mix(in oklab, var(--pt-green) 35%, transparent);
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--pt-green) 9%, transparent);
+}
+.pt-feature h3 {
+    margin: 14px 0 10px;
+    font-size: 26px;
+    line-height: 1.2;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: var(--pt-fg);
+}
+.pt-feature p {
+    margin: 0 0 14px;
+    color: var(--pt-muted);
+    font-size: 15.5px;
+}
+.pt-feature ul {
+    margin: 0 0 18px;
+    padding: 0;
+    list-style: none;
+}
+.pt-feature li {
+    position: relative;
+    padding-left: 22px;
+    margin: 7px 0;
+    font-size: 14.5px;
+    color: var(--pt-fg);
+}
+.pt-feature li::before {
+    content: "→";
+    position: absolute;
+    left: 0;
+    color: var(--pt-green);
+    font-family: var(--pt-mono);
+}
+.pt-feature code,
+.pt-sublead code {
+    font-family: var(--pt-mono);
+    font-size: 0.9em;
+    padding: 1px 6px;
+    border-radius: 5px;
+    background: var(--pt-alt-2);
+    border: 1px solid var(--pt-line);
+}
+.pt-feature__link {
+    font-weight: 600;
+    color: var(--pt-ink);
+}
+.pt-feature__link:hover {
+    color: var(--pt-green-2);
+}
+
+/* closing call to action */
+.pt-endcta {
+    margin-top: 48px;
+    padding: 32px;
+    border: 1px solid var(--pt-line-2);
+    border-radius: 14px;
+    text-align: center;
+    background:
+        radial-gradient(520px 200px at 50% 0%, color-mix(in oklab, var(--pt-green) 12%, transparent), transparent 75%),
+        var(--pt-alt);
+}
+.pt-endcta p {
+    margin: 0 0 18px;
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--pt-fg);
+}
+.pt-endcta .pt-cta {
+    justify-content: center;
+    margin: 0;
+}
+
 @media (max-width: 980px) {
+    .pt-feature,
+    .pt-feature--flip {
+        grid-template-columns: 1fr;
+        gap: 24px;
+    }
+    .pt-feature--flip .pt-feature__copy {
+        order: 0;
+    }
     .pt-hero__inner {
         grid-template-columns: 1fr;
         gap: 48px;

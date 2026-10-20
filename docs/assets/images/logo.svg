@@ -2,46 +2,39 @@
 <!-- SPDX-License-Identifier: MIT -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
   <title id="title">Maul</title>
-  <desc id="desc">A square of new turf sliding over a soil hole, filling the gap.</desc>
+  <desc id="desc">A splitting maul: a steel head with an axe blade on one side and a hammer face on the other, on an ash handle, its cutting edge bright green.</desc>
   <defs>
-    <linearGradient id="pt-logo-lawn" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#eef5ea"/>
-      <stop offset="100%" stop-color="#dce8d6"/>
+    <linearGradient id="ml-logo-tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1d2422"/>
+      <stop offset="100%" stop-color="#101513"/>
     </linearGradient>
-    <radialGradient id="pt-logo-hole" cx="46%" cy="32%" r="74%">
-      <stop offset="0%" stop-color="#5c4030"/>
-      <stop offset="55%" stop-color="#77583e"/>
-      <stop offset="100%" stop-color="#4a3426"/>
-    </radialGradient>
-    <linearGradient id="pt-logo-turf" x1="0.18" y1="0" x2="0.82" y2="1">
-      <stop offset="0%" stop-color="#3d9144"/>
-      <stop offset="55%" stop-color="#2f7d36"/>
-      <stop offset="100%" stop-color="#25682c"/>
+    <linearGradient id="ml-logo-steel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#eef2f0"/>
+      <stop offset="55%" stop-color="#b9c3bf"/>
+      <stop offset="100%" stop-color="#7f8b87"/>
     </linearGradient>
-    <linearGradient id="pt-logo-sod" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#8b6847"/>
-      <stop offset="100%" stop-color="#5c4030"/>
+    <linearGradient id="ml-logo-face" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#9aa5a1"/>
+      <stop offset="100%" stop-color="#5f6a66"/>
     </linearGradient>
-    <clipPath id="pt-logo-tile">
-      <rect x="5" y="5" width="118" height="118" rx="26"/>
-    </clipPath>
+    <linearGradient id="ml-logo-ash" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#e2b884"/>
+      <stop offset="100%" stop-color="#a8774a"/>
+    </linearGradient>
   </defs>
 
-  <rect x="5" y="5" width="118" height="118" rx="26" fill="url(#pt-logo-lawn)" stroke="#afc2b0" stroke-width="2"/>
+  <rect x="5" y="5" width="118" height="118" rx="26" fill="url(#ml-logo-tile)" stroke="#2f3a37" stroke-width="2"/>
 
-  <g clip-path="url(#pt-logo-tile)">
-    <ellipse cx="48" cy="88" rx="33.5" ry="16.2" fill="#8a6847"/>
-    <ellipse cx="48" cy="88.4" rx="30.5" ry="13.8" fill="url(#pt-logo-hole)"/>
-    <ellipse cx="48" cy="86.6" rx="20" ry="7.4" fill="#3d2a1e" opacity="0.4"/>
-    <path d="M22 88.8c5.6 7.2 15.8 11.6 26 11.6s20.4-4.4 26-11.6" fill="none" stroke="#c4b09a" stroke-width="2" stroke-linecap="round" opacity="0.5"/>
-
-    <g transform="rotate(-8 83 76)">
-      <rect x="62" y="73" width="50" height="32" rx="5" fill="#172219" opacity="0.16"/>
-      <rect x="58" y="69" width="50" height="32" rx="5" fill="url(#pt-logo-sod)"/>
-      <rect x="58" y="62" width="50" height="32" rx="5" fill="url(#pt-logo-turf)" stroke="#172219" stroke-width="2.1"/>
-      <path d="M71 66C69.6 57.5 68.2 51 70.8 44.2c.9 1.8 1.8 5.4 2.3 9.4.5 4.8.8 8.6.9 12.4z" fill="#1e5c24"/>
-      <path d="M76.2 65.5C75 53.5 74.2 45 77.8 35.8c1.1 2.4 2.3 7.4 2.9 13.2.6 6.6 1 11.6 1.1 16.5z" fill="#25672c"/>
-      <path d="M82.4 65C85 54 88.6 46.2 94.6 38.4c-.6 2-1.5 6.2-2.2 10.8-.9 6.2-1.6 11-2 15.8z" fill="#1e5c24"/>
-    </g>
+  <g transform="translate(67 63) rotate(-34) scale(0.74) translate(-62 -66)">
+    <!-- ash handle -->
+    <rect x="58" y="44" width="12" height="86" rx="5.5" fill="url(#ml-logo-ash)"/>
+    <path d="M61 54v70" stroke="#f3d3a8" stroke-width="1.6" stroke-linecap="round" opacity="0.55"/>
+    <!-- head: wedge blade left, body, hammer face right -->
+    <path d="M42 26 L24 16 Q15 39 24 62 L42 52 Z" fill="url(#ml-logo-steel)"/>
+    <rect x="40" y="25" width="50" height="28" rx="4" fill="url(#ml-logo-steel)"/>
+    <rect x="88" y="27" width="10" height="24" rx="2.5" fill="url(#ml-logo-face)"/>
+    <path d="M44 31h40" stroke="#ffffff" stroke-width="2" stroke-linecap="round" opacity="0.5"/>
+    <!-- the cutting edge -->
+    <path d="M24 16 Q15 39 24 62" fill="none" stroke="#86e05a" stroke-width="4.2" stroke-linecap="round"/>
   </g>
 </svg>

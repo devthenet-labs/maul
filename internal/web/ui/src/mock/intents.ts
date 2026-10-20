@@ -173,8 +173,8 @@ export function mockIntentDetail(name: string): IntentDetail | null {
       { phase: "AwaitingApproval", at: ago(104) },
       ...(card.phase === "Building" ? [{ phase: "Building" as const, at: ago(24) }] : []),
     ],
-    input: { revision: 1, digest: `sha256:${"a".repeat(64)}` },
-    plan: { revision: 1, digest: `sha256:${"b".repeat(64)}`, summary: card.summary, postedAt: ago(104) },
+    input: { revision: 1, digest: `sha256:e3f1c09a5b7d2468ace013579bdf2468ace013579bdf02468ace13579bdf0246` },
+    plan: { revision: 1, digest: `sha256:9c1e7a42b3d05f6e8a1b2c3d4e5f60718293a4b5c6d7e8f9012a3b4c5d6e7f80`, summary: card.summary, postedAt: ago(104) },
     approval:
       card.phase === "Building"
         ? {
@@ -182,8 +182,8 @@ export function mockIntentDetail(name: string): IntentDetail | null {
             source: "label",
             at: ago(25),
             planRevision: 1,
-            planDigest: `sha256:${"b".repeat(64)}`,
-            inputDigest: `sha256:${"a".repeat(64)}`,
+            planDigest: `sha256:9c1e7a42b3d05f6e8a1b2c3d4e5f60718293a4b5c6d7e8f9012a3b4c5d6e7f80`,
+            inputDigest: `sha256:e3f1c09a5b7d2468ace013579bdf2468ace013579bdf02468ace13579bdf0246`,
           }
         : undefined,
     runs: runs(card),
@@ -217,7 +217,7 @@ export function mockIntentPlan(intent: string, revision: number): IntentPlanText
     intent,
     revision,
     current: true,
-    digest: `sha256:${"b".repeat(64)}`,
+    digest: `sha256:9c1e7a42b3d05f6e8a1b2c3d4e5f60718293a4b5c6d7e8f9012a3b4c5d6e7f80`,
     text: "---\nsummary: Add a health endpoint\n---\n# Plan\n\n1. Add GET /healthz.\n2. Probe the store.\n",
   };
 }

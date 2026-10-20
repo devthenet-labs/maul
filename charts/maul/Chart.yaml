@@ -3,8 +3,8 @@
 apiVersion: v2
 name: maul
 description: >-
-    Automated triage and remediation of GHAS/CodeQL security findings — Kubernetes custom resources as the state
-    machine, sandboxed coding agents as the fix.
+    Sandboxed AI coding agents on your own cluster, from GitHub issue to reviewed pull request (with live previews),
+    plus triage and remediation of security findings — Kubernetes custom resources as the state machine.
 type: application
 # Only Kubernetes lines that have not reached end-of-life are supported.
 kubeVersion: ">=1.34.0-0"

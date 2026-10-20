@@ -9,13 +9,18 @@ requirements, the state machine, and the end-to-end flow — read [DESIGN.md](DE
 
 ## What this is
 
-`maul` is an end-to-end pipeline (module `github.com/devthenet-labs/maul`) for triaging and remediating
-security findings, using **Kubernetes custom resources as the state machine** — the
-`maul.run/v1alpha1` kinds carry all state, etcd is the only state store, and GitHub issues are a
-one-way human-facing projection. GHAS/CodeQL alerts arrive via webhook, accumulate into `Finding` resources for an
-hour, get context-enhanced, then a sandboxed `claude -p` run investigates each one; high-confidence verdicts are
-remediated in priority order into pull requests, everything else routes to humans. Completed findings expire on a
-TTL; `FindingRollup` resources keep the all-time statistics, and (under `attribution.mode: attribute`) `UsageRollup`
+`maul` (module `github.com/devthenet-labs/maul`) is a Kubernetes-native platform that runs sandboxed AI coding agents
+(`claude -p`, `codex exec`) across the software development lifecycle: issues in, reviewed pull requests out, humans in
+control. It is NOT primarily a security product. **Kubernetes custom resources are the state machine**: the
+`maul.run/v1alpha1` kinds carry all state, etcd is the only state store, and GitHub issues are a one-way human-facing
+projection. Two flows share one engine (repository tarballs, sandboxed agent Jobs, the egress broker, the status
+server, the CLI). **Intents** (intent-controller, optional): an issue in an intent repository is planned by a read-only
+agent Job, the plan is approved on the issue, the approved plan is built in the application's own image and opened as a
+PR, failing checks get CI-fix rounds, and preview-controller serves each PR at a live preview URL. **Findings**:
+scanner alerts (GHAS/CodeQL, Google SCC, Wiz, generic HTTP) arrive via webhook, accumulate into `Finding` resources
+for an hour, get context-enhanced, then a sandboxed run investigates each one; high-confidence verdicts are remediated
+in priority order into pull requests, everything else routes to humans. Completed findings expire on a TTL;
+`FindingRollup` resources keep the all-time statistics, and (under `attribution.mode: attribute`) `UsageRollup`
 resources each person's, Project's and the org's usage by day and month.
 
 Fourteen binaries, one module. "Not monolithic" means separate binaries/deployments with shared `internal/` code:

@@ -1,27 +1,49 @@
 # maul
 
-An end-to-end workflow for triaging and remediating security findings from multiple sources, using Kubernetes custom
-resources as the state machine and GitHub issues as a human-facing projection.
+**Issues in. Shipped PRs out.**
 
-Findings (GitHub Advanced Security / CodeQL first) arrive via webhook and accumulate into `Finding` resources for an
-hour, each projected to a GitHub tracking issue. Findings are enhanced with ownership context, then a sandboxed coding
-agent investigates each one — false positives are dismissed, low-confidence or human-only work is handed to the
-repository owner, and high-confidence remediations are queued in priority order, attempted automatically, and opened as
-pull requests for human review. Completed findings expire on a TTL while `FindingRollup` resources keep the all-time
-statistics.
+maul runs sandboxed AI coding agents (Claude Code, Codex) on your own Kubernetes cluster, across the software
+development lifecycle. Someone describes a change in a GitHub issue; an agent plans it, a human approves the plan, an
+agent builds it and opens the pull request, and a human merges it. Kubernetes custom resources carry all of the state.
+
+## What it does
+
+- **Intents.** Open a GitHub issue saying what you want. An agent reads the code and posts a plan on the issue; an
+  approver approves it (`/maul approve` or the approve label), and an agent builds exactly that plan in a sandboxed pod,
+  in the application's own toolchain image, and opens the pull request. Review feedback and failing checks get further
+  rounds.
+- **Previews.** Each intent's pull request is deployed to a live URL of its own until it merges or closes, behind
+  optional sign-in.
+- **Fixing.** Security alerts (GitHub Advanced Security / CodeQL, Wiz, Google Cloud Security Command Center, or any HTTP
+  source through the generic integration) become `Finding` resources with a tracking issue each. An agent investigates
+  every one: false positives are dismissed, confident fixes are attempted in priority order and opened as pull requests,
+  and everything else is handed to the repository owner. A failing CI check on maul's own pull request gets a fix round
+  of its own.
+- **A trust model you can audit.** Claude and Codex agent pods hold no credentials: model traffic goes through an
+  in-cluster egress broker that injects the key, and the agent never talks to GitHub. The repository arrives as a
+  digest-verified tarball. A human approves every intent's plan and merges every pull request.
+- **Operable.** The Kubernetes API is the only state store. A status dashboard and the `maul` CLI (also `kubectl maul`)
+  show and act on everything, under your RBAC. Optional per-user model credentials, usage and cost tracking, and network
+  profiles for dependency access.
 
 ## Components
 
 | Binary                     | Concern                                                                                                                                    |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `intent-controller`        | Optional. Plans GitHub issues in a read-only agent Job, posts the plan for approval, builds the approved plan and opens the pull request   |
+| `preview-controller`       | Optional. Deploys each intent pull request into an isolated preview slot                                                                   |
 | `integration-controller`   | The one internet-facing entry point: validate provider webhooks, ingest alerts into Findings, project tracking issues, apply human signals |
 | `source-controller`        | `Forge`/`Repository` reconcilers: resolve credentials, pin the head SHA, serve the repository tarball agents fetch credential-lessly       |
 | `context-controller`       | Enhance freshly opened Findings with CMDB ownership / infrastructure context                                                               |
 | `investigation-controller` | Gate eligible findings, run analysis agent Jobs, route the verdicts                                                                        |
 | `remediation-controller`   | Queue admission, priority-ordered remediation Jobs, changeset push + pull requests, rollup statistics and the finding TTL                  |
-| `agent-runner`             | In-pod coding-agent runtime: investigate or remediate via `claude -p`                                                                      |
-| `status-server`            | The human-facing status page: findings/rollup projection, OIDC sign-in, the RBAC-gated actions                                             |
-| `maul`                     | The workstation CLI: list, review and act on findings over your own kubeconfig — never through a controller                                |
+| `agent-runner`             | In-pod coding-agent runtime: one stage per Job via `claude -p` or `codex exec`                                                             |
+| `egress-broker`            | The reverse proxy all model traffic goes through: adds the credential outside the pod, enforces spend limits, meters usage                 |
+| `status-server`            | The human-facing status page: findings, intents and usage views, OIDC sign-in, the RBAC-gated actions                                      |
+| `maul`                     | The workstation CLI: list, review and act on findings and intents over your own kubeconfig — never through a controller                    |
+
+Optional extras — `egress-proxy` (dependency access for agents), `preview-auth` (preview sign-in) and
+`evaluation-controller` (remote skill evaluation) — are described in [AGENTS.md](AGENTS.md).
 
 See [DESIGN.md](DESIGN.md) for the full requirements and the state machine, and [AGENTS.md](AGENTS.md) for a map of the
 repository. Full documentation — getting started, configuration and deployment references — lives at

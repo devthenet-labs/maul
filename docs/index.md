@@ -11,6 +11,7 @@ hide:
   This body only provides the page title and meta description for the <head>.
 -->
 
-An end-to-end pipeline for triaging and remediating security findings, using Kubernetes custom resources as the state
-machine — alerts accumulate into `Finding` resources projected to GitHub tracking issues, a sandboxed coding agent
-investigates each one, and high-confidence fixes become pull requests for human review.
+Issues in, shipped pull requests out: maul runs sandboxed AI coding agents on your own Kubernetes cluster. An agent
+plans each GitHub issue, a human approves the plan, an agent builds it and opens the pull request, and every pull
+request gets a live preview. The same engine fixes failing checks on its own pull requests, and investigates security
+alerts and fixes the ones it is confident about.
