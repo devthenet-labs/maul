@@ -5,6 +5,7 @@ package intent
 
 import (
 	"context"
+	"fmt"
 	"math/rand"
 	"slices"
 	"strings"
@@ -501,70 +502,75 @@ estimated_token_budget: 200000
 
 Three repositories.
 `
+	t.Parallel()
+	// Each seed is its own env and random stream, so the seeds run in parallel.
 	for seed := range int64(24) {
-		rng := rand.New(rand.NewSource(0x5ee3 + seed))
-		p := testMultiProject()
-		p.Spec.Repositories = append(p.Spec.Repositories,
-			v1alpha1.ProjectRepository{Name: "lib", URL: "https://github.com/acme/lib"})
-		e := newEnv(t, p)
-		e.multiRepo(true)
-		e.runs.MaxConcurrent = 1 + rng.Intn(3)
-		outcomes := map[string]bool{} // run name → fails
-		e.jobs.output = func(spec jobs.Spec) jobs.RunOutput {
-			if spec.Phase == "plan" {
-				out := defaultOutput(spec)
-				out.Events[0].Plan.ReportMarkdown = threeRepoPlan
-				return out
-			}
-			if outcomes[spec.Finding] {
-				return jobs.RunOutput{Events: []envelope.Event{{V: envelope.Version, Type: envelope.TypeRemediation,
-					Remediation: &envelope.Remediation{Stage: envelope.Stage{Outcome: envelope.OutcomeRuntimeError,
-						Detail: "the CLI crashed"}}}}}
-			}
-			return defaultOutput(spec)
-		}
-		name := e.awaiting()
-		e.gh.label(1, "patchy:approved", approver)
-		ctx := context.Background()
-		ended := false
-		for step := 0; step < 1500 && !ended; step++ {
-			for _, b := range e.runsOf(name, v1alpha1.IntentStageBuild) {
-				if _, ok := outcomes[b.Name]; !ok {
-					outcomes[b.Name] = rng.Intn(4) == 0
+		t.Run(fmt.Sprintf("seed-%d", seed), func(t *testing.T) {
+			t.Parallel()
+			rng := rand.New(rand.NewSource(0x5ee3 + seed))
+			p := testMultiProject()
+			p.Spec.Repositories = append(p.Spec.Repositories,
+				v1alpha1.ProjectRepository{Name: "lib", URL: "https://github.com/acme/lib"})
+			e := newEnv(t, p)
+			e.multiRepo(true)
+			e.runs.MaxConcurrent = 1 + rng.Intn(3)
+			outcomes := map[string]bool{} // run name → fails
+			e.jobs.output = func(spec jobs.Spec) jobs.RunOutput {
+				if spec.Phase == "plan" {
+					out := defaultOutput(spec)
+					out.Events[0].Plan.ReportMarkdown = threeRepoPlan
+					return out
 				}
-			}
-			e.failEvery = 0
-			if rng.Intn(5) == 0 {
-				e.failEvery = 2 + rng.Intn(3)
-			}
-			switch n := rng.Intn(12); {
-			case n < 3:
-				_ = e.reconcileIntent(name)
-			case n < 4:
-				e.readyRepositories(repoImage)
-			case n < 6:
-				_, _ = e.runs.Reconcile(ctx, req(runSchedulerRequest))
-			case n < 10:
-				if runs := e.intentRuns(name); len(runs) > 0 {
-					_, _ = e.runs.Reconcile(ctx, req(runs[rng.Intn(len(runs))].Name))
+				if outcomes[spec.Finding] {
+					return jobs.RunOutput{Events: []envelope.Event{{V: envelope.Version, Type: envelope.TypeRemediation,
+						Remediation: &envelope.Remediation{Stage: envelope.Stage{Outcome: envelope.OutcomeRuntimeError,
+							Detail: "the CLI crashed"}}}}}
 				}
-			case n < 11:
-				e.clock.Advance(time.Duration(1+rng.Intn(60)) * time.Second)
-			default:
-				if rng.Intn(4) == 0 {
-					e.restart()
-					e.multiRepo(true)
-					e.runs.MaxConcurrent = 1 + rng.Intn(3)
-				}
+				return defaultOutput(spec)
 			}
-			e.failEvery = 0
-			in := e.get(name)
-			checkBuildInvariants(t, seed, step, e, in)
-			ended = in.Status.Phase == v1alpha1.IntentInReview || in.Status.Phase == v1alpha1.IntentFailed
-		}
-		if !ended {
-			t.Errorf("seed %d: the intent ended neither in review nor failed: %s", seed, e.get(name).Status.Phase)
-		}
+			name := e.awaiting()
+			e.gh.label(1, "patchy:approved", approver)
+			ctx := context.Background()
+			ended := false
+			for step := 0; step < 1500 && !ended; step++ {
+				for _, b := range e.runsOf(name, v1alpha1.IntentStageBuild) {
+					if _, ok := outcomes[b.Name]; !ok {
+						outcomes[b.Name] = rng.Intn(4) == 0
+					}
+				}
+				e.failEvery = 0
+				if rng.Intn(5) == 0 {
+					e.failEvery = 2 + rng.Intn(3)
+				}
+				switch n := rng.Intn(12); {
+				case n < 3:
+					_ = e.reconcileIntent(name)
+				case n < 4:
+					e.readyRepositories(repoImage)
+				case n < 6:
+					_, _ = e.runs.Reconcile(ctx, req(runSchedulerRequest))
+				case n < 10:
+					if runs := e.intentRuns(name); len(runs) > 0 {
+						_, _ = e.runs.Reconcile(ctx, req(runs[rng.Intn(len(runs))].Name))
+					}
+				case n < 11:
+					e.clock.Advance(time.Duration(1+rng.Intn(60)) * time.Second)
+				default:
+					if rng.Intn(4) == 0 {
+						e.restart()
+						e.multiRepo(true)
+						e.runs.MaxConcurrent = 1 + rng.Intn(3)
+					}
+				}
+				e.failEvery = 0
+				in := e.get(name)
+				checkBuildInvariants(t, seed, step, e, in)
+				ended = in.Status.Phase == v1alpha1.IntentInReview || in.Status.Phase == v1alpha1.IntentFailed
+			}
+			if !ended {
+				t.Errorf("seed %d: the intent ended neither in review nor failed: %s", seed, e.get(name).Status.Phase)
+			}
+		})
 	}
 }
 

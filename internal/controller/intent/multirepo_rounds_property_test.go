@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -66,20 +67,33 @@ type reviewsProperty struct {
 // intent ends, Merged exactly when every one merged, its round notices all
 // delivered.
 func TestMultiPRRoundsInvariantsSeeded(t *testing.T) {
-	var seen coverage
-	for seed := range int64(12) {
-		w := newReviewsProperty(t, seed)
-		name := w.e.inReviewLinked()
-		for step := range 700 {
-			w.step(name)
-			w.check(name, step)
-			if terminal(w.e.get(name).Status.Phase) {
-				break
-			}
+	t.Parallel()
+	var (
+		mu   sync.Mutex
+		seen coverage
+	)
+	// Each seed is its own history on its own env, so the seeds run in
+	// parallel; the group returns once every one of them has.
+	t.Run("seeds", func(t *testing.T) {
+		for seed := range int64(12) {
+			t.Run(fmt.Sprintf("seed-%d", seed), func(t *testing.T) {
+				t.Parallel()
+				w := newReviewsProperty(t, seed)
+				name := w.e.inReviewLinked()
+				for step := range 700 {
+					w.step(name)
+					w.check(name, step)
+					if terminal(w.e.get(name).Status.Phase) {
+						break
+					}
+				}
+				w.drain(name)
+				mu.Lock()
+				defer mu.Unlock()
+				seen.add(w, name)
+			})
 		}
-		w.drain(name)
-		seen.add(w, name)
-	}
+	})
 	t.Logf("coverage: %+v", seen)
 	// The histories reach what the property is about: rounds in both
 	// repositories, a round whose pull request ended under it, failed status
