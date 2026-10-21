@@ -22,9 +22,9 @@ import (
 	"github.com/devthenet-labs/maul/internal/egressproxy"
 )
 
-const twoProfiles = `[{"name":"go","route":"go","port":8090,"repositories":["devthenet-labs/patchy-target"],
+const twoProfiles = `[{"name":"go","route":"go","port":8090,"repositories":["devthenet-labs/maul-target"],
   "modules":["github.com/google/uuid"]},
- {"name":"tools","route":"go","port":8091,"repositories":["devthenet-labs/patchy-preview-demo"],
+ {"name":"tools","route":"go","port":8091,"repositories":["devthenet-labs/maul-preview-demo"],
   "modules":["golang.org/x"]}]`
 
 // serveOpts resolves args through the real serve flag surface, as the

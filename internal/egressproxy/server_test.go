@@ -26,11 +26,11 @@ import (
 // profilesJSON is the chart's rendering of one profile (§3.4 of the spec),
 // admitting uuid, golang.org/x and BurntSushi.
 const profilesJSON = `[{"name":"go","route":"go","port":8090,"host":"github.com",
-  "repositories":["devthenet-labs/patchy-preview-demo"],
+  "repositories":["devthenet-labs/maul-preview-demo"],
   "modules":["github.com/google/uuid","golang.org/x","github.com/BurntSushi"],
   "bakedModCache":"/opt/go/pkg/mod","allowPseudoVersions":false},
  {"name":"pseudo","route":"go","port":8091,
-  "repositories":["devthenet-labs/patchy-target"],
+  "repositories":["devthenet-labs/maul-target"],
   "modules":["github.com/google/uuid"],"allowPseudoVersions":true}]`
 
 func testProfiles(t *testing.T) netprofile.Set {
@@ -608,7 +608,7 @@ func waitForLine(t *testing.T, log *lockedBuffer, match func(map[string]any) boo
 func TestAudit(t *testing.T) {
 	goUp := newUpstream(t, okBody("v1.6.0\n"))
 	pods := fakePods{"127.0.0.1": {Name: "maul-x-abc", Finding: "f-1", Owner: "devthenet-labs",
-		RunKind: "remediation", Attempt: "2", Repo: "devthenet-labs/patchy-target"}}
+		RunKind: "remediation", Attempt: "2", Repo: "devthenet-labs/maul-target"}}
 	h := newHarness(t, Config{Pods: pods}, goUp, failingUpstream(t))
 	secret := http.Header{"Authorization": {"Bearer very-secret-value"}, "Cookie": {"c=cookie-secret"}}
 	h.do(t, "go", http.MethodGet, "/go/github.com/google/uuid/@v/list", secret)
@@ -635,7 +635,7 @@ func TestAudit(t *testing.T) {
 	ok := lines[0]
 	want := map[string]any{"msg": "proxied", "profile": "go", "port": float64(8090), "source_ip": "127.0.0.1",
 		"pod": "maul-x-abc", "finding": "f-1", "owner": "devthenet-labs", "run_kind": "remediation",
-		"attempt": "2", "repo": "devthenet-labs/patchy-target", "route": "go", "kind": "list",
+		"attempt": "2", "repo": "devthenet-labs/maul-target", "route": "go", "kind": "list",
 		"module": "github.com/google/uuid", "method": "GET", "status": float64(200),
 		"upstream_status": float64(200), "bytes": float64(7), "outcome": OutcomeProxied}
 	for k, v := range want {

@@ -20,7 +20,7 @@ var controllerNamePattern = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
 func TestSanitize(t *testing.T) {
 	cases := []struct{ in, want, wantErr string }{
 		{"Hello.Web", "hello-web", ""},
-		{"patchy-target", "patchy-target", ""},
+		{"maul-target", "maul-target", ""},
 		{"My_App", "my-app", ""},
 		{"a..b__c--d", "a-b-c-d", ""},
 		{"--x--", "x", ""},

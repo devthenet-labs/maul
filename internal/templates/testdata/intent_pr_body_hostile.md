@@ -4,4 +4,4 @@ Fixes `# 3`, closes `owner/repo# 4` \<!-- x --> for `@ octocat`, resolves `https
 
 ---
 
-_maul built this pull request from plan r2 (`sha256:d3b54b51a32d`) of the intent, approved by `peter`. Review it like any other change. Merging it completes the intent, and maul updates the intent issue itself._
+_maul built this pull request from plan r2 (`sha256:2f6fce301668`) of the intent, approved by `peter`. Review it like any other change. Merging it completes the intent, and maul updates the intent issue itself._

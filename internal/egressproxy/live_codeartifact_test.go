@@ -64,7 +64,7 @@ func TestLiveCodeArtifact(t *testing.T) {
 		minted = append(minted, m)
 	}
 	profiles, err := netprofile.NewSet([]netprofile.Profile{{Name: "web", Port: 8091, Host: "github.com",
-		Repositories: []string{"devthenet-labs/patchy-polyglot-demo"}, Registries: grants}})
+		Repositories: []string{"devthenet-labs/maul-polyglot-demo"}, Registries: grants}})
 	if err != nil {
 		t.Fatal(err)
 	}

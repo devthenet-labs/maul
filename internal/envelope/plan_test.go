@@ -12,7 +12,7 @@ import (
 func testPlanEvent() Event {
 	return Event{
 		Type:    TypePlan,
-		Repo:    "devthenet-labs/patchy-target",
+		Repo:    "devthenet-labs/maul-target",
 		Finding: "target-1-plan-r1-a1",
 		Plan: &Plan{
 			Stage: Stage{
@@ -23,7 +23,7 @@ func testPlanEvent() Event {
 			},
 			ReportMarkdown:       "---\nsummary: \"Add GET /version\"\n---\n## Approach\n",
 			Summary:              "Add GET /version",
-			Repositories:         []string{"https://github.com/devthenet-labs/patchy-target"},
+			Repositories:         []string{"https://github.com/devthenet-labs/maul-target"},
 			NewDependencies:      []string{"golang.org/x/mod v0.20.0"},
 			Questions:            []string{"RFC 3339 build time?"},
 			Confidence:           0.8,
@@ -57,11 +57,11 @@ func TestPlanEventRoundTrip(t *testing.T) {
 // TestDecodePlanWire pins the plan event's wire names, as a collector built
 // from this package reads them off a pod log.
 func TestDecodePlanWire(t *testing.T) {
-	line := Prefix + `{"v":4,"type":"plan","repo":"devthenet-labs/patchy-target","finding":"target-1-plan-r1-a1",` +
+	line := Prefix + `{"v":4,"type":"plan","repo":"devthenet-labs/maul-target","finding":"target-1-plan-r1-a1",` +
 		`"plan":{"outcome":"ok","harness":"claude","model":"anthropic/claude-sonnet-5","usage":{"input_tokens":1,` +
 		`"output_tokens":2,"cache_read_tokens":0,"cache_creation_tokens":0,"cost_usd":0.5},"elapsed_seconds":3,` +
 		`"report_markdown":"---\n...","summary":"Add GET /version",` +
-		`"repositories":["https://github.com/devthenet-labs/patchy-target"],"new_dependencies":["dep"],` +
+		`"repositories":["https://github.com/devthenet-labs/maul-target"],"new_dependencies":["dep"],` +
 		`"questions":["q?"],"confidence":0.8,"estimated_max_turns":40,"estimated_token_budget":200000}}`
 	got, ok := Decode([]byte(line))
 	if !ok || got.Type != TypePlan || got.Plan == nil {

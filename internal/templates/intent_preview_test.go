@@ -29,8 +29,8 @@ func testInReview(p *IntentPreview) IntentStatusComment {
 		Summary:    "Add GET /version returning {sha, built} as JSON",
 		ApprovedBy: "peter", ApprovedRevision: 2,
 		PullRequests: []IntentPullRequest{{
-			Repository: "devthenet-labs/patchy-target", Number: 12,
-			URL: "https://github.com/devthenet-labs/patchy-target/pull/12", State: "open",
+			Repository: "devthenet-labs/maul-target", Number: 12,
+			URL: "https://github.com/devthenet-labs/maul-target/pull/12", State: "open",
 		}},
 		Preview:  p,
 		Commands: []string{"cancel"},
@@ -40,7 +40,7 @@ func testInReview(p *IntentPreview) IntentStatusComment {
 func onePreview(state, reason string) *IntentPreview {
 	return &IntentPreview{State: state, Reason: reason, Host: "target-1.preview.maul.example.com",
 		Resource: "target-1", Components: []IntentPreviewComponent{
-			{Repository: "devthenet-labs/patchy-target", Path: "/", Revision: testWebHead},
+			{Repository: "devthenet-labs/maul-target", Path: "/", Revision: testWebHead},
 		}}
 }
 

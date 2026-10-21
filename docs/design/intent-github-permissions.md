@@ -4,35 +4,35 @@ Verified 2026-09-26 against installation 163854331. Tokens were minted for one r
 installation token, App JWT, private key, or signed log URL was printed or saved. The installation already grants
 `issues:write`, `pull_requests:write`, `contents:write`, and `checks`, `statuses`, `actions` at read.
 
-The resources were patchy-target PR #46 and maul PR #63 (the latter already had a conversation comment). All reads were
+The resources were maul-target PR #46 and maul PR #63 (the latter already had a conversation comment). All reads were
 non-mutating. Write probes deliberately omitted required fields or supplied an invalid enum/type: they could not create
 a comment, reaction, review request, PR, commit, tree, blob, or ref. A 422 proves authorization reached validation, not
 that a real write succeeded. No workflow files were touched.
 
 ## Results and call-site mapping
 
-| Controller operation                                                       | Scope used after this fix                      | Live result                                                                    |
-| -------------------------------------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------ |
-| PR conversation list/get, including feedback, commands and notice adoption | `pull_requests:read`                           | 200 for both; public reads also accepted `issues:read`                         |
-| PR conversation GraphQL edit history                                       | `pull_requests:read`                           | 200, edit facts returned; public node also accepted `issues:read`              |
-| Round notices and command replies                                          | `pull_requests:write`                          | Missing body: 422; `issues:write` returned 403                                 |
-| Eyes reaction on a PR conversation comment                                 | `pull_requests:write`                          | Invalid enum: 422; `issues:write` returned 403                                 |
-| Find/get PR, including merge/close checks before pushes                    | `pull_requests:read`                           | 200 for both                                                                   |
-| Create PR                                                                  | `pull_requests:write` + `contents:read`        | Missing head/base: 422; private repo without contents read: 422 (refs)         |
-| List reviews and inline review comments                                    | `pull_requests:read`                           | 200 for both                                                                   |
-| GraphQL review and inline-comment edit history                             | `pull_requests:read`                           | 200 with edit facts for both                                                   |
-| Request reviewers                                                          | `pull_requests:write`                          | Invalid reviewers type: 422; `issues:write` returned 403                       |
-| Repository/default branch                                                  | `contents:read` token's implicit metadata read | 200; accepted-permission header says metadata read                             |
-| PR branch head and compare                                                 | `contents:read`                                | 200 for both                                                                   |
-| Create blob/tree/commit/ref                                                | `contents:write`                               | Missing required fields: 422 for each                                          |
-| Fast-forward PR branch ref                                                 | `contents:write`                               | Missing SHA with force=false: 422                                              |
-| Check runs and annotations                                                 | `checks:read`                                  | 200 for both                                                                   |
-| Commit statuses                                                            | `statuses:read`                                | 200                                                                            |
-| Actions workflow jobs                                                      | `actions:read`                                 | 200                                                                            |
-| Actions job logs                                                           | `actions:read`                                 | 302 to a signed log URL; redirect not followed or printed                      |
-| Collaborator permission for approver authorization                         | `issues:read` token's implicit metadata read   | 200; accepted-permission header says metadata read                             |
-| Rate budget                                                                | Existing repository-scoped read token          | 200; permissionless endpoint                                                   |
-| App identity and installation/token resolution                             | App JWT                                        | App GET 200 (`patchy-devthenet`); installation GET 200; scoped token mints 201 |
+| Controller operation                                                       | Scope used after this fix                      | Live result                                                                  |
+| -------------------------------------------------------------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------- |
+| PR conversation list/get, including feedback, commands and notice adoption | `pull_requests:read`                           | 200 for both; public reads also accepted `issues:read`                       |
+| PR conversation GraphQL edit history                                       | `pull_requests:read`                           | 200, edit facts returned; public node also accepted `issues:read`            |
+| Round notices and command replies                                          | `pull_requests:write`                          | Missing body: 422; `issues:write` returned 403                               |
+| Eyes reaction on a PR conversation comment                                 | `pull_requests:write`                          | Invalid enum: 422; `issues:write` returned 403                               |
+| Find/get PR, including merge/close checks before pushes                    | `pull_requests:read`                           | 200 for both                                                                 |
+| Create PR                                                                  | `pull_requests:write` + `contents:read`        | Missing head/base: 422; private repo without contents read: 422 (refs)       |
+| List reviews and inline review comments                                    | `pull_requests:read`                           | 200 for both                                                                 |
+| GraphQL review and inline-comment edit history                             | `pull_requests:read`                           | 200 with edit facts for both                                                 |
+| Request reviewers                                                          | `pull_requests:write`                          | Invalid reviewers type: 422; `issues:write` returned 403                     |
+| Repository/default branch                                                  | `contents:read` token's implicit metadata read | 200; accepted-permission header says metadata read                           |
+| PR branch head and compare                                                 | `contents:read`                                | 200 for both                                                                 |
+| Create blob/tree/commit/ref                                                | `contents:write`                               | Missing required fields: 422 for each                                        |
+| Fast-forward PR branch ref                                                 | `contents:write`                               | Missing SHA with force=false: 422                                            |
+| Check runs and annotations                                                 | `checks:read`                                  | 200 for both                                                                 |
+| Commit statuses                                                            | `statuses:read`                                | 200                                                                          |
+| Actions workflow jobs                                                      | `actions:read`                                 | 200                                                                          |
+| Actions job logs                                                           | `actions:read`                                 | 302 to a signed log URL; redirect not followed or printed                    |
+| Collaborator permission for approver authorization                         | `issues:read` token's implicit metadata read   | 200; accepted-permission header says metadata read                           |
+| Rate budget                                                                | Existing repository-scoped read token          | 200; permissionless endpoint                                                 |
+| App identity and installation/token resolution                             | App JWT                                        | App GET 200 (`maul-devthenet`); installation GET 200; scoped token mints 201 |
 
 `GetIssue`, label operations, issue events, plan/status/summary comments, comment edits and issue closure remain on the
 intent **issue**, with `issues:read` or `issues:write`. No intent-controller call edits or deletes a PR conversation

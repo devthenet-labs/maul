@@ -16,15 +16,15 @@ The service should report which build is running.
 
 ## Repositories
 
-- https://github.com/devthenet-labs/patchy-target
+- https://github.com/devthenet-labs/maul-target
 ```
 
 ## The repositories
 
 The request may change more than one repository, and you can read each of them here, at its default branch:
 
-- `https://github.com/devthenet-labs/patchy-target`: the current directory, `/workspace/repo`
-- `https://github.com/devthenet-labs/patchy-web`: `/workspace/repos/web`
+- `https://github.com/devthenet-labs/maul-target`: the current directory, `/workspace/repo`
+- `https://github.com/devthenet-labs/maul-web`: `/workspace/repos/web`
 
 Only the current directory is a git repository. The others are copies of their trees with no git history: read them
 as you read the current directory.

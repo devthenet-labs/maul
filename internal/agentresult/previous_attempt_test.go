@@ -75,7 +75,7 @@ func TestEncodePreviousAttempt(t *testing.T) {
 		t.Errorf("EncodePreviousAttempt(nil) = %q, want empty (no variable, no section)", got)
 	}
 	in := &v1alpha1.PreviousAttempt{Name: "f-rem-1", Attempt: 1, Outcome: "commit_failed",
-		Detail: "working tree not clean after commit.sh:\nM <patchy-target> & \"x\""}
+		Detail: "working tree not clean after commit.sh:\nM <maul-target> & \"x\""}
 	var got templates.PreviousAttempt
 	if err := json.Unmarshal([]byte(EncodePreviousAttempt(in)), &got); err != nil {
 		t.Fatalf("decode: %v", err)

@@ -25,7 +25,7 @@ spec:
   repository:
     repositoryRef:
       name: preview-demo-5-plan-r1-a1-src
-    url: https://github.com/devthenet-labs/patchy-preview-demo
+    url: https://github.com/devthenet-labs/maul-preview-demo
   round: 1
   stage: plan
 status:
@@ -48,7 +48,7 @@ status:
     ---
     summary: "Add a static 'Deployed by maul' footer to the welcome card in main.go, below revision/build, with a test asserting it renders"
     repositories:
-      - "https://github.com/devthenet-labs/patchy-preview-demo"
+      - "https://github.com/devthenet-labs/maul-preview-demo"
     new_dependencies: []
     questions:
       - "CHANGELOG.md requires a line naming the PR number for the changelog CI check; the plan leaves this for the human opening the PR to add, since the PR number is not known at build time"
@@ -88,7 +88,7 @@ status:
 
     ## Steps
 
-    Repository: https://github.com/devthenet-labs/patchy-preview-demo
+    Repository: https://github.com/devthenet-labs/maul-preview-demo
 
     1. `main.go`: in the `page` template string, insert a new line
        `<footer>Deployed by maul</footer>` immediately before the closing
@@ -102,7 +102,7 @@ status:
 
     ## Test plan
 
-    Repository: https://github.com/devthenet-labs/patchy-preview-demo
+    Repository: https://github.com/devthenet-labs/maul-preview-demo
 
     1. `server_test.go`: add a new test function, e.g. `TestFooter`, next to
        the existing `TestCardColour`:

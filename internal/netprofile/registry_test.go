@@ -21,8 +21,8 @@ const registriesJSON = `[
   "internal":{"cidrs":["10.20.30.40/32"],"podSelector":{"namespace":"tools","matchLabels":{"app":"nexus"}},
    "targetPort":8081}},
  {"name":"ca-npm","ecosystem":"npm",
-  "url":"https://patchy-gate-377946145366.d.codeartifact.us-east-1.amazonaws.com/npm/npm-store/",
-  "auth":{"type":"codeartifact","codeartifact":{"domain":"patchy-gate","domainOwner":"377946145366",
+  "url":"https://maul-gate-377946145366.d.codeartifact.us-east-1.amazonaws.com/npm/npm-store/",
+  "auth":{"type":"codeartifact","codeartifact":{"domain":"maul-gate","domainOwner":"377946145366",
    "region":"us-east-1","durationSeconds":43200}},"maxArtifactBytes":1073741824}]`
 
 func TestParseRegistriesSpecExample(t *testing.T) {
@@ -118,8 +118,8 @@ func validGoRegistry() Registry {
 
 func validCodeArtifact() Registry {
 	return Registry{Name: "ca-pypi", Ecosystem: EcosystemPyPI,
-		URL: "https://patchy-gate-377946145366.d.codeartifact.us-east-1.amazonaws.com/pypi/pypi-store/simple/",
-		Auth: Auth{Type: AuthCodeArtifact, CodeArtifact: &CodeArtifact{Domain: "patchy-gate",
+		URL: "https://maul-gate-377946145366.d.codeartifact.us-east-1.amazonaws.com/pypi/pypi-store/simple/",
+		Auth: Auth{Type: AuthCodeArtifact, CodeArtifact: &CodeArtifact{Domain: "maul-gate",
 			DomainOwner: "377946145366", Region: "us-east-1"}}}
 }
 
@@ -147,7 +147,7 @@ func TestRegistryValidateAccepts(t *testing.T) {
 		"internal in-cluster": validInternal(),
 		"codeartifact on.aws": func() Registry {
 			r := validCodeArtifact()
-			r.URL = "https://patchy-gate-377946145366.d.codeartifact.us-east-1.on.aws/pypi/pypi-store/simple/"
+			r.URL = "https://maul-gate-377946145366.d.codeartifact.us-east-1.on.aws/pypi/pypi-store/simple/"
 			return r
 		}(),
 		"public none": {Name: "pub", Ecosystem: EcosystemNPM, URL: "https://registry.npmjs.org/",
@@ -243,7 +243,7 @@ func TestRegistryValidateGuards(t *testing.T) {
 			r.URL = "https://acme.jfrog.io:8443/npm/"
 		}, "needs internal"},
 		{"14 codeartifact port", validCodeArtifact, func(r *Registry) {
-			r.URL = "https://patchy-gate-377946145366.d.codeartifact.us-east-1.amazonaws.com:8443/pypi/x/simple/"
+			r.URL = "https://maul-gate-377946145366.d.codeartifact.us-east-1.amazonaws.com:8443/pypi/x/simple/"
 			r.Internal = &Internal{CIDRs: []string{"10.1.2.3/32"}}
 		}, "port"},
 		{"15 IMDS", validInternal, func(r *Registry) { r.Internal.CIDRs = []string{"169.254.169.254/32"} },
@@ -309,7 +309,7 @@ func TestRegistryValidateGuards(t *testing.T) {
 		{"url dotdot", validNPMRegistry, func(r *Registry) { r.URL = "https://acme.jfrog.io/npm/../x/" }, "segment"},
 		{"url double slash", validNPMRegistry, func(r *Registry) { r.URL = "https://acme.jfrog.io/npm//x/" }, "segment"},
 		{"pypi not simple", validCodeArtifact, func(r *Registry) {
-			r.URL = "https://patchy-gate-377946145366.d.codeartifact.us-east-1.amazonaws.com/pypi/pypi-store/"
+			r.URL = "https://maul-gate-377946145366.d.codeartifact.us-east-1.amazonaws.com/pypi/pypi-store/"
 		}, "/simple/"},
 		{"max artifact bytes", validNPMRegistry, func(r *Registry) { r.MaxArtifactBytes = MaxArtifactBytesLimit + 1 },
 			"maxArtifactBytes"},

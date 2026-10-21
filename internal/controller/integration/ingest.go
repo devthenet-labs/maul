@@ -203,7 +203,7 @@ func (in *Ingestor) ingest(
 // Code scanning moves an alert's state with whichever analysis uploads last,
 // not with the newest commit. When pushes land seconds apart and an older
 // commit's analysis finishes after a newer one's, GitHub reopens every alert
-// the newer commit fixed, observed at the older commit (patchy-target alerts
+// the newer commit fixed, observed at the older commit (maul-target alerts
 // 7 and 9: fixed by the squash merges of their remediation PRs, then reopened
 // at 45b1bec, the commit both merges descend from, when its analysis landed
 // last). That observation describes code the merged fix has already

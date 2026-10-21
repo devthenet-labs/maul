@@ -17,7 +17,7 @@ import (
 	"github.com/devthenet-labs/maul/e2e/fakegithub"
 )
 
-// The recorded patchy-target history: the fix's squash merge sits directly
+// The recorded maul-target history: the fix's squash merge sits directly
 // on the commit whose late CodeQL analysis reopened the alert; regressed
 // stands in for a later commit that brings the vulnerable code back.
 const (
@@ -29,7 +29,7 @@ const (
 )
 
 // staleFlow is the shipped integration-controller carried to the moment the
-// duplicate-finding regression recorded on patchy-target began: an alert's
+// duplicate-finding regression recorded on maul-target began: an alert's
 // finding remediated by a merged PR whose merge commit is recorded.
 type staleFlow struct {
 	cl   *cluster
@@ -128,7 +128,7 @@ func (s *staleFlow) deliverStale(t *testing.T, commit string) {
 }
 
 // TestStaleReopenAfterMergedFix drives the shipped integration-controller
-// through the duplicate-finding regression recorded on patchy-target: an
+// through the duplicate-finding regression recorded on maul-target: an
 // alert's finding is remediated by a merged PR, then CodeQL reopens the alert
 // from an analysis of the merge's parent that uploaded last. That reopen
 // observes code the fix replaced and must not open a successor generation —

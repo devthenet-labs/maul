@@ -73,7 +73,7 @@ status:
     digest: sha256:047e0490a6a9df800b282f7eda37beaa87aaa71c50c9c2c191e66502617999fe
     postedAt: "2026-10-03T06:57:23Z"
     repositories:
-      - https://github.com/devthenet-labs/patchy-preview-demo
+      - https://github.com/devthenet-labs/maul-preview-demo
     revision: 1
     summary: Add a static 'Deployed by maul' footer to the welcome card in main.go, below revision/build, with a test asserting it renders
   pullRequests:
@@ -82,9 +82,9 @@ status:
       mergedAt: "2026-10-03T07:07:18Z"
       nodeID: PR_kwDOUuyUYs8AAAABGZ4SFA
       number: 9
-      repository: https://github.com/devthenet-labs/patchy-preview-demo
+      repository: https://github.com/devthenet-labs/maul-preview-demo
       state: merged
-      url: https://github.com/devthenet-labs/patchy-preview-demo/pull/9
+      url: https://github.com/devthenet-labs/maul-preview-demo/pull/9
   roundNoticesThrough: 1
   rounds: 1
   tracking:

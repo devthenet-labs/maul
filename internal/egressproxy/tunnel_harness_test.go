@@ -33,13 +33,13 @@ import (
 // tunnelProfilesJSON holds a tunnel-only profile, a Go profile with hosts
 // and an upload override, and a go-only profile (step 1's shape).
 const tunnelProfilesJSON = `[
- {"name":"web","route":"tunnel","port":8092,"repositories":["devthenet-labs/patchy-pip-fixture"],
+ {"name":"web","route":"tunnel","port":8092,"repositories":["devthenet-labs/maul-pip-fixture"],
   "modules":[],"bakedModCache":"","allowPseudoVersions":false,
   "hosts":["pkg.registry.dev","files.registry.dev"],"clients":["pip"]},
- {"name":"go","route":"go","port":8090,"repositories":["devthenet-labs/patchy-preview-demo"],
+ {"name":"go","route":"go","port":8090,"repositories":["devthenet-labs/maul-preview-demo"],
   "modules":["github.com/google/uuid"],"hosts":["npm.registry.dev"],
   "upload":{"perTunnel":65536,"perSource":131072}},
- {"name":"plain","route":"go","port":8091,"repositories":["devthenet-labs/patchy-target"],
+ {"name":"plain","route":"go","port":8091,"repositories":["devthenet-labs/maul-target"],
   "modules":["github.com/google/uuid"]}]`
 
 func tunnelProfiles(t *testing.T) netprofile.Set {

@@ -52,11 +52,11 @@ egressProxy:
                 targetPort: 8081
         ca-npm:
             ecosystem: npm
-            url: https://patchy-gate-377946145366.d.codeartifact.us-east-1.amazonaws.com/npm/npm-store/
+            url: https://maul-gate-377946145366.d.codeartifact.us-east-1.amazonaws.com/npm/npm-store/
             auth:
                 type: codeartifact
                 codeartifact:
-                    domain: patchy-gate
+                    domain: maul-gate
                     domainOwner: "377946145366"
                     region: us-east-1
                     durationSeconds: 3600

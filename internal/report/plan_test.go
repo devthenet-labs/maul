@@ -16,7 +16,7 @@ import (
 const validPlan = `---
 summary: "Add GET /version returning {sha, built} as JSON"
 repositories:
-  - "https://github.com/devthenet-labs/patchy-target"
+  - "https://github.com/devthenet-labs/maul-target"
 new_dependencies: []
 questions:
   - "Should the build time be RFC 3339?"
@@ -38,7 +38,7 @@ func TestParsePlan(t *testing.T) {
 	if p.Summary != "Add GET /version returning {sha, built} as JSON" {
 		t.Errorf("Summary = %q", p.Summary)
 	}
-	if want := []string{"https://github.com/devthenet-labs/patchy-target"}; !slices.Equal(p.Repositories, want) {
+	if want := []string{"https://github.com/devthenet-labs/maul-target"}; !slices.Equal(p.Repositories, want) {
 		t.Errorf("Repositories = %q, want %q", p.Repositories, want)
 	}
 	if len(p.NewDependencies) != 0 {
@@ -96,7 +96,7 @@ func TestParsePlanRepairsUnquotedProse(t *testing.T) {
 	if want := []string{"golang.org/x/mod v0.20.0"}; !slices.Equal(p.NewDependencies, want) {
 		t.Errorf("NewDependencies = %q, want %q", p.NewDependencies, want)
 	}
-	if want := []string{"https://github.com/devthenet-labs/patchy-target"}; !slices.Equal(p.Repositories, want) {
+	if want := []string{"https://github.com/devthenet-labs/maul-target"}; !slices.Equal(p.Repositories, want) {
 		t.Errorf("Repositories = %q, want the repair to keep the URL", p.Repositories)
 	}
 }
@@ -169,7 +169,7 @@ func TestRepositoryURLMatchesProjectSchema(t *testing.T) {
 
 func TestParsePlanBounds(t *testing.T) {
 	summary := `summary: "Add GET /version returning {sha, built} as JSON"`
-	repos := "repositories:\n  - \"https://github.com/devthenet-labs/patchy-target\""
+	repos := "repositories:\n  - \"https://github.com/devthenet-labs/maul-target\""
 	deps := "new_dependencies: []"
 	questions := "questions:\n  - \"Should the build time be RFC 3339?\""
 	accepted := []struct {
@@ -207,7 +207,7 @@ func TestParsePlanBounds(t *testing.T) {
 
 func TestParsePlanErrors(t *testing.T) {
 	summary := `summary: "Add GET /version returning {sha, built} as JSON"`
-	repos := "repositories:\n  - \"https://github.com/devthenet-labs/patchy-target\""
+	repos := "repositories:\n  - \"https://github.com/devthenet-labs/maul-target\""
 	deps := "new_dependencies: []"
 	questions := "questions:\n  - \"Should the build time be RFC 3339?\""
 	repo := func(u string) string { return planWith(repos, "repositories:\n  - \""+u+"\"") }
@@ -240,20 +240,20 @@ func TestParsePlanErrors(t *testing.T) {
 		{"missing repositories", planWith(repos+"\n", ""), "repositories is required"},
 		{"empty repositories", planWith(repos, "repositories: []"), "repositories is required"},
 		{"nine repositories", planWith(repos, items("repositories", PlanMaxRepositories+1, repoURL)), "over 8"},
-		{"http repository", repo("http://github.com/devthenet-labs/patchy-target"), "not an https"},
-		{"repository with credentials", repo("https://x:y@github.com/devthenet-labs/patchy-target"), "not an https"},
-		{"repository with a query", repo("https://github.com/devthenet-labs/patchy-target?ref=main"), "not an https"},
-		{"repository with a deeper path", repo("https://github.com/devthenet-labs/patchy-target/tree/main"),
+		{"http repository", repo("http://github.com/devthenet-labs/maul-target"), "not an https"},
+		{"repository with credentials", repo("https://x:y@github.com/devthenet-labs/maul-target"), "not an https"},
+		{"repository with a query", repo("https://github.com/devthenet-labs/maul-target?ref=main"), "not an https"},
+		{"repository with a deeper path", repo("https://github.com/devthenet-labs/maul-target/tree/main"),
 			"not an https"},
 		{"owner only", repo("https://github.com/devthenet-labs"), "not an https"},
 		{"repository URL over 256 bytes",
 			repo("https://github.com/devthenet-labs/" + strings.Repeat("r", RepositoryURLMaxBytes)), "over 256"},
 		{"repository listed twice", planWith(repos, "repositories:\n"+
-			"  - \"https://github.com/devthenet-labs/patchy-target\"\n"+
-			"  - \"https://GitHub.com/devthenet-labs/Patchy-Target.git\""), "listed twice"},
+			"  - \"https://github.com/devthenet-labs/maul-target\"\n"+
+			"  - \"https://GitHub.com/devthenet-labs/Maul-Target.git\""), "listed twice"},
 		{"repository listed twice, one with an upper-case .GIT", planWith(repos, "repositories:\n"+
-			"  - \"https://github.com/devthenet-labs/patchy-target\"\n"+
-			"  - \"https://github.com/devthenet-labs/patchy-target.GIT\""), "listed twice"},
+			"  - \"https://github.com/devthenet-labs/maul-target\"\n"+
+			"  - \"https://github.com/devthenet-labs/maul-target.GIT\""), "listed twice"},
 		{"seventeen new dependencies", planWith(deps, items("new_dependencies", PlanMaxNewDependencies+1,
 			func(i int) string { return fmt.Sprintf("example.com/dep%d", i) })), "over 16"},
 		{"eleven questions", planWith(questions, items("questions", PlanMaxQuestions+1,

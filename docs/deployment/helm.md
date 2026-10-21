@@ -446,7 +446,7 @@ agent:
       route: go # the public Go route; optional when the profile holds registry grants
       port: 8090 # 1024-65535, unique, not 8081
       host: github.com # the default
-      repositories: [devthenet-labs/patchy-target] # RE2, anchored, lowercased owner/name
+      repositories: [devthenet-labs/maul-target] # RE2, anchored, lowercased owner/name
       modules: [github.com/google/uuid] # keep prefixes narrow
       bakedModCache: /opt/go/pkg/mod # the image's GOMODCACHE (the default); "" = network only
       allowPseudoVersions: false # the default

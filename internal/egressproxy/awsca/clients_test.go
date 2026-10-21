@@ -176,7 +176,7 @@ func TestSDKWireShape(t *testing.T) {
 	isolateAWSEnv(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		if r.Method != http.MethodPost || r.URL.Path != "/v1/authorization-token" || q.Get("domain") != "patchy-gate" ||
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/authorization-token" || q.Get("domain") != "maul-gate" ||
 			q.Get("domain-owner") != "377946145366" || q.Get("duration") != "3600" ||
 			!strings.HasPrefix(r.Header.Get("Authorization"), "AWS4-HMAC-SHA256 ") {
 			t.Errorf("unexpected request %s %s %v", r.Method, r.URL, r.Header.Get("Authorization"))
@@ -193,7 +193,7 @@ func TestSDKWireShape(t *testing.T) {
 		o.BaseEndpoint = aws.String(srv.URL)
 		o.HTTPClient = srv.Client()
 	})
-	m, err := New([]Registry{{Name: "ca", Ecosystem: "npm", Domain: "patchy-gate", DomainOwner: "377946145366",
+	m, err := New([]Registry{{Name: "ca", Ecosystem: "npm", Domain: "maul-gate", DomainOwner: "377946145366",
 		Region: "us-east-1", Duration: time.Hour}}, func(string) (API, error) { return api, nil },
 		Options{Now: func() time.Time { return time.Unix(1_800_000_000, 0) }})
 	if err != nil {

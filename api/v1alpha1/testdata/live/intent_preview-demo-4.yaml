@@ -70,7 +70,7 @@ status:
     digest: sha256:ef2ecae84ebe292f7fbb8d3c105dbe38c8411ab33223d16d37c01968dc3d31c1
     postedAt: "2026-10-03T02:22:00Z"
     repositories:
-      - https://github.com/devthenet-labs/patchy-preview-demo
+      - https://github.com/devthenet-labs/maul-preview-demo
     revision: 1
     summary: Change the welcome page greeting to 'Hello from maul' and style the page's main card teal (#0d9488)
   pullRequests:
@@ -79,9 +79,9 @@ status:
       mergedAt: "2026-10-03T02:43:36Z"
       nodeID: PR_kwDOUuyUYs8AAAABGYpGGQ
       number: 7
-      repository: https://github.com/devthenet-labs/patchy-preview-demo
+      repository: https://github.com/devthenet-labs/maul-preview-demo
       state: merged
-      url: https://github.com/devthenet-labs/patchy-preview-demo/pull/7
+      url: https://github.com/devthenet-labs/maul-preview-demo/pull/7
   revisions: 1
   roundNoticesThrough: 1
   rounds: 1

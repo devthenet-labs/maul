@@ -13,7 +13,7 @@ import (
 // specJSON is the shared profile JSON exactly as the design renders it
 // (egress-proxy step-1 spec, section 3.4).
 const specJSON = `[{"name":"go","route":"go","port":8090,"host":"github.com",
-  "repositories":["devthenet-labs/patchy-preview-demo"],
+  "repositories":["devthenet-labs/maul-preview-demo"],
   "modules":["github.com/google/uuid","golang.org/x"],
   "bakedModCache":"/opt/go/pkg/mod","allowPseudoVersions":false}]`
 
@@ -21,7 +21,7 @@ const specJSON = `[{"name":"go","route":"go","port":8090,"host":"github.com",
 func validProfile() Profile {
 	return Profile{
 		Name: "go", Route: RouteGo, Port: 8090, Host: "github.com",
-		Repositories:  []string{"devthenet-labs/patchy-preview-demo"},
+		Repositories:  []string{"devthenet-labs/maul-preview-demo"},
 		Modules:       Prefixes{"github.com/google/uuid", "golang.org/x/"},
 		BakedModCache: "/opt/go/pkg/mod",
 	}

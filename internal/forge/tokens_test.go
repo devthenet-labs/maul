@@ -71,7 +71,7 @@ func newAppServer(t *testing.T) (*appServer, string) {
 		_, _ = fmt.Fprintf(w, `{"token":"ghs_%d","expires_at":%q}`, n, tokenExpiry.Format(time.RFC3339))
 	})
 	mux.HandleFunc("GET /app", func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"id":7,"slug":"patchy-devthenet"}`))
+		_, _ = w.Write([]byte(`{"id":7,"slug":"maul-devthenet"}`))
 	})
 	srv := httptest.NewServer(http.StripPrefix("/api/v3", mux))
 	t.Cleanup(srv.Close)
@@ -283,8 +283,8 @@ func TestBotLogin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BotLogin() error = %v", err)
 	}
-	if login != "patchy-devthenet[bot]" {
-		t.Errorf("BotLogin() = %q, want patchy-devthenet[bot]", login)
+	if login != "maul-devthenet[bot]" {
+		t.Errorf("BotLogin() = %q, want maul-devthenet[bot]", login)
 	}
 
 	pat, _ := tokenStore(t, map[string][]byte{"token": []byte("pat")})

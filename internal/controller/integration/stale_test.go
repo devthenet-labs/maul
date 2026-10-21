@@ -35,7 +35,7 @@ import (
 	"github.com/devthenet-labs/maul/pkg/source"
 )
 
-// patchy-target's main, oldest first, as it stood when alerts 7 and 9 were
+// maul-target's main, oldest first, as it stood when alerts 7 and 9 were
 // reopened: #19 merged as base, then #16 (the alert-9 fix) and #14 (the
 // alert-7 fix) squash-merged on top of it, then #9. regression stands in
 // for a later commit that brings the vulnerable code back.
@@ -110,7 +110,7 @@ func (fakeAlertAPI) GetAlert(_ context.Context, _ ghclient.Repo, number int) (*g
 		Tags:            []string{"external/cwe/cwe-079", "external/cwe/cwe-116", "security"},
 		Severity:        "high",
 		State:           "open",
-		HTMLURL:         "https://github.com/devthenet-labs/patchy-target/security/code-scanning/9",
+		HTMLURL:         "https://github.com/devthenet-labs/maul-target/security/code-scanning/9",
 		Path:            "echo.go",
 		StartLine:       16,
 		EndLine:         16,
@@ -120,33 +120,33 @@ func (fakeAlertAPI) GetAlert(_ context.Context, _ ghclient.Repo, number int) (*g
 
 // liveIntegration mirrors the live code-scanning Integration: its name is
 // part of the family key, so the recorded deliveries resolve to the recorded
-// finding names (finding-1678e4a376-*).
+// finding names (finding-318952b59b-*).
 func liveIntegration() *v1alpha1.Integration {
 	integ := testIntegration()
 	integ.Name = "github"
 	return integ
 }
 
-// remediatedFix is finding-1678e4a376-2 as it stood the moment PR #16 was
+// remediatedFix is finding-318952b59b-2 as it stood the moment PR #16 was
 // merged: in review, its PR open.
 func remediatedFix() *v1alpha1.Finding {
 	return &v1alpha1.Finding{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "finding-1678e4a376-2", Namespace: "maul",
-			Labels: map[string]string{v1alpha1.LabelKeyHash: "1678e4a376"},
+			Name: "finding-318952b59b-2", Namespace: "maul",
+			Labels: map[string]string{v1alpha1.LabelKeyHash: "318952b59b"},
 		},
 		Spec: v1alpha1.FindingSpec{
 			IntegrationRef: v1alpha1.LocalObjectReference{Name: "github"},
 			Source:         "ghas",
 			Repository: &v1alpha1.FindingRepository{
 				Type: v1alpha1.RepositoryTypeGitHub,
-				URL:  "https://github.com/devthenet-labs/patchy-target",
-				Name: "devthenet-labs/patchy-target",
+				URL:  "https://github.com/devthenet-labs/maul-target",
+				Name: "devthenet-labs/maul-target",
 			},
 			Advisories: []string{"CWE-79", "CWE-116"},
 			Alerts: []v1alpha1.Alert{{
 				ID: "9", Source: "ghas",
-				URL: "https://github.com/devthenet-labs/patchy-target/security/code-scanning/9",
+				URL: "https://github.com/devthenet-labs/maul-target/security/code-scanning/9",
 			}},
 		},
 		Status: v1alpha1.FindingStatus{
@@ -214,7 +214,7 @@ func (h *staleHarness) merge(t *testing.T, edit func(string) string) {
 	if err := h.receiver.Signals.Handle(t.Context(), liveIntegration(), e); err != nil {
 		t.Fatalf("deliver PR merge: %v", err)
 	}
-	if got := get(t, h.client, "finding-1678e4a376-2").Status.Phase; got != v1alpha1.PhaseRemediated {
+	if got := get(t, h.client, "finding-318952b59b-2").Status.Phase; got != v1alpha1.PhaseRemediated {
 		t.Fatalf("after the merge phase = %q, want Remediated", got)
 	}
 }
@@ -238,7 +238,7 @@ func fixtureFile(t *testing.T, name string) string {
 }
 
 // TestStaleReopenAfterMergedFix reproduces the duplicate finding
-// finding-1678e4a376-5: PR #16 fixed alert 9 and merged as fa82fcd, then an
+// finding-318952b59b-5: PR #16 fixed alert 9 and merged as fa82fcd, then an
 // out-of-order CodeQL analysis of fa82fcd's parent (45b1bec) reopened the
 // alert. That reopen observes code the merged fix replaced and must not open
 // a successor generation; a reopen at the fix or after it still must.
@@ -265,37 +265,37 @@ func TestStaleReopenAfterMergedFix(t *testing.T) {
 			payload:      stale,
 			wantLookups:  2,
 			wantRecorded: true,
-			wantLog:      `msg="stale alert observation skipped" finding=finding-1678e4a376-2 alert=9 commit=` + base,
+			wantLog:      `msg="stale alert observation skipped" finding=finding-318952b59b-2 alert=9 commit=` + base,
 		},
 		{
 			name:        "reopen at a later commit that brings the code back opens a successor",
 			payload:     reopenedAt(regression),
-			wantCreated: "finding-1678e4a376-3",
+			wantCreated: "finding-318952b59b-3",
 			wantLookups: 1,
-			wantLog:     `msg="finding created" finding=finding-1678e4a376-3`,
+			wantLog:     `msg="finding created" finding=finding-318952b59b-3`,
 		},
 		{
 			name:        "reopen at the merge commit itself opens a successor without a lookup",
 			payload:     reopenedAt(fixMerge),
-			wantCreated: "finding-1678e4a376-3",
+			wantCreated: "finding-318952b59b-3",
 		},
 		{
 			name:        "reopen on a history the fix is not in opens a successor",
 			payload:     reopenedAt(unrelated),
-			wantCreated: "finding-1678e4a376-3",
+			wantCreated: "finding-318952b59b-3",
 			wantLookups: 1,
 		},
 		{
 			name:        "fix merged without a recorded merge commit fails open",
 			mergeEdit:   noMergeCommit,
 			payload:     stale,
-			wantCreated: "finding-1678e4a376-3",
+			wantCreated: "finding-318952b59b-3",
 		},
 		{
 			name:        "ancestry lookup failure fails open",
 			commitsErr:  errors.New("compare: 502"),
 			payload:     stale,
-			wantCreated: "finding-1678e4a376-3",
+			wantCreated: "finding-318952b59b-3",
 			wantLookups: 1,
 			wantLog:     `msg="commit ancestry lookup failed; ingesting"`,
 		},
@@ -307,20 +307,20 @@ func TestStaleReopenAfterMergedFix(t *testing.T) {
 			name:        "reopen after main was reset to before the fix opens a successor",
 			mainAt:      base,
 			payload:     stale,
-			wantCreated: "finding-1678e4a376-3",
+			wantCreated: "finding-318952b59b-3",
 			wantLookups: 2,
 		},
 		{
 			name: "reopen whose delivery names no branch fails open",
 			payload: strings.NewReplacer(`"ref": "refs/heads/main",`, ``,
 				`"ref": "refs/heads/main"`, `"ref": ""`).Replace(stale),
-			wantCreated: "finding-1678e4a376-3",
+			wantCreated: "finding-318952b59b-3",
 		},
 		{
 			name: "a new alert raised at an old commit still opens a finding",
 			payload: strings.NewReplacer(`"action": "reopened"`, `"action": "created"`,
 				`"number": 9,`, `"number": 13,`).Replace(stale),
-			wantCreated: "finding-1678e4a376-3",
+			wantCreated: "finding-318952b59b-3",
 		},
 	}
 	for _, tc := range cases {
@@ -344,8 +344,8 @@ func TestStaleReopenAfterMergedFix(t *testing.T) {
 				if f.Status.Phase != v1alpha1.PhaseOpened {
 					t.Errorf("%s phase = %q, want Opened", tc.wantCreated, f.Status.Phase)
 				}
-				if len(f.Spec.Related) != 1 || f.Spec.Related[0].To != "finding-1678e4a376-2" {
-					t.Errorf("%s related = %+v, want successor-of finding-1678e4a376-2", tc.wantCreated, f.Spec.Related)
+				if len(f.Spec.Related) != 1 || f.Spec.Related[0].To != "finding-318952b59b-2" {
+					t.Errorf("%s related = %+v, want successor-of finding-318952b59b-2", tc.wantCreated, f.Spec.Related)
 				}
 			}
 			if h.commits.calls != tc.wantLookups {
@@ -357,7 +357,7 @@ func TestStaleReopenAfterMergedFix(t *testing.T) {
 					AlertID: "9", Commit: base, Ref: "refs/heads/main", ObservedAt: metav1.NewTime(testClock),
 				}}
 			}
-			if got := get(t, h.client, "finding-1678e4a376-2").Status.StaleObservations; !staleObsEqual(got, wantObs) {
+			if got := get(t, h.client, "finding-318952b59b-2").Status.StaleObservations; !staleObsEqual(got, wantObs) {
 				t.Errorf("stale observations = %+v, want %+v", got, wantObs)
 			}
 			if tc.wantLog != "" && !strings.Contains(h.logs.String(), tc.wantLog) {
@@ -406,7 +406,7 @@ func TestStaleObservationRecheck(t *testing.T) {
 			name:        "alert silently regressed on main opens the successor",
 			mainAt:      regression,
 			alert:       staleAlert(regression, "refs/heads/main"),
-			wantCreated: "finding-1678e4a376-3",
+			wantCreated: "finding-318952b59b-3",
 		},
 		{
 			name:        "alert still at the stale commit stays pending",
@@ -422,7 +422,7 @@ func TestStaleObservationRecheck(t *testing.T) {
 			name:        "alert still at the stale commit after main was reset opens the successor",
 			mainAt:      base,
 			alert:       staleAlert(base, "refs/heads/main"),
-			wantCreated: "finding-1678e4a376-3",
+			wantCreated: "finding-318952b59b-3",
 		},
 		{
 			name:   "alert fixed on main settles",
@@ -507,7 +507,7 @@ func TestStaleObservationRecheck(t *testing.T) {
 			if n := len(listFindings(t, h.client)); n != 1 {
 				t.Fatalf("findings = %d after the stale reopen, want only the remediated one", n)
 			}
-			recorded := get(t, h.client, "finding-1678e4a376-2").Status.StaleObservations
+			recorded := get(t, h.client, "finding-318952b59b-2").Status.StaleObservations
 			if tc.edit != nil {
 				tc.edit(h)
 			}
@@ -526,7 +526,7 @@ func TestStaleObservationRecheck(t *testing.T) {
 				},
 				Ingest: h.receiver.Ingest, StaleRecheck: interval, Log: h.receiver.Log,
 			}
-			req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "maul", Name: "finding-1678e4a376-2"}}
+			req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "maul", Name: "finding-318952b59b-2"}}
 			res, err := r.Reconcile(t.Context(), req)
 			if err != nil {
 				t.Fatalf("Reconcile: %v", err)
@@ -534,8 +534,8 @@ func TestStaleObservationRecheck(t *testing.T) {
 
 			if tc.wantCreated != "" {
 				succ := get(t, h.client, tc.wantCreated)
-				if len(succ.Spec.Related) != 1 || succ.Spec.Related[0].To != "finding-1678e4a376-2" {
-					t.Errorf("successor related = %+v, want successor-of finding-1678e4a376-2", succ.Spec.Related)
+				if len(succ.Spec.Related) != 1 || succ.Spec.Related[0].To != "finding-318952b59b-2" {
+					t.Errorf("successor related = %+v, want successor-of finding-318952b59b-2", succ.Spec.Related)
 				}
 			} else if tc.check == nil {
 				if n := len(listFindings(t, h.client)); n != 1 {
@@ -549,7 +549,7 @@ func TestStaleObservationRecheck(t *testing.T) {
 			if tc.wantPending {
 				wantObs = recorded
 			}
-			if got := get(t, h.client, "finding-1678e4a376-2").Status.StaleObservations; !staleObsEqual(got, wantObs) {
+			if got := get(t, h.client, "finding-318952b59b-2").Status.StaleObservations; !staleObsEqual(got, wantObs) {
 				t.Errorf("stale observations = %+v, want %+v", got, wantObs)
 			}
 			if res.RequeueAfter != tc.wantAfter {
@@ -578,7 +578,7 @@ func TestStaleObservationUnrecordedFailsOpen(t *testing.T) {
 	h.merge(t, nil)
 	h.scan(t, fixtureFile(t, "code_scanning_alert.reopened.stale.json"))
 
-	get(t, h.client, "finding-1678e4a376-3")
+	get(t, h.client, "finding-318952b59b-3")
 	if want := `msg="stale alert observation not recorded; ingesting"`; !strings.Contains(h.logs.String(), want) {
 		t.Errorf("logs missing %q:\n%s", want, h.logs.String())
 	}
@@ -604,7 +604,7 @@ func TestAncestryDeniedSurfacesOnIntegration(t *testing.T) {
 	stale := fixtureFile(t, "code_scanning_alert.reopened.stale.json")
 	h.scan(t, stale)
 
-	get(t, h.client, "finding-1678e4a376-3") // fails open, as before
+	get(t, h.client, "finding-318952b59b-3") // fails open, as before
 	ancestry := func() *metav1.Condition {
 		var integ v1alpha1.Integration
 		if err := h.client.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: "github"}, &integ); err != nil {
@@ -619,7 +619,7 @@ func TestAncestryDeniedSurfacesOnIntegration(t *testing.T) {
 	// A human deletes the duplicate; the next stale reopen fails with an
 	// error that is not a refusal, which says nothing about the credential.
 	dropDuplicate := func() {
-		if err := h.client.Delete(t.Context(), get(t, h.client, "finding-1678e4a376-3")); err != nil {
+		if err := h.client.Delete(t.Context(), get(t, h.client, "finding-318952b59b-3")); err != nil {
 			t.Fatalf("delete duplicate: %v", err)
 		}
 	}

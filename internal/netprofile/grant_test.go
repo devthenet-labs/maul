@@ -14,16 +14,16 @@ import (
 // (no route) granting npm and pypi, and a go profile that also holds a go
 // grant.
 const registryProfileJSON = `[
- {"name":"web","port":8091,"repositories":["devthenet-labs/patchy-polyglot-demo"],
+ {"name":"web","port":8091,"repositories":["devthenet-labs/maul-polyglot-demo"],
   "modules":[],"bakedModCache":"","allowPseudoVersions":false,
   "registries":[
    {"name":"ca-npm","ecosystem":"npm",
-    "hosts":["patchy-gate-377946145366.d.codeartifact.us-east-1.amazonaws.com"],
+    "hosts":["maul-gate-377946145366.d.codeartifact.us-east-1.amazonaws.com"],
     "packagePolicy":"registry"},
    {"name":"ca-pypi","ecosystem":"pypi",
-    "hosts":["patchy-gate-377946145366.d.codeartifact.us-east-1.amazonaws.com","files.pythonhosted.org"],
+    "hosts":["maul-gate-377946145366.d.codeartifact.us-east-1.amazonaws.com","files.pythonhosted.org"],
     "packages":["six","requests","charset-normalizer"],"sdists":true}]},
- {"name":"go","route":"go","port":8090,"repositories":["devthenet-labs/patchy-preview-demo"],
+ {"name":"go","route":"go","port":8090,"repositories":["devthenet-labs/maul-preview-demo"],
   "modules":["github.com/","golang.org/x"],"bakedModCache":"/opt/go/pkg/mod","allowPseudoVersions":false,
   "registries":[
    {"name":"art-go","ecosystem":"go","hosts":["acme.jfrog.io"],"packages":["acme.example/"],
@@ -280,13 +280,13 @@ func TestPropertyPrivateModulesArePrefixes(t *testing.T) {
 func TestCheckGrants(t *testing.T) {
 	regs, err := ParseRegistries([]byte(`[
 	 {"name":"ca-npm","ecosystem":"npm",
-	  "url":"https://patchy-gate-377946145366.d.codeartifact.us-east-1.amazonaws.com/npm/npm-store/",
+	  "url":"https://maul-gate-377946145366.d.codeartifact.us-east-1.amazonaws.com/npm/npm-store/",
 	  "auth":{"type":"codeartifact",
-	   "codeartifact":{"domain":"patchy-gate","domainOwner":"377946145366","region":"us-east-1"}}},
+	   "codeartifact":{"domain":"maul-gate","domainOwner":"377946145366","region":"us-east-1"}}},
 	 {"name":"ca-pypi","ecosystem":"pypi",
-	  "url":"https://patchy-gate-377946145366.d.codeartifact.us-east-1.amazonaws.com/pypi/pypi-store/simple/",
+	  "url":"https://maul-gate-377946145366.d.codeartifact.us-east-1.amazonaws.com/pypi/pypi-store/simple/",
 	  "auth":{"type":"codeartifact",
-	   "codeartifact":{"domain":"patchy-gate","domainOwner":"377946145366","region":"us-east-1"}},
+	   "codeartifact":{"domain":"maul-gate","domainOwner":"377946145366","region":"us-east-1"}},
 	  "fileHosts":["files.pythonhosted.org"]},
 	 {"name":"art-go","ecosystem":"go","url":"https://acme.jfrog.io/go/","auth":{"type":"basic"},
 	  "privateModules":["acme.example/"],"publicChecksumLookups":true}]`), RegistryContext{})

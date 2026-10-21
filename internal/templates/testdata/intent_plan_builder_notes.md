@@ -1,4 +1,4 @@
-<!-- maul:plan maul/target-1 r2 sha256:a1d85ae7ab28 -->
+<!-- maul:plan maul/target-1 r2 sha256:e59b098d46f7 -->
 ## Plan r2
 
 **Summary:** Add GET /version returning {sha, built} as JSON
@@ -11,18 +11,18 @@ The plan includes notes for the builder, under `## Notes for the builder`. The b
 
 ### To approve
 
-Add the `maul:approved` label to this issue, or comment `/maul approve`. maul then builds exactly the plan below: r2, `sha256:a1d85ae7ab28`. If this comment or the issue description is edited after maul posted the plan, the approval is refused and maul asks for a new plan.
+Add the `maul:approved` label to this issue, or comment `/maul approve`. maul then builds exactly the plan below: r2, `sha256:e59b098d46f7`. If this comment or the issue description is edited after maul posted the plan, the approval is refused and maul asks for a new plan.
 
 For a different plan, say what should change in a comment, then re-apply the `maul:target` label or comment `/maul replan`. `/maul cancel` stops work on this intent.
 
 ### The plan
 
-This is the planner's report exactly as the build agent reads it, byte for byte, with nothing in it rendered or left out. GitHub does not wrap it, so scroll it sideways to read a long line to its end. Its digest is `sha256:a1d85ae7ab28f4b3239b239b6c87c03d383980644bca57c7a718bb1bfb64a0f0`.
+This is the planner's report exactly as the build agent reads it, byte for byte, with nothing in it rendered or left out. GitHub does not wrap it, so scroll it sideways to read a long line to its end. Its digest is `sha256:e59b098d46f7b5a89b5520126315707ec33f12c378fcf844b0e7f5a73c4d8a8b`.
 
 ```markdown
 ---
 summary: Add GET /version returning {sha, built} as JSON
-repositories: [patchy-target]
+repositories: [maul-target]
 new_dependencies: []
 questions: []
 confidence: high

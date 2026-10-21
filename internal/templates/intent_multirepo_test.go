@@ -161,8 +161,8 @@ func TestMultiRepoGoldens(t *testing.T) {
 			return RenderIntentSummaryComment(IntentSummaryComment{
 				Namespace: "maul", Intent: "preview-demo-5",
 				PullRequests: []IntentPullRequest{{
-					Repository: "devthenet-labs/patchy-preview-demo", Number: 9,
-					URL: "https://github.com/devthenet-labs/patchy-preview-demo/pull/9", State: "merged",
+					Repository: "devthenet-labs/maul-preview-demo", Number: 9,
+					URL: "https://github.com/devthenet-labs/maul-preview-demo/pull/9", State: "merged",
 				}},
 				CheckFixes: 1, CostMicroUSD: 748_594,
 			})
@@ -188,7 +188,7 @@ func TestOneRepositoryRendersUnchanged(t *testing.T) {
 		name       string
 		with, base func() (string, error)
 	}
-	one := []string{"devthenet-labs/patchy-target"}
+	one := []string{"devthenet-labs/maul-target"}
 	planComment := func(repos []string) func() (string, error) {
 		return func() (string, error) {
 			p := testPlanComment(testPlan)

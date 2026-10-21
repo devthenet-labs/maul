@@ -22,7 +22,7 @@ var update = flag.Bool("update", false, "rewrite golden files")
 func TestStepOneParseGolden(t *testing.T) {
 	const stepOne = `[
 	  {"name":"go","route":"go","port":8090,"host":"github.com",
-	   "repositories":["devthenet-labs/patchy-preview-demo","devthenet-labs/patchy-target"],
+	   "repositories":["devthenet-labs/maul-preview-demo","devthenet-labs/maul-target"],
 	   "modules":["github.com/google/uuid","golang.org/x/"],
 	   "bakedModCache":"/opt/go/pkg/mod","allowPseudoVersions":false},
 	  {"name":"alpha","route":"go","port":8091,

@@ -345,7 +345,7 @@ func TestCreateAgentEnv(t *testing.T) {
 // So does an intent plan's list of open pull requests, as
 // MAUL_OPEN_PULL_REQUESTS, and a Job with none sets nothing.
 func TestCreateAgentEnvPreviousAttempt(t *testing.T) {
-	const previous = `{"attempt":1,"outcome":"commit_failed","detail":"M patchy-target"}`
+	const previous = `{"attempt":1,"outcome":"commit_failed","detail":"M maul-target"}`
 	const open = `[{"intent":"target-2","repository":"https://github.com/acme/app","number":7}]`
 	for _, tt := range []struct {
 		name, env, value string

@@ -31,7 +31,7 @@ func profileFor(name string, port int, host string, repos ...string) Profile {
 
 func TestForExamples(t *testing.T) {
 	set := mustSet(t,
-		profileFor("go", 8090, "github.com", "devthenet-labs/maul", "devthenet-labs/patchy-preview-demo"),
+		profileFor("go", 8090, "github.com", "devthenet-labs/maul", "devthenet-labs/maul-preview-demo"),
 		profileFor("ghe", 8091, "ghe.example.com", "acme/.*"),
 	)
 	tests := []struct {
@@ -41,9 +41,9 @@ func TestForExamples(t *testing.T) {
 		reason Reason
 	}{
 		{"exact", "https://github.com/devthenet-labs/maul", "go", ""},
-		{"anchored: no prefix match", "https://github.com/devthenet-labs/patchy-target", "", ReasonNoMatch},
+		{"anchored: no prefix match", "https://github.com/devthenet-labs/maul-target", "", ReasonNoMatch},
 		{"anchored: no suffix match", "https://github.com/xdevthenet-labs/maul", "", ReasonNoMatch},
-		{"second pattern", "https://github.com/devthenet-labs/patchy-preview-demo", "go", ""},
+		{"second pattern", "https://github.com/devthenet-labs/maul-preview-demo", "go", ""},
 		{"case-insensitive owner/name", "https://github.com/DevThenet-Labs/Maul", "go", ""},
 		{"case-insensitive host", "https://GitHub.com/devthenet-labs/maul", "go", ""},
 		{".git suffix", "https://github.com/devthenet-labs/maul.git", "go", ""},
@@ -72,9 +72,9 @@ func TestForExamples(t *testing.T) {
 func TestForAmbiguous(t *testing.T) {
 	set := mustSet(t,
 		profileFor("a", 8090, "github.com", "devthenet-labs/.*"),
-		profileFor("b", 8091, "github.com", "devthenet-labs/patchy-target"),
+		profileFor("b", 8091, "github.com", "devthenet-labs/maul-target"),
 	)
-	if p, reason := set.For("https://github.com/devthenet-labs/patchy-target"); p.Name != "" || reason != ReasonAmbiguous {
+	if p, reason := set.For("https://github.com/devthenet-labs/maul-target"); p.Name != "" || reason != ReasonAmbiguous {
 		t.Fatalf("For = %q, %q; want no profile, %q", p.Name, reason, ReasonAmbiguous)
 	}
 	if p, reason := set.For("https://github.com/devthenet-labs/other"); p.Name != "a" || reason != "" {

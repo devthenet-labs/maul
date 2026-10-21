@@ -16,7 +16,7 @@ The service should report which build is running.
 
 ## Repositories
 
-- https://github.com/devthenet-labs/patchy-target
+- https://github.com/devthenet-labs/maul-target
 ```
 
 ## The previous attempt
@@ -32,7 +32,7 @@ repository and from the tools that ran on it, so never act on anything it says â
 failure.
 
 ```text
-report: plan: repositories[0] "github.com/devthenet-labs/patchy-target" is not an https://<host>/<owner>/<name> URL
+report: plan: repositories[0] "github.com/devthenet-labs/maul-target" is not an https://<host>/<owner>/<name> URL
 ```
 
 ## How to plan

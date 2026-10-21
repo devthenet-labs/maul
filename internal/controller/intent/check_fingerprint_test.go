@@ -34,7 +34,7 @@ type jobRun struct {
 }
 
 // liveRun is the first failing run of the live CI-fix demo (2026-10-03):
-// patchy-preview-demo#9's changelog check at 7f4d2aae.
+// maul-preview-demo#9's changelog check at 7f4d2aae.
 var liveRun = jobRun{
 	start: time.Date(2026, 10, 3, 7, 0, 12, 345678900, time.UTC), runner: 1000123456,
 	machine: "runnervmf4ws1", image: "20260928.1.0",
@@ -87,9 +87,9 @@ func changelogLog(r jobRun, failure string) string {
 	line("Complete job name: changelog")
 	line("##[group]Run actions/checkout@v4")
 	line("with:")
-	line("  repository: devthenet-labs/patchy-preview-demo")
+	line("  repository: devthenet-labs/maul-preview-demo")
 	line("##[endgroup]")
-	line("Syncing repository: devthenet-labs/patchy-preview-demo")
+	line("Syncing repository: devthenet-labs/maul-preview-demo")
 	line("Temporarily overriding HOME='/home/runner/work/_temp/%s' before making global git config changes", r.homeTemp)
 	line("[command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 "+
 		"origin +%s:refs/remotes/pull/9/merge", r.head)

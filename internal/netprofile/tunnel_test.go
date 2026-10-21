@@ -21,7 +21,7 @@ import (
 func tunnelProfile() Profile {
 	return Profile{
 		Name: "web", Route: RouteTunnel, Port: 8092, Host: "github.com",
-		Repositories: []string{"devthenet-labs/patchy-pip-fixture"},
+		Repositories: []string{"devthenet-labs/maul-pip-fixture"},
 		Hosts:        Hosts{"pypi.org", "files.pythonhosted.org"},
 		Clients:      []string{ClientPip},
 	}
@@ -29,9 +29,9 @@ func tunnelProfile() Profile {
 
 func TestParseTunnelProfiles(t *testing.T) {
 	const doc = `[
-	  {"name":"web","route":"tunnel","port":8092,"repositories":["devthenet-labs/patchy-pip-fixture"],
+	  {"name":"web","route":"tunnel","port":8092,"repositories":["devthenet-labs/maul-pip-fixture"],
 	   "modules":[],"bakedModCache":"","hosts":["pypi.org","files.pythonhosted.org"],"clients":["pip","uv"]},
-	  {"name":"go","route":"go","port":8090,"repositories":["devthenet-labs/patchy-preview-demo"],
+	  {"name":"go","route":"go","port":8090,"repositories":["devthenet-labs/maul-preview-demo"],
 	   "modules":["github.com/google/uuid"],"bakedModCache":"/opt/go/pkg/mod","allowPseudoVersions":false,
 	   "hosts":["registry.npmjs.org"],"clients":["npm"],"upload":{"perTunnel":1048576,"perSource":8388608}}]`
 	set, err := Parse([]byte(doc))

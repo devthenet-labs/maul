@@ -38,7 +38,7 @@ within:
   humans also push to.
 - Webhook handler errors after the 202 are lost, and deliveries arrive in no guaranteed order. The live redelivery sweep
   (24 h lookback) and `spec.replay` resend old deliveries. A label event carries no `author_association`.
-- The only app repo, patchy-target, is deliberately vulnerable and must never be previewed.
+- The only app repo, maul-target, is deliberately vulnerable and must never be previewed.
 
 ## Goals
 
@@ -898,7 +898,7 @@ iterates on those failures itself, using the revise machinery.
 
 **Dependencies.**
 
-- _Baked in._ Dependencies are baked into the image the app repo declares. patchy-target already does this: its module
+- _Baked in._ Dependencies are baked into the image the app repo declares. maul-target already does this: its module
   cache is baked into the image and `GOPROXY` is off.
 - _Image required._ Intent build and revise runs require that image. There is no fallback to the default image, which
   has no toolchain. That closes, for intents, the follow-up about untested PRs from runs that fell back to the default
@@ -969,7 +969,7 @@ preview image path prefix.
 - concurrent revise rounds within one intent;
 - server-side calls between preview components;
 - the webhook nudge;
-- moving the existing patchy-target and preview-demo infrastructure into the new per-app map.
+- moving the existing maul-target and preview-demo infrastructure into the new per-app map.
 
 ### At a glance
 
@@ -1206,7 +1206,7 @@ preview image path prefix.
   - _Each entry:_ the exact GitHub name and the repository ID.
   - _Trust:_ pinned to `repository_id`, `repository_owner_id`, the `main` ref and the publisher workflow's ref.
   - _A rename_ means updating `github_repo` alone.
-  - _Existing resources:_ the patchy-target and preview-demo resources are untouched; the plan shows no change to them.
+  - _Existing resources:_ the maul-target and preview-demo resources are untouched; the plan shows no change to them.
 
 ### API changes
 
@@ -1305,7 +1305,7 @@ Both serve `/healthz`, so the health check works even if Auto Mode ignores per-S
 
 - its own `.maul/agent.yaml` toolchain image under `maul/app-envs/<slug>`;
 - an uncredentialed CI job named `test`;
-- a trusted `workflow_run` publisher, copied from patchy-preview-demo with its constants moved to repository variables.
+- a trusted `workflow_run` publisher, copied from maul-preview-demo with its constants moved to repository variables.
 
 ### Decisions (slice 3)
 
@@ -1454,7 +1454,7 @@ namespaces. maul renders every manifest.
   - The number of slots is the global cost bound.
 - **Prerequisite.** The status-server cookies become `__Host-` names. `internal/web/auth/cookies.go` uses the bare names
   `maul-auth` and `maul-oauth2-state`, and every preview host is same-site with `status.maul.devthe.net`.
-- **Demo app.** A new, benign repo. patchy-target is never previewed.
+- **Demo app.** A new, benign repo. maul-target is never previewed.
 
 **Alternative: app-repo GitHub Actions deploys.** maul gains no deploy power at all. The deploy has to run from main's
 context:
@@ -1586,7 +1586,7 @@ class JSON later; its strict decoder makes a new field an additive change.
 
 ## First slice, in two parts (D4)
 
-**Scope:** one Project and one app repo, patchy-target. Its Go image is already live, and using it exercises coexistence
+**Scope:** one Project and one app repo, maul-target. Its Go image is already live, and using it exercises coexistence
 with Findings in the same repo. No previews.
 
 - **Slice 1a (about 6-8 days):** plan, approval (the label or `/maul approve`), replan (re-applying the trigger label or
@@ -1600,7 +1600,7 @@ with Findings in the same repo. No previews.
 - `make e2e`;
 - the real claude CLI through the broker;
 - a release;
-- a fresh live Finding on patchy-target reaching its PR, with the Helm rollback revision recorded.
+- a fresh live Finding on maul-target reaching its PR, with the Helm rollback revision recorded.
 
 The waves:
 
@@ -1652,8 +1652,8 @@ devthenet-dev in a separate Helm upgrade from the release that ships them.
 1. **Setup.**
    - Create the private repo `devthenet-labs/intents` with an issue form that applies `maul:target`.
    - Run `helm upgrade maul … --set intentController.enabled=true` as its own revision.
-   - Add Project `target` to maul-config: intent repo `intents`, repositories `[patchy-target]`, and the owner's login
-     as approver.
+   - Add Project `target` to maul-config: intent repo `intents`, repositories `[maul-target]`, and the owner's login as
+     approver.
    - Check that `kubectl get projects -n maul` shows `Ready=True`.
 2. **Trigger.** Open the issue "Add GET /version returning {sha, built} as JSON". Within about a minute, `target-1` goes
    from `Pending` to `Planning` and the status comment appears. The plan Job (`-l maul.run/run-kind=intent`) runs on the
@@ -1664,7 +1664,7 @@ devthenet-dev in a separate Helm upgrade from the release that ships them.
      removed, and nothing builds.
    - Negative check: edit the plan comment, then approve. The approval is refused and a replan is requested.
    - Comment "also add a unit test" and re-apply `maul:target`. Plan r2 appears.
-4. **Approve.** The owner applies `maul:approved`, and the Intent moves to `Building`. The Job runs patchy-target's ECR
+4. **Approve.** The owner applies `maul:approved`, and the Intent moves to `Building`. The Job runs maul-target's ECR
    image (`runner-image-source=repository`), and `go test ./...` passes in the transcript.
 5. **PR.** A PR opens from `maul-intent/target-1`. Its body says "Part of devthenet-labs/intents#1", with no closing
    keyword. The Intent is in `InReview`.
@@ -1711,7 +1711,7 @@ Make intents and previews installable without reproducing devthenet's manual set
   - `maul init app` to scaffold an app repo's `.maul/` toolchain image, runtime Dockerfile and split build/publish CI.
     PR builds remain uncredentialed and lack `id-token`; fork PRs never publish, and the trusted publisher never runs PR
     code;
-  - a template app repo based on `patchy-preview-demo`, never on the vulnerable `patchy-target`;
+  - a template app repo based on `maul-preview-demo`, never on the vulnerable `maul-target`;
   - a `maul check` preflight for a Project's GitHub, image-publishing and preview setup before enabling it.
 - Write an operator guide, **Deploying intents and previews**, covering prerequisites, installation, onboarding,
   verification, upgrades and rollback.

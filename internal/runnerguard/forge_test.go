@@ -23,7 +23,7 @@ import (
 func registryProfiles(t testing.TB) netprofile.Set {
 	t.Helper()
 	set, err := netprofile.Parse([]byte(`[{"name":"web","route":"go","port":8091,` +
-		`"repositories":["devthenet-labs/patchy-target"],"modules":["github.com/google/uuid"],"registries":[` +
+		`"repositories":["devthenet-labs/maul-target"],"modules":["github.com/google/uuid"],"registries":[` +
 		`{"name":"art-npm","ecosystem":"npm","hosts":["acme.jfrog.io","*.cdn.acme.example"],` +
 		`"packagePolicy":"registry"},` +
 		`{"name":"art-go","ecosystem":"go","hosts":["acme.jfrog.io"],"packages":["acme.example/"],` +
@@ -229,7 +229,7 @@ func tunnelSpec(t *testing.T) *jobs.Spec {
 func tunnelSpecSet(t *testing.T) (*jobs.Spec, netprofile.Set) {
 	t.Helper()
 	set, err := netprofile.Parse([]byte(`[{"name":"web","route":"tunnel","port":8092,` +
-		`"repositories":["devthenet-labs/patchy-target"],"modules":[],"bakedModCache":"",` +
+		`"repositories":["devthenet-labs/maul-target"],"modules":[],"bakedModCache":"",` +
 		`"hosts":["pypi.org","files.pythonhosted.org"],"clients":["pip"],` +
 		`"upload":{"perTunnel":1048576,"perSource":8388608}}]`))
 	if err != nil {

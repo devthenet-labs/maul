@@ -60,8 +60,8 @@ func TestIntentReplyGoldens(t *testing.T) {
 			return RenderIntentSummaryComment(IntentSummaryComment{
 				Namespace: "maul", Intent: "target-1",
 				PullRequests: []IntentPullRequest{{
-					Repository: "devthenet-labs/patchy-target", Number: 12,
-					URL: "https://github.com/devthenet-labs/patchy-target/pull/12", State: "merged",
+					Repository: "devthenet-labs/maul-target", Number: 12,
+					URL: "https://github.com/devthenet-labs/maul-target/pull/12", State: "merged",
 				}},
 				CostMicroUSD: 1_234_567,
 			})

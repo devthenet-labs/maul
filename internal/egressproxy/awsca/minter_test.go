@@ -169,7 +169,7 @@ func (h *harness) header() (string, error) {
 }
 
 func TestMintScheduleBackoffAndExpiry(t *testing.T) {
-	reg := Registry{Name: "ca", Ecosystem: netprofile.EcosystemNPM, Domain: "patchy-gate", DomainOwner: "377946145366",
+	reg := Registry{Name: "ca", Ecosystem: netprofile.EcosystemNPM, Domain: "maul-gate", DomainOwner: "377946145366",
 		Region: "us-east-1"}
 	h := newHarness(t, reg, token(sentinel, t0.Add(12*time.Hour)))
 
@@ -184,7 +184,7 @@ func TestMintScheduleBackoffAndExpiry(t *testing.T) {
 		t.Fatalf("kind = %s", c.Kind())
 	}
 	in := h.api.inputs[0]
-	if *in.Domain != "patchy-gate" || *in.DomainOwner != "377946145366" || *in.DurationSeconds != 43200 {
+	if *in.Domain != "maul-gate" || *in.DomainOwner != "377946145366" || *in.DurationSeconds != 43200 {
 		t.Fatalf("input = %+v", in)
 	}
 	if exp, ok := h.m.ExpiresAt("ca"); !ok || !exp.Equal(t0.Add(12*time.Hour)) {

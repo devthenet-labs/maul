@@ -251,14 +251,14 @@ for a CONNECT tunnel to them on 443. The proxy checks the ClientHello's SNI and 
 
 - Live on devthenet-dev: Helm maul rev 98 (0.12.36) and maul-config rev 59. Profile `py` (route tunnel, port 8092, hosts
   `pypi.org` and `files.pythonhosted.org`, client preset `pip`) for the new fixture repository
-  `devthenet-labs/patchy-pip-fixture` (signed `python:3.13-slim` agent image, Project `pip-fixture`, label
+  `devthenet-labs/maul-pip-fixture` (signed `python:3.13-slim` agent image, Project `pip-fixture`, label
   `maul:pip-fixture`).
 - Gate passed 2026-10-15:
   - Probes: a listed host `200`; `example.com` `not_allowed`; `github.com`, `upload.pypi.org` and `api.anthropic.com`
     `hard_denied`; `1.1.1.1` `ip_literal`; port 8443 `port`; an SNI mismatch answered with a TLS alert; `upload_cap` at
     1 MiB; `source_upload_budget`. Unlabelled and `go`-labelled pods cannot reach 8092. The `go` route and the
     CodeArtifact registries still work.
-  - Intents: intents#32 opened patchy-pip-fixture#1, whose build fetched `python-slugify` through the tunnel; merged.
+  - Intents: intents#32 opened maul-pip-fixture#1, whose build fetched `python-slugify` through the tunnel; merged.
     intents#33 needed `download.pytorch.org`, which the profile does not list: the refusal was reported in the run
     (`status.detail` and `status.report` quote the proxy's `403` line), and the intent ended `Failed`.
   - Rollback drill: `suspendProfiles` answered new CONNECTs
@@ -301,11 +301,11 @@ Follow-ups:
 be granted operator-defined Go, npm and pip registries (Artifactory, Nexus, CodeArtifact), whose credential only the
 proxy holds. See [docs/configuration/egress-proxy.md](docs/configuration/egress-proxy.md#registries).
 
-- Live on devthenet-dev: Helm maul rev 91 (0.12.34) and maul-config rev 56. A CodeArtifact domain `patchy-gate` holds
-  npm and pip repositories whose allowlists are granted to the `go` profile.
+- Live on devthenet-dev: Helm maul rev 91 (0.12.34) and maul-config rev 56. A CodeArtifact domain `maul-gate` holds npm
+  and pip repositories whose allowlists are granted to the `go` profile.
 - Gate passed 2026-10-15:
-  - Findings: patchy-target#115 and #117 merged, both Findings Remediated.
-  - Intent: intents#30 opened patchy-preview-demo#24, with its preview, and its build fetched Go modules through the
+  - Findings: maul-target#115 and #117 merged, both Findings Remediated.
+  - Intent: intents#30 opened maul-preview-demo#24, with its preview, and its build fetched Go modules through the
     proxy; merged.
   - The agent pause (`agent.paused`).
   - `maul backfill` then a maul-config upgrade applied without `--force-conflicts` (CLI field ownership, #193).
@@ -354,9 +354,9 @@ and intent build Jobs a route to it. Agent pods keep `dns: none`; the profile's 
 - Live on devthenet-dev: Helm maul rev 86 (0.12.32, profile `go` on) and maul-config rev 53. Rollbacks:
   - `egressProxy.suspendProfiles: true` (rev 85 was this): the proxy answers 410 at once and new Jobs get no profile;
   - rev 82: 0.12.31 with the proxy off; rev 81: 0.12.30.
-- Values (terraform-devthenet #54): profile `go` for `patchy-preview-demo` and `patchy-target`, module prefixes
-  github.com, golang.org/x, google.golang.org, gopkg.in, go.opentelemetry.io, k8s.io and sigs.k8s.io, tagged releases
-  only, baked cache `/opt/go/pkg/mod`. Repositories declare nothing; the operator maps profiles to repositories.
+- Values (terraform-devthenet #54): profile `go` for `maul-preview-demo` and `maul-target`, module prefixes github.com,
+  golang.org/x, google.golang.org, gopkg.in, go.opentelemetry.io, k8s.io and sigs.k8s.io, tagged releases only, baked
+  cache `/opt/go/pkg/mod`. Repositories declare nothing; the operator maps profiles to repositories.
 - How it was decided: direct registry egress through EKS Auto Mode's FQDN policies was probed live and rejected (it
   needs a resolver in the pod and filters by address, not name). Per-language mirrors were rejected as too many
   services. An independent review reordered the plan to a Go-protocol route first: it sees module paths, so it can
@@ -370,9 +370,9 @@ and intent build Jobs a route to it. Agent pods keep `dns: none`; the profile's 
     Held through a proxy restart, and from fresh pods.
   - A bump past a baked version (uuid v1.5.0 to v1.6.0) came through the proxy; a refused module still built from the
     baked cache.
-  - Intents: intents#27 added `github.com/google/uuid` (patchy-preview-demo#21) and intents#28 added `golang.org/x/text`
-    (patchy-preview-demo#22). Plan Jobs had no profile, build Jobs did, CI verified `go.sum`, both merged.
-  - Findings: patchy-target#111 with the profile and #113 with profiles suspended (no label on the Job); both merged.
+  - Intents: intents#27 added `github.com/google/uuid` (maul-preview-demo#21) and intents#28 added `golang.org/x/text`
+    (maul-preview-demo#22). Plan Jobs had no profile, build Jobs did, CI verified `go.sum`, both merged.
+  - Findings: maul-target#111 with the profile and #113 with profiles suspended (no label on the Job); both merged.
   - Kill switch: suspend took 71 s, lifting it 69 s.
 
 **Earlier the same day (0.12.29, 0.12.30):**
@@ -387,7 +387,7 @@ and intent build Jobs a route to it. Agent pods keep `dns: none`; the profile's 
 - #182: Finding PR bodies, report comments and commit messages now go through the same sanitising as intents (it was raw
   agent text). Comments and PR bodies posted before 0.12.30 are not re-rendered.
 - #175: the e2e suite has an explicit 30-minute timeout.
-- Each release was gated with a live Finding on patchy-target (#107, #109) and merged green.
+- Each release was gated with a live Finding on maul-target (#107, #109) and merged green.
 
 Follow-ups (as of this checkpoint; see the current one above):
 
@@ -404,9 +404,9 @@ Follow-ups (as of this checkpoint; see the current one above):
 **0.12.28 is live** (Helm maul rev 79, maul-config rev 48; rollback 78 / 47). It ships the signing support for other
 installs: the `maul init app` publisher signs (#169), the app module grants the key and the layer read `cosign verify`
 needs (#171), and the platform module creates or passes the key (`create_agent_signing_key`, `agent_signing_key_arn`,
-output `agent_signing`; #173). Gate: finding-514becf18f-29, image verified, then patchy-target#103 merged and the
-Finding Remediated. The stale September tracking issues on patchy-target are closed; their three Findings are HandedOff,
-and their alerts are untouched.
+output `agent_signing`; #173). Gate: finding-514becf18f-29, image verified, then maul-target#103 merged and the Finding
+Remediated. The stale September tracking issues on maul-target are closed; their three Findings are HandedOff, and their
+alerts are untouched.
 
 **Agent pods now have no DNS resolver, and every repository-declared agent image must carry a cosign signature.** Both
 ship as configuration on 0.12.27 and were gated live together. Since 2026-10-12 the egress broker has authenticated with
@@ -435,13 +435,12 @@ the owner's Claude subscription (`egressBroker.anthropicAuth: token`), not an AP
     publish signed its image, then failed to read it back.
   - `maul check image --cosign-key` passes the signed image and fails an older unsigned one.
 - **Gate:**
-  - A Finding (finding-514becf18f-27) ran with DNS off: PR patchy-target#99 merged, Remediated. Broker calls were 200,
+  - A Finding (finding-514becf18f-27) ran with DNS off: PR maul-target#99 merged, Remediated. Broker calls were 200,
     apart from the two known `HEAD /api/hello` probes.
   - After the switch, finding-514becf18f-28's Repository pinned its image with `verified: true`. Investigation and
-    remediation ran in that image, and patchy-target#101 merged → Remediated.
-  - Intent intents#26: a plan (default image) and a build (preview-demo's signed image), then patchy-preview-demo#20.
-    The preview was Ready behind sign-in; merging moved the intent to Merged, closed the issue and tore the preview
-    down.
+    remediation ran in that image, and maul-target#101 merged → Remediated.
+  - Intent intents#26: a plan (default image) and a build (preview-demo's signed image), then maul-preview-demo#20. The
+    preview was Ready behind sign-in; merging moved the intent to Merged, closed the issue and tore the preview down.
 
 Decided: the public fork's history keeps the site values. GitHub keeps every pull request's commits under
 `refs/pull/*/head`, so rewriting `main` could not remove them. The upstream advisory is still unsent.
@@ -611,7 +610,7 @@ sign-in plus four small fixes; the larger "never discard work" and intent-contex
   writes confined to the stage's report directory (the investigate stage had no write scope), auto memory off so an
   in-pod report repair loads nothing the agent wrote. Prompts state the real tool surface on claude only; codex and
   copilot cannot express the posture, so the pod stays their boundary. Live: a plan run used only Read/Glob/Grep and one
-  Write, and a fresh Finding (alert #48, patchy-target#90) went from seed to Remediated in about six minutes with an
+  Write, and a fresh Finding (alert #48, maul-target#90) went from seed to Remediated in about six minutes with an
   investigation that used only file tools.
 - 0.12.23, #147 the planner is told maul checks the plan's layout itself (live planners spent their last turns writing
   check scripts); #148 an over-long build note no longer fails the run; #149 a check-fix round heads its diagnostics
@@ -654,7 +653,7 @@ Live on devthenet-dev: Helm maul rev 62 (rollback 61 = 0.12.20), maul-config rev
 against 0.12.20 was the new optional CRD fields plus config checksums. All nine deployments ready on v0.12.21, no
 controller errors after the upgrade, all five Projects Ready. Neither opt-in is enabled there yet.
 
-Fresh-Finding gate (2026-10-07): seed `rerungatekey.go` (1024-bit RSA) on patchy-target 01:59Z, alert #47 02:00:42Z,
+Fresh-Finding gate (2026-10-07): seed `rerungatekey.go` (1024-bit RSA) on maul-target 01:59Z, alert #47 02:00:42Z,
 `finding-514becf18f-22` one second later with issue #87, `/maul expedite` 02:01:17Z, Investigating, Remediating
 02:03:00Z, InReview 02:04:22Z with PR #88 (2048-bit key plus a regression test), all checks green, merged, Remediated
 02:05:29Z, issue #87 closed completed, alert #47 fixed, exactly one Finding for it. No approval hold.
@@ -703,7 +702,7 @@ Gate: weak-key alert **#46** → `finding-514becf18f-21` → issue **#85** → `
 completed, exactly one Finding for the alert, each marker once; main's CodeQL scan marked alert #46 fixed.
 
 Live test intent: preview-demo-16 (intents#16, a build-version footer) planned in one run ($0.36), was approved by
-label, built in the repository image, and opened patchy-preview-demo#12 with every check green, including the changelog
+label, built in the repository image, and opened maul-preview-demo#12 with every check green, including the changelog
 check. Its preview is Queued: both slots are held by the owner's demos (Hello.Web#2, overdub#2). PR #12 is left open for
 the owner.
 
@@ -776,7 +775,7 @@ changes. Before upgrade, Helm rollback points were **maul 53 / maul-config 35**.
 maul-config to **rev 36**. All nine Deployments are Ready with zero restarts; all five Projects are Ready. Two
 controllers each logged one transient broker readiness fetch error during rollout, with no repeat after settling.
 
-The fresh gate used weak-key alert **#44** on patchy-target: Finding `finding-514becf18f-19`, tracking issue **#81**,
+The fresh gate used weak-key alert **#44** on maul-target: Finding `finding-514becf18f-19`, tracking issue **#81**,
 `/maul expedite`, and repair PR **#82**. The Remediation's pushed commit matched the PR head, the PR added a 2048-bit
 assertion, and every check passed. Squash merge `c9d9ac7d` led to Remediated, issue closed completed, one comment per
 maul marker and exactly one Finding for the alert. Main CodeQL passed and marked alert #44 fixed.
@@ -801,13 +800,13 @@ separately, with rollback points recorded before each Helm revision:
   ALB, looked up by name like the shared ALB. Applied 1 add; fresh plan no changes. Names resolve to the preview ALB;
   HTTPS from the owner's IP verifies the cert and returns 503 (no targets). The terraform checkout needed
   `terraform init -reconfigure` (same S3 bucket/key/lock table; cached backend metadata had drifted).
-- **Demo toolchain image:** dispatched patchy-preview-demo `agent image` on main; the trusted publisher
-  (`publish images` → agent job; runtime job skipped) pushed `maul/app-envs/patchy-preview-demo:toolchain-v1`
-  (`sha256:02b294e7…`). `.maul/agent.yaml` already names it.
+- **Demo toolchain image:** dispatched maul-preview-demo `agent image` on main; the trusted publisher (`publish images`
+  → agent job; runtime job skipped) pushed `maul/app-envs/maul-preview-demo:toolchain-v1` (`sha256:02b294e7…`).
+  `.maul/agent.yaml` already names it.
 - **Intents:** devthenet-labs/intents #3 added the `preview-demo` issue form; label `maul:preview-demo` exists.
 - **Controller + Project:** terraform-devthenet #28: `previewController.enabled: true` with
-  `apiServerCIDR: 172.20.0.1/32` → maul **rev 44**; Project `preview-demo` (repo patchy-preview-demo, approver brvtl,
-  preview `{imageRepository: …/maul/previews/patchy-preview-demo, port: 8080, readinessPath: /healthz}`) → maul-config
+  `apiServerCIDR: 172.20.0.1/32` → maul **rev 44**; Project `preview-demo` (repo maul-preview-demo, approver brvtl,
+  preview `{imageRepository: …/maul/previews/maul-preview-demo, port: 8080, readinessPath: /healthz}`) → maul-config
   **rev 26**. Both Projects Ready; `target` has no `spec.preview` (never previewed). Nine Deployments Ready, zero
   restarts; previews 0; preview nodes 0; slots empty.
 - **Rollback points:** before the controller: maul 43 / maul-config 25; before stage 2: maul 42. Stage-2 rollback must
@@ -831,7 +830,7 @@ fix.
 teal card) with the preview-demo form. An approve label added before the plan existed was correctly ignored and removed
 when the plan was posted (80 s,
 $0.26); the owner re-approved after reading it. The build (100 s) opened
-`devthenet-labs/patchy-preview-demo#7`; the PR CI built the runtime image, the trusted publisher pushed it, and the
+`devthenet-labs/maul-preview-demo#7`; the PR CI built the runtime image, the trusted publisher pushed it, and the
 Preview reached Ready in ~170 s (cold preview node `t3a.medium` from zero) at
 `https://preview-demo-4.preview.maul.devthe.net`, serving the PR head SHA. The owner's "Request changes" review
 (purple) started a revision round after the quiet window ($0.24),
@@ -844,13 +843,13 @@ zero), and the old host returns 404. Total agent cost for the intent: $0.81.
 `/maul expedite` → PR #70 (pushedCommit = PR head `1c553a4c`), checks green, merged `4a3dd6f0` → Remediated, issue
 closed completed with the remediated label, one comment per marker, main CodeQL marked #38 fixed, no duplicate Finding.
 
-**Intent CI-fix round, live: PASSED (2026-10-03, 06:50–07:09 UTC).** patchy-preview-demo #8 (squash `c8c68365`) added
+**Intent CI-fix round, live: PASSED (2026-10-03, 06:50–07:09 UTC).** maul-preview-demo #8 (squash `c8c68365`) added
 CHANGELOG.md and a `changelog` check that fails a PR with no line naming its `#<number>`. It is a workflow of its own
 because `publish images` follows only `test`; the runtime publish for #8 still succeeded. terraform-devthenet #29 set
 the `preview-demo` Project's `checks.fix: [changelog]` → maul-config **rev 28** (rollback point 27; maul stays rev 47).
 Intent `devthenet-labs/intents#5` ("Deployed by maul" footer) → `preview-demo-5`: plan 66 s (`$0.22`; it left
 CHANGELOG.md alone, since the PR number does not exist yet), approved, build 118 s (`$0.28`) opened
-`devthenet-labs/patchy-preview-demo#9` at `7f4d2aae`. `changelog` failed at 07:00:29 ("CHANGELOG.md has no entry for #9:
+`devthenet-labs/maul-preview-demo#9` at `7f4d2aae`. `changelog` failed at 07:00:29 ("CHANGELOG.md has no entry for #9:
 add a line under ## Unreleased"). 54 s later intent-controller created `preview-demo-5-rev1-preview-demo-a1`
 (`trigger: checks`, `checkRunIDs: [111151376149]`) with the annotations and the Actions log tail fenced as data. The
 round (112 s, `$0.24`) fast-forwarded `ff754761` (parent `7f4d2aae`; CHANGELOG.md +1 line naming #9). `changelog` passed
@@ -901,7 +900,7 @@ ALBs unchanged, status page 200.
   `previewController.config.targetHealth: true` → maul **rev 49** (rollback point 48; maul-config stays 29). Both slot
   namespaces carry `eks.amazonaws.com/pod-readiness-gate-inject: enabled`. Intent `devthenet-labs/intents#7` ("Show the
   build time in the card footer") → `preview-demo-7`: plan 85 s, approved, build 145 s opened
-  `devthenet-labs/patchy-preview-demo#10` at `4ddd96a1`. The planner's `#10` CHANGELOG guess was right, so `changelog`
+  `devthenet-labs/maul-preview-demo#10` at `4ddd96a1`. The planner's `#10` CHANGELOG guess was right, so `changelog`
   passed and no check-fix round ran. The Preview kept the single-component names (Deployment, Service and Ingress
   `preview-preview-demo-7` in slot 0). Its Pod was created with the readiness gate
   `target-health.eks.amazonaws.com/k8s-maulpr-previewp-b35644c0c5` (the TargetGroupBinding's name): ContainersReady
@@ -1032,10 +1031,10 @@ steps" and "Preview update" sections below are historical; this checkpoint super
 - Terraform PRs #18 (preview ECR repositories and split publisher OIDC roles), #19/#20 (certificate request and its
   ACM-compatible correction), #23 (minimal preview node IAM role/policy/access entry), and #24 (runtime image lifecycle)
   are merged; the corrected infrastructure is applied. The wildcard preview certificate is **ISSUED**. The runtime
-  repository `maul/previews/patchy-preview-demo` now expires untagged images after 14 days and `sha-` tagged images
-  after 30 days; the agent-toolchain repository is outside that tagged rule. PR #25 changed Helm values only: no
-  Terraform resources were applied for stage 1. A fresh `AWS_PROFILE=devthenet terraform plan -detailed-exitcode` on
-  2026-10-02 exited **0: no changes** (only unrelated provider deprecation warnings). The separately applied
+  repository `maul/previews/maul-preview-demo` now expires untagged images after 14 days and `sha-` tagged images after
+  30 days; the agent-toolchain repository is outside that tagged rule. PR #25 changed Helm values only: no Terraform
+  resources were applied for stage 1. A fresh `AWS_PROFILE=devthenet terraform plan -detailed-exitcode` on 2026-10-02
+  exited **0: no changes** (only unrelated provider deprecation warnings). The separately applied
   `k8s/auto-mode-preview-node.yaml` defines a Ready `maul-preview` DefaultDeny NodeClass and tainted NoExecute NodePool,
   with `spec.limits.cpu: "4"` and `spec.limits.nodes: "2"`, currently **zero nodes**. Treat CPU as the hard spend bound;
   do not assume Auto Mode enforces the `nodes` limit without re-checking. The demo repo's trusted runtime publisher
@@ -1086,9 +1085,9 @@ steps" and "Preview update" sections below are historical; this checkpoint super
 2. **Wildcard DNS after the preview ALB exists:** prepare the Route53 alias Terraform PR/plan for
    `*.preview.maul.devthe.net` against the actual new ALB DNS/canonical zone, review the plan and rollback with the
    owner, and do not apply until separately approved. The preview cert is ready; DNS is not present.
-3. **Then the `preview-demo` Project:** configure only `devthenet-labs/patchy-preview-demo` in maul-config, enable the
+3. **Then the `preview-demo` Project:** configure only `devthenet-labs/maul-preview-demo` in maul-config, enable the
    preview-controller/Intent preview projection in a separate approved Helm revision, and run the live preview
-   demo/cleanup and fresh-Finding gate. **Never preview patchy-target.** Keep the preview pool at zero when idle.
+   demo/cleanup and fresh-Finding gate. **Never preview maul-target.** Keep the preview pool at zero when idle.
 4. **Known validation gap:** direct EKS Auto Mode network-policy-agent logs were unavailable during the accepted
    first-instant, Deployment-managed cold-start isolation probe. The observed network behaviour passed, but the
    `no bpf context registered` agent-log check remains **open**. Use `hack/preview-isolation-probe/README.md` and
@@ -1120,7 +1119,7 @@ completed target issue #55 returned 202 in App Recent Deliveries; all 36 deliver
 2xx. Status root and rollup API returned 200; visual verification was unavailable (no connected browser).
 
 The post-ALB fresh-Finding gate passed without manual correction: alert 32, `finding-514becf18f-7`, issue #57,
-[repair PR #58](https://github.com/devthenet-labs/patchy-target/pull/58), merge
+[repair PR #58](https://github.com/devthenet-labs/maul-target/pull/58), merge
 `fcdeb7d60252707606ee3e72d49bf5538b5c067d`. Go/CodeQL passed, Remediated with mergeCommitSHA, no ReviewClosePending,
 closed/completed/remediated issue, unique markers, and no duplicate after main's re-analysis fixed the alert. Existing
 Finding/Intent phases stayed unchanged. The 17:07:41 UTC sweep scanned 121 deliveries with no error; zero failures in
@@ -1156,9 +1155,9 @@ SHA and no ReviewClosePending, the issue closed with the remediated label, marke
 re-analysis fixed the alert without a duplicate Finding. No manual correction was needed for this gate.
 
 **Slice 2 is approved, starting with prerequisite PRs, cookies first.** The owner approved the new benign repository
-`devthenet-labs/patchy-preview-demo`, Project `preview-demo`, and the light-use incremental budget of ~$25–35/month
+`devthenet-labs/maul-preview-demo`, Project `preview-demo`, and the light-use incremental budget of ~$25–35/month
 (including the two-AZ ALB's public IPv4 charges, assuming existing node capacity). Preview inbound CIDRs must be exactly
-`203.0.113.10/32`. Never preview patchy-target.
+`203.0.113.10/32`. Never preview maul-target.
 
 - Check in with the owner **before each infrastructure apply**, including Helm upgrades; the general approval does not
   authorise unattended applies. Record current rollback revisions again before every upgrade.
@@ -1178,7 +1177,7 @@ the expired legacy Job. Both releases passed fresh-Finding gates. Live is 0.12.5
 18, with intents disabled after rolling back enablement revision 30 to revision 29.
 
 The remaining live fault is PR-comment token scoping: target-2 settled back to InReview with zero revisions charged, but
-its round-1 notice on patchy-target PR #46 received 403 and was discarded. The existing review is consumed and must not
+its round-1 notice on maul-target PR #46 received 403 and was discarded. The existing review is consumed and must not
 replay. The owner has authorised a permission audit, scope correction, durable notice recovery, full gates/review,
 merge/release/fresh-Finding gate, then re-enablement and exactly-one-notice verification before a new human review.
 
@@ -1232,8 +1231,8 @@ build).
     changes. If any other change is present, stop and ask rather than approving. Leave Actions settings and release
     credentials unchanged; CI must still pass before merge;
   - `helm upgrade` and `helm rollback` of the two releases on `devthenet-dev`;
-  - pushing deliberate test vulnerabilities to `devthenet-labs/patchy-target`, and merging maul's own fix PRs there
-    during a gate;
+  - pushing deliberate test vulnerabilities to `devthenet-labs/maul-target`, and merging maul's own fix PRs there during
+    a gate;
   - posting commands on maul's own test issues.
 - **Ask the owner first** before anything else outward-facing: new repositories, GitHub App permission or webhook
   changes, `terraform apply`, deleting branches, repositories or cluster resources, or changing who is an approver.
@@ -1268,7 +1267,7 @@ report `read` for everyone, so `read` is never enough).
   invisible/bidi/tag characters or layout padding are refused; the build agent receives **only** the approved plan
   (re-hashed at launch; `issue.md` is empty for builds).
 - Authority comes only from GitHub API facts: labeled-event actors and comment authors who are write+ **and** in the
-  Project's approvers, never bots or the App's own `patchy-devthenet[bot]`. An edited comment never counts (GraphQL
+  Project's approvers, never bots or the App's own `maul-devthenet[bot]`. An edited comment never counts (GraphQL
   `lastEditedAt`/`includesCreatedEdit`, verified live: someone with write access can edit another user's comment while
   REST still shows the original author).
 - Agent text reaching GitHub goes through `internal/templates` renderers; PR title/body/commit messages are defanged as
@@ -1311,17 +1310,17 @@ report `read` for everyone, so `read` is never enough).
 | Cluster                         | EKS Auto Mode `devthenet-dev`, us-east-1. Namespaces `maul`, `maul-agents`, and guarded empty slots `maul-preview-0/1`. `export AWS_PROFILE=devthenet`.                                                                                                                                                                       |
 | Helm releases                   | `maul` (chart `oci://ghcr.io/devthenet-labs/maul/charts/maul`, values `-f k8s/maul-values.yaml -f k8s/maul-values-tls.yaml -f k8s/maul-values-preview-auth.yaml`) and `maul-config` (`.../charts/maul-config`, `-f k8s/maul-config-values.yaml`). Current live state and rollback points are in the current checkpoint above. |
 | Hostnames                       | `maul.devthe.net` (webhooks `/github/webhooks`), `status.maul.devthe.net`.                                                                                                                                                                                                                                                    |
-| GitHub App                      | `patchy-devthenet` (id 5036888), installation 163854331 on all devthenet-labs repos; credentials in Secret `maul/maul-github` (keys `appID`, `privateKey`, `webhookSecret`).                                                                                                                                                  |
-| App repo (demo target)          | `devthenet-labs/patchy-target` (deliberately vulnerable Go server; its agent image is `maul/app-envs/patchy-target` in ECR, pushed by the per-app role `devthenet-labs-app-env-push-patchy-target`).                                                                                                                          |
+| GitHub App                      | `maul-devthenet` (id 5036888), installation 163854331 on all devthenet-labs repos; credentials in Secret `maul/maul-github` (keys `appID`, `privateKey`, `webhookSecret`).                                                                                                                                                    |
+| App repo (demo target)          | `devthenet-labs/maul-target` (deliberately vulnerable Go server; its agent image is `maul/app-envs/maul-target` in ECR, pushed by the per-app role `devthenet-labs-app-env-push-maul-target`).                                                                                                                                |
 | Intent repo                     | `devthenet-labs/intents` (private): README, issue form `.github/ISSUE_TEMPLATE/target.yml` applying `maul:target`, labels `maul:target` and `maul:approved`.                                                                                                                                                                  |
-| Scratch repo                    | `devthenet-labs/patchy-smoke` (private) for API experiments.                                                                                                                                                                                                                                                                  |
+| Scratch repo                    | `devthenet-labs/maul-smoke` (private) for API experiments.                                                                                                                                                                                                                                                                    |
 | Plans (git-ignored)             | `.claude/plans/intent-wave3-brief.md` (the controller contract), `.claude/plans/intent-dev-understand-maps.md` (codebase maps). Local only.                                                                                                                                                                                   |
 
 ## Where the work stands
 
 Merged to `main` and live-gated (each wave released, deployed and proven with a fresh live Finding):
 
-- Wave 0 fixes (#36–#39), design (#35), per-app ECR push roles (terraform #14, patchy-target #29).
+- Wave 0 fixes (#36–#39), design (#35), per-app ECR push roles (terraform #14, maul-target #29).
 - Wave 1: `/maul` command parser (#41), `Project`/`Intent`/`IntentRun` CRDs (#42), GitHub seams (#43).
 - Wave 2: in-pod `plan`/`build` stages (#45), templates/sanitiser/`internal/changeset`/`PinFor` (#46), NaN confidence
   fix (#47), Finding `/maul` commands with write-access authorisation (#48, BREAKING), refusal-quiet fix (#50, merged,
@@ -1504,11 +1503,11 @@ already-pushed commits (or nothing) and can be removed once #51 is merged.
    the Finding gate — this proves the release did not regress the security flow.
 3. **Enable intents.** The values are ready on terraform branch `feat/maul-intents-target` (pushed, not merged, not
    applied): `intentController.enabled: true` with `forgeSecrets: [maul-github]`, and a `target` Project (intent repo
-   `devthenet-labs/intents`, repository `devthenet-labs/patchy-target`, approver `brvtl`). Open a PR for it, merge, then
+   `devthenet-labs/intents`, repository `devthenet-labs/maul-target`, approver `brvtl`). Open a PR for it, merge, then
    `helm upgrade` both releases as their own revisions. Check `kubectl get projects -n maul` shows Ready.
-4. **Live demo** (the design's "Demo script", slice 1a steps 0–5, 9, 10): open an issue with the patchy-target form in
+4. **Live demo** (the design's "Demo script", slice 1a steps 0–5, 9, 10): open an issue with the maul-target form in
    `devthenet-labs/intents` (for example "Add GET /version returning {sha, built} as JSON"), watch the Intent go Pending
-   → Planning, read the verbatim plan comment, add `maul:approved` as `brvtl`, watch the build run in patchy-target's
+   → Planning, read the verbatim plan comment, add `maul:approved` as `brvtl`, watch the build run in maul-target's
    image (`runner-image-source=repository`, `go test` in the transcript), the PR open from `maul-intent/target-1` with
    "Part of devthenet-labs/intents#1" and no closing keyword, merge it, and see the Intent reach Merged and the intent
    issue close. Also verify the negatives the design lists where you can. Afterwards a fresh Finding must still reach
@@ -1521,7 +1520,7 @@ already-pushed commits (or nothing) and can be removed once #51 is merged.
    those in the App settings.
 6. **Slice 2: previews** (design "Previews"): first the `__Host-` cookie rename on status-server and a
    `namespaceSelector` admitting only `maul` on the default `alb` IngressClassParams (check live that the webhook ALB is
-   not recreated), a benign demo app repo (never preview patchy-target), then the preview-controller.
+   not recreated), a benign demo app repo (never preview maul-target), then the preview-controller.
 7. **Deployable by others** (design
    [roadmap section](docs/design/intent-driven-development.md#deployable-by-others-after-previews)): make the Helm
    charts own the full in-cluster install; provide GitHub App, reference AWS Terraform, app scaffolding, template-repo
@@ -1545,7 +1544,7 @@ already-pushed commits (or nothing) and can be removed once #51 is merged.
      `ghcr.io/devthenet-labs/maul/*:vX.Y.Z` and both charts);
   2. record current Helm revisions (rollback points); confirm `helm get values` equals the `k8s/` files (ignoring
      comments); `helm upgrade` both releases to the new version; all pods Ready, startup logs clean;
-  3. push a NEW small stdlib vulnerability to `devthenet-labs/patchy-target` whose CodeQL rule has no open or suspended
+  3. push a NEW small stdlib vulnerability to `devthenet-labs/maul-target` whose CodeQL rule has no open or suspended
      Finding (already used: reflected-xss, command-injection, incorrect-integer-conversion, disabled-certificate-check;
      never reflected-xss — a suspended Finding absorbs it), wait for the alert and Finding, drive it with
      `/maul expedite` on the tracking issue, follow to its PR (`Remediation.status.pushedCommit` must equal the PR

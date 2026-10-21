@@ -283,21 +283,21 @@ func TestChartRegistrySchemaMatchesValidator(t *testing.T) {
 			name:     "codeartifact domain",
 			schema:   ca.Properties.Domain,
 			validate: func(v string) bool { return codeArtifactValid(v, "377946145366", "us-east-1") },
-			fixed: []string{"", "a", "ab", "patchy-gate", "Maul", "1ab", "ab-", strings.Repeat("a", 50),
+			fixed: []string{"", "a", "ab", "maul-gate", "Maul", "1ab", "ab-", strings.Repeat("a", 50),
 				strings.Repeat("a", 51)},
 			gen: chartString{alphabet: "az09-A", maxLen: 54},
 		},
 		{
 			name:     "codeartifact domainOwner",
 			schema:   ca.Properties.DomainOwner,
-			validate: func(v string) bool { return codeArtifactValid("patchy-gate", v, "us-east-1") },
+			validate: func(v string) bool { return codeArtifactValid("maul-gate", v, "us-east-1") },
 			fixed:    []string{"", "377946145366", "37794614536", "3779461453667", "37794614536a"},
 			gen:      chartString{alphabet: "0123456789a", maxLen: 14},
 		},
 		{
 			name:     "codeartifact region",
 			schema:   ca.Properties.Region,
-			validate: func(v string) bool { return codeArtifactValid("patchy-gate", "377946145366", v) },
+			validate: func(v string) bool { return codeArtifactValid("maul-gate", "377946145366", v) },
 			fixed:    []string{"", "us-east-1", "eu-west-2", "us-gov-west-1", "useast1", "us-east-", "US-east-1", "u-east-1"},
 			gen:      chartString{alphabet: "use-1t2", maxLen: 14},
 		},
@@ -475,7 +475,7 @@ func deniedCorpus() []denyCase {
 		"x.bedrock-runtime.us-east-1.vpce.amazonaws.com", "us-east5-aiplatform.googleapis.com",
 		"x.cognitiveservices.azure.com", "generativelanguage.googleapis.com", "kubernetes.default.svc",
 		"nexus.tools.svc.cluster.local", "acme.jfrog.io", "ghe.corp.example", "x.gw.corp.example",
-		"patchy-gate-377946145366.d.codeartifact.us-east-1.amazonaws.com", "10.100.12.34", "10.100.12.35",
+		"maul-gate-377946145366.d.codeartifact.us-east-1.amazonaws.com", "10.100.12.34", "10.100.12.35",
 		"169.254.169.254", "127.0.0.1", "files.pythonhosted.org", "Acme.JFrog.io.",
 	}
 	patterns := []string{

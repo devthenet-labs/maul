@@ -22,7 +22,7 @@ failure.
 
 ```text
 working tree not clean after commit.sh:
-M patchy-target
+M maul-target
 ```
 
 ## Prove the bug, then fix it

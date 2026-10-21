@@ -5,7 +5,7 @@ Every pull request maul opened for this intent has merged, so maul closes the is
 
 **Merged:**
 
-- [devthenet-labs/patchy-target#12](https://github.com/devthenet-labs/patchy-target/pull/12)
+- [devthenet-labs/maul-target#12](https://github.com/devthenet-labs/maul-target/pull/12)
 
 **Revisions:** 0
 

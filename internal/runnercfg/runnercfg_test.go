@@ -953,7 +953,7 @@ func TestAgentDNSFromTheEnvironment(t *testing.T) {
 
 // netProfilesJSON is one valid profile, as the chart renders it.
 const netProfilesJSON = `[{"name":"go","route":"go","port":8090,"host":"github.com",` +
-	`"repositories":["devthenet-labs/patchy-target"],"modules":["github.com/google/uuid"],` +
+	`"repositories":["devthenet-labs/maul-target"],"modules":["github.com/google/uuid"],` +
 	`"bakedModCache":"/opt/go/pkg/mod","allowPseudoVersions":false}]`
 
 func TestNetworkProfiles(t *testing.T) {
@@ -980,7 +980,7 @@ func TestNetworkProfiles(t *testing.T) {
 		{"bad JSON", append(slices.Clone(on), "--network-profiles", "{", "--egress-proxy-url", proxy), false,
 			"--network-profiles:"},
 		{"bad regex", append(slices.Clone(on), "--network-profiles", strings.Replace(netProfilesJSON,
-			"devthenet-labs/patchy-target", "a(", 1), "--egress-proxy-url", proxy), false, "--network-profiles:"},
+			"devthenet-labs/maul-target", "a(", 1), "--egress-proxy-url", proxy), false, "--network-profiles:"},
 		{"bad prefix", append(slices.Clone(on), "--network-profiles", strings.Replace(netProfilesJSON,
 			"github.com/google/uuid", "golang.org/toolchain", 1), "--egress-proxy-url", proxy), false,
 			"--network-profiles:"},

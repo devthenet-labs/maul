@@ -23,13 +23,13 @@ import (
 // out of the operator's profile set.
 func npmGrant() netprofile.Grant {
 	return netprofile.Grant{Name: "ca-npm", Ecosystem: netprofile.EcosystemNPM,
-		Hosts:         []string{"patchy-gate-377946145366.d.codeartifact.us-east-1.amazonaws.com"},
+		Hosts:         []string{"maul-gate-377946145366.d.codeartifact.us-east-1.amazonaws.com"},
 		PackagePolicy: netprofile.PackagePolicyRegistry}
 }
 
 func pipGrant() netprofile.Grant {
 	return netprofile.Grant{Name: "ca-pypi", Ecosystem: netprofile.EcosystemPyPI,
-		Hosts:    []string{"patchy-gate-377946145366.d.codeartifact.us-east-1.amazonaws.com"},
+		Hosts:    []string{"maul-gate-377946145366.d.codeartifact.us-east-1.amazonaws.com"},
 		Packages: []string{"six", "requests", "urllib3", "idna", "certifi", "charset-normalizer"}}
 }
 

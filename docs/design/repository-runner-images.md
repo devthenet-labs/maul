@@ -651,7 +651,7 @@ observable change.
 
 ### Verification and rollout
 
-The first live target is decided (see Decisions): the `devthenet-labs/patchy-target` Go repository on the EKS cluster
+The first live target is decided (see Decisions): the `devthenet-labs/maul-target` Go repository on the EKS cluster
 `devthenet-dev` (us-east-1), running a golang-derived image hosted in ECR under
 `111122223333.dkr.ecr.us-east-1.amazonaws.com/maul/` (for example `.../maul/go-agent-env`), with that prefix as the only
 allowlist entry, resolution through the ECR keychain and pulls through node credentials, and the image signed with the
@@ -781,7 +781,7 @@ behalf, with the reasoning stated. The fourth is an amendment recorded the same 
    the chart `fail`s with the message under Operator policy, naming `agent.networkPolicy.broadEgress: never`. Reason: a
    NOTES warning is invisible in CI, a render failure is not. The cost, accepted: under `mode: none` a fleet using
    repository images is brokered-only.
-3. **First live verification target**: `devthenet-labs/patchy-target` on `devthenet-dev` with a golang-derived image in
+3. **First live verification target**: `devthenet-labs/maul-target` on `devthenet-dev` with a golang-derived image in
    `111122223333.dkr.ecr.us-east-1.amazonaws.com/maul/`, after NetworkPolicy enforcement is enabled on that cluster (in
    progress); see Verification and rollout.
 4. **A devcontainer.json maul cannot honour is no declaration** (2026-09-22, amendment decided by the orchestrator after

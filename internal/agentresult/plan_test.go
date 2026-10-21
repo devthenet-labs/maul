@@ -15,7 +15,7 @@ import (
 const planReport = `---
 summary: "  Add GET /version  "
 repositories:
-  - "https://github.com/devthenet-labs/patchy-target"
+  - "https://github.com/devthenet-labs/maul-target"
 new_dependencies: []
 questions:
   - "RFC 3339?"
@@ -45,7 +45,7 @@ func TestFromPlan(t *testing.T) {
 		t.Errorf("Report = %q, want the report byte-exact", got.Report)
 	}
 	if got.Summary != "Add GET /version" ||
-		!slices.Equal(got.Repositories, []string{"https://github.com/devthenet-labs/patchy-target"}) ||
+		!slices.Equal(got.Repositories, []string{"https://github.com/devthenet-labs/maul-target"}) ||
 		len(got.NewDependencies) != 0 || !slices.Equal(got.Questions, []string{"RFC 3339?"}) ||
 		got.Confidence != "0.8000" || got.EstimatedMaxTurns != 40 || got.EstimatedTokenBudget != 200000 {
 		t.Errorf("FromPlan() = %+v, want the report's frontmatter", got)

@@ -89,7 +89,7 @@ status:
     digest: sha256:3ecbdf1c148ed426b4ed2ef4163112b02080ba79bcafbe96c899e85dd1dfbc90
     postedAt: "2026-09-25T21:12:42Z"
     repositories:
-      - https://github.com/devthenet-labs/patchy-target
+      - https://github.com/devthenet-labs/maul-target
     revision: 2
     summary: Add a GET /health handler returning {"status":"ok"} (200) in a new health.go, with a unit test and a ROUTES.md entry
   pullRequests:
@@ -98,9 +98,9 @@ status:
       mergedAt: "2026-09-26T18:00:42Z"
       nodeID: PR_kwDOUmL3Rs8AAAABFLsv8Q
       number: 46
-      repository: https://github.com/devthenet-labs/patchy-target
+      repository: https://github.com/devthenet-labs/maul-target
       state: merged
-      url: https://github.com/devthenet-labs/patchy-target/pull/46
+      url: https://github.com/devthenet-labs/maul-target/pull/46
   revisions: 1
   roundNoticesThrough: 2
   rounds: 2

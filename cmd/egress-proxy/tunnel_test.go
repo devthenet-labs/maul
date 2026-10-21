@@ -15,9 +15,9 @@ import (
 )
 
 // tunnelProfile is a tunnel-only profile beside a go profile.
-const tunnelProfile = `[{"name":"go","route":"go","port":8090,"repositories":["devthenet-labs/patchy-target"],
+const tunnelProfile = `[{"name":"go","route":"go","port":8090,"repositories":["devthenet-labs/maul-target"],
   "modules":["github.com/google/uuid"]},
- {"name":"py","route":"tunnel","port":8092,"repositories":["devthenet-labs/patchy-pip-fixture"],
+ {"name":"py","route":"tunnel","port":8092,"repositories":["devthenet-labs/maul-pip-fixture"],
   "modules":[],"hosts":["pypi.org"],"clients":["pip"]}]`
 
 // TestConfigureTunnelDefaults: with no tunnel flag set the engine gets
