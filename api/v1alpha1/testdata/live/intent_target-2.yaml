@@ -3,11 +3,11 @@
 #
 # Read from devthenet-dev on 2026-10-03 (kubectl get -o yaml) before the slice-3 schema change,
 # server-owned metadata removed. live_envtest_test.go round-trips it under the current schema.
-apiVersion: patchy.bitwisemedia.uk/v1alpha1
+apiVersion: maul.run/v1alpha1
 kind: Intent
 metadata:
   name: target-2
-  namespace: patchy
+  namespace: maul
 spec:
   issue:
     number: 2
@@ -27,7 +27,7 @@ status:
     planDigest: sha256:3ecbdf1c148ed426b4ed2ef4163112b02080ba79bcafbe96c899e85dd1dfbc90
     planRevision: 2
     source: label
-  branch: patchy-intent/target-2
+  branch: maul-intent/target-2
   checksObservedHeadSHA: 80aac2bcacdeb63d69e749bd650200eb26b76873
   checksObservedProjectGeneration: 2
   commands:

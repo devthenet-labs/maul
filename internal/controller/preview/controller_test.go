@@ -19,29 +19,29 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/kube"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/kube"
 )
 
 const testSHA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 func testSettings() Settings {
-	return Settings{Namespace: "patchy", SlotCount: 2,
-		ImagePrefix: "123456789012.dkr.ecr.us-east-1.amazonaws.com/patchy/previews/",
-		HostSuffix:  "preview.patchy.example.com", NodePool: "patchy-preview", NodeClass: "patchy-preview",
-		TaintKey: "patchy.devthe.net/preview-only", RolloutTimeout: 10 * time.Minute,
+	return Settings{Namespace: "maul", SlotCount: 2,
+		ImagePrefix: "123456789012.dkr.ecr.us-east-1.amazonaws.com/maul/previews/",
+		HostSuffix:  "preview.maul.example.com", NodePool: "maul-preview", NodeClass: "maul-preview",
+		TaintKey: "maul.devthe.net/preview-only", RolloutTimeout: 10 * time.Minute,
 		PollInterval: time.Second, MaxRetries: 3}
 }
 
 func testPreview(name string, at time.Time) (*v1alpha1.Intent, *v1alpha1.Preview) {
 	uid := types.UID("intent-" + name)
-	in := &v1alpha1.Intent{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "patchy", UID: uid},
+	in := &v1alpha1.Intent{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "maul", UID: uid},
 		Spec: v1alpha1.IntentSpec{Project: "demo"},
 		Status: v1alpha1.IntentStatus{Phase: v1alpha1.IntentInReview,
 			PullRequests: []v1alpha1.IntentPullRequest{{Repository: "https://github.com/acme/demo",
 				State: "open", HeadSHA: testSHA}}}}
 	p := &v1alpha1.Preview{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "patchy", UID: types.UID("preview-" + name),
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "maul", UID: types.UID("preview-" + name),
 			Generation: 1, CreationTimestamp: metav1.NewTime(at)},
 		Spec: v1alpha1.PreviewSpec{
 			IntentRef: v1alpha1.ObjectReference{Name: name, UID: uid}, HostLabel: name,
@@ -70,7 +70,7 @@ func newTestEnv(t *testing.T, objects ...client.Object) *testEnv {
 func newTestEnvWith(t *testing.T, funcs interceptor.Funcs, objects ...client.Object) *testEnv {
 	t.Helper()
 	scheme := kube.Scheme()
-	project := &v1alpha1.Project{ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "patchy"},
+	project := &v1alpha1.Project{ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "maul"},
 		Spec: v1alpha1.ProjectSpec{
 			Repositories: []v1alpha1.ProjectRepository{{Name: "demo", URL: "https://github.com/acme/demo"}},
 			Preview: &v1alpha1.ProjectPreview{ImageRepository: testSettings().ImagePrefix + "demo",
@@ -88,13 +88,13 @@ func newTestEnvWith(t *testing.T, funcs interceptor.Funcs, objects ...client.Obj
 func (e *testEnv) step(name string) *v1alpha1.Preview {
 	e.t.Helper()
 	_, err := e.r.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{
-		Namespace: "patchy", Name: name,
+		Namespace: "maul", Name: name,
 	}})
 	if err != nil {
 		e.t.Fatalf("reconcile %s: %v", name, err)
 	}
 	p := &v1alpha1.Preview{}
-	if err := e.c.Get(context.Background(), types.NamespacedName{Namespace: "patchy", Name: name}, p); err != nil {
+	if err := e.c.Get(context.Background(), types.NamespacedName{Namespace: "maul", Name: name}, p); err != nil {
 		e.t.Fatalf("get preview %s: %v", name, err)
 	}
 	return p
@@ -131,7 +131,7 @@ func TestFixedManifestSecurity(t *testing.T) {
 		len(ing.Spec.TLS) != 0 || len(ing.Spec.Rules) != 1 || len(ing.Annotations) != 1 {
 		t.Errorf("ingress = %+v", ing)
 	}
-	for _, bad := range []string{"nginx", s.ImagePrefix + "demo:latest", "evil.example/patchy/previews/demo"} {
+	for _, bad := range []string{"nginx", s.ImagePrefix + "demo:latest", "evil.example/maul/previews/demo"} {
 		copy := p.DeepCopy()
 		copy.Spec.Components[0].ImageRepository = bad
 		if s.validatePreview(copy) == nil {
@@ -144,7 +144,7 @@ func assertFixedPodSecurity(t *testing.T, s Settings, p *v1alpha1.Preview) {
 	t.Helper()
 	d := s.deployment(p, 0, 0)
 	pod := d.Spec.Template.Spec
-	if d.Namespace != "patchy-preview-0" || pod.NodeSelector["karpenter.sh/nodepool"] != s.NodePool ||
+	if d.Namespace != "maul-preview-0" || pod.NodeSelector["karpenter.sh/nodepool"] != s.NodePool ||
 		pod.NodeSelector["eks.amazonaws.com/nodeclass"] != s.NodeClass ||
 		len(pod.Tolerations) != 1 || pod.Tolerations[0].Key != s.TaintKey ||
 		pod.Tolerations[0].Effect != corev1.TaintEffectNoExecute ||
@@ -219,7 +219,7 @@ func TestHeadUpdateReadinessAndExpiry(t *testing.T) {
 	p = e.untilSlot(p.Name)
 	e.step(p.Name) // create Service and Deployment
 	ctx := context.Background()
-	key := types.NamespacedName{Namespace: "patchy-preview-0", Name: resourceName(p)}
+	key := types.NamespacedName{Namespace: "maul-preview-0", Name: resourceName(p)}
 	var dep appsv1.Deployment
 	if err := e.c.Get(ctx, key, &dep); err != nil {
 		t.Fatal(err)

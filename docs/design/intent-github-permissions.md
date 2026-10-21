@@ -4,10 +4,10 @@ Verified 2026-09-26 against installation 163854331. Tokens were minted for one r
 installation token, App JWT, private key, or signed log URL was printed or saved. The installation already grants
 `issues:write`, `pull_requests:write`, `contents:write`, and `checks`, `statuses`, `actions` at read.
 
-The resources were patchy-target PR #46 and patchy PR #63 (the latter already had a conversation comment). All reads
-were non-mutating. Write probes deliberately omitted required fields or supplied an invalid enum/type: they could not
-create a comment, reaction, review request, PR, commit, tree, blob, or ref. A 422 proves authorization reached
-validation, not that a real write succeeded. No workflow files were touched.
+The resources were patchy-target PR #46 and maul PR #63 (the latter already had a conversation comment). All reads were
+non-mutating. Write probes deliberately omitted required fields or supplied an invalid enum/type: they could not create
+a comment, reaction, review request, PR, commit, tree, blob, or ref. A 422 proves authorization reached validation, not
+that a real write succeeded. No workflow files were touched.
 
 ## Results and call-site mapping
 

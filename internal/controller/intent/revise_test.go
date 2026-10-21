@@ -15,17 +15,17 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/report"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/report"
 )
 
 func TestRequestedChangesStartsPinnedReviseRound(t *testing.T) {
 	e := newEnv(t, testProject())
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 	if len(in.Status.PullRequests) != 1 {
 		t.Fatal("build opened no pull request")
@@ -100,7 +100,7 @@ func TestRequestedChangesStartsPinnedReviseRound(t *testing.T) {
 func TestSubmittedPendingReviewInlineFeedbackIsUsed(t *testing.T) {
 	e := newEnv(t, testProject())
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 	prNumber := in.Status.PullRequests[0].Number
 	created := e.clock.Now()
@@ -136,7 +136,7 @@ func TestSubmittedPendingReviewInlineFeedbackIsUsed(t *testing.T) {
 func TestPRCommentRESTTimestampDoesNotProveEdit(t *testing.T) {
 	e := newEnv(t, testProject())
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 	prNumber := in.Status.PullRequests[0].Number
 	created := e.clock.Now()
@@ -165,7 +165,7 @@ func TestEmptyFilteredReviewDoesNotLaunchOrSpendRevision(t *testing.T) {
 	*project.Spec.Limits.MaxRevisions = 1
 	e := newEnv(t, project)
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 	prNumber := in.Status.PullRequests[0].Number
 	jobsBefore := len(e.jobs.launched())
@@ -186,7 +186,7 @@ func TestEmptyFilteredReviewDoesNotLaunchOrSpendRevision(t *testing.T) {
 	}
 	notices := 0
 	for _, c := range e.gh.prComments[prNumber] {
-		if strings.Contains(c.Body, "patchy:intent-pr-round:") {
+		if strings.Contains(c.Body, "maul:intent-pr-round:") {
 			notices++
 			if !strings.Contains(c.Body, "no usable feedback") {
 				t.Errorf("round notice does not explain empty feedback: %q", c.Body)
@@ -205,7 +205,7 @@ func TestEmptyFilteredReviewDoesNotLaunchOrSpendRevision(t *testing.T) {
 	}
 	again := 0
 	for _, c := range e.gh.prComments[prNumber] {
-		if strings.Contains(c.Body, "patchy:intent-pr-round:") {
+		if strings.Contains(c.Body, "maul:intent-pr-round:") {
 			again++
 		}
 	}
@@ -263,7 +263,7 @@ func TestAlreadyLaunchedLegacyEmptyReviewDoesNotSpendRevision(t *testing.T) {
 func testAlreadyLaunchedLegacyEmptyReviewDoesNotSpendRevision(t *testing.T, jobExpired bool) {
 	e := newEnv(t, testProject())
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 	prNumber := in.Status.PullRequests[0].Number
 	e.gh.reviews[prNumber] = []ghclient.Review{{ID: 2013, NodeID: "review-2013",
@@ -309,7 +309,7 @@ func testAlreadyLaunchedLegacyEmptyReviewDoesNotSpendRevision(t *testing.T, jobE
 		t.Errorf("legacy failure spent revision: %d", in.Status.Revisions)
 	}
 	for _, c := range e.gh.prComments[prNumber] {
-		if strings.Contains(c.Body, "patchy:intent-pr-round:") &&
+		if strings.Contains(c.Body, "maul:intent-pr-round:") &&
 			strings.Contains(c.Body, "No agent was launched") {
 			t.Errorf("legacy round notice denied the agent that already ran: %q", c.Body)
 		}
@@ -317,7 +317,7 @@ func testAlreadyLaunchedLegacyEmptyReviewDoesNotSpendRevision(t *testing.T, jobE
 	for range 3 {
 		e.mustIntent(name)
 	}
-	marker := "<!-- patchy:intent-pr-round:" + name + ":1 -->"
+	marker := "<!-- maul:intent-pr-round:" + name + ":1 -->"
 	notices := 0
 	for _, c := range e.gh.prComments[prNumber] {
 		if strings.Contains(c.Body, marker) {
@@ -381,7 +381,7 @@ func assertReviseHandoff(t *testing.T, handoff string) {
 func TestReviseHeadMovedRetriesFromFreshBranchPin(t *testing.T) {
 	e := newEnv(t, testProject())
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 	number := in.Status.PullRequests[0].Number
 	e.gh.reviews[number] = []ghclient.Review{{ID: 901, NodeID: "review-901", Author: actorOf(approver),
@@ -407,7 +407,7 @@ func TestFailedNamedCheckStartsBoundedFixRound(t *testing.T) {
 	project.Spec.Checks.Fix = []string{"test"}
 	e := newEnv(t, project)
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 	head := in.Status.PullRequests[0].HeadSHA
 	e.gh.checks[head] = []ghclient.CheckRun{{ID: 71, Name: "test", HeadSHA: head,
@@ -467,12 +467,12 @@ func TestFailedNamedCheckStartsBoundedFixRound(t *testing.T) {
 func TestApproverPRCommandStartsOneRevision(t *testing.T) {
 	e := newEnv(t, testProject())
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 	pr := in.Status.PullRequests[0]
 	e.gh.prComments[pr.Number] = []*ghclient.Comment{{ID: 940, NodeID: "comment-940",
 		UserLogin: approver, UserID: actorOf(approver).ID, UserType: "User",
-		Body:      "/patchy revise Please check the response header.",
+		Body:      "/maul revise Please check the response header.",
 		CreatedAt: e.clock.Now(), UpdatedAt: e.clock.Now().Add(6 * time.Second)}}
 	for i := range 250 {
 		at := e.clock.Now().Add(time.Duration(i+1) * time.Microsecond)
@@ -503,7 +503,7 @@ func TestApproverPRCommandStartsOneRevision(t *testing.T) {
 	}
 	count := 0
 	for _, c := range e.gh.prComments[pr.Number] {
-		if strings.Contains(c.Body, "patchy:intent-pr-command:") {
+		if strings.Contains(c.Body, "maul:intent-pr-command:") {
 			count++
 		}
 	}
@@ -561,7 +561,7 @@ func TestCheckDiagnosticsBoundsAndFencesMaliciousLog(t *testing.T) {
 func TestReviseComparePatchFenceIsBounded(t *testing.T) {
 	e := newEnv(t, testProject())
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 	number := in.Status.PullRequests[0].Number
 	e.gh.reviews[number] = []ghclient.Review{{ID: 988, NodeID: "review-988", Author: actorOf(approver),
@@ -592,7 +592,7 @@ func TestReviseComparePatchFenceIsBounded(t *testing.T) {
 func TestDeletedPRBranchDuringFastForwardSettlesHeadMoved(t *testing.T) {
 	e := newEnv(t, testProject())
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 	number := in.Status.PullRequests[0].Number
 	e.gh.reviews[number] = []ghclient.Review{{ID: 981, NodeID: "review-981", Author: actorOf(approver),
@@ -610,7 +610,7 @@ func TestDeletedPRBranchDuringFastForwardSettlesHeadMoved(t *testing.T) {
 func TestDeletedPRBranchBeforeRevisePinBlocksWithoutSpinning(t *testing.T) {
 	e := newEnv(t, testProject())
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 	number := in.Status.PullRequests[0].Number
 	headofBranch := e.gh.branches[branchName(name)]
@@ -630,7 +630,7 @@ func TestDeletedPRBranchBeforeRevisePinBlocksWithoutSpinning(t *testing.T) {
 func TestVanishedReviewDoesNotStrandReviseRun(t *testing.T) {
 	e := newEnv(t, testProject())
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 	number := in.Status.PullRequests[0].Number
 	e.gh.reviews[number] = []ghclient.Review{{ID: 982, NodeID: "review-982", Author: actorOf(approver),
@@ -648,11 +648,11 @@ func TestVanishedReviewDoesNotStrandReviseRun(t *testing.T) {
 func TestDeletedPRCommandDoesNotLaunchReviseAgent(t *testing.T) {
 	e := newEnv(t, testProject())
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 	number := in.Status.PullRequests[0].Number
 	e.gh.prComments[number] = []*ghclient.Comment{{ID: 987, NodeID: "comment-987", UserLogin: approver,
-		UserID: actorOf(approver).ID, UserType: "User", Body: "/patchy revise Please add a test.",
+		UserID: actorOf(approver).ID, UserType: "User", Body: "/maul revise Please add a test.",
 		CreatedAt: e.clock.Now(), UpdatedAt: e.clock.Now()}}
 	e.drive(name, v1alpha1.IntentRevising, repoImage)
 	e.gh.prComments[number] = slices.DeleteFunc(e.gh.prComments[number], func(c *ghclient.Comment) bool {
@@ -668,7 +668,7 @@ func TestDeletedPRCommandDoesNotLaunchReviseAgent(t *testing.T) {
 func TestReviseImageRefusalStopsAtOneAttempt(t *testing.T) {
 	e := newEnv(t, testProject())
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 	number := in.Status.PullRequests[0].Number
 	e.gh.reviews[number] = []ghclient.Review{{ID: 983, NodeID: "review-983", Author: actorOf(approver),
@@ -701,7 +701,7 @@ func TestRevisionAndCheckFixZeroLimitsLaunchNothing(t *testing.T) {
 			}
 			e := newEnv(t, project)
 			name := e.awaiting()
-			e.gh.label(1, "patchy:approved", approver)
+			e.gh.label(1, "maul:approved", approver)
 			in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 			head, number := in.Status.PullRequests[0].HeadSHA, in.Status.PullRequests[0].Number
 			if tc.checks {
@@ -725,7 +725,7 @@ func TestSettledChecksAreNotPolledAgainAtSameHead(t *testing.T) {
 	project.Spec.Checks.Fix = []string{"test"}
 	e := newEnv(t, project)
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 	head := in.Status.PullRequests[0].HeadSHA
 	e.gh.checks[head] = []ghclient.CheckRun{{ID: 72, Name: "test", HeadSHA: head,
@@ -768,7 +768,7 @@ func TestSettledChecksAreNotPolledAgainAtSameHead(t *testing.T) {
 func TestReviseRetryDoesNotReadLaterPRFeedback(t *testing.T) {
 	e := newEnv(t, testProject())
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 	number := in.Status.PullRequests[0].Number
 	e.gh.reviews[number] = []ghclient.Review{{ID: 984, NodeID: "review-984", Author: actorOf(approver),
@@ -841,7 +841,7 @@ func TestReviewDuringAFailedAttemptIsNotDropped(t *testing.T) {
 		}
 		return defaultOutput(spec)
 	}
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	e.drive(name, v1alpha1.IntentInReview, repoImage)
 	e.reviewOn(1, 1201, "Name the field sha.")
 	e.clock.Advance(3 * time.Minute)
@@ -871,7 +871,7 @@ func TestReviewDuringAFailedAttemptIsNotDropped(t *testing.T) {
 func TestReviewIsConsumedOnceByID(t *testing.T) {
 	e := newEnv(t, testProject())
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	e.drive(name, v1alpha1.IntentInReview, repoImage)
 	e.reviewOn(1, 1301, "Name the field sha.")
 	e.clock.Advance(3 * time.Minute)

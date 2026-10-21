@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bitwise-media-group/patchy/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/envelope"
 )
 
 // repoFixture is a scripted git repository: an initial commit (the base),
@@ -23,7 +23,7 @@ type repoFixture struct {
 	base string
 }
 
-const fixtureBranch = "patchy/issue-1"
+const fixtureBranch = "maul/issue-1"
 
 func newRepoFixture(t *testing.T) *repoFixture {
 	t.Helper()

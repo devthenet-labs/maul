@@ -13,7 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 // TestPausedMarksHeldRuns: while the agents are paused, the scheduler marks
@@ -24,7 +24,7 @@ import (
 func TestPausedMarksHeldRuns(t *testing.T) {
 	launched := pendingInv("inv-launched", "f0", "low")
 	launched.Status.Phase = v1alpha1.RunRunning
-	launched.Status.JobRef = &v1alpha1.JobReference{Namespace: "patchy-agents", Name: "job-0"}
+	launched.Status.JobRef = &v1alpha1.JobReference{Namespace: "maul-agents", Name: "job-0"}
 	granted := pendingInv("inv-granted", "f1", "low")
 	granted.Status.Phase = v1alpha1.RunRunning
 	done := pendingInv("inv-done", "f2", "low")
@@ -34,7 +34,7 @@ func TestPausedMarksHeldRuns(t *testing.T) {
 	get := func(name string) *v1alpha1.Investigation {
 		t.Helper()
 		var inv v1alpha1.Investigation
-		if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: name}, &inv); err != nil {
+		if err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: name}, &inv); err != nil {
 			t.Fatal(err)
 		}
 		return &inv
@@ -91,7 +91,7 @@ func TestUnpauseGrantsOnTheNextPass(t *testing.T) {
 	get := func() *v1alpha1.Investigation {
 		t.Helper()
 		var inv v1alpha1.Investigation
-		if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: "inv-pending"}, &inv); err != nil {
+		if err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: "inv-pending"}, &inv); err != nil {
 			t.Fatal(err)
 		}
 		return &inv
@@ -130,7 +130,7 @@ func TestUnpauseGrantsOnTheNextPass(t *testing.T) {
 func TestUnpausedSchedulerWritesNoPauseMark(t *testing.T) {
 	launched := pendingInv("inv-launched", "f0", "low")
 	launched.Status.Phase = v1alpha1.RunRunning
-	launched.Status.JobRef = &v1alpha1.JobReference{Namespace: "patchy-agents", Name: "job-0"}
+	launched.Status.JobRef = &v1alpha1.JobReference{Namespace: "maul-agents", Name: "job-0"}
 	done := pendingInv("inv-done", "f2", "low")
 	done.Status.Phase = v1alpha1.RunComplete
 	objs := []*v1alpha1.Investigation{launched, done}

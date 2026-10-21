@@ -50,16 +50,16 @@
 // The preview gateway (Config.Gateway; off unless set, and then beside every
 // endpoint above, unchanged on the issuer host) adds, by Host:
 //
-//   - any host, GET /.patchy/healthz: 200, for the edge's health check.
+//   - any host, GET /.maul/healthz: 200, for the edge's health check.
 //   - the sign-in host (the issuer's by default), GET /start?h=&s=: a preview
 //     host's sealed state; with a relay session (one that carries an id) the
 //     access review runs and a single-use handoff code goes to
-//     https://<label>.<suffix>/.patchy/callback, else the viewer signs in at
+//     https://<label>.<suffix>/.maul/callback, else the viewer signs in at
 //     Dex first (a gateway login state, kind g, through the same
 //     /dex/callback). A sign-in host of its own serves only /start, its
 //     /dex/callback, / and /logout, with its own Dex client.
-//   - preview hosts <label>.<suffix>: /.patchy/ is the gateway's and never
-//     forwarded; /.patchy/callback spends a handoff code once its state
+//   - preview hosts <label>.<suffix>: /.maul/ is the gateway's and never
+//     forwarded; /.maul/callback spends a handoff code once its state
 //     cookie matches, the Preview is the same and the review passes again,
 //     and sets the host session. Every other request with a host session is
 //     held to the origin rule (Sec-Fetch-Site, Origin on unsafe and upgrade

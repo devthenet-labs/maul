@@ -17,16 +17,16 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/bitwise-media-group/patchy/internal/artifact"
-	"github.com/bitwise-media-group/patchy/internal/cli"
-	"github.com/bitwise-media-group/patchy/internal/controller/source"
-	"github.com/bitwise-media-group/patchy/internal/forge"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/runnerimage"
-	"github.com/bitwise-media-group/patchy/internal/runnerimage/resolve"
-	"github.com/bitwise-media-group/patchy/internal/telemetry"
-	"github.com/bitwise-media-group/patchy/internal/version"
+	"github.com/devthenet-labs/maul/internal/artifact"
+	"github.com/devthenet-labs/maul/internal/cli"
+	"github.com/devthenet-labs/maul/internal/controller/source"
+	"github.com/devthenet-labs/maul/internal/forge"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/runnerimage"
+	"github.com/devthenet-labs/maul/internal/runnerimage/resolve"
+	"github.com/devthenet-labs/maul/internal/telemetry"
+	"github.com/devthenet-labs/maul/internal/version"
 )
 
 func newServeCmd(opts *cli.Options) *cobra.Command {
@@ -36,7 +36,7 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 		RunE:  func(cmd *cobra.Command, _ []string) error { return serve(cmd.Context(), opts) },
 	}
 	f := cmd.Flags()
-	f.String("namespace", "", "namespace the patchy resources live in (default: POD_NAMESPACE)")
+	f.String("namespace", "", "namespace the maul resources live in (default: POD_NAMESPACE)")
 	f.String("kubeconfig", "", "kubeconfig path (default: in-cluster config)")
 	f.String("health-addr", ":8081", "healthz/readyz probe listen address")
 	f.String("artifact-addr", ":9790", "listen address of the artifact server")
@@ -53,7 +53,7 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	f.Duration("workspace-retention", 7*24*time.Hour,
 		"remove workspace bundles not accessed for this long (0 keeps forever)")
 	f.Bool("repository-images", false,
-		"resolve repository-declared agent runner images (.patchy/agent.yaml, devcontainer.json); the kill switch")
+		"resolve repository-declared agent runner images (.maul/agent.yaml, devcontainer.json); the kill switch")
 	f.String("repository-image-registries", "",
 		"comma-separated host/path prefixes a declared image must sit under (required with --repository-images)")
 	f.String("repository-image-denied-registries", "",
@@ -145,12 +145,12 @@ func artifactBaseURL(opts *cli.Options, namespace string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("artifact-addr: %w", err)
 	}
-	return fmt.Sprintf("http://patchy-source-controller.%s.svc.cluster.local:%s", namespace, port), nil
+	return fmt.Sprintf("http://maul-source-controller.%s.svc.cluster.local:%s", namespace, port), nil
 }
 
 func serve(ctx context.Context, opts *cli.Options) error {
 	prov, shutdown, err := telemetry.Init(ctx, telemetry.Config{
-		Dir:            os.Getenv("PATCHY_TELEMETRY_DIR"),
+		Dir:            os.Getenv("MAUL_TELEMETRY_DIR"),
 		Level:          opts.LogLevel,
 		ServiceName:    "source-controller",
 		ServiceVersion: version.Version,
@@ -179,7 +179,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 
 	mgr, err := kube.NewManager(kube.Options{
 		Kubeconfig:              opts.String("kubeconfig"),
-		LeaderElectionID:        "patchy-source-controller-leader",
+		LeaderElectionID:        "maul-source-controller-leader",
 		LeaderElectionNamespace: namespace,
 		Namespaces:              []string{namespace},
 		HealthAddr:              opts.String("health-addr"),

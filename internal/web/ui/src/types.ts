@@ -1,6 +1,6 @@
-// Mirrors the status-server payload (future patchy internal/web/data.go).
+// Mirrors the status-server payload (future maul internal/web/data.go).
 // Field names match the Finding / FindingRollup CRD json tags in
-// patchy api/v1alpha1; optional Go pointers become optional fields here.
+// maul api/v1alpha1; optional Go pointers become optional fields here.
 
 // Phase is the finding lifecycle position (api/v1alpha1/transitions.go).
 export type Phase =
@@ -749,7 +749,7 @@ export interface StreamNotice {
 }
 
 // ---- usage views ----------------------------------------------------------
-// Mirrors internal/usageview (the report, shared with `patchy get usage`) and
+// Mirrors internal/usageview (the report, shared with `maul get usage`) and
 // internal/web/usage.go (UsageAccess); TestUsageWireTypesMatchTypeScript
 // keeps the field names in lockstep. Costs are integer micro-USD. Trusted
 // figures are the broker's metered tokens; notional cost is a subscription's

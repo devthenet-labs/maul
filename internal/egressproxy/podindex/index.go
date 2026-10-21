@@ -14,14 +14,14 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 
-	"github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/egressproxy"
+	"github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/egressproxy"
 )
 
 // Agent pods carry these labels (internal/jobs).
 const (
 	labelApp = "app.kubernetes.io/name"
-	appName  = "patchy-agent"
+	appName  = "maul-agent"
 )
 
 // Selector selects the agent pods the informer lists and watches.

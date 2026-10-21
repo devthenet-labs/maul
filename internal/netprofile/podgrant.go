@@ -17,12 +17,12 @@ import (
 // fixed Ecosystems order ("go,npm,pypi", only those present). It is set
 // only on a Job whose profile holds registry grants, so a step-1 profile
 // Job carries exactly what it did.
-const EnvEcosystems = "PATCHY_NETWORK_ECOSYSTEMS"
+const EnvEcosystems = "MAUL_NETWORK_ECOSYSTEMS"
 
 // EnvGrants is the agent container variable describing a profile Job's
 // registry grants to the agent runner (EncodePodGrants), so the prompt can
 // say which packages each route serves. Set beside EnvEcosystems only.
-const EnvGrants = "PATCHY_NETWORK_GRANTS"
+const EnvGrants = "MAUL_NETWORK_GRANTS"
 
 // MaxPodPackages bounds the allowlist entries a PodGrant lists by name;
 // the rest are counted (MorePackages). It keeps the pod's environment, and

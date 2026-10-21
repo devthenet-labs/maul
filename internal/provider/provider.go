@@ -9,8 +9,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/bitwise-media-group/patchy/internal/harness"
-	"github.com/bitwise-media-group/patchy/internal/model"
+	"github.com/devthenet-labs/maul/internal/harness"
+	"github.com/devthenet-labs/maul/internal/model"
 )
 
 // BrokerTokenHeader carries the agent pod's projected ServiceAccount token
@@ -18,7 +18,7 @@ import (
 // it before any byte is forwarded upstream. Defined here — the one package
 // both the in-pod runtime and the broker import — so the two sides can never
 // drift.
-const BrokerTokenHeader = "X-Patchy-Broker-Token"
+const BrokerTokenHeader = "X-Maul-Broker-Token"
 
 // LimitMessagePrefix opens the error message of every 429 the egress broker
 // returns for a spend limit it enforces on a pod's behalf (requests, tokens
@@ -34,7 +34,7 @@ const LimitMessagePrefix = "egress broker: per-pod limit"
 // (UID-checked against the TokenReview) and enforces the smaller of it and
 // --cost-per-pod; the run controllers stamp it. Defined here, beside
 // BrokerTokenHeader, so the writer and the reader share one name and grammar.
-const BudgetAnnotation = "patchy.bitwisemedia.uk/budget-micro-usd"
+const BudgetAnnotation = "maul.run/budget-micro-usd"
 
 // maxBudgetDigits bounds a budget value: sixteen digits is ten billion
 // dollars, far past any run, and keeps every sum the broker forms of it
@@ -67,12 +67,12 @@ func ParseBudget(v string) (microUSD int64, ok bool) {
 // that start-up gate and nothing else: the egress broker strips every
 // inbound Authorization and x-api-key header before injecting the real
 // credential, so the placeholder never leaves the broker. It is a literal in
-// the Job spec (never a Secret), and only patchy sets it: the env name is
+// the Job spec (never a Secret), and only maul sets it: the env name is
 // one of claude's own credential channels, which internal/jobs reserves
 // against Config.Env and filters out of the per-runner Env.
 const (
 	PlaceholderAuthEnv   = "ANTHROPIC_AUTH_TOKEN"
-	PlaceholderAuthToken = "patchy-brokered-placeholder"
+	PlaceholderAuthToken = "maul-brokered-placeholder"
 )
 
 // The codex gateway (codex broker design, group 2). Codex is pointed at the
@@ -86,9 +86,9 @@ const (
 // can never set them, a repository image's ENV may not name them, and a
 // repository-image Job blanks the ones it does not set.
 const (
-	CodexBaseURLEnv        = "PATCHY_CODEX_BASE_URL"
-	CodexTokenEnv          = "PATCHY_BROKER_TOKEN"
-	CodexPlaceholderKeyEnv = "PATCHY_CODEX_PLACEHOLDER_KEY"
+	CodexBaseURLEnv        = "MAUL_CODEX_BASE_URL"
+	CodexTokenEnv          = "MAUL_BROKER_TOKEN"
+	CodexPlaceholderKeyEnv = "MAUL_CODEX_PLACEHOLDER_KEY"
 )
 
 // CodexRoutePath is the broker route codex's provider is based at: the
@@ -155,7 +155,7 @@ type Config struct {
 	// (deployment names are operator-chosen), so there it is the whole map.
 	ModelMap map[string]string
 	// ExtraEnv is operator passthrough into the agent pod's gateway env.
-	// Credential-named and patchy-owned keys are rejected.
+	// Credential-named and maul-owned keys are rejected.
 	ExtraEnv map[string]string
 }
 
@@ -178,8 +178,8 @@ var GatewayEnvNames = []string{
 	"ANTHROPIC_VERTEX_PROJECT_ID",
 	"CLOUD_ML_REGION",
 	"AWS_REGION",
-	"PATCHY_BROKER_TOKEN_FILE",
-	"PATCHY_MODEL_MAP",
+	"MAUL_BROKER_TOKEN_FILE",
+	"MAUL_MODEL_MAP",
 	CodexBaseURLEnv,
 	CodexTokenEnv,
 	CodexPlaceholderKeyEnv,
@@ -215,7 +215,7 @@ func (c Config) Validate() error {
 	forbidden := forbiddenEnvNames()
 	for _, k := range slices.Sorted(maps.Keys(c.ExtraEnv)) {
 		if forbidden[k] {
-			return fmt.Errorf("provider env %s is patchy-owned or a credential channel; it cannot be set here", k)
+			return fmt.Errorf("provider env %s is maul-owned or a credential channel; it cannot be set here", k)
 		}
 	}
 	return nil
@@ -267,7 +267,7 @@ func Env(c Config, modelMap map[string]string) map[string]string {
 		env["ANTHROPIC_FOUNDRY_BASE_URL"] = base + "/foundry"
 	}
 	if len(modelMap) > 0 {
-		env["PATCHY_MODEL_MAP"] = FormatModelMap(modelMap)
+		env["MAUL_MODEL_MAP"] = FormatModelMap(modelMap)
 	}
 	maps.Copy(env, c.ExtraEnv)
 	return env
@@ -379,7 +379,7 @@ func ValidateCoverage(c Config, models []model.Model, modelMap map[string]string
 	return nil
 }
 
-// FormatModelMap renders a model map as the PATCHY_MODEL_MAP wire form:
+// FormatModelMap renders a model map as the MAUL_MODEL_MAP wire form:
 // comma-joined canonical=cliID pairs, sorted for determinism.
 func FormatModelMap(m map[string]string) string {
 	pairs := make([]string, 0, len(m))
@@ -389,7 +389,7 @@ func FormatModelMap(m map[string]string) string {
 	return strings.Join(pairs, ",")
 }
 
-// ParseModelMap parses the PATCHY_MODEL_MAP wire form back into a map. It is
+// ParseModelMap parses the MAUL_MODEL_MAP wire form back into a map. It is
 // the single codec both sides share; a malformed entry is an error, not a
 // silently dropped translation.
 func ParseModelMap(s string) (map[string]string, error) {

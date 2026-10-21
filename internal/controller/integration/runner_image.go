@@ -12,14 +12,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/templates"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // AnnotationProjectedRunnerImage is the hash of the last projected
 // runner-image sticky comment ("" while there is none to post).
-const AnnotationProjectedRunnerImage = "patchy.bitwisemedia.uk/projected-runner-image"
+const AnnotationProjectedRunnerImage = "maul.run/projected-runner-image"
 
 // projectRunnerImage keeps the runner-image sticky comment current: one
 // marker-headed comment per tracking issue, posted once the finding's

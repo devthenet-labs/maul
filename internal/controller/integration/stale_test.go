@@ -27,12 +27,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/ghas"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/webhook"
-	"github.com/bitwise-media-group/patchy/pkg/source"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/ghas"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/webhook"
+	"github.com/devthenet-labs/maul/pkg/source"
 )
 
 // patchy-target's main, oldest first, as it stood when alerts 7 and 9 were
@@ -132,7 +132,7 @@ func liveIntegration() *v1alpha1.Integration {
 func remediatedFix() *v1alpha1.Finding {
 	return &v1alpha1.Finding{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "finding-1678e4a376-2", Namespace: "patchy",
+			Name: "finding-1678e4a376-2", Namespace: "maul",
 			Labels: map[string]string{v1alpha1.LabelKeyHash: "1678e4a376"},
 		},
 		Spec: v1alpha1.FindingSpec{
@@ -188,12 +188,12 @@ func newStaleHarness(t *testing.T, commits *fakeCommits, opts ...func(*fake.Clie
 	return &staleHarness{
 		receiver: &Receiver{
 			Reader:    c,
-			Namespace: "patchy",
+			Namespace: "maul",
 			Ingest: &Ingestor{
-				Client: c, Namespace: "patchy", Now: func() time.Time { return testClock },
+				Client: c, Namespace: "maul", Now: func() time.Time { return testClock },
 				Log: log, Commits: commits,
 			},
-			Signals: &Signals{Client: c, Namespace: "patchy", Now: func() time.Time { return testClock }},
+			Signals: &Signals{Client: c, Namespace: "maul", Now: func() time.Time { return testClock }},
 			Log:     log,
 		},
 		client:  c,
@@ -485,7 +485,7 @@ func TestStaleObservationRecheck(t *testing.T) {
 			alert:  staleAlert(regression, "refs/heads/main"),
 			edit: func(h *staleHarness) {
 				var integ v1alpha1.Integration
-				key := types.NamespacedName{Namespace: "patchy", Name: "github"}
+				key := types.NamespacedName{Namespace: "maul", Name: "github"}
 				if err := h.client.Get(t.Context(), key, &integ); err != nil {
 					t.Fatalf("get integration: %v", err)
 				}
@@ -520,13 +520,13 @@ func TestStaleObservationRecheck(t *testing.T) {
 				tracker.alerts[9] = tc.alert
 			}
 			r := &FindingReconciler{
-				Client: h.client, Namespace: "patchy", Now: func() time.Time { return testClock },
+				Client: h.client, Namespace: "maul", Now: func() time.Time { return testClock },
 				ClientFor: func(context.Context, *v1alpha1.Integration, ghclient.Repo) (trackerClient, error) {
 					return tracker, nil
 				},
 				Ingest: h.receiver.Ingest, StaleRecheck: interval, Log: h.receiver.Log,
 			}
-			req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "patchy", Name: "finding-1678e4a376-2"}}
+			req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "maul", Name: "finding-1678e4a376-2"}}
 			res, err := r.Reconcile(t.Context(), req)
 			if err != nil {
 				t.Fatalf("Reconcile: %v", err)
@@ -607,7 +607,7 @@ func TestAncestryDeniedSurfacesOnIntegration(t *testing.T) {
 	get(t, h.client, "finding-1678e4a376-3") // fails open, as before
 	ancestry := func() *metav1.Condition {
 		var integ v1alpha1.Integration
-		if err := h.client.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: "github"}, &integ); err != nil {
+		if err := h.client.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: "github"}, &integ); err != nil {
 			t.Fatalf("get integration: %v", err)
 		}
 		return meta.FindStatusCondition(integ.Status.Conditions, v1alpha1.ConditionCommitAncestry)
@@ -660,7 +660,7 @@ func TestAncestryHealthyWritesNothing(t *testing.T) {
 func liveIntegrationWithStatus(t *testing.T, h *staleHarness) *v1alpha1.Integration {
 	t.Helper()
 	var integ v1alpha1.Integration
-	if err := h.client.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: "github"}, &integ); err != nil {
+	if err := h.client.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: "github"}, &integ); err != nil {
 		t.Fatalf("get integration: %v", err)
 	}
 	return &integ

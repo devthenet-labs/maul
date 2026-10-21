@@ -1,16 +1,16 @@
 // Extends the org preset every repository inherits through the bot's global config
-// (github>bitwise-media-group/renovate-config:default.json5); only what is added here is patchy's own.
+// (github>bitwise-media-group/renovate-config:default.json5); only what is added here is maul's own.
 {
     $schema: "https://docs.renovatebot.com/renovate-schema.json",
     customManagers: [
-        // The upstream charts `patchy setup previews` writes values for, and the images its manifests run
+        // The upstream charts `maul setup previews` writes values for, and the images its manifests run
         // (design §5.3): each version a Go constant under a `// renovate:` comment, an image's as
         // <tag>@<digest>. TestRenovateTracksPins holds this manager to pins.go, and CI's preview-pins job
         // checks a bumped pin against its chart, its CRDs and its image.
         {
             customType: "regex",
             description: "setup previews chart pins",
-            managerFilePatterns: ["/^cmd/patchy/internal/previewsetup/pins\\.go$/"],
+            managerFilePatterns: ["/^cmd/maul/internal/previewsetup/pins\\.go$/"],
             matchStrings: [
                 '// renovate: datasource=(?<datasource>\\S+) registryUrl=(?<registryUrl>\\S+) depName=(?<depName>\\S+)\\nconst \\w+ = "(?<currentValue>[^"]+)"',
                 '// renovate: datasource=(?<datasource>docker) depName=(?<depName>\\S+)\\nconst \\w+ = "(?<currentValue>[^"@]+)@(?<currentDigest>sha256:[a-f0-9]{64})"',

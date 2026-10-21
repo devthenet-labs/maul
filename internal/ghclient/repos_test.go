@@ -130,7 +130,7 @@ func TestCreatePR(t *testing.T) {
 	mux.HandleFunc("POST /repos/o/r/pulls", func(w http.ResponseWriter, r *http.Request) {
 		want := map[string]any{
 			"title": "fix: patch it",
-			"head":  "patchy/fix-4",
+			"head":  "maul/fix-4",
 			"base":  "main",
 			"body":  "closes #3",
 		}
@@ -141,7 +141,7 @@ func TestCreatePR(t *testing.T) {
 	})
 
 	got, err := c.CreatePR(context.Background(), testRepo, PRRequest{
-		Title: "fix: patch it", Head: "patchy/fix-4", Base: "main", Body: "closes #3",
+		Title: "fix: patch it", Head: "maul/fix-4", Base: "main", Body: "closes #3",
 	})
 	if err != nil {
 		t.Fatalf("CreatePR() error = %v", err)

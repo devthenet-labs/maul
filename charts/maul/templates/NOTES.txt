@@ -1,0 +1,483 @@
+maul {{ .Chart.AppVersion }} deployed to namespace {{ .Release.Namespace }}
+(agent sandbox: {{ .Values.agent.namespace }}).
+
+The CRs are the state machine: findings, investigations, and remediations
+live as maul.run custom resources in {{ .Release.Namespace }}
+(kubectl get maul -n {{ .Release.Namespace }}).
+
+{{ if .Values.agent.paused -}}
+AGENTS PAUSED: agent.paused is true, so investigation-, remediation-,
+intent- and evaluation-controller launch no new agent Job. Work queues in
+order and running Jobs finish. Set agent.paused: false to resume.
+
+{{ end -}}
+The pipeline idles until two things exist:
+
+  1. An Integration and a Forge custom resource (render them with the
+     `integrations:` / `forges:` values arrays, or apply your own). The
+     Integration validates webhooks and projects tracking issues; the Forge
+     clones and pushes repositories.
+  2. The Secrets they reference, created out of band:
+       * the forge/provider credential (keys: appID + privateKey, or token,
+         plus webhookSecret on Integration secrets) in namespace
+         {{ .Release.Namespace }}, named by each CR's spec.secretRef.
+       * the model credentials. Claude's lives with the egress broker in
+         namespace {{ .Release.Namespace }} ({{ .Values.egressBroker.anthropicSecret }}, key api-key, when the
+         provider is anthropic; for bedrock/vertex/foundry-entra the broker
+         uses its workload identity instead — annotate
+         egressBroker.serviceAccount).{{ if include "maul.harnessEnabled" (dict "root" . "id" "codex") }} Codex's OpenAI API key lives
+         with the broker too, in the Secret egressBroker.openai.apiKey names
+         ({{ .Values.egressBroker.openai.apiKey.secret }}, key {{ .Values.egressBroker.openai.apiKey.key | default "api-key" }}).{{ end }} The non-brokered runners, whether
+         enabled for findings or for evaluations, each need a Secret in
+         namespace {{ .Values.agent.namespace }}
+         ({{- range $id, $r := .Values.agent.runners }}{{ if and (include "maul.harnessEnabled" (dict "root" $ "id" $id)) $r.secret }} {{ $r.secret }} (key {{ $r.secretKey }}, as {{ $r.secretEnv }}){{ end }}{{- end }} — none needed when claude is the only harness enabled).
+         A non-brokered harness is enabled only when its runner is enabled
+         AND its credential exists; claude is enabled by configuration, with
+         a missing broker credential surfacing at the broker's /readyz, and
+         so is codex.
+         Every allowlisted model needs one enabled harness that supports it,
+         or the controllers refuse to start.
+     See deploy/kustomize/base/secrets.example.yaml in the maul repository
+     for the exact shapes and kubectl one-liners.
+{{- if or (index .Values.agent.runners.claude "secret") (index .Values.agent.runners.claude "secretKey") (index .Values.agent.runners.claude "secretEnv") }}
+
+WARNING: agent.runners.claude.secret / secretKey / secretEnv are set but
+IGNORED — claude runs proxy-only through the egress broker and its pods hold
+no credential. Move the Anthropic credential to a Secret named
+`{{ .Values.egressBroker.anthropicSecret }}` (key api-key) in namespace {{ .Release.Namespace }}, delete the old
+Secret from {{ .Values.agent.namespace }}, and drop these values. If the old
+secretEnv was CLAUDE_CODE_OAUTH_TOKEN (a `claude setup-token` token), also
+set egressBroker.anthropicAuth=token so the broker sends it as a bearer.
+{{- end }}
+{{- if not (and .Values.integrations .Values.forges) }}
+
+NOTE: {{ if not .Values.integrations }}`integrations` is empty{{ if not .Values.forges }} and {{ end }}{{ end }}{{ if not .Values.forges }}`forges` is empty{{ end }} — no findings will be
+ingested{{ if not .Values.forges }} and no repository can be cloned{{ end }} until the missing CR(s) exist.
+{{- end }}
+
+{{- if or .Values.webhook.ingress.enabled .Values.webhook.httpRoute.enabled }}
+
+Set the GitHub App's (single) webhook URL to:
+
+  https://{{ .Values.webhook.host }}/github/webhooks
+
+The integration-controller behind it validates each delivery against the
+matching Integration's webhookSecret.
+{{- else }}
+
+No webhook entry point is enabled. Expose the integration-controller (the
+only internet-facing component; it validates each delivery against the
+matching Integration's webhookSecret) with webhook.host plus
+webhook.ingress.enabled or webhook.httpRoute.enabled — or bring your own
+routing to the {{ include "maul.fullname" . }}-integration-controller
+Service — then point the GitHub App's single webhook URL at
+https://<host>/github/webhooks.
+{{- end }}
+{{- if .Values.intentController.enabled }}
+
+intent-controller is enabled. It does nothing until a Project exists: add
+one per project to the maul-config chart's `projects` array, then check
+`kubectl get projects -n {{ .Release.Namespace }}` reports Ready. It reads only
+the Forge Secrets named in intentController.forgeSecrets in the release namespace
+({{ join ", " .Values.intentController.forgeSecrets }}): the Projects of a Forge referencing any other Secret report
+Ready=False with reason ForgeSecretUnreadable, naming the Secret.
+Its agent-jobs Role can get, create, update and delete any Secret in the agents namespace, including model keys,
+image-pull credentials and other Jobs' handoffs.
+{{- if not (.Values.agent.repositoryImages | default dict).enabled }}
+
+NOTE: agent.repositoryImages is off, so every intent build blocks on
+ImageRequired unless its Project sets requireRepositoryImage: false. Builds
+are meant to run in the application repository's own image.
+{{- end }}
+{{- end }}
+{{- if .Values.preview.enabled }}
+{{- $p := .Values.preview }}
+{{- $n := $p.nodeIsolation }}
+{{- $iso := include "maul.previewNodeIsolation" . | fromJson }}
+{{- $legacy := include "maul.previewLegacyIngress" . }}
+{{- $alb := include "maul.previewALB" . }}
+
+Previews: {{ $p.slotCount }} slot(s), each preview served at <project>-<issue>.{{ $p.hostSuffix }}.
+Next steps:
+{{- if not $alb }}
+
+  1-2. No preview ALB: preview.legacyIngress is false, so the preview-controller
+     renders no slot Ingress and only the preview gateway (previewAuth.gateway)
+     reaches the slots. Point *.{{ $p.hostSuffix }} at the gateway's edge.
+{{- else }}
+
+  1. The preview ALB.{{ if $p.placeholder.enabled }} The kept placeholder Ingress creates it ({{ $p.albName }}).
+     Its hostname, once the load balancer is provisioned:
+
+       kubectl get ingress maul-preview-placeholder -n maul-preview-0 \
+         -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+{{- else }} preview.placeholder.enabled is false, so it does not exist
+     yet. Enable the placeholder in a separate revision once these
+     guardrails are in place.
+{{- end }}
+
+  2. The wildcard record: point *.{{ $p.hostSuffix }} at that hostname (a
+     Route53 alias A record, or a CNAME){{ if not $legacy }}, or, now that
+     preview.legacyIngress is false, at the preview gateway's edge{{ end }}.
+{{- end }}
+
+  3. The preview nodes: {{ if eq $iso.mode "none" }}none. preview.nodeIsolation.mode is none, so
+     preview Pods share nodes with everything else: hostile pull request
+     code runs beside maul's controllers and agents. Prefer a dedicated,
+     tainted node.
+{{- else if $n.create }}this release renders NodeClass {{ $iso.nodeClass }} and
+     NodePool {{ $iso.nodePool }}, kept on uninstall (delete the NodePool first).
+{{- else if $iso.eks }}NodeClass {{ $iso.nodeClass }} and NodePool {{ $iso.nodePool }} must
+     exist (DefaultDeny, tainted {{ $iso.taintKey }}=true:NoExecute), or set
+     preview.nodeIsolation.create to render them.
+{{- else }}nodes labelled
+{{- range $pair := $iso.pairs }} {{ index $pair 0 }}={{ index $pair 1 }}{{ end }}
+     and tainted {{ $iso.taintKey }}=true:NoExecute must exist, and nothing
+     else may run there.
+{{- end }}
+{{- if $iso.eks }}
+
+  4. The isolation probe: before enabling any Project preview, and after
+     every EKS, Auto Mode or VPC CNI upgrade, run the cold-start gate from a
+     maul checkout (hack/preview-isolation-probe/README.md):
+
+       bash hack/preview-isolation-probe/run.sh \
+         --repository <owner>/<app> \
+         --image {{ include "maul.previewImagePrefix" . }}<app> \
+         --taint-key {{ $iso.taintKey }} \
+         --node-pool {{ $iso.nodePool }} --node-class {{ $iso.nodeClass }} \
+         <disposable-PR-number>
+{{- end }}
+
+{{- if $alb }}
+COST: the preview ALB bills from the moment the placeholder creates it,
+whether or not any preview runs{{ if $p.placeholder.enabled }} (even with previewController off){{ end }}.
+{{- end }}
+{{- if $n.create }}
+A preview node ({{ join ", " $n.instanceTypes }}) bills from launch until it
+is consolidated, 30s after its last preview Pod. Budget by CPU: the pool
+stops launching nodes at {{ $n.cpuLimit }} CPUs. Auto Mode is not known to
+enforce a NodePool's node limit, so do not count on its limit of {{ $n.nodeLimit }} nodes.
+{{- else if $iso.eks }}
+A preview node bills from launch until NodePool {{ $iso.nodePool }}'s own
+disruption policy removes it. This release does not render that NodePool, so
+its consolidation and limits are whatever you set.
+{{- end }}
+{{- $albKeys := list }}
+{{- range $k := list "albName" "certificateARN" "albSubnetCIDRs" "albSubnetIDs" "prefixListsIDs" "allowPublicWithAuth" }}
+{{- if get $p $k }}{{ $albKeys = append $albKeys (printf "preview.%s" $k) }}{{ end }}
+{{- end }}
+{{- if and (not $legacy) $albKeys }}
+
+DEPRECATED: preview.legacyIngress is false, so the preview ALB serves nothing,
+but {{ join ", " $albKeys }} {{ if eq (len $albKeys) 1 }}is{{ else }}are{{ end }} still set{{ if $alb }} and keep its kept objects
+(the alb-preview IngressClass, its params and the placeholder) rendering{{ end }}.
+They are removed in the next release: unset them once the wildcard record
+points at the preview gateway, then delete the kept objects the release notes list.
+{{- end }}
+{{- if kindIs "bool" (.Values.previewController.config | default dict).legacyIngress }}
+
+DEPRECATED: previewController.config.legacyIngress moved to preview.legacyIngress.
+It still wins while set; move it.
+{{- end }}
+{{- with $iso.legacy }}
+
+DEPRECATED: preview.nodeIsolation.{{ join " and preview.nodeIsolation." . }} still work, but
+move them to preview.nodeIsolation.eksAutoMode ({{ join ", " . }}) before
+they are removed.
+{{- end }}
+{{- end }}
+{{- $pas := include "maul.previewAuthState" . | fromJson }}
+{{- if $pas.enabled }}
+{{- $pa := .Values.previewAuth }}
+{{- /* Without the preview ALB (preview.legacyIngress false, albName unset)
+       nothing carries the ALB's sign-in annotations: the stage is inert and
+       the steps speak of the relay's and the gateway's edge instead. */}}
+{{- $paALB := include "maul.previewALB" . }}
+
+Preview sign-in: {{ if $paALB }}stage {{ $pas.stage }}, {{ end }}key generation {{ int $pas.gen }}{{ if gt (int $pas.prevGen) 0 }} (generation {{ int $pas.prevGen }} still admitted){{ end }}.
+
+  1. Dex, the one per-install IdP setup: a static client {{ $pa.dex.clientID }}
+     at {{ $pa.dex.issuerURL }} whose ONLY redirect URI is
+
+       {{ $pas.issuer }}/dex/callback
+
+     with its secret under key {{ $pa.dex.clientSecretKey | default "clientSecret" }} of Secret {{ $pa.dex.existingSecret }} ({{ .Release.Namespace }}).
+{{- if $paALB }}
+
+  2. {{ $pa.host }} on the edge ALB: a DNS record to it, and its certificate
+     covering the name. The edge ALB must stay reachable from the internet:
+     the preview ALB calls {{ $pas.issuer }}/token from dynamic addresses.
+{{- else }}
+
+  2. {{ $pa.host }} at its edge (the relay's Ingress, previewAuth.ingress, or
+     the preview gateway's): a DNS record to it, and its certificate covering
+     the name. Only viewers' browsers call it: there is no preview ALB.
+{{- end }}
+{{- if not (or $pa.viewers.teams $pa.viewers.users) }}
+
+  NO VIEWERS: previewAuth.viewers is empty, so every sign-in is refused until
+  someone is bound to ClusterRole {{ include "maul.fullname" . }}-preview-viewer.
+{{- end }}
+{{- if not $paALB }}
+
+  3. Nothing to stage: without the preview ALB, previewAuth.stage has no
+     effect{{ if (include "maul.previewGateway" . | fromJson).enabled }} and the preview gateway signs every viewer in{{ else }}, and
+     nothing serves the preview hosts until previewAuth.gateway is on{{ end }}.
+{{- else if eq $pas.stage "permit" }}
+
+  3. Nothing requires sign-in yet: the slot Ingress policy now admits
+     generation {{ int $pas.gen }}'s sign-in annotations. Once this revision is live,
+     upgrade again with previewAuth.stage=require.
+{{- else if ne (int $pas.applyGen) (int $pas.gen) }}
+
+  3. ROTATION IN PROGRESS: the slot Ingress policy now admits generation {{ int $pas.gen }},
+     but slot Ingresses still carry generation {{ int $pas.applyGen }}. Run the same helm
+     upgrade once more to move them to generation {{ int $pas.gen }}.
+{{- else }}
+
+  3. Every preview Ingress requires sign-in (policy maul-preview-ingress-auth,
+     kept on rollback). Before a rollback, read the preview sign-in runbook:
+     the kept policy refuses an Ingress that drops sign-in.
+{{- end }}
+{{- if and $paALB (eq $pas.stage "require") (ne (int $pas.sessionTimeout) (int $pa.sessionTimeout)) }}
+
+  SESSION TIMEOUT CHANGE IN PROGRESS: the slot Ingress policies now admit an
+  auth-session-timeout of up to {{ int $pas.timeoutCeiling }} seconds, but slot Ingresses still
+  carry {{ int $pas.sessionTimeout }}. Run the same helm upgrade once more to apply {{ int $pa.sessionTimeout }}.
+{{- end }}
+{{- $gw := include "maul.previewGateway" . | fromJson }}
+{{- if $gw.enabled }}
+{{- $gwv := $pa.gateway }}
+{{- $gwName := printf "%s-preview-gateway" (include "maul.fullname" .) }}
+
+Preview gateway: on. Viewers sign in at https://{{ $gw.signInHost }}/start; every
+https://<label>.{{ .Values.preview.hostSuffix }} is proxied to its slot by Service {{ $gwName }}.
+
+  1. The edge: {{ if eq $gw.exposure "ingress" }}Ingress {{ $gwName }} routes *.{{ .Values.preview.hostSuffix }}{{ if $gw.routeSignIn }} and
+     {{ $gw.signInHost }}{{ end }} (health check /.maul/healthz). Its address, once provisioned:
+
+       kubectl get ingress {{ $gwName }} -n {{ .Release.Namespace }} \
+         -o jsonpath='{.status.loadBalancer.ingress[0]}'
+{{- else if eq $gw.exposure "httpRoute" }}HTTPRoute {{ $gwName }} attaches *.{{ .Values.preview.hostSuffix }}{{ if $gw.routeSignIn }} and
+     {{ $gw.signInHost }}{{ end }} to your Gateway, whose listener terminates TLS.
+{{- else if eq $gw.exposure "loadBalancer" }}Service {{ $gwName }} is a LoadBalancer (externalTrafficPolicy {{ $gwv.service.externalTrafficPolicy | default "Local" }}). Its address:
+
+       kubectl get service {{ $gwName }} -n {{ .Release.Namespace }} \
+         -o jsonpath='{.status.loadBalancer.ingress[0]}'
+{{- else if $gw.tls }}none rendered. Route *.{{ .Values.preview.hostSuffix }}{{ if $gw.routeSignIn }} and {{ $gw.signInHost }}{{ end }} to
+     Service {{ $gwName }} port 443 yourself (a tunnel or a tailnet device passing
+     TLS through): the gateway terminates TLS with previewAuth.gateway.tls.secrets.
+{{- else }}none rendered. Route *.{{ .Values.preview.hostSuffix }}{{ if $gw.routeSignIn }} and {{ $gw.signInHost }}{{ end }} to
+     Service {{ $gwName }} port 80 yourself (a tunnel, your own Ingress), terminating TLS there.
+{{- end }}
+
+  2. DNS: point *.{{ .Values.preview.hostSuffix }}{{ if $gw.routeSignIn }} and {{ $gw.signInHost }}{{ end }} at that edge{{ with $gwv.publishedAddresses }} ({{ join ", " . }}, as
+     previewAuth.gateway.publishedAddresses records){{ end }}. Until the wildcard
+     moves, {{ if include "maul.previewLegacyIngress" . }}the preview ALB keeps serving (both paths sign viewers in, so the
+     switch is safe either way); once it has, set preview.legacyIngress=false.{{ else }}previews are unreachable: preview.legacyIngress is false.{{ end }}
+     Edge caching must be off for preview hosts.
+{{- if $gw.routeSignIn }}
+
+  3. Dex: the relay's client {{ $pa.dex.clientID }} also needs the redirect URI
+
+       https://{{ $gw.signInHost }}/dex/callback
+{{- end }}
+{{- if and (eq $gw.exposure "loadBalancer") (eq ($gwv.service.externalTrafficPolicy | default "Local") "Cluster") (eq ($gw.hops | default "0") "0") }}
+
+  CLIENT ADDRESS: previewAuth.gateway.service.externalTrafficPolicy is Cluster with
+  forwardedHops 0. Unless your load balancer keeps the client's address itself (an
+  AWS NLB with IP targets and client IP preservation), kube-proxy hands the gateway
+  a node address: {{ if $gwv.inboundCIDRs }}inboundCIDRs then refuses every viewer, and {{ end }}the rate limit
+  shares one bucket per node. Set it to Local.
+{{- end }}
+{{- if and $gwv.inboundCIDRs (or (eq $gw.exposure "httpRoute") (eq $gw.exposure "none") (and (eq $gw.exposure "ingress") (not $gwv.ingress.inboundCIDRsAnnotation))) }}
+
+  ALLOWLIST AT THE GATEWAY ONLY: previewAuth.gateway.inboundCIDRs is checked by
+  the gateway behind {{ $gw.hops | default "0" }} forwarded hop(s), but this exposure does not
+  enforce it at the edge{{ if eq $gw.exposure "ingress" }} (set previewAuth.gateway.ingress.inboundCIDRsAnnotation
+  to your Ingress controller's allowlist annotation){{ end }}.
+{{- end }}
+{{- end }}
+{{- end }}
+{{- $egressMode := include "maul.egressMode" . }}
+{{- $broadEgress := include "maul.broadEgress" . }}
+{{- $dnsNone := include "maul.agentDNSNone" . }}
+{{- $unbrokered := list }}
+{{- range $id, $r := .Values.agent.runners }}
+{{- if and (not (include "maul.brokeredHarness" $id)) (include "maul.harnessEnabled" (dict "root" $ "id" $id)) }}
+{{- $unbrokered = append $unbrokered $id }}
+{{- end }}
+{{- end }}
+{{- if not .Values.agent.networkPolicy.create }}
+
+WARNING: agent.networkPolicy.create is false, so this chart renders no
+NetworkPolicy for {{ .Values.agent.namespace }}: an agent pod reaches whatever the cluster's own
+policies allow, which on most clusters is everything. Credential absence (the
+agent pod holds no forge credential; the repository arrives as a
+digest-verified tarball from source-controller's artifact server) is then the
+only control.
+{{- else if and (eq $egressMode "none") $broadEgress }}
+
+NOTE: the agent sandbox currently has no hostname-level egress policy — the
+base NetworkPolicy allows TCP 443 to anywhere, and credential absence (the
+agent pod holds no forge credential; the repository arrives as a
+digest-verified tarball from source-controller's artifact server) is the
+control.
+
+agent.networkPolicy.mode is {{ .Values.agent.networkPolicy.mode | default "auto" }}, and no enforceable dialect was found.
+For defence in depth, one of:
+
+  * GKE Dataplane V2 — recreate or update the cluster with
+    --enable-fqdn-network-policy, then re-reconcile; mode auto picks it up.
+  * Cilium — needs DNS-based policy (the DNS proxy); auto picks it up.
+  * Istio — set mode: istio (never auto-selected: it needs native sidecars
+    and namespace injection, which CRD presence does not imply).
+{{- if not $unbrokered }}
+  * Brokered runners only (claude, codex) — set
+    agent.networkPolicy.broadEgress: never, and an agent pod reaches only the
+    artifact server and the egress broker.
+{{- end }}
+
+Note that auto can only see the cluster when Helm renders against one; an
+off-cluster `helm template` always reports none.
+{{- else if eq $egressMode "none" }}
+
+Agent sandbox egress: no direct route out of the cluster
+(agent.networkPolicy.broadEgress is never). An agent pod may reach
+source-controller's artifact server{{ if include "maul.brokerEnabled" . }} and the egress broker (all of claude's
+and codex's model traffic){{ end }}{{ if not $dnsNone }}, plus the cluster DNS resolver{{ end }}, and nothing else{{ if include "maul.egressProxyEnabled" . }} (a Job granted a
+network profile also reaches the egress proxy){{ end }}.
+{{- if $unbrokered }}
+
+WARNING: {{ join ", " $unbrokered }} {{ if gt (len $unbrokered) 1 }}are{{ else }}is{{ end }} enabled, but no policy lets an agent pod reach a
+model API directly: those Jobs will fail to connect. Keep broadEgress auto
+or always for them, or run claude alone.
+{{- end }}
+{{- else }}
+
+Agent sandbox egress: hostname-enforced via mode {{ $egressMode }}{{ if $broadEgress }}, but the base
+policy's broad "TCP 443 to anywhere" rule is STILL IN PLACE — network policies
+are additive, so the allowlist is not actually constraining egress. That is
+what agent.networkPolicy.broadEgress={{ .Values.agent.networkPolicy.broadEgress | default "auto" }} asks for; set it to `auto` once the mode
+is soaked{{ else }} — each runner reaches only its own model API{{ end }}.
+{{- end }}
+{{- if and $dnsNone (not .Values.agent.networkPolicy.create) }}
+
+Agent DNS: none. The agent pods have no resolver (the job controllers pin the
+artifact server and the egress broker in each pod's hosts file), but with no
+NetworkPolicy rendered nothing stops an agent pod from querying the cluster
+resolver by address, and so carrying data out in query names.
+{{- else if $dnsNone }}
+
+Agent DNS: none. The agent pods have no resolver (the job controllers pin the
+artifact server and the egress broker in each pod's hosts file), and this
+chart's agent egress policies allow no DNS. Network policies are additive: a
+DNS allow policy for {{ .Values.agent.namespace }} managed outside this chart (an allow-dns
+policy for a node-local resolver, say) still lets an agent pod query the
+cluster resolver directly, and so still carries data out in query names.
+Remove it, or narrow it so it selects no agent pod:
+
+  kubectl get networkpolicy -n {{ .Values.agent.namespace }}
+{{- if $broadEgress }}
+
+DNS is closed, but the base policy still allows TCP 443 to any address
+outside the cluster. Only brokered claude runs without a resolver, and it
+needs no such rule: set agent.networkPolicy.broadEgress: never to leave an
+agent pod the artifact server and the broker alone.
+{{- end }}
+{{- end }}
+{{- if include "maul.egressProxyEnabled" . }}
+
+Network profiles are on: the egress proxy ({{ include "maul.fullname" . }}-egress-proxy) serves
+{{ len .Values.agent.networkProfiles }} profile(s) ({{ keys .Values.agent.networkProfiles | sortAlpha | join ", " }}) to remediate and build Jobs that run
+an accepted repository image of a matching repository. Every other Job is
+unchanged. Its audit lines (kubectl logs -n {{ .Release.Namespace }} deploy/{{ include "maul.fullname" . }}-egress-proxy)
+show refused modules as outcome=not_allowed; while a build falls through to
+the image's baked module cache those are expected, not an attack.
+{{- $regs := .Values.egressProxy.registries | default dict }}
+{{- if $regs }}
+{{- $secrets := list }}
+{{- $minted := list }}
+{{- range $rname := keys $regs | sortAlpha }}
+{{- $auth := (index $regs $rname).auth | default dict }}
+{{- with $auth.secretName }}{{ $secrets = append $secrets (printf "%s (%s, %s)" . $rname (ternary "key token" "keys username, password" (eq $auth.type "bearer"))) }}{{ end }}
+{{- if eq $auth.type "codeartifact" }}{{ $minted = append $minted $rname }}{{ end }}
+{{- end }}
+
+Registries: the proxy serves {{ len $regs }} registr{{ if eq (len $regs) 1 }}y{{ else }}ies{{ end }} ({{ keys $regs | sortAlpha | join ", " }}) to the profiles
+granted them, and holds their credentials; no agent pod ever does.
+{{- with $secrets }}
+
+Create these Secrets in {{ $.Release.Namespace }} yourself (the chart never does); until each
+exists, new proxy pods wait in ContainerCreating:
+{{- range . }}
+  - {{ . }}
+{{- end }}
+Rotate one by updating the Secret: each proxy pod logs credential_reloaded
+within about two minutes, with no restart. Revoke the old token after that.
+{{- end }}
+{{- with $minted }}
+
+{{ join ", " . }} mint{{ if eq (len .) 1 }}s{{ end }} a CodeArtifact token with the proxy's own AWS identity
+(egressProxy.cloudCredentials {{ $.Values.egressProxy.cloudCredentials }}): each proxy pod logs credential_minted with
+its expiry, or credential_mint_failed with the AWS error code.
+{{- end }}
+
+Check a registry from inside the proxy (one real request, never a credential
+printed):
+
+  kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "maul.fullname" . }}-egress-proxy -- /usr/local/bin/controller probe --registry <name> --package <package>
+{{- end }}
+{{- with include "maul.egressTunnelProfiles" . }}
+{{- $tunnels := splitList " " . }}
+{{- $publish := list }}
+{{- range $pname := $tunnels }}
+{{- range (index $.Values.agent.networkProfiles $pname).hosts }}
+{{- if has (toString .) (list "registry.npmjs.org" "registry.yarnpkg.com") }}{{ $publish = append $publish (printf "%s (%s)" (toString .) $pname) }}{{ end }}
+{{- end }}
+{{- end }}
+
+Tunnels: {{ join ", " $tunnels }} open{{ if eq (len $tunnels) 1 }}s{{ end }} HTTPS CONNECT tunnels to the exact hosts listed,
+through the proxy on the profile's port. A tunnel is name-level: any package on
+a listed host is fetchable, so review lockfiles in the PRs. A refused host
+shows in the audit lines as outcome=not_allowed (or hard_denied); some
+package managers print no reason, so ask the agent's report for the proxy's
+line.
+{{- with $publish }}
+
+Publish residue: {{ join ", " . }} is an npm registry, where a publish is a
+PUT to the same host a read uses. The tunnel cannot tell them apart, so a
+dependency's install script or a misled agent that brings its own npm token
+can publish from the pod, bounded only by the upload caps
+(egressProxy.tunnel.sourceUploadBudget, per proxy replica).
+{{- end }}
+{{- end }}
+{{- if .Values.egressProxy.suspendProfiles }}
+
+egressProxy.suspendProfiles is on: the job controllers apply no profile, and
+the proxy answers every profile request 410 suspended. Modules baked into an
+image still build.
+{{- end }}
+{{- if not .Values.admissionPolicy.enabled }}
+
+WARNING: admissionPolicy.enabled is false, so the profile label
+({{ include "maul.networkProfileLabelPrefix" . }}<profile>) on agent Jobs is enforced by
+controller code only: nothing at the API server stops another principal that
+can create Jobs or Pods in {{ .Values.agent.namespace }} (the investigation-controller's
+ServiceAccount included) from labelling one.
+{{- end }}
+{{- else if .Values.agent.networkProfiles }}
+
+NOTE: agent.networkProfiles is set but egressProxy.enabled is false, so no
+profile applies: agent Jobs stay offline, and nothing of the egress proxy is
+deployed.
+{{- end }}
+
+For the pod-security labels on {{ .Release.Namespace }} (the chart only
+labels the agent namespace it creates):
+
+  kubectl label ns {{ .Release.Namespace }} \
+    pod-security.kubernetes.io/enforce=restricted \
+    pod-security.kubernetes.io/audit=restricted \
+    pod-security.kubernetes.io/warn=restricted

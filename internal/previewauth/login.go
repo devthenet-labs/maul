@@ -11,16 +11,16 @@ import (
 	"errors"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/sealed"
+	"github.com/devthenet-labs/maul/internal/sealed"
 )
 
 // RelaySessionCookie is the relay's own session cookie on the relay host.
 // __Host- pins it to that host, Secure and Path=/.
-const RelaySessionCookie = "__Host-patchy-pa"
+const RelaySessionCookie = "__Host-maul-pa"
 
 // loginCookiePrefix starts every login cookie's name; LoginCookieName adds a
 // hash of the sealed login state, so each sign-in in flight has its own.
-const loginCookiePrefix = "__Host-patchy-pa-login-"
+const loginCookiePrefix = "__Host-maul-pa-login-"
 
 // ErrLoginCSRF means the browser that came back from Dex is not the one that
 // started the sign-in: its login cookie is missing or holds another value.

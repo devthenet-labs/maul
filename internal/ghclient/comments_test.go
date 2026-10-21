@@ -13,14 +13,14 @@ import (
 
 // botComment is a comment the App wrote: its bot user, and — unlike label
 // events — a performed_via_github_app slug.
-const botComment = `{"id":11,"body":"<!-- patchy:plan -->","html_url":"https://github.com/o/r/issues/3#issuecomment-11",
+const botComment = `{"id":11,"body":"<!-- maul:plan -->","html_url":"https://github.com/o/r/issues/3#issuecomment-11",
 	"user":{"login":"patchy-devthenet[bot]","id":332617407,"type":"Bot"},"author_association":"NONE",
 	"created_at":"2026-09-24T10:00:00Z","updated_at":"2026-09-24T10:05:00Z",
 	"performed_via_github_app":{"id":7,"slug":"patchy-devthenet"}}`
 
 // wantBotComment is botComment decoded.
 var wantBotComment = &Comment{
-	ID: 11, Body: "<!-- patchy:plan -->", UserLogin: "patchy-devthenet[bot]", AuthorAssociation: "NONE",
+	ID: 11, Body: "<!-- maul:plan -->", UserLogin: "patchy-devthenet[bot]", AuthorAssociation: "NONE",
 	UserID: 332617407, UserType: "Bot",
 	CreatedAt: time.Date(2026, 9, 24, 10, 0, 0, 0, time.UTC),
 	UpdatedAt: time.Date(2026, 9, 24, 10, 5, 0, 0, time.UTC),
@@ -29,7 +29,7 @@ var wantBotComment = &Comment{
 }
 
 func TestListIssueComments(t *testing.T) {
-	humanComment := `{"id":12,"body":"/patchy approve","user":{"login":"octocat","id":583231,"type":"User"},
+	humanComment := `{"id":12,"body":"/maul approve","user":{"login":"octocat","id":583231,"type":"User"},
 		"author_association":"OWNER","created_at":"2026-09-24T10:06:00Z","updated_at":"2026-09-24T10:06:00Z",
 		"performed_via_github_app":null}`
 	tests := []struct {
@@ -61,7 +61,7 @@ func TestListIssueComments(t *testing.T) {
 				t.Fatalf("ListIssueComments() error = %v", err)
 			}
 			want := []*Comment{wantBotComment, {
-				ID: 12, Body: "/patchy approve", UserLogin: "octocat", AuthorAssociation: "OWNER",
+				ID: 12, Body: "/maul approve", UserLogin: "octocat", AuthorAssociation: "OWNER",
 				UserID: 583231, UserType: "User",
 				CreatedAt: time.Date(2026, 9, 24, 10, 6, 0, 0, time.UTC),
 				UpdatedAt: time.Date(2026, 9, 24, 10, 6, 0, 0, time.UTC),

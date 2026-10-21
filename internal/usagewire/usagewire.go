@@ -12,7 +12,7 @@ import (
 // the usage endpoint. It differs from the agent pods' broker audience, so an
 // agent token never authenticates here and a controller token never
 // authenticates on the proxy.
-const Audience = "patchy-egress-broker-usage"
+const Audience = "maul-egress-broker-usage"
 
 // PathPrefix is the endpoint: GET PathPrefix + "<job name>".
 const PathPrefix = "/v1/usage/jobs/"

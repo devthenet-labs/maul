@@ -1,20 +1,20 @@
 # Extending
 
-Patchy ships GHAS/CodeQL, Google Cloud Security Command Center and Wiz support plus a placeholder context enhancer, but
+Maul ships GHAS/CodeQL, Google Cloud Security Command Center and Wiz support plus a placeholder context enhancer, but
 both ends of the pipeline are plugin seams. The public interfaces live under `pkg/` — the only packages whose signatures
 are stable for external reuse — and the built-in implementations under `internal/ghas`, `internal/scc`, `internal/wiz`
 and `internal/enhancers` are reference implementations of the same interfaces.
 
 There are two ways in. An **in-tree plugin** implements the Go interfaces below and is compiled into the controllers. An
 **external process** implements the [generic HTTP contract](integrations/sources/generic.md) instead — the same source,
-write-back, and enhancer seams spoken over signed HTTP by a `provider: generic` Integration, with no patchy code changed
+write-back, and enhancer seams spoken over signed HTTP by a `provider: generic` Integration, with no maul code changed
 at all. Reach for generic first when the integration is yours to host; reach for an in-tree plugin when it should ship
-with patchy.
+with maul.
 
 ## Finding sources (`pkg/source`)
 
-A source turns an external tool's alerts into patchy findings: it parses the delivery, fetches whatever detail the
-tool's API offers, and hands the **integration-controller** a normalised finding — identifiers (CWE/CVE/GHSA, most
+A source turns an external tool's alerts into maul findings: it parses the delivery, fetches whatever detail the tool's
+API offers, and hands the **integration-controller** a normalised finding — identifiers (CWE/CVE/GHSA, most
 authoritative first; the primary one keys accumulation), severity, locations, and the evidence that becomes the
 Finding's description and the tracking issue's body. The built-in `ghas` handler does exactly this for
 `code_scanning_alert` deliveries; `gcp-scc` does it for Security Command Center notifications, which need no API call at
@@ -30,11 +30,11 @@ repository is legal — it flows through triage and is handed to a human rather 
 later, from an enhancer. What is not legal is a finding naming neither: there would be nothing to accumulate it against,
 so ingest rejects it.
 
-A source may also implement `source.Resolver`, the optional write-back: telling the originating tool what patchy
-decided, so a finding dismissed here does not stay open there. `ghas` implements it by dismissing the code-scanning
-alert. The pipeline groups a finding's alerts by the source recorded on each one and hands each source only its own, so
-provenance is a fact carried from ingest rather than something inferred from the shape of an identifier. A source that
-implements no write-back is simply skipped — reading is a complete source.
+A source may also implement `source.Resolver`, the optional write-back: telling the originating tool what maul decided,
+so a finding dismissed here does not stay open there. `ghas` implements it by dismissing the code-scanning alert. The
+pipeline groups a finding's alerts by the source recorded on each one and hands each source only its own, so provenance
+is a fact carried from ingest rather than something inferred from the shape of an identifier. A source that implements
+no write-back is simply skipped — reading is a complete source.
 
 ### Adding a provider webhook
 
@@ -88,8 +88,8 @@ Integration whose `enhance` capability is on ([contract](integrations/enhancers/
 in name order, after the cloud lookups and before the static file. It is how a real CMDB integrates without a rebuild.
 
 A real CMDB integration implements the same interface — in-tree or over the generic contract: resolve the repository,
-return owners and attributes, let the chain record them. The owners an enhancer reports are who patchy hands a finding
-to when it routes to humans — the highest-leverage integration in the system.
+return owners and attributes, let the chain record them. The owners an enhancer reports are who maul hands a finding to
+when it routes to humans — the highest-leverage integration in the system.
 
 ## Harnesses and models
 
@@ -116,7 +116,7 @@ harnesses a deployment enables is configuration (`--harnesses`, defaulting to ev
 other whose credential Secret exists); startup fails unless every allowlisted model has an enabled harness that can run
 it.
 
-The `codex` harness runs `codex exec --json` with codex's own sandbox disabled — patchy confines the agent at the pod
+The `codex` harness runs `codex exec --json` with codex's own sandbox disabled — maul confines the agent at the pod
 layer (no network beyond the egress broker, no credentials), so the CLI's kernel sandbox is redundant there. Its model
 provider is the broker's openai route, set on the command line
 ([Codex runs brokered](configuration/agent-runner.md#codex-runs-brokered)). Codex has no equivalents for the tool
@@ -153,5 +153,5 @@ The [`ValidatingAdmissionPolicy`](cli.md#permissions) has to enumerate the spec 
 express "everything except these four". A new field would otherwise become writable by anyone holding `update`.
 `TestAdmissionPolicyCoversEveryFindingSpecField` in `internal/action` reflects over the Go type and fails if a field is
 unaccounted for — when it fires, add the field to the frozen-fields validation in **both**
-`deploy/kustomize/base/admission-policy.yaml` and `charts/patchy/templates/admission-policy.yaml`. The test checks both
+`deploy/kustomize/base/admission-policy.yaml` and `charts/maul/templates/admission-policy.yaml`. The test checks both
 renderings; a Helm install left out of step would silently ship a policy that leaves the field writable.

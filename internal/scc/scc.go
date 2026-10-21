@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/bitwise-media-group/patchy/pkg/source"
+	"github.com/devthenet-labs/maul/pkg/source"
 )
 
 // ID is the source identifier stamped into the security-source label.
@@ -36,9 +36,9 @@ var severityRank = map[string]int{
 	"CRITICAL":             4,
 }
 
-// patchySeverity maps the SCC vocabulary onto patchy's label scale. An
+// maulSeverity maps the SCC vocabulary onto maul's label scale. An
 // unrated finding gets no severity rather than a made-up one.
-var patchySeverity = map[string]string{
+var maulSeverity = map[string]string{
 	"LOW":      "low",
 	"MEDIUM":   "medium",
 	"HIGH":     "high",
@@ -53,7 +53,7 @@ var skippedClasses = map[string]bool{"SCC_ERROR": true}
 
 // Options configure the handler.
 type Options struct {
-	// MinSeverity drops findings below this level, using patchy's vocabulary
+	// MinSeverity drops findings below this level, using maul's vocabulary
 	// (low/medium/high/critical). Empty admits everything.
 	MinSeverity string
 	// Organization is the numeric Google Cloud organization id, used to
@@ -72,7 +72,7 @@ type Handler struct {
 var _ source.Handler = (*Handler)(nil)
 
 // New builds the handler. It takes no client: an SCC notification carries
-// everything patchy needs, so unlike the GHAS source there is nothing to fetch.
+// everything maul needs, so unlike the GHAS source there is nothing to fetch.
 func New(o Options) *Handler { return &Handler{opts: o} }
 
 // ID implements source.Handler.
@@ -110,7 +110,7 @@ func (h *Handler) Findings(_ context.Context, event string, payload []byte) ([]s
 		RuleID:        ruleID(f),
 		Title:         title(f),
 		Description:   description,
-		Severity:      patchySeverity[strings.ToUpper(f.Severity)],
+		Severity:      maulSeverity[strings.ToUpper(f.Severity)],
 		HTMLURL:       h.findingURL(f),
 	}
 	return []source.Finding{out}, nil
@@ -150,7 +150,7 @@ func DeliveryID(payload []byte) string {
 	return env.id()
 }
 
-// actionable reports whether a finding should become a patchy Finding.
+// actionable reports whether a finding should become a maul Finding.
 func (h *Handler) actionable(f *finding) bool {
 	if !strings.EqualFold(f.State, "ACTIVE") {
 		return false

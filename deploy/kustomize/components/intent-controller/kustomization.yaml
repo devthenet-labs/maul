@@ -17,15 +17,15 @@
 #
 # What it adds, and what it relies on from the base:
 #
-#   * the Deployment, which reads the shared patchy-config (the agent
+#   * the Deployment, which reads the shared maul-config (the agent
 #     namespace and service account, the claude runner image, the broker URL
-#     and provider) and then its own patchy-intent-controller-config, whose
-#     PATCHY_INTENT_* keys no other binary binds.
-#   * its ServiceAccount and Roles: one in patchy, verb by verb what the
+#     and provider) and then its own maul-intent-controller-config, whose
+#     MAUL_INTENT_* keys no other binary binds.
+#   * its ServiceAccount and Roles: one in maul, verb by verb what the
 #     engine uses, with `secrets get` restricted to the Forge Secret names
 #     (patch rbac.yaml's resourceNames when your Forges reference others);
-#     and its own copy of the agent-jobs Role in patchy-agents.
-#   * nothing for the network: the base patchy-controllers NetworkPolicy
+#     and its own copy of the agent-jobs Role in maul-agents.
+#   * nothing for the network: the base maul-controllers NetworkPolicy
 #     selects every pod labelled app.kubernetes.io/component: controller,
 #     which grants exactly what it needs (DNS, the Kubernetes API, GitHub on
 #     443).
@@ -51,5 +51,5 @@ resources:
 # Overlays pin the tag or digest by patching this entry, as they do the
 # base's images.
 images:
-    - name: ghcr.io/devthenet-labs/patchy/intent-controller
+    - name: ghcr.io/devthenet-labs/maul/intent-controller
       newTag: latest

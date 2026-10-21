@@ -13,10 +13,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
-	"github.com/bitwise-media-group/patchy/internal/runnerguard"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/runnerguard"
 )
 
 // planWithDependencies is validPlan adding two dependencies, so the plan
@@ -41,7 +41,7 @@ func TestPlanNoticeAgreesWithBuildProfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	base, err := url.Parse("http://patchy-egress-proxy.patchy.svc.cluster.local")
+	base, err := url.Parse("http://maul-egress-proxy.maul.svc.cluster.local")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +124,7 @@ func TestPlanCommentSaysWhatTheBuildFetches(t *testing.T) {
 				return defaultOutput(spec)
 			}
 			name := e.awaiting()
-			plans := e.gh.withMarker("patchy:plan")
+			plans := e.gh.withMarker("maul:plan")
 			if len(plans) != 1 {
 				t.Fatalf("plan comments = %d, want 1", len(plans))
 			}
@@ -135,7 +135,7 @@ func TestPlanCommentSaysWhatTheBuildFetches(t *testing.T) {
 				t.Errorf("plan comment: proxy advice %v, offline advice %v, want the build's profile %v:\n%s",
 					proxied, offline, tt.profile, body)
 			}
-			e.gh.label(1, "patchy:approved", approver)
+			e.gh.label(1, "maul:approved", approver)
 			e.drive(name, v1alpha1.IntentInReview, repoImage)
 			builds := e.specsOf("build")
 			if len(builds) != 1 || (builds[0].NetworkProfile != nil) != tt.profile {
@@ -175,11 +175,11 @@ func TestPlanRecordRetryAfterProfileChange(t *testing.T) {
 	if e.failed == 0 {
 		t.Fatal("the plan comment was never recorded")
 	}
-	if plans := e.gh.withMarker("patchy:plan"); len(plans) != 1 || !strings.Contains(plans[0].Body, "egress proxy") {
+	if plans := e.gh.withMarker("maul:plan"); len(plans) != 1 || !strings.Contains(plans[0].Body, "egress proxy") {
 		t.Fatalf("plan comments = %+v, want one with the proxy advice", plans)
 	}
 	e.clock.Advance(time.Second)
-	id := e.gh.label(1, "patchy:approved", approver)
+	id := e.gh.label(1, "maul:approved", approver)
 	// A restarted controller whose profiles are off would word the advice
 	// offline.
 	images := e.intent.Images
@@ -190,7 +190,7 @@ func TestPlanRecordRetryAfterProfileChange(t *testing.T) {
 	if ap := in.Status.Approval; ap == nil || ap.EventID != id || ap.Source != v1alpha1.IntentActionLabel {
 		t.Fatalf("approval = %+v, want the label %d", ap, id)
 	}
-	if n := len(e.gh.withMarker("patchy:plan")); n != 1 {
+	if n := len(e.gh.withMarker("maul:plan")); n != 1 {
 		t.Errorf("plan comments = %d, want exactly one", n)
 	}
 }

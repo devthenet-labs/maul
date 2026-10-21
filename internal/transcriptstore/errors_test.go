@@ -22,7 +22,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	"github.com/bitwise-media-group/patchy/internal/transcript"
+	"github.com/devthenet-labs/maul/internal/transcript"
 )
 
 var errBoom = errors.New("boom")
@@ -182,7 +182,7 @@ func TestPersistClientErrors(t *testing.T) {
 				},
 			}).Build()
 			turns := []transcript.Turn{{Seq: 1, Text: "a"}}
-			ref, err := Persist(context.Background(), c, "patchy", nil, investigation("fnd-e-inv-1"), invGVK, turns)
+			ref, err := Persist(context.Background(), c, "maul", nil, investigation("fnd-e-inv-1"), invGVK, turns)
 			if !errors.Is(err, errBoom) || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("Persist err = %v, want %q wrapping boom", err, tt.wantErr)
 			}
@@ -200,17 +200,17 @@ func TestLoadErrors(t *testing.T) {
 				return errBoom
 			},
 		}).Build()
-		if _, err := Load(context.Background(), c, "patchy", "t"); !errors.Is(err, errBoom) ||
+		if _, err := Load(context.Background(), c, "maul", "t"); !errors.Is(err, errBoom) ||
 			!strings.Contains(err.Error(), "transcriptstore: read t") {
 			t.Errorf("Load err = %v", err)
 		}
 	})
 	t.Run("corrupt data", func(t *testing.T) {
 		c := fake.NewClientBuilder().WithScheme(scheme(t)).WithObjects(&corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{Name: "t", Namespace: "patchy"},
+			ObjectMeta: metav1.ObjectMeta{Name: "t", Namespace: "maul"},
 			BinaryData: map[string][]byte{DataKey: []byte("junk")},
 		}).Build()
-		if _, err := Load(context.Background(), c, "patchy", "t"); err == nil {
+		if _, err := Load(context.Background(), c, "maul", "t"); err == nil {
 			t.Error("Load(corrupt) err = nil, want unmarshal error")
 		}
 	})

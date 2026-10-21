@@ -1,5 +1,5 @@
 {{- /* An intent pull request's body. The intent issue is referred to with
-"Part of", never a closing keyword: patchy closes it itself, and nothing
+"Part of", never a closing keyword: maul closes it itself, and nothing
 here may close an issue when the pull request merges. The summary arrives
 sanitised. */ -}}
 Part of {{ .IntentRepository }}#{{ .IssueNumber }}
@@ -24,4 +24,4 @@ The Go module requirements this change adds to or changes in `go.mod`, compared 
 
 ---
 
-_patchy built this pull request from plan r{{ .PlanRevision }} (`{{ .Digest }}`) of the intent{{ with .ApprovedBy }}, approved by {{ code . }}{{ end }}. Review it like any other change. {{ if .Repositories }}It is one of {{ .Count }} pull requests patchy opened for the intent, one in each of: {{ .Repositories }}. The intent completes when every one of them has merged, and patchy updates the intent issue itself.{{ else }}Merging it completes the intent, and patchy updates the intent issue itself.{{ end }}_
+_maul built this pull request from plan r{{ .PlanRevision }} (`{{ .Digest }}`) of the intent{{ with .ApprovedBy }}, approved by {{ code . }}{{ end }}. Review it like any other change. {{ if .Repositories }}It is one of {{ .Count }} pull requests maul opened for the intent, one in each of: {{ .Repositories }}. The intent completes when every one of them has merged, and maul updates the intent issue itself.{{ else }}Merging it completes the intent, and maul updates the intent issue itself.{{ end }}_

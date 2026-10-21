@@ -14,10 +14,10 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/bitwise-media-group/patchy/internal/mirror/discover"
-	"github.com/bitwise-media-group/patchy/internal/mirror/helmchart"
-	"github.com/bitwise-media-group/patchy/internal/mirror/render"
-	"github.com/bitwise-media-group/patchy/internal/mirror/spec"
+	"github.com/devthenet-labs/maul/internal/mirror/discover"
+	"github.com/devthenet-labs/maul/internal/mirror/helmchart"
+	"github.com/devthenet-labs/maul/internal/mirror/render"
+	"github.com/devthenet-labs/maul/internal/mirror/spec"
 )
 
 // Facts is the regenerated derived state of one entry, in memory. Callers

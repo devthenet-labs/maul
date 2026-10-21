@@ -1,9 +1,9 @@
 # Deploying intents and previews
 
 Intent-driven development turns a GitHub issue into a reviewed pull request: an approver labels an issue in an intent
-repository, patchy plans the change in a read-only agent Job and posts the plan, the approver approves it, and patchy
-builds exactly that plan in the application's own toolchain image and opens the pull request. With previews on, every
-such pull request is also deployed to its own URL, `<project>-<issue>.<host suffix>`, until it merges or closes.
+repository, maul plans the change in a read-only agent Job and posts the plan, the approver approves it, and maul builds
+exactly that plan in the application's own toolchain image and opens the pull request. With previews on, every such pull
+request is also deployed to its own URL, `<project>-<issue>.<host suffix>`, until it merges or closes.
 
 This guide takes an operator from an empty AWS account and GitHub organization to a merged intent with a working
 preview. It is written against one fictional site throughout, so every command and value file is complete; substitute
@@ -17,27 +17,27 @@ your own values:
 | AWS account and region | `123456789012`, `us-west-2`                                      |
 | ECR registry           | `123456789012.dkr.ecr.us-west-2.amazonaws.com`                   |
 | EKS Auto Mode cluster  | `acme-prod`, service CIDR `172.20.0.0/16`                        |
-| patchy's own edge      | `patchy.acme.dev` (GitHub webhook) and `status.patchy.acme.dev`  |
+| maul's own edge        | `maul.acme.dev` (GitHub webhook) and `status.maul.acme.dev`      |
 | Preview hosts          | `*.preview.acme-apps.dev`, in a registrable domain of their own  |
 | Who may open previews  | `203.0.113.10/32`                                                |
-| patchy release         | `X.Y.Z`, **0.12.16 or later**: the chart, the CLI and the module |
+| maul release           | `X.Y.Z`, **0.12.16 or later**: the chart, the CLI and the module |
 
-`X.Y.Z` stands for one release of `devthenet-labs/patchy` throughout: the chart, the CLI and the terraform module all
-come from it. Use the newest, and at least 0.12.16, the first release whose chart has the values this guide sets
+`X.Y.Z` stands for one release of `devthenet-labs/maul` throughout: the chart, the CLI and the terraform module all come
+from it. Use the newest, and at least 0.12.16, the first release whose chart has the values this guide sets
 (`clusterDNSCIDR`, `edgeIngressClass`, `preview.nodeIsolation.create`) and the first with
 [multi-repository intents](#several-repositories-in-one-project). 0.12.15 and older lack those keys, and their values
 schema refuses them. Find the newest release, and once the CLI is installed (step 1), check it:
 
 ```sh
-gh release view --repo devthenet-labs/patchy --json tagName --jq .tagName   # v0.12.16, say: X.Y.Z is 0.12.16
-patchy --version                                                            # patchy version 0.12.16 (...)
+gh release view --repo devthenet-labs/maul --json tagName --jq .tagName   # v0.12.16, say: X.Y.Z is 0.12.16
+maul --version                                                            # maul version 0.12.16 (...)
 ```
 
-0.12.16's `patchy init app` prints an older form of its next steps, a `gh variable set` command per variable instead of
+0.12.16's `maul init app` prints an older form of its next steps, a `gh variable set` command per variable instead of
 the terraform module block and its one-command dotenv, and its READMEs say the same; the workflows, scripts and
 toolchain files it writes are those these pages describe. Follow these pages rather than that output.
 
-The patchy chart and the reference terraform module are the supported path, and this guide follows it. Onboarding each
+The maul chart and the reference terraform module are the supported path, and this guide follows it. Onboarding each
 application repository has a page of its own, [Onboarding an application](onboarding-app.md), and the module's inputs
 and outputs are in [the module reference](terraform-module.md).
 
@@ -50,21 +50,21 @@ instead, with recipes for ingress-nginx, Traefik, Gateway API, Cloudflare Tunnel
 it in [three steps](#the-preview-gateway). Check every item below before you start; a missing one costs more to discover
 halfway through.
 
-| Prerequisite                                   | Why, and how to check                                                                                                                                                                                                                                                                                                                               |
-| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **EKS Auto Mode**, Kubernetes 1.34 or later    | The preview edge is an Auto Mode `IngressClassParams` (`eks.amazonaws.com/v1`), the preview nodes an Auto Mode `NodeClass` and `NodePool`, and the target-health readiness gate an Auto Mode label. A cluster without Auto Mode, running the AWS Load Balancer Controller or Karpenter itself, is not supported.                                    |
-| **NetworkPolicy enforced** by the VPC CNI      | Auto Mode programs NetworkPolicies only once the cluster's network policy controller is on: the `kube-system/amazon-vpc-cni` ConfigMap with `enable-network-policy-controller: "true"`. Without it every patchy policy, the agent sandbox's and the preview slots' included, is silently inert. The ConfigMap is yours, not the chart's.            |
-| **ECR** in the cluster's account               | Agent and preview images live in ECR. source-controller resolves agent images through its own Pod Identity role, and nodes pull with their node roles, so the images belong in the cluster's account.                                                                                                                                               |
-| **ACM** certificates and **Route53** zones     | Both load balancers terminate TLS with ACM certificates, which the module requests and validates by DNS in your Route53 zones. Delegate the zones before the first apply. See [TLS: ACM only, for previews](#tls-acm-only-for-previews).                                                                                                            |
-| Subnets                                        | Public subnets tagged `kubernetes.io/role/elb` for the preview load balancer: 2 to 4, one per Availability Zone, each `/20` or narrower. Private subnets for the preview nodes, which must never get public IPs, each in one of those zones and with a way out to EKS, ECR and S3. [Why, and how to find them](#find-the-sites-values).             |
-| **Public** charts and images                   | Nothing to log in to: the charts (`oci://ghcr.io/devthenet-labs/patchy/charts/*`), the controller and agent runner images and the agent base image `init app` pins are public on `ghcr.io/devthenet-labs/patchy`. No `helm registry login` and no `image.pullSecrets`.                                                                              |
-| **Helm**, not kustomize, for previews          | Previews exist only in the Helm chart; the kustomize tree has an intent-controller component and no preview one.                                                                                                                                                                                                                                    |
-| **One preview-enabled release per cluster**    | The preview admission policies, the `alb-preview` class and the slot namespaces (`patchy-preview-0`, `-1`, ...) have fixed, cluster-wide names. A second release with `preview.enabled` would fight the first over them.                                                                                                                            |
-| A **separate registrable domain** for previews | Recommended. A preview runs code from an unreviewed pull request; under its own eTLD+1 (`acme-apps.dev` beside `acme.dev`) it is cross-site to patchy's status page and everything else you run, so no cookie or same-site request crosses over. Keep that zone out of any external-dns `--domain-filter` too.                                      |
-| Budget for **load balancers**                  | The preview edge is a load balancer of its own, separate from patchy's webhook and status edge: each costs roughly $20 to $35 a month before traffic (hourly charge plus public IPv4 addresses). The preview load balancer bills from the moment the chart creates it, whether or not a preview runs; preview nodes bill only while a preview runs. |
-| A **model credential**                         | An Anthropic API key or a `claude setup-token` OAuth token for the egress broker, or Bedrock, Vertex or Foundry through the broker's workload identity (see [the provider recipes](../deployment/helm.md#model-providers-brokered-claude)).                                                                                                         |
-| Rights                                         | Cluster admin (the chart installs CRDs, admission policies and cluster-scoped preview objects), IAM and Route53 rights for terraform, **owner** of the GitHub organization (to create an organization App), and admin on each application repository (to set its Actions variables).                                                                |
-| Workstation tools                              | `kubectl`, `helm` 3.8 or later, `terraform` 1.9 or later, `aws`, `gh` (signed in), `jq`, and the patchy CLI at the release you deploy (see [Install](../cli.md#install)). `docker` for `patchy check image --run`; `cosign` to verify the CLI.                                                                                                      |
+| Prerequisite                                   | Why, and how to check                                                                                                                                                                                                                                                                                                                             |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **EKS Auto Mode**, Kubernetes 1.34 or later    | The preview edge is an Auto Mode `IngressClassParams` (`eks.amazonaws.com/v1`), the preview nodes an Auto Mode `NodeClass` and `NodePool`, and the target-health readiness gate an Auto Mode label. A cluster without Auto Mode, running the AWS Load Balancer Controller or Karpenter itself, is not supported.                                  |
+| **NetworkPolicy enforced** by the VPC CNI      | Auto Mode programs NetworkPolicies only once the cluster's network policy controller is on: the `kube-system/amazon-vpc-cni` ConfigMap with `enable-network-policy-controller: "true"`. Without it every maul policy, the agent sandbox's and the preview slots' included, is silently inert. The ConfigMap is yours, not the chart's.            |
+| **ECR** in the cluster's account               | Agent and preview images live in ECR. source-controller resolves agent images through its own Pod Identity role, and nodes pull with their node roles, so the images belong in the cluster's account.                                                                                                                                             |
+| **ACM** certificates and **Route53** zones     | Both load balancers terminate TLS with ACM certificates, which the module requests and validates by DNS in your Route53 zones. Delegate the zones before the first apply. See [TLS: ACM only, for previews](#tls-acm-only-for-previews).                                                                                                          |
+| Subnets                                        | Public subnets tagged `kubernetes.io/role/elb` for the preview load balancer: 2 to 4, one per Availability Zone, each `/20` or narrower. Private subnets for the preview nodes, which must never get public IPs, each in one of those zones and with a way out to EKS, ECR and S3. [Why, and how to find them](#find-the-sites-values).           |
+| **Public** charts and images                   | Nothing to log in to: the charts (`oci://ghcr.io/devthenet-labs/maul/charts/*`), the controller and agent runner images and the agent base image `init app` pins are public on `ghcr.io/devthenet-labs/maul`. No `helm registry login` and no `image.pullSecrets`.                                                                                |
+| **Helm**, not kustomize, for previews          | Previews exist only in the Helm chart; the kustomize tree has an intent-controller component and no preview one.                                                                                                                                                                                                                                  |
+| **One preview-enabled release per cluster**    | The preview admission policies, the `alb-preview` class and the slot namespaces (`maul-preview-0`, `-1`, ...) have fixed, cluster-wide names. A second release with `preview.enabled` would fight the first over them.                                                                                                                            |
+| A **separate registrable domain** for previews | Recommended. A preview runs code from an unreviewed pull request; under its own eTLD+1 (`acme-apps.dev` beside `acme.dev`) it is cross-site to maul's status page and everything else you run, so no cookie or same-site request crosses over. Keep that zone out of any external-dns `--domain-filter` too.                                      |
+| Budget for **load balancers**                  | The preview edge is a load balancer of its own, separate from maul's webhook and status edge: each costs roughly $20 to $35 a month before traffic (hourly charge plus public IPv4 addresses). The preview load balancer bills from the moment the chart creates it, whether or not a preview runs; preview nodes bill only while a preview runs. |
+| A **model credential**                         | An Anthropic API key or a `claude setup-token` OAuth token for the egress broker, or Bedrock, Vertex or Foundry through the broker's workload identity (see [the provider recipes](../deployment/helm.md#model-providers-brokered-claude)).                                                                                                       |
+| Rights                                         | Cluster admin (the chart installs CRDs, admission policies and cluster-scoped preview objects), IAM and Route53 rights for terraform, **owner** of the GitHub organization (to create an organization App), and admin on each application repository (to set its Actions variables).                                                              |
+| Workstation tools                              | `kubectl`, `helm` 3.8 or later, `terraform` 1.9 or later, `aws`, `gh` (signed in), `jq`, and the maul CLI at the release you deploy (see [Install](../cli.md#install)). `docker` for `maul check image --run`; `cosign` to verify the CLI.                                                                                                        |
 
 Check the cluster before anything else:
 
@@ -77,8 +77,8 @@ kubectl -n kube-system get configmap amazon-vpc-cni -o jsonpath='{.data}'; echo
 ```
 
 The first should print a `version` of 1.34 or later, `autoMode: true`, the service CIDR and the VPC. The second should
-include `"enable-network-policy-controller":"true"`; set it before installing patchy, and `clusterDNSCIDR` as below in
-the same change (once policies are enforced, every patchy pod needs the DNS rule that value adds):
+include `"enable-network-policy-controller":"true"`; set it before installing maul, and `clusterDNSCIDR` as below in the
+same change (once policies are enforced, every maul pod needs the DNS rule that value adds):
 
 ```sh
 # The ConfigMap does not exist (NotFound):
@@ -146,35 +146,35 @@ echo "$(curl -s https://checkip.amazonaws.com)/32"
 
 Each row is one step. The sections after the table give the commands and the values files.
 
-| #   | Step                                     | What does it                                                                                                                                                 |
-| --- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 0   | Prerequisites                            | [Above](#prerequisites): Auto Mode, NetworkPolicy enforcement, zones, subnets, a model credential                                                            |
-| 1   | Install the CLI                          | The release archive from `devthenet-labs/patchy`, verified with cosign ([Install](../cli.md#install))                                                        |
-| 2   | Create the intent repository and the App | `gh repo create acme/intents`; `patchy setup github-app --org acme --intents --checks` writes the App's Secret manifest; install the App on the repositories |
-| 3   | Scaffold the application repository      | `patchy init app` ([Onboarding an application](onboarding-app.md)); push it                                                                                  |
-| 4   | Terraform, phase 1                       | The reference module: OIDC provider, source-controller identity, preview node role, certificates, each app's ECR repositories and publisher roles            |
-| 5   | Namespace and Secrets                    | The `patchy` namespace with the `restricted` Pod Security labels; `patchy-github` from step 2; `patchy-anthropic`                                            |
-| 6   | Helm stage 1: controllers and intents    | `patchy` with your values and `helm_values`, previews off; `patchy-config` with the Forge                                                                    |
-| 7   | Edge DNS                                 | `create_edge_alias_records = true`, apply again                                                                                                              |
-| 8   | Publish the application's agent image    | The module's dotenv into the repository's variables; `AGENT_PUBLISH_ENABLED`; run `agent image`; confirm the tag                                             |
-| 9   | Project, and the first intent            | A `projects` entry in `patchy-config`; `patchy check project shop-web`; an issue with the trigger label. Intents work from here on, without previews         |
-| 10  | Helm stage 2: the preview foundation     | `preview.enabled`, `preview.nodeIsolation.create`, the placeholder. The preview load balancer is created and starts billing                                  |
-| 11  | Preview DNS                              | `create_preview_alias_record = true`, apply again                                                                                                            |
-| 12  | The isolation probe                      | `PREVIEW_PUBLISH_ENABLED`; a disposable pull request's image; `hack/preview-isolation-probe/run.sh`                                                          |
-| 13  | Helm stage 3: the preview controller     | `previewController.enabled`                                                                                                                                  |
-| 14  | Preview the Project                      | `preview` on the Project; `patchy check project shop-web` again; the next intent's pull request gets a URL                                                   |
+| #   | Step                                     | What does it                                                                                                                                               |
+| --- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | Prerequisites                            | [Above](#prerequisites): Auto Mode, NetworkPolicy enforcement, zones, subnets, a model credential                                                          |
+| 1   | Install the CLI                          | The release archive from `devthenet-labs/maul`, verified with cosign ([Install](../cli.md#install))                                                        |
+| 2   | Create the intent repository and the App | `gh repo create acme/intents`; `maul setup github-app --org acme --intents --checks` writes the App's Secret manifest; install the App on the repositories |
+| 3   | Scaffold the application repository      | `maul init app` ([Onboarding an application](onboarding-app.md)); push it                                                                                  |
+| 4   | Terraform, phase 1                       | The reference module: OIDC provider, source-controller identity, preview node role, certificates, each app's ECR repositories and publisher roles          |
+| 5   | Namespace and Secrets                    | The `maul` namespace with the `restricted` Pod Security labels; `maul-github` from step 2; `maul-anthropic`                                                |
+| 6   | Helm stage 1: controllers and intents    | `maul` with your values and `helm_values`, previews off; `maul-config` with the Forge                                                                      |
+| 7   | Edge DNS                                 | `create_edge_alias_records = true`, apply again                                                                                                            |
+| 8   | Publish the application's agent image    | The module's dotenv into the repository's variables; `AGENT_PUBLISH_ENABLED`; run `agent image`; confirm the tag                                           |
+| 9   | Project, and the first intent            | A `projects` entry in `maul-config`; `maul check project shop-web`; an issue with the trigger label. Intents work from here on, without previews           |
+| 10  | Helm stage 2: the preview foundation     | `preview.enabled`, `preview.nodeIsolation.create`, the placeholder. The preview load balancer is created and starts billing                                |
+| 11  | Preview DNS                              | `create_preview_alias_record = true`, apply again                                                                                                          |
+| 12  | The isolation probe                      | `PREVIEW_PUBLISH_ENABLED`; a disposable pull request's image; `hack/preview-isolation-probe/run.sh`                                                        |
+| 13  | Helm stage 3: the preview controller     | `previewController.enabled`                                                                                                                                |
+| 14  | Preview the Project                      | `preview` on the Project; `maul check project shop-web` again; the next intent's pull request gets a URL                                                   |
 
 Record a rollback point before every Helm step: the current revision of both releases.
 
 ```sh
-helm history patchy -n patchy --max 1; helm history patchy-config -n patchy --max 1
+helm history maul -n maul --max 1; helm history maul-config -n maul --max 1
 ```
 
 ## 1. Install the CLI
 
-The supported install is the `patchy-cli` release archive attached to each release of `devthenet-labs/patchy`, verified
+The supported install is the `maul-cli` release archive attached to each release of `devthenet-labs/maul`, verified
 against its keyless cosign signature. The steps are on [the CLI page](../cli.md#install). Use the CLI of the release you
-deploy: `patchy init app` pins the agent base image and the terraform module to its own release.
+deploy: `maul init app` pins the agent base image and the terraform module to its own release.
 
 ## 2. The intent repository and the GitHub App
 
@@ -182,7 +182,7 @@ Intents are issues in a repository of their own, which every Project names as it
 works; a dedicated one keeps intents apart from code:
 
 ```sh
-gh repo create acme/intents --private --description "Intents for patchy"
+gh repo create acme/intents --private --description "Intents for maul"
 ```
 
 Create the App with the CLI. `--intents` asks for exactly what intent-controller uses, `--checks` adds the reads that
@@ -191,14 +191,14 @@ re-running a failed check before a round needs (a Project with `spec.checks.reru
 needs a webhook, because intent-controller polls GitHub:
 
 ```sh
-patchy setup github-app --org acme --intents --checks
+maul setup github-app --org acme --intents --checks
 # With the security-findings pipeline too, which does need the webhook:
-patchy setup github-app --org acme --intents --checks --security --webhook-url https://patchy.acme.dev/github/webhooks
+maul setup github-app --org acme --intents --checks --security --webhook-url https://maul.acme.dev/github/webhooks
 ```
 
 You must be an owner of the organization. A browser page opens and posts the App manifest to GitHub; check the form and
-click **Create GitHub App**. The CLI writes the App's credentials as a Secret manifest, `patchy-github.secret.yaml`,
-mode 0600; it holds the only copy of the private key, so apply it in step 5 and then delete it (or encrypt it, with
+click **Create GitHub App**. The CLI writes the App's credentials as a Secret manifest, `maul-github.secret.yaml`, mode
+0600; it holds the only copy of the private key, so apply it in step 5 and then delete it (or encrypt it, with
 `-o - | sops ...`). [Creating the GitHub App](../cli.md#creating-the-github-app) has every flag, and
 [Create the GitHub App](../getting-started/github-app.md#intents) the permissions and why each is needed:
 
@@ -214,14 +214,14 @@ Then install the App from the link the CLI prints. Choose **Only select reposito
 and every application repository: an App installed on all repositories can act on all of them. Add each new application
 repository to the installation as you onboard it; until then its Project reports `AppNotInstalled`.
 
-If you name the Secret something other than `patchy-github` (`--secret-name`), name it in the Forge's `secretRef` and in
+If you name the Secret something other than `maul-github` (`--secret-name`), name it in the Forge's `secretRef` and in
 the chart's `intentController.forgeSecrets` too: intent-controller may read only the Secrets listed there.
 
 ## 3. Scaffold the application repository
 
 Follow [Onboarding an application](onboarding-app.md) up to its terraform step: create `acme/Shop.Web` (from a template
-repository, or empty), run `patchy init app` in it, and push. Its CI runs, and both publishers skip, since no variable
-is set yet. The page also covers an application that already exists.
+repository, or empty), run `maul init app` in it, and push. Its CI runs, and both publishers skip, since no variable is
+set yet. The page also covers an application that already exists.
 
 A repository created now did not exist when you installed the App in step 2: add `acme/Shop.Web` to the installation
 (the organization's **Settings > GitHub Apps > Configure > Repository access**), or its Project fails `ready` with
@@ -234,7 +234,7 @@ tag for both, so the values it emits always match the chart's keys. It has no pr
 supplies both, and re-exports the outputs you read with `terraform output`:
 
 ```hcl
-# infra/patchy.tf
+# infra/maul.tf
 terraform {
   required_version = ">= 1.9"
   required_providers {
@@ -247,11 +247,11 @@ provider "aws" {
   region = "us-west-2"
 }
 
-module "patchy" {
-  source = "git::https://github.com/devthenet-labs/patchy.git//deploy/terraform/aws?ref=vX.Y.Z"
+module "maul" {
+  source = "git::https://github.com/devthenet-labs/maul.git//deploy/terraform/aws?ref=vX.Y.Z"
 
   cluster_name = "acme-prod" # the service CIDR, VPC and cluster security group are read from it
-  namespace    = "patchy"    # the Helm release namespace
+  namespace    = "maul"    # the Helm release namespace
 
   # Null creates the GitHub Actions OIDC provider. An account holds one per issuer:
   # pass its ARN when it already exists (step 0 prints it).
@@ -275,9 +275,9 @@ module "patchy" {
 
   edge = {
     zone_id      = "Z0123456789EDGE" # the acme.dev hosted zone
-    webhook_host = "patchy.acme.dev"
-    status_host  = "status.patchy.acme.dev"
-    alb_name     = "acme-prod-patchy" # = edgeIngressClass.loadBalancerName below
+    webhook_host = "maul.acme.dev"
+    status_host  = "status.maul.acme.dev"
+    alb_name     = "acme-prod-maul" # = edgeIngressClass.loadBalancerName below
   }
 
   previews = {
@@ -293,16 +293,16 @@ module "patchy" {
 }
 
 output "helm_values" {
-  value = module.patchy.helm_values
+  value = module.maul.helm_values
 }
 output "github_variables_dotenv" {
-  value = module.patchy.github_variables_dotenv
+  value = module.maul.github_variables_dotenv
 }
 output "preview_node_class" {
-  value = module.patchy.preview_node_class
+  value = module.maul.preview_node_class
 }
 output "apps" {
-  value = module.patchy.apps
+  value = module.maul.apps
 }
 ```
 
@@ -348,14 +348,14 @@ reference lists [every input and output](terraform-module.md#reference) and what
 ## 5. Namespace and Secrets
 
 ```sh
-kubectl create namespace patchy
-kubectl label namespace patchy \
+kubectl create namespace maul
+kubectl label namespace maul \
   pod-security.kubernetes.io/enforce=restricted \
   pod-security.kubernetes.io/audit=restricted \
   pod-security.kubernetes.io/warn=restricted
 
-kubectl apply -f patchy-github.secret.yaml && rm patchy-github.secret.yaml
-kubectl -n patchy create secret generic patchy-anthropic --from-literal=api-key="$ANTHROPIC_API_KEY"
+kubectl apply -f maul-github.secret.yaml && rm maul-github.secret.yaml
+kubectl -n maul create secret generic maul-anthropic --from-literal=api-key="$ANTHROPIC_API_KEY"
 ```
 
 The model credential lives in the release namespace with the egress broker, its only reader: no agent pod ever holds it.
@@ -363,13 +363,13 @@ A `claude setup-token` OAuth token works too, with `egressBroker.anthropicAuth: 
 
 ## 6. Helm stage 1: controllers and intents
 
-Two values files go to the `patchy` chart. Yours holds every decision and every security opt-out, as explicit lines; the
+Two values files go to the `maul` chart. Yours holds every decision and every security opt-out, as explicit lines; the
 module's `helm_values` holds only what the infrastructure decides (the source-controller ServiceAccount name the Pod
 Identity association binds, the agent registry allowlist, the preview infrastructure keys, the edge hosts and their
 certificate annotations). Pass `helm_values` **last**, so it wins for the keys it owns.
 
 ```yaml
-# patchy-values.yaml: the operator's decisions
+# maul-values.yaml: the operator's decisions
 config:
   logLevel: info
 
@@ -379,7 +379,7 @@ clusterDNSCIDR: 172.20.0.10/32
 # The webhook and status edge: one ALB, named as the module's edge.alb_name.
 edgeIngressClass:
   create: true
-  loadBalancerName: acme-prod-patchy
+  loadBalancerName: acme-prod-maul
 webhook:
   ingress:
     enabled: true # an empty className selects the edge class above
@@ -397,21 +397,21 @@ statusServer:
 
 # Brokered claude, the only runner intents use.
 egressBroker:
-  anthropicSecret: patchy-anthropic
+  anthropicSecret: maul-anthropic
   anthropicAuth: key
   # The enforced bound on what an agent pod spends once repositoryImages is on. Every limit
   # is off here: an explicit opt-out until they are sized (see below).
   limits: {}
 
 agent:
-  # Builds run in the application's own toolchain image, which .patchy/agent.yaml declares.
+  # Builds run in the application's own toolchain image, which .maul/agent.yaml declares.
   # registries comes from helm_values.
   repositoryImages:
     enabled: true
     # The generated publishers sign only once AGENT_SIGNING_KEY is set, so start with an
     # explicit opt-out of signature checks: registry write access alone decides what an agent
     # runs, that is the publisher roles and any other principal with ECR push on
-    # patchy/app-envs/*. Once every app's agent image is signed, set cosignPublicKey and
+    # maul/app-envs/*. Once every app's agent image is signed, set cosignPublicKey and
     # allowUnsigned: false (onboarding-app.md, "Signing the agent image"). The platform
     # module's create_agent_signing_key creates and grants the key and outputs the public
     # key as agent_signing.public_key_pem.
@@ -425,12 +425,12 @@ agent:
 intentController:
   enabled: true
   forgeSecrets:
-    - patchy-github
+    - maul-github
 ```
 
 ```sh
-helm upgrade --install patchy oci://ghcr.io/devthenet-labs/patchy/charts/patchy --version X.Y.Z \
-  --namespace patchy -f patchy-values.yaml -f <(terraform -chdir=infra output -raw helm_values)
+helm upgrade --install maul oci://ghcr.io/devthenet-labs/maul/charts/maul --version X.Y.Z \
+  --namespace maul -f maul-values.yaml -f <(terraform -chdir=infra output -raw helm_values)
 ```
 
 **Spend limits.** A build or revise run executes in the application's own image, so its in-pod token budget, and the
@@ -440,7 +440,7 @@ any model call; every limit is off by default, and this file leaves them off as 
 build pod is time: its Job deadline (`intentController.config.jobDeadline`, 90 minutes, or the stage timeout plus 15
 minutes when that is longer) at whatever rate the model provider allows the key, so set a spend limit on the key at the
 provider too. To size the broker's limits, read the per-pod totals on its audit line after the first intents
-(`kubectl -n patchy logs deploy/patchy-egress-broker`); note that `tokensPerPod` counts input, cache and output tokens,
+(`kubectl -n maul logs deploy/maul-egress-broker`); note that `tokensPerPod` counts input, cache and output tokens,
 while a stage's `tokenBudget` counts output tokens only, so it must sit far above the build stage's 800000. A run that
 ends early (its stage timeout, a token budget, a crash) still records what it spent, as its stream reported it call by
 call: the input and cache tokens exactly, but output tokens only as counted when each call started, so the cost recorded
@@ -453,27 +453,27 @@ Ingress serves only the security pipeline (`--security`), and the status Ingress
 is harmless and leaves the webhook ready for `--security` later. Without them, set both `ingress.enabled: false`, leave
 `edgeIngressClass` and the module's `edge` out, and skip step 7.
 
-Then the `patchy-config` release, with the Forge that lets the controllers reach `acme`'s repositories (and, for the
+Then the `maul-config` release, with the Forge that lets the controllers reach `acme`'s repositories (and, for the
 security pipeline, an Integration as in
-[Install with Helm](../getting-started/install.md#switch-the-pipeline-on-the-patchy-config-chart)):
+[Install with Helm](../getting-started/install.md#switch-the-pipeline-on-the-maul-config-chart)):
 
 ```yaml
-# patchy-config-values.yaml
+# maul-config-values.yaml
 forges:
   - name: github
     spec:
       provider: github
       secretRef:
-        name: patchy-github # keys appID and privateKey
+        name: maul-github # keys appID and privateKey
       orgs: [acme]
       interval: 10m
 projects: [] # step 9
 ```
 
 ```sh
-helm upgrade --install patchy-config oci://ghcr.io/devthenet-labs/patchy/charts/patchy-config --version X.Y.Z \
-  --namespace patchy -f patchy-config-values.yaml
-kubectl -n patchy get deploy,forges
+helm upgrade --install maul-config oci://ghcr.io/devthenet-labs/maul/charts/maul-config --version X.Y.Z \
+  --namespace maul -f maul-config-values.yaml
+kubectl -n maul get deploy,forges
 ```
 
 Every Deployment should be available and the Forge `Ready`. The status page starts in its rollups-only posture (public
@@ -483,7 +483,7 @@ install (`helm uninstall` removes it, keeping the CRDs); record the revisions no
 
 ## 7. Edge DNS
 
-Once the edge Ingresses exist, Auto Mode creates the `acme-prod-patchy` load balancer. Point the hosts at it:
+Once the edge Ingresses exist, Auto Mode creates the `acme-prod-maul` load balancer. Point the hosts at it:
 
 ```hcl
   create_edge_alias_records = true
@@ -491,10 +491,10 @@ Once the edge Ingresses exist, Auto Mode creates the `acme-prod-patchy` load bal
 
 ```sh
 terraform -chdir=infra apply
-curl -sS -o /dev/null -w '%{http_code}\n' https://status.patchy.acme.dev/
+curl -sS -o /dev/null -w '%{http_code}\n' https://status.maul.acme.dev/
 ```
 
-The plan fails while the load balancer does not exist yet; wait for `kubectl -n patchy get ingress` to show an address.
+The plan fails while the load balancer does not exist yet; wait for `kubectl -n maul get ingress` to show an address.
 With `--security`, the App's webhook now reaches the integration-controller.
 
 ## 8. Publish the application's agent image
@@ -509,7 +509,7 @@ terraform -chdir=infra output -json github_variables_dotenv | jq -r '."shop-web"
 gh variable set AGENT_PUBLISH_ENABLED --repo acme/Shop.Web --body true
 gh workflow run "agent image" --repo acme/Shop.Web
 # when "agent image" and then "publish images" have succeeded:
-aws ecr describe-images --region us-west-2 --repository-name patchy/app-envs/shop-web --image-ids imageTag=toolchain-v1
+aws ecr describe-images --region us-west-2 --repository-name maul/app-envs/shop-web --image-ids imageTag=toolchain-v1
 ```
 
 [Onboarding an application](onboarding-app.md#publishing-the-images) explains the two gates and their order.
@@ -518,7 +518,7 @@ aws ecr describe-images --region us-west-2 --repository-name patchy/app-envs/sho
 ## 9. The Project, and the first intent
 
 A `Project` ties an intent repository, its approvers and the application repository together. Add it to
-`patchy-config-values.yaml` and upgrade the release:
+`maul-config-values.yaml` and upgrade the release:
 
 ```yaml
 projects:
@@ -533,13 +533,13 @@ projects:
         - name: shop-web # the key: a DNS label of at most 16 characters
           url: https://github.com/acme/Shop.Web
       checks:
-        fix: [test] # a failing `test` check on patchy's PR starts a fix round
+        fix: [test] # a failing `test` check on maul's PR starts a fix round
         # rerunFailed: true # re-run a failed Actions check once first; needs Actions read & write
 ```
 
 `checks.fix` names check runs: `test` is the job of the CI `init app` generates for a new application. A repository
-scaffolded with `--existing` has no `test` check from patchy (its `runtime image` workflow's job is `build`), so name
-your own CI's check runs instead, as GitHub lists them for the default branch's head:
+scaffolded with `--existing` has no `test` check from maul (its `runtime image` workflow's job is `build`), so name your
+own CI's check runs instead, as GitHub lists them for the default branch's head:
 
 ```sh
 gh api repos/acme/Shop.Web/commits/main/check-runs --jq '.check_runs[].name'
@@ -554,22 +554,22 @@ gh api -X PUT orgs/acme/teams/intent-approvers/repos/acme/intents -f permission=
 ```
 
 ```sh
-helm upgrade patchy-config oci://ghcr.io/devthenet-labs/patchy/charts/patchy-config --version X.Y.Z \
-  --namespace patchy -f patchy-config-values.yaml
-GH_TOKEN=$(gh auth token) patchy check project shop-web -n patchy
+helm upgrade maul-config oci://ghcr.io/devthenet-labs/maul/charts/maul-config --version X.Y.Z \
+  --namespace maul -f maul-config-values.yaml
+GH_TOKEN=$(gh auth token) maul check project shop-web -n maul
 ```
 
 The repositories are private, so the check reads them with your GitHub token; without `GH_TOKEN` it reads anonymously
 and `agent-image` is a SKIP. It reads ECR with the AWS SDK's default chain: add `AWS_PROFILE=<profile>` when that is not
 the cluster's account. Every line should be PASS; the preview checks are SKIP until step 14.
 
-Then open an issue in `acme/intents` with the label `patchy:shop-web` (the trigger label; intent-controller creates it).
-patchy posts a plan on the issue; an approver adds `patchy:approved` or comments `/patchy approve`, and the pull request
+Then open an issue in `acme/intents` with the label `maul:shop-web` (the trigger label; intent-controller creates it).
+maul posts a plan on the issue; an approver adds `maul:approved` or comments `/maul approve`, and the pull request
 follows. An issue form per Project in the intent repository (`.github/ISSUE_TEMPLATE/shop-web.yml` with
-`labels: ["patchy:shop-web"]`) saves typing the label. A label applied as the issue is created, by a form or by
-`gh issue create --label patchy:shop-web`, is the issue author's label event, so it starts an intent only when the
-author is an approver with write access; anyone else's closes the intent with one notice before it plans. Give people
-who are not approvers a form without `labels:`, and let an approver add the label. What happens on the issue is in
+`labels: ["maul:shop-web"]`) saves typing the label. A label applied as the issue is created, by a form or by
+`gh issue create --label maul:shop-web`, is the issue author's label event, so it starts an intent only when the author
+is an approver with write access; anyone else's closes the intent with one notice before it plans. Give people who are
+not approvers a form without `labels:`, and let an approver add the label. What happens on the issue is in
 [intent-controller](../configuration/intent-controller.md#on-the-issue).
 
 ## 10. Helm stage 2: the preview foundation
@@ -583,18 +583,18 @@ terraform -chdir=infra output -json preview_node_class
 ```
 
 ```yaml
-# patchy-previews.yaml: added to the patchy release from this stage on
+# maul-previews.yaml: added to the maul release from this stage on
 preview:
   enabled: true
   slotCount: 2 # preview slots, 1 to 4: the bound on concurrent previews and their cost
   placeholder:
     enabled: true # creates the preview load balancer; it bills from here on
   nodeIsolation:
-    nodePool: patchy-preview
-    nodeClass: patchy-preview
-    taintKey: patchy.acme.dev/preview-only # any label key; the taint is <key>=true:NoExecute
+    nodePool: maul-preview
+    nodeClass: maul-preview
+    taintKey: maul.acme.dev/preview-only # any label key; the taint is <key>=true:NoExecute
     create: true # render the NodeClass and NodePool
-    role: acme-prod-patchy-preview-node # preview_node_class.role
+    role: acme-prod-maul-preview-node # preview_node_class.role
     subnetIDs: [subnet-0a1b2c3d4e5f60011, subnet-0a1b2c3d4e5f60012] # preview_node_class.subnet_ids
     securityGroupIDs: [sg-0123456789abcdef0] # preview_node_class.security_group_ids
     instanceTypes: [t3a.medium]
@@ -603,10 +603,10 @@ preview:
 ```
 
 ```sh
-helm history patchy -n patchy --max 1   # the rollback point
-helm upgrade patchy oci://ghcr.io/devthenet-labs/patchy/charts/patchy --version X.Y.Z --namespace patchy \
-  -f patchy-values.yaml -f patchy-previews.yaml -f <(terraform -chdir=infra output -raw helm_values)
-kubectl -n patchy-preview-0 get ingress patchy-preview-placeholder \
+helm history maul -n maul --max 1   # the rollback point
+helm upgrade maul oci://ghcr.io/devthenet-labs/maul/charts/maul --version X.Y.Z --namespace maul \
+  -f maul-values.yaml -f maul-previews.yaml -f <(terraform -chdir=infra output -raw helm_values)
+kubectl -n maul-preview-0 get ingress maul-preview-placeholder \
   -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'; echo
 ```
 
@@ -619,8 +619,8 @@ that it did not create, the upgrade fails with an ownership error and changes no
 **Rollback** from stage 2 is not just `helm rollback`: every slot namespace, guardrail, the NodeClass and NodePool and
 the placeholder are kept on rollback, by design, so a rollback never leaves a slot workload without its guards. Remove
 the preview DNS record first (step 11 undone), then delete the placeholder
-(`kubectl -n patchy-preview-0 delete ingress,service patchy-preview-placeholder`) and check the preview load balancer is
-gone, then `helm rollback patchy <revision>`. The rest is [teardown](#teardown).
+(`kubectl -n maul-preview-0 delete ingress,service maul-preview-placeholder`) and check the preview load balancer is
+gone, then `helm rollback maul <revision>`. The rest is [teardown](#teardown).
 
 ## 11. Preview DNS
 
@@ -640,7 +640,7 @@ The plan fails while the preview load balancer does not exist yet.
 ## 12. The isolation probe
 
 Before any Project gets a preview, prove that a preview Pod on a cold preview node can reach nothing: not the node's
-metadata, not Pod Identity, not the Kubernetes API, not any patchy Service, not the internet, and not a sibling in the
+metadata, not Pod Identity, not the Kubernetes API, not any maul Service, not the internet, and not a sibling in the
 same or another slot. The probe runs a network test from a disposable pull request's image, in the slots, as a preview
 would. Turn on the runtime publisher first, so the pull request's image is published:
 
@@ -650,14 +650,14 @@ gh variable set PREVIEW_PUBLISH_ENABLED --repo acme/Shop.Web --body true
 
 The probe and its script come from a checkout of the release you deploy, never `main`: its flags and assumptions change
 between releases. Its README, `hack/preview-isolation-probe/README.md` in that checkout (on GitHub at
-`https://github.com/devthenet-labs/patchy/blob/vX.Y.Z/hack/preview-isolation-probe/README.md`), explains every check.
-Open a disposable same-repository pull request whose image is the probe instead of the application: on a
-`test/preview-*` branch from the current default branch, the probe's `cmd/netprobe/`, and its `Dockerfile` and
-`.dockerignore` in place of the application's, and nothing else.
+`https://github.com/devthenet-labs/maul/blob/vX.Y.Z/hack/preview-isolation-probe/README.md`), explains every check. Open
+a disposable same-repository pull request whose image is the probe instead of the application: on a `test/preview-*`
+branch from the current default branch, the probe's `cmd/netprobe/`, and its `Dockerfile` and `.dockerignore` in place
+of the application's, and nothing else.
 
 ```sh
-git clone --depth 1 --branch vX.Y.Z https://github.com/devthenet-labs/patchy.git patchy-vX.Y.Z
-probe=$PWD/patchy-vX.Y.Z/hack/preview-isolation-probe
+git clone --depth 1 --branch vX.Y.Z https://github.com/devthenet-labs/maul.git maul-vX.Y.Z
+probe=$PWD/maul-vX.Y.Z/hack/preview-isolation-probe
 gh repo clone acme/Shop.Web shop-web-probe && cd shop-web-probe
 git switch -c test/preview-isolation origin/main
 mkdir -p cmd && cp -R "$probe/cmd/netprobe" cmd/
@@ -674,7 +674,7 @@ must exist and ask for Go 1.26.6 or older (the generated service's does). Wait u
 `runtime image`, under `--existing`) and then `publish images` have succeeded, and its image is in ECR:
 
 ```sh
-aws ecr describe-images --region us-west-2 --repository-name patchy/previews/shop-web \
+aws ecr describe-images --region us-west-2 --repository-name maul/previews/shop-web \
   --image-ids imageTag=sha-$(gh pr view test/preview-isolation --repo acme/Shop.Web --json headRefOid --jq .headRefOid)
 ```
 
@@ -683,39 +683,39 @@ current context on the cluster, and AWS credentials (`AWS_PROFILE` works) allowe
 repository. `--dry-run` checks the values and prints the site it would probe, without calling `gh`, `aws` or `kubectl`:
 
 ```sh
-cd ../patchy-vX.Y.Z
+cd ../maul-vX.Y.Z
 pr=$(gh pr view test/preview-isolation --repo acme/Shop.Web --json number --jq .number)
 bash hack/preview-isolation-probe/run.sh --dry-run \
   --repository acme/Shop.Web \
-  --image 123456789012.dkr.ecr.us-west-2.amazonaws.com/patchy/previews/shop-web \
-  --taint-key patchy.acme.dev/preview-only \
+  --image 123456789012.dkr.ecr.us-west-2.amazonaws.com/maul/previews/shop-web \
+  --taint-key maul.acme.dev/preview-only \
   "$pr"
 # the same without --dry-run
 ```
 
-`--node-pool` and `--node-class` name the preview NodePool and NodeClass when they are not the default `patchy-preview`.
-The script assumes the release is named `patchy` in the namespace `patchy`, and the slots `patchy-preview-0` and
-`patchy-preview-1`, so at least two. All 128 cold-start connections and the 176 of the sibling run must be blocked; any
+`--node-pool` and `--node-class` name the preview NodePool and NodeClass when they are not the default `maul-preview`.
+The script assumes the release is named `maul` in the namespace `maul`, and the slots `maul-preview-0` and
+`maul-preview-1`, so at least two. All 128 cold-start connections and the 176 of the sibling run must be blocked; any
 other result stops the run, and previews stay unused until it is explained. Then close the pull request without merging
 it (`gh pr close test/preview-isolation --repo acme/Shop.Web --delete-branch`).
 
 ## 13. Helm stage 3: the preview controller
 
 ```yaml
-# patchy-previews.yaml, added
+# maul-previews.yaml, added
 previewController:
   enabled: true
 ```
 
 ```sh
-helm history patchy -n patchy --max 1   # the rollback point
-helm upgrade patchy oci://ghcr.io/devthenet-labs/patchy/charts/patchy --version X.Y.Z --namespace patchy \
-  -f patchy-values.yaml -f patchy-previews.yaml -f <(terraform -chdir=infra output -raw helm_values)
+helm history maul -n maul --max 1   # the rollback point
+helm upgrade maul oci://ghcr.io/devthenet-labs/maul/charts/maul --version X.Y.Z --namespace maul \
+  -f maul-values.yaml -f maul-previews.yaml -f <(terraform -chdir=infra output -raw helm_values)
 ```
 
 The chart refuses the controller without `preview.enabled`, the placeholder and `intentController.enabled`. Its
 `apiServerCIDR` (the Kubernetes API Service address) comes from `helm_values`. On its own it does nothing: only a
-Project with a `preview` block is previewed. Roll back with `helm rollback patchy <revision>` once no Preview exists
+Project with a `preview` block is previewed. Roll back with `helm rollback maul <revision>` once no Preview exists
 (`kubectl get previews -A`).
 
 ## 14. Preview the Project
@@ -729,15 +729,15 @@ projects:
     spec:
       # ... as in step 9
       preview:
-        imageRepository: 123456789012.dkr.ecr.us-west-2.amazonaws.com/patchy/previews/shop-web
+        imageRepository: 123456789012.dkr.ecr.us-west-2.amazonaws.com/maul/previews/shop-web
         port: 8080 # the one port the runtime image listens on
         readinessPath: /healthz # also the load balancer's health check
 ```
 
 ```sh
-helm upgrade patchy-config oci://ghcr.io/devthenet-labs/patchy/charts/patchy-config --version X.Y.Z \
-  --namespace patchy -f patchy-config-values.yaml
-GH_TOKEN=$(gh auth token) patchy check project shop-web -n patchy
+helm upgrade maul-config oci://ghcr.io/devthenet-labs/maul/charts/maul-config --version X.Y.Z \
+  --namespace maul -f maul-config-values.yaml
+GH_TOKEN=$(gh auth token) maul check project shop-web -n maul
 ```
 
 Every line should now be PASS, with two expected SKIPs. `preview-tls` is a SKIP from an address the preview load
@@ -752,16 +752,16 @@ gh run rerun --repo acme/Shop.Web \
 ```
 
 Every intent pull request gets a preview at `https://shop-web-<issue>.preview.acme-apps.dev` once its runtime image is
-published and the load balancer reports the target healthy; `kubectl -n patchy get previews` shows its phase and URL.
-That includes one already open, such as step 9's: its Preview appears within about a minute of the Project gaining
-`preview`, so no new intent is needed. Its head was pushed before `PREVIEW_PUBLISH_ENABLED` was set, though, so publish
-its image the same way, re-running the pull request's latest `test` run (`--branch patchy-intent/shop-web-<issue>`
-above). A cold preview node takes about three minutes the first time. A new push to the pull request redeploys it, the
-previous revision answering until the new one is Ready (its image published and its target healthy), and merging or
-closing the pull request deletes it; the node goes soon after.
+published and the load balancer reports the target healthy; `kubectl -n maul get previews` shows its phase and URL. That
+includes one already open, such as step 9's: its Preview appears within about a minute of the Project gaining `preview`,
+so no new intent is needed. Its head was pushed before `PREVIEW_PUBLISH_ENABLED` was set, though, so publish its image
+the same way, re-running the pull request's latest `test` run (`--branch maul-intent/shop-web-<issue>` above). A cold
+preview node takes about three minutes the first time. A new push to the pull request redeploys it, the previous
+revision answering until the new one is Ready (its image published and its target healthy), and merging or closing the
+pull request deletes it; the node goes soon after.
 
 Reviewers need not ask for the URL: within a minute of a preview going live, the issue's status comment links it, and
-the pull request gets one comment linking it at its head, which patchy edits as the head moves, the preview redeploys or
+the pull request gets one comment linking it at its head, which maul edits as the head moves, the preview redeploys or
 fails, and once the intent ends ([The preview link](../configuration/intent-controller.md#the-preview-link)).
 
 Previews are now guarded by the load balancer's IP allowlist alone. To put them behind GitHub sign-in as well, follow
@@ -775,7 +775,7 @@ needed. It runs beside the path above, which stays the default for this release.
 edge ALB the webhook already uses; the preview wildcard certificate's ARN joins `edgeIngressClass.certificateARNs`.
 
 ```yaml
-# patchy-previews.yaml, added
+# maul-previews.yaml, added
 previewAuth:
   gateway:
     enabled: true
@@ -785,7 +785,7 @@ previewAuth:
       enabled: true
 ```
 
-Then, each step with its rollback point and `patchy check project shop-web` after it:
+Then, each step with its rollback point and `maul check project shop-web` after it:
 
 1. Upgrade with the gateway on. The wildcard record still points at the preview load balancer, so viewers see no change;
    run `hack/preview-isolation-probe/ingress.sh` to prove only the gateway reaches a slot.
@@ -796,7 +796,7 @@ Then, each step with its rollback point and `patchy check project shop-web` afte
 
 [Moving off the preview ALB](../configuration/preview-gateway.md#moving-off-the-preview-alb-eks-release-n) has the
 details. The next release removes the preview ALB path. A new install, on EKS or any other cluster, can start on the
-gateway alone: [Set up previews](set-up-previews.md) writes its files with `patchy setup previews`.
+gateway alone: [Set up previews](set-up-previews.md) writes its files with `maul setup previews`.
 
 ## Several repositories in one Project
 
@@ -805,16 +805,16 @@ One intent is then planned over every repository at once and built in each one t
 pull request in each that links the others; with previews, one URL serves every previewed repository, each under its own
 path. It is off by default.
 
-Onboard each repository as in steps 3, 4 and 8: `patchy init app` in it, an `apps` entry of its own in the module (its
-own ECR repositories, publisher roles and variables), its agent image published, and the App installed on it. Then turn
-multi-repository intents on, in step 6's `intentController` block, and upgrade the `patchy` release as there:
+Onboard each repository as in steps 3, 4 and 8: `maul init app` in it, an `apps` entry of its own in the module (its own
+ECR repositories, publisher roles and variables), its agent image published, and the App installed on it. Then turn
+multi-repository intents on, in step 6's `intentController` block, and upgrade the `maul` release as there:
 
 ```yaml
-# patchy-values.yaml
+# maul-values.yaml
 intentController:
   enabled: true
   forgeSecrets:
-    - patchy-github
+    - maul-github
   config:
     multiRepo: true
     maxConcurrentRuns: 2 # at least the repositories one intent usually changes, or its builds run one at a time
@@ -833,19 +833,19 @@ projects:
         - name: shop-web # the first: the plan's working tree
           url: https://github.com/acme/Shop.Web
           preview: # step 14's spec.preview, moved here; path defaults to /
-            imageRepository: 123456789012.dkr.ecr.us-west-2.amazonaws.com/patchy/previews/shop-web
+            imageRepository: 123456789012.dkr.ecr.us-west-2.amazonaws.com/maul/previews/shop-web
             port: 8080
             readinessPath: /healthz
         - name: shop-api
           url: https://github.com/acme/Shop.Api
           preview:
-            imageRepository: 123456789012.dkr.ecr.us-west-2.amazonaws.com/patchy/previews/shop-api
+            imageRepository: 123456789012.dkr.ecr.us-west-2.amazonaws.com/maul/previews/shop-api
             port: 8080
             readinessPath: /api/healthz # the app serves under its path: the load balancer does not rewrite it
             path: /api
 ```
 
-Upgrade `patchy-config` and run `GH_TOKEN=$(gh auth token) patchy check project shop-web -n patchy` again. What changes:
+Upgrade `maul-config` and run `GH_TOKEN=$(gh auth token) maul check project shop-web -n maul` again. What changes:
 
 - **Without `multiRepo`**, a Project listing several repositories is not `Ready` (`UnsupportedRepositories`), and its
   intents are held where they stand. Turning it off is the supported rollback; do not roll the chart back below 0.12.16
@@ -875,7 +875,7 @@ once, two cross-linked pull requests and one preview of both; the intent stayed 
 ## Sizing agents
 
 Agent Jobs request no CPU or memory unless you set some. They are then BestEffort pods: the scheduler puts them on any
-node with room, a small one shared with patchy's controllers included, and they get only what that node has spare. That
+node with room, a small one shared with maul's controllers included, and they get only what that node has spare. That
 suits plans and the security pipeline's Jobs, which mostly wait on the model. It starves a build that runs a heavy test
 suite.
 
@@ -884,12 +884,12 @@ browser suites, three at a time) on the cluster's one `c6a.large`, shared with t
 which pods get about 1.8 CPUs and 3 GiB. The command never returned, and the agent waited until the build's one-hour
 timeout. The same subset takes under two minutes on a 2-vCPU CI runner running two suites at a time.
 
-The fix is a **resource class**: a named size you define in the `patchy` chart and a Project picks for one repository.
+The fix is a **resource class**: a named size you define in the `maul` chart and a Project picks for one repository.
 That repository's builds, revise rounds and check-fix rounds run on it; plans, the Project's other repositories and the
 security pipeline stay on the default.
 
 ```yaml
-# patchy-values.yaml
+# maul-values.yaml
 agent:
   resources:
     classes:
@@ -902,7 +902,7 @@ agent:
 ```
 
 ```yaml
-# patchy-config-values.yaml
+# maul-config-values.yaml
 projects:
   - name: shop-web
     spec:
@@ -913,12 +913,12 @@ projects:
           agentResourceClass: large
 ```
 
-Upgrade `patchy` first, then `patchy-config`. The `patchy` upgrade adds the field to the Project CRD and defines the
-class, and restarts intent-controller alone; an older CRD would drop `agentResourceClass` without a word, and a Project
-that picks a class intent-controller does not define holds that repository's builds (see below). Each class must set
+Upgrade `maul` first, then `maul-config`. The `maul` upgrade adds the field to the Project CRD and defines the class,
+and restarts intent-controller alone; an older CRD would drop `agentResourceClass` without a word, and a Project that
+picks a class intent-controller does not define holds that repository's builds (see below). Each class must set
 `requests.cpu`, `requests.memory` and `limits.memory`; every one is checked when intent-controller starts (positive, at
 most 64 CPUs and 512 GiB, each request at or below its limit), and a bad one stops it from starting, its log naming the
-class. Check `kubectl -n patchy get pods` after the upgrade.
+class. Check `kubectl -n maul get pods` after the upgrade.
 
 The classes are the spend ceiling: a Project can pick only a class you defined, so the largest is the most any one agent
 Job can request, and nothing in a repository, an issue or an agent's output can pick one. To choose the numbers:
@@ -941,17 +941,17 @@ Job can request, and nothing in a repository, an issue or an agent's output can 
 and the builds of repositories that pick none. Leave it `{}` unless you want each of them reserved: once it is set,
 every agent Job is Burstable and may launch a node of its own. At worst, agents together request the default times the
 agent Jobs that can run at once (investigations, remediations and evaluation units) plus the largest class times
-`intentController.config.maxConcurrentRuns`. patchy caps neither total; a ResourceQuota on `patchy-agents` can, once a
+`intentController.config.maxConcurrentRuns`. maul caps neither total; a ResourceQuota on `maul-agents` can, once a
 default is set (a quota on CPU or memory refuses pods that request none).
 
-What patchy does when something goes wrong:
+What maul does when something goes wrong:
 
-| When                                                                                             | What happens                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| ------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The Project picks a class intent-controller does not define (a typo, a class removed or renamed) | That repository's run waits `Pending` with no Job, no slot and no attempt spent. The intent is `Blocked` with `ResourcesUnavailable` (`UnknownResourceClass`), naming the class and the classes defined; the Project stays `Ready` and reports `ResourceClassesResolved: False`, so plans and the other repositories carry on. Defining the class or changing the pick lifts the block, and the same run launches.                                  |
-| No node can fit the pod (a class larger than any instance the cluster launches)                  | After 10 minutes `Unschedulable`, long enough for Auto Mode to add a node that fits, patchy deletes the Job and ends the run `unschedulable`, with the scheduler's message in its detail. No attempt is spent, and nothing is retried until something changes: a plan or build blocks its intent (`ResourcesUnavailable`, `Unschedulable`) until the Project changes or intent-controller restarts; a revise or check-fix round ends with a notice. |
-| The build runs out of memory                                                                     | The agent container is OOM-killed and the run fails, its detail naming the kill, the memory limit and the class to raise. The attempt counts: the agent ran.                                                                                                                                                                                                                                                                                        |
-| Auto Mode consolidates its nodes                                                                 | Nothing: every agent pod carries `karpenter.sh/do-not-disrupt: "true"`, so a running agent is never evicted to consolidate or replace its node. A node failure or a spot interruption can still end a run.                                                                                                                                                                                                                                          |
+| When                                                                                             | What happens                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The Project picks a class intent-controller does not define (a typo, a class removed or renamed) | That repository's run waits `Pending` with no Job, no slot and no attempt spent. The intent is `Blocked` with `ResourcesUnavailable` (`UnknownResourceClass`), naming the class and the classes defined; the Project stays `Ready` and reports `ResourceClassesResolved: False`, so plans and the other repositories carry on. Defining the class or changing the pick lifts the block, and the same run launches.                                |
+| No node can fit the pod (a class larger than any instance the cluster launches)                  | After 10 minutes `Unschedulable`, long enough for Auto Mode to add a node that fits, maul deletes the Job and ends the run `unschedulable`, with the scheduler's message in its detail. No attempt is spent, and nothing is retried until something changes: a plan or build blocks its intent (`ResourcesUnavailable`, `Unschedulable`) until the Project changes or intent-controller restarts; a revise or check-fix round ends with a notice. |
+| The build runs out of memory                                                                     | The agent container is OOM-killed and the run fails, its detail naming the kill, the memory limit and the class to raise. The attempt counts: the agent ran.                                                                                                                                                                                                                                                                                      |
+| Auto Mode consolidates its nodes                                                                 | Nothing: every agent pod carries `karpenter.sh/do-not-disrupt: "true"`, so a running agent is never evicted to consolidate or replace its node. A node failure or a spot interruption can still end a run.                                                                                                                                                                                                                                        |
 
 Auto Mode removes an empty node within a minute, so a build on a large class may start on a fresh node and pull its
 agent image again; expect that in the time from the Job's creation to the agent's start.
@@ -964,8 +964,8 @@ the one `alb-preview` load balancer with the wildcard certificate attached to it
 cert-manager produces, has nowhere to attach; and a wildcard from cert-manager would need DNS-01 credentials inside the
 cluster, next to the controller that deploys unreviewed code. cert-manager is therefore not supported for previews.
 
-patchy's own edge, the webhook and status page, is different: it works with any ingress controller and certificate
-source. The module's `edge` and the chart's `edgeIngressClass` are the ACM path on Auto Mode; leave both out and use
+maul's own edge, the webhook and status page, is different: it works with any ingress controller and certificate source.
+The module's `edge` and the chart's `edgeIngressClass` are the ACM path on Auto Mode; leave both out and use
 `webhook.ingress.tls` with cert-manager, or Gateway API (`webhook.httpRoute`), as on any cluster
 ([Webhook exposure](../deployment/webhook.md)).
 
@@ -984,7 +984,7 @@ other zones, keep the preview zone out of its `--domain-filter`.
 
 ## Verification
 
-`patchy check project shop-web -n patchy` is the preflight for one Project. It reads the cluster with your kubeconfig,
+`maul check project shop-web -n maul` is the preflight for one Project. It reads the cluster with your kubeconfig,
 GitHub with `GH_TOKEN`, and the registry with your own AWS credentials (`AWS_PROFILE` works), and prints one line per
 check:
 
@@ -1009,7 +1009,7 @@ What it **cannot** prove, and where to look instead:
 - **That NetworkPolicy is enforced**, and that a preview Pod is isolated: the isolation probe (step 12) is the only
   evidence. The check never reads `kube-system/amazon-vpc-cni`.
 - **That source-controller's own AWS identity can read the agent image**: the check uses _your_ credentials. After the
-  first intent's plan, the Repository's `status.runnerImage` (`kubectl -n patchy get repositories -o yaml`) shows what
+  first intent's plan, the Repository's `status.runnerImage` (`kubectl -n maul get repositories -o yaml`) shows what
   source-controller pinned, or why it refused.
 - **That the preview nodes can pull the runtime image**: a Preview's status, and its Pod's events in the slot namespace.
 - **The publisher roles' scoping**: the application repository's Actions runs show what was published; IAM is the
@@ -1019,22 +1019,22 @@ What it **cannot** prove, and where to look instead:
 
 ## Pausing agents
 
-`agent.paused: true` in the `patchy` chart stops intent-controller (and the other three controllers that launch agent
+`agent.paused: true` in the `maul` chart stops intent-controller (and the other three controllers that launch agent
 Jobs) from starting any new agent Job; a running plan or build finishes and is collected as usual. See
 [Pausing agents](../configuration/investigation-controller.md#pausing-agents).
 
 A paused intent says so on its issue. Its next IntentRun is created and waits (no Job) with the condition
 `AgentsPaused=True`, and the issue's status comment keeps its phase and adds "**Agents paused:** the operator has paused
-patchy's agents, so this work waits until they are resumed." Set it back to `false` and the held runs start in order;
-the condition and the line go on the scheduler's first pass after the pause lifts, even for a run still waiting for a
-free slot.
+maul's agents, so this work waits until they are resumed." Set it back to `false` and the held runs start in order; the
+condition and the line go on the scheduler's first pass after the pause lifts, even for a run still waiting for a free
+slot.
 
 ## Upgrades
 
 - **One release, three artifacts.** Upgrade the chart, the CLI and the module ref together: `helm_values` carries chart
-  keys, and `patchy init app` scaffolds against its own release.
-- **A new resource class goes into `patchy` before `patchy-config` picks it**, and a class leaves `patchy-config` before
-  it leaves `patchy`; out of order, the repository's builds wait (they are never lost) until both agree. See
+  keys, and `maul init app` scaffolds against its own release.
+- **A new resource class goes into `maul` before `maul-config` picks it**, and a class leaves `maul-config` before it
+  leaves `maul`; out of order, the repository's builds wait (they are never lost) until both agree. See
   [Sizing agents](#sizing-agents).
 - **Record the rollback point** (both releases' revisions) before each `helm upgrade`, and read `helm status` before
   retrying one that failed: an upgrade interrupted by a network drop may have applied part of a revision.
@@ -1056,7 +1056,7 @@ free slot.
 In this order; each step depends on the one before it.
 
 1. **Stop new intents and previews.** Remove each Project's `preview` block, or delete its `projects` entry, upgrade
-   `patchy-config`, and wait until `kubectl get previews -A` lists nothing: each Preview's finalizer empties its slot.
+   `maul-config`, and wait until `kubectl get previews -A` lists nothing: each Preview's finalizer empties its slot.
    `spec.suspend: true` is not enough on its own: it stops new intents and runs, but leaves the Previews of open pull
    requests in place.
 2. **Turn the publishers off**: `gh variable set PREVIEW_PUBLISH_ENABLED --repo acme/Shop.Web --body false`, and the
@@ -1064,18 +1064,18 @@ In this order; each step depends on the one before it.
 3. **Preview DNS**: `create_preview_alias_record = false`, apply.
 4. **The preview controller**: an upgrade with `previewController.enabled: false`.
 5. **The preview load balancer**: delete the kept placeholder,
-   `kubectl -n patchy-preview-0 delete ingress,service patchy-preview-placeholder`, and wait until the load balancer is
-   gone (`aws elbv2 describe-load-balancers --names acme-prod-preview` fails).
-6. **The preview nodes**: `kubectl delete nodepool patchy-preview`, wait until its nodes are gone
-   (`kubectl get nodeclaims`), then `kubectl delete nodeclass patchy-preview`.
+   `kubectl -n maul-preview-0 delete ingress,service maul-preview-placeholder`, and wait until the load balancer is gone
+   (`aws elbv2 describe-load-balancers --names acme-prod-preview` fails).
+6. **The preview nodes**: `kubectl delete nodepool maul-preview`, wait until its nodes are gone
+   (`kubectl get nodeclaims`), then `kubectl delete nodeclass maul-preview`.
 7. **The preview foundation**: an upgrade with `preview.enabled: false`. Every slot namespace and guardrail is kept;
-   once each slot is empty (`kubectl get all,ingresses -n patchy-preview-0`, and each other slot), delete the slot
-   namespaces, the `patchy-preview-*` ValidatingAdmissionPolicies and bindings, and the `alb-preview` IngressClass and
+   once each slot is empty (`kubectl get all,ingresses -n maul-preview-0`, and each other slot), delete the slot
+   namespaces, the `maul-preview-*` ValidatingAdmissionPolicies and bindings, and the `alb-preview` IngressClass and
    IngressClassParams, deliberately. Keep the guards while any preview workload or node remains.
-8. **Edge DNS and patchy**: `create_edge_alias_records = false`, apply; `helm uninstall patchy-config -n patchy`, then
-   `helm uninstall patchy -n patchy`. The edge Ingresses go with the release, and their load balancer with them; the
-   kept edge IngressClass and IngressClassParams, and the CRDs (with any custom resources left), are deleted by hand if
-   you mean to.
+8. **Edge DNS and maul**: `create_edge_alias_records = false`, apply; `helm uninstall maul-config -n maul`, then
+   `helm uninstall maul -n maul`. The edge Ingresses go with the release, and their load balancer with them; the kept
+   edge IngressClass and IngressClassParams, and the CRDs (with any custom resources left), are deleted by hand if you
+   mean to.
 9. **Terraform**: `terraform destroy`. An ECR repository that still holds images fails to delete, on purpose (no
    `force_delete`): delete its images first if you mean to.
 10. **GitHub**: uninstall and delete the App, and delete the repositories' Actions variables.

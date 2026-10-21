@@ -22,8 +22,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/previewauth"
-	"github.com/bitwise-media-group/patchy/internal/previewauth/adapters/signer"
+	"github.com/devthenet-labs/maul/internal/previewauth"
+	"github.com/devthenet-labs/maul/internal/previewauth/adapters/signer"
 )
 
 const (

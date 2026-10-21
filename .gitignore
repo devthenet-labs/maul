@@ -10,8 +10,8 @@ dist/
 /integration-controller
 /intent-controller
 /investigation-controller
-/kubectl-patchy
-/patchy
+/kubectl-maul
+/maul
 /preview-auth
 /preview-controller
 /remediation-controller

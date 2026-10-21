@@ -58,7 +58,7 @@ func TestRepairPromptGoldens(t *testing.T) {
 // TestRepairPromptStatesTheRules: the repair asks for the report alone, says
 // the quoted reason is data, and tells the agent to correct an untrue claim
 // rather than hide it — the one way a validator-driven rewrite could make a
-// report worse than refused. On a writable stage it says what patchy
+// report worse than refused. On a writable stage it says what maul
 // refuses; on a read-only one it promises no check that does not exist. It
 // quotes nothing of the request or the plan, which the agent can read.
 func TestRepairPromptStatesTheRules(t *testing.T) {
@@ -87,7 +87,7 @@ func TestRepairPromptStatesTheRules(t *testing.T) {
 			}
 		}
 		refuses := strings.Contains(got,
-			"patchy refuses a\n  repair that changes any file but the report and `/workspace/commit.sh`")
+			"maul refuses a\n  repair that changes any file but the report and `/workspace/commit.sh`")
 		if refuses != (p.CommitScriptPath != "") {
 			t.Errorf("%s: states the tree guard = %v, want it exactly on a stage with commit.sh:\n%s",
 				p.ReportPath, refuses, got)

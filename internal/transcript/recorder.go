@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/ansi"
+	"github.com/devthenet-labs/maul/internal/ansi"
 )
 
 // Recording bounds. A transcript is persisted in a ConfigMap, so the total is

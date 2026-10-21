@@ -54,7 +54,7 @@ type Store struct {
 
 // NewStore builds a Store rooted at dir, minting URLs under baseURL (the
 // cluster-internal address agents reach, e.g.
-// http://patchy-source-controller.patchy.svc:9790).
+// http://maul-source-controller.maul.svc:9790).
 func NewStore(dir, baseURL string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return nil, fmt.Errorf("artifact dir: %w", err)

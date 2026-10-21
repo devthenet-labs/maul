@@ -23,8 +23,8 @@ import (
 // The in-cluster names the test fixtures dial: the artifact server
 // (testSpec, testEvalSpec, treesSpec) and the egress broker (brokeredConfig).
 const (
-	artifactHost = "patchy-source-controller.patchy.svc.cluster.local"
-	brokerHost   = "patchy-egress-broker.patchy.svc.cluster.local"
+	artifactHost = "maul-source-controller.maul.svc.cluster.local"
+	brokerHost   = "maul-egress-broker.maul.svc.cluster.local"
 )
 
 // fakeResolver answers from a table and records what it was asked, and
@@ -164,7 +164,7 @@ func TestDNSNonePodShape(t *testing.T) {
 			},
 			spec: func() Spec {
 				spec := testSpec()
-				spec.ArtifactURL = "http://Patchy-Source-Controller.patchy.svc.cluster.local:9790/a.tar.gz"
+				spec.ArtifactURL = "http://Maul-Source-Controller.maul.svc.cluster.local:9790/a.tar.gz"
 				return spec
 			},
 			answers: map[string][]string{artifactHost: {"10.100.12.7"}},
@@ -177,7 +177,7 @@ func TestDNSNonePodShape(t *testing.T) {
 				cfg := dnsNoneConfig(r)
 				claude := cfg.Runners["claude"]
 				claude.Env = map[string]string{
-					"ANTHROPIC_BEDROCK_BASE_URL": "http://bedrock-broker.patchy.svc.cluster.local:8080/bedrock",
+					"ANTHROPIC_BEDROCK_BASE_URL": "http://bedrock-broker.maul.svc.cluster.local:8080/bedrock",
 					"AWS_REGION":                 "us-east-1",
 				}
 				cfg.Runners["claude"] = claude
@@ -185,40 +185,40 @@ func TestDNSNonePodShape(t *testing.T) {
 			},
 			spec: testSpec,
 			answers: map[string][]string{
-				artifactHost: {"10.100.12.7"},
-				"bedrock-broker.patchy.svc.cluster.local": {"10.100.41.3"},
+				artifactHost:                            {"10.100.12.7"},
+				"bedrock-broker.maul.svc.cluster.local": {"10.100.41.3"},
 			},
 			want: []corev1.HostAlias{
 				{IP: "10.100.12.7", Hostnames: []string{artifactHost}},
-				{IP: "10.100.41.3", Hostnames: []string{"bedrock-broker.patchy.svc.cluster.local"}},
+				{IP: "10.100.41.3", Hostnames: []string{"bedrock-broker.maul.svc.cluster.local"}},
 			},
-			asked: []string{"bedrock-broker.patchy.svc.cluster.local", artifactHost},
+			asked: []string{"bedrock-broker.maul.svc.cluster.local", artifactHost},
 		},
 		{
 			name: "a plan's trees: every artifact host it fetches from",
 			cfg:  dnsNoneConfig,
 			spec: func() Spec {
 				spec := treesSpec()
-				spec.Trees[0].ArtifactURL = "http://mirror.patchy.svc.cluster.local:9790/artifacts/feedface.tar.gz"
+				spec.Trees[0].ArtifactURL = "http://mirror.maul.svc.cluster.local:9790/artifacts/feedface.tar.gz"
 				return spec
 			},
 			answers: map[string][]string{
-				artifactHost:                      {"10.100.12.7"},
-				brokerHost:                        {"10.100.40.2"},
-				"mirror.patchy.svc.cluster.local": {"10.100.12.8"},
+				artifactHost:                    {"10.100.12.7"},
+				brokerHost:                      {"10.100.40.2"},
+				"mirror.maul.svc.cluster.local": {"10.100.12.8"},
 			},
 			want: []corev1.HostAlias{
 				{IP: "10.100.12.7", Hostnames: []string{artifactHost}},
-				{IP: "10.100.12.8", Hostnames: []string{"mirror.patchy.svc.cluster.local"}},
+				{IP: "10.100.12.8", Hostnames: []string{"mirror.maul.svc.cluster.local"}},
 				{IP: "10.100.40.2", Hostnames: []string{brokerHost}},
 			},
-			asked: []string{"mirror.patchy.svc.cluster.local", brokerHost, artifactHost},
+			asked: []string{"mirror.maul.svc.cluster.local", brokerHost, artifactHost},
 		},
 		{
 			name: "the fake runner: the artifact server alone",
 			cfg: func(r Resolver) Config {
 				cfg := dnsNoneConfig(r)
-				cfg.Runners["fake"] = Runner{Image: "ghcr.io/bitwise-media-group/patchy/fake-agent:1"}
+				cfg.Runners["fake"] = Runner{Image: "ghcr.io/devthenet-labs/maul/fake-agent:1"}
 				return cfg
 			},
 			spec: func() Spec {
@@ -357,8 +357,8 @@ func TestDNSNoneRefusals(t *testing.T) {
 			if got := errors.Is(err, ErrUnresolved); got != tt.unresolved {
 				t.Errorf("errors.Is(err, ErrUnresolved) = %v, want %v", got, tt.unresolved)
 			}
-			jobsList, _ := cs.BatchV1().Jobs("patchy-agents").List(context.Background(), metav1.ListOptions{})
-			secrets, _ := cs.CoreV1().Secrets("patchy-agents").List(context.Background(), metav1.ListOptions{})
+			jobsList, _ := cs.BatchV1().Jobs("maul-agents").List(context.Background(), metav1.ListOptions{})
+			secrets, _ := cs.CoreV1().Secrets("maul-agents").List(context.Background(), metav1.ListOptions{})
 			if len(jobsList.Items) != 0 || len(secrets.Items) != 0 {
 				t.Errorf("a refused launch left %d Jobs and %d Secrets, want none",
 					len(jobsList.Items), len(secrets.Items))
@@ -375,7 +375,7 @@ func TestDNSNoneEvaluationJob(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateEval: %v", err)
 	}
-	job, err := cs.BatchV1().Jobs("patchy-agents").Get(context.Background(), name, metav1.GetOptions{})
+	job, err := cs.BatchV1().Jobs("maul-agents").Get(context.Background(), name, metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("get job: %v", err)
 	}
@@ -395,7 +395,7 @@ func TestDNSNoneEvaluationJob(t *testing.T) {
 	if !errors.Is(err, ErrUnresolved) {
 		t.Errorf("CreateEval with nothing resolvable err = %v, want ErrUnresolved", err)
 	}
-	jobsList, _ := cs.BatchV1().Jobs("patchy-agents").List(context.Background(), metav1.ListOptions{})
+	jobsList, _ := cs.BatchV1().Jobs("maul-agents").List(context.Background(), metav1.ListOptions{})
 	if len(jobsList.Items) != 0 {
 		t.Errorf("a refused evaluation launch left %d Jobs", len(jobsList.Items))
 	}
@@ -445,7 +445,7 @@ func TestNeedsResolver(t *testing.T) {
 // once and in ascending order, each entry's names sorted and distinct. So the
 // pod spec is a function of the answers, not of their order.
 func TestHostAliasesProperty(t *testing.T) {
-	hosts := []string{"a.patchy.svc", "b.patchy.svc", "c.patchy.svc"}
+	hosts := []string{"a.maul.svc", "b.maul.svc", "c.maul.svc"}
 	pool := []string{"10.0.0.1", "10.0.0.2", "::ffff:10.0.0.1", "fd00::1", "fd00::2", "10.0.0.10"}
 	cfg := &quick.Config{
 		MaxCount: 1000,

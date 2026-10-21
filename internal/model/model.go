@@ -19,7 +19,7 @@ type Provider struct {
 }
 
 // Model is one canonical, vendor-owned model. ID is provider-qualified
-// ("anthropic/claude-sonnet-5") and is the stable id patchy stores in config,
+// ("anthropic/claude-sonnet-5") and is the stable id maul stores in config,
 // the investigation report, and the CRDs; the executing harness never appears
 // in it.
 //

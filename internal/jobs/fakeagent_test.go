@@ -13,11 +13,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bitwise-media-group/patchy/internal/changeset"
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/report"
-	"github.com/bitwise-media-group/patchy/internal/sandboxprobe"
-	"github.com/bitwise-media-group/patchy/internal/transcript"
+	"github.com/devthenet-labs/maul/internal/changeset"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/report"
+	"github.com/devthenet-labs/maul/internal/sandboxprobe"
+	"github.com/devthenet-labs/maul/internal/transcript"
 )
 
 // hack/fake-agent is the credential-less agent stand-in the dev-fake overlay
@@ -97,16 +97,16 @@ func execFakeAgentIn(t *testing.T, phase string, inputs map[string]string, setup
 
 	cmd := exec.Command(sh, script)
 	cmd.Env = append(os.Environ(),
-		"PATCHY_PHASE="+phase,
-		"PATCHY_REPO=acme/shop",
-		"PATCHY_FINDING=finding-1",
-		"PATCHY_BASE_SHA="+fakeBaseSHA,
-		"PATCHY_WORKSPACE="+workspace,
-		"PATCHY_INVESTIGATE_MODEL=anthropic/claude-sonnet-5",
-		"PATCHY_REMEDIATE_MODEL=anthropic/claude-sonnet-5",
+		"MAUL_PHASE="+phase,
+		"MAUL_REPO=acme/shop",
+		"MAUL_FINDING=finding-1",
+		"MAUL_BASE_SHA="+fakeBaseSHA,
+		"MAUL_WORKSPACE="+workspace,
+		"MAUL_INVESTIGATE_MODEL=anthropic/claude-sonnet-5",
+		"MAUL_REMEDIATE_MODEL=anthropic/claude-sonnet-5",
 		// The script paces its turns to make the live stream watchable; a
 		// test has nothing to watch.
-		"PATCHY_FAKE_TURN_DELAY=0",
+		"MAUL_FAKE_TURN_DELAY=0",
 	)
 	cmd.Env = append(cmd.Env, env...)
 	if setup != nil {
@@ -441,7 +441,7 @@ func TestFakeAgentUnknownPhase(t *testing.T) {
 	}
 
 	cmd := exec.Command(sh, script)
-	cmd.Env = append(os.Environ(), "PATCHY_PHASE=bogus", "PATCHY_FAKE_TURN_DELAY=0")
+	cmd.Env = append(os.Environ(), "MAUL_PHASE=bogus", "MAUL_FAKE_TURN_DELAY=0")
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	if err := cmd.Run(); err == nil {
@@ -480,7 +480,7 @@ func TestFakeAgentSandboxProbe(t *testing.T) {
 	}
 	args := append([]string{script, sandboxprobe.Command}, strings.Fields(waitProbeArgs)...)
 	cmd := exec.Command(sh, args...)
-	cmd.Env = append(os.Environ(), "PATCHY_FAKE_TURN_DELAY=0")
+	cmd.Env = append(os.Environ(), "MAUL_FAKE_TURN_DELAY=0")
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	if err := cmd.Run(); err != nil {
@@ -518,7 +518,7 @@ func TestFakeAgentPlanRepositories(t *testing.T) {
 		{
 			name:   "a harness names the ones that change",
 			inputs: map[string]string{"issue.md": planRequest},
-			env:    []string{"PATCHY_FAKE_PLAN_REPOSITORIES=https://github.example/acme/api"},
+			env:    []string{"MAUL_FAKE_PLAN_REPOSITORIES=https://github.example/acme/api"},
 			want:   []string{"https://github.example/acme/api"},
 		},
 		{
@@ -678,8 +678,8 @@ func TestFakeAgentPlanTrees(t *testing.T) {
 
 // TestFakeAgentBuildScope mirrors agent-runner's guard on a build of a
 // multi-repository plan: exactly one of the plan's repositories is the
-// Job's own (PATCHY_REPO, case and .git ignored), or the build fails
-// fatally; a one-repository plan builds whatever PATCHY_REPO says.
+// Job's own (MAUL_REPO, case and .git ignored), or the build fails
+// fatally; a one-repository plan builds whatever MAUL_REPO says.
 func TestFakeAgentBuildScope(t *testing.T) {
 	multi := strings.Replace(approvedPlan, "  - https://github.example/acme/shop\n",
 		"  - \"https://github.example/acme/shop\"\n  - \"https://github.example/Acme/API.git\"\n", 1)
@@ -699,7 +699,7 @@ func TestFakeAgentBuildScope(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			stdout, err := execFakeAgentIn(t, "build",
-				map[string]string{"issue.md": "", "investigation.md": tc.plan}, nil, "PATCHY_REPO="+tc.repo)
+				map[string]string{"issue.md": "", "investigation.md": tc.plan}, nil, "MAUL_REPO="+tc.repo)
 			out := scanFakeAgent(t, "build", stdout)
 			if tc.ok {
 				if err != nil || len(out.Events) != 1 || out.Events[0].Remediation == nil {

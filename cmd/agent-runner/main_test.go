@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bitwise-media-group/patchy/internal/agentrun"
-	"github.com/bitwise-media-group/patchy/internal/sandboxprobe"
+	"github.com/devthenet-labs/maul/internal/agentrun"
+	"github.com/devthenet-labs/maul/internal/sandboxprobe"
 )
 
 // TestRunDispatchesSandboxProbe: the argument internal/jobs writes into the
@@ -35,7 +35,7 @@ func TestRunDispatchesSandboxProbe(t *testing.T) {
 
 	var stage bytes.Buffer
 	if code := run(context.Background(), []string{"agent-runner"}, getenv, io.Discard, &stage); code != 2 ||
-		!strings.Contains(stage.String(), "PATCHY_REPO is required") || strings.Contains(stage.String(), "sandbox") {
+		!strings.Contains(stage.String(), "MAUL_REPO is required") || strings.Contains(stage.String(), "sandbox") {
 		t.Errorf("run() = %d, stderr %q; want the stage's configuration error, not the probe", code, stage.String())
 	}
 }
@@ -56,7 +56,7 @@ func TestRunPassesProbeArguments(t *testing.T) {
 }
 
 // TestRunDispatchesPreflight: `agent-runner preflight` runs the preflight
-// alone, not a stage — the stage would demand PATCHY_REPO — and prints its
+// alone, not a stage — the stage would demand MAUL_REPO — and prints its
 // verdict on stdout with the exit status the workstation check reads.
 func TestRunDispatchesPreflight(t *testing.T) {
 	binDir, pathDir := t.TempDir(), t.TempDir()
@@ -68,7 +68,7 @@ func TestRunDispatchesPreflight(t *testing.T) {
 		}
 	}
 	t.Setenv("PATH", pathDir)
-	env := map[string]string{agentrun.BinDirEnv: binDir, "PATCHY_WORKSPACE": t.TempDir()}
+	env := map[string]string{agentrun.BinDirEnv: binDir, "MAUL_WORKSPACE": t.TempDir()}
 	getenv := func(k string) string { return env[k] }
 
 	var stdout, stderr bytes.Buffer
@@ -83,7 +83,7 @@ func TestRunDispatchesPreflight(t *testing.T) {
 	delete(env, agentrun.BinDirEnv)
 	code = run(context.Background(), []string{"agent-runner", agentrun.PreflightCommand}, getenv, &stdout, &stderr)
 	if code != 2 || !strings.Contains(stderr.String(), agentrun.BinDirEnv+" is required") ||
-		strings.Contains(stderr.String(), "PATCHY_REPO") {
+		strings.Contains(stderr.String(), "MAUL_REPO") {
 		t.Errorf("run(%s) without %s = %d, stderr %q; want the preflight's configuration error, not the stage's",
 			agentrun.PreflightCommand, agentrun.BinDirEnv, code, stderr.String())
 	}

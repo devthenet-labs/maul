@@ -5,7 +5,7 @@
 # uses (the chart's templates/intent-controller.yaml renders the same rules).
 # No ClusterRole.
 ---
-# ---- patchy: the intent flow's own kinds ------------------------------------
+# ---- maul: the intent flow's own kinds ------------------------------------
 #   projects        get/list/watch; status update. A Project is operator
 #                   config; this identity never writes its spec.
 #   intents         create (discovery), get/list/watch, delete (the TTL, in
@@ -28,44 +28,44 @@
 #                   namespace: patch the names when your Forges
 #                   reference other Secrets. Never leave the list empty — an
 #                   empty resourceNames grants every Secret.
-#   leases, events  leader election (patchy-intent-controller-leader).
+#   leases, events  leader election (maul-intent-controller-leader).
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-    name: patchy-intent-controller
-    namespace: patchy
+    name: maul-intent-controller
+    namespace: maul
     labels:
         app.kubernetes.io/name: intent-controller
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 rules:
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [projects]
       verbs: [get, list, watch]
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [projects/status]
       verbs: [update]
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [intents]
       verbs: [create, get, list, watch, delete]
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [intents/status, intents/finalizers]
       verbs: [update]
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [intentruns]
       verbs: [create, get, list, watch, update]
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [intentruns/status, intentruns/finalizers]
       verbs: [update]
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [repositories]
       verbs: [create, get, list, watch, delete]
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [forges]
       verbs: [get, list, watch]
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [usagerollups]
       verbs: [create, get]
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [usagerollups/status]
       verbs: [get, update]
     - apiGroups: [""]
@@ -73,7 +73,7 @@ rules:
       verbs: [create, get, list, watch, update]
     - apiGroups: [""]
       resources: [secrets]
-      resourceNames: [patchy-github]
+      resourceNames: [maul-github]
       verbs: [get]
     - apiGroups: [coordination.k8s.io]
       resources: [leases]
@@ -85,36 +85,36 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-    name: patchy-intent-controller
-    namespace: patchy
+    name: maul-intent-controller
+    namespace: maul
     labels:
         app.kubernetes.io/name: intent-controller
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 roleRef:
     apiGroup: rbac.authorization.k8s.io
     kind: Role
-    name: patchy-intent-controller
+    name: maul-intent-controller
 subjects:
     - kind: ServiceAccount
-      name: patchy-intent-controller
-      namespace: patchy
+      name: maul-intent-controller
+      namespace: maul
 ---
-# ---- patchy-agents: its own copy of the agent-jobs Role ---------------------
+# ---- maul-agents: its own copy of the agent-jobs Role ---------------------
 # The same internal/jobs machinery as the job controllers, granted by its own
 # Role (the chart's evaluation precedent) rather than by joining the base's
-# patchy-agent-jobs binding, so removing the component removes the grant.
-# The patchy.bitwisemedia.uk/kind=intent Job label keeps its watches and
+# maul-agent-jobs binding, so removing the component removes the grant.
+# The maul.run/kind=intent Job label keeps its watches and
 # reapers off the finding and evaluation runs.
 # This Role can get, create, update and delete any Secret in the agents namespace,
 # including model keys, image-pull credentials and other Jobs' handoffs.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-    name: patchy-intent-controller-jobs
-    namespace: patchy-agents
+    name: maul-intent-controller-jobs
+    namespace: maul-agents
     labels:
         app.kubernetes.io/name: intent-controller
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 rules:
     - apiGroups: [batch]
       resources: [jobs]
@@ -132,16 +132,16 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-    name: patchy-intent-controller-jobs
-    namespace: patchy-agents
+    name: maul-intent-controller-jobs
+    namespace: maul-agents
     labels:
         app.kubernetes.io/name: intent-controller
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 roleRef:
     apiGroup: rbac.authorization.k8s.io
     kind: Role
-    name: patchy-intent-controller-jobs
+    name: maul-intent-controller-jobs
 subjects:
     - kind: ServiceAccount
-      name: patchy-intent-controller
-      namespace: patchy
+      name: maul-intent-controller
+      namespace: maul

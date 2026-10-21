@@ -1,0 +1,636 @@
+# Copyright 2026 Bitwise Media Group Ltd.
+# SPDX-License-Identifier: MIT
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: evaluationunits.maul.run
+spec:
+  group: maul.run
+  names:
+    categories:
+    - maul
+    kind: EvaluationUnit
+    listKind: EvaluationUnitList
+    plural: evaluationunits
+    shortNames:
+    - evu
+    singular: evaluationunit
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.evaluationRef.name
+      name: Evaluation
+      type: string
+    - jsonPath: .spec.unit.skill
+      name: Skill
+      type: string
+    - jsonPath: .spec.unit.tier
+      name: Tier
+      type: integer
+    - jsonPath: .spec.unit.model
+      name: Model
+      type: string
+    - jsonPath: .status.harness
+      name: Harness
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.casesPassed
+      name: Passed
+      priority: 1
+      type: integer
+    - jsonPath: .status.casesFailed
+      name: Failed
+      priority: 1
+      type: integer
+    - jsonPath: .status.usage.costUSD
+      name: Cost
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          EvaluationUnit is one unit of an Evaluation: a skill evaluated on one
+          model at one tier inside a sandboxed agent Job. One immutable object per
+          unit, owned by the Evaluation; bounded summaries live here, the full
+          result in a per-unit ConfigMap.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              EvaluationUnitSpec identifies one unit of its parent Evaluation. It is
+              immutable and self-contained — launch never re-reads the parent
+              (CEL-enforced).
+            properties:
+              attributedTo:
+                description: |-
+                  AttributedTo is who the run is for, stamped at creation by
+                  evaluation-controller from the Evaluation's submitter under
+                  --attribution-mode attribute (design L1); nil under mode off and on every
+                  run created before it. Immutable with the rest of the spec.
+                properties:
+                  reason:
+                    description: Reason says why.
+                    enum:
+                    - org
+                    - requester
+                    - approver
+                    - commenter
+                    - reviewer
+                    - submitter
+                    - approver-unregistered
+                    - submitter-unregistered
+                    type: string
+                  user:
+                    description: User is the person the run is attributed to; nil
+                      for the org.
+                    properties:
+                      id:
+                        description: 'ID is GitHub''s numeric account id: the identity.'
+                        format: int64
+                        minimum: 1
+                        type: integer
+                      login:
+                        description: |-
+                          Login is the GitHub login when the reference was recorded, for display
+                          only. Never a Bot: no bot is ever attributed a run.
+                        maxLength: 64
+                        minLength: 1
+                        pattern: ^[A-Za-z0-9][A-Za-z0-9_.-]*$
+                        type: string
+                    required:
+                    - id
+                    - login
+                    type: object
+                required:
+                - reason
+                type: object
+                x-kubernetes-validations:
+                - message: attributedTo.user is set exactly when the reason names
+                    a person
+                  rule: has(self.user) == (self.reason in ['requester', 'approver',
+                    'commenter', 'reviewer', 'submitter'])
+              evaluationRef:
+                description: EvaluationRef is the owning Evaluation (UID-pinned).
+                properties:
+                  name:
+                    description: Name of the referent.
+                    minLength: 1
+                    type: string
+                  uid:
+                    description: UID of the referent at the time the reference was
+                      written.
+                    type: string
+                required:
+                - name
+                type: object
+              index:
+                description: Index of the unit within the submission, 0-based.
+                format: int32
+                minimum: 0
+                type: integer
+              unit:
+                description: Unit is the plan, copied down from the parent spec.
+                properties:
+                  execJSON:
+                    description: |-
+                      ExecJSON is the serialized remainder of the client's unit spec (cases
+                      allowlist, prior results entry, client version, …), handed to the pod
+                      verbatim. Opaque to maul.
+                    maxLength: 131072
+                    type: string
+                  harnesses:
+                    description: |-
+                      Harnesses that can run the model, in preference order. A unit whose
+                      options are all disabled in the fleet settles as
+                      Failed/HarnessUnavailable.
+                    items:
+                      description: |-
+                        HarnessOption is one acceptable harness for a unit, in preference order:
+                        the scheduler launches the first option whose harness is enabled in the
+                        runner fleet.
+                      properties:
+                        harness:
+                          description: Harness id (e.g. "claude", "codex").
+                          maxLength: 64
+                          minLength: 1
+                          type: string
+                        modelID:
+                          description: |-
+                            ModelID is the harness-native model identifier the unit's model maps to
+                            on this harness.
+                          maxLength: 256
+                          type: string
+                      required:
+                      - harness
+                      type: object
+                    maxItems: 8
+                    minItems: 1
+                    type: array
+                  judgeModel:
+                    description: |-
+                      JudgeModel is the provider-qualified model the in-pod LLM judge runs
+                      on; empty for no judge.
+                    maxLength: 256
+                    type: string
+                  maxTurns:
+                    description: MaxTurns granted per agent run inside the unit.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  model:
+                    description: |-
+                      Model is the canonical provider-qualified model id the unit evaluates
+                      (e.g. "anthropic/claude-sonnet-5").
+                    maxLength: 256
+                    minLength: 1
+                    type: string
+                  runsPerQuery:
+                    description: RunsPerQuery repeats each case this many times (tier
+                      1).
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  skill:
+                    description: Skill under evaluation.
+                    maxLength: 256
+                    minLength: 1
+                    type: string
+                  tier:
+                    description: 'Tier of the run: 1 = triggers, 2 = evals.'
+                    format: int32
+                    maximum: 2
+                    minimum: 1
+                    type: integer
+                  timeoutMilliseconds:
+                    description: |-
+                      TimeoutMilliseconds bounds the unit's wall clock (the Job deadline
+                      clamps it controller-side).
+                    format: int64
+                    minimum: 0
+                    type: integer
+                  workspace:
+                    description: Workspace bundle the unit runs against.
+                    properties:
+                      digest:
+                        description: Digest is the hex sha256 of the gzip tarball.
+                        pattern: ^[0-9a-f]{64}$
+                        type: string
+                      sizeBytes:
+                        description: SizeBytes of the tarball, as uploaded.
+                        format: int64
+                        minimum: 0
+                        type: integer
+                    required:
+                    - digest
+                    type: object
+                required:
+                - harnesses
+                - model
+                - skill
+                - tier
+                - workspace
+                type: object
+            required:
+            - evaluationRef
+            - index
+            - unit
+            type: object
+            x-kubernetes-validations:
+            - message: spec is immutable
+              rule: self == oldSelf
+          status:
+            description: |-
+              EvaluationUnitStatus records how the unit ran. Written only by
+              evaluation-controller.
+            properties:
+              cases:
+                description: |-
+                  Cases are the per-case outcomes, bounded; the results ConfigMap holds
+                  the full record.
+                items:
+                  description: |-
+                    CaseSummary is one case's pass/fail, compact enough for a status list. The
+                    full-fidelity result lives in the results ConfigMap.
+                  properties:
+                    id:
+                      description: ID of the case.
+                      maxLength: 128
+                      minLength: 1
+                      type: string
+                    passed:
+                      description: Passed reports the graded outcome.
+                      type: boolean
+                  required:
+                  - id
+                  - passed
+                  type: object
+                maxItems: 256
+                type: array
+              casesErrored:
+                description: CasesErrored counts cases that errored before grading.
+                format: int32
+                type: integer
+              casesFailed:
+                description: CasesFailed counts cases that failed.
+                format: int32
+                type: integer
+              casesPassed:
+                description: CasesPassed counts cases that passed.
+                format: int32
+                type: integer
+              conditions:
+                description: Conditions of the run (Complete, AgentsPaused).
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              detail:
+                description: Detail explains a failure for humans.
+                maxLength: 4096
+                type: string
+              elapsedMilliseconds:
+                description: |-
+                  ElapsedMilliseconds is the unit's wall-clock duration as reported by
+                  the pod.
+                format: int64
+                type: integer
+              finishedAt:
+                description: FinishedAt is when the unit settled.
+                format: date-time
+                type: string
+              harness:
+                description: |-
+                  Harness the scheduler resolved at launch: the first enabled option
+                  from the unit's preference list.
+                type: string
+              jobRef:
+                description: JobRef locates the agent Job in the agents namespace.
+                properties:
+                  name:
+                    description: Name of the Job.
+                    type: string
+                  namespace:
+                    description: Namespace the Job runs in.
+                    type: string
+                  uid:
+                    description: UID of the Job.
+                    type: string
+                required:
+                - name
+                - namespace
+                type: object
+              observedGeneration:
+                description: ObservedGeneration is the last spec generation acted
+                  on.
+                format: int64
+                type: integer
+              phase:
+                description: Phase of the run.
+                enum:
+                - Pending
+                - Running
+                - Complete
+                - Failed
+                type: string
+              reason:
+                description: Reason a Failed unit failed.
+                enum:
+                - WorkspaceLost
+                - HarnessUnavailable
+                - JobFailed
+                - Aborted
+                - ResultTooLarge
+                type: string
+              resultsRef:
+                description: |-
+                  ResultsRef locates the results ConfigMap holding the full-fidelity
+                  result entry the client reassembles locally.
+                properties:
+                  name:
+                    description: Name of the ConfigMap holding the turns, in the run's
+                      own namespace.
+                    type: string
+                  truncated:
+                    description: |-
+                      Truncated reports that recording bounds cut the conversation short, so
+                      readers know the record is partial rather than complete.
+                    type: boolean
+                  turns:
+                    description: Turns is how many the transcript holds.
+                    format: int32
+                    type: integer
+                required:
+                - name
+                type: object
+              startedAt:
+                description: StartedAt is when the Job launched.
+                format: date-time
+                type: string
+              usage:
+                description: Usage accounting for the unit, summed over its agent
+                  runs.
+                properties:
+                  cacheCreationTokens:
+                    description: CacheCreationTokens written to prompt cache.
+                    format: int64
+                    type: integer
+                  cacheReadTokens:
+                    description: CacheReadTokens read from prompt cache.
+                    format: int64
+                    type: integer
+                  costUSD:
+                    description: |-
+                      CostUSD is the harness-reported cost as a decimal string (structural
+                      schemas forbid floats).
+                    pattern: ^[0-9]+(\.[0-9]{1,6})?$
+                    type: string
+                  final:
+                    description: |-
+                      Final marks the usage settled: the controller has stopped waiting
+                      for the broker and Source and Measured will not change.
+                    type: boolean
+                  inputTokens:
+                    description: InputTokens consumed.
+                    format: int64
+                    type: integer
+                  measured:
+                    description: |-
+                      Measured is the broker's metered usage of the run's pod, beside the
+                      pod-reported counts above (which a pod could misreport). Present
+                      when Source is measured or partial.
+                    properties:
+                      brokerBootTime:
+                        description: |-
+                          BrokerBootTime is when the broker's ledger began; Source is measured
+                          only when it is before the run's Job was created.
+                        format: date-time
+                        type: string
+                      cacheReadTokens:
+                        description: CacheReadTokens observed.
+                        format: int64
+                        minimum: 0
+                        type: integer
+                      cacheWriteTokens:
+                        description: |-
+                          CacheWriteTokens observed: every prompt cache write, five-minute and
+                          one-hour (Models has the split).
+                        format: int64
+                        minimum: 0
+                        type: integer
+                      costUSD:
+                        description: |-
+                          CostUSD prices the observed tokens: the sum of Models' costs, absent
+                          when any model with observed tokens has no known price.
+                        pattern: ^[0-9]+(\.[0-9]{1,6})?$
+                        type: string
+                      estimatedShortfallTokens:
+                        description: |-
+                          EstimatedShortfallTokens is the unmetered worst case: what the
+                          broker charged its limits for cut or usage-less responses beyond what
+                          it observed. Shown as unmetered, never priced, never part of a cost.
+                        format: int64
+                        minimum: 0
+                        type: integer
+                      inputTokens:
+                        description: InputTokens observed.
+                        format: int64
+                        minimum: 0
+                        type: integer
+                      models:
+                        description: Models is the usage per model.
+                        items:
+                          description: ModelUsage is a run's measured usage of one
+                            model.
+                          properties:
+                            cacheReadTokens:
+                              description: CacheReadTokens observed.
+                              format: int64
+                              minimum: 0
+                              type: integer
+                            cacheWrite1hTokens:
+                              description: 'CacheWrite1hTokens observed: one-hour
+                                prompt cache writes.'
+                              format: int64
+                              minimum: 0
+                              type: integer
+                            cacheWrite5mTokens:
+                              description: 'CacheWrite5mTokens observed: five-minute
+                                prompt cache writes.'
+                              format: int64
+                              minimum: 0
+                              type: integer
+                            costUSD:
+                              description: |-
+                                CostUSD prices the observed tokens at list rates; absent when the
+                                model has no known price (its tokens are kept).
+                              pattern: ^[0-9]+(\.[0-9]{1,6})?$
+                              type: string
+                            credential:
+                              description: |-
+                                Credential is the kind of credential that paid: api-key,
+                                oauth-token (a Claude subscription) or cloud-identity.
+                              maxLength: 32
+                              type: string
+                            estimatedShortfallTokens:
+                              description: EstimatedShortfallTokens is this model's
+                                unmetered worst case.
+                              format: int64
+                              minimum: 0
+                              type: integer
+                            inputTokens:
+                              description: InputTokens observed.
+                              format: int64
+                              minimum: 0
+                              type: integer
+                            model:
+                              description: |-
+                                Model is the registry's canonical id when the reported id resolves to
+                                one, else the id the broker reported (an unknown model).
+                              maxLength: 160
+                              minLength: 1
+                              type: string
+                            outputTokens:
+                              description: OutputTokens observed.
+                              format: int64
+                              minimum: 0
+                              type: integer
+                            priceTable:
+                              description: |-
+                                PriceTable is the price-table version CostUSD was priced at; set
+                                with CostUSD.
+                              maxLength: 32
+                              type: string
+                            pricing:
+                              description: Pricing is list or subscription (notional);
+                                set with CostUSD.
+                              enum:
+                              - list
+                              - subscription
+                              type: string
+                          required:
+                          - model
+                          type: object
+                        maxItems: 16
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      outputTokens:
+                        description: OutputTokens observed.
+                        format: int64
+                        minimum: 0
+                        type: integer
+                      priceTable:
+                        description: PriceTable is the price-table version CostUSD
+                          was priced at.
+                        maxLength: 32
+                        type: string
+                      pricing:
+                        description: |-
+                          Pricing is subscription when any priced model's tokens were paid by
+                          a subscription credential, else list.
+                        enum:
+                        - list
+                        - subscription
+                        type: string
+                    type: object
+                  outputTokens:
+                    description: OutputTokens produced.
+                    format: int64
+                    type: integer
+                  source:
+                    description: |-
+                      Source says which figure the run's usage is to be trusted as, once
+                      Final: measured (the egress broker metered the whole pod), partial
+                      (it metered only part of it: it restarted after the pod existed, or
+                      requests were still in flight when the wait ended) or reported (no
+                      broker figure: a non-brokered harness, or none was available; only
+                      the pod-reported counts above exist). Set by the run's controller
+                      under --usage-measurement; empty before or without it.
+                    enum:
+                    - measured
+                    - partial
+                    - reported
+                    type: string
+                type: object
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

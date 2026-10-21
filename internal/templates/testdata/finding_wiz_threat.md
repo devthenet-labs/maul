@@ -38,5 +38,5 @@ Tactics: `TA0001` — techniques: `T1078`
 
 ---
 *Threat `t-0001`, reported by Wiz Defend. Runtime detections route to a
-human for response; patchy tracks them but does not auto-remediate live
+human for response; maul tracks them but does not auto-remediate live
 threats.*

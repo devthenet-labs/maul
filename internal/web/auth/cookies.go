@@ -21,17 +21,17 @@ import (
 const (
 	// cookieSession is the chunked session cookie; chunks after the first
 	// are cookieSession-1, cookieSession-2, ….
-	cookieSession = "__Host-patchy-auth"
+	cookieSession = "__Host-maul-auth"
 	// cookieOAuthState carries the CSRF half of the state double-submit
 	// during one authorization round trip.
-	cookieOAuthState = "__Host-patchy-oauth2-state"
+	cookieOAuthState = "__Host-maul-oauth2-state"
 	// CookieProvider tells the SPA whether and how sign-in works:
 	// {"provider","authenticated","autoLogin"}, base64url JSON.
-	CookieProvider = "__Host-patchy-auth-provider"
+	CookieProvider = "__Host-maul-auth-provider"
 	// CookieAuthError carries a human-readable sign-in failure to the SPA.
-	CookieAuthError = "__Host-patchy-auth-error"
+	CookieAuthError = "__Host-maul-auth-error"
 	// CookieLogout marks an explicit sign-out so autoLogin pauses for it.
-	CookieLogout = "__Host-patchy-auth-logout"
+	CookieLogout = "__Host-maul-auth-logout"
 )
 
 // cookieName selects exactly one namespace from operator configuration,
@@ -40,7 +40,7 @@ const (
 // SPA's cookieName in auth.ts in sync.
 func cookieName(name string, secure bool) string {
 	if !secure {
-		return strings.Replace(name, "__Host-patchy-", "patchy-dev-", 1)
+		return strings.Replace(name, "__Host-maul-", "maul-dev-", 1)
 	}
 	return name
 }

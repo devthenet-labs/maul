@@ -17,10 +17,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/generic"
-	"github.com/bitwise-media-group/patchy/internal/webhook"
-	pkggeneric "github.com/bitwise-media-group/patchy/pkg/generic"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/generic"
+	"github.com/devthenet-labs/maul/internal/webhook"
+	pkggeneric "github.com/devthenet-labs/maul/pkg/generic"
 )
 
 // serveReceiver runs the receiver's endpoints on a real webhook server over

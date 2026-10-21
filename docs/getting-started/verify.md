@@ -6,16 +6,16 @@ the way through. The [state machine](../labels.md) is the map; this page is the 
 ## 1. Check the controllers
 
 ```sh
-kubectl -n patchy get pods
-kubectl -n patchy get integrations,forges     # both should show Ready
-kubectl -n patchy logs deploy/patchy-integration-controller
+kubectl -n maul get pods
+kubectl -n maul get integrations,forges     # both should show Ready
+kubectl -n maul logs deploy/maul-integration-controller
 ```
 
 The five pipeline controllers, the egress broker and the status server (and any optional controller you enabled) should
 be `Running` and logging to stderr; each serves `GET /healthz` and `GET /readyz` on port 8081. `Ready: False` on the
-Integration or Forge means the referenced `patchy-github` Secret is missing or its credential failed validation — fix
-that before anything else. In the GitHub App's **Advanced → Recent Deliveries**, the `ping` delivery should show `204` —
-a `401` means the webhook secret in the App and in `patchy-github` disagree.
+Integration or Forge means the referenced `maul-github` Secret is missing or its credential failed validation — fix that
+before anything else. In the GitHub App's **Advanced → Recent Deliveries**, the `ping` delivery should show `204` — a
+`401` means the webhook secret in the App and in `maul-github` disagree.
 
 ## 2. Produce a finding
 
@@ -23,7 +23,7 @@ Push a change that CodeQL flags (or re-run an existing code-scanning analysis) o
 `code_scanning_alert` delivery lands, the integration-controller creates a `Finding`:
 
 ```sh
-kubectl -n patchy get findings -w
+kubectl -n maul get findings -w
 ```
 
 ```text
@@ -45,10 +45,10 @@ visible as the alert list in `kubectl describe finding`.
   to `Investigating` with an agent Job in the sandbox namespace:
 
 ```sh
-kubectl get patchy -n patchy                      # every patchy kind at once
-kubectl -n patchy get repositories,investigations
-kubectl -n patchy-agents get jobs
-kubectl -n patchy-agents logs job/<job-name> -f   # the PATCHY-EVENT: stream
+kubectl get maul -n maul                      # every maul kind at once
+kubectl -n maul get repositories,investigations
+kubectl -n maul-agents get jobs
+kubectl -n maul-agents logs job/<job-name> -f   # the MAUL-EVENT: stream
 ```
 
 ## 4. The verdict
@@ -56,16 +56,16 @@ kubectl -n patchy-agents logs job/<job-name> -f   # the PATCHY-EVENT: stream
 When the analysis lands, the Finding's `VERDICT` column fills in, the report is posted to the tracking issue, and one of
 four things happens:
 
-| Verdict                          | What you'll see                                                                              |
-| -------------------------------- | -------------------------------------------------------------------------------------------- |
-| False positive (`ignore`)        | GHAS alerts dismissed as _false positive_, issue closed, phase `Dismissed`                   |
-| Human-only (`manual`)            | Phase `HandedOff` — the owners take it from the issue; `/patchy approve` can still revive it |
-| Low confidence / breaking change | Phase `AwaitingApproval` — comment `/patchy approve` on the issue to release the attempt     |
-| High confidence (`remediate`)    | Phase `Queued`, then `Remediating` when the priority scheduler grants a slot                 |
+| Verdict                          | What you'll see                                                                            |
+| -------------------------------- | ------------------------------------------------------------------------------------------ |
+| False positive (`ignore`)        | GHAS alerts dismissed as _false positive_, issue closed, phase `Dismissed`                 |
+| Human-only (`manual`)            | Phase `HandedOff` — the owners take it from the issue; `/maul approve` can still revive it |
+| Low confidence / breaking change | Phase `AwaitingApproval` — comment `/maul approve` on the issue to release the attempt     |
+| High confidence (`remediate`)    | Phase `Queued`, then `Remediating` when the priority scheduler grants a slot               |
 
 ## 5. The pull request
 
-A successful remediation pushes branch `patchy/<finding>`, opens a pull request, and moves the finding to `InReview`
+A successful remediation pushes branch `maul/<finding>`, opens a pull request, and moves the finding to `InReview`
 (`status.pullRequest` carries the URL — also a printed column: `kubectl get findings -o wide`). Review and merge it like
 any other PR — merging moves the finding to `Remediated` and closes the issue. Closing the PR unmerged lands it at
 `Failed`.
@@ -74,7 +74,7 @@ Terminal findings hang around for the TTL (14 days by default) and are then dele
 the rollups:
 
 ```sh
-kubectl -n patchy get findingrollups
+kubectl -n maul get findingrollups
 ```
 
 ## Local development loop
@@ -93,14 +93,14 @@ no tokens are spent; on [Colima](../deployment/colima.md) the whole loop is `mak
 
 ## Troubleshooting
 
-| Symptom                                    | Likely cause                                                                                                                           |
-| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
-| Webhook deliveries show `401`              | Webhook secret mismatch between the App and `patchy-github`, or no Integration exists                                                  |
-| Agent pods `CreateContainerConfigError`    | A non-brokered runner's credential Secret missing in `patchy-agents` (`patchy-openai` / `patchy-copilot`)                              |
-| Claude runs failing with broker errors     | The egress broker is not ready — check its `/readyz` (missing `patchy-anthropic` in the release namespace, or unusable cloud identity) |
-| `egress broker not reachable yet` warning  | Logged once at investigation/remediation-controller startup when the broker was not up yet; harmless if claude Jobs then succeed       |
-| Findings stall at `Enhanced`               | Accumulation window or `--finding-min-age` not elapsed — check `kubectl describe finding` timestamps                                   |
-| `ForgeResolved: False`                     | No Forge matches the repository (`NoForgeMatch`), or two match equally (`Ambiguous`)                                                   |
-| Issue projection / artifacts erroring      | The `patchy-github` credential is a placeholder or lacks a permission                                                                  |
-| Findings bounce `Investigating → Enhanced` | Job launch or stage failed; retried up to `--max-attempts` (2), then `Failed`                                                          |
-| Egress "works" on kind                     | kindnet ignores NetworkPolicy — a green dev apply is not a working sandbox                                                             |
+| Symptom                                    | Likely cause                                                                                                                         |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Webhook deliveries show `401`              | Webhook secret mismatch between the App and `maul-github`, or no Integration exists                                                  |
+| Agent pods `CreateContainerConfigError`    | A non-brokered runner's credential Secret missing in `maul-agents` (`maul-openai` / `maul-copilot`)                                  |
+| Claude runs failing with broker errors     | The egress broker is not ready — check its `/readyz` (missing `maul-anthropic` in the release namespace, or unusable cloud identity) |
+| `egress broker not reachable yet` warning  | Logged once at investigation/remediation-controller startup when the broker was not up yet; harmless if claude Jobs then succeed     |
+| Findings stall at `Enhanced`               | Accumulation window or `--finding-min-age` not elapsed — check `kubectl describe finding` timestamps                                 |
+| `ForgeResolved: False`                     | No Forge matches the repository (`NoForgeMatch`), or two match equally (`Ambiguous`)                                                 |
+| Issue projection / artifacts erroring      | The `maul-github` credential is a placeholder or lacks a permission                                                                  |
+| Findings bounce `Investigating → Enhanced` | Job launch or stage failed; retried up to `--max-attempts` (2), then `Failed`                                                        |
+| Egress "works" on kind                     | kindnet ignores NetworkPolicy — a green dev apply is not a working sandbox                                                           |

@@ -12,8 +12,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/bitwise-media-group/patchy/internal/cli"
-	"github.com/bitwise-media-group/patchy/internal/controller/integration"
+	"github.com/devthenet-labs/maul/internal/cli"
+	"github.com/devthenet-labs/maul/internal/controller/integration"
 )
 
 // serveOpts resolves args through the real serve flag surface, as the
@@ -68,18 +68,18 @@ func TestServeFlagDefaults(t *testing.T) {
 }
 
 func TestServeFlagsFromEnv(t *testing.T) {
-	t.Setenv("PATCHY_ACCUMULATION_WINDOW", "15m")
-	t.Setenv("PATCHY_REPOSITORY_IMAGES", "true")
+	t.Setenv("MAUL_ACCUMULATION_WINDOW", "15m")
+	t.Setenv("MAUL_REPOSITORY_IMAGES", "true")
 	opts := serveOpts(t)
 	if got := opts.Duration("accumulation-window"); got != 15*time.Minute {
 		t.Errorf("accumulation-window = %v, want 15m from the environment", got)
 	}
 	if !opts.Bool("repository-images") {
-		t.Error("repository-images not read from PATCHY_REPOSITORY_IMAGES")
+		t.Error("repository-images not read from MAUL_REPOSITORY_IMAGES")
 	}
-	t.Setenv("PATCHY_ACCOUNT_URL", "https://status.example.com/#/account")
+	t.Setenv("MAUL_ACCOUNT_URL", "https://status.example.com/#/account")
 	if got := serveOpts(t).String("account-url"); got != "https://status.example.com/#/account" {
-		t.Errorf("account-url = %q, not read from PATCHY_ACCOUNT_URL", got)
+		t.Errorf("account-url = %q, not read from MAUL_ACCOUNT_URL", got)
 	}
 }
 
@@ -93,7 +93,7 @@ func TestServeStartupErrors(t *testing.T) {
 		!strings.Contains(err.Error(), "kubeconfig") {
 		t.Errorf("serve with a missing kubeconfig = %v, want the kubeconfig error", err)
 	}
-	t.Setenv("POD_NAMESPACE", "patchy")
+	t.Setenv("POD_NAMESPACE", "maul")
 	if err := serve(t.Context(), serveOpts(t, "--kubeconfig", missing)); err == nil ||
 		!strings.Contains(err.Error(), "kubeconfig") {
 		t.Errorf("serve with POD_NAMESPACE = %v, want it to get past the namespace to the kubeconfig", err)

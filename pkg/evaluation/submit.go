@@ -83,7 +83,7 @@ type UnitSpec struct {
 	// and encodes the outcome here.
 	Cases []string `json:"cases,omitempty"`
 	// PriorEntry is the client's existing results entry for this unit,
-	// opaque to patchy. It seeds fingerprints, previous-run snapshots, and
+	// opaque to maul. It seeds fingerprints, previous-run snapshots, and
 	// baselines in-pod, so those behave exactly as they do locally.
 	PriorEntry json.RawMessage `json:"priorEntry,omitempty"`
 	// ClientVersion is the submitting evolve's version, recorded for skew

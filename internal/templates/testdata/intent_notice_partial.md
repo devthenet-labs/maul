@@ -1,7 +1,7 @@
-<!-- patchy:notice patchy/marigold-3 partial -->
-### patchy: ended
+<!-- maul:notice maul/marigold-3 partial -->
+### maul: ended
 
-Every pull request patchy opened for this intent has merged or been closed, and not all of them merged, so patchy closes the issue as not planned. What merged is already on its repository's default branch, and patchy reverts none of it. patchy never closes a pull request because another one was closed.
+Every pull request maul opened for this intent has merged or been closed, and not all of them merged, so maul closes the issue as not planned. What merged is already on its repository's default branch, and maul reverts none of it. maul never closes a pull request because another one was closed.
 
 **Merged:**
 

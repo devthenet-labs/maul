@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 // Package scc is the Google Cloud Security Command Center source: it turns a
-// Pub/Sub push delivery into patchy Findings.
+// Pub/Sub push delivery into maul Findings.
 //
 // SCC has no webhook. Its only egress is a NotificationConfig publishing to a
 // Pub/Sub topic, so deliveries arrive as a push envelope whose message.data is

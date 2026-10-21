@@ -1,8 +1,8 @@
 # Generic (HTTP)
 
 The `enhance` capability of a `provider: generic` Integration turns **any external HTTP process** into a
-[context enhancer](index.md): patchy POSTs each opened finding's issue view to your endpoint, and the response body is
-the enrichment — exactly what an in-tree [`pkg/enhance`](../../extending.md#context-enhancers-pkgenhance) plugin would
+[context enhancer](index.md): maul POSTs each opened finding's issue view to your endpoint, and the response body is the
+enrichment — exactly what an in-tree [`pkg/enhance`](../../extending.md#context-enhancers-pkgenhance) plugin would
 contribute. It is how a real CMDB integrates without a rebuild, and it runs for findings from **every** source, not just
 your own.
 
@@ -20,11 +20,11 @@ The `enhance` block on the Integration ([full configuration](../sources/generic.
 spec:
   provider: generic
   secretRef:
-    name: patchy-warehouse # key webhookSecret: the shared HMAC secret
+    name: maul-warehouse # key webhookSecret: the shared HMAC secret
   generic:
     enhance:
       enabled: true # synchronous enrichment call per opened finding
-      url: https://warehouse.internal/patchy/enhance
+      url: https://warehouse.internal/maul/enhance
       timeout: 60s
 ```
 
@@ -39,7 +39,7 @@ Every call is signed with
 
 ## The enhancer call
 
-For each freshly opened finding patchy POSTs to `spec.generic.enhance.url`, bounded by `timeout` (default 60s):
+For each freshly opened finding maul POSTs to `spec.generic.enhance.url`, bounded by `timeout` (default 60s):
 
 ```json
 {
@@ -83,9 +83,9 @@ chain order) and truncates each comment at 16384 characters.
 
 ## Testing
 
-`patchy dev enhance` fires a single signed enhancer exchange at your endpoint from a findings payload file — no cluster,
+`maul dev enhance` fires a single signed enhancer exchange at your endpoint from a findings payload file — no cluster,
 no server to host. The [local-testing walkthrough](../sources/generic.md#testing-your-integration-locally) covers it
-alongside the full `patchy dev generic` harness.
+alongside the full `maul dev generic` harness.
 
 ## Network posture
 

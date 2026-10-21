@@ -18,9 +18,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/validation"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/agentrun"
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/agentrun"
+	"github.com/devthenet-labs/maul/internal/netprofile"
 )
 
 // NetworkProfile is the operator network profile a launching controller
@@ -208,7 +208,7 @@ func (c *Client) appliesProfile(runner Runner, spec Spec) bool {
 // non-empty, so the go command never falls through to the image's
 // $GOROOT/go.env for it, and matching no real module path, since .invalid
 // is a reserved top-level domain.
-const patternNone = "patchy.invalid"
+const patternNone = "maul.invalid"
 
 // Where a profile Job's go command keeps its writable state: the root
 // filesystem is read-only, and the checksum database's state lives under

@@ -1,7 +1,7 @@
 # Integrations
 
-Everything patchy knows about the outside world enters and leaves through two kinds of custom resource, and the
-separation is deliberate:
+Everything maul knows about the outside world enters and leaves through two kinds of custom resource, and the separation
+is deliberate:
 
 | Resource      | Direction                     | Used by                                                  | Holds                                |
 | ------------- | ----------------------------- | -------------------------------------------------------- | ------------------------------------ |
@@ -26,7 +26,7 @@ An `Integration` plays up to three roles, and this section documents each role o
 
 | Provider     | Finding source                        | Verdict write-back                                              | Context enhancer                                 | Forge                   | Tracking issues          |
 | ------------ | ------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------ | ----------------------- | ------------------------ |
-| GitHub       | [code scanning](sources/github.md)    | [alert dismissal](sources/github.md#what-patchy-writes-back)    | —                                                | [yes](forges/github.md) | [yes](sources/github.md) |
+| GitHub       | [code scanning](sources/github.md)    | [alert dismissal](sources/github.md#what-maul-writes-back)      | —                                                | [yes](forges/github.md) | [yes](sources/github.md) |
 | Google Cloud | [SCC](sources/google-scc.md)          | [mute — not yet](sources/google-scc.md#what-is-not-implemented) | [Cloud Asset Inventory](enhancers/google-cai.md) | —                       | —                        |
 | Wiz          | [Issues + Defend](sources/wiz.md)     | [issue rejection](sources/wiz.md#write-back-optional)           | —                                                | —                       | —                        |
 | AWS          | —                                     | —                                                               | [resource tags](enhancers/aws.md)                | —                       | —                        |

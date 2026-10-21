@@ -10,16 +10,16 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/templates"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // TestRemediationReproduction: what the agent reported about reproducing
 // the bug reaches the pull request body — stated plainly, or as the warning
-// that patchy could not reproduce it — and is recorded on the Remediation's
+// that maul could not reproduce it — and is recorded on the Remediation's
 // status, where an agent that said nothing (an older pod, a report without
-// the block) leaves nothing. A reproduction claimed on patchy's default
+// the block) leaves nothing. A reproduction claimed on maul's default
 // image, which can run none of the repository's tests, still gets the
 // warning in the body; the status keeps the agent's account as reported.
 func TestRemediationReproduction(t *testing.T) {
@@ -87,7 +87,7 @@ func TestRemediationHandOffRecordsReproduction(t *testing.T) {
 func remediationNow(t *testing.T, c client.Client) *v1alpha1.Remediation {
 	t.Helper()
 	var rem v1alpha1.Remediation
-	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1-rem-1"}, &rem); err != nil {
+	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: "finding-aa-1-rem-1"}, &rem); err != nil {
 		t.Fatalf("Get remediation: %v", err)
 	}
 	return &rem

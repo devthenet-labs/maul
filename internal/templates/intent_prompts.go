@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/netprofile"
 )
 
 // StageLimits are what one intent run may spend, as agent-runner resolved
@@ -24,7 +24,7 @@ type StageLimits struct {
 	// TokenBudget is the output tokens past which the runner kills the run.
 	TokenBudget int
 	// Timeout is the stage's wall clock, after which the runner kills the
-	// run (PATCHY_INVESTIGATE_TIMEOUT for a plan, PATCHY_REMEDIATE_TIMEOUT
+	// run (MAUL_INVESTIGATE_TIMEOUT for a plan, MAUL_REMEDIATE_TIMEOUT
 	// for every build run).
 	Timeout time.Duration
 }
@@ -61,7 +61,7 @@ type PlanPrompt struct {
 	Intent string
 	// BuildMaxTurns/BuildTokenBudget are the most a build of this plan can
 	// be granted, so the plan is sized to fit. agent-runner fills them from
-	// the plan Job's PATCHY_REMEDIATE_MANUAL_*, which is the build stage's
+	// the plan Job's MAUL_REMEDIATE_MANUAL_*, which is the build stage's
 	// own ceiling; the intent controller sets it to the grant the Project's
 	// build will receive, so the number stated is the one the build gets.
 	BuildMaxTurns    int
@@ -192,7 +192,7 @@ func planRoutes(bs []BuildProfile, multi bool) string {
 }
 
 // EncodeBuildProfiles is the JSON a plan Job hands agent-runner as
-// PATCHY_BUILD_NETWORK_PROFILES; "" for none.
+// MAUL_BUILD_NETWORK_PROFILES; "" for none.
 func EncodeBuildProfiles(profiles []BuildProfile) string {
 	profiles = boundBuildProfiles(profiles)
 	if len(profiles) == 0 {

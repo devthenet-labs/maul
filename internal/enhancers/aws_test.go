@@ -10,9 +10,9 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/bitwise-media-group/patchy/internal/awsinv"
-	"github.com/bitwise-media-group/patchy/pkg/enhance"
-	"github.com/bitwise-media-group/patchy/pkg/source"
+	"github.com/devthenet-labs/maul/internal/awsinv"
+	"github.com/devthenet-labs/maul/pkg/enhance"
+	"github.com/devthenet-labs/maul/pkg/source"
 )
 
 // fakeInventory stands in for the AWS inventory.

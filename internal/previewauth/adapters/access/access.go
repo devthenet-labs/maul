@@ -7,9 +7,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/bitwise-media-group/patchy/internal/previewauth"
-	"github.com/bitwise-media-group/patchy/internal/web/auth"
-	"github.com/bitwise-media-group/patchy/internal/web/authz"
+	"github.com/devthenet-labs/maul/internal/previewauth"
+	"github.com/devthenet-labs/maul/internal/web/auth"
+	"github.com/devthenet-labs/maul/internal/web/authz"
 )
 
 // Reviewer answers previewauth access reviews.

@@ -11,8 +11,8 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/meta"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/jobs"
 )
 
 // onlyLaunch is the one Job launched for phase.
@@ -44,13 +44,13 @@ func TestStageEnv(t *testing.T) {
 		}
 	}
 	want := map[string]string{
-		"PATCHY_INVESTIGATE_TIMEOUT":           "20m0s",
-		"PATCHY_INVESTIGATE_MAX_TURNS":         "40",
-		"PATCHY_INVESTIGATE_TOKEN_BUDGET":      "200000",
-		"PATCHY_REMEDIATE_MANUAL_MAX_TURNS":    "150",
-		"PATCHY_REMEDIATE_MANUAL_TOKEN_BUDGET": "800000",
-		"PATCHY_REMEDIATE_AUTO_MAX_TURNS":      "150",
-		"PATCHY_REMEDIATE_AUTO_TOKEN_BUDGET":   "800000",
+		"MAUL_INVESTIGATE_TIMEOUT":           "20m0s",
+		"MAUL_INVESTIGATE_MAX_TURNS":         "40",
+		"MAUL_INVESTIGATE_TOKEN_BUDGET":      "200000",
+		"MAUL_REMEDIATE_MANUAL_MAX_TURNS":    "150",
+		"MAUL_REMEDIATE_MANUAL_TOKEN_BUDGET": "800000",
+		"MAUL_REMEDIATE_AUTO_MAX_TURNS":      "150",
+		"MAUL_REMEDIATE_AUTO_TOKEN_BUDGET":   "800000",
 	}
 	for k, v := range want {
 		if planEnv[k] != v {
@@ -58,14 +58,14 @@ func TestStageEnv(t *testing.T) {
 		}
 	}
 	build := stageEnv(v1alpha1.IntentStageBuild, testSettings(), v1alpha1.IntentRunGrant{})
-	if build["PATCHY_REMEDIATE_TIMEOUT"] != "1h0m0s" || build["PATCHY_REMEDIATE_MANUAL_MAX_TURNS"] != "150" ||
-		build["PATCHY_REMEDIATE_AUTO_MAX_TURNS"] != "150" {
+	if build["MAUL_REMEDIATE_TIMEOUT"] != "1h0m0s" || build["MAUL_REMEDIATE_MANUAL_MAX_TURNS"] != "150" ||
+		build["MAUL_REMEDIATE_AUTO_MAX_TURNS"] != "150" {
 		t.Errorf("build env = %v", build)
 	}
 	revise := stageEnv(v1alpha1.IntentStageRevise, testSettings(), v1alpha1.IntentRunGrant{})
-	if revise["PATCHY_REMEDIATE_TIMEOUT"] != "45m0s" ||
-		revise["PATCHY_REMEDIATE_MANUAL_MAX_TURNS"] != "80" ||
-		revise["PATCHY_REMEDIATE_MANUAL_TOKEN_BUDGET"] != "400000" {
+	if revise["MAUL_REMEDIATE_TIMEOUT"] != "45m0s" ||
+		revise["MAUL_REMEDIATE_MANUAL_MAX_TURNS"] != "80" ||
+		revise["MAUL_REMEDIATE_MANUAL_TOKEN_BUDGET"] != "400000" {
 		t.Errorf("revise env = %v", revise)
 	}
 }
@@ -97,7 +97,7 @@ func TestStatusCommentExactlyOnce(t *testing.T) {
 	if e.failed == 0 {
 		t.Fatal("the status comment was never recorded")
 	}
-	if st := e.gh.withMarker("patchy:intent"); len(st) != 1 || e.get(name).Status.Tracking != nil {
+	if st := e.gh.withMarker("maul:intent"); len(st) != 1 || e.get(name).Status.Tracking != nil {
 		t.Fatalf("after the failed record: status comments = %d, tracking %+v", len(st), e.get(name).Status.Tracking)
 	}
 	// A restarted controller adopts the comment.
@@ -105,7 +105,7 @@ func TestStatusCommentExactlyOnce(t *testing.T) {
 		Images: e.intent.Images, Nudger: e.nudger, Now: e.clock.Now}
 	e.mustIntent(name)
 	e.mustIntent(name)
-	st := e.gh.withMarker("patchy:intent")
+	st := e.gh.withMarker("maul:intent")
 	if len(st) != 1 {
 		t.Fatalf("status comments = %d, want exactly one", len(st))
 	}
@@ -135,14 +135,14 @@ func TestPlanCommentExactlyOnce(t *testing.T) {
 	if e.failed == 0 {
 		t.Fatal("the plan comment was never recorded")
 	}
-	if n := len(e.gh.withMarker("patchy:plan")); n != 1 || e.get(name).Status.Plan.CommentID != 0 {
+	if n := len(e.gh.withMarker("maul:plan")); n != 1 || e.get(name).Status.Plan.CommentID != 0 {
 		t.Fatalf("after the failed record: plan comments = %d, plan %+v", n, e.get(name).Status.Plan)
 	}
 	// A restarted controller (nothing in memory) finishes the step.
 	e.intent = &IntentReconciler{Client: e.c, APIReader: e.c, GitHub: e.gh, Settings: testSettings(),
 		Images: e.intent.Images, Nudger: e.nudger, Now: e.clock.Now}
 	e.drive(name, v1alpha1.IntentAwaitingApproval, "")
-	if n := len(e.gh.withMarker("patchy:plan")); n != 1 {
+	if n := len(e.gh.withMarker("maul:plan")); n != 1 {
 		t.Errorf("plan comments = %d, want exactly one", n)
 	}
 }
@@ -169,17 +169,17 @@ func TestApprovalDuringPlanRecordRetry(t *testing.T) {
 		t.Fatal("the plan comment was never recorded")
 	}
 	e.clock.Advance(time.Second)
-	id := e.gh.label(1, "patchy:approved", approver)
+	id := e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentBuilding, repoImage)
 	if ap := in.Status.Approval; ap == nil || ap.EventID != id || ap.Source != v1alpha1.IntentActionLabel {
 		t.Fatalf("approval = %+v, want the label %d", ap, id)
 	}
-	if n := len(e.gh.withMarker("patchy:plan")); n != 1 {
+	if n := len(e.gh.withMarker("maul:plan")); n != 1 {
 		t.Errorf("plan comments = %d, want exactly one", n)
 	}
 }
 
-// TestCommandApprovalDuringPlanRecordRetry: /patchy approve, made after the
+// TestCommandApprovalDuringPlanRecordRetry: /maul approve, made after the
 // plan comment was posted but while its record is still being retried (the
 // poll runs before the write-back is), waits for the record as the label
 // does, and is then accepted, answered once as done and never as not
@@ -204,9 +204,9 @@ func TestCommandApprovalDuringPlanRecordRetry(t *testing.T) {
 		t.Fatal("the plan comment was never recorded")
 	}
 	e.clock.Advance(time.Second)
-	approve := e.gh.comment(approver, "/patchy approve")
+	approve := e.gh.comment(approver, "/maul approve")
 	e.clock.Advance(time.Second)
-	unknown := e.gh.comment(approver, "/patchy frobnicate")
+	unknown := e.gh.comment(approver, "/maul frobnicate")
 	// The status write keeps failing for as long as the poll takes to read
 	// the approval, which must not answer it.
 	e.failStatusIf = func(in *v1alpha1.Intent) bool {
@@ -230,7 +230,7 @@ func TestCommandApprovalDuringPlanRecordRetry(t *testing.T) {
 			t.Errorf("replies to comment %d = %+v, want one saying %q", id, replies, want)
 		}
 	}
-	if n := len(e.gh.withMarker("patchy:plan")); n != 1 {
+	if n := len(e.gh.withMarker("maul:plan")); n != 1 {
 		t.Errorf("plan comments = %d, want exactly one", n)
 	}
 }
@@ -247,20 +247,20 @@ func TestEstimateNotice(t *testing.T) {
 	if len(notes) != 1 || !strings.Contains(notes[0].Body, "40 turns") {
 		t.Fatalf("estimate notices = %+v", notes)
 	}
-	plans := e.gh.withMarker("patchy:plan")
+	plans := e.gh.withMarker("maul:plan")
 	if notes[0].ID > plans[0].ID {
 		t.Error("the estimate notice follows the plan; the approver must read it first")
 	}
 }
 
-// TestApprovedByCommand: /patchy approve works as the label does, and gets
+// TestApprovedByCommand: /maul approve works as the label does, and gets
 // the eyes reaction and exactly one done reply.
 func TestApprovedByCommand(t *testing.T) {
 	e := newEnv(t, testProject())
 	name := e.newIntent(approver)
 	e.drive(name, v1alpha1.IntentAwaitingApproval, repoImage)
 	e.clock.Advance(time.Minute)
-	id := e.gh.comment(approver, "/patchy approve")
+	id := e.gh.comment(approver, "/maul approve")
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 	if ap := in.Status.Approval; ap == nil || ap.Source != v1alpha1.IntentActionCommand || ap.EventID != id {
 		t.Fatalf("approval = %+v", ap)
@@ -280,7 +280,7 @@ func TestApprovalClearsRejection(t *testing.T) {
 	name := e.newIntent(approver)
 	e.drive(name, v1alpha1.IntentAwaitingApproval, repoImage)
 	e.clock.Advance(time.Minute)
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentBuilding, repoImage)
 	if meta.IsStatusConditionTrue(in.Status.Conditions, v1alpha1.ConditionApprovalRejected) {
 		t.Error("ApprovalRejected is True after an accepted approval")

@@ -11,7 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/bitwise-media-group/patchy/internal/cli"
+	"github.com/devthenet-labs/maul/internal/cli"
 )
 
 // serveOpts resolves args through the real serve flag surface, as the
@@ -35,16 +35,16 @@ func serveOpts(t *testing.T, args ...string) *cli.Options {
 // validArgs is a settings surface preview.Settings.Validate accepts.
 func validArgs(extra ...string) []string {
 	return append([]string{
-		"--namespace", "patchy",
-		"--preview-image-prefix", "123456789012.dkr.ecr.us-east-1.amazonaws.com/patchy/previews/",
+		"--namespace", "maul",
+		"--preview-image-prefix", "123456789012.dkr.ecr.us-east-1.amazonaws.com/maul/previews/",
 		"--preview-host-suffix", "previews.example.com",
 		"--preview-node-pool", "previews", "--preview-node-class", "previews",
-		"--preview-taint-key", "patchy.bitwisemedia.uk/preview",
+		"--preview-taint-key", "maul.run/preview",
 	}, extra...)
 }
 
 func TestAuthSettings(t *testing.T) {
-	const set = `{"patchy-preview-0":{"alb.ingress.kubernetes.io/auth-type":"oidc"}}`
+	const set = `{"maul-preview-0":{"alb.ingress.kubernetes.io/auth-type":"oidc"}}`
 	for _, tt := range []struct {
 		name         string
 		args         []string
@@ -106,39 +106,39 @@ func TestServeStartupErrors(t *testing.T) {
 	}{
 		{name: "bad annotations", args: validArgs("--preview-auth-annotations", "nope"),
 			wantErr: "preview auth annotations"},
-		{name: "no image prefix", args: []string{"--namespace", "patchy"}, wantErr: "image prefix"},
+		{name: "no image prefix", args: []string{"--namespace", "maul"}, wantErr: "image prefix"},
 		{name: "no namespace", args: validArgs("--namespace", ""), wantErr: "invalid preview-controller settings"},
 		{name: "too many retries", args: validArgs("--preview-max-retries", "4"),
 			wantErr: "invalid preview-controller settings"},
 		{name: "annotations without required", args: validArgs("--preview-auth-annotations",
-			`{"patchy-preview-0":{}}`), wantErr: "preview auth is not required"},
+			`{"maul-preview-0":{}}`), wantErr: "preview auth is not required"},
 		{name: "required without annotations", args: validArgs("--preview-auth-required"),
 			wantErr: "no annotations are set"},
 		{name: "bad node selector", args: validArgs("--preview-node-selector", "{"),
 			wantErr: "preview node selector"},
-		{name: "node selector without a taint", args: []string{"--namespace", "patchy",
-			"--preview-image-prefix", "registry.example/patchy/previews/", "--preview-host-suffix", "previews.example.com",
+		{name: "node selector without a taint", args: []string{"--namespace", "maul",
+			"--preview-image-prefix", "registry.example/maul/previews/", "--preview-host-suffix", "previews.example.com",
 			"--preview-node-selector", `{"node-role.example.com/preview":"true"}`},
 			wantErr: "node isolation is required"},
-		{name: "no isolation without opting out", args: []string{"--namespace", "patchy",
-			"--preview-image-prefix", "registry.example/patchy/previews/", "--preview-host-suffix", "previews.example.com"},
+		{name: "no isolation without opting out", args: []string{"--namespace", "maul",
+			"--preview-image-prefix", "registry.example/maul/previews/", "--preview-host-suffix", "previews.example.com"},
 			wantErr: "node isolation is required"},
 		{name: "unknown isolation mode", args: validArgs("--preview-node-isolation", "optional"),
 			wantErr: "neither"},
 		{name: "valid settings reach the manager", args: validArgs("--kubeconfig", missing),
 			wantErr: "kubeconfig"},
-		{name: "generic node isolation reaches the manager", args: []string{"--namespace", "patchy",
-			"--preview-image-prefix", "registry.example/patchy/previews/", "--preview-host-suffix", "previews.example.com",
+		{name: "generic node isolation reaches the manager", args: []string{"--namespace", "maul",
+			"--preview-image-prefix", "registry.example/maul/previews/", "--preview-host-suffix", "previews.example.com",
 			"--preview-node-selector", `{"node-role.example.com/preview":"true"}`,
 			"--preview-taint-key", "node-role.example.com/preview", "--kubeconfig", missing},
 			wantErr: "kubeconfig"},
 		{name: "gateway mode reaches the manager", args: validArgs("--preview-legacy-ingress=false",
 			"--preview-target-health", "--kubeconfig", missing), wantErr: "kubeconfig"},
-		{name: "isolation none reaches the manager", args: []string{"--namespace", "patchy",
-			"--preview-image-prefix", "registry.example/patchy/previews/", "--preview-host-suffix", "previews.example.com",
+		{name: "isolation none reaches the manager", args: []string{"--namespace", "maul",
+			"--preview-image-prefix", "registry.example/maul/previews/", "--preview-host-suffix", "previews.example.com",
 			"--preview-node-isolation", "none", "--kubeconfig", missing},
 			wantErr: "kubeconfig"},
-		{name: "namespace from the pod", env: "patchy", args: validArgs("--namespace", "", "--kubeconfig", missing),
+		{name: "namespace from the pod", env: "maul", args: validArgs("--namespace", "", "--kubeconfig", missing),
 			wantErr: "kubeconfig"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -162,8 +162,8 @@ func TestLegacyIngressFlag(t *testing.T) {
 	if serveOpts(t, validArgs("--preview-legacy-ingress=false")...).Bool("preview-legacy-ingress") {
 		t.Error("--preview-legacy-ingress=false not honoured")
 	}
-	t.Setenv("PATCHY_PREVIEW_LEGACY_INGRESS", "false")
+	t.Setenv("MAUL_PREVIEW_LEGACY_INGRESS", "false")
 	if serveOpts(t, validArgs()...).Bool("preview-legacy-ingress") {
-		t.Error("PATCHY_PREVIEW_LEGACY_INGRESS=false not honoured")
+		t.Error("MAUL_PREVIEW_LEGACY_INGRESS=false not honoured")
 	}
 }

@@ -14,9 +14,9 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/bitwise-media-group/patchy/internal/mirror/imageref"
-	"github.com/bitwise-media-group/patchy/internal/mirror/spec"
-	"github.com/bitwise-media-group/patchy/internal/mirror/yamledit"
+	"github.com/devthenet-labs/maul/internal/mirror/imageref"
+	"github.com/devthenet-labs/maul/internal/mirror/spec"
+	"github.com/devthenet-labs/maul/internal/mirror/yamledit"
 )
 
 // Lint checks one entry's manifest and allowlist against store policy.

@@ -15,7 +15,7 @@ import (
 // The preview fixtures: one intent's host, and the heads of its two pull
 // requests.
 const (
-	testPreviewHost = "marigold-3.preview.patchy.example.com"
+	testPreviewHost = "marigold-3.preview.maul.example.com"
 	testWebHead     = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 	testAPIHead     = "9f1c0e5d2a7b4c3e8f6a1d0b9c8e7f6a5b4c3d2e"
 )
@@ -24,7 +24,7 @@ const (
 // add a preview to.
 func testInReview(p *IntentPreview) IntentStatusComment {
 	return IntentStatusComment{
-		Namespace: "patchy", Intent: "target-1", Phase: "InReview",
+		Namespace: "maul", Intent: "target-1", Phase: "InReview",
 		PlanRevision: 2, PlanURL: "https://github.com/devthenet-labs/intents/issues/1#issuecomment-99",
 		Summary:    "Add GET /version returning {sha, built} as JSON",
 		ApprovedBy: "peter", ApprovedRevision: 2,
@@ -38,7 +38,7 @@ func testInReview(p *IntentPreview) IntentStatusComment {
 }
 
 func onePreview(state, reason string) *IntentPreview {
-	return &IntentPreview{State: state, Reason: reason, Host: "target-1.preview.patchy.example.com",
+	return &IntentPreview{State: state, Reason: reason, Host: "target-1.preview.maul.example.com",
 		Resource: "target-1", Components: []IntentPreviewComponent{
 			{Repository: "devthenet-labs/patchy-target", Path: "/", Revision: testWebHead},
 		}}
@@ -53,7 +53,7 @@ func twoPreview(state string) *IntentPreview {
 }
 
 func testPreviewComment(state, reason, path string) IntentPreviewComment {
-	return IntentPreviewComment{Namespace: "patchy", Intent: "marigold-3", State: state, Reason: reason,
+	return IntentPreviewComment{Namespace: "maul", Intent: "marigold-3", State: state, Reason: reason,
 		Host: testPreviewHost, Resource: "marigold-3", Revision: testAPIHead, Path: path}
 }
 
@@ -86,7 +86,7 @@ func TestIntentPreviewGoldens(t *testing.T) {
 			prs := testMultiPRs()
 			prs[0].State, prs[1].State = "open", "open"
 			return RenderIntentStatusComment(IntentStatusComment{
-				Namespace: "patchy", Intent: "marigold-3", Phase: "InReview",
+				Namespace: "maul", Intent: "marigold-3", Phase: "InReview",
 				PlanRevision: 1, PlanURL: "https://github.com/devthenet-labs/intents/issues/3#issuecomment-7",
 				Summary:    "Show the API's greeting on the home page",
 				ApprovedBy: "peter", ApprovedRevision: 1,
@@ -96,13 +96,13 @@ func TestIntentPreviewGoldens(t *testing.T) {
 		}},
 		{"intent_status_preview_updating_repositories.md", func() (string, error) {
 			return RenderIntentStatusComment(IntentStatusComment{
-				Namespace: "patchy", Intent: "marigold-3", Phase: "Revising", PlanRevision: 1,
+				Namespace: "maul", Intent: "marigold-3", Phase: "Revising", PlanRevision: 1,
 				Preview: twoPreview(PreviewUpdating),
 			})
 		}},
 		{"intent_status_preview_waiting_repositories.md", func() (string, error) {
 			return RenderIntentStatusComment(IntentStatusComment{
-				Namespace: "patchy", Intent: "marigold-3", Phase: "Revising", PlanRevision: 1,
+				Namespace: "maul", Intent: "marigold-3", Phase: "Revising", PlanRevision: 1,
 				Preview: twoPreview(PreviewWaiting),
 			})
 		}},
@@ -113,7 +113,7 @@ func TestIntentPreviewGoldens(t *testing.T) {
 			p.Components[0].Repository = "@octocat #3"
 			p.Components[1].Path = "/api`<b>`\n#4"
 			return RenderIntentStatusComment(IntentStatusComment{
-				Namespace: "patchy", Intent: "marigold-3", Phase: "InReview", Preview: p,
+				Namespace: "maul", Intent: "marigold-3", Phase: "InReview", Preview: p,
 			})
 		}},
 		// A host that is not bare DNS labels is never linked.
@@ -202,7 +202,7 @@ func TestPreviewCommentKey(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if want := NoticeMarker("patchy", "marigold-3", PreviewKey) + "\n"; !strings.HasPrefix(body, want) {
+		if want := NoticeMarker("maul", "marigold-3", PreviewKey) + "\n"; !strings.HasPrefix(body, want) {
 			t.Errorf("%s preview comment is not headed by %q:\n%s", state, want, body)
 		}
 	}
@@ -291,7 +291,7 @@ func TestIntentPreviewProperties(t *testing.T) {
 	holds := func(p IntentPreview) bool {
 		live := p.State == PreviewLive && linkable(p.Host)
 		status, err := RenderIntentStatusComment(IntentStatusComment{
-			Namespace: "patchy", Intent: "marigold-3", Phase: "InReview", Preview: &p,
+			Namespace: "maul", Intent: "marigold-3", Phase: "InReview", Preview: &p,
 		})
 		if err != nil {
 			failure = fmt.Sprintf("status: %v", err)
@@ -300,7 +300,7 @@ func TestIntentPreviewProperties(t *testing.T) {
 		if !check("status comment", status, live, p.Host) {
 			return false
 		}
-		c := IntentPreviewComment{Namespace: "patchy", Intent: "marigold-3", State: p.State, Reason: p.Reason,
+		c := IntentPreviewComment{Namespace: "maul", Intent: "marigold-3", State: p.State, Reason: p.Reason,
 			Host: p.Host, Resource: p.Resource}
 		if len(p.Components) > 0 {
 			c.Revision, c.Path = p.Components[0].Revision, p.Components[0].Path

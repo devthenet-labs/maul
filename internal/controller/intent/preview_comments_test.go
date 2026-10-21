@@ -15,10 +15,10 @@ import (
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/forge"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/templates"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/forge"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // previewMessage is what the preview controller wrote on the Preview's
@@ -41,7 +41,7 @@ func newOnePreviewEnv(t *testing.T) *env {
 func (e *env) inReviewOne() (string, int64) {
 	e.t.Helper()
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 	return name, in.Status.PullRequests[0].Number
 }
@@ -73,7 +73,7 @@ func (e *env) servePreview(name string, phase v1alpha1.PreviewPhase, url string)
 	}
 }
 
-// previewComments are patchy's preview comments on pull request n.
+// previewComments are maul's preview comments on pull request n.
 func (e *env) previewComments(name string, n int64) []ghclient.Comment {
 	marker := templates.NoticeMarker(testNS, name, templates.PreviewKey)
 	e.gh.mu.Lock()
@@ -366,7 +366,7 @@ func TestPreviewCommentRemovedWhenIntentEnds(t *testing.T) {
 
 // TestEndedPreviewEditRetried: the last edit of an ended intent's preview
 // comment failing for a reason that may pass holds nothing and comes back a
-// poll interval later; one GitHub refuses, or a repository patchy can no
+// poll interval later; one GitHub refuses, or a repository maul can no
 // longer reach, is not asked again.
 func TestEndedPreviewEditRetried(t *testing.T) {
 	e := newOnePreviewEnv(t)
@@ -438,7 +438,7 @@ func TestPreviewCommentExactlyOnceAcrossLostWrites(t *testing.T) {
 			name, n := e.inReviewOne()
 			e.gh.mu.Lock()
 			e.gh.prComments[n] = append(e.gh.prComments[n], &ghclient.Comment{ID: 1,
-				Body:      templates.NoticeMarker(testNS, name, templates.PreviewKey) + "\nnot patchy's",
+				Body:      templates.NoticeMarker(testNS, name, templates.PreviewKey) + "\nnot maul's",
 				UserLogin: approver, CreatedAt: e.clock.Now(), UpdatedAt: e.clock.Now()})
 			e.gh.mu.Unlock()
 			e.servePreview(name, v1alpha1.PreviewReady, "https://"+previewHostOf(name))
@@ -547,7 +547,7 @@ func TestPreviewCommentDeletedByHumanIsReposted(t *testing.T) {
 // TestHostilePreviewURLNeverPosted: whatever URL the Preview's status
 // holds, nothing but a bare https host under the intent's label is linked:
 // no preview comment is posted, the status comment says the address is not
-// one patchy links, and the URL appears nowhere on GitHub.
+// one maul links, and the URL appears nowhere on GitHub.
 func TestHostilePreviewURLNeverPosted(t *testing.T) {
 	for _, url := range []string{
 		"https://evil.example", "https://x.y/@a", "https://%s.preview.example.com/login",
@@ -565,7 +565,7 @@ func TestHostilePreviewURLNeverPosted(t *testing.T) {
 			if cs := e.previewComments(name, n); len(cs) != 0 {
 				t.Errorf("a preview comment for %s: %+v", url, cs)
 			}
-			if body := e.statusBody(); !strings.Contains(body, "its address is not one patchy links") {
+			if body := e.statusBody(); !strings.Contains(body, "its address is not one maul links") {
 				t.Errorf("status comment for %s:\n%s", url, body)
 			}
 			if strings.Contains(e.everyBody(), url) {
@@ -709,7 +709,7 @@ func TestPreviewCommentsOnPreviewedPullRequestsOnly(t *testing.T) {
 	}
 }
 
-// TestUnreachablePreviewRepositoryHoldsNothing: a comment patchy can no
+// TestUnreachablePreviewRepositoryHoldsNothing: a comment maul can no
 // longer post (no Forge covers the repository for the write) fails no pass
 // and is not tried again at every pass.
 func TestUnreachablePreviewRepositoryHoldsNothing(t *testing.T) {

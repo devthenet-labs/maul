@@ -34,7 +34,7 @@ func TestLoadDefaults(t *testing.T) {
 }
 
 func TestLoadFlagBeatsEnv(t *testing.T) {
-	t.Setenv("PATCHY_LISTEN_ADDR", ":9999")
+	t.Setenv("MAUL_LISTEN_ADDR", ":9999")
 	o, cmd := newBound(t)
 	cmd.SetArgs([]string{"--listen-addr", ":7777"})
 	if err := cmd.Execute(); err != nil {
@@ -49,7 +49,7 @@ func TestLoadFlagBeatsEnv(t *testing.T) {
 }
 
 func TestLoadEnvBeatsDefault(t *testing.T) {
-	t.Setenv("PATCHY_LISTEN_ADDR", ":9999")
+	t.Setenv("MAUL_LISTEN_ADDR", ":9999")
 	o, cmd := newBound(t)
 	cmd.SetArgs(nil)
 	if err := cmd.Execute(); err != nil {
@@ -73,7 +73,7 @@ func TestLogLevel(t *testing.T) {
 	}{
 		{"default is warn", nil, nil, slog.LevelWarn, false},
 		{"flag sets level", []string{"--log-level", "error"}, nil, slog.LevelError, false},
-		{"env sets level", nil, map[string]string{"PATCHY_LOG_LEVEL": "info"}, slog.LevelInfo, false},
+		{"env sets level", nil, map[string]string{"MAUL_LOG_LEVEL": "info"}, slog.LevelInfo, false},
 		{"debug via flag", []string{"--log-level", "debug"}, nil, slog.LevelDebug, false},
 		{"unknown level errors", []string{"--log-level", "loud"}, nil, 0, true},
 	}
@@ -110,7 +110,7 @@ func TestStringList(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.env, func(t *testing.T) {
-			t.Setenv("PATCHY_ITEMS", tt.env)
+			t.Setenv("MAUL_ITEMS", tt.env)
 			o, cmd := newBound(t)
 			cmd.Flags().String("items", "", "a comma-separated list")
 			cmd.SetArgs(nil)

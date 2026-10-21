@@ -11,7 +11,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/netprofile"
 )
 
 // The default upstreams.

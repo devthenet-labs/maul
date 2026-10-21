@@ -19,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/previewauth"
+	"github.com/devthenet-labs/maul/internal/previewauth"
 )
 
 // TestGatewayHandoffFlow drives a viewer from a preview host through
@@ -32,7 +32,7 @@ func TestGatewayHandoffFlow(t *testing.T) {
 	// An unauthenticated navigation: a state cookie and a 302 to /start.
 	resp := nav(t, b, previewOrigin+"/dash?tab=2")
 	start := redirect(t, resp, "https://"+relayHost+"/start?h="+label+"&s=pa1.t.")
-	if len(resp.Cookies()) != 1 || !strings.HasPrefix(resp.Cookies()[0].Name, "__Host-patchy-pv-state-") ||
+	if len(resp.Cookies()) != 1 || !strings.HasPrefix(resp.Cookies()[0].Name, "__Host-maul-pv-state-") ||
 		!resp.Cookies()[0].HttpOnly || !resp.Cookies()[0].Secure || resp.Cookies()[0].MaxAge != 600 {
 		t.Fatalf("state cookie = %+v", resp.Cookies())
 	}
@@ -52,7 +52,7 @@ func TestGatewayHandoffFlow(t *testing.T) {
 	// The proxied request: the viewer's forged identity headers and the
 	// gateway's cookies never reach the preview; the pairwise subject does.
 	resp = do(t, b, http.MethodGet, back, http.Header{
-		"X-Patchy-Viewer": {"forged"}, "X-Forwarded-User": {"admin"}, "X-Amzn-Oidc-Data": {"forged"},
+		"X-Maul-Viewer": {"forged"}, "X-Forwarded-User": {"admin"}, "X-Amzn-Oidc-Data": {"forged"},
 		"X-Forwarded-For": {"10.0.0.1"}, "Authorization": {"Bearer app-token"}, "Cookie": {"app=1"},
 	}, nil)
 	if got := body(t, resp); resp.StatusCode != 200 || got != "app GET /dash?tab=2" {
@@ -67,8 +67,8 @@ func TestGatewayHandoffFlow(t *testing.T) {
 func checkForwarded(t *testing.T, e *gatewayEnv, seen *http.Request) {
 	t.Helper()
 	wantSub := e.ring.Sub(previewauth.ClientID(1), "uid-7", label, "github:alice")
-	if seen.Header.Get("X-Patchy-Viewer") != wantSub || len(seen.Header.Values("X-Patchy-Viewer")) != 1 {
-		t.Errorf("X-Patchy-Viewer = %q, want the pairwise %q", seen.Header.Values("X-Patchy-Viewer"), wantSub)
+	if seen.Header.Get("X-Maul-Viewer") != wantSub || len(seen.Header.Values("X-Maul-Viewer")) != 1 {
+		t.Errorf("X-Maul-Viewer = %q, want the pairwise %q", seen.Header.Values("X-Maul-Viewer"), wantSub)
 	}
 	for _, h := range []string{"X-Forwarded-User", "X-Amzn-Oidc-Data"} {
 		if seen.Header.Get(h) != "" {
@@ -83,11 +83,11 @@ func checkForwarded(t *testing.T, e *gatewayEnv, seen *http.Request) {
 	if seen.Header.Get("Authorization") != "Bearer app-token" {
 		t.Errorf("the preview's own Authorization was not passed: %q", seen.Header.Get("Authorization"))
 	}
-	if c := seen.Header.Get("Cookie"); strings.Contains(strings.ToLower(c), "patchy") || !strings.Contains(c, "app=1") {
+	if c := seen.Header.Get("Cookie"); strings.Contains(strings.ToLower(c), "maul") || !strings.Contains(c, "app=1") {
 		t.Errorf("the preview's Cookie header: %q", c)
 	}
 	for _, r := range e.app.requests() {
-		if strings.HasPrefix(r.URL.Path, "/.patchy") || r.URL.Query().Has("code") {
+		if strings.HasPrefix(r.URL.Path, "/.maul") || r.URL.Query().Has("code") {
 			t.Errorf("the preview saw %s", r.URL)
 		}
 	}
@@ -354,7 +354,7 @@ func TestGatewayUnauthenticated(t *testing.T) {
 	}
 
 	e.signInPreview(t, b, "/")
-	for _, p := range []string{"/.patchy/anything", "/.patchy", "/%2Epatchy/callback?code=x", "/a/../.patchy/x"} {
+	for _, p := range []string{"/.maul/anything", "/.maul", "/%2Emaul/callback?code=x", "/a/../.maul/x"} {
 		resp := nav(t, b, previewOrigin+p)
 		_ = resp.Body.Close()
 		if resp.StatusCode == 200 {

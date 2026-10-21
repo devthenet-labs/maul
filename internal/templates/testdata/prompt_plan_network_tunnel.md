@@ -55,7 +55,7 @@ it is no risk to list. Every other new dependency must already be in the image.
 Take the test plan from the repository's own guidance, since you cannot run anything to find out: its guides for
 contributors and agents (CLAUDE.md, AGENTS.md, CONTRIBUTING.md, the README's development notes) and its CI workflows
 under `.github/workflows/`. Name the test command its CI runs, and leave out tests that guidance says are slow, flaky,
-platform-specific or not run in CI. Read `.github/` for this, but never plan changes under `.github/`, `.patchy/` or
+platform-specific or not run in CI. Read `.github/` for this, but never plan changes under `.github/`, `.maul/` or
 `.devcontainer/`: the build is refused any change there.
 
 Keep the plan to what was asked. Where the request is ambiguous, plan the most reasonable reading and list what you
@@ -114,7 +114,7 @@ plainly too: no gap of more than 16 spaces between two characters of a line (a t
 more than 64 columns, no more than 4 combining marks in a row, and no run of more than 16 backticks. A report
 breaking any of these rules is refused whole.
 
-Do not check the frontmatter limits or these layout rules yourself: patchy validates the report against them as soon
+Do not check the frontmatter limits or these layout rules yourself: maul validates the report against them as soon
 as your run ends, and if it refuses the report it tells you, in this same session, exactly what to correct, while the
 stage has turns and time left for it. Checking the rules yourself only spends those: write no script or command to
 test the report (none can run here), and do not read it back to count its spaces, columns, characters or bytes.

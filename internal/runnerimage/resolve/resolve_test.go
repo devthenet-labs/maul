@@ -42,8 +42,8 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/static"
 	"github.com/google/go-containerregistry/pkg/v1/types"
 
-	"github.com/bitwise-media-group/patchy/internal/mirror/imageref"
-	"github.com/bitwise-media-group/patchy/internal/runnerimage"
+	"github.com/devthenet-labs/maul/internal/mirror/imageref"
+	"github.com/devthenet-labs/maul/internal/runnerimage"
 )
 
 // counter records the registry traffic a test wants to assert on.
@@ -731,7 +731,7 @@ func TestResolveRejections(t *testing.T) {
 				return image(t, &v1.ConfigFile{Config: v1.Config{Env: []string{"ANTHROPIC_API_KEY=x", "PATH=/bin"}}})
 			},
 			"ReservedEnv", "`ANTHROPIC_API_KEY`"},
-		{"injected reserved env", Config{ReservedEnv: map[string]bool{"PATCHY_BIN_DIR": true, "TOOLS_IMAGE": true}},
+		{"injected reserved env", Config{ReservedEnv: map[string]bool{"MAUL_BIN_DIR": true, "TOOLS_IMAGE": true}},
 			func(t *testing.T) v1.Image {
 				return image(t, &v1.ConfigFile{Config: v1.Config{Env: []string{"TOOLS_IMAGE=x", "PATH=/bin"}}})
 			},
@@ -863,7 +863,7 @@ func TestResolveUsesKeychain(t *testing.T) {
 	open := true
 	basic := func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if u, p, ok := r.BasicAuth(); !open && (!ok || u != "patchy" || p != "s3cret") {
+			if u, p, ok := r.BasicAuth(); !open && (!ok || u != "maul" || p != "s3cret") {
 				w.Header().Set("WWW-Authenticate", `Basic realm="test"`)
 				w.WriteHeader(http.StatusUnauthorized)
 				return
@@ -875,7 +875,7 @@ func TestResolveUsesKeychain(t *testing.T) {
 	push(t, repo.Tag("v1"), image(t, nil, []byte("private")))
 	open = false
 
-	r := newResolver(t, Config{Keychain: staticKeychain{&authn.Basic{Username: "patchy", Password: "s3cret"}}})
+	r := newResolver(t, Config{Keychain: staticKeychain{&authn.Basic{Username: "maul", Password: "s3cret"}}})
 	if _, err := r.Resolve(context.Background(), declared(t, repo.String()+":v1")); err != nil {
 		t.Errorf("Resolve with the keychain: %v", err)
 	}

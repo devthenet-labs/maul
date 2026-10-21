@@ -17,14 +17,14 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/harness"
-	"github.com/bitwise-media-group/patchy/internal/model"
-	"github.com/bitwise-media-group/patchy/internal/provider"
-	"github.com/bitwise-media-group/patchy/internal/report"
-	"github.com/bitwise-media-group/patchy/internal/runner"
-	"github.com/bitwise-media-group/patchy/internal/templates"
-	"github.com/bitwise-media-group/patchy/internal/transcript"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/harness"
+	"github.com/devthenet-labs/maul/internal/model"
+	"github.com/devthenet-labs/maul/internal/provider"
+	"github.com/devthenet-labs/maul/internal/report"
+	"github.com/devthenet-labs/maul/internal/runner"
+	"github.com/devthenet-labs/maul/internal/templates"
+	"github.com/devthenet-labs/maul/internal/transcript"
 )
 
 // Executor runs harness command specs; *runner.Exec satisfies it, tests
@@ -343,14 +343,14 @@ const codexHarness = "codex"
 // non-brokered runs.
 //
 // Codex runs brokered only: a codex stage without a broker token file or
-// without the broker's route (PATCHY_CODEX_BASE_URL) is refused rather than
+// without the broker's route (MAUL_CODEX_BASE_URL) is refused rather than
 // left to codex's own provider, which this pod could never reach and which
 // would read a credential the pod must not hold.
 func (a *Agent) brokerEnv(h harness.Harness) ([]string, *harness.Gateway, error) {
 	codex := h.ID() == codexHarness
 	if a.cfg.BrokerTokenFile == "" {
 		if codex {
-			return nil, nil, errors.New("codex runs brokered only, and PATCHY_BROKER_TOKEN_FILE is unset")
+			return nil, nil, errors.New("codex runs brokered only, and MAUL_BROKER_TOKEN_FILE is unset")
 		}
 		return nil, nil, nil
 	}
@@ -415,12 +415,12 @@ var credentialWords = []string{"TOKEN", "KEY", "SECRET", "PASSWORD", "CREDENTIAL
 
 // credentialNamed reports whether an environment variable's name marks it as
 // a credential. It over-matches on purpose — a redacted non-secret costs a
-// reader nothing, a leaked secret costs a rotation — but skips patchy's own
-// PATCHY_* configuration, which holds no credentials and does hold numbers
+// reader nothing, a leaked secret costs a rotation — but skips maul's own
+// MAUL_* configuration, which holds no credentials and does hold numbers
 // (token budgets) common enough to redact real transcript text by accident.
 func credentialNamed(name string) bool {
 	upper := strings.ToUpper(name)
-	if strings.HasPrefix(upper, "PATCHY_") {
+	if strings.HasPrefix(upper, "MAUL_") {
 		return false
 	}
 	for _, word := range credentialWords {

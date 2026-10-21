@@ -19,12 +19,12 @@ import (
 
 	"golang.org/x/mod/semver"
 
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/netprofile"
 )
 
 // liveEnv opts into TestLiveGo, which reaches proxy.golang.org and
 // sum.golang.org (mise run live-go).
-const liveEnv = "PATCHY_LIVE_GO"
+const liveEnv = "MAUL_LIVE_GO"
 
 // liveProfile admits github.com/google/uuid only.
 const liveProfile = `[{"name":"go","route":"go","port":8090,"repositories":["devthenet-labs/patchy-target"],
@@ -61,10 +61,10 @@ func profileEnv(proxyURL, baked, gopath string) []string {
 		"GOENV=off",
 		"GOPROXY=" + goproxy,
 		"GOSUMDB=sum.golang.org",
-		"GONOSUMDB=patchy.invalid",
-		"GONOPROXY=patchy.invalid",
-		"GOPRIVATE=patchy.invalid",
-		"GOINSECURE=patchy.invalid",
+		"GONOSUMDB=maul.invalid",
+		"GONOPROXY=maul.invalid",
+		"GOPRIVATE=maul.invalid",
+		"GOINSECURE=maul.invalid",
 		"GOAUTH=off",
 		"GOTOOLCHAIN=local",
 		"GOPATH=" + gopath,
@@ -130,7 +130,7 @@ type liveRig struct {
 // TestLiveGo runs the real go command through the engine against the real
 // proxy.golang.org and sum.golang.org, with the profile Job's go
 // environment verbatim (proxy first, the baked cache second). It codifies
-// the spec's facts 1, 2, 11 and 12. Opt-in: PATCHY_LIVE_GO=1.
+// the spec's facts 1, 2, 11 and 12. Opt-in: MAUL_LIVE_GO=1.
 func TestLiveGo(t *testing.T) {
 	if os.Getenv(liveEnv) != "1" {
 		t.Skipf("set %s=1 to run the live go command test (reaches proxy.golang.org)", liveEnv)

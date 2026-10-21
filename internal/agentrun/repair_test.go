@@ -15,13 +15,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/harness"
-	"github.com/bitwise-media-group/patchy/internal/model"
-	"github.com/bitwise-media-group/patchy/internal/report"
-	"github.com/bitwise-media-group/patchy/internal/runner"
-	"github.com/bitwise-media-group/patchy/internal/templates"
-	"github.com/bitwise-media-group/patchy/internal/transcript"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/harness"
+	"github.com/devthenet-labs/maul/internal/model"
+	"github.com/devthenet-labs/maul/internal/report"
+	"github.com/devthenet-labs/maul/internal/runner"
+	"github.com/devthenet-labs/maul/internal/templates"
+	"github.com/devthenet-labs/maul/internal/transcript"
 )
 
 // streamResumed is a resumed claude run as 2.1.291 reports one: the same
@@ -195,11 +195,11 @@ func checkSeqs(t *testing.T, got []transcript.Turn) {
 	}
 }
 
-// TestRepairInvalidReport: a stage whose report patchy refuses asks the
+// TestRepairInvalidReport: a stage whose report maul refuses asks the
 // agent, in its own session, to repair it, and ends ok on the repaired
 // report. The repair continues the session the first run left (--resume,
 // never --session-id) under the same model, posture and directories, with
-// a prompt of patchy's fixed text and the refusal reason alone; its spend is
+// a prompt of maul's fixed text and the refusal reason alone; its spend is
 // added to the stage's without counting the cumulative cost twice; the
 // stage's two runs share one transcript; and a writable stage still
 // packages its changeset through commit.sh.
@@ -382,7 +382,7 @@ func TestRepairMissingReport(t *testing.T) {
 				t.Fatalf("outcome %q (detail %q) after %d commands, want ok after one repair",
 					stage.Outcome, stage.Detail, len(fx.specs))
 			}
-			if !strings.Contains(fx.specs[1].Argv[2], "patchy found no report at `"+filepath.Join(ws, c.report)+"`") {
+			if !strings.Contains(fx.specs[1].Argv[2], "maul found no report at `"+filepath.Join(ws, c.report)+"`") {
 				t.Errorf("repair prompt does not say the report is missing:\n%s", fx.specs[1].Argv[2])
 			}
 		})
@@ -732,7 +732,7 @@ func TestRepairReadsTheBrokerTokenAfresh(t *testing.T) {
 			firstRun := c.first(ws, c.bad)
 			firstRun.writes["broker-token"] = rotated + "\n"
 			echo := `{"type":"user","message":{"content":[{"type":"tool_result","content":"` +
-				`ANTHROPIC_CUSTOM_HEADERS=x-patchy-broker-token: ` + rotated + " and " + first + `"}]}}`
+				`ANTHROPIC_CUSTOM_HEADERS=x-maul-broker-token: ` + rotated + " and " + first + `"}]}}`
 			fx := &fakeExec{steps: []step{firstRun, {
 				ws: ws, stdout: streamResumed, writes: map[string]string{c.report: c.good}, budgetLines: []string{echo},
 			}}}

@@ -9,9 +9,9 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/bitwise-media-group/patchy/internal/agentrun"
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
-	"github.com/bitwise-media-group/patchy/internal/templates"
+	"github.com/devthenet-labs/maul/internal/agentrun"
+	"github.com/devthenet-labs/maul/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // TestConfigReadsNetworkProfile: the profile the Job carries reaches the
@@ -20,7 +20,7 @@ import (
 // blanks of agentrun's keys never grow.
 func TestConfigReadsNetworkProfile(t *testing.T) {
 	env := map[string]string{
-		"PATCHY_REPO": "acme/api", "PATCHY_FINDING": "finding-1", "PATCHY_PHASE": "remediate",
+		"MAUL_REPO": "acme/api", "MAUL_FINDING": "finding-1", "MAUL_PHASE": "remediate",
 		netprofile.EnvProfile: "go",
 	}
 	getenv := func(k string) string { return env[k] }
@@ -59,7 +59,7 @@ func TestConfigReadsNetworkRoutes(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := map[string]string{
-		"PATCHY_REPO": "acme/api", "PATCHY_FINDING": "finding-1", "PATCHY_PHASE": "remediate",
+		"MAUL_REPO": "acme/api", "MAUL_FINDING": "finding-1", "MAUL_PHASE": "remediate",
 		netprofile.EnvProfile: "web", netprofile.EnvEcosystems: "go,npm", netprofile.EnvGrants: grants,
 	}
 	getenv := func(k string) string { return env[k] }
@@ -103,7 +103,7 @@ func TestConfigReadsTunnel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	base := map[string]string{"PATCHY_REPO": "acme/api", "PATCHY_FINDING": "finding-1", "PATCHY_PHASE": "remediate"}
+	base := map[string]string{"MAUL_REPO": "acme/api", "MAUL_FINDING": "finding-1", "MAUL_PHASE": "remediate"}
 	with := func(kv ...string) map[string]string {
 		env := maps.Clone(base)
 		for i := 0; i < len(kv); i += 2 {

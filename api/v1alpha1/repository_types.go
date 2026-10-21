@@ -61,7 +61,7 @@ type RunnerImage struct {
 	// +optional
 	Declared string `json:"declared,omitempty"`
 	// Manifest is the repository-relative path of the declaring file:
-	// ".patchy/agent.yaml" or ".devcontainer/devcontainer.json". It is the
+	// ".maul/agent.yaml" or ".devcontainer/devcontainer.json". It is the
 	// one record of which file won the precedence, so no separate source
 	// field exists; empty when neither file exists.
 	// +optional
@@ -126,7 +126,7 @@ type RepositoryStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:shortName=repo,categories=patchy
+// +kubebuilder:resource:shortName=repo,categories=maul
 // +kubebuilder:printcolumn:name="URL",type=string,JSONPath=`.spec.url`
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
 // +kubebuilder:printcolumn:name="SHA",type=string,JSONPath=`.status.resolvedSHA`,priority=1

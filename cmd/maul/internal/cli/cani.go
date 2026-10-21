@@ -1,0 +1,176 @@
+// Copyright 2026 Bitwise Media Group Ltd.
+// SPDX-License-Identifier: MIT
+
+package cli
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"github.com/spf13/cobra"
+	authenticationv1 "k8s.io/api/authentication/v1"
+	authorizationv1 "k8s.io/api/authorization/v1"
+
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/cmd/maul/internal/kubecfg"
+	"github.com/devthenet-labs/maul/internal/action"
+)
+
+func newCanICmd(opts *Options) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "can-i [verb]",
+		Short: "Show which actions your RBAC allows",
+		Long: "Show what you may do in this namespace.\n\n" +
+			"Each action is a custom RBAC verb, granted independently — holding 'approve'\n" +
+			"says nothing about 'suspend'. The per-finding verbs (approve, retry, expedite,\n" +
+			"suspend, resume) live on findings; the integration-scoped verbs (backfill,\n" +
+			"replay, reset) live on integrations. With no argument this prints the whole\n" +
+			"matrix, which is the fastest answer to \"why was that refused?\".",
+		Example: "  maul can-i\n  maul can-i approve\n  maul can-i backfill\n  maul can-i approve -n maul",
+		Args:    cobra.MaximumNArgs(1),
+		ValidArgsFunction: func(_ *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
+			if len(args) > 0 {
+				return nil, cobra.ShellCompDirectiveNoFileComp
+			}
+			return append(append([]string{}, action.ActionVerbs...), action.IntegrationVerbs...),
+				cobra.ShellCompDirectiveNoFileComp
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			verb := ""
+			if len(args) == 1 {
+				verb = args[0]
+			}
+			return runCanI(cmd.Context(), opts, verb)
+		},
+	}
+	return cmd
+}
+
+// verbResource resolves which resource a verb is checked on: the per-finding
+// verbs on findings, the integration-scoped ones (backfill, replay, reset)
+// on integrations — the same resource the admission policy's authorizer
+// names. get/list mean the findings read gate.
+func verbResource(verb string) (string, bool) {
+	switch {
+	case containsFold(action.ActionVerbs, verb), strings.EqualFold(verb, "get"), strings.EqualFold(verb, "list"):
+		return "findings", true
+	case containsFold(action.IntegrationVerbs, verb):
+		return "integrations", true
+	}
+	return "", false
+}
+
+func runCanI(ctx context.Context, opts *Options, verb string) error {
+	env, err := opts.Connect()
+	if err != nil {
+		return err
+	}
+	if env.Namespace == "" {
+		return errUsage(fmt.Errorf("can-i needs a single namespace; drop --all-namespaces or pass -n"))
+	}
+
+	// A single verb answers yes/no and says so in the exit code, so it can
+	// drive a shell conditional.
+	if verb != "" {
+		resource, ok := verbResource(verb)
+		if !ok {
+			return errUsage(fmt.Errorf("unknown verb %q; want one of: %s, %s, get, list",
+				verb, strings.Join(action.ActionVerbs, ", "), strings.Join(action.IntegrationVerbs, ", ")))
+		}
+		allowed, err := opts.access(ctx, env, resource, verb)
+		if err != nil {
+			return err
+		}
+		if !allowed {
+			notef(opts.Out, "no\n")
+			return fmt.Errorf("%w: you may not %s %s in namespace %s", errDenied, verb, resource, env.Namespace)
+		}
+		notef(opts.Out, "yes\n")
+		return nil
+	}
+
+	p, err := opts.Printer()
+	if err != nil {
+		return err
+	}
+	d := p.Doc()
+	d.Section(fmt.Sprintf("Grants in namespace %s", env.Namespace)).
+		Field("Identity", opts.identity(ctx, env))
+
+	for _, v := range append([]string{"get", "list"}, action.ActionVerbs...) {
+		allowed, err := opts.access(ctx, env, "findings", v)
+		if err != nil {
+			return err
+		}
+		d.Field(v, yesNo(allowed))
+	}
+
+	d.Section("Integrations")
+	for _, v := range append([]string{"get", "list"}, action.IntegrationVerbs...) {
+		allowed, err := opts.access(ctx, env, "integrations", v)
+		if err != nil {
+			return err
+		}
+		d.Field(v, yesNo(allowed))
+	}
+	return d.Render()
+}
+
+// whoami asks the API server which identity this kubeconfig authenticates as.
+//
+// Every authenticated user may perform this review about themselves, so it
+// needs no grant. It is worth a round trip because the answer is what lands in
+// spec.approval.by — a kubeconfig's context name is a local label and often has
+// nothing to do with the username the cluster sees.
+func whoami(ctx context.Context, opts *Options, env *kubecfg.Env) string {
+	callCtx, cancel := opts.Timeout(ctx)
+	defer cancel()
+
+	review := &authenticationv1.SelfSubjectReview{}
+	if err := env.Client.Create(callCtx, review); err != nil {
+		opts.debugf("self subject review failed: %v", err)
+		return "unknown"
+	}
+	if name := review.Status.UserInfo.Username; name != "" {
+		return name
+	}
+	return "unknown"
+}
+
+// canI runs a SelfSubjectAccessReview for one verb on one resource, or on
+// one subresource of it written resource/subresource (usage/all).
+//
+// Self- rather than plain SubjectAccessReview matters: asking about yourself
+// needs no grant, whereas asking about another user is privileged and the CLI
+// has no business doing it.
+func canI(ctx context.Context, opts *Options, env *kubecfg.Env, resource, verb string) (bool, error) {
+	callCtx, cancel := opts.Timeout(ctx)
+	defer cancel()
+
+	res, sub, _ := strings.Cut(resource, "/")
+	review := &authorizationv1.SelfSubjectAccessReview{
+		Spec: authorizationv1.SelfSubjectAccessReviewSpec{
+			ResourceAttributes: &authorizationv1.ResourceAttributes{
+				Namespace:   env.Namespace,
+				Group:       v1alpha1.GroupVersion.Group,
+				Resource:    res,
+				Subresource: sub,
+				Verb:        verb,
+			},
+		},
+	}
+	if err := env.Client.Create(callCtx, review); err != nil {
+		return false, fmt.Errorf("access review for %s: %w", verb, err)
+	}
+	opts.debugf("access review: %s %s = %t (%s)", verb, resource, review.Status.Allowed, review.Status.Reason)
+	return review.Status.Allowed, nil
+}
+
+// yesNo renders a grant.
+func yesNo(b bool) string {
+	if b {
+		return "yes"
+	}
+	return "no"
+}

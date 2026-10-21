@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>patchy · finding status</title>
+    <title>maul · finding status</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -11,14 +11,14 @@
       rel="stylesheet"
     />
   </head>
-  <body class="theme-patchy">
+  <body class="theme-maul">
     <script>
       // Pre-paint theme restore — same class pair and storage key as the other
-      // patchy surfaces, so the chosen mode follows the visitor across kits.
+      // maul surfaces, so the chosen mode follows the visitor across kits.
       (function () {
         try {
-          if (localStorage.getItem("patchy-theme") === "light") {
-            document.body.classList.replace("theme-patchy", "theme-patchy-light");
+          if (localStorage.getItem("maul-theme") === "light") {
+            document.body.classList.replace("theme-maul", "theme-maul-light");
           }
         } catch (e) {}
       })();

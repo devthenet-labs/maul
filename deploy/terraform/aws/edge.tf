@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 #
 # Optional: an ACM certificate and, after Helm stage 1, alias records for
-# patchy's own public edge on an ALB (the GitHub webhook, the status page and,
+# maul's own public edge on an ALB (the GitHub webhook, the status page and,
 # with preview_auth, the preview sign-in relay).
 # Any other ingress and certificate source works as well; leave var.edge null
 # then.

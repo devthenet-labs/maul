@@ -3,12 +3,12 @@
 #
 # The fake GitHub (e2e/fakegithub) as an in-cluster Deployment, so the
 # credential-less walkthrough needs no server running on the host. State is
-# in-memory and per-pod: `kubectl -n patchy rollout restart deployment
-# patchy-fakegithub` is the clean-slate button (and every `make dev-colima`
+# in-memory and per-pod: `kubectl -n maul rollout restart deployment
+# maul-fakegithub` is the clean-slate button (and every `make dev-colima`
 # re-run restarts it anyway).
 #
 # Deliberately NOT labelled app.kubernetes.io/component: controller — the
-# base patchy-controllers NetworkPolicy selects that label and would confine
+# base maul-controllers NetworkPolicy selects that label and would confine
 # ingress to 8080/8081. Its own policy (networkpolicy-fakegithub.yaml)
 # admits ingress on 9990 — from the controllers and the NodePort below —
 # and blocks all egress: the fake never dials out.
@@ -16,12 +16,12 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-    name: patchy-fakegithub
-    namespace: patchy
+    name: maul-fakegithub
+    namespace: maul
     labels:
         app: fakegithub
         app.kubernetes.io/name: fakegithub
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
         app.kubernetes.io/component: dev-fake
 spec:
     # One replica, no persistence: the whole point is disposable in-memory
@@ -32,13 +32,13 @@ spec:
     selector:
         matchLabels:
             app.kubernetes.io/name: fakegithub
-            app.kubernetes.io/part-of: patchy
+            app.kubernetes.io/part-of: maul
     template:
         metadata:
             labels:
                 app: fakegithub
                 app.kubernetes.io/name: fakegithub
-                app.kubernetes.io/part-of: patchy
+                app.kubernetes.io/part-of: maul
                 app.kubernetes.io/component: dev-fake
         spec:
             # The fake never talks to the Kubernetes API — no token needed.
@@ -53,14 +53,14 @@ spec:
             containers:
                 - name: fakegithub
                   # Built from hack/fakegithub/Dockerfile by `make dev-colima`
-                  # when PATCHY_OVERLAY=dev-fake.
-                  image: patchy/fakegithub:dev
+                  # when MAUL_OVERLAY=dev-fake.
+                  image: maul/fakegithub:dev
                   args:
                       # The URL stamped into tarball redirects must be the one
                       # the follower (source-controller) can reach — the
                       # in-cluster Service, not the host address the
                       # standalone default assumes.
-                      - -external-url=http://patchy-fakegithub.patchy.svc.cluster.local:9990
+                      - -external-url=http://maul-fakegithub.maul.svc.cluster.local:9990
                   ports:
                       - name: api
                         containerPort: 9990
@@ -98,18 +98,18 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-    name: patchy-fakegithub
-    namespace: patchy
+    name: maul-fakegithub
+    namespace: maul
     labels:
         app: fakegithub
         app.kubernetes.io/name: fakegithub
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
         app.kubernetes.io/component: dev-fake
 spec:
     type: NodePort
     selector:
         app.kubernetes.io/name: fakegithub
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
     ports:
         - name: api
           port: 9990

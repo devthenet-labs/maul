@@ -1,7 +1,7 @@
 # Copyright 2026 Bitwise Media Group Ltd.
 # SPDX-License-Identifier: MIT
 
-# Helm chart publishing (both charts/patchy and charts/patchy-config, one
+# Helm chart publishing (both charts/maul and charts/maul-config, one
 # matrix job each), called from the release pipeline (release.yaml) once
 # the reusable release workflow has cut vX.Y.Z and goreleaser has pushed the
 # container images that version of the chart references to ghcr. A
@@ -18,10 +18,10 @@
 # Each pushed chart gets a keyless cosign signature and the same GitHub
 # build-provenance attestation as the binaries and images. Verify with:
 #   gh attestation verify --owner devthenet-labs \
-#     oci://ghcr.io/devthenet-labs/patchy/charts/patchy:X.Y.Z
-#   cosign verify ghcr.io/devthenet-labs/patchy/charts/patchy:X.Y.Z \
+#     oci://ghcr.io/devthenet-labs/maul/charts/maul:X.Y.Z
+#   cosign verify ghcr.io/devthenet-labs/maul/charts/maul:X.Y.Z \
 #     --certificate-oidc-issuer=https://token.actions.githubusercontent.com \
-#     --certificate-identity-regexp='^https://github.com/devthenet-labs/patchy/'
+#     --certificate-identity-regexp='^https://github.com/devthenet-labs/maul/'
 #
 # Actions are pinned to full commit SHAs (tag in the comment) so a moved tag
 # can never change what runs; Dependabot keeps the pins fresh.
@@ -48,7 +48,7 @@ jobs:
         runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
         strategy:
             matrix:
-                chart: [patchy, patchy-config]
+                chart: [maul, maul-config]
         permissions:
             contents: read
             # helm push to ghcr (also pushes the cosign signature artifact)

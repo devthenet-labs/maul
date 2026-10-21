@@ -8,7 +8,7 @@
 # its port http; three client Pods each try to connect to it with the egress
 # run's burst. One in the agents namespace and one in the release namespace
 # without the gateway label must be refused; one in the release namespace
-# with the label (patchy.bitwisemedia.uk/preview-gateway: "true") must be
+# with the label (maul.run/preview-gateway: "true") must be
 # admitted, which also proves the listener answers, so the refusals are the
 # policy's. With --refused-is-blocked (kube-router, k3s's policy controller,
 # REJECTs: a refused connection) the gateway client runs first and the other
@@ -41,10 +41,10 @@ Each option falls back to the environment variable named beside it.
                                 k3s and k3d): the gateway client must first
                                 reach the listener, and the listener must
                                 still run after the refused clients finish
-  --release-namespace <ns>      PROBE_RELEASE_NAMESPACE: patchy's namespace,
-                                where the gateway runs (default patchy)
+  --release-namespace <ns>      PROBE_RELEASE_NAMESPACE: maul's namespace,
+                                where the gateway runs (default maul)
   --agents-namespace <ns>       PROBE_AGENTS_NAMESPACE: the agents' namespace
-                                (default patchy-agents)
+                                (default maul-agents)
   --slot <n>                    PROBE_SLOT: the slot to listen in (default 0)
   --timeout <seconds>           PROBE_TIMEOUT: how long each Pod may take to
                                 start or finish (default 300)
@@ -66,8 +66,8 @@ fail() {
 image=${PROBE_IMAGE:-}
 node_selector=${PROBE_NODE_SELECTOR:-}
 taint_key=${PROBE_TAINT_KEY:-}
-release_ns=${PROBE_RELEASE_NAMESPACE:-patchy}
-agents_ns=${PROBE_AGENTS_NAMESPACE:-patchy-agents}
+release_ns=${PROBE_RELEASE_NAMESPACE:-maul}
+agents_ns=${PROBE_AGENTS_NAMESPACE:-maul-agents}
 slot=${PROBE_SLOT:-0}
 timeout=${PROBE_TIMEOUT:-300}
 isolation=1
@@ -132,7 +132,7 @@ if [[ $isolation -eq 1 ]]; then
 elif [[ -n $node_selector || -n $taint_key ]]; then
     fail "--no-node-isolation takes no --node-selector or --taint-key"
 fi
-slot_ns="patchy-preview-$slot"
+slot_ns="maul-preview-$slot"
 listener=preview-ingress-listener
 clients=(preview-ingress-agent preview-ingress-release preview-ingress-gateway)
 
@@ -194,7 +194,7 @@ client() {
     case $2 in
     preview-ingress-agent) pod "$agents_ns" "$2" "$target" ;;
     preview-ingress-release) pod "$release_ns" "$2" "$target" ;;
-    preview-ingress-gateway) pod "$release_ns" "$2" "$target" '    patchy.bitwisemedia.uk/preview-gateway: "true"' ;;
+    preview-ingress-gateway) pod "$release_ns" "$2" "$target" '    maul.run/preview-gateway: "true"' ;;
     esac
 }
 
@@ -212,7 +212,7 @@ image:       $image
 slot:        $slot_ns (listener on port http, 8080)
 placement:   $(if [[ $isolation -eq 1 ]]; then echo "$node_selector, tolerating $taint_key"; else echo "none (nodeIsolation none)"; fi)
 refused:     $agents_ns/preview-ingress-agent, $release_ns/preview-ingress-release
-admitted:    $release_ns/preview-ingress-gateway (patchy.bitwisemedia.uk/preview-gateway=true)
+admitted:    $release_ns/preview-ingress-gateway (maul.run/preview-gateway=true)
 refusal:     $(if [[ $refused_blocks -eq 1 ]]; then echo "blocked, once the gateway client has reached the listener"; else echo "inconclusive"; fi)
 dry run: nothing was called
 EOF
@@ -247,7 +247,7 @@ if ! jq -e '.items[]? | select(.metadata.name == "preview-isolation")' <<<"$poli
 fi
 offenders=$(jq -r --arg rel "$release_ns" '
     def gateway: . == {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": $rel}},
-        "podSelector": {"matchLabels": {"patchy.bitwisemedia.uk/preview-gateway": "true"}}};
+        "podSelector": {"matchLabels": {"maul.run/preview-gateway": "true"}}};
     def block: (keys == ["ipBlock"]) and ((.ipBlock.cidr // "") != "");
     .items[] | .metadata.name as $n |
     (if $n == "preview-isolation" and ((.spec.podSelector // {}) != {}) then
@@ -266,7 +266,7 @@ fi
 if ! jq -e --arg rel "$release_ns" '[.items[] | select(.metadata.name == "preview-isolation") |
     .spec.ingress[]?.from[]? | select(. == {"namespaceSelector": {"matchLabels":
     {"kubernetes.io/metadata.name": $rel}}, "podSelector": {"matchLabels":
-    {"patchy.bitwisemedia.uk/preview-gateway": "true"}}})] | length > 0' <<<"$policies" >/dev/null; then
+    {"maul.run/preview-gateway": "true"}}})] | length > 0' <<<"$policies" >/dev/null; then
     echo "$slot_ns/preview-isolation admits no preview gateway Pod: is previewAuth.gateway.enabled set?" >&2
     exit 1
 fi

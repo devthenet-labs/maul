@@ -11,7 +11,7 @@ import (
 	"testing"
 	"testing/quick"
 
-	"github.com/bitwise-media-group/patchy/internal/transcript"
+	"github.com/devthenet-labs/maul/internal/transcript"
 )
 
 // codex exec --json emits one JSON event per line: thread.started carries the
@@ -220,11 +220,11 @@ func TestCodexPromptSpecGateway(t *testing.T) {
 	spec := NewCodex().PromptSpec("/ws", PromptRequest{
 		Prompt: "p", Model: "gpt-5.3-codex",
 		Gateway: &Gateway{
-			BaseURL:   "http://broker.patchy.svc:8080/openai/v1",
-			KeyEnv:    "PATCHY_CODEX_PLACEHOLDER_KEY",
-			HeaderEnv: map[string]string{"X-Patchy-Broker-Token": "PATCHY_BROKER_TOKEN"},
+			BaseURL:   "http://broker.maul.svc:8080/openai/v1",
+			KeyEnv:    "MAUL_CODEX_PLACEHOLDER_KEY",
+			HeaderEnv: map[string]string{"X-Maul-Broker-Token": "MAUL_BROKER_TOKEN"},
 		},
-		Env: []string{"PATCHY_BROKER_TOKEN=secret-token"},
+		Env: []string{"MAUL_BROKER_TOKEN=secret-token"},
 	})
 	want := []string{
 		"codex", "exec", "p", "--json", "--skip-git-repo-check", "--sandbox", "danger-full-access",
@@ -233,15 +233,15 @@ func TestCodexPromptSpecGateway(t *testing.T) {
 		"-c", `otel.metrics_exporter="none"`,
 		"-c", "features.plugins=false",
 		"-c", `web_search="disabled"`,
-		"-c", `model_provider="patchy"`,
-		"-c", `model_providers.patchy.name="patchy egress broker"`,
-		"-c", `model_providers.patchy.base_url="http://broker.patchy.svc:8080/openai/v1"`,
-		"-c", `model_providers.patchy.wire_api="responses"`,
-		"-c", `model_providers.patchy.env_key="PATCHY_CODEX_PLACEHOLDER_KEY"`,
-		"-c", `model_providers.patchy.env_http_headers={"X-Patchy-Broker-Token"="PATCHY_BROKER_TOKEN"}`,
-		"-c", "model_providers.patchy.supports_websockets=false",
-		"-c", "model_providers.patchy.request_max_retries=1",
-		"-c", "model_providers.patchy.stream_max_retries=1",
+		"-c", `model_provider="maul"`,
+		"-c", `model_providers.maul.name="maul egress broker"`,
+		"-c", `model_providers.maul.base_url="http://broker.maul.svc:8080/openai/v1"`,
+		"-c", `model_providers.maul.wire_api="responses"`,
+		"-c", `model_providers.maul.env_key="MAUL_CODEX_PLACEHOLDER_KEY"`,
+		"-c", `model_providers.maul.env_http_headers={"X-Maul-Broker-Token"="MAUL_BROKER_TOKEN"}`,
+		"-c", "model_providers.maul.supports_websockets=false",
+		"-c", "model_providers.maul.request_max_retries=1",
+		"-c", "model_providers.maul.stream_max_retries=1",
 	}
 	if !slices.Equal(spec.Argv, want) {
 		t.Errorf("Argv =\n%q\nwant\n%q", spec.Argv, want)
@@ -251,7 +251,7 @@ func TestCodexPromptSpecGateway(t *testing.T) {
 			t.Errorf("argv carries the token: %q", a)
 		}
 	}
-	if !slices.Equal(spec.Env, []string{"PATCHY_BROKER_TOKEN=secret-token"}) {
+	if !slices.Equal(spec.Env, []string{"MAUL_BROKER_TOKEN=secret-token"}) {
 		t.Errorf("Env = %q, want the request env", spec.Env)
 	}
 }
@@ -269,7 +269,7 @@ func TestCodexProviderNameIsNotOpenAI(t *testing.T) {
 // quote or backslash in it cannot end the string and set another key.
 func TestCodexGatewayConfigQuotesValues(t *testing.T) {
 	got := codexGatewayConfig(Gateway{BaseURL: `http://x/"y\z`, KeyEnv: "K"})
-	if want := `model_providers.patchy.base_url="http://x/\"y\\z"`; got[2] != want {
+	if want := `model_providers.maul.base_url="http://x/\"y\\z"`; got[2] != want {
 		t.Errorf("base_url = %s, want %s", got[2], want)
 	}
 	for _, kv := range got {

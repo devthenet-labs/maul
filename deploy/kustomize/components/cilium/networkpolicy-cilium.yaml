@@ -10,7 +10,7 @@
 # prompt-injected agent is talked into — is dropped.
 #
 # One policy per harness, each selecting that harness's pods by their
-# patchy.bitwisemedia.uk/harness label, so a claude or codex pod reaches
+# maul.run/harness label, so a claude or codex pod reaches
 # nothing external at all: both are brokered, so their policies are
 # cluster-only (DNS, the artifact server, the egress broker) with no toFQDNs
 # and no external names resolvable. The non-brokered (copilot) pods need
@@ -29,16 +29,16 @@
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
-    name: patchy-agent-egress-claude
-    namespace: patchy-agents
+    name: maul-agent-egress-claude
+    namespace: maul-agents
     labels:
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 spec:
     endpointSelector:
         matchLabels:
-            app.kubernetes.io/name: patchy-agent
-            app.kubernetes.io/managed-by: patchy
-            patchy.bitwisemedia.uk/harness: claude
+            app.kubernetes.io/name: maul-agent
+            app.kubernetes.io/managed-by: maul
+            maul.run/harness: claude
     egress:
         # DNS, via Cilium's proxy. Brokered claude resolves only
         # cluster-local names — no external name resolves from its pods.
@@ -52,14 +52,14 @@ spec:
                       protocol: ANY
                 rules:
                     dns:
-                        - matchPattern: "*.patchy.svc.cluster.local"
+                        - matchPattern: "*.maul.svc.cluster.local"
                         - matchPattern: "*.svc.cluster.local"
 
         # The INIT container's artifact fetch: source-controller's tarball
         # server, in-cluster, credential-less, digest-verified.
         - toEndpoints:
               - matchLabels:
-                    io.kubernetes.pod.namespace: patchy
+                    io.kubernetes.pod.namespace: maul
                     app.kubernetes.io/name: source-controller
           toPorts:
               - ports:
@@ -70,7 +70,7 @@ spec:
         # whichever model API is configured, and nothing else. No toFQDNs.
         - toEndpoints:
               - matchLabels:
-                    io.kubernetes.pod.namespace: patchy
+                    io.kubernetes.pod.namespace: maul
                     app.kubernetes.io/name: egress-broker
           toPorts:
               - ports:
@@ -80,16 +80,16 @@ spec:
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
-    name: patchy-agent-egress-codex
-    namespace: patchy-agents
+    name: maul-agent-egress-codex
+    namespace: maul-agents
     labels:
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 spec:
     endpointSelector:
         matchLabels:
-            app.kubernetes.io/name: patchy-agent
-            app.kubernetes.io/managed-by: patchy
-            patchy.bitwisemedia.uk/harness: codex
+            app.kubernetes.io/name: maul-agent
+            app.kubernetes.io/managed-by: maul
+            maul.run/harness: codex
     egress:
         # Brokered codex, exactly like claude: only cluster-local names
         # resolve, and no external host is reachable.
@@ -103,12 +103,12 @@ spec:
                       protocol: ANY
                 rules:
                     dns:
-                        - matchPattern: "*.patchy.svc.cluster.local"
+                        - matchPattern: "*.maul.svc.cluster.local"
                         - matchPattern: "*.svc.cluster.local"
 
         - toEndpoints:
               - matchLabels:
-                    io.kubernetes.pod.namespace: patchy
+                    io.kubernetes.pod.namespace: maul
                     app.kubernetes.io/name: source-controller
           toPorts:
               - ports:
@@ -119,7 +119,7 @@ spec:
         # and nothing else. No toFQDNs.
         - toEndpoints:
               - matchLabels:
-                    io.kubernetes.pod.namespace: patchy
+                    io.kubernetes.pod.namespace: maul
                     app.kubernetes.io/name: egress-broker
           toPorts:
               - ports:
@@ -131,7 +131,7 @@ spec:
 # api.github.com before it will talk to a model, so denying that host does not
 # harden the pod, it just stops the harness working. The agent still cannot use
 # it as a forge — the runner passes --disable-builtin-mcps, so no tool in the
-# session speaks the GitHub API, and patchy's own forge traffic never happens
+# session speaks the GitHub API, and maul's own forge traffic never happens
 # in a pod. Inference then goes to a *.githubcopilot.com endpoint chosen at
 # token-exchange time, and WHICH one depends on the plan behind the token
 # (individual, business, enterprise), so all three are pinned below. The DNS
@@ -141,16 +141,16 @@ spec:
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
-    name: patchy-agent-egress-copilot
-    namespace: patchy-agents
+    name: maul-agent-egress-copilot
+    namespace: maul-agents
     labels:
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 spec:
     endpointSelector:
         matchLabels:
-            app.kubernetes.io/name: patchy-agent
-            app.kubernetes.io/managed-by: patchy
-            patchy.bitwisemedia.uk/harness: copilot
+            app.kubernetes.io/name: maul-agent
+            app.kubernetes.io/managed-by: maul
+            maul.run/harness: copilot
     egress:
         - toEndpoints:
               - matchLabels:
@@ -164,12 +164,12 @@ spec:
                     dns:
                         - matchPattern: "*.githubcopilot.com"
                         - matchPattern: "api.github.com"
-                        - matchPattern: "*.patchy.svc.cluster.local"
+                        - matchPattern: "*.maul.svc.cluster.local"
                         - matchPattern: "*.svc.cluster.local"
 
         - toEndpoints:
               - matchLabels:
-                    io.kubernetes.pod.namespace: patchy
+                    io.kubernetes.pod.namespace: maul
                     app.kubernetes.io/name: source-controller
           toPorts:
               - ports:

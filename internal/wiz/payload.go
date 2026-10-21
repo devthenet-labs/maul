@@ -6,7 +6,7 @@ package wiz
 // The decoded shapes of the two documented automation-rule body templates.
 // These mirror docs/integrations/wiz.md field for field — the template is the
 // contract, so a field added here must be added there and vice versa. Only
-// what patchy consumes is declared.
+// what maul consumes is declared.
 
 // envelope is the top-level body of either feed. Exactly one of Issue or
 // Threat is set on a real delivery; a body with neither (Wiz's test delivery,

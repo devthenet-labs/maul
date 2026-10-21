@@ -7,7 +7,7 @@ import (
 	"html/template"
 	"net/http"
 
-	"github.com/bitwise-media-group/patchy/internal/previewauth"
+	"github.com/devthenet-labs/maul/internal/previewauth"
 )
 
 // page is every HTML answer: a title, a sentence, and on the home page a
@@ -35,7 +35,7 @@ func renderPage(w http.ResponseWriter, status int, d pageData) {
 // viewer.
 var (
 	pageBadRequest = pageData{Title: "Sign-in request not valid",
-		Message: "This sign-in request is not one patchy's preview sign-in can answer. Open the preview link again."}
+		Message: "This sign-in request is not one maul's preview sign-in can answer. Open the preview link again."}
 	pageNoPreview = pageData{Title: previewauth.NoPreviewTitle,
 		Message: "There is no live preview at this address. It may have expired or been replaced."}
 	pageDenied = pageData{Title: "Not a preview viewer",
@@ -52,8 +52,8 @@ var (
 		Message: "Your account belongs to more groups than a preview sign-in session can hold. " +
 			"Ask an operator to narrow the groups the identity provider sends."}
 	pageNotFound = pageData{Title: "Not found", Message: "There is nothing here."}
-	pageHome     = pageData{Title: "patchy preview sign-in",
-		Message: "This service signs viewers in to patchy previews.", SignOut: true}
+	pageHome     = pageData{Title: "maul preview sign-in",
+		Message: "This service signs viewers in to maul previews.", SignOut: true}
 	pageSignedOut = pageData{Title: "Signed out",
 		Message: "You are signed out of preview sign-in. Previews you already opened stay open until their " +
 			"own session ends."}

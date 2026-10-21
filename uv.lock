@@ -94,7 +94,7 @@ wheels = [
 ]
 
 [[package]]
-name = "patchy"
+name = "maul"
 version = "0.12.43"
 source = { virtual = "." }
 dependencies = [

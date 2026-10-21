@@ -11,15 +11,15 @@ import (
 	"testing"
 	"time"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/ghclient"
 )
 
 func emptyReviewRound(t *testing.T) (*env, string, int64) {
 	t.Helper()
 	e := newEnv(t, testProject())
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 	number := in.Status.PullRequests[0].Number
 	e.gh.reviews[number] = []ghclient.Review{{ID: 2501, NodeID: "review-2501",
@@ -58,7 +58,7 @@ func TestLegacyMissingRoundNoticeRecoveredAfterRestart(t *testing.T) {
 	}
 	count := 0
 	for _, c := range e.gh.prComments[number] {
-		if strings.Contains(c.Body, "patchy:intent-pr-round:") {
+		if strings.Contains(c.Body, "maul:intent-pr-round:") {
 			count++
 		}
 	}
@@ -126,7 +126,7 @@ func TestRoundNoticeLostResponseAdoptsBotMarker(t *testing.T) {
 	e, name, number := emptyReviewRound(t)
 	e.gh.prComments[number] = nil
 	// A human copying the exact marker cannot suppress the bot's delivery.
-	e.gh.prComments[number] = []*ghclient.Comment{{Body: "<!-- patchy:intent-pr-round:" + name + ":1 -->",
+	e.gh.prComments[number] = []*ghclient.Comment{{Body: "<!-- maul:intent-pr-round:" + name + ":1 -->",
 		UserLogin: approver, CreatedAt: e.clock.Now(), UpdatedAt: e.clock.Now()}}
 	e.intent.GitHub = &lostPRCommentResponse{GitHub: e.gh}
 	e.clock.Advance(time.Minute)

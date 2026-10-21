@@ -38,7 +38,7 @@ type SCCFinding struct {
 	Category string
 	// Class is the finding class (VULNERABILITY, MISCONFIGURATION, ...).
 	Class string
-	// Severity is SCC's own rating, for display alongside patchy's.
+	// Severity is SCC's own rating, for display alongside maul's.
 	Severity string
 	// Description is the detector's prose explanation.
 	Description string
@@ -69,7 +69,7 @@ type SCCFinding struct {
 // RenderSCCDescription renders a Security Command Center notification as the
 // Finding's markdown description. That description is the finding body a human
 // reads on the tracking issue and the handoff file an agent investigates, so
-// it carries the detector's own reasoning rather than a patchy summary of it.
+// it carries the detector's own reasoning rather than a maul summary of it.
 func RenderSCCDescription(f SCCFinding) (string, error) {
 	return render("finding_gcp_scc.md.tmpl", f)
 }

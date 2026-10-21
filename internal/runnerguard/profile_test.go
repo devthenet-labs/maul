@@ -14,9 +14,9 @@ import (
 
 	"k8s.io/client-go/kubernetes/fake"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/netprofile"
 )
 
 // profilesJSON is two profiles: go for patchy-target and patchy-preview-demo,
@@ -31,7 +31,7 @@ const profilesJSON = `[
 const (
 	targetURL    = "https://github.com/devthenet-labs/patchy-target"
 	ambiguousURL = "https://github.com/devthenet-labs/patchy-preview-demo"
-	unmatchedURL = "https://github.com/devthenet-labs/patchy"
+	unmatchedURL = "https://github.com/devthenet-labs/maul"
 	wrongHostURL = "https://gitlab.com/devthenet-labs/patchy-target"
 )
 
@@ -64,7 +64,7 @@ func tunnelProfiles(t testing.TB) netprofile.Set {
 
 func proxyBase(t testing.TB) *url.URL {
 	t.Helper()
-	u, err := url.Parse("http://patchy-egress-proxy.patchy.svc.cluster.local")
+	u, err := url.Parse("http://maul-egress-proxy.maul.svc.cluster.local")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestProfile(t *testing.T) {
 				return
 			}
 			want := jobs.NetworkProfile{Name: "go", Route: "go",
-				ProxyURL:      "http://patchy-egress-proxy.patchy.svc.cluster.local:8090",
+				ProxyURL:      "http://maul-egress-proxy.maul.svc.cluster.local:8090",
 				BakedModCache: "/opt/go/pkg/mod"}
 			if spec.NetworkProfile == nil || !reflect.DeepEqual(*spec.NetworkProfile, want) {
 				t.Errorf("spec.NetworkProfile = %+v, want %+v", spec.NetworkProfile, want)
@@ -171,9 +171,9 @@ func TestPropertyProfileOnlyWhereAllowed(t *testing.T) {
 		{ambiguousURL, false},
 		{wrongHostURL, false},
 	}
-	accepted := &v1alpha1.RunnerImage{Manifest: ".patchy/agent.yaml", Image: pinned, SearchPath: "/usr/bin:/bin"}
+	accepted := &v1alpha1.RunnerImage{Manifest: ".maul/agent.yaml", Image: pinned, SearchPath: "/usr/bin:/bin"}
 	client := jobs.New(fake.NewClientset(), jobs.Config{
-		Namespace: "patchy-agents", AllowRepositoryImages: true, NetworkProfiles: true, EphemeralStorage: "8Gi",
+		Namespace: "maul-agents", AllowRepositoryImages: true, NetworkProfiles: true, EphemeralStorage: "8Gi",
 		Runners: map[string]jobs.Runner{"claude": {Image: "runner:1", Brokered: true,
 			Inject: []string{"agent-runner", "claude"}}},
 	}, nil)
@@ -200,7 +200,7 @@ func TestPropertyProfileOnlyWhereAllowed(t *testing.T) {
 		spec := stageSpec[stage]
 		spec.Harness, spec.Finding, spec.Attempt = "claude", "f-1", 1
 		// A tunnel's NO_PROXY names the artifact server the pod dials.
-		spec.ArtifactURL = "http://source-controller.patchy.svc.cluster.local:9790/a.tar.gz"
+		spec.ArtifactURL = "http://source-controller.maul.svc.cluster.local:9790/a.tar.gz"
 		if spec.Kind == "intent" {
 			g.PinFor(&spec, repo)
 		} else {
@@ -242,7 +242,7 @@ func launchAsControllers(t *testing.T, i int, g Guard, client *jobs.Client, spec
 	if tunnel && !reflect.DeepEqual(spec.NetworkProfile.Hosts, []string{"registry.npmjs.org"}) {
 		t.Fatalf("iteration %d: profile %+v, want the tunnel host copied", i, spec.NetworkProfile)
 	}
-	err := g.CheckForges(context.Background(), "patchy", &spec)
+	err := g.CheckForges(context.Background(), "maul", &spec)
 	if tunnel && forgeHit {
 		if !errors.Is(err, jobs.ErrNetworkProfileRefused) || !strings.Contains(err.Error(), "registry.npmjs.org") {
 			t.Fatalf("iteration %d: CheckForges = %v, want a refusal naming the tunnel host", i, err)

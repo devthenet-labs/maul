@@ -3,17 +3,17 @@ Copyright 2026 Bitwise Media Group Ltd.
 SPDX-License-Identifier: MIT
 -->
 
-# Deploying patchy
+# Deploying maul
 
 Operator documentation for the Kubernetes deployment: what runs where, the GitHub App you must register, the Secrets and
 custom resources you must create, and an honest account of what the agent sandbox does and does not guarantee.
 
 For _what the system does_, read [DESIGN.md](../DESIGN.md); for _where the code lives_, read [AGENTS.md](../AGENTS.md).
 
-Prefer Helm? [`charts/patchy`](../charts/patchy/README.md) renders this same stack (published to
-`oci://ghcr.io/devthenet-labs/patchy/charts/patchy` on release; the Integration/Forge CRs install separately via
-[`charts/patchy-config`](../charts/patchy-config/README.md)); everything below about the App, the Secrets, and the
-sandbox applies to both.
+Prefer Helm? [`charts/maul`](../charts/maul/README.md) renders this same stack (published to
+`oci://ghcr.io/devthenet-labs/maul/charts/maul` on release; the Integration/Forge CRs install separately via
+[`charts/maul-config`](../charts/maul-config/README.md)); everything below about the App, the Secrets, and the sandbox
+applies to both.
 
 ## Layout
 
@@ -39,32 +39,32 @@ the image of the harness resolved for its model.
 
 Two namespaces, and the split between them is the security boundary.
 
-| Namespace       | Workload                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Credentials it holds                                                                                                                        |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `patchy`        | `integration-controller` (the only internet-facing workload), `source-controller`, `context-controller`, `investigation-controller`, `remediation-controller`, `evaluation-controller` (optional; the evolve-facing evaluation API — front its Service with your ingress when used), `intent-controller` (optional; intent-driven development, polling GitHub — no inbound surface), `egress-broker` (the reverse proxy all claude model traffic goes through) | reads the GitHub Secret referenced by your Integration/Forge CRs; the broker holds the claude model credential (or cloud workload identity) |
-| `patchy-agents` | ephemeral agent `Job`s, created at runtime by the job-launching controllers                                                                                                                                                                                                                                                                                                                                                                                    | nothing for claude or codex Jobs (an identity token only); a non-brokered copilot Job carries its one token                                 |
+| Namespace     | Workload                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Credentials it holds                                                                                                                        |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `maul`        | `integration-controller` (the only internet-facing workload), `source-controller`, `context-controller`, `investigation-controller`, `remediation-controller`, `evaluation-controller` (optional; the evolve-facing evaluation API — front its Service with your ingress when used), `intent-controller` (optional; intent-driven development, polling GitHub — no inbound surface), `egress-broker` (the reverse proxy all claude model traffic goes through) | reads the GitHub Secret referenced by your Integration/Forge CRs; the broker holds the claude model credential (or cloud workload identity) |
+| `maul-agents` | ephemeral agent `Job`s, created at runtime by the job-launching controllers                                                                                                                                                                                                                                                                                                                                                                                    | nothing for claude or codex Jobs (an identity token only); a non-brokered copilot Job carries its one token                                 |
 
 The **evaluation controller** is optional: it executes remote skill evaluations submitted by
 [evolve](https://github.com/bitwise-media-group/evolve) through the same agent-Job machinery (see
-`docs/configuration/evaluation-controller.md`). It needs the `patchy-evaluation-auth` Secret (bearer-auth configuration
-— `secrets.example.yaml`), evolve-runner images pinned in the ConfigMap (`PATCHY_EVOLVE_*_IMAGE`), RBAC bindings for
-submitters (`rbac.users.example.yaml`, `patchy-evaluations-submitter`), and source-controller's internal blob endpoint
-(`PATCHY_ARTIFACT_INTERNAL_ADDR: ":9791"`, NetworkPolicy-gated to the evaluation controller). Remove the Deployment (and
+`docs/configuration/evaluation-controller.md`). It needs the `maul-evaluation-auth` Secret (bearer-auth configuration —
+`secrets.example.yaml`), evolve-runner images pinned in the ConfigMap (`MAUL_EVOLVE_*_IMAGE`), RBAC bindings for
+submitters (`rbac.users.example.yaml`, `maul-evaluations-submitter`), and source-controller's internal blob endpoint
+(`MAUL_ARTIFACT_INTERNAL_ADDR: ":9791"`, NetworkPolicy-gated to the evaluation controller). Remove the Deployment (and
 that ConfigMap key) to run without it; in the Helm chart the whole feature sits behind
 `evaluationController.enabled: false`.
 
 The **intent controller** is optional too, and is not in the base: add `components/intent-controller` to an overlay to
 run intent-driven development (see `docs/configuration/intent-controller.md`). It polls each `Project`'s intent
 repository, plans each labelled issue in a read-only agent Job, and builds the approved plan into a pull request. It
-reads the shared ConfigMap plus its own (`PATCHY_INTENT_*`), runs on brokered claude (and on brokered codex for a
-Project that chooses it, once `PATCHY_INTENT_CODEX` is on), and its `secrets get` is restricted by `resourceNames` to
-the Forge Secret in the release namespace (`patchy-github`; patch `rbac.yaml` in the component for others). Its
-agent-jobs Role can get, create, update and delete any Secret in the agents namespace, including model keys, image-pull
-credentials and other Jobs' handoffs. Builds need an accepted repository-declared image, so set the repository-image
-keys the component's `configmap.yaml` lists, or give each Project `requireRepositoryImage: false`. In the Helm chart it
-sits behind `intentController.enabled: false`, and Projects come from the patchy-config chart's `projects` values.
+reads the shared ConfigMap plus its own (`MAUL_INTENT_*`), runs on brokered claude (and on brokered codex for a Project
+that chooses it, once `MAUL_INTENT_CODEX` is on), and its `secrets get` is restricted by `resourceNames` to the Forge
+Secret in the release namespace (`maul-github`; patch `rbac.yaml` in the component for others). Its agent-jobs Role can
+get, create, update and delete any Secret in the agents namespace, including model keys, image-pull credentials and
+other Jobs' handoffs. Builds need an accepted repository-declared image, so set the repository-image keys the
+component's `configmap.yaml` lists, or give each Project `requireRepositoryImage: false`. In the Helm chart it sits
+behind `intentController.enabled: false`, and Projects come from the maul-config chart's `projects` values.
 
-The custom resources in `patchy` — `Finding`, `Repository`, `Investigation`, `Remediation`, `FindingRollup`, plus the
+The custom resources in `maul` — `Finding`, `Repository`, `Investigation`, `Remediation`, `FindingRollup`, plus the
 `Integration`/`Forge` configuration kinds — **are** the state machine; etcd is the only state store. The CRDs render
 first in the base (`base/crds/`, controller-gen output).
 
@@ -73,20 +73,20 @@ Lease per controller) as insurance against a botched rollout racing two replicas
 the deployment model — do not scale these up.
 
 Every controller talks to the Kubernetes API now, so every controller identity mounts its token and gets a verb-by-verb
-`Role` in `patchy` (see `base/rbac.yaml`); the two job controllers additionally share a Role in `patchy-agents` (jobs,
-pods, pods/log, secrets). The agent Job pods have **no RBAC at all** and run with `automountServiceAccountToken: false`
-— a prompt-injected agent must not be able to read the very Secrets the isolation model depends on.
+`Role` in `maul` (see `base/rbac.yaml`); the two job controllers additionally share a Role in `maul-agents` (jobs, pods,
+pods/log, secrets). The agent Job pods have **no RBAC at all** and run with `automountServiceAccountToken: false` — a
+prompt-injected agent must not be able to read the very Secrets the isolation model depends on.
 
 ## Images
 
 All the images are built and published by GoReleaser (`dockers_v2` in `.goreleaser.yaml`) as part of every release:
-multi-arch (`linux/amd64` + `linux/arm64`) manifests pushed to `ghcr.io/devthenet-labs/patchy/<name>` and tagged
+multi-arch (`linux/amd64` + `linux/arm64`) manifests pushed to `ghcr.io/devthenet-labs/maul/<name>` and tagged
 `vX.Y.Z` + `latest`. GoReleaser compiles the binaries once and hands them to `docker buildx`; the repo-root
 `Dockerfile.*` only assemble the runtime layer (`COPY $TARGETPLATFORM/<binary>`), so they cannot be `docker build`
 directly from the repo. To build images locally, run `make snapshot` (needs docker + buildx) — it produces per-arch
 `ghcr.io/...:v<next>-snapshot-<sha>-<arch>` images without pushing, ready for `kind load docker-image`. Each release
 also uploads `digests.txt` and attests every image digest in it; verify with
-`gh attestation verify --owner devthenet-labs oci://ghcr.io/devthenet-labs/patchy/<name>:vX.Y.Z`.
+`gh attestation verify --owner devthenet-labs oci://ghcr.io/devthenet-labs/maul/<name>:vX.Y.Z`.
 
 One Dockerfile builds every controller-shaped binary — the controllers, the status server, the egress broker — on the
 same `distroless/static` base; the per-image `build_args` in `.goreleaser.yaml` set `TARGET` to pick the binary. Every
@@ -104,7 +104,7 @@ runs `Command: ["agent-runner"]`).
 
 ## GitHub App
 
-Register one App for the whole pipeline and install it on the repositories patchy watches.
+Register one App for the whole pipeline and install it on the repositories maul watches.
 
 **Repository permissions:**
 
@@ -128,23 +128,23 @@ table), and `AppNotInstalled` names the first one missing.
 
 **Webhook URL — exactly one, pointed at the integration-controller:** `https://<your-host>/github/webhooks`. The
 integration-controller is the single receiver: it validates each delivery against the webhook secrets of your configured
-Integrations, ingests scanner events into Findings, and applies the human signals (issue close, `/patchy` commands, PR
+Integrations, ingests scanner events into Findings, and applies the human signals (issue close, `/maul` commands, PR
 merge). No other controller serves a webhook. The same receiver serves `/google-cloud/webhooks` (Security Command Center
 via a Pub/Sub push subscription), `/wiz/webhooks` (Wiz automation rules), and `/generic/<name>/webhooks` (one per
 generic Integration, under the static `/generic/` prefix) when those Integrations are configured — see their integration
 docs. The base ships a ClusterIP Service and no Ingress: put your Ingress or Gateway in front of
-`patchy-integration-controller:8080` in your own overlay.
+`maul-integration-controller:8080` in your own overlay.
 
 GitHub never retries a failed delivery on its own; enable `spec.github.redelivery` on the Integration and the controller
 sweeps the App's delivery log every reconcile interval, redelivering anything that missed (App credentials required —
 the delivery log is invisible to a PAT). The status page's user menu adds a full replay on demand (`spec.replay`, RBAC
 verb `replay`), and alerts that predate webhook coverage entirely — nothing in the delivery log to replay — are reached
 by the manual backfill (`spec.backfill`, verb `backfill`), a bounded list-alerts walk triggered from the status page's
-configuration view or `patchy backfill`.
+configuration view or `maul backfill`.
 
-The integration-scoped actions are custom RBAC verbs on `integrations.patchy.bitwisemedia.uk` — `backfill`, `replay`,
-`reset` — enforced field-by-field by the `patchy-integration-actions` admission policy exactly as the finding verbs are
-by `patchy-finding-actions` (`base/admission-policy.yaml`). **Migration note (pre-1.0 breaking change):** `replay` and
+The integration-scoped actions are custom RBAC verbs on `integrations.maul.run` — `backfill`, `replay`, `reset` —
+enforced field-by-field by the `maul-integration-actions` admission policy exactly as the finding verbs are by
+`maul-finding-actions` (`base/admission-policy.yaml`). **Migration note (pre-1.0 breaking change):** `replay` and
 `reset` used to be verbs on `findings`; they moved to `integrations`, the resource they actually stamp and the one the
 admission policy's authorizer checks. Role bindings that grant them on findings must move those verbs to an
 `integrations` rule — `base/rbac.users.example.yaml` shows the shape.
@@ -159,30 +159,30 @@ Two Secrets, neither in git. Use SOPS or external-secrets; `base/secrets.example
 resource.
 
 ```sh
-kubectl -n patchy create secret generic patchy-github \
+kubectl -n maul create secret generic maul-github \
   --from-literal=appID=123456 \
-  --from-file=privateKey=./patchy.private-key.pem \
+  --from-file=privateKey=./maul.private-key.pem \
   --from-literal=webhookSecret="$(openssl rand -hex 32)"
 
 # NOTE the namespace: the claude credential belongs to the egress BROKER in
-# the patchy namespace — it never enters an agent pod. (Releases before the
-# broker kept it in patchy-agents: create it here, upgrade, delete the old
+# the maul namespace — it never enters an agent pod. (Releases before the
+# broker kept it in maul-agents: create it here, upgrade, delete the old
 # copy.)
-kubectl -n patchy create secret generic patchy-anthropic \
+kubectl -n maul create secret generic maul-anthropic \
   --from-literal=api-key="$ANTHROPIC_API_KEY"
 ```
 
-`patchy-anthropic` is the claude runner's Anthropic credential, consumed only by the egress broker — the reverse proxy
-all claude model traffic goes through (`deployment-egress-broker.yaml`); its readiness probe fails while the credential
-is unusable. `PATCHY_ANTHROPIC_AUTH=token` sends a `claude setup-token` OAuth token as a bearer instead of an API key,
-and the bedrock/vertex/foundry providers need no Secret at all — the broker signs with its cloud workload identity
-(annotate the `patchy-egress-broker` ServiceAccount). The codex runner is brokered too: enable it and the broker needs
-`patchy-openai` (an OpenAI API key) in **patchy**, mounted into `patchy-egress-broker` at `/etc/patchy/openai` with
-`PATCHY_OPENAI_API_KEY_FILE` set (an overlay; no codex pod ever holds it, and a leftover `PATCHY_CODEX_SECRET*` key
-fails a controller that runs codex, with the migration). The controllers refuse to start if an enabled non-brokered
-harness's credential is missing; the copilot runner needs `patchy-copilot`, which holds a **GitHub token** rather than a
-model API key — the one credential class no other agent pod carries, so enable that runner deliberately and scope the
-token to Copilot alone. A fake-harness run (dev) needs no model credential at all.
+`maul-anthropic` is the claude runner's Anthropic credential, consumed only by the egress broker — the reverse proxy all
+claude model traffic goes through (`deployment-egress-broker.yaml`); its readiness probe fails while the credential is
+unusable. `MAUL_ANTHROPIC_AUTH=token` sends a `claude setup-token` OAuth token as a bearer instead of an API key, and
+the bedrock/vertex/foundry providers need no Secret at all — the broker signs with its cloud workload identity (annotate
+the `maul-egress-broker` ServiceAccount). The codex runner is brokered too: enable it and the broker needs `maul-openai`
+(an OpenAI API key) in **maul**, mounted into `maul-egress-broker` at `/etc/maul/openai` with `MAUL_OPENAI_API_KEY_FILE`
+set (an overlay; no codex pod ever holds it, and a leftover `MAUL_CODEX_SECRET*` key fails a controller that runs codex,
+with the migration). The controllers refuse to start if an enabled non-brokered harness's credential is missing; the
+copilot runner needs `maul-copilot`, which holds a **GitHub token** rather than a model API key — the one credential
+class no other agent pod carries, so enable that runner deliberately and scope the token to Copilot alone. A
+fake-harness run (dev) needs no model credential at all.
 
 The pipeline is then switched on with two custom resources referencing that Secret — an `Integration` (webhook
 validation, alert ingestion, issue projection) and a `Forge` (repository read for the artifact, write for the push +
@@ -192,19 +192,19 @@ API, on demand, by name.
 
 ## Configuration
 
-Everything is `PATCHY_*` environment in one ConfigMap (`base/configmap.yaml`), consumed with `envFrom`.
-`internal/cli/options.go` maps each variable back onto a cobra flag — prefix `PATCHY`, dashes become underscores, so
-`--claude-agent-image` is `PATCHY_CLAUDE_AGENT_IMAGE` — with precedence flag > env > default. The Deployments pass no
+Everything is `MAUL_*` environment in one ConfigMap (`base/configmap.yaml`), consumed with `envFrom`.
+`internal/cli/options.go` maps each variable back onto a cobra flag — prefix `MAUL`, dashes become underscores, so
+`--claude-agent-image` is `MAUL_CLAUDE_AGENT_IMAGE` — with precedence flag > env > default. The Deployments pass no
 flags but `serve`, so the ConfigMap is the whole configuration surface. A key a binary does not bind is inert, which is
 why one ConfigMap serves all five.
 
-The per-harness `PATCHY_<HARNESS>_AGENT_IMAGE` keys are a special case: they are the strings the job controllers stamp
+The per-harness `MAUL_<HARNESS>_AGENT_IMAGE` keys are a special case: they are the strings the job controllers stamp
 into the Jobs they create, and kustomize's `images:` transformer **does not rewrite ConfigMap values**. An overlay that
-pins a runner image must patch both the `images:` entry and the matching `PATCHY_<HARNESS>_AGENT_IMAGE` key.
+pins a runner image must patch both the `images:` entry and the matching `MAUL_<HARNESS>_AGENT_IMAGE` key.
 
 **Egress proxy.** The controllers honour the standard `HTTPS_PROXY`/`HTTP_PROXY`/`NO_PROXY` environment; an overlay that
 must reach GitHub through a corporate forward proxy (the GHEC IP-allowlist estate) patches those variables into the
-ConfigMap alongside the `PATCHY_*` keys. Keep in-cluster traffic out of the proxy —
+ConfigMap alongside the `MAUL_*` keys. Keep in-cluster traffic out of the proxy —
 `NO_PROXY: localhost,127.0.0.1,.svc,.cluster.local` at minimum, so the artifact endpoint, the egress broker, and the API
 server stay direct — and widen the controllers' egress NetworkPolicies for the proxy's port. A `spec.proxy` on a `Forge`
 or GitHub `Integration` overrides the environment for that resource's traffic (proxy basic-auth credentials go in its
@@ -226,12 +226,12 @@ channel) in `reservedEnv` so no configuration can smuggle a credential in. All G
 alert dismissal, branch push, PRs — are performed controller-side with short-lived, per-repository scoped tokens. An
 agent that reaches `github.com` reaches it as an anonymous member of the public.
 
-**2. NetworkPolicy — the floor.** `patchy-agents` is default-deny in both directions. Egress is re-permitted for DNS,
-the artifact port (9790) to source-controller, the broker port (8080) to the egress broker — the whole of a claude or
-codex pod's egress, all cluster-local — and TCP 443 (the non-brokered copilot runner's model hosts) with the cluster's
-own ranges and the cloud metadata endpoint (169.254.169.254) excluded. **A plain NetworkPolicy is L3/L4 and cannot match
-a hostname**, so "TCP 443" means every HTTPS host on the internet, not just the model vendor's. Adjust the `except:`
-CIDRs in `base/networkpolicy.yaml` to your cluster's pod/service/node CIDRs.
+**2. NetworkPolicy — the floor.** `maul-agents` is default-deny in both directions. Egress is re-permitted for DNS, the
+artifact port (9790) to source-controller, the broker port (8080) to the egress broker — the whole of a claude or codex
+pod's egress, all cluster-local — and TCP 443 (the non-brokered copilot runner's model hosts) with the cluster's own
+ranges and the cloud metadata endpoint (169.254.169.254) excluded. **A plain NetworkPolicy is L3/L4 and cannot match a
+hostname**, so "TCP 443" means every HTTPS host on the internet, not just the model vendor's. Adjust the `except:` CIDRs
+in `base/networkpolicy.yaml` to your cluster's pod/service/node CIDRs.
 
 **3. Hostname policy — defence in depth, where the infrastructure supports it.** Add exactly one component; each narrows
 that egress to the non-brokered runners' model hosts and nothing else external (brokered claude needs no entry — it has
@@ -245,27 +245,27 @@ not mistake the FQDN policy for the boundary; the missing credential is the boun
   cilium component is inert there. Requires the cluster to carry `--enable-fqdn-network-policy`. It cannot express DNS
   or a ClusterIP destination, so both stay with the base policy — and DNS exfiltration stays open.
 - `components/istio` — a `Sidecar` with `REGISTRY_ONLY` (exposing only that runner's model ServiceEntry — none for
-  brokered claude — and the `patchy` namespace's Services, covering the artifact server and the broker), matched by SNI.
+  brokered claude — and the `maul` namespace's Services, covering the artifact server and the broker), matched by SNI.
   Requires native sidecars (Kubernetes ≥ 1.29, istiod with `ENABLE_NATIVE_SIDECARS=true` — a classic sidecar hangs the
-  Job) and the Istio CNI node agent (`patchy-agents` enforces the `restricted` Pod Security Standard, which rejects
+  Job) and the Istio CNI node agent (`maul-agents` enforces the `restricted` Pod Security Standard, which rejects
   `istio-init`). Two differences from Cilium: the proxy does not constrain what names the pod may resolve, so DNS
   exfiltration stays open; and enforcement lives inside the pod rather than on the node.
 
-The cilium and gke-fqdn components also patch the base policy — deleting `patchy-agents-egress` and removing its broad
-443 rule respectively. That is load-bearing, not tidiness: network policies are **additive**, so an FQDN allowlist
-sitting next to a rule that already permits 443 to `0.0.0.0/0` constrains nothing at all. The namespace default-deny
-survives either patch, so a missing CRD fails the sandbox closed.
+The cilium and gke-fqdn components also patch the base policy — deleting `maul-agents-egress` and removing its broad 443
+rule respectively. That is load-bearing, not tidiness: network policies are **additive**, so an FQDN allowlist sitting
+next to a rule that already permits 443 to `0.0.0.0/0` constrains nothing at all. The namespace default-deny survives
+either patch, so a missing CRD fails the sandbox closed.
 
 If you have none of the three, drop the components. The base policy still applies and is then the whole of the L3/L4
 story.
 
 **4. No resolver — closing DNS.** Every layer above still lets an agent pod reach the cluster resolver, which forwards
 names it does not own upstream, so data can leave in query names. `components/agent-dns-none` (list it after
-`components/cilium`) sets `PATCHY_AGENT_DNS=none` for the job controllers, which then give each agent pod
+`components/cilium`) sets `MAUL_AGENT_DNS=none` for the job controllers, which then give each agent pod
 `dnsPolicy: None`, a dead loopback nameserver, and the artifact server and broker pinned in its hosts file (resolved by
-the controller at launch), and removes the DNS rule from `patchy-agents-egress` and the claude and codex
+the controller at launch), and removes the DNS rule from `maul-agents-egress` and the claude and codex
 `CiliumNetworkPolicy`. Brokered runners only (claude, codex): a controller with copilot enabled refuses to start. Not
-with `components/istio`. A DNS allow policy for `patchy-agents` managed outside these manifests must be removed or
+with `components/istio`. A DNS allow policy for `maul-agents` managed outside these manifests must be removed or
 narrowed too, since policies are additive.
 
 **Network profiles are chart-only.** The optional egress proxy (`cmd/egress-proxy`, the operator's Go dependency route
@@ -287,37 +287,37 @@ kubectl apply -k deploy/kustomize/overlays/dev
 
 The runbook order for a fresh cluster: apply the overlay (CRDs render first), create the two Secrets, apply your
 `Integration`/`Forge` resources, then point the GitHub App's webhook at the integration-controller. Watch the pipeline
-with `kubectl get patchy -n patchy` (the shared kubectl category) or `kubectl get findings -w`.
+with `kubectl get maul -n maul` (the shared kubectl category) or `kubectl get findings -w`.
 
 ### dev (kind)
 
-Local `patchy/*:dev` images (`make snapshot`, retag, then `kind load docker-image`), a NodePort webhook (30079 — point
+Local `maul/*:dev` images (`make snapshot`, retag, then `kind load docker-image`), a NodePort webhook (30079 — point
 your tunnel, `gh webhook forward` or smee.io, at it; map it with `extraPortMappings` in your kind config), minutes
 instead of hours (2m accumulation, 2m minimum age, 30m finding TTL), the static-file fake CMDB enhancer mounted from a
 ConfigMap, placeholder Integration/Forge CRs, and tiny resource requests. On
-[Colima](https://oss.bitwisemedia.uk/patchy/deployment/colima/) the whole snapshot → retag → apply flow is one command,
-`make dev-colima`, and no image loading is needed.
+[Colima](https://devthenet-labs.github.io/maul/deployment/colima/) the whole snapshot → retag → apply flow is one
+command, `make dev-colima`, and no image loading is needed.
 
 Three things to know about dev:
 
 - **The placeholder GitHub credential fails every GitHub call** — ingestion and the CR state machine work (replay
   fixtures with `mise run replay`), but issue projection and repository artifacts error until a real credential arrives.
-  The dev shortcut is a PAT: `GITHUB_TOKEN=<pat> make dev-colima` writes it into the `patchy-github` Secret (see
+  The dev shortcut is a PAT: `GITHUB_TOKEN=<pat> make dev-colima` writes it into the `maul-github` Secret (see
   `overlays/dev/secret-dev.yaml` for the by-hand equivalent).
 - **kind runs kindnet, which ignores NetworkPolicy.** The policies apply cleanly and do nothing. A green dev apply is
   not evidence of a working sandbox.
-- **The fake harness needs no model credential.** The dev overlay sets `PATCHY_HARNESSES: fake`, which restricts the
+- **The fake harness needs no model credential.** The dev overlay sets `MAUL_HARNESSES: fake`, which restricts the
   enabled set to the fake runner — it carries no Secret, so `internal/jobs` wires no model key into its Jobs and dev
   runs with zero real credentials. The claude/codex/copilot runners configured in the base are simply not enabled.
 
 ### prod
 
 DESIGN.md's real intervals (1h accumulation, 1h minimum age, the 14-day finding TTL), the claude harness (add codex by
-enabling its runner and giving the broker `patchy-openai`, or copilot with `patchy-copilot`), the Cilium FQDN policies,
+enabling its runner and giving the broker `maul-openai`, or copilot with `maul-copilot`), the Cilium FQDN policies,
 production-sized requests/limits, and **digest-pinned images**. The `sha256:0000…` values in
-`overlays/prod/kustomization.yaml` and `PATCHY_CLAUDE_AGENT_IMAGE` in `overlays/prod/configmap-patch.yaml` are
+`overlays/prod/kustomization.yaml` and `MAUL_CLAUDE_AGENT_IMAGE` in `overlays/prod/configmap-patch.yaml` are
 placeholders — replace them with the digests your release pipeline published before applying anything. Bring your real
 Secrets and `Integration`/`Forge` resources with SOPS or external-secrets.
 
 Ingress/TLS for the webhook endpoint is deliberately absent: add it in an environment overlay, in front of
-`patchy-integration-controller:8080`.
+`maul-integration-controller:8080`.

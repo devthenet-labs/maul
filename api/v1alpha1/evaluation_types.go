@@ -57,9 +57,9 @@ type WorkspaceRef struct {
 }
 
 // UnitPlan is one evaluation unit: a skill evaluated on one model at one
-// tier. The fields patchy schedules on (harness selection, workspace,
+// tier. The fields maul schedules on (harness selection, workspace,
 // timeout) are typed; everything else the in-pod client needs travels opaquely
-// in ExecJSON — patchy never learns evaluation semantics.
+// in ExecJSON — maul never learns evaluation semantics.
 type UnitPlan struct {
 	// Skill under evaluation.
 	// +kubebuilder:validation:MinLength=1
@@ -102,7 +102,7 @@ type UnitPlan struct {
 	JudgeModel string `json:"judgeModel,omitempty"`
 	// ExecJSON is the serialized remainder of the client's unit spec (cases
 	// allowlist, prior results entry, client version, …), handed to the pod
-	// verbatim. Opaque to patchy.
+	// verbatim. Opaque to maul.
 	// +optional
 	// +kubebuilder:validation:MaxLength=131072
 	ExecJSON string `json:"execJSON,omitempty"`
@@ -159,7 +159,7 @@ type EvaluationStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:shortName=eval,categories=patchy
+// +kubebuilder:resource:shortName=eval,categories=maul
 // +kubebuilder:printcolumn:name="Submitter",type=string,JSONPath=`.spec.submitter`
 // +kubebuilder:printcolumn:name="Units",type=integer,JSONPath=`.status.units`
 // +kubebuilder:printcolumn:name="Complete",type=integer,JSONPath=`.status.unitsComplete`

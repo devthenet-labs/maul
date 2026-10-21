@@ -17,8 +17,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
-	"github.com/bitwise-media-group/patchy/internal/provider"
+	"github.com/devthenet-labs/maul/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/provider"
 )
 
 // The fixtures' broker and artifact URLs, as brokeredConfig and testSpec
@@ -146,8 +146,8 @@ func TestTunnelEnvVerbatim(t *testing.T) {
 		{Name: "https_proxy", Value: proxy},
 		{Name: "NO_PROXY", Value: wantNoProxy},
 		{Name: "no_proxy", Value: wantNoProxy},
-		{Name: "PATCHY_NETWORK_ROUTES", Value: "go,tunnel"},
-		{Name: "PATCHY_NETWORK_HOSTS", Value: "registry.npmjs.org,registry.yarnpkg.com"},
+		{Name: "MAUL_NETWORK_ROUTES", Value: "go,tunnel"},
+		{Name: "MAUL_NETWORK_HOSTS", Value: "registry.npmjs.org,registry.yarnpkg.com"},
 		{Name: "npm_config_https_proxy", Value: proxy},
 		{Name: "npm_config_noproxy", Value: wantNoProxy},
 		{Name: "npm_config_update_notifier", Value: "false"},
@@ -270,7 +270,7 @@ func TestJVMNonProxyHosts(t *testing.T) {
 		{".svc", "*.svc"},
 		{"localhost", "localhost"},
 		{".cluster.local,.svc,127.0.0.1,::1,localhost", "*.cluster.local|*.svc|127.0.0.1|::1|localhost"},
-		{"10.0.0.5,broker.patchy.svc", "10.0.0.5|broker.patchy.svc"},
+		{"10.0.0.5,broker.maul.svc", "10.0.0.5|broker.maul.svc"},
 	} {
 		if got := jvmNonProxyHosts(tt.in); got != tt.want {
 			t.Errorf("jvmNonProxyHosts(%q) = %q, want %q", tt.in, got, tt.want)
@@ -597,7 +597,7 @@ func TestTunnelEndpointCollisionRefused(t *testing.T) {
 // the routes the pod has: the Go route only beside it, the hosts sorted.
 func TestTunnelEnvReadsBack(t *testing.T) {
 	for _, p := range []*NetworkProfile{tunnelProfile(), goTunnelProfile()} {
-		env, err := TunnelEnv(*p, []string{"http://patchy-egress-broker.patchy.svc.cluster.local:8080"})
+		env, err := TunnelEnv(*p, []string{"http://maul-egress-broker.maul.svc.cluster.local:8080"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -681,7 +681,7 @@ func drawTunnelCase(rng *rand.Rand) tunnelCase {
 		case 1:
 			return fmt.Sprintf("[fd00::%x]", rng.Intn(0xffff)+1)
 		case 2:
-			return fmt.Sprintf("svc-%d.patchy.svc.cluster.local", rng.Intn(1000))
+			return fmt.Sprintf("svc-%d.maul.svc.cluster.local", rng.Intn(1000))
 		default:
 			return fmt.Sprintf("Broker-%d.Internal.Example", rng.Intn(1000))
 		}

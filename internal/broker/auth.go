@@ -15,7 +15,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
-	"github.com/bitwise-media-group/patchy/internal/provider"
+	"github.com/devthenet-labs/maul/internal/provider"
 )
 
 // TokenHeader carries the caller's projected ServiceAccount token. It is
@@ -32,7 +32,7 @@ const (
 
 // identity is who a validated caller token belongs to.
 type identity struct {
-	user string // e.g. system:serviceaccount:patchy-agents:patchy-agent
+	user string // e.g. system:serviceaccount:maul-agents:maul-agent
 	pod  string // bound pod name: the audit key; may be empty
 	uid  string // bound pod UID; may be empty
 	// budget is the bound pod's BudgetAnnotation in micro-USD, read with

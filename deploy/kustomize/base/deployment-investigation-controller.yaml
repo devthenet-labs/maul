@@ -4,12 +4,12 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-    name: patchy-investigation-controller
-    namespace: patchy
+    name: maul-investigation-controller
+    namespace: maul
     labels:
         app: investigation-controller
         app.kubernetes.io/name: investigation-controller
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
         app.kubernetes.io/component: controller
 spec:
     replicas: 1
@@ -18,16 +18,16 @@ spec:
     selector:
         matchLabels:
             app.kubernetes.io/name: investigation-controller
-            app.kubernetes.io/part-of: patchy
+            app.kubernetes.io/part-of: maul
     template:
         metadata:
             labels:
                 app: investigation-controller
                 app.kubernetes.io/name: investigation-controller
-                app.kubernetes.io/part-of: patchy
+                app.kubernetes.io/part-of: maul
                 app.kubernetes.io/component: controller
         spec:
-            serviceAccountName: patchy-investigation-controller
+            serviceAccountName: maul-investigation-controller
             securityContext:
                 runAsNonRoot: true
                 runAsUser: 65532
@@ -39,11 +39,11 @@ spec:
                 - name: controller
                   # Built from Dockerfile.controller (repo root)
                   # (TARGET=investigation-controller in .goreleaser.yaml).
-                  image: ghcr.io/devthenet-labs/patchy/investigation-controller:latest
+                  image: ghcr.io/devthenet-labs/maul/investigation-controller:latest
                   args: ["serve"]
                   envFrom:
                       - configMapRef:
-                            name: patchy-config
+                            name: maul-config
                   env:
                       - name: POD_NAMESPACE
                         valueFrom:

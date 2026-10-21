@@ -77,7 +77,7 @@ func TestTargets(t *testing.T) {
 		{"a required target missing", env(without(required, "PROBE_STATUS_SERVER"), siblings), nil},
 		{"one sibling target missing", env(required, without(siblings, "PROBE_OTHER_SLOT_POD")), nil},
 		{"a sibling target that is not an IPv4 address", env(required, siblings,
-			map[string]string{"PROBE_SIBLING_POD": "sibling.patchy-preview-0"}), nil},
+			map[string]string{"PROBE_SIBLING_POD": "sibling.maul-preview-0"}), nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, ok := targetsFrom(tc.getenv)

@@ -1,7 +1,7 @@
 /* ============================================================
-   Patchy docs — turf & soil theme for Zensical / Material
-   Palette: design-system/tokens/themes.css (.theme-patchy /
-   .theme-patchy-light). Turf green means healthy progress and
+   Maul docs — turf & soil theme for Zensical / Material
+   Palette: design-system/tokens/themes.css (.theme-maul /
+   .theme-maul-light). Turf green means healthy progress and
    repaired ground; soil brown marks the original hole; amber and
    red are reserved for human attention and critical findings.
    Dark  -> Material "slate" scheme
@@ -42,7 +42,7 @@
     --md-footer-bg-color: #071009;
     --md-footer-bg-color--dark: #050b06;
 
-    /* patchy garden ramp */
+    /* maul garden ramp */
     --pt-green: #78d64b;
     --pt-green-2: #9be66a;
     --pt-moss: #46a653;
@@ -150,7 +150,7 @@
     letter-spacing: 0.5px;
 }
 
-/* Header wordmark: the SVG patch mark + lowercase mono "patchy"
+/* Header wordmark: the SVG patch mark + lowercase mono "maul"
    (overrides/partials/header.html, nav.html). The mark is
    docs/assets/images/logo.svg — a square of new turf sliding over
    a soil hole. */

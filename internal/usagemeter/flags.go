@@ -19,7 +19,7 @@ const (
 
 // DefaultTokenFile is where the chart mounts the controllers' projected
 // token for usagewire.Audience.
-const DefaultTokenFile = "/var/run/secrets/patchy/broker-usage/token"
+const DefaultTokenFile = "/var/run/secrets/maul/broker-usage/token"
 
 // RegisterFlags adds the --usage-* flags: measurement off by default.
 func RegisterFlags(f *pflag.FlagSet) {

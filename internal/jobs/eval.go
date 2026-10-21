@@ -19,9 +19,9 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/model"
-	"github.com/bitwise-media-group/patchy/internal/provider"
+	"github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/model"
+	"github.com/devthenet-labs/maul/internal/provider"
 )
 
 // KindEvaluation is the LabelRunKind value on evaluation Jobs. It is a plain
@@ -40,11 +40,11 @@ const secretKeyUnit = "unit.json"
 // and the client constructs per-case git workspaces itself.
 const evalPrepareScript = `set -eu
 mkdir -p /workspace/bundle /workspace/input
-curl -fsSL --retry 5 --retry-all-errors "$PATCHY_ARTIFACT_URL" -o /tmp/bundle.tar.gz
-echo "$PATCHY_ARTIFACT_DIGEST  /tmp/bundle.tar.gz" | sha256sum -c - >/dev/null
+curl -fsSL --retry 5 --retry-all-errors "$MAUL_ARTIFACT_URL" -o /tmp/bundle.tar.gz
+echo "$MAUL_ARTIFACT_DIGEST  /tmp/bundle.tar.gz" | sha256sum -c - >/dev/null
 tar -xzf /tmp/bundle.tar.gz -C /workspace/bundle
 rm -f /tmp/bundle.tar.gz
-cp /patchy/input/unit.json /workspace/input/unit.json
+cp /maul/input/unit.json /workspace/input/unit.json
 `
 
 // evalUnitFilePath and evalBundleDir are where the prepare container stages
@@ -77,12 +77,12 @@ type EvalSpec struct {
 }
 
 // EvalNameFor is the deterministic Job (and per-Job Secret) name for one
-// evaluation unit: patchy-<unithash>-evl. Always DNS-1123 safe and <=63
+// evaluation unit: maul-<unithash>-evl. Always DNS-1123 safe and <=63
 // chars; the -evl discriminator keeps evaluation Jobs out of the finding job
 // controllers' way in the shared agents namespace.
 func EvalNameFor(unit string) string {
 	sum := sha256.Sum256([]byte(unit))
-	return fmt.Sprintf("patchy-%x-evl", sum[:5])
+	return fmt.Sprintf("maul-%x-evl", sum[:5])
 }
 
 // CreateEval builds and creates the per-Job Secret (the unit spec), then the
@@ -257,8 +257,8 @@ func (c *Client) evalPrepareContainer(runner Runner, spec EvalSpec, res corev1.R
 		Command: []string{"/bin/sh", "-c", evalPrepareScript},
 		Env: []corev1.EnvVar{
 			{Name: "HOME", Value: workspaceDir},
-			{Name: "PATCHY_ARTIFACT_URL", Value: spec.ArtifactURL},
-			{Name: "PATCHY_ARTIFACT_DIGEST", Value: spec.ArtifactDigest},
+			{Name: "MAUL_ARTIFACT_URL", Value: spec.ArtifactURL},
+			{Name: "MAUL_ARTIFACT_DIGEST", Value: spec.ArtifactDigest},
 		},
 		VolumeMounts: []corev1.VolumeMount{
 			{Name: volWorkspace, MountPath: workspaceDir},
@@ -271,7 +271,7 @@ func (c *Client) evalPrepareContainer(runner Runner, spec EvalSpec, res corev1.R
 }
 
 // evalBrokeredCommand wraps evolve exec-unit so the caller token reaches the
-// CLI: eval pods run no patchy binary that could set the header per-request,
+// CLI: eval pods run no maul binary that could set the header per-request,
 // so the wrapper captures the projected token into ANTHROPIC_CUSTOM_HEADERS
 // once at start (the token TTL is sized past the deadline for exactly this).
 // /bin/sh is already an image requirement — the prepare script runs it.

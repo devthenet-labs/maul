@@ -37,22 +37,22 @@ func TestEnsureLabel(t *testing.T) {
 			mux, c := newFakeClient(t)
 			posted := false
 			mux.HandleFunc("GET /repos/o/r/labels/{name}", func(w http.ResponseWriter, r *http.Request) {
-				if got := r.PathValue("name"); got != "patchy:target" {
-					t.Errorf("label looked up = %q, want patchy:target", got)
+				if got := r.PathValue("name"); got != "maul:target" {
+					t.Errorf("label looked up = %q, want maul:target", got)
 				}
 				w.WriteHeader(tt.getStatus)
-				writeJSON(t, w, `{"name":"patchy:target"}`)
+				writeJSON(t, w, `{"name":"maul:target"}`)
 			})
 			mux.HandleFunc("POST /repos/o/r/labels", func(w http.ResponseWriter, r *http.Request) {
 				posted = true
 				body := decodeBody[map[string]string](t, r)
-				if body["name"] != "patchy:target" || body["color"] != "5319e7" || body["description"] != "d" {
+				if body["name"] != "maul:target" || body["color"] != "5319e7" || body["description"] != "d" {
 					t.Errorf("create label request = %v", body)
 				}
 				w.WriteHeader(tt.postStatus)
 				writeJSON(t, w, `{"message":"x"}`)
 			})
-			created, err := c.EnsureLabel(context.Background(), testRepo, "patchy:target", "5319e7", "d")
+			created, err := c.EnsureLabel(context.Background(), testRepo, "maul:target", "5319e7", "d")
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("EnsureLabel() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -85,14 +85,14 @@ func TestCreateIssueComment(t *testing.T) {
 		w.WriteHeader(http.StatusCreated)
 		writeJSON(t, w, `{"id":77,"body":"hello\r\n","created_at":"2026-09-24T10:00:00Z",`+
 			`"updated_at":"2026-09-24T10:00:00Z","html_url":"https://gh/o/r/issues/3#issuecomment-77",`+
-			`"user":{"login":"patchy[bot]","id":9,"type":"Bot"},"performed_via_github_app":{"slug":"patchy"}}`)
+			`"user":{"login":"maul[bot]","id":9,"type":"Bot"},"performed_via_github_app":{"slug":"maul"}}`)
 	})
 	got, err := c.CreateIssueComment(context.Background(), testRepo, 3, "hello")
 	if err != nil {
 		t.Fatalf("CreateIssueComment() error = %v", err)
 	}
 	if got.ID != 77 || got.Body != "hello\r\n" || !got.CreatedAt.Equal(time.Date(2026, 9, 24, 10, 0, 0, 0, time.UTC)) ||
-		got.UserLogin != "patchy[bot]" || got.ViaApp != "patchy" || got.HTMLURL == "" {
+		got.UserLogin != "maul[bot]" || got.ViaApp != "maul" || got.HTMLURL == "" {
 		t.Errorf("CreateIssueComment() = %+v", got)
 	}
 }
@@ -136,14 +136,14 @@ func TestFindOpenPR(t *testing.T) {
 	mux, c := newFakeClient(t)
 	mux.HandleFunc("GET /repos/o/r/pulls", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		if q.Get("state") != "open" || q.Get("head") != "o:patchy-intent/x-1" || q.Get("base") != "main" {
-			t.Errorf("query = %v, want the open pull request from o:patchy-intent/x-1 into main", q)
+		if q.Get("state") != "open" || q.Get("head") != "o:maul-intent/x-1" || q.Get("base") != "main" {
+			t.Errorf("query = %v, want the open pull request from o:maul-intent/x-1 into main", q)
 		}
 		writeJSON(t, w, `[{"number":7,"html_url":"https://gh/o/r/pull/7","node_id":"PR_7","state":"open",`+
 			`"user":{"login":"mallory"},"base":{"ref":"main"},`+
 			`"head":{"sha":"2222222222222222222222222222222222222222","repo":{"full_name":"o/r-fork"}}}]`)
 	})
-	got, err := c.FindOpenPR(context.Background(), testRepo, "patchy-intent/x-1", "main")
+	got, err := c.FindOpenPR(context.Background(), testRepo, "maul-intent/x-1", "main")
 	if err != nil {
 		t.Fatalf("FindOpenPR() error = %v", err)
 	}

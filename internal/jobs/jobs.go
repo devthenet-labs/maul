@@ -22,27 +22,27 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/agentrun"
-	"github.com/bitwise-media-group/patchy/internal/attribution"
-	"github.com/bitwise-media-group/patchy/internal/harness"
-	"github.com/bitwise-media-group/patchy/internal/model"
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
-	"github.com/bitwise-media-group/patchy/internal/provider"
-	"github.com/bitwise-media-group/patchy/internal/runnerimage"
-	"github.com/bitwise-media-group/patchy/internal/sandboxprobe"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/agentrun"
+	"github.com/devthenet-labs/maul/internal/attribution"
+	"github.com/devthenet-labs/maul/internal/harness"
+	"github.com/devthenet-labs/maul/internal/model"
+	"github.com/devthenet-labs/maul/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/provider"
+	"github.com/devthenet-labs/maul/internal/runnerimage"
+	"github.com/devthenet-labs/maul/internal/sandboxprobe"
 )
 
-// Label keys and values identifying the Jobs patchy owns. The repo
+// Label keys and values identifying the Jobs maul owns. The repo
 // annotation carries the true owner/name (a slash is illegal in label
 // values).
 const (
 	labelApp       = "app.kubernetes.io/name"
 	labelManagedBy = "app.kubernetes.io/managed-by"
-	annotationRepo = "patchy.bitwisemedia.uk/repo"
+	annotationRepo = "maul.run/repo"
 
-	appName   = "patchy-agent"
-	managedBy = "patchy"
+	appName   = "maul-agent"
+	managedBy = "maul"
 )
 
 // Pod layout: container, volume, and mount names.
@@ -55,7 +55,7 @@ const (
 	volInput     = "input"
 
 	workspaceDir = "/workspace"
-	inputMount   = "/patchy/input"
+	inputMount   = "/maul/input"
 )
 
 // Per-Job Secret keys. No forge credential ever appears here — the init
@@ -71,36 +71,36 @@ const (
 // prepare step is identity-free.
 const (
 	volBrokerToken  = "broker-token"
-	brokerTokenDir  = "/var/run/patchy/broker"
+	brokerTokenDir  = "/var/run/maul/broker"
 	brokerTokenPath = brokerTokenDir + "/token"
 )
 
 // DefaultBrokerAudience is the audience brokered runners' projected tokens
 // are bound to; must match the broker's --token-audience.
-const DefaultBrokerAudience = "patchy-egress-broker"
+const DefaultBrokerAudience = "maul-egress-broker"
 
 // Repository-declared image injection. The trusted prepare init copies
-// patchy's binaries out of the runner image (toolsBinDir, where the
-// Dockerfiles put them) into the patchy-bin emptyDir, which the agent
-// container mounts read-only at patchyBinDir and runs agent-runner from by
+// maul's binaries out of the runner image (toolsBinDir, where the
+// Dockerfiles put them) into the maul-bin emptyDir, which the agent
+// container mounts read-only at maulBinDir and runs agent-runner from by
 // absolute path. A Job that ran such an image carries the audit annotations
 // (the digest reference that ran, its source, the trusted donor image) and
 // the selectable label; a Job that did not carries none of them.
 const (
-	volPatchyBin = "patchy-bin"
-	patchyBinDir = "/patchy/bin"
-	toolsBinDir  = "/usr/local/bin"
+	volMaulBin  = "maul-bin"
+	maulBinDir  = "/maul/bin"
+	toolsBinDir = "/usr/local/bin"
 
-	annotationRunnerImage       = "patchy.bitwisemedia.uk/runner-image"
-	annotationRunnerImageSource = "patchy.bitwisemedia.uk/runner-image-source"
-	annotationToolsImage        = "patchy.bitwisemedia.uk/tools-image"
-	labelRunnerImageSource      = "patchy.bitwisemedia.uk/runner-image-source"
+	annotationRunnerImage       = "maul.run/runner-image"
+	annotationRunnerImageSource = "maul.run/runner-image-source"
+	annotationToolsImage        = "maul.run/tools-image"
+	labelRunnerImageSource      = "maul.run/runner-image-source"
 )
 
 // AnnotationResourceClass records, on a Job and its pod, the operator's
 // resource class whose CPU and memory the Job runs with (Spec.Resources). A
 // Job on the controller's default resources carries none.
-const AnnotationResourceClass = "patchy.bitwisemedia.uk/resource-class"
+const AnnotationResourceClass = "maul.run/resource-class"
 
 // annotationDoNotDisrupt keeps Karpenter (EKS Auto Mode's node manager) from
 // evicting an agent pod to consolidate or replace its node. Every agent pod
@@ -178,31 +178,31 @@ const runAsUser = 65532
 const prepareScript = `set -eu
 mkdir -p /workspace/repo
 cd /workspace/repo
-curl -fsSL --retry 5 --retry-all-errors "$PATCHY_ARTIFACT_URL" -o /tmp/src.tar.gz
-echo "$PATCHY_ARTIFACT_DIGEST  /tmp/src.tar.gz" | sha256sum -c - >/dev/null
+curl -fsSL --retry 5 --retry-all-errors "$MAUL_ARTIFACT_URL" -o /tmp/src.tar.gz
+echo "$MAUL_ARTIFACT_DIGEST  /tmp/src.tar.gz" | sha256sum -c - >/dev/null
 tar -xzf /tmp/src.tar.gz --strip-components=1
 rm -f /tmp/src.tar.gz
 git init -q
 git add -A
-git -c user.name=patchy -c user.email=patchy@invalid commit -qm "base $PATCHY_BASE_SHA"
+git -c user.name=maul -c user.email=maul@invalid commit -qm "base $MAUL_BASE_SHA"
 git checkout -q --detach HEAD
 mkdir -p /workspace/input
-cp /patchy/input/issue.md /workspace/input/issue.md
-if [ -f /patchy/input/investigation.md ]; then
-  cp /patchy/input/investigation.md /workspace/input/investigation.md
+cp /maul/input/issue.md /workspace/input/issue.md
+if [ -f /maul/input/investigation.md ]; then
+  cp /maul/input/investigation.md /workspace/input/investigation.md
 fi
 `
 
 // injectScript is appended to prepareScript on a repository-image Job, and
 // only then (a default Job ends with waitProbeScript instead). It still runs in the
-// trusted runner image: each binary named in $PATCHY_INJECT is copied from
-// where the Dockerfile put it into the patchy-bin emptyDir (read-only in the
+// trusted runner image: each binary named in $MAUL_INJECT is copied from
+// where the Dockerfile put it into the maul-bin emptyDir (read-only in the
 // agent container), then the sandbox probe runs from the trusted binary,
 // selected by the one subcommand name agent-runner dispatches on. Under
 // set -e a non-zero probe exit ends the script with that status —
 // ExitSandboxUnenforced — before the agent container ever starts.
-const injectScript = `for bin in $PATCHY_INJECT; do
-  cp "` + toolsBinDir + `/$bin" "` + patchyBinDir + `/$bin"
+const injectScript = `for bin in $MAUL_INJECT; do
+  cp "` + toolsBinDir + `/$bin" "` + maulBinDir + `/$bin"
 done
 ` + toolsBinDir + `/` + agentRunnerBin + ` ` + sandboxprobe.Command + `
 `
@@ -264,7 +264,7 @@ type Runner struct {
 	Env map[string]string
 	// Inject names the binaries this runner image contributes to a Job that
 	// runs a repository-declared image instead: the prepare init copies each
-	// one from toolsBinDir into the patchy-bin volume, agent-runner always
+	// one from toolsBinDir into the maul-bin volume, agent-runner always
 	// among them since the agent container runs it from there. Nil means this
 	// harness never runs a repository image (codex is not built to inject,
 	// copilot holds a real credential in-pod; the fake harness replays
@@ -279,7 +279,7 @@ type Runner struct {
 
 // Config configures Job creation.
 type Config struct {
-	Namespace      string        // where Jobs run, e.g. "patchy-agents"
+	Namespace      string        // where Jobs run, e.g. "maul-agents"
 	ServiceAccount string        // pod service account
 	Deadline       time.Duration // activeDeadlineSeconds
 	TTL            time.Duration // ttlSecondsAfterFinished
@@ -288,7 +288,7 @@ type Config struct {
 	// fails to build — the controller resolves and enables harnesses before a
 	// Job is ever created.
 	Runners map[string]Runner
-	// Env is extra PATCHY_* configuration passed through to every runner
+	// Env is extra MAUL_* configuration passed through to every runner
 	// (models, timeouts, budgets, thresholds). Per-Job harness and model are
 	// carried on the Spec, not here.
 	Env map[string]string
@@ -511,7 +511,7 @@ func (c *Client) runnerFor(harnessID string) (Runner, error) {
 }
 
 // NameFor is the deterministic Job (and per-Job Secret) name for one
-// attempt: patchy-<findinghash>-{inv|rem|int}-a<attempt>. Always DNS-1123
+// attempt: maul-<findinghash>-{inv|rem|int}-a<attempt>. Always DNS-1123
 // safe and <=63 chars; the kind discriminator keeps the job controllers
 // sharing one namespace out of each other's way. An intent run passes its
 // IntentRun name as finding and "intent" as kind; the run name already
@@ -520,7 +520,7 @@ func (c *Client) runnerFor(harnessID string) (Runner, error) {
 func NameFor(finding, kind string, attempt int32) string {
 	sum := sha256.Sum256([]byte(finding))
 	short := map[string]string{"investigation": "inv", "remediation": "rem", "intent": "int"}[kind]
-	return fmt.Sprintf("patchy-%x-%s-a%d", sum[:5], short, attempt)
+	return fmt.Sprintf("maul-%x-%s-a%d", sum[:5], short, attempt)
 }
 
 // Create builds and creates the per-Job Secret (the handoff markdown files),
@@ -863,7 +863,7 @@ func volumes(secretName string) []corev1.Volume {
 }
 
 // podVolumes is volumes plus, for a brokered runner, the projected broker
-// caller token, plus, when injecting, the patchy-bin emptyDir. The
+// caller token, plus, when injecting, the maul-bin emptyDir. The
 // projection works despite automountServiceAccountToken being off on the
 // agent ServiceAccount — that suppresses only the default API token — and
 // the pod's FSGroup keeps the file readable at uid 65532.
@@ -887,7 +887,7 @@ func (c *Client) podVolumes(secretName string, runner Runner, tokenTTL int64, in
 	}
 	if inject {
 		vols = append(vols, corev1.Volume{
-			Name:         volPatchyBin,
+			Name:         volMaulBin,
 			VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
 		})
 	}
@@ -914,9 +914,9 @@ func (c *Client) prepareContainer(runner Runner, spec Spec, res corev1.ResourceR
 	inject bool) corev1.Container {
 	env := []corev1.EnvVar{
 		{Name: "HOME", Value: workspaceDir},
-		{Name: "PATCHY_BASE_SHA", Value: spec.BaseSHA},
-		{Name: "PATCHY_ARTIFACT_URL", Value: spec.ArtifactURL},
-		{Name: "PATCHY_ARTIFACT_DIGEST", Value: spec.ArtifactDigest},
+		{Name: "MAUL_BASE_SHA", Value: spec.BaseSHA},
+		{Name: "MAUL_ARTIFACT_URL", Value: spec.ArtifactURL},
+		{Name: "MAUL_ARTIFACT_DIGEST", Value: spec.ArtifactDigest},
 	}
 	script := prepareScript
 	mounts := []corev1.VolumeMount{
@@ -926,10 +926,10 @@ func (c *Client) prepareContainer(runner Runner, spec Spec, res corev1.ResourceR
 	}
 	if inject {
 		env = append(env,
-			corev1.EnvVar{Name: "PATCHY_INJECT", Value: strings.Join(injectedBinaries(runner), " ")},
+			corev1.EnvVar{Name: "MAUL_INJECT", Value: strings.Join(injectedBinaries(runner), " ")},
 			corev1.EnvVar{Name: sandboxprobe.TimeoutEnv, Value: c.cfg.SandboxProbeTimeout.String()})
 		script += injectScript
-		mounts = append(mounts, corev1.VolumeMount{Name: volPatchyBin, MountPath: patchyBinDir})
+		mounts = append(mounts, corev1.VolumeMount{Name: volMaulBin, MountPath: maulBinDir})
 	}
 	if len(spec.Trees) > 0 {
 		// treesRefusal has kept trees off an injecting Job, so this never
@@ -959,7 +959,7 @@ func (c *Client) prepareContainer(runner Runner, spec Spec, res corev1.ResourceR
 // projected caller token (agent container only; the init stays
 // identity-free). When injecting, the container runs the repository's
 // image instead, with agent-runner started by absolute path from the
-// read-only patchy-bin mount — neither the image's ENTRYPOINT nor its PATH
+// read-only maul-bin mount — neither the image's ENTRYPOINT nor its PATH
 // can redirect it — and the injection env on top of the usual one.
 //
 // A Job carrying a network profile (profile, which implies inject) also gets
@@ -977,9 +977,9 @@ func (c *Client) agentContainer(runner Runner, spec Spec, res corev1.ResourceReq
 	}
 	image, command, env := runner.Image, []string{agentRunnerBin}, c.agentEnv(runner, spec)
 	if inject {
-		image, command = spec.RunnerImage, []string{patchyBinDir + "/" + agentRunnerBin}
+		image, command = spec.RunnerImage, []string{maulBinDir + "/" + agentRunnerBin}
 		env = injectEnv(env, spec)
-		mounts = append(mounts, corev1.VolumeMount{Name: volPatchyBin, MountPath: patchyBinDir, ReadOnly: true})
+		mounts = append(mounts, corev1.VolumeMount{Name: volMaulBin, MountPath: maulBinDir, ReadOnly: true})
 	}
 	if profile {
 		env = applyProfileEnv(env, spec.NetworkProfile, tunnel)
@@ -1036,22 +1036,22 @@ var reservedEnv = map[string]bool{
 // on one that does not, and on a repository-image Job the stand-in for the
 // blank that keeps an image's ENV from reaching agent-runner.
 var perJobEnv = map[string]bool{
-	"HOME":                        true,
-	"PATCHY_WORKSPACE":            true,
-	"PATCHY_REPO":                 true,
-	"PATCHY_PHASE":                true,
-	"PATCHY_FINDING":              true,
-	"PATCHY_BASE_SHA":             true,
-	"PATCHY_INVESTIGATE_HARNESS":  true,
-	"PATCHY_INVESTIGATE_MODEL":    true,
-	"PATCHY_REMEDIATE_HARNESS":    true,
-	"PATCHY_REMEDIATE_MODEL":      true,
-	"PATCHY_GRANTED_MAX_TURNS":    true,
-	"PATCHY_GRANTED_TOKEN_BUDGET": true,
-	"PATCHY_CALIBRATION":          true,
-	"PATCHY_PREVIOUS_ATTEMPT":     true,
-	"PATCHY_OPEN_PULL_REQUESTS":   true,
-	agentrun.BinDirEnv:            true,
+	"HOME":                      true,
+	"MAUL_WORKSPACE":            true,
+	"MAUL_REPO":                 true,
+	"MAUL_PHASE":                true,
+	"MAUL_FINDING":              true,
+	"MAUL_BASE_SHA":             true,
+	"MAUL_INVESTIGATE_HARNESS":  true,
+	"MAUL_INVESTIGATE_MODEL":    true,
+	"MAUL_REMEDIATE_HARNESS":    true,
+	"MAUL_REMEDIATE_MODEL":      true,
+	"MAUL_GRANTED_MAX_TURNS":    true,
+	"MAUL_GRANTED_TOKEN_BUDGET": true,
+	"MAUL_CALIBRATION":          true,
+	"MAUL_PREVIOUS_ATTEMPT":     true,
+	"MAUL_OPEN_PULL_REQUESTS":   true,
+	agentrun.BinDirEnv:          true,
 	// Set only on a Job that carries a network profile (profileEnv), and
 	// read by cmd/agent-runner, not agentrun.FromEnv, so they are no
 	// configuration keys a repository-image Job blanks. The ecosystems and
@@ -1098,7 +1098,7 @@ var proxyEnv = []string{
 }
 
 // ReservedEnvNames returns every name Create owns, sorted: the credential
-// channels, the per-Job PATCHY_* vars, the gateway names, the proxy
+// channels, the per-Job MAUL_* vars, the gateway names, the proxy
 // variables and git's repository redirections. source-controller passes it to runnerimage.CheckEnv as the
 // set an image's ENV may not name, so resolve-time rejection and the
 // Job's own reservations are one list.
@@ -1124,7 +1124,7 @@ func PerJobEnvNames() []string {
 // loader's injection points (agent-runner is static; claude is not), the
 // interpreters' startup files, git's config and helper redirections, and
 // the proxies, and CODEX_HOME (the codex CLI's config home, which it reads
-// as unset when empty). The gateway names and every PATCHY_* key agent-runner reads
+// as unset when empty). The gateway names and every MAUL_* key agent-runner reads
 // join them at build time (injectEnv), minus whatever the Job sets itself.
 var scrubEnv = append([]string{
 	"BASH_ENV", "ENV", "SHELLOPTS", "PROMPT_COMMAND",
@@ -1135,7 +1135,7 @@ var scrubEnv = append([]string{
 }, proxyEnv...)
 
 // injectEnv is the agent env of a repository-image Job: the usual env, then
-// where the injected binaries are, a controller-owned PATH (patchy's
+// where the injected binaries are, a controller-owned PATH (maul's
 // directory first, then the image's sanitized entries — never an empty or
 // trailing component a shell would read as the working tree, yet the
 // image's own toolchain directories survive), git told to ignore the
@@ -1146,13 +1146,13 @@ var scrubEnv = append([]string{
 //
 // Those four names and the scrubbed ones are owned outright: an entry of
 // the same name in the usual env (an operator's Config.Env passthrough,
-// which a default Job keeps) is dropped first, so the pod carries patchy's
+// which a default Job keeps) is dropped first, so the pod carries maul's
 // value exactly once rather than a duplicate whose winner Kubernetes leaves
 // undefined. They are not in reservedEnv, because that list is also what an
 // image's ENV may not name, and every image sets PATH.
 func injectEnv(env []corev1.EnvVar, spec Spec) []corev1.EnvVar {
 	own := []corev1.EnvVar{
-		{Name: agentrun.BinDirEnv, Value: patchyBinDir},
+		{Name: agentrun.BinDirEnv, Value: maulBinDir},
 		{Name: "PATH", Value: podPath(spec.RunnerSearchPath)},
 		{Name: "GIT_CONFIG_NOSYSTEM", Value: "1"},
 		{Name: "DISABLE_AUTOUPDATER", Value: "1"},
@@ -1187,26 +1187,26 @@ func injectEnv(env []corev1.EnvVar, spec Spec) []corev1.EnvVar {
 // binaries are, the controller-owned PATH, git's system config and the
 // CLI's self-updater off, and an explicit empty value for every scrubbed
 // name, gateway name and agent-runner key. The workstation check
-// (`patchy check image --run`) replays it, so a local run of an image sees
+// (`maul check image --run`) replays it, so a local run of an image sees
 // what the pod's harness would; names the usual env sets are blanked here
 // because a local run has no usual env.
 func InjectedEnv(searchPath string) []corev1.EnvVar {
 	return injectEnv(nil, Spec{RunnerSearchPath: searchPath})
 }
 
-// podPath joins patchy's binary directory with the image's sanitized search
+// podPath joins maul's binary directory with the image's sanitized search
 // path. The Repository status never carries an empty or relative entry
 // (runnerimage.SanitizePath refuses them), but the join drops any anyway;
 // an empty search path — a Repository written before the field existed —
 // falls back to the runc default rather than leaving git and bash
 // unreachable.
 func podPath(searchPath string) string {
-	entries := []string{patchyBinDir}
+	entries := []string{maulBinDir}
 	if searchPath == "" {
 		searchPath = runnerimage.DefaultPath
 	}
 	for p := range strings.SplitSeq(searchPath, ":") {
-		if strings.HasPrefix(p, "/") && p != patchyBinDir {
+		if strings.HasPrefix(p, "/") && p != maulBinDir {
 			entries = append(entries, p)
 		}
 	}
@@ -1234,16 +1234,16 @@ var credentialChannelEnv = func() map[string]bool {
 //
 // An intent phase reads its Finding counterpart's names, and with them that
 // stage's whole configuration: build is the writing stage, on the remediate
-// harness, model, timeout and budgets (PATCHY_REMEDIATE_*), and plan the
-// read-only one, on the investigate stage's (PATCHY_INVESTIGATE_*). No new
+// harness, model, timeout and budgets (MAUL_REMEDIATE_*), and plan the
+// read-only one, on the investigate stage's (MAUL_INVESTIGATE_*). No new
 // configuration key exists for them, so neither the per-Job names nor the
 // blanks a repository-image Job carries change.
 func stageEnvNames(phase string) (harnessEnv, modelEnv string) {
 	switch phase {
 	case string(agentrun.PhaseRemediate), string(agentrun.PhaseBuild):
-		return "PATCHY_REMEDIATE_HARNESS", "PATCHY_REMEDIATE_MODEL"
+		return "MAUL_REMEDIATE_HARNESS", "MAUL_REMEDIATE_MODEL"
 	}
-	return "PATCHY_INVESTIGATE_HARNESS", "PATCHY_INVESTIGATE_MODEL"
+	return "MAUL_INVESTIGATE_HARNESS", "MAUL_INVESTIGATE_MODEL"
 }
 
 func (c *Client) agentEnv(runner Runner, spec Spec) []corev1.EnvVar {
@@ -1251,13 +1251,13 @@ func (c *Client) agentEnv(runner Runner, spec Spec) []corev1.EnvVar {
 	env = append(env,
 		// HOME must be writable under readOnlyRootFilesystem.
 		corev1.EnvVar{Name: "HOME", Value: workspaceDir},
-		corev1.EnvVar{Name: "PATCHY_WORKSPACE", Value: workspaceDir},
-		corev1.EnvVar{Name: "PATCHY_REPO", Value: spec.Repo},
-		corev1.EnvVar{Name: "PATCHY_PHASE", Value: spec.Phase},
-		corev1.EnvVar{Name: "PATCHY_FINDING", Value: spec.Finding},
+		corev1.EnvVar{Name: "MAUL_WORKSPACE", Value: workspaceDir},
+		corev1.EnvVar{Name: "MAUL_REPO", Value: spec.Repo},
+		corev1.EnvVar{Name: "MAUL_PHASE", Value: spec.Phase},
+		corev1.EnvVar{Name: "MAUL_FINDING", Value: spec.Finding},
 		// The remote base SHA stamps the changeset (the local base is a
 		// synthetic commit over the artifact tree).
-		corev1.EnvVar{Name: "PATCHY_BASE_SHA", Value: spec.BaseSHA})
+		corev1.EnvVar{Name: "MAUL_BASE_SHA", Value: spec.BaseSHA})
 
 	// The harness and model resolved for this Job's stage. They match the
 	// runner image the pod runs in, so the agent runs the harness it was built
@@ -1276,20 +1276,20 @@ func (c *Client) agentEnv(runner Runner, spec Spec) []corev1.EnvVar {
 	// than the controller-global Env.
 	if spec.MaxTurns > 0 {
 		env = append(env, corev1.EnvVar{
-			Name: "PATCHY_GRANTED_MAX_TURNS", Value: strconv.FormatInt(int64(spec.MaxTurns), 10)})
+			Name: "MAUL_GRANTED_MAX_TURNS", Value: strconv.FormatInt(int64(spec.MaxTurns), 10)})
 	}
 	if spec.TokenBudget > 0 {
 		env = append(env, corev1.EnvVar{
-			Name: "PATCHY_GRANTED_TOKEN_BUDGET", Value: strconv.FormatInt(spec.TokenBudget, 10)})
+			Name: "MAUL_GRANTED_TOKEN_BUDGET", Value: strconv.FormatInt(spec.TokenBudget, 10)})
 	}
 	if spec.Calibration != "" {
-		env = append(env, corev1.EnvVar{Name: "PATCHY_CALIBRATION", Value: spec.Calibration})
+		env = append(env, corev1.EnvVar{Name: "MAUL_CALIBRATION", Value: spec.Calibration})
 	}
 	if spec.PreviousAttempt != "" {
-		env = append(env, corev1.EnvVar{Name: "PATCHY_PREVIOUS_ATTEMPT", Value: spec.PreviousAttempt})
+		env = append(env, corev1.EnvVar{Name: "MAUL_PREVIOUS_ATTEMPT", Value: spec.PreviousAttempt})
 	}
 	if spec.OpenPullRequests != "" {
-		env = append(env, corev1.EnvVar{Name: "PATCHY_OPEN_PULL_REQUESTS", Value: spec.OpenPullRequests})
+		env = append(env, corev1.EnvVar{Name: "MAUL_OPEN_PULL_REQUESTS", Value: spec.OpenPullRequests})
 	}
 
 	// The controller-global Env under the full reserved filter, then the
@@ -1317,7 +1317,7 @@ func (c *Client) agentEnv(runner Runner, spec Spec) []corev1.EnvVar {
 	// only the fixed placeholder the CLI's login gate demands, which the
 	// broker strips.
 	if runner.Brokered {
-		env = append(env, corev1.EnvVar{Name: "PATCHY_BROKER_TOKEN_FILE", Value: brokerTokenPath})
+		env = append(env, corev1.EnvVar{Name: "MAUL_BROKER_TOKEN_FILE", Value: brokerTokenPath})
 		if needsPlaceholder(spec.Harness) {
 			env = append(env, brokeredPlaceholderEnv())
 		}

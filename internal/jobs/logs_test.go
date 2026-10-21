@@ -16,7 +16,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/bitwise-media-group/patchy/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/envelope"
 )
 
 // fakeLogs is a canned logReader; the fake clientset cannot serve custom pod
@@ -50,7 +50,7 @@ func jobPodInState(jobName string, phase corev1.PodPhase, agent corev1.Container
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      jobName + "-x7k2p",
-			Namespace: "patchy-agents",
+			Namespace: "maul-agents",
 			Labels:    map[string]string{"batch.kubernetes.io/job-name": jobName},
 		},
 		Status: corev1.PodStatus{
@@ -62,7 +62,7 @@ func jobPodInState(jobName string, phase corev1.PodPhase, agent corev1.Container
 
 // bareJob is a Job object with no terminal condition — still running.
 func bareJob(jobName string) *batchv1.Job {
-	return &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: jobName, Namespace: "patchy-agents"}}
+	return &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: jobName, Namespace: "maul-agents"}}
 }
 
 func eventLine(t *testing.T, e envelope.Event) string {
@@ -94,18 +94,18 @@ func remediationEvent(finding string) envelope.Event {
 		Remediation: &envelope.Remediation{
 			Stage:   envelope.Stage{Outcome: envelope.OutcomeOK, Harness: "claude", Model: "claude-sonnet-5"},
 			Success: true,
-			Branch:  "patchy/" + finding,
+			Branch:  "maul/" + finding,
 		},
 	}
 }
 
 func TestResult(t *testing.T) {
-	const jobName = "patchy-def456-inv-a2"
+	const jobName = "maul-def456-inv-a2"
 	const finding = "finding-abc123def0-1"
 	body := strings.Join([]string{
 		"agent starting up",
 		eventLine(t, investigationEvent(finding)),
-		"PATCHY-EVENT: {not json",
+		"MAUL-EVENT: {not json",
 		`{"v":1,"type":"investigation"}`,                                  // envelope JSON without the prefix: not an event
 		"2026-07-13T10:00:00Z " + eventLine(t, remediationEvent(finding)), // runtime timestamp prefix
 		"agent done",
@@ -141,13 +141,13 @@ func TestResult(t *testing.T) {
 func TestResultNoPod(t *testing.T) {
 	c := New(fake.NewClientset(), testConfig(), nil)
 	c.logs = &fakeLogs{}
-	if _, err := c.Result(context.Background(), "patchy-none-inv-a1"); err == nil {
+	if _, err := c.Result(context.Background(), "maul-none-inv-a1"); err == nil {
 		t.Fatal("Result without a pod succeeded, want error")
 	}
 }
 
 func TestResultStreamError(t *testing.T) {
-	const jobName = "patchy-abc-inv-a1"
+	const jobName = "maul-abc-inv-a1"
 	c := New(fake.NewClientset(jobPod(jobName)), testConfig(), nil)
 	c.logs = &fakeLogs{err: errors.New("connection refused")}
 	if _, err := c.Result(context.Background(), jobName); err == nil {
@@ -156,7 +156,7 @@ func TestResultStreamError(t *testing.T) {
 }
 
 func TestResultWaitsForAgentExit(t *testing.T) {
-	const jobName = "patchy-live-inv-a1"
+	const jobName = "maul-live-inv-a1"
 	pod := jobPodInState(jobName, corev1.PodRunning, corev1.ContainerState{
 		Running: &corev1.ContainerStateRunning{},
 	})
@@ -175,7 +175,7 @@ func TestResultWaitsForAgentExit(t *testing.T) {
 }
 
 func TestResultAgentNeverStarted(t *testing.T) {
-	const jobName = "patchy-dead-inv-a1"
+	const jobName = "maul-dead-inv-a1"
 	pod := jobPodInState(jobName, corev1.PodFailed, corev1.ContainerState{
 		Waiting: &corev1.ContainerStateWaiting{Reason: "PodInitializing"},
 	})

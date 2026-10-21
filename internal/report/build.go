@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/netprofile"
 )
 
 // Build report bounds, beyond the ones every intent report shares
@@ -49,8 +49,8 @@ const ProxyMarker = netprofile.RefusalMarker
 //
 // followed by the change's description in markdown — what changed and why,
 // how it was verified — of at most BodyMaxBytes, in a document of at most
-// ReportMaxBytes. patchy records it on the build's run for people to read;
-// the pull request's description is patchy's own, rendered from the
+// ReportMaxBytes. maul records it on the build's run for people to read;
+// the pull request's description is maul's own, rendered from the
 // approved plan, never from this report. It holds the plan's visible-text
 // rule: only visible characters, tabs and line breaks, in the free text and
 // everywhere else (checkVisible), in a frontmatter of plain YAML
@@ -64,7 +64,7 @@ const ProxyMarker = netprofile.RefusalMarker
 // with tabs — so the rule would throw away a build that had implemented and
 // committed its plan, for the layout of a description no approval rests on.
 // A renderer that ever puts the report before someone deciding on the
-// change neutralises its layout there, as patchy's renderers already
+// change neutralises its layout there, as maul's renderers already
 // sanitise the agent text they show.
 //
 // Refused is the build's structured account of a dependency the operator's
@@ -152,7 +152,7 @@ func (b *Build) validate() error {
 	// A note is a pointer for reviewers, not something the build rests on, so
 	// an over-long one is no reason to throw away a build that implemented
 	// and committed its plan (overdub-10 lost one to a 574-character note).
-	// It is accepted whole, not cut: patchy records the report's raw bytes,
+	// It is accepted whole, not cut: maul records the report's raw bytes,
 	// so a cut would reach no reader, and the whole note is still held to
 	// every other rule of a one-line item, along its whole length. Each is
 	// still capped, at the whole document's bound (ReportMaxBytes). The

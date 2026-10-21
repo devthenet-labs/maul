@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 // Package httpguard holds the small, credential-free HTTP guards shared by
-// patchy's in-cluster reverse proxies (the egress broker today, the
+// maul's in-cluster reverse proxies (the egress broker today, the
 // egress proxy next): the caller's source IP, a per-source-IP token bucket
 // with an in-flight cap, and a response writer that counts what it wrote
 // for the audit line.

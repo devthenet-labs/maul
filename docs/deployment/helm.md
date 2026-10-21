@@ -1,21 +1,21 @@
 # Helm charts
 
-The `patchy` chart (in-repo at `charts/patchy`) renders the full stack: the `patchy.bitwisemedia.uk` CRDs, the five
-pipeline controllers, the egress broker and the status server as singleton Deployments — each with its own ConfigMap,
-ServiceAccount, and NetworkPolicy — their Services (integration `:8080`, source `:9790`, the broker and the status
-page), and the agent namespace with its RBAC and sandbox policies. Three more controllers are opt-in:
-`intentController`, `previewController` (with the `preview` foundation) and `evaluationController`. The companion
-`patchy-config` chart (`charts/patchy-config`) renders the `Integration`/`Forge`/`Project` custom resources — a separate
-chart because Helm validates every manifest against the API server before applying anything, so the CRs cannot ride in
-the same first install as the CRDs they depend on. Both are published to `oci://ghcr.io/devthenet-labs/patchy/charts/`
-on every release; release-please stamps `version` and `appVersion` 1:1 with the app, and the default image tag is
-`v<appVersion>` — chart `X.Y.Z` runs images `vX.Y.Z`.
+The `maul` chart (in-repo at `charts/maul`) renders the full stack: the `maul.run` CRDs, the five pipeline controllers,
+the egress broker and the status server as singleton Deployments — each with its own ConfigMap, ServiceAccount, and
+NetworkPolicy — their Services (integration `:8080`, source `:9790`, the broker and the status page), and the agent
+namespace with its RBAC and sandbox policies. Three more controllers are opt-in: `intentController`, `previewController`
+(with the `preview` foundation) and `evaluationController`. The companion `maul-config` chart (`charts/maul-config`)
+renders the `Integration`/`Forge`/`Project` custom resources — a separate chart because Helm validates every manifest
+against the API server before applying anything, so the CRs cannot ride in the same first install as the CRDs they
+depend on. Both are published to `oci://ghcr.io/devthenet-labs/maul/charts/` on every release; release-please stamps
+`version` and `appVersion` 1:1 with the app, and the default image tag is `v<appVersion>` — chart `X.Y.Z` runs images
+`vX.Y.Z`.
 
 ```sh
-helm install patchy oci://ghcr.io/devthenet-labs/patchy/charts/patchy \
-  --version <X.Y.Z> --namespace patchy --create-namespace
-helm install patchy-config oci://ghcr.io/devthenet-labs/patchy/charts/patchy-config \
-  --version <X.Y.Z> --namespace patchy -f values.yaml
+helm install maul oci://ghcr.io/devthenet-labs/maul/charts/maul \
+  --version <X.Y.Z> --namespace maul --create-namespace
+helm install maul-config oci://ghcr.io/devthenet-labs/maul/charts/maul-config \
+  --version <X.Y.Z> --namespace maul -f values.yaml
 ```
 
 The chart requires Kubernetes ≥ 1.34 (the oldest line not yet end-of-life) and references (never creates) the
@@ -62,28 +62,28 @@ shared settings stay global.
 
 ### Global: images, CRDs
 
-| Key                 | Default                         | Purpose                                                                                                             |
-| ------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `image.repository`  | `ghcr.io/devthenet-labs/patchy` | Repository prefix (registry included); the binary name is appended                                                  |
-| `image.tag`         | `""`                            | Empty = `v<appVersion>`                                                                                             |
-| `image.pullPolicy`  | `IfNotPresent`                  |                                                                                                                     |
-| `image.pullSecrets` | `[]`                            |                                                                                                                     |
-| `crds.install`      | `true`                          | Render the CRDs as templates (so upgrades track schema changes)                                                     |
-| `crds.keep`         | `true`                          | Stamp `helm.sh/resource-policy: keep` — uninstall never deletes the CRDs, or the FindingRollup statistics with them |
-| `commonLabels`      | `{}`                            | Extra labels on every rendered object                                                                               |
-| `commonAnnotations` | `{}`                            | Extra annotations on every rendered object, pods included (per-object annotations win)                              |
+| Key                 | Default                       | Purpose                                                                                                             |
+| ------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `image.repository`  | `ghcr.io/devthenet-labs/maul` | Repository prefix (registry included); the binary name is appended                                                  |
+| `image.tag`         | `""`                          | Empty = `v<appVersion>`                                                                                             |
+| `image.pullPolicy`  | `IfNotPresent`                |                                                                                                                     |
+| `image.pullSecrets` | `[]`                          |                                                                                                                     |
+| `crds.install`      | `true`                        | Render the CRDs as templates (so upgrades track schema changes)                                                     |
+| `crds.keep`         | `true`                        | Stamp `helm.sh/resource-policy: keep` — uninstall never deletes the CRDs, or the FindingRollup statistics with them |
+| `commonLabels`      | `{}`                          | Extra labels on every rendered object                                                                               |
+| `commonAnnotations` | `{}`                          | Extra annotations on every rendered object, pods included (per-object annotations win)                              |
 
 Per-component image overrides win key-by-key, and a `digest` pins over any tag: `<controller>.image` and
 `agent.runners.<harness>.image` — the latter is the runner image the job controllers stamp into every Job that harness
-runs (`PATCHY_<HARNESS>_AGENT_IMAGE`). Unlike kustomize, pinning a runner's digest here is one knob, not two.
+runs (`MAUL_<HARNESS>_AGENT_IMAGE`). Unlike kustomize, pinning a runner's digest here is one knob, not two.
 
-### The pipeline switch-on: the `patchy-config` chart
+### The pipeline switch-on: the `maul-config` chart
 
-The controllers idle until an `Integration` and a `Forge` exist. They install via the separate `patchy-config` chart —
-into the **same namespace** as the patchy release, after it — whose `integrations` / `forges` list entries each render
-one CR. Its `values.schema.json` embeds the CRD spec schemas (regenerated by `mise run codegen`), so a typo'd or
-mistyped `spec` field fails the install client-side before the API server sees it. See the
-[install page](../getting-started/install.md#switch-the-pipeline-on-the-patchy-config-chart) for a worked example and
+The controllers idle until an `Integration` and a `Forge` exist. They install via the separate `maul-config` chart —
+into the **same namespace** as the maul release, after it — whose `integrations` / `forges` list entries each render one
+CR. Its `values.schema.json` embeds the CRD spec schemas (regenerated by `mise run codegen`), so a typo'd or mistyped
+`spec` field fails the install client-side before the API server sees it. See the
+[install page](../getting-started/install.md#switch-the-pipeline-on-the-maul-config-chart) for a worked example and
 `deploy/kustomize/base/crs.example.yaml` for the full field walkthrough. The referenced Secrets are yours to create;
 `kubectl apply`-ing the CRs directly instead of using the chart works just as well.
 
@@ -157,7 +157,7 @@ of `maxRetries`, and a Preview on its last retry ends `Failed`. To avoid that, u
 set `targetHealth` explicitly (`false` keeps the old behaviour).
 
 The preview security model is in the
-[chart README](https://github.com/devthenet-labs/patchy/blob/main/charts/patchy/README.md#preview-security-foundation-opt-in)
+[chart README](https://github.com/devthenet-labs/maul/blob/main/charts/maul/README.md#preview-security-foundation-opt-in)
 and [Preview controller](../configuration/preview-controller.md). With `preview.enabled` the install NOTES list what is
 left: the placeholder ALB's hostname, the wildcard DNS record, the isolation probe and what previews cost.
 [Deploying intents and previews](../intents/deploying.md) walks through every value below in order.
@@ -170,7 +170,7 @@ All three blocks default off. The infrastructure-derived keys marked † are wha
 | Key                                                 | Default                   | Purpose                                                                                                                                                                                                                                                                                                                                                                                                             |
 | --------------------------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `intentController.enabled`                          | `false`                   | Run the [intent-controller](../configuration/intent-controller.md). Builds need `agent.repositoryImages`, or every Project must set `requireRepositoryImage: false`                                                                                                                                                                                                                                                 |
-| `intentController.forgeSecrets`                     | `[patchy-github]`         | The Secrets your Forges reference: intent-controller's `secrets get` is limited to exactly these names. **Required** and non-empty                                                                                                                                                                                                                                                                                  |
+| `intentController.forgeSecrets`                     | `[maul-github]`           | The Secrets your Forges reference: intent-controller's `secrets get` is limited to exactly these names. **Required** and non-empty                                                                                                                                                                                                                                                                                  |
 | `intentController.config.pollInterval`              | `60s`                     | How often each intent repository and active intent are polled; `approvalPollInterval` (`30s`) and `prPollInterval` (`60s`) for intents awaiting approval and in review                                                                                                                                                                                                                                              |
 | `intentController.config.multiRepo`                 | `false`                   | Intents of Projects that list several repositories: one plan, a build and a pull request per changed repository ([Several repositories](../configuration/intent-controller.md#several-repositories))                                                                                                                                                                                                                |
 | `intentController.config.maxConcurrentRuns`         | `1`                       | Intent agent Jobs at once, a pool separate from remediation's; a multi-repository intent's builds share it                                                                                                                                                                                                                                                                                                          |
@@ -185,7 +185,7 @@ All three blocks default off. The infrastructure-derived keys marked † are wha
 | `preview.legacyIngress`                             | `true`                    | Render each Preview's slot Ingress on the preview ALB, the path every install has used so far. `false` renders none (the controller deletes its own; see [the preview-controller](../configuration/preview-controller.md#without-the-legacy-ingress)), so only the preview gateway reaches the slots, and makes the keys marked LEGACY optional. Keep `true` until the wildcard record points at the gateway's edge |
 | `preview.placeholder.enabled`                       | `true`                    | LEGACY. The kept placeholder Ingress and Service in slot 0, which create the preview ALB and keep its name stable. `false` stages the guardrails without an ALB                                                                                                                                                                                                                                                     |
 | `preview.imageRegistry` †                           | `""`                      | The registry host preview images come from (any registry, lowercase, an optional port); they must be `<registry>/<preview.imagePathPrefix>/<app>:sha-<40 hex>`                                                                                                                                                                                                                                                      |
-| `preview.imagePathPrefix` †                         | `patchy/previews`         | The registry path every preview image sits one leaf under: lowercase segments, no leading or trailing slash, never empty. The render fails if it overlaps an `agent.repositoryImages.registries` entry, and source-controller refuses declared agent images under it                                                                                                                                                |
+| `preview.imagePathPrefix` †                         | `maul/previews`           | The registry path every preview image sits one leaf under: lowercase segments, no leading or trailing slash, never empty. The render fails if it overlaps an `agent.repositoryImages.registries` entry, and source-controller refuses declared agent images under it                                                                                                                                                |
 | `preview.albSubnetCIDRs` † / `albSubnetIDs` †       | `[]`                      | LEGACY. The public subnets the preview ALB sits in: their CIDRs are sources slot Pods admit (beside the gateway's Pods) while `preview.legacyIngress` is true, and the IDs pin the ALB to them                                                                                                                                                                                                                      |
 | `preview.inboundCIDRs` †                            | `[]`                      | LEGACY. Who may open previews through the preview ALB: `/32`s only, at most 8 (the gateway's allowlist is `previewAuth.gateway.inboundCIDRs`)                                                                                                                                                                                                                                                                       |
 | `preview.prefixListsIDs` †                          | `[]`                      | LEGACY. Managed prefix list IDs (`pl-…`) the preview ALB admits beside `inboundCIDRs`, at most 8. Optional and additive                                                                                                                                                                                                                                                                                             |
@@ -205,22 +205,22 @@ All three blocks default off. The infrastructure-derived keys marked † are wha
 | `previewAuth.gateway.service.loadBalancerClass`     | `""`                      | The LoadBalancer exposure's `spec.loadBalancerClass`, where the cluster has more than one implementation (`tailscale`, `service.k8s.aws/nlb`); empty sets none. Refused unless `service.type` is `LoadBalancer`; Kubernetes will not change it on a live Service                                                                                                                                                    |
 | `previewAuth.gateway.forwardedHops`                 | unset                     | Proxies appending to `X-Forwarded-For` in front of the gateway. No default: **required** with an exposure                                                                                                                                                                                                                                                                                                           |
 | `previewAuth.gateway.inboundCIDRs`                  | `[]`                      | Client CIDRs preview hosts admit: at the edge where the exposure can hold it, and at the gateway always                                                                                                                                                                                                                                                                                                             |
-| `previewAuth.gateway.publishedAddresses`            | `[]`                      | Where the wildcard record should point, recorded on the relay ConfigMap; `patchy check project` compares DNS with it                                                                                                                                                                                                                                                                                                |
+| `previewAuth.gateway.publishedAddresses`            | `[]`                      | Where the wildcard record should point, recorded on the relay ConfigMap; `maul check project` compares DNS with it                                                                                                                                                                                                                                                                                                  |
 | `previewAuth.gateway.tls.secrets`                   | `[]`                      | `[{secretName, hosts}]`: TLS the gateway terminates itself, by SNI, for a LoadBalancer or no exposure; must cover `*.<hostSuffix>` and the sign-in host. Refused with an Ingress or HTTPRoute                                                                                                                                                                                                                       |
 
 ### Shared pipeline config
 
 Each controller renders its own ConfigMap (consumed with `envFrom`): the shared `config.*` keys plus its own `config`
-block; every key is the matching `PATCHY_*` variable minus the prefix. Any shared key can be repeated under
+block; every key is the matching `MAUL_*` variable minus the prefix. Any shared key can be repeated under
 `<controller>.config` to override it for that controller alone.
 
-| Key                            | Default | Purpose                                                                                 |
-| ------------------------------ | ------- | --------------------------------------------------------------------------------------- |
-| `config.logLevel`              | `warn`  | `debug`, `info`, `warn`, `error`                                                        |
-| `config.maxAttempts`           | `2`     | Agent attempts per finding before it fails (both job controllers)                       |
-| `config.priorityAgingInterval` | `24h`   | Wait per effective-priority point of aging boost                                        |
-| `config.priorityAgingCap`      | `25`    | Maximum aging boost                                                                     |
-| `config.extra`                 | `{}`    | Verbatim `PATCHY_*` keys for every controller; `<controller>.config.extra` wins over it |
+| Key                            | Default | Purpose                                                                               |
+| ------------------------------ | ------- | ------------------------------------------------------------------------------------- |
+| `config.logLevel`              | `warn`  | `debug`, `info`, `warn`, `error`                                                      |
+| `config.maxAttempts`           | `2`     | Agent attempts per finding before it fails (both job controllers)                     |
+| `config.priorityAgingInterval` | `24h`   | Wait per effective-priority point of aging boost                                      |
+| `config.priorityAgingCap`      | `25`    | Maximum aging boost                                                                   |
+| `config.extra`                 | `{}`    | Verbatim `MAUL_*` keys for every controller; `<controller>.config.extra` wins over it |
 
 The listen (`:8080`), health (`:8081`), and artifact (`:9790`) addresses are not values — the chart hardcodes them
 everywhere they appear (env, container ports, probes, Services, NetworkPolicies).
@@ -236,14 +236,14 @@ covers the kind/dev flow) and source (`:9790`, in-cluster only by design).
 
 The controller-specific `config` defaults:
 
-| Key                                                          | Default  | Maps to                                             |
-| ------------------------------------------------------------ | -------- | --------------------------------------------------- |
-| `integrationController.config.accumulationWindow`            | `1h`     | `PATCHY_ACCUMULATION_WINDOW`                        |
-| `investigationController.config.findingMinAge`               | `1h`     | `PATCHY_FINDING_MIN_AGE`                            |
-| `investigationController.config.maxConcurrentInvestigations` | `3`      | `PATCHY_MAX_CONCURRENT_INVESTIGATIONS`              |
-| `investigationController.config.confidenceThreshold`         | `"0.75"` | `PATCHY_CONFIDENCE_THRESHOLD`                       |
-| `remediationController.config.maxConcurrentRemediations`     | `1`      | `PATCHY_MAX_CONCURRENT_REMEDIATIONS`                |
-| `remediationController.config.findingTTL`                    | `336h`   | `PATCHY_FINDING_TTL` (`"0"` keeps findings forever) |
+| Key                                                          | Default  | Maps to                                           |
+| ------------------------------------------------------------ | -------- | ------------------------------------------------- |
+| `integrationController.config.accumulationWindow`            | `1h`     | `MAUL_ACCUMULATION_WINDOW`                        |
+| `investigationController.config.findingMinAge`               | `1h`     | `MAUL_FINDING_MIN_AGE`                            |
+| `investigationController.config.maxConcurrentInvestigations` | `3`      | `MAUL_MAX_CONCURRENT_INVESTIGATIONS`              |
+| `investigationController.config.confidenceThreshold`         | `"0.75"` | `MAUL_CONFIDENCE_THRESHOLD`                       |
+| `remediationController.config.maxConcurrentRemediations`     | `1`      | `MAUL_MAX_CONCURRENT_REMEDIATIONS`                |
+| `remediationController.config.findingTTL`                    | `336h`   | `MAUL_FINDING_TTL` (`"0"` keeps findings forever) |
 
 Everything else a binary binds (see the [configuration reference](../configuration/index.md)) is reachable through
 `config.extra` / `<controller>.config.extra`.
@@ -260,11 +260,11 @@ Every Deployment the chart renders (the five above, plus `evaluationController`,
 | `extraVolumes`      | `[]`    | Pod volumes                                                                                       |
 | `extraVolumeMounts` | `[]`    | Mounts on the component's container                                                               |
 
-`config.extra` stays the place for `PATCHY_*` settings: the render fails when `extraEnv` names a `PATCHY_*` key,
-`POD_NAMESPACE` or `DOCKER_CONFIG`, the variables patchy sets itself. An `extraEnvFrom` source cannot be checked at
-render time, so it is listed before the chart's ConfigMap: Kubernetes lets a later source win a key both define, and
-explicit `env` wins over every source, so the chart's own settings are never replaced from a Secret. A volume or mount
-name that clashes with one the chart renders (`tmp`, `data`, and the like) is refused by the API server at apply time.
+`config.extra` stays the place for `MAUL_*` settings: the render fails when `extraEnv` names a `MAUL_*` key,
+`POD_NAMESPACE` or `DOCKER_CONFIG`, the variables maul sets itself. An `extraEnvFrom` source cannot be checked at render
+time, so it is listed before the chart's ConfigMap: Kubernetes lets a later source win a key both define, and explicit
+`env` wins over every source, so the chart's own settings are never replaced from a Secret. A volume or mount name that
+clashes with one the chart renders (`tmp`, `data`, and the like) is refused by the API server at apply time.
 
 The usual use is a credential off its home cloud. On a cluster outside AWS, source-controller can resolve declared
 images in ECR with static IAM keys from a Secret (the AWS SDK reads them from the environment):
@@ -273,9 +273,9 @@ images in ECR with static IAM keys from a Secret (the AWS SDK reads them from th
 sourceController:
   extraEnv:
     - name: AWS_ACCESS_KEY_ID
-      valueFrom: { secretKeyRef: { name: patchy-ecr-reader, key: AWS_ACCESS_KEY_ID } }
+      valueFrom: { secretKeyRef: { name: maul-ecr-reader, key: AWS_ACCESS_KEY_ID } }
     - name: AWS_SECRET_ACCESS_KEY
-      valueFrom: { secretKeyRef: { name: patchy-ecr-reader, key: AWS_SECRET_ACCESS_KEY } }
+      valueFrom: { secretKeyRef: { name: maul-ecr-reader, key: AWS_SECRET_ACCESS_KEY } }
 ```
 
 Give that IAM user nothing but `ecr:GetAuthorizationToken` and read access to the allowlisted repositories, and keep the
@@ -285,9 +285,9 @@ Secret in the release namespace. The keys reach source-controller's own pod only
 
 | Key                                      | Default                                                    | Purpose                                                                                                                                                                                                                                                                                                                                                     |
 | ---------------------------------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `agent.namespace`                        | `patchy-agents`                                            | Created by the chart with the `restricted` PSS labels                                                                                                                                                                                                                                                                                                       |
+| `agent.namespace`                        | `maul-agents`                                              | Created by the chart with the `restricted` PSS labels                                                                                                                                                                                                                                                                                                       |
 | `agent.createNamespace`                  | `true`                                                     | Set `false` when the namespace is managed elsewhere                                                                                                                                                                                                                                                                                                         |
-| `agent.serviceAccount`                   | `patchy-agent`                                             | The Job identity: no Role, token not mounted                                                                                                                                                                                                                                                                                                                |
+| `agent.serviceAccount`                   | `maul-agent`                                               | The Job identity: no Role, token not mounted                                                                                                                                                                                                                                                                                                                |
 | `agent.paused`                           | `false`                                                    | Cluster-wide pause: investigation-, remediation-, intent- and evaluation-controller launch no new agent Job while `true`; running Jobs finish, held runs carry `AgentsPaused`. Rolls those four and status-server, whose page shows it to signed-in users only — see [Pausing agents](../configuration/investigation-controller.md#pausing-agents)          |
 | `agent.jobDeadline` / `agent.jobTTL`     | `1h` / `1h`                                                | `activeDeadlineSeconds` / `ttlSecondsAfterFinished`                                                                                                                                                                                                                                                                                                         |
 | `agent.resources.default`                | `{}`                                                       | CPU and memory on both containers of every agent Job without a class (Finding Jobs, intent plans, evaluation units): any of `requests.cpu`, `requests.memory`, `limits.cpu`, `limits.memory`, quoted or not. `{}` sets none, as before. Rolls the four controllers that launch agent Jobs                                                                   |
@@ -323,7 +323,7 @@ cover.
 
 ### Repository runner images
 
-`agent.repositoryImages` lets a watched repository name the image its claude agent runs in (`.patchy/agent.yaml`, or the
+`agent.repositoryImages` lets a watched repository name the image its claude agent runs in (`.maul/agent.yaml`, or the
 top-level `image` of `.devcontainer/devcontainer.json`), so the agent has that repository's toolchain;
 [Agent images](../integrations/agent-images.md) covers building one, and the
 [design](../design/repository-runner-images.md) covers resolution, signing and the threat model. source-controller pins
@@ -333,7 +333,7 @@ runner image without any change to the custom resources.
 
 | Key                                          | Default      | Purpose                                                                                                                                                      |
 | -------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `agent.repositoryImages.enabled`             | `false`      | The kill switch; `PATCHY_REPOSITORY_IMAGES` on the source, investigation and remediation controllers                                                         |
+| `agent.repositoryImages.enabled`             | `false`      | The kill switch; `MAUL_REPOSITORY_IMAGES` on the source, investigation and remediation controllers                                                           |
 | `agent.repositoryImages.registries`          | `[]`         | Registry path prefixes (`host/path/`) a declared image must sit under. **Required** when enabled; never a pull-through cache namespace                       |
 | `agent.repositoryImages.cosignPublicKey`     | `""`         | PEM public key declared images must be cosign-signed with, rendered into a ConfigMap and mounted into source-controller. **Required** unless `allowUnsigned` |
 | `agent.repositoryImages.allowUnsigned`       | `false`      | Admit unsigned images: an explicit opt-out of signature verification                                                                                         |
@@ -351,7 +351,7 @@ agent:
   repositoryImages:
     enabled: true
     registries:
-      - 123456789012.dkr.ecr.us-east-1.amazonaws.com/patchy/
+      - 123456789012.dkr.ecr.us-east-1.amazonaws.com/maul/
     cosignPublicKey: |
       -----BEGIN PUBLIC KEY-----
       ...
@@ -359,7 +359,7 @@ agent:
     ephemeralStorage: 8Gi
 ```
 
-The publishers `patchy init app` generates sign an application's agent image with an AWS KMS key once its
+The publishers `maul init app` generates sign an application's agent image with an AWS KMS key once its
 `AGENT_SIGNING_KEY` repository variable is set. `cosign public-key --key awskms:///<key ARN>` prints the key's public
 half for `cosignPublicKey`. Sign every application's image before you turn `allowUnsigned` off:
 [Onboarding an application](../intents/onboarding-app.md#signing-the-agent-image) has the steps.
@@ -389,9 +389,9 @@ endpoint under `mode: cilium`, so a Pod Identity association on the source-contr
 remains:
 
 ```sh
-# The ServiceAccount is <fullname>-source-controller: patchy-source-controller for a release named patchy.
+# The ServiceAccount is <fullname>-source-controller: maul-source-controller for a release named maul.
 aws eks create-pod-identity-association --cluster-name <cluster> --namespace <release namespace> \
-  --service-account patchy-source-controller --role-arn <role with ECR read on the allowlisted prefix>
+  --service-account maul-source-controller --role-arn <role with ECR read on the allowlisted prefix>
 ```
 
 IRSA works as well (annotate `sourceController.serviceAccount` with `eks.amazonaws.com/role-arn`). Artifact Registry
@@ -460,7 +460,7 @@ agent:
 | `egressProxy.limits.*`                  | binary defaults         | Concurrency, per-source rate and burst, queue wait, timeouts, zip cap; each renders only when set                                                                                     |
 | `egressProxy.attribution.enabled`       | `false`                 | Attribute source IPs to agent pods in the audit line; needs `apiServerCIDRs` (the API server's endpoint IPs, IPv4 `/32`s only)                                                        |
 | `egressProxy.networkPolicy.create`      | `true`                  | Must stay true while enabled: the per-profile ingress rules are the identity check                                                                                                    |
-| `egressProxy.config.extra`              | `{}`                    | Extra `PATCHY_*` keys for the proxy; the global `proxy` block never reaches it                                                                                                        |
+| `egressProxy.config.extra`              | `{}`                    | Extra `MAUL_*` keys for the proxy; the global `proxy` block never reaches it                                                                                                          |
 | `agent.networkProfiles.<name>`          | `{}`                    | One profile: `route` (`go` or `tunnel`), `port`, `host`, `repositories`, `modules`, `bakedModCache`, `allowPseudoVersions`, `registries`, `hosts`, `clients`, `upload`; at most eight |
 | `egressProxy.tunnel.*`                  | measured defaults       | The CONNECT tunnel's limits and `denyCIDRs`; rendered only while a profile lists `hosts`. See [Tunnel limits](../configuration/egress-proxy.md#tunnel-limits)                         |
 | `egressProxy.registries.<name>`         | `{}`                    | An upstream registry a profile can be granted (Go, npm, pip); see [Registries](../configuration/egress-proxy.md#registries)                                                           |
@@ -496,7 +496,7 @@ from its old in-pod key and a live check are in [The codex runner](../configurat
 # the RELEASE namespace. anthropicAuth: token sends a `claude setup-token`
 # OAuth token as a bearer instead.
 egressBroker:
-  anthropicSecret: patchy-anthropic # key: api-key
+  anthropicSecret: maul-anthropic # key: api-key
 
 # Amazon Bedrock: SigV4-signed with the broker's AWS identity (IRSA here).
 agent:
@@ -508,7 +508,7 @@ agent:
 egressBroker:
   serviceAccount:
     annotations:
-      eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/patchy-broker
+      eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/maul-broker
 
 # GCP Vertex AI: OAuth via GKE Workload Identity.
 agent:
@@ -521,7 +521,7 @@ agent:
 egressBroker:
   serviceAccount:
     annotations:
-      iam.gke.io/gcp-service-account: patchy-broker@my-project.iam.gserviceaccount.com
+      iam.gke.io/gcp-service-account: maul-broker@my-project.iam.gserviceaccount.com
 
 # Microsoft Foundry: deployment names cannot be derived, so the model map is
 # mandatory and validated at controller startup against the allowlist.
@@ -535,14 +535,14 @@ agent:
           anthropic/claude-sonnet-5: my-sonnet-deployment
           anthropic/claude-opus-5: my-opus-deployment
 egressBroker:
-  foundrySecret: patchy-foundry # omit for Entra via Azure Workload Identity
+  foundrySecret: maul-foundry # omit for Entra via Azure Workload Identity
 ```
 
 Scope the cloud role to Invoke only: `bedrock:InvokeModel*`, `aiplatform.endpoints.predict`, Cognitive Services User.
 
 !!! note "Migrating from a pre-broker release"
 
-    The claude model credential moves: it used to be `patchy-anthropic` in the **agent** namespace, wired into the pod;
+    The claude model credential moves: it used to be `maul-anthropic` in the **agent** namespace, wired into the pod;
     now the broker is its only consumer and it lives in the **release** namespace. Create the Secret in the release
     namespace, upgrade the chart (the broker lands), then delete the old Secret from the agent namespace. The
     `agent.runners.claude.secret*` values are ignored (a NOTES warning fires if they are still set); if the old
@@ -592,4 +592,4 @@ Jobs run under the same per-pod limits.
   so the Findings and the all-time FindingRollup statistics survive a reinstall.
 - Lint and render locally with `mise run helm-lint`.
 - Chart and images carry build-provenance attestations:
-  `gh attestation verify --owner devthenet-labs oci://ghcr.io/devthenet-labs/patchy/charts/patchy:X.Y.Z`.
+  `gh attestation verify --owner devthenet-labs oci://ghcr.io/devthenet-labs/maul/charts/maul:X.Y.Z`.

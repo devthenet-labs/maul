@@ -12,7 +12,7 @@ import (
 	"testing/quick"
 	"unicode"
 
-	"github.com/bitwise-media-group/patchy/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/envelope"
 )
 
 // validateChangesetAtMain is the Finding path's validator exactly as main
@@ -81,7 +81,7 @@ func (c findingCase) String() string {
 // genDenyPath is genPath biased toward the intent deny directories, in
 // every case, as themselves and as lookalikes.
 func genDenyPath(r *rand.Rand) string {
-	prefixes := []string{".patchy", ".PATCHY", ".devcontainer", ".DevContainer", ".github", ".patchy-docs", ".githubx"}
+	prefixes := []string{".maul", ".MAUL", ".devcontainer", ".DevContainer", ".github", ".maul-docs", ".githubx"}
 	p := genPath(r)
 	switch r.Intn(3) {
 	case 0:
@@ -153,18 +153,18 @@ func TestIntentRules(t *testing.T) {
 		wantErr string
 	}{
 		{"ordinary change", changesetOf("cmd/main.go", "internal/server/version.go"), ""},
-		{"lookalike directories are fine", changesetOf(".patchy-docs/x", ".githubx/y", "docs/.github/z",
+		{"lookalike directories are fine", changesetOf(".maul-docs/x", ".githubx/y", "docs/.github/z",
 			".devcontainers/w"), ""},
 		{"a workflow", changesetOf(".github/workflows/ci.yml"), "is under .github"},
 		{"anything under .github", changesetOf(".github/dependabot.yml"), "is under .github"},
 		{".github replaced", changesetOf(".github"), "is under .github"},
-		{"the agent image declaration", changesetOf(".patchy/agent.yaml"), "is under .patchy"},
-		{"the agent image recipe", changesetOf(".patchy/Dockerfile"), "is under .patchy"},
-		{".patchy replaced", changesetOf(".patchy"), "is under .patchy"},
+		{"the agent image declaration", changesetOf(".maul/agent.yaml"), "is under .maul"},
+		{"the agent image recipe", changesetOf(".maul/Dockerfile"), "is under .maul"},
+		{".maul replaced", changesetOf(".maul"), "is under .maul"},
 		{"the devcontainer declaration", changesetOf(".devcontainer/devcontainer.json"), "is under .devcontainer"},
 		{"case-folded", changesetOf(".DevContainer/Dockerfile"), "is under .devcontainer"},
-		{"a delete counts", &envelope.Changeset{BaseSHA: "abc123", Deletes: []string{".patchy/agent.yaml"}},
-			"is under .patchy"},
+		{"a delete counts", &envelope.Changeset{BaseSHA: "abc123", Deletes: []string{".maul/agent.yaml"}},
+			"is under .maul"},
 		{"a control character", changesetOf("a\tb"), "control character"},
 		{"the base", &envelope.Changeset{BaseSHA: "f00d"}, "is not the repository's pinned commit"},
 		{"path shape", changesetOf("../x"), `".." component`},
@@ -203,15 +203,15 @@ func TestIntentRules(t *testing.T) {
 func TestDenyAppliesWhicheverImage(t *testing.T) {
 	rules := IntentRules("abc123", 0)
 	rules.RepositoryImage = false
-	if err := Validate(changesetOf(".patchy/agent.yaml"), rules); err == nil ||
-		!strings.Contains(err.Error(), "is under .patchy") {
+	if err := Validate(changesetOf(".maul/agent.yaml"), rules); err == nil ||
+		!strings.Contains(err.Error(), "is under .maul") {
 		t.Errorf("Validate = %v, want the deny list applied without the repository-image rules", err)
 	}
 }
 
 // TestIntentDenyProperty: over generated paths, an intent's rules refuse
 // exactly what the Finding repository-image rules refuse plus the paths in
-// or replacing .github, .patchy or .devcontainer, in any case.
+// or replacing .github, .maul or .devcontainer, in any case.
 func TestIntentDenyProperty(t *testing.T) {
 	cfg := &quick.Config{
 		MaxCount: 5000,
@@ -222,7 +222,7 @@ func TestIntentDenyProperty(t *testing.T) {
 	}
 	denied := func(p string) bool {
 		first, _, _ := strings.Cut(strings.ToLower(p), "/")
-		return first == ".github" || first == ".patchy" || first == ".devcontainer"
+		return first == ".github" || first == ".maul" || first == ".devcontainer"
 	}
 	exact := func(p string) bool {
 		intent := Validate(changesetOf(p), IntentRules("abc123", 0)) == nil

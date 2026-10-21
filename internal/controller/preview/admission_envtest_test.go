@@ -21,7 +21,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
-	"github.com/bitwise-media-group/patchy/internal/kube"
+	"github.com/devthenet-labs/maul/internal/kube"
 )
 
 // TestRealPolicyDenialIsARefusal holds admissionRefused to what a real API
@@ -44,7 +44,7 @@ func TestRealPolicyDenialIsARefusal(t *testing.T) {
 		return &networkingv1.Ingress{
 			ObjectMeta: metav1.ObjectMeta{Name: "preview-demo-1", Namespace: ns, Annotations: annotations},
 			Spec: networkingv1.IngressSpec{IngressClassName: &class, Rules: []networkingv1.IngressRule{{
-				Host: "demo-1.preview.patchy.devthe.net",
+				Host: "demo-1.preview.maul.devthe.net",
 				IngressRuleValue: networkingv1.IngressRuleValue{HTTP: &networkingv1.HTTPIngressRuleValue{
 					Paths: []networkingv1.HTTPIngressPath{{Path: "/", PathType: &path,
 						Backend: networkingv1.IngressBackend{Service: &networkingv1.IngressServiceBackend{
@@ -58,9 +58,9 @@ func TestRealPolicyDenialIsARefusal(t *testing.T) {
 		name, want string
 		obj        *networkingv1.Ingress
 	}{
-		{"no sign-in", "preview sign-in is required", ing("patchy-preview-0", nil)},
+		{"no sign-in", "preview sign-in is required", ing("maul-preview-0", nil)},
 		// Either slot policy may name the denial; both say "pinned".
-		{"another slot's set", "pinned", ing("patchy-preview-1", slot0Set)},
+		{"another slot's set", "pinned", ing("maul-preview-1", slot0Set)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var err error
@@ -86,10 +86,10 @@ func TestRealPolicyDenialIsARefusal(t *testing.T) {
 	}
 	// The same Ingress with its slot's set is admitted: the denials above
 	// were the policies, not the object.
-	if err := c.Create(ctx, ing("patchy-preview-0", slot0Set), client.DryRunAll); err != nil {
+	if err := c.Create(ctx, ing("maul-preview-0", slot0Set), client.DryRunAll); err != nil {
 		t.Errorf("slot 0's set in slot 0 refused: %v", err)
 	}
-	if err := c.Get(ctx, client.ObjectKey{Namespace: "patchy-preview-0", Name: "absent"},
+	if err := c.Get(ctx, client.ObjectKey{Namespace: "maul-preview-0", Name: "absent"},
 		&networkingv1.Ingress{}); admissionRefused(err) {
 		t.Errorf("a NotFound read as a refusal: %v", err)
 	}
@@ -115,14 +115,14 @@ func startSignInPolicies(t *testing.T) (client.Client, map[string]string) {
 		t.Fatal(err)
 	}
 	ctx := t.Context()
-	for _, ns := range []string{"patchy-preview-0", "patchy-preview-1"} {
+	for _, ns := range []string{"maul-preview-0", "maul-preview-1"} {
 		if err := c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	const fixtures = "../../../hack/testdata/chart-render/"
-	out, err := exec.CommandContext(ctx, "helm", "template", "patchy", "../../../charts/patchy",
-		"--namespace", "patchy", "-f", fixtures+"preview-foundation.yaml", "-f", fixtures+"intent-controller.yaml",
+	out, err := exec.CommandContext(ctx, "helm", "template", "maul", "../../../charts/maul",
+		"--namespace", "maul", "-f", fixtures+"preview-foundation.yaml", "-f", fixtures+"intent-controller.yaml",
 		"-f", fixtures+"preview-controller.yaml", "-f", fixtures+"preview-auth.yaml",
 		"--set", "previewAuth.stage=require", "--set", "previewAuth.permitConfirmedGeneration=1",
 		"--show-only", "templates/preview-admission.yaml").Output()
@@ -139,8 +139,8 @@ func startSignInPolicies(t *testing.T) (client.Client, map[string]string) {
 		if u.GetKind() != "ValidatingAdmissionPolicy" && u.GetKind() != "ValidatingAdmissionPolicyBinding" {
 			continue
 		}
-		if u.GetName() == "patchy-preview-ingress-auth" {
-			slot0Set = firstSet(t, u, "patchy-preview-0")
+		if u.GetName() == "maul-preview-ingress-auth" {
+			slot0Set = firstSet(t, u, "maul-preview-0")
 		}
 		if err := c.Create(ctx, u); err != nil {
 			t.Fatalf("install %s %s: %v", u.GetKind(), u.GetName(), err)

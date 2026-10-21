@@ -23,20 +23,20 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/agentresult"
-	"github.com/bitwise-media-group/patchy/internal/changeset"
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/report"
-	"github.com/bitwise-media-group/patchy/internal/resourceclass"
-	"github.com/bitwise-media-group/patchy/internal/runnerguard"
-	"github.com/bitwise-media-group/patchy/internal/schedule"
-	"github.com/bitwise-media-group/patchy/internal/templates"
-	"github.com/bitwise-media-group/patchy/internal/transcriptstore"
-	"github.com/bitwise-media-group/patchy/internal/usagemeter"
-	"github.com/bitwise-media-group/patchy/internal/usagerollup"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/agentresult"
+	"github.com/devthenet-labs/maul/internal/changeset"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/report"
+	"github.com/devthenet-labs/maul/internal/resourceclass"
+	"github.com/devthenet-labs/maul/internal/runnerguard"
+	"github.com/devthenet-labs/maul/internal/schedule"
+	"github.com/devthenet-labs/maul/internal/templates"
+	"github.com/devthenet-labs/maul/internal/transcriptstore"
+	"github.com/devthenet-labs/maul/internal/usagemeter"
+	"github.com/devthenet-labs/maul/internal/usagerollup"
 )
 
 // runSchedulerRequest is the singleton request every run and Job event also
@@ -974,7 +974,7 @@ func buildProfile(g runnerguard.Guard, repoURL string) string {
 // envBuildProfiles hands a plan Job the network profile each build of its
 // plan would get (planBuildProfiles), which agent-runner states in the plan
 // prompt.
-const envBuildProfiles = "PATCHY_BUILD_NETWORK_PROFILES"
+const envBuildProfiles = "MAUL_BUILD_NETWORK_PROFILES"
 
 // planBuildProfiles is what a plan Job is told of its builds' network
 // profiles: for the planning repository and each tree it reads, the profile
@@ -1516,7 +1516,7 @@ func (r *RunReconciler) outsideProject(ctx context.Context, run *v1alpha1.Intent
 
 // collectBuild settles a build run from its remediation event: a build the
 // agent reports unbuilt fails; a changeset is validated against the intent
-// rules (the pinned base, path shape, and never .github, .patchy or
+// rules (the pinned base, path shape, and never .github, .maul or
 // .devcontainer) before any forge call, then pushed in two phases. A run
 // with no build event says why its agent stopped when the Job does (st).
 func (r *RunReconciler) collectBuild(ctx context.Context, run *v1alpha1.IntentRun, events []envelope.Event,
@@ -1744,7 +1744,7 @@ func (r *RunReconciler) advanceBranch(ctx context.Context, run *v1alpha1.IntentR
 	return r.settle(ctx, run, result{outcome: string(envelope.OutcomeOK), complete: true, keep: true})
 }
 
-// createBranch creates patchy-intent/<intent> at the recorded commit,
+// createBranch creates maul-intent/<intent> at the recorded commit,
 // create-only: an existing branch is adopted only when it already points at
 // that commit (a retry), and is otherwise branch_exists. Nothing is forced.
 func (r *RunReconciler) createBranch(ctx context.Context, run *v1alpha1.IntentRun) error {

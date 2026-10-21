@@ -16,9 +16,9 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/mod/module"
 
-	"github.com/bitwise-media-group/patchy/internal/cli"
-	"github.com/bitwise-media-group/patchy/internal/egressproxy"
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/cli"
+	"github.com/devthenet-labs/maul/internal/egressproxy"
+	"github.com/devthenet-labs/maul/internal/netprofile"
 )
 
 // errProbeFailed is a probe whose request did not end in a 200.
@@ -28,7 +28,7 @@ func newProbeCmd(opts *cli.Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "probe --registry <name> [--package <package>]",
 		Short: "Send one request through a registry route from inside the proxy pod",
-		Long: "probe builds the engine from the same configuration serve uses (flags and PATCHY_* variables), " +
+		Long: "probe builds the engine from the same configuration serve uses (flags and MAUL_* variables), " +
 			"loads or mints the registry's credential itself, and sends one request for the package (the " +
 			"registry's healthPackage when --package is not given) through the first profile granting the " +
 			"registry. It prints the outcome, the statuses and the credential's kind, never a credential or a " +

@@ -132,7 +132,7 @@ type ModelCredentialStatus struct {
 // ModelCredentialSecretName and labelled with the owner hash; nobody reads
 // it back but the egress broker. Both names derive from the owner and the
 // provider, so there is at most one per (person, provider). It is outside the
-// patchy category on purpose: whose credential exists is visible only to
+// maul category on purpose: whose credential exists is visible only to
 // its owner and to admins.
 type ModelCredential struct {
 	metav1.TypeMeta   `json:",inline"`

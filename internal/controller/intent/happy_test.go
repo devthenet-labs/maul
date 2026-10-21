@@ -12,9 +12,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/templates"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // TestHappyPath drives one intent from its trigger to its merge: planned
@@ -32,7 +32,7 @@ func TestHappyPath(t *testing.T) {
 	checkPlanPosted(t, e, in)
 
 	e.clock.Advance(time.Minute)
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in = e.drive(name, v1alpha1.IntentInReview, repoImage)
 	checkBuildLaunch(t, e, in)
 	checkPush(t, e, in)
@@ -89,12 +89,12 @@ func checkPlanPosted(t *testing.T, e *env, in *v1alpha1.Intent) {
 		pl.PostedAt == nil {
 		t.Fatalf("plan = %+v", pl)
 	}
-	posted := e.gh.withMarker("patchy:plan")
+	posted := e.gh.withMarker("maul:plan")
 	if len(posted) != 1 || !strings.Contains(posted[0].Body, validPlan) ||
 		digest([]byte(posted[0].Body)) != pl.CommentDigest {
 		t.Fatalf("plan comments = %d, want one holding the plan verbatim", len(posted))
 	}
-	if st := e.gh.withMarker("patchy:intent"); len(st) != 1 {
+	if st := e.gh.withMarker("maul:intent"); len(st) != 1 {
 		t.Errorf("status comments = %d, want exactly one", len(st))
 	}
 }
@@ -119,21 +119,21 @@ func checkBuildLaunch(t *testing.T, e *env, in *v1alpha1.Intent) {
 	}
 }
 
-// checkPush: one commit with patchy's own message on the pinned base, the
+// checkPush: one commit with maul's own message on the pinned base, the
 // intent branch at it, and the pull request, which says "Part of" and closes
 // nothing.
 func checkPush(t *testing.T, e *env, in *v1alpha1.Intent) {
 	t.Helper()
 	if len(e.gh.commits) != 1 || strings.Contains(e.gh.commits[0].Message, "agent's message") ||
-		!strings.Contains(e.gh.commits[0].Message, "Patchy-Intent: patchy/"+in.Name) ||
+		!strings.Contains(e.gh.commits[0].Message, "Maul-Intent: maul/"+in.Name) ||
 		e.gh.commits[0].BaseSHA != baseSHA {
 		t.Errorf("commits = %+v", e.gh.commits)
 	}
-	if sha := e.gh.branches["patchy-intent/"+in.Name]; sha == "" {
-		t.Errorf("branch patchy-intent/%s not created", in.Name)
+	if sha := e.gh.branches["maul-intent/"+in.Name]; sha == "" {
+		t.Errorf("branch maul-intent/%s not created", in.Name)
 	}
 	if len(in.Status.PullRequests) != 1 || in.Status.PullRequests[0].NodeID != "PR_1" ||
-		in.Status.Branch != "patchy-intent/"+in.Name {
+		in.Status.Branch != "maul-intent/"+in.Name {
 		t.Fatalf("pull requests = %+v", in.Status.PullRequests)
 	}
 	if body := e.gh.prs[1].body; !strings.HasPrefix(body, "Part of acme/intents#1") ||

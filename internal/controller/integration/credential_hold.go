@@ -9,15 +9,15 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/attribution"
-	"github.com/bitwise-media-group/patchy/internal/credgate"
-	"github.com/bitwise-media-group/patchy/internal/templates"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/attribution"
+	"github.com/devthenet-labs/maul/internal/credgate"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // AnnotationProjectedCredentialHold is the hash of the last projected
 // credential-hold sticky comment, "" while none was ever owed.
-const AnnotationProjectedCredentialHold = "patchy.bitwisemedia.uk/projected-credential-hold"
+const AnnotationProjectedCredentialHold = "maul.run/projected-credential-hold"
 
 // projectCredentialHold keeps the credential-hold sticky comment current
 // (per-user credentials design, L3 "Fallback"): while remediation-
@@ -25,7 +25,7 @@ const AnnotationProjectedCredentialHold = "patchy.bitwisemedia.uk/projected-cred
 // credential (CredentialRequired True, under enforce only), one comment
 // names the approver and links the Account page; once the hold lifts it is
 // edited to say so. A finding never held gets no comment and no write. The
-// comment is rendered from patchy's own facts (the person held,
+// comment is rendered from maul's own facts (the person held,
 // status.credentialHold, else the approval's login; the provider,
 // status.credentialHoldProvider; the condition's reason; --account-url),
 // never from the condition's message. The person held, not

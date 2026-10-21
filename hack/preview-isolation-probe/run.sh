@@ -31,10 +31,10 @@ Each option falls back to the environment variable named beside it.
                                 preview.nodeIsolation.taintKey)
   --node-pool <name>            PROBE_NODE_POOL: the preview NodePool (the
                                 chart's preview.nodeIsolation.nodePool;
-                                default patchy-preview)
+                                default maul-preview)
   --node-class <name>           PROBE_NODE_CLASS: the preview NodeClass (the
                                 chart's preview.nodeIsolation.nodeClass;
-                                default patchy-preview)
+                                default maul-preview)
   --dry-run                     check every value and print the site the run
                                 would probe, then exit before gh, aws or
                                 kubectl is called
@@ -55,8 +55,8 @@ fail() {
 repo=${PROBE_REPOSITORY:-}
 image=${PROBE_IMAGE:-}
 taint_key=${PROBE_TAINT_KEY:-}
-node_pool=${PROBE_NODE_POOL:-patchy-preview}
-node_class=${PROBE_NODE_CLASS:-patchy-preview}
+node_pool=${PROBE_NODE_POOL:-maul-preview}
+node_class=${PROBE_NODE_CLASS:-maul-preview}
 dry_run=0
 pr_number=
 while [[ $# -gt 0 ]]; do
@@ -123,7 +123,7 @@ image:       $registry/$image_repo:sha-<PR head SHA>
 taint key:   $taint_key
 node pool:   $node_pool
 node class:  $node_class
-assumed:     release patchy in namespace patchy; slots patchy-preview-0 and patchy-preview-1
+assumed:     release maul in namespace maul; slots maul-preview-0 and maul-preview-1
 dry run: nothing was called
 EOF
     exit 0
@@ -141,9 +141,9 @@ cleanup() {
     if [[ $created -eq 1 ]]; then
         for slot in 0 1; do
             for name in "$deployment" "$sibling" "$other"; do
-                kubectl delete deployment "$name" -n "patchy-preview-$slot" --ignore-not-found --wait=true >&2 || true
+                kubectl delete deployment "$name" -n "maul-preview-$slot" --ignore-not-found --wait=true >&2 || true
             done
-            kubectl delete service "$sibling" -n "patchy-preview-$slot" --ignore-not-found --wait=true >&2 || true
+            kubectl delete service "$sibling" -n "maul-preview-$slot" --ignore-not-found --wait=true >&2 || true
         done
     fi
 }
@@ -178,7 +178,7 @@ if ! kubectl get nodeclass "$node_class" -o json | jq -e '.spec.networkPolicy ==
     exit 1
 fi
 for slot in 0 1; do
-    ns="patchy-preview-$slot"
+    ns="maul-preview-$slot"
     kubectl get networkpolicy preview-isolation -n "$ns" >/dev/null
     for name in "$deployment" "$sibling" "$other"; do
         if kubectl get deployment "$name" -n "$ns" >/dev/null 2>&1; then
@@ -192,10 +192,10 @@ service_ip() {
     kubectl get service "$2" -n "$1" -o jsonpath='{.spec.clusterIP}'
 }
 api_ip=$(service_ip default kubernetes)
-broker_ip=$(service_ip patchy patchy-egress-broker)
-integration_ip=$(service_ip patchy patchy-integration-controller)
-source_ip=$(service_ip patchy patchy-source-controller)
-status_ip=$(service_ip patchy patchy-status-server)
+broker_ip=$(service_ip maul maul-egress-broker)
+integration_ip=$(service_ip maul maul-integration-controller)
+source_ip=$(service_ip maul maul-source-controller)
+status_ip=$(service_ip maul maul-status-server)
 for ip in "$api_ip" "$broker_ip" "$integration_ip" "$source_ip" "$status_ip"; do
     if [[ ! $ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
         echo "could not discover every forbidden service ClusterIP" >&2
@@ -283,7 +283,7 @@ EOF
 # require every one of its TARGETS (default 8) to be blocked on all 16
 # attempts, and DNS to work. The cold-start runs call it on an empty pool.
 run_slot() {
-    local slot=$1 extra_env=${2:-} targets=${3:-8} ns="patchy-preview-$1" pod logs summary tries=0 blocked
+    local slot=$1 extra_env=${2:-} targets=${3:-8} ns="maul-preview-$1" pod logs summary tries=0 blocked
     blocked=$((targets * 16))
     echo "Starting Deployment-managed probe in $ns ($targets forbidden targets)" >&2
     create_probe "$ns" "$deployment" "$extra_env"
@@ -346,13 +346,13 @@ pod_ip() {
 # the three runs before it check a cold start.
 run_siblings() {
     local sibling_ip service_ip other_ip extra_env
-    echo "Starting sibling targets in patchy-preview-0 and patchy-preview-1" >&2
-    create_probe patchy-preview-0 "$sibling"
-    create_probe patchy-preview-1 "$other"
-    kubectl create -n patchy-preview-0 -f "$probe_dir/sibling-service.yaml"
-    sibling_ip=$(pod_ip patchy-preview-0 "$sibling")
-    other_ip=$(pod_ip patchy-preview-1 "$other")
-    service_ip=$(service_ip patchy-preview-0 "$sibling")
+    echo "Starting sibling targets in maul-preview-0 and maul-preview-1" >&2
+    create_probe maul-preview-0 "$sibling"
+    create_probe maul-preview-1 "$other"
+    kubectl create -n maul-preview-0 -f "$probe_dir/sibling-service.yaml"
+    sibling_ip=$(pod_ip maul-preview-0 "$sibling")
+    other_ip=$(pod_ip maul-preview-1 "$other")
+    service_ip=$(service_ip maul-preview-0 "$sibling")
     if [[ ! $service_ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
         echo "could not discover the sibling Service ClusterIP" >&2
         exit 1
@@ -361,9 +361,9 @@ run_siblings() {
             - {name: PROBE_SIBLING_SERVICE, value: \"$service_ip\"}
             - {name: PROBE_OTHER_SLOT_POD, value: \"$other_ip\"}"
     run_slot 0 "$extra_env" 11
-    kubectl delete deployment "$sibling" -n patchy-preview-0 --wait=true >&2
-    kubectl delete service "$sibling" -n patchy-preview-0 --wait=true >&2
-    kubectl delete deployment "$other" -n patchy-preview-1 --wait=true >&2
+    kubectl delete deployment "$sibling" -n maul-preview-0 --wait=true >&2
+    kubectl delete service "$sibling" -n maul-preview-0 --wait=true >&2
+    kubectl delete deployment "$other" -n maul-preview-1 --wait=true >&2
     created=0
     wait_zero
 }

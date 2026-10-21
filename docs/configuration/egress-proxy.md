@@ -25,7 +25,7 @@ and a Job gets a profile only when all of these hold:
 - it is a Finding's remediate Job, or an Intent's build, revise or check-fix Job;
 - it runs the repository's **accepted** repository-declared image;
 - its repository matches exactly one profile's `host` and `repositories` patterns. The patterns are RE2 and matched
-  **anchored** against the lowercased `owner/name`, so `devthenet-labs/patchy` does not match
+  **anchored** against the lowercased `owner/name`, so `devthenet-labs/maul` does not match
   `devthenet-labs/patchy-target`. A repository that matches two profiles gets none.
 
 Investigate, plan and evaluation Jobs, and every Job on the default runner image, never get a profile. The Helm chart is
@@ -35,7 +35,7 @@ the only way to deploy it; there is no kustomize component (see [Kustomize](../d
 
 ```text
 profile agent pod (repository image)            egress-proxy (release ns)                   upstream
-  label patchy.bitwisemedia.uk/network-go=true   listener :8090 serves profile go only
+  label maul.run/network-go=true   listener :8090 serves profile go only
   GOPROXY=http://…-egress-proxy…:8090/go,        1. method, body, path grammar
           file:///opt/go/pkg/mod/cache/download  2. module prefix allowlist, tagged-release  proxy.golang.org
   GOSUMDB=sum.golang.org                            version gate                             sum.golang.org
@@ -85,12 +85,12 @@ set, so neither the image's `ENV` nor its `$GOROOT/go.env` can change them:
 | --------------------------------------------------- | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `GOPROXY`                                           | `http://<proxy>:<port>/go,file://<bakedModCache>/cache/download` | Proxy **first**, so `go get -u` and `@latest` see current versions; a refused module falls through to the image's baked module cache, so what the image holds still builds. No `direct`, no `off`. The `file://` entry is omitted when `bakedModCache` is empty |
 | `GOSUMDB`                                           | `sum.golang.org`                                                 | The checksum database is reached through the proxy (`/sumdb/`); this also overrides an image's `GOSUMDB=off`                                                                                                                                                    |
-| `GONOSUMDB`, `GONOPROXY`, `GOPRIVATE`, `GOINSECURE` | `patchy.invalid`                                                 | Non-empty and matching no module. An empty value falls through to `$GOROOT/go.env`, which the image controls, so a line such as `GOPRIVATE=*` there would otherwise win                                                                                         |
+| `GONOSUMDB`, `GONOPROXY`, `GOPRIVATE`, `GOINSECURE` | `maul.invalid`                                                   | Non-empty and matching no module. An empty value falls through to `$GOROOT/go.env`, which the image controls, so a line such as `GOPRIVATE=*` there would otherwise win                                                                                         |
 | `GOENV`                                             | `off`                                                            | The user go env file is never read                                                                                                                                                                                                                              |
 | `GOAUTH`                                            | `off`                                                            | No credential helper runs                                                                                                                                                                                                                                       |
 | `GOTOOLCHAIN`                                       | `local`                                                          | Never download a toolchain                                                                                                                                                                                                                                      |
 | `GOPATH`, `GOMODCACHE`                              | `/tmp/go`, `/tmp/go/pkg/mod`                                     | The checksum database state lives under `$GOPATH/pkg/sumdb` and must be writable; the baked cache is on the read-only root                                                                                                                                      |
-| `PATCHY_NETWORK_PROFILE`                            | the profile name                                                 | Tells the agent runner to describe the route in the prompt                                                                                                                                                                                                      |
+| `MAUL_NETWORK_PROFILE`                              | the profile name                                                 | Tells the agent runner to describe the route in the prompt                                                                                                                                                                                                      |
 
 `GOFLAGS` is left to the image (the scaffold sets `-mod=mod`); no go flag can turn off checksum verification.
 `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` and `ALL_PROXY` stay reserved and blank: the route is a GOPROXY URL, not a proxy
@@ -121,7 +121,7 @@ without a profile read the baked cache in place.
 
 `egressProxy.suspendProfiles: true` pulls two levers at once:
 
-- **Next Job.** Both job controllers apply no profile from their next Job on (`PATCHY_NETWORK_PROFILES_ENABLED=false`).
+- **Next Job.** Both job controllers apply no profile from their next Job on (`MAUL_NETWORK_PROFILES_ENABLED=false`).
 - **Immediate.** The proxy rolls (its `checksum/config` changes) and answers every profile request `410 suspended`, so
   Jobs already running can fetch nothing new from the moment the new proxy pods are Ready. Modules baked into the image
   still build.
@@ -131,59 +131,59 @@ the new pods being Ready, the old ones still serve. `egressProxy.enabled: false`
 
 ## Flags
 
-As everywhere, each flag is also the matching `PATCHY_*` environment variable. The chart renders the proxy's ConfigMap
+As everywhere, each flag is also the matching `MAUL_*` environment variable. The chart renders the proxy's ConfigMap
 from its own values, never from the global `proxy` block: a corporate HTTPS proxy for the egress proxy's own upstream
 traffic is **not supported**.
 
-| Flag                                 | Default                            | Purpose                                                                                       |
-| ------------------------------------ | ---------------------------------- | --------------------------------------------------------------------------------------------- |
-| `--registries`                       | —                                  | The registries as the chart renders them (a JSON array); empty: no registry route             |
-| `--network-profiles`                 | required                           | The profile set as the chart renders it (a JSON array); refused when empty or invalid         |
-| `--health-addr`                      | `:8081`                            | `/healthz` and `/readyz`; no profile may use its port                                         |
-| `--go-proxy-upstream`                | `https://proxy.golang.org`         | Module proxy every go route forwards to (https only)                                          |
-| `--go-sumdb-upstream`                | `https://sum.golang.org`           | Checksum database every sumdb route forwards to (https only)                                  |
-| `--deny-cidrs`                       | —                                  | CIDRs never dialled, beside the built-in private, link-local and reserved ranges              |
-| `--max-concurrent`                   | `128`                              | Requests in flight across every source                                                        |
-| `--max-concurrent-per-source`        | `32`                               | Requests in flight from one source IP                                                         |
-| `--requests-per-second-per-source`   | `100`                              | Request rate of one source IP                                                                 |
-| `--burst-per-source`                 | `200`                              | Request burst of one source IP                                                                |
-| `--limit-wait`                       | `30s`                              | How long a request queues for the limits above before a 503                                   |
-| `--request-timeout`                  | `10m`                              | Bound on one whole request, the body stream included                                          |
-| `--upstream-header-timeout`          | `2m`                               | Bound on the wait for an upstream's response headers                                          |
-| `--max-zip-bytes`                    | `524288000`                        | Largest module zip passed through                                                             |
-| `--suspended`                        | `false`                            | Answer every profile request `410 suspended` (the immediate lever)                            |
-| `--attribute-pods`                   | `false`                            | Attribute source IPs to agent pods in the audit line (best-effort; needs read access to pods) |
-| `--agent-namespace`                  | `patchy-agents`                    | Namespace of the agent pods attributed                                                        |
-| `--kubeconfig`                       | in-cluster                         | Kubeconfig for attribution                                                                    |
-| `--registry-credentials-dir`         | `/etc/patchy/registry-credentials` | The mounted static credentials: `<registry>/token`, or `<registry>/username` and `password`   |
-| `--registry-ca-dir`                  | `/etc/patchy/registry-ca`          | The registries' CA bundles, `<registry>.pem`                                                  |
-| `--max-artifact-bytes`               | `536870912`                        | Largest npm tarball, pip file or Go zip on a registry route, unless the registry sets its own |
-| `--credential-poll-interval`         | `30s`                              | How often the mounted credentials are re-read (at least `5s`)                                 |
-| `--always-deny-cidrs`                | —                                  | CIDRs never dialled even when an internal registry lists them                                 |
-| `--deny-hosts`                       | —                                  | Hosts no registry, file host or redirect hop may be, each with every name below it            |
-| `--tunnel-max-concurrent`            | `512`                              | Open CONNECT tunnels across every source                                                      |
-| `--tunnel-max-concurrent-per-source` | `64`                               | Open tunnels from one source IP                                                               |
-| `--tunnel-rate-per-source`           | `50`                               | New tunnels per second from one source IP                                                     |
-| `--tunnel-burst-per-source`          | `200`                              | New-tunnel burst of one source IP                                                             |
-| `--tunnel-limit-wait`                | `10s`                              | How long a CONNECT queues for the tunnel limits before a 503                                  |
-| `--tunnel-dial-timeout`              | `10s`                              | Bound on a tunnel's resolve and connect                                                       |
-| `--tunnel-hello-timeout`             | `10s`                              | Bound on the wait from the 200 to a complete TLS ClientHello                                  |
-| `--tunnel-idle-timeout`              | `2m`                               | A tunnel with no byte either way for this long is closed                                      |
-| `--tunnel-max-duration`              | `30m`                              | Absolute lifetime of one tunnel                                                               |
-| `--tunnel-max-upload-bytes`          | `1048576`                          | Client-to-upstream bytes on one tunnel (a profile's `upload.perTunnel` wins)                  |
-| `--tunnel-max-download-bytes`        | `2147483648`                       | Upstream-to-client bytes on one tunnel                                                        |
-| `--tunnel-source-upload-budget`      | `8388608`                          | Upload bytes of one source IP on one profile per window (a profile's `upload.perSource` wins) |
-| `--tunnel-source-download-budget`    | `8589934592`                       | Download bytes of one source IP on one profile per window                                     |
-| `--tunnel-source-budget-idle`        | `2h`                               | A source's budget entry expires this long after its last tunnel closed                        |
-| `--tunnel-min-budget-idle`           | `2h`                               | Floor of the window above (the longest Job deadline); startup refuses less                    |
-| `--tunnel-max-sources`               | `4096`                             | Budget-table entries per profile; full refuses a new source, never evicts                     |
-| `--tunnel-progress-interval`         | `5m`                               | Period of an open tunnel's progress line; `0` turns it off                                    |
-| `--tunnel-deny-cidrs`                | —                                  | CIDRs only the tunnel never dials (the Kubernetes API server's addresses)                     |
+| Flag                                 | Default                          | Purpose                                                                                       |
+| ------------------------------------ | -------------------------------- | --------------------------------------------------------------------------------------------- |
+| `--registries`                       | —                                | The registries as the chart renders them (a JSON array); empty: no registry route             |
+| `--network-profiles`                 | required                         | The profile set as the chart renders it (a JSON array); refused when empty or invalid         |
+| `--health-addr`                      | `:8081`                          | `/healthz` and `/readyz`; no profile may use its port                                         |
+| `--go-proxy-upstream`                | `https://proxy.golang.org`       | Module proxy every go route forwards to (https only)                                          |
+| `--go-sumdb-upstream`                | `https://sum.golang.org`         | Checksum database every sumdb route forwards to (https only)                                  |
+| `--deny-cidrs`                       | —                                | CIDRs never dialled, beside the built-in private, link-local and reserved ranges              |
+| `--max-concurrent`                   | `128`                            | Requests in flight across every source                                                        |
+| `--max-concurrent-per-source`        | `32`                             | Requests in flight from one source IP                                                         |
+| `--requests-per-second-per-source`   | `100`                            | Request rate of one source IP                                                                 |
+| `--burst-per-source`                 | `200`                            | Request burst of one source IP                                                                |
+| `--limit-wait`                       | `30s`                            | How long a request queues for the limits above before a 503                                   |
+| `--request-timeout`                  | `10m`                            | Bound on one whole request, the body stream included                                          |
+| `--upstream-header-timeout`          | `2m`                             | Bound on the wait for an upstream's response headers                                          |
+| `--max-zip-bytes`                    | `524288000`                      | Largest module zip passed through                                                             |
+| `--suspended`                        | `false`                          | Answer every profile request `410 suspended` (the immediate lever)                            |
+| `--attribute-pods`                   | `false`                          | Attribute source IPs to agent pods in the audit line (best-effort; needs read access to pods) |
+| `--agent-namespace`                  | `maul-agents`                    | Namespace of the agent pods attributed                                                        |
+| `--kubeconfig`                       | in-cluster                       | Kubeconfig for attribution                                                                    |
+| `--registry-credentials-dir`         | `/etc/maul/registry-credentials` | The mounted static credentials: `<registry>/token`, or `<registry>/username` and `password`   |
+| `--registry-ca-dir`                  | `/etc/maul/registry-ca`          | The registries' CA bundles, `<registry>.pem`                                                  |
+| `--max-artifact-bytes`               | `536870912`                      | Largest npm tarball, pip file or Go zip on a registry route, unless the registry sets its own |
+| `--credential-poll-interval`         | `30s`                            | How often the mounted credentials are re-read (at least `5s`)                                 |
+| `--always-deny-cidrs`                | —                                | CIDRs never dialled even when an internal registry lists them                                 |
+| `--deny-hosts`                       | —                                | Hosts no registry, file host or redirect hop may be, each with every name below it            |
+| `--tunnel-max-concurrent`            | `512`                            | Open CONNECT tunnels across every source                                                      |
+| `--tunnel-max-concurrent-per-source` | `64`                             | Open tunnels from one source IP                                                               |
+| `--tunnel-rate-per-source`           | `50`                             | New tunnels per second from one source IP                                                     |
+| `--tunnel-burst-per-source`          | `200`                            | New-tunnel burst of one source IP                                                             |
+| `--tunnel-limit-wait`                | `10s`                            | How long a CONNECT queues for the tunnel limits before a 503                                  |
+| `--tunnel-dial-timeout`              | `10s`                            | Bound on a tunnel's resolve and connect                                                       |
+| `--tunnel-hello-timeout`             | `10s`                            | Bound on the wait from the 200 to a complete TLS ClientHello                                  |
+| `--tunnel-idle-timeout`              | `2m`                             | A tunnel with no byte either way for this long is closed                                      |
+| `--tunnel-max-duration`              | `30m`                            | Absolute lifetime of one tunnel                                                               |
+| `--tunnel-max-upload-bytes`          | `1048576`                        | Client-to-upstream bytes on one tunnel (a profile's `upload.perTunnel` wins)                  |
+| `--tunnel-max-download-bytes`        | `2147483648`                     | Upstream-to-client bytes on one tunnel                                                        |
+| `--tunnel-source-upload-budget`      | `8388608`                        | Upload bytes of one source IP on one profile per window (a profile's `upload.perSource` wins) |
+| `--tunnel-source-download-budget`    | `8589934592`                     | Download bytes of one source IP on one profile per window                                     |
+| `--tunnel-source-budget-idle`        | `2h`                             | A source's budget entry expires this long after its last tunnel closed                        |
+| `--tunnel-min-budget-idle`           | `2h`                             | Floor of the window above (the longest Job deadline); startup refuses less                    |
+| `--tunnel-max-sources`               | `4096`                           | Budget-table entries per profile; full refuses a new source, never evicts                     |
+| `--tunnel-progress-interval`         | `5m`                             | Period of an open tunnel's progress line; `0` turns it off                                    |
+| `--tunnel-deny-cidrs`                | —                                | CIDRs only the tunnel never dials (the Kubernetes API server's addresses)                     |
 
 The chart sets `--deny-cidrs` to `agent.networkPolicy.clusterCIDRs` plus `clusterDNSCIDR`. Each `egressProxy.limits`
 value renders only when set; 0 or empty keeps the default above. With registries configured it also sets `--registries`
-(as `PATCHY_EGRESS_REGISTRIES`; the binary also reads `PATCHY_REGISTRIES`), `--deny-hosts` to the hosts of the egress
-broker's base-URL overrides (`PATCHY_{ANTHROPIC,BEDROCK,VERTEX,FOUNDRY}_BASE_URL` in `config.extra` or
+(as `MAUL_EGRESS_REGISTRIES`; the binary also reads `MAUL_REGISTRIES`), `--deny-hosts` to the hosts of the egress
+broker's base-URL overrides (`MAUL_{ANTHROPIC,BEDROCK,VERTEX,FOUNDRY}_BASE_URL` in `config.extra` or
 `egressBroker.config.extra`) and, when a registry is `internal`, `--always-deny-cidrs` to `clusterDNSCIDR` plus the
 attribution `apiServerCIDRs`. The Kubernetes API's Service address (`KUBERNETES_SERVICE_HOST`, which kubelet injects
 into every container) is always denied too.
@@ -192,7 +192,7 @@ The `--tunnel-*` flags bound the CONNECT tunnel a profile with `hosts` serves on
 `egressProxy.tunnel` only while some profile lists hosts; with none they change nothing. See
 [Tunnel limits](#tunnel-limits).
 
-The chart stamps the proxy's `PATCHY_LOG_LEVEL` from `egressProxy.config.logLevel`, or else the shared `config.logLevel`
+The chart stamps the proxy's `MAUL_LOG_LEVEL` from `egressProxy.config.logLevel`, or else the shared `config.logLevel`
 but never quieter than `info`: the audit and credential lines below are written at `info`, so at the chart's default
 `warn` they would all be dropped.
 
@@ -217,7 +217,7 @@ egressProxy:
     art-npm:
       ecosystem: npm
       url: https://acme.jfrog.io/artifactory/api/npm/npm-virtual/
-      auth: { type: bearer, secretName: patchy-registry-art }
+      auth: { type: bearer, secretName: maul-registry-art }
     ca-pypi:
       ecosystem: pypi
       url: https://patchy-gate-377946145366.d.codeartifact.us-east-1.amazonaws.com/pypi/pypi-store/simple/
@@ -344,7 +344,7 @@ value non-empty, on profile Jobs only. `U` is the profile's proxy URL.
 | Ecosystem | Variable                                                            | Value                                                                                       |
 | --------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | go        | `GOPROXY`                                                           | `U/r/<registry>`, then `U/go` with `route: go`, then the baked cache; no `direct`, no `off` |
-| go        | `GONOSUMDB`                                                         | the registry's `privateModules`, comma-joined, or `patchy.invalid`                          |
+| go        | `GONOSUMDB`                                                         | the registry's `privateModules`, comma-joined, or `maul.invalid`                            |
 | npm       | `NPM_CONFIG_REGISTRY`                                               | `U/r/<registry>/` (the environment beats every `.npmrc`)                                    |
 | npm       | `NPM_CONFIG_REPLACE_REGISTRY_HOST`                                  | `always`                                                                                    |
 | npm       | `NPM_CONFIG_AUDIT`, `NPM_CONFIG_FUND`, `NPM_CONFIG_UPDATE_NOTIFIER` | `false`                                                                                     |
@@ -357,9 +357,9 @@ value non-empty, on profile Jobs only. `U` is the profile's proxy URL.
 | pypi      | `PIP_ONLY_BINARY`                                                   | `:all:`, or `:none:` when the grant sets `sdists`                                           |
 | pypi      | `PIP_NO_INPUT`, `PIP_DISABLE_PIP_VERSION_CHECK`, `PIP_CACHE_DIR`    | `1`, `1`, `/tmp/pip-cache`                                                                  |
 
-`PATCHY_NETWORK_ECOSYSTEMS` and `PATCHY_NETWORK_GRANTS` tell the agent runner which ecosystems the run can fetch and
-under what policy, for the prompt. Each Job's changeset is refused, before any forge call, if any file's path or content
-names the proxy's in-cluster host: lockfiles and configuration must keep the registry's canonical URLs.
+`MAUL_NETWORK_ECOSYSTEMS` and `MAUL_NETWORK_GRANTS` tell the agent runner which ecosystems the run can fetch and under
+what policy, for the prompt. Each Job's changeset is refused, before any forge call, if any file's path or content names
+the proxy's in-cluster host: lockfiles and configuration must keep the registry's canonical URLs.
 
 **With `scripts: true`** install scripts run with no network but the proxy. `node-gyp` downloads Node headers from
 `nodejs.org` and `prebuild-install` fetches binaries from GitHub releases; neither is reachable. Such a grant works only
@@ -395,11 +395,11 @@ credential (`502 credential_echo` on a match).
 Secrets; the chart never creates it, and the install NOTES list the ones it expects:
 
 ```sh
-kubectl -n patchy create secret generic patchy-registry-art --from-literal=token="$ARTIFACTORY_TOKEN"
-kubectl -n patchy create secret generic patchy-registry-nexus --from-literal=username=patchy --from-literal=password="$NEXUS_TOKEN"
+kubectl -n maul create secret generic maul-registry-art --from-literal=token="$ARTIFACTORY_TOKEN"
+kubectl -n maul create secret generic maul-registry-nexus --from-literal=username=maul --from-literal=password="$NEXUS_TOKEN"
 ```
 
-The chart projects each Secret's needed keys into the proxy alone, at `/etc/patchy/registry-credentials/<registry>/`,
+The chart projects each Secret's needed keys into the proxy alone, at `/etc/maul/registry-credentials/<registry>/`,
 read-only and mode `0440` (readable through the pod's group). No other pod mounts them and no ServiceAccount gains a
 Secret read. A missing Secret holds a new proxy pod in `ContainerCreating`, loudly, while the surge-only rollout keeps
 the old pods serving. Give the proxy a token that can read **only** the repository it names: the grammar keeps requests
@@ -414,12 +414,12 @@ over 8 KiB, or holds a control character (or a `:` in a username) is refused and
 1. create the new token at the registry;
 2. update the Secret (first command below);
 3. wait until **every** proxy pod logs `credential_reloaded` for the registry (second command below), or
-   `patchy.egress_proxy.credential.refreshes{result=reloaded}` counts it;
+   `maul.egress_proxy.credential.refreshes{result=reloaded}` counts it;
 4. then revoke the old token.
 
 ```sh
-kubectl -n patchy create secret generic patchy-registry-art --from-literal=token="$NEW" --dry-run=client -o yaml | kubectl apply -f -
-kubectl -n patchy logs -l app.kubernetes.io/name=egress-proxy --prefix --tail=-1 --since=10m --max-log-requests=10 | grep credential_reloaded
+kubectl -n maul create secret generic maul-registry-art --from-literal=token="$NEW" --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n maul logs -l app.kubernetes.io/name=egress-proxy --prefix --tail=-1 --since=10m --max-log-requests=10 | grep credential_reloaded
 ```
 
 An upstream `401` makes the proxy re-read at once (at most once per poll interval). A plain `403` does not: it is what
@@ -434,14 +434,14 @@ lines and a failing `probe`.
 `auth.type: codeartifact` needs no Secret: the proxy mints the authorization token with its own AWS identity, set by
 `egressProxy.cloudCredentials` (the chart refuses a CodeArtifact registry while it is `none`):
 
-- **`podIdentity`**: create an EKS Pod Identity association for the `patchy-egress-proxy` ServiceAccount in the release
+- **`podIdentity`**: create an EKS Pod Identity association for the `maul-egress-proxy` ServiceAccount in the release
   namespace. The chart adds egress to the node-local Pod Identity agent (`169.254.170.23:80`; under mode `cilium` a
   `CiliumNetworkPolicy` to the `host` entity, as for the egress broker). The proxy's dialer admits that address for the
   credential call alone, never for a forwarded request.
 
   ```sh
-  aws eks create-pod-identity-association --cluster-name <cluster> --namespace patchy \
-    --service-account patchy-egress-proxy --role-arn arn:aws:iam::<account>:role/patchy-egress-proxy
+  aws eks create-pod-identity-association --cluster-name <cluster> --namespace maul \
+    --service-account maul-egress-proxy --role-arn arn:aws:iam::<account>:role/maul-egress-proxy
   ```
 
 - **`irsa`**: set `egressProxy.serviceAccount.annotations` to `eks.amazonaws.com/role-arn: <role ARN>` (the chart
@@ -498,7 +498,7 @@ egressProxy:
     nexus-pypi:
       ecosystem: pypi
       url: https://nexus.tools.svc.cluster.local:8443/repository/pypi-all/simple/
-      auth: { type: basic, secretName: patchy-registry-nexus }
+      auth: { type: basic, secretName: maul-registry-nexus }
       ca: { configMap: corp-root-ca, key: ca.crt }
       internal:
         cidrs: [10.100.12.34/32] # the Service's ClusterIP
@@ -516,7 +516,7 @@ egressProxy:
   on 8443 that targets 8081 needs `targetPort: 8081`; the `cidrs` rule stays on the URL port, which is what the dialer
   dials.
 - `ca`: a ConfigMap in the release namespace; the registry then trusts only that bundle, never the system roots. It is
-  read at startup, so after editing it roll the proxy: `kubectl -n patchy rollout restart deploy/patchy-egress-proxy`.
+  read at startup, so after editing it roll the proxy: `kubectl -n maul rollout restart deploy/maul-egress-proxy`.
 
 ### Redirects and file hosts
 
@@ -532,9 +532,9 @@ denied host. `fileHosts` entries are exact hosts only, since the agent chooses t
 pattern are checked against a deny list: forges (`github.com`, `githubusercontent.com`, each profile's `host`), model
 APIs (`anthropic.com`, `openai.com`, the Azure, Bedrock and Vertex endpoints, and the egress broker's base-URL
 overrides), the Kubernetes API and, without `internal`, in-cluster names and IP literals. A redirect hop is checked
-again at request time. A GitHub Enterprise host known only as a `Forge` resource (in `patchy-config`) is invisible to
-the chart and the proxy: the job controllers check every grant's hosts against every Forge at launch and refuse the
-profile (the run settles as `launch_refused`, naming the host).
+again at request time. A GitHub Enterprise host known only as a `Forge` resource (in `maul-config`) is invisible to the
+chart and the proxy: the job controllers check every grant's hosts against every Forge at launch and refuse the profile
+(the run settles as `launch_refused`, naming the host).
 
 ### What the chart refuses
 
@@ -671,8 +671,8 @@ replacing anything the image or the controller configuration set. `P` is the pro
 | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `HTTPS_PROXY`, `https_proxy` | `P`                                                                                                                                                                                    |
 | `NO_PROXY`, `no_proxy`       | `N`: every in-cluster endpoint the pod dials (the artifact server, the broker's routes, the proxy itself, IP literals kept), `localhost`, `127.0.0.1`, `::1`, `.svc`, `.cluster.local` |
-| `PATCHY_NETWORK_ROUTES`      | `tunnel`, or `go,tunnel`                                                                                                                                                               |
-| `PATCHY_NETWORK_HOSTS`       | the hosts, sorted, for the agent's prompt                                                                                                                                              |
+| `MAUL_NETWORK_ROUTES`        | `tunnel`, or `go,tunnel`                                                                                                                                                               |
+| `MAUL_NETWORK_HOSTS`         | the hosts, sorted, for the agent's prompt                                                                                                                                              |
 
 `HTTP_PROXY`, `http_proxy`, `ALL_PROXY` and `all_proxy` stay blank, so plain http goes direct and the NetworkPolicy
 drops it. `NO_PROXY` is load-bearing: Claude Code sends all its traffic to the first proxy variable set unless
@@ -812,9 +812,9 @@ Lines to expect, which are not an attack:
 - `hard_denied` for `api.anthropic.com` would be the claude CLI's feature checks; with the broker's environment
   (`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`) the live fixtures saw none.
 
-Metrics: `patchy.egress_proxy.tunnels` (by `profile`, `outcome` and `host`, the host only when it is listed, so the
-cardinality is bounded), `patchy.egress_proxy.tunnel_bytes` (by `profile`, `host`, `direction`) and
-`patchy.egress_proxy.tunnels_open` (by `profile`), with telemetry configured.
+Metrics: `maul.egress_proxy.tunnels` (by `profile`, `outcome` and `host`, the host only when it is listed, so the
+cardinality is bounded), `maul.egress_proxy.tunnel_bytes` (by `profile`, `host`, `direction`) and
+`maul.egress_proxy.tunnels_open` (by `profile`), with telemetry configured.
 
 ### Debugging a refused host
 
@@ -869,7 +869,7 @@ profile never ends `dependency_refused`. The phrases are read by `netprofile.Pol
 pinned to what the proxy writes by `TestPolicyRefusalsPinnedToTheWire` in `internal/egressproxy`, which drives the proxy
 to each refusal.
 
-The `refused` lines are the agent's word, and an agent can be steered by the repository it builds, so patchy never tells
+The `refused` lines are the agent's word, and an agent can be steered by the repository it builds, so maul never tells
 you to add a host on that word alone. A `<host> is not in profile <p>'s hosts` line counts only when the proxy could
 have written it for that run: it names the profile the run's Job carried, that profile has tunnel hosts and does not
 already list the host, and the host is not one the proxy never tunnels (a forge, model API, control-plane, in-cluster or
@@ -883,7 +883,7 @@ than the proxy's line, so that prompt does not ask for `refused`, and such a bui
 (see [Debugging without a log sink](#debugging-without-a-log-sink)):
 
 ```sh
-kubectl -n patchy logs -l app.kubernetes.io/name=egress-proxy --prefix --tail=-1 --since=2h --max-log-requests=10 | grep 'route=tunnel' | grep -v 'outcome=tunnelled'
+kubectl -n maul logs -l app.kubernetes.io/name=egress-proxy --prefix --tail=-1 --since=2h --max-log-requests=10 | grep 'route=tunnel' | grep -v 'outcome=tunnelled'
 ```
 
 ### Version skew
@@ -936,13 +936,13 @@ kind.
 asked of the proxy, refused, and then served from the image's cache. Those lines are the fall-through working, not an
 attack.
 
-Metrics: `patchy.egress_proxy.requests` (by `profile`, `route`, `outcome`, plus `ecosystem` and `registry` on registry
-routes), `patchy.egress_proxy.bytes` (by `profile`, `route`), `patchy.egress_proxy.inflight` (by `profile`),
-`patchy.egress_proxy.credential.refreshes` (by `registry`, `kind`, `result`), `patchy.egress_proxy.credential.expiry`
-(seconds until a CodeArtifact token expires, by `registry`) and `patchy.egress_proxy.index.links` (by `registry`,
-`result` `rewritten` or `dropped`). They are exported only with telemetry configured. The proxy's NetworkPolicy allows
-only public 443 out, so an OTLP endpoint in the cluster also needs an `egressProxy.networkPolicy.extraEgress` rule; a
-hosted collector on public 443 needs none.
+Metrics: `maul.egress_proxy.requests` (by `profile`, `route`, `outcome`, plus `ecosystem` and `registry` on registry
+routes), `maul.egress_proxy.bytes` (by `profile`, `route`), `maul.egress_proxy.inflight` (by `profile`),
+`maul.egress_proxy.credential.refreshes` (by `registry`, `kind`, `result`), `maul.egress_proxy.credential.expiry`
+(seconds until a CodeArtifact token expires, by `registry`) and `maul.egress_proxy.index.links` (by `registry`, `result`
+`rewritten` or `dropped`). They are exported only with telemetry configured. The proxy's NetworkPolicy allows only
+public 443 out, so an OTLP endpoint in the cluster also needs an `egressProxy.networkPolicy.extraEgress` rule; a hosted
+collector on public 443 needs none.
 
 ## Debugging without a log sink
 
@@ -950,13 +950,13 @@ Everything below works on a cluster that ships no container logs anywhere, with 
 without a sink is long history, not the recent past.
 
 **Why did this fetch fail?** Look at the run first. Go `410` and npm `403` bodies name the rule, and npm and the go
-command print them, so they are in the run's transcript, which the status page's run panel and `patchy describe` show.
-pip never prints a body, so for pip the proxy's audit line is the answer.
+command print them, so they are in the run's transcript, which the status page's run panel and `maul describe` show. pip
+never prints a body, so for pip the proxy's audit line is the answer.
 
 **Which requests did the proxy refuse or forward?** Every request is one audit line:
 
 ```sh
-kubectl -n patchy logs -l app.kubernetes.io/name=egress-proxy --prefix --tail=-1 --since=2h --max-log-requests=10 | grep -E 'outcome=(not_allowed|not_granted|prerelease|registry_refused|upstream_auth|credential_|redirect_refused|denied_host|private_module|checksum_not_public)'
+kubectl -n maul logs -l app.kubernetes.io/name=egress-proxy --prefix --tail=-1 --since=2h --max-log-requests=10 | grep -E 'outcome=(not_allowed|not_granted|prerelease|registry_refused|upstream_auth|credential_|redirect_refused|denied_host|private_module|checksum_not_public)'
 ```
 
 `--tail=-1` matters: with a label selector kubectl shows only the last **10** lines per pod by default. `--prefix` names
@@ -966,8 +966,8 @@ shared `config.logLevel` (see [Flags](#flags)).
 **Is the credential working, and when does it expire?**
 
 ```sh
-kubectl -n patchy logs -l app.kubernetes.io/name=egress-proxy --prefix --tail=-1 --max-log-requests=10 | grep -E 'msg=(credential_|"registry configured")'
-kubectl -n patchy exec deploy/patchy-egress-proxy -- /usr/local/bin/controller probe --registry ca-pypi --package six
+kubectl -n maul logs -l app.kubernetes.io/name=egress-proxy --prefix --tail=-1 --max-log-requests=10 | grep -E 'msg=(credential_|"registry configured")'
+kubectl -n maul exec deploy/maul-egress-proxy -- /usr/local/bin/controller probe --registry ca-pypi --package six
 ```
 
 `probe` runs inside a proxy pod (the image is distroless: there is no shell, and the binary is
@@ -990,10 +990,10 @@ replaced (a config roll, a `suspendProfiles` flip, a node drain, an upgrade), an
 To keep a whole investigation, stream for its duration, starting before the run and restarting after any roll:
 
 ```sh
-kubectl -n patchy logs -f -l app.kubernetes.io/name=egress-proxy --prefix --tail=-1 --max-log-requests=10 > proxy-$(date +%s).log &
+kubectl -n maul logs -f -l app.kubernetes.io/name=egress-proxy --prefix --tail=-1 --max-log-requests=10 > proxy-$(date +%s).log &
 ```
 
-If history ever matters, run a log shipper outside the patchy chart (a Fluent Bit DaemonSet, or the EKS observability
+If history ever matters, run a log shipper outside the maul chart (a Fluent Bit DaemonSet, or the EKS observability
 add-on); it is cluster-level and changes nothing in this chart.
 
 ## Troubleshooting
@@ -1017,7 +1017,7 @@ add-on); it is cluster-level and changes nothing in this chart.
   `fileHosts`, or their links broke the file grammar: look for `dropped_links` above 0 on the page's audit line.
 - **`410 … checksum_not_public` from the go command.** See [Go registries](#go-registries).
 - **The proxy pods stay in `ContainerCreating`.** A registry's Secret (or a `ca` ConfigMap) is missing in the release
-  namespace: `kubectl -n patchy describe pod -l app.kubernetes.io/name=egress-proxy` names it.
+  namespace: `kubectl -n maul describe pod -l app.kubernetes.io/name=egress-proxy` names it.
 - **An intent run ended `dependency_refused` after one attempt.** Its agent quoted the proxy's policy refusal; the run's
   `status.detail` says what to change (see [Debugging a refused host](#debugging-a-refused-host)). Confirm the refusal
   on the proxy's audit line before widening a profile, then apply the trigger label again.

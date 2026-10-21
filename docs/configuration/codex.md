@@ -22,10 +22,10 @@ tokens are not.
 ## Turning it on
 
 1. Create the OpenAI API key Secret in the **release** namespace, beside the Anthropic key. Give the key a hard spend
-   cap in the OpenAI Platform, and prefer a project key (`sk-proj-…`) for patchy alone:
+   cap in the OpenAI Platform, and prefer a project key (`sk-proj-…`) for maul alone:
 
    ```sh
-   kubectl -n patchy create secret generic patchy-openai --from-literal=api-key="$OPENAI_API_KEY"
+   kubectl -n maul create secret generic maul-openai --from-literal=api-key="$OPENAI_API_KEY"
    ```
 
 2. Point the broker at it, enable the runner, and allow the OpenAI models the investigation may choose:
@@ -34,7 +34,7 @@ tokens are not.
    egressBroker:
      openai:
        apiKey:
-         secret: patchy-openai
+         secret: maul-openai
          key: api-key
    agent:
      runners:
@@ -51,19 +51,18 @@ tokens are not.
    and `broadEgress: never`. It needs no hosts, DNS patterns or FQDN policies of its own.
 
 The chart refuses the render when a codex runner is enabled without `egressBroker.openai.apiKey`. With kustomize, mount
-the Secret into `patchy-egress-broker` at `/etc/patchy/openai`, set
-`PATCHY_OPENAI_API_KEY_FILE: /etc/patchy/openai/api-key`, and add `codex` to `PATCHY_HARNESSES`
-(`deploy/kustomize/base/secrets.example.yaml`, 2b, and `configmap.yaml`).
+the Secret into `maul-egress-broker` at `/etc/maul/openai`, set `MAUL_OPENAI_API_KEY_FILE: /etc/maul/openai/api-key`,
+and add `codex` to `MAUL_HARNESSES` (`deploy/kustomize/base/secrets.example.yaml`, 2b, and `configmap.yaml`).
 
 To turn codex off again, set `enabled: false`. The openai route can stay; with no codex runner nothing uses it.
 
 ## Migrating from the in-pod key
 
-Codex used to run with the org OpenAI key inside the agent pod: a `patchy-openai` Secret in the **agent** namespace,
-named by `agent.runners.codex.secret`, `secretKey` and `secretEnv` (controller flags `--codex-secret`,
-`--codex-secret-key`, `--codex-secret-env`), plus `hosts` and `dnsPatterns` for its egress. The agent, and anything the
-agent ran, could read that key. That path is removed. There is no silent translation, because the Secret changes
-namespace and the old one was readable by agent pods.
+Codex used to run with the org OpenAI key inside the agent pod: a `maul-openai` Secret in the **agent** namespace, named
+by `agent.runners.codex.secret`, `secretKey` and `secretEnv` (controller flags `--codex-secret`, `--codex-secret-key`,
+`--codex-secret-env`), plus `hosts` and `dnsPatterns` for its egress. The agent, and anything the agent ran, could read
+that key. That path is removed. There is no silent translation, because the Secret changes namespace and the old one was
+readable by agent pods.
 
 While codex is enabled on any fleet, setting any of the old keys fails the render, naming these steps (a leftover flag
 fails the controller's startup the same way):
@@ -71,11 +70,11 @@ fails the controller's startup the same way):
 1. Create the OpenAI API key Secret in the **release** namespace (above).
 2. Set `egressBroker.openai.apiKey.secret` (and `.key`) to it.
 3. Remove `agent.runners.codex.secret`, `secretKey`, `secretEnv`, `hosts` and `dnsPatterns` (kustomize: the
-   `PATCHY_CODEX_SECRET*` keys).
+   `MAUL_CODEX_SECRET*` keys).
 4. After the upgrade, delete the old Secret from the agent namespace:
 
    ```sh
-   kubectl -n patchy-agents delete secret patchy-openai
+   kubectl -n maul-agents delete secret maul-openai
    ```
 
 While codex is enabled nowhere, the old keys are ignored, so an install that copied the old defaults renders as before.
@@ -85,7 +84,7 @@ The old codex path most likely never authenticated anyway: the pinned codex CLI 
 ## Intents on codex
 
 With `intentController.codex.enabled: true`, a Project chooses codex for its intents with `spec.harness` (here in the
-patchy-config chart's `projects`; see [Projects](intent-controller.md#projects)):
+maul-config chart's `projects`; see [Projects](intent-controller.md#projects)):
 
 ```yaml
 projects:
@@ -146,14 +145,14 @@ back, with the values in your usual shape:
    `costPerPod`).
 2. Enable `agent.runners.codex` and add `openai/gpt-5.3-codex` to `agent.modelAllowlist`. Keep the rest of your posture
    as is (`agent.networkPolicy.dns: none` included).
-3. Record the rollback point (`helm list -n patchy`, `helm history`) and review a render diff of the old and new values
+3. Record the rollback point (`helm list -n maul`, `helm history`) and review a render diff of the old and new values
    (`helm diff upgrade`, or `helm template` twice and `diff`).
 4. Run a fresh Finding on a test repository whose remediation runs an OpenAI model (set `agent.remediate.model` to
    `openai/gpt-5.3-codex` for the check). Then confirm:
    - the codex Job's pod has no Secret-backed env and no resolver
-     (`timeout 30 kubectl -n patchy-agents get pod <pod> -o yaml`);
+     (`timeout 30 kubectl -n maul-agents get pod <pod> -o yaml`);
    - the broker's audit line shows `route=openai`, the model and its tokens
-     (`timeout 30 kubectl -n patchy logs deploy/patchy-egress-broker | grep route=openai`);
+     (`timeout 30 kubectl -n maul logs deploy/maul-egress-broker | grep route=openai`);
    - the Remediation's `status.usage` is `measured`, and the Usage page shows trusted figures for it;
    - the pull request opens.
 5. Under `egressBroker.userCredentials.mode: enforce`:
@@ -162,4 +161,4 @@ back, with the values in your usual shape:
    - storing the key there releases it, and the broker's audit line carries the person and their key's fingerprint;
    - deleting the key fails their next request closed (`credential_missing`), within a minute.
 6. A claude Finding still goes green.
-7. If anything fails, roll back (`helm rollback patchy <revision>`) and keep the broker's and the Job's logs.
+7. If anything fails, roll back (`helm rollback maul <revision>`) and keep the broker's and the Job's logs.

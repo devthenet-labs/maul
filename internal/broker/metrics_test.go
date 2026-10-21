@@ -80,16 +80,16 @@ func TestMetrics(t *testing.T) {
 		want  int64
 	}
 	probes := []probe{
-		{"patchy.broker.requests", map[string]string{"route": "foundry", "outcome": "proxied"}, 2},
-		{"patchy.broker.requests", map[string]string{"route": "foundry", "outcome": "preauth_token"}, 1},
-		{"patchy.broker.requests", map[string]string{"route": "foundry", "outcome": "surface"}, 1},
-		{"patchy.broker.preauth.rejections", map[string]string{"reason": "token_shape"}, 1},
-		{"patchy.broker.tokens", map[string]string{"route": "foundry", "class": "input"}, 200},
-		{"patchy.broker.tokens", map[string]string{"route": "foundry", "class": "cache_creation"}, 20},
-		{"patchy.broker.tokens", map[string]string{"route": "foundry", "class": "cache_read"}, 40},
-		{"patchy.broker.tokens", map[string]string{"route": "foundry", "class": "output"}, 10},
-		{"patchy.broker.cost", map[string]string{"route": "foundry", "class": "observed"}, 2 * observed},
-		{"patchy.broker.cost", map[string]string{"route": "foundry", "class": "estimated"}, 0},
+		{"maul.broker.requests", map[string]string{"route": "foundry", "outcome": "proxied"}, 2},
+		{"maul.broker.requests", map[string]string{"route": "foundry", "outcome": "preauth_token"}, 1},
+		{"maul.broker.requests", map[string]string{"route": "foundry", "outcome": "surface"}, 1},
+		{"maul.broker.preauth.rejections", map[string]string{"reason": "token_shape"}, 1},
+		{"maul.broker.tokens", map[string]string{"route": "foundry", "class": "input"}, 200},
+		{"maul.broker.tokens", map[string]string{"route": "foundry", "class": "cache_creation"}, 20},
+		{"maul.broker.tokens", map[string]string{"route": "foundry", "class": "cache_read"}, 40},
+		{"maul.broker.tokens", map[string]string{"route": "foundry", "class": "output"}, 10},
+		{"maul.broker.cost", map[string]string{"route": "foundry", "class": "observed"}, 2 * observed},
+		{"maul.broker.cost", map[string]string{"route": "foundry", "class": "estimated"}, 0},
 	}
 	before := make([]int64, len(probes))
 	for i, p := range probes {
@@ -131,15 +131,15 @@ func TestCostMetricCutStream(t *testing.T) {
 
 	observedAttrs := map[string]string{"route": "anthropic", "class": "observed"}
 	estimatedAttrs := map[string]string{"route": "anthropic", "class": "estimated"}
-	beforeObserved := counter(t, "patchy.broker.cost", observedAttrs)
-	beforeEstimated := counter(t, "patchy.broker.cost", estimatedAttrs)
-	beforeTokens := counter(t, "patchy.broker.tokens", estimatedAttrs)
+	beforeObserved := counter(t, "maul.broker.cost", observedAttrs)
+	beforeEstimated := counter(t, "maul.broker.cost", estimatedAttrs)
+	beforeTokens := counter(t, "maul.broker.tokens", estimatedAttrs)
 
 	if rec := post(h, "/anthropic/v1/messages", `{"model":"m","max_tokens":10}`); rec.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
 	}
 
-	estimatedTokens := counter(t, "patchy.broker.tokens", estimatedAttrs) - beforeTokens
+	estimatedTokens := counter(t, "maul.broker.tokens", estimatedAttrs) - beforeTokens
 	if estimatedTokens <= 0 {
 		t.Fatalf("cut stream estimated %d tokens, want > 0", estimatedTokens)
 	}
@@ -148,10 +148,10 @@ func TestCostMetricCutStream(t *testing.T) {
 	if wantEstimated <= 0 {
 		t.Fatalf("estimated cost of %d tokens = %d micro-USD, want > 0", estimatedTokens, wantEstimated)
 	}
-	if got := counter(t, "patchy.broker.cost", observedAttrs) - beforeObserved; got != wantObserved {
+	if got := counter(t, "maul.broker.cost", observedAttrs) - beforeObserved; got != wantObserved {
 		t.Errorf("observed cost grew by %d, want %d", got, wantObserved)
 	}
-	if got := counter(t, "patchy.broker.cost", estimatedAttrs) - beforeEstimated; got != wantEstimated {
+	if got := counter(t, "maul.broker.cost", estimatedAttrs) - beforeEstimated; got != wantEstimated {
 		t.Errorf("estimated cost grew by %d, want %d", got, wantEstimated)
 	}
 }

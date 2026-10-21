@@ -12,8 +12,8 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 
-	"github.com/bitwise-media-group/patchy/internal/mirror/semverpick"
-	"github.com/bitwise-media-group/patchy/internal/mirror/spec"
+	"github.com/devthenet-labs/maul/internal/mirror/semverpick"
+	"github.com/devthenet-labs/maul/internal/mirror/spec"
 )
 
 // UpdatePlan is the read-only answer to "what would upgrade do": one group

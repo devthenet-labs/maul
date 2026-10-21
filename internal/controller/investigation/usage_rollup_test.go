@@ -13,10 +13,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/attribution"
-	"github.com/bitwise-media-group/patchy/internal/stats"
-	"github.com/bitwise-media-group/patchy/internal/usagerollup"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/attribution"
+	"github.com/devthenet-labs/maul/internal/stats"
+	"github.com/devthenet-labs/maul/internal/usagerollup"
 )
 
 // TestRollUpInvestigationUsage: a settled, attributed investigation is folded
@@ -45,8 +45,8 @@ func TestRollUpInvestigationUsage(t *testing.T) {
 				inv.Finalizers = usagerollup.Finalizers(inv.Spec.AttributedTo, v1alpha1.FinalizerJobs)
 			}
 			r, c := newInvestigation(t, runner, fnd, inv)
-			r.Usage = usagerollup.New(c, c, "patchy", false, nil)
-			key := types.NamespacedName{Namespace: "patchy", Name: inv.Name}
+			r.Usage = usagerollup.New(c, c, "maul", false, nil)
+			key := types.NamespacedName{Namespace: "maul", Name: inv.Name}
 			if tc.deleted {
 				var cur v1alpha1.Investigation
 				if err := c.Get(t.Context(), key, &cur); err != nil {
@@ -60,7 +60,7 @@ func TestRollUpInvestigationUsage(t *testing.T) {
 			reconcileInvestigation(t, r) // a second pass changes nothing
 
 			var rollup v1alpha1.UsageRollup
-			err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy",
+			err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul",
 				Name: stats.UsageObjectName(orgScope)}, &rollup)
 			if tc.wantRuns == 0 {
 				if err == nil {
@@ -109,19 +109,19 @@ func TestInvestigationBucketedByCompletion(t *testing.T) {
 	inv.Finalizers = usagerollup.Finalizers(inv.Spec.AttributedTo, v1alpha1.FinalizerJobs)
 	runner := &fakeRunner{done: true, events: investigationEvent("remediate", 0.9, false)}
 	r, c := newInvestigation(t, runner, objs...)
-	r.Usage = usagerollup.New(c, c, "patchy", false, nil)
+	r.Usage = usagerollup.New(c, c, "maul", false, nil)
 	reconcileInvestigation(t, r)
 	reconcileInvestigation(t, r)
 
 	var got v1alpha1.Investigation
-	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: inv.Name}, &got); err != nil {
+	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: inv.Name}, &got); err != nil {
 		t.Fatal(err)
 	}
 	if got.Status.Stage == nil || got.Status.Stage.FinishedAt == nil || !got.Status.Stage.FinishedAt.Time.Equal(clock) {
 		t.Fatalf("stage = %+v, want finishedAt %v", got.Status.Stage, clock)
 	}
 	var rollup v1alpha1.UsageRollup
-	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy",
+	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul",
 		Name: stats.UsageObjectName(v1alpha1.UsageScope{Type: v1alpha1.UsageScopeUser, User: "org"})}, &rollup); err != nil {
 		t.Fatalf("org rollup: %v", err)
 	}

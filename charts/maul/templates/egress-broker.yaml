@@ -1,0 +1,556 @@
+# Copyright 2026 Bitwise Media Group Ltd.
+# SPDX-License-Identifier: MIT
+#
+# The egress credential broker, in one file (modeled on status-server.yaml):
+# the reverse proxy all claude model traffic goes through. Deploys exactly
+# when a claude runner is enabled — brokered is the only mode claude has, so
+# claude ⇒ broker and fake-only dev/e2e renders none of this. Agent pods
+# authenticate with an audience-bound projected ServiceAccount token; the
+# broker validates it via TokenReview (its ONLY Kubernetes access — no Secret
+# API reads, no leases, no reconcilers) and injects or signs the model
+# credential outbound. The model credentials therefore live HERE, in the
+# release namespace, not in the agent sandbox.
+{{- include "maul.codexChecks" . }}
+{{- if include "maul.brokerEnabled" . }}
+{{- /* Not only claude: maul.brokerEnabled also deploys the broker for a
+codex runner, which runs proxy-only on the openai route and so needs
+egressBroker.openai.apiKey (maul.codexChecks). The claude provider's route
+renders only for claude, the openai (Responses) route only with that key. The egress rule below already
+opens TCP 443 to any address, api.openai.com included, so the openai route
+needs no rule of its own. */}}
+{{- /* The exceptions to TokenReview-only: with egressBroker.limits.unit
+cost the broker also gets pods in the agent namespace, for the budget
+annotation (the -budgets Role below); with egressBroker.userCredentials.mode
+attribute or enforce it reads its callers' pods, the ModelCredential records
+and the credential Secrets, and writes the records' health
+(user-credentials.yaml). */}}
+{{- $vals := .Values.egressBroker }}
+{{- $name := "egress-broker" }}
+{{- $claude := include "maul.claudeBrokered" . }}
+{{- $openai := include "maul.openaiRoute" . }}
+{{- $openaiKey := $vals.openai | default dict }}
+{{- $openaiKey = $openaiKey.apiKey | default dict }}
+{{- $provider := .Values.agent.runners.claude.provider | default dict }}
+{{- /* Without claude the broker fronts no claude provider. */}}
+{{- $providerName := "" }}
+{{- if $claude }}
+{{- $providerName = $provider.name | default "anthropic" }}
+{{- end }}
+{{- if and $claude (not (has $providerName (list "anthropic" "bedrock" "vertex" "foundry"))) }}
+{{- fail (printf "agent.runners.claude.provider.name: %q is not one of anthropic, bedrock, vertex, foundry" $providerName) }}
+{{- end }}
+{{- if $vals.serviceAccount.create }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+    name: {{ include "maul.serviceAccountName" (dict "root" . "name" $name "vals" $vals) }}
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+    {{- with include "maul.annotations" (dict "root" . "extra" $vals.serviceAccount.annotations) }}
+    annotations:
+        {{- . | nindent 8 }}
+    {{- end }}
+{{- end }}
+---
+{{- $data := dict
+    "MAUL_HEALTH_ADDR" ":8081"
+    "MAUL_LISTEN_ADDR" ":8080"
+    "MAUL_LOG_LEVEL" .Values.config.logLevel
+    "MAUL_AGENT_NAMESPACE" .Values.agent.namespace
+    "MAUL_AGENT_SERVICE_ACCOUNT" .Values.agent.serviceAccount
+    "MAUL_TOKEN_AUDIENCE" "maul-egress-broker"
+    "MAUL_SSE_PING_INTERVAL" $vals.ssePingInterval
+}}
+{{- if eq $providerName "anthropic" }}
+{{- if not (has $vals.anthropicAuth (list "key" "token")) }}
+{{- fail (printf "egressBroker.anthropicAuth: %q is not key or token" $vals.anthropicAuth) }}
+{{- end }}
+{{- $_ := set $data "MAUL_ANTHROPIC_API_KEY_FILE" "/etc/maul/anthropic/api-key" }}
+{{- $_ := set $data "MAUL_ANTHROPIC_AUTH" $vals.anthropicAuth }}
+{{- else if eq $providerName "bedrock" }}
+{{- $_ := set $data "MAUL_BEDROCK_REGION" (required "agent.runners.claude.provider.region is required for bedrock" $provider.region) }}
+{{- else if eq $providerName "vertex" }}
+{{- $_ := set $data "MAUL_VERTEX_REGION" (required "agent.runners.claude.provider.region is required for vertex" $provider.region) }}
+{{- $_ := set $data "MAUL_VERTEX_PROJECT" (required "agent.runners.claude.provider.projectID is required for vertex" $provider.projectID) }}
+{{- else if eq $providerName "foundry" }}
+{{- $_ := set $data "MAUL_FOUNDRY_RESOURCE" (required "agent.runners.claude.provider.resource is required for foundry" $provider.resource) }}
+{{- if $vals.foundrySecret }}
+{{- $_ := set $data "MAUL_FOUNDRY_AUTH" "key" }}
+{{- $_ := set $data "MAUL_FOUNDRY_API_KEY_FILE" "/etc/maul/foundry/api-key" }}
+{{- else }}
+{{- $_ := set $data "MAUL_FOUNDRY_AUTH" "entra" }}
+{{- end }}
+{{- end }}
+{{- /* The openai (Responses) route: its key Secret, in the release namespace
+like the Anthropic one, mounted as a file the broker reads per request. */}}
+{{- if $openai }}
+{{- $_ := set $data "MAUL_OPENAI_API_KEY_FILE" "/etc/maul/openai/api-key" }}
+{{- end }}
+{{- /*
+egressBroker.limits: each flag is rendered only when its value is set, so an
+unset block leaves the binary's own default (off, or the built-in value)
+and the rendered ConfigMap unchanged. The config.extra maps below still win.
+*/}}
+{{- $limits := $vals.limits | default dict }}
+{{- range $key, $env := dict
+    "requestsPerPod" "MAUL_REQUESTS_PER_POD"
+    "concurrentPerPod" "MAUL_CONCURRENT_PER_POD"
+    "concurrencyWait" "MAUL_CONCURRENCY_WAIT"
+    "tokensPerPod" "MAUL_TOKENS_PER_POD"
+    "tokensPerHour" "MAUL_TOKENS_PER_HOUR"
+    "maxTokensCeiling" "MAUL_MAX_TOKENS_CEILING"
+    "maxAnthropicRequestBytes" "MAUL_MAX_ANTHROPIC_REQUEST_BYTES"
+    "maxRequestBytes" "MAUL_MAX_REQUEST_BYTES"
+    "preauthRequestsPerSecond" "MAUL_PREAUTH_REQUESTS_PER_SECOND"
+    "preauthBurst" "MAUL_PREAUTH_BURST"
+    "tokenReviewsPerSecond" "MAUL_TOKEN_REVIEWS_PER_SECOND"
+}}
+{{- with index $limits $key }}
+{{- $_ := set $data $env . }}
+{{- end }}
+{{- end }}
+{{- /*
+The limit unit (large-features limits design, LF1): tokens, the default,
+renders nothing; cost renders the unit and the micro-USD limits, which the
+token unit refuses rather than silently ignores.
+*/}}
+{{- $unit := $limits.unit | default "tokens" }}
+{{- if not (has $unit (list "tokens" "cost")) }}
+{{- fail (printf "egressBroker.limits.unit: %q is not tokens or cost" $unit) }}
+{{- end }}
+{{- if eq $unit "cost" }}
+{{- if not $limits.costPerPod }}
+{{- fail "egressBroker.limits.unit cost needs egressBroker.limits.costPerPod, the cap a pod without a budget annotation falls back to" }}
+{{- end }}
+{{- $_ := set $data "MAUL_LIMIT_UNIT" "cost" }}
+{{- $_ := set $data "MAUL_COST_PER_POD" $limits.costPerPod }}
+{{- with $limits.costPerHour }}
+{{- $_ := set $data "MAUL_COST_PER_HOUR" . }}
+{{- end }}
+{{- else if or $limits.costPerPod $limits.costPerHour }}
+{{- fail "egressBroker.limits.costPerPod and costPerHour need egressBroker.limits.unit cost" }}
+{{- end }}
+{{- /*
+Trusted usage (design L2): the usage endpoint on its own port, answering the
+run controllers' ServiceAccounts only, rendered only while
+maul.usageMeasured (attribution.mode attribute). The Deployment stays at one
+replica: the usage figures depend on one ledger seeing all of a pod's traffic.
+*/}}
+{{- if include "maul.usageMeasured" . }}
+{{- $_ := set $data "MAUL_USAGE_ADDR" ":8082" }}
+{{- $_ := set $data "MAUL_USAGE_CALLERS" (include "maul.usageCallers" .) }}
+{{- end }}
+{{- /*
+Per-user model credentials (design L3): rendered only while
+egressBroker.userCredentials.mode is not off, which user-credentials.yaml
+holds to its guards (attribution on, the anthropic provider, its own
+namespace, the subscription guard) and gives the grants the broker reads
+with. Off renders nothing here, so the broker keeps its default: off.
+*/}}
+{{- if include "maul.userCredentialsOn" . }}
+{{- $uc := $vals.userCredentials }}
+{{- $_ := set $data "MAUL_USER_CREDENTIALS" $uc.mode }}
+{{- $_ := set $data "MAUL_CREDENTIAL_RECORDS_NAMESPACE" .Release.Namespace }}
+{{- $_ := set $data "MAUL_CREDENTIALS_NAMESPACE" ($uc.namespace | default "maul-credentials") }}
+{{- with $uc.orgCredentialIsPersonal }}
+{{- $_ := set $data "MAUL_ORG_CREDENTIAL_IS_PERSONAL" . }}
+{{- end }}
+{{- end }}
+{{- with $limits.modelAllowlist }}
+{{- $_ := set $data "MAUL_MODEL_ALLOWLIST" (join "," .) }}
+{{- end }}
+{{- with $limits.betaDenylist }}
+{{- $_ := set $data "MAUL_BETA_DENYLIST" (join "," .) }}
+{{- end }}
+{{- range $k, $v := .Values.config.extra }}
+{{- $_ := set $data $k $v }}
+{{- end }}
+{{- range $k, $v := $vals.config.extra }}
+{{- $_ := set $data $k $v }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+    name: {{ include "maul.configMapName" (dict "root" . "name" $name) }}
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+    {{- with include "maul.annotations" (dict "root" .) }}
+    annotations:
+        {{- . | nindent 8 }}
+    {{- end }}
+data:
+    {{- range $k, $v := $data }}
+    {{- /* Integral floats render as integers, as in configmap.yaml: a large
+           values.yaml number (tokensPerHour: 10000000) otherwise renders as
+           "1e+07", which the broker's integer flags reject. */ -}}
+    {{- $s := $v | toString }}
+    {{- if and (kindIs "float64" $v) (eq $v (floor $v)) }}
+    {{- $s = int64 $v | toString }}
+    {{- end }}
+    {{ $k }}: {{ $s | quote }}
+    {{- end }}
+---
+# TokenReview is cluster-scoped, so the one grant needs a ClusterRole.
+# Review-only: the power to ask "whose token is this?", nothing else — no
+# Secret access, no writes, no other resource of any kind.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+    name: {{ include "maul.fullname" . }}-{{ $name }}-authn
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+rules:
+    - apiGroups: [authentication.k8s.io]
+      resources: [tokenreviews]
+      verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+    name: {{ include "maul.fullname" . }}-{{ $name }}-authn
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+roleRef:
+    apiGroup: rbac.authorization.k8s.io
+    kind: ClusterRole
+    name: {{ include "maul.fullname" . }}-{{ $name }}-authn
+subjects:
+    - kind: ServiceAccount
+      name: {{ include "maul.serviceAccountName" (dict "root" . "name" $name "vals" $vals) }}
+      namespace: {{ .Release.Namespace }}
+{{- if eq $unit "cost" }}
+---
+# The cost limits read each caller pod's budget annotation: get on pods in
+# the agent namespace only, by name (the token's own pod, UID-checked). No
+# list, no watch, no other resource, no other namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+    name: {{ include "maul.fullname" . }}-{{ $name }}-budgets
+    namespace: {{ .Values.agent.namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+rules:
+    - apiGroups: [""]
+      resources: [pods]
+      verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+    name: {{ include "maul.fullname" . }}-{{ $name }}-budgets
+    namespace: {{ .Values.agent.namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+roleRef:
+    apiGroup: rbac.authorization.k8s.io
+    kind: Role
+    name: {{ include "maul.fullname" . }}-{{ $name }}-budgets
+subjects:
+    - kind: ServiceAccount
+      name: {{ include "maul.serviceAccountName" (dict "root" . "name" $name "vals" $vals) }}
+      namespace: {{ .Release.Namespace }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: {{ include "maul.fullname" . }}-{{ $name }}
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name "component" "broker") | nindent 8 }}
+    {{- with include "maul.annotations" (dict "root" .) }}
+    annotations:
+        {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    replicas: 1
+    strategy:
+        type: Recreate
+    selector:
+        matchLabels:
+            {{- include "maul.selectorLabels" (dict "root" . "name" $name) | nindent 12 }}
+    template:
+        metadata:
+            labels:
+                {{- include "maul.labels" (dict "root" . "name" $name "component" "broker") | nindent 16 }}
+                {{- with $vals.podLabels }}
+                {{- toYaml . | nindent 16 }}
+                {{- end }}
+            {{- /* checksum/config hashes the ConfigMap data above, so a helm
+                   upgrade that changes it rolls the pod (envFrom is read once,
+                   at start). The model-credential Secrets are operator-owned
+                   and re-read per request, so they are not hashed. */}}
+            {{- $checksums := dict "checksum/config" (toJson $data | sha256sum) }}
+            {{- with include "maul.annotations" (dict "root" . "extra" (merge $checksums ($vals.podAnnotations | default dict))) }}
+            annotations:
+                {{- . | nindent 16 }}
+            {{- end }}
+        spec:
+            serviceAccountName: {{ include "maul.serviceAccountName" (dict "root" . "name" $name "vals" $vals) }}
+            {{- with .Values.image.pullSecrets }}
+            imagePullSecrets:
+                {{- toYaml . | nindent 16 }}
+            {{- end }}
+            securityContext:
+                runAsNonRoot: true
+                runAsUser: 65532
+                runAsGroup: 65532
+                fsGroup: 65532
+                fsGroupChangePolicy: Always
+                seccompProfile:
+                    type: RuntimeDefault
+            containers:
+                - name: broker
+                  image: {{ include "maul.image" (dict "root" . "binary" $name "image" $vals.image) }}
+                  imagePullPolicy: {{ .Values.image.pullPolicy }}
+                  args: ["serve"]
+                  envFrom:
+                      {{- with $vals.extraEnvFrom }}
+                      {{- toYaml . | nindent 22 }}
+                      {{- end }}
+                      - configMapRef:
+                            name: {{ include "maul.configMapName" (dict "root" . "name" $name) }}
+                  {{- with include "maul.extraEnv" (dict "path" "egressBroker" "env" $vals.extraEnv) }}
+                  env:
+                      {{- . | nindent 22 }}
+                  {{- end }}
+                  ports:
+                      - name: http
+                        containerPort: 8080
+                        protocol: TCP
+                      - name: health
+                        containerPort: 8081
+                        protocol: TCP
+                      {{- if include "maul.usageMeasured" . }}
+                      - name: usage
+                        containerPort: 8082
+                        protocol: TCP
+                      {{- end }}
+                  livenessProbe:
+                      httpGet:
+                          path: /healthz
+                          port: health
+                      initialDelaySeconds: 5
+                      periodSeconds: 20
+                  # readyz fails while a configured route's credential source
+                  # is unusable — this is what replaced the job controllers'
+                  # claude-Secret probing.
+                  readinessProbe:
+                      httpGet:
+                          path: /readyz
+                          port: health
+                      initialDelaySeconds: 2
+                      periodSeconds: 10
+                  {{- with $vals.resources }}
+                  resources:
+                      {{- toYaml . | nindent 22 }}
+                  {{- end }}
+                  securityContext:
+                      allowPrivilegeEscalation: false
+                      readOnlyRootFilesystem: true
+                      capabilities:
+                          drop: ["ALL"]
+                      seccompProfile:
+                          type: RuntimeDefault
+                  volumeMounts:
+                      - name: tmp
+                        mountPath: /tmp
+                      {{- if eq $providerName "anthropic" }}
+                      - name: anthropic
+                        mountPath: /etc/maul/anthropic
+                        readOnly: true
+                      {{- end }}
+                      {{- if and (eq $providerName "foundry") $vals.foundrySecret }}
+                      - name: foundry
+                        mountPath: /etc/maul/foundry
+                        readOnly: true
+                      {{- end }}
+                      {{- if $openai }}
+                      - name: openai
+                        mountPath: /etc/maul/openai
+                        readOnly: true
+                      {{- end }}
+                      {{- with $vals.extraVolumeMounts }}
+                      {{- toYaml . | nindent 22 }}
+                      {{- end }}
+            {{- with $vals.nodeSelector }}
+            nodeSelector:
+                {{- toYaml . | nindent 16 }}
+            {{- end }}
+            {{- with $vals.tolerations }}
+            tolerations:
+                {{- toYaml . | nindent 16 }}
+            {{- end }}
+            {{- with $vals.affinity }}
+            affinity:
+                {{- toYaml . | nindent 16 }}
+            {{- end }}
+            volumes:
+                - name: tmp
+                  emptyDir: {}
+                # The model credentials, mounted as files so a rotated Secret
+                # propagates without a restart (the broker reads per request).
+                {{- if eq $providerName "anthropic" }}
+                - name: anthropic
+                  secret:
+                      secretName: {{ $vals.anthropicSecret }}
+                {{- end }}
+                {{- if and (eq $providerName "foundry") $vals.foundrySecret }}
+                - name: foundry
+                  secret:
+                      secretName: {{ $vals.foundrySecret }}
+                {{- end }}
+                {{- if $openai }}
+                # Only the named key, as the file the flag points at.
+                - name: openai
+                  secret:
+                      secretName: {{ $openaiKey.secret }}
+                      items:
+                          - key: {{ $openaiKey.key | default "api-key" }}
+                            path: api-key
+                {{- end }}
+                {{- with $vals.extraVolumes }}
+                {{- toYaml . | nindent 16 }}
+                {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+    name: {{ include "maul.fullname" . }}-{{ $name }}
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+    {{- with include "maul.annotations" (dict "root" . "extra" $vals.service.annotations) }}
+    annotations:
+        {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    type: {{ $vals.service.type }}
+    selector:
+        {{- include "maul.selectorLabels" (dict "root" . "name" $name) | nindent 8 }}
+    ports:
+        - name: http
+          port: {{ $vals.service.port }}
+          targetPort: http
+          protocol: TCP
+        {{- if include "maul.usageMeasured" . }}
+        - name: usage
+          port: 8082
+          targetPort: usage
+          protocol: TCP
+        {{- end }}
+{{- if $vals.networkPolicy.create }}
+---
+# Ingress: the proxy port from the agent namespace only — the broker answers
+# to agent pods and nobody else (the job controllers' advisory startup probe
+# uses the unauthenticated /readyz on the same port, so they are granted it
+# too) — plus 8081 probes from anywhere (kubelet probes arrive from the node
+# IP). Egress: DNS, then TCP 443/6443 — the model APIs and the Kubernetes API
+# server (TokenReview). extraEgress covers the cloud-identity side channels
+# (EKS Pod Identity 169.254.170.23:80, GKE metadata 169.254.169.254:80) —
+# but only on CNIs whose ipBlock can reach the node; under mode cilium the
+# CiliumNetworkPolicy below is what actually grants them.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+    name: {{ include "maul.fullname" . }}-{{ $name }}
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+spec:
+    podSelector:
+        matchLabels:
+            {{- include "maul.selectorLabels" (dict "root" . "name" $name) | nindent 12 }}
+    policyTypes: [Ingress, Egress]
+    ingress:
+        - from:
+              - namespaceSelector:
+                    matchLabels:
+                        kubernetes.io/metadata.name: {{ .Values.agent.namespace }}
+              - podSelector: {}
+          ports:
+              - protocol: TCP
+                port: 8080
+        - ports:
+              - protocol: TCP
+                port: 8081
+        {{- if include "maul.usageMeasured" . }}
+        # The usage endpoint: the run controllers only (TokenReview of their
+        # usage-audience token is the authentication; this is L3 on top).
+        - from:
+              {{- range $c := list "investigation-controller" "remediation-controller" "intent-controller" "evaluation-controller" }}
+              {{- if or (has $c (list "investigation-controller" "remediation-controller")) (and (eq $c "intent-controller") $.Values.intentController.enabled) (and (eq $c "evaluation-controller") $.Values.evaluationController.enabled) }}
+              - podSelector:
+                    matchLabels:
+                        {{- include "maul.selectorLabels" (dict "root" $ "name" $c) | nindent 24 }}
+              {{- end }}
+              {{- end }}
+          ports:
+              - protocol: TCP
+                port: 8082
+        {{- end }}
+    egress:
+        - to:
+              - namespaceSelector:
+                    matchLabels:
+                        kubernetes.io/metadata.name: kube-system
+          ports:
+              - protocol: UDP
+                port: 53
+              - protocol: TCP
+                port: 53
+        {{- with include "maul.clusterDNSEgress" . }}
+        {{- . | nindent 8 }}
+        {{- end }}
+        - ports:
+              - protocol: TCP
+                port: 443
+              - protocol: TCP
+                port: 6443
+        {{- with $vals.networkPolicy.extraEgress }}
+        # Operator-supplied additions (egressBroker.networkPolicy.extraEgress).
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+{{- if and (eq (include "maul.egressMode" .) "cilium") (has $providerName (list "bedrock" "vertex")) }}
+---
+# The cloud-identity credential endpoint the broker's SDK dials — the EKS Pod
+# Identity agent (bedrock, 169.254.170.23:80) or the GKE metadata server
+# (vertex, 169.254.169.254:80) — is a hostNetwork process on the pod's own
+# node. Cilium classifies traffic to any node-local address as the reserved
+# `host` entity, and its CIDR selectors (an ipBlock in the base policy above,
+# extraEgress included) never match reserved identities — so under Cilium an
+# ipBlock allow for that address silently matches nothing and the egress-
+# enforcing base policy drops the credential call. The host entity is the
+# only way to express this destination; policies union, so this rides
+# alongside the base NetworkPolicy rather than replacing it. Same egressMode
+# election as the agent-sandbox dialect (networkpolicy-cilium.yaml); the gke
+# mode needs no equivalent because Dataplane V2 always admits metadata-server
+# traffic.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+    name: {{ include "maul.fullname" . }}-{{ $name }}-cloud-credentials
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" . "name" $name) | nindent 8 }}
+    {{- with include "maul.annotations" (dict "root" .) }}
+    annotations:
+        {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    endpointSelector:
+        matchLabels:
+            {{- include "maul.selectorLabels" (dict "root" . "name" $name) | nindent 12 }}
+    egress:
+        - toEntities: [host]
+          toPorts:
+              - ports:
+                    - port: "80"
+                      protocol: TCP
+{{- end }}
+{{- end }}
+{{- end }}

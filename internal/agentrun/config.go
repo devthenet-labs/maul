@@ -16,9 +16,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/provider"
-	"github.com/bitwise-media-group/patchy/internal/templates"
-	"github.com/bitwise-media-group/patchy/internal/transcript"
+	"github.com/devthenet-labs/maul/internal/provider"
+	"github.com/devthenet-labs/maul/internal/templates"
+	"github.com/devthenet-labs/maul/internal/transcript"
 )
 
 // Phase selects which stage runs.
@@ -34,7 +34,7 @@ type Phase string
 // model and timeout, under the manual budget. In both, a per-Job grant may
 // lower the stage's limits but never raise them (planLimits, buildLimits).
 // Both run on brokered claude or brokered codex only (see intentHarness). The Job seams keep
-// their Finding names on an intent run: PATCHY_FINDING carries the
+// their Finding names on an intent run: MAUL_FINDING carries the
 // IntentRun's name, and input/investigation.md the approved plan.
 const (
 	PhaseInvestigate Phase = "investigate"
@@ -44,7 +44,7 @@ const (
 )
 
 // Config is the runner's configuration; in the pod every field arrives as
-// PATCHY_* environment (see FromEnv).
+// MAUL_* environment (see FromEnv).
 type Config struct {
 	Workspace string
 	Repo      string
@@ -83,8 +83,8 @@ type Config struct {
 	// deployment names); consulted before the registry in cliModel.
 	ModelMap map[string]string
 	// BinDir is the read-only directory the trusted prepare init copied
-	// patchy's own binaries into when the pod runs a repository-declared
-	// image (BinDirEnv, /patchy/bin); empty on the default runner
+	// maul's own binaries into when the pod runs a repository-declared
+	// image (BinDirEnv, /maul/bin); empty on the default runner
 	// image. When set, the stage's harness CLI is run from it by absolute
 	// path, after a preflight that proves the image can execute it.
 	BinDir string
@@ -96,7 +96,7 @@ type Config struct {
 
 	// The remediation budget, split by who authorized the run.
 	//
-	// RemediateAutoMaxTurns/RemediateAutoTokenBudget is what patchy will spend
+	// RemediateAutoMaxTurns/RemediateAutoTokenBudget is what maul will spend
 	// UNATTENDED: every remediation gets at least this, whatever the
 	// investigation predicted (including when it predicted nothing). It is
 	// also the line past which a fix stops being automatic — an estimate above
@@ -212,15 +212,15 @@ func (c Config) buildPath() string { return filepath.Join(c.Workspace, "reports"
 
 // branch is the remediation branch, keyed by finding name (pull-request
 // webhooks resolve the Finding from the head ref).
-func (c Config) branch() string { return "patchy/" + c.Finding }
+func (c Config) branch() string { return "maul/" + c.Finding }
 
-// BinDirEnv names the directory internal/jobs injects patchy's binaries into
-// on a repository-declared image (/patchy/bin). It is the one definition of
+// BinDirEnv names the directory internal/jobs injects maul's binaries into
+// on a repository-declared image (/maul/bin). It is the one definition of
 // the name both sides of the pod boundary use: jobs sets it, FromEnv reads
 // it into Config.BinDir, and preflight resolves the harness CLI there alone.
-const BinDirEnv = "PATCHY_BIN_DIR"
+const BinDirEnv = "MAUL_BIN_DIR"
 
-// ConfigEnvKeys returns every PATCHY_* variable FromEnv reads, sorted. It is
+// ConfigEnvKeys returns every MAUL_* variable FromEnv reads, sorted. It is
 // derived by running the parser against a recording getenv rather than kept
 // by hand, so a new configuration key is covered the day it is added:
 // internal/jobs blanks each one a Job does not set on a repository-declared
@@ -234,12 +234,12 @@ func ConfigEnvKeys() []string {
 	return slices.Sorted(maps.Keys(seen))
 }
 
-// buildProfilesFromEnv decodes PATCHY_BUILD_NETWORK_PROFILES, adding to
+// buildProfilesFromEnv decodes MAUL_BUILD_NETWORK_PROFILES, adding to
 // errs when it does not decode.
 func buildProfilesFromEnv(raw string, errs []string) ([]templates.BuildProfile, []string) {
 	profiles, err := templates.DecodeBuildProfiles(raw)
 	if err != nil {
-		errs = append(errs, fmt.Sprintf("PATCHY_BUILD_NETWORK_PROFILES is not valid JSON: %v", err))
+		errs = append(errs, fmt.Sprintf("MAUL_BUILD_NETWORK_PROFILES is not valid JSON: %v", err))
 	}
 	return profiles, errs
 }
@@ -254,18 +254,18 @@ func negativeIdleTimeouts(cfg Config) []string {
 		d   time.Duration
 	}{{"INVESTIGATE_IDLE_TIMEOUT", cfg.InvestigateIdleTimeout}, {"REMEDIATE_IDLE_TIMEOUT", cfg.RemediateIdleTimeout}} {
 		if idle.d < 0 {
-			errs = append(errs, fmt.Sprintf("PATCHY_%s=%s is negative (0 disables the watchdog)", idle.key, idle.d))
+			errs = append(errs, fmt.Sprintf("MAUL_%s=%s is negative (0 disables the watchdog)", idle.key, idle.d))
 		}
 	}
 	return errs
 }
 
-// FromEnv builds the pod configuration from PATCHY_* environment variables,
+// FromEnv builds the pod configuration from MAUL_* environment variables,
 // applying defaults. Every key is read unconditionally, which is what lets
 // ConfigEnvKeys enumerate them.
 func FromEnv(getenv func(string) string) (Config, error) {
 	get := func(key, def string) string {
-		if v := getenv("PATCHY_" + key); v != "" {
+		if v := getenv("MAUL_" + key); v != "" {
 			return v
 		}
 		return def
@@ -290,8 +290,8 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		}
 	}
 	cfg.BrokerTokenFile = get("BROKER_TOKEN_FILE", "")
-	cfg.CodexBaseURL = get(strings.TrimPrefix(provider.CodexBaseURLEnv, "PATCHY_"), "")
-	cfg.BinDir = get(strings.TrimPrefix(BinDirEnv, "PATCHY_"), "")
+	cfg.CodexBaseURL = get(strings.TrimPrefix(provider.CodexBaseURLEnv, "MAUL_"), "")
+	cfg.BinDir = get(strings.TrimPrefix(BinDirEnv, "MAUL_"), "")
 
 	var errs []string
 	if raw := get("MODEL_MAP", ""); raw != "" {
@@ -299,7 +299,7 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		if err != nil {
 			// A silently dropped translation would send canonical ids to a
 			// provider that cannot resolve them; fail loud instead.
-			errs = append(errs, fmt.Sprintf("PATCHY_MODEL_MAP: %v", err))
+			errs = append(errs, fmt.Sprintf("MAUL_MODEL_MAP: %v", err))
 		}
 		cfg.ModelMap = mm
 	}
@@ -307,7 +307,7 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		v := get(key, def)
 		n, err := strconv.Atoi(v)
 		if err != nil {
-			errs = append(errs, fmt.Sprintf("PATCHY_%s=%q is not an integer", key, v))
+			errs = append(errs, fmt.Sprintf("MAUL_%s=%q is not an integer", key, v))
 		}
 		return n
 	}
@@ -315,7 +315,7 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		v := get(key, def)
 		d, err := time.ParseDuration(v)
 		if err != nil {
-			errs = append(errs, fmt.Sprintf("PATCHY_%s=%q is not a duration", key, v))
+			errs = append(errs, fmt.Sprintf("MAUL_%s=%q is not a duration", key, v))
 		}
 		return d
 	}
@@ -342,7 +342,7 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		var c templates.Calibration
 		if err := json.Unmarshal([]byte(raw), &c); err != nil {
 			// Advisory prompt garnish: a malformed blob must not cost a run.
-			errs = append(errs, fmt.Sprintf("PATCHY_CALIBRATION is not valid JSON: %v", err))
+			errs = append(errs, fmt.Sprintf("MAUL_CALIBRATION is not valid JSON: %v", err))
 		} else {
 			cfg.Calibration = &c
 		}
@@ -350,13 +350,13 @@ func FromEnv(getenv func(string) string) (Config, error) {
 	if raw := get("PREVIOUS_ATTEMPT", ""); raw != "" {
 		var p templates.PreviousAttempt
 		if err := json.Unmarshal([]byte(raw), &p); err != nil {
-			errs = append(errs, fmt.Sprintf("PATCHY_PREVIOUS_ATTEMPT is not valid JSON: %v", err))
+			errs = append(errs, fmt.Sprintf("MAUL_PREVIOUS_ATTEMPT is not valid JSON: %v", err))
 		} else {
 			cfg.PreviousAttempt = &p
 		}
 	}
 	if prs, err := templates.DecodeOpenPullRequests(get("OPEN_PULL_REQUESTS", "")); err != nil {
-		errs = append(errs, fmt.Sprintf("PATCHY_OPEN_PULL_REQUESTS is not valid JSON: %v", err))
+		errs = append(errs, fmt.Sprintf("MAUL_OPEN_PULL_REQUESTS is not valid JSON: %v", err))
 	} else {
 		cfg.OpenPullRequests = prs
 	}
@@ -365,25 +365,25 @@ func FromEnv(getenv func(string) string) (Config, error) {
 	// manual budget below the automated one inverts the whole model.
 	if cfg.RemediateManualMaxTurns < cfg.RemediateAutoMaxTurns {
 		errs = append(errs, fmt.Sprintf(
-			"PATCHY_REMEDIATE_MANUAL_MAX_TURNS=%d is below the automated budget %d",
+			"MAUL_REMEDIATE_MANUAL_MAX_TURNS=%d is below the automated budget %d",
 			cfg.RemediateManualMaxTurns, cfg.RemediateAutoMaxTurns))
 	}
 	if cfg.RemediateManualTokenBudget < cfg.RemediateAutoTokenBudget {
 		errs = append(errs, fmt.Sprintf(
-			"PATCHY_REMEDIATE_MANUAL_TOKEN_BUDGET=%d is below the automated budget %d",
+			"MAUL_REMEDIATE_MANUAL_TOKEN_BUDGET=%d is below the automated budget %d",
 			cfg.RemediateManualTokenBudget, cfg.RemediateAutoTokenBudget))
 	}
 
 	if cfg.Repo == "" {
-		errs = append(errs, "PATCHY_REPO is required")
+		errs = append(errs, "MAUL_REPO is required")
 	}
 	if cfg.Finding == "" {
-		errs = append(errs, "PATCHY_FINDING is required")
+		errs = append(errs, "MAUL_FINDING is required")
 	}
 	switch cfg.Phase {
 	case PhaseInvestigate, PhaseRemediate, PhasePlan, PhaseBuild:
 	default:
-		errs = append(errs, fmt.Sprintf("PATCHY_PHASE=%q is not %q, %q, %q or %q",
+		errs = append(errs, fmt.Sprintf("MAUL_PHASE=%q is not %q, %q, %q or %q",
 			cfg.Phase, PhaseInvestigate, PhaseRemediate, PhasePlan, PhaseBuild))
 	}
 	if len(errs) > 0 {

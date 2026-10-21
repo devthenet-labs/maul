@@ -15,7 +15,7 @@ import (
 
 	"golang.org/x/time/rate"
 
-	"github.com/bitwise-media-group/patchy/internal/httpguard"
+	"github.com/devthenet-labs/maul/internal/httpguard"
 )
 
 // Pre-authentication runs ahead of the TokenReview so that a pod varying the

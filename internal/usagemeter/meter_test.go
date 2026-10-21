@@ -19,15 +19,15 @@ import (
 	"testing/quick"
 	"time"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/model"
-	"github.com/bitwise-media-group/patchy/internal/usagewire"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/model"
+	"github.com/devthenet-labs/maul/internal/usagewire"
 )
 
 // seed keeps every property deterministic in the gate.
 const seed = 20261016
 
-const job = "patchy-0a1b2c3d4e-inv-a1"
+const job = "maul-0a1b2c3d4e-inv-a1"
 
 var (
 	t0      = time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)

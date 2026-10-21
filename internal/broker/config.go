@@ -14,14 +14,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/provider"
-	"github.com/bitwise-media-group/patchy/internal/usagewire"
+	"github.com/devthenet-labs/maul/internal/provider"
+	"github.com/devthenet-labs/maul/internal/usagewire"
 )
 
 // Default knob values, applied by Config.withDefaults.
 const (
 	// DefaultAudience is the projected-token audience callers must present.
-	DefaultAudience = "patchy-egress-broker"
+	DefaultAudience = "maul-egress-broker"
 	// DefaultVerdictTTL bounds TokenReview QPS: one review per caller token
 	// per TTL, not one per request.
 	DefaultVerdictTTL = time.Minute

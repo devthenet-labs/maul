@@ -11,9 +11,9 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/meta"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/jobs"
 )
 
 // In the multi-repository review tests, pull request 1 is acme/app's and 2
@@ -112,7 +112,7 @@ func checkWebRound(t *testing.T, e *env, name, appHead string) {
 	}
 }
 
-// TestPRCommandIsAnsweredOnItsPullRequest: /patchy revise on the app pull
+// TestPRCommandIsAnsweredOnItsPullRequest: /maul revise on the app pull
 // request starts a round in app and is acknowledged there, once, with the
 // eyes reaction; the web pull request hears nothing of it.
 func TestPRCommandIsAnsweredOnItsPullRequest(t *testing.T) {
@@ -121,7 +121,7 @@ func TestPRCommandIsAnsweredOnItsPullRequest(t *testing.T) {
 	e.gh.mu.Lock()
 	e.gh.prComments[1] = append(e.gh.prComments[1], &ghclient.Comment{ID: 940, NodeID: "comment-940",
 		UserLogin: approver, UserID: actorOf(approver).ID, UserType: "User",
-		Body: "/patchy revise Return the build time too.", CreatedAt: e.clock.Now(), UpdatedAt: e.clock.Now()})
+		Body: "/maul revise Return the build time too.", CreatedAt: e.clock.Now(), UpdatedAt: e.clock.Now()})
 	e.gh.mu.Unlock()
 	e.clock.Advance(time.Second)
 	e.drive(name, v1alpha1.IntentRevising, repoImage)
@@ -135,7 +135,7 @@ func TestPRCommandIsAnsweredOnItsPullRequest(t *testing.T) {
 		defer e.gh.mu.Unlock()
 		count := 0
 		for _, c := range e.gh.prComments[n] {
-			if strings.Contains(c.Body, "patchy:intent-pr-command:") {
+			if strings.Contains(c.Body, "maul:intent-pr-command:") {
 				count++
 			}
 		}

@@ -13,8 +13,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bitwise-media-group/patchy/internal/web/auth"
-	"github.com/bitwise-media-group/patchy/internal/web/authz"
+	"github.com/devthenet-labs/maul/internal/web/auth"
+	"github.com/devthenet-labs/maul/internal/web/authz"
 )
 
 // stubAuth resolves every request to a fixed identity; nil means no session.
@@ -100,7 +100,7 @@ func TestFindingsRequiresSessionAndViewGrant(t *testing.T) {
 			auth:       stubAuth{id: operator},
 			granter:    stubGranter{grants: authz.Grants{Verbs: []string{"approve"}}},
 			wantStatus: http.StatusForbidden,
-			wantBody:   `Permission denied. User "Op" may not view findings in namespace "patchy".`,
+			wantBody:   `Permission denied. User "Op" may not view findings in namespace "maul".`,
 		},
 		{
 			name:       "granted",

@@ -22,10 +22,10 @@ import (
 
 // errTerminated is the API server's answer for a container whose log the
 // kubelet no longer has (live: an agent pod evicted for ephemeral storage).
-var errTerminated = errors.New(`container "agent" in pod "patchy-x-int-a1-xgrsm" is terminated`)
+var errTerminated = errors.New(`container "agent" in pod "maul-x-int-a1-xgrsm" is terminated`)
 
 // goneJob is the live Job this regression comes from (0.12.37).
-const goneJob = "patchy-71b6a6d37a-int-a1"
+const goneJob = "maul-71b6a6d37a-int-a1"
 
 // failedJob is goneJob with its Failed condition true since failedAt.
 func failedJob(reason string, failedAt time.Time) *batchv1.Job {
@@ -57,7 +57,7 @@ type deletingLogs struct {
 }
 
 func (d deletingLogs) Stream(ctx context.Context, pod, _ string, _ bool) (io.ReadCloser, error) {
-	_ = d.cs.CoreV1().Pods("patchy-agents").Delete(ctx, pod, metav1.DeleteOptions{})
+	_ = d.cs.CoreV1().Pods("maul-agents").Delete(ctx, pod, metav1.DeleteOptions{})
 	return nil, d.err
 }
 

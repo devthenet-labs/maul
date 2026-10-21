@@ -15,12 +15,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/forge"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/transcript"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/forge"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/transcript"
 )
 
 var clock = time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
@@ -29,7 +29,7 @@ var clock = time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
 func enhancedFinding() *v1alpha1.Finding {
 	early := metav1.NewTime(clock.Add(-3 * time.Hour))
 	return &v1alpha1.Finding{
-		ObjectMeta: metav1.ObjectMeta{Name: "finding-aa-1", Namespace: "patchy", UID: "uid-1"},
+		ObjectMeta: metav1.ObjectMeta{Name: "finding-aa-1", Namespace: "maul", UID: "uid-1"},
 		Spec: v1alpha1.FindingSpec{
 			IntegrationRef: v1alpha1.LocalObjectReference{Name: "gh"},
 			Source:         "ghas",
@@ -52,7 +52,7 @@ func enhancedFinding() *v1alpha1.Finding {
 
 func testForge() *v1alpha1.Forge {
 	return &v1alpha1.Forge{
-		ObjectMeta: metav1.ObjectMeta{Name: "gh-forge", Namespace: "patchy"},
+		ObjectMeta: metav1.ObjectMeta{Name: "gh-forge", Namespace: "maul"},
 		Spec: v1alpha1.ForgeSpec{
 			Provider:  v1alpha1.ForgeProviderGitHub,
 			SecretRef: v1alpha1.LocalSecretReference{Name: "creds"},
@@ -73,7 +73,7 @@ func newGate(t *testing.T, objs ...client.Object) (*GateReconciler, client.Clien
 	return &GateReconciler{
 		Client:    c,
 		Forges:    forge.NewStore(c),
-		Namespace: "patchy",
+		Namespace: "maul",
 		MinAge:    time.Hour,
 		Now:       func() time.Time { return clock },
 	}, c
@@ -82,7 +82,7 @@ func newGate(t *testing.T, objs ...client.Object) (*GateReconciler, client.Clien
 func gateOnce(t *testing.T, r *GateReconciler) ctrl.Result {
 	t.Helper()
 	res, err := r.Reconcile(t.Context(), ctrl.Request{
-		NamespacedName: types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1"},
+		NamespacedName: types.NamespacedName{Namespace: "maul", Name: "finding-aa-1"},
 	})
 	if err != nil {
 		t.Fatalf("Reconcile: %v", err)
@@ -96,7 +96,7 @@ const fndName = "finding-aa-1"
 func getF(t *testing.T, c client.Client) *v1alpha1.Finding {
 	t.Helper()
 	var f v1alpha1.Finding
-	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: fndName}, &f); err != nil {
+	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: fndName}, &f); err != nil {
 		t.Fatalf("Get(%s): %v", fndName, err)
 	}
 	return &f
@@ -108,7 +108,7 @@ func TestGateCreatesRepositoryThenInvestigation(t *testing.T) {
 	// Pass 1: Repository created, finding still Enhanced.
 	gateOnce(t, r)
 	var repo v1alpha1.Repository
-	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1-src"}, &repo); err != nil {
+	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: "finding-aa-1-src"}, &repo); err != nil {
 		t.Fatalf("Repository not created: %v", err)
 	}
 	if got := getF(t, c).Status.Phase; got != v1alpha1.PhaseEnhanced {
@@ -134,7 +134,7 @@ func TestGateCreatesRepositoryThenInvestigation(t *testing.T) {
 		t.Errorf("attempts/activeRun = %+v/%+v", f.Status.Attempts, f.Status.ActiveRun)
 	}
 	var inv v1alpha1.Investigation
-	invKey := types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1-inv-1"}
+	invKey := types.NamespacedName{Namespace: "maul", Name: "finding-aa-1-inv-1"}
 	if err := c.Get(t.Context(), invKey, &inv); err != nil {
 		t.Fatalf("Investigation not created: %v", err)
 	}
@@ -208,7 +208,7 @@ func TestGateExpediteSkipsWindowAndAge(t *testing.T) {
 	}
 	// The gate proceeded past both waits: the Repository request exists.
 	var repo v1alpha1.Repository
-	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: fndName + "-src"}, &repo); err != nil {
+	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: fndName + "-src"}, &repo); err != nil {
 		t.Fatalf("Repository not created for expedited finding: %v", err)
 	}
 }
@@ -324,7 +324,7 @@ func investigationFixture() []client.Object {
 	fnd.Status.Attempts.Investigation = 1
 	inv := &v1alpha1.Investigation{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "finding-aa-1-inv-1", Namespace: "patchy",
+			Name: "finding-aa-1-inv-1", Namespace: "maul",
 			Labels: map[string]string{
 				v1alpha1.LabelFinding: "finding-aa-1", v1alpha1.LabelSeverity: "high",
 			},
@@ -354,7 +354,7 @@ func newInvestigation(
 	return &InvestigationReconciler{
 		Client:              c,
 		Runner:              runner,
-		Namespace:           "patchy",
+		Namespace:           "maul",
 		MaxConcurrent:       2,
 		MaxAttempts:         2,
 		ConfidenceThreshold: 0.75,
@@ -389,7 +389,7 @@ func investigationEvent(rec string, confidence float64, await bool) []envelope.E
 func applyOnce(t *testing.T, r *InvestigationReconciler) {
 	t.Helper()
 	if _, err := r.Reconcile(t.Context(), ctrl.Request{
-		NamespacedName: types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1-inv-1"},
+		NamespacedName: types.NamespacedName{Namespace: "maul", Name: "finding-aa-1-inv-1"},
 	}); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
@@ -423,7 +423,7 @@ func TestApplyRoutesVerdicts(t *testing.T) {
 				t.Errorf("summary = %+v, want exploitability high", f.Status.Investigation)
 			}
 			var inv v1alpha1.Investigation
-			key := types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1-inv-1"}
+			key := types.NamespacedName{Namespace: "maul", Name: "finding-aa-1-inv-1"}
 			if err := c.Get(t.Context(), key, &inv); err != nil {
 				t.Fatalf("Get investigation: %v", err)
 			}
@@ -464,7 +464,7 @@ func TestApplyFailureRetriesThenExhausts(t *testing.T) {
 	}
 	r2, c2 := newInvestigation(t, runner, objs...)
 	if _, err := r2.Reconcile(t.Context(), ctrl.Request{
-		NamespacedName: types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1-inv-2"},
+		NamespacedName: types.NamespacedName{Namespace: "maul", Name: "finding-aa-1-inv-2"},
 	}); err != nil {
 		t.Fatalf("Reconcile attempt 2: %v", err)
 	}
@@ -482,7 +482,7 @@ func TestSchedulerBoundsAndOrdersGrants(t *testing.T) {
 	mk := func(name, severity string, created time.Time) *v1alpha1.Investigation {
 		return &v1alpha1.Investigation{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: name, Namespace: "patchy",
+				Name: name, Namespace: "maul",
 				Labels:            map[string]string{v1alpha1.LabelSeverity: severity},
 				CreationTimestamp: metav1.NewTime(created),
 			},
@@ -498,7 +498,7 @@ func TestSchedulerBoundsAndOrdersGrants(t *testing.T) {
 		mk("inv-high", "high", clock),
 	)
 	if _, err := r.Reconcile(t.Context(), ctrl.Request{
-		NamespacedName: types.NamespacedName{Namespace: "patchy", Name: schedulerRequest},
+		NamespacedName: types.NamespacedName{Namespace: "maul", Name: schedulerRequest},
 	}); err != nil {
 		t.Fatalf("schedule: %v", err)
 	}
@@ -506,7 +506,7 @@ func TestSchedulerBoundsAndOrdersGrants(t *testing.T) {
 	running := 0
 	for _, name := range []string{"inv-low", "inv-crit", "inv-high"} {
 		var inv v1alpha1.Investigation
-		if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: name}, &inv); err != nil {
+		if err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: name}, &inv); err != nil {
 			t.Fatalf("Get(%s): %v", name, err)
 		}
 		if inv.Status.Phase == v1alpha1.RunRunning {
@@ -526,7 +526,7 @@ func TestLaunchUsesArtifact(t *testing.T) {
 	inv := objs[1].(*v1alpha1.Investigation)
 	inv.Status.JobRef = nil // granted but not launched
 	repo := &v1alpha1.Repository{
-		ObjectMeta: metav1.ObjectMeta{Name: "finding-aa-1-src", Namespace: "patchy"},
+		ObjectMeta: metav1.ObjectMeta{Name: "finding-aa-1-src", Namespace: "maul"},
 		Spec:       v1alpha1.RepositorySpec{URL: "https://github.com/acme/orders"},
 		Status: v1alpha1.RepositoryStatus{
 			ResolvedSHA: "abc123",
@@ -548,7 +548,7 @@ func TestLaunchUsesArtifact(t *testing.T) {
 		t.Errorf("spec = %+v", spec)
 	}
 	var got v1alpha1.Investigation
-	key := types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1-inv-1"}
+	key := types.NamespacedName{Namespace: "maul", Name: "finding-aa-1-inv-1"}
 	if err := c.Get(t.Context(), key, &got); err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -581,7 +581,7 @@ func TestLaunchSurvivesStalledRollupCache(t *testing.T) {
 	inv := objs[1].(*v1alpha1.Investigation)
 	inv.Status.JobRef = nil // granted but not launched
 	repo := &v1alpha1.Repository{
-		ObjectMeta: metav1.ObjectMeta{Name: "finding-aa-1-src", Namespace: "patchy"},
+		ObjectMeta: metav1.ObjectMeta{Name: "finding-aa-1-src", Namespace: "maul"},
 		Spec:       v1alpha1.RepositorySpec{URL: "https://github.com/acme/orders"},
 		Status: v1alpha1.RepositoryStatus{
 			ResolvedSHA: "abc123",

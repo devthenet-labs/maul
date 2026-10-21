@@ -27,7 +27,7 @@ type wireComment struct {
 	ViaApp            *wireApp  `json:"performed_via_github_app"`
 }
 
-// comment maps the wire form onto patchy's Comment.
+// comment maps the wire form onto maul's Comment.
 func (w *wireComment) comment() *Comment {
 	author := w.User.actor()
 	return &Comment{

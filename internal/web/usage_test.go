@@ -16,11 +16,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/stats"
-	"github.com/bitwise-media-group/patchy/internal/usageview"
-	"github.com/bitwise-media-group/patchy/internal/web/auth"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/stats"
+	"github.com/devthenet-labs/maul/internal/usageview"
+	"github.com/devthenet-labs/maul/internal/web/auth"
 )
 
 // Callers of the usage views: two GitHub sign-ins, one of them an admin,
@@ -64,7 +64,7 @@ func usageFixture(t *testing.T) []client.Object {
 			ur, ok := byName[name]
 			if !ok {
 				ur = &v1alpha1.UsageRollup{Spec: v1alpha1.UsageRollupSpec{Scope: scope}}
-				ur.Name, ur.Namespace = name, "patchy"
+				ur.Name, ur.Namespace = name, "maul"
 				byName[name] = ur
 			}
 			login := r.login
@@ -87,7 +87,7 @@ func usageServer(t *testing.T) (*Server, *usageGranter) {
 	c := fake.NewClientBuilder().WithScheme(kube.Scheme()).WithObjects(usageFixture(t)...).
 		WithIndex(&v1alpha1.UsageRollup{}, UsageUserIndex, UsageUserIndexer).Build()
 	g := &usageGranter{}
-	s := NewServer(c, "patchy", stubAuth{}, stubGranter{grants: allGrants()}, nil).WithUsage(UsageOptions{All: g})
+	s := NewServer(c, "maul", stubAuth{}, stubGranter{grants: allGrants()}, nil).WithUsage(UsageOptions{All: g})
 	s.now = func() time.Time { return testClock }
 	return s, g
 }
@@ -229,7 +229,7 @@ func TestUsageHardensTheEnvelope(t *testing.T) {
 
 // With the views off, none of the routes exist.
 func TestUsageOffServesNothing(t *testing.T) {
-	s := NewServer(fake.NewClientBuilder().WithScheme(kube.Scheme()).Build(), "patchy", stubAuth{},
+	s := NewServer(fake.NewClientBuilder().WithScheme(kube.Scheme()).Build(), "maul", stubAuth{},
 		stubGranter{grants: allGrants()}, nil)
 	ts := as(t, s, usageAdmin)
 	for _, path := range []string{"/api/usage/access", "/api/usage", "/api/usage/all"} {

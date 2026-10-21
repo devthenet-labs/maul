@@ -9,10 +9,10 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-    name: patchy-controllers-fakegithub
-    namespace: patchy
+    name: maul-controllers-fakegithub
+    namespace: maul
     labels:
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 spec:
     podSelector:
         matchLabels:
@@ -33,10 +33,10 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-    name: patchy-fakegithub
-    namespace: patchy
+    name: maul-fakegithub
+    namespace: maul
     labels:
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 spec:
     podSelector:
         matchLabels:

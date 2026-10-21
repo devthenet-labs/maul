@@ -21,7 +21,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 const (
@@ -29,7 +29,7 @@ const (
 	apiSHA = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	// testPodDeployment ties a test Pod to the Deployment that made it, so
 	// collectGarbage can model the garbage collector the fake client lacks.
-	testPodDeployment = "test.patchy/deployment"
+	testPodDeployment = "test.maul/deployment"
 )
 
 // shopProject previews a freely named web repository at / and an API at
@@ -40,7 +40,7 @@ func shopProject() *v1alpha1.Project {
 			ImageRepository: testSettings().ImagePrefix + leaf, Port: 8080, ReadinessPath: readiness,
 		}, Path: path}
 	}
-	return &v1alpha1.Project{ObjectMeta: metav1.ObjectMeta{Name: "shop", Namespace: "patchy"},
+	return &v1alpha1.Project{ObjectMeta: metav1.ObjectMeta{Name: "shop", Namespace: "maul"},
 		Spec: v1alpha1.ProjectSpec{Repositories: []v1alpha1.ProjectRepository{
 			{Name: "web", URL: "https://github.com/acme/Acme.Web_App", Preview: preview("acme-web", "/healthz", "/")},
 			{Name: "lib", URL: "https://github.com/acme/lib"},
@@ -54,7 +54,7 @@ func multiPreview(t *testing.T, at time.Time) (*v1alpha1.Intent, *v1alpha1.Previ
 	t.Helper()
 	const name = "shop-1"
 	uid := types.UID("intent-" + name)
-	in := &v1alpha1.Intent{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "patchy", UID: uid},
+	in := &v1alpha1.Intent{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "maul", UID: uid},
 		Spec: v1alpha1.IntentSpec{Project: "shop"},
 		Status: v1alpha1.IntentStatus{Phase: v1alpha1.IntentInReview, PullRequests: []v1alpha1.IntentPullRequest{
 			{Repository: "https://github.com/acme/api", Number: 2, State: "open", HeadSHA: apiSHA},
@@ -65,7 +65,7 @@ func multiPreview(t *testing.T, at time.Time) (*v1alpha1.Intent, *v1alpha1.Previ
 		t.Fatalf("derived %+v, %v; want two components", components, ok)
 	}
 	p := &v1alpha1.Preview{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "patchy", UID: types.UID("preview-" + name),
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "maul", UID: types.UID("preview-" + name),
 			Generation: 1, CreationTimestamp: metav1.NewTime(at)},
 		Spec: v1alpha1.PreviewSpec{
 			IntentRef: v1alpha1.ObjectReference{Name: name, UID: uid}, HostLabel: name,
@@ -76,7 +76,7 @@ func multiPreview(t *testing.T, at time.Time) (*v1alpha1.Intent, *v1alpha1.Previ
 }
 
 func (e *testEnv) slotObject(name string, obj client.Object) error {
-	return e.c.Get(context.Background(), types.NamespacedName{Namespace: "patchy-preview-0", Name: name}, obj)
+	return e.c.Get(context.Background(), types.NamespacedName{Namespace: "maul-preview-0", Name: name}, obj)
 }
 
 // markReady plays the Deployment controller and the kubelet for component i:
@@ -114,7 +114,7 @@ func (e *testEnv) collectGarbage() {
 	e.t.Helper()
 	ctx := context.Background()
 	var pods corev1.PodList
-	if err := e.c.List(ctx, &pods, client.InNamespace("patchy-preview-0")); err != nil {
+	if err := e.c.List(ctx, &pods, client.InNamespace("maul-preview-0")); err != nil {
 		e.t.Fatal(err)
 	}
 	for i := range pods.Items {
@@ -209,10 +209,10 @@ func TestMultiComponentValidation(t *testing.T) {
 		{"a repeated path", func(p *v1alpha1.Preview) { p.Spec.Components[1].Path = "/" }},
 		{"a path outside the grammar", func(p *v1alpha1.Preview) { p.Spec.Components[1].Path = "/API" }},
 		{"a component image off the prefix", func(p *v1alpha1.Preview) {
-			p.Spec.Components[1].ImageRepository = "evil.example/patchy/previews/acme-api"
+			p.Spec.Components[1].ImageRepository = "evil.example/maul/previews/acme-api"
 		}},
 		{"an agent-environment image", func(p *v1alpha1.Preview) {
-			p.Spec.Components[1].ImageRepository = "123456789012.dkr.ecr.us-east-1.amazonaws.com/patchy/app-envs/x"
+			p.Spec.Components[1].ImageRepository = "123456789012.dkr.ecr.us-east-1.amazonaws.com/maul/app-envs/x"
 		}},
 		// preview-<52 characters>-api is 64 characters, one past a DNS label.
 		{"a name past the Service name limit", func(p *v1alpha1.Preview) {

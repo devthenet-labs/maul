@@ -22,8 +22,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
-	"github.com/bitwise-media-group/patchy/internal/provider"
-	"github.com/bitwise-media-group/patchy/internal/usagewire"
+	"github.com/devthenet-labs/maul/internal/provider"
+	"github.com/devthenet-labs/maul/internal/usagewire"
 )
 
 // One long-context codex turn, as the fake OpenAI upstream reports it: a
@@ -175,7 +175,7 @@ func readJobUsage(t *testing.T, cs kubernetes.Interface, base, job string) usage
 		ObjectMeta: metav1.ObjectMeta{GenerateName: "remediation-controller-", Namespace: namespace},
 		Spec: corev1.PodSpec{
 			ServiceAccountName: usageReaderSA,
-			Containers:         []corev1.Container{{Name: "controller", Image: "patchy/controller:e2e"}},
+			Containers:         []corev1.Container{{Name: "controller", Image: "maul/controller:e2e"}},
 		},
 	}, metav1.CreateOptions{})
 	if err != nil {

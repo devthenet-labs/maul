@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bitwise-media-group/patchy/internal/templates"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // TestPlanJobIsToldItsBuildsProfile: a plan Job is told, as plain text for

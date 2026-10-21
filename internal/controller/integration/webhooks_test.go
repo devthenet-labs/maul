@@ -19,9 +19,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/webhook"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/webhook"
 )
 
 // trackedFinding is a Finding in the given phase whose tracking issue URL is
@@ -29,7 +29,7 @@ import (
 func trackedFinding(phase v1alpha1.Phase) *v1alpha1.Finding {
 	const name = "finding-aa-1"
 	return &v1alpha1.Finding{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "patchy"},
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "maul"},
 		Spec: v1alpha1.FindingSpec{
 			IntegrationRef: v1alpha1.LocalObjectReference{Name: "gh"},
 			Source:         "ghas",
@@ -80,7 +80,7 @@ func newSignalsWith(
 	c := b.Build()
 	return &Signals{
 		Client:    c,
-		Namespace: "patchy",
+		Namespace: "maul",
 		Now:       func() time.Time { return testClock },
 	}, c
 }
@@ -137,12 +137,12 @@ func inReview() *v1alpha1.Finding {
 }
 
 // prClosed is a pull_request.closed delivery for PR number in repo, from the
-// finding's remediation branch (patchy/finding-aa-1) in headRepo.
+// finding's remediation branch (maul/finding-aa-1) in headRepo.
 func prClosed(repo string, number int, headRepo string, merged bool) string {
 	return fmt.Sprintf(
 		`{"action":"closed","pull_request":{"number":%d,"merged":%v,`+
 			`"merged_at":"2026-07-21T13:00:00Z","merge_commit_sha":"fa82fcdc7efab2777d432ba3385517fa735e0ae0",`+
-			`"head":{"ref":"patchy/finding-aa-1","repo":{"full_name":%q}},"base":{"ref":"main","repo":{"full_name":%q}}},`+
+			`"head":{"ref":"maul/finding-aa-1","repo":{"full_name":%q}},"base":{"ref":"main","repo":{"full_name":%q}}},`+
 			`"repository":{"full_name":%q}}`,
 		number, merged, headRepo, repo, repo)
 }
@@ -188,7 +188,7 @@ func TestSignalsPullRequest(t *testing.T) {
 }
 
 // TestSignalsPullRequestNotRecorded: the head ref names the finding, but
-// anyone who can open a pull request can name a branch patchy/<finding>. A
+// anyone who can open a pull request can name a branch maul/<finding>. A
 // close settles the finding only when it is the recorded remediation PR:
 // the same number, in the finding's repository, from a branch there. One
 // that differs only in its repository — a rename or transfer looks so — is
@@ -303,7 +303,7 @@ func TestSignalsWriteReadsPastTheCache(t *testing.T) {
 	}
 	s.Client, s.APIReader = &staleCache{Client: c, snapshot: before}, c
 
-	handle(t, s, "issue_comment", commentPayload(t, 41, "/patchy suspend"))
+	handle(t, s, "issue_comment", commentPayload(t, 41, "/maul suspend"))
 	f := get(t, c, "finding-aa-1")
 	if pendingCommand(f, 41) == nil || !slices.Contains(f.Status.Commands.Consumed, 40) {
 		t.Errorf("commands = %+v, want 41 recorded beside the projection's write", f.Status.Commands)
@@ -332,7 +332,7 @@ func TestSignalsOutlastConflictBurst(t *testing.T) {
 		})
 	}, trackedFinding(v1alpha1.PhaseQueued), testIntegration())
 
-	handle(t, s, "issue_comment", commentPayload(t, 41, "/patchy suspend"))
+	handle(t, s, "issue_comment", commentPayload(t, 41, "/maul suspend"))
 	if pendingCommand(get(t, c, "finding-aa-1"), 41) == nil {
 		t.Errorf("commands = %+v, want 41 recorded after %d conflicts",
 			get(t, c, "finding-aa-1").Status.Commands, retry.DefaultRetry.Steps)

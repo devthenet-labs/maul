@@ -6,7 +6,7 @@ package broker
 import (
 	"math"
 
-	"github.com/bitwise-media-group/patchy/internal/model"
+	"github.com/devthenet-labs/maul/internal/model"
 )
 
 // maxChargeMicroUSD caps one priced charge or reservation at a billion

@@ -26,40 +26,40 @@ resources:
 # on a stock kind cluster — do not read a green dev apply as a working sandbox.
 
 # Local images: `make snapshot` builds them (per-arch, unpushed — retag the
-# host-arch one as patchy/<name>:dev), then `kind load docker-image patchy/...`.
+# host-arch one as maul/<name>:dev), then `kind load docker-image maul/...`.
 images:
-    - name: ghcr.io/devthenet-labs/patchy/integration-controller
-      newName: patchy/integration-controller
+    - name: ghcr.io/devthenet-labs/maul/integration-controller
+      newName: maul/integration-controller
       newTag: dev
-    - name: ghcr.io/devthenet-labs/patchy/source-controller
-      newName: patchy/source-controller
+    - name: ghcr.io/devthenet-labs/maul/source-controller
+      newName: maul/source-controller
       newTag: dev
-    - name: ghcr.io/devthenet-labs/patchy/context-controller
-      newName: patchy/context-controller
+    - name: ghcr.io/devthenet-labs/maul/context-controller
+      newName: maul/context-controller
       newTag: dev
-    - name: ghcr.io/devthenet-labs/patchy/investigation-controller
-      newName: patchy/investigation-controller
+    - name: ghcr.io/devthenet-labs/maul/investigation-controller
+      newName: maul/investigation-controller
       newTag: dev
-    - name: ghcr.io/devthenet-labs/patchy/remediation-controller
-      newName: patchy/remediation-controller
+    - name: ghcr.io/devthenet-labs/maul/remediation-controller
+      newName: maul/remediation-controller
       newTag: dev
-    - name: ghcr.io/devthenet-labs/patchy/evaluation-controller
-      newName: patchy/evaluation-controller
+    - name: ghcr.io/devthenet-labs/maul/evaluation-controller
+      newName: maul/evaluation-controller
       newTag: dev
-    - name: ghcr.io/devthenet-labs/patchy/claude-agent-runner
-      newName: patchy/claude-agent-runner
+    - name: ghcr.io/devthenet-labs/maul/claude-agent-runner
+      newName: maul/claude-agent-runner
       newTag: dev
-    - name: ghcr.io/devthenet-labs/patchy/codex-agent-runner
-      newName: patchy/codex-agent-runner
+    - name: ghcr.io/devthenet-labs/maul/codex-agent-runner
+      newName: maul/codex-agent-runner
       newTag: dev
-    - name: ghcr.io/devthenet-labs/patchy/copilot-agent-runner
-      newName: patchy/copilot-agent-runner
+    - name: ghcr.io/devthenet-labs/maul/copilot-agent-runner
+      newName: maul/copilot-agent-runner
       newTag: dev
-    - name: ghcr.io/devthenet-labs/patchy/status-server
-      newName: patchy/status-server
+    - name: ghcr.io/devthenet-labs/maul/status-server
+      newName: maul/status-server
       newTag: dev
-    - name: ghcr.io/devthenet-labs/patchy/egress-broker
-      newName: patchy/egress-broker
+    - name: ghcr.io/devthenet-labs/maul/egress-broker
+      newName: maul/egress-broker
       newTag: dev
 
 patches:
@@ -71,36 +71,36 @@ patches:
     - path: services-nodeport-patch.yaml
       target:
           kind: Service
-          name: patchy-integration-controller
+          name: maul-integration-controller
     - target:
           kind: Service
-          name: patchy-integration-controller
+          name: maul-integration-controller
       patch: |
           - op: add
             path: /spec/ports/0/nodePort
             value: 30079
     # The evaluation controller reads the shared ConfigMap too, where
-    # PATCHY_HARNESSES: fake (configmap-patch.yaml) names a runner it has no
+    # MAUL_HARNESSES: fake (configmap-patch.yaml) names a runner it has no
     # image for (there is no fake evolve runner), so it would exit at startup.
-    # Pod env wins over envFrom, as with the base's PATCHY_AUTH_CONFIG:
+    # Pod env wins over envFrom, as with the base's MAUL_AUTH_CONFIG:
     # restrict it to the brokered claude runner, which needs nothing to start.
     # An evaluation that calls the model needs the real key secret-dev.yaml
-    # describes for patchy-anthropic.
+    # describes for maul-anthropic.
     - target:
           kind: Deployment
-          name: patchy-evaluation-controller
+          name: maul-evaluation-controller
       patch: |
           - op: add
             path: /spec/template/spec/containers/0/env/-
             value:
-                name: PATCHY_HARNESSES
+                name: MAUL_HARNESSES
                 value: claude
     # Laptop-sized. Requests tiny — a kind node has no headroom. Limits stay
     # (kubescape C-0270/C-0271 gate on them) but loose enough to never
     # throttle a dev loop.
     - target:
           kind: Deployment
-          labelSelector: app.kubernetes.io/part-of=patchy
+          labelSelector: app.kubernetes.io/part-of=maul
       patch: |
           - op: replace
             path: /spec/template/spec/containers/0/resources

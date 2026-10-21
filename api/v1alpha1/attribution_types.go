@@ -10,7 +10,7 @@ package v1alpha1
 // and the chart's attribution admission policies refuse it from anyone else.
 // An annotation rather than a label, because a value naming a person must
 // never become a selector anyone could match pods by.
-const AnnotationAttributedTo = "patchy.bitwisemedia.uk/attributed-to"
+const AnnotationAttributedTo = "maul.run/attributed-to"
 
 // UserRef identifies a person by their GitHub account. The numeric id is the
 // identity: a login can be renamed, and a freed login taken by someone else,
@@ -44,7 +44,7 @@ const (
 	// approver; a Finding remediation, by the Finding's approver.
 	AttributionApprover AttributionReason = "approver"
 	// AttributionCommenter: an intent revise round started by an approver's
-	// /patchy revise (or retry) comment, by its commenter.
+	// /maul revise (or retry) comment, by its commenter.
 	AttributionCommenter AttributionReason = "commenter"
 	// AttributionReviewer: an intent revise round started by approvers'
 	// reviews, by the author of the newest review the round consumed.
@@ -53,12 +53,12 @@ const (
 	// submitter.
 	AttributionSubmitter AttributionReason = "submitter"
 	// AttributionApproverUnregistered: the human the table names (an
-	// approver, requester, commenter or reviewer) has no patchy identity (no
+	// approver, requester, commenter or reviewer) has no maul identity (no
 	// GitHub numeric id is known for them), so under mode attribute the run
 	// is the org's.
 	AttributionApproverUnregistered AttributionReason = "approver-unregistered"
 	// AttributionSubmitterUnregistered: an evaluation unit whose submitter
-	// has no patchy identity, so the unit is the org's.
+	// has no maul identity, so the unit is the org's.
 	AttributionSubmitterUnregistered AttributionReason = "submitter-unregistered"
 )
 

@@ -14,7 +14,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/bitwise-media-group/patchy/internal/provider"
+	"github.com/devthenet-labs/maul/internal/provider"
 )
 
 // brokeredConfig is testConfig with the claude runner in brokered mode: no
@@ -22,10 +22,10 @@ import (
 func brokeredConfig() Config {
 	cfg := testConfig()
 	cfg.Runners["claude"] = Runner{
-		Image:    "ghcr.io/bitwise-media-group/patchy/claude-agent-runner:1",
+		Image:    "ghcr.io/devthenet-labs/maul/claude-agent-runner:1",
 		Brokered: true,
 		Env: map[string]string{
-			"ANTHROPIC_BASE_URL":                       "http://patchy-egress-broker.patchy.svc.cluster.local:8080/anthropic",
+			"ANTHROPIC_BASE_URL":                       "http://maul-egress-broker.maul.svc.cluster.local:8080/anthropic",
 			"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
 			// A credential channel must never ride the per-runner env, even
 			// if a bug upstream put one there.
@@ -127,8 +127,8 @@ func TestBrokeredJobShape(t *testing.T) {
 	}
 
 	envs := envMap(agent)
-	if got := envs["PATCHY_BROKER_TOKEN_FILE"].Value; got != brokerTokenPath {
-		t.Errorf("PATCHY_BROKER_TOKEN_FILE = %q, want %q", got, brokerTokenPath)
+	if got := envs["MAUL_BROKER_TOKEN_FILE"].Value; got != brokerTokenPath {
+		t.Errorf("MAUL_BROKER_TOKEN_FILE = %q, want %q", got, brokerTokenPath)
 	}
 	if got := envs["ANTHROPIC_BASE_URL"].Value; !strings.HasSuffix(got, "/anthropic") {
 		t.Errorf("ANTHROPIC_BASE_URL = %q, want the broker route", got)
@@ -158,7 +158,7 @@ func assertPlaceholder(t *testing.T, envs map[string]corev1.EnvVar) {
 	}
 }
 
-// TestPlaceholderAuthToken: only patchy sets the placeholder, and only on
+// TestPlaceholderAuthToken: only maul sets the placeholder, and only on
 // brokered runners. Neither the controller-global Config.Env nor the
 // per-runner Env can set or override that name, and a non-brokered runner
 // never gets it.
@@ -239,8 +239,8 @@ func TestNonBrokeredJobUnchanged(t *testing.T) {
 	}
 	agent := pod.Containers[0]
 	envs := envMap(agent)
-	if _, ok := envs["PATCHY_BROKER_TOKEN_FILE"]; ok {
-		t.Error("non-brokered agent got PATCHY_BROKER_TOKEN_FILE")
+	if _, ok := envs["MAUL_BROKER_TOKEN_FILE"]; ok {
+		t.Error("non-brokered agent got MAUL_BROKER_TOKEN_FILE")
 	}
 	if _, ok := envs[provider.PlaceholderAuthEnv]; ok {
 		t.Errorf("non-brokered agent got the %s placeholder", provider.PlaceholderAuthEnv)

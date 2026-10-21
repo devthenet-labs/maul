@@ -48,7 +48,7 @@ type TokenRequest struct {
 // made with an installation token the fake minted — a PAT, or no credential
 // at all — is this user's, as GitHub attributes a PAT's writes to the PAT's
 // owner; only an installation token's writes are the App's bot's.
-var PATUser = Actor{Login: "patchy-e2e", ID: 100000002, Type: "User"}
+var PATUser = Actor{Login: "maul-e2e", ID: 100000002, Type: "User"}
 
 // accessToken answers POST /app/installations/{id}/access_tokens, minting a
 // token valid for an hour and recording the scope requested — the scope the

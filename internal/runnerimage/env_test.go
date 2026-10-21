@@ -11,10 +11,10 @@ import (
 	"testing"
 	"testing/quick"
 
-	"github.com/bitwise-media-group/patchy/internal/provider"
+	"github.com/devthenet-labs/maul/internal/provider"
 )
 
-const envSuffix = "; `PATCHY_*`, `ANTHROPIC_*`, `CLAUDE_*`, `CODEX_*`, `OPENAI_*`, proxy and patchy-reserved " +
+const envSuffix = "; `MAUL_*`, `ANTHROPIC_*`, `CLAUDE_*`, `CODEX_*`, `OPENAI_*`, proxy and maul-reserved " +
 	"variables cannot come from the image"
 
 func TestCheckEnv(t *testing.T) {
@@ -31,8 +31,8 @@ func TestCheckEnv(t *testing.T) {
 		{"a job-reserved name is rejected only when supplied", []string{"HOME=/root"}, jobReserved,
 			"image ENV sets `HOME`" + envSuffix},
 		{"a credential channel", []string{"GITHUB_TOKEN=x"}, jobReserved, "image ENV sets `GITHUB_TOKEN`" + envSuffix},
-		{"PATCHY_ prefix (fixture config)", []string{"PATCHY_CHANGESET_MAX_BYTES=1"}, nil,
-			"image ENV sets `PATCHY_CHANGESET_MAX_BYTES`" + envSuffix},
+		{"MAUL_ prefix (fixture config)", []string{"MAUL_CHANGESET_MAX_BYTES=1"}, nil,
+			"image ENV sets `MAUL_CHANGESET_MAX_BYTES`" + envSuffix},
 		{"ANTHROPIC_ prefix", []string{"ANTHROPIC_MODEL=x"}, nil, "image ENV sets `ANTHROPIC_MODEL`" + envSuffix},
 		{"CLAUDE_ prefix", []string{"CLAUDE_CONFIG_DIR=/x"}, nil, "image ENV sets `CLAUDE_CONFIG_DIR`" + envSuffix},
 		{"CLAUDE_CODE_ prefix", []string{"CLAUDE_CODE_USE_BEDROCK=1"}, nil,
@@ -49,10 +49,10 @@ func TestCheckEnv(t *testing.T) {
 		{"lower-case proxy", []string{"http_proxy=http://p:3128"}, nil, "image ENV sets `http_proxy`" + envSuffix},
 		{"mixed-case proxy", []string{"No_Proxy=localhost"}, nil, "image ENV sets `No_Proxy`" + envSuffix},
 		{"all_proxy", []string{"all_proxy=socks5://p"}, nil, "image ENV sets `all_proxy`" + envSuffix},
-		{"a name without a value", []string{"PATCHY_FOO"}, nil, "image ENV sets `PATCHY_FOO`" + envSuffix},
-		{"offenders are sorted and deduplicated", []string{"http_proxy=a", "PATCHY_X=1", "HTTPS_PROXY=b", "PATCHY_X=2",
-			"GOPATH=/go"}, nil, "image ENV sets `HTTPS_PROXY`, `PATCHY_X`, `http_proxy`" + envSuffix},
-		{"a prefix must be a prefix", []string{"MY_PATCHY_VAR=1", "XANTHROPIC_=1", "PROXY=1", "HTTP_PROXY_LIST=1"}, nil, ""},
+		{"a name without a value", []string{"MAUL_FOO"}, nil, "image ENV sets `MAUL_FOO`" + envSuffix},
+		{"offenders are sorted and deduplicated", []string{"http_proxy=a", "MAUL_X=1", "HTTPS_PROXY=b", "MAUL_X=2",
+			"GOPATH=/go"}, nil, "image ENV sets `HTTPS_PROXY`, `MAUL_X`, `http_proxy`" + envSuffix},
+		{"a prefix must be a prefix", []string{"MY_MAUL_VAR=1", "XANTHROPIC_=1", "PROXY=1", "HTTP_PROXY_LIST=1"}, nil, ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -92,7 +92,7 @@ func genEnvName(r *rand.Rand) string {
 }
 
 func TestReservedEnvPrefixProperty(t *testing.T) {
-	prefixes := []string{"PATCHY_", "ANTHROPIC_", "CLAUDE_", "CLAUDE_CODE_", "CODEX_", "OPENAI_"}
+	prefixes := []string{"MAUL_", "ANTHROPIC_", "CLAUDE_", "CLAUDE_CODE_", "CODEX_", "OPENAI_"}
 	cfg := &quick.Config{
 		MaxCount: 1000,
 		Rand:     rand.New(rand.NewSource(20260922)),

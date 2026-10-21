@@ -11,8 +11,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/bitwise-media-group/patchy/internal/runner"
-	"github.com/bitwise-media-group/patchy/internal/transcript"
+	"github.com/devthenet-labs/maul/internal/runner"
+	"github.com/devthenet-labs/maul/internal/transcript"
 )
 
 // Claude drives the `claude` CLI (Claude Code).
@@ -118,7 +118,7 @@ var claudeTools = map[Sandbox]struct {
 const claudeRestricted = "--restricted"
 
 // claudeSettingSources is the one settings source a postured run reads, so
-// that the posture is patchy's alone. claude -p never asks whether to trust
+// that the posture is maul's alone. claude -p never asks whether to trust
 // the directory it runs in, and from the working tree's .claude/settings.json,
 // .claude/settings.local.json and .mcp.json it would still take hooks, the
 // env block and helper commands, a local file's allow rules, a defaultMode
@@ -136,7 +136,7 @@ const claudeRestricted = "--restricted"
 // writes them as the agent's own process, a resume reads them back, and a
 // writable stage is meant to keep the location it has. Leaving out the project source
 // leaves out .mcp.json too, and --strict-mcp-config, passed beside it,
-// refuses every MCP server not named by --mcp-config, which patchy never
+// refuses every MCP server not named by --mcp-config, which maul never
 // passes.
 //
 // The project source also carries the tree's CLAUDE.md, which the stages
@@ -152,7 +152,7 @@ const claudeRestricted = "--restricted"
 const claudeSettingSources = "user"
 
 // claudePermissionMode is the permission mode every postured run is started
-// in, so that the mode is patchy's and not a settings file's. A settings
+// in, so that the mode is maul's and not a settings file's. A settings
 // source the run still reads can name a defaultMode: the user source under
 // HOME, and a managed settings file, which a repository image can bake in
 // and which outranks everything else. Probed on 2.1.263, a defaultMode of
@@ -168,7 +168,7 @@ const claudeSettingSources = "user"
 //
 // What a managed settings file can still do is the residue: hooks, an env
 // block, allow rules and MCP servers of its own, in every stage that runs on
-// the image. Only a repository image can carry one patchy did not write, and
+// the image. Only a repository image can carry one maul did not write, and
 // such an image is already treated as untrusted code with the agent's powers
 // (docs/deployment/isolation.md), which is what a hook or an allow rule there
 // buys; the mode is the one thing it can no longer choose.
@@ -184,7 +184,7 @@ const claudeMDFromAddDirs = "CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1"
 // whatever the allow rules say, and that directory sits under HOME, the
 // workspace root. With auto memory on, a report repair's resumed run would
 // load what the first run wrote there; with it off nothing loads it, so the
-// repair reads only patchy's prompt and the files it chooses to read. The
+// repair reads only maul's prompt and the files it chooses to read. The
 // writable posture keeps the CLI's default, since its stage may write
 // anywhere in the workspace in any case.
 const claudeNoAutoMemory = "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1"

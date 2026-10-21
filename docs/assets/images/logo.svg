@@ -1,7 +1,7 @@
 <!-- Copyright 2026 Bitwise Media Group Ltd. -->
 <!-- SPDX-License-Identifier: MIT -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
-  <title id="title">Patchy</title>
+  <title id="title">Maul</title>
   <desc id="desc">A square of new turf sliding over a soil hole, filling the gap.</desc>
   <defs>
     <linearGradient id="pt-logo-lawn" x1="0" y1="0" x2="0" y2="1">

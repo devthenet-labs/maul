@@ -1,7 +1,7 @@
 // Copyright 2026 Bitwise Media Group Ltd.
 // SPDX-License-Identifier: MIT
 
-// Package mirror is the engine behind `patchy mirror`: vendored mirroring
+// Package mirror is the engine behind `maul mirror`: vendored mirroring
 // of upstream helm charts and OCI artifacts into a platform registry, with
 // review-gated updates, upstream provenance verification, vulnerability
 // scanning and signing of everything published.

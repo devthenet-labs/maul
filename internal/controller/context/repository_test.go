@@ -14,16 +14,16 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/pkg/enhance"
-	"github.com/bitwise-media-group/patchy/pkg/source"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/pkg/enhance"
+	"github.com/devthenet-labs/maul/pkg/source"
 )
 
 // cloudFinding is an SCC finding as ingest writes it: a cloud resource, and
 // no repository at all.
 func cloudFinding() *v1alpha1.Finding {
 	return &v1alpha1.Finding{
-		ObjectMeta: metav1.ObjectMeta{Name: "finding-aa-1", Namespace: "patchy"},
+		ObjectMeta: metav1.ObjectMeta{Name: "finding-aa-1", Namespace: "maul"},
 		Spec: v1alpha1.FindingSpec{
 			IntegrationRef: v1alpha1.LocalObjectReference{Name: "gcp"},
 			Source:         "gcp-scc",
@@ -288,7 +288,7 @@ func TestToFindingRepository(t *testing.T) {
 				Type: "github", URL: "https://github.com/acme/infra.git", Name: "acme/infra",
 			},
 		},
-		// A forge patchy cannot clone would stall the finding at the gate
+		// A forge maul cannot clone would stall the finding at the gate
 		// instead of handing it off, so it is dropped rather than written.
 		{
 			"an unsupported forge is dropped",
@@ -317,5 +317,5 @@ func TestToFindingRepository(t *testing.T) {
 
 // request is the reconcile request for the fixture finding.
 func request() ctrl.Request {
-	return ctrl.Request{NamespacedName: client.ObjectKey{Namespace: "patchy", Name: "finding-aa-1"}}
+	return ctrl.Request{NamespacedName: client.ObjectKey{Namespace: "maul", Name: "finding-aa-1"}}
 }

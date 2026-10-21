@@ -14,7 +14,7 @@ import (
 
 	jose "github.com/go-jose/go-jose/v4"
 
-	"github.com/bitwise-media-group/patchy/internal/previewauth"
+	"github.com/devthenet-labs/maul/internal/previewauth"
 )
 
 func pemKey(t *testing.T, bits int, pkcs8 bool) []byte {
@@ -51,7 +51,7 @@ func TestSignVerifiesAgainstJWKS(t *testing.T) {
 			t.Errorf("jwks key %+v", k)
 		}
 	}
-	claims := previewauth.IDTokenClaims{Issuer: "https://r.example.com", Audience: "patchy-preview-s0",
+	claims := previewauth.IDTokenClaims{Issuer: "https://r.example.com", Audience: "maul-preview-s0",
 		Subject: "sub", IssuedAt: 1, Expires: 2, AtHash: "h"}
 	tok, err := s.Sign(claims)
 	if err != nil {

@@ -19,10 +19,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/pkg/evaluation"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/pkg/evaluation"
 )
 
 var clock = time.Date(2026, 8, 12, 12, 0, 0, 0, time.UTC)
@@ -42,7 +42,7 @@ func unitPlan(harness string) v1alpha1.UnitPlan {
 
 func testEval(units ...v1alpha1.UnitPlan) *v1alpha1.Evaluation {
 	return &v1alpha1.Evaluation{
-		ObjectMeta: metav1.ObjectMeta{Name: "eval-1", Namespace: "patchy", UID: "eval-uid-1"},
+		ObjectMeta: metav1.ObjectMeta{Name: "eval-1", Namespace: "maul", UID: "eval-uid-1"},
 		Spec:       v1alpha1.EvaluationSpec{Submitter: "dev@example.com", Units: units},
 	}
 }
@@ -102,7 +102,7 @@ func newUnitReconciler(c client.Client, runner *fakeRunner, ws fakeWorkspaces) *
 		Client:           c,
 		Runner:           runner,
 		Workspaces:       ws,
-		Namespace:        "patchy",
+		Namespace:        "maul",
 		MaxConcurrent:    2,
 		EnabledHarnesses: []string{"claude", "fake"},
 		ArtifactBaseURL:  "http://arts.local:9790",
@@ -113,7 +113,7 @@ func newUnitReconciler(c client.Client, runner *fakeRunner, ws fakeWorkspaces) *
 func reconcileUnit(t *testing.T, r *UnitReconciler, name string) ctrl.Result {
 	t.Helper()
 	res, err := r.Reconcile(t.Context(), ctrl.Request{
-		NamespacedName: types.NamespacedName{Namespace: "patchy", Name: name},
+		NamespacedName: types.NamespacedName{Namespace: "maul", Name: name},
 	})
 	if err != nil {
 		t.Fatalf("Reconcile(%s): %v", name, err)
@@ -124,7 +124,7 @@ func reconcileUnit(t *testing.T, r *UnitReconciler, name string) ctrl.Result {
 func getUnit(t *testing.T, c client.Client, name string) *v1alpha1.EvaluationUnit {
 	t.Helper()
 	var u v1alpha1.EvaluationUnit
-	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: name}, &u); err != nil {
+	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: name}, &u); err != nil {
 		t.Fatalf("Get(%s): %v", name, err)
 	}
 	return &u
@@ -135,7 +135,7 @@ func getEval(t *testing.T, c client.Client) *v1alpha1.Evaluation {
 	t.Helper()
 	const name = "eval-1"
 	var e v1alpha1.Evaluation
-	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: name}, &e); err != nil {
+	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: name}, &e); err != nil {
 		t.Fatalf("Get(%s): %v", name, err)
 	}
 	return &e
@@ -157,19 +157,19 @@ func resultLine(t *testing.T, res *evaluation.UnitResult) string {
 func TestGateCreatesChildrenIdempotently(t *testing.T) {
 	eval := testEval(unitPlan("claude"), unitPlan("claude"))
 	c := newClient(t, eval)
-	g := &GateReconciler{Client: c, Namespace: "patchy",
+	g := &GateReconciler{Client: c, Namespace: "maul",
 		EnabledHarnesses: []string{"claude"}, Now: func() time.Time { return clock }}
 
 	for range 2 { // twice: idempotent
 		if _, err := g.Reconcile(t.Context(), ctrl.Request{
-			NamespacedName: types.NamespacedName{Namespace: "patchy", Name: "eval-1"},
+			NamespacedName: types.NamespacedName{Namespace: "maul", Name: "eval-1"},
 		}); err != nil {
 			t.Fatalf("Reconcile: %v", err)
 		}
 	}
 
 	var units v1alpha1.EvaluationUnitList
-	if err := c.List(t.Context(), &units, client.InNamespace("patchy")); err != nil {
+	if err := c.List(t.Context(), &units, client.InNamespace("maul")); err != nil {
 		t.Fatalf("List: %v", err)
 	}
 	if len(units.Items) != 2 {
@@ -200,11 +200,11 @@ func TestGateCreatesChildrenIdempotently(t *testing.T) {
 func TestGateSettlesHarnessUnavailable(t *testing.T) {
 	eval := testEval(unitPlan("gemini")) // not in the fleet
 	c := newClient(t, eval)
-	g := &GateReconciler{Client: c, Namespace: "patchy",
+	g := &GateReconciler{Client: c, Namespace: "maul",
 		EnabledHarnesses: []string{"claude"}, Now: func() time.Time { return clock }}
 
 	if _, err := g.Reconcile(t.Context(), ctrl.Request{
-		NamespacedName: types.NamespacedName{Namespace: "patchy", Name: "eval-1"},
+		NamespacedName: types.NamespacedName{Namespace: "maul", Name: "eval-1"},
 	}); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
@@ -222,7 +222,7 @@ func TestSchedulerRespectsSlots(t *testing.T) {
 	for i := range 3 {
 		objs = append(objs, &v1alpha1.EvaluationUnit{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: UnitName("eval-1", i), Namespace: "patchy",
+				Name: UnitName("eval-1", i), Namespace: "maul",
 				Labels:            map[string]string{v1alpha1.LabelEvaluation: "eval-1"},
 				CreationTimestamp: metav1.NewTime(clock.Add(time.Duration(i) * time.Second)),
 			},
@@ -259,7 +259,7 @@ func runningUnit(jobRef *v1alpha1.JobReference) *v1alpha1.EvaluationUnit {
 	const index = int32(0)
 	u := &v1alpha1.EvaluationUnit{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: UnitName("eval-1", int(index)), Namespace: "patchy",
+			Name: UnitName("eval-1", int(index)), Namespace: "maul",
 			Labels:     map[string]string{v1alpha1.LabelEvaluation: "eval-1"},
 			Finalizers: []string{v1alpha1.FinalizerJobs},
 		},
@@ -468,7 +468,7 @@ func TestFinalizeDeletesJobAndReleasesFinalizer(t *testing.T) {
 	}
 	// Releasing the sole finalizer lets the fake client delete the object.
 	var u v1alpha1.EvaluationUnit
-	err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: unit.Name}, &u)
+	err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: unit.Name}, &u)
 	if !kerrors.IsNotFound(err) {
 		t.Errorf("unit still present after finalize: %v", err)
 	}
@@ -480,15 +480,15 @@ func TestTTLDeletesExpired(t *testing.T) {
 	eval.Status.Phase = v1alpha1.EvaluationComplete
 	eval.Status.CompletedAt = &done
 	c := newClient(t, eval)
-	r := &TTLReconciler{Client: c, Namespace: "patchy", TTL: -1, Now: func() time.Time { return clock }}
+	r := &TTLReconciler{Client: c, Namespace: "maul", TTL: -1, Now: func() time.Time { return clock }}
 
 	if _, err := r.Reconcile(t.Context(), ctrl.Request{
-		NamespacedName: types.NamespacedName{Namespace: "patchy", Name: "eval-1"},
+		NamespacedName: types.NamespacedName{Namespace: "maul", Name: "eval-1"},
 	}); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
 	var e v1alpha1.Evaluation
-	err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: "eval-1"}, &e)
+	err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: "eval-1"}, &e)
 	if !kerrors.IsNotFound(err) {
 		t.Errorf("evaluation still present after TTL: %v", err)
 	}
@@ -502,10 +502,10 @@ func TestTTLWaitsAndHonorsSpecOverride(t *testing.T) {
 	ttl := int32(7200) // 2h override; 1h elapsed
 	eval.Spec.TTLSecondsAfterFinished = &ttl
 	c := newClient(t, eval)
-	r := &TTLReconciler{Client: c, Namespace: "patchy", TTL: -1, Now: func() time.Time { return clock }}
+	r := &TTLReconciler{Client: c, Namespace: "maul", TTL: -1, Now: func() time.Time { return clock }}
 
 	res, err := r.Reconcile(t.Context(), ctrl.Request{
-		NamespacedName: types.NamespacedName{Namespace: "patchy", Name: "eval-1"},
+		NamespacedName: types.NamespacedName{Namespace: "maul", Name: "eval-1"},
 	})
 	if err != nil {
 		t.Fatalf("Reconcile: %v", err)
@@ -514,7 +514,7 @@ func TestTTLWaitsAndHonorsSpecOverride(t *testing.T) {
 		t.Errorf("RequeueAfter = %v, want 1h", res.RequeueAfter)
 	}
 	var e v1alpha1.Evaluation
-	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: "eval-1"}, &e); err != nil {
+	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: "eval-1"}, &e); err != nil {
 		t.Errorf("evaluation deleted early: %v", err)
 	}
 }

@@ -14,9 +14,9 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
-	"github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/attribution"
-	"github.com/bitwise-media-group/patchy/internal/usagewire"
+	"github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/attribution"
+	"github.com/devthenet-labs/maul/internal/usagewire"
 )
 
 // UserCredentialMode is the per-user model credentials switch (design L3,

@@ -1,8 +1,8 @@
-<!-- patchy:intent patchy/target-1 -->
-### patchy
+<!-- maul:intent maul/target-1 -->
+### maul
 
-**Phase:** `Planning`: patchy is writing a plan, which it will post here for approval.
+**Phase:** `Planning`: maul is writing a plan, which it will post here for approval.
 
-**Agents paused:** the operator has paused patchy's agents, so this work waits until they are resumed.
+**Agents paused:** the operator has paused maul's agents, so this work waits until they are resumed.
 
-_patchy updates this comment as the work progresses._
+_maul updates this comment as the work progresses._

@@ -13,8 +13,8 @@ import (
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/e2e/fakegithub"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/e2e/fakegithub"
 )
 
 // TestProjectionPostsOnce runs the real integration-controller, informer
@@ -31,7 +31,7 @@ func TestProjectionPostsOnce(t *testing.T) {
 	ctx := context.Background()
 
 	const name = "finding-eeeeeeeeee-1"
-	const reportMarker = "<!-- patchy:report Investigation/1 -->"
+	const reportMarker = "<!-- maul:report Investigation/1 -->"
 	inv := &v1alpha1.Investigation{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name + "-inv-1", Namespace: namespace,
@@ -83,7 +83,7 @@ func TestProjectionPostsOnce(t *testing.T) {
 			return false
 		}
 		tr := cur.Status.Tracking
-		if tr == nil || cur.GetAnnotations()["patchy.bitwisemedia.uk/projected-notice"] == "" {
+		if tr == nil || cur.GetAnnotations()["maul.run/projected-notice"] == "" {
 			return false
 		}
 		for _, c := range tr.Comments {

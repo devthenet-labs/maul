@@ -5,13 +5,13 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-    name: patchy-status-server
-    namespace: patchy
+    name: maul-status-server
+    namespace: maul
 spec:
     template:
         spec:
             containers:
                 - name: server
                   env:
-                      - name: PATCHY_INTENTS_ENABLED
+                      - name: MAUL_INTENTS_ENABLED
                         value: "true"

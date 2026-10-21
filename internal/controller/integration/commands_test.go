@@ -18,8 +18,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/ghclient"
 )
 
 // maintainer is the commenter the command tests grant write access to.
@@ -67,7 +67,7 @@ func commentBy(t *testing.T, id int64, body, login string) string {
 func reconcileOnce(t *testing.T, r *FindingReconciler) (ctrl.Result, error) {
 	t.Helper()
 	return r.Reconcile(t.Context(), ctrl.Request{
-		NamespacedName: types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1"},
+		NamespacedName: types.NamespacedName{Namespace: "maul", Name: "finding-aa-1"},
 	})
 }
 
@@ -180,8 +180,8 @@ func TestCommandSettles(t *testing.T) {
 		{
 			name: "write access approves, with the note",
 			fnd:  func() *v1alpha1.Finding { return trackedFinding(v1alpha1.PhaseAwaitingApproval) },
-			perm: ghclient.PermissionWrite, body: "/patchy approve ship it",
-			wantReply: []string{"@maintainer `/patchy approve` is done"},
+			perm: ghclient.PermissionWrite, body: "/maul approve ship it",
+			wantReply: []string{"@maintainer `/maul approve` is done"},
 			wantNot:   []string{"deprecated"},
 			check: func(t *testing.T, f *v1alpha1.Finding) {
 				a := f.Spec.Approval
@@ -198,23 +198,23 @@ func TestCommandSettles(t *testing.T) {
 		{
 			name: "admin approves",
 			fnd:  func() *v1alpha1.Finding { return trackedFinding(v1alpha1.PhaseAwaitingApproval) },
-			perm: ghclient.PermissionAdmin, body: "/patchy approve",
+			perm: ghclient.PermissionAdmin, body: "/maul approve",
 			wantReply: []string{"is done"},
 			check:     wantApprovalBy(maintainer),
 		},
 		{
 			name: "maintain approves",
 			fnd:  func() *v1alpha1.Finding { return trackedFinding(v1alpha1.PhaseAwaitingApproval) },
-			perm: ghclient.PermissionMaintain, body: "/PATCHY Approve",
+			perm: ghclient.PermissionMaintain, body: "/MAUL Approve",
 			wantReply: []string{"is done"},
 			check:     wantApprovalBy(maintainer),
 		},
 		{
 			name: "read is refused: a public repository grants it to everyone",
 			fnd:  func() *v1alpha1.Finding { return trackedFinding(v1alpha1.PhaseAwaitingApproval) },
-			body: "/patchy approve",
+			body: "/maul approve",
 			wantReply: []string{
-				"@maintainer you may not use `/patchy approve` here", "need write access to acme/orders",
+				"@maintainer you may not use `/maul approve` here", "need write access to acme/orders",
 			},
 			check:   wantApprovalBy(""),
 			refused: true,
@@ -222,7 +222,7 @@ func TestCommandSettles(t *testing.T) {
 		{
 			name: "none is refused",
 			fnd:  func() *v1alpha1.Finding { return trackedFinding(v1alpha1.PhaseAwaitingApproval) },
-			perm: ghclient.PermissionNone, body: "/patchy approve",
+			perm: ghclient.PermissionNone, body: "/maul approve",
 			wantReply: []string{"you may not use"},
 			check:     wantApprovalBy(""),
 			refused:   true,
@@ -230,7 +230,7 @@ func TestCommandSettles(t *testing.T) {
 		{
 			name:    "a login GitHub has no account for is refused",
 			fnd:     func() *v1alpha1.Finding { return trackedFinding(v1alpha1.PhaseAwaitingApproval) },
-			missing: true, body: "/patchy approve",
+			missing: true, body: "/maul approve",
 			wantReply: []string{"you may not use"},
 			check:     wantApprovalBy(""),
 			refused:   true,
@@ -238,7 +238,7 @@ func TestCommandSettles(t *testing.T) {
 		{
 			name: "an unrecognised permission is refused",
 			fnd:  func() *v1alpha1.Finding { return trackedFinding(v1alpha1.PhaseAwaitingApproval) },
-			perm: "triage", body: "/patchy approve",
+			perm: "triage", body: "/maul approve",
 			wantReply: []string{"you may not use"},
 			check:     wantApprovalBy(""),
 			refused:   true,
@@ -246,12 +246,12 @@ func TestCommandSettles(t *testing.T) {
 		{
 			name: "a verb the phase does not admit lists the ones it does",
 			fnd:  func() *v1alpha1.Finding { return trackedFinding(v1alpha1.PhaseAwaitingApproval) },
-			perm: ghclient.PermissionWrite, body: "/patchy retry",
+			perm: ghclient.PermissionWrite, body: "/maul retry",
 			wantReply: []string{
-				"`/patchy retry` is not available for this finding in its current phase",
-				"- `/patchy approve [note]`", "- `/patchy expedite`", "- `/patchy suspend`",
+				"`/maul retry` is not available for this finding in its current phase",
+				"- `/maul approve [note]`", "- `/maul expedite`", "- `/maul suspend`",
 			},
-			wantNot: []string{"- `/patchy retry`", "- `/patchy resume`"},
+			wantNot: []string{"- `/maul retry`", "- `/maul resume`"},
 			check: func(t *testing.T, f *v1alpha1.Finding) {
 				if f.Spec.Retry != nil {
 					t.Errorf("spec.retry = %+v, want none", f.Spec.Retry)
@@ -263,49 +263,49 @@ func TestCommandSettles(t *testing.T) {
 			// its id is consumed and its author is not remembered as refused.
 			name: "an unknown verb from write access gets the help",
 			fnd:  func() *v1alpha1.Finding { return trackedFinding(v1alpha1.PhaseAwaitingApproval) },
-			perm: ghclient.PermissionWrite, body: "/patchy frobnicate now",
+			perm: ghclient.PermissionWrite, body: "/maul frobnicate now",
 			wantReply: []string{
-				"`/patchy frobnicate` is not a command patchy knows",
-				"- `/patchy approve [note]`", "- `/patchy retry`", "- `/patchy expedite`",
-				"- `/patchy suspend`", "- `/patchy resume`",
+				"`/maul frobnicate` is not a command maul knows",
+				"- `/maul approve [note]`", "- `/maul retry`", "- `/maul expedite`",
+				"- `/maul suspend`", "- `/maul resume`",
 			},
 			check: wantApprovalBy(""),
 		},
 		{
 			name: "an unknown verb without write access is not allowed, and gets no help",
 			fnd:  func() *v1alpha1.Finding { return trackedFinding(v1alpha1.PhaseAwaitingApproval) },
-			body: "/patchy frobnicate now",
+			body: "/maul frobnicate now",
 			wantReply: []string{
-				"@maintainer you may not use `/patchy frobnicate` here", "need write access to acme/orders",
+				"@maintainer you may not use `/maul frobnicate` here", "need write access to acme/orders",
 			},
-			wantNot: []string{"not a command patchy knows", "- `/patchy approve [note]`"},
+			wantNot: []string{"not a command maul knows", "- `/maul approve [note]`"},
 			check:   wantApprovalBy(""),
 			refused: true,
 		},
 		{
 			name: "a verb that is not a word is not echoed",
 			fnd:  func() *v1alpha1.Finding { return trackedFinding(v1alpha1.PhaseAwaitingApproval) },
-			perm: ghclient.PermissionWrite, body: "/patchy <b>approve</b>",
+			perm: ghclient.PermissionWrite, body: "/maul <b>approve</b>",
 			wantReply: []string{
-				"@maintainer that is not a command patchy knows.", "- `/patchy approve [note]`",
+				"@maintainer that is not a command maul knows.", "- `/maul approve [note]`",
 			},
 			wantNot: []string{"<b>"},
 		},
 		{
 			name: "a verb that is not a word is not echoed in a refusal either",
 			fnd:  func() *v1alpha1.Finding { return trackedFinding(v1alpha1.PhaseAwaitingApproval) },
-			body: "/patchy <b>approve</b>",
+			body: "/maul <b>approve</b>",
 			wantReply: []string{
-				"@maintainer you may not use `/patchy` here", "need write access to acme/orders",
+				"@maintainer you may not use `/maul` here", "need write access to acme/orders",
 			},
-			wantNot: []string{"<b>", "`/patchy `", "not a command patchy knows"},
+			wantNot: []string{"<b>", "`/maul `", "not a command maul knows"},
 			refused: true,
 		},
 		{
 			name: "the legacy approve comment approves as before, with the deprecation noted",
 			fnd:  func() *v1alpha1.Finding { return trackedFinding(v1alpha1.PhaseAwaitingApproval) },
 			perm: ghclient.PermissionWrite, body: "/approve lgtm",
-			wantReply: []string{"`/patchy approve` is done", "deprecated: comment `/patchy approve`"},
+			wantReply: []string{"`/maul approve` is done", "deprecated: comment `/maul approve`"},
 			check: func(t *testing.T, f *v1alpha1.Finding) {
 				if a := f.Spec.Approval; a == nil || a.By != maintainer || a.Note != "lgtm" {
 					t.Errorf("approval = %+v, want maintainer's with the note", a)
@@ -315,7 +315,7 @@ func TestCommandSettles(t *testing.T) {
 		{
 			name: "a configured approve comment is the alias",
 			fnd:  func() *v1alpha1.Finding { return trackedFinding(v1alpha1.PhaseAwaitingApproval) },
-			perm: ghclient.PermissionWrite, alias: "@patchy approve", body: "@patchy approve",
+			perm: ghclient.PermissionWrite, alias: "@maul approve", body: "@maul approve",
 			wantReply: []string{"is done", "deprecated"},
 			check:     wantApprovalBy(maintainer),
 		},
@@ -323,15 +323,15 @@ func TestCommandSettles(t *testing.T) {
 			name:      "the legacy alias is refused without write access, as every command is",
 			fnd:       func() *v1alpha1.Finding { return trackedFinding(v1alpha1.PhaseAwaitingApproval) },
 			body:      "/approve",
-			wantReply: []string{"you may not use `/patchy approve` here"},
+			wantReply: []string{"you may not use `/maul approve` here"},
 			check:     wantApprovalBy(""),
 			refused:   true,
 		},
 		{
 			name: "suspend",
 			fnd:  func() *v1alpha1.Finding { return trackedFinding(v1alpha1.PhaseQueued) },
-			perm: ghclient.PermissionWrite, body: "/patchy suspend",
-			wantReply: []string{"`/patchy suspend` is done", "paused until `/patchy resume`"},
+			perm: ghclient.PermissionWrite, body: "/maul suspend",
+			wantReply: []string{"`/maul suspend` is done", "paused until `/maul resume`"},
 			check: func(t *testing.T, f *v1alpha1.Finding) {
 				if !f.Spec.Suspend {
 					t.Error("spec.suspend = false, want true")
@@ -345,8 +345,8 @@ func TestCommandSettles(t *testing.T) {
 				fnd.Spec.Suspend = true
 				return fnd
 			},
-			perm: ghclient.PermissionWrite, body: "/patchy resume",
-			wantReply: []string{"`/patchy resume` is done"},
+			perm: ghclient.PermissionWrite, body: "/maul resume",
+			wantReply: []string{"`/maul resume` is done"},
 			check: func(t *testing.T, f *v1alpha1.Finding) {
 				if f.Spec.Suspend {
 					t.Error("spec.suspend = true, want false")
@@ -356,8 +356,8 @@ func TestCommandSettles(t *testing.T) {
 		{
 			name: "expedite",
 			fnd:  func() *v1alpha1.Finding { return trackedFinding(v1alpha1.PhaseEnhanced) },
-			perm: ghclient.PermissionWrite, body: "/patchy expedite",
-			wantReply: []string{"`/patchy expedite` is done"},
+			perm: ghclient.PermissionWrite, body: "/maul expedite",
+			wantReply: []string{"`/maul expedite` is done"},
 			check: func(t *testing.T, f *v1alpha1.Finding) {
 				if e := f.Spec.Expedite; e == nil || e.By != maintainer {
 					t.Errorf("spec.expedite = %+v, want maintainer's", e)
@@ -367,8 +367,8 @@ func TestCommandSettles(t *testing.T) {
 		{
 			name: "retry",
 			fnd:  failedFinding,
-			perm: ghclient.PermissionWrite, body: "/patchy retry",
-			wantReply: []string{"`/patchy retry` is done"},
+			perm: ghclient.PermissionWrite, body: "/maul retry",
+			wantReply: []string{"`/maul retry` is done"},
 			check: func(t *testing.T, f *v1alpha1.Finding) {
 				if r := f.Spec.Retry; r == nil || r.By != maintainer || !v1alpha1.RetryRequested(f) {
 					t.Errorf("spec.retry = %+v, want maintainer's, actionable", r)
@@ -385,7 +385,7 @@ func TestCommandSettles(t *testing.T) {
 				fnd.Status.CompletedAt = &completed
 				return fnd
 			},
-			perm: ghclient.PermissionWrite, body: "/patchy approve",
+			perm: ghclient.PermissionWrite, body: "/maul approve",
 			wantReply: []string{"is done"},
 			check:     wantApprovalBy(maintainer),
 		},
@@ -397,7 +397,7 @@ func TestCommandSettles(t *testing.T) {
 				fnd.Status.CompletedAt = &completed
 				return fnd
 			},
-			perm: ghclient.PermissionWrite, body: "/patchy approve",
+			perm: ghclient.PermissionWrite, body: "/maul approve",
 			wantReply: []string{"is done"},
 			check:     wantApprovalBy("old-approver"),
 		},
@@ -406,8 +406,8 @@ func TestCommandSettles(t *testing.T) {
 			// a finding still being investigated has no hold to release.
 			name: "approve before the hold is not available",
 			fnd:  func() *v1alpha1.Finding { return trackedFinding(v1alpha1.PhaseInvestigating) },
-			perm: ghclient.PermissionWrite, body: "/patchy approve",
-			wantReply: []string{"`/patchy approve` is not available", "- `/patchy expedite`"},
+			perm: ghclient.PermissionWrite, body: "/maul approve",
+			wantReply: []string{"`/maul approve` is not available", "- `/maul expedite`"},
 			check:     wantApprovalBy(""),
 		},
 	}
@@ -517,24 +517,24 @@ func TestCommandIgnored(t *testing.T) {
 		payload func(t *testing.T) string
 	}{
 		{"a bot account", func(t *testing.T) string {
-			return commentPayloadAs(t, "created", 41, "/patchy approve", "dependabot[bot]", "Bot")
+			return commentPayloadAs(t, "created", 41, "/maul approve", "dependabot[bot]", "Bot")
 		}},
 		{"the App's own login", func(t *testing.T) string {
-			return commentPayloadAs(t, "created", 41, "/patchy approve", botLogin, "User")
+			return commentPayloadAs(t, "created", 41, "/maul approve", botLogin, "User")
 		}},
 		{"not a command", func(t *testing.T) string { return commentPayload(t, 41, "looks fine to me") }},
 		{"a word that starts like the alias", func(t *testing.T) string {
 			return commentPayload(t, 41, "/approved")
 		}},
 		{"a command below the first line", func(t *testing.T) string {
-			return commentPayload(t, 41, "Thanks!\n/patchy approve")
+			return commentPayload(t, 41, "Thanks!\n/maul approve")
 		}},
 		{"an edit", func(t *testing.T) string {
-			return commentPayloadAs(t, "edited", 41, "/patchy approve", maintainer, "User")
+			return commentPayloadAs(t, "edited", 41, "/maul approve", maintainer, "User")
 		}},
-		{"no comment id", func(t *testing.T) string { return commentPayload(t, 0, "/patchy approve") }},
+		{"no comment id", func(t *testing.T) string { return commentPayload(t, 0, "/maul approve") }},
 		{"another issue", func(t *testing.T) string {
-			return strings.ReplaceAll(commentPayload(t, 41, "/patchy approve"), "/issues/7", "/issues/8")
+			return strings.ReplaceAll(commentPayload(t, 41, "/maul approve"), "/issues/7", "/issues/8")
 		}},
 	}
 	for _, tc := range cases {
@@ -563,7 +563,7 @@ func TestCommandIgnored(t *testing.T) {
 func TestCommandDeliveredTwice(t *testing.T) {
 	s, r, tracker, c := newReview(t, trackedFinding(v1alpha1.PhaseAwaitingApproval))
 	tracker.perms[maintainer] = ghclient.PermissionWrite
-	payload := commentPayload(t, 41, "/patchy approve")
+	payload := commentPayload(t, 41, "/maul approve")
 
 	handle(t, s, "issue_comment", payload)
 	handle(t, s, "issue_comment", payload)
@@ -591,11 +591,11 @@ func TestCommandDeliveredTwice(t *testing.T) {
 func TestCommandReplayAfterConsume(t *testing.T) {
 	s, r, tracker, c := newReview(t, trackedFinding(v1alpha1.PhaseQueued))
 	tracker.perms[maintainer] = ghclient.PermissionWrite
-	suspend := commentPayload(t, 41, "/patchy suspend")
+	suspend := commentPayload(t, 41, "/maul suspend")
 
 	handle(t, s, "issue_comment", suspend)
 	settleAll(t, r, c)
-	handle(t, s, "issue_comment", commentPayload(t, 42, "/patchy resume"))
+	handle(t, s, "issue_comment", commentPayload(t, 42, "/maul resume"))
 	settleAll(t, r, c)
 	handle(t, s, "issue_comment", suspend)
 	settleAll(t, r, c)
@@ -619,22 +619,22 @@ func TestCommandReplayAfterConsume(t *testing.T) {
 func TestCommandsInCommentOrder(t *testing.T) {
 	s, r, tracker, c := newReview(t, trackedFinding(v1alpha1.PhaseQueued))
 	tracker.perms[maintainer] = ghclient.PermissionWrite
-	handle(t, s, "issue_comment", commentPayload(t, 51, "/patchy resume"))
-	handle(t, s, "issue_comment", commentPayload(t, 50, "/patchy suspend"))
+	handle(t, s, "issue_comment", commentPayload(t, 51, "/maul resume"))
+	handle(t, s, "issue_comment", commentPayload(t, 50, "/maul suspend"))
 
 	settleAll(t, r, c)
 	f := get(t, c, "finding-aa-1")
 	if f.Spec.Suspend {
 		t.Error("spec.suspend = true: the resume was applied before the suspend written ahead of it")
 	}
-	assertAnswered(t, tracker, f, 50, "`/patchy suspend` is done")
-	assertAnswered(t, tracker, f, 51, "`/patchy resume` is done")
+	assertAnswered(t, tracker, f, 50, "`/maul suspend` is done")
+	assertAnswered(t, tracker, f, 51, "`/maul resume` is done")
 }
 
 // TestCommandTransientPermissionFailure: GitHub fails the permission read,
 // and the delivery is long answered, so nothing would redeliver it. The
 // command stays pending, undecided, until the read succeeds; nothing is
-// guessed, and nothing is replied until then. A verb patchy does not know
+// guessed, and nothing is replied until then. A verb maul does not know
 // waits on the read like any other: whether it earns the help or a refusal
 // depends on the answer.
 func TestCommandTransientPermissionFailure(t *testing.T) {
@@ -643,8 +643,8 @@ func TestCommandTransientPermissionFailure(t *testing.T) {
 		wantReply  string
 		wantBy     string // the approval's author once answered; "" for none
 	}{
-		{"a verb the issue offers", "/patchy approve", "is done", maintainer},
-		{"a verb patchy does not know", "/patchy frobnicate", "`/patchy frobnicate` is not a command patchy knows", ""},
+		{"a verb the issue offers", "/maul approve", "is done", maintainer},
+		{"a verb maul does not know", "/maul frobnicate", "`/maul frobnicate` is not a command maul knows", ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -695,7 +695,7 @@ func TestCommandTransientAcknowledgementFailure(t *testing.T) {
 			s, r, tracker, c := newReview(t, trackedFinding(v1alpha1.PhaseQueued))
 			tracker.perms[maintainer] = ghclient.PermissionWrite
 			tc.fail(tracker)
-			handle(t, s, "issue_comment", commentPayload(t, 41, "/patchy suspend"))
+			handle(t, s, "issue_comment", commentPayload(t, 41, "/maul suspend"))
 
 			if _, err := reconcileOnce(t, r); err == nil {
 				t.Fatal("Reconcile = nil, want the acknowledgement failure returned")
@@ -712,7 +712,7 @@ func TestCommandTransientAcknowledgementFailure(t *testing.T) {
 
 			settleAll(t, r, c)
 			f = get(t, c, "finding-aa-1")
-			assertAnswered(t, tracker, f, 41, "`/patchy suspend` is done")
+			assertAnswered(t, tracker, f, 41, "`/maul suspend` is done")
 			if f.Spec.Suspend {
 				t.Error("spec.suspend = true: the suspend was applied again over the resume")
 			}
@@ -730,7 +730,7 @@ func TestCommandCommentDeleted(t *testing.T) {
 	s, r, tracker, c := newReview(t, trackedFinding(v1alpha1.PhaseAwaitingApproval))
 	tracker.perms[maintainer] = ghclient.PermissionWrite
 	tracker.reactErrs = []error{notFound("react")}
-	handle(t, s, "issue_comment", commentPayload(t, 41, "/patchy approve"))
+	handle(t, s, "issue_comment", commentPayload(t, 41, "/maul approve"))
 
 	settleAll(t, r, c)
 	f := get(t, c, "finding-aa-1")
@@ -757,10 +757,10 @@ func TestCommandAppliedBeforeCrash(t *testing.T) {
 		approval  *v1alpha1.Approval
 		wantReply string
 	}{
-		{"its own approval", &v1alpha1.Approval{By: maintainer, At: decided}, "`/patchy approve` is done"},
+		{"its own approval", &v1alpha1.Approval{By: maintainer, At: decided}, "`/maul approve` is done"},
 		{"another's approval", &v1alpha1.Approval{By: "someone-else", At: decided},
-			"`/patchy approve` is not available"},
-		{"no approval", nil, "`/patchy approve` is not available"},
+			"`/maul approve` is not available"},
+		{"no approval", nil, "`/maul approve` is not available"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -791,9 +791,9 @@ func TestCommandAppliedBeforeCrash(t *testing.T) {
 func TestCommandWaitsForIntegration(t *testing.T) {
 	s, r, tracker, c := newReview(t, trackedFinding(v1alpha1.PhaseAwaitingApproval))
 	tracker.perms[maintainer] = ghclient.PermissionWrite
-	handle(t, s, "issue_comment", commentPayload(t, 41, "/patchy approve"))
+	handle(t, s, "issue_comment", commentPayload(t, 41, "/maul approve"))
 	var integ v1alpha1.Integration
-	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: "gh"}, &integ); err != nil {
+	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: "gh"}, &integ); err != nil {
 		t.Fatal(err)
 	}
 	integ.Spec.Suspend = true
@@ -822,7 +822,7 @@ func TestCommandWaitsForIntegration(t *testing.T) {
 func TestCommandIssueGone(t *testing.T) {
 	s, r, tracker, c := newReview(t, trackedFinding(v1alpha1.PhaseAwaitingApproval))
 	tracker.perms[maintainer] = ghclient.PermissionWrite
-	handle(t, s, "issue_comment", commentPayload(t, 41, "/patchy approve"))
+	handle(t, s, "issue_comment", commentPayload(t, 41, "/maul approve"))
 	delete(tracker.issues, 7)
 
 	if _, err := reconcileOnce(t, r); err != nil {
@@ -863,9 +863,9 @@ func TestCommandSlotsSharedByAccount(t *testing.T) {
 	t.Run("one account holds at most its share", func(t *testing.T) {
 		s, _, _, c := newReview(t, trackedFinding(v1alpha1.PhaseAwaitingApproval))
 		for i := range 5 {
-			handle(t, s, "issue_comment", commentBy(t, int64(100+i), "/patchy approve", "flooder"))
+			handle(t, s, "issue_comment", commentBy(t, int64(100+i), "/maul approve", "flooder"))
 		}
-		handle(t, s, "issue_comment", commentPayload(t, 200, "/patchy suspend"))
+		handle(t, s, "issue_comment", commentPayload(t, 200, "/maul suspend"))
 		if got := pendingIDs(t, c); !slices.Equal(got, []int64{100, 101, 200}) {
 			t.Errorf("pending = %v, want the flooder's first two and the maintainer's", got)
 		}
@@ -875,22 +875,22 @@ func TestCommandSlotsSharedByAccount(t *testing.T) {
 		s, _, _, c := newReview(t, trackedFinding(v1alpha1.PhaseAwaitingApproval))
 		// Six accounts hold one slot each, one holds two: every slot held.
 		for i := range 6 {
-			handle(t, s, "issue_comment", commentBy(t, int64(100+i), "/patchy approve", fmt.Sprintf("drive-by-%d", i)))
+			handle(t, s, "issue_comment", commentBy(t, int64(100+i), "/maul approve", fmt.Sprintf("drive-by-%d", i)))
 		}
-		handle(t, s, "issue_comment", commentBy(t, 110, "/patchy approve", "flooder"))
-		handle(t, s, "issue_comment", commentBy(t, 111, "/patchy approve", "flooder"))
+		handle(t, s, "issue_comment", commentBy(t, 110, "/maul approve", "flooder"))
+		handle(t, s, "issue_comment", commentBy(t, 111, "/maul approve", "flooder"))
 		if n := len(pendingIDs(t, c)); n != v1alpha1.MaxPendingCommands {
 			t.Fatalf("pending = %d, want every slot held", n)
 		}
 
-		handle(t, s, "issue_comment", commentPayload(t, 200, "/patchy suspend"))
+		handle(t, s, "issue_comment", commentPayload(t, 200, "/maul suspend"))
 		got := pendingIDs(t, c)
 		if !slices.Contains(got, 200) || slices.Contains(got, 111) || !slices.Contains(got, 110) {
 			t.Errorf("pending = %v, want the maintainer's 200 in the flooder's newer slot (111)", got)
 		}
 
 		// Now every account holds one: a ninth account is not recorded.
-		handle(t, s, "issue_comment", commentBy(t, 300, "/patchy approve", "latecomer"))
+		handle(t, s, "issue_comment", commentBy(t, 300, "/maul approve", "latecomer"))
 		if got := pendingIDs(t, c); slices.Contains(got, 300) || len(got) != v1alpha1.MaxPendingCommands {
 			t.Errorf("pending = %v, want the latecomer not recorded", got)
 		}
@@ -904,9 +904,9 @@ func TestCommandSlotsSharedByAccount(t *testing.T) {
 		}
 		fnd.Status.Commands = &v1alpha1.FindingCommands{Pending: answering}
 		s, _, _, c := newReview(t, fnd)
-		handle(t, s, "issue_comment", commentPayload(t, 200, "/patchy suspend"))
-		handle(t, s, "issue_comment", commentPayload(t, 201, "/patchy resume"))
-		handle(t, s, "issue_comment", commentPayload(t, 202, "/patchy expedite"))
+		handle(t, s, "issue_comment", commentPayload(t, 200, "/maul suspend"))
+		handle(t, s, "issue_comment", commentPayload(t, 201, "/maul resume"))
+		handle(t, s, "issue_comment", commentPayload(t, 202, "/maul expedite"))
 		if got := pendingIDs(t, c); !slices.Equal(got, []int64{100, 101, 200, 201}) {
 			t.Errorf("pending = %v, want the two answers awaited and two undecided commands", got)
 		}
@@ -949,7 +949,7 @@ func TestCommandSlotGivenUp(t *testing.T) {
 			{202, "y", 107},
 			{203, "z", 0},
 		} {
-			handle(t, s, "issue_comment", commentBy(t, step.id, "/patchy suspend", step.login))
+			handle(t, s, "issue_comment", commentBy(t, step.id, "/maul suspend", step.login))
 			got := pendingIDs(t, c)
 			if len(got) != v1alpha1.MaxPendingCommands {
 				t.Fatalf("after %d: pending = %v, want every slot held", step.id, got)
@@ -981,8 +981,8 @@ func TestCommandSlotGivenUp(t *testing.T) {
 				fnd := trackedFinding(v1alpha1.PhaseQueued)
 				fnd.Status.Commands = &v1alpha1.FindingCommands{Pending: decidedCommands(d.outcome, d.verb)}
 				s, _, _, c := newReview(t, fnd)
-				handle(t, s, "issue_comment", commentPayload(t, 200, "/patchy suspend"))
-				handle(t, s, "issue_comment", commentBy(t, 201, "/patchy suspend", "account-0"))
+				handle(t, s, "issue_comment", commentPayload(t, 200, "/maul suspend"))
+				handle(t, s, "issue_comment", commentBy(t, 201, "/maul suspend", "account-0"))
 				if got := pendingIDs(t, c); slices.Contains(got, 200) || slices.Contains(got, 201) ||
 					len(got) != v1alpha1.MaxPendingCommands {
 					t.Errorf("pending = %v, want every command decided %s kept, and neither new one recorded",
@@ -1012,7 +1012,7 @@ func decidedCommands(outcome v1alpha1.CommandOutcome, verb string) []v1alpha1.Fi
 	return out
 }
 
-// TestCommandAwaitingAnswerHoldsNoShare: GitHub fails patchy's content
+// TestCommandAwaitingAnswerHoldsNoShare: GitHub fails maul's content
 // writes (a secondary rate limit on comments, say) while its reads still
 // work. A maintainer's suspend and expedite are decided and applied, and
 // their answers keep failing. The maintainer's resume is still recorded and
@@ -1026,8 +1026,8 @@ func TestCommandAwaitingAnswerHoldsNoShare(t *testing.T) {
 		tracker.reactErrs = append(tracker.reactErrs, badGateway("react"))
 		tracker.commentErrs = append(tracker.commentErrs, badGateway("comment"))
 	}
-	handle(t, s, "issue_comment", commentPayload(t, 41, "/patchy suspend"))
-	handle(t, s, "issue_comment", commentPayload(t, 42, "/patchy expedite"))
+	handle(t, s, "issue_comment", commentPayload(t, 41, "/maul suspend"))
+	handle(t, s, "issue_comment", commentPayload(t, 42, "/maul expedite"))
 	for range 4 {
 		_, _ = reconcileOnce(t, r)
 	}
@@ -1041,7 +1041,7 @@ func TestCommandAwaitingAnswerHoldsNoShare(t *testing.T) {
 		t.Fatalf("spec = %+v, want suspended and expedited", f.Spec)
 	}
 
-	handle(t, s, "issue_comment", commentPayload(t, 43, "/patchy resume"))
+	handle(t, s, "issue_comment", commentPayload(t, 43, "/maul resume"))
 	if pendingCommand(get(t, c, "finding-aa-1"), 43) == nil {
 		t.Fatal("the resume was not recorded: two commands waiting on their answers held the account's share")
 	}
@@ -1055,9 +1055,9 @@ func TestCommandAwaitingAnswerHoldsNoShare(t *testing.T) {
 	tracker.reactErrs, tracker.commentErrs = nil, nil
 	settleAll(t, r, c)
 	f = get(t, c, "finding-aa-1")
-	assertAnswered(t, tracker, f, 41, "`/patchy suspend` is done")
-	assertAnswered(t, tracker, f, 42, "`/patchy expedite` is done")
-	assertAnswered(t, tracker, f, 43, "`/patchy resume` is done")
+	assertAnswered(t, tracker, f, 41, "`/maul suspend` is done")
+	assertAnswered(t, tracker, f, 42, "`/maul expedite` is done")
+	assertAnswered(t, tracker, f, 43, "`/maul resume` is done")
 	if f.Spec.Suspend {
 		t.Error("spec.suspend = true once GitHub recovered, want the resume to stand")
 	}
@@ -1121,7 +1121,7 @@ func TestLateCommandAfterRefusalFlood(t *testing.T) {
 	floods := v1alpha1.MaxConsumedCommands + 8
 	for i := range floods {
 		login := []string{"flooder-a", "flooder-b"}[i%2]
-		handle(t, s, "issue_comment", commentBy(t, int64(1000+i), "/patchy suspend", login))
+		handle(t, s, "issue_comment", commentBy(t, int64(1000+i), "/maul suspend", login))
 		settleAll(t, r, c)
 	}
 	f := get(t, c, "finding-aa-1")
@@ -1142,17 +1142,17 @@ func TestLateCommandAfterRefusalFlood(t *testing.T) {
 		t.Errorf("a quiet refusal's reactions = %v, want [eyes]", got)
 	}
 
-	handle(t, s, "issue_comment", commentPayload(t, 900, "/patchy approve"))
+	handle(t, s, "issue_comment", commentPayload(t, 900, "/maul approve"))
 	settleAll(t, r, c)
 	f = get(t, c, "finding-aa-1")
-	assertAnswered(t, tracker, f, 900, "`/patchy approve` is done")
+	assertAnswered(t, tracker, f, 900, "`/maul approve` is done")
 	wantApprovalBy(maintainer)(t, f)
 }
 
 // TestRefusalRepliedOncePerAccount: an account refused once on a finding
 // for lacking write access is not replied to again there, whatever the verb
-// it used (one the issue offers, or one patchy does not know): later
-// refusals get the reaction alone, so commenting cannot make patchy post a
+// it used (one the issue offers, or one maul does not know): later
+// refusals get the reaction alone, so commenting cannot make maul post a
 // reply per comment. Another account gets its own first reply, and a
 // write-access commenter is never refused, so none of its answers is
 // quietened: not an unknown verb's help, and not "not available".
@@ -1163,28 +1163,28 @@ func TestRefusalRepliedOncePerAccount(t *testing.T) {
 		id          int64
 		body, login string
 	}{
-		{41, "/patchy approve", "stranger"},
-		{42, "/patchy frobnicate", "stranger"},
-		{43, "/patchy approve", "stranger"},
-		{44, "/patchy approve", "passer-by"},
-		{45, "/patchy frobnicate", maintainer},
-		{46, "/patchy frobnicate", maintainer},
-		{47, "/patchy retry", maintainer},
-		{48, "/patchy retry", maintainer},
+		{41, "/maul approve", "stranger"},
+		{42, "/maul frobnicate", "stranger"},
+		{43, "/maul approve", "stranger"},
+		{44, "/maul approve", "passer-by"},
+		{45, "/maul frobnicate", maintainer},
+		{46, "/maul frobnicate", maintainer},
+		{47, "/maul retry", maintainer},
+		{48, "/maul retry", maintainer},
 	} {
 		handle(t, s, "issue_comment", commentBy(t, d.id, d.body, d.login))
 		settleAll(t, r, c)
 	}
 	f := get(t, c, "finding-aa-1")
-	assertRefused(t, tracker, f, 41, "stranger", "@stranger you may not use `/patchy approve`")
-	assertRefused(t, tracker, f, 44, "passer-by", "@passer-by you may not use `/patchy approve`")
+	assertRefused(t, tracker, f, 41, "stranger", "@stranger you may not use `/maul approve`")
+	assertRefused(t, tracker, f, 44, "passer-by", "@passer-by you may not use `/maul approve`")
 	assertQuiet(t, tracker, f, 42, 43)
 	// Neither an unknown verb nor Unavailable is a refusal of a maintainer:
 	// each is answered in full, and consumed.
-	assertAnswered(t, tracker, f, 45, "`/patchy frobnicate` is not a command patchy knows")
-	assertAnswered(t, tracker, f, 46, "`/patchy frobnicate` is not a command patchy knows")
-	assertAnswered(t, tracker, f, 47, "`/patchy retry` is not available")
-	assertAnswered(t, tracker, f, 48, "`/patchy retry` is not available")
+	assertAnswered(t, tracker, f, 45, "`/maul frobnicate` is not a command maul knows")
+	assertAnswered(t, tracker, f, 46, "`/maul frobnicate` is not a command maul knows")
+	assertAnswered(t, tracker, f, 47, "`/maul retry` is not available")
+	assertAnswered(t, tracker, f, 48, "`/maul retry` is not available")
 	want := []int64{accountID("stranger"), accountID("passer-by")}
 	if got := f.Status.Commands.RefusedActors; !slices.Equal(got, want) {
 		t.Errorf("refusedActors = %v, want only the accounts without write access %v", got, want)
@@ -1208,26 +1208,26 @@ func assertQuiet(t *testing.T, tracker *fakeTracker, f *v1alpha1.Finding, ids ..
 	}
 }
 
-// TestUnknownVerbAuthorisedFirst: a verb patchy does not know is authorised
+// TestUnknownVerbAuthorisedFirst: a verb maul does not know is authorised
 // before it is answered, like every other, so the one-refusal-reply rule
 // reaches only accounts that failed the write-access check. The regression:
-// a repository admin's "/patchy frobnicate" got the help and put the admin
+// a repository admin's "/maul frobnicate" got the help and put the admin
 // on refusedActors, so the admin's later refusals on that finding would have
 // been answered with the reaction alone.
 func TestUnknownVerbAuthorisedFirst(t *testing.T) {
 	t.Run("a maintainer's unknown verb gets the help, and later answers in full", func(t *testing.T) {
 		s, r, tracker, c := newReview(t, trackedFinding(v1alpha1.PhaseAwaitingApproval))
 		tracker.perms[maintainer] = ghclient.PermissionAdmin
-		handle(t, s, "issue_comment", commentPayload(t, 41, "/patchy frobnicate"))
+		handle(t, s, "issue_comment", commentPayload(t, 41, "/maul frobnicate"))
 		settleAll(t, r, c)
 		// retry means nothing on a held finding: "not available".
-		handle(t, s, "issue_comment", commentPayload(t, 42, "/patchy retry"))
+		handle(t, s, "issue_comment", commentPayload(t, 42, "/maul retry"))
 		settleAll(t, r, c)
 
 		f := get(t, c, "finding-aa-1")
-		assertAnswered(t, tracker, f, 41, "@maintainer `/patchy frobnicate` is not a command patchy knows",
-			"- `/patchy approve [note]`")
-		assertAnswered(t, tracker, f, 42, "@maintainer `/patchy retry` is not available", "- `/patchy approve [note]`")
+		assertAnswered(t, tracker, f, 41, "@maintainer `/maul frobnicate` is not a command maul knows",
+			"- `/maul approve [note]`")
+		assertAnswered(t, tracker, f, 42, "@maintainer `/maul retry` is not available", "- `/maul approve [note]`")
 		if got := f.Status.Commands.RefusedActors; len(got) != 0 {
 			t.Errorf("refusedActors = %v, want none: the maintainer was refused nothing", got)
 		}
@@ -1241,7 +1241,7 @@ func TestUnknownVerbAuthorisedFirst(t *testing.T) {
 	t.Run("a maintainer's unknown verb delivered again is answered once", func(t *testing.T) {
 		s, r, tracker, c := newReview(t, trackedFinding(v1alpha1.PhaseAwaitingApproval))
 		tracker.perms[maintainer] = ghclient.PermissionWrite
-		payload := commentPayload(t, 41, "/patchy frobnicate")
+		payload := commentPayload(t, 41, "/maul frobnicate")
 		handle(t, s, "issue_comment", payload)
 		settleAll(t, r, c)
 		handle(t, s, "issue_comment", payload)
@@ -1249,7 +1249,7 @@ func TestUnknownVerbAuthorisedFirst(t *testing.T) {
 			t.Fatalf("pending = %+v after the redelivery, want nothing recorded", p)
 		}
 		settleAll(t, r, c)
-		assertAnswered(t, tracker, get(t, c, "finding-aa-1"), 41, "not a command patchy knows")
+		assertAnswered(t, tracker, get(t, c, "finding-aa-1"), 41, "not a command maul knows")
 		if len(tracker.permReads) != 1 {
 			t.Errorf("permission reads = %v, want one", tracker.permReads)
 		}
@@ -1258,16 +1258,16 @@ func TestUnknownVerbAuthorisedFirst(t *testing.T) {
 	t.Run("an unknown verb without write access is not allowed, then quiet", func(t *testing.T) {
 		s, r, tracker, c := newReview(t, trackedFinding(v1alpha1.PhaseAwaitingApproval))
 		tracker.perms["stranger"] = ghclient.PermissionRead
-		handle(t, s, "issue_comment", commentBy(t, 41, "/patchy frobnicate", "stranger"))
+		handle(t, s, "issue_comment", commentBy(t, 41, "/maul frobnicate", "stranger"))
 		settleAll(t, r, c)
-		handle(t, s, "issue_comment", commentBy(t, 42, "/patchy frobnicate", "stranger"))
+		handle(t, s, "issue_comment", commentBy(t, 42, "/maul frobnicate", "stranger"))
 		settleAll(t, r, c)
 
 		f := get(t, c, "finding-aa-1")
 		assertRefused(t, tracker, f, 41, "stranger",
-			"@stranger you may not use `/patchy frobnicate` here", "need write access to acme/orders")
-		if reply := replies(tracker, 41)[0]; strings.Contains(reply, "not a command patchy knows") ||
-			strings.Contains(reply, "- `/patchy approve [note]`") {
+			"@stranger you may not use `/maul frobnicate` here", "need write access to acme/orders")
+		if reply := replies(tracker, 41)[0]; strings.Contains(reply, "not a command maul knows") ||
+			strings.Contains(reply, "- `/maul approve [note]`") {
 			t.Errorf("the refusal gives the help:\n%s", reply)
 		}
 		assertQuiet(t, tracker, f, 42)
@@ -1290,14 +1290,14 @@ func TestLateToggleSuperseded(t *testing.T) {
 		lateID      int64
 		wantSuspend bool
 	}{
-		{"a late suspend does not undo a later resume", "/patchy resume", "/patchy suspend", 50, false},
-		{"a late resume does not undo a later suspend", "/patchy suspend", "/patchy resume", 50, true},
+		{"a late suspend does not undo a later resume", "/maul resume", "/maul suspend", 50, false},
+		{"a late resume does not undo a later suspend", "/maul suspend", "/maul resume", 50, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			s, r, tracker, c := newReview(t, trackedFinding(v1alpha1.PhaseQueued))
 			tracker.perms[maintainer] = ghclient.PermissionWrite
-			opposite := map[string]string{"/patchy resume": "/patchy suspend", "/patchy suspend": "/patchy resume"}
+			opposite := map[string]string{"/maul resume": "/maul suspend", "/maul suspend": "/maul resume"}
 			handle(t, s, "issue_comment", commentPayload(t, 49, opposite[tc.first]))
 			settleAll(t, r, c)
 			handle(t, s, "issue_comment", commentPayload(t, 51, tc.first))
@@ -1329,15 +1329,15 @@ func TestLateToggleSuperseded(t *testing.T) {
 	t.Run("a refused later toggle supersedes nothing", func(t *testing.T) {
 		s, r, tracker, c := newReview(t, trackedFinding(v1alpha1.PhaseQueued))
 		tracker.perms[maintainer] = ghclient.PermissionWrite
-		handle(t, s, "issue_comment", commentBy(t, 61, "/patchy resume", "stranger"))
+		handle(t, s, "issue_comment", commentBy(t, 61, "/maul resume", "stranger"))
 		settleAll(t, r, c)
-		handle(t, s, "issue_comment", commentPayload(t, 60, "/patchy suspend"))
+		handle(t, s, "issue_comment", commentPayload(t, 60, "/maul suspend"))
 		settleAll(t, r, c)
 		f := get(t, c, "finding-aa-1")
 		if !f.Spec.Suspend {
 			t.Error("spec.suspend = false: a refused resume superseded the maintainer's suspend")
 		}
-		assertAnswered(t, tracker, f, 60, "`/patchy suspend` is done")
+		assertAnswered(t, tracker, f, 60, "`/maul suspend` is done")
 	})
 }
 
@@ -1349,7 +1349,7 @@ func TestCommandReplyAfterAmbiguousFailure(t *testing.T) {
 	s, r, tracker, c := newReview(t, trackedFinding(v1alpha1.PhaseAwaitingApproval))
 	tracker.perms[maintainer] = ghclient.PermissionWrite
 	tracker.postedErrs = []error{badGateway("comment")}
-	handle(t, s, "issue_comment", commentPayload(t, 41, "/patchy approve"))
+	handle(t, s, "issue_comment", commentPayload(t, 41, "/maul approve"))
 
 	if _, err := reconcileOnce(t, r); err == nil {
 		t.Fatal("Reconcile = nil, want the reply's failure returned")
@@ -1378,7 +1378,7 @@ func TestCommandAnswerGivenUp(t *testing.T) {
 	}
 	now := testClock
 	r.Now = func() time.Time { return now }
-	handle(t, s, "issue_comment", commentPayload(t, 41, "/patchy suspend"))
+	handle(t, s, "issue_comment", commentPayload(t, 41, "/maul suspend"))
 
 	for range 3 {
 		if _, err := reconcileOnce(t, r); err == nil {
@@ -1445,14 +1445,14 @@ func TestCommandAnswerFailureHoldsUpNothing(t *testing.T) {
 		for range 10 {
 			tracker.commentErrs = append(tracker.commentErrs, badGateway("comment"))
 		}
-		handle(t, s, "issue_comment", commentPayload(t, 41, "/patchy suspend"))
+		handle(t, s, "issue_comment", commentPayload(t, 41, "/maul suspend"))
 		for range 2 {
 			_, _ = reconcileOnce(t, r)
 		}
 		if !get(t, c, "finding-aa-1").Spec.Suspend {
 			t.Fatal("spec.suspend = false, want the suspend applied")
 		}
-		handle(t, s, "issue_comment", commentPayload(t, 42, "/patchy resume"))
+		handle(t, s, "issue_comment", commentPayload(t, 42, "/maul resume"))
 		for range 4 {
 			_, _ = reconcileOnce(t, r)
 		}
@@ -1467,8 +1467,8 @@ func TestCommandAnswerFailureHoldsUpNothing(t *testing.T) {
 		tracker.commentErrs = nil
 		settleAll(t, r, c)
 		f = get(t, c, "finding-aa-1")
-		assertAnswered(t, tracker, f, 41, "`/patchy suspend` is done")
-		assertAnswered(t, tracker, f, 42, "`/patchy resume` is done")
+		assertAnswered(t, tracker, f, 41, "`/maul suspend` is done")
+		assertAnswered(t, tracker, f, 42, "`/maul resume` is done")
 	})
 }
 

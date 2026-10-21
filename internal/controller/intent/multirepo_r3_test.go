@@ -11,8 +11,8 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/meta"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/forge"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/forge"
 )
 
 // cutOff makes every call to the repository at url fail the way a
@@ -24,7 +24,7 @@ func (e *env) cutOff(url string) {
 	})
 }
 
-// webPRWrites counts what patchy wrote on web's pull request (2): its comments,
+// webPRWrites counts what maul wrote on web's pull request (2): its comments,
 // and the reviews it asked for.
 func (e *env) webPRWrites() int {
 	e.gh.mu.Lock()
@@ -33,7 +33,7 @@ func (e *env) webPRWrites() int {
 }
 
 // TestDepartedUnreachableRepositoryHoldsNoOtherPullRequest is the round-3
-// regression of a repository that leaves the Project and that patchy can no
+// regression of a repository that leaves the Project and that maul can no
 // longer reach (no Forge covers it). Before the fix every in-review pass read
 // the rate budget of every pull request's repository, web's included, and
 // returned its error: app's review never got a round, app's merge was never
@@ -91,7 +91,7 @@ func TestDepartedUnreachableRepositoryHoldsNoOtherPullRequest(t *testing.T) {
 }
 
 // TestDepartedRepositoryMergedBeforeItLeftStillMerges: web's pull request
-// merged, and was read merged, before web left the Project and patchy lost
+// merged, and was read merged, before web left the Project and maul lost
 // its reach there. Once app's merges the intent is Merged: the merge it read
 // still counts, and the repository it can no longer read holds nothing.
 func TestDepartedRepositoryMergedBeforeItLeftStillMerges(t *testing.T) {
@@ -129,7 +129,7 @@ func (e *env) inRound(pr int64, key string) string {
 func (e *env) cancel(name string) {
 	e.t.Helper()
 	e.clock.Advance(time.Minute)
-	e.gh.comment(approver, "/patchy cancel")
+	e.gh.comment(approver, "/maul cancel")
 	e.passUntil(name, func() bool { return e.get(name).Status.Phase == v1alpha1.IntentClosed })
 }
 
@@ -137,12 +137,12 @@ func (e *env) cancel(name string) {
 // and offers no command.
 func (e *env) statusSaysClosed() bool {
 	body := e.statusBody()
-	return strings.Contains(body, "`Closed`") && !strings.Contains(body, "/patchy cancel")
+	return strings.Contains(body, "`Closed`") && !strings.Contains(body, "/maul cancel")
 }
 
 // TestEndedIntentOwesItsRoundNoticeOnlyWhereItIsOwed is the round-3
 // regression of an intent that ends with a round notice owed while a
-// repository that left the Project is out of patchy's reach. The approver
+// repository that left the Project is out of maul's reach. The approver
 // cancels the intent while a round runs. Before the fix every ended pass read
 // the rate budget of every pull request's repository first, the departed one
 // included, and returned its error: the notice, the status comment and the
@@ -189,13 +189,13 @@ func TestEndedIntentOwesItsRoundNoticeOnlyWhereItIsOwed(t *testing.T) {
 			e.gh.mu.Unlock()
 			e.gh.removeTrigger()
 			e.clock.Advance(time.Minute)
-			event := e.gh.label(1, "patchy:target", approver)
+			event := e.gh.label(1, "maul:target", approver)
 			e.reconcileProject()
 			e.passUntil(name, func() bool {
 				lt := e.get(name).Status.LastTrigger
 				return lt != nil && lt.EventID == event
 			})
-			if e.gh.hasLabel("patchy:target") {
+			if e.gh.hasLabel("maul:target") {
 				t.Error("the trigger label re-applied to the closed intent was not answered")
 			}
 		})
@@ -240,7 +240,7 @@ func TestEndedIntentRetriesANoticeOwedInAnUnreachableRepository(t *testing.T) {
 
 // TestRoundBlockedInADepartedRepositoryLifts: web's round is blocked because
 // its branch was deleted before the round could pin it, and web then leaves
-// the Project and patchy's reach. Before the fix the block's check read web's
+// the Project and maul's reach. Before the fix the block's check read web's
 // branch, under web's rate budget, at every pass, and its error held the
 // intent Blocked for good. Now the block no longer holds there: the round,
 // its run aborted, ends unretried, and app's review gets the next round.

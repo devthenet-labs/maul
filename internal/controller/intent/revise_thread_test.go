@@ -16,10 +16,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/report"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/report"
 )
 
 // prComment adds a conversation comment by login, posted now, to the
@@ -73,7 +73,7 @@ func TestFailedRoundFeedbackIsNewAgain(t *testing.T) {
 		}
 		return defaultOutput(spec)
 	}
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	e.drive(name, v1alpha1.IntentInReview, repoImage)
 	e.reviewOn(1, 3101, "FIRST-REVIEW: name the field sha.")
 	e.prComment(3102, approver, "User", "FIRST-COMMENT: and keep it short.")
@@ -130,15 +130,15 @@ func (e *env) round(name string, round int32) roundRuns {
 
 // TestEarlierFeedbackIsContext: after a round succeeded, its feedback is
 // shown to the next round once, as context, apart from what is new;
-// patchy's own comments, bots, outsiders and bare commands never are, and
+// maul's own comments, bots, outsiders and bare commands never are, and
 // a command's note is.
 func TestEarlierFeedbackIsContext(t *testing.T) {
 	project := testProject()
-	project.Spec.Approvers.Logins = append(project.Spec.Approvers.Logins, "patchy-app")
+	project.Spec.Approvers.Logins = append(project.Spec.Approvers.Logins, "maul-app")
 	e := newEnv(t, project)
-	e.gh.bot = "patchy-app"
+	e.gh.bot = "maul-app"
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	e.drive(name, v1alpha1.IntentInReview, repoImage)
 	e.reviewOn(1, 3201, "EARLY-REVIEW: name the field sha.")
 	e.prComment(3202, approver, "User", "EARLY-COMMENT: keep it short.")
@@ -147,11 +147,11 @@ func TestEarlierFeedbackIsContext(t *testing.T) {
 		ReviewID: 3201, Author: actorOf(approver), Body: "EARLY-INLINE: this line.", Path: "version.go",
 		Line: 3, Side: "RIGHT", CreatedAt: e.clock.Now(), UpdatedAt: e.clock.Now()})
 	e.gh.mu.Unlock()
-	e.prComment(3204, approver, "User", "/patchy cancel")
-	e.prComment(3205, approver, "User", "/patchy cancel\nCOMMAND-NOTE: never mind.")
-	e.prComment(3206, "patchy-app", "User", "OWN-LOGIN-COMMENT")
+	e.prComment(3204, approver, "User", "/maul cancel")
+	e.prComment(3205, approver, "User", "/maul cancel\nCOMMAND-NOTE: never mind.")
+	e.prComment(3206, "maul-app", "User", "OWN-LOGIN-COMMENT")
 	e.prComment(3207, "renovate[bot]", "Bot", "BOT-COMMENT")
-	e.prComment(3208, approver, "User", "<!-- patchy:forged -->\nMARKER-COMMENT")
+	e.prComment(3208, approver, "User", "<!-- maul:forged -->\nMARKER-COMMENT")
 	e.prComment(3209, "outsider", "User", "OUTSIDER-COMMENT")
 	e.clock.Advance(3 * time.Minute)
 	e.drive(name, v1alpha1.IntentRevising, repoImage)
@@ -209,7 +209,7 @@ func TestEarlierFeedbackIsContext(t *testing.T) {
 func TestEditedEarlierReviewIsSkipped(t *testing.T) {
 	e := newEnv(t, testProject())
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	e.drive(name, v1alpha1.IntentInReview, repoImage)
 	e.reviewOn(1, 3301, "EDITED-LATER: name the field sha.")
 	e.prComment(3302, approver, "User", "EDITED-COMMENT")
@@ -250,7 +250,7 @@ func TestCheckFixRoundGetsTheThread(t *testing.T) {
 		}
 		return defaultOutput(spec)
 	}
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 	head := in.Status.PullRequests[0].HeadSHA
 	e.reviewOn(1, 3402, "THREAD-REVIEW: name the field sha.")
@@ -322,7 +322,7 @@ func TestCheckFixRoundWithoutTheThread(t *testing.T) {
 		}
 		return defaultOutput(spec)
 	}
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 	head := in.Status.PullRequests[0].HeadSHA
 	e.reviewOn(1, 3502, "THREAD-REVIEW: name the field sha.")

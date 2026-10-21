@@ -1,7 +1,7 @@
 // Copyright 2026 Bitwise Media Group Ltd.
 // SPDX-License-Identifier: MIT
 
-// Command integration-controller is the edge between patchy and its external
+// Command integration-controller is the edge between maul and its external
 // systems: it terminates the provider webhook paths (the cluster's single
 // internet-facing entry point), turns scanner deliveries into Finding
 // resources, projects Findings as tracking issues, and applies human signals
@@ -11,7 +11,7 @@ package main
 import (
 	"os"
 
-	"github.com/bitwise-media-group/patchy/internal/cli"
+	"github.com/devthenet-labs/maul/internal/cli"
 )
 
 func main() {

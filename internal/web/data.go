@@ -14,10 +14,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/report"
-	"github.com/bitwise-media-group/patchy/internal/stats"
-	"github.com/bitwise-media-group/patchy/internal/version"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/report"
+	"github.com/devthenet-labs/maul/internal/stats"
+	"github.com/devthenet-labs/maul/internal/version"
 )
 
 // Dataset is the payload behind GET /api/findings (the trimmed list
@@ -490,7 +490,7 @@ func indexOrder(n int, cmpIdx func(a, b int) int) []int {
 // RunFindingIndex is the cache field index the detail projection looks a
 // finding's Investigation/Remediation children up by (the finding label), so
 // a detail request is an index hit rather than a namespace scan.
-const RunFindingIndex = "patchy.web/finding"
+const RunFindingIndex = "maul.web/finding"
 
 // RegisterIndexes installs the child-run index on the manager's cache. Call
 // before the manager starts; the fake-client tests install the same extractor

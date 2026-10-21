@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/harness"
-	"github.com/bitwise-media-group/patchy/internal/runner"
+	"github.com/devthenet-labs/maul/internal/harness"
+	"github.com/devthenet-labs/maul/internal/runner"
 )
 
 // preflightTimeout bounds each preflight command; `claude --version` is the
@@ -21,7 +21,7 @@ const preflightTimeout = 30 * time.Second
 
 // PreflightCommand is the agent-runner subcommand that runs the preflight
 // alone, outside any stage: `agent-runner preflight [harness]`
-// (PreflightMain). The workstation check (`patchy check image --run`) runs
+// (PreflightMain). The workstation check (`maul check image --run`) runs
 // it in a sandboxed container of the image under test, so its verdict is
 // exactly what a stage would conclude before spending a model call. It is
 // defined here, beside the preflight, because cmd/ cannot be imported.
@@ -95,7 +95,7 @@ func preflightCommand(ctx context.Context, exec Executor, dir string, argv []str
 
 // PreflightMain is `agent-runner preflight [harness]`: the injected
 // binaries' directory from BinDirEnv (required: there is nothing to check
-// without it), the working directory from PATCHY_WORKSPACE (default
+// without it), the working directory from MAUL_WORKSPACE (default
 // /workspace, as a stage has it) and the harness from the argument
 // (default claude, the one harness that runs repository images). It prints
 // its one-line verdict to out — the subcommand runs no stage, so stdout
@@ -125,7 +125,7 @@ func PreflightMain(ctx context.Context, args []string, getenv func(string) strin
 			slog.String("error", fmt.Sprintf("unknown harness %q", id)))
 		return exitPreflightMisconfigured
 	}
-	dir := getenv("PATCHY_WORKSPACE")
+	dir := getenv("MAUL_WORKSPACE")
 	if dir == "" {
 		dir = "/workspace"
 	}

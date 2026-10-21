@@ -12,7 +12,7 @@ import (
 
 // pairwiseVersion starts every pairwise input, so a later construction never
 // collides with this one.
-const pairwiseVersion = "patchy-preview-auth/v1/sub"
+const pairwiseVersion = "maul-preview-auth/v1/sub"
 
 // Sub is the pairwise subject of username on one Preview through one client:
 // base64url(HMAC-SHA256(pairwise key, fields)), 43 characters, under the

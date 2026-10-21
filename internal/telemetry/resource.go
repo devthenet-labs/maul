@@ -18,7 +18,7 @@ import (
 func buildResource(ctx context.Context, cfg Config) (*resource.Resource, error) {
 	return resource.New(ctx,
 		resource.WithAttributes(
-			semconv.ServiceName(orDefault(cfg.ServiceName, "patchy")),
+			semconv.ServiceName(orDefault(cfg.ServiceName, "maul")),
 			semconv.ServiceVersion(orDefault(cfg.ServiceVersion, "dev")),
 		),
 	)

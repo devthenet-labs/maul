@@ -1,9 +1,9 @@
 # Copyright 2026 Bitwise Media Group Ltd.
 # SPDX-License-Identifier: MIT
 #
-# intent-controller's own settings, read after the shared patchy-config (the
+# intent-controller's own settings, read after the shared maul-config (the
 # Deployment lists this ConfigMap second, so a key here wins). Every key but
-# PATCHY_HARNESSES carries an intent- prefix no other binary binds, so the
+# MAUL_HARNESSES carries an intent- prefix no other binary binds, so the
 # shared ConfigMap cannot set one by accident and this one cannot change
 # another controller. The values are the binary's defaults
 # (cmd/intent-controller/serve_test.go keeps the two in step).
@@ -11,34 +11,34 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-    name: patchy-intent-controller-config
-    namespace: patchy
+    name: maul-intent-controller-config
+    namespace: maul
     labels:
         app.kubernetes.io/name: intent-controller
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 data:
     # Intents run on brokered claude, whatever the shared list enables for
     # findings. A dev overlay running the fake harness patches this to fake.
-    # With PATCHY_INTENT_CODEX on, add codex here (claude,codex) and set
-    # PATCHY_CODEX_AGENT_IMAGE: a Project choosing spec.harness codex then
+    # With MAUL_INTENT_CODEX on, add codex here (claude,codex) and set
+    # MAUL_CODEX_AGENT_IMAGE: a Project choosing spec.harness codex then
     # plans and builds on brokered codex.
-    PATCHY_HARNESSES: claude
+    MAUL_HARNESSES: claude
 
     # ---- polling ------------------------------------------------------------
     # Each Project's intent repository and each active intent's issue. An
     # unchanged listing costs nothing (conditional requests).
-    PATCHY_INTENT_POLL_INTERVAL: 60s
+    MAUL_INTENT_POLL_INTERVAL: 60s
     # An intent awaiting approval polls its issue's events this often.
-    PATCHY_INTENT_APPROVAL_POLL_INTERVAL: 30s
+    MAUL_INTENT_APPROVAL_POLL_INTERVAL: 30s
     # An intent in review polls its pull request this often.
-    PATCHY_INTENT_PR_POLL_INTERVAL: 60s
+    MAUL_INTENT_PR_POLL_INTERVAL: 60s
     # Preview projection is off until the chart-provisioned slot foundation
     # and preview-controller are enabled together.
-    PATCHY_INTENT_PREVIEWS_ENABLED: "false"
+    MAUL_INTENT_PREVIEWS_ENABLED: "false"
     # Pause intent polling while the GitHub installation has fewer core
     # requests left than this, so intents never starve the security flow's
     # share of the rate limit. "0" disables the floor.
-    PATCHY_INTENT_RATE_LIMIT_FLOOR: "1000"
+    MAUL_INTENT_RATE_LIMIT_FLOOR: "1000"
 
     # ---- runs ---------------------------------------------------------------
     # Intents of Projects that list more than one repository: one plan over
@@ -49,23 +49,23 @@ data:
     # spends) all the same, and its push waits; a wait longer than the Job TTL
     # discards that finished work, which is then run again. One-repository
     # Projects are the same either way.
-    PATCHY_INTENT_MULTI_REPO: "false"
+    MAUL_INTENT_MULTI_REPO: "false"
     # Intent agent Jobs running at once: a pool of its own, separate from
     # remediation's. A multi-repository intent's builds share it.
-    PATCHY_INTENT_MAX_CONCURRENT_RUNS: "1"
+    MAUL_INTENT_MAX_CONCURRENT_RUNS: "1"
     # The least activeDeadlineSeconds on an intent Job, whatever its stage.
     # A run whose stage timeout plus 15m is longer gets that instead, up to
-    # PATCHY_INTENT_JOB_DEADLINE_MAX, so raising one stage's timeout
+    # MAUL_INTENT_JOB_DEADLINE_MAX, so raising one stage's timeout
     # stretches only that stage's Jobs. Every stage timeout plus 15m must fit
-    # under PATCHY_INTENT_JOB_DEADLINE_MAX (the controller refuses to start
+    # under MAUL_INTENT_JOB_DEADLINE_MAX (the controller refuses to start
     # otherwise). The broker caller token each Job gets is minted for its
     # deadline plus 15m (at least 1h), so it outlives the Job. The shared
-    # PATCHY_JOB_DEADLINE is the finding stages' and does not apply here.
-    PATCHY_INTENT_JOB_DEADLINE: 90m
-    PATCHY_INTENT_JOB_DEADLINE_MAX: 4h30m
+    # MAUL_JOB_DEADLINE is the finding stages' and does not apply here.
+    MAUL_INTENT_JOB_DEADLINE: 90m
+    MAUL_INTENT_JOB_DEADLINE_MAX: 4h30m
     # Ended intents are deleted this long after completion, with everything
     # they own; "0" keeps them forever.
-    PATCHY_INTENT_TTL: 336h
+    MAUL_INTENT_TTL: 336h
 
     # ---- the stages ---------------------------------------------------------
     # Ceilings a Project's limits may lower, never raise. Both models (a
@@ -73,48 +73,48 @@ data:
     # *_IDLE_TIMEOUT ends a run of its stage that makes no progress (no model
     # turn, no tool result) for that long, as a timeout naming the command it
     # waited on; "0s" disables it.
-    PATCHY_INTENT_PLAN_MODEL: anthropic/claude-sonnet-5
-    PATCHY_INTENT_PLAN_MAX_TURNS: "40"
-    PATCHY_INTENT_PLAN_TOKEN_BUDGET: "200000"
-    PATCHY_INTENT_PLAN_TIMEOUT: 20m
-    PATCHY_INTENT_PLAN_IDLE_TIMEOUT: 20m
-    PATCHY_INTENT_BUILD_MODEL: anthropic/claude-sonnet-5
-    PATCHY_INTENT_BUILD_MAX_TURNS: "150"
-    PATCHY_INTENT_BUILD_TOKEN_BUDGET: "800000"
-    PATCHY_INTENT_BUILD_TIMEOUT: 60m
-    PATCHY_INTENT_BUILD_IDLE_TIMEOUT: 20m
+    MAUL_INTENT_PLAN_MODEL: anthropic/claude-sonnet-5
+    MAUL_INTENT_PLAN_MAX_TURNS: "40"
+    MAUL_INTENT_PLAN_TOKEN_BUDGET: "200000"
+    MAUL_INTENT_PLAN_TIMEOUT: 20m
+    MAUL_INTENT_PLAN_IDLE_TIMEOUT: 20m
+    MAUL_INTENT_BUILD_MODEL: anthropic/claude-sonnet-5
+    MAUL_INTENT_BUILD_MAX_TURNS: "150"
+    MAUL_INTENT_BUILD_TOKEN_BUDGET: "800000"
+    MAUL_INTENT_BUILD_TIMEOUT: 60m
+    MAUL_INTENT_BUILD_IDLE_TIMEOUT: 20m
     # Codex for intents is off: a Project with spec.harness codex is not
     # Ready (HarnessNotEnabled) and a codex run waits Pending. To turn it on,
-    # give the controller the brokered codex runner (PATCHY_CODEX_AGENT_IMAGE,
-    # the broker's openai route, and codex in PATCHY_HARNESSES above) and
+    # give the controller the brokered codex runner (MAUL_CODEX_AGENT_IMAGE,
+    # the broker's openai route, and codex in MAUL_HARNESSES above) and
     # set these; its stages run these models, which must resolve to codex:
     #
-    # PATCHY_INTENT_CODEX: "true"
-    # PATCHY_INTENT_CODEX_PLAN_MODEL: openai/gpt-5.3-codex
-    # PATCHY_INTENT_CODEX_BUILD_MODEL: openai/gpt-5.3-codex
-    PATCHY_INTENT_REVISE_MAX_TURNS: "80"
-    PATCHY_INTENT_REVISE_TOKEN_BUDGET: "400000"
-    PATCHY_INTENT_REVISE_TIMEOUT: 45m
-    PATCHY_INTENT_REVISE_IDLE_TIMEOUT: 20m
+    # MAUL_INTENT_CODEX: "true"
+    # MAUL_INTENT_CODEX_PLAN_MODEL: openai/gpt-5.3-codex
+    # MAUL_INTENT_CODEX_BUILD_MODEL: openai/gpt-5.3-codex
+    MAUL_INTENT_REVISE_MAX_TURNS: "80"
+    MAUL_INTENT_REVISE_TOKEN_BUDGET: "400000"
+    MAUL_INTENT_REVISE_TIMEOUT: 45m
+    MAUL_INTENT_REVISE_IDLE_TIMEOUT: 20m
 
     # ---- resource classes ---------------------------------------------------
     # Named sizes a Project picks per repository
     # (spec.repositories[].agentResourceClass) for that repository's build,
     # revise and check-fix runs, as JSON: name to {requests: {cpu, memory},
-    # limits: {memory[, cpu]}}. Plans run on the shared PATCHY_AGENT_* default.
+    # limits: {memory[, cpu]}}. Plans run on the shared MAUL_AGENT_* default.
     # The list is the spend ceiling: a Project cannot pick a size not defined
     # here. Each class is checked at startup (a request at or below its limit,
     # sanity bounds, at most 16 classes); a bad one stops the controller from
     # starting. Unset defines none.
     #
-    # PATCHY_INTENT_RESOURCE_CLASSES: '{"large":{"requests":{"cpu":"4","memory":"8Gi"},"limits":{"memory":"10Gi"}}}'
+    # MAUL_INTENT_RESOURCE_CLASSES: '{"large":{"requests":{"cpu":"4","memory":"8Gi"},"limits":{"memory":"10Gi"}}}'
 
     # ---- repository-declared images -----------------------------------------
     # A build runs only on an accepted repository-declared image. The base
     # does not configure repository images for source-controller; once your
-    # overlay does (PATCHY_REPOSITORY_IMAGE_* there, see
+    # overlay does (MAUL_REPOSITORY_IMAGE_* there, see
     # docs/configuration/source-controller.md), switch them on here too:
     #
-    # PATCHY_REPOSITORY_IMAGES: "true"
-    # PATCHY_AGENT_EPHEMERAL_STORAGE: 8Gi
-    # PATCHY_CHANGESET_MAX_ENTRIES: "500"
+    # MAUL_REPOSITORY_IMAGES: "true"
+    # MAUL_AGENT_EPHEMERAL_STORAGE: 8Gi
+    # MAUL_CHANGESET_MAX_ENTRIES: "500"

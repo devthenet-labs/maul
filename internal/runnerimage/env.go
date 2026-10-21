@@ -7,17 +7,17 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/bitwise-media-group/patchy/internal/provider"
+	"github.com/devthenet-labs/maul/internal/provider"
 )
 
-// reservedEnvPrefixes are the name prefixes an image may not set: patchy's
+// reservedEnvPrefixes are the name prefixes an image may not set: maul's
 // own configuration surface and every variable the trusted CLIs read, the
 // claude CLI's (ANTHROPIC_, CLAUDE_) and, since a repository image may also
 // run the codex CLI, codex's (CODEX_, whose CODEX_HOME would point it at the
 // image's own config.toml, AGENTS.md and auth files, and OPENAI_).
 // CLAUDE_CODE_ is listed for fidelity with the contract even though CLAUDE_
 // already covers it.
-var reservedEnvPrefixes = []string{"PATCHY_", "ANTHROPIC_", "CLAUDE_", "CLAUDE_CODE_", "CODEX_", "OPENAI_"}
+var reservedEnvPrefixes = []string{"MAUL_", "ANTHROPIC_", "CLAUDE_", "CLAUDE_CODE_", "CODEX_", "OPENAI_"}
 
 // proxyEnv are the proxy variables, refused in either case (and any mixed
 // case, which curl and Go both honour for some of them), because a proxy set
@@ -55,6 +55,6 @@ func CheckEnv(env []string, extra map[string]bool) error {
 		return nil
 	}
 	slices.Sort(offenders)
-	return reject("image ENV sets `%s`; `PATCHY_*`, `ANTHROPIC_*`, `CLAUDE_*`, `CODEX_*`, `OPENAI_*`, proxy "+
-		"and patchy-reserved variables cannot come from the image", strings.Join(offenders, "`, `"))
+	return reject("image ENV sets `%s`; `MAUL_*`, `ANTHROPIC_*`, `CLAUDE_*`, `CODEX_*`, `OPENAI_*`, proxy "+
+		"and maul-reserved variables cannot come from the image", strings.Join(offenders, "`, `"))
 }

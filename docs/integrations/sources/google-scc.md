@@ -1,8 +1,8 @@
 # Google Cloud Security Command Center
 
-Patchy ingests Security Command Center findings and triages them alongside code-scanning alerts. A cloud finding is
-about a **resource**, not a file, so the pipeline treats it differently in two places: how it accumulates (below), and
-how it [finds a repository to work in](../enhancers/google-cai.md).
+Maul ingests Security Command Center findings and triages them alongside code-scanning alerts. A cloud finding is about
+a **resource**, not a file, so the pipeline treats it differently in two places: how it accumulates (below), and how it
+[finds a repository to work in](../enhancers/google-cai.md).
 
 !!! info "One provider, two capabilities"
 
@@ -13,30 +13,30 @@ how it [finds a repository to work in](../enhancers/google-cai.md).
 ## How findings arrive
 
 Security Command Center has no webhook. Its only egress is a `NotificationConfig` publishing to a Pub/Sub topic, so a
-**push subscription** forwards each notification to patchy's receiver at `/google-cloud/webhooks`. The
+**push subscription** forwards each notification to maul's receiver at `/google-cloud/webhooks`. The
 [`scc-notifications` Terraform submodule](https://github.com/bitwise-media-group/terraform-google-gke-flux/tree/main/modules/scc-notifications)
 provisions that path — topic, notification config, subscription, dead-letter queue and IAM — and outputs the two values
 the `Integration` must agree with.
 
 Authentication is the **OIDC token Pub/Sub signs**, not an HMAC. A push subscription cannot compute one: Pub/Sub
-composes the message, so the sender never sees the bytes patchy receives. The token is the stronger primitive anyway —
-asymmetric, short-lived, and bound to both a service account and an audience. Patchy checks both, because anyone with a
+composes the message, so the sender never sees the bytes maul receives. The token is the stronger primitive anyway —
+asymmetric, short-lived, and bound to both a service account and an audience. Maul checks both, because anyone with a
 Google Cloud account can mint a Google-signed token; it is the _identity_ and _audience_ that make one meaningful.
 
 ```yaml
-apiVersion: patchy.bitwisemedia.uk/v1alpha1
+apiVersion: maul.run/v1alpha1
 kind: Integration
 metadata:
   name: google-cloud
-  namespace: patchy
+  namespace: maul
 spec:
   provider: google-cloud
   googleCloud:
     securityCommandCenter:
       enabled: true
       # Both must match the push subscription exactly; a mismatch fails closed.
-      audience: https://patchy.example.co.uk/google-cloud/webhooks
-      serviceAccount: patchy-scc-push@x-patchy-app.iam.gserviceaccount.com
+      audience: https://maul.example.co.uk/google-cloud/webhooks
+      serviceAccount: maul-scc-push@x-maul-app.iam.gserviceaccount.com
       # Numeric organization id, for composing Console links.
       organization: "123456789012"
       # A backstop under the notification config's own filter.
@@ -45,11 +45,11 @@ spec:
 
 A `google-cloud` Integration carries **no `secretRef`**: it holds no credential, and nothing in it calls a Google API.
 
-Deliveries patchy declines are retried by Pub/Sub and then dead-lettered, never silently dropped. Two signals are worth
-alerting on: anything in the dead-letter topic, and the subscription's oldest unacknowledged message age — patchy
-answers 503 when its delivery queue is full, which Pub/Sub correctly treats as backpressure.
+Deliveries maul declines are retried by Pub/Sub and then dead-lettered, never silently dropped. Two signals are worth
+alerting on: anything in the dead-letter topic, and the subscription's oldest unacknowledged message age — maul answers
+503 when its delivery queue is full, which Pub/Sub correctly treats as backpressure.
 
-## What patchy keeps
+## What maul keeps
 
 The notification is self-contained, so ingest makes no API call. From it a `Finding` gets:
 
@@ -71,8 +71,8 @@ no right answer.
 
 ## What is not implemented
 
-**Muting on an `ignore` verdict.** Patchy dismisses a GHAS alert when it judges a finding a false positive; the
-equivalent for SCC is muting, which needs `securitycenter.findings.setMute` — a Google Cloud _write_ permission
+**Muting on an `ignore` verdict.** Maul dismisses a GHAS alert when it judges a finding a false positive; the equivalent
+for SCC is muting, which needs `securitycenter.findings.setMute` — a Google Cloud _write_ permission
 integration-controller deliberately does not hold. The write-back seam (`pkg/source.Resolver`) is in place and the
 `googleCloud.securityCommandCenter.mute` block is accepted and validated but not yet honoured, so enabling it later is
 one implementation rather than a refactor.

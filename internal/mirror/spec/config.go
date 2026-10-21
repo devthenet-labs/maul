@@ -17,7 +17,7 @@ import (
 )
 
 // APIVersion is the schema identity every mirror file declares.
-const APIVersion = "mirror.patchy.bitwisemedia.uk/v1alpha1"
+const APIVersion = "mirror.maul.run/v1alpha1"
 
 // The kinds the schema defines.
 const (

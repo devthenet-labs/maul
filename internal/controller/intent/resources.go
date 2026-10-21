@@ -13,9 +13,9 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/resourceclass"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/resourceclass"
 )
 
 // ResourcesUnavailable reasons (an Intent's block) and the
@@ -118,7 +118,7 @@ func (p *pass) blockOnClass(ctx context.Context, runs []*v1alpha1.IntentRun) (bl
 		slog.String("intent", p.in.Name), slog.String("run", run.Name), slog.String("class", name))
 	return true, p.block(ctx, v1alpha1.ConditionResourcesUnavailable, ReasonUnknownResourceClass,
 		fmt.Sprintf("the %s%s waits: the project picks the resource class %q for it, and intent-controller "+
-			"defines no class of that name (defined: %s). Define it in the patchy chart's agent.resources.classes, "+
+			"defines no class of that name (defined: %s). Define it in the maul chart's agent.resources.classes, "+
 			"or change the repository's agentResourceClass on the project; the run launches once its class is "+
 			"known, and no attempt is spent meanwhile",
 			stageNoun(run), p.inRepository(run.Spec.Repository.URL), name, p.r.Classes.Describe()))
@@ -255,7 +255,7 @@ func resourceClassesCondition(p *v1alpha1.Project, classes resourceclass.Set) *m
 		return &metav1.Condition{Type: v1alpha1.ConditionResourceClassesResolved, Status: metav1.ConditionFalse,
 			Reason: ReasonUnknownResourceClass, ObservedGeneration: p.Generation,
 			Message: fmt.Sprintf("%s, which intent-controller does not define (defined: %s); the build, revise and "+
-				"check-fix runs of each wait until the class is defined in the patchy chart's "+
+				"check-fix runs of each wait until the class is defined in the maul chart's "+
 				"agent.resources.classes or the pick is changed. Plans and the other repositories are unaffected",
 				strings.Join(unknown, "; "), classes.Describe())}
 	}

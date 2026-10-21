@@ -16,9 +16,9 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/netprofile"
 )
 
 // Guard is one job controller's repository-image launch policy.
@@ -90,7 +90,7 @@ func (g Guard) Pin(spec *jobs.Spec, repo *v1alpha1.Repository, fnd *v1alpha1.Fin
 // Further reasons PinFor reports: a launch that requires the repository's
 // image has none to run.
 const (
-	SkipNoImage  = "the repository declares no runner image patchy can use"
+	SkipNoImage  = "the repository declares no runner image maul can use"
 	SkipRejected = "the repository's runner-image declaration was rejected"
 )
 
@@ -196,7 +196,7 @@ func (g Guard) Profile(spec *jobs.Spec, repoURL string) (applied, skipped string
 // host, or a redirect pattern) or a tunnel host that is, lies below or
 // matches a web host of a Forge CR in namespace (forge.WebHosts). The
 // chart and the proxy cannot see Forge CRs (a GitHub Enterprise host
-// configured only in patchy-config), so the job controllers, which list
+// configured only in maul-config), so the job controllers, which list
 // them anyway, run this check at launch. The whole profile is refused,
 // never just the host, so the run settles with the host named rather than
 // running with less than the operator listed. A spec with no profile, or a
@@ -421,7 +421,7 @@ const HeldReason = "RepositoryImageUnavailable"
 // accepted image this launch cannot run; skipped is Pin's reason.
 func HeldDetail(skipped string) string {
 	return "the repository declares an agent image but this run cannot use it (" + skipped + "), and " +
-		"patchy's default image carries none of the repository's toolchain, so a fix there could not be " +
+		"maul's default image carries none of the repository's toolchain, so a fix there could not be " +
 		"built or tested; approve the finding to remediate it on the default image anyway, untested"
 }
 

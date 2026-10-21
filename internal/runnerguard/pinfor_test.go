@@ -8,13 +8,13 @@ import (
 	"reflect"
 	"testing"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/jobs"
 )
 
 func acceptedImage() *v1alpha1.RunnerImage {
 	return &v1alpha1.RunnerImage{
-		Declared: "ghcr.io/acme/go-env:1.26", Manifest: ".patchy/agent.yaml",
+		Declared: "ghcr.io/acme/go-env:1.26", Manifest: ".maul/agent.yaml",
 		Image: pinned, SearchPath: "/usr/local/go/bin:/usr/bin:/bin", Verified: true,
 	}
 }
@@ -24,7 +24,7 @@ func acceptedImage() *v1alpha1.RunnerImage {
 // names why, and leaves the spec as it was.
 func TestPinFor(t *testing.T) {
 	rejected := &v1alpha1.RunnerImage{
-		Declared: "docker.io/evil/x:1", Manifest: ".patchy/agent.yaml",
+		Declared: "docker.io/evil/x:1", Manifest: ".maul/agent.yaml",
 		Rejected: "NotAllowlisted", Message: "not allowlisted",
 	}
 	// Never written by source-controller (a rejection carries no image),
@@ -87,7 +87,7 @@ func TestPinForAgreesWithPin(t *testing.T) {
 		"not applicable": {
 			Manifest: ".devcontainer/devcontainer.json", Message: "builds its image",
 		},
-		"rejected": {Declared: "docker.io/evil/x:1", Manifest: ".patchy/agent.yaml", Rejected: "NotAllowlisted"},
+		"rejected": {Declared: "docker.io/evil/x:1", Manifest: ".maul/agent.yaml", Rejected: "NotAllowlisted"},
 	}
 	fresh := findingThrough(v1alpha1.PhaseOpened, v1alpha1.PhaseEnhanced, v1alpha1.PhaseInvestigating)
 	for gname, g := range guards {

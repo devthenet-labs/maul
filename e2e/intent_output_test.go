@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/transcript"
-	"github.com/bitwise-media-group/patchy/internal/transcriptstore"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/transcript"
+	"github.com/devthenet-labs/maul/internal/transcriptstore"
 )
 
 // scriptedLines is how many lines the scripted claude's command prints
@@ -30,7 +30,7 @@ const scriptedLines = 40
 func TestIntentBuildLiveOutput(t *testing.T) {
 	e := startIntents(t)
 	e.kubelet.useAgentRunner(t, "build")
-	e.kubelet.setAgentEnv("PATCHY_FAKE_CLAUDE_OUTPUT", fmt.Sprint(scriptedLines))
+	e.kubelet.setAgentEnv("MAUL_FAKE_CLAUDE_OUTPUT", fmt.Sprint(scriptedLines))
 	// The CLI's temporary directory, kept off the host's /tmp.
 	e.kubelet.setAgentEnv("CLAUDE_CODE_TMPDIR", t.TempDir())
 	number, name := e.fileIntent(t)
@@ -58,7 +58,7 @@ func TestIntentBuildLiveOutput(t *testing.T) {
 			lines = append(lines, o.Lines...)
 			continue
 		}
-		if bytes.Contains(line, []byte("PATCHY-EVENT: ")) {
+		if bytes.Contains(line, []byte("MAUL-EVENT: ")) {
 			resultAt = i
 		}
 	}

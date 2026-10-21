@@ -16,23 +16,23 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/bitwise-media-group/patchy/internal/attribution"
-	"github.com/bitwise-media-group/patchy/internal/changeset"
-	"github.com/bitwise-media-group/patchy/internal/cli"
-	"github.com/bitwise-media-group/patchy/internal/controller/remediation"
-	"github.com/bitwise-media-group/patchy/internal/controller/rollup"
-	"github.com/bitwise-media-group/patchy/internal/credgate"
-	"github.com/bitwise-media-group/patchy/internal/credgate/kubecred"
-	"github.com/bitwise-media-group/patchy/internal/forge"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/priority"
-	"github.com/bitwise-media-group/patchy/internal/runnercfg"
-	"github.com/bitwise-media-group/patchy/internal/runnerguard"
-	"github.com/bitwise-media-group/patchy/internal/schedule"
-	"github.com/bitwise-media-group/patchy/internal/telemetry"
-	"github.com/bitwise-media-group/patchy/internal/usagerollup"
-	"github.com/bitwise-media-group/patchy/internal/version"
+	"github.com/devthenet-labs/maul/internal/attribution"
+	"github.com/devthenet-labs/maul/internal/changeset"
+	"github.com/devthenet-labs/maul/internal/cli"
+	"github.com/devthenet-labs/maul/internal/controller/remediation"
+	"github.com/devthenet-labs/maul/internal/controller/rollup"
+	"github.com/devthenet-labs/maul/internal/credgate"
+	"github.com/devthenet-labs/maul/internal/credgate/kubecred"
+	"github.com/devthenet-labs/maul/internal/forge"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/priority"
+	"github.com/devthenet-labs/maul/internal/runnercfg"
+	"github.com/devthenet-labs/maul/internal/runnerguard"
+	"github.com/devthenet-labs/maul/internal/schedule"
+	"github.com/devthenet-labs/maul/internal/telemetry"
+	"github.com/devthenet-labs/maul/internal/usagerollup"
+	"github.com/devthenet-labs/maul/internal/version"
 )
 
 func newServeCmd(opts *cli.Options) *cobra.Command {
@@ -42,7 +42,7 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 		RunE:  func(cmd *cobra.Command, _ []string) error { return serve(cmd.Context(), opts) },
 	}
 	f := cmd.Flags()
-	f.String("namespace", "", "namespace the patchy resources live in (default: POD_NAMESPACE)")
+	f.String("namespace", "", "namespace the maul resources live in (default: POD_NAMESPACE)")
 	f.String("kubeconfig", "", "kubeconfig path (default: in-cluster config)")
 	f.String("health-addr", ":8081", "healthz/readyz probe listen address")
 	f.Int("max-attempts", 2, "remediation attempts per finding before it fails")
@@ -60,8 +60,8 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	f.Duration("finding-ttl", rollup.DefaultTTL,
 		"how long completed findings are kept before deletion; 0 keeps them forever")
 
-	f.String("agent-namespace", "patchy-agents", "namespace the agent Jobs run in")
-	f.String("agent-service-account", "patchy-agent", "service account for the agent Jobs")
+	f.String("agent-namespace", "maul-agents", "namespace the agent Jobs run in")
+	f.String("agent-service-account", "maul-agent", "service account for the agent Jobs")
 	runnercfg.RegisterFlags(f)
 	runnercfg.RegisterRepositoryImageFlags(f)
 	runnercfg.RegisterNetworkProfileFlags(f)
@@ -95,18 +95,18 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	return cmd
 }
 
-// agentEnv is the PATCHY_* configuration every remediation pod receives. The
+// agentEnv is the MAUL_* configuration every remediation pod receives. The
 // per-Job harness and model are carried on the Job spec, not here; the
 // allowlist is enforced controller-side (the spawner), so the pod does not
 // need it.
 func agentEnv(opts *cli.Options) map[string]string {
 	return map[string]string{
-		"PATCHY_REMEDIATE_TIMEOUT":             opts.Duration("remediate-timeout").String(),
-		"PATCHY_REMEDIATE_IDLE_TIMEOUT":        opts.Duration("remediate-idle-timeout").String(),
-		"PATCHY_REMEDIATE_AUTO_MAX_TURNS":      fmt.Sprint(opts.Int("remediate-auto-max-turns")),
-		"PATCHY_REMEDIATE_AUTO_TOKEN_BUDGET":   fmt.Sprint(opts.Int("remediate-auto-token-budget")),
-		"PATCHY_REMEDIATE_MANUAL_MAX_TURNS":    fmt.Sprint(opts.Int("remediate-manual-max-turns")),
-		"PATCHY_REMEDIATE_MANUAL_TOKEN_BUDGET": fmt.Sprint(opts.Int("remediate-manual-token-budget")),
+		"MAUL_REMEDIATE_TIMEOUT":             opts.Duration("remediate-timeout").String(),
+		"MAUL_REMEDIATE_IDLE_TIMEOUT":        opts.Duration("remediate-idle-timeout").String(),
+		"MAUL_REMEDIATE_AUTO_MAX_TURNS":      fmt.Sprint(opts.Int("remediate-auto-max-turns")),
+		"MAUL_REMEDIATE_AUTO_TOKEN_BUDGET":   fmt.Sprint(opts.Int("remediate-auto-token-budget")),
+		"MAUL_REMEDIATE_MANUAL_MAX_TURNS":    fmt.Sprint(opts.Int("remediate-manual-max-turns")),
+		"MAUL_REMEDIATE_MANUAL_TOKEN_BUDGET": fmt.Sprint(opts.Int("remediate-manual-token-budget")),
 	}
 }
 
@@ -178,7 +178,7 @@ func startupFleet(ctx context.Context, opts *cli.Options,
 
 func serve(ctx context.Context, opts *cli.Options) error {
 	prov, shutdown, err := telemetry.Init(ctx, telemetry.Config{
-		Dir:            os.Getenv("PATCHY_TELEMETRY_DIR"),
+		Dir:            os.Getenv("MAUL_TELEMETRY_DIR"),
 		Level:          opts.LogLevel,
 		ServiceName:    "remediation-controller",
 		ServiceVersion: version.Version,
@@ -232,7 +232,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 
 	mgr, err := kube.NewManager(kube.Options{
 		Kubeconfig:              opts.String("kubeconfig"),
-		LeaderElectionID:        "patchy-remediation-controller-leader",
+		LeaderElectionID:        "maul-remediation-controller-leader",
 		LeaderElectionNamespace: namespace,
 		Namespaces:              []string{namespace},
 		AgentNamespace:          opts.String("agent-namespace"),

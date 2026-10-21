@@ -93,7 +93,7 @@ func (o *oidcIssuer) claims(aud, email string, verified bool, exp time.Time) map
 
 func TestGoogleVerifier(t *testing.T) {
 	const (
-		audience = "https://patchy.example/google-cloud/webhooks"
+		audience = "https://maul.example/google-cloud/webhooks"
 		account  = "scc-push@acme-prod.iam.gserviceaccount.com"
 	)
 	iss := newOIDCIssuer(t)
@@ -184,7 +184,7 @@ func TestGoogleVerifier(t *testing.T) {
 
 func TestGoogleVerifierThroughAuthenticator(t *testing.T) {
 	const (
-		audience = "https://patchy.example/google-cloud/webhooks"
+		audience = "https://maul.example/google-cloud/webhooks"
 		account  = "scc-push@acme-prod.iam.gserviceaccount.com"
 	)
 	iss := newOIDCIssuer(t)

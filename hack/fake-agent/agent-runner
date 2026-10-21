@@ -4,25 +4,25 @@
 #
 # The scripted stand-in for the real agent-runner, for credential-less local
 # dev (the dev-fake overlay). The job controllers only ever read the agent
-# container's stdout, so a shell script that prints well-formed PATCHY-TURN
-# and PATCHY-EVENT lines exercises the entire CR pipeline — the conversation
+# container's stdout, so a shell script that prints well-formed MAUL-TURN
+# and MAUL-EVENT lines exercises the entire CR pipeline — the conversation
 # capture, verdict routing, priority scheduling, the changeset push, the pull
-# request — without a model key. Branches on PATCHY_PHASE exactly like the
-# real runtime; PATCHY_BASE_SHA seeds the changeset's push base.
+# request — without a model key. Branches on MAUL_PHASE exactly like the
+# real runtime; MAUL_BASE_SHA seeds the changeset's push base.
 #
 # Three prefixed streams share stdout, exactly as the real runner emits them:
 #
-#   PATCHY-TURN:   one conversation turn (internal/transcript, schema v1). The
+#   MAUL-TURN:   one conversation turn (internal/transcript, schema v1). The
 #                  owning controller collects these into the run's transcript
 #                  ConfigMap; the status server follows the pod log live, so an
 #                  in-flight run streams into the page. Paced by turn_delay
 #                  below so that live stream is actually watchable.
-#   PATCHY-OUTPUT: a chunk of a running command's output (internal/transcript,
+#   MAUL-OUTPUT: a chunk of a running command's output (internal/transcript,
 #                  output schema v1), printed between a Bash call and its
 #                  result, in an intent's build only, as the real runner
 #                  prints it only for the intent stages. Live only: no
 #                  controller keeps it.
-#   PATCHY-EVENT:  the stage result (internal/envelope, schema v4). Exactly one
+#   MAUL-EVENT:  the stage result (internal/envelope, schema v4). Exactly one
 #                  per run, last.
 #
 # EVERY schema version is checked on decode, and a mismatch is silent at the
@@ -42,24 +42,24 @@
 # runner. A plan reads the request (input/issue.md) and names, as the
 # repositories it changes, the ones the request lists under its
 # "## Repositories" heading, exactly as listed there; or, when
-# PATCHY_FAKE_PLAN_REPOSITORIES is set (space-separated URLs, a test
+# MAUL_FAKE_PLAN_REPOSITORIES is set (space-separated URLs, a test
 # harness's stand-in for a model deciding that only some of them must
 # change), exactly those. A build is handed the
 # approved plan alone (input/investigation.md) with an empty request; a
 # request beside it is a fatal event, as agent-runner makes it. The
-# changeset stays clear of .github, .patchy and .devcontainer, which an
-# intent's changeset may never touch. When PATCHY_FAKE_BUILD_EXTRA_PATH is
+# changeset stays clear of .github, .maul and .devcontainer, which an
+# intent's changeset may never touch. When MAUL_FAKE_BUILD_EXTRA_PATH is
 # set, a build's changeset also writes that file with
-# PATCHY_FAKE_BUILD_EXTRA_CONTENT (a test harness's stand-in for a model
+# MAUL_FAKE_BUILD_EXTRA_CONTENT (a test harness's stand-in for a model
 # that edits more than the plan asked, such as a requirements file).
 #
 # A multi-repository intent keeps two more of agent-runner's guards. A plan
 # Job handed a repositories manifest (input/repositories, one
 # "<key> <path> <url>" line per repository) finds every tree it lists, or
 # fails fatally before planning: a pod path under /workspace is looked for
-# under PATCHY_WORKSPACE, so a harness that stages the workspace elsewhere
+# under MAUL_WORKSPACE, so a harness that stages the workspace elsewhere
 # still has its trees checked. A build of a plan naming several repositories
-# finds exactly one of them whose owner/name is PATCHY_REPO (case and a .git
+# finds exactly one of them whose owner/name is MAUL_REPO (case and a .git
 # suffix ignored), or fails fatally before building.
 set -eu
 
@@ -72,21 +72,21 @@ if [ "${1:-}" = sandbox-probe ]; then
   exit 0
 fi
 
-repo="${PATCHY_REPO:-unknown/unknown}"
-finding="${PATCHY_FINDING:-unknown}"
-phase="${PATCHY_PHASE:-investigate}"
-base_sha="${PATCHY_BASE_SHA:-}"
-workspace="${PATCHY_WORKSPACE:-/workspace}"
+repo="${MAUL_REPO:-unknown/unknown}"
+finding="${MAUL_FINDING:-unknown}"
+phase="${MAUL_PHASE:-investigate}"
+base_sha="${MAUL_BASE_SHA:-}"
+workspace="${MAUL_WORKSPACE:-/workspace}"
 
 # The model the controller resolved for this stage, echoed back on the result
 # so the per-model rollup buckets a real key rather than a placeholder.
-investigate_model="${PATCHY_INVESTIGATE_MODEL:-anthropic/claude-sonnet-5}"
-remediate_model="${PATCHY_REMEDIATE_MODEL:-anthropic/claude-sonnet-5}"
+investigate_model="${MAUL_INVESTIGATE_MODEL:-anthropic/claude-sonnet-5}"
+remediate_model="${MAUL_REMEDIATE_MODEL:-anthropic/claude-sonnet-5}"
 
 # Seconds between turns. A real run thinks between turns, and the status page's
 # live conversation is worth watching precisely because of that; with no pause
 # the whole transcript lands in a single log flush. Set to 0 for a fast run.
-turn_delay="${PATCHY_FAKE_TURN_DELAY:-1}"
+turn_delay="${MAUL_FAKE_TURN_DELAY:-1}"
 
 seq=0
 
@@ -98,7 +98,7 @@ seq=0
 # since the value is interpolated straight into JSON.
 turn() {
   seq=$((seq + 1))
-  printf 'PATCHY-TURN: {"v":1,"seq":%d,"at":"%s","role":"%s","kind":"%s","tool":"%s","text":"%s"}\n' \
+  printf 'MAUL-TURN: {"v":1,"seq":%d,"at":"%s","role":"%s","kind":"%s","tool":"%s","text":"%s"}\n' \
     "$seq" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$1" "$2" "$3" "$4"
   [ "$turn_delay" = 0 ] || sleep "$turn_delay"
 }
@@ -108,7 +108,7 @@ turn() {
 # commas, none holding a double quote or backslash; <line> is the number of
 # its first line, <done> true on the command's last chunk.
 output() {
-  printf 'PATCHY-OUTPUT: {"v":1,"task":"%s","line":%d,"lines":[%s],"done":%s,"at":"%s"}\n' \
+  printf 'MAUL-OUTPUT: {"v":1,"task":"%s","line":%d,"lines":[%s],"done":%s,"at":"%s"}\n' \
     "$1" "$2" "$4" "$3" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
   [ "$turn_delay" = 0 ] || sleep "$turn_delay"
 }
@@ -116,7 +116,7 @@ output() {
 # fatal <message> — the one fatal event agent-runner emits before a stage,
 # then a non-zero exit. The message must hold no double quote or backslash.
 fatal() {
-  printf 'PATCHY-EVENT: {"v":4,"type":"fatal","repo":"%s","finding":"%s","error":"fake agent: %s"}\n' \
+  printf 'MAUL-EVENT: {"v":4,"type":"fatal","repo":"%s","finding":"%s","error":"fake agent: %s"}\n' \
     "$repo" "$finding" "$1"
   exit 1
 }
@@ -182,7 +182,7 @@ investigate)
   # renders once internal/report has stripped that frontmatter off.
   report='---\nexploitability:\n  rating: high\n  summary: The sink is reachable from an unauthenticated request path.\nlikelihood:\n  rating: medium\n  summary: Exploitation needs a crafted link but no credentials.\nimpact:\n  rating: high\n  summary: Script execution in the victim session on a tier-1 service.\nrecommendation: remediate\npriority: high\nseverity: high\nconfidence: 0.92\nbreaking_change_available: false\nmodel: '"$remediate_model"'\nmax_turns: 40\ntoken_budget: 200000\n---\n\n## Summary\n\nScripted verdict from `hack/fake-agent` — no model was consulted. The shape\nof this report is what a real investigation produces.\n\nThe search route passes `req.query.q` into `innerHTML` without escaping\n(`app.js:42`). The parameter is attacker-controlled and the route needs no\nauthentication, so a crafted link executes script in the victim session.\n\n## Reachability\n\n- `app.js:42` — **reachable**: untrusted input, public route.\n- `lib/render.js:17` — **not reachable**: the interpolated value is a\n  build-time constant. Assessed as a false positive.\n\n## Recommendation\n\nRemediate automatically. The fix escapes the value at the sink; no signature\nchanges and no caller is affected, so nothing here needs a human first.'
 
-  printf 'PATCHY-EVENT: {"v":4,"type":"investigation","repo":"%s","finding":"%s","investigation":{"outcome":"ok","harness":"fake","model":"%s","session_id":"00000000-0000-4000-8000-000000000000","num_turns":%d,"usage":{"input_tokens":1200,"output_tokens":800,"cache_read_tokens":0,"cache_creation_tokens":0,"cost_usd":0.05},"elapsed_seconds":2.5,"report_markdown":"%s","exploitability":{"rating":"high","summary":"The sink is reachable from an unauthenticated request path."},"likelihood":{"rating":"medium","summary":"Exploitation needs a crafted link but no credentials."},"impact":{"rating":"high","summary":"Script execution in the victim session on a tier-1 service."},"recommendation":"remediate","priority":"high","severity":"high","confidence":0.92,"remediation_model":"%s","estimated_max_turns":40,"estimated_token_budget":200000,"await_approval":false}}\n' \
+  printf 'MAUL-EVENT: {"v":4,"type":"investigation","repo":"%s","finding":"%s","investigation":{"outcome":"ok","harness":"fake","model":"%s","session_id":"00000000-0000-4000-8000-000000000000","num_turns":%d,"usage":{"input_tokens":1200,"output_tokens":800,"cache_read_tokens":0,"cache_creation_tokens":0,"cost_usd":0.05},"elapsed_seconds":2.5,"report_markdown":"%s","exploitability":{"rating":"high","summary":"The sink is reachable from an unauthenticated request path."},"likelihood":{"rating":"medium","summary":"Exploitation needs a crafted link but no credentials."},"impact":{"rating":"high","summary":"Script execution in the victim session on a tier-1 service."},"recommendation":"remediate","priority":"high","severity":"high","confidence":0.92,"remediation_model":"%s","estimated_max_turns":40,"estimated_token_budget":200000,"await_approval":false}}\n' \
     "$repo" "$finding" "$investigate_model" "$seq" "$report" "$remediate_model"
   ;;
 remediate)
@@ -211,7 +211,7 @@ remediate)
   report='---\nsuccess: true\nconfidence: 0.9\nreproduction:\n  reproduced: true\n  command: \"npm test -- app.test.js\"\n  before: \"FAIL app.test.js: render escapes the query: expected &lt;b&gt;, received <b>\"\n  after: \"PASS app.test.js\"\n---\n\n## What changed\n\nScripted fix from `hack/fake-agent` — no model was consulted.\n\n`app.js:42` no longer assigns untrusted input to `innerHTML`. The query\nparameter is escaped at the sink, which leaves the render path and every\ncaller unchanged.\n\n## Verification\n\n- `npm test` — 84 tests, all passing.\n- No public signature changed, so no caller needs updating.\n\n## Review notes\n\nThe second code-scanning hit (`lib/render.js:17`) was assessed as a false\npositive during investigation and is deliberately untouched.'
 
   content=$(printf 'escaped();\n' | base64 | tr -d '\n')
-  printf 'PATCHY-EVENT: {"v":4,"type":"remediation","repo":"%s","finding":"%s","remediation":{"outcome":"ok","harness":"fake","model":"%s","session_id":"00000000-0000-4000-8000-000000000001","num_turns":%d,"usage":{"input_tokens":2500,"output_tokens":1500,"cache_read_tokens":0,"cache_creation_tokens":0,"cost_usd":0.12},"elapsed_seconds":4.0,"report_markdown":"%s","success":true,"confidence":0.9,"reproduction":{"reproduced":true,"command":"npm test -- app.test.js","before":"FAIL app.test.js: render escapes the query: expected &lt;b&gt;, received <b>","after":"PASS app.test.js"},"branch":"patchy/%s","changeset":{"base_sha":"%s","commit_message":"fix(security): escape the sink (fake agent)","upserts":[{"path":"app.js","mode":"100644","content_b64":"%s"}]}}}\n' \
+  printf 'MAUL-EVENT: {"v":4,"type":"remediation","repo":"%s","finding":"%s","remediation":{"outcome":"ok","harness":"fake","model":"%s","session_id":"00000000-0000-4000-8000-000000000001","num_turns":%d,"usage":{"input_tokens":2500,"output_tokens":1500,"cache_read_tokens":0,"cache_creation_tokens":0,"cost_usd":0.12},"elapsed_seconds":4.0,"report_markdown":"%s","success":true,"confidence":0.9,"reproduction":{"reproduced":true,"command":"npm test -- app.test.js","before":"FAIL app.test.js: render escapes the query: expected &lt;b&gt;, received <b>","after":"PASS app.test.js"},"branch":"maul/%s","changeset":{"base_sha":"%s","commit_message":"fix(security): escape the sink (fake agent)","upserts":[{"path":"app.js","mode":"100644","content_b64":"%s"}]}}}\n' \
     "$repo" "$finding" "$remediate_model" "$seq" "$report" "$finding" "$base_sha" "$content"
   ;;
 plan)
@@ -239,7 +239,7 @@ plan)
   [ -n "$repos" ] || repos="https://github.com/$repo"
   # A planner names only the repositories that must change: a harness
   # decides which, in the model's place.
-  [ -z "${PATCHY_FAKE_PLAN_REPOSITORIES:-}" ] || repos="$PATCHY_FAKE_PLAN_REPOSITORIES"
+  [ -z "${MAUL_FAKE_PLAN_REPOSITORIES:-}" ] || repos="$MAUL_FAKE_PLAN_REPOSITORIES"
   repo_yaml='' repo_json=''
   for url in $repos; do
     repo_yaml="$repo_yaml  - $url\\n"
@@ -265,18 +265,18 @@ plan)
   # the plan in visible text the approver reads verbatim.
   report='---\nsummary: Add a VERSION file (scripted plan from hack/fake-agent)\nrepositories:\n'"$repo_yaml"'new_dependencies: []\nquestions:\n  - Should VERSION follow the release tags?\nconfidence: 0.85\nestimated_max_turns: 30\nestimated_token_budget: 150000\n---\n\n## Approach\n\nScripted plan from `hack/fake-agent`; no model was consulted. Add a\nVERSION file at the repository root that names the current version.\n\n## Steps\n\n1. Create `VERSION` holding the version on one line.\n2. Commit it with `commit.sh`.\n\n## Test plan\n\n- `go test ./...` still passes.\n\n## Risks\n\nNone: the file is new and nothing reads it yet.\n'
 
-  printf 'PATCHY-EVENT: {"v":4,"type":"plan","repo":"%s","finding":"%s","plan":{"outcome":"ok","harness":"fake","model":"%s","session_id":"00000000-0000-4000-8000-000000000002","num_turns":%d,"usage":{"input_tokens":1500,"output_tokens":600,"cache_read_tokens":0,"cache_creation_tokens":0,"cost_usd":0.04},"elapsed_seconds":2.0,"report_markdown":"%s","summary":"Add a VERSION file (scripted plan from hack/fake-agent)","repositories":[%s],"questions":["Should VERSION follow the release tags?"],"confidence":0.85,"estimated_max_turns":30,"estimated_token_budget":150000}}\n' \
+  printf 'MAUL-EVENT: {"v":4,"type":"plan","repo":"%s","finding":"%s","plan":{"outcome":"ok","harness":"fake","model":"%s","session_id":"00000000-0000-4000-8000-000000000002","num_turns":%d,"usage":{"input_tokens":1500,"output_tokens":600,"cache_read_tokens":0,"cache_creation_tokens":0,"cost_usd":0.04},"elapsed_seconds":2.0,"report_markdown":"%s","summary":"Add a VERSION file (scripted plan from hack/fake-agent)","repositories":[%s],"questions":["Should VERSION follow the release tags?"],"confidence":0.85,"estimated_max_turns":30,"estimated_token_budget":150000}}\n' \
     "$repo" "$finding" "$investigate_model" "$seq" "$report" "$repo_json"
   ;;
 build)
   # agent-runner refuses a build handed anything but the approved plan.
   if [ -s "$workspace/input/issue.md" ]; then
-    printf 'PATCHY-EVENT: {"v":4,"type":"fatal","repo":"%s","finding":"%s","error":"fake agent: an intent build is handed the approved plan alone, and input/issue.md is not empty"}\n' \
+    printf 'MAUL-EVENT: {"v":4,"type":"fatal","repo":"%s","finding":"%s","error":"fake agent: an intent build is handed the approved plan alone, and input/issue.md is not empty"}\n' \
       "$repo" "$finding"
     exit 1
   fi
   if [ ! -s "$workspace/input/investigation.md" ]; then
-    printf 'PATCHY-EVENT: {"v":4,"type":"fatal","repo":"%s","finding":"%s","error":"fake agent: an intent build needs the approved plan in input/investigation.md"}\n' \
+    printf 'MAUL-EVENT: {"v":4,"type":"fatal","repo":"%s","finding":"%s","error":"fake agent: an intent build needs the approved plan in input/investigation.md"}\n' \
       "$repo" "$finding"
     exit 1
   fi
@@ -331,15 +331,15 @@ build)
 
   content=$(printf '0.1.0\n' | base64 | tr -d '\n')
   extra=''
-  if [ -n "${PATCHY_FAKE_BUILD_EXTRA_PATH:-}" ]; then
-    extra=$(printf ',{"path":"%s","mode":"100644","content_b64":"%s"}' "$PATCHY_FAKE_BUILD_EXTRA_PATH" \
-      "$(printf '%s\n' "${PATCHY_FAKE_BUILD_EXTRA_CONTENT:-}" | base64 | tr -d '\n')")
+  if [ -n "${MAUL_FAKE_BUILD_EXTRA_PATH:-}" ]; then
+    extra=$(printf ',{"path":"%s","mode":"100644","content_b64":"%s"}' "$MAUL_FAKE_BUILD_EXTRA_PATH" \
+      "$(printf '%s\n' "${MAUL_FAKE_BUILD_EXTRA_CONTENT:-}" | base64 | tr -d '\n')")
   fi
-  printf 'PATCHY-EVENT: {"v":4,"type":"remediation","repo":"%s","finding":"%s","remediation":{"outcome":"ok","harness":"fake","model":"%s","session_id":"00000000-0000-4000-8000-000000000003","num_turns":%d,"usage":{"input_tokens":3000,"output_tokens":1200,"cache_read_tokens":0,"cache_creation_tokens":0,"cost_usd":0.10},"elapsed_seconds":3.0,"report_markdown":"%s","success":true,"changeset":{"base_sha":"%s","commit_message":"feat: add a VERSION file (fake agent)","upserts":[{"path":"VERSION","mode":"100644","content_b64":"%s"}%s]}}}\n' \
+  printf 'MAUL-EVENT: {"v":4,"type":"remediation","repo":"%s","finding":"%s","remediation":{"outcome":"ok","harness":"fake","model":"%s","session_id":"00000000-0000-4000-8000-000000000003","num_turns":%d,"usage":{"input_tokens":3000,"output_tokens":1200,"cache_read_tokens":0,"cache_creation_tokens":0,"cost_usd":0.10},"elapsed_seconds":3.0,"report_markdown":"%s","success":true,"changeset":{"base_sha":"%s","commit_message":"feat: add a VERSION file (fake agent)","upserts":[{"path":"VERSION","mode":"100644","content_b64":"%s"}%s]}}}\n' \
     "$repo" "$finding" "$remediate_model" "$seq" "$report" "$base_sha" "$content" "$extra"
   ;;
 *)
-  printf 'PATCHY-EVENT: {"v":4,"type":"fatal","repo":"%s","finding":"%s","error":"fake agent: unknown phase %s"}\n' \
+  printf 'MAUL-EVENT: {"v":4,"type":"fatal","repo":"%s","finding":"%s","error":"fake agent: unknown phase %s"}\n' \
     "$repo" "$finding" "$phase"
   exit 1
   ;;

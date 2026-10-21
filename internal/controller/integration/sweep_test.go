@@ -30,9 +30,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/ghsecret"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/ghsecret"
 )
 
 // testAppKey is one RSA key for every App-credential test; generating a
@@ -48,7 +48,7 @@ var testAppKey = sync.OnceValue(func() []byte {
 // appSecret is a GitHub App credential Secret with a webhook HMAC secret.
 func appSecret(name string) *corev1.Secret {
 	return &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "patchy"},
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "maul"},
 		Data: map[string][]byte{
 			ghsecret.KeyAppID:         []byte("12345"),
 			ghsecret.KeyPrivateKey:    testAppKey(),
@@ -81,7 +81,7 @@ func TestCredsValidateGitHub(t *testing.T) {
 		{
 			name: "an empty token",
 			secret: &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{Name: "creds", Namespace: "patchy"},
+				ObjectMeta: metav1.ObjectMeta{Name: "creds", Namespace: "maul"},
 				Data:       map[string][]byte{"token": []byte("  ")},
 			},
 			wantErr: "token is empty",
@@ -140,7 +140,7 @@ func TestValidateGoogleCloud(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			integ := &v1alpha1.Integration{
-				ObjectMeta: metav1.ObjectMeta{Name: "gcp", Namespace: "patchy"},
+				ObjectMeta: metav1.ObjectMeta{Name: "gcp", Namespace: "maul"},
 				Spec:       v1alpha1.IntegrationSpec{Provider: v1alpha1.IntegrationProviderGoogleCloud, GoogleCloud: tt.gc},
 			}
 			// google-cloud holds no credential: Validate must not need a Secret.
@@ -273,7 +273,7 @@ func sweepIntegration(base, secretName string) *v1alpha1.Integration {
 }
 
 // ghRequest is the reconcile request for the Integration named gh.
-var ghRequest = ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "patchy", Name: "gh"}}
+var ghRequest = ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "maul", Name: "gh"}}
 
 func reconcileGH(t *testing.T, r *IntegrationReconciler) (ctrl.Result, v1alpha1.Integration) {
 	t.Helper()
@@ -477,7 +477,7 @@ func TestReconcileInvalidCredential(t *testing.T) {
 }
 
 func TestReconcileIntegrationLifecycle(t *testing.T) {
-	gr := schema.GroupResource{Group: "patchy.bitwisemedia.uk", Resource: "integrations"}
+	gr := schema.GroupResource{Group: "maul.run", Resource: "integrations"}
 	boom := errors.New("apiserver down")
 	statusFails := func(err error) *interceptor.Funcs {
 		return &interceptor.Funcs{

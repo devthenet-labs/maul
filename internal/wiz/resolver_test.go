@@ -8,7 +8,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/bitwise-media-group/patchy/pkg/source"
+	"github.com/devthenet-labs/maul/pkg/source"
 )
 
 // fakeRejecter records rejections and can fail selected issues.

@@ -10,13 +10,13 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/bitwise-media-group/patchy/internal/cli"
-	"github.com/bitwise-media-group/patchy/internal/egressproxy"
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/cli"
+	"github.com/devthenet-labs/maul/internal/egressproxy"
+	"github.com/devthenet-labs/maul/internal/netprofile"
 )
 
 // addTunnelFlags registers the CONNECT tunnel's flags (§2.5 of the step-3
-// spec; PATCHY_TUNNEL_* in the environment). A zero value takes the
+// spec; MAUL_TUNNEL_* in the environment). A zero value takes the
 // default, except --tunnel-progress-interval, where 0 turns the progress
 // line off. No flag turns the tunnel on: a profile with hosts does.
 func addTunnelFlags(cmd *cobra.Command) {

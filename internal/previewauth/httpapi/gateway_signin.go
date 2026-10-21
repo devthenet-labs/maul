@@ -9,13 +9,13 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/bitwise-media-group/patchy/internal/previewauth"
+	"github.com/devthenet-labs/maul/internal/previewauth"
 )
 
 // handleStart is the sign-in host's /start?h=<label>&s=<sealed state>: a
 // preview host sent the browser here to sign in. With a relay session the
 // access review runs and a handoff code goes back to the preview host's
-// /.patchy/callback; without one the viewer signs in at Dex first. Every
+// /.maul/callback; without one the viewer signs in at Dex first. Every
 // refusal is a page here, never a redirect.
 func (g *gateway) handleStart(w http.ResponseWriter, r *http.Request) {
 	a := rec(r)

@@ -6,7 +6,7 @@ package runnerimage
 import (
 	"context"
 
-	"github.com/bitwise-media-group/patchy/internal/mirror/imageref"
+	"github.com/devthenet-labs/maul/internal/mirror/imageref"
 )
 
 // Resolved is what a Resolver pins and checks for one declared reference.

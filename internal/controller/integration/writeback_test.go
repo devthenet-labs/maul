@@ -20,12 +20,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/generic"
-	"github.com/bitwise-media-group/patchy/internal/ghas"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/wiz"
-	pkggeneric "github.com/bitwise-media-group/patchy/pkg/generic"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/generic"
+	"github.com/devthenet-labs/maul/internal/ghas"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/wiz"
+	pkggeneric "github.com/devthenet-labs/maul/pkg/generic"
 )
 
 // findingWithAlerts is a dismissed finding carrying alerts from the given
@@ -48,7 +48,7 @@ func findingWithAlerts(repo string, alerts map[string][]string) *v1alpha1.Findin
 
 func writebackReconciler(funcs *interceptor.Funcs, objs ...client.Object) *FindingReconciler {
 	c := receiverClient(funcs, objs...)
-	return &FindingReconciler{Client: c, Creds: NewCreds(c), Namespace: "patchy"}
+	return &FindingReconciler{Client: c, Creds: NewCreds(c), Namespace: "maul"}
 }
 
 // GHAS alerts are dismissed through the code-scanning Integration's client,
@@ -296,7 +296,7 @@ func TestResolveAlertsGeneric(t *testing.T) {
 			},
 		})
 		err := r.resolveAlerts(t.Context(), findingWithAlerts("", map[string][]string{"warehouse": {"wh-1"}}))
-		if err == nil || !strings.Contains(err.Error(), "get generic integration patchy/warehouse") {
+		if err == nil || !strings.Contains(err.Error(), "get generic integration maul/warehouse") {
 			t.Errorf("resolveAlerts() = %v, want the read failure naming the integration", err)
 		}
 	})

@@ -19,7 +19,7 @@ import (
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/text"
 
-	"github.com/bitwise-media-group/patchy/internal/command"
+	"github.com/devthenet-labs/maul/internal/command"
 )
 
 // testPlan is a plan report as the planner writes it.
@@ -113,9 +113,9 @@ var taggedPlan = "---\nsummary: Add /version\n---\n## Approach\n\nLooks fine." +
 
 func testPlanComment(report string) PlanComment {
 	return PlanComment{
-		Namespace: "patchy", Intent: "target-1", Revision: 2, Report: []byte(report),
+		Namespace: "maul", Intent: "target-1", Revision: 2, Report: []byte(report),
 		Summary:      "Add GET /version returning {sha, built} as JSON",
-		ApproveLabel: "patchy:approved", TriggerLabel: "patchy:target",
+		ApproveLabel: "maul:approved", TriggerLabel: "maul:target",
 	}
 }
 
@@ -131,17 +131,17 @@ func TestIntentGoldens(t *testing.T) {
 	}{
 		{"intent_status_planning.md", func() (string, error) {
 			return RenderIntentStatusComment(IntentStatusComment{
-				Namespace: "patchy", Intent: "target-1", Phase: "Planning",
+				Namespace: "maul", Intent: "target-1", Phase: "Planning",
 			})
 		}},
 		{"intent_status_planning_paused.md", func() (string, error) {
 			return RenderIntentStatusComment(IntentStatusComment{
-				Namespace: "patchy", Intent: "target-1", Phase: "Planning", AgentsPaused: true,
+				Namespace: "maul", Intent: "target-1", Phase: "Planning", AgentsPaused: true,
 			})
 		}},
 		{"intent_status_awaiting_approval.md", func() (string, error) {
 			return RenderIntentStatusComment(IntentStatusComment{
-				Namespace: "patchy", Intent: "target-1", Phase: "AwaitingApproval",
+				Namespace: "maul", Intent: "target-1", Phase: "AwaitingApproval",
 				PlanRevision: 2, PlanURL: "https://github.com/devthenet-labs/intents/issues/1#issuecomment-99",
 				Summary:  "Add GET /version returning {sha, built} as JSON",
 				Commands: []string{"approve", "replan", "cancel"},
@@ -149,7 +149,7 @@ func TestIntentGoldens(t *testing.T) {
 		}},
 		{"intent_status_in_review.md", func() (string, error) {
 			return RenderIntentStatusComment(IntentStatusComment{
-				Namespace: "patchy", Intent: "target-1", Phase: "InReview",
+				Namespace: "maul", Intent: "target-1", Phase: "InReview",
 				PlanRevision: 2, PlanURL: "https://github.com/devthenet-labs/intents/issues/1#issuecomment-99",
 				Summary:    "Add GET /version returning {sha, built} as JSON",
 				ApprovedBy: "peter", ApprovedRevision: 2,
@@ -165,7 +165,7 @@ func TestIntentGoldens(t *testing.T) {
 		// no one is notified, beside the cost line; the org by name.
 		{"intent_status_in_review_attributed.md", func() (string, error) {
 			return RenderIntentStatusComment(IntentStatusComment{
-				Namespace: "patchy", Intent: "target-1", Phase: "InReview",
+				Namespace: "maul", Intent: "target-1", Phase: "InReview",
 				PlanRevision: 2, ApprovedBy: "peter", ApprovedRevision: 2,
 				CostMicroUSD: 1_234_567, MaxCostMicroUSD: 10_000_000,
 				Attribution: &IntentAttribution{Login: "carol", Reason: "reviewer"},
@@ -174,14 +174,14 @@ func TestIntentGoldens(t *testing.T) {
 		}},
 		{"intent_status_planning_attributed_org.md", func() (string, error) {
 			return RenderIntentStatusComment(IntentStatusComment{
-				Namespace: "patchy", Intent: "target-1", Phase: "Planning",
+				Namespace: "maul", Intent: "target-1", Phase: "Planning",
 				Attribution: &IntentAttribution{Reason: "approver-unregistered"},
 			})
 		}},
 		// A round failed checks started is not a revision from review.
 		{"intent_status_fixing_checks.md", func() (string, error) {
 			return RenderIntentStatusComment(IntentStatusComment{
-				Namespace: "patchy", Intent: "preview-demo-5", Phase: "Revising", FixingChecks: true,
+				Namespace: "maul", Intent: "preview-demo-5", Phase: "Revising", FixingChecks: true,
 				PlanRevision: 1, ApprovedBy: "peter", ApprovedRevision: 1,
 				PullRequests: []IntentPullRequest{{
 					Repository: "devthenet-labs/patchy-preview-demo", Number: 9,
@@ -193,7 +193,7 @@ func TestIntentGoldens(t *testing.T) {
 		// The reason quotes a refused changeset path, which the agent chose.
 		{"intent_status_blocked.md", func() (string, error) {
 			return RenderIntentStatusComment(IntentStatusComment{
-				Namespace: "patchy", Intent: "target-1", Phase: "Blocked",
+				Namespace: "maul", Intent: "target-1", Phase: "Blocked",
 				PlanRevision: 2, ApprovedBy: "peter", ApprovedRevision: 2,
 				Reason: "changeset_rejected: changeset path \".github/workflows/ci.yml @octocat\n```\" is under " +
 					".github, which an intent run may not change",
@@ -219,52 +219,52 @@ func TestIntentGoldens(t *testing.T) {
 		}},
 		{"intent_notice_not_allowed.md", func() (string, error) {
 			return RenderNotAllowedNotice(NotAllowedNotice{
-				Namespace: "patchy", Intent: "target-1", Key: "comment-4411",
+				Namespace: "maul", Intent: "target-1", Key: "comment-4411",
 				Actor: "mallory", Verb: "approve",
 			})
 		}},
 		{"intent_notice_not_allowed_label.md", func() (string, error) {
 			return RenderNotAllowedNotice(NotAllowedNotice{
-				Namespace: "patchy", Intent: "target-1", Key: "event-812",
-				Actor: "mallory", Label: "patchy:approved", LabelRemoved: true,
+				Namespace: "maul", Intent: "target-1", Key: "event-812",
+				Actor: "mallory", Label: "maul:approved", LabelRemoved: true,
 			})
 		}},
 		{"intent_notice_not_allowed_trigger.md", func() (string, error) {
 			return RenderNotAllowedNotice(NotAllowedNotice{
-				Namespace: "patchy", Intent: "target-7", Key: "event-9",
-				Actor: "renovate[bot]", Bot: true, Label: "patchy:target", Closed: true,
+				Namespace: "maul", Intent: "target-7", Key: "event-9",
+				Actor: "renovate[bot]", Bot: true, Label: "maul:target", Closed: true,
 			})
 		}},
 		{"intent_notice_not_available.md", func() (string, error) {
 			return RenderNotAvailableNotice(NotAvailableNotice{
-				Namespace: "patchy", Intent: "target-1", Key: "comment-4412",
+				Namespace: "maul", Intent: "target-1", Key: "comment-4412",
 				Verb: "approve", Phase: "Building", Available: []string{"cancel"},
 			})
 		}},
 		// The trigger re-applied to an intent that has ended.
 		{"intent_notice_not_available_ended.md", func() (string, error) {
 			return RenderNotAvailableNotice(NotAvailableNotice{
-				Namespace: "patchy", Intent: "target-1", Key: "event-813",
-				Label: "patchy:target", LabelRemoved: true, Phase: "Merged",
+				Namespace: "maul", Intent: "target-1", Key: "event-813",
+				Label: "maul:target", LabelRemoved: true, Phase: "Merged",
 			})
 		}},
 		{"intent_notice_not_available_pr.md", func() (string, error) {
 			return RenderNotAvailableNotice(NotAvailableNotice{
-				Namespace: "patchy", Intent: "target-1", Key: "comment-4414", Surface: command.IntentPR,
+				Namespace: "maul", Intent: "target-1", Key: "comment-4414", Surface: command.IntentPR,
 				Verb: "retry", Phase: "Revising", Available: []string{"cancel", "revise"},
 			})
 		}},
 		{"intent_notice_approval_refused.md", func() (string, error) {
 			return RenderApprovalRefusedNotice(ApprovalRefusedNotice{
-				Namespace: "patchy", Intent: "target-1", Key: "event-814",
-				Actor: "peter", Label: "patchy:approved", PlanRevision: 2,
-				PlanChanged: true, IssueChanged: true, LabelRemoved: true, TriggerLabel: "patchy:target",
+				Namespace: "maul", Intent: "target-1", Key: "event-814",
+				Actor: "peter", Label: "maul:approved", PlanRevision: 2,
+				PlanChanged: true, IssueChanged: true, LabelRemoved: true, TriggerLabel: "maul:target",
 			})
 		}},
 		{"intent_notice_approval_refused_command.md", func() (string, error) {
 			return RenderApprovalRefusedNotice(ApprovalRefusedNotice{
-				Namespace: "patchy", Intent: "target-1", Key: "comment-4413",
-				Actor: "peter", PlanRevision: 1, IssueChanged: true, TriggerLabel: "patchy:target",
+				Namespace: "maul", Intent: "target-1", Key: "comment-4413",
+				Actor: "peter", PlanRevision: 1, IssueChanged: true, TriggerLabel: "maul:target",
 			})
 		}},
 		{"intent_pr_body.md", func() (string, error) {
@@ -296,7 +296,7 @@ func TestIntentGoldens(t *testing.T) {
 			return IntentCommitMessage(IntentCommit{
 				Project: "target", Summary: "Add GET /version returning {sha, built} as JSON",
 				IntentRepository: "devthenet-labs/intents", IssueNumber: 1, Round: 2,
-				Namespace: "patchy", Intent: "target-1", Run: "target-1-bld-r2-patchy-target-a1",
+				Namespace: "maul", Intent: "target-1", Run: "target-1-bld-r2-patchy-target-a1",
 			}), nil
 		}},
 		{"intent_commit_hostile.txt", func() (string, error) {
@@ -305,7 +305,7 @@ func TestIntentGoldens(t *testing.T) {
 					"https://github.com/o/r/issues/6 for @octocat (mail a@b.com), fixes " +
 					"https://ghe.example.com:8443/acme/app/pull/12",
 				IntentRepository: "devthenet-labs/intents", IssueNumber: 1, Round: 2,
-				Namespace: "patchy", Intent: "target-1", Run: "target-1-bld-r2-patchy-target-a1",
+				Namespace: "maul", Intent: "target-1", Run: "target-1-bld-r2-patchy-target-a1",
 			}), nil
 		}},
 	}
@@ -328,10 +328,10 @@ func TestIntentMarkers(t *testing.T) {
 		t.Fatalf("PlanDigest = %q, want sha256:<64 hex>", digest)
 	}
 	for _, tt := range []struct{ got, want string }{
-		{IntentStatusMarker("patchy", "target-1"), "<!-- patchy:intent patchy/target-1 -->"},
-		{PlanMarker("patchy", "target-1", 3, digest), "<!-- patchy:plan patchy/target-1 r3 " + digest[:19] + " -->"},
-		{NoticeMarker("patchy", "target-1", "event-7"), "<!-- patchy:notice patchy/target-1 event-7 -->"},
-		{NoticeMarker("patchy", "target-1", "x -->\n<b>"), "<!-- patchy:notice patchy/target-1 x_--___b_ -->"},
+		{IntentStatusMarker("maul", "target-1"), "<!-- maul:intent maul/target-1 -->"},
+		{PlanMarker("maul", "target-1", 3, digest), "<!-- maul:plan maul/target-1 r3 " + digest[:19] + " -->"},
+		{NoticeMarker("maul", "target-1", "event-7"), "<!-- maul:notice maul/target-1 event-7 -->"},
+		{NoticeMarker("maul", "target-1", "x -->\n<b>"), "<!-- maul:notice maul/target-1 x_--___b_ -->"},
 	} {
 		if tt.got != tt.want {
 			t.Errorf("marker = %q, want %q", tt.got, tt.want)
@@ -341,14 +341,14 @@ func TestIntentMarkers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := PlanMarker("patchy", "target-1", 2, digest) + "\n"; !strings.HasPrefix(plan, want) {
+	if want := PlanMarker("maul", "target-1", 2, digest) + "\n"; !strings.HasPrefix(plan, want) {
 		t.Errorf("plan comment is not headed by %q:\n%s", want, plan)
 	}
-	status, err := RenderIntentStatusComment(IntentStatusComment{Namespace: "patchy", Intent: "target-1"})
+	status, err := RenderIntentStatusComment(IntentStatusComment{Namespace: "maul", Intent: "target-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := IntentStatusMarker("patchy", "target-1") + "\n"; !strings.HasPrefix(status, want) {
+	if want := IntentStatusMarker("maul", "target-1") + "\n"; !strings.HasPrefix(status, want) {
 		t.Errorf("status comment is not headed by %q:\n%s", want, status)
 	}
 }
@@ -388,7 +388,7 @@ func TestPlanCommentSizeLimit(t *testing.T) {
 	if !errors.Is(err, ErrPlanRefused) {
 		t.Fatalf("a plan rendering to %d bytes = %v, want ErrPlanRefused", MaxCommentBytes+1, err)
 	}
-	marker := NoticeMarker("patchy", "target-1", "plan-r2") + "\n"
+	marker := NoticeMarker("maul", "target-1", "plan-r2") + "\n"
 	if !strings.HasPrefix(notice, marker) || strings.Contains(notice, "aaaa") || len(notice) > 1024 {
 		t.Errorf("refusal notice is not a short notice headed by %q, free of the plan:\n%s", marker, notice)
 	}
@@ -511,7 +511,7 @@ func TestPlanCommentUnshowable(t *testing.T) {
 				if !errors.Is(err, ErrPlanRefused) {
 					t.Fatalf("RenderPlanComment = %v, want ErrPlanRefused", err)
 				}
-				if !strings.HasPrefix(out, NoticeMarker("patchy", "target-1", "plan-r2")+"\n") ||
+				if !strings.HasPrefix(out, NoticeMarker("maul", "target-1", "plan-r2")+"\n") ||
 					!strings.Contains(out, "no comment can show") || strings.ContainsFunc(out, unseen) {
 					t.Errorf("refusal notice does not say why, free of the plan:\n%q", out)
 				}
@@ -1004,7 +1004,7 @@ func planOutcome(report string) (outcome, msg string) {
 	switch {
 	case refuse != (err != nil):
 		return "", fmt.Sprintf("refused = %v (%v), want %v: %d bytes rendered", err != nil, err, refuse, len(full))
-	case refuse && !strings.HasPrefix(out, NoticeMarker("patchy", "target-1", "plan-r2")+"\n"):
+	case refuse && !strings.HasPrefix(out, NoticeMarker("maul", "target-1", "plan-r2")+"\n"):
 		return "", fmt.Sprintf("refusal notice is not headed by its notice marker:\n%s", out)
 	case notText:
 		return "not UTF-8", ""
@@ -1019,9 +1019,9 @@ func planOutcome(report string) (outcome, msg string) {
 }
 
 // TestIntentCommentProperties: whatever a plan, a summary, a question or a
-// dependency holds, the comments and the pull request body carry patchy's
+// dependency holds, the comments and the pull request body carry maul's
 // marker as their only HTML and — to an independent markdown parser — hold
-// no live mention and no issue reference but the one patchy writes, so no
+// no live mention and no issue reference but the one maul writes, so no
 // closing keyword with one. The status comment and the pull request body,
 // sanitiser output throughout, show nothing the reader cannot see; the plan
 // comment shows its report verbatim in a code block, and the agent's
@@ -1050,7 +1050,7 @@ func TestIntentCommentProperties(t *testing.T) {
 			return false
 		}
 		status, err := RenderIntentStatusComment(IntentStatusComment{
-			Namespace: "patchy", Intent: "target-1", Phase: "Blocked", PlanRevision: 1, Summary: agent, Reason: agent,
+			Namespace: "maul", Intent: "target-1", Phase: "Blocked", PlanRevision: 1, Summary: agent, Reason: agent,
 		})
 		if err != nil {
 			failure = fmt.Sprintf("status: %v", err)
@@ -1209,7 +1209,7 @@ func TestIntentPRTitleProperties(t *testing.T) {
 	}
 }
 
-// cutMarker drops a comment's marker line, the one HTML comment patchy
+// cutMarker drops a comment's marker line, the one HTML comment maul
 // writes; checkSanitized then refuses any other.
 func cutMarker(body string) string {
 	_, rest, _ := strings.Cut(body, "\n")
@@ -1228,13 +1228,13 @@ func TestIntentCommitMessageProperties(t *testing.T) {
 	holds := func(summary string) bool {
 		msg := IntentCommitMessage(IntentCommit{
 			Project: "target", Summary: summary, IntentRepository: "devthenet-labs/intents", IssueNumber: 1,
-			Round: 2, Namespace: "patchy", Intent: "target-1", Run: "target-1-bld-r2-patchy-target-a1",
+			Round: 2, Namespace: "maul", Intent: "target-1", Run: "target-1-bld-r2-patchy-target-a1",
 		})
 		lines := strings.Split(msg, "\n")
 		switch {
 		case len(lines) != 5 || lines[1] != "" || lines[4] != "" || !subject.MatchString(lines[0]):
 			failure = fmt.Sprintf("message is not a subject, a blank line and two trailers:\n%q", msg)
-		case lines[2] != "Patchy-Intent: patchy/target-1" || lines[3] != "Patchy-Run: target-1-bld-r2-patchy-target-a1":
+		case lines[2] != "Maul-Intent: maul/target-1" || lines[3] != "Maul-Run: target-1-bld-r2-patchy-target-a1":
 			failure = fmt.Sprintf("trailers are wrong:\n%q", msg)
 		case closingReference.MatchString(msg):
 			failure = fmt.Sprintf("message closes an issue: %q", closingReference.FindString(msg))

@@ -18,7 +18,7 @@ func TestRenderCredentialHoldComment(t *testing.T) {
 	}{
 		{"missing", CredentialHoldComment{Login: "alice", Reason: "CredentialMissing", AccountURL: url},
 			[]string{"attributed to @alice, who has no Anthropic credential", "[Account page](" + url + ")",
-				"`/patchy approve`"}, nil},
+				"`/maul approve`"}, nil},
 		{"rejected", CredentialHoldComment{Login: "alice", Reason: "CredentialRejected"},
 			[]string{"Anthropic rejected the credential @alice stored", "on the status page's Account page"},
 			[]string{"]("}},
@@ -34,7 +34,7 @@ func TestRenderCredentialHoldComment(t *testing.T) {
 		{"openai rejected", CredentialHoldComment{Login: "alice", Reason: "CredentialRejected", Provider: "OpenAI",
 			Kinds: "an OpenAI API key"}, []string{"OpenAI rejected the credential @alice stored"}, []string{"Anthropic"}},
 		{"openai unverified", CredentialHoldComment{Login: "alice", Reason: "CredentialUnverified",
-			Provider: "OpenAI"}, []string{"stored OpenAI credential patchy has not verified yet"}, nil},
+			Provider: "OpenAI"}, []string{"stored OpenAI credential maul has not verified yet"}, nil},
 		{"markup in a provider is not rendered", CredentialHoldComment{Login: "alice", Reason: "CredentialMissing",
 			Provider: "[x](javascript:y)", Kinds: "<b>"}, []string{"no Anthropic credential",
 			"(an API key or a setup-token)"}, []string{"javascript", "<b>"}},
@@ -63,13 +63,13 @@ func TestRenderCredentialHoldComment(t *testing.T) {
 
 func TestRenderCredentialApprovalNotice(t *testing.T) {
 	got, err := RenderCredentialApprovalNotice(CredentialApprovalNotice{
-		Namespace: "patchy", Intent: "demo-7", Key: "c:9", Actor: "bob", Verb: "approve",
+		Namespace: "maul", Intent: "demo-7", Key: "c:9", Actor: "bob", Verb: "approve",
 		AccountURL: "https://status.example.com/#/account",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, w := range []string{NoticeMarker("patchy", "demo-7", "c:9"), "`/patchy approve` was not applied",
+	for _, w := range []string{NoticeMarker("maul", "demo-7", "c:9"), "`/maul approve` was not applied",
 		"waits for a valid Anthropic credential", "@bob has none", "Add an API key or a setup-token",
 		"[Account page](https://status.example.com/#/account)"} {
 		if !strings.Contains(got, w) {
@@ -77,13 +77,13 @@ func TestRenderCredentialApprovalNotice(t *testing.T) {
 		}
 	}
 	got, err = RenderCredentialApprovalNotice(CredentialApprovalNotice{
-		Namespace: "patchy", Intent: "demo-7", Key: "l:9", Actor: "bob", Label: "patchy:approve",
+		Namespace: "maul", Intent: "demo-7", Key: "l:9", Actor: "bob", Label: "maul:approve",
 		LabelRemoved: true, AccountURL: "https://e.com/)(x",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, w := range []string{"label was not applied", "patchy removed the label", "status page's Account page"} {
+	for _, w := range []string{"label was not applied", "maul removed the label", "status page's Account page"} {
 		if !strings.Contains(got, w) {
 			t.Errorf("missing %q in:\n%s", w, got)
 		}
@@ -92,7 +92,7 @@ func TestRenderCredentialApprovalNotice(t *testing.T) {
 		t.Errorf("a URL that reshapes the link was linked:\n%s", got)
 	}
 	got, err = RenderCredentialApprovalNotice(CredentialApprovalNotice{
-		Namespace: "patchy", Intent: "demo-7", Key: "c:10", Actor: "bob", Verb: "approve",
+		Namespace: "maul", Intent: "demo-7", Key: "c:10", Actor: "bob", Verb: "approve",
 		Provider: "OpenAI", Kinds: "an OpenAI API key",
 	})
 	if err != nil {

@@ -3,7 +3,7 @@
 
 // Package azureinv reads an Azure resource's tags from Azure Resource Graph.
 //
-// It exists because the tags patchy needs are not reliably in the payload
+// It exists because the tags maul needs are not reliably in the payload
 // that brought the finding: a scanner delivery describes the resource (ARM
 // resource ID, type, subscription) but its tags are optional, point-in-time
 // extras, so ownership has to be looked up separately. Unlike AWS there is no

@@ -11,7 +11,7 @@
 // fakegithub` runs the same server on the host for poking at it directly.
 //
 // State is in-memory and per-process: restart it (in-cluster,
-// `kubectl -n patchy rollout restart deployment patchy-fakegithub`) and the
+// `kubectl -n maul rollout restart deployment maul-fakegithub`) and the
 // slate is clean.
 package main
 
@@ -22,7 +22,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/e2e/fakegithub"
+	"github.com/devthenet-labs/maul/e2e/fakegithub"
 )
 
 func main() {

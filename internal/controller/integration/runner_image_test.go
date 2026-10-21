@@ -15,14 +15,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/templates"
-	"github.com/bitwise-media-group/patchy/pkg/source"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/templates"
+	"github.com/devthenet-labs/maul/pkg/source"
 )
 
-const heldNotice = "the agent recommended ignore; patchy did not dismiss the alert because the run used a " +
+const heldNotice = "the agent recommended ignore; maul did not dismiss the alert because the run used a " +
 	"repository-declared image"
 
 // heldIgnoreFinding is a finding whose investigation, run on a
@@ -40,7 +40,7 @@ func heldIgnoreFinding(src string) *v1alpha1.Finding {
 		Recommendation: v1alpha1.RecommendationIgnore,
 		RunnerImage: &v1alpha1.RunnerImageRef{
 			Image:  "ghcr.io/acme/go-env@sha256:" + strings.Repeat("a", 64),
-			Source: v1alpha1.RunnerImageSourceRepository, Manifest: ".patchy/agent.yaml",
+			Source: v1alpha1.RunnerImageSourceRepository, Manifest: ".maul/agent.yaml",
 		},
 	}
 	if src != "ghas" {
@@ -95,7 +95,7 @@ func TestProjectDefaultImageHeldNotice(t *testing.T) {
 	found := false
 	for _, cm := range tracker.comments {
 		if strings.Contains(cm, "handed this finding to its human owners") &&
-			strings.Contains(cm, "declares an agent image") && strings.Contains(cm, "`/patchy approve`") &&
+			strings.Contains(cm, "declares an agent image") && strings.Contains(cm, "`/maul approve`") &&
 			strings.Contains(cm, "untested") {
 			found = true
 		}
@@ -141,7 +141,7 @@ func TestProjectDefaultImageHeldNoticeAfterEarlierHandOff(t *testing.T) {
 
 	held := 0
 	for _, cm := range tracker.comments {
-		if strings.Contains(cm, "declares an agent image") && strings.Contains(cm, "`/patchy approve`") {
+		if strings.Contains(cm, "declares an agent image") && strings.Contains(cm, "`/maul approve`") {
 			held++
 		}
 	}
@@ -197,7 +197,7 @@ func TestClosingHeldFindingMakesNoResolverCall(t *testing.T) {
 			return nil
 		}).
 		Build()
-	signals := &Signals{Client: c, Namespace: "patchy", Now: func() time.Time { return testClock }}
+	signals := &Signals{Client: c, Namespace: "maul", Now: func() time.Time { return testClock }}
 	payload := `{"action":"closed","issue":{"number":7,"html_url":"https://github.com/acme/orders/issues/7"}}`
 	if err := signals.Handle(t.Context(), testIntegration(), event("issues", payload)); err != nil {
 		t.Fatalf("Handle: %v", err)
@@ -212,7 +212,7 @@ func TestClosingHeldFindingMakesNoResolverCall(t *testing.T) {
 	resolver := &fakeGenericResolver{}
 	r := &FindingReconciler{
 		Client:    c,
-		Namespace: "patchy",
+		Namespace: "maul",
 		Now:       func() time.Time { return testClock },
 		ClientFor: func(context.Context, *v1alpha1.Integration, ghclient.Repo) (trackerClient, error) {
 			return tracker, nil
@@ -253,7 +253,7 @@ func imageRepository(ri *v1alpha1.RunnerImage, conds ...metav1.Condition) *v1alp
 	isController := true
 	return &v1alpha1.Repository{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "finding-aa-1-src", Namespace: "patchy",
+			Name: "finding-aa-1-src", Namespace: "maul",
 			Labels: map[string]string{v1alpha1.LabelFinding: "finding-aa-1"},
 			OwnerReferences: []metav1.OwnerReference{{
 				APIVersion: v1alpha1.GroupVersion.String(), Kind: "Finding", Name: "finding-aa-1",
@@ -266,7 +266,7 @@ func imageRepository(ri *v1alpha1.RunnerImage, conds ...metav1.Condition) *v1alp
 
 func acceptedImage() *v1alpha1.RunnerImage {
 	return &v1alpha1.RunnerImage{
-		Declared: "ghcr.io/acme/go-env:1.26", Manifest: ".patchy/agent.yaml", Image: pinnedImage, Verified: true,
+		Declared: "ghcr.io/acme/go-env:1.26", Manifest: ".maul/agent.yaml", Image: pinnedImage, Verified: true,
 	}
 }
 
@@ -274,14 +274,14 @@ func imageInvestigation(attempt int32, src string, stage *v1alpha1.StageResult,
 	conds ...metav1.Condition) *v1alpha1.Investigation {
 	return &v1alpha1.Investigation{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: fmt.Sprintf("finding-aa-1-inv-%d", attempt), Namespace: "patchy",
+			Name: fmt.Sprintf("finding-aa-1-inv-%d", attempt), Namespace: "maul",
 			Labels: map[string]string{v1alpha1.LabelFinding: "finding-aa-1"},
 		},
 		Spec: v1alpha1.InvestigationSpec{
 			FindingRef: v1alpha1.ObjectReference{Name: "finding-aa-1", UID: sourceFindingUID}, Attempt: attempt,
 		},
 		Status: v1alpha1.InvestigationStatus{
-			RunnerImage: &v1alpha1.RunnerImageRef{Image: pinnedImage, Source: src, Manifest: ".patchy/agent.yaml"},
+			RunnerImage: &v1alpha1.RunnerImageRef{Image: pinnedImage, Source: src, Manifest: ".maul/agent.yaml"},
 			Stage:       stage, Conditions: conds,
 		},
 	}
@@ -320,7 +320,7 @@ func TestProjectRunnerImageStickyComment(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("runner-image comments = %d, want 1 after the first projection", len(got))
 	}
-	for _, want := range []string{"`.patchy/agent.yaml` declares `ghcr.io/acme/go-env:1.26`", pinnedImage} {
+	for _, want := range []string{"`.maul/agent.yaml` declares `ghcr.io/acme/go-env:1.26`", pinnedImage} {
 		if !strings.Contains(got[0].Body, want) {
 			t.Errorf("comment missing %q:\n%s", want, got[0].Body)
 		}
@@ -364,7 +364,7 @@ func TestProjectRunnerImageOutcomes(t *testing.T) {
 	stalled := metav1.Condition{Type: v1alpha1.ConditionStalled, Status: metav1.ConditionTrue,
 		Reason: v1alpha1.ReasonRunnerImageRejected, Message: "not allowlisted"}
 	rejected := &v1alpha1.RunnerImage{
-		Declared: "docker.io/library/golang:1.26", Manifest: ".patchy/agent.yaml", Rejected: "NotAllowlisted",
+		Declared: "docker.io/library/golang:1.26", Manifest: ".maul/agent.yaml", Rejected: "NotAllowlisted",
 		Message: "image `docker.io/library/golang:1.26` is not under an allowlisted registry path (ghcr.io/acme/)",
 	}
 	refused := metav1.Condition{Type: v1alpha1.ConditionSandboxRefused, Status: metav1.ConditionTrue,
@@ -384,13 +384,13 @@ func TestProjectRunnerImageOutcomes(t *testing.T) {
 		})}, false, []string{"`.devcontainer/devcontainer.json` declares `ghcr.io/acme/dev-env:2`"}, []string{"verified"}},
 		{"build-based devcontainer", []client.Object{imageRepository(&v1alpha1.RunnerImage{
 			Manifest: ".devcontainer/devcontainer.json",
-			Message:  "`.devcontainer/devcontainer.json` builds its image (`build`); patchy does not build images.",
-		})}, false, []string{"patchy did not use `.devcontainer/devcontainer.json`", "builds its image",
+			Message:  "`.devcontainer/devcontainer.json` builds its image (`build`); maul does not build images.",
+		})}, false, []string{"maul did not use `.devcontainer/devcontainer.json`", "builds its image",
 			"default runner image instead"}, []string{"parked"}},
 		{"rejected under default", []client.Object{imageRepository(rejected)}, false,
 			[]string{"could not use `docker.io/library/golang:1.26`", "(`NotAllowlisted`)",
 				"not under an allowlisted registry path", "default runner image instead",
-				"`patchy check image docker.io/library/golang:1.26`"}, []string{"parked"}},
+				"`maul check image docker.io/library/golang:1.26`"}, []string{"parked"}},
 		// The gate parks the finding before any investigation exists, and an
 		// approval revives only a finding that has one, so the comment must
 		// not offer /approve as a way out.

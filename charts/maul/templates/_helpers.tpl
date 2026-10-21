@@ -1,0 +1,1948 @@
+{{/*
+Copyright 2026 Bitwise Media Group Ltd.
+SPDX-License-Identifier: MIT
+*/}}
+
+{{- define "maul.name" -}}
+{{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" -}}
+{{- end }}
+
+{{- define "maul.fullname" -}}
+{{- if .Values.fullnameOverride -}}
+{{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" -}}
+{{- else -}}
+{{- $name := default .Chart.Name .Values.nameOverride -}}
+{{- if contains $name .Release.Name -}}
+{{- .Release.Name | trunc 63 | trimSuffix "-" -}}
+{{- else -}}
+{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Per-controller ConfigMap name. Context: dict "root" $ "name" <component>.
+*/}}
+{{- define "maul.configMapName" -}}
+{{- printf "%s-%s-config" (include "maul.fullname" .root) .name -}}
+{{- end }}
+
+{{/*
+Per-controller ServiceAccount name: <controller>.serviceAccount.name, or
+<fullname>-<component>. Context: dict "root" $ "name" <component> "vals"
+<controller values>.
+*/}}
+{{- define "maul.serviceAccountName" -}}
+{{- .vals.serviceAccount.name | default (printf "%s-%s" (include "maul.fullname" .root) .name) -}}
+{{- end }}
+
+{{/*
+Selector labels for one component. Context: dict "root" $ "name" <component>.
+app.kubernetes.io/name matches deploy/kustomize (source-controller, ...);
+instance disambiguates releases.
+*/}}
+{{- define "maul.selectorLabels" -}}
+app.kubernetes.io/name: {{ .name }}
+app.kubernetes.io/instance: {{ .root.Release.Name }}
+app.kubernetes.io/part-of: maul
+{{- end }}
+
+{{/*
+Full label set. Context: dict "root" $ "name" <component> ["component" <role>].
+*/}}
+{{- define "maul.labels" -}}
+{{- /*
+The bare `app` duplicates app.kubernetes.io/name for tooling that predates
+the recommended-label set (kubescape C-0076 counts it, some dashboards group
+by it). Not in selectorLabels: selectors are immutable on upgrade.
+*/ -}}
+app: {{ .name }}
+helm.sh/chart: {{ printf "%s-%s" .root.Chart.Name .root.Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
+app.kubernetes.io/managed-by: {{ .root.Release.Service }}
+app.kubernetes.io/version: {{ .root.Chart.AppVersion | quote }}
+{{ include "maul.selectorLabels" . }}
+{{- with .component }}
+app.kubernetes.io/component: {{ . }}
+{{- end }}
+{{- with .root.Values.commonLabels }}
+{{ toYaml . }}
+{{- end }}
+{{- end }}
+
+{{/*
+Object annotations: commonAnnotations plus optional per-object extras, which
+win key-by-key. Context: dict "root" $ ["extra" <map>]. Empty output when
+both maps are empty — wrap the annotations: key in `with`.
+*/}}
+{{- define "maul.annotations" -}}
+{{- $a := merge (dict) (.extra | default dict) (.root.Values.commonAnnotations | default dict) -}}
+{{- if $a -}}
+{{- toYaml $a -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Image reference for one binary. Context: dict "root" $ "binary" <name>
+["image" <per-component override map>]. The repository (registry included)
+defaults to <image.repository>/<binary>; a digest pins (and beats the tag);
+the tag defaults to v<appVersion>, which is how goreleaser tags the images.
+*/}}
+{{- define "maul.image" -}}
+{{- $img := .image | default dict -}}
+{{- $g := .root.Values.image -}}
+{{- $repository := $img.repository | default (printf "%s/%s" $g.repository .binary) -}}
+{{- if $img.digest -}}
+{{- printf "%s@%s" $repository $img.digest -}}
+{{- else -}}
+{{- printf "%s:%s" $repository ($img.tag | default $g.tag | default (printf "v%s" .root.Chart.AppVersion)) -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+The pod labels internal/jobs stamps on every agent Job pod. Fixed by the
+controller, not by this chart — the sandbox NetworkPolicies select on them.
+*/}}
+{{- define "maul.agentPodSelector" -}}
+app.kubernetes.io/name: maul-agent
+app.kubernetes.io/managed-by: maul
+{{- end }}
+
+{{/*
+The edge IngressClass's name while edgeIngressClass.create is on, else empty:
+the className the webhook and status-page Ingresses fall back to when their
+own is empty, so with create off they render exactly as before.
+*/}}
+{{- define "maul.edgeIngressClassName" -}}
+{{- $e := .Values.edgeIngressClass | default dict -}}
+{{- if $e.create -}}
+{{- $e.name | default (printf "%s-edge" (include "maul.fullname" .)) -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+The node-local DNS egress rule (clusterDNSCIDR): UDP and TCP 53 to that one
+address. Every NetworkPolicy that allows DNS to kube-system includes it right
+after that rule, so it widens exactly the pods the chart already isolates and
+selects no new ones (a separate podSelector-{} policy would egress-isolate any
+pod no other policy selects, such as a controller whose
+networkPolicy.create is false). EKS Auto Mode serves DNS from each node at
+the cluster DNS Service address, not from kube-system pods, so once
+NetworkPolicy is enforced the kube-system rule matches nothing there. Empty
+while clusterDNSCIDR is unset, so the policies render as before. Context: the
+root; include it with nindent 8 inside `with`.
+*/}}
+{{- define "maul.clusterDNSEgress" -}}
+{{- with .Values.clusterDNSCIDR -}}
+# DNS at the node-local cluster resolver (clusterDNSCIDR).
+- to:
+      - ipBlock:
+            cidr: {{ . }}
+  ports:
+      - protocol: UDP
+        port: 53
+      - protocol: TCP
+        port: 53
+{{- end -}}
+{{- end }}
+
+{{/*
+Whether a brokered claude runner is enabled anywhere (findings, evaluations or
+intents): what the broker's claude-provider route renders for.
+intent-controller runs brokered claude and nothing else, so enabling it
+enables claude whatever agent.runners.claude says. Returns a non-empty string
+for yes.
+*/}}
+{{- define "maul.claudeBrokered" -}}
+{{- if or .Values.agent.runners.claude.enabled (and .Values.evaluationController.enabled .Values.evaluationController.runners.claude.enabled) .Values.intentController.enabled -}}
+yes
+{{- end -}}
+{{- end }}
+
+{{/*
+Whether a harness runs brokered: claude and codex run proxy-only through the
+egress broker, their pods holding no model credential and dialing no model
+API by name. The chart's copy of model.HarnessBrokered. Takes the harness id;
+returns a non-empty string for yes.
+*/}}
+{{- define "maul.brokeredHarness" -}}
+{{- if has . (list "claude" "codex") -}}
+yes
+{{- end -}}
+{{- end }}
+
+{{/*
+The render-time checks of the codex runner, which runs brokered (codex broker
+design, group 2). Codex holds no credential, so its old secret, secretKey,
+secretEnv, hosts and dnsPatterns keys are refused, with the migration, while
+codex runs on any fleet (maul.harnessEnabled: findings, or intents under
+intentController.codex.enabled, whose pods share the codex egress policy the
+old dnsPatterns would reach); while codex runs nowhere they do nothing, so
+an install that copied the old defaults renders as before. An enabled codex
+runner needs the broker's openai route; and codex evaluations are refused
+until evolve can be brokered (owner decision (b)). Context: the root; renders nothing.
+*/}}
+{{- define "maul.codexChecks" -}}
+{{- $codex := .Values.agent.runners.codex | default dict -}}
+{{- if include "maul.harnessEnabled" (dict "root" . "id" "codex") -}}
+{{- range $k := list "secret" "secretKey" "secretEnv" "hosts" "dnsPatterns" -}}
+{{- if hasKey $codex $k -}}
+{{- fail (printf "agent.runners.codex.%s is removed: codex runs proxy-only through the egress broker and its pods hold no credential and reach no host but the broker. To migrate: (1) create the OpenAI API key Secret in the release namespace; (2) set egressBroker.openai.apiKey.secret (and .key) to it; (3) remove agent.runners.codex.secret, secretKey, secretEnv, hosts and dnsPatterns; (4) delete the old maul-openai Secret from the agent namespace" $k) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if $codex.enabled -}}
+{{- if not (include "maul.openaiRoute" .) -}}
+{{- fail "agent.runners.codex.enabled needs egressBroker.openai.apiKey: codex runs proxy-only through the egress broker's openai route, which holds the OpenAI API key (a Secret in the release namespace)" -}}
+{{- end -}}
+{{- end -}}
+{{- if include "maul.intentCodex" . -}}
+{{- if not (include "maul.openaiRoute" .) -}}
+{{- fail "intentController.codex.enabled needs egressBroker.openai.apiKey: codex runs proxy-only through the egress broker's openai route, which holds the OpenAI API key (a Secret in the release namespace)" -}}
+{{- end -}}
+{{- end -}}
+{{- if and .Values.evaluationController.enabled (index .Values.evaluationController.runners "codex" | default dict).enabled -}}
+{{- fail "evaluationController.runners.codex.enabled: codex evaluations are refused until evolve supports the egress broker's provider config (codex runs brokered only, and no OpenAI key is mounted into an agent pod); set it false" -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Whether intent-controller also runs intents on brokered codex
+(intentController.codex.enabled, under intentController.enabled): a Project
+with spec.harness codex then plans and builds on it. Independent of
+agent.runners.codex.enabled (the finding fleet), whose image it shares; it
+needs the broker's openai route (maul.codexChecks). Returns a non-empty
+string for yes.
+*/}}
+{{- define "maul.intentCodex" -}}
+{{- if and .Values.intentController.enabled ((.Values.intentController.codex | default dict).enabled) -}}
+yes
+{{- end -}}
+{{- end }}
+
+{{/*
+Whether the egress broker's openai (Responses) route renders: an OpenAI key
+Secret is named in egressBroker.openai.apiKey. Off by default; the codex
+runner requires it (maul.codexChecks). Returns a non-empty string for yes.
+*/}}
+{{- define "maul.openaiRoute" -}}
+{{- if ((((.Values.egressBroker | default dict).openai | default dict).apiKey | default dict).secret) -}}
+yes
+{{- end -}}
+{{- end }}
+
+{{/*
+Whether the egress credential broker deploys: when a claude runner is enabled
+anywhere (maul.claudeBrokered), or a codex runner is. There is deliberately
+no separate enabled knob — claude and codex run proxy-only, so either ⇒
+broker, and a fake-only dev/e2e values file renders none of it. A codex
+runner without egressBroker.openai.apiKey fails the render
+(maul.codexChecks). Returns a non-empty string for yes.
+*/}}
+{{- define "maul.brokerEnabled" -}}
+{{- if or (include "maul.claudeBrokered" .) (include "maul.harnessEnabled" (dict "root" . "id" "codex")) -}}
+yes
+{{- end -}}
+{{- end }}
+
+{{/*
+Whether a harness runs anywhere (findings, evaluations or intents), by the
+same rule as maul.brokerEnabled. Evaluation and intent Jobs carry the same
+harness label as finding Jobs, so the per-harness egress policies (Cilium,
+GKE FQDN, Istio) render for a harness enabled on any fleet; hosts and
+dnsPatterns still come from agent.runners.<id>. Intents run on claude, and on
+codex under intentController.codex.enabled (maul.intentCodex).
+Takes (dict "root" $ "id" $id); returns a non-empty string for yes.
+*/}}
+{{- define "maul.harnessEnabled" -}}
+{{- $agent := index .root.Values.agent.runners .id | default dict -}}
+{{- $eval := index .root.Values.evaluationController.runners .id | default dict -}}
+{{- $intent := or (and .root.Values.intentController.enabled (eq .id "claude")) (and (eq .id "codex") (include "maul.intentCodex" .root)) -}}
+{{- if or $agent.enabled (and .root.Values.evaluationController.enabled $eval.enabled) $intent -}}
+yes
+{{- end -}}
+{{- end }}
+
+{{/*
+The egress broker's in-cluster base URL — what MAUL_BROKER_URL is stamped
+with and what the agent pods' gateway env points at.
+*/}}
+{{- define "maul.brokerURL" -}}
+http://{{ include "maul.fullname" . }}-egress-broker.{{ .Release.Namespace }}.svc.cluster.local:8080
+{{- end }}
+
+{{/*
+Stamp the brokered-claude configuration into a controller's ConfigMap data
+dict: the broker URL and the MAUL_CLAUDE_PROVIDER* keys the runnercfg flags
+bind. Context: dict "root" $ "data" <dict>. The MAUL_CLAUDE_SECRET* keys
+are deliberately NOT stamped anymore — the claude model credential lives in
+the broker, not the agent namespace.
+*/}}
+{{- define "maul.claudeProviderData" -}}
+{{- $p := .root.Values.agent.runners.claude.provider | default dict -}}
+{{- $_ := set .data "MAUL_BROKER_URL" (include "maul.brokerURL" .root) -}}
+{{- $_ := set .data "MAUL_CLAUDE_PROVIDER" ($p.name | default "anthropic") -}}
+{{- with $p.region -}}
+{{- $_ := set $.data "MAUL_CLAUDE_PROVIDER_REGION" . -}}
+{{- end -}}
+{{- with $p.regionPrefix -}}
+{{- $_ := set $.data "MAUL_CLAUDE_PROVIDER_REGION_PREFIX" . -}}
+{{- end -}}
+{{- with $p.projectID -}}
+{{- $_ := set $.data "MAUL_CLAUDE_PROVIDER_PROJECT_ID" . -}}
+{{- end -}}
+{{- with $p.modelMap -}}
+{{- $_ := set $.data "MAUL_CLAUDE_MODEL_MAP" (include "maul.kvList" .) -}}
+{{- end -}}
+{{- with $p.env -}}
+{{- $_ := set $.data "MAUL_CLAUDE_PROVIDER_ENV" (include "maul.kvList" .) -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+The agent Jobs' default CPU and memory (agent.resources.default) as the four
+MAUL_AGENT_* keys every controller that launches agent Jobs binds
+(investigation, remediation, intent and evaluation): set into .data, each only
+when its quantity is set, so the default {} leaves every ConfigMap, and with it
+every checksum/config, exactly as it was. Context: dict "root" $ "data" <dict>.
+*/}}
+{{- define "maul.agentResourcesData" -}}
+{{- $d := (.root.Values.agent.resources | default dict).default | default dict -}}
+{{- range $side, $keys := dict "requests" (dict "cpu" "MAUL_AGENT_CPU_REQUEST" "memory" "MAUL_AGENT_MEMORY_REQUEST") "limits" (dict "cpu" "MAUL_AGENT_CPU_LIMIT" "memory" "MAUL_AGENT_MEMORY_LIMIT") -}}
+{{- $q := index $d $side | default dict -}}
+{{- range $name, $key := $keys -}}
+{{- if hasKey $q $name -}}
+{{- $_ := set $.data $key (index $q $name) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Whether the agent pods run without a resolver (agent.networkPolicy.dns: none),
+with the render-time guards that setting needs; returns a non-empty string for
+yes. Under none every runner but the brokered ones (claude, codex:
+maul.brokeredHarness) is refused, on either fleet (maul.harnessEnabled):
+copilot dials its vendor's API by name, and an internet name cannot be pinned
+at launch the way a ClusterIP Service can.
+So is mode istio: the agent pod's sidecar must resolve istiod before the Job
+can run at all.
+*/}}
+{{- define "maul.agentDNSNone" -}}
+{{- if eq (.Values.agent.networkPolicy.dns | default "cluster") "none" -}}
+{{- range $id, $r := .Values.agent.runners -}}
+{{- if and (not (include "maul.brokeredHarness" $id)) (include "maul.harnessEnabled" (dict "root" $ "id" $id)) -}}
+{{- fail (printf "agent.networkPolicy.dns none: the %s runner dials its model API by name and needs a resolver; disable it (agent.runners.%s.enabled, evaluationController.runners.%s.enabled) or keep dns: cluster" $id $id $id) -}}
+{{- end -}}
+{{- end -}}
+{{- if eq (include "maul.egressMode" .) "istio" -}}
+{{- fail "agent.networkPolicy.dns none is incompatible with mode istio: the agent pod's sidecar must resolve istiod" -}}
+{{- end -}}
+yes
+{{- end -}}
+{{- end }}
+
+{{/*
+MAUL_AGENT_DNS for every controller that launches agent Jobs (investigation,
+remediation, intent and evaluation): set into .data only under dns: none, so
+the default leaves every ConfigMap, and every checksum/config, as it was.
+Context: dict "root" $ "data" <dict>.
+*/}}
+{{- define "maul.agentDNSData" -}}
+{{- if include "maul.agentDNSNone" .root -}}
+{{- $_ := set .data "MAUL_AGENT_DNS" "none" -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+MAUL_AGENTS_PAUSED for every controller that launches agent Jobs
+(investigation, remediation, intent and evaluation): agent.paused, the
+cluster-wide pause. Set into .data only while paused, so unpausing leaves
+every ConfigMap as it was; either way the change rolls those four
+controllers, whose schedulers then grant no slot and launch no Job. Jobs
+already running finish and are collected. Context: dict "root" $ "data"
+<dict>.
+*/}}
+{{- define "maul.agentsPausedData" -}}
+{{- if .root.Values.agent.paused -}}
+{{- $_ := set .data "MAUL_AGENTS_PAUSED" "true" -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+MAUL_ATTRIBUTION_MODE for every controller that launches agent Jobs
+(investigation, remediation, intent and evaluation): attribution.mode, set
+into .data only when it is not off, so the default leaves every ConfigMap,
+and every checksum/config, as it was. Context: dict "root" $ "data" <dict>.
+*/}}
+{{- define "maul.attributionData" -}}
+{{- if include "maul.attributionOn" .root -}}
+{{- $_ := set .data "MAUL_ATTRIBUTION_MODE" .root.Values.attribution.mode -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+"yes" when trusted usage is measured (per-user credentials design, L2): under
+attribution.mode attribute, while the egress broker deploys. The broker then
+serves its usage endpoint on port 8082 to the run controllers alone, and the
+controllers settle each run's usage from it (--usage-measurement).
+*/}}
+{{/*
+"yes" when the egress broker deploys and counts cost
+(egressBroker.limits.unit cost): intent runs then carry a budget annotation,
+and its admission policies render (budget-policy.yaml).
+*/}}
+{{- define "maul.brokerCostBudgets" -}}
+{{- if and (include "maul.brokerEnabled" .) (eq (((.Values.egressBroker | default dict).limits | default dict).unit | default "tokens") "cost") -}}
+yes
+{{- end -}}
+{{- end }}
+
+{{/*
+intent-controller's side of the broker's cost unit (large-features limits
+design, LF2), rendered only while maul.brokerCostBudgets: every intent run
+is granted a cost budget stamped on its agent Job and pod, and a Project whose
+run budget is more than half the broker's costPerHour is not Ready (the guard
+the chart cannot apply itself: Project budgets live on the CRs).
+*/}}
+{{- define "maul.brokerBudgetData" -}}
+{{- if include "maul.brokerCostBudgets" .root -}}
+{{- $_ := set .data "MAUL_BROKER_LIMIT_UNIT" "cost" -}}
+{{- with .root.Values.egressBroker.limits.costPerHour -}}
+{{- $_ := set $.data "MAUL_BROKER_COST_PER_HOUR" . -}}
+{{- end -}}
+{{- end -}}
+{{- end }}
+
+{{- define "maul.usageMeasured" -}}
+{{- if and (include "maul.attributionOn" .) (include "maul.brokerEnabled" .) -}}
+yes
+{{- end -}}
+{{- end }}
+
+{{/*
+The run controllers whose ServiceAccounts the broker's usage endpoint answers,
+as <namespace>:<serviceaccount>, comma-separated: investigation and
+remediation always, intent and evaluation when deployed.
+*/}}
+{{- define "maul.usageCallers" -}}
+{{- $callers := list -}}
+{{- range $c := list
+    (dict "name" "investigation-controller" "vals" .Values.investigationController "on" true)
+    (dict "name" "remediation-controller" "vals" .Values.remediationController "on" true)
+    (dict "name" "intent-controller" "vals" .Values.intentController "on" .Values.intentController.enabled)
+    (dict "name" "evaluation-controller" "vals" .Values.evaluationController "on" .Values.evaluationController.enabled)
+-}}
+{{- if $c.on -}}
+{{- $callers = append $callers (printf "%s:%s" $.Release.Namespace (include "maul.serviceAccountName" (dict "root" $ "name" $c.name "vals" $c.vals))) -}}
+{{- end -}}
+{{- end -}}
+{{- join "," $callers -}}
+{{- end }}
+
+{{/*
+Stamp a run controller's usage-measurement settings into its ConfigMap data
+dict while maul.usageMeasured. Context: dict "root" $ "data" <dict>.
+*/}}
+{{- define "maul.usageMeterData" -}}
+{{- if include "maul.usageMeasured" .root -}}
+{{- $_ := set .data "MAUL_USAGE_MEASUREMENT" "true" -}}
+{{- $_ := set .data "MAUL_USAGE_BROKER_URL" (printf "http://%s-egress-broker.%s.svc.cluster.local:8082" (include "maul.fullname" .root) .root.Release.Namespace) -}}
+{{- $_ := set .data "MAUL_USAGE_TOKEN_FILE" "/var/run/secrets/maul/broker-usage/token" -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+A run controller's volumeMounts entry for its usage token, while
+maul.usageMeasured; the caller indents it.
+*/}}
+{{- define "maul.usageTokenMount" -}}
+{{- if include "maul.usageMeasured" . -}}
+- name: broker-usage-token
+  mountPath: /var/run/secrets/maul/broker-usage
+  readOnly: true
+{{- end -}}
+{{- end }}
+
+{{/*
+A run controller's volumes entry for its usage token, while
+maul.usageMeasured: a projected ServiceAccount token bound to the broker's
+usage audience (usagewire.Audience), which the broker accepts on the usage
+endpoint only, and only from these ServiceAccounts.
+*/}}
+{{- define "maul.usageTokenVolume" -}}
+{{- if include "maul.usageMeasured" . -}}
+- name: broker-usage-token
+  projected:
+      sources:
+          - serviceAccountToken:
+                audience: maul-egress-broker-usage
+                expirationSeconds: 3600
+                path: token
+{{- end -}}
+{{- end }}
+
+{{/*
+A run controller's NetworkPolicy egress rule to the broker's usage port,
+while maul.usageMeasured; the caller indents it.
+*/}}
+{{- define "maul.usageBrokerEgress" -}}
+{{- if include "maul.usageMeasured" . -}}
+# The egress broker's usage endpoint: settled runs' metered usage.
+- to:
+      - podSelector:
+            matchLabels:
+                {{- include "maul.selectorLabels" (dict "root" . "name" "egress-broker") | nindent 16 }}
+  ports:
+      - protocol: TCP
+        port: 8082
+{{- end -}}
+{{- end }}
+
+{{/*
+"yes" when attribution.mode is not off: the controllers stamp, and the
+attribution admission policies render.
+*/}}
+{{- define "maul.attributionOn" -}}
+{{- if ne ((.Values.attribution | default dict).mode | default "off") "off" -}}
+yes
+{{- end -}}
+{{- end }}
+
+{{/*
+Whether per-user model credentials (egressBroker.userCredentials.mode,
+design L3) are on: attribute or enforce. Returns a non-empty string for yes.
+*/}}
+{{- define "maul.userCredentialsOn" -}}
+{{- if ne (((.Values.egressBroker | default dict).userCredentials | default dict).mode | default "off") "off" -}}
+yes
+{{- end -}}
+{{- end }}
+
+{{/*
+"yes" when the status page serves the Account page (statusServer.account
+.enabled, per-user credentials design L3): people store their own model
+credential there. It needs the credential store, so it is refused unless
+egressBroker.userCredentials.mode is on.
+*/}}
+{{- define "maul.accountOn" -}}
+{{- if and .Values.statusServer.enabled ((.Values.statusServer.account | default dict).enabled) -}}
+{{- if not (include "maul.userCredentialsOn" .) -}}
+{{- fail "statusServer.account.enabled needs egressBroker.userCredentials.mode attribute or enforce: the Account page stores credentials in the store that mode renders" -}}
+{{- end -}}
+yes
+{{- end -}}
+{{- end }}
+
+{{/*
+The providers a person may store a credential for, comma-separated in the
+Account page's order (the status server's --account-providers): anthropic
+while claude runs anywhere, openai while codex does. Empty when neither.
+*/}}
+{{- define "maul.credentialProviders" -}}
+{{- $ps := list -}}
+{{- if include "maul.claudeBrokered" . -}}
+{{- $ps = append $ps "anthropic" -}}
+{{- end -}}
+{{- if include "maul.harnessEnabled" (dict "root" . "id" "codex") -}}
+{{- $ps = append $ps "openai" -}}
+{{- end -}}
+{{- join "," $ps -}}
+{{- end }}
+
+{{/*
+The Account page's URL, linked from every notice that a run waits for a
+person's credential: https://<statusServer.host>/#/account while the page is
+served and the host is set, else empty (the notice names the page unlinked).
+*/}}
+{{- define "maul.accountURL" -}}
+{{- if and (include "maul.accountOn" .) .Values.statusServer.host -}}
+{{- printf "https://%s/#/account" .Values.statusServer.host -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+MAUL_USER_CREDENTIALS and MAUL_ACCOUNT_URL for the controllers that hold
+a person's run until their credential is valid (remediation, intent):
+egressBroker.userCredentials.mode, set into .data only while it is on, so the
+default leaves every ConfigMap as it was. Only enforce holds anything.
+Context: dict "root" $ "data" <dict>.
+*/}}
+{{- define "maul.userCredentialsData" -}}
+{{- if include "maul.userCredentialsOn" .root -}}
+{{- $_ := set .data "MAUL_USER_CREDENTIALS" .root.Values.egressBroker.userCredentials.mode -}}
+{{- end -}}
+{{- include "maul.accountURLData" . -}}
+{{- end }}
+
+{{/*
+MAUL_ACCOUNT_URL alone, while there is one (maul.accountURL).
+Context: dict "root" $ "data" <dict>.
+*/}}
+{{- define "maul.accountURLData" -}}
+{{- with include "maul.accountURL" .root -}}
+{{- $_ := set $.data "MAUL_ACCOUNT_URL" . -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+One container's operator env (<component>.extraEnv: EnvVar entries, valueFrom
+allowed), rendered as list items for the caller to indent. The names maul
+itself sets are refused, so a Secret-backed variable can add credentials or
+settings but never silently replace what the chart configured: every MAUL_*
+key (the chart's own config, overridable only through config.extra, where its
+render-time guards still see it), POD_NAMESPACE and DOCKER_CONFIG (the
+agent.repositoryImages.pullSecret mount). <component>.extraEnvFrom cannot be
+judged at render time, so the Deployments list it BEFORE the chart's own
+ConfigMap: a later envFrom source wins a shared key, and explicit env wins
+over every envFrom source. Context: dict "path" "<values key>" "env" <list>.
+*/}}
+{{- define "maul.extraEnv" -}}
+{{- $path := .path -}}
+{{- range .env -}}
+{{- $name := toString .name -}}
+{{- if or (hasPrefix "MAUL_" $name) (has $name (list "POD_NAMESPACE" "DOCKER_CONFIG")) -}}
+{{- fail (printf "%s.extraEnv: %s is set by the chart and cannot be overridden here (MAUL_* keys go in %s.config.extra; DOCKER_CONFIG follows agent.repositoryImages.pullSecret)" $path $name $path) -}}
+{{- end -}}
+{{- end -}}
+{{- with .env -}}
+{{- toYaml . -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Render a map as the comma-joined key=value wire form the runnercfg flags
+parse (--claude-model-map, --claude-provider-env). Keys sort deterministically.
+*/}}
+{{- define "maul.kvList" -}}
+{{- $pairs := list -}}
+{{- range $k, $v := . -}}
+{{- $pairs = append $pairs (printf "%s=%s" $k $v) -}}
+{{- end -}}
+{{- join "," $pairs -}}
+{{- end }}
+
+{{/*
+The resolved hostname-enforcement mode for the agent sandbox — one of
+`none`, `cilium`, `gke` or `istio`. Every egress template keys off this, so
+there is exactly one place that decides which CNI dialect a cluster gets.
+
+Precedence:
+
+  1. agent.networkPolicy.mode, when it is not "auto".
+  2. The legacy booleans (agent.networkPolicy.{cilium,istio}.enabled), so a
+     values file written before `mode` existed keeps its behaviour.
+  3. "auto" — capability detection against the cluster's discovery document.
+
+Helm fills .Capabilities.APIVersions from the API server whenever it renders
+against a cluster: `helm install/upgrade`, and every helm-controller
+reconcile. Off-cluster `helm template` sees only Helm's built-in list, so auto
+resolves to "none" in CI — deliberately, since a rendering that cannot see the
+cluster must not claim an enforcement it cannot verify. Pin `mode` when you
+need a deterministic render.
+
+Two things auto will never do:
+
+  * Select `istio`. The CRDs being installed says nothing about whether the
+    namespace is injection-labelled or whether istiod runs with native
+    sidecars — and without native sidecars the agent Job never completes.
+    Istio stays opt-in.
+  * Select `cilium` on GKE. GKE Dataplane V2 IS Cilium, and it does publish
+    cilium.io CRDs, but it has not honoured the CiliumNetworkPolicy CRD since
+    1.21.5-gke.1300 and rejects every L7 rule — the `toFQDNs` and `rules.dns`
+    blocks this chart's CNP is made of. Rendering one there yields a policy
+    that silently enforces nothing, which is strictly worse than rendering
+    none: it reads as protection in `kubectl get`. GKE's own
+    FQDNNetworkPolicy is the equivalent, so on GKE auto picks `gke` when that
+    CRD is present and falls back to `none` when it is not.
+*/}}
+{{- define "maul.egressMode" -}}
+{{- $np := .Values.agent.networkPolicy -}}
+{{- $mode := $np.mode | default "auto" -}}
+{{- if not (has $mode (list "auto" "none" "cilium" "gke" "istio")) -}}
+{{- fail (printf "agent.networkPolicy.mode: %q is not one of auto, none, cilium, gke, istio" $mode) -}}
+{{- end -}}
+{{- if ne $mode "auto" -}}
+{{- $mode -}}
+{{- else if $np.cilium.enabled -}}
+cilium
+{{- else if $np.istio.enabled -}}
+istio
+{{- else if .Capabilities.APIVersions.Has "networking.gke.io/v1alpha1/FQDNNetworkPolicy" -}}
+gke
+{{- else if and (not (contains "gke" (toString .Capabilities.KubeVersion.GitVersion))) (.Capabilities.APIVersions.Has "cilium.io/v2/CiliumNetworkPolicy") -}}
+cilium
+{{- else -}}
+none
+{{- end -}}
+{{- end }}
+
+{{/*
+Whether the base NetworkPolicy keeps its "TCP 443 to anywhere outside the
+cluster" egress rule. Returns a non-empty string for yes.
+
+This is the rule that makes a hostname allowlist meaningful or meaningless.
+Network policies are ADDITIVE — both Cilium and GKE Dataplane V2 allow a
+packet that matches ANY policy selecting the pod, and neither has a way for
+one policy to subtract from another. So a CiliumNetworkPolicy or an
+FQDNNetworkPolicy naming api.anthropic.com, rendered alongside a plain
+NetworkPolicy that already allows 443 to 0.0.0.0/0, changes nothing at all:
+the union is still "443 to anywhere".
+
+`auto` therefore drops the broad rule exactly when a hostname mode is doing
+the work (cilium, gke) and keeps it when nothing else would replace it (none,
+istio — the Istio sidecar enforces on SNI in a different plane, and the L3
+floor is still wanted underneath it). `always` keeps it regardless, which is
+the honest setting while soaking a new mode; `never` drops it regardless.
+*/}}
+{{- define "maul.broadEgress" -}}
+{{- $broad := .Values.agent.networkPolicy.broadEgress | default "auto" -}}
+{{- if not (has $broad (list "auto" "always" "never")) -}}
+{{- fail (printf "agent.networkPolicy.broadEgress: %q is not one of auto, always, never" $broad) -}}
+{{- end -}}
+{{- if eq $broad "always" -}}
+yes
+{{- else if eq $broad "never" -}}
+{{- else if has (include "maul.egressMode" .) (list "none" "istio") -}}
+yes
+{{- end -}}
+{{- end }}
+
+{{/*
+Render-time guards for agent.repositoryImages; called once from
+configmap.yaml, which always renders. Only an enabled block is judged, so
+flipping the kill switch off never fails a render. Every guard fails the
+render rather than leaving a controller to crash-loop, or a sandbox to run
+untrusted images with broad egress:
+
+  * registries empty — source-controller refuses to start without an
+    allowlist, and an empty one would admit nothing anyway.
+  * ephemeralStorage empty — both job controllers refuse to start without
+    the wall on disk a repository image can fill.
+  * cosignPublicKey empty without allowUnsigned — source-controller refuses
+    to start without a key unless unsigned images are explicitly allowed.
+  * cosignPublicKey without its PEM armour — source-controller parses a set
+    key at startup, allowUnsigned or not. A template cannot parse the DER
+    inside, so a well-armoured but corrupt key still stops it; the armour
+    catches the pasted-the-wrong-thing case.
+  * pullSecretData without pullSecret — the rendered Secret needs the name
+    both namespaces share.
+  * broad agent egress (the design's decision 2): no agent NetworkPolicy at
+    all, or a base policy that keeps "TCP 443 to anywhere", would let a
+    hostile image reach a model API with a key of its own. A NOTES warning
+    is invisible in CI; a failed render is not.
+
+The formats of a registries entry and of ephemeralStorage are
+values.schema.json patterns instead, so helm lint judges them too. Each
+pattern admits only values the binary accepts at startup, pinned by
+TestChartRegistryPatternIsSound (cmd/source-controller) and
+TestChartEphemeralStoragePatternIsSound (internal/runnercfg).
+*/}}
+{{- define "maul.repositoryImagesGuard" -}}
+{{- $ri := .Values.agent.repositoryImages | default dict -}}
+{{- if $ri.enabled -}}
+{{- if not $ri.registries -}}
+{{- fail "agent.repositoryImages.enabled requires agent.repositoryImages.registries: list the registry path prefixes a declared image must sit under, e.g. 123456789012.dkr.ecr.us-east-1.amazonaws.com/maul/ or ghcr.io/my-org/agent-images/" -}}
+{{- end -}}
+{{- if not $ri.ephemeralStorage -}}
+{{- fail "agent.repositoryImages.enabled requires agent.repositoryImages.ephemeralStorage, a quantity such as 8Gi: the ephemeral-storage request and limit that bounds the disk a declared image can fill" -}}
+{{- end -}}
+{{- if and (not $ri.cosignPublicKey) (not $ri.allowUnsigned) -}}
+{{- fail "agent.repositoryImages.enabled requires agent.repositoryImages.cosignPublicKey, the PEM public key declared images must be cosign-signed with; set agent.repositoryImages.allowUnsigned: true to admit unsigned images instead" -}}
+{{- end -}}
+{{- if and $ri.cosignPublicKey (not (and (contains "-----BEGIN PUBLIC KEY-----" $ri.cosignPublicKey) (contains "-----END PUBLIC KEY-----" $ri.cosignPublicKey))) -}}
+{{- fail "agent.repositoryImages.cosignPublicKey is not a PEM public key: set it to the whole cosign.pub that cosign generate-key-pair writes, -----BEGIN PUBLIC KEY----- through -----END PUBLIC KEY----- (source-controller refuses anything else at startup)" -}}
+{{- end -}}
+{{- if not .Values.agent.networkPolicy.create -}}
+{{- fail "agent.repositoryImages.enabled requires the agent sandbox NetworkPolicy, but agent.networkPolicy.create is false: an agent pod would have unrestricted egress. Set agent.networkPolicy.create: true" -}}
+{{- end -}}
+{{- if include "maul.broadEgress" . -}}
+{{- fail (printf "agent.repositoryImages.enabled requires narrow agent egress, but agent.networkPolicy.broadEgress (%q) resolves to broad under agent.networkPolicy.mode %q: the base policy would allow TCP 443 to anywhere. Set agent.networkPolicy.broadEgress: never (brokered claude runners only), or use agent.networkPolicy.mode cilium or gke." (.Values.agent.networkPolicy.broadEgress | default "auto") (include "maul.egressMode" .)) -}}
+{{- end -}}
+{{- if and $ri.pullSecretData (not $ri.pullSecret) -}}
+{{- fail "agent.repositoryImages.pullSecretData requires agent.repositoryImages.pullSecret, the name of the Secret it renders into both the release namespace (source-controller's mount) and agent.namespace (the kubelet's pull)" -}}
+{{- end -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+The preview image prefix, <preview.imageRegistry>/<preview.imagePathPrefix>/:
+the one string the slot admission policy (preview-admission.yaml) and the
+preview-controller (MAUL_PREVIEW_IMAGE_PREFIX) hold every preview image to,
+and the path source-controller refuses agent images from, so none of them can
+disagree. With the default path, maul/previews, it is the prefix the chart
+hard-coded before the path was configurable, so those renders are byte for
+byte what they were. Context: the root. It fails the render when:
+
+  * imagePathPrefix is empty, or not lowercase ECR path segments joined by
+    "/" with no leading or trailing slash. values.schema.json says the same,
+    but a render that skips schema validation still lands here.
+  * agent.repositoryImages is enabled and one of its registries entries is
+    this prefix, contains it or sits under it. A preview runtime image is
+    built from an unreviewed same-repository pull request head, so it must
+    never be admissible as an agent sandbox image, and an agent toolchain
+    image must never be admissible as a preview. The comparison is on
+    segment boundaries over maul.registryPathKey, so no other spelling of
+    the same ECR repository passes.
+*/}}
+{{- define "maul.previewImagePrefix" -}}
+{{- $p := .Values.preview -}}
+{{- $path := $p.imagePathPrefix | default "" | toString -}}
+{{- if not (regexMatch `^[a-z0-9]+([._-][a-z0-9]+)*(/[a-z0-9]+([._-][a-z0-9]+)*)*$` $path) -}}
+{{- fail (printf "preview.imagePathPrefix %q must be one or more lowercase registry path segments joined by '/', with no leading or trailing slash, such as maul/previews (the default)" $path) -}}
+{{- end -}}
+{{- $prefix := printf "%s/%s/" $p.imageRegistry $path -}}
+{{- $ri := .Values.agent.repositoryImages | default dict -}}
+{{- if $ri.enabled -}}
+{{- $previewKey := include "maul.registryPathKey" $prefix -}}
+{{- range $entry := $ri.registries | default list -}}
+{{- $agentKey := include "maul.registryPathKey" (printf "%s/" (trimSuffix "/" (toString $entry))) -}}
+{{- if or (hasPrefix $agentKey $previewKey) (hasPrefix $previewKey $agentKey) -}}
+{{- fail (printf "agent.repositoryImages.registries entry %q overlaps the preview image prefix %s (preview.imageRegistry/preview.imagePathPrefix): the two must be disjoint, neither equal to nor under the other, or an image built from an unreviewed pull request could run as an agent sandbox (and an agent toolchain image as a preview). Move the agent images, or set preview.imagePathPrefix to a path outside every registries entry" (toString $entry) $prefix) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- $prefix -}}
+{{- end }}
+
+{{/*
+maul.registryPathKey: a "host/path/" registry prefix as the registry it is
+pulled from sees it, for comparing two prefixes on segment boundaries.
+Lowercased (source-controller lowercases allowlist entries and references), an
+explicit :443 dropped (the same HTTPS endpoint), and ECR's dual-stack and
+FIPS endpoint names (<account>.dkr-ecr.<region>.on.aws,
+<account>.dkr.ecr-fips.<region>.amazonaws.com, ...) folded onto the plain
+<account>.dkr.ecr.<region>.amazonaws.com, which serves the same repositories.
+runnerimage.registryKey is the same fold on source-controller's side.
+*/}}
+{{- define "maul.registryPathKey" -}}
+{{- $key := lower . -}}
+{{- $key = regexReplaceAll `^([^/]+):443/` $key "${1}/" -}}
+{{- regexReplaceAll `^([0-9]{12})\.dkr[.-]ecr(-fips)?\.([a-z0-9-]+)\.(amazonaws\.com|on\.aws)/` $key "${1}.dkr.ecr.${3}.amazonaws.com/" -}}
+{{- end }}
+
+{{/*
+Whether the egress proxy deploys (egressProxy.enabled); returns a non-empty
+string for yes. Everything the feature renders, and every key it stamps,
+hangs off this, so with it off every existing render is unchanged.
+*/}}
+{{- define "maul.egressProxyEnabled" -}}
+{{- if (.Values.egressProxy | default dict).enabled -}}
+yes
+{{- end -}}
+{{- end }}
+
+{{/*
+The egress proxy's log level: egressProxy.config.logLevel, else the shared
+config.logLevel but never quieter than info. Every audit line (one per
+request) and every credential lifecycle line is written at info, and they
+are how an operator without a log sink sees what the proxy did, so the
+chart's default warn would otherwise drop them all.
+*/}}
+{{- define "maul.egressProxyLogLevel" -}}
+{{- $own := ((.Values.egressProxy | default dict).config | default dict).logLevel -}}
+{{- $shared := .Values.config.logLevel | default "warn" -}}
+{{- $own | default (ternary $shared "info" (has $shared (list "debug" "info"))) -}}
+{{- end }}
+
+{{/*
+The label prefix an agent Job and its pod carry, as <prefix><profile>: "true",
+when a network profile is applied: the identity both NetworkPolicies on the
+profile's port select, and what the profile-label admission policy guards.
+The one spelling in the chart; TestChartLabelPrefix pins it to
+netprofile.LabelPrefix.
+*/}}
+{{- define "maul.networkProfileLabelPrefix" -}}
+maul.run/network-
+{{- end }}
+
+{{/*
+The egress proxy's in-cluster base URL, without a port: the job controllers
+join each profile's port to it (MAUL_EGRESS_PROXY_URL).
+*/}}
+{{- define "maul.egressProxyURL" -}}
+http://{{ include "maul.fullname" . }}-egress-proxy.{{ .Release.Namespace }}.svc.cluster.local
+{{- end }}
+
+{{/*
+agent.networkProfiles as the JSON array the egress proxy and both job
+controllers parse (netprofile.Parse, MAUL_NETWORK_PROFILES): sorted by
+name, defaults applied (host github.com, bakedModCache /opt/go/pkg/mod,
+allowPseudoVersions false), trailing slashes stripped from the module
+prefixes (the matcher works on path-element boundaries anyway). One string,
+so the three ConfigMaps that carry it cannot disagree.
+
+A profile with registry grants also carries "registries": one object per
+grant, sorted by registry name, holding the grant's policy plus what the
+job controllers need of the registry (maul.egressGrantJSON): they never
+see egressProxy.registries. A profile without grants renders no such key.
+
+A profile with tunnel hosts carries "hosts" (as written), and "clients" and
+"upload" when set; a profile without them renders none of the three keys, so
+its JSON is what it was before tunnels existed. A route tunnel profile takes
+none of the go route's fields: "modules" renders [] and "bakedModCache" "".
+*/}}
+{{- define "maul.networkProfilesJSON" -}}
+{{- $profiles := .Values.agent.networkProfiles | default dict -}}
+{{- $out := list -}}
+{{- range $name := keys $profiles | sortAlpha -}}
+{{- $p := index $profiles $name | default dict -}}
+{{- $modules := list -}}
+{{- range $p.modules | default list -}}
+{{- $modules = append $modules (trimSuffix "/" (toString .)) -}}
+{{- end -}}
+{{- $baked := ternary "" "/opt/go/pkg/mod" (eq ($p.route | default "") "tunnel") -}}
+{{- if hasKey $p "bakedModCache" -}}
+{{- $baked = $p.bakedModCache | default "" | toString -}}
+{{- end -}}
+{{- $out = append $out (dict
+    "name" $name
+    "route" ($p.route | default "")
+    "port" (int ($p.port | default 0))
+    "host" ($p.host | default "github.com")
+    "repositories" ($p.repositories | default list)
+    "modules" $modules
+    "bakedModCache" $baked
+    "allowPseudoVersions" ($p.allowPseudoVersions | default false)
+) -}}
+{{- with $p.registries -}}
+{{- $grants := list -}}
+{{- range $gname := keys . | sortAlpha -}}
+{{- $grants = append $grants (include "maul.egressGrantJSON" (dict "root" $ "name" $gname "grant" (index $p.registries $gname | default dict)) | fromJson) -}}
+{{- end -}}
+{{- $_ := set (last $out) "registries" $grants -}}
+{{- end -}}
+{{- with $p.hosts -}}
+{{- $hosts := list -}}
+{{- range . }}{{ $hosts = append $hosts (toString .) }}{{ end -}}
+{{- $_ := set (last $out) "hosts" $hosts -}}
+{{- end -}}
+{{- with $p.clients -}}
+{{- $clients := list -}}
+{{- range . }}{{ $clients = append $clients (toString .) }}{{ end -}}
+{{- $_ := set (last $out) "clients" $clients -}}
+{{- end -}}
+{{- with $p.upload -}}
+{{- $u := dict -}}
+{{- with .perTunnel }}{{ $_ := set $u "perTunnel" (int64 .) }}{{ end -}}
+{{- with .perSource }}{{ $_ := set $u "perSource" (int64 .) }}{{ end -}}
+{{- $_ := set (last $out) "upload" $u -}}
+{{- end -}}
+{{- end -}}
+{{- toJson $out -}}
+{{- end }}
+
+{{/*
+One registry grant as the profile JSON carries it (netprofile.Grant): the
+grant's own policy and switches, each key only when set, plus the granted
+registry's ecosystem, privateModules (go) and hosts (netprofile.Registry.Hosts:
+the URL's host, then fileHosts, then redirectHosts), which the egress proxy
+holds equal to the registry's at startup (netprofile.CheckGrants) and the
+job controllers check against every Forge CR at launch. Go module prefixes
+lose a trailing slash, as a profile's modules do. Context: dict "root" $
+"name" <registry> "grant" <grant values>.
+*/}}
+{{- define "maul.egressGrantJSON" -}}
+{{- $g := .grant -}}
+{{- $r := index ((.root.Values.egressProxy | default dict).registries | default dict) .name | default dict -}}
+{{- $eco := $r.ecosystem | default "" -}}
+{{- $out := dict "name" .name "ecosystem" $eco "hosts" (include "maul.egressRegistryHosts" $r | fromJsonArray) -}}
+{{- with $g.packages -}}
+{{- $pkgs := list -}}
+{{- range . -}}
+{{- $pkgs = append $pkgs (ternary (trimSuffix "/" (toString .)) (toString .) (eq $eco "go")) -}}
+{{- end -}}
+{{- $_ := set $out "packages" $pkgs -}}
+{{- end -}}
+{{- with $g.packagePolicy }}{{ $_ := set $out "packagePolicy" . }}{{ end -}}
+{{- if $g.allowPseudoVersions }}{{ $_ := set $out "allowPseudoVersions" true }}{{ end -}}
+{{- if $g.allowPrerelease }}{{ $_ := set $out "allowPrerelease" true }}{{ end -}}
+{{- if $g.scripts }}{{ $_ := set $out "scripts" true }}{{ end -}}
+{{- if $g.sdists }}{{ $_ := set $out "sdists" true }}{{ end -}}
+{{- with include "maul.egressPrivateModules" $r | fromJsonArray -}}
+{{- $_ := set $out "privateModules" . -}}
+{{- end -}}
+{{- toJson $out -}}
+{{- end }}
+
+{{/*
+A registry's hosts as a JSON array: the URL's host (no port), then
+fileHosts, then redirectHosts, as written. netprofile.Registry.Hosts is the
+same list; the egress proxy refuses a grant whose copy differs.
+*/}}
+{{- define "maul.egressRegistryHosts" -}}
+{{- $hosts := list ((urlParse (.url | default "" | toString)).hostname) -}}
+{{- range .fileHosts | default list }}{{ $hosts = append $hosts (toString .) }}{{ end -}}
+{{- range .redirectHosts | default list }}{{ $hosts = append $hosts (toString .) }}{{ end -}}
+{{- toJson $hosts -}}
+{{- end }}
+
+{{/*
+A go registry's privateModules as a JSON array, trailing slashes stripped
+(GONOSUMDB and the proxy's matcher work on path-element boundaries either
+way): "[]" for a go registry that lists none, "null" for a registry that is
+not go or does not say.
+*/}}
+{{- define "maul.egressPrivateModules" -}}
+{{- if and (eq (.ecosystem | default "") "go") (not (kindIs "invalid" .privateModules)) -}}
+{{- $out := list -}}
+{{- range .privateModules | default list }}{{ $out = append $out (trimSuffix "/" (toString .)) }}{{ end -}}
+{{- toJson $out -}}
+{{- else -}}
+null
+{{- end -}}
+{{- end }}
+
+{{/*
+egressProxy.registries as the JSON array the egress proxy parses
+(netprofile.ParseRegistries, MAUL_EGRESS_REGISTRIES): sorted by name, each
+key only when set. A credential is described by its type alone (plus the
+CodeArtifact domain to mint for): a Secret's name never appears here, and
+the proxy reads a bearer or basic credential from the mounted
+registry-credentials volume. "ca": true says a CA bundle is mounted at
+<registry>.pem in the registry-ca volume.
+*/}}
+{{- define "maul.egressRegistriesJSON" -}}
+{{- $regs := (.Values.egressProxy | default dict).registries | default dict -}}
+{{- $out := list -}}
+{{- range $name := keys $regs | sortAlpha -}}
+{{- $r := index $regs $name | default dict -}}
+{{- $auth := $r.auth | default dict -}}
+{{- $a := dict "type" ($auth.type | default "") -}}
+{{- with $auth.codeartifact -}}
+{{- $ca := dict "domain" (.domain | default "" | toString) "domainOwner" (.domainOwner | default "" | toString) "region" (.region | default "" | toString) -}}
+{{- with .durationSeconds }}{{ $_ := set $ca "durationSeconds" (int .) }}{{ end -}}
+{{- $_ := set $a "codeartifact" $ca -}}
+{{- end -}}
+{{- $e := dict "name" $name "ecosystem" ($r.ecosystem | default "") "url" ($r.url | default "") "auth" $a -}}
+{{- with $r.fileHosts }}{{ $_ := set $e "fileHosts" . }}{{ end -}}
+{{- with $r.redirectHosts }}{{ $_ := set $e "redirectHosts" . }}{{ end -}}
+{{- with $r.internal -}}
+{{- $in := dict "cidrs" (.cidrs | default list) -}}
+{{- with .podSelector }}{{ $_ := set $in "podSelector" . }}{{ end -}}
+{{- with .targetPort }}{{ $_ := set $in "targetPort" (int .) }}{{ end -}}
+{{- $_ := set $e "internal" $in -}}
+{{- end -}}
+{{- $pm := include "maul.egressPrivateModules" $r | fromJsonArray -}}
+{{- if and (eq ($r.ecosystem | default "") "go") (not (kindIs "invalid" $r.privateModules)) -}}
+{{- $_ := set $e "privateModules" $pm -}}
+{{- end -}}
+{{- if kindIs "bool" $r.publicChecksumLookups }}{{ $_ := set $e "publicChecksumLookups" $r.publicChecksumLookups }}{{ end -}}
+{{- with $r.maxArtifactBytes }}{{ $_ := set $e "maxArtifactBytes" (int64 .) }}{{ end -}}
+{{- with $r.healthPackage }}{{ $_ := set $e "healthPackage" (toString .) }}{{ end -}}
+{{- if $r.ca }}{{ $_ := set $e "ca" true }}{{ end -}}
+{{- $out = append $out $e -}}
+{{- end -}}
+{{- toJson $out -}}
+{{- end }}
+
+{{/*
+Stamp the network-profile keys into remediation- or intent-controller's
+ConfigMap data: the kill switch (off under suspendProfiles), the profile set
+and the proxy's base URL. Called only while the egress proxy is enabled.
+Context: dict "root" $ "data" <dict>.
+*/}}
+{{- define "maul.networkProfilesData" -}}
+{{- $ep := .root.Values.egressProxy -}}
+{{- $_ := set .data "MAUL_NETWORK_PROFILES_ENABLED" (ternary "false" "true" ($ep.suspendProfiles | default false)) -}}
+{{- $_ := set .data "MAUL_NETWORK_PROFILES" (include "maul.networkProfilesJSON" .root) -}}
+{{- $_ := set .data "MAUL_EGRESS_PROXY_URL" (include "maul.egressProxyURL" .root) -}}
+{{- end }}
+
+{{/*
+Render-time guards for egressProxy; called once from configmap.yaml beside
+maul.repositoryImagesGuard. Only an enabled block is judged, so turning it
+off never fails a render. Each fails the render with a message naming the
+value:
+
+  1. egressProxy.enabled without agent.repositoryImages.enabled: a profile
+     only applies to a Job running an accepted repository image (and that
+     block's own guards bring narrow egress and the agent NetworkPolicy).
+  2. no agent.networkProfiles entry: the proxy and both controllers refuse
+     to start on an empty set.
+  3. egressProxy.networkPolicy.create false: the per-profile ingress rules
+     are the identity check.
+  4. agent.networkPolicy.mode resolving to istio: not verified.
+  5. two profiles on one port (the schema cannot say "unique").
+  6. a module prefix that admits the Go toolchain modules: golang.org,
+     golang.org/ or golang.org/toolchain...
+  7. a bakedModCache with a . or .. element, an empty element or a trailing
+     slash. values.schema.json refuses these too; this holds a render that
+     skips schema validation to the validator's rule (path.Clean-stable).
+  8. attribution.enabled without apiServerCIDRs, or with an entry that is
+     not an IPv4 /32.
+
+Guards 9-19 are the registries' (maul.egressRegistriesGuard), 20-26 the
+tunnel's (maul.egressTunnelGuard).
+
+The job controllers and the proxy re-validate the whole set at startup
+(netprofile.Validate), RE2 compilation included.
+*/}}
+{{- define "maul.egressProxyGuard" -}}
+{{- if include "maul.egressProxyEnabled" . -}}
+{{- $ep := .Values.egressProxy -}}
+{{- if not (.Values.agent.repositoryImages | default dict).enabled -}}
+{{- fail "egressProxy.enabled requires agent.repositoryImages.enabled: a network profile only ever applies to a Job running an accepted repository image" -}}
+{{- end -}}
+{{- $profiles := .Values.agent.networkProfiles | default dict -}}
+{{- if not $profiles -}}
+{{- fail "egressProxy.enabled requires at least one agent.networkProfiles entry: the egress proxy and the job controllers refuse to start without a profile" -}}
+{{- end -}}
+{{- if not ($ep.networkPolicy | default dict).create -}}
+{{- fail "egressProxy.networkPolicy.create must stay true while egressProxy.enabled: the per-profile ingress rules are the identity check, and without them any pod could use any profile" -}}
+{{- end -}}
+{{- if eq (include "maul.egressMode" .) "istio" -}}
+{{- fail "egressProxy.enabled is not supported under agent.networkPolicy.mode istio in step 1: the Sidecar's REGISTRY_ONLY egress and port-based identity have not been verified together" -}}
+{{- end -}}
+{{- $ports := dict -}}
+{{- range $name := keys $profiles | sortAlpha -}}
+{{- $p := index $profiles $name | default dict -}}
+{{- $port := toString (int ($p.port | default 0)) -}}
+{{- if hasKey $ports $port -}}
+{{- fail (printf "agent.networkProfiles: %s and %s both use port %s; each profile needs its own port" (get $ports $port) $name $port) -}}
+{{- end -}}
+{{- $_ := set $ports $port $name -}}
+{{- range $m := $p.modules | default list -}}
+{{- $t := trimSuffix "/" (toString $m) -}}
+{{- if or (eq $t "golang.org") (hasPrefix "golang.org/toolchain" $t) -}}
+{{- fail (printf "agent.networkProfiles.%s.modules: %q would admit the Go toolchain modules; name the golang.org paths needed (golang.org/x/...)" $name (toString $m)) -}}
+{{- end -}}
+{{- end -}}
+{{- if hasKey $p "bakedModCache" -}}
+{{- $baked := $p.bakedModCache | default "" | toString -}}
+{{- if and $baked (or (not (hasPrefix "/" $baked)) (hasSuffix "/" $baked) (contains "//" $baked) (regexMatch `(^|/)\.\.?(/|$)` $baked)) -}}
+{{- fail (printf "agent.networkProfiles.%s.bakedModCache: %q is not an absolute clean path: no . or .. element, no empty element and no trailing slash (or leave it empty for the network only)" $name $baked) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- $attr := $ep.attribution | default dict -}}
+{{- if $attr.enabled -}}
+{{- if not $attr.apiServerCIDRs -}}
+{{- fail "egressProxy.attribution.enabled requires egressProxy.attribution.apiServerCIDRs: the API server's endpoint IPs as IPv4 /32s" -}}
+{{- end -}}
+{{- range $attr.apiServerCIDRs -}}
+{{- if not (regexMatch `^([0-9]{1,3}\.){3}[0-9]{1,3}/32$` (toString .)) -}}
+{{- fail (printf "egressProxy.attribution.apiServerCIDRs entry %q is not an IPv4 /32: name each API server endpoint IP, never a subnet, which would open every pod and node in it to the proxy" (toString .)) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- include "maul.egressRegistriesGuard" . -}}
+{{- include "maul.egressTunnelGuard" . -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Render-time guards for egressProxy.registries and the profiles' grants
+(step 2), continuing maul.egressProxyGuard's numbering; called from it, so
+only while egressProxy.enabled:
+
+   9. a grant names a registry missing from egressProxy.registries;
+  10. a profile holds two grants of one ecosystem;
+  11. a grant has neither packages nor packagePolicy: registry, or both;
+  12. a codeartifact registry with cloudCredentials none, on ecosystem go,
+      or whose URL host is not its domain's endpoint;
+  13. a registry URL host on the deny list (maul.egressDeniedHost: forges,
+      model APIs, the broker's overrides, every profile's forge host, the
+      Kubernetes API; in-cluster names and IP literals only when internal);
+  14. a port other than 443 without internal;
+  15. internal.cidrs overlapping the always-denied set (the fixed ranges,
+      clusterDNSCIDR, attribution.apiServerCIDRs), or a non-/32 entry inside
+      agent.networkPolicy.clusterCIDRs (the Kubernetes Service IP is not
+      known here; the binary refuses it);
+  16. bearer or basic without auth.secretName, none or codeartifact with
+      one; auth.codeartifact on any other type, or missing on codeartifact;
+  17. privateModules/publicChecksumLookups on a non-go registry; scripts or
+      allowPrerelease on a non-npm grant, sdists on a non-pypi grant,
+      allowPseudoVersions on a non-go grant; internal.targetPort without
+      internal.podSelector;
+  18. a go registry without both privateModules (a list, possibly empty)
+      and publicChecksumLookups;
+  19. a fileHosts entry that is denied or not an exact host; a
+      redirectHosts entry that is denied, or a *. pattern that overlaps the
+      deny list, covers a shared cloud suffix or has fewer than three
+      labels after the * (maul.egressDeniedPattern).
+
+Beside them: a pypi URL that does not end /simple/, a profile with neither
+a route nor a grant, and cloudCredentials irsa on a chart-created
+ServiceAccount without the eks.amazonaws.com/role-arn annotation. The
+egress proxy re-validates all of it at startup (netprofile.ParseRegistries
+and CheckGrants), and the job controllers check every grant's hosts
+against each Forge CR at launch.
+*/}}
+{{- define "maul.egressRegistriesGuard" -}}
+{{- $ep := .Values.egressProxy -}}
+{{- $regs := $ep.registries | default dict -}}
+{{- $cloud := $ep.cloudCredentials | default "none" -}}
+{{- $extra := splitList " " (include "maul.egressExtraDenyHosts" .) -}}
+{{- $always := splitList " " (include "maul.egressAlwaysDeniedCIDRs" .) -}}
+{{- $alwaysWhy := dict -}}
+{{- range $always }}{{ $_ := set $alwaysWhy . "the always-denied range" }}{{ end -}}
+{{- with .Values.clusterDNSCIDR -}}
+{{- if regexMatch `^[0-9.]+/[0-9]+$` (toString .) -}}
+{{- $always = append $always (toString .) -}}
+{{- $_ := set $alwaysWhy (toString .) "clusterDNSCIDR" -}}
+{{- end -}}
+{{- end -}}
+{{- $attr := $ep.attribution | default dict -}}
+{{- if $attr.enabled -}}
+{{- range $attr.apiServerCIDRs | default list -}}
+{{- $always = append $always (toString .) -}}
+{{- $_ := set $alwaysWhy (toString .) "attribution.apiServerCIDRs" -}}
+{{- end -}}
+{{- end -}}
+{{- $clusterCIDRs := list -}}
+{{- range .Values.agent.networkPolicy.clusterCIDRs | default list -}}
+{{- if regexMatch `^[0-9.]+/[0-9]+$` (toString .) }}{{ $clusterCIDRs = append $clusterCIDRs (toString .) }}{{ end -}}
+{{- end -}}
+{{- range $name := keys $regs | sortAlpha -}}
+{{- $r := index $regs $name | default dict -}}
+{{- $at := printf "egressProxy.registries.%s" $name -}}
+{{- $eco := $r.ecosystem | default "" | toString -}}
+{{- $auth := $r.auth | default dict -}}
+{{- $type := $auth.type | default "" | toString -}}
+{{- $u := urlParse ($r.url | default "" | toString) -}}
+{{- $host := $u.hostname -}}
+{{- $port := "443" -}}
+{{- with regexFind `:[0-9]+$` $u.host }}{{ $port = trimPrefix ":" . }}{{ end -}}
+{{- $in := $r.internal -}}
+{{- $cidrs := list -}}
+{{- with $in }}{{ $cidrs = .cidrs | default list }}{{ end -}}
+{{- /* 16 */ -}}
+{{- if and (has $type (list "bearer" "basic")) (not $auth.secretName) -}}
+{{- fail (printf "%s.auth.secretName is required with auth.type %s: the Secret in the release namespace the proxy reads %s from (you create it; the chart never does)" $at $type (ternary "key token" "keys username and password" (eq $type "bearer"))) -}}
+{{- end -}}
+{{- if and (has $type (list "none" "codeartifact")) $auth.secretName -}}
+{{- fail (printf "%s.auth.secretName is set with auth.type %s, which reads no Secret: drop it" $at $type) -}}
+{{- end -}}
+{{- if and (eq $type "codeartifact") (not $auth.codeartifact) -}}
+{{- fail (printf "%s.auth.codeartifact (domain, domainOwner, region) is required with auth.type codeartifact" $at) -}}
+{{- end -}}
+{{- if and (ne $type "codeartifact") $auth.codeartifact -}}
+{{- fail (printf "%s.auth.codeartifact is set with auth.type %s: it belongs to auth.type codeartifact only" $at $type) -}}
+{{- end -}}
+{{- /* 12 */ -}}
+{{- if eq $type "codeartifact" -}}
+{{- if eq $cloud "none" -}}
+{{- fail (printf "%s is a codeartifact registry but egressProxy.cloudCredentials is none: set irsa or podIdentity so the proxy can mint its token" $at) -}}
+{{- end -}}
+{{- if eq $eco "go" -}}
+{{- fail (printf "%s: codeartifact has no Go module support; a codeartifact registry is npm or pypi" $at) -}}
+{{- end -}}
+{{- $ca := $auth.codeartifact -}}
+{{- $prefix := printf "%s-%s.d.codeartifact.%s" (toString $ca.domain) (toString $ca.domainOwner) (toString $ca.region) -}}
+{{- if not (has $host (list (printf "%s.amazonaws.com" $prefix) (printf "%s.on.aws" $prefix))) -}}
+{{- fail (printf "%s.url host %s is not the CodeArtifact endpoint of its auth.codeartifact domain, owner and region (%s.amazonaws.com): a typo here would send the token to another host" $at $host $prefix) -}}
+{{- end -}}
+{{- end -}}
+{{- /* 13 */ -}}
+{{- with include "maul.egressDeniedHost" (dict "host" $host "internal" (not (not $in)) "cidrs" $cidrs "extra" $extra) -}}
+{{- fail (printf "%s.url host %s %s: a registry may never be a forge, a model API, the Kubernetes API, or (without internal) an in-cluster or private address" $at $host .) -}}
+{{- end -}}
+{{- /* 14 */ -}}
+{{- if and (ne $port "443") (not $in) -}}
+{{- fail (printf "%s.url names port %s: a public registry is reached on 443 only; set internal (cidrs) for a private registry" $at $port) -}}
+{{- end -}}
+{{- if and (eq $eco "pypi") (not (hasSuffix "/simple/" $u.path)) -}}
+{{- fail (printf "%s.url must be the index URL, ending /simple/" $at) -}}
+{{- end -}}
+{{- /* 15 */ -}}
+{{- range $c := $cidrs -}}
+{{- $c = toString $c -}}
+{{- $rng := splitList " " (include "maul.ipv4Range" $c) -}}
+{{- if or (eq (index $rng 2) "0") (gt (atoi (index $rng 1)) 4294967295) -}}
+{{- fail (printf "%s.internal.cidrs entry %s is not a masked IPv4 CIDR (write the network address)" $at $c) -}}
+{{- end -}}
+{{- range $d := $always -}}
+{{- if include "maul.ipv4Overlap" (list $c $d) -}}
+{{- fail (printf "%s.internal.cidrs entry %s overlaps %s %s, which the proxy never dials" $at $c (get $alwaysWhy $d) $d) -}}
+{{- end -}}
+{{- end -}}
+{{- range $cc := $clusterCIDRs -}}
+{{- if and (include "maul.ipv4Overlap" (list $c $cc)) (not (hasSuffix "/32" $c)) -}}
+{{- fail (printf "%s.internal.cidrs entry %s is inside agent.networkPolicy.clusterCIDRs %s: list the registry's ClusterIP as a /32, never a range that could admit kubernetes.default or its neighbours" $at $c $cc) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- /* 17 and 18 */ -}}
+{{- $hasPM := not (kindIs "invalid" $r.privateModules) -}}
+{{- $hasPCL := not (kindIs "invalid" $r.publicChecksumLookups) -}}
+{{- if and (ne $eco "go") (or $hasPM $hasPCL) -}}
+{{- fail (printf "%s: privateModules and publicChecksumLookups are for go registries only" $at) -}}
+{{- end -}}
+{{- if and (eq $eco "go") (not (and $hasPM $hasPCL)) -}}
+{{- fail (printf "%s is a go registry and must state both privateModules (a list, possibly empty: module prefixes only it serves, never looked up in sum.golang.org) and publicChecksumLookups (may other modules it serves be checked against sum.golang.org?); there is no default" $at) -}}
+{{- end -}}
+{{- if and $in $in.targetPort (not $in.podSelector) -}}
+{{- fail (printf "%s.internal.targetPort is the podSelector rule's port: it needs internal.podSelector" $at) -}}
+{{- end -}}
+{{- /* 19 */ -}}
+{{- range $r.fileHosts | default list -}}
+{{- $fh := toString . -}}
+{{- if or (hasPrefix "*." $fh) (regexMatch `^[0-9.]+$` $fh) -}}
+{{- fail (printf "%s.fileHosts entry %s is not an exact host name: the agent chooses file paths there, so only exact hosts are allowed" $at $fh) -}}
+{{- end -}}
+{{- with include "maul.egressDeniedHost" (dict "host" $fh "internal" (not (not $in)) "cidrs" $cidrs "extra" $extra) -}}
+{{- fail (printf "%s.fileHosts entry %s %s" $at $fh .) -}}
+{{- end -}}
+{{- end -}}
+{{- range $r.redirectHosts | default list -}}
+{{- $rh := toString . -}}
+{{- $why := "" -}}
+{{- if hasPrefix "*." $rh -}}
+{{- $why = include "maul.egressDeniedPattern" (dict "host" $rh "internal" (not (not $in)) "cidrs" $cidrs "extra" $extra) -}}
+{{- else -}}
+{{- $why = include "maul.egressDeniedHost" (dict "host" $rh "internal" (not (not $in)) "cidrs" $cidrs "extra" $extra) -}}
+{{- end -}}
+{{- with $why -}}
+{{- fail (printf "%s.redirectHosts entry %s %s: a redirect is followed without the credential, but never to a denied or shared host" $at $rh .) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- /* The profiles' grants: 9, 10, 11 and 17's grant half. */ -}}
+{{- $profiles := .Values.agent.networkProfiles | default dict -}}
+{{- range $pname := keys $profiles | sortAlpha -}}
+{{- $p := index $profiles $pname | default dict -}}
+{{- $grants := $p.registries | default dict -}}
+{{- if and (not $p.route) (not $grants) -}}
+{{- fail (printf "agent.networkProfiles.%s needs route: go or at least one registries grant" $pname) -}}
+{{- end -}}
+{{- $seen := dict -}}
+{{- range $gname := keys $grants | sortAlpha -}}
+{{- $g := index $grants $gname | default dict -}}
+{{- $at := printf "agent.networkProfiles.%s.registries.%s" $pname $gname -}}
+{{- if not (hasKey $regs $gname) -}}
+{{- fail (printf "%s grants a registry that egressProxy.registries does not define" $at) -}}
+{{- end -}}
+{{- $eco := (index $regs $gname | default dict).ecosystem | default "" | toString -}}
+{{- if hasKey $seen $eco -}}
+{{- fail (printf "agent.networkProfiles.%s grants two %s registries (%s and %s): a profile holds at most one grant per ecosystem, since each package manager takes one index" $pname $eco (get $seen $eco) $gname) -}}
+{{- end -}}
+{{- $_ := set $seen $eco $gname -}}
+{{- if not (or $g.packages $g.packagePolicy) -}}
+{{- fail (printf "%s must say what it admits: packages (an allowlist) or packagePolicy: registry (the registry's own curation); there is no default" $at) -}}
+{{- end -}}
+{{- if and $g.packages $g.packagePolicy -}}
+{{- fail (printf "%s sets both packages and packagePolicy: choose one" $at) -}}
+{{- end -}}
+{{- if and (or $g.scripts $g.allowPrerelease) (ne $eco "npm") -}}
+{{- fail (printf "%s: scripts and allowPrerelease are for npm grants only" $at) -}}
+{{- end -}}
+{{- if and $g.sdists (ne $eco "pypi") -}}
+{{- fail (printf "%s: sdists is for pypi grants only" $at) -}}
+{{- end -}}
+{{- if and $g.allowPseudoVersions (ne $eco "go") -}}
+{{- fail (printf "%s: allowPseudoVersions is for go grants only" $at) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- /* The proxy's own AWS identity. */ -}}
+{{- if and (eq $cloud "irsa") (($ep.serviceAccount | default dict).create) (not (hasKey (($ep.serviceAccount | default dict).annotations | default dict) "eks.amazonaws.com/role-arn")) -}}
+{{- fail "egressProxy.cloudCredentials irsa needs the role on egressProxy.serviceAccount.annotations (eks.amazonaws.com/role-arn)" -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+The names of the profiles that list tunnel hosts, space-separated and sorted
+("" when none): every tunnel key the chart renders hangs off this, so an
+install without hosts renders what it did before tunnels existed.
+*/}}
+{{- define "maul.egressTunnelProfiles" -}}
+{{- $profiles := .Values.agent.networkProfiles | default dict -}}
+{{- $out := list -}}
+{{- range $name := keys $profiles | sortAlpha -}}
+{{- if (index $profiles $name | default dict).hosts }}{{ $out = append $out $name }}{{ end -}}
+{{- end -}}
+{{- join " " $out -}}
+{{- end }}
+
+{{/*
+A Go duration written in hours, minutes and seconds only (2h, 90m, 1h30m,
+45s), as whole seconds; -1 for anything else (ms, a fraction, empty). The
+deadlines guard 26 compares are all written this way.
+*/}}
+{{- define "maul.durationSeconds" -}}
+{{- $d := toString . -}}
+{{- if not (regexMatch `^([0-9]+[hms])+$` $d) -}}
+-1
+{{- else -}}
+{{- $total := 0 -}}
+{{- $unit := dict "h" 3600 "m" 60 "s" 1 -}}
+{{- range regexFindAll `[0-9]+[hms]` $d -1 -}}
+{{- $total = add $total (mul (atoi (regexFind `^[0-9]+` .)) (get $unit (regexFind `[hms]$` .))) -}}
+{{- end -}}
+{{- $total -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+The longest deadline of a Job a network profile can apply to, as written:
+agent.jobDeadline (remediate Jobs) or, with the intent controller on,
+intentController.config.jobDeadline (build, revise and check-fix Jobs). The
+tunnel's budget window may never be shorter (MAUL_TUNNEL_MIN_BUDGET_IDLE).
+*/}}
+{{- define "maul.egressLongestJobDeadline" -}}
+{{- $longest := toString .Values.agent.jobDeadline -}}
+{{- if .Values.intentController.enabled -}}
+{{- $intent := include "maul.intentLongestJobDeadline" . -}}
+{{- if gt (int64 (include "maul.durationSeconds" $intent)) (int64 (include "maul.durationSeconds" $longest)) -}}
+{{- $longest = $intent -}}
+{{- end -}}
+{{- end -}}
+{{- $longest -}}
+{{- end }}
+
+{{/*
+The longest deadline an intent Job can get: intentController.config.jobDeadline
+(the floor), or, when the longest stage timeout plus 15m is longer, that,
+capped by jobDeadlineMax (the controller's derivation, Settings.jobDeadline).
+A stage timeout the chart cannot read counts as reaching the cap. The floor is
+returned as written whenever nothing stretches it, so a default render is
+unchanged; a stretched deadline is written in seconds.
+*/}}
+{{- define "maul.intentLongestJobDeadline" -}}
+{{- $own := .Values.intentController.config | default dict -}}
+{{- $floor := toString ($own.jobDeadline | default "") -}}
+{{- $floorS := int64 (include "maul.durationSeconds" $floor) -}}
+{{- $ceilingS := int64 (include "maul.durationSeconds" (toString ($own.jobDeadlineMax | default ""))) -}}
+{{- $derived := int64 0 -}}
+{{- if and (ge $floorS 0) (gt $ceilingS $floorS) -}}
+{{- $derived = $ceilingS -}}
+{{- $stageS := int64 0 -}}
+{{- $known := true -}}
+{{- range $stage := list "plan" "build" "revise" -}}
+{{- $t := int64 (include "maul.durationSeconds" (toString ((index $own $stage | default dict).timeout | default ""))) -}}
+{{- if lt $t 0 -}}
+{{- $known = false -}}
+{{- else if gt $t $stageS -}}
+{{- $stageS = $t -}}
+{{- end -}}
+{{- end -}}
+{{- if and $known (lt (add $stageS 900) $ceilingS) -}}
+{{- $derived = add $stageS 900 -}}
+{{- end -}}
+{{- end -}}
+{{- if gt $derived $floorS -}}
+{{- printf "%ds" $derived -}}
+{{- else -}}
+{{- $floor -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+intent-controller's deadline rule, failed at render rather than at startup:
+every stage timeout plus 15m (the Job deadline's margin,
+intent.JobDeadlineMargin) must fit under intentController.config.jobDeadlineMax,
+or a stage's Jobs could end before it times out. jobDeadline is a floor of its
+own, not tied to the stage timeouts. A value the chart cannot read (not whole
+h, m and s) is left to the controller's startup check.
+*/}}
+{{- define "maul.intentDeadlineGuard" -}}
+{{- $own := .Values.intentController.config | default dict -}}
+{{- $max := toString ($own.jobDeadlineMax | default "") -}}
+{{- $maxS := int64 (include "maul.durationSeconds" $max) -}}
+{{- if ge $maxS 0 -}}
+{{- range $stage := list "plan" "build" "revise" -}}
+{{- $t := toString ((index $own $stage | default dict).timeout | default "") -}}
+{{- $tS := int64 (include "maul.durationSeconds" $t) -}}
+{{- if and (ge $tS 0) (gt (add $tS 900) $maxS) -}}
+{{- fail (printf "intentController.config.%s.timeout %s plus 15m is longer than intentController.config.jobDeadlineMax %s: its Jobs could end before the stage times out (intent-controller refuses to start); raise jobDeadlineMax or shorten the stage" $stage $t $max) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+The tunnel's budget window as stamped (MAUL_TUNNEL_SOURCE_BUDGET_IDLE):
+egressProxy.tunnel.sourceBudgetIdle when set (guard 26 holds it to the
+longest Job deadline), else 2h, or that deadline when it is longer.
+*/}}
+{{- define "maul.egressTunnelBudgetIdle" -}}
+{{- $set := toString (((.Values.egressProxy | default dict).tunnel | default dict).sourceBudgetIdle | default "") -}}
+{{- if $set -}}
+{{- $set -}}
+{{- else -}}
+{{- $longest := include "maul.egressLongestJobDeadline" . -}}
+{{- ternary $longest "2h" (gt (int64 (include "maul.durationSeconds" $longest)) 7200) -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+The tunnel host grammar guard 21 applies (for a render that skips the
+schema): netprofile.TunnelHostPattern, which values.schema.json carries too.
+TestChartTunnelGuardMatchesValidator holds this body equal to it.
+*/}}
+{{- define "maul.egressTunnelHostPattern" -}}
+^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]([a-z0-9-]{0,61}[a-z0-9])?$
+{{- end }}
+
+{{/*
+The numeric limits guards 21 and 25 apply, as JSON: netprofile's
+MaxTunnelHosts, maxHostLen and MinUploadBytes/MaxUploadBytes.
+TestChartTunnelGuardMatchesValidator holds them equal to those.
+*/}}
+{{- define "maul.egressTunnelLimits" -}}
+{"maxHosts": 64, "maxHostLen": 253, "minUploadBytes": 65536, "maxUploadBytes": 1073741824}
+{{- end }}
+
+{{/*
+Render-time guards for the profiles' tunnel hosts (step 3), continuing
+maul.egressRegistriesGuard's numbering; called from maul.egressProxyGuard,
+so only while egressProxy.enabled. Each mirrors a netprofile.Validate rule,
+so a profile the chart renders is one the binaries start with:
+
+  20. route tunnel without hosts, or with modules, bakedModCache or
+      allowPseudoVersions; hosts on a profile without a route.
+  21. a host that is not an exact lowercase host name (the schema's pattern,
+      for a render that skips the schema), more than 64, or one listed twice.
+  22. a host on the tunnel's deny list (maul.egressDeniedTunnelHost: forges,
+      model APIs, managed Kubernetes control planes, special-use and
+      in-cluster names, publish endpoints, IP literals, single labels), equal
+      to or under any profile's forge host or the broker's base-URL overrides.
+  23. a host that is one of the profile's grant hosts (or matches a grant's
+      *. pattern), whose package policy the tunnel would bypass; beside
+      route go, an upstream of the Go route (proxy.golang.org,
+      sum.golang.org), whose module allowlist it would bypass.
+  24. clients or upload without hosts; an unknown or repeated client; npm or
+      yarn beside an npm grant, pip or uv beside a pypi grant (both set the
+      same package manager's registry).
+  25. upload with neither field, a field outside 64 KiB-1 GiB, or perTunnel
+      above perSource.
+  26. egressProxy.tunnel.sourceBudgetIdle below the longest Job deadline a
+      profile applies to (maul.egressLongestJobDeadline), or either
+      deadline (agent's, and the intent controller's while it is on) not
+      written in whole h, m and s, while some profile tunnels.
+*/}}
+{{- define "maul.egressTunnelGuard" -}}
+{{- $profiles := .Values.agent.networkProfiles | default dict -}}
+{{- $regs := (.Values.egressProxy | default dict).registries | default dict -}}
+{{- $extra := splitList " " (include "maul.egressExtraDenyHosts" .) -}}
+{{- $goHosts := splitList " " (include "maul.egressGoRouteHosts" .) -}}
+{{- $clientEco := dict "npm" "npm" "yarn" "npm" "pip" "pypi" "uv" "pypi" -}}
+{{- $clients := splitList " " (include "maul.egressTunnelClients" .) -}}
+{{- $hostPattern := include "maul.egressTunnelHostPattern" . -}}
+{{- $limits := include "maul.egressTunnelLimits" . | fromJson -}}
+{{- $maxHosts := int64 $limits.maxHosts -}}
+{{- $maxHostLen := int64 $limits.maxHostLen -}}
+{{- $minUpload := int64 $limits.minUploadBytes -}}
+{{- $maxUpload := int64 $limits.maxUploadBytes -}}
+{{- range $name := keys $profiles | sortAlpha -}}
+{{- $p := index $profiles $name | default dict -}}
+{{- $at := printf "agent.networkProfiles.%s" $name -}}
+{{- $route := $p.route | default "" | toString -}}
+{{- $hosts := $p.hosts | default list -}}
+{{- /* 20 */ -}}
+{{- if eq $route "tunnel" -}}
+{{- if not $hosts -}}
+{{- fail (printf "%s is route tunnel without hosts: list the exact host names its Jobs may reach" $at) -}}
+{{- end -}}
+{{- if or $p.modules $p.bakedModCache $p.allowPseudoVersions -}}
+{{- fail (printf "%s is route tunnel: modules, bakedModCache and allowPseudoVersions are the go route's; drop them, or use route go to have both" $at) -}}
+{{- end -}}
+{{- end -}}
+{{- if and $hosts (not $route) -}}
+{{- fail (printf "%s lists hosts without a route: set route tunnel (or route go, for both)" $at) -}}
+{{- end -}}
+{{- /* 21 */ -}}
+{{- if gt (len $hosts) $maxHosts -}}
+{{- fail (printf "%s.hosts lists %d names; at most %d" $at (len $hosts) $maxHosts) -}}
+{{- end -}}
+{{- $seen := dict -}}
+{{- range $hosts -}}
+{{- $h := toString . -}}
+{{- if or (gt (len $h) $maxHostLen) (not (regexMatch $hostPattern $h)) -}}
+{{- fail (printf "%s.hosts entry %q is not an exact lowercase host name: no wildcard, IP address, underscore or trailing dot, and a last label that starts with a letter" $at $h) -}}
+{{- end -}}
+{{- if hasKey $seen $h -}}
+{{- fail (printf "%s.hosts lists %s twice" $at $h) -}}
+{{- end -}}
+{{- $_ := set $seen $h true -}}
+{{- /* 22 */ -}}
+{{- with include "maul.egressDeniedTunnelHost" (dict "host" $h "extra" $extra) -}}
+{{- fail (printf "%s.hosts entry %s %s: a tunnel never reaches a forge, a model API, a Kubernetes control plane, an in-cluster or special-use name, or a package-publish endpoint" $at $h .) -}}
+{{- end -}}
+{{- /* 23 */ -}}
+{{- range $gname := keys ($p.registries | default dict) | sortAlpha -}}
+{{- range $gh := include "maul.egressRegistryHosts" (index $regs $gname | default dict) | fromJsonArray -}}
+{{- $gh = toString $gh -}}
+{{- if or (eq $h $gh) (and (hasPrefix "*." $gh) (hasSuffix (trimPrefix "*" $gh) $h)) -}}
+{{- fail (printf "%s.hosts entry %s is %s, a host of its %s grant: the tunnel would bypass the grant's package policy" $at $h $gh $gname) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if and (eq $route "go") (has $h $goHosts) -}}
+{{- fail (printf "%s.hosts entry %s is an upstream of the profile's Go route: the tunnel would bypass the route's module allowlist" $at $h) -}}
+{{- end -}}
+{{- end -}}
+{{- /* 24 */ -}}
+{{- if and $p.clients (not $hosts) -}}
+{{- fail (printf "%s.clients configure the tunnel: set hosts or drop them" $at) -}}
+{{- end -}}
+{{- $seenClient := dict -}}
+{{- range $p.clients | default list -}}
+{{- $c := toString . -}}
+{{- if not (has $c $clients) -}}
+{{- fail (printf "%s.clients entry %q is not one of %s" $at $c (join ", " $clients)) -}}
+{{- end -}}
+{{- if hasKey $seenClient $c -}}
+{{- fail (printf "%s.clients lists %s twice" $at $c) -}}
+{{- end -}}
+{{- $_ := set $seenClient $c true -}}
+{{- with get $clientEco $c -}}
+{{- $eco := . -}}
+{{- range $gname := keys ($p.registries | default dict) | sortAlpha -}}
+{{- if eq ((index $regs $gname | default dict).ecosystem | default "" | toString) $eco -}}
+{{- fail (printf "%s: client %s and the %s grant %s both configure the same package manager; drop one" $at $c $eco $gname) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- /* 25 */ -}}
+{{- with $p.upload -}}
+{{- if not $hosts -}}
+{{- fail (printf "%s.upload caps the tunnel: set hosts or drop it" $at) -}}
+{{- end -}}
+{{- if not (or .perTunnel .perSource) -}}
+{{- fail (printf "%s.upload sets neither perTunnel nor perSource" $at) -}}
+{{- end -}}
+{{- range $k := list "perTunnel" "perSource" -}}
+{{- $v := index $p.upload $k -}}
+{{- if and $v (or (lt (int64 $v) $minUpload) (gt (int64 $v) $maxUpload)) -}}
+{{- fail (printf "%s.upload.%s %d is outside %d-%d bytes" $at $k (int64 $v) $minUpload $maxUpload) -}}
+{{- end -}}
+{{- end -}}
+{{- if and .perTunnel .perSource (gt (int64 .perTunnel) (int64 .perSource)) -}}
+{{- fail (printf "%s.upload.perTunnel %d is above upload.perSource %d" $at (int64 .perTunnel) (int64 .perSource)) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- /* 26 */ -}}
+{{- if include "maul.egressTunnelProfiles" . -}}
+{{- /* Each deadline on its own: maul.egressLongestJobDeadline never picks
+       one it cannot read, so judging only its answer would let a malformed
+       intent deadline (2.5h, 5400000ms) through with a shorter window. */ -}}
+{{- $deadlines := dict "agent.jobDeadline" (toString .Values.agent.jobDeadline) -}}
+{{- if .Values.intentController.enabled -}}
+{{- with (.Values.intentController.config | default dict).jobDeadline -}}
+{{- $_ := set $deadlines "intentController.config.jobDeadline" (toString .) -}}
+{{- end -}}
+{{- with (.Values.intentController.config | default dict).jobDeadlineMax -}}
+{{- $_ := set $deadlines "intentController.config.jobDeadlineMax" (toString .) -}}
+{{- end -}}
+{{- end -}}
+{{- range $key := keys $deadlines | sortAlpha -}}
+{{- $d := index $deadlines $key -}}
+{{- if lt (int64 (include "maul.durationSeconds" $d)) 0 -}}
+{{- fail (printf "%s must be written in whole h, m and s (2h, 90m) while a network profile tunnels: the tunnel's budget window is compared to the longest Job deadline, and %q is not" $key $d) -}}
+{{- end -}}
+{{- end -}}
+{{- $longest := include "maul.egressLongestJobDeadline" . -}}
+{{- $longestS := int64 (include "maul.durationSeconds" $longest) -}}
+{{- with ((.Values.egressProxy | default dict).tunnel | default dict).sourceBudgetIdle -}}
+{{- $idle := int64 (include "maul.durationSeconds" .) -}}
+{{- if lt $idle $longestS -}}
+{{- fail (printf "egressProxy.tunnel.sourceBudgetIdle %s is below the longest Job deadline %s: a pod could pause long enough to refill its own upload budget; raise it or leave it empty" (toString .) $longest) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+The egress proxy's hard-deny table, as literal lists (netprofile/denied.go is
+the binary's copy; TestDeniedHostMatchesChart reads these bodies and holds
+them equal to it). Each is a space-separated list.
+
+  forge and model hosts: each denies the host and every name below it;
+  cluster hosts: the Kubernetes API's in-cluster names, denied exactly;
+  cluster suffixes: in-cluster names, denied unless the registry is internal;
+  too-wide suffixes: shared multi-tenant suffixes no redirectHosts pattern
+    may equal or cover;
+  always-denied CIDRs: no internal registry may ever list these.
+*/}}
+{{- define "maul.egressDeniedForgeHosts" -}}
+github.com githubusercontent.com
+{{- end }}
+
+{{- define "maul.egressDeniedModelHosts" -}}
+anthropic.com openai.com openai.azure.com services.ai.azure.com cognitiveservices.azure.com aiplatform.googleapis.com generativelanguage.googleapis.com
+{{- end }}
+
+{{- define "maul.egressDeniedClusterHosts" -}}
+kubernetes kubernetes.default kubernetes.default.svc kubernetes.default.svc.cluster.local
+{{- end }}
+
+{{- define "maul.egressClusterSuffixes" -}}
+svc cluster.local
+{{- end }}
+
+{{- define "maul.egressTooWideSuffixes" -}}
+amazonaws.com s3.amazonaws.com cloudfront.net googleapis.com storage.googleapis.com appspot.com azure.com windows.net blob.core.windows.net azureedge.net githubusercontent.com github.io fastly.net akamaized.net r2.cloudflarestorage.com
+{{- end }}
+
+{{- define "maul.egressAlwaysDeniedCIDRs" -}}
+0.0.0.0/8 127.0.0.0/8 169.254.0.0/16 224.0.0.0/4 240.0.0.0/4
+{{- end }}
+
+{{- define "maul.egressMinPatternLabels" -}}
+3
+{{- end }}
+
+{{/*
+The tunnel's further hard-deny table (netprofile.DeniedTunnelHost; the tunnel
+tables in netprofile/denied.go, held equal by TestChartTunnelDenyMatchesNetprofile):
+forges beyond the registry table's, model APIs beyond it, the managed
+Kubernetes control planes, special-use names and the package-publish hosts.
+Each denies the name and every name below it. Then the Go route's upstreams
+(netprofile.GoRouteHosts), which a go profile may not tunnel to, and the
+client presets (netprofile.Clients).
+*/}}
+{{- define "maul.egressTunnelForgeHosts" -}}
+ghcr.io githubcopilot.com gitlab.com bitbucket.org codeberg.org dev.azure.com visualstudio.com sr.ht
+{{- end }}
+
+{{- define "maul.egressTunnelModelHosts" -}}
+claude.ai claude.com chatgpt.com
+{{- end }}
+
+{{- define "maul.egressControlPlaneHosts" -}}
+eks.amazonaws.com azmk8s.io container.googleapis.com k8s.ondigitalocean.com linodelke.net
+{{- end }}
+
+{{- define "maul.egressSpecialUseSuffixes" -}}
+localhost local internal svc cluster.local home.arpa in-addr.arpa ip6.arpa invalid test example
+{{- end }}
+
+{{- define "maul.egressPublishHosts" -}}
+upload.pypi.org www.nuget.org
+{{- end }}
+
+{{- define "maul.egressGoRouteHosts" -}}
+proxy.golang.org sum.golang.org
+{{- end }}
+
+{{- define "maul.egressTunnelClients" -}}
+npm yarn pip uv nuget cargo jvm
+{{- end }}
+
+{{/*
+The hosts of the egress broker's base-URL overrides
+(MAUL_{ANTHROPIC,BEDROCK,VERTEX,FOUNDRY,OPENAI}_BASE_URL in config.extra or
+egressBroker.config.extra), sorted and space-separated: model API hosts the
+fixed table cannot know, denied to every registry, file host and redirect
+hop (guard 13, and MAUL_DENY_HOSTS for the proxy's request-time check). An
+override set through extraEnvFrom is invisible here. The key list is pinned to
+the broker's -base-url flags by cmd/egress-broker TestChartOverrideKeysMatchFlags.
+*/}}
+{{- define "maul.egressBrokerOverrideHosts" -}}
+{{- $hosts := list -}}
+{{- $broker := (.Values.egressBroker | default dict).config | default dict -}}
+{{- range $src := list (.Values.config.extra | default dict) ($broker.extra | default dict) -}}
+{{- range $k := list "MAUL_ANTHROPIC_BASE_URL" "MAUL_BEDROCK_BASE_URL" "MAUL_VERTEX_BASE_URL" "MAUL_FOUNDRY_BASE_URL" "MAUL_OPENAI_BASE_URL" -}}
+{{- with index $src $k -}}
+{{- with lower (urlParse (toString .)).hostname -}}
+{{- $hosts = append $hosts . -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- $hosts | uniq | sortAlpha | join " " -}}
+{{- end }}
+
+{{/*
+Every further denied host the chart knows, space-separated: each profile's
+forge host (default github.com) and the broker's base-URL overrides.
+*/}}
+{{- define "maul.egressExtraDenyHosts" -}}
+{{- $hosts := list -}}
+{{- range $p := values (.Values.agent.networkProfiles | default dict) -}}
+{{- $hosts = append $hosts (($p | default dict).host | default "github.com" | toString | lower) -}}
+{{- end -}}
+{{- with include "maul.egressBrokerOverrideHosts" . -}}
+{{- $hosts = concat $hosts (splitList " " .) -}}
+{{- end -}}
+{{- $hosts | uniq | sortAlpha | join " " -}}
+{{- end }}
+
+{{/*
+An IPv4 address or CIDR as "<first> <last> <masked>" integers ("masked" is
+1 when the address is the prefix's first, as netip.Prefix.Masked demands):
+the arithmetic guard 15's overlap checks need. A plain address is a /32.
+*/}}
+{{- define "maul.ipv4Range" -}}
+{{- $parts := splitList "/" (toString .) -}}
+{{- $bits := 32 -}}
+{{- if gt (len $parts) 1 }}{{ $bits = atoi (index $parts 1) }}{{ end -}}
+{{- $o := splitList "." (index $parts 0) -}}
+{{- $n := add (mul (atoi (index $o 0)) 16777216) (mul (atoi (index $o 1)) 65536) (mul (atoi (index $o 2)) 256) (atoi (index $o 3)) -}}
+{{- $size := 1 -}}
+{{- range until (int (sub 32 $bits)) }}{{ $size = mul $size 2 }}{{ end -}}
+{{- $start := mul (div $n $size) $size -}}
+{{- printf "%d %d %d" $start (sub (add $start $size) 1) (ternary 1 0 (eq $start $n)) -}}
+{{- end }}
+
+{{/*
+Whether two IPv4 CIDRs overlap: "yes" or "". Context: list a b.
+*/}}
+{{- define "maul.ipv4Overlap" -}}
+{{- $a := splitList " " (include "maul.ipv4Range" (index . 0)) -}}
+{{- $b := splitList " " (include "maul.ipv4Range" (index . 1)) -}}
+{{- if and (le (atoi (index $a 0)) (atoi (index $b 1))) (le (atoi (index $b 0)) (atoi (index $a 1))) -}}
+yes
+{{- end -}}
+{{- end }}
+
+{{/*
+netprofile.DeniedHost in the chart: why a host may not be a registry, file
+or redirect host, or "" when it may. Context: dict "host" <host> "internal"
+<bool: the registry is internal> "cidrs" <its internal.cidrs> "extra"
+<further denied hosts, a list>.
+*/}}
+{{- define "maul.egressDeniedHost" -}}
+{{- $h := trimSuffix "." (lower (toString .host)) -}}
+{{- $why := "" -}}
+{{- if not $h -}}
+{{- $why = "is empty" -}}
+{{- else if or (hasPrefix "[" $h) (contains ":" $h) -}}
+{{- $why = "is an IPv6 literal" -}}
+{{- else if regexMatch `^[0-9]{1,3}(\.[0-9]{1,3}){3}$` $h -}}
+{{- range splitList " " (include "maul.egressAlwaysDeniedCIDRs" .) -}}
+{{- if and (not $why) (include "maul.ipv4Overlap" (list . $h)) -}}
+{{- $why = printf "is in the always-denied range %s" . -}}
+{{- end -}}
+{{- end -}}
+{{- if not $why -}}
+{{- $inside := "" -}}
+{{- range .cidrs | default list -}}
+{{- if include "maul.ipv4Overlap" (list (toString .) $h) }}{{ $inside = "yes" }}{{ end -}}
+{{- end -}}
+{{- if not $inside }}{{ $why = "is an IP literal outside the registry's internal.cidrs" }}{{ end -}}
+{{- end -}}
+{{- else -}}
+{{- $denied := concat (splitList " " (include "maul.egressDeniedForgeHosts" .)) (splitList " " (include "maul.egressDeniedModelHosts" .)) (.extra | default list) -}}
+{{- range $denied -}}
+{{- $d := trimSuffix "." (lower (toString .)) -}}
+{{- if and (not $why) $d (or (eq $h $d) (hasSuffix (printf ".%s" $d) $h)) -}}
+{{- $why = printf "is %s or below it (a forge, a model API or the broker's)" $d -}}
+{{- end -}}
+{{- end -}}
+{{- if and (not $why) (has $h (splitList " " (include "maul.egressDeniedClusterHosts" .))) -}}
+{{- $why = "is the Kubernetes API" -}}
+{{- end -}}
+{{- if not $why -}}
+{{- $labels := splitList "." $h -}}
+{{- $n := len $labels -}}
+{{- if hasSuffix ".amazonaws.com" $h -}}
+{{- if and (ge $n 4) (hasPrefix "bedrock" (index $labels (sub $n 4))) -}}
+{{- $why = "is a Bedrock endpoint (bedrock*.<region>.amazonaws.com)" -}}
+{{- else if and (ge $n 5) (eq (index $labels (sub $n 3)) "vpce") (hasPrefix "bedrock" (index $labels (sub $n 5))) -}}
+{{- $why = "is a Bedrock VPC endpoint" -}}
+{{- end -}}
+{{- end -}}
+{{- if and (eq $n 3) (eq (index $labels 1) "googleapis") (eq (index $labels 2) "com") (hasSuffix "-aiplatform" (index $labels 0)) -}}
+{{- $why = "is a regional Vertex AI endpoint (*-aiplatform.googleapis.com)" -}}
+{{- end -}}
+{{- end -}}
+{{- if and (not $why) (not .internal) -}}
+{{- range splitList " " (include "maul.egressClusterSuffixes" .) -}}
+{{- if and (not $why) (or (eq $h .) (hasSuffix (printf ".%s" .) $h)) -}}
+{{- $why = "is an in-cluster name and the registry is not internal" -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- $why -}}
+{{- end }}
+
+{{/*
+netprofile.DeniedPattern in the chart: why a redirectHosts wildcard
+"*.suffix" may not be used, or "" when it may. Same context as
+maul.egressDeniedHost.
+*/}}
+{{- define "maul.egressDeniedPattern" -}}
+{{- $suffix := trimPrefix "*." (toString .host) -}}
+{{- $why := "" -}}
+{{- $labels := splitList "." $suffix -}}
+{{- $n := len $labels -}}
+{{- if or (not (regexMatch `^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$` $suffix)) (regexMatch `(^|\.)-|-(\.|$)|\.\.` $suffix) -}}
+{{- $why = "is not *. followed by a lowercase host name" -}}
+{{- else if lt $n (int (include "maul.egressMinPatternLabels" .)) -}}
+{{- $why = printf "has fewer than %s labels after the *" (include "maul.egressMinPatternLabels" .) -}}
+{{- else if regexMatch `^[0-9]{1,3}(\.[0-9]{1,3}){3}$` $suffix -}}
+{{- $why = "wildcards an address" -}}
+{{- end -}}
+{{- if not $why -}}
+{{- range splitList " " (include "maul.egressTooWideSuffixes" .) -}}
+{{- if and (not $why) (or (eq . $suffix) (hasSuffix (printf ".%s" $suffix) .)) -}}
+{{- $why = printf "covers the shared suffix %s" . -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if not $why -}}
+{{- $denied := concat (splitList " " (include "maul.egressDeniedForgeHosts" .)) (splitList " " (include "maul.egressDeniedModelHosts" .)) (.extra | default list) -}}
+{{- range $denied -}}
+{{- $d := trimSuffix "." (lower (toString .)) -}}
+{{- if and (not $why) $d (or (eq $suffix $d) (hasSuffix (printf ".%s" $d) $suffix) (hasSuffix (printf ".%s" $suffix) $d)) -}}
+{{- $why = printf "overlaps the denied %s" $d -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if not $why -}}
+{{- range splitList " " (include "maul.egressDeniedClusterHosts" .) -}}
+{{- if and (not $why) (or (eq . $suffix) (hasSuffix (printf ".%s" $suffix) .)) -}}
+{{- $why = printf "can match the Kubernetes API name %s" . -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if and (not $why) (not .internal) -}}
+{{- range splitList " " (include "maul.egressClusterSuffixes" .) -}}
+{{- if and (not $why) (or (eq $suffix .) (hasSuffix (printf ".%s" .) $suffix)) -}}
+{{- $why = "is an in-cluster name" -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if and (not $why) (hasSuffix ".amazonaws.com" (printf ".%s" $suffix)) -}}
+{{- if or (le $n 3) (hasPrefix "bedrock" (index $labels (sub $n 4))) -}}
+{{- $why = "can match a Bedrock endpoint" -}}
+{{- else if and (eq (index $labels (sub $n 3)) "vpce") (or (le $n 4) (hasPrefix "bedrock" (index $labels (sub $n 5)))) -}}
+{{- $why = "can match a Bedrock VPC endpoint" -}}
+{{- end -}}
+{{- end -}}
+{{- $why -}}
+{{- end }}
+
+{{/*
+netprofile.DeniedTunnelHost in the chart: why a host may not be a tunnel host,
+or "" when it may. An IP literal in any inet_aton form, a single-label name,
+a name in or under the tunnel table above, or a name with any suffix of two
+or more labels that maul.egressDeniedHost refuses (with no internal
+admission), so a name below a denied one is always denied. Context: dict
+"host" <host> "extra" <further denied hosts, a list>.
+*/}}
+{{- define "maul.egressDeniedTunnelHost" -}}
+{{- $h := trimSuffix "." (lower (toString .host)) -}}
+{{- $extra := .extra | default list -}}
+{{- $why := "" -}}
+{{- if not $h -}}
+{{- $why = "is empty" -}}
+{{- else if or (hasPrefix "[" $h) (contains ":" $h) (regexMatch `^((0x[0-9a-f]*|[0-9]+)\.){0,3}(0x[0-9a-f]*|[0-9]+)\.?$` $h) -}}
+{{- $why = "is an IP literal" -}}
+{{- else if not (contains "." $h) -}}
+{{- $why = "is a single-label name" -}}
+{{- else -}}
+{{- range $list := list "maul.egressTunnelForgeHosts" "maul.egressTunnelModelHosts" "maul.egressControlPlaneHosts" "maul.egressSpecialUseSuffixes" "maul.egressPublishHosts" -}}
+{{- range $d := splitList " " (include $list $) -}}
+{{- if and (not $why) (or (eq $h $d) (hasSuffix (printf ".%s" $d) $h)) -}}
+{{- $why = printf "is %s or below it" $d -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- $labels := splitList "." $h -}}
+{{- range $i := until (int (sub (len $labels) 1)) -}}
+{{- if not $why -}}
+{{- $s := join "." (slice $labels $i) -}}
+{{- with include "maul.egressDeniedHost" (dict "host" $s "internal" false "cidrs" list "extra" $extra) -}}
+{{- $why = ternary . (printf "is below %s, which %s" $s .) (eq $i 0) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- $why -}}
+{{- end }}

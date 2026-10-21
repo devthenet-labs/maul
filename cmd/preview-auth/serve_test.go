@@ -24,11 +24,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/bitwise-media-group/patchy/internal/cli"
-	"github.com/bitwise-media-group/patchy/internal/previewauth"
-	"github.com/bitwise-media-group/patchy/internal/previewauth/adapters/dex"
-	"github.com/bitwise-media-group/patchy/internal/previewauth/adapters/keydir"
-	"github.com/bitwise-media-group/patchy/internal/previewauth/adapters/signer"
+	"github.com/devthenet-labs/maul/internal/cli"
+	"github.com/devthenet-labs/maul/internal/previewauth"
+	"github.com/devthenet-labs/maul/internal/previewauth/adapters/dex"
+	"github.com/devthenet-labs/maul/internal/previewauth/adapters/keydir"
+	"github.com/devthenet-labs/maul/internal/previewauth/adapters/signer"
 )
 
 // serveOpts resolves args through the real serve flag surface, as the
@@ -97,8 +97,8 @@ func staticArgs(t *testing.T, extra ...string) []string {
 	t.Helper()
 	secret := writeFile(t, t.TempDir(), "client-secret", "dex-secret\n")
 	return append([]string{
-		"--namespace", "patchy",
-		"--preview-auth-ledger-lease", "patchy-preview-auth-codes",
+		"--namespace", "maul",
+		"--preview-auth-ledger-lease", "maul-preview-auth-codes",
 		"--preview-auth-issuer", "https://auth.previews.example.com",
 		"--preview-auth-host-suffix", "previews.example.com",
 		"--preview-auth-keys-dir", keysDir(t, ""),
@@ -169,7 +169,7 @@ func TestLoadStatic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadStatic: %v", err)
 	}
-	if st.namespace != "patchy" || st.lease != "patchy-preview-auth-codes" ||
+	if st.namespace != "maul" || st.lease != "maul-preview-auth-codes" ||
 		st.issuer != "https://auth.previews.example.com" || st.callbacks.Suffix() != "previews.example.com" {
 		t.Errorf("static = %+v", st)
 	}

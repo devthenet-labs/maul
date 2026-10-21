@@ -15,16 +15,16 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/jobs"
 )
 
-// roundNoticeCount is how many of patchy's round notices for round sit on
+// roundNoticeCount is how many of maul's round notices for round sit on
 // pull request n: each round says how it ended once.
 func (e *env) roundNoticeCount(name string, n int64, round int32) int {
 	e.gh.mu.Lock()
 	defer e.gh.mu.Unlock()
-	marker := fmt.Sprintf("<!-- patchy:intent-pr-round:%s:%d -->", name, round)
+	marker := fmt.Sprintf("<!-- maul:intent-pr-round:%s:%d -->", name, round)
 	count := 0
 	for _, c := range e.gh.prComments[n] {
 		if markerOf(c.Body) == marker {
@@ -190,7 +190,7 @@ func TestSwappedKeysNeverAdoptAnotherRepositorysBuild(t *testing.T) {
 	e.jobs.status[buildJob("web")] = jobs.Status{}
 	e.jobs.status[jobs.NameFor(appA2, KindIntent, 2)] = jobs.Status{}
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	e.driveUntil(name, func(*v1alpha1.Intent) bool { return len(e.buildsIn(name, appRepoURL)) == 2 })
 
 	swap := func() {

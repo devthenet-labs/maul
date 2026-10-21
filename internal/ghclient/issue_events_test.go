@@ -20,10 +20,10 @@ func TestListIssueEvents(t *testing.T) {
 	mux, c := newFakeClient(t)
 	page1 := `[{"id":101,"node_id":"LE_kwDOA","event":"labeled","created_at":"2026-09-24T10:00:00Z",
 		"actor":{"login":"octocat","id":583231,"type":"User"},
-		"label":{"name":"patchy:approved","color":"0e8a16"},"performed_via_github_app":null}]`
+		"label":{"name":"maul:approved","color":"0e8a16"},"performed_via_github_app":null}]`
 	page2 := `[{"id":102,"node_id":"UNLE_kwDOB","event":"unlabeled","created_at":"2026-09-24T10:01:00Z",
 		"actor":{"login":"patchy-devthenet[bot]","id":332617407,"type":"Bot"},
-		"label":{"name":"patchy:approved"},"performed_via_github_app":null},
+		"label":{"name":"maul:approved"},"performed_via_github_app":null},
 		{"id":103,"node_id":"CE_kwDOC","event":"closed","created_at":"2026-09-24T10:02:00Z",
 		"actor":{"login":"patchy-devthenet[bot]","id":332617407,"type":"Bot"},
 		"performed_via_github_app":{"slug":"patchy-devthenet"}},
@@ -43,12 +43,12 @@ func TestListIssueEvents(t *testing.T) {
 	bot := Actor{Login: "patchy-devthenet[bot]", ID: 332617407, Type: "Bot"}
 	want := []*IssueEvent{
 		{
-			ID: 101, NodeID: "LE_kwDOA", Event: "labeled", Label: "patchy:approved",
+			ID: 101, NodeID: "LE_kwDOA", Event: "labeled", Label: "maul:approved",
 			CreatedAt: time.Date(2026, 9, 24, 10, 0, 0, 0, time.UTC),
 			Actor:     Actor{Login: "octocat", ID: 583231, Type: "User"},
 		},
 		{
-			ID: 102, NodeID: "UNLE_kwDOB", Event: "unlabeled", Label: "patchy:approved",
+			ID: 102, NodeID: "UNLE_kwDOB", Event: "unlabeled", Label: "maul:approved",
 			CreatedAt: time.Date(2026, 9, 24, 10, 1, 0, 0, time.UTC), Actor: bot,
 		},
 		{

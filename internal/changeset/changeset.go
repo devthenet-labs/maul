@@ -12,7 +12,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/bitwise-media-group/patchy/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/envelope"
 )
 
 // DefaultMaxEntries is the default cap on the upserts plus deletes of a
@@ -61,20 +61,20 @@ type Rules struct {
 }
 
 // intentDeny is what an intent run may never change: CI definitions
-// (.github), the agent-image declaration and recipe (.patchy, including the
-// .patchy/Dockerfile main's CI builds into the allowlisted registry prefix),
+// (.github), the agent-image declaration and recipe (.maul, including the
+// .maul/Dockerfile main's CI builds into the allowlisted registry prefix),
 // and the devcontainer declaration. source-controller reads the image
 // declaration from whatever tree it pins, and a revise round pins the pull
 // request's head, so without this an agent could choose its own next
 // sandbox.
-var intentDeny = []string{".github", ".patchy", ".devcontainer"}
+var intentDeny = []string{".github", ".maul", ".devcontainer"}
 
 // IntentRules are the rules an intent build or revise changeset is held to:
 // based on base (the Repository's pinned commit — for a revise round, the
 // pull request head it pinned), the repository-image rules whichever image
 // ran (intent runs require one, and its process wrote the changeset), capped
 // at maxEntries (<= 0 means DefaultMaxEntries), and nothing under .github,
-// .patchy or .devcontainer.
+// .maul or .devcontainer.
 func IntentRules(base string, maxEntries int) Rules {
 	if maxEntries <= 0 {
 		maxEntries = DefaultMaxEntries
@@ -111,10 +111,10 @@ func IntentRules(base string, maxEntries int) Rules {
 // A changeset held to the repository-image rules — that image controls the
 // process the changeset came out of, or the analysis it followed — is also
 // refused what a legitimate
-// diff can contain but patchy will not push unreviewed from such a run:
+// diff can contain but maul will not push unreviewed from such a run:
 // more than MaxEntries entries (upserts plus deletes), a control character
 // in a path, and any change to CI definitions (.github/workflows,
-// .github/actions, or .github itself replaced), since a patchy branch in
+// .github/actions, or .github itself replaced), since a maul branch in
 // the same repository triggers CI with its secrets before a human has
 // looked. Default-image runs keep all three as they were: a vendored
 // dependency bump rewrites hundreds of files, git allows a tab in a file

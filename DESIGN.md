@@ -1,4 +1,4 @@
-# Patchy
+# Maul
 
 An end-to-end workflow for triaging and remediating security findings from multiple sources, using Kubernetes custom
 resources as the state machine and GitHub issues as a human-facing projection.
@@ -8,7 +8,7 @@ resources as the state machine and GitHub issues as a human-facing projection.
 1. The solution ingests finding reports from GitHub Advanced Security (namely CodeQL findings), Google Cloud
    Security Command Center, and Wiz (Issues and Defend detections), and is tool-agnostic through a plugin
    architecture — including a `generic` provider through which any external HTTP process (a scheduled job over a
-   warehouse store, say — sources that are not event-driven) delivers findings in patchy's own documented contract,
+   warehouse store, say — sources that are not event-driven) delivers findings in maul's own documented contract,
    receives verdict write-back, and serves as a context enhancer, any number of them side by side:
    - providers deliver findings to a single internet-facing receiver, each route authenticating on the provider's own
      terms — an HMAC over the raw body for GitHub, the OIDC token a Pub/Sub push subscription signs for Google Cloud,
@@ -40,7 +40,7 @@ resources as the state machine and GitHub issues as a human-facing projection.
      `priority`, `severity`, and a `confidence` value in [0, 1] — for `remediate`, the likelihood of full
      remediation without breaking functionality;
    - backwards-compatible fixes are always favoured; if a better-but-breaking solution exists the report says so
-     and the pipeline holds for a human `/patchy approve`;
+     and the pipeline holds for a human `/maul approve`;
    - a `remediate` verdict also suggests the model, token budget, and max turns for the remediation stage, which
      the controller clamps to operator-configured ceilings and an allowlist.
 6. The investigation-controller routes each verdict:
@@ -49,7 +49,7 @@ resources as the state machine and GitHub issues as a human-facing projection.
    - `ignore` dismisses the GHAS alerts and closes the issue;
    - `manual` hands the finding to the repository owners for triage;
    - `remediate` below the confidence threshold (default 0.75) — or holding a breaking-change note — waits for a
-     human `/patchy approve` comment;
+     human `/maul approve` comment;
    - `remediate` at or above the threshold queues the finding for remediation.
 7. Remediation runs in priority order under bounded concurrency: a second `claude -p` stage receives the finding
    markdown, the pinned repository tree, and the investigation report, under the clamped token budget and turn
@@ -58,7 +58,7 @@ resources as the state machine and GitHub issues as a human-facing projection.
    `reproduction` block: `reproduced`, the test command, short before/after output excerpts) and a `commit.sh` that
    commits the changeset.
 8. The remediation-controller verifies the claim against the repository (commit.sh must run cleanly and leave real
-   commits), replays the changeset through the GitHub API onto a `patchy/<finding>` branch, opens the pull request,
+   commits), replays the changeset through the GitHub API onto a `maul/<finding>` branch, opens the pull request,
    and moves the finding to in-review. Merging is left to humans; the merge webhook completes the finding.
 9. Completed findings are kept for a TTL (default 14 days) and then deleted; per-scope `FindingRollup` resources
    retain the all-time statistics (success rates, verdict mix, token and cost totals per repository, harness, and
@@ -69,12 +69,12 @@ resources as the state machine and GitHub issues as a human-facing projection.
 Go, one module, separate binaries per concern (not monolithic), all hosted in Kubernetes. OpenTelemetry for
 logging, tracing, and metrics; structured logging via `log/slog`.
 
-**The source of truth is the Kubernetes API.** The `patchy.bitwisemedia.uk/v1alpha1` custom resources —
+**The source of truth is the Kubernetes API.** The `maul.run/v1alpha1` custom resources —
 `Integration`, `Forge`, `Finding`, `Repository`, `Investigation`, `Remediation`, `FindingRollup`, `UsageRollup` (under
 run attribution), and for the optional flows `Evaluation`/`EvaluationUnit` and `Project`/`Intent`/`IntentRun` — carry
 all pipeline state; etcd is
 the only state store. GitHub issues are a one-way, human-facing projection: labels and
-comments are rendered from the Finding, and human actions (issue close, `/patchy` command comments, PR merge) flow back
+comments are rendered from the Finding, and human actions (issue close, `/maul` command comments, PR merge) flow back
 in as webhook signals, never by re-parsing issue state.
 
 The agent execution harness is adapted from evolve (harness builds argv, runner executes, harness parses stdout), as is
@@ -93,7 +93,7 @@ consistent across the estate.
   validates provider webhooks (per-Integration secrets: GitHub HMAC, Pub/Sub OIDC, Wiz bearer token, generic
   per-integration HMAC) and ingests
   scanner alerts into Findings through the `pkg/source` handler seam (accumulation, duplicate merge). Outbound: projects Findings to tracking issues
-  (body, labels, enrichment and report comments) and applies human signals (close, `/patchy` commands, PR merge/close)
+  (body, labels, enrichment and report comments) and applies human signals (close, `/maul` commands, PR merge/close)
   back onto Findings.
 - **source-controller** — `Forge` + `Repository` reconcilers. Validates forge credentials, resolves
   each Repository to its covering Forge, pins the head SHA exactly once, downloads the forge's tarball archive at
@@ -121,7 +121,7 @@ consistent across the estate.
   previewed repository, one host) into a fixed, isolated slot namespace. Kubernetes API only: no forge, registry, cloud
   or Secret access.
 - **agent-runner** — the in-pod coding-agent runtime: one stage per Job (`investigate` or `remediate`, and the
-  intent stages `plan` and `build`), reports as `PATCHY-EVENT:` JSONL on stdout. Never talks to GitHub or the
+  intent stages `plan` and `build`), reports as `MAUL-EVENT:` JSONL on stdout. Never talks to GitHub or the
   Kubernetes API; a claude or codex pod holds no credential at all (model traffic authenticates at the egress
   broker), a copilot pod only its model key.
 - **egress-broker** — the egress credential broker: the reverse proxy all claude and codex model traffic goes
@@ -151,7 +151,7 @@ the egress credential broker, authenticated by an audience-bound projected Servi
 document, not a capability — so the broker (a trusted Deployment) is where the model credential or cloud workload
 identity lives, and brokered egress collapses to DNS + the artifact server + the broker, all cluster-local.
 The claude pod does carry one fixed, non-secret placeholder `ANTHROPIC_AUTH_TOKEN`
-(`patchy-brokered-placeholder`), set only by patchy, because the CLI refuses to start without some token; the
+(`maul-brokered-placeholder`), set only by maul, because the CLI refuses to start without some token; the
 broker strips it with every other inbound credential header; a codex pod's placeholder key, set by agent-runner per
 stage, is stripped the same way. The optional non-brokered runner (copilot) still carries its one model key, with
 NetworkPolicies (plus optional Cilium FQDN / Istio allowlists) restricting its egress to its model API. All GitHub
@@ -173,10 +173,10 @@ evaluation pods, and every default-image pod, never get one. Repositories declar
 
 ### Evaluation execution (optional)
 
-The same machinery optionally executes **remote skill evaluations** for evolve, patchy's sibling
+The same machinery optionally executes **remote skill evaluations** for evolve, maul's sibling
 coding-agent-evaluation tool. The division of knowledge is strict: evolve owns every evaluation semantic —
 specs, grading, the LLM judge, baselines — co-located with the workspace inside the pod (the pod runs
-`evolve exec-unit` from a per-harness evolve-runner image); patchy owns scheduling, sandboxing, and state.
+`evolve exec-unit` from a per-harness evolve-runner image); maul owns scheduling, sandboxing, and state.
 `evolve` uploads a content-addressed workspace bundle (sha256-deduplicated, cached by source-controller and
 served from the same artifact endpoint agent pods already fetch from), submits an immutable `Evaluation` CR
 (one `EvaluationUnit` child per skill × model × tier), and monitors an SSE stream; the evaluation controller
@@ -200,18 +200,18 @@ repositories per project.
 
 - **The work.** A human opens an issue in an intent repository and applies a project's trigger label. The controller
   snapshots the request and plans it in a read-only agent Job on the default runner image. It posts the plan's exact
-  bytes to the issue in a code block. An approver approves by label or `/patchy approve`. The build agent receives only
+  bytes to the issue in a code block. An approver approves by label or `/maul approve`. The build agent receives only
   that approved plan, re-hashed at launch, never the issue. It runs workspace-write in the application repository's
   accepted repository-declared image, never the default image. The controller validates the changeset (`.github/`,
-  `.patchy/` and `.devcontainer/` are always refused). It creates the commit, records it, creates the branch
-  `patchy-intent/<intent>` once without forcing, and opens the pull request. When the pull request merges, it closes
+  `.maul/` and `.devcontainer/` are always refused). It creates the commit, records it, creates the branch
+  `maul-intent/<intent>` once without forcing, and opens the pull request. When the pull request merges, it closes
   the issue itself.
 - **Several repositories** (`--intent-multi-repo`, off by default). A Project may list up to eight application
   repositories. One plan Job reads every one of them, read-only on the default image: the first is its working tree,
   the others digest-pinned trees beside it, each tree's commit and digest recorded on the run. The approver approves
   that one plan. Each repository it names gets its own build, in that repository's own image, handed the same approved
   plan, the builds running side by side up to the run pool's slots. The pull requests open only once every build has
-  pushed, one per repository on `patchy-intent/<intent>`, each linking the others in a comment. Revise and CI-fix
+  pushed, one per repository on `maul-intent/<intent>`, each linking the others in a comment. Revise and CI-fix
   rounds run one at a time per intent, each on one pull request's repository. The intent is `Merged` only when every
   pull request has merged; if one closes unmerged, it ends `Closed` once all have settled, with a notice of what merged.
   With the flag off, such a Project is not Ready and its intents are held `Blocked`, so turning it off is a rollback.
@@ -221,7 +221,7 @@ repositories per project.
   calls a sibling's API from the browser, on the same host. A `Preview`'s spec is intent-controller's to write, from
   operator configuration and recorded heads only, and its status preview-controller's.
 - **State.** Three kinds, with local phase enums outside the Finding transition table:
-  - `Project`: operator configuration, written through patchy-config and admin-only in RBAC.
+  - `Project`: operator configuration, written through maul-config and admin-only in RBAC.
   - `Intent`: one per issue.
   - `IntentRun`: one immutable attempt of one stage, whose create is the lease.
 

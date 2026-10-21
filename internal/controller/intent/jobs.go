@@ -11,13 +11,13 @@ import (
 
 	"k8s.io/client-go/kubernetes"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/jobs"
 )
 
 // JobRunner is the jobs surface the run scheduler needs. Create takes the
 // run's stage configuration: each intent stage reads its Finding
-// counterpart's PATCHY_* keys, and only turns and tokens have a per-Job
+// counterpart's MAUL_* keys, and only turns and tokens have a per-Job
 // channel, so the stage's wall clock and ceilings reach the pod through the
 // Env of a jobs Client built for that one launch.
 type JobRunner interface {
@@ -58,7 +58,7 @@ func (l *jobLauncher) Create(ctx context.Context, spec jobs.Spec, env map[string
 // investigate stage's keys: its wall clock, its idle limit and its ceilings
 // (the grant rides the per-Job channel and may only lower them). It also
 // states the most its build can be granted, which agent-runner reads from the
-// build stage's own ceiling, PATCHY_REMEDIATE_MANUAL_*: set to the grant the
+// build stage's own ceiling, MAUL_REMEDIATE_MANUAL_*: set to the grant the
 // Project's build receives, with the automated budget no higher, as
 // agent-runner requires. A build run reads the remediate stage's keys: its
 // wall clock, its idle limit, and its manual ceiling (the automated budget,
@@ -68,14 +68,14 @@ func stageEnv(stage v1alpha1.IntentStage, s Settings, build v1alpha1.IntentRunGr
 	n := func(v int64) string { return strconv.FormatInt(v, 10) }
 	if stage == v1alpha1.IntentStagePlan {
 		return map[string]string{
-			"PATCHY_INVESTIGATE_TIMEOUT":           s.Plan.Timeout.String(),
-			"PATCHY_INVESTIGATE_IDLE_TIMEOUT":      s.Plan.IdleTimeout.String(),
-			"PATCHY_INVESTIGATE_MAX_TURNS":         n(int64(s.Plan.MaxTurns)),
-			"PATCHY_INVESTIGATE_TOKEN_BUDGET":      n(s.Plan.TokenBudget),
-			"PATCHY_REMEDIATE_MANUAL_MAX_TURNS":    n(int64(build.MaxTurns)),
-			"PATCHY_REMEDIATE_MANUAL_TOKEN_BUDGET": n(build.TokenBudget),
-			"PATCHY_REMEDIATE_AUTO_MAX_TURNS":      n(int64(build.MaxTurns)),
-			"PATCHY_REMEDIATE_AUTO_TOKEN_BUDGET":   n(build.TokenBudget),
+			"MAUL_INVESTIGATE_TIMEOUT":           s.Plan.Timeout.String(),
+			"MAUL_INVESTIGATE_IDLE_TIMEOUT":      s.Plan.IdleTimeout.String(),
+			"MAUL_INVESTIGATE_MAX_TURNS":         n(int64(s.Plan.MaxTurns)),
+			"MAUL_INVESTIGATE_TOKEN_BUDGET":      n(s.Plan.TokenBudget),
+			"MAUL_REMEDIATE_MANUAL_MAX_TURNS":    n(int64(build.MaxTurns)),
+			"MAUL_REMEDIATE_MANUAL_TOKEN_BUDGET": n(build.TokenBudget),
+			"MAUL_REMEDIATE_AUTO_MAX_TURNS":      n(int64(build.MaxTurns)),
+			"MAUL_REMEDIATE_AUTO_TOKEN_BUDGET":   n(build.TokenBudget),
 		}
 	}
 	ceiling := s.Build
@@ -83,21 +83,21 @@ func stageEnv(stage v1alpha1.IntentStage, s Settings, build v1alpha1.IntentRunGr
 		ceiling = s.Revise
 	}
 	return map[string]string{
-		"PATCHY_REMEDIATE_TIMEOUT":             ceiling.Timeout.String(),
-		"PATCHY_REMEDIATE_IDLE_TIMEOUT":        ceiling.IdleTimeout.String(),
-		"PATCHY_REMEDIATE_MANUAL_MAX_TURNS":    n(int64(ceiling.MaxTurns)),
-		"PATCHY_REMEDIATE_MANUAL_TOKEN_BUDGET": n(ceiling.TokenBudget),
-		"PATCHY_REMEDIATE_AUTO_MAX_TURNS":      n(int64(ceiling.MaxTurns)),
-		"PATCHY_REMEDIATE_AUTO_TOKEN_BUDGET":   n(ceiling.TokenBudget),
+		"MAUL_REMEDIATE_TIMEOUT":             ceiling.Timeout.String(),
+		"MAUL_REMEDIATE_IDLE_TIMEOUT":        ceiling.IdleTimeout.String(),
+		"MAUL_REMEDIATE_MANUAL_MAX_TURNS":    n(int64(ceiling.MaxTurns)),
+		"MAUL_REMEDIATE_MANUAL_TOKEN_BUDGET": n(ceiling.TokenBudget),
+		"MAUL_REMEDIATE_AUTO_MAX_TURNS":      n(int64(ceiling.MaxTurns)),
+		"MAUL_REMEDIATE_AUTO_TOKEN_BUDGET":   n(ceiling.TokenBudget),
 	}
 }
 
-// stageTimeoutKey is the PATCHY_* key carrying stage's wall clock to
+// stageTimeoutKey is the MAUL_* key carrying stage's wall clock to
 // agent-runner: a plan reads the investigate stage's, every other stage the
 // remediate stage's.
 func stageTimeoutKey(stage v1alpha1.IntentStage) string {
 	if stage == v1alpha1.IntentStagePlan {
-		return "PATCHY_INVESTIGATE_TIMEOUT"
+		return "MAUL_INVESTIGATE_TIMEOUT"
 	}
-	return "PATCHY_REMEDIATE_TIMEOUT"
+	return "MAUL_REMEDIATE_TIMEOUT"
 }

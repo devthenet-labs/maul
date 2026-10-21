@@ -9,9 +9,9 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/bitwise-media-group/patchy/internal/gcpasset"
-	"github.com/bitwise-media-group/patchy/pkg/enhance"
-	"github.com/bitwise-media-group/patchy/pkg/source"
+	"github.com/devthenet-labs/maul/internal/gcpasset"
+	"github.com/devthenet-labs/maul/pkg/enhance"
+	"github.com/devthenet-labs/maul/pkg/source"
 )
 
 // fakeAssets stands in for Cloud Asset Inventory.

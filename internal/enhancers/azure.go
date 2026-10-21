@@ -7,8 +7,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/bitwise-media-group/patchy/internal/azureinv"
-	"github.com/bitwise-media-group/patchy/pkg/enhance"
+	"github.com/devthenet-labs/maul/internal/azureinv"
+	"github.com/devthenet-labs/maul/pkg/enhance"
 )
 
 // AzureTagsID is the enhancer's id.

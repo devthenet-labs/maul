@@ -108,7 +108,7 @@ func (s *Server) Register(redirects ...string) {
 }
 
 // LoginPage is the page /auth answers a bare authorization request with
-// (one with neither PKCE nor a nonce, as patchy check previews sends to
+// (one with neither PKCE nor a nonce, as maul check previews sends to
 // learn whether Dex knows the client and redirect URI): Dex would show its
 // login page there rather than sign anyone in.
 const LoginPage = "Log in to fakedex"

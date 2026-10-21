@@ -20,8 +20,8 @@ import (
 )
 
 // The chart renders egressProxy.registries into the JSON ParseRegistries
-// reads, and its values.schema.json and render guards (patchy.egressProxyGuard
-// and patchy.egressRegistriesGuard) judge each registry and grant before the
+// reads, and its values.schema.json and render guards (maul.egressProxyGuard
+// and maul.egressRegistriesGuard) judge each registry and grant before the
 // proxy sees them. These tests keep the chart's copies of the rules in step
 // with this package's: the schema's bounds and patterns, the deny table the
 // guards spell out as literal lists, and the deny helpers' verdicts.
@@ -283,7 +283,7 @@ func TestChartRegistrySchemaMatchesValidator(t *testing.T) {
 			name:     "codeartifact domain",
 			schema:   ca.Properties.Domain,
 			validate: func(v string) bool { return codeArtifactValid(v, "377946145366", "us-east-1") },
-			fixed: []string{"", "a", "ab", "patchy-gate", "Patchy", "1ab", "ab-", strings.Repeat("a", 50),
+			fixed: []string{"", "a", "ab", "patchy-gate", "Maul", "1ab", "ab-", strings.Repeat("a", 50),
 				strings.Repeat("a", 51)},
 			gen: chartString{alphabet: "az09-A", maxLen: 54},
 		},
@@ -391,8 +391,8 @@ func chartHelper(t *testing.T, name string) string {
 }
 
 // TestDeniedHostMatchesChart: the deny table the chart's guards spell out
-// is this package's, list for list, and the chart's patchy.egressDeniedHost
-// and patchy.egressDeniedPattern reach the same verdict as DeniedHost and
+// is this package's, list for list, and the chart's maul.egressDeniedHost
+// and maul.egressDeniedPattern reach the same verdict as DeniedHost and
 // DeniedPattern over a seeded corpus of hosts and patterns built from the
 // table's own labels (run through helm on a scratch chart holding the real
 // _helpers.tpl, so the template code itself is what is judged).
@@ -405,13 +405,13 @@ func TestDeniedHostMatchesChart(t *testing.T) {
 		helper string
 		want   []string
 	}{
-		{"patchy.egressDeniedForgeHosts", ForgeHosts},
-		{"patchy.egressDeniedModelHosts", ModelAPIHosts},
-		{"patchy.egressDeniedClusterHosts", clusterHosts},
-		{"patchy.egressClusterSuffixes", clusterSuffixes},
-		{"patchy.egressTooWideSuffixes", TooWideSuffixes},
-		{"patchy.egressAlwaysDeniedCIDRs", prefixes},
-		{"patchy.egressMinPatternLabels", []string{strconv.Itoa(MinPatternLabels)}},
+		{"maul.egressDeniedForgeHosts", ForgeHosts},
+		{"maul.egressDeniedModelHosts", ModelAPIHosts},
+		{"maul.egressDeniedClusterHosts", clusterHosts},
+		{"maul.egressClusterSuffixes", clusterSuffixes},
+		{"maul.egressTooWideSuffixes", TooWideSuffixes},
+		{"maul.egressAlwaysDeniedCIDRs", prefixes},
+		{"maul.egressMinPatternLabels", []string{strconv.Itoa(MinPatternLabels)}},
 	} {
 		if got := strings.Fields(chartHelper(t, c.helper)); !reflect.DeepEqual(got, c.want) {
 			t.Errorf("%s = %v, want %v", c.helper, got, c.want)
@@ -547,7 +547,7 @@ data:
         {{- range $i, $c := .Values.cases }}
         {{- $ctx := dict "host" $c.host "internal" $c.internal "cidrs" ($c.cidrs | default list) }}
         {{- $_ := set $ctx "extra" $.Values.extra }}
-        {{- $helper := ternary "patchy.egressDeniedPattern" "patchy.egressDeniedHost" (eq $c.pattern true) }}
+        {{- $helper := ternary "maul.egressDeniedPattern" "maul.egressDeniedHost" (eq $c.pattern true) }}
         {{ $i }}|{{ include $helper $ctx }}
         {{- end }}
 `

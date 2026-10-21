@@ -8,14 +8,14 @@
 // The pieces, in the order resolution applies them:
 //
 //   - ReadFiles walks a pinned tree's tar.gz stream and returns the two
-//     declaration files it honours, .patchy/agent.yaml and
+//     declaration files it honours, .maul/agent.yaml and
 //     .devcontainer/devcontainer.json, each capped at MaxDeclarationBytes.
 //   - Declare applies precedence. Its result type keeps the outcomes apart:
 //     a Declaration with OutcomeDeclared names the image to resolve,
 //     OutcomeNotApplicable means a devcontainer.json was present but not
-//     written for patchy (build-based, features, no usable image, unparseable)
+//     written for maul (build-based, features, no usable image, unparseable)
 //     so the default image is used and the reason is informational, and
-//     OutcomeNone means neither file exists. Only an explicit .patchy/agent.yaml
+//     OutcomeNone means neither file exists. Only an explicit .maul/agent.yaml
 //     that fails validation is a *Rejection error, the one outcome operator
 //     policy (onReject) acts on.
 //   - ParseDeclared normalizes a declared reference and enforces the strict

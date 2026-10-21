@@ -1,7 +1,7 @@
-<!-- patchy:notice patchy/marigold-3 untracked -->
-### patchy: no longer tracked
+<!-- maul:notice maul/marigold-3 untracked -->
+### maul: no longer tracked
 
-The intent this pull request was opened for was closed before patchy had opened a pull request in every repository its approved plan changes. This pull request is therefore not part of a completed change, and patchy no longer reviews, revises or merges anything for it. Merging it on its own lands only part of the change: close it unless that is what you want.
+The intent this pull request was opened for was closed before maul had opened a pull request in every repository its approved plan changes. This pull request is therefore not part of a completed change, and maul no longer reviews, revises or merges anything for it. Merging it on its own lands only part of the change: close it unless that is what you want.
 
 **Opened for the intent:**
 

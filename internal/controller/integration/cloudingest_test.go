@@ -6,8 +6,8 @@ package integration
 import (
 	"testing"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/pkg/source"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/pkg/source"
 )
 
 // TestKeyHashIsStableForRepositoryFindings pins the accumulation key against

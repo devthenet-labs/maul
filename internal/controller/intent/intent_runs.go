@@ -15,11 +15,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/agentresult"
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/runnerguard"
-	"github.com/bitwise-media-group/patchy/internal/usagerollup"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/agentresult"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/runnerguard"
+	"github.com/devthenet-labs/maul/internal/usagerollup"
 )
 
 // The outcomes the controller records on a run beside the envelope's own.
@@ -304,8 +304,8 @@ func (p *pass) blockOnBranch(ctx context.Context, round int32, repo v1alpha1.Pro
 			slog.String("commit", sha), slog.String("run", stale.Name))
 		return true, p.block(ctx, v1alpha1.ConditionBranchConflict, ReasonStaleRoundBranch,
 			fmt.Sprintf("the branch %s already exists in %s at %s, which run %s of an earlier round of this "+
-				"intent pushed; patchy never moves it, and builds nothing while it stands. The branch is "+
-				"patchy's own, so deleting it is safe. Delete it to resume.", branch, repoSlug(repo.URL), sha,
+				"intent pushed; maul never moves it, and builds nothing while it stands. The branch is "+
+				"maul's own, so deleting it is safe. Delete it to resume.", branch, repoSlug(repo.URL), sha,
 				stale.Name))
 	}
 	p.r.log().LogAttrs(ctx, slog.LevelWarn, "the intent branch exists at a commit this intent did not push",
@@ -313,7 +313,7 @@ func (p *pass) blockOnBranch(ctx context.Context, round int32, repo v1alpha1.Pro
 		slog.String("commit", sha))
 	return true, p.block(ctx, v1alpha1.ConditionBranchConflict, ReasonBranchExists,
 		fmt.Sprintf("the branch %s already exists in %s at %s, a commit this intent did not push (an earlier "+
-			"intent under this name, or someone else, made it); patchy never moves it, and builds nothing "+
+			"intent under this name, or someone else, made it); maul never moves it, and builds nothing "+
 			"while it stands. Delete the branch to resume.", branch, repoSlug(repo.URL), sha))
 }
 
@@ -415,7 +415,7 @@ func (p *pass) projectRepository(url string) (v1alpha1.ProjectRepository, bool) 
 	return v1alpha1.ProjectRepository{}, false
 }
 
-// leftProject reports a repository the Project no longer holds. patchy
+// leftProject reports a repository the Project no longer holds. maul
 // writes nothing more to one: no push, no round notice, no untracked notice.
 func (p *pass) leftProject(url string) bool {
 	_, ok := p.projectRepository(url)

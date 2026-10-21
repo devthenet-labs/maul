@@ -10,13 +10,13 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/attribution"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/stats"
-	"github.com/bitwise-media-group/patchy/internal/usagemeter"
-	"github.com/bitwise-media-group/patchy/internal/usagemeter/usagemetertest"
-	"github.com/bitwise-media-group/patchy/internal/usagerollup"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/attribution"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/stats"
+	"github.com/devthenet-labs/maul/internal/usagemeter"
+	"github.com/devthenet-labs/maul/internal/usagemeter/usagemetertest"
+	"github.com/devthenet-labs/maul/internal/usagerollup"
 )
 
 // settledInvestigation is a finished investigation whose pod reported its
@@ -33,7 +33,7 @@ func settledInvestigation(jobCreated time.Time) (*fakeRunner, *v1alpha1.Finding,
 func reconcileInvestigation(t *testing.T, r *InvestigationReconciler) ctrl.Result {
 	t.Helper()
 	res, err := r.Reconcile(t.Context(), ctrl.Request{
-		NamespacedName: types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1-inv-1"},
+		NamespacedName: types.NamespacedName{Namespace: "maul", Name: "finding-aa-1-inv-1"},
 	})
 	if err != nil {
 		t.Fatalf("Reconcile: %v", err)
@@ -95,7 +95,7 @@ func TestMeasureSettledInvestigation(t *testing.T) {
 				t.Errorf("broker asked %d times, want %d", got, tc.wantAsked)
 			}
 			var got v1alpha1.Investigation
-			if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: inv.Name}, &got); err != nil {
+			if err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: inv.Name}, &got); err != nil {
 				t.Fatal(err)
 			}
 			u := got.Status.Stage.Usage
@@ -155,8 +155,8 @@ func TestMeasureDeletedInvestigation(t *testing.T) {
 			}
 			broker.Set("job-1", usagemetertest.Answer("job-1", before, seen, inflight, usagemetertest.Sonnet(400)))
 			r.Meter = meter
-			r.Usage = usagerollup.New(c, c, "patchy", true, nil)
-			key := types.NamespacedName{Namespace: "patchy", Name: inv.Name}
+			r.Usage = usagerollup.New(c, c, "maul", true, nil)
+			key := types.NamespacedName{Namespace: "maul", Name: inv.Name}
 			var cur v1alpha1.Investigation
 			if err := c.Get(t.Context(), key, &cur); err != nil {
 				t.Fatal(err)
@@ -181,7 +181,7 @@ func TestMeasureDeletedInvestigation(t *testing.T) {
 				t.Errorf("the deleted run is still held: finalizers %v", cur.Finalizers)
 			}
 			var rollup v1alpha1.UsageRollup
-			if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy",
+			if err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul",
 				Name: stats.UsageObjectName(v1alpha1.UsageScope{Type: v1alpha1.UsageScopeUser, User: "org"})},
 				&rollup); err != nil {
 				t.Fatalf("org rollup: %v", err)

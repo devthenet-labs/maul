@@ -24,7 +24,7 @@ const DefaultTimeout = 20 * time.Second
 
 // TimeoutEnv names the environment variable the prepare init container
 // reads the retry window from, as a Go duration; unset means DefaultTimeout.
-const TimeoutEnv = "PATCHY_SANDBOX_PROBE_TIMEOUT"
+const TimeoutEnv = "MAUL_SANDBOX_PROBE_TIMEOUT"
 
 // Per-attempt bounds: one TCP connect is given dialTimeout, and rounds are
 // retried every retryInterval. Enforcement is concluded only after

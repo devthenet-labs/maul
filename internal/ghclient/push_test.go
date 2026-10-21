@@ -29,7 +29,7 @@ func TestHeadSHA(t *testing.T) {
 // pushRequest is a scripted PushBranch fixture: binary-ish content, an
 // executable, and a deletion, on top of base000.
 var pushRequest = BranchPush{
-	Branch: "patchy/issue-9",
+	Branch: "maul/issue-9",
 	CommitRequest: CommitRequest{
 		BaseSHA: "base000",
 		Message: "fix(security): escape sink",
@@ -89,7 +89,7 @@ func pushFake(t *testing.T, mux *http.ServeMux) (calls *[]string, trees *[]map[s
 	mux.HandleFunc("POST /repos/o/r/git/refs", func(w http.ResponseWriter, r *http.Request) {
 		order = append(order, "create-ref")
 		refBodies = append(refBodies, decodeBody[map[string]any](t, r))
-		writeJSON(t, w, `{"ref":"refs/heads/patchy/issue-9","object":{"sha":"newcommit"}}`)
+		writeJSON(t, w, `{"ref":"refs/heads/maul/issue-9","object":{"sha":"newcommit"}}`)
 	})
 	return &order, &treeBodies, &refBodies
 }
@@ -137,7 +137,7 @@ func TestPushBranch(t *testing.T) {
 	}
 
 	ref := (*refs)[0]
-	if ref["ref"] != "refs/heads/patchy/issue-9" || ref["sha"] != "newcommit" {
+	if ref["ref"] != "refs/heads/maul/issue-9" || ref["sha"] != "newcommit" {
 		t.Errorf("create-ref body = %v", ref)
 	}
 }
@@ -158,9 +158,9 @@ func TestPushBranchForceUpdatesExistingRef(t *testing.T) {
 		writeJSON(t, w, `{"message":"Reference already exists"}`)
 	})
 	var patched map[string]any
-	mux.HandleFunc("PATCH /repos/o/r/git/refs/heads/patchy/issue-9", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("PATCH /repos/o/r/git/refs/heads/maul/issue-9", func(w http.ResponseWriter, r *http.Request) {
 		patched = decodeBody[map[string]any](t, r)
-		writeJSON(t, w, `{"ref":"refs/heads/patchy/issue-9","object":{"sha":"newcommit"}}`)
+		writeJSON(t, w, `{"ref":"refs/heads/maul/issue-9","object":{"sha":"newcommit"}}`)
 	})
 
 	sha, err := c.PushBranch(context.Background(), testRepo, pushRequest)

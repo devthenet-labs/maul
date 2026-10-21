@@ -10,7 +10,7 @@ import (
 	"testing"
 	"testing/quick"
 
-	"github.com/bitwise-media-group/patchy/internal/mirror/imageref"
+	"github.com/devthenet-labs/maul/internal/mirror/imageref"
 )
 
 const hex64 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
@@ -157,7 +157,7 @@ func hexDigest(r *rand.Rand) string {
 
 var repositories = []string{
 	"ghcr.io/org/app", "docker.io/library/alpine", "localhost:5000/team/app",
-	"123456789012.dkr.ecr.us-east-1.amazonaws.com/patchy/go-agent-env", "us-docker.pkg.dev/proj/repo/img",
+	"123456789012.dkr.ecr.us-east-1.amazonaws.com/maul/go-agent-env", "us-docker.pkg.dev/proj/repo/img",
 }
 
 func TestDigestPinRoundTripProperty(t *testing.T) {

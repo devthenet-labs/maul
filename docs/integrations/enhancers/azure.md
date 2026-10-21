@@ -1,7 +1,7 @@
 # Azure resource tags
 
-Patchy has no Azure scanner source — Azure findings arrive through [Wiz](../sources/wiz.md) (or a future source). What
-the `azure` Integration provides is the [context enhancer](index.md): it looks a finding's Azure resource up in Azure
+Maul has no Azure scanner source — Azure findings arrive through [Wiz](../sources/wiz.md) (or a future source). What the
+`azure` Integration provides is the [context enhancer](index.md): it looks a finding's Azure resource up in Azure
 Resource Graph, carries its tags onto the finding, and resolves the owning repository from them. It is the Azure sibling
 of the [Cloud Asset Inventory](google-cai.md) and [AWS resource-tags](aws.md) enhancers, and like every enhancer it keys
 purely on the finding's cloud resource, not on where the finding came from.
@@ -35,11 +35,11 @@ whether or not a repository resolved.
 ## Enabling it
 
 ```yaml
-apiVersion: patchy.bitwisemedia.uk/v1alpha1
+apiVersion: maul.run/v1alpha1
 kind: Integration
 metadata:
   name: azure
-  namespace: patchy
+  namespace: maul
 spec:
   provider: azure
   azure:
@@ -80,7 +80,7 @@ enough):
   [workload identity federation](https://learn.microsoft.com/entra/workload-id/workload-identity-federation) — a
   federated credential on a Microsoft Entra app or managed identity trusting the cluster's service-account token issuer,
   and `AZURE_CLIENT_ID` + `AZURE_TENANT_ID` + `AZURE_FEDERATED_TOKEN_FILE` (a projected service-account token) on the
-  context-controller deployment. The SDK picks them up without patchy configuration.
+  context-controller deployment. The SDK picks them up without maul configuration.
 
 ## When no repository resolves
 

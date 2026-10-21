@@ -16,7 +16,7 @@ import (
 	"testing/quick"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/sealed"
+	"github.com/devthenet-labs/maul/internal/sealed"
 )
 
 // sampleTokens seals one valid token of every kind under r at t0.

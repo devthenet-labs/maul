@@ -17,9 +17,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/pkg/source"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/pkg/source"
 )
 
 func TestPendingBackfill(t *testing.T) {
@@ -105,7 +105,7 @@ func newBackfillReconciler(
 ) (*IntegrationReconciler, client.Client) {
 	t.Helper()
 	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "creds", Namespace: "patchy"},
+		ObjectMeta: metav1.ObjectMeta{Name: "creds", Namespace: "maul"},
 		Data: map[string][]byte{
 			"token":         []byte("pat-token"),
 			"webhookSecret": []byte("hmac"),
@@ -121,7 +121,7 @@ func newBackfillReconciler(
 		Client: c,
 		Creds:  NewCreds(c),
 		Now:    func() time.Time { return testClock },
-		Ingest: &Ingestor{Client: c, Namespace: "patchy", Window: time.Hour},
+		Ingest: &Ingestor{Client: c, Namespace: "maul", Window: time.Hour},
 		ListerFor: func(context.Context, *v1alpha1.Integration) (source.Lister, bool, error) {
 			if !listerOK {
 				return nil, false, nil
@@ -140,7 +140,7 @@ func backfillIntegration(at metav1.Time, repos ...string) *v1alpha1.Integration 
 
 func reconcileIntegration(t *testing.T, r *IntegrationReconciler) v1alpha1.Integration {
 	t.Helper()
-	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "patchy", Name: "gh"}}
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "maul", Name: "gh"}}
 	if _, err := r.Reconcile(t.Context(), req); err != nil {
 		t.Fatalf("Reconcile() error = %v", err)
 	}

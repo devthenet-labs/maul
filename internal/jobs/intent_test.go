@@ -12,7 +12,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 // TestNameForKinds pins the Job name of each kind for one owner: the Finding
@@ -23,9 +23,9 @@ func TestNameForKinds(t *testing.T) {
 		kind string
 		want string
 	}{
-		{"investigation", "patchy-f41d59eea6-inv-a1"},
-		{"remediation", "patchy-f41d59eea6-rem-a1"},
-		{"intent", "patchy-f41d59eea6-int-a1"},
+		{"investigation", "maul-f41d59eea6-inv-a1"},
+		{"remediation", "maul-f41d59eea6-rem-a1"},
+		{"intent", "maul-f41d59eea6-int-a1"},
 	}
 	for _, tt := range tests {
 		if got := NameFor("finding-abc123def0-1", tt.kind, 1); got != tt.want {
@@ -45,10 +45,10 @@ func TestStageEnvNames(t *testing.T) {
 		phase              string
 		wantHarness, model string
 	}{
-		{"investigate", "PATCHY_INVESTIGATE_HARNESS", "PATCHY_INVESTIGATE_MODEL"},
-		{"remediate", "PATCHY_REMEDIATE_HARNESS", "PATCHY_REMEDIATE_MODEL"},
-		{"plan", "PATCHY_INVESTIGATE_HARNESS", "PATCHY_INVESTIGATE_MODEL"},
-		{"build", "PATCHY_REMEDIATE_HARNESS", "PATCHY_REMEDIATE_MODEL"},
+		{"investigate", "MAUL_INVESTIGATE_HARNESS", "MAUL_INVESTIGATE_MODEL"},
+		{"remediate", "MAUL_REMEDIATE_HARNESS", "MAUL_REMEDIATE_MODEL"},
+		{"plan", "MAUL_INVESTIGATE_HARNESS", "MAUL_INVESTIGATE_MODEL"},
+		{"build", "MAUL_REMEDIATE_HARNESS", "MAUL_REMEDIATE_MODEL"},
 	}
 	for _, tt := range tests {
 		h, m := stageEnvNames(tt.phase)
@@ -71,12 +71,12 @@ func container(t *testing.T, job *batchv1.Job, name string) corev1.Container {
 	return corev1.Container{}
 }
 
-// withoutPhase is a container env with the PATCHY_PHASE entry's value
+// withoutPhase is a container env with the MAUL_PHASE entry's value
 // blanked, so two stages' envs compare on everything else.
 func withoutPhase(env []corev1.EnvVar) []corev1.EnvVar {
 	out := slices.Clone(env)
 	for i := range out {
-		if out[i].Name == "PATCHY_PHASE" {
+		if out[i].Name == "MAUL_PHASE" {
 			out[i].Value = ""
 		}
 	}
@@ -87,7 +87,7 @@ func withoutPhase(env []corev1.EnvVar) []corev1.EnvVar {
 // exactly as their Finding counterparts do: a plan Job is an investigation
 // Job and a build Job a remediation Job — same prepare container and
 // script, same agent command, same env in the same order, the same blanks on
-// a repository image — but for PATCHY_PHASE, the kind label and the -int-
+// a repository image — but for MAUL_PHASE, the kind label and the -int-
 // name. With the goldens pinning the Finding Jobs themselves, nothing a
 // Finding Job carries moved to make room for them.
 func TestIntentJobsReuseFindingStages(t *testing.T) {
@@ -130,8 +130,8 @@ func TestIntentJobsReuseFindingStages(t *testing.T) {
 				if got := intentJob.Labels[v1alpha1.LabelRunKind]; got != "intent" {
 					t.Errorf("run-kind label = %q, want intent", got)
 				}
-				if got := envMap(container(t, intentJob, agentContainerName))["PATCHY_PHASE"].Value; got != st.intent {
-					t.Errorf("PATCHY_PHASE = %q, want %q", got, st.intent)
+				if got := envMap(container(t, intentJob, agentContainerName))["MAUL_PHASE"].Value; got != st.intent {
+					t.Errorf("MAUL_PHASE = %q, want %q", got, st.intent)
 				}
 
 				// Everything else is the Finding stage's.
@@ -142,7 +142,7 @@ func TestIntentJobsReuseFindingStages(t *testing.T) {
 				agent, findingAgent := container(t, intentJob, agentContainerName),
 					container(t, findingJob, agentContainerName)
 				if !reflect.DeepEqual(withoutPhase(agent.Env), withoutPhase(findingAgent.Env)) {
-					t.Errorf("agent env differs beyond PATCHY_PHASE:\n%s\nvs the %s stage's\n%s",
+					t.Errorf("agent env differs beyond MAUL_PHASE:\n%s\nvs the %s stage's\n%s",
 						marshal(t, agent.Env), st.finding, marshal(t, findingAgent.Env))
 				}
 				agent.Env, findingAgent.Env = nil, nil

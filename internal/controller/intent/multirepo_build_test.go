@@ -15,10 +15,10 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/templates"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // buildsIn are the Intent's build runs in repoURL, by name.
@@ -61,7 +61,7 @@ func buildJob(key string) string {
 func TestMultiRepoBuildFanOut(t *testing.T) {
 	e := newMultiEnv(t)
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	checkFanOut(t, e, name)
 	driveFanOutToReview(t, e, name)
 	checkFanOutRecords(t, e, name)
@@ -178,7 +178,7 @@ func checkFanOutWrites(t *testing.T, e *env, name string) {
 			t.Errorf("pull request %d body does not span both repositories:\n%s", n, body)
 		}
 	}
-	if st := e.gh.withMarker("patchy:intent"); len(st) != 1 || !strings.Contains(st[0].Body, webSlug) {
+	if st := e.gh.withMarker("maul:intent"); len(st) != 1 || !strings.Contains(st[0].Body, webSlug) {
 		t.Errorf("the status comment does not name the repositories: %+v", st)
 	}
 }
@@ -209,7 +209,7 @@ func checkSiblingsLinked(t *testing.T, e *env, name string) {
 func (e *env) inReviewMulti() string {
 	e.t.Helper()
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	e.drive(name, v1alpha1.IntentInReview, repoImage)
 	return name
 }
@@ -283,7 +283,7 @@ func TestSiblingRefusalNeverHoldsReview(t *testing.T) {
 		t.Fatal("the refused comment was tried again with nothing changed")
 	}
 	p := e.getProject()
-	p.Spec.Labels.Approve = "patchy:go"
+	p.Spec.Labels.Approve = "maul:go"
 	p.Generation++
 	if err := e.c.Update(context.Background(), p); err != nil {
 		t.Fatal(err)
@@ -312,7 +312,7 @@ func TestRepositoryAttemptsSpentFailsTheIntent(t *testing.T) {
 	}
 	e.jobs.status[buildJob("app")] = jobs.Status{}
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	e.drive(name, v1alpha1.IntentFailed, repoImage)
 	e.runRuns()
 	web := e.buildsIn(name, webRepoURL)
@@ -333,7 +333,7 @@ func TestRepositoryAttemptsSpentFailsTheIntent(t *testing.T) {
 
 // TestStaleRoundBranchBlocksBeforeAnyBuild: a revived intent's new round
 // meets the branch an earlier round pushed in one repository (its sibling
-// failed, so it never got a pull request). The branch is patchy's own but not
+// failed, so it never got a pull request). The branch is maul's own but not
 // this round's: the intent blocks on it, naming the repository and the run
 // that pushed it, before any build of the new round is created, and builds
 // once the branch is deleted.
@@ -346,7 +346,7 @@ func TestStaleRoundBranchBlocksBeforeAnyBuild(t *testing.T) {
 		return multiOutput(spec)
 	}
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	e.drive(name, v1alpha1.IntentFailed, repoImage)
 	app := e.buildsIn(name, appRepoURL)
 	if len(app) != 1 || app[0].Status.PushedCommit == "" {
@@ -356,11 +356,11 @@ func TestStaleRoundBranchBlocksBeforeAnyBuild(t *testing.T) {
 
 	e.jobs.output = multiOutput
 	e.clock.Advance(time.Minute)
-	e.gh.label(1, "patchy:target", approver)
+	e.gh.label(1, "maul:target", approver)
 	e.reconcileProject()
 	e.drive(name, v1alpha1.IntentAwaitingApproval, repoImage)
 	e.clock.Advance(time.Minute)
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentBlocked, repoImage)
 	c := meta.FindStatusCondition(in.Status.Conditions, v1alpha1.ConditionBranchConflict)
 	if c == nil || c.Reason != ReasonStaleRoundBranch || !strings.Contains(c.Message, "acme/app") ||
@@ -400,7 +400,7 @@ func TestImageBlockNamesItsRepository(t *testing.T) {
 		return repoImage
 	}
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.driveEach(name, v1alpha1.IntentBlocked, imageOf)
 	c := meta.FindStatusCondition(in.Status.Conditions, v1alpha1.ConditionImageRequired)
 	if c == nil || c.Reason != ReasonNoRepositoryImage || !strings.Contains(c.Message, "in "+webSlug) {
@@ -419,7 +419,7 @@ func TestImageBlockNamesItsRepository(t *testing.T) {
 
 	webImage = true
 	p := e.getProject()
-	p.Spec.Labels.Approve = "patchy:go"
+	p.Spec.Labels.Approve = "maul:go"
 	p.Generation++
 	if err := e.c.Update(context.Background(), p); err != nil {
 		t.Fatal(err)
@@ -442,7 +442,7 @@ func TestActiveRunIsSticky(t *testing.T) {
 	e.jobs.status[buildJob("app")] = jobs.Status{}
 	e.jobs.status[buildJob("web")] = jobs.Status{}
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	for range 10 {
 		e.mustIntent(name)
 		e.readyRepositories(repoImage)
@@ -529,7 +529,7 @@ Three repositories.
 				return defaultOutput(spec)
 			}
 			name := e.awaiting()
-			e.gh.label(1, "patchy:approved", approver)
+			e.gh.label(1, "maul:approved", approver)
 			ctx := context.Background()
 			ended := false
 			for step := 0; step < 1500 && !ended; step++ {

@@ -11,8 +11,8 @@ import (
 
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/sandboxprobe"
+	"github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/sandboxprobe"
 )
 
 // probeLine is the last line of a prepare script: the probe invocation

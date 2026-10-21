@@ -1,5 +1,5 @@
 ---
-# Source: patchy/templates/status-server.yaml
+# Source: maul/templates/status-server.yaml
 # Ingress: 8080 from anywhere (the fronting ingress/gateway lives wherever
 # yours does; session authentication and the public-rollups-only unconfigured
 # posture carry the access control) plus 8081 probes. Egress: DNS, the
@@ -8,22 +8,22 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-    name: patchy-status-server
-    namespace: patchy
+    name: maul-status-server
+    namespace: maul
     labels:
         app: status-server
-        helm.sh/chart: patchy-VERSION
+        helm.sh/chart: maul-VERSION
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/version: "VERSION"
         app.kubernetes.io/name: status-server
-        app.kubernetes.io/instance: patchy
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/instance: maul
+        app.kubernetes.io/part-of: maul
 spec:
     podSelector:
         matchLabels:
             app.kubernetes.io/name: status-server
-            app.kubernetes.io/instance: patchy
-            app.kubernetes.io/part-of: patchy
+            app.kubernetes.io/instance: maul
+            app.kubernetes.io/part-of: maul
     policyTypes: [Ingress, Egress]
     ingress:
         - ports:
@@ -47,86 +47,86 @@ spec:
               - protocol: TCP
                 port: 6443
 ---
-# Source: patchy/templates/status-server.yaml
+# Source: maul/templates/status-server.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-    name: patchy-status-server
-    namespace: patchy
+    name: maul-status-server
+    namespace: maul
     labels:
         app: status-server
-        helm.sh/chart: patchy-VERSION
+        helm.sh/chart: maul-VERSION
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/version: "VERSION"
         app.kubernetes.io/name: status-server
-        app.kubernetes.io/instance: patchy
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/instance: maul
+        app.kubernetes.io/part-of: maul
 ---
-# Source: patchy/templates/status-server.yaml
+# Source: maul/templates/status-server.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
-    name: patchy-status-server-config
-    namespace: patchy
+    name: maul-status-server-config
+    namespace: maul
     labels:
         app: status-server
-        helm.sh/chart: patchy-VERSION
+        helm.sh/chart: maul-VERSION
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/version: "VERSION"
         app.kubernetes.io/name: status-server
-        app.kubernetes.io/instance: patchy
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/instance: maul
+        app.kubernetes.io/part-of: maul
 data:
-    PATCHY_AGENT_NAMESPACE: "patchy-agents"
-    PATCHY_AUTH_CONFIG: "/etc/patchy/auth/config.yaml"
-    PATCHY_HEALTH_ADDR: ":8081"
-    PATCHY_LISTEN_ADDR: ":8080"
-    PATCHY_LOG_LEVEL: "warn"
+    MAUL_AGENT_NAMESPACE: "maul-agents"
+    MAUL_AUTH_CONFIG: "/etc/maul/auth/config.yaml"
+    MAUL_HEALTH_ADDR: ":8081"
+    MAUL_LISTEN_ADDR: ":8080"
+    MAUL_LOG_LEVEL: "warn"
 ---
-# Source: patchy/templates/status-server.yaml
+# Source: maul/templates/status-server.yaml
 # SubjectAccessReview is cluster-scoped, so this one grant needs a
 # ClusterRole. Review-only: the power to ask "may user U approve findings?",
 # not to act.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-    name: patchy-status-server-authz
+    name: maul-status-server-authz
     labels:
         app: status-server
-        helm.sh/chart: patchy-VERSION
+        helm.sh/chart: maul-VERSION
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/version: "VERSION"
         app.kubernetes.io/name: status-server
-        app.kubernetes.io/instance: patchy
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/instance: maul
+        app.kubernetes.io/part-of: maul
 rules:
     - apiGroups: [authorization.k8s.io]
       resources: [subjectaccessreviews]
       verbs: [create]
 ---
-# Source: patchy/templates/status-server.yaml
+# Source: maul/templates/status-server.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-    name: patchy-status-server-authz
+    name: maul-status-server-authz
     labels:
         app: status-server
-        helm.sh/chart: patchy-VERSION
+        helm.sh/chart: maul-VERSION
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/version: "VERSION"
         app.kubernetes.io/name: status-server
-        app.kubernetes.io/instance: patchy
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/instance: maul
+        app.kubernetes.io/part-of: maul
 roleRef:
     apiGroup: rbac.authorization.k8s.io
     kind: ClusterRole
-    name: patchy-status-server-authz
+    name: maul-status-server-authz
 subjects:
     - kind: ServiceAccount
-      name: patchy-status-server
-      namespace: patchy
+      name: maul-status-server
+      namespace: maul
 ---
-# Source: patchy/templates/status-server.yaml
+# Source: maul/templates/status-server.yaml
 # Reads Findings/FindingRollups for the projection; writes SPEC only
 # (approve records spec.approval, retry/expedite record spec.retry /
 # spec.expedite, suspend/resume toggle spec.suspend, replay stamps
@@ -137,37 +137,37 @@ subjects:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-    name: patchy-status-server
-    namespace: patchy
+    name: maul-status-server
+    namespace: maul
     labels:
         app: status-server
-        helm.sh/chart: patchy-VERSION
+        helm.sh/chart: maul-VERSION
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/version: "VERSION"
         app.kubernetes.io/name: status-server
-        app.kubernetes.io/instance: patchy
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/instance: maul
+        app.kubernetes.io/part-of: maul
 rules:
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [findings]
       verbs: [get, list, watch, update, patch, delete, deletecollection]
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [findingrollups]
       verbs: [get, list, watch, delete, deletecollection]
     # Read-only plus reset: the projection lifts each run's report markdown
     # from the Investigation/Remediation children (reports live on the child
     # only); repositories exist for reset alone.
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [investigations, remediations, repositories]
       verbs: [get, list, watch, delete, deletecollection]
     # Spec-only write seam for the replay and backfill actions (spec.replay,
     # spec.backfill); the cached client's informer needs list/watch.
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [integrations]
       verbs: [get, list, watch, update, patch]
     # Read-only: the configuration view projects the Forges alongside the
     # Integrations.
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [forges]
       verbs: [get, list, watch]
     # The persisted agent transcripts, read one at a time when a human opens a
@@ -178,7 +178,7 @@ rules:
       resources: [configmaps]
       verbs: [get]
 ---
-# Source: patchy/templates/status-server.yaml
+# Source: maul/templates/status-server.yaml
 # Live transcripts: the status server follows a running agent's pod log to
 # stream its conversation, through the API server — it never dials an agent
 # pod, so the agents' default-deny ingress policy is untouched. Read-only, and
@@ -186,16 +186,16 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-    name: patchy-status-server-agent-logs
-    namespace: patchy-agents
+    name: maul-status-server-agent-logs
+    namespace: maul-agents
     labels:
         app: status-server
-        helm.sh/chart: patchy-VERSION
+        helm.sh/chart: maul-VERSION
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/version: "VERSION"
         app.kubernetes.io/name: status-server
-        app.kubernetes.io/instance: patchy
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/instance: maul
+        app.kubernetes.io/part-of: maul
 rules:
     - apiGroups: [""]
       resources: [pods]
@@ -204,92 +204,92 @@ rules:
       resources: [pods/log]
       verbs: [get]
 ---
-# Source: patchy/templates/status-server.yaml
+# Source: maul/templates/status-server.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-    name: patchy-status-server-agent-logs
-    namespace: patchy-agents
+    name: maul-status-server-agent-logs
+    namespace: maul-agents
     labels:
         app: status-server
-        helm.sh/chart: patchy-VERSION
+        helm.sh/chart: maul-VERSION
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/version: "VERSION"
         app.kubernetes.io/name: status-server
-        app.kubernetes.io/instance: patchy
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/instance: maul
+        app.kubernetes.io/part-of: maul
 roleRef:
     apiGroup: rbac.authorization.k8s.io
     kind: Role
-    name: patchy-status-server-agent-logs
+    name: maul-status-server-agent-logs
 subjects:
     - kind: ServiceAccount
-      name: patchy-status-server
-      namespace: patchy
+      name: maul-status-server
+      namespace: maul
 ---
-# Source: patchy/templates/status-server.yaml
+# Source: maul/templates/status-server.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-    name: patchy-status-server
-    namespace: patchy
+    name: maul-status-server
+    namespace: maul
     labels:
         app: status-server
-        helm.sh/chart: patchy-VERSION
+        helm.sh/chart: maul-VERSION
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/version: "VERSION"
         app.kubernetes.io/name: status-server
-        app.kubernetes.io/instance: patchy
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/instance: maul
+        app.kubernetes.io/part-of: maul
 roleRef:
     apiGroup: rbac.authorization.k8s.io
     kind: Role
-    name: patchy-status-server
+    name: maul-status-server
 subjects:
     - kind: ServiceAccount
-      name: patchy-status-server
-      namespace: patchy
+      name: maul-status-server
+      namespace: maul
 ---
-# Source: patchy/templates/status-server.yaml
+# Source: maul/templates/status-server.yaml
 apiVersion: v1
 kind: Service
 metadata:
-    name: patchy-status-server
-    namespace: patchy
+    name: maul-status-server
+    namespace: maul
     labels:
         app: status-server
-        helm.sh/chart: patchy-VERSION
+        helm.sh/chart: maul-VERSION
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/version: "VERSION"
         app.kubernetes.io/name: status-server
-        app.kubernetes.io/instance: patchy
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/instance: maul
+        app.kubernetes.io/part-of: maul
 spec:
     type: ClusterIP
     selector:
         app.kubernetes.io/name: status-server
-        app.kubernetes.io/instance: patchy
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/instance: maul
+        app.kubernetes.io/part-of: maul
     ports:
         - name: http
           port: 8080
           targetPort: http
           protocol: TCP
 ---
-# Source: patchy/templates/status-server.yaml
+# Source: maul/templates/status-server.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-    name: patchy-status-server
-    namespace: patchy
+    name: maul-status-server
+    namespace: maul
     labels:
         app: status-server
-        helm.sh/chart: patchy-VERSION
+        helm.sh/chart: maul-VERSION
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/version: "VERSION"
         app.kubernetes.io/name: status-server
-        app.kubernetes.io/instance: patchy
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/instance: maul
+        app.kubernetes.io/part-of: maul
         app.kubernetes.io/component: server
 spec:
     replicas: 1
@@ -298,23 +298,23 @@ spec:
     selector:
         matchLabels:
             app.kubernetes.io/name: status-server
-            app.kubernetes.io/instance: patchy
-            app.kubernetes.io/part-of: patchy
+            app.kubernetes.io/instance: maul
+            app.kubernetes.io/part-of: maul
     template:
         metadata:
             labels:
                 app: status-server
-                helm.sh/chart: patchy-VERSION
+                helm.sh/chart: maul-VERSION
                 app.kubernetes.io/managed-by: Helm
                 app.kubernetes.io/version: "VERSION"
                 app.kubernetes.io/name: status-server
-                app.kubernetes.io/instance: patchy
-                app.kubernetes.io/part-of: patchy
+                app.kubernetes.io/instance: maul
+                app.kubernetes.io/part-of: maul
                 app.kubernetes.io/component: server
             annotations:
                 checksum/config: CHECKSUM
         spec:
-            serviceAccountName: patchy-status-server
+            serviceAccountName: maul-status-server
             securityContext:
                 runAsNonRoot: true
                 runAsUser: 65532
@@ -325,12 +325,12 @@ spec:
                     type: RuntimeDefault
             containers:
                 - name: server
-                  image: ghcr.io/devthenet-labs/patchy/status-server:vVERSION
+                  image: ghcr.io/devthenet-labs/maul/status-server:vVERSION
                   imagePullPolicy: IfNotPresent
                   args: ["serve"]
                   envFrom:
                       - configMapRef:
-                            name: patchy-status-server-config
+                            name: maul-status-server-config
                   env:
                       - name: POD_NAMESPACE
                         valueFrom:
@@ -371,7 +371,7 @@ spec:
                           type: RuntimeDefault
                   volumeMounts:
                       - name: auth
-                        mountPath: /etc/patchy/auth
+                        mountPath: /etc/maul/auth
                         readOnly: true
                       - name: tmp
                         mountPath: /tmp
@@ -380,12 +380,12 @@ spec:
                 # rollups-only posture.
                 - name: auth
                   secret:
-                      secretName: patchy-status-auth
+                      secretName: maul-status-auth
                       optional: true
                 - name: tmp
                   emptyDir: {}
 ---
-# Source: patchy/templates/status-server.yaml
+# Source: maul/templates/status-server.yaml
 # Copyright 2026 Bitwise Media Group Ltd.
 # SPDX-License-Identifier: MIT
 #

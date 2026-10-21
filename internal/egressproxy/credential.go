@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/netprofile"
 )
 
 // ErrCredentialUnavailable is a registry credential that is not there to

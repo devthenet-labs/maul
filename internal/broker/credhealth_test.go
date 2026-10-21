@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/api/v1alpha1"
+	"github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 // scriptedProbe answers each probe with the next result and records what

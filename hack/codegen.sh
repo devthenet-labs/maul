@@ -4,11 +4,11 @@
 #
 # Regenerate everything derived from api/v1alpha1: deepcopy methods and the
 # CRD manifests. CRDs land in deploy/kustomize/base/crds/ (kustomize consumes
-# them raw) and are mirrored into charts/patchy/templates/crds/ wrapped in the
+# them raw) and are mirrored into charts/maul/templates/crds/ wrapped in the
 # crds.install gate plus the keep policy (uninstall must never delete the
 # all-time FindingRollup data). Living in templates/ rather than the chart's
 # crds/ dir is deliberate: helm upgrades templates, while crds/ is
-# install-only. The patchy-config values schema is generated here too, its
+# install-only. The maul-config values schema is generated here too, its
 # Integration/Forge/Project spec schemas lifted from the CRDs. CI runs this
 # and fails on drift (git diff --exit-code).
 set -eu
@@ -27,7 +27,7 @@ for crd in deploy/kustomize/base/crds/*.yaml; do
     fi
 done
 
-helm_dir=charts/patchy/templates/crds
+helm_dir=charts/maul/templates/crds
 rm -rf "$helm_dir"
 mkdir -p "$helm_dir"
 for crd in deploy/kustomize/base/crds/*.yaml; do
@@ -54,7 +54,7 @@ for crd in deploy/kustomize/base/crds/*.yaml; do
     } >"$out"
 done
 
-# The patchy-config chart's values schema embeds the Integration/Forge/Project
+# The maul-config chart's values schema embeds the Integration/Forge/Project
 # spec schemas lifted straight from the CRDs generated above, so a mistyped entry
 # fails `helm install` client-side instead of mid-apply at the API server.
 # The CEL x-kubernetes-* keywords are stripped (they are not JSON Schema),
@@ -62,11 +62,11 @@ done
 # additionalProperties: false — the API server would silently prune unknown
 # fields; the chart rejects them. The whole file is generated: edit the
 # skeleton here, never the file.
-schema=charts/patchy-config/values.schema.json
+schema=charts/maul-config/values.schema.json
 cat >"$schema" <<'EOF'
 {
     "$schema": "http://json-schema.org/draft-07/schema#",
-    "title": "patchy-config Helm chart values",
+    "title": "maul-config Helm chart values",
     "type": "object",
     "additionalProperties": false,
     "definitions": {
@@ -129,9 +129,9 @@ EOF
 # update-assignments do not propagate into a load()ed document, so a
 # `load(...) | (.. ) = ...` pipeline would silently leave the loaded copy
 # untouched.
-INTEGRATION_CRD=deploy/kustomize/base/crds/patchy.bitwisemedia.uk_integrations.yaml \
-FORGE_CRD=deploy/kustomize/base/crds/patchy.bitwisemedia.uk_forges.yaml \
-PROJECT_CRD=deploy/kustomize/base/crds/patchy.bitwisemedia.uk_projects.yaml \
+INTEGRATION_CRD=deploy/kustomize/base/crds/maul.run_integrations.yaml \
+FORGE_CRD=deploy/kustomize/base/crds/maul.run_forges.yaml \
+PROJECT_CRD=deploy/kustomize/base/crds/maul.run_projects.yaml \
 yq -i -o=json '
     .definitions.integrationSpec = (load(strenv(INTEGRATION_CRD)) | .spec.versions[0].schema.openAPIV3Schema.properties.spec) |
     .definitions.forgeSpec = (load(strenv(FORGE_CRD)) | .spec.versions[0].schema.openAPIV3Schema.properties.spec) |

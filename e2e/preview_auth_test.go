@@ -33,23 +33,23 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/previewauth"
-	"github.com/bitwise-media-group/patchy/internal/previewauth/adapters/keydir"
-	"github.com/bitwise-media-group/patchy/internal/previewauth/fakedex"
-	"github.com/bitwise-media-group/patchy/internal/rbactest"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/previewauth"
+	"github.com/devthenet-labs/maul/internal/previewauth/adapters/keydir"
+	"github.com/devthenet-labs/maul/internal/previewauth/fakedex"
+	"github.com/devthenet-labs/maul/internal/rbactest"
 )
 
 // The installation TestPreviewSignIn renders: the relay's public issuer, the
 // preview host suffix, and the Dex client the relay signs viewers in with.
 const (
-	signInIssuer     = "https://preview-auth.patchy.example.com"
-	signInRelayHost  = "preview-auth.patchy.example.com"
-	signInSuffix     = "preview.patchy.example.com"
-	signInDexClient  = "patchy-preview-auth"
+	signInIssuer     = "https://preview-auth.maul.example.com"
+	signInRelayHost  = "preview-auth.maul.example.com"
+	signInSuffix     = "preview.maul.example.com"
+	signInDexClient  = "maul-preview-auth"
 	signInDexSecret  = "e2e-dex-secret"
-	signInLease      = "patchy-preview-auth-codes"
-	signInSecretName = "patchy-preview-oidc-g1"
+	signInLease      = "maul-preview-auth-codes"
+	signInSecretName = "maul-preview-oidc-g1"
 )
 
 // TestPreviewSignIn drives the shipped preview-auth and preview-controller
@@ -65,7 +65,7 @@ const (
 func TestPreviewSignIn(t *testing.T) {
 	cl := startCluster(t)
 	ctx := context.Background()
-	for _, name := range []string{"patchy-preview-0", "patchy-preview-1"} {
+	for _, name := range []string{"maul-preview-0", "maul-preview-1"} {
 		if err := cl.client.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name}}); err != nil {
 			t.Fatal(err)
 		}
@@ -90,7 +90,7 @@ func TestPreviewSignIn(t *testing.T) {
 
 	pinned := map[string]map[string]string{}
 	for slot := range 2 {
-		pinned[fmt.Sprintf("patchy-preview-%d", slot)] = pinnedSet(slot)
+		pinned[fmt.Sprintf("maul-preview-%d", slot)] = pinnedSet(slot)
 	}
 	pinnedJSON, err := json.Marshal(pinned)
 	if err != nil {
@@ -98,10 +98,10 @@ func TestPreviewSignIn(t *testing.T) {
 	}
 	cl.controller(t, "preview-controller",
 		"--preview-slot-count", "2",
-		"--preview-image-prefix", "registry.example/patchy/previews/",
+		"--preview-image-prefix", "registry.example/maul/previews/",
 		"--preview-host-suffix", signInSuffix,
-		"--preview-node-pool", "patchy-preview", "--preview-node-class", "patchy-preview",
-		"--preview-taint-key", "patchy.devthe.net/preview-only",
+		"--preview-node-pool", "maul-preview", "--preview-node-class", "maul-preview",
+		"--preview-taint-key", "maul.devthe.net/preview-only",
 		"--preview-poll-interval", "1s",
 		"--preview-auth-required", "--preview-auth-annotations", string(pinnedJSON))
 	relayAddr := fmt.Sprintf("127.0.0.1:%d", freePort(t))
@@ -120,7 +120,7 @@ func TestPreviewSignIn(t *testing.T) {
 
 	// The live Preview's Ingress carries exactly slot 0's pinned set.
 	var ingress networkingv1.Ingress
-	if err := cl.client.Get(ctx, types.NamespacedName{Namespace: "patchy-preview-0", Name: "preview-demo-1"},
+	if err := cl.client.Get(ctx, types.NamespacedName{Namespace: "maul-preview-0", Name: "preview-demo-1"},
 		&ingress); err != nil {
 		t.Fatal(err)
 	}
@@ -253,15 +253,15 @@ func grantPreviewViewer(t *testing.T, cl *cluster, user string) {
 	t.Helper()
 	ctx := context.Background()
 	if err := cl.client.Create(ctx, &rbacv1.ClusterRole{
-		ObjectMeta: metav1.ObjectMeta{Name: "patchy-preview-viewer"},
+		ObjectMeta: metav1.ObjectMeta{Name: "maul-preview-viewer"},
 		Rules: []rbacv1.PolicyRule{{APIGroups: []string{v1alpha1.GroupVersion.Group},
 			Resources: []string{"projects/previews"}, Verbs: []string{"get"}}},
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if err := cl.client.Create(ctx, &rbacv1.RoleBinding{
-		ObjectMeta: metav1.ObjectMeta{Name: "patchy-preview-viewers", Namespace: namespace},
-		RoleRef:    rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: "ClusterRole", Name: "patchy-preview-viewer"},
+		ObjectMeta: metav1.ObjectMeta{Name: "maul-preview-viewers", Namespace: namespace},
+		RoleRef:    rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: "ClusterRole", Name: "maul-preview-viewer"},
 		Subjects:   []rbacv1.Subject{{APIGroup: rbacv1.GroupName, Kind: rbacv1.UserKind, Name: user}},
 	}); err != nil {
 		t.Fatal(err)
@@ -286,7 +286,7 @@ func readyPreview(t *testing.T, cl *cluster) (*v1alpha1.Intent, *v1alpha1.Previe
 			IntentRepository: "https://github.com/acme/intents",
 			Approvers:        v1alpha1.ProjectApprovers{Logins: []string{"octocat"}},
 			Repositories:     []v1alpha1.ProjectRepository{{Name: "demo", URL: "https://github.com/acme/demo"}},
-			Preview: &v1alpha1.ProjectPreview{ImageRepository: "registry.example/patchy/previews/demo",
+			Preview: &v1alpha1.ProjectPreview{ImageRepository: "registry.example/maul/previews/demo",
 				Port: 8080, ReadinessPath: "/health"},
 		}}
 	if err := cl.client.Create(ctx, project); err != nil {
@@ -312,13 +312,13 @@ func readyPreview(t *testing.T, cl *cluster) (*v1alpha1.Intent, *v1alpha1.Previe
 		Spec: v1alpha1.PreviewSpec{
 			IntentRef: v1alpha1.ObjectReference{Name: in.Name, UID: in.UID}, Project: "demo", HostLabel: in.Name,
 			Components: []v1alpha1.PreviewComponent{{Name: "demo",
-				ImageRepository: "registry.example/patchy/previews/demo", Revision: sha,
+				ImageRepository: "registry.example/maul/previews/demo", Revision: sha,
 				Port: 8080, ReadinessPath: "/health"}}, TTL: metav1.Duration{Duration: 72 * time.Hour},
 		}}
 	if err := cl.client.Create(ctx, p); err != nil {
 		t.Fatal(err)
 	}
-	key := types.NamespacedName{Namespace: "patchy-preview-0", Name: "preview-demo-1"}
+	key := types.NamespacedName{Namespace: "maul-preview-0", Name: "preview-demo-1"}
 	var dep appsv1.Deployment
 	eventually(t, "the preview Deployment in slot 0", func() bool { return cl.client.Get(ctx, key, &dep) == nil })
 	dep.Status.ObservedGeneration = dep.Generation

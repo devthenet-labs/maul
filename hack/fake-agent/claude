@@ -20,16 +20,16 @@
 # Only the build stage is scripted. What the agent does is chosen by the
 # environment, a test's stand-in for a model:
 #
-#   PATCHY_FAKE_CLAUDE_REPORT  the first run's report: "ok" (default), or the
+#   MAUL_FAKE_CLAUDE_REPORT  the first run's report: "ok" (default), or the
 #                              two slips that threw builds away live:
 #                              "long-note" (one note of 574 characters, now
 #                              accepted rather than refused) and "scalar-notes"
 #                              (notes as a single string, still refused).
-#   PATCHY_FAKE_CLAUDE_REPAIR  what a resumed run does: "fix" (default)
+#   MAUL_FAKE_CLAUDE_REPAIR  what a resumed run does: "fix" (default)
 #                              rewrites the report valid, "keep" changes
 #                              nothing, "touch" rewrites the report valid and
 #                              also edits VERSION, which a repair may not.
-#   PATCHY_FAKE_CLAUDE_OUTPUT  <n>: the first run also runs a foreground Bash
+#   MAUL_FAKE_CLAUDE_OUTPUT  <n>: the first run also runs a foreground Bash
 #                              command printing n lines, as claude 2.1.263 was
 #                              probed to: a task_started event, the output
 #                              appended line by line to
@@ -46,7 +46,7 @@
 set -eu
 
 if [ "${1:-}" = "--version" ]; then
-  echo "2.1.291 (Claude Code; patchy scripted stand-in)"
+  echo "2.1.291 (Claude Code; maul scripted stand-in)"
   exit 0
 fi
 
@@ -63,12 +63,12 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-workspace="${PATCHY_WORKSPACE:?PATCHY_WORKSPACE is unset}"
+workspace="${MAUL_WORKSPACE:?MAUL_WORKSPACE is unset}"
 state="$HOME/.fake-claude"
 mkdir -p "$state/sessions"
 printf '%s %s %s %s\n' "$mode" "$session" "$turns" "$tools" >>"$state/calls"
 
-if [ "${PATCHY_PHASE:-}" != build ] || [ -z "$mode" ]; then
+if [ "${MAUL_PHASE:-}" != build ] || [ -z "$mode" ]; then
   printf '{"type":"result","subtype":"error_during_execution","is_error":true,"num_turns":0,"session_id":"%s","errors":["the scripted claude only builds"]}\n' "$session"
   exit 1
 fi
@@ -132,13 +132,13 @@ if [ "$mode" = first ]; then
   printf '0.1.0\n' >VERSION
   printf '%s\n' '#!/bin/sh' 'set -e' 'git add VERSION' 'git commit -qm "feat: add a VERSION file"' \
     >"$workspace/commit.sh"
-  case "${PATCHY_FAKE_CLAUDE_REPORT:-ok}" in
+  case "${MAUL_FAKE_CLAUDE_REPORT:-ok}" in
   long-note) write_report "notes:
   - \"$(printf '%574s' '' | tr ' ' 'n')\"" ;;
   scalar-notes) write_report 'notes: "What was built: a VERSION file at the repository root"' ;;
   *) write_report 'notes: []' ;;
   esac
-  [ "${PATCHY_FAKE_CLAUDE_OUTPUT:-0}" -eq 0 ] || run_command "$session" "$PATCHY_FAKE_CLAUDE_OUTPUT"
+  [ "${MAUL_FAKE_CLAUDE_OUTPUT:-0}" -eq 0 ] || run_command "$session" "$MAUL_FAKE_CLAUDE_OUTPUT"
   # Cost in hundredths of a cent, cumulative over the session, as the CLI's.
   echo 1000 >"$state/sessions/$session"
   emit "$session" 3 1000 200 3000 400 0.1000 "Built: VERSION added, the suite passes."
@@ -152,7 +152,7 @@ if [ ! -f "$state/sessions/$session" ]; then
   exit 1
 fi
 
-case "${PATCHY_FAKE_CLAUDE_REPAIR:-fix}" in
+case "${MAUL_FAKE_CLAUDE_REPAIR:-fix}" in
 fix) write_report 'notes: []' ;;
 touch)
   write_report 'notes: []'

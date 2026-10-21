@@ -9,7 +9,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/bitwise-media-group/patchy/internal/sealed"
+	"github.com/devthenet-labs/maul/internal/sealed"
 )
 
 // MinMasterBytes is the shortest master secret a key ring accepts. The chart
@@ -20,7 +20,7 @@ const MinMasterBytes = 32
 const MaxGeneration = 999999
 
 // purposeInfo is the HKDF info for one purpose key.
-func purposeInfo(purpose string) string { return "patchy-preview-auth/v1/" + purpose }
+func purposeInfo(purpose string) string { return "maul-preview-auth/v1/" + purpose }
 
 // Generation is one key generation: its number and its master secret.
 type Generation struct {

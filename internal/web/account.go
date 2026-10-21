@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/web/auth"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/web/auth"
 )
 
 // The Account page (statusServer.account.enabled; per-user credentials

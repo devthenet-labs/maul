@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/provider"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/provider"
 )
 
 // codexIntentConfig is an intent stage's config on brokered codex: the
@@ -22,7 +22,7 @@ func codexIntentConfig(t *testing.T, phase Phase, out, log *bytes.Buffer) (Confi
 	cfg, ws := intentConfig(t, phase, out)
 	cfg.InvestigateHarness, cfg.RemediateHarness = "codex", "codex"
 	cfg.InvestigateModel, cfg.RemediateModel = "openai/gpt-5.3-codex", "openai/gpt-5.3-codex"
-	cfg.BrokerTokenFile, cfg.CodexBaseURL = codexTokenFile(t), "http://broker.patchy.svc:8080/openai/v1"
+	cfg.BrokerTokenFile, cfg.CodexBaseURL = codexTokenFile(t), "http://broker.maul.svc:8080/openai/v1"
 	cfg.Log = slog.New(slog.NewTextHandler(log, nil))
 	return cfg, ws
 }
@@ -74,7 +74,7 @@ func TestIntentStagesOnBrokeredCodex(t *testing.T) {
 			if spec.Argv[0] != "codex" || spec.Argv[1] != "exec" || !slices.Contains(spec.Argv, "gpt-5.3-codex") {
 				t.Errorf("argv = %q, want codex exec on gpt-5.3-codex", spec.Argv)
 			}
-			if !strings.Contains(argv, `model_providers.patchy.base_url="http://broker.patchy.svc:8080/openai/v1"`) {
+			if !strings.Contains(argv, `model_providers.maul.base_url="http://broker.maul.svc:8080/openai/v1"`) {
 				t.Errorf("argv = %q, want the broker's openai route as codex's provider", spec.Argv)
 			}
 			if !slices.Contains(spec.Env, provider.CodexTokenEnv+"=codex-token") || strings.Contains(argv, "codex-token") {

@@ -16,12 +16,12 @@ import (
 // still close on its own.
 const (
 	ecrHost      = "123456789012.dkr.ecr.us-east-1.amazonaws.com"
-	deniedPrefix = ecrHost + "/patchy/previews/"
+	deniedPrefix = ecrHost + "/maul/previews/"
 )
 
 func TestPolicyDeny(t *testing.T) {
-	allow, err := NewPolicy([]string{ecrHost + "/patchy/", "123456789012.dkr-ecr.us-east-1.on.aws/patchy/",
-		ecrHost + ":443/patchy/", "ghcr.io/org/"})
+	allow, err := NewPolicy([]string{ecrHost + "/maul/", "123456789012.dkr-ecr.us-east-1.on.aws/maul/",
+		ecrHost + ":443/maul/", "ghcr.io/org/"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,17 +33,17 @@ func TestPolicyDeny(t *testing.T) {
 		in     string
 		denied bool
 	}{
-		{ecrHost + "/patchy/app-envs/web:toolchain-v1", false},
-		{ecrHost + "/patchy/previews-agents/web", false}, // a sibling, not under the denied path
+		{ecrHost + "/maul/app-envs/web:toolchain-v1", false},
+		{ecrHost + "/maul/previews-agents/web", false}, // a sibling, not under the denied path
 		{"ghcr.io/org/app", false},
-		{ecrHost + "/patchy/previews/web:sha-" + strings.Repeat("a", 40), true},
-		{ecrHost + "/patchy/previews/web@sha256:" + hex64, true},
-		{ecrHost + "/patchy/previews", true}, // the denied path itself
-		{ecrHost + "/patchy/previews/team/web", true},
-		{"123456789012.DKR.ECR.us-east-1.amazonaws.com/Patchy/Previews/web", true},
+		{ecrHost + "/maul/previews/web:sha-" + strings.Repeat("a", 40), true},
+		{ecrHost + "/maul/previews/web@sha256:" + hex64, true},
+		{ecrHost + "/maul/previews", true}, // the denied path itself
+		{ecrHost + "/maul/previews/team/web", true},
+		{"123456789012.DKR.ECR.us-east-1.amazonaws.com/Maul/Previews/web", true},
 		// Other names for the same ECR repository, each allowlisted above.
-		{"123456789012.dkr-ecr.us-east-1.on.aws/patchy/previews/web", true},
-		{ecrHost + ":443/patchy/previews/web", true},
+		{"123456789012.dkr-ecr.us-east-1.on.aws/maul/previews/web", true},
+		{ecrHost + ":443/maul/previews/web", true},
 	}
 	for _, c := range cases {
 		t.Run(c.in, func(t *testing.T) {
@@ -75,8 +75,8 @@ func TestPolicyDeny(t *testing.T) {
 	// is consulted; another region is a different registry, refused only for
 	// not being allowlisted.
 	for in, reason := range map[string]string{
-		"123456789012.dkr.ecr-fips.us-east-1.amazonaws.com/patchy/previews/web": "DeniedRegistry",
-		"123456789012.dkr.ecr.us-west-2.amazonaws.com/patchy/previews/web":      "",
+		"123456789012.dkr.ecr-fips.us-east-1.amazonaws.com/maul/previews/web": "DeniedRegistry",
+		"123456789012.dkr.ecr.us-west-2.amazonaws.com/maul/previews/web":      "",
 	} {
 		ref, err := ParseDeclared(in)
 		if err != nil {
@@ -172,17 +172,17 @@ func TestPolicyDenyProperty(t *testing.T) {
 
 func TestRegistryKey(t *testing.T) {
 	for in, want := range map[string]string{
-		ecrHost + "/patchy/": ecrHost + "/patchy/",
-		"123456789012.DKR.ECR.US-EAST-1.amazonaws.com/Patchy/":  ecrHost + "/patchy/",
-		ecrHost + ":443/patchy/":                                ecrHost + "/patchy/",
-		"123456789012.dkr-ecr.us-east-1.on.aws/patchy/":         ecrHost + "/patchy/",
-		"123456789012.dkr-ecr-fips.us-east-1.on.aws/patchy/":    ecrHost + "/patchy/",
+		ecrHost + "/maul/": ecrHost + "/maul/",
+		"123456789012.DKR.ECR.US-EAST-1.amazonaws.com/Maul/":    ecrHost + "/maul/",
+		ecrHost + ":443/maul/":                                  ecrHost + "/maul/",
+		"123456789012.dkr-ecr.us-east-1.on.aws/maul/":           ecrHost + "/maul/",
+		"123456789012.dkr-ecr-fips.us-east-1.on.aws/maul/":      ecrHost + "/maul/",
 		"123456789012.dkr.ecr-fips.us-east-1.amazonaws.com/x/":  ecrHost + "/x/",
-		"123456789012.dkr.ecr.us-west-2.amazonaws.com/patchy/":  "123456789012.dkr.ecr.us-west-2.amazonaws.com/patchy/",
+		"123456789012.dkr.ecr.us-west-2.amazonaws.com/maul/":    "123456789012.dkr.ecr.us-west-2.amazonaws.com/maul/",
 		"localhost:5000/team/":                                  "localhost:5000/team/",
 		"ghcr.io:4443/org/":                                     "ghcr.io:4443/org/",
 		"evil.example/123456789012.dkr-ecr.us-east-1.on.aws/x/": "evil.example/123456789012.dkr-ecr.us-east-1.on.aws/x/",
-		"1234567890123.dkr-ecr.us-east-1.on.aws/patchy/":        "1234567890123.dkr-ecr.us-east-1.on.aws/patchy/",
+		"1234567890123.dkr-ecr.us-east-1.on.aws/maul/":          "1234567890123.dkr-ecr.us-east-1.on.aws/maul/",
 		ecrHost + ".evil.io/x/":                                 ecrHost + ".evil.io/x/",
 	} {
 		if got := registryKey(in); got != want {

@@ -23,7 +23,7 @@ import (
 // schema, the round and attempt by the IntentRun schema, which also refuses
 // any IntentRun name over 63 as a backstop. The Intent name itself
 // (<project>-<issue>, CEL-enforced) is at most 33 characters, and the derived
-// trigger label patchy:<project> at most 32, inside GitHub's 50.
+// trigger label maul:<project> at most 32, inside GitHub's 50.
 const (
 	// MaxProjectNameLength bounds a Project's name.
 	MaxProjectNameLength = 25
@@ -39,11 +39,11 @@ const (
 )
 
 // DefaultTriggerLabelPrefix prefixes the trigger label a Project derives from
-// its name when spec.labels.trigger is unset: patchy:<project name>.
-const DefaultTriggerLabelPrefix = "patchy:"
+// its name when spec.labels.trigger is unset: maul:<project name>.
+const DefaultTriggerLabelPrefix = "maul:"
 
 // ProjectTriggerLabel returns the label that starts an intent for the Project
-// (and names it): spec.labels.trigger when set, else patchy:<project name>,
+// (and names it): spec.labels.trigger when set, else maul:<project name>,
 // which the name budget keeps inside GitHub's 50-character label limit. The
 // schema refuses a Project whose derived trigger equals its approve label.
 func ProjectTriggerLabel(p *Project) string {
@@ -60,7 +60,7 @@ func ProjectTriggerLabel(p *Project) string {
 const (
 	// DefaultApproveLabel is the label an approver adds to an intent issue
 	// to approve its current plan, when a Project names none.
-	DefaultApproveLabel = "patchy:approved"
+	DefaultApproveLabel = "maul:approved"
 	// DefaultMaxActiveIntents is limits.maxActiveIntents when unset.
 	DefaultMaxActiveIntents int32 = 2
 	// DefaultMaxRevisions is limits.maxRevisions when unset.
@@ -79,7 +79,7 @@ type ProjectLabels struct {
 	// Trigger is the label that both starts an intent and names this
 	// Project: an issue carrying it becomes the Intent <project>-<issue>,
 	// and an approver re-applying it asks for a replan. Empty means
-	// "patchy:<project name>" (ProjectTriggerLabel), which intent-controller
+	// "maul:<project name>" (ProjectTriggerLabel), which intent-controller
 	// derives because a schema default cannot see the object's name. The
 	// name budget keeps it within GitHub's label limit. A root-level rule
 	// refuses a derived trigger that equals the approve label, so a Project
@@ -91,12 +91,12 @@ type ProjectLabels struct {
 	// +kubebuilder:validation:MaxLength=50
 	Trigger string `json:"trigger,omitempty"`
 	// Approve is the label an approver adds to approve the plan posted on
-	// the intent issue — the alias of `/patchy approve`. The approval is
+	// the intent issue — the alias of `/maul approve`. The approval is
 	// accepted only from an approver, after the plan was posted, and while
 	// both the plan comment and the issue body still hash to what was
 	// planned.
 	// +optional
-	// +kubebuilder:default="patchy:approved"
+	// +kubebuilder:default="maul:approved"
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=50
 	Approve string `json:"approve,omitempty"`
@@ -148,7 +148,7 @@ type ProjectRepository struct {
 	Preview *ProjectRepositoryPreview `json:"preview,omitempty"`
 	// AgentResourceClass names the operator's resource class this
 	// repository's intent build, revise and check-fix runs get: the CPU and
-	// memory the patchy chart defines under agent.resources.classes
+	// memory the maul chart defines under agent.resources.classes
 	// (intent-controller's --intent-resource-classes), in place of the
 	// default every other agent Job gets. Unset, the runs get the default.
 	// Plan runs always get the default, whatever this says. A Project can
@@ -260,14 +260,14 @@ type ProjectLimits struct {
 }
 
 // ProjectChecks configures automatic fix rounds on failed CI checks of the
-// pull requests patchy opened (slice 1b).
+// pull requests maul opened (slice 1b).
 type ProjectChecks struct {
 	// Fix names the checks (check-run names or commit-status contexts, e.g.
-	// "test", "lint") whose failure on patchy's own head starts a fix round
+	// "test", "lint") whose failure on maul's own head starts a fix round
 	// without a human; the round records the failed check runs and commit
 	// statuses it consumed, each by its own id (IntentRunInputs.CheckRunIDs
-	// and StatusIDs). Empty means patchy never auto-fixes: a failing check is
-	// reported on the intent issue and an approver can run /patchy revise.
+	// and StatusIDs). Empty means maul never auto-fixes: a failing check is
+	// reported on the intent issue and an approver can run /maul revise.
 	// The list is explicit so a flaky or unrelated check cannot burn
 	// budget.
 	// +optional
@@ -285,7 +285,7 @@ type ProjectChecks struct {
 	// +kubebuilder:validation:XValidation:rule="duration(self) >= duration('1m') && duration(self) <= duration('6h')",message="checks.timeout must be between 1m and 6h"
 	Timeout *metav1.Duration `json:"timeout,omitempty"`
 	// RerunFailed re-runs the failed jobs of the GitHub Actions runs behind
-	// a failed named check once, on patchy's own head, before a fix round
+	// a failed named check once, on maul's own head, before a fix round
 	// is spent on it: a flaky test that passes again costs no round. Only a
 	// second failure at the same head starts the round, as does a failure
 	// that is not an Actions check run (a commit status, another App's
@@ -304,7 +304,7 @@ const MaxPreviewComponents = 4
 
 // ProjectSpec is operator configuration: where intents are filed, who may
 // authorise them, which repositories they build in, and what they may spend.
-// The operator writes it (through the patchy-config chart); intent-controller
+// The operator writes it (through the maul-config chart); intent-controller
 // only reads it. Writing projects is admin-only in RBAC, because a Project is
 // the power to point agents at repositories.
 //
@@ -345,7 +345,7 @@ type ProjectSpec struct {
 	// turning multi-repository intents on or off never needs a CRD change.
 	// Each entry names a different repository:
 	// the Intent records its pull requests by repository URL, and every
-	// repository's branch is the same patchy-intent/<intent>, so two
+	// repository's branch is the same maul-intent/<intent>, so two
 	// entries for one repository would fan two builds into one branch. URLs
 	// are compared the way forges compare them — case-insensitively, with
 	// any .git suffix dropped.
@@ -422,7 +422,7 @@ func (h ProjectHarness) IsCodex() bool { return h == ProjectHarnessCodex }
 type ProjectPreview struct {
 	// ImageRepository is an immutable-tag runtime repository directly under
 	// the operator's preview image prefix, such as
-	// <registry>/patchy/previews/demo with the default prefix: a registry
+	// <registry>/maul/previews/demo with the default prefix: a registry
 	// host, one or more lowercase path segments and a leaf that is a DNS
 	// label. The schema checks only that shape. The prefix itself is
 	// enforced where it is configured, by the preview-controller and the
@@ -491,7 +491,7 @@ type ProjectStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:shortName=proj,categories=patchy
+// +kubebuilder:resource:shortName=proj,categories=maul
 // +kubebuilder:printcolumn:name="IntentRepo",type=string,JSONPath=`.spec.intentRepository`,description="The intent repository"
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
 // +kubebuilder:printcolumn:name="Active",type=integer,JSONPath=`.status.activeIntents`,description="Non-terminal intents"
@@ -507,7 +507,7 @@ type ProjectStatus struct {
 // which are written into 63-character label values (see the name budget),
 // and Intent.spec.project holds it.
 // +kubebuilder:validation:XValidation:rule="size(self.metadata.name) <= 25",message="Project names are at most 25 characters, so every Intent and IntentRun name derived from them fits in a label value"
-// +kubebuilder:validation:XValidation:rule="!has(self.spec.labels) || has(self.spec.labels.trigger) || !has(self.spec.labels.approve) || 'patchy:' + self.metadata.name != self.spec.labels.approve.lowerAscii()",message="the derived trigger label patchy:<name> equals labels.approve; set labels.trigger or a different labels.approve"
+// +kubebuilder:validation:XValidation:rule="!has(self.spec.labels) || has(self.spec.labels.trigger) || !has(self.spec.labels.approve) || 'maul:' + self.metadata.name != self.spec.labels.approve.lowerAscii()",message="the derived trigger label maul:<name> equals labels.approve; set labels.trigger or a different labels.approve"
 type Project struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

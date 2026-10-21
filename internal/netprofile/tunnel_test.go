@@ -318,7 +318,7 @@ func TestTunnelDeniedHost(t *testing.T) {
 	}
 }
 
-// TestDeniedHostCoversKnownModelHosts: the model hosts patchy's runners
+// TestDeniedHostCoversKnownModelHosts: the model hosts maul's runners
 // reach that no constant in this repository spells. The codex and copilot
 // runners take their endpoints from their own CLIs, so there is nothing to
 // pin to; this list is hard-coded on purpose, and is the place to add a

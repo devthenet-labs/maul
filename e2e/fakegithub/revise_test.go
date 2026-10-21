@@ -9,14 +9,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/e2e/fakegithub"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
+	"github.com/devthenet-labs/maul/e2e/fakegithub"
+	"github.com/devthenet-labs/maul/internal/ghclient"
 )
 
 func TestReviseAPISurfaceAndScope(t *testing.T) {
 	srv, c, _ := newFake(t)
 	ctx := context.Background()
-	srv.OpenPull(7, "patchy-intent/target-1")
+	srv.OpenPull(7, "maul-intent/target-1")
 	reviewID := srv.AddReview(7, human, "CHANGES_REQUESTED", "fix the response", "abc")
 	inlineID := srv.AddReviewComment(7, human, reviewID, "main.go", 8, "RIGHT", "bad line", "@@ hunk")
 	srv.SetComparePatch("main", "abc", "From abc\n--- a/main.go\n+++ b/main.go\n")
@@ -139,7 +139,7 @@ func TestWorkflowRunsAndRerunScope(t *testing.T) {
 func TestPendingReviewSubmissionMovesRESTTimestampWithoutEditing(t *testing.T) {
 	srv, c, clk := newFake(t)
 	ctx := context.Background()
-	srv.OpenPull(8, "patchy-intent/target-3")
+	srv.OpenPull(8, "maul-intent/target-3")
 	reviewID := srv.AddReview(8, human, "PENDING", "", "abc")
 	srv.AddReviewComment(8, human, reviewID, "main.go", 8, "RIGHT", "Please fix this line.", "@@ hunk")
 	pending, err := c.ListPullRequestReviews(ctx, target, 8)
@@ -170,7 +170,7 @@ func TestPendingReviewSubmissionMovesRESTTimestampWithoutEditing(t *testing.T) {
 func TestReviewEditGraphQLRepositoryScope(t *testing.T) {
 	srv, c, _ := newFake(t)
 	ctx := context.Background()
-	pr, err := c.CreatePR(ctx, target, ghclient.PRRequest{Title: "test", Head: "patchy-intent/target-2", Base: "main"})
+	pr, err := c.CreatePR(ctx, target, ghclient.PRRequest{Title: "test", Head: "maul-intent/target-2", Base: "main"})
 	if err != nil {
 		t.Fatal(err)
 	}

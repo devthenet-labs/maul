@@ -14,7 +14,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/bitwise-media-group/patchy/internal/transcript"
+	"github.com/devthenet-labs/maul/internal/transcript"
 )
 
 // maxTailLine bounds one log line a live follow holds in memory. A turn line
@@ -67,7 +67,7 @@ func scanFollow(r io.Reader, sink Sink) error {
 // of the first prefix it carries, the line's own, whatever its text quotes
 // after it, and is offered to that decoder alone. Testing one kind first, as
 // Result does turns before events, would drop the output of a command that
-// merely prints the turn prefix (a grep through patchy's own source): the
+// merely prints the turn prefix (a grep through maul's own source): the
 // line would be read as a turn, fail to decode and never reach the output
 // decoder.
 func (s Sink) deliver(line []byte) error {
@@ -113,8 +113,8 @@ type Facts struct {
 
 // The agent container's idle-limit variables Facts reads.
 const (
-	envInvestigateIdle = "PATCHY_INVESTIGATE_IDLE_TIMEOUT"
-	envRemediateIdle   = "PATCHY_REMEDIATE_IDLE_TIMEOUT"
+	envInvestigateIdle = "MAUL_INVESTIGATE_IDLE_TIMEOUT"
+	envRemediateIdle   = "MAUL_REMEDIATE_IDLE_TIMEOUT"
 )
 
 // Facts reads the named Job's clock and limits.

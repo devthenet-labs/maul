@@ -8,7 +8,7 @@
 # The custom verbs (approve, retry, expedite, suspend, resume) let a grant say
 # "this developer may approve findings, and nothing else". The status server can
 # honour that on its own because it writes as its own ServiceAccount and asks
-# SubjectAccessReview first. Anything writing as the *user* — the patchy CLI,
+# SubjectAccessReview first. Anything writing as the *user* — the maul CLI,
 # kubectl, curl — is authorized by the API server, and RBAC has no notion of a
 # field: `update` on findings grants the whole object. Without this policy,
 # granting a developer the ability to suspend a finding would also let them
@@ -22,7 +22,7 @@
 #
 # WHAT IT ENFORCES
 #
-# For everyone except the patchy controllers, on UPDATE and CREATE of a Finding:
+# For everyone except the maul controllers, on UPDATE and CREATE of a Finding:
 #   * each human-writable spec field may change only with its own custom verb;
 #   * every other spec field must not change at all;
 #   * finalizers, ownerReferences and labels must not change.
@@ -38,9 +38,9 @@
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
-    name: patchy-finding-actions
+    name: maul-finding-actions
     labels:
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 spec:
     # Fail closed: a policy that cannot compile or evaluate must not become an
     # open door.
@@ -52,28 +52,28 @@ spec:
             # with spec.approval already set — laundering an approval they were
             # never granted. The example roles withhold create/delete too; this
             # is the second lock.
-            - apiGroups: [patchy.bitwisemedia.uk]
+            - apiGroups: [maul.run]
               apiVersions: [v1alpha1]
               operations: [CREATE, UPDATE]
               resources: [findings]
     matchConditions:
-        # The patchy controllers own spec: ingest writes it, accumulation folds
+        # The maul controllers own spec: ingest writes it, accumulation folds
         # alerts into it, and the status server does its own SubjectAccessReview
         # before writing. They are exempt; everyone else is checked.
-        - name: not-a-patchy-controller
+        - name: not-a-maul-controller
           expression: >-
               !(request.userInfo.username in [
-                'system:serviceaccount:patchy:patchy-integration-controller',
-                'system:serviceaccount:patchy:patchy-source-controller',
-                'system:serviceaccount:patchy:patchy-context-controller',
-                'system:serviceaccount:patchy:patchy-investigation-controller',
-                'system:serviceaccount:patchy:patchy-remediation-controller',
-                'system:serviceaccount:patchy:patchy-status-server'
+                'system:serviceaccount:maul:maul-integration-controller',
+                'system:serviceaccount:maul:maul-source-controller',
+                'system:serviceaccount:maul:maul-context-controller',
+                'system:serviceaccount:maul:maul-investigation-controller',
+                'system:serviceaccount:maul:maul-remediation-controller',
+                'system:serviceaccount:maul:maul-status-server'
               ])
     variables:
         - name: auth
           expression: >-
-              authorizer.group('patchy.bitwisemedia.uk').resource('findings')
+              authorizer.group('maul.run').resource('findings')
                 .namespace(request.namespace)
         # oldObject is null on CREATE, so every rule below is written as
         # "unchanged from old, OR authorized". On a create that reads as "there
@@ -93,7 +93,7 @@ spec:
                     : variables.auth.check('resume').allowed())
           messageExpression: >-
               "changing spec.suspend on finding " + object.metadata.name +
-              " requires the 'suspend' or 'resume' verb on findings.patchy.bitwisemedia.uk"
+              " requires the 'suspend' or 'resume' verb on findings.maul.run"
           reason: Forbidden
 
         - expression: >-
@@ -101,7 +101,7 @@ spec:
               || variables.auth.check('approve').allowed()
           messageExpression: >-
               "changing spec.approval on finding " + object.metadata.name +
-              " requires the 'approve' verb on findings.patchy.bitwisemedia.uk"
+              " requires the 'approve' verb on findings.maul.run"
           reason: Forbidden
 
         - expression: >-
@@ -109,7 +109,7 @@ spec:
               || variables.auth.check('retry').allowed()
           messageExpression: >-
               "changing spec.retry on finding " + object.metadata.name +
-              " requires the 'retry' verb on findings.patchy.bitwisemedia.uk"
+              " requires the 'retry' verb on findings.maul.run"
           reason: Forbidden
 
         - expression: >-
@@ -117,7 +117,7 @@ spec:
               || variables.auth.check('expedite').allowed()
           messageExpression: >-
               "changing spec.expedite on finding " + object.metadata.name +
-              " requires the 'expedite' verb on findings.patchy.bitwisemedia.uk"
+              " requires the 'expedite' verb on findings.maul.run"
           reason: Forbidden
 
         # --- everything else in spec is the pipeline's, not a human's ---------
@@ -147,7 +147,7 @@ spec:
                 && variables.old.spec.?overflowAlerts == object.spec.?overflowAlerts
               )
           messageExpression: >-
-              "finding " + object.metadata.name + " is written by the patchy pipeline; " +
+              "finding " + object.metadata.name + " is written by the maul pipeline; " +
               "only spec.suspend, spec.approval, spec.retry, spec.expedite and spec.related " +
               "may be changed by a user, and each needs its own verb"
           reason: Forbidden
@@ -173,20 +173,20 @@ spec:
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
 metadata:
-    name: patchy-finding-actions
+    name: maul-finding-actions
     labels:
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 spec:
-    policyName: patchy-finding-actions
+    policyName: maul-finding-actions
     validationActions: [Deny]
     matchResources:
         namespaceSelector:
             matchLabels:
-                kubernetes.io/metadata.name: patchy
+                kubernetes.io/metadata.name: maul
 ---
 # Field-level authorization for the request stamps on Integrations: the
 # backfill, replay and reset triggers each need their own custom verb on
-# integrations.patchy.bitwisemedia.uk, so `update` on integrations (the
+# integrations.maul.run, so `update` on integrations (the
 # operator's configuration grant) does not quietly include the ability to
 # fire pipeline actions.
 #
@@ -201,9 +201,9 @@ spec:
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
-    name: patchy-integration-actions
+    name: maul-integration-actions
     labels:
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 spec:
     # Fail closed: a policy that cannot compile or evaluate must not become an
     # open door.
@@ -213,7 +213,7 @@ spec:
             # CREATE is matched alongside UPDATE for the same laundering
             # reason as findings: recreating an Integration with a request
             # field preset must not smuggle the action past the verb.
-            - apiGroups: [patchy.bitwisemedia.uk]
+            - apiGroups: [maul.run]
               apiVersions: [v1alpha1]
               operations: [CREATE, UPDATE]
               resources: [integrations]
@@ -222,20 +222,20 @@ spec:
         # own SubjectAccessReview before stamping a request, and the
         # controllers never write Integration spec at all — exempting them
         # is belt-and-braces against a future one that must.
-        - name: not-a-patchy-controller
+        - name: not-a-maul-controller
           expression: >-
               !(request.userInfo.username in [
-                'system:serviceaccount:patchy:patchy-integration-controller',
-                'system:serviceaccount:patchy:patchy-source-controller',
-                'system:serviceaccount:patchy:patchy-context-controller',
-                'system:serviceaccount:patchy:patchy-investigation-controller',
-                'system:serviceaccount:patchy:patchy-remediation-controller',
-                'system:serviceaccount:patchy:patchy-status-server'
+                'system:serviceaccount:maul:maul-integration-controller',
+                'system:serviceaccount:maul:maul-source-controller',
+                'system:serviceaccount:maul:maul-context-controller',
+                'system:serviceaccount:maul:maul-investigation-controller',
+                'system:serviceaccount:maul:maul-remediation-controller',
+                'system:serviceaccount:maul:maul-status-server'
               ])
     variables:
         - name: auth
           expression: >-
-              authorizer.group('patchy.bitwisemedia.uk').resource('integrations')
+              authorizer.group('maul.run').resource('integrations')
                 .namespace(request.namespace)
         # oldObject is null on CREATE, so each rule reads "absent, OR
         # unchanged from old, OR authorized": presetting a request on a
@@ -249,7 +249,7 @@ spec:
               || variables.auth.check('backfill').allowed()
           messageExpression: >-
               "setting spec.backfill on integration " + object.metadata.name +
-              " requires the 'backfill' verb on integrations.patchy.bitwisemedia.uk"
+              " requires the 'backfill' verb on integrations.maul.run"
           reason: Forbidden
 
         - expression: >-
@@ -258,7 +258,7 @@ spec:
               || variables.auth.check('replay').allowed()
           messageExpression: >-
               "setting spec.replay on integration " + object.metadata.name +
-              " requires the 'replay' verb on integrations.patchy.bitwisemedia.uk"
+              " requires the 'replay' verb on integrations.maul.run"
           reason: Forbidden
 
         - expression: >-
@@ -267,19 +267,19 @@ spec:
               || variables.auth.check('reset').allowed()
           messageExpression: >-
               "setting spec.reset on integration " + object.metadata.name +
-              " requires the 'reset' verb on integrations.patchy.bitwisemedia.uk"
+              " requires the 'reset' verb on integrations.maul.run"
           reason: Forbidden
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
 metadata:
-    name: patchy-integration-actions
+    name: maul-integration-actions
     labels:
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 spec:
-    policyName: patchy-integration-actions
+    policyName: maul-integration-actions
     validationActions: [Deny]
     matchResources:
         namespaceSelector:
             matchLabels:
-                kubernetes.io/metadata.name: patchy
+                kubernetes.io/metadata.name: maul

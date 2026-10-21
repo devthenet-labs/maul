@@ -59,7 +59,7 @@ type Config struct {
 	Mode string `yaml:"mode"`
 	// SessionDuration caps a session's lifetime (default 168h).
 	SessionDuration Duration `yaml:"sessionDuration"`
-	// Insecure uses separate patchy-dev-* cookies without Secure for
+	// Insecure uses separate maul-dev-* cookies without Secure for
 	// plain-HTTP local development. Never set it behind a real ingress.
 	Insecure bool `yaml:"insecure"`
 	// Anonymous configures the fixed identity of mode anonymous.

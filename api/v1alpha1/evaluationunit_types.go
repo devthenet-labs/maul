@@ -122,7 +122,7 @@ type EvaluationUnitStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:shortName=evu,categories=patchy
+// +kubebuilder:resource:shortName=evu,categories=maul
 // +kubebuilder:printcolumn:name="Evaluation",type=string,JSONPath=`.spec.evaluationRef.name`
 // +kubebuilder:printcolumn:name="Skill",type=string,JSONPath=`.spec.unit.skill`
 // +kubebuilder:printcolumn:name="Tier",type=integer,JSONPath=`.spec.unit.tier`

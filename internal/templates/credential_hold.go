@@ -11,10 +11,10 @@ import (
 // CredentialHoldMarker heads the Finding tracking issue's sticky comment
 // saying its remediation waits for a person's model credential; the
 // projection edits it in place by it.
-const CredentialHoldMarker = "<!-- patchy:credential-hold -->"
+const CredentialHoldMarker = "<!-- maul:credential-hold -->"
 
 // CredentialHoldComment is the data behind that comment, every field
-// patchy's own: the approver's login from the Finding's approval (held to
+// maul's own: the approver's login from the Finding's approval (held to
 // the GitHub login grammar here too), the hold's condition reason, and the
 // operator's Account page URL.
 type CredentialHoldComment struct {
@@ -29,7 +29,7 @@ type CredentialHoldComment struct {
 	// Provider is the provider whose credential the attempt needs, as a
 	// person reads it ("Anthropic", "OpenAI"); empty is Anthropic. Kinds
 	// is what may be stored for it ("an API key or a setup-token", "an
-	// OpenAI API key"); empty is the former. Both patchy's own
+	// OpenAI API key"); empty is the former. Both maul's own
 	// (credgate.ProviderName, credgate.CredentialKinds).
 	Provider, Kinds string
 	// Resolved says the hold lifted: the comment is edited to say so.
@@ -67,7 +67,7 @@ func RenderCredentialHoldComment(c CredentialHoldComment) string {
 	}
 	if c.Resolved {
 		b.WriteString("### ✅ Model credential\n\n")
-		b.WriteString("The remediation no longer waits for a model credential; patchy has resumed it.\n")
+		b.WriteString("The remediation no longer waits for a model credential; maul has resumed it.\n")
 		return b.String()
 	}
 	provider, kinds := holdWord(c.Provider, "Anthropic"), holdWord(c.Kinds, "an API key or a setup-token")
@@ -75,15 +75,15 @@ func RenderCredentialHoldComment(c CredentialHoldComment) string {
 	switch c.Reason {
 	case "CredentialRejected":
 		b.WriteString("This remediation is attributed to " + who + ", and " + provider + " rejected the " +
-			"credential " + who + " stored in patchy. ")
+			"credential " + who + " stored in maul. ")
 	case "CredentialUnverified":
 		b.WriteString("This remediation is attributed to " + who + ", whose stored " + provider + " credential " +
-			"patchy has not verified yet. ")
+			"maul has not verified yet. ")
 	default:
 		b.WriteString("This remediation is attributed to " + who + ", who has no " + provider + " credential " +
-			"stored in patchy. ")
+			"stored in maul. ")
 	}
-	b.WriteString("Runs attributed to a person use their own credential (" + kinds + "), so patchy holds it " +
+	b.WriteString("Runs attributed to a person use their own credential (" + kinds + "), so maul holds it " +
 		"rather than spend an attempt on a refusal.\n\n")
 	where := "on the status page's Account page"
 	if holdURLRE.MatchString(c.AccountURL) {
@@ -92,6 +92,6 @@ func RenderCredentialHoldComment(c CredentialHoldComment) string {
 	b.WriteString("- " + who + " can add or replace one " + where + "; the remediation resumes on its own " +
 		"once it is valid, nothing re-investigated.\n")
 	b.WriteString("- Or an approver who has a valid credential can approve this finding again " +
-		"(`/patchy approve`), which makes the remediation theirs.\n")
+		"(`/maul approve`), which makes the remediation theirs.\n")
 	return b.String()
 }

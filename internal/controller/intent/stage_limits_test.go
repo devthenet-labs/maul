@@ -12,8 +12,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/jobs"
 )
 
 // costBudgets turns --broker-limit-unit cost on for every reconciler of the
@@ -58,7 +58,7 @@ func TestStageCostBudgets(t *testing.T) {
 	name := e.newIntent(approver)
 	e.drive(name, v1alpha1.IntentAwaitingApproval, repoImage)
 	e.clock.Advance(time.Minute)
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	e.drive(name, v1alpha1.IntentInReview, repoImage)
 
 	for stage, want := range map[v1alpha1.IntentStage]int64{
@@ -81,7 +81,7 @@ func TestStageCostBudgets(t *testing.T) {
 	name = off.newIntent(approver)
 	off.drive(name, v1alpha1.IntentAwaitingApproval, repoImage)
 	off.clock.Advance(time.Minute)
-	off.gh.label(1, "patchy:approved", approver)
+	off.gh.label(1, "maul:approved", approver)
 	off.drive(name, v1alpha1.IntentInReview, repoImage)
 	for _, run := range off.intentRuns(name) {
 		if run.Spec.Grant.BudgetMicroUSD != 0 {
@@ -147,18 +147,18 @@ func TestStageTimeoutLowersTheGrant(t *testing.T) {
 	name := e.newIntent(approver)
 	e.drive(name, v1alpha1.IntentAwaitingApproval, repoImage)
 	spec, env := e.launchOf(t, "plan")
-	if env["PATCHY_INVESTIGATE_TIMEOUT"] != "10m0s" {
-		t.Errorf("plan env timeout = %q, want 10m0s", env["PATCHY_INVESTIGATE_TIMEOUT"])
+	if env["MAUL_INVESTIGATE_TIMEOUT"] != "10m0s" {
+		t.Errorf("plan env timeout = %q, want 10m0s", env["MAUL_INVESTIGATE_TIMEOUT"])
 	}
 	if spec.Deadline != 30*time.Minute {
 		t.Errorf("plan Job deadline = %s, want the 30m floor over its 25m", spec.Deadline)
 	}
 	e.clock.Advance(time.Minute)
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	e.drive(name, v1alpha1.IntentInReview, repoImage)
 	spec, env = e.launchOf(t, "build")
-	if env["PATCHY_REMEDIATE_TIMEOUT"] != "1h0m0s" {
-		t.Errorf("build env timeout = %q, want 1h0m0s", env["PATCHY_REMEDIATE_TIMEOUT"])
+	if env["MAUL_REMEDIATE_TIMEOUT"] != "1h0m0s" {
+		t.Errorf("build env timeout = %q, want 1h0m0s", env["MAUL_REMEDIATE_TIMEOUT"])
 	}
 	if spec.Deadline != 75*time.Minute {
 		t.Errorf("build Job deadline = %s, want the timeout plus 15m", spec.Deadline)
@@ -181,7 +181,7 @@ func TestLongStageStretchesOnlyItsOwnJobs(t *testing.T) {
 		t.Errorf("plan Job deadline = %s, want the 90m floor", spec.Deadline)
 	}
 	e.clock.Advance(time.Minute)
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	e.drive(name, v1alpha1.IntentInReview, repoImage)
 	if spec, _ := e.launchOf(t, "build"); spec.Deadline != 3*time.Hour+15*time.Minute {
 		t.Errorf("build Job deadline = %s, want its 3h timeout plus 15m", spec.Deadline)

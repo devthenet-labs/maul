@@ -32,7 +32,7 @@ func mustKey(t *testing.T, secret, info string) []byte {
 }
 
 func TestRoundTrip(t *testing.T) {
-	key := mustKey(t, "master", "patchy-test/v1/session")
+	key := mustKey(t, "master", "maul-test/v1/session")
 	in := payload{Kind: "session", N: 7, List: []string{"github:acme:team"}}
 	for _, aad := range [][]byte{nil, {}, []byte("pa1|s|3")} {
 		blob, err := Seal(key, aad, in)
@@ -63,9 +63,9 @@ func TestSealIsRandomised(t *testing.T) {
 }
 
 func TestOpenRejects(t *testing.T) {
-	key := mustKey(t, "master", "patchy-test/v1/access")
-	other := mustKey(t, "master", "patchy-test/v1/refresh")
-	rotated := mustKey(t, "rotated", "patchy-test/v1/access")
+	key := mustKey(t, "master", "maul-test/v1/access")
+	other := mustKey(t, "master", "maul-test/v1/refresh")
+	rotated := mustKey(t, "rotated", "maul-test/v1/access")
 	aad := []byte("pa1|a|1")
 	blob, err := Seal(key, aad, payload{Kind: "access"})
 	if err != nil {
@@ -157,8 +157,8 @@ func TestPurposeKey(t *testing.T) {
 // vector is web/auth's existing derivation for its status-session key,
 // computed independently from RFC 5869 (HMAC-SHA256, zero salt).
 func TestPurposeKeyVector(t *testing.T) {
-	got := hex.EncodeToString(mustKey(t, "client-secret", "patchy-status-session"))
-	const want = "a3b176501d8f4950c51c9218247e83f906a270462c6086f46ccd5163ce2e9bbe"
+	got := hex.EncodeToString(mustKey(t, "client-secret", "maul-status-session"))
+	const want = "8c456cc6fcc812b4306d59a82e2a717fadab7616fa16cced2bdbaffd9962613d"
 	if got != want {
 		t.Errorf("PurposeKey vector = %s, want %s", got, want)
 	}

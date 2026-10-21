@@ -16,7 +16,7 @@ resource "aws_iam_openid_connect_provider" "github" {
 
 locals {
   github_oidc_provider_arn = coalesce(var.github_oidc_provider_arn, one(aws_iam_openid_connect_provider.github[*].arn))
-  source_controller_name   = "${local.name_prefix}-patchy-source-controller"
+  source_controller_name   = "${local.name_prefix}-maul-source-controller"
 }
 
 # source-controller resolves a declared agent image's tag to a digest and
@@ -26,7 +26,7 @@ locals {
 # association pointing any other workload at this role fails to assume it.
 resource "aws_iam_role" "source_controller" {
   name        = local.source_controller_name
-  description = "EKS Pod Identity role for patchy's source-controller: read patchy app-env images in ECR"
+  description = "EKS Pod Identity role for maul's source-controller: read maul app-env images in ECR"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -52,7 +52,7 @@ resource "aws_iam_policy" "source_controller" {
   name = "${local.source_controller_name}-ecr-read"
   # Replacing a policy is the only way to change its description, so this
   # keeps the wording existing installs were created with.
-  description = "Resolve tags and read manifests/configs of patchy app-env images (${var.agent_path_prefix}/*) only"
+  description = "Resolve tags and read manifests/configs of maul app-env images (${var.agent_path_prefix}/*) only"
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -65,7 +65,7 @@ resource "aws_iam_policy" "source_controller" {
         Resource = "*"
       },
       {
-        Sid    = "ReadPatchyAppEnvImages"
+        Sid    = "ReadMaulAppEnvImages"
         Effect = "Allow"
         Action = [
           "ecr:BatchGetImage",

@@ -11,8 +11,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/bitwise-media-group/patchy/pkg/enhance"
-	"github.com/bitwise-media-group/patchy/pkg/source"
+	"github.com/devthenet-labs/maul/pkg/enhance"
+	"github.com/devthenet-labs/maul/pkg/source"
 )
 
 // cloudTags is the shared engine of the tag-inventory enhancers (AWS, Azure):

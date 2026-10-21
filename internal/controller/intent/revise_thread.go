@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/ghclient"
 )
 
 // A round reads the whole approver thread of its own pull request since the
@@ -417,7 +417,7 @@ func (v *verifier) verify(ctx context.Context, it reviseFeedbackItem) (bool, err
 
 // thread selects the candidates of a pull request's approver thread: in
 // the window, with a body, written by one of the Project's approvers and not
-// by patchy (its bot, any bot account, or anything carrying its marker), and
+// by maul (its bot, any bot account, or anything carrying its marker), and
 // not the round's own consumed reviews or command, which are read
 // separately. Each kind keeps its newest maxFeedbackCandidates.
 type thread struct {
@@ -470,7 +470,7 @@ func (t thread) inline(comments []ghclient.ReviewComment) []reviseFeedbackItem {
 	return items
 }
 
-// comments are the conversation's. A /patchy command is shown by its note
+// comments are the conversation's. A /maul command is shown by its note
 // alone, and a bare one, which says nothing to act on, not at all.
 func (t thread) comments(comments []*ghclient.Comment) []reviseFeedbackItem {
 	comments = slices.DeleteFunc(slices.Clone(comments), func(c *ghclient.Comment) bool {

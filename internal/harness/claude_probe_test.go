@@ -21,14 +21,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/runner"
+	"github.com/devthenet-labs/maul/internal/runner"
 )
 
 // claudeProbeCLIEnv names the real claude binary TestClaudePostureProbe runs.
 // The test skips without it: `mise run claude-posture-probe` fetches the
 // version Dockerfile.claude-agent-runner pins, verifies it against the
 // release manifest and sets it, and CI does the same when that pin changes.
-const claudeProbeCLIEnv = "PATCHY_CLAUDE_PROBE_CLI"
+const claudeProbeCLIEnv = "MAUL_CLAUDE_PROBE_CLI"
 
 // TestClaudePostureProbe runs the REAL claude CLI with the argv PromptSpec
 // renders for each posture, against a scratch tree that tries every way a
@@ -254,7 +254,7 @@ func newPostureProbe(t *testing.T, cli string) *postureProbe {
 	// the settings under HOME, the workspace root, which nothing of the
 	// tree's reaches. It stands in here for any settings file the posture
 	// keeps (a managed settings file baked into a repository image is the
-	// one patchy cannot rule out), choosing a mode that auto-approves edits.
+	// one maul cannot rule out), choosing a mode that auto-approves edits.
 	if err := os.MkdirAll(filepath.Join(p.ws, ".claude"), 0o755); err != nil {
 		t.Fatal(err)
 	}

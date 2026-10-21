@@ -18,10 +18,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/forge"
-	"github.com/bitwise-media-group/patchy/internal/kube"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/forge"
+	"github.com/devthenet-labs/maul/internal/kube"
 )
 
 // fakeGitHub is a GHES-shaped API serving what forgeWriter drives: the Git
@@ -81,8 +81,8 @@ func (g *fakeGitHub) serve(t *testing.T) string {
 	})
 	mux.HandleFunc("GET /repos/acme/orders/pulls", func(w http.ResponseWriter, r *http.Request) {
 		record(r)
-		if got := r.URL.Query().Get("head"); got != "acme:patchy/finding-aa-1" {
-			t.Errorf("PR list head = %q, want acme:patchy/finding-aa-1", got)
+		if got := r.URL.Query().Get("head"); got != "acme:maul/finding-aa-1" {
+			t.Errorf("PR list head = %q, want acme:maul/finding-aa-1", got)
 		}
 		reply(w, http.StatusOK, g.existing)
 	})
@@ -117,7 +117,7 @@ func (g *fakeGitHub) serve(t *testing.T) string {
 func writerOver(t *testing.T, baseURL string, withSecret bool) ForgeWriter {
 	t.Helper()
 	objs := []client.Object{&v1alpha1.Forge{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "patchy", Name: "ghe"},
+		ObjectMeta: metav1.ObjectMeta{Namespace: "maul", Name: "ghe"},
 		Spec: v1alpha1.ForgeSpec{
 			Provider:  v1alpha1.ForgeProviderGitHub,
 			BaseURL:   baseURL,
@@ -127,7 +127,7 @@ func writerOver(t *testing.T, baseURL string, withSecret bool) ForgeWriter {
 	}}
 	if withSecret {
 		objs = append(objs, &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{Namespace: "patchy", Name: "ghe-cred"},
+			ObjectMeta: metav1.ObjectMeta{Namespace: "maul", Name: "ghe-cred"},
 			Data:       map[string][]byte{forge.SecretKeyToken: []byte("pat-write")},
 		})
 	}
@@ -152,7 +152,7 @@ func TestForgeWriterPush(t *testing.T) {
 	gh := &fakeGitHub{}
 	base := gh.serve(t)
 	w := writerOver(t, base, true)
-	commit, err := w.Push(t.Context(), "patchy", repoURLOn(base), "patchy/finding-aa-1", writerChangeset)
+	commit, err := w.Push(t.Context(), "maul", repoURLOn(base), "maul/finding-aa-1", writerChangeset)
 	if err != nil {
 		t.Fatalf("Push() error = %v", err)
 	}
@@ -160,8 +160,8 @@ func TestForgeWriterPush(t *testing.T) {
 		t.Errorf("Push() = %q, want commit1", commit)
 	}
 	auth, refs, _ := gh.snapshot()
-	if len(refs) != 1 || refs[0] != "refs/heads/patchy/finding-aa-1" {
-		t.Errorf("refs = %v, want the patchy branch", refs)
+	if len(refs) != 1 || refs[0] != "refs/heads/maul/finding-aa-1" {
+		t.Errorf("refs = %v, want the maul branch", refs)
 	}
 	if len(auth) == 0 {
 		t.Error("forge saw no requests")
@@ -178,11 +178,11 @@ func TestForgeWriterPush(t *testing.T) {
 func TestForgeWriterPushErrors(t *testing.T) {
 	gh := &fakeGitHub{}
 	base := gh.serve(t)
-	if _, err := writerOver(t, base, true).Push(t.Context(), "patchy", base+"/other/orders", "b",
+	if _, err := writerOver(t, base, true).Push(t.Context(), "maul", base+"/other/orders", "b",
 		writerChangeset); !errors.Is(err, forge.ErrNoMatch) {
 		t.Errorf("Push(uncovered org) error = %v, want ErrNoMatch", err)
 	}
-	_, err := writerOver(t, base, false).Push(t.Context(), "patchy", repoURLOn(base), "b", writerChangeset)
+	_, err := writerOver(t, base, false).Push(t.Context(), "maul", repoURLOn(base), "b", writerChangeset)
 	if err == nil || !strings.Contains(err.Error(), "mint push token") {
 		t.Errorf("Push(no secret) error = %v, want a token failure", err)
 	}
@@ -197,8 +197,8 @@ func TestForgeWriterEnsurePR(t *testing.T) {
 	t.Run("existing", func(t *testing.T) {
 		gh := &fakeGitHub{existing: `[{"number":7,"html_url":"https://ghe.example/acme/orders/pull/7"}]`}
 		base := gh.serve(t)
-		n, url, err := writerOver(t, base, true).EnsurePR(t.Context(), "patchy", repoURLOn(base),
-			"patchy/finding-aa-1", "title", "body")
+		n, url, err := writerOver(t, base, true).EnsurePR(t.Context(), "maul", repoURLOn(base),
+			"maul/finding-aa-1", "title", "body")
 		if err != nil {
 			t.Fatalf("EnsurePR() error = %v", err)
 		}
@@ -212,8 +212,8 @@ func TestForgeWriterEnsurePR(t *testing.T) {
 	t.Run("new", func(t *testing.T) {
 		gh := &fakeGitHub{existing: `[]`}
 		base := gh.serve(t)
-		n, url, err := writerOver(t, base, true).EnsurePR(t.Context(), "patchy", repoURLOn(base),
-			"patchy/finding-aa-1", "Fix CVE", "the body")
+		n, url, err := writerOver(t, base, true).EnsurePR(t.Context(), "maul", repoURLOn(base),
+			"maul/finding-aa-1", "Fix CVE", "the body")
 		if err != nil {
 			t.Fatalf("EnsurePR() error = %v", err)
 		}
@@ -225,7 +225,7 @@ func TestForgeWriterEnsurePR(t *testing.T) {
 			t.Fatalf("created %d PRs, want 1", len(created))
 		}
 		got := created[0]
-		if got["head"] != "patchy/finding-aa-1" || got["base"] != "trunk" || got["title"] != "Fix CVE" ||
+		if got["head"] != "maul/finding-aa-1" || got["base"] != "trunk" || got["title"] != "Fix CVE" ||
 			got["body"] != "the body" {
 			t.Errorf("PR request = %v, want head/base/title/body passed through", got)
 		}
@@ -249,8 +249,8 @@ func TestForgeWriterEnsurePRErrors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			base := tt.gh.serve(t)
-			n, url, err := writerOver(t, base, tt.secret).EnsurePR(t.Context(), "patchy", tt.repo(base),
-				"patchy/finding-aa-1", "t", "b")
+			n, url, err := writerOver(t, base, tt.secret).EnsurePR(t.Context(), "maul", tt.repo(base),
+				"maul/finding-aa-1", "t", "b")
 			if err == nil {
 				t.Fatalf("EnsurePR() = %d %q, want an error", n, url)
 			}

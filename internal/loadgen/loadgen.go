@@ -12,8 +12,8 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/pkg/source"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/pkg/source"
 )
 
 // Fixed identities every generated object shares. The integration name enters
@@ -25,7 +25,7 @@ const (
 	// SourceID is the source handler id on every finding.
 	SourceID = "loadgen-scanner"
 	// Namespace the generated objects live in.
-	Namespace = "patchy"
+	Namespace = "maul"
 )
 
 // baseTime anchors every generated timestamp; offsets are per-index so

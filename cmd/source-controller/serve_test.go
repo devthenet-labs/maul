@@ -27,10 +27,10 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/spf13/cobra"
 
-	"github.com/bitwise-media-group/patchy/internal/cli"
-	"github.com/bitwise-media-group/patchy/internal/controller/source"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/runnerimage"
+	"github.com/devthenet-labs/maul/internal/cli"
+	"github.com/devthenet-labs/maul/internal/controller/source"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/runnerimage"
 )
 
 // serveOpts resolves args through the real serve flag surface, as the
@@ -53,7 +53,7 @@ func serveOpts(t *testing.T, args ...string) *cli.Options {
 
 // TestRunnerImagesRejectJobReservedEnv resolves through the resolver the
 // flags build: an image ENV may not set ANY name the agent Job reserves for
-// itself (jobs.ReservedEnvNames: credential channels, PATCHY_* handoff,
+// itself (jobs.ReservedEnvNames: credential channels, MAUL_* handoff,
 // gateway and proxy names, git's repository redirections, HOME). It
 // iterates the Job builder's live list, so a newly reserved name is covered
 // without editing this test.
@@ -103,7 +103,7 @@ func TestRunnerImagesRejectJobReservedEnv(t *testing.T) {
 // TestRunnerImagesOnReject pins --repository-image-on-reject: unset, a
 // rejected declaration falls back to the default image rather than parking
 // the finding (decision 5 of docs/design/repository-runner-images.md); both
-// named policies pass through, from the flag or from the PATCHY_* variable
+// named policies pass through, from the flag or from the MAUL_* variable
 // the chart renders; anything else fails startup.
 func TestRunnerImagesOnReject(t *testing.T) {
 	on := []string{"--repository-images", "--repository-image-registries", "ghcr.io/org/",
@@ -123,7 +123,7 @@ func TestRunnerImagesOnReject(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.env != "" {
-				t.Setenv("PATCHY_REPOSITORY_IMAGE_ON_REJECT", tc.env)
+				t.Setenv("MAUL_REPOSITORY_IMAGE_ON_REJECT", tc.env)
 			}
 			ri, err := runnerImages(serveOpts(t, slices.Concat(on, tc.args)...))
 			if tc.wantErr {
@@ -145,11 +145,11 @@ func TestRunnerImagesOnReject(t *testing.T) {
 // TestRunnerImagesDeniedRegistries pins --repository-image-denied-registries,
 // which the chart fills with the preview image prefix: a declared image under
 // it is a DeniedRegistry rejection even inside an allowlisted path, from the
-// flag or from the PATCHY_* variable the chart renders; unset denies
+// flag or from the MAUL_* variable the chart renders; unset denies
 // nothing; a malformed entry fails startup.
 func TestRunnerImagesDeniedRegistries(t *testing.T) {
 	const ecr = "123456789012.dkr.ecr.us-east-1.amazonaws.com"
-	on := []string{"--repository-images", "--repository-image-registries", ecr + "/patchy/",
+	on := []string{"--repository-images", "--repository-image-registries", ecr + "/maul/",
 		"--repository-image-allow-unsigned"}
 	allowed := func(t *testing.T, ri *source.RunnerImages, image string) error {
 		t.Helper()
@@ -166,22 +166,22 @@ func TestRunnerImagesDeniedRegistries(t *testing.T) {
 		denied bool
 	}{
 		{name: "unset"},
-		{name: "flag", args: []string{"--repository-image-denied-registries", ecr + "/patchy/previews/"},
+		{name: "flag", args: []string{"--repository-image-denied-registries", ecr + "/maul/previews/"},
 			denied: true},
-		{name: "env", env: ecr + "/patchy/previews/", denied: true},
+		{name: "env", env: ecr + "/maul/previews/", denied: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.env != "" {
-				t.Setenv("PATCHY_REPOSITORY_IMAGE_DENIED_REGISTRIES", tc.env)
+				t.Setenv("MAUL_REPOSITORY_IMAGE_DENIED_REGISTRIES", tc.env)
 			}
 			ri, err := runnerImages(serveOpts(t, slices.Concat(on, tc.args)...))
 			if err != nil || ri == nil {
 				t.Fatalf("runnerImages = %v, %v", ri, err)
 			}
-			if err := allowed(t, ri, ecr+"/patchy/app-envs/web:toolchain-v1"); err != nil {
+			if err := allowed(t, ri, ecr+"/maul/app-envs/web:toolchain-v1"); err != nil {
 				t.Errorf("agent image refused: %v", err)
 			}
-			err = allowed(t, ri, ecr+"/patchy/previews/web:sha-"+strings.Repeat("a", 40))
+			err = allowed(t, ri, ecr+"/maul/previews/web:sha-"+strings.Repeat("a", 40))
 			var rej *runnerimage.Rejection
 			if got := errors.As(err, &rej) && rej.Reason == "DeniedRegistry"; got != tc.denied {
 				t.Errorf("preview image as an agent image: %v, want denied=%v", err, tc.denied)
@@ -199,7 +199,7 @@ func TestRunnerImagesDeniedRegistries(t *testing.T) {
 // each agent.repositoryImages.registries entry.
 func chartRegistryPattern(t *testing.T) *regexp.Regexp {
 	t.Helper()
-	const schema = "../../charts/patchy/values.schema.json"
+	const schema = "../../charts/maul/values.schema.json"
 	raw, err := os.ReadFile(schema)
 	if err != nil {
 		t.Fatalf("read chart schema: %v", err)
@@ -268,7 +268,7 @@ func genRegistryEntry(r *rand.Rand) string {
 }
 
 // TestChartRegistryPatternIsSound: the chart comma-joins
-// agent.repositoryImages.registries into PATCHY_REPOSITORY_IMAGE_REGISTRIES,
+// agent.repositoryImages.registries into MAUL_REPOSITORY_IMAGE_REGISTRIES,
 // and runnerImages refuses an entry NormalizeEntry rejects — at startup,
 // where under the chart's Recreate strategy it replaces a running
 // source-controller with a crash-looping one. So every entry the schema's
@@ -278,13 +278,13 @@ func genRegistryEntry(r *rand.Rand) string {
 func TestChartRegistryPatternIsSound(t *testing.T) {
 	re := chartRegistryPattern(t)
 	accept := func(registries string) error {
-		t.Setenv("PATCHY_REPOSITORY_IMAGE_REGISTRIES", registries)
+		t.Setenv("MAUL_REPOSITORY_IMAGE_REGISTRIES", registries)
 		_, err := runnerImages(serveOpts(t, "--repository-images", "--repository-image-allow-unsigned"))
 		return err
 	}
 
 	for _, e := range []string{"ghcr.io/org", "ghcr.io/org/", "ghcr.io/org/team/", "GHCR.IO/Org/Team",
-		"index.docker.io/library/", "localhost:5000/team", "123456789012.dkr.ecr.us-east-1.amazonaws.com/patchy/",
+		"index.docker.io/library/", "localhost:5000/team", "123456789012.dkr.ecr.us-east-1.amazonaws.com/maul/",
 		"us-docker.pkg.dev/my-project/agent_images.v2/"} {
 		if !re.MatchString(e) {
 			t.Errorf("pattern %s refuses %q, an entry operators write", re, e)

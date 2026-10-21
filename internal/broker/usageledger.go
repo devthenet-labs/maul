@@ -8,7 +8,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/bitwise-media-group/patchy/internal/usagewire"
+	"github.com/devthenet-labs/maul/internal/usagewire"
 )
 
 // modelUsage is what one pod consumed of one model: the tokens observed in

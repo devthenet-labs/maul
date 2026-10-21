@@ -18,11 +18,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/transcript"
-	"github.com/bitwise-media-group/patchy/internal/transcriptstore"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/transcript"
+	"github.com/devthenet-labs/maul/internal/transcriptstore"
 )
 
 const transcriptPath = "/api/findings/finding-aa-1/runs/investigation/1/transcript"
@@ -44,7 +44,7 @@ func completedInvestigation(t *testing.T) []client.Object {
 	}
 	return []client.Object{
 		&v1alpha1.Investigation{
-			ObjectMeta: metav1.ObjectMeta{Name: "finding-aa-1-inv-1", Namespace: "patchy"},
+			ObjectMeta: metav1.ObjectMeta{Name: "finding-aa-1-inv-1", Namespace: "maul"},
 			Spec: v1alpha1.InvestigationSpec{
 				FindingRef: v1alpha1.ObjectReference{Name: "finding-aa-1"}, Attempt: 1,
 			},
@@ -57,7 +57,7 @@ func completedInvestigation(t *testing.T) []client.Object {
 			},
 		},
 		&corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{Name: "finding-aa-1-inv-1-transcript", Namespace: "patchy"},
+			ObjectMeta: metav1.ObjectMeta{Name: "finding-aa-1-inv-1-transcript", Namespace: "maul"},
 			BinaryData: map[string][]byte{transcriptstore.DataKey: raw},
 		},
 	}
@@ -67,13 +67,13 @@ func completedInvestigation(t *testing.T) []client.Object {
 func runningInvestigation() []client.Object {
 	return []client.Object{
 		&v1alpha1.Investigation{
-			ObjectMeta: metav1.ObjectMeta{Name: "finding-aa-1-inv-1", Namespace: "patchy"},
+			ObjectMeta: metav1.ObjectMeta{Name: "finding-aa-1-inv-1", Namespace: "maul"},
 			Spec: v1alpha1.InvestigationSpec{
 				FindingRef: v1alpha1.ObjectReference{Name: "finding-aa-1"}, Attempt: 1,
 			},
 			Status: v1alpha1.InvestigationStatus{
 				Phase:  v1alpha1.RunRunning,
-				JobRef: &v1alpha1.JobReference{Namespace: "patchy-agents", Name: "job-1"},
+				JobRef: &v1alpha1.JobReference{Namespace: "maul-agents", Name: "job-1"},
 			},
 		},
 	}
@@ -119,7 +119,7 @@ func transcriptServer(t *testing.T, tailer Tailer, objs ...client.Object) *Serve
 		WithObjects(objs...).
 		WithStatusSubresource(&v1alpha1.Finding{}, &v1alpha1.Investigation{}, &v1alpha1.Remediation{}).
 		Build()
-	s := NewServer(c, "patchy", stubAuth{id: operator}, stubGranter{grants: allGrants()}, nil)
+	s := NewServer(c, "maul", stubAuth{id: operator}, stubGranter{grants: allGrants()}, nil)
 	return s.WithTranscripts(c, tailer)
 }
 
@@ -294,7 +294,7 @@ func TestTranscriptPrefersPersistedOverLive(t *testing.T) {
 
 func TestTranscriptEmptyWhenNothingRecorded(t *testing.T) {
 	inv := &v1alpha1.Investigation{
-		ObjectMeta: metav1.ObjectMeta{Name: "finding-aa-1-inv-1", Namespace: "patchy"},
+		ObjectMeta: metav1.ObjectMeta{Name: "finding-aa-1-inv-1", Namespace: "maul"},
 		Spec: v1alpha1.InvestigationSpec{
 			FindingRef: v1alpha1.ObjectReference{Name: "finding-aa-1"}, Attempt: 1,
 		},

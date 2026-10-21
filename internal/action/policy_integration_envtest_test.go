@@ -14,9 +14,9 @@ import (
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/action"
-	"github.com/bitwise-media-group/patchy/internal/rbactest"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/action"
+	"github.com/devthenet-labs/maul/internal/rbactest"
 )
 
 // The integrations policy's own envtest proof: the request stamps
@@ -263,7 +263,7 @@ func TestIntegrationPolicyExemptsTheStatusServer(t *testing.T) {
 	env.waitForIntegrationPolicy(t)
 	env.seedIntegration(t, "integ-sa-target", nil)
 
-	c := env.integrationUserClient(t, "system:serviceaccount:patchy:patchy-status-server")
+	c := env.integrationUserClient(t, "system:serviceaccount:maul:maul-status-server")
 	integ := getIntegration(t, c, "integ-sa-target")
 	integ.Spec.Backfill = backfillRequest()
 	if err := c.Update(t.Context(), integ); err != nil {

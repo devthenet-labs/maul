@@ -10,10 +10,10 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/bitwise-media-group/patchy/internal/mirror/allowlist"
-	"github.com/bitwise-media-group/patchy/internal/mirror/imageref"
-	"github.com/bitwise-media-group/patchy/internal/mirror/scan"
-	"github.com/bitwise-media-group/patchy/internal/mirror/spec"
+	"github.com/devthenet-labs/maul/internal/mirror/allowlist"
+	"github.com/devthenet-labs/maul/internal/mirror/imageref"
+	"github.com/devthenet-labs/maul/internal/mirror/scan"
+	"github.com/devthenet-labs/maul/internal/mirror/spec"
 )
 
 // ScanReport is one entry's vulnerability-scan outcome.

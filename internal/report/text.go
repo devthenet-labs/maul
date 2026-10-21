@@ -31,7 +31,7 @@ const (
 	// is sized to what a plan's approval comment can carry, so that a plan
 	// this package accepts is never one GitHub cannot show its approver:
 	// the comment holds the report verbatim, in a code block, beneath
-	// patchy's header, and GitHub refuses a comment over 65,536 characters.
+	// maul's header, and GitHub refuses a comment over 65,536 characters.
 	// The 8 KiB this bound leaves is the header's worst case with room to
 	// spare: its own text (under 2 KiB with the longest names and labels),
 	// the summary it repeats (at most 800 bytes), the new dependencies it

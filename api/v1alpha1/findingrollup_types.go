@@ -178,7 +178,7 @@ type FindingRollupStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:shortName=fr,categories=patchy
+// +kubebuilder:resource:shortName=fr,categories=maul
 // +kubebuilder:printcolumn:name="Scope",type=string,JSONPath=`.spec.scope.type`
 // +kubebuilder:printcolumn:name="Key",type=string,JSONPath=`.spec.scope.key`
 // +kubebuilder:printcolumn:name="Findings",type=integer,JSONPath=`.status.bucket.findings`

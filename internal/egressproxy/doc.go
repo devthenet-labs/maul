@@ -62,7 +62,7 @@
 // line, all at info.
 //
 // Each request emits one audit line (never a header or body) and the
-// patchy.egress_proxy metrics.
+// maul.egress_proxy metrics.
 // Attribution of a source IP to an agent pod (PodLookup) is audit garnish
 // only and never decides anything. The core imports no Kubernetes package;
 // the pod index adapter lives in podindex.

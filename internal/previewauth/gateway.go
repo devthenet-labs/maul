@@ -13,7 +13,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/sealed"
+	"github.com/devthenet-labs/maul/internal/sealed"
 )
 
 // The preview gateway's sign-in (design §2, Revision 1): the gateway is its
@@ -21,19 +21,19 @@ import (
 // a state cookie named for it and sends the browser to the sign-in host's
 // /start. The sign-in host, once it has a relay session and the access review
 // passes, issues a single-use Handoff code bound to the state and sends the
-// browser to the preview host's /.patchy/callback, which spends it for a
+// browser to the preview host's /.maul/callback, which spends it for a
 // HostSession on that host only.
 
 const (
 	// HostSessionCookie is a preview host's session cookie. __Host- pins it
 	// to the one preview host that set it.
-	HostSessionCookie = "__Host-patchy-pv"
+	HostSessionCookie = "__Host-maul-pv"
 	// stateCookiePrefix starts every state cookie's name; StateCookieName
 	// adds a hash of the sealed state, so each sign-in in flight has its own.
-	stateCookiePrefix = "__Host-patchy-pv-state-"
+	stateCookiePrefix = "__Host-maul-pv-state-"
 	// ReservedPrefix is the path prefix every preview host keeps for the
 	// gateway. Nothing under it is ever forwarded to a preview.
-	ReservedPrefix = "/.patchy/"
+	ReservedPrefix = "/.maul/"
 	// HandoffPath is the one path a handoff code is ever sent to.
 	HandoffPath = ReservedPrefix + "callback"
 	// HealthPath answers on every host, for the edge's health check.
@@ -265,7 +265,7 @@ func (r *KeyRing) OpenGatewayLogin(token string, now time.Time) (GatewayLogin, e
 // (its hash names the state cookie, and the state's nonce hash is what the
 // cookie must hash to), the relay session that issued it, the viewer and the
 // path to return to. Only the gateway ever holds it: the browser carries it
-// sealed from the sign-in host to the preview host's /.patchy/callback.
+// sealed from the sign-in host to the preview host's /.maul/callback.
 type Handoff struct {
 	V int `json:"v"`
 	Bound

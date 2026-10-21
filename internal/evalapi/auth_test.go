@@ -118,8 +118,8 @@ func TestNewAuthenticatorModeNone(t *testing.T) {
 	if err != nil || id == nil {
 		t.Fatalf("Identify = (%v, %v), want a fixed identity", id, err)
 	}
-	if id.Username != "patchy-eval-dev" {
-		t.Errorf("username = %q, want patchy-eval-dev", id.Username)
+	if id.Username != "maul-eval-dev" {
+		t.Errorf("username = %q, want maul-eval-dev", id.Username)
 	}
 }
 

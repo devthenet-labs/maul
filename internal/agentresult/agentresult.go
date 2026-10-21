@@ -19,11 +19,11 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/model"
-	"github.com/bitwise-media-group/patchy/internal/report"
-	"github.com/bitwise-media-group/patchy/internal/templates"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/model"
+	"github.com/devthenet-labs/maul/internal/report"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // Size caps (bytes) for CRD string fields.
@@ -73,7 +73,7 @@ func PreviousAttempt(name string, attempt int32, st *v1alpha1.StageResult) *v1al
 }
 
 // EncodePreviousAttempt renders p as the JSON a Job hands the agent-runner
-// (PATCHY_PREVIOUS_ATTEMPT, decoded into templates.PreviousAttempt); "" for
+// (MAUL_PREVIOUS_ATTEMPT, decoded into templates.PreviousAttempt); "" for
 // nil, which omits the variable and with it the prompt section.
 func EncodePreviousAttempt(p *v1alpha1.PreviousAttempt) string {
 	if p == nil {

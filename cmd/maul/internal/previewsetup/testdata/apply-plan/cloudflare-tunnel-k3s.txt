@@ -1,0 +1,31 @@
+--apply would run these 7 steps against the cluster your kubeconfig names, in order, stopping at the first failure:
+
+1. Check that helm runs and release maul is installed in namespace maul
+     helm version --short
+     helm status maul -n maul
+
+2. Apply the relay's Dex client secret in namespace maul
+     kubectl apply --server-side --force-conflicts --field-manager=maul-setup-previews -f maul-previews/secrets/maul-preview-auth-dex.secret.yaml
+
+3. Apply Dex's copy of the client secret in namespace dex (skipped when no such namespace is here: Dex runs elsewhere)
+     kubectl apply --server-side --force-conflicts --field-manager=maul-setup-previews -f maul-previews/secrets/dex-maul-preview-auth-client.secret.yaml
+
+4. Apply cloudflared and the tunnel credentials in namespace maul-cloudflared
+     kubectl apply --server-side --force-conflicts --field-manager=maul-setup-previews -f maul-previews/manifests/cloudflared.yaml -f maul-previews/secrets/cloudflared-credentials.secret.yaml
+
+5. Wait for deployment/cloudflared in namespace maul-cloudflared to roll out
+     kubectl -n maul-cloudflared rollout status deployment/cloudflared --timeout=10m0s
+
+6. Upgrade release maul to chart 0.12.41 with your values, then maul-previews.values.yaml
+     helm upgrade maul oci://ghcr.io/devthenet-labs/maul/charts/maul --version 0.12.41 -n maul -f values/maul.yaml -f maul-previews/maul-previews.values.yaml --wait --timeout 10m0s
+
+7. Run the checks of maul check previews
+     maul check previews -n maul
+
+Manifests are server-side applied as maul-setup-previews; a Secret's contents are never printed.
+
+Left to you after it, as NEXT-STEPS.md says:
+  - preview nodes, labelled and tainted (NEXT-STEPS.md step 2)
+  - preview image pulls on those nodes (step 3)
+  - Dex: its static client maul-preview-auth and the secret's environment variable, then roll Dex (step 4)
+  - the two proxied DNS records and the Cache Rule in Cloudflare (step 7)

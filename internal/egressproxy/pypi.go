@@ -9,8 +9,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/bitwise-media-group/patchy/internal/egressproxy/pyindex"
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/egressproxy/pyindex"
+	"github.com/devthenet-labs/maul/internal/netprofile"
 )
 
 // pyOrigins are the hosts a registry's simple pages may link files to:

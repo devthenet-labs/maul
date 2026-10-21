@@ -1,7 +1,7 @@
-<!-- patchy:intent patchy/target-1 -->
-### patchy
+<!-- maul:intent maul/target-1 -->
+### maul
 
-**Phase:** `Blocked`: patchy has stopped until the reason below is dealt with.
+**Phase:** `Blocked`: maul has stopped until the reason below is dealt with.
 
 **Plan:** r2
 
@@ -12,4 +12,4 @@ changeset_rejected: changeset path ".github/workflows/ci.yml @octocat
 ```" is under .github, which an intent run may not change
 ````
 
-_patchy updates this comment as the work progresses._
+_maul updates this comment as the work progresses._

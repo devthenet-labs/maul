@@ -1,0 +1,16 @@
+{
+  "name": "maul-acme",
+  "url": "https://github.com/devthenet-labs/maul",
+  "description": "maul: intents, check-fix rounds",
+  "redirect_url": "https://github.com/organizations/acme/settings/apps",
+  "public": false,
+  "default_permissions": {
+    "actions": "read",
+    "checks": "read",
+    "contents": "write",
+    "issues": "write",
+    "metadata": "read",
+    "pull_requests": "write",
+    "statuses": "read"
+  }
+}

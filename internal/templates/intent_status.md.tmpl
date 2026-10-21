@@ -1,16 +1,16 @@
 {{- /* An intent's sticky status comment, edited in place. The summary
 arrives sanitised, the reason (which may quote agent output) is fenced, and
-logins are code, never mentions. The pull requests are patchy's own, linked
+logins are code, never mentions. The pull requests are maul's own, linked
 on purpose, and so is the preview host, while the preview is live
 (intent_preview.go). One line per paragraph: GitHub renders a line break
 inside an issue comment as a hard break. */ -}}
 {{ .Marker }}
-### patchy
+### maul
 
 **Phase:** {{ code .Phase }}{{ with .Sentence }}: {{ . }}{{ end }}
 {{- if .AgentsPaused }}
 
-**Agents paused:** the operator has paused patchy's agents, so this work waits until they are resumed.
+**Agents paused:** the operator has paused maul's agents, so this work waits until they are resumed.
 {{- end }}
 {{- if .PlanRevision }}
 
@@ -61,4 +61,4 @@ inside an issue comment as a hard break. */ -}}
 **Commands now:** {{ join . ", " }}
 {{- end }}
 
-_patchy updates this comment as the work progresses._
+_maul updates this comment as the work progresses._

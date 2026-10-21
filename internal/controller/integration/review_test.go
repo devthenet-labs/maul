@@ -18,8 +18,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/ghclient"
 )
 
 const (
@@ -63,7 +63,7 @@ func newReview(t *testing.T, fnd *v1alpha1.Finding) (*Signals, *FindingReconcile
 	}
 	r := &FindingReconciler{
 		Client:    c,
-		Namespace: "patchy",
+		Namespace: "maul",
 		Now:       func() time.Time { return testClock },
 		ClientFor: func(context.Context, *v1alpha1.Integration, ghclient.Repo) (trackerClient, error) {
 			return tracker, nil
@@ -190,7 +190,7 @@ func TestReviewIssueClosedLookupFails(t *testing.T) {
 	tracker.pullErrs = []error{badGateway("get PR acme/orders#11"), badGateway("get PR acme/orders#11")}
 
 	closeIssue(t, s, tracker)
-	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1"}}
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "maul", Name: "finding-aa-1"}}
 	for i := range 2 {
 		if _, err := r.Reconcile(t.Context(), req); err == nil {
 			t.Fatalf("reconcile %d: nil error, want the lookup failure (so the reconcile backs off and retries)", i+1)
@@ -337,7 +337,7 @@ func TestReviewIssueChangesWhileRead(t *testing.T) {
 		closeIssue(t, s, tracker)
 	}
 
-	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1"}}
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "maul", Name: "finding-aa-1"}}
 	res, err := r.Reconcile(t.Context(), req)
 	if err != nil {
 		t.Fatalf("Reconcile: %v", err)
@@ -380,7 +380,7 @@ func TestReviewCloseWaitsForIntegration(t *testing.T) {
 			closeIssue(t, s, tracker)
 
 			var integ v1alpha1.Integration
-			key := types.NamespacedName{Namespace: "patchy", Name: "gh"}
+			key := types.NamespacedName{Namespace: "maul", Name: "gh"}
 			if err := c.Get(t.Context(), key, &integ); err != nil {
 				t.Fatal(err)
 			}
@@ -395,7 +395,7 @@ func TestReviewCloseWaitsForIntegration(t *testing.T) {
 				}
 			}
 
-			req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1"}}
+			req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "maul", Name: "finding-aa-1"}}
 			res, err := r.Reconcile(t.Context(), req)
 			if err != nil {
 				t.Fatalf("Reconcile: %v", err)
@@ -472,7 +472,7 @@ func TestReviewClientUnreadable(t *testing.T) {
 				handle(t, s, "pull_request", prClosed("acme/storefront", 11, "acme/storefront", true))
 			}
 
-			req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1"}}
+			req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "maul", Name: "finding-aa-1"}}
 			if _, err := r.Reconcile(t.Context(), req); (err != nil) != tc.wantErr {
 				t.Fatalf("Reconcile error = %v, want error %v", err, tc.wantErr)
 			}

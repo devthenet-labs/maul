@@ -33,7 +33,7 @@ export function ActionBar({
 
   return (
     <div
-      class="sticky bottom-0 mt-6 flex flex-wrap items-center gap-2.5 rounded-xl border border-line-2 bg-[color-mix(in_oklab,var(--patchy-surface)_94%,transparent)] px-4 py-3 shadow-card backdrop-blur-md"
+      class="sticky bottom-0 mt-6 flex flex-wrap items-center gap-2.5 rounded-xl border border-line-2 bg-[color-mix(in_oklab,var(--maul-surface)_94%,transparent)] px-4 py-3 shadow-card backdrop-blur-md"
       role="group"
       aria-label="Actions"
     >

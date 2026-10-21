@@ -15,8 +15,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/ghclient"
 )
 
 // lostCreates wraps e's reconcilers' clients so the first create of every
@@ -61,7 +61,7 @@ func TestCreatesAreAdopted(t *testing.T) {
 	name := e.newIntent(approver)
 
 	e.drive(name, v1alpha1.IntentAwaitingApproval, repoImage)
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 	if len(in.Status.PullRequests) == 0 {
 		t.Errorf("no pull request recorded: %+v", in.Status)
@@ -91,7 +91,7 @@ func TestCreatesAreAdopted(t *testing.T) {
 func TestReviseCreatesAreAdopted(t *testing.T) {
 	e := newEnv(t, testProject())
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 	lost := lostCreates(e)
 	number := in.Status.PullRequests[0].Number
@@ -120,13 +120,13 @@ func TestReviseCreatesAreAdopted(t *testing.T) {
 func TestCommandRoundCreatesAreAdopted(t *testing.T) {
 	e := newEnv(t, testProject())
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 	lostCreates(e)
 	pr := in.Status.PullRequests[0]
 	e.gh.prComments[pr.Number] = []*ghclient.Comment{{ID: 940, NodeID: "comment-940",
 		UserLogin: approver, UserID: actorOf(approver).ID, UserType: "User",
-		Body:      "/patchy revise Please check the response header.",
+		Body:      "/maul revise Please check the response header.",
 		CreatedAt: e.clock.Now(), UpdatedAt: e.clock.Now()}}
 	e.clock.Advance(time.Second)
 	e.drive(name, v1alpha1.IntentRevising, repoImage)
@@ -149,7 +149,7 @@ func TestCheckFixCreatesAreAdopted(t *testing.T) {
 	project.Spec.Checks.Fix = []string{"test"}
 	e := newEnv(t, project)
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 	lostCreates(e)
 	head := in.Status.PullRequests[0].HeadSHA

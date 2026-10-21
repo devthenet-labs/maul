@@ -1,0 +1,33 @@
+# The answers `maul setup previews` last rendered this directory from. A re-run starts
+# from them; flags given then override them. No secret is ever recorded here.
+apiServerCIDR: auto
+certificate:
+  dns: route53
+  dnsOptions:
+    accessKeyID: AKIAIOSFODNN7EXAMPLE
+    region: us-east-1
+cliVersion: v0.12.40
+dex:
+  clientID: maul-preview-auth
+  issuer: https://dex.maul.acme.dev
+  namespace: dex
+edge: tailscale
+hostSuffix: acme-previews.dev
+imagePathPrefix: maul/previews
+namespace: maul
+nodeIsolation:
+  label: maul.run/previews
+  labelValue: "true"
+  taintKey: maul.run/preview-only
+platform: k3d
+registry: 123456789012.dkr.ecr.us-east-1.amazonaws.com
+release: maul
+signInHost: preview-auth.maul.acme.dev
+tailscale:
+  addresses:
+  - 100.101.12.58
+viewers:
+  teams:
+  - acme:qa
+  users:
+  - octocat

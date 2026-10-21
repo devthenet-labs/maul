@@ -26,8 +26,8 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/static"
 	"github.com/google/go-containerregistry/pkg/v1/types"
 
-	"github.com/bitwise-media-group/patchy/internal/mirror/helmchart"
-	"github.com/bitwise-media-group/patchy/internal/mirror/spec"
+	"github.com/devthenet-labs/maul/internal/mirror/helmchart"
+	"github.com/devthenet-labs/maul/internal/mirror/spec"
 )
 
 // testNow anchors the injected clock.
@@ -65,7 +65,7 @@ func newFixture(t *testing.T) *fixture {
 // in-memory registry — no second server needed.
 func (f *fixture) setRegistries(registries string) {
 	f.t.Helper()
-	mirrorYAML := fmt.Sprintf(`apiVersion: mirror.patchy.bitwisemedia.uk/v1alpha1
+	mirrorYAML := fmt.Sprintf(`apiVersion: mirror.maul.run/v1alpha1
 kind: MirrorConfig
 registries:
 %ssigning:
@@ -206,7 +206,7 @@ func (f *fixture) pushChart(repoPath, name, version string, tgz []byte) {
 // chartManifest writes a chart entry pinned at 1.0.0 with a stay-in-major
 // constraint.
 func (f *fixture) chartManifest(name, extraBlocks string) {
-	f.write(filepath.Join("charts", name, "manifest.yaml"), fmt.Sprintf(`apiVersion: mirror.patchy.bitwisemedia.uk/v1alpha1
+	f.write(filepath.Join("charts", name, "manifest.yaml"), fmt.Sprintf(`apiVersion: mirror.maul.run/v1alpha1
 kind: Chart
 name: %[1]s
 chart:
@@ -405,7 +405,7 @@ func TestEngineTrackedPick(t *testing.T) {
 	f.pushChart(f.host+"/upstream", "demo", "1.0.0", f.chartTgz("demo", "1.0.0", "1.0.0", runner+":0.0.0"))
 	// chartManifest's shape doesn't cover track rules; write the manifest
 	// fully by hand.
-	f.write("charts/demo/manifest.yaml", fmt.Sprintf(`apiVersion: mirror.patchy.bitwisemedia.uk/v1alpha1
+	f.write("charts/demo/manifest.yaml", fmt.Sprintf(`apiVersion: mirror.maul.run/v1alpha1
 kind: Chart
 name: demo
 chart:
@@ -460,7 +460,7 @@ func TestEngineTrackedPickBareTag(t *testing.T) {
 	f.pushChart(f.host+"/upstream", "demo", "1.0.0", f.chartTgz("demo", "1.0.0", "1.0.0", app+":0.0.0"))
 	// No versionConstraint: the rule derives the pin's release train. The
 	// values pin is a bare tag (the chart splits repository from tag).
-	f.write("charts/demo/manifest.yaml", fmt.Sprintf(`apiVersion: mirror.patchy.bitwisemedia.uk/v1alpha1
+	f.write("charts/demo/manifest.yaml", fmt.Sprintf(`apiVersion: mirror.maul.run/v1alpha1
 kind: Chart
 name: demo
 chart:

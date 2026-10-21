@@ -1,9 +1,9 @@
 # Copyright 2026 Bitwise Media Group Ltd.
 # SPDX-License-Identifier: MIT
 #
-# RBAC, in full. One Role (+ RoleBinding) per controller in the patchy
+# RBAC, in full. One Role (+ RoleBinding) per controller in the maul
 # namespace, verb-by-verb what its reconcilers use, plus one Role in
-# patchy-agents for each of the two job controllers.
+# maul-agents for each of the two job controllers.
 #
 # Conventions the rules encode:
 #
@@ -18,7 +18,7 @@
 #   * leases + events: controller-runtime leader election. Deployments stay
 #     replicas:1 + Recreate; the lease is insurance against two replicas
 #     racing during a botched rollout.
-#   * The agent pods (patchy-agents) have NO role at all — see
+#   * The agent pods (maul-agents) have NO role at all — see
 #     serviceaccount.yaml.
 ---
 # ---- integration-controller ------------------------------------------------
@@ -30,34 +30,34 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-    name: patchy-integration-controller
-    namespace: patchy
+    name: maul-integration-controller
+    namespace: maul
     labels:
         app.kubernetes.io/name: integration-controller
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 rules:
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [findings]
       verbs: [create, get, list, watch, update, patch, delete, deletecollection]
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [findings/status]
       verbs: [get, update, patch]
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [integrations]
       verbs: [get, list, watch]
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [integrations/status]
       verbs: [get, update, patch]
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [investigations, remediations]
       verbs: [get, list, watch, deletecollection]
     # the runner-image comment (--repository-images) reads each finding's
     # Repository record
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [repositories]
       verbs: [get, list, watch]
     # the demo reset (Integration spec.reset) wipes every pipeline resource
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [repositories, findingrollups]
       verbs: [deletecollection]
     - apiGroups: [""]
@@ -73,19 +73,19 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-    name: patchy-integration-controller
-    namespace: patchy
+    name: maul-integration-controller
+    namespace: maul
     labels:
         app.kubernetes.io/name: integration-controller
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 roleRef:
     apiGroup: rbac.authorization.k8s.io
     kind: Role
-    name: patchy-integration-controller
+    name: maul-integration-controller
 subjects:
     - kind: ServiceAccount
-      name: patchy-integration-controller
-      namespace: patchy
+      name: maul-integration-controller
+      namespace: maul
 ---
 # ---- source-controller -----------------------------------------------------
 # Validates Forge credentials, resolves + pins Repositories, serves the
@@ -93,16 +93,16 @@ subjects:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-    name: patchy-source-controller
-    namespace: patchy
+    name: maul-source-controller
+    namespace: maul
     labels:
         app.kubernetes.io/name: source-controller
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 rules:
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [forges, repositories]
       verbs: [get, list, watch]
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [forges/status, repositories/status]
       verbs: [get, update, patch]
     - apiGroups: [""]
@@ -118,19 +118,19 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-    name: patchy-source-controller
-    namespace: patchy
+    name: maul-source-controller
+    namespace: maul
     labels:
         app.kubernetes.io/name: source-controller
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 roleRef:
     apiGroup: rbac.authorization.k8s.io
     kind: Role
-    name: patchy-source-controller
+    name: maul-source-controller
 subjects:
     - kind: ServiceAccount
-      name: patchy-source-controller
-      namespace: patchy
+      name: maul-source-controller
+      namespace: maul
 ---
 # ---- context-controller ----------------------------------------------------
 # The enhancer chain: reads Opened findings, writes enrichments/owners and the
@@ -144,19 +144,19 @@ subjects:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-    name: patchy-context-controller
-    namespace: patchy
+    name: maul-context-controller
+    namespace: maul
     labels:
         app.kubernetes.io/name: context-controller
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 rules:
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [findings]
       verbs: [get, list, watch, update, patch]
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [findings/status]
       verbs: [get, update, patch]
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [integrations]
       verbs: [get, list, watch]
     - apiGroups: [""]
@@ -172,19 +172,19 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-    name: patchy-context-controller
-    namespace: patchy
+    name: maul-context-controller
+    namespace: maul
     labels:
         app.kubernetes.io/name: context-controller
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 roleRef:
     apiGroup: rbac.authorization.k8s.io
     kind: Role
-    name: patchy-context-controller
+    name: maul-context-controller
 subjects:
     - kind: ServiceAccount
-      name: patchy-context-controller
-      namespace: patchy
+      name: maul-context-controller
+      namespace: maul
 ---
 # ---- investigation-controller ----------------------------------------------
 # The gate (creates Repository + Investigation, parks repo-less findings) and
@@ -193,44 +193,44 @@ subjects:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-    name: patchy-investigation-controller
-    namespace: patchy
+    name: maul-investigation-controller
+    namespace: maul
     labels:
         app.kubernetes.io/name: investigation-controller
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 rules:
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [findings]
       verbs: [get, list, watch]
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [findings/status]
       verbs: [get, update, patch]
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [investigations]
       verbs: [create, get, list, watch, update, patch]
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [investigations/status]
       verbs: [get, update, patch]
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [repositories]
       verbs: [create, get, list, watch]
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [forges]
       verbs: [get, list, watch]
     # Read-only: the estimate calibration rendered into the analysis prompt.
     # The read is a Get, but it goes through the cached client, whose informer
     # needs list/watch.
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [findingrollups]
       verbs: [get, list, watch]
     # Usage rollups (design L2): each attributed run is folded into its
     # UsageRollups by this controller once it settles. Read and written
     # uncached by name (the API reader), so no list/watch; `update` on
     # investigations is also the usage finalizer's removal.
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [usagerollups]
       verbs: [create, get]
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [usagerollups/status]
       verbs: [get, update]
     - apiGroups: [""]
@@ -252,19 +252,19 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-    name: patchy-investigation-controller
-    namespace: patchy
+    name: maul-investigation-controller
+    namespace: maul
     labels:
         app.kubernetes.io/name: investigation-controller
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 roleRef:
     apiGroup: rbac.authorization.k8s.io
     kind: Role
-    name: patchy-investigation-controller
+    name: maul-investigation-controller
 subjects:
     - kind: ServiceAccount
-      name: patchy-investigation-controller
-      namespace: patchy
+      name: maul-investigation-controller
+      namespace: maul
 ---
 # ---- remediation-controller ------------------------------------------------
 # Queue admission + the remediation scheduler + push/PR, and the rollup/TTL
@@ -274,50 +274,50 @@ subjects:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-    name: patchy-remediation-controller
-    namespace: patchy
+    name: maul-remediation-controller
+    namespace: maul
     labels:
         app.kubernetes.io/name: remediation-controller
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 rules:
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [findings]
       verbs: [get, list, watch, update, patch, delete]
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [findings/status]
       verbs: [get, update, patch]
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [remediations]
       verbs: [create, get, list, watch, update, patch]
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [remediations/status]
       verbs: [get, update, patch]
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [investigations]
       verbs: [get, list, watch, update, patch]
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [investigations/status]
       verbs: [get, update, patch]
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [repositories]
       verbs: [get, list, watch]
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [findingrollups]
       verbs: [create, get, list, watch, update, patch]
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [findingrollups/status]
       verbs: [get, update, patch]
     # Usage rollups (design L2): remediation runs are folded in by this
     # controller (create/get, status update, uncached by name), and the
     # rollup loop's compaction lists them uncached once a pass (list, no
     # watch).
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [usagerollups]
       verbs: [create, get, list]
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [usagerollups/status]
       verbs: [get, update]
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [forges]
       verbs: [get, list, watch]
     - apiGroups: [""]
@@ -339,19 +339,19 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-    name: patchy-remediation-controller
-    namespace: patchy
+    name: maul-remediation-controller
+    namespace: maul
     labels:
         app.kubernetes.io/name: remediation-controller
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 roleRef:
     apiGroup: rbac.authorization.k8s.io
     kind: Role
-    name: patchy-remediation-controller
+    name: maul-remediation-controller
 subjects:
     - kind: ServiceAccount
-      name: patchy-remediation-controller
-      namespace: patchy
+      name: maul-remediation-controller
+      namespace: maul
 ---
 # ---- status-server ----------------------------------------------------------
 # The status page backend: reads Findings/FindingRollups for the projection
@@ -366,32 +366,32 @@ subjects:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-    name: patchy-status-server
-    namespace: patchy
+    name: maul-status-server
+    namespace: maul
     labels:
         app.kubernetes.io/name: status-server
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 rules:
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [findings]
       verbs: [get, list, watch, update, patch, delete, deletecollection]
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [findingrollups]
       verbs: [get, list, watch, delete, deletecollection]
     # Read-only plus reset: the projection lifts each run's report markdown
     # from the Investigation/Remediation children (reports live on the child
     # only); repositories exist for reset alone.
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [investigations, remediations, repositories]
       verbs: [get, list, watch, delete, deletecollection]
     # Spec-only write seam for the replay and backfill actions (spec.replay,
     # spec.backfill); the cached client's informer needs list/watch.
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [integrations]
       verbs: [get, list, watch, update, patch]
     # Read-only: the configuration view projects the Forges alongside the
     # Integrations.
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [forges]
       verbs: [get, list, watch]
     # The persisted agent transcripts, read one at a time when a human opens a
@@ -411,11 +411,11 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-    name: patchy-status-server-agent-logs
-    namespace: patchy-agents
+    name: maul-status-server-agent-logs
+    namespace: maul-agents
     labels:
         app.kubernetes.io/name: status-server
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 rules:
     - apiGroups: [""]
       resources: [pods]
@@ -427,50 +427,50 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-    name: patchy-status-server-agent-logs
-    namespace: patchy-agents
+    name: maul-status-server-agent-logs
+    namespace: maul-agents
     labels:
         app.kubernetes.io/name: status-server
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 roleRef:
     apiGroup: rbac.authorization.k8s.io
     kind: Role
-    name: patchy-status-server-agent-logs
+    name: maul-status-server-agent-logs
 subjects:
     - kind: ServiceAccount
-      name: patchy-status-server
-      namespace: patchy
+      name: maul-status-server
+      namespace: maul
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-    name: patchy-status-server
-    namespace: patchy
+    name: maul-status-server
+    namespace: maul
     labels:
         app.kubernetes.io/name: status-server
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 roleRef:
     apiGroup: rbac.authorization.k8s.io
     kind: Role
-    name: patchy-status-server
+    name: maul-status-server
 subjects:
     - kind: ServiceAccount
-      name: patchy-status-server
-      namespace: patchy
+      name: maul-status-server
+      namespace: maul
 ---
 # The one ClusterRole in the base: SubjectAccessReview is a cluster-scoped,
 # non-namespaced create-only API, so a namespaced Role cannot grant it. The
-# status server uses it to answer "may user U <verb> findings in patchy?"
+# status server uses it to answer "may user U <verb> findings in maul?"
 # for the signed-in user — the custom verbs (approve, suspend, resume) and
 # the native get that gates viewing (see rbac.users.example.yaml for the
 # grant grammar). Review-only: this confers no power to act, only to ask.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-    name: patchy-status-server-authz
+    name: maul-status-server-authz
     labels:
         app.kubernetes.io/name: status-server
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 rules:
     - apiGroups: [authorization.k8s.io]
       resources: [subjectaccessreviews]
@@ -479,18 +479,18 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-    name: patchy-status-server-authz
+    name: maul-status-server-authz
     labels:
         app.kubernetes.io/name: status-server
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 roleRef:
     apiGroup: rbac.authorization.k8s.io
     kind: ClusterRole
-    name: patchy-status-server-authz
+    name: maul-status-server-authz
 subjects:
     - kind: ServiceAccount
-      name: patchy-status-server
-      namespace: patchy
+      name: maul-status-server
+      namespace: maul
 ---
 # ---- evaluation-controller ---------------------------------------------------
 # The remote-evaluation engine: the HTTP API creates Evaluations (submissions)
@@ -506,28 +506,28 @@ subjects:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-    name: patchy-evaluation-controller
-    namespace: patchy
+    name: maul-evaluation-controller
+    namespace: maul
     labels:
         app.kubernetes.io/name: evaluation-controller
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 rules:
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [evaluations]
       verbs: [create, get, list, watch, delete]
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [evaluations/status]
       verbs: [get, update, patch]
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [evaluationunits]
       verbs: [create, get, list, watch, update, patch]
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [evaluationunits/status]
       verbs: [get, update, patch]
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [usagerollups]
       verbs: [create, get]
-    - apiGroups: [patchy.bitwisemedia.uk]
+    - apiGroups: [maul.run]
       resources: [usagerollups/status]
       verbs: [get, update]
     - apiGroups: [""]
@@ -543,31 +543,31 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-    name: patchy-evaluation-controller
-    namespace: patchy
+    name: maul-evaluation-controller
+    namespace: maul
     labels:
         app.kubernetes.io/name: evaluation-controller
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 roleRef:
     apiGroup: rbac.authorization.k8s.io
     kind: Role
-    name: patchy-evaluation-controller
+    name: maul-evaluation-controller
 subjects:
     - kind: ServiceAccount
-      name: patchy-evaluation-controller
-      namespace: patchy
+      name: maul-evaluation-controller
+      namespace: maul
 ---
 # SubjectAccessReview for the evaluation API: "may user U create/get/delete
-# evaluations in patchy?" — the bearer-authenticated submitters are authorized
+# evaluations in maul?" — the bearer-authenticated submitters are authorized
 # by RBAC bindings on the evaluations resource (see rbac.users.example.yaml),
 # native verbs only. Review-only, same as the status server's.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-    name: patchy-evaluation-controller-authz
+    name: maul-evaluation-controller-authz
     labels:
         app.kubernetes.io/name: evaluation-controller
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 rules:
     - apiGroups: [authorization.k8s.io]
       resources: [subjectaccessreviews]
@@ -576,38 +576,38 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-    name: patchy-evaluation-controller-authz
+    name: maul-evaluation-controller-authz
     labels:
         app.kubernetes.io/name: evaluation-controller
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 roleRef:
     apiGroup: rbac.authorization.k8s.io
     kind: ClusterRole
-    name: patchy-evaluation-controller-authz
+    name: maul-evaluation-controller-authz
 subjects:
     - kind: ServiceAccount
-      name: patchy-evaluation-controller
-      namespace: patchy
+      name: maul-evaluation-controller
+      namespace: maul
 ---
-# ---- patchy-agents: the two job controllers --------------------------------
+# ---- maul-agents: the two job controllers --------------------------------
 # What internal/jobs uses, and nothing more:
 #   jobs      create (Create), get/list/watch (status + orphan reap), delete
 #   pods      get/list/watch (find the Job's pod)
-#   pods/log  get (read the PATCHY-EVENT: stream at Job completion)
+#   pods/log  get (read the MAUL-EVENT: stream at Job completion)
 #   secrets   create/get/update/delete (the per-Job Secret carrying the
 #             handoff markdown — credential-less; update owner-references it
 #             to its Job, delete is the create-Job-failed rollback)
 # No secrets list/watch: each controller only ever addresses its own per-Job
 # Secret by name. The two controllers share the namespace; the
-# patchy.bitwisemedia.uk/kind Job label keeps their watches and reapers out
+# maul.run/kind Job label keeps their watches and reapers out
 # of each other's way (RBAC cannot express that split).
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-    name: patchy-agent-jobs
-    namespace: patchy-agents
+    name: maul-agent-jobs
+    namespace: maul-agents
     labels:
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 rules:
     - apiGroups: [batch]
       resources: [jobs]
@@ -625,26 +625,26 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-    name: patchy-agent-jobs
-    namespace: patchy-agents
+    name: maul-agent-jobs
+    namespace: maul-agents
     labels:
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 roleRef:
     apiGroup: rbac.authorization.k8s.io
     kind: Role
-    name: patchy-agent-jobs
+    name: maul-agent-jobs
 subjects:
     - kind: ServiceAccount
-      name: patchy-investigation-controller
-      namespace: patchy
+      name: maul-investigation-controller
+      namespace: maul
     - kind: ServiceAccount
-      name: patchy-remediation-controller
-      namespace: patchy
+      name: maul-remediation-controller
+      namespace: maul
     # The evaluation scheduler launches its Jobs through the same machinery;
     # the kind label keeps its watches and reapers off the finding runs.
     - kind: ServiceAccount
-      name: patchy-evaluation-controller
-      namespace: patchy
+      name: maul-evaluation-controller
+      namespace: maul
 ---
 # ---- egress-broker ----------------------------------------------------------
 # TokenReview is a cluster-scoped, create-only API, so a namespaced Role
@@ -654,10 +654,10 @@ subjects:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-    name: patchy-egress-broker-authn
+    name: maul-egress-broker-authn
     labels:
         app.kubernetes.io/name: egress-broker
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 rules:
     - apiGroups: [authentication.k8s.io]
       resources: [tokenreviews]
@@ -666,15 +666,15 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-    name: patchy-egress-broker-authn
+    name: maul-egress-broker-authn
     labels:
         app.kubernetes.io/name: egress-broker
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 roleRef:
     apiGroup: rbac.authorization.k8s.io
     kind: ClusterRole
-    name: patchy-egress-broker-authn
+    name: maul-egress-broker-authn
 subjects:
     - kind: ServiceAccount
-      name: patchy-egress-broker
-      namespace: patchy
+      name: maul-egress-broker
+      namespace: maul

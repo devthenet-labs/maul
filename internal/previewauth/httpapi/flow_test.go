@@ -19,17 +19,17 @@ import (
 	gooidc "github.com/coreos/go-oidc/v3/oidc"
 	jose "github.com/go-jose/go-jose/v4"
 
-	"github.com/bitwise-media-group/patchy/internal/previewauth"
-	"github.com/bitwise-media-group/patchy/internal/previewauth/adapters/dex"
-	"github.com/bitwise-media-group/patchy/internal/previewauth/fakedex"
-	"github.com/bitwise-media-group/patchy/internal/web/auth"
+	"github.com/devthenet-labs/maul/internal/previewauth"
+	"github.com/devthenet-labs/maul/internal/previewauth/adapters/dex"
+	"github.com/devthenet-labs/maul/internal/previewauth/fakedex"
+	"github.com/devthenet-labs/maul/internal/web/auth"
 )
 
 // newFlowRelay is a relay whose upstream is the real Dex adapter against an
 // in-memory Dex, with alice signed in there.
 func newFlowRelay(t *testing.T) (*relay, *fakedex.Server) {
 	t.Helper()
-	d, err := fakedex.Start("patchy-preview-auth", "dex-secret")
+	d, err := fakedex.Start("maul-preview-auth", "dex-secret")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +37,7 @@ func newFlowRelay(t *testing.T) (*relay, *fakedex.Server) {
 	d.SignIn(map[string]any{"sub": "dex-sub-alice", "preferred_username": "alice",
 		"groups": []any{"devthenet-labs:viewers"}})
 	up, err := dex.New(dex.Config{
-		IssuerURL: d.URL, ClientID: "patchy-preview-auth", ClientSecret: "dex-secret",
+		IssuerURL: d.URL, ClientID: "maul-preview-auth", ClientSecret: "dex-secret",
 		RedirectURL: issuer + dex.CallbackPath, AllowHTTP: true,
 		Claims: auth.ClaimsConfig{Username: "preferred_username", Groups: "groups", UsernamePrefix: "github:",
 			GroupsPrefix: "github:"},

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 // Package wiz is the Wiz source: it turns Wiz automation-rule webhook
-// deliveries into patchy Findings. Two feeds share one endpoint — Wiz Issues
+// deliveries into maul Findings. Two feeds share one endpoint — Wiz Issues
 // (cloud misconfigurations and toxic combinations) and Wiz Defend (threat
 // detections) — discriminated by payload shape, not by path or header: a Wiz
 // automation action POSTs whatever body its rule template renders and carries
@@ -11,7 +11,7 @@
 // The body template documented in docs/integrations/wiz.md is therefore the
 // payload contract: this package decodes exactly the shapes that document
 // tells operators to configure. There is no other spec to hold Wiz to — the
-// payloads are operator-templated mustache, so patchy publishes the template
+// payloads are operator-templated mustache, so maul publishes the template
 // rather than guessing at one.
 //
 // Wiz findings are about cloud resources, not repository code, so they carry

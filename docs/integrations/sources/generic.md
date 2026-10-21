@@ -1,6 +1,6 @@
 # Generic (HTTP)
 
-The `generic` provider registers **any external HTTP process** as a patchy integration — a scheduled job that queries a
+The `generic` provider registers **any external HTTP process** as a maul integration — a scheduled job that queries a
 warehouse store and pushes whatever it found, an internal CMDB, a bridge in front of a vendor without a supported
 provider. It exists for sources that are **not event-driven**: nothing has to deliver webhooks on the source system's
 schedule, the process POSTs findings on its own.
@@ -8,9 +8,9 @@ schedule, the process POSTs findings on its own.
 A generic integration has three capabilities, each independently enabled:
 
 - **Source** — an inbound findings webhook at `/generic/<integration-name>/webhooks` (this page).
-- **Resolver** (a sub-block of source) — patchy POSTs the triage verdict back when a finding is dismissed, so the source
+- **Resolver** (a sub-block of source) — maul POSTs the triage verdict back when a finding is dismissed, so the source
   system can close its own record (this page).
-- **Enhancer** — patchy POSTs each opened finding's issue view to the process and the response body is the enrichment
+- **Enhancer** — maul POSTs each opened finding's issue view to the process and the response body is the enrichment
   ([its own page](../enhancers/generic.md)).
 
 !!! info "One provider, three capabilities"
@@ -26,38 +26,38 @@ a generic Integration may not be named after a built-in source id (`ghas`, `gcp-
 must fit in a label value (63 characters).
 
 This page is the payload contract. The Go types live in
-[`pkg/generic`](https://github.com/devthenet-labs/patchy/tree/main/pkg/generic) — a public package an external process
+[`pkg/generic`](https://github.com/devthenet-labs/maul/tree/main/pkg/generic) — a public package an external process
 written in Go can import directly; every shape below round-trips through it. All bodies are JSON; the contract version
 is `v1`.
 
 ## Configuration
 
 ```yaml
-apiVersion: patchy.bitwisemedia.uk/v1alpha1
+apiVersion: maul.run/v1alpha1
 kind: Integration
 metadata:
   name: warehouse # the identity: source id, label value, path segment
-  namespace: patchy
+  namespace: maul
 spec:
   provider: generic
   secretRef:
-    name: patchy-warehouse # key webhookSecret: the shared HMAC secret
+    name: maul-warehouse # key webhookSecret: the shared HMAC secret
   generic:
     source:
       enabled: true # inbound findings at /generic/warehouse/webhooks
       # minSeverity: high    # low|medium|high|critical, default low
       resolver:
         enabled: true # verdict write-back on dismissal
-        url: https://warehouse.internal/patchy/resolve
+        url: https://warehouse.internal/maul/resolve
         timeout: 60s
     enhance:
       enabled: true # synchronous enrichment call per opened finding
-      url: https://warehouse.internal/patchy/enhance
+      url: https://warehouse.internal/maul/enhance
       timeout: 60s
 ```
 
 ```sh
-kubectl -n patchy create secret generic patchy-warehouse \
+kubectl -n maul create secret generic maul-warehouse \
   --from-literal=webhookSecret="$(openssl rand -hex 32)"
 ```
 
@@ -67,17 +67,17 @@ A source may be a pure source, a pure enhancer, or both; a `generic` block enabl
 
 ## Authentication: HMAC both directions
 
-Every exchange — inbound deliveries and patchy's outbound resolver/enhancer calls — carries the same signature:
+Every exchange — inbound deliveries and maul's outbound resolver/enhancer calls — carries the same signature:
 
 --8<-- ".snippets/generic-hmac.md"
 
-Inbound, patchy verifies the signature against **only** the Integration the path names — integration A's secret never
+Inbound, maul verifies the signature against **only** the Integration the path names — integration A's secret never
 validates a delivery addressed to B, and an unknown name, a suspended integration, or a source-disabled one all answer
-`401` indistinguishably. Outbound, patchy signs what it sends and your process should verify the same way.
+`401` indistinguishably. Outbound, maul signs what it sends and your process should verify the same way.
 
-An inbound delivery may also carry `X-Patchy-Delivery: <unique id>` for deduplication (a 5-minute window, scoped to the
-integration's own path). Without it, patchy derives the id from the body hash, so byte-identical redeliveries still
-dedup and distinct payloads never do.
+An inbound delivery may also carry `X-Maul-Delivery: <unique id>` for deduplication (a 5-minute window, scoped to the
+integration's own path). Without it, maul derives the id from the body hash, so byte-identical redeliveries still dedup
+and distinct payloads never do.
 
 ## Inbound: the findings payload
 
@@ -117,7 +117,7 @@ Per finding:
 | `advisories`    | no       | Categorization identifiers, **most authoritative first** — `advisories[0]` is the accumulation key (GHSA over CVE over CWE, by your judgement). |
 | `ruleId`        | no       | Your tool's rule identifier.                                                                                                                    |
 | `title`         | **yes**  | One-line human summary.                                                                                                                         |
-| `description`   | no       | Full markdown; becomes the tracking issue's finding section verbatim. You author it — patchy has no template for your tool.                     |
+| `description`   | no       | Full markdown; becomes the tracking issue's finding section verbatim. You author it — maul has no template for your tool.                       |
 | `severity`      | **yes**  | `low`, `medium`, `high`, or `critical` — normalize before delivering.                                                                           |
 | `htmlUrl`       | no       | Link back to the finding in your system.                                                                                                        |
 | `locations`     | no       | `{path, start_line?, end_line?, snippet?}`, repository-relative.                                                                                |
@@ -138,31 +138,31 @@ Cloud findings arrive repo-less and lean on the [context enhancers](../enhancers
 ## Outbound: the resolver call
 
 When a finding whose alerts you delivered is **dismissed** (the investigation judged it a false positive or not
-exploitable), patchy POSTs to `spec.generic.source.resolver.url`:
+exploitable), maul POSTs to `spec.generic.source.resolver.url`:
 
 ```json
 {
   "version": "v1",
   "integration": "warehouse",
   "alerts": [{ "id": "wh-1001", "url": "https://warehouse.internal/findings/1001" }],
-  "verdict": { "kind": "ignore", "reason": "false positive", "comment": "Dismissed by patchy: …" }
+  "verdict": { "kind": "ignore", "reason": "false positive", "comment": "Dismissed by maul: …" }
 }
 ```
 
-Any `2xx` answer is success. **Idempotency is your obligation**: patchy sends once per dismissal but retries on failure,
+Any `2xx` answer is success. **Idempotency is your obligation**: maul sends once per dismissal but retries on failure,
 so the same alerts may be resolved more than once — treat "already closed" as success. `ignore` is the only verdict kind
 today. A source with the resolver off is a complete source; dismissal simply skips the write-back.
 
 ## Testing your integration locally
 
-The `patchy` CLI ships a harness that exercises all three exchanges against your process without a cluster.
-`patchy dev generic` hosts the real receiver — the same server, HMAC authentication, deduplication, and validation the
+The `maul` CLI ships a harness that exercises all three exchanges against your process without a cluster.
+`maul dev generic` hosts the real receiver — the same server, HMAC authentication, deduplication, and validation the
 integration-controller runs — keeps ingested findings in memory, and immediately drives the enhancer call and the
 resolver write-back at the endpoints you configure:
 
 ```sh
 # Terminal A — the harness (omit the secret to have one generated and printed):
-patchy dev generic --secret dev-secret \
+maul dev generic --secret dev-secret \
   --enhance-url http://127.0.0.1:9000/enhance \
   --resolve-url http://127.0.0.1:9000/resolve
 
@@ -170,7 +170,7 @@ patchy dev generic --secret dev-secret \
 sig="sha256=$(openssl dgst -sha256 -hmac dev-secret -r < findings.json | cut -d' ' -f1)"
 curl -i -X POST http://127.0.0.1:8100/generic/dev/webhooks \
   -H 'Content-Type: application/json' \
-  -H "X-Patchy-Signature-256: $sig" \
+  -H "X-Maul-Signature-256: $sig" \
   --data-binary @findings.json
 ```
 
@@ -179,12 +179,12 @@ commands fire a single signed exchange from a findings payload instead (the same
 by the same code):
 
 ```sh
-patchy dev enhance --url http://127.0.0.1:9000/enhance --secret dev-secret findings.json
-patchy dev resolve --url http://127.0.0.1:9000/resolve --secret dev-secret findings.json
+maul dev enhance --url http://127.0.0.1:9000/enhance --secret dev-secret findings.json
+maul dev resolve --url http://127.0.0.1:9000/resolve --secret dev-secret findings.json
 ```
 
-Every `dev` flag also resolves from a `PATCHY_DEV_*` environment variable (`PATCHY_DEV_ENHANCE_URL`, …) and an optional
-`.patchy.yaml`/`.yml`/`.json` in the working directory, with explicit flags winning over the environment and the
+Every `dev` flag also resolves from a `MAUL_DEV_*` environment variable (`MAUL_DEV_ENHANCE_URL`, …) and an optional
+`.maul.yaml`/`.yml`/`.json` in the working directory, with explicit flags winning over the environment and the
 environment over the file:
 
 ```yaml
@@ -203,10 +203,10 @@ the harness's stderr log instead. `-o json` emits one JSON event per line on std
 
 ## Network posture
 
-Patchy's integration-controller dials your resolver endpoint from inside the cluster (the
+Maul's integration-controller dials your resolver endpoint from inside the cluster (the
 [enhancer call](../enhancers/generic.md#network-posture) departs from the context-controller). The default
 NetworkPolicies allow egress on TCP 443 only — an endpoint on another port needs the corresponding chart value
-(`integrationController.networkPolicy.extraEgress`). The URLs come from a CR only operators can write, and patchy never
+(`integrationController.networkPolicy.extraEgress`). The URLs come from a CR only operators can write, and maul never
 follows redirects into the cluster on your behalf — but treat the endpoints as part of your security boundary and keep
 them off the public internet where you can.
 

@@ -5,7 +5,7 @@
 # agent pod reach — one ServiceEntry per harness's model API, the same hosts as
 # the Cilium component's toFQDNs.
 #
-# exportTo: "." keeps each entry private to patchy-agents — no other
+# exportTo: "." keeps each entry private to maul-agents — no other
 # namespace's sidecar config grows a model-API route because of the agent
 # sandbox. The per-harness Sidecars (sidecar.yaml) then scope each host to only
 # its own harness's pods.
@@ -29,10 +29,10 @@
 apiVersion: networking.istio.io/v1
 kind: ServiceEntry
 metadata:
-    name: patchy-agent-copilot
-    namespace: patchy-agents
+    name: maul-agent-copilot
+    namespace: maul-agents
     labels:
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 spec:
     exportTo: ["."]
     hosts:

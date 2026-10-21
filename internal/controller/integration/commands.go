@@ -17,11 +17,11 @@ import (
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/action"
-	"github.com/bitwise-media-group/patchy/internal/command"
-	"github.com/bitwise-media-group/patchy/internal/forge"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/action"
+	"github.com/devthenet-labs/maul/internal/command"
+	"github.com/devthenet-labs/maul/internal/forge"
+	"github.com/devthenet-labs/maul/internal/ghclient"
 )
 
 const (
@@ -63,7 +63,7 @@ var (
 //
 //  1. Decide. The commenter needs write access to the tracking issue's
 //     repository (mayCommand), whatever the verb: without it the command is
-//     refused NotAllowed, one naming a verb patchy does not know included.
+//     refused NotAllowed, one naming a verb maul does not know included.
 //     Then a verb a tracking issue does not offer is answered with the ones
 //     it does, a suspend or resume must be newer than the last one decided
 //     Done (LastToggle), and the finding's phase must admit the verb, gated
@@ -654,13 +654,13 @@ func consumeID(ids []int64, id int64) []int64 {
 
 // commandMarker heads the reply to the command in comment id.
 func commandMarker(id int64) string {
-	return fmt.Sprintf("<!-- patchy:command %d -->", id)
+	return fmt.Sprintf("<!-- maul:command %d -->", id)
 }
 
 // commandDone says what each verb's Done outcome means for the finding.
 var commandDone = map[string]string{
-	action.VerbApprove:  "patchy takes this finding forward.",
-	action.VerbRetry:    "patchy retries this finding from the state it failed in.",
+	action.VerbApprove:  "maul takes this finding forward.",
+	action.VerbRetry:    "maul retries this finding from the state it failed in.",
 	action.VerbExpedite: "this finding skips the accumulation window, the minimum age and the queue.",
 	action.VerbSuspend: "this finding's progress through the pipeline is paused until `" +
 		command.Prefix + " " + action.VerbResume + "`.",
@@ -669,7 +669,7 @@ var commandDone = map[string]string{
 
 // commandReply is the one reply to a decided command, headed by its
 // marker. It echoes the verb only as command.Parse left it: 1-32 ASCII
-// letters, or empty (a refusal of a command naming no verb patchy could
+// letters, or empty (a refusal of a command naming no verb maul could
 // read names the prefix alone).
 func commandReply(c v1alpha1.FindingCommand, repo ghclient.Repo) string {
 	var b strings.Builder
@@ -693,13 +693,13 @@ func commandReply(c v1alpha1.FindingCommand, repo ghclient.Repo) string {
 			repo.String() + ".")
 	case v1alpha1.CommandSuperseded:
 		b.WriteString(used + " was written before the last `" + command.Prefix + " " + action.VerbSuspend +
-			"` or `" + command.Prefix + " " + action.VerbResume + "` patchy applied, so it is not applied: " +
+			"` or `" + command.Prefix + " " + action.VerbResume + "` maul applied, so it is not applied: " +
 			"the later command stands.")
 	default:
 		if c.Verb == "" {
-			b.WriteString("that is not a command patchy knows.")
+			b.WriteString("that is not a command maul knows.")
 		} else {
-			b.WriteString(used + " is not a command patchy knows.")
+			b.WriteString(used + " is not a command maul knows.")
 		}
 		b.WriteString("\n\n" + command.Help(command.FindingIssue))
 	}

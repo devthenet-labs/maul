@@ -9,9 +9,9 @@ requirements, the state machine, and the end-to-end flow — read [DESIGN.md](DE
 
 ## What this is
 
-`patchy` is an end-to-end pipeline (module `github.com/bitwise-media-group/patchy`) for triaging and remediating
+`maul` is an end-to-end pipeline (module `github.com/devthenet-labs/maul`) for triaging and remediating
 security findings, using **Kubernetes custom resources as the state machine** — the
-`patchy.bitwisemedia.uk/v1alpha1` kinds carry all state, etcd is the only state store, and GitHub issues are a
+`maul.run/v1alpha1` kinds carry all state, etcd is the only state store, and GitHub issues are a
 one-way human-facing projection. GHAS/CodeQL alerts arrive via webhook, accumulate into `Finding` resources for an
 hour, get context-enhanced, then a sandboxed `claude -p` run investigates each one; high-confidence verdicts are
 remediated in priority order into pull requests, everything else routes to humans. Completed findings expire on a
@@ -25,9 +25,9 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   token, the `/generic/{name}/webhooks` wildcard with strictly per-name HMAC; per-Integration secrets), ingests
   scanner alerts into Findings (accumulation, duplicate merge), projects Findings out as tracking issues
   (trackingRef falls back to the namespace's issues-enabled Integration for non-github sources), applies human
-  signals (issue close, `/patchy` commands, PR merge) back onto Findings, and POSTs dismissal verdicts to generic
+  signals (issue close, `/maul` commands, PR merge) back onto Findings, and POSTs dismissal verdicts to generic
   integrations' resolver endpoints. With `--repository-images` it also keeps the runner-image sticky comment
-  (what patchy did with a repository-declared agent image), reading each finding's Repository.
+  (what maul did with a repository-declared agent image), reading each finding's Repository.
 - `cmd/source-controller` — `Forge` + `Repository` reconcilers: validates forge credentials, pins
   each Repository's head SHA once, downloads the tarball archive at that SHA (pure HTTP, no git binary), and
   serves it from the artifact endpoint (`:9790`) agent pods fetch credential-lessly. With
@@ -46,15 +46,15 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   Jobs, changeset push + PR via the forge write seam (the finding flow's only write credential), and hosts the
   rollup/TTL loop (and the hourly `UsageRollup` compaction).
 - `cmd/agent-runner` — the in-pod coding-agent runtime: one stage per Job (`investigate` or `remediate`) via
-  `claude -p` (or `codex exec`), results emitted as a `PATCHY-EVENT:` JSONL stream on stdout, beside the `PATCHY-TURN:`
-  transcript and the live, never-persisted `PATCHY-OUTPUT:` command output. Never talks to GitHub or the Kubernetes API;
+  `claude -p` (or `codex exec`), results emitted as a `MAUL-EVENT:` JSONL stream on stdout, beside the `MAUL-TURN:`
+  transcript and the live, never-persisted `MAUL-OUTPUT:` command output. Never talks to GitHub or the Kubernetes API;
   a claude or codex pod holds no credential at all (model traffic goes through the egress broker, authenticated by a
-  projected SA token read fresh per stage; codex gets it as `PATCHY_BROKER_TOKEN` in its own environment and the broker
-  as a `patchy` provider on its command line, `harness.Gateway`), a copilot pod only its token. Two subcommands share
+  projected SA token read fresh per stage; codex gets it as `MAUL_BROKER_TOKEN` in its own environment and the broker
+  as a `maul` provider on its command line, `harness.Gateway`), a copilot pod only its token. Two subcommands share
   the binary: `sandbox-probe` (the
   `internal/sandboxprobe` check the trusted prepare init runs: `--mode strict`, the default, for a repository image,
   exit 78 when egress is open; `--mode wait --targets k8s,imds` for every other non-evaluation Job, exit 0 either way)
-  and `preflight` (what `patchy check image --run` drives).
+  and `preflight` (what `maul check image --run` drives).
 - `cmd/egress-broker` — the egress credential broker (NOT a controller: no reconcilers, no leases): the reverse
   proxy all claude and codex model traffic goes through, one route per provider (anthropic — key or `claude
   setup-token` bearer via `--anthropic-auth` — plus bedrock SigV4, vertex OAuth, foundry key/entra, and the OpenAI
@@ -67,7 +67,7 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   outbound, streams SSE with idle keep-alive pings, audits one slog line per request. Spend limits count tokens, or
   with `--limit-unit=cost` (chart `egressBroker.limits.unit`; default tokens) micro-USD priced by
   `model.MeasuredCostUSD` (an unpriced model at the dearest rate), each pod capped by the smaller of `--cost-per-pod`
-  and its `patchy.bitwisemedia.uk/budget-micro-usd` annotation (`provider.BudgetAnnotation`), read under `cost` (or
+  and its `maul.run/budget-micro-usd` annotation (`provider.BudgetAnnotation`), read under `cost` (or
   with per-user credentials on) by `get pods` in the agent namespace, UID-checked and cached with the verdict. With `--usage-addr`
   (chart: under `attribution.mode: attribute`; off by default) it also serves its per-Job, per-model usage ledger on a
   listener of its own (`GET /v1/usage/jobs/<job>`, port 8082) to the run controllers' ServiceAccounts only
@@ -82,7 +82,7 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   setup-token) or `openai` (API key only, `ModelCredentialKinds`), owner and provider immutable, no Secret pointer; the
   naming contract, the per-provider value rules and the fingerprint in `api/v1alpha1/modelcredential_names.go`), one
   Secret per person and provider in
-  `patchy-credentials` (`cred-<record name>`, owner-hash label), the status server's write-only Secret grant (create,
+  `maul-credentials` (`cred-<record name>`, owner-hash label), the status server's write-only Secret grant (create,
   update, delete; no patch, whose response is the stored object), the broker's read grants, the
   `-credentials-self`/`-credentials-admin` ClusterRoles (virtual `modelcredentials/self` and `/all`) and three policies
   (`templates/user-credentials-policy.yaml`), and pass the broker `--user-credentials` (`internal/broker/usercred.go`).
@@ -113,7 +113,7 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   operator's Go dependency route (NOT a controller: no reconcilers, no leases). A GOPROXY-protocol reverse proxy to
   proxy.golang.org and sum.golang.org with one listener per operator network profile (`agent.networkProfiles`);
   the port is the identity, enforced by NetworkPolicy on both sides (only pods labelled
-  `patchy.bitwisemedia.uk/network-<name>` reach that port). Forwards GET/HEAD only, for the profile's module
+  `maul.run/network-<name>` reach that port). Forwards GET/HEAD only, for the profile's module
   prefixes and tagged releases (pseudo-versions only with `allowPseudoVersions`); every refusal is a 410 with a
   reason, never contacting the upstream. No cache, no SA token unless `--attribute-pods`. Step 2: a profile granted
   an operator registry (`egressProxy.registries`, `--registries`; Go, npm, pip; Artifactory, Nexus, CodeArtifact)
@@ -140,23 +140,23 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   Intents), SubjectAccessReviews and get/update on its one code-ledger Lease; its keys come from a mounted Secret.
   Every authorize error is a relay page, never a redirect; a transient token failure is 503, never `invalid_grant`.
   Per-address rate limit; a background probe of every Ready preview host without credentials
-  (`patchy.preview_auth.unprotected_hosts`). Operator guide `docs/intents/preview-sign-in.md` (stages, rotation,
+  (`maul.preview_auth.unprotected_hosts`). Operator guide `docs/intents/preview-sign-in.md` (stages, rotation,
   rollback, the probe gate before the allowlist goes), reference `docs/configuration/preview-auth.md`; the terraform
-  module's `preview_auth` puts its host on the edge. Flags carry a `preview-auth-` prefix (`PATCHY_PREVIEW_AUTH_*`).
+  module's `preview_auth` puts its host on the edge. Flags carry a `preview-auth-` prefix (`MAUL_PREVIEW_AUTH_*`).
   Engine in `internal/previewauth` (core), `internal/previewauth/adapters/*` and `internal/previewauth/httpapi`.
   With `--preview-auth-gateway` (default off; chart `previewAuth.gateway`: its Pods labelled
-  `patchy.bitwisemedia.uk/preview-gateway`, the one label the slot NetworkPolicy admits, and one exposure of Service
+  `maul.run/preview-gateway`, the one label the slot NetworkPolicy admits, and one exposure of Service
   `<fullname>-preview-gateway`: Ingress, HTTPRoute or LoadBalancer, the last optionally over its own TLS by SNI,
   `--preview-auth-gateway-tls-dir`, adapter `previewauth/adapters/tlsdir`) it is also the preview gateway, beside
   the unchanged provider endpoints: `/start` on its sign-in host (the issuer's by default) issues a single-use handoff
-  code to `https://<label>.<suffix>/.patchy/callback`, which sets a per-host session; every preview host is then proxied
+  code to `https://<label>.<suffix>/.maul/callback`, which sets a per-host session; every preview host is then proxied
   to the Services `status.serving` names, held to the proxy hygiene contract (origin rule, no gateway cookie or identity
-  header upstream, pairwise `X-Patchy-Viewer`, Set-Cookie and cache filtering), and its streams are closed on expiry,
+  header upstream, pairwise `X-Maul-Viewer`, Set-Cookie and cache filtering), and its streams are closed on expiry,
   revocation or a Preview change. Reference `docs/configuration/preview-auth.md#the-preview-gateway-off-by-default`;
   operator guide (platform recipes, the release N migration rolled back by DNS, checks, security)
   `docs/configuration/preview-gateway.md`. Its host probe judges by `--preview-auth-probe-mode` (`alb`, `either`,
   `gateway`; empty derives alb or either from the gateway switch; the chart sets gateway with
-  `preview.legacyIngress: false`), and in gateway mode also asks `patchy-probe-0.<suffix>`, which must be the gateway's
+  `preview.legacyIngress: false`), and in gateway mode also asks `maul-probe-0.<suffix>`, which must be the gateway's
   404. The e2e suite builds it with the `e2edial` tag, whose `dial_e2e.go` adds `--e2e-gateway-dial-map` (slot Service
   names to loopback listeners); a released binary has no such flag (`dial.go`).
 - `cmd/evaluation-controller` — OPTIONAL (default-off in the chart): remote skill-evaluation execution for
@@ -164,14 +164,14 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   source-controller's `:9791` blob endpoint, submission, snapshot, SSE monitoring, cancel; OIDC verify + SAR on
   the `evaluations` resource, native verbs only) and the reconcilers: gate (Evaluation → EvaluationUnit
   children), unit scheduler (bounded concurrency over the same sandboxed agent-Job machinery; pods run
-  `evolve exec-unit` and emit `EVOLVE-EVENT:` JSONL), and the TTL loop. Patchy never learns eval semantics —
+  `evolve exec-unit` and emit `EVOLVE-EVENT:` JSONL), and the TTL loop. Maul never learns eval semantics —
   bounded summaries land on unit status, the opaque results entry in a per-unit ConfigMap.
 - `cmd/intent-controller` — OPTIONAL (default-off in the chart, an opt-in kustomize component): intent-driven
   development (docs/design/intent-driven-development.md). Polls GitHub instead of taking webhooks: each
   `Project`'s intent repository (ETag listing) for issues carrying its trigger label, and each `Intent`'s issue for the
   facts its phase waits on. It plans in a read-only agent Job on the default image, posts the plan verbatim for an
   approver, builds only the approved plan in the repository's accepted image (`runnerguard.PinFor`), pushes it
-  two-phase to `patchy-intent/<intent>` (create-only, never forced) and opens the PR. It closes the issue on merge.
+  two-phase to `maul-intent/<intent>` (create-only, never forced) and opens the PR. It closes the issue on merge.
   With `--intent-multi-repo` (slice 3; off, a multi-repository Project is not Ready and its intents are held Blocked)
   a Project lists up to eight repositories: one plan Job reads them all (the others as digest-pinned `Trees`, recorded
   on the run), each repository the plan names gets its own build run (`<intent>-bld-r<rev>-<key>-a<n>`, its own image)
@@ -180,7 +180,7 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   Forge Secrets. Its agent-jobs Role can get, create, update and delete any Secret in the agents namespace, including
   model keys, image-pull credentials and other Jobs' handoffs. It uses a GitHub token per operation
   (`forge.Store.TokenWith`), has no ClusterRole and no inbound surface. Only
-  writer of Project status, Intent and IntentRun. Its own flags carry an `intent-` prefix (`PATCHY_INTENT_*`); it runs
+  writer of Project status, Intent and IntentRun. Its own flags carry an `intent-` prefix (`MAUL_INTENT_*`); it runs
   on brokered claude (or the fake harness in dev), and with `--intent-codex` (default off; chart
   `intentController.codex.enabled`, which needs the broker's openai route) also on brokered codex for a Project with
   `spec.harness: codex` (`--intent-codex-plan-model`/`--intent-codex-build-model`; the codex runner injects agent-runner
@@ -239,39 +239,39 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   for a credential stored under a provider no longer offered), and sees its fingerprint, health and last use, never the
   credential. Its store (`internal/web/credstore`) writes the Secret in `--credentials-namespace` by create or
   unconditional update and never reads one: the status server's first Secret write, and its only write outside spec.
-- `cmd/patchy` — the workstation CLI (the only binary not deployed): `patchy <verb> <noun>` over the caller's own
+- `cmd/maul` — the workstation CLI (the only binary not deployed): `maul <verb> <noun>` over the caller's own
   kubeconfig, no channel through any controller. get/describe/review/browse/can-i plus the five action verbs; `get
   usage` is the usage report (not a kind; `internal/usageview`), admin-only by a SelfSubjectAccessReview on `usage/all`.
   Writes SPEC only, same as status-server, as the same merge patches (`specPatch`, native verb `patch`; field manager
-  the binary's file name, `patchy` or `kubectl-patchy`); enforcement of the custom verbs for direct API writes is the
+  the binary's file name, `maul` or `kubectl-maul`); enforcement of the custom verbs for direct API writes is the
   ValidatingAdmissionPolicy in `deploy/kustomize/base/admission-policy.yaml`, NOT the CLI's own SelfSubjectAccessReview
   (that is ergonomics). Five cluster-free commands ride along: `dev` (the generic-integration test harness), `mirror`
   (vendored chart/artifact mirroring over `internal/mirror`; kubeconfig flags inert, git never touched), `check image`
   (source-controller's runner-image checks through `resolve.Inspect`, plus `--run`: `agent-runner preflight` in a local
-  docker shaped like the agent pod; engine in `cmd/patchy/internal/imagecheck`), `setup github-app` (creates the GitHub
+  docker shaped like the agent pod; engine in `cmd/maul/internal/imagecheck`), `setup github-app` (creates the GitHub
   App through the manifest flow with exactly `intentperm.ForApp`'s permissions and events for
   `--security`/`--intents`/`--checks`/`--rerun-failed`, then writes its ghsecret-keyed Secret manifest to a 0600 file or
   a pipe, never to the cluster and never the private key to a terminal or a file other users can read; engine in
-  `cmd/patchy/internal/ghapp`, plain net/http, no GitHub client) and `init app` (scaffolds an application repository's
+  `cmd/maul/internal/ghapp`, plain net/http, no GitHub client) and `init app` (scaffolds an application repository's
   agent image, CI builds and split trusted ECR publishers from embedded templates; engine in
-  `cmd/patchy/internal/scaffold`, golden trees checked as their own CI would by `mise run scaffold-check`). `setup
-  previews` (`.claude/plans/preview-setup-design.md`; engine in `cmd/patchy/internal/previewsetup`; operator guide
+  `cmd/maul/internal/scaffold`, golden trees checked as their own CI would by `mise run scaffold-check`). `setup
+  previews` (`.claude/plans/preview-setup-design.md`; engine in `cmd/maul/internal/previewsetup`; operator guide
   `docs/intents/set-up-previews.md`, its recipes' reference `docs/configuration/preview-gateway.md`) takes every
   answer as a flag and, on a terminal, asks for the ones left open (`setuppreviews_prompt.go`: each prompt names its
   flag, a credential only ever by its file's path; off a terminal, with `--non-interactive` or with
   `--dns-credentials-from-stdin`, a missing answer is a usage error naming its flags). It contacts no cluster unless
-  `--detect` is given: then `cmd/patchy/internal/previewdetect` reads Nodes, the kubernetes and kube-dns Services, the
+  `--detect` is given: then `cmd/maul/internal/previewdetect` reads Nodes, the kubernetes and kube-dns Services, the
   API server's EndpointSlice, IngressClasses, GatewayClasses (unstructured), two CRDs by name, kube-system's Pod images
   (and the VPC CNI policy agent's command line), `kube-system/amazon-vpc-cni` and the release's ConfigMaps (never a
   Secret, nothing written, pinned by a fake client that fails on either; no read reaching the API server is an error),
   and its pure `Apply` fills only answers still open, even recorded ones (empty, `auto`, a false "installed"), never a
   flag's (seeded property). For `--edge tailscale` it also asks this machine's own Tailscale client for the gateway's
-  device (`cmd/patchy/internal/tailnet`: `Local` runs `tailscale status --json`, read-only, bounded; pure
+  device (`cmd/maul/internal/tailnet`: `Local` runs `tailscale status --json`, read-only, bounded; pure
   `ParseStatus`/`Find` keep only what validates and find exactly one Running device of that hostname carrying the tag,
   seeded property; stdlib only, a test pins that), because the operator records its address only in the proxy's state
   Secret beside its keys; `previewdetect.ApplyTailnet` fills `--tailscale-address` while open and prints the exact DNS
   records (`previewsetup.DNSRecords`). It writes, and applies only with `--apply` (below), the files
-  that expose previews: `answers.yaml` (no secret; a re-run starts from it), `patchy-previews.values.yaml` (layered
+  that expose previews: `answers.yaml` (no secret; a re-run starts from it), `maul-previews.values.yaml` (layered
   after the operator's own), `manifests/`, the relay's Dex client secret as two Secret manifests under `secrets/`
   (ghapp's 0600 writer and Secret renderer; read back on a re-run, drawn again only with `--rotate dex-client-secret`)
   and `NEXT-STEPS.md`. It refuses a sign-in host or Dex issuer on the host suffix's registrable domain (publicsuffix)
@@ -284,8 +284,8 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   namespace is absent, cert-manager and the Tailscale operator by `helm upgrade --install` at the pins, Issuer,
   Certificate and its Ready wait, route or cloudflared and its rollout, `helm upgrade` of the existing release, the
   `check previews` checks; `HelmArgs` is the one helm command line; goldens in `previewsetup/testdata/apply-plan`), and
-  `cmd/patchy/internal/previewapply` runs them over two ports, `Cluster` (`KubeCluster`: server-side apply as
-  `patchy-setup-previews` with forced ownership, existence and Secrets read as metadata only) and `Helm` (`ExecHelm`:
+  `cmd/maul/internal/previewapply` runs them over two ports, `Cluster` (`KubeCluster`: server-side apply as
+  `maul-setup-previews` with forced ownership, existence and Secrets read as metadata only) and `Helm` (`ExecHelm`:
   the helm binary on PATH with the caller's `--kubeconfig`/`--context`; the CLI links the Helm SDK only to render),
   stopping at the first failure with the undo commands for what the run created or upgraded, newest first (each, like
   every `--dry-run` command, carrying the caller's `--kubeconfig`/`--context`: `previewsetup.Connection`; a Secret
@@ -300,7 +300,7 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   100.x address, the tailnet policy as the allowlist; `--tailscale-oauth-dir` reads the operator's OAuth client from
   its files `client_id` and `client_secret`, held redacted in `TailscaleOAuth` (an auth key or API token refused), and
   writes it only into `secrets/tailscale-operator-oauth.secret.yaml`, read back on a re-run) and `cloudflare-tunnel`
-  (R1: `manifests/cloudflared.yaml`, a locally-managed tunnel's cloudflared in namespace `patchy-cloudflared` (the
+  (R1: `manifests/cloudflared.yaml`, a locally-managed tunnel's cloudflared in namespace `maul-cloudflared` (the
   recipe's own; `--cloudflared-namespace`, a new one: never the release, Dex's, cert-manager's, Tailscale's, `default`
   or a `kube-` namespace) at the digest-pinned image, both names to the gateway's Service and a 404 for the rest, egress
   only to DNS, the gateway Pods' 8082 and any public address on 443/7844 (no Cloudflare range pinned), no SA token;
@@ -326,9 +326,9 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   `--eks-auto-mode`, else cleared), so an operator's own isolation is never merged into it, and only the chart's edge
   class or an `alb` class leaves TLS to the edge (ingress-nginx or Traefik on EKS gets the Certificate).
   `check project` is `check image`'s cluster-reading sibling: a read-only Project preflight (engine in
-  `cmd/patchy/internal/projectcheck`) that reads Ready/IntentNameConflict, resolves every repository over the Forge CRs,
+  `cmd/maul/internal/projectcheck`) that reads Ready/IntentNameConflict, resolves every repository over the Forge CRs,
   and judges agent and preview images with the caller's own credentials; its preview DNS, TLS and sign-in checks are
-  `cmd/patchy/internal/previewcheck` (`Checker.Host`, `Checker.Auth`, `LoadSettings`), shared with the install-level
+  `cmd/maul/internal/previewcheck` (`Checker.Host`, `Checker.Auth`, `LoadSettings`), shared with the install-level
   `check previews` so the two cannot drift. Those judge DNS and TLS and, while the chart's
   `previewAuth` is on, the relay's discovery, Dex's acceptance of the relay's one redirect URI and (once sign-in is
   required) each Ready preview host's unauthenticated redirect to the relay for its own slot (`previewauth.JudgeProbe`).
@@ -339,7 +339,7 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   `Config.Tailnet`, and a missing or wrong record then fails with the exact records to create), the gateway's 404 on
   `<project>-0.<suffix>` and its `/start` redirect on each Ready preview, and `preview-gateway-allowlist` (a spoofed
   `X-Forwarded-For` from a refused address must stay refused). `check previews` (`previewcheck.Install`) runs those
-  for the install as a whole, before any Project exists: against `patchy-probe-0.<suffix>` and every Ready preview of
+  for the install as a whole, before any Project exists: against `maul-probe-0.<suffix>` and every Ready preview of
   any Project, plus `preview-config` (gateway-only, sign-in host outside the suffix, the suffix's own registrable
   domain by `x/net/publicsuffix`: shared is a WARN, INFO once the relay ConfigMap's
   `preview-shared-site-acknowledged` annotation, the chart's `previewAuth.sharedSiteAcknowledged`, names that domain),
@@ -349,11 +349,11 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   `cli/checkpreviews_e2e.go`) adds `check previews`' hidden `--e2e-dial-map` and `--e2e-ca-file`, which point its
   resolver, TLS dialer and HTTP client at loopback listeners and a test CA; a released binary has neither
   (`checkpreviews_net.go`).
-  None reads a Secret, so never the App key. Every `check` noun renders through `cmd/patchy/internal/checkreport`
+  None reads a Secret, so never the App key. Every `check` noun renders through `cmd/maul/internal/checkreport`
   (PASS/FAIL/SKIP lines, plus WARN and INFO, which never fail a run and only `check previews` reports; `-o json|yaml`,
-  inert reasons). Builds for windows too, and ships a `kubectl-patchy` alias.
-  Ships no container image: it is distributed as its own `patchy-cli` release archive (separate from the cluster
-  binaries' `patchy` archive) and as a Homebrew cask in bitwise-media-group/homebrew-tap.
+  inert reasons). Builds for windows too, and ships a `kubectl-maul` alias.
+  Ships no container image: it is distributed as its own `maul-cli` release archive (separate from the cluster
+  binaries' `maul` archive) and as a Homebrew cask in bitwise-media-group/homebrew-tap.
 
 ## Layout
 
@@ -362,12 +362,12 @@ api/v1alpha1/       The CRD types: one <kind>_types.go per kind, transitions.go 
                     SetPhase), conditions.go, generated deepcopy. `mise run codegen` regenerates
                     deepcopy + the CRD manifests (kustomize + helm); CI fails on drift.
 cmd/<binary>/       package main, thin: build root command, delegate to internal/cli.Execute.
-                    cmd/patchy is the exception — the CLI, with its own internal/ tree
+                    cmd/maul is the exception — the CLI, with its own internal/ tree
                     (cli = one file per VERB, render = one file per NOUN; the two are separate
                     axes on purpose, since `get` resolves nouns through a registry at runtime).
-                    cmd/patchy/internal/tools/docgen is dev tooling, not a binary: it renders
+                    cmd/maul/internal/tools/docgen is dev tooling, not a binary: it renders
                     docs/cli from the cobra tree. It sits there because the internal rule puts
-                    cmd/patchy/internal/cli out of reach of the repo root, and NOT under cmd/
+                    cmd/maul/internal/cli out of reach of the repo root, and NOT under cmd/
                     because hack/build.sh builds everything there.
 internal/           All private code, one package per concern (see "Packages" below).
 pkg/                PUBLIC plugin seams only: pkg/source (finding sources), pkg/enhance (context
@@ -378,8 +378,8 @@ pkg/                PUBLIC plugin seams only: pkg/source (finding sources), pkg/
 deploy/             kustomize base/overlays; deploy/README.md is the operator doc. The container
                     Dockerfile.* live at the repo root (goreleaser dockers_v2 builds them).
 charts/             Helm rendering of the same stack, pushed to ghcr OCI on release
-                    (.github/workflows/helm.yaml): charts/patchy (CRDs + controllers) and
-                    charts/patchy-config (the Integration/Forge CRs — a separate chart because
+                    (.github/workflows/helm.yaml): charts/maul (CRDs + controllers) and
+                    charts/maul-config (the Integration/Forge CRs — a separate chart because
                     helm validates CRs against CRDs that must already exist). release-please
                     stamps both Chart.yaml versions. Lint/render with `mise run helm-lint`.
 e2e/                SEPARATE Go module: envtest carries the CRDs, the real binaries run against it,
@@ -400,10 +400,10 @@ e2e/                SEPARATE Go module: envtest carries the CRDs, the real binar
                     preview_gateway_test.go does the same with the gateway on and the legacy
                     Ingress off, preview-auth built by buildTagged with the e2edial tag so
                     slot Service names dial local listeners (no kube-proxy under envtest).
-                    preview_setup_test.go configures that gateway from `patchy setup previews`
+                    preview_setup_test.go configures that gateway from `maul setup previews`
                     (gateway-tls): helm renders the wizard's values, the rendered ConfigMaps
                     become the controllers' environment (cluster.serveBinaryEnv, as envFrom),
-                    a viewer signs in over the gateway's own TLS, and an e2edial `patchy check
+                    a viewer signs in over the gateway's own TLS, and an e2edial `maul check
                     previews` passes against it; fakedex.Register holds Dex's redirect URIs.
                     broker_cost_test.go runs egress-broker (cluster.serveBinary: not a
                     controller, so no --namespace) on envtest's real TokenReview with
@@ -432,18 +432,18 @@ e2e/                SEPARATE Go module: envtest carries the CRDs, the real binar
                     the Job's pod pays with the person's key, replace and delete take
                     effect within the cap. pipeline_test.go asserts a codex Job holds no
                     SecretKeyRef and mounts the projected broker token.
-docs/ overrides/    Zensical docs site (zensical.toml at the root; patchy-branded theme in
+docs/ overrides/    Zensical docs site (zensical.toml at the root; maul-branded theme in
                     docs/stylesheets/extra.css + overrides/). `mise run serve` to preview,
                     `mise run docs-build` to build; the reusable release workflow publishes it
-                    to GitHub Pages (oss.bitwisemedia.uk/patchy). uv provisions zensical
+                    to GitHub Pages (devthenet-labs.github.io/maul). uv provisions zensical
                     (pyproject.toml / uv.lock). docs/cli/ is GENERATED (docgen, above) — edit
                     the commands' Short/Long/Example, not the markdown; docs/cli.md beside it
                     is the hand-written tour.
 completions/        GENERATED shell completions, committed so the Homebrew cask installs them
                     as static files (executing a freshly-downloaded binary at install time
                     trips Gatekeeper). `mise run docs` writes both this and docs/cli/.
-                    kubectl_complete-patchy is the exception — hand-written, and the reason
-                    `kubectl patchy` completes: kubectl ignores a plugin's completion script
+                    kubectl_complete-maul is the exception — hand-written, and the reason
+                    `kubectl maul` completes: kubectl ignores a plugin's completion script
                     and instead runs kubectl_complete-<plugin> from PATH.
 .mise/              Shared toolchain submodule (bitwise-media-group/toolchain): pinned dev CLIs +
                     the go-cli task archetype. Makefile is a one-line forwarder; repo-local tasks
@@ -466,7 +466,7 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   the single-writer table and the durable-settle rules; `go_requirements.go` reads the root go.mod at the build's base
   and pushed commit with `x/mod/modfile` for the PR body's requirements section, a refused, missing or non-inline
   go.mod (`ghclient.ErrNotInline`) leaving the body as before; `planBuildProfiles` hands a plan Job its builds'
-  profiles as `PATCHY_BUILD_NETWORK_PROFILES`, a fact for the prompt, never a profile of its own),
+  profiles as `MAUL_BUILD_NETWORK_PROFILES`, a fact for the prompt, never a profile of its own),
   `controller/preview` (fixed slot workload renderer,
   bounded rollout, cleanup and orphan sweep; no forge access; with `--preview-auth-required`, default off, it renders
   each slot's pinned sign-in annotations from the chart's JSON, the one the slot admission policy compares, and the
@@ -486,14 +486,14 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   score, rollup delta arithmetic + OTel taps. `stats/usage.go` is the `UsageRollup` side: `UsageDeltaFrom` (trusted
   figures only from a final `measured`/`partial` usage, the pod's own report kept apart as reported), `ApplyUsage`
   (the `u:<run uid>` ledger, UTC day and month buckets, the bounded top-intents list), `CompactUsage` and
-  `patchy.usage.tokens`/`patchy.usage.cost` (`user` attribute); seeded properties.
+  `maul.usage.tokens`/`maul.usage.cost` (`user` attribute); seeded properties.
 - `labels` — the trimmed human-facing label vocabulary the issue projection renders (one-way; never parsed back
   into state).
 - `templates` — the finding handoff/issue body, the stage prompts (investigate, remediate, and the intent plan and
   build), and the PR body, rendered from embedded templates with golden tests. Also the intent side, which
   intent-controller renders:
   the plan comment, which shows the plan report VERBATIM (its exact bytes) in a ```markdown block whose fence no line of
-  it can close, only patchy's header outside it, and refuses (`ErrPlanRefused`, with a notice to post instead) a plan
+  it can close, only maul's header outside it, and refuses (`ErrPlanRefused`, with a notice to post instead) a plan
   over GitHub's comment limit, not UTF-8, or holding characters no block can show (tag characters, bidi controls, stray
   variation selectors: `planview.go`), whose header otherwise counts what the block hides at a glance (other invisible
   characters less an emoji's, lines past 100 columns, long blank runs); `Sanitize`/`SanitizeInline`, the pass every
@@ -507,18 +507,18 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   mention, code spans included; seeded properties read them raw. The Finding side takes the same passes
   (`finding_text.go`): the remediation report in the PR body is `Sanitize`d and `defang`ed, a stage report comment on
   the tracking issue `Sanitize`d, the agent's commit message `defang`ed (`RemediationCommitMessage`), and a PR body
-  that cannot render falls back to patchy's own words (`PRBodyFallback`), never the report; `fitReport` cuts a report
+  that cannot render falls back to maul's own words (`PRBodyFallback`), never the report; `fitReport` cuts a report
   to GitHub's size limit BEFORE cleaning it, so a cut can never leave a code span unclosed. The intent PR body also
   lists the root go.mod requirements a build added or changed, marking any at another version than the plan's
   `new_dependencies` and any direct one the plan did not name (#200; sanitised and defanged, agent-written), and the
   plan prompt states which network profile each repository's build would get (`BuildProfile`,
-  `Encode`/`DecodeBuildProfiles`, carried as `PATCHY_BUILD_NETWORK_PROFILES`).
+  `Encode`/`DecodeBuildProfiles`, carried as `MAUL_BUILD_NETWORK_PROFILES`).
 - `webhook`, `telemetry`, `cli`, `version` — service plumbing (the webhook server is used by
   integration-controller only).
 - `attribution` — run attribution's pure core (per-user credentials design, L1): the `--attribution-mode` switch
   (`off`, the default, stamps nothing anywhere; `attribute`), the re-attribution rule (`To`: a human with no GitHub
   numeric id on record, such as every status-page or CLI approval and every evaluation submitter, makes the run the
-  org's, reason `approver-unregistered` or `submitter-unregistered`), and the `patchy.bitwisemedia.uk/attributed-to`
+  org's, reason `approver-unregistered` or `submitter-unregistered`), and the `maul.run/attributed-to`
   annotation grammar (`org` | `github-id:<id>`, `ValuePattern`, which the chart's policy repeats; seeded properties).
   Each run controller stamps a new run's immutable `spec.attributedTo` at creation per design §2 and puts its
   annotation on the Job and pod template (`jobs.Spec.AttributedTo`; investigation-controller only `org`); the intent
@@ -546,7 +546,7 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   server and the CLI cannot drift; `web/authz` re-exports the verb constants. It decides whether an action
   is MEANINGFUL, never whether the caller may take it. The intent verbs (replan/cancel/revise) are constants
   here too, deliberately in none of the Finding verb lists.
-- `command` — the one GitHub command grammar: `/patchy <verb> [note]` on a comment's first non-blank line,
+- `command` — the one GitHub command grammar: `/maul <verb> [note]` on a comment's first non-blank line,
   plus the legacy `/approve` (or configured approveComment) alias, honoured only by a `Parser` whose Surface is
   the Finding issue and matched exactly as the Finding webhook handler matches it today; and which verbs each
   surface (Finding issue, intent issue, intent PR) offers, with the help replies for an unknown verb (`Help`)
@@ -565,7 +565,7 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   `ProjectReviewer`'s per-Project read tiers, plus `Allowed` for a single subresource such as `projects/previews`, the
   preview viewer grant). The intents side (`intents*.go`, `envelope.go`) reads every ConfigMap
   through `guardedConfigMap` (the intent's label and a controller reference to its very owner), strips the live run
-  stream per subscriber (turns, and the `PATCHY-OUTPUT` command output the tail hub keeps on its own replay ring and
+  stream per subscriber (turns, and the `MAUL-OUTPUT` command output the tail hub keeps on its own replay ring and
   channel: tier 2 only, live only, never part of the activity), and pins its wire types to `types.ts` by parsing it
   (`TestIntentWireTypesMatchTypeScript`). The Account page (`account.go`) writes through the `CredentialStore` port
   (adapter `web/credstore`: Secret, then record, then status, never a Secret read); its wire types are pinned by
@@ -605,7 +605,7 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
 - `rbactest` — test support only: `WaitAllowed` polls SubjectAccessReviews until a real API server's RBAC authorizer
   has observed a grant a suite just stored, so envtest suites (action policy, authz, chart, e2e) never act inside the
   informer window and flake on a refusal.
-- `usageview` — the pure projection of `UsageRollup`s into the one usage report the status page and `patchy get usage`
+- `usageview` — the pure projection of `UsageRollup`s into the one usage report the status page and `maul get usage`
   render (stdlib + `api/v1alpha1`, a test pins that): a window of UTC days, per person, Project, both or everyone, each
   day stacked by Project (plus a "no project" remainder) and by run kind, top intents from month buckets, trusted,
   notional, unmetered and reported figures apart. Seeded conservation property over `stats.ApplyUsage`. Its types are
@@ -624,8 +624,8 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   grammar, `--setting-sources user`, `--permission-mode dontAsk`, `--strict-mcp-config`, and `--restricted` for the
   read-only one) are probed against the REAL pinned CLI by `TestClaudePostureProbe` (`mise run claude-posture-probe`;
   CI runs it when the `CLAUDE_VERSION` pin or the posture changes): a scratch tree whose hooks, env block, settings and
-  `.mcp.json` must stay inert, a scripted fake model on loopback, no credential. Codex renders the broker as a `patchy`
-  Responses provider from `PromptRequest.Gateway` (`-c model_providers.patchy.*`, names of the token and placeholder
+  `.mcp.json` must stay inert, a scripted fake model on loopback, no credential. Codex renders the broker as a `maul`
+  Responses provider from `PromptRequest.Gateway` (`-c model_providers.maul.*`, names of the token and placeholder
   variables only, never a value; name not "OpenAI", which would turn on zstd bodies), plus analytics, OTel metrics,
   plugins and web search off; its argv and stream are pinned from the real pinned CLI (rust-v0.153.4) run against a
   recording Responses server (`internal/harness/testdata/codex-0.153.4-*.jsonl`).
@@ -638,7 +638,7 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   report). A missing or refused report is first repaired in the agent's own session (`repair.go`: the optional
   `harness.Resumer`, claude and fake only; at most 2 bounded rounds; one transcript per stage; a writable stage's
   clone fingerprinted so a repair may change only the report and commit.sh). In the intent stages, a running
-  foreground command's output is printed live as `PATCHY-OUTPUT:` chunks (`output.go`: read from the file the CLI
+  foreground command's output is printed live as `MAUL-OUTPUT:` chunks (`output.go`: read from the file the CLI
   keeps it in, via the optional `harness.TaskWatcher`; bounded per command and per process by constants; never
   persisted, never a turn, never idle-watchdog progress; `jobs.scanLog` skips it), and one lock serialises every
   stdout line.
@@ -646,8 +646,8 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   broker: a brokered (claude, codex) pod holds no credential of any kind — its projected SA token (audience-bound,
   agent container only, never the init) is an identity document, not a capability; claude's fixed, non-secret
   `ANTHROPIC_AUTH_TOKEN` placeholder (`provider.PlaceholderAuthToken`) exists only to get past the CLI's login
-  gate and is stripped by the broker (codex's is set per stage by agent-runner, `PATCHY_CODEX_PLACEHOLDER_KEY`, so a
-  codex pod's env carries only `PATCHY_CODEX_BASE_URL` and the token file) — while the non-brokered copilot runner
+  gate and is stripped by the broker (codex's is set per stage by agent-runner, `MAUL_CODEX_PLACEHOLDER_KEY`, so a
+  codex pod's env carries only `MAUL_CODEX_BASE_URL` and the token file) — while the non-brokered copilot runner
   keeps the one SecretKeyRef; a codex evaluation Job is refused (`ErrCodexEvaluation`: evolve cannot be brokered
   yet); the init container fetches the digest-verified artifact tarball, identity-free.
   `reservedEnv` covers every credential channel plus the provider gateway names; `Runner.Env` is the per-runner
@@ -666,14 +666,14 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   (`NPM_CONFIG_REGISTRY` at the proxy's `/r/<registry>/`, `REPLACE_REGISTRY_HOST=always`, scripts off unless granted,
   no audit/fund/notifier, cache in /tmp) and pip's (`PIP_CONFIG_FILE=/dev/null`, `PIP_INDEX_URL` its `/simple/`, the
   list variables a single space, wheels only unless `sdists`), the go grant's route first in `GOPROXY`, plus
-  `PATCHY_NETWORK_ECOSYSTEMS` and `PATCHY_NETWORK_GRANTS` (the `netprofile.PodGrant` JSON: names, bounded allowlist,
-  switches, no URL or credential) beside `PATCHY_NETWORK_PROFILE`, for agent-runner's prompt (those three are
+  `MAUL_NETWORK_ECOSYSTEMS` and `MAUL_NETWORK_GRANTS` (the `netprofile.PodGrant` JSON: names, bounded allowlist,
+  switches, no URL or credential) beside `MAUL_NETWORK_PROFILE`, for agent-runner's prompt (those three are
   reserved per-Job names). The prepare init runs `agent-runner sandbox-probe`: strict inside the injection script on a
   repository image, else the wait probe (`--mode=wait --targets=k8s,imds`, `|| echo`, never fails the Job) as the
-  script's last step, both with `PATCHY_SANDBOX_PROBE_TIMEOUT` (default 20s); evaluation Jobs run neither.
+  script's last step, both with `MAUL_SANDBOX_PROBE_TIMEOUT` (default 20s); evaluation Jobs run neither.
 - `sandboxprobe` — the negative-connectivity check behind `agent-runner sandbox-probe`, stdlib only: dial the targets
   (`internet` 1.1.1.1:443, `k8s` from `KUBERNETES_SERVICE_HOST`, `imds` 169.254.169.254:80) until three consecutive
-  rounds find all closed or the window (`PATCHY_SANDBOX_PROBE_TIMEOUT`, 20s) ends. `ModeStrict` (no arguments; every
+  rounds find all closed or the window (`MAUL_SANDBOX_PROBE_TIMEOUT`, 20s) ends. `ModeStrict` (no arguments; every
   target) exits `ExitUnenforced` (78), which `jobs` re-exports and the collectors map to `SandboxUnenforced`;
   `ModeWait` (default targets `k8s,imds`) exits 0 either way with one `SANDBOX NOT CONFIRMED` line. Window, clock and
   dialer injectable.
@@ -695,7 +695,7 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   per bare model id and the kind of credential that paid, observed input/output/cache-read/5m-and-1h cache-write tokens
   kept apart from the estimated shortfall, served by `UsageHandler`) and the pure logic of the brokered runners
   (claude's gateway env and codex's gateway names, `provider.CodexEnv`; canonical→provider model-id maps with
-  per-provider derived defaults, the `PATCHY_MODEL_MAP` codec both the controllers and agentrun share).
+  per-provider derived defaults, the `MAUL_MODEL_MAP` codec both the controllers and agentrun share).
   `provider.Names` is the broker's closed route table, `provider.ClaudeNames` the four a claude runner can front (not
   openai). `provider.BrokerTokenHeader` is the one definition of the caller-token header.
 - `usagewire`, `usagemeter` — trusted usage (per-user credentials design, revision 1, L2). `usagewire` is the
@@ -741,7 +741,7 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   and sumdb path parsers over x/mod, the per-request pipeline (suspended, method, body, path grammar, allowlist and
   tagged-release gate, limits, forward to a fixed https base), status mapping and header/size caps, the guarded
   dialer (tcp4, port 443, no private/link-local/reserved/denied address, judged at connect time), the audit line and
-  the `patchy.egress_proxy.*` metrics. `podindex` is the opt-in client-go attribution adapter (transform-stripped
+  the `maul.egress_proxy.*` metrics. `podindex` is the opt-in client-go attribution adapter (transform-stripped
   pod cache; audit garnish, never a decision). `TestLiveGo` (`mise run live-go`) runs the real go command through it.
   Step 2's registry routes live here too (`/r/<registry>`: grant check, npm and Go routes, `RawPath` forwarding, the
   per-ecosystem status table with proxy-written error bodies, redirects only to `redirectHosts` without the
@@ -769,8 +769,8 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   upsert modes/content; on a repository-declared image also the entry cap, control characters, CI
   definitions), shared so the controllers that push never import each other: remediation holds a Finding's
   changesets to `Rules` without a deny list, intent-controller an intent's to `IntentRules` (plus `.github`,
-  `.patchy`, `.devcontainer` refused). Imports only the stdlib and `envelope` (a test pins that).
-- `intentperm` — the one table of the GitHub App permissions patchy needs, in two views of the same rows. `For`: what
+  `.maul`, `.devcontainer` refused). Imports only the stdlib and `envelope` (a test pins that).
+- `intentperm` — the one table of the GitHub App permissions maul needs, in two views of the same rows. `For`: what
   a Project needs per repository (issues write on the intent repository; contents and pull requests write and issues
   read on each app repository, the last being the token reviewer permissions and the rate budget are read with;
   checks, statuses and actions read there too when `spec.checks.fix` is set, and actions write beside them when
@@ -785,7 +785,7 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   the installation allows, so its merge counts; nothing is written there, and once refused there it is not asked again
   for a while (`readDepartedPullRequest`).
 - `runnerimage` (+ `runnerimage/resolve`) — repository-declared agent runner images. The parent is the pure
-  core (declaration files out of a tar.gz stream, `.patchy/agent.yaml` and the devcontainer.json fallback with
+  core (declaration files out of a tar.gz stream, `.maul/agent.yaml` and the devcontainer.json fallback with
   precedence, reference grammar and strict digests, the allowlist `Policy`, PATH/ENV/VOLUME checks, the
   `Resolver` seam and `Rejection`); `resolve` is the go-containerregistry implementation source-controller
   wires in (one HEAD then digest-only calls, index enumeration, host-selected keychain, in-process cosign
@@ -793,11 +793,11 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
 - `runnerguard` — the job controllers' side of repository-declared images, shared by investigation,
   remediation and intent: whether a launch may run the Repository's pin (kill switch, not revived by a human, sandbox
   breaker), the pull fail-fast gated on the Job's `runner-image-source` annotation (never on config), and the
-  in-memory sandbox breaker a prepare exit 78 trips until restart (`patchy.sandbox.breaker` gauge). `PinFor`
+  in-memory sandbox breaker a prepare exit 78 trips until restart (`maul.sandbox.breaker` gauge). `PinFor`
   (beside the untouched `Pin`) is the same decision for a launch that requires the image (intent build and
   revise runs): "" only when it copied an accepted pin, a reason otherwise. It has no revival rule: an intent
   brought back by its trigger label is a new plan and a new approval, not a Finding revival.
-- `mirror` — the engine behind `patchy mirror` (CLI-only, except `imageref`, which `runnerimage` also builds
+- `mirror` — the engine behind `maul mirror` (CLI-only, except `imageref`, which `runnerimage` also builds
   on; no controller consumes the rest): vendored mirroring of
   upstream helm charts and OCI artifacts into one or more platform registries (mirror.yaml lists them; every
   entry publishes to all, lock files record targets per registry name, and each registry may carry its own
@@ -817,7 +817,7 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
 
 ## Conventions
 
-- Go 1.26; cobra + viper (`PATCHY_` env prefix); `log/slog` to stderr (stdout is reserved — agent-runner's event
+- Go 1.26; cobra + viper (`MAUL_` env prefix); `log/slog` to stderr (stdout is reserved — agent-runner's event
   stream lives there); OpenTelemetry with an otelslog fanout that never fails startup.
 - Every package has a `doc.go`; every file starts with the MIT SPDX header (enforced by revive + addlicense).
 - Table-driven stdlib tests, no testify; fakes over mocks; controller-runtime fake client for reconciler tests;

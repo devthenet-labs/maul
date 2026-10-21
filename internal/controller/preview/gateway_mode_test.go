@@ -16,7 +16,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 // gatewaySettings render no legacy slot Ingress.
@@ -30,7 +30,7 @@ func gatewaySettings() Settings {
 func (e *testEnv) slotIngresses() []networkingv1.Ingress {
 	e.t.Helper()
 	var list networkingv1.IngressList
-	if err := e.c.List(context.Background(), &list, client.InNamespace("patchy-preview-0")); err != nil {
+	if err := e.c.List(context.Background(), &list, client.InNamespace("maul-preview-0")); err != nil {
 		e.t.Fatal(err)
 	}
 	return list.Items
@@ -92,7 +92,7 @@ func TestGatewayModeDeletesItsLegacyIngress(t *testing.T) {
 		t.Fatalf("legacy Ingress: %v", err)
 	}
 	foreign := &networkingv1.Ingress{ObjectMeta: metav1.ObjectMeta{Name: "someone-else",
-		Namespace: "patchy-preview-0"}}
+		Namespace: "maul-preview-0"}}
 	if err := e.c.Create(ctx, foreign); err != nil {
 		t.Fatal(err)
 	}

@@ -13,10 +13,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/bitwise-media-group/patchy/internal/version"
+	"github.com/devthenet-labs/maul/internal/version"
 )
 
-// NewRoot returns the conventional root command shared by every patchy
+// NewRoot returns the conventional root command shared by every maul
 // binary: silenced usage/errors (errors are failures, not usage mistakes;
 // main logs the error once) and cobra's built-in --version reporting the
 // build metadata stamped into internal/version.

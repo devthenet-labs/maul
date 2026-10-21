@@ -13,10 +13,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/report"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/report"
 )
 
 // notesReport is a build report whose body ends with working notes.
@@ -68,15 +68,15 @@ func TestRunWorkingNotes(t *testing.T) {
 		},
 		{
 			// A fence as long as a backtick run would not fit beside cut
-			// notes; the backticks are escaped before the cut, so patchy's
+			// notes; the backticks are escaped before the cut, so maul's
 			// own marker survives, not the generic one.
-			name: "oversize with a long backtick run keeps patchy's marker", stage: v1alpha1.IntentStageBuild,
+			name: "oversize with a long backtick run keeps maul's marker", stage: v1alpha1.IntentStageBuild,
 			report: notesReport(strings.Repeat("`", 29) + "\n" + long),
 			want:   []string{"<U+0060>", notesTruncated}, absent: []string{"\n[truncated]\n"},
 		},
 		{
 			// Under 6 KiB, but its fence would not fit: escaped, the
-			// backticks run past 6 KiB and are cut with patchy's marker.
+			// backticks run past 6 KiB and are cut with maul's marker.
 			name: "a short note of backticks too long to fence", stage: v1alpha1.IntentStageBuild,
 			report: notesReport(strings.Repeat("`", 2100) + "\nEND"),
 			want:   []string{"<U+0060>", notesTruncated}, absent: []string{"\n[truncated]\n"},
@@ -210,7 +210,7 @@ func TestRoundInputCarriesWorkingNotes(t *testing.T) {
 		out.Events[0].Remediation.ReportMarkdown = notesReport("BUILD-NOTES: handler in version.go.")
 		return out
 	}
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	e.drive(name, v1alpha1.IntentInReview, repoImage)
 	e.reviewOn(1, 3201, "FIRST-REVIEW: name the field sha.")
 	e.clock.Advance(3 * time.Minute)
@@ -275,12 +275,12 @@ func TestRevivalContextCarriesWorkingNotes(t *testing.T) {
 				ReportMarkdown: notBuiltReport("BUILD-NOTES: needs a router rewrite.")}}}}
 	}
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	e.drive(name, v1alpha1.IntentFailed, repoImage)
 	e.mustIntent(name)
 	e.jobs.output = defaultOutput
 	e.clock.Advance(time.Minute)
-	e.gh.label(1, "patchy:target", approver)
+	e.gh.label(1, "maul:target", approver)
 	e.reconcileProject()
 	e.mustIntent(name)
 	in := e.get(name)

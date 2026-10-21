@@ -17,8 +17,8 @@ import (
 )
 
 const (
-	previewImageWeb = "registry.example/patchy/previews/acme-web"
-	previewImageAPI = "registry.example/patchy/previews/acme-api"
+	previewImageWeb = "registry.example/maul/previews/acme-web"
+	previewImageAPI = "registry.example/maul/previews/acme-api"
 )
 
 var (
@@ -298,7 +298,7 @@ func (previewCase) Generate(r *rand.Rand, _ int) reflect.Value {
 		repo := ProjectRepository{Name: fmt.Sprintf("app%d", i), URL: fmt.Sprintf("https://github.com/acme/App%d", i)}
 		if r.Intn(2) == 0 {
 			repo.Preview = &ProjectRepositoryPreview{
-				ProjectPreview: ProjectPreview{ImageRepository: fmt.Sprintf("registry.example/patchy/previews/app%d", i),
+				ProjectPreview: ProjectPreview{ImageRepository: fmt.Sprintf("registry.example/maul/previews/app%d", i),
 					Port: int32(8000 + i), ReadinessPath: "/healthz"},
 				Path: previewPaths[r.Intn(len(previewPaths))],
 			}

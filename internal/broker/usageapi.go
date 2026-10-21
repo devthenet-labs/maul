@@ -11,8 +11,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/bitwise-media-group/patchy/internal/httpguard"
-	"github.com/bitwise-media-group/patchy/internal/usagewire"
+	"github.com/devthenet-labs/maul/internal/httpguard"
+	"github.com/devthenet-labs/maul/internal/usagewire"
 )
 
 // UsageHandler serves the usage endpoint (usagewire), meant for its own

@@ -12,8 +12,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/attribution"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/attribution"
 )
 
 // TestGateAttribution: an investigation has no human behind it, so under
@@ -33,7 +33,7 @@ func TestGateAttribution(t *testing.T) {
 			// A human expedited it: still nobody's investigation.
 			fnd.Spec.Expedite = &v1alpha1.ActionRequest{By: "alice", ByID: 7, At: metav1.NewTime(clock)}
 			repo := &v1alpha1.Repository{
-				ObjectMeta: metav1.ObjectMeta{Name: "finding-aa-1-src", Namespace: "patchy"},
+				ObjectMeta: metav1.ObjectMeta{Name: "finding-aa-1-src", Namespace: "maul"},
 				Spec:       v1alpha1.RepositorySpec{URL: "https://github.com/acme/orders"},
 			}
 			meta.SetStatusCondition(&repo.Status.Conditions, metav1.Condition{
@@ -46,7 +46,7 @@ func TestGateAttribution(t *testing.T) {
 			gateOnce(t, r)
 
 			var inv v1alpha1.Investigation
-			key := types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1-inv-1"}
+			key := types.NamespacedName{Namespace: "maul", Name: "finding-aa-1-inv-1"}
 			if err := c.Get(t.Context(), key, &inv); err != nil {
 				t.Fatalf("Investigation not created: %v", err)
 			}

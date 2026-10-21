@@ -59,7 +59,7 @@ dir = "{{cwd}}"
 run = "./hack/bench.sh"
 
 # The Tier-2 load suite: envtest + the real binaries at 50-100k findings
-# (PATCHY_LOAD_N sizes it). Opt-in for the same reason — a full run takes
+# (MAUL_LOAD_N sizes it). Opt-in for the same reason — a full run takes
 # tens of minutes and is meant for before/after measurement, not the gate.
 [load]
 description = "run the opt-in load tests (envtest, real binaries, 50k+ findings)"
@@ -73,7 +73,7 @@ run = "./hack/load.sh"
 [live-go]
 description = "run the egress proxy against the real Go module proxy with the real go command"
 dir = "{{cwd}}"
-env = { PATCHY_LIVE_GO = "1" }
+env = { MAUL_LIVE_GO = "1" }
 run = "go test -count=1 -v -run '^TestLiveGo$' ./internal/egressproxy"
 
 # The claude CLI posture against the REAL CLI at the version
@@ -90,13 +90,13 @@ run = "./hack/claude-posture-probe.sh"
 # commands: loopback TLS registries that demand a login only the proxy holds,
 # a fake proxy.golang.org and a fake signing sum.golang.org. Opt-in (it needs
 # npm, python3 and go on PATH), and run locally before a registry-route change
-# merges. With PATCHY_LIVE_CODEARTIFACT=<domain>/<owner>/<region>/<repo> set
+# merges. With MAUL_LIVE_CODEARTIFACT=<domain>/<owner>/<region>/<repo> set
 # it also runs npm and pip against that real CodeArtifact repository, minting
 # the token from the developer's AWS credentials: the pre-gate check.
 [live-registry]
 description = "run the egress proxy's registry routes with the real npm, pip and go commands"
 dir = "{{cwd}}"
-env = { PATCHY_LIVE_REGISTRY = "1" }
+env = { MAUL_LIVE_REGISTRY = "1" }
 run = "go test -count=1 -v -run 'TestLive(Go)?Registry|TestLiveCodeArtifact' ./internal/egressproxy"
 
 # The egress proxy's CONNECT tunnel against the real package managers on
@@ -109,7 +109,7 @@ run = "go test -count=1 -v -run 'TestLive(Go)?Registry|TestLiveCodeArtifact' ./i
 [live-tunnel]
 description = "run the egress proxy's CONNECT tunnel with the real package managers against the public registries"
 dir = "{{cwd}}"
-env = { PATCHY_LIVE_TUNNEL = "1" }
+env = { MAUL_LIVE_TUNNEL = "1" }
 run = "go test -count=1 -v -timeout 30m -run '^TestLiveTunnel$' ./internal/egressproxy"
 
 # Tests that need a real API server (CRD schema validation, controller
@@ -153,13 +153,13 @@ run = [
   "npm --prefix internal/web/ui run build",
 ]
 
-# Redefines the archetype's build task (whole-task replacement): patchy is
+# Redefines the archetype's build task (whole-task replacement): maul is
 # multi-binary — one controller per concern plus the agent runtime — so the
 # single-app go-build is replaced by a loop over cmd/ (hack/build.sh; the
 # multiline tasks live in hack/ so shellcheck lints them). The ui task runs
 # first so the withui build can embed internal/web/ui/dist.
 [build]
-description = "build all patchy binaries into bin/"
+description = "build all maul binaries into bin/"
 dir = "{{cwd}}"
 run = [{ task = "ui" }, "./hack/build.sh"]
 
@@ -181,9 +181,9 @@ description = "start colima, build snapshot images, deploy the dev overlay"
 dir = "{{cwd}}"
 run = "./hack/dev-colima.sh"
 
-# The helm charts (charts/patchy = the stack, charts/patchy-config = the
+# The helm charts (charts/maul = the stack, charts/maul-config = the
 # Integration/Forge CRs) render the same stack as deploy/kustomize and are
-# published to oci://ghcr.io/devthenet-labs/patchy/charts by
+# published to oci://ghcr.io/devthenet-labs/maul/charts by
 # .github/workflows/helm.yaml on release. This is the chart gate, in `make pr`
 # and in CI's helm-lint job: lint plus a render of every component combination
 # the templates branch on, then the render assertions
@@ -205,9 +205,9 @@ description = "check the reference AWS terraform module"
 dir = "{{cwd}}"
 run = "./hack/tf-lint.sh"
 
-# The trees `patchy init app` generates, checked the way their own CI would
+# The trees `maul init app` generates, checked the way their own CI would
 # (hack/scaffold-check.sh): actionlint, shellcheck and hadolint over the
-# golden trees under cmd/patchy/internal/scaffold/testdata, the guard's node
+# golden trees under cmd/maul/internal/scaffold/testdata, the guard's node
 # tests, the publishers' python tests and a vet and race test of the
 # generated Go service. The golden test pins the bytes; this proves they
 # work. In `make pr` and in CI's scaffold-check job. Building and running the
@@ -218,8 +218,8 @@ description = "lint and test the init app golden trees as their own CI would"
 dir = "{{cwd}}"
 run = "./hack/scaffold-check.sh"
 
-# The upstream charts `patchy setup previews` writes values for
-# (cmd/patchy/internal/previewsetup/pins.go): each pinned version exists in
+# The upstream charts `maul setup previews` writes values for
+# (cmd/maul/internal/previewsetup/pins.go): each pinned version exists in
 # its repository, the values the recipes write render with that chart (so its
 # schema accepts them), and every Issuer and Certificate in the golden trees
 # is valid against cert-manager's CRDs at the pinned version, unknown fields
@@ -230,8 +230,8 @@ run = "./hack/scaffold-check.sh"
 [preview-pins]
 description = "check the setup previews recipes' pinned upstream charts against their repositories"
 dir = "{{cwd}}"
-env = { PATCHY_LIVE_PINS = "1" }
-run = "go test -count=1 -v -run '^TestLivePins$' ./cmd/patchy/internal/previewsetup"
+env = { MAUL_LIVE_PINS = "1" }
+run = "go test -count=1 -v -run '^TestLivePins$' ./cmd/maul/internal/previewsetup"
 
 # Everything derived from the CLI's cobra command tree: the per-command
 # reference under docs/cli (nav'd from docs/cli.md) and the shell completions.
@@ -243,18 +243,18 @@ run = "go test -count=1 -v -run '^TestLivePins$' ./cmd/patchy/internal/previewse
 # binary at install time would trip Gatekeeper on the still-quarantined
 # download (see homebrew_casks in .goreleaser.yaml).
 #
-# `go run` rather than bin/patchy: the CLI is the one binary the multi-binary
+# `go run` rather than bin/maul: the CLI is the one binary the multi-binary
 # build task is not needed for, and nothing here depends on the status page
 # SPA that `build` compiles first.
 [docs]
 description = "regenerate the CLI reference (docs/cli) and shell completions"
 dir = "{{cwd}}"
 run = [
-  "go run ./cmd/patchy/internal/tools/docgen --out docs/cli --format markdown",
+  "go run ./cmd/maul/internal/tools/docgen --out docs/cli --format markdown",
   "mkdir -p completions",
-  "go run ./cmd/patchy completion bash > completions/patchy.bash",
-  "go run ./cmd/patchy completion zsh > completions/patchy.zsh",
-  "go run ./cmd/patchy completion fish > completions/patchy.fish",
+  "go run ./cmd/maul completion bash > completions/maul.bash",
+  "go run ./cmd/maul completion zsh > completions/maul.zsh",
+  "go run ./cmd/maul completion fish > completions/maul.fish",
 ]
 
 # Size report: the bin/ binaries the build task produced, plus the top-10

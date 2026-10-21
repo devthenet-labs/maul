@@ -21,11 +21,11 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	"sigs.k8s.io/yaml"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/agentrun"
-	"github.com/bitwise-media-group/patchy/internal/provider"
-	"github.com/bitwise-media-group/patchy/internal/runnerimage"
-	"github.com/bitwise-media-group/patchy/internal/sandboxprobe"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/agentrun"
+	"github.com/devthenet-labs/maul/internal/provider"
+	"github.com/devthenet-labs/maul/internal/runnerimage"
+	"github.com/devthenet-labs/maul/internal/sandboxprobe"
 )
 
 const (
@@ -55,7 +55,7 @@ func injectedSpec() Spec {
 	return spec
 }
 
-// TestGoldenInjectedJob pins the repository-image shape: the patchy-bin
+// TestGoldenInjectedJob pins the repository-image shape: the maul-bin
 // volume, the copy and probe tail, the absolute command, the
 // controller-owned PATH, the audit annotations and label, the ephemeral
 // storage, and every blanked name.
@@ -218,8 +218,8 @@ func TestInjectedPrepareContainer(t *testing.T) {
 	}
 	tail := strings.TrimPrefix(script, prepareScript)
 	for _, want := range []string{
-		`for bin in $PATCHY_INJECT; do`,
-		`cp "/usr/local/bin/$bin" "/patchy/bin/$bin"`,
+		`for bin in $MAUL_INJECT; do`,
+		`cp "/usr/local/bin/$bin" "/maul/bin/$bin"`,
 		"/usr/local/bin/agent-runner sandbox-probe\n",
 	} {
 		if !strings.Contains(tail, want) {
@@ -242,32 +242,32 @@ func TestInjectedPrepareContainer(t *testing.T) {
 	}
 
 	envs := envMap(prepare)
-	if got := envs["PATCHY_INJECT"].Value; got != "agent-runner claude" {
-		t.Errorf("PATCHY_INJECT = %q, want the runner's Inject list", got)
+	if got := envs["MAUL_INJECT"].Value; got != "agent-runner claude" {
+		t.Errorf("MAUL_INJECT = %q, want the runner's Inject list", got)
 	}
 	if got := envs[sandboxprobe.TimeoutEnv].Value; got != "20s" {
 		t.Errorf("%s = %q, want the 20s default", sandboxprobe.TimeoutEnv, got)
 	}
 	var mounted bool
 	for _, m := range prepare.VolumeMounts {
-		if m.Name == volPatchyBin {
+		if m.Name == volMaulBin {
 			mounted = true
-			if m.ReadOnly || m.MountPath != patchyBinDir {
-				t.Errorf("prepare patchy-bin mount = %+v, want read-write at %s", m, patchyBinDir)
+			if m.ReadOnly || m.MountPath != maulBinDir {
+				t.Errorf("prepare maul-bin mount = %+v, want read-write at %s", m, maulBinDir)
 			}
 		}
 	}
 	if !mounted {
-		t.Error("prepare container does not mount patchy-bin")
+		t.Error("prepare container does not mount maul-bin")
 	}
 	var vol bool
 	for _, v := range job.Spec.Template.Spec.Volumes {
-		if v.Name == volPatchyBin && v.EmptyDir != nil {
+		if v.Name == volMaulBin && v.EmptyDir != nil {
 			vol = true
 		}
 	}
 	if !vol {
-		t.Error("pod has no patchy-bin emptyDir")
+		t.Error("pod has no maul-bin emptyDir")
 	}
 }
 
@@ -287,32 +287,32 @@ func TestInjectedAgentContainer(t *testing.T) {
 	if agent.Image != repoImage {
 		t.Errorf("agent image = %q, want the repository's %q", agent.Image, repoImage)
 	}
-	if got := strings.Join(agent.Command, " "); got != "/patchy/bin/agent-runner" {
+	if got := strings.Join(agent.Command, " "); got != "/maul/bin/agent-runner" {
 		t.Errorf("agent command = %q, want the absolute injected path", got)
 	}
 	var mounted bool
 	for _, m := range agent.VolumeMounts {
-		if m.Name == volPatchyBin {
+		if m.Name == volMaulBin {
 			mounted = true
-			if !m.ReadOnly || m.MountPath != patchyBinDir {
-				t.Errorf("agent patchy-bin mount = %+v, want read-only at %s", m, patchyBinDir)
+			if !m.ReadOnly || m.MountPath != maulBinDir {
+				t.Errorf("agent maul-bin mount = %+v, want read-only at %s", m, maulBinDir)
 			}
 		}
 	}
 	if !mounted {
-		t.Error("agent container does not mount patchy-bin")
+		t.Error("agent container does not mount maul-bin")
 	}
 
 	envs := envMap(agent)
 	wantValues := map[string]string{
-		"PATCHY_BIN_DIR":      patchyBinDir,
-		"PATH":                "/patchy/bin:" + repoSearchPath,
+		"MAUL_BIN_DIR":        maulBinDir,
+		"PATH":                "/maul/bin:" + repoSearchPath,
 		"GIT_CONFIG_NOSYSTEM": "1",
 		"DISABLE_AUTOUPDATER": "1",
 		// The usual env survives untouched.
-		"PATCHY_REPO":              "octo/repo",
-		"PATCHY_BROKER_TOKEN_FILE": brokerTokenPath,
-		"ANTHROPIC_BASE_URL":       "http://patchy-egress-broker.patchy.svc.cluster.local:8080/anthropic",
+		"MAUL_REPO":              "octo/repo",
+		"MAUL_BROKER_TOKEN_FILE": brokerTokenPath,
+		"ANTHROPIC_BASE_URL":     "http://maul-egress-broker.maul.svc.cluster.local:8080/anthropic",
 	}
 	for k, want := range wantValues {
 		if got, ok := envs[k]; !ok || got.Value != want {
@@ -347,14 +347,14 @@ func TestInjectedAgentEnvScrub(t *testing.T) {
 			t.Errorf("agent env %s = %+v, want an explicit empty value", name, got)
 		}
 	}
-	for _, name := range []string{"PATCHY_REPO", "PATCHY_PHASE", "PATCHY_BROKER_TOKEN_FILE", "ANTHROPIC_BASE_URL",
-		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "PATCHY_INVESTIGATE_TIMEOUT"} {
+	for _, name := range []string{"MAUL_REPO", "MAUL_PHASE", "MAUL_BROKER_TOKEN_FILE", "ANTHROPIC_BASE_URL",
+		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "MAUL_INVESTIGATE_TIMEOUT"} {
 		if !set[name] {
 			t.Errorf("agent env %s was blanked although the Job sets it", name)
 		}
 	}
-	for _, name := range []string{"LD_PRELOAD", "BASH_ENV", "HTTPS_PROXY", "https_proxy", "PATCHY_MODEL_MAP",
-		"PATCHY_CHANGESET_MAX_BYTES", "CLAUDE_CODE_USE_BEDROCK", "GIT_EXEC_PATH"} {
+	for _, name := range []string{"LD_PRELOAD", "BASH_ENV", "HTTPS_PROXY", "https_proxy", "MAUL_MODEL_MAP",
+		"MAUL_CHANGESET_MAX_BYTES", "CLAUDE_CODE_USE_BEDROCK", "GIT_EXEC_PATH"} {
 		if got, ok := envs[name]; !ok || got.Value != "" {
 			t.Errorf("agent env %s = %+v, want blanked", name, got)
 		}
@@ -378,12 +378,12 @@ func TestPodPath(t *testing.T) {
 		in   string
 		want string
 	}{
-		{"image path follows patchy's", repoSearchPath, "/patchy/bin:" + repoSearchPath},
-		{"empty means the runc default", "", "/patchy/bin:" + runnerimage.DefaultPath},
-		{"empty components are dropped", "/usr/bin::/bin:", "/patchy/bin:/usr/bin:/bin"},
-		{"relative components are dropped", "bin:/usr/bin:.:/bin", "/patchy/bin:/usr/bin:/bin"},
-		{"patchy's own directory is not repeated", "/patchy/bin:/usr/bin", "/patchy/bin:/usr/bin"},
-		{"only garbage leaves patchy's alone", ":::", "/patchy/bin"},
+		{"image path follows maul's", repoSearchPath, "/maul/bin:" + repoSearchPath},
+		{"empty means the runc default", "", "/maul/bin:" + runnerimage.DefaultPath},
+		{"empty components are dropped", "/usr/bin::/bin:", "/maul/bin:/usr/bin:/bin"},
+		{"relative components are dropped", "bin:/usr/bin:.:/bin", "/maul/bin:/usr/bin:/bin"},
+		{"maul's own directory is not repeated", "/maul/bin:/usr/bin", "/maul/bin:/usr/bin"},
+		{"only garbage leaves maul's alone", ":::", "/maul/bin"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -391,7 +391,7 @@ func TestPodPath(t *testing.T) {
 			if got != tt.want {
 				t.Errorf("podPath(%q) = %q, want %q", tt.in, got, tt.want)
 			}
-			if strings.HasSuffix(got, ":") || strings.Contains(got, "::") || !strings.HasPrefix(got, "/patchy/bin") {
+			if strings.HasSuffix(got, ":") || strings.Contains(got, "::") || !strings.HasPrefix(got, "/maul/bin") {
 				t.Errorf("podPath(%q) = %q has an empty component or the wrong head", tt.in, got)
 			}
 		})
@@ -438,9 +438,9 @@ func TestReservedEnvNames(t *testing.T) {
 		t.Errorf("ReservedEnvNames() = %v, want sorted", names)
 	}
 	for _, want := range slices.Concat(
-		[]string{"GITHUB_TOKEN", "ANTHROPIC_API_KEY", "PATCHY_REPO", "HOME",
-			"PATCHY_CALIBRATION", "PATCHY_PREVIOUS_ATTEMPT", "PATCHY_NETWORK_PROFILE",
-			"PATCHY_NETWORK_ROUTES", "PATCHY_NETWORK_HOSTS"},
+		[]string{"GITHUB_TOKEN", "ANTHROPIC_API_KEY", "MAUL_REPO", "HOME",
+			"MAUL_CALIBRATION", "MAUL_PREVIOUS_ATTEMPT", "MAUL_NETWORK_PROFILE",
+			"MAUL_NETWORK_ROUTES", "MAUL_NETWORK_HOSTS"},
 		PerJobEnvNames(), provider.GatewayEnvNames, proxyEnv,
 	) {
 		if !slices.Contains(names, want) {
@@ -478,7 +478,7 @@ func TestExitSandboxUnenforced(t *testing.T) {
 // code and the image source.
 func TestStatusReadsPod(t *testing.T) {
 	newJob := func(ann map[string]string) *batchv1.Job {
-		return &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "j", Namespace: "patchy-agents", Annotations: ann}}
+		return &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "j", Namespace: "maul-agents", Annotations: ann}}
 	}
 	waiting := func(reason, msg string) corev1.ContainerState {
 		return corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: reason, Message: msg}}
@@ -624,7 +624,7 @@ func TestAgentEnvParsesToBinDir(t *testing.T) {
 		cfg  Config
 		want string
 	}{
-		{"repository image", injectedConfig(), patchyBinDir},
+		{"repository image", injectedConfig(), maulBinDir},
 		{"default image", brokeredConfig(), ""},
 	}
 	for _, tt := range tests {
@@ -648,13 +648,13 @@ func TestAgentEnvParsesToBinDir(t *testing.T) {
 // TestInjectedEnvOwnsItsNames: on a repository image the names the
 // injection owns — where the binaries are, the PATH, git's system-config
 // switch, the self-updater switch and every scrubbed name — carry
-// patchy's value exactly once, whatever the operator's Config.Env says.
-// An operator value of the same name would otherwise sit beside patchy's
+// maul's value exactly once, whatever the operator's Config.Env says.
+// An operator value of the same name would otherwise sit beside maul's
 // as a duplicate, which Kubernetes leaves undefined.
 func TestInjectedEnvOwnsItsNames(t *testing.T) {
 	cfg := injectedConfig()
 	operator := map[string]string{
-		"PATH": "/opt/tools/bin", "PATCHY_BIN_DIR": "/opt/evil", "GIT_CONFIG_NOSYSTEM": "0",
+		"PATH": "/opt/tools/bin", "MAUL_BIN_DIR": "/opt/evil", "GIT_CONFIG_NOSYSTEM": "0",
 		"DISABLE_AUTOUPDATER": "0", "LD_PRELOAD": "/opt/lib/hook.so", "NODE_OPTIONS": "--require /opt/hook.js",
 		"BASH_ENV": "/opt/rc", "GIT_SSH_COMMAND": "ssh -o ProxyCommand=evil",
 	}
@@ -662,10 +662,10 @@ func TestInjectedEnvOwnsItsNames(t *testing.T) {
 	agent := buildJobForTest(t, cfg, injectedSpec()).Spec.Template.Spec.Containers[0]
 
 	want := map[string]string{
-		"PATH": "/patchy/bin:" + repoSearchPath, "PATCHY_BIN_DIR": patchyBinDir, "GIT_CONFIG_NOSYSTEM": "1",
+		"PATH": "/maul/bin:" + repoSearchPath, "MAUL_BIN_DIR": maulBinDir, "GIT_CONFIG_NOSYSTEM": "1",
 		"DISABLE_AUTOUPDATER": "1", "LD_PRELOAD": "", "NODE_OPTIONS": "", "BASH_ENV": "", "GIT_SSH_COMMAND": "",
 		// An operator value for a name the injection does not own survives.
-		"PATCHY_INVESTIGATE_TIMEOUT": "15m",
+		"MAUL_INVESTIGATE_TIMEOUT": "15m",
 	}
 	for name, value := range want {
 		var got []string
@@ -682,14 +682,14 @@ func TestInjectedEnvOwnsItsNames(t *testing.T) {
 
 // TestDefaultJobKeepsOperatorEnv: the takeover is the repository image's
 // alone. A default Job passes the same operator values through as it
-// always has — except PATCHY_BIN_DIR, which is per-Job (set only when the
+// always has — except MAUL_BIN_DIR, which is per-Job (set only when the
 // Job injects), since on the default image it would send agent-runner
 // looking for an injected CLI that was never copied.
 func TestDefaultJobKeepsOperatorEnv(t *testing.T) {
 	cfg := testConfig()
 	maps.Copy(cfg.Env, map[string]string{
 		"PATH": "/opt/tools/bin", "LD_PRELOAD": "/opt/lib/jemalloc.so", "DISABLE_AUTOUPDATER": "1",
-		"PATCHY_BIN_DIR": "/opt/evil",
+		"MAUL_BIN_DIR": "/opt/evil",
 	})
 	envs := envMap(buildJobForTest(t, cfg, testSpec()).Spec.Template.Spec.Containers[0])
 	for name, value := range map[string]string{
@@ -699,13 +699,13 @@ func TestDefaultJobKeepsOperatorEnv(t *testing.T) {
 			t.Errorf("default Job env %s = %+v, want the operator's %q", name, got, value)
 		}
 	}
-	if got, ok := envs["PATCHY_BIN_DIR"]; ok {
-		t.Errorf("PATCHY_BIN_DIR = %+v reached a default Job from Config.Env, want it reserved", got)
+	if got, ok := envs["MAUL_BIN_DIR"]; ok {
+		t.Errorf("MAUL_BIN_DIR = %+v reached a default Job from Config.Env, want it reserved", got)
 	}
 }
 
 // TestPropertyNoDuplicateEnv: whatever names the operator's Config.Env
-// carries — owned, scrubbed, gateway, reserved, patchy's own or unrelated —
+// carries — owned, scrubbed, gateway, reserved, maul's own or unrelated —
 // and whatever the runner's gateway Env renders beside them, no container
 // of any Job, injected or default, ever lists a name twice, whichever of
 // the Spec's conditional per-Job values (harness and model, the budget
@@ -715,14 +715,14 @@ func TestDefaultJobKeepsOperatorEnv(t *testing.T) {
 // itself and provider.Validate refuses. Seeded so the gate is
 // deterministic; TestOperatorEnvCannotShadowPerJobHandoff pins the
 // counterexample the Spec's per-Job values surfaced once they varied (a
-// retry's PATCHY_PREVIOUS_ATTEMPT listed twice).
+// retry's MAUL_PREVIOUS_ATTEMPT listed twice).
 func TestPropertyNoDuplicateEnv(t *testing.T) {
 	rng := rand.New(rand.NewSource(20260923))
-	owned := []string{"PATH", "PATCHY_BIN_DIR", "GIT_CONFIG_NOSYSTEM", "DISABLE_AUTOUPDATER"}
-	operatorNames := slices.Concat(owned, []string{"HOME", "PATCHY_INVESTIGATE_TIMEOUT", "EDITOR", "LANG"},
+	owned := []string{"PATH", "MAUL_BIN_DIR", "GIT_CONFIG_NOSYSTEM", "DISABLE_AUTOUPDATER"}
+	operatorNames := slices.Concat(owned, []string{"HOME", "MAUL_INVESTIGATE_TIMEOUT", "EDITOR", "LANG"},
 		scrubEnv, provider.GatewayEnvNames, agentrun.ConfigEnvKeys(), ReservedEnvNames())
 	runnerNames := slices.DeleteFunc(slices.Clone(operatorNames), func(n string) bool {
-		return n == "PATCHY_BROKER_TOKEN_FILE"
+		return n == "MAUL_BROKER_TOKEN_FILE"
 	})
 	// either picks a set or an unset value for one conditional Spec field.
 	either := func(set string) string {

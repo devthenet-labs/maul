@@ -147,10 +147,10 @@ type RelatedFinding struct {
 	Relationship RelationshipType `json:"relationship"`
 }
 
-// Approval records a human approval: "/patchy approve" on the tracking item,
+// Approval records a human approval: "/maul approve" on the tracking item,
 // or the approve action on the status page or in the CLI.
 type Approval struct {
-	// By is the approving login: the bare GitHub login for a /patchy
+	// By is the approving login: the bare GitHub login for a /maul
 	// approve comment, the signed-in username on the status page, the kube
 	// username in the CLI.
 	By string `json:"by"`
@@ -158,7 +158,7 @@ type Approval struct {
 	// approval made by a GitHub comment, whose author GitHub names by id
 	// (design L1). A direct API writer may not set it: under attribution the
 	// chart's admission policy pins by to the requesting user and refuses
-	// byID from anyone but the patchy controllers and the status server.
+	// byID from anyone but the maul controllers and the status server.
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	ByID int64 `json:"byID,omitempty"`
@@ -607,7 +607,7 @@ type FindingCommands struct {
 	// (NotAllowed, whatever the verb), the latest MaxRefusedActors of them. A
 	// later refusal to one of them is answered by the reaction alone
 	// (FindingCommand.Quiet), so an account commenting repeatedly cannot make
-	// patchy post a reply per comment. An account with write access is never
+	// maul post a reply per comment. An account with write access is never
 	// added: every answer to it, an unknown verb's included, is given in full.
 	// +optional
 	// +listType=set
@@ -615,7 +615,7 @@ type FindingCommands struct {
 	RefusedActors []int64 `json:"refusedActors,omitempty"`
 }
 
-// CommandOutcome is patchy's answer to a human command.
+// CommandOutcome is maul's answer to a human command.
 // +kubebuilder:validation:Enum=Done;Unavailable;NotAllowed;UnknownVerb;Superseded
 type CommandOutcome string
 
@@ -627,7 +627,7 @@ const (
 	CommandUnavailable CommandOutcome = "Unavailable"
 	// CommandNotAllowed: the commenter lacks write access to the tracking
 	// issue's repository. It is asked first, so a command from such an
-	// account is NotAllowed whatever its verb, one patchy does not know
+	// account is NotAllowed whatever its verb, one maul does not know
 	// included.
 	CommandNotAllowed CommandOutcome = "NotAllowed"
 	// CommandUnknownVerb: the verb is not one a tracking issue offers, from
@@ -669,7 +669,7 @@ type FindingCommand struct {
 	// Actor wrote the comment.
 	Actor CommandActor `json:"actor"`
 	// Verb is the command's verb, lower-cased; empty when the command line
-	// names no word patchy could read as one.
+	// names no word maul could read as one.
 	// +optional
 	// +kubebuilder:validation:MaxLength=32
 	// +kubebuilder:validation:Pattern=`^[a-z]*$`
@@ -680,7 +680,7 @@ type FindingCommand struct {
 	Note string `json:"note,omitempty"`
 	// Legacy marks a command made with the deprecated approve comment
 	// ("/approve", or the Integration's approveComment) rather than
-	// "/patchy approve".
+	// "/maul approve".
 	// +optional
 	Legacy bool `json:"legacy,omitempty"`
 	// ReceivedAt is when the delivery carrying the command was handled.
@@ -706,7 +706,7 @@ type FindingCommand struct {
 	// (FindingCommands.RefusedActors).
 	// +optional
 	Quiet bool `json:"quiet,omitempty"`
-	// AnsweringSince is when patchy first set out to answer the command
+	// AnsweringSince is when maul first set out to answer the command
 	// (the reaction and the reply), written before either. A pass after a
 	// failure therefore knows a reply may already be posted, and looks for
 	// it among the issue's comments since then rather than posting another;
@@ -737,7 +737,7 @@ type StaleObservation struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:shortName=fnd,categories=patchy
+// +kubebuilder:resource:shortName=fnd,categories=maul
 // +kubebuilder:printcolumn:name="Repo",type=string,JSONPath=`.spec.repository.name`
 // +kubebuilder:printcolumn:name="Severity",type=string,JSONPath=`.spec.severity`
 // +kubebuilder:printcolumn:name="Priority",type=string,JSONPath=`.status.priority`

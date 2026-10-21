@@ -7,9 +7,9 @@ import (
 	"math"
 	"testing"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/jobs"
 )
 
 // TestPodTurnsClamped: the pod's turn counts are untrusted, and the schema
@@ -54,7 +54,7 @@ func TestRunsRecordTurns(t *testing.T) {
 	e := newEnv(t, testProject())
 	e.jobs.output = withTurns(envelope.Stage{NumTurns: 12}, envelope.Stage{NumTurns: 30, FirstEditTurn: 6})
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	e.drive(name, v1alpha1.IntentInReview, repoImage)
 	plan := e.runsOf(name, v1alpha1.IntentStagePlan)[0]
 	if plan.Status.NumTurns != 12 || plan.Status.FirstEditTurn != 0 {
@@ -79,7 +79,7 @@ func TestFailedRunTurnsClamped(t *testing.T) {
 		return out
 	}
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	e.drive(name, v1alpha1.IntentFailed, repoImage)
 	runs := e.runsOf(name, v1alpha1.IntentStageBuild)
 	if len(runs) == 0 {

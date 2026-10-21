@@ -11,8 +11,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/report"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/report"
 )
 
 //go:embed *.md.tmpl
@@ -41,19 +41,19 @@ func render(name string, data any) (string, error) {
 
 // NotReproducedMarker opens the warning a pull request body carries when the
 // remediation did not show a reproduction of the bug.
-const NotReproducedMarker = "patchy could not reproduce this bug before fixing it"
+const NotReproducedMarker = "maul could not reproduce this bug before fixing it"
 
 // PRBody renders the pull-request body for a remediation branch; issue is
 // the tracking issue number ("Fixes #issue" auto-links and auto-closes).
-// untested marks a run on patchy's default agent image, which carries none
+// untested marks a run on maul's default agent image, which carries none
 // of the repository's toolchain: the body then warns, ahead of the report,
-// that patchy did not build or test the change.
+// that maul did not build or test the change.
 //
 // repro is the agent's account of reproducing the bug with its regression
 // test (agentresult.Reproduction). The body states it plainly, as the
 // agent's claim: that the agent reports it reproduced the bug, with the
 // command and the before and after excerpts; or, when the agent says it did
-// not or the report records nothing (nil), a warning that patchy could not
+// not or the report records nothing (nil), a warning that maul could not
 // reproduce the bug before fixing it. On an untested run a claimed
 // reproduction is not accepted: the default image cannot run the
 // repository's tests, so the body carries the same warning, with the
@@ -321,10 +321,10 @@ func networkProfileLine(name string, routes NetworkRoutes) string {
 	}
 	if routes.BeyondGo() {
 		return defang(SanitizeInline("The agent ran with the operator's network profile " + code(name) +
-			" (" + routes.routeList() + "), so it could fetch packages through patchy's egress proxy: review " +
+			" (" + routes.routeList() + "), so it could fetch packages through maul's egress proxy: review " +
 			"every dependency this change adds or updates, and the lockfiles that record them."))
 	}
 	return defang(SanitizeInline("The agent ran with the operator's network profile " + code(name) +
-		", so it could fetch Go modules through patchy's egress proxy: review every dependency this change adds " +
+		", so it could fetch Go modules through maul's egress proxy: review every dependency this change adds " +
 		"or updates in `go.mod` and `go.sum`."))
 }

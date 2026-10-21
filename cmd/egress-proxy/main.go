@@ -21,7 +21,7 @@ package main
 import (
 	"os"
 
-	"github.com/bitwise-media-group/patchy/internal/cli"
+	"github.com/devthenet-labs/maul/internal/cli"
 )
 
 func main() {

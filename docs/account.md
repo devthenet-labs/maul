@@ -1,6 +1,6 @@
 # Your model credential: the Account page
 
-When your patchy operator turns on [per-user model credentials](configuration/user-credentials.md), the agent runs that
+When your maul operator turns on [per-user model credentials](configuration/user-credentials.md), the agent runs that
 are attributed to you are paid for with your own credential rather than the organisation's: an Anthropic one for runs on
 claude, an OpenAI API key for runs on codex. The **Account** page of the [status page](status-ui.md) is where you store
 each credential, check that its provider accepts it, replace it and delete it. It shows one card per provider your
@@ -17,11 +17,11 @@ A run is attributed to the person whose decision started it:
 - **Intent plans** you trigger, if you are one of the Project's approvers. A plan triggered by anyone else is the
   organisation's.
 - **Intent builds** of a plan you approved, and the check-fix runs that follow them.
-- **Revisions** you ask for with `/patchy revise`, or that answer the review you left last.
-- **Finding remediations** you approve with `/patchy approve` on the tracking issue.
+- **Revisions** you ask for with `/maul revise`, or that answer the review you left last.
+- **Finding remediations** you approve with `/maul approve` on the tracking issue.
 
 Investigations of Findings, remediations nobody approved, and approvals made on the status page or with the CLI are the
-organisation's: patchy cannot tie them to your GitHub account, so they never use your credential.
+organisation's: maul cannot tie them to your GitHub account, so they never use your credential.
 
 ## Storing a credential
 
@@ -41,9 +41,9 @@ are billed to that key's OpenAI project at API prices. A ChatGPT sign-in cannot 
 
 On the Account page, choose the kind on the Anthropic card (pasting a credential picks it for you from its prefix),
 paste the credential into the password field and press **Save**. It must be a single token of printable characters, at
-most 3072 of them; patchy refuses one whose prefix says it is the other kind, or the other provider's.
+most 3072 of them; maul refuses one whose prefix says it is the other kind, or the other provider's.
 
-patchy never shows a stored credential again, to you or anyone else, administrators included. The page shows only:
+maul never shows a stored credential again, to you or anyone else, administrators included. The page shows only:
 
 | Field         | What it means                                                                                       |
 | ------------- | --------------------------------------------------------------------------------------------------- |
@@ -53,18 +53,18 @@ patchy never shows a stored credential again, to you or anyone else, administrat
 | Last used     | when a run of yours last used it, to the hour                                                       |
 | Last rejected | when the provider last refused it, if ever                                                          |
 
-A new credential is `Unknown` until patchy checks it, which happens within moments: an API key (either provider's) by
+A new credential is `Unknown` until maul checks it, which happens within moments: an API key (either provider's) by
 listing models, which costs nothing, a setup-token by asking for a single output token.
 
 ## When a run waits for you
 
-If the operator enforces per-user credentials and a run would be yours while you have no valid credential, patchy does
-not start it. It waits instead, and tells you where you work:
+If the operator enforces per-user credentials and a run would be yours while you have no valid credential, maul does not
+start it. It waits instead, and tells you where you work:
 
 - On an intent, its status comment says that you must add a credential, for which provider, and links the Account page.
 - On a Finding, its tracking issue gets a comment that names you and the provider and links the page.
 
-Store or replace your credential, and the run starts on its own once patchy finds it `Valid`. Nothing is replanned and
+Store or replace your credential, and the run starts on its own once maul finds it `Valid`. Nothing is replanned and
 nothing needs re-approving. An approver who already holds a valid credential can also approve the build or the
 remediation again, which makes the run theirs instead.
 
@@ -72,7 +72,7 @@ remediation again, which makes the run theirs instead.
 
 - **Replace** a credential that is `Rejected`, expiring or that you are rotating: paste the new one and press
   **Replace**. Runs move to the new one within a minute at most, and it is checked as any new credential is.
-- **Delete** removes it. Within a minute at most patchy stops paying with it: a run of yours already going is refused
-  from then on and is likely to fail, and a new one waits until you add another.
+- **Delete** removes it. Within a minute at most maul stops paying with it: a run of yours already going is refused from
+  then on and is likely to fail, and a new one waits until you add another.
 
-Revoking the key at Anthropic as well is up to you: patchy deleting its copy does not revoke the key itself.
+Revoking the key at Anthropic as well is up to you: maul deleting its copy does not revoke the key itself.

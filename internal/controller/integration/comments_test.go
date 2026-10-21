@@ -14,8 +14,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/ghclient"
 )
 
 // laggingCache stands in for an informer cache that has fallen behind the
@@ -103,7 +103,7 @@ func linkedFinding(phase v1alpha1.Phase) *v1alpha1.Finding {
 func reportedRemediation() *v1alpha1.Remediation {
 	return &v1alpha1.Remediation{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "finding-aa-1-rem-1", Namespace: "patchy",
+			Name: "finding-aa-1-rem-1", Namespace: "maul",
 			Labels: map[string]string{v1alpha1.LabelFinding: "finding-aa-1"},
 		},
 		Spec:   v1alpha1.RemediationSpec{FindingRef: v1alpha1.ObjectReference{Name: "finding-aa-1"}, Attempt: 1},
@@ -143,7 +143,7 @@ func TestProjectLaggingCacheDoesNotRepost(t *testing.T) {
 				}
 				return []client.Object{fnd, reportedRemediation()}
 			},
-			count: func(tr *fakeTracker) int { return countComments(tr, "<!-- patchy:report Remediation/1 -->") },
+			count: func(tr *fakeTracker) int { return countComments(tr, "<!-- maul:report Remediation/1 -->") },
 		},
 		{
 			name: "enrichment sticky",
@@ -154,7 +154,7 @@ func TestProjectLaggingCacheDoesNotRepost(t *testing.T) {
 				}}
 				return []client.Object{fnd}
 			},
-			count: func(tr *fakeTracker) int { return countComments(tr, "patchy:enrichment static-context") },
+			count: func(tr *fakeTracker) int { return countComments(tr, "maul:enrichment static-context") },
 		},
 		{
 			// The recorded sticky was deleted on the tracker and the content
@@ -167,11 +167,11 @@ func TestProjectLaggingCacheDoesNotRepost(t *testing.T) {
 					Enhancer: "static-context", Markdown: "owned by team-checkout", AppliedAt: metav1.NewTime(testClock),
 				}}
 				fnd.Status.Tracking.Comments = []v1alpha1.TrackedComment{{
-					Marker: "<!-- patchy:enrichment static-context -->", ID: 40, Digest: "stale",
+					Marker: "<!-- maul:enrichment static-context -->", ID: 40, Digest: "stale",
 				}}
 				return []client.Object{fnd}
 			},
-			count: func(tr *fakeTracker) int { return countComments(tr, "patchy:enrichment static-context") },
+			count: func(tr *fakeTracker) int { return countComments(tr, "maul:enrichment static-context") },
 		},
 		{
 			name:  "failed notice",
@@ -189,7 +189,7 @@ func TestProjectLaggingCacheDoesNotRepost(t *testing.T) {
 			count: func(tr *fakeTracker) int {
 				n := 0
 				for _, is := range tr.issues {
-					if strings.Contains(is.Body, "patchy:finding patchy/finding-aa-1") {
+					if strings.Contains(is.Body, "maul:finding maul/finding-aa-1") {
 						n++
 					}
 				}
@@ -204,7 +204,7 @@ func TestProjectLaggingCacheDoesNotRepost(t *testing.T) {
 			tracker.nextNumber = 8
 			tracker.listLag = true
 			r, c := newProjector(t, tracker, append([]client.Object{testIntegration()}, tt.objs()...)...)
-			cache := &laggingCache{Client: c, key: types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1"}}
+			cache := &laggingCache{Client: c, key: types.NamespacedName{Namespace: "maul", Name: "finding-aa-1"}}
 			r.Client, r.APIReader = cache, c
 			tracker.onPost = cache.posted
 
@@ -227,7 +227,7 @@ func TestProjectLaggingCacheDoesNotRepost(t *testing.T) {
 // comments, adopted by marker when no id is recorded, and posted afresh —
 // keeping the issue linked — when the recorded one was deleted.
 func TestProjectTrackedComments(t *testing.T) {
-	const marker = "<!-- patchy:enrichment static-context -->"
+	const marker = "<!-- maul:enrichment static-context -->"
 	enriched := func(markdown string) *v1alpha1.Finding {
 		fnd := linkedFinding(v1alpha1.PhaseEnhanced)
 		fnd.Status.Enrichments = []v1alpha1.Enrichment{{
@@ -295,7 +295,7 @@ func TestProjectTrackedComments(t *testing.T) {
 				t.Errorf("posts/edits/lists = %d/%d/%d, want %d/%d/%d",
 					len(tracker.comments), tracker.commentEdits, tracker.lists, tt.posts, tt.edits, tt.lists)
 			}
-			if got := countComments(tracker, "patchy:enrichment static-context"); got != 1 {
+			if got := countComments(tracker, "maul:enrichment static-context"); got != 1 {
 				t.Errorf("enrichment comments on the issue = %d, want 1", got)
 			}
 			tr := get(t, c, "finding-aa-1").Status.Tracking
@@ -322,7 +322,7 @@ func TestProjectTrackedComments(t *testing.T) {
 // the very lag they exist to see past. Wiring the reconciler without one is
 // refused, not defaulted.
 func TestSetupRequiresAPIReader(t *testing.T) {
-	r := &FindingReconciler{Namespace: "patchy"}
+	r := &FindingReconciler{Namespace: "maul"}
 	if err := r.SetupWithManager(nil); err == nil || !strings.Contains(err.Error(), "APIReader") {
 		t.Errorf("SetupWithManager without an APIReader: err = %v, want it refused", err)
 	}
@@ -349,7 +349,7 @@ func TestProjectIgnoresForeignMarkerComments(t *testing.T) {
 				return fnd
 			},
 			objs:   []client.Object{reportedRemediation()},
-			marker: "<!-- patchy:report Remediation/1 -->",
+			marker: "<!-- maul:report Remediation/1 -->",
 		},
 		{
 			name: "enrichment sticky",
@@ -360,7 +360,7 @@ func TestProjectIgnoresForeignMarkerComments(t *testing.T) {
 				}}
 				return fnd
 			},
-			marker: "<!-- patchy:enrichment static-context -->",
+			marker: "<!-- maul:enrichment static-context -->",
 		},
 	}
 	for _, tt := range tests {
@@ -438,7 +438,7 @@ func TestProjectNoticeSurvivesFailedFollowUp(t *testing.T) {
 			fnd := linkedFinding(tt.phase)
 			fnd.Status.Owners = []string{"alice", "bob"}
 			r, c := newProjector(t, tracker, testIntegration(), fnd)
-			req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1"}}
+			req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "maul", Name: "finding-aa-1"}}
 
 			if _, err := r.Reconcile(t.Context(), req); err == nil {
 				t.Fatal("first Reconcile: nil error, want the follow-up's 502")

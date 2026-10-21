@@ -1,7 +1,7 @@
 // Copyright 2026 Bitwise Media Group Ltd.
 // SPDX-License-Identifier: MIT
 
-// Package templates renders every piece of markdown patchy writes — issue
+// Package templates renders every piece of markdown maul writes — issue
 // bodies, comments, pull-request bodies, and the agent-facing handoff files —
 // from embedded text/templates, so the artifacts stay consistent across the
 // estate.
@@ -51,7 +51,7 @@
 // intent without one is byte-identical to what it was before.
 //
 // The repair prompt (RenderRepairPrompt) is the one message agent-runner
-// sends a stage's agent, in its own session, when patchy refused the report
+// sends a stage's agent, in its own session, when maul refused the report
 // it wrote or found none. It quotes the refusal reason as a previous
 // attempt's detail is quoted — bounded, stripped and fenced as data — and
 // nothing else: not the request, the plan or the report.

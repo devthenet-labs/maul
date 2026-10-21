@@ -25,7 +25,7 @@ func TestRunnerImageDeepCopy(t *testing.T) {
 			ResolvedSHA: strings.Repeat("b", 40),
 			RunnerImage: &RunnerImage{
 				Declared:   "ghcr.io/acme/go-agent-env:1.26",
-				Manifest:   ".patchy/agent.yaml",
+				Manifest:   ".maul/agent.yaml",
 				Image:      pinned,
 				SearchPath: "/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin",
 				Verified:   true,
@@ -56,7 +56,7 @@ func TestRunnerImageDeepCopy(t *testing.T) {
 	})
 
 	ref := func() *RunnerImageRef {
-		return &RunnerImageRef{Image: pinned, Source: RunnerImageSourceRepository, Manifest: ".patchy/agent.yaml"}
+		return &RunnerImageRef{Image: pinned, Source: RunnerImageSourceRepository, Manifest: ".maul/agent.yaml"}
 	}
 	holders := []struct {
 		name string
@@ -88,7 +88,7 @@ func TestRunnerImageDeepCopy(t *testing.T) {
 			}
 			dup.Source = RunnerImageSourceDefault
 			dup.Manifest = ""
-			if orig.Source != RunnerImageSourceRepository || orig.Manifest != ".patchy/agent.yaml" {
+			if orig.Source != RunnerImageSourceRepository || orig.Manifest != ".maul/agent.yaml" {
 				t.Errorf("mutating the copy changed the original: %+v", *orig)
 			}
 		})

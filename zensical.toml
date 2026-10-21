@@ -1,15 +1,15 @@
-# Patchy documentation — Zensical configuration
+# Maul documentation — Zensical configuration
 # https://zensical.org/docs/setup/basics/
 #
 # Zensical can also read mkdocs.yml, but new projects should use zensical.toml.
 # All settings currently live under the [project] scope.
 
 [project]
-site_name = "Patchy"
+site_name = "Maul"
 site_description = "Automated triage and remediation of security findings, using Kubernetes custom resources as the state machine."
-site_url = "https://devthenet-labs.github.io/patchy/"
-repo_url = "https://github.com/devthenet-labs/patchy"
-repo_name = "devthenet-labs/patchy"
+site_url = "https://devthenet-labs.github.io/maul/"
+repo_url = "https://github.com/devthenet-labs/maul"
+repo_name = "devthenet-labs/maul"
 # The `#__consent` link re-opens the cookie consent dialog so visitors can
 # change their choice at any time (see [project.extra.consent] below).
 copyright = '© 2026 Bitwise Media Group Ltd — <a href="#__consent">Change cookie settings</a>'
@@ -92,11 +92,11 @@ nav = [
     { "Observability" = "observability.md" },
     { "Benchmarks & load tests" = "dev/benchmarks.md" },
   ] },
-  # cli/patchy.md is the root of the generated per-command reference
-  # (`mise run docs`); every other cli/patchy_*.md page is reached from it.
-  { "The patchy CLI" = [
+  # cli/maul.md is the root of the generated per-command reference
+  # (`mise run docs`); every other cli/maul_*.md page is reached from it.
+  { "The maul CLI" = [
     { "Overview" = "cli.md" },
-    { "Command reference" = "cli/patchy.md" },
+    { "Command reference" = "cli/maul.md" },
   ] },
   { "Extending" = "extending.md" },
   { "Design" = [
@@ -159,7 +159,7 @@ scope = "/"
 
 [[project.extra.social]]
 icon = "fontawesome/brands/github"
-link = "https://github.com/devthenet-labs/patchy"
+link = "https://github.com/devthenet-labs/maul"
 
 [[project.extra.social]]
 icon = "fontawesome/brands/youtube"

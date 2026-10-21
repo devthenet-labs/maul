@@ -4,7 +4,7 @@
 work queue; intent-controller is the sole writer of their spec, and preview-controller is the sole writer of their
 status. No GitHub, ECR or AWS call is made by this binary. It never runs an agent and never receives a Secret. See
 [the accepted preview design](../design/intent-driven-development.md#previews-slice-2-d5) and the Helm security
-foundation in `charts/patchy/README.md`.
+foundation in `charts/maul/README.md`.
 
 Before rendering, the controller re-derives the Preview from the operator's Project config and the Intent's recorded
 state (`v1alpha1.DesiredPreviewComponents`, the function the writer uses too) and checks every component against it. A
@@ -32,14 +32,14 @@ To opt in one benign application Project, set a fixed runtime contract on its `P
 ```yaml
 spec:
   preview:
-    imageRepository: 123456789012.dkr.ecr.us-west-2.amazonaws.com/patchy/previews/shop-web
+    imageRepository: 123456789012.dkr.ecr.us-west-2.amazonaws.com/maul/previews/shop-web
     port: 8080
     readinessPath: /healthz
 ```
 
 The image repository sits exactly one leaf under the operator's preview image prefix,
 `<preview.imageRegistry>/<preview.imagePathPrefix>/` in the chart (`--preview-image-prefix` on the binary), which is
-`<registry>/patchy/previews/` unless the operator sets `preview.imagePathPrefix`. The leaf is a lowercase DNS label
+`<registry>/maul/previews/` unless the operator sets `preview.imagePathPrefix`. The leaf is a lowercase DNS label
 (letters, digits and inner hyphens, so not `app-` or `-app`). The `Project` schema checks only that shape, a registry
 host, one or more lowercase path segments and the leaf; the preview-controller refuses any component whose repository is
 not the configured prefix plus one leaf (another registry, a nested path, a tag, the agent image path), and the slot
@@ -65,7 +65,7 @@ spec:
     - name: web
       url: https://github.com/acme/Acme.Web_App
       preview:
-        imageRepository: 123456789012.dkr.ecr.us-west-2.amazonaws.com/patchy/previews/acme-web
+        imageRepository: 123456789012.dkr.ecr.us-west-2.amazonaws.com/maul/previews/acme-web
         port: 8080
         readinessPath: /healthz
         path: / # the default
@@ -74,7 +74,7 @@ spec:
     - name: api
       url: https://github.com/acme/api
       preview:
-        imageRepository: 123456789012.dkr.ecr.us-west-2.amazonaws.com/patchy/previews/acme-api
+        imageRepository: 123456789012.dkr.ecr.us-west-2.amazonaws.com/maul/previews/acme-api
         port: 8080
         readinessPath: /api/healthz
         path: /api
@@ -170,7 +170,7 @@ component (or renames one) replaces the Ingress instead, withdrawing the host un
 Ingress's address once published, so only a new Ingress's address shows that the new component's binding exists. A
 Preview already `Ready` when the mode is switched on keeps serving on its Pods rather than being restarted to grow a
 gate. The Auto Mode label comes from AWS (an EKS Auto Mode blog post and a maintainer's answer on
-aws/containers-roadmap#2511), not from the EKS user guide. It has been checked on a live preview (patchy 0.12.14): Auto
+aws/containers-roadmap#2511), not from the EKS user guide. It has been checked on a live preview (maul 0.12.14): Auto
 Mode injected the gate, and the host answered 200 to all 60 requests made once a second from the moment the Preview was
 `Ready`, where the ungated `Ready` gave about 15 seconds of 404s and empty replies. Previews require EKS Auto Mode, and
 a preview whose host does not answer yet is not ready to review, so the chart turns the mode on by default. That default
@@ -192,7 +192,7 @@ agent-log check is still open; absence of errors in Kubernetes events is not a s
 Every slot Pod selects the dedicated preview nodes and tolerates their `NoExecute` taint (`<taint key>=true`), which
 keeps everything else off those nodes. The binary takes the selector in generic form:
 
-- `--preview-node-selector` (`PATCHY_PREVIEW_NODE_SELECTOR`) is a JSON object of node label to value.
+- `--preview-node-selector` (`MAUL_PREVIEW_NODE_SELECTOR`) is a JSON object of node label to value.
 - `--preview-node-pool` and `--preview-node-class` fill its EKS Auto Mode keys, `karpenter.sh/nodepool` and
   `eks.amazonaws.com/nodeclass`, so an install configured by them renders exactly the Pods it always did and no live
   preview restarts. A selector that gives either key another value is refused.
@@ -225,9 +225,9 @@ seeded property pins them to the Ingress this controller renders.
 
 ## Without the legacy Ingress
 
-`--preview-legacy-ingress` (`PATCHY_PREVIEW_LEGACY_INGRESS`, chart `preview.legacyIngress`) defaults to `true`:
-everything above, exactly as before the preview gateway. Set to `false`, for an install whose preview hosts the preview
-gateway serves:
+`--preview-legacy-ingress` (`MAUL_PREVIEW_LEGACY_INGRESS`, chart `preview.legacyIngress`) defaults to `true`: everything
+above, exactly as before the preview gateway. Set to `false`, for an install whose preview hosts the preview gateway
+serves:
 
 - No slot Ingress is rendered, and none precedes the Pods.
 - `Ready` means every component has a Ready Pod of its current spec with an image ID. There is no load balancer to wait
@@ -249,10 +249,10 @@ The chart sets these flags from `previewAuth` in its require stage only (see the
 section); off, and in the permit stage, they stay unset and every slot Ingress renders exactly as before. The
 controller's side:
 
-- `--preview-auth-required` (`PATCHY_PREVIEW_AUTH_REQUIRED`) renders each slot's pinned sign-in annotations onto every
+- `--preview-auth-required` (`MAUL_PREVIEW_AUTH_REQUIRED`) renders each slot's pinned sign-in annotations onto every
   Ingress it writes, beside the health-check path. It names the slot's client Secret there and never reads it.
-- `--preview-auth-annotations` (`PATCHY_PREVIEW_AUTH_ANNOTATIONS`) is a JSON object mapping each slot namespace
-  (`patchy-preview-<n>`) to its six `alb.ingress.kubernetes.io/auth-*` values. The chart renders it once, for both this
+- `--preview-auth-annotations` (`MAUL_PREVIEW_AUTH_ANNOTATIONS`) is a JSON object mapping each slot namespace
+  (`maul-preview-<n>`) to its six `alb.ingress.kubernetes.io/auth-*` values. The chart renders it once, for both this
   controller and the slot admission policy, so the controller writes exactly the bytes the policy compares. The policy,
   and the sweeper below, admit any shorter `auth-session-timeout` than the set's, so an Ingress written before a
   `sessionTimeout` change stays conforming while it waits for its reconcile. The controller refuses to start unless
@@ -264,14 +264,13 @@ controller's side:
 
 An Ingress write that the API server refuses (at admission, or for want of RBAC) is not a failed deploy attempt. The
 Preview keeps its Deployments, its retries and the Ingress it has, and a `Ready` one keeps serving. The controller
-records a Warning Event `IngressRefused` on the Preview, counts `patchy.preview.ingress.refused{slot}`, and tries again
-at the next poll. A Preview still deploying notes the refusal in its message, and its attempt restarts once the write is
+records a Warning Event `IngressRefused` on the Preview, counts `maul.preview.ingress.refused{slot}`, and tries again at
+the next poll. A Preview still deploying notes the refusal in its message, and its attempt restarts once the write is
 admitted.
 
 With auth required, the orphan sweep also lists every Ingress of the `alb-preview` class in each slot, labelled or not,
 and reports each one without either generation's pinned set (its `auth-session-timeout` at most the set's, as the policy
-judges it): the gauge `patchy.preview.ingress.unauthenticated{slot}`, a log line, and a Warning Event on the Preview
-that owns it. It deletes such an Ingress only after it has stayed unauthenticated for three poll intervals, which gives
-the owning reconcile time to patch it first, and counts the deletion in
-`patchy.preview.ingress.unauthenticated.deleted`. It never deletes the chart's placeholder Ingress. The Events use the
-`events.k8s.io` API in the release namespace.
+judges it): the gauge `maul.preview.ingress.unauthenticated{slot}`, a log line, and a Warning Event on the Preview that
+owns it. It deletes such an Ingress only after it has stayed unauthenticated for three poll intervals, which gives the
+owning reconcile time to patch it first, and counts the deletion in `maul.preview.ingress.unauthenticated.deleted`. It
+never deletes the chart's placeholder Ingress. The Events use the `events.k8s.io` API in the release namespace.

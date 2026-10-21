@@ -21,12 +21,12 @@ func TestMapClaims(t *testing.T) {
 			name: "defaults",
 			claims: map[string]any{
 				"email": "dev@acme.test", "name": "Dev",
-				"groups": []any{"patchy-approvers", "eng"},
+				"groups": []any{"maul-approvers", "eng"},
 			},
 			cfg: defaults,
 			want: &Identity{
 				Username: "dev@acme.test", DisplayName: "Dev",
-				Groups: []string{"patchy-approvers", "eng"}, Session: true,
+				Groups: []string{"maul-approvers", "eng"}, Session: true,
 			},
 		},
 		{

@@ -20,8 +20,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/kube"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/kube"
 )
 
 // The status server stamps spec.backfill/replay/reset on Integrations Helm
@@ -29,7 +29,7 @@ import (
 // Update re-serialised the spec ("10m" reads back as "10m0s"), took the
 // operator's durations and made the next helm upgrade conflict.
 
-const serverManager = "patchy-status-server"
+const serverManager = "maul-status-server"
 
 // startOwnershipEnv starts an API server with the CRDs and returns an admin
 // client and a Server whose writes land under the status server's field
@@ -56,7 +56,7 @@ func startOwnershipEnv(t *testing.T) (client.Client, *Server) {
 	if err != nil {
 		t.Fatalf("build admin client: %v", err)
 	}
-	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "patchy"}}
+	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "maul"}}
 	if err := admin.Create(t.Context(), ns); err != nil && !apierrors.IsAlreadyExists(err) {
 		t.Fatalf("create namespace: %v", err)
 	}
@@ -67,7 +67,7 @@ func startOwnershipEnv(t *testing.T) (client.Client, *Server) {
 	if err != nil {
 		t.Fatalf("build server client: %v", err)
 	}
-	s := NewServer(srvClient, "patchy", stubAuth{id: operator}, stubGranter{grants: allGrants()}, nil)
+	s := NewServer(srvClient, "maul", stubAuth{id: operator}, stubGranter{grants: allGrants()}, nil)
 	s.now = func() time.Time { return testClock }
 	return admin, s
 }
@@ -79,7 +79,7 @@ func TestIntegrationStampsLeaveHelmFieldsToHelm(t *testing.T) {
 		u := &unstructured.Unstructured{Object: map[string]any{
 			"apiVersion": v1alpha1.GroupVersion.String(),
 			"kind":       "Integration",
-			"metadata":   map[string]any{"name": "gh", "namespace": "patchy"},
+			"metadata":   map[string]any{"name": "gh", "namespace": "maul"},
 			"spec": map[string]any{
 				"provider":  "github",
 				"interval":  "10m",
@@ -108,7 +108,7 @@ func TestIntegrationStampsLeaveHelmFieldsToHelm(t *testing.T) {
 	}
 
 	var integ v1alpha1.Integration
-	if err := admin.Get(t.Context(), client.ObjectKey{Namespace: "patchy", Name: "gh"}, &integ); err != nil {
+	if err := admin.Get(t.Context(), client.ObjectKey{Namespace: "maul", Name: "gh"}, &integ); err != nil {
 		t.Fatalf("get integration: %v", err)
 	}
 	if integ.Spec.Backfill == nil || integ.Spec.Replay == nil || integ.Spec.Reset == nil {
@@ -137,7 +137,7 @@ func TestFindingActionsLeaveControllerFieldsAlone(t *testing.T) {
 		u := &unstructured.Unstructured{Object: map[string]any{
 			"apiVersion": v1alpha1.GroupVersion.String(),
 			"kind":       "Finding",
-			"metadata":   map[string]any{"name": "fnd-1", "namespace": "patchy"},
+			"metadata":   map[string]any{"name": "fnd-1", "namespace": "maul"},
 			"spec": map[string]any{
 				"integrationRef": map[string]any{"name": "gh"},
 				"source":         "github-code-scanning",
@@ -150,7 +150,7 @@ func TestFindingActionsLeaveControllerFieldsAlone(t *testing.T) {
 	if err := apply(); err != nil {
 		t.Fatalf("seed finding: %v", err)
 	}
-	key := client.ObjectKey{Namespace: "patchy", Name: "fnd-1"}
+	key := client.ObjectKey{Namespace: "maul", Name: "fnd-1"}
 	var fnd v1alpha1.Finding
 	if err := admin.Get(t.Context(), key, &fnd); err != nil {
 		t.Fatalf("get finding: %v", err)

@@ -22,7 +22,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 // Options configure a controller manager.
@@ -41,14 +41,14 @@ type Options struct {
 	Namespaces []string
 	// AgentNamespace confines the Job and Pod informers to the agents
 	// namespace instead of Namespaces. The job controllers' RBAC grants
-	// jobs/pods only there (Role patchy-agent-jobs) — caching those kinds in
+	// jobs/pods only there (Role maul-agent-jobs) — caching those kinds in
 	// the release namespace too would need grants the controllers must not
 	// have, and caching the CR kinds in the agents namespace trips forbidden
 	// list/watch errors that keep the cache from ever syncing. Empty leaves
 	// every kind on Namespaces.
 	AgentNamespace string
 	// MetricsAddr for controller-runtime's own metrics server; empty disables
-	// it (patchy's telemetry is OpenTelemetry via internal/telemetry).
+	// it (maul's telemetry is OpenTelemetry via internal/telemetry).
 	MetricsAddr string
 	// HealthAddr serves /healthz and /readyz for kubelet probes; empty
 	// disables the endpoint.
@@ -69,7 +69,7 @@ type Options struct {
 }
 
 // Scheme returns a runtime scheme holding the client-go kinds, batch Jobs,
-// and the patchy API group.
+// and the maul API group.
 func Scheme() *runtime.Scheme {
 	s := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(s))
@@ -112,7 +112,7 @@ func RestConfig(kubeconfig string) (*rest.Config, error) {
 // ClientConfig is for the CLI, which carries a human's kubeconfig and has to
 // honour --context and the per-context namespace the same way every other
 // Kubernetes tool does. The namespace follows kubectl's rule exactly, including
-// its "default" when nothing declares one, so `patchy get` and `kubectl get`
+// its "default" when nothing declares one, so `maul get` and `kubectl get`
 // never disagree about where they are looking.
 func ClientConfig(kubeconfig, context string) (*rest.Config, string, error) {
 	rules := clientcmd.NewDefaultClientConfigLoadingRules()

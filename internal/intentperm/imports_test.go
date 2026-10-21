@@ -22,7 +22,7 @@ func TestPureImports(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const allowed = "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	const allowed = "github.com/devthenet-labs/maul/api/v1alpha1"
 	fset := token.NewFileSet()
 	for _, name := range files {
 		if strings.HasSuffix(name, "_test.go") {

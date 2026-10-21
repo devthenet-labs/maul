@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/mirror/scan"
-	"github.com/bitwise-media-group/patchy/internal/mirror/spec"
+	"github.com/devthenet-labs/maul/internal/mirror/scan"
+	"github.com/devthenet-labs/maul/internal/mirror/spec"
 )
 
 // fakeScanner returns canned findings for every ref.

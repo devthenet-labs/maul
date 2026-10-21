@@ -14,8 +14,8 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/ghclient"
 )
 
 // headAfterCommit is the run reconciler's GitHub with one read of the
@@ -42,7 +42,7 @@ func (h *headAfterCommit) CreateCommit(ctx context.Context, repoURL string, req 
 
 func (h *headAfterCommit) HeadSHA(ctx context.Context, repoURL, branch string) (string, error) {
 	h.mu.Lock()
-	fail := h.committed && strings.HasPrefix(branch, "patchy-intent/")
+	fail := h.committed && strings.HasPrefix(branch, "maul-intent/")
 	if fail {
 		h.committed, h.armed = false, false
 	}
@@ -103,7 +103,7 @@ func TestRevisePushHeadReadFailures(t *testing.T) {
 			gh := &headAfterCommit{GitHub: e.gh, err: tc.err}
 			e.runs.GitHub = gh
 			name := e.awaiting()
-			e.gh.label(1, "patchy:approved", approver)
+			e.gh.label(1, "maul:approved", approver)
 			in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 			buildHead := e.gh.branches[branchName(name)]
 			number := in.Status.PullRequests[0].Number

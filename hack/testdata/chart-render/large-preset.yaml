@@ -1,7 +1,7 @@
 # Copyright 2026 Bitwise Media Group Ltd.
 # SPDX-License-Identifier: MIT
 #
-# chart-render-test fixture: the patchy chart values of the large preset in
+# chart-render-test fixture: the maul chart values of the large preset in
 # docs/intents/sizing.md, verbatim, so the guide's values keep rendering (and
 # passing every guard) as the chart changes. Keep the two in step.
 egressBroker:

@@ -13,13 +13,13 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/sync/semaphore"
 
-	"github.com/bitwise-media-group/patchy/internal/cli"
-	ctxctrl "github.com/bitwise-media-group/patchy/internal/controller/context"
-	"github.com/bitwise-media-group/patchy/internal/enhancers"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/telemetry"
-	"github.com/bitwise-media-group/patchy/internal/version"
-	"github.com/bitwise-media-group/patchy/pkg/enhance"
+	"github.com/devthenet-labs/maul/internal/cli"
+	ctxctrl "github.com/devthenet-labs/maul/internal/controller/context"
+	"github.com/devthenet-labs/maul/internal/enhancers"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/telemetry"
+	"github.com/devthenet-labs/maul/internal/version"
+	"github.com/devthenet-labs/maul/pkg/enhance"
 )
 
 func newServeCmd(opts *cli.Options) *cobra.Command {
@@ -29,7 +29,7 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 		RunE:  func(cmd *cobra.Command, _ []string) error { return serve(cmd.Context(), opts) },
 	}
 	f := cmd.Flags()
-	f.String("namespace", "", "namespace the patchy resources live in (default: POD_NAMESPACE)")
+	f.String("namespace", "", "namespace the maul resources live in (default: POD_NAMESPACE)")
 	f.String("kubeconfig", "", "kubeconfig path (default: in-cluster config)")
 	f.String("health-addr", ":8081", "healthz/readyz probe listen address")
 	f.String("static-context-file", "",
@@ -45,7 +45,7 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 
 func serve(ctx context.Context, opts *cli.Options) error {
 	prov, shutdown, err := telemetry.Init(ctx, telemetry.Config{
-		Dir:            os.Getenv("PATCHY_TELEMETRY_DIR"),
+		Dir:            os.Getenv("MAUL_TELEMETRY_DIR"),
 		Level:          opts.LogLevel,
 		ServiceName:    "context-controller",
 		ServiceVersion: version.Version,
@@ -66,7 +66,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 
 	mgr, err := kube.NewManager(kube.Options{
 		Kubeconfig:              opts.String("kubeconfig"),
-		LeaderElectionID:        "patchy-context-controller-leader",
+		LeaderElectionID:        "maul-context-controller-leader",
 		LeaderElectionNamespace: namespace,
 		Namespaces:              []string{namespace},
 		HealthAddr:              opts.String("health-addr"),

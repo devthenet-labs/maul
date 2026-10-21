@@ -9,10 +9,10 @@ import (
 
 	"k8s.io/apimachinery/pkg/types"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/usagemeter/usagemetertest"
-	"github.com/bitwise-media-group/patchy/internal/usagerollup"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/usagemeter/usagemetertest"
+	"github.com/devthenet-labs/maul/internal/usagerollup"
 )
 
 // TestMeasureSettledRemediation: a finished remediation's usage is settled
@@ -51,7 +51,7 @@ func TestMeasureSettledRemediation(t *testing.T) {
 				t.Errorf("broker asked %d times, want %d", got, tc.asked)
 			}
 			var got v1alpha1.Remediation
-			if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: rem.Name}, &got); err != nil {
+			if err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: rem.Name}, &got); err != nil {
 				t.Fatal(err)
 			}
 			u := got.Status.Stage.Usage
@@ -82,8 +82,8 @@ func TestMeasureDeletedRemediation(t *testing.T) {
 	broker.Set("job-rem-1", usagemetertest.Answer("job-rem-1", jobCreated.Add(-time.Hour),
 		jobCreated.Add(time.Minute), 0, usagemetertest.Sonnet(0)))
 	r.Meter = meter
-	r.Usage = usagerollup.New(c, c, "patchy", true, nil)
-	key := types.NamespacedName{Namespace: "patchy", Name: rem.Name}
+	r.Usage = usagerollup.New(c, c, "maul", true, nil)
+	key := types.NamespacedName{Namespace: "maul", Name: rem.Name}
 	var cur v1alpha1.Remediation
 	if err := c.Get(t.Context(), key, &cur); err != nil {
 		t.Fatal(err)

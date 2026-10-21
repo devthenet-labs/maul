@@ -19,8 +19,8 @@ import (
 // adapter.
 func TestPureCoreImports(t *testing.T) {
 	allowed := map[string]bool{
-		"github.com/bitwise-media-group/patchy/internal/sealed": true,
-		"github.com/bitwise-media-group/patchy/api/v1alpha1":    true,
+		"github.com/devthenet-labs/maul/internal/sealed": true,
+		"github.com/devthenet-labs/maul/api/v1alpha1":    true,
 	}
 	files, err := filepath.Glob("*.go")
 	if err != nil {

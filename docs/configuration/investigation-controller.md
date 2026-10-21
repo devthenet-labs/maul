@@ -3,26 +3,26 @@
 Two engines in one binary. The **gate** admits findings that are `Enhanced`, have a closed accumulation window, and are
 older than `--finding-min-age`; admission materializes the `Repository` (if absent) and one immutable `Investigation`
 per attempt — the child create is the lease. The **analysis scheduler** then runs agent Jobs under bounded concurrency
-in severity order, parses the `PATCHY-EVENT:` stream, stamps the results, and routes the verdict onto the Finding.
+in severity order, parses the `MAUL-EVENT:` stream, stamps the results, and routes the verdict onto the Finding.
 
 ```sh
-investigation-controller serve --namespace patchy \
-  --claude-agent-image ghcr.io/devthenet-labs/patchy/claude-agent-runner:v0.9.0 # match your installed release
+investigation-controller serve --namespace maul \
+  --claude-agent-image ghcr.io/devthenet-labs/maul/claude-agent-runner:v0.9.0 # match your installed release
 ```
 
 ## Pipeline flags
 
 The [shared flags](index.md#shared-flags-every-controller), plus:
 
-| Flag                              | Env                                    | Default | Purpose                                             |
-| --------------------------------- | -------------------------------------- | ------- | --------------------------------------------------- |
-| `--finding-min-age`               | `PATCHY_FINDING_MIN_AGE`               | `1h`    | How old a finding must be before the gate admits it |
-| `--gate-concurrency`              | `PATCHY_GATE_CONCURRENCY`              | `4`     | Findings admitted through the gate in parallel      |
-| `--max-attempts`                  | `PATCHY_MAX_ATTEMPTS`                  | `2`     | Analysis attempts per finding before it fails       |
-| `--max-concurrent-investigations` | `PATCHY_MAX_CONCURRENT_INVESTIGATIONS` | `3`     | Simultaneously running investigation Jobs           |
-| `--confidence-threshold`          | `PATCHY_CONFIDENCE_THRESHOLD`          | `0.75`  | Confidence required to queue automated remediation  |
-| `--priority-aging-interval`       | `PATCHY_PRIORITY_AGING_INTERVAL`       | `24h`   | Wait per effective-priority point of aging boost    |
-| `--priority-aging-cap`            | `PATCHY_PRIORITY_AGING_CAP`            | `25`    | Maximum aging boost                                 |
+| Flag                              | Env                                  | Default | Purpose                                             |
+| --------------------------------- | ------------------------------------ | ------- | --------------------------------------------------- |
+| `--finding-min-age`               | `MAUL_FINDING_MIN_AGE`               | `1h`    | How old a finding must be before the gate admits it |
+| `--gate-concurrency`              | `MAUL_GATE_CONCURRENCY`              | `4`     | Findings admitted through the gate in parallel      |
+| `--max-attempts`                  | `MAUL_MAX_ATTEMPTS`                  | `2`     | Analysis attempts per finding before it fails       |
+| `--max-concurrent-investigations` | `MAUL_MAX_CONCURRENT_INVESTIGATIONS` | `3`     | Simultaneously running investigation Jobs           |
+| `--confidence-threshold`          | `MAUL_CONFIDENCE_THRESHOLD`          | `0.75`  | Confidence required to queue automated remediation  |
+| `--priority-aging-interval`       | `MAUL_PRIORITY_AGING_INTERVAL`       | `24h`   | Wait per effective-priority point of aging boost    |
+| `--priority-aging-cap`            | `MAUL_PRIORITY_AGING_CAP`            | `25`    | Maximum aging boost                                 |
 
 ## Agent Job flags
 
@@ -32,43 +32,43 @@ a per-harness runner fleet. A runner is _configured_ when its image flag is set 
 harness and runs the matching runner. At startup it validates that every allowlisted model has an enabled harness that
 supports it, refusing to start otherwise.
 
-| Flag                              | Env                                    | Default                                      | Purpose                                                                                                                                                                                    |
-| --------------------------------- | -------------------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `--claude-agent-image`            | `PATCHY_CLAUDE_AGENT_IMAGE`            | —                                            | claude-agent-runner image (bundles the claude CLI); unset disables the claude runner                                                                                                       |
-| `--codex-agent-image`             | `PATCHY_CODEX_AGENT_IMAGE`             | —                                            | codex-agent-runner image (bundles the codex CLI); unset disables the codex runner. Codex is brokered: it needs `--broker-url` and the broker's openai route                                |
-| `--copilot-agent-image`           | `PATCHY_COPILOT_AGENT_IMAGE`           | —                                            | copilot-agent-runner image (bundles the copilot CLI); unset disables the copilot runner                                                                                                    |
-| `--fake-agent-image`              | `PATCHY_FAKE_AGENT_IMAGE`              | —                                            | fake agent image for dev/e2e (replays fixtures, no credential)                                                                                                                             |
-| `--harnesses`                     | `PATCHY_HARNESSES`                     | — (auto)                                     | Restrict enabled harnesses to this comma list; empty = any harness whose credential exists                                                                                                 |
-| `--broker-url`                    | `PATCHY_BROKER_URL`                    | —                                            | The [egress broker](egress-broker.md)'s base URL — **required** when a claude or codex runner is configured (both run proxy-only)                                                          |
-| `--broker-token-audience`         | `PATCHY_BROKER_TOKEN_AUDIENCE`         | `patchy-egress-broker`                       | Audience the agent pods' projected broker caller tokens are bound to (must match the broker's `--token-audience`)                                                                          |
-| `--claude-provider`               | `PATCHY_CLAUDE_PROVIDER`               | `anthropic`                                  | Model provider behind the broker: `anthropic`, `bedrock`, `vertex`, or `foundry`                                                                                                           |
-| `--claude-provider-region`        | `PATCHY_CLAUDE_PROVIDER_REGION`        | —                                            | Provider region (required for bedrock and vertex)                                                                                                                                          |
-| `--claude-provider-region-prefix` | `PATCHY_CLAUDE_PROVIDER_REGION_PREFIX` | —                                            | Bedrock inference-profile prefix override when it cannot be derived from the region (`us`/`eu`/`apac`)                                                                                     |
-| `--claude-provider-project-id`    | `PATCHY_CLAUDE_PROVIDER_PROJECT_ID`    | —                                            | GCP project id (required for vertex)                                                                                                                                                       |
-| `--claude-model-map`              | `PATCHY_CLAUDE_MODEL_MAP`              | —                                            | `canonical=provider-id` overrides, comma separated — **required** for foundry, whose deployment names cannot be derived                                                                    |
-| `--claude-provider-env`           | `PATCHY_CLAUDE_PROVIDER_ENV`           | —                                            | Extra `NAME=value` agent-pod env for the provider, comma separated (credential names rejected)                                                                                             |
-| `--claude-secret{,-key,-env}`     | `PATCHY_CLAUDE_SECRET{,_KEY,_ENV}`     | (legacy)                                     | **Ignored** — claude is brokered and its pods hold no credential; customizing these logs a migration notice                                                                                |
-| `--codex-secret{,-key,-env}`      | `PATCHY_CODEX_SECRET{,_KEY,_ENV}`      | (removed)                                    | **Removed** — codex is brokered and its pods hold no credential; a value left on a controller that would run codex fails startup with the [migration](agent-runner.md#codex-runs-brokered) |
-| `--copilot-secret`                | `PATCHY_COPILOT_SECRET`                | `patchy-copilot`                             | Secret (agent namespace) holding the GitHub Copilot credential — a GitHub token, not a model API key                                                                                       |
-| `--copilot-secret-key`            | `PATCHY_COPILOT_SECRET_KEY`            | `token`                                      | Key within the GitHub Copilot credential Secret                                                                                                                                            |
-| `--copilot-secret-env`            | `PATCHY_COPILOT_SECRET_ENV`            | `COPILOT_GITHUB_TOKEN`                       | Env var it is injected as: `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN`                                                                                                           |
-| `--agent-namespace`               | `PATCHY_AGENT_NAMESPACE`               | `patchy-agents`                              | Namespace the agent Jobs run in                                                                                                                                                            |
-| `--agent-service-account`         | `PATCHY_AGENT_SERVICE_ACCOUNT`         | `patchy-agent`                               | ServiceAccount for the agent pods                                                                                                                                                          |
-| `--job-deadline`                  | `PATCHY_JOB_DEADLINE`                  | `1h`                                         | `activeDeadlineSeconds` for an agent Job                                                                                                                                                   |
-| `--job-ttl`                       | `PATCHY_JOB_TTL`                       | `1h`                                         | `ttlSecondsAfterFinished` for a finished Job                                                                                                                                               |
-| `--model-allowlist`               | `PATCHY_MODEL_ALLOWLIST`               | canonical ids                                | Canonical model ids the investigation may request for remediation (comma-separated)                                                                                                        |
-| `--repository-images`             | `PATCHY_REPOSITORY_IMAGES`             | `false`                                      | Run a Repository's pinned [repository-declared image](#repository-declared-runner-images) (brokered claude runner only); off runs every Job on its harness's image — the kill switch       |
-| `--agent-ephemeral-storage`       | `PATCHY_AGENT_EPHEMERAL_STORAGE`       | —                                            | Ephemeral-storage request and limit on both agent containers, a quantity such as `8Gi`; unset leaves Jobs without one; **required** with `--repository-images`                             |
-| `--agent-cpu-request`             | `PATCHY_AGENT_CPU_REQUEST`             | —                                            | CPU request on both containers of every agent Job, a quantity such as `500m`; unset requests none                                                                                          |
-| `--agent-memory-request`          | `PATCHY_AGENT_MEMORY_REQUEST`          | —                                            | Memory request on both containers of every agent Job, such as `1Gi`; unset requests none                                                                                                   |
-| `--agent-cpu-limit`               | `PATCHY_AGENT_CPU_LIMIT`               | —                                            | CPU limit, at or above the request; unset sets none, and none is best: a limit throttles test suites                                                                                       |
-| `--agent-memory-limit`            | `PATCHY_AGENT_MEMORY_LIMIT`            | —                                            | Memory limit, at or above the request; unset sets none                                                                                                                                     |
-| `--agent-dns`                     | `PATCHY_AGENT_DNS`                     | `cluster`                                    | How agent pods resolve names: `cluster`, or `none` for [no resolver](#agent-dns) (brokered claude and the fake harness only)                                                               |
-| `--agents-paused`                 | `PATCHY_AGENTS_PAUSED`                 | `false`                                      | Launch no new agent Job; running Jobs finish ([pausing agents](#pausing-agents)). Helm: `agent.paused`                                                                                     |
-| `--attribution-mode`              | `PATCHY_ATTRIBUTION_MODE`              | `off`                                        | `attribute` stamps each new Investigation as the org's and annotates its Jobs `org` ([run attribution](attribution.md)). Helm: `attribution.mode`                                          |
-| `--usage-measurement`             | `PATCHY_USAGE_MEASUREMENT`             | `false`                                      | settle each finished Investigation's usage from the egress broker's meter ([trusted usage](attribution.md#trusted-usage)). Helm: on with `attribution.mode: attribute`                     |
-| `--usage-broker-url`              | `PATCHY_USAGE_BROKER_URL`              | empty                                        | the broker's usage endpoint (its own port, 8082 in the chart); required with `--usage-measurement`                                                                                         |
-| `--usage-token-file`              | `PATCHY_USAGE_TOKEN_FILE`              | `/var/run/secrets/patchy/broker-usage/token` | projected token for the `patchy-egress-broker-usage` audience, read per request                                                                                                            |
+| Flag                              | Env                                  | Default                                    | Purpose                                                                                                                                                                                    |
+| --------------------------------- | ------------------------------------ | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `--claude-agent-image`            | `MAUL_CLAUDE_AGENT_IMAGE`            | —                                          | claude-agent-runner image (bundles the claude CLI); unset disables the claude runner                                                                                                       |
+| `--codex-agent-image`             | `MAUL_CODEX_AGENT_IMAGE`             | —                                          | codex-agent-runner image (bundles the codex CLI); unset disables the codex runner. Codex is brokered: it needs `--broker-url` and the broker's openai route                                |
+| `--copilot-agent-image`           | `MAUL_COPILOT_AGENT_IMAGE`           | —                                          | copilot-agent-runner image (bundles the copilot CLI); unset disables the copilot runner                                                                                                    |
+| `--fake-agent-image`              | `MAUL_FAKE_AGENT_IMAGE`              | —                                          | fake agent image for dev/e2e (replays fixtures, no credential)                                                                                                                             |
+| `--harnesses`                     | `MAUL_HARNESSES`                     | — (auto)                                   | Restrict enabled harnesses to this comma list; empty = any harness whose credential exists                                                                                                 |
+| `--broker-url`                    | `MAUL_BROKER_URL`                    | —                                          | The [egress broker](egress-broker.md)'s base URL — **required** when a claude or codex runner is configured (both run proxy-only)                                                          |
+| `--broker-token-audience`         | `MAUL_BROKER_TOKEN_AUDIENCE`         | `maul-egress-broker`                       | Audience the agent pods' projected broker caller tokens are bound to (must match the broker's `--token-audience`)                                                                          |
+| `--claude-provider`               | `MAUL_CLAUDE_PROVIDER`               | `anthropic`                                | Model provider behind the broker: `anthropic`, `bedrock`, `vertex`, or `foundry`                                                                                                           |
+| `--claude-provider-region`        | `MAUL_CLAUDE_PROVIDER_REGION`        | —                                          | Provider region (required for bedrock and vertex)                                                                                                                                          |
+| `--claude-provider-region-prefix` | `MAUL_CLAUDE_PROVIDER_REGION_PREFIX` | —                                          | Bedrock inference-profile prefix override when it cannot be derived from the region (`us`/`eu`/`apac`)                                                                                     |
+| `--claude-provider-project-id`    | `MAUL_CLAUDE_PROVIDER_PROJECT_ID`    | —                                          | GCP project id (required for vertex)                                                                                                                                                       |
+| `--claude-model-map`              | `MAUL_CLAUDE_MODEL_MAP`              | —                                          | `canonical=provider-id` overrides, comma separated — **required** for foundry, whose deployment names cannot be derived                                                                    |
+| `--claude-provider-env`           | `MAUL_CLAUDE_PROVIDER_ENV`           | —                                          | Extra `NAME=value` agent-pod env for the provider, comma separated (credential names rejected)                                                                                             |
+| `--claude-secret{,-key,-env}`     | `MAUL_CLAUDE_SECRET{,_KEY,_ENV}`     | (legacy)                                   | **Ignored** — claude is brokered and its pods hold no credential; customizing these logs a migration notice                                                                                |
+| `--codex-secret{,-key,-env}`      | `MAUL_CODEX_SECRET{,_KEY,_ENV}`      | (removed)                                  | **Removed** — codex is brokered and its pods hold no credential; a value left on a controller that would run codex fails startup with the [migration](agent-runner.md#codex-runs-brokered) |
+| `--copilot-secret`                | `MAUL_COPILOT_SECRET`                | `maul-copilot`                             | Secret (agent namespace) holding the GitHub Copilot credential — a GitHub token, not a model API key                                                                                       |
+| `--copilot-secret-key`            | `MAUL_COPILOT_SECRET_KEY`            | `token`                                    | Key within the GitHub Copilot credential Secret                                                                                                                                            |
+| `--copilot-secret-env`            | `MAUL_COPILOT_SECRET_ENV`            | `COPILOT_GITHUB_TOKEN`                     | Env var it is injected as: `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN`                                                                                                           |
+| `--agent-namespace`               | `MAUL_AGENT_NAMESPACE`               | `maul-agents`                              | Namespace the agent Jobs run in                                                                                                                                                            |
+| `--agent-service-account`         | `MAUL_AGENT_SERVICE_ACCOUNT`         | `maul-agent`                               | ServiceAccount for the agent pods                                                                                                                                                          |
+| `--job-deadline`                  | `MAUL_JOB_DEADLINE`                  | `1h`                                       | `activeDeadlineSeconds` for an agent Job                                                                                                                                                   |
+| `--job-ttl`                       | `MAUL_JOB_TTL`                       | `1h`                                       | `ttlSecondsAfterFinished` for a finished Job                                                                                                                                               |
+| `--model-allowlist`               | `MAUL_MODEL_ALLOWLIST`               | canonical ids                              | Canonical model ids the investigation may request for remediation (comma-separated)                                                                                                        |
+| `--repository-images`             | `MAUL_REPOSITORY_IMAGES`             | `false`                                    | Run a Repository's pinned [repository-declared image](#repository-declared-runner-images) (brokered claude runner only); off runs every Job on its harness's image — the kill switch       |
+| `--agent-ephemeral-storage`       | `MAUL_AGENT_EPHEMERAL_STORAGE`       | —                                          | Ephemeral-storage request and limit on both agent containers, a quantity such as `8Gi`; unset leaves Jobs without one; **required** with `--repository-images`                             |
+| `--agent-cpu-request`             | `MAUL_AGENT_CPU_REQUEST`             | —                                          | CPU request on both containers of every agent Job, a quantity such as `500m`; unset requests none                                                                                          |
+| `--agent-memory-request`          | `MAUL_AGENT_MEMORY_REQUEST`          | —                                          | Memory request on both containers of every agent Job, such as `1Gi`; unset requests none                                                                                                   |
+| `--agent-cpu-limit`               | `MAUL_AGENT_CPU_LIMIT`               | —                                          | CPU limit, at or above the request; unset sets none, and none is best: a limit throttles test suites                                                                                       |
+| `--agent-memory-limit`            | `MAUL_AGENT_MEMORY_LIMIT`            | —                                          | Memory limit, at or above the request; unset sets none                                                                                                                                     |
+| `--agent-dns`                     | `MAUL_AGENT_DNS`                     | `cluster`                                  | How agent pods resolve names: `cluster`, or `none` for [no resolver](#agent-dns) (brokered claude and the fake harness only)                                                               |
+| `--agents-paused`                 | `MAUL_AGENTS_PAUSED`                 | `false`                                    | Launch no new agent Job; running Jobs finish ([pausing agents](#pausing-agents)). Helm: `agent.paused`                                                                                     |
+| `--attribution-mode`              | `MAUL_ATTRIBUTION_MODE`              | `off`                                      | `attribute` stamps each new Investigation as the org's and annotates its Jobs `org` ([run attribution](attribution.md)). Helm: `attribution.mode`                                          |
+| `--usage-measurement`             | `MAUL_USAGE_MEASUREMENT`             | `false`                                    | settle each finished Investigation's usage from the egress broker's meter ([trusted usage](attribution.md#trusted-usage)). Helm: on with `attribution.mode: attribute`                     |
+| `--usage-broker-url`              | `MAUL_USAGE_BROKER_URL`              | empty                                      | the broker's usage endpoint (its own port, 8082 in the chart); required with `--usage-measurement`                                                                                         |
+| `--usage-token-file`              | `MAUL_USAGE_TOKEN_FILE`              | `/var/run/secrets/maul/broker-usage/token` | projected token for the `maul-egress-broker-usage` audience, read per request                                                                                                              |
 
 The four `--agent-*` CPU and memory flags are the default every agent Job gets (Helm `agent.resources.default`), shared
 with the remediation-, intent- and evaluation-controller. All unset, which is the default, a Job requests and limits
@@ -93,11 +93,11 @@ Each scheduler marks the work it holds. A held Investigation, Remediation, Inten
 granted a slot just before the pause took effect and so `Running` with no `jobRef`) carries the condition
 `AgentsPaused=True`, reason `Paused`, whose message names `agent.paused`; `kubectl get investigations -o yaml` (or any
 of the other kinds) shows it. An intent's issue says so under its phase in the status comment ("Agents paused: the
-operator has paused patchy's agents, …"). When the pause is lifted, each scheduler removes the condition on its next
-pass and the status comment drops the line. The Finding stays in its phase, and neither `patchy get`/`describe` nor the
-status page lists run conditions, so there the signs are the status page banner (signed-in users only) and each
-controller's startup log line (`agents_paused`). Nothing is written while agents are not paused: a run that never waited
-on a pause never carries the condition.
+operator has paused maul's agents, …"). When the pause is lifted, each scheduler removes the condition on its next pass
+and the status comment drops the line. The Finding stays in its phase, and neither `maul get`/`describe` nor the status
+page lists run conditions, so there the signs are the status page banner (signed-in users only) and each controller's
+startup log line (`agents_paused`). Nothing is written while agents are not paused: a run that never waited on a pause
+never carries the condition.
 
 Each controller bounds its own pool, and there is no cap across them: with the defaults up to 3 investigations, 1
 remediation, 1 intent run and 4 evaluation units, so 9 agent Jobs, can run at once. Size those four limits
@@ -122,7 +122,7 @@ and run without one. `cluster`, the default, leaves every Job exactly as before.
 
 With `--repository-images` on, a launch runs the image source-controller pinned on the finding's Repository
 (`status.runnerImage.image`, see [source-controller](source-controller.md#repository-runner-images)) instead of the
-claude runner image, with patchy's own `agent-runner` and claude CLI copied in from the runner image by the trusted
+claude runner image, with maul's own `agent-runner` and claude CLI copied in from the runner image by the trusted
 `prepare` init container. The pin is used only when every one of these holds; otherwise the Job runs the default image,
 exactly as with the flag off:
 
@@ -132,9 +132,8 @@ exactly as with the flag off:
 - the sandbox breaker has not tripped.
 
 What ran is recorded from what the Job client wrote, never from configuration: `status.runnerImage` on the Investigation
-(and Remediation), the Job and pod annotations `patchy.bitwisemedia.uk/runner-image` and
-`patchy.bitwisemedia.uk/runner-image-source` (`repository` | `default`), and the latter again as a pod label, so
-repository-image pods are selectable.
+(and Remediation), the Job and pod annotations `maul.run/runner-image` and `maul.run/runner-image-source` (`repository`
+| `default`), and the latter again as a pod label, so repository-image pods are selectable.
 
 - **Sandbox probe.** Before a repository image runs anything, `prepare` checks from inside the pod that the public
   internet (`1.1.1.1:443`), the Kubernetes API server and the cloud metadata service (`169.254.169.254:80`) are all
@@ -142,7 +141,7 @@ repository-image pods are selectable.
   few seconds after it starts, and concludes enforcement only after three consecutive quiet rounds. If egress is still
   open, `prepare` exits 78, the agent never starts, the run fails `SandboxUnenforced` without consuming an attempt, and
   an in-memory breaker refuses repository images for every later launch until the controller restarts (gauge
-  `patchy.sandbox.breaker`).
+  `maul.sandbox.breaker`).
 - **Pull failures.** A repository-image Job whose pod cannot pull is looked at again after a two-minute grace;
   `InvalidImageName`, `CreateContainerConfigError`, or a pull error saying the manifest is unknown or not found then
   fails the run (`agent image pull failed: …`) and deletes the Job. Any other pull error waits for `--job-deadline`.
@@ -160,17 +159,17 @@ provider-qualified id (e.g. `anthropic/claude-sonnet-5`); the harness that runs 
 `remediate` ceilings exist here because this controller clamps what the investigation report requests before it ever
 reaches the queue.
 
-| Flag                         | Env                               | Default                     | Purpose                                             |
-| ---------------------------- | --------------------------------- | --------------------------- | --------------------------------------------------- |
-| `--investigate-model`        | `PATCHY_INVESTIGATE_MODEL`        | `anthropic/claude-sonnet-5` | Canonical model id the analysis stage runs on       |
-| `--investigate-timeout`      | `PATCHY_INVESTIGATE_TIMEOUT`      | `15m`                       | Wall-clock limit for the analysis stage             |
-| `--investigate-idle-timeout` | `PATCHY_INVESTIGATE_IDLE_TIMEOUT` | `20m`                       | End a run with no progress for this long; `0s` off  |
-| `--investigate-max-turns`    | `PATCHY_INVESTIGATE_MAX_TURNS`    | `25`                        | Agent turns allowed for the analysis stage          |
-| `--investigate-token-budget` | `PATCHY_INVESTIGATE_TOKEN_BUDGET` | `150000`                    | Output-token budget for the analysis stage          |
-| `--remediate-max-turns`      | `PATCHY_REMEDIATE_MAX_TURNS`      | `80`                        | Ceiling on the report's suggested remediation turns |
-| `--remediate-token-budget`   | `PATCHY_REMEDIATE_TOKEN_BUDGET`   | `400000`                    | Ceiling on the suggested remediation budget         |
+| Flag                         | Env                             | Default                     | Purpose                                             |
+| ---------------------------- | ------------------------------- | --------------------------- | --------------------------------------------------- |
+| `--investigate-model`        | `MAUL_INVESTIGATE_MODEL`        | `anthropic/claude-sonnet-5` | Canonical model id the analysis stage runs on       |
+| `--investigate-timeout`      | `MAUL_INVESTIGATE_TIMEOUT`      | `15m`                       | Wall-clock limit for the analysis stage             |
+| `--investigate-idle-timeout` | `MAUL_INVESTIGATE_IDLE_TIMEOUT` | `20m`                       | End a run with no progress for this long; `0s` off  |
+| `--investigate-max-turns`    | `MAUL_INVESTIGATE_MAX_TURNS`    | `25`                        | Agent turns allowed for the analysis stage          |
+| `--investigate-token-budget` | `MAUL_INVESTIGATE_TOKEN_BUDGET` | `150000`                    | Output-token budget for the analysis stage          |
+| `--remediate-max-turns`      | `MAUL_REMEDIATE_MAX_TURNS`      | `80`                        | Ceiling on the report's suggested remediation turns |
+| `--remediate-token-budget`   | `MAUL_REMEDIATE_TOKEN_BUDGET`   | `400000`                    | Ceiling on the suggested remediation budget         |
 
-The stage flags are re-serialized into `PATCHY_*` environment variables injected into every investigation pod
+The stage flags are re-serialized into `MAUL_*` environment variables injected into every investigation pod
 ([agent-runner](agent-runner.md) reads them), so this controller's flags are the single operator-facing configuration
 point for the analysis stage. The idle timeout is the runner's no-progress watchdog
 ([agent-runner](agent-runner.md#the-idle-watchdog)); at its `20m` default it is longer than the stage's `15m` wall
@@ -181,14 +180,14 @@ clock, so it never ends an analysis run early.
 When the analysis Job completes, the controller stamps the summary onto `Finding.status.investigation`, sets the
 scheduling priority, and moves the phase:
 
-| Report says                                                 | Finding moves to                                             |
-| ----------------------------------------------------------- | ------------------------------------------------------------ |
-| `ignore` (false positive)                                   | `Dismissed` — alerts dismissed, issue closed                 |
-| `ignore` from a run on a repository-declared image          | `HandedOff` — the alert is **not** dismissed                 |
-| `manual`                                                    | `HandedOff` — owners take over; `/patchy approve` can revive |
-| `remediate`, confidence < threshold or breaking-change hold | `AwaitingApproval`                                           |
-| `remediate`, confidence ≥ threshold                         | `Queued`                                                     |
-| Stage outcome not `ok`                                      | `Enhanced` (retry) while attempts remain, then `Failed`      |
+| Report says                                                 | Finding moves to                                           |
+| ----------------------------------------------------------- | ---------------------------------------------------------- |
+| `ignore` (false positive)                                   | `Dismissed` — alerts dismissed, issue closed               |
+| `ignore` from a run on a repository-declared image          | `HandedOff` — the alert is **not** dismissed               |
+| `manual`                                                    | `HandedOff` — owners take over; `/maul approve` can revive |
+| `remediate`, confidence < threshold or breaking-change hold | `AwaitingApproval`                                         |
+| `remediate`, confidence ≥ threshold                         | `Queued`                                                   |
+| Stage outcome not `ok`                                      | `Enhanced` (retry) while attempts remain, then `Failed`    |
 
 A partial report is never trusted: outcomes other than `ok` (`runtime_error`, `timeout`, `budget_exceeded`,
 `report_missing`, `report_invalid`, `image_incompatible`) always retry or fail — they never route on whatever

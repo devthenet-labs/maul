@@ -1,9 +1,9 @@
 ---
-# Source: patchy/templates/preview-admission.yaml
+# Source: maul/templates/preview-admission.yaml
 # Copyright 2026 Bitwise Media Group Ltd.
 # SPDX-License-Identifier: MIT
 #
-# Fail-closed, exact-slot admission. No exempt user or controller: even patchy
+# Fail-closed, exact-slot admission. No exempt user or controller: even maul
 # must create only a Pod/Deployment/Service/Ingress fitting the slot contract.
 # Paired with the kept namespace/network/quota resources so rollback or
 # uninstall cannot leave a live workload in an unguarded slot.
@@ -11,11 +11,11 @@
 # fixed selectorless placeholder Service/Ingress in slot 0, never on a
 # preview-controller or other user-created resource.
 ---
-# Source: patchy/templates/preview-admission.yaml
+# Source: maul/templates/preview-admission.yaml
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
-    name: patchy-preview-pods
+    name: maul-preview-pods
     annotations:
         helm.sh/resource-policy: keep
 spec:
@@ -30,7 +30,7 @@ spec:
     # for this security decision.
     matchConditions:
         - name: exact-preview-slot
-          expression: 'request.namespace in ["patchy-preview-0","patchy-preview-1","patchy-preview-2","patchy-preview-3"]'
+          expression: 'request.namespace in ["maul-preview-0","maul-preview-1","maul-preview-2","maul-preview-3"]'
     variables:
         - name: pod
           expression: "object.spec"
@@ -39,7 +39,7 @@ spec:
               variables.pod.containers.all(c,
                 c.image.startsWith('111122223333.dkr.ecr.us-east-1.amazonaws.com/acme/runtime.images/') &&
                 c.image.substring(65).matches('^[a-z0-9-]+:sha-[0-9a-f]{40}$'))
-          message: only immutable patchy preview ECR images are allowed
+          message: only immutable maul preview ECR images are allowed
         - expression: size(variables.pod.containers) == 1
           message: preview pods run exactly one container
         - expression: >-
@@ -61,14 +61,14 @@ spec:
         - expression: >-
               has(variables.pod.nodeSelector) &&
               'karpenter.sh/nodepool' in variables.pod.nodeSelector &&
-              variables.pod.nodeSelector['karpenter.sh/nodepool'] == "patchy-preview" &&
+              variables.pod.nodeSelector['karpenter.sh/nodepool'] == "maul-preview" &&
               'eks.amazonaws.com/nodeclass' in variables.pod.nodeSelector &&
-              variables.pod.nodeSelector['eks.amazonaws.com/nodeclass'] == "patchy-preview"
+              variables.pod.nodeSelector['eks.amazonaws.com/nodeclass'] == "maul-preview"
           message: preview pods must select the dedicated preview node pool and class
         - expression: >-
               has(variables.pod.tolerations) &&
               variables.pod.tolerations.exists(t,
-                has(t.key) && t.key == "patchy.devthe.net/preview-only" &&
+                has(t.key) && t.key == "maul.devthe.net/preview-only" &&
                 has(t.operator) && t.operator == 'Equal' &&
                 has(t.value) && t.value == 'true' &&
                 has(t.effect) && t.effect == 'NoExecute' &&
@@ -83,11 +83,11 @@ spec:
                 variables.pod.schedulerName == 'default-scheduler')
           message: preview pods may not bypass the default scheduler
 ---
-# Source: patchy/templates/preview-admission.yaml
+# Source: maul/templates/preview-admission.yaml
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
-    name: patchy-preview-outside-pods
+    name: maul-preview-outside-pods
     annotations:
         helm.sh/resource-policy: keep
 spec:
@@ -100,7 +100,7 @@ spec:
               resources: [pods, pods/ephemeralcontainers]
     matchConditions:
         - name: outside-preview-slots
-          expression: '!(request.namespace in ["patchy-preview-0","patchy-preview-1"])'
+          expression: '!(request.namespace in ["maul-preview-0","maul-preview-1"])'
     variables:
         - name: pod
           expression: "object.spec"
@@ -108,7 +108,7 @@ spec:
         - expression: >-
               !has(variables.pod.tolerations) ||
               variables.pod.tolerations.all(t,
-                (!has(t.key) || t.key != "patchy.devthe.net/preview-only") &&
+                (!has(t.key) || t.key != "maul.devthe.net/preview-only") &&
                 !(has(t.operator) && t.operator == 'Exists' &&
                   (!has(t.key) || t.key == '')))
           message: preview-only toleration and tolerate-all are forbidden outside preview slots
@@ -119,11 +119,11 @@ spec:
                 variables.pod.nodeName == oldObject.spec.nodeName)
           message: direct node placement is forbidden outside preview slots
 ---
-# Source: patchy/templates/preview-admission.yaml
+# Source: maul/templates/preview-admission.yaml
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
-    name: patchy-preview-deployments
+    name: maul-preview-deployments
     annotations:
         helm.sh/resource-policy: keep
 spec:
@@ -138,7 +138,7 @@ spec:
     # for this security decision.
     matchConditions:
         - name: exact-preview-slot
-          expression: 'request.namespace in ["patchy-preview-0","patchy-preview-1","patchy-preview-2","patchy-preview-3"]'
+          expression: 'request.namespace in ["maul-preview-0","maul-preview-1","maul-preview-2","maul-preview-3"]'
     variables:
         - name: pod
           expression: "object.spec.template.spec"
@@ -147,7 +147,7 @@ spec:
               variables.pod.containers.all(c,
                 c.image.startsWith('111122223333.dkr.ecr.us-east-1.amazonaws.com/acme/runtime.images/') &&
                 c.image.substring(65).matches('^[a-z0-9-]+:sha-[0-9a-f]{40}$'))
-          message: only immutable patchy preview ECR images are allowed
+          message: only immutable maul preview ECR images are allowed
         - expression: size(variables.pod.containers) == 1
           message: preview pods run exactly one container
         - expression: >-
@@ -169,14 +169,14 @@ spec:
         - expression: >-
               has(variables.pod.nodeSelector) &&
               'karpenter.sh/nodepool' in variables.pod.nodeSelector &&
-              variables.pod.nodeSelector['karpenter.sh/nodepool'] == "patchy-preview" &&
+              variables.pod.nodeSelector['karpenter.sh/nodepool'] == "maul-preview" &&
               'eks.amazonaws.com/nodeclass' in variables.pod.nodeSelector &&
-              variables.pod.nodeSelector['eks.amazonaws.com/nodeclass'] == "patchy-preview"
+              variables.pod.nodeSelector['eks.amazonaws.com/nodeclass'] == "maul-preview"
           message: preview pods must select the dedicated preview node pool and class
         - expression: >-
               has(variables.pod.tolerations) &&
               variables.pod.tolerations.exists(t,
-                has(t.key) && t.key == "patchy.devthe.net/preview-only" &&
+                has(t.key) && t.key == "maul.devthe.net/preview-only" &&
                 has(t.operator) && t.operator == 'Equal' &&
                 has(t.value) && t.value == 'true' &&
                 has(t.effect) && t.effect == 'NoExecute' &&
@@ -188,11 +188,11 @@ spec:
                 variables.pod.schedulerName == 'default-scheduler')
           message: preview pods may not bypass the default scheduler
 ---
-# Source: patchy/templates/preview-admission.yaml
+# Source: maul/templates/preview-admission.yaml
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
-    name: patchy-preview-outside-deployments
+    name: maul-preview-outside-deployments
     annotations:
         helm.sh/resource-policy: keep
 spec:
@@ -205,7 +205,7 @@ spec:
               resources: [deployments]
     matchConditions:
         - name: outside-preview-slots
-          expression: '!(request.namespace in ["patchy-preview-0","patchy-preview-1"])'
+          expression: '!(request.namespace in ["maul-preview-0","maul-preview-1"])'
     variables:
         - name: pod
           expression: "object.spec.template.spec"
@@ -213,7 +213,7 @@ spec:
         - expression: >-
               !has(variables.pod.tolerations) ||
               variables.pod.tolerations.all(t,
-                (!has(t.key) || t.key != "patchy.devthe.net/preview-only") &&
+                (!has(t.key) || t.key != "maul.devthe.net/preview-only") &&
                 !(has(t.operator) && t.operator == 'Exists' &&
                   (!has(t.key) || t.key == '')))
           message: preview-only toleration and tolerate-all are forbidden outside preview slots
@@ -221,7 +221,7 @@ spec:
               !has(variables.pod.nodeName) || variables.pod.nodeName == ''
           message: direct node placement is forbidden outside preview slots
 ---
-# Source: patchy/templates/preview-admission.yaml
+# Source: maul/templates/preview-admission.yaml
 # No slot workload may name a Secret through its environment. The emptyDir-only
 # volume rule already refuses secret and projected volumes; this closes env
 # valueFrom.secretKeyRef and envFrom secretRef, for every container kind, so a
@@ -232,7 +232,7 @@ spec:
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
-    name: patchy-preview-secret-refs
+    name: maul-preview-secret-refs
     annotations:
         helm.sh/resource-policy: keep
 spec:
@@ -249,7 +249,7 @@ spec:
               resources: [deployments]
     matchConditions:
         - name: exact-preview-slot
-          expression: 'request.namespace in ["patchy-preview-0","patchy-preview-1","patchy-preview-2","patchy-preview-3"]'
+          expression: 'request.namespace in ["maul-preview-0","maul-preview-1","maul-preview-2","maul-preview-3"]'
         - name: pod-spec-changed
           expression: "request.operation != 'UPDATE' || object.spec != oldObject.spec"
     variables:
@@ -269,11 +269,11 @@ spec:
                 (!has(c.envFrom) || c.envFrom.all(f, !has(f.secretRef))))
           message: preview containers may not read a Secret through env valueFrom.secretKeyRef or envFrom secretRef
 ---
-# Source: patchy/templates/preview-admission.yaml
+# Source: maul/templates/preview-admission.yaml
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
-    name: patchy-preview-services
+    name: maul-preview-services
     annotations:
         helm.sh/resource-policy: keep
 spec:
@@ -286,12 +286,12 @@ spec:
               resources: [services]
     matchConditions:
         - name: exact-preview-slot
-          expression: 'request.namespace in ["patchy-preview-0","patchy-preview-1","patchy-preview-2","patchy-preview-3"]'
+          expression: 'request.namespace in ["maul-preview-0","maul-preview-1","maul-preview-2","maul-preview-3"]'
         - name: not-metadata-only
           expression: "request.operation != 'UPDATE' || !(object.spec == oldObject.spec && has(object.metadata.annotations) == has(oldObject.metadata.annotations) && (!has(object.metadata.annotations) || object.metadata.annotations == oldObject.metadata.annotations))"
     variables:
         - name: helmPlaceholder
-          expression: "request.namespace == 'patchy-preview-0' && object.metadata.name == 'patchy-preview-placeholder'"
+          expression: "request.namespace == 'maul-preview-0' && object.metadata.name == 'maul-preview-placeholder'"
     validations:
         - expression: >-
               object.spec.type == 'ClusterIP' &&
@@ -306,18 +306,18 @@ spec:
               object.metadata.annotations.all(k, v,
                 (variables.helmPlaceholder && (
                   (k == 'helm.sh/resource-policy' && v == 'keep') ||
-                  (k == 'meta.helm.sh/release-name' && v == "patchy") ||
-                  (k == 'meta.helm.sh/release-namespace' && v == "patchy"))) ||
+                  (k == 'meta.helm.sh/release-name' && v == "maul") ||
+                  (k == 'meta.helm.sh/release-namespace' && v == "maul"))) ||
                 (!variables.helmPlaceholder &&
                   k == 'alb.ingress.kubernetes.io/healthcheck-path' &&
                   v.matches('^/[a-zA-Z0-9/_-]*$')))
           message: preview Service annotations are restricted to a safe healthcheck path; Helm ownership and keep annotations are reserved for the placeholder Service
 ---
-# Source: patchy/templates/preview-admission.yaml
+# Source: maul/templates/preview-admission.yaml
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
-    name: patchy-preview-ingresses
+    name: maul-preview-ingresses
     annotations:
         helm.sh/resource-policy: keep
 spec:
@@ -330,12 +330,12 @@ spec:
               resources: [ingresses]
     matchConditions:
         - name: exact-preview-slot
-          expression: 'request.namespace in ["patchy-preview-0","patchy-preview-1","patchy-preview-2","patchy-preview-3"]'
+          expression: 'request.namespace in ["maul-preview-0","maul-preview-1","maul-preview-2","maul-preview-3"]'
         - name: not-metadata-only
           expression: "request.operation != 'UPDATE' || !(object.spec == oldObject.spec && has(object.metadata.annotations) == has(oldObject.metadata.annotations) && (!has(object.metadata.annotations) || object.metadata.annotations == oldObject.metadata.annotations))"
     variables:
         - name: helmPlaceholder
-          expression: "request.namespace == 'patchy-preview-0' && object.metadata.name == 'patchy-preview-placeholder'"
+          expression: "request.namespace == 'maul-preview-0' && object.metadata.name == 'maul-preview-placeholder'"
     validations:
         - expression: >-
               object.spec.ingressClassName == 'alb-preview' &&
@@ -345,7 +345,7 @@ spec:
         - expression: >-
               has(object.spec.rules) && size(object.spec.rules) > 0 &&
               object.spec.rules.all(r, has(r.host) &&
-                r.host.matches('^[a-z0-9-]+[.]preview[.]patchy[.]devthe[.]net$'))
+                r.host.matches('^[a-z0-9-]+[.]preview[.]maul[.]devthe[.]net$'))
           message: preview Ingress hosts must be single-label subdomains of the configured preview suffix
         # One host, one rule: a Prefix path per component in the component
         # path grammar, each to a preview Service on port 80. The kept
@@ -359,7 +359,7 @@ spec:
                   has(p.backend.service) && has(p.backend.service.port.number) &&
                   p.backend.service.port.number == 80 &&
                   (variables.helmPlaceholder ?
-                    p.backend.service.name == 'patchy-preview-placeholder' :
+                    p.backend.service.name == 'maul-preview-placeholder' :
                     p.backend.service.name.startsWith('preview-'))))
           message: preview Ingresses have one rule of at most 4 Prefix paths in the component path grammar, each backed by a preview- Service on port 80
         - expression: >-
@@ -370,15 +370,15 @@ spec:
                   v.matches('^/[a-zA-Z0-9/_-]*$')) ||
                 (variables.helmPlaceholder && (
                   (k == 'helm.sh/resource-policy' && v == 'keep') ||
-                  (k == 'meta.helm.sh/release-name' && v == "patchy") ||
-                  (k == 'meta.helm.sh/release-namespace' && v == "patchy"))))
+                  (k == 'meta.helm.sh/release-name' && v == "maul") ||
+                  (k == 'meta.helm.sh/release-namespace' && v == "maul"))))
           message: preview Ingress annotations are restricted to a safe healthcheck path or the named placeholder's Helm ownership
 ---
-# Source: patchy/templates/preview-admission.yaml
+# Source: maul/templates/preview-admission.yaml
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
-    name: patchy-preview-outside-ingresses
+    name: maul-preview-outside-ingresses
     annotations:
         helm.sh/resource-policy: keep
 spec:
@@ -391,222 +391,222 @@ spec:
               resources: [ingresses]
     matchConditions:
         - name: outside-preview-slots
-          expression: '!(request.namespace in ["patchy-preview-0","patchy-preview-1"])'
+          expression: '!(request.namespace in ["maul-preview-0","maul-preview-1"])'
     validations:
         - expression: >-
               !has(object.spec.ingressClassName) ||
               object.spec.ingressClassName != 'alb-preview'
           message: alb-preview is reserved for the exact preview slot namespaces
 ---
-# Source: patchy/templates/preview-admission.yaml
+# Source: maul/templates/preview-admission.yaml
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
 metadata:
-    name: patchy-preview-all-slots-pods
+    name: maul-preview-all-slots-pods
     annotations:
         helm.sh/resource-policy: keep
 spec:
-    policyName: patchy-preview-pods
+    policyName: maul-preview-pods
     validationActions: [Deny]
 # Keep the older per-slot bindings below for a safe upgrade of retained
 # policies. This global binding protects a slot even if its label is changed.
 ---
-# Source: patchy/templates/preview-admission.yaml
+# Source: maul/templates/preview-admission.yaml
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
 metadata:
-    name: patchy-preview-0-pods
+    name: maul-preview-0-pods
     annotations:
         helm.sh/resource-policy: keep
 spec:
-    policyName: patchy-preview-pods
+    policyName: maul-preview-pods
     validationActions: [Deny]
     matchResources:
         namespaceSelector:
             matchLabels:
-                kubernetes.io/metadata.name: patchy-preview-0
+                kubernetes.io/metadata.name: maul-preview-0
 ---
-# Source: patchy/templates/preview-admission.yaml
+# Source: maul/templates/preview-admission.yaml
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
 metadata:
-    name: patchy-preview-1-pods
+    name: maul-preview-1-pods
     annotations:
         helm.sh/resource-policy: keep
 spec:
-    policyName: patchy-preview-pods
+    policyName: maul-preview-pods
     validationActions: [Deny]
     matchResources:
         namespaceSelector:
             matchLabels:
-                kubernetes.io/metadata.name: patchy-preview-1
+                kubernetes.io/metadata.name: maul-preview-1
 ---
-# Source: patchy/templates/preview-admission.yaml
+# Source: maul/templates/preview-admission.yaml
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
 metadata:
-    name: patchy-preview-outside-pods
+    name: maul-preview-outside-pods
     annotations:
         helm.sh/resource-policy: keep
 spec:
-    policyName: patchy-preview-outside-pods
+    policyName: maul-preview-outside-pods
     validationActions: [Deny]
 ---
-# Source: patchy/templates/preview-admission.yaml
+# Source: maul/templates/preview-admission.yaml
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
 metadata:
-    name: patchy-preview-all-slots-deployments
+    name: maul-preview-all-slots-deployments
     annotations:
         helm.sh/resource-policy: keep
 spec:
-    policyName: patchy-preview-deployments
+    policyName: maul-preview-deployments
     validationActions: [Deny]
 # Keep the older per-slot bindings below for a safe upgrade of retained
 # policies. This global binding protects a slot even if its label is changed.
 ---
-# Source: patchy/templates/preview-admission.yaml
+# Source: maul/templates/preview-admission.yaml
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
 metadata:
-    name: patchy-preview-0-deployments
+    name: maul-preview-0-deployments
     annotations:
         helm.sh/resource-policy: keep
 spec:
-    policyName: patchy-preview-deployments
+    policyName: maul-preview-deployments
     validationActions: [Deny]
     matchResources:
         namespaceSelector:
             matchLabels:
-                kubernetes.io/metadata.name: patchy-preview-0
+                kubernetes.io/metadata.name: maul-preview-0
 ---
-# Source: patchy/templates/preview-admission.yaml
+# Source: maul/templates/preview-admission.yaml
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
 metadata:
-    name: patchy-preview-1-deployments
+    name: maul-preview-1-deployments
     annotations:
         helm.sh/resource-policy: keep
 spec:
-    policyName: patchy-preview-deployments
+    policyName: maul-preview-deployments
     validationActions: [Deny]
     matchResources:
         namespaceSelector:
             matchLabels:
-                kubernetes.io/metadata.name: patchy-preview-1
+                kubernetes.io/metadata.name: maul-preview-1
 ---
-# Source: patchy/templates/preview-admission.yaml
+# Source: maul/templates/preview-admission.yaml
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
 metadata:
-    name: patchy-preview-outside-deployments
+    name: maul-preview-outside-deployments
     annotations:
         helm.sh/resource-policy: keep
 spec:
-    policyName: patchy-preview-outside-deployments
+    policyName: maul-preview-outside-deployments
     validationActions: [Deny]
 ---
-# Source: patchy/templates/preview-admission.yaml
+# Source: maul/templates/preview-admission.yaml
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
 metadata:
-    name: patchy-preview-all-slots-secret-refs
+    name: maul-preview-all-slots-secret-refs
     annotations:
         helm.sh/resource-policy: keep
 spec:
-    policyName: patchy-preview-secret-refs
+    policyName: maul-preview-secret-refs
     validationActions: [Deny]
 ---
-# Source: patchy/templates/preview-admission.yaml
+# Source: maul/templates/preview-admission.yaml
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
 metadata:
-    name: patchy-preview-all-slots-services
+    name: maul-preview-all-slots-services
     annotations:
         helm.sh/resource-policy: keep
 spec:
-    policyName: patchy-preview-services
+    policyName: maul-preview-services
     validationActions: [Deny]
 ---
-# Source: patchy/templates/preview-admission.yaml
+# Source: maul/templates/preview-admission.yaml
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
 metadata:
-    name: patchy-preview-0-services
+    name: maul-preview-0-services
     annotations:
         helm.sh/resource-policy: keep
 spec:
-    policyName: patchy-preview-services
-    validationActions: [Deny]
-    matchResources:
-        namespaceSelector:
-            matchLabels:
-                kubernetes.io/metadata.name: patchy-preview-0
----
-# Source: patchy/templates/preview-admission.yaml
-apiVersion: admissionregistration.k8s.io/v1
-kind: ValidatingAdmissionPolicyBinding
-metadata:
-    name: patchy-preview-1-services
-    annotations:
-        helm.sh/resource-policy: keep
-spec:
-    policyName: patchy-preview-services
+    policyName: maul-preview-services
     validationActions: [Deny]
     matchResources:
         namespaceSelector:
             matchLabels:
-                kubernetes.io/metadata.name: patchy-preview-1
+                kubernetes.io/metadata.name: maul-preview-0
 ---
-# Source: patchy/templates/preview-admission.yaml
+# Source: maul/templates/preview-admission.yaml
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
 metadata:
-    name: patchy-preview-all-slots-ingresses
+    name: maul-preview-1-services
     annotations:
         helm.sh/resource-policy: keep
 spec:
-    policyName: patchy-preview-ingresses
-    validationActions: [Deny]
----
-# Source: patchy/templates/preview-admission.yaml
-apiVersion: admissionregistration.k8s.io/v1
-kind: ValidatingAdmissionPolicyBinding
-metadata:
-    name: patchy-preview-0-ingresses
-    annotations:
-        helm.sh/resource-policy: keep
-spec:
-    policyName: patchy-preview-ingresses
+    policyName: maul-preview-services
     validationActions: [Deny]
     matchResources:
         namespaceSelector:
             matchLabels:
-                kubernetes.io/metadata.name: patchy-preview-0
+                kubernetes.io/metadata.name: maul-preview-1
 ---
-# Source: patchy/templates/preview-admission.yaml
+# Source: maul/templates/preview-admission.yaml
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
 metadata:
-    name: patchy-preview-1-ingresses
+    name: maul-preview-all-slots-ingresses
     annotations:
         helm.sh/resource-policy: keep
 spec:
-    policyName: patchy-preview-ingresses
+    policyName: maul-preview-ingresses
+    validationActions: [Deny]
+---
+# Source: maul/templates/preview-admission.yaml
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+    name: maul-preview-0-ingresses
+    annotations:
+        helm.sh/resource-policy: keep
+spec:
+    policyName: maul-preview-ingresses
     validationActions: [Deny]
     matchResources:
         namespaceSelector:
             matchLabels:
-                kubernetes.io/metadata.name: patchy-preview-1
+                kubernetes.io/metadata.name: maul-preview-0
 ---
-# Source: patchy/templates/preview-admission.yaml
+# Source: maul/templates/preview-admission.yaml
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
 metadata:
-    name: patchy-preview-outside-ingresses
+    name: maul-preview-1-ingresses
     annotations:
         helm.sh/resource-policy: keep
 spec:
-    policyName: patchy-preview-outside-ingresses
+    policyName: maul-preview-ingresses
+    validationActions: [Deny]
+    matchResources:
+        namespaceSelector:
+            matchLabels:
+                kubernetes.io/metadata.name: maul-preview-1
+---
+# Source: maul/templates/preview-admission.yaml
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+    name: maul-preview-outside-ingresses
+    annotations:
+        helm.sh/resource-policy: keep
+spec:
+    policyName: maul-preview-outside-ingresses
     validationActions: [Deny]
 

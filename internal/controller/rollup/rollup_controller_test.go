@@ -15,9 +15,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/stats"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/stats"
 )
 
 var clock = time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
@@ -25,7 +25,7 @@ var clock = time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
 func completeInvestigation() *v1alpha1.Investigation {
 	return &v1alpha1.Investigation{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "finding-aa-1-inv-1", Namespace: "patchy", UID: "inv-uid-1",
+			Name: "finding-aa-1-inv-1", Namespace: "maul", UID: "inv-uid-1",
 			Annotations: map[string]string{v1alpha1.AnnotationRepo: "acme/orders"},
 			Finalizers: []string{
 				v1alpha1.FinalizerJobs,
@@ -55,7 +55,7 @@ func terminalFinding(phase v1alpha1.Phase) *v1alpha1.Finding {
 	done := metav1.NewTime(clock.Add(-time.Hour))
 	return &v1alpha1.Finding{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "finding-aa-1", Namespace: "patchy", UID: "fnd-uid-1",
+			Name: "finding-aa-1", Namespace: "maul", UID: "fnd-uid-1",
 			Finalizers: []string{v1alpha1.FinalizerRollupTotal, v1alpha1.FinalizerRollupRepository},
 		},
 		Spec: v1alpha1.FindingSpec{
@@ -90,7 +90,7 @@ func newReconciler(t *testing.T, objs ...client.Object) (*Reconciler, client.Cli
 		Build()
 	return &Reconciler{
 		Client:    c,
-		Namespace: "patchy",
+		Namespace: "maul",
 		TTL:       DefaultTTL,
 		Now:       func() time.Time { return clock },
 	}, c
@@ -99,7 +99,7 @@ func newReconciler(t *testing.T, objs ...client.Object) (*Reconciler, client.Cli
 func rollup(t *testing.T, c client.Client, name string) *v1alpha1.FindingRollup {
 	t.Helper()
 	var fr v1alpha1.FindingRollup
-	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: name}, &fr); err != nil {
+	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: name}, &fr); err != nil {
 		t.Fatalf("Get rollup %s: %v", name, err)
 	}
 	return &fr
@@ -107,7 +107,7 @@ func rollup(t *testing.T, c client.Client, name string) *v1alpha1.FindingRollup 
 
 func TestChildAggregatesAllScopes(t *testing.T) {
 	r, c := newReconciler(t, completeInvestigation())
-	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1-inv-1"}}
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "maul", Name: "finding-aa-1-inv-1"}}
 	if _, err := r.ReconcileInvestigation(t.Context(), req); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
@@ -156,7 +156,7 @@ func TestChildAggregatesAllScopes(t *testing.T) {
 func TestChildDeletionReleasesFinalizersAfterAggregation(t *testing.T) {
 	inv := completeInvestigation()
 	r, c := newReconciler(t, inv)
-	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "patchy", Name: inv.Name}}
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "maul", Name: inv.Name}}
 	if _, err := r.ReconcileInvestigation(t.Context(), req); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
@@ -185,7 +185,7 @@ func TestChildDeletionReleasesFinalizersAfterAggregation(t *testing.T) {
 
 func TestFindingCountsAndTTL(t *testing.T) {
 	r, c := newReconciler(t, terminalFinding(v1alpha1.PhaseRemediated))
-	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1"}}
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "maul", Name: "finding-aa-1"}}
 	res, err := r.ReconcileFinding(t.Context(), req)
 	if err != nil {
 		t.Fatalf("Reconcile: %v", err)
@@ -224,7 +224,7 @@ func TestFindingCountsAndTTL(t *testing.T) {
 func TestFindingRevivalCorrection(t *testing.T) {
 	fnd := terminalFinding(v1alpha1.PhaseHandedOff)
 	r, c := newReconciler(t, fnd)
-	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1"}}
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "maul", Name: "finding-aa-1"}}
 	if _, err := r.ReconcileFinding(t.Context(), req); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
@@ -257,7 +257,7 @@ func TestFindingRevivalCorrection(t *testing.T) {
 func TestFindingRevivalReversesCounts(t *testing.T) {
 	fnd := terminalFinding(v1alpha1.PhaseFailed)
 	r, c := newReconciler(t, fnd)
-	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1"}}
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "maul", Name: "finding-aa-1"}}
 	if _, err := r.ReconcileFinding(t.Context(), req); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
@@ -331,7 +331,7 @@ func TestNonTerminalDeleteCountsAsDeleted(t *testing.T) {
 	if err := c.Delete(t.Context(), fnd); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
-	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1"}}
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "maul", Name: "finding-aa-1"}}
 	if _, err := r.ReconcileFinding(t.Context(), req); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}

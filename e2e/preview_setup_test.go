@@ -36,22 +36,22 @@ import (
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/previewauth/fakedex"
-	"github.com/bitwise-media-group/patchy/internal/rbactest"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/previewauth/fakedex"
+	"github.com/devthenet-labs/maul/internal/rbactest"
 )
 
-// The install TestPreviewSetupEndToEnd asks `patchy setup previews` for. The
+// The install TestPreviewSetupEndToEnd asks `maul setup previews` for. The
 // sign-in host and Dex sit on a registrable domain other than the previews'
 // (acme.test beside acme-previews.test), as the wizard insists.
 const (
 	setupSuffix    = "acme-previews.test"
-	setupSignIn    = "preview-auth.patchy.acme.test"
-	setupDexIssuer = "https://dex.patchy.acme.test"
+	setupSignIn    = "preview-auth.maul.acme.test"
+	setupDexIssuer = "https://dex.maul.acme.test"
 	setupViewer    = "alice"
 )
 
-// TestPreviewSetupEndToEnd configures the preview gateway from what `patchy
+// TestPreviewSetupEndToEnd configures the preview gateway from what `maul
 // setup previews` writes (preview setup design §9, W10), for the
 // gateway-tls recipe, where the gateway terminates TLS itself: the wizard
 // runs, helm renders its values over a minimal install exactly as
@@ -62,7 +62,7 @@ const (
 // knows and what the relay is given; the gateway's certificate covers
 // exactly the names the generated Certificate asks for, from a test CA.
 // Then a viewer named on the wizard's command line signs in over the
-// gateway's TLS and is routed to a preview, and `patchy check previews`
+// gateway's TLS and is routed to a preview, and `maul check previews`
 // passes every check against that edge. What the test supplies itself is
 // what a cluster would: the keys Secret, the mounts' paths, loopback
 // listen addresses, the Dex at its own address, a preview node, and (in an
@@ -75,31 +75,31 @@ func TestPreviewSetupEndToEnd(t *testing.T) {
 	}
 	ctx := context.Background()
 	dir := t.TempDir()
-	patchy := buildTagged(t, "patchy", "e2edial")
+	maul := buildTagged(t, "maul", "e2edial")
 
 	// The wizard, as an operator runs it.
 	token := filepath.Join(dir, "dns01-token")
 	if err := os.WriteFile(token, []byte("e2e-cloudflare-token\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	out := filepath.Join(dir, "patchy-previews")
-	runPatchy(t, patchy, "setup", "previews", "--non-interactive", "-n", namespace, "--platform", "k3s",
+	out := filepath.Join(dir, "maul-previews")
+	runMaul(t, maul, "setup", "previews", "--non-interactive", "-n", namespace, "--platform", "k3s",
 		"--edge", "gateway-tls", "--dns", "cloudflare", "--dns-credentials-file", token,
 		"--host-suffix", setupSuffix, "--sign-in-host", setupSignIn, "--dex-issuer", setupDexIssuer,
-		"--viewer-user", setupViewer, "--registry", "registry.example", "--image-path-prefix", "patchy/previews",
+		"--viewer-user", setupViewer, "--registry", "registry.example", "--image-path-prefix", "maul/previews",
 		"-o", out)
 
 	// Dex knows the relay's client by the secret the wizard drew, from the
 	// Secret manifest meant for Dex's namespace, and registers the one
 	// redirect URI NEXT-STEPS.md gives it.
-	dexSecret := secretKey(t, filepath.Join(out, "secrets", "dex-patchy-preview-auth-client.secret.yaml"),
+	dexSecret := secretKey(t, filepath.Join(out, "secrets", "dex-maul-preview-auth-client.secret.yaml"),
 		"clientSecret")
-	relaySecret := secretKey(t, filepath.Join(out, "secrets", "patchy-preview-auth-dex.secret.yaml"),
+	relaySecret := secretKey(t, filepath.Join(out, "secrets", "maul-preview-auth-dex.secret.yaml"),
 		"clientSecret")
 	if dexSecret == "" || dexSecret != relaySecret {
 		t.Fatal("the two Dex client secret manifests disagree")
 	}
-	dex, err := fakedex.StartTLS("patchy-preview-auth", dexSecret)
+	dex, err := fakedex.StartTLS("maul-preview-auth", dexSecret)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,14 +115,14 @@ func TestPreviewSetupEndToEnd(t *testing.T) {
 	// the keys Secret and the API server's address are what a GitOps render
 	// sets without a cluster to look up.
 	objs := helmTemplate(t, "-f", "../hack/testdata/chart-render/intent-controller.yaml",
-		"-f", filepath.Join(out, "patchy-previews.values.yaml"),
+		"-f", filepath.Join(out, "maul-previews.values.yaml"),
 		"--set", "previewAuth.keys.renderOffline=true",
 		"--set", "previewController.config.apiServerCIDR=10.43.0.1/32",
 		"--set", "previewAuth.dex.issuerURL="+dex.URL)
 	authEnv, ctlEnv := applySetupRender(t, cl, objs)
 
 	// A preview node, labelled and tainted as NEXT-STEPS.md registers one.
-	selector, taintKey := nodeIsolation(t, filepath.Join(out, "patchy-previews.values.yaml"))
+	selector, taintKey := nodeIsolation(t, filepath.Join(out, "maul-previews.values.yaml"))
 	if err := cl.client.Create(ctx, &corev1.Node{
 		ObjectMeta: metav1.ObjectMeta{Name: "preview-1", Labels: selector},
 		Spec: corev1.NodeSpec{Taints: []corev1.Taint{{Key: taintKey, Value: "true",
@@ -152,7 +152,7 @@ func TestPreviewSetupEndToEnd(t *testing.T) {
 	for slot := range 2 {
 		for svc, app := range map[string]*previewApp{"preview-shop-1": web1, "preview-shop-1-api": api1,
 			"preview-shop-2": app2, "preview-shop-2-api": app2} {
-			dial[fmt.Sprintf("%s.patchy-preview-%d.svc:80", svc, slot)] = app.srv.Listener.Addr().String()
+			dial[fmt.Sprintf("%s.maul-preview-%d.svc:80", svc, slot)] = app.srv.Listener.Addr().String()
 		}
 	}
 	dialJSON, err := json.Marshal(dial)
@@ -213,8 +213,8 @@ func TestPreviewSetupEndToEnd(t *testing.T) {
 	// The command NEXT-STEPS.md ends with, against that edge: every check
 	// passes, but for the allowlist's, which has nothing to prove with no
 	// inboundCIDRs (and from an admitted address would skip anyway).
-	if !strings.Contains(readFile(t, filepath.Join(out, "NEXT-STEPS.md")), "patchy check previews -n "+namespace) {
-		t.Error("NEXT-STEPS.md does not end with patchy check previews")
+	if !strings.Contains(readFile(t, filepath.Join(out, "NEXT-STEPS.md")), "maul check previews -n "+namespace) {
+		t.Error("NEXT-STEPS.md does not end with maul check previews")
 	}
 	caFile := filepath.Join(dir, "check-roots.pem")
 	rootsPEM := append(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ca.Raw}),
@@ -224,15 +224,15 @@ func TestPreviewSetupEndToEnd(t *testing.T) {
 	}
 	dexAddr := strings.TrimPrefix(dex.URL, "https://")
 	checkDial, err := json.Marshal(map[string]string{
-		"patchy-probe-0." + setupSuffix + ":443": gwTLS,
-		setupSignIn + ":443":                     gwTLS,
-		origin[len("https://"):] + ":443":        gwTLS,
-		dexAddr:                                  dexAddr,
+		"maul-probe-0." + setupSuffix + ":443": gwTLS,
+		setupSignIn + ":443":                   gwTLS,
+		origin[len("https://"):] + ":443":      gwTLS,
+		dexAddr:                                dexAddr,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	report := runPatchy(t, patchy, "check", "previews", "-n", namespace, "--kubeconfig", cl.kubeconfig, "-o", "json",
+	report := runMaul(t, maul, "check", "previews", "-n", namespace, "--kubeconfig", cl.kubeconfig, "-o", "json",
 		"--e2e-dial-map", string(checkDial), "--e2e-ca-file", caFile)
 	var got struct {
 		Checks []struct{ Name, Status, Reason string } `json:"checks"`
@@ -259,15 +259,15 @@ func TestPreviewSetupEndToEnd(t *testing.T) {
 	}
 }
 
-// runPatchy runs the CLI with args and returns its standard output, failing
+// runMaul runs the CLI with args and returns its standard output, failing
 // the test on a non-zero exit.
-func runPatchy(t *testing.T, bin string, args ...string) string {
+func runMaul(t *testing.T, bin string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command(bin, args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
-		t.Fatalf("patchy %s: %v\n%s\n%s", strings.Join(args[:2], " "), err, stdout.String(), stderr.String())
+		t.Fatalf("maul %s: %v\n%s\n%s", strings.Join(args[:2], " "), err, stdout.String(), stderr.String())
 	}
 	return stdout.String()
 }
@@ -309,11 +309,11 @@ func secretKey(t *testing.T, path, key string) string {
 	return string(s.Data[key])
 }
 
-// helmTemplate renders the patchy chart as release patchy in the release
+// helmTemplate renders the maul chart as release maul in the release
 // namespace with args.
 func helmTemplate(t *testing.T, args ...string) []*unstructured.Unstructured {
 	t.Helper()
-	cmd := exec.Command("helm", append([]string{"template", "patchy", "../charts/patchy", "-n", namespace},
+	cmd := exec.Command("helm", append([]string{"template", "maul", "../charts/maul", "-n", namespace},
 		args...)...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -335,15 +335,15 @@ func applySetupRender(t *testing.T, cl *cluster, objs []*unstructured.Unstructur
 		apply := false
 		switch name := o.GetName(); o.GetKind() {
 		case "Namespace":
-			apply = strings.HasPrefix(name, "patchy-preview-")
+			apply = strings.HasPrefix(name, "maul-preview-")
 		case "Service":
-			apply = name == "patchy-preview-gateway"
+			apply = name == "maul-preview-gateway"
 		case "ClusterRole":
-			apply = name == "patchy-preview-viewer"
+			apply = name == "maul-preview-viewer"
 		case "RoleBinding":
-			apply = name == "patchy-preview-viewers"
+			apply = name == "maul-preview-viewers"
 		case "Lease":
-			apply = name == "patchy-preview-auth-codes"
+			apply = name == "maul-preview-auth-codes"
 		case "ConfigMap":
 			switch o.GetLabels()["app.kubernetes.io/name"] {
 			case "preview-auth":
@@ -363,7 +363,7 @@ func applySetupRender(t *testing.T, cl *cluster, objs []*unstructured.Unstructur
 		t.Fatal("the render has no preview-auth or preview-controller ConfigMap")
 	}
 	var svc corev1.Service
-	if err := cl.client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: "patchy-preview-gateway"},
+	if err := cl.client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: "maul-preview-gateway"},
 		&svc); err != nil {
 		t.Fatalf("the gateway's Service: %v", err)
 	}
@@ -438,7 +438,7 @@ func testCA(t *testing.T) (*x509.Certificate, *ecdsa.PrivateKey) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tmpl := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "patchy e2e CA"},
+	tmpl := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "maul e2e CA"},
 		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), IsCA: true,
 		BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign}
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
@@ -479,7 +479,7 @@ func writeGatewayPair(t *testing.T, objs []*unstructured.Unstructured, dir strin
 	}
 	var dep *unstructured.Unstructured
 	for _, o := range objs {
-		if o.GetKind() == "Deployment" && o.GetName() == "patchy-preview-auth" {
+		if o.GetKind() == "Deployment" && o.GetName() == "maul-preview-auth" {
 			dep = o
 		}
 	}

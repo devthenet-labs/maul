@@ -12,7 +12,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/previewauth"
+	"github.com/devthenet-labs/maul/internal/previewauth"
 )
 
 // Preview-host results, the gateway counter's and the audit line's.
@@ -204,7 +204,7 @@ func (g *gateway) unauthenticated(w http.ResponseWriter, r *http.Request, label 
 	http.Redirect(w, r, g.cfg.Hosts.StartURL(label, sealedState), http.StatusFound)
 }
 
-// handleHandoff is /.patchy/callback?code=: the sign-in host sent the
+// handleHandoff is /.maul/callback?code=: the sign-in host sent the
 // browser back with a handoff code. It is spent only after the state cookie
 // it names matches, the Preview is the same one and the access review
 // passes again; then the host session is set and the browser returns to the

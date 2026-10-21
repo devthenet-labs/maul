@@ -38,7 +38,7 @@ func Kubescape(ctx context.Context, runner ToolRunner, renderedPath, mode string
 	// scans self-contained and identical to CI.
 	// --logger warning silences the progress-spinner UI, sidestepping an
 	// upstream bug where it appends .txt to its /dev/null sink.
-	empty := filepath.Join(os.TempDir(), "patchy-mirror-empty-kubeconfig")
+	empty := filepath.Join(os.TempDir(), "maul-mirror-empty-kubeconfig")
 	args := []string{"scan", renderedPath, "--logger", "warning"}
 	if mode == "fail" {
 		args = append(args, "--severity-threshold", "low")

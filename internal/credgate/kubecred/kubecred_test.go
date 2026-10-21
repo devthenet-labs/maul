@@ -13,15 +13,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	"github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/kube"
+	"github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/kube"
 )
 
 func TestReader(t *testing.T) {
 	owner := v1alpha1.ModelCredentialOwner(42)
 	name := v1alpha1.ModelCredentialName(owner, v1alpha1.ModelCredentialProviderAnthropic)
 	stored := &v1alpha1.ModelCredential{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "patchy"},
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "maul"},
 		Spec: v1alpha1.ModelCredentialSpec{Owner: owner, Provider: v1alpha1.ModelCredentialProviderAnthropic,
 			Kind: v1alpha1.ModelCredentialAPIKey},
 		Status: v1alpha1.ModelCredentialStatus{Health: v1alpha1.ModelCredentialValid},
@@ -32,7 +32,7 @@ func TestReader(t *testing.T) {
 	elsewhere.Name = v1alpha1.ModelCredentialName(elsewhere.Spec.Owner, v1alpha1.ModelCredentialProviderAnthropic)
 	c := fake.NewClientBuilder().WithScheme(kube.Scheme()).WithObjects(stored, elsewhere).
 		WithStatusSubresource(&v1alpha1.ModelCredential{}).Build()
-	r := Reader{Client: c, Namespace: "patchy"}
+	r := Reader{Client: c, Namespace: "maul"}
 	ctx := context.Background()
 
 	got, err := r.ModelCredential(ctx, owner, v1alpha1.ModelCredentialProviderAnthropic)
@@ -49,7 +49,7 @@ func TestReader(t *testing.T) {
 			...client.GetOption) error {
 			return errors.New("api down")
 		}})
-	if _, err := (Reader{Client: failing, Namespace: "patchy"}).ModelCredential(ctx, owner,
+	if _, err := (Reader{Client: failing, Namespace: "maul"}).ModelCredential(ctx, owner,
 		v1alpha1.ModelCredentialProviderAnthropic); err == nil {
 		t.Fatal("a failed read was not an error")
 	}

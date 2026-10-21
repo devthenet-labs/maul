@@ -103,7 +103,7 @@ type RemediationStatus struct {
 	Report string `json:"report,omitempty"`
 	// Reproduction is the agent's own account of proving the bug with its
 	// regression test before fixing it, from the report's reproduction
-	// block. Self-reported: patchy runs no test itself. Nil when the report
+	// block. Self-reported: maul runs no test itself. Nil when the report
 	// had none (every report before the block existed), which reads as "not
 	// reproduced".
 	// +optional
@@ -139,7 +139,7 @@ type Reproduction struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:shortName=rem,categories=patchy
+// +kubebuilder:resource:shortName=rem,categories=maul
 // +kubebuilder:printcolumn:name="Finding",type=string,JSONPath=`.spec.findingRef.name`
 // +kubebuilder:printcolumn:name="Attempt",type=integer,JSONPath=`.spec.attempt`
 // +kubebuilder:printcolumn:name="Priority",type=integer,JSONPath=`.spec.priority`

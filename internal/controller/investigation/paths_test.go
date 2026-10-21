@@ -24,13 +24,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/forge"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/stats"
-	"github.com/bitwise-media-group/patchy/internal/templates"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/forge"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/stats"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 var errBoom = errors.New("boom")
@@ -86,7 +86,7 @@ func invWith(t *testing.T, runner Runner, funcs *interceptor.Funcs, objs ...clie
 	return &InvestigationReconciler{
 		Client:              c,
 		Runner:              runner,
-		Namespace:           "patchy",
+		Namespace:           "maul",
 		MaxConcurrent:       2,
 		MaxAttempts:         2,
 		ConfidenceThreshold: 0.75,
@@ -107,7 +107,7 @@ func gateWith(t *testing.T, funcs interceptor.Funcs, objs ...client.Object) (*Ga
 	return &GateReconciler{
 		Client:    c,
 		Forges:    forge.NewStore(c),
-		Namespace: "patchy",
+		Namespace: "maul",
 		MinAge:    time.Hour,
 		Now:       func() time.Time { return clock },
 	}, c
@@ -129,7 +129,7 @@ func TestGateIgnores(t *testing.T) {
 		{"suspended", func(f *v1alpha1.Finding) { f.Spec.Suspend = true }},
 		{"deleting", func(f *v1alpha1.Finding) {
 			f.DeletionTimestamp = &now
-			f.Finalizers = []string{"patchy.bitwisemedia.uk/test"}
+			f.Finalizers = []string{"maul.run/test"}
 		}},
 		{"opened", func(f *v1alpha1.Finding) { f.Status.Phase = v1alpha1.PhaseOpened }},
 		{"queued", func(f *v1alpha1.Finding) { f.Status.Phase = v1alpha1.PhaseQueued }},
@@ -148,7 +148,7 @@ func TestGateIgnores(t *testing.T) {
 				t.Errorf("phase = %q, want unchanged %q", got, want)
 			}
 			var repo v1alpha1.Repository
-			err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: fndName + "-src"}, &repo)
+			err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: fndName + "-src"}, &repo)
 			if !kerrors.IsNotFound(err) {
 				t.Errorf("Repository lookup error = %v, want not found", err)
 			}
@@ -345,7 +345,7 @@ func TestGatePreviousAttemptOfEarlierFinding(t *testing.T) {
 	r, c := newGate(t, fnd, testForge(), readyRepo(), stale)
 	gateOnce(t, r)
 	var next v1alpha1.Investigation
-	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: fndName + "-inv-2"}, &next); err != nil {
+	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: fndName + "-inv-2"}, &next); err != nil {
 		t.Fatalf("attempt 2 not opened: %v", err)
 	}
 	if next.Spec.PreviousAttempt != nil {
@@ -617,7 +617,7 @@ func TestLaunchCreateError(t *testing.T) {
 // rollup is a FindingRollup for scope with runs estimated remediations.
 func rollup(scope v1alpha1.RollupScope, runs int64) *v1alpha1.FindingRollup {
 	return &v1alpha1.FindingRollup{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "patchy", Name: stats.ScopeObjectName(scope)},
+		ObjectMeta: metav1.ObjectMeta{Namespace: "maul", Name: stats.ScopeObjectName(scope)},
 		Status: v1alpha1.FindingRollupStatus{Bucket: v1alpha1.RollupBucket{
 			Stages: map[string]v1alpha1.StageAggregate{"remediation": {
 				Runs: runs,
@@ -801,7 +801,7 @@ func TestRunIgnoresSettledAndMissing(t *testing.T) {
 func pendingInv(name, finding, sev string) *v1alpha1.Investigation {
 	return &v1alpha1.Investigation{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: name, Namespace: "patchy", CreationTimestamp: metav1.NewTime(clock),
+			Name: name, Namespace: "maul", CreationTimestamp: metav1.NewTime(clock),
 			Labels: map[string]string{v1alpha1.LabelSeverity: sev},
 		},
 		Spec: v1alpha1.InvestigationSpec{FindingRef: v1alpha1.ObjectReference{Name: finding}, Attempt: 1},

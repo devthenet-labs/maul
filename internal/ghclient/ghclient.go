@@ -22,7 +22,7 @@ type Repo struct {
 // String renders the repository as "owner/name".
 func (r Repo) String() string { return r.Owner + "/" + r.Name }
 
-// Client wraps the GitHub REST API with patchy's narrow, fake-able
+// Client wraps the GitHub REST API with maul's narrow, fake-able
 // surface. Construct one with NewToken or App.Installation.
 type Client struct {
 	gh *github.Client

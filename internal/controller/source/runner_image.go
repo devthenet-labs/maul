@@ -16,8 +16,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/runnerimage"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/runnerimage"
 )
 
 // The onReject policies: what a rejected declaration does to the Repository.
@@ -196,7 +196,7 @@ func (r *RepositoryReconciler) resolveRunnerImage(
 		r.rememberUndeclared(key, digest)
 		return nil, nil
 	case runnerimage.OutcomeNotApplicable:
-		// Not a rejection: the file was not written for patchy. The reason
+		// Not a rejection: the file was not written for maul. The reason
 		// is recorded for the owner and the default image runs.
 		return &v1alpha1.RunnerImage{Manifest: decl.Manifest, Message: truncate(decl.Reason)}, nil
 	}

@@ -10,7 +10,7 @@
 #   * ingress 15021: kubelet probes the proxy's readiness endpoint. The base
 #     policy has no ingress rules at all, and kubelet probes arrive from the
 #     node IP, which no pod selector can match — same reasoning as the 8080
-#     rule in the patchy namespace, and equally HMAC-free: 15021 serves only
+#     rule in the maul namespace, and equally HMAC-free: 15021 serves only
 #     /healthz/ready.
 #
 # Assumes the control plane lives in istio-system; adjust the selector if
@@ -19,15 +19,15 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-    name: patchy-agents-istio
-    namespace: patchy-agents
+    name: maul-agents-istio
+    namespace: maul-agents
     labels:
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 spec:
     podSelector:
         matchLabels:
-            app.kubernetes.io/name: patchy-agent
-            app.kubernetes.io/managed-by: patchy
+            app.kubernetes.io/name: maul-agent
+            app.kubernetes.io/managed-by: maul
     policyTypes: [Ingress, Egress]
     ingress:
         - ports:

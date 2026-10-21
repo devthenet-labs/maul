@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/model"
-	"github.com/bitwise-media-group/patchy/internal/provider"
+	"github.com/devthenet-labs/maul/internal/model"
+	"github.com/devthenet-labs/maul/internal/provider"
 )
 
 // ledgerTTL is how long an idle pod's counters survive; a Job never outlives

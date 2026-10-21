@@ -6,8 +6,8 @@ package ghas
 import (
 	"context"
 
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/pkg/source"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/pkg/source"
 )
 
 // AlertEnumerator walks the credential's reachable open code-scanning

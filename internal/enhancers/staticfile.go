@@ -11,7 +11,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/bitwise-media-group/patchy/pkg/enhance"
+	"github.com/devthenet-labs/maul/pkg/enhance"
 )
 
 // StaticFile enhances issues from a YAML map of repositories to ownership,

@@ -1,5 +1,5 @@
-<!-- patchy:intent patchy/target-1 -->
-### patchy
+<!-- maul:intent maul/target-1 -->
+### maul
 
 **Phase:** `InReview`: the pull requests are open for review.
 
@@ -13,6 +13,6 @@
 
 **Preview:** waiting for a free preview slot for `4b825dc642cb`; the link appears here once it is deployed.
 
-**Commands now:** `/patchy cancel`
+**Commands now:** `/maul cancel`
 
-_patchy updates this comment as the work progresses._
+_maul updates this comment as the work progresses._

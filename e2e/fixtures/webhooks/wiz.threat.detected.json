@@ -3,7 +3,7 @@
         "source": "THREAT_DETECTION",
         "type": "Created",
         "ruleId": "a1a1a1a1-0000-0000-0000-0000000auto1",
-        "ruleName": "patchy-defend"
+        "ruleName": "maul-defend"
     },
     "threat": {
         "id": "e2e00000-0000-0000-0000-0000000thrt1",

@@ -12,8 +12,8 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/usagewire"
+	"github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/usagewire"
 )
 
 // Anthropic is the first-party route: inject the credential from a mounted

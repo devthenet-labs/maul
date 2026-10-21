@@ -13,7 +13,7 @@
 locals {
   previews_enabled = var.previews != null
 
-  preview_node_role_name = "${local.name_prefix}-patchy-preview-node"
+  preview_node_role_name = "${local.name_prefix}-maul-preview-node"
   preview_alb_name       = !local.previews_enabled ? null : (var.previews.alb_name != null ? var.previews.alb_name : "${var.cluster_name}-preview")
   preview_domain         = local.previews_enabled ? "*.${var.previews.host_suffix}" : null
 
@@ -82,7 +82,7 @@ resource "aws_iam_role" "preview_node" {
   count = local.previews_enabled ? 1 : 0
 
   name        = local.preview_node_role_name
-  description = "EKS Auto Mode node identity for isolated patchy preview slots"
+  description = "EKS Auto Mode node identity for isolated maul preview slots"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"

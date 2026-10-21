@@ -81,7 +81,7 @@ locals {
 }
 
 output "helm_values" {
-  description = "YAML values for the patchy chart, derived from the infrastructure: pass it last, after the operator's own values file (`helm install ... -f operator-values.yaml -f <(terraform output -raw helm_values)`). It carries no enable flag and no security opt-out."
+  description = "YAML values for the maul chart, derived from the infrastructure: pass it last, after the operator's own values file (`helm install ... -f operator-values.yaml -f <(terraform output -raw helm_values)`). It carries no enable flag and no security opt-out."
   value       = yamlencode(local.helm_values)
 }
 

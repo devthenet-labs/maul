@@ -12,7 +12,7 @@ import (
 	"testing"
 )
 
-const intentBranch = "patchy-intent/target-1"
+const intentBranch = "maul-intent/target-1"
 
 // refReply writes a Git ref payload pointing at sha.
 func refReply(t *testing.T, w http.ResponseWriter, sha string) {
@@ -87,7 +87,7 @@ func TestCreateBranchRef(t *testing.T) {
 				tt.create(w)
 			})
 			var reads atomic.Int32
-			mux.HandleFunc("GET /repos/o/r/git/ref/heads/patchy-intent/target-1", func(w http.ResponseWriter, _ *http.Request) {
+			mux.HandleFunc("GET /repos/o/r/git/ref/heads/maul-intent/target-1", func(w http.ResponseWriter, _ *http.Request) {
 				reads.Add(1)
 				if tt.existing == nil {
 					t.Error("existing branch read, want no read")

@@ -13,7 +13,7 @@ const (
 	// WorkingNotesHeading titles a build report's working notes: what the
 	// next agent on the intent should know (where the code is, commands
 	// that worked in the sandbox, decisions, what was tried and rejected,
-	// open questions, the state of the work). patchy carries the latest
+	// open questions, the state of the work). maul carries the latest
 	// notes into the intent's next round and into a replan's context file.
 	WorkingNotesHeading = "Working notes"
 	// BuilderNotesHeading titles a plan's notes for the builder: what the

@@ -15,11 +15,11 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/changeset"
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/runnerguard"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/changeset"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/runnerguard"
 )
 
 const pinnedImage = "ghcr.io/acme/go-env@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -29,7 +29,7 @@ const remName = "finding-aa-1-rem-1"
 // acceptedImage is a declaration source-controller resolved and pinned.
 func acceptedImage() *v1alpha1.RunnerImage {
 	return &v1alpha1.RunnerImage{
-		Declared: "ghcr.io/acme/go-env:1.26", Manifest: ".patchy/agent.yaml",
+		Declared: "ghcr.io/acme/go-env:1.26", Manifest: ".maul/agent.yaml",
 		Image: pinnedImage, SearchPath: "/usr/local/go/bin:/usr/bin:/bin", Verified: true,
 	}
 }
@@ -57,7 +57,7 @@ func withImage(ri *v1alpha1.RunnerImage, stampSource string, history ...v1alpha1
 func getRem(t *testing.T, c client.Client) *v1alpha1.Remediation {
 	t.Helper()
 	var rem v1alpha1.Remediation
-	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: remName}, &rem); err != nil {
+	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: remName}, &rem); err != nil {
 		t.Fatalf("Get remediation: %v", err)
 	}
 	return &rem
@@ -66,7 +66,7 @@ func getRem(t *testing.T, c client.Client) *v1alpha1.Remediation {
 func remReconcile(t *testing.T, r *RemediationReconciler) ctrl.Result {
 	t.Helper()
 	res, err := r.Reconcile(t.Context(), ctrl.Request{
-		NamespacedName: types.NamespacedName{Namespace: "patchy", Name: remName},
+		NamespacedName: types.NamespacedName{Namespace: "maul", Name: remName},
 	})
 	if err != nil {
 		t.Fatalf("Reconcile: %v", err)
@@ -343,7 +343,7 @@ func wantRejected(t *testing.T, fw *fakeForge, rem *v1alpha1.Remediation, f *v1a
 // TestRemediationChangesetForgedBase: the changeset's base is the pod's
 // word, and the push parents it and builds the tree on it. A base other
 // than the Repository's pinned commit is refused before any forge call on
-// every run: a repository image could otherwise point patchy's branch at a
+// every run: a repository image could otherwise point maul's branch at a
 // fork's head carrying its own workflows, and a changeset diffed against
 // one tree and pushed onto another would silently revert whatever differs.
 func TestRemediationChangesetForgedBase(t *testing.T) {

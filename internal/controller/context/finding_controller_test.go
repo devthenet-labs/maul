@@ -17,10 +17,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/enhancers"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/pkg/enhance"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/enhancers"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/pkg/enhance"
 )
 
 var crdClock = time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
@@ -40,7 +40,7 @@ func (f *crdEnhancer) Enhance(context.Context, enhance.Issue) (*enhance.Enrichme
 
 func openedFinding() *v1alpha1.Finding {
 	return &v1alpha1.Finding{
-		ObjectMeta: metav1.ObjectMeta{Name: "finding-aa-1", Namespace: "patchy"},
+		ObjectMeta: metav1.ObjectMeta{Name: "finding-aa-1", Namespace: "maul"},
 		Spec: v1alpha1.FindingSpec{
 			IntegrationRef: v1alpha1.LocalObjectReference{Name: "gh"},
 			Source:         "ghas",
@@ -72,7 +72,7 @@ func newCRDReconciler(
 func run(t *testing.T, r *FindingReconciler) {
 	t.Helper()
 	if _, err := r.Reconcile(t.Context(), ctrl.Request{
-		NamespacedName: types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1"},
+		NamespacedName: types.NamespacedName{Namespace: "maul", Name: "finding-aa-1"},
 	}); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
@@ -81,7 +81,7 @@ func run(t *testing.T, r *FindingReconciler) {
 func getFinding(t *testing.T, c client.Client) *v1alpha1.Finding {
 	t.Helper()
 	var f v1alpha1.Finding
-	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1"}, &f); err != nil {
+	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: "finding-aa-1"}, &f); err != nil {
 		t.Fatalf("Get: %v", err)
 	}
 	return &f

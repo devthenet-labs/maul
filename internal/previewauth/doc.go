@@ -72,7 +72,7 @@
 //     and CleanResponse are the proxy hygiene contract: cross-site and
 //     cross-preview requests refused but for top-level navigations, unsafe and
 //     upgrade requests held to the host's own Origin, gateway cookies and
-//     identity headers never forwarded, the pairwise X-Patchy-Viewer set, and
+//     identity headers never forwarded, the pairwise X-Maul-Viewer set, and
 //     upstream Set-Cookie, Clear-Site-Data and caching held in check.
 //
 // Nothing the ALB forwards to a preview identifies the viewer or works

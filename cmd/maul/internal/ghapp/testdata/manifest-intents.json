@@ -1,0 +1,12 @@
+{
+  "name": "maul-acme",
+  "url": "https://github.com/devthenet-labs/maul",
+  "description": "maul: intents",
+  "public": false,
+  "default_permissions": {
+    "contents": "write",
+    "issues": "write",
+    "metadata": "read",
+    "pull_requests": "write"
+  }
+}

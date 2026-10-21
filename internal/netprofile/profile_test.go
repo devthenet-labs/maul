@@ -140,7 +140,7 @@ func TestValidateRejects(t *testing.T) {
 		{"empty pattern", func(p *Profile) { p.Repositories = []string{""} }, "1-256 bytes"},
 		{"long pattern", func(p *Profile) { p.Repositories = []string{strings.Repeat("a", MaxPatternLen+1)} },
 			"1-256 bytes"},
-		{"invalid RE2", func(p *Profile) { p.Repositories = []string{"devthenet-labs/(patchy"} }, "missing closing )"},
+		{"invalid RE2", func(p *Profile) { p.Repositories = []string{"devthenet-labs/(maul"} }, "missing closing )"},
 		{"RE2 rejects backreferences", func(p *Profile) { p.Repositories = []string{`(a)\1`} }, "invalid escape"},
 		{"group breakout", func(p *Profile) { p.Repositories = []string{"x)|(.*"} }, "unexpected )"},
 		{"group breakout suffix", func(p *Profile) { p.Repositories = []string{"a)|(b"} }, "unexpected )"},
@@ -189,7 +189,7 @@ func TestValidateRejects(t *testing.T) {
 // the host. Regression for a pattern that For once matched against
 // evil/anything.
 func TestParseRejectsGroupBreakout(t *testing.T) {
-	for _, pattern := range []string{"devthenet-labs/patchy)|(.*", "x)|(.*", "a)|(b"} {
+	for _, pattern := range []string{"devthenet-labs/maul)|(.*", "x)|(.*", "a)|(b"} {
 		t.Run(pattern, func(t *testing.T) {
 			data, err := json.Marshal([]map[string]any{{
 				"name": "go", "route": "go", "port": 8090,
@@ -276,7 +276,7 @@ func TestSetIsolatedFromCaller(t *testing.T) {
 }
 
 func TestLabelKey(t *testing.T) {
-	if got := LabelKey("go"); got != "patchy.bitwisemedia.uk/network-go" {
+	if got := LabelKey("go"); got != "maul.run/network-go" {
 		t.Fatalf("LabelKey = %q", got)
 	}
 	// The longest name still gives a valid label key: a DNS prefix and a

@@ -12,12 +12,12 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/forge"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/ghsecret"
-	"github.com/bitwise-media-group/patchy/internal/integrationcap"
-	"github.com/bitwise-media-group/patchy/internal/wiz"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/forge"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/ghsecret"
+	"github.com/devthenet-labs/maul/internal/integrationcap"
+	"github.com/devthenet-labs/maul/internal/wiz"
 )
 
 // Sentinel errors for integration selection, shared with every other

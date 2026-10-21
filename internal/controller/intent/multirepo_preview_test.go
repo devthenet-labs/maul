@@ -12,16 +12,16 @@ import (
 
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/kube"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/kube"
 )
 
 // Runtime contracts of the previewed repositories: the API under /api, the
 // web page at the root.
 var (
-	appPreview = v1alpha1.ProjectPreview{ImageRepository: "registry.example/patchy/previews/app", Port: 8080,
+	appPreview = v1alpha1.ProjectPreview{ImageRepository: "registry.example/maul/previews/app", Port: 8080,
 		ReadinessPath: "/healthz"}
-	webPreview = v1alpha1.ProjectPreview{ImageRepository: "registry.example/patchy/previews/web", Port: 8081,
+	webPreview = v1alpha1.ProjectPreview{ImageRepository: "registry.example/maul/previews/web", Port: 8081,
 		ReadinessPath: "/healthz"}
 )
 
@@ -215,7 +215,7 @@ func TestOneRepositoryPreviewUnchangedByTheProjectionFlag(t *testing.T) {
 		e := newEnv(t, p)
 		e.intent.Settings.Previews = previews
 		name := e.awaiting()
-		e.gh.label(1, "patchy:approved", approver)
+		e.gh.label(1, "maul:approved", approver)
 		e.drive(name, v1alpha1.IntentInReview, repoImage)
 		e.settleActions(name)
 		in := e.get(name)

@@ -39,7 +39,7 @@ output "registry" {
 }
 
 output "agent_repository_url" {
-  description = "Agent image repository URL. .patchy/agent.yaml names `<this>:toolchain-v<N>`; tags are immutable, so a toolchain change bumps N"
+  description = "Agent image repository URL. .maul/agent.yaml names `<this>:toolchain-v<N>`; tags are immutable, so a toolchain change bumps N"
   value       = aws_ecr_repository.this["agent"].repository_url
 }
 

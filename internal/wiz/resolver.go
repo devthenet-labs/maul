@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/bitwise-media-group/patchy/internal/wizapi"
-	"github.com/bitwise-media-group/patchy/pkg/source"
+	"github.com/devthenet-labs/maul/internal/wizapi"
+	"github.com/devthenet-labs/maul/pkg/source"
 )
 
 // IssueRejecter is the slice of the Wiz API the resolver needs. wizapi.Client

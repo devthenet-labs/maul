@@ -13,7 +13,7 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// parseAgentYAML reads the declared image out of a .patchy/agent.yaml. The
+// parseAgentYAML reads the declared image out of a .maul/agent.yaml. The
 // schema is one key, image, and it fails closed: a build key has its own
 // message because it is the obvious thing to try, and any other key is
 // refused so a newer schema is never half-honoured. The file is exactly one
@@ -39,7 +39,7 @@ func parseAgentYAML(data []byte) (string, error) {
 		return "", reject("`%s` has more than one YAML document; it must be a single mapping", AgentYAMLPath)
 	}
 	if _, ok := doc["build"]; ok {
-		return "", reject("`%s` has a `build` key; patchy does not build images. Publish the image and set `image`",
+		return "", reject("`%s` has a `build` key; maul does not build images. Publish the image and set `image`",
 			AgentYAMLPath)
 	}
 	var unknown []string

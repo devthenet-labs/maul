@@ -15,9 +15,9 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/bitwise-media-group/patchy/internal/attribution"
-	"github.com/bitwise-media-group/patchy/internal/cli"
-	"github.com/bitwise-media-group/patchy/internal/credgate"
+	"github.com/devthenet-labs/maul/internal/attribution"
+	"github.com/devthenet-labs/maul/internal/cli"
+	"github.com/devthenet-labs/maul/internal/credgate"
 )
 
 // serveOpts resolves args through the real serve flag surface, as the
@@ -38,18 +38,18 @@ func serveOpts(t *testing.T, args ...string) *cli.Options {
 	return opts
 }
 
-// TestAgentEnvDefaults pins the PATCHY_* handoff every remediation pod
+// TestAgentEnvDefaults pins the MAUL_* handoff every remediation pod
 // receives with no flags set. The budgets match the ones the investigation
 // controller quotes in the analysis prompt by default; the allowlist is not
 // in it (the spawner enforces it controller-side).
 func TestAgentEnvDefaults(t *testing.T) {
 	want := map[string]string{
-		"PATCHY_REMEDIATE_TIMEOUT":             "45m0s",
-		"PATCHY_REMEDIATE_IDLE_TIMEOUT":        "20m0s",
-		"PATCHY_REMEDIATE_AUTO_MAX_TURNS":      "80",
-		"PATCHY_REMEDIATE_AUTO_TOKEN_BUDGET":   "400000",
-		"PATCHY_REMEDIATE_MANUAL_MAX_TURNS":    "240",
-		"PATCHY_REMEDIATE_MANUAL_TOKEN_BUDGET": "1200000",
+		"MAUL_REMEDIATE_TIMEOUT":             "45m0s",
+		"MAUL_REMEDIATE_IDLE_TIMEOUT":        "20m0s",
+		"MAUL_REMEDIATE_AUTO_MAX_TURNS":      "80",
+		"MAUL_REMEDIATE_AUTO_TOKEN_BUDGET":   "400000",
+		"MAUL_REMEDIATE_MANUAL_MAX_TURNS":    "240",
+		"MAUL_REMEDIATE_MANUAL_TOKEN_BUDGET": "1200000",
 	}
 	if got := agentEnv(serveOpts(t)); !maps.Equal(got, want) {
 		t.Errorf("agentEnv =\n%v\nwant\n%v", got, want)
@@ -57,17 +57,17 @@ func TestAgentEnvDefaults(t *testing.T) {
 }
 
 func TestAgentEnvFollowsFlags(t *testing.T) {
-	t.Setenv("PATCHY_REMEDIATE_TIMEOUT", "2h")
+	t.Setenv("MAUL_REMEDIATE_TIMEOUT", "2h")
 	got := agentEnv(serveOpts(t, "--remediate-idle-timeout", "0", "--remediate-auto-max-turns", "1",
 		"--remediate-auto-token-budget", "2", "--remediate-manual-max-turns", "3",
 		"--remediate-manual-token-budget", "4"))
 	want := map[string]string{
-		"PATCHY_REMEDIATE_TIMEOUT":             "2h0m0s",
-		"PATCHY_REMEDIATE_IDLE_TIMEOUT":        "0s",
-		"PATCHY_REMEDIATE_AUTO_MAX_TURNS":      "1",
-		"PATCHY_REMEDIATE_AUTO_TOKEN_BUDGET":   "2",
-		"PATCHY_REMEDIATE_MANUAL_MAX_TURNS":    "3",
-		"PATCHY_REMEDIATE_MANUAL_TOKEN_BUDGET": "4",
+		"MAUL_REMEDIATE_TIMEOUT":             "2h0m0s",
+		"MAUL_REMEDIATE_IDLE_TIMEOUT":        "0s",
+		"MAUL_REMEDIATE_AUTO_MAX_TURNS":      "1",
+		"MAUL_REMEDIATE_AUTO_TOKEN_BUDGET":   "2",
+		"MAUL_REMEDIATE_MANUAL_MAX_TURNS":    "3",
+		"MAUL_REMEDIATE_MANUAL_TOKEN_BUDGET": "4",
 	}
 	if !maps.Equal(got, want) {
 		t.Errorf("agentEnv =\n%v\nwant\n%v", got, want)
@@ -89,7 +89,7 @@ func TestServeStartupErrors(t *testing.T) {
 	}{
 		{name: "no namespace", wantErr: "namespace is required"},
 		{name: "no runner", args: []string{"--namespace", "p"}, wantErr: "no agent runner configured"},
-		{name: "namespace from the pod", env: "patchy", wantErr: "no agent runner configured"},
+		{name: "namespace from the pod", env: "maul", wantErr: "no agent runner configured"},
 		{name: "bad copilot credential env", args: []string{"--namespace", "p", "--copilot-agent-image", "c:1",
 			"--copilot-secret-env", "OPENAI_API_KEY"}, wantErr: "--copilot-secret-env"},
 		{name: "unparseable disk wall", args: with("--agent-ephemeral-storage", "big"),
@@ -123,18 +123,18 @@ func TestServeStartupErrors(t *testing.T) {
 // the chart grants no access to UsageRollups, so a loop would log a refused
 // list every hour on an install that never opted in.
 func TestUsageCompactorOnlyUnderAttribute(t *testing.T) {
-	if c := usageCompactor(nil, nil, "patchy", attribution.ModeOff, nil); c != nil {
+	if c := usageCompactor(nil, nil, "maul", attribution.ModeOff, nil); c != nil {
 		t.Errorf("mode off registers a compactor: %+v", c)
 	}
-	c := usageCompactor(nil, nil, "patchy", attribution.ModeAttribute, nil)
-	if c == nil || c.Namespace != "patchy" {
-		t.Errorf("mode attribute compactor = %+v, want one for namespace patchy", c)
+	c := usageCompactor(nil, nil, "maul", attribution.ModeAttribute, nil)
+	if c == nil || c.Namespace != "maul" {
+		t.Errorf("mode attribute compactor = %+v, want one for namespace maul", c)
 	}
 	own, err := ownSettings(serveOpts(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c := usageCompactor(nil, nil, "patchy", own.attribution, nil); c != nil {
+	if c := usageCompactor(nil, nil, "maul", own.attribution, nil); c != nil {
 		t.Errorf("the default flags (mode %q) register a compactor", own.attribution)
 	}
 	if own.credentials != credgate.ModeOff || own.accountURL != "" {
@@ -142,18 +142,18 @@ func TestUsageCompactorOnlyUnderAttribute(t *testing.T) {
 	}
 }
 
-// TestUserCredentialsFromEnv: the chart's PATCHY_USER_CREDENTIALS and
-// PATCHY_ACCOUNT_URL reach the settings; enforce without attribution stops
+// TestUserCredentialsFromEnv: the chart's MAUL_USER_CREDENTIALS and
+// MAUL_ACCOUNT_URL reach the settings; enforce without attribution stops
 // startup.
 func TestUserCredentialsFromEnv(t *testing.T) {
-	t.Setenv("PATCHY_ATTRIBUTION_MODE", "attribute")
-	t.Setenv("PATCHY_USER_CREDENTIALS", "enforce")
-	t.Setenv("PATCHY_ACCOUNT_URL", "https://status.example.com/#/account")
+	t.Setenv("MAUL_ATTRIBUTION_MODE", "attribute")
+	t.Setenv("MAUL_USER_CREDENTIALS", "enforce")
+	t.Setenv("MAUL_ACCOUNT_URL", "https://status.example.com/#/account")
 	own, err := ownSettings(serveOpts(t))
 	if err != nil || own.credentials != credgate.ModeEnforce || own.accountURL != "https://status.example.com/#/account" {
 		t.Fatalf("ownSettings = %+v, %v", own, err)
 	}
-	t.Setenv("PATCHY_ATTRIBUTION_MODE", "off")
+	t.Setenv("MAUL_ATTRIBUTION_MODE", "off")
 	if _, err := ownSettings(serveOpts(t)); err == nil {
 		t.Error("enforce without attribution started")
 	}
@@ -178,8 +178,8 @@ func TestCodexStartsUnderUserCredentials(t *testing.T) {
 			{"claude", []string{"--claude-agent-image", "claude:1", "--broker-url", broker}},
 		} {
 			t.Run(mode+" "+tc.harness, func(t *testing.T) {
-				t.Setenv("PATCHY_ATTRIBUTION_MODE", "attribute")
-				t.Setenv("PATCHY_USER_CREDENTIALS", mode)
+				t.Setenv("MAUL_ATTRIBUTION_MODE", "attribute")
+				t.Setenv("MAUL_USER_CREDENTIALS", mode)
 				fl, _, err := startupFleet(t.Context(), serveOpts(t, tc.args...), func() (kubernetes.Interface, error) {
 					return fake.NewClientset(), nil
 				})

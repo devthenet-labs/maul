@@ -14,11 +14,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	"github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/kube"
+	"github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/kube"
 )
 
-const ns = "patchy"
+const ns = "maul"
 
 func preview(name, label, uid, project string, phase v1alpha1.PreviewPhase, slot *int32) *v1alpha1.Preview {
 	return &v1alpha1.Preview{

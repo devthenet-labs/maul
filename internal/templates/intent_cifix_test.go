@@ -33,11 +33,11 @@ func TestCIFixRound(t *testing.T) {
 // Revising comment is unchanged.
 func TestFixingChecksOnlyInRevising(t *testing.T) {
 	for _, phase := range []string{"Planning", "Building", "InReview", "Blocked", "Merged"} {
-		plain, err := RenderIntentStatusComment(IntentStatusComment{Namespace: "patchy", Intent: "x-1", Phase: phase})
+		plain, err := RenderIntentStatusComment(IntentStatusComment{Namespace: "maul", Intent: "x-1", Phase: phase})
 		if err != nil {
 			t.Fatal(err)
 		}
-		fixing, err := RenderIntentStatusComment(IntentStatusComment{Namespace: "patchy", Intent: "x-1", Phase: phase,
+		fixing, err := RenderIntentStatusComment(IntentStatusComment{Namespace: "maul", Intent: "x-1", Phase: phase,
 			FixingChecks: true})
 		if err != nil {
 			t.Fatal(err)
@@ -46,7 +46,7 @@ func TestFixingChecksOnlyInRevising(t *testing.T) {
 			t.Errorf("%s: FixingChecks changed the comment:\n%s\n---\n%s", phase, plain, fixing)
 		}
 	}
-	review, err := RenderIntentStatusComment(IntentStatusComment{Namespace: "patchy", Intent: "x-1", Phase: "Revising"})
+	review, err := RenderIntentStatusComment(IntentStatusComment{Namespace: "maul", Intent: "x-1", Phase: "Revising"})
 	if err != nil {
 		t.Fatal(err)
 	}

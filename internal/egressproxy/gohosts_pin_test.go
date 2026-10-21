@@ -8,7 +8,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/netprofile"
 )
 
 // TestGoRouteHostsMatchDefaults pins netprofile.GoRouteHosts, the hosts a

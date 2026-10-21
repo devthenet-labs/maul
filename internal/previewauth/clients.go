@@ -16,17 +16,17 @@ const MaxSlots = 4
 
 // clientPrefix starts every slot's client id. The client id is public: the
 // ALB shows it to preview code in x-amzn-oidc-data anyway.
-const clientPrefix = "patchy-preview-s"
+const clientPrefix = "maul-preview-s"
 
 // clientSecretInfo separates the client-secret construction from every other
 // use of the master secret.
-const clientSecretInfo = "patchy-preview-auth/v1/client-secret"
+const clientSecretInfo = "maul-preview-auth/v1/client-secret"
 
-// ClientID is slot's ALB client id, patchy-preview-s<slot>.
+// ClientID is slot's ALB client id, maul-preview-s<slot>.
 func ClientID(slot int) string { return clientPrefix + strconv.Itoa(slot) }
 
 // ALBCookieName is slot's ALB session cookie name (the ALB appends -0,
-// -1, ... to it). It is distinct from every cookie patchy sets itself and from
+// -1, ... to it). It is distinct from every cookie maul sets itself and from
 // the ALB's default, and has no __Host- prefix because the ALB's cookie Path
 // and Domain are not documented.
 func ALBCookieName(slot int) string { return clientPrefix + strconv.Itoa(slot) }

@@ -17,22 +17,22 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/cli"
-	"github.com/bitwise-media-group/patchy/internal/egressproxy"
-	"github.com/bitwise-media-group/patchy/internal/egressproxy/awsca"
-	"github.com/bitwise-media-group/patchy/internal/egressproxy/credfile"
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/cli"
+	"github.com/devthenet-labs/maul/internal/egressproxy"
+	"github.com/devthenet-labs/maul/internal/egressproxy/awsca"
+	"github.com/devthenet-labs/maul/internal/egressproxy/credfile"
+	"github.com/devthenet-labs/maul/internal/netprofile"
 )
 
 // The registry mounts' defaults (the chart's volume paths).
 const (
-	defaultCredentialsDir = "/etc/patchy/registry-credentials"
-	defaultCADir          = "/etc/patchy/registry-ca"
+	defaultCredentialsDir = "/etc/maul/registry-credentials"
+	defaultCADir          = "/etc/maul/registry-ca"
 )
 
 // registriesEnv is the registries' environment variable as the chart
-// stamps it, read when neither --registries nor PATCHY_REGISTRIES is set.
-const registriesEnv = "PATCHY_EGRESS_REGISTRIES"
+// stamps it, read when neither --registries nor MAUL_REGISTRIES is set.
+const registriesEnv = "MAUL_EGRESS_REGISTRIES"
 
 // getenv reads the process environment; tests replace it.
 var getenv = os.Getenv

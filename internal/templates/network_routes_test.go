@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/netprofile"
 )
 
 // The grants the route fixtures describe, as a pod reads them.
@@ -208,7 +208,7 @@ func routePlanComments() (single, multi PlanComment) {
 
 // TestPlanCommentNetworkRoutes pins the dependency advice of plans whose
 // builds hold registry grants, and checks it names each build's routes and
-// policy, keeps patchy's own advice prefixes (SamePlanComment), and that
+// policy, keeps maul's own advice prefixes (SamePlanComment), and that
 // routes without grants leave step 1's advice byte-identical.
 func TestPlanCommentNetworkRoutes(t *testing.T) {
 	single, multi := routePlanComments()

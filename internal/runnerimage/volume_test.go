@@ -13,9 +13,9 @@ func TestCheckVolumes(t *testing.T) {
 	}{
 		{"nil", nil, ""},
 		{"empty", []string{}, ""},
-		{"one", []string{"/data"}, "image declares VOLUME `/data`; only patchy's emptyDirs are writable"},
+		{"one", []string{"/data"}, "image declares VOLUME `/data`; only maul's emptyDirs are writable"},
 		{"several, sorted", []string{"/var/lib/x", "/data", "/cache"},
-			"image declares VOLUME `/cache`, `/data`, `/var/lib/x`; only patchy's emptyDirs are writable"},
+			"image declares VOLUME `/cache`, `/data`, `/var/lib/x`; only maul's emptyDirs are writable"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

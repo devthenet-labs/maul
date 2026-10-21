@@ -11,7 +11,7 @@ import (
 
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/bitwise-media-group/patchy/internal/provider"
+	"github.com/devthenet-labs/maul/internal/provider"
 )
 
 // TestBudgetAnnotation: a run's cost budget rides on the Job and its pod

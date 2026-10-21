@@ -28,13 +28,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/ghas"
-	"github.com/bitwise-media-group/patchy/internal/ghsecret"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/scc"
-	"github.com/bitwise-media-group/patchy/internal/webhook"
-	"github.com/bitwise-media-group/patchy/pkg/source"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/ghas"
+	"github.com/devthenet-labs/maul/internal/ghsecret"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/scc"
+	"github.com/devthenet-labs/maul/internal/webhook"
+	"github.com/devthenet-labs/maul/pkg/source"
 )
 
 // newGitHubAPI starts an in-process fake GitHub REST API. A non-github base
@@ -63,7 +63,7 @@ func patSecret(name, token, hmacSecret string) *corev1.Secret {
 	if hmacSecret != "" {
 		data[ghsecret.KeyWebhookSecret] = []byte(hmacSecret)
 	}
-	return &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "patchy"}, Data: data}
+	return &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "maul"}, Data: data}
 }
 
 // ghIntegrationAt is a github Integration with its own Secret and an API
@@ -101,9 +101,9 @@ func newTestReceiver(c client.Client) *Receiver {
 	return &Receiver{
 		Reader:    c,
 		Creds:     NewCreds(c),
-		Ingest:    &Ingestor{Client: c, Namespace: "patchy", Window: time.Hour, Now: func() time.Time { return testClock }},
-		Signals:   &Signals{Client: c, Namespace: "patchy", Now: func() time.Time { return testClock }},
-		Namespace: "patchy",
+		Ingest:    &Ingestor{Client: c, Namespace: "maul", Window: time.Hour, Now: func() time.Time { return testClock }},
+		Signals:   &Signals{Client: c, Namespace: "maul", Now: func() time.Time { return testClock }},
+		Namespace: "maul",
 	}
 }
 
@@ -257,13 +257,13 @@ func (s stubVerifier) Verify(context.Context, string) (*webhook.IDTokenClaims, e
 }
 
 const (
-	sccAudience = "https://patchy.example/google-cloud/webhooks"
+	sccAudience = "https://maul.example/google-cloud/webhooks"
 	sccAccount  = "scc-push@acme-prod.iam.gserviceaccount.com"
 )
 
 func sccIntegration(name string) *v1alpha1.Integration {
 	return &v1alpha1.Integration{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "patchy"},
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "maul"},
 		Spec: v1alpha1.IntegrationSpec{
 			Provider: v1alpha1.IntegrationProviderGoogleCloud,
 			GoogleCloud: &v1alpha1.GoogleCloudIntegration{
@@ -385,7 +385,7 @@ func TestSCCVerifierCachedPerAudience(t *testing.T) {
 		t.Fatalf("verifiers built = %v, want one for %s", built, sccAudience)
 	}
 
-	const rotated = "https://patchy.example/rotated"
+	const rotated = "https://maul.example/rotated"
 	var live v1alpha1.Integration
 	if err := c.Get(t.Context(), client.ObjectKeyFromObject(integ), &live); err != nil {
 		t.Fatalf("get: %v", err)
@@ -452,7 +452,7 @@ func sccPush(t *testing.T, messageID string) []byte {
 		t.Fatalf("marshal notification: %v", err)
 	}
 	body, err := json.Marshal(map[string]any{
-		"subscription": "projects/acme-prod/subscriptions/patchy-scc-push",
+		"subscription": "projects/acme-prod/subscriptions/maul-scc-push",
 		"message": map[string]any{
 			"data":      base64.StdEncoding.EncodeToString(raw),
 			"messageId": messageID,

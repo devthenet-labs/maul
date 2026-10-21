@@ -21,7 +21,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 // faultPlan fails the nth API call the code under test makes (counting only
@@ -125,7 +125,7 @@ func (e *testEnv) reconcileOnce(f *faultPlan, name string) (surfaced, firedNow b
 	before := f.fired
 	f.armed = true
 	_, err := e.r.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{
-		Namespace: "patchy", Name: name}})
+		Namespace: "maul", Name: name}})
 	f.armed = false
 	firedNow = f.fired && !before
 	if err != nil && !strings.Contains(err.Error(), injected) {
@@ -141,7 +141,7 @@ func (e *testEnv) reconcileOnce(f *faultPlan, name string) (surfaced, firedNow b
 		return true, true
 	}
 	var p v1alpha1.Preview
-	if gerr := e.c.Get(context.Background(), types.NamespacedName{Namespace: "patchy", Name: name}, &p); gerr == nil &&
+	if gerr := e.c.Get(context.Background(), types.NamespacedName{Namespace: "maul", Name: name}, &p); gerr == nil &&
 		strings.Contains(p.Status.Message, injected) {
 		return true, true
 	}
@@ -157,7 +157,7 @@ func lifecycle(t *testing.T, f *faultPlan) int {
 	in, p := testPreview("demo-1", at)
 	e := newTestEnvWith(t, f.funcs(), in, p)
 	ctx := context.Background()
-	key := types.NamespacedName{Namespace: "patchy", Name: p.Name}
+	key := types.NamespacedName{Namespace: "maul", Name: p.Name}
 
 	check := func(stage string) {
 		surfaced, fired := e.reconcileOnce(f, p.Name)
@@ -211,7 +211,7 @@ func lifecycle(t *testing.T, f *faultPlan) int {
 		t.Fatalf("preview never finalized with fault on call %d", f.failN)
 	}
 	for _, list := range []client.ObjectList{&appsv1.DeploymentList{}, &corev1.ServiceList{}, &corev1.PodList{}} {
-		if err := e.c.List(ctx, list, client.InNamespace("patchy-preview-0")); err != nil {
+		if err := e.c.List(ctx, list, client.InNamespace("maul-preview-0")); err != nil {
 			t.Fatal(err)
 		}
 		if n := len(listItems(list)); n != 0 {
@@ -295,7 +295,7 @@ func TestFinalizeWithoutOwnFinalizerDoesNothing(t *testing.T) {
 func TestMissingPreviewIsNotAnError(t *testing.T) {
 	e := newTestEnv(t)
 	res, err := e.r.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{
-		Namespace: "patchy", Name: "nope"}})
+		Namespace: "maul", Name: "nope"}})
 	if err != nil || res != (ctrl.Result{}) {
 		t.Fatalf("Reconcile = %+v, %v", res, err)
 	}
@@ -355,7 +355,7 @@ func TestForeignDeploymentFailsARetry(t *testing.T) {
 	e := newTestEnv(t, in, p)
 	ctx := context.Background()
 	cur := e.untilSlot(p.Name)
-	foreign := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Namespace: "patchy-preview-0",
+	foreign := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Namespace: "maul-preview-0",
 		Name: componentName(cur, 0), Labels: map[string]string{"app": "squatter"}}}
 	if err := e.c.Create(ctx, foreign); err != nil {
 		t.Fatal(err)

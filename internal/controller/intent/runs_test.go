@@ -20,12 +20,12 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/runnerguard"
-	"github.com/bitwise-media-group/patchy/internal/transcript"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/runnerguard"
+	"github.com/devthenet-labs/maul/internal/transcript"
 )
 
 // runsOf are the Intent's runs of stage, by name.
@@ -57,12 +57,12 @@ func TestPlanRetryThenFail(t *testing.T) {
 	if prev == nil || prev.Outcome != "timeout" || prev.Detail != "ran out of time" || runs[1].Spec.Attempt != 2 {
 		t.Errorf("second attempt's previous attempt = %+v", prev)
 	}
-	if e.gh.hasLabel("patchy:target") || in.Status.CompletedAt == nil {
-		t.Errorf("failed intent: trigger label present %v, completedAt %v", e.gh.hasLabel("patchy:target"),
+	if e.gh.hasLabel("maul:target") || in.Status.CompletedAt == nil {
+		t.Errorf("failed intent: trigger label present %v, completedAt %v", e.gh.hasLabel("maul:target"),
 			in.Status.CompletedAt)
 	}
 	e.mustIntent(name) // the pass the phase write starts updates the status comment
-	st := e.gh.withMarker("patchy:intent")
+	st := e.gh.withMarker("maul:intent")
 	if len(st) != 1 || !strings.Contains(st[0].Body, "ran out of time") {
 		t.Errorf("status comment does not explain the failure: %+v", st)
 	}
@@ -83,7 +83,7 @@ func TestPlanOutsideTheProject(t *testing.T) {
 			t.Errorf("run %s = %s: %s", r.Name, r.Status.Outcome, r.Status.Detail)
 		}
 	}
-	if n := len(e.gh.withMarker("patchy:plan")); n != 0 {
+	if n := len(e.gh.withMarker("maul:plan")); n != 0 {
 		t.Errorf("an invalid plan was posted for approval (%d)", n)
 	}
 }
@@ -120,7 +120,7 @@ func TestUnofferablePlanCountsAsAFailedAttempt(t *testing.T) {
 func TestBuildNeedsAnAcceptedImage(t *testing.T) {
 	e := newEnv(t, testProject())
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentBlocked, "") // the build's repository declares nothing
 	c := meta.FindStatusCondition(in.Status.Conditions, v1alpha1.ConditionImageRequired)
 	if c == nil || c.Status != metav1.ConditionTrue || c.Reason != ReasonNoRepositoryImage {
@@ -174,7 +174,7 @@ func (e *env) stallRepositories() {
 		repo.Status.ResolvedSHA = baseSHA
 		repo.Status.Artifact = &v1alpha1.Artifact{URL: "http://artifacts/x.tar.gz", Digest: "sha256:aa"}
 		repo.Status.RunnerImage = &v1alpha1.RunnerImage{Declared: "registry.example/app:latest",
-			Manifest: ".patchy/agent.yaml", Rejected: "NotAllowlisted", Message: msg}
+			Manifest: ".maul/agent.yaml", Rejected: "NotAllowlisted", Message: msg}
 		now := metav1.NewTime(e.clock.Now())
 		repo.Status.Conditions = []metav1.Condition{
 			{Type: v1alpha1.ConditionStalled, Status: metav1.ConditionTrue,
@@ -230,7 +230,7 @@ func TestPlanRunsBesideARejectedImage(t *testing.T) {
 	}
 
 	e.clock.Advance(time.Minute)
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := drive(v1alpha1.IntentBlocked)
 	c := meta.FindStatusCondition(in.Status.Conditions, v1alpha1.ConditionImageRequired)
 	if c == nil || c.Status != metav1.ConditionTrue || c.Reason != ReasonRepositoryImageRejected {
@@ -275,7 +275,7 @@ func TestBuildOutcomeIsUntrusted(t *testing.T) {
 						Detail: "repository images are disabled"}}}}}
 			}
 			name := e.awaiting()
-			e.gh.label(1, "patchy:approved", approver)
+			e.gh.label(1, "maul:approved", approver)
 			in := e.drive(name, v1alpha1.IntentFailed, repoImage)
 			for _, pt := range in.Status.PhaseTimes {
 				if pt.Phase == v1alpha1.IntentBlocked {
@@ -302,7 +302,7 @@ func TestBuildOutcomeIsUntrusted(t *testing.T) {
 func TestImageBlocksSpendTheAttempts(t *testing.T) {
 	e := newEnv(t, testProject())
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentBlocked, "")
 	first := e.runsOf(name, v1alpha1.IntentStageBuild)[0]
 	ctx := context.Background()
@@ -355,7 +355,7 @@ func TestBuildOnlyWhereThePlanSaid(t *testing.T) {
 	if err := e.c.Update(context.Background(), &proj); err != nil {
 		t.Fatal(err)
 	}
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	e.drive(name, v1alpha1.IntentFailed, repoImage)
 	if n := len(e.runsOf(name, v1alpha1.IntentStageBuild)); n != 0 {
 		t.Errorf("build runs = %d in a repository the plan never named", n)
@@ -368,7 +368,7 @@ func TestBuildDefaultImageRan(t *testing.T) {
 	e := newEnv(t, testProject())
 	e.jobs.defaultOn = true
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentBlocked, repoImage)
 	c := meta.FindStatusCondition(in.Status.Conditions, v1alpha1.ConditionImageRequired)
 	if c == nil || c.Reason != ReasonDefaultImageRan {
@@ -392,7 +392,7 @@ func TestBuildOnDefaultImageWhenNotRequired(t *testing.T) {
 	p.Spec.RequireRepositoryImage = new(false)
 	e := newEnv(t, p)
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	e.drive(name, v1alpha1.IntentInReview, "")
 }
 
@@ -417,7 +417,7 @@ func TestOptOutLiftsAnImageBlock(t *testing.T) {
 			e := newEnv(t, testProject())
 			tt.cause(e)
 			name := e.awaiting()
-			e.gh.label(1, "patchy:approved", approver)
+			e.gh.label(1, "maul:approved", approver)
 			in := e.drive(name, v1alpha1.IntentBlocked, repoImage)
 			if c := meta.FindStatusCondition(in.Status.Conditions, v1alpha1.ConditionImageRequired); c == nil ||
 				c.Reason != tt.reason {
@@ -469,7 +469,7 @@ func TestOptOutBuildsFromAStalledRepository(t *testing.T) {
 		t.Fatalf("intent did not reach %s: phase %s, conditions %+v", want, in.Status.Phase, in.Status.Conditions)
 	}
 	drive(v1alpha1.IntentAwaitingApproval)
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	drive(v1alpha1.IntentInReview)
 	if runs := e.runsOf(name, v1alpha1.IntentStageBuild); len(runs) != 1 || runs[0].Status.Phase != v1alpha1.RunComplete {
 		t.Fatalf("build runs = %+v, want one completed attempt", runs)
@@ -490,7 +490,7 @@ func TestChangesetRejected(t *testing.T) {
 		return buildOutput(envelope.Stage{Outcome: envelope.OutcomeOK}, spec.BaseSHA, ".github/workflows/ci.yml")
 	}
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	e.drive(name, v1alpha1.IntentFailed, repoImage)
 	for _, r := range e.runsOf(name, v1alpha1.IntentStageBuild) {
 		if r.Status.Outcome != "changeset_rejected" || !strings.Contains(r.Status.Detail, ".github") {
@@ -513,7 +513,7 @@ func TestChangesetOnAnotherBase(t *testing.T) {
 		return buildOutput(envelope.Stage{Outcome: envelope.OutcomeOK}, strings.Repeat("9", 40), "a.go")
 	}
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	e.drive(name, v1alpha1.IntentFailed, repoImage)
 	if len(e.gh.commits) != 0 {
 		t.Error("a changeset on another base was pushed")
@@ -528,9 +528,9 @@ func TestChangesetOnAnotherBase(t *testing.T) {
 func TestBranchExists(t *testing.T) {
 	e := newEnv(t, testProject())
 	stale := strings.Repeat("7", 40)
-	e.gh.branches["patchy-intent/target-1"] = stale
+	e.gh.branches["maul-intent/target-1"] = stale
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentBlocked, repoImage)
 	c := meta.FindStatusCondition(in.Status.Conditions, v1alpha1.ConditionBranchConflict)
 	if c == nil || c.Status != metav1.ConditionTrue || c.Reason != ReasonBranchExists ||
@@ -545,15 +545,15 @@ func TestBranchExists(t *testing.T) {
 		t.Fatalf("phase %s, %d jobs while the branch stands; want Blocked and the plan's alone", in.Status.Phase,
 			len(e.jobs.launched()))
 	}
-	st := e.gh.withMarker("patchy:intent")
+	st := e.gh.withMarker("maul:intent")
 	if len(st) != 1 || !strings.Contains(st[0].Body, "Delete the branch") {
 		t.Errorf("the status comment does not say what lifts the block: %+v", st)
 	}
-	if got := e.gh.branches["patchy-intent/target-1"]; got != stale {
+	if got := e.gh.branches["maul-intent/target-1"]; got != stale {
 		t.Errorf("the existing branch was moved to %s", got)
 	}
 
-	delete(e.gh.branches, "patchy-intent/target-1")
+	delete(e.gh.branches, "maul-intent/target-1")
 	in = e.drive(name, v1alpha1.IntentInReview, repoImage)
 	if meta.IsStatusConditionTrue(in.Status.Conditions, v1alpha1.ConditionBranchConflict) {
 		t.Error("BranchConflict is still True")
@@ -569,16 +569,16 @@ func TestBranchExists(t *testing.T) {
 func TestBranchCreatedDuringTheBuild(t *testing.T) {
 	e := newEnv(t, testProject())
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	e.buildLaunched(name)
 	stale := strings.Repeat("7", 40)
-	e.gh.branches["patchy-intent/target-1"] = stale
+	e.gh.branches["maul-intent/target-1"] = stale
 	e.drive(name, v1alpha1.IntentBlocked, repoImage)
 	runs := e.runsOf(name, v1alpha1.IntentStageBuild)
 	if len(runs) != 1 || runs[0].Status.Outcome != OutcomeBranchExists {
 		t.Fatalf("build runs = %+v, want the one, branch_exists", runs)
 	}
-	if got := e.gh.branches["patchy-intent/target-1"]; got != stale {
+	if got := e.gh.branches["maul-intent/target-1"]; got != stale {
 		t.Errorf("the existing branch was moved to %s", got)
 	}
 }
@@ -607,7 +607,7 @@ func TestPushRefused(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			e := newEnv(t, testProject())
 			name := e.awaiting()
-			e.gh.label(1, "patchy:approved", approver)
+			e.gh.label(1, "maul:approved", approver)
 			e.gh.failNext(tt.method, tt.errs...)
 			e.tolerantDrive(name, tt.want, false)
 			runs := e.runsOf(name, v1alpha1.IntentStageBuild)
@@ -643,7 +643,7 @@ func TestLaunchRefused(t *testing.T) {
 	jobsResource := schema.GroupResource{Group: "batch", Resource: "jobs"}
 	t.Run("denied", func(t *testing.T) {
 		e := newEnv(t, testProject())
-		e.jobs.createErr = kerrors.NewForbidden(jobsResource, "patchy-x-int-a1",
+		e.jobs.createErr = kerrors.NewForbidden(jobsResource, "maul-x-int-a1",
 			errors.New(`admission webhook "jobs.example" denied the request`))
 		name := e.newIntent(approver)
 		e.tolerantDrive(name, v1alpha1.IntentFailed, false)
@@ -689,7 +689,7 @@ func TestLaunchRefused(t *testing.T) {
 func TestPushResumesFromTheRecordedCommit(t *testing.T) {
 	e := newEnv(t, testProject())
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	e.gh.failNext("CreateBranchRef", errTransient)
 	for range 30 {
 		if e.gh.calls["CreateBranchRef"] > 0 {
@@ -708,7 +708,7 @@ func TestPushResumesFromTheRecordedCommit(t *testing.T) {
 		t.Fatalf("after the failed branch create: %+v", build.Status)
 	}
 	// A crash between the ref and its record: the ref exists already.
-	e.gh.branches["patchy-intent/"+name] = build.Status.PushedCommit
+	e.gh.branches["maul-intent/"+name] = build.Status.PushedCommit
 	e.drive(name, v1alpha1.IntentInReview, repoImage)
 	if len(e.gh.commits) != 1 {
 		t.Errorf("commits = %d, want exactly one", len(e.gh.commits))
@@ -720,7 +720,7 @@ func TestPushResumesFromTheRecordedCommit(t *testing.T) {
 func TestPlanDigestCheckedAtLaunch(t *testing.T) {
 	e := newEnv(t, testProject())
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	for range 20 {
 		if len(e.runsOf(name, v1alpha1.IntentStageBuild)) > 0 {
 			break
@@ -930,7 +930,7 @@ func TestPlanRepositoryDeletedAfterAFailedDelete(t *testing.T) {
 func TestSandboxRefusalBlocks(t *testing.T) {
 	e := newEnv(t, testProject())
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	for range 20 {
 		if len(e.jobs.launched()) == 2 {
 			break
@@ -972,7 +972,7 @@ func TestBudgetExhausted(t *testing.T) {
 	p.Spec.Limits.MaxCostMicroUSD = 100000 // the plan alone costs 250000
 	e := newEnv(t, p)
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentBlocked, repoImage)
 	if !meta.IsStatusConditionTrue(in.Status.Conditions, v1alpha1.ConditionBudgetExhausted) {
 		t.Fatalf("conditions = %+v", in.Status.Conditions)
@@ -1137,7 +1137,7 @@ func TestEndedIntentAbortsItsRun(t *testing.T) {
 	for job := range e.jobs.specs {
 		e.jobs.status[job] = jobs.Status{Active: 1}
 	}
-	e.gh.comment(approver, "/patchy cancel")
+	e.gh.comment(approver, "/maul cancel")
 	e.clock.Advance(time.Minute)
 	e.mustIntent(name)
 	if in := e.get(name); in.Status.Phase != v1alpha1.IntentClosed {
@@ -1180,7 +1180,7 @@ func TestSuspendHoldsThePush(t *testing.T) {
 			e := newEnv(t, testProject())
 			ctx := context.Background()
 			name := e.awaiting()
-			e.gh.label(1, "patchy:approved", approver)
+			e.gh.label(1, "maul:approved", approver)
 			if afterCommit {
 				e.gh.failNext("CreateBranchRef", errTransient)
 			}
@@ -1287,7 +1287,7 @@ func TestHeldBuildFreesItsSlot(t *testing.T) {
 	}
 	ctx := context.Background()
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	build := e.buildLaunched(name)
 	e.suspend(name, true)
 	before := e.jobs.results
@@ -1352,7 +1352,7 @@ func TestHeldBuildLostToItsJobTTL(t *testing.T) {
 	}
 	ctx := context.Background()
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	build := e.buildLaunched(name)
 	e.suspend(name, true)
 	if _, err := e.runs.Reconcile(ctx, req(build.Name)); err != nil {
@@ -1404,7 +1404,7 @@ func TestEndedIntentPushesNothing(t *testing.T) {
 			e := newEnv(t, testProject())
 			ctx := context.Background()
 			name := e.awaiting()
-			e.gh.label(1, "patchy:approved", approver)
+			e.gh.label(1, "maul:approved", approver)
 			if afterCommit {
 				e.gh.failNext("CreateBranchRef", errTransient)
 			}
@@ -1433,7 +1433,7 @@ func TestEndedIntentPushesNothing(t *testing.T) {
 			if !reached() {
 				t.Fatal("the build never reached the point to cancel at")
 			}
-			e.gh.comment(approver, "/patchy cancel")
+			e.gh.comment(approver, "/maul cancel")
 			for range 5 {
 				if e.get(name).Status.Phase == v1alpha1.IntentClosed {
 					break
@@ -1469,22 +1469,22 @@ func TestEndedIntentPushesNothing(t *testing.T) {
 }
 
 // TestPullRequestAdoption: an open pull request from the intent branch is
-// adopted only when patchy opened it (a pass that failed after opening it),
+// adopted only when maul opened it (a pass that failed after opening it),
 // into the default branch, from the repository itself. Anyone can open one
 // from an existing branch of a public repository, with any body (a closing
 // keyword aimed at a Finding's tracking issue included): such a pull request
 // is never recorded or linked, the intent blocks on BranchConflict without
-// opening its own beside it, and resumes, opening patchy's own, once it is
+// opening its own beside it, and resumes, opening maul's own, once it is
 // closed. One into another base does not stand in the way.
 func TestPullRequestAdoption(t *testing.T) {
 	for _, tt := range []struct {
 		name  string
 		found fakePR
-		// adopted: the found pull request is taken as patchy's; blocked: the
+		// adopted: the found pull request is taken as maul's; blocked: the
 		// intent blocks on it.
 		adopted, blocked bool
 	}{
-		{name: "patchy's own, left by a failed pass", adopted: true,
+		{name: "maul's own, left by a failed pass", adopted: true,
 			found: fakePR{author: testBot, base: "main", headRepo: "acme/app"}},
 		{name: "an outsider's", blocked: true,
 			found: fakePR{author: "mallory", base: "main", headRepo: "acme/app", body: "Fixes #3"}},
@@ -1496,10 +1496,10 @@ func TestPullRequestAdoption(t *testing.T) {
 			e := newEnv(t, testProject())
 			name := e.awaiting()
 			found := tt.found
-			found.head, found.url = "patchy-intent/"+name, appRepoURL+"/pull/1"
+			found.head, found.url = "maul-intent/"+name, appRepoURL+"/pull/1"
 			found.pr = ghclient.PullRequest{Number: 1, State: "open", NodeID: "PR_1"}
 			e.gh.prs[1] = &found
-			e.gh.label(1, "patchy:approved", approver)
+			e.gh.label(1, "maul:approved", approver)
 			if tt.blocked {
 				in := e.drive(name, v1alpha1.IntentBlocked, repoImage)
 				c := meta.FindStatusCondition(in.Status.Conditions, v1alpha1.ConditionBranchConflict)
@@ -1525,13 +1525,13 @@ func TestPullRequestAdoption(t *testing.T) {
 			rec := in.Status.PullRequests[0]
 			if tt.adopted {
 				if rec.Number != 1 || e.gh.calls["CreatePullRequest"] != 0 {
-					t.Errorf("recorded #%d after %d creates, want patchy's own #1 adopted", rec.Number,
+					t.Errorf("recorded #%d after %d creates, want maul's own #1 adopted", rec.Number,
 						e.gh.calls["CreatePullRequest"])
 				}
 				return
 			}
 			if rec.Number == 1 || e.gh.prs[rec.Number].author != testBot || e.gh.prs[rec.Number].base != "main" {
-				t.Errorf("recorded #%d, want patchy's own, opened into main", rec.Number)
+				t.Errorf("recorded #%d, want maul's own, opened into main", rec.Number)
 			}
 		})
 	}
@@ -1543,7 +1543,7 @@ func TestDeletedBranchBlocksBeforePullRequest(t *testing.T) {
 	branch := branchName(name)
 	e.gh.prs[1] = &fakePR{head: branch, url: appRepoURL + "/pull/1", author: "mallory",
 		base: "main", headRepo: "acme/app", pr: ghclient.PullRequest{Number: 1, State: "open", NodeID: "PR_1"}}
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	e.drive(name, v1alpha1.IntentBlocked, repoImage)
 	e.gh.mu.Lock()
 	pushed := e.gh.branches[branch]
@@ -1581,7 +1581,7 @@ func TestMovedBranchBlocksBeforePullRequest(t *testing.T) {
 	branch := branchName(name)
 	e.gh.prs[1] = &fakePR{head: branch, url: appRepoURL + "/pull/1", author: "mallory",
 		base: "main", headRepo: "acme/app", pr: ghclient.PullRequest{Number: 1, State: "open", NodeID: "PR_1"}}
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	e.drive(name, v1alpha1.IntentBlocked, repoImage)
 	e.gh.mu.Lock()
 	pushed := e.gh.branches[branch]
@@ -1613,7 +1613,7 @@ func TestMovedBranchBlocksBeforePullRequest(t *testing.T) {
 func TestPullRequestRefusalBlocksUntilProjectChanges(t *testing.T) {
 	e := newEnv(t, testProject())
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	e.gh.failNext("CreatePullRequest", ghError(http.StatusForbidden, "Resource not accessible by integration"))
 	for range 30 {
 		_ = e.reconcileIntent(name)
@@ -1652,7 +1652,7 @@ func TestEndedIntentKeepsWhatThePushRecorded(t *testing.T) {
 	e := newEnv(t, testProject())
 	ctx := context.Background()
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	e.gh.failNext("CreateBranchRef", errTransient)
 	for range 30 {
 		if runs := e.runsOf(name, v1alpha1.IntentStageBuild); len(runs) > 0 && runs[0].Status.PushedCommit != "" {
@@ -1670,7 +1670,7 @@ func TestEndedIntentKeepsWhatThePushRecorded(t *testing.T) {
 	if build.Status.PushedCommit == "" || build.Status.Report == "" {
 		t.Fatalf("build = %+v, want its commit and report recorded", build.Status)
 	}
-	e.gh.comment(approver, "/patchy cancel")
+	e.gh.comment(approver, "/maul cancel")
 	for range 5 {
 		if e.get(name).Status.Phase == v1alpha1.IntentClosed {
 			break
@@ -1694,7 +1694,7 @@ func TestEndedIntentKeepsWhatThePushRecorded(t *testing.T) {
 func TestTransientPRFailureRetries(t *testing.T) {
 	e := newEnv(t, testProject())
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	e.gh.failNext("CreatePullRequest", errTransient)
 	for range 40 {
 		if e.get(name).Status.Phase == v1alpha1.IntentInReview {
@@ -1716,7 +1716,7 @@ func TestTransientPRFailureRetries(t *testing.T) {
 func TestPullRequestPollHonoursTheRateFloor(t *testing.T) {
 	e := newEnv(t, testProject())
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	e.drive(name, v1alpha1.IntentInReview, repoImage)
 	e.gh.closePR(true)
 	e.gh.remaining = 10
@@ -1745,7 +1745,7 @@ func TestAppRepositoryRateFloor(t *testing.T) {
 		t.Run(map[bool]string{false: "issue open", true: "issue closed by a human"}[closed], func(t *testing.T) {
 			e := newEnv(t, testProject())
 			name := e.awaiting()
-			e.gh.label(1, "patchy:approved", approver)
+			e.gh.label(1, "maul:approved", approver)
 			e.drive(name, v1alpha1.IntentInReview, repoImage)
 			e.gh.closePR(true)
 			if closed {
@@ -1776,7 +1776,7 @@ func TestAppRepositoryRateFloor(t *testing.T) {
 func TestBlockedBuildHonoursTheAppRepositoryFloor(t *testing.T) {
 	e := newEnv(t, testProject())
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	e.drive(name, v1alpha1.IntentBlocked, "") // the build's repository declares nothing
 	e.settleActions(name)
 	low := 10
@@ -1810,7 +1810,7 @@ func TestEveryConfigMapIsSelected(t *testing.T) {
 		return out
 	}
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	e.drive(name, v1alpha1.IntentInReview, repoImage)
 	var list corev1.ConfigMapList
 	if err := e.c.List(context.Background(), &list, client.InNamespace(testNS)); err != nil {
@@ -1830,7 +1830,7 @@ func TestEveryConfigMapIsSelected(t *testing.T) {
 	if len(kinds) != 4 {
 		t.Errorf("configmaps %v: want a snapshot, a plan, run inputs and transcripts", kinds)
 	}
-	if ConfigMapSelector().Matches(labels.Set{"patchy.bitwisemedia.uk/finding": "f"}) {
+	if ConfigMapSelector().Matches(labels.Set{"maul.run/finding": "f"}) {
 		t.Error("a Finding transcript's labels are selected")
 	}
 	var repos v1alpha1.RepositoryList
@@ -1855,7 +1855,7 @@ func TestEveryConfigMapIsSelected(t *testing.T) {
 func TestClosedPullRequestClosesTheIntent(t *testing.T) {
 	e := newEnv(t, testProject())
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	e.drive(name, v1alpha1.IntentInReview, repoImage)
 	e.gh.closePR(false)
 	in := e.drive(name, v1alpha1.IntentClosed, repoImage)

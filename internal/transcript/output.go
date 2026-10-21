@@ -15,7 +15,7 @@ import (
 // persisted. It has its own prefix rather than a turn kind so that it spends
 // none of the recorder's turn and byte caps, and so that the controller,
 // which persists every turn line it reads, never stores it.
-const OutputPrefix = "PATCHY-OUTPUT: "
+const OutputPrefix = "MAUL-OUTPUT: "
 
 // OutputVersion is the current output chunk schema version.
 const OutputVersion = 1

@@ -45,7 +45,7 @@ func lagging(lag int) (client.Client, map[string]int) {
 
 func reviews() []authorizationv1.SubjectAccessReviewSpec {
 	return Verbs("alice@acme.test", nil, authorizationv1.ResourceAttributes{
-		Namespace: "patchy", Group: "patchy.bitwisemedia.uk", Resource: "integrations",
+		Namespace: "maul", Group: "maul.run", Resource: "integrations",
 	}, "get", "update", "backfill")
 }
 
@@ -71,7 +71,7 @@ func TestWaitAllowedIsBounded(t *testing.T) {
 	if err == nil {
 		t.Fatal("waitAllowed returned nil for a review that is never allowed")
 	}
-	if !strings.Contains(err.Error(), `may get integrations.patchy.bitwisemedia.uk`) {
+	if !strings.Contains(err.Error(), `may get integrations.maul.run`) {
 		t.Errorf("error does not name the refused review: %v", err)
 	}
 }

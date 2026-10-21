@@ -1,14 +1,14 @@
 # Create the GitHub App
 
-Patchy authenticates as a GitHub App: the controllers mint short-lived, single-repository installation tokens for every
+Maul authenticates as a GitHub App: the controllers mint short-lived, single-repository installation tokens for every
 operation instead of holding a long-lived personal access token. One App serves the whole stack (though you may split
 read and write identities across two Apps — one per custom resource — later; the `Integration`'s App then still needs
 Contents read, see [its credentials](../integrations/sources/github.md#credentials)).
 
 !!! tip "Let the CLI register it"
 
-    `patchy setup github-app` registers the App from a manifest holding exactly the permissions and events below for
-    the features you choose, and writes the `patchy-github` Secret manifest with its credentials. See
+    `maul setup github-app` registers the App from a manifest holding exactly the permissions and events below for
+    the features you choose, and writes the `maul-github` Secret manifest with its credentials. See
     [Creating the GitHub App](../cli.md#creating-the-github-app); the steps below are the same thing by hand.
 
 ## Register the App
@@ -16,7 +16,7 @@ Contents read, see [its credentials](../integrations/sources/github.md#credentia
 Go to **Settings → Developer settings → GitHub Apps → New GitHub App** (on your organization, not your user account) and
 fill in:
 
-- **GitHub App name** — e.g. `patchy`.
+- **GitHub App name** — e.g. `maul`.
 - **Homepage URL** — anything; the repository URL works.
 - **Webhook → Active** — checked. The webhook URL and secret come below.
 
@@ -40,7 +40,7 @@ It needs no webhook event, because it polls GitHub, and these permissions:
 | Repository                     | Permission          | Access       | Why                                                                             |
 | ------------------------------ | ------------------- | ------------ | ------------------------------------------------------------------------------- |
 | The intent repository          | **Issues**          | Read & write | Read intent issues and their events; post the plan and status; label, close     |
-| Each app repository            | **Contents**        | Read & write | Push the `patchy-intent/…` branch                                               |
+| Each app repository            | **Contents**        | Read & write | Push the `maul-intent/…` branch                                                 |
 | Each app repository            | **Pull requests**   | Read & write | Open the pull request; read its reviews and conversation                        |
 | Each app repository            | **Issues**          | Read         | Check a reviewer's or commenter's permission; read the rate budget              |
 | With `spec.checks.fix`         | **Checks**          | Read         | Find the failed check runs and read their annotations                           |
@@ -56,7 +56,7 @@ it, Actions is the one permission at read and write rather than read. Weigh it b
 narrower grant, so Actions write lets the App re-run, cancel and dispatch workflows, and delete workflow runs and their
 logs and artifacts, on every repository the App is installed on, not only the app repositories a Project lists.
 intent-controller makes one Actions write call (re-run the failed jobs of a run behind a failed named check, once per
-head patchy pushed), with a token minted for that call on that repository alone, but the installation itself holds the
+head maul pushed), with a token minted for that call on that repository alone, but the installation itself holds the
 wider grant. A Project reports `Ready` only once the App holds every grant it needs (each is proven by minting a token
 with it), and `AppNotInstalled` names the first one missing. A Project that is not `Ready` picks up no new intents;
 intents already in flight keep running, and with `spec.checks.rerunFailed` set but no Actions write, their re-run
@@ -65,18 +65,18 @@ requests are refused and fall back to a CI-fix round at once.
 To turn re-runs on for an existing App, raise its **Actions** permission from Read to **Read & write** in the App's
 settings (Permissions & events), approve the change on each installation (GitHub asks the installation's owner to accept
 a widened permission), then set `checks.rerunFailed: true` on the Project. An App created with
-`patchy setup github-app --intents --checks --rerun-failed` holds it from the start.
+`maul setup github-app --intents --checks --rerun-failed` holds it from the start.
 
 ## Webhook events
 
 Subscribe to these four events:
 
-| Event                 | Purpose                                                                 |
-| --------------------- | ----------------------------------------------------------------------- |
-| `code_scanning_alert` | New findings arrive and accumulate into `Finding` resources             |
-| `issues`              | Human signals on the tracking issue — close hands off, reopen revives   |
-| `issue_comment`       | `/patchy` commands on tracking issues, such as a held finding's approve |
-| `pull_request`        | Close the loop when the remediation PR merges (or closes unmerged)      |
+| Event                 | Purpose                                                               |
+| --------------------- | --------------------------------------------------------------------- |
+| `code_scanning_alert` | New findings arrive and accumulate into `Finding` resources           |
+| `issues`              | Human signals on the tracking issue — close hands off, reopen revives |
+| `issue_comment`       | `/maul` commands on tracking issues, such as a held finding's approve |
+| `pull_request`        | Close the loop when the remediation PR merges (or closes unmerged)    |
 
 All four are consumed by the **integration-controller** — the only webhook receiver in the system. Pipeline progress
 itself is not webhook-driven: the reconcile loops carry it, and the webhook path is ingestion and human-in-the-loop
@@ -84,11 +84,11 @@ signals.
 
 ## The webhook URL
 
-A GitHub App has exactly **one** webhook URL. Point it at the integration-controller — the only patchy component exposed
+A GitHub App has exactly **one** webhook URL. Point it at the integration-controller — the only maul component exposed
 to the internet:
 
 ```text
-https://patchy.example.com/github/webhooks
+https://maul.example.com/github/webhooks
 ```
 
 The integration-controller validates each delivery against the webhook secrets of your configured `Integration`
@@ -98,7 +98,7 @@ managed-platform (EKS, AKS, GKE) notes.
 
 ## Collect the credentials
 
-Three values leave this page and become one [Kubernetes Secret](install.md#create-the-secrets), `patchy-github`:
+Three values leave this page and become one [Kubernetes Secret](install.md#create-the-secrets), `maul-github`:
 
 1. **Webhook secret** — generate one now and paste it into the App's **Webhook secret** field:
 
@@ -116,9 +116,8 @@ If the referencing `Forge`/`Integration` will name a forward proxy that requires
 
 ## Install the App
 
-Finally, **Install App** on your organization and select the repositories patchy should watch (the ones with code
-scanning enabled). The controllers resolve the installation per repository automatically — no installation ID needs
-configuring.
+Finally, **Install App** on your organization and select the repositories maul should watch (the ones with code scanning
+enabled). The controllers resolve the installation per repository automatically — no installation ID needs configuring.
 
 !!! info "GitHub Enterprise Server"
 

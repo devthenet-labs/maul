@@ -5,7 +5,7 @@ package source
 
 import "context"
 
-// Repo identifies a repository by owner and name. Patchy's only forge family
+// Repo identifies a repository by owner and name. Maul's only forge family
 // is GitHub today, so a bare owner/name pair is unambiguous; a source that
 // needs to name a host uses RepositoryRef instead.
 type Repo struct {
@@ -161,7 +161,7 @@ type AlertRef struct {
 
 // Resolver is the optional write-back capability of a source: recording the
 // pipeline's triage verdict against the originating tool, so the finding does
-// not sit open there after patchy has closed it here. GHAS dismisses the
+// not sit open there after maul has closed it here. GHAS dismisses the
 // code-scanning alert; Security Command Center mutes the finding.
 //
 // It is deliberately separate from Handler. A source that only reads is a

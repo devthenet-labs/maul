@@ -24,7 +24,7 @@ const (
 	EventPullRequest       = "pull_request"
 )
 
-// Feature is one part of patchy a GitHub App can be registered for.
+// Feature is one part of maul a GitHub App can be registered for.
 type Feature string
 
 const (
@@ -54,7 +54,7 @@ func Features() []Feature {
 
 // Needs is what a GitHub App must hold to serve a feature, or a set of
 // them: repository permissions, one grant per permission sorted by name,
-// and the webhook events it delivers to patchy, sorted.
+// and the webhook events it delivers to maul, sorted.
 type Needs struct {
 	Grants []Grant
 	Events []string

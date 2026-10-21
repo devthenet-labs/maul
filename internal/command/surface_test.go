@@ -13,8 +13,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bitwise-media-group/patchy/internal/action"
-	"github.com/bitwise-media-group/patchy/internal/command"
+	"github.com/devthenet-labs/maul/internal/action"
+	"github.com/devthenet-labs/maul/internal/command"
 )
 
 // TestAvailable pins the design's table of which verbs apply where. A Finding
@@ -80,18 +80,18 @@ func TestHelp(t *testing.T) {
 		want    string
 	}{
 		{command.FindingIssue, intro +
-			"- `/patchy approve [note]`: release the hold on this finding, or revive it after it was handed off\n" +
-			"- `/patchy retry`: retry this finding from the state it failed in\n" +
-			"- `/patchy expedite`: skip the accumulation window, the minimum age and the queue\n" +
-			"- `/patchy suspend`: pause this finding's progress through the pipeline\n" +
-			"- `/patchy resume`: resume this finding after a suspend"},
+			"- `/maul approve [note]`: release the hold on this finding, or revive it after it was handed off\n" +
+			"- `/maul retry`: retry this finding from the state it failed in\n" +
+			"- `/maul expedite`: skip the accumulation window, the minimum age and the queue\n" +
+			"- `/maul suspend`: pause this finding's progress through the pipeline\n" +
+			"- `/maul resume`: resume this finding after a suspend"},
 		{command.IntentIssue, intro +
-			"- `/patchy approve`: approve the posted plan and start the build\n" +
-			"- `/patchy replan [note]`: plan again, taking the note and approvers' comments since the last plan into account\n" +
-			"- `/patchy cancel`: stop work on this intent and close it; open pull requests are left to you"},
+			"- `/maul approve`: approve the posted plan and start the build\n" +
+			"- `/maul replan [note]`: plan again, taking the note and approvers' comments since the last plan into account\n" +
+			"- `/maul cancel`: stop work on this intent and close it; open pull requests are left to you"},
 		{command.IntentPR, intro +
-			"- `/patchy revise [note]`: start a revision round from your review feedback and the note\n" +
-			"- `/patchy retry`: retry the round that failed"},
+			"- `/maul revise [note]`: start a revision round from your review feedback and the note\n" +
+			"- `/maul retry`: retry the round that failed"},
 		{"pull-request", ""},
 	}
 	for _, tc := range cases {
@@ -114,16 +114,16 @@ func TestHelpFor(t *testing.T) {
 		want    string
 	}{
 		{"a held finding", command.FindingIssue, []string{action.VerbApprove, action.VerbSuspend}, intro +
-			"- `/patchy approve [note]`: release the hold on this finding, or revive it after it was handed off\n" +
-			"- `/patchy suspend`: pause this finding's progress through the pipeline"},
+			"- `/maul approve [note]`: release the hold on this finding, or revive it after it was handed off\n" +
+			"- `/maul suspend`: pause this finding's progress through the pipeline"},
 		{"the surface's order, not the caller's", command.IntentIssue,
 			[]string{action.VerbCancel, action.VerbReplan}, intro +
-				"- `/patchy replan [note]`: plan again, taking the note and approvers' comments since the last plan " +
+				"- `/maul replan [note]`: plan again, taking the note and approvers' comments since the last plan " +
 				"into account\n" +
-				"- `/patchy cancel`: stop work on this intent and close it; open pull requests are left to you"},
+				"- `/maul cancel`: stop work on this intent and close it; open pull requests are left to you"},
 		{"verbs the surface does not offer are ignored", command.IntentPR,
 			[]string{action.VerbExpedite, action.VerbRetry, "bogus"}, intro +
-				"- `/patchy retry`: retry the round that failed"},
+				"- `/maul retry`: retry the round that failed"},
 		{"nothing admitted", command.FindingIssue, nil, ""},
 		{"nothing the surface offers", command.IntentPR, []string{action.VerbApprove}, ""},
 		{"an unknown surface", "pull-request", []string{action.VerbApprove}, ""},
@@ -205,7 +205,7 @@ func TestPureImports(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const allowed = "github.com/bitwise-media-group/patchy/internal/action"
+	const allowed = "github.com/devthenet-labs/maul/internal/action"
 	fset := token.NewFileSet()
 	for _, name := range files {
 		if strings.HasSuffix(name, "_test.go") {

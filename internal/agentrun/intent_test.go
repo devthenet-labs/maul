@@ -16,11 +16,11 @@ import (
 	"testing/quick"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/harness"
-	"github.com/bitwise-media-group/patchy/internal/report"
-	"github.com/bitwise-media-group/patchy/internal/runner"
-	"github.com/bitwise-media-group/patchy/internal/transcript"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/harness"
+	"github.com/devthenet-labs/maul/internal/report"
+	"github.com/devthenet-labs/maul/internal/runner"
+	"github.com/devthenet-labs/maul/internal/transcript"
 )
 
 const goodPlan = `---
@@ -194,7 +194,7 @@ func TestPlanRunsReadOnly(t *testing.T) {
 	if !strings.Contains(prompt, "Write your report to `"+filepath.Join(ws, "reports", "plan.md")+"`") {
 		t.Errorf("the prompt does not name the plan report:\n%s", prompt)
 	}
-	if !slices.Contains(fx.specs[0].Env, "ANTHROPIC_CUSTOM_HEADERS=X-Patchy-Broker-Token: caller-token") {
+	if !slices.Contains(fx.specs[0].Env, "ANTHROPIC_CUSTOM_HEADERS=X-Maul-Broker-Token: caller-token") {
 		t.Errorf("env = %q, want the broker caller token", fx.specs[0].Env)
 	}
 }
@@ -496,8 +496,8 @@ func TestBuildPackagesChangeset(t *testing.T) {
 	if rem.ReportMarkdown != goodBuild {
 		t.Errorf("ReportMarkdown mutated:\n%s", rem.ReportMarkdown)
 	}
-	// The controller names the pushed branch (patchy-intent/<intent>); the
-	// pod's local patchy/ branch must never be offered as one.
+	// The controller names the pushed branch (maul-intent/<intent>); the
+	// pod's local maul/ branch must never be offered as one.
 	if rem.Branch != "" || rem.Confidence != 0 {
 		t.Errorf("build reported branch %q, confidence %v; want neither", rem.Branch, rem.Confidence)
 	}
@@ -568,8 +568,8 @@ func TestBuildRunsOnTheGrant(t *testing.T) {
 }
 
 // TestIntentStageTimeouts pins the one channel a stage's time limit has into
-// the pod: plan runs on PATCHY_INVESTIGATE_TIMEOUT and build — a first build
-// or a revise round — on PATCHY_REMEDIATE_TIMEOUT. No per-Job timeout
+// the pod: plan runs on MAUL_INVESTIGATE_TIMEOUT and build — a first build
+// or a revise round — on MAUL_REMEDIATE_TIMEOUT. No per-Job timeout
 // exists, so the intent controller gives each stage its limit through the
 // Env of the jobs Client it launches that stage with.
 func TestIntentStageTimeouts(t *testing.T) {
@@ -824,16 +824,16 @@ func countTurns(out string) int {
 
 func TestFromEnvIntentPhases(t *testing.T) {
 	for _, phase := range []Phase{PhasePlan, PhaseBuild} {
-		env := map[string]string{"PATCHY_REPO": "acme/shop", "PATCHY_FINDING": "run-1", "PATCHY_PHASE": string(phase)}
+		env := map[string]string{"MAUL_REPO": "acme/shop", "MAUL_FINDING": "run-1", "MAUL_PHASE": string(phase)}
 		cfg, err := FromEnv(func(k string) string { return env[k] })
 		if err != nil || cfg.Phase != phase {
 			t.Errorf("FromEnv(%s) = %v, %v; want the phase accepted", phase, cfg.Phase, err)
 		}
 	}
-	env := map[string]string{"PATCHY_REPO": "acme/shop", "PATCHY_FINDING": "run-1", "PATCHY_PHASE": "revise"}
+	env := map[string]string{"MAUL_REPO": "acme/shop", "MAUL_FINDING": "run-1", "MAUL_PHASE": "revise"}
 	_, err := FromEnv(func(k string) string { return env[k] })
 	if err == nil || !strings.Contains(err.Error(),
-		`PATCHY_PHASE="revise" is not "investigate", "remediate", "plan" or "build"`) {
+		`MAUL_PHASE="revise" is not "investigate", "remediate", "plan" or "build"`) {
 		t.Errorf("FromEnv(revise) error = %v, want the phase refused by name", err)
 	}
 }

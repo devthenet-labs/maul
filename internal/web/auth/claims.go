@@ -67,7 +67,7 @@ func mapClaims(claims map[string]any, cfg ClaimsConfig) (*Identity, error) {
 // when the federated:id scope is requested): the upstream user id when the
 // connector is the configured GitHub one and the id is a positive decimal
 // int64 without a sign or leading zeros, else 0. Any other connector (LDAP,
-// another OIDC provider) names someone patchy cannot tie to a GitHub
+// another OIDC provider) names someone maul cannot tie to a GitHub
 // account, and an empty connector setting matches nothing. The connector
 // must not set useLoginAsID: user_id is then the login, which MapClaims
 // refuses when it reads as an id (it equals preferred_username).

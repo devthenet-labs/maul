@@ -13,7 +13,7 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 func TestStageDeltaFrom(t *testing.T) {
@@ -226,12 +226,12 @@ func TestRecordMetrics(t *testing.T) {
 	ctx := context.Background()
 	repo := "acme/" + t.Name() // deltas below keep -count=N exact
 	before := map[string]float64{
-		"runs":    sumOf(t, "patchy.stage.runs", map[string]string{"repo": repo}),
-		"cost":    sumOf(t, "patchy.stage.cost", map[string]string{"repo": repo}),
-		"input":   sumOf(t, "patchy.stage.tokens", map[string]string{"stage": "metrics-test", "class": "input"}),
-		"cache":   sumOf(t, "patchy.stage.tokens", map[string]string{"stage": "metrics-test", "class": "cache_read"}),
-		"done":    sumOf(t, "patchy.finding.completed", map[string]string{"repo": repo, "phase": "remediated"}),
-		"deleted": sumOf(t, "patchy.finding.deleted", map[string]string{"reason": "ttl"}),
+		"runs":    sumOf(t, "maul.stage.runs", map[string]string{"repo": repo}),
+		"cost":    sumOf(t, "maul.stage.cost", map[string]string{"repo": repo}),
+		"input":   sumOf(t, "maul.stage.tokens", map[string]string{"stage": "metrics-test", "class": "input"}),
+		"cache":   sumOf(t, "maul.stage.tokens", map[string]string{"stage": "metrics-test", "class": "cache_read"}),
+		"done":    sumOf(t, "maul.finding.completed", map[string]string{"repo": repo, "phase": "remediated"}),
+		"deleted": sumOf(t, "maul.finding.deleted", map[string]string{"reason": "ttl"}),
 	}
 	RecordStage(ctx, StageDelta{
 		Stage: "metrics-test", Harness: "claude", Model: "m", Outcome: "ok",
@@ -245,12 +245,12 @@ func TestRecordMetrics(t *testing.T) {
 		attrs     map[string]string
 		delta     float64
 	}{
-		{"runs", "patchy.stage.runs", map[string]string{"repo": repo}, 1},
-		{"cost", "patchy.stage.cost", map[string]string{"repo": repo}, 1.5},
-		{"input", "patchy.stage.tokens", map[string]string{"stage": "metrics-test", "class": "input"}, 10},
-		{"cache", "patchy.stage.tokens", map[string]string{"stage": "metrics-test", "class": "cache_read"}, 0},
-		{"done", "patchy.finding.completed", map[string]string{"repo": repo, "phase": "remediated"}, 1},
-		{"deleted", "patchy.finding.deleted", map[string]string{"reason": "ttl"}, 1},
+		{"runs", "maul.stage.runs", map[string]string{"repo": repo}, 1},
+		{"cost", "maul.stage.cost", map[string]string{"repo": repo}, 1.5},
+		{"input", "maul.stage.tokens", map[string]string{"stage": "metrics-test", "class": "input"}, 10},
+		{"cache", "maul.stage.tokens", map[string]string{"stage": "metrics-test", "class": "cache_read"}, 0},
+		{"done", "maul.finding.completed", map[string]string{"repo": repo, "phase": "remediated"}, 1},
+		{"deleted", "maul.finding.deleted", map[string]string{"reason": "ttl"}, 1},
 	}
 	for _, c := range checks {
 		if got := sumOf(t, c.name, c.attrs) - before[c.key]; got != c.delta {

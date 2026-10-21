@@ -14,10 +14,10 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/e2e/fakegithub"
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/e2e/fakegithub"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/jobs"
 )
 
 // The registry profile tests run the job controllers as the chart would
@@ -26,7 +26,7 @@ import (
 // an allowlist. As with step 1's tests, envtest enforces no NetworkPolicy
 // and runs no proxy, so these prove what the Jobs carry and what the
 // controllers refuse.
-const registryLabel = "patchy.bitwisemedia.uk/network-web"
+const registryLabel = "maul.run/network-web"
 
 // registryProfilesFor is the profile set's JSON, its one profile matching
 // owner/name on 127.0.0.1, with the hosts the chart renders into each
@@ -65,9 +65,9 @@ var wantRegistryEnv = map[string]string{
 	"PIP_NO_INPUT":                     "1",
 	"PIP_DISABLE_PIP_VERSION_CHECK":    "1",
 	"PIP_CACHE_DIR":                    "/tmp/pip-cache",
-	"PATCHY_NETWORK_PROFILE":           "web",
-	"PATCHY_NETWORK_ECOSYSTEMS":        "npm,pypi",
-	"PATCHY_NETWORK_GRANTS": `[{"registry":"art-npm","ecosystem":"npm","anyPackage":true},` +
+	"MAUL_NETWORK_PROFILE":             "web",
+	"MAUL_NETWORK_ECOSYSTEMS":          "npm,pypi",
+	"MAUL_NETWORK_GRANTS": `[{"registry":"art-npm","ecosystem":"npm","anyPackage":true},` +
 		`{"registry":"art-pypi","ecosystem":"pypi","packages":["six","requests"]}]`,
 }
 
@@ -121,8 +121,8 @@ func checkRegistryJob(t *testing.T, job batchv1.Job, want bool) {
 func TestIntentRegistryProfile(t *testing.T) {
 	e := startIntents(t, append([]string{"--broker-url", "http://localhost:8080"},
 		registryProfileArgs(intentOwner+"/"+appRepo)...)...)
-	e.kubelet.setAgentEnv("PATCHY_FAKE_BUILD_EXTRA_PATH", "requirements.txt")
-	e.kubelet.setAgentEnv("PATCHY_FAKE_BUILD_EXTRA_CONTENT", "--index-url http://localhost:8091/r/art-pypi/simple/")
+	e.kubelet.setAgentEnv("MAUL_FAKE_BUILD_EXTRA_PATH", "requirements.txt")
+	e.kubelet.setAgentEnv("MAUL_FAKE_BUILD_EXTRA_CONTENT", "--index-url http://localhost:8091/r/art-pypi/simple/")
 
 	number, name := e.fileIntent(t)
 	planJob := e.kubelet.waitRun(t, "the plan job to run", phaseIs("plan"))
@@ -223,7 +223,7 @@ func TestRemediationRegistryProfile(t *testing.T) {
 		return cl.client.Get(ctx, key, &repo) == nil && repo.Status.Artifact != nil
 	})
 	repo.Status.RunnerImage = &v1alpha1.RunnerImage{Declared: "registry.example/acme/web-env:1",
-		Manifest: ".patchy/agent.yaml", Verified: true, SearchPath: "/usr/local/bin:/usr/bin:/bin",
+		Manifest: ".maul/agent.yaml", Verified: true, SearchPath: "/usr/local/bin:/usr/bin:/bin",
 		Image: "registry.example/acme/web-env@sha256:" + strings.Repeat("cd", 32)}
 	if err := cl.client.Status().Update(ctx, &repo); err != nil {
 		t.Fatal(err)
@@ -231,7 +231,7 @@ func TestRemediationRegistryProfile(t *testing.T) {
 
 	cl.controller(t, "remediation-controller", append([]string{
 		"--repository-images", "--agent-ephemeral-storage", "1Gi",
-		"--claude-agent-image", "patchy/claude-agent-runner:e2e", "--broker-url", "http://localhost:8080"},
+		"--claude-agent-image", "maul/claude-agent-runner:e2e", "--broker-url", "http://localhost:8080"},
 		registryProfileArgs("acme/web")...)...)
 
 	var rem v1alpha1.Remediation

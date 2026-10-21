@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/netprofile"
 )
 
 const (
@@ -47,7 +47,7 @@ func pyRig(t *testing.T, reg, files http.HandlerFunc, mod func(*netprofile.Grant
 	up := w.host(pyHost, reg)
 	fh := w.host(fileHost, files)
 	creds := newFakeCreds()
-	c, err := BasicCredential("patchy", sentinel)
+	c, err := BasicCredential("maul", sentinel)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,14 +66,14 @@ func (h *regHarness) py(t *testing.T, path string) result {
 	return h.do(t, "py", http.MethodGet, path, nil)
 }
 
-var basicAuth = "Basic " + base64.StdEncoding.EncodeToString([]byte("patchy:"+sentinel))
+var basicAuth = "Basic " + base64.StdEncoding.EncodeToString([]byte("maul:"+sentinel))
 
 // TestPyPIPage: a simple page is fetched with the credential and
 // text/html, and regenerated: links into the proxy only, the bad ones
 // dropped and counted, no upstream host left in the body.
 func TestPyPIPage(t *testing.T) {
 	testMetrics()
-	before := sum(t, "patchy.egress_proxy.index.links", map[string]string{"registry": "nexus-pypi",
+	before := sum(t, "maul.egress_proxy.index.links", map[string]string{"registry": "nexus-pypi",
 		"result": "dropped"})
 	h, up, _ := pyRig(t, okBody(sixPage), okBody("file"), func(g *netprofile.Grant) {
 		g.PackagePolicy, g.Packages = "", []string{"six"}
@@ -106,7 +106,7 @@ func TestPyPIPage(t *testing.T) {
 		l["dropped_links"] != float64(4) {
 		t.Errorf("page audit line = %v", l)
 	}
-	if got := sum(t, "patchy.egress_proxy.index.links", map[string]string{"registry": "nexus-pypi",
+	if got := sum(t, "maul.egress_proxy.index.links", map[string]string{"registry": "nexus-pypi",
 		"result": "dropped"}) - before; got != 4 {
 		t.Errorf("dropped links counter grew by %d, want 4", got)
 	}

@@ -12,8 +12,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/attribution"
+	"github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/attribution"
 )
 
 // TestAttributedToAnnotation: a value rides on the Job and its pod template
@@ -71,7 +71,7 @@ func TestEvalAttributedToAnnotation(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CreateEval: %v", err)
 		}
-		job, err := cs.BatchV1().Jobs("patchy-agents").Get(context.Background(), name, metav1.GetOptions{})
+		job, err := cs.BatchV1().Jobs("maul-agents").Get(context.Background(), name, metav1.GetOptions{})
 		if err != nil {
 			t.Fatalf("get job: %v", err)
 		}

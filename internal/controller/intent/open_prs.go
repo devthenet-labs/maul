@@ -13,9 +13,9 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/templates"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // openCandidate is another intent's pull request recorded open in one of
@@ -35,7 +35,7 @@ type openCandidate struct {
 // repositories, which are the repositories any plan of it may change, read
 // from GitHub as it is now: its title, how many files it changes and the
 // first of them. Only the Project's own intents are read: a Project is
-// patchy's boundary of who sees what, and its plan is posted to its own
+// maul's boundary of who sees what, and its plan is posted to its own
 // intent repository. At most templates.OpenPullRequestsMax are read, the
 // longest-open intent's first.
 //
@@ -43,7 +43,7 @@ type openCandidate struct {
 // other failure to read one, the rate budget under its floor included,
 // leaves the whole list out, with a log line, rather than failing the plan
 // or telling it of only some: the list helps a plan avoid a conflict, and
-// a plan made without it is the plan patchy made before it existed. ""
+// a plan made without it is the plan maul made before it existed. ""
 // for none.
 func (p *pass) otherOpenPullRequests(ctx context.Context) string {
 	omit := func(why string, err error, attrs ...slog.Attr) string {

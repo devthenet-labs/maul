@@ -18,7 +18,7 @@ For the operator's path (Dex, viewers, the two-stage rollout, rotation, rollback
 browser            preview ALB (slot s)                 preview-auth                     Dex (GitHub)
   GET https://demo-1.<suffix>/
                    no session cookie: 302 to
-                   <relay>/authorize?client_id=patchy-preview-s<s>
+                   <relay>/authorize?client_id=maul-preview-s<s>
                      &redirect_uri=https://demo-1.<suffix>/oauth2/idpresponse
   ---------------------------------------------------> 1. the Preview at label demo-1:
                                                           live, in slot s, its Project
@@ -34,7 +34,7 @@ browser            preview ALB (slot s)                 preview-auth            
                                                           ledger), the Preview and the
                                                           access review checked again
                    GET <relay>/userinfo ----------------> 7. {"sub": "<pairwise>"} only
-                   session cookie patchy-preview-s<s>-0..
+                   session cookie maul-preview-s<s>-0..
   the app, with x-amzn-oidc-* headers holding only the pairwise sub and an opaque access token
 ```
 
@@ -94,11 +94,11 @@ to 8 KiB, repeated parameters are refused, and requests are rate-limited per sou
 
 ## Cookies
 
-| Cookie                        | Host        | Attributes                                          | Holds                                                                      |
-| ----------------------------- | ----------- | --------------------------------------------------- | -------------------------------------------------------------------------- |
-| `__Host-patchy-pa`            | the relay   | Secure, HttpOnly, `Path=/`, `SameSite=Lax`, session | The sealed relay session: the mapped identity and its expiry               |
-| `__Host-patchy-pa-login-<h>`  | the relay   | as above, 5 minutes                                 | The sign-in double-submit value; one per sign-in, so two tabs do not clash |
-| `patchy-preview-s<slot>-0`... | the preview | set by the ALB                                      | The ALB's encrypted session                                                |
+| Cookie                      | Host        | Attributes                                          | Holds                                                                      |
+| --------------------------- | ----------- | --------------------------------------------------- | -------------------------------------------------------------------------- |
+| `__Host-maul-pa`            | the relay   | Secure, HttpOnly, `Path=/`, `SameSite=Lax`, session | The sealed relay session: the mapped identity and its expiry               |
+| `__Host-maul-pa-login-<h>`  | the relay   | as above, 5 minutes                                 | The sign-in double-submit value; one per sign-in, so two tabs do not clash |
+| `maul-preview-s<slot>-0`... | the preview | set by the ALB                                      | The ALB's encrypted session                                                |
 
 The ALB's cookie names carry no `__Host-` prefix on purpose: their Path and Domain are the ALB's, and a browser silently
 drops a `__Host-` cookie with a Domain, which would loop the sign-in.
@@ -106,10 +106,10 @@ drops a `__Host-` cookie with a Domain, which would loop the sign-in.
 ## Who may view
 
 The relay asks the API server a SubjectAccessReview for `get` on the virtual subresource `projects/previews`
-(`patchy.bitwisemedia.uk`), named for the Preview's `spec.project`, in the release namespace, as the viewer: the Dex
-username with `--preview-auth-username-prefix` and every group with `--preview-auth-groups-prefix`. Both prefixes are
-required, so a viewer binding can never match a cluster identity of the same name. An answer is cached for
-`--preview-auth-review-ttl` (20s) per viewer, Project and subresource.
+(`maul.run`), named for the Preview's `spec.project`, in the release namespace, as the viewer: the Dex username with
+`--preview-auth-username-prefix` and every group with `--preview-auth-groups-prefix`. Both prefixes are required, so a
+viewer binding can never match a cluster identity of the same name. An answer is cached for `--preview-auth-review-ttl`
+(20s) per viewer, Project and subresource.
 
 The chart renders the `<fullname>-preview-viewer` ClusterRole (that one rule) and binds `previewAuth.viewers` to it in
 the release namespace, which grants every Project. A per-Project grant is a Role with `resourceNames` beside it; the
@@ -137,8 +137,8 @@ Least privilege, all rendered by the chart:
 - create on `subjectaccessreviews`;
 - get and update on one Lease (`<fullname>-preview-auth-codes`), by name: the single-use code ledger, updated with a
   compare-and-swap on its resourceVersion, at most 5 retries, capped at 512 entries;
-- nothing in the slot namespaces, no write to any patchy resource, and no Secret through the API: the keys Secret and
-  the Dex client secret are mounted.
+- nothing in the slot namespaces, no write to any maul resource, and no Secret through the API: the keys Secret and the
+  Dex client secret are mounted.
 
 ## The preview gateway (off by default)
 
@@ -154,20 +154,20 @@ below). For the operator's path (platform recipes, moving an EKS install off the
 browser                          preview-auth (gateway)                            Dex
   GET https://demo-1.<suffix>/x
   <-- no host session, a top-level navigation:
-      state cookie __Host-patchy-pv-state-<h>, 302 to
+      state cookie __Host-maul-pv-state-<h>, 302 to
       https://<sign-in host>/start?h=demo-1&s=<sealed state>
   GET /start --------------------> the Preview at demo-1 is live and the same one;
                                    no relay session: 302 to Dex -----------------> sign in (once per
   GET /dex/callback -------------> relay session set <-----------------------------  browser session)
                                    access review: get projects/previews, <Project>
-  <-- 302 https://demo-1.<suffix>/.patchy/callback?code=<handoff code>
-  GET /.patchy/callback ---------> the state cookie matches the code, the Preview is
+  <-- 302 https://demo-1.<suffix>/.maul/callback?code=<handoff code>
+  GET /.maul/callback ---------> the state cookie matches the code, the Preview is
                                    the same, the review passes again, the code is
                                    spent once (Lease ledger)
-  <-- host session __Host-patchy-pv (15 minutes), 302 to https://demo-1.<suffix>/x
+  <-- host session __Host-maul-pv (15 minutes), 302 to https://demo-1.<suffix>/x
   GET /x ------------------------> session, origin rule, Preview and review re-checked
                                    (cached 20s); proxied to the route status.serving
-                                   names: http://<service>.patchy-preview-<slot>.svc:<port>
+                                   names: http://<service>.maul-preview-<slot>.svc:<port>
 ```
 
 A handoff code that reaches a preview host without the state cookie it names (a browser that did not start that sign-in)
@@ -185,17 +185,16 @@ What the gateway holds every proxied request to (each rule is pinned by a seeded
 - **Host.** Exactly `<label>.<suffix>` (lowercase, no trailing dot, `:443` at most); `X-Forwarded-Host` is never read.
   Every redirect back to a preview host is built from its label, so its host is always the requesting host's; a return
   path must start with exactly one `/`, not followed by `/` or `\`, with no control characters.
-- **Reserved prefix.** `/.patchy/` is the gateway's on every preview host and never forwarded; `/.patchy/healthz`
-  answers `200` on any host, for the edge's health check.
+- **Reserved prefix.** `/.maul/` is the gateway's on every preview host and never forwarded; `/.maul/healthz` answers
+  `200` on any host, for the edge's health check.
 - **Origin.** `Sec-Fetch-Site: same-site` or `cross-site` is refused unless it is a top-level navigation; every upgrade
   (WebSocket) and every method but GET and HEAD must carry exactly `Origin: https://<label>.<suffix>`. Every preview
   host is same-site with every other, so this, not `SameSite`, closes cross-preview CSRF and WebSocket hijacking.
-- **Identity.** Every gateway and relay cookie (`patchy-pv*`, `patchy-pa*`, however cased or prefixed) and every inbound
-  identity or forwarding header (`X-Patchy-*`, `X-Forwarded-*`, `Forwarded`, `X-Amzn-Oidc-*`, `X-Auth-Request-*`, ...)
-  is dropped, with `_` read as `-` (`X_Forwarded_For` too: CGI-style servers fold the two). The gateway sets
-  `X-Patchy-Viewer: <pairwise sub>` (stable for one viewer on one Preview, unrelated across Previews),
-  `X-Forwarded-For`, `-Proto` and `-Host`, and nothing else about the viewer. The app's own `Authorization` passes
-  untouched.
+- **Identity.** Every gateway and relay cookie (`maul-pv*`, `maul-pa*`, however cased or prefixed) and every inbound
+  identity or forwarding header (`X-Maul-*`, `X-Forwarded-*`, `Forwarded`, `X-Amzn-Oidc-*`, `X-Auth-Request-*`, ...) is
+  dropped, with `_` read as `-` (`X_Forwarded_For` too: CGI-style servers fold the two). The gateway sets
+  `X-Maul-Viewer: <pairwise sub>` (stable for one viewer on one Preview, unrelated across Previews), `X-Forwarded-For`,
+  `-Proto` and `-Host`, and nothing else about the viewer. The app's own `Authorization` passes untouched.
 - **Responses.** A `Set-Cookie` naming a gateway cookie is dropped (a preview can neither shadow nor delete the
   session); `Clear-Site-Data`, `Access-Control-Allow-Credentials` and `Service-Worker-Allowed` are removed;
   `Cache-Control` loses `public` and `s-maxage` and gains `private` (and `no-store` on a status other than 2xx and 304);
@@ -226,22 +225,22 @@ host, `/authorize`, `/start` and `/dex/callback` refuse a request from another s
 (`Sec-Fetch-Site` `same-site` or `cross-site` without `Sec-Fetch-Mode: navigate` and `Sec-Fetch-Dest: document`) with a
 `403` page.
 
-| Cookie                       | Host             | Attributes                                         | Holds                                                                               |
-| ---------------------------- | ---------------- | -------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `__Host-patchy-pv-state-<h>` | the preview host | Secure, HttpOnly, `Path=/`, `SameSite=Lax`, 10 min | A sign-in's random value, whose hash the sealed state and so the handoff code carry |
-| `__Host-patchy-pv`           | the preview host | as above, the host session's lifetime              | The sealed host session: the binding, the identity and the pairwise sub             |
-| `__Host-patchy-pa-login-<h>` | the sign-in host | as above, 5 minutes                                | The Dex double-submit value, as for the ALB path                                    |
+| Cookie                     | Host             | Attributes                                         | Holds                                                                               |
+| -------------------------- | ---------------- | -------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `__Host-maul-pv-state-<h>` | the preview host | Secure, HttpOnly, `Path=/`, `SameSite=Lax`, 10 min | A sign-in's random value, whose hash the sealed state and so the handoff code carry |
+| `__Host-maul-pv`           | the preview host | as above, the host session's lifetime              | The sealed host session: the binding, the identity and the pairwise sub             |
+| `__Host-maul-pa-login-<h>` | the sign-in host | as above, 5 minutes                                | The Dex double-submit value, as for the ALB path                                    |
 
 ### In the chart
 
 `previewAuth.gateway` (off by default, and it needs `previewAuth.enabled`) sets `--preview-auth-gateway` and its flags
 on the relay's Pods, and with it on:
 
-- **Pods.** The relay's Pods carry `patchy.bitwisemedia.uk/preview-gateway: "true"`, a label of their own (never the
-  chart's selector labels). The slot NetworkPolicy admits Pods that are in the release namespace **and** carry it, on
-  port `http` only, beside the legacy ALB's subnets; the relay's own NetworkPolicy gains egress to the slots' port
-  `http` and nothing else there. Slot DNS then allows both the DNS address (`preview.dnsCIDR` or `clusterDNSCIDR`) and
-  the kube-system resolver Pods.
+- **Pods.** The relay's Pods carry `maul.run/preview-gateway: "true"`, a label of their own (never the chart's selector
+  labels). The slot NetworkPolicy admits Pods that are in the release namespace **and** carry it, on port `http` only,
+  beside the legacy ALB's subnets; the relay's own NetworkPolicy gains egress to the slots' port `http` and nothing else
+  there. Slot DNS then allows both the DNS address (`preview.dnsCIDR` or `clusterDNSCIDR`) and the kube-system resolver
+  Pods.
 - **Service.** `<fullname>-preview-gateway`, port 80 to the gateway's own listener (`gateway`, 8082,
   `--preview-auth-gateway-listen-addr`), is what every exposure points at. That listener (and the TLS one) rate limit
   everything behind the gateway's `forwardedHops`, the relay's own endpoints included: an exposure that does not filter
@@ -251,7 +250,7 @@ on the relay's Pods, and with it on:
 - **Exposure**, at most one; each routes `*.<preview.hostSuffix>` and the sign-in host when it is not `previewAuth.host`
   (whose own Ingress already routes it):
   - `ingress.enabled`: one Ingress (`className`, empty for the edge class; `annotations` over the chart's ALB settings:
-    target type `ip` and the health check `/.patchy/healthz`); `tls` is the Ingress's own (the edge terminates TLS).
+    target type `ip` and the health check `/.maul/healthz`); `tls` is the Ingress's own (the edge terminates TLS).
   - `httpRoute.parentRefs`: one HTTPRoute on your Gateway, whose listener terminates TLS.
   - `service.type: LoadBalancer`: the Service itself, with `inboundCIDRs` as its `loadBalancerSourceRanges` and
     `externalTrafficPolicy: Local` (`service.externalTrafficPolicy`), so the gateway's peer is the client: under
@@ -269,8 +268,8 @@ on the relay's Pods, and with it on:
   ALB's `inbound-cidrs` only on an ALB of the gateway's own, since on a shared one it restricts every Ingress in the
   group) and checked again by the gateway. Where the edge does not hold it, the install NOTES say so.
 - **`publishedAddresses`** records where the wildcard record should point (a tailnet or LAN address, a tunnel's
-  hostname) as the relay ConfigMap's `patchy.bitwisemedia.uk/preview-gateway-published-addresses` annotation; nothing
-  routes by it. `patchy check project` compares the preview host's DNS with it, before the exposure's own address.
+  hostname) as the relay ConfigMap's `maul.run/preview-gateway-published-addresses` annotation; nothing routes by it.
+  `maul check project` compares the preview host's DNS with it, before the exposure's own address.
 - **`tls.secrets`** (`[{secretName, hosts}]`, `kubernetes.io/tls` Secrets in the release namespace) lets the gateway
   terminate TLS itself, for the LoadBalancer exposure or none: each Secret is projected into its own subdirectory of
   `--preview-auth-gateway-tls-dir`, served on 8443 behind the Service's 443 and picked by SNI, and a renewal is picked
@@ -287,51 +286,51 @@ once the record has moved, `preview.legacyIngress: false` retires the slot Ingre
 
 ## Flags
 
-As everywhere, each flag is also the matching `PATCHY_*` environment variable (`--preview-auth-issuer` is
-`PATCHY_PREVIEW_AUTH_ISSUER`). Beside the [shared flags](index.md#shared-flags-every-controller):
+As everywhere, each flag is also the matching `MAUL_*` environment variable (`--preview-auth-issuer` is
+`MAUL_PREVIEW_AUTH_ISSUER`). Beside the [shared flags](index.md#shared-flags-every-controller):
 
-| Flag                                             | Default                         | Purpose                                                                                                                                                                                                                                                                                                        |
-| ------------------------------------------------ | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--preview-auth-issuer`                          | (required)                      | `https://<relay host>`, no path                                                                                                                                                                                                                                                                                |
-| `--preview-auth-host-suffix`                     | (required)                      | The preview host suffix; codes go only to `https://<label>.<suffix>/oauth2/idpresponse`                                                                                                                                                                                                                        |
-| `--preview-auth-slot-count`                      | `2`                             | The preview slots, one ALB client (`patchy-preview-s<n>`) each                                                                                                                                                                                                                                                 |
-| `--preview-auth-keys-dir`                        | `/etc/patchy/preview-auth/keys` | The mounted keys Secret: `master`, `generation`, `signingKey`, and during a rotation `previousMaster`, `previousGeneration`, `previousSigningKey`                                                                                                                                                              |
-| `--preview-auth-dex-issuer-url`                  | (required)                      | Dex's issuer (https)                                                                                                                                                                                                                                                                                           |
-| `--preview-auth-dex-client-id`                   | (required)                      | The relay's static client at Dex                                                                                                                                                                                                                                                                               |
-| `--preview-auth-dex-client-secret-file`          | (required)                      | The mounted file holding that client's secret                                                                                                                                                                                                                                                                  |
-| `--preview-auth-dex-ca-file`                     | —                               | PEM certificates trusted for Dex beside the system roots (a Dex behind a private CA)                                                                                                                                                                                                                           |
-| `--preview-auth-username-claim`                  | `preferred_username`            | The ID-token claim the access review runs for (`email` needs `--preview-auth-require-verified-email`)                                                                                                                                                                                                          |
-| `--preview-auth-groups-claim`                    | `groups`                        | The ID-token claim holding the viewer's groups                                                                                                                                                                                                                                                                 |
-| `--preview-auth-username-prefix`                 | (required)                      | Prepended to the username in access reviews                                                                                                                                                                                                                                                                    |
-| `--preview-auth-groups-prefix`                   | (required)                      | Prepended to every group in access reviews                                                                                                                                                                                                                                                                     |
-| `--preview-auth-require-verified-email`          | `false`                         | Refuse an ID token whose `email_verified` is not true                                                                                                                                                                                                                                                          |
-| `--preview-auth-code-ttl`                        | `1m`                            | Authorization code lifetime                                                                                                                                                                                                                                                                                    |
-| `--preview-auth-access-token-ttl`                | `10m`                           | Access and ID token lifetime, and every token response's `expires_in`                                                                                                                                                                                                                                          |
-| `--preview-auth-login-ttl`                       | `5m`                            | How long a sign-in through Dex may take                                                                                                                                                                                                                                                                        |
-| `--preview-auth-session-max-age`                 | `12h`                           | The relay session's lifetime, and so every refresh token's                                                                                                                                                                                                                                                     |
-| `--preview-auth-review-ttl`                      | `20s`                           | How long one access review's answer is cached                                                                                                                                                                                                                                                                  |
-| `--preview-auth-ledger-lease`                    | (required)                      | The Lease the code ledger lives on                                                                                                                                                                                                                                                                             |
-| `--preview-auth-rate-per-second`                 | `5`                             | Per-source-address request rate; `0` disables the limit                                                                                                                                                                                                                                                        |
-| `--preview-auth-rate-burst`                      | `30`                            | Per-source-address burst                                                                                                                                                                                                                                                                                       |
-| `--preview-auth-forwarded-hops`                  | `0`                             | Proxies appending to `X-Forwarded-For` in front of the relay; the chart sets `1` behind the edge ALB                                                                                                                                                                                                           |
-| `--preview-auth-probe-interval`                  | `1m`                            | How often every Ready preview host is probed without credentials; `0` disables the probe                                                                                                                                                                                                                       |
-| `--preview-auth-probe-timeout`                   | (built in)                      | One host probe's timeout                                                                                                                                                                                                                                                                                       |
-| `--preview-auth-probe-mode`                      | derived                         | Which path the probe expects: `alb` (the ALB's redirect to the relay), `either` (release N's migration) or `gateway` (the gateway's redirect, and its `404` for a host no Preview owns). Empty is `alb` without the gateway and `either` with it; the chart sets `gateway` with `preview.legacyIngress: false` |
-| `--preview-auth-gateway`                         | `false`                         | Serve the preview gateway beside the relay; none of the flags below is read without it                                                                                                                                                                                                                         |
-| `--preview-auth-gateway-sign-in-host`            | the issuer's host               | The gateway's sign-in host; another host needs its own `/dex/callback` registered at Dex                                                                                                                                                                                                                       |
-| `--preview-auth-gateway-forwarded-hops`          | `0`                             | Proxies appending to `X-Forwarded-For` in front of the gateway's edge; no default per exposure                                                                                                                                                                                                                 |
-| `--preview-auth-gateway-inbound-cidrs`           | —                               | Comma-separated client CIDRs preview hosts admit, after the forwarded hops; a second layer behind the edge's allowlist                                                                                                                                                                                         |
-| `--preview-auth-gateway-body-limit`              | `33554432`                      | The largest proxied request body, in bytes (32 MiB)                                                                                                                                                                                                                                                            |
-| `--preview-auth-gateway-dial-timeout`            | `5s`                            | Dial timeout to a preview's Service                                                                                                                                                                                                                                                                            |
-| `--preview-auth-gateway-response-header-timeout` | `1m0s`                          | How long a preview may take to start answering                                                                                                                                                                                                                                                                 |
-| `--preview-auth-gateway-idle-timeout`            | `1m30s`                         | Idle keep-alive connection lifetime to previews                                                                                                                                                                                                                                                                |
-| `--preview-auth-gateway-session-timeout`         | `15m`                           | A preview host session's absolute lifetime                                                                                                                                                                                                                                                                     |
-| `--preview-auth-gateway-state-ttl`               | `10m`                           | How long a preview host's sign-in may take                                                                                                                                                                                                                                                                     |
-| `--preview-auth-gateway-handoff-ttl`             | `1m`                            | A handoff code's lifetime (codes are also single-use)                                                                                                                                                                                                                                                          |
-| `--preview-auth-gateway-hsts`                    | `false`                         | Add `Strict-Transport-Security` to proxied responses                                                                                                                                                                                                                                                           |
-| `--preview-auth-gateway-tls-dir`                 | `""`                            | A directory of `kubernetes.io/tls` pairs (a subdirectory each) the gateway serves TLS with itself, by SNI, re-read every 30s; it must cover the sign-in host and `*.<suffix>`. Empty: plain HTTP only                                                                                                          |
-| `--preview-auth-gateway-listen-addr`             | `:8082`                         | The gateway's own plain listener, which its exposure targets; the relay's endpoints there are rate limited behind the gateway's forwarded hops                                                                                                                                                                 |
-| `--preview-auth-gateway-tls-listen-addr`         | `:8443`                         | The TLS listener's address                                                                                                                                                                                                                                                                                     |
+| Flag                                             | Default                       | Purpose                                                                                                                                                                                                                                                                                                        |
+| ------------------------------------------------ | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--preview-auth-issuer`                          | (required)                    | `https://<relay host>`, no path                                                                                                                                                                                                                                                                                |
+| `--preview-auth-host-suffix`                     | (required)                    | The preview host suffix; codes go only to `https://<label>.<suffix>/oauth2/idpresponse`                                                                                                                                                                                                                        |
+| `--preview-auth-slot-count`                      | `2`                           | The preview slots, one ALB client (`maul-preview-s<n>`) each                                                                                                                                                                                                                                                   |
+| `--preview-auth-keys-dir`                        | `/etc/maul/preview-auth/keys` | The mounted keys Secret: `master`, `generation`, `signingKey`, and during a rotation `previousMaster`, `previousGeneration`, `previousSigningKey`                                                                                                                                                              |
+| `--preview-auth-dex-issuer-url`                  | (required)                    | Dex's issuer (https)                                                                                                                                                                                                                                                                                           |
+| `--preview-auth-dex-client-id`                   | (required)                    | The relay's static client at Dex                                                                                                                                                                                                                                                                               |
+| `--preview-auth-dex-client-secret-file`          | (required)                    | The mounted file holding that client's secret                                                                                                                                                                                                                                                                  |
+| `--preview-auth-dex-ca-file`                     | —                             | PEM certificates trusted for Dex beside the system roots (a Dex behind a private CA)                                                                                                                                                                                                                           |
+| `--preview-auth-username-claim`                  | `preferred_username`          | The ID-token claim the access review runs for (`email` needs `--preview-auth-require-verified-email`)                                                                                                                                                                                                          |
+| `--preview-auth-groups-claim`                    | `groups`                      | The ID-token claim holding the viewer's groups                                                                                                                                                                                                                                                                 |
+| `--preview-auth-username-prefix`                 | (required)                    | Prepended to the username in access reviews                                                                                                                                                                                                                                                                    |
+| `--preview-auth-groups-prefix`                   | (required)                    | Prepended to every group in access reviews                                                                                                                                                                                                                                                                     |
+| `--preview-auth-require-verified-email`          | `false`                       | Refuse an ID token whose `email_verified` is not true                                                                                                                                                                                                                                                          |
+| `--preview-auth-code-ttl`                        | `1m`                          | Authorization code lifetime                                                                                                                                                                                                                                                                                    |
+| `--preview-auth-access-token-ttl`                | `10m`                         | Access and ID token lifetime, and every token response's `expires_in`                                                                                                                                                                                                                                          |
+| `--preview-auth-login-ttl`                       | `5m`                          | How long a sign-in through Dex may take                                                                                                                                                                                                                                                                        |
+| `--preview-auth-session-max-age`                 | `12h`                         | The relay session's lifetime, and so every refresh token's                                                                                                                                                                                                                                                     |
+| `--preview-auth-review-ttl`                      | `20s`                         | How long one access review's answer is cached                                                                                                                                                                                                                                                                  |
+| `--preview-auth-ledger-lease`                    | (required)                    | The Lease the code ledger lives on                                                                                                                                                                                                                                                                             |
+| `--preview-auth-rate-per-second`                 | `5`                           | Per-source-address request rate; `0` disables the limit                                                                                                                                                                                                                                                        |
+| `--preview-auth-rate-burst`                      | `30`                          | Per-source-address burst                                                                                                                                                                                                                                                                                       |
+| `--preview-auth-forwarded-hops`                  | `0`                           | Proxies appending to `X-Forwarded-For` in front of the relay; the chart sets `1` behind the edge ALB                                                                                                                                                                                                           |
+| `--preview-auth-probe-interval`                  | `1m`                          | How often every Ready preview host is probed without credentials; `0` disables the probe                                                                                                                                                                                                                       |
+| `--preview-auth-probe-timeout`                   | (built in)                    | One host probe's timeout                                                                                                                                                                                                                                                                                       |
+| `--preview-auth-probe-mode`                      | derived                       | Which path the probe expects: `alb` (the ALB's redirect to the relay), `either` (release N's migration) or `gateway` (the gateway's redirect, and its `404` for a host no Preview owns). Empty is `alb` without the gateway and `either` with it; the chart sets `gateway` with `preview.legacyIngress: false` |
+| `--preview-auth-gateway`                         | `false`                       | Serve the preview gateway beside the relay; none of the flags below is read without it                                                                                                                                                                                                                         |
+| `--preview-auth-gateway-sign-in-host`            | the issuer's host             | The gateway's sign-in host; another host needs its own `/dex/callback` registered at Dex                                                                                                                                                                                                                       |
+| `--preview-auth-gateway-forwarded-hops`          | `0`                           | Proxies appending to `X-Forwarded-For` in front of the gateway's edge; no default per exposure                                                                                                                                                                                                                 |
+| `--preview-auth-gateway-inbound-cidrs`           | —                             | Comma-separated client CIDRs preview hosts admit, after the forwarded hops; a second layer behind the edge's allowlist                                                                                                                                                                                         |
+| `--preview-auth-gateway-body-limit`              | `33554432`                    | The largest proxied request body, in bytes (32 MiB)                                                                                                                                                                                                                                                            |
+| `--preview-auth-gateway-dial-timeout`            | `5s`                          | Dial timeout to a preview's Service                                                                                                                                                                                                                                                                            |
+| `--preview-auth-gateway-response-header-timeout` | `1m0s`                        | How long a preview may take to start answering                                                                                                                                                                                                                                                                 |
+| `--preview-auth-gateway-idle-timeout`            | `1m30s`                       | Idle keep-alive connection lifetime to previews                                                                                                                                                                                                                                                                |
+| `--preview-auth-gateway-session-timeout`         | `15m`                         | A preview host session's absolute lifetime                                                                                                                                                                                                                                                                     |
+| `--preview-auth-gateway-state-ttl`               | `10m`                         | How long a preview host's sign-in may take                                                                                                                                                                                                                                                                     |
+| `--preview-auth-gateway-handoff-ttl`             | `1m`                          | A handoff code's lifetime (codes are also single-use)                                                                                                                                                                                                                                                          |
+| `--preview-auth-gateway-hsts`                    | `false`                       | Add `Strict-Transport-Security` to proxied responses                                                                                                                                                                                                                                                           |
+| `--preview-auth-gateway-tls-dir`                 | `""`                          | A directory of `kubernetes.io/tls` pairs (a subdirectory each) the gateway serves TLS with itself, by SNI, re-read every 30s; it must cover the sign-in host and `*.<suffix>`. Empty: plain HTTP only                                                                                                          |
+| `--preview-auth-gateway-listen-addr`             | `:8082`                       | The gateway's own plain listener, which its exposure targets; the relay's endpoints there are rate limited behind the gateway's forwarded hops                                                                                                                                                                 |
+| `--preview-auth-gateway-tls-listen-addr`         | `:8443`                       | The TLS listener's address                                                                                                                                                                                                                                                                                     |
 
 The chart sets all of these from `previewAuth` (`previewAuth.config.extra` adds any other key). `/token` and `/userinfo`
 are the ALB's own calls, so every one of them arrives from an ALB node's address: they charge the per-address limit only
@@ -344,27 +343,27 @@ One audit line per request at info: the endpoint, method, status, slot, Preview 
 and the first 8 hex characters of a hash of the token's id. Never a token, a code, a state, a cookie or a GitHub login;
 a refused access review logs the viewer's username at warn, for operators.
 
-| Metric                                        | Kind      | What                                                                                                                                                                                                   |
-| --------------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `patchy.preview_auth.authorize`               | counter   | Authorize requests by result                                                                                                                                                                           |
-| `patchy.preview_auth.token`                   | counter   | Token requests by grant type and result                                                                                                                                                                |
-| `patchy.preview_auth.userinfo`                | counter   | Userinfo requests by result                                                                                                                                                                            |
-| `patchy.preview_auth.sar`                     | counter   | Decided access reviews by answer                                                                                                                                                                       |
-| `patchy.preview_auth.ledger`                  | counter   | Code ledger results: ok, replay, conflict, full, error                                                                                                                                                 |
-| `patchy.preview_auth.upstream_login`          | counter   | Dex sign-ins by result                                                                                                                                                                                 |
-| `patchy.preview_auth.rate_limited`            | counter   | Requests refused by the rate limit                                                                                                                                                                     |
-| `patchy.preview_auth.request.duration`        | histogram | Latency per endpoint                                                                                                                                                                                   |
-| `patchy.preview_auth.unprotected_hosts`       | gauge     | Ready preview hosts that answered an unauthenticated request with anything but a redirect to sign in for their own Preview (in gateway mode, also the unknown host when it is not the gateway's `404`) |
-| `patchy.preview_auth.probe.unreachable_hosts` | gauge     | Hosts that did not answer the probe at all, or that the preview gateway refused by its inbound allowlist                                                                                               |
-| `patchy.preview_auth.gateway`                 | counter   | Preview-host and `/start` requests by result (`proxied`, `sign_in`, `unauthenticated`, `session`, `denied`, `cross_origin`, ...)                                                                       |
-| `patchy.preview_auth.gateway.streams_closed`  | counter   | Proxied streams and connections the gateway closed early, by reason: `preview_changed`, `revoked`                                                                                                      |
+| Metric                                      | Kind      | What                                                                                                                                                                                                   |
+| ------------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `maul.preview_auth.authorize`               | counter   | Authorize requests by result                                                                                                                                                                           |
+| `maul.preview_auth.token`                   | counter   | Token requests by grant type and result                                                                                                                                                                |
+| `maul.preview_auth.userinfo`                | counter   | Userinfo requests by result                                                                                                                                                                            |
+| `maul.preview_auth.sar`                     | counter   | Decided access reviews by answer                                                                                                                                                                       |
+| `maul.preview_auth.ledger`                  | counter   | Code ledger results: ok, replay, conflict, full, error                                                                                                                                                 |
+| `maul.preview_auth.upstream_login`          | counter   | Dex sign-ins by result                                                                                                                                                                                 |
+| `maul.preview_auth.rate_limited`            | counter   | Requests refused by the rate limit                                                                                                                                                                     |
+| `maul.preview_auth.request.duration`        | histogram | Latency per endpoint                                                                                                                                                                                   |
+| `maul.preview_auth.unprotected_hosts`       | gauge     | Ready preview hosts that answered an unauthenticated request with anything but a redirect to sign in for their own Preview (in gateway mode, also the unknown host when it is not the gateway's `404`) |
+| `maul.preview_auth.probe.unreachable_hosts` | gauge     | Hosts that did not answer the probe at all, or that the preview gateway refused by its inbound allowlist                                                                                               |
+| `maul.preview_auth.gateway`                 | counter   | Preview-host and `/start` requests by result (`proxied`, `sign_in`, `unauthenticated`, `session`, `denied`, `cross_origin`, ...)                                                                       |
+| `maul.preview_auth.gateway.streams_closed`  | counter   | Proxied streams and connections the gateway closed early, by reason: `preview_changed`, `revoked`                                                                                                      |
 
 The probe judges by `--preview-auth-probe-mode`. Under `either` (the gateway on, the legacy slot Ingress still rendered)
 it also accepts the gateway's own answer, a `302` to `https://<sign-in host>/start` for the host's label, since both
-paths authenticate. Under `gateway` it accepts only that, and each pass also asks for `patchy-probe-0.<suffix>` (no
-Intent is numbered 0), which must answer with the gateway's own `404` page; anything else there, an app or another
-server, counts as unprotected. A signed-in viewer's proxied requests are logged at debug only; every other gateway
-decision gets the audit line.
+paths authenticate. Under `gateway` it accepts only that, and each pass also asks for `maul-probe-0.<suffix>` (no Intent
+is numbered 0), which must answer with the gateway's own `404` page; anything else there, an app or another server,
+counts as unprotected. A signed-in viewer's proxied requests are logged at debug only; every other gateway decision gets
+the audit line.
 
 `unprotected_hosts` above zero is an incident: the load balancer serves a preview without sign-in although its Ingress
 may conform (a failed Auto Mode model build keeps a whole Ingress group on its old rules). While `preview.inboundCIDRs`
@@ -372,5 +371,5 @@ is set, the probe reaches the preview load balancer only if the cluster's NAT eg
 every host counts as unreachable and the probe proves nothing. The same holds for the gateway: while
 `previewAuth.gateway.inboundCIDRs` leaves out the NAT egress addresses, the gateway answers the probe with its allowlist
 refusal page before it routes any host, and each such host counts as unreachable, never unprotected.
-`patchy check project` runs the same probe from your workstation
+`maul check project` runs the same probe from your workstation
 ([Preview sign-in](../intents/preview-sign-in.md#check-it)).

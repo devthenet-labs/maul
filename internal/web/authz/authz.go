@@ -14,8 +14,8 @@ import (
 	authorizationv1 "k8s.io/api/authorization/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/bitwise-media-group/patchy/internal/action"
-	"github.com/bitwise-media-group/patchy/internal/web/auth"
+	"github.com/devthenet-labs/maul/internal/action"
+	"github.com/devthenet-labs/maul/internal/web/auth"
 )
 
 // The verb vocabulary is owned by internal/action, which also holds the
@@ -60,7 +60,7 @@ var AdminVerbs = action.AdminVerbs
 var IntegrationVerbs = action.IntegrationVerbs
 
 // group is the API group carrying the custom verbs.
-const group = "patchy.bitwisemedia.uk"
+const group = "maul.run"
 
 // defaultTTL bounds how stale a cached grant may be. Short on purpose: a
 // revoked approver should lose the buttons within seconds, and four SARs

@@ -11,7 +11,7 @@ import (
 	"testing/quick"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/usagewire"
+	"github.com/devthenet-labs/maul/internal/usagewire"
 )
 
 const ledgerPod = testJobPod + "/uid-1"
@@ -86,7 +86,7 @@ func TestLedgerJobUsageScope(t *testing.T) {
 	if len(got) != 2 || got[0].UID != "uid-1" || got[1].UID != "uid-2" {
 		t.Fatalf("jobUsage = %+v, want the two entries of %s", got, testJobPod)
 	}
-	if got := l.jobUsage("patchy-ffffffffff-inv-a1"); got != nil {
+	if got := l.jobUsage("maul-ffffffffff-inv-a1"); got != nil {
 		t.Errorf("unknown job = %+v, want none", got)
 	}
 	if n := len(l.pods); n != 4 {

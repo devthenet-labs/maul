@@ -235,8 +235,8 @@ func IsServiceWorkerScript(h http.Header) bool {
 
 // GatewayCookie reports whether a cookie name is one of the gateway's or the
 // relay's, however it is cased and whether or not it carries a __Host- or
-// __Secure- prefix: patchy-pv... (preview host session and state) and
-// patchy-pa... (relay session and login). Preview code never sees one and
+// __Secure- prefix: maul-pv... (preview host session and state) and
+// maul-pa... (relay session and login). Preview code never sees one and
 // can never set one.
 func GatewayCookie(name string) bool {
 	n := strings.ToLower(strings.TrimSpace(name))
@@ -246,7 +246,7 @@ func GatewayCookie(name string) bool {
 			break
 		}
 	}
-	return strings.HasPrefix(n, "patchy-pv") || strings.HasPrefix(n, "patchy-pa")
+	return strings.HasPrefix(n, "maul-pv") || strings.HasPrefix(n, "maul-pa")
 }
 
 // StripCookies removes every gateway cookie (GatewayCookie) from h's Cookie
@@ -275,13 +275,13 @@ func StripCookies(h http.Header) {
 
 // identityHeader reports a request header that could assert who the viewer
 // is or where the request came from. Every one is dropped from a proxied
-// request; the gateway then sets X-Patchy-Viewer and the X-Forwarded-*
+// request; the gateway then sets X-Maul-Viewer and the X-Forwarded-*
 // headers itself. Names are judged with "_" read as "-": CGI, WSGI and Rack
-// servers fold both into one variable, so X-Patchy_Viewer or X_Forwarded_For
+// servers fold both into one variable, so X-Maul_Viewer or X_Forwarded_For
 // would reach the preview as the gateway's own header.
 func identityHeader(name string) bool {
 	n := strings.ReplaceAll(strings.ToLower(name), "_", "-")
-	for _, p := range []string{"x-patchy-", "x-forwarded-", "x-amzn-oidc-", "x-auth-request-", "x-remote-",
+	for _, p := range []string{"x-maul-", "x-forwarded-", "x-amzn-oidc-", "x-auth-request-", "x-remote-",
 		"x-webauth-", "x-original-", "cf-access-", "x-goog-authenticated-", "x-ms-client-principal"} {
 		if strings.HasPrefix(n, p) {
 			return true
@@ -297,7 +297,7 @@ func identityHeader(name string) bool {
 
 // ViewerHeader carries the viewer's pairwise subject on this Preview, and is
 // all a preview learns about its viewer.
-const ViewerHeader = "X-Patchy-Viewer"
+const ViewerHeader = "X-Maul-Viewer"
 
 // ForwardedFor is the gateway's own forwarding context for a proxied
 // request.
@@ -312,7 +312,7 @@ type ForwardedFor struct {
 
 // CleanRequest strips every gateway cookie and every inbound identity or
 // forwarding header from a proxied request's headers, then sets the
-// gateway's own: X-Patchy-Viewer, X-Forwarded-For, -Proto and -Host.
+// gateway's own: X-Maul-Viewer, X-Forwarded-For, -Proto and -Host.
 // Authorization is the preview's own and passes untouched (the gateway never
 // sets one).
 func CleanRequest(h http.Header, f ForwardedFor) {
@@ -419,7 +419,7 @@ func varies(h http.Header, token string) bool {
 }
 
 // ReservedPath reports whether a request path is the gateway's own on a
-// preview host: /.patchy itself or anything under /.patchy/, compared after
+// preview host: /.maul itself or anything under /.maul/, compared after
 // percent-decoding (the path a server sees), as sent and once dot segments
 // and repeated slashes are cleaned away, so no spelling a preview could
 // normalise back to it is forwarded.

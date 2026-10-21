@@ -5,7 +5,7 @@
 # before anything is created (a check block would only warn).
 
 variable "cluster_name" {
-  description = "The EKS Auto Mode cluster patchy runs on. Its ARN, VPC, primary security group and service CIDR are read from it."
+  description = "The EKS Auto Mode cluster maul runs on. Its ARN, VPC, primary security group and service CIDR are read from it."
   type        = string
 
   validation {
@@ -15,22 +15,22 @@ variable "cluster_name" {
 }
 
 variable "name_prefix" {
-  description = "Prefix of the platform IAM names: `<name_prefix>-patchy-source-controller` and `<name_prefix>-patchy-preview-node`. Null means cluster_name. IAM names are account-wide, so the prefix keeps two installs in one account apart."
+  description = "Prefix of the platform IAM names: `<name_prefix>-maul-source-controller` and `<name_prefix>-maul-preview-node`. Null means cluster_name. IAM names are account-wide, so the prefix keeps two installs in one account apart."
   type        = string
   default     = null
 
   validation {
-    # "-patchy-source-controller" (25 characters) is the longest suffix, and
+    # "-maul-source-controller" (25 characters) is the longest suffix, and
     # IAM caps a role name at 64.
     condition     = can(regex("^[A-Za-z0-9+=,.@_-]{1,39}$", var.name_prefix != null ? var.name_prefix : var.cluster_name))
-    error_message = "name_prefix (or cluster_name, when name_prefix is null) must be 1-39 IAM name characters (letters, digits and +=,.@_-), so that <prefix>-patchy-source-controller fits IAM's 64."
+    error_message = "name_prefix (or cluster_name, when name_prefix is null) must be 1-39 IAM name characters (letters, digits and +=,.@_-), so that <prefix>-maul-source-controller fits IAM's 64."
   }
 }
 
 variable "namespace" {
-  description = "The patchy Helm release namespace, where source-controller runs."
+  description = "The maul Helm release namespace, where source-controller runs."
   type        = string
-  default     = "patchy"
+  default     = "maul"
 
   validation {
     condition     = length(var.namespace) <= 63 && can(regex("^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", var.namespace))
@@ -41,7 +41,7 @@ variable "namespace" {
 variable "source_controller_service_account" {
   description = "The source-controller ServiceAccount the Pod Identity association binds. helm_values sets sourceController.serviceAccount.name to it, so the chart creates exactly this name whatever the release is called."
   type        = string
-  default     = "patchy-source-controller"
+  default     = "maul-source-controller"
 
   validation {
     condition     = length(var.source_controller_service_account) <= 63 && can(regex("^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", var.source_controller_service_account))
@@ -63,18 +63,18 @@ variable "github_oidc_provider_arn" {
 variable "agent_path_prefix" {
   description = "ECR path the agent toolchain images live under, with no leading or trailing slash. source-controller may read every repository under it, and helm_values admits declared images only there. It must be disjoint from preview_path_prefix."
   type        = string
-  default     = "patchy/app-envs"
+  default     = "maul/app-envs"
 
   validation {
     condition     = can(regex("^[a-z0-9]+([._-][a-z0-9]+)*(/[a-z0-9]+([._-][a-z0-9]+)*)*$", var.agent_path_prefix))
-    error_message = "agent_path_prefix must be one or more ECR path segments separated by '/', with no leading or trailing slash (for example \"patchy/app-envs\")."
+    error_message = "agent_path_prefix must be one or more ECR path segments separated by '/', with no leading or trailing slash (for example \"maul/app-envs\")."
   }
   validation {
     # A runtime image is built from an unreviewed same-repository PR head. It
     # must never be admissible as an agent sandbox image, and the preview
     # nodes' pull grant must never cover a toolchain image, so neither prefix
     # may equal or contain the other. Compared on segment boundaries:
-    # patchy/previews-agents is a sibling of patchy/previews, not under it.
+    # maul/previews-agents is a sibling of maul/previews, not under it.
     condition     = !startswith("${var.agent_path_prefix}/", "${var.preview_path_prefix}/") && !startswith("${var.preview_path_prefix}/", "${var.agent_path_prefix}/")
     error_message = "agent_path_prefix must not equal preview_path_prefix, contain it or sit under it: agent images and preview images must have disjoint prefixes."
   }
@@ -83,11 +83,11 @@ variable "agent_path_prefix" {
 variable "preview_path_prefix" {
   description = "ECR path the preview runtime images live under, with no leading or trailing slash: each app's runtime repository is `<preview_path_prefix>/<slug>`, the preview nodes may pull only under it, and helm_values sets the chart's preview.imagePathPrefix to it. It must be disjoint from agent_path_prefix."
   type        = string
-  default     = "patchy/previews"
+  default     = "maul/previews"
 
   validation {
     condition     = can(regex("^[a-z0-9]+([._-][a-z0-9]+)*(/[a-z0-9]+([._-][a-z0-9]+)*)*$", var.preview_path_prefix))
-    error_message = "preview_path_prefix must be one or more ECR path segments separated by '/', with no leading or trailing slash (for example \"patchy/previews\")."
+    error_message = "preview_path_prefix must be one or more ECR path segments separated by '/', with no leading or trailing slash (for example \"maul/previews\")."
   }
 }
 
@@ -104,7 +104,7 @@ variable "app_role_name_prefix" {
 
 variable "apps" {
   description = <<-EOT
-    The application repositories patchy works on, keyed by slug: the image name, lowercase letters, digits and
+    The application repositories maul works on, keyed by slug: the image name, lowercase letters, digits and
     inner hyphens, independent of the GitHub name (Hello.Web -> hello-web). Each app gets an agent toolchain
     repository and its publisher role; with preview (default true) also a runtime repository and its publisher.
     - github: the repository exactly as the API reports it (IAM compares case-sensitively). owner, name,
@@ -216,7 +216,7 @@ variable "previews" {
     condition = var.previews == null || var.edge == null ? true : (
       lower(var.previews.alb_name != null ? var.previews.alb_name : "${var.cluster_name}-preview") != lower(var.edge.alb_name)
     )
-    error_message = "previews.alb_name (default \"<cluster_name>-preview\") must differ from edge.alb_name: previews need an ALB of their own, separate from patchy's edge ALB."
+    error_message = "previews.alb_name (default \"<cluster_name>-preview\") must differ from edge.alb_name: previews need an ALB of their own, separate from maul's edge ALB."
   }
   validation {
     # An ALB spans at least two Availability Zones, and the chart's
@@ -261,7 +261,7 @@ variable "previews" {
 
 variable "edge" {
   description = <<-EOT
-    An ACM certificate, and after Helm stage 1 alias records, for patchy's own public edge on an ALB: the GitHub
+    An ACM certificate, and after Helm stage 1 alias records, for maul's own public edge on an ALB: the GitHub
     webhook and the status page. Null (the default) creates none; the edge then works with any ingress and
     certificate source, cert-manager included.
     - zone_id: the Route53 hosted zone that holds the hosts.
@@ -325,7 +325,7 @@ variable "preview_auth" {
 
   validation {
     condition     = var.preview_auth == null ? true : can(regex("^[a-z0-9-]+(\\.[a-z0-9-]+)+$", var.preview_auth.host))
-    error_message = "preview_auth.host must be a lowercase DNS name, such as preview-auth.patchy.acme.dev."
+    error_message = "preview_auth.host must be a lowercase DNS name, such as preview-auth.maul.acme.dev."
   }
   validation {
     condition     = var.preview_auth == null ? true : (var.previews != null && var.edge != null)

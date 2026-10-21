@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/ghclient"
 )
 
 // statusSays runs passes until the status comment contains want, and
@@ -62,7 +62,7 @@ func TestStatusCommentCountsRevisionsAgainstTheLimit(t *testing.T) {
 			}
 			line := func(n int) string { return fmt.Sprintf("**Revisions:** %d of %d\n", n, tt.want) }
 
-			e.gh.label(1, "patchy:approved", approver)
+			e.gh.label(1, "maul:approved", approver)
 			pr := e.drive(name, v1alpha1.IntentInReview, repoImage).Status.PullRequests[0]
 			e.statusSays(name, line(0))
 
@@ -106,7 +106,7 @@ func TestEndingCountsRoundsAsTheLimitsDo(t *testing.T) {
 		project.Spec.Checks.Fix = []string{"changelog"}
 		e := newEnv(t, project)
 		name := e.awaiting()
-		e.gh.label(1, "patchy:approved", approver)
+		e.gh.label(1, "maul:approved", approver)
 		pr := e.drive(name, v1alpha1.IntentInReview, repoImage).Status.PullRequests[0]
 
 		e.jobs.output = failingBuild

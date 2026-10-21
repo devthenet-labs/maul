@@ -11,13 +11,13 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/attribution"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/stats"
-	"github.com/bitwise-media-group/patchy/internal/usagemeter/usagemetertest"
-	"github.com/bitwise-media-group/patchy/internal/usagerollup"
-	"github.com/bitwise-media-group/patchy/pkg/evaluation"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/attribution"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/stats"
+	"github.com/devthenet-labs/maul/internal/usagemeter/usagemetertest"
+	"github.com/devthenet-labs/maul/internal/usagerollup"
+	"github.com/devthenet-labs/maul/pkg/evaluation"
 )
 
 // TestRollUpUnitUsage: with the meter on, a collected unit waits for its
@@ -45,19 +45,19 @@ func TestRollUpUnitUsage(t *testing.T) {
 	r := newUnitReconciler(c, runner, fakeWorkspaces{present: map[string]bool{digestA: true}})
 	broker, meter := usagemetertest.New(t, func() time.Time { return clock })
 	r.Meter = meter
-	r.Usage = usagerollup.New(c, c, "patchy", meter.On(), nil)
+	r.Usage = usagerollup.New(c, c, "maul", meter.On(), nil)
 	broker.Set(jobName, usagemetertest.Answer(jobName, jobCreated.Add(-time.Hour), jobCreated.Add(time.Minute), 0,
 		usagemetertest.Sonnet(0)))
 
 	reconcileUnit(t, r, unit.Name) // collect: settled, usage not yet final
 	var list v1alpha1.UsageRollupList
-	if err := c.List(t.Context(), &list, client.InNamespace("patchy")); err != nil || len(list.Items) != 0 {
+	if err := c.List(t.Context(), &list, client.InNamespace("maul")); err != nil || len(list.Items) != 0 {
 		t.Fatalf("aggregated before the usage was final: %d, %v", len(list.Items), err)
 	}
 	reconcileUnit(t, r, unit.Name) // measure, then aggregate
 	reconcileUnit(t, r, unit.Name) // nothing more
 
-	if err := c.List(t.Context(), &list, client.InNamespace("patchy")); err != nil || len(list.Items) != 1 {
+	if err := c.List(t.Context(), &list, client.InNamespace("maul")); err != nil || len(list.Items) != 1 {
 		t.Fatalf("rollups = %d, %v", len(list.Items), err)
 	}
 	st := list.Items[0].Status
@@ -91,7 +91,7 @@ func TestRollUpCancelledUnitMeasured(t *testing.T) {
 	r := newUnitReconciler(c, runner, fakeWorkspaces{present: map[string]bool{digestA: true}})
 	broker, meter := usagemetertest.New(t, func() time.Time { return clock })
 	r.Meter = meter
-	r.Usage = usagerollup.New(c, c, "patchy", meter.On(), nil)
+	r.Usage = usagerollup.New(c, c, "maul", meter.On(), nil)
 	broker.Set(jobName, usagemetertest.Answer(jobName, jobCreated.Add(-time.Hour), jobCreated.Add(time.Minute), 0,
 		usagemetertest.Sonnet(0)))
 	cur := getUnit(t, c, unit.Name)
@@ -104,7 +104,7 @@ func TestRollUpCancelledUnitMeasured(t *testing.T) {
 		t.Errorf("broker asked %d times, want 1", got)
 	}
 	var list v1alpha1.UsageRollupList
-	if err := c.List(t.Context(), &list, client.InNamespace("patchy")); err != nil || len(list.Items) != 1 {
+	if err := c.List(t.Context(), &list, client.InNamespace("maul")); err != nil || len(list.Items) != 1 {
 		t.Fatalf("rollups = %d, %v", len(list.Items), err)
 	}
 	var runs, reported, cost int64

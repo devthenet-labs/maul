@@ -21,7 +21,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const scopeName = "github.com/bitwise-media-group/patchy/internal/webhook"
+const scopeName = "github.com/devthenet-labs/maul/internal/webhook"
 
 // DefaultMaxBody matches GitHub's 25 MB webhook payload cap, comfortably above
 // a Pub/Sub push (10 MB) too.
@@ -38,7 +38,7 @@ var tracer = sync.OnceValue(func() trace.Tracer {
 })
 
 var deliveries = sync.OnceValue(func() metric.Int64Counter {
-	c, err := otel.Meter(scopeName).Int64Counter("patchy.webhook.deliveries",
+	c, err := otel.Meter(scopeName).Int64Counter("maul.webhook.deliveries",
 		metric.WithDescription("webhook deliveries by event type and result"))
 	if err != nil {
 		otel.Handle(err)
@@ -90,7 +90,7 @@ type Config struct {
 }
 
 // Server is the webhook HTTP server. One listener serves every provider:
-// patchy exposes a single internet-facing port, and the endpoints differ only
+// maul exposes a single internet-facing port, and the endpoints differ only
 // in how a delivery is authenticated and labelled.
 type Server struct {
 	cfg   Config
@@ -289,7 +289,7 @@ func (s *Server) receiver(e Endpoint) http.HandlerFunc {
 }
 
 func (s *Server) dispatch(ctx context.Context, q queued) {
-	ctx, span := tracer().Start(ctx, "patchy.webhook.delivery",
+	ctx, span := tracer().Start(ctx, "maul.webhook.delivery",
 		trace.WithAttributes(
 			attribute.String("webhook.path", q.event.Path),
 			attribute.String("webhook.event", q.event.Type),

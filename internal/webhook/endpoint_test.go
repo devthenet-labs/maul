@@ -168,7 +168,7 @@ func TestWildcardEndpoint(t *testing.T) {
 	wildcard := Endpoint{
 		Path: "/generic/{name}/webhooks",
 		Auth: &HMACAuthenticator{
-			Header: "X-Patchy-Signature-256",
+			Header: "X-Maul-Signature-256",
 			// SecretsFor is a decoy: SecretsForRequest must supersede it.
 			SecretsFor: func(context.Context) [][]byte { return [][]byte{[]byte("decoy")} },
 			SecretsForRequest: func(_ context.Context, r *http.Request) [][]byte {
@@ -180,7 +180,7 @@ func TestWildcardEndpoint(t *testing.T) {
 			},
 		},
 		Decode: func(r *http.Request, _ []byte) (string, string, error) {
-			return "generic.findings", r.Header.Get("X-Patchy-Delivery"), nil
+			return "generic.findings", r.Header.Get("X-Maul-Delivery"), nil
 		},
 		Handler: record,
 	}
@@ -191,8 +191,8 @@ func TestWildcardEndpoint(t *testing.T) {
 	body := []byte(`{"version":"v1","event":"findings"}`)
 	deliver := func(name, id string, secret []byte) int {
 		return post(t, url+"/generic/"+name+"/webhooks", map[string]string{
-			"X-Patchy-Signature-256": sign(secret, body),
-			"X-Patchy-Delivery":      id,
+			"X-Maul-Signature-256": sign(secret, body),
+			"X-Maul-Delivery":      id,
 		}, body)
 	}
 

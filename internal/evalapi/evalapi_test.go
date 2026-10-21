@@ -19,10 +19,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/web/auth"
-	"github.com/bitwise-media-group/patchy/pkg/evaluation"
+	"github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/web/auth"
+	"github.com/devthenet-labs/maul/pkg/evaluation"
 )
 
 const digestA = "aa11bb22cc33dd44ee55ff6600112233445566778899aabbccddeeff00112233"
@@ -79,7 +79,7 @@ func newTestServer(t *testing.T, objs ...client.Object) (*Server, client.Client,
 		WithStatusSubresource(&v1alpha1.Evaluation{}, &v1alpha1.EvaluationUnit{}).
 		Build()
 	ws := &fakeWorkspaces{present: map[string]bool{digestA: true}}
-	srv := NewServer(c, "patchy", headerAuth{}, evaluation.AuthInfo{Mode: "oidc", Issuer: "https://dex.local"},
+	srv := NewServer(c, "maul", headerAuth{}, evaluation.AuthInfo{Mode: "oidc", Issuer: "https://dex.local"},
 		denyGranter{denied: "mallory"}, ws, Limits{}, nil)
 	return srv, c, ws
 }
@@ -184,7 +184,7 @@ func TestSubmitCreatesEvaluation(t *testing.T) {
 	}
 
 	var eval v1alpha1.Evaluation
-	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: resp.Name}, &eval); err != nil {
+	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: resp.Name}, &eval); err != nil {
 		t.Fatalf("Get evaluation: %v", err)
 	}
 	if eval.Spec.Submitter != "dev@example.com" {
@@ -252,7 +252,7 @@ func settledUnit(evalName string, index int32) *v1alpha1.EvaluationUnit {
 	return &v1alpha1.EvaluationUnit{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("%s-u%03d", evalName, index),
-			Namespace: "patchy",
+			Namespace: "maul",
 			Labels:    map[string]string{v1alpha1.LabelEvaluation: evalName},
 		},
 		Spec: v1alpha1.EvaluationUnitSpec{
@@ -275,7 +275,7 @@ func settledUnit(evalName string, index int32) *v1alpha1.EvaluationUnit {
 
 func terminalEval(name string) *v1alpha1.Evaluation {
 	return &v1alpha1.Evaluation{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "patchy"},
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "maul"},
 		Spec: v1alpha1.EvaluationSpec{
 			Submitter: "dev",
 			Units: []v1alpha1.UnitPlan{{
@@ -325,7 +325,7 @@ func TestCancel(t *testing.T) {
 		t.Errorf("DELETE = %d, want 202", rr.Code)
 	}
 	var eval v1alpha1.Evaluation
-	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: "eval-x"}, &eval); err == nil {
+	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: "eval-x"}, &eval); err == nil {
 		t.Error("evaluation still present after cancel")
 	}
 	if rr := doReq(t, srv, "DELETE", "/api/v1/evaluations/eval-x", "dev", ""); rr.Code != http.StatusNotFound {

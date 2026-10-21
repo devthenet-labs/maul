@@ -36,7 +36,7 @@
 # all".
 # ===========================================================================
 ---
-# ---- patchy namespace: the controllers ------------------------------------
+# ---- maul namespace: the controllers ------------------------------------
 # Ingress:
 #   8080  the integration-controller's webhook receivers. The fronting
 #         ingress controller / load balancer may live in any namespace and
@@ -67,10 +67,10 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-    name: patchy-controllers
-    namespace: patchy
+    name: maul-controllers
+    namespace: maul
     labels:
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 spec:
     podSelector:
         matchLabels:
@@ -85,7 +85,7 @@ spec:
         - from:
               - namespaceSelector:
                     matchLabels:
-                        kubernetes.io/metadata.name: patchy-agents
+                        kubernetes.io/metadata.name: maul-agents
           ports:
               - protocol: TCP
                 port: 9790
@@ -127,18 +127,18 @@ spec:
               - protocol: TCP
                 port: 80
 ---
-# ---- patchy namespace: evaluation-controller extras -------------------------
-# Additive to patchy-controllers (which already grants ingress 8080 for the
+# ---- maul namespace: evaluation-controller extras -------------------------
+# Additive to maul-controllers (which already grants ingress 8080 for the
 # API, DNS, the Kubernetes API server, and 443 out for the OIDC issuer):
 # the one extra hole is streaming workspace uploads to source-controller's
 # internal blob endpoint.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-    name: patchy-evaluation-controller
-    namespace: patchy
+    name: maul-evaluation-controller
+    namespace: maul
     labels:
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 spec:
     podSelector:
         matchLabels:
@@ -153,7 +153,7 @@ spec:
               - protocol: TCP
                 port: 9791
 ---
-# ---- patchy namespace: the status server -----------------------------------
+# ---- maul namespace: the status server -----------------------------------
 # Selected separately (component: server, not controller): its surface is a
 # human-facing web page, not webhooks or artifacts.
 #
@@ -168,10 +168,10 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-    name: patchy-status-server
-    namespace: patchy
+    name: maul-status-server
+    namespace: maul
     labels:
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 spec:
     podSelector:
         matchLabels:
@@ -201,11 +201,11 @@ spec:
               - protocol: TCP
                 port: 6443
 ---
-# ---- patchy namespace: the egress credential broker -------------------------
+# ---- maul namespace: the egress credential broker -------------------------
 # Selected separately (component: broker): the reverse proxy all claude model
 # traffic goes through, and the one place the model credentials live.
 #
-# Ingress: 8080 from the agent namespace (the brokered pods) and the patchy
+# Ingress: 8080 from the agent namespace (the brokered pods) and the maul
 # namespace (the job controllers' advisory /readyz startup probe), plus 8081
 # kubelet probes. Egress: DNS, then TCP 443/6443 — the model APIs
 # (api.anthropic.com / Bedrock / Vertex / Foundry) and the Kubernetes API
@@ -215,10 +215,10 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-    name: patchy-egress-broker
-    namespace: patchy
+    name: maul-egress-broker
+    namespace: maul
     labels:
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 spec:
     podSelector:
         matchLabels:
@@ -228,7 +228,7 @@ spec:
         - from:
               - namespaceSelector:
                     matchLabels:
-                        kubernetes.io/metadata.name: patchy-agents
+                        kubernetes.io/metadata.name: maul-agents
               - podSelector: {}
           ports:
               - protocol: TCP
@@ -254,17 +254,17 @@ spec:
               - protocol: TCP
                 port: 6443
 ---
-# ---- patchy-agents namespace: default deny --------------------------------
+# ---- maul-agents namespace: default deny --------------------------------
 # Applies to every pod in the namespace (empty podSelector), both directions.
 # Nothing may reach an agent pod, and an agent pod may reach nothing, except
 # what the rule below re-permits.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-    name: patchy-agents-default-deny
-    namespace: patchy-agents
+    name: maul-agents-default-deny
+    namespace: maul-agents
     labels:
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 spec:
     podSelector: {}
     policyTypes: [Ingress, Egress]
@@ -275,15 +275,15 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-    name: patchy-agents-egress
-    namespace: patchy-agents
+    name: maul-agents-egress
+    namespace: maul-agents
     labels:
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 spec:
     podSelector:
         matchLabels:
-            app.kubernetes.io/name: patchy-agent
-            app.kubernetes.io/managed-by: patchy
+            app.kubernetes.io/name: maul-agent
+            app.kubernetes.io/managed-by: maul
     policyTypes: [Egress]
     egress:
         # DNS, so the names below resolve at all.
@@ -301,7 +301,7 @@ spec:
         - to:
               - namespaceSelector:
                     matchLabels:
-                        kubernetes.io/metadata.name: patchy
+                        kubernetes.io/metadata.name: maul
                 podSelector:
                     matchLabels:
                         app.kubernetes.io/name: source-controller
@@ -314,7 +314,7 @@ spec:
         - to:
               - namespaceSelector:
                     matchLabels:
-                        kubernetes.io/metadata.name: patchy
+                        kubernetes.io/metadata.name: maul
                 podSelector:
                     matchLabels:
                         app.kubernetes.io/name: egress-broker

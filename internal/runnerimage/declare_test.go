@@ -27,14 +27,14 @@ func TestDeclare(t *testing.T) {
 		{"neither file", Files{}, Declaration{Outcome: OutcomeNone}, ""},
 		{"valid yaml beside a build-based devcontainer yields the yaml image",
 			Files{AgentYAML: present("image: ghcr.io/org/app:1\n"), Devcontainer: present(buildDC)},
-			Declaration{Outcome: OutcomeDeclared, Manifest: ".patchy/agent.yaml", Image: "ghcr.io/org/app:1"}, ""},
+			Declaration{Outcome: OutcomeDeclared, Manifest: ".maul/agent.yaml", Image: "ghcr.io/org/app:1"}, ""},
 		{"invalid yaml never falls through to a valid devcontainer",
 			Files{AgentYAML: present("build: {}\n"), Devcontainer: present(`{"image": "ghcr.io/org/dev:1"}`)},
 			Declaration{},
-			"`.patchy/agent.yaml` has a `build` key; patchy does not build images. Publish the image and set `image`"},
+			"`.maul/agent.yaml` has a `build` key; maul does not build images. Publish the image and set `image`"},
 		{"oversize yaml is a rejection",
 			Files{AgentYAML: File{Present: true, Size: 70000}, Devcontainer: present(`{"image": "x"}`)},
-			Declaration{}, "`.patchy/agent.yaml` is 70000 bytes; the limit is 65536 bytes"},
+			Declaration{}, "`.maul/agent.yaml` is 70000 bytes; the limit is 65536 bytes"},
 		{"devcontainer image alone is declared with its manifest",
 			Files{Devcontainer: present(`{"image": "ghcr.io/org/dev:1"}`)},
 			Declaration{Outcome: OutcomeDeclared, Manifest: ".devcontainer/devcontainer.json",
@@ -76,7 +76,7 @@ func TestDeclare(t *testing.T) {
 func TestDeclareFromArchive(t *testing.T) {
 	tarball := archive(t,
 		entry{name: "org-repo-sha/.devcontainer/devcontainer.json", data: `{"build": {}}`},
-		entry{name: "org-repo-sha/.patchy/agent.yaml", data: "image: ghcr.io/org/app:1.26\n"})
+		entry{name: "org-repo-sha/.maul/agent.yaml", data: "image: ghcr.io/org/app:1.26\n"})
 	files, err := ReadFiles(bytes.NewReader(tarball))
 	if err != nil {
 		t.Fatal(err)

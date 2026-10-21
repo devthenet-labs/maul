@@ -16,10 +16,10 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
 
-	"github.com/bitwise-media-group/patchy/internal/previewauth"
+	"github.com/devthenet-labs/maul/internal/previewauth"
 )
 
-const scopeName = "github.com/bitwise-media-group/patchy/internal/previewauth/adapters/hostprobe"
+const scopeName = "github.com/devthenet-labs/maul/internal/previewauth/adapters/hostprobe"
 
 // DefaultTimeout bounds one host's probe.
 const DefaultTimeout = 10 * time.Second
@@ -33,7 +33,7 @@ const maxConcurrent = 4
 
 var (
 	unprotectedGauge = sync.OnceValue(func() metric.Int64Gauge {
-		g, err := otel.Meter(scopeName).Int64Gauge("patchy.preview_auth.unprotected_hosts",
+		g, err := otel.Meter(scopeName).Int64Gauge("maul.preview_auth.unprotected_hosts",
 			metric.WithDescription("Ready preview hosts that answered an unauthenticated request without "+
 				"redirecting to sign in for their own Preview (and, in gateway mode, a host no Preview owns that "+
 				"answered other than with the gateway's 404)"))
@@ -43,7 +43,7 @@ var (
 		return g
 	})
 	unreachableGauge = sync.OnceValue(func() metric.Int64Gauge {
-		g, err := otel.Meter(scopeName).Int64Gauge("patchy.preview_auth.probe.unreachable_hosts",
+		g, err := otel.Meter(scopeName).Int64Gauge("maul.preview_auth.probe.unreachable_hosts",
 			metric.WithDescription("Ready preview hosts the relay's probe could not reach, or the preview "+
 				"gateway refused by its inbound allowlist"))
 		if err != nil {
@@ -192,7 +192,7 @@ func (p *Prober) probe(ctx context.Context, c *http.Client, expect previewauth.P
 		return errUnreachable
 	}
 	req.Header.Set("Accept", "text/html")
-	req.Header.Set("User-Agent", "patchy-preview-auth-probe")
+	req.Header.Set("User-Agent", "maul-preview-auth-probe")
 	resp, err := c.Do(req)
 	if err != nil {
 		p.log().LogAttrs(ctx, slog.LevelDebug, "preview host probe: unreachable",

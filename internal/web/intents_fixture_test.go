@@ -22,12 +22,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/transcript"
-	"github.com/bitwise-media-group/patchy/internal/transcriptstore"
-	"github.com/bitwise-media-group/patchy/internal/web/auth"
-	"github.com/bitwise-media-group/patchy/internal/web/authz"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/transcript"
+	"github.com/devthenet-labs/maul/internal/transcriptstore"
+	"github.com/devthenet-labs/maul/internal/web/auth"
+	"github.com/devthenet-labs/maul/internal/web/authz"
 )
 
 // The intents fixture: two Projects, alpha and beta, one intent each, and
@@ -95,7 +95,7 @@ func intentsFixture(t *testing.T) []client.Object {
 	posted := at(-39 * time.Minute)
 	mr := int32(3)
 	alpha := &v1alpha1.Project{
-		ObjectMeta: metav1.ObjectMeta{Name: "alpha", Namespace: "patchy"},
+		ObjectMeta: metav1.ObjectMeta{Name: "alpha", Namespace: "maul"},
 		Spec: v1alpha1.ProjectSpec{
 			IntentRepository: "https://github.com/acme/intents",
 			Approvers:        v1alpha1.ProjectApprovers{Logins: []string{"octo"}},
@@ -108,7 +108,7 @@ func intentsFixture(t *testing.T) []client.Object {
 	beta.Spec.Repositories = []v1alpha1.ProjectRepository{{Name: "web", URL: "https://github.com/acme/web"}}
 
 	inAlpha := &v1alpha1.Intent{
-		ObjectMeta: metav1.ObjectMeta{Name: "alpha-7", Namespace: "patchy", UID: "uid-alpha-7"},
+		ObjectMeta: metav1.ObjectMeta{Name: "alpha-7", Namespace: "maul", UID: "uid-alpha-7"},
 		Spec: v1alpha1.IntentSpec{
 			Project: "alpha",
 			Issue: v1alpha1.IntentIssue{Repository: "https://github.com/acme/intents", Number: 7,
@@ -138,7 +138,7 @@ func intentsFixture(t *testing.T) []client.Object {
 		},
 	}
 	inBeta := &v1alpha1.Intent{
-		ObjectMeta: metav1.ObjectMeta{Name: "beta-3", Namespace: "patchy", UID: "uid-beta-3"},
+		ObjectMeta: metav1.ObjectMeta{Name: "beta-3", Namespace: "maul", UID: "uid-beta-3"},
 		Spec: v1alpha1.IntentSpec{
 			Project: "beta",
 			Issue: v1alpha1.IntentIssue{Repository: "https://github.com/acme/intents", Number: 3,
@@ -159,7 +159,7 @@ func intentsFixture(t *testing.T) []client.Object {
 	}
 
 	planRun := &v1alpha1.IntentRun{
-		ObjectMeta: metav1.ObjectMeta{Name: "alpha-7-plan-r1-a1", Namespace: "patchy", UID: "uid-plan-run",
+		ObjectMeta: metav1.ObjectMeta{Name: "alpha-7-plan-r1-a1", Namespace: "maul", UID: "uid-plan-run",
 			CreationTimestamp: at(-55 * time.Minute)},
 		Spec: v1alpha1.IntentRunSpec{
 			IntentRef: v1alpha1.ObjectReference{Name: "alpha-7", UID: "uid-alpha-7"},
@@ -173,11 +173,11 @@ func intentsFixture(t *testing.T) []client.Object {
 			StartedAt: &started, FinishedAt: &finished,
 			Transcript: &v1alpha1.TranscriptRef{Name: "alpha-7-plan-r1-a1-transcript", Turns: 3},
 			RunnerImage: &v1alpha1.RunnerImageRef{Source: v1alpha1.RunnerImageSourceDefault,
-				Image: leakRegistry + "/patchy/claude@sha256:" + strings.Repeat("c", 64)},
+				Image: leakRegistry + "/maul/claude@sha256:" + strings.Repeat("c", 64)},
 		},
 	}
 	buildRun := &v1alpha1.IntentRun{
-		ObjectMeta: metav1.ObjectMeta{Name: "alpha-7-bld-r1-app-a2", Namespace: "patchy", UID: "uid-build-run",
+		ObjectMeta: metav1.ObjectMeta{Name: "alpha-7-bld-r1-app-a2", Namespace: "maul", UID: "uid-build-run",
 			CreationTimestamp: at(-9 * time.Minute)},
 		Spec: v1alpha1.IntentRunSpec{
 			IntentRef: v1alpha1.ObjectReference{Name: "alpha-7", UID: "uid-alpha-7"},
@@ -188,13 +188,13 @@ func intentsFixture(t *testing.T) []client.Object {
 		},
 		Status: v1alpha1.IntentRunStatus{
 			Phase:     v1alpha1.RunRunning,
-			JobRef:    &v1alpha1.JobReference{Namespace: "patchy-agents", Name: "job-alpha-7-bld"},
+			JobRef:    &v1alpha1.JobReference{Namespace: "maul-agents", Name: "job-alpha-7-bld"},
 			StartedAt: &started,
 			Report:    "a build report\n",
 		},
 	}
 	failedRun := &v1alpha1.IntentRun{
-		ObjectMeta: metav1.ObjectMeta{Name: "alpha-7-bld-r1-app-a1", Namespace: "patchy", UID: "uid-failed-run",
+		ObjectMeta: metav1.ObjectMeta{Name: "alpha-7-bld-r1-app-a1", Namespace: "maul", UID: "uid-failed-run",
 			CreationTimestamp: at(-10 * time.Minute)},
 		Spec: v1alpha1.IntentRunSpec{
 			IntentRef: v1alpha1.ObjectReference{Name: "alpha-7", UID: "uid-alpha-7"},
@@ -220,19 +220,19 @@ func intentsFixture(t *testing.T) []client.Object {
 		t.Fatal(err)
 	}
 	planCM := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Name: "alpha-7-plan-r1", Namespace: "patchy",
+		ObjectMeta: metav1.ObjectMeta{Name: "alpha-7-plan-r1", Namespace: "maul",
 			Labels:          map[string]string{v1alpha1.LabelIntent: "alpha-7"},
 			OwnerReferences: []metav1.OwnerReference{ctrlRef("Intent", "alpha-7", "uid-alpha-7")}},
 		Data: map[string]string{"plan.md": planText},
 	}
 	transcriptCM := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Name: "alpha-7-plan-r1-a1-transcript", Namespace: "patchy",
+		ObjectMeta: metav1.ObjectMeta{Name: "alpha-7-plan-r1-a1-transcript", Namespace: "maul",
 			Labels:          map[string]string{v1alpha1.LabelIntent: "alpha-7"},
 			OwnerReferences: []metav1.OwnerReference{ctrlRef("IntentRun", "alpha-7-plan-r1-a1", "uid-plan-run")}},
 		BinaryData: map[string][]byte{transcriptstore.DataKey: raw},
 	}
 	preview := &v1alpha1.Preview{
-		ObjectMeta: metav1.ObjectMeta{Name: "alpha-7", Namespace: "patchy"},
+		ObjectMeta: metav1.ObjectMeta{Name: "alpha-7", Namespace: "maul"},
 		Spec: v1alpha1.PreviewSpec{IntentRef: v1alpha1.ObjectReference{Name: "alpha-7", UID: "uid-alpha-7"},
 			HostLabel: "alpha-7"},
 		Status: v1alpha1.PreviewStatus{Phase: v1alpha1.PreviewReady, URL: "https://alpha-7.preview.example.com/",
@@ -289,7 +289,7 @@ func intentsServer(t *testing.T, tailer Tailer, objs ...client.Object) (*Server,
 		WithIndex(&v1alpha1.Intent{}, IntentProjectIndex, IntentProjectIndexer).
 		Build()
 	g := fixtureGranter()
-	s := NewServer(c, "patchy", stubAuth{}, stubGranter{grants: allGrants()}, nil)
+	s := NewServer(c, "maul", stubAuth{}, stubGranter{grants: allGrants()}, nil)
 	s.now = func() time.Time { return testClock }
 	s = s.WithTranscripts(c, tailer)
 	s = s.WithIntents(IntentsOptions{Projects: g})

@@ -13,10 +13,10 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/action"
-	"github.com/bitwise-media-group/patchy/internal/command"
-	"github.com/bitwise-media-group/patchy/internal/report"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/action"
+	"github.com/devthenet-labs/maul/internal/command"
+	"github.com/devthenet-labs/maul/internal/report"
 )
 
 // This file renders what intent-controller writes to GitHub. The renderers
@@ -26,7 +26,7 @@ import (
 // request's summary) goes through Sanitize, SanitizeInline or code here,
 // before any template sees it. Controller values that quote agent output (a
 // refusal naming a changeset path) are fenced. Logins are rendered as code,
-// never as mentions: patchy notifies nobody. Commands are named from
+// never as mentions: maul notifies nobody. Commands are named from
 // internal/command and internal/action, so a reply here and the parser that
 // reads the command cannot disagree on a verb.
 
@@ -70,13 +70,13 @@ func shortDigest(digest string) string {
 // IntentStatusMarker heads an intent's sticky status comment, which
 // intent-controller edits in place.
 func IntentStatusMarker(namespace, intent string) string {
-	return fmt.Sprintf("<!-- patchy:intent %s/%s -->", markerField(namespace), markerField(intent))
+	return fmt.Sprintf("<!-- maul:intent %s/%s -->", markerField(namespace), markerField(intent))
 }
 
 // PlanMarker heads the comment posting plan revision of an intent; digest
 // is the plan's PlanDigest, shortened in the marker.
 func PlanMarker(namespace, intent string, revision int32, digest string) string {
-	return fmt.Sprintf("<!-- patchy:plan %s/%s r%d %s -->",
+	return fmt.Sprintf("<!-- maul:plan %s/%s r%d %s -->",
 		markerField(namespace), markerField(intent), revision, markerField(shortDigest(digest)))
 }
 
@@ -84,7 +84,7 @@ func PlanMarker(namespace, intent string, revision int32, digest string) string 
 // command's comment, the label event), so a restart finds the reply it
 // already posted instead of posting a second.
 func NoticeMarker(namespace, intent, key string) string {
-	return fmt.Sprintf("<!-- patchy:notice %s/%s %s -->", markerField(namespace), markerField(intent), markerField(key))
+	return fmt.Sprintf("<!-- maul:notice %s/%s %s -->", markerField(namespace), markerField(intent), markerField(key))
 }
 
 // markerField keeps a marker's fields to characters that cannot end the
@@ -122,7 +122,7 @@ type IntentStatusComment struct {
 	// one, the comment names each, as code; fewer omits the line, and the
 	// comment is exactly the one-repository comment.
 	Repositories []string
-	// PullRequests are the pull requests patchy opened.
+	// PullRequests are the pull requests maul opened.
 	PullRequests []IntentPullRequest
 	// Preview is the intent's preview (intent_preview.go); nil, or a zero
 	// State, omits the line, and the comment is exactly the one without.
@@ -155,7 +155,7 @@ type IntentStatusComment struct {
 	// its code point.
 	Reason string
 	// Commands are the verbs an approver can use in this phase, such as
-	// "approve"; each is shown as its /patchy command.
+	// "approve"; each is shown as its /maul command.
 	Commands []string
 }
 
@@ -178,21 +178,21 @@ type IntentPullRequest struct {
 
 // phaseSentences say what each phase means to someone reading the issue.
 var phaseSentences = map[v1alpha1.IntentPhase]string{
-	v1alpha1.IntentPending:          "patchy has seen this issue and is checking who asked for the work.",
-	v1alpha1.IntentPlanning:         "patchy is writing a plan, which it will post here for approval.",
+	v1alpha1.IntentPending:          "maul has seen this issue and is checking who asked for the work.",
+	v1alpha1.IntentPlanning:         "maul is writing a plan, which it will post here for approval.",
 	v1alpha1.IntentAwaitingApproval: "the plan is posted and waits for an approver.",
-	v1alpha1.IntentBuilding:         "patchy is building the approved plan.",
+	v1alpha1.IntentBuilding:         "maul is building the approved plan.",
 	v1alpha1.IntentInReview:         "the pull requests are open for review.",
-	v1alpha1.IntentRevising:         "patchy is revising the pull requests from review feedback.",
-	v1alpha1.IntentBlocked:          "patchy has stopped until the reason below is dealt with.",
+	v1alpha1.IntentRevising:         "maul is revising the pull requests from review feedback.",
+	v1alpha1.IntentBlocked:          "maul has stopped until the reason below is dealt with.",
 	v1alpha1.IntentMerged:           "every pull request was merged, and the work is complete.",
 	v1alpha1.IntentClosed:           "work on this intent has stopped.",
-	v1alpha1.IntentFailed:           "patchy could not complete the work.",
+	v1alpha1.IntentFailed:           "maul could not complete the work.",
 }
 
 // fixingChecksSentence is the Revising sentence while the round fixes failed
 // checks.
-const fixingChecksSentence = "patchy is fixing a pull request's failed checks."
+const fixingChecksSentence = "maul is fixing a pull request's failed checks."
 
 // RenderIntentStatusComment renders the sticky status comment, headed by
 // IntentStatusMarker.
@@ -294,7 +294,7 @@ type PlanComment struct {
 	// Repositories are the repositories the plan changes, as "owner/name"
 	// in the Project's own spelling (never the planner's), in plan order.
 	// With more than one, the header names each, as code, as a repository
-	// patchy opens a pull request in, and the dependency advice speaks of
+	// maul opens a pull request in, and the dependency advice speaks of
 	// each repository's image; fewer omits both, and the comment is exactly
 	// the one-repository comment.
 	Repositories []string
@@ -317,7 +317,7 @@ type PlanComment struct {
 }
 
 // RenderPlanComment renders a plan for approval: headed by PlanMarker over
-// the report's digest, then patchy's own words (the summary and new
+// the report's digest, then maul's own words (the summary and new
 // dependencies sanitised, how to approve), then the report verbatim in a
 // fenced code block (```markdown, the fence longer than any run of
 // backticks in the report), with nothing after it. Between the block's
@@ -348,17 +348,17 @@ func RenderPlanComment(p PlanComment) (string, error) {
 }
 
 // adviceStandIn marks where the dependency advice goes in SamePlanComment's
-// render: NULs, which no plan comment patchy posts holds outside its
+// render: NULs, which no plan comment maul posts holds outside its
 // verbatim block (visibleText shows them as their code point).
-const adviceStandIn = "\x00patchy-dependency-advice\x00"
+const adviceStandIn = "\x00maul-dependency-advice\x00"
 
-// SamePlanComment reports whether body, a plan comment patchy posted, is the
+// SamePlanComment reports whether body, a plan comment maul posted, is the
 // one RenderPlanComment renders for p, its dependency advice aside: the
 // advice is one line naming each build's network profile, and that reads
 // state that can change between a post and its record (the sandbox breaker,
 // which a restart clears, and the operator's profile flags), so a retry that
 // finds the comment it posted must not post the plan again over it. Any
-// other difference, or advice that is not one of patchy's own lines, is a
+// other difference, or advice that is not one of maul's own lines, is a
 // different comment. A plan RenderPlanComment refuses is never the same.
 func SamePlanComment(p PlanComment, body string) (bool, error) {
 	want, err := RenderPlanComment(p)
@@ -512,7 +512,7 @@ func planRouteAdvice(p PlanComment) string {
 	}
 	if len(repositoryItems(p.Repositories, false)) == 0 {
 		return "The build runs in the image this repository declares, with the operator's network profile " +
-			code(name(0)) + ": through patchy's egress proxy it fetches " + list(routes(0).routeSummaries()) +
+			code(name(0)) + ": through maul's egress proxy it fetches " + list(routes(0).routeSummaries()) +
 			". This plan adds dependencies: each one the build cannot fetch " +
 			"that way must be in that image on the default branch before you approve, or the build will fail."
 	}
@@ -530,7 +530,7 @@ func planRouteAdvice(p PlanComment) string {
 		}
 	}
 	advice := "Each build runs in the image its own repository declares. The build of each repository listed " +
-		"here fetches new dependencies through patchy's egress proxy, as its network profile allows: " +
+		"here fetches new dependencies through maul's egress proxy, as its network profile allows: " +
 		strings.Join(profiled, ", ") + "."
 	if offline {
 		advice += " Every other build runs offline, so it cannot fetch anything new."
@@ -668,9 +668,9 @@ type NotAllowedNotice struct {
 	// arrived as a label: the trigger label, or the approve label.
 	Verb  string
 	Label string
-	// LabelRemoved reports that patchy removed the label again.
+	// LabelRemoved reports that maul removed the label again.
 	LabelRemoved bool
-	// Closed reports that patchy will not work on the issue because of it:
+	// Closed reports that maul will not work on the issue because of it:
 	// the trigger came from someone who may not start work.
 	Closed bool
 }
@@ -709,7 +709,7 @@ type NotAvailableNotice struct {
 	// Verb is the command's verb, or Label the label it arrived as.
 	Verb  string
 	Label string
-	// LabelRemoved reports that patchy removed the label again.
+	// LabelRemoved reports that maul removed the label again.
 	LabelRemoved bool
 	// Phase is the Intent's phase. A Merged or Closed intent has ended, and
 	// the notice says to open a new issue.
@@ -745,9 +745,9 @@ func RenderNotAvailableNotice(n NotAvailableNotice) (string, error) {
 	})
 }
 
-// ApprovalRefusedNotice answers an approval patchy refused because what it
+// ApprovalRefusedNotice answers an approval maul refused because what it
 // would approve is no longer what the approver was shown: the plan comment
-// was edited after patchy posted it, or the issue changed since the plan
+// was edited after maul posted it, or the issue changed since the plan
 // was made.
 type ApprovalRefusedNotice struct {
 	// Namespace, Intent and Key make the notice's marker (NoticeMarker).
@@ -763,7 +763,7 @@ type ApprovalRefusedNotice struct {
 	// PlanChanged and IssueChanged say what changed; at least one is set.
 	PlanChanged  bool
 	IssueChanged bool
-	// LabelRemoved reports that patchy removed the approve label.
+	// LabelRemoved reports that maul removed the approve label.
 	LabelRemoved bool
 	// TriggerLabel is the Project's trigger label, re-applied to replan.
 	TriggerLabel string
@@ -795,7 +795,7 @@ func RenderApprovalRefusedNotice(n ApprovalRefusedNotice) (string, error) {
 }
 
 // IntentPRBody is the body of a pull request an intent opens. It refers to
-// the intent issue with "Part of", never a closing keyword: patchy closes the
+// the intent issue with "Part of", never a closing keyword: maul closes the
 // intent issue itself once every pull request has merged, and nothing in the
 // body may close an issue on merge — least of all a Finding's tracking issue
 // in the same repository.
@@ -826,7 +826,7 @@ type IntentPRBody struct {
 	// reference) and says the intent completes when every one has merged;
 	// fewer omits all of it, and the body is exactly the one-repository
 	// body. The body is never edited after it is opened, so it links no
-	// sibling: patchy cross-links them in a comment (IntentSiblingsComment).
+	// sibling: maul cross-links them in a comment (IntentSiblingsComment).
 	Repositories []string
 	// NetworkProfile is the operator network profile the build's Job
 	// carried, as its run recorded it from the Job: when set, one line says
@@ -962,7 +962,7 @@ func IntentPRTitle(project, summary string) string {
 	return strings.TrimRightFunc(string([]rune(title)[:MaxPRTitleRunes-1]), unicode.IsSpace) + "…"
 }
 
-// IntentCommit is the commit patchy composes for an intent's changeset; the
+// IntentCommit is the commit maul composes for an intent's changeset; the
 // agent's own commit messages are dropped.
 type IntentCommit struct {
 	// Project is the Project's name, the subject's prefix.
@@ -974,8 +974,8 @@ type IntentCommit struct {
 	IssueNumber      int64
 	// Round is the run's round (the IntentRun's spec.round).
 	Round int32
-	// Namespace and Intent name the Intent (the Patchy-Intent trailer), and
-	// Run the IntentRun that produced the changeset (Patchy-Run).
+	// Namespace and Intent name the Intent (the Maul-Intent trailer), and
+	// Run the IntentRun that produced the changeset (Maul-Run).
 	Namespace string
 	Intent    string
 	Run       string
@@ -989,8 +989,8 @@ const MaxCommitSummaryRunes = 200
 //
 //	<project>: <summary> (<intent repository>#<issue>, round <k>)
 //
-//	Patchy-Intent: <namespace>/<intent>
-//	Patchy-Run: <run>
+//	Maul-Intent: <namespace>/<intent>
+//	Maul-Run: <run>
 //
 // A commit message is plain text to GitHub, so inline code cannot neutralise
 // anything in it: the summary is put on one line and bounded, and each
@@ -1000,7 +1000,7 @@ const MaxCommitSummaryRunes = 200
 // issue, and the one reference it makes is to the intent issue, after "(",
 // where no closing keyword can precede it.
 func IntentCommitMessage(c IntentCommit) string {
-	return fmt.Sprintf("%s: %s (%s#%d, round %d)\n\nPatchy-Intent: %s/%s\nPatchy-Run: %s\n",
+	return fmt.Sprintf("%s: %s (%s#%d, round %d)\n\nMaul-Intent: %s/%s\nMaul-Run: %s\n",
 		oneLine(c.Project), commitSummary(c.Summary), oneLine(c.IntentRepository), c.IssueNumber, c.Round,
 		oneLine(c.Namespace), oneLine(c.Intent), oneLine(c.Run))
 }
@@ -1047,7 +1047,7 @@ func oneLine(s string) string {
 	return strings.TrimSpace(strings.ReplaceAll(plainText(s), "\n", " "))
 }
 
-// slashCommand renders verb as its command ("/patchy <verb>"), in code.
+// slashCommand renders verb as its command ("/maul <verb>"), in code.
 func slashCommand(verb string) string {
 	if verb = oneLine(verb); verb == "" {
 		return ""

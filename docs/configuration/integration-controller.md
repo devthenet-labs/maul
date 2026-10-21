@@ -5,24 +5,24 @@ webhooks — `POST /github/webhooks` (per-Integration HMAC secrets), `POST /goog
 tokens), `POST /wiz/webhooks` (per-Integration bearer tokens), `POST /generic/<name>/webhooks` (each generic
 Integration's own HMAC secret) — and ingests scanner alerts into `Finding` resources — accumulation, duplicate merge.
 Outbound: it projects Findings to their tracking issues (body, labels, enrichment and report comments) and applies human
-signals (issue close and reopen, `/patchy` command comments, PR merge/close) back onto Findings. It holds no GitHub
+signals (issue close and reopen, `/maul` command comments, PR merge/close) back onto Findings. It holds no GitHub
 credential itself — the credentials live in the Secrets your Integrations reference, read on demand.
 
 ```sh
-integration-controller serve --namespace patchy --accumulation-window 1h
+integration-controller serve --namespace maul --accumulation-window 1h
 ```
 
 ## Flags
 
 The [shared flags](index.md#shared-flags-every-controller), plus:
 
-| Flag                          | Env                                | Default   | Purpose                                                                                                                                                                               |
-| ----------------------------- | ---------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--accumulation-window`       | `PATCHY_ACCUMULATION_WINDOW`       | `1h`      | How long alerts of one finding family accumulate into a single Finding                                                                                                                |
-| `--projection-concurrency`    | `PATCHY_PROJECTION_CONCURRENCY`    | `2`       | Findings projected to tracking issues in parallel (each projection may spend GitHub requests)                                                                                         |
-| `--repository-images`         | `PATCHY_REPOSITORY_IMAGES`         | `false`   | Project the runner-image comment onto tracking issues; reads and watches Repositories                                                                                                 |
-| `--account-url`               | `PATCHY_ACCOUNT_URL`               | _(unset)_ | The status page's Account page, linked from the comment on a Finding whose remediation waits for its approver's model credential ([holding a run](user-credentials.md#holding-a-run)) |
-| `--tracking-recheck-interval` | `PATCHY_TRACKING_RECHECK_INTERVAL` | `6h`      | How often a tracking issue GitHub refused for good (Issues disabled) is asked for again                                                                                               |
+| Flag                          | Env                              | Default   | Purpose                                                                                                                                                                               |
+| ----------------------------- | -------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--accumulation-window`       | `MAUL_ACCUMULATION_WINDOW`       | `1h`      | How long alerts of one finding family accumulate into a single Finding                                                                                                                |
+| `--projection-concurrency`    | `MAUL_PROJECTION_CONCURRENCY`    | `2`       | Findings projected to tracking issues in parallel (each projection may spend GitHub requests)                                                                                         |
+| `--repository-images`         | `MAUL_REPOSITORY_IMAGES`         | `false`   | Project the runner-image comment onto tracking issues; reads and watches Repositories                                                                                                 |
+| `--account-url`               | `MAUL_ACCOUNT_URL`               | _(unset)_ | The status page's Account page, linked from the comment on a Finding whose remediation waits for its approver's model credential ([holding a run](user-credentials.md#holding-a-run)) |
+| `--tracking-recheck-interval` | `MAUL_TRACKING_RECHECK_INTERVAL` | `6h`      | How often a tracking issue GitHub refused for good (Issues disabled) is asked for again                                                                                               |
 
 `--repository-images` is the integration-controller's half of
 [repository-declared runner images](../integrations/agent-images.md): turn it on together with source-controller's. It
@@ -36,9 +36,9 @@ One route per provider on `--listen-addr`, each authenticating on the provider's
 configured github Integration; `POST /google-cloud/webhooks` validates the OIDC token a Pub/Sub push signs against the
 SCC Integration's audience and service account; `POST /wiz/webhooks` validates the bearer token against every wiz
 Integration's `webhookToken` (also constant-time). The exception to one-route-per-provider is generic: the wildcard
-`POST /generic/{name}/webhooks` serves every generic Integration, validating `X-Patchy-Signature-256` against **only**
-the named Integration's `webhookSecret` — never the whole candidate set, so one integration's secret cannot admit a
-delivery addressed to another. All of them answer the same way:
+`POST /generic/{name}/webhooks` serves every generic Integration, validating `X-Maul-Signature-256` against **only** the
+named Integration's `webhookSecret` — never the whole candidate set, so one integration's secret cannot admit a delivery
+addressed to another. All of them answer the same way:
 
 | Response | Meaning                                                        |
 | -------- | -------------------------------------------------------------- |
@@ -66,7 +66,7 @@ never fatal: the reconcile loops are the retry mechanism, and the webhook path o
 - **Projection** — a Finding reconciler renders each Finding to its tracking issue: the templated body, the
   [projected labels](../labels.md#the-projected-labels), enrichments and investigation reports as comments, and
   open/closed state. One-way only. Each marker-headed comment's id is recorded on `status.tracking.comments` and the
-  comment is edited by that id thereafter; a comment with no recorded id is adopted by its marker only when patchy wrote
+  comment is edited by that id thereafter; a comment with no recorded id is adopted by its marker only when maul wrote
   it (its author opened the tracking issue), never a comment someone else headed with a marker. Every post (issue,
   comment, notice) is first confirmed against the API server rather than the controller's cache, and recorded before any
   follow-up that can fail (assignment, closure), so a projection never posts the same thing twice. A repository with
@@ -76,15 +76,15 @@ never fatal: the reconcile loops are the retry mechanism, and the webhook path o
   once the repository its issue belongs in has changed (a new `spec.trackingRef`, or a new fallback repository), opening
   the issue (and removing the condition) once Issues are back on. Only the issue waits; the Finding moves through the
   pipeline as it would with no tracker.
-- **Runner-image comment** — with `--repository-images`, one sticky comment (headed `<!-- patchy:runner-image -->`,
-  edited in place) tells the repository owner what patchy did with the agent image the repository declared: which file
-  declared which image and the digest it was pinned to; or why the declaration was rejected or the devcontainer.json not
+- **Runner-image comment** — with `--repository-images`, one sticky comment (headed `<!-- maul:runner-image -->`, edited
+  in place) tells the repository owner what maul did with the agent image the repository declared: which file declared
+  which image and the digest it was pinned to; or why the declaration was rejected or the devcontainer.json not
   applicable, whether the finding fell back to the default runner image or was parked (`onReject: handoff`), and how to
   fix it; or that a run on the image ended `image_incompatible` or was refused with `SandboxUnenforced`. A repository
   that declares nothing gets no comment.
 - **Human signals** — issue close (`→ HandedOff`), issue reopen (`Dismissed → HandedOff`),
-  [`/patchy <verb>` commands](../integrations/sources/github.md#commands) (and the deprecated `/approve`), and
-  `pull_request` webhooks for the finding's recorded PR on its `patchy/<finding>` branch (`InReview → Remediated` on
+  [`/maul <verb>` commands](../integrations/sources/github.md#commands) (and the deprecated `/approve`), and
+  `pull_request` webhooks for the finding's recorded PR on its `maul/<finding>` branch (`InReview → Remediated` on
   merge, `→ Failed` on unmerged close). An issue closed during review is checked against that PR first (read with the
   Integration's credential), since its merge closes the issue too: merged or closed, the PR's outcome applies; still
   open or unreadable (404/403), the finding is handed off if the issue, read again, is still closed. A PR close from a

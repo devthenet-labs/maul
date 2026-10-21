@@ -12,9 +12,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/templates"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 func holdComments(tr *fakeTracker) []string {
@@ -30,7 +30,7 @@ func holdComments(tr *fakeTracker) []string {
 func setHold(t *testing.T, c client.Client, status metav1.ConditionStatus, reason string) {
 	t.Helper()
 	var f v1alpha1.Finding
-	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1"}, &f); err != nil {
+	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: "finding-aa-1"}, &f); err != nil {
 		t.Fatal(err)
 	}
 	meta.SetStatusCondition(&f.Status.Conditions, metav1.Condition{Type: v1alpha1.ConditionCredentialRequired,

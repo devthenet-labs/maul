@@ -18,9 +18,9 @@ import (
 	crcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/previewauth"
-	"github.com/bitwise-media-group/patchy/internal/previewauth/httpapi"
+	"github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/previewauth"
+	"github.com/devthenet-labs/maul/internal/previewauth/httpapi"
 )
 
 // gatewayArgs are staticArgs with an issuer outside the host suffix, as the
@@ -154,13 +154,13 @@ func TestWatchPreviews(t *testing.T) {
 	}
 	p := func(name string) *v1alpha1.Preview {
 		pv := &v1alpha1.Preview{}
-		pv.Namespace, pv.Name = "patchy", name
+		pv.Namespace, pv.Name = "maul", name
 		return pv
 	}
 	inf.handler.OnAdd(p("added-1"), false)
 	inf.handler.OnUpdate(p("demo-7"), p("demo-7"))
 	inf.handler.OnDelete(p("gone-1"))
-	inf.handler.OnDelete(toolscache.DeletedFinalStateUnknown{Key: "patchy/tomb-1", Obj: p("tomb-1")})
+	inf.handler.OnDelete(toolscache.DeletedFinalStateUnknown{Key: "maul/tomb-1", Obj: p("tomb-1")})
 	if !slices.Equal(got, []string{"demo-7", "gone-1", "tomb-1"}) {
 		t.Errorf("changed labels = %v", got)
 	}

@@ -56,7 +56,7 @@ func Providers() []Provider {
 
 // builtins returns the canonical model registry: one entry per vendor model,
 // each declaring which harnesses can drive it and the CLI-specific id each
-// harness's --model flag expects. patchy's own harnesses are vendor-native
+// harness's --model flag expects. maul's own harnesses are vendor-native
 // (Claude Code drives Anthropic models, Codex drives OpenAI models), so each
 // model names its vendor's harness as Preferred; Copilot is the exception the
 // map shape was built for — it brokers both vendors, so it appears as a second
@@ -65,7 +65,7 @@ func Providers() []Provider {
 // Copilot's ids diverge from the vendors' own where the vendor uses a dashed
 // point release (claude-haiku-4-5 is claude-haiku-4.5 on Copilot), which is
 // exactly the divergence Supported exists to record. Copilot brokers models
-// beyond these; only the models patchy already lists are registered, so
+// beyond these; only the models maul already lists are registered, so
 // enabling the copilot runner widens which harness can run a model, never
 // which models exist.
 func builtins() []Model {
@@ -153,7 +153,7 @@ func AllModels(overrides map[string][]Model) []Model {
 }
 
 // Builtins returns the canonical model registry (no overrides). It is the
-// default set patchy resolves models against.
+// default set maul resolves models against.
 func Builtins() []Model { return builtins() }
 
 // ModelByID returns the model with the given canonical id from models, if any.

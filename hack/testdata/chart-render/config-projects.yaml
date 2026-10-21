@@ -1,7 +1,7 @@
 # Copyright 2026 Bitwise Media Group Ltd.
 # SPDX-License-Identifier: MIT
 #
-# chart-render-test fixture for charts/patchy-config: two Projects, one
+# chart-render-test fixture for charts/maul-config: two Projects, one
 # minimal (the schema defaults apply server-side) and one with every optional
 # block set, sharing an intent repository under different trigger labels.
 projects:
@@ -17,8 +17,8 @@ projects:
       spec:
           intentRepository: https://github.com/acme/intents
           labels:
-              trigger: patchy:docs
-              approve: patchy:ship-it
+              trigger: maul:docs
+              approve: maul:ship-it
           approvers:
               logins: [octocat, hubot]
           repositories:

@@ -13,22 +13,22 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-    name: patchy-static-context
-    namespace: patchy
+    name: maul-static-context
+    namespace: maul
     labels:
         app.kubernetes.io/name: context-controller
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 data:
     cmdb.yaml: |
         repos:
-            bitwise-media-group/patchy:
+            devthenet-labs/maul:
                 owners: [dmccaffery]
                 attributes:
-                    system: patchy
+                    system: maul
                     tier: "2"
                     environment: dev
                 markdown: |
-                    Dev deployment of patchy itself — findings here are dogfood.
+                    Dev deployment of maul itself — findings here are dogfood.
             acme/shop:
                 owners: [octocat, hubot]
                 attributes:

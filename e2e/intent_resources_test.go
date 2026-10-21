@@ -10,13 +10,13 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 const (
 	// resourceClassAnnotation names, on a Job and its pod, the resource
 	// class the Job runs on; a Job on the default carries none.
-	resourceClassAnnotation = "patchy.bitwisemedia.uk/resource-class"
+	resourceClassAnnotation = "maul.run/resource-class"
 	// doNotDisruptAnnotation keeps Karpenter from evicting an agent pod to
 	// consolidate its node; every agent pod carries it.
 	doNotDisruptAnnotation = "karpenter.sh/do-not-disrupt"

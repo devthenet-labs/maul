@@ -16,8 +16,8 @@ import (
 	"net/http"
 	"time"
 
-	pkggeneric "github.com/bitwise-media-group/patchy/pkg/generic"
-	"github.com/bitwise-media-group/patchy/pkg/source"
+	pkggeneric "github.com/devthenet-labs/maul/pkg/generic"
+	"github.com/devthenet-labs/maul/pkg/source"
 )
 
 // defaultTimeout bounds an outbound call when the Integration sets none; it
@@ -30,7 +30,7 @@ const maxResponseBody = 1 << 20
 
 // Sign computes the SignatureHeader value for a body: "sha256=<hex>" of the
 // HMAC-SHA256 under the integration's shared secret. Exported because both
-// sides of the contract need it — patchy signs outbound calls here, and
+// sides of the contract need it — maul signs outbound calls here, and
 // test/replay tooling signs inbound deliveries the same way.
 func Sign(secret, body []byte) string {
 	mac := hmac.New(sha256.New, secret)
@@ -52,7 +52,7 @@ type ClientOptions struct {
 }
 
 // Client is the signed outbound HTTP client behind both generic exchanges
-// patchy initiates: verdict write-back and enhancement.
+// maul initiates: verdict write-back and enhancement.
 type Client struct {
 	url     string
 	secret  []byte
@@ -129,7 +129,7 @@ func (c *Client) Enhance(ctx context.Context, req pkggeneric.EnhanceRequest) (*p
 
 // Resolver is the generic write-back: it tells the external process what the
 // pipeline decided, over the same signed channel. Idempotency is the
-// process's obligation — the contract says so, and patchy retries.
+// process's obligation — the contract says so, and maul retries.
 type Resolver struct {
 	c           *Client
 	integration string

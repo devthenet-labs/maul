@@ -10,8 +10,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/bitwise-media-group/patchy/internal/mirror/helmchart"
-	"github.com/bitwise-media-group/patchy/internal/mirror/spec"
+	"github.com/devthenet-labs/maul/internal/mirror/helmchart"
+	"github.com/devthenet-labs/maul/internal/mirror/spec"
 )
 
 // Validate stage names for --only filtering.
@@ -110,7 +110,7 @@ func stageSet(only []string) map[string]bool {
 // validateRegen regenerates the derived state into scratch space and
 // byte-compares it with the committed tree.
 func (e *Engine) validateRegen(ctx context.Context, entry spec.Entry) ([]string, error) {
-	scratch, err := os.MkdirTemp("", "patchy-mirror-validate-*")
+	scratch, err := os.MkdirTemp("", "maul-mirror-validate-*")
 	if err != nil {
 		return nil, err
 	}

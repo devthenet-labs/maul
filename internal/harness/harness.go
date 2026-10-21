@@ -8,8 +8,8 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"github.com/bitwise-media-group/patchy/internal/runner"
-	"github.com/bitwise-media-group/patchy/internal/transcript"
+	"github.com/devthenet-labs/maul/internal/runner"
+	"github.com/devthenet-labs/maul/internal/transcript"
 )
 
 // Usage is the harness-reported consumption of one agent session. Fields are
@@ -248,7 +248,7 @@ type TaskEvent struct {
 
 // Resumer is the optional capability of continuing a session an earlier run
 // left behind, with one more prompt. agentrun uses it to have the agent that
-// wrote a report patchy refused repair it in the same conversation, which
+// wrote a report maul refused repair it in the same conversation, which
 // still holds everything it did. A harness without it has no repair.
 type Resumer interface {
 	// ResumeSpec builds the headless command that continues session
@@ -287,7 +287,7 @@ func Available(h Harness) (path string, ok bool) {
 // AvailableIn finds the harness's runner binary under dir alone, never
 // falling back to PATH: an injected CLI that is missing must be reported,
 // not quietly replaced by the image's own. It is how a pod running a
-// repository-declared image resolves the CLI patchy injected (agentrun's
+// repository-declared image resolves the CLI maul injected (agentrun's
 // preflight, whose result the stage then runs by absolute path).
 func AvailableIn(h Harness, dir string) (path string, ok bool) {
 	for _, name := range h.CLI() {

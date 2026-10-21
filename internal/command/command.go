@@ -8,14 +8,14 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/bitwise-media-group/patchy/internal/action"
+	"github.com/devthenet-labs/maul/internal/action"
 )
 
 const (
 	// Prefix starts every command line.
-	Prefix = "/patchy"
+	Prefix = "/maul"
 	// LegacyApprove is the approve comment Finding tracking issues have always
-	// accepted, kept as a deprecated alias of "/patchy approve".
+	// accepted, kept as a deprecated alias of "/maul approve".
 	LegacyApprove = "/approve"
 	// MaxNoteBytes bounds a command's note, as the approve handler always has.
 	MaxNoteBytes = 1024
@@ -33,12 +33,12 @@ type Command struct {
 	// Note is the free text after the verb, as Note makes it; possibly empty.
 	Note string
 	// Alias is the legacy form the comment used, such as "/approve", or ""
-	// for the /patchy grammar.
+	// for the /maul grammar.
 	Alias string
 }
 
 // Parser parses the comment bodies made on one surface. The zero value
-// parses the /patchy grammar alone.
+// parses the /maul grammar alone.
 type Parser struct {
 	// Surface is where the comments were made. It decides only whether the
 	// legacy approve alias is honoured, which it is on FindingIssue and
@@ -51,14 +51,14 @@ type Parser struct {
 	ApproveAlias string
 }
 
-// Parse reads body with the zero Parser: the /patchy grammar alone, never
+// Parse reads body with the zero Parser: the /maul grammar alone, never
 // an alias.
 func Parse(body string) (Command, bool) {
 	return parseGrammar(body)
 }
 
 // Parse reports the command body carries, and false when it carries none.
-// The /patchy grammar is tried first, then, on FindingIssue only, the
+// The /maul grammar is tried first, then, on FindingIssue only, the
 // legacy approve alias.
 func (p Parser) Parse(body string) (Command, bool) {
 	if c, ok := parseGrammar(body); ok {
@@ -78,10 +78,10 @@ var lineBreaks = strings.NewReplacer(
 	"\r\n", "\n", "\r", "\n", "\v", "\n", "\f", "\n", "\u0085", "\n", "\u2028", "\n", "\u2029", "\n",
 )
 
-// parseGrammar reads "/patchy <verb> [note]" from the first non-blank line.
+// parseGrammar reads "/maul <verb> [note]" from the first non-blank line.
 // Code indentation is decided twice, and either decision makes the line
 // text: on that line, and on the Markdown line holding it, which GitHub ends
-// only at CRLF, CR and LF. So "    \f/patchy approve", which GitHub renders
+// only at CRLF, CR and LF. So "    \f/maul approve", which GitHub renders
 // as one indented code block, is text although the form feed starts the
 // command on a line of its own.
 func parseGrammar(body string) (Command, bool) {
@@ -97,7 +97,7 @@ func parseGrammar(body string) (Command, bool) {
 		return Command{}, false
 	}
 	rest := line[len(Prefix):]
-	// The prefix is a whole word: "/patchyx" and "/patchy-approve" are text.
+	// The prefix is a whole word: "/maulx" and "/maul-approve" are text.
 	if r, _ := utf8.DecodeRuneInString(rest); rest != "" && !unicode.IsSpace(r) {
 		return Command{}, false
 	}

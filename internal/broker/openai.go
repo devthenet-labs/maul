@@ -14,9 +14,9 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/provider"
-	"github.com/bitwise-media-group/patchy/internal/usagewire"
+	"github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/provider"
+	"github.com/devthenet-labs/maul/internal/usagewire"
 )
 
 // OpenAI is the OpenAI Responses route (codex broker design, group 1): the

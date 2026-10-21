@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bitwise-media-group/patchy/internal/mirror/spec"
+	"github.com/devthenet-labs/maul/internal/mirror/spec"
 )
 
 func TestLintProvider(t *testing.T) {
@@ -47,7 +47,7 @@ func TestLintProvider(t *testing.T) {
 // trackManifest builds a chart manifest with the given discovery and
 // images blocks; the chart pin itself is always well-formed.
 func trackManifest(discovery, images string) string {
-	return fmt.Sprintf(`apiVersion: mirror.patchy.bitwisemedia.uk/v1alpha1
+	return fmt.Sprintf(`apiVersion: mirror.maul.run/v1alpha1
 kind: Chart
 name: demo
 chart:
@@ -150,7 +150,7 @@ func TestLintTrackRules(t *testing.T) {
 // TestLintChartBasics pins the structural chart rules.
 func TestLintChartBasics(t *testing.T) {
 	f := newFixture(t)
-	f.write("charts/demo/manifest.yaml", `apiVersion: mirror.patchy.bitwisemedia.uk/v1alpha1
+	f.write("charts/demo/manifest.yaml", `apiVersion: mirror.maul.run/v1alpha1
 kind: Chart
 name: demo
 chart:
@@ -182,7 +182,7 @@ images:
 
 	// No verifyUpstream rules at all is its own refusal: silence about
 	// provenance is never the default.
-	f.write("charts/demo/manifest.yaml", `apiVersion: mirror.patchy.bitwisemedia.uk/v1alpha1
+	f.write("charts/demo/manifest.yaml", `apiVersion: mirror.maul.run/v1alpha1
 kind: Chart
 name: demo
 chart:
@@ -209,7 +209,7 @@ chart:
 // or reason are themselves violations.
 func TestLintOCIRefsAllow(t *testing.T) {
 	f := newFixture(t)
-	f.write("charts/demo/manifest.yaml", `apiVersion: mirror.patchy.bitwisemedia.uk/v1alpha1
+	f.write("charts/demo/manifest.yaml", `apiVersion: mirror.maul.run/v1alpha1
 kind: Chart
 name: demo
 chart:
@@ -266,7 +266,7 @@ func TestLintOCIRefsMultiRegistry(t *testing.T) {
 	f := newFixture(t)
 	f.setRegistries(fmt.Sprintf("  - name: a\n    url: %[1]s/mirror-a\n"+
 		"  - name: b\n    url: %[1]s/mirror-b\n", f.host))
-	f.write("charts/demo/manifest.yaml", `apiVersion: mirror.patchy.bitwisemedia.uk/v1alpha1
+	f.write("charts/demo/manifest.yaml", `apiVersion: mirror.maul.run/v1alpha1
 kind: Chart
 name: demo
 chart:

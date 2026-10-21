@@ -36,7 +36,7 @@ func request(header string) *http.Request {
 
 func TestGoogleOIDCAuthenticator(t *testing.T) {
 	const (
-		audience = "https://patchy.example/google-cloud/webhooks"
+		audience = "https://maul.example/google-cloud/webhooks"
 		account  = "scc-push@acme-prod.iam.gserviceaccount.com"
 	)
 	good := &IDTokenClaims{Audience: audience, Email: account, Verified: true}

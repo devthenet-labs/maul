@@ -29,7 +29,7 @@ const (
 // stamp sits on a line of its own in both, and a goreleaser value can hold
 // spaces (a template), so the value runs to the end of the line.
 var stampPattern = regexp.MustCompile(
-	`-X (?:github\.com/bitwise-media-group/patchy|\$module)/internal/version\.(\w+)=([^\n]*)`)
+	`-X (?:github\.com/devthenet-labs/maul|\$module)/internal/version\.(\w+)=([^\n]*)`)
 
 // stamps is every -X stamp of this package in text, variable to value,
 // less the shell's line continuation and closing quote in hack/build.sh.
@@ -150,9 +150,9 @@ func TestReleaseStampsRepositoriesItPublishes(t *testing.T) {
 	for _, d := range cfg.DockersV2 {
 		images = append(images, d.Images...)
 	}
-	idx := slices.IndexFunc(cfg.Builds, func(b goreleaserBuild) bool { return b.ID == "patchy" })
+	idx := slices.IndexFunc(cfg.Builds, func(b goreleaserBuild) bool { return b.ID == "maul" })
 	if idx < 0 {
-		t.Fatalf("%s has no patchy build", goreleaserConfig)
+		t.Fatalf("%s has no maul build", goreleaserConfig)
 	}
 	release := stamps(strings.Join(cfg.Builds[idx].Ldflags, "\n"))
 	script, err := os.ReadFile(filepath.FromSlash(buildScript))
@@ -167,9 +167,9 @@ func TestReleaseStampsRepositoriesItPublishes(t *testing.T) {
 		{"AgentBaseRepository", "agent-base"},
 	} {
 		t.Run(tc.variable, func(t *testing.T) {
-			want := "{{ .Env.PATCHY_IMAGE_REGISTRY }}/" + tc.leaf
+			want := "{{ .Env.MAUL_IMAGE_REGISTRY }}/" + tc.leaf
 			if got := release[tc.variable]; got != want {
-				t.Errorf("the patchy build stamps %s=%q, want %q", tc.variable, got, want)
+				t.Errorf("the maul build stamps %s=%q, want %q", tc.variable, got, want)
 			}
 			if !slices.Contains(images, want) {
 				t.Errorf("no dockers_v2 entry pushes %q, the repository the CLI is stamped with; images %q",

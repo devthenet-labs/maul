@@ -25,7 +25,7 @@ echo "compare runs with: benchstat coverage/bench/<old>.txt ${out}"
 echo
 
 status=0
-PATCHY_BENCH_ASSERT=1 go test -p 1 ./internal/... -run 'TestComplexity' -count=1 \
+MAUL_BENCH_ASSERT=1 go test -p 1 ./internal/... -run 'TestComplexity' -count=1 \
 	-timeout 30m | tee -a "${out}" || status=$?
 if [ "${status}" -ne 0 ]; then
 	echo

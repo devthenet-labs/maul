@@ -21,7 +21,7 @@ import (
 const walkPageCap = 50
 
 // pageWalk is one paginated GET listing through the go-github client, for
-// the endpoints whose go-github types drop fields patchy needs
+// the endpoints whose go-github types drop fields maul needs
 // (performed_via_github_app, node_id) or that must be conditional.
 type pageWalk struct {
 	// path is relative to the API root: "repos/o/r/issues/3/events".

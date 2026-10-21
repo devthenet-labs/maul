@@ -16,26 +16,26 @@ import (
 	"github.com/spf13/cobra"
 	"k8s.io/client-go/kubernetes"
 
-	"github.com/bitwise-media-group/patchy/internal/changeset"
-	"github.com/bitwise-media-group/patchy/internal/cli"
-	"github.com/bitwise-media-group/patchy/internal/controller/intent"
-	"github.com/bitwise-media-group/patchy/internal/credgate/kubecred"
-	"github.com/bitwise-media-group/patchy/internal/forge"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/model"
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
-	"github.com/bitwise-media-group/patchy/internal/resourceclass"
-	"github.com/bitwise-media-group/patchy/internal/runnercfg"
-	"github.com/bitwise-media-group/patchy/internal/runnerguard"
-	"github.com/bitwise-media-group/patchy/internal/telemetry"
-	"github.com/bitwise-media-group/patchy/internal/usagemeter"
-	"github.com/bitwise-media-group/patchy/internal/usagerollup"
-	"github.com/bitwise-media-group/patchy/internal/version"
+	"github.com/devthenet-labs/maul/internal/changeset"
+	"github.com/devthenet-labs/maul/internal/cli"
+	"github.com/devthenet-labs/maul/internal/controller/intent"
+	"github.com/devthenet-labs/maul/internal/credgate/kubecred"
+	"github.com/devthenet-labs/maul/internal/forge"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/model"
+	"github.com/devthenet-labs/maul/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/resourceclass"
+	"github.com/devthenet-labs/maul/internal/runnercfg"
+	"github.com/devthenet-labs/maul/internal/runnerguard"
+	"github.com/devthenet-labs/maul/internal/telemetry"
+	"github.com/devthenet-labs/maul/internal/usagemeter"
+	"github.com/devthenet-labs/maul/internal/usagerollup"
+	"github.com/devthenet-labs/maul/internal/version"
 )
 
 // The flags this binary alone reads carry an intent- prefix, so the shared
-// kustomize ConfigMap's PATCHY_* keys for the other controllers can never
+// kustomize ConfigMap's MAUL_* keys for the other controllers can never
 // set them by accident.
 func newServeCmd(opts *cli.Options) *cobra.Command {
 	cmd := &cobra.Command{
@@ -44,7 +44,7 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 		RunE:  func(cmd *cobra.Command, _ []string) error { return serve(cmd.Context(), opts) },
 	}
 	f := cmd.Flags()
-	f.String("namespace", "", "namespace the patchy resources live in (default: POD_NAMESPACE)")
+	f.String("namespace", "", "namespace the maul resources live in (default: POD_NAMESPACE)")
 	f.String("kubeconfig", "", "kubeconfig path (default: in-cluster config)")
 	f.String("health-addr", ":8081", "healthz/readyz probe listen address")
 
@@ -77,7 +77,7 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	f.String("broker-limit-unit", "tokens",
 		"the egress broker's --limit-unit: under cost every intent run is granted a cost budget (the stage's "+
 			"limits.<stage>.maxCostMicroUSD, else the Project's limits.maxCostMicroUSD) stamped on its agent Job "+
-			"and pod as patchy.bitwisemedia.uk/budget-micro-usd; under tokens (the default) none is")
+			"and pod as maul.run/budget-micro-usd; under tokens (the default) none is")
 	f.Int("broker-cost-per-hour", 0,
 		"the egress broker's --cost-per-hour in micro-USD (cost unit only; 0: none): a Project whose run budget "+
 			"is more than half of it is not Ready")
@@ -112,8 +112,8 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 			"repository's build, revise and check-fix runs, and nothing can ask for more than the largest. "+
 			"Empty defines none")
 
-	f.String("agent-namespace", "patchy-agents", "namespace the agent Jobs run in")
-	f.String("agent-service-account", "patchy-agent", "service account for the agent Jobs")
+	f.String("agent-namespace", "maul-agents", "namespace the agent Jobs run in")
+	f.String("agent-service-account", "maul-agent", "service account for the agent Jobs")
 	f.Duration("job-ttl", time.Hour, "ttlSecondsAfterFinished for a finished agent Job")
 	runnercfg.RegisterFlags(f)
 	runnercfg.RegisterRepositoryImageFlags(f)
@@ -421,7 +421,7 @@ func harnessesAndDNS(ctx context.Context, opts *cli.Options, cs kubernetes.Inter
 
 func serve(ctx context.Context, opts *cli.Options) error {
 	prov, shutdown, err := telemetry.Init(ctx, telemetry.Config{
-		Dir:            os.Getenv("PATCHY_TELEMETRY_DIR"),
+		Dir:            os.Getenv("MAUL_TELEMETRY_DIR"),
 		Level:          opts.LogLevel,
 		ServiceName:    "intent-controller",
 		ServiceVersion: version.Version,
@@ -459,7 +459,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 
 	mgr, err := kube.NewManager(kube.Options{
 		Kubeconfig:              opts.String("kubeconfig"),
-		LeaderElectionID:        "patchy-intent-controller-leader",
+		LeaderElectionID:        "maul-intent-controller-leader",
 		LeaderElectionNamespace: namespace,
 		Namespaces:              []string{namespace},
 		AgentNamespace:          agentNS,

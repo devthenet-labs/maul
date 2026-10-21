@@ -7,7 +7,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/httpguard"
+	"github.com/devthenet-labs/maul/internal/httpguard"
 )
 
 // The defaults behind every zero Limits field (and the binary's flags).

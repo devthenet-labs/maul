@@ -24,7 +24,7 @@ preview:
             throughput: 250
 edgeIngressClass:
     name: edge
-    loadBalancerName: example-patchy
+    loadBalancerName: example-maul
     scheme: internal
     certificateARNs:
         - arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000

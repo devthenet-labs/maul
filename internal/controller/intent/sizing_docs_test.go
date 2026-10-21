@@ -14,7 +14,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/yaml"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 // repoFile reads a file relative to the repository root.
@@ -46,7 +46,7 @@ func fenceAfter(t *testing.T, doc, heading string) string {
 	return body
 }
 
-// sizingBrokerLimits is the patchy chart values block of the sizing guide.
+// sizingBrokerLimits is the maul chart values block of the sizing guide.
 type sizingBrokerLimits struct {
 	EgressBroker struct {
 		Limits struct {
@@ -58,7 +58,7 @@ type sizingBrokerLimits struct {
 }
 
 // largePresetLimits are the "large" preset's Project limits as published:
-// the sizing guide's Project and the commented preset in patchy-config's
+// the sizing guide's Project and the commented preset in maul-config's
 // values.yaml.
 func largePresetLimits(t *testing.T) map[string]v1alpha1.ProjectLimits {
 	t.Helper()
@@ -80,10 +80,10 @@ func largePresetLimits(t *testing.T) map[string]v1alpha1.ProjectLimits {
 
 	// The chart comment: the lines after the preset's heading, up to the
 	// next key of the Project, each under the same comment prefix.
-	values := repoFile(t, "charts/patchy-config/values.yaml")
+	values := repoFile(t, "charts/maul-config/values.yaml")
 	_, rest, ok := strings.Cut(values, `The "large" preset`)
 	if !ok {
-		t.Fatal("patchy-config values.yaml has no large preset")
+		t.Fatal("maul-config values.yaml has no large preset")
 	}
 	const prefix = "#       #     # "
 	var preset []string
@@ -98,7 +98,7 @@ func largePresetLimits(t *testing.T) map[string]v1alpha1.ProjectLimits {
 	if err := yaml.UnmarshalStrict([]byte(strings.Join(preset, "\n")), &chart); err != nil {
 		t.Fatalf("the values.yaml preset %q: %v", preset, err)
 	}
-	out["charts/patchy-config/values.yaml"] = chart
+	out["charts/maul-config/values.yaml"] = chart
 	return out
 }
 
@@ -111,7 +111,7 @@ func largePresetLimits(t *testing.T) map[string]v1alpha1.ProjectLimits {
 func TestLargePresetProjectIsReady(t *testing.T) {
 	var broker sizingBrokerLimits
 	doc := repoFile(t, "docs/intents/sizing.md")
-	if err := yaml.Unmarshal([]byte(fenceAfter(t, doc, "### patchy chart values")), &broker); err != nil {
+	if err := yaml.Unmarshal([]byte(fenceAfter(t, doc, "### maul chart values")), &broker); err != nil {
 		t.Fatal(err)
 	}
 	limits := broker.EgressBroker.Limits

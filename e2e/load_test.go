@@ -4,9 +4,9 @@
 // The Tier-2 load suite: the real controller binaries against envtest at
 // tens of thousands of findings — the brownfield-backlog rehearsal the
 // microbenchmarks extrapolate from. Opt-in twice over: skipped without
-// PATCHY_LOAD=1 (on top of the suite-wide KUBEBUILDER_ASSETS skip), sized by
-// PATCHY_LOAD_N (default 50000), with hard assertions only under
-// PATCHY_LOAD_ASSERT=1 — absolute numbers are hardware-bound, so they are
+// MAUL_LOAD=1 (on top of the suite-wide KUBEBUILDER_ASSETS skip), sized by
+// MAUL_LOAD_N (default 50000), with hard assertions only under
+// MAUL_LOAD_ASSERT=1 — absolute numbers are hardware-bound, so they are
 // reported, while the complexity-shaped ratios are asserted. Run via
 // `mise run load`; targets live in docs/dev/benchmarks.md.
 //
@@ -42,10 +42,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/e2e/fakegithub"
-	"github.com/bitwise-media-group/patchy/internal/loadgen"
-	pkggeneric "github.com/bitwise-media-group/patchy/pkg/generic"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/e2e/fakegithub"
+	"github.com/devthenet-labs/maul/internal/loadgen"
+	pkggeneric "github.com/devthenet-labs/maul/pkg/generic"
 )
 
 const loadSecret = "e2e-load-hmac-secret"
@@ -53,18 +53,18 @@ const loadSecret = "e2e-load-hmac-secret"
 // loadParams gates and sizes a load test.
 func loadParams(t *testing.T) (n int, assert bool) {
 	t.Helper()
-	if os.Getenv("PATCHY_LOAD") == "" {
-		t.Skip("set PATCHY_LOAD=1 (mise run load) to run the load suite")
+	if os.Getenv("MAUL_LOAD") == "" {
+		t.Skip("set MAUL_LOAD=1 (mise run load) to run the load suite")
 	}
 	n = 50_000
-	if raw := os.Getenv("PATCHY_LOAD_N"); raw != "" {
+	if raw := os.Getenv("MAUL_LOAD_N"); raw != "" {
 		parsed, err := strconv.Atoi(raw)
 		if err != nil || parsed <= 0 {
-			t.Fatalf("PATCHY_LOAD_N = %q, want a positive integer", raw)
+			t.Fatalf("MAUL_LOAD_N = %q, want a positive integer", raw)
 		}
 		n = parsed
 	}
-	return n, os.Getenv("PATCHY_LOAD_ASSERT") != ""
+	return n, os.Getenv("MAUL_LOAD_ASSERT") != ""
 }
 
 // ---- measurement helpers ---------------------------------------------------
@@ -162,7 +162,7 @@ func seedLoadIntegration(t *testing.T, cl *cluster) {
 	t.Helper()
 	ctx := t.Context()
 	if err := cl.client.Create(ctx, &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "patchy-loadgen", Namespace: namespace},
+		ObjectMeta: metav1.ObjectMeta{Name: "maul-loadgen", Namespace: namespace},
 		StringData: map[string]string{"webhookSecret": loadSecret},
 	}); err != nil {
 		t.Fatal(err)
@@ -171,7 +171,7 @@ func seedLoadIntegration(t *testing.T, cl *cluster) {
 		ObjectMeta: metav1.ObjectMeta{Name: "loadgen", Namespace: namespace},
 		Spec: v1alpha1.IntegrationSpec{
 			Provider:  v1alpha1.IntegrationProviderGeneric,
-			SecretRef: &v1alpha1.LocalSecretReference{Name: "patchy-loadgen"},
+			SecretRef: &v1alpha1.LocalSecretReference{Name: "maul-loadgen"},
 			Generic: &v1alpha1.GenericIntegration{
 				Source: &v1alpha1.GenericSource{Enabled: true},
 			},

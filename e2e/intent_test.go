@@ -24,11 +24,11 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/e2e/fakegithub"
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/templates"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/e2e/fakegithub"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // The intent e2e: a Project on an intent repository and one application
@@ -44,9 +44,9 @@ const (
 	intentRepoURL     = "https://127.0.0.1/acme/intents"
 	appRepoURL        = "https://127.0.0.1/acme/shop"
 	projectName       = "shop"
-	triggerLabel      = "patchy:shop"
-	approveLabel      = "patchy:approved"
-	claudeRunnerImage = "patchy/claude-agent-runner:e2e"
+	triggerLabel      = "maul:shop"
+	approveLabel      = "maul:approved"
+	claudeRunnerImage = "maul/claude-agent-runner:e2e"
 )
 
 var (
@@ -66,7 +66,7 @@ var (
 // runs the fake agent in the claude pod's place.
 var intentArgs = []string{
 	"--claude-agent-image", claudeRunnerImage,
-	"--broker-url", "http://patchy-egress-broker.patchy.svc.cluster.local:8080",
+	"--broker-url", "http://maul-egress-broker.maul.svc.cluster.local:8080",
 	"--repository-images", "--agent-ephemeral-storage", "1Gi",
 	"--intent-poll-interval", "1s",
 	"--intent-approval-poll-interval", "1s",
@@ -87,7 +87,7 @@ type intentEnv struct {
 
 // startIntents runs the whole intent stack on a fresh cluster: the fake
 // GitHub behind the App credential, an application repository declaring
-// its runner image in .patchy/agent.yaml, source-controller resolving
+// its runner image in .maul/agent.yaml, source-controller resolving
 // repository images from the e2e registry, then withIntents, its
 // intent-controller run with extra flags beside intentArgs.
 func startIntents(t *testing.T, extra ...string) *intentEnv {
@@ -101,7 +101,7 @@ func startIntents(t *testing.T, extra ...string) *intentEnv {
 // startSourceStack starts a fresh cluster with the fake GitHub behind the
 // App credential, each of the named application repositories (of
 // intentOwner) declaring the e2e registry's runner image in
-// .patchy/agent.yaml, and source-controller resolving repository images
+// .maul/agent.yaml, and source-controller resolving repository images
 // from that registry. It returns the registry's host.
 func startSourceStack(t *testing.T, repos ...string) (*cluster, *fakegithub.Server, string) {
 	t.Helper()
@@ -115,7 +115,7 @@ func startSourceStack(t *testing.T, repos ...string) (*cluster, *fakegithub.Serv
 	t.Setenv("DOCKER_CONFIG", t.TempDir())
 	registry, imageRef := publishRunnerImage(t)
 	for _, repo := range repos {
-		gh.SetRepoFile(intentOwner, repo, ".patchy/agent.yaml", "image: "+imageRef+"\n")
+		gh.SetRepoFile(intentOwner, repo, ".maul/agent.yaml", "image: "+imageRef+"\n")
 	}
 
 	artifactPort := freePort(t)
@@ -192,7 +192,7 @@ const (
 	intentRunKind = "intent"
 	// runnerImageSourceAnnotation says, on a Job that runs a
 	// repository-declared image, that it does; a default Job has none.
-	runnerImageSourceAnnotation = "patchy.bitwisemedia.uk/runner-image-source"
+	runnerImageSourceAnnotation = "maul.run/runner-image-source"
 )
 
 // fileIntent files an intent as the approver does through the project's
@@ -272,7 +272,7 @@ func (e *intentEnv) run(t *testing.T, name string) *v1alpha1.IntentRun {
 	return &run
 }
 
-// own returns patchy's comments on the issue headed by marker: the App's
+// own returns maul's comments on the issue headed by marker: the App's
 // bot's, whose first line is exactly the marker.
 func (e *intentEnv) own(number int, marker string) []fakegithub.Comment {
 	var out []fakegithub.Comment
@@ -285,7 +285,7 @@ func (e *intentEnv) own(number int, marker string) []fakegithub.Comment {
 	return out
 }
 
-// botMarkers counts patchy's comments on the issue by their marker line.
+// botMarkers counts maul's comments on the issue by their marker line.
 func (e *intentEnv) botMarkers(number int) map[string]int {
 	out := map[string]int{}
 	for _, c := range e.gh.IssueComments(number) {
@@ -297,7 +297,7 @@ func (e *intentEnv) botMarkers(number int) map[string]int {
 	return out
 }
 
-// notice is the marker of patchy's notice keyed key on the Intent.
+// notice is the marker of maul's notice keyed key on the Intent.
 func notice(name, key string) string { return templates.NoticeMarker(namespace, name, key) }
 
 // lastLabeled is the newest labeled event adding label on the issue.
@@ -370,11 +370,11 @@ func (e *intentEnv) checkPlanJob(t *testing.T, r agentRun, planRun string) {
 		t.Error("a plan job was handed an investigation.md; it plans from the request alone")
 	}
 	for k, want := range map[string]string{
-		"PATCHY_PHASE":                      "plan",
-		"PATCHY_FINDING":                    planRun,
-		"PATCHY_INVESTIGATE_HARNESS":        "claude",
-		"PATCHY_INVESTIGATE_TIMEOUT":        "20m0s",
-		"PATCHY_REMEDIATE_MANUAL_MAX_TURNS": "150",
+		"MAUL_PHASE":                      "plan",
+		"MAUL_FINDING":                    planRun,
+		"MAUL_INVESTIGATE_HARNESS":        "claude",
+		"MAUL_INVESTIGATE_TIMEOUT":        "20m0s",
+		"MAUL_REMEDIATE_MANUAL_MAX_TURNS": "150",
 	} {
 		if got := r.Env[k]; got != want {
 			t.Errorf("plan job %s = %q, want %q", k, got, want)
@@ -397,8 +397,8 @@ func (e *intentEnv) checkCredentialless(t *testing.T, r agentRun) {
 // repositories manifest), each checked by the caller.
 func (e *intentEnv) checkCredentiallessWith(t *testing.T, r agentRun, also ...string) {
 	t.Helper()
-	if r.Env["PATCHY_BROKER_TOKEN_FILE"] == "" {
-		t.Errorf("job %s is not brokered: no PATCHY_BROKER_TOKEN_FILE", r.Job.Name)
+	if r.Env["MAUL_BROKER_TOKEN_FILE"] == "" {
+		t.Errorf("job %s is not brokered: no MAUL_BROKER_TOKEN_FILE", r.Job.Name)
 	}
 	for _, c := range r.Job.Spec.Template.Spec.Containers {
 		for _, env := range c.Env {
@@ -534,14 +534,14 @@ func intentLifecycle(t *testing.T, e *intentEnv) string {
 	}
 	events := e.gh.Events(number)
 	if last := events[len(events)-1]; last.Event != "unlabeled" || last.Label != approveLabel || last.Actor != fakegithub.Bot {
-		t.Errorf("last event = %+v, want patchy removing %s", last, approveLabel)
+		t.Errorf("last event = %+v, want maul removing %s", last, approveLabel)
 	}
 
-	// 5. An approver who can only read comments /patchy approve: seen,
+	// 5. An approver who can only read comments /maul approve: seen,
 	//    answered once, refused.
-	byReader := e.gh.CommentAs(number, "/patchy approve", reader)
+	byReader := e.gh.CommentAs(number, "/maul approve", reader)
 	readerNotice := notice(name, fmt.Sprintf("comment-%d", byReader))
-	eventually(t, "the refusal of reader's /patchy approve", func() bool {
+	eventually(t, "the refusal of reader's /maul approve", func() bool {
 		return slices.Equal(e.gh.Reactions(byReader), []string{"eyes"}) && len(e.own(number, readerNotice)) == 1
 	})
 	if body := e.own(number, readerNotice)[0].Body; !strings.Contains(body, "`reader`") ||
@@ -596,7 +596,7 @@ func intentLifecycle(t *testing.T, e *intentEnv) string {
 	if string(buildJob.Investigation) != plan {
 		t.Errorf("the build was handed a plan other than the approved one:\n%s", buildJob.Investigation)
 	}
-	if got := buildJob.Env["PATCHY_REMEDIATE_HARNESS"]; got != "claude" {
+	if got := buildJob.Env["MAUL_REMEDIATE_HARNESS"]; got != "claude" {
 		t.Errorf("build harness = %q, want brokered claude", got)
 	}
 	if am := buildJob.Job.Spec.Template.Spec.AutomountServiceAccountToken; am == nil || *am {
@@ -605,7 +605,7 @@ func intentLifecycle(t *testing.T, e *intentEnv) string {
 	e.checkCredentialless(t, buildJob)
 
 	// 8. The push: one commit on the pinned base, carrying the changeset
-	//    under patchy's own message, and the branch created once, never
+	//    under maul's own message, and the branch created once, never
 	//    forced, the default branch never touched.
 	in = e.waitPhase(t, name, v1alpha1.IntentInReview)
 	run := e.run(t, buildRun)
@@ -630,12 +630,12 @@ func intentLifecycle(t *testing.T, e *intentEnv) string {
 	if len(commit.Files) != 1 || string(commit.Files["VERSION"]) != "0.1.0\n" {
 		t.Errorf("commit files = %v, want the build's VERSION", slices.Collect(maps.Keys(commit.Files)))
 	}
-	if !strings.Contains(commit.Message, "Patchy-Intent:") || !strings.Contains(commit.Message, buildRun) ||
+	if !strings.Contains(commit.Message, "Maul-Intent:") || !strings.Contains(commit.Message, buildRun) ||
 		strings.Contains(commit.Message, "fake agent") {
-		t.Errorf("commit message is not patchy's own (the agent's is dropped):\n%s", commit.Message)
+		t.Errorf("commit message is not maul's own (the agent's is dropped):\n%s", commit.Message)
 	}
 
-	// 9. The pull request: patchy's own title and body, "Part of" the
+	// 9. The pull request: maul's own title and body, "Part of" the
 	//    intent issue, never a closing keyword.
 	if len(in.Status.PullRequests) != 1 {
 		t.Fatalf("pull requests = %+v, want one", in.Status.PullRequests)
@@ -670,7 +670,7 @@ func intentLifecycle(t *testing.T, e *intentEnv) string {
 	})
 	e.exerciseReviseAndCheckFix(t, name, int(rec.Number), pushed)
 
-	// 10. A human merges: the intent completes, patchy sums it up once and
+	// 10. A human merges: the intent completes, maul sums it up once and
 	//     closes the issue as completed.
 	e.gh.MergePull(int(rec.Number), branch, "4b825dc642cb6eb9a060e54bf8d69288fbee4904")
 	in = e.waitPhase(t, name, v1alpha1.IntentMerged)
@@ -690,10 +690,10 @@ func intentLifecycle(t *testing.T, e *intentEnv) string {
 	}
 	events = e.gh.Events(number)
 	if last := events[len(events)-1]; last.Event != "closed" || last.Actor != fakegithub.Bot {
-		t.Errorf("last event = %+v, want patchy closing the issue", last)
+		t.Errorf("last event = %+v, want maul closing the issue", last)
 	}
 
-	// Every comment patchy wrote, it wrote exactly once.
+	// Every comment maul wrote, it wrote exactly once.
 	wantComments := map[string]int{
 		templates.IntentStatusMarker(namespace, name):       1,
 		templates.PlanMarker(namespace, name, 1, pl.Digest): 1,
@@ -701,10 +701,10 @@ func intentLifecycle(t *testing.T, e *intentEnv) string {
 		readerNotice:                       1,
 		notice(name, templates.SummaryKey): 1,
 	}
-	consistently(t, "every comment patchy wrote to be written once, and nothing more", func() bool {
+	consistently(t, "every comment maul wrote to be written once, and nothing more", func() bool {
 		got := e.botMarkers(number)
 		if !maps.Equal(got, wantComments) {
-			t.Logf("patchy's comments = %v, want %v", got, wantComments)
+			t.Logf("maul's comments = %v, want %v", got, wantComments)
 			return false
 		}
 		return e.intent(t, name).Status.Phase == v1alpha1.IntentMerged
@@ -722,7 +722,7 @@ func (e *intentEnv) exerciseReviseAndCheckFix(t *testing.T, name string, number 
 	t.Helper()
 	ctx := context.Background()
 	e.gh.SetComparePatch(fakegithub.BaseSHA, buildSHA, "diff --git a/VERSION b/VERSION\n+0.1.0\n")
-	e.gh.CommentAs(number, "/patchy revise Please test the VERSION contents.", approver)
+	e.gh.CommentAs(number, "/maul revise Please test the VERSION contents.", approver)
 	e.waitPhase(t, name, v1alpha1.IntentRevising)
 	reviseName := v1alpha1.IntentRunName(name, v1alpha1.IntentStageRevise, 1, appRepo, 1)
 	runJobName := jobs.NameFor(reviseName, intentRunKind, 1)
@@ -751,7 +751,7 @@ func (e *intentEnv) exerciseReviseAndCheckFix(t *testing.T, name string, number 
 		revise.Status.PushedCommit == "" || in.Status.Revisions != 1 {
 		t.Fatalf("revision result = %+v, revisions %d", revise.Status, in.Status.Revisions)
 	}
-	if got := e.own(number, fmt.Sprintf("<!-- patchy:intent-pr-round:%s:1 -->", name)); len(got) != 1 ||
+	if got := e.own(number, fmt.Sprintf("<!-- maul:intent-pr-round:%s:1 -->", name)); len(got) != 1 ||
 		!strings.Contains(got[0].Body, "Revision round pushed commit `"+revise.Status.PushedCommit+"`") {
 		t.Errorf("revision round comments = %+v, want one saying the revision round pushed %s", got,
 			revise.Status.PushedCommit)
@@ -822,7 +822,7 @@ func (e *intentEnv) exerciseReviseAndCheckFix(t *testing.T, name string, number 
 		t.Errorf("check-fix handoff omitted bounded CI diagnostics: %q", fixJob.Investigation)
 	}
 	// The second round is shown the thread the first acted on, as context
-	// apart from its own input: the command's note, never patchy's reply.
+	// apart from its own input: the command's note, never maul's reply.
 	earlier, _, _ := strings.Cut(string(fixJob.Investigation), "### Check failures")
 	if _, earlier, _ = strings.Cut(earlier, "### Earlier feedback (context from earlier rounds)\n\n"); !strings.Contains(
 		earlier, "Please test the VERSION contents.") || strings.Contains(earlier, "Revision round started") ||
@@ -844,7 +844,7 @@ func (e *intentEnv) exerciseReviseAndCheckFix(t *testing.T, name string, number 
 	}
 	// A round failed checks started is called a CI-fix round, naming the
 	// check, never a revision.
-	if got := e.own(number, fmt.Sprintf("<!-- patchy:intent-pr-round:%s:2 -->", name)); len(got) != 1 ||
+	if got := e.own(number, fmt.Sprintf("<!-- maul:intent-pr-round:%s:2 -->", name)); len(got) != 1 ||
 		!strings.Contains(got[0].Body, "CI-fix round for `test` pushed commit `"+fix.Status.PushedCommit+"`") ||
 		strings.Contains(got[0].Body, "Revision round") {
 		t.Errorf("check-fix round comments = %+v, want one saying the CI-fix round for test pushed %s", got,
@@ -898,9 +898,9 @@ func (e *intentEnv) issue(t *testing.T, number int) fakegithub.Issue {
 }
 
 // TestIntentEditedPlanRefused: an approval of a plan whose comment was
-// edited after patchy posted it is refused, once, and builds nothing; the
+// edited after maul posted it is refused, once, and builds nothing; the
 // replan it asks for posts a new plan, and approving that one with
-// /patchy approve builds it, and only it.
+// /maul approve builds it, and only it.
 func TestIntentEditedPlanRefused(t *testing.T) {
 	e := startIntents(t)
 	ctx := context.Background()
@@ -964,13 +964,13 @@ func TestIntentEditedPlanRefused(t *testing.T) {
 		t.Fatalf("read plan r1: %v", err)
 	}
 	firstPlan := e.kubelet.waitRun(t, "the first plan job", func(r agentRun) bool {
-		return r.Env["PATCHY_FINDING"] == v1alpha1.IntentRunName(name, v1alpha1.IntentStagePlan, 1, appRepo, 1)
+		return r.Env["MAUL_FINDING"] == v1alpha1.IntentRunName(name, v1alpha1.IntentStagePlan, 1, appRepo, 1)
 	})
 	if firstPlan.HasInvestigation {
 		t.Errorf("the first plan was handed a context file:\n%s", firstPlan.Investigation)
 	}
 	replan := e.kubelet.waitRun(t, "the replan's plan job", func(r agentRun) bool {
-		return r.Env["PATCHY_FINDING"] == v1alpha1.IntentRunName(name, v1alpha1.IntentStagePlan, 2, appRepo, 1)
+		return r.Env["MAUL_FINDING"] == v1alpha1.IntentRunName(name, v1alpha1.IntentStagePlan, 2, appRepo, 1)
 	})
 	ctxFile := string(replan.Investigation)
 	if !strings.Contains(ctxFile, "## The previous plan (r1)") ||
@@ -984,7 +984,7 @@ func TestIntentEditedPlanRefused(t *testing.T) {
 
 	// The approver approves r2 by command: seen, done once, and r2 built.
 	afterSecond(r2.PostedAt.Time)
-	approveCmd := e.gh.CommentAs(number, "/patchy approve", approver)
+	approveCmd := e.gh.CommentAs(number, "/maul approve", approver)
 	done := notice(name, fmt.Sprintf("comment-%d", approveCmd))
 	in = e.waitPhase(t, name, v1alpha1.IntentInReview)
 	if ap := in.Status.Approval; ap == nil || ap.Source != v1alpha1.IntentActionCommand || ap.EventID != approveCmd ||
@@ -1053,7 +1053,7 @@ func TestFindingPipelineAlongsideIntents(t *testing.T) {
 	if want := map[string]int{string(v1alpha1.RunKindInvestigation): 1, intentRunKind: 1}; !maps.Equal(kinds, want) {
 		t.Errorf("agent jobs by kind = %v, want %v", kinds, want)
 	}
-	if ran := e.kubelet.Runs(); len(ran) != 1 || ran[0].Env["PATCHY_PHASE"] != "plan" {
+	if ran := e.kubelet.Runs(); len(ran) != 1 || ran[0].Env["MAUL_PHASE"] != "plan" {
 		t.Errorf("jobs run = %d, want the intent's plan alone", len(ran))
 	}
 
@@ -1070,11 +1070,11 @@ func TestFindingPipelineAlongsideIntents(t *testing.T) {
 		}
 	}
 
-	// The tracking issue carries none of patchy's intent comments.
+	// The tracking issue carries none of maul's intent comments.
 	for _, is := range p.trackingIssues() {
 		for _, c := range p.gh.IssueComments(is.Number) {
-			if strings.Contains(c.Body, "patchy:intent") || strings.Contains(c.Body, "patchy:plan") ||
-				strings.Contains(c.Body, "patchy:notice") {
+			if strings.Contains(c.Body, "maul:intent") || strings.Contains(c.Body, "maul:plan") ||
+				strings.Contains(c.Body, "maul:notice") {
 				t.Errorf("tracking issue #%d carries an intent comment:\n%s", is.Number, c.Body)
 			}
 		}

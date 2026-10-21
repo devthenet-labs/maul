@@ -8,7 +8,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/bitwise-media-group/patchy/internal/mirror/spec"
+	"github.com/devthenet-labs/maul/internal/mirror/spec"
 )
 
 // ToolRunner executes the cosign binary; a seam so tests can can its

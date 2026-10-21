@@ -88,7 +88,7 @@ func (fi *fakeIssuer) mintLocked(t *testing.T, claims map[string]any, expIn time
 	t.Helper()
 	all := map[string]any{
 		"iss": fi.ts.URL,
-		"aud": "patchy",
+		"aud": "maul",
 		"iat": time.Now().Add(-time.Minute).Unix(),
 		"exp": time.Now().Add(expIn).Unix(),
 	}
@@ -136,7 +136,7 @@ func newTestOIDC(t *testing.T, fi *fakeIssuer) (*oidcAuthenticator, *http.ServeM
 		Mode: ModeOIDC,
 		OIDC: &OIDCConfig{
 			IssuerURL:    fi.ts.URL,
-			ClientID:     "patchy",
+			ClientID:     "maul",
 			ClientSecret: "s3cret",
 		},
 	}
@@ -202,7 +202,7 @@ func sessionRequest(t *testing.T, rec *httptest.ResponseRecorder, target string)
 func userClaims(nonce string) map[string]any {
 	return map[string]any{
 		"email": "dev@acme.test", "name": "Dev",
-		"groups": []string{"patchy-approvers"}, "nonce": nonce,
+		"groups": []string{"maul-approvers"}, "nonce": nonce,
 	}
 }
 

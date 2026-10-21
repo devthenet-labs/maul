@@ -128,9 +128,9 @@ func (r Resources) Validate() error {
 		case !whole(q):
 			errs = append(errs, fmt.Errorf("%s %s is not a whole number of %s", field, q, unit))
 		case q.Cmp(lo) < 0:
-			errs = append(errs, fmt.Errorf("%s %s is below %s, the least patchy accepts (a typo?)", field, q, lo.String()))
+			errs = append(errs, fmt.Errorf("%s %s is below %s, the least maul accepts (a typo?)", field, q, lo.String()))
 		case q.Cmp(hi) > 0:
-			errs = append(errs, fmt.Errorf("%s %s is above %s, the most patchy accepts (a typo?)", field, q, hi.String()))
+			errs = append(errs, fmt.Errorf("%s %s is above %s, the most maul accepts (a typo?)", field, q, hi.String()))
 		}
 	}
 	check("requests.cpu", r.Requests.CPU, minCPU, maxCPU, wholeMillis, "millicores")

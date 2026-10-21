@@ -6,11 +6,11 @@ package templates
 import "strings"
 
 // RepairPrompt is the data for the one message a stage's agent is sent, in
-// its own session, when patchy refused the report it wrote or found none:
+// its own session, when maul refused the report it wrote or found none:
 // fix the report, change nothing else. agent-runner sends it at most a few
 // times before giving the stage up as report_missing or report_invalid.
 //
-// It carries patchy's fixed text, the report's path and the reason the
+// It carries maul's fixed text, the report's path and the reason the
 // report was refused, and nothing else: not the request, the plan or the
 // report itself, which the agent can read. Error is UNTRUSTED — it is
 // derived from the file the agent wrote and can quote it (an unknown key,

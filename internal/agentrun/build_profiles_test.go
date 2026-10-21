@@ -11,11 +11,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bitwise-media-group/patchy/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/envelope"
 )
 
 // TestPlanPromptStatesTheBuildProfile: the build network profile a plan Job
-// is told of (PATCHY_BUILD_NETWORK_PROFILES) reaches the plan prompt as the
+// is told of (MAUL_BUILD_NETWORK_PROFILES) reaches the plan prompt as the
 // fact that the build can fetch Go modules, and a plan Job told none says
 // nothing of a profile; one that does not decode is a configuration error.
 func TestPlanPromptStatesTheBuildProfile(t *testing.T) {
@@ -23,8 +23,8 @@ func TestPlanPromptStatesTheBuildProfile(t *testing.T) {
 		name, handoff string
 	}{{"profile", `[{"url":"https://github.com/acme/shop","profile":"go"}]`}, {"none", ""}} {
 		t.Run(tt.name, func(t *testing.T) {
-			env := map[string]string{"PATCHY_REPO": "acme/shop", "PATCHY_FINDING": "target-1-plan-r1-a1",
-				"PATCHY_PHASE": string(PhasePlan), "PATCHY_BUILD_NETWORK_PROFILES": tt.handoff}
+			env := map[string]string{"MAUL_REPO": "acme/shop", "MAUL_FINDING": "target-1-plan-r1-a1",
+				"MAUL_PHASE": string(PhasePlan), "MAUL_BUILD_NETWORK_PROFILES": tt.handoff}
 			fromEnv, err := FromEnv(func(k string) string { return env[k] })
 			if err != nil {
 				t.Fatal(err)
@@ -54,10 +54,10 @@ func TestPlanPromptStatesTheBuildProfile(t *testing.T) {
 			}
 		})
 	}
-	env := map[string]string{"PATCHY_REPO": "acme/shop", "PATCHY_BUILD_NETWORK_PROFILES": "not json"}
+	env := map[string]string{"MAUL_REPO": "acme/shop", "MAUL_BUILD_NETWORK_PROFILES": "not json"}
 	if _, err := FromEnv(func(k string) string { return env[k] }); err == nil ||
-		!strings.Contains(err.Error(), "PATCHY_BUILD_NETWORK_PROFILES") {
-		t.Errorf("FromEnv error = %v, want one naming PATCHY_BUILD_NETWORK_PROFILES", err)
+		!strings.Contains(err.Error(), "MAUL_BUILD_NETWORK_PROFILES") {
+		t.Errorf("FromEnv error = %v, want one naming MAUL_BUILD_NETWORK_PROFILES", err)
 	}
 }
 
@@ -65,8 +65,8 @@ func TestPlanPromptStatesTheBuildProfile(t *testing.T) {
 // routes reaches the plan's configuration with them, so the plan prompt
 // names what that build can fetch.
 func TestBuildProfilesCarryRoutes(t *testing.T) {
-	env := map[string]string{"PATCHY_REPO": "acme/shop", "PATCHY_FINDING": "target-1-plan-r1-a1",
-		"PATCHY_PHASE": string(PhasePlan), "PATCHY_BUILD_NETWORK_PROFILES": `[{"url":"https://github.com/acme/shop",` +
+	env := map[string]string{"MAUL_REPO": "acme/shop", "MAUL_FINDING": "target-1-plan-r1-a1",
+		"MAUL_PHASE": string(PhasePlan), "MAUL_BUILD_NETWORK_PROFILES": `[{"url":"https://github.com/acme/shop",` +
 			`"profile":"web","routes":{"grants":[{"registry":"ca-npm","ecosystem":"npm","anyPackage":true}]}}]`}
 	cfg, err := FromEnv(func(k string) string { return env[k] })
 	if err != nil {

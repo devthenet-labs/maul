@@ -64,7 +64,7 @@ func (c *Client) CreateCommit(ctx context.Context, repo Repo, req CommitRequest)
 		return "", fmt.Errorf("ghclient: create tree in %s: %w", repo, err)
 	}
 	// Author/committer are omitted: GitHub fills them from the token identity
-	// (the App installation → patchy[bot]).
+	// (the App installation → maul[bot]).
 	commit, _, err := c.gh.Git.CreateCommit(ctx, repo.Owner, repo.Name, github.Commit{
 		Message: new(req.Message),
 		Tree:    &github.Tree{SHA: tree.SHA},

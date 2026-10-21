@@ -20,8 +20,8 @@ const (
 	ReproductionExcerptMaxBytes = 2000
 )
 
-// Truncated ends a reproduction value patchy cut to its bound.
-const Truncated = " [... cut by patchy]"
+// Truncated ends a reproduction value maul cut to its bound.
+const Truncated = " [... cut by maul]"
 
 // Remediation is the parsed remediation report. Its frontmatter is strict:
 //
@@ -54,8 +54,8 @@ type Remediation struct {
 // Reproduction is what the remediation agent reports about proving the bug:
 // it wrote the regression test first, ran it against the unfixed code
 // (Before), applied the fix and ran it again (After). Every field is the
-// agent's own claim — patchy runs no test itself — so it is shown to the
-// reviewer as the agent's account, never as patchy's verification.
+// agent's own claim — maul runs no test itself — so it is shown to the
+// reviewer as the agent's account, never as maul's verification.
 //
 // The values are evidence quoted from tool output, which is routinely long,
 // so a value over its bound is cut (ending in Truncated) rather than refused:

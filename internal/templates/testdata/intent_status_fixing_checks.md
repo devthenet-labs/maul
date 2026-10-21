@@ -1,7 +1,7 @@
-<!-- patchy:intent patchy/preview-demo-5 -->
-### patchy
+<!-- maul:intent maul/preview-demo-5 -->
+### maul
 
-**Phase:** `Revising`: patchy is fixing a pull request's failed checks.
+**Phase:** `Revising`: maul is fixing a pull request's failed checks.
 
 **Plan:** r1
 
@@ -11,6 +11,6 @@
 
 - [devthenet-labs/patchy-preview-demo#9](https://github.com/devthenet-labs/patchy-preview-demo/pull/9) (open)
 
-**Commands now:** `/patchy cancel`
+**Commands now:** `/maul cancel`
 
-_patchy updates this comment as the work progresses._
+_maul updates this comment as the work progresses._

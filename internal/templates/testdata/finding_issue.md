@@ -1,4 +1,4 @@
-<!-- patchy:finding patchy/finding-abc123def0-1 -->
+<!-- maul:finding maul/finding-abc123def0-1 -->
 
 ## Security finding
 
@@ -25,4 +25,4 @@ Sanitize all user input.
 
 
 ---
-*This issue is a read-only projection of the `finding-abc123def0-1` Finding; patchy re-renders it as the finding progresses.*
+*This issue is a read-only projection of the `finding-abc123def0-1` Finding; maul re-renders it as the finding progresses.*

@@ -18,8 +18,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/bitwise-media-group/patchy/internal/cli"
-	"github.com/bitwise-media-group/patchy/internal/egressproxy"
+	"github.com/devthenet-labs/maul/internal/cli"
+	"github.com/devthenet-labs/maul/internal/egressproxy"
 )
 
 const twoProfiles = `[{"name":"go","route":"go","port":8090,"repositories":["devthenet-labs/patchy-target"],
@@ -117,8 +117,8 @@ func TestConfigureAttribution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.attributePods || s.agentNamespace != "patchy-agents" {
-		t.Errorf("default attribution = %v in %q, want off in patchy-agents", s.attributePods, s.agentNamespace)
+	if s.attributePods || s.agentNamespace != "maul-agents" {
+		t.Errorf("default attribution = %v in %q, want off in maul-agents", s.attributePods, s.agentNamespace)
 	}
 	s, err = configure(serveOpts(t, "--network-profiles", twoProfiles, "--attribute-pods",
 		"--agent-namespace", "agents", "--kubeconfig", "/k"))
@@ -138,12 +138,12 @@ func TestConfigureAttribution(t *testing.T) {
 	}
 }
 
-// TestConfigureFromEnvironment: the chart's ConfigMap sets PATCHY_*
+// TestConfigureFromEnvironment: the chart's ConfigMap sets MAUL_*
 // variables, not flags.
 func TestConfigureFromEnvironment(t *testing.T) {
-	t.Setenv("PATCHY_NETWORK_PROFILES", twoProfiles)
-	t.Setenv("PATCHY_SUSPENDED", "true")
-	t.Setenv("PATCHY_HEALTH_ADDR", ":9000")
+	t.Setenv("MAUL_NETWORK_PROFILES", twoProfiles)
+	t.Setenv("MAUL_SUSPENDED", "true")
+	t.Setenv("MAUL_HEALTH_ADDR", ":9000")
 	s, err := configure(serveOpts(t))
 	if err != nil {
 		t.Fatal(err)

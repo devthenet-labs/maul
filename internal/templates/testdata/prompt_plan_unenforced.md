@@ -78,7 +78,7 @@ needs from it:
 Take the test plan from the repository's own guidance, since you cannot run anything to find out: its guides for
 contributors and agents (CLAUDE.md, AGENTS.md, CONTRIBUTING.md, the README's development notes) and its CI workflows
 under `.github/workflows/`. Name the test command its CI runs, and leave out tests that guidance says are slow, flaky,
-platform-specific or not run in CI. Read `.github/` for this, but never plan changes under `.github/`, `.patchy/` or
+platform-specific or not run in CI. Read `.github/` for this, but never plan changes under `.github/`, `.maul/` or
 `.devcontainer/`: the build is refused any change there.
 
 Keep the plan to what was asked. Where the request is ambiguous, plan the most reasonable reading and list what you
@@ -137,7 +137,7 @@ plainly too: no gap of more than 16 spaces between two characters of a line (a t
 more than 64 columns, no more than 4 combining marks in a row, and no run of more than 16 backticks. A report
 breaking any of these rules is refused whole.
 
-patchy validates the report against the frontmatter limits and these layout rules as soon as your run ends, and refuses
+maul validates the report against the frontmatter limits and these layout rules as soon as your run ends, and refuses
 one that breaks them, with no second chance in this session. So read the report back once before you end, and correct
 in place anything that breaks a rule; write no script or file to check it. Name each repository exactly as the request
 lists it. Then end your turn.

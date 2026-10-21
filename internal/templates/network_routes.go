@@ -8,7 +8,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/netprofile"
 )
 
 // NetworkRoutes are the dependency routes an operator network profile
@@ -231,7 +231,7 @@ func refusedGuide(r NetworkRoutes) string {
 	}
 	return wrap("`refused` is only for a build that could not be done because the operator's egress proxy "+
 		"refused a dependency the plan needs: one `- \"...\"` item per refusal, at most 5, each the proxy's "+
-		"exact line with `egress-proxy:` in it (for example "+example+"). patchy does not retry a build the "+
+		"exact line with `egress-proxy:` in it (for example "+example+"). maul does not retry a build the "+
 		"proxy refused by its policy, and shows these lines to the operator, who can change it. Leave "+
 		"`refused` out for any other failure, for a refusal that says to retry later, for a refusal you got "+
 		"past, and for one you only inferred without the proxy's line, which belongs in `reason`.", "", "")

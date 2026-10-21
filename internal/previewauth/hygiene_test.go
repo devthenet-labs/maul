@@ -71,7 +71,7 @@ func TestHostsExamples(t *testing.T) {
 			t.Errorf("IsSignIn(%q) = %v", host, !want)
 		}
 	}
-	const wantHandoff = "https://demo-7.preview.example.com/.patchy/callback?code=pa1.o.1.abc"
+	const wantHandoff = "https://demo-7.preview.example.com/.maul/callback?code=pa1.o.1.abc"
 	if got := h.HandoffURL("demo-7", "pa1.o.1.abc"); got != wantHandoff {
 		t.Errorf("HandoffURL = %s", got)
 	}
@@ -223,13 +223,13 @@ func TestReturnPathExamples(t *testing.T) {
 // gatewayCookieNames are spellings of the gateway's cookies a hostile
 // preview might use.
 var gatewayCookieNames = []string{
-	"__Host-patchy-pv", "__host-patchy-pv", "__HOST-PATCHY-PV", "__Host-patchy-pv-state-0123456789abcdef",
-	"patchy-pv", " __Host-patchy-pv", "__Secure-patchy-pv", "__Host-patchy-pa", "__Host-patchy-pa-login-ab",
-	"PATCHY-PA", "__Host-patchy-pvx",
+	"__Host-maul-pv", "__host-maul-pv", "__HOST-MAUL-PV", "__Host-maul-pv-state-0123456789abcdef",
+	"maul-pv", " __Host-maul-pv", "__Secure-maul-pv", "__Host-maul-pa", "__Host-maul-pa-login-ab",
+	"MAUL-PA", "__Host-maul-pvx",
 }
 
-var otherCookieNames = []string{"session", "csrftoken", "patchy", "patchy-p", "__Host-app", "x-patchy-pv", "_ga",
-	"pv", "my-patchy-pv"}
+var otherCookieNames = []string{"session", "csrftoken", "maul", "maul-p", "__Host-app", "x-maul-pv", "_ga",
+	"pv", "my-maul-pv"}
 
 func randCookieName(r *rand.Rand) string {
 	if r.Intn(2) == 0 {
@@ -240,7 +240,7 @@ func randCookieName(r *rand.Rand) string {
 
 // identityNames are inbound headers that could assert a viewer or a source.
 var identityNames = []string{
-	"X-Patchy-Viewer", "x-patchy-user", "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto",
+	"X-Maul-Viewer", "x-maul-user", "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto",
 	"X-Forwarded-User", "X-Forwarded-Email", "X-Amzn-Oidc-Data", "X-Amzn-Oidc-Identity", "X-Amzn-Oidc-Accesstoken",
 	"Forwarded", "X-Real-Ip", "X-Auth-Request-User", "Remote-User", "X-Remote-User", "Cf-Access-Jwt-Assertion",
 	"X-Original-Forwarded-For",
@@ -322,7 +322,7 @@ func TestCleanRequestProperty(t *testing.T) {
 // with its value, one Cookie line, or an untouched header that asserts
 // nothing.
 func cleanedHeaderOK(name string, vals []string, in http.Header) bool {
-	own := map[string]string{"X-Patchy-Viewer": "sub-1", "X-Forwarded-For": "203.0.113.7",
+	own := map[string]string{"X-Maul-Viewer": "sub-1", "X-Forwarded-For": "203.0.113.7",
 		"X-Forwarded-Proto": "https", "X-Forwarded-Host": "demo." + testSuffix}
 	if want, ok := own[name]; ok {
 		return slices.Equal(vals, []string{want})
@@ -357,10 +357,10 @@ func underscored(r *rand.Rand, name string) string {
 
 // TestCleanRequestUnderscores pins the underscore spellings of identity
 // headers: Go keeps them as distinct names, so they used to pass beside the
-// gateway's own X-Patchy-Viewer.
+// gateway's own X-Maul-Viewer.
 func TestCleanRequestUnderscores(t *testing.T) {
 	h := http.Header{}
-	for _, raw := range []string{"x-patchy_viewer", "X_Forwarded_For", "x_forwarded-host", "X-Amzn-Oidc_Data",
+	for _, raw := range []string{"x-maul_viewer", "X_Forwarded_For", "x_forwarded-host", "X-Amzn-Oidc_Data",
 		"Remote_User", "X_Real_IP"} {
 		h[textproto.CanonicalMIMEHeaderKey(raw)] = []string{"forged"}
 	}
@@ -414,7 +414,7 @@ func TestFilterSetCookiesProperty(t *testing.T) {
 			name, _, _ := strings.Cut(nv, "=")
 			lower := strings.ToLower(strings.TrimSpace(name))
 			lower = strings.TrimPrefix(strings.TrimPrefix(lower, "__host-"), "__secure-")
-			if !strings.HasPrefix(lower, "patchy-pv") && !strings.HasPrefix(lower, "patchy-pa") {
+			if !strings.HasPrefix(lower, "maul-pv") && !strings.HasPrefix(lower, "maul-pa") {
 				want = append(want, l)
 			}
 		}
@@ -552,7 +552,7 @@ func TestPrivateCacheControlProperty(t *testing.T) {
 
 func TestCleanResponse(t *testing.T) {
 	h := http.Header{
-		"Set-Cookie":                       {"__Host-patchy-pv=x; Path=/; Secure", "app=1; Path=/"},
+		"Set-Cookie":                       {"__Host-maul-pv=x; Path=/; Secure", "app=1; Path=/"},
 		"Clear-Site-Data":                  {`"cookies"`},
 		"Access-Control-Allow-Credentials": {"true"},
 		"Access-Control-Allow-Origin":      {"https://other." + testSuffix},
@@ -601,9 +601,9 @@ func TestTopLevelNavigation(t *testing.T) {
 
 func TestReservedPath(t *testing.T) {
 	for p, want := range map[string]bool{
-		"/.patchy": true, "/.patchy/": true, "/.patchy/callback": true, "/.patchy/healthz": true,
-		"//.patchy/callback": true, "/a/../.patchy/x": true, "/./.patchy/x": true,
-		"/": false, "/.patchyx": false, "/.PATCHY/callback": false, "/app/.patchy/x": false, "/patchy/": false,
+		"/.maul": true, "/.maul/": true, "/.maul/callback": true, "/.maul/healthz": true,
+		"//.maul/callback": true, "/a/../.maul/x": true, "/./.maul/x": true,
+		"/": false, "/.maulx": false, "/.MAUL/callback": false, "/app/.maul/x": false, "/maul/": false,
 	} {
 		if ReservedPath(p) != want {
 			t.Errorf("ReservedPath(%q) = %v", p, !want)

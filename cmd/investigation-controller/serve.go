@@ -14,19 +14,19 @@ import (
 	"github.com/spf13/cobra"
 	"k8s.io/client-go/kubernetes"
 
-	"github.com/bitwise-media-group/patchy/internal/cli"
-	"github.com/bitwise-media-group/patchy/internal/controller/investigation"
-	"github.com/bitwise-media-group/patchy/internal/forge"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/runnercfg"
-	"github.com/bitwise-media-group/patchy/internal/runnerguard"
-	"github.com/bitwise-media-group/patchy/internal/schedule"
-	"github.com/bitwise-media-group/patchy/internal/telemetry"
-	"github.com/bitwise-media-group/patchy/internal/usagerollup"
-	"github.com/bitwise-media-group/patchy/internal/version"
+	"github.com/devthenet-labs/maul/internal/cli"
+	"github.com/devthenet-labs/maul/internal/controller/investigation"
+	"github.com/devthenet-labs/maul/internal/forge"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/runnercfg"
+	"github.com/devthenet-labs/maul/internal/runnerguard"
+	"github.com/devthenet-labs/maul/internal/schedule"
+	"github.com/devthenet-labs/maul/internal/telemetry"
+	"github.com/devthenet-labs/maul/internal/usagerollup"
+	"github.com/devthenet-labs/maul/internal/version"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 func newServeCmd(opts *cli.Options) *cobra.Command {
@@ -36,7 +36,7 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 		RunE:  func(cmd *cobra.Command, _ []string) error { return serve(cmd.Context(), opts) },
 	}
 	f := cmd.Flags()
-	f.String("namespace", "", "namespace the patchy resources live in (default: POD_NAMESPACE)")
+	f.String("namespace", "", "namespace the maul resources live in (default: POD_NAMESPACE)")
 	f.String("kubeconfig", "", "kubeconfig path (default: in-cluster config)")
 	f.String("health-addr", ":8081", "healthz/readyz probe listen address")
 	f.Duration("finding-min-age", time.Hour, "how old a finding must be before investigation picks it up")
@@ -47,8 +47,8 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	f.Duration("priority-aging-interval", 24*time.Hour, "wait per effective-priority point of aging boost")
 	f.Int("priority-aging-cap", 25, "maximum aging boost")
 
-	f.String("agent-namespace", "patchy-agents", "namespace the agent Jobs run in")
-	f.String("agent-service-account", "patchy-agent", "service account for the agent Jobs")
+	f.String("agent-namespace", "maul-agents", "namespace the agent Jobs run in")
+	f.String("agent-service-account", "maul-agent", "service account for the agent Jobs")
 	runnercfg.RegisterFlags(f)
 	runnercfg.RegisterRepositoryImageFlags(f)
 	runnercfg.RegisterAgentResourceFlags(f)
@@ -80,27 +80,27 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	return cmd
 }
 
-// agentEnv is the PATCHY_* configuration every investigation pod receives.
+// agentEnv is the MAUL_* configuration every investigation pod receives.
 // The per-Job harness and model are carried on the Job spec, not here.
 func agentEnv(opts *cli.Options) map[string]string {
 	return map[string]string{
-		"PATCHY_MODEL_ALLOWLIST": opts.String("model-allowlist"),
+		"MAUL_MODEL_ALLOWLIST": opts.String("model-allowlist"),
 
-		"PATCHY_INVESTIGATE_TIMEOUT":      opts.Duration("investigate-timeout").String(),
-		"PATCHY_INVESTIGATE_IDLE_TIMEOUT": opts.Duration("investigate-idle-timeout").String(),
-		"PATCHY_INVESTIGATE_MAX_TURNS":    fmt.Sprint(opts.Int("investigate-max-turns")),
-		"PATCHY_INVESTIGATE_TOKEN_BUDGET": fmt.Sprint(opts.Int("investigate-token-budget")),
+		"MAUL_INVESTIGATE_TIMEOUT":      opts.Duration("investigate-timeout").String(),
+		"MAUL_INVESTIGATE_IDLE_TIMEOUT": opts.Duration("investigate-idle-timeout").String(),
+		"MAUL_INVESTIGATE_MAX_TURNS":    fmt.Sprint(opts.Int("investigate-max-turns")),
+		"MAUL_INVESTIGATE_TOKEN_BUDGET": fmt.Sprint(opts.Int("investigate-token-budget")),
 
-		"PATCHY_REMEDIATE_AUTO_MAX_TURNS":      fmt.Sprint(opts.Int("remediate-auto-max-turns")),
-		"PATCHY_REMEDIATE_AUTO_TOKEN_BUDGET":   fmt.Sprint(opts.Int("remediate-auto-token-budget")),
-		"PATCHY_REMEDIATE_MANUAL_MAX_TURNS":    fmt.Sprint(opts.Int("remediate-manual-max-turns")),
-		"PATCHY_REMEDIATE_MANUAL_TOKEN_BUDGET": fmt.Sprint(opts.Int("remediate-manual-token-budget")),
+		"MAUL_REMEDIATE_AUTO_MAX_TURNS":      fmt.Sprint(opts.Int("remediate-auto-max-turns")),
+		"MAUL_REMEDIATE_AUTO_TOKEN_BUDGET":   fmt.Sprint(opts.Int("remediate-auto-token-budget")),
+		"MAUL_REMEDIATE_MANUAL_MAX_TURNS":    fmt.Sprint(opts.Int("remediate-manual-max-turns")),
+		"MAUL_REMEDIATE_MANUAL_TOKEN_BUDGET": fmt.Sprint(opts.Int("remediate-manual-token-budget")),
 	}
 }
 
 func serve(ctx context.Context, opts *cli.Options) error {
 	prov, shutdown, err := telemetry.Init(ctx, telemetry.Config{
-		Dir:            os.Getenv("PATCHY_TELEMETRY_DIR"),
+		Dir:            os.Getenv("MAUL_TELEMETRY_DIR"),
 		Level:          opts.LogLevel,
 		ServiceName:    "investigation-controller",
 		ServiceVersion: version.Version,
@@ -145,7 +145,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 
 	mgr, err := kube.NewManager(kube.Options{
 		Kubeconfig:              opts.String("kubeconfig"),
-		LeaderElectionID:        "patchy-investigation-controller-leader",
+		LeaderElectionID:        "maul-investigation-controller-leader",
 		LeaderElectionNamespace: namespace,
 		Namespaces:              []string{namespace},
 		AgentNamespace:          opts.String("agent-namespace"),

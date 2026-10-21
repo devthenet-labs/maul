@@ -1,5 +1,5 @@
-<!-- patchy:intent patchy/target-1 -->
-### patchy
+<!-- maul:intent maul/target-1 -->
+### maul
 
 **Phase:** `InReview`: the pull requests are open for review.
 
@@ -15,6 +15,6 @@
 
 **Reported cost:** `$1.23` of the `$10.00` limit
 
-**Commands now:** `/patchy cancel`
+**Commands now:** `/maul cancel`
 
-_patchy updates this comment as the work progresses._
+_maul updates this comment as the work progresses._

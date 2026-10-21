@@ -14,14 +14,14 @@ import (
 )
 
 // scopeName identifies this package's meter.
-const scopeName = "github.com/bitwise-media-group/patchy/internal/egressproxy"
+const scopeName = "github.com/devthenet-labs/maul/internal/egressproxy"
 
 // The proxy's instruments: every request by profile, route and outcome, the
 // response bytes written by profile and route, and the requests in flight
 // per profile.
 var (
 	requestsCounter = sync.OnceValue(func() metric.Int64Counter {
-		c, err := otel.Meter(scopeName).Int64Counter("patchy.egress_proxy.requests",
+		c, err := otel.Meter(scopeName).Int64Counter("maul.egress_proxy.requests",
 			metric.WithDescription("egress proxy requests by profile, route and outcome"))
 		if err != nil {
 			otel.Handle(err)
@@ -29,7 +29,7 @@ var (
 		return c
 	})
 	bytesCounter = sync.OnceValue(func() metric.Int64Counter {
-		c, err := otel.Meter(scopeName).Int64Counter("patchy.egress_proxy.bytes",
+		c, err := otel.Meter(scopeName).Int64Counter("maul.egress_proxy.bytes",
 			metric.WithDescription("response bytes written by profile and route"), metric.WithUnit("By"))
 		if err != nil {
 			otel.Handle(err)
@@ -37,7 +37,7 @@ var (
 		return c
 	})
 	inflightCounter = sync.OnceValue(func() metric.Int64UpDownCounter {
-		c, err := otel.Meter(scopeName).Int64UpDownCounter("patchy.egress_proxy.inflight",
+		c, err := otel.Meter(scopeName).Int64UpDownCounter("maul.egress_proxy.inflight",
 			metric.WithDescription("egress proxy requests in flight by profile"))
 		if err != nil {
 			otel.Handle(err)
@@ -69,7 +69,7 @@ func countInflight(ctx context.Context, profile string, delta int64) {
 // The registry instruments (step 2).
 var (
 	refreshesCounter = sync.OnceValue(func() metric.Int64Counter {
-		c, err := otel.Meter(scopeName).Int64Counter("patchy.egress_proxy.credential.refreshes",
+		c, err := otel.Meter(scopeName).Int64Counter("maul.egress_proxy.credential.refreshes",
 			metric.WithDescription("registry credential loads, reloads, mints and failures by registry, kind "+
 				"and result"))
 		if err != nil {
@@ -78,7 +78,7 @@ var (
 		return c
 	})
 	linksCounter = sync.OnceValue(func() metric.Int64Counter {
-		c, err := otel.Meter(scopeName).Int64Counter("patchy.egress_proxy.index.links",
+		c, err := otel.Meter(scopeName).Int64Counter("maul.egress_proxy.index.links",
 			metric.WithDescription("pip simple-page links rewritten or dropped by registry"))
 		if err != nil {
 			otel.Handle(err)
@@ -111,13 +111,13 @@ func countLinks(ctx context.Context, registry string, rewritten, dropped int) {
 // first mint.
 type ExpiryFunc func(registry string) (expires time.Time, ok bool)
 
-// RegisterCredentialExpiry registers patchy.egress_proxy.credential.expiry,
+// RegisterCredentialExpiry registers maul.egress_proxy.credential.expiry,
 // the seconds until each listed registry's current token expires, observed
 // on every collection through expiry (static credentials are not listed:
 // they do not expire). The returned function unregisters it.
 func RegisterCredentialExpiry(registries []string, expiry ExpiryFunc, now func() time.Time) (func() error, error) {
 	m := otel.Meter(scopeName)
-	g, err := m.Int64ObservableGauge("patchy.egress_proxy.credential.expiry",
+	g, err := m.Int64ObservableGauge("maul.egress_proxy.credential.expiry",
 		metric.WithDescription("seconds until the registry's current minted credential expires"),
 		metric.WithUnit("s"))
 	if err != nil {
@@ -142,7 +142,7 @@ func RegisterCredentialExpiry(registries []string, expiry ExpiryFunc, now func()
 // profile's allowlist, so cardinality is bounded by the profile tables.
 var (
 	tunnelsCounter = sync.OnceValue(func() metric.Int64Counter {
-		c, err := otel.Meter(scopeName).Int64Counter("patchy.egress_proxy.tunnels",
+		c, err := otel.Meter(scopeName).Int64Counter("maul.egress_proxy.tunnels",
 			metric.WithDescription("egress proxy CONNECT tunnels by profile, outcome and allowlisted host"))
 		if err != nil {
 			otel.Handle(err)
@@ -150,7 +150,7 @@ var (
 		return c
 	})
 	tunnelBytesCounter = sync.OnceValue(func() metric.Int64Counter {
-		c, err := otel.Meter(scopeName).Int64Counter("patchy.egress_proxy.tunnel_bytes",
+		c, err := otel.Meter(scopeName).Int64Counter("maul.egress_proxy.tunnel_bytes",
 			metric.WithDescription("bytes carried by CONNECT tunnels by profile, allowlisted host and direction"),
 			metric.WithUnit("By"))
 		if err != nil {
@@ -159,7 +159,7 @@ var (
 		return c
 	})
 	tunnelsOpenCounter = sync.OnceValue(func() metric.Int64UpDownCounter {
-		c, err := otel.Meter(scopeName).Int64UpDownCounter("patchy.egress_proxy.tunnels_open",
+		c, err := otel.Meter(scopeName).Int64UpDownCounter("maul.egress_proxy.tunnels_open",
 			metric.WithDescription("open egress proxy CONNECT tunnels by profile"))
 		if err != nil {
 			otel.Handle(err)

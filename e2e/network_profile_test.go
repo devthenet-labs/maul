@@ -16,9 +16,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/e2e/fakegithub"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/e2e/fakegithub"
+	"github.com/devthenet-labs/maul/internal/jobs"
 )
 
 // The network profile tests run the job controllers as the chart would
@@ -27,7 +27,7 @@ import (
 // Jobs carry; that the policies admit exactly the labelled pods is the live
 // gate's to prove.
 const (
-	networkLabel = "patchy.bitwisemedia.uk/network-go"
+	networkLabel = "maul.run/network-go"
 	// proxyURL is the egress proxy the controllers are pointed at: a name
 	// this machine resolves, so --agent-dns none can pin it.
 	proxyURL = "http://localhost"
@@ -50,18 +50,18 @@ func networkProfileArgs(ownerName string) []string {
 // wantProfileEnv is the go environment a profile Job's agent carries,
 // verbatim.
 var wantProfileEnv = map[string]string{
-	"GOENV":                  "off",
-	"GOPROXY":                "http://localhost:8090/go,file:///opt/go/pkg/mod/cache/download",
-	"GOSUMDB":                "sum.golang.org",
-	"GONOSUMDB":              "patchy.invalid",
-	"GONOPROXY":              "patchy.invalid",
-	"GOPRIVATE":              "patchy.invalid",
-	"GOINSECURE":             "patchy.invalid",
-	"GOAUTH":                 "off",
-	"GOTOOLCHAIN":            "local",
-	"GOPATH":                 "/tmp/go",
-	"GOMODCACHE":             "/tmp/go/pkg/mod",
-	"PATCHY_NETWORK_PROFILE": "go",
+	"GOENV":                "off",
+	"GOPROXY":              "http://localhost:8090/go,file:///opt/go/pkg/mod/cache/download",
+	"GOSUMDB":              "sum.golang.org",
+	"GONOSUMDB":            "maul.invalid",
+	"GONOPROXY":            "maul.invalid",
+	"GOPRIVATE":            "maul.invalid",
+	"GOINSECURE":           "maul.invalid",
+	"GOAUTH":               "off",
+	"GOTOOLCHAIN":          "local",
+	"GOPATH":               "/tmp/go",
+	"GOMODCACHE":           "/tmp/go/pkg/mod",
+	"MAUL_NETWORK_PROFILE": "go",
 }
 
 // agentEnvOf is the literal environment of job's agent container.
@@ -246,7 +246,7 @@ func TestRemediationNetworkProfile(t *testing.T) {
 		// resolved from the tree's declaration; this one runs without
 		// --repository-images, so it never writes or clears the field.
 		repo.Status.RunnerImage = &v1alpha1.RunnerImage{Declared: "registry.example/acme/go-env:1",
-			Manifest: ".patchy/agent.yaml", Image: image, SearchPath: "/usr/local/go/bin:/usr/bin:/bin",
+			Manifest: ".maul/agent.yaml", Image: image, SearchPath: "/usr/local/go/bin:/usr/bin:/bin",
 			Verified: true}
 		if err := cl.client.Status().Update(ctx, &repo); err != nil {
 			t.Fatal(err)
@@ -257,7 +257,7 @@ func TestRemediationNetworkProfile(t *testing.T) {
 	// model API by name.
 	cl.controller(t, "remediation-controller", append([]string{
 		"--max-concurrent-remediations", "2", "--repository-images", "--agent-ephemeral-storage", "1Gi",
-		"--claude-agent-image", "patchy/claude-agent-runner:e2e", "--broker-url", "http://localhost:8080"},
+		"--claude-agent-image", "maul/claude-agent-runner:e2e", "--broker-url", "http://localhost:8080"},
 		networkProfileArgs("acme/shop")...)...)
 
 	for _, f := range findings {

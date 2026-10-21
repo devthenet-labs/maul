@@ -13,10 +13,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/bitwise-media-group/patchy/internal/cli"
-	"github.com/bitwise-media-group/patchy/internal/enhancers"
-	"github.com/bitwise-media-group/patchy/pkg/enhance"
-	"github.com/bitwise-media-group/patchy/pkg/source"
+	"github.com/devthenet-labs/maul/internal/cli"
+	"github.com/devthenet-labs/maul/internal/enhancers"
+	"github.com/devthenet-labs/maul/pkg/enhance"
+	"github.com/devthenet-labs/maul/pkg/source"
 )
 
 // serveOpts resolves args through the real serve flag surface, as the
@@ -137,7 +137,7 @@ func TestServeStartupErrors(t *testing.T) {
 		!strings.Contains(err.Error(), "kubeconfig") {
 		t.Errorf("serve with a missing kubeconfig = %v, want the kubeconfig error", err)
 	}
-	t.Setenv("POD_NAMESPACE", "patchy")
+	t.Setenv("POD_NAMESPACE", "maul")
 	if err := serve(t.Context(), serveOpts(t, "--kubeconfig", missing)); err == nil ||
 		!strings.Contains(err.Error(), "kubeconfig") {
 		t.Errorf("serve with POD_NAMESPACE = %v, want it to get past the namespace to the kubeconfig", err)

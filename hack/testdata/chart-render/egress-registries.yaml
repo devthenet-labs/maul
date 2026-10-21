@@ -18,7 +18,7 @@ egressProxy:
             url: https://acme.jfrog.io/artifactory/api/npm/npm-virtual/
             auth:
                 type: bearer
-                secretName: patchy-registry-art
+                secretName: maul-registry-art
             redirectHosts:
                 - "*.s3.us-east-1.amazonaws.com"
             healthPackage: left-pad
@@ -27,7 +27,7 @@ egressProxy:
             url: https://acme.jfrog.io/artifactory/api/go/go-virtual
             auth:
                 type: basic
-                secretName: patchy-registry-art-go
+                secretName: maul-registry-art-go
             privateModules:
                 - acme.example/
             publicChecksumLookups: false
@@ -36,7 +36,7 @@ egressProxy:
             url: https://nexus.tools.svc.cluster.local:8443/repository/pypi-all/simple/
             auth:
                 type: basic
-                secretName: patchy-registry-nexus
+                secretName: maul-registry-nexus
             fileHosts:
                 - files.pythonhosted.org
             ca:

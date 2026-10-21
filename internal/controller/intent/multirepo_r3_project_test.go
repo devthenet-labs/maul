@@ -12,8 +12,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/jobs"
 )
 
 // irun reads the IntentRun name.
@@ -82,9 +82,9 @@ func TestProjectDeletedMidRoundHoldsThePush(t *testing.T) {
 
 // TestFlagOffHeldBuildStaysHeldWhenItsProjectIsDeleted: a build whose push
 // was held because --intent-multi-repo went off stays held when its
-// multi-repository Project is then deleted (a patchy-config uninstall during
+// multi-repository Project is then deleted (a maul-config uninstall during
 // a rollback, say). Before the fix the missing Project released it: the
-// commit was made and the patchy-intent branch created with the flag still
+// commit was made and the maul-intent branch created with the flag still
 // off, against the documented rollback guarantee that nothing is pushed. The
 // hold's reason is the cause it waits on now (round 4): ProjectGone while the
 // Project is gone, MultiRepositoryOff again once it is back with the flag
@@ -92,7 +92,7 @@ func TestProjectDeletedMidRoundHoldsThePush(t *testing.T) {
 func TestFlagOffHeldBuildStaysHeldWhenItsProjectIsDeleted(t *testing.T) {
 	e := newMultiEnv(t)
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	var launched *v1alpha1.IntentRun
 	for range 30 {
 		e.mustIntent(name)

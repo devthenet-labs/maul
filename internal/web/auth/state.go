@@ -3,7 +3,7 @@
 
 package auth
 
-import "github.com/bitwise-media-group/patchy/internal/sealed"
+import "github.com/devthenet-labs/maul/internal/sealed"
 
 // sealKey derives the 32-byte AES key from the OAuth2 client secret via
 // HKDF-SHA256. Deriving instead of storing means no key management beyond

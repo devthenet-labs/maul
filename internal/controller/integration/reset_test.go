@@ -17,9 +17,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/kube"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/kube"
 )
 
 // fakeResetClient records the demo reset's forge calls.
@@ -95,13 +95,13 @@ func TestRunReset(t *testing.T) {
 	fc := &fakeResetClient{}
 	r, c := newResetReconciler(t, fc,
 		testIntegration(), tracked, untracked,
-		&v1alpha1.Investigation{ObjectMeta: metav1.ObjectMeta{Name: "inv-1", Namespace: "patchy"}},
-		&v1alpha1.Remediation{ObjectMeta: metav1.ObjectMeta{Name: "rem-1", Namespace: "patchy"}},
+		&v1alpha1.Investigation{ObjectMeta: metav1.ObjectMeta{Name: "inv-1", Namespace: "maul"}},
+		&v1alpha1.Remediation{ObjectMeta: metav1.ObjectMeta{Name: "rem-1", Namespace: "maul"}},
 		findingRepository("repo-1", "finding-aa-1"),
-		&v1alpha1.FindingRollup{ObjectMeta: metav1.ObjectMeta{Name: "total", Namespace: "patchy"}},
+		&v1alpha1.FindingRollup{ObjectMeta: metav1.ObjectMeta{Name: "total", Namespace: "maul"}},
 	)
 
-	if err := r.runReset(t.Context(), "patchy"); err != nil {
+	if err := r.runReset(t.Context(), "maul"); err != nil {
 		t.Fatalf("runReset() error = %v", err)
 	}
 
@@ -118,7 +118,7 @@ func TestRunReset(t *testing.T) {
 		&v1alpha1.FindingList{}, &v1alpha1.InvestigationList{}, &v1alpha1.RemediationList{},
 		&v1alpha1.RepositoryList{}, &v1alpha1.FindingRollupList{},
 	} {
-		if err := c.List(t.Context(), list, client.InNamespace("patchy")); err != nil {
+		if err := c.List(t.Context(), list, client.InNamespace("maul")); err != nil {
 			t.Fatalf("list %T: %v", list, err)
 		}
 		if n := len(listItems(t, list)); n != 0 {
@@ -126,7 +126,7 @@ func TestRunReset(t *testing.T) {
 		}
 	}
 	var integs v1alpha1.IntegrationList
-	if err := c.List(t.Context(), &integs, client.InNamespace("patchy")); err != nil {
+	if err := c.List(t.Context(), &integs, client.InNamespace("maul")); err != nil {
 		t.Fatalf("list integrations: %v", err)
 	}
 	if len(integs.Items) != 1 {
@@ -138,7 +138,7 @@ func TestRunReset(t *testing.T) {
 // finding: it carries the Finding label.
 func findingRepository(name, finding string) *v1alpha1.Repository {
 	return &v1alpha1.Repository{ObjectMeta: metav1.ObjectMeta{
-		Name: name, Namespace: "patchy", Labels: map[string]string{v1alpha1.LabelFinding: finding},
+		Name: name, Namespace: "maul", Labels: map[string]string{v1alpha1.LabelFinding: finding},
 	}}
 }
 
@@ -152,11 +152,11 @@ func TestRunResetLeavesIntentFlow(t *testing.T) {
 	tracked := projectable(v1alpha1.PhaseOpened)
 	tracked.Status.Tracking = &v1alpha1.TrackingStatus{Integration: "gh", IssueNumber: 7}
 	intentRepo := &v1alpha1.Repository{ObjectMeta: metav1.ObjectMeta{
-		Name: "web-12-r0", Namespace: "patchy",
+		Name: "web-12-r0", Namespace: "maul",
 		Labels: map[string]string{v1alpha1.LabelIntent: "web-12", v1alpha1.LabelIntentRun: "web-12-plan-1"},
 	}}
 	intent := &v1alpha1.Intent{
-		ObjectMeta: metav1.ObjectMeta{Name: "web-12", Namespace: "patchy"},
+		ObjectMeta: metav1.ObjectMeta{Name: "web-12", Namespace: "maul"},
 		Spec: v1alpha1.IntentSpec{
 			Project: "web",
 			Issue:   v1alpha1.IntentIssue{Repository: "https://github.com/acme/intents", Number: 12},
@@ -165,11 +165,11 @@ func TestRunResetLeavesIntentFlow(t *testing.T) {
 	fc := &fakeResetClient{}
 	r, c := newResetReconciler(t, fc, testIntegration(), tracked,
 		findingRepository("finding-aa-1", "finding-aa-1"), intentRepo, intent,
-		&v1alpha1.IntentRun{ObjectMeta: metav1.ObjectMeta{Name: "web-12-plan-1", Namespace: "patchy"}},
-		&v1alpha1.Project{ObjectMeta: metav1.ObjectMeta{Name: "web", Namespace: "patchy"}},
+		&v1alpha1.IntentRun{ObjectMeta: metav1.ObjectMeta{Name: "web-12-plan-1", Namespace: "maul"}},
+		&v1alpha1.Project{ObjectMeta: metav1.ObjectMeta{Name: "web", Namespace: "maul"}},
 	)
 
-	if err := r.runReset(t.Context(), "patchy"); err != nil {
+	if err := r.runReset(t.Context(), "maul"); err != nil {
 		t.Fatalf("runReset() error = %v", err)
 	}
 
@@ -177,7 +177,7 @@ func TestRunResetLeavesIntentFlow(t *testing.T) {
 		t.Errorf("issues deleted or closed = %v, want only the finding's tracking issue", touched)
 	}
 	var repos v1alpha1.RepositoryList
-	if err := c.List(t.Context(), &repos, client.InNamespace("patchy")); err != nil {
+	if err := c.List(t.Context(), &repos, client.InNamespace("maul")); err != nil {
 		t.Fatalf("list repositories: %v", err)
 	}
 	if len(repos.Items) != 1 || repos.Items[0].Name != intentRepo.Name {
@@ -186,7 +186,7 @@ func TestRunResetLeavesIntentFlow(t *testing.T) {
 	for _, list := range []client.ObjectList{
 		&v1alpha1.IntentList{}, &v1alpha1.IntentRunList{}, &v1alpha1.ProjectList{},
 	} {
-		if err := c.List(t.Context(), list, client.InNamespace("patchy")); err != nil {
+		if err := c.List(t.Context(), list, client.InNamespace("maul")); err != nil {
 			t.Fatalf("list %T: %v", list, err)
 		}
 		if n := len(listItems(t, list)); n != 1 {
@@ -201,7 +201,7 @@ func TestRunResetClosesWhenDeleteUnauthorized(t *testing.T) {
 	fc := &fakeResetClient{unauthorized: true}
 	r, c := newResetReconciler(t, fc, testIntegration(), tracked)
 
-	if err := r.runReset(t.Context(), "patchy"); err != nil {
+	if err := r.runReset(t.Context(), "maul"); err != nil {
 		t.Fatalf("runReset() error = %v, want the close fallback to succeed", err)
 	}
 	if len(fc.deleted) != 0 {
@@ -212,7 +212,7 @@ func TestRunResetClosesWhenDeleteUnauthorized(t *testing.T) {
 	}
 
 	var findings v1alpha1.FindingList
-	if err := c.List(t.Context(), &findings, client.InNamespace("patchy")); err != nil {
+	if err := c.List(t.Context(), &findings, client.InNamespace("maul")); err != nil {
 		t.Fatalf("list findings: %v", err)
 	}
 	if len(findings.Items) != 0 {
@@ -229,12 +229,12 @@ func TestRunResetIgnoresMissingForgeObjects(t *testing.T) {
 	fc := &fakeResetClient{gone: true}
 	r, c := newResetReconciler(t, fc, testIntegration(), tracked)
 
-	if err := r.runReset(t.Context(), "patchy"); err != nil {
+	if err := r.runReset(t.Context(), "maul"); err != nil {
 		t.Fatalf("runReset() error = %v, want the missing issue and alert ignored", err)
 	}
 
 	var findings v1alpha1.FindingList
-	if err := c.List(t.Context(), &findings, client.InNamespace("patchy")); err != nil {
+	if err := c.List(t.Context(), &findings, client.InNamespace("maul")); err != nil {
 		t.Fatalf("list findings: %v", err)
 	}
 	if len(findings.Items) != 0 {
@@ -252,12 +252,12 @@ func TestRunResetIgnoresMissingRepository(t *testing.T) {
 		return nil, notFoundErr(fmt.Sprintf("resolve installation for %s", repo))
 	}
 
-	if err := r.runReset(t.Context(), "patchy"); err != nil {
+	if err := r.runReset(t.Context(), "maul"); err != nil {
 		t.Fatalf("runReset() error = %v, want the missing repository ignored", err)
 	}
 
 	var findings v1alpha1.FindingList
-	if err := c.List(t.Context(), &findings, client.InNamespace("patchy")); err != nil {
+	if err := c.List(t.Context(), &findings, client.InNamespace("maul")); err != nil {
 		t.Fatalf("list findings: %v", err)
 	}
 	if len(findings.Items) != 0 {
@@ -271,13 +271,13 @@ func TestRunResetKeepsStateOnForgeFailure(t *testing.T) {
 	fc := &fakeResetClient{failDelete: true}
 	r, c := newResetReconciler(t, fc, testIntegration(), tracked)
 
-	if err := r.runReset(t.Context(), "patchy"); err == nil {
+	if err := r.runReset(t.Context(), "maul"); err == nil {
 		t.Fatal("runReset() = nil, want the forge failure surfaced")
 	}
 
 	// The Findings carry the issue numbers a retry needs; they must survive.
 	var findings v1alpha1.FindingList
-	if err := c.List(t.Context(), &findings, client.InNamespace("patchy")); err != nil {
+	if err := c.List(t.Context(), &findings, client.InNamespace("maul")); err != nil {
 		t.Fatalf("list findings: %v", err)
 	}
 	if len(findings.Items) != 1 {

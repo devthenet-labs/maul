@@ -12,8 +12,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/templates"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // SiblingsLinked reasons.
@@ -22,7 +22,7 @@ const (
 	ReasonSiblingsPosted = "Posted"
 	// ReasonSiblingsRefused: the comment could not be posted on a pull
 	// request, and asking again would meet the same answer: GitHub refused
-	// it (a locked conversation, a permission the App lost), or patchy can
+	// it (a locked conversation, a permission the App lost), or maul can
 	// no longer reach its repository (no Forge covers it).
 	ReasonSiblingsRefused = "Refused"
 )
@@ -56,7 +56,7 @@ func (p *pass) siblingsState() string {
 // requests are open, and their records written, before any of it is
 // attempted. It is best effort. A transient failure is logged and the rest
 // retried at the next poll of the pull requests. A refusal, or a repository
-// patchy can no longer reach (unreachable), records SiblingsLinked False
+// maul can no longer reach (unreachable), records SiblingsLinked False
 // saying which pull request and why, once, and is tried again only once the
 // Project changes or a pull request's head moves, never at every poll: a
 // locked conversation would otherwise cost a refused write and a listing of
@@ -152,7 +152,7 @@ func siblingsOutcome(refused, left []string) (metav1.ConditionStatus, string, st
 	if len(refused) > 0 {
 		status, reason = metav1.ConditionFalse, ReasonSiblingsRefused
 		msg = "the comment linking the intent's pull requests could not be posted on " +
-			strings.Join(refused, "; ") + "; patchy tries it again once the project changes or a pull " +
+			strings.Join(refused, "; ") + "; maul tries it again once the project changes or a pull " +
 			"request's head moves, and nothing waits on it"
 	}
 	switch len(left) {

@@ -11,7 +11,7 @@
 set -eu
 
 root=deploy/terraform/aws
-: "${TF_PLUGIN_CACHE_DIR:=${XDG_CACHE_HOME:-$HOME/.cache}/patchy/terraform-plugins}"
+: "${TF_PLUGIN_CACHE_DIR:=${XDG_CACHE_HOME:-$HOME/.cache}/maul/terraform-plugins}"
 export TF_PLUGIN_CACHE_DIR
 mkdir -p "$TF_PLUGIN_CACHE_DIR"
 

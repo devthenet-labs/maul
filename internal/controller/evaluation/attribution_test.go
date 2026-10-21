@@ -13,8 +13,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/attribution"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/attribution"
 )
 
 // TestGateAttribution is the design §2 row for an evaluation unit: its
@@ -33,15 +33,15 @@ func TestGateAttribution(t *testing.T) {
 			eval := testEval(unitPlan("claude"))
 			eval.Spec.Submitter = "github:alice"
 			c := newClient(t, eval)
-			g := &GateReconciler{Client: c, Namespace: "patchy", EnabledHarnesses: []string{"claude"},
+			g := &GateReconciler{Client: c, Namespace: "maul", EnabledHarnesses: []string{"claude"},
 				Attribution: tc.mode, Now: func() time.Time { return clock }}
 			if _, err := g.Reconcile(t.Context(), ctrl.Request{
-				NamespacedName: types.NamespacedName{Namespace: "patchy", Name: "eval-1"},
+				NamespacedName: types.NamespacedName{Namespace: "maul", Name: "eval-1"},
 			}); err != nil {
 				t.Fatalf("Reconcile: %v", err)
 			}
 			var units v1alpha1.EvaluationUnitList
-			if err := c.List(t.Context(), &units, client.InNamespace("patchy")); err != nil || len(units.Items) != 1 {
+			if err := c.List(t.Context(), &units, client.InNamespace("maul")); err != nil || len(units.Items) != 1 {
 				t.Fatalf("units = %d, %v; want 1", len(units.Items), err)
 			}
 			if got := units.Items[0].Spec.AttributedTo; !reflect.DeepEqual(got, tc.want) {

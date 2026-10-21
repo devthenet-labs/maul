@@ -27,7 +27,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/netprofile"
 )
 
 // tunnelProfilesJSON holds a tunnel-only profile, a Go profile with hosts

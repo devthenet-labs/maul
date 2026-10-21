@@ -28,11 +28,11 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/e2e/fakeoidc"
-	"github.com/bitwise-media-group/patchy/internal/provider"
-	"github.com/bitwise-media-group/patchy/internal/rbactest"
-	"github.com/bitwise-media-group/patchy/internal/templates"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/e2e/fakeoidc"
+	"github.com/devthenet-labs/maul/internal/provider"
+	"github.com/devthenet-labs/maul/internal/rbactest"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 const (
@@ -385,7 +385,7 @@ func grantCredentialsSelf(t *testing.T, cl *cluster, user string) {
 	t.Helper()
 	ctx := context.Background()
 	if err := cl.client.Create(ctx, &rbacv1.ClusterRole{
-		ObjectMeta: metav1.ObjectMeta{Name: "patchy-credentials-self"},
+		ObjectMeta: metav1.ObjectMeta{Name: "maul-credentials-self"},
 		Rules: []rbacv1.PolicyRule{{APIGroups: []string{v1alpha1.GroupVersion.Group},
 			Resources: []string{"modelcredentials/self"}, Verbs: []string{"get", "update", "delete"}}},
 	}); err != nil {
@@ -393,7 +393,7 @@ func grantCredentialsSelf(t *testing.T, cl *cluster, user string) {
 	}
 	if err := cl.client.Create(ctx, &rbacv1.RoleBinding{
 		ObjectMeta: metav1.ObjectMeta{Name: "credentials-self", Namespace: namespace},
-		RoleRef:    rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: "ClusterRole", Name: "patchy-credentials-self"},
+		RoleRef:    rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: "ClusterRole", Name: "maul-credentials-self"},
 		Subjects:   []rbacv1.Subject{{Kind: rbacv1.UserKind, APIGroup: rbacv1.GroupName, Name: user}},
 	}); err != nil {
 		t.Fatal(err)
@@ -415,7 +415,7 @@ func writeAccountAuthConfig(t *testing.T, issuer, redirect string) string {
 insecure: true
 oidc:
   issuerURL: %s
-  clientID: patchy-status-e2e
+  clientID: maul-status-e2e
   clientSecret: e2e-status-client-secret
   redirectURL: %s
   scopes: [openid, profile, email, groups, federated:id]

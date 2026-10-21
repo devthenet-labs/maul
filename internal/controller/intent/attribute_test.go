@@ -16,11 +16,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/attribution"
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/attribution"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/jobs"
 )
 
 // reviewer is a second approver, so a review round can be told from the
@@ -92,7 +92,7 @@ func TestAttributionTable(t *testing.T) {
 	// The reviewer approves the plan: the build is theirs, not the
 	// requester's.
 	e.clock.Advance(time.Minute)
-	e.gh.label(1, "patchy:approved", reviewer)
+	e.gh.label(1, "maul:approved", reviewer)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 	if in.Status.Approval == nil || in.Status.Approval.ByID != actorOf(reviewer).ID {
 		t.Fatalf("approval = %+v, want the approver's GitHub id recorded", in.Status.Approval)
@@ -131,7 +131,7 @@ func TestAttributionTable(t *testing.T) {
 	}
 }
 
-// TestAttributionCommandAndChecks: a /patchy revise round is its
+// TestAttributionCommandAndChecks: a /maul revise round is its
 // commenter's, and a check-fix round the build's approver's.
 func TestAttributionCommandAndChecks(t *testing.T) {
 	p := testProject()
@@ -143,7 +143,7 @@ func TestAttributionCommandAndChecks(t *testing.T) {
 	name := e.discovered()
 	e.drive(name, v1alpha1.IntentAwaitingApproval, repoImage)
 	e.clock.Advance(time.Minute)
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 
 	head := in.Status.PullRequests[0].HeadSHA
@@ -162,7 +162,7 @@ func TestAttributionCommandAndChecks(t *testing.T) {
 	pr := in.Status.PullRequests[0]
 	e.gh.prComments[pr.Number] = []*ghclient.Comment{{ID: 940, NodeID: "comment-940",
 		UserLogin: reviewer, UserID: actorOf(reviewer).ID, UserType: "User",
-		Body:      "/patchy revise Please check the response header.",
+		Body:      "/maul revise Please check the response header.",
 		CreatedAt: e.clock.Now(), UpdatedAt: e.clock.Now()}}
 	e.clock.Advance(time.Second)
 	e.driveUntil(name, func(in *v1alpha1.Intent) bool {
@@ -196,7 +196,7 @@ func TestAttributionUnregisteredAndOff(t *testing.T) {
 	name = off.discovered()
 	off.drive(name, v1alpha1.IntentAwaitingApproval, repoImage)
 	off.clock.Advance(time.Minute)
-	off.gh.label(1, "patchy:approved", approver)
+	off.gh.label(1, "maul:approved", approver)
 	off.drive(name, v1alpha1.IntentInReview, repoImage)
 	for _, run := range off.intentRuns(name) {
 		if run.Spec.AttributedTo != nil {
@@ -242,7 +242,7 @@ func TestAttributePlanByNonApprover(t *testing.T) {
 func TestAttributePlanRetryKeepsItsTrigger(t *testing.T) {
 	for _, tc := range []struct {
 		name, by string
-		label    bool // the trigger label re-applied, else /patchy replan
+		label    bool // the trigger label re-applied, else /maul replan
 	}{
 		{"a trigger label refused for a non-approver", "mallory", true},
 		{"a replan unavailable to another approver", reviewer, false},
@@ -269,9 +269,9 @@ func TestAttributePlanRetryKeepsItsTrigger(t *testing.T) {
 			e.clock.Advance(time.Minute)
 			if tc.label {
 				e.gh.removeTrigger()
-				e.gh.label(1, "patchy:target", tc.by)
+				e.gh.label(1, "maul:target", tc.by)
 			} else {
-				e.gh.comment(tc.by, "/patchy replan")
+				e.gh.comment(tc.by, "/maul replan")
 			}
 			e.settleActions(name)
 			in := e.get(name)
@@ -318,7 +318,7 @@ func TestReviseLeaseAdoptedWhateverItsStamp(t *testing.T) {
 			name := e.discovered()
 			e.drive(name, v1alpha1.IntentAwaitingApproval, repoImage)
 			e.clock.Advance(time.Minute)
-			e.gh.label(1, "patchy:approved", approver)
+			e.gh.label(1, "maul:approved", approver)
 			in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 
 			wc, ok := e.c.(client.WithWatch)

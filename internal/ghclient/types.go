@@ -5,7 +5,7 @@ package ghclient
 
 import "time"
 
-// Issue is patchy's thin view of a GitHub issue, decoupled from go-github.
+// Issue is maul's thin view of a GitHub issue, decoupled from go-github.
 type Issue struct {
 	// Repo is the issue's repository, populated from the list/search
 	// response so cross-repository sweeps can act on their results.
@@ -118,7 +118,7 @@ type PRRequest struct {
 	Body  string
 }
 
-// Alert is patchy's view of a code-scanning alert: the rule, the severity
+// Alert is maul's view of a code-scanning alert: the rule, the severity
 // (security_severity_level falling back to the rule severity), and the most
 // recent instance's location, message snippet, commit, and ref.
 type Alert struct {

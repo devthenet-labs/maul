@@ -13,8 +13,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/netprofile"
 )
 
 // registryProfiles is a set with one profile, web, for the target
@@ -57,7 +57,7 @@ func TestProfileCopiesGrants(t *testing.T) {
 	}
 	p, _ := set.Get("web")
 	want := jobs.NetworkProfile{Name: "web", Route: "go", Registries: p.Registries,
-		ProxyURL: "http://patchy-egress-proxy.patchy.svc.cluster.local:8091"}
+		ProxyURL: "http://maul-egress-proxy.maul.svc.cluster.local:8091"}
 	if !reflect.DeepEqual(*spec.NetworkProfile, want) {
 		t.Errorf("spec.NetworkProfile = %+v, want %+v", spec.NetworkProfile, want)
 	}
@@ -93,7 +93,7 @@ func TestCheckForges(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			f := &fakeForges{hosts: tt.forges}
-			err := Guard{Forges: f}.CheckForges(ctx, "patchy", withGrants(t))
+			err := Guard{Forges: f}.CheckForges(ctx, "maul", withGrants(t))
 			if !errors.Is(err, jobs.ErrNetworkProfileRefused) || !strings.Contains(err.Error(), tt.host) {
 				t.Errorf("CheckForges = %v, want a refusal naming %s", err, tt.host)
 			}
@@ -101,28 +101,28 @@ func TestCheckForges(t *testing.T) {
 	}
 
 	f := &fakeForges{hosts: []string{"github.com", "ghe.corp.example"}}
-	if err := (Guard{Forges: f}).CheckForges(ctx, "patchy", withGrants(t)); err != nil {
+	if err := (Guard{Forges: f}).CheckForges(ctx, "maul", withGrants(t)); err != nil {
 		t.Errorf("no Forge matches: %v", err)
 	}
 	step1 := remediateSpec(pinned)
 	step1.NetworkProfile = &jobs.NetworkProfile{Name: "go", Route: "go"}
 	f = &fakeForges{err: errors.New("boom")}
 	for _, spec := range []*jobs.Spec{{}, &step1} {
-		if err := (Guard{Forges: f}).CheckForges(ctx, "patchy", spec); err != nil {
+		if err := (Guard{Forges: f}).CheckForges(ctx, "maul", spec); err != nil {
 			t.Errorf("a spec without grants: %v", err)
 		}
-		if err := (Guard{}).CheckForges(ctx, "patchy", spec); err != nil {
+		if err := (Guard{}).CheckForges(ctx, "maul", spec); err != nil {
 			t.Errorf("a spec without grants and no lister: %v", err)
 		}
 	}
 	if f.calls != 0 {
 		t.Errorf("Forges listed %d times for specs without grants, want none", f.calls)
 	}
-	if err := (Guard{Forges: f}).CheckForges(ctx, "patchy", withGrants(t)); err == nil ||
+	if err := (Guard{Forges: f}).CheckForges(ctx, "maul", withGrants(t)); err == nil ||
 		errors.Is(err, jobs.ErrNetworkProfileRefused) {
 		t.Errorf("a list failure = %v, want it returned unrefused", err)
 	}
-	if err := (Guard{}).CheckForges(ctx, "patchy", withGrants(t)); !errors.Is(err, jobs.ErrNetworkProfileRefused) {
+	if err := (Guard{}).CheckForges(ctx, "maul", withGrants(t)); !errors.Is(err, jobs.ErrNetworkProfileRefused) {
 		t.Errorf("no lister = %v, want a refusal", err)
 	}
 }
@@ -140,7 +140,7 @@ func TestCheckForgesRefusesHostlessGrant(t *testing.T) {
 		{Name: "ghe-npm", Ecosystem: "npm", PackagePolicy: netprofile.PackagePolicyRegistry},
 	}}
 	for _, forges := range [][]string{nil, {"github.com", "ghe.corp.example"}} {
-		err := Guard{Forges: &fakeForges{hosts: forges}}.CheckForges(ctx, "patchy", &spec)
+		err := Guard{Forges: &fakeForges{hosts: forges}}.CheckForges(ctx, "maul", &spec)
 		if !errors.Is(err, jobs.ErrNetworkProfileRefused) || !strings.Contains(err.Error(), "ghe-npm") {
 			t.Errorf("Forges %v: CheckForges = %v, want a refusal naming grant ghe-npm", forges, err)
 		}
@@ -196,8 +196,8 @@ func TestPropertyForgeRefusal(t *testing.T) {
 // proxy base none.
 func TestProxyHostForms(t *testing.T) {
 	for raw, want := range map[string][]string{
-		"http://patchy-egress-proxy.patchy.svc.cluster.local": {"patchy-egress-proxy.patchy.svc.cluster.local",
-			"patchy-egress-proxy.patchy.svc", "patchy-egress-proxy.patchy", "http://patchy-egress-proxy"},
+		"http://maul-egress-proxy.maul.svc.cluster.local": {"maul-egress-proxy.maul.svc.cluster.local",
+			"maul-egress-proxy.maul.svc", "maul-egress-proxy.maul", "http://maul-egress-proxy"},
 		"http://Egress.Corp.Example": {"egress.corp.example"},
 		"http://10.100.50.9":         {"10.100.50.9"},
 		"http://localhost":           {"http://localhost"},
@@ -249,7 +249,7 @@ func tunnelSpecSet(t *testing.T) (*jobs.Spec, netprofile.Set) {
 func TestProfileCopiesTunnel(t *testing.T) {
 	spec, set := tunnelSpecSet(t)
 	want := jobs.NetworkProfile{Name: "web", Route: "tunnel",
-		ProxyURL: "http://patchy-egress-proxy.patchy.svc.cluster.local:8092",
+		ProxyURL: "http://maul-egress-proxy.maul.svc.cluster.local:8092",
 		Hosts:    []string{"pypi.org", "files.pythonhosted.org"}, Clients: []string{"pip"}}
 	if !reflect.DeepEqual(*spec.NetworkProfile, want) {
 		t.Fatalf("spec.NetworkProfile = %+v, want %+v", spec.NetworkProfile, want)
@@ -283,7 +283,7 @@ func TestCheckForgesTunnel(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			f := &fakeForges{hosts: tt.forges}
-			err := Guard{Forges: f}.CheckForges(ctx, "patchy", tunnelSpec(t))
+			err := Guard{Forges: f}.CheckForges(ctx, "maul", tunnelSpec(t))
 			if !errors.Is(err, jobs.ErrNetworkProfileRefused) || !strings.Contains(err.Error(), tt.host) ||
 				!strings.Contains(err.Error(), "profile web") {
 				t.Errorf("CheckForges = %v, want a refusal of profile web naming %s", err, tt.host)
@@ -295,15 +295,15 @@ func TestCheckForgesTunnel(t *testing.T) {
 	}
 
 	f := &fakeForges{hosts: []string{"github.com", "ghe.corp.example", "api.octo.ghe.com", "octo.ghe.com"}}
-	if err := (Guard{Forges: f}).CheckForges(ctx, "patchy", tunnelSpec(t)); err != nil {
+	if err := (Guard{Forges: f}).CheckForges(ctx, "maul", tunnelSpec(t)); err != nil {
 		t.Errorf("no Forge matches: %v", err)
 	}
 	f = &fakeForges{err: errors.New("boom")}
-	if err := (Guard{Forges: f}).CheckForges(ctx, "patchy", tunnelSpec(t)); err == nil ||
+	if err := (Guard{Forges: f}).CheckForges(ctx, "maul", tunnelSpec(t)); err == nil ||
 		errors.Is(err, jobs.ErrNetworkProfileRefused) {
 		t.Errorf("a list failure = %v, want it returned unrefused", err)
 	}
-	if err := (Guard{}).CheckForges(ctx, "patchy", tunnelSpec(t)); !errors.Is(err, jobs.ErrNetworkProfileRefused) {
+	if err := (Guard{}).CheckForges(ctx, "maul", tunnelSpec(t)); !errors.Is(err, jobs.ErrNetworkProfileRefused) {
 		t.Errorf("no lister = %v, want a refusal", err)
 	}
 }

@@ -10,10 +10,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/bitwise-media-group/patchy/internal/mirror/helmchart"
-	"github.com/bitwise-media-group/patchy/internal/mirror/imageref"
-	"github.com/bitwise-media-group/patchy/internal/mirror/spec"
-	"github.com/bitwise-media-group/patchy/internal/mirror/verify"
+	"github.com/devthenet-labs/maul/internal/mirror/helmchart"
+	"github.com/devthenet-labs/maul/internal/mirror/imageref"
+	"github.com/devthenet-labs/maul/internal/mirror/spec"
+	"github.com/devthenet-labs/maul/internal/mirror/verify"
 )
 
 // Sync actions.
@@ -144,7 +144,7 @@ func (e *Engine) syncChart(ctx context.Context, entry spec.Entry, regs []spec.Re
 			"%s: upstream tgz digest mismatch: lock has %s, upstream now serves %s",
 			entry.Name, lock.Chart.UpstreamTgzSha256, sha)
 	}
-	scratch, err := os.MkdirTemp("", "patchy-mirror-sync-*")
+	scratch, err := os.MkdirTemp("", "maul-mirror-sync-*")
 	if err != nil {
 		return nil, err
 	}

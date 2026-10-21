@@ -2,7 +2,7 @@
 # Copyright 2026 Bitwise Media Group Ltd.
 # SPDX-License-Identifier: MIT
 #
-# Check the trees `patchy init app` generates the way their own CI and a
+# Check the trees `maul init app` generates the way their own CI and a
 # reviewer would: actionlint over the workflows (with shellcheck on their run
 # blocks), shellcheck over the publish scripts, hadolint over the
 # Dockerfiles, the guard's node tests and the publishers' python tests, and
@@ -17,7 +17,7 @@
 # reproducibility settings, failing unless both builds have one digest.
 #
 # Usage: hack/scaffold-check.sh [--docker] [tree...]
-# With no tree, the golden trees under cmd/patchy/internal/scaffold/testdata.
+# With no tree, the golden trees under cmd/maul/internal/scaffold/testdata.
 # READINESS_PATH (default /healthz) is the path the runtime image must answer.
 set -euo pipefail
 
@@ -31,7 +31,7 @@ if [[ "${1:-}" == "--docker" ]]; then
   fi
 fi
 if [[ $# -eq 0 ]]; then
-  set -- cmd/patchy/internal/scaffold/testdata/golden/*/
+  set -- cmd/maul/internal/scaffold/testdata/golden/*/
 fi
 readiness=${READINESS_PATH:-/healthz}
 # The digest of the one image in an OCI layout tarball.
@@ -80,7 +80,7 @@ for tree in "$@"; do
     publish=.github/actions/publish
     actionlint .github/workflows/*.yml
     shellcheck "$publish"/*.sh
-    for df in Dockerfile .patchy/Dockerfile; do
+    for df in Dockerfile .maul/Dockerfile; do
       if [[ -f "$df" ]]; then hadolint "$df"; fi
     done
     node --test "$publish/guard.test.cjs"
@@ -103,7 +103,7 @@ for tree in "$@"; do
       fi
       for n in 1 2; do
         SOURCE_DATE_EPOCH=0 docker buildx build --platform linux/amd64 --provenance=false --sbom=false \
-          --no-cache -f .patchy/Dockerfile --output "type=oci,dest=$out/agent-$n.oci.tar,rewrite-timestamp=true" .
+          --no-cache -f .maul/Dockerfile --output "type=oci,dest=$out/agent-$n.oci.tar,rewrite-timestamp=true" .
       done
       python3 "$publish/validate_oci.py" "$out/agent-1.oci.tar" "$out/agent-validated" agent
       first=$(oci_digest "$out/agent-1.oci.tar")

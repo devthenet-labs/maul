@@ -12,7 +12,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	patchyv1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	maulv1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 // testAttributionSchema: spec.attributedTo carries a user exactly when its
@@ -21,35 +21,35 @@ import (
 func testAttributionSchema(ctx context.Context, t *testing.T, c client.Client) {
 	t.Helper()
 	n := 0
-	runs := func(a *patchyv1.Attribution) []client.Object {
+	runs := func(a *maulv1.Attribution) []client.Object {
 		n++
 		meta := func(kind string) metav1.ObjectMeta {
 			return metav1.ObjectMeta{Name: fmt.Sprintf("attr-%d-%s", n, kind), Namespace: "default"}
 		}
 		return []client.Object{
-			&patchyv1.Investigation{ObjectMeta: meta("inv"), Spec: patchyv1.InvestigationSpec{
-				FindingRef: patchyv1.ObjectReference{Name: "attr"}, Attempt: 1, AttributedTo: a.DeepCopy(),
+			&maulv1.Investigation{ObjectMeta: meta("inv"), Spec: maulv1.InvestigationSpec{
+				FindingRef: maulv1.ObjectReference{Name: "attr"}, Attempt: 1, AttributedTo: a.DeepCopy(),
 			}},
-			&patchyv1.Remediation{ObjectMeta: meta("rem"), Spec: patchyv1.RemediationSpec{
-				FindingRef:       patchyv1.ObjectReference{Name: "attr"},
-				InvestigationRef: patchyv1.ObjectReference{Name: "attr-inv-1"},
-				RepositoryRef:    patchyv1.LocalObjectReference{Name: "attr-src"},
+			&maulv1.Remediation{ObjectMeta: meta("rem"), Spec: maulv1.RemediationSpec{
+				FindingRef:       maulv1.ObjectReference{Name: "attr"},
+				InvestigationRef: maulv1.ObjectReference{Name: "attr-inv-1"},
+				RepositoryRef:    maulv1.LocalObjectReference{Name: "attr-src"},
 				Attempt:          1, AttributedTo: a.DeepCopy(),
 			}},
-			&patchyv1.EvaluationUnit{ObjectMeta: meta("unit"), Spec: patchyv1.EvaluationUnitSpec{
-				EvaluationRef: patchyv1.ObjectReference{Name: "attr"}, Unit: evalUnitPlan(), AttributedTo: a.DeepCopy(),
+			&maulv1.EvaluationUnit{ObjectMeta: meta("unit"), Spec: maulv1.EvaluationUnitSpec{
+				EvaluationRef: maulv1.ObjectReference{Name: "attr"}, Unit: evalUnitPlan(), AttributedTo: a.DeepCopy(),
 			}},
 		}
 	}
-	person := &patchyv1.Attribution{
-		User: &patchyv1.UserRef{Login: "alice", ID: 42}, Reason: patchyv1.AttributionApprover,
+	person := &maulv1.Attribution{
+		User: &maulv1.UserRef{Login: "alice", ID: 42}, Reason: maulv1.AttributionApprover,
 	}
-	for _, a := range []*patchyv1.Attribution{
+	for _, a := range []*maulv1.Attribution{
 		person,
-		{Reason: patchyv1.AttributionOrg},
-		{Reason: patchyv1.AttributionApproverUnregistered},
-		{Reason: patchyv1.AttributionSubmitterUnregistered},
-		{User: &patchyv1.UserRef{Login: "b0b", ID: 1}, Reason: patchyv1.AttributionReviewer},
+		{Reason: maulv1.AttributionOrg},
+		{Reason: maulv1.AttributionApproverUnregistered},
+		{Reason: maulv1.AttributionSubmitterUnregistered},
+		{User: &maulv1.UserRef{Login: "b0b", ID: 1}, Reason: maulv1.AttributionReviewer},
 	} {
 		for _, obj := range runs(a) {
 			if err := c.Create(ctx, obj); err != nil {
@@ -65,14 +65,14 @@ func testAttributionSchema(ctx context.Context, t *testing.T, c client.Client) {
 			}
 		}
 	}
-	for _, a := range []*patchyv1.Attribution{
-		{Reason: patchyv1.AttributionApprover},
-		{User: &patchyv1.UserRef{Login: "alice", ID: 42}, Reason: patchyv1.AttributionOrg},
-		{User: &patchyv1.UserRef{Login: "alice", ID: 42}, Reason: patchyv1.AttributionApproverUnregistered},
-		{User: &patchyv1.UserRef{Login: "alice"}, Reason: patchyv1.AttributionApprover},
-		{User: &patchyv1.UserRef{Login: "patchy[bot]", ID: 3}, Reason: patchyv1.AttributionCommenter},
-		{User: &patchyv1.UserRef{Login: "github:alice", ID: 3}, Reason: patchyv1.AttributionApprover},
-		{User: &patchyv1.UserRef{ID: 3}, Reason: patchyv1.AttributionApprover},
+	for _, a := range []*maulv1.Attribution{
+		{Reason: maulv1.AttributionApprover},
+		{User: &maulv1.UserRef{Login: "alice", ID: 42}, Reason: maulv1.AttributionOrg},
+		{User: &maulv1.UserRef{Login: "alice", ID: 42}, Reason: maulv1.AttributionApproverUnregistered},
+		{User: &maulv1.UserRef{Login: "alice"}, Reason: maulv1.AttributionApprover},
+		{User: &maulv1.UserRef{Login: "maul[bot]", ID: 3}, Reason: maulv1.AttributionCommenter},
+		{User: &maulv1.UserRef{Login: "github:alice", ID: 3}, Reason: maulv1.AttributionApprover},
+		{User: &maulv1.UserRef{ID: 3}, Reason: maulv1.AttributionApprover},
 		{Reason: "enforce"},
 	} {
 		for _, obj := range runs(a) {
@@ -83,21 +83,21 @@ func testAttributionSchema(ctx context.Context, t *testing.T, c client.Client) {
 	}
 
 	// Immutable: neither changing nor adding nor clearing the stamp passes.
-	inv := &patchyv1.Investigation{}
+	inv := &maulv1.Investigation{}
 	if err := c.Get(ctx, client.ObjectKey{Name: "attr-1-inv", Namespace: "default"}, inv); err != nil {
 		t.Fatalf("Get(investigation) = %v", err)
 	}
-	unstamped := &patchyv1.Investigation{
+	unstamped := &maulv1.Investigation{
 		ObjectMeta: metav1.ObjectMeta{Name: "attr-unstamped-inv", Namespace: "default"},
-		Spec:       patchyv1.InvestigationSpec{FindingRef: patchyv1.ObjectReference{Name: "attr"}, Attempt: 1},
+		Spec:       maulv1.InvestigationSpec{FindingRef: maulv1.ObjectReference{Name: "attr"}, Attempt: 1},
 	}
 	if err := c.Create(ctx, unstamped); err != nil {
 		t.Fatalf("Create(unstamped investigation) = %v", err)
 	}
 	for name, change := range map[string]func(){
 		"another person": func() {
-			inv.Spec.AttributedTo = &patchyv1.Attribution{
-				User: &patchyv1.UserRef{Login: "mallory", ID: 666}, Reason: patchyv1.AttributionApprover,
+			inv.Spec.AttributedTo = &maulv1.Attribution{
+				User: &maulv1.UserRef{Login: "mallory", ID: 666}, Reason: maulv1.AttributionApprover,
 			}
 		},
 		"cleared": func() { inv.Spec.AttributedTo = nil },
@@ -118,13 +118,13 @@ func testAttributionSchema(ctx context.Context, t *testing.T, c client.Client) {
 	}
 }
 
-func attributedTo(obj client.Object) *patchyv1.Attribution {
+func attributedTo(obj client.Object) *maulv1.Attribution {
 	switch o := obj.(type) {
-	case *patchyv1.Investigation:
+	case *maulv1.Investigation:
 		return o.Spec.AttributedTo
-	case *patchyv1.Remediation:
+	case *maulv1.Remediation:
 		return o.Spec.AttributedTo
-	case *patchyv1.EvaluationUnit:
+	case *maulv1.EvaluationUnit:
 		return o.Spec.AttributedTo
 	}
 	return nil

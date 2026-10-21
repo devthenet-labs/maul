@@ -11,17 +11,17 @@ import (
 
 func TestValidJobName(t *testing.T) {
 	for name, want := range map[string]bool{
-		"patchy-0a1b2c3d4e-inv-a1":  true,
-		"patchy-0a1b2c3d4e-evl":     true,
-		"":                          false,
-		"Patchy":                    false,
-		"-a":                        false,
-		"a-":                        false,
-		"a/b":                       false,
-		"a.b":                       false,
-		strings.Repeat("a", 57):     true,
-		strings.Repeat("a", 58):     false,
-		"patchy-0a1b2c3d4e-inv-a1/": false,
+		"maul-0a1b2c3d4e-inv-a1":  true,
+		"maul-0a1b2c3d4e-evl":     true,
+		"":                        false,
+		"Maul":                    false,
+		"-a":                      false,
+		"a-":                      false,
+		"a/b":                     false,
+		"a.b":                     false,
+		strings.Repeat("a", 57):   true,
+		strings.Repeat("a", 58):   false,
+		"maul-0a1b2c3d4e-inv-a1/": false,
 	} {
 		if got := ValidJobName(name); got != want {
 			t.Errorf("ValidJobName(%q) = %v, want %v", name, got, want)
@@ -30,7 +30,7 @@ func TestValidJobName(t *testing.T) {
 }
 
 func TestPodOfJob(t *testing.T) {
-	const job = "patchy-0a1b2c3d4e-inv-a1"
+	const job = "maul-0a1b2c3d4e-inv-a1"
 	for pod, want := range map[string]bool{
 		job + "-x7k2p":   true,
 		job + "-x7k2":    false,

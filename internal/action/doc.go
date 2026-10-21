@@ -7,7 +7,7 @@
 //
 // It exists so the two clients that apply human actions cannot drift. The
 // status server (internal/web) applies them as its own ServiceAccount after a
-// SubjectAccessReview; the patchy CLI (cmd/patchy) applies them as the signed-in
+// SubjectAccessReview; the maul CLI (cmd/maul) applies them as the signed-in
 // user's kubeconfig identity. Both call Apply, so a phase gate tightened here
 // tightens in both places at once.
 //

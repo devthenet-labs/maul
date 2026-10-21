@@ -217,11 +217,11 @@ function DailyChart({ report }: { report: UsageReport }) {
           aria-label={`${MEASURE_LABELS[measure]} per day, ${report.from} to ${report.to}, stacked ${STACK_LABELS[by]}`}
           onMouseLeave={() => setHover(null)}
         >
-          <line x1={0} x2={CHART_W} y1={0} y2={0} stroke="var(--patchy-line)" stroke-dasharray="3 4" />
-          <text x={0} y={-4} font-size="10" fill="var(--patchy-muted)" font-family="var(--font-mono)">
+          <line x1={0} x2={CHART_W} y1={0} y2={0} stroke="var(--maul-line)" stroke-dasharray="3 4" />
+          <text x={0} y={-4} font-size="10" fill="var(--maul-muted)" font-family="var(--font-mono)">
             {measureValue(max, measure)}
           </text>
-          <line x1={0} x2={CHART_W} y1={CHART_H} y2={CHART_H} stroke="var(--patchy-line-2)" />
+          <line x1={0} x2={CHART_W} y1={CHART_H} y2={CHART_H} stroke="var(--maul-line-2)" />
           {bars.map((rects, i) => {
             const slot = CHART_W / report.daily.length;
             return (
@@ -243,10 +243,10 @@ function DailyChart({ report }: { report: UsageReport }) {
               </g>
             );
           })}
-          <text x={0} y={CHART_H + 14} font-size="10" fill="var(--patchy-muted)" font-family="var(--font-mono)">
+          <text x={0} y={CHART_H + 14} font-size="10" fill="var(--maul-muted)" font-family="var(--font-mono)">
             {report.from}
           </text>
-          <text x={CHART_W} y={CHART_H + 14} font-size="10" fill="var(--patchy-muted)" text-anchor="end" font-family="var(--font-mono)">
+          <text x={CHART_W} y={CHART_H + 14} font-size="10" fill="var(--maul-muted)" text-anchor="end" font-family="var(--font-mono)">
             {report.to}
           </text>
         </svg>

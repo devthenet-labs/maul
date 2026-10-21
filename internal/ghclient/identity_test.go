@@ -21,7 +21,7 @@ func TestAppSlug(t *testing.T) {
 		if auth := r.Header.Get("Authorization"); !strings.HasPrefix(auth, "Bearer ") {
 			t.Errorf("GET /app Authorization = %q, want the app JWT bearer", auth)
 		}
-		writeJSON(t, w, `{"id":7,"slug":"patchy-devthenet","name":"patchy devthenet"}`)
+		writeJSON(t, w, `{"id":7,"slug":"patchy-devthenet","name":"maul devthenet"}`)
 	})
 
 	ctx := context.Background()

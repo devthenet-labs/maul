@@ -17,7 +17,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/feature/ec2/imds"
 	"github.com/aws/aws-sdk-go-v2/service/codeartifact"
 
-	"github.com/bitwise-media-group/patchy/internal/egressproxy"
+	"github.com/devthenet-labs/maul/internal/egressproxy"
 )
 
 // PodIdentityAddr is the EKS Pod Identity agent's node-local endpoint: the

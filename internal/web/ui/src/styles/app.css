@@ -1,7 +1,7 @@
-/* Patchy status page — Tailwind entry.
+/* Maul status page — Tailwind entry.
  *
  * Layout/spacing/typography live as utilities in the components. This file
- * carries: (1) the Tailwind theme mapping onto the vendored --patchy-*
+ * carries: (1) the Tailwind theme mapping onto the vendored --maul-*
  * tokens, so utilities like bg-turf/text-muted re-tint through the body
  * class theme switch; (2) the few bespoke recipes utilities can't express
  * cleanly (patch mark, pill tones via color-mix, timeline rail, pipeline
@@ -39,27 +39,27 @@
 /* Utilities reference the runtime vars directly (inline), so the body-class
  * theme switch re-tints everything without a rebuild. */
 @theme inline {
-  --color-turf: var(--patchy-green);
-  --color-turf-2: var(--patchy-green-2);
-  --color-moss: var(--patchy-moss);
-  --color-seedling: var(--patchy-seedling);
-  --color-ink: var(--patchy-ink-green);
-  --color-soil: var(--patchy-soil);
-  --color-amber: var(--patchy-amber);
-  --color-red: var(--patchy-red);
-  --color-onaccent: var(--patchy-on-accent);
-  --color-page: var(--patchy-bg);
-  --color-surface: var(--patchy-surface);
-  --color-surface-2: var(--patchy-surface-2);
-  --color-code: var(--patchy-code);
-  --color-code-2: var(--patchy-code-2);
-  --color-line: var(--patchy-line);
-  --color-line-2: var(--patchy-line-2);
-  --color-fg: var(--patchy-fg);
-  --color-muted: var(--patchy-muted);
-  --color-faint: var(--patchy-faint);
-  --shadow-card: var(--patchy-shadow);
-  --shadow-strong: var(--patchy-shadow-strong);
+  --color-turf: var(--maul-green);
+  --color-turf-2: var(--maul-green-2);
+  --color-moss: var(--maul-moss);
+  --color-seedling: var(--maul-seedling);
+  --color-ink: var(--maul-ink-green);
+  --color-soil: var(--maul-soil);
+  --color-amber: var(--maul-amber);
+  --color-red: var(--maul-red);
+  --color-onaccent: var(--maul-on-accent);
+  --color-page: var(--maul-bg);
+  --color-surface: var(--maul-surface);
+  --color-surface-2: var(--maul-surface-2);
+  --color-code: var(--maul-code);
+  --color-code-2: var(--maul-code-2);
+  --color-line: var(--maul-line);
+  --color-line-2: var(--maul-line-2);
+  --color-fg: var(--maul-fg);
+  --color-muted: var(--maul-muted);
+  --color-faint: var(--maul-faint);
+  --shadow-card: var(--maul-shadow);
+  --shadow-strong: var(--maul-shadow-strong);
   --shadow-turf-glow: var(--shadow-glow);
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
@@ -84,8 +84,8 @@
     outline-offset: 2px;
   }
   ::selection {
-    background: var(--patchy-green);
-    color: var(--patchy-on-accent);
+    background: var(--maul-green);
+    color: var(--maul-on-accent);
   }
   @media (prefers-reduced-motion: reduce) {
     html {
@@ -108,8 +108,8 @@
     display: inline-block;
     flex: 0 0 auto;
     border-radius: 8px;
-    background: var(--patchy-surface-2);
-    border: 1px solid var(--patchy-line-2);
+    background: var(--maul-surface-2);
+    border: 1px solid var(--maul-line-2);
     overflow: hidden;
   }
   .patch-mark__hole {
@@ -119,8 +119,8 @@
     left: 18%;
     bottom: 17%;
     border-radius: 50%;
-    background: var(--patchy-soil);
-    box-shadow: inset 0 3px 0 color-mix(in oklab, var(--patchy-code) 35%, transparent);
+    background: var(--maul-soil);
+    box-shadow: inset 0 3px 0 color-mix(in oklab, var(--maul-code) 35%, transparent);
   }
   .patch-mark__turf {
     position: absolute;
@@ -129,8 +129,8 @@
     right: 12%;
     bottom: 27%;
     border-radius: 3px;
-    background: var(--patchy-green);
-    border: 1px solid color-mix(in oklab, var(--patchy-green) 70%, var(--patchy-fg));
+    background: var(--maul-green);
+    border: 1px solid color-mix(in oklab, var(--maul-green) 70%, var(--maul-fg));
     transform: rotate(-7deg);
   }
   .patch-mark__blade {
@@ -138,7 +138,7 @@
     width: 2px;
     height: 22%;
     border-radius: 2px;
-    background: var(--patchy-green-2);
+    background: var(--maul-green-2);
     transform-origin: bottom;
   }
   .patch-mark__blade--one {
@@ -155,63 +155,63 @@
   /* ---- pills: tone grammar via color-mix tints ---- */
   .ps-pill {
     @apply inline-flex w-fit items-center gap-1.5 rounded-full px-2 py-[3px] font-mono text-[10.5px] font-semibold whitespace-nowrap;
-    color: var(--patchy-ink-green);
-    background: color-mix(in oklab, var(--patchy-green) 10%, transparent);
-    border: 1px solid color-mix(in oklab, var(--patchy-green) 28%, transparent);
+    color: var(--maul-ink-green);
+    background: color-mix(in oklab, var(--maul-green) 10%, transparent);
+    border: 1px solid color-mix(in oklab, var(--maul-green) 28%, transparent);
   }
   .ps-pill__label {
     @apply font-medium text-muted;
   }
   .ps-pill--seedling {
-    color: var(--patchy-seedling);
-    background: color-mix(in oklab, var(--patchy-seedling) 9%, transparent);
-    border-color: color-mix(in oklab, var(--patchy-seedling) 28%, transparent);
+    color: var(--maul-seedling);
+    background: color-mix(in oklab, var(--maul-seedling) 9%, transparent);
+    border-color: color-mix(in oklab, var(--maul-seedling) 28%, transparent);
   }
   .ps-pill--amber {
-    color: var(--patchy-amber);
-    background: color-mix(in oklab, var(--patchy-amber) 9%, transparent);
-    border-color: color-mix(in oklab, var(--patchy-amber) 28%, transparent);
+    color: var(--maul-amber);
+    background: color-mix(in oklab, var(--maul-amber) 9%, transparent);
+    border-color: color-mix(in oklab, var(--maul-amber) 28%, transparent);
   }
   .ps-pill--soil {
-    color: var(--patchy-soil);
-    background: color-mix(in oklab, var(--patchy-soil) 10%, transparent);
-    border-color: color-mix(in oklab, var(--patchy-soil) 28%, transparent);
+    color: var(--maul-soil);
+    background: color-mix(in oklab, var(--maul-soil) 10%, transparent);
+    border-color: color-mix(in oklab, var(--maul-soil) 28%, transparent);
   }
   .ps-pill--red {
-    color: var(--patchy-red);
-    background: color-mix(in oklab, var(--patchy-red) 9%, transparent);
-    border-color: color-mix(in oklab, var(--patchy-red) 26%, transparent);
+    color: var(--maul-red);
+    background: color-mix(in oklab, var(--maul-red) 9%, transparent);
+    border-color: color-mix(in oklab, var(--maul-red) 26%, transparent);
   }
   .ps-pill--neutral {
-    color: var(--patchy-muted);
-    background: color-mix(in oklab, var(--patchy-muted) 8%, transparent);
-    border-color: var(--patchy-line-2);
+    color: var(--maul-muted);
+    background: color-mix(in oklab, var(--maul-muted) 8%, transparent);
+    border-color: var(--maul-line-2);
   }
   /* Severity/rating tones — the dedicated ramp, never the state tones. */
   .ps-pill--sev-low {
-    color: var(--patchy-sev-low);
-    background: color-mix(in oklab, var(--patchy-sev-low) 10%, transparent);
-    border-color: color-mix(in oklab, var(--patchy-sev-low) 30%, transparent);
+    color: var(--maul-sev-low);
+    background: color-mix(in oklab, var(--maul-sev-low) 10%, transparent);
+    border-color: color-mix(in oklab, var(--maul-sev-low) 30%, transparent);
   }
   .ps-pill--sev-medium {
-    color: var(--patchy-sev-medium);
-    background: color-mix(in oklab, var(--patchy-sev-medium) 10%, transparent);
-    border-color: color-mix(in oklab, var(--patchy-sev-medium) 30%, transparent);
+    color: var(--maul-sev-medium);
+    background: color-mix(in oklab, var(--maul-sev-medium) 10%, transparent);
+    border-color: color-mix(in oklab, var(--maul-sev-medium) 30%, transparent);
   }
   .ps-pill--sev-high {
-    color: var(--patchy-sev-high);
-    background: color-mix(in oklab, var(--patchy-sev-high) 11%, transparent);
-    border-color: color-mix(in oklab, var(--patchy-sev-high) 32%, transparent);
+    color: var(--maul-sev-high);
+    background: color-mix(in oklab, var(--maul-sev-high) 11%, transparent);
+    border-color: color-mix(in oklab, var(--maul-sev-high) 32%, transparent);
   }
   .ps-pill--sev-critical {
-    color: var(--patchy-sev-critical);
-    background: color-mix(in oklab, var(--patchy-sev-critical) 11%, transparent);
-    border-color: color-mix(in oklab, var(--patchy-sev-critical) 34%, transparent);
+    color: var(--maul-sev-critical);
+    background: color-mix(in oklab, var(--maul-sev-critical) 11%, transparent);
+    border-color: color-mix(in oklab, var(--maul-sev-critical) 34%, transparent);
   }
 
   .ps-live-dot {
     @apply animate-pulse-dot inline-block size-[7px] rounded-full bg-turf;
-    box-shadow: 0 0 0 4px color-mix(in oklab, var(--patchy-green) 12%, transparent);
+    box-shadow: 0 0 0 4px color-mix(in oklab, var(--maul-green) 12%, transparent);
   }
   .ps-mono-tag {
     @apply inline-flex items-center gap-1 rounded-md border border-line bg-code-2 px-1.5 py-0.5 font-mono text-[11px] text-fg no-underline;
@@ -227,18 +227,18 @@
   /* ---- notes (amber default; green/red variants) ---- */
   .ps-note {
     @apply mt-4 flex flex-wrap items-center gap-2 rounded-[10px] px-3.5 py-2.5 text-[12.5px] text-amber;
-    background: color-mix(in oklab, var(--patchy-amber) 8%, transparent);
-    border: 1px solid color-mix(in oklab, var(--patchy-amber) 26%, transparent);
+    background: color-mix(in oklab, var(--maul-amber) 8%, transparent);
+    border: 1px solid color-mix(in oklab, var(--maul-amber) 26%, transparent);
   }
   .ps-note--green {
-    color: var(--patchy-ink-green);
-    background: color-mix(in oklab, var(--patchy-green) 8%, transparent);
-    border-color: color-mix(in oklab, var(--patchy-green) 26%, transparent);
+    color: var(--maul-ink-green);
+    background: color-mix(in oklab, var(--maul-green) 8%, transparent);
+    border-color: color-mix(in oklab, var(--maul-green) 26%, transparent);
   }
   .ps-note--red {
-    color: var(--patchy-red);
-    background: color-mix(in oklab, var(--patchy-red) 7%, transparent);
-    border-color: color-mix(in oklab, var(--patchy-red) 24%, transparent);
+    color: var(--maul-red);
+    background: color-mix(in oklab, var(--maul-red) 7%, transparent);
+    border-color: color-mix(in oklab, var(--maul-red) 24%, transparent);
   }
   .ps-note a {
     @apply inline-flex items-center gap-1 font-semibold text-inherit;
@@ -277,7 +277,7 @@
   }
   .ps-filter-group button.is-active {
     @apply bg-surface-2 text-fg;
-    box-shadow: inset 0 0 0 1px var(--patchy-line-2);
+    box-shadow: inset 0 0 0 1px var(--maul-line-2);
   }
 
   /* ---- tabs ---- */
@@ -307,11 +307,11 @@
     @apply -my-1.5 cursor-pointer rounded-[9px] border-0 bg-transparent p-1.5 text-left text-inherit;
   }
   .ps-phase:hover {
-    background: color-mix(in oklab, var(--patchy-green) 5%, transparent);
+    background: color-mix(in oklab, var(--maul-green) 5%, transparent);
   }
   .ps-phase.is-active {
-    background: color-mix(in oklab, var(--patchy-green) 11%, transparent);
-    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--patchy-green) 40%, transparent);
+    background: color-mix(in oklab, var(--maul-green) 11%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--maul-green) 40%, transparent);
   }
   .ps-phase__top {
     @apply flex items-center;
@@ -359,7 +359,7 @@
     @apply border-b border-line last:border-b-0;
   }
   .ps-hover-row:hover {
-    background: color-mix(in oklab, var(--patchy-green) 3.5%, var(--patchy-surface));
+    background: color-mix(in oklab, var(--maul-green) 3.5%, var(--maul-surface));
   }
 
   /* ---- confidence track & stacked mix bar ---- */
@@ -378,19 +378,19 @@
     @apply block h-full min-w-[3px];
   }
   .ps-fill--green {
-    background: var(--patchy-green);
+    background: var(--maul-green);
   }
   .ps-fill--red {
-    background: var(--patchy-red);
+    background: var(--maul-red);
   }
   .ps-fill--amber {
-    background: var(--patchy-amber);
+    background: var(--maul-amber);
   }
   .ps-fill--soil {
-    background: var(--patchy-soil);
+    background: var(--maul-soil);
   }
   .ps-fill--faint {
-    background: var(--patchy-faint);
+    background: var(--maul-faint);
   }
 
   /* ---- timeline rail ---- */
@@ -404,7 +404,7 @@
     top: 24px;
     bottom: 0;
     width: 1px;
-    background: var(--patchy-line-2);
+    background: var(--maul-line-2);
   }
   .ps-timeline__marker {
     @apply relative z-[1] grid size-[23px] flex-none place-items-center rounded-full border border-line-2 bg-surface-2 text-muted;
@@ -415,28 +415,28 @@
   }
   .ps-timeline__item--active .ps-timeline__marker {
     @apply border-turf bg-turf text-onaccent;
-    box-shadow: 0 0 0 5px color-mix(in oklab, var(--patchy-green) 12%, transparent);
+    box-shadow: 0 0 0 5px color-mix(in oklab, var(--maul-green) 12%, transparent);
   }
   .ps-timeline__item--red .ps-timeline__marker {
-    background: color-mix(in oklab, var(--patchy-red) 18%, var(--patchy-surface-2));
-    border-color: var(--patchy-red);
-    color: var(--patchy-red);
+    background: color-mix(in oklab, var(--maul-red) 18%, var(--maul-surface-2));
+    border-color: var(--maul-red);
+    color: var(--maul-red);
   }
   .ps-timeline__item--amber .ps-timeline__marker {
-    background: color-mix(in oklab, var(--patchy-amber) 16%, var(--patchy-surface-2));
-    border-color: var(--patchy-amber);
-    color: var(--patchy-amber);
+    background: color-mix(in oklab, var(--maul-amber) 16%, var(--maul-surface-2));
+    border-color: var(--maul-amber);
+    color: var(--maul-amber);
   }
   .ps-timeline__item--soil .ps-timeline__marker {
-    background: color-mix(in oklab, var(--patchy-soil) 16%, var(--patchy-surface-2));
-    border-color: var(--patchy-soil);
-    color: var(--patchy-soil);
+    background: color-mix(in oklab, var(--maul-soil) 16%, var(--maul-surface-2));
+    border-color: var(--maul-soil);
+    color: var(--maul-soil);
   }
   .ps-timeline__item--red .ps-timeline__body > strong {
-    color: var(--patchy-red);
+    color: var(--maul-red);
   }
   .ps-timeline__item--amber .ps-timeline__body > strong {
-    color: var(--patchy-amber);
+    color: var(--maul-amber);
   }
 
   /* ---- action buttons ---- */
@@ -462,7 +462,7 @@
    theme). "other" folds the keys past six; "(no project)" is a neutral, not
    a series. Identity is never colour alone: every chart has a legend and a
    table view. */
-.theme-patchy {
+.theme-maul {
   --usage-1: #3987e5;
   --usage-2: #d95926;
   --usage-3: #199e70;
@@ -472,7 +472,7 @@
   --usage-other: #7d8a80;
   --usage-none: #4d5c51;
 }
-.theme-patchy-light {
+.theme-maul-light {
   --usage-1: #2a78d6;
   --usage-2: #eb6834;
   --usage-3: #1baf7a;

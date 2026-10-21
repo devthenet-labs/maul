@@ -10,18 +10,18 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/report"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/report"
 )
 
 // A build-side run (build, revise or check-fix) may end its report with
 // working notes (report.WorkingNotesHeading): what the next agent on the
-// intent should know. patchy hands the latest of them on: to the next round
+// intent should know. maul hands the latest of them on: to the next round
 // of the same repository and plan revision, after the approved plan and
 // before the round's feedback, and to a replan's or revival's context file.
 // The report is re-parsed here, never trusted from the event: a repository's
 // image is untrusted, and a report that no longer parses gives no notes.
-// Nothing refuses notes for their size; patchy cuts them at
+// Nothing refuses notes for their size; maul cuts them at
 // maxWorkingNotesBytes with a visible marker, so an over-long note costs the
 // next agent its tail, never a round.
 const maxWorkingNotesBytes = 6 << 10
@@ -29,8 +29,8 @@ const maxWorkingNotesBytes = 6 << 10
 // workingNotesHeading heads the notes in a round's input.
 const workingNotesHeading = "Working notes from the previous round"
 
-// notesTruncated ends notes patchy cut.
-const notesTruncated = "\n[patchy truncated these working notes here: they ran past 6 KiB]"
+// notesTruncated ends notes maul cut.
+const notesTruncated = "\n[maul truncated these working notes here: they ran past 6 KiB]"
 
 // runWorkingNotes is the working notes of run's stored report, escaped so
 // every character shows (backticks too, when no fence would fit), cut to maxWorkingNotesBytes with notesTruncated,
@@ -51,7 +51,7 @@ func runWorkingNotes(run *v1alpha1.IntentRun) string {
 	}
 	// A fence longer than the bound leaves no room for the notes beside it
 	// (a long run of backticks): show the backticks as escapes first, so the
-	// cut below is the only one and its marker is patchy's.
+	// cut below is the only one and its marker is maul's.
 	if len(fenced(cutBytes(notes, maxWorkingNotesBytes))) > maxWorkingNotesBytes+64 {
 		notes = strings.ReplaceAll(notes, "`", "<U+0060>")
 	}

@@ -20,13 +20,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/kube"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/kube"
 )
 
 // botLogin is the login fakeTracker posts as: the projection's own identity.
-const botLogin = "patchy[bot]"
+const botLogin = "maul[bot]"
 
 // fakeTracker records every tracking-system write.
 type fakeTracker struct {
@@ -332,7 +332,7 @@ func (f *fakeTracker) CreateIssueCommentReaction(
 func projectable(phase v1alpha1.Phase) *v1alpha1.Finding {
 	return &v1alpha1.Finding{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "finding-aa-1", Namespace: "patchy",
+			Name: "finding-aa-1", Namespace: "maul",
 			Labels: map[string]string{v1alpha1.LabelKeyHash: "aa"},
 		},
 		Spec: v1alpha1.FindingSpec{
@@ -362,7 +362,7 @@ func newProjector(t *testing.T, tracker *fakeTracker, objs ...client.Object) (*F
 		Build()
 	r := &FindingReconciler{
 		Client:    c,
-		Namespace: "patchy",
+		Namespace: "maul",
 		Now:       func() time.Time { return testClock },
 		ClientFor: func(context.Context, *v1alpha1.Integration, ghclient.Repo) (trackerClient, error) {
 			return tracker, nil
@@ -374,7 +374,7 @@ func newProjector(t *testing.T, tracker *fakeTracker, objs ...client.Object) (*F
 func reconcileFinding(t *testing.T, r *FindingReconciler) {
 	t.Helper()
 	if _, err := r.Reconcile(t.Context(), ctrl.Request{
-		NamespacedName: types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1"},
+		NamespacedName: types.NamespacedName{Namespace: "maul", Name: "finding-aa-1"},
 	}); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
@@ -394,7 +394,7 @@ func TestProjectCreatesIssue(t *testing.T) {
 		t.Errorf("tracking url = %q", f.Status.Tracking.URL)
 	}
 	is := tracker.issues[7]
-	if !strings.Contains(is.Body, "patchy:finding patchy/finding-aa-1") {
+	if !strings.Contains(is.Body, "maul:finding maul/finding-aa-1") {
 		t.Errorf("body missing finding marker:\n%s", is.Body)
 	}
 	if !strings.Contains(is.Title, "CVE-2026-0001") {
@@ -486,7 +486,7 @@ func TestProjectIssuesDisabledBacksOff(t *testing.T) {
 		clients++
 		return tracker, nil
 	}
-	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1"}}
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "maul", Name: "finding-aa-1"}}
 
 	// GitHub refuses the issue for good (410): the projection records why
 	// and waits out the re-check, rather than failing into a hot retry.
@@ -565,7 +565,7 @@ func TestProjectIssuesDisabledRechecksMovedRepository(t *testing.T) {
 		asked = append(asked, repo.String())
 		return tracker, nil
 	}
-	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1"}}
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "maul", Name: "finding-aa-1"}}
 
 	if _, err := r.Reconcile(t.Context(), req); err != nil {
 		t.Fatalf("Reconcile: %v", err)
@@ -608,7 +608,7 @@ func TestProjectTransientCreateFailureStillRetries(t *testing.T) {
 	tracker := newFakeTracker()
 	tracker.createErrs = []error{badGateway("create issue")}
 	r, c := newProjector(t, tracker, testIntegration(), projectable(v1alpha1.PhaseOpened))
-	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1"}}
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "maul", Name: "finding-aa-1"}}
 
 	if _, err := r.Reconcile(t.Context(), req); err == nil {
 		t.Fatal("Reconcile: nil error on a 502, want it returned for the backoff")
@@ -636,7 +636,7 @@ func TestProjectEnrichmentCommentOnce(t *testing.T) {
 
 	n := 0
 	for _, cm := range tracker.comments {
-		if strings.Contains(cm, "patchy:enrichment static-context") {
+		if strings.Contains(cm, "maul:enrichment static-context") {
 			n++
 		}
 	}
@@ -670,7 +670,7 @@ func TestProjectEnrichmentStickyEdit(t *testing.T) {
 
 	n := 0
 	for _, cm := range tracker.comments {
-		if strings.Contains(cm, "patchy:enrichment static-context") {
+		if strings.Contains(cm, "maul:enrichment static-context") {
 			n++
 		}
 	}
@@ -710,7 +710,7 @@ func TestProjectEnrichmentAttributesAsLabels(t *testing.T) {
 	}
 	// Attributes alone post no comment.
 	for _, cm := range tracker.comments {
-		if strings.Contains(cm, "patchy:enrichment") {
+		if strings.Contains(cm, "maul:enrichment") {
 			t.Errorf("unexpected enrichment comment:\n%s", cm)
 		}
 	}
@@ -749,7 +749,7 @@ func TestProjectAwaitingApprovalNotifies(t *testing.T) {
 
 	notices := 0
 	for _, cm := range tracker.comments {
-		if strings.Contains(cm, "`/patchy approve`") {
+		if strings.Contains(cm, "`/maul approve`") {
 			notices++
 		}
 	}

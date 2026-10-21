@@ -15,10 +15,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/bitwise-media-group/patchy/internal/mirror/distro"
-	"github.com/bitwise-media-group/patchy/internal/mirror/helmchart"
-	"github.com/bitwise-media-group/patchy/internal/mirror/spec"
-	"github.com/bitwise-media-group/patchy/internal/mirror/yamledit"
+	"github.com/devthenet-labs/maul/internal/mirror/distro"
+	"github.com/devthenet-labs/maul/internal/mirror/helmchart"
+	"github.com/devthenet-labs/maul/internal/mirror/spec"
+	"github.com/devthenet-labs/maul/internal/mirror/yamledit"
 )
 
 // UpgradeResult reports one entry's convergence.

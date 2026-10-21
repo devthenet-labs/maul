@@ -17,14 +17,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/action"
-	"github.com/bitwise-media-group/patchy/internal/command"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/templates"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/action"
+	"github.com/devthenet-labs/maul/internal/command"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
-// intentParser reads commands on an intent issue: the /patchy grammar, and
+// intentParser reads commands on an intent issue: the /maul grammar, and
 // never the Finding issue's legacy /approve.
 var intentParser = command.Parser{Surface: command.IntentIssue}
 
@@ -136,7 +136,7 @@ func (p *pass) rateOK(ctx context.Context, repoURL string) (bool, error) {
 
 // rateOKForPullRequests is rateOK for every repository the Intent's pull
 // requests are in that the Project still holds. One that left the Project is
-// not asked: patchy writes nothing more there, reads its pull request only
+// not asked: maul writes nothing more there, reads its pull request only
 // when it can (readDepartedPullRequest), and may no longer reach it at all (no
 // Forge covers it, the App was uninstalled), so it never holds the other pull
 // requests' rounds. Its own rate floor is asked by that read, and holds only
@@ -181,7 +181,7 @@ func (p *pass) listSince() time.Time {
 // reports that the Intent ended, so the phase step must not run. Each
 // command answered is recorded as seen as soon as its reply is posted, and
 // the whole listing once every command in it is answered, so a command is
-// never answered twice, even after patchy's reply to it is deleted.
+// never answered twice, even after maul's reply to it is deleted.
 func (p *pass) poll(ctx context.Context) (stop bool, err error) {
 	p.r.memo(func() { p.r.polled[p.in.Name] = p.now })
 	if ok, err := p.rateOK(ctx, p.repo()); err != nil || !ok {
@@ -231,7 +231,7 @@ func (p *pass) newestSettled() *ghclient.Comment {
 }
 
 // issueClosed ends the Intent on an issue a human closed. The pull requests
-// decide first: patchy closes the issue itself when every one merged, before
+// decide first: maul closes the issue itself when every one merged, before
 // it writes Merged, and a lost write must not turn that close into a human's.
 // Under a pull request repository's floor nothing is decided: the close waits
 // for the pull requests to be read. So it does while a pull request whose
@@ -252,7 +252,7 @@ func (p *pass) issueClosed(ctx context.Context) (bool, error) {
 			return false, nil
 		}
 	}
-	// A human closed the issue: that needs nothing more from patchy.
+	// A human closed the issue: that needs nothing more from maul.
 	return true, p.setPhase(ctx, v1alpha1.IntentClosed, func(cur *v1alpha1.Intent) {
 		cur.Status.ActiveRun = nil
 	})
@@ -285,10 +285,10 @@ func (p *pass) answer(ctx context.Context, actions []humanAction, issue *ghclien
 }
 
 // gather lists the human actions on the issue still to answer, oldest first:
-// every command since the anchor with no reply from patchy, the newest
+// every command since the anchor with no reply from maul, the newest
 // trigger label event newer than the last consumed trigger, and, while the
 // plan waits for approval, the newest approve label event newer than the
-// plan. Actions by patchy's own bot are never answered.
+// plan. Actions by maul's own bot are never answered.
 func (p *pass) gather(ctx context.Context, issue *ghclient.Issue, events []*ghclient.IssueEvent) (
 	[]humanAction, error) {
 	out := p.commands()
@@ -318,7 +318,7 @@ func (p *pass) gather(ctx context.Context, issue *ghclient.Issue, events []*ghcl
 
 // commands are the commands among the comments this pass listed that are
 // still to answer: newer than the newest comment already settled, not
-// before the newest trigger consumed, no reply from patchy yet, and not
+// before the newest trigger consumed, no reply from maul yet, and not
 // superseded.
 func (p *pass) commands() []humanAction {
 	var out []humanAction
@@ -437,7 +437,7 @@ func (p *pass) approveLabelAction(ctx context.Context, issue *ghclient.Issue, ev
 }
 
 // newestLabeled is the newest labeled event adding label by anyone but
-// patchy's own bot, or nil.
+// maul's own bot, or nil.
 func newestLabeled(events []*ghclient.IssueEvent, label string, own func(string) bool) *ghclient.IssueEvent {
 	var newest *ghclient.IssueEvent
 	for _, e := range events {
@@ -458,7 +458,7 @@ func newestLabeled(events []*ghclient.IssueEvent, label string, own func(string)
 // reaction and exactly one reply, with one exception: an account refused
 // without asking GitHub (a bot, or not an approver) gets its first refusal
 // on the intent and nothing after it, neither reaction nor reply, so
-// commenting repeatedly cannot make patchy write to GitHub once per comment.
+// commenting repeatedly cannot make maul write to GitHub once per comment.
 // Such an account is refused whatever its command says, an unknown verb or
 // an edited comment included. A label, which has no comment to react to, is
 // answered with a notice when it is refused (its acceptance shows on the
@@ -645,7 +645,7 @@ func (p *pass) notAvailable(ctx context.Context, a humanAction, phase v1alpha1.I
 	return p.notice(ctx, a.key(), a.at, body, err)
 }
 
-// settleCancel: an approver's /patchy cancel closes the issue (not planned)
+// settleCancel: an approver's /maul cancel closes the issue (not planned)
 // and the Intent. The close comes first, then the reply, then the phase, so
 // a restart repeats only idempotent steps; the issue closed by it is what a
 // later poll reads as closed if the phase write is lost.
@@ -669,7 +669,7 @@ func (p *pass) settleCancel(ctx context.Context, a humanAction) error {
 	return p.setPhase(ctx, v1alpha1.IntentClosed, func(cur *v1alpha1.Intent) { cur.Status.ActiveRun = nil })
 }
 
-// settleReplan answers a replan: the trigger label re-applied, or /patchy
+// settleReplan answers a replan: the trigger label re-applied, or /maul
 // replan. An approver's, while the plan waits for approval, is a new plan;
 // anything else is refused or not available, and consumed all the same, so it
 // never takes effect later.
@@ -703,7 +703,7 @@ func (p *pass) settleReplan(ctx context.Context, a humanAction, issue *ghclient.
 	return p.replyDone(ctx, a)
 }
 
-// settleApprove answers an approval: the approve label, or /patchy approve.
+// settleApprove answers an approval: the approve label, or /maul approve.
 // It is accepted only from an approver, only while the plan waits for
 // approval and after it was posted, and only while the plan comment and the
 // issue are what the plan was shown with and made from.
@@ -782,7 +782,7 @@ func (p *pass) settlePlanApproval(ctx context.Context, a humanAction, issue *ghc
 	return p.replyDone(ctx, a)
 }
 
-// approvalChanged reports whether the plan comment was edited since patchy
+// approvalChanged reports whether the plan comment was edited since maul
 // posted it (re-fetched, it no longer hashes to what was recorded, or GraphQL
 // records an edit, including one restoring the original bytes; deleted counts), and
 // whether the issue changed since the plan was made (re-read, its title and

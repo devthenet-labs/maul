@@ -99,13 +99,13 @@ func egressPorts(t *testing.T, obj map[string]any) []string {
 }
 
 func agentDNS(objs map[string]map[string]any) any {
-	data, _ := objs["ConfigMap/patchy-config"]["data"].(map[string]any)
-	return data["PATCHY_AGENT_DNS"]
+	data, _ := objs["ConfigMap/maul-config"]["data"].(map[string]any)
+	return data["MAUL_AGENT_DNS"]
 }
 
 // TestAgentDNSNoneComponent renders the kustomize component
 // components/agent-dns-none: on the base, and after components/cilium, it
-// sets PATCHY_AGENT_DNS=none and removes exactly the DNS rule of the agent
+// sets MAUL_AGENT_DNS=none and removes exactly the DNS rule of the agent
 // egress policy it patches (by list index, guarded by a test op), leaving
 // every other rule in its order.
 func TestAgentDNSNoneComponent(t *testing.T) {
@@ -114,17 +114,17 @@ func TestAgentDNSNoneComponent(t *testing.T) {
 		before       []string
 		with         []string
 	}{
-		{name: "base", policy: "NetworkPolicy/patchy-agents-egress"},
-		{name: "cilium", policy: "CiliumNetworkPolicy/patchy-agent-egress-claude", before: []string{"cilium"}},
+		{name: "base", policy: "NetworkPolicy/maul-agents-egress"},
+		{name: "cilium", policy: "CiliumNetworkPolicy/maul-agent-egress-claude", before: []string{"cilium"}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			off := buildKustomize(t, tt.before...)
 			on := buildKustomize(t, append(slices.Clone(tt.before), "agent-dns-none")...)
 			if v := agentDNS(off); v != nil {
-				t.Errorf("without the component PATCHY_AGENT_DNS = %v, want unset", v)
+				t.Errorf("without the component MAUL_AGENT_DNS = %v, want unset", v)
 			}
 			if v := agentDNS(on); v != "none" {
-				t.Errorf("with the component PATCHY_AGENT_DNS = %v, want none", v)
+				t.Errorf("with the component MAUL_AGENT_DNS = %v, want none", v)
 			}
 			was, is := egressPorts(t, off[tt.policy]), egressPorts(t, on[tt.policy])
 			if len(was) == 0 || !strings.Contains(was[0], "53") {

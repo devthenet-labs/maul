@@ -15,7 +15,7 @@ import (
 const (
 	// AgentYAMLPath is the explicit, strict declaration file, relative to the
 	// repository root.
-	AgentYAMLPath = ".patchy/agent.yaml"
+	AgentYAMLPath = ".maul/agent.yaml"
 	// DevcontainerPath is the fallback declaration file, relative to the
 	// repository root. Only this path is read; .devcontainer.json and
 	// .devcontainer/<name>/devcontainer.json are not.

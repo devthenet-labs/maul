@@ -22,7 +22,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/crane"
 	"github.com/google/go-containerregistry/pkg/registry"
 
-	"github.com/bitwise-media-group/patchy/internal/mirror/ocireg"
+	"github.com/devthenet-labs/maul/internal/mirror/ocireg"
 )
 
 // tgzFromHeaders builds a tgz from raw headers (body = content for regular

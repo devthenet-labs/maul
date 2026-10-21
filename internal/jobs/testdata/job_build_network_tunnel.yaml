@@ -1,21 +1,21 @@
 metadata:
   annotations:
-    patchy.bitwisemedia.uk/repo: octo/repo
-    patchy.bitwisemedia.uk/runner-image: ghcr.io/devthenet-labs/go-agent-env@sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
-    patchy.bitwisemedia.uk/runner-image-source: repository
-    patchy.bitwisemedia.uk/tools-image: ghcr.io/bitwise-media-group/patchy/claude-agent-runner:1
+    maul.run/repo: octo/repo
+    maul.run/runner-image: ghcr.io/devthenet-labs/go-agent-env@sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+    maul.run/runner-image-source: repository
+    maul.run/tools-image: ghcr.io/devthenet-labs/maul/claude-agent-runner:1
   labels:
-    app.kubernetes.io/managed-by: patchy
-    app.kubernetes.io/name: patchy-agent
-    patchy.bitwisemedia.uk/attempt: "1"
-    patchy.bitwisemedia.uk/finding: intent-x-bld-r1-a1
-    patchy.bitwisemedia.uk/harness: claude
-    patchy.bitwisemedia.uk/kind: intent
-    patchy.bitwisemedia.uk/network-py: "true"
-    patchy.bitwisemedia.uk/owner: intent-x-bld-r1-a1
-    patchy.bitwisemedia.uk/runner-image-source: repository
-  name: patchy-ff2eab0a24-int-a1
-  namespace: patchy-agents
+    app.kubernetes.io/managed-by: maul
+    app.kubernetes.io/name: maul-agent
+    maul.run/attempt: "1"
+    maul.run/finding: intent-x-bld-r1-a1
+    maul.run/harness: claude
+    maul.run/kind: intent
+    maul.run/network-py: "true"
+    maul.run/owner: intent-x-bld-r1-a1
+    maul.run/runner-image-source: repository
+  name: maul-ff2eab0a24-int-a1
+  namespace: maul-agents
 spec:
   activeDeadlineSeconds: 3600
   backoffLimit: 0
@@ -23,56 +23,56 @@ spec:
     metadata:
       annotations:
         karpenter.sh/do-not-disrupt: "true"
-        patchy.bitwisemedia.uk/repo: octo/repo
-        patchy.bitwisemedia.uk/runner-image: ghcr.io/devthenet-labs/go-agent-env@sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
-        patchy.bitwisemedia.uk/runner-image-source: repository
-        patchy.bitwisemedia.uk/tools-image: ghcr.io/bitwise-media-group/patchy/claude-agent-runner:1
+        maul.run/repo: octo/repo
+        maul.run/runner-image: ghcr.io/devthenet-labs/go-agent-env@sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+        maul.run/runner-image-source: repository
+        maul.run/tools-image: ghcr.io/devthenet-labs/maul/claude-agent-runner:1
       labels:
-        app.kubernetes.io/managed-by: patchy
-        app.kubernetes.io/name: patchy-agent
-        patchy.bitwisemedia.uk/attempt: "1"
-        patchy.bitwisemedia.uk/finding: intent-x-bld-r1-a1
-        patchy.bitwisemedia.uk/harness: claude
-        patchy.bitwisemedia.uk/kind: intent
-        patchy.bitwisemedia.uk/network-py: "true"
-        patchy.bitwisemedia.uk/owner: intent-x-bld-r1-a1
-        patchy.bitwisemedia.uk/runner-image-source: repository
+        app.kubernetes.io/managed-by: maul
+        app.kubernetes.io/name: maul-agent
+        maul.run/attempt: "1"
+        maul.run/finding: intent-x-bld-r1-a1
+        maul.run/harness: claude
+        maul.run/kind: intent
+        maul.run/network-py: "true"
+        maul.run/owner: intent-x-bld-r1-a1
+        maul.run/runner-image-source: repository
     spec:
       automountServiceAccountToken: false
       containers:
       - command:
-        - /patchy/bin/agent-runner
+        - /maul/bin/agent-runner
         env:
         - name: HOME
           value: /workspace
-        - name: PATCHY_WORKSPACE
+        - name: MAUL_WORKSPACE
           value: /workspace
-        - name: PATCHY_REPO
+        - name: MAUL_REPO
           value: octo/repo
-        - name: PATCHY_PHASE
+        - name: MAUL_PHASE
           value: build
-        - name: PATCHY_FINDING
+        - name: MAUL_FINDING
           value: intent-x-bld-r1-a1
-        - name: PATCHY_BASE_SHA
+        - name: MAUL_BASE_SHA
           value: 0123456789abcdef0123456789abcdef01234567
-        - name: PATCHY_REMEDIATE_HARNESS
+        - name: MAUL_REMEDIATE_HARNESS
           value: claude
-        - name: PATCHY_REMEDIATE_MODEL
+        - name: MAUL_REMEDIATE_MODEL
           value: anthropic/claude-sonnet-5
         - name: ANTHROPIC_BASE_URL
-          value: http://patchy-egress-broker.patchy.svc.cluster.local:8080/anthropic
+          value: http://maul-egress-broker.maul.svc.cluster.local:8080/anthropic
         - name: CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC
           value: "1"
-        - name: PATCHY_INVESTIGATE_TIMEOUT
+        - name: MAUL_INVESTIGATE_TIMEOUT
           value: 15m
-        - name: PATCHY_BROKER_TOKEN_FILE
-          value: /var/run/patchy/broker/token
+        - name: MAUL_BROKER_TOKEN_FILE
+          value: /var/run/maul/broker/token
         - name: ANTHROPIC_AUTH_TOKEN
-          value: patchy-brokered-placeholder
-        - name: PATCHY_BIN_DIR
-          value: /patchy/bin
+          value: maul-brokered-placeholder
+        - name: MAUL_BIN_DIR
+          value: /maul/bin
         - name: PATH
-          value: /patchy/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+          value: /maul/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
         - name: GIT_CONFIG_NOSYSTEM
           value: "1"
         - name: DISABLE_AUTOUPDATER
@@ -102,54 +102,54 @@ spec:
         - name: LD_AUDIT
         - name: LD_LIBRARY_PATH
         - name: LD_PRELOAD
+        - name: MAUL_BROKER_TOKEN
+        - name: MAUL_BUILD_NETWORK_PROFILES
+        - name: MAUL_CALIBRATION
+        - name: MAUL_CHANGESET_MAX_BYTES
+        - name: MAUL_CODEX_BASE_URL
+        - name: MAUL_CODEX_PLACEHOLDER_KEY
+        - name: MAUL_GRANTED_MAX_TURNS
+        - name: MAUL_GRANTED_TOKEN_BUDGET
+        - name: MAUL_INVESTIGATE_HARNESS
+        - name: MAUL_INVESTIGATE_IDLE_TIMEOUT
+        - name: MAUL_INVESTIGATE_MAX_TURNS
+        - name: MAUL_INVESTIGATE_MODEL
+        - name: MAUL_INVESTIGATE_TOKEN_BUDGET
+        - name: MAUL_MODEL_ALLOWLIST
+        - name: MAUL_MODEL_MAP
+        - name: MAUL_OPEN_PULL_REQUESTS
+        - name: MAUL_PREVIOUS_ATTEMPT
+        - name: MAUL_REMEDIATE_AUTO_MAX_TURNS
+        - name: MAUL_REMEDIATE_AUTO_TOKEN_BUDGET
+        - name: MAUL_REMEDIATE_IDLE_TIMEOUT
+        - name: MAUL_REMEDIATE_MANUAL_MAX_TURNS
+        - name: MAUL_REMEDIATE_MANUAL_TOKEN_BUDGET
+        - name: MAUL_REMEDIATE_TIMEOUT
+        - name: MAUL_TRANSCRIPT_MAX_TOTAL_BYTES
+        - name: MAUL_TRANSCRIPT_MAX_TURNS
+        - name: MAUL_TRANSCRIPT_MAX_TURN_BYTES
         - name: NODE_OPTIONS
-        - name: PATCHY_BROKER_TOKEN
-        - name: PATCHY_BUILD_NETWORK_PROFILES
-        - name: PATCHY_CALIBRATION
-        - name: PATCHY_CHANGESET_MAX_BYTES
-        - name: PATCHY_CODEX_BASE_URL
-        - name: PATCHY_CODEX_PLACEHOLDER_KEY
-        - name: PATCHY_GRANTED_MAX_TURNS
-        - name: PATCHY_GRANTED_TOKEN_BUDGET
-        - name: PATCHY_INVESTIGATE_HARNESS
-        - name: PATCHY_INVESTIGATE_IDLE_TIMEOUT
-        - name: PATCHY_INVESTIGATE_MAX_TURNS
-        - name: PATCHY_INVESTIGATE_MODEL
-        - name: PATCHY_INVESTIGATE_TOKEN_BUDGET
-        - name: PATCHY_MODEL_ALLOWLIST
-        - name: PATCHY_MODEL_MAP
-        - name: PATCHY_OPEN_PULL_REQUESTS
-        - name: PATCHY_PREVIOUS_ATTEMPT
-        - name: PATCHY_REMEDIATE_AUTO_MAX_TURNS
-        - name: PATCHY_REMEDIATE_AUTO_TOKEN_BUDGET
-        - name: PATCHY_REMEDIATE_IDLE_TIMEOUT
-        - name: PATCHY_REMEDIATE_MANUAL_MAX_TURNS
-        - name: PATCHY_REMEDIATE_MANUAL_TOKEN_BUDGET
-        - name: PATCHY_REMEDIATE_TIMEOUT
-        - name: PATCHY_TRANSCRIPT_MAX_TOTAL_BYTES
-        - name: PATCHY_TRANSCRIPT_MAX_TURNS
-        - name: PATCHY_TRANSCRIPT_MAX_TURN_BYTES
         - name: PROMPT_COMMAND
         - name: PYTHONSTARTUP
         - name: SHELLOPTS
         - name: all_proxy
         - name: http_proxy
-        - name: PATCHY_NETWORK_PROFILE
+        - name: MAUL_NETWORK_PROFILE
           value: py
         - name: HTTPS_PROXY
-          value: http://patchy-egress-proxy.patchy.svc.cluster.local:8092
+          value: http://maul-egress-proxy.maul.svc.cluster.local:8092
         - name: https_proxy
-          value: http://patchy-egress-proxy.patchy.svc.cluster.local:8092
+          value: http://maul-egress-proxy.maul.svc.cluster.local:8092
         - name: NO_PROXY
-          value: .cluster.local,.svc,127.0.0.1,::1,localhost,patchy-egress-broker.patchy.svc.cluster.local,patchy-egress-proxy.patchy.svc.cluster.local,patchy-source-controller.patchy.svc.cluster.local
+          value: .cluster.local,.svc,127.0.0.1,::1,localhost,maul-egress-broker.maul.svc.cluster.local,maul-egress-proxy.maul.svc.cluster.local,maul-source-controller.maul.svc.cluster.local
         - name: no_proxy
-          value: .cluster.local,.svc,127.0.0.1,::1,localhost,patchy-egress-broker.patchy.svc.cluster.local,patchy-egress-proxy.patchy.svc.cluster.local,patchy-source-controller.patchy.svc.cluster.local
-        - name: PATCHY_NETWORK_ROUTES
+          value: .cluster.local,.svc,127.0.0.1,::1,localhost,maul-egress-broker.maul.svc.cluster.local,maul-egress-proxy.maul.svc.cluster.local,maul-source-controller.maul.svc.cluster.local
+        - name: MAUL_NETWORK_ROUTES
           value: tunnel
-        - name: PATCHY_NETWORK_HOSTS
+        - name: MAUL_NETWORK_HOSTS
           value: files.pythonhosted.org,pypi.org
         - name: PIP_PROXY
-          value: http://patchy-egress-proxy.patchy.svc.cluster.local:8092
+          value: http://maul-egress-proxy.maul.svc.cluster.local:8092
         - name: PIP_DISABLE_PIP_VERSION_CHECK
           value: "1"
         - name: PIP_NO_INPUT
@@ -180,11 +180,11 @@ spec:
           name: workspace
         - mountPath: /tmp
           name: tmp
-        - mountPath: /var/run/patchy/broker
+        - mountPath: /var/run/maul/broker
           name: broker-token
           readOnly: true
-        - mountPath: /patchy/bin
-          name: patchy-bin
+        - mountPath: /maul/bin
+          name: maul-bin
           readOnly: true
       dnsConfig:
         nameservers:
@@ -197,13 +197,13 @@ spec:
       dnsPolicy: None
       hostAliases:
       - hostnames:
-        - patchy-source-controller.patchy.svc.cluster.local
+        - maul-source-controller.maul.svc.cluster.local
         ip: 10.100.12.7
       - hostnames:
-        - patchy-egress-broker.patchy.svc.cluster.local
+        - maul-egress-broker.maul.svc.cluster.local
         ip: 10.100.40.2
       - hostnames:
-        - patchy-egress-proxy.patchy.svc.cluster.local
+        - maul-egress-proxy.maul.svc.cluster.local
         ip: 10.100.50.9
       initContainers:
       - command:
@@ -213,37 +213,37 @@ spec:
           set -eu
           mkdir -p /workspace/repo
           cd /workspace/repo
-          curl -fsSL --retry 5 --retry-all-errors "$PATCHY_ARTIFACT_URL" -o /tmp/src.tar.gz
-          echo "$PATCHY_ARTIFACT_DIGEST  /tmp/src.tar.gz" | sha256sum -c - >/dev/null
+          curl -fsSL --retry 5 --retry-all-errors "$MAUL_ARTIFACT_URL" -o /tmp/src.tar.gz
+          echo "$MAUL_ARTIFACT_DIGEST  /tmp/src.tar.gz" | sha256sum -c - >/dev/null
           tar -xzf /tmp/src.tar.gz --strip-components=1
           rm -f /tmp/src.tar.gz
           git init -q
           git add -A
-          git -c user.name=patchy -c user.email=patchy@invalid commit -qm "base $PATCHY_BASE_SHA"
+          git -c user.name=maul -c user.email=maul@invalid commit -qm "base $MAUL_BASE_SHA"
           git checkout -q --detach HEAD
           mkdir -p /workspace/input
-          cp /patchy/input/issue.md /workspace/input/issue.md
-          if [ -f /patchy/input/investigation.md ]; then
-            cp /patchy/input/investigation.md /workspace/input/investigation.md
+          cp /maul/input/issue.md /workspace/input/issue.md
+          if [ -f /maul/input/investigation.md ]; then
+            cp /maul/input/investigation.md /workspace/input/investigation.md
           fi
-          for bin in $PATCHY_INJECT; do
-            cp "/usr/local/bin/$bin" "/patchy/bin/$bin"
+          for bin in $MAUL_INJECT; do
+            cp "/usr/local/bin/$bin" "/maul/bin/$bin"
           done
           /usr/local/bin/agent-runner sandbox-probe
         env:
         - name: HOME
           value: /workspace
-        - name: PATCHY_BASE_SHA
+        - name: MAUL_BASE_SHA
           value: 0123456789abcdef0123456789abcdef01234567
-        - name: PATCHY_ARTIFACT_URL
-          value: http://patchy-source-controller.patchy.svc.cluster.local:9790/artifacts/deadbeef.tar.gz
-        - name: PATCHY_ARTIFACT_DIGEST
+        - name: MAUL_ARTIFACT_URL
+          value: http://maul-source-controller.maul.svc.cluster.local:9790/artifacts/deadbeef.tar.gz
+        - name: MAUL_ARTIFACT_DIGEST
           value: aa11bb22cc33dd44ee55ff6600112233445566778899aabbccddeeff00112233
-        - name: PATCHY_INJECT
+        - name: MAUL_INJECT
           value: agent-runner claude
-        - name: PATCHY_SANDBOX_PROBE_TIMEOUT
+        - name: MAUL_SANDBOX_PROBE_TIMEOUT
           value: 20s
-        image: ghcr.io/bitwise-media-group/patchy/claude-agent-runner:1
+        image: ghcr.io/devthenet-labs/maul/claude-agent-runner:1
         name: prepare
         resources:
           limits:
@@ -269,18 +269,18 @@ spec:
           name: workspace
         - mountPath: /tmp
           name: tmp
-        - mountPath: /patchy/input
+        - mountPath: /maul/input
           name: input
           readOnly: true
-        - mountPath: /patchy/bin
-          name: patchy-bin
+        - mountPath: /maul/bin
+          name: maul-bin
       restartPolicy: Never
       securityContext:
         fsGroup: 65532
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
-      serviceAccountName: patchy-agent
+      serviceAccountName: maul-agent
       volumes:
       - emptyDir: {}
         name: workspace
@@ -288,15 +288,15 @@ spec:
         name: tmp
       - name: input
         secret:
-          secretName: patchy-ff2eab0a24-int-a1
+          secretName: maul-ff2eab0a24-int-a1
       - name: broker-token
         projected:
           sources:
           - serviceAccountToken:
-              audience: patchy-egress-broker
+              audience: maul-egress-broker
               expirationSeconds: 4500
               path: token
       - emptyDir: {}
-        name: patchy-bin
+        name: maul-bin
   ttlSecondsAfterFinished: 7200
 status: {}

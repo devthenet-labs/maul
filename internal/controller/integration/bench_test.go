@@ -4,7 +4,7 @@
 // Tier-1 microbenchmarks for the ingest hot path — the cost of folding one
 // scanner alert into a cluster already holding N findings. Run via
 // `mise run bench`; the TestComplexity* assertions are opt-in
-// (PATCHY_BENCH_ASSERT=1) so plain `go test` stays fast and green.
+// (MAUL_BENCH_ASSERT=1) so plain `go test` stays fast and green.
 //
 // The controller-runtime fake client deep-copies the whole tracker on every
 // List, so it cannot show the difference between a label-selector scan and a
@@ -28,9 +28,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/loadgen"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/loadgen"
 )
 
 // benchSweep is the CR-backed dataset sweep; per-op ratios across it
@@ -251,8 +251,8 @@ func BenchmarkKeyHash(b *testing.B) {
 // backlog size: 100k existing findings may cost at most 3× what 1k does.
 // Red before the key-hash field index (the label scan is O(N)), green after.
 func TestComplexityIngestFold(t *testing.T) {
-	if os.Getenv("PATCHY_BENCH_ASSERT") == "" {
-		t.Skip("set PATCHY_BENCH_ASSERT=1 to run complexity assertions")
+	if os.Getenv("MAUL_BENCH_ASSERT") == "" {
+		t.Skip("set MAUL_BENCH_ASSERT=1 to run complexity assertions")
 	}
 	small := testing.Benchmark(func(b *testing.B) { benchIngestFold(b, 1_000) })
 	large := testing.Benchmark(func(b *testing.B) { benchIngestFold(b, 100_000) })

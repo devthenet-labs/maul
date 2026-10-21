@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 // Package usageview is the pure projection of UsageRollups for human readers:
-// the status page's Usage views and `patchy get usage` render the one report
+// the status page's Usage views and `maul get usage` render the one report
 // it builds, so the two can never disagree about a figure.
 //
 // A report covers a window of whole UTC days ending today. It answers for one

@@ -20,10 +20,10 @@ func IntentName(project string, issue int64) string {
 }
 
 // IntentBranchPrefix prefixes every branch intent-controller creates in an
-// app repository (patchy-intent/<intent>). It deliberately never matches the
-// Finding flow's "patchy/" branch check, so the Finding pull-request handler
+// app repository (maul-intent/<intent>). It deliberately never matches the
+// Finding flow's "maul/" branch check, so the Finding pull-request handler
 // can never act on an intent pull request.
-const IntentBranchPrefix = "patchy-intent/"
+const IntentBranchPrefix = "maul-intent/"
 
 // MaxIntentPhaseTimes bounds status.phaseTimes. Replans and review rounds
 // are human-driven and so unbounded in number; SetIntentPhase keeps the most
@@ -62,7 +62,7 @@ const (
 	IntentRevising IntentPhase = "Revising"
 	// IntentBlocked: a limit or a precondition stops progress (revision
 	// limit, cost ceiling, missing or rejected repository image, tripped
-	// sandbox breaker, an intent branch or pull request that is not patchy's,
+	// sandbox breaker, an intent branch or pull request that is not maul's,
 	// repeated check failure); the conditions say which.
 	// Re-evaluated when the Project changes, so raising a limit resumes the
 	// intent in the phase it was blocked from (IntentBlockedFrom).
@@ -71,7 +71,7 @@ const (
 	// human mid-round or while Blocked; the issue is closed as completed.
 	// Terminal.
 	IntentMerged IntentPhase = "Merged"
-	// IntentClosed: a human closed the issue or ran /patchy cancel, every
+	// IntentClosed: a human closed the issue or ran /maul cancel, every
 	// pull request settled with at least one closed unmerged (a
 	// multi-repository intent's merged ones stay merged, and a notice says
 	// which), or the trigger was not an approver's. Terminal. The issue is
@@ -98,12 +98,12 @@ const (
 //   - Planning→AwaitingApproval: a valid plan was posted on the issue.
 //   - Planning→Failed: plan attempts exhausted, or the plan invalid twice.
 //   - AwaitingApproval→Building: an approval was accepted (approve label or
-//     /patchy approve, bound to the plan and input digests).
+//     /maul approve, bound to the plan and input digests).
 //   - AwaitingApproval→Planning: an approver asked for a replan (re-applied
-//     the trigger label or ran /patchy replan).
+//     the trigger label or ran /maul replan).
 //   - Building→InReview: every pull request is open.
 //   - Building→Failed: build attempts exhausted.
-//   - InReview→Revising: a review round, /patchy revise, or a check-fix round
+//   - InReview→Revising: a review round, /maul revise, or a check-fix round
 //     started (slice 1b).
 //   - Revising→InReview: the round pushed, or failed (a condition is set and
 //     a notice posted; a failed round never fails the intent).
@@ -118,7 +118,7 @@ const (
 //   - Blocked→the phase it was blocked from: the Project changed and the
 //     block no longer holds (IntentBlockedFrom names the target).
 //   - every non-terminal phase→Closed: a human closed the issue or ran
-//     /patchy cancel, or every pull request settled with at least one
+//     /maul cancel, or every pull request settled with at least one
 //     closed unmerged.
 //   - Failed→Planning: revival — an approver applied the trigger label again
 //     (it was removed on entry to Failed).
@@ -271,7 +271,7 @@ const (
 	// label, or the trigger label re-applied. The id is the labeled issue
 	// event's, from the issue events API.
 	IntentActionLabel IntentActionSource = "label"
-	// IntentActionCommand: an issue comment whose first line is a /patchy
+	// IntentActionCommand: an issue comment whose first line is a /maul
 	// command (approve, replan). The id is the comment's.
 	IntentActionCommand IntentActionSource = "command"
 )
@@ -435,12 +435,12 @@ type IntentApproval struct {
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	ByID int64 `json:"byID,omitempty"`
-	// Source of the approving action — the approve label, or a /patchy
+	// Source of the approving action — the approve label, or a /maul
 	// approve comment — and so which id space EventID is in.
 	Source IntentActionSource `json:"source"`
 	// EventID is GitHub's id of the approving action, in Source's id space:
 	// the labeled issue event for the approve label, or the comment
-	// carrying /patchy approve.
+	// carrying /maul approve.
 	// +kubebuilder:validation:Minimum=1
 	EventID int64 `json:"eventID"`
 	// At is the approving action's created_at, as GitHub reports it.
@@ -459,9 +459,9 @@ type IntentApproval struct {
 	InputDigest string `json:"inputDigest"`
 }
 
-// IntentPullRequest is one pull request patchy opened for the intent. Pull
+// IntentPullRequest is one pull request maul opened for the intent. Pull
 // requests are correlated only by the (repository, number, nodeID) recorded
-// here when patchy opened them — never by head ref, and never a fork's.
+// here when maul opened them — never by head ref, and never a fork's.
 type IntentPullRequest struct {
 	// Repository is the https URL of the app repository the pull request
 	// is in (one of the Project's repositories); the list key.
@@ -479,7 +479,7 @@ type IntentPullRequest struct {
 	// +optional
 	// +kubebuilder:validation:MaxLength=128
 	NodeID string `json:"nodeID,omitempty"`
-	// HeadSHA is the head commit last observed (patchy's push, or a human's
+	// HeadSHA is the head commit last observed (maul's push, or a human's
 	// since).
 	// +optional
 	// +kubebuilder:validation:Pattern=`^([0-9a-f]{40}|[0-9a-f]{64})$`
@@ -509,7 +509,7 @@ type IntentPullRequest struct {
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	ChecksObservedProjectGeneration int64 `json:"checksObservedProjectGeneration,omitempty"`
-	// ChecksRerun is the one re-run of failed Actions jobs patchy asked for
+	// ChecksRerun is the one re-run of failed Actions jobs maul asked for
 	// on this pull request's head (the Project's checks.rerunFailed). It
 	// stands only while its head is the pull request's: a failure at that
 	// head after it starts the fix round, and a new pushed head may be
@@ -517,7 +517,7 @@ type IntentPullRequest struct {
 	// +optional
 	ChecksRerun *IntentChecksRerun `json:"checksRerun,omitempty"`
 	// PreviewCommentID is GitHub's id of the sticky preview comment on this
-	// pull request (marker <!-- patchy:notice <namespace>/<intent> preview
+	// pull request (marker <!-- maul:notice <namespace>/<intent> preview
 	// -->): posted once the intent's preview is first live at the pull
 	// request's head, and edited in place thereafter. Written by the intent
 	// reconciler only; 0 while there is none.
@@ -532,7 +532,7 @@ type IntentPullRequest struct {
 	PreviewDigest string `json:"previewDigest,omitempty"`
 }
 
-// IntentChecksRerun records the re-run of failed GitHub Actions jobs patchy
+// IntentChecksRerun records the re-run of failed GitHub Actions jobs maul
 // requested on one pull request head before a check-fix round.
 type IntentChecksRerun struct {
 	// HeadSHA is the pull request head whose failed checks were re-run.
@@ -607,7 +607,7 @@ type IntentUsage struct {
 // IntentTracking locates the one status comment kept on the intent issue.
 type IntentTracking struct {
 	// StatusCommentID is GitHub's id of the status comment, posted exactly
-	// once (marker <!-- patchy:intent <project>/<issue> -->) and edited
+	// once (marker <!-- maul:intent <project>/<issue> -->) and edited
 	// thereafter.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
@@ -626,7 +626,7 @@ type IntentCommands struct {
 	// every comment up to it was answered, if it carried a command, or
 	// needed nothing. Later polls list only the comments since it and read
 	// only newer ones as commands. So an answered command is never answered
-	// again, even after patchy's reply to it is deleted, and a comment
+	// again, even after maul's reply to it is deleted, and a comment
 	// edited after it was settled is never read as a command.
 	// +optional
 	Seen *IntentCommentRef `json:"seen,omitempty"`
@@ -634,7 +634,7 @@ type IntentCommands struct {
 	// refusing a command on this intent because they are not approvers (or
 	// are bots), the latest MaxIntentRefusedActors of them. A later command
 	// from one of them gets no reaction and no reply, so an account
-	// commenting repeatedly cannot make patchy write to GitHub once per
+	// commenting repeatedly cannot make maul write to GitHub once per
 	// comment. An approver's command is always answered.
 	// +optional
 	// +listType=set
@@ -710,7 +710,7 @@ type IntentStatus struct {
 	CredentialHold *UserRef `json:"credentialHold,omitempty"`
 	// LastTrigger is the newest trigger action consumed after the one that
 	// created the intent (spec.requestedBy, which is immutable): the
-	// trigger label re-applied, or /patchy replan. Every trigger action the
+	// trigger label re-applied, or /maul replan. Every trigger action the
 	// controller answers is consumed and recorded here, whatever the
 	// answer: acted on (a replan from AwaitingApproval, a revival from
 	// Failed), refused as not an approver's, or answered "not available in
@@ -722,7 +722,7 @@ type IntentStatus struct {
 	// Building does not revive the intent when the build then fails, a
 	// replan refused while Planning does not replay once the plan is
 	// posted, and a revival whose plan fails again, posting no plan to
-	// anchor on, cannot re-consume the action that revived it. A /patchy
+	// anchor on, cannot re-consume the action that revived it. A /maul
 	// replan comment from someone who is not an approver is refused before
 	// its verb is read, and is consumed by commands.seen instead.
 	// +optional
@@ -733,12 +733,12 @@ type IntentStatus struct {
 	// +optional
 	Commands *IntentCommands `json:"commands,omitempty"`
 	// Branch is the branch every pull request of the intent is opened from:
-	// patchy-intent/<intent>, created once and then only fast-forwarded.
+	// maul-intent/<intent>, created once and then only fast-forwarded.
 	// +optional
 	// +kubebuilder:validation:MaxLength=255
-	// +kubebuilder:validation:Pattern=`^patchy-intent/[a-z0-9]([-a-z0-9.]*[a-z0-9])?$`
+	// +kubebuilder:validation:Pattern=`^maul-intent/[a-z0-9]([-a-z0-9.]*[a-z0-9])?$`
 	Branch string `json:"branch,omitempty"`
-	// PullRequests are the pull requests patchy opened, one per app
+	// PullRequests are the pull requests maul opened, one per app
 	// repository.
 	// +optional
 	// +listType=map
@@ -805,7 +805,7 @@ type IntentStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:categories=patchy
+// +kubebuilder:resource:categories=maul
 // +kubebuilder:printcolumn:name="Project",type=string,JSONPath=`.spec.project`
 // +kubebuilder:printcolumn:name="Issue",type=string,JSONPath=`.spec.issue.url`
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`

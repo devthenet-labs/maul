@@ -27,7 +27,7 @@ type gitData struct {
 	// refs are each repository's own refs, by repoKey and then
 	// "heads/<branch>": a branch pushed to one repository is in no other,
 	// as on GitHub, so two repositories each have their own
-	// patchy-intent/<intent>. shared are the refs a test pointed with
+	// maul-intent/<intent>. shared are the refs a test pointed with
 	// SetBranch, which every repository sees until it has its own.
 	refs   map[string]map[string]string
 	shared map[string]string
@@ -238,7 +238,7 @@ func (s *Server) getRef(w http.ResponseWriter, r *http.Request) {
 		// branch, which (as on GitHub) exists only once it is created:
 		// intent-controller reads it before a build to find one an earlier
 		// intent left behind.
-		if !strings.HasPrefix(ref, "heads/") || strings.HasPrefix(ref, "heads/patchy-intent/") {
+		if !strings.HasPrefix(ref, "heads/") || strings.HasPrefix(ref, "heads/maul-intent/") {
 			http.NotFound(w, r)
 			return
 		}

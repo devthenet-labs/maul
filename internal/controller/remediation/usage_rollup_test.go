@@ -13,10 +13,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/stats"
-	"github.com/bitwise-media-group/patchy/internal/usagerollup"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/stats"
+	"github.com/devthenet-labs/maul/internal/usagerollup"
 )
 
 // TestRollUpRemediationUsage: a settled remediation attributed to its
@@ -33,7 +33,7 @@ func TestRollUpRemediationUsage(t *testing.T) {
 		Usage: v1alpha1.UsageSummary{OutputTokens: 9, CostUSD: "0.5", Source: v1alpha1.UsageSourceReported,
 			Final: true}}
 	r, c := newRemediation(t, &fakeCRRunner{status: &jobs.Status{Done: true}}, &fakeForge{}, objs...)
-	r.Usage = usagerollup.New(c, c, "patchy", true, nil)
+	r.Usage = usagerollup.New(c, c, "maul", true, nil)
 	remOnce(t, r, rem.Name)
 	remOnce(t, r, rem.Name)
 
@@ -53,7 +53,7 @@ func TestRollUpRemediationUsage(t *testing.T) {
 		t.Errorf("runs %d, reported cost %d", runs, reported)
 	}
 	var got v1alpha1.Remediation
-	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: rem.Name}, &got); err != nil {
+	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: rem.Name}, &got); err != nil {
 		t.Fatal(err)
 	}
 	if slices.Contains(got.Finalizers, v1alpha1.FinalizerUsageRollup) ||
@@ -74,12 +74,12 @@ func TestRemediationBucketedByCompletion(t *testing.T) {
 		Reason: v1alpha1.AttributionApprover}
 	rem.Finalizers = usagerollup.Finalizers(rem.Spec.AttributedTo, v1alpha1.FinalizerJobs)
 	r, c := newRemediation(t, &fakeCRRunner{done: true, events: crdRemediationEvent(true)}, &fakeForge{}, objs...)
-	r.Usage = usagerollup.New(c, c, "patchy", false, nil)
+	r.Usage = usagerollup.New(c, c, "maul", false, nil)
 	remOnce(t, r, rem.Name)
 	remOnce(t, r, rem.Name)
 
 	var got v1alpha1.Remediation
-	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: rem.Name}, &got); err != nil {
+	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: rem.Name}, &got); err != nil {
 		t.Fatal(err)
 	}
 	if got.Status.Stage == nil || got.Status.Stage.FinishedAt == nil || !got.Status.Stage.FinishedAt.Time.Equal(crdClock) {

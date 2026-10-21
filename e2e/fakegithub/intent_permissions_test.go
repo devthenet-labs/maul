@@ -13,12 +13,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/controller/intent"
-	"github.com/bitwise-media-group/patchy/internal/forge"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/ghsecret"
-	"github.com/bitwise-media-group/patchy/internal/kube"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/controller/intent"
+	"github.com/devthenet-labs/maul/internal/forge"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/ghsecret"
+	"github.com/devthenet-labs/maul/internal/kube"
 )
 
 // Exercise the production credential boundary, including two surfaces on the
@@ -26,7 +26,7 @@ import (
 func TestIntentPRConversationPermissions(t *testing.T) {
 	srv, pat, _ := newFake(t)
 	ctx := context.Background()
-	pr, err := pat.CreatePR(ctx, target, ghclient.PRRequest{Title: "t", Head: "patchy-intent/target-1", Base: "main"})
+	pr, err := pat.CreatePR(ctx, target, ghclient.PRRequest{Title: "t", Head: "maul-intent/target-1", Base: "main"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,13 +35,13 @@ func TestIntentPRConversationPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := &v1alpha1.Forge{ObjectMeta: metav1.ObjectMeta{Namespace: "patchy", Name: "github"},
+	f := &v1alpha1.Forge{ObjectMeta: metav1.ObjectMeta{Namespace: "maul", Name: "github"},
 		Spec: v1alpha1.ForgeSpec{Provider: v1alpha1.ForgeProviderGitHub, BaseURL: srv.URL,
 			SecretRef: v1alpha1.LocalSecretReference{Name: "github"}}}
-	s := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "patchy", Name: "github"},
+	s := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "maul", Name: "github"},
 		Data: map[string][]byte{ghsecret.KeyAppID: []byte("1"), ghsecret.KeyPrivateKey: key}}
 	c := fake.NewClientBuilder().WithScheme(kube.Scheme()).WithObjects(f, s).Build()
-	g := intent.NewForgeGitHub(forge.NewStore(c), "patchy")
+	g := intent.NewForgeGitHub(forge.NewStore(c), "maul")
 	u, err := url.Parse(srv.URL)
 	if err != nil {
 		t.Fatal(err)
@@ -79,7 +79,7 @@ func TestIntentPRConversationPermissions(t *testing.T) {
 func TestPRCommentReadScopes(t *testing.T) {
 	srv, pat, _ := newFake(t)
 	ctx := context.Background()
-	pr, err := pat.CreatePR(ctx, target, ghclient.PRRequest{Title: "t", Head: "patchy-intent/target-1", Base: "main"})
+	pr, err := pat.CreatePR(ctx, target, ghclient.PRRequest{Title: "t", Head: "maul-intent/target-1", Base: "main"})
 	if err != nil {
 		t.Fatal(err)
 	}

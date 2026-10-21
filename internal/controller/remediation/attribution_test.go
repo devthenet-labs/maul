@@ -11,8 +11,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/attribution"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/attribution"
 )
 
 // TestSpawnerAttribution is the design §2 row for a Finding remediation:
@@ -52,7 +52,7 @@ func TestSpawnerAttribution(t *testing.T) {
 			r.Attribution = tc.mode
 			spawnOnce(t, r)
 			var rem v1alpha1.Remediation
-			key := types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1-rem-1"}
+			key := types.NamespacedName{Namespace: "maul", Name: "finding-aa-1-rem-1"}
 			if err := c.Get(t.Context(), key, &rem); err != nil {
 				t.Fatalf("Remediation not created: %v", err)
 			}

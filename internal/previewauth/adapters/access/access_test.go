@@ -15,9 +15,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/previewauth"
-	"github.com/bitwise-media-group/patchy/internal/web/authz"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/previewauth"
+	"github.com/devthenet-labs/maul/internal/web/authz"
 )
 
 // grants answers SubjectAccessReviews: user -> the Project names they may
@@ -34,11 +34,11 @@ func newReviewer(t *testing.T, grants map[string][]string, seen *[]authorization
 			ra := *sar.Spec.ResourceAttributes
 			*seen = append(*seen, ra)
 			sar.Status.Allowed = ra.Resource == "projects" && ra.Subresource == "previews" && ra.Verb == "get" &&
-				ra.Namespace == "patchy" && slices.Contains(grants[sar.Spec.User], ra.Name)
+				ra.Namespace == "maul" && slices.Contains(grants[sar.Spec.User], ra.Name)
 			return nil
 		},
 	}).Build()
-	return Reviewer{Projects: authz.NewProjectReviewer(c, "patchy", time.Minute)}
+	return Reviewer{Projects: authz.NewProjectReviewer(c, "maul", time.Minute)}
 }
 
 func review(user, project string) previewauth.AccessReview {

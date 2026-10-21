@@ -9,12 +9,12 @@ import (
 	"unicode/utf8"
 )
 
-// reportCutNote ends a report patchy cut short to fit GitHub's size limit.
-const reportCutNote = "\n\n_patchy cut this report here to fit GitHub's size limit._"
+// reportCutNote ends a report maul cut short to fit GitHub's size limit.
+const reportCutNote = "\n\n_maul cut this report here to fit GitHub's size limit._"
 
 // defaultRemediationCommit is the commit message when the agent left none:
 // GitHub refuses a commit without one.
-const defaultRemediationCommit = "fix: remediate security finding (patchy)"
+const defaultRemediationCommit = "fix: remediate security finding (maul)"
 
 // sanitizeDefanged is Sanitize for markdown that may also be read as plain
 // text on the default branch — a pull request body, which a repository may
@@ -54,7 +54,7 @@ func fitReport(report string, budget int, clean func(string) string) string {
 	return best + reportCutNote
 }
 
-// RemediationCommitMessage is the commit message patchy pushes for a
+// RemediationCommitMessage is the commit message maul pushes for a
 // remediation changeset: the agent's own message(s), as plain text. A
 // commit message lands on the default branch as written when the pull
 // request is merged or rebased, and GitHub reads it there as plain text:
@@ -63,7 +63,7 @@ func fitReport(report string, budget int, clean func(string) string) string {
 // protects nothing. So every mention and issue reference is defanged, and
 // every character that renders as nothing is shown as its code point, so a
 // reviewer of the history reads what the bytes say. A message with nothing
-// in it gets patchy's own.
+// in it gets maul's own.
 func RemediationCommitMessage(agent string) string {
 	msg := defang(visibleText(agent))
 	if strings.TrimSpace(msg) == "" {
@@ -72,9 +72,9 @@ func RemediationCommitMessage(agent string) string {
 	return msg
 }
 
-// PRBodyFallback is the pull request body when PRBody cannot render: patchy's
+// PRBodyFallback is the pull request body when PRBody cannot render: maul's
 // own words only, never the agent's report.
 func PRBodyFallback(issue int) string {
-	return fmt.Sprintf("Fixes #%d\n\npatchy opened this pull request automatically; its remediation report is on "+
+	return fmt.Sprintf("Fixes #%d\n\nmaul opened this pull request automatically; its remediation report is on "+
 		"the tracking issue. Review and merge it like any other change.", issue)
 }

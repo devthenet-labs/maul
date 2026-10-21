@@ -5,12 +5,12 @@ package runnerimage
 
 import "testing"
 
-const buildReason = "`.devcontainer/devcontainer.json` builds its image (`%s`); patchy does not build images. " +
-	"Publish the image and set `image`, or declare one in `.patchy/agent.yaml`, which takes precedence."
+const buildReason = "`.devcontainer/devcontainer.json` builds its image (`%s`); maul does not build images. " +
+	"Publish the image and set `image`, or declare one in `.maul/agent.yaml`, which takes precedence."
 
-const featuresReason = "`.devcontainer/devcontainer.json` adds features, which patchy would have to build; " +
-	"patchy does not build images. Publish the image with the features applied and set `image`, or declare one " +
-	"in `.patchy/agent.yaml`, which takes precedence."
+const featuresReason = "`.devcontainer/devcontainer.json` adds features, which maul would have to build; " +
+	"maul does not build images. Publish the image with the features applied and set `image`, or declare one " +
+	"in `.maul/agent.yaml`, which takes precedence."
 
 func TestJudgeDevcontainer(t *testing.T) {
 	cases := []struct {
@@ -42,7 +42,7 @@ func TestJudgeDevcontainer(t *testing.T) {
 		{"image empty", `{"image": ""}`, "", "`.devcontainer/devcontainer.json` `image` is empty"},
 		{"image blank", `{"image": "  "}`, "", "`.devcontainer/devcontainer.json` `image` is empty"},
 		{"image with substitution", `{"image": "${localEnv:IMAGE}"}`, "",
-			"`.devcontainer/devcontainer.json` `image` uses variable substitution (`${`), which patchy does not perform"},
+			"`.devcontainer/devcontainer.json` `image` uses variable substitution (`${`), which maul does not perform"},
 		{"not an object", `[1]`, "",
 			"could not parse `.devcontainer/devcontainer.json`: json: cannot unmarshal array into Go value of type " +
 				"map[string]json.RawMessage at offset 1"},

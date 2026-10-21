@@ -29,19 +29,19 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/runnerguard"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/runnerguard"
 )
 
 const (
-	testNS        = "patchy"
+	testNS        = "maul"
 	intentRepoURL = "https://github.com/acme/intents"
 	appRepoURL    = "https://github.com/acme/app"
-	testBot       = "patchy[bot]"
+	testBot       = "maul[bot]"
 	approver      = "peter"
 	baseSHA       = "1111111111111111111111111111111111111111"
 	repoImage     = "registry.example/app@sha256:" + "abababababababababababababababababababababababababababababababab"
@@ -315,7 +315,7 @@ func (f *fakeGitHub) openIssue(n int64, title, body, actor string) {
 	f.mu.Lock()
 	f.issues[n] = &fakeIssue{number: n, title: title, body: body, state: "open"}
 	f.mu.Unlock()
-	f.label(n, "patchy:target", actor)
+	f.label(n, "maul:target", actor)
 }
 
 // actorOf is the account behind login, its id derived from the login so
@@ -351,7 +351,7 @@ func (f *fakeGitHub) label(n int64, label, actor string) int64 {
 func (f *fakeGitHub) removeTrigger() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.removeLabel(1, "patchy:target", approver)
+	f.removeLabel(1, "maul:target", approver)
 }
 
 func (f *fakeGitHub) removeLabel(n int64, label, actor string) {
@@ -450,7 +450,7 @@ func (f *fakeGitHub) closeIssue(n int64, actor string) {
 	}
 }
 
-// ownComments are the comments patchy posted on issue 1, oldest first.
+// ownComments are the comments maul posted on issue 1, oldest first.
 func (f *fakeGitHub) ownComments() []*ghclient.Comment {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -463,7 +463,7 @@ func (f *fakeGitHub) ownComments() []*ghclient.Comment {
 	return out
 }
 
-// withMarker are patchy's comments on issue 1 whose marker contains key.
+// withMarker are maul's comments on issue 1 whose marker contains key.
 func (f *fakeGitHub) withMarker(key string) []*ghclient.Comment {
 	var out []*ghclient.Comment
 	for _, c := range f.ownComments() {
@@ -1266,7 +1266,7 @@ func (j *fakeJobs) Create(_ context.Context, spec jobs.Spec, env map[string]stri
 		j.order = append(j.order, name)
 	}
 	j.specs[name], j.envs[name] = spec, env
-	ref := v1alpha1.RunnerImageRef{Image: "patchy/claude-agent-runner:test", Source: v1alpha1.RunnerImageSourceDefault}
+	ref := v1alpha1.RunnerImageRef{Image: "maul/claude-agent-runner:test", Source: v1alpha1.RunnerImageSourceDefault}
 	if spec.RunnerImage != "" && !j.defaultOn {
 		ref = v1alpha1.RunnerImageRef{Image: spec.RunnerImage, Source: v1alpha1.RunnerImageSourceRepository}
 		if spec.NetworkProfile != nil {
@@ -1453,7 +1453,7 @@ func updatePreviewGeneration(ctx context.Context, c client.WithWatch, obj client
 
 func testSettings() Settings {
 	return Settings{
-		Namespace: testNS, AgentNamespace: "patchy-agents",
+		Namespace: testNS, AgentNamespace: "maul-agents",
 		PollInterval: time.Minute, ApprovalPollInterval: 30 * time.Second, PRPollInterval: time.Minute,
 		RateLimitFloor: 1000, MaxAttempts: 2,
 		Plan:   StageCeiling{MaxTurns: 40, TokenBudget: 200000, Timeout: 20 * time.Minute},
@@ -1642,7 +1642,7 @@ func (e *env) readyEach(imageOf func(*v1alpha1.Repository) string) {
 		repo.Status.Conditions = []metav1.Condition{{Type: v1alpha1.ConditionReady, Status: metav1.ConditionTrue,
 			Reason: "Ready", LastTransitionTime: metav1.NewTime(e.clock.Now())}}
 		if image := imageOf(repo); image != "" {
-			repo.Status.RunnerImage = &v1alpha1.RunnerImage{Image: image, Manifest: ".patchy/agent.yaml",
+			repo.Status.RunnerImage = &v1alpha1.RunnerImage{Image: image, Manifest: ".maul/agent.yaml",
 				SearchPath: "/usr/bin:/bin"}
 		}
 		if err := e.c.Status().Update(ctx, repo); err != nil {

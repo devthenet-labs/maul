@@ -13,7 +13,7 @@
 resource "aws_kms_key" "agent_signing" {
   count = var.create_agent_signing_key ? 1 : 0
 
-  description              = "cosign signing key for patchy agent images (${local.name_prefix})"
+  description              = "cosign signing key for maul agent images (${local.name_prefix})"
   customer_master_key_spec = "ECC_NIST_P256"
   key_usage                = "SIGN_VERIFY"
   deletion_window_in_days  = 30
@@ -23,7 +23,7 @@ resource "aws_kms_key" "agent_signing" {
 resource "aws_kms_alias" "agent_signing" {
   count = var.create_agent_signing_key ? 1 : 0
 
-  name          = "alias/${local.name_prefix}-patchy-agent-image-signing"
+  name          = "alias/${local.name_prefix}-maul-agent-image-signing"
   target_key_id = aws_kms_key.agent_signing[0].key_id
 }
 

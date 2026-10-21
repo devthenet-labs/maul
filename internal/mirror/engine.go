@@ -10,13 +10,13 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/mirror/helmchart"
-	"github.com/bitwise-media-group/patchy/internal/mirror/imageref"
-	"github.com/bitwise-media-group/patchy/internal/mirror/ocireg"
-	"github.com/bitwise-media-group/patchy/internal/mirror/scan"
-	"github.com/bitwise-media-group/patchy/internal/mirror/sign"
-	"github.com/bitwise-media-group/patchy/internal/mirror/spec"
-	"github.com/bitwise-media-group/patchy/internal/mirror/verify"
+	"github.com/devthenet-labs/maul/internal/mirror/helmchart"
+	"github.com/devthenet-labs/maul/internal/mirror/imageref"
+	"github.com/devthenet-labs/maul/internal/mirror/ocireg"
+	"github.com/devthenet-labs/maul/internal/mirror/scan"
+	"github.com/devthenet-labs/maul/internal/mirror/sign"
+	"github.com/devthenet-labs/maul/internal/mirror/spec"
+	"github.com/devthenet-labs/maul/internal/mirror/verify"
 )
 
 // defaultWorkers bounds concurrent registry operations per stage.

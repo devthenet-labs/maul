@@ -1,4 +1,4 @@
-# Source: patchy/templates/preview-auth.yaml
+# Source: maul/templates/preview-auth.yaml
 # Ingress: 8080 from the edge ALB (ingressFrom narrows it to the ALB's
 # subnets; it targets the pods by IP) plus 8081 probes. Egress: DNS, and TCP
 # 443 and 6443 anywhere: the API server (Previews, access reviews, the
@@ -6,22 +6,22 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: patchy-preview-auth
-  namespace: patchy
+  name: maul-preview-auth
+  namespace: maul
   labels:
     app: preview-auth
-    helm.sh/chart: patchy-VERSION
+    helm.sh/chart: maul-VERSION
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/version: "VERSION"
     app.kubernetes.io/name: preview-auth
-    app.kubernetes.io/instance: patchy
-    app.kubernetes.io/part-of: patchy
+    app.kubernetes.io/instance: maul
+    app.kubernetes.io/part-of: maul
 spec:
   podSelector:
     matchLabels:
       app.kubernetes.io/name: preview-auth
-      app.kubernetes.io/instance: patchy
-      app.kubernetes.io/part-of: patchy
+      app.kubernetes.io/instance: maul
+      app.kubernetes.io/part-of: maul
   policyTypes: [Ingress, Egress]
   ingress:
     - ports:
@@ -57,18 +57,18 @@ spec:
               - key: kubernetes.io/metadata.name
                 operator: In
                 values:
-                  - patchy-preview-0
-                  - patchy-preview-1
+                  - maul-preview-0
+                  - maul-preview-1
       ports:
         - protocol: TCP
           port: http
 ---
-# Source: patchy/templates/preview-foundation.yaml
+# Source: maul/templates/preview-foundation.yaml
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: preview-isolation
-  namespace: patchy-preview-0
+  namespace: maul-preview-0
   annotations:
     helm.sh/resource-policy: keep
 spec:
@@ -85,10 +85,10 @@ spec:
             cidr: 10.40.129.0/24
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: patchy
+              kubernetes.io/metadata.name: maul
           podSelector:
             matchLabels:
-              patchy.bitwisemedia.uk/preview-gateway: "true"
+              maul.run/preview-gateway: "true"
       ports:
         - protocol: TCP
           port: http
@@ -105,51 +105,51 @@ spec:
         - protocol: TCP
           port: 53
 ---
-# Source: patchy/templates/preview-auth.yaml
+# Source: maul/templates/preview-auth.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: patchy-preview-auth-config
-  namespace: patchy
+  name: maul-preview-auth-config
+  namespace: maul
   labels:
     app: preview-auth
-    helm.sh/chart: patchy-VERSION
+    helm.sh/chart: maul-VERSION
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/version: "VERSION"
     app.kubernetes.io/name: preview-auth
-    app.kubernetes.io/instance: patchy
-    app.kubernetes.io/part-of: patchy
+    app.kubernetes.io/instance: maul
+    app.kubernetes.io/part-of: maul
 data:
-  PATCHY_HEALTH_ADDR: ":8081"
-  PATCHY_LISTEN_ADDR: ":8080"
-  PATCHY_LOG_LEVEL: "warn"
-  PATCHY_PREVIEW_AUTH_ACCESS_TOKEN_TTL: "10m"
-  PATCHY_PREVIEW_AUTH_DEX_CLIENT_ID: "patchy-preview-auth"
-  PATCHY_PREVIEW_AUTH_DEX_CLIENT_SECRET_FILE: "/etc/patchy/preview-auth/dex/clientSecret"
-  PATCHY_PREVIEW_AUTH_DEX_ISSUER_URL: "https://dex.patchy.devthe.net"
-  PATCHY_PREVIEW_AUTH_FORWARDED_HOPS: "1"
-  PATCHY_PREVIEW_AUTH_GATEWAY: "true"
-  PATCHY_PREVIEW_AUTH_GATEWAY_FORWARDED_HOPS: "0"
-  PATCHY_PREVIEW_AUTH_GATEWAY_LISTEN_ADDR: ":8082"
-  PATCHY_PREVIEW_AUTH_GATEWAY_SIGN_IN_HOST: "preview-auth.patchy.devthe.net"
-  PATCHY_PREVIEW_AUTH_GATEWAY_TLS_DIR: "/etc/patchy/preview-gateway/tls"
-  PATCHY_PREVIEW_AUTH_GATEWAY_TLS_LISTEN_ADDR: ":8443"
-  PATCHY_PREVIEW_AUTH_GROUPS_CLAIM: "groups"
-  PATCHY_PREVIEW_AUTH_GROUPS_PREFIX: "github:"
-  PATCHY_PREVIEW_AUTH_HOST_SUFFIX: "preview.patchy.devthe.net"
-  PATCHY_PREVIEW_AUTH_ISSUER: "https://preview-auth.patchy.devthe.net"
-  PATCHY_PREVIEW_AUTH_KEYS_DIR: "/etc/patchy/preview-auth/keys"
-  PATCHY_PREVIEW_AUTH_LEDGER_LEASE: "patchy-preview-auth-codes"
-  PATCHY_PREVIEW_AUTH_PROBE_INTERVAL: "1m"
-  PATCHY_PREVIEW_AUTH_RATE_BURST: "30"
-  PATCHY_PREVIEW_AUTH_RATE_PER_SECOND: "5"
-  PATCHY_PREVIEW_AUTH_REQUIRE_VERIFIED_EMAIL: "false"
-  PATCHY_PREVIEW_AUTH_SESSION_MAX_AGE: "12h"
-  PATCHY_PREVIEW_AUTH_SLOT_COUNT: "2"
-  PATCHY_PREVIEW_AUTH_USERNAME_CLAIM: "preferred_username"
-  PATCHY_PREVIEW_AUTH_USERNAME_PREFIX: "github:"
+  MAUL_HEALTH_ADDR: ":8081"
+  MAUL_LISTEN_ADDR: ":8080"
+  MAUL_LOG_LEVEL: "warn"
+  MAUL_PREVIEW_AUTH_ACCESS_TOKEN_TTL: "10m"
+  MAUL_PREVIEW_AUTH_DEX_CLIENT_ID: "maul-preview-auth"
+  MAUL_PREVIEW_AUTH_DEX_CLIENT_SECRET_FILE: "/etc/maul/preview-auth/dex/clientSecret"
+  MAUL_PREVIEW_AUTH_DEX_ISSUER_URL: "https://dex.maul.devthe.net"
+  MAUL_PREVIEW_AUTH_FORWARDED_HOPS: "1"
+  MAUL_PREVIEW_AUTH_GATEWAY: "true"
+  MAUL_PREVIEW_AUTH_GATEWAY_FORWARDED_HOPS: "0"
+  MAUL_PREVIEW_AUTH_GATEWAY_LISTEN_ADDR: ":8082"
+  MAUL_PREVIEW_AUTH_GATEWAY_SIGN_IN_HOST: "preview-auth.maul.devthe.net"
+  MAUL_PREVIEW_AUTH_GATEWAY_TLS_DIR: "/etc/maul/preview-gateway/tls"
+  MAUL_PREVIEW_AUTH_GATEWAY_TLS_LISTEN_ADDR: ":8443"
+  MAUL_PREVIEW_AUTH_GROUPS_CLAIM: "groups"
+  MAUL_PREVIEW_AUTH_GROUPS_PREFIX: "github:"
+  MAUL_PREVIEW_AUTH_HOST_SUFFIX: "preview.maul.devthe.net"
+  MAUL_PREVIEW_AUTH_ISSUER: "https://preview-auth.maul.devthe.net"
+  MAUL_PREVIEW_AUTH_KEYS_DIR: "/etc/maul/preview-auth/keys"
+  MAUL_PREVIEW_AUTH_LEDGER_LEASE: "maul-preview-auth-codes"
+  MAUL_PREVIEW_AUTH_PROBE_INTERVAL: "1m"
+  MAUL_PREVIEW_AUTH_RATE_BURST: "30"
+  MAUL_PREVIEW_AUTH_RATE_PER_SECOND: "5"
+  MAUL_PREVIEW_AUTH_REQUIRE_VERIFIED_EMAIL: "false"
+  MAUL_PREVIEW_AUTH_SESSION_MAX_AGE: "12h"
+  MAUL_PREVIEW_AUTH_SLOT_COUNT: "2"
+  MAUL_PREVIEW_AUTH_USERNAME_CLAIM: "preferred_username"
+  MAUL_PREVIEW_AUTH_USERNAME_PREFIX: "github:"
 ---
-# Source: patchy/templates/preview-auth.yaml
+# Source: maul/templates/preview-auth.yaml
 # The preview gateway's Service: what an edge (Ingress, HTTPRoute, a tunnel)
 # points at, or a LoadBalancer of its own. Port 80 is the gateway's own
 # listener (8082), where it answers every preview host and the sign-in host;
@@ -159,16 +159,16 @@ data:
 apiVersion: v1
 kind: Service
 metadata:
-  name: patchy-preview-gateway
-  namespace: patchy
+  name: maul-preview-gateway
+  namespace: maul
   labels:
     app: preview-auth
-    helm.sh/chart: patchy-VERSION
+    helm.sh/chart: maul-VERSION
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/version: "VERSION"
     app.kubernetes.io/name: preview-auth
-    app.kubernetes.io/instance: patchy
-    app.kubernetes.io/part-of: patchy
+    app.kubernetes.io/instance: maul
+    app.kubernetes.io/part-of: maul
 spec:
   type: LoadBalancer
   # Local keeps the client's address as the peer (forwardedHops 0): under
@@ -177,8 +177,8 @@ spec:
   externalTrafficPolicy: Local
   selector:
     app.kubernetes.io/name: preview-auth
-    app.kubernetes.io/instance: patchy
-    app.kubernetes.io/part-of: patchy
+    app.kubernetes.io/instance: maul
+    app.kubernetes.io/part-of: maul
   ports:
     - name: http
       port: 80

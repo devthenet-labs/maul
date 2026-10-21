@@ -28,7 +28,7 @@
 //     v1alpha1.ConditionUsageRolledUp and releases the finalizer. A crash
 //     anywhere in between replays to the same result: the ledgers refuse a
 //     second application.
-//   - The patchy.usage.tokens and patchy.usage.cost metrics are emitted
+//   - The maul.usage.tokens and maul.usage.cost metrics are emitted
 //     with the user attribute when the user scope first takes the run.
 //
 // Rollups are read and written uncached (the API reader), so no controller

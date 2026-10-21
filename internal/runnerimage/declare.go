@@ -16,7 +16,7 @@ const (
 	// Declaration.Manifest, is to be resolved.
 	OutcomeDeclared
 	// OutcomeNotApplicable means a .devcontainer/devcontainer.json exists but
-	// was not written for patchy (it builds its image, adds features, names no
+	// was not written for maul (it builds its image, adds features, names no
 	// usable image, or cannot be parsed): the default image runs and
 	// Declaration.Reason is informational, surfaced to the repository owner
 	// and never subject to onReject.
@@ -51,15 +51,15 @@ type Declaration struct {
 
 // Declare applies precedence to the declaration files of one pinned tree.
 //
-// .patchy/agent.yaml wins whenever it exists: a valid one is declared and
+// .maul/agent.yaml wins whenever it exists: a valid one is declared and
 // devcontainer.json is not consulted, an invalid one (or one over
 // MaxDeclarationBytes) is returned as a *Rejection error and never falls
 // through, because a broken explicit declaration must not silently become a
-// different image. Only when .patchy/agent.yaml is absent is
-// devcontainer.json judged, and a file patchy cannot honour is
+// different image. Only when .maul/agent.yaml is absent is
+// devcontainer.json judged, and a file maul cannot honour is
 // OutcomeNotApplicable rather than an error: a rejection is something the
-// repository asked patchy for and got wrong; a not-applicable devcontainer
-// was never addressed to patchy at all. The two therefore never share a
+// repository asked maul for and got wrong; a not-applicable devcontainer
+// was never addressed to maul at all. The two therefore never share a
 // representation, and a caller that checks err and then switches on Outcome
 // cannot park a finding on a build-based devcontainer.
 func Declare(files Files) (Declaration, error) {

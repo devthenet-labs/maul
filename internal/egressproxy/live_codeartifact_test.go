@@ -13,16 +13,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/egressproxy"
-	"github.com/bitwise-media-group/patchy/internal/egressproxy/awsca"
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/egressproxy"
+	"github.com/devthenet-labs/maul/internal/egressproxy/awsca"
+	"github.com/devthenet-labs/maul/internal/netprofile"
 )
 
 // liveCodeArtifactEnv names a real CodeArtifact repository,
 // <domain>/<owner>/<region>/<repo>, whose npm and pypi endpoints the
 // pre-gate check runs the real npm and pip against, with a token the
 // engine mints from the developer's own AWS credentials (AWS_PROFILE).
-const liveCodeArtifactEnv = "PATCHY_LIVE_CODEARTIFACT"
+const liveCodeArtifactEnv = "MAUL_LIVE_CODEARTIFACT"
 
 // TestLiveCodeArtifact is TestLiveRegistry's npm install and pip download
 // against real CodeArtifact (§10.6 of the step-2 spec): the proxy mints

@@ -1,4 +1,4 @@
-# Handoff: intent-driven development in patchy
+# Handoff: intent-driven development in maul
 
 > **How this file is written:** one checkpoint per release, written by the release, never by a feature PR. Concurrent
 > feature PRs each adding a section at the top conflicted with one another every time one merged; a feature PR puts what
@@ -13,14 +13,14 @@
 
 ## Current checkpoint — 2026-10-18: 0.12.40 on the desktop, EKS down
 
-**0.12.40 ships easy previews (`patchy setup previews`, `patchy check previews`) and the Claude CLI posture hardening.**
+**0.12.40 ships easy previews (`maul setup previews`, `maul check previews`) and the Claude CLI posture hardening.**
 Design `.claude/plans/preview-setup-design.md` (the owner took every recommended default in its §11).
 
-- **Live:** only the desktop (destroyer k3d): patchy and patchy-config upgraded to 0.12.40, its pin pushed in
-  `~/.config`. It runs attribution, the Usage page, Findings (moved from EKS) and the preview gateway. EKS devthenet-dev
-  is down and can be restored: terraform-devthenet `scripts/eks-up` (never run yet), state in SSM
-  `/devthenet/patchy-eks/cluster/state`.
-- **Verified live:** `patchy check previews` on the desktop passes every line but one WARN (below). An intent plan run
+- **Live:** only the desktop (destroyer k3d): maul and maul-config upgraded to 0.12.40, its pin pushed in `~/.config`.
+  It runs attribution, the Usage page, Findings (moved from EKS) and the preview gateway. EKS devthenet-dev is down and
+  can be restored: terraform-devthenet `scripts/eks-up` (never run yet), state in SSM
+  `/devthenet/maul-eks/cluster/state`.
+- **Verified live:** `maul check previews` on the desktop passes every line but one WARN (below). An intent plan run
   (intents#37, cancelled after) ran on the 0.12.40 runner image under the hardened posture: outcome ok, 13 turns, no
   tool refusals, \$0.24.
 - **Known on the desktop:** its preview suffix and sign-in host share `devthe.net`, which the new command refuses and
@@ -40,7 +40,7 @@ applies, investigations included.
 
 ### Easy previews: `setup previews` and `check previews` (#240 to #248)
 
-- **`patchy setup previews`** (`cmd/patchy/internal/previewsetup`, `previewdetect`) writes files only: chart values,
+- **`maul setup previews`** (`cmd/maul/internal/previewsetup`, `previewdetect`) writes files only: chart values,
   manifests, upstream values at pinned versions, 0600 secrets, `answers.yaml` and an ordered `NEXT-STEPS.md`. It never
   applies anything and never calls a provider API. Its recipes, chosen by `--edge`:
   - R1 `cloudflare-tunnel`: a locally-managed tunnel, plus the Universal SSL depth rule.
@@ -52,7 +52,7 @@ applies, investigations included.
   cluster read-only and never reads a Secret (a test pins that). A CI job (`preview-pins`) checks the pinned
   cert-manager, Tailscale operator and cloudflared versions.
 
-- **`patchy check previews`** (`cmd/patchy/internal/previewcheck`, shared with `check project`): `preview-config`,
+- **`maul check previews`** (`cmd/maul/internal/previewcheck`, shared with `check project`): `preview-config`,
   `preview-nodes`, `preview-viewers` and the gateway checks. It now also checks the sign-in host's DNS and TLS when it
   is separate, and `checkreport` has a WARN status.
 - **Chart (#241):** `previewController.config.apiServerCIDR: auto` (from the API server's own `kubernetes`
@@ -76,9 +76,9 @@ applies, investigations included.
 **0.12.39 ships three tracks: portable previews release N, per-user attribution and usage (L1, L2), and cost-weighted
 limits for large features.** Every new feature is off by default, and neither cluster has turned any of it on yet.
 
-- **Live:** EKS devthenet-dev Helm patchy rev 103 and patchy-config rev 62 (rollback 102 and 61 = 0.12.38). Desktop
-  (destroyer k3d) patchy rev 2 and patchy-config rev 2 (rollback 1 and 1); its pin is pushed in `~/.config`. No ERROR
-  lines on either cluster after the upgrade; the EKS egress proxy re-minted its CodeArtifact credentials.
+- **Live:** EKS devthenet-dev Helm maul rev 103 and maul-config rev 62 (rollback 102 and 61 = 0.12.38). Desktop
+  (destroyer k3d) maul rev 2 and maul-config rev 2 (rollback 1 and 1); its pin is pushed in `~/.config`. No ERROR lines
+  on either cluster after the upgrade; the EKS egress proxy re-minted its CodeArtifact credentials.
 - **Also in this release, not described below:** the preview serving snapshot and generic node isolation (#223), the
   gateway sign-in and proxy (#226), the preview policy probe deflake (#232), and this file's once-per-release rule
   (#234).
@@ -97,9 +97,9 @@ cost (one 232-turn implementer: 67.7M tokens, about \$42). Off by default; `egre
 
 - **LF1, the broker (#229):** `--limit-unit=tokens|cost`; under `cost`, `--cost-per-pod` (required) and
   `--cost-per-hour` in micro-USD, priced by the shared `model.MeasuredCostUSD` (an unknown model at the highest rate of
-  each token class). A pod may carry its own budget, `patchy.bitwisemedia.uk/budget-micro-usd`, which the broker reads
-  with `get pods` in the agents namespace (Role rendered only under `cost`), checked against the pod UID; a failed read
-  is a 503 and is not cached. Also fixed: the pricer rounded a half-micro tie differently on arm64 and amd64.
+  each token class). A pod may carry its own budget, `maul.run/budget-micro-usd`, which the broker reads with `get pods`
+  in the agents namespace (Role rendered only under `cost`), checked against the pod UID; a failed read is a 503 and is
+  not cached. Also fixed: the pricer rounded a half-micro tie differently on arm64 and amd64.
 - **LF2, intent stages (#235):** `StageLimits.maxCostMicroUSD` (capped by the Project's per-intent ceiling) and
   `timeout` (1m to 4h, clamped to the controller's stage timeout); under `cost` every intent run's grant records
   `budgetMicroUSD` and its Job and pod carry the budget annotation. Each intent Job's deadline is its stage timeout plus
@@ -121,8 +121,8 @@ and Revision W9) adds what proves and documents it; nothing changes for an insta
 - **Probe verdicts by mode.** `previewauth.ProbeMode` (`alb`, `either`, `gateway`) and `JudgeGatewayUnknown` (the
   gateway's own 404 for a host no Preview owns). The relay's probe takes `--preview-auth-probe-mode`; the chart sets
   `gateway` once `preview.legacyIngress` is false with the gateway on, and the probe then also asks
-  `patchy-probe-0.<suffix>`.
-- **`patchy check project` in gateway mode:** DNS against `publishedAddresses` or the exposure's status (a private edge
+  `maul-probe-0.<suffix>`.
+- **`maul check project` in gateway mode:** DNS against `publishedAddresses` or the exposure's status (a private edge
   SKIPs), the gateway's 404 and `/start` redirect, and `preview-gateway-allowlist` (a spoofed `X-Forwarded-For`).
 - **e2e:** `TestPreviewGatewayEndToEnd` runs both shipped binaries with the gateway on (sign-in through a TLS Dex,
   routing by path, serving through a redeploy, cross-preview refusal, revocation). preview-auth is built with the
@@ -152,13 +152,13 @@ with `attribution.mode: attribute`:
 - a person is their GitHub numeric id from Dex's `federated_claims` (connector `oidc.claims.githubConnector`, default
   `github`); the server refuses to start without mode oidc, both claim prefixes and the `federated:id` scope, and
   refuses any identity without a GitHub id;
-- `patchy get usage [--user] [--project] [--since]`: admin-only (SelfSubjectAccessReview on `usage/all`, then the
-  caller's own RBAC on `usagerollups`); the same report as the page (`internal/usageview`);
-- chart: `patchy-status-server-usage` Role (usagerollups get/list/watch) and, with `rbac.userRoles`, the
-  `patchy-usage-admin` ClusterRole.
+- `maul get usage [--user] [--project] [--since]`: admin-only (SelfSubjectAccessReview on `usage/all`, then the caller's
+  own RBAC on `usagerollups`); the same report as the page (`internal/usageview`);
+- chart: `maul-status-server-usage` Role (usagerollups get/list/watch) and, with `rbac.userRoles`, the
+  `maul-usage-admin` ClusterRole.
 
 See [docs/configuration/status-server.md](docs/configuration/status-server.md#usage-views). Off on both clusters. To
-enable: add `federated:id` to the status page's Dex scopes, set `statusServer.usage.enabled`, bind `patchy-usage-admin`
+enable: add `federated:id` to the status page's Dex scopes, set `statusServer.usage.enabled`, bind `maul-usage-admin`
 for admins, and have everyone sign out and in again. No kustomize component yet (chart only).
 
 ### Durable per-user usage rollups (per-user credentials, L2: W3) (#230)
@@ -173,10 +173,10 @@ L2). Off by default; chart `attribution.mode: attribute` turns it on with L1 and
 - trusted figures come only from `measured`/`partial` usage; reported runs are counted apart;
 - remediation-controller compacts them hourly under `attribute` only (day buckets past 400 days dropped; months kept, at
   most 120);
-- `patchy.usage.tokens` and `patchy.usage.cost` carry `user`, `project`, `kind`.
+- `maul.usage.tokens` and `maul.usage.cost` carry `user`, `project`, `kind`.
 
 See [docs/configuration/attribution.md](docs/configuration/attribution.md#usage-rollups). Off on both clusters. The
-Usage page and `patchy get usage` (W4) are above. Known gaps: Finding and evaluation runs have no Project, so they count
+Usage page and `maul get usage` (W4) are above. Known gaps: Finding and evaluation runs have no Project, so they count
 in user scopes only; the demo reset (Integration `spec.reset`) does not delete `UsageRollup`s; turning attribution off
 releases runs still settling unaggregated (`RollupForbidden`).
 
@@ -186,13 +186,13 @@ releases runs still settling unaggregated (`RollupForbidden`).
 `.claude/plans/portable-previews-design.md`, §4 as revised) adds the chart side of release N; with every new value at
 its default an install renders as before (only YAML comments differ):
 
-- `previewAuth.gateway` (off): the gateway's flags, the Pod label `patchy.bitwisemedia.uk/preview-gateway` the slot
-  NetworkPolicy admits beside the ALB's subnets (those only while `preview.legacyIngress` is on), one exposure (Ingress,
-  HTTPRoute or LoadBalancer, the last optionally over the gateway's own TLS by SNI), `forwardedHops` required with any
-  exposure, `inboundCIDRs` at the edge where possible (a LoadBalancer with `externalTrafficPolicy: Local`, so the
-  gateway's peer is the client), `publishedAddresses` recorded on the relay ConfigMap (`patchy check project` compares
-  DNS with it). The exposure targets the gateway's own listener (8082), where even the relay's endpoints are limited
-  behind the gateway's hops.
+- `previewAuth.gateway` (off): the gateway's flags, the Pod label `maul.run/preview-gateway` the slot NetworkPolicy
+  admits beside the ALB's subnets (those only while `preview.legacyIngress` is on), one exposure (Ingress, HTTPRoute or
+  LoadBalancer, the last optionally over the gateway's own TLS by SNI), `forwardedHops` required with any exposure,
+  `inboundCIDRs` at the edge where possible (a LoadBalancer with `externalTrafficPolicy: Local`, so the gateway's peer
+  is the client), `publishedAddresses` recorded on the relay ConfigMap (`maul check project` compares DNS with it). The
+  exposure targets the gateway's own listener (8082), where even the relay's endpoints are limited behind the gateway's
+  hops.
 - `preview.legacyIngress` (true) feeds `--preview-legacy-ingress`; false makes the ALB values optional, and NOTES list
   the legacy ones still set. `previewController.config.legacyIngress` (unreleased) still wins while set.
 - `preview.nodeIsolation.{selector,mode,eksAutoMode}`: generic node isolation; the legacy `nodePool`/`nodeClass` render
@@ -214,8 +214,8 @@ while the broker deploys:
   2-minute wait for in-flight requests.
 
 See [docs/configuration/attribution.md](docs/configuration/attribution.md#trusted-usage). Off on both clusters.
-`UsageRollup` aggregation, the OTel user attribute, the Usage page and `patchy get usage` (W4) are above; the Intent's
-own `status.usage` totals and the issue's cost line still sum the pod-reported figures.
+`UsageRollup` aggregation, the OTel user attribute, the Usage page and `maul get usage` (W4) are above; the Intent's own
+`status.usage` totals and the issue's cost line still sum the pod-reported figures.
 
 ### Run attribution (per-user credentials, L1) (#224)
 
@@ -224,7 +224,7 @@ design (attribution; L2 usage and L3 per-user credentials follow). It is off by 
 `attribution.mode: off` nothing changes. With `attribute`:
 
 - the four job controllers stamp each new run's immutable `spec.attributedTo` per the design's table, by GitHub numeric
-  id, and annotate every agent Job and pod `patchy.bitwisemedia.uk/attributed-to` (`org` or `github-id:<id>`);
+  id, and annotate every agent Job and pod `maul.run/attributed-to` (`org` or `github-id:<id>`);
 - a human with no GitHub id on record is re-attributed to the org (`approver-unregistered`);
 - the intent issue's status comment names the latest run's person;
 - up to six admission policies keep the annotation, each run's own stamp and the Finding, Evaluation and Intent identity
@@ -249,10 +249,10 @@ for a CONNECT tunnel to them on 443. The proxy checks the ClientHello's SNI and 
 [docs/configuration/egress-proxy.md](docs/configuration/egress-proxy.md#tunnel) and its residue in
 [docs/deployment/isolation.md](docs/deployment/isolation.md#tunnel-hosts).
 
-- Live on devthenet-dev: Helm patchy rev 98 (0.12.36) and patchy-config rev 59. Profile `py` (route tunnel, port 8092,
-  hosts `pypi.org` and `files.pythonhosted.org`, client preset `pip`) for the new fixture repository
+- Live on devthenet-dev: Helm maul rev 98 (0.12.36) and maul-config rev 59. Profile `py` (route tunnel, port 8092, hosts
+  `pypi.org` and `files.pythonhosted.org`, client preset `pip`) for the new fixture repository
   `devthenet-labs/patchy-pip-fixture` (signed `python:3.13-slim` agent image, Project `pip-fixture`, label
-  `patchy:pip-fixture`).
+  `maul:pip-fixture`).
 - Gate passed 2026-10-15:
   - Probes: a listed host `200`; `example.com` `not_allowed`; `github.com`, `upload.pypi.org` and `api.anthropic.com`
     `hard_denied`; `1.1.1.1` `ip_literal`; port 8443 `port`; an SNI mismatch answered with a TLS alert; `upload_cap` at
@@ -301,21 +301,21 @@ Follow-ups:
 be granted operator-defined Go, npm and pip registries (Artifactory, Nexus, CodeArtifact), whose credential only the
 proxy holds. See [docs/configuration/egress-proxy.md](docs/configuration/egress-proxy.md#registries).
 
-- Live on devthenet-dev: Helm patchy rev 91 (0.12.34) and patchy-config rev 56. A CodeArtifact domain `patchy-gate`
-  holds npm and pip repositories whose allowlists are granted to the `go` profile.
+- Live on devthenet-dev: Helm maul rev 91 (0.12.34) and maul-config rev 56. A CodeArtifact domain `patchy-gate` holds
+  npm and pip repositories whose allowlists are granted to the `go` profile.
 - Gate passed 2026-10-15:
   - Findings: patchy-target#115 and #117 merged, both Findings Remediated.
   - Intent: intents#30 opened patchy-preview-demo#24, with its preview, and its build fetched Go modules through the
     proxy; merged.
   - The agent pause (`agent.paused`).
-  - `patchy backfill` then a patchy-config upgrade applied without `--force-conflicts` (CLI field ownership, #193).
+  - `maul backfill` then a maul-config upgrade applied without `--force-conflicts` (CLI field ownership, #193).
   - Isolation and the status page re-checked.
 
 **0.12.34** (egress step 2):
 
 - #202: registry routes in the egress proxy for Go, npm and pip (`/r/<registry>/`), with the credential wiring.
 - #201: remediation and intent build Jobs get their profile's registry grants (npm and pip environment,
-  `PATCHY_NETWORK_ECOSYSTEMS`, `PATCHY_NETWORK_GRANTS`).
+  `MAUL_NETWORK_ECOSYSTEMS`, `MAUL_NETWORK_GRANTS`).
 - #204: the chart's `egressProxy.registries`, cloud credentials and profile grants.
 
 **0.12.33:**
@@ -351,7 +351,7 @@ proxy.golang.org and sum.golang.org, and operator-defined network profiles that 
 and intent build Jobs a route to it. Agent pods keep `dns: none`; the profile's port is the pod's identity. See
 [docs/configuration/egress-proxy.md](docs/configuration/egress-proxy.md) and the security invariant below.
 
-- Live on devthenet-dev: Helm patchy rev 86 (0.12.32, profile `go` on) and patchy-config rev 53. Rollbacks:
+- Live on devthenet-dev: Helm maul rev 86 (0.12.32, profile `go` on) and maul-config rev 53. Rollbacks:
   - `egressProxy.suspendProfiles: true` (rev 85 was this): the proxy answers 410 at once and new Jobs get no profile;
   - rev 82: 0.12.31 with the proxy off; rev 81: 0.12.30.
 - Values (terraform-devthenet #54): profile `go` for `patchy-preview-demo` and `patchy-target`, module prefixes
@@ -395,14 +395,14 @@ Follow-ups (as of this checkpoint; see the current one above):
   live in 0.12.34. Step 3 (a hostname-allowlisted CONNECT tunnel for npm, pip, NuGet and Cargo): live in 0.12.36.
 - Flaky tests: `TestOutputEnds` (internal/agentrun; fixed by #192) and the envtest
   `TestIntegrationPolicyEnforcesVerbPerField/backfill_verb_may_not_replay` (an RBAC propagation race; fixed by #195).
-- `patchy backfill` took field ownership of Integration fields Helm sets, so the next patchy-config upgrade needed
+- `maul backfill` took field ownership of Integration fields Helm sets, so the next maul-config upgrade needed
   `--force-conflicts`: fixed by #193 (merge patches).
 - marigold-web's agent image has no Node, so agents cannot run its tests.
 
 ## Earlier checkpoint — 2026-10-14: agent DNS off, signed agent images required, and 0.12.28
 
-**0.12.28 is live** (Helm patchy rev 79, patchy-config rev 48; rollback 78 / 47). It ships the signing support for other
-installs: the `patchy init app` publisher signs (#169), the app module grants the key and the layer read `cosign verify`
+**0.12.28 is live** (Helm maul rev 79, maul-config rev 48; rollback 78 / 47). It ships the signing support for other
+installs: the `maul init app` publisher signs (#169), the app module grants the key and the layer read `cosign verify`
 needs (#171), and the platform module creates or passes the key (`create_agent_signing_key`, `agent_signing_key_arn`,
 output `agent_signing`; #173). Gate: finding-514becf18f-29, image verified, then patchy-target#103 merged and the
 Finding Remediated. The stale September tracking issues on patchy-target are closed; their three Findings are HandedOff,
@@ -412,15 +412,15 @@ and their alerts are untouched.
 ship as configuration on 0.12.27 and were gated live together. Since 2026-10-12 the egress broker has authenticated with
 the owner's Claude subscription (`egressBroker.anthropicAuth: token`), not an API key.
 
-- Live on devthenet-dev: Helm patchy rev 78 (0.12.27). Rollbacks:
+- Live on devthenet-dev: Helm maul rev 78 (0.12.27). Rollbacks:
   - rev 77: DNS off, unsigned images still admitted;
   - rev 76: before both.
 
-  Undo DNS by re-applying the `patchy-agents` `allow-auto-mode-dns` policy with `podSelector: {}` first, then rolling
+  Undo DNS by re-applying the `maul-agents` `allow-auto-mode-dns` policy with `podSelector: {}` first, then rolling
   back.
 
 - **Agent DNS** (`agent.networkPolicy.dns: none`, terraform-devthenet #50). The Auto Mode DNS allow policy in
-  `patchy-agents` now selects every pod except `app.kubernetes.io/name=patchy-agent`, so it cannot reopen what the chart
+  `maul-agents` now selects every pod except `app.kubernetes.io/name=maul-agent`, so it cannot reopen what the chart
   closes. A probe from inside a live investigation pod found:
   - `example.com` does not resolve;
   - the broker resolves from the hosts file;
@@ -431,9 +431,9 @@ the owner's Claude subscription (`egressBroker.anthropicAuth: token`), not an AP
   - Signatures are cosign's legacy `sha256-<digest>.sig` tag with no transparency-log upload. A tag survives ECR's
     "expire untagged" lifecycle rule, which an untagged OCI referrer might not.
   - The six declared images were signed by hand; each app's publisher now signs new ones. #169 adds this to the
-    `patchy init app` scaffold and the app module. #171 grants the layer read that `cosign verify` needs: the first
-    signed publish signed its image, then failed to read it back.
-  - `patchy check image --cosign-key` passes the signed image and fails an older unsigned one.
+    `maul init app` scaffold and the app module. #171 grants the layer read that `cosign verify` needs: the first signed
+    publish signed its image, then failed to read it back.
+  - `maul check image --cosign-key` passes the signed image and fails an older unsigned one.
 - **Gate:**
   - A Finding (finding-514becf18f-27) ran with DNS off: PR patchy-target#99 merged, Remediated. Broker calls were 200,
     apart from the two known `HEAD /api/hello` probes.
@@ -456,7 +456,7 @@ Follow-ups:
 **The preview IP allowlist is gone**, as the owner asked once previews worked behind sign-in. **0.12.26 (#158) makes a
 `sessionTimeout` change never fail an upgrade.**
 
-- Live on devthenet-dev: Helm patchy rev 71 (0.12.26) and patchy-config rev 45. Rollbacks:
+- Live on devthenet-dev: Helm maul rev 71 (0.12.26) and maul-config rev 45. Rollbacks:
   - rev 70: 0.12.25, public;
   - rev 68: 0.12.25 with the allowlist and `sessionTimeout` 3600.
 
@@ -467,8 +467,8 @@ Follow-ups:
   preview load balancer's security group admits 443 from anywhere. terraform-devthenet #48 is merged, so its main
   matches the cluster.
 - 0.12.26 judges `auth-session-timeout` as a ceiling: a canonical whole number of seconds up to `sessionTimeout`,
-  recorded on `patchy-preview-ingresses` as `patchy.bitwisemedia.uk/preview-auth-session-timeout` (900 live). Lowering
-  is one upgrade; raising is two, and the first pass fails nothing. The sweep accepts a shorter session too.
+  recorded on `maul-preview-ingresses` as `maul.run/preview-auth-session-timeout` (900 live). Lowering is one upgrade;
+  raising is two, and the first pass fails nothing. The sweep accepts a shorter session too.
 - Live check after the upgrade: patch dry-runs of the placeholder Ingress against the live policy admit 600 (0.12.25
   refused exactly this) and refuse 1200 and `0600`.
 
@@ -479,7 +479,7 @@ docs/intents/preview-sign-in.md, "What the probe found":
 - A copied cookie does replay on another host in the same slot.
 - Cross-slot replay is untested.
 
-A demo intent (intents#21, PR closed) showed a preview in public behind sign-in. `patchy check project preview-demo`
+A demo intent (intents#21, PR closed) showed a preview in public behind sign-in. `maul check project preview-demo`
 passes every check.
 
 Follow-ups:
@@ -494,7 +494,7 @@ Still with the owner:
   files use documentation values. Left as is unless the owner asks for a rewrite.
 
 **Intent context, PR 1 (branch `feature/intent-handoff`, not yet pushed, merged or released).** An iterated intent now
-starts from what earlier agents and approvers established, with no new CRD kind, `PATCHY_*` key, envelope version or
+starts from what earlier agents and approvers established, with no new CRD kind, `MAUL_*` key, envelope version or
 GitHub permission:
 
 - **Turns** (`291328d`): IntentRun status records `numTurns` and `firstEditTurn` (the 1-based turn of the first Edit,
@@ -541,16 +541,16 @@ preview's load balancer only an opaque, pairwise subject, never an identity for 
 
 Switch-on, in order:
 
-1. terraform-devthenet #47 (merged): the relay's DNS record, its Dex static client `patchy-preview-auth`, and the values
-   overlay `k8s/patchy-values-preview-auth.yaml`.
+1. terraform-devthenet #47 (merged): the relay's DNS record, its Dex static client `maul-preview-auth`, and the values
+   overlay `k8s/maul-values-preview-auth.yaml`.
 2. The two client Secrets, created from one random value and never printed.
 3. Dex rev 5. Rev 4 crash-looped because of a values edit; the old pod kept serving. Dex's rollback point is rev 3.
-4. patchy rev 66 at `permit`.
-5. patchy rev 67 at `require`.
+4. maul rev 66 at `permit`.
+5. maul rev 67 at `require`.
 
 0.12.25 (#154) then landed the three follow-ups from the live test:
 
-- **`patchy check project` judges Dex's answer for real.** The Dex check used to pass on any redirect, and Dex also
+- **`maul check project` judges Dex's answer for real.** The Dex check used to pass on any redirect, and Dex also
   redirects an unknown client at `/auth`. It now follows redirects that stay on Dex's own origin and judges where they
   end: github.com is PASS; `Unregistered redirect_uri.` (400) or `Invalid client_id.` (404) is FAIL.
 - **The relay Ingress sets its load-balancer settings explicitly.** It sets `ip` targets and a health check on `/`. It
@@ -560,14 +560,14 @@ Switch-on, in order:
 
 **Live on devthenet-dev:**
 
-- Helm patchy rev 68 (0.12.25, `require`) and patchy-config rev 44.
-- Rollback points for patchy: 67 (0.12.24, `require`), 66 (`permit`), 65 (sign-in off).
+- Helm maul rev 68 (0.12.25, `require`) and maul-config rev 44.
+- Rollback points for maul: 67 (0.12.24, `require`), 66 (`permit`), 65 (sign-in off).
 - Rolling back from `require` is not a plain `helm rollback`. Follow docs/intents/preview-sign-in.md, "Rolling back":
   1. Scale preview-controller to 0.
-  2. Delete the binding `patchy-preview-all-slots-ingress-auth`.
-  3. Run `helm rollback patchy 65`.
-- After the upgrade, `patchy check project preview-demo` passes every check, including `preview-auth-dex`, which now
-  ends at github.com.
+  2. Delete the binding `maul-preview-all-slots-ingress-auth`.
+  3. Run `helm rollback maul 65`.
+- After the upgrade, `maul check project preview-demo` passes every check, including `preview-auth-dex`, which now ends
+  at github.com.
 
 **Live test, 2026-10-08 (intents#19 → `preview-demo-19`, slot 0; 0.12.24, then again on 0.12.25):**
 
@@ -613,7 +613,7 @@ sign-in plus four small fixes; the larger "never discard work" and intent-contex
   copilot cannot express the posture, so the pod stays their boundary. Live: a plan run used only Read/Glob/Grep and one
   Write, and a fresh Finding (alert #48, patchy-target#90) went from seed to Remediated in about six minutes with an
   investigation that used only file tools.
-- 0.12.23, #147 the planner is told patchy checks the plan's layout itself (live planners spent their last turns writing
+- 0.12.23, #147 the planner is told maul checks the plan's layout itself (live planners spent their last turns writing
   check scripts); #148 an over-long build note no longer fails the run; #149 a check-fix round heads its diagnostics
   "Check failures". Live: a plan-only run cost $0.16 against $0.26 the night before, with a single Write.
 - 0.12.24, #151: preview sign-in through a new relay binary, `preview-auth` (docs/intents/preview-sign-in.md), **off by
@@ -621,7 +621,7 @@ sign-in plus four small fixes; the larger "never discard work" and intent-contex
   reference Secrets; metadata-only updates to slot Services and Ingresses are admitted, so deletions do not hang),
   Events RBAC for preview-controller, and the Preview `spec.project` field.
 
-Live on devthenet-dev: Helm patchy rev 65 (rollback 64 = 0.12.23, 63 = 0.12.22, 62 = 0.12.21), patchy-config rev 43.
+Live on devthenet-dev: Helm maul rev 65 (rollback 64 = 0.12.23, 63 = 0.12.22, 62 = 0.12.21), maul-config rev 43.
 
 Turning preview sign-in on is prepared but not done: terraform-devthenet draft PR #47 (the relay's DNS record, its Dex
 client, a values overlay at the permit stage). Its DNS record needs the owner to apply; then the Dex client and the two
@@ -637,12 +637,12 @@ PR with tests, reviewed and fixed before merge. Two are opt-in and change nothin
 
 - #138 the issue's status comment shows the revision allowance (the Revisions line).
 - #139 a queued preview says it is waiting for a free slot, not that it is being deployed.
-- #141 opt-in `spec.checks.rerunFailed`: a failed GitHub Actions check is re-run once, on patchy's own head, before a
+- #141 opt-in `spec.checks.rerunFailed`: a failed GitHub Actions check is re-run once, on maul's own head, before a
   check-fix round is spent on it. Ready then also proves an Actions write grant; a re-run that fails to start, or is
   still running when `checks.timeout` passes, falls back to the normal fix round. Check runs are listed with
   `filter=all` so the original failure (and its logs) stays visible once the re-run starts. Actions write lets the App
-  re-run, cancel and dispatch workflows and delete runs, logs and artifacts on every repository it is installed on;
-  patchy uses it for the one re-run call, with a token scoped to that repository.
+  re-run, cancel and dispatch workflows and delete runs, logs and artifacts on every repository it is installed on; maul
+  uses it for the one re-run call, with a token scoped to that repository.
 - #142 the plan prompt lists the Project's other open intent pull requests (title and first changed files, newest by
   creation first, bounded), so a planner can avoid colliding with work already in review.
 - #143 opt-in `--agent-dns none` (chart `agent.networkPolicy.dns`, kustomize component `agent-dns-none`): agent pods get
@@ -650,12 +650,12 @@ PR with tests, reviewed and fixed before merge. Two are opt-in and change nothin
   toolchain and dependency must already be in the image. Turning it on also needs any cluster-level DNS allow policy (on
   devthenet-dev, terraform-devthenet's Auto Mode DNS policy) narrowed to leave agent pods out.
 
-Live on devthenet-dev: Helm patchy rev 62 (rollback 61 = 0.12.20), patchy-config rev 40 (rollback 39). The render diff
+Live on devthenet-dev: Helm maul rev 62 (rollback 61 = 0.12.20), maul-config rev 40 (rollback 39). The render diff
 against 0.12.20 was the new optional CRD fields plus config checksums. All nine deployments ready on v0.12.21, no
 controller errors after the upgrade, all five Projects Ready. Neither opt-in is enabled there yet.
 
 Fresh-Finding gate (2026-10-07): seed `rerungatekey.go` (1024-bit RSA) on patchy-target 01:59Z, alert #47 02:00:42Z,
-`finding-514becf18f-22` one second later with issue #87, `/patchy expedite` 02:01:17Z, Investigating, Remediating
+`finding-514becf18f-22` one second later with issue #87, `/maul expedite` 02:01:17Z, Investigating, Remediating
 02:03:00Z, InReview 02:04:22Z with PR #88 (2048-bit key plus a regression test), all checks green, merged, Remediated
 02:05:29Z, issue #87 closed completed, alert #47 fixed, exactly one Finding for it. No approval hold.
 
@@ -671,8 +671,8 @@ status line, per-Project turn limits) are deferred until the owner asks.
 
 - #132 claude's settings sources are pinned for every postured run
   (`--setting-sources user --strict-mcp-config --add-dir <tree>` plus `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1`),
-  so a stage's tool posture is patchy's alone, independent of configuration files in the tree under work. The tree's
-  root `CLAUDE.md`, `.claude/CLAUDE.md` and `.claude/rules` still load; a subdirectory's `CLAUDE.md` no longer loads on
+  so a stage's tool posture is maul's alone, independent of configuration files in the tree under work. The tree's root
+  `CLAUDE.md`, `.claude/CLAUDE.md` and `.claude/rules` still load; a subdirectory's `CLAUDE.md` no longer loads on
   demand. Checked on the production CLI (2.1.263) before merge and live after the upgrade: the build pod's `claude`
   process carried the new flags and the variable.
 - #134 the timeline's run rows are visibly links: the underlined run name and a trailing "View conversation →" ("Open
@@ -682,23 +682,23 @@ status line, per-Project turn limits) are deferred until the owner asks.
   unfinished escape used to swallow a secret's first byte and let the rest through).
 - #136 live command output in the run panel. The claude CLI writes a running Bash command's output to
   `<CLAUDE_CODE_TMPDIR or /tmp>/claude-<uid>/<cwd slug>/<session>/tasks/<task_id>.output` and announces the task on its
-  stream; agent-runner follows it (intent stages only, one command at a time) and prints a new `PATCHY-OUTPUT:` stdout
+  stream; agent-runner follows it (intent stages only, one command at a time) and prints a new `MAUL-OUTPUT:` stdout
   stream, scrubbed and bounded (1 KiB lines; 64 KiB per command then samples, 64 KiB of samples; 512 KiB per pod), never
   persisted. status-server follows it beside the turns with its own replay ring and channel, to transcripts-tier readers
   only. Review (13 findings, all fixed and re-verified) also fixed an older bug: a stage result whose report quoted
-  `PATCHY-TURN:` was dropped, and a tail-hub race could cancel a viewer's stream as another left. Live: on the real CLI
-  in a repository-image pod, a command's first chunk arrived at 20:31:19Z and its last, with Done, at 20:31:41Z, while
-  it ran.
+  `MAUL-TURN:` was dropped, and a tail-hub race could cancel a viewer's stream as another left. Live: on the real CLI in
+  a repository-image pod, a command's first chunk arrived at 20:31:19Z and its last, with Done, at 20:31:41Z, while it
+  ran.
 - Broker spend limits are on in terraform-devthenet (#46): `tokensPerPod` 15M, `tokensPerHour` 60M, `requestsPerPod`
   1000, `concurrentPerPod` 4, sized from real IntentRun usage (largest build 10.5M tokens in ~120 requests).
 
-Helm: patchy **60** (0.12.19 + broker limits; rollback **58**; rev 59 was an interrupted upgrade, failed with no
-change), then **61** (0.12.20; rollback **60**); patchy-config **39** (0.12.20; rollback **38**). The render diff for
-0.12.19 → 0.12.20 changed only version strings and checksums. Repository-image pods get the new agent-runner and CLI
-too: the prepare step copies both from the default image. Release PR #133 was stamps and CHANGELOG only, its CI approved
-at the verified head. All nine Deployments Ready on v0.12.20 with zero restarts; all five Projects Ready.
+Helm: maul **60** (0.12.19 + broker limits; rollback **58**; rev 59 was an interrupted upgrade, failed with no change),
+then **61** (0.12.20; rollback **60**); maul-config **39** (0.12.20; rollback **38**). The render diff for 0.12.19 →
+0.12.20 changed only version strings and checksums. Repository-image pods get the new agent-runner and CLI too: the
+prepare step copies both from the default image. Release PR #133 was stamps and CHANGELOG only, its CI approved at the
+verified head. All nine Deployments Ready on v0.12.20 with zero restarts; all five Projects Ready.
 
-Gate: weak-key alert **#46** → `finding-514becf18f-21` → issue **#85** → `/patchy expedite` → no hold this time → PR
+Gate: weak-key alert **#46** → `finding-514becf18f-21` → issue **#85** → `/maul expedite` → no hold this time → PR
 **#86** (2048-bit key plus a committed regression test, all checks green) → merged `fc402d8` → Remediated, issue closed
 completed, exactly one Finding for the alert, each marker once; main's CodeQL scan marked alert #46 fixed.
 
@@ -716,12 +716,12 @@ the owner.
 - Restrict agent pods' DNS to cluster names (hardening; agent pods otherwise reach only the artifact server and the
   broker).
 - Cosign-sign repository agent images, then `allowUnsigned: false`.
-- Repositories with real dependencies: agent pods have no network, so dependencies must be in the agent image (patchy
-  uses the devcontainer's image, not `postCreateCommand`). Rebuild the scaffolded agent image when the lockfile changes;
-  if an agent ever needs new dependencies, a per-Project dependency proxy serving only lockfile and plan-approved
-  packages, never general egress. **Step 2** of the egress proxy: step 1 (the Go route, `egressProxy` in the chart, off
-  by default) is a name-level module-prefix gate, and its residue (docs/deployment/isolation.md) is why step 2 exists.
-  Step 2's credentialed registry routes (Go, npm, pip; Artifactory, Nexus, CodeArtifact) are built (#199, #201, #202 and
+- Repositories with real dependencies: agent pods have no network, so dependencies must be in the agent image (maul uses
+  the devcontainer's image, not `postCreateCommand`). Rebuild the scaffolded agent image when the lockfile changes; if
+  an agent ever needs new dependencies, a per-Project dependency proxy serving only lockfile and plan-approved packages,
+  never general egress. **Step 2** of the egress proxy: step 1 (the Go route, `egressProxy` in the chart, off by
+  default) is a name-level module-prefix gate, and its residue (docs/deployment/isolation.md) is why step 2 exists. Step
+  2's credentialed registry routes (Go, npm, pip; Artifactory, Nexus, CodeArtifact) are built (#199, #201, #202 and
   #204, `egressProxy.registries`, off by default) and live on devthenet-dev since 0.12.34 with a CodeArtifact domain.
   Step 3's hostname-allowlisted tunnel (`hosts` on a profile) is live since 0.12.36 with profile `py`.
 - The deferred 0.12.20 items (a)–(e).
@@ -749,15 +749,14 @@ merged one at a time, each current with main and every check green:
   the owner's demos).
 - #130 the read-only intents dashboard, first slice, behind `statusServer.intents.enabled`.
 
-Helm: patchy **57** (0.12.19, sign-in off; rollback point **56**), then **58** (sign-in + dashboard on; rollback
-**57**); patchy-config **38** (stamps only; rollback **37**). Release PR #131 was stamps and CHANGELOG only, its CI
-approved at the verified head. Gate: weak-key alert **#45** → `finding-514becf18f-20` → issue **#83** → expedite → the
-investigation held it (`breakingChangeAvailable`) → `/patchy approve` → PR **#84** (2048-bit key plus a committed test,
-pushed commit = PR head) → merged `8baa2df` → Remediated, issue closed completed, one Finding, alert fixed, each marker
-once.
+Helm: maul **57** (0.12.19, sign-in off; rollback point **56**), then **58** (sign-in + dashboard on; rollback **57**);
+maul-config **38** (stamps only; rollback **37**). Release PR #131 was stamps and CHANGELOG only, its CI approved at the
+verified head. Gate: weak-key alert **#45** → `finding-514becf18f-20` → issue **#83** → expedite → the investigation
+held it (`breakingChangeAvailable`) → `/maul approve` → PR **#84** (2048-bit key plus a committed test, pushed commit =
+PR head) → merged `8baa2df` → Remediated, issue closed completed, one Finding, alert fixed, each marker once.
 
-Sign-in: Dex (`dex.patchy.devthe.net`, terraform-devthenet #39–#43) with "Sign in with GitHub" for devthenet-labs
-members; the status server runs mode oidc with `github:` prefixes and the dashboard on; `github:<owner>` is bound to
+Sign-in: Dex (`dex.maul.devthe.net`, terraform-devthenet #39–#43) with "Sign in with GitHub" for devthenet-labs members;
+the status server runs mode oidc with `github:` prefixes and the dashboard on; `github:<owner>` is bound to
 findings-operator and intents-content. The redirect chain status → Dex (PKCE) → GitHub authorize is verified; the
 owner's first sign-in (one "Authorize" click at GitHub) is still to do. Anonymous `/api` answers 401, cross-site 403;
 CSP and HSTS are set; the webhook and previews were checked after each step.
@@ -773,68 +772,68 @@ failure for unschedulable Jobs, with fixes for durable run outcomes and public e
 and `mise run e2e` gates passed, and every PR check concluded SUCCESS or SKIPPED before merge. Release-please PR #120
 contained only version stamps and CHANGELOG changes; its verified-head CI and the release workflow passed. The
 live-values render comparison found only the expected images, chart labels, controller configuration and CRD schema
-changes. Before upgrade, Helm rollback points were **patchy 53 / patchy-config 35**. Upgraded patchy first to **rev
-54**, then patchy-config to **rev 36**. All nine Deployments are Ready with zero restarts; all five Projects are Ready.
-Two controllers each logged one transient broker readiness fetch error during rollout, with no repeat after settling.
+changes. Before upgrade, Helm rollback points were **maul 53 / maul-config 35**. Upgraded maul first to **rev 54**, then
+maul-config to **rev 36**. All nine Deployments are Ready with zero restarts; all five Projects are Ready. Two
+controllers each logged one transient broker readiness fetch error during rollout, with no repeat after settling.
 
 The fresh gate used weak-key alert **#44** on patchy-target: Finding `finding-514becf18f-19`, tracking issue **#81**,
-`/patchy expedite`, and repair PR **#82**. The Remediation's pushed commit matched the PR head, the PR added a 2048-bit
+`/maul expedite`, and repair PR **#82**. The Remediation's pushed commit matched the PR head, the PR added a 2048-bit
 assertion, and every check passed. Squash merge `c9d9ac7d` led to Remediated, issue closed completed, one comment per
-patchy marker and exactly one Finding for the alert. Main CodeQL passed and marked alert #44 fixed.
+maul marker and exactly one Finding for the alert. Main CodeQL passed and marked alert #44 fixed.
 
 **Next:** prepare the `large` class in terraform-devthenet `k8s/` values (4 CPU and 8Gi requests, 10Gi memory limit, no
 CPU limit) and select it for overdub. Show the complete diff to the owner and **stop before applying**. On approval,
-upgrade patchy then patchy-config and confirm all Projects Ready. Re-add `patchy:overdub` to intents issue #10, tell the
-owner when its plan is posted, let the owner approve, then observe the build PR and preview. If that intent fails,
-report the cause and stop without retrying or changing anything. Broker limits and dashboard work are deferred.
+upgrade maul then maul-config and confirm all Projects Ready. Re-add `maul:overdub` to intents issue #10, tell the owner
+when its plan is posted, let the owner approve, then observe the build PR and preview. If that intent fails, report the
+cause and stop without retrying or changing anything. Broker limits and dashboard work are deferred.
 
 ## Historical checkpoint — 2026-10-03
 
 **Previews are set up and ready for the first live demo; no preview has run yet.** Done today, each owner-approved
 separately, with rollback points recorded before each Helm revision:
 
-- **Stage 2 (preview ALB):** terraform-devthenet #26 set `preview.placeholder.enabled: true`; patchy Helm **rev 43**.
-  Auto Mode created `devthenet-dev-preview` (ARN `…/app/devthenet-dev-preview/4b96adc30c66b9f7`, DNS
+- **Stage 2 (preview ALB):** terraform-devthenet #26 set `preview.placeholder.enabled: true`; maul Helm **rev 43**. Auto
+  Mode created `devthenet-dev-preview` (ARN `…/app/devthenet-dev-preview/4b96adc30c66b9f7`, DNS
   `devthenet-dev-preview-1425308117.us-east-1.elb.amazonaws.com`, created 2026-10-02T17:11:49Z): HTTPS 443 only,
   `ELBSecurityPolicy-TLS13-1-2-2021-06`, the wildcard cert, SG inbound only `203.0.113.10/32` on 443, one empty target
   group. Shared ALB unchanged (same ARN/DNS/creation time); a fresh App delivery returned 202; status page 200.
-- **Wildcard DNS:** terraform-devthenet #27 (`patchy-preview-dns.tf`): `*.preview.patchy.devthe.net` A alias to the
-  preview ALB, looked up by name like the shared ALB. Applied 1 add; fresh plan no changes. Names resolve to the preview
-  ALB; HTTPS from the owner's IP verifies the cert and returns 503 (no targets). The terraform checkout needed
+- **Wildcard DNS:** terraform-devthenet #27 (`maul-preview-dns.tf`): `*.preview.maul.devthe.net` A alias to the preview
+  ALB, looked up by name like the shared ALB. Applied 1 add; fresh plan no changes. Names resolve to the preview ALB;
+  HTTPS from the owner's IP verifies the cert and returns 503 (no targets). The terraform checkout needed
   `terraform init -reconfigure` (same S3 bucket/key/lock table; cached backend metadata had drifted).
 - **Demo toolchain image:** dispatched patchy-preview-demo `agent image` on main; the trusted publisher
-  (`publish images` → agent job; runtime job skipped) pushed `patchy/app-envs/patchy-preview-demo:toolchain-v1`
-  (`sha256:02b294e7…`). `.patchy/agent.yaml` already names it.
-- **Intents:** devthenet-labs/intents #3 added the `preview-demo` issue form; label `patchy:preview-demo` exists.
+  (`publish images` → agent job; runtime job skipped) pushed `maul/app-envs/patchy-preview-demo:toolchain-v1`
+  (`sha256:02b294e7…`). `.maul/agent.yaml` already names it.
+- **Intents:** devthenet-labs/intents #3 added the `preview-demo` issue form; label `maul:preview-demo` exists.
 - **Controller + Project:** terraform-devthenet #28: `previewController.enabled: true` with
-  `apiServerCIDR: 172.20.0.1/32` → patchy **rev 44**; Project `preview-demo` (repo patchy-preview-demo, approver brvtl,
-  preview `{imageRepository: …/patchy/previews/patchy-preview-demo, port: 8080, readinessPath: /healthz}`) →
-  patchy-config **rev 26**. Both Projects Ready; `target` has no `spec.preview` (never previewed). Nine Deployments
-  Ready, zero restarts; previews 0; preview nodes 0; slots empty.
-- **Rollback points:** before the controller: patchy 43 / patchy-config 25; before stage 2: patchy 42. Stage-2 rollback
-  must delete the named kept placeholder Ingress/Service (removing the ALB) before `helm rollback patchy 42`, and the
-  wildcard record (revert #27 + apply) should go first.
+  `apiServerCIDR: 172.20.0.1/32` → maul **rev 44**; Project `preview-demo` (repo patchy-preview-demo, approver brvtl,
+  preview `{imageRepository: …/maul/previews/patchy-preview-demo, port: 8080, readinessPath: /healthz}`) → maul-config
+  **rev 26**. Both Projects Ready; `target` has no `spec.preview` (never previewed). Nine Deployments Ready, zero
+  restarts; previews 0; preview nodes 0; slots empty.
+- **Rollback points:** before the controller: maul 43 / maul-config 25; before stage 2: maul 42. Stage-2 rollback must
+  delete the named kept placeholder Ingress/Service (removing the ALB) before `helm rollback maul 42`, and the wildcard
+  record (revert #27 + apply) should go first.
 
 **0.12.13 released and deployed; gate PASSED (2026-10-03 UTC).** #85 (preview-controller Role gets `events`
 create/patch), #86 (`chart-render-test` runs under `LC_ALL=C`) and #87 (the remediation prompt makes the regression test
-part of the fix) merged; release #88. patchy Helm **rev 47**, patchy-config **rev 27**; rollback points patchy **44** /
-patchy-config **26**. Revs 45 and 46 failed on transient network drops between the workstation and the EKS API (Patch
+part of the fix) merged; release #88. maul Helm **rev 47**, maul-config **rev 27**; rollback points maul **44** /
+maul-config **26**. Revs 45 and 46 failed on transient network drops between the workstation and the EKS API (Patch
 calls hung ~13 min, then `connection reset by peer` / `read: operation timed out`; the chart was not at fault). A third
 identical `helm upgrade` succeeded in under 2 min. Nine Deployments Ready on v0.12.13 with zero restarts. The
 preview-controller logs have no `events is forbidden`, and it records its LeaderElection Event. Both Projects Ready,
 preview pool 0 nodes, status page 200, preview ALB unchanged. Gate: weak-key alert #39 → `finding-514becf18f-14` →
-tracking issue #71 → `/patchy expedite` → PR #72 (pushedCommit = PR head `84a62d0c`), checks green, merged `5da5fa39` →
+tracking issue #71 → `/maul expedite` → PR #72 (pushedCommit = PR head `84a62d0c`), checks green, merged `5da5fa39` →
 Remediated, issue closed completed with the remediated label, one comment per marker, main CodeQL marked #39 fixed, no
 duplicate Finding. **The remediation committed its test** (`releasegatekey_test.go`, a ≥2048-bit assertion) beside the
 fix.
 
-**First live preview demo: PASSED (2026-10-03).** The owner opened intent `devthenet-labs/intents#4` ("Hello from
-patchy", teal card) with the preview-demo form. An approve label added before the plan existed was correctly ignored and
-removed when the plan was posted (80 s,
+**First live preview demo: PASSED (2026-10-03).** The owner opened intent `devthenet-labs/intents#4` ("Hello from maul",
+teal card) with the preview-demo form. An approve label added before the plan existed was correctly ignored and removed
+when the plan was posted (80 s,
 $0.26); the owner re-approved after reading it. The build (100 s) opened
 `devthenet-labs/patchy-preview-demo#7`; the PR CI built the runtime image, the trusted publisher pushed it, and the
 Preview reached Ready in ~170 s (cold preview node `t3a.medium` from zero) at
-`https://preview-demo-4.preview.patchy.devthe.net`, serving the PR head SHA. The owner's "Request changes" review
+`https://preview-demo-4.preview.maul.devthe.net`, serving the PR head SHA. The owner's "Request changes" review
 (purple) started a revision round after the quiet window ($0.24),
 a fast-forward push (`e2256900`, parent `3ffe8b96`), and the Preview redeployed at the new head in ~160 s (one brief
 empty response during the ALB target switch). After the owner merged: Intent Merged (merge `0f6d1a94`), issue closed
@@ -842,14 +841,14 @@ completed, Preview and slot workloads deleted within ~10 s, the preview node ter
 zero), and the old host returns 404. Total agent cost for the intent: $0.81.
 
 **Fresh-Finding gate after enabling previews: PASSED.** Weak-key alert #38 → `finding-514becf18f-13` → issue #69 →
-`/patchy expedite` → PR #70 (pushedCommit = PR head `1c553a4c`), checks green, merged `4a3dd6f0` → Remediated, issue
+`/maul expedite` → PR #70 (pushedCommit = PR head `1c553a4c`), checks green, merged `4a3dd6f0` → Remediated, issue
 closed completed with the remediated label, one comment per marker, main CodeQL marked #38 fixed, no duplicate Finding.
 
 **Intent CI-fix round, live: PASSED (2026-10-03, 06:50–07:09 UTC).** patchy-preview-demo #8 (squash `c8c68365`) added
 CHANGELOG.md and a `changelog` check that fails a PR with no line naming its `#<number>`. It is a workflow of its own
 because `publish images` follows only `test`; the runtime publish for #8 still succeeded. terraform-devthenet #29 set
-the `preview-demo` Project's `checks.fix: [changelog]` → patchy-config **rev 28** (rollback point 27; patchy stays rev
-47). Intent `devthenet-labs/intents#5` ("Deployed by patchy" footer) → `preview-demo-5`: plan 66 s (`$0.22`; it left
+the `preview-demo` Project's `checks.fix: [changelog]` → maul-config **rev 28** (rollback point 27; maul stays rev 47).
+Intent `devthenet-labs/intents#5` ("Deployed by maul" footer) → `preview-demo-5`: plan 66 s (`$0.22`; it left
 CHANGELOG.md alone, since the PR number does not exist yet), approved, build 118 s (`$0.28`) opened
 `devthenet-labs/patchy-preview-demo#9` at `7f4d2aae`. `changelog` failed at 07:00:29 ("CHANGELOG.md has no entry for #9:
 add a line under ## Unreleased"). 54 s later intent-controller created `preview-demo-5-rev1-preview-demo-a1`
@@ -860,7 +859,7 @@ redeployed at `ff754761` (Ready 07:06:38, then about 15 s of an empty response a
 Squash-merged `8604f200` → Merged in 12 s, issue closed completed, Preview deleted within 30 s, preview pool at 0 nodes
 about 57 s later. Intent cost: `$0.75` (748594 µUSD).
 
-**Slice-3 demo apps and their infrastructure: ready (2026-10-03, ~08:15 UTC; no patchy-config or Helm change).** Done
+**Slice-3 demo apps and their infrastructure: ready (2026-10-03, ~08:15 UTC; no maul-config or Helm change).** Done
 overnight under the owner's authorisation (new repositories, merges, additive terraform apply):
 
 - **Repositories** (public, Go stdlib only): `devthenet-labs/marigold-api` (ID `1402832070`) and
@@ -870,42 +869,42 @@ overnight under the owner's authorisation (new repositories, merges, additive te
   are grouped per commit and never cancelled. The trusted `workflow_run` publishers read every constant from repository
   variables and are gated separately (`AGENT_PUBLISH_ENABLED`, `PREVIEW_PUBLISH_ENABLED`, both `true`). Main runtime
   images also get `main-<sha>`.
-- **terraform-devthenet #30** (`patchy-apps.tf`, merge `67db71a1`): a per-app map keyed by slug. Variable validation
-  fails the plan on a bad or reserved slug, a bad name or ID, or duplicates, and a precondition keeps the agent and
-  preview prefixes disjoint. Roles `devthenet-labs-app-<slug>-{agent,runtime}-push` trust the immutable subject, the
-  repository and owner IDs, main and the kind's `job_workflow_ref`. Applied 20 added, 0 changed, 0 destroyed; a fresh
-  plan shows no changes. Output `patchy_apps` holds each app's repository variables.
-- **Images:** the merge pushes published `patchy/previews/marigold-api:{sha,main}-6255a073…` (`sha256:ef40c834…`) and
-  `patchy/previews/marigold-web:{sha,main}-4bb88ca4…` (`sha256:c05c0978…`). The dispatched `agent image` runs published
-  `patchy/app-envs/marigold-api:toolchain-v1` (`sha256:541b642e…`) and `marigold-web:toolchain-v1` (`sha256:9e79ccb4…`),
-  which each `.patchy/agent.yaml` names. `patchy check image --run` at v0.12.13 passes on both.
-- **Intents:** devthenet-labs/intents #6 added the `marigold` form, which applies `patchy:marigold` (label created). The
+- **terraform-devthenet #30** (`maul-apps.tf`, merge `67db71a1`): a per-app map keyed by slug. Variable validation fails
+  the plan on a bad or reserved slug, a bad name or ID, or duplicates, and a precondition keeps the agent and preview
+  prefixes disjoint. Roles `devthenet-labs-app-<slug>-{agent,runtime}-push` trust the immutable subject, the repository
+  and owner IDs, main and the kind's `job_workflow_ref`. Applied 20 added, 0 changed, 0 destroyed; a fresh plan shows no
+  changes. Output `maul_apps` holds each app's repository variables.
+- **Images:** the merge pushes published `maul/previews/marigold-api:{sha,main}-6255a073…` (`sha256:ef40c834…`) and
+  `maul/previews/marigold-web:{sha,main}-4bb88ca4…` (`sha256:c05c0978…`). The dispatched `agent image` runs published
+  `maul/app-envs/marigold-api:toolchain-v1` (`sha256:541b642e…`) and `marigold-web:toolchain-v1` (`sha256:9e79ccb4…`),
+  which each `.maul/agent.yaml` names. `maul check image --run` at v0.12.13 passes on both.
+- **Intents:** devthenet-labs/intents #6 added the `marigold` form, which applies `maul:marigold` (label created). The
   README marks the project as not active yet.
 - **Not done; waits for the slice-3 release:** the `marigold` Project and the Helm values (T-02).
 
 **0.12.14 (slice 3 wave A) released and deployed; fresh-Finding gate and the first target-health preview PASSED
 (2026-10-03, 09:47–10:45 UTC).** Release PR #94 (diff: version stamps and CHANGELOG only; its CI run approved, green)
 squash-merged `b86897d`; the Release workflow published the images and both charts at 0.12.14. Live values equalled the
-terraform-devthenet `k8s/` files (comments aside). patchy **rev 48**, patchy-config **rev 29** (rollback points **47 /
+terraform-devthenet `k8s/` files (comments aside). maul **rev 48**, maul-config **rev 29** (rollback points **47 /
 28**); both upgrades succeeded first time (44 s and 4 s, no network drop). The 0.12.14 render differs from 0.12.13 only
-by the slot quota (pods 8, services 5), `PATCHY_PREVIEW_TARGET_HEALTH`, the tightened slot admission policies (the kept
-placeholder still conforms) and the config checksums; patchy-config renders identically. Nine Deployments Ready on
+by the slot quota (pods 8, services 5), `MAUL_PREVIEW_TARGET_HEALTH`, the tightened slot admission policies (the kept
+placeholder still conforms) and the config checksums; maul-config renders identically. Nine Deployments Ready on
 v0.12.14 with zero restarts, logs with only the known broker-race and status-auth warnings, both Projects Ready, both
 ALBs unchanged, status page 200.
 
-- **Gate:** weak-key alert #40 (`slicegatekey.go`) → `finding-514becf18f-15` → issue #73 → `/patchy expedite` (10:25:04)
-  → Remediating 10:26:49 → InReview 10:28:13 → PR #74 (pushedCommit = PR head `fca4e720`), checks green including
-  CodeQL, merged `9df42243` → Remediated 4 s later, issue closed completed with the remediated label, one comment per
-  marker, main CodeQL marked #40 fixed, no duplicate Finding. **The remediation committed its test**
-  (`slicegatekey_test.go`, a ≥2048-bit assertion). Cost $0.58 (investigation $0.33, remediation $0.24).
+- **Gate:** weak-key alert #40 (`slicegatekey.go`) → `finding-514becf18f-15` → issue #73 → `/maul expedite` (10:25:04) →
+  Remediating 10:26:49 → InReview 10:28:13 → PR #74 (pushedCommit = PR head `fca4e720`), checks green including CodeQL,
+  merged `9df42243` → Remediated 4 s later, issue closed completed with the remediated label, one comment per marker,
+  main CodeQL marked #40 fixed, no duplicate Finding. **The remediation committed its test** (`slicegatekey_test.go`, a
+  ≥2048-bit assertion). Cost $0.58 (investigation $0.33, remediation $0.24).
 - **Target-health Ready, live: Auto Mode honours the label.** terraform-devthenet #31 set
-  `previewController.config.targetHealth: true` → patchy **rev 49** (rollback point 48; patchy-config stays 29). Both
-  slot namespaces carry `eks.amazonaws.com/pod-readiness-gate-inject: enabled`. Intent `devthenet-labs/intents#7` ("Show
-  the build time in the card footer") → `preview-demo-7`: plan 85 s, approved, build 145 s opened
+  `previewController.config.targetHealth: true` → maul **rev 49** (rollback point 48; maul-config stays 29). Both slot
+  namespaces carry `eks.amazonaws.com/pod-readiness-gate-inject: enabled`. Intent `devthenet-labs/intents#7` ("Show the
+  build time in the card footer") → `preview-demo-7`: plan 85 s, approved, build 145 s opened
   `devthenet-labs/patchy-preview-demo#10` at `4ddd96a1`. The planner's `#10` CHANGELOG guess was right, so `changelog`
   passed and no check-fix round ran. The Preview kept the single-component names (Deployment, Service and Ingress
   `preview-preview-demo-7` in slot 0). Its Pod was created with the readiness gate
-  `target-health.eks.amazonaws.com/k8s-patchypr-previewp-b35644c0c5` (the TargetGroupBinding's name): ContainersReady
+  `target-health.eks.amazonaws.com/k8s-maulpr-previewp-b35644c0c5` (the TargetGroupBinding's name): ContainersReady
   10:40:18, gate True 10:40:20, Pod Ready 10:40:21, Preview Ready 10:40:23. Requesting the URL every second for 60
   requests from Ready got **zero non-200 responses** (slice 2 gave about 15 s of empty response or 404), and the ALB
   reported the target healthy. Squash-merged `71964ba9` → Merged 32 s later, issue closed completed, Preview deleted 13
@@ -921,35 +920,35 @@ ALBs unchanged, status page 200.
 **Deployability phase 1 merged; 0.12.15 released and deployed; fresh-Finding gate PASSED (2026-10-03, 16:17–17:58 UTC;
 overnight, owner asleep, under the standing permissions below).** Merged: #97 (W5: a Project with `checks.fix` is Ready
 only once the App's checks, statuses and actions read are proven by minting), #100 (W2: the CLI's image repositories
-stamped from the release registry; isolation probe parameterised), #101 (W6 `patchy setup github-app`), #99 (W9
-`patchy check project`), #98 (W7 `deploy/terraform/aws` reference module), #102 (W8 `patchy init app`, its agent base
+stamped from the release registry; isolation probe parameterised), #101 (W6 `maul setup github-app`), #99 (W9
+`maul check project`), #98 (W7 `deploy/terraform/aws` reference module), #102 (W8 `maul init app`, its agent base
 resolved from the stamped release registry), #104 (the flaky `TestMergeFromRenamedRepository`: `freePort` had handed one
 port to both `--listen-addr` and `--health-addr`; now a no-repeat pool). Release PR #103 (diff: version stamps and
 CHANGELOG only; both CI runs approved at the verified heads, green) → `8496b2f`; the Release workflow published images,
 both charts and the CLI at 0.12.15. Live values equalled the terraform-devthenet `k8s/` files; the 0.12.14→0.12.15
-renders differ only by versions and config checksums (patchy-config by versions only). No Job, Preview or active Intent
-was running. patchy **rev 50** (45 s), patchy-config **rev 30** (3 s); rollback points **49 / 29**. Nine Deployments
-Ready on v0.12.15, zero restarts, status page 200. Both Projects (both have `checks.fix`) were re-validated by the new
+renders differ only by versions and config checksums (maul-config by versions only). No Job, Preview or active Intent
+was running. maul **rev 50** (45 s), maul-config **rev 30** (3 s); rollback points **49 / 29**. Nine Deployments Ready
+on v0.12.15, zero restarts, status page 200. Both Projects (both have `checks.fix`) were re-validated by the new
 controller at start-up and stayed Ready, so the App's new read grants are proven live.
 
 - **Gate:** weak-key alert #41 (`onboardgatekey.go`, seed `8df0b99`) → `finding-514becf18f-16` → issue #75 →
-  `/patchy expedite` (17:53:50) → Remediating 17:55:58 → InReview 17:57:21 → PR #76 (`onboardgatekey_test.go`, a
-  ≥2048-bit assertion, committed with the fix), checks green incl. CodeQL → merged `0b917e2b` 17:58:19 → Remediated 7 s
-  later, issue closed completed with the remediated label, one comment per marker, no duplicate Finding.
+  `/maul expedite` (17:53:50) → Remediating 17:55:58 → InReview 17:57:21 → PR #76 (`onboardgatekey_test.go`, a ≥2048-bit
+  assertion, committed with the fix), checks green incl. CodeQL → merged `0b917e2b` 17:58:19 → Remediated 7 s later,
+  issue closed completed with the remediated label, one comment per marker, no duplicate Finding.
 - **Also merged after the release (in the next one):** #105 (W3: opt-in chart rendering of the DNS egress rule, the
   preview NodeClass/NodePool and the edge IngressClass, all default off and byte-identical when off; a read-only
   server-side diff against devthenet's hand-applied objects showed no spec change;
   `previewController.config.targetHealth` now defaults to true — devthenet already sets it). Do not flip
   `nodeIsolation.create` or `edgeIngressClass.create` on devthenet: Helm does not adopt the hand-applied objects. **Live
   onboarding of a freely named app (W10): PASSED (2026-10-03, 18:05–18:31 UTC).** With only released tools (CLI
-  v0.12.15, cosign-verified): `patchy init app` scaffolded the template `devthenet-labs/app-template` (agent base
-  resolved and digest-pinned by the CLI itself), and `devthenet-labs/Hello.Web` (mixed case and a dot on purpose;
-  image/slug `hello-web`) was made from it. terraform-devthenet #32 (`patchy-hello-web.tf`, the reference `modules/app`
-  at `?ref=v0.12.15`): plan reviewed (strict immutable-subject trust, push to its own repository only) and applied, 10
+  v0.12.15, cosign-verified): `maul init app` scaffolded the template `devthenet-labs/app-template` (agent base resolved
+  and digest-pinned by the CLI itself), and `devthenet-labs/Hello.Web` (mixed case and a dot on purpose; image/slug
+  `hello-web`) was made from it. terraform-devthenet #32 (`maul-hello-web.tf`, the reference `modules/app` at
+  `?ref=v0.12.15`): plan reviewed (strict immutable-subject trust, push to its own repository only) and applied, 10
   added, 0 changed, 0 destroyed. Variables set per repository from the module's dotenv; `AGENT_PUBLISH_ENABLED`,
   dispatch, then `PREVIEW_PUBLISH_ENABLED`; both images published (the agent publish proved the trust with the
-  mixed-case name). terraform-devthenet #33 added Project `hello-web` → patchy-config **rev 31**;
-  `patchy check project hello-web` all PASS. Intent `intents#8` → plan 62 s → approved → build 2 min → `Hello.Web#1`
+  mixed-case name). terraform-devthenet #33 added Project `hello-web` → maul-config **rev 31**;
+  `maul check project hello-web` all PASS. Intent `intents#8` → plan 62 s → approved → build 2 min → `Hello.Web#1`
   (`test` green) → preview `hello-web-8` Ready (30/30 requests 200) → merged → Merged 20 s later, preview gone 19 s
   after, issue closed completed. 8 minutes, $0.55. The docs bugs it found go into W11 (PR 108).
 
@@ -958,15 +957,15 @@ controller at start-up and stayed Ready, so the App's new read grants are proven
 105 (W3 chart toggles) shipped in 0.12.16 (release PR 106: stamps and CHANGELOG only; CI approved at the verified head).
 PR 109 (low follow-ups: a deleted Project's granted run hands its slot back; PushHeld names the current cause;
 departed-repository reads documented and backed off; a transient read never ends an intent) merged after it, for the
-next release. Render 0.12.15→0.12.16 with live values: only `PATCHY_INTENT_MULTI_REPO: "false"`, versions and checksums.
-patchy **rev 51**, patchy-config **rev 32** (rollback **50 / 31**); nine Deployments on v0.12.16, zero restarts.
+next release. Render 0.12.15→0.12.16 with live values: only `MAUL_INTENT_MULTI_REPO: "false"`, versions and checksums.
+maul **rev 51**, maul-config **rev 32** (rollback **50 / 31**); nine Deployments on v0.12.16, zero restarts.
 
-- **Gate:** weak-key alert → `finding-514becf18f-17` → issue #77 → `/patchy expedite` 19:58:56 → InReview 20:02:04 → PR
+- **Gate:** weak-key alert → `finding-514becf18f-17` → issue #77 → `/maul expedite` 19:58:56 → InReview 20:02:04 → PR
   #78 (with `multirepogatekey_test.go`) → merged 20:03:24 → Remediated 4 s later, no duplicate.
 - **T-02 applied:** terraform-devthenet #34: `intentController.config.multiRepo: true`, `maxConcurrentRuns: 2`, Project
-  `marigold` (`web` = marigold-web at `/`, `api` = marigold-api at `/api`, `checks.fix: [test]`). patchy **rev 52**,
-  patchy-config **rev 33** (rollback **51 / 32**; turning the flag off is the supported rollback). All four Projects
-  Ready; `patchy check project marigold` all PASS.
+  `marigold` (`web` = marigold-web at `/`, `api` = marigold-api at `/api`, `checks.fix: [test]`). maul **rev 52**,
+  maul-config **rev 33** (rollback **51 / 32**; turning the flag off is the supported rollback). All four Projects
+  Ready; `maul check project marigold` all PASS.
 - **Multi-repo demo:** `intents#9` ("Greet the visitor by name") → one plan over both trees (4 min; 3 planner questions
   with sensible defaults) → approved 20:10:09 → both builds in parallel (api 2.5 min, web 3.5 min) → sibling PRs
   `marigold-api#2` and `marigold-web#2` with cross-link comments and the "one of 2" footer → one two-component Preview
@@ -979,19 +978,19 @@ patchy **rev 51**, patchy-config **rev 32** (rollback **50 / 31**); nine Deploym
 20:30–22:44 UTC).** Merged: PR 108 (W11 operator guide: "Intents & previews" nav with deploying.md, onboarding-app.md
 and the module reference, all seven W10 docs bugs including the `init app` next steps, a fresh-eyes validation against a
 fictional org whose 19 unanswered questions and 33 review findings were fixed, then refreshed for 0.12.16 and
-multi-repository Projects), PR 113 (W1: `preview.imagePathPrefix`, default `patchy/previews`, with agent/preview prefix
+multi-repository Projects), PR 113 (W1: `preview.imagePathPrefix`, default `maul/previews`, with agent/preview prefix
 disjointness enforced by the chart render, the terraform module's validation and a new source-controller deny list set
 by the chart; the CRD leaf is now a strict DNS label; default render byte-identical), PR 112 (the flaky
 `TestBuildPackagesChangeset` cleanup: git auto-gc off in test repos), PR 114 (the account ID and the owner IP replaced
 in current files by `111122223333` / `203.0.113.10`; history still has them). Release PR 110 (stamps and CHANGELOG only,
 CI approved at the verified head, every job green). Render 0.12.16→0.12.17 with live values: only the source-controller
-ConfigMap (`PATCHY_REPOSITORY_IMAGE_DENIED_REGISTRIES` = the preview prefix) and the Project/Preview CRD patterns.
-patchy **rev 53**, patchy-config **rev 34** (rollback **52 / 33**); nine Deployments on v0.12.17, zero restarts; all
-four Projects Ready; status page 200.
+ConfigMap (`MAUL_REPOSITORY_IMAGE_DENIED_REGISTRIES` = the preview prefix) and the Project/Preview CRD patterns. maul
+**rev 53**, maul-config **rev 34** (rollback **52 / 33**); nine Deployments on v0.12.17, zero restarts; all four
+Projects Ready; status page 200.
 
 - **Live W1 proof:** a server dry-run of a Project whose preview leaf is `app-` is now refused by the CRD pattern; the
   same with `app` is accepted.
-- **Gate:** weak-key alert → `finding-514becf18f-18` → issue #79 → `/patchy expedite` 22:39:17 → InReview 22:42:10 → PR
+- **Gate:** weak-key alert → `finding-514becf18f-18` → issue #79 → `/maul expedite` 22:39:17 → InReview 22:42:10 → PR
   #80 (with `prefixgatekey_test.go`) → merged 22:43:27 → Remediated within a second, issue closed completed (tracking
   state caught up a few seconds later), no duplicate.
 - **Process slip, recorded:** a background waiter merged the docs-only PR 111 although `ci / test` was red (the flaky
@@ -1001,7 +1000,7 @@ four Projects Ready; status page 200.
 rewriting git history to drop the old account ID and IP; whether a permanently unreachable but still-listed repository
 should stop blocking an ended intent's hand-off; whether a removed repository's unreadable, last-seen-open pull request
 should keep an intent in review; the admission policy's preview leaf regex is deliberately wider than the CRD's
-(tightening it changes the live VAP). Small follow-ups: `patchy init app --preview-prefix`; the module's `helm_values`
+(tightening it changes the live VAP). Small follow-ups: `maul init app --preview-prefix`; the module's `helm_values`
 does not emit `preview.nodeIsolation.*`; intent-controller never posts the preview URL on the PR or issue; AGENTS.md
 still mentions a Homebrew cask for the fork's CLI.
 
@@ -1015,37 +1014,37 @@ steps" and "Preview update" sections below are historical; this checkpoint super
 
 ### Merged, released, applied
 
-- patchy PR #76 merged the Preview CR, fixed-slot preview-controller and Intent-to-Preview projection; release PR #77
+- maul PR #76 merged the Preview CR, fixed-slot preview-controller and Intent-to-Preview projection; release PR #77
   published **0.12.10**. PR #78 merged the kept, selectorless placeholder Service/Ingress and exact-name Helm annotation
   exception; release PR #79 published **0.12.11**. A live server-side dry run found that the _retained old_ slot
   admission policy would reject the placeholder during a direct enablement upgrade. PR #80 therefore added
   `preview.placeholder.enabled` (default true) so admission can be upgraded first with the placeholder off; release PR
   #81 published **0.12.12**. Both OCI charts and images are published. All local gates, separate security/liveness
   reviews and CI passed on the chart PRs; release-please CI approvals followed the standing diff-only rule.
-- Live cluster: `patchy` chart/app **0.12.12, Helm revision 42**; `patchy-config` chart/app **0.12.12, revision 25**.
-  The 0.12.12 release was first deployed with both preview switches false (revisions **41/25**, pre-upgrade rollback
-  points **40/24**). Terraform values PR #25 then merged (`173b66f`) and a _patchy-only_ upgrade made revision **42**
-  with `preview.enabled: true`, `preview.placeholder.enabled: false`, `previewController.enabled: false`, and
-  `nodeIsolation: {nodePool: patchy-preview, nodeClass: patchy-preview, taintKey: patchy.devthe.net/preview-only}`. The
+- Live cluster: `maul` chart/app **0.12.12, Helm revision 42**; `maul-config` chart/app **0.12.12, revision 25**. The
+  0.12.12 release was first deployed with both preview switches false (revisions **41/25**, pre-upgrade rollback points
+  **40/24**). Terraform values PR #25 then merged (`173b66f`) and a _maul-only_ upgrade made revision **42** with
+  `preview.enabled: true`, `preview.placeholder.enabled: false`, `previewController.enabled: false`, and
+  `nodeIsolation: {nodePool: maul-preview, nodeClass: maul-preview, taintKey: maul.devthe.net/preview-only}`. The
   pre-stage-1 rollback points were **41/25**. Re-record both live revisions before any future upgrade; if stage 2 is
   approved, **42/25** are the expected rollback points, not a substitute for a fresh check. Live Helm values match the
-  merged `k8s/patchy-values.yaml` plus TLS overlay and `k8s/patchy-config-values.yaml`.
+  merged `k8s/maul-values.yaml` plus TLS overlay and `k8s/maul-config-values.yaml`.
 - Terraform PRs #18 (preview ECR repositories and split publisher OIDC roles), #19/#20 (certificate request and its
   ACM-compatible correction), #23 (minimal preview node IAM role/policy/access entry), and #24 (runtime image lifecycle)
   are merged; the corrected infrastructure is applied. The wildcard preview certificate is **ISSUED**. The runtime
-  repository `patchy/previews/patchy-preview-demo` now expires untagged images after 14 days and `sha-` tagged images
+  repository `maul/previews/patchy-preview-demo` now expires untagged images after 14 days and `sha-` tagged images
   after 30 days; the agent-toolchain repository is outside that tagged rule. PR #25 changed Helm values only: no
   Terraform resources were applied for stage 1. A fresh `AWS_PROFILE=devthenet terraform plan -detailed-exitcode` on
   2026-10-02 exited **0: no changes** (only unrelated provider deprecation warnings). The separately applied
-  `k8s/auto-mode-preview-node.yaml` defines a Ready `patchy-preview` DefaultDeny NodeClass and tainted NoExecute
-  NodePool, with `spec.limits.cpu: "4"` and `spec.limits.nodes: "2"`, currently **zero nodes**. Treat CPU as the hard
-  spend bound; do not assume Auto Mode enforces the `nodes` limit without re-checking. The demo repo's trusted runtime
-  publisher remains enabled; no preview runtime is running.
+  `k8s/auto-mode-preview-node.yaml` defines a Ready `maul-preview` DefaultDeny NodeClass and tainted NoExecute NodePool,
+  with `spec.limits.cpu: "4"` and `spec.limits.nodes: "2"`, currently **zero nodes**. Treat CPU as the hard spend bound;
+  do not assume Auto Mode enforces the `nodes` limit without re-checking. The demo repo's trusted runtime publisher
+  remains enabled; no preview runtime is running.
 - The 0.12.11 fresh-Finding gate completed: CodeQL alert #36, Finding `finding-514becf18f-11`, issue #65, fix PR #66,
   merge `291bd486bc541762618354399f0cf302dac10431`. The 0.12.12 gate also completed without manual correction: alert
   #37, `finding-514becf18f-12`, issue #67, fix PR #68, merge `c4b37565d30ad9c5cb1ad2b79d775d09703ac87d`. In each gate
   the remediation pushed SHA matched the PR head, Go/CodeQL checks passed, the Finding reached Remediated with the merge
-  SHA and no ReviewClosePending, the issue closed as completed with the remediated label, each patchy comment marker
+  SHA and no ReviewClosePending, the issue closed as completed with the remediated label, each maul comment marker
   appeared once, and main CodeQL fixed the alert without a duplicate Finding. No fresh Finding was seeded after the
   values-only stage-1 revision.
 
@@ -1053,22 +1052,22 @@ steps" and "Preview update" sections below are historical; this checkpoint super
 
 - All eight existing Deployments are 1/1 Ready with zero restarts; post-upgrade controller logs had no errors, panics or
   failed reconciles. The `target` Project is Ready. Both slot namespaces have their `preview-isolation` NetworkPolicy
-  and preview admission bindings, but no Deployment, Pod, Service or Ingress. No active Job remains in `patchy-agents`,
+  and preview admission bindings, but no Deployment, Pod, Service or Ingress. No active Job remains in `maul-agents`,
   and no probe is running. The dedicated NodePool is Ready at zero nodes.
-- A server-side dry run **accepted** only the rendered `patchy-preview-placeholder` Service and Ingress in slot 0 with
-  the exact Helm ownership/keep annotations. Dry runs **denied** the same annotations on a differently named Service and
-  Ingress in the slot, and denied `alb-preview` on an Ingress in `patchy`. This verifies the kept-policy staging fix
+- A server-side dry run **accepted** only the rendered `maul-preview-placeholder` Service and Ingress in slot 0 with the
+  exact Helm ownership/keep annotations. Dry runs **denied** the same annotations on a differently named Service and
+  Ingress in the slot, and denied `alb-preview` on an Ingress in `maul`. This verifies the kept-policy staging fix
   without creating the placeholder. AWS still returns `LoadBalancerNotFound` for `devthenet-dev-preview`; no preview ALB
   or wildcard DNS exists. The existing webhook/status ALB kept ARN
   `arn:aws:elasticloadbalancing:us-east-1:111122223333:loadbalancer/app/devthenet-dev/35727d407a91ad54`, DNS
   `devthenet-dev-806232275.us-east-1.elb.amazonaws.com`, and creation time `2026-09-22T17:41:15.593Z`;
-  `https://status.patchy.devthe.net/` returned HTTP 200. No new App-delivery probe was run for stage 1; verify webhook
+  `https://status.maul.devthe.net/` returned HTTP 200. No new App-delivery probe was run for stage 1; verify webhook
   deliveries after the later ALB step as agreed.
-- Stage-1 rollback, if required: roll patchy back to revision **41** (patchy-config remains 25). Helm `keep` annotations
+- Stage-1 rollback, if required: roll maul back to revision **41** (maul-config remains 25). Helm `keep` annotations
   mean slot namespaces/guardrails may remain; inspect and deliberately drain before any explicit deletion. Never assume
   `helm rollback` or uninstall silently removes a slot with workloads. The preview controller is off, so stage 1 cannot
   schedule a preview.
-- Local checkout caveat for the next agent: `/Users/peter/code/patchy` has pre-existing, untracked `data/`, `debug.log`
+- Local checkout caveat for the next agent: `/Users/peter/code/maul` has pre-existing, untracked `data/`, `debug.log`
   and `info.log`; the original terraform-devthenet checkout has untracked `AGENTS.md`, `debug.log` and `info.log`. These
   are not preview changes and were deliberately left untouched. Task branches and `/tmp` worktrees were audited; see the
   final handover report for their remote-HEAD states. Work in a clean branch/worktree and preserve those files.
@@ -1076,18 +1075,18 @@ steps" and "Preview update" sections below are historical; this checkpoint super
 ### Open items and next steps — in this order
 
 1. **Ask for the owner's separate stage-2 ALB approval before changing anything.** The proposed change is only
-   `preview.placeholder.enabled: false -> true` in `k8s/patchy-values.yaml`, followed by a separate patchy Helm revision
+   `preview.placeholder.enabled: false -> true` in `k8s/maul-values.yaml`, followed by a separate maul Helm revision
    using 0.12.12. It renders the kept, selectorless placeholder Service and `alb-preview` Ingress in slot 0; this starts
    the agreed estimated ~$25–35/month incremental ALB cost even without workloads. Re-record rollback revisions first.
    Keep `previewController.enabled: false`. Verify the new ALB name/DNS, certificate, HTTPS listener, exact
    `203.0.113.10/32` inbound CIDR, empty target group, zero preview nodes/workloads, unchanged shared ALB ARN/DNS/
-   creation time, 2xx GitHub App Recent Deliveries to `patchy.devthe.net`, and the status page. On failure, inspect
-   empty slots, explicitly delete the **named** kept placeholder Ingress/Service to remove the ALB, then roll back to
-   the guardrails-only revision; Helm rollback alone will not delete kept resources. Check in before this apply.
+   creation time, 2xx GitHub App Recent Deliveries to `maul.devthe.net`, and the status page. On failure, inspect empty
+   slots, explicitly delete the **named** kept placeholder Ingress/Service to remove the ALB, then roll back to the
+   guardrails-only revision; Helm rollback alone will not delete kept resources. Check in before this apply.
 2. **Wildcard DNS after the preview ALB exists:** prepare the Route53 alias Terraform PR/plan for
-   `*.preview.patchy.devthe.net` against the actual new ALB DNS/canonical zone, review the plan and rollback with the
+   `*.preview.maul.devthe.net` against the actual new ALB DNS/canonical zone, review the plan and rollback with the
    owner, and do not apply until separately approved. The preview cert is ready; DNS is not present.
-3. **Then the `preview-demo` Project:** configure only `devthenet-labs/patchy-preview-demo` in patchy-config, enable the
+3. **Then the `preview-demo` Project:** configure only `devthenet-labs/patchy-preview-demo` in maul-config, enable the
    preview-controller/Intent preview projection in a separate approved Helm revision, and run the live preview
    demo/cleanup and fresh-Finding gate. **Never preview patchy-target.** Keep the preview pool at zero when idle.
 4. **Known validation gap:** direct EKS Auto Mode network-policy-agent logs were unavailable during the accepted
@@ -1102,10 +1101,10 @@ steps" and "Preview update" sections below are historical; this checkpoint super
 
 ## Historical checkpoint — 2026-09-27
 
-The `__Host-` cookie prerequisite (PR #67) is merged and released by PR #68 as **0.12.7**. Live: patchy revision **34**,
-patchy-config revision **20**, intents enabled. Pre-upgrade rollback points were **33 / 19** (0.12.6). All eight pods
-are Ready, target is Ready, and status.patchy.devthe.net returns HTTP 200. OIDC is not configured on this cluster, so no
-live sign-in was claimed. Known advisory broker-startup warnings are accepted; no errors, panics, CrashLoops or failed
+The `__Host-` cookie prerequisite (PR #67) is merged and released by PR #68 as **0.12.7**. Live: maul revision **34**,
+maul-config revision **20**, intents enabled. Pre-upgrade rollback points were **33 / 19** (0.12.6). All eight pods are
+Ready, target is Ready, and status.maul.devthe.net returns HTTP 200. OIDC is not configured on this cluster, so no live
+sign-in was claimed. Known advisory broker-startup warnings are accepted; no errors, panics, CrashLoops or failed
 reconciles were observed.
 
 The fresh-Finding gate passed without manual correction: alert 31, `finding-514becf18f-6`, issue #55, repair PR #56,
@@ -1114,7 +1113,7 @@ and no ReviewClosePending; the issue closed as completed with the remediated lab
 CodeQL re-analysis fixed the alert without a duplicate Finding. Existing Finding/Intent phases were unchanged.
 
 The default `alb` namespace prerequisite is now applied (terraform-devthenet PR #17, merge `e784fd3`): its selector is
-exactly `spec.namespaceSelector.matchLabels: {kubernetes.io/metadata.name: patchy}`, the automatic namespace label.
+exactly `spec.namespaceSelector.matchLabels: {kubernetes.io/metadata.name: maul}`, the automatic namespace label.
 Applied 2026-09-27 16:58:05 UTC after the owner's specific approval. Both ingresses reconciled successfully; ALB ARN,
 DNS and creation time stayed unchanged, targets remained healthy, and Route53 aliases were unchanged. A fresh probe on
 completed target issue #55 returned 202 in App Recent Deliveries; all 36 deliveries in the checked apply window were
@@ -1128,13 +1127,13 @@ Finding/Intent phases stayed unchanged. The 17:07:41 UTC sweep scanned 121 deliv
 the apply window meant no redeliveries were needed (failure recovery was not exercised).
 
 Rollback: restore `k8s/auto-mode-alb.yaml` from terraform commit `952b675439c5a3e85eec65f160caa1ac48c90037` and apply
-that manifest. If the ALB is ever replaced, the owner also requires a DNS repair: `patchy.tf` defines
-`aws_route53_record.patchy_webhook` and `aws_route53_record.patchy_status`, both using `data.aws_lb.devthenet_dev`.
-Refresh the lookup and prepare a plan targeting the replacement ALB's DNS/canonical zone, **check in before any
-Terraform apply**, then verify endpoint recovery and that the normal redelivery sweep re-requests failed-window
-deliveries. Do not force a full replay/reset. No replacement occurred in this apply; no Terraform/DNS repair was used.
+that manifest. If the ALB is ever replaced, the owner also requires a DNS repair: `maul.tf` defines
+`aws_route53_record.maul_webhook` and `aws_route53_record.maul_status`, both using `data.aws_lb.devthenet_dev`. Refresh
+the lookup and prepare a plan targeting the replacement ALB's DNS/canonical zone, **check in before any Terraform
+apply**, then verify endpoint recovery and that the normal redelivery sweep re-requests failed-window deliveries. Do not
+force a full replay/reset. No replacement occurred in this apply; no Terraform/DNS repair was used.
 
-Evidence is in `/tmp/patchy-alb-gate.cbeLEb/rollout.md`. No preview namespaces, preview ALB or demo resources exist yet.
+Evidence is in `/tmp/maul-alb-gate.cbeLEb/rollout.md`. No preview namespaces, preview ALB or demo resources exist yet.
 The approved preview scope, individual infrastructure check-ins and safeguards below still apply.
 
 The owner says to **leave Actions settings and release credentials unchanged**. Release-please currently uses
@@ -1143,9 +1142,9 @@ setting. The standing permission for these run approvals is recorded below; it d
 
 ## Previous checkpoint — 2026-09-26
 
-Slice 1a/1b code is merged and live on **0.12.6**, patchy revision **33**, patchy-config revision **19**, intents
-enabled. PR #65 fixed PR-comment permissions and durable notices; the missing round-1 notice on target PR #46 was
-recovered exactly once. The new human review completed a successful revision
+Slice 1a/1b code is merged and live on **0.12.6**, maul revision **33**, maul-config revision **19**, intents enabled.
+PR #65 fixed PR-comment permissions and durable notices; the missing round-1 notice on target PR #46 was recovered
+exactly once. The new human review completed a successful revision
 ($0.295620), the owner merged PR #46,
 target-2 reached Merged, and intents issue #2 closed as completed with one summary. Its total reported cost was
 $1.150306.
@@ -1164,8 +1163,8 @@ re-analysis fixed the alert without a duplicate Finding. No manual correction wa
 - Check in with the owner **before each infrastructure apply**, including Helm upgrades; the general approval does not
   authorise unattended applies. Record current rollback revisions again before every upgrade.
 - Before any preview namespace exists: release/gate the `__Host-` cookie prerequisite, then restrict the existing `alb`
-  IngressClassParams to namespace `patchy`. Verify unchanged ALB identity, successful **2xx GitHub App Recent
-  Deliveries** to patchy.devthe.net, and that status.patchy.devthe.net loads after that change.
+  IngressClassParams to namespace `maul`. Verify unchanged ALB identity, successful **2xx GitHub App Recent Deliveries**
+  to maul.devthe.net, and that status.maul.devthe.net loads after that change.
 - Runtime image builds have no credentials and **no id-token access**. Fork PRs must never publish. The separate
   publisher must never execute PR code and can write only its own immutable runtime ECR repository, never app-envs.
 - Use reviewable draft PRs, full local/CI gates, a separate security/liveness review, releases and fresh-Finding gates.
@@ -1175,7 +1174,7 @@ re-analysis fixed the alert without a duplicate Finding. No manual correction wa
 
 This checkpoint supersedes the historical implementation status below; the permissions, gates and security invariants
 still apply. Slice 1a and slice 1b are merged. PRs #61 and #63 repaired GraphQL-only edit detection, empty feedback and
-the expired legacy Job. Both releases passed fresh-Finding gates. Live is 0.12.5, patchy revision 31 and config revision
+the expired legacy Job. Both releases passed fresh-Finding gates. Live is 0.12.5, maul revision 31 and config revision
 18, with intents disabled after rolling back enablement revision 30 to revision 29.
 
 The remaining live fault is PR-comment token scoping: target-2 settled back to InReview with zero revisions charged, but
@@ -1194,14 +1193,14 @@ build).
 
 ## Historical preview update (2026-10-01; superseded by the current checkpoint above)
 
-- Slice 1a and 1b are merged and live. The preview prerequisites are live through patchy 0.12.9 (Helm revision 38) and
-  patchy-config 0.12.9 (revision 22). `preview.enabled` is **false** in the live Helm values and in terraform-devthenet.
-  Do not enable it while developing the preview-controller. The dedicated `patchy-preview` DefaultDeny NodeClass and
+- Slice 1a and 1b are merged and live. The preview prerequisites are live through maul 0.12.9 (Helm revision 38) and
+  maul-config 0.12.9 (revision 22). `preview.enabled` is **false** in the live Helm values and in terraform-devthenet.
+  Do not enable it while developing the preview-controller. The dedicated `maul-preview` DefaultDeny NodeClass and
   tainted NodePool are Ready and scale to zero. No preview ALB exists yet.
 - The first-instant isolation result is accepted as passing by the owner: three separate cold starts of a disposable,
   unmerged preview-demo PR image on Deployment-managed Pods (slot 0, slot 1, slot 0) each recorded 128 blocked
   connections and no reachable or inconclusive forbidden target. The targets were IMDSv2 token PUT (status only), Pod
-  Identity, Kubernetes API, patchy services and broker, and the internet; DNS succeeded after policy programming. The
+  Identity, Kubernetes API, maul services and broker, and the internet; DNS succeeded after policy programming. The
   probe Deployments were deleted, the node pool returned to zero, and the PR was closed unmerged.
 - **Open validation gap:** the EKS Auto Mode network-policy agent logs were not directly available. No
   `no bpf context registered` error was seen in the Kubernetes events or available control-plane logs, but that is
@@ -1219,8 +1218,8 @@ build).
 
 ## Running this work: environment and permissions
 
-- **Run locally, with network.** Work in `/Users/peter/code/patchy` on the owner's machine, not a cloud sandbox. The
-  gates download tools, Go modules and envtest binaries. The live steps need the owner's `gh` login (`brvtl`), `kubectl`
+- **Run locally, with network.** Work in `/Users/peter/code/maul` on the owner's machine, not a cloud sandbox. The gates
+  download tools, Go modules and envtest binaries. The live steps need the owner's `gh` login (`brvtl`), `kubectl`
   against `devthenet-dev` with `AWS_PROFILE=devthenet`, and SSH git pushes. In Codex CLI that means a mode with network
   access that may run these commands. In a sandbox without them the gates fail and the live checks silently do not
   happen, and that must never be reported as passing.
@@ -1233,9 +1232,9 @@ build).
     changes. If any other change is present, stop and ask rather than approving. Leave Actions settings and release
     credentials unchanged; CI must still pass before merge;
   - `helm upgrade` and `helm rollback` of the two releases on `devthenet-dev`;
-  - pushing deliberate test vulnerabilities to `devthenet-labs/patchy-target`, and merging patchy's own fix PRs there
+  - pushing deliberate test vulnerabilities to `devthenet-labs/patchy-target`, and merging maul's own fix PRs there
     during a gate;
-  - posting commands on patchy's own test issues.
+  - posting commands on maul's own test issues.
 - **Ask the owner first** before anything else outward-facing: new repositories, GitHub App permission or webhook
   changes, `terraform apply`, deleting branches, repositories or cluster resources, or changing who is an approver.
 - **Review without the old tooling.** The previous agent had independent reviewers plus two refuters check every serious
@@ -1247,19 +1246,19 @@ build).
 
 ## The goal
 
-patchy started as a security pipeline (CodeQL alert → `Finding` → sandboxed `claude -p` investigation and remediation →
-PR). The owner's goal is **intent-driven development**: a human opens an issue in an _intent repo_; patchy plans it and
-posts the plan; an approver approves by label (or `/patchy approve`); patchy builds the plan in the project's app repo
-and opens a PR; the PR branch is deployed as a _preview_ on a subdomain; PR review (and failing CI checks) trigger
-revision rounds; merge closes the loop. It must work for several projects in one GitHub org.
+maul started as a security pipeline (CodeQL alert → `Finding` → sandboxed `claude -p` investigation and remediation →
+PR). The owner's goal is **intent-driven development**: a human opens an issue in an _intent repo_; maul plans it and
+posts the plan; an approver approves by label (or `/maul approve`); maul builds the plan in the project's app repo and
+opens a PR; the PR branch is deployed as a _preview_ on a subdomain; PR review (and failing CI checks) trigger revision
+rounds; merge closes the loop. It must work for several projects in one GitHub org.
 
 Decisions already made (see the design's "Decisions" section): a separate, default-off `intent-controller` with its own
 `Project` / `Intent` / `IntentRun` CRDs and local phase enums (the Finding state machine is untouched); one org intent
 repo with one `Project` CR per project; slice 1a (plan → approve → build → PR → merge), then slice 1b (revise rounds
-from a "Request changes" review or `/patchy revise`, plus automatic fix rounds for failing CI checks), then slice 2
+from a "Request changes" review or `/maul revise`, plus automatic fix rounds for failing CI checks), then slice 2
 (previews via a slot-pool `preview-controller` on a separate IP-restricted ALB). One GitHub command grammar,
-`/patchy <verb>`, for Findings and intents, authorised by **write access** (the collaborator-permission API; public
-repos report `read` for everyone, so `read` is never enough).
+`/maul <verb>`, for Findings and intents, authorised by **write access** (the collaborator-permission API; public repos
+report `read` for everyone, so `read` is never enough).
 
 ## Security invariants (do not weaken)
 
@@ -1274,7 +1273,7 @@ repos report `read` for everyone, so `read` is never enough).
   REST still shows the original author).
 - Agent text reaching GitHub goes through `internal/templates` renderers; PR title/body/commit messages are defanged as
   **plain text** too (squash merges copy them into commits, where code spans protect nothing).
-- Intent changesets refuse `.github/**`, `.patchy/**`, `.devcontainer/**`; builds only run in an accepted
+- Intent changesets refuse `.github/**`, `.maul/**`, `.devcontainer/**`; builds only run in an accepted
   repository-declared image; pushes are create-only then fast-forward-only — never force, never the default branch.
 - Webhook handlers are acked (202) before they run and never retried: they must not depend on a GitHub call. Record
   intent/command state in CR status and settle it in a reconciler with backoff (see
@@ -1305,34 +1304,34 @@ repos report `read` for everyone, so `read` is never enough).
 
 ## Where everything is
 
-| Thing                           | Where                                                                                                                                                                                                                                                                                                                                           |
-| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| patchy fork (work here)         | `devthenet-labs/patchy`, local `/Users/peter/code/patchy`. `upstream` (bitwise-media-group) is read-only. Always pass `--repo devthenet-labs/patchy` to `gh` (bare PR numbers can resolve to upstream).                                                                                                                                         |
-| Infra (terraform + Helm values) | `/Users/peter/code/DevTheNet/terraform-devthenet` (remote `brvtl/terraform-devthenet`), Helm values in `k8s/`. AWS profile `devthenet` (`~/.aws`).                                                                                                                                                                                              |
-| Cluster                         | EKS Auto Mode `devthenet-dev`, us-east-1. Namespaces `patchy`, `patchy-agents`, and guarded empty slots `patchy-preview-0/1`. `export AWS_PROFILE=devthenet`.                                                                                                                                                                                   |
-| Helm releases                   | `patchy` (chart `oci://ghcr.io/devthenet-labs/patchy/charts/patchy`, values `-f k8s/patchy-values.yaml -f k8s/patchy-values-tls.yaml -f k8s/patchy-values-preview-auth.yaml`) and `patchy-config` (`.../charts/patchy-config`, `-f k8s/patchy-config-values.yaml`). Current live state and rollback points are in the current checkpoint above. |
-| Hostnames                       | `patchy.devthe.net` (webhooks `/github/webhooks`), `status.patchy.devthe.net`.                                                                                                                                                                                                                                                                  |
-| GitHub App                      | `patchy-devthenet` (id 5036888), installation 163854331 on all devthenet-labs repos; credentials in Secret `patchy/patchy-github` (keys `appID`, `privateKey`, `webhookSecret`).                                                                                                                                                                |
-| App repo (demo target)          | `devthenet-labs/patchy-target` (deliberately vulnerable Go server; its agent image is `patchy/app-envs/patchy-target` in ECR, pushed by the per-app role `devthenet-labs-app-env-push-patchy-target`).                                                                                                                                          |
-| Intent repo                     | `devthenet-labs/intents` (private): README, issue form `.github/ISSUE_TEMPLATE/target.yml` applying `patchy:target`, labels `patchy:target` and `patchy:approved`.                                                                                                                                                                              |
-| Scratch repo                    | `devthenet-labs/patchy-smoke` (private) for API experiments.                                                                                                                                                                                                                                                                                    |
-| Plans (git-ignored)             | `.claude/plans/intent-wave3-brief.md` (the controller contract), `.claude/plans/intent-dev-understand-maps.md` (codebase maps). Local only.                                                                                                                                                                                                     |
+| Thing                           | Where                                                                                                                                                                                                                                                                                                                         |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| maul fork (work here)           | `devthenet-labs/maul`, local `/Users/peter/code/maul`. `upstream` (bitwise-media-group) is read-only. Always pass `--repo devthenet-labs/maul` to `gh` (bare PR numbers can resolve to upstream).                                                                                                                             |
+| Infra (terraform + Helm values) | `/Users/peter/code/DevTheNet/terraform-devthenet` (remote `brvtl/terraform-devthenet`), Helm values in `k8s/`. AWS profile `devthenet` (`~/.aws`).                                                                                                                                                                            |
+| Cluster                         | EKS Auto Mode `devthenet-dev`, us-east-1. Namespaces `maul`, `maul-agents`, and guarded empty slots `maul-preview-0/1`. `export AWS_PROFILE=devthenet`.                                                                                                                                                                       |
+| Helm releases                   | `maul` (chart `oci://ghcr.io/devthenet-labs/maul/charts/maul`, values `-f k8s/maul-values.yaml -f k8s/maul-values-tls.yaml -f k8s/maul-values-preview-auth.yaml`) and `maul-config` (`.../charts/maul-config`, `-f k8s/maul-config-values.yaml`). Current live state and rollback points are in the current checkpoint above. |
+| Hostnames                       | `maul.devthe.net` (webhooks `/github/webhooks`), `status.maul.devthe.net`.                                                                                                                                                                                                                                                    |
+| GitHub App                      | `patchy-devthenet` (id 5036888), installation 163854331 on all devthenet-labs repos; credentials in Secret `maul/maul-github` (keys `appID`, `privateKey`, `webhookSecret`).                                                                                                                                                  |
+| App repo (demo target)          | `devthenet-labs/patchy-target` (deliberately vulnerable Go server; its agent image is `maul/app-envs/patchy-target` in ECR, pushed by the per-app role `devthenet-labs-app-env-push-patchy-target`).                                                                                                                          |
+| Intent repo                     | `devthenet-labs/intents` (private): README, issue form `.github/ISSUE_TEMPLATE/target.yml` applying `maul:target`, labels `maul:target` and `maul:approved`.                                                                                                                                                                  |
+| Scratch repo                    | `devthenet-labs/patchy-smoke` (private) for API experiments.                                                                                                                                                                                                                                                                  |
+| Plans (git-ignored)             | `.claude/plans/intent-wave3-brief.md` (the controller contract), `.claude/plans/intent-dev-understand-maps.md` (codebase maps). Local only.                                                                                                                                                                                   |
 
 ## Where the work stands
 
 Merged to `main` and live-gated (each wave released, deployed and proven with a fresh live Finding):
 
 - Wave 0 fixes (#36–#39), design (#35), per-app ECR push roles (terraform #14, patchy-target #29).
-- Wave 1: `/patchy` command parser (#41), `Project`/`Intent`/`IntentRun` CRDs (#42), GitHub seams (#43).
+- Wave 1: `/maul` command parser (#41), `Project`/`Intent`/`IntentRun` CRDs (#42), GitHub seams (#43).
 - Wave 2: in-pod `plan`/`build` stages (#45), templates/sanitiser/`internal/changeset`/`PinFor` (#46), NaN confidence
-  fix (#47), Finding `/patchy` commands with write-access authorisation (#48, BREAKING), refusal-quiet fix (#50, merged,
+  fix (#47), Finding `/maul` commands with write-access authorisation (#48, BREAKING), refusal-quiet fix (#50, merged,
   **not yet released**).
 
 **In flight — PR #51 `feat(intent): intent-controller for slice 1a (core, wiring, e2e)`** (draft, branch
 `feature/intent-controller`, head `8019f6c` = the round-2 fixes plus a merge of `main`): the controller, chart /
 kustomize / goreleaser wiring, CLI kinds, docs, and an envtest e2e driving an intent from issue to merged PR against
 fakegithub. All gates and CI were green at `8019f6c`. It has had three review rounds: round 1 found 20 confirmed issues
-(including a high: an approver's `/patchy approve` forged by someone with write access editing the approver's comment),
+(including a high: an approver's `/maul approve` forged by someone with write access editing the approver's comment),
 round 2 found 13; both rounds are fixed on the branch. **Round 3 was stopped before its fixer changed anything** (to
 save tokens for the handoff): its six findings below were each confirmed by two independent refuters and are **not yet
 fixed**. They are the first job.
@@ -1340,7 +1339,7 @@ fixed**. They are the first job.
 1. **Intent stays stuck in Building when its pushed branch is deleted before the PR is opened** (medium;
    `internal/controller/intent/intent_build.go:129`)
 
-   - Scenario: openPullRequest assumes patchy-intent/<intent> still exists at the build's commit. If a human deletes the
+   - Scenario: openPullRequest assumes maul-intent/<intent> still exists at the build's commit. If a human deletes the
      branch after the build pushed it and before the PR is created, CreatePullRequest gets GitHub's 422 (head invalid).
      That error is returned unclassified: openPullRequest wraps it, building() returns it, and the reconcile retries
      with backoff indefinitely. Nothing blocks the Intent, fails it, or sets a condition. The round's latest run is
@@ -1350,7 +1349,7 @@ fixed**. They are the first job.
      resume.' The human closes that PR and clicks GitHub's 'Delete branch' button, or deletes the branch directly, which
      also auto-closes the PR. branchBlockHolds sees no foreign PR, and blocked() resumes to Building without a new run
      (done == true). openPullRequest then fails CreatePullRequest with 422 on every pass. The status comment keeps
-     saying Building. Only `/patchy cancel` gets out, and the approved build is lost. The same wedge follows any refused
+     saying Building. Only `/maul cancel` gets out, and the approved build is lost. The same wedge follows any refused
      PR create, for example a 403 after the App loses pull_requests:write.
 
    - Suggested fix: Before CreatePullRequest, read the branch head (HeadSHA). If the branch is missing or not at the
@@ -1360,28 +1359,28 @@ fixed**. They are the first job.
      ghclient.IsRefused(err) from CreatePullRequest as terminal for the round (block or fail with a condition) rather
      than an endless transient retry.
 
-2. **One approve label or /patchy approve approves every Project's Intent on the same issue** (low / security;
+2. **One approve label or /maul approve approves every Project's Intent on the same issue** (low / security;
    `internal/controller/intent/project_controller.go:240`)
 
    - Scenario: The multi-project model (D3) shares one intent repository across Projects that differ only by trigger
-     label. The approve label defaults to the global `patchy:approved`, and `/patchy approve` names no intent or plan.
+     label. The approve label defaults to the global `maul:approved`, and `/maul approve` names no intent or plan.
      validate() rejects only Projects that share both the intent repository and the trigger label. Nothing scopes an
      approval to one Intent. When one issue carries two projects' trigger labels, discovery creates two Intents (a-<n>
      and b-<n>). Each posts its own plan comment. Each approveLabelAction and each command settle independently accepts
      the same labeled event or comment: the actor is authorized against its own Project, the approval is after its own
      PostedAt, and its own plan comment and the issue are unchanged. Concrete scenario: approver Y (Project B only)
      triggers B on issue 5, which already has A's intent. Approver X, who is on both approver lists, reads A's plan and
-     follows its instructions ('Add the patchy:approved label ... patchy then builds exactly the plan below'). Intent
-     b-5 is approved too. B's plan, which X never read, is built in B's app repository and a PR is opened under
-     'approved by X'. Conversely, when the actor is not one of B's approvers, B refuses the shared label and removes it.
-     This can race A's acceptance and silently drop X's label approval of A. The plan-comment wording ('builds exactly
-     the plan below') and the 'approval bound to what was shown' guarantee do not hold in this setup. The final merge is
-     still human-gated.
+     follows its instructions ('Add the maul:approved label ... maul then builds exactly the plan below'). Intent b-5 is
+     approved too. B's plan, which X never read, is built in B's app repository and a PR is opened under 'approved by
+     X'. Conversely, when the actor is not one of B's approvers, B refuses the shared label and removes it. This can
+     race A's acceptance and silently drop X's label approval of A. The plan-comment wording ('builds exactly the plan
+     below') and the 'approval bound to what was shown' guarantee do not hold in this setup. The final merge is still
+     human-gated.
 
    - Suggested fix: Scope approvals to one Intent. Options: make validate() report AmbiguousIntentRepository when two
      Projects on the same intent repository share an approve label (and default the approve label to a per-project name
-     such as `patchy:<project>:approved`). Or refuse, or report a conflict for, an issue that carries more than one
-     Project's trigger label, with discovery creating at most one Intent per issue. Or require `/patchy approve` to name
+     such as `maul:<project>:approved`). Or refuse, or report a conflict for, an issue that carries more than one
+     Project's trigger label, with discovery creating at most one Intent per issue. Or require `/maul approve` to name
      the plan revision/digest when more than one Intent is on the issue.
 
 3. **Replan feedback admits approver comments edited in the second they were posted** (low / security;
@@ -1425,26 +1424,26 @@ fixed**. They are the first job.
 
    - Suggested fix: Scope the Repository informer by label the same way as ConfigMaps. Generalise
      kube.Options.ConfigMapSelector into a per-kind label-selector map, or add a RepositorySelector, and have
-     intent-controller select `patchy.bitwisemedia.uk/intent` Exists. Every Repository intent-controller creates already
-     carries LabelIntent. A foreign object under a derived name is already read through the APIReader in
-     ensureRunChildren. Add a manager_test case and a runs_test case for this, like TestEveryConfigMapIsSelected. At
-     minimum, add the backlog-sizing note to intentController.resources in values.yaml.
+     intent-controller select `maul.run/intent` Exists. Every Repository intent-controller creates already carries
+     LabelIntent. A foreign object under a derived name is already read through the APIReader in ensureRunChildren. Add
+     a manager_test case and a runs_test case for this, like TestEveryConfigMapIsSelected. At minimum, add the
+     backlog-sizing note to intentController.resources in values.yaml.
 
 5. **The agents-namespace Role gives intent-controller unrestricted Secret get/update/delete, contrary to the documented
-   resourceNames-only posture** (low / security; `charts/patchy/templates/intent-controller.yaml:169`)
+   resourceNames-only posture** (low / security; `charts/maul/templates/intent-controller.yaml:169`)
 
    - Scenario: The chart template header, NOTES.txt ("It reads only the Forge Secrets named in
      intentController.forgeSecrets"), docs/configuration/intent-controller.md ("`secrets get` is restricted by
      `resourceNames` to the Secrets your Forges reference"), deploy/README.md, docs/deployment/kustomize.md, DESIGN.md
      and AGENTS.md all describe intent-controller's Secret access as limited to the named Forge Secrets. That is true
-     only in the release namespace. The copied agent-jobs Role (`patchy-intent-controller-jobs`, also
+     only in the release namespace. The copied agent-jobs Role (`maul-intent-controller-jobs`, also
      deploy/kustomize/components/intent-controller/rbac.yaml) grants `secrets: [create, get, update, delete]` in
      agent.namespace with no resourceNames. Failure scenario: a cluster runs codex or copilot for findings, or sets
-     agent.repositoryImages.pullSecretData. Its patchy-agents namespace then holds `patchy-openai` / `patchy-copilot`
-     model keys and the `patchy-registry` dockerconfigjson. It also holds every Finding Job's handoff Secret, which
-     contains vulnerability details and the approved investigation.md. intent-controller is the component that polls
-     untrusted GitHub issue content. If it is compromised, it can read all of these Secrets. It can also rewrite a
-     pending remediation Job's handoff Secret before the pod mounts it, which steers a Finding remediation that
+     agent.repositoryImages.pullSecretData. Its maul-agents namespace then holds `maul-openai` / `maul-copilot` model
+     keys and the `maul-registry` dockerconfigjson. It also holds every Finding Job's handoff Secret, which contains
+     vulnerability details and the approved investigation.md. intent-controller is the component that polls untrusted
+     GitHub issue content. If it is compromised, it can read all of these Secrets. It can also rewrite a pending
+     remediation Job's handoff Secret before the pod mounts it, which steers a Finding remediation that
      remediation-controller then pushes with the forge write credential. An operator who audited the documented posture
      would not expect any of this. The Finding job controllers hold the same grant, so this is not an escalation over
      them, but it contradicts the stated 'tightest posture' boundary.
@@ -1503,26 +1502,26 @@ already-pushed commits (or nothing) and can be removed once #51 is merged.
 2. **Release + gate** (procedure below). Expect release-please to open "chore(main): release 0.12.1"
    (`bump-patch-for-minor-pre-major` keeps pre-1.0 features as patch bumps). Deploy with intents still **off** and run
    the Finding gate — this proves the release did not regress the security flow.
-3. **Enable intents.** The values are ready on terraform branch `feat/patchy-intents-target` (pushed, not merged, not
-   applied): `intentController.enabled: true` with `forgeSecrets: [patchy-github]`, and a `target` Project (intent repo
+3. **Enable intents.** The values are ready on terraform branch `feat/maul-intents-target` (pushed, not merged, not
+   applied): `intentController.enabled: true` with `forgeSecrets: [maul-github]`, and a `target` Project (intent repo
    `devthenet-labs/intents`, repository `devthenet-labs/patchy-target`, approver `brvtl`). Open a PR for it, merge, then
-   `helm upgrade` both releases as their own revisions. Check `kubectl get projects -n patchy` shows Ready.
+   `helm upgrade` both releases as their own revisions. Check `kubectl get projects -n maul` shows Ready.
 4. **Live demo** (the design's "Demo script", slice 1a steps 0–5, 9, 10): open an issue with the patchy-target form in
    `devthenet-labs/intents` (for example "Add GET /version returning {sha, built} as JSON"), watch the Intent go Pending
-   → Planning, read the verbatim plan comment, add `patchy:approved` as `brvtl`, watch the build run in patchy-target's
-   image (`runner-image-source=repository`, `go test` in the transcript), the PR open from `patchy-intent/target-1` with
+   → Planning, read the verbatim plan comment, add `maul:approved` as `brvtl`, watch the build run in patchy-target's
+   image (`runner-image-source=repository`, `go test` in the transcript), the PR open from `maul-intent/target-1` with
    "Part of devthenet-labs/intents#1" and no closing keyword, merge it, and see the Intent reach Merged and the intent
    issue close. Also verify the negatives the design lists where you can. Afterwards a fresh Finding must still reach
    its PR. Rollback: `intentController.enabled=false`.
 5. **Slice 1b** (design "Revise loop" and "Failed checks: automatic fix rounds"): revise rounds from a "Request changes"
-   review or `/patchy revise` (feedback bounded and fenced, pinned at the PR head, image from the build round,
+   review or `/maul revise` (feedback bounded and fenced, pinned at the PR head, image from the build round,
    fast-forward-only push, `head_moved` handling), and automatic check-fix rounds for the Project's `checks.fix` names.
    Needs new ghclient calls (reviews, review comments, compare-with-patch, check runs/statuses/job logs,
    `RequestReviewers`) and three read-only App permissions: Checks, Commit statuses, Actions — the owner must grant
    those in the App settings.
 6. **Slice 2: previews** (design "Previews"): first the `__Host-` cookie rename on status-server and a
-   `namespaceSelector` admitting only `patchy` on the default `alb` IngressClassParams (check live that the webhook ALB
-   is not recreated), a benign demo app repo (never preview patchy-target), then the preview-controller.
+   `namespaceSelector` admitting only `maul` on the default `alb` IngressClassParams (check live that the webhook ALB is
+   not recreated), a benign demo app repo (never preview patchy-target), then the preview-controller.
 7. **Deployable by others** (design
    [roadmap section](docs/design/intent-driven-development.md#deployable-by-others-after-previews)): make the Helm
    charts own the full in-cluster install; provide GitHub App, reference AWS Terraform, app scaffolding, template-repo
@@ -1543,14 +1542,14 @@ already-pushed commits (or nothing) and can be removed once #51 is merged.
   (`testing/quick` with a fixed seed) for pure, invariant-rich code. Never weaken or delete a test to pass.
 - **Regression gate after every merged wave** (the owner insists "we need to make sure things still work"):
   1. main CI green; merge the release-please PR; wait for the Release workflow (goreleaser images
-     `ghcr.io/devthenet-labs/patchy/*:vX.Y.Z` and both charts);
+     `ghcr.io/devthenet-labs/maul/*:vX.Y.Z` and both charts);
   2. record current Helm revisions (rollback points); confirm `helm get values` equals the `k8s/` files (ignoring
      comments); `helm upgrade` both releases to the new version; all pods Ready, startup logs clean;
   3. push a NEW small stdlib vulnerability to `devthenet-labs/patchy-target` whose CodeQL rule has no open or suspended
      Finding (already used: reflected-xss, command-injection, incorrect-integer-conversion, disabled-certificate-check;
      never reflected-xss — a suspended Finding absorbs it), wait for the alert and Finding, drive it with
-     `/patchy expedite` on the tracking issue, follow to its PR (`Remediation.status.pushedCommit` must equal the PR
-     head), merge it, verify Remediated, the issue closed, one comment per patchy marker, no duplicate Finding;
+     `/maul expedite` on the tracking issue, follow to its PR (`Remediation.status.pushedCommit` must equal the PR
+     head), merge it, verify Remediated, the issue closed, one comment per maul marker, no duplicate Finding;
   4. on any failure caused by the release: `helm rollback` both releases and report with evidence.
 - Secrets: never print, log or write a secret, key, JWT or token; keep them in shell variables or pipes and print only
   lengths.
@@ -1573,7 +1572,7 @@ already-pushed commits (or nothing) and can be removed once #51 is merged.
   effective bound. Hash the annotations and a timestamp-stripped tail instead.
 - A check-fix round is not named as one: the PR comment says "Revision round pushed commit", and the done summary says
   "Revisions: 0" without the check-fix round. (Its handoff now heads the diagnostics "Check failures".)
-- Extend slice 1b's bounded check-fix rounds to Finding PRs: during the 0.12.1 live gate, patchy's `go/request-forgery`
+- Extend slice 1b's bounded check-fix rounds to Finding PRs: during the 0.12.1 live gate, maul's `go/request-forgery`
   remediation passed its Go tests but its PR still failed CodeQL with a new critical alert, so it needed a separate
   manual correction. This is the second such miss after the earlier path-traversal case. A failing CodeQL check on a
   Finding PR should trigger a capped fix round rather than leave an apparently successful remediation in review with an
@@ -1584,16 +1583,16 @@ already-pushed commits (or nothing) and can be removed once #51 is merged.
   for the regression test first, run on the unfixed code and seen to fail, then the fix and the same test passing. The
   report's optional `reproduction` block (`reproduced`, `command`, `before`, `after`; bounded, old reports still valid)
   rides the envelope (additive v4), lands on `Remediation.status.reproduction`, and the PR body states it or warns that
-  patchy could not reproduce the bug (also when a default-image run claims one: that image runs no tests).
-  Self-reported, no hold. Not yet shown on the status page or in rollups.
+  maul could not reproduce the bug (also when a default-image run claims one: that image runs no tests). Self-reported,
+  no hold. Not yet shown on the status page or in rollups.
 - `finding-1678e4a376-5` (reflected XSS, suspended) absorbed real alert 15 in `shout.go` while it sat suspended in
   `Enhanced` (2026-09-23 to 2026-10-14; it is now `HandedOff`, issue #24 closed). Fixed in ingest: a suspended finding
   no longer takes new alerts, they open a successor generation; it is live once the release carrying the fix is
   deployed.
 - Findings flow still uses the unscoped installation client for pins and PR creation (intents never do).
 - Command replies cost ~2 GitHub calls per comment from anyone on public repos; a per-actor rate limit may be needed.
-- `/patchy approve` was exercised live on held Finding `finding-7b91e0ec7e-1` during the 0.12.1 gate; the legacy
+- `/maul approve` was exercised live on held Finding `finding-7b91e0ec7e-1` during the 0.12.1 gate; the legacy
   `/approve` alias on a held Finding has not been exercised live.
 - Go clients send `"0s"` for non-pointer `metav1.Duration` fields with schema defaults (Forge/Integration intervals).
-- Cosign-sign app images, then set `allowUnsigned: false`; `patchy describe repository` says "Source: not recorded yet"
+- Cosign-sign app images, then set `allowUnsigned: false`; `maul describe repository` says "Source: not recorded yet"
   for accepted images; investigations cannot run tests; fallback-image runs can open untested PRs.

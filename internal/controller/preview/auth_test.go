@@ -22,12 +22,12 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-const testIssuer = "https://preview-auth.patchy.example.com"
+const testIssuer = "https://preview-auth.maul.example.com"
 
 // testIDP is the auth-idp-oidc value for key generation gen.
 func testIDP(gen int) string {
 	return fmt.Sprintf(`{"issuer":%[1]q,"authorizationEndpoint":"%[1]s/authorize","tokenEndpoint":"%[1]s/token",`+
-		`"userInfoEndpoint":"%[1]s/userinfo","secretName":"patchy-preview-oidc-g%[2]d"}`, testIssuer, gen)
+		`"userInfoEndpoint":"%[1]s/userinfo","secretName":"maul-preview-oidc-g%[2]d"}`, testIssuer, gen)
 }
 
 // testAuth is the pinned set of every slot of a slots-slot install at key
@@ -35,12 +35,12 @@ func testIDP(gen int) string {
 func testAuth(slots, gen int) AuthAnnotations {
 	out := AuthAnnotations{}
 	for n := range slots {
-		out[fmt.Sprintf("patchy-preview-%d", n)] = map[string]string{
+		out[fmt.Sprintf("maul-preview-%d", n)] = map[string]string{
 			annotationAuthType:            "oidc",
 			annotationAuthIDPOIDC:         testIDP(gen),
 			annotationAuthOnUnauthRequest: "authenticate",
 			annotationAuthScope:           "openid",
-			annotationAuthSessionCookie:   fmt.Sprintf("patchy-preview-s%d", n),
+			annotationAuthSessionCookie:   fmt.Sprintf("maul-preview-s%d", n),
 			annotationAuthSessionTimeout:  "3600",
 		}
 	}
@@ -72,47 +72,47 @@ func TestAuthSettingsValidate(t *testing.T) {
 		{"previous generation", func(s *Settings) { s.Auth.Previous = testAuth(2, 0) }, true},
 		{"invalid previous generation", func(s *Settings) {
 			s.Auth.Previous = testAuth(2, 0)
-			s.Auth.Previous["patchy-preview-1"][annotationAuthType] = "cognito"
+			s.Auth.Previous["maul-preview-1"][annotationAuthType] = "cognito"
 		}, false},
-		{"a slot missing", func(s *Settings) { delete(s.Auth.Annotations, "patchy-preview-1") }, false},
+		{"a slot missing", func(s *Settings) { delete(s.Auth.Annotations, "maul-preview-1") }, false},
 		{"a slot beyond the slot count", func(s *Settings) { s.Auth.Annotations = testAuth(3, 1) }, false},
 		{"a namespace that is no slot", func(s *Settings) {
-			s.Auth.Annotations["default"] = s.Auth.Annotations["patchy-preview-1"]
-			delete(s.Auth.Annotations, "patchy-preview-1")
+			s.Auth.Annotations["default"] = s.Auth.Annotations["maul-preview-1"]
+			delete(s.Auth.Annotations, "maul-preview-1")
 		}, false},
-		{"a key missing", func(s *Settings) { delete(s.Auth.Annotations["patchy-preview-0"], annotationAuthScope) }, false},
-		{"an unknown key", set("patchy-preview-0", "alb.ingress.kubernetes.io/actions.x", "{}"), false},
-		{"the health-check key", set("patchy-preview-0", annotationHealthcheck, "/"), false},
-		{"auth-type cognito", set("patchy-preview-0", annotationAuthType, "cognito"), false},
-		{"auth-type none", set("patchy-preview-0", annotationAuthType, "none"), false},
-		{"unauthenticated requests allowed", set("patchy-preview-0", annotationAuthOnUnauthRequest, "allow"), false},
-		{"unauthenticated requests denied", set("patchy-preview-0", annotationAuthOnUnauthRequest, "deny"), false},
-		{"scope with more than openid", set("patchy-preview-0", annotationAuthScope, "openid email"), true},
-		{"scope without openid", set("patchy-preview-0", annotationAuthScope, "email"), false},
-		{"another slot's cookie", set("patchy-preview-0", annotationAuthSessionCookie, "patchy-preview-s1"), false},
-		{"the ALB's default cookie", set("patchy-preview-0", annotationAuthSessionCookie,
+		{"a key missing", func(s *Settings) { delete(s.Auth.Annotations["maul-preview-0"], annotationAuthScope) }, false},
+		{"an unknown key", set("maul-preview-0", "alb.ingress.kubernetes.io/actions.x", "{}"), false},
+		{"the health-check key", set("maul-preview-0", annotationHealthcheck, "/"), false},
+		{"auth-type cognito", set("maul-preview-0", annotationAuthType, "cognito"), false},
+		{"auth-type none", set("maul-preview-0", annotationAuthType, "none"), false},
+		{"unauthenticated requests allowed", set("maul-preview-0", annotationAuthOnUnauthRequest, "allow"), false},
+		{"unauthenticated requests denied", set("maul-preview-0", annotationAuthOnUnauthRequest, "deny"), false},
+		{"scope with more than openid", set("maul-preview-0", annotationAuthScope, "openid email"), true},
+		{"scope without openid", set("maul-preview-0", annotationAuthScope, "email"), false},
+		{"another slot's cookie", set("maul-preview-0", annotationAuthSessionCookie, "maul-preview-s1"), false},
+		{"the ALB's default cookie", set("maul-preview-0", annotationAuthSessionCookie,
 			"AWSELBAuthSessionCookie"), false},
-		{"timeout zero", set("patchy-preview-0", annotationAuthSessionTimeout, "0"), false},
-		{"timeout leading zero", set("patchy-preview-0", annotationAuthSessionTimeout, "0900"), false},
-		{"timeout signed", set("patchy-preview-0", annotationAuthSessionTimeout, "+900"), false},
-		{"timeout past the ALB's limit", set("patchy-preview-0", annotationAuthSessionTimeout, "604801"), false},
-		{"timeout at the ALB's limit", set("patchy-preview-0", annotationAuthSessionTimeout, "604800"), true},
-		{"timeout not a number", set("patchy-preview-0", annotationAuthSessionTimeout, "1h"), false},
-		{"idp not JSON", set("patchy-preview-0", annotationAuthIDPOIDC, "issuer=x"), false},
-		{"idp trailing data", set("patchy-preview-0", annotationAuthIDPOIDC, testIDP(1)+"{}"), false},
-		{"idp unknown field", set("patchy-preview-0", annotationAuthIDPOIDC,
+		{"timeout zero", set("maul-preview-0", annotationAuthSessionTimeout, "0"), false},
+		{"timeout leading zero", set("maul-preview-0", annotationAuthSessionTimeout, "0900"), false},
+		{"timeout signed", set("maul-preview-0", annotationAuthSessionTimeout, "+900"), false},
+		{"timeout past the ALB's limit", set("maul-preview-0", annotationAuthSessionTimeout, "604801"), false},
+		{"timeout at the ALB's limit", set("maul-preview-0", annotationAuthSessionTimeout, "604800"), true},
+		{"timeout not a number", set("maul-preview-0", annotationAuthSessionTimeout, "1h"), false},
+		{"idp not JSON", set("maul-preview-0", annotationAuthIDPOIDC, "issuer=x"), false},
+		{"idp trailing data", set("maul-preview-0", annotationAuthIDPOIDC, testIDP(1)+"{}"), false},
+		{"idp unknown field", set("maul-preview-0", annotationAuthIDPOIDC,
 			strings.Replace(testIDP(1), `{"issuer"`, `{"clientID":"x","issuer"`, 1)), false},
-		{"idp http issuer", set("patchy-preview-0", annotationAuthIDPOIDC,
+		{"idp http issuer", set("maul-preview-0", annotationAuthIDPOIDC,
 			strings.ReplaceAll(testIDP(1), "https://", "http://")), false},
-		{"idp issuer with a trailing slash", set("patchy-preview-0", annotationAuthIDPOIDC,
+		{"idp issuer with a trailing slash", set("maul-preview-0", annotationAuthIDPOIDC,
 			strings.Replace(testIDP(1), testIssuer+`"`, testIssuer+`/"`, 1)), false},
-		{"idp endpoint elsewhere", set("patchy-preview-0", annotationAuthIDPOIDC,
+		{"idp endpoint elsewhere", set("maul-preview-0", annotationAuthIDPOIDC,
 			strings.Replace(testIDP(1), testIssuer+"/token", "https://evil.example/token", 1)), false},
-		{"idp secret name not a name", set("patchy-preview-0", annotationAuthIDPOIDC,
-			strings.Replace(testIDP(1), "patchy-preview-oidc-g1", "Bad_Name", 1)), false},
-		{"idp secret name empty", set("patchy-preview-0", annotationAuthIDPOIDC,
-			strings.Replace(testIDP(1), "patchy-preview-oidc-g1", "", 1)), false},
-		{"another slot's issuer differs", set("patchy-preview-1", annotationAuthIDPOIDC,
+		{"idp secret name not a name", set("maul-preview-0", annotationAuthIDPOIDC,
+			strings.Replace(testIDP(1), "maul-preview-oidc-g1", "Bad_Name", 1)), false},
+		{"idp secret name empty", set("maul-preview-0", annotationAuthIDPOIDC,
+			strings.Replace(testIDP(1), "maul-preview-oidc-g1", "", 1)), false},
+		{"another slot's issuer differs", set("maul-preview-1", annotationAuthIDPOIDC,
 			strings.ReplaceAll(testIDP(1), testIssuer, "https://other.example.com")), false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -139,10 +139,10 @@ func TestParseAuthAnnotations(t *testing.T) {
 	}
 	// auth-idp-oidc is a JSON string inside the JSON: it decodes to exactly
 	// the bytes the policy compares, never re-encoded.
-	if got["patchy-preview-0"][annotationAuthIDPOIDC] != testIDP(1) {
-		t.Errorf("auth-idp-oidc = %q, want %q", got["patchy-preview-0"][annotationAuthIDPOIDC], testIDP(1))
+	if got["maul-preview-0"][annotationAuthIDPOIDC] != testIDP(1) {
+		t.Errorf("auth-idp-oidc = %q, want %q", got["maul-preview-0"][annotationAuthIDPOIDC], testIDP(1))
 	}
-	for _, bad := range []string{"{", "[]", `{"patchy-preview-0":"x"}`, encoded + "{}"} {
+	for _, bad := range []string{"{", "[]", `{"maul-preview-0":"x"}`, encoded + "{}"} {
 		if _, err := ParseAuthAnnotations(bad); err == nil {
 			t.Errorf("ParseAuthAnnotations(%q) accepted it", bad)
 		}
@@ -292,13 +292,13 @@ func TestAuthConformsProperty(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Off, or a namespace with no set, nothing conforms.
-	if testSettings().authConforms("patchy-preview-0", testAuth(1, 1)["patchy-preview-0"]) {
+	if testSettings().authConforms("maul-preview-0", testAuth(1, 1)["maul-preview-0"]) {
 		t.Error("conforms with auth off")
 	}
-	if s.authConforms("patchy-preview-3", testAuth(4, 1)["patchy-preview-3"]) {
+	if s.authConforms("maul-preview-3", testAuth(4, 1)["maul-preview-3"]) {
 		t.Error("conforms in a namespace with no pinned set")
 	}
-	if got := slices.Sorted(maps.Keys(testAuth(1, 1)["patchy-preview-0"])); !slices.Equal(got, authKeys) {
+	if got := slices.Sorted(maps.Keys(testAuth(1, 1)["maul-preview-0"])); !slices.Equal(got, authKeys) {
 		t.Errorf("authKeys = %q, want sorted %q", authKeys, got)
 	}
 }
@@ -320,7 +320,7 @@ func shorterSession(value string, ceiling int) bool {
 // deleted; after it is lowered, one still on the longer session does not.
 func TestAuthConformsShorterSession(t *testing.T) {
 	s := authSettings()
-	set := s.Auth.Annotations["patchy-preview-1"]
+	set := s.Auth.Annotations["maul-preview-1"]
 	for _, tc := range []struct {
 		value string
 		want  bool
@@ -331,7 +331,7 @@ func TestAuthConformsShorterSession(t *testing.T) {
 	} {
 		ann := maps.Clone(set)
 		ann[annotationAuthSessionTimeout] = tc.value
-		if got := s.authConforms("patchy-preview-1", ann); got != tc.want {
+		if got := s.authConforms("maul-preview-1", ann); got != tc.want {
 			t.Errorf("auth-session-timeout %q: conforms %v, want %v", tc.value, got, tc.want)
 		}
 		if got := shorterSession(tc.value, 3600); got != tc.want {
@@ -342,7 +342,7 @@ func TestAuthConformsShorterSession(t *testing.T) {
 	ann := maps.Clone(set)
 	ann[annotationAuthSessionTimeout] = "900"
 	ann[annotationAuthSessionCookie] = "session"
-	if s.authConforms("patchy-preview-1", ann) {
+	if s.authConforms("maul-preview-1", ann) {
 		t.Error("another cookie conforms under a shorter session")
 	}
 }

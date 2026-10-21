@@ -17,8 +17,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/jobs"
 )
 
 // quickConfig is a seeded testing/quick configuration, so a property run is
@@ -295,9 +295,9 @@ func TestErrRoundLeased(t *testing.T) {
 func TestJobRunnerMergesStageEnv(t *testing.T) {
 	cs := k8sfake.NewClientset()
 	base := jobs.Config{
-		Namespace: "patchy-agents", ServiceAccount: "patchy-agent", Deadline: time.Hour, TTL: time.Hour,
+		Namespace: "maul-agents", ServiceAccount: "maul-agent", Deadline: time.Hour, TTL: time.Hour,
 		Runners: map[string]jobs.Runner{"fake": {Image: "ghcr.io/example/runner:1"}},
-		Env:     map[string]string{"PATCHY_A": "base", "PATCHY_B": "base"},
+		Env:     map[string]string{"MAUL_A": "base", "MAUL_B": "base"},
 	}
 	runner := NewJobRunner(cs, base, nil)
 	spec := func(attempt int) jobs.Spec {
@@ -306,29 +306,29 @@ func TestJobRunnerMergesStageEnv(t *testing.T) {
 			ArtifactURL: "http://artifacts/x.tar.gz", ArtifactDigest: strings.Repeat("a", 64)}
 	}
 	ctx := t.Context()
-	name, _, err := runner.Create(ctx, spec(1), map[string]string{"PATCHY_B": "launch", "PATCHY_C": "launch"})
+	name, _, err := runner.Create(ctx, spec(1), map[string]string{"MAUL_B": "launch", "MAUL_C": "launch"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := jobEnv(t, cs, name); got["PATCHY_A"] != "base" || got["PATCHY_B"] != "launch" ||
-		got["PATCHY_C"] != "launch" {
+	if got := jobEnv(t, cs, name); got["MAUL_A"] != "base" || got["MAUL_B"] != "launch" ||
+		got["MAUL_C"] != "launch" {
 		t.Errorf("first Job env = %v; want A=base, B=launch, C=launch", got)
 	}
-	if !reflect.DeepEqual(base.Env, map[string]string{"PATCHY_A": "base", "PATCHY_B": "base"}) {
+	if !reflect.DeepEqual(base.Env, map[string]string{"MAUL_A": "base", "MAUL_B": "base"}) {
 		t.Errorf("base env changed: %v", base.Env)
 	}
 	name2, _, err := runner.Create(ctx, spec(2), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := jobEnv(t, cs, name2); got["PATCHY_B"] != "base" || got["PATCHY_C"] != "" {
+	if got := jobEnv(t, cs, name2); got["MAUL_B"] != "base" || got["MAUL_C"] != "" {
 		t.Errorf("second Job env = %v; the first launch's env leaked", got)
 	}
 
 	// A base with no env still takes the launch's.
-	bare := NewJobRunner(k8sfake.NewClientset(), jobs.Config{Namespace: "patchy-agents",
+	bare := NewJobRunner(k8sfake.NewClientset(), jobs.Config{Namespace: "maul-agents",
 		Runners: map[string]jobs.Runner{"fake": {Image: "ghcr.io/example/runner:1"}}}, nil)
-	if _, _, err := bare.Create(ctx, jobs.Spec{}, map[string]string{"PATCHY_C": "x"}); err == nil {
+	if _, _, err := bare.Create(ctx, jobs.Spec{}, map[string]string{"MAUL_C": "x"}); err == nil {
 		t.Error("an empty Spec was launched")
 	}
 }
@@ -336,7 +336,7 @@ func TestJobRunnerMergesStageEnv(t *testing.T) {
 // jobEnv is the literal env of every container of the named Job.
 func jobEnv(t *testing.T, cs *k8sfake.Clientset, name string) map[string]string {
 	t.Helper()
-	job, err := cs.BatchV1().Jobs("patchy-agents").Get(t.Context(), name, metav1.GetOptions{})
+	job, err := cs.BatchV1().Jobs("maul-agents").Get(t.Context(), name, metav1.GetOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

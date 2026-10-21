@@ -6,13 +6,13 @@ package harness
 import (
 	"os"
 
-	"github.com/bitwise-media-group/patchy/internal/runner"
-	"github.com/bitwise-media-group/patchy/internal/transcript"
+	"github.com/devthenet-labs/maul/internal/runner"
+	"github.com/devthenet-labs/maul/internal/transcript"
 )
 
 // FakeFixtureEnv names the environment variable pointing at the stream-json
 // fixture file the Fake harness replays.
-const FakeFixtureEnv = "PATCHY_FAKE_FIXTURE"
+const FakeFixtureEnv = "MAUL_FAKE_FIXTURE"
 
 // Fake is a stand-in harness for tests and the agent-runner's --fake mode: it
 // replays a captured stream-json fixture through cat instead of invoking an

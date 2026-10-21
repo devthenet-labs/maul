@@ -168,7 +168,7 @@ func (c *Client) CloseIssue(ctx context.Context, repo Repo, number int, reason s
 	return nil
 }
 
-// issueFromGitHub maps a go-github issue onto patchy's thin Issue.
+// issueFromGitHub maps a go-github issue onto maul's thin Issue.
 func issueFromGitHub(is *github.Issue) *Issue {
 	out := &Issue{
 		Repo:      repoFromURL(is.GetRepositoryURL()),

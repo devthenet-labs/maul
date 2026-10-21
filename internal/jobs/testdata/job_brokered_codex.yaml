@@ -1,16 +1,16 @@
 metadata:
   annotations:
-    patchy.bitwisemedia.uk/repo: octo/repo
+    maul.run/repo: octo/repo
   labels:
-    app.kubernetes.io/managed-by: patchy
-    app.kubernetes.io/name: patchy-agent
-    patchy.bitwisemedia.uk/attempt: "1"
-    patchy.bitwisemedia.uk/finding: finding-abc123def0-1
-    patchy.bitwisemedia.uk/harness: codex
-    patchy.bitwisemedia.uk/kind: remediation
-    patchy.bitwisemedia.uk/owner: finding-abc123def0-1-rem-1
-  name: patchy-f41d59eea6-rem-a1
-  namespace: patchy-agents
+    app.kubernetes.io/managed-by: maul
+    app.kubernetes.io/name: maul-agent
+    maul.run/attempt: "1"
+    maul.run/finding: finding-abc123def0-1
+    maul.run/harness: codex
+    maul.run/kind: remediation
+    maul.run/owner: finding-abc123def0-1-rem-1
+  name: maul-f41d59eea6-rem-a1
+  namespace: maul-agents
 spec:
   activeDeadlineSeconds: 3600
   backoffLimit: 0
@@ -18,15 +18,15 @@ spec:
     metadata:
       annotations:
         karpenter.sh/do-not-disrupt: "true"
-        patchy.bitwisemedia.uk/repo: octo/repo
+        maul.run/repo: octo/repo
       labels:
-        app.kubernetes.io/managed-by: patchy
-        app.kubernetes.io/name: patchy-agent
-        patchy.bitwisemedia.uk/attempt: "1"
-        patchy.bitwisemedia.uk/finding: finding-abc123def0-1
-        patchy.bitwisemedia.uk/harness: codex
-        patchy.bitwisemedia.uk/kind: remediation
-        patchy.bitwisemedia.uk/owner: finding-abc123def0-1-rem-1
+        app.kubernetes.io/managed-by: maul
+        app.kubernetes.io/name: maul-agent
+        maul.run/attempt: "1"
+        maul.run/finding: finding-abc123def0-1
+        maul.run/harness: codex
+        maul.run/kind: remediation
+        maul.run/owner: finding-abc123def0-1-rem-1
     spec:
       containers:
       - command:
@@ -34,31 +34,31 @@ spec:
         env:
         - name: HOME
           value: /workspace
-        - name: PATCHY_WORKSPACE
+        - name: MAUL_WORKSPACE
           value: /workspace
-        - name: PATCHY_REPO
+        - name: MAUL_REPO
           value: octo/repo
-        - name: PATCHY_PHASE
+        - name: MAUL_PHASE
           value: remediate
-        - name: PATCHY_FINDING
+        - name: MAUL_FINDING
           value: finding-abc123def0-1
-        - name: PATCHY_BASE_SHA
+        - name: MAUL_BASE_SHA
           value: 0123456789abcdef0123456789abcdef01234567
-        - name: PATCHY_REMEDIATE_HARNESS
+        - name: MAUL_REMEDIATE_HARNESS
           value: codex
-        - name: PATCHY_REMEDIATE_MODEL
+        - name: MAUL_REMEDIATE_MODEL
           value: openai/gpt-5.3-codex
-        - name: PATCHY_GRANTED_MAX_TURNS
+        - name: MAUL_GRANTED_MAX_TURNS
           value: "120"
-        - name: PATCHY_GRANTED_TOKEN_BUDGET
+        - name: MAUL_GRANTED_TOKEN_BUDGET
           value: "600000"
-        - name: PATCHY_CODEX_BASE_URL
-          value: http://patchy-egress-broker.patchy.svc.cluster.local:8080/openai/v1
-        - name: PATCHY_INVESTIGATE_TIMEOUT
+        - name: MAUL_CODEX_BASE_URL
+          value: http://maul-egress-broker.maul.svc.cluster.local:8080/openai/v1
+        - name: MAUL_INVESTIGATE_TIMEOUT
           value: 15m
-        - name: PATCHY_BROKER_TOKEN_FILE
-          value: /var/run/patchy/broker/token
-        image: ghcr.io/bitwise-media-group/patchy/codex-agent-runner:1
+        - name: MAUL_BROKER_TOKEN_FILE
+          value: /var/run/maul/broker/token
+        image: ghcr.io/devthenet-labs/maul/codex-agent-runner:1
         name: agent
         resources:
           limits:
@@ -82,7 +82,7 @@ spec:
           name: workspace
         - mountPath: /tmp
           name: tmp
-        - mountPath: /var/run/patchy/broker
+        - mountPath: /var/run/maul/broker
           name: broker-token
           readOnly: true
       initContainers:
@@ -93,32 +93,32 @@ spec:
           set -eu
           mkdir -p /workspace/repo
           cd /workspace/repo
-          curl -fsSL --retry 5 --retry-all-errors "$PATCHY_ARTIFACT_URL" -o /tmp/src.tar.gz
-          echo "$PATCHY_ARTIFACT_DIGEST  /tmp/src.tar.gz" | sha256sum -c - >/dev/null
+          curl -fsSL --retry 5 --retry-all-errors "$MAUL_ARTIFACT_URL" -o /tmp/src.tar.gz
+          echo "$MAUL_ARTIFACT_DIGEST  /tmp/src.tar.gz" | sha256sum -c - >/dev/null
           tar -xzf /tmp/src.tar.gz --strip-components=1
           rm -f /tmp/src.tar.gz
           git init -q
           git add -A
-          git -c user.name=patchy -c user.email=patchy@invalid commit -qm "base $PATCHY_BASE_SHA"
+          git -c user.name=maul -c user.email=maul@invalid commit -qm "base $MAUL_BASE_SHA"
           git checkout -q --detach HEAD
           mkdir -p /workspace/input
-          cp /patchy/input/issue.md /workspace/input/issue.md
-          if [ -f /patchy/input/investigation.md ]; then
-            cp /patchy/input/investigation.md /workspace/input/investigation.md
+          cp /maul/input/issue.md /workspace/input/issue.md
+          if [ -f /maul/input/investigation.md ]; then
+            cp /maul/input/investigation.md /workspace/input/investigation.md
           fi
           /usr/local/bin/agent-runner sandbox-probe --mode=wait --targets=k8s,imds || echo "sandbox probe (wait) exited $?; the agent starts anyway" >&2
         env:
         - name: HOME
           value: /workspace
-        - name: PATCHY_BASE_SHA
+        - name: MAUL_BASE_SHA
           value: 0123456789abcdef0123456789abcdef01234567
-        - name: PATCHY_ARTIFACT_URL
-          value: http://patchy-source-controller.patchy.svc.cluster.local:9790/artifacts/deadbeef.tar.gz
-        - name: PATCHY_ARTIFACT_DIGEST
+        - name: MAUL_ARTIFACT_URL
+          value: http://maul-source-controller.maul.svc.cluster.local:9790/artifacts/deadbeef.tar.gz
+        - name: MAUL_ARTIFACT_DIGEST
           value: aa11bb22cc33dd44ee55ff6600112233445566778899aabbccddeeff00112233
-        - name: PATCHY_SANDBOX_PROBE_TIMEOUT
+        - name: MAUL_SANDBOX_PROBE_TIMEOUT
           value: 20s
-        image: ghcr.io/bitwise-media-group/patchy/codex-agent-runner:1
+        image: ghcr.io/devthenet-labs/maul/codex-agent-runner:1
         name: prepare
         resources:
           limits:
@@ -142,7 +142,7 @@ spec:
           name: workspace
         - mountPath: /tmp
           name: tmp
-        - mountPath: /patchy/input
+        - mountPath: /maul/input
           name: input
           readOnly: true
       restartPolicy: Never
@@ -151,7 +151,7 @@ spec:
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
-      serviceAccountName: patchy-agent
+      serviceAccountName: maul-agent
       volumes:
       - emptyDir: {}
         name: workspace
@@ -159,12 +159,12 @@ spec:
         name: tmp
       - name: input
         secret:
-          secretName: patchy-f41d59eea6-rem-a1
+          secretName: maul-f41d59eea6-rem-a1
       - name: broker-token
         projected:
           sources:
           - serviceAccountToken:
-              audience: patchy-egress-broker
+              audience: maul-egress-broker
               expirationSeconds: 4500
               path: token
   ttlSecondsAfterFinished: 7200

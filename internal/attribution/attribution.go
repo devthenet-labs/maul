@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/bitwise-media-group/patchy/api/v1alpha1"
+	"github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 // Mode is the --attribution-mode switch every run controller reads.
@@ -121,7 +121,7 @@ var loginRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
 // maxLogin is v1alpha1.UserRef's login length bound.
 const maxLogin = 64
 
-// Registered reports whether (login, id) is a patchy identity a run can be
+// Registered reports whether (login, id) is a maul identity a run can be
 // attributed to: a known GitHub numeric id beside a login UserRef admits.
 // An approval made on the status page ("github:<login>") or in the CLI (a
 // kube username) carries no id, so it is not one.
@@ -130,7 +130,7 @@ func Registered(login string, id int64) bool {
 }
 
 // To attributes a run to the person (login, id) for reason, a person
-// reason (v1alpha1.PersonReason). When that person has no patchy identity
+// reason (v1alpha1.PersonReason). When that person has no maul identity
 // (Registered), the run is re-attributed to the org with the matching
 // "-unregistered" reason, so the record says whom the table named and why
 // no one is billed. A reason that names no person gives the org.

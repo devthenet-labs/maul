@@ -16,11 +16,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/artifact"
-	"github.com/bitwise-media-group/patchy/internal/forge"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/runnerimage"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/artifact"
+	"github.com/devthenet-labs/maul/internal/forge"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/runnerimage"
 )
 
 // These cases need the real API server: the fake client neither enforces
@@ -55,7 +55,7 @@ func envReconciler(t *testing.T, gh *fakeForgeClient) (*RepositoryReconciler, cl
 	}
 	ctx := t.Context()
 	for _, obj := range []client.Object{
-		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "patchy"}},
+		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "maul"}},
 		testForge("gh"),
 		testRepository(),
 	} {

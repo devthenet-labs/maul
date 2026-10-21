@@ -1,0 +1,234 @@
+# Copyright 2026 Bitwise Media Group Ltd.
+# SPDX-License-Identifier: MIT
+#
+# One Deployment per controller, rendered from a single spec because they
+# differ only in image, resources, config, and ports: the
+# integration-controller additionally serves the provider webhook receivers
+# on 8080, the source-controller the artifact tarballs on 9790 (backed by a
+# /data emptyDir); every controller serves healthz/readyz on 8081. All five
+# are CRD controllers, so every pod mounts its service-account token —
+# rbac.yaml pins verb-by-verb what each identity may do.
+#
+# All five are singletons with strategy Recreate, ON PURPOSE. The binaries do
+# run leader election (a coordination.k8s.io Lease), but that is insurance
+# against a botched rollout racing two replicas — singleton-by-construction
+# stays the deployment model. Do not scale these.
+#
+# The chart mounts no credential here: provider and forge credentials live
+# in Secrets referenced by the Integration and Forge custom resources
+# (spec.secretRef), read on demand through the API. What an operator adds
+# through <controller>.extraEnv, extraEnvFrom, extraVolumes and
+# extraVolumeMounts is theirs (maul.extraEnv refuses the names maul sets).
+#
+# With agent.repositoryImages enabled, source-controller additionally mounts
+# the cosign public key (a ConfigMap, configmap.yaml) and, with pullSecret,
+# the registry credential (optional; serviceaccounts.yaml renders it from
+# pullSecretData) it resolves declared images with — the one
+# dockerconfigjson key mapped to config.json, the file go-containerregistry
+# reads under DOCKER_CONFIG.
+{{- $ri := .Values.agent.repositoryImages | default dict }}
+{{- range $c := list
+    (dict "name" "integration-controller" "key" "integrationController" "vals" .Values.integrationController)
+    (dict "name" "source-controller" "key" "sourceController" "vals" .Values.sourceController)
+    (dict "name" "context-controller" "key" "contextController" "vals" .Values.contextController)
+    (dict "name" "investigation-controller" "key" "investigationController" "vals" .Values.investigationController)
+    (dict "name" "remediation-controller" "key" "remediationController" "vals" .Values.remediationController)
+}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: {{ include "maul.fullname" $ }}-{{ $c.name }}
+    namespace: {{ $.Release.Namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" $ "name" $c.name "component" "controller") | nindent 8 }}
+    {{- with include "maul.annotations" (dict "root" $) }}
+    annotations:
+        {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    replicas: 1
+    strategy:
+        type: Recreate
+    selector:
+        matchLabels:
+            {{- include "maul.selectorLabels" (dict "root" $ "name" $c.name) | nindent 12 }}
+    template:
+        metadata:
+            labels:
+                {{- include "maul.labels" (dict "root" $ "name" $c.name "component" "controller") | nindent 16 }}
+                {{- with $c.vals.podLabels }}
+                {{- toYaml . | nindent 16 }}
+                {{- end }}
+            {{- /* checksum/config hashes this controller's own rendered ConfigMap
+                   (configmap.yaml), so a helm upgrade that changes it rolls
+                   the pod — envFrom is read once, at container start. */}}
+            {{- $checksums := dict "checksum/config" (include "maul.controllerConfigMap" (dict "root" $ "c" $c) | sha256sum) }}
+            {{- /* source-controller reads the cosign public key once, at start,
+                   so a changed key must roll it too. */}}
+            {{- if and (eq $c.name "source-controller") $ri.enabled $ri.cosignPublicKey }}
+            {{- $_ := set $checksums "checksum/repository-image-key" ($ri.cosignPublicKey | trim | sha256sum) }}
+            {{- end }}
+            {{- with include "maul.annotations" (dict "root" $ "extra" (merge $checksums ($c.vals.podAnnotations | default dict))) }}
+            annotations:
+                {{- . | nindent 16 }}
+            {{- end }}
+        spec:
+            serviceAccountName: {{ include "maul.serviceAccountName" (dict "root" $ "name" $c.name "vals" $c.vals) }}
+            {{- with $.Values.image.pullSecrets }}
+            imagePullSecrets:
+                {{- toYaml . | nindent 16 }}
+            {{- end }}
+            securityContext:
+                runAsNonRoot: true
+                runAsUser: 65532
+                runAsGroup: 65532
+                fsGroup: 65532
+                fsGroupChangePolicy: Always
+                seccompProfile:
+                    type: RuntimeDefault
+            containers:
+                - name: controller
+                  image: {{ include "maul.image" (dict "root" $ "binary" $c.name "image" $c.vals.image) }}
+                  imagePullPolicy: {{ $.Values.image.pullPolicy }}
+                  args: ["serve"]
+                  envFrom:
+                      {{- with $c.vals.extraEnvFrom }}
+                      {{- toYaml . | nindent 22 }}
+                      {{- end }}
+                      - configMapRef:
+                            name: {{ include "maul.configMapName" (dict "root" $ "name" $c.name) }}
+                  env:
+                      - name: POD_NAMESPACE
+                        valueFrom:
+                            fieldRef:
+                                fieldPath: metadata.namespace
+                      {{- with include "maul.extraEnv" (dict "path" $c.key "env" $c.vals.extraEnv) }}
+                      {{- . | nindent 22 }}
+                      {{- end }}
+                  ports:
+                      {{- if eq $c.name "integration-controller" }}
+                      - name: http
+                        containerPort: 8080
+                        protocol: TCP
+                      {{- else if eq $c.name "source-controller" }}
+                      - name: artifact
+                        containerPort: 9790
+                        protocol: TCP
+                      {{- if $.Values.evaluationController.enabled }}
+                      - name: internal
+                        containerPort: 9791
+                        protocol: TCP
+                      {{- end }}
+                      {{- end }}
+                      - name: health
+                        containerPort: 8081
+                        protocol: TCP
+                  livenessProbe:
+                      httpGet:
+                          path: /healthz
+                          port: health
+                      initialDelaySeconds: 5
+                      periodSeconds: 20
+                  readinessProbe:
+                      httpGet:
+                          path: /readyz
+                          port: health
+                      initialDelaySeconds: 2
+                      periodSeconds: 10
+                  {{- with $c.vals.resources }}
+                  resources:
+                      {{- toYaml . | nindent 22 }}
+                  {{- end }}
+                  securityContext:
+                      allowPrivilegeEscalation: false
+                      readOnlyRootFilesystem: true
+                      capabilities:
+                          drop: ["ALL"]
+                      seccompProfile:
+                          type: RuntimeDefault
+                  volumeMounts:
+                      {{- if eq $c.name "source-controller" }}
+                      - name: data
+                        mountPath: /data
+                      {{- if $ri.enabled }}
+                      {{- if $ri.cosignPublicKey }}
+                      - name: repository-image-key
+                        mountPath: /etc/maul/repository-image
+                        readOnly: true
+                      {{- end }}
+                      {{- if $ri.pullSecret }}
+                      - name: registry
+                        mountPath: /etc/maul/registry
+                        readOnly: true
+                      {{- end }}
+                      {{- end }}
+                      {{- end }}
+                      - name: tmp
+                        mountPath: /tmp
+                      {{- if has $c.name (list "investigation-controller" "remediation-controller") }}
+                      {{- with include "maul.usageTokenMount" $ }}
+                      {{- . | nindent 22 }}
+                      {{- end }}
+                      {{- end }}
+                      {{- with $c.vals.extraVolumeMounts }}
+                      {{- toYaml . | nindent 22 }}
+                      {{- end }}
+            {{- with $c.vals.nodeSelector }}
+            nodeSelector:
+                {{- toYaml . | nindent 16 }}
+            {{- end }}
+            {{- with $c.vals.tolerations }}
+            tolerations:
+                {{- toYaml . | nindent 16 }}
+            {{- end }}
+            {{- with $c.vals.affinity }}
+            affinity:
+                {{- toYaml . | nindent 16 }}
+            {{- end }}
+            volumes:
+                {{- if eq $c.name "source-controller" }}
+                # Artifact storage (MAUL_ARTIFACT_DIR=/data/artifacts).
+                # Artifacts are reproducible — a re-fetch at the pinned SHA
+                # rebuilds them — so an emptyDir is acceptable.
+                - name: data
+                  emptyDir: {}
+                {{- if $ri.enabled }}
+                {{- if $ri.cosignPublicKey }}
+                # MAUL_REPOSITORY_IMAGE_COSIGN_KEY_FILE.
+                - name: repository-image-key
+                  configMap:
+                      name: {{ include "maul.fullname" $ }}-repository-image-key
+                {{- end }}
+                {{- if $ri.pullSecret }}
+                # DOCKER_CONFIG: the operator's dockerconfigjson Secret.
+                # Optional, so a Secret that is missing (or lacks the
+                # .dockerconfigjson key) leaves the directory empty rather
+                # than holding source-controller, and the artifact server
+                # every agent Job fetches from, in ContainerCreating:
+                # resolution falls back to anonymous and rejects per image.
+                # The keychain reads config.json on every resolve, so a
+                # Secret created later takes effect without a restart.
+                - name: registry
+                  secret:
+                      secretName: {{ $ri.pullSecret }}
+                      optional: true
+                      items:
+                          - key: .dockerconfigjson
+                            path: config.json
+                {{- end }}
+                {{- end }}
+                {{- end }}
+                # The root filesystem is read-only; every binary wants a
+                # writable /tmp.
+                - name: tmp
+                  emptyDir: {}
+                {{- if has $c.name (list "investigation-controller" "remediation-controller") }}
+                {{- with include "maul.usageTokenVolume" $ }}
+                {{- . | nindent 16 }}
+                {{- end }}
+                {{- end }}
+                {{- with $c.vals.extraVolumes }}
+                {{- toYaml . | nindent 16 }}
+                {{- end }}
+{{- end }}

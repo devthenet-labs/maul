@@ -1,0 +1,33 @@
+# Copyright 2026 Bitwise Media Group Ltd.
+# SPDX-License-Identifier: MIT
+#
+# The Integration custom resources rendered from the `integrations` values
+# array — one half of the pipeline switch-on (forges.yaml is the other). An
+# Integration says where findings come from and where the tracking issues go;
+# the controllers idle until one exists. Each entry's `spec` is rendered
+# verbatim — values.schema.json embeds the CRD spec schema, so it is
+# validated client-side at install and again server-side by the CRD; the
+# referenced Secrets are created out of band — see
+# deploy/kustomize/base/secrets.example.yaml.
+#
+# These CRs live in their own chart because Helm validates every manifest
+# against the API server before applying anything: a first install that
+# carried both the CRDs and these CRs would fail validation before the CRDs
+# exist. Install the maul chart first, then this one, into the same
+# namespace.
+{{- range .Values.integrations }}
+---
+apiVersion: maul.run/v1alpha1
+kind: Integration
+metadata:
+    name: {{ required "integrations[].name is required" .name }}
+    namespace: {{ $.Release.Namespace }}
+    labels:
+        {{- include "maul-config.labels" (dict "root" $ "name" "integration-controller") | nindent 8 }}
+    {{- with include "maul-config.annotations" (dict "root" $) }}
+    annotations:
+        {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    {{- required (printf "integrations[%s].spec is required" .name) .spec | toYaml | nindent 4 }}
+{{- end }}

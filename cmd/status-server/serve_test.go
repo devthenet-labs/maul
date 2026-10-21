@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/web/auth"
-	"github.com/bitwise-media-group/patchy/internal/web/authz"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/web/auth"
+	"github.com/devthenet-labs/maul/internal/web/authz"
 )
 
 // The intents views come up only under an auth posture that can serve them:
@@ -128,7 +128,7 @@ func TestAccountProviders(t *testing.T) {
 		{[]string{"bedrock"}, nil, `"bedrock" is not one of`},
 		{[]string{"openai", "openai"}, nil, "listed twice"},
 	} {
-		aw, err := newAccountWiring(true, "patchy-credentials", tc.in, cfg)
+		aw, err := newAccountWiring(true, "maul-credentials", tc.in, cfg)
 		switch {
 		case tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)):
 			t.Errorf("%v: err = %v, want %q", tc.in, err, tc.wantErr)
@@ -136,7 +136,7 @@ func TestAccountProviders(t *testing.T) {
 			t.Errorf("%v: providers = %v, %v, want %v", tc.in, aw.providers, err, tc.want)
 		}
 	}
-	if aw, err := newAccountWiring(false, "patchy-credentials", []string{"bedrock"}, cfg); err != nil || aw.on {
+	if aw, err := newAccountWiring(false, "maul-credentials", []string{"bedrock"}, cfg); err != nil || aw.on {
 		t.Errorf("off with a bad provider list = %+v, %v; want off and no error", aw, err)
 	}
 }
@@ -157,12 +157,12 @@ func TestAccountAuthGate(t *testing.T) {
 		cfg     *auth.Config
 		wantErr string
 	}{
-		{"off and unconfigured", false, "patchy-credentials", nil, ""},
-		{"mode none", true, "patchy-credentials", &auth.Config{Mode: auth.ModeNone}, `not "none"`},
-		{"oidc without federated:id", true, "patchy-credentials", oidc("openid"), "federated:id"},
-		{"a namespace outside the grammar", true, "Patchy_Creds", oidc("openid", "federated:id"),
+		{"off and unconfigured", false, "maul-credentials", nil, ""},
+		{"mode none", true, "maul-credentials", &auth.Config{Mode: auth.ModeNone}, `not "none"`},
+		{"oidc without federated:id", true, "maul-credentials", oidc("openid"), "federated:id"},
+		{"a namespace outside the grammar", true, "Maul_Creds", oidc("openid", "federated:id"),
 			"--credentials-namespace"},
-		{"dex with federated:id", true, "patchy-credentials", oidc("openid", "federated:id"), ""},
+		{"dex with federated:id", true, "maul-credentials", oidc("openid", "federated:id"), ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

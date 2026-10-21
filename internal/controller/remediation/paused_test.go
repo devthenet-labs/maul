@@ -12,7 +12,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 // TestRemediationPausedMarksHeldRuns: while the agents are paused, the
@@ -23,7 +23,7 @@ import (
 func TestRemediationPausedMarksHeldRuns(t *testing.T) {
 	launched := pendingRem("rem-launched", "f0", 10)
 	launched.Status.Phase = v1alpha1.RunRunning
-	launched.Status.JobRef = &v1alpha1.JobReference{Namespace: "patchy-agents", Name: "job-0"}
+	launched.Status.JobRef = &v1alpha1.JobReference{Namespace: "maul-agents", Name: "job-0"}
 	granted := pendingRem("rem-granted", "f1", 10)
 	granted.Status.Phase = v1alpha1.RunRunning
 	done := pendingRem("rem-done", "f2", 10)
@@ -34,7 +34,7 @@ func TestRemediationPausedMarksHeldRuns(t *testing.T) {
 	get := func(name string) *v1alpha1.Remediation {
 		t.Helper()
 		var rem v1alpha1.Remediation
-		if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: name}, &rem); err != nil {
+		if err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: name}, &rem); err != nil {
 			t.Fatal(err)
 		}
 		return &rem
@@ -103,7 +103,7 @@ func TestRemediationUnpauseGrantsOnTheNextPass(t *testing.T) {
 	get := func() *v1alpha1.Remediation {
 		t.Helper()
 		var rem v1alpha1.Remediation
-		if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: "rem-a"}, &rem); err != nil {
+		if err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: "rem-a"}, &rem); err != nil {
 			t.Fatal(err)
 		}
 		return &rem

@@ -42,21 +42,21 @@ GitHub App's webhook at the integration-controller.
 
 ## Configuration
 
-Everything is `PATCHY_*` environment in one ConfigMap (`base/configmap.yaml`), consumed with `envFrom`. A key a binary
+Everything is `MAUL_*` environment in one ConfigMap (`base/configmap.yaml`), consumed with `envFrom`. A key a binary
 does not bind is inert, which is why one ConfigMap serves all eight Deployments — the
 [configuration reference](../configuration/index.md) maps every key to its flag.
 
 !!! warning "The agent image is pinned in two places"
 
-    The per-harness `PATCHY_<HARNESS>_AGENT_IMAGE` keys are the strings the job controllers stamp into the Jobs they
+    The per-harness `MAUL_<HARNESS>_AGENT_IMAGE` keys are the strings the job controllers stamp into the Jobs they
     create, and kustomize's `images:` transformer does **not** rewrite ConfigMap values. An overlay that pins a runner
     image must patch both the `images:` entry and the matching key — the prod overlay does exactly that.
 
 ## Human access: RBAC and the admission policy
 
-Two things consume the custom verbs `approve` / `retry` / `expedite` / `suspend` / `resume` on
-`findings.patchy.bitwisemedia.uk`: the [status page](../status-ui.md), which resolves them per signed-in user via
-SubjectAccessReview, and the [CLI](../cli.md), which acts as the user's own kubeconfig identity.
+Two things consume the custom verbs `approve` / `retry` / `expedite` / `suspend` / `resume` on `findings.maul.run`: the
+[status page](../status-ui.md), which resolves them per signed-in user via SubjectAccessReview, and the
+[CLI](../cli.md), which acts as the user's own kubeconfig identity.
 
 Those two need different enforcement. The status page writes as its own ServiceAccount, so it can check the verb itself.
 The CLI writes as the user, so the API server authorizes it — and RBAC has no notion of a field, meaning `update` on
@@ -65,10 +65,10 @@ severity or forge an approval.
 
 `base/admission-policy.yaml` closes that gap with a `ValidatingAdmissionPolicy` binding each spec field to its verb. It
 is part of the base, so both overlays get it. Because it runs in the API server's admission chain it applies to every
-client equally — `patchy`, `kubectl edit`, `kubectl patch`, server-side apply, raw `curl`. There is no path around it
+client equally — `maul`, `kubectl edit`, `kubectl patch`, server-side apply, raw `curl`. There is no path around it
 short of privileges that already exceed the grant being protected.
 
-It enforces, for everyone except the patchy controllers:
+It enforces, for everyone except the maul controllers:
 
 - each human-writable spec field changes only with its own verb (`spec.suspend` needs `suspend` to set and `resume` to
   clear; `spec.approval` needs `approve`; and so on);
@@ -92,24 +92,24 @@ approval by deleting a finding and recreating it with one preset.
 
 ## The overlays
 
-- **dev** targets a local kind or [Colima](colima.md) cluster: local `patchy/*:dev` images (`make snapshot`, retag,
+- **dev** targets a local kind or [Colima](colima.md) cluster: local `maul/*:dev` images (`make snapshot`, retag,
   `kind load docker-image` — Colima skips the load), a NodePort webhook on 30079 (point your tunnel or `mise run replay`
   at `/github/webhooks`; kind needs `extraPortMappings`), a host-less dev Ingress for the same path, minutes instead of
   hours (2m accumulation and min-age, 30m finding TTL), the static-file fake CMDB enhancer mounted from a ConfigMap, the
   `fake` harness so no tokens are spent, placeholder `Integration`/`Forge` CRs, and tiny resource requests. Two caveats:
-  the placeholder GitHub credential fails every GitHub call until you overwrite the `patchy-github` Secret with a PAT
+  the placeholder GitHub credential fails every GitHub call until you overwrite the `maul-github` Secret with a PAT
   (`GITHUB_TOKEN=<pat> make dev-colima` does it for you), and kind's kindnet ignores NetworkPolicy — a green dev apply
   is not evidence of a working sandbox.
 - **dev-fake** layers on dev for a fully credential-less end to end: the e2e suite's fake GitHub runs in-cluster
-  (`patchy-fakegithub`, with a NodePort on 30990 for host-side inspection), the `Integration`/`Forge` CRs point at its
+  (`maul-fakegithub`, with a NodePort on 30990 for host-side inspection), the `Integration`/`Forge` CRs point at its
   Service, the agent image is a scripted stand-in (`hack/fake-agent`) that needs no model key, and one extra egress rule
   reaches the fake. The whole CR pipeline — ingestion through pull request, rollups, and the TTL — runs against it; the
   [demo-tooling walkthrough](dev-fake.md#credential-less-end-to-end-the-dev-fake-overlay) shows the full loop.
 - **prod** uses the real intervals (1h accumulation and min-age, the 14-day TTL), the `claude` harness, the Cilium FQDN
   component, production-sized requests, and **digest-pinned images** — the checked-in `sha256:0000…` values are
-  placeholders to replace with your release's published digests, including the `PATCHY_CLAUDE_AGENT_IMAGE` value in the
+  placeholders to replace with your release's published digests, including the `MAUL_CLAUDE_AGENT_IMAGE` value in the
   ConfigMap patch. Bring real Secrets and CRs with SOPS or external-secrets, and put your Ingress or Gateway in front of
-  `patchy-integration-controller:8080` in your own overlay — the base deliberately ships none.
+  `maul-integration-controller:8080` in your own overlay — the base deliberately ships none.
 
 The base's `secrets.example.yaml` and `crs.example.yaml` are documentation, not resources — the dev overlay's throwaway
 values exist so the pods schedule and the CR state machine runs, not so GitHub calls succeed.
@@ -124,12 +124,12 @@ components:
   - ../../components/intent-controller
 ```
 
-It adds the Deployment, its ServiceAccount, a Role in `patchy` and its own copy of the agent-jobs Role in
-`patchy-agents`, and a ConfigMap of `PATCHY_INTENT_*` settings. It reads that ConfigMap after the shared one. The base's
-controller NetworkPolicy already covers it. Its `secrets get` names the Forge Secret, `patchy-github`; patch the
-component's Role if your Forges reference other Secrets. That restriction applies only in the release namespace: its
-agent-jobs Role can get, create, update and delete any Secret in the agents namespace, including model keys, image-pull
-credentials and other Jobs' handoffs. Builds need an accepted repository-declared image, and the base does not configure
-repository images, so either add those keys (the component's `configmap.yaml` lists the ones it reads) or set
+It adds the Deployment, its ServiceAccount, a Role in `maul` and its own copy of the agent-jobs Role in `maul-agents`,
+and a ConfigMap of `MAUL_INTENT_*` settings. It reads that ConfigMap after the shared one. The base's controller
+NetworkPolicy already covers it. Its `secrets get` names the Forge Secret, `maul-github`; patch the component's Role if
+your Forges reference other Secrets. That restriction applies only in the release namespace: its agent-jobs Role can
+get, create, update and delete any Secret in the agents namespace, including model keys, image-pull credentials and
+other Jobs' handoffs. Builds need an accepted repository-declared image, and the base does not configure repository
+images, so either add those keys (the component's `configmap.yaml` lists the ones it reads) or set
 `requireRepositoryImage: false` on each Project. The base already carries the Project, Intent and IntentRun CRDs; apply
 your Projects like the other CRs.

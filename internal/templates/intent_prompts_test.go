@@ -110,7 +110,7 @@ func TestIntentPromptGoldens(t *testing.T) {
 // commit_failed retry is told a test it wrote belongs in commit.sh. It
 // states no layout rule, which report.ParseBuild does not apply, and does
 // not tell the agent its report becomes the pull request's description,
-// which patchy renders from the approved plan.
+// which maul renders from the approved plan.
 func TestBuildPromptStatesTheRules(t *testing.T) {
 	for _, prev := range []*PreviousAttempt{
 		nil,
@@ -123,7 +123,7 @@ func TestBuildPromptStatesTheRules(t *testing.T) {
 		}
 		for _, want := range []string{
 			"follow it exactly",
-			"Never create, change or delete anything under `.github/`, `.patchy/` or `.devcontainer/`",
+			"Never create, change or delete anything under `.github/`, `.maul/` or `.devcontainer/`",
 			"**no\n  network access**",
 			"`git status --porcelain` must print nothing",
 			"at least one new commit",
@@ -148,7 +148,7 @@ func TestBuildPromptStatesTheRules(t *testing.T) {
 			"End the body with a `## Working notes` section, whether or not you succeeded",
 			"return an updated version of them: rewrite them",
 			"keeping what is still true and dropping what is not, rather than adding to them",
-			"patchy cuts notes longer than 6 KiB",
+			"maul cuts notes longer than 6 KiB",
 			"say nothing of what to build",
 		} {
 			if !strings.Contains(got, want) {
@@ -175,7 +175,7 @@ func TestBuildPromptStatesTheRules(t *testing.T) {
 
 // TestPlanPromptStatesTheRules: the plan prompt states the bounds report.ParsePlan
 // enforces that a planner could not guess — the dependency's byte bound, the
-// whole report's, and the layout rule, and that patchy checks them itself
+// whole report's, and the layout rule, and that maul checks them itself
 // so the planner writes the report and stops — and that the build reads the plan
 // alone, so the plan must carry what the build needs of the request.
 func TestPlanPromptStatesTheRules(t *testing.T) {
@@ -194,7 +194,7 @@ func TestPlanPromptStatesTheRules(t *testing.T) {
 		"no run of more than 16 backticks",
 		// A live planner spent its last turns writing scripts to check
 		// these rules after its plan was written, and ran out of turns:
-		// patchy checks them itself and asks for a repair.
+		// maul checks them itself and asks for a repair.
 		// Only what is checked in the pod for every plan: the repositories
 		// are not (one repository has no manifest to hold them to), so the
 		// planner is still told to get them right.

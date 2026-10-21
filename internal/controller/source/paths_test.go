@@ -23,12 +23,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/artifact"
-	"github.com/bitwise-media-group/patchy/internal/forge"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/runnerimage"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/artifact"
+	"github.com/devthenet-labs/maul/internal/forge"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/runnerimage"
 )
 
 var errBoom = errors.New("boom")
@@ -90,7 +90,7 @@ func harnessWith(t *testing.T, gh forgeClient, funcs interceptor.Funcs, objs ...
 }
 
 func repoReq() ctrl.Request {
-	return ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "patchy", Name: repoName}}
+	return ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "maul", Name: repoName}}
 }
 
 // TestReconcileForgeFailures: a forge call that fails records Ready=False
@@ -124,7 +124,7 @@ func TestReconcileForgeFailures(t *testing.T) {
 			if repo.Status.Artifact != nil || repo.Status.ResolvedSHA != "" {
 				t.Errorf("status = sha %q artifact %+v, want neither", repo.Status.ResolvedSHA, repo.Status.Artifact)
 			}
-			if _, ok := r.Artifacts.Get("patchy/" + repoName); ok {
+			if _, ok := r.Artifacts.Get("maul/" + repoName); ok {
 				t.Error("artifact stored despite the failure")
 			}
 		})
@@ -258,7 +258,7 @@ func TestReconcileGetError(t *testing.T) {
 	if _, err := r.Reconcile(t.Context(), repoReq()); !errors.Is(err, errBoom) {
 		t.Fatalf("Reconcile error = %v, want %v", err, errBoom)
 	}
-	if _, ok := r.Artifacts.Get("patchy/" + repoName); !ok {
+	if _, ok := r.Artifacts.Get("maul/" + repoName); !ok {
 		t.Error("artifact dropped on a transient read error")
 	}
 }
@@ -268,7 +268,7 @@ func TestReconcileGetError(t *testing.T) {
 func TestReconcileDeletingDropsArtifact(t *testing.T) {
 	gh := &fakeForgeClient{defaultBranch: "main", headSHA: "abc123", tarball: "t"}
 	repo := testRepository()
-	repo.Finalizers = []string{"patchy.bitwisemedia.uk/test"}
+	repo.Finalizers = []string{"maul.run/test"}
 	r, c := harnessWith(t, gh, interceptor.Funcs{}, testForge("gh"), repo)
 	if _, err := r.Reconcile(t.Context(), repoReq()); err != nil {
 		t.Fatalf("Reconcile: %v", err)
@@ -279,7 +279,7 @@ func TestReconcileDeletingDropsArtifact(t *testing.T) {
 	if _, err := r.Reconcile(t.Context(), repoReq()); err != nil {
 		t.Fatalf("Reconcile deleting: %v", err)
 	}
-	if _, ok := r.Artifacts.Get("patchy/" + repoName); ok {
+	if _, ok := r.Artifacts.Get("maul/" + repoName); ok {
 		t.Error("artifact kept for a deleting Repository")
 	}
 	if gh.tarballCalls != 1 {
@@ -315,12 +315,12 @@ func TestRejectedLabelsAndUnwraps(t *testing.T) {
 		wantReason string
 	}{{"own reason", labelled, "Unsigned"}, {"stage label", bare, "Policy"}} {
 		t.Run(tt.name, func(t *testing.T) {
-			err := rejected("Policy", "ghcr.io/acme/env:1", ".patchy/agent.yaml", fmt.Errorf("check: %w", tt.cause))
+			err := rejected("Policy", "ghcr.io/acme/env:1", ".maul/agent.yaml", fmt.Errorf("check: %w", tt.cause))
 			var rej *imageRejection
 			if !errors.As(err, &rej) {
 				t.Fatalf("rejected() = %T, want *imageRejection", err)
 			}
-			if rej.reason != tt.wantReason || rej.declared != "ghcr.io/acme/env:1" || rej.manifest != ".patchy/agent.yaml" {
+			if rej.reason != tt.wantReason || rej.declared != "ghcr.io/acme/env:1" || rej.manifest != ".maul/agent.yaml" {
 				t.Errorf("rejection = %+v", rej)
 			}
 			var inner *runnerimage.Rejection
@@ -341,10 +341,10 @@ func TestRejectedLabelsAndUnwraps(t *testing.T) {
 // conflicting status write is requeued and any other write error returned.
 func TestForgeReconcileEdges(t *testing.T) {
 	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "creds", Namespace: "patchy"},
+		ObjectMeta: metav1.ObjectMeta{Name: "creds", Namespace: "maul"},
 		Data:       map[string][]byte{forge.SecretKeyToken: []byte("t")},
 	}
-	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "patchy", Name: "gh"}}
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "maul", Name: "gh"}}
 	build := func(funcs interceptor.Funcs, objs ...client.Object) (*ForgeReconciler, client.Client) {
 		c := fake.NewClientBuilder().WithScheme(kube.Scheme()).WithObjects(objs...).
 			WithStatusSubresource(&v1alpha1.Forge{}).WithInterceptorFuncs(funcs).Build()
@@ -361,7 +361,7 @@ func TestForgeReconcileEdges(t *testing.T) {
 		f := testForge("gh")
 		now := metav1.NewTime(time.Now())
 		f.DeletionTimestamp = &now
-		f.Finalizers = []string{"patchy.bitwisemedia.uk/test"}
+		f.Finalizers = []string{"maul.run/test"}
 		r, c := build(interceptor.Funcs{}, f, secret)
 		if res, err := r.Reconcile(t.Context(), req); err != nil || res != (ctrl.Result{}) {
 			t.Errorf("Reconcile = %+v, %v, want empty", res, err)

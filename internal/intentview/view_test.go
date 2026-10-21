@@ -20,7 +20,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 func phaseLog(phases ...v1alpha1.IntentPhase) []v1alpha1.IntentPhaseTime {
@@ -105,7 +105,7 @@ func TestMicroUSDAndFormat(t *testing.T) {
 
 func TestRunReasonNeverCarriesDetail(t *testing.T) {
 	private := "0/3 nodes are available: node ip-10-0-1-23.ec2.internal; image " +
-		"111122223333.dkr.ecr.us-east-1.amazonaws.com/patchy/app@sha256:abc"
+		"111122223333.dkr.ecr.us-east-1.amazonaws.com/maul/app@sha256:abc"
 	for _, outcome := range []string{"unschedulable", "evicted", "runtime_error", "image_required", "aborted", "weird"} {
 		run := &v1alpha1.IntentRun{Status: v1alpha1.IntentRunStatus{Outcome: outcome, Detail: private}}
 		got := RunReason(run)
@@ -157,7 +157,7 @@ func TestBlockedReasonsUsePublicWordingOnly(t *testing.T) {
 	want := []string{
 		"spent $10.25 of the $10.00 cost ceiling",
 		"the repository's agent image was rejected",
-		"the intent branch is in a state patchy will not build on",
+		"the intent branch is in a state maul will not build on",
 		"the revision limit is reached (3 of 3)",
 		"the check-fix limit is reached (2 of 2)",
 		"no node in the cluster could fit the agent",
@@ -373,8 +373,8 @@ func TestPureImports(t *testing.T) {
 		t.Fatal(err)
 	}
 	allowed := []string{
-		"github.com/bitwise-media-group/patchy/api/v1alpha1",
-		"github.com/bitwise-media-group/patchy/internal/templates",
+		"github.com/devthenet-labs/maul/api/v1alpha1",
+		"github.com/devthenet-labs/maul/internal/templates",
 		"k8s.io/apimachinery/",
 	}
 	fset := token.NewFileSet()

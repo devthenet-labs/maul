@@ -1,0 +1,27 @@
+# The answers `maul setup previews` last rendered this directory from. A re-run starts
+# from them; flags given then override them. No secret is ever recorded here.
+apiServerCIDR: auto
+cliVersion: v0.12.40
+dex:
+  clientID: maul-preview-auth
+  issuer: https://dex.maul.acme.dev
+  namespace: dex
+edge: existing
+existing:
+  gatewayParent: gateway-system/edge/https-previews
+hostSuffix: acme-previews.dev
+imagePathPrefix: acme/maul/previews
+namespace: maul
+nodeIsolation:
+  label: maul.run/previews
+  labelValue: "true"
+  taintKey: maul.run/preview-only
+platform: aks
+registry: acme.azurecr.io
+release: maul
+signInHost: preview-auth.maul.acme.dev
+viewers:
+  teams:
+  - acme:qa
+  users:
+  - octocat

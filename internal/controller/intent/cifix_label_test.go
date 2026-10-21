@@ -9,27 +9,27 @@ import (
 	"testing"
 	"time"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/ghclient"
 )
 
-// roundNotices are patchy's round notices on pull request n, by round.
+// roundNotices are maul's round notices on pull request n, by round.
 func (e *env) roundNotices(name string, n int64) map[int32]string {
 	e.gh.mu.Lock()
 	defer e.gh.mu.Unlock()
 	out := map[int32]string{}
 	for _, c := range e.gh.prComments[n] {
 		var round int32
-		if _, err := fmt.Sscanf(markerOf(c.Body), "<!-- patchy:intent-pr-round:"+name+":%d -->", &round); err == nil {
+		if _, err := fmt.Sscanf(markerOf(c.Body), "<!-- maul:intent-pr-round:"+name+":%d -->", &round); err == nil {
 			out[round] = c.Body
 		}
 	}
 	return out
 }
 
-// statusBody is the body of patchy's status comment on the intent issue.
+// statusBody is the body of maul's status comment on the intent issue.
 func (e *env) statusBody() string {
-	st := e.gh.withMarker("patchy:intent ")
+	st := e.gh.withMarker("maul:intent ")
 	if len(st) != 1 {
 		return ""
 	}
@@ -38,7 +38,7 @@ func (e *env) statusBody() string {
 
 // TestCIFixRoundIsLabelledAndCountedApart is the second live regression of
 // the 2026-10-03 CI-fix demo: a round a failed check started said "Revision
-// round" on its pull request, the issue's status said patchy was revising
+// round" on its pull request, the issue's status said maul was revising
 // "from review feedback", and the summary left it out. A CI-fix round now says
 // so, naming the check, everywhere; a review round still reads as before; and
 // the summary counts the two apart.
@@ -47,7 +47,7 @@ func TestCIFixRoundIsLabelledAndCountedApart(t *testing.T) {
 	project.Spec.Checks.Fix = []string{"changelog"}
 	e := newEnv(t, project)
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 	pr := in.Status.PullRequests[0]
 	e.gh.checks[pr.HeadSHA] = []ghclient.CheckRun{{ID: 61, Name: "changelog", HeadSHA: pr.HeadSHA,

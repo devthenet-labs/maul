@@ -16,20 +16,20 @@ func TestSlotOf(t *testing.T) {
 		slot  int
 		ok    bool
 	}{
-		{"patchy-preview-s0", 1, 0, true},
-		{"patchy-preview-s3", 4, 3, true},
-		{"patchy-preview-s3", 3, 0, false},
-		{"patchy-preview-s4", 4, 0, false},
-		{"patchy-preview-s0", 0, 0, false},
-		{"patchy-preview-s0", 5, 0, false},
-		{"patchy-preview-s01", 4, 0, false},
-		{"patchy-preview-s+1", 4, 0, false},
-		{"patchy-preview-s-1", 4, 0, false},
-		{"patchy-preview-s 1", 4, 0, false},
-		{"patchy-preview-s1 ", 4, 0, false},
-		{"patchy-preview-s", 4, 0, false},
-		{"Patchy-preview-s1", 4, 0, false},
-		{"patchy-preview-auth", 4, 0, false},
+		{"maul-preview-s0", 1, 0, true},
+		{"maul-preview-s3", 4, 3, true},
+		{"maul-preview-s3", 3, 0, false},
+		{"maul-preview-s4", 4, 0, false},
+		{"maul-preview-s0", 0, 0, false},
+		{"maul-preview-s0", 5, 0, false},
+		{"maul-preview-s01", 4, 0, false},
+		{"maul-preview-s+1", 4, 0, false},
+		{"maul-preview-s-1", 4, 0, false},
+		{"maul-preview-s 1", 4, 0, false},
+		{"maul-preview-s1 ", 4, 0, false},
+		{"maul-preview-s", 4, 0, false},
+		{"Maul-preview-s1", 4, 0, false},
+		{"maul-preview-auth", 4, 0, false},
 		{"", 4, 0, false},
 	} {
 		slot, ok := SlotOf(tc.id, tc.count)
@@ -41,7 +41,7 @@ func TestSlotOf(t *testing.T) {
 		if got, ok := SlotOf(ClientID(s), MaxSlots); !ok || got != s {
 			t.Errorf("SlotOf(ClientID(%d)) = %d, %v", s, got, ok)
 		}
-		if ALBCookieName(s) != "patchy-preview-s"+string(rune('0'+s)) {
+		if ALBCookieName(s) != "maul-preview-s"+string(rune('0'+s)) {
 			t.Errorf("ALBCookieName(%d) = %q", s, ALBCookieName(s))
 		}
 	}
@@ -50,10 +50,10 @@ func TestSlotOf(t *testing.T) {
 // TestClientSecretVector pins the construction the chart reproduces with
 // sha256sum. The value was computed outside Go:
 //
-//	printf '%s\0patchy-preview-auth/v1/client-secret\0%d\0%d' "$master" 3 1 | shasum -a 256
+//	printf '%s\0maul-preview-auth/v1/client-secret\0%d\0%d' "$master" 3 1 | shasum -a 256
 func TestClientSecretVector(t *testing.T) {
 	r := newRing(t, 3, masterA)
-	const want = "7b22d9ebe2b0aab50bad79a1d6781f9d48bcb2ab1c44a5e38afa1675dc2d4eb9"
+	const want = "94404eae16108f445d9e69396db6664529144f3511cbbb2026e26c64d305cacf"
 	if got := r.ClientSecret(1); got != want {
 		t.Errorf("ClientSecret(1) = %s, want %s", got, want)
 	}

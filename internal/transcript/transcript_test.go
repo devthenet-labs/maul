@@ -35,7 +35,7 @@ func TestDecodeRejects(t *testing.T) {
 		line string
 	}{
 		{"no prefix", `{"v":1,"kind":"text"}`},
-		{"envelope line", `PATCHY-EVENT: {"v":4,"type":"investigation"}`},
+		{"envelope line", `MAUL-EVENT: {"v":4,"type":"investigation"}`},
 		{"bad json", Prefix + `{not json`},
 		{"wrong version", Prefix + `{"v":99,"kind":"text"}`},
 		{"no kind", Prefix + `{"v":1,"seq":1}`},

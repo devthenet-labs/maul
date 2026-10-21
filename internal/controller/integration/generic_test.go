@@ -14,12 +14,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/generic"
-	"github.com/bitwise-media-group/patchy/internal/ghsecret"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/webhook"
-	"github.com/bitwise-media-group/patchy/pkg/source"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/generic"
+	"github.com/devthenet-labs/maul/internal/ghsecret"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/webhook"
+	"github.com/devthenet-labs/maul/pkg/source"
 )
 
 // genericFindingsJSON is one findings delivery per the pkg/generic contract.
@@ -44,7 +44,7 @@ func testGenericIntegration(name string, mutate ...func(*v1alpha1.GenericIntegra
 		m(g)
 	}
 	return &v1alpha1.Integration{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "patchy"},
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "maul"},
 		Spec: v1alpha1.IntegrationSpec{
 			Provider:  v1alpha1.IntegrationProviderGeneric,
 			SecretRef: &v1alpha1.LocalSecretReference{Name: name + "-creds"},
@@ -55,7 +55,7 @@ func testGenericIntegration(name string, mutate ...func(*v1alpha1.GenericIntegra
 
 func genericSecret(name, secret string) *corev1.Secret {
 	return &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: name + "-creds", Namespace: "patchy"},
+		ObjectMeta: metav1.ObjectMeta{Name: name + "-creds", Namespace: "maul"},
 		Data:       map[string][]byte{ghsecret.KeyWebhookSecret: []byte(secret)},
 	}
 }
@@ -242,7 +242,7 @@ func TestValidateGeneric(t *testing.T) {
 		{
 			"missing webhook secret key",
 			testGenericIntegration("warehouse"),
-			&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "warehouse-creds", Namespace: "patchy"}},
+			&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "warehouse-creds", Namespace: "maul"}},
 			"missing key webhookSecret",
 		},
 		{

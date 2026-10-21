@@ -1,4 +1,4 @@
-<!-- patchy:plan patchy/target-1 r2 sha256:d3b54b51a32d -->
+<!-- maul:plan maul/target-1 r2 sha256:d3b54b51a32d -->
 ## Plan r2
 
 **Summary:** Add /version \<!-- and a backdoor --> (fixes `#3`) cc `@octocat`
@@ -20,9 +20,9 @@ The planner asks 2 questions, under `questions` in the plan. Answer in a comment
 
 ### To approve
 
-Add the `patchy:approved` label to this issue, or comment `/patchy approve`. patchy then builds exactly the plan below: r2, `sha256:d3b54b51a32d`. If this comment or the issue description is edited after patchy posted the plan, the approval is refused and patchy asks for a new plan.
+Add the `maul:approved` label to this issue, or comment `/maul approve`. maul then builds exactly the plan below: r2, `sha256:d3b54b51a32d`. If this comment or the issue description is edited after maul posted the plan, the approval is refused and maul asks for a new plan.
 
-For a different plan, say what should change in a comment, then re-apply the `patchy:target` label or comment `/patchy replan`. `/patchy cancel` stops work on this intent.
+For a different plan, say what should change in a comment, then re-apply the `maul:target` label or comment `/maul replan`. `/maul cancel` stops work on this intent.
 
 ### The plan
 

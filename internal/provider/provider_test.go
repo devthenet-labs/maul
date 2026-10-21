@@ -9,11 +9,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bitwise-media-group/patchy/internal/harness"
-	"github.com/bitwise-media-group/patchy/internal/model"
+	"github.com/devthenet-labs/maul/internal/harness"
+	"github.com/devthenet-labs/maul/internal/model"
 )
 
-const broker = "http://patchy-egress-broker.patchy.svc.cluster.local:8080"
+const broker = "http://maul-egress-broker.maul.svc.cluster.local:8080"
 
 func TestValidate(t *testing.T) {
 	tests := []struct {
@@ -158,8 +158,8 @@ func TestBaseURLEnvNames(t *testing.T) {
 func TestEnvModelMapAndExtra(t *testing.T) {
 	cfg := Config{Name: Anthropic, BrokerURL: broker, ExtraEnv: map[string]string{"HTTPS_PROXY": "http://p"}}
 	got := Env(cfg, map[string]string{"anthropic/claude-sonnet-5": "claude-sonnet-5"})
-	if got["PATCHY_MODEL_MAP"] != "anthropic/claude-sonnet-5=claude-sonnet-5" {
-		t.Errorf("PATCHY_MODEL_MAP = %q", got["PATCHY_MODEL_MAP"])
+	if got["MAUL_MODEL_MAP"] != "anthropic/claude-sonnet-5=claude-sonnet-5" {
+		t.Errorf("MAUL_MODEL_MAP = %q", got["MAUL_MODEL_MAP"])
 	}
 	if got["HTTPS_PROXY"] != "http://p" {
 		t.Errorf("ExtraEnv not passed through: %v", got)
@@ -252,7 +252,7 @@ func TestEffectiveModelMap(t *testing.T) {
 }
 
 // TestPlaceholderAuthChannel: the placeholder rides one of claude's own
-// credential channels, which is what keeps it patchy-owned — internal/jobs
+// credential channels, which is what keeps it maul-owned — internal/jobs
 // reserves and filters every such channel, so no operator env reaches it —
 // and the gateway env never emits it (jobs sets it on brokered pods only).
 func TestPlaceholderAuthChannel(t *testing.T) {
@@ -374,8 +374,8 @@ func TestCodexGatewayNames(t *testing.T) {
 	if !slices.Contains(BaseURLEnvNames, CodexBaseURLEnv) {
 		t.Errorf("%s is not a base-URL name", CodexBaseURLEnv)
 	}
-	env := CodexEnv("http://broker.patchy.svc:8080/")
-	if got := env[CodexBaseURLEnv]; got != "http://broker.patchy.svc:8080/openai/v1" || len(env) != 1 {
+	env := CodexEnv("http://broker.maul.svc:8080/")
+	if got := env[CodexBaseURLEnv]; got != "http://broker.maul.svc:8080/openai/v1" || len(env) != 1 {
 		t.Errorf("CodexEnv = %v", env)
 	}
 	gw := CodexGateway(env[CodexBaseURLEnv])

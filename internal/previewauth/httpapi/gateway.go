@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/previewauth"
+	"github.com/devthenet-labs/maul/internal/previewauth"
 )
 
 // DefaultBodyLimit is a proxied request body's default cap.
@@ -185,7 +185,7 @@ func (g *gateway) setDeadline(w http.ResponseWriter) {
 	_ = rc.SetWriteDeadline(deadline)
 }
 
-// health is the reserved /.patchy/healthz: 200 on every host, never
+// health is the reserved /.maul/healthz: 200 on every host, never
 // forwarded, never rate limited.
 func (g *gateway) health(w http.ResponseWriter, r *http.Request) {
 	pageHeaders(w.Header())

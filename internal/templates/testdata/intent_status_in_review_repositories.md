@@ -1,5 +1,5 @@
-<!-- patchy:intent patchy/marigold-3 -->
-### patchy
+<!-- maul:intent maul/marigold-3 -->
+### maul
 
 **Phase:** `InReview`: the pull requests are open for review.
 
@@ -16,6 +16,6 @@
 
 **Revisions:** 0 of 3
 
-**Commands now:** `/patchy cancel`
+**Commands now:** `/maul cancel`
 
-_patchy updates this comment as the work progresses._
+_maul updates this comment as the work progresses._

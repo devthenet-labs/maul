@@ -19,35 +19,35 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/bitwise-media-group/patchy/internal/harness"
+	"github.com/devthenet-labs/maul/internal/harness"
 )
 
 var dns1123 = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
 
 func testConfig() Config {
 	return Config{
-		Namespace:      "patchy-agents",
-		ServiceAccount: "patchy-agent",
+		Namespace:      "maul-agents",
+		ServiceAccount: "maul-agent",
 		Deadline:       time.Hour,
 		TTL:            2 * time.Hour,
 		Runners: map[string]Runner{
 			"claude": {
-				Image:     "ghcr.io/bitwise-media-group/patchy/claude-agent-runner:1",
+				Image:     "ghcr.io/devthenet-labs/maul/claude-agent-runner:1",
 				Secret:    "anthropic",
 				SecretEnv: "ANTHROPIC_API_KEY",
 			},
 			"codex": {
-				Image:     "ghcr.io/bitwise-media-group/patchy/codex-agent-runner:1",
+				Image:     "ghcr.io/devthenet-labs/maul/codex-agent-runner:1",
 				Secret:    "openai",
 				SecretEnv: "OPENAI_API_KEY",
 			},
 		},
 		Env: map[string]string{
-			"PATCHY_INVESTIGATE_TIMEOUT": "15m",
-			"GITHUB_TOKEN":               "must-never-pass-through",
-			"CLAUDE_CODE_OAUTH_TOKEN":    "must-never-pass-through",
-			"CODEX_API_KEY":              "must-never-pass-through",
-			"CODEX_ACCESS_TOKEN":         "must-never-pass-through",
+			"MAUL_INVESTIGATE_TIMEOUT": "15m",
+			"GITHUB_TOKEN":             "must-never-pass-through",
+			"CLAUDE_CODE_OAUTH_TOKEN":  "must-never-pass-through",
+			"CODEX_API_KEY":            "must-never-pass-through",
+			"CODEX_ACCESS_TOKEN":       "must-never-pass-through",
 		},
 		CPURequest:    "500m",
 		MemoryRequest: "1Gi",
@@ -68,7 +68,7 @@ func testSpec() Spec {
 		Kind:           "investigation",
 		Owner:          "finding-abc123def0-1-inv-1",
 		Finding:        "finding-abc123def0-1",
-		ArtifactURL:    "http://patchy-source-controller.patchy.svc.cluster.local:9790/artifacts/deadbeef.tar.gz",
+		ArtifactURL:    "http://maul-source-controller.maul.svc.cluster.local:9790/artifacts/deadbeef.tar.gz",
 		ArtifactDigest: "aa11bb22cc33dd44ee55ff6600112233445566778899aabbccddeeff00112233",
 	}
 }
@@ -116,8 +116,8 @@ func TestNameForShape(t *testing.T) {
 			if !dns1123.MatchString(got) {
 				t.Errorf("NameFor(%q) = %q is not DNS-1123 safe", tt.finding, got)
 			}
-			if !strings.HasPrefix(got, "patchy-") {
-				t.Errorf("NameFor(%q) = %q, want patchy- prefix", tt.finding, got)
+			if !strings.HasPrefix(got, "maul-") {
+				t.Errorf("NameFor(%q) = %q, want maul- prefix", tt.finding, got)
 			}
 		})
 	}
@@ -150,18 +150,18 @@ func TestCreateJobShape(t *testing.T) {
 		t.Fatalf("Create returned %q, want deterministic %q", name, want)
 	}
 
-	job, err := cs.BatchV1().Jobs("patchy-agents").Get(context.Background(), name, metav1.GetOptions{})
+	job, err := cs.BatchV1().Jobs("maul-agents").Get(context.Background(), name, metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("get job: %v", err)
 	}
 
 	wantLabels := map[string]string{
-		"app.kubernetes.io/name":         "patchy-agent",
-		"app.kubernetes.io/managed-by":   "patchy",
-		"patchy.bitwisemedia.uk/attempt": "1",
-		"patchy.bitwisemedia.uk/kind":    "investigation",
-		"patchy.bitwisemedia.uk/owner":   "finding-abc123def0-1-inv-1",
-		"patchy.bitwisemedia.uk/finding": "finding-abc123def0-1",
+		"app.kubernetes.io/name":       "maul-agent",
+		"app.kubernetes.io/managed-by": "maul",
+		"maul.run/attempt":             "1",
+		"maul.run/kind":                "investigation",
+		"maul.run/owner":               "finding-abc123def0-1-inv-1",
+		"maul.run/finding":             "finding-abc123def0-1",
 	}
 	for _, lbls := range []map[string]string{job.Labels, job.Spec.Template.Labels} {
 		for k, want := range wantLabels {
@@ -170,8 +170,8 @@ func TestCreateJobShape(t *testing.T) {
 			}
 		}
 	}
-	if got := job.Annotations["patchy.bitwisemedia.uk/repo"]; got != "octo/repo" {
-		t.Errorf("annotation patchy.bitwisemedia.uk/repo = %q, want octo/repo", got)
+	if got := job.Annotations["maul.run/repo"]; got != "octo/repo" {
+		t.Errorf("annotation maul.run/repo = %q, want octo/repo", got)
 	}
 
 	if got := *job.Spec.BackoffLimit; got != 0 {
@@ -187,8 +187,8 @@ func TestCreateJobShape(t *testing.T) {
 	if pod.RestartPolicy != corev1.RestartPolicyNever {
 		t.Errorf("restartPolicy = %q, want Never", pod.RestartPolicy)
 	}
-	if pod.ServiceAccountName != "patchy-agent" {
-		t.Errorf("serviceAccountName = %q, want patchy-agent", pod.ServiceAccountName)
+	if pod.ServiceAccountName != "maul-agent" {
+		t.Errorf("serviceAccountName = %q, want maul-agent", pod.ServiceAccountName)
 	}
 	if pod.SecurityContext == nil || pod.SecurityContext.FSGroup == nil || *pod.SecurityContext.FSGroup != 65532 {
 		t.Errorf("pod fsGroup = %+v, want 65532", pod.SecurityContext)
@@ -210,7 +210,7 @@ func TestCreateArtifactPrepare(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	job, err := cs.BatchV1().Jobs("patchy-agents").Get(context.Background(), name, metav1.GetOptions{})
+	job, err := cs.BatchV1().Jobs("maul-agents").Get(context.Background(), name, metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("get job: %v", err)
 	}
@@ -219,7 +219,7 @@ func TestCreateArtifactPrepare(t *testing.T) {
 
 	// The tree arrives as a digest-verified tarball; the base commit is
 	// synthetic. No git fetch, no clone, no credential.
-	if !strings.Contains(script, `curl -fsSL --retry 5 --retry-all-errors "$PATCHY_ARTIFACT_URL"`) {
+	if !strings.Contains(script, `curl -fsSL --retry 5 --retry-all-errors "$MAUL_ARTIFACT_URL"`) {
 		t.Errorf("prepare script does not fetch the artifact with retries:\n%s", script)
 	}
 	if !strings.Contains(script, "sha256sum -c") {
@@ -233,14 +233,14 @@ func TestCreateArtifactPrepare(t *testing.T) {
 	for _, env := range prepare.Env {
 		envs[env.Name] = env.Value
 	}
-	if envs["PATCHY_ARTIFACT_URL"] != spec.ArtifactURL {
-		t.Errorf("init PATCHY_ARTIFACT_URL = %q, want %q", envs["PATCHY_ARTIFACT_URL"], spec.ArtifactURL)
+	if envs["MAUL_ARTIFACT_URL"] != spec.ArtifactURL {
+		t.Errorf("init MAUL_ARTIFACT_URL = %q, want %q", envs["MAUL_ARTIFACT_URL"], spec.ArtifactURL)
 	}
-	if envs["PATCHY_ARTIFACT_DIGEST"] != spec.ArtifactDigest {
-		t.Errorf("init PATCHY_ARTIFACT_DIGEST = %q, want %q", envs["PATCHY_ARTIFACT_DIGEST"], spec.ArtifactDigest)
+	if envs["MAUL_ARTIFACT_DIGEST"] != spec.ArtifactDigest {
+		t.Errorf("init MAUL_ARTIFACT_DIGEST = %q, want %q", envs["MAUL_ARTIFACT_DIGEST"], spec.ArtifactDigest)
 	}
-	if envs["PATCHY_BASE_SHA"] != spec.BaseSHA {
-		t.Errorf("init PATCHY_BASE_SHA = %q, want %q", envs["PATCHY_BASE_SHA"], spec.BaseSHA)
+	if envs["MAUL_BASE_SHA"] != spec.BaseSHA {
+		t.Errorf("init MAUL_BASE_SHA = %q, want %q", envs["MAUL_BASE_SHA"], spec.BaseSHA)
 	}
 }
 
@@ -253,7 +253,7 @@ func TestCreateCredentialIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	job, err := cs.BatchV1().Jobs("patchy-agents").Get(context.Background(), name, metav1.GetOptions{})
+	job, err := cs.BatchV1().Jobs("maul-agents").Get(context.Background(), name, metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("get job: %v", err)
 	}
@@ -291,7 +291,7 @@ func TestCreateAgentEnv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	job, err := cs.BatchV1().Jobs("patchy-agents").Get(context.Background(), name, metav1.GetOptions{})
+	job, err := cs.BatchV1().Jobs("maul-agents").Get(context.Background(), name, metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("get job: %v", err)
 	}
@@ -305,17 +305,17 @@ func TestCreateAgentEnv(t *testing.T) {
 		envs[env.Name] = env
 	}
 	wantValues := map[string]string{
-		"HOME":             "/workspace",
-		"PATCHY_WORKSPACE": "/workspace",
-		"PATCHY_REPO":      "octo/repo",
-		"PATCHY_PHASE":     "investigate",
-		"PATCHY_FINDING":   "finding-abc123def0-1",
-		"PATCHY_BASE_SHA":  spec.BaseSHA,
+		"HOME":           "/workspace",
+		"MAUL_WORKSPACE": "/workspace",
+		"MAUL_REPO":      "octo/repo",
+		"MAUL_PHASE":     "investigate",
+		"MAUL_FINDING":   "finding-abc123def0-1",
+		"MAUL_BASE_SHA":  spec.BaseSHA,
 		// The stage harness and model are set per-Job from the Spec, not the
 		// controller-global Env.
-		"PATCHY_INVESTIGATE_HARNESS": "claude",
-		"PATCHY_INVESTIGATE_MODEL":   "anthropic/claude-sonnet-5",
-		"PATCHY_INVESTIGATE_TIMEOUT": "15m",
+		"MAUL_INVESTIGATE_HARNESS": "claude",
+		"MAUL_INVESTIGATE_MODEL":   "anthropic/claude-sonnet-5",
+		"MAUL_INVESTIGATE_TIMEOUT": "15m",
 	}
 	for k, want := range wantValues {
 		if got, ok := envs[k]; !ok || got.Value != want {
@@ -341,9 +341,9 @@ func TestCreateAgentEnv(t *testing.T) {
 }
 
 // TestCreateAgentEnvPreviousAttempt: a retry's previous attempt reaches the
-// pod as PATCHY_PREVIOUS_ATTEMPT, verbatim; a first attempt sets nothing.
+// pod as MAUL_PREVIOUS_ATTEMPT, verbatim; a first attempt sets nothing.
 // So does an intent plan's list of open pull requests, as
-// PATCHY_OPEN_PULL_REQUESTS, and a Job with none sets nothing.
+// MAUL_OPEN_PULL_REQUESTS, and a Job with none sets nothing.
 func TestCreateAgentEnvPreviousAttempt(t *testing.T) {
 	const previous = `{"attempt":1,"outcome":"commit_failed","detail":"M patchy-target"}`
 	const open = `[{"intent":"target-2","repository":"https://github.com/acme/app","number":7}]`
@@ -351,10 +351,10 @@ func TestCreateAgentEnvPreviousAttempt(t *testing.T) {
 		name, env, value string
 		set              func(*Spec, string)
 	}{
-		{"retry", "PATCHY_PREVIOUS_ATTEMPT", previous, func(s *Spec, v string) { s.PreviousAttempt = v }},
-		{"first attempt", "PATCHY_PREVIOUS_ATTEMPT", "", func(s *Spec, v string) { s.PreviousAttempt = v }},
-		{"open pull requests", "PATCHY_OPEN_PULL_REQUESTS", open, func(s *Spec, v string) { s.OpenPullRequests = v }},
-		{"no open pull request", "PATCHY_OPEN_PULL_REQUESTS", "", func(s *Spec, v string) { s.OpenPullRequests = v }},
+		{"retry", "MAUL_PREVIOUS_ATTEMPT", previous, func(s *Spec, v string) { s.PreviousAttempt = v }},
+		{"first attempt", "MAUL_PREVIOUS_ATTEMPT", "", func(s *Spec, v string) { s.PreviousAttempt = v }},
+		{"open pull requests", "MAUL_OPEN_PULL_REQUESTS", open, func(s *Spec, v string) { s.OpenPullRequests = v }},
+		{"no open pull request", "MAUL_OPEN_PULL_REQUESTS", "", func(s *Spec, v string) { s.OpenPullRequests = v }},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			cs := fake.NewClientset()
@@ -364,7 +364,7 @@ func TestCreateAgentEnvPreviousAttempt(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Create: %v", err)
 			}
-			job, err := cs.BatchV1().Jobs("patchy-agents").Get(context.Background(), name, metav1.GetOptions{})
+			job, err := cs.BatchV1().Jobs("maul-agents").Get(context.Background(), name, metav1.GetOptions{})
 			if err != nil {
 				t.Fatalf("get job: %v", err)
 			}
@@ -399,9 +399,9 @@ func TestOperatorEnvCannotShadowPerJobHandoff(t *testing.T) {
 		env string
 		set func(*Spec, string)
 	}{
-		{"PATCHY_CALIBRATION", func(s *Spec, v string) { s.Calibration = v }},
-		{"PATCHY_PREVIOUS_ATTEMPT", func(s *Spec, v string) { s.PreviousAttempt = v }},
-		{"PATCHY_OPEN_PULL_REQUESTS", func(s *Spec, v string) { s.OpenPullRequests = v }},
+		{"MAUL_CALIBRATION", func(s *Spec, v string) { s.Calibration = v }},
+		{"MAUL_PREVIOUS_ATTEMPT", func(s *Spec, v string) { s.PreviousAttempt = v }},
+		{"MAUL_OPEN_PULL_REQUESTS", func(s *Spec, v string) { s.OpenPullRequests = v }},
 	}
 	sources := []struct {
 		name string
@@ -472,7 +472,7 @@ func TestCreateAgentEnvOAuthToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	job, err := cs.BatchV1().Jobs("patchy-agents").Get(context.Background(), name, metav1.GetOptions{})
+	job, err := cs.BatchV1().Jobs("maul-agents").Get(context.Background(), name, metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("get job: %v", err)
 	}
@@ -505,13 +505,13 @@ func TestCreateRunnerSelection(t *testing.T) {
 		wantRef   string // credential Secret name
 	}{
 		{"claude", "claude", "",
-			"ghcr.io/bitwise-media-group/patchy/claude-agent-runner:1", "ANTHROPIC_API_KEY", "anthropic"},
+			"ghcr.io/devthenet-labs/maul/claude-agent-runner:1", "ANTHROPIC_API_KEY", "anthropic"},
 		{"codex", "codex", "",
-			"ghcr.io/bitwise-media-group/patchy/codex-agent-runner:1", "OPENAI_API_KEY", "openai"},
+			"ghcr.io/devthenet-labs/maul/codex-agent-runner:1", "OPENAI_API_KEY", "openai"},
 		// The ChatGPT-plan channel: same Secret, injected under the token env
 		// var instead of the API-key one.
 		{"codex access token", "codex", "CODEX_ACCESS_TOKEN",
-			"ghcr.io/bitwise-media-group/patchy/codex-agent-runner:1", "CODEX_ACCESS_TOKEN", "openai"},
+			"ghcr.io/devthenet-labs/maul/codex-agent-runner:1", "CODEX_ACCESS_TOKEN", "openai"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -529,7 +529,7 @@ func TestCreateRunnerSelection(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Create: %v", err)
 			}
-			job, err := cs.BatchV1().Jobs("patchy-agents").Get(context.Background(), name, metav1.GetOptions{})
+			job, err := cs.BatchV1().Jobs("maul-agents").Get(context.Background(), name, metav1.GetOptions{})
 			if err != nil {
 				t.Fatalf("get job: %v", err)
 			}
@@ -539,7 +539,7 @@ func TestCreateRunnerSelection(t *testing.T) {
 					t.Errorf("%s image = %q, want %q", ct.Name, ct.Image, tt.wantImage)
 				}
 			}
-			if got := job.Spec.Template.Labels["patchy.bitwisemedia.uk/harness"]; got != tt.harness {
+			if got := job.Spec.Template.Labels["maul.run/harness"]; got != tt.harness {
 				t.Errorf("harness label = %q, want %q", got, tt.harness)
 			}
 			envs := map[string]corev1.EnvVar{}
@@ -565,7 +565,7 @@ func TestCreateSecurityContexts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	job, err := cs.BatchV1().Jobs("patchy-agents").Get(context.Background(), name, metav1.GetOptions{})
+	job, err := cs.BatchV1().Jobs("maul-agents").Get(context.Background(), name, metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("get job: %v", err)
 	}
@@ -623,7 +623,7 @@ func TestCreateSecret(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Create: %v", err)
 			}
-			secret, err := cs.CoreV1().Secrets("patchy-agents").Get(context.Background(), name, metav1.GetOptions{})
+			secret, err := cs.CoreV1().Secrets("maul-agents").Get(context.Background(), name, metav1.GetOptions{})
 			if err != nil {
 				t.Fatalf("get secret: %v", err)
 			}
@@ -646,7 +646,7 @@ func TestCreateSecret(t *testing.T) {
 
 			// The Job's volume must reference this secret so the init
 			// container can stage the handoff files.
-			job, err := cs.BatchV1().Jobs("patchy-agents").Get(context.Background(), name, metav1.GetOptions{})
+			job, err := cs.BatchV1().Jobs("maul-agents").Get(context.Background(), name, metav1.GetOptions{})
 			if err != nil {
 				t.Fatalf("get job: %v", err)
 			}
@@ -673,7 +673,7 @@ func TestCreateInvalidResources(t *testing.T) {
 }
 
 func TestStatus(t *testing.T) {
-	base := metav1.ObjectMeta{Name: "j", Namespace: "patchy-agents"}
+	base := metav1.ObjectMeta{Name: "j", Namespace: "maul-agents"}
 	tests := []struct {
 		name string
 		job  batchv1.Job
@@ -735,7 +735,7 @@ func TestStatus(t *testing.T) {
 func TestStatusCreated(t *testing.T) {
 	created := metav1.NewTime(time.Date(2026, 9, 23, 10, 0, 0, 0, time.UTC))
 	job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{
-		Name: "j", Namespace: "patchy-agents", CreationTimestamp: created,
+		Name: "j", Namespace: "maul-agents", CreationTimestamp: created,
 	}}
 	c := New(fake.NewClientset(job), testConfig(), nil)
 	got, err := c.Status(context.Background(), "j")
@@ -764,7 +764,7 @@ func TestDelete(t *testing.T) {
 	if err := c.Delete(context.Background(), name); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
-	_, err = cs.BatchV1().Jobs("patchy-agents").Get(context.Background(), name, metav1.GetOptions{})
+	_, err = cs.BatchV1().Jobs("maul-agents").Get(context.Background(), name, metav1.GetOptions{})
 	if !apierrors.IsNotFound(err) {
 		t.Errorf("job still present after Delete: %v", err)
 	}

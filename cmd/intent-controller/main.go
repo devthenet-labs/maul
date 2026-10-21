@@ -5,7 +5,7 @@
 // Project's intent repository for issues carrying its trigger label, plans
 // the work in a read-only agent Job, posts the plan for an approver, builds
 // the approved plan in the application repository's own image, pushes it to
-// a branch patchy creates once, opens the pull request, and closes the
+// a branch maul creates once, opens the pull request, and closes the
 // intent issue when it merges. Optional: deployments without Projects simply
 // do not run it.
 package main
@@ -13,7 +13,7 @@ package main
 import (
 	"os"
 
-	"github.com/bitwise-media-group/patchy/internal/cli"
+	"github.com/devthenet-labs/maul/internal/cli"
 )
 
 func main() {

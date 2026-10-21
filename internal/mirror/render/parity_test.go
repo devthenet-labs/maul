@@ -14,13 +14,13 @@ import (
 
 // TestMirrorStoreParity renders every vendored chart of a real mirror store
 // and byte-compares the result with the committed rendered/manifests.yaml.
-// It runs only when PATCHY_MIRROR_PARITY_DIR points at a checkout — the
+// It runs only when MAUL_MIRROR_PARITY_DIR points at a checkout — the
 // migration proof that this engine reproduces the trees the previous
 // pipeline committed.
 func TestMirrorStoreParity(t *testing.T) {
-	root := os.Getenv("PATCHY_MIRROR_PARITY_DIR")
+	root := os.Getenv("MAUL_MIRROR_PARITY_DIR")
 	if root == "" {
-		t.Skip("PATCHY_MIRROR_PARITY_DIR not set")
+		t.Skip("MAUL_MIRROR_PARITY_DIR not set")
 	}
 	dirs, err := filepath.Glob(filepath.Join(root, "charts", "*", "manifest.yaml"))
 	if err != nil || len(dirs) == 0 {

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bitwise-media-group/patchy/pkg/source"
+	"github.com/devthenet-labs/maul/pkg/source"
 )
 
 // issueJSON is a Wiz Issues delivery shaped exactly as the automation-rule
@@ -21,7 +21,7 @@ const issueJSON = `{
 		"source": "ISSUE",
 		"type": "Created",
 		"ruleId": "b2f4a891-11a2-44e2-a91b-3c2f8e0f2c0a",
-		"ruleName": "patchy-issues"
+		"ruleName": "maul-issues"
 	},
 	"issue": {
 		"id": "f2f5d3b8-a663-4c1b-b7f3-8f7f0c8a0001",
@@ -60,7 +60,7 @@ const threatJSON = `{
 		"source": "THREAT_DETECTION",
 		"type": "Created",
 		"ruleId": "a1a1a1a1-auto",
-		"ruleName": "patchy-defend"
+		"ruleName": "maul-defend"
 	},
 	"threat": {
 		"id": "t-0001",

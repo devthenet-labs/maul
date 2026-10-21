@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bitwise-media-group/patchy/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/envelope"
 )
 
 // resultStage returns the stage fields of whichever result event a run emitted.
@@ -136,7 +136,7 @@ func TestStageSetupFailures(t *testing.T) {
 }
 
 // TestRemediateSetsCommitIdentity: a clone with no commit identity of its own
-// is given patchy's, so commit.sh can commit, and the changeset still lands.
+// is given maul's, so commit.sh can commit, and the changeset still lands.
 func TestRemediateSetsCommitIdentity(t *testing.T) {
 	// Keep the machine's own git config out of the clone's view: with no
 	// global or system identity, only the clone's config can provide one.
@@ -163,8 +163,8 @@ func TestRemediateSetsCommitIdentity(t *testing.T) {
 		t.Fatalf("remediation = %+v, want a successful one", rem)
 	}
 	for key, want := range map[string]string{
-		"user.email": "patchy[bot]@users.noreply.github.com",
-		"user.name":  "patchy[bot]",
+		"user.email": "maul[bot]@users.noreply.github.com",
+		"user.name":  "maul[bot]",
 	} {
 		cmd := exec.Command("git", "config", key)
 		cmd.Dir = repo

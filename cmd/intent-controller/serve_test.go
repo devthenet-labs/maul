@@ -20,15 +20,15 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	"sigs.k8s.io/yaml"
 
-	"github.com/bitwise-media-group/patchy/internal/attribution"
-	"github.com/bitwise-media-group/patchy/internal/cli"
-	"github.com/bitwise-media-group/patchy/internal/controller/intent"
-	"github.com/bitwise-media-group/patchy/internal/credgate"
-	"github.com/bitwise-media-group/patchy/internal/runnercfg"
+	"github.com/devthenet-labs/maul/internal/attribution"
+	"github.com/devthenet-labs/maul/internal/cli"
+	"github.com/devthenet-labs/maul/internal/controller/intent"
+	"github.com/devthenet-labs/maul/internal/credgate"
+	"github.com/devthenet-labs/maul/internal/runnercfg"
 )
 
 // componentConfigMap is the kustomize component's own ConfigMap; the chart's
-// intent-controller ConfigMap renders the same PATCHY_INTENT_* values
+// intent-controller ConfigMap renders the same MAUL_INTENT_* values
 // (hack/chart-render-test.sh holds the two together).
 const componentConfigMap = "../../deploy/kustomize/components/intent-controller/configmap.yaml"
 
@@ -65,9 +65,9 @@ func componentData(t *testing.T) map[string]string {
 }
 
 // flagName maps an environment key onto the flag it sets, the way
-// internal/cli binds them: PATCHY_ prefix off, underscores to dashes.
+// internal/cli binds them: MAUL_ prefix off, underscores to dashes.
 func flagName(key string) string {
-	return strings.ToLower(strings.ReplaceAll(strings.TrimPrefix(key, "PATCHY_"), "_", "-"))
+	return strings.ToLower(strings.ReplaceAll(strings.TrimPrefix(key, "MAUL_"), "_", "-"))
 }
 
 // sameValue compares a ConfigMap value with a flag default in the flag's own
@@ -84,7 +84,7 @@ func sameValue(f *pflag.Flag, value string) bool {
 // TestComponentConfigBindsFlags holds the deployed configuration to the
 // binary: every key the component sets is a flag intent-controller binds (a
 // key that is not is silently ignored, which is how a renamed flag goes
-// unnoticed), and every PATCHY_INTENT_* value is that flag's default, so the
+// unnoticed), and every MAUL_INTENT_* value is that flag's default, so the
 // documented defaults and the running ones cannot drift apart.
 func TestComponentConfigBindsFlags(t *testing.T) {
 	_, root, serve := command(t)
@@ -98,7 +98,7 @@ func TestComponentConfigBindsFlags(t *testing.T) {
 			t.Errorf("%s sets --%s, which intent-controller does not register", key, name)
 			continue
 		}
-		if strings.HasPrefix(key, "PATCHY_INTENT_") && !sameValue(f, value) {
+		if strings.HasPrefix(key, "MAUL_INTENT_") && !sameValue(f, value) {
 			t.Errorf("%s = %q, but --%s defaults to %q", key, value, name, f.DefValue)
 		}
 	}
@@ -114,21 +114,21 @@ func TestComponentConfigReachesSettings(t *testing.T) {
 	}
 	// Distinct from every default, so a value that reached settings by any
 	// route but the environment would show.
-	t.Setenv("PATCHY_INTENT_PLAN_MAX_TURNS", "7")
-	t.Setenv("PATCHY_INTENT_BUILD_TIMEOUT", "61m")
-	t.Setenv("PATCHY_INTENT_MULTI_REPO", "true")
+	t.Setenv("MAUL_INTENT_PLAN_MAX_TURNS", "7")
+	t.Setenv("MAUL_INTENT_BUILD_TIMEOUT", "61m")
+	t.Setenv("MAUL_INTENT_MULTI_REPO", "true")
 
 	opts, root, _ := command(t)
 	if err := root.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	s, err := settings(opts, "patchy", "patchy-agents")
+	s, err := settings(opts, "maul", "maul-agents")
 	if err != nil {
 		t.Fatalf("settings refuses the component's configuration: %v", err)
 	}
 	want := intent.Settings{
-		Namespace:            "patchy",
-		AgentNamespace:       "patchy-agents",
+		Namespace:            "maul",
+		AgentNamespace:       "maul-agents",
 		PollInterval:         time.Minute,
 		ApprovalPollInterval: 30 * time.Second,
 		PRPollInterval:       time.Minute,
@@ -177,7 +177,7 @@ func TestResourceClasses(t *testing.T) {
 		t.Errorf("agent resources with no flags = %s, %v; want none", r, err)
 	}
 
-	t.Setenv("PATCHY_INTENT_RESOURCE_CLASSES",
+	t.Setenv("MAUL_INTENT_RESOURCE_CLASSES",
 		`{"large":{"limits":{"memory":"10Gi"},"requests":{"cpu":4,"memory":"8Gi"}}}`)
 	opts, root, _ = command(t)
 	if err := root.Execute(); err != nil {
@@ -191,7 +191,7 @@ func TestResourceClasses(t *testing.T) {
 		t.Errorf("classes = %s, want large", classes.Encode())
 	}
 
-	t.Setenv("PATCHY_INTENT_RESOURCE_CLASSES",
+	t.Setenv("MAUL_INTENT_RESOURCE_CLASSES",
 		`{"large":{"limits":{"memory":"6Gi"},"requests":{"cpu":4,"memory":"8Gi"}}}`)
 	opts, root, _ = command(t)
 	if err := root.Execute(); err != nil {
@@ -215,7 +215,7 @@ func TestSettingsDecouplesTheDeadlineFloor(t *testing.T) {
 		if err := root.Execute(); err != nil {
 			t.Fatalf("execute: %v", err)
 		}
-		return settings(opts, "patchy", "patchy-agents")
+		return settings(opts, "maul", "maul-agents")
 	}
 	for _, args := range [][]string{
 		{"--intent-build-timeout", "3h"},
@@ -253,7 +253,7 @@ func TestBrokerBudgetsReachSettings(t *testing.T) {
 		if err := root.Execute(); err != nil {
 			t.Fatalf("execute: %v", err)
 		}
-		return settings(opts, "patchy", "patchy-agents")
+		return settings(opts, "maul", "maul-agents")
 	}
 	s, err := load(t)
 	if err != nil || s.CostBudgets || s.BrokerCostPerHour != 0 {
@@ -297,7 +297,7 @@ func TestHarnessSkipsBrokerProbe(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, _, err := harnesses(context.Background(), opts, fake.NewClientset(), "patchy-agents", runners)
+	got, _, err := harnesses(context.Background(), opts, fake.NewClientset(), "maul-agents", runners)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,67 +335,67 @@ func TestAgentsPausedFlag(t *testing.T) {
 	}
 }
 
-// TestAttributionModeReachesSettings: PATCHY_ATTRIBUTION_MODE (the chart's
+// TestAttributionModeReachesSettings: MAUL_ATTRIBUTION_MODE (the chart's
 // attribution.mode) reaches the reconcilers' settings, and an unknown mode
 // stops startup rather than running unattributed.
 func TestAttributionModeReachesSettings(t *testing.T) {
 	for key, value := range componentData(t) {
 		t.Setenv(key, value)
 	}
-	t.Setenv("PATCHY_ATTRIBUTION_MODE", "attribute")
+	t.Setenv("MAUL_ATTRIBUTION_MODE", "attribute")
 	opts, root, _ := command(t)
 	if err := root.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	s, err := settings(opts, "patchy", "patchy-agents")
+	s, err := settings(opts, "maul", "maul-agents")
 	if err != nil || s.Attribution != attribution.ModeAttribute {
 		t.Fatalf("settings = %q, %v; want attribution attribute", s.Attribution, err)
 	}
 
-	t.Setenv("PATCHY_ATTRIBUTION_MODE", "enforce")
+	t.Setenv("MAUL_ATTRIBUTION_MODE", "enforce")
 	opts, root, _ = command(t)
 	if err := root.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	if _, err := settings(opts, "patchy", "patchy-agents"); err == nil ||
+	if _, err := settings(opts, "maul", "maul-agents"); err == nil ||
 		!strings.Contains(err.Error(), "--attribution-mode") {
 		t.Errorf("settings with mode enforce = %v, want the --attribution-mode refusal", err)
 	}
 }
 
-// TestUserCredentialsReachSettings: PATCHY_USER_CREDENTIALS and
-// PATCHY_ACCOUNT_URL (the chart's egressBroker.userCredentials.mode and
+// TestUserCredentialsReachSettings: MAUL_USER_CREDENTIALS and
+// MAUL_ACCOUNT_URL (the chart's egressBroker.userCredentials.mode and
 // Account page) reach the reconcilers' settings, and enforce without
 // attribution stops startup rather than promising holds it cannot make.
 func TestUserCredentialsReachSettings(t *testing.T) {
 	for key, value := range componentData(t) {
 		t.Setenv(key, value)
 	}
-	t.Setenv("PATCHY_ATTRIBUTION_MODE", "attribute")
-	t.Setenv("PATCHY_USER_CREDENTIALS", "enforce")
-	t.Setenv("PATCHY_ACCOUNT_URL", "https://status.example.com/#/account")
+	t.Setenv("MAUL_ATTRIBUTION_MODE", "attribute")
+	t.Setenv("MAUL_USER_CREDENTIALS", "enforce")
+	t.Setenv("MAUL_ACCOUNT_URL", "https://status.example.com/#/account")
 	opts, root, _ := command(t)
 	if err := root.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	s, err := settings(opts, "patchy", "patchy-agents")
+	s, err := settings(opts, "maul", "maul-agents")
 	if err != nil || s.UserCredentials != credgate.ModeEnforce || s.AccountURL != "https://status.example.com/#/account" {
 		t.Fatalf("settings = %q %q, %v; want enforce and the URL", s.UserCredentials, s.AccountURL, err)
 	}
 
-	t.Setenv("PATCHY_ATTRIBUTION_MODE", "off")
+	t.Setenv("MAUL_ATTRIBUTION_MODE", "off")
 	opts, root, _ = command(t)
 	if err := root.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	if _, err := settings(opts, "patchy", "patchy-agents"); err == nil ||
+	if _, err := settings(opts, "maul", "maul-agents"); err == nil ||
 		!strings.Contains(err.Error(), "needs --attribution-mode attribute") {
 		t.Errorf("settings with enforce and no attribution = %v, want the refusal", err)
 	}
 }
 
 // TestUsageMeasurementReachesMeter: measurement is off by default, and
-// PATCHY_USAGE_MEASUREMENT with PATCHY_USAGE_BROKER_URL (the chart's wiring
+// MAUL_USAGE_MEASUREMENT with MAUL_USAGE_BROKER_URL (the chart's wiring
 // under attribution) turns the meter on; on without a broker URL stops
 // startup.
 func TestUsageMeasurementReachesMeter(t *testing.T) {
@@ -409,7 +409,7 @@ func TestUsageMeasurementReachesMeter(t *testing.T) {
 	if m, err := runnercfg.UsageMeter(opts, nil); err != nil || m.On() {
 		t.Fatalf("default meter = %v, %v; want off", m, err)
 	}
-	t.Setenv("PATCHY_USAGE_MEASUREMENT", "true")
+	t.Setenv("MAUL_USAGE_MEASUREMENT", "true")
 	opts, root, _ = command(t)
 	if err := root.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
@@ -417,7 +417,7 @@ func TestUsageMeasurementReachesMeter(t *testing.T) {
 	if _, err := runnercfg.UsageMeter(opts, nil); err == nil {
 		t.Error("measurement on without a broker URL was accepted")
 	}
-	t.Setenv("PATCHY_USAGE_BROKER_URL", "http://patchy-egress-broker.patchy.svc:8082")
+	t.Setenv("MAUL_USAGE_BROKER_URL", "http://maul-egress-broker.maul.svc:8082")
 	opts, root, _ = command(t)
 	if err := root.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)

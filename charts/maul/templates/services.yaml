@@ -1,0 +1,53 @@
+# Copyright 2026 Bitwise Media Group Ltd.
+# SPDX-License-Identifier: MIT
+#
+# Two Services, because only two things are dialled by anything:
+#
+#   * <fullname>-integration-controller:8080 — the single internet-facing
+#     entry point (the provider webhook receivers, e.g. POST
+#     /github/webhooks). Fronted by `webhook.ingress` / `webhook.httpRoute`.
+#   * <fullname>-source-controller:9790 — the artifact server the agent pods
+#     fetch SHA-pinned repository tarballs from (in-cluster only; the
+#     NetworkPolicies restrict it to the agent namespace).
+#
+# The other controllers serve nothing but kubelet probes on :8081, which hit
+# the pod directly — no Service needed. type NodePort + nodePort covers the
+# kind/dev case.
+{{- range $c := list
+    (dict "name" "integration-controller" "vals" .Values.integrationController "portName" "http")
+    (dict "name" "source-controller" "vals" .Values.sourceController "portName" "artifact")
+}}
+{{- $svc := $c.vals.service }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+    name: {{ include "maul.fullname" $ }}-{{ $c.name }}
+    namespace: {{ $.Release.Namespace }}
+    labels:
+        {{- include "maul.labels" (dict "root" $ "name" $c.name) | nindent 8 }}
+    {{- with include "maul.annotations" (dict "root" $ "extra" $svc.annotations) }}
+    annotations:
+        {{- . | nindent 8 }}
+    {{- end }}
+spec:
+    type: {{ $svc.type }}
+    selector:
+        {{- include "maul.selectorLabels" (dict "root" $ "name" $c.name) | nindent 8 }}
+    ports:
+        - name: {{ $c.portName }}
+          port: {{ $svc.port }}
+          targetPort: {{ $c.portName }}
+          protocol: TCP
+          {{- with $svc.nodePort }}
+          nodePort: {{ . }}
+          {{- end }}
+        {{- if and (eq $c.name "source-controller") $.Values.evaluationController.enabled }}
+        # The internal workspace-blob endpoint, dialled only by the
+        # evaluation controller (NetworkPolicy-gated).
+        - name: internal
+          port: 9791
+          targetPort: internal
+          protocol: TCP
+        {{- end }}
+{{- end }}

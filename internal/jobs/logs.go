@@ -18,8 +18,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/transcript"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/transcript"
 )
 
 // maxEventLine bounds one log line while scanning for events: a remediation
@@ -280,7 +280,7 @@ func finishedAt(job *batchv1.Job) time.Time {
 // to survive log wrapping, so a turn whose text quotes the envelope prefix
 // would otherwise be mis-scanned as a stage result.
 //
-// The live command output (PATCHY-OUTPUT chunks) is the log's third stream,
+// The live command output (MAUL-OUTPUT chunks) is the log's third stream,
 // and nothing here keeps it: a chunk is skipped before envelope.Decode, so a
 // run's many chunks never pass through the result's decoder.
 //

@@ -8,7 +8,7 @@
 //
 // A comment is a command when its first non-blank line, after trimming, is
 //
-//	/patchy <verb> [note]
+//	/maul <verb> [note]
 //
 // A line ends at every line break Unicode defines (UAX #14: CRLF, CR, LF,
 // VT, FF, NEL, U+2028 and U+2029), for the command line and the note alike.
@@ -19,14 +19,14 @@
 // with the verbs it offers and can echo a non-empty verb without escaping it.
 // The note is everything after the verb: the rest of that line and every line
 // below it. Only the first non-blank line is ever a command. A later line
-// that looks like one, a quoted command ("> /patchy approve"), one inside a
+// that looks like one, a quoted command ("> /maul approve"), one inside a
 // code span or fenced code block, and one indented by four or more columns
 // (a tab counting to the next multiple of four), which GitHub renders as an
 // indented code block, are all text, and text never parses. GitHub's
 // Markdown ends a line only at CRLF, CR and LF, so the indentation is counted
 // both from the start of the command's own line and from the start of the
 // Markdown line holding it, and four columns either way make it text:
-// "    \f/patchy approve" is one indented code block to GitHub, although the
+// "    \f/maul approve" is one indented code block to GitHub, although the
 // form feed starts the command on a line of its own. The other line breaks
 // therefore end the command line and the note's lines but never lift a
 // command out of a code block.
@@ -67,7 +67,7 @@
 // comment, trailing lines included. Unlike the grammar, it therefore still
 // matches an indented comment, as it always has. The one deliberate
 // difference is in the note, which follows Note where the handler kept it
-// verbatim apart from the 1 KiB cut. The /patchy grammar is tried first:
+// verbatim apart from the 1 KiB cut. The /maul grammar is tried first:
 // where a comment parses as the grammar, a configured alias that also
 // matches it is ignored.
 //

@@ -11,7 +11,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
 // TestGrantedRunOfADeletedProjectHandsBackItsSlot is the round-4 regression
@@ -89,7 +89,7 @@ func TestHoldReasonFollowsItsCause(t *testing.T) {
 	e := newEnv(t, testProject())
 	ctx := context.Background()
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	build := e.buildLaunched(name)
 	e.suspend(name, true)
 	if _, err := e.runs.Reconcile(ctx, req(build.Name)); err != nil {

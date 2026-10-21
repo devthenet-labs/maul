@@ -1,4 +1,4 @@
-<!-- patchy:plan patchy/target-1 r2 sha256:05126c8813d2 -->
+<!-- maul:plan maul/target-1 r2 sha256:05126c8813d2 -->
 ## Plan r2
 
 **Summary:** Add GET /version returning {sha, built} as JSON
@@ -9,9 +9,9 @@ The plan has 1 line longer than 100 columns. GitHub does not wrap a code block, 
 
 ### To approve
 
-Add the `patchy:approved` label to this issue, or comment `/patchy approve`. patchy then builds exactly the plan below: r2, `sha256:05126c8813d2`. If this comment or the issue description is edited after patchy posted the plan, the approval is refused and patchy asks for a new plan.
+Add the `maul:approved` label to this issue, or comment `/maul approve`. maul then builds exactly the plan below: r2, `sha256:05126c8813d2`. If this comment or the issue description is edited after maul posted the plan, the approval is refused and maul asks for a new plan.
 
-For a different plan, say what should change in a comment, then re-apply the `patchy:target` label or comment `/patchy replan`. `/patchy cancel` stops work on this intent.
+For a different plan, say what should change in a comment, then re-apply the `maul:target` label or comment `/maul replan`. `/maul cancel` stops work on this intent.
 
 ### The plan
 

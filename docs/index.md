@@ -1,5 +1,5 @@
 ---
-title: Patchy
+title: Maul
 template: home.html
 hide:
   - navigation

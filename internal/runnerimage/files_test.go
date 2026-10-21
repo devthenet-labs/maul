@@ -70,33 +70,33 @@ func TestReadFiles(t *testing.T) {
 	}{
 		{"both files under the archive prefix",
 			[]entry{{name: "org-repo-abc123/README.md", data: "hi"},
-				{name: "org-repo-abc123/.patchy/agent.yaml", data: yaml},
+				{name: "org-repo-abc123/.maul/agent.yaml", data: yaml},
 				{name: "org-repo-abc123/.devcontainer/devcontainer.json", data: dc}},
 			Files{AgentYAML: File{Present: true, Size: int64(len(yaml)), Data: []byte(yaml)},
 				Devcontainer: File{Present: true, Size: int64(len(dc)), Data: []byte(dc)}}},
 		{"yaml only",
-			[]entry{{name: "p/.patchy/agent.yaml", data: yaml}},
+			[]entry{{name: "p/.maul/agent.yaml", data: yaml}},
 			Files{AgentYAML: File{Present: true, Size: int64(len(yaml)), Data: []byte(yaml)}}},
 		{"devcontainer only",
 			[]entry{{name: "p/.devcontainer/devcontainer.json", data: dc}},
 			Files{Devcontainer: File{Present: true, Size: int64(len(dc)), Data: []byte(dc)}}},
 		{"neither", []entry{{name: "p/main.go", data: "package main"}}, Files{}},
 		{"a ./ prefix is tolerated",
-			[]entry{{name: "./p/.patchy/agent.yaml", data: yaml}},
+			[]entry{{name: "./p/.maul/agent.yaml", data: yaml}},
 			Files{AgentYAML: File{Present: true, Size: int64(len(yaml)), Data: []byte(yaml)}}},
 		{"an entry without the prefix component is ignored",
-			[]entry{{name: ".patchy/agent.yaml", data: yaml}}, Files{}},
+			[]entry{{name: ".maul/agent.yaml", data: yaml}}, Files{}},
 		{"deeper paths are ignored",
-			[]entry{{name: "p/sub/.patchy/agent.yaml", data: yaml},
+			[]entry{{name: "p/sub/.maul/agent.yaml", data: yaml},
 				{name: "p/.devcontainer/go/devcontainer.json", data: dc},
 				{name: "p/.devcontainer.json", data: dc}},
 			Files{}},
 		{"a symlink at the path is ignored",
-			[]entry{{name: "p/.patchy/agent.yaml", data: "../elsewhere", typeflag: tar.TypeSymlink}}, Files{}},
+			[]entry{{name: "p/.maul/agent.yaml", data: "../elsewhere", typeflag: tar.TypeSymlink}}, Files{}},
 		{"a directory entry is ignored",
-			[]entry{{name: "p/.patchy/agent.yaml", typeflag: tar.TypeDir}}, Files{}},
+			[]entry{{name: "p/.maul/agent.yaml", typeflag: tar.TypeDir}}, Files{}},
 		{"an oversize file is present but unread",
-			[]entry{{name: "p/.patchy/agent.yaml", data: big},
+			[]entry{{name: "p/.maul/agent.yaml", data: big},
 				{name: "p/.devcontainer/devcontainer.json", data: dc}},
 			Files{AgentYAML: File{Present: true, Size: MaxDeclarationBytes + 1},
 				Devcontainer: File{Present: true, Size: int64(len(dc)), Data: []byte(dc)}}},
@@ -104,7 +104,7 @@ func TestReadFiles(t *testing.T) {
 			[]entry{{name: "p/.devcontainer/devcontainer.json", data: exact}},
 			Files{Devcontainer: File{Present: true, Size: MaxDeclarationBytes, Data: []byte(exact)}}},
 		{"the first occurrence wins",
-			[]entry{{name: "p/.patchy/agent.yaml", data: yaml}, {name: "p/.patchy/agent.yaml", data: "image: other\n"}},
+			[]entry{{name: "p/.maul/agent.yaml", data: yaml}, {name: "p/.maul/agent.yaml", data: "image: other\n"}},
 			Files{AgentYAML: File{Present: true, Size: int64(len(yaml)), Data: []byte(yaml)}}},
 	}
 	for _, c := range cases {
@@ -127,7 +127,7 @@ func TestReadFilesStopsAfterBoth(t *testing.T) {
 	// A truncated entry after the two files would be an error if the walk
 	// read on; it must not, so the cost is bounded by their position.
 	good := archive(t,
-		entry{name: "p/.patchy/agent.yaml", data: "image: x\n"},
+		entry{name: "p/.maul/agent.yaml", data: "image: x\n"},
 		entry{name: "p/.devcontainer/devcontainer.json", data: "{}"})
 	var raw bytes.Buffer
 	gz, err := gzip.NewReader(bytes.NewReader(good))
@@ -171,7 +171,7 @@ func TestReadFilesErrors(t *testing.T) {
 		want string
 	}{
 		{"not gzip", []byte("plain text"), "runnerimage: open archive: "},
-		{"truncated tar", archive(t, entry{name: "p/.patchy/agent.yaml", data: "image: x\n"})[:40],
+		{"truncated tar", archive(t, entry{name: "p/.maul/agent.yaml", data: "image: x\n"})[:40],
 			"runnerimage: "},
 	}
 	for _, c := range cases {
@@ -189,10 +189,10 @@ func TestReadFilesErrors(t *testing.T) {
 
 func TestArchivePath(t *testing.T) {
 	cases := map[string]string{
-		"p/.patchy/agent.yaml":      ".patchy/agent.yaml",
-		"./p/.patchy/agent.yaml":    ".patchy/agent.yaml",
-		".patchy/agent.yaml":        "agent.yaml",
-		"/p/.patchy/agent.yaml":     "",
+		"p/.maul/agent.yaml":        ".maul/agent.yaml",
+		"./p/.maul/agent.yaml":      ".maul/agent.yaml",
+		".maul/agent.yaml":          "agent.yaml",
+		"/p/.maul/agent.yaml":       "",
 		"noslash":                   "",
 		"p/":                        "",
 		"p/.devcontainer/x/dc.json": ".devcontainer/x/dc.json",

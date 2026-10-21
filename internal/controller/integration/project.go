@@ -22,18 +22,18 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/action"
-	"github.com/bitwise-media-group/patchy/internal/command"
-	"github.com/bitwise-media-group/patchy/internal/generic"
-	"github.com/bitwise-media-group/patchy/internal/ghas"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/labels"
-	"github.com/bitwise-media-group/patchy/internal/report"
-	"github.com/bitwise-media-group/patchy/internal/templates"
-	"github.com/bitwise-media-group/patchy/internal/wiz"
-	"github.com/bitwise-media-group/patchy/internal/wizapi"
-	"github.com/bitwise-media-group/patchy/pkg/source"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/action"
+	"github.com/devthenet-labs/maul/internal/command"
+	"github.com/devthenet-labs/maul/internal/generic"
+	"github.com/devthenet-labs/maul/internal/ghas"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/labels"
+	"github.com/devthenet-labs/maul/internal/report"
+	"github.com/devthenet-labs/maul/internal/templates"
+	"github.com/devthenet-labs/maul/internal/wiz"
+	"github.com/devthenet-labs/maul/internal/wizapi"
+	"github.com/devthenet-labs/maul/pkg/source"
 )
 
 // Projection-state annotations on the Finding: what has already been pushed
@@ -41,30 +41,30 @@ import (
 // comments. All are integration-controller-owned.
 const (
 	// AnnotationProjectedBody is the hash of the last rendered body+labels.
-	AnnotationProjectedBody = "patchy.bitwisemedia.uk/projected-body"
+	AnnotationProjectedBody = "maul.run/projected-body"
 	// AnnotationProjectedEnrichments is the hash of the last projected
 	// enrichment sticky comments.
-	AnnotationProjectedEnrichments = "patchy.bitwisemedia.uk/projected-enrichments"
+	AnnotationProjectedEnrichments = "maul.run/projected-enrichments"
 	// AnnotationProjectedInvestigation names the Investigation whose report
 	// comment was posted.
-	AnnotationProjectedInvestigation = "patchy.bitwisemedia.uk/projected-investigation"
+	AnnotationProjectedInvestigation = "maul.run/projected-investigation"
 	// AnnotationProjectedRemediation names the Remediation whose report
 	// comment was posted.
-	AnnotationProjectedRemediation = "patchy.bitwisemedia.uk/projected-remediation"
+	AnnotationProjectedRemediation = "maul.run/projected-remediation"
 	// AnnotationProjectedNotice records the phase entry whose human notice
 	// (hold/hand-off/failure) was posted, as noticeKey renders it.
-	AnnotationProjectedNotice = "patchy.bitwisemedia.uk/projected-notice"
+	AnnotationProjectedNotice = "maul.run/projected-notice"
 	// AnnotationPostedNotice records the phase entry (noticeKey) whose
 	// notice comment is on the tracking item. It is written the moment the notice is posted,
 	// ahead of the assignment or closure that completes the phase's
 	// projection, so a retry after either fails redoes it without posting
 	// the notice again.
-	AnnotationPostedNotice = "patchy.bitwisemedia.uk/posted-notice"
+	AnnotationPostedNotice = "maul.run/posted-notice"
 	// AnnotationResolvedSource records the phase whose verdict was written
 	// back to the originating source. Separate from the notice annotation on
 	// purpose: telling the scanner and telling the humans are independent, so
 	// a failure of either must not suppress the other.
-	AnnotationResolvedSource = "patchy.bitwisemedia.uk/resolved-source"
+	AnnotationResolvedSource = "maul.run/resolved-source"
 )
 
 // trackerClient is the tracking-system surface the projection needs — a
@@ -153,7 +153,7 @@ func (r *FindingReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// The verdict write-back is independent of the tracking projection: a
 	// finding with no tracking issue — repo-less, or with tracking disabled
 	// entirely — must still have its alerts resolved in the tool they came
-	// from, or they sit open there after patchy has closed them here.
+	// from, or they sit open there after maul has closed them here.
 	if err := r.resolveSource(ctx, &fnd); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -665,19 +665,19 @@ func (r *FindingReconciler) projectPhase(
 
 	switch phase {
 	case v1alpha1.PhaseAwaitingApproval:
-		notice := "patchy is holding this remediation for human approval. " +
+		notice := "maul is holding this remediation for human approval. " +
 			"Comment `" + command.Prefix + " " + action.VerbApprove + "` to let it proceed " +
 			"(anyone with write access to this repository can)."
 		if err := notify(ctx, tracker, repo, number, fnd.Status.Owners, post, notice); err != nil {
 			return err
 		}
 	case v1alpha1.PhaseHandedOff:
-		notice := "patchy has handed this finding to its human owners" + noticeReason(fnd) + "."
+		notice := "maul has handed this finding to its human owners" + noticeReason(fnd) + "."
 		if err := notify(ctx, tracker, repo, number, fnd.Status.Owners, post, notice); err != nil {
 			return err
 		}
 	case v1alpha1.PhaseFailed:
-		notice := "patchy could not remediate this finding automatically; it needs human attention."
+		notice := "maul could not remediate this finding automatically; it needs human attention."
 		if err := notify(ctx, tracker, repo, number, fnd.Status.Owners, post, notice); err != nil {
 			return err
 		}
@@ -685,7 +685,7 @@ func (r *FindingReconciler) projectPhase(
 		// The alert write-back happens in resolveSource, before projection:
 		// it is owed whether or not this finding has a tracking issue.
 		if err := post(
-			"patchy assessed this finding as a false positive / not exploitable and dismissed the alert(s)."); err != nil {
+			"maul assessed this finding as a false positive / not exploitable and dismissed the alert(s)."); err != nil {
 			return err
 		}
 		if err := tracker.Close(ctx, repo, number); err != nil {
@@ -763,7 +763,7 @@ func (r *FindingReconciler) resolveAlerts(ctx context.Context, fnd *v1alpha1.Fin
 	verdict := source.Verdict{
 		Kind:    source.VerdictIgnore,
 		Reason:  "false positive",
-		Comment: "Dismissed by patchy: investigation recommended ignore.",
+		Comment: "Dismissed by maul: investigation recommended ignore.",
 	}
 	var errs []error
 	for sourceID, alerts := range fnd.AlertsBySource() {
@@ -1023,9 +1023,9 @@ func noticeReason(fnd *v1alpha1.Finding) string {
 	// remediation-controller held the run rather than remediate on the
 	// default image, which carries none of the repository's toolchain.
 	if rem := fnd.Status.Remediation; rem != nil && rem.Outcome == v1alpha1.OutcomeDefaultImageHeld {
-		return " (the repository declares an agent image, but this run could not use it, and patchy's default " +
+		return " (the repository declares an agent image, but this run could not use it, and maul's default " +
 			"image cannot build or test a fix. Comment `" + command.Prefix + " " + action.VerbApprove +
-			"` to have patchy remediate it on the default image anyway: the pull request will be untested and " +
+			"` to have maul remediate it on the default image anyway: the pull request will be untested and " +
 			"will say so)"
 	}
 	if inv := fnd.Status.Investigation; inv != nil && inv.Recommendation == v1alpha1.RecommendationManual {
@@ -1037,7 +1037,7 @@ func noticeReason(fnd *v1alpha1.Finding) string {
 	// human resolves it.
 	if inv := fnd.Status.Investigation; inv != nil && inv.Recommendation == v1alpha1.RecommendationIgnore &&
 		inv.RunnerImage != nil && inv.RunnerImage.Source == v1alpha1.RunnerImageSourceRepository {
-		return " (the agent recommended ignore; patchy did not dismiss the alert because the run used a " +
+		return " (the agent recommended ignore; maul did not dismiss the alert because the run used a " +
 			"repository-declared image)"
 	}
 	if fnd.Spec.Repository == nil {

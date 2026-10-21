@@ -10,32 +10,32 @@ they live in Secrets referenced by your `Integration` and `Forge` custom resourc
 
 ## Flags, environment, precedence
 
-Every controller flag `--foo-bar` is bound to the environment variable `PATCHY_FOO_BAR` (dashes become underscores,
-uppercased, `PATCHY_` prefix — so `--claude-agent-image` is `PATCHY_CLAUDE_AGENT_IMAGE`). Precedence, highest first:
+Every controller flag `--foo-bar` is bound to the environment variable `MAUL_FOO_BAR` (dashes become underscores,
+uppercased, `MAUL_` prefix — so `--claude-agent-image` is `MAUL_CLAUDE_AGENT_IMAGE`). Precedence, highest first:
 
 1. An explicit flag on the command line
-2. The `PATCHY_*` environment variable
+2. The `MAUL_*` environment variable
 3. The built-in default
 
-In Kubernetes you configure patchy with environment, not flags: the Deployments pass nothing but the `serve` subcommand,
-and the `PATCHY_*` variables arrive via `envFrom` — one shared ConfigMap in the
+In Kubernetes you configure maul with environment, not flags: the Deployments pass nothing but the `serve` subcommand,
+and the `MAUL_*` variables arrive via `envFrom` — one shared ConfigMap in the
 [kustomize base](../deployment/kustomize.md), one ConfigMap per controller in the [Helm chart](../deployment/helm.md). A
 key a given binary does not bind is simply ignored by that binary, which is why one ConfigMap can serve them all.
 
-The **agent-runner** has no flags at all: it reads only `PATCHY_*` environment variables, injected into the Job pod by
-the job controllers. See [agent-runner](agent-runner.md).
+The **agent-runner** has no flags at all: it reads only `MAUL_*` environment variables, injected into the Job pod by the
+job controllers. See [agent-runner](agent-runner.md).
 
 ## Shared flags (every controller)
 
 From `internal/cli.Options` (persistent flags) plus the flags every `serve` command registers:
 
-| Flag            | Env                  | Default          | Purpose                                                                                         |
-| --------------- | -------------------- | ---------------- | ----------------------------------------------------------------------------------------------- |
-| `--listen-addr` | `PATCHY_LISTEN_ADDR` | `:8080`          | HTTP listen address — the integration-controller's webhooks and the evaluation-controller's API |
-| `--log-level`   | `PATCHY_LOG_LEVEL`   | `warn`           | Log level: `debug`, `info`, `warn`, or `error`                                                  |
-| `--namespace`   | `PATCHY_NAMESPACE`   | `$POD_NAMESPACE` | Namespace the patchy resources live in. **Required** (flag or `POD_NAMESPACE`)                  |
-| `--kubeconfig`  | `PATCHY_KUBECONFIG`  | —                | Kubeconfig path; empty = in-cluster config                                                      |
-| `--health-addr` | `PATCHY_HEALTH_ADDR` | `:8081`          | `healthz`/`readyz` probe listen address                                                         |
+| Flag            | Env                | Default          | Purpose                                                                                         |
+| --------------- | ------------------ | ---------------- | ----------------------------------------------------------------------------------------------- |
+| `--listen-addr` | `MAUL_LISTEN_ADDR` | `:8080`          | HTTP listen address — the integration-controller's webhooks and the evaluation-controller's API |
+| `--log-level`   | `MAUL_LOG_LEVEL`   | `warn`           | Log level: `debug`, `info`, `warn`, or `error`                                                  |
+| `--namespace`   | `MAUL_NAMESPACE`   | `$POD_NAMESPACE` | Namespace the maul resources live in. **Required** (flag or `POD_NAMESPACE`)                    |
+| `--kubeconfig`  | `MAUL_KUBECONFIG`  | —                | Kubeconfig path; empty = in-cluster config                                                      |
+| `--health-addr` | `MAUL_HEALTH_ADDR` | `:8081`          | `healthz`/`readyz` probe listen address                                                         |
 
 Every binary also answers `--version` and `--help`. Every controller runs leader election (a coordination Lease named
 per controller, in `--namespace`) — insurance against a botched rollout racing two replicas, not a scaling mechanism;
@@ -59,7 +59,7 @@ Only these serve anything beyond kubelet probes (the status-server and the egres
 
 ## Telemetry
 
-`PATCHY_TELEMETRY_DIR` (environment-only, no flag) switches OpenTelemetry export to per-signal JSON files; otherwise
+`MAUL_TELEMETRY_DIR` (environment-only, no flag) switches OpenTelemetry export to per-signal JSON files; otherwise
 standard `OTEL_*` variables select exporters. See [Observability](../observability.md).
 
 ## Per-binary reference

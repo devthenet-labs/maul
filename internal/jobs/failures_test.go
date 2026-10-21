@@ -30,9 +30,9 @@ func failOn(cs *fake.Clientset, verb, resource string) {
 // TestPodLogsStream: the real logReader opens the agent container's log
 // through the clientset (whose fake serves a fixed body).
 func TestPodLogsStream(t *testing.T) {
-	cs := fake.NewClientset(jobPod("patchy-x-inv-a1"))
-	logs := podLogs{cs: cs, namespace: "patchy-agents"}
-	rc, err := logs.Stream(context.Background(), "patchy-x-inv-a1-x7k2p", "agent", false)
+	cs := fake.NewClientset(jobPod("maul-x-inv-a1"))
+	logs := podLogs{cs: cs, namespace: "maul-agents"}
+	rc, err := logs.Stream(context.Background(), "maul-x-inv-a1-x7k2p", "agent", false)
 	if err != nil {
 		t.Fatalf("Stream: %v", err)
 	}
@@ -44,7 +44,7 @@ func TestPodLogsStream(t *testing.T) {
 }
 
 func TestResultLines(t *testing.T) {
-	const jobName = "patchy-lines-evl"
+	const jobName = "maul-lines-evl"
 	body := "first line\n" + eventLine(t, investigationEvent("f-1")) + "\nEVOLVE-EVENT: {\"x\":1}\nlast"
 
 	t.Run("every raw line in order", func(t *testing.T) {
@@ -106,7 +106,7 @@ func TestResultLines(t *testing.T) {
 // TestWaitForAgentFailures: a terminal Job with no pod is unrecoverable, and
 // API errors listing pods or reading the Job surface rather than spin.
 func TestWaitForAgentFailures(t *testing.T) {
-	const jobName = "patchy-wait-inv-a1"
+	const jobName = "maul-wait-inv-a1"
 	complete := bareJob(jobName)
 	complete.Status.Conditions = []batchv1.JobCondition{{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}}
 
@@ -144,7 +144,7 @@ func TestWaitForAgentFailures(t *testing.T) {
 // TestFindPodPicksNewest: with several pods for one Job (a retried pod), the
 // newest one's log is read.
 func TestFindPodPicksNewest(t *testing.T) {
-	const jobName = "patchy-retry-inv-a1"
+	const jobName = "maul-retry-inv-a1"
 	old := jobPod(jobName)
 	old.Name = jobName + "-old"
 	old.CreationTimestamp = metav1.Unix(100, 0)
@@ -166,7 +166,7 @@ func TestResolveRunnersSecretReadError(t *testing.T) {
 	cs := fake.NewClientset()
 	failOn(cs, "get", "secrets")
 	runners := map[string]Runner{"claude": {Image: "img", Secret: "anthropic", SecretKey: "api-key"}}
-	enabled, err := ResolveRunners(context.Background(), cs, "patchy-agents", runners, nil)
+	enabled, err := ResolveRunners(context.Background(), cs, "maul-agents", runners, nil)
 	if err == nil || !errors.Is(err, errAPI) || !strings.Contains(err.Error(), `harness "claude"`) {
 		t.Errorf("ResolveRunners = (%v, %v), want a wrapped secret read error naming the harness", enabled, err)
 	}
@@ -225,7 +225,7 @@ func TestCreateAPIFailures(t *testing.T) {
 				if !errors.Is(err, errAPI) || !strings.Contains(err.Error(), tt.wantMsg) {
 					t.Fatalf("launch = %v, want %q wrapping the API error", err, tt.wantMsg)
 				}
-				secrets, _ := cs.CoreV1().Secrets("patchy-agents").List(context.Background(), metav1.ListOptions{})
+				secrets, _ := cs.CoreV1().Secrets("maul-agents").List(context.Background(), metav1.ListOptions{})
 				if tt.wantSecretGone && len(secrets.Items) != 0 {
 					t.Errorf("handoff Secret left behind after a failed Job create: %d", len(secrets.Items))
 				}

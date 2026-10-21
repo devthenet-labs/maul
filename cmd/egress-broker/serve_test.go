@@ -16,8 +16,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/bitwise-media-group/patchy/internal/broker"
-	"github.com/bitwise-media-group/patchy/internal/cli"
+	"github.com/devthenet-labs/maul/internal/broker"
+	"github.com/devthenet-labs/maul/internal/cli"
 )
 
 // serveOpts resolves args through the real serve flag surface, as the
@@ -336,7 +336,7 @@ func TestServeStartupErrors(t *testing.T) {
 		{
 			name: "one namespace for records and secrets",
 			args: []string{"--kubeconfig", kc, "--anthropic-api-key-file", "/k", "--user-credentials", "enforce",
-				"--credentials-namespace", "patchy"},
+				"--credentials-namespace", "maul"},
 			wantErr: "must both be set and differ",
 		},
 		{
@@ -411,23 +411,23 @@ func TestUsageConfig(t *testing.T) {
 	}
 	for name, args := range map[string][]string{
 		"addr only":    {"--usage-addr", ":8082"},
-		"callers only": {"--usage-callers", "patchy:a"},
-		"bad caller":   {"--usage-addr", ":8082", "--usage-callers", "patchy"},
-		"empty name":   {"--usage-addr", ":8082", "--usage-callers", "patchy:"},
-		"extra colon":  {"--usage-addr", ":8082", "--usage-callers", "patchy:a:b"},
+		"callers only": {"--usage-callers", "maul:a"},
+		"bad caller":   {"--usage-addr", ":8082", "--usage-callers", "maul"},
+		"empty name":   {"--usage-addr", ":8082", "--usage-callers", "maul:"},
+		"extra colon":  {"--usage-addr", ":8082", "--usage-callers", "maul:a:b"},
 	} {
 		if _, _, err := usageConfig(serveOpts(t, args...)); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
 	}
 	addr, cfg, err = usageConfig(serveOpts(t, "--usage-addr", ":8082",
-		"--usage-callers", "patchy:patchy-intent-controller,patchy:patchy-evaluation-controller"))
+		"--usage-callers", "maul:maul-intent-controller,maul:maul-evaluation-controller"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"system:serviceaccount:patchy:patchy-intent-controller",
-		"system:serviceaccount:patchy:patchy-evaluation-controller"}
-	if addr != ":8082" || !slices.Equal(cfg.Callers, want) || cfg.Audience != "patchy-egress-broker-usage" {
+	want := []string{"system:serviceaccount:maul:maul-intent-controller",
+		"system:serviceaccount:maul:maul-evaluation-controller"}
+	if addr != ":8082" || !slices.Equal(cfg.Callers, want) || cfg.Audience != "maul-egress-broker-usage" {
 		t.Errorf("addr %q cfg %+v", addr, cfg)
 	}
 }
@@ -440,7 +440,7 @@ func TestUserCredentialsFlags(t *testing.T) {
 	if err != nil || cfg.Mode != broker.UserCredentialsOff || cfg.OrgCredentialIsPersonal {
 		t.Fatalf("defaults = %+v, %v", cfg, err)
 	}
-	if records != "patchy" || secrets != "patchy-credentials" || cfg.Health.ProbeModel != broker.DefaultProbeModel {
+	if records != "maul" || secrets != "maul-credentials" || cfg.Health.ProbeModel != broker.DefaultProbeModel {
 		t.Errorf("default namespaces, probe model = %s, %s, %s", records, secrets, cfg.Health.ProbeModel)
 	}
 	cfg, records, secrets, err = userCredentials(serveOpts(t, "--user-credentials", "enforce",

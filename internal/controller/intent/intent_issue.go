@@ -11,13 +11,13 @@ import (
 	"strings"
 	"time"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/templates"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
-// markerPrefix opens every comment patchy writes on an intent issue.
-const markerPrefix = "<!-- patchy:"
+// markerPrefix opens every comment maul writes on an intent issue.
+const markerPrefix = "<!-- maul:"
 
 // markerOf is the marker line a comment body opens with, or "".
 func markerOf(body string) string {
@@ -48,15 +48,15 @@ func (p *pass) readBot(ctx context.Context) error {
 	return nil
 }
 
-// isOwnLogin reports patchy's own account. With a personal access token
-// there is no bot identity; only a body carrying patchy's marker then counts
-// as its own (isOwn), and no actor is ever skipped as patchy's.
+// isOwnLogin reports maul's own account. With a personal access token
+// there is no bot identity; only a body carrying maul's marker then counts
+// as its own (isOwn), and no actor is ever skipped as maul's.
 func (p *pass) isOwnLogin(login string) bool {
 	return p.bot != "" && strings.EqualFold(login, p.bot)
 }
 
-// isOwn reports a comment patchy wrote. Markers are predictable, so a marker
-// alone proves nothing: the author must be patchy's bot.
+// isOwn reports a comment maul wrote. Markers are predictable, so a marker
+// alone proves nothing: the author must be maul's bot.
 func (p *pass) isOwn(c *ghclient.Comment) bool {
 	if p.bot == "" {
 		return markerOf(c.Body) != ""
@@ -81,7 +81,7 @@ func (p *pass) everEdited(ctx context.Context, c *ghclient.Comment) (bool, error
 
 // listComments lists the issue's comments since since (never the whole
 // thread), unless this pass already listed from an earlier time, and indexes
-// patchy's own by marker.
+// maul's own by marker.
 func (p *pass) listComments(ctx context.Context, since time.Time) error {
 	if p.listed && !since.Before(p.commentsSince) {
 		return nil
@@ -94,7 +94,7 @@ func (p *pass) listComments(ctx context.Context, since time.Time) error {
 		return fmt.Errorf("list comments: %w", err)
 	}
 	p.comments, p.commentsSince, p.listed = comments, since, true
-	// Listed oldest first, so the newest of patchy's comments with one
+	// Listed oldest first, so the newest of maul's comments with one
 	// marker wins: the one a re-post after an edit left behind.
 	p.own = map[string]*ghclient.Comment{}
 	for _, c := range comments {
@@ -105,7 +105,7 @@ func (p *pass) listComments(ctx context.Context, since time.Time) error {
 	return nil
 }
 
-// findOwn is patchy's own comment headed by marker, posted since since, or
+// findOwn is maul's own comment headed by marker, posted since since, or
 // nil.
 func (p *pass) findOwn(ctx context.Context, marker string, since time.Time) (*ghclient.Comment, error) {
 	if err := p.listComments(ctx, since); err != nil {
@@ -117,7 +117,7 @@ func (p *pass) findOwn(ctx context.Context, marker string, since time.Time) (*gh
 	return nil, nil
 }
 
-// postOnce posts body, headed by marker, unless patchy already posted a
+// postOnce posts body, headed by marker, unless maul already posted a
 // comment with that marker since since: a retry after a failure between
 // posting and recording finds the first instead of posting a second. since
 // must be no later than the first attempt could have posted it.

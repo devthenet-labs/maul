@@ -9,7 +9,7 @@ import (
 	"log/slog"
 )
 
-// fanoutHandler dispatches each record to several slog handlers. patchy uses it
+// fanoutHandler dispatches each record to several slog handlers. maul uses it
 // to send every log line to both the stderr text handler (gated at the
 // configured level) and the otelslog bridge (which accepts debug regardless),
 // so the shipped telemetry file captures full diagnostics while stderr stays at

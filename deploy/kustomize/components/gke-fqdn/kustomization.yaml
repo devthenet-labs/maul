@@ -29,7 +29,7 @@ resources:
 patches:
     - target:
           kind: NetworkPolicy
-          name: patchy-agents-egress
+          name: maul-agents-egress
       patch: |
           - op: remove
             path: /spec/egress/2

@@ -14,8 +14,8 @@ import (
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/e2e/fakegithub"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/e2e/fakegithub"
 )
 
 // reviewFlow is the shipped integration-controller with one finding carried
@@ -117,7 +117,7 @@ func (f *reviewFlow) prMerged(t *testing.T) []byte {
 // handing it off; the PR's own delivery, arriving second, changes nothing.
 func TestMergeIssueCloseFirst(t *testing.T) {
 	f := startReview(t)
-	f.gh.MergePull(901, "patchy/"+f.fnd.Name, fixMerge)
+	f.gh.MergePull(901, "maul/"+f.fnd.Name, fixMerge)
 
 	f.closeIssue(t)
 	eventually(t, "the issue's close to settle the merge, not hand the finding off", func() bool {
@@ -146,7 +146,7 @@ func TestMergeIssueCloseFirst(t *testing.T) {
 // answers: the finding is then handed off, not left in review.
 func TestHumanCloseDuringReviewLookupFails(t *testing.T) {
 	f := startReview(t)
-	f.gh.OpenPull(901, "patchy/"+f.fnd.Name)
+	f.gh.OpenPull(901, "maul/"+f.fnd.Name)
 	f.gh.FailPullReads(3)
 
 	f.closeIssue(t)
@@ -165,7 +165,7 @@ func TestHumanCloseDuringReviewLookupFails(t *testing.T) {
 // fail so the pending close can be seen before it settles.
 func TestIssueReopenDeliveredFirst(t *testing.T) {
 	f := startReview(t)
-	f.gh.OpenPull(901, "patchy/"+f.fnd.Name)
+	f.gh.OpenPull(901, "maul/"+f.fnd.Name)
 	f.gh.FailPullReads(8)
 
 	// Closed, then reopened, on GitHub: the fake's issue stays open.
@@ -192,7 +192,7 @@ func TestIssueReopenDeliveredFirst(t *testing.T) {
 // ignoring it.
 func TestMergeFromRenamedRepository(t *testing.T) {
 	f := startReview(t)
-	f.gh.MergePull(901, "patchy/"+f.fnd.Name, fixMerge)
+	f.gh.MergePull(901, "maul/"+f.fnd.Name, fixMerge)
 
 	renamed := bytes.ReplaceAll(f.prMerged(t), []byte(`"acme/shop"`), []byte(`"acme/storefront"`))
 	deliver(t, f.url, "pull_request", renamed)

@@ -17,15 +17,15 @@ import (
 	"k8s.io/apimachinery/pkg/util/yaml"
 	sigsyaml "sigs.k8s.io/yaml"
 
-	"github.com/bitwise-media-group/patchy/internal/cli"
-	"github.com/bitwise-media-group/patchy/internal/egressproxy"
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/cli"
+	"github.com/devthenet-labs/maul/internal/egressproxy"
+	"github.com/devthenet-labs/maul/internal/netprofile"
 )
 
-const chartDir = "../../charts/patchy"
+const chartDir = "../../charts/maul"
 
 // chartTunnelFlags maps each egressProxy.tunnel value to the flag it stamps
-// (PATCHY_TUNNEL_<FLAG> in the proxy's ConfigMap). denyCIDRs and
+// (MAUL_TUNNEL_<FLAG> in the proxy's ConfigMap). denyCIDRs and
 // sourceBudgetIdle are stamped from more than the value alone, so they are
 // checked through the render below instead.
 var chartTunnelFlags = map[string]string{
@@ -114,7 +114,7 @@ func sameValue(t *testing.T, def string, v any) bool {
 }
 
 // TestChartTunnelRenderStarts: the proxy ConfigMap the chart renders for the
-// tunnel fixture, every PATCHY_TUNNEL_* key and the profile set as the
+// tunnel fixture, every MAUL_TUNNEL_* key and the profile set as the
 // environment, starts this binary with the flag defaults, the budget floor
 // at the longest Job deadline (the intent controller's 90m) and the API
 // server's address beside tunnel.denyCIDRs on the tunnel's deny list.
@@ -123,7 +123,7 @@ func TestChartTunnelRenderStarts(t *testing.T) {
 		t.Skip("helm not on PATH")
 	}
 	fixtures := "../../hack/testdata/chart-render/"
-	out, err := exec.CommandContext(t.Context(), "helm", "template", "patchy", chartDir, "--namespace", "patchy",
+	out, err := exec.CommandContext(t.Context(), "helm", "template", "maul", chartDir, "--namespace", "maul",
 		"-f", fixtures+"repository-images.yaml", "-f", fixtures+"intent-controller.yaml",
 		"-f", fixtures+"egress-tunnel.yaml").Output()
 	if err != nil {
@@ -136,19 +136,19 @@ func TestChartTunnelRenderStarts(t *testing.T) {
 		if err := dec.Decode(u); err != nil {
 			break
 		}
-		if u.GetKind() == "ConfigMap" && u.GetName() == "patchy-egress-proxy-config" {
+		if u.GetKind() == "ConfigMap" && u.GetName() == "maul-egress-proxy-config" {
 			data, _, _ = unstructured.NestedStringMap(u.Object, "data")
 		}
 	}
 	tunnelKeys := 0
 	for k, v := range data {
-		if strings.HasPrefix(k, "PATCHY_TUNNEL_") {
+		if strings.HasPrefix(k, "MAUL_TUNNEL_") {
 			tunnelKeys++
 			t.Setenv(k, v)
 		}
 	}
 	if tunnelKeys == 0 {
-		t.Fatal("the tunnel fixture rendered no PATCHY_TUNNEL_* key")
+		t.Fatal("the tunnel fixture rendered no MAUL_TUNNEL_* key")
 	}
 	s, err := configure(serveOpts(t, "--network-profiles", data[netprofile.EnvProfiles]))
 	if err != nil {

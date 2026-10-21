@@ -7,15 +7,15 @@
 # NetworkPolicy can only say "TCP 443 to the internet"; REGISTRY_ONLY makes
 # the sidecar drop any outbound connection whose destination is not in the
 # mesh registry, and the only registry entries visible to this namespace are
-# the api.anthropic.com ServiceEntry beside this file plus the patchy
+# the api.anthropic.com ServiceEntry beside this file plus the maul
 # namespace's Services (source-controller's artifact server). TLS is not
 # terminated — the proxy matches the SNI in the client hello against those
 # hosts and passes the bytes through or blackholes them.
 #
 # WHAT THIS DOES NOT DO — read this before believing the sandbox is airtight:
 #
-# One Sidecar per harness, scoped by the patchy.bitwisemedia.uk/harness label,
-# each permitting only its own model host (plus the patchy namespace's Services
+# One Sidecar per harness, scoped by the maul.run/harness label,
+# each permitting only its own model host (plus the maul namespace's Services
 # for the artifact fetch and the egress broker) — the brokered claude and codex
 # pods have no external host at all — and only a copilot pod can reach the
 # GitHub hosts its authentication needs. The codex and copilot Sidecars are
@@ -40,60 +40,60 @@
 apiVersion: networking.istio.io/v1
 kind: Sidecar
 metadata:
-    name: patchy-agent-egress-claude
-    namespace: patchy-agents
+    name: maul-agent-egress-claude
+    namespace: maul-agents
     labels:
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 spec:
     workloadSelector:
         labels:
-            app.kubernetes.io/name: patchy-agent
-            app.kubernetes.io/managed-by: patchy
-            patchy.bitwisemedia.uk/harness: claude
+            app.kubernetes.io/name: maul-agent
+            app.kubernetes.io/managed-by: maul
+            maul.run/harness: claude
     # Drop anything not in the registry instead of passing it through.
     outboundTrafficPolicy:
         mode: REGISTRY_ONLY
     egress:
-        # Brokered claude has NO external host: only the patchy namespace's
+        # Brokered claude has NO external host: only the maul namespace's
         # Services — which is how the init container reaches
         # source-controller's artifact server and the agent container the
         # egress broker.
         - hosts:
-              - patchy/*
+              - maul/*
 ---
 apiVersion: networking.istio.io/v1
 kind: Sidecar
 metadata:
-    name: patchy-agent-egress-codex
-    namespace: patchy-agents
+    name: maul-agent-egress-codex
+    namespace: maul-agents
     labels:
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 spec:
     workloadSelector:
         labels:
-            app.kubernetes.io/name: patchy-agent
-            app.kubernetes.io/managed-by: patchy
-            patchy.bitwisemedia.uk/harness: codex
+            app.kubernetes.io/name: maul-agent
+            app.kubernetes.io/managed-by: maul
+            maul.run/harness: codex
     outboundTrafficPolicy:
         mode: REGISTRY_ONLY
     egress:
         # Brokered codex has NO external host either, exactly like claude.
         - hosts:
-              - patchy/*
+              - maul/*
 ---
 apiVersion: networking.istio.io/v1
 kind: Sidecar
 metadata:
-    name: patchy-agent-egress-copilot
-    namespace: patchy-agents
+    name: maul-agent-egress-copilot
+    namespace: maul-agents
     labels:
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 spec:
     workloadSelector:
         labels:
-            app.kubernetes.io/name: patchy-agent
-            app.kubernetes.io/managed-by: patchy
-            patchy.bitwisemedia.uk/harness: copilot
+            app.kubernetes.io/name: maul-agent
+            app.kubernetes.io/managed-by: maul
+            maul.run/harness: copilot
     outboundTrafficPolicy:
         mode: REGISTRY_ONLY
     egress:
@@ -104,4 +104,4 @@ spec:
         - hosts:
               - ./api.github.com
               - ./*.githubcopilot.com
-              - patchy/*
+              - maul/*

@@ -24,9 +24,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/bitwise-media-group/patchy/internal/cli"
-	"github.com/bitwise-media-group/patchy/internal/egressproxy"
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
+	"github.com/devthenet-labs/maul/internal/cli"
+	"github.com/devthenet-labs/maul/internal/egressproxy"
+	"github.com/devthenet-labs/maul/internal/netprofile"
 )
 
 const testRegistries = `[
@@ -53,7 +53,7 @@ func fakeEnv(t *testing.T, env map[string]string) {
 // TestConfigureRegistries: the registries reach the engine with the
 // always-denied ranges (--always-deny-cidrs and the Kubernetes Service IP),
 // the profiles' forge hosts as redirect denials, the caps and the poll
-// interval; PATCHY_EGRESS_REGISTRIES is read when the flag is not set.
+// interval; MAUL_EGRESS_REGISTRIES is read when the flag is not set.
 func TestConfigureRegistries(t *testing.T) {
 	fakeEnv(t, map[string]string{"KUBERNETES_SERVICE_HOST": "10.100.0.1"})
 	s, err := configure(serveOpts(t, "--network-profiles", registryProfiles, "--registries", testRegistries,

@@ -14,7 +14,7 @@ import (
 
 // The multi-repository intent: a web front end and the API it calls, the
 // second named the way an operator may name a repository (mixed case,
-// punctuated), which patchy must carry exactly as the Project spells it.
+// punctuated), which maul must carry exactly as the Project spells it.
 const (
 	testWebURL = "https://github.com/devthenet-labs/marigold-web"
 	testAPIURL = "https://github.com/devthenet-labs/Acme.Web_App"
@@ -114,7 +114,7 @@ func TestMultiRepoGoldens(t *testing.T) {
 			prs := testMultiPRs()
 			prs[0].State, prs[1].State = "open", "open"
 			return RenderIntentStatusComment(IntentStatusComment{
-				Namespace: "patchy", Intent: "marigold-3", Phase: "InReview",
+				Namespace: "maul", Intent: "marigold-3", Phase: "InReview",
 				PlanRevision: 1, PlanURL: "https://github.com/devthenet-labs/intents/issues/3#issuecomment-7",
 				Summary:    "Show the API's greeting on the home page",
 				ApprovedBy: "peter", ApprovedRevision: 1,
@@ -132,13 +132,13 @@ func TestMultiRepoGoldens(t *testing.T) {
 		}},
 		{"intent_siblings.md", func() (string, error) {
 			return RenderIntentSiblingsComment(IntentSiblingsComment{
-				Namespace: "patchy", Intent: "marigold-3", Repository: testAPI, PullRequests: testMultiPRs(),
+				Namespace: "maul", Intent: "marigold-3", Repository: testAPI, PullRequests: testMultiPRs(),
 			})
 		}},
 		{"intent_notice_partial.md", func() (string, error) {
 			prs := testMultiPRs()
 			return RenderIntentPartialNotice(IntentPartialNotice{
-				Namespace: "patchy", Intent: "marigold-3",
+				Namespace: "maul", Intent: "marigold-3",
 				Merged: prs[:1], Closed: prs[1:], Revisions: 1, CheckFixes: 2, CostMicroUSD: 2_345_678,
 			})
 		}},
@@ -146,20 +146,20 @@ func TestMultiRepoGoldens(t *testing.T) {
 			prs := testMultiPRs()
 			prs[0].State = "open"
 			return RenderIntentUntrackedNotice(IntentUntrackedNotice{
-				Namespace: "patchy", Intent: "marigold-3", Opened: prs[:1], NeverOpened: []string{testAPI},
+				Namespace: "maul", Intent: "marigold-3", Opened: prs[:1], NeverOpened: []string{testAPI},
 			})
 		}},
 		{"intent_notice_untracked_failed.md", func() (string, error) {
 			prs := testMultiPRs()
 			prs[0].State = "open"
 			return RenderIntentUntrackedNotice(IntentUntrackedNotice{
-				Namespace: "patchy", Intent: "marigold-3", Failed: true, Opened: prs[:1],
+				Namespace: "maul", Intent: "marigold-3", Failed: true, Opened: prs[:1],
 				NeverOpened: []string{testAPI},
 			})
 		}},
 		{"intent_summary_check_fixes.md", func() (string, error) {
 			return RenderIntentSummaryComment(IntentSummaryComment{
-				Namespace: "patchy", Intent: "preview-demo-5",
+				Namespace: "maul", Intent: "preview-demo-5",
 				PullRequests: []IntentPullRequest{{
 					Repository: "devthenet-labs/patchy-preview-demo", Number: 9,
 					URL: "https://github.com/devthenet-labs/patchy-preview-demo/pull/9", State: "merged",
@@ -200,7 +200,7 @@ func TestOneRepositoryRendersUnchanged(t *testing.T) {
 	status := func(repos []string) func() (string, error) {
 		return func() (string, error) {
 			return RenderIntentStatusComment(IntentStatusComment{
-				Namespace: "patchy", Intent: "target-1", Phase: "Building", PlanRevision: 2,
+				Namespace: "maul", Intent: "target-1", Phase: "Building", PlanRevision: 2,
 				ApprovedBy: "peter", ApprovedRevision: 2, Repositories: repos,
 			})
 		}
@@ -389,12 +389,12 @@ func TestMultiRepoCommentProperties(t *testing.T) {
 		}
 		header, _, _, _ := planParts(plan)
 		if items := repositoryItems(repos, false); items != nil &&
-			!strings.Contains(header, "patchy opens one pull request in each of: "+strings.Join(items, ", ")+".") {
+			!strings.Contains(header, "maul opens one pull request in each of: "+strings.Join(items, ", ")+".") {
 			failure = fmt.Sprintf("plan header does not list %q:\n%s", items, header)
 			return false
 		}
 		status, err := RenderIntentStatusComment(IntentStatusComment{
-			Namespace: "patchy", Intent: "target-1", Phase: "Building", Repositories: repos,
+			Namespace: "maul", Intent: "target-1", Phase: "Building", Repositories: repos,
 		})
 		if err != nil {
 			failure = fmt.Sprintf("status: %v", err)
@@ -471,7 +471,7 @@ func pullRequestConfig(seed int64) *quick.Config {
 }
 
 // TestSiblingCommentProperties: the siblings comment and the partial
-// ending's notice link patchy's own pull requests and nothing else: no raw
+// ending's notice link maul's own pull requests and nothing else: no raw
 // HTML, no closing keyword before any reference, and no mention; and the
 // siblings comment lists every pull request but those in the repository it
 // is posted on.
@@ -494,7 +494,7 @@ func TestSiblingCommentProperties(t *testing.T) {
 	}
 	holds := func(prs []IntentPullRequest) bool {
 		siblings, err := RenderIntentSiblingsComment(IntentSiblingsComment{
-			Namespace: "patchy", Intent: "marigold-3", Repository: prs[0].Repository, PullRequests: prs,
+			Namespace: "maul", Intent: "marigold-3", Repository: prs[0].Repository, PullRequests: prs,
 		})
 		if err != nil {
 			failure = fmt.Sprintf("siblings: %v", err)
@@ -520,7 +520,7 @@ func TestSiblingCommentProperties(t *testing.T) {
 			}
 		}
 		partial, err := RenderIntentPartialNotice(IntentPartialNotice{
-			Namespace: "patchy", Intent: "marigold-3", Merged: prs[:1], Closed: prs[1:],
+			Namespace: "maul", Intent: "marigold-3", Merged: prs[:1], Closed: prs[1:],
 		})
 		if err != nil {
 			failure = fmt.Sprintf("partial: %v", err)
@@ -534,7 +534,7 @@ func TestSiblingCommentProperties(t *testing.T) {
 			never = append(never, pr.Repository)
 		}
 		untracked, err := RenderIntentUntrackedNotice(IntentUntrackedNotice{
-			Namespace: "patchy", Intent: "marigold-3", Opened: prs[:1], NeverOpened: never,
+			Namespace: "maul", Intent: "marigold-3", Opened: prs[:1], NeverOpened: never,
 		})
 		if err != nil {
 			failure = fmt.Sprintf("untracked: %v", err)
@@ -559,26 +559,26 @@ func TestNoticeKeys(t *testing.T) {
 		keys[k] = true
 	}
 	body, err := RenderIntentSiblingsComment(IntentSiblingsComment{
-		Namespace: "patchy", Intent: "marigold-3", Repository: testAPI, PullRequests: testMultiPRs(),
+		Namespace: "maul", Intent: "marigold-3", Repository: testAPI, PullRequests: testMultiPRs(),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := NoticeMarker("patchy", "marigold-3", SiblingsKey) + "\n"; !strings.HasPrefix(body, want) {
+	if want := NoticeMarker("maul", "marigold-3", SiblingsKey) + "\n"; !strings.HasPrefix(body, want) {
 		t.Errorf("siblings comment is not headed by %q:\n%s", want, body)
 	}
-	body, err = RenderIntentPartialNotice(IntentPartialNotice{Namespace: "patchy", Intent: "marigold-3"})
+	body, err = RenderIntentPartialNotice(IntentPartialNotice{Namespace: "maul", Intent: "marigold-3"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := NoticeMarker("patchy", "marigold-3", PartialKey) + "\n"; !strings.HasPrefix(body, want) {
+	if want := NoticeMarker("maul", "marigold-3", PartialKey) + "\n"; !strings.HasPrefix(body, want) {
 		t.Errorf("partial notice is not headed by %q:\n%s", want, body)
 	}
-	body, err = RenderIntentUntrackedNotice(IntentUntrackedNotice{Namespace: "patchy", Intent: "marigold-3"})
+	body, err = RenderIntentUntrackedNotice(IntentUntrackedNotice{Namespace: "maul", Intent: "marigold-3"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := NoticeMarker("patchy", "marigold-3", UntrackedKey) + "\n"; !strings.HasPrefix(body, want) {
+	if want := NoticeMarker("maul", "marigold-3", UntrackedKey) + "\n"; !strings.HasPrefix(body, want) {
 		t.Errorf("untracked notice is not headed by %q:\n%s", want, body)
 	}
 }

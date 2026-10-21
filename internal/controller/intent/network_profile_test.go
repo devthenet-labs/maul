@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/ghclient"
-	"github.com/bitwise-media-group/patchy/internal/jobs"
-	"github.com/bitwise-media-group/patchy/internal/netprofile"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/netprofile"
 )
 
 // withProfiles turns network profiles on in the guard, the run scheduler's
@@ -26,7 +26,7 @@ func withProfiles(t *testing.T, e *env, profileRepos string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	base, err := url.Parse("http://patchy-egress-proxy.patchy.svc.cluster.local")
+	base, err := url.Parse("http://maul-egress-proxy.maul.svc.cluster.local")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func TestBuildAndReviseRoundsGetTheNetworkProfile(t *testing.T) {
 	e := newEnv(t, project)
 	withProfiles(t, e, "acme/app")
 	name := e.awaiting()
-	e.gh.label(1, "patchy:approved", approver)
+	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 	number := in.Status.PullRequests[0].Number
 	e.gh.mu.Lock()
@@ -96,7 +96,7 @@ func TestBuildAndReviseRoundsGetTheNetworkProfile(t *testing.T) {
 		t.Fatalf("build-phase Jobs = %d, want the build and two revise rounds", len(builds))
 	}
 	want := jobs.NetworkProfile{Name: "go", Route: "go",
-		ProxyURL: "http://patchy-egress-proxy.patchy.svc.cluster.local:8090", BakedModCache: "/opt/go/pkg/mod"}
+		ProxyURL: "http://maul-egress-proxy.maul.svc.cluster.local:8090", BakedModCache: "/opt/go/pkg/mod"}
 	for _, s := range builds {
 		if s.NetworkProfile == nil || !reflect.DeepEqual(*s.NetworkProfile, want) || s.RunnerImage != repoImage {
 			t.Errorf("build-phase spec %s: profile %+v image %q, want %+v on the repository's image",
@@ -140,7 +140,7 @@ func TestBuildWithoutAPinGetsNoNetworkProfile(t *testing.T) {
 			e := newEnv(t, p)
 			withProfiles(t, e, tt.repos)
 			name := e.awaiting()
-			e.gh.label(1, "patchy:approved", approver)
+			e.gh.label(1, "maul:approved", approver)
 			e.drive(name, v1alpha1.IntentInReview, tt.image)
 			builds := e.specsOf("build")
 			if len(builds) != 1 || builds[0].NetworkProfile != nil {

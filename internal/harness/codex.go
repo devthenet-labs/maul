@@ -10,8 +10,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/bitwise-media-group/patchy/internal/runner"
-	"github.com/bitwise-media-group/patchy/internal/transcript"
+	"github.com/devthenet-labs/maul/internal/runner"
+	"github.com/devthenet-labs/maul/internal/transcript"
 )
 
 // Codex drives the `codex` CLI (OpenAI Codex), the alternative harness for
@@ -39,7 +39,7 @@ func NewCodex() *Codex {
 // PromptSpec builds the headless codex invocation for one prompted run.
 // `codex exec --json` emits one JSON event per line, which is what
 // ParseResult and ScanUsage parse. Codex's own Landlock/Seatbelt sandbox is
-// always disabled: patchy confines the agent at the pod layer (no network
+// always disabled: maul confines the agent at the pod layer (no network
 // egress beyond the egress broker, no credentials, locked-down
 // securityContext), where codex's kernel sandbox is redundant and
 // unavailable anyway.
@@ -62,7 +62,7 @@ func NewCodex() *Codex {
 //
 // Every run switches off what would dial anything but the model provider
 // (codexQuietConfig). With a Gateway the run's provider is the egress broker
-// (codexGatewayConfig); patchy always sets one, since codex runs brokered
+// (codexGatewayConfig); maul always sets one, since codex runs brokered
 // only.
 func (c *Codex) PromptSpec(ws string, req PromptRequest) runner.CommandSpec {
 	prompt := req.Prompt
@@ -105,8 +105,8 @@ var codexQuietConfig = []string{
 // OpenAI itself, and then compresses request bodies (zstd), which the
 // broker's body inspection cannot read.
 const (
-	CodexProviderID   = "patchy"
-	codexProviderName = "patchy egress broker"
+	CodexProviderID   = "maul"
+	codexProviderName = "maul egress broker"
 )
 
 // codexRetries is how often codex retries a request or a dropped stream on

@@ -41,7 +41,7 @@ func TestInitDisabled(t *testing.T) {
 func TestInitFileModeCreatesFiles(t *testing.T) {
 	clearOTELEnv(t)
 	dir := filepath.Join(t.TempDir(), "tel")
-	prov, shutdown, err := Init(context.Background(), Config{Dir: dir, ServiceName: "patchy", ServiceVersion: "test"})
+	prov, shutdown, err := Init(context.Background(), Config{Dir: dir, ServiceName: "maul", ServiceVersion: "test"})
 	if err != nil {
 		t.Fatalf("Init: %v", err)
 	}

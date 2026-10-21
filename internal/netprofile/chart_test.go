@@ -22,7 +22,7 @@ import (
 // this package's, so a profile the chart admits is one the controllers and
 // the proxy start with.
 
-const chartDir = "../../charts/patchy"
+const chartDir = "../../charts/maul"
 
 // chartSchema is the part of values.schema.json the profile rules live in.
 type chartSchema struct {
@@ -152,7 +152,7 @@ func (c chartString) draw(r *rand.Rand) string {
 // the field's alphabet) is admitted by the schema exactly when Validate
 // accepts it. The one rule the schema cannot carry, the module prefixes that
 // would admit the Go toolchain, is the chart's render guard
-// (patchy.egressProxyGuard, exercised by hack/chart-render-test.sh), so for
+// (maul.egressProxyGuard, exercised by hack/chart-render-test.sh), so for
 // modules the schema plus that rule must equal ValidPrefix.
 func TestChartProfileSchemaMatchesValidator(t *testing.T) {
 	s := loadChartSchema(t)
@@ -338,7 +338,7 @@ func TestSchemaHasNoLookahead(t *testing.T) {
 	}
 }
 
-// toolchainGuard is the chart's render guard 6 (patchy.egressProxyGuard):
+// toolchainGuard is the chart's render guard 6 (maul.egressProxyGuard):
 // a module prefix that is golang.org itself or starts golang.org/toolchain.
 func toolchainGuard(v string) bool {
 	t := strings.TrimSuffix(v, "/")
@@ -348,7 +348,7 @@ func toolchainGuard(v string) bool {
 func validBakedModCacheDefault(v string) bool { return v != "" && validBakedModCache(v) == nil }
 
 // TestChartLabelPrefix: the chart spells the profile label prefix once, in
-// the patchy.networkProfileLabelPrefix helper, and it is LabelPrefix. Every
+// the maul.networkProfileLabelPrefix helper, and it is LabelPrefix. Every
 // template that selects or guards the label (the proxy's ingress, the
 // agent-side policies, the admission policy and the NOTES) goes through the
 // helper, and no template writes the prefix out by hand.
@@ -358,13 +358,13 @@ func TestChartLabelPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	def := regexp.MustCompile(`(?s)\{\{- define "patchy\.networkProfileLabelPrefix" -\}\}\n(.*?)\n\{\{- end \}\}`).
+	def := regexp.MustCompile(`(?s)\{\{- define "maul\.networkProfileLabelPrefix" -\}\}\n(.*?)\n\{\{- end \}\}`).
 		FindSubmatch(helpers)
 	if def == nil {
-		t.Fatal("_helpers.tpl does not define patchy.networkProfileLabelPrefix")
+		t.Fatal("_helpers.tpl does not define maul.networkProfileLabelPrefix")
 	}
 	if got := string(def[1]); got != LabelPrefix {
-		t.Errorf("patchy.networkProfileLabelPrefix = %q, want netprofile.LabelPrefix %q", got, LabelPrefix)
+		t.Errorf("maul.networkProfileLabelPrefix = %q, want netprofile.LabelPrefix %q", got, LabelPrefix)
 	}
 	files, err := filepath.Glob(filepath.Join(templates, "*"))
 	if err != nil {
@@ -385,7 +385,7 @@ func TestChartLabelPrefix(t *testing.T) {
 			n-- // the helper's own definition
 		}
 		if n != 0 {
-			t.Errorf("%s spells the profile label prefix out %d time(s); use patchy.networkProfileLabelPrefix", base, n)
+			t.Errorf("%s spells the profile label prefix out %d time(s); use maul.networkProfileLabelPrefix", base, n)
 		}
 	}
 	for _, base := range []string{
@@ -395,8 +395,8 @@ func TestChartLabelPrefix(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(string(src), `include "patchy.networkProfileLabelPrefix"`) {
-			t.Errorf("%s does not take the profile label prefix from patchy.networkProfileLabelPrefix", base)
+		if !strings.Contains(string(src), `include "maul.networkProfileLabelPrefix"`) {
+			t.Errorf("%s does not take the profile label prefix from maul.networkProfileLabelPrefix", base)
 		}
 	}
 }

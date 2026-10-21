@@ -9,9 +9,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/transcript"
-	"github.com/bitwise-media-group/patchy/internal/transcriptstore"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/transcript"
+	"github.com/devthenet-labs/maul/internal/transcriptstore"
 )
 
 func remTurns() []transcript.Turn {
@@ -27,7 +27,7 @@ func TestRemediationCollectPersistsTranscript(t *testing.T) {
 	remOnce(t, r, "finding-aa-1-rem-1")
 
 	var cm corev1.ConfigMap
-	key := types.NamespacedName{Namespace: "patchy", Name: "finding-aa-1-rem-1-transcript"}
+	key := types.NamespacedName{Namespace: "maul", Name: "finding-aa-1-rem-1-transcript"}
 	if err := c.Get(t.Context(), key, &cm); err != nil {
 		t.Fatalf("transcript not written: %v", err)
 	}
@@ -56,7 +56,7 @@ func TestRemediationCollectPersistsTranscript(t *testing.T) {
 
 	var rem v1alpha1.Remediation
 	if err := c.Get(t.Context(), types.NamespacedName{
-		Namespace: "patchy", Name: "finding-aa-1-rem-1"}, &rem); err != nil {
+		Namespace: "maul", Name: "finding-aa-1-rem-1"}, &rem); err != nil {
 		t.Fatal(err)
 	}
 	ref := rem.Status.Stage.Transcript
@@ -73,7 +73,7 @@ func TestRemediationHandOffKeepsItsTranscript(t *testing.T) {
 
 	var rem v1alpha1.Remediation
 	if err := c.Get(t.Context(), types.NamespacedName{
-		Namespace: "patchy", Name: "finding-aa-1-rem-1"}, &rem); err != nil {
+		Namespace: "maul", Name: "finding-aa-1-rem-1"}, &rem); err != nil {
 		t.Fatal(err)
 	}
 	if rem.Status.Stage.Transcript == nil {
@@ -81,7 +81,7 @@ func TestRemediationHandOffKeepsItsTranscript(t *testing.T) {
 	}
 
 	var cm corev1.ConfigMap
-	key := types.NamespacedName{Namespace: "patchy", Name: rem.Status.Stage.Transcript.Name}
+	key := types.NamespacedName{Namespace: "maul", Name: rem.Status.Stage.Transcript.Name}
 	if err := c.Get(t.Context(), key, &cm); err != nil {
 		t.Fatalf("transcript not written: %v", err)
 	}

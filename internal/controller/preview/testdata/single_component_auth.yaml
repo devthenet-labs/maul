@@ -1,17 +1,17 @@
 metadata:
   labels:
-    app.kubernetes.io/managed-by: patchy-preview-controller
-    patchy.bitwisemedia.uk/preview: preview-demo-5
-    patchy.bitwisemedia.uk/preview-uid: preview-preview-demo-5
+    app.kubernetes.io/managed-by: maul-preview-controller
+    maul.run/preview: preview-demo-5
+    maul.run/preview-uid: preview-preview-demo-5
   name: preview-preview-demo-5
-  namespace: patchy-preview-1
+  namespace: maul-preview-1
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app.kubernetes.io/managed-by: patchy-preview-controller
-      patchy.bitwisemedia.uk/preview: preview-demo-5
-      patchy.bitwisemedia.uk/preview-uid: preview-preview-demo-5
+      app.kubernetes.io/managed-by: maul-preview-controller
+      maul.run/preview: preview-demo-5
+      maul.run/preview-uid: preview-preview-demo-5
   strategy:
     rollingUpdate:
       maxSurge: 1
@@ -20,13 +20,13 @@ spec:
   template:
     metadata:
       labels:
-        app.kubernetes.io/managed-by: patchy-preview-controller
-        patchy.bitwisemedia.uk/preview: preview-demo-5
-        patchy.bitwisemedia.uk/preview-uid: preview-preview-demo-5
+        app.kubernetes.io/managed-by: maul-preview-controller
+        maul.run/preview: preview-demo-5
+        maul.run/preview-uid: preview-preview-demo-5
     spec:
       automountServiceAccountToken: false
       containers:
-      - image: 123456789012.dkr.ecr.us-east-1.amazonaws.com/patchy/previews/demo:sha-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      - image: 123456789012.dkr.ecr.us-east-1.amazonaws.com/maul/previews/demo:sha-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         imagePullPolicy: IfNotPresent
         name: demo
         ports:
@@ -54,8 +54,8 @@ spec:
             - ALL
           readOnlyRootFilesystem: true
       nodeSelector:
-        eks.amazonaws.com/nodeclass: patchy-preview
-        karpenter.sh/nodepool: patchy-preview
+        eks.amazonaws.com/nodeclass: maul-preview
+        karpenter.sh/nodepool: maul-preview
       securityContext:
         runAsGroup: 65532
         runAsNonRoot: true
@@ -65,18 +65,18 @@ spec:
       serviceAccountName: default
       tolerations:
       - effect: NoExecute
-        key: patchy.devthe.net/preview-only
+        key: maul.devthe.net/preview-only
         operator: Equal
         value: "true"
 status: {}
 ---
 metadata:
   labels:
-    app.kubernetes.io/managed-by: patchy-preview-controller
-    patchy.bitwisemedia.uk/preview: preview-demo-5
-    patchy.bitwisemedia.uk/preview-uid: preview-preview-demo-5
+    app.kubernetes.io/managed-by: maul-preview-controller
+    maul.run/preview: preview-demo-5
+    maul.run/preview-uid: preview-preview-demo-5
   name: preview-preview-demo-5
-  namespace: patchy-preview-1
+  namespace: maul-preview-1
 spec:
   ports:
   - name: http
@@ -84,32 +84,32 @@ spec:
     protocol: TCP
     targetPort: http
   selector:
-    app.kubernetes.io/managed-by: patchy-preview-controller
-    patchy.bitwisemedia.uk/preview: preview-demo-5
-    patchy.bitwisemedia.uk/preview-uid: preview-preview-demo-5
+    app.kubernetes.io/managed-by: maul-preview-controller
+    maul.run/preview: preview-demo-5
+    maul.run/preview-uid: preview-preview-demo-5
   type: ClusterIP
 status:
   loadBalancer: {}
 ---
 metadata:
   annotations:
-    alb.ingress.kubernetes.io/auth-idp-oidc: '{"issuer":"https://preview-auth.patchy.example.com","authorizationEndpoint":"https://preview-auth.patchy.example.com/authorize","tokenEndpoint":"https://preview-auth.patchy.example.com/token","userInfoEndpoint":"https://preview-auth.patchy.example.com/userinfo","secretName":"patchy-preview-oidc-g1"}'
+    alb.ingress.kubernetes.io/auth-idp-oidc: '{"issuer":"https://preview-auth.maul.example.com","authorizationEndpoint":"https://preview-auth.maul.example.com/authorize","tokenEndpoint":"https://preview-auth.maul.example.com/token","userInfoEndpoint":"https://preview-auth.maul.example.com/userinfo","secretName":"maul-preview-oidc-g1"}'
     alb.ingress.kubernetes.io/auth-on-unauthenticated-request: authenticate
     alb.ingress.kubernetes.io/auth-scope: openid
-    alb.ingress.kubernetes.io/auth-session-cookie: patchy-preview-s1
+    alb.ingress.kubernetes.io/auth-session-cookie: maul-preview-s1
     alb.ingress.kubernetes.io/auth-session-timeout: "3600"
     alb.ingress.kubernetes.io/auth-type: oidc
     alb.ingress.kubernetes.io/healthcheck-path: /health
   labels:
-    app.kubernetes.io/managed-by: patchy-preview-controller
-    patchy.bitwisemedia.uk/preview: preview-demo-5
-    patchy.bitwisemedia.uk/preview-uid: preview-preview-demo-5
+    app.kubernetes.io/managed-by: maul-preview-controller
+    maul.run/preview: preview-demo-5
+    maul.run/preview-uid: preview-preview-demo-5
   name: preview-preview-demo-5
-  namespace: patchy-preview-1
+  namespace: maul-preview-1
 spec:
   ingressClassName: alb-preview
   rules:
-  - host: preview-demo-5.preview.patchy.example.com
+  - host: preview-demo-5.preview.maul.example.com
     http:
       paths:
       - backend:

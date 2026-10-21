@@ -17,12 +17,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	v1alpha1 "github.com/bitwise-media-group/patchy/api/v1alpha1"
-	"github.com/bitwise-media-group/patchy/internal/envelope"
-	"github.com/bitwise-media-group/patchy/internal/forge"
-	"github.com/bitwise-media-group/patchy/internal/kube"
-	"github.com/bitwise-media-group/patchy/internal/runnerguard"
-	"github.com/bitwise-media-group/patchy/internal/templates"
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/forge"
+	"github.com/devthenet-labs/maul/internal/kube"
+	"github.com/devthenet-labs/maul/internal/runnerguard"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 const invalidReport = "frontmatter: yaml: line 3: mapping values are not allowed in this context"
@@ -31,7 +31,7 @@ const invalidReport = "frontmatter: yaml: line 3: mapping values are not allowed
 func readyRepo() *v1alpha1.Repository {
 	return &v1alpha1.Repository{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: fndName + "-src", Namespace: "patchy",
+			Name: fndName + "-src", Namespace: "maul",
 			Labels: map[string]string{v1alpha1.LabelFinding: fndName},
 		},
 		Spec: v1alpha1.RepositorySpec{URL: "https://github.com/acme/orders"},
@@ -50,7 +50,7 @@ func readyRepo() *v1alpha1.Repository {
 func invChild(attempt int32, phase v1alpha1.RunPhase, stage *v1alpha1.StageResult) *v1alpha1.Investigation {
 	return &v1alpha1.Investigation{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: fmt.Sprintf("%s-inv-%d", fndName, attempt), Namespace: "patchy",
+			Name: fmt.Sprintf("%s-inv-%d", fndName, attempt), Namespace: "maul",
 			Labels: map[string]string{v1alpha1.LabelFinding: fndName},
 		},
 		Spec: v1alpha1.InvestigationSpec{
@@ -80,11 +80,11 @@ func TestInvestigationRetryCarriesPreviousFailure(t *testing.T) {
 		}},
 	}}}
 	rec := &InvestigationReconciler{
-		Client: c, Runner: runner, Namespace: "patchy", MaxConcurrent: 2, MaxAttempts: 2,
+		Client: c, Runner: runner, Namespace: "maul", MaxConcurrent: 2, MaxAttempts: 2,
 		ConfidenceThreshold: 0.75, Now: func() time.Time { return clock },
 	}
 	gate := &GateReconciler{
-		Client: c, Forges: forge.NewStore(c), Namespace: "patchy", MinAge: time.Hour,
+		Client: c, Forges: forge.NewStore(c), Namespace: "maul", MinAge: time.Hour,
 		Now: func() time.Time { return clock },
 	}
 
@@ -94,7 +94,7 @@ func TestInvestigationRetryCarriesPreviousFailure(t *testing.T) {
 	}
 	gateOnce(t, gate)
 	var inv2 v1alpha1.Investigation
-	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: fndName + "-inv-2"}, &inv2); err != nil {
+	if err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: fndName + "-inv-2"}, &inv2); err != nil {
 		t.Fatalf("attempt 2 not opened: %v", err)
 	}
 	want := v1alpha1.PreviousAttempt{
@@ -106,12 +106,12 @@ func TestInvestigationRetryCarriesPreviousFailure(t *testing.T) {
 
 	// Grant and launch attempt 2: its Job carries the failure to the pod.
 	if _, err := rec.Reconcile(t.Context(), ctrl.Request{
-		NamespacedName: types.NamespacedName{Namespace: "patchy", Name: schedulerRequest},
+		NamespacedName: types.NamespacedName{Namespace: "maul", Name: schedulerRequest},
 	}); err != nil {
 		t.Fatalf("schedule: %v", err)
 	}
 	if _, err := rec.Reconcile(t.Context(), ctrl.Request{
-		NamespacedName: types.NamespacedName{Namespace: "patchy", Name: fndName + "-inv-2"},
+		NamespacedName: types.NamespacedName{Namespace: "maul", Name: fndName + "-inv-2"},
 	}); err != nil {
 		t.Fatalf("launch attempt 2: %v", err)
 	}
@@ -192,7 +192,7 @@ func TestGateCarriesPreviousAttempt(t *testing.T) {
 			gateOnce(t, r) // recovers a retried finding to Enhanced, or opens
 			gateOnce(t, r) // opens (a no-op if the first pass did)
 			var inv v1alpha1.Investigation
-			key := types.NamespacedName{Namespace: "patchy", Name: fmt.Sprintf("%s-inv-%d", fndName, tt.attempt)}
+			key := types.NamespacedName{Namespace: "maul", Name: fmt.Sprintf("%s-inv-%d", fndName, tt.attempt)}
 			if err := c.Get(t.Context(), key, &inv); err != nil {
 				t.Fatalf("attempt %d not opened: %v", tt.attempt, err)
 			}
@@ -222,7 +222,7 @@ func TestGateWaitsForTheLatestRunToSettle(t *testing.T) {
 		t.Errorf("RequeueAfter = %v, want %v while attempt 1 is in flight", res.RequeueAfter, settleRequeue)
 	}
 	var inv v1alpha1.Investigation
-	err := c.Get(t.Context(), types.NamespacedName{Namespace: "patchy", Name: fndName + "-inv-2"}, &inv)
+	err := c.Get(t.Context(), types.NamespacedName{Namespace: "maul", Name: fndName + "-inv-2"}, &inv)
 	if err == nil {
 		t.Error("attempt 2 opened while attempt 1 is still in flight")
 	}

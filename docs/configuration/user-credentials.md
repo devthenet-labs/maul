@@ -10,18 +10,18 @@ broker's per-request resolution and health probes, the run controllers' hold on 
 not valid, and the status page's [Account page](status-server.md#account-page), where people store their own, are all in
 place. Without the Account page a credentials admin writes the records and Secrets.
 
-It is off by default. With it off, the chart renders nothing new. The `ModelCredential` CRD is installed, as every
-patchy kind is, but nothing grants access to it and no policy judges it.
+It is off by default. With it off, the chart renders nothing new. The `ModelCredential` CRD is installed, as every maul
+kind is, but nothing grants access to it and no policy judges it.
 
 ## Turning it on
 
-| Helm                                                   | Default              | Values                                             |
-| ------------------------------------------------------ | -------------------- | -------------------------------------------------- |
-| `egressBroker.userCredentials.mode`                    | `off`                | `off`, `attribute`, `enforce`                      |
-| `egressBroker.userCredentials.namespace`               | `patchy-credentials` | the namespace the credential Secrets live in       |
-| `egressBroker.userCredentials.createNamespace`         | `true`               | create that namespace with the chart               |
-| `egressBroker.userCredentials.orgCredentialIsPersonal` | `""`                 | `acknowledged` admits a setup-token org credential |
-| `statusServer.account.enabled`                         | `false`              | serve the Account page                             |
+| Helm                                                   | Default            | Values                                             |
+| ------------------------------------------------------ | ------------------ | -------------------------------------------------- |
+| `egressBroker.userCredentials.mode`                    | `off`              | `off`, `attribute`, `enforce`                      |
+| `egressBroker.userCredentials.namespace`               | `maul-credentials` | the namespace the credential Secrets live in       |
+| `egressBroker.userCredentials.createNamespace`         | `true`             | create that namespace with the chart               |
+| `egressBroker.userCredentials.orgCredentialIsPersonal` | `""`               | `acknowledged` admits a setup-token org credential |
+| `statusServer.account.enabled`                         | `false`            | serve the Account page                             |
 
 - `attribute` renders the store and has the broker read each run's attribution. People can register their credentials,
   and their health is probed (the broker reads each stored credential and checks it with its provider), but the org
@@ -58,7 +58,7 @@ egressBroker:
 ```
 
 An org API key (`anthropicAuth: key`) needs no acknowledgement. Switching to one is a configuration change alone: swap
-the `patchy-anthropic` Secret's `api-key` for the API key and set `anthropicAuth: key`.
+the `maul-anthropic` Secret's `api-key` for the API key and set `anthropicAuth: key`.
 
 ## The store
 
@@ -73,8 +73,8 @@ owner's GitHub numeric id, so no caller ever chooses one:
 
 The owner hash is the first 16 hex digits of SHA-256 over the owner value, `github-id:<id>`. For GitHub id 42 the record
 is `bf39649e29052e0e-anthropic` and the Secret `cred-bf39649e29052e0e-anthropic`. The Secret carries the label
-`patchy.bitwisemedia.uk/credential-owner: <owner hash>`, equal to the hash in its own name, and one data key,
-`credential`, of 1 to 3072 bytes.
+`maul.run/credential-owner: <owner hash>`, equal to the hash in its own name, and one data key, `credential`, of 1 to
+3072 bytes.
 
 A `ModelCredential` (short name `mcred`) holds:
 
@@ -90,7 +90,7 @@ A `ModelCredential` (short name `mcred`) holds:
 - `status.lastUsedAt` and `status.lastRejectedAt`.
 
 There is no Secret pointer. A record's name must be its provider behind a 16-hex-digit hash, enforced by the CRD. It is
-deliberately not in the `patchy` category, so `kubectl get patchy` does not list whose credentials exist.
+deliberately not in the `maul` category, so `kubectl get maul` does not list whose credentials exist.
 
 ## What the broker does
 
@@ -106,8 +106,8 @@ run, nor their OpenAI key for a claude run.
 For each request, after the TokenReview:
 
 1. The broker reads the token's own pod (by name, in the agent namespace) and checks that its UID is the token's. It
-   reads the pod's `patchy.bitwisemedia.uk/attributed-to` annotation. This is cached with the verdict, one read per
-   token per `--verdict-ttl` (a minute).
+   reads the pod's `maul.run/attributed-to` annotation. This is cached with the verdict, one read per token per
+   `--verdict-ttl` (a minute).
 2. A run attributed to `org` uses the org credential, in both modes.
 3. Under `attribute`, every run uses the org credential.
 4. Under `enforce`, a run attributed to `github-id:<id>` uses that person's credential: the `ModelCredential` named for
@@ -142,10 +142,10 @@ intent-controller ask first: before they create a run attributed to a person, th
 run's provider must be `Valid`. The provider is the run's harness's: claude needs the person's `anthropic` record, codex
 their `openai` record (copilot holds its own token, so its runs are never held). They read only the record, by its
 derived name (`get` on `modelcredentials`, granted only with the mode on), never a Secret. The chart passes them the
-mode as `--user-credentials` (`PATCHY_USER_CREDENTIALS`) and, once the Account page is on with `statusServer.host` set,
-its URL as `--account-url` (`PATCHY_ACCOUNT_URL`; integration-controller gets it too). Under `off` and `attribute`
-nothing is held, and a run attributed to the org (or to an approver with no GitHub id on record, such as every
-status-page approval) is never held.
+mode as `--user-credentials` (`MAUL_USER_CREDENTIALS`) and, once the Account page is on with `statusServer.host` set,
+its URL as `--account-url` (`MAUL_ACCOUNT_URL`; integration-controller gets it too). Under `off` and `attribute` nothing
+is held, and a run attributed to the org (or to an approver with no GitHub id on record, such as every status-page
+approval) is never held.
 
 | Run                       | Held as                                                                                    | Who must add a credential  |
 | ------------------------- | ------------------------------------------------------------------------------------------ | -------------------------- |
@@ -171,13 +171,13 @@ Finding is looked at again every minute, a blocked Intent on its poll. It also l
 credential approves again, which replaces whom the run is for (design revision 1), so one person's missing key cannot
 park the work:
 
-- A held Finding takes `/patchy approve` again on its issue while held. The remediation becomes the new approver's only
-  if their own credential is `Valid`; otherwise the hold stays with the person in `status.credentialHold`, and the
+- A held Finding takes `/maul approve` again on its issue while held. The remediation becomes the new approver's only if
+  their own credential is `Valid`; otherwise the hold stays with the person in `status.credentialHold`, and the
   remediation runs as theirs once their credential is valid. A status-page or CLI approval carries no GitHub id, which
   would make the remediation the org's, so neither offers or takes `approve` while a Finding is held.
-- An Intent blocked from `Building` takes an approval again (`/patchy approve` or the approve label) of the same plan.
-  It is accepted only from an approver whose own credential is `Valid`, and only while the plan comment and the issue
-  are as they were approved; an approver without one is told so and nothing changes. A plan or revise block has no such
+- An Intent blocked from `Building` takes an approval again (`/maul approve` or the approve label) of the same plan. It
+  is accepted only from an approver whose own credential is `Valid`, and only while the plan comment and the issue are
+  as they were approved; an approver without one is told so and nothing changes. A plan or revise block has no such
   path: it lifts when the person's credential is valid, or an approver cancels.
 
 **Revocation.** Deleting or replacing a credential Secret reaches the broker as soon as its informer sees the change. If
@@ -234,25 +234,25 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: credentials-self
-  namespace: patchy
+  namespace: maul
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: patchy-credentials-self
+  name: maul-credentials-self
 subjects:
   - apiGroup: rbac.authorization.k8s.io
     kind: Group
     name: github:my-org
 ```
 
-The admin role grants no Secret access. A credential is never readable through patchy, by anyone.
+The admin role grants no Secret access. A credential is never readable through maul, by anyone.
 
 ## Admission policies
 
 Three `ValidatingAdmissionPolicies` fail closed:
 
 - **`<release>-credentials-records`**: a `ModelCredential` is created or changed only by the status server (which stamps
-  the signed-in person as the owner) or by a credentials admin. A broad grant, such as a role over every patchy kind, is
+  the signed-in person as the owner) or by a credentials admin. A broad grant, such as a role over every maul kind, is
   not enough. Deleting one is a revocation, so RBAC alone decides it.
 - **`<release>-credentials-status`**: each status field has one writer. The broker writes health, the Secret version it
   was found for, and the timestamps, and never the fingerprint. The status server writes the fingerprint, may only reset
@@ -298,7 +298,7 @@ Turn it on in two steps, `attribute` first and then `enforce`, so that nobody's 
 a chance to store.
 
 1. **Attribution.** Set `attribution.mode: attribute` ([run attribution](attribution.md)) and let it run. Every new run
-   is then stamped with whom it is for, and `patchy get usage` (or the status page's Usage page) shows who those people
+   is then stamped with whom it is for, and `maul get usage` (or the status page's Usage page) shows who those people
    are.
 2. **`attribute`, with the Account page.** Set `egressBroker.userCredentials.mode: attribute` and
    `statusServer.account.enabled: true`, with `statusServer.host` set so every notice links the page. Bind the
@@ -309,12 +309,12 @@ a chance to store.
 3. **Check.** Before `enforce`, list the records as a credentials admin:
 
    ```sh
-   kubectl get modelcredentials -n patchy
+   kubectl get modelcredentials -n maul
    ```
 
    Each person whose runs are attributed to them needs a row with `Health` `Valid`: whoever approves intent plans or
-   Findings on GitHub, triggers plans as an approver, comments `/patchy revise` or reviews an intent's pull request.
-   Compare the list with the people in `patchy get usage --since 30d`. Under `attribute` the broker's audit line already
+   Findings on GitHub, triggers plans as an approver, comments `/maul revise` or reviews an intent's pull request.
+   Compare the list with the people in `maul get usage --since 30d`. Under `attribute` the broker's audit line already
    names the person on every request (`user`) beside `credential=org`, so the logs show whose runs would change hands.
 
 4. **`enforce`.** Set `egressBroker.userCredentials.mode: enforce`. The chart rolls the broker, remediation-controller
@@ -344,7 +344,7 @@ Each step back is a values change alone, and none of them deletes a stored crede
   audit line loses `user` and `credential`. Attribution and usage stay as they are; turn those off separately
   ([run attribution](attribution.md#turning-it-off)).
 - **The org credential.** If the org route uses a setup-token under the [subscription guard](#the-subscription-guard),
-  swapping it for an org API key is independent of the mode: change the `patchy-anthropic` Secret and set
+  swapping it for an org API key is independent of the mode: change the `maul-anthropic` Secret and set
   `anthropicAuth: key`, then drop `orgCredentialIsPersonal`.
 
 With the mode `off`, the chart keeps the credentials namespace it created (`helm.sh/resource-policy: keep`), and with it

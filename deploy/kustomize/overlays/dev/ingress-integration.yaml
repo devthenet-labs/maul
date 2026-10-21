@@ -14,10 +14,10 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-    name: patchy-integration
-    namespace: patchy
+    name: maul-integration
+    namespace: maul
     labels:
-        app.kubernetes.io/part-of: patchy
+        app.kubernetes.io/part-of: maul
 spec:
     rules:
         - http:
@@ -26,27 +26,27 @@ spec:
                     pathType: Prefix
                     backend:
                         service:
-                            name: patchy-integration-controller
+                            name: maul-integration-controller
                             port:
                                 number: 8080
                   - path: /google-cloud/webhooks
                     pathType: Prefix
                     backend:
                         service:
-                            name: patchy-integration-controller
+                            name: maul-integration-controller
                             port:
                                 number: 8080
                   - path: /wiz/webhooks
                     pathType: Prefix
                     backend:
                         service:
-                            name: patchy-integration-controller
+                            name: maul-integration-controller
                             port:
                                 number: 8080
                   - path: /generic/
                     pathType: Prefix
                     backend:
                         service:
-                            name: patchy-integration-controller
+                            name: maul-integration-controller
                             port:
                                 number: 8080

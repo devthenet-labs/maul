@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bitwise-media-group/patchy/internal/runnerimage"
+	"github.com/devthenet-labs/maul/internal/runnerimage"
 )
 
 // verdict is one cached check result: the accepted image or its rejection.
