@@ -1,11 +1,23 @@
 # How it works
 
-Maul is a set of Go binaries — the five pipeline controllers below, the in-pod agent runtime, the egress broker and the
-status server, the optional intent, preview and evaluation controllers, and the workstation CLI — sharing one source of
-truth: the Kubernetes API. The `maul.run/v1alpha1` custom resources — `Integration`, `Forge`, `Finding`, `Repository`,
-`Investigation`, `Remediation`, `FindingRollup` — carry all pipeline state; etcd is the only state store, and there is
-no shadow database or queue. GitHub issues are a **one-way, human-facing projection**: labels and comments are rendered
-from the Finding, and human actions flow back in as webhook signals, never by re-parsing issue state.
+Maul runs sandboxed coding agents on your own cluster and turns their work into pull requests that humans review and
+merge. Two flows share one engine:
+
+- **Intents** start from a person. An issue in an intent repository asks for a change; an agent plans it in a read-only
+  Job, an approver approves the plan on the issue, and an agent builds exactly that plan in the application's own
+  toolchain image and opens the pull request, with a live preview while it is open. The `Project`, `Intent`, `IntentRun`
+  and `Preview` resources carry that flow; the [intent-controller reference](configuration/intent-controller.md) covers
+  it in detail.
+- **Findings** start from a scanner. Security alerts arrive by webhook, an agent investigates each one, and confident
+  fixes become pull requests while everything else goes to a human. The numbered sections below follow this flow.
+
+Both run on the same parts: the source-controller's digest-verified repository tarballs, the agent Job and its
+isolation, the egress broker that holds every model credential, the status server and the workstation CLI. All of them
+are Go binaries sharing one source of truth, the Kubernetes API. The `maul.run/v1alpha1` custom resources carry all
+state (for findings: `Integration`, `Forge`, `Finding`, `Repository`, `Investigation`, `Remediation`, `FindingRollup`);
+etcd is the only state store, and there is no shadow database or queue. GitHub issues are a **one-way, human-facing
+projection**: labels and comments are rendered from the resources, and human actions flow back in as signals, never by
+re-parsing issue state.
 
 Webhooks enter through one door: the GitHub App's single webhook URL points at the **integration-controller**'s
 `/github/webhooks` receiver, which validates each delivery against the webhook secrets of your configured `Integration`

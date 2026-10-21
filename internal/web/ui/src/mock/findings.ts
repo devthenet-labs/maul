@@ -9,12 +9,12 @@ const findings: Finding[] = [
   {
     name: "gh-cs-evolve-9f2c1a",
     createdAt: "2026-07-21T08:42:11Z",
-    integration: "github-bitwise",
+    integration: "github-acme",
     source: "github-code-scanning",
     repository: {
       type: "github",
-      url: "https://github.com/bitwise-media-group/evolve",
-      name: "bitwise-media-group/evolve",
+      url: "https://github.com/acme/checkout-api",
+      name: "acme/checkout-api",
       defaultBranch: "main",
     },
     advisories: ["CVE-2026-21417", "CWE-918"],
@@ -39,22 +39,22 @@ const findings: Finding[] = [
       "- OWASP: [Server Side Request Forgery](https://owasp.org/www-community/attacks/Server_Side_Request_Forgery).\n" +
       "- Common Weakness Enumeration: [CWE-918](https://cwe.mitre.org/data/definitions/918.html).",
     severity: "high",
-    alerts: [{ id: "alerts/311", url: "https://github.com/bitwise-media-group/evolve/security/code-scanning/311" }],
+    alerts: [{ id: "alerts/311", url: "https://github.com/acme/checkout-api/security/code-scanning/311" }],
     phase: "Opened",
     phaseTimes: [{ phase: "Opened", at: "2026-07-21T08:42:11Z" }],
     firstObservedAt: "2026-07-21T08:42:11Z",
     accumulateUntil: "2026-07-21T09:42:11Z",
-    tracking: { issueNumber: 512, url: "https://github.com/bitwise-media-group/evolve/issues/512", state: "open" },
+    tracking: { issueNumber: 512, url: "https://github.com/acme/checkout-api/issues/512", state: "open" },
   },
   {
     name: "dbot-design-system-4b77e0",
     createdAt: "2026-07-20T22:05:38Z",
-    integration: "github-bitwise",
+    integration: "github-acme",
     source: "dependabot",
     repository: {
       type: "github",
-      url: "https://github.com/bitwise-media-group/design-system",
-      name: "bitwise-media-group/design-system",
+      url: "https://github.com/acme/design-system",
+      name: "acme/design-system",
       defaultBranch: "main",
     },
     advisories: ["GHSA-p6mc-m468-83gw", "CVE-2026-0994", "CWE-1321"],
@@ -64,14 +64,14 @@ const findings: Finding[] = [
       "lodash.merge before the patched release allows __proto__ keys in merged objects to " +
       "pollute Object.prototype, enabling property-injection attacks in consumers.",
     severity: "medium",
-    alerts: [{ id: "alerts/64", url: "https://github.com/bitwise-media-group/design-system/security/dependabot/64" }],
+    alerts: [{ id: "alerts/64", url: "https://github.com/acme/design-system/security/dependabot/64" }],
     phase: "Enhanced",
     phaseTimes: [
       { phase: "Opened", at: "2026-07-20T22:05:38Z" },
       { phase: "Enhanced", at: "2026-07-20T23:11:02Z" },
     ],
     firstObservedAt: "2026-07-20T22:05:38Z",
-    tracking: { issueNumber: 89, url: "https://github.com/bitwise-media-group/design-system/issues/89", state: "open" },
+    tracking: { issueNumber: 89, url: "https://github.com/acme/design-system/issues/89", state: "open" },
     owners: ["design-platform"],
     enrichments: [
       {
@@ -84,14 +84,14 @@ const findings: Finding[] = [
     priority: "medium",
   },
   {
-    name: "gh-cs-bitwise-site-c30d19",
+    name: "gh-cs-web-c30d19",
     createdAt: "2026-07-20T16:24:50Z",
-    integration: "github-bitwise",
+    integration: "github-acme",
     source: "github-code-scanning",
     repository: {
       type: "github",
-      url: "https://github.com/bitwise-media-group/bitwise-site",
-      name: "bitwise-media-group/bitwise-site",
+      url: "https://github.com/acme/web",
+      name: "acme/web",
       defaultBranch: "main",
     },
     advisories: ["GHSA-6q9v-8xvj-4c2h", "CWE-89"],
@@ -104,7 +104,7 @@ const findings: Finding[] = [
     alerts: [
       {
         id: "alerts/198",
-        url: "https://github.com/bitwise-media-group/bitwise-site/security/code-scanning/198",
+        url: "https://github.com/acme/web/security/code-scanning/198",
         locations: [
           {
             path: "server/search.ts",
@@ -122,21 +122,21 @@ const findings: Finding[] = [
       { phase: "Investigating", at: "2026-07-20T17:33:40Z" },
     ],
     firstObservedAt: "2026-07-20T16:24:50Z",
-    tracking: { issueNumber: 233, url: "https://github.com/bitwise-media-group/bitwise-site/issues/233", state: "open" },
+    tracking: { issueNumber: 233, url: "https://github.com/acme/web/issues/233", state: "open" },
     owners: ["web-platform"],
     priority: "critical",
     attempts: { investigation: 1 },
-    activeRun: { kind: "investigation", name: "gh-cs-bitwise-site-c30d19-inv-1" },
+    activeRun: { kind: "investigation", name: "gh-cs-web-c30d19-inv-1" },
   },
   {
     name: "gh-cs-dotty-88af02",
     createdAt: "2026-07-18T09:12:33Z",
-    integration: "github-bitwise",
+    integration: "github-acme",
     source: "github-code-scanning",
     repository: {
       type: "github",
-      url: "https://github.com/bitwise-media-group/dotty",
-      name: "bitwise-media-group/dotty",
+      url: "https://github.com/acme/cli-tools",
+      name: "acme/cli-tools",
       defaultBranch: "main",
     },
     advisories: ["CVE-2026-11772", "CWE-22"],
@@ -150,7 +150,7 @@ const findings: Finding[] = [
     alerts: [
       {
         id: "alerts/57",
-        url: "https://github.com/bitwise-media-group/dotty/security/code-scanning/57",
+        url: "https://github.com/acme/cli-tools/security/code-scanning/57",
         locations: [
           {
             path: "internal/fetch/extract.go",
@@ -169,7 +169,7 @@ const findings: Finding[] = [
       { phase: "AwaitingApproval", at: "2026-07-18T10:41:36Z" },
     ],
     firstObservedAt: "2026-07-18T09:12:33Z",
-    tracking: { issueNumber: 141, url: "https://github.com/bitwise-media-group/dotty/issues/141", state: "open" },
+    tracking: { issueNumber: 141, url: "https://github.com/acme/cli-tools/issues/141", state: "open" },
     owners: ["dotty-maintainers"],
     enrichments: [
       {
@@ -199,7 +199,7 @@ const findings: Finding[] = [
   {
     name: "gh-cs-maul-51be77",
     createdAt: "2026-07-17T13:58:20Z",
-    integration: "github-bitwise",
+    integration: "github-acme",
     source: "github-code-scanning",
     repository: {
       type: "github",
@@ -243,12 +243,12 @@ const findings: Finding[] = [
   {
     name: "gh-cs-gh-claude-e19c44",
     createdAt: "2026-07-19T07:30:09Z",
-    integration: "github-bitwise",
+    integration: "github-acme",
     source: "github-code-scanning",
     repository: {
       type: "github",
-      url: "https://github.com/bitwise-media-group/gh-claude",
-      name: "bitwise-media-group/gh-claude",
+      url: "https://github.com/acme/ci-helpers",
+      name: "acme/ci-helpers",
       defaultBranch: "main",
     },
     advisories: ["GHSA-vv9x-h24r-6jq3", "CWE-78"],
@@ -261,7 +261,7 @@ const findings: Finding[] = [
     alerts: [
       {
         id: "alerts/102",
-        url: "https://github.com/bitwise-media-group/gh-claude/security/code-scanning/102",
+        url: "https://github.com/acme/ci-helpers/security/code-scanning/102",
         locations: [
           {
             path: "scripts/preview.js",
@@ -280,7 +280,7 @@ const findings: Finding[] = [
       { phase: "Remediating", at: "2026-07-19T09:04:29Z" },
     ],
     firstObservedAt: "2026-07-19T07:30:09Z",
-    tracking: { issueNumber: 340, url: "https://github.com/bitwise-media-group/gh-claude/issues/340", state: "open" },
+    tracking: { issueNumber: 340, url: "https://github.com/acme/ci-helpers/issues/340", state: "open" },
     owners: ["dev-tooling"],
     priority: "critical",
     investigation: {
@@ -300,12 +300,12 @@ const findings: Finding[] = [
   {
     name: "gh-cs-dke-podcast-7d01b3",
     createdAt: "2026-07-15T11:47:56Z",
-    integration: "github-bitwise",
+    integration: "github-acme",
     source: "github-code-scanning",
     repository: {
       type: "github",
-      url: "https://github.com/bitwise-media-group/dke-podcast",
-      name: "bitwise-media-group/dke-podcast",
+      url: "https://github.com/acme/podcast-feed",
+      name: "acme/podcast-feed",
       defaultBranch: "main",
     },
     advisories: ["CVE-2026-30518", "CWE-611"],
@@ -318,7 +318,7 @@ const findings: Finding[] = [
     alerts: [
       {
         id: "alerts/71",
-        url: "https://github.com/bitwise-media-group/dke-podcast/security/code-scanning/71",
+        url: "https://github.com/acme/podcast-feed/security/code-scanning/71",
         locations: [
           {
             path: "src/feeds/import.ts",
@@ -330,12 +330,12 @@ const findings: Finding[] = [
       },
       {
         id: "alerts/72",
-        url: "https://github.com/bitwise-media-group/dke-podcast/security/code-scanning/72",
+        url: "https://github.com/acme/podcast-feed/security/code-scanning/72",
         locations: [{ path: "src/feeds/refresh.ts", startLine: 58, snippet: "return importFeed(await res.text());" }],
       },
       {
         id: "alerts/74",
-        url: "https://github.com/bitwise-media-group/dke-podcast/security/code-scanning/74",
+        url: "https://github.com/acme/podcast-feed/security/code-scanning/74",
         locations: [{ path: "src/feeds/preview.ts", startLine: 21 }],
       },
     ],
@@ -350,7 +350,7 @@ const findings: Finding[] = [
       { phase: "InReview", at: "2026-07-15T13:58:27Z" },
     ],
     firstObservedAt: "2026-07-15T11:47:56Z",
-    tracking: { issueNumber: 205, url: "https://github.com/bitwise-media-group/dke-podcast/issues/205", state: "open" },
+    tracking: { issueNumber: 205, url: "https://github.com/acme/podcast-feed/issues/205", state: "open" },
     owners: ["podcast-platform", "web-platform"],
     enrichments: [
       {
@@ -430,7 +430,7 @@ const findings: Finding[] = [
     },
     pullRequest: {
       number: 482,
-      url: "https://github.com/bitwise-media-group/dke-podcast/pull/482",
+      url: "https://github.com/acme/podcast-feed/pull/482",
       state: "open",
     },
     attempts: { investigation: 1, remediation: 1 },
@@ -443,14 +443,14 @@ const findings: Finding[] = [
     },
   },
   {
-    name: "gh-cs-bitwise-site-2a90cf",
+    name: "gh-cs-web-2a90cf",
     createdAt: "2026-07-08T05:23:41Z",
-    integration: "github-bitwise",
+    integration: "github-acme",
     source: "github-code-scanning",
     repository: {
       type: "github",
-      url: "https://github.com/bitwise-media-group/bitwise-site",
-      name: "bitwise-media-group/bitwise-site",
+      url: "https://github.com/acme/web",
+      name: "acme/web",
       defaultBranch: "main",
     },
     advisories: ["CVE-2025-55190", "CWE-326"],
@@ -458,7 +458,7 @@ const findings: Finding[] = [
     title: "Outdated TLS defaults in mail relay client",
     description: "The SMTP client pins TLS 1.1 and a legacy cipher list; modern relays negotiate down accordingly.",
     severity: "low",
-    alerts: [{ id: "alerts/176", url: "https://github.com/bitwise-media-group/bitwise-site/security/code-scanning/176" }],
+    alerts: [{ id: "alerts/176", url: "https://github.com/acme/web/security/code-scanning/176" }],
     phase: "Remediated",
     phaseTimes: [
       { phase: "Opened", at: "2026-07-08T05:23:41Z" },
@@ -470,11 +470,11 @@ const findings: Finding[] = [
       { phase: "Remediated", at: "2026-07-09T10:02:17Z" },
     ],
     firstObservedAt: "2026-07-08T05:23:41Z",
-    tracking: { issueNumber: 226, url: "https://github.com/bitwise-media-group/bitwise-site/issues/226", state: "closed" },
+    tracking: { issueNumber: 226, url: "https://github.com/acme/web/issues/226", state: "closed" },
     owners: ["web-platform"],
     priority: "low",
     investigation: {
-      name: "gh-cs-bitwise-site-2a90cf-inv-1",
+      name: "gh-cs-web-2a90cf-inv-1",
       attempt: 1,
       outcome: "ok",
       recommendation: "remediate",
@@ -485,7 +485,7 @@ const findings: Finding[] = [
       completedAt: "2026-07-08T06:48:20Z",
     },
     remediation: {
-      name: "gh-cs-bitwise-site-2a90cf-rem-1",
+      name: "gh-cs-web-2a90cf-rem-1",
       attempt: 1,
       outcome: "ok",
       success: true,
@@ -494,7 +494,7 @@ const findings: Finding[] = [
     },
     pullRequest: {
       number: 611,
-      url: "https://github.com/bitwise-media-group/bitwise-site/pull/611",
+      url: "https://github.com/acme/web/pull/611",
       state: "merged",
       mergedAt: "2026-07-09T10:02:17Z",
     },
@@ -504,12 +504,12 @@ const findings: Finding[] = [
   {
     name: "gh-cs-evolve-b8e3d6",
     createdAt: "2026-07-12T19:39:05Z",
-    integration: "github-bitwise",
+    integration: "github-acme",
     source: "github-code-scanning",
     repository: {
       type: "github",
-      url: "https://github.com/bitwise-media-group/evolve",
-      name: "bitwise-media-group/evolve",
+      url: "https://github.com/acme/checkout-api",
+      name: "acme/checkout-api",
       defaultBranch: "main",
     },
     advisories: ["GHSA-8c4j-34r2-xp9v", "CWE-798"],
@@ -519,7 +519,7 @@ const findings: Finding[] = [
       "A test fixture embeds a real-looking API token. Rotating the token and moving fixtures to " +
       "generated values requires coordinated changes across three packages.",
     severity: "medium",
-    alerts: [{ id: "alerts/288", url: "https://github.com/bitwise-media-group/evolve/security/code-scanning/288" }],
+    alerts: [{ id: "alerts/288", url: "https://github.com/acme/checkout-api/security/code-scanning/288" }],
     phase: "Failed",
     phaseTimes: [
       { phase: "Opened", at: "2026-07-12T19:39:05Z" },
@@ -530,7 +530,7 @@ const findings: Finding[] = [
       { phase: "Failed", at: "2026-07-13T02:47:52Z" },
     ],
     firstObservedAt: "2026-07-12T19:39:05Z",
-    tracking: { issueNumber: 489, url: "https://github.com/bitwise-media-group/evolve/issues/489", state: "open" },
+    tracking: { issueNumber: 489, url: "https://github.com/acme/checkout-api/issues/489", state: "open" },
     owners: ["evolve-maintainers"],
     priority: "medium",
     investigation: {
@@ -558,12 +558,12 @@ const findings: Finding[] = [
   {
     name: "dbot-design-system-1cd208",
     createdAt: "2026-07-10T03:14:27Z",
-    integration: "github-bitwise",
+    integration: "github-acme",
     source: "dependabot",
     repository: {
       type: "github",
-      url: "https://github.com/bitwise-media-group/design-system",
-      name: "bitwise-media-group/design-system",
+      url: "https://github.com/acme/design-system",
+      name: "acme/design-system",
       defaultBranch: "main",
     },
     advisories: ["CVE-2026-4437", "CWE-1104"],
@@ -573,7 +573,7 @@ const findings: Finding[] = [
       "A deep transitive dependency ships a vulnerable code path that is never imported by this " +
       "package's entry points. No reachable path from first-party code.",
     severity: "low",
-    alerts: [{ id: "alerts/59", url: "https://github.com/bitwise-media-group/design-system/security/dependabot/59" }],
+    alerts: [{ id: "alerts/59", url: "https://github.com/acme/design-system/security/dependabot/59" }],
     phase: "Dismissed",
     phaseTimes: [
       { phase: "Opened", at: "2026-07-10T03:14:27Z" },
@@ -582,7 +582,7 @@ const findings: Finding[] = [
       { phase: "Dismissed", at: "2026-07-10T04:44:08Z" },
     ],
     firstObservedAt: "2026-07-10T03:14:27Z",
-    tracking: { issueNumber: 84, url: "https://github.com/bitwise-media-group/design-system/issues/84", state: "closed" },
+    tracking: { issueNumber: 84, url: "https://github.com/acme/design-system/issues/84", state: "closed" },
     owners: ["design-platform"],
     priority: "low",
     investigation: {
@@ -622,7 +622,7 @@ const findings: Finding[] = [
       { phase: "HandedOff", at: "2026-07-14T04:20:44Z" },
     ],
     firstObservedAt: "2026-07-14T02:52:18Z",
-    tracking: { issueNumber: 31, url: "https://github.com/bitwise-media-group/infrastructure/issues/31", state: "open" },
+    tracking: { issueNumber: 31, url: "https://github.com/acme/infra/issues/31", state: "open" },
     owners: ["platform-ops"],
     enrichments: [
       {
@@ -712,7 +712,7 @@ const rollups: Rollup[] = [
     },
   },
   {
-    scope: { type: "repository", key: "bitwise-media-group/bitwise-site" },
+    scope: { type: "repository", key: "acme/web" },
     firstProcessed: "2025-05-03T00:00:00Z",
     lastProcessed: "2026-07-21T08:45:00Z",
     bucket: {
@@ -727,7 +727,7 @@ const rollups: Rollup[] = [
     },
   },
   {
-    scope: { type: "repository", key: "bitwise-media-group/evolve" },
+    scope: { type: "repository", key: "acme/checkout-api" },
     firstProcessed: "2025-05-10T00:00:00Z",
     lastProcessed: "2026-07-21T08:45:00Z",
     bucket: {
@@ -742,7 +742,7 @@ const rollups: Rollup[] = [
     },
   },
   {
-    scope: { type: "repository", key: "bitwise-media-group/dke-podcast" },
+    scope: { type: "repository", key: "acme/podcast-feed" },
     firstProcessed: "2025-06-01T00:00:00Z",
     lastProcessed: "2026-07-21T08:45:00Z",
     bucket: {
@@ -757,7 +757,7 @@ const rollups: Rollup[] = [
     },
   },
   {
-    scope: { type: "repository", key: "bitwise-media-group/dotty" },
+    scope: { type: "repository", key: "acme/cli-tools" },
     firstProcessed: "2025-06-14T00:00:00Z",
     lastProcessed: "2026-07-21T08:45:00Z",
     bucket: {
@@ -772,7 +772,7 @@ const rollups: Rollup[] = [
     },
   },
   {
-    scope: { type: "repository", key: "bitwise-media-group/design-system" },
+    scope: { type: "repository", key: "acme/design-system" },
     firstProcessed: "2025-07-20T00:00:00Z",
     lastProcessed: "2026-07-21T08:45:00Z",
     bucket: {
@@ -787,7 +787,7 @@ const rollups: Rollup[] = [
     },
   },
   {
-    scope: { type: "repository", key: "bitwise-media-group/gh-claude" },
+    scope: { type: "repository", key: "acme/ci-helpers" },
     firstProcessed: "2025-08-02T00:00:00Z",
     lastProcessed: "2026-07-21T08:45:00Z",
     bucket: {

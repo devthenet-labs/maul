@@ -102,54 +102,10 @@
 }
 
 @layer components {
-  /* ---- patch mark: turf sliding over a soil hole ---- */
-  .patch-mark {
-    position: relative;
+  /* ---- maul mark ---- */
+  .maul-mark {
     display: inline-block;
     flex: 0 0 auto;
-    border-radius: 8px;
-    background: var(--maul-surface-2);
-    border: 1px solid var(--maul-line-2);
-    overflow: hidden;
-  }
-  .patch-mark__hole {
-    position: absolute;
-    width: 48%;
-    height: 30%;
-    left: 18%;
-    bottom: 17%;
-    border-radius: 50%;
-    background: var(--maul-soil);
-    box-shadow: inset 0 3px 0 color-mix(in oklab, var(--maul-code) 35%, transparent);
-  }
-  .patch-mark__turf {
-    position: absolute;
-    width: 49%;
-    height: 29%;
-    right: 12%;
-    bottom: 27%;
-    border-radius: 3px;
-    background: var(--maul-green);
-    border: 1px solid color-mix(in oklab, var(--maul-green) 70%, var(--maul-fg));
-    transform: rotate(-7deg);
-  }
-  .patch-mark__blade {
-    position: absolute;
-    width: 2px;
-    height: 22%;
-    border-radius: 2px;
-    background: var(--maul-green-2);
-    transform-origin: bottom;
-  }
-  .patch-mark__blade--one {
-    right: 32%;
-    bottom: 54%;
-    transform: rotate(-15deg);
-  }
-  .patch-mark__blade--two {
-    right: 23%;
-    bottom: 52%;
-    transform: rotate(15deg);
   }
 
   /* ---- pills: tone grammar via color-mix tints ---- */

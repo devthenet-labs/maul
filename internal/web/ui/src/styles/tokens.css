@@ -6,8 +6,9 @@
  * palette changes. Vendored so the single-file build is self-contained and
  * the project lifts into the source-controller without cross-repo paths.
  *
- * Palette metaphor: healthy turf green is progress, warm soil marks the
- * original finding, pale seedling green marks a completed repair, and
+ * Palette metaphor, steel and timber: neutral steel grounds; green is the
+ * cutting edge and healthy progress, pale seedling green a completed change,
+ * ash wood ("soil", a legacy token name) marks the original input, and
  * amber/red are reserved for human attention and failure.
  */
 
@@ -47,14 +48,14 @@
   --radius-card: 12px;
 }
 
-/* Dark (default) — damp soil at night, with bright new turf. */
+/* Dark (default) — forge-dark steel, with a bright green cutting edge. */
 .theme-maul {
   --maul-green: #78d64b;
   --maul-green-2: #9be66a;
   --maul-moss: #46a653;
   --maul-seedling: #c7f28a;
   --maul-ink-green: #8de05d;
-  --maul-soil: #a47a55;
+  --maul-soil: #d2a370;
   --maul-amber: #e7b75f;
   --maul-red: #ef716a;
   --maul-on-accent: #10200d;
@@ -66,29 +67,29 @@
   --maul-sev-high: #fb8b1e;
   --maul-sev-critical: #ff4d7e;
 
-  --maul-bg: #0c140e;
-  --maul-surface: #121d15;
-  --maul-surface-2: #17251a;
-  --maul-code: #071009;
-  --maul-code-2: #0e1811;
-  --maul-line: #26372a;
-  --maul-line-2: #354a39;
-  --maul-fg: #edf7ee;
-  --maul-muted: #98ab9b;
-  --maul-faint: #697c6d;
-  --maul-shadow: 0 20px 52px rgba(2, 8, 4, 0.44);
-  --maul-shadow-strong: 0 30px 80px rgba(2, 8, 4, 0.62);
+  --maul-bg: #0f1312;
+  --maul-surface: #151a19;
+  --maul-surface-2: #1b2120;
+  --maul-code: #0a0d0c;
+  --maul-code-2: #121716;
+  --maul-line: #27302d;
+  --maul-line-2: #36413e;
+  --maul-fg: #eef3f1;
+  --maul-muted: #9aa6a2;
+  --maul-faint: #6c7774;
+  --maul-shadow: 0 20px 52px rgba(3, 6, 5, 0.44);
+  --maul-shadow-strong: 0 30px 80px rgba(3, 6, 5, 0.62);
   --shadow-glow: 0 6px 20px rgba(120, 214, 75, 0.28);
 }
 
-/* Light — garden paper, white panels, and a deep accessible turf green. */
+/* Light — workshop paper, white panels, and a deep accessible green. */
 .theme-maul-light {
   --maul-green: #2f7d36;
   --maul-green-2: #25672c;
   --maul-moss: #367a3c;
   --maul-seedling: #3c7630;
   --maul-ink-green: #286f30;
-  --maul-soil: #77583e;
+  --maul-soil: #8a6136;
   --maul-amber: #9a6700;
   --maul-red: #c53b36;
   --maul-on-accent: #ffffff;
@@ -98,17 +99,17 @@
   --maul-sev-high: #b04a00;
   --maul-sev-critical: #9f1239;
 
-  --maul-bg: #f3f7ef;
+  --maul-bg: #f5f6f3;
   --maul-surface: #ffffff;
-  --maul-surface-2: #eaf2e5;
-  --maul-code: #e1ebdd;
-  --maul-code-2: #eaf1e6;
-  --maul-line: #cad8c4;
-  --maul-line-2: #afc2b0;
-  --maul-fg: #172219;
-  --maul-muted: #566859;
-  --maul-faint: #708073;
-  --maul-shadow: 0 20px 52px rgba(38, 72, 42, 0.12);
-  --maul-shadow-strong: 0 30px 80px rgba(38, 72, 42, 0.18);
+  --maul-surface-2: #eceeea;
+  --maul-code: #e6e9e4;
+  --maul-code-2: #eef0ec;
+  --maul-line: #d3d8d2;
+  --maul-line-2: #b4bcb5;
+  --maul-fg: #161b19;
+  --maul-muted: #56605b;
+  --maul-faint: #737d78;
+  --maul-shadow: 0 20px 52px rgba(30, 38, 35, 0.12);
+  --maul-shadow-strong: 0 30px 80px rgba(30, 38, 35, 0.18);
   --shadow-glow: 0 6px 20px rgba(47, 125, 54, 0.24);
 }

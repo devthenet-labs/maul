@@ -1,9 +1,9 @@
 # Enable intents (optional)
 
-The security pipeline is complete once [the pipeline is verified](verify.md). Intent-driven development is an optional
-second use of the same installation: a human opens an issue in an intent repository, maul plans the change and posts the
-plan, an approver approves it, and maul builds exactly that plan in the application's own toolchain image and opens the
-pull request. With previews on, each such pull request is also deployed to a URL of its own until it merges.
+Intents are maul's issue-to-pull-request flow, on the same installation you [verified](verify.md): a human opens an
+issue in an intent repository, maul plans the change and posts the plan, an approver approves it, and maul builds
+exactly that plan in the application's own toolchain image and opens the pull request. With previews on, each such pull
+request is also deployed to a URL of its own until it merges.
 
 It adds, beside what you have already installed:
 

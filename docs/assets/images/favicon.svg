@@ -1,11 +1,12 @@
 <!-- Copyright 2026 Bitwise Media Group Ltd. -->
 <!-- SPDX-License-Identifier: MIT -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect x="2" y="2" width="60" height="60" rx="15" fill="#eaf2e5" stroke="#afc2b0" stroke-width="2" />
-  <ellipse cx="27" cy="44" rx="15" ry="7" fill="#77583e" />
-  <path d="M13 42c4-6 23-7 29 0" fill="none" stroke="#e1ebdd" stroke-width="3" opacity="0.45" />
-  <path d="M45 35 42 19M49 34l6-14" fill="none" stroke="#25672c" stroke-width="4" stroke-linecap="round" />
-  <g transform="rotate(-7 43 39)">
-    <rect x="29" y="31" width="27" height="15" rx="3" fill="#2f7d36" stroke="#172219" stroke-width="2" />
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <rect x="5" y="5" width="118" height="118" rx="26" fill="#151a19"/>
+  <g transform="translate(67 63) rotate(-34) scale(0.74) translate(-62 -66)">
+    <rect x="58" y="44" width="12" height="86" rx="5.5" fill="#c99a68"/>
+    <path d="M42 26 L24 16 Q15 39 24 62 L42 52 Z" fill="#c3ccc8"/>
+    <rect x="40" y="25" width="50" height="28" rx="4" fill="#c3ccc8"/>
+    <rect x="88" y="27" width="10" height="24" rx="2.5" fill="#7f8b87"/>
+    <path d="M24 16 Q15 39 24 62" fill="none" stroke="#86e05a" stroke-width="6" stroke-linecap="round"/>
   </g>
 </svg>

@@ -1,11 +1,15 @@
 # Getting started
 
-**Maul** turns GitHub Advanced Security findings into reviewed pull requests. CodeQL alerts arrive via webhook and
-accumulate into `Finding` custom resources for an hour — each projected to a GitHub tracking issue — ownership context
-is added, and a sandboxed coding agent investigates each finding: false positives are dismissed, human-only work is
-handed to the repository owner, and high-confidence remediations are queued in priority order, attempted automatically,
-and opened as pull requests for human review. The CRs carry all of the state; the Kubernetes API is the only state
-store.
+**Maul** runs sandboxed AI coding agents on your own Kubernetes cluster and turns their work into reviewed pull
+requests. It has two flows on one engine. **Findings**: security alerts (CodeQL first) arrive via webhook and accumulate
+into `Finding` custom resources, each projected to a GitHub tracking issue; an agent investigates each one, dismisses
+false positives, hands human-only work to the repository owner, and opens confident fixes as pull requests. **Intents**:
+someone opens an issue, an agent plans the change, an approver approves the plan, and an agent builds it and opens the
+pull request, with a live preview. Agents hold no credentials, and a human merges every pull request. The custom
+resources carry all of the state; the Kubernetes API is the only state store.
+
+The steps below install maul and verify it with one finding, because a CodeQL alert is the quickest end-to-end check.
+Intents build on the same installation as step 4.
 
 Deploying the stack takes three steps, each with its own page, and an optional fourth:
 
