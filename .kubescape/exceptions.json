@@ -1,5 +1,17 @@
 [
     {
+        "name": "images-are-keyless-cosign-signed-at-release",
+        "policyType": "postureExceptionPolicy",
+        "actions": ["disable"],
+        "resources": [
+            {
+                "designatorType": "Attributes",
+                "attributes": { "kind": "Deployment" }
+            }
+        ],
+        "posturePolicies": [{ "controlID": "C-0236" }]
+    },
+    {
         "name": "controllers-c0211-selinux-options-are-host-specific",
         "policyType": "postureExceptionPolicy",
         "actions": ["disable"],
