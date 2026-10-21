@@ -29,7 +29,7 @@ func TestCollaboratorPermission(t *testing.T) {
 			payload: `{"permission":"write","role_name":"maintain"}`, want: PermissionWrite},
 		{name: "any account on a public repo", login: "octocat", status: http.StatusOK,
 			payload: `{"permission":"read","role_name":"read"}`, want: PermissionRead},
-		{name: "the App's bot", login: "patchy-devthenet[bot]", status: http.StatusOK,
+		{name: "the App's bot", login: "maul-devthenet[bot]", status: http.StatusOK,
 			payload: `{"permission":"none"}`, want: PermissionNone},
 		{name: "nonexistent login", login: "no-such-user-4a1f", status: http.StatusNotFound,
 			payload: `{"message":"Not Found"}`, wantErr: true, wantNoUser: true},

@@ -427,12 +427,12 @@ func TestNPMSizeCaps(t *testing.T) {
 // TestCodeArtifactNPM: a CodeArtifact npm registry is sent its minted
 // token as a bearer, and the audit names the credential's kind only.
 func TestCodeArtifactNPM(t *testing.T) {
-	const host = "patchy-gate-377946145366.d.codeartifact.us-east-1.amazonaws.com"
+	const host = "maul-gate-377946145366.d.codeartifact.us-east-1.amazonaws.com"
 	w := newWorld(t)
 	up := w.host(host, okBody("{}"))
 	r := netprofile.Registry{Name: "ca-npm", Ecosystem: netprofile.EcosystemNPM,
 		URL: "https://" + host + "/npm/npm-store/", Auth: netprofile.Auth{Type: netprofile.AuthCodeArtifact,
-			CodeArtifact: &netprofile.CodeArtifact{Domain: "patchy-gate", DomainOwner: "377946145366",
+			CodeArtifact: &netprofile.CodeArtifact{Domain: "maul-gate", DomainOwner: "377946145366",
 				Region: "us-east-1"}}}
 	creds := newFakeCreds()
 	c, err := CodeArtifactCredential(netprofile.EcosystemNPM, sentinel, time.Now().Add(time.Hour))

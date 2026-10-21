@@ -121,7 +121,7 @@ type liveTunnelRun struct {
 func newLiveTunnelRun(t *testing.T, hosts, presets []string, broker string, natural bool) *liveTunnelRun {
 	t.Helper()
 	profile := map[string]any{"name": "live", "route": netprofile.RouteTunnel, "port": 8092,
-		"repositories": []string{"devthenet-labs/patchy-target"}, "modules": []string{},
+		"repositories": []string{"devthenet-labs/maul-target"}, "modules": []string{},
 		"hosts": hosts, "clients": presets}
 	raw, err := json.Marshal([]any{profile})
 	if err != nil {

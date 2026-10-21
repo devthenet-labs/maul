@@ -21,7 +21,7 @@ func TestAppSlug(t *testing.T) {
 		if auth := r.Header.Get("Authorization"); !strings.HasPrefix(auth, "Bearer ") {
 			t.Errorf("GET /app Authorization = %q, want the app JWT bearer", auth)
 		}
-		writeJSON(t, w, `{"id":7,"slug":"patchy-devthenet","name":"maul devthenet"}`)
+		writeJSON(t, w, `{"id":7,"slug":"maul-devthenet","name":"maul devthenet"}`)
 	})
 
 	ctx := context.Background()
@@ -30,16 +30,16 @@ func TestAppSlug(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Slug() error = %v", err)
 		}
-		if slug != "patchy-devthenet" {
-			t.Errorf("Slug() = %q, want patchy-devthenet", slug)
+		if slug != "maul-devthenet" {
+			t.Errorf("Slug() = %q, want maul-devthenet", slug)
 		}
 	}
 	login, err := app.BotLogin(ctx)
 	if err != nil {
 		t.Fatalf("BotLogin() error = %v", err)
 	}
-	if login != "patchy-devthenet[bot]" {
-		t.Errorf("BotLogin() = %q, want patchy-devthenet[bot]", login)
+	if login != "maul-devthenet[bot]" {
+		t.Errorf("BotLogin() = %q, want maul-devthenet[bot]", login)
 	}
 	if got := gets.Load(); got != 1 {
 		t.Errorf("GET /app hit %d times, want 1 (cached)", got)

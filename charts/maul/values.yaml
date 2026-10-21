@@ -1733,10 +1733,10 @@ egressProxy:
     #           targetPort: 0              # in-cluster: the pods' container port when it differs from the URL port
     #   ca-npm:
     #       ecosystem: npm
-    #       url: https://patchy-gate-377946145366.d.codeartifact.us-east-1.amazonaws.com/npm/npm-store/
+    #       url: https://maul-gate-377946145366.d.codeartifact.us-east-1.amazonaws.com/npm/npm-store/
     #       auth:
     #           type: codeartifact         # minted by the proxy with its own AWS identity (cloudCredentials)
-    #           codeartifact: {domain: patchy-gate, domainOwner: "377946145366", region: us-east-1, durationSeconds: 43200}
+    #           codeartifact: {domain: maul-gate, domainOwner: "377946145366", region: us-east-1, durationSeconds: 43200}
     # The proxy's own cloud identity, for codeartifact registries:
     #   none         no AWS identity (a codeartifact registry fails the render);
     #   irsa         IAM Roles for Service Accounts: put the role on
@@ -2153,7 +2153,7 @@ agent:
     #       port: 8090                    # 1024-65535, unique, not 8081; changing it breaks running Jobs
     #       host: github.com              # forge host the repositories live on (default github.com)
     #       repositories:                 # RE2, matched ANCHORED against the lowercased owner/name
-    #           - devthenet-labs/patchy-preview-demo
+    #           - devthenet-labs/maul-preview-demo
     #       modules:                      # module-path prefixes, matched on path-element boundaries
     #           - github.com/google/uuid
     #           - golang.org/x/
@@ -2161,7 +2161,7 @@ agent:
     #       allowPseudoVersions: false    # true admits v0.0.0-<time>-<commit> versions of allowed modules
     #   web:
     #       port: 8091
-    #       repositories: [devthenet-labs/patchy-polyglot-demo]
+    #       repositories: [devthenet-labs/maul-polyglot-demo]
     #       registries:                   # grants: registry name -> policy; at most one per ecosystem
     #           ca-npm:
     #               packagePolicy: registry   # OR packages: ["left-pad", "@acme/*"]
@@ -2176,7 +2176,7 @@ agent:
     #   py:
     #       route: tunnel                 # a CONNECT tunnel to hosts only (route go may list hosts too)
     #       port: 8092
-    #       repositories: [devthenet-labs/patchy-pip-fixture]
+    #       repositories: [devthenet-labs/maul-pip-fixture]
     #       hosts:                        # EXACT host names: no wildcard, no IP, https (443) only
     #           - pypi.org
     #           - files.pythonhosted.org

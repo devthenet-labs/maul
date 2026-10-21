@@ -37,7 +37,7 @@ spec:
     maxRevisions: 3
   repositories:
     - name: target
-      url: https://github.com/devthenet-labs/patchy-target
+      url: https://github.com/devthenet-labs/maul-target
   requireRepositoryImage: true
 status:
   conditions:

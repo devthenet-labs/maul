@@ -32,7 +32,7 @@ import (
 
 var (
 	intents = ghclient.Repo{Owner: "devthenet-labs", Name: "intents"}
-	target  = ghclient.Repo{Owner: "devthenet-labs", Name: "patchy-target"}
+	target  = ghclient.Repo{Owner: "devthenet-labs", Name: "maul-target"}
 	human   = fakegithub.Actor{Login: "peter", ID: 42, Type: "User"}
 )
 
@@ -900,7 +900,7 @@ func TestPullRequestIdentity(t *testing.T) {
 	}
 	snap, ok := srv.Pull(pr.Number)
 	want := fakegithub.PullRequest{
-		Number: pr.Number, Repository: "devthenet-labs/patchy-target", NodeID: wantNode, Title: "target: v",
+		Number: pr.Number, Repository: "devthenet-labs/maul-target", NodeID: wantNode, Title: "target: v",
 		Body: "Part of x", Head: branch, HeadSHA: sha, Base: "main", State: "open",
 	}
 	if !ok || snap != want {
@@ -1005,7 +1005,7 @@ func TestRepoFilesInTarball(t *testing.T) {
 			out[hdr.Name] = string(body)
 		}
 	}
-	top := "devthenet-labs-patchy-target-" + fakegithub.HeadSHA[:7] + "/"
+	top := "devthenet-labs-maul-target-" + fakegithub.HeadSHA[:7] + "/"
 	if got := files(target)[top+".maul/agent.yaml"]; got != "image: registry.example/app:v1\n" {
 		t.Errorf("tarball agent.yaml = %q, want the added file", got)
 	}

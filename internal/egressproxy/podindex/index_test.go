@@ -41,7 +41,7 @@ func agentPod(name, ip string, phase corev1.PodPhase, age time.Duration) *corev1
 				"batch.kubernetes.io/job-name": "job-" + name,
 			},
 			Annotations: map[string]string{
-				v1alpha1.AnnotationRepo:                     "devthenet-labs/patchy-target",
+				v1alpha1.AnnotationRepo:                     "devthenet-labs/maul-target",
 				"maul.run/runner-image":                     "registry.example/app@sha256:abc",
 				"kubectl.kubernetes.io/last-applied-config": "{}",
 			},
@@ -84,7 +84,7 @@ func TestLookupAttributesAnAgentPod(t *testing.T) {
 	x := started(t, fake.NewClientset(agentPod("a", "10.1.0.5", corev1.PodRunning, time.Minute)))
 	got, ok := x.Lookup("10.1.0.5")
 	want := egressproxy.PodInfo{Name: "a", Finding: "f-a", Owner: "devthenet-labs", RunKind: "remediation",
-		Attempt: "1", Harness: "claude", Repo: "devthenet-labs/patchy-target"}
+		Attempt: "1", Harness: "claude", Repo: "devthenet-labs/maul-target"}
 	if !ok || got != want {
 		t.Errorf("Lookup = %+v, %v; want %+v", got, ok, want)
 	}

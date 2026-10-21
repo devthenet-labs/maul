@@ -19,20 +19,20 @@ import (
 	"github.com/devthenet-labs/maul/internal/netprofile"
 )
 
-// profilesJSON is two profiles: go for patchy-target and patchy-preview-demo,
-// and wide for every devthenet-labs repository named patchy-preview-*, so
-// patchy-preview-demo matches both.
+// profilesJSON is two profiles: go for maul-target and maul-preview-demo,
+// and wide for every devthenet-labs repository named maul-preview-*, so
+// maul-preview-demo matches both.
 const profilesJSON = `[
- {"name":"go","route":"go","port":8090,"repositories":["devthenet-labs/patchy-target",
-  "devthenet-labs/patchy-preview-demo"],"modules":["github.com/google/uuid"],"bakedModCache":"/opt/go/pkg/mod"},
- {"name":"wide","route":"go","port":8091,"repositories":["devthenet-labs/patchy-preview-.*"],
+ {"name":"go","route":"go","port":8090,"repositories":["devthenet-labs/maul-target",
+  "devthenet-labs/maul-preview-demo"],"modules":["github.com/google/uuid"],"bakedModCache":"/opt/go/pkg/mod"},
+ {"name":"wide","route":"go","port":8091,"repositories":["devthenet-labs/maul-preview-.*"],
   "modules":["golang.org/x"],"bakedModCache":""}]`
 
 const (
-	targetURL    = "https://github.com/devthenet-labs/patchy-target"
-	ambiguousURL = "https://github.com/devthenet-labs/patchy-preview-demo"
+	targetURL    = "https://github.com/devthenet-labs/maul-target"
+	ambiguousURL = "https://github.com/devthenet-labs/maul-preview-demo"
 	unmatchedURL = "https://github.com/devthenet-labs/maul"
-	wrongHostURL = "https://gitlab.com/devthenet-labs/patchy-target"
+	wrongHostURL = "https://gitlab.com/devthenet-labs/maul-target"
 )
 
 func testProfiles(t testing.TB) netprofile.Set {
@@ -47,10 +47,10 @@ func testProfiles(t testing.TB) netprofile.Set {
 // tunnelProfilesJSON is profilesJSON with a tunnel beside go's Go route:
 // the npm registry, with the npm client preset (step 3).
 const tunnelProfilesJSON = `[
- {"name":"go","route":"go","port":8090,"repositories":["devthenet-labs/patchy-target",
-  "devthenet-labs/patchy-preview-demo"],"modules":["github.com/google/uuid"],"bakedModCache":"/opt/go/pkg/mod",
+ {"name":"go","route":"go","port":8090,"repositories":["devthenet-labs/maul-target",
+  "devthenet-labs/maul-preview-demo"],"modules":["github.com/google/uuid"],"bakedModCache":"/opt/go/pkg/mod",
   "hosts":["registry.npmjs.org"],"clients":["npm"]},
- {"name":"wide","route":"go","port":8091,"repositories":["devthenet-labs/patchy-preview-.*"],
+ {"name":"wide","route":"go","port":8091,"repositories":["devthenet-labs/maul-preview-.*"],
   "modules":["golang.org/x"],"bakedModCache":""}]`
 
 func tunnelProfiles(t testing.TB) netprofile.Set {
@@ -90,7 +90,7 @@ func TestProfile(t *testing.T) {
 		wantSkip    string
 	}{
 		{"one match", on, remediateSpec(pinned), targetURL, "go", ""},
-		{"case and .git", on, remediateSpec(pinned), "https://GitHub.com/DevTheNet-Labs/Patchy-Target.git", "go", ""},
+		{"case and .git", on, remediateSpec(pinned), "https://GitHub.com/DevTheNet-Labs/Maul-Target.git", "go", ""},
 		{"build of kind intent", on, jobs.Spec{Phase: "build", Kind: "intent", RunnerImage: pinned}, targetURL, "go", ""},
 		{"no image", on, remediateSpec(""), targetURL, "", ""},
 		{"investigate", on, jobs.Spec{Phase: "investigate", Kind: "investigation", RunnerImage: pinned}, targetURL,
@@ -165,8 +165,8 @@ func TestPropertyProfileOnlyWhereAllowed(t *testing.T) {
 		match bool
 	}{
 		{targetURL, true},
-		{"https://github.com/devthenet-labs/patchy-target.git", true},
-		{"https://GITHUB.com/DevTheNet-Labs/patchy-target", true},
+		{"https://github.com/devthenet-labs/maul-target.git", true},
+		{"https://GITHUB.com/DevTheNet-Labs/maul-target", true},
 		{unmatchedURL, false},
 		{ambiguousURL, false},
 		{wrongHostURL, false},

@@ -2618,7 +2618,7 @@ expect egress-on 'select(.kind == "Service" and .metadata.name == "maul-egress-p
 render egress-one-replica -f "$ri" -f "$ep" --set egressProxy.replicas=1
 expect egress-one-replica 'select(.kind == "PodDisruptionBudget") | .metadata.name | select(. == "maul-egress-proxy")' ""
 # The proxy's own ConfigMap, from its own dict.
-profiles='[{"allowPseudoVersions":false,"bakedModCache":"/opt/go/pkg/mod","host":"github.com","modules":["github.com/google/uuid","golang.org/x"],"name":"go","port":8090,"repositories":["devthenet-labs/patchy-preview-demo","devthenet-labs/patchy-target"],"route":"go"},{"allowPseudoVersions":true,"bakedModCache":"","host":"github.example.com","modules":["example.com/lib"],"name":"npm","port":8091,"repositories":["acme/.*"],"route":"go"}]'
+profiles='[{"allowPseudoVersions":false,"bakedModCache":"/opt/go/pkg/mod","host":"github.com","modules":["github.com/google/uuid","golang.org/x"],"name":"go","port":8090,"repositories":["devthenet-labs/maul-preview-demo","devthenet-labs/maul-target"],"route":"go"},{"allowPseudoVersions":true,"bakedModCache":"","host":"github.example.com","modules":["example.com/lib"],"name":"npm","port":8091,"repositories":["acme/.*"],"route":"go"}]'
 cm egress-on egress-proxy MAUL_NETWORK_PROFILES "$profiles"
 cm egress-on egress-proxy MAUL_HEALTH_ADDR :8081
 cm egress-on egress-proxy MAUL_SUSPENDED false
@@ -2882,7 +2882,7 @@ expect egress-reg "$regjson | from_json | map(.name + \"=\" + .ecosystem + \"/\"
 expect egress-reg "$regjson | from_json | .[] | select(.name == \"art-go\") | (.privateModules | join(\",\")) + \" \" + (.publicChecksumLookups | tostring)" \
   "acme.example false"
 expect egress-reg "$regjson | from_json | .[] | select(.name == \"ca-npm\") | .auth.codeartifact | .domain + \" \" + .domainOwner + \" \" + .region + \" \" + (.durationSeconds | tostring)" \
-  "patchy-gate 377946145366 us-east-1 3600"
+  "maul-gate 377946145366 us-east-1 3600"
 expect egress-reg "$regjson | from_json | .[] | select(.name == \"nexus-pypi\") | (.ca | tostring) + \" \" + (.internal.cidrs | join(\",\")) + \" \" + (.internal.targetPort | tostring) + \" \" + .internal.podSelector.namespace" \
   "true 10.100.12.34/32 8081 tools"
 expect egress-reg "$regjson | from_json | .[] | select(.name == \"art-npm\") | .redirectHosts[0] + \" \" + .healthPackage" \

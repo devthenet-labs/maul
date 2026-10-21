@@ -44,7 +44,7 @@ func TestDeniedHostRefuses(t *testing.T) {
 func TestDeniedHostAdmits(t *testing.T) {
 	for _, h := range []string{
 		"acme.jfrog.io", "registry.npmjs.org", "files.pythonhosted.org", "pypi.org",
-		"patchy-gate-377946145366.d.codeartifact.us-east-1.amazonaws.com",
+		"maul-gate-377946145366.d.codeartifact.us-east-1.amazonaws.com",
 		"bucket.s3.us-east-1.amazonaws.com", "bedrock-runtime.s3.us-east-1.amazonaws.com",
 		"storage.googleapis.com", "notgithub.com", "githubx.com", "anthropic.com.evil.example",
 		"nexus.corp.internal", "kubernetes-dashboard.example.com",

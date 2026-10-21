@@ -24,8 +24,8 @@ agent:
             route: go
             port: 8090
             repositories:
-                - devthenet-labs/patchy-preview-demo
-                - devthenet-labs/patchy-target
+                - devthenet-labs/maul-preview-demo
+                - devthenet-labs/maul-target
             modules:
                 - github.com/google/uuid
                 - golang.org/x/

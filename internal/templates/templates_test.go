@@ -245,7 +245,7 @@ func TestGoldens(t *testing.T) {
 				CommitScriptPath:  "/workspace/commit.sh",
 				PreviousAttempt: &PreviousAttempt{
 					Attempt: 1, Outcome: "commit_failed",
-					Detail: "working tree not clean after commit.sh:\nM patchy-target",
+					Detail: "working tree not clean after commit.sh:\nM maul-target",
 				},
 			})
 		}},
@@ -379,7 +379,7 @@ func TestRemediatePromptStatesCleanTree(t *testing.T) {
 	for _, prev := range []*PreviousAttempt{
 		nil,
 		{Attempt: 1, Outcome: "timeout", Detail: "stage timed out"},
-		{Attempt: 1, Outcome: "commit_failed", Detail: "working tree not clean after commit.sh:\nM patchy-target"},
+		{Attempt: 1, Outcome: "commit_failed", Detail: "working tree not clean after commit.sh:\nM maul-target"},
 	} {
 		got, err := RenderRemediatePrompt(RemediatePrompt{
 			IssuePath:         "/workspace/input/issue.md",

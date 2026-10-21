@@ -22,11 +22,11 @@ func TestListIssueEvents(t *testing.T) {
 		"actor":{"login":"octocat","id":583231,"type":"User"},
 		"label":{"name":"maul:approved","color":"0e8a16"},"performed_via_github_app":null}]`
 	page2 := `[{"id":102,"node_id":"UNLE_kwDOB","event":"unlabeled","created_at":"2026-09-24T10:01:00Z",
-		"actor":{"login":"patchy-devthenet[bot]","id":332617407,"type":"Bot"},
+		"actor":{"login":"maul-devthenet[bot]","id":332617407,"type":"Bot"},
 		"label":{"name":"maul:approved"},"performed_via_github_app":null},
 		{"id":103,"node_id":"CE_kwDOC","event":"closed","created_at":"2026-09-24T10:02:00Z",
-		"actor":{"login":"patchy-devthenet[bot]","id":332617407,"type":"Bot"},
-		"performed_via_github_app":{"slug":"patchy-devthenet"}},
+		"actor":{"login":"maul-devthenet[bot]","id":332617407,"type":"Bot"},
+		"performed_via_github_app":{"slug":"maul-devthenet"}},
 		{"id":104,"node_id":"RE_kwDOD","event":"reopened","created_at":"2026-09-24T10:03:00Z","actor":null}]`
 	paged := pagedHandler(t, page1, page2)
 	mux.HandleFunc("GET /repos/o/r/issues/7/events", func(w http.ResponseWriter, r *http.Request) {
@@ -40,7 +40,7 @@ func TestListIssueEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListIssueEvents() error = %v", err)
 	}
-	bot := Actor{Login: "patchy-devthenet[bot]", ID: 332617407, Type: "Bot"}
+	bot := Actor{Login: "maul-devthenet[bot]", ID: 332617407, Type: "Bot"}
 	want := []*IssueEvent{
 		{
 			ID: 101, NodeID: "LE_kwDOA", Event: "labeled", Label: "maul:approved",
@@ -52,7 +52,7 @@ func TestListIssueEvents(t *testing.T) {
 			CreatedAt: time.Date(2026, 9, 24, 10, 1, 0, 0, time.UTC), Actor: bot,
 		},
 		{
-			ID: 103, NodeID: "CE_kwDOC", Event: "closed", ViaApp: "patchy-devthenet",
+			ID: 103, NodeID: "CE_kwDOC", Event: "closed", ViaApp: "maul-devthenet",
 			CreatedAt: time.Date(2026, 9, 24, 10, 2, 0, 0, time.UTC), Actor: bot,
 		},
 		{ID: 104, NodeID: "RE_kwDOD", Event: "reopened", CreatedAt: time.Date(2026, 9, 24, 10, 3, 0, 0, time.UTC)},
@@ -99,7 +99,7 @@ func TestActorIsBot(t *testing.T) {
 		actor Actor
 		want  bool
 	}{
-		{Actor{Login: "patchy-devthenet[bot]", ID: 332617407, Type: "Bot"}, true},
+		{Actor{Login: "maul-devthenet[bot]", ID: 332617407, Type: "Bot"}, true},
 		{Actor{Login: "octocat", ID: 583231, Type: "User"}, false},
 		// A human login dressed as a bot is still a user.
 		{Actor{Login: "mallory[bot]", Type: "User"}, false},

@@ -26,7 +26,7 @@ and a Job gets a profile only when all of these hold:
 - it runs the repository's **accepted** repository-declared image;
 - its repository matches exactly one profile's `host` and `repositories` patterns. The patterns are RE2 and matched
   **anchored** against the lowercased `owner/name`, so `devthenet-labs/maul` does not match
-  `devthenet-labs/patchy-target`. A repository that matches two profiles gets none.
+  `devthenet-labs/maul-target`. A repository that matches two profiles gets none.
 
 Investigate, plan and evaluation Jobs, and every Job on the default runner image, never get a profile. The Helm chart is
 the only way to deploy it; there is no kustomize component (see [Kustomize](../deployment/kustomize.md)).
@@ -220,10 +220,10 @@ egressProxy:
       auth: { type: bearer, secretName: maul-registry-art }
     ca-pypi:
       ecosystem: pypi
-      url: https://patchy-gate-377946145366.d.codeartifact.us-east-1.amazonaws.com/pypi/pypi-store/simple/
+      url: https://maul-gate-377946145366.d.codeartifact.us-east-1.amazonaws.com/pypi/pypi-store/simple/
       auth:
         type: codeartifact
-        codeartifact: { domain: patchy-gate, domainOwner: "377946145366", region: us-east-1 }
+        codeartifact: { domain: maul-gate, domainOwner: "377946145366", region: us-east-1 }
 agent:
   networkProfiles:
     web:

@@ -26,7 +26,7 @@ import (
 const goodPlan = `---
 summary: "Add GET /version returning {sha, built} as JSON"
 repositories:
-  - "https://github.com/devthenet-labs/patchy-target"
+  - "https://github.com/devthenet-labs/maul-target"
 new_dependencies: []
 questions:
   - "Should the build time be RFC 3339?"
@@ -125,7 +125,7 @@ func checkGoodPlan(t *testing.T, p *envelope.Plan) {
 		t.Errorf("ReportMarkdown mutated:\n%s", p.ReportMarkdown)
 	}
 	if p.Summary != "Add GET /version returning {sha, built} as JSON" ||
-		!slices.Equal(p.Repositories, []string{"https://github.com/devthenet-labs/patchy-target"}) ||
+		!slices.Equal(p.Repositories, []string{"https://github.com/devthenet-labs/maul-target"}) ||
 		len(p.NewDependencies) != 0 || !slices.Equal(p.Questions, []string{"Should the build time be RFC 3339?"}) ||
 		p.Confidence != 0.8 || p.EstimatedMaxTurns != 40 || p.EstimatedTokenBudget != 200000 {
 		t.Errorf("plan = %+v", p)

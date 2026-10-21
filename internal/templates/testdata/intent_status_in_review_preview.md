@@ -9,7 +9,7 @@
 
 **Pull requests:**
 
-- [devthenet-labs/patchy-target#12](https://github.com/devthenet-labs/patchy-target/pull/12) (open)
+- [devthenet-labs/maul-target#12](https://github.com/devthenet-labs/maul-target/pull/12) (open)
 
 **Preview:** [`target-1.preview.maul.example.com`](https://target-1.preview.maul.example.com) serves `4b825dc642cb`.
 

@@ -211,8 +211,8 @@ func TestBuildSources(t *testing.T) {
 		t.Fatal(err)
 	}
 	ca := `{"name":"ca-npm","ecosystem":"npm",` +
-		`"url":"https://patchy-gate-377946145366.d.codeartifact.us-east-1.amazonaws.com/npm/npm-store/",` +
-		`"auth":{"type":"codeartifact","codeartifact":{"domain":"patchy-gate","domainOwner":"377946145366",` +
+		`"url":"https://maul-gate-377946145366.d.codeartifact.us-east-1.amazonaws.com/npm/npm-store/",` +
+		`"auth":{"type":"codeartifact","codeartifact":{"domain":"maul-gate","domainOwner":"377946145366",` +
 		`"region":"us-east-1"}}}`
 	regs := strings.TrimSuffix(testRegistries, "]") + "," + ca + "]"
 	s, err = configure(serveOpts(t, "--network-profiles", registryProfiles, "--registries", regs,

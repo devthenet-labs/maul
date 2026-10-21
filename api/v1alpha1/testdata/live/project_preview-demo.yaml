@@ -36,12 +36,12 @@ spec:
     maxCostMicroUSD: 10000000
     maxRevisions: 3
   preview:
-    imageRepository: 111122223333.dkr.ecr.us-east-1.amazonaws.com/maul/previews/patchy-preview-demo
+    imageRepository: 111122223333.dkr.ecr.us-east-1.amazonaws.com/maul/previews/maul-preview-demo
     port: 8080
     readinessPath: /healthz
   repositories:
     - name: preview-demo
-      url: https://github.com/devthenet-labs/patchy-preview-demo
+      url: https://github.com/devthenet-labs/maul-preview-demo
   requireRepositoryImage: true
 status:
   conditions:

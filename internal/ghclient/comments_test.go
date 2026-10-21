@@ -14,17 +14,17 @@ import (
 // botComment is a comment the App wrote: its bot user, and — unlike label
 // events — a performed_via_github_app slug.
 const botComment = `{"id":11,"body":"<!-- maul:plan -->","html_url":"https://github.com/o/r/issues/3#issuecomment-11",
-	"user":{"login":"patchy-devthenet[bot]","id":332617407,"type":"Bot"},"author_association":"NONE",
+	"user":{"login":"maul-devthenet[bot]","id":332617407,"type":"Bot"},"author_association":"NONE",
 	"created_at":"2026-09-24T10:00:00Z","updated_at":"2026-09-24T10:05:00Z",
-	"performed_via_github_app":{"id":7,"slug":"patchy-devthenet"}}`
+	"performed_via_github_app":{"id":7,"slug":"maul-devthenet"}}`
 
 // wantBotComment is botComment decoded.
 var wantBotComment = &Comment{
-	ID: 11, Body: "<!-- maul:plan -->", UserLogin: "patchy-devthenet[bot]", AuthorAssociation: "NONE",
+	ID: 11, Body: "<!-- maul:plan -->", UserLogin: "maul-devthenet[bot]", AuthorAssociation: "NONE",
 	UserID: 332617407, UserType: "Bot",
 	CreatedAt: time.Date(2026, 9, 24, 10, 0, 0, 0, time.UTC),
 	UpdatedAt: time.Date(2026, 9, 24, 10, 5, 0, 0, time.UTC),
-	ViaApp:    "patchy-devthenet",
+	ViaApp:    "maul-devthenet",
 	HTMLURL:   "https://github.com/o/r/issues/3#issuecomment-11",
 }
 
@@ -69,7 +69,7 @@ func TestListIssueComments(t *testing.T) {
 			if !reflect.DeepEqual(got, want) {
 				t.Errorf("ListIssueComments() =\n%+v\nwant\n%+v", derefAll(got), derefAll(want))
 			}
-			if a := got[0].Author(); !a.IsBot() || a.Login != "patchy-devthenet[bot]" || a.ID != 332617407 {
+			if a := got[0].Author(); !a.IsBot() || a.Login != "maul-devthenet[bot]" || a.ID != 332617407 {
 				t.Errorf("Author() = %+v, want the App's bot", a)
 			}
 		})
@@ -116,7 +116,7 @@ func TestCreateIssueCommentReaction(t *testing.T) {
 				}
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(tt.status)
-				_, _ = w.Write([]byte(`{"id":1,"content":"eyes","user":{"login":"patchy-devthenet[bot]"}}`))
+				_, _ = w.Write([]byte(`{"id":1,"content":"eyes","user":{"login":"maul-devthenet[bot]"}}`))
 			})
 			err := c.CreateIssueCommentReaction(context.Background(), testRepo, 12, ReactionEyes)
 			if (err != nil) != tt.wantErr {

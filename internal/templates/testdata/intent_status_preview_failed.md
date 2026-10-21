@@ -9,7 +9,7 @@
 
 **Pull requests:**
 
-- [devthenet-labs/patchy-target#12](https://github.com/devthenet-labs/patchy-target/pull/12) (open)
+- [devthenet-labs/maul-target#12](https://github.com/devthenet-labs/maul-target/pull/12) (open)
 
 **Preview:** could not be deployed; the Preview `target-1` records why. A new push deploys it again.
 

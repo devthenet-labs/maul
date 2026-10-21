@@ -9,7 +9,7 @@
 
 **Pull requests:**
 
-- [devthenet-labs/patchy-preview-demo#9](https://github.com/devthenet-labs/patchy-preview-demo/pull/9) (open)
+- [devthenet-labs/maul-preview-demo#9](https://github.com/devthenet-labs/maul-preview-demo/pull/9) (open)
 
 **Commands now:** `/maul cancel`
 

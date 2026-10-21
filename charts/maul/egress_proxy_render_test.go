@@ -75,8 +75,8 @@ func TestChartNetworkProfilesParse(t *testing.T) {
 	if !reflect.DeepEqual([]string(goProfile.Modules), []string{"github.com/google/uuid", "golang.org/x"}) {
 		t.Errorf("go profile modules = %v, want the trailing slash stripped", goProfile.Modules)
 	}
-	if p, reason := set.For("https://github.com/devthenet-labs/patchy-target"); p.Name != "go" || reason != "" {
-		t.Error("the go profile does not match devthenet-labs/patchy-target")
+	if p, reason := set.For("https://github.com/devthenet-labs/maul-target"); p.Name != "go" || reason != "" {
+		t.Error("the go profile does not match devthenet-labs/maul-target")
 	}
 }
 

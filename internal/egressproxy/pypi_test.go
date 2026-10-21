@@ -277,12 +277,12 @@ func TestPyPIEchoInPage(t *testing.T) {
 // TestCodeArtifactPyPI: a CodeArtifact pypi registry is sent basic auth as
 // user aws.
 func TestCodeArtifactPyPI(t *testing.T) {
-	const host = "patchy-gate-377946145366.d.codeartifact.us-east-1.amazonaws.com"
+	const host = "maul-gate-377946145366.d.codeartifact.us-east-1.amazonaws.com"
 	w := newWorld(t)
 	up := w.host(host, okBody(`<a href="../../six/six-1.16.0.tar.gz">s</a>`))
 	r := netprofile.Registry{Name: "ca-pypi", Ecosystem: netprofile.EcosystemPyPI,
 		URL: "https://" + host + "/pypi/pypi-store/simple/", Auth: netprofile.Auth{Type: netprofile.AuthCodeArtifact,
-			CodeArtifact: &netprofile.CodeArtifact{Domain: "patchy-gate", DomainOwner: "377946145366",
+			CodeArtifact: &netprofile.CodeArtifact{Domain: "maul-gate", DomainOwner: "377946145366",
 				Region: "us-east-1"}}}
 	creds := newFakeCreds()
 	c, _ := CodeArtifactCredential(netprofile.EcosystemPyPI, sentinel, time.Now().Add(time.Hour))

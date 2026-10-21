@@ -425,7 +425,7 @@ func TestBuildWithoutItsRepositoryRefused(t *testing.T) {
 	tests := []struct {
 		name, plan, repo, want string
 	}{
-		{"in none", multiPlan, "devthenet-labs/patchy-target", "2 of them are"},
+		{"in none", multiPlan, "devthenet-labs/maul-target", "2 of them are"},
 		{"in none, by host", multiPlan, "github.com/devthenet-labs/Acme.Web_App", "0 of them are"},
 		{"in two", twoHosts, "devthenet-labs/acme.web_app", "2 of them are"},
 	}

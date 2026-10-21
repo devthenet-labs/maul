@@ -20,7 +20,7 @@ The service should report which build is running.
 
 ## Repositories
 
-- https://github.com/devthenet-labs/patchy-target
+- https://github.com/devthenet-labs/maul-target
 `
 
 func renderTestPlanPrompt(intent string, prev *PreviousAttempt) (string, error) {
@@ -54,7 +54,7 @@ func TestIntentPromptGoldens(t *testing.T) {
 		{"prompt_plan_retry.md", func() (string, error) {
 			return renderTestPlanPrompt(testPlanRequest, &PreviousAttempt{
 				Attempt: 1, Outcome: "report_invalid",
-				Detail: "report: plan: repositories[0] \"github.com/devthenet-labs/patchy-target\" is not an " +
+				Detail: "report: plan: repositories[0] \"github.com/devthenet-labs/maul-target\" is not an " +
 					"https://<host>/<owner>/<name> URL",
 			})
 		}},
@@ -76,8 +76,8 @@ func TestIntentPromptGoldens(t *testing.T) {
 				IssuePath: "/workspace/input/issue.md", ReportPath: "/workspace/reports/plan.md",
 				Intent: testPlanRequest, BuildMaxTurns: 150, BuildTokenBudget: 800000, Limits: testPlanLimits,
 				ReadOnlyUnenforced: true,
-				Trees: []PlanTree{{URL: "https://github.com/devthenet-labs/patchy-target", Path: "/workspace/repo"},
-					{URL: "https://github.com/devthenet-labs/patchy-web", Path: "/workspace/repos/web"}},
+				Trees: []PlanTree{{URL: "https://github.com/devthenet-labs/maul-target", Path: "/workspace/repo"},
+					{URL: "https://github.com/devthenet-labs/maul-web", Path: "/workspace/repos/web"}},
 			})
 		}},
 		{"prompt_build.md", func() (string, error) { return renderTestBuildPrompt(nil) }},

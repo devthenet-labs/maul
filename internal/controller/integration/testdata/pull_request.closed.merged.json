@@ -3,29 +3,29 @@
   "number": 16,
   "pull_request": {
     "number": 16,
-    "html_url": "https://github.com/devthenet-labs/patchy-target/pull/16",
+    "html_url": "https://github.com/devthenet-labs/maul-target/pull/16",
     "state": "closed",
     "merged": true,
     "merged_at": "2026-09-23T22:53:48Z",
     "merge_commit_sha": "fa82fcdc7efab2777d432ba3385517fa735e0ae0",
     "head": {
-      "ref": "maul/finding-1678e4a376-2",
+      "ref": "maul/finding-318952b59b-2",
       "repo": {
-        "name": "patchy-target",
-        "full_name": "devthenet-labs/patchy-target"
+        "name": "maul-target",
+        "full_name": "devthenet-labs/maul-target"
       }
     },
     "base": {
       "ref": "main",
       "repo": {
-        "name": "patchy-target",
-        "full_name": "devthenet-labs/patchy-target"
+        "name": "maul-target",
+        "full_name": "devthenet-labs/maul-target"
       }
     }
   },
   "repository": {
-    "name": "patchy-target",
-    "full_name": "devthenet-labs/patchy-target",
+    "name": "maul-target",
+    "full_name": "devthenet-labs/maul-target",
     "default_branch": "main",
     "owner": {
       "login": "devthenet-labs"

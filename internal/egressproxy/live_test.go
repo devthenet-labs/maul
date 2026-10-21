@@ -27,7 +27,7 @@ import (
 const liveEnv = "MAUL_LIVE_GO"
 
 // liveProfile admits github.com/google/uuid only.
-const liveProfile = `[{"name":"go","route":"go","port":8090,"repositories":["devthenet-labs/patchy-target"],
+const liveProfile = `[{"name":"go","route":"go","port":8090,"repositories":["devthenet-labs/maul-target"],
   "modules":["github.com/google/uuid"]}]`
 
 // liveGo is the real go command and the shared pieces of its environment.

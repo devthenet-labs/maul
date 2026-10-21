@@ -16,7 +16,7 @@ The service should report which build is running.
 
 ## Repositories
 
-- https://github.com/devthenet-labs/patchy-target
+- https://github.com/devthenet-labs/maul-target
 ```
 
 ## Other open pull requests

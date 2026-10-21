@@ -26,7 +26,7 @@ import (
 
 // liveCommitFailure is the detail both attempts of the live finding ended
 // on: go build had overwritten a binary the repository tracks.
-const liveCommitFailure = "working tree not clean after commit.sh:\nM patchy-target"
+const liveCommitFailure = "working tree not clean after commit.sh:\nM maul-target"
 
 // TestRetryCarriesPreviousFailureToTheNextJob drives the real path on one
 // store: attempt 1's Job reports commit_failed, the collector stamps it and
