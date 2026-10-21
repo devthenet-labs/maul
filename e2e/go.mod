@@ -2,7 +2,7 @@
 // the product binaries.
 module github.com/bitwise-media-group/patchy/e2e
 
-go 1.26.9
+go 1.26.10
 
 replace github.com/bitwise-media-group/patchy => ..
 
