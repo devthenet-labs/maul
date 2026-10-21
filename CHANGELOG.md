@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.13.0](https://github.com/devthenet-labs/maul/compare/v0.12.43...v0.13.0) (2026-10-21)
+
+
+### ⚠ BREAKING CHANGES
+
+* existing installs cannot upgrade in place. Remove the patchy release and its CRDs (which deletes all state), then install maul. Dashboard sessions and preview client secrets are re-derived.
+
+### Features
+
+* **docs:** maul identity and an SDLC-first landing page ([#271](https://github.com/devthenet-labs/maul/issues/271)) ([4b3197e](https://github.com/devthenet-labs/maul/commit/4b3197e6faeac7496563ee9785ba4a8a61465b69))
+
+
+### Bug Fixes
+
+* **ci:** accept kubescape C-0236 for keyless-signed images ([#272](https://github.com/devthenet-labs/maul/issues/272)) ([275e618](https://github.com/devthenet-labs/maul/commit/275e61888e5f8b2aeb80c9297124c4d34069382e))
+* **deps:** build with Go 1.26.10 for GO-2026-6809 ([#274](https://github.com/devthenet-labs/maul/issues/274)) ([0ccc519](https://github.com/devthenet-labs/maul/commit/0ccc5194acd23c9bf62c0b4a6d596e176c6d24fc))
+
+
+### Miscellaneous Chores
+
+* rename patchy to maul ([#270](https://github.com/devthenet-labs/maul/issues/270)) ([86a3f56](https://github.com/devthenet-labs/maul/commit/86a3f567da20960ecd4cf08f6d00f5769eeb6694))
+
 ## [0.12.43](https://github.com/devthenet-labs/patchy/compare/v0.12.42...v0.12.43) (2026-10-20)
 
 
