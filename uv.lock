@@ -95,7 +95,7 @@ wheels = [
 
 [[package]]
 name = "maul"
-version = "0.12.43"
+version = "0.13.0"
 source = { virtual = "." }
 dependencies = [
     { name = "zensical" },
