@@ -1,6 +1,6 @@
 module github.com/bitwise-media-group/patchy
 
-go 1.26.9
+go 1.26.10
 
 require (
 	charm.land/glamour/v2 v2.0.1
