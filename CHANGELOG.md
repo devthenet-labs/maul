@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.1](https://github.com/devthenet-labs/maul/compare/v0.13.0...v0.13.1) (2026-10-24)
+
+
+### Bug Fixes
+
+* **cli:** name the tailnet policy entry when the previews device is missing ([#276](https://github.com/devthenet-labs/maul/issues/276)) ([ad79c38](https://github.com/devthenet-labs/maul/commit/ad79c3882391978b910d83b30e507dc9ef65c528))
+
 ## [0.13.0](https://github.com/devthenet-labs/maul/compare/v0.12.43...v0.13.0) (2026-10-21)
 
 
