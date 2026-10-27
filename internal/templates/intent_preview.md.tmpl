@@ -9,6 +9,10 @@ a hard break. */ -}}
 ### maul: preview
 
 {{ .Sentence }}
+{{- with .Verify }}
+
+{{ . }}
+{{- end }}
 {{- if not .Removed }}
 
 _maul updates this comment as the preview changes, and removes the preview when the intent ends._
