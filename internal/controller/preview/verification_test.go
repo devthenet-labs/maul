@@ -622,6 +622,105 @@ func TestVerificationStatusIsCapped(t *testing.T) {
 	}
 }
 
+// An application that answers its criteria with large values ($present
+// pointers it fills with HTML-escaped text) and then fails each one cannot
+// push its failure out of the status as maul's Infra: values whose
+// judgement cannot change go to the TooLarge sentinel, every criterion's
+// verdict stays exactly what it was, and the result is still Observed.
+func TestVerificationStatusKeepsAppInflatedFailure(t *testing.T) {
+	pv := appInflatedVerification(t)
+	rt := acceptance.RunTokens{Round: pv.Spec.Round, Attempt: pv.Spec.Attempt, Run: pv.Spec.Run}
+	if b, _ := json.Marshal(pv); len(b) <= maxVerificationObject {
+		t.Fatalf("fixture is %d bytes, not over %d", len(b), maxVerificationObject)
+	}
+	before := judgeAll(t, pv, rt)
+	fitStatus(pv)
+	if pv.Status.Phase != v1alpha1.VerificationObserved || pv.Status.Reason != v1alpha1.VerificationReasonOK {
+		t.Fatalf("phase %s %s, want Observed ok: the app's failure is the intent's", pv.Status.Phase,
+			pv.Status.Reason)
+	}
+	if b, _ := json.Marshal(pv); len(b) > maxVerificationObject {
+		t.Fatalf("status is %d bytes, over %d", len(b), maxVerificationObject)
+	}
+	after := judgeAll(t, pv, rt)
+	for i := range before {
+		if before[i].Outcome != acceptance.OutcomeFail {
+			t.Fatalf("fixture criterion %s judged %s, want fail", before[i].ID, before[i].Outcome)
+		}
+		bb, _ := json.Marshal(before[i])
+		ab, _ := json.Marshal(after[i])
+		if !bytes.Equal(bb, ab) {
+			t.Errorf("criterion %s judged %s after fitting, %s before", before[i].ID, ab, bb)
+		}
+	}
+}
+
+// judgeAll judges every criterion of pv against its observations.
+func judgeAll(t *testing.T, pv *v1alpha1.PreviewVerification, rt acceptance.RunTokens) []acceptance.Verdict {
+	t.Helper()
+	cs, err := toCriteria(pv.Spec.Criteria)
+	if err != nil || len(cs) != len(pv.Status.Observations) {
+		t.Fatalf("criteria: %v (%d for %d observations)", err, len(cs), len(pv.Status.Observations))
+	}
+	out := make([]acceptance.Verdict, len(cs))
+	for i, c := range cs {
+		b, err := json.Marshal(pv.Status.Observations[i])
+		if err != nil {
+			t.Fatal(err)
+		}
+		var o acceptance.CriterionObservation
+		if err := json.Unmarshal(b, &o); err != nil {
+			t.Fatal(err)
+		}
+		out[i] = acceptance.Judge(c, o, rt)
+	}
+	return out
+}
+
+// appInflatedVerification is an Observed verification of 16 criteria of
+// three steps, each step checking two $present pointers, whose application
+// filled every pointer with 250 '<' characters and answered every last step
+// 500, so each criterion records two failed tries.
+func appInflatedVerification(t *testing.T) *v1alpha1.PreviewVerification {
+	t.Helper()
+	present := apiextensionsv1.JSON{Raw: []byte(`{"$present":true}`)}
+	ok := apiextensionsv1.JSON{Raw: []byte("200")}
+	big := `"` + strings.Repeat("<", 250) + `"`
+	criteria := make([]v1alpha1.AcceptanceCriterion, 16)
+	obs := make([]v1alpha1.CriterionObservation, 16)
+	for i := range criteria {
+		id := fmt.Sprintf("c%d", i)
+		criteria[i] = v1alpha1.AcceptanceCriterion{ID: id, Kind: v1alpha1.AcceptanceHTTP,
+			Statement: "the page answers", Target: "api"}
+		for range 3 {
+			criteria[i].Steps = append(criteria[i].Steps, v1alpha1.AcceptanceStep{
+				Request: v1alpha1.AcceptanceRequest{Method: "GET", Path: "/x"},
+				Expect: v1alpha1.AcceptanceExpect{Status: &ok,
+					JSON: map[string]apiextensionsv1.JSON{"/a": present, "/b": present}},
+			})
+		}
+		obs[i].ID = id
+		for try := range 2 {
+			steps := make([]v1alpha1.StepObservation, 3)
+			for s := range steps {
+				status := int32(200)
+				if s == 2 {
+					status = 500
+				}
+				steps[s] = v1alpha1.StepObservation{Method: "GET", Path: "/x", Status: status,
+					TransportError: v1alpha1.TransportNone, JSONValid: true,
+					Pointers: map[string]string{"/a": big, "/b": big}}
+			}
+			obs[i].Tries = append(obs[i].Tries,
+				v1alpha1.TryObservation{Run: fmt.Sprintf("v1a1t%d-a1b2c3", try+1), Steps: steps})
+		}
+	}
+	return &v1alpha1.PreviewVerification{
+		Spec: v1alpha1.PreviewVerificationSpec{Round: 1, Attempt: 1, Run: "a1b2c3", Criteria: criteria},
+		Status: v1alpha1.PreviewVerificationStatus{Phase: v1alpha1.VerificationObserved,
+			Reason: v1alpha1.VerificationReasonOK, Observations: obs}}
+}
+
 // oversizedVerification is an Observed verification at every bound: 16
 // criteria, two tries of eight steps each, every step with four pointer
 // values of `value` characters and a full body prefix, and a full log tail.

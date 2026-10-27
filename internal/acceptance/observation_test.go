@@ -55,6 +55,33 @@ func TestWireRoundTrip(t *testing.T) {
 	}
 }
 
+// TestWireLineDoesNotEscapeHTML: a value the application chose costs its
+// JSON escaping on the wire and nothing more; '<', '>' and '&' are not
+// inflated sixfold to unicode escapes, and the line reads back exactly.
+func TestWireLineDoesNotEscapeHTML(t *testing.T) {
+	value := `"` + strings.Repeat("<>&", 80) + `"`
+	o := CriterionObservation{ID: "home", Tries: []TryObservation{{Run: "v1a1t1-a1b2c3", Steps: []StepObservation{{
+		Method: "GET", Path: "/", Status: 500, TransportError: TransportNone, JSONValid: true,
+		Pointers: map[string]string{"/a": value},
+	}}}}}
+	var out bytes.Buffer
+	w := NewWireWriter(&out)
+	if err := w.Write(o); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	line, _, _ := strings.Cut(out.String(), "\n")
+	if !strings.Contains(line, strings.Repeat("<>&", 80)) || len(line) > len(WirePrefix)+len(value)+300 {
+		t.Errorf("wire line is %d bytes for a %d-byte value: %s", len(line), len(value), line)
+	}
+	got, _, err := ParseWire(out.Bytes())
+	if err != nil || len(got) != 1 || !reflect.DeepEqual(got[0], o) {
+		t.Errorf("ParseWire = %+v, %v; want the observation back", got, err)
+	}
+}
+
 func TestWireRefusals(t *testing.T) {
 	o := CriterionObservation{ID: "a", Tries: []TryObservation{{Run: "v1a1t1-abcdef", Steps: []StepObservation{{
 		Method: "GET", Path: "/", Status: 200, TransportError: TransportNone,

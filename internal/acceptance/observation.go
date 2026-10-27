@@ -555,12 +555,18 @@ func (w *WireWriter) Close() (Summary, error) {
 	return s, err
 }
 
+// encodeLine is l as one wire line. HTML escaping is off: the log is never
+// HTML, and escaping would let a value the application chose grow sixfold
+// on the wire.
 func encodeLine(l wireLine) ([]byte, error) {
-	b, err := json.Marshal(l)
-	if err != nil {
+	var b bytes.Buffer
+	b.WriteString(WirePrefix)
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(l); err != nil { // Encode ends the line with "\n"
 		return nil, err
 	}
-	return append(append([]byte(WirePrefix), b...), '\n'), nil
+	return b.Bytes(), nil
 }
 
 // TerminationMessage is the summary as the tester's termination message.
