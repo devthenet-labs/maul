@@ -152,6 +152,9 @@ func (p *pass) verifyProgress() *templates.VerifyProgress {
 		out.State = templates.VerifyNeedsReplan
 	case v1alpha1.VerificationUnavailable:
 		out.State = templates.VerifyUnavailable
+		if previewNotLive(v) {
+			out.State = templates.VerifyPreviewNotLive
+		}
 	default:
 		// Off, or no state yet: nothing to say.
 		return nil
@@ -383,9 +386,21 @@ func verifySectionDigest(s *templates.VerifySection) string {
 // comments by its marker (a lost write never posts twice), and edited only
 // when what it says changes. A later round gets its own comment; an earlier
 // round's is left as it last stood. Best effort.
+//
+// A verification that gave up waiting for its Preview (PreviewNotLive) is
+// reported in the comment of the attempt that could not start: the
+// round's next attempt when one is owed (a retry), else the next round's
+// first, as createVerification would number it.
 func (p *pass) syncVerifyComment(ctx context.Context) {
 	v := p.in.Status.Verification
-	if v.Round == 0 || !verifyJudged(v.State) || p.in.Status.Approval == nil {
+	round, attempt := v.Round, v.Attempt
+	if previewNotLive(v) {
+		round, attempt = v.Round+1, 1
+		if v.Attempt > 0 {
+			round, attempt = v.Round, v.Attempt+1
+		}
+	}
+	if round == 0 || !verifyJudged(v.State) || p.in.Status.Approval == nil {
 		return
 	}
 	sec := p.verifySection(ctx, nil)
@@ -393,7 +408,7 @@ func (p *pass) syncVerifyComment(ctx context.Context) {
 		return
 	}
 	body, err := templates.RenderVerifyComment(templates.VerifyComment{Namespace: p.in.Namespace,
-		Intent: p.in.Name, Round: v.Round, Attempt: v.Attempt, Section: *sec})
+		Intent: p.in.Name, Round: round, Attempt: attempt, Section: *sec})
 	if err != nil {
 		p.r.log().LogAttrs(ctx, slog.LevelError, "render the verification comment",
 			slog.String("intent", p.in.Name), slog.Any("error", err))
@@ -402,23 +417,23 @@ func (p *pass) syncVerifyComment(ctx context.Context) {
 	d := digest([]byte(body))
 	var note verifyNote
 	p.notes(func(n *previewNotes) { note = n.verify })
-	if note.round == v.Round && note.digest == d {
+	if note.round == round && note.digest == d {
 		return
 	}
 	if above, err := p.rateOK(ctx, p.repo()); err != nil || !above {
 		return
 	}
 	id := int64(0)
-	if note.round == v.Round {
+	if note.round == round {
 		id = note.id
 	}
 	id, err = p.writeVerifyComment(ctx, id, body)
 	if err != nil {
 		p.r.log().LogAttrs(ctx, slog.LevelWarn, "write the verification comment; retried at a later pass",
-			slog.String("intent", p.in.Name), slog.Int("round", int(v.Round)), slog.Any("error", err))
+			slog.String("intent", p.in.Name), slog.Int("round", int(round)), slog.Any("error", err))
 		return
 	}
-	p.notes(func(n *previewNotes) { n.verify = verifyNote{round: v.Round, id: id, digest: d} })
+	p.notes(func(n *previewNotes) { n.verify = verifyNote{round: round, id: id, digest: d} })
 }
 
 // writeVerifyComment writes body to the current round's verification

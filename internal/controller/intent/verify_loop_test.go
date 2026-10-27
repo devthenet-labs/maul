@@ -258,6 +258,68 @@ func TestVerificationWaitsForThePreview(t *testing.T) {
 	}
 }
 
+// TestVerificationGivesUpWaitingForThePreview: a Preview that never goes
+// live at the heads (Failed, Expired, or never served: no preview-controller)
+// holds the verification only for previewWaitMax. Then it is Unavailable
+// (PreviewNotLive), maul/acceptance is an error saying why, and the issue's
+// verification comment says so; nothing is created meanwhile. Once the
+// Preview is live it verifies after all.
+func TestVerificationGivesUpWaitingForThePreview(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		phase v1alpha1.PreviewPhase
+	}{{"failed", v1alpha1.PreviewFailed}, {"expired", v1alpha1.PreviewExpired}, {"never served", ""}} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newVerifyEnv(t, acceptancePlan)
+			name := e.reviewing()
+			if tc.phase != "" {
+				e.servePreview(name, tc.phase, "")
+			} else {
+				e.previewOf(name)
+			}
+			e.review(name, 6)
+			v := e.verification(name)
+			if v.State != v1alpha1.VerificationWaitingForPreview || v.PreviewWaitSince == nil {
+				t.Fatalf("verification = %+v, want waiting with its start recorded", v)
+			}
+			head := e.get(name).Status.PullRequests[0].HeadSHA
+			if st := e.latestAcceptance(head); st.State != statusPending {
+				t.Fatalf("status while waiting = %+v", st)
+			}
+			e.clock.Advance(previewWaitMax - 10*time.Minute)
+			e.review(name, 2)
+			if v := e.verification(name); v.State != v1alpha1.VerificationWaitingForPreview {
+				t.Fatalf("gave up before the bound: %+v", v)
+			}
+			e.review(name, 6)
+			v = e.verification(name)
+			if v.State != v1alpha1.VerificationUnavailable ||
+				v.UnavailableReason != v1alpha1.VerificationUnavailablePreviewNotLive || len(e.verifications(name)) != 0 {
+				t.Fatalf("verification after the bound = %+v, verifications %d", v, len(e.verifications(name)))
+			}
+			st := e.latestAcceptance(head)
+			if st.State != statusError || !strings.Contains(st.Description, "preview") || len(st.Description) > 140 {
+				t.Fatalf("status after the bound = %+v", st)
+			}
+			cs := e.verifyComments(name, 1)
+			if len(cs) != 1 || !strings.Contains(cs[0].Body, "the preview did not become live") {
+				t.Fatalf("verification comments = %+v", cs)
+			}
+			e.review(name, 3)
+			if v := e.verification(name); v.State != v1alpha1.VerificationUnavailable {
+				t.Fatalf("did not stay unavailable: %+v", v)
+			}
+			e.readyPreview(name)
+			e.review(name, 3)
+			v = e.verification(name)
+			if v.State != v1alpha1.VerificationVerifying || v.UnavailableReason != "" || len(e.verifications(name)) != 1 {
+				t.Fatalf("verification once the preview is live = %+v, verifications %d", v,
+					len(e.verifications(name)))
+			}
+		})
+	}
+}
+
 // TestVerificationWaitsForCI: a named check not yet green at the head holds
 // the verification.
 func TestVerificationWaitsForCI(t *testing.T) {

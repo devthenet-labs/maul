@@ -1568,6 +1568,14 @@ spec:
                     maximum: 16
                     minimum: 0
                     type: integer
+                  previewWaitSince:
+                    description: |-
+                      PreviewWaitSince is when the verification last began waiting for a
+                      live Preview at its heads (WaitingForPreview). A wait is bounded:
+                      past it the verification is Unavailable (PreviewNotLive) until the
+                      Preview is live.
+                    format: date-time
+                    type: string
                   quarantined:
                     description: Quarantined counts the criteria that passed only
                       on retry.
@@ -1680,6 +1688,15 @@ spec:
                     - Exhausted
                     - NeedsReplan
                     - Unavailable
+                    type: string
+                  unavailableReason:
+                    description: |-
+                      UnavailableReason says why the state is Unavailable: PreviewNotLive
+                      when the Preview was not live at the heads within the bound (Failed,
+                      expired, or never served); empty when maul's own machinery failed
+                      every attempt. Read only with state Unavailable.
+                    enum:
+                    - PreviewNotLive
                     type: string
                 type: object
               verifyFixes:

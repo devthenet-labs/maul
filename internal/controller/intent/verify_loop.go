@@ -413,7 +413,7 @@ func (p *pass) unjudged(ctx context.Context) error {
 		clearJudgement(nv)
 		countManual(nv, cur.Status.Acceptance)
 		if nv.Attempt >= v1alpha1.MaxVerificationAttempts {
-			nv.State = v1alpha1.VerificationUnavailable
+			nv.State, nv.UnavailableReason = v1alpha1.VerificationUnavailable, ""
 			return nil
 		}
 		nv.Ref = nil
@@ -572,7 +572,7 @@ func (p *pass) startVerification(ctx context.Context, prs []v1alpha1.IntentPullR
 	}
 	preview := p.livePreview(ctx, v)
 	if preview == nil {
-		return p.waitVerification(ctx, v1alpha1.VerificationWaitingForPreview)
+		return p.waitPreview(ctx)
 	}
 	green, err := p.checksGreen(ctx, prs)
 	if err != nil || !green {
@@ -595,6 +595,43 @@ func (p *pass) waitVerification(ctx context.Context, state v1alpha1.IntentVerifi
 		cur.Status.Verification.State = state
 		return nil
 	})
+}
+
+// waitPreview records that a due verification waits for the Preview to be
+// live at its heads, for at most previewWaitMax from when the wait began.
+// Past it the verification is Unavailable (PreviewNotLive) and stays so,
+// reported as an error, until the Preview is live (the gate then verifies)
+// or the heads move. A verification in flight or judged stands, as in
+// waitVerification.
+func (p *pass) waitPreview(ctx context.Context) (bool, error) {
+	v := p.in.Status.Verification
+	switch {
+	case v.Ref != nil, previewNotLive(v):
+		return false, nil
+	case v.State != v1alpha1.VerificationWaitingForPreview || v.PreviewWaitSince == nil:
+		since := metav1.NewTime(p.now)
+		return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
+			cur.Status.Verification.State = v1alpha1.VerificationWaitingForPreview
+			cur.Status.Verification.PreviewWaitSince = &since
+			return nil
+		})
+	case p.now.Sub(v.PreviewWaitSince.Time) < previewWaitMax:
+		return false, nil
+	}
+	p.r.log().LogAttrs(ctx, slog.LevelWarn, "the preview was not live at the heads in time; verification unavailable",
+		slog.String("intent", p.in.Name), slog.Duration("waited", p.now.Sub(v.PreviewWaitSince.Time)))
+	return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
+		nv := cur.Status.Verification
+		nv.State, nv.UnavailableReason = v1alpha1.VerificationUnavailable, v1alpha1.VerificationUnavailablePreviewNotLive
+		return nil
+	})
+}
+
+// previewNotLive reports a verification Unavailable because its Preview
+// was not live at the heads within previewWaitMax.
+func previewNotLive(v *v1alpha1.IntentVerification) bool {
+	return v.State == v1alpha1.VerificationUnavailable &&
+		v.UnavailableReason == v1alpha1.VerificationUnavailablePreviewNotLive
 }
 
 // needsReplan records that criterion id can no longer run as approved: no
@@ -628,7 +665,8 @@ func (p *pass) createVerification(ctx context.Context, kind verifyKind, preview 
 	}
 	if round > v1alpha1.MaxIntentRound || attempt > v1alpha1.MaxVerificationAttempts {
 		return p.update(ctx, func(cur *v1alpha1.Intent) error {
-			cur.Status.Verification.State, cur.Status.Verification.Requested = v1alpha1.VerificationUnavailable, nil
+			nv := cur.Status.Verification
+			nv.State, nv.UnavailableReason, nv.Requested = v1alpha1.VerificationUnavailable, "", nil
 			return nil
 		})
 	}
@@ -670,7 +708,7 @@ func (p *pass) createVerification(ctx context.Context, kind verifyKind, preview 
 	p.pruneVerifications(ctx)
 	return p.update(ctx, func(cur *v1alpha1.Intent) error {
 		nv := cur.Status.Verification
-		nv.State = v1alpha1.VerificationVerifying
+		nv.State, nv.UnavailableReason = v1alpha1.VerificationVerifying, ""
 		nv.Round, nv.Attempt = pv.Spec.Round, pv.Spec.Attempt
 		nv.Ref = &v1alpha1.ObjectReference{Name: pv.Name, UID: pv.UID}
 		clearJudgement(nv)

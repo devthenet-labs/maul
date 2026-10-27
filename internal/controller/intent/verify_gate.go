@@ -25,13 +25,21 @@ import (
 // The verification gate: what must hold before the intent reconciler asks
 // preview-controller to run the approved acceptance criteria against the
 // intent's Preview (a PreviewVerification), and the pure pieces both the
-// gate and the loop (verify_loop.go) share: the head set, the criteria's
-// conversion between the CRD mirror and internal/acceptance, and the bounds.
+// gate and the loop (verify_loop.go) share: the head set and the bounds.
 
 // verifyInterval spaces verifications: an automatic one while automatic
 // fixes are halted (a human pushing repeatedly is not re-verified on every
 // push), and the runs of approvers' requests (one per interval per intent).
 const verifyInterval = 5 * time.Minute
+
+// previewWaitMax bounds how long a due verification waits for the Preview
+// to be live at exactly the heads (WaitingForPreview). A Preview that is
+// Failed, expired or never served (no preview-controller) would otherwise
+// hold maul/acceptance pending for ever. It is long enough for a queued
+// Preview to get a slot and for a few of preview-controller's rollout
+// attempts (--preview-rollout-timeout, 10 minutes by default); past it the
+// verification is Unavailable (PreviewNotLive) until the Preview is live.
+const previewWaitMax = time.Hour
 
 // verificationRetention is how many of an Intent's PreviewVerifications are
 // kept: the latest few carry the evidence a fix round or a comment may
