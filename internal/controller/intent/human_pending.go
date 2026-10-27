@@ -5,10 +5,13 @@ package intent
 
 import (
 	"context"
+	"slices"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/ghclient"
 )
 
 // "The human wins" (acceptance verification §4.5): an approver's feedback
@@ -76,6 +79,52 @@ func (p *pass) commandDue(ctx context.Context, pr *v1alpha1.IntentPullRequest) (
 		}
 	}
 	return false, nil
+}
+
+// prListing is one listing of a pull request's comments: those updated
+// since since, as GitHub filters them.
+type prListing struct {
+	since    time.Time
+	comments []*ghclient.Comment
+}
+
+// prComments are pull request pr's comments updated since since. A pass
+// lists each pull request's comments once and every step reading them (the
+// acceptance commands, commandRound, humanPending) shares that listing: a
+// read from no earlier time is answered from it, filtered as GitHub would
+// filter a listing of its own, so it costs no request. The steps run the
+// acceptance commands' read, from the build, first.
+func (p *pass) prComments(ctx context.Context, pr *v1alpha1.IntentPullRequest, since time.Time) (
+	[]*ghclient.Comment, error) {
+	key := prKey(*pr)
+	if l, ok := p.prListed[key]; ok && !since.Before(l.since) {
+		out := make([]*ghclient.Comment, 0, len(l.comments))
+		for _, c := range l.comments {
+			if !c.UpdatedAt.Before(since) {
+				out = append(out, c)
+			}
+		}
+		return out, nil
+	}
+	comments, err := p.r.GitHub.ListPullRequestComments(ctx, pr.Repository, pr.Number, since)
+	if err != nil {
+		return nil, err
+	}
+	if p.prListed == nil {
+		p.prListed = map[string]prListing{}
+	}
+	p.prListed[key] = prListing{since: since, comments: comments}
+	return slices.Clone(comments), nil
+}
+
+// notePRComment adds c, a comment maul just posted on pr, to the pass's
+// listing of pr, so a later step reading it sees maul's reply.
+func (p *pass) notePRComment(pr *v1alpha1.IntentPullRequest, c *ghclient.Comment) {
+	key := prKey(*pr)
+	if l, ok := p.prListed[key]; ok && c != nil {
+		l.comments = append(slices.Clone(l.comments), c)
+		p.prListed[key] = l
+	}
 }
 
 // humanReason is the halt reason a revise round of trigger t gives

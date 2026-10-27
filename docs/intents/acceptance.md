@@ -168,14 +168,16 @@ it.
 Approvers only, on the intent issue or any of its pull requests, while the intent is in review or revising. Settled on
 the next poll, never from a webhook.
 
-| Command                | Effect                                                                                                                                                               |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/maul verify`         | Verify now, at the next gate (once the current round ends), bypassing the spacing but not `maxVerifications`.                                                        |
-| `/maul verify fix`     | As above, and re-arm automatic fixes after a human halt.                                                                                                             |
-| `/maul verify --reset` | Roll the preview's component pods first, dropping their data, then verify. This is the only reset: nothing resets data automatically. Once per five minutes.         |
-| `/maul accept <id>`    | Close a manual criterion, a quarantined one or one whose tests changed, at the current heads. After the heads move it reads "accepted at `<heads>`, not re-checked". |
+| Command                | Effect                                                                                                                                                                                                                                                                                                                                |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/maul verify`         | Verify now, at the next gate (once the current round ends), bypassing the spacing but not `maxVerifications`.                                                                                                                                                                                                                         |
+| `/maul verify fix`     | As above, and re-arm automatic fixes after a human halt.                                                                                                                                                                                                                                                                              |
+| `/maul verify --reset` | Roll the preview's component pods first, dropping their data, then verify. This is the only reset: nothing resets data automatically. Once per five minutes.                                                                                                                                                                          |
+| `/maul accept <id>`    | Close a manual criterion, a quarantined one or one whose tests changed, at the current heads. It counts only if the preview was live at those heads when you commented, and still is; otherwise it is refused and you accept again once the preview runs them. After the heads move it reads "accepted at `<heads>`, not re-checked". |
 
 A command from a non-approver, an edited comment or a bot is refused. An unknown id or argument gets the help reply.
+With verification switched off in the controller, the commands do nothing and are answered as not available. Each
+command is applied once: if maul's reply to it is deleted, maul answers it again but never applies it again.
 
 ## When something is not what you expect
 

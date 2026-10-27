@@ -651,6 +651,21 @@ spec:
                   intent issue, so none is answered twice or taken from a comment read
                   before.
                 properties:
+                  applied:
+                    description: |-
+                      Applied are the GitHub ids of the comments carrying the acceptance
+                      commands (/maul verify, /maul accept) whose effect the Intent
+                      recorded, on the intent issue or any of its pull requests, the latest
+                      MaxIntentAppliedCommands of them, each written with its effect. A
+                      comment among them is never applied again, even after maul's reply to
+                      it is deleted or the effect it recorded was consumed or superseded:
+                      only its reply may still be owed.
+                    items:
+                      format: int64
+                      type: integer
+                    maxItems: 64
+                    type: array
+                    x-kubernetes-list-type: set
                   refusedActors:
                     description: |-
                       RefusedActors are the GitHub ids of the accounts already sent a reply

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
@@ -62,6 +63,9 @@ func (e *env) servePreview(name string, phase v1alpha1.PreviewPhase, url string)
 	pv.Status = v1alpha1.PreviewStatus{Phase: phase, ObservedGeneration: pv.Generation, URL: url,
 		Message: previewMessage}
 	if phase == v1alpha1.PreviewReady {
+		// As preview-controller does: when it went Ready at this spec.
+		deployed := metav1.NewTime(e.clock.Now())
+		pv.Status.LastDeployedAt = &deployed
 		for _, c := range pv.Spec.Components {
 			pv.Status.Components = append(pv.Status.Components, v1alpha1.PreviewComponentStatus{
 				Name: c.Name, Revision: c.Revision, ImageID: "registry.example/" + c.Name + "@sha256:1"})

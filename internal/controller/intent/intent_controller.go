@@ -197,6 +197,9 @@ type pass struct {
 	// once: verifyPVRead reports the read was made.
 	verifyPV     *v1alpha1.PreviewVerification
 	verifyPVRead bool
+	// prListed are the pull requests' comments this pass listed, by pull
+	// request (prComments): every step reading them shares one listing.
+	prListed map[string]prListing
 }
 
 // Reconcile takes one Intent one step at a time: every step that changes the

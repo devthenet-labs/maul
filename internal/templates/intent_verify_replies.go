@@ -30,6 +30,13 @@ const (
 	// VerifyAcceptNotYet: maul has not recorded the commits under
 	// verification yet, so there is nothing to bind an acceptance to.
 	VerifyAcceptNotYet VerifyOutcome = "accept-not-yet"
+	// VerifyAcceptMoved: the preview was not live at the commits under
+	// verification when the acceptance was given (or is not now), so maul
+	// cannot tell which commits the approver checked.
+	VerifyAcceptMoved VerifyOutcome = "accept-moved"
+	// VerifyApplied: the command was applied before; this is its reply
+	// again, its effect since consumed or superseded.
+	VerifyApplied VerifyOutcome = "applied"
 	// VerifyUsage: the command's arguments are not its grammar.
 	VerifyUsage VerifyOutcome = "usage"
 )
@@ -137,6 +144,12 @@ func verifyNoticeText(n VerifyCommandNotice, surface command.Surface) (text, hel
 	case VerifyAcceptNotYet:
 		return cmd + " must wait: maul has not yet recorded the commits it verifies, and an acceptance holds only " +
 			"at those. Try again once verification has started.", "", nil
+	case VerifyAcceptMoved:
+		return fmt.Sprintf("%s does nothing: the preview was not running %s, the commits maul verifies, when you "+
+			"commented, so maul cannot tell which commits you checked. Check the preview once it runs them and "+
+			"accept again.", cmd, joinCode(n.Heads)), "", nil
+	case VerifyApplied:
+		return fmt.Sprintf("%s from %s was applied already, and is not applied again.", cmd, actor), "", nil
 	case VerifyUsage:
 		return cmd + " was not understood.", command.HelpFor(surface, []string{n.Verb}), nil
 	}

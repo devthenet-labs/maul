@@ -16,8 +16,6 @@ import (
 )
 
 const (
-	testHeadSet  = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
-	testHeadSHA  = "0123abc456def7890123abc456def7890123abcd"
 	manualID     = "sounds-good"
 	automaticID  = "render"
 	quarantineID = "leaderboard"
@@ -34,29 +32,54 @@ func (e *env) setStatus(name string, mutate func(*v1alpha1.Intent)) {
 	}
 }
 
+// newAcceptEnv is an env whose intents are verified: the Project previews
+// its app and verifies, and the controller's verification switch is on.
+func newAcceptEnv(t *testing.T, mutate ...func(*v1alpha1.Project)) *env {
+	t.Helper()
+	return newVerifyEnv(t, "", mutate...)
+}
+
 // reviewingWithCriteria drives a new intent to InReview and records an
 // approved plan's criteria (one manual, two automatic, one of them
-// quarantined) and a verification of the current commits.
+// quarantined) and a verification of the current commits, as the loop
+// would. The Preview exists but is not live yet (acceptReady).
 func (e *env) reviewingWithCriteria() string {
 	e.t.Helper()
-	name := e.awaiting()
-	e.gh.label(1, "maul:approved", approver)
-	e.drive(name, v1alpha1.IntentInReview, repoImage)
+	name := e.reviewing()
+	e.previewOf(name)
+	hs, ok := previewHeadSet(e.getProject(), e.get(name))
+	if !ok {
+		e.t.Fatal("the intent has no preview head set")
+	}
 	e.setStatus(name, func(in *v1alpha1.Intent) {
 		in.Status.Acceptance = &v1alpha1.IntentAcceptance{PlanRevision: in.Status.Approval.PlanRevision,
-			Digest: testHeadSet, Criteria: []v1alpha1.AcceptanceCriterion{
+			Digest: hs.digest, Criteria: []v1alpha1.AcceptanceCriterion{
 				{ID: manualID, Kind: v1alpha1.AcceptanceManual, Statement: "the beat sounds good"},
 				{ID: automaticID, Kind: v1alpha1.AcceptanceHTTP, Statement: "a render returns audio", Target: "app"},
 				{ID: quarantineID, Kind: v1alpha1.AcceptanceHTTP, Statement: "the leaderboard lists votes",
 					Target: "app"},
 			}}
-		in.Status.Verification = &v1alpha1.IntentVerification{State: v1alpha1.VerificationPassed,
-			HeadSetDigest: testHeadSet, QuarantinedIDs: []string{quarantineID},
-			Heads:   []v1alpha1.VerificationHead{{Component: "app", Repository: appRepoURL, Revision: testHeadSHA}},
+		in.Status.Verification = &v1alpha1.IntentVerification{State: v1alpha1.VerificationWaitingForPreview,
+			HeadSetDigest: hs.digest, QuarantinedIDs: []string{quarantineID}, Heads: hs.heads,
 			AutoFix: v1alpha1.AutoFix{State: v1alpha1.AutoFixHalted, Reason: v1alpha1.AutoFixHumanReview}}
 	})
-	e.clock.Advance(time.Minute)
+	e.settleActions(name)
 	return name
+}
+
+// acceptReady makes the Preview live at the recorded commits, a minute
+// before the commands that follow are made.
+func (e *env) acceptReady(name string) {
+	e.t.Helper()
+	e.readyPreview(name)
+	e.clock.Advance(time.Minute)
+}
+
+// headSet is the digest and the short commits verification records.
+func (e *env) headSet(name string) (string, []string) {
+	e.t.Helper()
+	v := e.verification(name)
+	return v.HeadSetDigest, shortHeads(v.Heads)
 }
 
 // verification is the Intent's verification status, never nil.
@@ -81,7 +104,7 @@ func (e *env) onlyReply(id int64) string {
 // with their account and the comment, once, and is answered once; the note
 // below the command line is no argument.
 func TestVerifyCommandOnTheIssue(t *testing.T) {
-	e := newEnv(t, testProject())
+	e := newAcceptEnv(t)
 	name := e.reviewingWithCriteria()
 	id := e.gh.comment(approver, "/maul verify\nthe render looked slow to me")
 	e.settleActions(name)
@@ -109,7 +132,7 @@ func TestVerifyCommandOnTheIssue(t *testing.T) {
 // current round, and a request made while another waits joins it, keeping
 // both's modifiers under the newest comment.
 func TestVerifyFixRearms(t *testing.T) {
-	e := newEnv(t, testProject())
+	e := newAcceptEnv(t)
 	name := e.reviewingWithCriteria()
 	e.gh.comment(approver, "/maul verify")
 	e.settleActions(name)
@@ -139,7 +162,7 @@ func TestVerifyFixRearms(t *testing.T) {
 // asked; another within five minutes changes nothing and says so; one after
 // them bumps it again.
 func TestVerifyReset(t *testing.T) {
-	e := newEnv(t, testProject())
+	e := newAcceptEnv(t)
 	name := e.reviewingWithCriteria()
 	first := e.gh.comment(approver, "/maul verify --reset")
 	e.settleActions(name)
@@ -191,9 +214,9 @@ func TestVerifyCommandAuthority(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := testProject()
-			p.Spec.Approvers.Logins = append(p.Spec.Approvers.Logins, "renovate[bot]")
-			e := newEnv(t, p)
+			e := newAcceptEnv(t, func(p *v1alpha1.Project) {
+				p.Spec.Approvers.Logins = append(p.Spec.Approvers.Logins, "renovate[bot]")
+			})
 			name := e.reviewingWithCriteria()
 			before := e.get(name).Status
 			if tt.perm != "" {
@@ -226,7 +249,7 @@ func TestVerifyCommandAuthority(t *testing.T) {
 // TestVerifyCommandOutsideReview: before the pull requests are open the
 // acceptance commands do nothing and say which commands do.
 func TestVerifyCommandOutsideReview(t *testing.T) {
-	e := newEnv(t, testProject())
+	e := newAcceptEnv(t)
 	name := e.awaiting()
 	verify := e.gh.comment(approver, "/maul verify")
 	accept := e.gh.comment(approver, "/maul accept "+manualID)
@@ -248,8 +271,10 @@ func TestVerifyCommandOutsideReview(t *testing.T) {
 // an id the plan does not have, and an acceptance before any commits are
 // recorded are each answered and change nothing.
 func TestAcceptCommand(t *testing.T) {
-	e := newEnv(t, testProject())
+	e := newAcceptEnv(t)
 	name := e.reviewingWithCriteria()
+	e.acceptReady(name)
+	digest, heads := e.headSet(name)
 	manual := e.gh.comment(approver, "/maul accept "+manualID+"\nchecked it on my phone")
 	quarantined := e.gh.comment(approver, "/maul accept "+quarantineID)
 	automatic := e.gh.comment(approver, "/maul accept "+automaticID)
@@ -266,11 +291,11 @@ func TestAcceptCommand(t *testing.T) {
 	}{{manualID, manual}, {quarantineID, quarantined}} {
 		r := acc.Accepted[i]
 		if r.ID != want.id || r.By != approver || r.ByID != who.ID || r.CommentID != want.comment ||
-			r.HeadSetDigest != testHeadSet || !slices.Equal(r.Heads, []string{testHeadSHA[:7]}) || r.At.IsZero() {
+			r.HeadSetDigest != digest || !slices.Equal(r.Heads, heads) || r.At.IsZero() {
 			t.Errorf("accepted[%d] = %+v", i, r)
 		}
 	}
-	if body := e.onlyReply(manual); !strings.Contains(body, "accepted at `"+testHeadSHA[:7]+"`") {
+	if body := e.onlyReply(manual); !strings.Contains(body, "accepted at `"+heads[0]+"`") {
 		t.Errorf("reply = %s", body)
 	}
 	if body := e.onlyReply(automatic); !strings.Contains(body, "checked automatically") ||
@@ -281,11 +306,7 @@ func TestAcceptCommand(t *testing.T) {
 		t.Errorf("reply = %s", body)
 	}
 
-	// Accepting again at other commits replaces the record: one per
-	// criterion, the latest.
-	e.setStatus(name, func(in *v1alpha1.Intent) {
-		in.Status.Verification.HeadSetDigest = "sha256:" + strings.Repeat("2", 64)
-	})
+	// Accepting again replaces the record: one per criterion, the latest.
 	again := e.gh.comment(approver, "/maul accept "+manualID)
 	e.settleActions(name)
 	acc = e.get(name).Status.Acceptance
@@ -308,8 +329,9 @@ func TestAcceptCommand(t *testing.T) {
 // counting as open at once, so maul/acceptance (which reads the counts) no
 // longer names it, without waiting for another verification.
 func TestAcceptCountsTheManualCriterion(t *testing.T) {
-	e := newEnv(t, testProject())
+	e := newAcceptEnv(t)
 	name := e.reviewingWithCriteria()
+	e.acceptReady(name)
 	e.setStatus(name, func(in *v1alpha1.Intent) {
 		countManual(in.Status.Verification, in.Status.Acceptance)
 	})
@@ -326,7 +348,7 @@ func TestAcceptCountsTheManualCriterion(t *testing.T) {
 // TestVerifyCommandReplyAfterCrash: a request whose status write landed but
 // whose reply did not is answered on the next pass, once, and applied once.
 func TestVerifyCommandReplyAfterCrash(t *testing.T) {
-	e := newEnv(t, testProject())
+	e := newAcceptEnv(t)
 	name := e.reviewingWithCriteria()
 	id := e.gh.comment(approver, "/maul verify --reset")
 	e.gh.failNext("CreateIssueComment", errTransient)
@@ -350,7 +372,8 @@ func TestVerifyCommandReplyAfterCrash(t *testing.T) {
 // settling the acceptance commands on its pull request directly.
 func (e *env) prVerifyPass(name string) *pass {
 	e.t.Helper()
-	p := &pass{r: e.intent, set: testSettings(), in: e.get(name), proj: testProject(), now: e.clock.Now()}
+	p := &pass{r: e.intent, set: e.intent.Settings.withDefaults(), in: e.get(name), proj: e.getProject(),
+		now: e.clock.Now()}
 	if err := p.loadRuns(context.Background()); err != nil {
 		e.t.Fatal(err)
 	}
@@ -390,8 +413,9 @@ func (e *env) prReplies(n, id int64) []string {
 // gets nothing, as on the pull request every non-approver's does; revise
 // and retry are left to their own round.
 func TestVerifyCommandsOnThePullRequest(t *testing.T) {
-	e := newEnv(t, testProject())
+	e := newAcceptEnv(t)
 	name := e.reviewingWithCriteria()
+	e.acceptReady(name)
 	in := e.get(name)
 	pr := in.Status.PullRequests[0]
 	stranger := e.prCommand(pr.Number, "mallory", "/maul verify --reset")
@@ -438,7 +462,7 @@ func TestVerifyCommandsOnThePullRequest(t *testing.T) {
 // TestVerifyCommandsOnThePullRequestNeedWriteAccess: an approver without
 // write access to the application repository is refused there once.
 func TestVerifyCommandsOnThePullRequestNeedWriteAccess(t *testing.T) {
-	e := newEnv(t, testProject())
+	e := newAcceptEnv(t)
 	name := e.reviewingWithCriteria()
 	pr := e.get(name).Status.PullRequests[0]
 	e.gh.perms[approver] = ghclient.PermissionRead
@@ -454,5 +478,226 @@ func TestVerifyCommandsOnThePullRequestNeedWriteAccess(t *testing.T) {
 	}
 	if r := e.prReplies(pr.Number, id); len(r) != 1 || !strings.Contains(r[0], "only the project") {
 		t.Errorf("replies = %q", r)
+	}
+}
+
+// dropReplies deletes maul's replies on pull request n, as anyone with
+// write access to its repository can.
+func (e *env) dropReplies(n int64) {
+	e.gh.mu.Lock()
+	defer e.gh.mu.Unlock()
+	e.gh.prComments[n] = slices.DeleteFunc(e.gh.prComments[n], func(c *ghclient.Comment) bool {
+		return c.UserLogin == testBot
+	})
+	e.gh.version++
+}
+
+// settlePR settles the acceptance commands on the intent's pull request in
+// one pass.
+func (e *env) settlePR(name string) {
+	e.t.Helper()
+	p := e.prVerifyPass(name)
+	pr := p.in.Status.PullRequests[0]
+	if err := p.settlePRVerifyCommands(context.Background(), &pr); err != nil {
+		e.t.Fatal(err)
+	}
+}
+
+// TestVerifyCommandsNeedTheSwitch: with --intent-verification off the
+// acceptance commands on the intent issue write nothing (a reset would
+// restart the Preview's every part) and are answered as not available,
+// naming only the commands that are.
+func TestVerifyCommandsNeedTheSwitch(t *testing.T) {
+	e := newAcceptEnv(t)
+	e.intent.Settings.Verification = false
+	name := e.reviewing()
+	reset := e.gh.comment(approver, "/maul verify --reset")
+	accept := e.gh.comment(approver, "/maul accept "+manualID)
+	e.settleActions(name)
+	if v := e.get(name).Status.Verification; v != nil {
+		t.Fatalf("verification = %+v, want none written", v)
+	}
+	for _, id := range []int64{reset, accept} {
+		body := e.onlyReply(id)
+		if !strings.Contains(body, "does nothing while this intent is `InReview`") ||
+			strings.Contains(body, "- `/maul verify") || strings.Contains(body, "- `/maul accept") ||
+			!strings.Contains(body, "- `/maul cancel`") {
+			t.Errorf("reply = %s", body)
+		}
+	}
+}
+
+// TestVerifyCommandAppliedOnce: a command whose effect was written but whose
+// reply was not is never applied again once the loop consumed its request:
+// the retry only answers it.
+func TestVerifyCommandAppliedOnce(t *testing.T) {
+	e := newAcceptEnv(t)
+	name := e.reviewingWithCriteria()
+	id := e.gh.comment(approver, "/maul verify fix")
+	e.gh.failNext("CreateIssueComment", errTransient)
+	if err := e.reconcileIntent(name); err == nil {
+		t.Fatal("the failed reply returned no error")
+	}
+	if v := e.verification(name); v.Requested == nil || v.AutoFix.State != v1alpha1.AutoFixArmed {
+		t.Fatalf("verification = %+v, want the request applied before the reply", v)
+	}
+	// The loop consumed the request, and a human's round halted fixes since.
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		in.Status.Verification.Requested = nil
+		in.Status.Verification.AutoFix.State = v1alpha1.AutoFixHalted
+		in.Status.Verification.AutoFix.Reason = v1alpha1.AutoFixHumanReview
+	})
+	e.clock.Advance(time.Minute)
+	e.settleActions(name)
+	if v := e.verification(name); v.Requested != nil || v.AutoFix.State != v1alpha1.AutoFixHalted {
+		t.Fatalf("the command applied again: requested %+v auto-fix %+v", v.Requested, v.AutoFix)
+	}
+	if body := e.onlyReply(id); !strings.Contains(body, "applied already") {
+		t.Errorf("reply = %s", body)
+	}
+}
+
+// TestPRVerifyCommandsNeverReplay: deleting maul's replies on the pull
+// request never makes an approver's old /maul verify fix re-arm automatic
+// fixes a human round halted since, nor a superseded /maul accept replace
+// the newer acceptance; each is only answered again.
+func TestPRVerifyCommandsNeverReplay(t *testing.T) {
+	e := newAcceptEnv(t)
+	name := e.reviewingWithCriteria()
+	e.acceptReady(name)
+	n := e.prNumber(name)
+	fix := e.prCommand(n, approver, "/maul verify fix")
+	first := e.prCommand(n, approver, "/maul accept "+manualID)
+	e.clock.Advance(time.Second)
+	second := e.prCommand(n, approver, "/maul accept "+manualID)
+	e.clock.Advance(time.Second)
+	e.settlePR(name)
+	if v := e.verification(name); v.Requested == nil || v.AutoFix.State != v1alpha1.AutoFixArmed {
+		t.Fatalf("verification = %+v, want the fix applied", v)
+	}
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		in.Status.Verification.Requested = nil
+		in.Status.Verification.AutoFix.State = v1alpha1.AutoFixHalted
+		in.Status.Verification.AutoFix.Reason = v1alpha1.AutoFixHumanReview
+	})
+	e.dropReplies(n)
+	e.clock.Advance(time.Minute)
+	e.settlePR(name)
+	if v := e.verification(name); v.Requested != nil || v.AutoFix.State != v1alpha1.AutoFixHalted {
+		t.Fatalf("the old fix replayed: requested %+v auto-fix %+v", v.Requested, v.AutoFix)
+	}
+	if acc := e.get(name).Status.Acceptance.Accepted; len(acc) != 1 || acc[0].CommentID != second {
+		t.Fatalf("accepted = %+v, want the newer acceptance only", acc)
+	}
+	for _, id := range []int64{fix, first} {
+		if r := e.prReplies(n, id); len(r) != 1 || !strings.Contains(r[0], "applied already") {
+			t.Errorf("replies to %d = %q", id, r)
+		}
+	}
+}
+
+// TestAcceptBindsToWhatTheApproverSaw: an acceptance holds only at commits
+// the Preview was live at when it was given: one given before the Preview
+// went live at the recorded commits, or while it does not run them, is
+// refused and recorded nowhere.
+func TestAcceptBindsToWhatTheApproverSaw(t *testing.T) {
+	moved := "fedcba9876543210fedcba9876543210fedcba98"
+	moveHeads := func(e *env, name string) {
+		e.setStatus(name, func(in *v1alpha1.Intent) {
+			in.Status.PullRequests[0].HeadSHA = moved
+		})
+		hs, _ := previewHeadSet(e.getProject(), e.get(name))
+		e.setStatus(name, func(in *v1alpha1.Intent) {
+			in.Status.Verification.HeadSetDigest, in.Status.Verification.Heads = hs.digest, hs.heads
+		})
+		e.previewOf(name)
+	}
+	for _, tc := range []struct {
+		name string
+		run  func(e *env, name string) int64
+	}{
+		{"before the preview was live", func(e *env, name string) int64 {
+			id := e.prCommand(e.prNumber(name), approver, "/maul accept "+manualID)
+			e.clock.Advance(time.Minute)
+			e.readyPreview(name)
+			return id
+		}},
+		{"the commits moved after it", func(e *env, name string) int64 {
+			e.acceptReady(name)
+			id := e.prCommand(e.prNumber(name), approver, "/maul accept "+manualID)
+			e.clock.Advance(time.Minute)
+			moveHeads(e, name)
+			e.readyPreview(name)
+			return id
+		}},
+		{"the preview does not run the commits", func(e *env, name string) int64 {
+			e.acceptReady(name)
+			moveHeads(e, name)
+			e.servePreview(name, v1alpha1.PreviewDeploying, "")
+			e.clock.Advance(time.Minute)
+			return e.prCommand(e.prNumber(name), approver, "/maul accept "+manualID)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newAcceptEnv(t)
+			name := e.reviewingWithCriteria()
+			id := tc.run(e, name)
+			e.clock.Advance(time.Second)
+			e.settlePR(name)
+			if acc := e.get(name).Status.Acceptance.Accepted; len(acc) != 0 {
+				t.Fatalf("accepted = %+v, want nothing", acc)
+			}
+			if r := e.prReplies(e.prNumber(name), id); len(r) != 1 || !strings.Contains(r[0], "accept again") {
+				t.Errorf("replies = %q", r)
+			}
+		})
+	}
+}
+
+// TestRememberAppliedKeepsTheLatest: the applied commands are each kept
+// once, the latest MaxIntentAppliedCommands of them, as the schema bounds
+// them.
+func TestRememberAppliedKeepsTheLatest(t *testing.T) {
+	in := &v1alpha1.Intent{}
+	for id := int64(1); id <= v1alpha1.MaxIntentAppliedCommands+5; id++ {
+		rememberApplied(in, id)
+		rememberApplied(in, id)
+	}
+	got := in.Status.Commands.Applied
+	if len(got) != v1alpha1.MaxIntentAppliedCommands || got[0] != 6 ||
+		got[len(got)-1] != v1alpha1.MaxIntentAppliedCommands+5 {
+		t.Errorf("applied = %v", got)
+	}
+}
+
+// TestPRCommentsListedOncePerPass: one pass lists a pull request's comments
+// once, however many of its steps read them (the acceptance commands, the
+// command round and the human-pending check).
+func TestPRCommentsListedOncePerPass(t *testing.T) {
+	e := newAcceptEnv(t)
+	name := e.reviewingWithCriteria()
+	n := e.prNumber(name)
+	e.prCommand(n, approver, "/maul verify")
+	e.clock.Advance(time.Second)
+	p := e.prVerifyPass(name)
+	pr := p.in.Status.PullRequests[0]
+	ctx := context.Background()
+	e.gh.mu.Lock()
+	before := e.gh.calls["ListPullRequestComments"]
+	e.gh.mu.Unlock()
+	if err := p.settlePRVerifyCommands(ctx, &pr); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.commandRound(ctx, &pr); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.humanPending(ctx, p.in.Status.PullRequests); err != nil {
+		t.Fatal(err)
+	}
+	e.gh.mu.Lock()
+	got := e.gh.calls["ListPullRequestComments"] - before
+	e.gh.mu.Unlock()
+	if got != 1 {
+		t.Errorf("listed the pull request's comments %d times in one pass, want once", got)
 	}
 }
