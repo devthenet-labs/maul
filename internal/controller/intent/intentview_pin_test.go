@@ -66,8 +66,7 @@ func randomRuns(r *rand.Rand) []*v1alpha1.IntentRun {
 	outcomes := []string{"", "ok", OutcomeNoUsableFeedback, OutcomeHeadMoved, OutcomeImageRequired,
 		OutcomeHoldExpired, OutcomeUnschedulable, OutcomeEvicted, string(envelope.OutcomeTimeout),
 		string(envelope.OutcomeRuntimeError)}
-	triggers := []v1alpha1.IntentRunTrigger{v1alpha1.IntentRunTriggerReview, v1alpha1.IntentRunTriggerCommand,
-		v1alpha1.IntentRunTriggerChecks}
+	triggers := v1alpha1.IntentRunTriggers
 	stages := []v1alpha1.IntentStage{v1alpha1.IntentStagePlan, v1alpha1.IntentStageBuild,
 		v1alpha1.IntentStageRevise, v1alpha1.IntentStageRevise}
 	repos := []string{"https://github.com/acme/app", "https://github.com/Acme/App.git", "https://github.com/acme/api"}

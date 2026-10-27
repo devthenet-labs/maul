@@ -1143,7 +1143,7 @@ func (r *RunReconciler) settleMissingJob(ctx context.Context, run *v1alpha1.Inte
 	if pushHeld(run) {
 		return r.settle(ctx, run, result{outcome: OutcomeHoldExpired, keep: true, detail: holdExpiredDetail(run)})
 	}
-	if run.Spec.Stage == v1alpha1.IntentStageRevise && run.Spec.Trigger == v1alpha1.IntentRunTriggerReview {
+	if run.Spec.Stage == v1alpha1.IntentStageRevise && legacyEmptyHandoffPossible(run.Spec.Trigger) {
 		empty, err := r.legacyEmptyReviseFeedback(ctx, run)
 		if err != nil {
 			return fmt.Errorf("check expired revise Job's stored feedback: %w", err)
@@ -1156,6 +1156,20 @@ func (r *RunReconciler) settleMissingJob(ctx context.Context, run *v1alpha1.Inte
 	}
 	return r.settle(ctx, run, result{outcome: OutcomeAborted,
 		detail: "agent job vanished before reporting"})
+}
+
+// legacyEmptyHandoffPossible reports a round whose stored handoff the legacy
+// empty-review recovery may read: a review round's alone, the only kind
+// launched with an empty handoff before that was refused.
+func legacyEmptyHandoffPossible(t v1alpha1.IntentRunTrigger) bool {
+	switch t {
+	case v1alpha1.IntentRunTriggerReview:
+		return true
+	case v1alpha1.IntentRunTriggerCommand, v1alpha1.IntentRunTriggerChecks, v1alpha1.IntentRunTriggerVerify:
+		return false
+	default:
+		return false
+	}
 }
 
 // holdExpiredDetail says why a held run's changeset was lost: its Job

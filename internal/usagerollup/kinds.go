@@ -77,7 +77,7 @@ var EvaluationUnits = Kind[*v1alpha1.EvaluationUnit]{
 }
 
 // IntentRunKind is the usage kind of an intent run: its stage, a checks
-// round of revise being a check-fix.
+// round of revise being a check-fix and a verify round a verify-fix.
 func IntentRunKind(spec v1alpha1.IntentRunSpec) string {
 	switch spec.Stage {
 	case v1alpha1.IntentStagePlan:
@@ -85,10 +85,16 @@ func IntentRunKind(spec v1alpha1.IntentRunSpec) string {
 	case v1alpha1.IntentStageBuild:
 		return stats.UsageKindBuild
 	}
-	if spec.Trigger == v1alpha1.IntentRunTriggerChecks {
+	switch spec.Trigger {
+	case v1alpha1.IntentRunTriggerReview, v1alpha1.IntentRunTriggerCommand:
+		return stats.UsageKindRevise
+	case v1alpha1.IntentRunTriggerChecks:
 		return stats.UsageKindCheckFix
+	case v1alpha1.IntentRunTriggerVerify:
+		return stats.UsageKindVerifyFix
+	default:
+		return stats.UsageKindRevise
 	}
-	return stats.UsageKindRevise
 }
 
 // IntentRuns adapts IntentRuns. The Project is the owning Intent's, read

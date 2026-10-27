@@ -61,7 +61,7 @@ func (p *pass) revising(ctx context.Context) (bool, error) {
 	// A revise round's number is the Intent's own ordinal, never repeated
 	// across repositories: the round is whichever repository's it is.
 	if run := p.round(v1alpha1.IntentStageRevise, p.in.Status.Rounds, anyRepository).latest(); run != nil &&
-		run.Spec.Trigger == v1alpha1.IntentRunTriggerCommand {
+		acksCommand(run.Spec.Trigger) {
 		if err := p.ackPRCommand(ctx, run); err != nil {
 			return false, err
 		}
@@ -79,11 +79,7 @@ func (p *pass) revising(ctx context.Context) (bool, error) {
 		// The completed run owns one pushed commit. The phase write makes the
 		// counter idempotent across reconciliation and restarts.
 		return true, p.setPhase(ctx, v1alpha1.IntentInReview, func(cur *v1alpha1.Intent) {
-			if run.Spec.Trigger == v1alpha1.IntentRunTriggerChecks {
-				cur.Status.CheckFixes++
-			} else {
-				cur.Status.Revisions++
-			}
+			countCompletedRound(&cur.Status, run.Spec.Trigger)
 			cur.Status.ActiveRun = nil
 		})
 	case v1alpha1.RunFailed:
@@ -102,6 +98,83 @@ func (p *pass) revising(ctx context.Context) (bool, error) {
 			return held, err
 		}
 		return p.ensureActive(ctx, run)
+	}
+}
+
+// acksCommand reports a round an approver's PR command started, whose
+// command is acknowledged (reacted to) when the round is entered.
+func acksCommand(t v1alpha1.IntentRunTrigger) bool {
+	switch t {
+	case v1alpha1.IntentRunTriggerCommand:
+		return true
+	case v1alpha1.IntentRunTriggerReview, v1alpha1.IntentRunTriggerChecks, v1alpha1.IntentRunTriggerVerify:
+		return false
+	default:
+		return false
+	}
+}
+
+// countCompletedRound counts a completed round in its own display counter:
+// status.revisions, checkFixes or verifyFixes. A round with no trigger is a
+// revision, as every round was before triggers were recorded.
+func countCompletedRound(st *v1alpha1.IntentStatus, t v1alpha1.IntentRunTrigger) {
+	switch t {
+	case v1alpha1.IntentRunTriggerReview, v1alpha1.IntentRunTriggerCommand:
+		st.Revisions++
+	case v1alpha1.IntentRunTriggerChecks:
+		st.CheckFixes++
+	case v1alpha1.IntentRunTriggerVerify:
+		st.VerifyFixes++
+	default:
+		st.Revisions++
+	}
+}
+
+// retriesHeadMoved reports a round whose attempt a head move (a push to the
+// branch while it ran) is retried once at the new head. An approver's round
+// is: their feedback still applies. A check-fix or acceptance-fix round is
+// not: the failures it was started for were at a head that is gone, and
+// the new head's checks or verification decide whether another is due.
+func retriesHeadMoved(t v1alpha1.IntentRunTrigger) bool {
+	switch t {
+	case v1alpha1.IntentRunTriggerReview, v1alpha1.IntentRunTriggerCommand:
+		return true
+	case v1alpha1.IntentRunTriggerChecks, v1alpha1.IntentRunTriggerVerify:
+		return false
+	default:
+		return true
+	}
+}
+
+// requiresFeedback reports a round that is not launched without usable
+// feedback (errNoUsableFeedback). Only an approver's round is: a check-fix
+// round's input is its checks' diagnostics, and an acceptance-fix round's
+// its verification's evidence, neither of which is thread feedback.
+func requiresFeedback(t v1alpha1.IntentRunTrigger) bool {
+	switch t {
+	case v1alpha1.IntentRunTriggerReview, v1alpha1.IntentRunTriggerCommand:
+		return true
+	case v1alpha1.IntentRunTriggerChecks, v1alpha1.IntentRunTriggerVerify:
+		return false
+	default:
+		return true
+	}
+}
+
+// roundNoticeLabel names a round in its pull request notice. A check-fix
+// round is named with its checks (namesChecks; templates.CIFixRound), so it
+// never reads as a revision from review feedback, nor does an acceptance
+// fix.
+func roundNoticeLabel(t v1alpha1.IntentRunTrigger) (label string, namesChecks bool) {
+	switch t {
+	case v1alpha1.IntentRunTriggerReview, v1alpha1.IntentRunTriggerCommand:
+		return "Revision round", false
+	case v1alpha1.IntentRunTriggerChecks:
+		return "", true
+	case v1alpha1.IntentRunTriggerVerify:
+		return "Acceptance fix round", false
+	default:
+		return "Revision round", false
 	}
 }
 
@@ -152,7 +225,7 @@ func (p *pass) failedRevise(ctx context.Context, run *v1alpha1.IntentRun, rs rou
 			slog.String("repository", run.Spec.Repository.URL))
 		return p.endReviseRound(ctx, run)
 	}
-	if run.Status.Outcome == OutcomeHeadMoved && run.Spec.Trigger != v1alpha1.IntentRunTriggerChecks &&
+	if run.Status.Outcome == OutcomeHeadMoved && retriesHeadMoved(run.Spec.Trigger) &&
 		rs.next() <= v1alpha1.MaxIntentRunAttempt {
 		if pr := p.pullRequest(run.Spec.Repository.URL); pr != nil {
 			if _, err := p.r.GitHub.HeadSHA(ctx, pr.Repository, branchName(p.in.Name)); ghclient.IsNotFound(err) {
@@ -229,8 +302,8 @@ func (p *pass) finishPRRound(ctx context.Context, run *v1alpha1.IntentRun) error
 	}
 	// A round failed checks started says so, and which: it never reads as a
 	// revision from review feedback.
-	label := "Revision round"
-	if run.Spec.Trigger == v1alpha1.IntentRunTriggerChecks {
+	label, namesChecks := roundNoticeLabel(run.Spec.Trigger)
+	if namesChecks {
 		checks, err := p.roundChecks(ctx, run)
 		if err != nil {
 			return err
@@ -399,7 +472,7 @@ func (p *pass) reviseInput(ctx context.Context, run *v1alpha1.IntentRun, plan []
 		}
 		return nil, err
 	}
-	if run.Spec.Trigger != v1alpha1.IntentRunTriggerChecks && in.feedback == "" {
+	if requiresFeedback(run.Spec.Trigger) && in.feedback == "" {
 		return nil, errNoUsableFeedback
 	}
 	// The compare base is the build of this round's own repository.
@@ -660,7 +733,7 @@ func (p *pass) adoptPendingRound(ctx context.Context) (bool, error) {
 // adoptRound enters Revising on run, a round already leased, acknowledging
 // its command first when a command started it.
 func (p *pass) adoptRound(ctx context.Context, run *v1alpha1.IntentRun) error {
-	if run.Spec.Trigger == v1alpha1.IntentRunTriggerCommand {
+	if acksCommand(run.Spec.Trigger) {
 		if err := p.ackPRCommand(ctx, run); err != nil {
 			return err
 		}
@@ -805,10 +878,11 @@ func maxRevisions(proj *v1alpha1.Project) int32 {
 // revisionRounds counts leased review/command rounds, including agent failures.
 // A round refused before launch for lack of usable feedback does not spend
 // this allowance; the independent MaxIntentRound still bounds such rounds.
+// Check-fix and acceptance-fix rounds count against their own limits.
 func (p *pass) revisionRounds() int32 {
 	seen := map[int32]bool{}
 	for _, run := range p.runs {
-		if run.Spec.Stage == v1alpha1.IntentStageRevise && run.Spec.Trigger != v1alpha1.IntentRunTriggerChecks {
+		if run.Spec.Stage == v1alpha1.IntentStageRevise && countsAsRevision(run.Spec.Trigger) {
 			if latest := p.round(v1alpha1.IntentStageRevise, run.Spec.Round, anyRepository).latest(); latest != nil &&
 				latest.Status.Phase == v1alpha1.RunFailed && latest.Status.Outcome == OutcomeNoUsableFeedback {
 				continue
@@ -817,6 +891,20 @@ func (p *pass) revisionRounds() int32 {
 		}
 	}
 	return int32(len(seen))
+}
+
+// countsAsRevision reports a round held against the Project's maxRevisions:
+// an approver's round, or one with no trigger (recorded before triggers
+// were). intentview.RevisionRounds repeats this rule, pinned to it.
+func countsAsRevision(t v1alpha1.IntentRunTrigger) bool {
+	switch t {
+	case v1alpha1.IntentRunTriggerReview, v1alpha1.IntentRunTriggerCommand:
+		return true
+	case v1alpha1.IntentRunTriggerChecks, v1alpha1.IntentRunTriggerVerify:
+		return false
+	default:
+		return true
+	}
 }
 
 // reviewCutoff ignores feedback on the pull request in repoURL predating its
