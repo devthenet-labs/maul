@@ -86,6 +86,10 @@ func (c *Client) Doer(ctx context.Context, host string) acceptance.Doer {
 }
 
 func (c *Client) do(ctx context.Context, host string, b acceptance.BuiltRequest) acceptance.Response {
+	if err := ctx.Err(); err != nil {
+		// The run's budget is spent (or the run stopped): never sent.
+		return acceptance.Response{Transport: classify(err)}
+	}
 	req, err := c.newRequest(ctx, host, b)
 	if err != nil {
 		// Unreachable for a request BuildRequest built; recorded as never

@@ -336,7 +336,8 @@ func (v *VerificationReconciler) start(ctx context.Context, pv *v1alpha1.Preview
 // renderTester renders the request's tester Job: the spec the tester reads
 // (its criteria, run tokens and, per component, the Service its requests go
 // to, by the derivation the Preview's Services are named with, on the
-// Service port), under a deadline clamped to DeadlineMax.
+// Service port) and its budget below the Job's deadline, under a deadline
+// clamped to DeadlineMax.
 func (v *VerificationReconciler) renderTester(pv *v1alpha1.PreviewVerification,
 	s *verifySubject) (*batchv1.Job, error) {
 	targets := make(map[string]string, len(s.preview.Spec.Components))
@@ -344,14 +345,15 @@ func (v *VerificationReconciler) renderTester(pv *v1alpha1.PreviewVerification,
 		targets[c.Name] = fmt.Sprintf("%s:%d", v1alpha1.PreviewComponentServiceName(s.preview, i),
 			v1alpha1.PreviewServicePort)
 	}
-	input, err := previewtester.Spec{Round: pv.Spec.Round, Attempt: pv.Spec.Attempt, Run: pv.Spec.Run,
-		Criteria: s.criteria, Targets: targets}.Encode()
-	if err != nil {
-		return nil, err
-	}
 	clamped := pv.DeepCopy()
 	if limit := cmp.Or(v.DeadlineMax, testerTimeoutMax); clamped.Spec.Timeout.Duration > limit {
 		clamped.Spec.Timeout.Duration = limit
+	}
+	input, err := previewtester.Spec{Round: pv.Spec.Round, Attempt: pv.Spec.Attempt, Run: pv.Spec.Run,
+		BudgetSeconds: previewtester.BudgetFor(clamped.Spec.Timeout.Duration),
+		Criteria:      s.criteria, Targets: targets}.Encode()
+	if err != nil {
+		return nil, err
 	}
 	return v.Settings.testerJob(s.preview, clamped, s.slot, input)
 }

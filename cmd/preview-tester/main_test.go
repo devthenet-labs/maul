@@ -27,7 +27,7 @@ import (
 func specFor(t *testing.T, srv *httptest.Server) string {
 	t.Helper()
 	port := srv.URL[strings.LastIndex(srv.URL, ":")+1:]
-	return fmt.Sprintf(`{"round":1,"attempt":1,"run":"abcdef",
+	return fmt.Sprintf(`{"round":1,"attempt":1,"run":"abcdef","budgetSeconds":30,
 	  "criteria":[{"id":"health","kind":"http","statement":"healthy","target":"api","request":{"path":"/healthz"}}],
 	  "targets":{"api":"localhost:%s"}}`, port)
 }

@@ -294,6 +294,12 @@ func TestVerificationRendersTheTester(t *testing.T) {
 	if len(spec.Criteria) != 2 || spec.Criteria[0].ID != "items" || spec.Criteria[1].ID != "home" {
 		t.Errorf("criteria = %+v, want the automatable ones in plan order", spec.Criteria)
 	}
+	// The tester's budget ends before the Job's deadline does, so a hang
+	// is recorded and summarised rather than cut off.
+	deadline := time.Duration(*job.Spec.Template.Spec.ActiveDeadlineSeconds) * time.Second
+	if want := previewtester.BudgetFor(deadline); spec.BudgetSeconds != want {
+		t.Errorf("budget %ds, want %ds for a %s deadline", spec.BudgetSeconds, want, deadline)
+	}
 	if c := job.Spec.Template.Spec.Containers[0]; c.TerminationMessagePolicy != corev1.TerminationMessageReadFile {
 		t.Errorf("termination message policy %s", c.TerminationMessagePolicy)
 	}

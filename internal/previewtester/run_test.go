@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/devthenet-labs/maul/internal/acceptance"
 )
@@ -118,5 +119,44 @@ func TestRunRefusesInvalidSpec(t *testing.T) {
 	}
 	if out.Len() != 0 {
 		t.Errorf("Run wrote %q", out.String())
+	}
+}
+
+// TestRunWithinItsBudget: an application that never answers cannot keep
+// the tester past its budget. The criterion cut off and every one not yet
+// reached are recorded as timed out, which judges as a fail, and the
+// summary is written, so a hang reads as the application's failure and
+// never as a run with no summary.
+func TestRunWithinItsBudget(t *testing.T) {
+	api := newComponent(t, func(_ http.ResponseWriter, r *http.Request, _ int) { <-r.Context().Done() })
+	web := newComponent(t, func(w http.ResponseWriter, _ *http.Request, _ int) { _, _ = io.WriteString(w, "ok") })
+	s, d := specFor(t, api, web)
+	s.BudgetSeconds = 1
+	var out bytes.Buffer
+	start := time.Now()
+	sum, err := Run(context.Background(), s, NewClient(Options{Dial: d.dial}), &out)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if took := time.Since(start); took > 5*time.Second {
+		t.Errorf("Run took %s on a 1s budget", took)
+	}
+	obs, parsed, err := acceptance.ParseWire(out.Bytes())
+	if err != nil || parsed != sum || len(obs) != 2 {
+		t.Fatalf("ParseWire = %d observations, %+v, %v\n%s", len(obs), parsed, err, out.String())
+	}
+	for i, c := range s.Criteria {
+		v := acceptance.Judge(c, obs[i], s.RunTokens())
+		if v.Outcome != acceptance.OutcomeFail {
+			t.Errorf("%s: Judge = %+v, want fail", c.ID, v)
+		}
+		for _, try := range obs[i].Tries {
+			if n := len(try.Steps); n == 0 || try.Steps[n-1].TransportError != acceptance.TransportTimeout {
+				t.Errorf("%s: try %+v, want it to end timed out", c.ID, try)
+			}
+		}
+	}
+	if got := web.requests(); len(got) != 0 {
+		t.Errorf("a criterion past the budget was still sent: %+v", got)
 	}
 }

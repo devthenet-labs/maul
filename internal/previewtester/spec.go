@@ -11,6 +11,7 @@ import (
 	"net"
 	"regexp"
 	"strconv"
+	"time"
 
 	"github.com/devthenet-labs/maul/internal/acceptance"
 )
@@ -26,6 +27,28 @@ const MaxSpecBytes = 32 << 10
 // imports nothing of the API).
 const maxAttempts = 3
 
+// maxBudgetSeconds bounds a spec's budget: the tester Job's deadline is at
+// most an hour.
+const maxBudgetSeconds = 3600
+
+// The room BudgetFor leaves below the Job's deadline, for the pod to be
+// scheduled and started and the summary to be written: a quarter of the
+// deadline, at least minBudgetMargin and at most maxBudgetMargin.
+const (
+	minBudgetMargin = 15 * time.Second
+	maxBudgetMargin = 2 * time.Minute
+)
+
+// BudgetFor is the budget, in whole seconds, of a tester whose Job has the
+// given deadline: the deadline less a margin, so the tester's own budget
+// ends, and its summary is written, before the kubelet stops it. At least
+// one second.
+func BudgetFor(deadline time.Duration) int32 {
+	margin := min(max(deadline/4, minBudgetMargin), maxBudgetMargin)
+	secs := (deadline - margin) / time.Second
+	return int32(min(max(secs, 1), maxBudgetSeconds))
+}
+
 // maxTargets bounds the targets map: a Preview has at most four components;
 // the slack keeps the bound a bound without tying it to that number.
 const maxTargets = 8
@@ -40,6 +63,11 @@ type Spec struct {
 	Attempt int32 `json:"attempt"`
 	// Run is the attempt's six random lowercase hex characters.
 	Run string `json:"run"`
+	// BudgetSeconds is how long the tester observes: past it, the
+	// criterion in flight and every one not yet reached are recorded as
+	// timed out and the summary is written. preview-controller sets it
+	// below the Job's deadline (BudgetFor).
+	BudgetSeconds int32 `json:"budgetSeconds"`
 	// Criteria are the automatable http criteria, in plan order.
 	Criteria []acceptance.Criterion `json:"criteria"`
 	// Targets maps a criterion's target (a repository key) to "<host>:<port>",
@@ -97,7 +125,7 @@ func (s Spec) Encode() ([]byte, error) {
 }
 
 // Validate holds a spec to what the tester runs: a round, an attempt
-// within its bound and a run token; one to MaxCriteria http criteria the
+// within its bound, a run token and a budget; one to MaxCriteria http criteria the
 // grammar admits; and for each criterion's target, a Service address.
 func (s Spec) Validate() error {
 	switch {
@@ -107,6 +135,8 @@ func (s Spec) Validate() error {
 		return fmt.Errorf("spec: attempt must be 1..%d", maxAttempts)
 	case !runPattern.MatchString(s.Run):
 		return errors.New("spec: run must be six lowercase hex characters")
+	case s.BudgetSeconds < 1 || s.BudgetSeconds > maxBudgetSeconds:
+		return fmt.Errorf("spec: budgetSeconds must be 1..%d", maxBudgetSeconds)
 	case len(s.Criteria) == 0:
 		return errors.New("spec: no criteria")
 	case len(s.Targets) > maxTargets:
