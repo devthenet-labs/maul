@@ -430,6 +430,16 @@ func (p *pass) ownPullRequest(ctx context.Context, repoURL string, pr *ghclient.
 // Closed when any closed unmerged (endReview). Under the rate floor of a pull
 // request's repository it polls nothing and waits a whole interval.
 func (p *pass) review(ctx context.Context) (bool, error) {
+	if due, err := p.reviewDue(ctx); !due || err != nil {
+		return false, err
+	}
+	return p.reviewNow(ctx)
+}
+
+// reviewDue reports whether the pull requests' poll is due: a poll interval
+// since the last, and under the rate floor of every pull request's
+// repository (else the poll counts as made, and waits a whole interval).
+func (p *pass) reviewDue(ctx context.Context) (bool, error) {
 	var last time.Time
 	p.r.memo(func() { last = p.r.prPolled[p.in.Name] })
 	if !last.IsZero() && p.now.Sub(last) < p.set.PRPollInterval {
@@ -439,7 +449,17 @@ func (p *pass) review(ctx context.Context) (bool, error) {
 		p.r.memo(func() { p.r.prPolled[p.in.Name] = p.now })
 		return false, err
 	}
-	return p.reviewNow(ctx)
+	return true, nil
+}
+
+// followsPullRequests reports an Intent whose pull requests are polled: in
+// review (InReview or Revising), or Blocked from it.
+func (p *pass) followsPullRequests() bool {
+	phase := p.in.Status.Phase
+	if phase == v1alpha1.IntentBlocked {
+		phase = v1alpha1.IntentBlockedFrom(p.in)
+	}
+	return phase == v1alpha1.IntentInReview || phase == v1alpha1.IntentRevising
 }
 
 // reviewNow is review without waiting for the poll interval. In InReview it
@@ -451,24 +471,9 @@ func (p *pass) review(ctx context.Context) (bool, error) {
 // then served in turn (roundOrder), each with its review, command and checks
 // round in that order.
 func (p *pass) reviewNow(ctx context.Context) (bool, error) {
-	p.r.memo(func() { p.r.prPolled[p.in.Name] = p.now })
-	prs := make([]v1alpha1.IntentPullRequest, len(p.in.Status.PullRequests))
-	copy(prs, p.in.Status.PullRequests)
-	if len(prs) == 0 {
-		return false, nil
-	}
-	merged, closed, mergedAt, readable, err := p.readReviewPRStates(ctx, prs)
-	if err != nil || !readable {
-		return false, err
-	}
-	if ended, err := p.endReview(ctx, prs, merged, closed, mergedAt); ended || err != nil {
-		return ended, err
-	}
-	if !prsEqual(prs, p.in.Status.PullRequests) {
-		return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
-			cur.Status.PullRequests = prs
-			return nil
-		})
+	prs, changed, err := p.readPullRequests(ctx)
+	if changed || err != nil || prs == nil {
+		return changed, err
 	}
 	if changed, err := p.recordPreviewBases(ctx); changed || err != nil {
 		return changed, err
@@ -483,6 +488,32 @@ func (p *pass) reviewNow(ctx context.Context) (bool, error) {
 		return false, nil
 	}
 	return p.startRound(ctx, prs)
+}
+
+// readPullRequests reads the recorded pull requests' states now: it ends
+// the Intent once every one has settled (endReview), or records a state
+// that changed. changed reports either status write. prs are the pull
+// requests as read, nil when a write was made or nothing could be read.
+func (p *pass) readPullRequests(ctx context.Context) (prs []v1alpha1.IntentPullRequest, changed bool, err error) {
+	p.r.memo(func() { p.r.prPolled[p.in.Name] = p.now })
+	if len(p.in.Status.PullRequests) == 0 {
+		return nil, false, nil
+	}
+	prs = slices.Clone(p.in.Status.PullRequests)
+	merged, closed, mergedAt, readable, err := p.readReviewPRStates(ctx, prs)
+	if err != nil || !readable {
+		return nil, false, err
+	}
+	if ended, err := p.endReview(ctx, prs, merged, closed, mergedAt); ended || err != nil {
+		return nil, ended, err
+	}
+	if !prsEqual(prs, p.in.Status.PullRequests) {
+		return nil, true, p.update(ctx, func(cur *v1alpha1.Intent) error {
+			cur.Status.PullRequests = prs
+			return nil
+		})
+	}
+	return prs, false, nil
 }
 
 // startRound starts at most one round: the leased one adopted first, then
@@ -512,6 +543,11 @@ func (p *pass) startRound(ctx context.Context, prs []v1alpha1.IntentPullRequest)
 				// The round was leased already, on whichever pull request
 				// (the cache lagged the lease): that round is the one entered.
 				return adopted, adoptErr
+			}
+			if errors.Is(err, errAtCeiling) {
+				// The round is due but the spend is at the ceiling: no round
+				// is leased, on this pull request or any other.
+				return p.blockAtCeiling(ctx)
 			}
 			if started || err != nil {
 				return started, err

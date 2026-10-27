@@ -148,9 +148,6 @@ func (p *pass) startCheckFix(ctx context.Context, pr *v1alpha1.IntentPullRequest
 			fmt.Sprintf("%d of %d check-fix rounds used%s; raise limits.maxCheckFixes to retry",
 				p.checkFixRounds(), limit, failedIn(p.inRepository(pr.Repository))))
 	}
-	if blocked, err := p.reviseAtCeiling(ctx, p.in.Status.Rounds+1); blocked || err != nil {
-		return blocked, err
-	}
 	attributed := p.attributeRun(v1alpha1.IntentStageBuild)
 	if held, err := p.holdForCredential(ctx, p.set.Attribution.Stamp(attributed), false); held || err != nil {
 		return held, err

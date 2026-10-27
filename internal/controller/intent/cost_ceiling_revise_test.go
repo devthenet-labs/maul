@@ -165,7 +165,9 @@ func TestCostCeilingGatesReviseRetry(t *testing.T) {
 
 // TestCostCeilingAdoptsLeasedRound: a round a pass leased before the spend
 // reached the ceiling, whose status write was then lost, is adopted, never
-// stranded behind the block.
+// stranded behind the block. Here the cache has seen the lease
+// (adoptPendingRound); TestCostCeilingAdoptsLeaseThroughALaggingCache covers
+// a cache that has not (errRoundLeased).
 func TestCostCeilingAdoptsLeasedRound(t *testing.T) {
 	e := newEnv(t, testProject())
 	name := e.awaiting()

@@ -151,7 +151,15 @@ func (p *pass) fail(ctx context.Context) error {
 // Revising. A suspended Project launches nothing, so
 // its blocked intents wait for it to resume, and so does an Intent of a
 // Project this controller runs no intent of (UnsupportedRepositories).
+// Whatever blocks it, an Intent blocked from review (InReview or Revising)
+// still follows its pull requests first, as review does (blockedReview): a
+// human merging or closing them ends it, since no block can be lifted by a
+// pull request that has settled. A resume that would create a run at the
+// cost ceiling keeps the Intent Blocked, on the ceiling (lease).
 func (p *pass) blocked(ctx context.Context) (bool, error) {
+	if changed, err := p.blockedReview(ctx); changed || err != nil {
+		return changed, err
+	}
 	if p.proj.Spec.Suspend {
 		return false, nil
 	}
@@ -178,19 +186,21 @@ func (p *pass) blocked(ctx context.Context) (bool, error) {
 	var active *v1alpha1.IntentRun
 	switch {
 	case from == v1alpha1.IntentPlanning && p.in.Status.Input != nil:
-		if active, err = p.resumePlan(ctx); err != nil {
-			return false, err
-		}
+		active, err = p.resumePlan(ctx)
 	case from == v1alpha1.IntentBuilding && p.in.Status.Approval != nil:
 		active, err = p.resumeBuilds(ctx)
-		if errors.Is(err, errRunNameTaken) {
-			return true, p.blockKeyChanged(ctx, err)
-		}
-		if err != nil {
-			return false, err
-		}
 	case from == v1alpha1.IntentRevising:
 		active = p.unfinishedRound()
+	}
+	switch {
+	case errors.Is(err, errAtCeiling):
+		// The spend reached the ceiling while the intent was blocked: it
+		// stays Blocked, now on the ceiling, and resumes once that lifts.
+		return p.blockAtCeiling(ctx)
+	case errors.Is(err, errRunNameTaken):
+		return true, p.blockKeyChanged(ctx, err)
+	case err != nil:
+		return false, err
 	}
 	if from == "" {
 		from = v1alpha1.IntentPending
@@ -208,6 +218,23 @@ func (p *pass) blocked(ctx context.Context) (bool, error) {
 			cur.Status.ActiveRun = &v1alpha1.ObjectReference{Name: active.Name, UID: active.UID}
 		}
 	})
+}
+
+// blockedReview follows the pull requests of an Intent blocked from review,
+// whatever the block: under the same poll interval and rate floors as
+// review, it reads their states, ends the Intent Merged or Closed once every
+// one has settled (endReview; Blocked → Merged and Blocked → Closed), and
+// otherwise records a changed state. It starts no round and writes nothing
+// else. changed reports a status write.
+func (p *pass) blockedReview(ctx context.Context) (bool, error) {
+	if !p.followsPullRequests() {
+		return false, nil
+	}
+	if due, err := p.reviewDue(ctx); !due || err != nil {
+		return false, err
+	}
+	_, changed, err := p.readPullRequests(ctx)
+	return changed, err
 }
 
 // unfinishedRound is the current revise round's latest run while it has not
