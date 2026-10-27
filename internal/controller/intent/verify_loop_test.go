@@ -647,10 +647,21 @@ func TestVerificationRequestRunsAgain(t *testing.T) {
 }
 
 // TestVerificationNeedsReplan: a criterion whose target is no longer a
-// previewed component cannot run as approved.
+// previewed component cannot run as approved. (One aimed at no previewed
+// component when planned never reaches approval: TestPlanAimedAtNothingIsRefused.)
+// Here the operator renames the previewed repository's key after the plan
+// targeting it was approved.
 func TestVerificationNeedsReplan(t *testing.T) {
-	e := newVerifyEnv(t, strings.Replace(acceptancePlan, "target: app", "target: web", 1))
+	e := newVerifyEnv(t, acceptancePlan)
 	name := e.reviewing()
+	var p v1alpha1.Project
+	if err := e.c.Get(context.Background(), req("target").NamespacedName, &p); err != nil {
+		t.Fatal(err)
+	}
+	p.Spec.Repositories[0].Name = "shop"
+	if err := e.c.Update(context.Background(), &p); err != nil {
+		t.Fatal(err)
+	}
 	e.readyPreview(name)
 	e.review(name, 3)
 	in := e.get(name)

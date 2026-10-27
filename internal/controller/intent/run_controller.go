@@ -932,6 +932,7 @@ func (r *RunReconciler) stageSpec(run *v1alpha1.IntentRun, spec *jobs.Spec, cm *
 		spec.InvestigationMarkdown = planCtx
 		spec.Model = r.runHarness(run).PlanModel
 		spec.OpenPullRequests = r.planOpenPullRequests(run, cm)
+		spec.PlanVerification = r.planVerification(proj)
 		return false, nil
 	case v1alpha1.IntentStageBuild:
 		spec.Model = r.runHarness(run).BuildModel
@@ -1058,6 +1059,28 @@ func (r *RunReconciler) planBuildProfiles(run *v1alpha1.IntentRun) string {
 		}
 	}
 	return templates.EncodeBuildProfiles(profiles)
+}
+
+// planVerification is what a plan Job is told of its Project's verification
+// (jobs.Spec.PlanVerification, MAUL_PLAN_VERIFICATION): the previewed
+// components its acceptance criteria can target, each by the key a
+// criterion's target names, the path it is served under and its readiness
+// path, from the Project's operator configuration alone
+// (v1alpha1.EffectivePreviews, the components every Preview of it is
+// derived from). Only while the Project verifies and this controller can
+// verify it (--intent-verification with --intent-previews-enabled, else the
+// intent's verification is Off): the plan prompt then asks for criteria,
+// and otherwise says nothing of them. "" for none.
+func (r *RunReconciler) planVerification(proj *v1alpha1.Project) string {
+	if !r.Settings.verifies(proj) {
+		return ""
+	}
+	v := &templates.PlanVerification{}
+	for _, rp := range v1alpha1.EffectivePreviews(proj) {
+		v.Components = append(v.Components, templates.PlanVerifyComponent{
+			Key: rp.Name, Path: rp.Path, Readiness: rp.Preview.ReadinessPath})
+	}
+	return templates.EncodePlanVerification(v)
 }
 
 // planOpenPullRequests is what a plan run's Job is handed of the other
@@ -1546,9 +1569,15 @@ func (r *RunReconciler) collectPlan(ctx context.Context, run *v1alpha1.IntentRun
 	case ev.Outcome != envelope.OutcomeOK:
 		res.outcome, res.detail = podOutcome(ev.Outcome, ev.Detail)
 	default:
-		if bad := r.outsideProject(ctx, run, plan.Repositories); bad != "" {
+		proj, gone := r.planProject(ctx, run)
+		if bad := outsideProject(proj, plan.Repositories); gone != "" || bad != "" {
 			res.outcome = string(envelope.OutcomeReportInvalid)
-			res.detail = "the plan names a repository outside the project: " + bad
+			res.detail = "the plan names a repository outside the project: " + gone + bad
+			break
+		}
+		if bad := unpreviewedTarget(proj, plan.Acceptance); bad != "" {
+			res.outcome = string(envelope.OutcomeReportInvalid)
+			res.detail = "the plan's acceptance " + bad
 			break
 		}
 		res.outcome, res.complete, res.report = string(envelope.OutcomeOK), true, plan.Report
@@ -1556,16 +1585,25 @@ func (r *RunReconciler) collectPlan(ctx context.Context, run *v1alpha1.IntentRun
 	return r.settle(ctx, run, res)
 }
 
-// outsideProject is the first of repos not among the run's Project's
-// repositories, or "".
-func (r *RunReconciler) outsideProject(ctx context.Context, run *v1alpha1.IntentRun, repos []string) string {
+// planProject is the run's Project, read through its Intent, or why it
+// cannot be read ("(the intent is gone)", "(the project is gone)").
+func (r *RunReconciler) planProject(ctx context.Context, run *v1alpha1.IntentRun) (*v1alpha1.Project, string) {
 	var in v1alpha1.Intent
 	var proj v1alpha1.Project
 	if err := r.Get(ctx, types.NamespacedName{Namespace: run.Namespace, Name: run.Spec.IntentRef.Name}, &in); err != nil {
-		return "(the intent is gone)"
+		return nil, "(the intent is gone)"
 	}
 	if err := r.Get(ctx, types.NamespacedName{Namespace: run.Namespace, Name: in.Spec.Project}, &proj); err != nil {
-		return "(the project is gone)"
+		return nil, "(the project is gone)"
+	}
+	return &proj, ""
+}
+
+// outsideProject is the first of repos not among proj's repositories, or
+// "" (and "" for no project, which planProject has already named).
+func outsideProject(proj *v1alpha1.Project, repos []string) string {
+	if proj == nil {
+		return ""
 	}
 	for _, u := range repos {
 		found := false

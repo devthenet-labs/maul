@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -439,6 +441,59 @@ func TestIntentVerifyPasses(t *testing.T) {
 		t.Errorf("maul's status %d is not newer than its first %d", again.ID, mine.ID)
 	}
 	e.waitPreviewComment(t, name, pr.Number, "the verification section naming the impostor", "`mallory`")
+}
+
+// TestIntentVerifyAgentPlansCriteria: the plan of a verifying Project runs
+// on the REAL agent-runner, with hack/fake-agent/claude as the model, which
+// declares criteria only when its prompt asks for them, as a model would.
+// Live, intent-controller never told a plan Job its Project verifies, so the
+// prompt never asked, no plan declared a criterion and verification never
+// ran; every other test here injects criteria past the prompt. Here the plan
+// Job carries the Project's previewed components, the prompt the agent
+// receives teaches the acceptance field naming them, the posted plan comment
+// shows the approver the split, and the planned criterion is recorded and
+// passes against the preview.
+func TestIntentVerifyAgentPlansCriteria(t *testing.T) {
+	e := startVerify(t, versionCriterion, http.StatusOK)
+	e.kubelet.useAgentRunner(t, "plan")
+	number, name, pr := e.toReview(t)
+
+	r := e.kubelet.waitRun(t, "the plan Job", func(r agentRun) bool { return r.Env["MAUL_PHASE"] == "plan" })
+	if r.ExitCode != 0 {
+		t.Fatalf("plan agent-runner exited %d:\n%s", r.ExitCode, r.Stdout)
+	}
+	if got, want := r.Env["MAUL_PLAN_VERIFICATION"],
+		`{"components":[{"key":"shop","path":"/","readiness":"/healthz"}]}`; got != want {
+		t.Errorf("plan Job MAUL_PLAN_VERIFICATION = %q, want %q", got, want)
+	}
+	prompt, err := os.ReadFile(filepath.Join(r.Workspace, ".fake-claude", "prompt-plan"))
+	if err != nil {
+		t.Fatalf("read the prompt the scripted claude received: %v", err)
+	}
+	for _, want := range []string{"### Acceptance criteria", "- `shop`: served under `/`, ready when `/healthz` answers"} {
+		if !strings.Contains(string(prompt), want) {
+			t.Errorf("the plan prompt lacks %q:\n%s", want, prompt)
+		}
+	}
+
+	in := e.waitFor(t, name, "the approved plan's acceptance recorded", func(in *v1alpha1.Intent) bool {
+		return in.Status.Acceptance != nil
+	})
+	if acc := in.Status.Acceptance; len(acc.Criteria) != 1 || acc.Criteria[0].ID != "version-served" ||
+		acc.Criteria[0].Target != appRepo {
+		t.Fatalf("recorded acceptance = %+v, want the planner's version-served on %s", acc, appRepo)
+	}
+	pl := in.Status.Plan
+	plans := e.own(number, templates.PlanMarker(namespace, name, pl.Revision, pl.Digest))
+	if len(plans) != 1 || !strings.Contains(plans[0].Body, "**Acceptance:** 1 checked automatically.") {
+		t.Errorf("plan comments = %+v, want one stating the acceptance split", plans)
+	}
+
+	e.serve(t, name, pr.HeadSHA)
+	e.waitVerification(t, name, "the planned criterion to pass", func(v *v1alpha1.IntentVerification) bool {
+		return v.State == v1alpha1.VerificationPassed && v.Passed == 1
+	})
+	e.waitStatus(t, pr.HeadSHA, "success", "")
 }
 
 // TestIntentVerifyFixRound: the application fails the criterion. The

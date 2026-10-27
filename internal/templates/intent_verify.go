@@ -4,7 +4,10 @@
 package templates
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"strings"
 )
 
@@ -71,25 +74,23 @@ const (
 
 // Criterion outcomes as a comment shows them.
 const (
-	VerifyOutcomePass         = "pass"
-	VerifyOutcomeFail         = "fail"
-	VerifyOutcomeQuarantined  = "quarantined"
-	VerifyOutcomeNotRun       = "not-run"
-	VerifyOutcomeManual       = "manual"
-	VerifyOutcomeAccepted     = "accepted"
-	VerifyOutcomeChangedTests = "changed-tests"
+	VerifyOutcomePass        = "pass"
+	VerifyOutcomeFail        = "fail"
+	VerifyOutcomeQuarantined = "quarantined"
+	VerifyOutcomeNotRun      = "not-run"
+	VerifyOutcomeManual      = "manual"
+	VerifyOutcomeAccepted    = "accepted"
 )
 
 // verifyOutcomeWords are the outcomes in maul's words; an outcome not listed
 // shows as unknown, never as the text it carried.
 var verifyOutcomeWords = map[string]string{
-	VerifyOutcomePass:         "passed",
-	VerifyOutcomeFail:         "failed",
-	VerifyOutcomeQuarantined:  "quarantined: passed only on retry, not counted as passed",
-	VerifyOutcomeNotRun:       "not run yet",
-	VerifyOutcomeManual:       "needs a human",
-	VerifyOutcomeAccepted:     "accepted by a human, not re-checked",
-	VerifyOutcomeChangedTests: "pending: the change edits the tests this check relies on",
+	VerifyOutcomePass:        "passed",
+	VerifyOutcomeFail:        "failed",
+	VerifyOutcomeQuarantined: "quarantined: passed only on retry, not counted as passed",
+	VerifyOutcomeNotRun:      "not run yet",
+	VerifyOutcomeManual:      "needs a human",
+	VerifyOutcomeAccepted:    "accepted by a human, not re-checked",
 }
 
 // Bounds on what a comment quotes.
@@ -238,10 +239,6 @@ type VerifySection struct {
 	// Logs are shown only when the caller passes them: the issue always,
 	// a pull request only under the Project's postLogs.
 	Logs []VerifyLog
-	// ChangedTests: the change edits tests a check relies on.
-	ChangedTests bool
-	// ServicesRestarted: a service pod restarted and lost its data.
-	ServicesRestarted bool
 	// Impostor is the login that posted a maul/acceptance status other than
 	// maul's, which maul re-posted over; "" for none.
 	Impostor string
@@ -301,14 +298,6 @@ func buildVerifyView(s VerifySection, withLogs bool) verifyView {
 				v.Failures = append(v.Failures, f)
 			}
 		}
-	}
-	if s.ChangedTests {
-		v.Notes = append(v.Notes, "This change edits tests that a check relies on, so maul does not count that "+
-			"check as passed until a human accepts it with "+slashCommand("accept <id>")+".")
-	}
-	if s.ServicesRestarted {
-		v.Notes = append(v.Notes, "Services restarted: a service pod restarted and lost its data, "+
-			"so the checks ran against fresh services.")
 	}
 	if s.StatusNotPosted {
 		v.Notes = append(v.Notes, "The maul App may not post commit statuses, so no `maul/acceptance` status is "+
@@ -446,15 +435,92 @@ func planAcceptanceLine(a *PlanAcceptance) string {
 
 // PlanVerification is the Project's verification, as the plan prompt states
 // it so the planner can write acceptance criteria. nil omits the section,
-// and the prompt is exactly the prompt without it.
+// and the prompt is exactly the prompt without it. intent-controller hands
+// it to a plan Job as MAUL_PLAN_VERIFICATION (EncodePlanVerification), and
+// agent-runner reads it back (DecodePlanVerification).
 type PlanVerification struct {
 	// Components are the previewed repositories criteria can target.
-	Components []PlanVerifyComponent
+	Components []PlanVerifyComponent `json:"components"`
 }
 
 // PlanVerifyComponent is one previewed repository: the key a criterion's
 // target names, where it is served and its readiness path.
-type PlanVerifyComponent struct{ Key, Path, Readiness string }
+type PlanVerifyComponent struct {
+	Key       string `json:"key"`
+	Path      string `json:"path"`
+	Readiness string `json:"readiness,omitempty"`
+}
+
+// statable is what of v a prompt can state: each field on one line, the
+// components with a key and a path, at most planVerificationMaxComponents;
+// nil when none is left.
+func (v *PlanVerification) statable() *PlanVerification {
+	if v == nil {
+		return nil
+	}
+	var out *PlanVerification
+	for _, c := range v.Components {
+		c = PlanVerifyComponent{Key: oneLine(c.Key), Path: oneLine(c.Path), Readiness: oneLine(c.Readiness)}
+		if c.Key == "" || c.Path == "" {
+			continue
+		}
+		if out == nil {
+			out = &PlanVerification{}
+		}
+		if len(out.Components) < planVerificationMaxComponents {
+			out.Components = append(out.Components, c)
+		}
+	}
+	return out
+}
+
+// EncodePlanVerification is the JSON a plan Job hands agent-runner as
+// MAUL_PLAN_VERIFICATION: what the prompt can state of v (statable); "" for
+// none.
+func EncodePlanVerification(v *PlanVerification) string {
+	v = v.statable()
+	if v == nil {
+		return ""
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		// Strings only: never.
+		return ""
+	}
+	return string(b)
+}
+
+// DecodePlanVerification reads EncodePlanVerification's JSON back; "" is
+// none. Anything EncodePlanVerification would not have written is refused:
+// unknown fields, trailing data, no component or more than
+// planVerificationMaxComponents, and a component without a key or a path or
+// with a field that is not plain one-line text.
+func DecodePlanVerification(s string) (*PlanVerification, error) {
+	if s == "" {
+		return nil, nil
+	}
+	dec := json.NewDecoder(strings.NewReader(s))
+	dec.DisallowUnknownFields()
+	var v PlanVerification
+	if err := dec.Decode(&v); err != nil {
+		return nil, fmt.Errorf("plan verification: %w", err)
+	}
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		return nil, errors.New("plan verification: trailing data after the object")
+	}
+	if n := len(v.Components); n == 0 || n > planVerificationMaxComponents {
+		return nil, fmt.Errorf("plan verification: %d components, want 1 to %d", n, planVerificationMaxComponents)
+	}
+	for i, c := range v.Components {
+		if c.Key == "" || c.Path == "" {
+			return nil, fmt.Errorf("plan verification: component %d has no key or no path", i)
+		}
+		if c.Key != oneLine(c.Key) || c.Path != oneLine(c.Path) || c.Readiness != oneLine(c.Readiness) {
+			return nil, fmt.Errorf("plan verification: component %d is not plain one-line text", i)
+		}
+	}
+	return &v, nil
+}
 
 // planVerificationMaxComponents bounds the components the prompt lists.
 const planVerificationMaxComponents = 8

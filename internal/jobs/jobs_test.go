@@ -343,10 +343,12 @@ func TestCreateAgentEnv(t *testing.T) {
 // TestCreateAgentEnvPreviousAttempt: a retry's previous attempt reaches the
 // pod as MAUL_PREVIOUS_ATTEMPT, verbatim; a first attempt sets nothing.
 // So does an intent plan's list of open pull requests, as
-// MAUL_OPEN_PULL_REQUESTS, and a Job with none sets nothing.
+// MAUL_OPEN_PULL_REQUESTS, and its Project's verification, as
+// MAUL_PLAN_VERIFICATION, and a Job with none sets nothing.
 func TestCreateAgentEnvPreviousAttempt(t *testing.T) {
 	const previous = `{"attempt":1,"outcome":"commit_failed","detail":"M maul-target"}`
 	const open = `[{"intent":"target-2","repository":"https://github.com/acme/app","number":7}]`
+	const verification = `{"components":[{"key":"app","path":"/","readiness":"/healthz"}]}`
 	for _, tt := range []struct {
 		name, env, value string
 		set              func(*Spec, string)
@@ -355,6 +357,9 @@ func TestCreateAgentEnvPreviousAttempt(t *testing.T) {
 		{"first attempt", "MAUL_PREVIOUS_ATTEMPT", "", func(s *Spec, v string) { s.PreviousAttempt = v }},
 		{"open pull requests", "MAUL_OPEN_PULL_REQUESTS", open, func(s *Spec, v string) { s.OpenPullRequests = v }},
 		{"no open pull request", "MAUL_OPEN_PULL_REQUESTS", "", func(s *Spec, v string) { s.OpenPullRequests = v }},
+		{"plan verification", "MAUL_PLAN_VERIFICATION", verification,
+			func(s *Spec, v string) { s.PlanVerification = v }},
+		{"no plan verification", "MAUL_PLAN_VERIFICATION", "", func(s *Spec, v string) { s.PlanVerification = v }},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			cs := fake.NewClientset()
@@ -402,6 +407,7 @@ func TestOperatorEnvCannotShadowPerJobHandoff(t *testing.T) {
 		{"MAUL_CALIBRATION", func(s *Spec, v string) { s.Calibration = v }},
 		{"MAUL_PREVIOUS_ATTEMPT", func(s *Spec, v string) { s.PreviousAttempt = v }},
 		{"MAUL_OPEN_PULL_REQUESTS", func(s *Spec, v string) { s.OpenPullRequests = v }},
+		{"MAUL_PLAN_VERIFICATION", func(s *Spec, v string) { s.PlanVerification = v }},
 	}
 	sources := []struct {
 		name string
