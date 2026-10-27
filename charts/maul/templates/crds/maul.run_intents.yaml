@@ -1593,11 +1593,18 @@ spec:
                     description: |-
                       NoDefect is the latest acceptance-fix round's conclusion that the code
                       has no defect, kept apart from the auto-fix latch: it stands whatever
-                      halted the latch, until the next fix round or plan revision.
+                      halted the latch, until the next fix round, the heads it judged move,
+                      or a new plan revision.
                     properties:
                       at:
                         description: At is when the round completed.
                         format: date-time
+                        type: string
+                      headSetDigest:
+                        description: |-
+                          HeadSetDigest is the combined change it was concluded about: it is
+                          shown only while the verification is about the same one.
+                        pattern: ^sha256:[0-9a-f]{64}$
                         type: string
                       reason:
                         description: Reason is the agent's account of why the verification

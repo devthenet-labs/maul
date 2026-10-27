@@ -29,8 +29,12 @@ var agentRanOutcomes = map[string]bool{
 	"changeset_rejected": true, "dependency_refused": true,
 	// The agent ran; what it made could not be pushed or was lost.
 	"branch_exists": true, "hold_expired": true, "push_refused": true, "evicted": true,
+	// Recorded after an agent ran as well as before it (a CLI that exited
+	// non-zero after a full session; an OOM kill, the deadline, success
+	// without a changeset): counted as ran, so the bound fails safe.
+	"runtime_error": true, "aborted": true,
 	// No agent ran: maul's or the cluster's trouble, or a human cancelled.
-	"": false, "runtime_error": false, "image_incompatible": false, "aborted": false, "image_required": false,
+	"": false, "image_incompatible": false, "image_required": false,
 	"launch_refused": false, "input_unavailable": false, "no_usable_feedback": false, "unschedulable": false,
 	"superseded_by_human": false, "stopped_by_human": false,
 	// Decided by whether the Job was created: before launch, or at push.
@@ -105,7 +109,7 @@ func TestAgentRan(t *testing.T) {
 		}
 	}
 	refused := &v1alpha1.IntentRun{Status: v1alpha1.IntentRunStatus{Phase: v1alpha1.RunFailed,
-		Outcome: "runtime_error", JobRef: &v1alpha1.JobReference{Name: "job"}}}
+		Outcome: "commit_failed", JobRef: &v1alpha1.JobReference{Name: "job"}}}
 	meta.SetStatusCondition(&refused.Status.Conditions, runnerguard.RefusedCondition(1))
 	refused.Status.Outcome = "ok"
 	if agentRan(refused) {

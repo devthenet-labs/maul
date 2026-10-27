@@ -117,7 +117,7 @@ func (p *pass) completedRevise(ctx context.Context, run *v1alpha1.IntentRun) (bo
 		if found {
 			if nv := cur.Status.Verification; nv != nil {
 				nv.NoDefect = &v1alpha1.NoDefectRecord{Run: run.Name, Reason: report.Bound(run.Status.Detail,
-					maxNoDefectReasonBytes), At: metav1.NewTime(p.now)}
+					maxNoDefectReasonBytes), At: metav1.NewTime(p.now), HeadSetDigest: nv.HeadSetDigest}
 			}
 			haltOn(cur, v1alpha1.AutoFixFixFoundNoDefect, "", fmt.Sprintf("the acceptance-fix round %s found "+
 				"no defect in the code and changed nothing; the failing criteria are left to the reviewers",

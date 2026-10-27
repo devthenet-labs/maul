@@ -200,6 +200,9 @@ func TestVerifyFixRounds(t *testing.T) {
 	}{
 		{"no approval", &v1alpha1.Intent{}, []*v1alpha1.IntentRun{
 			run(1, 1, 1, tVerify, v1alpha1.RunComplete, "ok")}, 0},
+		{"a crashing agent's round counts", approval(2), []*v1alpha1.IntentRun{
+			run(3, 1, 2, tVerify, v1alpha1.RunFailed, "runtime_error"),
+			run(3, 2, 2, tVerify, v1alpha1.RunFailed, OutcomeAborted)}, 1},
 		{"one round two attempts", approval(2), []*v1alpha1.IntentRun{
 			run(3, 1, 2, tVerify, v1alpha1.RunFailed, "runtime_error"),
 			run(3, 2, 2, tVerify, v1alpha1.RunComplete, "ok")}, 1},
@@ -207,8 +210,8 @@ func TestVerifyFixRounds(t *testing.T) {
 			run(3, 1, 2, tVerify, v1alpha1.RunFailed, "commit_failed"),
 			run(4, 1, 2, tVerify, v1alpha1.RunComplete, "ok")}, 2},
 		{"a round no agent ran in does not", approval(2), []*v1alpha1.IntentRun{
-			run(3, 1, 2, tVerify, v1alpha1.RunFailed, "runtime_error"),
-			run(3, 2, 2, tVerify, v1alpha1.RunFailed, OutcomeAborted),
+			run(3, 1, 2, tVerify, v1alpha1.RunFailed, "image_incompatible"),
+			run(3, 2, 2, tVerify, v1alpha1.RunFailed, OutcomeLaunchRefused),
 			run(4, 1, 2, tVerify, v1alpha1.RunComplete, "ok")}, 1},
 		{"a ran attempt counts though its retry was stopped", approval(2), []*v1alpha1.IntentRun{
 			run(3, 1, 2, tVerify, v1alpha1.RunFailed, "commit_failed"),

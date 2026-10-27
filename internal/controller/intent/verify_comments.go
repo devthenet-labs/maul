@@ -220,10 +220,14 @@ func (p *pass) verifySection(ctx context.Context, pr *v1alpha1.IntentPullRequest
 
 // noDefectView is the latest acceptance-fix round's conclusion that the
 // code has no defect, as a comment shows it, from the Intent's own record
-// (status.verification.noDefect), whatever halted the latch; nil for none.
+// (status.verification.noDefect), whatever halted the latch, while the
+// verification is about the heads it judged; nil otherwise. syncHeadSet,
+// the same writer, drops the record when the heads move; this check keeps
+// a record that outlived them from ever being shown.
 func (p *pass) noDefectView() *templates.VerifyNoDefect {
 	v := p.in.Status.Verification
-	if v == nil || v.NoDefect == nil {
+	if v == nil || v.NoDefect == nil || v.NoDefect.HeadSetDigest == "" ||
+		v.NoDefect.HeadSetDigest != v.HeadSetDigest {
 		return nil
 	}
 	return &templates.VerifyNoDefect{Run: v.NoDefect.Run, Reason: v.NoDefect.Reason}

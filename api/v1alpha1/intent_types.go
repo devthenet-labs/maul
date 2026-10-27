@@ -945,6 +945,11 @@ type NoDefectRecord struct {
 	Reason string `json:"reason,omitempty"`
 	// At is when the round completed.
 	At metav1.Time `json:"at"`
+	// HeadSetDigest is the combined change it was concluded about: it is
+	// shown only while the verification is about the same one.
+	// +optional
+	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
+	HeadSetDigest string `json:"headSetDigest,omitempty"`
 }
 
 // VerifyRequest is an approver's pending /maul verify, run at the next
@@ -1071,7 +1076,8 @@ type IntentVerification struct {
 	AutoFix AutoFix `json:"autoFix,omitempty"`
 	// NoDefect is the latest acceptance-fix round's conclusion that the code
 	// has no defect, kept apart from the auto-fix latch: it stands whatever
-	// halted the latch, until the next fix round or plan revision.
+	// halted the latch, until the next fix round, the heads it judged move,
+	// or a new plan revision.
 	// +optional
 	NoDefect *NoDefectRecord `json:"noDefect,omitempty"`
 	// CancelRun names a Pending verify-fix IntentRun a human round

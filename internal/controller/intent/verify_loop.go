@@ -289,6 +289,8 @@ func (p *pass) syncHeadSet(ctx context.Context, hs headSet, state v1alpha1.Inten
 		nv.State = state
 		nv.HeadSetDigest, nv.Heads = hs.digest, slices.Clone(hs.heads)
 		nv.Ref, nv.Attempt, nv.InfraRetries = nil, 0, 0
+		// A no-defect conclusion is about the heads it judged.
+		nv.NoDefect = nil
 		clearJudgement(nv)
 		if pushed {
 			halt(nv, v1alpha1.AutoFixHumanPush, metav1.NewTime(p.now))

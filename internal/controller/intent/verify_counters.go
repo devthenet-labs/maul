@@ -54,18 +54,20 @@ func roundKindOf(t v1alpha1.IntentRunTrigger) roundKind {
 	}
 }
 
-// agentRan reports whether run's agent actually executed: the one rule for
-// "an attempt where an agent tried a fix", which verifyFixRounds and
+// agentRan reports whether run's agent executed: the one rule for "an
+// attempt where an agent tried a fix", which verifyFixRounds and
 // priorVerifyFailure both read through fixTried. Every outcome a run
 // records is listed (agent_ran_test.go holds the list to every outcome
-// constant): an agent that ran and reported, or whose work was then lost
-// or refused, did; an attempt that ended before or without its agent
-// (maul's, the cluster's or the broker's trouble, a refused input, a human
-// cancelling it) did not. A runtime error is counted as not: it is the
-// outcome of an agent that could not start (the broker down), and is never
-// a fix the code was given. A head move is decided by whether the Job was
-// created (at push, the agent ran). A run the sandbox probe refused never
-// ran its agent.
+// constant). It fails safe for maxVerifyFixes: an outcome recorded both
+// after an agent ran and before is counted as ran, so a round whose agent
+// keeps crashing is bounded. runtime_error is one (a CLI that exited
+// non-zero after a full session), and so is aborted (an OOM kill, the
+// deadline, a success without a changeset), as uncounted counts both as
+// attempts. Only the outcomes that are never an agent's are not: an image
+// that cannot run the agent, a refused launch or input, no node to run on,
+// a human cancelling it before its Job, and a run the sandbox probe
+// refused. A head move is decided by whether the Job was created (at push,
+// the agent ran).
 func agentRan(run *v1alpha1.IntentRun) bool {
 	if runnerguard.Refused(run.Status.Conditions) {
 		return false
@@ -75,12 +77,13 @@ func agentRan(run *v1alpha1.IntentRun) bool {
 		string(envelope.OutcomeReportInvalid), string(envelope.OutcomeReportMissing),
 		string(envelope.OutcomeTimeout), string(envelope.OutcomeBudgetExceeded),
 		string(envelope.OutcomeChangesetTooLarge), string(envelope.OutcomeChangesetRejected),
-		OutcomeDependencyRefused, OutcomeBranchExists, OutcomeHoldExpired, OutcomePushRefused, OutcomeEvicted:
+		OutcomeDependencyRefused, OutcomeBranchExists, OutcomeHoldExpired, OutcomePushRefused, OutcomeEvicted,
+		string(envelope.OutcomeRuntimeError), OutcomeAborted:
 		return true
 	case OutcomeHeadMoved:
 		return run.Status.JobRef != nil
-	case "", string(envelope.OutcomeRuntimeError), string(envelope.OutcomeImageIncompatible), OutcomeAborted,
-		OutcomeImageRequired, OutcomeLaunchRefused, OutcomeInputUnavailable, OutcomeNoUsableFeedback,
+	case "", string(envelope.OutcomeImageIncompatible), OutcomeImageRequired, OutcomeLaunchRefused,
+		OutcomeInputUnavailable, OutcomeNoUsableFeedback,
 		OutcomeUnschedulable, OutcomeSupersededByHuman, OutcomeStoppedByHuman:
 		return false
 	}

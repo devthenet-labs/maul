@@ -32,15 +32,24 @@ func TestVerifyFixAfterNoDefectAndRearm(t *testing.T) {
 	first := e.verification(name).Ref.Name
 	e.gh.comment(approver, "/maul verify fix")
 	e.settleActions(name)
+	if p := e.prVerifyPass(name); p.noDefectView() == nil {
+		t.Error("the note went with the re-arm, at the same heads, before any new round")
+	}
 	e.review(name, 4)
 	again := e.verification(name)
 	if again.Ref == nil || again.Ref.Name == first {
 		t.Fatalf("no second verification: %+v", again)
 	}
+	if p := e.prVerifyPass(name); p.noDefectView() == nil {
+		t.Error("the note went before a new round was leased")
+	}
 	e.observe(again.Ref.Name, v1alpha1.VerificationObserved, answering(500))
 	e.review(name, 3)
 	if n, v := len(e.verifyRuns(name)), e.verification(name); n != 2 || v.AutoFix.State != v1alpha1.AutoFixArmed {
 		t.Fatalf("verify runs %d, verification %+v; want a second fix round after the re-arm", n, v)
+	}
+	if p := e.prVerifyPass(name); p.noDefectView() != nil {
+		t.Error("the note outlived the new fix round")
 	}
 }
 
@@ -91,8 +100,8 @@ func TestNoDefectAfterAStop(t *testing.T) {
 }
 
 // TestVerifyFixRoundWhoseAgentNeverRan (review of #286, 4): a fix round
-// whose every attempt ended before any agent ran (the broker down, a
-// runtime error at start) is no fix: the same failure afterwards starts a
+// whose every attempt ended before any agent ran (the repository image
+// could not run the agent) is no fix: the same failure afterwards starts a
 // real round instead of halting as RepeatedFailure, and the empty round is
 // not held against maxVerifyFixes.
 func TestVerifyFixRoundWhoseAgentNeverRan(t *testing.T) {
@@ -100,7 +109,7 @@ func TestVerifyFixRoundWhoseAgentNeverRan(t *testing.T) {
 	e.onAcceptanceFix(func(spec jobs.Spec) jobs.RunOutput {
 		if spec.Attempt <= 2 {
 			out := reportOnly(spec, buildReport)
-			out.Events[0].Remediation.Outcome = envelope.OutcomeRuntimeError
+			out.Events[0].Remediation.Outcome = envelope.OutcomeImageIncompatible
 			return out
 		}
 		return defaultOutput(spec)
@@ -169,5 +178,77 @@ func TestStoppedRetryStillCounts(t *testing.T) {
 	if n, v := len(e.verifyRuns(name)), e.verification(name); n != 2 ||
 		v.AutoFix.Reason != v1alpha1.AutoFixMaxVerifyFixes {
 		t.Fatalf("verify runs %d, verification %+v; want no second round, halted MaxVerifyFixes", n, v)
+	}
+}
+
+// TestCrashingFixRoundIsBounded (re-review of #286, A): a fix round whose
+// agent ran and crashed every attempt (runtime_error after a full
+// session) is a tried fix: it counts toward maxVerifyFixes, so with a limit
+// of one the next failure starts no round and automatic fixes halt.
+func TestCrashingFixRoundIsBounded(t *testing.T) {
+	e := newVerifyEnv(t, twoCheckPlan, func(p *v1alpha1.Project) {
+		one := int32(1)
+		p.Spec.Limits.MaxVerifyFixes = &one
+	})
+	e.onAcceptanceFix(func(spec jobs.Spec) jobs.RunOutput {
+		out := reportOnly(spec, buildReport)
+		out.Events[0].Remediation.Outcome = envelope.OutcomeRuntimeError
+		out.Events[0].Remediation.Detail = "claude exited 1 after 40 turns"
+		return out
+	})
+	name := e.reviewing()
+	e.readyPreview(name)
+	e.review(name, 3)
+	e.observe(e.onlyVerification(name).Name, v1alpha1.VerificationObserved, byPath(500, 200))
+	e.review(name, 1)
+	e.drive(name, v1alpha1.IntentRevising, repoImage)
+	e.drive(name, v1alpha1.IntentInReview, repoImage)
+	runs := e.verifyRuns(name)
+	if len(runs) < 2 {
+		t.Fatalf("verify runs = %d, want both attempts", len(runs))
+	}
+	for _, r := range runs {
+		if r.Status.Outcome != string(envelope.OutcomeRuntimeError) {
+			t.Fatalf("run %s = %s, want runtime_error", r.Name, r.Status.Outcome)
+		}
+	}
+	if got := e.prVerifyPass(name).verifyFixRounds(); got != 1 {
+		t.Fatalf("verifyFixRounds = %d, want the crashing round counted", got)
+	}
+	v := e.reverifyFailing(name, byPath(200, 500))
+	if n := len(e.verifyRuns(name)); n != len(runs) || v.AutoFix.Reason != v1alpha1.AutoFixMaxVerifyFixes {
+		t.Fatalf("verify runs %d (were %d), verification %+v; want halted MaxVerifyFixes", n, len(runs), v)
+	}
+}
+
+// TestNoDefectNoteFollowsTheHeads (re-review of #286, B): the no-defect
+// conclusion is about the code it judged. Once a human's round pushes new
+// heads, the next verification's comment no longer shows it.
+func TestNoDefectNoteFollowsTheHeads(t *testing.T) {
+	e := newVerifyEnv(t, acceptancePlan)
+	e.onAcceptanceFix(func(spec jobs.Spec) jobs.RunOutput { return reportOnly(spec, noDefectReport) })
+	name, _ := e.failingVerification()
+	e.review(name, 1)
+	e.drive(name, v1alpha1.IntentInReview, repoImage)
+	if p := e.prVerifyPass(name); p.noDefectView() == nil {
+		t.Fatal("no note at the heads it was concluded at")
+	}
+	e.reviewOn(e.prNumber(name), 1901, "Rename the handler.")
+	e.clock.Advance(3 * time.Minute)
+	e.drive(name, v1alpha1.IntentRevising, repoImage)
+	e.drive(name, v1alpha1.IntentInReview, repoImage)
+	e.readyPreview(name)
+	e.review(name, 4)
+	v := e.verification(name)
+	if v.Ref == nil || v.Round != 2 {
+		t.Fatalf("no verification at the new heads: %+v", v)
+	}
+	e.observe(v.Ref.Name, v1alpha1.VerificationObserved, answering(500))
+	e.review(name, 3)
+	if p := e.prVerifyPass(name); p.noDefectView() != nil {
+		t.Errorf("the note outlived the heads it judged: %+v", e.verification(name).NoDefect)
+	}
+	if cs := e.gh.withMarker("verify-r2"); len(cs) != 1 || strings.Contains(cs[0].Body, "found no defect") {
+		t.Errorf("verification 2 comment = %+v, want one without the note", cs)
 	}
 }
