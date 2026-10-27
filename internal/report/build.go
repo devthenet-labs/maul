@@ -33,6 +33,11 @@ const ProxyMarker = netprofile.RefusalMarker
 //
 //	---
 //	success: true | false          # required: the plan is built and committed
+//	no_defect: true | false        # optional; only with success false, on an
+//	                               # acceptance-fix round: the code already
+//	                               # does what the failing criteria ask, so
+//	                               # nothing was changed (reason says why the
+//	                               # verification failed)
 //	summary: "<one line>"          # required, at most 200 characters
 //	tests:                         # required
 //	  ran: true | false            # required
@@ -74,6 +79,16 @@ const ProxyMarker = netprofile.RefusalMarker
 // one (netprofile.PolicyRefusal) without reading the free-text reason. It
 // is optional, so a report written before it existed stays valid.
 //
+// NoDefect is an acceptance-fix round's explicit conclusion that the code
+// has no defect to fix: it replayed the failing criteria against this code
+// and they hold, so it changed nothing. It is optional, so a report written
+// before it existed stays valid and claims no such thing; it stands only
+// with success false and a reason, and never beside refused. It is only the
+// agent's claim: agent-runner refuses it outside an acceptance-fix round,
+// and the controller honours it only on a round of trigger verify, where it
+// ends the round without a retry and halts automatic fixes for a human.
+// Without it, a build that changed nothing is a failure, as before.
+//
 // A report claiming success while its own tests failed contradicts itself
 // and is refused. Success is still only the agent's claim: the runner
 // downgrades it unless commit.sh leaves real commits, exactly as it does a
@@ -94,6 +109,10 @@ type Build struct {
 	// Refused are the egress proxy's refusals of dependencies the plan
 	// needs, each the proxy's exact line; set only when Success is false.
 	Refused []string `yaml:"refused"`
+	// NoDefect is an acceptance-fix round's conclusion that the failing
+	// criteria already hold, so nothing was changed; set only when Success
+	// is false.
+	NoDefect bool `yaml:"no_defect"`
 	// Body is the markdown description following the frontmatter.
 	Body string `yaml:"-"`
 }
@@ -172,8 +191,23 @@ func (b *Build) validate() error {
 			errs = append(errs, errors.New("reason is set but success is true"))
 		}
 	}
-	errs = append(errs, b.validateRefused())
+	errs = append(errs, b.validateRefused(), b.validateNoDefect())
 	return errors.Join(errs...)
+}
+
+// validateNoDefect checks no_defect against the claims it may not stand
+// beside: a success, and a dependency the proxy refused. Its reason is
+// success false's own (validate).
+func (b *Build) validateNoDefect() error {
+	switch {
+	case !b.NoDefect:
+		return nil
+	case b.Success != nil && *b.Success:
+		return errors.New("no_defect is set but success is true")
+	case len(b.Refused) > 0:
+		return errors.New("refused is set with no_defect: a build that found no defect needed no dependency")
+	}
+	return nil
 }
 
 // validateRefused checks the refused lines: one-line items, each quoting the

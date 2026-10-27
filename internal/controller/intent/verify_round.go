@@ -46,6 +46,15 @@ import (
 // halts automatic fixes (RepeatedFailure). Never part of the Job's input.
 const keyVerifySignature = "verify-signature"
 
+// keyVerifySignatures is an acceptance-fix round's input record of the
+// parts of the failure it was started for, one per line: each failing
+// criterion's own fingerprint ("c:<id> <fingerprint>", the form
+// status.verification.failing records) and, when the environment failed,
+// its parts' ("p <fingerprint>"). A later failure that still holds every
+// one of them is a repeat of it (repeatedFailure). Never part of the Job's
+// input.
+const keyVerifySignatures = "verify-signatures"
+
 // Bounds of an acceptance-fix round's evidence, on the escaped form. The
 // whole stays within maxVisiblePatchBytes, as a check-fix round's
 // diagnostics do (revise_thread.go's worst case).
@@ -64,6 +73,8 @@ type verifyFailure struct {
 	targets   []string
 	crashed   bool
 	signature string
+	// pieces are the failure's parts, as keyVerifySignatures records them.
+	pieces []string
 }
 
 // fixableFailure judges pv against the approved criteria and reports the
@@ -104,7 +115,48 @@ func fixableFailure(approved []v1alpha1.AcceptanceCriterion, pv *v1alpha1.Previe
 		}
 	}
 	f.signature = acceptance.Fingerprint(f.verdicts, parts)
+	f.pieces = failurePieces(f.verdicts, parts)
 	return f, true
+}
+
+// failurePieces are a failure's parts as keyVerifySignatures records them:
+// each failing criterion's fingerprint, then the failed environment's.
+func failurePieces(verdicts []acceptance.Verdict, parts []acceptance.PartFact) []string {
+	var out []string
+	for _, v := range verdicts {
+		if v.Outcome == acceptance.OutcomeFail {
+			out = append(out, "c:"+v.ID+" "+acceptance.Fingerprint([]acceptance.Verdict{v}, nil))
+		}
+	}
+	if acceptance.ClassifyEnvironment(parts) != acceptance.EnvOK {
+		out = append(out, "p "+acceptance.Fingerprint(nil, parts))
+	}
+	return out
+}
+
+// priorFailure is what the latest acceptance-fix round of the approved
+// plan revision was started for: its whole signature and its pieces, read
+// from its own input. A round counts whether it pushed or not: one whose
+// every attempt failed changed nothing either.
+type priorFailure struct {
+	signature string
+	pieces    []string
+}
+
+// repeatedFailure reports that cur repeats prior: every piece the last fix
+// round was for still fails exactly as it did, whatever else fails beside
+// it now; for a round recorded before pieces were, the whole signature is
+// the same.
+func repeatedFailure(prior priorFailure, cur verifyFailure) bool {
+	if len(prior.pieces) == 0 {
+		return prior.signature != "" && prior.signature == cur.signature
+	}
+	for _, piece := range prior.pieces {
+		if !slices.Contains(cur.pieces, piece) {
+			return false
+		}
+	}
+	return true
 }
 
 // startVerifyFix is startRound's step 3b: the acceptance-fix round, when
@@ -139,11 +191,11 @@ func (p *pass) startVerifyFix(ctx context.Context) (bool, error) {
 			fmt.Sprintf("%d of %d acceptance-fix rounds used; the failing criteria are left to the reviewers",
 				p.verifyFixRounds(), limit))
 	}
-	prior, err := p.priorVerifySignature(ctx)
+	prior, err := p.priorVerifyFailure(ctx)
 	if err != nil {
 		return false, err
 	}
-	if prior != "" && prior == failure.signature {
+	if repeatedFailure(prior, failure) {
 		return true, p.haltFix(ctx, v1alpha1.AutoFixRepeatedFailure, "",
 			"the verification failed again exactly as it did before the last acceptance-fix round")
 	}
@@ -257,10 +309,11 @@ func haltOn(cur *v1alpha1.Intent, reason v1alpha1.AutoFixReason, state v1alpha1.
 		nv.State = state
 	}
 	switch reason {
-	case v1alpha1.AutoFixRepeatedFailure, v1alpha1.AutoFixMaxVerifyFixes, v1alpha1.AutoFixCostCeiling:
+	case v1alpha1.AutoFixRepeatedFailure, v1alpha1.AutoFixMaxVerifyFixes, v1alpha1.AutoFixCostCeiling,
+		v1alpha1.AutoFixFixFoundNoDefect:
 		setCondition(cur, v1alpha1.ConditionVerifyFailing, metav1.ConditionTrue, string(reason), msg)
 	case v1alpha1.AutoFixHumanReview, v1alpha1.AutoFixHumanCommand, v1alpha1.AutoFixHumanPush,
-		v1alpha1.AutoFixCriterionError, v1alpha1.AutoFixNoOpenPR:
+		v1alpha1.AutoFixCriterionError, v1alpha1.AutoFixNoOpenPR, v1alpha1.AutoFixHumanStop:
 	}
 }
 
@@ -296,36 +349,61 @@ func (p *pass) verificationConsumed(uid types.UID) bool {
 	})
 }
 
-// priorVerifySignature is the failure signature the latest completed
-// acceptance-fix round of the approved plan revision was started for, read
-// from its own input; "" with none.
-func (p *pass) priorVerifySignature(ctx context.Context) (string, error) {
+// priorVerifyFailure is the failure the latest finished acceptance-fix
+// round of the approved plan revision was started for, read from the input
+// of its latest attempt that has one; zero with none. A round finished
+// when its latest attempt did, completed or failed (beatbattle-44's rev1
+// failed every attempt and pushed nothing, and the failure it was for came
+// back unchanged); only a round no agent ever ran for (cancelled, refused or
+// unschedulable before its Job) is no fix at all.
+func (p *pass) priorVerifyFailure(ctx context.Context) (priorFailure, error) {
 	ap := p.in.Status.Approval
-	var latest *v1alpha1.IntentRun
+	var round int32
 	for _, run := range p.runs {
 		if run.Spec.Stage != v1alpha1.IntentStageRevise || roundKindOf(run.Spec.Trigger) != roundVerify ||
-			run.Spec.Inputs.PlanRevision != ap.PlanRevision || run.Status.Phase != v1alpha1.RunComplete {
+			run.Spec.Inputs.PlanRevision != ap.PlanRevision || run.Spec.Round <= round {
 			continue
 		}
-		if latest == nil || run.Spec.Round > latest.Spec.Round {
-			latest = run
+		rs := p.round(v1alpha1.IntentStageRevise, run.Spec.Round, anyRepository)
+		latest := rs.latest()
+		if latest == nil || (latest.Status.Phase != v1alpha1.RunComplete && latest.Status.Phase != v1alpha1.RunFailed) ||
+			!slices.ContainsFunc(rs, func(r *v1alpha1.IntentRun) bool { return r.Status.JobRef != nil }) {
+			continue
+		}
+		round = run.Spec.Round
+	}
+	if round == 0 {
+		return priorFailure{}, nil
+	}
+	rs := p.round(v1alpha1.IntentStageRevise, round, anyRepository)
+	for i := len(rs) - 1; i >= 0; i-- {
+		prior, ok, err := p.roundInputFailure(ctx, rs[i])
+		if err != nil || ok {
+			return prior, err
 		}
 	}
-	if latest == nil {
-		return "", nil
-	}
+	return priorFailure{}, nil
+}
+
+// roundInputFailure is the failure run's own input records (ok false when
+// it has no input of its own).
+func (p *pass) roundInputFailure(ctx context.Context, run *v1alpha1.IntentRun) (priorFailure, bool, error) {
 	var cm corev1.ConfigMap
-	err := p.r.APIReader.Get(ctx, types.NamespacedName{Namespace: latest.Namespace,
-		Name: latest.Spec.Inputs.ConfigMap}, &cm)
+	err := p.r.APIReader.Get(ctx, types.NamespacedName{Namespace: run.Namespace,
+		Name: run.Spec.Inputs.ConfigMap}, &cm)
 	switch {
 	case kerrors.IsNotFound(err):
-		return "", nil
+		return priorFailure{}, false, nil
 	case err != nil:
-		return "", fmt.Errorf("read acceptance-fix round %s's input: %w", latest.Name, err)
-	case !controlledBy(cm.OwnerReferences, latest.UID):
-		return "", nil
+		return priorFailure{}, false, fmt.Errorf("read acceptance-fix round %s's input: %w", run.Name, err)
+	case !controlledBy(cm.OwnerReferences, run.UID) || cm.Data[keyVerifySignature] == "":
+		return priorFailure{}, false, nil
 	}
-	return cm.Data[keyVerifySignature], nil
+	prior := priorFailure{signature: cm.Data[keyVerifySignature]}
+	if s := cm.Data[keyVerifySignatures]; s != "" {
+		prior.pieces = strings.Split(s, "\n")
+	}
+	return prior, true, nil
 }
 
 // fixHeadMoved reports an open pull request of a previewed component whose
@@ -372,24 +450,24 @@ func (p *pass) fixTarget(targets []string, heads []v1alpha1.VerificationHead) *v
 // the verification it was handed, rendered by maul, and that failure's
 // signature. The verification must still be this Intent's, pinned by UID,
 // against the criteria of the round's own approved plan revision.
-func (p *pass) verifyRoundInput(ctx context.Context, run *v1alpha1.IntentRun) (feedback, signature string,
+func (p *pass) verifyRoundInput(ctx context.Context, run *v1alpha1.IntentRun) (feedback string, failure verifyFailure,
 	err error) {
 	ref, acc := run.Spec.Inputs.VerificationRef, p.in.Status.Acceptance
 	if ref == nil || acc == nil || acc.PlanRevision != run.Spec.Inputs.PlanRevision {
-		return "", "", fmt.Errorf("%w: the round's verification or its approved criteria are not recorded",
+		return "", verifyFailure{}, fmt.Errorf("%w: the round's verification or its approved criteria are not recorded",
 			errInputUnavailable)
 	}
 	pv, err := p.readVerification(ctx, *ref)
 	if err != nil {
-		return "", "", fmt.Errorf("read verification %s: %w", ref.Name, err)
+		return "", verifyFailure{}, fmt.Errorf("read verification %s: %w", ref.Name, err)
 	}
 	if pv == nil || pv.Spec.CriteriaDigest != acc.Digest {
-		return "", "", fmt.Errorf("%w: verification %s is gone or no longer this intent's", errInputUnavailable,
+		return "", verifyFailure{}, fmt.Errorf("%w: verification %s is gone or no longer this intent's", errInputUnavailable,
 			ref.Name)
 	}
 	failure, ok := fixableFailure(acc.Criteria, pv)
 	if !ok {
-		return "", "", fmt.Errorf("%w: verification %s shows no failure to fix", errInputUnavailable, ref.Name)
+		return "", verifyFailure{}, fmt.Errorf("%w: verification %s shows no failure to fix", errInputUnavailable, ref.Name)
 	}
 	var own []string
 	for _, h := range pv.Spec.Heads {
@@ -397,7 +475,7 @@ func (p *pass) verifyRoundInput(ctx context.Context, run *v1alpha1.IntentRun) (f
 			own = append(own, h.Component)
 		}
 	}
-	return renderVerifyEvidence(pv, acc.Criteria, failure, own), failure.signature, nil
+	return renderVerifyEvidence(pv, acc.Criteria, failure, own), failure, nil
 }
 
 // renderVerifyEvidence is an acceptance-fix round's feedback: per failing
@@ -412,7 +490,7 @@ func renderVerifyEvidence(pv *v1alpha1.PreviewVerification, approved []v1alpha1.
 	f verifyFailure, own []string) string {
 	var sections []string
 	var heads strings.Builder
-	fmt.Fprintf(&heads, "Verification `%s` (round %d, attempt %d) ran the approved criteria against the "+
+	fmt.Fprintf(&heads, "Verification `%s` (verification %d, attempt %d) ran the approved criteria against the "+
 		"preview of these commits:\n\n", pv.Name, pv.Spec.Round, pv.Spec.Attempt)
 	for _, h := range pv.Spec.Heads {
 		fmt.Fprintf(&heads, "- `%s` at `%s`\n", h.Component, h.Revision)
@@ -667,6 +745,11 @@ func verifyRunRefusal(in *v1alpha1.Intent, proj *v1alpha1.Project, run *v1alpha1
 		return nil
 	}
 	if v := in.Status.Verification; v != nil && v.CancelRun != "" && v.CancelRun == run.Name {
+		if v.AutoFix.Reason == v1alpha1.AutoFixHumanStop {
+			return &result{outcome: OutcomeStoppedByHuman,
+				detail: "an approver's /maul verify stop arrived before this automatic acceptance fix launched; " +
+					"it was cancelled, and nothing runs in its place"}
+		}
 		return &result{outcome: OutcomeSupersededByHuman,
 			detail: "an approver's feedback arrived before this automatic acceptance fix launched; it was " +
 				"cancelled so the approver's round runs first"}

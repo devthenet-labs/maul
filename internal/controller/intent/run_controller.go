@@ -974,6 +974,9 @@ func (r *RunReconciler) stageSpec(run *v1alpha1.IntentRun, spec *jobs.Spec, cm *
 				detail: "revise handoff holds text that could not be shown: " + err.Error()}
 		}
 		spec.InvestigationMarkdown = cm.Data[keyInvestigation]
+		// Only an acceptance-fix round may conclude no defect (its report's
+		// no_defect); its prompt says how.
+		spec.AcceptanceFix = roundKindOf(run.Spec.Trigger) == roundVerify
 		if skipped := r.Images.PinFor(spec, repo); skipped != "" {
 			return true, &result{outcome: OutcomeImageRequired, detail: skipped}
 		}
@@ -1668,6 +1671,12 @@ func (r *RunReconciler) collectBuild(ctx context.Context, run *v1alpha1.IntentRu
 	case !ev.Success:
 		res.outcome, res.detail = OutcomeNotBuilt, "the build agent reported the plan not built"
 		if b, err := report.ParseBuild([]byte(ev.ReportMarkdown)); err == nil {
+			if noDefect(run, b) {
+				// The round's explicit conclusion, never retried: the
+				// intent reconciler halts automatic fixes for a human.
+				res.outcome, res.detail, res.complete = OutcomeNoDefect, b.Reason, true
+				return r.settle(ctx, run, res)
+			}
 			if detail, ok := dependencyRefused(b, recordedNetworkProfile(run), r.Images.Profiles); ok {
 				res.outcome, res.detail = OutcomeDependencyRefused, detail
 			} else if b.Reason != "" {
@@ -1690,6 +1699,13 @@ func (r *RunReconciler) collectBuild(ctx context.Context, run *v1alpha1.IntentRu
 		return r.settle(ctx, run, res)
 	}
 	return r.push(ctx, run, ev, res)
+}
+
+// noDefect reports a run that ends as no_defect: an acceptance-fix round
+// whose report concludes, explicitly, that the code has no defect. On any
+// other round the claim is not honoured, and the run fails as not built.
+func noDefect(run *v1alpha1.IntentRun, b *report.Build) bool {
+	return b.NoDefect && run.Spec.Stage == v1alpha1.IntentStageRevise && roundKindOf(run.Spec.Trigger) == roundVerify
 }
 
 func (r *RunReconciler) legacyEmptyReviseFeedback(ctx context.Context, run *v1alpha1.IntentRun) (bool, error) {

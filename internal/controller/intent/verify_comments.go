@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -74,12 +75,12 @@ func verifyJudged(s v1alpha1.IntentVerificationState) bool {
 	return false
 }
 
-// verifyFixRound is the verify-fix round the current verification belongs
-// to, counted as the Project's maxVerifyFixes is (the first verification
-// is round 1, each fix adds one), and the most there can be.
-func (p *pass) verifyFixRound() (round, most int32) {
-	most = p.proj.Spec.Limits.MaxVerifyFixesLimit() + 1
-	return min(p.verifyFixRounds()+1, most), most
+// verifyFixesUsed are the automatic fix rounds spent against the Project's
+// maxVerifyFixes, and that limit: how every report counts fixes, apart
+// from the verification's own number (status.verification.round).
+func (p *pass) verifyFixesUsed() (used, most int32) {
+	most = p.proj.Spec.Limits.MaxVerifyFixesLimit()
+	return min(p.verifyFixRounds(), most), most
 }
 
 // openQuarantined counts the criteria that passed only on retry and no
@@ -119,8 +120,8 @@ func (p *pass) verifyProgress() *templates.VerifyProgress {
 		return &templates.VerifyProgress{State: templates.VerifyUnreadable}
 	}
 	acc, v := p.in.Status.Acceptance, p.in.Status.Verification
-	round, most := p.verifyFixRound()
-	out := &templates.VerifyProgress{Round: round, MaxRounds: most, ManualOpen: v.ManualOpen}
+	used, most := p.verifyFixesUsed()
+	out := &templates.VerifyProgress{Verification: v.Round, FixesUsed: used, MaxFixes: most, ManualOpen: v.ManualOpen}
 	total := int32(len(automatable(acc.Criteria)))
 	switch v.State {
 	case v1alpha1.VerificationNotDeclared:
@@ -213,7 +214,34 @@ func (p *pass) verifySection(ctx context.Context, pr *v1alpha1.IntentPullRequest
 		s.Logs = p.verifyLogs(pv, pr)
 	}
 	s.Impostor = p.impostor(pr)
+	s.NoDefect = p.noDefectView()
 	return s
+}
+
+// noDefectView is the acceptance-fix round whose conclusion that the code
+// has no defect halted automatic fixes, as a comment shows it: the latest
+// such round of the approved plan revision while the latch still stands
+// halted for it; nil otherwise.
+func (p *pass) noDefectView() *templates.VerifyNoDefect {
+	v, ap := p.in.Status.Verification, p.in.Status.Approval
+	if v == nil || ap == nil || v.AutoFix.State != v1alpha1.AutoFixHalted ||
+		v.AutoFix.Reason != v1alpha1.AutoFixFixFoundNoDefect {
+		return nil
+	}
+	var latest *v1alpha1.IntentRun
+	for _, run := range p.runs {
+		if run.Spec.Stage != v1alpha1.IntentStageRevise || run.Spec.Inputs.PlanRevision != ap.PlanRevision ||
+			run.Status.Phase != v1alpha1.RunComplete || run.Status.Outcome != OutcomeNoDefect {
+			continue
+		}
+		if latest == nil || run.Spec.Round > latest.Spec.Round {
+			latest = run
+		}
+	}
+	if latest == nil {
+		return nil
+	}
+	return &templates.VerifyNoDefect{Run: latest.Name, Reason: latest.Status.Detail}
 }
 
 // criterionView is one criterion as a comment shows it.
@@ -236,6 +264,7 @@ func criterionView(c v1alpha1.AcceptanceCriterion, acc *v1alpha1.IntentAcceptanc
 			out.Outcome = templates.VerifyOutcomeFail
 			if pv != nil {
 				out.Expected, out.Observed, out.Body = failureEvidence(c, pv.Status.Observations)
+				out.Mismatches = failureMismatches(c, pv)
 			}
 		case slices.Contains(v.QuarantinedIDs, c.ID):
 			out.Outcome = templates.VerifyOutcomeQuarantined
@@ -305,6 +334,105 @@ func failureEvidence(c v1alpha1.AcceptanceCriterion, obs []v1alpha1.CriterionObs
 		body = string(raw)
 	}
 	return expected, observed, body
+}
+
+// failureMismatches are the parts of a failed http criterion's failing
+// step that did not hold, as judged (judgeOne) from its one observation of
+// the deciding try: each JSON pointer, header, bodyContains and capture
+// whose matched bit is false, with what was expected and what was
+// observed, and the request when it was not sent as declared. The status
+// is the failure's own line (failureEvidence). None when the step got no
+// response, or when its bits cannot be read against the step.
+func failureMismatches(c v1alpha1.AcceptanceCriterion, pv *v1alpha1.PreviewVerification) []templates.VerifyMismatch {
+	rt := acceptance.RunTokens{Round: pv.Spec.Round, Attempt: pv.Spec.Attempt, Run: pv.Spec.Run}
+	v := judgeOne(c, pv.Status.Observations, rt)
+	if v.Outcome != acceptance.OutcomeFail || len(v.Steps) == 0 {
+		return nil
+	}
+	sv := v.Steps[len(v.Steps)-1]
+	cs, err := crdconv.CriteriaFromCRD([]v1alpha1.AcceptanceCriterion{c})
+	i := slices.IndexFunc(pv.Status.Observations, func(o v1alpha1.CriterionObservation) bool { return o.ID == c.ID })
+	if err != nil || len(cs) != 1 || sv.Index >= len(cs[0].Steps) || i < 0 || len(pv.Status.Observations[i].Tries) == 0 {
+		return nil
+	}
+	try := pv.Status.Observations[i].Tries[len(pv.Status.Observations[i].Tries)-1]
+	if sv.Index >= len(try.Steps) {
+		return nil
+	}
+	return stepMismatches(cs[0].Steps[sv.Index], try.Steps[sv.Index], sv.Matched)
+}
+
+// stepMismatches reads matched, acceptance.StepVerdict's bits in their
+// fixed order (request, status, pointers, headers, bodyContains, captures),
+// against st and what o observed.
+func stepMismatches(st acceptance.Step, o v1alpha1.StepObservation, matched []bool) []templates.VerifyMismatch {
+	pointers, headers, captures := sortedKeys(st.Expect.JSON), sortedFold(st.Expect.Headers), sortedKeys(st.Capture)
+	want := 2 + len(pointers) + len(headers) + len(captures)
+	if st.Expect.BodyContains != "" {
+		want++
+	}
+	if len(matched) != want || o.Status == 0 {
+		return nil
+	}
+	var out []templates.VerifyMismatch
+	if !matched[0] {
+		method := st.Request.Method
+		if method == "" {
+			method = "GET"
+		}
+		out = append(out, templates.VerifyMismatch{Kind: templates.MismatchRequest,
+			Expected: method + " " + st.Request.Path, Observed: o.Method + " " + o.Path})
+	}
+	bit := 2
+	for _, ptr := range pointers {
+		if !matched[bit] {
+			raw, ok := o.Pointers[ptr]
+			out = append(out, templates.VerifyMismatch{Kind: templates.MismatchJSON, Key: ptr,
+				Expected: st.Expect.JSON[ptr].String(), Observed: raw, Absent: !ok})
+		}
+		bit++
+	}
+	for _, name := range headers {
+		if !matched[bit] {
+			raw, ok := o.Headers[strings.ToLower(name)]
+			out = append(out, templates.VerifyMismatch{Kind: templates.MismatchHeader, Key: name,
+				Expected: st.Expect.Headers[name].String(), Observed: raw, Absent: !ok})
+		}
+		bit++
+	}
+	if st.Expect.BodyContains != "" {
+		if !matched[bit] {
+			out = append(out, templates.VerifyMismatch{Kind: templates.MismatchBody, Expected: st.Expect.BodyContains})
+		}
+		bit++
+	}
+	for _, name := range captures {
+		if !matched[bit] {
+			val, ok := o.Captures[name]
+			out = append(out, templates.VerifyMismatch{Kind: templates.MismatchCapture, Key: name,
+				Expected: "a value at " + st.Capture[name], Observed: val, Absent: !ok})
+		}
+		bit++
+	}
+	return out
+}
+
+// sortedKeys are m's keys in order; sortedFold header names sorted
+// case-insensitively, ties broken bytewise: the orders acceptance.Judge
+// sets its matched bits in.
+func sortedKeys[V any](m map[string]V) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func sortedFold[V any](m map[string]V) []string {
+	out := sortedKeys(m)
+	sort.SliceStable(out, func(i, j int) bool { return strings.ToLower(out[i]) < strings.ToLower(out[j]) })
+	return out
 }
 
 // expectedOf is what a step expects, as a failure names it: its request

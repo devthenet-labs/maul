@@ -1,9 +1,9 @@
-{{- /* The verification comment on an intent's issue: one per verification
-round, edited per attempt, headed by its notice marker. The table and every
+{{- /* The verification comment on an intent's issue: one per verification,
+numbered as the summary line numbers it, edited per attempt, headed by its notice marker. The table and every
 sentence are maul's; see intent_verify_section.md.tmpl for the shared detail
 and for what agent text is shown. One line per paragraph. */ -}}
 {{ .Marker }}
-### maul: verification, round {{ .Round }} (attempt {{ .Attempt }})
+### maul: verification {{ .Round }}, attempt {{ .Attempt }}
 {{- with .Line }}
 
 {{ . }}
@@ -22,4 +22,4 @@ and for what agent text is shown. One line per paragraph. */ -}}
 Component log tails were left out: they would not fit in a comment.
 {{- end }}
 
-_maul edits this comment as the attempts of this round finish._
+_maul edits this comment as the attempts of this verification finish._

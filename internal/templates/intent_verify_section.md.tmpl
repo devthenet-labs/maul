@@ -8,6 +8,11 @@ renders a line break inside a comment as a hard break. */ -}}
 {{- range .Failures }}
 
 **{{ .ID }} failed.**{{ with .Expected }} Expected {{ . }}.{{ end }}{{ with .Observed }} Observed {{ . }}.{{ end }}
+{{- with .Mismatches }}
+{{ range . }}
+- {{ . }}
+{{- end }}
+{{- end }}
 {{- with .Body }}
 
 {{ . | chomp }}

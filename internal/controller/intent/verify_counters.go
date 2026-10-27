@@ -11,6 +11,12 @@ import v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 // spends no verify-fix round.
 const OutcomeSupersededByHuman = "superseded_by_human"
 
+// OutcomeStoppedByHuman is the outcome of an acceptance-fix run still
+// Pending when an approver's /maul verify stop arrived: it is cancelled
+// before its Job is created, nothing runs in its place, and it spends no
+// verify-fix round.
+const OutcomeStoppedByHuman = "stopped_by_human"
+
 // roundKind is what a revise round is for, by its trigger: each counts
 // against its own limit, and each is told and reported differently.
 type roundKind int
@@ -46,7 +52,8 @@ func roundKindOf(t v1alpha1.IntentRunTrigger) roundKind {
 // Project's maxVerifyFixes: the distinct verify rounds of the approved plan
 // revision, a failed one included, so a new approved plan starts the count
 // again. A round whose latest attempt a human's review superseded before it
-// launched (OutcomeSupersededByHuman) is not counted: it never ran.
+// launched (OutcomeSupersededByHuman), or an approver's /maul verify stop
+// cancelled (OutcomeStoppedByHuman), is not counted: it never ran.
 // status.verifyFixes, which counts completed rounds only, is a display
 // mirror and never this count.
 func (p *pass) verifyFixRounds() int32 {
@@ -61,10 +68,16 @@ func (p *pass) verifyFixRounds() int32 {
 			continue
 		}
 		if latest := p.round(v1alpha1.IntentStageRevise, run.Spec.Round, anyRepository).latest(); latest != nil &&
-			latest.Status.Phase == v1alpha1.RunFailed && latest.Status.Outcome == OutcomeSupersededByHuman {
+			latest.Status.Phase == v1alpha1.RunFailed && cancelledUnlaunched(latest.Status.Outcome) {
 			continue
 		}
 		seen[run.Spec.Round] = true
 	}
 	return int32(len(seen))
+}
+
+// cancelledUnlaunched reports the outcome of an acceptance-fix run a human
+// cancelled before its Job was created: a review or command, or a stop.
+func cancelledUnlaunched(outcome string) bool {
+	return outcome == OutcomeSupersededByHuman || outcome == OutcomeStoppedByHuman
 }

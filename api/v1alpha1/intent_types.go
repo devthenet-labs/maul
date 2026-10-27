@@ -839,7 +839,7 @@ const (
 )
 
 // AutoFixReason says why automatic verify-fix rounds halted.
-// +kubebuilder:validation:Enum=HumanReview;HumanCommand;HumanPush;MaxVerifyFixes;RepeatedFailure;CostCeiling;CriterionError;NoOpenPR
+// +kubebuilder:validation:Enum=HumanReview;HumanCommand;HumanPush;MaxVerifyFixes;RepeatedFailure;CostCeiling;CriterionError;NoOpenPR;FixFoundNoDefect;HumanStop
 type AutoFixReason string
 
 // Auto-fix halt reasons.
@@ -864,6 +864,13 @@ const (
 	// AutoFixNoOpenPR: no failing criterion's repository has an open pull
 	// request to fix.
 	AutoFixNoOpenPR AutoFixReason = "NoOpenPR"
+	// AutoFixFixFoundNoDefect: an acceptance-fix round's agent concluded,
+	// explicitly, that the code has no defect to fix, so it changed
+	// nothing; a human judges whether the verification was wrong.
+	AutoFixFixFoundNoDefect AutoFixReason = "FixFoundNoDefect"
+	// AutoFixHumanStop: an approver's /maul verify stop halted automatic
+	// fixes, starting nothing.
+	AutoFixHumanStop AutoFixReason = "HumanStop"
 )
 
 // AutoFix is the automatic verify-fix latch: armed by each approved plan
@@ -882,6 +889,27 @@ type AutoFix struct {
 	// Rearm is the approver's /maul verify fix that last re-armed it.
 	// +optional
 	Rearm *Rearm `json:"rearm,omitempty"`
+	// Stop is the approver's /maul verify stop that halted it (reason
+	// HumanStop); a re-arm clears it.
+	// +optional
+	Stop *AutoFixStop `json:"stop,omitempty"`
+}
+
+// AutoFixStop records an approver's /maul verify stop.
+type AutoFixStop struct {
+	// By is the approver's login, for display.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=64
+	// +kubebuilder:validation:Pattern=`^[A-Za-z0-9][A-Za-z0-9_.-]*$`
+	By string `json:"by"`
+	// ByID is GitHub's numeric id of the approver.
+	// +kubebuilder:validation:Minimum=1
+	ByID int64 `json:"byID"`
+	// At is the command comment's created_at.
+	At metav1.Time `json:"at"`
+	// CommentID is GitHub's id of the comment carrying the command.
+	// +kubebuilder:validation:Minimum=1
+	CommentID int64 `json:"commentID"`
 }
 
 // Rearm records an approver's /maul verify fix.

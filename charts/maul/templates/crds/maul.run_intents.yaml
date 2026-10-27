@@ -1423,6 +1423,8 @@ spec:
                         - CostCeiling
                         - CriterionError
                         - NoOpenPR
+                        - FixFoundNoDefect
+                        - HumanStop
                         type: string
                       since:
                         description: Since is when the latch took its state.
@@ -1434,6 +1436,38 @@ spec:
                         - Armed
                         - Halted
                         type: string
+                      stop:
+                        description: |-
+                          Stop is the approver's /maul verify stop that halted it (reason
+                          HumanStop); a re-arm clears it.
+                        properties:
+                          at:
+                            description: At is the command comment's created_at.
+                            format: date-time
+                            type: string
+                          by:
+                            description: By is the approver's login, for display.
+                            maxLength: 64
+                            minLength: 1
+                            pattern: ^[A-Za-z0-9][A-Za-z0-9_.-]*$
+                            type: string
+                          byID:
+                            description: ByID is GitHub's numeric id of the approver.
+                            format: int64
+                            minimum: 1
+                            type: integer
+                          commentID:
+                            description: CommentID is GitHub's id of the comment carrying
+                              the command.
+                            format: int64
+                            minimum: 1
+                            type: integer
+                        required:
+                        - at
+                        - by
+                        - byID
+                        - commentID
+                        type: object
                     type: object
                   automatic:
                     description: |-

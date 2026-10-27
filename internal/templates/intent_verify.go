@@ -113,9 +113,12 @@ const (
 type VerifyProgress struct {
 	// State is one of the Verify state constants; "" shows nothing.
 	State string
-	// Round and MaxRounds count verification rounds (MaxRounds 0 omits the
-	// limit).
-	Round, MaxRounds int32
+	// Verification is the verification's own number, as its comment's
+	// header names it (0 omits it). FixesUsed of MaxFixes count the
+	// automatic fix rounds spent against the Project's maxVerifyFixes;
+	// they are never called rounds of verification, so the two numbers
+	// cannot be read as one.
+	Verification, FixesUsed, MaxFixes int32
 	// Passing of Total automated checks pass; Total 0 omits the count.
 	Passing, Total int32
 	// Quarantined and ManualOpen count checks held for a human.
@@ -157,9 +160,10 @@ func verifyLine(p VerifyProgress) string {
 	if whole {
 		return head
 	}
-	rounds := fmt.Sprintf("round %d", p.Round)
-	if p.MaxRounds > 0 {
-		rounds += fmt.Sprintf(" of %d", p.MaxRounds)
+	fixes := fmt.Sprintf("%d of %d automatic %s used", p.FixesUsed, p.MaxFixes, plural(p.MaxFixes, "fix", "fixes"))
+	which := "Verification"
+	if p.Verification > 0 {
+		which = fmt.Sprintf("Verification %d", p.Verification)
 	}
 	counts := ""
 	if p.Total > 0 {
@@ -180,16 +184,16 @@ func verifyLine(p VerifyProgress) string {
 	case VerifyWaiting:
 		head = "Verification waits for the preview to be ready"
 	case VerifyRunning:
-		head = "Verifying: " + join(rounds, counts)
+		head = which + " running: " + join(counts, fixes)
 	case VerifyPassed:
-		head = "Verified"
+		head = which + " passed"
 		if p.Total > 0 {
-			head = fmt.Sprintf("Verified: %d/%d checks passed", p.Passing, p.Total)
+			head = fmt.Sprintf("%s passed: %d/%d checks passed", which, p.Passing, p.Total)
 		}
 	case VerifyFailing:
-		head = "Verification failing: " + join(counts, rounds)
+		head = which + " failing: " + join(counts, fixes)
 	case VerifyExhausted:
-		head = "Verification failing: " + join(counts, "no automatic fix left")
+		head = which + " failing: " + join(counts, "no automatic fix left")
 	case VerifyUnavailable:
 		head = "Verification unavailable: maul could not run the checks"
 	default:
@@ -213,6 +217,14 @@ func verifyLine(p VerifyProgress) string {
 	return head + "."
 }
 
+// plural is one when n is 1, else many.
+func plural(n int32, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
+}
+
 // VerifyCriterion is one acceptance criterion's state.
 type VerifyCriterion struct {
 	// ID, Kind and Statement are the approved criterion's.
@@ -222,8 +234,56 @@ type VerifyCriterion struct {
 	// Expected, Observed and Body describe a failure: maul-rendered
 	// expected and observed values, and a prefix of the response body.
 	Expected, Observed, Body string
+	// Mismatches are the parts of the failing step that did not hold.
+	Mismatches []VerifyMismatch
 	// AcceptedAt is the head set a human accepted the criterion at.
 	AcceptedAt string
+}
+
+// VerifyMismatch is one part of a failing step that did not hold: its kind
+// (one of the Mismatch constants), the pointer, header or capture it names,
+// and the expected and observed values, observed text being the
+// application's, shown inert and bounded.
+type VerifyMismatch struct {
+	Kind, Key, Expected, Observed string
+	// Absent: nothing was observed there at all.
+	Absent bool
+}
+
+// Mismatch kinds, as a failure names them.
+const (
+	MismatchRequest = "request"
+	MismatchJSON    = "JSON"
+	MismatchHeader  = "header"
+	MismatchBody    = "body"
+	MismatchCapture = "capture"
+)
+
+// Bounds on the mismatches a failure lists.
+const (
+	verifyMismatchesMax         = 8
+	verifyMismatchValueMaxBytes = 256
+)
+
+// mismatchLine is one mismatch in maul's words; "" for an unknown kind.
+func mismatchLine(m VerifyMismatch) string {
+	val := func(s string) string { return code(shown(cutRunes(visibleText(s), verifyMismatchValueMaxBytes))) }
+	switch m.Kind {
+	case MismatchBody:
+		return "body: expected it to contain " + val(m.Expected) + "."
+	case MismatchRequest, MismatchJSON, MismatchHeader, MismatchCapture:
+	default:
+		return ""
+	}
+	head := m.Kind
+	if k := shown(cutRunes(visibleText(m.Key), verifyMismatchValueMaxBytes)); k != "" {
+		head += " " + code(k)
+	}
+	line := head + ": expected " + val(m.Expected)
+	if m.Absent {
+		return line + ", observed nothing there."
+	}
+	return line + ", observed " + val(m.Observed) + "."
 }
 
 // VerifyLog is one component's log tail (already redacted by the caller).
@@ -245,6 +305,43 @@ type VerifySection struct {
 	// StatusNotPosted: the maul App may not post commit statuses, so no
 	// maul/acceptance status is posted.
 	StatusNotPosted bool
+	// NoDefect is the acceptance-fix round that concluded the code has no
+	// defect, which halted automatic fixes; nil for none.
+	NoDefect *VerifyNoDefect
+}
+
+// VerifyNoDefect is an acceptance-fix round's conclusion that the code has
+// no defect: the run, maul's name for it, and the agent's one-line reason,
+// agent text shown sanitised and bounded.
+type VerifyNoDefect struct {
+	Run, Reason string
+}
+
+// verifyNoDefectMaxBytes bounds the agent's reason a comment quotes.
+const verifyNoDefectMaxBytes = 600
+
+// noDefectNote is the note on a no-defect conclusion: the agent's reason as
+// its own words, that it may be wrong, and what a human can do next.
+func noDefectNote(n *VerifyNoDefect) string {
+	var b strings.Builder
+	b.WriteString("The automatic fix")
+	if run := shown(n.Run); run != "" {
+		b.WriteString(" " + code(run))
+	}
+	b.WriteString(" found no defect: its agent concluded that the code already does what the failing criteria ask, " +
+		"and changed nothing.")
+	if r := SanitizeInline(strings.TrimSpace(cutRunes(visibleText(n.Reason), verifyNoDefectMaxBytes))); r != "" {
+		b.WriteString(" Its reason, in its own words: " + r)
+		if !strings.HasSuffix(r, ".") {
+			b.WriteString(".")
+		}
+	}
+	b.WriteString(" This is the agent's verdict and may be wrong, so maul stopped fixing on its own. " +
+		slashCommand("verify") + " checks again (a failure caused by the preview rather than the code may pass), " +
+		slashCommand("verify fix") + " also lets maul fix failures again, and a criterion that then passes only " +
+		"on retry can be accepted with " + slashCommand("accept <id>") + ". Otherwise review the change and " +
+		"decide.")
+	return b.String()
 }
 
 func (s *VerifySection) empty() bool {
@@ -262,7 +359,10 @@ type VerifyComment struct {
 
 type verifyRow struct{ ID, Kind, IDCell, KindCell, Outcome, Statement string }
 
-type verifyFailure struct{ ID, Expected, Observed, Body string }
+type verifyFailure struct {
+	ID, Expected, Observed, Body string
+	Mismatches                   []string
+}
 
 type verifyLogView struct{ Part, Block string }
 
@@ -304,6 +404,9 @@ func buildVerifyView(s VerifySection, withLogs bool) verifyView {
 			"posted: an administrator sets Commit statuses to Read and write in the App's settings and accepts the "+
 			"change on the installation. The Project's `AcceptanceStatusUnavailable` condition names the repository.")
 	}
+	if s.NoDefect != nil {
+		v.Notes = append(v.Notes, noDefectNote(s.NoDefect))
+	}
 	if who := shown(s.Impostor); who != "" {
 		v.Notes = append(v.Notes, "Another actor, "+code(who)+", posted a `maul/acceptance` status. "+
 			"maul posted its own over it.")
@@ -333,10 +436,19 @@ func failureView(c VerifyCriterion) (verifyFailure, bool) {
 	if left > 0 {
 		body = strings.TrimSpace(cutRunes(visibleText(c.Body), left))
 	}
-	if exp == "" && obs == "" && body == "" {
+	var mismatches []string
+	for _, m := range c.Mismatches {
+		if len(mismatches) == verifyMismatchesMax {
+			break
+		}
+		if line := mismatchLine(m); line != "" {
+			mismatches = append(mismatches, line)
+		}
+	}
+	if exp == "" && obs == "" && body == "" && len(mismatches) == 0 {
 		return verifyFailure{}, false
 	}
-	f := verifyFailure{ID: code(shown(c.ID))}
+	f := verifyFailure{ID: code(shown(c.ID)), Mismatches: mismatches}
 	if exp != "" {
 		f.Expected = code(exp)
 	}

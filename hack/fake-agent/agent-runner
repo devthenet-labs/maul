@@ -53,7 +53,12 @@
 # intent's changeset may never touch. When MAUL_FAKE_BUILD_EXTRA_PATH is
 # set, a build's changeset also writes that file with
 # MAUL_FAKE_BUILD_EXTRA_CONTENT (a test harness's stand-in for a model
-# that edits more than the plan asked, such as a requirements file).
+# that edits more than the plan asked, such as a requirements file). When
+# MAUL_FAKE_FIX_NO_DEFECT is set, an acceptance-fix round's build (the Job
+# sets MAUL_ACCEPTANCE_FIX=true) concludes that the code has no defect, as
+# agent-runner reports it: success false, no changeset, and a report
+# saying no_defect with its reason (a stand-in for a model that replayed
+# the failing criteria and found them holding). Any other build ignores it.
 #
 # A multi-repository intent keeps two more of agent-runner's guards. A plan
 # Job handed a repositories manifest (input/repositories, one
@@ -304,6 +309,23 @@ build)
     done
     [ "$matches" -eq 1 ] ||
       fatal "the approved plan names $named repositories, and $matches of them are this build's repository $repo; a build of a multi-repository plan builds exactly one of them"
+  fi
+
+  # An acceptance-fix round that finds no defect: it replays the failing
+  # criteria, changes nothing, and says so (report.Build's no_defect).
+  if [ "${MAUL_ACCEPTANCE_FIX:-}" = true ] && [ -n "${MAUL_FAKE_FIX_NO_DEFECT:-}" ]; then
+    turn system notice '' 'session 00000000-0000-4000-8000-000000000004 started'
+    turn assistant tool_use Read 'input/investigation.md'
+    turn user tool_result Read 'The approved plan, and the acceptance failures under Acceptance failures.'
+    turn assistant tool_use Bash 'go test ./...'
+    turn user tool_result Bash 'ok  all packages'
+    turn assistant tool_use Write 'reports/build.md'
+    turn user tool_result Write 'wrote reports/build.md (0.3 KB)'
+    turn assistant text '' 'No defect: each failing criterion holds when replayed against this code.'
+    report='---\nsuccess: false\nno_defect: true\nsummary: No defect found (scripted from hack/fake-agent)\ntests:\n  ran: true\n  passed: true\n  command: \"go test ./...\"\nnotes: []\nreason: \"each failing criterion holds when replayed against this code; the preview was not ready when the checks ran\"\n---\n\n## Evidence\n\nScripted from `hack/fake-agent`; no model was consulted.\n'
+    printf 'MAUL-EVENT: {"v":4,"type":"remediation","repo":"%s","finding":"%s","remediation":{"outcome":"ok","harness":"fake","model":"%s","session_id":"00000000-0000-4000-8000-000000000004","num_turns":%d,"usage":{"input_tokens":2000,"output_tokens":400,"cache_read_tokens":0,"cache_creation_tokens":0,"cost_usd":0.05},"elapsed_seconds":2.0,"report_markdown":"%s","success":false}}\n' \
+      "$repo" "$finding" "$remediate_model" "$seq" "$report"
+    exit 0
   fi
 
   # A representative build conversation: read the approved plan, change the

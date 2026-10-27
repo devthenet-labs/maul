@@ -387,6 +387,10 @@ type Spec struct {
 	// plan prompt; empty, as on every other Job, omits the prompt's
 	// acceptance section.
 	PlanVerification string
+	// AcceptanceFix marks an intent build Job that is an acceptance-fix
+	// round (MAUL_ACCEPTANCE_FIX=true): its prompt may conclude that the
+	// code has no defect. False, as on every other Job, sets nothing.
+	AcceptanceFix bool
 	// RunnerImage is the digest-pinned repository-declared image from the
 	// Repository's status (name@sha256:...), copied by the launching
 	// controller; empty runs the harness's runner image. It is honoured only
@@ -1058,6 +1062,7 @@ var perJobEnv = map[string]bool{
 	"MAUL_PREVIOUS_ATTEMPT":     true,
 	"MAUL_OPEN_PULL_REQUESTS":   true,
 	"MAUL_PLAN_VERIFICATION":    true,
+	"MAUL_ACCEPTANCE_FIX":       true,
 	agentrun.BinDirEnv:          true,
 	// Set only on a Job that carries a network profile (profileEnv), and
 	// read by cmd/agent-runner, not agentrun.FromEnv, so they are no
@@ -1300,6 +1305,9 @@ func (c *Client) agentEnv(runner Runner, spec Spec) []corev1.EnvVar {
 	}
 	if spec.PlanVerification != "" {
 		env = append(env, corev1.EnvVar{Name: "MAUL_PLAN_VERIFICATION", Value: spec.PlanVerification})
+	}
+	if spec.AcceptanceFix {
+		env = append(env, corev1.EnvVar{Name: "MAUL_ACCEPTANCE_FIX", Value: "true"})
 	}
 
 	// The controller-global Env under the full reserved filter, then the

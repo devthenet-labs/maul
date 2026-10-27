@@ -72,6 +72,16 @@ func TestVerifyNoticeGoldens(t *testing.T) {
 			n.Criterion, n.Heads, n.NoCriteria = "all", []string{"0123abc"}, true
 			return n
 		}()},
+		{"intent_notice_verify_stopped.md", func() VerifyCommandNotice {
+			n := base(VerifyStopped, "verify")
+			n.Cancelled = true
+			return n
+		}()},
+		{"intent_notice_verify_stopped_running.md", func() VerifyCommandNotice {
+			n := base(VerifyStopped, "verify")
+			n.Surface, n.Running = command.IntentPR, true
+			return n
+		}()},
 		{"intent_notice_verify_cap_reached.md", func() VerifyCommandNotice {
 			n := base(VerifyCapReached, "verify")
 			n.MaxVerifications = 20
