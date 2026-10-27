@@ -113,6 +113,86 @@ func TestPreviewVerificationPoliciesAgainstAPIServer(t *testing.T) {
 	t.Run("networkpolicies", func(t *testing.T) { checkEdgePolicies(t, admin, pc) })
 	t.Run("jobs", func(t *testing.T) { checkSlotJobs(t, admin, pc) })
 	t.Run("verifications", func(t *testing.T) { checkVerificationWriters(t, admin, pc, as(saIntent)) })
+	// Last: it re-renders the slot pod policy with another tester image.
+	t.Run("tester pod across an image change", func(t *testing.T) { checkTesterPodAcrossImageChange(t, admin) })
+}
+
+// checkTesterPodAcrossImageChange: a tester Pod admitted under one tester
+// digest must still lose the Job controller's job-tracking finalizer after
+// an upgrade pins another, or it stays Terminating and holds its slot
+// forever. A change to what the pod runs is still judged by the new rule.
+func checkTesterPodAcrossImageChange(t *testing.T, admin client.Client) {
+	ctx := t.Context()
+	p := testerPodNamed("tester-inflight")
+	p.Finalizers = []string{"batch.kubernetes.io/job-tracking"}
+	if err := admin.Create(ctx, p); err != nil {
+		t.Fatalf("create the tester pod: %v", err)
+	}
+	applyTesterImage(t, admin, "ghcr.io/devthenet-labs/maul/preview-tester@sha256:"+strings.Repeat("e", 64))
+	waitFor(t, func() error {
+		err := admin.Create(ctx, testerPodNamed("probe-old-image"), client.DryRunAll)
+		if !deniedWith(err, jobImage) {
+			return &waitError{err: err, want: jobImage}
+		}
+		return nil
+	})
+	shorter := verifyDeadline - 1
+	changed := p.DeepCopy()
+	changed.Spec.ActiveDeadlineSeconds = &shorter
+	if err := admin.Update(ctx, changed); !deniedWith(err, jobImage) {
+		t.Errorf("a spec change to the old-image pod: %v, want a refusal containing %q", err, jobImage)
+	}
+	if err := admin.Delete(ctx, p); err != nil {
+		t.Fatalf("delete the tester pod: %v", err)
+	}
+	if err := admin.Get(ctx, client.ObjectKeyFromObject(p), p); err != nil {
+		t.Fatalf("get the tester pod: %v", err)
+	}
+	p.Finalizers = nil
+	if err := admin.Update(ctx, p); err != nil {
+		t.Errorf("the job-tracking finalizer removal was refused: %v", err)
+	}
+}
+
+// testerPodNamed is the tester Job's pod as the Job controller creates it.
+func testerPodNamed(name string) *corev1.Pod {
+	j := testerJob(name)
+	return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "maul-preview-0",
+		Labels: j.Spec.Template.Labels}, Spec: j.Spec.Template.Spec}
+}
+
+// applyTesterImage replaces the slot pod policy with the chart's render for
+// another tester image, as a helm upgrade pinning a new digest does.
+func applyTesterImage(t *testing.T, admin client.Client, image string) {
+	t.Helper()
+	ctx := t.Context()
+	args := append([]string{"template", "maul", ".", "--namespace", egressRelease}, verificationArgs...)
+	args = append(args, "--set", "preview.verification.deadlineMaxSeconds="+strconv.FormatInt(verifyDeadline, 10),
+		"--set", "preview.verification.testerImage="+image)
+	output, err := exec.CommandContext(ctx, "helm", args...).Output()
+	if err != nil {
+		t.Fatalf("render chart: %v", err)
+	}
+	dec := yaml.NewYAMLOrJSONDecoder(strings.NewReader(string(output)), 4096)
+	for {
+		u := &unstructured.Unstructured{}
+		if err := dec.Decode(u); err != nil {
+			t.Fatal("the render has no maul-preview-pods policy")
+		}
+		if u.GetKind() != "ValidatingAdmissionPolicy" || u.GetName() != "maul-preview-pods" {
+			continue
+		}
+		live := &unstructured.Unstructured{}
+		live.SetGroupVersionKind(u.GroupVersionKind())
+		if err := admin.Get(ctx, client.ObjectKeyFromObject(u), live); err != nil {
+			t.Fatalf("get maul-preview-pods: %v", err)
+		}
+		u.SetResourceVersion(live.GetResourceVersion())
+		if err := admin.Update(ctx, u); err != nil {
+			t.Fatalf("update maul-preview-pods: %v", err)
+		}
+		return
+	}
 }
 
 // applyVerificationRender creates what the verification fences need from

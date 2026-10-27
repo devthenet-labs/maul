@@ -31,6 +31,13 @@ spec:
     matchConditions:
         - name: exact-preview-slot
           expression: 'request.namespace in ["maul-preview-0","maul-preview-1","maul-preview-2","maul-preview-3"]'
+        # A metadata-only UPDATE (the garbage collector removing a
+        # foreground-deletion finalizer, the Job controller removing a
+        # pod's job-tracking one) changes nothing a pod runs, and must pass
+        # even after the tester image it was admitted under is no longer
+        # rendered. pods/ephemeralcontainers changes spec, so stays judged.
+        - name: spec-changed
+          expression: "request.operation != 'UPDATE' || object.spec != oldObject.spec"
     variables:
         - name: pod
           expression: "object.spec"

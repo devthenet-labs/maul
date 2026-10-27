@@ -58,7 +58,9 @@ rules gain a jobs kind (every rule below applies to a Job's pod template,
 under the Job rules of its own), the pod and Job image rules admit the
 tester's exact digest beside the preview prefix (never a Deployment's: no
 component runs it), and maul-preview-networkpolicies fences
-preview-controller's edge policies. Off, everything renders as before.
+preview-controller's edge policies. Off, everything renders as before, but
+for the slot pod policy's metadata-only exemption: a tester pod left from a
+verifying release must still lose its job-tracking finalizer.
 */}}
 {{- $verify := include "maul.previewVerification" . }}
 {{- $kinds := list (dict "name" "pods" "group" `""` "resource" "pods" "pod" "object.spec" "exact" list) (dict "name" "deployments" "group" "apps" "resource" "deployments" "pod" "object.spec.template.spec" "exact" list) }}
@@ -91,9 +93,12 @@ spec:
     matchConditions:
         - name: exact-preview-slot
           expression: 'request.namespace in {{ $guardSlots | toJson }}'
-        {{- if eq $kind.name "jobs" }}
+        {{- if ne $kind.name "deployments" }}
         # A metadata-only UPDATE (the garbage collector removing a
-        # foreground-deletion finalizer) changes nothing a pod runs.
+        # foreground-deletion finalizer, the Job controller removing a
+        # pod's job-tracking one) changes nothing a pod runs, and must pass
+        # even after the tester image it was admitted under is no longer
+        # rendered. pods/ephemeralcontainers changes spec, so stays judged.
         - name: spec-changed
           expression: "request.operation != 'UPDATE' || object.spec != oldObject.spec"
         {{- end }}
