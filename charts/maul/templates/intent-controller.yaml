@@ -100,6 +100,13 @@ rules:
     - apiGroups: [maul.run]
       resources: [previews]
       verbs: [create, get, update, delete]
+    {{- if include "maul.previewVerification" . }}
+    # Acceptance verification: the requests it writes and supersedes; only
+    # preview-controller writes their status (maul-preview-verifications).
+    - apiGroups: [maul.run]
+      resources: [previewverifications]
+      verbs: [create, get, list, watch, delete]
+    {{- end }}
     {{- end }}
     - apiGroups: [maul.run]
       resources: [intentruns]

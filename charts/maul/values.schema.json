@@ -4,6 +4,14 @@
     "type": "object",
     "additionalProperties": false,
     "definitions": {
+        "previewQuotaResources": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "cpu": {"type": ["string", "number"], "pattern": "^[0-9]+(\\.[0-9]+)?m?$"},
+                "memory": {"type": ["string", "integer"], "pattern": "^[0-9]+(Ki|Mi|Gi|K|M|G)?$"}
+            }
+        },
         "containerExtraEnv": {
             "type": "array",
             "description": "Container EnvVar entries added to this component (valueFrom allowed). A name maul sets itself (MAUL_*, POD_NAMESPACE, DOCKER_CONFIG) fails the render.",
@@ -820,7 +828,28 @@
                 },
                 "certificateARN": {"type": "string", "pattern": "^$|^arn:aws:acm:[a-z0-9-]+:[0-9]{12}:certificate/[0-9a-f-]+$"},
                 "hostSuffix": {"type": "string", "pattern": "^$|^[a-z0-9-]+(\\.[a-z0-9-]+)+$"},
-                "albName": {"type": "string", "pattern": "^$|^[a-z][a-z0-9-]{0,31}$"}
+                "albName": {"type": "string", "pattern": "^$|^[a-z][a-z0-9-]{0,31}$"},
+                "verification": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "enabled": {"type": "boolean"},
+                        "testerImage": {"type": "string", "description": "The preview-tester image, pinned by digest; the render checks its grammar and that it lies under neither the preview prefix nor an agent registry"},
+                        "deadlineMaxSeconds": {"type": "integer", "minimum": 60, "maximum": 7200}
+                    }
+                },
+                "quota": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "pods": {"type": "integer", "minimum": 1, "maximum": 64},
+                        "services": {"type": "integer", "minimum": 1, "maximum": 32},
+                        "requests": {"$ref": "#/definitions/previewQuotaResources"},
+                        "limits": {"$ref": "#/definitions/previewQuotaResources"},
+                        "jobs": {"type": "integer", "minimum": 0, "maximum": 16},
+                        "networkPolicies": {"type": "integer", "minimum": 1, "maximum": 64}
+                    }
+                }
             }
         },
         "previewController": {

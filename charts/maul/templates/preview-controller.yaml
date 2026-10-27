@@ -2,8 +2,16 @@
 # SPDX-License-Identifier: MIT
 #
 # Optional, namespaced runtime renderer. It has no GitHub, ECR, AWS, Secret,
-# namespace or cluster-scoped permissions. The separate preview.enabled
-# foundation must be present before any workload can run.
+# ConfigMap, namespace or cluster-scoped permissions. The separate
+# preview.enabled foundation must be present before any workload can run.
+# Acceptance verification (preview.verification.enabled, off by default) adds,
+# in each slot, batch jobs (create, get, list, delete: the tester Job),
+# networking.k8s.io networkpolicies (create, get, list, update, delete: one
+# edge policy per part) and pods/log (get: the tester's result and component
+# log tails), and in the release namespace previewverifications (get, list,
+# watch: the requests) and previewverifications/status (update: the
+# results). Admission fences each: maul-preview-jobs,
+# maul-preview-networkpolicies and maul-preview-verifications.
 {{- if .Values.previewController.enabled }}
 {{- if not .Values.preview.enabled }}{{ fail "previewController.enabled requires preview.enabled: the guarded slot namespaces must exist" }}{{ end }}
 {{- if and (include "maul.previewLegacyIngress" .) (not .Values.preview.placeholder.enabled) }}{{ fail "previewController.enabled requires preview.placeholder.enabled: the stable placeholder Ingress must be rendered (on the legacy path, preview.legacyIngress)" }}{{ end }}
@@ -12,6 +20,7 @@
 {{- if not .Values.previewController.config.apiServerCIDR }}{{ fail "previewController.config.apiServerCIDR is required when enabled" }}{{ end }}
 {{- $vals := .Values.previewController }}
 {{- $name := "preview-controller" }}
+{{- $verify := include "maul.previewVerification" . }}
 {{- $c := dict "name" $name "vals" $vals }}
 {{- $sa := include "maul.serviceAccountName" (dict "root" . "name" $name "vals" $vals) }}
 {{- if $vals.serviceAccount.create }}
@@ -45,6 +54,16 @@ rules:
     - apiGroups: [maul.run]
       resources: [intents, projects]
       verbs: [get]
+    {{- if $verify }}
+    # Acceptance verification: read the requests, write only their results
+    # (maul-preview-verifications holds it to status).
+    - apiGroups: [maul.run]
+      resources: [previewverifications]
+      verbs: [get, list, watch]
+    - apiGroups: [maul.run]
+      resources: [previewverifications/status]
+      verbs: [update]
+    {{- end }}
     - apiGroups: [coordination.k8s.io]
       resources: [leases]
       verbs: [get, create, update]
@@ -91,6 +110,20 @@ rules:
     - apiGroups: [apps]
       resources: [replicasets]
       verbs: [list]
+    {{- if $verify }}
+    # Acceptance verification: the tester Job (maul-preview-jobs), its edge
+    # policies (maul-preview-networkpolicies) and the logs it reads results
+    # and evidence from.
+    - apiGroups: [batch]
+      resources: [jobs]
+      verbs: [create, get, list, delete]
+    - apiGroups: [networking.k8s.io]
+      resources: [networkpolicies]
+      verbs: [create, get, list, update, delete]
+    - apiGroups: [""]
+      resources: [pods/log]
+      verbs: [get]
+    {{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

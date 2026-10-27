@@ -51,7 +51,26 @@ stays writable until its finalizers go, so a spec or annotation change to one
 is evaluated like any other.
 */}}
 {{- $unchangedForLB := "request.operation != 'UPDATE' || !(object.spec == oldObject.spec && has(object.metadata.annotations) == has(oldObject.metadata.annotations) && (!has(object.metadata.annotations) || object.metadata.annotations == oldObject.metadata.annotations))" }}
-{{- range $kind := list (dict "name" "pods" "resource" "pods" "pod" "object.spec") (dict "name" "deployments" "resource" "deployments" "pod" "object.spec.template.spec") }}
+{{- /*
+Acceptance verification (preview.verification.enabled, helpers in
+preview-verification-policy.yaml): a tester Job runs in the slot, so the pod
+rules gain a jobs kind (every rule below applies to a Job's pod template,
+under the Job rules of its own), the pod and Job image rules admit the
+tester's exact digest beside the preview prefix (never a Deployment's: no
+component runs it), and maul-preview-networkpolicies fences
+preview-controller's edge policies. Off, everything renders as before.
+*/}}
+{{- $verify := include "maul.previewVerification" . }}
+{{- $kinds := list (dict "name" "pods" "group" `""` "resource" "pods" "pod" "object.spec" "exact" list) (dict "name" "deployments" "group" "apps" "resource" "deployments" "pod" "object.spec.template.spec" "exact" list) }}
+{{- $pcSA := "" }}
+{{- $deadlineMax := 0 }}
+{{- if $verify }}
+{{- $tester := include "maul.previewTesterImage" . }}
+{{- $pcSA = printf "system:serviceaccount:%s:%s" .Release.Namespace (include "maul.serviceAccountName" (dict "root" . "name" "preview-controller" "vals" .Values.previewController)) }}
+{{- $deadlineMax = int ($p.verification.deadlineMaxSeconds | default 1800) }}
+{{- $kinds = list (dict "name" "pods" "group" `""` "resource" "pods" "pod" "object.spec" "exact" (list $tester)) (dict "name" "deployments" "group" "apps" "resource" "deployments" "pod" "object.spec.template.spec" "exact" list) (dict "name" "jobs" "group" "batch" "resource" "jobs" "pod" "object.spec.template.spec" "exact" (list $tester)) }}
+{{- end }}
+{{- range $kind := $kinds }}
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
@@ -63,7 +82,7 @@ spec:
     failurePolicy: Fail
     matchConstraints:
         resourceRules:
-            - apiGroups: [{{ if eq $kind.name "pods" }}""{{ else }}apps{{ end }}]
+            - apiGroups: [{{ $kind.group }}]
               apiVersions: [v1]
               operations: [CREATE, UPDATE]
               resources: [{{ $kind.resource }}{{ if eq $kind.name "pods" }}, pods/ephemeralcontainers{{ end }}]
@@ -72,14 +91,54 @@ spec:
     matchConditions:
         - name: exact-preview-slot
           expression: 'request.namespace in {{ $guardSlots | toJson }}'
+        {{- if eq $kind.name "jobs" }}
+        # A metadata-only UPDATE (the garbage collector removing a
+        # foreground-deletion finalizer) changes nothing a pod runs.
+        - name: spec-changed
+          expression: "request.operation != 'UPDATE' || object.spec != oldObject.spec"
+        {{- end }}
     variables:
         - name: pod
           expression: {{ $kind.pod | quote }}
+        {{- if eq $kind.name "jobs" }}
+        - name: spec
+          expression: object.spec
+        {{- end }}
     validations:
+        {{- if eq $kind.name "jobs" }}
+        - expression: "request.userInfo.username == '{{ $pcSA }}'"
+          message: only preview-controller runs Jobs in a preview slot
+        - expression: >-
+              has(variables.spec.backoffLimit) && variables.spec.backoffLimit == 0 &&
+              (!has(variables.spec.parallelism) || variables.spec.parallelism == 1) &&
+              (!has(variables.spec.completions) || variables.spec.completions == 1) &&
+              (!has(variables.spec.manualSelector) || !variables.spec.manualSelector) &&
+              !has(variables.spec.ttlSecondsAfterFinished) && !has(variables.spec.podFailurePolicy) &&
+              (!has(variables.spec.suspend) || !variables.spec.suspend)
+          message: preview Jobs run once, never retried, never self-deleting
+        - expression: >-
+              has(variables.spec.activeDeadlineSeconds) &&
+              variables.spec.activeDeadlineSeconds <= {{ $deadlineMax }} &&
+              has(variables.pod.activeDeadlineSeconds) &&
+              variables.pod.activeDeadlineSeconds <= variables.spec.activeDeadlineSeconds &&
+              variables.pod.restartPolicy == 'Never'
+          message: preview Jobs and their pods carry a bounded deadline
+        - expression: >-
+              object.spec.template.metadata.?labels[?'maul.run/preview-role'].orValue('') in ['tester', 'command', 'seed'] &&
+              object.spec.template.metadata.?labels[?'maul.run/preview-uid'].orValue('') != '' &&
+              object.spec.template.metadata.?labels[?'maul.run/preview-part'].orValue('') != ''
+          message: preview Job pods are labelled with their Preview, part and role
+        {{- end }}
         - expression: >-
               variables.pod.containers.all(c,
+              {{- if $kind.exact }}
+                (c.image.startsWith('{{ $prefix }}') &&
+                 c.image.substring({{ len $prefix }}).matches('^[a-z0-9-]+:sha-[0-9a-f]{40}$')) ||
+                c.image in {{ $kind.exact | toJson }})
+              {{- else }}
                 c.image.startsWith('{{ $prefix }}') &&
                 c.image.substring({{ len $prefix }}).matches('^[a-z0-9-]+:sha-[0-9a-f]{40}$'))
+              {{- end }}
           message: only immutable maul preview ECR images are allowed
         - expression: size(variables.pod.containers) == 1
           message: preview pods run exactly one container
@@ -139,6 +198,10 @@ metadata:
 spec:
     policyName: maul-preview-{{ $kind.name }}
     validationActions: [Deny]
+{{- /* Jobs are new with verification: no retained per-slot binding to
+       upgrade, and a slot Job's pod meets the outside-pods policy below
+       anywhere else. */}}
+{{- if ne $kind.name "jobs" }}
 # Keep the older per-slot bindings below for a safe upgrade of retained
 # policies. This global binding protects a slot even if its label is changed.
 {{- range $slot := $slots }}
@@ -207,6 +270,94 @@ metadata:
         helm.sh/resource-policy: keep
 spec:
     policyName: maul-preview-outside-{{ $kind.name }}
+    validationActions: [Deny]
+{{- end }}
+{{- end }}
+{{- if $verify }}
+---
+# Acceptance verification's edge policies. preview-controller renders one
+# additive policy per part of a Preview (preview-<p>-np-<part>): it selects
+# that part by the Preview's UID and part labels alone, covers both
+# directions, and its every peer is a part of the same Preview, by those two
+# labels only, on explicit numeric TCP ports. preview-isolation stays Helm's:
+# preview-controller may never create, change or delete it. Every other
+# writer keeps today's posture. Kept, like every slot policy.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+    name: maul-preview-networkpolicies
+    annotations:
+        helm.sh/resource-policy: keep
+spec:
+    failurePolicy: Fail
+    matchConstraints:
+        resourceRules:
+            - apiGroups: [networking.k8s.io]
+              apiVersions: [v1]
+              operations: [CREATE, UPDATE, DELETE]
+              resources: [networkpolicies]
+    matchConditions:
+        - name: exact-preview-slot
+          expression: 'request.namespace in {{ $guardSlots | toJson }}'
+    variables:
+        - name: np
+          expression: "request.operation == 'DELETE' ? oldObject : object"
+        - name: pc
+          expression: "request.userInfo.username == '{{ $pcSA }}'"
+        - name: sel
+          expression: variables.np.spec.podSelector
+        - name: uid
+          expression: "variables.sel.?matchLabels[?'maul.run/preview-uid'].orValue('')"
+        # A peer: a pod selector of exactly the policy's own Preview UID and
+        # one part, nothing else (no IP block, no namespace selector).
+        - name: rulesOK
+          expression: >-
+              request.operation == 'DELETE' || (
+              (!has(object.spec.ingress) || object.spec.ingress.all(r,
+                has(r.from) && size(r.from) > 0 && has(r.ports) && size(r.ports) > 0 &&
+                r.ports.all(p, has(p.protocol) && p.protocol == 'TCP' && has(p.port) &&
+                  type(p.port) == int && !has(p.endPort)) &&
+                r.from.all(f, !has(f.ipBlock) && !has(f.namespaceSelector) && has(f.podSelector) &&
+                  !has(f.podSelector.matchExpressions) && has(f.podSelector.matchLabels) &&
+                  size(f.podSelector.matchLabels) == 2 &&
+                  f.podSelector.matchLabels[?'maul.run/preview-uid'] == optional.of(variables.uid) &&
+                  'maul.run/preview-part' in f.podSelector.matchLabels))) &&
+              (!has(object.spec.egress) || object.spec.egress.all(r,
+                has(r.to) && size(r.to) > 0 && has(r.ports) && size(r.ports) > 0 &&
+                r.ports.all(p, has(p.protocol) && p.protocol == 'TCP' && has(p.port) &&
+                  type(p.port) == int && !has(p.endPort)) &&
+                r.to.all(t, !has(t.ipBlock) && !has(t.namespaceSelector) && has(t.podSelector) &&
+                  !has(t.podSelector.matchExpressions) && has(t.podSelector.matchLabels) &&
+                  size(t.podSelector.matchLabels) == 2 &&
+                  t.podSelector.matchLabels[?'maul.run/preview-uid'] == optional.of(variables.uid) &&
+                  'maul.run/preview-part' in t.podSelector.matchLabels))))
+    validations:
+        - expression: "!(variables.pc && variables.np.metadata.name == 'preview-isolation')"
+          message: preview-controller may never create, change or delete the slot isolation policy
+        - expression: >-
+              !variables.pc || (variables.np.metadata.name.startsWith('preview-') &&
+              variables.np.metadata.name.contains('-np-') &&
+              variables.np.metadata.?labels[?'app.kubernetes.io/managed-by'] == optional.of('maul-preview-controller') &&
+              variables.uid != '' && !has(variables.sel.matchExpressions) &&
+              size(variables.sel.matchLabels) == 2 &&
+              'maul.run/preview-part' in variables.sel.matchLabels)
+          message: preview-controller policies select one part of one Preview, by labels only
+        - expression: >-
+              !variables.pc || request.operation == 'DELETE' ||
+              (has(object.spec.policyTypes) && size(object.spec.policyTypes) == 2 &&
+               'Ingress' in object.spec.policyTypes && 'Egress' in object.spec.policyTypes)
+          message: preview edge policies always cover both directions
+        - expression: "!variables.pc || variables.rulesOK"
+          message: preview edges admit only pods of the same Preview, by part, on explicit TCP ports
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+    name: maul-preview-all-slots-networkpolicies
+    annotations:
+        helm.sh/resource-policy: keep
+spec:
+    policyName: maul-preview-networkpolicies
     validationActions: [Deny]
 {{- end }}
 ---
