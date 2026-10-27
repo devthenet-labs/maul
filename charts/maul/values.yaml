@@ -281,9 +281,11 @@ preview:
         # render fails otherwise. The release workflow stamps it.
         testerImage: "" # x-maul-preview-tester-image
         # The longest activeDeadlineSeconds a slot Job (and its pod) may
-        # carry. Keep it at least intent-controller's longest verification
-        # timeout (a Project's verification.timeout, clamped by
-        # --intent-verify-timeout-max), or the tester Job is refused.
+        # carry, 60 to 3600. It also renders as preview-controller's
+        # --preview-verify-deadline-max and intent-controller's
+        # --intent-verify-timeout-max (the clamp on a Project's
+        # verification.timeout), so no request can ask for a tester Job the
+        # slot policy refuses.
         deadlineMaxSeconds: 1800
     # The slot ResourceQuota, per slot. Unset keys take the defaults: today's
     # (pods 8, services 5, requests 1 CPU/1Gi, limits 2 CPU/2Gi) with

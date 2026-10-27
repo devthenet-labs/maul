@@ -252,6 +252,16 @@ these keys renders and the ConfigMap is as it was.
 {{- $_ := set $data "MAUL_INTENT_APPROVAL_POLL_INTERVAL" $own.approvalPollInterval }}
 {{- $_ := set $data "MAUL_INTENT_PR_POLL_INTERVAL" $own.prPollInterval }}
 {{- $_ := set $data "MAUL_INTENT_PREVIEWS_ENABLED" $root.Values.previewController.enabled }}
+{{- if include "maul.previewVerification" $root }}
+{{- /*
+Acceptance verification (preview.verification.enabled): intent-controller
+writes PreviewVerification requests, each timeout clamped to the slot Job
+deadline bound preview-controller and maul-preview-jobs hold it to. Off, no
+key renders and the ConfigMap is as it was.
+*/}}
+{{- $_ := set $data "MAUL_INTENT_VERIFICATION" "true" }}
+{{- $_ := set $data "MAUL_INTENT_VERIFY_TIMEOUT_MAX" (include "maul.previewVerifyDeadlineMax" $root) }}
+{{- end }}
 {{- $_ := set $data "MAUL_INTENT_MULTI_REPO" $own.multiRepo }}
 {{- $_ := set $data "MAUL_INTENT_MAX_CONCURRENT_RUNS" $own.maxConcurrentRuns }}
 {{- $_ := set $data "MAUL_INTENT_RATE_LIMIT_FLOOR" $own.rateLimitFloor }}
@@ -326,6 +336,13 @@ blocks on ImageRequired. The changeset entry cap is remediation's value.
        told false (it would ignore true, with a warning at every start). */}}
 {{- $_ := set $data "MAUL_PREVIEW_TARGET_HEALTH" (and (include "maul.previewLegacyIngress" $root | eq "true") $own.targetHealth) }}
 {{- $_ := set $data "MAUL_PREVIEW_LEGACY_INGRESS" (include "maul.previewLegacyIngress" $root | eq "true") }}
+{{- if include "maul.previewVerification" $root }}
+{{- /* Acceptance verification: the tester image switches the
+       VerificationReconciler on; the deadline bound is maul-preview-jobs'.
+       Off, neither key renders. */}}
+{{- $_ := set $data "MAUL_PREVIEW_TESTER_IMAGE" (include "maul.previewTesterImage" $root) }}
+{{- $_ := set $data "MAUL_PREVIEW_VERIFY_DEADLINE_MAX" (include "maul.previewVerifyDeadlineMax" $root) }}
+{{- end }}
 {{- /*
 Preview sign-in required (previewAuth.stage require): the pinned annotation
 sets, rendered once in _preview-auth.tpl, so every Ingress the controller

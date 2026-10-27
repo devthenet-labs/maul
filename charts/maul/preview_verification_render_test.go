@@ -305,3 +305,83 @@ func imageRule(t *testing.T, objs []*unstructured.Unstructured, policy string) s
 	t.Fatalf("%s has no image rule", policy)
 	return ""
 }
+
+// TestPreviewVerificationControllerConfig: the verification switch reaches
+// both binaries only with preview.verification.enabled. Off (the default)
+// neither ConfigMap carries a verification key, so preview-controller has no
+// tester image and intent-controller never writes a request. On,
+// preview-controller gets the tester image and its deadline bound, and
+// intent-controller --intent-verification with its timeout bound, both from
+// deadlineMaxSeconds: the timeout a request carries can then never exceed
+// the deadline the slot Job admission policy allows.
+func TestPreviewVerificationControllerConfig(t *testing.T) {
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm not on PATH")
+	}
+	keys := map[string][]string{
+		"maul-preview-controller-config": {"MAUL_PREVIEW_TESTER_IMAGE", "MAUL_PREVIEW_VERIFY_DEADLINE_MAX"},
+		"maul-intent-controller-config":  {"MAUL_INTENT_VERIFICATION", "MAUL_INTENT_VERIFY_TIMEOUT_MAX"},
+	}
+	off := renderConfigMaps(t, previewRuntimeArgs)
+	for cm, ks := range keys {
+		if _, ok := off[cm]; !ok {
+			t.Fatalf("no ConfigMap %s rendered", cm)
+		}
+		for _, k := range ks {
+			if v, ok := off[cm][k]; ok {
+				t.Errorf("verification off: %s carries %s=%q", cm, k, v)
+			}
+		}
+	}
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"default bound", verificationArgs, "1800s"},
+		{"own bound", append(append([]string{}, verificationArgs...),
+			"--set", "preview.verification.deadlineMaxSeconds=600"), "600s"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			on := renderConfigMaps(t, tc.args)
+			want := map[string]map[string]string{
+				"maul-preview-controller-config": {"MAUL_PREVIEW_TESTER_IMAGE": testerImage,
+					"MAUL_PREVIEW_VERIFY_DEADLINE_MAX": tc.want},
+				"maul-intent-controller-config": {"MAUL_INTENT_VERIFICATION": "true",
+					"MAUL_INTENT_VERIFY_TIMEOUT_MAX": tc.want},
+			}
+			for cm, kv := range want {
+				for k, v := range kv {
+					if got := on[cm][k]; got != v {
+						t.Errorf("%s %s = %q, want %q", cm, k, got, v)
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestPreviewVerificationDeadlineBounds: deadlineMaxSeconds is held by the
+// schema to the range both controllers accept for the flags it renders
+// (1m to 1h), so an out-of-range value fails the render instead of a
+// controller's startup.
+func TestPreviewVerificationDeadlineBounds(t *testing.T) {
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm not on PATH")
+	}
+	render := func(v string) ([]byte, error) {
+		all := append(append([]string{"template", "maul", ".", "--namespace", "maul"}, verificationArgs...),
+			"--set", "preview.verification.deadlineMaxSeconds="+v)
+		return exec.CommandContext(t.Context(), "helm", all...).CombinedOutput()
+	}
+	for _, v := range []string{"59", "3601"} {
+		if out, err := render(v); err == nil || !strings.Contains(string(out), "deadlineMaxSeconds") {
+			t.Errorf("deadlineMaxSeconds=%s: %v, want a schema failure naming it:\n%s", v, err, out)
+		}
+	}
+	for _, v := range []string{"60", "3600"} {
+		if out, err := render(v); err != nil {
+			t.Errorf("deadlineMaxSeconds=%s: %v\n%s", v, err, out)
+		}
+	}
+}

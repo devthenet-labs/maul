@@ -48,6 +48,22 @@ maul.registryPathKey, as the prefix overlap check is.
 {{- end -}}
 {{- $img -}}
 {{- end }}
+{{- /*
+maul.previewVerifyDeadlineSeconds: preview.verification.deadlineMaxSeconds
+(default 1800), the one bound three readers share: maul-preview-jobs' limit
+on a slot Job's activeDeadlineSeconds, preview-controller's
+--preview-verify-deadline-max and intent-controller's
+--intent-verify-timeout-max (maul.previewVerifyDeadlineMax renders it as a
+Go duration). A request's timeout, so its tester Job's deadline, can then
+never exceed what admission allows. The schema holds it to [60, 3600], the
+range both flags accept.
+*/}}
+{{- define "maul.previewVerifyDeadlineSeconds" -}}
+{{- int ((.Values.preview.verification | default dict).deadlineMaxSeconds | default 1800) -}}
+{{- end }}
+{{- define "maul.previewVerifyDeadlineMax" -}}
+{{- printf "%ss" (include "maul.previewVerifyDeadlineSeconds" .) -}}
+{{- end }}
 {{- if include "maul.previewVerification" . }}
 {{- $pcSA := printf "system:serviceaccount:%s:%s" .Release.Namespace (include "maul.serviceAccountName" (dict "root" . "name" "preview-controller" "vals" .Values.previewController)) }}
 {{- $icSA := printf "system:serviceaccount:%s:%s" .Release.Namespace (include "maul.serviceAccountName" (dict "root" . "name" "intent-controller" "vals" .Values.intentController)) }}

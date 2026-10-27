@@ -67,7 +67,7 @@ preview-controller's edge policies. Off, everything renders as before.
 {{- if $verify }}
 {{- $tester := include "maul.previewTesterImage" . }}
 {{- $pcSA = printf "system:serviceaccount:%s:%s" .Release.Namespace (include "maul.serviceAccountName" (dict "root" . "name" "preview-controller" "vals" .Values.previewController)) }}
-{{- $deadlineMax = int ($p.verification.deadlineMaxSeconds | default 1800) }}
+{{- $deadlineMax = int (include "maul.previewVerifyDeadlineSeconds" .) }}
 {{- $kinds = list (dict "name" "pods" "group" `""` "resource" "pods" "pod" "object.spec" "exact" (list $tester)) (dict "name" "deployments" "group" "apps" "resource" "deployments" "pod" "object.spec.template.spec" "exact" list) (dict "name" "jobs" "group" "batch" "resource" "jobs" "pod" "object.spec.template.spec" "exact" (list $tester)) }}
 {{- end }}
 {{- range $kind := $kinds }}
