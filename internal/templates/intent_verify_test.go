@@ -320,3 +320,25 @@ func TestVerifyKeys(t *testing.T) {
 		t.Errorf("verify comment is not headed by its marker:\n%s", got)
 	}
 }
+
+// TestVerifyLineStates: the states verification can rest in besides
+// running and judged each read as maul's own sentence, and none claims a
+// check ran.
+func TestVerifyLineStates(t *testing.T) {
+	for _, tc := range []struct {
+		p    VerifyProgress
+		want string
+	}{
+		{VerifyProgress{State: VerifyWaitingForCI}, "Verification waits for the pull requests' checks to pass."},
+		{VerifyProgress{State: VerifyWaiting}, "Verification waits for the preview to be ready."},
+		{VerifyProgress{State: VerifyNeedsReplan, AutoFix: FixHalted, AutoFixReason: "CriterionError"},
+			"Verification cannot run: an approved check's target is not previewed, so only " +
+				"`/maul replan` can change it."},
+		{VerifyProgress{State: VerifyNotDeclared}, "No acceptance criteria were declared."},
+		{VerifyProgress{State: VerifyNotChecked, ManualOpen: 2}, "Nothing is checked automatically, 2 for a human."},
+	} {
+		if got := verifyLine(tc.p); got != tc.want {
+			t.Errorf("%+v:\n got %q\nwant %q", tc.p, got, tc.want)
+		}
+	}
+}

@@ -192,6 +192,11 @@ type pass struct {
 	preview     previewView
 	previewRead bool
 	previewOK   bool
+	// verifyPV is the PreviewVerification the recorded verification result
+	// was judged from, as this pass read it (judgedVerification), read
+	// once: verifyPVRead reports the read was made.
+	verifyPV     *v1alpha1.PreviewVerification
+	verifyPVRead bool
 }
 
 // Reconcile takes one Intent one step at a time: every step that changes the
@@ -255,6 +260,9 @@ func (p *pass) run(ctx context.Context) (ctrl.Result, error) {
 	}
 	stop, err := p.step(ctx)
 	if err != nil || stop {
+		return ctrl.Result{}, err
+	}
+	if changed, err := p.syncVerifyReports(ctx); changed || err != nil {
 		return ctrl.Result{}, err
 	}
 	if changed, _, err := p.syncPreviewComments(ctx); changed || err != nil {

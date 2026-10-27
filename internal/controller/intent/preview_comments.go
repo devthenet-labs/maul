@@ -21,9 +21,20 @@ import (
 // refused there (a locked conversation, a permission the App lost, a
 // repository maul can no longer reach), not tried again until what the
 // comment would say changes.
+//
+// It also holds what the acceptance verification's reports remember
+// (verify_comments.go, acceptance_status.go): the issue's latest
+// verification comment, when the statuses at each pull request's head were
+// last listed for an impostor, and the impostor found there. A restart lists
+// once more, which costs a request and nothing else, and forgets an
+// impostor until one posts again.
 type previewNotes struct {
 	ids     map[string]int64
 	refused map[string]string
+
+	verify    verifyNote
+	checked   map[string]statusCheck
+	impostors map[string]impostorNote
 }
 
 // prKey names a pull request in previewNotes.
@@ -37,7 +48,8 @@ func (p *pass) notes(f func(*previewNotes)) {
 	p.r.memo(func() {
 		n := p.r.previews[p.in.Name]
 		if n == nil {
-			n = &previewNotes{ids: map[string]int64{}, refused: map[string]string{}}
+			n = &previewNotes{ids: map[string]int64{}, refused: map[string]string{},
+				checked: map[string]statusCheck{}, impostors: map[string]impostorNote{}}
 			p.r.previews[p.in.Name] = n
 		}
 		f(n)
@@ -46,10 +58,11 @@ func (p *pass) notes(f func(*previewNotes)) {
 
 // previewRecord is one pull request's preview comment as a pass leaves it.
 type previewRecord struct {
-	repository string
-	number     int64
-	id         int64
-	digest     string
+	repository   string
+	number       int64
+	id           int64
+	digest       string
+	verifyDigest string
 }
 
 // syncPreviewComments keeps one sticky comment on each previewed pull
@@ -87,7 +100,8 @@ func (p *pass) syncPreviewComments(ctx context.Context) (changed, retry bool, er
 			return false, false, err
 		}
 		retry = retry || again
-		if rec != nil && (rec.id != pr.PreviewCommentID || rec.digest != pr.PreviewDigest) {
+		if rec != nil && (rec.id != pr.PreviewCommentID || rec.digest != pr.PreviewDigest ||
+			rec.verifyDigest != pr.VerifyDigest) {
 			records = append(records, *rec)
 		}
 	}
@@ -98,7 +112,8 @@ func (p *pass) syncPreviewComments(ctx context.Context) (changed, retry bool, er
 		for _, rec := range records {
 			for i := range cur.Status.PullRequests {
 				if pr := &cur.Status.PullRequests[i]; sameRepo(pr.Repository, rec.repository) && pr.Number == rec.number {
-					pr.PreviewCommentID, pr.PreviewDigest = rec.id, rec.digest
+					pr.PreviewCommentID, pr.PreviewDigest, pr.VerifyDigest = rec.id, rec.digest,
+						rec.verifyDigest
 				}
 			}
 		}
@@ -131,6 +146,7 @@ func (p *pass) syncPreviewComment(ctx context.Context, view previewView, pr v1al
 		return nil, false, nil
 	}
 	c := p.previewComment(view, pr, rp, len(previews) > 1, terminal(p.in.Status.Phase))
+	c.Verify = p.previewVerifySection(ctx, pr, rp != nil, c.State)
 	if id == 0 && c.State != templates.PreviewLive {
 		return nil, false, nil // posted only once live
 	}
@@ -163,7 +179,8 @@ func (p *pass) syncPreviewComment(ctx context.Context, view previewView, pr v1al
 	if id == 0 {
 		return &previewRecord{repository: pr.Repository, number: pr.Number}, false, nil
 	}
-	return &previewRecord{repository: pr.Repository, number: pr.Number, id: id, digest: d}, false, nil
+	return &previewRecord{repository: pr.Repository, number: pr.Number, id: id, digest: d,
+		verifyDigest: verifySectionDigest(c.Verify)}, false, nil
 }
 
 // previewWriteFailed logs a preview comment write that failed, and reports
