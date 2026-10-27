@@ -20,6 +20,7 @@ import (
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/untrusted"
 )
 
 const defaultChecksTimeout = 30 * time.Minute
@@ -513,8 +514,8 @@ func (p *pass) checkDiagnostics(ctx context.Context, repo, sha string, f failedC
 			continue
 		}
 		parts = append(parts, capVisible(fmt.Sprintf("Commit status %s: %s\n%s",
-			visibleDiagnostic(s.Context, 2<<10), visibleDiagnostic(s.State, 256),
-			visibleDiagnostic(s.Description, 8<<10)), 48<<10))
+			untrusted.Visible(s.Context, 2<<10), untrusted.Visible(s.State, 256),
+			untrusted.Visible(s.Description, 8<<10)), 48<<10))
 		prints = append(prints, statusPrint(s))
 		names = append(names, s.Context)
 	}
@@ -538,21 +539,15 @@ func (p *pass) checkDiagnostics(ctx context.Context, repo, sha string, f failedC
 		names: slices.Compact(names)}, nil
 }
 
-// A field is cut before visible escaping, and again after it. This keeps a
-// malicious or malformed provider response from expanding without bound.
-func visibleDiagnostic(s string, maxBytes int) string {
-	return capVisible(visibleFeedback(cutBytes(s, maxBytes)), maxBytes)
-}
-
 // checkRunDiagnostic is one failed check run's diagnostic, as the agent reads
 // it, and its stable form (checkRunPrint), taken from the same answers.
 func (p *pass) checkRunDiagnostic(ctx context.Context, repo, sha string, r ghclient.CheckRun) (string, string,
 	error) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Check %s: %s\nTitle: %s\nSummary: %s\nText: %s\n",
-		visibleDiagnostic(r.Name, 2<<10), visibleDiagnostic(r.Conclusion, 256),
-		visibleDiagnostic(r.Output.Title, 4<<10), visibleDiagnostic(r.Output.Summary, 8<<10),
-		visibleDiagnostic(r.Output.Text, 8<<10))
+		untrusted.Visible(r.Name, 2<<10), untrusted.Visible(r.Conclusion, 256),
+		untrusted.Visible(r.Output.Title, 4<<10), untrusted.Visible(r.Output.Summary, 8<<10),
+		untrusted.Visible(r.Output.Text, 8<<10))
 	annotations, err := p.r.GitHub.ListCheckAnnotations(ctx, repo, r.ID, 50)
 	if err != nil {
 		return "", "", err
@@ -561,8 +556,8 @@ func (p *pass) checkRunDiagnostic(ctx context.Context, repo, sha string, r ghcli
 		if b.Len() >= 40<<10 {
 			break
 		}
-		fmt.Fprintf(&b, "Annotation %s:%d: %s\n", visibleDiagnostic(a.Path, 512), a.Line,
-			visibleDiagnostic(a.Message, 1<<10))
+		fmt.Fprintf(&b, "Annotation %s:%d: %s\n", untrusted.Visible(a.Path, 512), a.Line,
+			untrusted.Visible(a.Message, 1<<10))
 	}
 	if !strings.EqualFold(r.AppSlug, "github-actions") {
 		return capVisible(b.String(), 48<<10), checkRunPrint(r, annotations, "", false), nil
@@ -584,8 +579,8 @@ func (p *pass) checkRunDiagnostic(ctx context.Context, repo, sha string, r ghcli
 		if logTail, err = p.r.GitHub.GetJobLogTail(ctx, repo, job.ID, tailBytes); err != nil {
 			return "", "", err
 		}
-		fmt.Fprintf(&b, "Actions job %s log tail:\n%s\n", visibleDiagnostic(job.Name, 1<<10),
-			visibleDiagnostic(logTail, tailBytes))
+		fmt.Fprintf(&b, "Actions job %s log tail:\n%s\n", untrusted.Visible(job.Name, 1<<10),
+			untrusted.Visible(logTail, tailBytes))
 		break // one Actions job owns a check run
 	}
 	// A tail as long as asked for was cut from a longer log.
