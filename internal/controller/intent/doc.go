@@ -136,6 +136,17 @@
 //	Project status       ProjectReconciler
 //	Preview spec         PreviewSourceReconciler (preview-controller writes
 //	                     its status, which the IntentReconciler only reads)
+//	PreviewVerification  IntentReconciler: creates (spec, once) and deletes
+//	                     (supersede, retention, review end); preview-controller
+//	                     writes its status, which the IntentReconciler only
+//	                     reads, one uncached get per pass, and judges
+//
+// With --intent-verification, status.acceptance and status.verification are
+// the IntentReconciler's like the rest of Intent status (verify_loop.go): the
+// approved plan's criteria recorded once per approved revision from the plan
+// bytes re-read under the approval's digest, and the verification of the
+// combined change judged by acceptance.Judge from preview-controller's
+// observations, never its verdict.
 //
 // Repositories (spec, at creation) and the input, plan and run-input
 // ConfigMaps are created by the IntentReconciler and never changed; the

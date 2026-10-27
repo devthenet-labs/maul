@@ -479,6 +479,9 @@ func (p *pass) reviewNow(ctx context.Context) (bool, error) {
 	if changed, err := p.syncPRRoundNotices(ctx); changed || err != nil {
 		return changed, err
 	}
+	if changed, err := p.syncVerification(ctx); changed || err != nil {
+		return changed, err
+	}
 	if p.in.Status.Phase != v1alpha1.IntentInReview {
 		return false, nil
 	}
@@ -487,7 +490,8 @@ func (p *pass) reviewNow(ctx context.Context) (bool, error) {
 
 // startRound starts at most one round: the leased one adopted first, then
 // the first open pull request in roundOrder with a review, command or checks
-// round due.
+// round due. With none started, the acceptance verification's gate runs
+// last (startVerification): a human's or CI's round always goes first.
 func (p *pass) startRound(ctx context.Context, prs []v1alpha1.IntentPullRequest) (bool, error) {
 	if adopted, err := p.adoptPendingRound(ctx); adopted || err != nil {
 		return adopted, err
@@ -518,7 +522,7 @@ func (p *pass) startRound(ctx context.Context, prs []v1alpha1.IntentPullRequest)
 			}
 		}
 	}
-	return false, nil
+	return p.startVerification(ctx, prs)
 }
 
 // roundOrder is the order the pull requests in prs are offered a round in:
@@ -557,6 +561,10 @@ func (p *pass) endReview(ctx context.Context, prs []v1alpha1.IntentPullRequest, 
 	mergedAt time.Time) (bool, error) {
 	if !p.pullRequestsOpened() {
 		return false, nil
+	}
+	if merged+closed == len(prs) {
+		// Rounds end (H12): nothing more is verified or reported.
+		p.dropVerifications(ctx)
 	}
 	switch {
 	case merged == len(prs):

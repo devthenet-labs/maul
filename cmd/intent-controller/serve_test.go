@@ -148,6 +148,10 @@ func TestComponentConfigReachesSettings(t *testing.T) {
 		JobDeadlineMax:  4*time.Hour + 30*time.Minute,
 		// No cost budgets until the broker counts cost.
 		CostBudgets: false,
+		// No verification unless the operator turns it on; its ceiling
+		// defaults to the chart's tester deadline maximum.
+		Verification:     false,
+		VerifyTimeoutMax: intent.DefaultVerifyTimeoutMax,
 	}
 	if s != want {
 		t.Errorf("settings = %+v, want %+v", s, want)
