@@ -364,8 +364,10 @@ func (p *pass) roundChecks(ctx context.Context, run *v1alpha1.IntentRun) ([]stri
 	return strings.Split(cm.Data[keyCheckNames], "\n"), nil
 }
 
-// retryReviseAttempt leases one fresh attempt. A head move re-clones the
-// branch and re-renders its diff; an agent failure carries PreviousAttempt.
+// retryReviseAttempt leases one fresh attempt, or adopts the one a pass
+// leased already; at the cost ceiling it creates none, and the Intent is
+// Blocked from Revising (lease). A head move re-clones the branch and
+// re-renders its diff; an agent failure carries PreviousAttempt.
 func (p *pass) retryReviseAttempt(ctx context.Context, run *v1alpha1.IntentRun, attempt int32,
 	previous *v1alpha1.PreviousAttempt) (bool, error) {
 	repository, ok := p.approvedRepository(run.Spec.Repository.URL)
@@ -385,20 +387,21 @@ func (p *pass) retryReviseAttempt(ctx context.Context, run *v1alpha1.IntentRun, 
 		Finalizers:      usagerollup.Finalizers(spec.AttributedTo, v1alpha1.FinalizerJobs),
 		OwnerReferences: []metav1.OwnerReference{intentOwner(p.in)},
 	}, Spec: spec}
-	if err := p.r.Create(ctx, with); err != nil {
-		if !kerrors.IsAlreadyExists(err) {
-			return false, err
-		}
-		var existing v1alpha1.IntentRun
-		if err := p.r.APIReader.Get(ctx, client.ObjectKeyFromObject(with), &existing); err != nil {
-			return false, err
-		}
+	existing, err := p.lease(ctx, with)
+	switch {
+	case errors.Is(err, errAtCeiling):
+		return p.blockAtCeiling(ctx)
+	case err != nil:
+		return false, err
+	case existing != nil:
+		// An attempt a pass created before (the spend may have reached the
+		// ceiling since) is adopted, never stranded.
 		if existing.Spec.IntentRef.UID != p.in.UID || !reflect.DeepEqual(existing.Spec, spec) {
 			return false, fmt.Errorf("revise retry %s: %w", name, errNotOwned)
 		}
-		with = &existing
+		with = existing
+		p.runs = append(p.runs, with)
 	}
-	p.runs = append(p.runs, with)
 	return p.ensureActive(ctx, with)
 }
 
@@ -635,6 +638,14 @@ func (p *pass) commandRound(ctx context.Context, pr *v1alpha1.IntentPullRequest)
 		}
 		run, err := p.createReviseRun(ctx, pr, p.in.Status.Rounds+1,
 			v1alpha1.IntentRunTriggerCommand, nil, nil, nil, c.ID, attributed)
+		if errors.Is(err, errAtCeiling) && !p.proj.Spec.Suspend {
+			// The caller blocks the Intent on the ceiling (startRound); the
+			// commenter is told first, so the round that starts once the
+			// ceiling is raised is no surprise.
+			if err := p.replyAtCeiling(ctx, *pr, c); err != nil {
+				return false, err
+			}
+		}
 		if err != nil {
 			return false, err
 		}
@@ -725,7 +736,28 @@ func (p *pass) ackPRCommand(ctx context.Context, run *v1alpha1.IntentRun) error 
 	if err != nil {
 		return err
 	}
-	marker := fmt.Sprintf("<!-- maul:intent-pr-command:%s:%d -->", p.in.Name, id)
+	return p.replyToCommand(ctx, pr, c, fmt.Sprintf("<!-- maul:intent-pr-command:%s:%d -->", p.in.Name, id),
+		"Revision round started. This command and authorised PR feedback will be treated as data, not instructions.",
+		true)
+}
+
+// replyAtCeiling answers, once, a PR command that no round can start for
+// while the Intent's spend is at its Project's cost ceiling: what holds it,
+// and that raising limits.maxCostMicroUSD past the spend starts its round
+// (acknowledged then by ackPRCommand, under its own marker).
+func (p *pass) replyAtCeiling(ctx context.Context, pr v1alpha1.IntentPullRequest, c *ghclient.Comment) error {
+	return p.replyToCommand(ctx, pr, c, fmt.Sprintf("<!-- maul:intent-pr-command-ceiling:%s:%d -->", p.in.Name, c.ID),
+		fmt.Sprintf("This command waits: the intent has spent %d micro-USD, at or over its project's cost ceiling "+
+			"of %d, so no revision round starts. Raising the project's limits.maxCostMicroUSD past the spend "+
+			"starts this command's round.", p.in.Status.Usage.CostMicroUSD, maxCostMicroUSD(p.proj)), false)
+}
+
+// replyToCommand writes one marker reply to command c on pr (and, with
+// react, one eyes reaction first), adopting an earlier reply if a status
+// write or restart interrupted the pass. A marker counts only when the App's
+// own bot wrote it, never merely for its text.
+func (p *pass) replyToCommand(ctx context.Context, pr v1alpha1.IntentPullRequest, c *ghclient.Comment,
+	marker, text string, react bool) error {
 	comments, err := p.r.GitHub.ListPullRequestComments(ctx, pr.Repository, pr.Number, c.CreatedAt.Add(-time.Second))
 	if err != nil {
 		return err
@@ -739,11 +771,12 @@ func (p *pass) ackPRCommand(ctx context.Context, run *v1alpha1.IntentRun) error 
 			return nil
 		}
 	}
-	if err := p.r.GitHub.ReactPullRequestComment(ctx, pr.Repository, id); err != nil {
-		return err
+	if react {
+		if err := p.r.GitHub.ReactPullRequestComment(ctx, pr.Repository, c.ID); err != nil {
+			return err
+		}
 	}
-	_, err = p.r.GitHub.CreatePullRequestComment(ctx, pr.Repository, pr.Number,
-		marker+"\nRevision round started. This command and authorised PR feedback will be treated as data, not instructions.")
+	_, err = p.r.GitHub.CreatePullRequestComment(ctx, pr.Repository, pr.Number, marker+"\n"+text)
 	return err
 }
 
@@ -1019,9 +1052,12 @@ func (p *pass) enterRevising(ctx context.Context, run *v1alpha1.IntentRun) error
 	})
 }
 
-// createReviseRun creates the immutable round lease. ImageFrom names the
-// build round's Repository by UID, so source-controller's new pin for the
-// PR head can never choose a different runner image.
+// createReviseRun creates the immutable round lease (lease: at the cost
+// ceiling it creates none, errAtCeiling, and a round already leased is
+// returned or reported as errRoundLeased all the same, so it is adopted,
+// never stranded). ImageFrom names the build round's Repository by UID, so
+// source-controller's new pin for the PR head can never choose a different
+// runner image.
 func (p *pass) createReviseRun(ctx context.Context, pr *v1alpha1.IntentPullRequest, round int32,
 	trigger v1alpha1.IntentRunTrigger, reviewIDs, checkIDs, statusIDs []int64,
 	commandID int64, attributed *v1alpha1.Attribution) (*v1alpha1.IntentRun, error) {
@@ -1092,20 +1128,16 @@ func (p *pass) leaseReviseRun(ctx context.Context, pr *v1alpha1.IntentPullReques
 			return nil, &errRoundLeased{run: leased}
 		}
 	}
-	if err := p.r.Create(ctx, run); err == nil {
-		p.runs = append(p.runs, run)
-		return run, nil
-	} else if !kerrors.IsAlreadyExists(err) {
-		return nil, fmt.Errorf("create revise run %s: %w", name, err)
-	}
-	var existing v1alpha1.IntentRun
-	if err := p.r.APIReader.Get(ctx, client.ObjectKeyFromObject(run), &existing); err != nil {
+	existing, err := p.lease(ctx, run)
+	switch {
+	case err != nil:
 		return nil, err
-	}
-	if existing.Spec.IntentRef.UID != p.in.UID || !sameRound(existing.Spec, spec) {
+	case existing == nil:
+		return run, nil
+	case existing.Spec.IntentRef.UID != p.in.UID || !sameRound(existing.Spec, spec):
 		return nil, fmt.Errorf("revise run %s: %w", name, errNotOwned)
 	}
-	return &existing, nil
+	return existing, nil
 }
 
 // sameRound reports whether an existing revise run's spec is the round a

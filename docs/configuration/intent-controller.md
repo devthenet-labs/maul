@@ -132,6 +132,14 @@ Project that needs more.
   `maul.run/budget-micro-usd` annotation. The broker ends the run's model traffic at the smaller of it and its
   `--cost-per-pod` ([cost limits](egress-broker.md#cost-limits)); the run settles `budget_exceeded`. Under the token
   unit, the default, no run records a budget and no Job carries one.
+- The Project's per-intent `limits.maxCostMicroUSD` is checked against the intent's recorded spend before every run is
+  created: a plan or build launch, a review, `/maul revise` or check-fix round, a retry attempt of any of them, and the
+  run a block's lifting launches. At or over it, the intent is `Blocked` (`BudgetExhausted`, `CostCeilingReached`) and
+  nothing more is created; a run already running finishes, and a run or round already leased is carried on. A
+  `/maul revise` or `/maul retry` that arrives at the ceiling is answered on the pull request, saying so. While the
+  Project is suspended nothing is launched anyway, and the intent is not blocked. Raising the ceiling past the spend
+  lifts the block. An intent blocked from review, on this or any other block, still follows its pull requests: merging
+  or closing them ends it `Merged` or `Closed`.
 - With `--broker-cost-per-hour` set, a Project any of whose run budgets is more than half the broker's hourly cost limit
   is not Ready (`RunBudgetOverHourlyLimit`, naming the stage): one such run could spend the cluster's hour alone. Lower
   the stage's budget (or the per-intent ceiling a stage without one uses) or raise the hourly limit.

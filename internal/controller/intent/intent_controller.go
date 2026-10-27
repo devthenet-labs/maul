@@ -396,7 +396,7 @@ func (p *pass) nextWake() time.Duration {
 	if wake <= 0 {
 		wake = p.pollInterval()
 	}
-	if p.in.Status.Phase == v1alpha1.IntentInReview || p.in.Status.Phase == v1alpha1.IntentRevising {
+	if p.followsPullRequests() {
 		var last time.Time
 		p.r.memo(func() { last = p.r.prPolled[p.in.Name] })
 		if pr := last.Add(p.set.PRPollInterval).Sub(p.now); pr > 0 && pr < wake {
