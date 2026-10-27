@@ -132,13 +132,10 @@ spec:
         - expression: >-
               variables.pod.containers.all(c,
               {{- if $kind.exact }}
-                (c.image.startsWith('{{ $prefix }}') &&
-                 c.image.substring({{ len $prefix }}).matches('^[a-z0-9-]+:sha-[0-9a-f]{40}$')) ||
-                c.image in {{ $kind.exact | toJson }})
-              {{- else }}
+                c.image in {{ $kind.exact | toJson }} ||
+              {{- end }}
                 c.image.startsWith('{{ $prefix }}') &&
                 c.image.substring({{ len $prefix }}).matches('^[a-z0-9-]+:sha-[0-9a-f]{40}$'))
-              {{- end }}
           message: only immutable maul preview ECR images are allowed
         - expression: size(variables.pod.containers) == 1
           message: preview pods run exactly one container
