@@ -60,6 +60,47 @@ func (f *storeFixture) reset() {
 	f.mu.Unlock()
 }
 
+// drain waits until every event for the objects written so far has been
+// delivered to the listener, then forgets what it recorded. Each informer
+// delivers its events in order, so once a marker record and a marker Secret
+// written last have both notified, nothing written before them can still be
+// in flight: a late event for an earlier object cannot land after the reset
+// and be mistaken for the effect of what the test does next.
+func (f *storeFixture) drain(t *testing.T) {
+	t.Helper()
+	ctx := t.Context()
+	owner := v1alpha1.ModelCredentialOwner(1)
+	provider := v1alpha1.ModelCredentialProviderAnthropic
+	name := v1alpha1.ModelCredentialName(owner, provider)
+	rec := &v1alpha1.ModelCredential{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: recordsNS},
+		Spec:       v1alpha1.ModelCredentialSpec{Owner: owner, Provider: provider, Kind: v1alpha1.ModelCredentialAPIKey},
+	}
+	if err := f.admin.Create(ctx, rec); err != nil {
+		t.Fatal(err)
+	}
+	sec := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
+		Name: v1alpha1.ModelCredentialSecretName(owner, provider), Namespace: secretsNS}}
+	if err := f.admin.Create(ctx, sec); err != nil {
+		t.Fatal(err)
+	}
+	// One notification from each informer.
+	eventually(t, "the drain markers to notify", func() bool { return f.countOf(name) >= 2 })
+	f.reset()
+}
+
+func (f *storeFixture) countOf(name string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := 0
+	for _, got := range f.notified {
+		if got == name {
+			n++
+		}
+	}
+	return n
+}
+
 func (f *storeFixture) count() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -179,7 +220,7 @@ func checkOpenAI(t *testing.T, f *storeFixture, owner string) {
 	if err := f.admin.Create(ctx, rec); err != nil {
 		t.Fatal(err)
 	}
-	f.reset()
+	f.drain(t)
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: secretsNS,
 			Labels: map[string]string{v1alpha1.LabelCredentialOwner: v1alpha1.ModelCredentialOwnerHash(owner)}},
