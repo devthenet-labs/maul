@@ -9,6 +9,7 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -38,6 +39,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/acceptance"
+	"github.com/devthenet-labs/maul/internal/previewtester"
 )
 
 // kubeletNode is the Node the fake kubelet registers and the pods it runs
@@ -96,6 +99,70 @@ type kubelet struct {
 	// projected volume names. Unset, the token is a placeholder no broker
 	// would accept.
 	tokens kubernetes.Interface
+	// testers is the preview tester side (runTesters), nil until a test
+	// turns it on.
+	testers *testerSide
+	// holds are the agent phases whose Jobs wait (hold), each until its
+	// channel is closed; waiting are the Jobs waiting on one now.
+	holds   map[string]chan struct{}
+	waiting map[string]bool
+}
+
+// hold makes every Job of phase the kubelet reaches from now on wait before
+// its Pod starts, so its run stays Running with no result, until release
+// is called (or the test ends). The kubelet runs one Job at a time, so the
+// Jobs after it wait too.
+func (k *kubelet) hold(t *testing.T, phase string) (release func()) {
+	t.Helper()
+	ch := make(chan struct{})
+	k.mu.Lock()
+	if k.holds == nil {
+		k.holds, k.waiting = map[string]chan struct{}{}, map[string]bool{}
+	}
+	k.holds[phase] = ch
+	k.mu.Unlock()
+	var once sync.Once
+	release = func() {
+		once.Do(func() {
+			k.mu.Lock()
+			delete(k.holds, phase)
+			k.mu.Unlock()
+			close(ch)
+		})
+	}
+	t.Cleanup(release)
+	return release
+}
+
+// held reports whether the Job named name is waiting on a hold.
+func (k *kubelet) held(name string) bool {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return k.waiting[name]
+}
+
+// waitHeld waits while phase is held.
+func (k *kubelet) waitHeld(ctx context.Context, name, phase string) error {
+	k.mu.Lock()
+	ch, ok := k.holds[phase]
+	if ok {
+		k.waiting[name] = true
+	}
+	k.mu.Unlock()
+	if !ok {
+		return nil
+	}
+	defer func() {
+		k.mu.Lock()
+		delete(k.waiting, name)
+		k.mu.Unlock()
+	}()
+	select {
+	case <-ch:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // fakeClaudeScript and fakeCodexScript are the scripted claude and codex
@@ -365,6 +432,12 @@ func (k *kubelet) run(ctx context.Context, job *batchv1.Job) error {
 	rec.Issue = secret.Data["issue.md"]
 	rec.Investigation, rec.HasInvestigation = secret.Data["investigation.md"]
 	rec.Trees, rec.Repositories = secret.Data[secretTrees], secret.Data[secretRepositories]
+
+	// A Job of a held phase waits, its Job created and no Pod yet, as one
+	// whose Pod is still pulling its image would.
+	if err := k.waitHeld(ctx, job.Name, rec.Env["MAUL_PHASE"]); err != nil {
+		return err
+	}
 
 	// The prepare step: the digest-verified working tree, the handoff, then
 	// any trees.
@@ -866,6 +939,227 @@ func tarGz(t *testing.T, top string, files map[string]string) []byte {
 	return buf.Bytes()
 }
 
+// labelVerificationUID marks a preview tester Job, and its Pod, with the
+// UID of the PreviewVerification it runs (preview-controller's render.go).
+const labelVerificationUID = "maul.run/preview-verification-uid"
+
+// testerSide is the kubelet's part for preview tester Jobs: in the slot
+// namespaces, a Job preview-controller rendered for a PreviewVerification
+// runs the real preview-tester, built with the e2edial tag, with the Job's
+// own MAUL_VERIFY_SPEC. envtest has no kube-proxy or cluster DNS, so each
+// slot Service address the spec targets is dialled at the loopback listener
+// of the fake component the test serves under that component's key
+// (MAUL_E2E_DIAL_MAP), and the termination message is a file of the run's
+// own (MAUL_E2E_TERMINATION_PATH), read back into the container's
+// terminated state as the kubelet reads /dev/termination-log. Its stdout is
+// the container log pods/log serves preview-controller.
+type testerSide struct {
+	bin        string
+	namespaces []string
+
+	// components are the fake components' loopback addresses by key.
+	components map[string]string
+	// faults are the outcomes the next runs are forced to, in order
+	// (testerNoSummary); an empty queue runs the tester.
+	faults []string
+	runs   []testerRun
+}
+
+// testerNoSummary is a forced outcome: the tester's Pod ran and exited 1
+// having printed nothing, as one killed before its summary would.
+const testerNoSummary = "no-summary"
+
+// testerRun is one tester Job as the kubelet ran it.
+type testerRun struct {
+	Job batchv1.Job
+	// Spec is the MAUL_VERIFY_SPEC the Job carried.
+	Spec     string
+	Stdout   []byte
+	Message  string
+	ExitCode int
+}
+
+// runTesters turns the tester side on for Jobs in the slot namespaces
+// given, from now on, until the test ends.
+func (k *kubelet) runTesters(t *testing.T, namespaces ...string) {
+	t.Helper()
+	bin := buildTagged(t, "preview-tester", "e2edial")
+	k.mu.Lock()
+	k.testers = &testerSide{bin: bin, namespaces: namespaces, components: map[string]string{}}
+	k.mu.Unlock()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go k.testerLoop(ctx, done)
+	t.Cleanup(func() {
+		cancel()
+		<-done
+	})
+}
+
+// serveComponent serves h as the preview component of key: every tester
+// request to the Service of that component reaches it.
+func (k *kubelet) serveComponent(t *testing.T, key string, h http.Handler) {
+	t.Helper()
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.testers.components[key] = srv.Listener.Addr().String()
+}
+
+// failNextTester forces the next tester run's outcome (testerNoSummary).
+func (k *kubelet) failNextTester(outcome string) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.testers.faults = append(k.testers.faults, outcome)
+}
+
+// TesterRuns returns every tester Job the kubelet ran so far, in order.
+func (k *kubelet) TesterRuns() []testerRun {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.testers == nil {
+		return nil
+	}
+	return slices.Clone(k.testers.runs)
+}
+
+// testerLoop runs each new tester Job, one at a time.
+func (k *kubelet) testerLoop(ctx context.Context, done chan<- struct{}) {
+	defer close(done)
+	tick := time.NewTicker(100 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+		k.mu.Lock()
+		namespaces := slices.Clone(k.testers.namespaces)
+		k.mu.Unlock()
+		for _, ns := range namespaces {
+			var list batchv1.JobList
+			if err := k.cl.client.List(ctx, &list, client.InNamespace(ns),
+				client.HasLabels{labelVerificationUID}); err != nil {
+				continue
+			}
+			for i := range list.Items {
+				job := &list.Items[i]
+				k.mu.Lock()
+				seen := k.ran[ns+"/"+job.Name]
+				k.mu.Unlock()
+				if seen || !job.DeletionTimestamp.IsZero() {
+					continue
+				}
+				if err := k.runTester(ctx, job); err != nil {
+					if ctx.Err() != nil {
+						return
+					}
+					k.t.Errorf("kubelet: run tester job %s/%s: %v", ns, job.Name, err)
+				}
+				k.mu.Lock()
+				k.ran[ns+"/"+job.Name] = true
+				k.mu.Unlock()
+			}
+		}
+	}
+}
+
+// runTester does what the tester Job's Pod would, then records the Pod and
+// the Job's end.
+func (k *kubelet) runTester(ctx context.Context, job *batchv1.Job) error {
+	started := metav1.Now()
+	spec := job.Spec.Template.Spec
+	if len(spec.Containers) != 1 {
+		return fmt.Errorf("the tester pod template has %d containers, want 1", len(spec.Containers))
+	}
+	container := spec.Containers[0]
+	env := literalEnv(container.Env)
+	rec := testerRun{Job: *job.DeepCopy(), Spec: env["MAUL_VERIFY_SPEC"]}
+
+	k.mu.Lock()
+	var fault string
+	if len(k.testers.faults) > 0 {
+		fault, k.testers.faults = k.testers.faults[0], k.testers.faults[1:]
+	}
+	k.mu.Unlock()
+	if fault == testerNoSummary {
+		rec.ExitCode = 1
+	} else {
+		var err error
+		if rec.Stdout, rec.Message, rec.ExitCode, err = k.execTester(ctx, rec.Spec); err != nil {
+			return err
+		}
+	}
+
+	pod, err := k.createPod(ctx, job)
+	if err != nil {
+		return err
+	}
+	k.mu.Lock()
+	k.logs[pod.Namespace+"/"+pod.Name+"/"+container.Name] = rec.Stdout
+	k.mu.Unlock()
+	reason, phase := "Completed", corev1.PodSucceeded
+	if rec.ExitCode != 0 {
+		reason, phase = "Error", corev1.PodFailed
+	}
+	pod.Status = corev1.PodStatus{Phase: phase, StartTime: &started,
+		ContainerStatuses: []corev1.ContainerStatus{{Name: container.Name, Image: container.Image,
+			ImageID: container.Image, State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{
+				ExitCode: int32(rec.ExitCode), Reason: reason, Message: rec.Message, StartedAt: started,
+				FinishedAt: metav1.Now()}}}}}
+	if err := k.cl.client.Status().Update(ctx, pod); err != nil {
+		return fmt.Errorf("record tester pod status: %w", err)
+	}
+	if err := k.finishJob(ctx, job, started, rec.ExitCode == 0); err != nil {
+		return err
+	}
+	k.mu.Lock()
+	k.testers.runs = append(k.testers.runs, rec)
+	k.mu.Unlock()
+	return nil
+}
+
+// execTester runs the e2edial preview-tester on spec, each target the spec
+// names dialled at its fake component (a target without one is refused by
+// the tester's dial map, as an unreachable Service), and returns its stdout,
+// termination message and exit code.
+func (k *kubelet) execTester(ctx context.Context, spec string) ([]byte, string, int, error) {
+	var parsed struct {
+		Targets map[string]string `json:"targets"`
+	}
+	if err := json.Unmarshal([]byte(spec), &parsed); err != nil {
+		return nil, "", 0, fmt.Errorf("decode the tester spec: %w", err)
+	}
+	dial := map[string]string{}
+	k.mu.Lock()
+	for key, addr := range parsed.Targets {
+		if to, ok := k.testers.components[key]; ok {
+			dial[addr] = to
+		}
+	}
+	bin := k.testers.bin
+	k.mu.Unlock()
+	dialMap, err := json.Marshal(dial)
+	if err != nil {
+		return nil, "", 0, err
+	}
+	term := filepath.Join(k.work, fmt.Sprintf("termination-%d", time.Now().UnixNano()))
+	cmd := exec.CommandContext(ctx, bin)
+	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "MAUL_VERIFY_SPEC=" + spec,
+		"MAUL_E2E_DIAL_MAP=" + string(dialMap), "MAUL_E2E_TERMINATION_PATH=" + term}
+	stdout, code, err := runContainer(cmd, "preview-tester")
+	if err != nil {
+		return nil, "", 0, err
+	}
+	msg, err := os.ReadFile(term)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, "", 0, err
+	}
+	return stdout, string(msg), code, nil
+}
+
 // TestKubelet checks the stand-in itself against the real API server: a Job
 // whose agent succeeds ends Complete and one whose agent fails ends Failed,
 // each with its pod's terminated statuses, and either way the agent's log is
@@ -1003,4 +1297,147 @@ func TestKubelet(t *testing.T) {
 			}
 		})
 	}
+}
+
+// checkTesterJob asserts a tester Job the kubelet ran ended with the
+// condition want, with one Pod labelled with the verification uid,
+// controlled by the Job and bound to the Node, and returns that Pod.
+func checkTesterJob(t *testing.T, cl *cluster, job *batchv1.Job, uid string,
+	want batchv1.JobConditionType) corev1.Pod {
+	t.Helper()
+	ctx := context.Background()
+	var cur batchv1.Job
+	if err := cl.client.Get(ctx, client.ObjectKeyFromObject(job), &cur); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(cur.Status.Conditions, func(c batchv1.JobCondition) bool {
+		return c.Type == want && c.Status == corev1.ConditionTrue
+	}) {
+		t.Errorf("job conditions = %+v, want %s", cur.Status.Conditions, want)
+	}
+	var pods corev1.PodList
+	if err := cl.client.List(ctx, &pods, client.InNamespace(job.Namespace),
+		client.MatchingLabels{labelVerificationUID: uid}); err != nil || len(pods.Items) != 1 {
+		t.Fatalf("tester pods = %d (%v), want 1", len(pods.Items), err)
+	}
+	pod := pods.Items[0]
+	if owner := metav1.GetControllerOf(&pod); owner == nil || owner.UID != cur.UID || pod.Spec.NodeName != kubeletNode {
+		t.Errorf("tester pod owner %v on %q, want the Job on %s", owner, pod.Spec.NodeName, kubeletNode)
+	}
+	return pod
+}
+
+// TestKubeletTester checks the tester side of the stand-in: a tester Job in
+// a slot runs the real e2edial preview-tester, whose request to the spec's
+// Service address reaches the fake component served for its target; the
+// Job ends Complete, its Pod (the Job's, bound to the Node, labelled with
+// the verification) carries the termination message, and pods/log serves
+// the tester's MAUL-VERIFY lines. A forced no-summary run prints nothing,
+// exits 1 and fails the Job; a Job without the verification label is never
+// run.
+func TestKubeletTester(t *testing.T) {
+	cl := startCluster(t)
+	k := startKubelet(t, cl, "intent")
+	const slot = "maul-preview-0"
+	ctx := context.Background()
+	if err := cl.client.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: slot}}); err != nil {
+		t.Fatal(err)
+	}
+	k.runTesters(t, slot)
+	var hits sync.Map
+	k.serveComponent(t, "shop", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Store(r.URL.Path, true)
+		_, _ = io.WriteString(w, "0.1.0")
+	}))
+	spec, err := previewtester.Spec{Round: 1, Attempt: 1, Run: "a1b2c3",
+		Criteria: acceptance.Normalize([]acceptance.Criterion{{ID: "version-served", Kind: acceptance.KindHTTP,
+			Statement: "GET /version answers", Target: "shop",
+			Steps: []acceptance.Step{{Request: acceptance.Request{Method: "GET", Path: "/version"},
+				Expect: acceptance.Expect{Status: acceptance.StatusList{200}}}}}}),
+		Targets: map[string]string{"shop": "preview-shop-1:80"}}.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := clientcmd.BuildConfigFromFlags("", cl.kubeconfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	testerJob := func(name string, labels map[string]string) *batchv1.Job {
+		return &batchv1.Job{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: slot, Labels: labels},
+			Spec: batchv1.JobSpec{BackoffLimit: new(int32(0)), Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: labels},
+				Spec: corev1.PodSpec{RestartPolicy: corev1.RestartPolicyNever,
+					Containers: []corev1.Container{{Name: "tester", Image: "tester@sha256:" + strings.Repeat("1", 64),
+						Env: []corev1.EnvVar{{Name: "MAUL_VERIFY_SPEC", Value: string(spec)}}}}},
+			}},
+		}
+	}
+
+	tests := []struct {
+		name, fault   string
+		wantCondition batchv1.JobConditionType
+		wantLog       string
+		wantMessage   bool
+	}{
+		{"a run", "", batchv1.JobComplete, "MAUL-VERIFY:", true},
+		{"a run killed before its summary", testerNoSummary, batchv1.JobFailed, "", false},
+	}
+	for i, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.fault != "" {
+				k.failNextTester(tc.fault)
+			}
+			uid := fmt.Sprintf("uid-%d", i)
+			job := testerJob(fmt.Sprintf("preview-shop-1-vt-%d", i), map[string]string{labelVerificationUID: uid})
+			if err := cl.client.Create(ctx, job); err != nil {
+				t.Fatal(err)
+			}
+			var ran testerRun
+			eventually(t, "the tester job to run", func() bool {
+				for _, r := range k.TesterRuns() {
+					if r.Job.Name == job.Name {
+						ran = r
+						return true
+					}
+				}
+				return false
+			})
+			if string(spec) != ran.Spec {
+				t.Errorf("tester ran spec %q, want the Job's", ran.Spec)
+			}
+			pod := checkTesterJob(t, cl, job, uid, tc.wantCondition)
+			term := pod.Status.ContainerStatuses[0].State.Terminated
+			if term == nil || (term.Message != "") != tc.wantMessage {
+				t.Errorf("tester termination = %+v, want a message %v", term, tc.wantMessage)
+			}
+			stream, err := cs.CoreV1().Pods(slot).GetLogs(pod.Name, &corev1.PodLogOptions{Container: "tester"}).
+				Stream(ctx)
+			if err != nil {
+				t.Fatalf("pods/log: %v", err)
+			}
+			defer func() { _ = stream.Close() }()
+			logs, err := io.ReadAll(stream)
+			if err != nil || (tc.wantLog == "") != (len(logs) == 0) || !strings.Contains(string(logs), tc.wantLog) {
+				t.Errorf("pods/log = %q (%v), want %q", logs, err, tc.wantLog)
+			}
+		})
+	}
+	if _, ok := hits.Load("/version"); !ok {
+		t.Error("the tester's request never reached the component")
+	}
+
+	unlabelled := testerJob("preview-shop-1-other", map[string]string{"app": "other"})
+	if err := cl.client.Create(ctx, unlabelled); err != nil {
+		t.Fatal(err)
+	}
+	consistently(t, "a Job without the verification label left alone", func() bool {
+		var pods corev1.PodList
+		return cl.client.List(ctx, &pods, client.InNamespace(slot),
+			client.MatchingLabels{"batch.kubernetes.io/job-name": unlabelled.Name}) == nil && len(pods.Items) == 0
+	})
 }

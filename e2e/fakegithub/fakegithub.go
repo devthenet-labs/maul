@@ -150,6 +150,8 @@ type Server struct {
 	parents  map[string]string
 	compares int
 	patches  map[string]string
+	// defaultPatch answers a patch compare no pair in patches names, when set.
+	defaultPatch string
 	// moved are alerts a later analysis moved without a webhook (SetAlert):
 	// their state and most recent instance, by number.
 	moved               map[int]movedAlert
@@ -160,6 +162,7 @@ type Server struct {
 	nextReviewCommentID int64
 	checkRuns           map[string][]CheckRun
 	statuses            map[string][]CommitStatus
+	nextStatusID        int64
 	workflowJobs        map[int64][]WorkflowJob
 	jobLogs             map[int64]string
 	// workflowRuns are the Actions runs by id; reruns the ones whose failed
@@ -184,6 +187,8 @@ type Server struct {
 	// minted maps each token handed out to the scope it is held to.
 	tokens []TokenRequest
 	minted map[string]TokenRequest
+	// denied are permissions the installation does not hold (DenyPermission).
+	denied map[string]bool
 	// repoLabels are the labels each repository defines, by repoKey.
 	repoLabels  map[string][]RepoLabel
 	nextLabelID int64
@@ -219,6 +224,7 @@ func newState() (*Server, *http.ServeMux) {
 		roles:          make(map[string]string),
 		missing:        make(map[string]bool),
 		minted:         make(map[string]TokenRequest),
+		denied:         make(map[string]bool),
 		repoLabels:     make(map[string][]RepoLabel),
 		repoFiles:      make(map[string]map[string]string),
 		rateRemaining:  defaultRateRemaining,
@@ -380,6 +386,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	handle("GET /repos/{owner}/{repo}/commits/{sha}/check-runs", permChecks, s.listCheckRuns)
 	handle("GET /repos/{owner}/{repo}/check-runs/{id}/annotations", permChecks, s.listCheckAnnotations)
 	handle("GET /repos/{owner}/{repo}/commits/{sha}/statuses", permStatuses, s.listCommitStatuses)
+	handle("POST /repos/{owner}/{repo}/statuses/{sha}", permStatuses, s.createCommitStatus)
 	handle("GET /repos/{owner}/{repo}/actions/runs/{id}/jobs", permActions, s.listWorkflowJobs)
 	handle("GET /repos/{owner}/{repo}/actions/runs", permActions, s.listWorkflowRuns)
 	handle("POST /repos/{owner}/{repo}/actions/runs/{id}/rerun-failed-jobs", permActions, s.rerunFailedJobs)

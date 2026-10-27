@@ -5,11 +5,13 @@ package fakegithub
 
 import (
 	"cmp"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"slices"
 	"strconv"
+	"time"
 )
 
 // CheckAnnotation is one check-run annotation a test seeds.
@@ -56,12 +58,18 @@ func (r WorkflowRun) suite() int64 {
 }
 
 // CommitStatus is one commit-status record. Repeating a context creates a
-// newer status; GitHub's raw list returns newest first.
+// newer status; GitHub's raw list returns newest first. Ids rise with every
+// status, as GitHub's do. Creator is who posted it: the caller for one
+// posted through the API, whoever a test says for one it seeds (no one, if
+// unset).
 type CommitStatus struct {
 	ID          int64
 	Context     string
 	State       string
 	Description string
+	TargetURL   string
+	Creator     Actor
+	CreatedAt   time.Time
 }
 
 // WorkflowJob relates one Actions job to a check run and holds its log.
@@ -100,11 +108,93 @@ func (s *Server) Reruns() []int64 {
 	return slices.Clone(s.reruns)
 }
 
-// SetCommitStatus adds a raw status to sha, newest first.
+// SetCommitStatus adds a raw status to sha, newest first, as another
+// account posting it would: one without an id gets the next, so it is the
+// latest; one without a time is stamped now.
 func (s *Server) SetCommitStatus(sha string, status CommitStatus) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.addStatus(sha, status)
+}
+
+// addStatus records status on sha, newest first, and returns it as stored.
+// Callers hold s.mu.
+func (s *Server) addStatus(sha string, status CommitStatus) CommitStatus {
+	if status.ID == 0 {
+		s.nextStatusID++
+		status.ID = s.nextStatusID
+	}
+	s.nextStatusID = max(s.nextStatusID, status.ID)
+	if status.CreatedAt.IsZero() {
+		status.CreatedAt = s.now()
+	}
 	s.statuses[sha] = append([]CommitStatus{status}, s.statuses[sha]...)
+	return status
+}
+
+// Statuses returns every status on sha, newest first.
+func (s *Server) Statuses(sha string) []CommitStatus {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.statuses[sha])
+}
+
+// LatestStatus returns the newest status of context on sha.
+func (s *Server) LatestStatus(sha, context string) (CommitStatus, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, st := range s.statuses[sha] {
+		if st.Context == context {
+			return st, true
+		}
+	}
+	return CommitStatus{}, false
+}
+
+// statusStates are the states GitHub accepts for a commit status.
+var statusStates = []string{"error", "failure", "pending", "success"}
+
+// createCommitStatus answers POST /repos/{o}/{r}/statuses/{sha} as GitHub
+// does: 201 with the new status, created by the caller; 422 for a state it
+// does not know or a description over 140 characters.
+func (s *Server) createCommitStatus(w http.ResponseWriter, r *http.Request) {
+	actor := s.caller(r)
+	var body struct {
+		State       string `json:"state"`
+		Context     string `json:"context"`
+		Description string `json:"description"`
+		TargetURL   string `json:"target_url"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if !slices.Contains(statusStates, body.State) || len([]rune(body.Description)) > 140 {
+		unprocessable(w, "Validation Failed")
+		return
+	}
+	if body.Context == "" {
+		body.Context = "default"
+	}
+	s.mu.Lock()
+	st := s.addStatus(r.PathValue("sha"), CommitStatus{Context: body.Context, State: body.State,
+		Description: body.Description, TargetURL: body.TargetURL, Creator: actor})
+	s.mu.Unlock()
+	w.WriteHeader(http.StatusCreated)
+	writeJSON(w, statusJSON(st))
+}
+
+// statusJSON renders a status as GitHub's API does.
+func statusJSON(v CommitStatus) map[string]any {
+	out := map[string]any{"id": v.ID, "context": v.Context, "state": v.State, "description": v.Description,
+		"created_at": v.CreatedAt, "updated_at": v.CreatedAt}
+	if v.TargetURL != "" {
+		out["target_url"] = v.TargetURL
+	}
+	if v.Creator.Login != "" {
+		out["creator"] = v.Creator
+	}
+	return out
 }
 
 // SetWorkflowJob creates or updates a workflow job on runID.
@@ -189,8 +279,7 @@ func (s *Server) listCommitStatuses(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 	out := make([]map[string]any, 0, len(statuses))
 	for _, v := range statuses {
-		out = append(out, map[string]any{"id": v.ID, "context": v.Context, "state": v.State,
-			"description": v.Description})
+		out = append(out, statusJSON(v))
 	}
 	writeJSON(w, out)
 }
