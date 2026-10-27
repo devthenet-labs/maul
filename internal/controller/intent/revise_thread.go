@@ -210,6 +210,9 @@ func roundHeading(t v1alpha1.IntentRunTrigger) (heading, scope string) {
 type roundInput struct {
 	feedback, earlier, signature string
 	checks                       []string
+	// pieces are an acceptance-fix round's failure pieces
+	// (keyVerifySignatures).
+	pieces []string
 }
 
 // earlierUnavailable stands in for a check-fix or acceptance-fix round's
@@ -239,11 +242,11 @@ func (p *pass) roundFeedback(ctx context.Context, run *v1alpha1.IntentRun, pr v1
 		// An acceptance-fix round's input is its verification's evidence,
 		// and its signature that failure's fingerprint; the thread is
 		// context alone, as for a check-fix round.
-		feedback, signature, err := p.verifyRoundInput(ctx, run)
+		feedback, failure, err := p.verifyRoundInput(ctx, run)
 		if err != nil {
 			return in, err
 		}
-		in.feedback, in.signature = feedback, signature
+		in.feedback, in.signature, in.pieces = feedback, failure.signature, failure.pieces
 		in.earlier = p.contextThread(ctx, run, pr)
 		return in, nil
 	case roundHuman:

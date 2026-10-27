@@ -14,6 +14,9 @@ import (
 const (
 	// VerifyFix also re-arms automatic fixes.
 	VerifyFix = "fix"
+	// VerifyStop halts automatic fixes and verifies nothing: it only
+	// stops maul fixing failures on its own.
+	VerifyStop = "stop"
 	// VerifyReset first resets the preview's data. It is a modifier of
 	// verify, never a verb: action.VerbReset is the integration-scoped
 	// delete-everything, which no intent surface offers.
@@ -27,6 +30,8 @@ const maxCriterionIDBytes = 32
 type VerifyArgs struct {
 	// Fix: "/maul verify fix".
 	Fix bool
+	// Stop: "/maul verify stop".
+	Stop bool
 	// Reset: "/maul verify --reset".
 	Reset bool
 }
@@ -47,11 +52,11 @@ func Args(body string) (args []string, ok bool) {
 	return strings.Fields(after), true
 }
 
-// ParseVerify reads body as /maul verify: no argument, VerifyFix or
-// VerifyReset, at most one of them, matched without regard to ASCII case.
-// ok is false for any other verb and for any other argument, which asks for
-// the help instead: nothing is ever guessed from a verify command a human
-// mistyped.
+// ParseVerify reads body as /maul verify: no argument, VerifyFix,
+// VerifyStop or VerifyReset, at most one of them, matched without regard to
+// ASCII case. ok is false for any other verb and for any other argument,
+// which asks for the help instead: nothing is ever guessed from a verify
+// command a human mistyped.
 func ParseVerify(body string) (VerifyArgs, bool) {
 	c, ok := parseGrammar(body)
 	if !ok || c.Verb != action.VerbVerify {
@@ -65,6 +70,8 @@ func ParseVerify(body string) (VerifyArgs, bool) {
 		return VerifyArgs{}, false
 	case strings.EqualFold(args[0], VerifyFix):
 		return VerifyArgs{Fix: true}, true
+	case strings.EqualFold(args[0], VerifyStop):
+		return VerifyArgs{Stop: true}, true
 	case strings.EqualFold(args[0], VerifyReset):
 		return VerifyArgs{Reset: true}, true
 	}

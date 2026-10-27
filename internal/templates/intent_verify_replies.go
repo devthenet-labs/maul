@@ -43,6 +43,8 @@ const (
 	// verification its Project allows (spec.limits.maxVerifications), so a
 	// request would never run.
 	VerifyCapReached VerifyOutcome = "cap-reached"
+	// VerifyStopped: /maul verify stop halted automatic fixes.
+	VerifyStopped VerifyOutcome = "stopped"
 )
 
 // VerifyCommandNotice answers a /maul verify or /maul accept on the intent
@@ -80,6 +82,9 @@ type VerifyCommandNotice struct {
 	ResetWait string
 	// MaxVerifications is the Project's limit, for VerifyCapReached.
 	MaxVerifications int32
+	// Cancelled: the stop cancelled an automatic fix not yet started;
+	// Running: one already running finishes. For VerifyStopped.
+	Cancelled, Running bool
 }
 
 // RenderVerifyCommandNotice renders a VerifyCommandNotice.
@@ -113,30 +118,7 @@ func verifyNoticeText(n VerifyCommandNotice, surface command.Surface) (text, hel
 	actor := code(oneLine(n.Actor))
 	switch n.Outcome {
 	case VerifyRequested:
-		if n.Fix {
-			cmd = slashCommand(n.Verb + " " + command.VerifyFix)
-		}
-		if n.Reset {
-			cmd = slashCommand(n.Verb + " " + command.VerifyReset)
-		}
-		var b strings.Builder
-		fmt.Fprintf(&b, "%s from %s is recorded: maul checks the combined change against the approved acceptance "+
-			"criteria ", cmd, actor)
-		if n.AfterRound {
-			b.WriteString("after the current round.")
-		} else {
-			b.WriteString("once its checks are green and the preview runs the current commits.")
-		}
-		if n.Joined {
-			b.WriteString(" It joins a verification already waiting.")
-		}
-		if n.Reset {
-			b.WriteString(" The preview restarts with fresh data first.")
-		}
-		if n.Fix {
-			b.WriteString(" maul may fix failing criteria on its own again.")
-		}
-		return b.String(), "", nil
+		return requestedText(n, actor), "", nil
 	case VerifyResetTooSoon:
 		cmd = slashCommand(n.Verb + " " + command.VerifyReset)
 		return fmt.Sprintf("%s does nothing: the preview was reset less than %s ago. Use %s to verify without a "+
@@ -161,6 +143,8 @@ func verifyNoticeText(n VerifyCommandNotice, surface command.Surface) (text, hel
 		return fmt.Sprintf("%s does nothing: the preview was not running %s, the commits maul verifies, when you "+
 			"commented, so maul cannot tell which commits you checked. Check the preview once it runs them and "+
 			"accept again.", cmd, joinCode(n.Heads)), "", nil
+	case VerifyStopped:
+		return stoppedText(n, actor), "", nil
 	case VerifyApplied:
 		return fmt.Sprintf("%s from %s was applied already, and is not applied again.", cmd, actor), "", nil
 	case VerifyUsage:
@@ -171,6 +155,51 @@ func verifyNoticeText(n VerifyCommandNotice, surface command.Surface) (text, hel
 			"for a new plan, whose count starts afresh.", cmd, n.MaxVerifications, slashCommand("replan")), "", nil
 	}
 	return "", "", fmt.Errorf("render verify notice: no text for outcome %q", n.Outcome)
+}
+
+// requestedText is the reply to a recorded /maul verify from actor.
+func requestedText(n VerifyCommandNotice, actor string) string {
+	cmd := slashCommand(n.Verb)
+	if n.Fix {
+		cmd = slashCommand(n.Verb + " " + command.VerifyFix)
+	}
+	if n.Reset {
+		cmd = slashCommand(n.Verb + " " + command.VerifyReset)
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s from %s is recorded: maul checks the combined change against the approved acceptance "+
+		"criteria ", cmd, actor)
+	if n.AfterRound {
+		b.WriteString("after the current round.")
+	} else {
+		b.WriteString("once its checks are green and the preview runs the current commits.")
+	}
+	if n.Joined {
+		b.WriteString(" It joins a verification already waiting.")
+	}
+	if n.Reset {
+		b.WriteString(" The preview restarts with fresh data first.")
+	}
+	if n.Fix {
+		b.WriteString(" maul may fix failing criteria on its own again.")
+	}
+	return b.String()
+}
+
+// stoppedText is the reply to /maul verify stop from actor.
+func stoppedText(n VerifyCommandNotice, actor string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s from %s is recorded: maul no longer fixes failing acceptance criteria on its own.",
+		slashCommand(n.Verb+" "+command.VerifyStop), actor)
+	if n.Cancelled {
+		b.WriteString(" The automatic fix that had not started yet is cancelled.")
+	}
+	if n.Running {
+		b.WriteString(" The automatic fix already running finishes and pushes; no other follows it.")
+	}
+	fmt.Fprintf(&b, " Verification still runs and reports, and nothing else starts. %s lets maul fix failures "+
+		"again.", slashCommand(n.Verb+" "+command.VerifyFix))
+	return b.String()
 }
 
 // acceptable is the sentence naming the criteria an approver can accept now.

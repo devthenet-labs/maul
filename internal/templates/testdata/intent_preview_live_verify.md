@@ -5,7 +5,7 @@ This pull request's head, `9f1c0e5d2a7b`, is live at [`marigold-3.preview.maul.e
 
 #### maul: acceptance checks
 
-Verification failing: 2/4 checks passing, round 1 of 2, 1 quarantined, 1 for a human; automatic fix queued.
+Verification 1 failing: 2/4 checks passing, 0 of 2 automatic fixes used, 1 quarantined, 1 for a human; automatic fix queued.
 
 - `render` (`http`): passed. the home page renders
 - `battle-leaderboard` (`http`): failed. a leaderboard ranks patterns by votes

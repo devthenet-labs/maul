@@ -329,3 +329,52 @@ func TestParseBuildRefusesEscapedHiddenCharacters(t *testing.T) {
 		}
 	}
 }
+
+// noDefectBuild is an acceptance-fix round's report that found no defect:
+// nothing built, the reason saying why the verification failed.
+func noDefectBuild() string {
+	src := buildWith("success: true", "success: false\nno_defect: true")
+	return strings.Replace(src, "notes:", "reason: \"each criterion passes when replayed by hand; the preview's "+
+		"network policy was not ready when the tester ran\"\nnotes:", 1)
+}
+
+// TestParseBuildNoDefect: an acceptance-fix round that found no defect
+// says so explicitly, with success false and its reason; a report written
+// before the field existed reads as no claim of it.
+func TestParseBuildNoDefect(t *testing.T) {
+	b, err := ParseBuild([]byte(noDefectBuild()))
+	if err != nil {
+		t.Fatalf("ParseBuild() error = %v", err)
+	}
+	if !b.NoDefect || *b.Success || !strings.HasPrefix(b.Reason, "each criterion passes") {
+		t.Errorf("parsed = no_defect %v, success %v, reason %q", b.NoDefect, *b.Success, b.Reason)
+	}
+	b, err = ParseBuild([]byte(validBuild))
+	if err != nil || b.NoDefect {
+		t.Errorf("a report without no_defect = %+v, %v; want valid without it", b, err)
+	}
+}
+
+// TestParseBuildNoDefectErrors: no_defect is a claim about a build that
+// changed nothing, so it never stands beside a success, without a reason,
+// or beside a dependency the proxy refused.
+func TestParseBuildNoDefectErrors(t *testing.T) {
+	for _, tt := range []struct{ name, src, want string }{
+		{"on a success", buildWith("success: true", "success: true\nno_defect: true"),
+			"no_defect is set but success is true"},
+		{"without a reason", buildWith("success: true", "success: false\nno_defect: true"),
+			"reason is required when success is false"},
+		{"beside refused", strings.Replace(noDefectBuild(), "notes:",
+			"refused:\n  - \"403 egress-proxy: x.example.com is not in profile py's hosts\"\nnotes:", 1),
+			"refused is set with no_defect"},
+		{"not a boolean", strings.Replace(noDefectBuild(), "no_defect: true", "no_defect: maybe", 1),
+			"cannot unmarshal !!str `maybe` into bool"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := ParseBuild([]byte(tt.src))
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("ParseBuild() error = %v, want it to mention %q", err, tt.want)
+			}
+		})
+	}
+}

@@ -5,7 +5,7 @@ This pull request's head, `9f1c0e5d2a7b`, is live at [`marigold-3.preview.maul.e
 
 #### maul: acceptance checks
 
-Verified: 2/2 checks passed.
+Verification 2 passed: 2/2 checks passed.
 
 - `a` (`http`): passed. a
 - `b` (`manual`): accepted by a human at `4b825dc642cb`, not re-checked. b

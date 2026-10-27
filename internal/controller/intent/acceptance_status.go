@@ -96,7 +96,7 @@ func (p *pass) acceptanceStatus() (st acceptanceState, postedOnly, ok bool) {
 func (p *pass) verifyingStatus() (acceptanceState, bool) {
 	acc, v := p.in.Status.Acceptance, p.in.Status.Verification
 	total := int32(len(automatable(acc.Criteria)))
-	round, most := p.verifyFixRound()
+	used, most := p.verifyFixesUsed()
 	passed := fmt.Sprintf("%d/%d automated passed", v.Passed, total)
 	switch v.State {
 	case v1alpha1.VerificationNotDeclared:
@@ -110,8 +110,8 @@ func (p *pass) verifyingStatus() (acceptanceState, bool) {
 		}
 		return acceptanceState{statusPending, "waiting for the preview"}, true
 	case v1alpha1.VerificationVerifying:
-		return acceptanceState{statusPending, fmt.Sprintf("verifying: round %d of %d, %d %s", round, most, total,
-			plural(total, "check", "checks"))}, true
+		return acceptanceState{statusPending, fmt.Sprintf("verifying: verification %d, %d %s, %d of %d automatic %s used",
+			v.Round, total, plural(total, "check", "checks"), used, most, plural(most, "fix", "fixes"))}, true
 	case v1alpha1.VerificationPassed:
 		return passedStatus(passed, acc, v), true
 	case v1alpha1.VerificationFailing:
@@ -120,10 +120,9 @@ func (p *pass) verifyingStatus() (acceptanceState, bool) {
 		}
 		return acceptanceState{statusFailure, fmt.Sprintf("%s, %d failing", passed, v.Failed)}, true
 	case v1alpha1.VerificationFixing:
-		// The running fix is already one of verifyFixRounds, so it is the
-		// round before the verification it will produce.
+		// The running fix is already one of verifyFixRounds.
 		return acceptanceState{statusFailure, fmt.Sprintf("%s; automatic fix %d of %d running", passed,
-			round-1, most-1)}, true
+			used, most)}, true
 	case v1alpha1.VerificationExhausted:
 		return acceptanceState{statusFailure, passed + "; no automatic fix left"}, true
 	case v1alpha1.VerificationNeedsReplan:

@@ -146,6 +146,13 @@ type Config struct {
 	// section.
 	PlanVerification *templates.PlanVerification
 
+	// AcceptanceFix marks an intent build Job that is an acceptance-fix
+	// round (MAUL_ACCEPTANCE_FIX, "true" or unset): its prompt tells the
+	// agent it may conclude, with evidence, that the code has no defect,
+	// and its report may say so (report.Build's no_defect). Every other
+	// build's report is refused for claiming it.
+	AcceptanceFix bool
+
 	// NetworkProfile names the operator network profile the pod carries (a
 	// Go module route through the egress proxy), which the remediate and
 	// build prompts then describe instead of saying the run is offline.
@@ -259,6 +266,18 @@ func planVerificationFromEnv(raw string, errs []string) (*templates.PlanVerifica
 		errs = append(errs, fmt.Sprintf("MAUL_PLAN_VERIFICATION is not valid: %v", err))
 	}
 	return v, errs
+}
+
+// acceptanceFixFromEnv reads MAUL_ACCEPTANCE_FIX: "true" or unset, any
+// other value added to errs, never read as either.
+func acceptanceFixFromEnv(raw string, errs []string) (bool, []string) {
+	switch raw {
+	case "":
+		return false, errs
+	case "true":
+		return true, errs
+	}
+	return false, append(errs, fmt.Sprintf("MAUL_ACCEPTANCE_FIX=%q is not \"true\" or unset", raw))
 }
 
 // negativeIdleTimeouts reports each stage idle limit set below zero: zero is
@@ -379,6 +398,7 @@ func FromEnv(getenv func(string) string) (Config, error) {
 	}
 	cfg.BuildProfiles, errs = buildProfilesFromEnv(get("BUILD_NETWORK_PROFILES", ""), errs)
 	cfg.PlanVerification, errs = planVerificationFromEnv(get("PLAN_VERIFICATION", ""), errs)
+	cfg.AcceptanceFix, errs = acceptanceFixFromEnv(get("ACCEPTANCE_FIX", ""), errs)
 	// Approving a fix must never buy less than leaving it alone would: a
 	// manual budget below the automated one inverts the whole model.
 	if cfg.RemediateManualMaxTurns < cfg.RemediateAutoMaxTurns {

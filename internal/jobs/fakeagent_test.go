@@ -717,3 +717,44 @@ func TestFakeAgentBuildScope(t *testing.T) {
 		})
 	}
 }
+
+// TestFakeAgentBuildNoDefect: with MAUL_FAKE_FIX_NO_DEFECT set, the fake
+// build of an acceptance-fix round (MAUL_ACCEPTANCE_FIX=true) concludes no
+// defect, as agent-runner reports it: an ok stage with success false, no
+// changeset, and a report saying no_defect with its reason. Any other build
+// ignores the switch and builds.
+func TestFakeAgentBuildNoDefect(t *testing.T) {
+	inputs := map[string]string{"issue.md": "", "investigation.md": approvedPlan}
+	for _, tc := range []struct {
+		name     string
+		env      []string
+		noDefect bool
+	}{
+		{"an acceptance fix", []string{"MAUL_ACCEPTANCE_FIX=true", "MAUL_FAKE_FIX_NO_DEFECT=1"}, true},
+		{"another build", []string{"MAUL_FAKE_FIX_NO_DEFECT=1"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stdout, err := execFakeAgentIn(t, "build", inputs, nil, tc.env...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			out := scanFakeAgent(t, "build", stdout)
+			if len(out.Events) != 1 || out.Events[0].Remediation == nil {
+				t.Fatalf("events = %+v, want one build event", out.Events)
+			}
+			rem := out.Events[0].Remediation
+			parsed, err := report.ParseBuild([]byte(rem.ReportMarkdown))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if parsed.NoDefect != tc.noDefect || rem.Success == tc.noDefect ||
+				(rem.Changeset == nil) != tc.noDefect || rem.Outcome != envelope.OutcomeOK {
+				t.Errorf("build = success %v, changeset %v, no_defect %v; want no_defect %v", rem.Success,
+					rem.Changeset != nil, parsed.NoDefect, tc.noDefect)
+			}
+			if tc.noDefect && parsed.Reason == "" {
+				t.Error("a no-defect report gives no reason")
+			}
+		})
+	}
+}

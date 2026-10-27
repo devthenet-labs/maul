@@ -12,12 +12,12 @@ import (
 const hostileText = "@octocat fixes #12 closes owner/repo#3 \u202e<b>x</b> `tick` [l](https://evil.example)"
 
 func testVerifyProgress() VerifyProgress {
-	return VerifyProgress{State: VerifyRunning, Round: 1, MaxRounds: 2, Passing: 3, Total: 4}
+	return VerifyProgress{State: VerifyRunning, Verification: 1, FixesUsed: 0, MaxFixes: 2, Passing: 3, Total: 4}
 }
 
 func testVerifySection() VerifySection {
 	return VerifySection{
-		Progress: VerifyProgress{State: VerifyFailing, Round: 1, MaxRounds: 2, Passing: 2, Total: 4,
+		Progress: VerifyProgress{State: VerifyFailing, Verification: 1, FixesUsed: 0, MaxFixes: 2, Passing: 2, Total: 4,
 			Quarantined: 1, ManualOpen: 1, AutoFix: FixQueued},
 		Criteria: []VerifyCriterion{
 			{ID: "render", Kind: "http", Statement: "the home page renders", Outcome: VerifyOutcomePass},
@@ -37,7 +37,7 @@ func TestVerifyGoldens(t *testing.T) {
 	withLogs.Logs = []VerifyLog{{Part: "beatbattle-api", Tail: "listening on :8080\npanic: boom"}}
 	withLogs.Impostor = "mallory"
 	passed := VerifySection{
-		Progress: VerifyProgress{State: VerifyPassed, Round: 2, MaxRounds: 2, Passing: 2, Total: 2},
+		Progress: VerifyProgress{State: VerifyPassed, Verification: 2, FixesUsed: 1, MaxFixes: 2, Passing: 2, Total: 2},
 		Criteria: []VerifyCriterion{
 			{ID: "a", Kind: "http", Statement: "a", Outcome: VerifyOutcomePass},
 			{ID: "b", Kind: "manual", Statement: "b", Outcome: VerifyOutcomeAccepted, AcceptedAt: testWebHead},
@@ -58,6 +58,33 @@ func TestVerifyGoldens(t *testing.T) {
 		{"intent_verify_issue_passed.md", func() (string, error) {
 			return RenderVerifyComment(VerifyComment{Namespace: "maul", Intent: "marigold-3", Round: 2, Attempt: 1,
 				Section: passed})
+		}},
+		// An acceptance fix that found no defect: the agent's reason, its
+		// mention and markup made inert, then maul's words on what next.
+		{"intent_verify_issue_no_defect.md", func() (string, error) {
+			s := testVerifySection()
+			s.Progress.AutoFix, s.Progress.AutoFixReason = FixHalted, "FixFoundNoDefect"
+			s.NoDefect = &VerifyNoDefect{Run: "marigold-3-rev2-api-a1",
+				Reason: "each criterion passes when replayed by hand; @octocat the <b>network policy</b> was late"}
+			return RenderVerifyComment(VerifyComment{Namespace: "maul", Intent: "marigold-3", Round: 1, Attempt: 1,
+				Section: s})
+		}},
+		// A step with the right status and the wrong JSON: each failing part
+		// named, the observed values inert however they are written.
+		{"intent_verify_issue_mismatch.md", func() (string, error) {
+			s := VerifySection{Progress: VerifyProgress{State: VerifyFailing, Verification: 2, FixesUsed: 1,
+				MaxFixes: 2, Total: 1}, Criteria: []VerifyCriterion{{ID: "ratings-order", Kind: "http",
+				Statement: "the top rated pattern comes first", Outcome: VerifyOutcomeFail,
+				Expected: "GET /api/ratings: status 200", Observed: "status 200",
+				Mismatches: []VerifyMismatch{
+					{Kind: MismatchJSON, Key: "/0/id", Expected: `"p_mine"`, Observed: "\"p_4e1013 ``@octocat``\""},
+					{Kind: MismatchHeader, Key: "Content-Type", Expected: `"application/json"`, Absent: true},
+					{Kind: MismatchBody, Expected: "p_mine"},
+					{Kind: MismatchCapture, Key: "battle", Expected: "a value at /id", Absent: true},
+					{Kind: "bogus", Expected: "never shown"},
+				}}}}
+			return RenderVerifyComment(VerifyComment{Namespace: "maul", Intent: "beatbattle-44", Round: 2,
+				Attempt: 1, Section: s})
 		}},
 		{"intent_preview_live_verify.md", func() (string, error) {
 			c := testPreviewComment(PreviewLive, "", "/api")
@@ -234,7 +261,7 @@ func assertInert(t *testing.T, name, out string) {
 // inert on every surface.
 func TestVerifyTextInert(t *testing.T) {
 	sec := VerifySection{
-		Progress: VerifyProgress{State: VerifyFailing, Round: 1, MaxRounds: 2, Passing: 1, Total: 2,
+		Progress: VerifyProgress{State: VerifyFailing, Verification: 1, FixesUsed: 0, MaxFixes: 2, Passing: 1, Total: 2,
 			AutoFix: FixHalted, AutoFixReason: hostileText},
 		Criteria: []VerifyCriterion{
 			{ID: hostileText, Kind: hostileText, Statement: hostileText, Outcome: VerifyOutcomeFail,
@@ -257,7 +284,7 @@ func TestVerifyTextInert(t *testing.T) {
 	}
 	assertInert(t, "pr", pr)
 	p := onePreview(PreviewLive, "")
-	p.Verify = &VerifyProgress{State: VerifyFailing, Round: 1, MaxRounds: 2, AutoFix: FixHalted,
+	p.Verify = &VerifyProgress{State: VerifyFailing, Verification: 1, FixesUsed: 0, MaxFixes: 2, AutoFix: FixHalted,
 		AutoFixReason: hostileText, Total: 1}
 	// No pull requests: their links are maul's own, "#N" text included.
 	st, err := RenderIntentStatusComment(IntentStatusComment{
@@ -280,7 +307,8 @@ func TestVerifyTextInert(t *testing.T) {
 // stays under GitHub's limit, dropping log tails first.
 func TestVerifyEvidenceBounded(t *testing.T) {
 	big := strings.Repeat("x", 100_000)
-	sec := VerifySection{Progress: VerifyProgress{State: VerifyFailing, Round: 1, MaxRounds: 1, Total: 16}}
+	sec := VerifySection{Progress: VerifyProgress{State: VerifyFailing, Verification: 1, FixesUsed: 0, MaxFixes: 1,
+		Total: 16}}
 	for i := range 16 {
 		sec.Criteria = append(sec.Criteria, VerifyCriterion{ID: "c" + string(rune('a'+i)), Kind: "http",
 			Statement: "s", Outcome: VerifyOutcomeFail, Expected: big, Observed: big, Body: big})
@@ -341,7 +369,7 @@ func TestVerifyLineStates(t *testing.T) {
 		{VerifyProgress{State: VerifyNotChecked, ManualOpen: 2}, "Nothing is checked automatically, 2 for a human."},
 		{VerifyProgress{State: VerifyUnreadable}, "Verification stopped: maul cannot read the approved plan's " +
 			"acceptance criteria, so nothing is verified. `/maul replan` to approve a plan again."},
-		{VerifyProgress{State: VerifyPreviewNotLive, Round: 1, MaxRounds: 3, ManualOpen: 1},
+		{VerifyProgress{State: VerifyPreviewNotLive, Verification: 1, FixesUsed: 0, MaxFixes: 3, ManualOpen: 1},
 			"Verification unavailable: the preview did not become live at the pull requests' heads in time, so the " +
 				"checks could not run. Verification resumes once the preview is live; `kubectl get preview` says " +
 				"why it is not."},

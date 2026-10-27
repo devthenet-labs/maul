@@ -42,8 +42,8 @@ func TestArgs(t *testing.T) {
 	}
 }
 
-// TestParseVerify pins /maul verify's grammar: no argument, fix or --reset,
-// one of them at most; anything else asks for the help.
+// TestParseVerify pins /maul verify's grammar: no argument, fix, stop or
+// --reset, one of them at most; anything else asks for the help.
 func TestParseVerify(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -57,6 +57,10 @@ func TestParseVerify(t *testing.T) {
 		{"fix, any case", "/MAUL Verify FIX", command.VerifyArgs{Fix: true}, true},
 		{"reset", "/maul verify --reset", command.VerifyArgs{Reset: true}, true},
 		{"reset, any case", "/maul verify --RESET", command.VerifyArgs{Reset: true}, true},
+		{"stop", "/maul verify stop", command.VerifyArgs{Stop: true}, true},
+		{"stop, any case", "/maul verify STOP", command.VerifyArgs{Stop: true}, true},
+		{"stop and fix", "/maul verify stop fix", command.VerifyArgs{}, false},
+		{"stop is a modifier, never a verb", "/maul stop", command.VerifyArgs{}, false},
 		{"both", "/maul verify fix --reset", command.VerifyArgs{}, false},
 		{"twice", "/maul verify fix fix", command.VerifyArgs{}, false},
 		{"reset is a modifier, never a verb", "/maul reset", command.VerifyArgs{}, false},

@@ -36,6 +36,11 @@ const (
 	// OutcomeNotBuilt: the build agent reported it could not build the
 	// plan.
 	OutcomeNotBuilt = "not_built"
+	// OutcomeNoDefect is a completed acceptance-fix round whose agent
+	// concluded, explicitly (the build report's no_defect), that the code
+	// has no defect: nothing was pushed, the round is not retried, and
+	// automatic fixes halt (FixFoundNoDefect) for a human to judge.
+	OutcomeNoDefect = "no_defect"
 	// OutcomeDependencyRefused: the build agent reported the plan not built
 	// because the operator's egress proxy refused a dependency it needs, and
 	// quoted the proxy's line in its report's refused list; at least one of
