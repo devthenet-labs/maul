@@ -583,3 +583,129 @@ func TestParsePlanInputRefusesHiddenCharacters(t *testing.T) {
 		t.Errorf("ParsePlanInput(CRLF round) error = %v, want the round accepted as written", err)
 	}
 }
+
+const acceptanceBlock = `acceptance:
+  - id: battle-leaderboard
+    kind: http
+    statement: a battle's leaderboard ranks its patterns by votes
+    target: api
+    steps:
+      - name: battle
+        request: {method: POST, path: /api/battles, json: {name: "maul-{{run}}"}}
+        expect: {status: 201}
+        capture: {battle: /id}
+      - request: {method: GET, path: "/api/battles/{{capture.battle}}/leaderboard"}
+        expect:
+          status: [200, 304]
+          json: {"/n": {$present: true}}
+  - id: shorthand
+    kind: http
+    statement: the version endpoint answers
+    target: api
+    request: {path: /version}
+    expect: {status: 200}
+  - id: kick-onsets
+    kind: command
+    statement: a kick renders onsets
+    in: {component: render}
+    argv: [/render, onsets]
+    expect: {exit: 0}
+  - id: sounds-good
+    kind: manual
+    statement: it sounds good
+    reason: only a human can judge how it sounds
+`
+
+func planAcceptance(block string) string {
+	return planWith("estimated_token_budget: 200000\n", "estimated_token_budget: 200000\n"+block)
+}
+
+// TestParsePlanAcceptance: the acceptance key is optional and parses into
+// the shared criterion type.
+func TestParsePlanAcceptance(t *testing.T) {
+	p, err := ParsePlan([]byte(planAcceptance(acceptanceBlock)))
+	if err != nil {
+		t.Fatalf("ParsePlan() error = %v", err)
+	}
+	if len(p.Acceptance) != 4 {
+		t.Fatalf("Acceptance has %d criteria, want 4", len(p.Acceptance))
+	}
+	c := p.Acceptance[0]
+	if c.ID != "battle-leaderboard" || c.Kind != "http" || c.Target != "api" || len(c.Steps) != 2 {
+		t.Errorf("criterion 0 = %+v", c)
+	}
+	if got := c.Steps[1].Expect.Status; !slices.Equal(got, []int32{200, 304}) {
+		t.Errorf("status list = %v", got)
+	}
+	if p.Acceptance[1].Request == nil || p.Acceptance[1].Request.Path != "/version" {
+		t.Errorf("shorthand request not parsed: %+v", p.Acceptance[1])
+	}
+	if p.Acceptance[3].Reason != "only a human can judge how it sounds" {
+		t.Errorf("Reason = %q", p.Acceptance[3].Reason)
+	}
+}
+
+// TestParsePlanWithoutAcceptance: a stored plan from before the key existed
+// still parses, with none declared.
+func TestParsePlanWithoutAcceptance(t *testing.T) {
+	parsers := map[string]func([]byte) (*Plan, error){"ParsePlan": ParsePlan, "ParsePlanInput": ParsePlanInput}
+	for name, parse := range parsers {
+		p, err := parse([]byte(validPlan))
+		if err != nil {
+			t.Fatalf("%s() error = %v", name, err)
+		}
+		if p.Acceptance != nil {
+			t.Errorf("%s: Acceptance = %v, want none", name, p.Acceptance)
+		}
+	}
+	p, err := ParsePlan([]byte(planAcceptance("acceptance: []\n")))
+	if err != nil || len(p.Acceptance) != 0 {
+		t.Errorf("empty acceptance: %v, %v", p, err)
+	}
+}
+
+func TestParsePlanInputAcceptance(t *testing.T) {
+	p, err := ParsePlanInput([]byte(planAcceptance(acceptanceBlock) + "\nfeedback\n"))
+	if err != nil || len(p.Acceptance) != 4 {
+		t.Fatalf("ParsePlanInput() = %v, %v", p, err)
+	}
+}
+
+func TestParsePlanAcceptanceErrors(t *testing.T) {
+	// crit builds an acceptance block of one criterion from its YAML lines.
+	crit := func(ls ...string) string { return "acceptance:\n  - " + strings.Join(ls, "\n    ") + "\n" }
+	manual := "{id: a, kind: manual, statement: s}"
+	tests := []struct {
+		name, block, want string
+	}{
+		{"unknown criterion key", crit("id: a", "kind: manual", "statement: s", "flavour: x"), "field flavour not found"},
+		{"unknown step key", crit("id: a", "kind: http", "statement: s", "target: api", "steps:",
+			"  - request: {path: /}", "    expect: {status: 200}", "    retries: 3"), "field retries not found"},
+		{"bad id", crit("id: Bad_ID", "kind: manual", "statement: s"), `criterion "Bad_ID"`},
+		{"duplicate id", crit(manual) + "  - " + manual + "\n", "id is used twice"},
+		{"browser kind", crit("{id: a, kind: browser, statement: s}"), "not supported yet"},
+		{"json and body", crit("id: a", "kind: http", "statement: s", "target: api",
+			"request: {method: POST, path: /, json: {x: 1}, body: x}"), `criterion "a"`},
+		{"unknown substitution", crit("id: a", "kind: http", "statement: s", "target: api",
+			`request: {path: "/{{host}}"}`), `criterion "a"`},
+		{"multi-line statement", crit("id: a", "kind: manual", "statement: |", "  one", "  two"), `criterion "a"`},
+		{"too many criteria", "acceptance:\n" + strings.Repeat("  - "+manual+"\n", 17), "more than 16"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ParsePlan([]byte(planAcceptance(tc.block)))
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("ParsePlan() error = %v, want it to contain %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// TestParsePlanAcceptanceHiddenCharacters: the document-wide visibility
+// check covers the new key like every other.
+func TestParsePlanAcceptanceHiddenCharacters(t *testing.T) {
+	block := "acceptance:\n  - {id: a, kind: manual, statement: \"safe \\u202e evil\"}\n"
+	if _, err := ParsePlan([]byte(planAcceptance(block))); err == nil {
+		t.Fatal("ParsePlan() accepted a bidi override in a statement")
+	}
+}

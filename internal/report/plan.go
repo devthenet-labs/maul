@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/devthenet-labs/maul/internal/acceptance"
 )
 
 // Plan report bounds, beyond the ones every intent report shares
@@ -67,6 +69,7 @@ var repositoryURL = regexp.MustCompile(`^https://[^/\s@?#]+/[^/\s?#]+/[^/\s?#]+$
 //	confidence: <0.0-1.0>                          # required
 //	estimated_max_turns: <integer>                 # required, positive
 //	estimated_token_budget: <integer>              # required, positive
+//	acceptance: []                                 # optional: criteria, see internal/acceptance
 //	---
 //
 // followed by the plan itself in markdown — approach, per-repository steps,
@@ -102,6 +105,11 @@ type Plan struct {
 	// run they describe; the controller grants the build's budget.
 	EstimatedMaxTurns    int `yaml:"estimated_max_turns"`
 	EstimatedTokenBudget int `yaml:"estimated_token_budget"`
+	// Acceptance are the plan's acceptance criteria, as written: the
+	// one-step shorthand is not folded into Steps (acceptance.Normalize does
+	// that), and a list that failed acceptance.Validate never leaves the
+	// parser. Absent means none declared.
+	Acceptance []acceptance.Criterion `yaml:"acceptance"`
 	// Body is the markdown plan following the frontmatter.
 	Body string `yaml:"-"`
 }
@@ -212,6 +220,9 @@ func (p *Plan) validate() error {
 	}
 	if p.EstimatedTokenBudget < 1 {
 		errs = append(errs, errors.New("estimated_token_budget must be a positive integer"))
+	}
+	if err := acceptance.Validate(p.Acceptance); err != nil {
+		errs = append(errs, fmt.Errorf("acceptance: %w", err))
 	}
 	return errors.Join(errs...)
 }
