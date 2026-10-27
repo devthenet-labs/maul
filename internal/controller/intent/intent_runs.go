@@ -215,12 +215,31 @@ func (p *pass) mayLaunch(ctx context.Context) (ok, stop bool, err error) {
 	if p.proj.Spec.Suspend {
 		return false, false, nil
 	}
-	if spent, ceiling := p.in.Status.Usage.CostMicroUSD, maxCostMicroUSD(p.proj); spent >= ceiling {
-		return false, true, p.block(ctx, v1alpha1.ConditionBudgetExhausted, "CostCeilingReached",
-			fmt.Sprintf("the intent has spent %d micro-USD, at or over the project's ceiling of %d; "+
-				"raise limits.maxCostMicroUSD to continue", spent, ceiling))
+	if blocked, err := p.blockAtCeiling(ctx); blocked || err != nil {
+		return false, true, err
 	}
 	return true, false, nil
+}
+
+// blockAtCeiling blocks the Intent (BudgetExhausted, CostCeilingReached)
+// when its spend has reached the Project's ceiling, and reports whether it
+// did. It is the one ceiling check before any run is created: plan and build
+// launches (mayLaunch), and revise rounds and their retries (reviseAtCeiling).
+// blockHolds lifts the block once the ceiling is raised past the spend.
+func (p *pass) blockAtCeiling(ctx context.Context) (bool, error) {
+	if !p.atCeiling() {
+		return false, nil
+	}
+	spent, ceiling := p.in.Status.Usage.CostMicroUSD, maxCostMicroUSD(p.proj)
+	return true, p.block(ctx, v1alpha1.ConditionBudgetExhausted, "CostCeilingReached",
+		fmt.Sprintf("the intent has spent %d micro-USD, at or over the project's ceiling of %d; "+
+			"raise limits.maxCostMicroUSD to continue", spent, ceiling))
+}
+
+// atCeiling reports whether the Intent's spend has reached the Project's
+// per-intent ceiling.
+func (p *pass) atCeiling() bool {
+	return p.in.Status.Usage.CostMicroUSD >= maxCostMicroUSD(p.proj)
 }
 
 // launchPlan creates the next run of the plan round, unless the Project is

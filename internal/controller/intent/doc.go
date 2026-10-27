@@ -156,7 +156,12 @@
 // and Planning or Building → Blocked on the cost ceiling, a missing,
 // rejected or unusable repository image, or an intent branch or pull request
 // that is not maul's own (BranchConflict), resuming to the phase it was
-// blocked from once the block no longer holds. Any phase but a terminal one
+// blocked from once the block no longer holds. The cost ceiling
+// (BudgetExhausted, CostCeilingReached) is checked before every run is
+// created: InReview → Blocked before a review, command or check-fix round is
+// leased, and Revising → Blocked before a round's retry attempt; a round
+// already leased is adopted, never refused (reviseAtCeiling), and raising
+// limits.maxCostMicroUSD past the spend lifts the block. Any phase but a terminal one
 // → Blocked while multi-repository intents are off for a Project that lists
 // several repositories (UnsupportedRepositories), and Building → Blocked when
 // a build's name is another repository's run (UnsupportedRepositories,

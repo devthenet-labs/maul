@@ -298,8 +298,7 @@ func (p *pass) resumeBuilds(ctx context.Context) (*v1alpha1.IntentRun, error) {
 // images are still off or the breaker still tripped, or else neither the
 // Project nor the default branch changed since the block).
 func (p *pass) blockHolds(ctx context.Context) (bool, error) {
-	if meta.IsStatusConditionTrue(p.in.Status.Conditions, v1alpha1.ConditionBudgetExhausted) &&
-		p.in.Status.Usage.CostMicroUSD >= maxCostMicroUSD(p.proj) {
+	if meta.IsStatusConditionTrue(p.in.Status.Conditions, v1alpha1.ConditionBudgetExhausted) && p.atCeiling() {
 		return true, nil
 	}
 	if meta.IsStatusConditionTrue(p.in.Status.Conditions, v1alpha1.ConditionRevisionLimitReached) &&

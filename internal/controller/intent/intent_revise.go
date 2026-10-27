@@ -304,6 +304,17 @@ func (p *pass) retryReviseAttempt(ctx context.Context, run *v1alpha1.IntentRun, 
 		Finalizers:      usagerollup.Finalizers(spec.AttributedTo, v1alpha1.FinalizerJobs),
 		OwnerReferences: []metav1.OwnerReference{intentOwner(p.in)},
 	}, Spec: spec}
+	if p.atCeiling() {
+		// An attempt a pass created before the spend reached the ceiling is
+		// adopted below, never stranded; only a new one is refused.
+		var existing v1alpha1.IntentRun
+		switch err := p.r.APIReader.Get(ctx, client.ObjectKeyFromObject(with), &existing); {
+		case kerrors.IsNotFound(err):
+			return p.blockAtCeiling(ctx)
+		case err != nil:
+			return false, err
+		}
+	}
 	if err := p.r.Create(ctx, with); err != nil {
 		if !kerrors.IsAlreadyExists(err) {
 			return false, err
@@ -526,6 +537,9 @@ func (p *pass) commandRound(ctx context.Context, pr *v1alpha1.IntentPullRequest)
 				fmt.Sprintf("PR command%s waits: %d of %d permitted revision rounds have started",
 					p.inRepository(pr.Repository), p.revisionRounds(), limit))
 		}
+		if blocked, err := p.reviseAtCeiling(ctx, p.in.Status.Rounds+1); blocked || err != nil {
+			return blocked, err
+		}
 		attributed := attribution.To(c.UserLogin, c.UserID, v1alpha1.AttributionCommenter)
 		if held, err := p.holdForCredential(ctx, p.set.Attribution.Stamp(attributed), false); held || err != nil {
 			return held, err
@@ -720,6 +734,25 @@ func (p *pass) adoptLeased(ctx context.Context, err error) (adopted bool, _ erro
 	return true, p.adoptRound(ctx, leased.run)
 }
 
+// reviseAtCeiling blocks the Intent on its cost ceiling before revise round
+// round is leased, as mayLaunch does before a plan or build launch. A round
+// already leased (a pass created its run before the spend reached the
+// ceiling, and the cache lags that create) is never stranded: it is reported
+// as errRoundLeased, and the caller adopts it (adoptLeased).
+func (p *pass) reviseAtCeiling(ctx context.Context, round int32) (bool, error) {
+	if !p.atCeiling() {
+		return false, nil
+	}
+	leased, err := p.leasedRound(ctx, round)
+	if err != nil {
+		return false, err
+	}
+	if leased != nil {
+		return false, &errRoundLeased{run: leased}
+	}
+	return p.blockAtCeiling(ctx)
+}
+
 // leasedRound is this Intent's run of revise round round as the API server
 // holds it, whatever its repository (its latest attempt), or nil. A round's
 // number is its lease across repositories, and the run names that make the
@@ -783,6 +816,9 @@ func (p *pass) reviewRound(ctx context.Context, pr *v1alpha1.IntentPullRequest) 
 	ids := make([]int64, 0, len(eligible))
 	for _, r := range eligible {
 		ids = append(ids, r.ID)
+	}
+	if blocked, err := p.reviseAtCeiling(ctx, round); blocked || err != nil {
+		return blocked, err
 	}
 	newest := eligible[len(eligible)-1].Author
 	attributed := attribution.To(newest.Login, newest.ID, v1alpha1.AttributionReviewer)
