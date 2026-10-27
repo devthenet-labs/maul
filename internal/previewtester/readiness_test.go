@@ -151,8 +151,8 @@ func TestRunWaitsForAPolicyWindow(t *testing.T) {
 
 // TestRunUnreachable: a target that never accepts a connection within the
 // window ends the run before its first criterion. Nothing is sent to any
-// component, no criterion is observed, and the summary names the target:
-// infrastructure, never verdicts.
+// component, no criterion is observed, and the summary names the target,
+// which preview-controller charges to the application.
 func TestRunUnreachable(t *testing.T) {
 	api, web := okComponents(t)
 	s, d := specFor(t, api, web)
@@ -245,9 +245,12 @@ func TestReadinessWindowInsideTheBudget(t *testing.T) {
 	}
 }
 
-// TestRetryIsSpaced: a criterion's second try starts RetryDelay after its
-// first failed, so a blip does not fail both tries in one instant.
+// TestRetryIsSpaced: a criterion whose first try failed at the transport
+// level (no response) tries again RetryDelay later, so a blip does not fail
+// both tries in one instant; one whose first try got a response that failed
+// an expectation, deterministic, retries at once, as before.
 func TestRetryIsSpaced(t *testing.T) {
+	const delay = 2 * time.Second
 	var mu sync.Mutex
 	var at []time.Time
 	comp := newComponent(t, func(w http.ResponseWriter, _ *http.Request, _ int) {
@@ -258,21 +261,47 @@ func TestRetryIsSpaced(t *testing.T) {
 	})
 	c := criterion(t, `{"id":"health","kind":"http","statement":"s","target":"api","request":{"path":"/"}}`)
 	d := &dialer{routes: map[string]string{apiTarget: listenerAddr(comp)}}
-	client := NewClient(Options{Dial: d.dial, RetryDelay: 300 * time.Millisecond})
+
+	// An assertion failure: the second try at once.
+	client := NewClient(Options{Dial: d.dial, RetryDelay: delay})
 	obs := acceptance.Observe(c, tokens, client.Doer(context.Background(), apiTarget))
 	if len(obs.Tries) != 2 || len(at) != 2 {
 		t.Fatalf("tries = %d, requests = %d", len(obs.Tries), len(at))
 	}
-	if gap := at[1].Sub(at[0]); gap < 300*time.Millisecond {
-		t.Errorf("the second try came %s after the first, want at least 300ms", gap)
+	if gap := at[1].Sub(at[0]); gap >= delay {
+		t.Errorf("an assertion failure's retry came %s later, want at once", gap)
 	}
+
+	// A transport failure (the first connection refused): spaced.
+	r := newRefusing(1, d.dial)
+	client = NewClient(Options{Dial: r.dial, RetryDelay: delay})
+	start := time.Now()
+	obs = acceptance.Observe(c, tokens, client.Doer(context.Background(), apiTarget))
+	if took := time.Since(start); took < delay || len(obs.Tries) != 2 ||
+		obs.Tries[0].Steps[0].TransportError != acceptance.TransportRefused {
+		t.Errorf("a refused try retried after %s (tries %+v), want at least %s", took, obs.Tries, delay)
+	}
+
 	// The budget bounds the delay: a spent budget sends nothing more.
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	slow := NewClient(Options{Dial: d.dial, RetryDelay: time.Hour})
-	start := time.Now()
+	slow := NewClient(Options{Dial: newRefusing(1<<30, d.dial).dial, RetryDelay: time.Hour})
+	start = time.Now()
 	acceptance.Observe(c, tokens, slow.Doer(ctx, apiTarget))
 	if took := time.Since(start); took > 5*time.Second {
 		t.Errorf("an hour's retry delay held the run %s past a 50ms budget", took)
+	}
+}
+
+// TestReadinessBackoffNeverZero: a backoff that is not positive is the
+// default, never zero, so the wait never spins.
+func TestReadinessBackoffNeverZero(t *testing.T) {
+	for _, b := range []time.Duration{0, -1, -time.Second} {
+		if got := NewClient(Options{ReadinessBackoff: b}).backoff; got != readinessBackoffMin {
+			t.Errorf("ReadinessBackoff %s: backoff %s, want %s", b, got, readinessBackoffMin)
+		}
+	}
+	if got := NewClient(Options{ReadinessBackoff: 5 * time.Millisecond}).backoff; got != 5*time.Millisecond {
+		t.Errorf("backoff %s, want 5ms", got)
 	}
 }

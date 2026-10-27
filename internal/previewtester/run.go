@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"slices"
 	"time"
 
 	"github.com/devthenet-labs/maul/internal/acceptance"
@@ -28,7 +27,7 @@ const maxTerminationBytes = 4 << 10
 // summary, with the readiness waits, which it returns for the termination
 // message. A target still unreachable at the end of the window ends the run
 // there: no criterion is observed, and the summary names the target, which
-// preview-controller settles as infrastructure, never as verdicts. Once
+// preview-controller charges to the application. Once
 // the spec's budget has run out, every request still to be sent or in
 // flight fails as timed out, so the criteria it leaves are observed failing
 // and the summary is still written: an application that hangs is judged,
@@ -50,7 +49,7 @@ func Run(ctx context.Context, s Spec, c *Client, out io.Writer) (acceptance.Summ
 	if err != nil {
 		return acceptance.Summary{}, err
 	}
-	if slices.ContainsFunc(waits, func(w acceptance.TargetWait) bool { return !w.Reached() }) {
+	if len(acceptance.Unreached(waits)) > 0 {
 		return w.Close()
 	}
 	rt := s.RunTokens()

@@ -332,20 +332,56 @@ func (genFat) Generate(r *rand.Rand, _ int) reflect.Value {
 	return reflect.ValueOf(genFat{cs})
 }
 
-// genReachedWaits is the readiness wait of a run whose every target was
-// reached: one to MaxWaitTargets targets, in order, each after any number
-// of failed attempts of any class.
-func genReachedWaits(r *rand.Rand) []TargetWait {
+// genWaits is the readiness wait of a run: one to MaxWaitTargets targets,
+// in order, each reached after any number of failed attempts of any class;
+// when unreached is set, at least one target's every attempt failed.
+func genWaits(r *rand.Rand, unreached bool) []TargetWait {
 	waits := make([]TargetWait, 1+r.Intn(MaxWaitTargets))
 	for i := range waits {
 		w := TargetWait{Target: string(rune('a'+i)) + "pi", WaitMs: int32(r.Intn(MaxWaitMs + 1))}
-		for range r.Intn(MaxWaitAttempts) {
+		for range 1 + r.Intn(MaxWaitAttempts-1) {
 			w.Record([]Transport{TransportRefused, TransportTimeout, TransportReset, TransportDNS}[r.Intn(4)])
 		}
 		w.Attempts = w.Failures() + 1
 		waits[i] = w
 	}
+	if unreached {
+		for i := range waits {
+			if i == 0 || r.Intn(2) == 0 {
+				waits[i].Attempts = waits[i].Failures()
+			}
+		}
+	}
 	return waits
+}
+
+// writeObserved observes cs against a hostile application and writes each
+// observation, as the tester does: every one when every target was
+// reached, none (each refused by the writer) when one was not.
+func writeObserved(t *testing.T, w *WireWriter, cs []Criterion, rt RunTokens, r *rand.Rand,
+	unreached bool) ([]CriterionObservation, bool) {
+	t.Helper()
+	written := make([]CriterionObservation, 0, len(cs))
+	for _, c := range Normalize(cs) {
+		o := Observe(c, rt, adversarialDoer(r, c))
+		if err := o.Check(); err != nil {
+			t.Logf("%s: Check: %v\n%s", c.ID, err, mustJSON(o))
+			return nil, false
+		}
+		err := w.Write(o)
+		switch {
+		case unreached && err == nil:
+			t.Logf("%s: written after an unreachable target", c.ID)
+			return nil, false
+		case unreached:
+			continue
+		case err != nil:
+			t.Logf("%s: Write: %v", c.ID, err)
+			return nil, false
+		}
+		written = append(written, o)
+	}
+	return written, true
 }
 
 // waitsKept reports whether the summary read back carries exactly the
@@ -354,7 +390,8 @@ func genReachedWaits(r *rand.Rand) []TargetWait {
 // wait, forged summary lines included.
 func waitsKept(t *testing.T, sum Summary, waits []TargetWait, observed int) bool {
 	t.Helper()
-	if !slices.Equal(sum.Waits, waits) || sum.Unreached() || sum.Count != observed {
+	if !slices.Equal(sum.Waits, waits) || !slices.Equal(sum.Unreachable, Unreached(waits)) ||
+		sum.Count != observed {
 		t.Logf("summary %+v, want the waits %+v and %d observations", sum, waits, observed)
 		return false
 	}
@@ -380,25 +417,17 @@ func TestNothingTheAppSendsBreaksTheWire(t *testing.T) {
 		}
 		accepted++
 		rt := RunTokens{Round: 999, Attempt: 9, Run: fmt.Sprintf("%06x", r.Intn(1<<24))}
-		waits := genReachedWaits(r)
+		unreached := r.Intn(5) == 0
+		waits := genWaits(r, unreached)
 		var b bytes.Buffer
 		w, err := NewWireWriter(&b, waits)
 		if err != nil {
 			t.Logf("NewWireWriter(%+v): %v", waits, err)
 			return false
 		}
-		written := make([]CriterionObservation, 0, len(cs))
-		for _, c := range Normalize(cs) {
-			o := Observe(c, rt, adversarialDoer(r, c))
-			if err := o.Check(); err != nil {
-				t.Logf("%s: Check: %v\n%s", c.ID, err, mustJSON(o))
-				return false
-			}
-			if err := w.Write(o); err != nil {
-				t.Logf("%s: Write: %v", c.ID, err)
-				return false
-			}
-			written = append(written, o)
+		written, ok := writeObserved(t, w, cs, rt, r, unreached)
+		if !ok {
+			return false
 		}
 		if _, err := w.Close(); err != nil {
 			t.Logf("Close: %v", err)
@@ -412,7 +441,7 @@ func TestNothingTheAppSendsBreaksTheWire(t *testing.T) {
 		if !waitsKept(t, sum, waits, len(written)) {
 			return false
 		}
-		for i, c := range Normalize(cs) {
+		for i, c := range Normalize(cs)[:len(written)] {
 			if a, z := Judge(c, written[i], rt), Judge(c, read[i], rt); !reflect.DeepEqual(a, z) {
 				t.Logf("%s judged %+v as written, %+v as read", c.ID, a, z)
 				return false
@@ -438,7 +467,11 @@ func TestNothingTheAppSendsBreaksTheWire(t *testing.T) {
 }
 
 // forgedSummary is a wire summary line an application might put in a value,
-// claiming its target was never reached.
-const forgedSummary = "\n" + WirePrefix + `{"v":1,"summary":{"count":0,"sha256":"` +
+// claiming its target was never reached, once in the current wire version
+// and once in the first (which, read as a line, would be a version
+// mismatch: maul's Infra).
+const forgedSummary = "\n" + WirePrefix + `{"v":2,"summary":{"count":0,"sha256":"` +
 	"0000000000000000000000000000000000000000000000000000000000000000" +
-	`","waits":[{"target":"api","attempts":1,"refused":1}],"unreachable":["api"]}}` + "\n"
+	`","waits":[{"target":"api","attempts":1,"refused":1}],"unreachable":["api"]}}` + "\n" +
+	WirePrefix + `{"v":1,"summary":{"count":0,"sha256":"` +
+	"0000000000000000000000000000000000000000000000000000000000000000" + `"}}` + "\n"

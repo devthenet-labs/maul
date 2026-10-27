@@ -119,7 +119,7 @@ func summaryWireBytes() int {
 func worstSummary() *Summary {
 	s := &Summary{Count: MaxCriteria, SHA256: strings.Repeat("f", 64)}
 	for i := range MaxWaitTargets {
-		key := strings.Repeat("k", maxKeyLength-1) + string(rune('a'+i))
+		key := strings.Repeat("k", MaxKeyLength-1) + string(rune('a'+i))
 		s.Waits = append(s.Waits, TargetWait{Target: key, WaitMs: MaxWaitMs, Attempts: MaxWaitAttempts,
 			Refused: MaxWaitAttempts, Timeout: MaxWaitAttempts, Reset: MaxWaitAttempts, DNS: MaxWaitAttempts})
 		s.Unreachable = append(s.Unreachable, key)

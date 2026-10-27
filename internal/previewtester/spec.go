@@ -54,10 +54,6 @@ func BudgetFor(deadline time.Duration) int32 {
 // the most targets a summary records a readiness wait for.
 const maxTargets = acceptance.MaxWaitTargets
 
-// maxTargetKey bounds a target key: a repository key, as the grammar and
-// the summary's readiness waits hold it.
-const maxTargetKey = 16
-
 // Spec is what one tester run observes: a PreviewVerification's criteria,
 // the tokens their {{run}} placeholders take, and, per previewed
 // repository key, the Service address its requests go to. preview-controller
@@ -82,7 +78,6 @@ type Spec struct {
 
 var (
 	runPattern = regexp.MustCompile(`^[0-9a-f]{6}$`)
-	keyPattern = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
 	// hostPattern is a lowercase DNS name: a Service name, optionally
 	// qualified by namespace and cluster domain.
 	hostPattern = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?(\.[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?)*$`)
@@ -169,7 +164,7 @@ func (s Spec) Validate() error {
 // checkTarget admits "<DNS name>:<port>" and nothing else: no scheme,
 // userinfo, path or IP literal, so the address can only name a Service.
 func checkTarget(key, addr string) error {
-	if len(key) > maxTargetKey || !keyPattern.MatchString(key) {
+	if len(key) > acceptance.MaxKeyLength || !acceptance.KeyPattern.MatchString(key) {
 		return fmt.Errorf("spec: target key %q is not a repository key", key)
 	}
 	host, port, err := net.SplitHostPort(addr)

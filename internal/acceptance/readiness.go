@@ -64,17 +64,23 @@ func (w *TargetWait) Record(t Transport) {
 // attempt, every attempt failed or all but the last.
 func (w TargetWait) check() error {
 	switch {
-	case len(w.Target) > maxKeyLength || !keyPattern.MatchString(w.Target):
+	case len(w.Target) > MaxKeyLength || !KeyPattern.MatchString(w.Target):
 		return errors.New("a wait's target is not a repository key")
 	case w.Attempts < 1 || w.Attempts > MaxWaitAttempts || w.WaitMs < 0 || w.WaitMs > MaxWaitMs:
 		return errors.New("a wait's numbers are out of range")
-	case w.Refused < 0 || w.Timeout < 0 || w.Reset < 0 || w.DNS < 0:
-		return errors.New("a wait's failure counts are negative")
+	case !countBounded(w.Refused) || !countBounded(w.Timeout) || !countBounded(w.Reset) || !countBounded(w.DNS):
+		// Each count is bounded before they are summed, so the sum cannot
+		// overflow and wrap to the attempts.
+		return errors.New("a wait's failure counts are out of range")
 	case w.Failures() != w.Attempts && !w.Reached():
 		return errors.New("a wait's failures do not account for its attempts")
 	}
 	return nil
 }
+
+// countBounded reports whether one failure count is within 0 to
+// MaxWaitAttempts.
+func countBounded(n int32) bool { return n >= 0 && n <= MaxWaitAttempts }
 
 // checkWaits holds a summary's waits to their bounds: one to
 // MaxWaitTargets, in strictly ascending target order (so each target once).
@@ -93,9 +99,10 @@ func checkWaits(waits []TargetWait) error {
 	return nil
 }
 
-// unreachable is the targets of waits that were never reached, in order;
-// nil when every target was.
-func unreachable(waits []TargetWait) []string {
+// Unreached is the targets of waits that were never reached, in order;
+// nil when every target was. It is the one definition the tester's run,
+// the wire writer and the parser share.
+func Unreached(waits []TargetWait) []string {
 	var out []string
 	for _, w := range waits {
 		if !w.Reached() {
@@ -106,7 +113,8 @@ func unreachable(waits []TargetWait) []string {
 }
 
 // Unreached reports whether the summary records a target the tester never
-// reached: the run observed nothing, and settles as infrastructure.
+// reached: the run observed nothing, and the target is the application's
+// failure.
 func (s Summary) Unreached() bool { return len(s.Unreachable) > 0 }
 
 // Equal reports whether two summaries are the same, as the controller
@@ -125,7 +133,7 @@ func (s Summary) check() error {
 		return ErrWireInvalid
 	case checkWaits(s.Waits) != nil:
 		return ErrWireInvalid
-	case !slices.Equal(s.Unreachable, unreachable(s.Waits)):
+	case !slices.Equal(s.Unreachable, Unreached(s.Waits)):
 		return ErrWireInvalid
 	case s.Unreached() && s.Count != 0:
 		return ErrWireInvalid

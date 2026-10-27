@@ -218,6 +218,35 @@ func TestVerifyFixEnvFailedTargetsTheCrashedComponent(t *testing.T) {
 	}
 }
 
+// TestVerifyFixTargetsAnUnreachableComponent: a Ready component the tester
+// could not connect to for its whole readiness window is the change's
+// failure: the verification fails and a fix round targets that component,
+// its handoff naming how long it was unreachable. Never maul's Infra, which
+// a hostile application could otherwise force forever.
+func TestVerifyFixTargetsAnUnreachableComponent(t *testing.T) {
+	e := newVerifyEnv(t, acceptancePlan)
+	name := e.reviewing()
+	e.readyPreview(name)
+	e.review(name, 3)
+	pv := e.onlyVerification(name)
+	e.observe(pv.Name, v1alpha1.VerificationEnvFailed, nil, v1alpha1.PartFact{Name: "app",
+		Role: v1alpha1.PreviewRoleComponent, Ready: true, UnreachableForMs: 60000})
+	e.review(name, 1)
+	if v := e.verification(name); v.State != v1alpha1.VerificationFailing && v.State != v1alpha1.VerificationFixing {
+		t.Fatalf("verification = %+v, want failing", v)
+	}
+	e.review(name, 2)
+	runs := e.verifyRuns(name)
+	if len(runs) != 1 || !sameRepo(runs[0].Spec.Repository.URL, appRepoURL) {
+		t.Fatalf("verify runs = %+v", runs)
+	}
+	e.drive(name, v1alpha1.IntentInReview, repoImage)
+	handoff := e.runInput(e.verifyRuns(name)[0]).Data[keyInvestigation]
+	if !strings.Contains(handoff, `"unreachableForMs":60000`) {
+		t.Errorf("handoff omits the unreachable window:\n%s", handoff)
+	}
+}
+
 // TestHumanWinsOverAVerifyFix (H1): a review due on the pull request and
 // a verify fix due: the human's round starts, and automatic fixes halt in
 // the same write.

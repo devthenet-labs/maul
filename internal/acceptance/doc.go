@@ -57,7 +57,8 @@
 // summary also carries the tester's readiness wait (readiness.go): one
 // TargetWait per target, made of connection outcomes before any request,
 // and the targets never reached, after which no criterion is observed and
-// preview-controller settles the attempt as infrastructure.
+// preview-controller marks the component unreachable: the application's
+// failure (PartFact.UnreachableForMs).
 //
 // Fingerprint (fingerprint.go) names a failure for RepeatedFailure
 // detection: failing criteria's ids, outcomes, statuses, transport classes

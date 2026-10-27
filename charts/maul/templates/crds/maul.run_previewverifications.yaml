@@ -517,6 +517,13 @@ spec:
                     ready:
                       description: Ready reports whether the part's pod was Ready.
                       type: boolean
+                    restartedDuring:
+                      description: |-
+                        RestartedDuring counts the container's restarts since the attempt
+                        started: a component that exited during it crashed.
+                      format: int32
+                      minimum: 0
+                      type: integer
                     restarts:
                       description: Restarts counts the part's container restarts.
                       format: int32
@@ -531,6 +538,15 @@ spec:
                       - command
                       - seed
                       type: string
+                    unreachableForMs:
+                      description: |-
+                        UnreachableForMs is how long the tester tried, and failed, to connect
+                        to the component's Service before its first criterion (its whole
+                        readiness window); zero when reached.
+                      format: int32
+                      maximum: 120000
+                      minimum: 0
+                      type: integer
                     unschedulable:
                       description: Unschedulable reports that no node could take the
                         part's pod.
@@ -741,16 +757,19 @@ spec:
                       description: DNS counts attempts whose Service name did not
                         resolve.
                       format: int32
+                      maximum: 256
                       minimum: 0
                       type: integer
                     refused:
                       description: Refused counts attempts refused.
                       format: int32
+                      maximum: 256
                       minimum: 0
                       type: integer
                     reset:
                       description: Reset counts attempts that failed otherwise.
                       format: int32
+                      maximum: 256
                       minimum: 0
                       type: integer
                     target:
@@ -762,6 +781,7 @@ spec:
                     timeout:
                       description: Timeout counts attempts that timed out.
                       format: int32
+                      maximum: 256
                       minimum: 0
                       type: integer
                     waitMs:
@@ -798,8 +818,46 @@ spec:
                 - component-oom
                 - preview-failed
                 - service-restarted
-                - target-unreachable
+                - component-unreachable
+                - component-restarted
+                - tester-version-mismatch
                 type: string
+              restartsAtStart:
+                description: |-
+                  RestartsAtStart is each component Pod's container restart count when
+                  the tester was rendered, so a restart during the attempt is told from
+                  one before it.
+                items:
+                  description: |-
+                    ComponentRestarts is one component Pod's container restart count at a
+                    point in time.
+                  properties:
+                    name:
+                      description: Name is the component.
+                      maxLength: 16
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                      type: string
+                    pod:
+                      description: Pod is the Pod's name.
+                      maxLength: 253
+                      type: string
+                    podUID:
+                      description: PodUID is the Pod's UID.
+                      maxLength: 64
+                      type: string
+                    restarts:
+                      description: Restarts is the container's restart count.
+                      format: int32
+                      minimum: 0
+                      type: integer
+                  required:
+                  - name
+                  - pod
+                  - restarts
+                  type: object
+                maxItems: 8
+                type: array
+                x-kubernetes-list-type: atomic
               startedAt:
                 description: |-
                   StartedAt is when the tester Job was created: the window environment
@@ -817,6 +875,14 @@ spec:
                   ran.
                 maxLength: 512
                 type: string
+              testerWireVersion:
+                description: |-
+                  TesterWireVersion is the MAUL-VERIFY version the tester wrote, set
+                  when it was not the one preview-controller reads
+                  (tester-version-mismatch).
+                format: int32
+                minimum: 0
+                type: integer
             type: object
         required:
         - spec

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"math"
 	"reflect"
 	"slices"
 	"strings"
@@ -298,6 +299,10 @@ func (v *VerificationReconciler) start(ctx context.Context, pv *v1alpha1.Preview
 		}
 		return v.wait(), nil
 	}
+	baseline, err := v.restartsNow(ctx, s.preview, s.slot)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
 	job, err := v.renderTester(pv, s)
 	if err != nil {
 		v.logRefusal(ctx, pv, "tester not rendered", err)
@@ -321,7 +326,66 @@ func (v *VerificationReconciler) start(ctx context.Context, pv *v1alpha1.Preview
 	pv.Status.Phase = v1alpha1.VerificationRunning
 	pv.Status.Reason = ""
 	pv.Status.StartedAt = &t
+	pv.Status.RestartsAtStart = baseline
 	return v.wait(), v.Status().Update(ctx, pv)
+}
+
+// restartsNow is each component's current Pod's container restart count,
+// the baseline a restart during the attempt is told by.
+func (v *VerificationReconciler) restartsNow(ctx context.Context, p *v1alpha1.Preview,
+	slot int32) ([]v1alpha1.ComponentRestarts, error) {
+	var out []v1alpha1.ComponentRestarts
+	for i, c := range p.Spec.Components {
+		pods, err := v.componentPods(ctx, p, i, slot)
+		if err != nil {
+			return nil, err
+		}
+		if pod := currentPod(pods, p, c); pod != nil {
+			out = append(out, v1alpha1.ComponentRestarts{Name: c.Name, Pod: pod.Name, PodUID: string(pod.UID),
+				Restarts: podFact(pod, c.Name, c.Name, v1alpha1.PreviewRoleComponent).Restarts})
+		}
+	}
+	return out, nil
+}
+
+// restartedDuring is how many times a component's container restarted
+// since the attempt started: its restart count less the baseline recorded
+// for the same Pod, or all of them on a Pod that was not there then.
+func restartedDuring(fact v1alpha1.PartFact, pod *corev1.Pod, baseline []v1alpha1.ComponentRestarts) int32 {
+	i := slices.IndexFunc(baseline, func(b v1alpha1.ComponentRestarts) bool {
+		return b.Name == fact.Name && b.Pod == pod.Name && b.PodUID == string(pod.UID)
+	})
+	if i < 0 {
+		return fact.Restarts
+	}
+	return max(fact.Restarts-baseline[i].Restarts, 0)
+}
+
+// testerTargets maps each component to the Service address its requests
+// go to: the derivation the Preview's Services are named with, on the
+// Service port.
+func testerTargets(p *v1alpha1.Preview) map[string]string {
+	targets := make(map[string]string, len(p.Spec.Components))
+	for i, c := range p.Spec.Components {
+		targets[c.Name] = fmt.Sprintf("%s:%d", v1alpha1.PreviewComponentServiceName(p, i), v1alpha1.PreviewServicePort)
+	}
+	return targets
+}
+
+// renderedSpec is the spec a tester Job was rendered with, read back from
+// its container's environment.
+func renderedSpec(job *batchv1.Job) (previewtester.Spec, error) {
+	for _, c := range job.Spec.Template.Spec.Containers {
+		if c.Name != testerContainer {
+			continue
+		}
+		for _, e := range c.Env {
+			if e.Name == previewtester.EnvSpec {
+				return previewtester.ParseSpec([]byte(e.Value))
+			}
+		}
+	}
+	return previewtester.Spec{}, errors.New("tester Job carries no spec")
 }
 
 // renderTester renders the request's tester Job: the spec the tester reads
@@ -331,11 +395,7 @@ func (v *VerificationReconciler) start(ctx context.Context, pv *v1alpha1.Preview
 // clamped to DeadlineMax.
 func (v *VerificationReconciler) renderTester(pv *v1alpha1.PreviewVerification,
 	s *verifySubject) (*batchv1.Job, error) {
-	targets := make(map[string]string, len(s.preview.Spec.Components))
-	for i, c := range s.preview.Spec.Components {
-		targets[c.Name] = fmt.Sprintf("%s:%d", v1alpha1.PreviewComponentServiceName(s.preview, i),
-			v1alpha1.PreviewServicePort)
-	}
+	targets := testerTargets(s.preview)
 	clamped := pv.DeepCopy()
 	if limit := cmp.Or(v.DeadlineMax, testerTimeoutMax); clamped.Spec.Timeout.Duration > limit {
 		clamped.Spec.Timeout.Duration = limit
@@ -422,44 +482,47 @@ func (v *VerificationReconciler) observe(ctx context.Context, pv *v1alpha1.Previ
 		return ctrl.Result{}, v.settle(ctx, pv, v1alpha1.VerificationInfra,
 			v1alpha1.VerificationReasonTesterOutputInvalid)
 	}
-	return ctrl.Result{}, v.record(ctx, pv, s, pod, log)
+	return ctrl.Result{}, v.record(ctx, pv, s, job, pod, log)
 }
 
 // record settles a finished tester's attempt from its output and the
-// slot's environment.
+// slot's environment. The targets its readiness waits are held to are the
+// ones its Job was rendered with, read back from the Job; a rendered spec
+// that no longer matches the Preview means the Preview changed under the
+// attempt (stale-preview).
 func (v *VerificationReconciler) record(ctx context.Context, pv *v1alpha1.PreviewVerification,
-	s *verifySubject, pod *corev1.Pod, log []byte) error {
+	s *verifySubject, job *batchv1.Job, pod *corev1.Pod, log []byte) error {
+	spec, err := renderedSpec(job)
+	if err != nil {
+		v.logRefusal(ctx, pv, "tester Job spec unreadable", err)
+		return v.settle(ctx, pv, v1alpha1.VerificationInfra, v1alpha1.VerificationReasonTesterOutputInvalid)
+	}
+	if !maps.Equal(spec.Targets, testerTargets(s.preview)) {
+		return v.settle(ctx, pv, v1alpha1.VerificationStale, v1alpha1.VerificationReasonStalePreview)
+	}
 	rt := acceptance.RunTokens{Round: pv.Spec.Round, Attempt: pv.Spec.Attempt, Run: pv.Spec.Run}
 	ids := make([]string, len(s.criteria))
 	for i, c := range s.criteria {
 		ids[i] = c.ID
 	}
-	targets := make([]string, len(s.preview.Spec.Components))
-	for i, c := range s.preview.Spec.Components {
-		targets[i] = c.Name
-	}
-	slices.Sort(targets)
-	obs, sum, outReason := parseTesterOutput(log, terminationMessage(pod), rt, ids, targets)
-	facts, err := v.environment(ctx, s.preview, s.slot, pod, startedAt(pv))
+	targets := slices.Sorted(maps.Keys(spec.Targets))
+	out := parseTesterOutput(log, terminationMessage(pod), rt, ids, targets)
+	facts, err := v.environment(ctx, s.preview, s.slot, pod, pv)
 	if err != nil {
 		return err
 	}
-	// A target the tester never reached is maul's (Infra) only while the
-	// environment shows every component Ready and none crashed: route lets
-	// the environment's classification win, so a component whose listener
-	// died (crashed, or no longer Ready) settles EnvFailed, the
-	// application's, as before.
-	phase, reason := route(facts, outReason)
-	if outReason == v1alpha1.VerificationReasonTargetUnreachable && v.Log != nil {
-		v.Log.LogAttrs(ctx, slog.LevelWarn, "a component's Service accepted no connection from the tester",
-			slog.String("verification", pv.Name), slog.Any("unreachable", sum.Unreachable),
-			slog.String("phase", string(phase)), slog.String("reason", string(reason)))
+	markUnreachable(facts, out.sum.Waits)
+	phase, reason := route(facts, out.reason)
+	v.logOutcome(ctx, pv, out, phase, reason)
+	if out.reason == v1alpha1.VerificationReasonTesterVersionMismatch {
+		pv.Status.TesterWireVersion = int32(min(max(out.version, 0), math.MaxInt32))
 	}
-	if outReason == "" || outReason == v1alpha1.VerificationReasonTargetUnreachable {
-		if pv.Status.Readiness, err = crdconv.WaitsToCRD(sum.Waits); err != nil {
+	if out.reason == "" {
+		if pv.Status.Readiness, err = crdconv.WaitsToCRD(out.sum.Waits); err != nil {
 			phase, reason = v1alpha1.VerificationInfra, v1alpha1.VerificationReasonTesterOutputInvalid
 		}
 	}
+	obs, sum, outReason := out.obs, out.sum, out.reason
 	if outReason == "" {
 		converted, err := crdconv.ObservationsToCRD(obs)
 		if err != nil {
@@ -471,6 +534,45 @@ func (v *VerificationReconciler) record(ctx context.Context, pv *v1alpha1.Previe
 	pv.Status.Environment = facts
 	pv.Status.TesterImageID = testerImageID(pod)
 	return v.settleWith(ctx, pv, phase, reason)
+}
+
+// markUnreachable marks each component the tester never reached, for its
+// whole readiness window, on its environment fact. A Ready component the
+// tester could not connect to for the whole window refused it: the window
+// absorbs maul's slot policy being programmed, and past it only the
+// application can be the cause (internal/previewtester/readiness.go), so
+// the environment classifies it as the application's failure.
+func markUnreachable(facts []v1alpha1.PartFact, waits []acceptance.TargetWait) {
+	for _, w := range waits {
+		if w.Reached() {
+			continue
+		}
+		for i := range facts {
+			if facts[i].Role == v1alpha1.PreviewRoleComponent && facts[i].Name == w.Target {
+				facts[i].UnreachableForMs = max(w.WaitMs, 1)
+			}
+		}
+	}
+}
+
+// logOutcome logs what an operator needs from a tester's output that the
+// status's fixed vocabulary cannot carry: the targets never reached, and
+// both versions of a wire version mismatch.
+func (v *VerificationReconciler) logOutcome(ctx context.Context, pv *v1alpha1.PreviewVerification,
+	out parsedOutput, phase v1alpha1.PreviewVerificationPhase, reason v1alpha1.PreviewVerificationReason) {
+	if v.Log == nil {
+		return
+	}
+	switch {
+	case out.reason == v1alpha1.VerificationReasonTesterVersionMismatch:
+		v.Log.LogAttrs(ctx, slog.LevelWarn, "tester wire version mismatch: the tester image and preview-controller disagree",
+			slog.String("verification", pv.Name), slog.Int("testerVersion", out.version),
+			slog.Int("controllerVersion", acceptance.WireVersion))
+	case out.sum.Unreached():
+		v.Log.LogAttrs(ctx, slog.LevelWarn, "unreachable from the tester for its whole readiness window while Ready",
+			slog.String("verification", pv.Name), slog.Any("unreachable", out.sum.Unreachable),
+			slog.String("phase", string(phase)), slog.String("reason", string(reason)))
+	}
 }
 
 // errTesterPods is a tester Job with more than one Pod, which a run-once
@@ -604,53 +706,80 @@ func testerImageID(pod *corev1.Pod) string {
 	return ""
 }
 
-// parseTesterOutput reads the tester's MAUL-VERIFY v1 log: its lines
-// verified against their summary and the termination message, then held to
-// the request: a readiness wait for exactly the targets it was given (the
-// Preview's components, in name order), and, when every one was reached,
-// exactly one observation per requested criterion, in the request's order,
-// each with at least one try, each try under the run token it was given
-// (id ownership). The reason is "" for output that holds, and
-// target-unreachable, with no observation, for a run that ended at its
-// readiness wait.
+// parsedOutput is what parseTesterOutput read: the observations and the
+// summary, the reason the output does not hold ("" when it does), and the
+// wire version the tester wrote when that is the reason.
+type parsedOutput struct {
+	obs     []acceptance.CriterionObservation
+	sum     acceptance.Summary
+	reason  v1alpha1.PreviewVerificationReason
+	version int
+}
+
+// parseTesterOutput reads the tester's MAUL-VERIFY log: of the controller's
+// wire version (tester-version-mismatch otherwise), its lines verified
+// against their summary and the termination message, then held to the
+// request: a readiness wait for exactly the targets it was given (its
+// rendered spec's, in name order), and, when every one was reached, exactly
+// one observation per requested criterion, in the request's order, each
+// with at least one try, each try under the run token it was given (id
+// ownership). Output that ended at its readiness wait, a target never
+// reached, holds with no observation: the environment says whose failure
+// that is (markUnreachable).
 func parseTesterOutput(log []byte, msg string, rt acceptance.RunTokens, ids []string,
-	targets []string) ([]acceptance.CriterionObservation, acceptance.Summary, v1alpha1.PreviewVerificationReason) {
+	targets []string) parsedOutput {
+	bad := func(sum acceptance.Summary, r v1alpha1.PreviewVerificationReason) parsedOutput {
+		return parsedOutput{sum: sum, reason: r}
+	}
 	if len(log) > maxTesterLog {
-		return nil, acceptance.Summary{}, v1alpha1.VerificationReasonTesterOutputInvalid
+		return bad(acceptance.Summary{}, v1alpha1.VerificationReasonTesterOutputInvalid)
 	}
 	obs, sum, err := acceptance.ParseWire(log)
+	var ve *acceptance.WireVersionError
 	switch {
+	case errors.As(err, &ve):
+		return parsedOutput{reason: v1alpha1.VerificationReasonTesterVersionMismatch, version: ve.Got}
 	case errors.Is(err, acceptance.ErrNoSummary):
-		return nil, sum, v1alpha1.VerificationReasonDeadlineNoSummary
+		return bad(sum, v1alpha1.VerificationReasonDeadlineNoSummary)
 	case errors.Is(err, acceptance.ErrSummaryMismatch):
-		return nil, sum, v1alpha1.VerificationReasonSummaryMismatch
+		return bad(sum, v1alpha1.VerificationReasonSummaryMismatch)
 	case err != nil:
-		return nil, sum, v1alpha1.VerificationReasonTesterOutputInvalid
+		return bad(sum, v1alpha1.VerificationReasonTesterOutputInvalid)
 	}
 	if term, err := acceptance.ParseSummary(msg); err != nil || !term.Equal(sum) {
-		return nil, sum, v1alpha1.VerificationReasonSummaryMismatch
+		return bad(sum, v1alpha1.VerificationReasonSummaryMismatch)
 	}
 	if !slices.EqualFunc(sum.Waits, targets, func(w acceptance.TargetWait, t string) bool { return w.Target == t }) {
-		return nil, sum, v1alpha1.VerificationReasonTesterOutputInvalid
+		return bad(sum, v1alpha1.VerificationReasonTesterOutputInvalid)
 	}
 	if sum.Unreached() {
 		// The parser holds an unreachable summary to no observation.
-		return nil, sum, v1alpha1.VerificationReasonTargetUnreachable
+		return parsedOutput{sum: sum}
 	}
+	if !ownsObservations(obs, rt, ids) {
+		return bad(sum, v1alpha1.VerificationReasonTesterOutputInvalid)
+	}
+	return parsedOutput{obs: obs, sum: sum}
+}
+
+// ownsObservations reports whether obs are exactly one observation per
+// requested criterion, in order, each with at least one try, each try under
+// the run token it was given.
+func ownsObservations(obs []acceptance.CriterionObservation, rt acceptance.RunTokens, ids []string) bool {
 	if len(obs) != len(ids) {
-		return nil, sum, v1alpha1.VerificationReasonTesterOutputInvalid
+		return false
 	}
 	for i, o := range obs {
 		if o.ID != ids[i] || len(o.Tries) == 0 {
-			return nil, sum, v1alpha1.VerificationReasonTesterOutputInvalid
+			return false
 		}
 		for t, try := range o.Tries {
 			if try.Run != rt.Token(t+1) {
-				return nil, sum, v1alpha1.VerificationReasonTesterOutputInvalid
+				return false
 			}
 		}
 	}
-	return obs, sum, ""
+	return true
 }
 
 // route settles an attempt from its environment and its output: a part of
@@ -689,6 +818,12 @@ func appFailureReason(facts []v1alpha1.PartFact, failing []string) v1alpha1.Prev
 		return v1alpha1.VerificationReasonComponentCrashLoop
 	case f.Evicted:
 		return v1alpha1.VerificationReasonComponentEvicted
+	case !f.Ready:
+		return v1alpha1.VerificationReasonComponentNotReady
+	case f.RestartedDuring > 0:
+		return v1alpha1.VerificationReasonComponentRestarted
+	case f.UnreachableForMs > 0:
+		return v1alpha1.VerificationReasonComponentUnreachable
 	}
 	return v1alpha1.VerificationReasonComponentNotReady
 }
@@ -726,7 +861,8 @@ func infraReason(facts []v1alpha1.PartFact,
 // list that fails is an error, never a part without a Pod: that would charge
 // the intent for the API server's trouble.
 func (v *VerificationReconciler) environment(ctx context.Context, p *v1alpha1.Preview, slot int32,
-	tester *corev1.Pod, since time.Time) ([]v1alpha1.PartFact, error) {
+	tester *corev1.Pod, pv *v1alpha1.PreviewVerification) ([]v1alpha1.PartFact, error) {
+	since := startedAt(pv)
 	facts := make([]v1alpha1.PartFact, 0, len(p.Spec.Components)+1)
 	for i, c := range p.Spec.Components {
 		fact := v1alpha1.PartFact{Name: c.Name, Role: v1alpha1.PreviewRoleComponent}
@@ -736,6 +872,7 @@ func (v *VerificationReconciler) environment(ctx context.Context, p *v1alpha1.Pr
 		}
 		if pod := currentPod(pods, p, c); pod != nil {
 			fact = podFact(pod, c.Name, c.Name, v1alpha1.PreviewRoleComponent)
+			fact.RestartedDuring = restartedDuring(fact, pod, pv.Status.RestartsAtStart)
 			fact.LogTail = v.logTail(ctx, pod, c.Name, since)
 		}
 		facts = append(facts, fact)
@@ -854,7 +991,7 @@ func (v *VerificationReconciler) capture(ctx context.Context, pv *v1alpha1.Previ
 			return err
 		}
 	}
-	facts, err := v.environment(ctx, p, slot, tester, startedAt(pv))
+	facts, err := v.environment(ctx, p, slot, tester, pv)
 	if err != nil {
 		return err
 	}

@@ -10,8 +10,11 @@ const (
 	// EnvOK: no part shows a failure.
 	EnvOK EnvClass = "OK"
 	// EnvAppFailure: a part the change under test runs (a component, or a
-	// command Job in a component's image) crashed, never became Ready, was
-	// evicted, ran out of memory or could not pull its PR-head image. It is
+	// command Job in a component's image) crashed (or, a component,
+	// restarted during the attempt), never became Ready, was evicted, ran
+	// out of memory, could not pull its PR-head image, or, a component,
+	// accepted no connection from the tester for its whole readiness window
+	// while Ready. It is
 	// charged to the intent: it counts as a verification and may start a
 	// verify-fix round (critique fix 13).
 	EnvAppFailure EnvClass = "AppFailure"
@@ -59,7 +62,13 @@ func partClass(p PartFact) EnvClass {
 	crashed := p.Waiting != "" || p.Evicted || oom
 	switch p.Role {
 	case RoleComponent:
-		if crashed || !p.Ready {
+		// A Ready component the tester could not connect to for its whole
+		// readiness window refused it: the window absorbs maul's slot policy
+		// being programmed (about a second on k3s), and past it only the
+		// application can be the cause (a capability-less process can drop
+		// SYNs from every source but the node with a classic BPF socket
+		// filter and keep passing its probe). Never maul's Infra.
+		if crashed || !p.Ready || p.RestartedDuring > 0 || p.UnreachableForMs > 0 {
 			return EnvAppFailure
 		}
 	case RoleCommand:

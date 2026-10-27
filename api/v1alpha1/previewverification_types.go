@@ -54,7 +54,7 @@ const (
 // PreviewVerificationReason is the fixed vocabulary of a
 // PreviewVerification's status.reason: never free text, so nothing the slot
 // produced reaches a reader through it.
-// +kubebuilder:validation:Enum=ok;stale-preview;stale-criteria;rollout-unsettled;tester-unscheduled;tester-image-pull;quota-refused;deadline-no-summary;summary-mismatch;tester-output-invalid;component-crashloop;component-not-ready;component-evicted;component-image-pull;component-oom;preview-failed;service-restarted;target-unreachable
+// +kubebuilder:validation:Enum=ok;stale-preview;stale-criteria;rollout-unsettled;tester-unscheduled;tester-image-pull;quota-refused;deadline-no-summary;summary-mismatch;tester-output-invalid;component-crashloop;component-not-ready;component-evicted;component-image-pull;component-oom;preview-failed;service-restarted;component-unreachable;component-restarted;tester-version-mismatch
 type PreviewVerificationReason string
 
 // PreviewVerification reasons.
@@ -76,11 +76,21 @@ const (
 	VerificationReasonComponentOOM        PreviewVerificationReason = "component-oom"
 	VerificationReasonPreviewFailed       PreviewVerificationReason = "preview-failed"
 	VerificationReasonServiceRestarted    PreviewVerificationReason = "service-restarted"
-	// VerificationReasonTargetUnreachable: a component's Service accepted
-	// no connection from the tester within its readiness window although
-	// the component was Ready (status.readiness names it). Infra: maul's
-	// slot network, not the application, kept the tester out.
-	VerificationReasonTargetUnreachable PreviewVerificationReason = "target-unreachable"
+	// VerificationReasonComponentUnreachable: a component's Service
+	// accepted no connection from the tester for its whole readiness window
+	// while the component was Ready (its environment fact's
+	// unreachableForMs, status.readiness). EnvFailed, the application's: the
+	// window absorbs the slot policy being programmed.
+	VerificationReasonComponentUnreachable PreviewVerificationReason = "component-unreachable"
+	// VerificationReasonComponentRestarted: a component's container
+	// restarted during the attempt (its fact's restartedDuring) and came
+	// back. EnvFailed, the application's.
+	VerificationReasonComponentRestarted PreviewVerificationReason = "component-restarted"
+	// VerificationReasonTesterVersionMismatch: the tester wrote another
+	// MAUL-VERIFY wire version than preview-controller reads
+	// (status.testerWireVersion beside acceptance.WireVersion): the tester
+	// image and the controller disagree. Infra.
+	VerificationReasonTesterVersionMismatch PreviewVerificationReason = "tester-version-mismatch"
 )
 
 // PreviewVerificationSpec is one request to run an Intent's automatable
@@ -299,6 +309,18 @@ type PartFact struct {
 	// Unschedulable reports that no node could take the part's pod.
 	// +optional
 	Unschedulable bool `json:"unschedulable,omitempty"`
+	// RestartedDuring counts the container's restarts since the attempt
+	// started: a component that exited during it crashed.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	RestartedDuring int32 `json:"restartedDuring,omitempty"`
+	// UnreachableForMs is how long the tester tried, and failed, to connect
+	// to the component's Service before its first criterion (its whole
+	// readiness window); zero when reached.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=120000
+	UnreachableForMs int32 `json:"unreachableForMs,omitempty"`
 	// LogTail is the end of the part's log since the verification started,
 	// redacted (slice 2). Untrusted and opaque.
 	// +optional
@@ -327,18 +349,22 @@ type TargetWait struct {
 	// Refused counts attempts refused.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=256
 	Refused int32 `json:"refused,omitempty"`
 	// Timeout counts attempts that timed out.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=256
 	Timeout int32 `json:"timeout,omitempty"`
 	// Reset counts attempts that failed otherwise.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=256
 	Reset int32 `json:"reset,omitempty"`
 	// DNS counts attempts whose Service name did not resolve.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=256
 	DNS int32 `json:"dns,omitempty"`
 }
 
@@ -385,6 +411,38 @@ type PreviewVerificationStatus struct {
 	// +kubebuilder:validation:MaxItems=8
 	// +listType=atomic
 	Readiness []TargetWait `json:"readiness,omitempty"`
+	// TesterWireVersion is the MAUL-VERIFY version the tester wrote, set
+	// when it was not the one preview-controller reads
+	// (tester-version-mismatch).
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	TesterWireVersion int32 `json:"testerWireVersion,omitempty"`
+	// RestartsAtStart is each component Pod's container restart count when
+	// the tester was rendered, so a restart during the attempt is told from
+	// one before it.
+	// +optional
+	// +kubebuilder:validation:MaxItems=8
+	// +listType=atomic
+	RestartsAtStart []ComponentRestarts `json:"restartsAtStart,omitempty"`
+}
+
+// ComponentRestarts is one component Pod's container restart count at a
+// point in time.
+type ComponentRestarts struct {
+	// Name is the component.
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
+	// +kubebuilder:validation:MaxLength=16
+	Name string `json:"name"`
+	// Pod is the Pod's name.
+	// +kubebuilder:validation:MaxLength=253
+	Pod string `json:"pod"`
+	// PodUID is the Pod's UID.
+	// +optional
+	// +kubebuilder:validation:MaxLength=64
+	PodUID string `json:"podUID,omitempty"`
+	// Restarts is the container's restart count.
+	// +kubebuilder:validation:Minimum=0
+	Restarts int32 `json:"restarts"`
 }
 
 // +kubebuilder:object:root=true

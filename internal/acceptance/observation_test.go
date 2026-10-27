@@ -112,13 +112,13 @@ func TestWireRefusals(t *testing.T) {
 		"edited line":   {strings.Replace(good, `"a"`, `"c"`, 1), ErrSummaryMismatch},
 		"after summary": {good + lines[0], ErrWireInvalid},
 		"two summaries": {good + lines[2], ErrWireInvalid},
-		"other version": {strings.Replace(good, `{"v":1,`, `{"v":2,`, 1), ErrWireInvalid},
-		"unknown field": {WirePrefix + `{"v":1,"observation":{"id":"a","colour":1}}` + "\n", ErrWireInvalid},
+		"other version": {strings.Replace(good, `{"v":2,`, `{"v":3,`, 1), ErrWireVersion},
+		"unknown field": {WirePrefix + `{"v":2,"observation":{"id":"a","colour":1}}` + "\n", ErrWireInvalid},
 		"not json":      {WirePrefix + "{\n", ErrWireInvalid},
 		"both": {
-			WirePrefix + `{"v":1,"observation":{"id":"a"},"summary":{"count":0,"sha256":""}}` + "\n", ErrWireInvalid,
+			WirePrefix + `{"v":2,"observation":{"id":"a"},"summary":{"count":0,"sha256":""}}` + "\n", ErrWireInvalid,
 		},
-		"neither": {WirePrefix + `{"v":1}` + "\n", ErrWireInvalid},
+		"neither": {WirePrefix + `{"v":2}` + "\n", ErrWireInvalid},
 		"marked too large": {
 			strings.Replace(good, `{"id":"a",`, `{"id":"a","tooLarge":true,`, 1), ErrWireInvalid,
 		},

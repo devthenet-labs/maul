@@ -50,13 +50,14 @@ func (e *CriterionError) Error() string {
 }
 
 var (
-	idPattern     = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
-	keyPattern    = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
+	idPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
+	// KeyPattern is a repository key's grammar: a DNS label.
+	KeyPattern    = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
 	headerPattern = regexp.MustCompile(`^[A-Za-z0-9-]{1,64}$`)
 )
 
-// maxKeyLength is a repository key's bound (v1alpha1.MaxRepositoryKeyLength).
-const maxKeyLength = 16
+// MaxKeyLength is a repository key's bound (v1alpha1.MaxRepositoryKeyLength).
+const MaxKeyLength = 16
 
 // forbiddenHeaders are the request headers a criterion may not set: they
 // would retarget, smuggle or authenticate the request.
@@ -181,8 +182,8 @@ func validateWhere(in *Where) error {
 }
 
 func checkKey(field, key string) error {
-	if len(key) > maxKeyLength || !keyPattern.MatchString(key) {
-		return fmt.Errorf("%s %q is not a repository key (a DNS label of at most %d characters)", field, key, maxKeyLength)
+	if len(key) > MaxKeyLength || !KeyPattern.MatchString(key) {
+		return fmt.Errorf("%s %q is not a repository key (a DNS label of at most %d characters)", field, key, MaxKeyLength)
 	}
 	return nil
 }

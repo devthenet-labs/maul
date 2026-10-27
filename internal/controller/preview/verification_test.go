@@ -666,13 +666,15 @@ func TestVerificationOutputIsChecked(t *testing.T) {
 	}
 }
 
-// TestVerificationUnreachableIsInfra: the live k3s case past its window. A
-// component's Service accepted no connection from the tester although
-// every component was Ready and the slot policies were in place: maul's
-// environment, never verdicts. The attempt is Infra target-unreachable,
-// with no observations and the waits recorded, so intent-controller retries
-// it uncounted rather than judging the change.
-func TestVerificationUnreachableIsInfra(t *testing.T) {
+// TestVerificationUnreachableIsTheApps: a component's Service accepted no
+// connection from the tester for the whole readiness window although it
+// was Ready. The window absorbs the slot policy's programming delay (about
+// a second on k3s); past it the application is refusing the tester (it can
+// filter SYNs by source with a classic BPF socket filter, no capability
+// needed, and still pass the kubelet's probe), so the attempt is charged to
+// it: EnvFailed component-unreachable, the component's fact marked, never
+// maul's Infra and never criterion verdicts.
+func TestVerificationUnreachableIsTheApps(t *testing.T) {
 	e := newVerifyEnv(t, interceptor.Funcs{})
 	e.verify()
 	job := e.testerJob()
@@ -681,9 +683,9 @@ func TestVerificationUnreachableIsInfra(t *testing.T) {
 	pod := e.startTester(job)
 	e.finishTester(job, pod, log, msg, 0)
 	pv, _ := e.verify()
-	if pv.Status.Phase != v1alpha1.VerificationInfra ||
-		pv.Status.Reason != v1alpha1.VerificationReasonTargetUnreachable {
-		t.Fatalf("phase %s %s, want Infra target-unreachable", pv.Status.Phase, pv.Status.Reason)
+	if pv.Status.Phase != v1alpha1.VerificationEnvFailed ||
+		pv.Status.Reason != v1alpha1.VerificationReasonComponentUnreachable {
+		t.Fatalf("phase %s %s, want EnvFailed component-unreachable", pv.Status.Phase, pv.Status.Reason)
 	}
 	if len(pv.Status.Observations) != 0 {
 		t.Errorf("observations = %+v, want none", pv.Status.Observations)
@@ -692,19 +694,31 @@ func TestVerificationUnreachableIsInfra(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(pv.Status.Readiness, want) || pv.Status.Readiness[0].Target != "api" ||
-		pv.Status.Readiness[0].Attempts != pv.Status.Readiness[0].Refused {
+	if !slices.Equal(pv.Status.Readiness, want) {
 		t.Errorf("readiness = %+v, want %+v", pv.Status.Readiness, want)
 	}
-	if len(pv.Status.Environment) == 0 || len(e.jobs()) != 0 {
-		t.Errorf("environment %+v, %d jobs left", pv.Status.Environment, len(e.jobs()))
+	parts := map[string]v1alpha1.PartFact{}
+	for _, f := range pv.Status.Environment {
+		parts[f.Name] = f
+	}
+	if api, web := parts["api"], parts["web"]; !api.Ready || api.UnreachableForMs != 60000 ||
+		web.UnreachableForMs != 0 {
+		t.Errorf("api fact %+v, web fact %+v; want api Ready and unreachable for the 60s window", api, web)
+	}
+	env := crdconv.PartFacts(pv.Status.Environment)
+	if acceptance.ClassifyEnvironment(env) != acceptance.EnvAppFailure ||
+		!slices.Equal(acceptance.AppFailureParts(env), []string{"api"}) {
+		t.Errorf("environment classifies as %s, failing %v; want the application's, api",
+			acceptance.ClassifyEnvironment(env), acceptance.AppFailureParts(env))
+	}
+	if len(e.jobs()) != 0 {
+		t.Errorf("%d jobs left", len(e.jobs()))
 	}
 }
 
 // TestVerificationUnreachableCrashedIsEnvFailed: when the unreachable
-// component is the one that crashed (its listener died), the environment
-// says so and the attempt is the application's: EnvFailed, charged to the
-// intent, never maul's Infra.
+// component is the one that crashed (its listener died), the crash is the
+// reason given.
 func TestVerificationUnreachableCrashedIsEnvFailed(t *testing.T) {
 	e := newVerifyEnv(t, interceptor.Funcs{})
 	e.verify()
@@ -720,6 +734,143 @@ func TestVerificationUnreachableCrashedIsEnvFailed(t *testing.T) {
 	}
 	if len(pv.Status.Observations) != 0 || len(pv.Status.Readiness) != 2 {
 		t.Errorf("observations %+v, readiness %+v", pv.Status.Observations, pv.Status.Readiness)
+	}
+}
+
+// restart plays component i's container exiting and coming back Ready, its
+// restart count now `restarts`.
+func (e *verifyEnv) restart(i int, restarts int32) {
+	e.t.Helper()
+	var pod corev1.Pod
+	if err := e.slotObject(componentName(e.p, i)+"-pod", &pod); err != nil {
+		e.t.Fatal(err)
+	}
+	pod.Status.ContainerStatuses[0].RestartCount = restarts
+	pod.Status.ContainerStatuses[0].LastTerminationState = corev1.ContainerState{
+		Terminated: &corev1.ContainerStateTerminated{ExitCode: 2, Reason: "Error"}}
+	if err := e.c.Status().Update(context.Background(), &pod); err != nil {
+		e.t.Fatal(err)
+	}
+}
+
+// TestVerificationRestartDuringTheAttempt: a component that exited during
+// the attempt and came back Ready crashed: its restart count rose since the
+// tester was rendered. The attempt is EnvFailed, charged to the
+// application, however well the criteria went; restarts from before the
+// attempt are not counted.
+func TestVerificationRestartDuringTheAttempt(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		before, after int32
+		phase         v1alpha1.PreviewVerificationPhase
+		reason        v1alpha1.PreviewVerificationReason
+		during        int32
+	}{
+		{"restarted during", 0, 1, v1alpha1.VerificationEnvFailed, v1alpha1.VerificationReasonComponentRestarted, 1},
+		{"restarted before only", 3, 3, v1alpha1.VerificationObserved, v1alpha1.VerificationReasonOK, 0},
+		{"restarted before and during", 3, 5, v1alpha1.VerificationEnvFailed,
+			v1alpha1.VerificationReasonComponentRestarted, 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newVerifyEnv(t, interceptor.Funcs{})
+			if tc.before > 0 {
+				e.restart(1, tc.before)
+			}
+			e.verify()
+			job := e.testerJob()
+			log, msg := testerOutput(t, testerSpec(t, job), 200, `{"items":[]}`)
+			if tc.after != tc.before {
+				e.restart(1, tc.after)
+			}
+			pod := e.startTester(job)
+			e.finishTester(job, pod, log, msg, 0)
+			pv, _ := e.verify()
+			if pv.Status.Phase != tc.phase || pv.Status.Reason != tc.reason {
+				t.Fatalf("phase %s %s, want %s %s", pv.Status.Phase, pv.Status.Reason, tc.phase, tc.reason)
+			}
+			for _, f := range pv.Status.Environment {
+				if f.Name == "api" && (f.RestartedDuring != tc.during || f.Restarts != tc.after) {
+					t.Errorf("api fact %+v, want %d restarts, %d during the attempt", f, tc.after, tc.during)
+				}
+			}
+		})
+	}
+}
+
+// TestVerificationTesterVersionMismatch: a tester image older than the
+// controller (mirrored, or overridden) writes another wire version. That is
+// maul's configuration, never the change's: Infra tester-version-mismatch,
+// the tester's version recorded beside the controller's, not output that is
+// merely invalid.
+func TestVerificationTesterVersionMismatch(t *testing.T) {
+	e := newVerifyEnv(t, interceptor.Funcs{})
+	e.verify()
+	job := e.testerJob()
+	sha := strings.Repeat("0", 64)
+	log := []byte(acceptance.WirePrefix + `{"v":1,"observation":{"id":"items","tries":[{"run":"v1a1t1-a1b2c3"}]}}` +
+		"\n" + acceptance.WirePrefix + `{"v":1,"summary":{"count":1,"sha256":"` + sha + `"}}` + "\n")
+	pod := e.startTester(job)
+	e.finishTester(job, pod, log, `{"count":1,"sha256":"`+sha+`"}`, 0)
+	pv, _ := e.verify()
+	if pv.Status.Phase != v1alpha1.VerificationInfra ||
+		pv.Status.Reason != v1alpha1.VerificationReasonTesterVersionMismatch {
+		t.Fatalf("phase %s %s, want Infra tester-version-mismatch", pv.Status.Phase, pv.Status.Reason)
+	}
+	if pv.Status.TesterWireVersion != 1 || len(pv.Status.Observations) != 0 {
+		t.Errorf("tester wire version %d, observations %+v", pv.Status.TesterWireVersion, pv.Status.Observations)
+	}
+}
+
+// TestVerificationTargetsFromTheRenderedSpec: the targets a tester's waits
+// are held to are those its Job was rendered with, read back from the Job,
+// never re-derived from the Preview as it is now. A rendered spec that no
+// longer matches the Preview means the Preview changed under the attempt:
+// stale-preview, not tester-output-invalid.
+func TestVerificationTargetsFromTheRenderedSpec(t *testing.T) {
+	e := newVerifyEnv(t, interceptor.Funcs{})
+	e.verify()
+	job := e.testerJob()
+	spec := testerSpec(t, job)
+	log, msg := testerOutput(t, spec, 200, `{"items":[]}`)
+	// The Job as rendered names another Service for web than the Preview
+	// would now.
+	spec.Targets["web"] = "preview-shop-9:80"
+	raw, err := spec.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	job.Spec.Template.Spec.Containers[0].Env[0].Value = string(raw)
+	if err := e.c.Update(context.Background(), job); err != nil {
+		t.Fatal(err)
+	}
+	pod := e.startTester(job)
+	e.finishTester(job, pod, log, msg, 0)
+	pv, _ := e.verify()
+	if pv.Status.Phase != v1alpha1.VerificationStale || pv.Status.Reason != v1alpha1.VerificationReasonStalePreview {
+		t.Fatalf("phase %s %s, want Stale stale-preview", pv.Status.Phase, pv.Status.Reason)
+	}
+}
+
+// TestVerificationPreviewChangedIsStale: a Preview whose components changed
+// while its tester ran settles the attempt stale-preview.
+func TestVerificationPreviewChangedIsStale(t *testing.T) {
+	e := newVerifyEnv(t, interceptor.Funcs{})
+	e.verify()
+	job := e.testerJob()
+	log, msg := testerOutput(t, testerSpec(t, job), 200, `{"items":[]}`)
+	var p v1alpha1.Preview
+	if err := e.c.Get(context.Background(), client.ObjectKeyFromObject(e.p), &p); err != nil {
+		t.Fatal(err)
+	}
+	p.Spec.Components = p.Spec.Components[:1]
+	if err := e.c.Update(context.Background(), &p); err != nil {
+		t.Fatal(err)
+	}
+	pod := e.startTester(job)
+	e.finishTester(job, pod, log, msg, 0)
+	pv, _ := e.verify()
+	if pv.Status.Phase != v1alpha1.VerificationStale || pv.Status.Reason != v1alpha1.VerificationReasonStalePreview {
+		t.Fatalf("phase %s %s, want Stale stale-preview", pv.Status.Phase, pv.Status.Reason)
 	}
 }
 

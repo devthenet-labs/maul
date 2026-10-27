@@ -45,7 +45,7 @@ type Options struct {
 	// second try at once (tests).
 	RetryDelay time.Duration
 	// ReadinessBackoff replaces the readiness wait's first backoff when
-	// positive (tests).
+	// positive (tests); otherwise the default, never zero.
 	ReadinessBackoff time.Duration
 }
 
@@ -81,7 +81,7 @@ func NewClient(o Options) *Client {
 		MaxResponseHeaderBytes: maxResponseHeaderBytes,
 		ResponseHeaderTimeout:  timeout,
 	}
-	return &Client{
+	c := &Client{
 		http: &http.Client{
 			Transport: transport,
 			CheckRedirect: func(*http.Request, []*http.Request) error {
@@ -92,8 +92,12 @@ func NewClient(o Options) *Client {
 		timeout:    timeout,
 		dial:       dial,
 		retryDelay: positiveOr(o.RetryDelay, RetryDelay),
-		backoff:    positiveOr(o.ReadinessBackoff, readinessBackoffMin),
+		backoff:    readinessBackoffMin,
 	}
+	if o.ReadinessBackoff > 0 {
+		c.backoff = max(o.ReadinessBackoff, time.Millisecond)
+	}
+	return c
 }
 
 // positiveOr is d when positive, zero when negative, else def.
@@ -109,14 +113,30 @@ func positiveOr(d, def time.Duration) time.Duration {
 
 // Doer sends every request of a criterion to host ("<service>:<port>"),
 // whatever the request says: the host is the spec's, never the criterion's.
-// A second try starts RetryDelay after the first failed.
+// A second try whose first ended without a response (a transport failure)
+// starts RetryDelay later, so a blip does not fail both tries in one
+// instant; one whose first got a response that failed an expectation is
+// deterministic and retries at once. Use one Doer per criterion.
 func (c *Client) Doer(ctx context.Context, host string) acceptance.Doer {
+	var last acceptance.Transport
 	return func(call acceptance.Call) acceptance.Response {
-		if call.Try > 1 && call.Step == 0 {
+		if call.Try > 1 && call.Step == 0 && transportFailure(last) {
 			sleep(ctx, c.retryDelay)
 		}
-		return c.do(ctx, host, call.Request)
+		resp := c.do(ctx, host, call.Request)
+		last = resp.Transport
+		return resp
 	}
+}
+
+// transportFailure reports whether a request got no response at all.
+func transportFailure(t acceptance.Transport) bool {
+	switch t {
+	case acceptance.TransportRefused, acceptance.TransportTimeout, acceptance.TransportReset,
+		acceptance.TransportDNS, acceptance.TransportTLS:
+		return true
+	}
+	return false
 }
 
 func (c *Client) do(ctx context.Context, host string, b acceptance.BuiltRequest) acceptance.Response {

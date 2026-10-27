@@ -145,9 +145,9 @@ there. The egress run (`run.sh`) has no such flag; it runs on EKS only.
 
 The same REJECT meets every new Pod until kube-router has programmed its policy, about a second after the Pod starts.
 The acceptance tester is a new Pod on every run, so it waits for each component's Service to accept a TCP connection
-before its first check, for at most a minute, and records the wait; a Service still refusing then is reported as
-`target-unreachable` infrastructure, never as failing criteria (docs/intents/acceptance.md). A probe client that starts
-sending at once can likewise see its first attempts refused on k3s before the policy that would admit it exists.
+before its first check, for at most a minute, and records the wait; a Service still refusing after that is the change's
+failure, `component-unreachable` (docs/intents/acceptance.md). A probe client that starts sending at once can likewise
+see its first attempts refused on k3s before the policy that would admit it exists.
 
 ### The listener's image
 

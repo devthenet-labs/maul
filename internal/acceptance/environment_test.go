@@ -34,10 +34,22 @@ func TestClassifyEnvironment(t *testing.T) {
 		{"evicted", []PartFact{{Name: "api", Role: RoleComponent, Ready: true, Evicted: true}}, app, []string{"api"}},
 		{"oom", []PartFact{{Name: "api", Role: RoleComponent, Ready: true,
 			LastTermination: &Termination{Reason: "OOMKilled", ExitCode: 137}}}, EnvAppFailure, []string{"api"}},
-		// A crash the component recovered from is evidence, not a failure;
-		// running out of memory is charged even once recovered.
-		{"crashed and back", []PartFact{{Name: "api", Role: RoleComponent, Ready: true,
+		// A crash from before the attempt that the component recovered from
+		// is evidence, not a failure; running out of memory is charged even
+		// once recovered.
+		{"crashed before and back", []PartFact{{Name: "api", Role: RoleComponent, Ready: true, Restarts: 3,
 			LastTermination: &Termination{Reason: "Error", ExitCode: 2}}}, EnvOK, nil},
+		// A component that exited during the attempt (its restart count
+		// rose since the attempt started) and came back Ready crashed: the
+		// application's failure, however it exited.
+		{"crashed during and back", []PartFact{{Name: "api", Role: RoleComponent, Ready: true, Restarts: 4,
+			RestartedDuring: 1, LastTermination: &Termination{Reason: "Error", ExitCode: 2}}}, app, []string{"api"}},
+		{"exited cleanly during", []PartFact{{Name: "api", Role: RoleComponent, Ready: true, Restarts: 1,
+			RestartedDuring: 1, LastTermination: &Termination{Reason: "Completed"}}}, app, []string{"api"}},
+		// A Ready component the tester could not connect to for its whole
+		// readiness window is the application's failure, never maul's Infra.
+		{"unreachable while ready", []PartFact{{Name: "api", Role: RoleComponent, Ready: true,
+			UnreachableForMs: 60000}, ready("web", RoleComponent)}, app, []string{"api"}},
 		{"tester crashed", []PartFact{ready("api", RoleComponent), {Name: "tester", Role: RoleTester,
 			LastTermination: &Termination{Reason: "Error", ExitCode: 2}}}, EnvInfra, nil},
 		{"two failing in order", []PartFact{
