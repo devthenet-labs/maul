@@ -20,6 +20,7 @@ import (
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
+	"github.com/devthenet-labs/maul/internal/acceptance/crdconv"
 	"github.com/devthenet-labs/maul/internal/envelope"
 	"github.com/devthenet-labs/maul/internal/ghclient"
 	"github.com/devthenet-labs/maul/internal/jobs"
@@ -120,7 +121,7 @@ func (e *env) observe(pvName string, phase v1alpha1.PreviewVerificationPhase, do
 	}
 	pv.Status = v1alpha1.PreviewVerificationStatus{Phase: phase, Environment: env}
 	if do != nil {
-		cs, err := criteriaFromCRD(pv.Spec.Criteria)
+		cs, err := crdconv.CriteriaFromCRD(pv.Spec.Criteria)
 		if err != nil {
 			e.t.Fatal(err)
 		}
@@ -204,7 +205,7 @@ func TestVerificationRecordsTheApprovedCriteria(t *testing.T) {
 		acc.Criteria[1].Kind != v1alpha1.AcceptanceManual {
 		t.Fatalf("criteria = %+v", acc.Criteria)
 	}
-	back, err := criteriaFromCRD(acc.Criteria)
+	back, err := crdconv.CriteriaFromCRD(acc.Criteria)
 	if err != nil || acceptance.Digest(back) != acc.Digest {
 		t.Fatalf("stored criteria digest %s, err %v; want %s", acceptance.Digest(back), err, acc.Digest)
 	}
@@ -591,14 +592,14 @@ func TestCriteriaConversionIsStrict(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := criteriaToCRD(parsed.Acceptance); err == nil {
+	if _, err := crdconv.CriteriaToCRD(parsed.Acceptance); err == nil {
 		t.Fatal("the unnormalised shorthand converted")
 	}
-	got, err := criteriaToCRD(acceptance.Normalize(parsed.Acceptance))
+	got, err := crdconv.CriteriaToCRD(acceptance.Normalize(parsed.Acceptance))
 	if err != nil {
 		t.Fatal(err)
 	}
-	back, err := criteriaFromCRD(got)
+	back, err := crdconv.CriteriaFromCRD(got)
 	if err != nil || acceptance.Digest(back) != acceptance.Digest(parsed.Acceptance) {
 		t.Fatalf("round trip: %v", err)
 	}

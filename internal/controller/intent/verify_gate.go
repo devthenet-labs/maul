@@ -4,7 +4,6 @@
 package intent
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -20,7 +19,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
-	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/templates"
 )
 
@@ -99,46 +97,6 @@ func headSetDigest(heads []v1alpha1.VerificationHead) string {
 		b = []byte("!unencodable")
 	}
 	return digest(b)
-}
-
-// criteriaToCRD converts criteria (normalised: acceptance.Normalize) to the
-// CRD mirror, field for field through their identical JSON tags. A field the
-// mirror lacks is refused rather than dropped, so a criterion is stored
-// exactly as it was approved or not at all.
-func criteriaToCRD(cs []acceptance.Criterion) ([]v1alpha1.AcceptanceCriterion, error) {
-	if len(cs) == 0 {
-		return nil, nil
-	}
-	var out []v1alpha1.AcceptanceCriterion
-	if err := convertStrict(cs, &out); err != nil {
-		return nil, fmt.Errorf("acceptance criteria: %w", err)
-	}
-	return out, nil
-}
-
-// criteriaFromCRD converts stored criteria back to internal/acceptance's
-// form, as strictly.
-func criteriaFromCRD(cs []v1alpha1.AcceptanceCriterion) ([]acceptance.Criterion, error) {
-	if len(cs) == 0 {
-		return nil, nil
-	}
-	var out []acceptance.Criterion
-	if err := convertStrict(cs, &out); err != nil {
-		return nil, fmt.Errorf("stored acceptance criteria: %w", err)
-	}
-	return out, nil
-}
-
-// convertStrict re-decodes in's JSON into out, refusing any field out has
-// no place for.
-func convertStrict(in, out any) error {
-	b, err := json.Marshal(in)
-	if err != nil {
-		return err
-	}
-	dec := json.NewDecoder(bytes.NewReader(b))
-	dec.DisallowUnknownFields()
-	return dec.Decode(out)
 }
 
 // automatable are the criteria this slice (acceptance slice 1) runs, in

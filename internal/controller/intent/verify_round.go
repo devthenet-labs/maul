@@ -19,6 +19,7 @@ import (
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
+	"github.com/devthenet-labs/maul/internal/acceptance/crdconv"
 )
 
 // The acceptance-fix round (acceptance verification §4.4): a verification
@@ -71,7 +72,7 @@ type verifyFailure struct {
 // still running) is not one.
 func fixableFailure(approved []v1alpha1.AcceptanceCriterion, pv *v1alpha1.PreviewVerification) (verifyFailure,
 	bool) {
-	parts := partFacts(pv.Status.Environment)
+	parts := crdconv.PartFacts(pv.Status.Environment)
 	var f verifyFailure
 	switch pv.Status.Phase {
 	case v1alpha1.VerificationObserved:
@@ -471,7 +472,7 @@ func bodyPrefixEvidence(i int, encoded string) string {
 // each, their log tails left out (a round reads only its own components'),
 // or "" when none does.
 func failedParts(env []v1alpha1.PartFact) string {
-	parts := partFacts(env)
+	parts := crdconv.PartFacts(env)
 	var lines []string
 	for i, f := range env {
 		if acceptance.ClassifyEnvironment(parts[i:i+1]) == acceptance.EnvOK {

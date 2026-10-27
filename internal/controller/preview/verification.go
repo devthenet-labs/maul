@@ -28,6 +28,7 @@ import (
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
+	"github.com/devthenet-labs/maul/internal/acceptance/crdconv"
 	"github.com/devthenet-labs/maul/internal/previewtester"
 )
 
@@ -259,11 +260,11 @@ func approvedSubset(pv *v1alpha1.PreviewVerification, in *v1alpha1.Intent) ([]ac
 	if a == nil {
 		return nil, false
 	}
-	approved, err := toCriteria(a.Criteria)
+	approved, err := crdconv.CriteriaFromCRD(a.Criteria)
 	if err != nil {
 		return nil, false
 	}
-	requested, err := toCriteria(pv.Spec.Criteria)
+	requested, err := crdconv.CriteriaFromCRD(pv.Spec.Criteria)
 	if err != nil || len(requested) == 0 || acceptance.Validate(requested) != nil {
 		return nil, false
 	}
@@ -274,20 +275,6 @@ func approvedSubset(pv *v1alpha1.PreviewVerification, in *v1alpha1.Intent) ([]ac
 		return nil, false
 	}
 	return acceptance.Normalize(requested), true
-}
-
-// toCriteria converts the CRD's criteria to the grammar's, through their
-// JSON: the two types mirror each other field for field.
-func toCriteria(cs []v1alpha1.AcceptanceCriterion) ([]acceptance.Criterion, error) {
-	b, err := json.Marshal(cs)
-	if err != nil {
-		return nil, err
-	}
-	var out []acceptance.Criterion
-	if err := json.Unmarshal(b, &out); err != nil {
-		return nil, err
-	}
-	return out, nil
 }
 
 // start renders the tester once the rollout has settled and the edge
@@ -452,7 +439,7 @@ func (v *VerificationReconciler) record(ctx context.Context, pv *v1alpha1.Previe
 	}
 	phase, reason := route(facts, outReason)
 	if outReason == "" {
-		converted, err := toObservations(obs)
+		converted, err := crdconv.ObservationsToCRD(obs)
 		if err != nil {
 			phase, reason = v1alpha1.VerificationInfra, v1alpha1.VerificationReasonTesterOutputInvalid
 		}
@@ -633,20 +620,6 @@ func parseTesterOutput(log []byte, msg string, rt acceptance.RunTokens,
 	return obs, sum, ""
 }
 
-// toObservations converts the grammar's observations to the CRD's, through
-// their JSON: the two types mirror each other field for field.
-func toObservations(obs []acceptance.CriterionObservation) ([]v1alpha1.CriterionObservation, error) {
-	b, err := json.Marshal(obs)
-	if err != nil {
-		return nil, err
-	}
-	var out []v1alpha1.CriterionObservation
-	if err := json.Unmarshal(b, &out); err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 // route settles an attempt from its environment and its output: a part of
 // the change failing is the intent's (EnvFailed); trouble the change cannot
 // cause is maul's (Infra), as is output that does not hold; else Observed.
@@ -654,7 +627,7 @@ func toObservations(obs []acceptance.CriterionObservation) ([]v1alpha1.Criterion
 // intent-controller applies to the same facts.
 func route(facts []v1alpha1.PartFact,
 	outReason v1alpha1.PreviewVerificationReason) (v1alpha1.PreviewVerificationPhase, v1alpha1.PreviewVerificationReason) {
-	parts := toPartFacts(facts)
+	parts := crdconv.PartFacts(facts)
 	switch acceptance.ClassifyEnvironment(parts) {
 	case acceptance.EnvAppFailure:
 		return v1alpha1.VerificationEnvFailed, appFailureReason(facts, acceptance.AppFailureParts(parts))
@@ -712,21 +685,6 @@ func infraReason(facts []v1alpha1.PartFact,
 		}
 	}
 	return v1alpha1.VerificationReasonTesterOutputInvalid
-}
-
-// toPartFacts converts the CRD's part facts to the grammar's.
-func toPartFacts(facts []v1alpha1.PartFact) []acceptance.PartFact {
-	out := make([]acceptance.PartFact, 0, len(facts))
-	for _, f := range facts {
-		a := acceptance.PartFact{Name: f.Name, Role: string(f.Role), Ready: f.Ready, Restarts: f.Restarts,
-			Waiting: f.Waiting, Evicted: f.Evicted, Unschedulable: f.Unschedulable}
-		if f.LastTermination != nil {
-			a.LastTermination = &acceptance.Termination{Reason: f.LastTermination.Reason,
-				ExitCode: f.LastTermination.ExitCode}
-		}
-		out = append(out, a)
-	}
-	return out
 }
 
 // environment captures each part of the slot: every component, from its
@@ -868,7 +826,7 @@ func (v *VerificationReconciler) capture(ctx context.Context, pv *v1alpha1.Previ
 		return err
 	}
 	phase, reason := v1alpha1.VerificationEnvFailed, v1alpha1.VerificationReasonPreviewFailed
-	parts := toPartFacts(facts)
+	parts := crdconv.PartFacts(facts)
 	switch acceptance.ClassifyEnvironment(parts) {
 	case acceptance.EnvAppFailure:
 		reason = appFailureReason(facts, acceptance.AppFailureParts(parts))
@@ -974,7 +932,7 @@ func fitStatus(pv *v1alpha1.PreviewVerification) {
 // verdict depends on is never touched, and an observation whose criterion
 // is not in the request is left as it is.
 func shrinkValues(pv *v1alpha1.PreviewVerification, excess int) {
-	cs, err := toCriteria(pv.Spec.Criteria)
+	cs, err := crdconv.CriteriaFromCRD(pv.Spec.Criteria)
 	if err != nil {
 		return
 	}
@@ -996,12 +954,8 @@ func shrinkValues(pv *v1alpha1.PreviewVerification, excess int) {
 // bytes saved.
 func shrinkObservation(c acceptance.Criterion, o *v1alpha1.CriterionObservation, rt acceptance.RunTokens,
 	excess int) int {
-	b, err := json.Marshal(o)
-	if err != nil {
-		return 0
-	}
-	var judged acceptance.CriterionObservation
-	if err := json.Unmarshal(b, &judged); err != nil || len(judged.Tries) != len(o.Tries) {
+	judged, err := crdconv.ObservationFromCRD(*o)
+	if err != nil || len(judged.Tries) != len(o.Tries) {
 		return 0
 	}
 	want := acceptance.Judge(c, judged, rt)

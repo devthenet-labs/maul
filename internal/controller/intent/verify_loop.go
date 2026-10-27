@@ -19,6 +19,7 @@ import (
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
+	"github.com/devthenet-labs/maul/internal/acceptance/crdconv"
 	"github.com/devthenet-labs/maul/internal/report"
 )
 
@@ -207,7 +208,7 @@ func (p *pass) approvedAcceptance(ctx context.Context, ap *v1alpha1.IntentApprov
 	if err != nil {
 		return nil, fmt.Errorf("parse plan r%d: %w", ap.PlanRevision, err)
 	}
-	criteria, err := criteriaToCRD(acceptance.Normalize(parsed.Acceptance))
+	criteria, err := crdconv.CriteriaToCRD(acceptance.Normalize(parsed.Acceptance))
 	if err != nil {
 		return nil, err
 	}
@@ -382,7 +383,8 @@ func (p *pass) settleVerification(ctx context.Context) (bool, error) {
 			return nil
 		})
 	case v1alpha1.VerificationEnvFailed:
-		if parts := partFacts(pv.Status.Environment); acceptance.ClassifyEnvironment(parts) == acceptance.EnvAppFailure {
+		parts := crdconv.PartFacts(pv.Status.Environment)
+		if acceptance.ClassifyEnvironment(parts) == acceptance.EnvAppFailure {
 			return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
 				nv := cur.Status.Verification
 				clearJudgement(nv)
@@ -505,7 +507,7 @@ func judge(approved []v1alpha1.AcceptanceCriterion, pv *v1alpha1.PreviewVerifica
 func judgeOne(c v1alpha1.AcceptanceCriterion, obs []v1alpha1.CriterionObservation,
 	rt acceptance.RunTokens) acceptance.Verdict {
 	failed := acceptance.Verdict{ID: c.ID, Outcome: acceptance.OutcomeFail, Reason: acceptance.ReasonNotObservable}
-	cs, err := criteriaFromCRD([]v1alpha1.AcceptanceCriterion{c})
+	cs, err := crdconv.CriteriaFromCRD([]v1alpha1.AcceptanceCriterion{c})
 	if err != nil || len(cs) != 1 {
 		return failed
 	}
@@ -516,8 +518,10 @@ func judgeOne(c v1alpha1.AcceptanceCriterion, obs []v1alpha1.CriterionObservatio
 		}
 	}
 	var o acceptance.CriterionObservation
-	if len(found) != 1 || convertStrict(found[0], &o) != nil {
-		o = acceptance.CriterionObservation{}
+	if len(found) == 1 {
+		if converted, err := crdconv.ObservationFromCRD(found[0]); err == nil {
+			o = converted
+		}
 	}
 	return acceptance.Judge(cs[0], o, rt)
 }
@@ -531,22 +535,6 @@ func (j judgement) apply(v *v1alpha1.IntentVerification) {
 	if j.failed > 0 {
 		v.State = v1alpha1.VerificationFailing
 	}
-}
-
-// partFacts converts a verification's environment evidence to
-// internal/acceptance's form. A fact that does not convert is a part maul
-// knows nothing of: classified as infrastructure, never charged to the
-// intent.
-func partFacts(env []v1alpha1.PartFact) []acceptance.PartFact {
-	out := make([]acceptance.PartFact, 0, len(env))
-	for _, f := range env {
-		var a acceptance.PartFact
-		if convertStrict(f, &a) != nil {
-			a = acceptance.PartFact{Name: f.Name, Role: "unknown"}
-		}
-		out = append(out, a)
-	}
-	return out
 }
 
 // startVerification is the gate (startRound's last step, nothing else

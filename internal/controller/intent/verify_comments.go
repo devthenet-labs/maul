@@ -15,6 +15,7 @@ import (
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
+	"github.com/devthenet-labs/maul/internal/acceptance/crdconv"
 	"github.com/devthenet-labs/maul/internal/ghclient"
 	"github.com/devthenet-labs/maul/internal/templates"
 )
@@ -280,7 +281,7 @@ func failureEvidence(c v1alpha1.AcceptanceCriterion, obs []v1alpha1.CriterionObs
 	}
 	n := len(try.Steps) - 1
 	step := try.Steps[n]
-	if cs, err := criteriaFromCRD([]v1alpha1.AcceptanceCriterion{c}); err == nil && len(cs) == 1 &&
+	if cs, err := crdconv.CriteriaFromCRD([]v1alpha1.AcceptanceCriterion{c}); err == nil && len(cs) == 1 &&
 		n < len(cs[0].Steps) {
 		expected = expectedOf(cs[0].Steps[n])
 	}
