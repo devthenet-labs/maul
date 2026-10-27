@@ -124,7 +124,7 @@ func (p *pass) checksObserved(pr *v1alpha1.IntentPullRequest) bool {
 func (p *pass) startCheckFix(ctx context.Context, pr *v1alpha1.IntentPullRequest,
 	failed failedChecks, signature string) (bool, error) {
 	for _, prior := range p.runs {
-		if prior.Spec.Trigger != v1alpha1.IntentRunTriggerChecks || prior.Status.Phase != v1alpha1.RunComplete ||
+		if !isCheckFix(prior.Spec.Trigger) || prior.Status.Phase != v1alpha1.RunComplete ||
 			!sameRepo(prior.Spec.Repository.URL, pr.Repository) {
 			continue
 		}
@@ -439,7 +439,7 @@ func pushedAfter(a, b *v1alpha1.IntentRun) bool {
 // exactly these failures.
 func (p *pass) checksConsumed(repoURL string, f failedChecks) bool {
 	for _, run := range p.runs {
-		if run.Spec.Trigger != v1alpha1.IntentRunTriggerChecks || !sameRepo(run.Spec.Repository.URL, repoURL) {
+		if !isCheckFix(run.Spec.Trigger) || !sameRepo(run.Spec.Repository.URL, repoURL) {
 			continue
 		}
 		if slices.Equal(run.Spec.Inputs.CheckRunIDs, f.checkIDs) && slices.Equal(run.Spec.Inputs.StatusIDs, f.statusIDs) {
@@ -452,11 +452,26 @@ func (p *pass) checksConsumed(repoURL string, f failedChecks) bool {
 func (p *pass) checkFixRounds() int32 {
 	seen := map[int32]bool{}
 	for _, run := range p.runs {
-		if run.Spec.Stage == v1alpha1.IntentStageRevise && run.Spec.Trigger == v1alpha1.IntentRunTriggerChecks {
+		if run.Spec.Stage == v1alpha1.IntentStageRevise && isCheckFix(run.Spec.Trigger) {
 			seen[run.Spec.Round] = true
 		}
 	}
 	return int32(len(seen))
+}
+
+// isCheckFix reports a check-fix round's trigger: the rounds held against
+// maxCheckFixes, and whose consumed failures and signature a later check-fix
+// round is compared with. An acceptance-fix round is not one: its failures
+// are acceptance criteria, counted against maxVerifyFixes.
+func isCheckFix(t v1alpha1.IntentRunTrigger) bool {
+	switch t {
+	case v1alpha1.IntentRunTriggerChecks:
+		return true
+	case v1alpha1.IntentRunTriggerReview, v1alpha1.IntentRunTriggerCommand, v1alpha1.IntentRunTriggerVerify:
+		return false
+	default:
+		return false
+	}
 }
 
 // checkDiagnosis is what a check-fix round reads of its failed checks.

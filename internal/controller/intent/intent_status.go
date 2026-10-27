@@ -114,7 +114,7 @@ func (p *pass) statusComment() templates.IntentStatusComment {
 	switch st.Phase {
 	case v1alpha1.IntentRevising:
 		run := p.round(v1alpha1.IntentStageRevise, st.Rounds, anyRepository).latest()
-		c.FixingChecks = run != nil && run.Spec.Trigger == v1alpha1.IntentRunTriggerChecks
+		c.FixingChecks = run != nil && fixingChecks(run.Spec.Trigger)
 	case v1alpha1.IntentBlocked:
 		var reasons []string
 		for _, typ := range blockingConditions {
@@ -127,6 +127,19 @@ func (p *pass) statusComment() templates.IntentStatusComment {
 		c.Reason = p.failureReason()
 	}
 	return c
+}
+
+// fixingChecks reports a round the status comment names as fixing CI: a
+// check-fix round alone.
+func fixingChecks(t v1alpha1.IntentRunTrigger) bool {
+	switch t {
+	case v1alpha1.IntentRunTriggerChecks:
+		return true
+	case v1alpha1.IntentRunTriggerReview, v1alpha1.IntentRunTriggerCommand, v1alpha1.IntentRunTriggerVerify:
+		return false
+	default:
+		return false
+	}
 }
 
 // latestAttribution is whom the Intent's newest run is attributed to, nil

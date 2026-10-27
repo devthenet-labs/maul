@@ -25,6 +25,7 @@ const (
 	UsageKindBuild         = "build"
 	UsageKindRevise        = "revise"
 	UsageKindCheckFix      = "check-fix"
+	UsageKindVerifyFix     = "verify-fix"
 	UsageKindEvaluation    = "evaluation"
 )
 

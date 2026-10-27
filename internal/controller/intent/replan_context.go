@@ -117,16 +117,30 @@ func (p *pass) lastBuildFailure() string {
 	if last == nil || last.Status.Phase != v1alpha1.RunFailed {
 		return ""
 	}
-	what := string(last.Spec.Stage)
-	if last.Spec.Trigger == v1alpha1.IntentRunTriggerChecks {
-		what = "check-fix"
-	}
-	text := fmt.Sprintf("Run %s (%s of %s, attempt %d) failed: %s", last.Name, what,
+	text := fmt.Sprintf("Run %s (%s of %s, attempt %d) failed: %s", last.Name, failedRunNoun(last),
 		repoSlug(last.Spec.Repository.URL), last.Spec.Attempt, last.Status.Outcome)
 	if d := strings.TrimSpace(last.Status.Detail); d != "" {
 		text += "\n" + d
 	}
 	return fencedBounded(visibleFeedback(text), maxPreviousOutcomeBytes)
+}
+
+// failedRunNoun names a failed run's stage in the replan context: build,
+// revise, check-fix or acceptance-fix.
+func failedRunNoun(run *v1alpha1.IntentRun) string {
+	if run.Spec.Stage != v1alpha1.IntentStageRevise {
+		return string(run.Spec.Stage)
+	}
+	switch run.Spec.Trigger {
+	case v1alpha1.IntentRunTriggerReview, v1alpha1.IntentRunTriggerCommand:
+		return string(run.Spec.Stage)
+	case v1alpha1.IntentRunTriggerChecks:
+		return "check-fix"
+	case v1alpha1.IntentRunTriggerVerify:
+		return "acceptance-fix"
+	default:
+		return string(run.Spec.Stage)
+	}
 }
 
 // later orders runs by creation, then by name, which settles a tie within
