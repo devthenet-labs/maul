@@ -60,6 +60,18 @@
 {{- end }}
 {{- $slots := list }}
 {{- range $i := until (int $p.slotCount) }}{{ $slots = append $slots (printf "maul-preview-%d" $i) }}{{ end }}
+{{- /* The slot quota: preview.quota over the defaults, today's without
+       acceptance verification and with it room for the tester (§5.7 of the
+       acceptance design; the defaults are to be measured on a live slot).
+       The Job and NetworkPolicy counts render with verification on, or
+       where set. */}}
+{{- $verify := include "maul.previewVerification" . }}
+{{- $quotaDefaults := dict "pods" 8 "services" 5 "requests" (dict "cpu" "1" "memory" "1Gi") "limits" (dict "cpu" "2" "memory" "2Gi") }}
+{{- if $verify }}
+{{- $quotaDefaults = dict "pods" 10 "services" 5 "requests" (dict "cpu" "1250m" "memory" "1280Mi") "limits" (dict "cpu" "2500m" "memory" "2560Mi") "jobs" 1 "networkPolicies" 6 }}
+{{- end }}
+{{- $quotaSet := $p.quota | default dict }}
+{{- $quota := mergeOverwrite (deepCopy $quotaDefaults) (deepCopy $quotaSet) }}
 {{- range $slot := $slots }}
 ---
 apiVersion: v1
@@ -156,17 +168,25 @@ metadata:
 spec:
     # Sized for one Preview of up to four components: a Service each plus
     # slot 0's placeholder, and room for every component's rolling update
-    # to start its new Pod (maxSurge 1) beside the one still serving.
+    # to start its new Pod (maxSurge 1) beside the one still serving. With
+    # acceptance verification, also its tester Job's pod and one edge policy
+    # per part beside preview-isolation (preview.quota sets each).
     hard:
-        pods: "8"
-        requests.cpu: "1"
-        requests.memory: 1Gi
-        limits.cpu: "2"
-        limits.memory: 2Gi
-        services: "5"
+        pods: {{ $quota.pods | toString | quote }}
+        requests.cpu: {{ $quota.requests.cpu | toString | quote }}
+        requests.memory: {{ $quota.requests.memory | toString }}
+        limits.cpu: {{ $quota.limits.cpu | toString | quote }}
+        limits.memory: {{ $quota.limits.memory | toString }}
+        services: {{ $quota.services | toString | quote }}
         services.loadbalancers: "0"
         services.nodeports: "0"
         count/ingresses.networking.k8s.io: "4"
+        {{- if hasKey $quota "jobs" }}
+        count/jobs.batch: {{ $quota.jobs | toString | quote }}
+        {{- end }}
+        {{- if hasKey $quota "networkPolicies" }}
+        count/networkpolicies.networking.k8s.io: {{ $quota.networkPolicies | toString | quote }}
+        {{- end }}
 ---
 apiVersion: v1
 kind: LimitRange

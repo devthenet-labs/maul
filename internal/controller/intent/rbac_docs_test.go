@@ -37,3 +37,29 @@ func TestAgentSecretGrantIsDocumented(t *testing.T) {
 		})
 	}
 }
+
+// Acceptance verification widens preview-controller's slot Role (Jobs,
+// NetworkPolicies, pods/log) and gives it and intent-controller the
+// PreviewVerification grants. The chart's header states every one, and that
+// they render only with verification on.
+func TestPreviewVerificationGrantsAreDocumented(t *testing.T) {
+	root := filepath.Join("..", "..", "..")
+	data, err := os.ReadFile(filepath.Join(root, "charts/maul/templates/preview-controller.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var header []string
+	for line := range strings.SplitSeq(string(data), "\n") {
+		if !strings.HasPrefix(line, "#") {
+			break
+		}
+		header = append(header, strings.TrimPrefix(line, "#"))
+	}
+	prose := strings.Join(strings.Fields(strings.Join(header, " ")), " ")
+	for _, want := range []string{"preview.verification.enabled", "jobs", "networkpolicies", "pods/log",
+		"previewverifications", "previewverifications/status"} {
+		if !strings.Contains(prose, want) {
+			t.Errorf("the preview-controller header does not state %q", want)
+		}
+	}
+}
