@@ -179,12 +179,13 @@ A command from a non-approver, an edited comment or a bot is refused. An unknown
 
 ## When something is not what you expect
 
-| You see                                  | Meaning                                                                                                                        |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| No `maul/acceptance` status at all       | Verification is off (chart, controller or Project), the plan declared nothing automatable, or the intent has ended             |
-| `pending`, "waiting for the preview"     | No live preview at exactly the pull request heads yet. Check `kubectl get preview`                                             |
-| `error`, "maul could not run the checks" | Three tester attempts failed for infrastructure reasons (scheduling, image pull, quota, deadline). Not a verdict on the change |
-| A failing criterion that passes by hand  | Checks run against a preview that is never reset; one that depends on empty data should be replanned, or use `--reset`         |
+| You see                                                    | Meaning                                                                                                                                                                                                                                               |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| No `maul/acceptance` status at all                         | Verification is off (chart, controller or Project), the plan declared nothing automatable, or the intent has ended                                                                                                                                    |
+| `pending`, "waiting for the preview"                       | No live preview at exactly the pull request heads yet. Check `kubectl get preview`                                                                                                                                                                    |
+| `error`, "maul could not run the checks"                   | Three tester attempts failed for infrastructure reasons (scheduling, image pull, quota, deadline). Not a verdict on the change                                                                                                                        |
+| `error`, "the approved acceptance criteria cannot be read" | The approved plan's stored copy is missing or no longer matches its approval, so maul verifies nothing rather than run an earlier plan's criteria. The Intent's `VerifyFailing` condition (reason `CriteriaUnreadable`) says the same; `/maul replan` |
+| A failing criterion that passes by hand                    | Checks run against a preview that is never reset; one that depends on empty data should be replanned, or use `--reset`                                                                                                                                |
 
 This release verifies `http` criteria against a Preview's components. Backing services, seeded data, edges between
 components and `command` criteria arrive in a later release; until then a component's data lives in its own pod, and

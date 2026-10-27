@@ -54,6 +54,9 @@ const (
 	// VerifyNotChecked: the approved plan declares criteria, none of which
 	// maul checks automatically.
 	VerifyNotChecked = "not-checked"
+	// VerifyUnreadable: the approved plan's acceptance criteria cannot be
+	// read, so nothing is verified until a plan is approved again.
+	VerifyUnreadable = "unreadable"
 )
 
 // Automatic fix states.
@@ -131,6 +134,9 @@ func verifyRestingLine(state string) (line string, whole bool) {
 			slashCommand("replan") + " can change it.", true
 	case VerifyNotDeclared:
 		return "No acceptance criteria were declared.", true
+	case VerifyUnreadable:
+		return "Verification stopped: maul cannot read the approved plan's acceptance criteria, so nothing is " +
+			"verified. " + slashCommand("replan") + " to approve a plan again.", true
 	case VerifyNotChecked:
 		return "Nothing is checked automatically", false
 	}

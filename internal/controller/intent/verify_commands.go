@@ -234,6 +234,12 @@ func (p *pass) acceptCriterion(ctx context.Context, c verifyCommand, id string,
 	v := p.in.Status.Verification
 	n.Acceptable = p.acceptable()
 	var crit *v1alpha1.AcceptanceCriterion
+	if !p.acceptanceCurrent() {
+		// Criteria on record from another plan revision are never
+		// accepted for the approved one.
+		n.Acceptable, n.Outcome = nil, templates.VerifyAcceptNotYet
+		return n, nil
+	}
 	if acc != nil {
 		if i := slices.IndexFunc(acc.Criteria, func(c v1alpha1.AcceptanceCriterion) bool { return c.ID == id }); i >= 0 {
 			crit = &acc.Criteria[i]

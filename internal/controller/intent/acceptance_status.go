@@ -57,6 +57,9 @@ func (p *pass) acceptanceStatus() (acceptanceState, bool) {
 	if !p.verifyReported() || !p.verifies() {
 		return acceptanceState{}, false
 	}
+	if p.criteriaUnreadable() {
+		return acceptanceState{statusError, "the approved acceptance criteria cannot be read: replan needed"}, true
+	}
 	acc, v := p.in.Status.Acceptance, p.in.Status.Verification
 	total := int32(len(automatable(acc.Criteria)))
 	if total == 0 || v.HeadSetDigest == "" {

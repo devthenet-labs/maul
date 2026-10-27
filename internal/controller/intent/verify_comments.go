@@ -55,10 +55,11 @@ type impostorNote struct {
 
 // verifyReported reports whether this pass reports the verification: the
 // controller verifies, the intent is in review (or a round of it), and the
-// loop has recorded the approved criteria and a state.
+// loop has recorded the approved plan revision's criteria and a state, or
+// stopped because they cannot be read (criteriaUnreadable).
 func (p *pass) verifyReported() bool {
-	return p.set.Verification && verifyPhase(p.in.Status.Phase) && p.in.Status.Acceptance != nil &&
-		p.in.Status.Verification != nil
+	return p.set.Verification && verifyPhase(p.in.Status.Phase) && p.in.Status.Verification != nil &&
+		(p.acceptanceCurrent() || p.criteriaUnreadable())
 }
 
 // verifyJudged reports a state holding a round's judged (or given up)
@@ -112,6 +113,9 @@ func acceptedAt(acc *v1alpha1.IntentAcceptance, id, headSet string) *v1alpha1.Ac
 func (p *pass) verifyProgress() *templates.VerifyProgress {
 	if !p.verifyReported() {
 		return nil
+	}
+	if p.criteriaUnreadable() {
+		return &templates.VerifyProgress{State: templates.VerifyUnreadable}
 	}
 	acc, v := p.in.Status.Acceptance, p.in.Status.Verification
 	round, most := p.verifyFixRound()
@@ -194,8 +198,12 @@ func (p *pass) verifySection(ctx context.Context, pr *v1alpha1.IntentPullRequest
 	if prog == nil {
 		return nil
 	}
-	acc, v := p.in.Status.Acceptance, p.in.Status.Verification
 	s := &templates.VerifySection{Progress: *prog}
+	if p.criteriaUnreadable() {
+		// The criteria on record, if any, are not the approved ones.
+		return s
+	}
+	acc, v := p.in.Status.Acceptance, p.in.Status.Verification
 	pv := p.judgedVerification(ctx)
 	judged := verifyJudged(v.State) && v.Passed+v.Failed+v.Quarantined > 0
 	for _, c := range acc.Criteria {
