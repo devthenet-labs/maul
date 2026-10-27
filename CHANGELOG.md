@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.13.4](https://github.com/devthenet-labs/maul/compare/v0.13.3...v0.13.4) (2026-10-27)
+
+
+### Bug Fixes
+
+* **intent:** let a verify fix conclude no defect, add /maul verify stop ([#286](https://github.com/devthenet-labs/maul/issues/286)) ([9ce31d1](https://github.com/devthenet-labs/maul/commit/9ce31d11c6bae949e3a25bc73b3ecc4c03544f80))
+* **preview:** wait for the slot network before the tester's first check ([#285](https://github.com/devthenet-labs/maul/issues/285)) ([4f3a9df](https://github.com/devthenet-labs/maul/commit/4f3a9df18900109a6a21d1e054ae8969fd70dfb9))
+
 ## [0.13.3](https://github.com/devthenet-labs/maul/compare/v0.13.2...v0.13.3) (2026-10-27)
 
 
