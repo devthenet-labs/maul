@@ -30,28 +30,49 @@ const (
 type usage struct {
 	verb string
 	// note says whether the verb uses its note, which the help then shows.
-	note    bool
+	note bool
+	// args is the verb's argument grammar as the help shows it, such as
+	// "<id>"; a verb with arguments takes no note.
+	args    string
 	summary string
 }
+
+// The acceptance commands, which the intent issue and every intent pull
+// request offer alike: an intent has one combined change and one Preview, so
+// any of its surfaces names them.
+var (
+	verifyUsage = usage{verb: action.VerbVerify, args: "[" + VerifyFix + "|" + VerifyReset + "]",
+		summary: "check the change against the plan's acceptance criteria now; `" + VerifyFix +
+			"` also lets maul fix failures again, `" + VerifyReset + "` first restarts the preview with fresh data"}
+	acceptUsage = usage{verb: action.VerbAccept, args: "<id>",
+		summary: "accept a manual criterion, or one that passed only on retry, at the current commits"}
+)
 
 // surfaces is the design's table of which verbs apply where, in the order the
 // help lists them. A Finding issue offers action.ActionVerbs, in that order.
 var surfaces = map[Surface][]usage{
 	FindingIssue: {
-		{action.VerbApprove, true, "release the hold on this finding, or revive it after it was handed off"},
-		{action.VerbRetry, false, "retry this finding from the state it failed in"},
-		{action.VerbExpedite, false, "skip the accumulation window, the minimum age and the queue"},
-		{action.VerbSuspend, false, "pause this finding's progress through the pipeline"},
-		{action.VerbResume, false, "resume this finding after a suspend"},
+		{verb: action.VerbApprove, note: true,
+			summary: "release the hold on this finding, or revive it after it was handed off"},
+		{verb: action.VerbRetry, summary: "retry this finding from the state it failed in"},
+		{verb: action.VerbExpedite, summary: "skip the accumulation window, the minimum age and the queue"},
+		{verb: action.VerbSuspend, summary: "pause this finding's progress through the pipeline"},
+		{verb: action.VerbResume, summary: "resume this finding after a suspend"},
 	},
 	IntentIssue: {
-		{action.VerbApprove, false, "approve the posted plan and start the build"},
-		{action.VerbReplan, true, "plan again, taking the note and approvers' comments since the last plan into account"},
-		{action.VerbCancel, false, "stop work on this intent and close it; open pull requests are left to you"},
+		{verb: action.VerbApprove, summary: "approve the posted plan and start the build"},
+		{verb: action.VerbReplan, note: true,
+			summary: "plan again, taking the note and approvers' comments since the last plan into account"},
+		verifyUsage,
+		acceptUsage,
+		{verb: action.VerbCancel,
+			summary: "stop work on this intent and close it; open pull requests are left to you"},
 	},
 	IntentPR: {
-		{action.VerbRevise, true, "start a revision round from your review feedback and the note"},
-		{action.VerbRetry, false, "retry the round that failed"},
+		{verb: action.VerbRevise, note: true, summary: "start a revision round from your review feedback and the note"},
+		{verb: action.VerbRetry, summary: "retry the round that failed"},
+		verifyUsage,
+		acceptUsage,
 	},
 }
 
@@ -94,7 +115,10 @@ func HelpFor(surface Surface, verbs []string) string {
 			b.WriteString("Commands go on the first line of a comment. Here you can use:\n")
 		}
 		b.WriteString("\n- `" + Prefix + " " + u.verb)
-		if u.note {
+		switch {
+		case u.args != "":
+			b.WriteString(" " + u.args)
+		case u.note:
 			b.WriteString(" [note]")
 		}
 		b.WriteString("`: " + u.summary)
