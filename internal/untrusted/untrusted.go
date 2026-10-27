@@ -4,7 +4,6 @@
 package untrusted
 
 import (
-	"fmt"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -20,27 +19,53 @@ func Visible(s string, maxBytes int) string {
 // Escape makes untrusted text legible to both a human and the model. CRLF,
 // LF and tabs keep their ordinary layout; every other invisible, invalid
 // byte or non-ASCII separator becomes a printed escape.
+//
+// Printable ASCII, LF and tab are copied a byte at a time without decoding
+// or a Unicode table lookup: every feedback item, check output and status
+// detail an intent pass shows goes through here, most of it plain ASCII.
 func Escape(s string) string {
 	var b strings.Builder
+	b.Grow(len(s))
 	for i := 0; i < len(s); {
+		if c := s[i]; c >= ' ' && c < utf8.RuneSelf-1 || c == '\n' || c == '\t' {
+			b.WriteByte(c)
+			i++
+			continue
+		}
 		r, width := utf8.DecodeRuneInString(s[i:])
 		if r == utf8.RuneError && width == 1 {
-			fmt.Fprintf(&b, "<0x%02X>", s[i])
+			writeHex(&b, "<0x", uint32(s[i]), 2)
 			i++
 			continue
 		}
 		switch {
-		case r == '\n' || r == '\t', r == '\r' && i+1 < len(s) && s[i+1] == '\n':
+		case r == '\r' && i+1 < len(s) && s[i+1] == '\n':
 			b.WriteRune(r)
 		case unicode.IsControl(r) || unicode.In(r, unicode.Cf, unicode.Zl, unicode.Zp) ||
 			unicode.Is(unicode.Variation_Selector, r) || unicode.Is(unicode.Other_Default_Ignorable_Code_Point, r):
-			fmt.Fprintf(&b, "<U+%04X>", r)
+			writeHex(&b, "<U+", uint32(r), 4)
 		default:
 			b.WriteRune(r)
 		}
 		i += width
 	}
 	return b.String()
+}
+
+// writeHex writes prefix, v in upper-case hex padded to at least digits
+// digits, and a closing ">": fmt's "%02X" and "%04X" without fmt.
+func writeHex(b *strings.Builder, prefix string, v uint32, digits int) {
+	const upper = "0123456789ABCDEF"
+	var buf [8]byte
+	n := len(buf)
+	for v > 0 || len(buf)-n < digits {
+		n--
+		buf[n] = upper[v&0xF]
+		v >>= 4
+	}
+	b.WriteString(prefix)
+	b.Write(buf[n:])
+	b.WriteByte('>')
 }
 
 // Cap cuts s to at most maxBytes on a rune boundary, marking the cut.

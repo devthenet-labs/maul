@@ -20,9 +20,12 @@ import (
 
 	"github.com/google/go-github/v90/github"
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -33,7 +36,6 @@ import (
 	"github.com/devthenet-labs/maul/internal/envelope"
 	"github.com/devthenet-labs/maul/internal/ghclient"
 	"github.com/devthenet-labs/maul/internal/jobs"
-	"github.com/devthenet-labs/maul/internal/kube"
 	"github.com/devthenet-labs/maul/internal/runnerguard"
 )
 
@@ -1484,6 +1486,19 @@ func testSettings() Settings {
 	}
 }
 
+// envScheme is the fake client's scheme: only the API groups intent-controller
+// reads and writes. The fake's field-managed tracker builds a RESTMapper of
+// its whole scheme on every create, update and patch, so client-go's full
+// scheme (kube.Scheme) made each write cost a mapper of every built-in kind,
+// a quarter of the seeded properties' time. Built once and only read after.
+var envScheme = sync.OnceValue(func() *runtime.Scheme {
+	s := runtime.NewScheme()
+	utilruntime.Must(corev1.AddToScheme(s))
+	utilruntime.Must(batchv1.AddToScheme(s))
+	utilruntime.Must(v1alpha1.AddToScheme(s))
+	return s
+})
+
 func newEnv(t *testing.T, objs ...client.Object) *env {
 	t.Helper()
 	e := &env{t: t, clock: &fakeClock{t: time.Date(2026, 9, 24, 10, 0, 0, 0, time.UTC)}}
@@ -1491,7 +1506,7 @@ func newEnv(t *testing.T, objs ...client.Object) *env {
 	e.jobs = newFakeJobs()
 	e.nudger = NewNudger()
 	e.c = fake.NewClientBuilder().
-		WithScheme(kube.Scheme()).
+		WithScheme(envScheme()).
 		WithObjects(objs...).
 		WithStatusSubresource(&v1alpha1.Project{}, &v1alpha1.Intent{}, &v1alpha1.IntentRun{},
 			&v1alpha1.Repository{}, &v1alpha1.UsageRollup{}).
