@@ -105,7 +105,7 @@ const apiTarget = "preview-bb-api:80"
 func observe(t *testing.T, c acceptance.Criterion, comp *component) (acceptance.CriterionObservation, *dialer) {
 	t.Helper()
 	d := &dialer{routes: map[string]string{apiTarget: listenerAddr(comp)}}
-	client := NewClient(Options{Dial: d.dial})
+	client := NewClient(Options{Dial: d.dial, RetryDelay: -1}) // TestRetryIsSpaced times the delay
 	return acceptance.Observe(c, tokens, client.Doer(context.Background(), apiTarget)), d
 }
 
@@ -344,7 +344,7 @@ func TestTransportClasses(t *testing.T) {
 			if to := tc.route(comp); to != "" {
 				d.routes[apiTarget] = to
 			}
-			client := NewClient(Options{Dial: d.dial, Timeout: 200 * time.Millisecond})
+			client := NewClient(Options{Dial: d.dial, Timeout: 200 * time.Millisecond, RetryDelay: -1})
 			obs := acceptance.Observe(c, tokens, client.Doer(context.Background(), apiTarget))
 			if len(obs.Tries) != 2 {
 				t.Errorf("tries = %d, want the retry too", len(obs.Tries))

@@ -717,6 +717,67 @@ spec:
                 - Infra
                 - Stale
                 type: string
+              readiness:
+                description: |-
+                  Readiness is the tester's wait for each component's Service before
+                  its first criterion, in component-name order, as its summary
+                  declared it. A component never reached settles the attempt Infra
+                  (target-unreachable) with no observations.
+                items:
+                  description: |-
+                    TargetWait is how the tester waited, before its first criterion, for one
+                    component's Service to accept a TCP connection: how long, in how many
+                    attempts, and how the failed ones failed. Every attempt but a last
+                    successful one failed, so the Service was reached exactly when attempts
+                    is one more than the failures.
+                  properties:
+                    attempts:
+                      description: Attempts is how many connections were attempted.
+                      format: int32
+                      maximum: 256
+                      minimum: 1
+                      type: integer
+                    dns:
+                      description: DNS counts attempts whose Service name did not
+                        resolve.
+                      format: int32
+                      minimum: 0
+                      type: integer
+                    refused:
+                      description: Refused counts attempts refused.
+                      format: int32
+                      minimum: 0
+                      type: integer
+                    reset:
+                      description: Reset counts attempts that failed otherwise.
+                      format: int32
+                      minimum: 0
+                      type: integer
+                    target:
+                      description: Target is the component (its Project repository's
+                        key).
+                      maxLength: 16
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                      type: string
+                    timeout:
+                      description: Timeout counts attempts that timed out.
+                      format: int32
+                      minimum: 0
+                      type: integer
+                    waitMs:
+                      description: WaitMs is how long the wait took, in milliseconds.
+                      format: int32
+                      maximum: 120000
+                      minimum: 0
+                      type: integer
+                  required:
+                  - attempts
+                  - target
+                  - waitMs
+                  type: object
+                maxItems: 8
+                type: array
+                x-kubernetes-list-type: atomic
               reason:
                 description: Reason is the phase's reason, from a fixed vocabulary.
                 enum:
@@ -737,6 +798,7 @@ spec:
                 - component-oom
                 - preview-failed
                 - service-restarted
+                - target-unreachable
                 type: string
               startedAt:
                 description: |-

@@ -23,6 +23,11 @@ import (
 // RequestTimeout bounds one request, response body included.
 const RequestTimeout = 10 * time.Second
 
+// RetryDelay spaces a criterion's second try from its failed first, so a
+// transient blip does not fail both tries in the same instant. The run's
+// budget bounds it like any request.
+const RetryDelay = 1500 * time.Millisecond
+
 // maxResponseHeaderBytes bounds a response's headers.
 const maxResponseHeaderBytes = 32 << 10
 
@@ -36,6 +41,12 @@ type Options struct {
 	Dial DialFunc
 	// Timeout replaces RequestTimeout when positive.
 	Timeout time.Duration
+	// RetryDelay replaces RetryDelay when positive; negative sends the
+	// second try at once (tests).
+	RetryDelay time.Duration
+	// ReadinessBackoff replaces the readiness wait's first backoff when
+	// positive (tests).
+	ReadinessBackoff time.Duration
 }
 
 // Client sends the tester's requests: plain HTTP to one Service address at
@@ -43,8 +54,11 @@ type Options struct {
 // cookie jar, without asking for compression, a fresh connection each time,
 // the body read to at most acceptance.MaxResponseBytes.
 type Client struct {
-	http    *http.Client
-	timeout time.Duration
+	http       *http.Client
+	timeout    time.Duration
+	dial       DialFunc
+	retryDelay time.Duration
+	backoff    time.Duration
 }
 
 // NewClient builds a Client.
@@ -75,14 +89,34 @@ func NewClient(o Options) *Client {
 			},
 			Timeout: timeout,
 		},
-		timeout: timeout,
+		timeout:    timeout,
+		dial:       dial,
+		retryDelay: positiveOr(o.RetryDelay, RetryDelay),
+		backoff:    positiveOr(o.ReadinessBackoff, readinessBackoffMin),
 	}
+}
+
+// positiveOr is d when positive, zero when negative, else def.
+func positiveOr(d, def time.Duration) time.Duration {
+	switch {
+	case d > 0:
+		return d
+	case d < 0:
+		return 0
+	}
+	return def
 }
 
 // Doer sends every request of a criterion to host ("<service>:<port>"),
 // whatever the request says: the host is the spec's, never the criterion's.
+// A second try starts RetryDelay after the first failed.
 func (c *Client) Doer(ctx context.Context, host string) acceptance.Doer {
-	return func(call acceptance.Call) acceptance.Response { return c.do(ctx, host, call.Request) }
+	return func(call acceptance.Call) acceptance.Response {
+		if call.Try > 1 && call.Step == 0 {
+			sleep(ctx, c.retryDelay)
+		}
+		return c.do(ctx, host, call.Request)
+	}
 }
 
 func (c *Client) do(ctx context.Context, host string, b acceptance.BuiltRequest) acceptance.Response {

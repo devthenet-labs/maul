@@ -5,7 +5,10 @@
 // criteria from inside its slot. preview-controller runs it as a one-shot
 // Job beside the Preview's components, with the criteria, the run tokens
 // and each component's Service address in the literal environment variable
-// MAUL_VERIFY_SPEC. It sends each step's request to that Service by name,
+// MAUL_VERIFY_SPEC. It first waits, bounded, for every Service to accept a
+// TCP connection (the slot policy may not be programmed for a new Pod yet);
+// a Service still unreachable ends the run with a summary naming it and no
+// criterion observed. It then sends each step's request to that Service by name,
 // writes one MAUL-VERIFY v1 line per criterion to stdout and a summary
 // after them, and repeats the summary as its termination message.
 // preview-controller reads both back; intent-controller judges.
@@ -59,6 +62,14 @@ func run(ctx context.Context, getenv func(string) string, termPath string, stdou
 	if err := previewtester.WriteTermination(termPath, sum); err != nil {
 		log.Error("termination message not written", "err", err)
 		return 1
+	}
+	for _, w := range sum.Waits {
+		log.Info("target wait", "target", w.Target, "reached", w.Reached(), "waitMs", w.WaitMs,
+			"attempts", w.Attempts, "refused", w.Refused, "timeout", w.Timeout, "reset", w.Reset, "dns", w.DNS)
+	}
+	if sum.Unreached() {
+		log.Warn("targets unreachable; no criterion observed", "unreachable", sum.Unreachable)
+		return 0
 	}
 	log.Info("observed", "criteria", sum.Count)
 	return 0

@@ -117,7 +117,23 @@ Two rules shape good criteria, and the plan prompt states both:
    pushes new heads, CI runs, the preview rolls, and the loop continues.
 
 A criterion that fails on its first try and passes on a retry is **quarantined**: shown to the human, never counted as
-passed, and the status stays pending until a person runs `/maul accept <id>` or a clean re-run passes.
+passed, and the status stays pending until a person runs `/maul accept <id>` or a clean re-run passes. A retry starts a
+second and a half after the failed try, so one blip does not fail both.
+
+### Before the first check: the tester waits for the slot network
+
+The tester is a new Pod on every run, and the slot's NetworkPolicy admits it only once the cluster's policy controller
+has programmed the policy for that Pod. On k3s and k3d, kube-router does that about a second after the Pod starts and
+rejects its connections until then, which looks exactly like an application that is not listening. So before its first
+criterion the tester waits for every component's Service to accept a TCP connection (it sends nothing), retrying from
+100 ms backing off to 1 s, for at most a minute and never more than a quarter of the tester's budget. The wait per
+component, how long and how many attempts were refused, is recorded in the `PreviewVerification`'s `status.readiness`.
+
+Once every component is reached, the checks run as before, and a connection error during a check is the application's
+failure. A component still unreachable at the end of the window means maul's own slot network kept the tester out (the
+components were Ready, and a Ready component answers on the port its Service targets), so the attempt is infrastructure,
+reason `target-unreachable`, and is retried like any other, never judged as failing criteria. A component whose listener
+died is not Ready or has crashed, and that remains the change's failure.
 
 ### Bounds
 
@@ -208,7 +224,7 @@ command is applied once: if maul's reply to it is deleted, maul answers it again
 | `error`, "verification switched off"                       | Verification was turned off for this intent after maul posted a status; nothing more is verified or reported                                                                                                                                           |
 | `pending`, "waiting for the preview"                       | No live preview at exactly the pull request heads yet. Check `kubectl get preview`                                                                                                                                                                     |
 | `error`, "the preview was not live within 60 minutes"      | The preview stayed Failed, expired, queued or never served (no preview-controller) for an hour, so nothing ran. The Intent's verification is `Unavailable` (`PreviewNotLive`); it verifies as soon as the preview is live. Check `kubectl get preview` |
-| `error`, "maul could not run the checks"                   | Three tester attempts failed for infrastructure reasons (scheduling, image pull, quota, deadline). Not a verdict on the change                                                                                                                         |
+| `error`, "maul could not run the checks"                   | Three tester attempts failed for infrastructure reasons (scheduling, image pull, quota, deadline, or a Service that never accepted the tester's connection: `target-unreachable`). Not a verdict on the change                                         |
 | `error`, "the approved acceptance criteria cannot be read" | The approved plan's stored copy is missing or no longer matches its approval, so maul verifies nothing rather than run an earlier plan's criteria. The Intent's `VerifyFailing` condition (reason `CriteriaUnreadable`) says the same; `/maul replan`  |
 | A failing criterion that passes by hand                    | Checks run against a preview that is never reset; one that depends on empty data should be replanned, or use `--reset`                                                                                                                                 |
 

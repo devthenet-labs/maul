@@ -47,7 +47,7 @@ func TestRunWritesWire(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseWire: %v\n%s", err, out.String())
 	}
-	if parsed != sum || sum.Count != 2 {
+	if !parsed.Equal(sum) || sum.Count != 2 {
 		t.Errorf("summary = %+v, parsed %+v", sum, parsed)
 	}
 	if len(obs) != 2 || obs[0].ID != "health" || obs[1].ID != "home" {
@@ -74,7 +74,8 @@ func TestRunWritesWire(t *testing.T) {
 // TestWriteTermination: the termination message is the summary, as the
 // controller parses it.
 func TestWriteTermination(t *testing.T) {
-	sum := acceptance.Summary{Count: 2, SHA256: strings.Repeat("ab", 32)}
+	sum := acceptance.Summary{Count: 2, SHA256: strings.Repeat("ab", 32),
+		Waits: []acceptance.TargetWait{{Target: "api", WaitMs: 1203, Attempts: 4, Refused: 3}}}
 	path := filepath.Join(t.TempDir(), "termination-log")
 	if err := WriteTermination(path, sum); err != nil {
 		t.Fatalf("WriteTermination: %v", err)
@@ -83,7 +84,7 @@ func TestWriteTermination(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if term, err := acceptance.ParseSummary(string(msg)); err != nil || term != sum {
+	if term, err := acceptance.ParseSummary(string(msg)); err != nil || !term.Equal(sum) {
 		t.Errorf("termination message %q = %+v, %v; want %+v", msg, term, err, sum)
 	}
 }
@@ -142,7 +143,7 @@ func TestRunWithinItsBudget(t *testing.T) {
 		t.Errorf("Run took %s on a 1s budget", took)
 	}
 	obs, parsed, err := acceptance.ParseWire(out.Bytes())
-	if err != nil || parsed != sum || len(obs) != 2 {
+	if err != nil || !parsed.Equal(sum) || len(obs) != 2 {
 		t.Fatalf("ParseWire = %d observations, %+v, %v\n%s", len(obs), parsed, err, out.String())
 	}
 	for i, c := range s.Criteria {

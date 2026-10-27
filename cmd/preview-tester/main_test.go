@@ -53,7 +53,7 @@ func TestRunObserves(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, err := acceptance.ParseSummary(string(msg)); err != nil || got != sum {
+	if got, err := acceptance.ParseSummary(string(msg)); err != nil || !got.Equal(sum) {
 		t.Errorf("termination message %q, want %+v", msg, sum)
 	}
 }

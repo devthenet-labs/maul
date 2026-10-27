@@ -434,12 +434,32 @@ func (v *VerificationReconciler) record(ctx context.Context, pv *v1alpha1.Previe
 	for i, c := range s.criteria {
 		ids[i] = c.ID
 	}
-	obs, sum, outReason := parseTesterOutput(log, terminationMessage(pod), rt, ids)
+	targets := make([]string, len(s.preview.Spec.Components))
+	for i, c := range s.preview.Spec.Components {
+		targets[i] = c.Name
+	}
+	slices.Sort(targets)
+	obs, sum, outReason := parseTesterOutput(log, terminationMessage(pod), rt, ids, targets)
 	facts, err := v.environment(ctx, s.preview, s.slot, pod, startedAt(pv))
 	if err != nil {
 		return err
 	}
+	// A target the tester never reached is maul's (Infra) only while the
+	// environment shows every component Ready and none crashed: route lets
+	// the environment's classification win, so a component whose listener
+	// died (crashed, or no longer Ready) settles EnvFailed, the
+	// application's, as before.
 	phase, reason := route(facts, outReason)
+	if outReason == v1alpha1.VerificationReasonTargetUnreachable && v.Log != nil {
+		v.Log.LogAttrs(ctx, slog.LevelWarn, "a component's Service accepted no connection from the tester",
+			slog.String("verification", pv.Name), slog.Any("unreachable", sum.Unreachable),
+			slog.String("phase", string(phase)), slog.String("reason", string(reason)))
+	}
+	if outReason == "" || outReason == v1alpha1.VerificationReasonTargetUnreachable {
+		if pv.Status.Readiness, err = crdconv.WaitsToCRD(sum.Waits); err != nil {
+			phase, reason = v1alpha1.VerificationInfra, v1alpha1.VerificationReasonTesterOutputInvalid
+		}
+	}
 	if outReason == "" {
 		converted, err := crdconv.ObservationsToCRD(obs)
 		if err != nil {
@@ -586,11 +606,15 @@ func testerImageID(pod *corev1.Pod) string {
 
 // parseTesterOutput reads the tester's MAUL-VERIFY v1 log: its lines
 // verified against their summary and the termination message, then held to
-// the request (id ownership): exactly one observation per requested
-// criterion, in the request's order, each with at least one try, each try
-// under the run token it was given. The reason is "" for output that holds.
-func parseTesterOutput(log []byte, msg string, rt acceptance.RunTokens,
-	ids []string) ([]acceptance.CriterionObservation, acceptance.Summary, v1alpha1.PreviewVerificationReason) {
+// the request: a readiness wait for exactly the targets it was given (the
+// Preview's components, in name order), and, when every one was reached,
+// exactly one observation per requested criterion, in the request's order,
+// each with at least one try, each try under the run token it was given
+// (id ownership). The reason is "" for output that holds, and
+// target-unreachable, with no observation, for a run that ended at its
+// readiness wait.
+func parseTesterOutput(log []byte, msg string, rt acceptance.RunTokens, ids []string,
+	targets []string) ([]acceptance.CriterionObservation, acceptance.Summary, v1alpha1.PreviewVerificationReason) {
 	if len(log) > maxTesterLog {
 		return nil, acceptance.Summary{}, v1alpha1.VerificationReasonTesterOutputInvalid
 	}
@@ -603,8 +627,15 @@ func parseTesterOutput(log []byte, msg string, rt acceptance.RunTokens,
 	case err != nil:
 		return nil, sum, v1alpha1.VerificationReasonTesterOutputInvalid
 	}
-	if term, err := acceptance.ParseSummary(msg); err != nil || term != sum {
+	if term, err := acceptance.ParseSummary(msg); err != nil || !term.Equal(sum) {
 		return nil, sum, v1alpha1.VerificationReasonSummaryMismatch
+	}
+	if !slices.EqualFunc(sum.Waits, targets, func(w acceptance.TargetWait, t string) bool { return w.Target == t }) {
+		return nil, sum, v1alpha1.VerificationReasonTesterOutputInvalid
+	}
+	if sum.Unreached() {
+		// The parser holds an unreachable summary to no observation.
+		return nil, sum, v1alpha1.VerificationReasonTargetUnreachable
 	}
 	if len(obs) != len(ids) {
 		return nil, sum, v1alpha1.VerificationReasonTesterOutputInvalid

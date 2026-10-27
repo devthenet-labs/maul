@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -242,12 +243,49 @@ func (e *verifyEnv) finishTester(job *batchv1.Job, pod *corev1.Pod, log []byte, 
 	}
 }
 
+// testerWaits are the readiness waits of a run on spec: every target
+// reached, in key order, those named in unreached after every attempt
+// refused.
+func testerWaits(spec previewtester.Spec, unreached ...string) []acceptance.TargetWait {
+	waits := make([]acceptance.TargetWait, 0, len(spec.Targets))
+	for _, key := range slices.Sorted(maps.Keys(spec.Targets)) {
+		w := acceptance.TargetWait{Target: key, WaitMs: 1200, Attempts: 4, Refused: 3}
+		if slices.Contains(unreached, key) {
+			w = acceptance.TargetWait{Target: key, WaitMs: 60000, Attempts: 66, Refused: 66}
+		}
+		waits = append(waits, w)
+	}
+	return waits
+}
+
+// newTesterWriter is the tester's wire writer for a run on spec.
+func newTesterWriter(t *testing.T, out *bytes.Buffer, waits []acceptance.TargetWait) *acceptance.WireWriter {
+	t.Helper()
+	w, err := acceptance.NewWireWriter(out, waits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return w
+}
+
+// unreachableOutput is what the tester writes for spec when the targets
+// named never accepted a connection: the summary alone, naming them.
+func unreachableOutput(t *testing.T, spec previewtester.Spec, unreached ...string) ([]byte, string) {
+	t.Helper()
+	var out bytes.Buffer
+	sum, err := newTesterWriter(t, &out, testerWaits(spec, unreached...)).Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out.Bytes(), sum.TerminationMessage()
+}
+
 // testerOutput is what the tester writes for spec: each criterion observed
 // against a component answering `status` with body `body`.
 func testerOutput(t *testing.T, spec previewtester.Spec, status int32, body string) ([]byte, string) {
 	t.Helper()
 	var out bytes.Buffer
-	w := acceptance.NewWireWriter(&out)
+	w := newTesterWriter(t, &out, testerWaits(spec))
 	for _, c := range spec.Criteria {
 		obs := acceptance.Observe(c, spec.RunTokens(), func(acceptance.Call) acceptance.Response {
 			return acceptance.Response{Status: status, Body: []byte(body)}
@@ -329,6 +367,9 @@ func TestVerificationObserved(t *testing.T) {
 	}
 	var sum acceptance.Summary
 	_ = json.Unmarshal([]byte(msg), &sum)
+	if want, _ := crdconv.WaitsToCRD(sum.Waits); len(want) != 2 || !slices.Equal(pv.Status.Readiness, want) {
+		t.Errorf("readiness = %+v, want the summary's %+v", pv.Status.Readiness, sum.Waits)
+	}
 	if pv.Status.SummarySHA256 != sum.SHA256 || pv.Status.CompletedAt == nil ||
 		!strings.Contains(pv.Status.TesterImageID, "@sha256:") {
 		t.Errorf("status = %+v", pv.Status)
@@ -497,8 +538,25 @@ func TestVerificationOutputIsChecked(t *testing.T) {
 			t.Fatal(err)
 		}
 		var out bytes.Buffer
-		w := acceptance.NewWireWriter(&out)
+		w := newTesterWriter(t, &out, testerWaits(spec))
 		for _, o := range edit(obs) {
+			if err := w.Write(o); err != nil {
+				t.Fatal(err)
+			}
+		}
+		sum, _ := w.Close()
+		return output{out.Bytes(), sum.TerminationMessage(), 0}
+	}
+	// rewait is good output whose summary records waits instead.
+	rewait := func(t *testing.T, spec previewtester.Spec, waits []acceptance.TargetWait) output {
+		t.Helper()
+		obs, _, err := acceptance.ParseWire(good(t, spec).log)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out bytes.Buffer
+		w := newTesterWriter(t, &out, waits)
+		for _, o := range obs {
 			if err := w.Write(o); err != nil {
 				t.Fatal(err)
 			}
@@ -523,8 +581,24 @@ func TestVerificationOutputIsChecked(t *testing.T) {
 		}, v1alpha1.VerificationReasonSummaryMismatch},
 		{"termination message disagrees", func(t *testing.T, spec previewtester.Spec) output {
 			o := good(t, spec)
-			return output{o.log, acceptance.Summary{Count: 2, SHA256: strings.Repeat("e", 64)}.TerminationMessage(), 0}
+			return output{o.log, acceptance.Summary{Count: 2, SHA256: strings.Repeat("e", 64),
+				Waits: testerWaits(spec)}.TerminationMessage(), 0}
 		}, v1alpha1.VerificationReasonSummaryMismatch},
+		{"termination message's waits disagree", func(t *testing.T, spec previewtester.Spec) output {
+			o := good(t, spec)
+			_, sum, err := acceptance.ParseWire(o.log)
+			if err != nil {
+				t.Fatal(err)
+			}
+			sum.Waits[0].WaitMs++
+			return output{o.log, sum.TerminationMessage(), 0}
+		}, v1alpha1.VerificationReasonSummaryMismatch},
+		{"waits for other targets", func(t *testing.T, spec previewtester.Spec) output {
+			return rewait(t, spec, []acceptance.TargetWait{{Target: "admin", Attempts: 1}, {Target: "api", Attempts: 1}})
+		}, v1alpha1.VerificationReasonTesterOutputInvalid},
+		{"a target's wait missing", func(t *testing.T, spec previewtester.Spec) output {
+			return rewait(t, spec, testerWaits(spec)[:1])
+		}, v1alpha1.VerificationReasonTesterOutputInvalid},
 		{"no termination message", func(t *testing.T, spec previewtester.Spec) output {
 			o := good(t, spec)
 			return output{o.log, "", 0}
@@ -589,6 +663,63 @@ func TestVerificationOutputIsChecked(t *testing.T) {
 				t.Error("tester Job left behind")
 			}
 		})
+	}
+}
+
+// TestVerificationUnreachableIsInfra: the live k3s case past its window. A
+// component's Service accepted no connection from the tester although
+// every component was Ready and the slot policies were in place: maul's
+// environment, never verdicts. The attempt is Infra target-unreachable,
+// with no observations and the waits recorded, so intent-controller retries
+// it uncounted rather than judging the change.
+func TestVerificationUnreachableIsInfra(t *testing.T) {
+	e := newVerifyEnv(t, interceptor.Funcs{})
+	e.verify()
+	job := e.testerJob()
+	spec := testerSpec(t, job)
+	log, msg := unreachableOutput(t, spec, "api")
+	pod := e.startTester(job)
+	e.finishTester(job, pod, log, msg, 0)
+	pv, _ := e.verify()
+	if pv.Status.Phase != v1alpha1.VerificationInfra ||
+		pv.Status.Reason != v1alpha1.VerificationReasonTargetUnreachable {
+		t.Fatalf("phase %s %s, want Infra target-unreachable", pv.Status.Phase, pv.Status.Reason)
+	}
+	if len(pv.Status.Observations) != 0 {
+		t.Errorf("observations = %+v, want none", pv.Status.Observations)
+	}
+	want, err := crdconv.WaitsToCRD(testerWaits(spec, "api"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(pv.Status.Readiness, want) || pv.Status.Readiness[0].Target != "api" ||
+		pv.Status.Readiness[0].Attempts != pv.Status.Readiness[0].Refused {
+		t.Errorf("readiness = %+v, want %+v", pv.Status.Readiness, want)
+	}
+	if len(pv.Status.Environment) == 0 || len(e.jobs()) != 0 {
+		t.Errorf("environment %+v, %d jobs left", pv.Status.Environment, len(e.jobs()))
+	}
+}
+
+// TestVerificationUnreachableCrashedIsEnvFailed: when the unreachable
+// component is the one that crashed (its listener died), the environment
+// says so and the attempt is the application's: EnvFailed, charged to the
+// intent, never maul's Infra.
+func TestVerificationUnreachableCrashedIsEnvFailed(t *testing.T) {
+	e := newVerifyEnv(t, interceptor.Funcs{})
+	e.verify()
+	job := e.testerJob()
+	log, msg := unreachableOutput(t, testerSpec(t, job), "api")
+	e.crash(1, "CrashLoopBackOff")
+	pod := e.startTester(job)
+	e.finishTester(job, pod, log, msg, 0)
+	pv, _ := e.verify()
+	if pv.Status.Phase != v1alpha1.VerificationEnvFailed ||
+		pv.Status.Reason != v1alpha1.VerificationReasonComponentCrashLoop {
+		t.Fatalf("phase %s %s, want EnvFailed component-crashloop", pv.Status.Phase, pv.Status.Reason)
+	}
+	if len(pv.Status.Observations) != 0 || len(pv.Status.Readiness) != 2 {
+		t.Errorf("observations %+v, readiness %+v", pv.Status.Observations, pv.Status.Readiness)
 	}
 }
 

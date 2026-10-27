@@ -143,6 +143,12 @@ docker exec k3d-preview-0 iptables-save | grep 'REJECT traffic destined for POD'
 Use it on k3s and k3d. Where the policy drops connections, as on EKS, leave it off: the default, stricter verdict passes
 there. The egress run (`run.sh`) has no such flag; it runs on EKS only.
 
+The same REJECT meets every new Pod until kube-router has programmed its policy, about a second after the Pod starts.
+The acceptance tester is a new Pod on every run, so it waits for each component's Service to accept a TCP connection
+before its first check, for at most a minute, and records the wait; a Service still refusing then is reported as
+`target-unreachable` infrastructure, never as failing criteria (docs/intents/acceptance.md). A probe client that starts
+sending at once can likewise see its first attempts refused on k3s before the policy that would admit it exists.
+
 ### The listener's image
 
 The listener runs in a slot, so it must pass the slot admission policies: its image must be under preview-controller's

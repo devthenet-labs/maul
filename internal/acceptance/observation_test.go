@@ -29,7 +29,7 @@ func TestWireRoundTrip(t *testing.T) {
 	prop := func(g genScenario) bool {
 		obs := observationsOf(t, g)
 		var out bytes.Buffer
-		w := NewWireWriter(&out)
+		w := mustWireWriter(t, &out)
 		for _, o := range obs {
 			if err := w.Write(o); err != nil {
 				return false
@@ -48,7 +48,7 @@ func TestWireRoundTrip(t *testing.T) {
 			return false
 		}
 		term, err := ParseSummary(sum.TerminationMessage())
-		return reflect.DeepEqual(got, obs) && gotSum == sum && err == nil && term == sum
+		return reflect.DeepEqual(got, obs) && gotSum.Equal(sum) && err == nil && term.Equal(sum)
 	}
 	if err := quick.Check(prop, quickConfig(100)); err != nil {
 		t.Error(err)
@@ -65,7 +65,7 @@ func TestWireLineDoesNotEscapeHTML(t *testing.T) {
 		Pointers: map[string]string{"/a": value},
 	}}}}}
 	var out bytes.Buffer
-	w := NewWireWriter(&out)
+	w := mustWireWriter(t, &out)
 	if err := w.Write(o); err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestWireRefusals(t *testing.T) {
 	}}}}}
 	write := func(obs ...CriterionObservation) string {
 		var b bytes.Buffer
-		w := NewWireWriter(&b)
+		w := mustWireWriter(t, &b)
 		for _, o := range obs {
 			if err := w.Write(o); err != nil {
 				t.Fatal(err)
@@ -134,7 +134,7 @@ func TestWireRefusals(t *testing.T) {
 			}
 		})
 	}
-	if err := NewWireWriter(&bytes.Buffer{}).Write(CriterionObservation{ID: "a", TooLarge: true}); err == nil {
+	if err := mustWireWriter(t, &bytes.Buffer{}).Write(CriterionObservation{ID: "a", TooLarge: true}); err == nil {
 		t.Error("the wire writer wrote an observation marked too large")
 	}
 	for _, bad := range []string{"", "count=1", `{"count":1}`, `{"count":-1,"sha256":"` + strings.Repeat("0", 64) + `"}`} {

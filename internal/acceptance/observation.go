@@ -14,6 +14,7 @@ import (
 	"hash"
 	"io"
 	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -522,10 +523,20 @@ var (
 )
 
 // Summary closes the wire output: how many observation lines came before
-// it and the sha256 of those lines, each with its "\n".
+// it and the sha256 of those lines, each with its "\n"; the readiness wait
+// of every target the spec names, in target order; and the targets never
+// reached, after which no criterion is observed.
 type Summary struct {
 	Count  int    `json:"count"`
 	SHA256 string `json:"sha256"`
+	// Waits are the tester's readiness waits, made before its first
+	// criterion: always one per target.
+	Waits []TargetWait `json:"waits"`
+	// Unreachable names the targets whose every connection attempt failed
+	// within the tester's window, exactly those of Waits never reached.
+	// Non-empty, the run observed nothing (Count is zero): preview-controller
+	// settles it as infrastructure, never as criterion verdicts.
+	Unreachable []string `json:"unreachable,omitempty"`
 }
 
 type wireLine struct {
@@ -536,19 +547,32 @@ type wireLine struct {
 
 // WireWriter writes observation lines and then the summary.
 type WireWriter struct {
-	w   io.Writer
-	h   hash.Hash
-	n   int
-	end bool
+	w     io.Writer
+	h     hash.Hash
+	n     int
+	end   bool
+	waits []TargetWait
 }
 
-// NewWireWriter writes the wire format to w.
-func NewWireWriter(w io.Writer) *WireWriter { return &WireWriter{w: w, h: sha256.New()} }
+// NewWireWriter writes the wire format to w for a run whose readiness waits
+// were waits, one per target in ascending target order. There is no writer
+// without them, so no summary is ever written without the wait; and once
+// a target was never reached, the writer writes no observation, only the
+// summary naming it.
+func NewWireWriter(w io.Writer, waits []TargetWait) (*WireWriter, error) {
+	if err := checkWaits(waits); err != nil {
+		return nil, fmt.Errorf("wire: %w", err)
+	}
+	return &WireWriter{w: w, h: sha256.New(), waits: slices.Clone(waits)}, nil
+}
 
 // Write writes one observation line.
 func (w *WireWriter) Write(o CriterionObservation) error {
-	if w.end {
+	switch {
+	case w.end:
 		return errors.New("wire: write after close")
+	case len(unreachable(w.waits)) > 0:
+		return errors.New("wire: no observation after an unreachable target")
 	}
 	if err := o.Check(); err != nil {
 		return err
@@ -570,7 +594,11 @@ func (w *WireWriter) Close() (Summary, error) {
 		return Summary{}, errors.New("wire: closed twice")
 	}
 	w.end = true
-	s := Summary{Count: w.n, SHA256: hex.EncodeToString(w.h.Sum(nil))}
+	s := Summary{Count: w.n, SHA256: hex.EncodeToString(w.h.Sum(nil)), Waits: w.waits,
+		Unreachable: unreachable(w.waits)}
+	if err := s.check(); err != nil {
+		return Summary{}, fmt.Errorf("wire: summary: %w", err)
+	}
 	line, err := encodeLine(wireLine{V: WireVersion, Summary: &s})
 	if err != nil {
 		return Summary{}, err
@@ -607,8 +635,7 @@ func sha256Hex(s string) bool {
 // ParseSummary reads a termination message.
 func ParseSummary(msg string) (Summary, error) {
 	var s Summary
-	err := decodeStrictJSON([]byte(msg), &s)
-	if err != nil || s.Count < 0 || s.Count > MaxCriteria || !sha256Hex(s.SHA256) {
+	if err := decodeStrictJSON([]byte(msg), &s); err != nil || s.check() != nil {
 		return Summary{}, ErrWireInvalid
 	}
 	return s, nil
@@ -616,8 +643,9 @@ func ParseSummary(msg string) (Summary, error) {
 
 // ParseWire reads a tester's log: only lines starting with WirePrefix, each
 // one v1 line, at most MaxCriteria observations each within its bounds,
-// then exactly one summary whose count and hash match the lines before it,
-// and nothing after. It returns the observations and the summary, to be
+// then exactly one summary, its readiness waits within their bounds and
+// consistent, whose count and hash match the lines before it, and nothing
+// after. It returns the observations and the summary, to be
 // compared with the termination message.
 func ParseWire(log []byte) ([]CriterionObservation, Summary, error) {
 	var obs []CriterionObservation
@@ -637,6 +665,9 @@ func ParseWire(log []byte) ([]CriterionObservation, Summary, error) {
 			return nil, Summary{}, ErrWireInvalid
 		}
 		if l.Summary != nil {
+			if l.Summary.check() != nil {
+				return nil, Summary{}, ErrWireInvalid
+			}
 			sum = l.Summary
 			continue
 		}

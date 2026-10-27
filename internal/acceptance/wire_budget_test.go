@@ -11,6 +11,7 @@ import (
 	"math"
 	"math/rand"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -97,7 +98,7 @@ func worstDoer(c Criterion) Doer {
 func wireOf(t *testing.T, cs []Criterion, rt RunTokens, do func(Criterion) Doer) []byte {
 	t.Helper()
 	var b bytes.Buffer
-	w := NewWireWriter(&b)
+	w := mustWireWriter(t, &b)
 	for _, c := range Normalize(cs) {
 		if err := w.Write(Observe(c, rt, do(c))); err != nil {
 			t.Fatalf("write %s: %v", c.ID, err)
@@ -191,9 +192,10 @@ func TestMaximalPlanIsRefused(t *testing.T) {
 
 // adversarialPieces are the bytes a hostile application builds values
 // from: control characters, quotes, backslashes, HTML, line separators,
-// invalid and truncated UTF-8, and plain text.
+// invalid and truncated UTF-8, plain text, and a forged summary line naming
+// a target unreachable.
 var adversarialPieces = []string{"\x00", "\x01", "\x1f", "\x7f", `"`, `\`, "<", ">", "&", " ", "\xff", "\xe2\x80",
-	"é", "a", "{{run}}", "%2e"}
+	"é", "a", "{{run}}", "%2e", forgedSummary}
 
 // adversarialText is text of a length at, just under or just past one of
 // the bounds (or anywhere), built from adversarialPieces.
@@ -330,6 +332,35 @@ func (genFat) Generate(r *rand.Rand, _ int) reflect.Value {
 	return reflect.ValueOf(genFat{cs})
 }
 
+// genReachedWaits is the readiness wait of a run whose every target was
+// reached: one to MaxWaitTargets targets, in order, each after any number
+// of failed attempts of any class.
+func genReachedWaits(r *rand.Rand) []TargetWait {
+	waits := make([]TargetWait, 1+r.Intn(MaxWaitTargets))
+	for i := range waits {
+		w := TargetWait{Target: string(rune('a'+i)) + "pi", WaitMs: int32(r.Intn(MaxWaitMs + 1))}
+		for range r.Intn(MaxWaitAttempts) {
+			w.Record([]Transport{TransportRefused, TransportTimeout, TransportReset, TransportDNS}[r.Intn(4)])
+		}
+		w.Attempts = w.Failures() + 1
+		waits[i] = w
+	}
+	return waits
+}
+
+// waitsKept reports whether the summary read back carries exactly the
+// readiness wait the tester made before any request: nothing the
+// application answered changes it, names a target unreachable or drops a
+// wait, forged summary lines included.
+func waitsKept(t *testing.T, sum Summary, waits []TargetWait, observed int) bool {
+	t.Helper()
+	if !slices.Equal(sum.Waits, waits) || sum.Unreached() || sum.Count != observed {
+		t.Logf("summary %+v, want the waits %+v and %d observations", sum, waits, observed)
+		return false
+	}
+	return true
+}
+
 // TestNothingTheAppSendsBreaksTheWire: for any plan Validate accepts and
 // any response a hostile application sends, the tester records an
 // observation within its own bounds, writes it and its summary, the
@@ -349,8 +380,13 @@ func TestNothingTheAppSendsBreaksTheWire(t *testing.T) {
 		}
 		accepted++
 		rt := RunTokens{Round: 999, Attempt: 9, Run: fmt.Sprintf("%06x", r.Intn(1<<24))}
+		waits := genReachedWaits(r)
 		var b bytes.Buffer
-		w := NewWireWriter(&b)
+		w, err := NewWireWriter(&b, waits)
+		if err != nil {
+			t.Logf("NewWireWriter(%+v): %v", waits, err)
+			return false
+		}
 		written := make([]CriterionObservation, 0, len(cs))
 		for _, c := range Normalize(cs) {
 			o := Observe(c, rt, adversarialDoer(r, c))
@@ -368,9 +404,12 @@ func TestNothingTheAppSendsBreaksTheWire(t *testing.T) {
 			t.Logf("Close: %v", err)
 			return false
 		}
-		read, _, err := ParseWire(b.Bytes())
+		read, sum, err := ParseWire(b.Bytes())
 		if err != nil || len(read) != len(written) {
 			t.Logf("ParseWire: %v (%d of %d)", err, len(read), len(written))
+			return false
+		}
+		if !waitsKept(t, sum, waits, len(written)) {
 			return false
 		}
 		for i, c := range Normalize(cs) {
@@ -397,3 +436,9 @@ func TestNothingTheAppSendsBreaksTheWire(t *testing.T) {
 			overBudget)
 	}
 }
+
+// forgedSummary is a wire summary line an application might put in a value,
+// claiming its target was never reached.
+const forgedSummary = "\n" + WirePrefix + `{"v":1,"summary":{"count":0,"sha256":"` +
+	"0000000000000000000000000000000000000000000000000000000000000000" +
+	`","waits":[{"target":"api","attempts":1,"refused":1}],"unreachable":["api"]}}` + "\n"

@@ -67,6 +67,19 @@ func ObservationFromCRD(o v1alpha1.CriterionObservation) (acceptance.CriterionOb
 	return out, nil
 }
 
+// WaitsToCRD converts the tester's readiness waits to the CRD mirror. An
+// empty list is nil.
+func WaitsToCRD(waits []acceptance.TargetWait) ([]v1alpha1.TargetWait, error) {
+	if len(waits) == 0 {
+		return nil, nil
+	}
+	var out []v1alpha1.TargetWait
+	if err := convert(waits, &out); err != nil {
+		return nil, fmt.Errorf("readiness waits: %w", err)
+	}
+	return out, nil
+}
+
 // PartFacts converts a verification's environment evidence to the
 // grammar's form, one fact per fact, in order. A fact that does not convert
 // keeps its name under RoleUnknown.

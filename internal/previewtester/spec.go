@@ -50,8 +50,13 @@ func BudgetFor(deadline time.Duration) int32 {
 }
 
 // maxTargets bounds the targets map: a Preview has at most four components;
-// the slack keeps the bound a bound without tying it to that number.
-const maxTargets = 8
+// the slack keeps the bound a bound without tying it to that number. It is
+// the most targets a summary records a readiness wait for.
+const maxTargets = acceptance.MaxWaitTargets
+
+// maxTargetKey bounds a target key: a repository key, as the grammar and
+// the summary's readiness waits hold it.
+const maxTargetKey = 16
 
 // Spec is what one tester run observes: a PreviewVerification's criteria,
 // the tokens their {{run}} placeholders take, and, per previewed
@@ -164,7 +169,7 @@ func (s Spec) Validate() error {
 // checkTarget admits "<DNS name>:<port>" and nothing else: no scheme,
 // userinfo, path or IP literal, so the address can only name a Service.
 func checkTarget(key, addr string) error {
-	if !keyPattern.MatchString(key) {
+	if len(key) > maxTargetKey || !keyPattern.MatchString(key) {
 		return fmt.Errorf("spec: target key %q is not a repository key", key)
 	}
 	host, port, err := net.SplitHostPort(addr)
