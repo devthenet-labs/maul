@@ -236,6 +236,27 @@ func TestJudgeRefusesInconsistentObservations(t *testing.T) {
 	}
 }
 
+// TestJudgeTooLargeMarkerFails: an observation marked TooLarge fails as
+// observation-too-large, alone or beside the tries of a satisfied run, so
+// replacing an observation with its marker can never make a criterion pass.
+func TestJudgeTooLargeMarkerFails(t *testing.T) {
+	prop := func(g genScenario) bool {
+		good := Observe(g.c, g.rt, (&server{c: g.c}).do)
+		withTries := cloneObservation(good)
+		withTries.TooLarge = true
+		for _, o := range []CriterionObservation{{ID: good.ID, TooLarge: true}, withTries} {
+			if v := Judge(g.c, o, g.rt); v.Outcome != OutcomeFail || v.Reason != ReasonObservationTooLarge {
+				t.Logf("%s: %+v", mustJSON(o), v)
+				return false
+			}
+		}
+		return true
+	}
+	if err := quick.Check(prop, quickConfig(200)); err != nil {
+		t.Error(err)
+	}
+}
+
 // TestJudgeNeverPanics feeds random observations (garbage pointers,
 // captures, statuses) to random criteria: Judge always returns a verdict.
 func TestJudgeNeverPanics(t *testing.T) {

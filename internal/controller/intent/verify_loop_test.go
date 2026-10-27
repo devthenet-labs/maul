@@ -479,6 +479,37 @@ func TestVerificationJudgesTheObservations(t *testing.T) {
 	}
 }
 
+// TestVerificationTooLargeObservationFails: an observation preview-controller
+// replaced by its TooLarge marker is the application's failure, judged
+// Failing as observation-too-large, never a pass and never maul's trouble,
+// even where the responses it replaced had passed.
+func TestVerificationTooLargeObservationFails(t *testing.T) {
+	e := newVerifyEnv(t, acceptancePlan)
+	name := e.reviewing()
+	e.readyPreview(name)
+	e.review(name, 3)
+	pv := e.onlyVerification(name)
+	e.observe(pv.Name, v1alpha1.VerificationObserved, answering(200))
+	if err := e.c.Get(context.Background(), client.ObjectKeyFromObject(&pv), &pv); err != nil {
+		t.Fatal(err)
+	}
+	pv.Status.Observations[0] = v1alpha1.CriterionObservation{ID: pv.Status.Observations[0].ID, TooLarge: true}
+	if err := e.c.Update(context.Background(), &pv); err != nil {
+		t.Fatal(err)
+	}
+	e.review(name, 1)
+	v := e.verification(name)
+	if v.State != v1alpha1.VerificationFailing || v.Passed != 0 || v.Failed != 1 || len(v.Failing) != 1 ||
+		v.Failing[0].ID != "health" || v.Failing[0].Outcome != v1alpha1.VerdictFail {
+		t.Fatalf("verification = %+v, want health failing", v)
+	}
+	e.review(name, 2)
+	cs := e.verifyComments(name, 1)
+	if len(cs) != 1 || !strings.Contains(cs[0].Body, "responses too large to record") {
+		t.Fatalf("verification comments: %+v", cs)
+	}
+}
+
 // TestVerificationInfraRetriesThenUnavailable: maul's own failures are
 // retried as new attempts of the same round, uncounted, and after the last
 // the verification is unavailable.

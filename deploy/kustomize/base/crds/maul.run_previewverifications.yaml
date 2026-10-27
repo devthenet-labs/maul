@@ -549,13 +549,20 @@ spec:
                 description: Observations are the tester's, one per criterion, in
                   spec order.
                 items:
-                  description: CriterionObservation is what the tester saw for one
-                    criterion.
+                  description: |-
+                    CriterionObservation is what the tester saw for one criterion: its tries,
+                    or, when the status could not hold them, only the TooLarge marker.
                   properties:
                     id:
                       description: ID of the criterion.
                       pattern: ^[a-z][a-z0-9-]{0,31}$
                       type: string
+                    tooLarge:
+                      description: |-
+                        TooLarge marks an observation preview-controller replaced because the
+                        object could not hold it however its values were reduced. It is
+                        judged a failure (observation-too-large), never a pass.
+                      type: boolean
                     tries:
                       description: 'Tries made: a second only when the first failed.'
                       items:
@@ -688,8 +695,11 @@ spec:
                       x-kubernetes-list-type: atomic
                   required:
                   - id
-                  - tries
                   type: object
+                  x-kubernetes-validations:
+                  - message: an observation holds its tries or is marked tooLarge,
+                      never both or neither
+                    rule: (has(self.tooLarge) && self.tooLarge) != has(self.tries)
                 maxItems: 16
                 type: array
                 x-kubernetes-list-type: atomic

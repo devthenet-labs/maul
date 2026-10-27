@@ -146,6 +146,10 @@ func TestObservationsRoundTrip(t *testing.T) {
 	if !reflect.DeepEqual(back, in[0]) {
 		t.Fatalf("round trip:\n got %+v\nwant %+v", back, in[0])
 	}
+	marker := v1alpha1.CriterionObservation{ID: "health", TooLarge: true}
+	if got, err := ObservationFromCRD(marker); err != nil || !got.TooLarge || got.ID != "health" || got.Tries != nil {
+		t.Fatalf("marker converted to %+v, %v", got, err)
+	}
 }
 
 // TestPartFactsWhole: every field of a fact is carried, the log tail

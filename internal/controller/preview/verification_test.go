@@ -619,13 +619,26 @@ func TestVerificationStatusIsCapped(t *testing.T) {
 	if kept == 0 || kept == 16*2*8 {
 		t.Errorf("%d body prefixes kept, want some dropped", kept)
 	}
-	// Past what dropping the display values can save, the result is refused.
+	// Past what dropping the display values can save, the largest
+	// criteria's observations become markers one at a time, never the
+	// whole result: the values are the application's, so is the failure.
 	pv = oversizedVerification(250)
 	fitStatus(pv)
-	if pv.Status.Phase != v1alpha1.VerificationInfra ||
-		pv.Status.Reason != v1alpha1.VerificationReasonTesterOutputInvalid || pv.Status.Observations != nil {
-		t.Errorf("oversized status %s %s with %d observations, want Infra tester-output-invalid and none",
+	if pv.Status.Phase != v1alpha1.VerificationObserved || len(pv.Status.Observations) != 16 {
+		t.Fatalf("oversized status %s %s with %d observations, want Observed with all 16",
 			pv.Status.Phase, pv.Status.Reason, len(pv.Status.Observations))
+	}
+	if b, _ := json.Marshal(pv); len(b) > maxVerificationObject {
+		t.Fatalf("status is %d bytes, over %d", len(b), maxVerificationObject)
+	}
+	markers := 0
+	for _, o := range pv.Status.Observations {
+		if len(o.Tries) == 0 {
+			markers++
+		}
+	}
+	if markers == 0 || markers == 16 {
+		t.Errorf("%d observations replaced by markers, want some and not all", markers)
 	}
 }
 

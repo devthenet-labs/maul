@@ -275,6 +275,9 @@ func latestAcceptance(acc *v1alpha1.IntentAcceptance, id string) *v1alpha1.Accep
 func failureEvidence(c v1alpha1.AcceptanceCriterion, obs []v1alpha1.CriterionObservation) (expected, observed,
 	body string) {
 	i := slices.IndexFunc(obs, func(o v1alpha1.CriterionObservation) bool { return o.ID == c.ID })
+	if i >= 0 && obs[i].TooLarge {
+		return "", "responses too large to record", ""
+	}
 	if i < 0 || len(obs[i].Tries) == 0 {
 		return "", "not observed", ""
 	}

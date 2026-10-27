@@ -118,7 +118,10 @@ func TestWireRefusals(t *testing.T) {
 		"both": {
 			WirePrefix + `{"v":1,"observation":{"id":"a"},"summary":{"count":0,"sha256":""}}` + "\n", ErrWireInvalid,
 		},
-		"neither":  {WirePrefix + `{"v":1}` + "\n", ErrWireInvalid},
+		"neither": {WirePrefix + `{"v":1}` + "\n", ErrWireInvalid},
+		"marked too large": {
+			strings.Replace(good, `{"id":"a",`, `{"id":"a","tooLarge":true,`, 1), ErrWireInvalid,
+		},
 		"over cap": {strings.Repeat(lines[0], MaxCriteria+1) + lines[2], ErrWireInvalid},
 		"bad observation": {
 			strings.Replace(good, `"method":"GET"`, `"method":"`+strings.Repeat("G", 600)+`"`, 1), ErrWireInvalid,
@@ -130,6 +133,9 @@ func TestWireRefusals(t *testing.T) {
 				t.Errorf("ParseWire = %v, want %v", err, c.want)
 			}
 		})
+	}
+	if err := NewWireWriter(&bytes.Buffer{}).Write(CriterionObservation{ID: "a", TooLarge: true}); err == nil {
+		t.Error("the wire writer wrote an observation marked too large")
 	}
 	for _, bad := range []string{"", "count=1", `{"count":1}`, `{"count":-1,"sha256":"` + strings.Repeat("0", 64) + `"}`} {
 		if _, err := ParseSummary(bad); err == nil {

@@ -67,6 +67,11 @@ var transports = map[Transport]bool{
 type CriterionObservation struct {
 	ID    string           `json:"id"`
 	Tries []TryObservation `json:"tries,omitempty"`
+	// TooLarge marks an observation preview-controller replaced, tries and
+	// all, because the status could not hold it however its values were
+	// reduced. Judge fails it (ReasonObservationTooLarge): the size is the
+	// application's doing, never a pass. The tester never writes it.
+	TooLarge bool `json:"tooLarge,omitempty"`
 }
 
 // TryObservation is one try: the {{run}} token it ran under and its steps,
@@ -429,6 +434,9 @@ func truncateUTF8(s string, n int) string {
 func (o CriterionObservation) Check() error {
 	if !idPattern.MatchString(o.ID) {
 		return errors.New("observation id is not a criterion id")
+	}
+	if o.TooLarge {
+		return errors.New("the tester never marks an observation too large")
 	}
 	if len(o.Tries) > 2 {
 		return errors.New("more than 2 tries")
