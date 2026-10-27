@@ -20,7 +20,8 @@ Three switches, in this order. Each fails closed: with one off, no acceptance st
 
 1. **The slots.** `preview.verification.enabled: true` in the chart, with `preview.verification.testerImage` pinned by
    digest, renders the tester's admission rules, the per-part NetworkPolicy and Job policies and the slot quota for
-   them, and the grants in [preview-controller](../configuration/preview-controller.md#acceptance-verification).
+   them, and the grants in
+   [preview-controller](../configuration/preview-controller.md#acceptance-verification-off-by-default).
    `preview.verification.deadlineMaxSeconds` (60 to 3600, default 1800) bounds the tester Job and also sets both
    controllers' deadline flags, so no request can ask for a Job the slot policy refuses.
 2. **intent-controller.** `--intent-verification` (needs `--intent-previews-enabled`; see
