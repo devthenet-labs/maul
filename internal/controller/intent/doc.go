@@ -178,7 +178,12 @@
 // plan or build launch, InReview → Blocked before a review, command or
 // check-fix round is leased, Revising → Blocked before a round's retry
 // attempt, and Blocked stays Blocked, on the ceiling, when the run its
-// resume would launch is refused. A run or round already leased is adopted,
+// resume would launch is refused. An acceptance-fix round (trigger verify)
+// is the exception, by design (D2): the same lease refuses it, but at the
+// ceiling automatic fixes halt (CostCeiling, VerifyFailing) and the intent
+// stays, or returns to, InReview, never Blocked. startVerifyFix checks the
+// ceiling with lease's own predicate (atCeiling) before any credential hold,
+// so no hold can block it there either. A run or round already leased is adopted,
 // never refused; a suspended Project is never blocked on it (nothing is
 // launched); a PR command refused there is answered on its pull request;
 // and raising limits.maxCostMicroUSD past the spend lifts the block. An

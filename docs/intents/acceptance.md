@@ -54,9 +54,9 @@ installation.
 
 The plan agent writes an optional `acceptance` list in its report's frontmatter, up to 16 criteria and 48 steps in all.
 Their observations must also fit a size budget at every value's largest, so that no answer from the application can
-outgrow what maul reads of the tester's output; a plan over it is refused.
-The plan comment says in one line what maul will do with it, for example "2 checked automatically, 1 needs you:
-sounds-good (only a human can judge how it sounds)", so the approver sees the split before approving.
+outgrow what maul reads of the tester's output; a plan over it is refused. The plan comment says in one line what maul
+will do with it, for example "2 checked automatically, 1 needs you: sounds-good (only a human can judge how it sounds)",
+so the approver sees the split before approving.
 
 ```yaml
 acceptance:
@@ -119,7 +119,7 @@ passed, and the status stays pending until a person runs `/maul accept <id>` or 
 | `limits.maxVerifyFixes`   | Automatic fix rounds per approved plan revision (default 2). Then auto-fix halts, reason `MaxVerifyFixes`.      |
 | `limits.maxVerifications` | Automatic verifications per plan revision (default 20). `/maul verify` bypasses the interval, not this cap.     |
 | Repeated failure          | A fix whose result has the same failure fingerprint as the last fix halts auto-fix: `RepeatedFailure`.          |
-| Cost ceiling              | At the intent's cost ceiling auto-fix halts, `CostCeiling`. It never blocks the intent.                         |
+| Cost ceiling              | At the intent's cost ceiling auto-fix, retries included, halts: `CostCeiling`. It never blocks the intent.      |
 | Spacing                   | While auto-fix is halted, an automatic re-verification waits five minutes; one `/maul verify` per five minutes. |
 | Infrastructure            | A tester that could not run is retried up to three attempts, uncounted, then reported `Unavailable`.            |
 | Preview wait              | A due verification waits at most an hour for the preview to be live at the heads, then reports `Unavailable`.   |

@@ -78,6 +78,8 @@ func TestTriggerSitesExhaustive(t *testing.T) {
 			tChecks: counted{0, 1, 0}, tVerify: counted{0, 0, 1}}},
 		{"intent_revise retriesHeadMoved", func(tr v1alpha1.IntentRunTrigger) any { return retriesHeadMoved(tr) },
 			map[v1alpha1.IntentRunTrigger]any{tReview: true, tCommand: true, tChecks: false, tVerify: false}},
+		{"intent_revise ceilingBlocks", func(tr v1alpha1.IntentRunTrigger) any { return ceilingBlocks(tr) },
+			map[v1alpha1.IntentRunTrigger]any{tReview: true, tCommand: true, tChecks: true, tVerify: false}},
 		{"intent_revise requiresFeedback", func(tr v1alpha1.IntentRunTrigger) any { return requiresFeedback(tr) },
 			map[v1alpha1.IntentRunTrigger]any{tReview: true, tCommand: true, tChecks: false, tVerify: false}},
 		{"intent_revise roundNoticeLabel", func(tr v1alpha1.IntentRunTrigger) any {

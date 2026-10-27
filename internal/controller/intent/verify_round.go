@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -149,9 +150,11 @@ func (p *pass) startVerifyFix(ctx context.Context) (bool, error) {
 	if p.fixHeadMoved() {
 		return true, p.haltFix(ctx, v1alpha1.AutoFixHumanPush, "", "")
 	}
-	if spent, ceiling := p.in.Status.Usage.CostMicroUSD, maxCostMicroUSD(p.proj); spent >= ceiling {
-		return true, p.haltFix(ctx, v1alpha1.AutoFixCostCeiling, "",
-			fmt.Sprintf("the intent spent %d of its %d micro-USD ceiling", spent, ceiling))
+	if p.atCeiling() {
+		// lease would refuse the round (errAtCeiling) as well; it is checked
+		// first so that, at the ceiling, no credential hold can block the
+		// intent: automatic fixing halts and reports, review stays open (D2).
+		return true, p.haltFixAtCeiling(ctx)
 	}
 	pr := p.fixTarget(failure.targets, pv.Spec.Heads)
 	if pr == nil {
@@ -195,6 +198,11 @@ func (p *pass) leaseVerifyFix(ctx context.Context, pr *v1alpha1.IntentPullReques
 	if adopted, adoptErr := p.adoptLeased(ctx, err); adopted || adoptErr != nil {
 		return adopted, adoptErr
 	}
+	if errors.Is(err, errAtCeiling) {
+		// lease refused the round at the cost ceiling: unlike a human's or a
+		// check's round, an acceptance fix never blocks the intent (D2).
+		return true, p.haltFixAtCeiling(ctx)
+	}
 	if err != nil {
 		return false, err
 	}
@@ -210,6 +218,18 @@ func (p *pass) leaseVerifyFix(ctx context.Context, pr *v1alpha1.IntentPullReques
 	})
 }
 
+// haltFixAtCeiling halts automatic fixes on the intent's cost ceiling
+// (CostCeiling): the predicate lease refuses every run on (atCeiling).
+func (p *pass) haltFixAtCeiling(ctx context.Context) error {
+	return p.haltFix(ctx, v1alpha1.AutoFixCostCeiling, "", p.ceilingMessage())
+}
+
+// ceilingMessage is the VerifyFailing message of a CostCeiling halt.
+func (p *pass) ceilingMessage() string {
+	return fmt.Sprintf("the intent spent %d of its %d micro-USD ceiling",
+		p.in.Status.Usage.CostMicroUSD, maxCostMicroUSD(p.proj))
+}
+
 // haltFix halts automatic fixes for reason, moving the verification to
 // state unless it is "". A bound that leaves the failing criteria to the
 // reviewers (RepeatedFailure, MaxVerifyFixes, CostCeiling) also sets the
@@ -219,18 +239,51 @@ func (p *pass) haltFix(ctx context.Context, reason v1alpha1.AutoFixReason, state
 	p.r.log().LogAttrs(ctx, slog.LevelInfo, "automatic acceptance fixes halted",
 		slog.String("intent", p.in.Name), slog.String("reason", string(reason)))
 	return p.update(ctx, func(cur *v1alpha1.Intent) error {
-		nv := cur.Status.Verification
-		halt(nv, reason, metav1.NewTime(p.now))
-		if state != "" {
-			nv.State = state
-		}
-		switch reason {
-		case v1alpha1.AutoFixRepeatedFailure, v1alpha1.AutoFixMaxVerifyFixes, v1alpha1.AutoFixCostCeiling:
-			setCondition(cur, v1alpha1.ConditionVerifyFailing, metav1.ConditionTrue, string(reason), msg)
-		case v1alpha1.AutoFixHumanReview, v1alpha1.AutoFixHumanCommand, v1alpha1.AutoFixHumanPush,
-			v1alpha1.AutoFixCriterionError, v1alpha1.AutoFixNoOpenPR:
-		}
+		haltOn(cur, reason, state, msg, metav1.NewTime(p.now))
 		return nil
+	})
+}
+
+// haltOn is haltFix's change to cur, for a caller that makes it within a
+// write of its own.
+func haltOn(cur *v1alpha1.Intent, reason v1alpha1.AutoFixReason, state v1alpha1.IntentVerificationState,
+	msg string, now metav1.Time) {
+	nv := cur.Status.Verification
+	if nv == nil {
+		return
+	}
+	halt(nv, reason, now)
+	if state != "" {
+		nv.State = state
+	}
+	switch reason {
+	case v1alpha1.AutoFixRepeatedFailure, v1alpha1.AutoFixMaxVerifyFixes, v1alpha1.AutoFixCostCeiling:
+		setCondition(cur, v1alpha1.ConditionVerifyFailing, metav1.ConditionTrue, string(reason), msg)
+	case v1alpha1.AutoFixHumanReview, v1alpha1.AutoFixHumanCommand, v1alpha1.AutoFixHumanPush,
+		v1alpha1.AutoFixCriterionError, v1alpha1.AutoFixNoOpenPR:
+	}
+}
+
+// endVerifyRoundAtCeiling ends an acceptance-fix round whose next attempt
+// lease refused at the cost ceiling (errAtCeiling): the round ends unpushed
+// and automatic fixes halt (CostCeiling) in the same write that returns the
+// intent to InReview. A human's or a check's round blocks the intent there
+// instead (blockAtCeiling); an acceptance fix never does (D2). While the
+// Project is suspended it writes nothing, as blockAtCeiling does.
+func (p *pass) endVerifyRoundAtCeiling(ctx context.Context, run *v1alpha1.IntentRun) (bool, error) {
+	if p.proj.Spec.Suspend {
+		return false, nil
+	}
+	if err := p.finishPRRound(ctx, run); err != nil {
+		return false, err
+	}
+	p.r.log().LogAttrs(ctx, slog.LevelInfo, "automatic acceptance fixes halted",
+		slog.String("intent", p.in.Name), slog.String("reason", string(v1alpha1.AutoFixCostCeiling)))
+	msg := p.ceilingMessage()
+	return true, p.setPhase(ctx, v1alpha1.IntentInReview, func(cur *v1alpha1.Intent) {
+		cur.Status.ActiveRun = nil
+		settleVerifyRound(cur, run, false)
+		haltOn(cur, v1alpha1.AutoFixCostCeiling, "", msg, metav1.NewTime(p.now))
 	})
 }
 

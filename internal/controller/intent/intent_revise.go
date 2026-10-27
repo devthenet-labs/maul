@@ -143,6 +143,15 @@ func retriesHeadMoved(t v1alpha1.IntentRunTrigger) bool {
 	return roundKindOf(t) == roundHuman
 }
 
+// ceilingBlocks reports a round that blocks the Intent when lease refuses
+// it at the cost ceiling (blockAtCeiling). An approver's and a check-fix
+// round do. An acceptance-fix round does not: automatic fixing halts and
+// reports, and review stays open (D2; haltFixAtCeiling,
+// endVerifyRoundAtCeiling).
+func ceilingBlocks(t v1alpha1.IntentRunTrigger) bool {
+	return roundKindOf(t) != roundVerify
+}
+
 // requiresFeedback reports a round that is not launched without usable
 // feedback (errNoUsableFeedback). Only an approver's round is: a check-fix
 // round's input is its checks' diagnostics, and an acceptance-fix round's
@@ -366,7 +375,9 @@ func (p *pass) roundChecks(ctx context.Context, run *v1alpha1.IntentRun) ([]stri
 
 // retryReviseAttempt leases one fresh attempt, or adopts the one a pass
 // leased already; at the cost ceiling it creates none, and the Intent is
-// Blocked from Revising (lease). A head move re-clones the branch and
+// Blocked from Revising (lease), unless the round is an acceptance fix,
+// which ends and halts automatic fixes instead (endVerifyRoundAtCeiling,
+// D2). A head move re-clones the branch and
 // re-renders its diff; an agent failure carries PreviousAttempt.
 func (p *pass) retryReviseAttempt(ctx context.Context, run *v1alpha1.IntentRun, attempt int32,
 	previous *v1alpha1.PreviousAttempt) (bool, error) {
@@ -389,6 +400,8 @@ func (p *pass) retryReviseAttempt(ctx context.Context, run *v1alpha1.IntentRun, 
 	}, Spec: spec}
 	existing, err := p.lease(ctx, with)
 	switch {
+	case errors.Is(err, errAtCeiling) && !ceilingBlocks(run.Spec.Trigger):
+		return p.endVerifyRoundAtCeiling(ctx, run)
 	case errors.Is(err, errAtCeiling):
 		return p.blockAtCeiling(ctx)
 	case err != nil:

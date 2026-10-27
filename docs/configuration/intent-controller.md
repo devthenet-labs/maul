@@ -139,7 +139,9 @@ Project that needs more.
   `/maul revise` or `/maul retry` that arrives at the ceiling is answered on the pull request, saying so. While the
   Project is suspended nothing is launched anyway, and the intent is not blocked. Raising the ceiling past the spend
   lifts the block. An intent blocked from review, on this or any other block, still follows its pull requests: merging
-  or closing them ends it `Merged` or `Closed`.
+  or closing them ends it `Merged` or `Closed`. An acceptance-fix round is the exception: the same check refuses it, and
+  its retry attempts, but automatic fixing halts (`CostCeiling`) and the intent stays in review, never `Blocked`
+  ([acceptance bounds](../intents/acceptance.md#bounds)).
 - With `--broker-cost-per-hour` set, a Project any of whose run budgets is more than half the broker's hourly cost limit
   is not Ready (`RunBudgetOverHourlyLimit`, naming the stage): one such run could spend the cluster's hour alone. Lower
   the stage's budget (or the per-intent ceiling a stage without one uses) or raise the hourly limit.
