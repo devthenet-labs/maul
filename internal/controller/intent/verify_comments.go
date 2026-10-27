@@ -218,30 +218,15 @@ func (p *pass) verifySection(ctx context.Context, pr *v1alpha1.IntentPullRequest
 	return s
 }
 
-// noDefectView is the acceptance-fix round whose conclusion that the code
-// has no defect halted automatic fixes, as a comment shows it: the latest
-// such round of the approved plan revision while the latch still stands
-// halted for it; nil otherwise.
+// noDefectView is the latest acceptance-fix round's conclusion that the
+// code has no defect, as a comment shows it, from the Intent's own record
+// (status.verification.noDefect), whatever halted the latch; nil for none.
 func (p *pass) noDefectView() *templates.VerifyNoDefect {
-	v, ap := p.in.Status.Verification, p.in.Status.Approval
-	if v == nil || ap == nil || v.AutoFix.State != v1alpha1.AutoFixHalted ||
-		v.AutoFix.Reason != v1alpha1.AutoFixFixFoundNoDefect {
+	v := p.in.Status.Verification
+	if v == nil || v.NoDefect == nil {
 		return nil
 	}
-	var latest *v1alpha1.IntentRun
-	for _, run := range p.runs {
-		if run.Spec.Stage != v1alpha1.IntentStageRevise || run.Spec.Inputs.PlanRevision != ap.PlanRevision ||
-			run.Status.Phase != v1alpha1.RunComplete || run.Status.Outcome != OutcomeNoDefect {
-			continue
-		}
-		if latest == nil || run.Spec.Round > latest.Spec.Round {
-			latest = run
-		}
-	}
-	if latest == nil {
-		return nil
-	}
-	return &templates.VerifyNoDefect{Run: latest.Name, Reason: latest.Status.Detail}
+	return &templates.VerifyNoDefect{Run: v.NoDefect.Run, Reason: v.NoDefect.Reason}
 }
 
 // criterionView is one criterion as a comment shows it.

@@ -178,8 +178,9 @@ func TestRoundTextScopeByTrigger(t *testing.T) {
 }
 
 // verifyFixRounds counts the distinct acceptance-fix rounds of the approved
-// plan revision, a failed round included, a round a human's review
-// superseded before it launched not.
+// plan revision in which an agent ran (a failed one included) and the one
+// in flight; a round no agent ran in (superseded or stopped before launch,
+// or failed before its agent started) not.
 func TestVerifyFixRounds(t *testing.T) {
 	run := func(round, attempt, rev int32, tr v1alpha1.IntentRunTrigger, phase v1alpha1.RunPhase,
 		outcome string) *v1alpha1.IntentRun {
@@ -202,9 +203,18 @@ func TestVerifyFixRounds(t *testing.T) {
 		{"one round two attempts", approval(2), []*v1alpha1.IntentRun{
 			run(3, 1, 2, tVerify, v1alpha1.RunFailed, "runtime_error"),
 			run(3, 2, 2, tVerify, v1alpha1.RunComplete, "ok")}, 1},
-		{"a failed round counts", approval(2), []*v1alpha1.IntentRun{
-			run(3, 1, 2, tVerify, v1alpha1.RunFailed, "runtime_error"),
+		{"a failed round whose agent ran counts", approval(2), []*v1alpha1.IntentRun{
+			run(3, 1, 2, tVerify, v1alpha1.RunFailed, "commit_failed"),
 			run(4, 1, 2, tVerify, v1alpha1.RunComplete, "ok")}, 2},
+		{"a round no agent ran in does not", approval(2), []*v1alpha1.IntentRun{
+			run(3, 1, 2, tVerify, v1alpha1.RunFailed, "runtime_error"),
+			run(3, 2, 2, tVerify, v1alpha1.RunFailed, OutcomeAborted),
+			run(4, 1, 2, tVerify, v1alpha1.RunComplete, "ok")}, 1},
+		{"a ran attempt counts though its retry was stopped", approval(2), []*v1alpha1.IntentRun{
+			run(3, 1, 2, tVerify, v1alpha1.RunFailed, "commit_failed"),
+			run(3, 2, 2, tVerify, v1alpha1.RunFailed, OutcomeStoppedByHuman)}, 1},
+		{"the round in flight counts", approval(2), []*v1alpha1.IntentRun{
+			run(3, 1, 2, tVerify, v1alpha1.RunPending, "")}, 1},
 		{"an earlier plan revision's rounds do not", approval(2), []*v1alpha1.IntentRun{
 			run(1, 1, 1, tVerify, v1alpha1.RunComplete, "ok"),
 			run(4, 1, 2, tVerify, v1alpha1.RunComplete, "ok")}, 1},

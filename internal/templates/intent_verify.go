@@ -374,6 +374,56 @@ type verifyView struct {
 	Notes    []string
 	Logs     []verifyLogView
 	LogsCut  bool
+	// Omitted counts the pieces of failure evidence left out to keep the
+	// comment within its evidence budget (budgetEvidence).
+	Omitted int
+}
+
+// Bounds on a whole comment. verifyCommentEvidenceBytes is the one budget
+// a comment's failure evidence shares (expected and observed values,
+// mismatch lines and body prefixes, as rendered); verifySectionMaxBytes the
+// most a pull request's preview comment gives its verification section
+// before its log tails are left out. Both keep each comment, with every
+// criterion's verdict, under MaxCommentBytes.
+const (
+	verifyCommentEvidenceBytes = 24 << 10
+	verifySectionMaxBytes      = 48 << 10
+)
+
+// budgetEvidence keeps the failures' evidence within
+// verifyCommentEvidenceBytes, in plan order: each failure's expected and
+// observed values, then its mismatch lines, then its body prefix, each kept
+// only while it fits; what does not is left out and counted. The verdicts
+// (the table, and each failure's own line) are never cut. Deterministic: the
+// same failures always keep the same evidence.
+func budgetEvidence(fs []verifyFailure) ([]verifyFailure, int) {
+	left, omitted := verifyCommentEvidenceBytes, 0
+	take := func(n int) bool {
+		if n > left {
+			omitted++
+			return false
+		}
+		left -= n
+		return true
+	}
+	out := make([]verifyFailure, len(fs))
+	for i, f := range fs {
+		if (f.Expected != "" || f.Observed != "") && !take(len(f.Expected)+len(f.Observed)+32) {
+			f.Expected, f.Observed = "", ""
+		}
+		var kept []string
+		for _, m := range f.Mismatches {
+			if take(len(m) + 4) {
+				kept = append(kept, m)
+			}
+		}
+		f.Mismatches = kept
+		if f.Body != "" && !take(len(f.Body)+2) {
+			f.Body = ""
+		}
+		out[i] = f
+	}
+	return out, omitted
 }
 
 // cell keeps a value inside one table cell.
@@ -399,6 +449,7 @@ func buildVerifyView(s VerifySection, withLogs bool) verifyView {
 			}
 		}
 	}
+	v.Failures, v.Omitted = budgetEvidence(v.Failures)
 	if s.StatusNotPosted {
 		v.Notes = append(v.Notes, "The maul App may not post commit statuses, so no `maul/acceptance` status is "+
 			"posted: an administrator sets Commit statuses to Read and write in the App's settings and accepts the "+
@@ -467,8 +518,19 @@ func renderVerifySection(s *VerifySection) (string, error) {
 	if s.empty() {
 		return "", nil
 	}
-	out, err := render("intent_verify_section.md.tmpl", buildVerifyView(*s, true))
-	return strings.TrimRight(out, "\n"), err
+	for _, logs := range []bool{true, false} {
+		v := buildVerifyView(*s, logs)
+		v.LogsCut = !logs && len(s.Logs) > 0
+		out, err := render("intent_verify_section.md.tmpl", v)
+		if err != nil {
+			return "", err
+		}
+		if out = strings.TrimRight(out, "\n"); len(out) <= verifySectionMaxBytes {
+			return out, nil
+		}
+	}
+	return "", fmt.Errorf("verification section is over %d bytes even without its log tails",
+		verifySectionMaxBytes)
 }
 
 // RenderVerifyComment renders the verification comment on the issue. A

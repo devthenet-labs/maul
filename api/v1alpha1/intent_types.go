@@ -931,6 +931,22 @@ type Rearm struct {
 	Round int32 `json:"round"`
 }
 
+// NoDefectRecord is an acceptance-fix round's conclusion that the code has
+// no defect to fix: the run, and the agent's one-line reason, bounded,
+// shown only through the templates' sanitising.
+type NoDefectRecord struct {
+	// Run is the IntentRun that concluded it.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	Run string `json:"run"`
+	// Reason is the agent's account of why the verification failed.
+	// +optional
+	// +kubebuilder:validation:MaxLength=1024
+	Reason string `json:"reason,omitempty"`
+	// At is when the round completed.
+	At metav1.Time `json:"at"`
+}
+
 // VerifyRequest is an approver's pending /maul verify, run at the next
 // opportunity.
 type VerifyRequest struct {
@@ -1053,6 +1069,11 @@ type IntentVerification struct {
 	// AutoFix is the automatic verify-fix latch.
 	// +optional
 	AutoFix AutoFix `json:"autoFix,omitempty"`
+	// NoDefect is the latest acceptance-fix round's conclusion that the code
+	// has no defect, kept apart from the auto-fix latch: it stands whatever
+	// halted the latch, until the next fix round or plan revision.
+	// +optional
+	NoDefect *NoDefectRecord `json:"noDefect,omitempty"`
 	// CancelRun names a Pending verify-fix IntentRun a human round
 	// overtook: the run scheduler settles it unlaunched instead of creating
 	// its Job.

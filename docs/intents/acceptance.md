@@ -124,23 +124,24 @@ Two rules shape good criteria, and the plan prompt states both:
    it changes nothing and says so explicitly in its report (`no_defect: true`, with a one-line reason). The round then
    completes as `no_defect`: nothing is pushed, it is not retried, it still counts toward `maxVerifyFixes`, and
    automatic fixing halts with reason `FixFoundNoDefect`. The verification comment shows the agent's reason and says the
-   verdict may be wrong: `/maul verify` checks again. A round that changes nothing without that explicit conclusion is
-   still a failed round, retried like any other.
+   verdict may be wrong: `/maul verify` checks again. The conclusion is shown whatever else halted automatic fixing,
+   until the next fix round. A round that changes nothing without that explicit conclusion is still a failed round,
+   retried like any other.
 
 A criterion that fails on its first try and passes on a retry is **quarantined**: shown to the human, never counted as
 passed, and the status stays pending until a person runs `/maul accept <id>` or a clean re-run passes.
 
 ### Bounds
 
-| Bound                     | Rule                                                                                                                                                                       |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `limits.maxVerifyFixes`   | Automatic fix rounds per approved plan revision (default 2). Then auto-fix halts, reason `MaxVerifyFixes`.                                                                 |
-| `limits.maxVerifications` | Automatic verifications per plan revision (default 20). `/maul verify` bypasses the interval, not this cap.                                                                |
-| Repeated failure          | A verification in which everything the last fix round was for still fails exactly as it did halts auto-fix: `RepeatedFailure`. It counts whether that round pushed or not. |
-| Cost ceiling              | At the intent's cost ceiling auto-fix, retries included, halts: `CostCeiling`. It never blocks the intent.                                                                 |
-| Spacing                   | While auto-fix is halted, an automatic re-verification waits five minutes; one `/maul verify` per five minutes.                                                            |
-| Infrastructure            | A tester that could not run is retried up to three attempts, uncounted, then reported `Unavailable`.                                                                       |
-| Preview wait              | A due verification waits at most an hour for the preview to be live at the heads, then reports `Unavailable`.                                                              |
+| Bound                     | Rule                                                                                                                                                                                                                                                                                    |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `limits.maxVerifyFixes`   | Automatic fix rounds per approved plan revision (default 2). Then auto-fix halts, reason `MaxVerifyFixes`. A round counts once an agent ran in it, whatever its later attempts did; a round no agent ran in (cancelled, or failed before it started) does not.                          |
+| `limits.maxVerifications` | Automatic verifications per plan revision (default 20). `/maul verify` bypasses the interval, not this cap.                                                                                                                                                                             |
+| Repeated failure          | A verification in which everything the last fix round was for still fails exactly as it did halts auto-fix: `RepeatedFailure`. That round is the latest one an agent ran in, whether it pushed, found no defect or failed; rounds at or before a `/maul verify fix` are never compared. |
+| Cost ceiling              | At the intent's cost ceiling auto-fix, retries included, halts: `CostCeiling`. It never blocks the intent.                                                                                                                                                                              |
+| Spacing                   | While auto-fix is halted, an automatic re-verification waits five minutes; one `/maul verify` per five minutes.                                                                                                                                                                         |
+| Infrastructure            | A tester that could not run is retried up to three attempts, uncounted, then reported `Unavailable`.                                                                                                                                                                                    |
+| Preview wait              | A due verification waits at most an hour for the preview to be live at the heads, then reports `Unavailable`.                                                                                                                                                                           |
 
 ### What halts automatic fixing
 
@@ -172,7 +173,8 @@ Auto-fix halts the moment a human acts:
   has not started, it is **cancelled for your review** and your round runs next. One that is already running finishes
   and pushes, then your round runs next, and its text notes the automatic fix.
 - **`HumanPush`:** a head maul did not push halts auto-fix. Verification still re-runs and reports; it never fixes.
-- `/maul verify fix` re-arms auto-fix. It does not reset the fix count.
+- `/maul verify fix` re-arms auto-fix. It does not reset the fix count, but the next failure is never judged a repeat of
+  a fix round from before it.
 
 ## On GitHub
 

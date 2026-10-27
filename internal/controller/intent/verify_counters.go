@@ -3,7 +3,13 @@
 
 package intent
 
-import v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+import (
+	"slices"
+
+	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/envelope"
+	"github.com/devthenet-labs/maul/internal/runnerguard"
+)
 
 // OutcomeSupersededByHuman is the outcome of an acceptance-fix run still
 // Pending when an approver's review or command arrived: it is cancelled
@@ -48,14 +54,59 @@ func roundKindOf(t v1alpha1.IntentRunTrigger) roundKind {
 	}
 }
 
+// agentRan reports whether run's agent actually executed: the one rule for
+// "an attempt where an agent tried a fix", which verifyFixRounds and
+// priorVerifyFailure both read through fixTried. Every outcome a run
+// records is listed (agent_ran_test.go holds the list to every outcome
+// constant): an agent that ran and reported, or whose work was then lost
+// or refused, did; an attempt that ended before or without its agent
+// (maul's, the cluster's or the broker's trouble, a refused input, a human
+// cancelling it) did not. A runtime error is counted as not: it is the
+// outcome of an agent that could not start (the broker down), and is never
+// a fix the code was given. A head move is decided by whether the Job was
+// created (at push, the agent ran). A run the sandbox probe refused never
+// ran its agent.
+func agentRan(run *v1alpha1.IntentRun) bool {
+	if runnerguard.Refused(run.Status.Conditions) {
+		return false
+	}
+	switch run.Status.Outcome {
+	case string(envelope.OutcomeOK), OutcomeNoDefect, string(envelope.OutcomeCommitFailed), OutcomeNotBuilt,
+		string(envelope.OutcomeReportInvalid), string(envelope.OutcomeReportMissing),
+		string(envelope.OutcomeTimeout), string(envelope.OutcomeBudgetExceeded),
+		string(envelope.OutcomeChangesetTooLarge), string(envelope.OutcomeChangesetRejected),
+		OutcomeDependencyRefused, OutcomeBranchExists, OutcomeHoldExpired, OutcomePushRefused, OutcomeEvicted:
+		return true
+	case OutcomeHeadMoved:
+		return run.Status.JobRef != nil
+	case "", string(envelope.OutcomeRuntimeError), string(envelope.OutcomeImageIncompatible), OutcomeAborted,
+		OutcomeImageRequired, OutcomeLaunchRefused, OutcomeInputUnavailable, OutcomeNoUsableFeedback,
+		OutcomeUnschedulable, OutcomeSupersededByHuman, OutcomeStoppedByHuman:
+		return false
+	}
+	return false
+}
+
+// fixTried reports a round in which an agent tried a fix: some attempt's
+// agent ran (agentRan), whatever became of its later attempts.
+func (rs roundRuns) fixTried() bool {
+	return slices.ContainsFunc(rs, agentRan)
+}
+
+// finished reports a round whose latest attempt ended.
+func (rs roundRuns) finished() bool {
+	latest := rs.latest()
+	return latest != nil && (latest.Status.Phase == v1alpha1.RunComplete || latest.Status.Phase == v1alpha1.RunFailed)
+}
+
 // verifyFixRounds counts the acceptance-fix rounds held against the
 // Project's maxVerifyFixes: the distinct verify rounds of the approved plan
-// revision, a failed one included, so a new approved plan starts the count
-// again. A round whose latest attempt a human's review superseded before it
-// launched (OutcomeSupersededByHuman), or an approver's /maul verify stop
-// cancelled (OutcomeStoppedByHuman), is not counted: it never ran.
-// status.verifyFixes, which counts completed rounds only, is a display
-// mirror and never this count.
+// revision in which an agent tried a fix (fixTried), and the one in
+// flight, so a new approved plan starts the count again. A round no agent
+// ran in, every attempt cancelled, refused or failed before it started, is
+// not counted; one whose first attempt ran is, however its retry ended,
+// cancelled by a human included. status.verifyFixes, which counts
+// completed rounds only, is a display mirror and never this count.
 func (p *pass) verifyFixRounds() int32 {
 	ap := p.in.Status.Approval
 	if ap == nil {
@@ -64,20 +115,13 @@ func (p *pass) verifyFixRounds() int32 {
 	seen := map[int32]bool{}
 	for _, run := range p.runs {
 		if run.Spec.Stage != v1alpha1.IntentStageRevise || roundKindOf(run.Spec.Trigger) != roundVerify ||
-			run.Spec.Inputs.PlanRevision != ap.PlanRevision {
+			run.Spec.Inputs.PlanRevision != ap.PlanRevision || seen[run.Spec.Round] {
 			continue
 		}
-		if latest := p.round(v1alpha1.IntentStageRevise, run.Spec.Round, anyRepository).latest(); latest != nil &&
-			latest.Status.Phase == v1alpha1.RunFailed && cancelledUnlaunched(latest.Status.Outcome) {
-			continue
+		rs := p.round(v1alpha1.IntentStageRevise, run.Spec.Round, anyRepository)
+		if !rs.finished() || rs.fixTried() {
+			seen[run.Spec.Round] = true
 		}
-		seen[run.Spec.Round] = true
 	}
 	return int32(len(seen))
-}
-
-// cancelledUnlaunched reports the outcome of an acceptance-fix run a human
-// cancelled before its Job was created: a review or command, or a stop.
-func cancelledUnlaunched(outcome string) bool {
-	return outcome == OutcomeSupersededByHuman || outcome == OutcomeStoppedByHuman
 }

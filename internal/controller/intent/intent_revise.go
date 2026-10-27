@@ -24,6 +24,7 @@ import (
 	"github.com/devthenet-labs/maul/internal/attribution"
 	"github.com/devthenet-labs/maul/internal/command"
 	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/report"
 	"github.com/devthenet-labs/maul/internal/templates"
 	"github.com/devthenet-labs/maul/internal/untrusted"
 	"github.com/devthenet-labs/maul/internal/usagerollup"
@@ -96,6 +97,10 @@ func (p *pass) revising(ctx context.Context) (bool, error) {
 	}
 }
 
+// maxNoDefectReasonBytes bounds the no-defect reason the Intent records
+// (NoDefectRecord.Reason's schema bound).
+const maxNoDefectReasonBytes = 1024
+
 // completedRevise ends a round whose run completed: it owns one pushed
 // commit, or, an acceptance fix, found no defect and pushed nothing, which
 // halts automatic fixes (FixFoundNoDefect). The phase write makes the
@@ -110,6 +115,10 @@ func (p *pass) completedRevise(ctx context.Context, run *v1alpha1.IntentRun) (bo
 		cur.Status.ActiveRun = nil
 		settleVerifyRound(cur, run, !found)
 		if found {
+			if nv := cur.Status.Verification; nv != nil {
+				nv.NoDefect = &v1alpha1.NoDefectRecord{Run: run.Name, Reason: report.Bound(run.Status.Detail,
+					maxNoDefectReasonBytes), At: metav1.NewTime(p.now)}
+			}
 			haltOn(cur, v1alpha1.AutoFixFixFoundNoDefect, "", fmt.Sprintf("the acceptance-fix round %s found "+
 				"no defect in the code and changed nothing; the failing criteria are left to the reviewers",
 				run.Name), metav1.NewTime(p.now))

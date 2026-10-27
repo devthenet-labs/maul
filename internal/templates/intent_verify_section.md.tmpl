@@ -18,6 +18,10 @@ renders a line break inside a comment as a hard break. */ -}}
 {{ . | chomp }}
 {{- end }}
 {{- end }}
+{{- with .Omitted }}
+
+Evidence left out: {{ . }} more not shown, to keep this comment within GitHub's size limit.
+{{- end }}
 {{- range .Notes }}
 
 {{ . }}
@@ -40,3 +44,7 @@ Log tail of {{ .Part }}:
 {{- end }}
 {{- end }}
 {{- template "verify_detail" . }}
+{{- if .LogsCut }}
+
+Component log tails were left out: they would not fit in this comment.
+{{- end }}

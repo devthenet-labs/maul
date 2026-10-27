@@ -266,6 +266,7 @@ func (p *pass) leaseVerifyFix(ctx context.Context, pr *v1alpha1.IntentPullReques
 		cur.Status.ActiveRun = &v1alpha1.ObjectReference{Name: run.Name, UID: run.UID}
 		if nv := cur.Status.Verification; nv != nil {
 			nv.State = v1alpha1.VerificationFixing
+			nv.NoDefect = nil
 		}
 	})
 }
@@ -307,6 +308,11 @@ func haltOn(cur *v1alpha1.Intent, reason v1alpha1.AutoFixReason, state v1alpha1.
 	halt(nv, reason, now)
 	if state != "" {
 		nv.State = state
+	}
+	if nv.AutoFix.Reason != reason {
+		// Halted already, for another reason the latch keeps: the
+		// condition names the latch's reason, never this one.
+		return
 	}
 	switch reason {
 	case v1alpha1.AutoFixRepeatedFailure, v1alpha1.AutoFixMaxVerifyFixes, v1alpha1.AutoFixCostCeiling,
@@ -350,29 +356,31 @@ func (p *pass) verificationConsumed(uid types.UID) bool {
 }
 
 // priorVerifyFailure is the failure the latest finished acceptance-fix
-// round of the approved plan revision was started for, read from the input
-// of its latest attempt that has one; zero with none. A round finished
-// when its latest attempt did, completed or failed (beatbattle-44's rev1
-// failed every attempt and pushed nothing, and the failure it was for came
-// back unchanged); only a round no agent ever ran for (cancelled, refused or
-// unschedulable before its Job) is no fix at all.
+// round of the approved plan revision in which an agent tried a fix
+// (fixTried, the rule verifyFixRounds counts by) was started for, read
+// from the input of its latest attempt that has one; zero with none. The
+// round counts whether it pushed, found no defect or failed every attempt
+// (beatbattle-44's rev1 pushed nothing, and the failure it was for came
+// back unchanged). An approver's /maul verify fix re-arms automatic fixes
+// against that judgement: no round at or before the re-arm
+// (autoFix.rearm.round) is compared with.
 func (p *pass) priorVerifyFailure(ctx context.Context) (priorFailure, error) {
 	ap := p.in.Status.Approval
 	var round int32
+	if rearm := p.in.Status.Verification.AutoFix.Rearm; rearm != nil {
+		round = rearm.Round
+	}
+	floor := round
 	for _, run := range p.runs {
 		if run.Spec.Stage != v1alpha1.IntentStageRevise || roundKindOf(run.Spec.Trigger) != roundVerify ||
 			run.Spec.Inputs.PlanRevision != ap.PlanRevision || run.Spec.Round <= round {
 			continue
 		}
-		rs := p.round(v1alpha1.IntentStageRevise, run.Spec.Round, anyRepository)
-		latest := rs.latest()
-		if latest == nil || (latest.Status.Phase != v1alpha1.RunComplete && latest.Status.Phase != v1alpha1.RunFailed) ||
-			!slices.ContainsFunc(rs, func(r *v1alpha1.IntentRun) bool { return r.Status.JobRef != nil }) {
-			continue
+		if rs := p.round(v1alpha1.IntentStageRevise, run.Spec.Round, anyRepository); rs.finished() && rs.fixTried() {
+			round = run.Spec.Round
 		}
-		round = run.Spec.Round
 	}
-	if round == 0 {
+	if round == floor {
 		return priorFailure{}, nil
 	}
 	rs := p.round(v1alpha1.IntentStageRevise, round, anyRepository)

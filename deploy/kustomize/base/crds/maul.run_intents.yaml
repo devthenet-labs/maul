@@ -1585,6 +1585,30 @@ spec:
                     maximum: 16
                     minimum: 0
                     type: integer
+                  noDefect:
+                    description: |-
+                      NoDefect is the latest acceptance-fix round's conclusion that the code
+                      has no defect, kept apart from the auto-fix latch: it stands whatever
+                      halted the latch, until the next fix round or plan revision.
+                    properties:
+                      at:
+                        description: At is when the round completed.
+                        format: date-time
+                        type: string
+                      reason:
+                        description: Reason is the agent's account of why the verification
+                          failed.
+                        maxLength: 1024
+                        type: string
+                      run:
+                        description: Run is the IntentRun that concluded it.
+                        maxLength: 63
+                        minLength: 1
+                        type: string
+                    required:
+                    - at
+                    - run
+                    type: object
                   notRun:
                     description: NotRun counts the criteria this slice cannot run
                       yet.
