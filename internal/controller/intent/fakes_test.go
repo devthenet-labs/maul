@@ -1431,6 +1431,9 @@ type env struct {
 	failRepoDeletes int
 	// refuseUsage fails every Intent status write that changes the usage.
 	refuseUsage bool
+	// getHook, when set, is asked before every Get; an error it returns is
+	// the Get's.
+	getHook func(client.Object) error
 }
 
 // intentStatusSchema refuses what the Intent CRD's status schema refuses of
@@ -1511,6 +1514,15 @@ func newEnv(t *testing.T, objs ...client.Object) *env {
 		WithStatusSubresource(&v1alpha1.Project{}, &v1alpha1.Intent{}, &v1alpha1.IntentRun{},
 			&v1alpha1.Repository{}, &v1alpha1.UsageRollup{}).
 		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object,
+				opts ...client.GetOption) error {
+				if e.getHook != nil {
+					if err := e.getHook(obj); err != nil {
+						return err
+					}
+				}
+				return c.Get(ctx, key, obj, opts...)
+			},
 			Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
 				if obj.GetUID() == "" {
 					e.uid++

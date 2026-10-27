@@ -51,6 +51,7 @@ func TestPlanJobIsToldItsVerification(t *testing.T) {
 				{Key: "web", Path: "/", Readiness: "/healthz"},
 			}}},
 		{"project does not verify", one(), false, true, true, nil},
+		{"project verifies but previews nothing", verify(testProject()), false, true, true, nil},
 		{"controller does not verify", verify(one()), false, false, true, nil},
 		{"controller has no previews", verify(one()), false, true, false, nil},
 	} {

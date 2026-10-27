@@ -301,7 +301,7 @@ func (p *pass) planComment(revision int32, raw []byte) (templates.PlanComment, e
 		Summary: parsed.Summary, NewDependencies: parsed.NewDependencies, Questions: parsed.Questions,
 		ApproveLabel: approveLabel(p.proj), TriggerLabel: p.trigger(),
 		Repositories: repositorySlugs(repos), NetworkProfiles: profiles, NetworkRoutes: routes,
-		Acceptance: planAcceptance(p.set.verifies(p.proj), parsed.Acceptance),
+		Acceptance: planAcceptance(p.set.planAsk(p.proj), parsed.Acceptance),
 	}, nil
 }
 

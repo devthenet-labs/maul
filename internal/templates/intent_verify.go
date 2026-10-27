@@ -388,6 +388,9 @@ func RenderVerifyComment(c VerifyComment) (string, error) {
 type PlanAcceptance struct {
 	// Off: verification is off for the Project.
 	Off bool
+	// NotAsked: the Project verifies, but previews no repository a
+	// criterion could target, so the planner was not asked for criteria.
+	NotAsked bool
 	// Automated counts the criteria maul checks (http); NotRun the ones it
 	// parses and shows but does not run until their slice (command).
 	Automated, NotRun int
@@ -405,6 +408,10 @@ func planAcceptanceLine(a *PlanAcceptance) string {
 	}
 	if a.Off {
 		return "not checked: verification is off for this Project."
+	}
+	if a.NotAsked {
+		return "not asked for: this Project verifies, but previews no repository a criterion could target, so " +
+			"maul could not ask the planner for criteria and none will be checked."
 	}
 	var parts []string
 	if a.Automated > 0 {
@@ -451,10 +458,12 @@ type PlanVerifyComponent struct {
 	Readiness string `json:"readiness,omitempty"`
 }
 
-// statable is what of v a prompt can state: each field on one line, the
-// components with a key and a path, at most planVerificationMaxComponents;
-// nil when none is left.
-func (v *PlanVerification) statable() *PlanVerification {
+// Normalize is what of v a plan can be told, the one normaliser behind both
+// the handoff (EncodePlanVerification) and the prompt (RenderPlanPrompt):
+// each field on one line, only the components with a key and a path, at
+// most planVerificationMaxComponents, in order; nil when none is left, and
+// the prompt then has no acceptance section.
+func (v *PlanVerification) Normalize() *PlanVerification {
 	if v == nil {
 		return nil
 	}
@@ -475,10 +484,10 @@ func (v *PlanVerification) statable() *PlanVerification {
 }
 
 // EncodePlanVerification is the JSON a plan Job hands agent-runner as
-// MAUL_PLAN_VERIFICATION: what the prompt can state of v (statable); "" for
+// MAUL_PLAN_VERIFICATION: v as the prompt states it (Normalize); "" for
 // none.
 func EncodePlanVerification(v *PlanVerification) string {
-	v = v.statable()
+	v = v.Normalize()
 	if v == nil {
 		return ""
 	}
@@ -524,19 +533,3 @@ func DecodePlanVerification(s string) (*PlanVerification, error) {
 
 // planVerificationMaxComponents bounds the components the prompt lists.
 const planVerificationMaxComponents = 8
-
-func (v *PlanVerification) quotable() *PlanVerification {
-	if v == nil {
-		return nil
-	}
-	out := &PlanVerification{}
-	for i, c := range v.Components {
-		if i == planVerificationMaxComponents {
-			break
-		}
-		out.Components = append(out.Components, PlanVerifyComponent{
-			Key: oneLine(c.Key), Path: oneLine(c.Path), Readiness: oneLine(c.Readiness),
-		})
-	}
-	return out
-}

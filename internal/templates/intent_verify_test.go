@@ -88,6 +88,11 @@ func TestVerifyGoldens(t *testing.T) {
 			pc.Acceptance = &PlanAcceptance{Off: true}
 			return RenderPlanComment(pc)
 		}},
+		{"intent_plan_acceptance_not_asked.md", func() (string, error) {
+			pc := testPlanComment(testPlan)
+			pc.Acceptance = &PlanAcceptance{NotAsked: true}
+			return RenderPlanComment(pc)
+		}},
 		{"prompt_plan_verification.md", func() (string, error) {
 			return RenderPlanPrompt(PlanPrompt{
 				IssuePath: "/workspace/input/issue.md", ReportPath: "/workspace/reports/plan.md",

@@ -1065,22 +1065,15 @@ func (r *RunReconciler) planBuildProfiles(run *v1alpha1.IntentRun) string {
 // (jobs.Spec.PlanVerification, MAUL_PLAN_VERIFICATION): the previewed
 // components its acceptance criteria can target, each by the key a
 // criterion's target names, the path it is served under and its readiness
-// path, from the Project's operator configuration alone
-// (v1alpha1.EffectivePreviews, the components every Preview of it is
-// derived from). Only while the Project verifies and this controller can
-// verify it (--intent-verification with --intent-previews-enabled, else the
-// intent's verification is Off): the plan prompt then asks for criteria,
-// and otherwise says nothing of them. "" for none.
+// path, from the Project's operator configuration alone (planAsk). Only
+// when the plan is asked for criteria (planAsk.asked): the plan prompt then
+// asks for them, and otherwise says nothing of them. "" for none.
 func (r *RunReconciler) planVerification(proj *v1alpha1.Project) string {
-	if !r.Settings.verifies(proj) {
+	a := r.Settings.planAsk(proj)
+	if !a.asked() {
 		return ""
 	}
-	v := &templates.PlanVerification{}
-	for _, rp := range v1alpha1.EffectivePreviews(proj) {
-		v.Components = append(v.Components, templates.PlanVerifyComponent{
-			Key: rp.Name, Path: rp.Path, Readiness: rp.Preview.ReadinessPath})
-	}
-	return templates.EncodePlanVerification(v)
+	return templates.EncodePlanVerification(a.targets)
 }
 
 // planOpenPullRequests is what a plan run's Job is handed of the other
@@ -1569,13 +1562,17 @@ func (r *RunReconciler) collectPlan(ctx context.Context, run *v1alpha1.IntentRun
 	case ev.Outcome != envelope.OutcomeOK:
 		res.outcome, res.detail = podOutcome(ev.Outcome, ev.Detail)
 	default:
-		proj, gone := r.planProject(ctx, run)
+		proj, gone, err := r.planProject(ctx, run)
+		if err != nil {
+			// Transient: requeue, spending no attempt.
+			return err
+		}
 		if bad := outsideProject(proj, plan.Repositories); gone != "" || bad != "" {
 			res.outcome = string(envelope.OutcomeReportInvalid)
 			res.detail = "the plan names a repository outside the project: " + gone + bad
 			break
 		}
-		if bad := unpreviewedTarget(proj, plan.Acceptance); bad != "" {
+		if bad := unpreviewedTarget(r.Settings.planAsk(proj), proj, plan.Acceptance); bad != "" {
 			res.outcome = string(envelope.OutcomeReportInvalid)
 			res.detail = "the plan's acceptance " + bad
 			break
@@ -1585,18 +1582,28 @@ func (r *RunReconciler) collectPlan(ctx context.Context, run *v1alpha1.IntentRun
 	return r.settle(ctx, run, res)
 }
 
-// planProject is the run's Project, read through its Intent, or why it
-// cannot be read ("(the intent is gone)", "(the project is gone)").
-func (r *RunReconciler) planProject(ctx context.Context, run *v1alpha1.IntentRun) (*v1alpha1.Project, string) {
+// planProject is the run's Project, read through its Intent; or, when
+// either is NotFound, why it is gone ("(the intent is gone)", "(the project
+// is gone)"). Any other read error is returned, for the pass to requeue.
+func (r *RunReconciler) planProject(ctx context.Context, run *v1alpha1.IntentRun) (
+	proj *v1alpha1.Project, gone string, err error) {
 	var in v1alpha1.Intent
-	var proj v1alpha1.Project
-	if err := r.Get(ctx, types.NamespacedName{Namespace: run.Namespace, Name: run.Spec.IntentRef.Name}, &in); err != nil {
-		return nil, "(the intent is gone)"
+	err = r.Get(ctx, types.NamespacedName{Namespace: run.Namespace, Name: run.Spec.IntentRef.Name}, &in)
+	switch {
+	case kerrors.IsNotFound(err):
+		return nil, "(the intent is gone)", nil
+	case err != nil:
+		return nil, "", fmt.Errorf("read intent %s: %w", run.Spec.IntentRef.Name, err)
 	}
-	if err := r.Get(ctx, types.NamespacedName{Namespace: run.Namespace, Name: in.Spec.Project}, &proj); err != nil {
-		return nil, "(the project is gone)"
+	proj = &v1alpha1.Project{}
+	err = r.Get(ctx, types.NamespacedName{Namespace: run.Namespace, Name: in.Spec.Project}, proj)
+	switch {
+	case kerrors.IsNotFound(err):
+		return nil, "(the project is gone)", nil
+	case err != nil:
+		return nil, "", fmt.Errorf("read project %s: %w", in.Spec.Project, err)
 	}
-	return &proj, ""
+	return proj, "", nil
 }
 
 // outsideProject is the first of repos not among proj's repositories, or
