@@ -188,6 +188,54 @@ Each field has a type and hard limits, and a frontmatter that breaks any of them
 Escape a double quote inside a string as `\"`. Unquoted prose containing a colon is invalid YAML and is refused, and
 so is a YAML-tagged value (`!!binary`, `!!str`). To correct the report once it is written, Edit it in place rather than
 writing it again.
+{{- with .Verification }}
+
+### Acceptance criteria
+
+This Project verifies each pull request's change running in a live preview before a human reviews it. Add one more
+frontmatter field after `estimated_token_budget`, `acceptance`, a list of at most 16 criteria (at most 48 steps in
+total) that state, checkably, what the approved plan must deliver. Write only criteria a request to the running
+preview can decide; for what only a person can judge, write a `manual` criterion. Omit the field when nothing can be
+checked.
+
+```yaml
+acceptance:
+  - id: leaderboard          # lowercase letters, digits and hyphens, starting with a letter; at most 32; unique
+    kind: http               # http | manual (command is accepted but not run yet)
+    statement: a leaderboard ranks patterns by votes    # one line, at most 200 characters
+    target: <component key>  # one of the keys below
+    steps:                   # 1 to 8
+      - name: create
+        request: {method: POST, path: /api/battles, json: {name: "maul-{{"{{"}}run{{"}}"}}"}}
+        expect: {status: 201}
+        capture: {battle: /id}          # at most 4 per step: name -> JSON pointer into the response
+      - request: {method: GET, path: "/api/battles/{{"{{"}}capture.battle{{"}}"}}"}
+        expect: {status: 200, json: {/name: "maul-{{"{{"}}run{{"}}"}}"}}
+  - id: sounds-good
+    kind: manual
+    statement: it sounds good
+    reason: only a human can judge how it sounds    # at most 120 characters
+```
+
+Rules the checks keep to:
+
+- A request has a `method` (GET, HEAD, POST, PUT, PATCH or DELETE), a `path` that starts with one `/` (no `//`, `..`,
+  `@` or `://`), and optionally `json` or `body` (not both), and at most 8 `headers`. The path is sent unchanged to the
+  component, so write it as the component serves it.
+- `expect` holds `status` (a number or a list of numbers), `json` (at most 8 entries, a JSON pointer to a literal or to
+  one matcher: `{$present: true}`, `{$absent: true}`, `{$contains: "text"}`, `{$approx: n, $tolerance: n}`, or
+  `{$order: [...], $by: <pointer>}`), `headers` and `bodyContains` (at most 200 characters).
+- `{{"{{"}}run{{"}}"}}` and `{{"{{"}}capture.<name>{{"}}"}}` are the only substitutions. Name each datum a check creates with
+  `{{"{{"}}run{{"}}"}}`: the preview is never reset between verification rounds, and each check runs against whatever the
+  earlier ones left. Prefer reads scoped to what the check created over global lists.
+- A capture is usable only by later steps, and its name is lowercase letters and digits, at most 16.
+- A criterion is unverifiable if it needs something the preview does not serve: target only these components.
+
+Previewed components a criterion's `target` can name:
+{{ range .Components }}
+- `{{ .Key }}`: served under `{{ .Path }}`{{ with .Readiness }}, ready when `{{ . }}` answers{{ end }}
+{{- end }}
+{{- end }}
 
 After the frontmatter, write the plan in markdown under the headings Approach, Steps, Test plan and Risks, in at most
 48 KiB; the whole report, frontmatter included, is at most 56 KiB. It is posted to the request for a human to

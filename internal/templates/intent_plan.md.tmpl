@@ -16,6 +16,10 @@ as a hard break. */ -}}
 
 **Repositories:** maul opens one pull request in each of: {{ . }}.
 {{- end }}
+{{- with .Acceptance }}
+
+**Acceptance:** {{ . }}
+{{- end }}
 {{- if or .Invisible .Wide .BlankRun .NewDependencies .Questions .BuilderNotes }}
 
 ### Before you approve

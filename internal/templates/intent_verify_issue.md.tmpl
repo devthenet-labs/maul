@@ -1,0 +1,25 @@
+{{- /* The verification comment on an intent's issue: one per verification
+round, edited per attempt, headed by its notice marker. The table and every
+sentence are maul's; see intent_verify_section.md.tmpl for the shared detail
+and for what agent text is shown. One line per paragraph. */ -}}
+{{ .Marker }}
+### maul: verification, round {{ .Round }} (attempt {{ .Attempt }})
+{{- with .Line }}
+
+{{ . }}
+{{- end }}
+{{- with .Rows }}
+
+| Check | Kind | Outcome |
+| --- | --- | --- |
+{{- range . }}
+| {{ .IDCell }} | {{ .KindCell }} | {{ .Outcome }} |
+{{- end }}
+{{- end }}
+{{- template "verify_detail" . }}
+{{- if .LogsCut }}
+
+Component log tails were left out: they would not fit in a comment.
+{{- end }}
+
+_maul edits this comment as the attempts of this round finish._

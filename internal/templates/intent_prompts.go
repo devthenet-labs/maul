@@ -103,6 +103,12 @@ type PlanPrompt struct {
 	// itself carries no profile. None omits the paragraph, and the prompt
 	// is exactly the prompt without it.
 	BuildProfiles []BuildProfile
+	// Verification is the Project's acceptance verification: set only while
+	// it is enabled, it teaches the planner the optional `acceptance`
+	// frontmatter list and names the previewed components criteria can
+	// target. nil omits the section, and the prompt is exactly the prompt
+	// without it.
+	Verification *PlanVerification
 }
 
 // BuildProfile is one repository whose build gets an operator network
@@ -253,6 +259,7 @@ func RenderPlanPrompt(p PlanPrompt) (string, error) {
 	}
 	p.OpenPullRequests = BoundOpenPullRequests(p.OpenPullRequests)
 	p.BuildProfiles = boundBuildProfiles(p.BuildProfiles)
+	p.Verification = p.Verification.quotable()
 	return render("prompt_plan.md.tmpl", p)
 }
 

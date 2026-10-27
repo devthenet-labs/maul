@@ -314,6 +314,11 @@ type PlanComment struct {
 	// build, which ecosystems it fetches, through which registry and under
 	// which policy, and from which hosts over HTTPS.
 	NetworkRoutes []NetworkRoutes
+	// Acceptance counts the plan's acceptance criteria for the header's
+	// acceptance line, from the parsed frontmatter only (acceptance
+	// verification). nil omits the line, and the comment is exactly the
+	// comment before the field existed.
+	Acceptance *PlanAcceptance
 }
 
 // RenderPlanComment renders a plan for approval: headed by PlanMarker over
@@ -423,6 +428,7 @@ func planComment(p PlanComment, digest string, view planView, advice string) (st
 		OthersOffline   bool
 		Advice          string
 		RouteAdvice     string
+		Acceptance      string
 		Plan            string
 	}{
 		Marker:          PlanMarker(p.Namespace, p.Intent, p.Revision, digest),
@@ -448,6 +454,7 @@ func planComment(p PlanComment, digest string, view planView, advice string) (st
 		OthersOffline:   offline,
 		Advice:          advice,
 		RouteAdvice:     routeAdvice,
+		Acceptance:      planAcceptanceLine(p.Acceptance),
 		Plan:            verbatim("markdown", string(p.Report)),
 	})
 }
