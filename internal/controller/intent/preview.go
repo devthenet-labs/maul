@@ -79,11 +79,18 @@ func (r *PreviewSourceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	if !existing.DeletionTimestamp.IsZero() {
 		return ctrl.Result{RequeueAfter: time.Minute}, nil
 	}
+	if !reflect.DeepEqual(existing.Spec.Environment, desired.Spec.Environment) {
+		// spec.environment is immutable (CEL): a changed one is a new
+		// Preview, with fresh services (D6). The next pass creates it.
+		uid := existing.UID
+		return ctrl.Result{RequeueAfter: time.Second}, client.IgnoreNotFound(r.Delete(ctx, &existing,
+			&client.DeleteOptions{Preconditions: &metav1.Preconditions{UID: &uid}}))
+	}
 	return ctrl.Result{RequeueAfter: time.Minute}, r.syncSpec(ctx, &existing, desired)
 }
 
 // syncSpec brings an existing Preview's writable spec to the desired one:
-// its components, and spec.project once. spec.project is set once (the
+// its components, its resetGeneration (raised, never lowered) and spec.project once. spec.project is set once (the
 // schema refuses any other change): a Preview written before the field
 // existed gets it here, and one naming another Project is not this Intent's
 // to fix. preview-controller renders nothing for it, and the sign-in relay
@@ -93,11 +100,14 @@ func (r *PreviewSourceReconciler) syncSpec(ctx context.Context, existing, desire
 		return fmt.Errorf("preview %s names Project %q, not its Intent's %q",
 			existing.Name, existing.Spec.Project, desired.Spec.Project)
 	}
-	if existing.Spec.Project != "" && reflect.DeepEqual(existing.Spec.Components, desired.Spec.Components) {
+	resetGeneration := max(existing.Spec.ResetGeneration, desired.Spec.ResetGeneration)
+	if existing.Spec.Project != "" && reflect.DeepEqual(existing.Spec.Components, desired.Spec.Components) &&
+		existing.Spec.ResetGeneration == resetGeneration {
 		return nil
 	}
 	existing.Spec.Project = desired.Spec.Project
 	existing.Spec.Components = desired.Spec.Components
+	existing.Spec.ResetGeneration = resetGeneration
 	return r.Update(ctx, existing)
 }
 
@@ -111,14 +121,24 @@ func desiredPreview(in *v1alpha1.Intent, project *v1alpha1.Project) (*v1alpha1.P
 	if !ok {
 		return nil, false
 	}
+	// The environment and the reset generation come as a pair: both are
+	// the verification-capable Preview's, and without an environment there
+	// is nothing for a reset to restart.
+	environment, verifying := v1alpha1.DesiredPreviewEnvironment(project, in)
+	var resetGeneration int64
+	if verifying && in.Status.Verification != nil {
+		resetGeneration = in.Status.Verification.Reset.Generation
+	}
 	return &v1alpha1.Preview{
 		ObjectMeta: metav1.ObjectMeta{Name: in.Name, Namespace: in.Namespace},
 		Spec: v1alpha1.PreviewSpec{
-			IntentRef:  v1alpha1.ObjectReference{Name: in.Name, UID: in.UID},
-			Project:    in.Spec.Project,
-			HostLabel:  in.Name,
-			Components: components,
-			TTL:        metav1.Duration{Duration: previewTTL},
+			IntentRef:       v1alpha1.ObjectReference{Name: in.Name, UID: in.UID},
+			Project:         in.Spec.Project,
+			HostLabel:       in.Name,
+			Components:      components,
+			TTL:             metav1.Duration{Duration: previewTTL},
+			Environment:     environment,
+			ResetGeneration: resetGeneration,
 		},
 	}, true
 }
