@@ -393,7 +393,11 @@ func TestIntentVerifyPasses(t *testing.T) {
 	e := startVerify(t, versionCriterion+manualCriterion, http.StatusOK)
 	number, name, pr := e.toReview(t)
 
-	in := e.intent(t, name)
+	// intent-controller records the approved criteria on a pass after the
+	// Intent reaches InReview, so wait for them rather than reading at once.
+	in := e.waitFor(t, name, "the approved plan's acceptance recorded", func(in *v1alpha1.Intent) bool {
+		return in.Status.Acceptance != nil
+	})
 	if acc := in.Status.Acceptance; acc == nil || acc.PlanRevision != 1 || len(acc.Criteria) != 2 ||
 		acc.Criteria[0].ID != "version-served" || acc.Criteria[1].Kind != v1alpha1.AcceptanceManual {
 		t.Fatalf("recorded acceptance = %+v, want the approved plan's two criteria", in.Status.Acceptance)
