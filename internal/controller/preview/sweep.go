@@ -6,13 +6,16 @@ package preview
 import (
 	"context"
 	"log/slog"
+	"regexp"
 	"strings"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -227,7 +230,92 @@ func (s *Sweeper) sweepSlot(ctx context.Context, namespace string, slot int32, l
 			return err
 		}
 	}
+	if !s.Settings.verifying() {
+		return nil
+	}
+	return s.sweepVerification(ctx, namespace, slot, live)
+}
+
+// sweepVerification removes what verification left in a slot: the
+// NetworkPolicies and tester Jobs of a Preview no longer holding the slot, a
+// tester Job whose PreviewVerification is gone, and a tester Pod whose Job is
+// gone (one deleted without background propagation). Pods are listed before
+// Jobs, so a Pod seen here has a Job the Job list sees too, whichever was
+// created last; a component's Pod is never the sweep's.
+func (s *Sweeper) sweepVerification(ctx context.Context, namespace string, slot int32, live map[string]int32) error {
+	selector := client.MatchingLabels{labelManagedBy: managedBy}
+	var policies networkingv1.NetworkPolicyList
+	if err := s.List(ctx, &policies, client.InNamespace(namespace), selector); err != nil {
+		return err
+	}
+	for i := range policies.Items {
+		if err := s.deleteOrphan(ctx, &policies.Items[i], slot, live); err != nil {
+			return err
+		}
+	}
+	var pods corev1.PodList
+	if err := s.List(ctx, &pods, client.InNamespace(namespace), selector,
+		client.MatchingLabels{labelRole: string(v1alpha1.PreviewRoleTester)}); err != nil {
+		return err
+	}
+	var jobs batchv1.JobList
+	if err := s.List(ctx, &jobs, client.InNamespace(namespace), selector); err != nil {
+		return err
+	}
+	verifications, err := s.liveVerifications(ctx, jobs.Items)
+	if err != nil {
+		return err
+	}
+	kept := make(map[types.UID]bool, len(jobs.Items))
+	for i := range jobs.Items {
+		job := &jobs.Items[i]
+		if !renderedName(job) {
+			continue
+		}
+		held, ok := live[job.Labels[labelPreviewUID]]
+		if ok && held == slot && verifications[job.Labels[labelVerificationUID]] {
+			kept[job.UID] = true
+			continue
+		}
+		s.logOrphan(ctx, objectKind(job), job)
+		if err := deleteJob(ctx, s.Client, job); err != nil {
+			return err
+		}
+	}
+	for i := range pods.Items {
+		pod := &pods.Items[i]
+		owner := metav1.GetControllerOf(pod)
+		if owner != nil && owner.Kind == "Job" && kept[owner.UID] {
+			continue
+		}
+		if !testerPodName(pod) {
+			continue
+		}
+		s.logOrphan(ctx, "Pod", pod)
+		if err := s.Delete(ctx, pod); err != nil && !kerrors.IsNotFound(err) {
+			return err
+		}
+	}
 	return nil
+}
+
+// liveVerifications are the UIDs of the PreviewVerifications in the release
+// namespace, read only when there is a Job to judge.
+func (s *Sweeper) liveVerifications(ctx context.Context, jobs []batchv1.Job) (map[string]bool, error) {
+	if len(jobs) == 0 {
+		return nil, nil
+	}
+	var list v1alpha1.PreviewVerificationList
+	if err := s.List(ctx, &list, client.InNamespace(s.Settings.Namespace)); err != nil {
+		return nil, err
+	}
+	out := make(map[string]bool, len(list.Items))
+	for _, pv := range list.Items {
+		if pv.DeletionTimestamp.IsZero() {
+			out[string(pv.UID)] = true
+		}
+	}
+	return out, nil
 }
 
 func (s *Sweeper) deleteOrphan(ctx context.Context, obj client.Object, slot int32, live map[string]int32) error {
@@ -238,11 +326,7 @@ func (s *Sweeper) deleteOrphan(ctx context.Context, obj client.Object, slot int3
 	if held, ok := live[l[labelPreviewUID]]; ok && held == slot {
 		return nil
 	}
-	if s.Log != nil {
-		s.Log.LogAttrs(ctx, slog.LevelInfo, "deleting orphan preview object",
-			slog.String("kind", objectKind(obj)), slog.String("namespace", obj.GetNamespace()),
-			slog.String("name", obj.GetName()))
-	}
+	s.logOrphan(ctx, objectKind(obj), obj)
 	err := s.Delete(ctx, obj)
 	if kerrors.IsNotFound(err) {
 		return nil
@@ -250,17 +334,48 @@ func (s *Sweeper) deleteOrphan(ctx context.Context, obj client.Object, slot int3
 	return err
 }
 
+func (s *Sweeper) logOrphan(ctx context.Context, kind string, obj client.Object) {
+	if s.Log != nil {
+		s.Log.LogAttrs(ctx, slog.LevelInfo, "deleting orphan preview object",
+			slog.String("kind", kind), slog.String("namespace", obj.GetNamespace()),
+			slog.String("name", obj.GetName()))
+	}
+}
+
 // renderedName reports whether obj's name is one the controller renders for
 // the Preview its labels name: preview-<p> (the Ingress, and the first or
 // only component's Deployment and Service), or preview-<p>-<c> for a further
-// component whose component label is c.
+// component whose component label is c; for a NetworkPolicy
+// preview-<p>-np-<part>, and for a Job preview-<p>-vt-<10 hex>.
 func renderedName(obj client.Object) bool {
 	l := obj.GetLabels()
 	p, uid, c := l[labelPreview], l[labelPreviewUID], l[labelComponent]
-	if p == "" || uid == "" || !strings.HasPrefix(obj.GetName(), "preview-") {
+	name := obj.GetName()
+	if p == "" || uid == "" || !strings.HasPrefix(name, "preview-") {
 		return false
 	}
-	return obj.GetName() == "preview-"+p || (c != "" && obj.GetName() == "preview-"+p+"-"+c)
+	switch obj.(type) {
+	case *networkingv1.NetworkPolicy:
+		part, ok := strings.CutPrefix(name, "preview-"+p+policyInfix)
+		return ok && namePattern.MatchString(part)
+	case *batchv1.Job:
+		rest, ok := strings.CutPrefix(name, "preview-"+p)
+		return ok && testerJobPattern.MatchString(rest)
+	}
+	return name == "preview-"+p || (c != "" && name == "preview-"+p+"-"+c)
+}
+
+// testerJobPattern is a tester Job's name past preview-<p>.
+var testerJobPattern = regexp.MustCompile(`^` + testerInfix + `[0-9a-f]{10}$`)
+
+// testerPodName reports whether pod is named as the Job controller names a
+// Pod of a tester Job its labels' Preview renders: preview-<p>-vt-<10 hex>-
+// and a suffix.
+func testerPodName(pod *corev1.Pod) bool {
+	p, uid := pod.Labels[labelPreview], pod.Labels[labelPreviewUID]
+	rest, ok := strings.CutPrefix(pod.Name, "preview-"+p+testerInfix)
+	return p != "" && uid != "" && ok && len(rest) > 11 && testerJobPattern.MatchString(testerInfix+rest[:10]) &&
+		rest[10] == '-'
 }
 
 func objectKind(obj client.Object) string {
@@ -271,6 +386,10 @@ func objectKind(obj client.Object) string {
 		return "Service"
 	case *networkingv1.Ingress:
 		return "Ingress"
+	case *networkingv1.NetworkPolicy:
+		return "NetworkPolicy"
+	case *batchv1.Job:
+		return "Job"
 	default:
 		return "unknown"
 	}

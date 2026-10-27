@@ -13,6 +13,7 @@ import (
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -29,7 +30,8 @@ import (
 )
 
 // Reconciler reads and writes Preview and Intent in the release namespace,
-// and only Deployments, Services, Ingresses, Pods and ReplicaSets in slots.
+// and only Deployments, Services, Ingresses, Pods and ReplicaSets in slots,
+// plus NetworkPolicies and Jobs with verification on (Settings.TesterImage).
 // Client is deliberately uncached for slots and lease decisions. The chart's
 // Roles, not this Go client, enforce the cross-namespace boundary.
 type Reconciler struct {
@@ -39,6 +41,22 @@ type Reconciler struct {
 	Log      *slog.Logger
 	// Events records Warning Events on Previews (nil records none).
 	Events events.EventRecorder
+	// BeforeRelease, when set, runs before a Preview holding a slot tears
+	// its workload down: before a retry deletes its Deployments and before a
+	// Failed or Expired Preview's slot is cleaned. The verification
+	// reconciler records there what a verification running in the slot saw,
+	// while it can still be seen. It runs again at each poll a cleanup
+	// still waits, so it must be idempotent. An error waits for the next
+	// poll.
+	BeforeRelease func(ctx context.Context, p *v1alpha1.Preview) error
+}
+
+// beforeRelease runs the BeforeRelease hook, if any.
+func (r *Reconciler) beforeRelease(ctx context.Context, p *v1alpha1.Preview) error {
+	if r.BeforeRelease == nil {
+		return nil
+	}
+	return r.BeforeRelease(ctx, p)
 }
 
 func (r *Reconciler) now() time.Time {
@@ -101,8 +119,24 @@ func (r *Reconciler) reconcilePresent(ctx context.Context, p *v1alpha1.Preview) 
 // An empty one is a Preview written before the field existed, which the
 // writer stamps on its next pass; it renders as before, and the relay, which
 // needs a Project, fails closed on it meanwhile.
+//
+// The environment, the edges the slot's NetworkPolicies admit, must be
+// exactly the one re-derived (none when the Project does not verify), so no
+// spec writer widens an edge. The reset generation may trail the Intent's
+// (the writer copies it after the Intent records it) but never lead it.
 func matchesApprovedPreview(p *v1alpha1.Preview, in *v1alpha1.Intent, project *v1alpha1.Project) bool {
 	if p.Spec.Project != "" && (p.Spec.Project != in.Spec.Project || p.Spec.Project != project.Name) {
+		return false
+	}
+	env, _ := v1alpha1.DesiredPreviewEnvironment(project, in)
+	if !equality.Semantic.DeepEqual(p.Spec.Environment, env) {
+		return false
+	}
+	var resetGeneration int64
+	if env != nil && in.Status.Verification != nil {
+		resetGeneration = in.Status.Verification.Reset.Generation
+	}
+	if p.Spec.ResetGeneration > resetGeneration {
 		return false
 	}
 	want, ok := v1alpha1.DesiredPreviewComponents(project, in)
@@ -288,7 +322,24 @@ func (r *Reconciler) slotHasManagedObjects(ctx context.Context, slot int32) (boo
 	if err := r.List(ctx, &ingresses, client.InNamespace(ns), selector); err != nil {
 		return false, err
 	}
-	return len(ingresses.Items) > 0, nil
+	if len(ingresses.Items) > 0 || !r.Settings.verifying() {
+		return len(ingresses.Items) > 0, nil
+	}
+	// A leftover tester Job holds the slot's one Job of quota; a leftover
+	// policy selects nothing of a new Preview's, but is swept first all the
+	// same.
+	var jobs batchv1.JobList
+	if err := r.List(ctx, &jobs, client.InNamespace(ns), selector); err != nil {
+		return false, err
+	}
+	if len(jobs.Items) > 0 {
+		return true, nil
+	}
+	var policies networkingv1.NetworkPolicyList
+	if err := r.List(ctx, &policies, client.InNamespace(ns), selector); err != nil {
+		return false, err
+	}
+	return len(policies.Items) > 0, nil
 }
 
 // deploy renders every component into the slot: it prunes the objects of
@@ -330,6 +381,10 @@ func (r *Reconciler) deploy(ctx context.Context, p *v1alpha1.Preview) (ctrl.Resu
 			return r.renderError(ctx, p, err)
 		}
 	}
+	// The declared edges: additive to preview-isolation, so their order
+	// against the Pods is not a security question, and one not rendered
+	// leaves the slot closed rather than open.
+	r.ensureEdges(ctx, p, slot)
 	if r.Settings.targetHealth() {
 		// The Pods must start after their target group bindings exist, or
 		// the load balancer never injects the gate Ready waits for.
@@ -531,12 +586,15 @@ func (r *Reconciler) completeDeployment(ctx context.Context, p *v1alpha1.Preview
 	url := "https://" + r.Settings.host(p)
 	serving := servingSnapshot(p)
 	if p.Status.Phase != v1alpha1.PreviewReady || p.Status.URL != url ||
-		!slices.Equal(p.Status.Components, components) || !equality.Semantic.DeepEqual(p.Status.Serving, serving) {
+		!slices.Equal(p.Status.Components, components) || !equality.Semantic.DeepEqual(p.Status.Serving, serving) ||
+		p.Status.ObservedResetGeneration != p.Spec.ResetGeneration {
 		p.Status.Phase = v1alpha1.PreviewReady
 		p.Status.URL = url
 		p.Status.Message = ""
 		p.Status.Components = components
 		p.Status.Serving = serving
+		// Every component runs a Pod started for this reset (runsComponent).
+		p.Status.ObservedResetGeneration = p.Spec.ResetGeneration
 		if p.Status.LastDeployedAt == nil {
 			t := metav1.NewTime(r.now())
 			p.Status.LastDeployedAt = &t
@@ -583,6 +641,9 @@ func (r *Reconciler) retryError(ctx context.Context, p *v1alpha1.Preview, cause 
 			slog.String("preview", p.Name), slog.Any("error", cause))
 	}
 	if p.Status.Slot != nil {
+		if err := r.beforeRelease(ctx, p); err != nil {
+			return ctrl.Result{}, err
+		}
 		// The host is withdrawn for the retry, except when Ready waits for
 		// target health: the retried Pods need the Ingress's target group
 		// bindings in place to get their gates, and until a target is
@@ -655,6 +716,9 @@ func (r *Reconciler) release(ctx context.Context, p *v1alpha1.Preview) (ctrl.Res
 	if *p.Status.Slot < 0 || int(*p.Status.Slot) >= r.Settings.SlotCount {
 		return ctrl.Result{}, fmt.Errorf("preview %s holds retired slot %d; restore slotCount before cleanup",
 			p.Name, *p.Status.Slot)
+	}
+	if err := r.beforeRelease(ctx, p); err != nil {
+		return r.wait(), err
 	}
 	done, err := r.cleanup(ctx, p)
 	if err != nil || !done {
