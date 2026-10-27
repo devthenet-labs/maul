@@ -123,7 +123,12 @@ func TestTokenPermsValidate(t *testing.T) {
 		{name: "statuses read", perms: TokenPerms{Statuses: PermRead}},
 		{name: "actions read", perms: TokenPerms{Actions: PermRead}},
 		{name: "checks write denied", perms: TokenPerms{Checks: PermWrite}, wantErr: true},
-		{name: "statuses write denied", perms: TokenPerms{Statuses: PermWrite}, wantErr: true},
+		// Statuses write posts maul's commit status, and is only minted alone.
+		{name: "statuses write alone", perms: TokenPerms{Statuses: PermWrite}},
+		{name: "statuses write beside contents denied", perms: TokenPerms{Statuses: PermWrite, Contents: PermRead},
+			wantErr: true},
+		{name: "statuses write beside actions read denied", perms: TokenPerms{Statuses: PermWrite, Actions: PermRead},
+			wantErr: true},
 		// Actions write re-runs failed jobs, and is only ever minted alone.
 		{name: "actions write alone", perms: TokenPerms{Actions: PermWrite}},
 		{name: "actions write beside contents denied", perms: TokenPerms{Actions: PermWrite, Contents: PermRead},

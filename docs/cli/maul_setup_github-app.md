@@ -14,9 +14,10 @@ else; choose at least one:
               pull requests write, and the webhook events code_scanning_alert,
               issues, issue_comment and pull_request (needs --webhook-url, the
               integration-controller's https://<host>/github/webhooks).
-  --intents   intent-driven development: issues, contents and pull requests
-              write. intent-controller polls GitHub, so intents add no webhook.
-  --checks    with --intents: checks, statuses and actions read, which a
+  --intents   intent-driven development: issues, contents, pull requests and
+              statuses write. intent-controller polls GitHub, so intents add no
+              webhook.
+  --checks    with --intents: checks and actions read, which a
               Project's check-fix rounds (spec.checks.fix) need.
   --rerun-failed
               with --checks: actions write, which a Project's

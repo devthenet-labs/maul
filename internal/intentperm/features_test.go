@@ -26,7 +26,7 @@ func TestForApp(t *testing.T) {
 	contentsW := Grant{Permission: Contents, Access: Write}
 	pullsW := Grant{Permission: PullRequests, Access: Write}
 	checksR := Grant{Permission: Checks, Access: Read}
-	statusesR := Grant{Permission: Statuses, Access: Read}
+	statusesW := Grant{Permission: Statuses, Access: Write}
 	actionsR := Grant{Permission: Actions, Access: Read}
 	actionsW := Grant{Permission: Actions, Access: Write}
 	findingEvs := []string{EventCodeScanningAlert, EventIssueComment, EventIssues, EventPullRequest}
@@ -40,16 +40,16 @@ func TestForApp(t *testing.T) {
 		{"security", []Feature{FeatureSecurity}, Needs{
 			Grants: []Grant{contentsW, issuesW, metadataR, pullsW, securityW}, Events: findingEvs}},
 		{"intents", []Feature{FeatureIntents}, Needs{
-			Grants: []Grant{contentsW, issuesW, metadataR, pullsW}}},
+			Grants: []Grant{contentsW, issuesW, metadataR, pullsW, statusesW}}},
 		{"intents and checks", []Feature{FeatureIntents, FeatureChecks}, Needs{
-			Grants: []Grant{actionsR, checksR, contentsW, issuesW, metadataR, pullsW, statusesR}}},
+			Grants: []Grant{actionsR, checksR, contentsW, issuesW, metadataR, pullsW, statusesW}}},
 		{"intents, checks and re-runs", []Feature{FeatureIntents, FeatureChecks, FeatureRerunFailed}, Needs{
-			Grants: []Grant{actionsW, checksR, contentsW, issuesW, metadataR, pullsW, statusesR}}},
+			Grants: []Grant{actionsW, checksR, contentsW, issuesW, metadataR, pullsW, statusesW}}},
 		{"everything but re-runs", []Feature{FeatureSecurity, FeatureIntents, FeatureChecks}, Needs{
-			Grants: []Grant{actionsR, checksR, contentsW, issuesW, metadataR, pullsW, securityW, statusesR},
+			Grants: []Grant{actionsR, checksR, contentsW, issuesW, metadataR, pullsW, securityW, statusesW},
 			Events: findingEvs}},
 		{"everything", Features(), Needs{
-			Grants: []Grant{actionsW, checksR, contentsW, issuesW, metadataR, pullsW, securityW, statusesR},
+			Grants: []Grant{actionsW, checksR, contentsW, issuesW, metadataR, pullsW, securityW, statusesW},
 			Events: findingEvs}},
 		{"a feature named twice counts once", []Feature{FeatureSecurity, FeatureSecurity}, Needs{
 			Grants: []Grant{contentsW, issuesW, metadataR, pullsW, securityW}, Events: findingEvs}},
@@ -93,7 +93,8 @@ func TestForAppRefuses(t *testing.T) {
 // sufficient access, every grant For asks of any Project; with checks, of a
 // Project with check fixes too; with rerun-failed as well, of a Project that
 // re-runs failed checks. Without checks it holds none of the check-fix
-// reads, without rerun-failed no actions write, and an intents App holds no
+// reads (statuses write apart, which every App holds), without rerun-failed
+// no actions write, and an intents App holds no
 // findings grant or event: the least each selection can hold.
 func TestForAppServesEveryProject(t *testing.T) {
 	spec := func(fix []string, rerun bool) *v1alpha1.ProjectSpec {
@@ -126,7 +127,14 @@ func TestForAppServesEveryProject(t *testing.T) {
 				}
 			}
 		}
+		// Statuses write is held by every intents App, checks or not.
+		if held[Statuses] != Write {
+			t.Errorf("%+v: the App holds statuses %q, want write", tc, held[Statuses])
+		}
 		for _, g := range CheckFix() {
+			if g.Permission == Statuses {
+				continue
+			}
 			if _, has := held[g.Permission]; has != tc.checks {
 				t.Errorf("%+v: the App holds %s: %v", tc, g.Permission, has)
 			}

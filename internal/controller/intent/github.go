@@ -93,6 +93,10 @@ type GitHub interface {
 	ListCheckRuns(ctx context.Context, repoURL, sha string) ([]ghclient.CheckRun, error)
 	ListCheckAnnotations(ctx context.Context, repoURL string, id int64, limit int) ([]ghclient.CheckAnnotation, error)
 	ListCommitStatuses(ctx context.Context, repoURL, sha string) ([]ghclient.CommitStatus, error)
+	// CreateCommitStatus posts maul's commit status on a pull request head
+	// and returns its id (statuses write, minted alone).
+	CreateCommitStatus(ctx context.Context, repoURL, sha, state, statusContext, description, targetURL string) (
+		int64, error)
 	ListWorkflowJobs(ctx context.Context, repoURL string, runID int64) ([]ghclient.WorkflowJob, error)
 	GetJobLogTail(ctx context.Context, repoURL string, jobID int64, tailBytes int) (string, error)
 	// ListWorkflowRuns lists the Actions runs of one check suite: the run
@@ -122,7 +126,9 @@ var (
 	pullsRead     = ghclient.TokenPerms{PullRequests: ghclient.PermRead}
 	pullsWrite    = ghclient.TokenPerms{PullRequests: ghclient.PermWrite}
 	checksRead    = ghclient.TokenPerms{Checks: ghclient.PermRead}
-	statusesRead  = ghclient.TokenPerms{Statuses: ghclient.PermRead}
+	// statusesWrite posts maul's commit status and also lists the statuses
+	// at a head (write includes read), so the one cached token serves both.
+	statusesWrite = ghclient.TokenPerms{Statuses: ghclient.PermWrite}
 	actionsRead   = ghclient.TokenPerms{Actions: ghclient.PermRead}
 	// actionsWrite re-runs failed jobs, on a Project with
 	// checks.rerunFailed only; ghclient mints it alone.
@@ -637,11 +643,20 @@ func (g *forgeGitHub) ListCheckAnnotations(ctx context.Context, repoURL string, 
 
 func (g *forgeGitHub) ListCommitStatuses(ctx context.Context, repoURL, sha string) (
 	[]ghclient.CommitStatus, error) {
-	c, repo, err := g.client(ctx, repoURL, statusesRead)
+	c, repo, err := g.client(ctx, repoURL, statusesWrite)
 	if err != nil {
 		return nil, err
 	}
 	return c.ListCommitStatuses(ctx, repo, sha)
+}
+
+func (g *forgeGitHub) CreateCommitStatus(ctx context.Context, repoURL, sha, state, statusContext, description,
+	targetURL string) (int64, error) {
+	c, repo, err := g.client(ctx, repoURL, statusesWrite)
+	if err != nil {
+		return 0, err
+	}
+	return c.CreateCommitStatus(ctx, repo, sha, state, statusContext, description, targetURL)
 }
 
 func (g *forgeGitHub) ListWorkflowJobs(ctx context.Context, repoURL string, runID int64) (

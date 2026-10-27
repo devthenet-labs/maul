@@ -23,7 +23,8 @@ const (
 // TestFor: the intent repository needs issues write; every application
 // repository contents and pull requests write and issues read (the
 // repository reads), plus the check-fix reads when spec.checks.fix names a
-// check, and never otherwise, and actions write beside them when
+// check, and never otherwise, statuses write on every one (maul's commit
+// status), and actions write beside them when
 // spec.checks.rerunFailed is set too, and never without checks to fix.
 func TestFor(t *testing.T) {
 	issuesW := Grant{Permission: Issues, Access: Write}
@@ -31,7 +32,7 @@ func TestFor(t *testing.T) {
 	contentsW := Grant{Permission: Contents, Access: Write}
 	pullsW := Grant{Permission: PullRequests, Access: Write}
 	checksR := Grant{Permission: Checks, Access: Read}
-	statusesR := Grant{Permission: Statuses, Access: Read}
+	statusesW := Grant{Permission: Statuses, Access: Write}
 	actionsR := Grant{Permission: Actions, Access: Read}
 	actionsW := Grant{Permission: Actions, Access: Write}
 
@@ -46,7 +47,7 @@ func TestFor(t *testing.T) {
 				Repositories: []v1alpha1.ProjectRepository{{Name: "web", URL: webURL}}},
 			want: []Requirement{
 				{Role: RoleIntent, URL: intentURL, Grants: []Grant{issuesW}},
-				{Role: RoleApp, Key: "web", URL: webURL, Grants: []Grant{contentsW, pullsW, issuesR}},
+				{Role: RoleApp, Key: "web", URL: webURL, Grants: []Grant{contentsW, pullsW, issuesR, statusesW}},
 			},
 		},
 		{
@@ -57,7 +58,7 @@ func TestFor(t *testing.T) {
 			want: []Requirement{
 				{Role: RoleIntent, URL: intentURL, Grants: []Grant{issuesW}},
 				{Role: RoleApp, Key: "web", URL: webURL,
-					Grants: []Grant{contentsW, pullsW, issuesR, checksR, statusesR, actionsR}},
+					Grants: []Grant{contentsW, pullsW, issuesR, statusesW, checksR, actionsR}},
 			},
 		},
 		{
@@ -68,9 +69,9 @@ func TestFor(t *testing.T) {
 			want: []Requirement{
 				{Role: RoleIntent, URL: intentURL, Grants: []Grant{issuesW}},
 				{Role: RoleApp, Key: "web", URL: webURL,
-					Grants: []Grant{contentsW, pullsW, issuesR, checksR, statusesR, actionsR, actionsW}},
+					Grants: []Grant{contentsW, pullsW, issuesR, statusesW, checksR, actionsR, actionsW}},
 				{Role: RoleApp, Key: "api", URL: apiURL,
-					Grants: []Grant{contentsW, pullsW, issuesR, checksR, statusesR, actionsR, actionsW}},
+					Grants: []Grant{contentsW, pullsW, issuesR, statusesW, checksR, actionsR, actionsW}},
 			},
 		},
 		{
@@ -80,7 +81,7 @@ func TestFor(t *testing.T) {
 				Checks:       v1alpha1.ProjectChecks{RerunFailed: true}},
 			want: []Requirement{
 				{Role: RoleIntent, URL: intentURL, Grants: []Grant{issuesW}},
-				{Role: RoleApp, Key: "web", URL: webURL, Grants: []Grant{contentsW, pullsW, issuesR}},
+				{Role: RoleApp, Key: "web", URL: webURL, Grants: []Grant{contentsW, pullsW, issuesR, statusesW}},
 			},
 		},
 		{
@@ -91,9 +92,9 @@ func TestFor(t *testing.T) {
 			want: []Requirement{
 				{Role: RoleIntent, URL: intentURL, Grants: []Grant{issuesW}},
 				{Role: RoleApp, Key: "web", URL: webURL,
-					Grants: []Grant{contentsW, pullsW, issuesR, checksR, statusesR, actionsR}},
+					Grants: []Grant{contentsW, pullsW, issuesR, statusesW, checksR, actionsR}},
 				{Role: RoleApp, Key: "api", URL: apiURL,
-					Grants: []Grant{contentsW, pullsW, issuesR, checksR, statusesR, actionsR}},
+					Grants: []Grant{contentsW, pullsW, issuesR, statusesW, checksR, actionsR}},
 			},
 		},
 		{
@@ -102,7 +103,7 @@ func TestFor(t *testing.T) {
 				Repositories: []v1alpha1.ProjectRepository{{Name: "web", URL: webURL}}},
 			want: []Requirement{
 				{Role: RoleIntent, URL: webURL, Grants: []Grant{issuesW}},
-				{Role: RoleApp, Key: "web", URL: webURL, Grants: []Grant{contentsW, pullsW, issuesR}},
+				{Role: RoleApp, Key: "web", URL: webURL, Grants: []Grant{contentsW, pullsW, issuesR, statusesW}},
 			},
 		},
 	}
@@ -143,7 +144,7 @@ func TestMerge(t *testing.T) {
 		{Permission: Contents, Access: Write},
 		{Permission: Issues, Access: Write},
 		{Permission: PullRequests, Access: Write},
-		{Permission: Statuses, Access: Read},
+		{Permission: Statuses, Access: Write},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Merge() = %+v, want %+v", got, want)

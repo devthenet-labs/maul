@@ -94,9 +94,10 @@ func newSetupGitHubAppCmd(opts *Options) *cobra.Command {
 			"              pull requests write, and the webhook events code_scanning_alert,\n" +
 			"              issues, issue_comment and pull_request (needs --webhook-url, the\n" +
 			"              integration-controller's https://<host>/github/webhooks).\n" +
-			"  --intents   intent-driven development: issues, contents and pull requests\n" +
-			"              write. intent-controller polls GitHub, so intents add no webhook.\n" +
-			"  --checks    with --intents: checks, statuses and actions read, which a\n" +
+			"  --intents   intent-driven development: issues, contents, pull requests and\n" +
+			"              statuses write. intent-controller polls GitHub, so intents add no\n" +
+			"              webhook.\n" +
+			"  --checks    with --intents: checks and actions read, which a\n" +
 			"              Project's check-fix rounds (spec.checks.fix) need.\n" +
 			"  --rerun-failed\n" +
 			"              with --checks: actions write, which a Project's\n" +

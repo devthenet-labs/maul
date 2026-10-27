@@ -43,24 +43,25 @@ It needs no webhook event, because it polls GitHub, and these permissions:
 | Each app repository            | **Contents**        | Read & write | Push the `maul-intent/…` branch                                                 |
 | Each app repository            | **Pull requests**   | Read & write | Open the pull request; read its reviews and conversation                        |
 | Each app repository            | **Issues**          | Read         | Check a reviewer's or commenter's permission; read the rate budget              |
+| Each app repository            | **Commit statuses** | Read & write | Post maul's own commit status on a pull request; read the statuses at a head    |
 | With `spec.checks.fix`         | **Checks**          | Read         | Find the failed check runs and read their annotations                           |
-| With `spec.checks.fix`         | **Commit statuses** | Read         | Find the failed commit statuses                                                 |
 | With `spec.checks.fix`         | **Actions**         | Read         | Read the job log tail behind a failed Actions check run                         |
 | With `spec.checks.rerunFailed` | **Actions**         | Read & write | Re-run the failed jobs of a failed Actions check run once before a CI-fix round |
 
 Issues read on an app repository is not about its issues: intent-controller reads a pull request reviewer's or
-commenter's repository permission, and the installation's rate budget, with an issues-read token. The three
-`spec.checks.fix` rows are needed only by a Project that names checks in `spec.checks.fix`, on its app repositories.
-Actions at read and write is needed only by a Project that also sets `spec.checks.rerunFailed` (off by default); with
-it, Actions is the one permission at read and write rather than read. Weigh it before you grant it: GitHub has no
-narrower grant, so Actions write lets the App re-run, cancel and dispatch workflows, and delete workflow runs and their
-logs and artifacts, on every repository the App is installed on, not only the app repositories a Project lists.
-intent-controller makes one Actions write call (re-run the failed jobs of a run behind a failed named check, once per
-head maul pushed), with a token minted for that call on that repository alone, but the installation itself holds the
-wider grant. A Project reports `Ready` only once the App holds every grant it needs (each is proven by minting a token
-with it), and `AppNotInstalled` names the first one missing. A Project that is not `Ready` picks up no new intents;
-intents already in flight keep running, and with `spec.checks.rerunFailed` set but no Actions write, their re-run
-requests are refused and fall back to a CI-fix round at once.
+commenter's repository permission, and the installation's rate budget, with an issues-read token. Commit statuses at
+read and write is needed by every Project, whether or not it fixes checks, and also finds the failed commit statuses a
+check-fix round reads. The two `spec.checks.fix` rows are needed only by a Project that names checks in
+`spec.checks.fix`, on its app repositories. Actions at read and write is needed only by a Project that also sets
+`spec.checks.rerunFailed` (off by default); with it, Actions is the one permission at read and write rather than read.
+Weigh it before you grant it: GitHub has no narrower grant, so Actions write lets the App re-run, cancel and dispatch
+workflows, and delete workflow runs and their logs and artifacts, on every repository the App is installed on, not only
+the app repositories a Project lists. intent-controller makes one Actions write call (re-run the failed jobs of a run
+behind a failed named check, once per head maul pushed), with a token minted for that call on that repository alone, but
+the installation itself holds the wider grant. A Project reports `Ready` only once the App holds every grant it needs
+(each is proven by minting a token with it), and `AppNotInstalled` names the first one missing. A Project that is not
+`Ready` picks up no new intents; intents already in flight keep running, and with `spec.checks.rerunFailed` set but no
+Actions write, their re-run requests are refused and fall back to a CI-fix round at once.
 
 To turn re-runs on for an existing App, raise its **Actions** permission from Read to **Read & write** in the App's
 settings (Permissions & events), approve the change on each installation (GitHub asks the installation's owner to accept

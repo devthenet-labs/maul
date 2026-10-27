@@ -11,6 +11,6 @@
     "issues": "write",
     "metadata": "read",
     "pull_requests": "write",
-    "statuses": "read"
+    "statuses": "write"
   }
 }

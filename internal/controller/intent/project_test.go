@@ -101,8 +101,10 @@ func TestProjectValidation(t *testing.T) {
 // TestProjectValidationProvesCheckFixReads is the regression test for a
 // Project with spec.checks.fix whose App was never granted the reads a
 // check-fix round makes: it used to report Ready, then fail on the first
-// failing check. Ready now proves checks, statuses and actions read on the
-// application repository, and names the one GitHub refused.
+// failing check. Ready now proves checks and actions read on the application
+// repository (statuses are proved by the write every Project asks for,
+// TestProjectValidationProvesTheStatusesWrite), and names the one GitHub
+// refused.
 func TestProjectValidationProvesCheckFixReads(t *testing.T) {
 	notGranted := ghError(http.StatusUnprocessableEntity,
 		"The permissions requested are not granted to this installation.")
@@ -112,7 +114,6 @@ func TestProjectValidationProvesCheckFixReads(t *testing.T) {
 		want    string
 	}{
 		{name: "checks", refused: ghclient.TokenPerms{Checks: ghclient.PermRead}, want: "checks: read"},
-		{name: "statuses", refused: ghclient.TokenPerms{Statuses: ghclient.PermRead}, want: "statuses: read"},
 		{name: "actions", refused: ghclient.TokenPerms{Actions: ghclient.PermRead}, want: "actions: read"},
 	}
 	for _, tt := range tests {
@@ -130,6 +131,29 @@ func TestProjectValidationProvesCheckFixReads(t *testing.T) {
 				t.Errorf("message %q does not name %s on %s and why", c.Message, tt.want, appRepoURL)
 			}
 		})
+	}
+}
+
+// TestProjectValidationProvesTheStatusesWrite: every Project, with or
+// without check fixes, is Ready only once the App may post commit statuses
+// on its application repository: refused statuses write, it is not Ready,
+// naming the permission and what it is for.
+func TestProjectValidationProvesTheStatusesWrite(t *testing.T) {
+	refused := map[ghclient.TokenPerms]error{{Statuses: ghclient.PermWrite}: ghError(http.StatusUnprocessableEntity,
+		"The permissions requested are not granted to this installation.")}
+	for _, fix := range [][]string{nil, {"test"}} {
+		p := testProject()
+		p.Spec.Checks.Fix = fix
+		e := newEnv(t, p)
+		e.gh.refused = refused
+		e.reconcileProject()
+		c := meta.FindStatusCondition(e.getProject().Status.Conditions, v1alpha1.ConditionReady)
+		if c == nil || c.Status != metav1.ConditionFalse || c.Reason != v1alpha1.ReasonAppNotInstalled {
+			t.Fatalf("fix %v: Ready = %+v, want False/%s", fix, c, v1alpha1.ReasonAppNotInstalled)
+		}
+		if !strings.Contains(c.Message, appRepoURL+" with statuses: write") || !strings.Contains(c.Message, "commit status") {
+			t.Errorf("fix %v: message %q does not name statuses: write on %s and why", fix, c.Message, appRepoURL)
+		}
 	}
 }
 
@@ -202,10 +226,10 @@ func TestProjectValidationMintsTheTable(t *testing.T) {
 		{appRepoURL, ghclient.TokenPerms{Contents: ghclient.PermWrite}},
 		{appRepoURL, ghclient.TokenPerms{PullRequests: ghclient.PermWrite}},
 		{appRepoURL, ghclient.TokenPerms{Issues: ghclient.PermRead}},
+		{appRepoURL, ghclient.TokenPerms{Statuses: ghclient.PermWrite}},
 	}
 	checkFix := append(slices.Clone(base),
 		installCheck{appRepoURL, ghclient.TokenPerms{Checks: ghclient.PermRead}},
-		installCheck{appRepoURL, ghclient.TokenPerms{Statuses: ghclient.PermRead}},
 		installCheck{appRepoURL, ghclient.TokenPerms{Actions: ghclient.PermRead}},
 	)
 	rerun := append(slices.Clone(checkFix), installCheck{appRepoURL, ghclient.TokenPerms{Actions: ghclient.PermWrite}})

@@ -12,7 +12,10 @@
 //     pull requests write (open the pull request, read its reviews and
 //     conversation), and issues read, the token a reviewer's collaborator
 //     permission and the installation's rate budget are read with
-//     (RepositoryReads);
+//     (RepositoryReads), and statuses write, which posts maul's commit status
+//     on the pull request head and lists the statuses there (CommitStatus;
+//     always, so no Project is found short of it only when a status is
+//     first posted);
 //   - every application repository, when spec.checks.fix names a check:
 //     checks, statuses and actions read, which a check-fix round needs to
 //     find the failed checks and read their annotations and job log tails;

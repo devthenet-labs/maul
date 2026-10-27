@@ -394,6 +394,8 @@ func grantPurpose(g intentperm.Grant) string {
 		return " (spec.checks.fix reads failing checks)"
 	case slices.Contains(intentperm.CheckRerun(), g):
 		return " (spec.checks.rerunFailed re-runs failed Actions jobs; grant the App Actions read and write)"
+	case slices.Contains(intentperm.CommitStatus(), g):
+		return " (maul's commit status on a pull request is posted with it)"
 	case slices.Contains(intentperm.RepositoryReads(), g):
 		return " (a reviewer's permission and the rate budget are read with it)"
 	}
