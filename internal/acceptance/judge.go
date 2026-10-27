@@ -38,6 +38,9 @@ const (
 	ReasonRunToken         = "run-token"
 	ReasonSteps            = "steps"
 	ReasonExpectation      = "expectation"
+	// ReasonObservationTooLarge: the observation was too large to keep and
+	// was replaced by its marker (CriterionObservation.TooLarge).
+	ReasonObservationTooLarge = "observation-too-large"
 )
 
 // RunTokens identify one verification attempt: its round, its attempt and
@@ -82,8 +85,8 @@ type StepVerdict struct {
 // every expectation, quarantined when only the retry did, fail otherwise.
 // It re-derives everything the tester could have got wrong (the run token
 // of each try, each request as sent, each capture's use) and never errors:
-// an invalid criterion, an unobservable kind or an observation that does
-// not fit is a fail with a Reason.
+// an invalid criterion, an unobservable kind, an observation that does not
+// fit or one marked TooLarge is a fail with a Reason.
 func Judge(c Criterion, obs CriterionObservation, rt RunTokens) Verdict {
 	fail := func(reason string, steps []StepVerdict) Verdict {
 		return Verdict{ID: c.ID, Outcome: OutcomeFail, Reason: reason, Steps: steps}
@@ -97,6 +100,8 @@ func Judge(c Criterion, obs CriterionObservation, rt RunTokens) Verdict {
 		return fail(ReasonNotObservable, nil)
 	case obs.ID != c.ID:
 		return fail(ReasonIDMismatch, nil)
+	case obs.TooLarge:
+		return fail(ReasonObservationTooLarge, nil)
 	case len(obs.Tries) == 0 || len(obs.Tries) > 2:
 		return fail(ReasonTries, nil)
 	}
@@ -213,13 +218,16 @@ func matchesHeader(expected Value, run string, caps map[string]string, raw strin
 	}
 }
 
+// bodyContains judges a bodyContains expectation: the recorded proof must
+// be exactly the proof of the needle as Judge substitutes it, so a proof
+// that is missing, malformed or of another needle fails.
 func bodyContains(needle, run string, caps map[string]string, pointers map[string]string) bool {
 	n, err := Substitute(needle, run, caps)
 	if err != nil {
 		return false
 	}
-	var seen string
-	return json.Unmarshal([]byte(pointers[KeyBodyContains]), &seen) == nil && strings.Contains(seen, n)
+	proof, ok := pointers[KeyBodyContains]
+	return ok && proof == bodyContainsProof(n)
 }
 
 func sortedKeys[V any](m map[string]V) []string {

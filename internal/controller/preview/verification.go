@@ -56,9 +56,11 @@ const (
 	// the tester's Pod being created, scheduled and its image pulled, its
 	// log becoming readable after it finished, and the Job's own deadline.
 	verifyGrace = 2 * time.Minute
-	// maxTesterLog is the most of the tester's log read: well above what
-	// MaxCriteria observations take on the wire.
-	maxTesterLog = 512 << 10
+	// maxTesterLog is the most of the tester's log read. It is the grammar's
+	// own bound, so acceptance.Validate's plan-wide budget
+	// (acceptance.MaxWireBytes, below it) keeps every accepted plan's output
+	// within it whatever the application answers.
+	maxTesterLog = acceptance.MaxTesterLogBytes
 	// componentLogLimit and componentLogLines bound a component's log read;
 	// maxLogTail is the tail of it kept (PartFact.LogTail's maxLength).
 	componentLogLimit = 16 << 10
@@ -888,13 +890,18 @@ func (v *VerificationReconciler) settleWith(ctx context.Context, pv *v1alpha1.Pr
 	return v.deleteTesterJobs(ctx, pv)
 }
 
-// fitStatus holds the object to maxVerificationObject: body prefixes go
-// first, from the last step back (a step whose body prefix was dropped still
-// records its body's length), then log tails, then the pointer and header
-// values whose judgement cannot change (shrinkValues), so an application
+// fitStatus holds the object to maxVerificationObject, so an application
 // cannot turn its own failure into maul's by answering with large values.
-// An object that still does not fit keeps no observations and is maul's
-// trouble.
+// In order, while it is over: body prefixes go, from the last step back (a
+// step whose body prefix was dropped still records its body's length), then
+// log tails, then the pointer, header and capture values whose judgement
+// cannot change (shrinkValues), then whole criteria, largest first, each
+// replaced by its TooLarge marker (dropLargest), which acceptance.Judge
+// fails as observation-too-large: the application's failure, never a pass,
+// and every other criterion keeps its verdict. Markers are a few dozen bytes
+// and log tails are gone by then, so no observation content can keep the
+// object over; one that somehow still does keeps no observations and is
+// maul's trouble.
 func fitStatus(pv *v1alpha1.PreviewVerification) {
 	excess := objectSize(pv) - maxVerificationObject
 	if excess <= 0 {
@@ -916,6 +923,7 @@ func fitStatus(pv *v1alpha1.PreviewVerification) {
 	if excess := objectSize(pv) - maxVerificationObject; excess > 0 {
 		shrinkValues(pv, excess)
 	}
+	dropLargest(pv)
 	if objectSize(pv) > maxVerificationObject {
 		pv.Status.Observations = nil
 		pv.Status.SummarySHA256 = ""
@@ -924,13 +932,14 @@ func fitStatus(pv *v1alpha1.PreviewVerification) {
 	}
 }
 
-// shrinkValues saves up to excess bytes by replacing recorded pointer and
-// header values with acceptance.TooLarge, from the last criterion, try and
-// step back, keeping each replacement only when the criterion's judgement
-// (acceptance.Judge, as intent-controller judges it) stays exactly what it
-// was: a $present value, or one that did not match anyway. A value the
-// verdict depends on is never touched, and an observation whose criterion
-// is not in the request is left as it is.
+// shrinkValues saves up to excess bytes by replacing recorded pointer,
+// header and capture values with acceptance.TooLarge, from the last
+// criterion, try and step back, keeping each replacement only when the
+// criterion's judgement (acceptance.Judge, as intent-controller judges it)
+// stays exactly what it was: a $present value, one that did not match
+// anyway, or a capture no later step's request or expectation is built
+// from. A value the verdict depends on is never touched, and an observation
+// whose criterion is not in the request is left as it is.
 func shrinkValues(pv *v1alpha1.PreviewVerification, excess int) {
 	cs, err := crdconv.CriteriaFromCRD(pv.Spec.Criteria)
 	if err != nil {
@@ -963,9 +972,11 @@ func shrinkObservation(c acceptance.Criterion, o *v1alpha1.CriterionObservation,
 	for j := len(o.Tries) - 1; j >= 0; j-- {
 		for k := len(o.Tries[j].Steps) - 1; k >= 0; k-- {
 			step, mirror := &o.Tries[j].Steps[k], &judged.Tries[j].Steps[k]
-			for _, m := range [][2]map[string]string{{step.Pointers, mirror.Pointers}, {step.Headers, mirror.Headers}} {
+			for _, m := range [][2]map[string]string{
+				{step.Pointers, mirror.Pointers}, {step.Headers, mirror.Headers}, {step.Captures, mirror.Captures},
+			} {
 				for _, key := range slices.Sorted(maps.Keys(m[0])) {
-					gain := encodedLen(m[0][key]) - encodedLen(acceptance.TooLarge)
+					gain := jsonSize(m[0][key]) - jsonSize(acceptance.TooLarge)
 					if gain <= 0 {
 						continue
 					}
@@ -985,20 +996,40 @@ func shrinkObservation(c acceptance.Criterion, o *v1alpha1.CriterionObservation,
 	return saved
 }
 
-// encodedLen is s's length as a JSON string, as objectSize counts it.
-func encodedLen(s string) int {
-	b, err := json.Marshal(s)
-	if err != nil {
-		return 0
+// dropLargest replaces the largest criterion observation with its
+// TooLarge marker, one at a time, until the object fits or every
+// observation is a marker.
+func dropLargest(pv *v1alpha1.PreviewVerification) {
+	obs := pv.Status.Observations
+	for objectSize(pv) > maxVerificationObject {
+		worst, worstSize := -1, 0
+		for i := range obs {
+			if n := jsonSize(obs[i]); !obs[i].TooLarge && n > worstSize {
+				worst, worstSize = i, n
+			}
+		}
+		if worst < 0 {
+			return
+		}
+		obs[worst] = v1alpha1.CriterionObservation{ID: obs[worst].ID, TooLarge: true}
 	}
-	return len(b)
 }
 
-// objectSize is the object's size as JSON.
+// objectSize is the object's size as the API machinery sends and stores
+// it: encoding/json, HTML-escaped, as json.Marshal writes it.
 func objectSize(pv *v1alpha1.PreviewVerification) int {
-	b, err := json.Marshal(pv)
+	if n := jsonSize(pv); n >= 0 {
+		return n
+	}
+	return maxVerificationObject + 1
+}
+
+// jsonSize is v's length as json.Marshal writes it, as objectSize counts
+// it; -1 when it does not encode.
+func jsonSize(v any) int {
+	b, err := json.Marshal(v)
 	if err != nil {
-		return maxVerificationObject + 1
+		return -1
 	}
 	return len(b)
 }

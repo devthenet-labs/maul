@@ -218,16 +218,24 @@ type TryObservation struct {
 	Steps []StepObservation `json:"steps,omitempty"`
 }
 
-// CriterionObservation is what the tester saw for one criterion.
+// CriterionObservation is what the tester saw for one criterion: its tries,
+// or, when the status could not hold them, only the TooLarge marker.
+// +kubebuilder:validation:XValidation:rule="(has(self.tooLarge) && self.tooLarge) != has(self.tries)",message="an observation holds its tries or is marked tooLarge, never both or neither"
 type CriterionObservation struct {
 	// ID of the criterion.
 	// +kubebuilder:validation:Pattern=`^[a-z][a-z0-9-]{0,31}$`
 	ID string `json:"id"`
 	// Tries made: a second only when the first failed.
+	// +optional
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=2
 	// +listType=atomic
-	Tries []TryObservation `json:"tries"`
+	Tries []TryObservation `json:"tries,omitempty"`
+	// TooLarge marks an observation preview-controller replaced because the
+	// object could not hold it however its values were reduced. It is
+	// judged a failure (observation-too-large), never a pass.
+	// +optional
+	TooLarge bool `json:"tooLarge,omitempty"`
 }
 
 // PreviewPartRole is the role of one part of a Preview's slot.

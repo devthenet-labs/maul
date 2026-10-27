@@ -417,7 +417,7 @@ func fullVerificationStatus() maulv1.PreviewVerificationStatus {
 					Method: "POST", Path: "/api/battles", TransportError: maulv1.TransportRefused,
 				}}},
 			},
-		}},
+		}, {ID: "battle-history", TooLarge: true}},
 		Environment: []maulv1.PartFact{
 			{Name: "api", Role: maulv1.PreviewRoleComponent, Ready: false, Restarts: 3, Waiting: "CrashLoopBackOff",
 				LastTermination: &maulv1.Termination{Reason: "OOMKilled", ExitCode: 137}, Evicted: true,
@@ -581,6 +581,12 @@ func testPreviewVerificationSchema(ctx context.Context, t *testing.T, c client.C
 		}},
 		{"a malformed try token", func(s *maulv1.PreviewVerificationStatus) {
 			s.Observations[0].Tries[0].Run = "anything"
+		}},
+		{"an observation with tries marked too large", func(s *maulv1.PreviewVerificationStatus) {
+			s.Observations[0].TooLarge = true
+		}},
+		{"an observation with neither tries nor the marker", func(s *maulv1.PreviewVerificationStatus) {
+			s.Observations[1].TooLarge = false
 		}},
 	} {
 		t.Run("status with "+tt.name, func(t *testing.T) {

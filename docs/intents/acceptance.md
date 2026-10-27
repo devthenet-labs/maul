@@ -53,6 +53,8 @@ installation.
 ## What a plan declares
 
 The plan agent writes an optional `acceptance` list in its report's frontmatter, up to 16 criteria and 48 steps in all.
+Their observations must also fit a size budget at every value's largest, so that no answer from the application can
+outgrow what maul reads of the tester's output; a plan over it is refused.
 The plan comment says in one line what maul will do with it, for example "2 checked automatically, 1 needs you:
 sounds-good (only a human can judge how it sounds)", so the approver sees the split before approving.
 

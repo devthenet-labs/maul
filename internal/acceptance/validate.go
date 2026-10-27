@@ -67,8 +67,9 @@ var forbiddenHeaders = map[string]bool{
 var methods = map[string]bool{"GET": true, "HEAD": true, "POST": true, "PUT": true, "PATCH": true, "DELETE": true}
 
 // Validate checks cs against the static grammar: at most MaxCriteria
-// criteria with unique ids and at most MaxSteps http steps in all, each
-// criterion valid for its kind. A refused criterion is a *CriterionError; a
+// criteria with unique ids, at most MaxSteps http steps in all and a
+// worst-case tester output (WireBound) within MaxWireBytes, each criterion
+// valid for its kind. A refused criterion is a *CriterionError; a
 // list-level refusal names the criterion that crossed the bound.
 func Validate(cs []Criterion) error {
 	if len(cs) > MaxCriteria {
@@ -76,6 +77,7 @@ func Validate(cs []Criterion) error {
 	}
 	seen := map[string]bool{}
 	steps := 0
+	wire := summaryWireBytes()
 	for _, c := range cs {
 		if seen[c.ID] {
 			return &CriterionError{ID: c.ID, Reason: "id is used twice"}
@@ -87,6 +89,11 @@ func Validate(cs []Criterion) error {
 		steps += len(normalize(c).Steps)
 		if steps > MaxSteps {
 			return &CriterionError{ID: c.ID, Reason: fmt.Sprintf("more than %d steps in all", MaxSteps)}
+		}
+		if wire += criterionWireBound(c); wire > MaxWireBytes {
+			return &CriterionError{ID: c.ID, Reason: fmt.Sprintf("the plan's observations could reach %d bytes, "+
+				"over the %d-byte budget the tester's output must fit (MaxWireBytes); use fewer steps, "+
+				"expected pointers, headers or captures", wire, MaxWireBytes)}
 		}
 	}
 	return nil
