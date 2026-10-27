@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.13.2](https://github.com/devthenet-labs/maul/compare/v0.13.1...v0.13.2) (2026-10-27)
+
+
+### Features
+
+* acceptance verification for intents (slice 1) ([#279](https://github.com/devthenet-labs/maul/issues/279)) ([76a67d5](https://github.com/devthenet-labs/maul/commit/76a67d5e6d45a7b9b6550b60a61156097d22db92))
+
+
+### Bug Fixes
+
+* **intent:** check the cost ceiling before every revise round ([#278](https://github.com/devthenet-labs/maul/issues/278)) ([8ce8c67](https://github.com/devthenet-labs/maul/commit/8ce8c6796bcc0414925f34aeb3a665866ab48fc2))
+
 ## [0.13.1](https://github.com/devthenet-labs/maul/compare/v0.13.0...v0.13.1) (2026-10-24)
 
 
