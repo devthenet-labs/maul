@@ -4,6 +4,7 @@
 package report
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"slices"
@@ -707,5 +708,117 @@ func TestParsePlanAcceptanceHiddenCharacters(t *testing.T) {
 	block := "acceptance:\n  - {id: a, kind: manual, statement: \"safe \\u202e evil\"}\n"
 	if _, err := ParsePlan([]byte(planAcceptance(block))); err == nil {
 		t.Fatal("ParsePlan() accepted a bidi override in a statement")
+	}
+}
+
+// acceptanceRepairPlan is a plan whose criterion opens with a bare "-" (so
+// its own line is no list item the repair would quote) and whose expected
+// values are block lists of numbers, booleans and a commented number, with
+// summary and the status expectation as given.
+func acceptanceRepairPlan(summary, status string) string {
+	block := `acceptance:
+  -
+    id: totals
+    kind: http
+    statement: the totals endpoint lists the items
+    target: api
+    request: {path: /totals}
+    expect:
+      status:` + status + `
+      json:
+        "/items":
+          - 1
+          - 2 # note
+        "/flags":
+          - true
+`
+	return strings.Replace(planAcceptance(block),
+		`summary: "Add GET /version returning {sha, built} as JSON"`, "summary: "+summary, 1)
+}
+
+// acceptanceJSON renders a plan's criteria as the JSON maul records.
+func acceptanceJSON(t *testing.T, p *Plan) string {
+	t.Helper()
+	b, err := json.Marshal(p.Acceptance)
+	if err != nil {
+		t.Fatalf("json.Marshal(acceptance) error = %v", err)
+	}
+	return string(b)
+}
+
+// TestParsePlanRepairNeverRetypesAcceptance: the free-text repair quotes
+// list items, and acceptance holds lists of numbers and booleans, so a
+// summary holding a colon must not turn the criteria the approver read into
+// strings (or fold a comment into a value). The repair is confined to the
+// prose keys: the plan parses to the very criteria its clean twin does.
+//
+// An honest block-style status list is a list item the repair would quote
+// too, so it is covered beside the flow one.
+func TestParsePlanRepairNeverRetypesAcceptance(t *testing.T) {
+	for name, status := range map[string]string{
+		"flow status":  " 200",
+		"block status": "\n        - 200\n        - 304",
+	} {
+		t.Run(name, func(t *testing.T) {
+			clean, err := ParsePlan([]byte(acceptanceRepairPlan(`"Add totals: a summary with colon"`, status)))
+			if err != nil {
+				t.Fatalf("ParsePlan(clean) error = %v", err)
+			}
+			want := acceptanceJSON(t, clean)
+			if !strings.Contains(want, `[1,2]`) || !strings.Contains(want, `[true]`) {
+				t.Fatalf("clean acceptance = %s, want numbers and booleans", want)
+			}
+			repaired, err := ParsePlan([]byte(acceptanceRepairPlan(`Add totals: a summary with colon`, status)))
+			if err != nil {
+				t.Fatalf("ParsePlan(unquoted summary) error = %v, want the summary repaired", err)
+			}
+			if got := acceptanceJSON(t, repaired); got != want {
+				t.Errorf("repaired acceptance = %s, want the clean plan's %s", got, want)
+			}
+			if repaired.Summary != "Add totals: a summary with colon" {
+				t.Errorf("Summary = %q", repaired.Summary)
+			}
+		})
+	}
+}
+
+// TestParsePlanRepairKeepsCriteria: a plan whose criteria are written the
+// usual way ("- id: ..." with their keys beneath) is still repaired when
+// its summary holds a colon, and its criteria are the clean plan's.
+func TestParsePlanRepairKeepsCriteria(t *testing.T) {
+	clean, err := ParsePlan([]byte(planAcceptance(acceptanceBlock)))
+	if err != nil {
+		t.Fatalf("ParsePlan(clean) error = %v", err)
+	}
+	src := strings.Replace(planAcceptance(acceptanceBlock),
+		`summary: "Add GET /version returning {sha, built} as JSON"`, "summary: Version: add GET /version", 1)
+	src = strings.Replace(src, `  - "Should the build time be RFC 3339?"`, "  - Format: RFC 3339?", 1)
+	p, err := ParsePlan([]byte(src))
+	if err != nil {
+		t.Fatalf("ParsePlan(unquoted prose) error = %v, want it repaired", err)
+	}
+	if got, want := acceptanceJSON(t, p), acceptanceJSON(t, clean); got != want {
+		t.Errorf("repaired acceptance = %s, want %s", got, want)
+	}
+	if p.Summary != "Version: add GET /version" || !slices.Equal(p.Questions, []string{"Format: RFC 3339?"}) {
+		t.Errorf("prose = %q, %q", p.Summary, p.Questions)
+	}
+}
+
+// TestParsePlanRepairRefusesAnchors:an anchor or alias lets text the
+// repair may quote be read inside acceptance (or a criterion opener "- &c"
+// hide its list items from the line rules), so a plan holding one is never
+// repaired: it fails with the original error rather than being retyped.
+func TestParsePlanRepairRefusesAnchors(t *testing.T) {
+	anchored := strings.Replace(acceptanceRepairPlan(`Add totals: colon`, " 200"),
+		"  -\n    id: totals", "  - &c\n    id: totals", 1)
+	aliased := strings.Replace(acceptanceRepairPlan(`Add totals: colon`, " 200"), "questions:\n", "questions: &q\n", 1)
+	aliased = strings.Replace(aliased, "        \"/flags\":\n          - true\n", "        \"/flags\": *q\n", 1)
+	for name, src := range map[string]string{"anchored criterion": anchored, "alias into acceptance": aliased} {
+		t.Run(name, func(t *testing.T) {
+			if p, err := ParsePlan([]byte(src)); err == nil {
+				t.Fatalf("ParsePlan() = %s, want the repair refused", acceptanceJSON(t, p))
+			}
+		})
 	}
 }

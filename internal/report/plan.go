@@ -114,8 +114,15 @@ type Plan struct {
 	Body string `yaml:"-"`
 }
 
-// planFreeText are the plan keys whose values are prose.
-var planFreeText = map[string]bool{"summary": true}
+// planFreeText are the plan keys whose values are prose, and planProse the
+// top-level keys whose whole value is prose or a list of it: the only ones
+// the free-text repair may touch (decodeRepairing). Acceptance is never
+// among them: its lists hold numbers, booleans and literals, and what runs
+// must be what the approver read.
+var (
+	planFreeText = map[string]bool{"summary": true}
+	planProse    = map[string]bool{"summary": true, "repositories": true, "new_dependencies": true, "questions": true}
+)
 
 // ParsePlan parses and validates a plan report as the plan stage wrote it:
 // the document bound, that every byte of it is visible and in view, its
@@ -181,7 +188,7 @@ func parsePlanFrontmatter(data []byte) (*Plan, error) {
 			len(block), ReportMaxBytes)
 	}
 	var p Plan
-	if err := decodeRepairing(block, &p, planFreeText, func() { p = Plan{} }); err != nil {
+	if err := decodeRepairing(block, &p, planFreeText, planProse, func() { p = Plan{} }); err != nil {
 		return nil, err
 	}
 	p.Body = body

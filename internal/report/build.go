@@ -109,8 +109,12 @@ type BuildTests struct {
 	Command string `yaml:"command"`
 }
 
-// buildFreeText are the build keys whose values are prose.
-var buildFreeText = map[string]bool{"summary": true, "command": true, "reason": true}
+// buildFreeText are the build keys whose values are prose, and buildProse
+// the top-level keys the free-text repair may touch (decodeRepairing).
+var (
+	buildFreeText = map[string]bool{"summary": true, "command": true, "reason": true}
+	buildProse    = map[string]bool{"summary": true, "tests": true, "notes": true, "reason": true, "refused": true}
+)
 
 // ParseBuild parses and validates a build report: the document bound, that
 // every byte of it is visible — refused, as a plan is, with the first
@@ -128,7 +132,7 @@ func ParseBuild(data []byte) (*Build, error) {
 		return nil, err
 	}
 	var b Build
-	if err := decodeRepairing(block, &b, buildFreeText, func() { b = Build{} }); err != nil {
+	if err := decodeRepairing(block, &b, buildFreeText, buildProse, func() { b = Build{} }); err != nil {
 		return nil, err
 	}
 	b.Body = body
