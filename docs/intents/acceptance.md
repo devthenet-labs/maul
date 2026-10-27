@@ -33,7 +33,7 @@ Three switches, in this order. Each fails closed: with one off, no acceptance st
 spec:
   verification:
     enabled: true
-    manualGatesStatus: false # default: manual items never hold the status pending
+    manualGatesStatus: false # no effect: an open manual item always holds the status pending
     postLogs: false # default: component log tails go on the issue only, never on a pull request
     timeout: 10m # the tester Job's wall clock, clamped by --intent-verify-timeout-max
   limits:
@@ -77,7 +77,7 @@ acceptance:
 | --------- | ----------------------------------------------------------------------------------------------------------------- |
 | `http`    | The tester sends the steps to the target component's Service inside the slot, and checks status, JSON and headers |
 | `manual`  | Nothing. A person closes it with `/maul accept <id>`                                                              |
-| `command` | Parsed and shown, reported as "not run" in this release                                                           |
+| `command` | Parsed and shown, reported as "not run" in this release; a person closes it with `/maul accept <id>`              |
 
 The grammar is checked statically before the plan is posted (path, headers, body size, at most four captures per step,
 RFC 6901 pointers, matchers `$present`, `$absent`, `$contains`, `$approx` and `$order`). A `target` that is not a
@@ -137,22 +137,26 @@ Auto-fix halts, with the reason shown on the issue and the status, the moment a 
 Posted on every open pull request's current head, by the maul App (Commit statuses: write), with a description of counts
 only:
 
-| State     | When                                                                                                                                                                                                                        |
-| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pending` | waiting for checks or the preview; verifying ("verifying: round 1 of 2, 3/4 checks"); the combined change moved ("combined change moved: re-verifying"); a pass only on retry; an open manual item with `manualGatesStatus` |
-| `success` | every automated check passed at the current heads ("4/4 automated passed", or "automated part verified, 1 manual open")                                                                                                     |
-| `failure` | a check failed ("3/4 automated passed, 1 failing"), a fix is running, or none is left ("no automatic fix left")                                                                                                             |
-| `error`   | a check cannot run as approved ("replan needed"), or maul could not run the checks                                                                                                                                          |
+| State     | When                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pending` | waiting for checks or the preview; verifying ("verifying: round 1 of 2, 3/4 checks"); the combined change moved ("combined change moved: re-verifying"); a pass only on retry; an item only a person closes and nobody has accepted yet ("4/4 automated passed, 1 to accept by hand", "0/2 accepted by hand"); a plan with no criteria nobody has accepted ("no acceptance criteria declared; an approver may /maul accept all") |
+| `success` | every criterion passed at the current heads or a person accepted it there ("4/4 automated passed", "4/4 automated passed; 1 accepted by hand by octocat", "2/2 accepted by hand by octocat", "no acceptance criteria declared; accepted by octocat")                                                                                                                                                                             |
+| `failure` | a check failed ("3/4 automated passed, 1 failing"), a fix is running, or none is left ("no automatic fix left")                                                                                                                                                                                                                                                                                                                  |
+| `error`   | a check cannot run as approved ("replan needed"), maul could not run the checks, the approved criteria cannot be read, or verification was switched off ("verification switched off")                                                                                                                                                                                                                                            |
 
-No status is posted when nothing is checked automatically (no criteria declared, or only manual ones), when the Project
-or the preview does not verify, or once the intent has ended. The status is re-posted on **every** pull request when any
-sibling's head moves, so a green is never stale. About once per poll interval maul also lists the statuses at each head:
-if another account posted `maul/acceptance` after maul's, maul posts its own again and names that account in the
-verification section.
+`success` never stands for work nobody checked: what maul does not run (a `manual` or `command` criterion, one that
+passed only on retry, or a plan that declares no criteria at all) turns green only through an approver's `/maul accept`
+at the current heads, and the description names who accepted. When verification is switched off for an intent (the
+chart, the controller, the Project or its preview stops verifying), maul replaces its last status on each pull request
+with a final `error`, so a required status never stays pending or green. No status is posted for an intent maul never
+verified, or once the intent has ended. The status is re-posted on **every** pull request when any sibling's head moves,
+so a green is never stale. About once per poll interval maul also lists the statuses at each head: if another account
+posted `maul/acceptance` after maul's, maul posts its own again and names that account in the verification section.
 
 Make it count: add a ruleset or branch protection that **requires `maul/acceptance` from the maul App**. Without a
-required check, a person can still merge past a red status. `maul check project` warns when the branch rules do not name
-it.
+required check, a person can still merge past a red status. With it, every pull request of a verifying Project waits for
+the status, so a plan with manual items or no criteria needs an approver's `/maul accept` before it can merge.
+`maul check project` warns when the branch rules do not name it.
 
 ### Comments
 
@@ -171,12 +175,13 @@ it.
 Approvers only, on the intent issue or any of its pull requests, while the intent is in review or revising. Settled on
 the next poll, never from a webhook.
 
-| Command                | Effect                                                                                                                                                               |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/maul verify`         | Verify now, at the next gate (once the current round ends), bypassing the spacing but not `maxVerifications`: once it is spent, the reply says so and nothing runs.  |
-| `/maul verify fix`     | As above, and re-arm automatic fixes after a human halt.                                                                                                             |
-| `/maul verify --reset` | Roll the preview's component pods first, dropping their data, then verify. This is the only reset: nothing resets data automatically. Once per five minutes.         |
-| `/maul accept <id>`    | Close a manual criterion, a quarantined one or one whose tests changed, at the current heads. After the heads move it reads "accepted at `<heads>`, not re-checked". |
+| Command                | Effect                                                                                                                                                                                                          |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/maul verify`         | Verify now, at the next gate (once the current round ends), bypassing the spacing but not `maxVerifications`: once it is spent, the reply says so and nothing runs.                                             |
+| `/maul verify fix`     | As above, and re-arm automatic fixes after a human halt.                                                                                                                                                        |
+| `/maul verify --reset` | Roll the preview's component pods first, dropping their data, then verify. This is the only reset: nothing resets data automatically. Once per five minutes.                                                    |
+| `/maul accept <id>`    | Close a manual criterion, a `command` one (not run in this release), a quarantined one or one whose tests changed, at the current heads. After the heads move it reads "accepted at `<heads>`, not re-checked". |
+| `/maul accept all`     | Only for a plan that declares no acceptance criteria: accept the change as it is at the current heads, which turns `maul/acceptance` green. Again after the heads move.                                         |
 
 A command from a non-approver, an edited comment or a bot is refused. An unknown id or argument gets the help reply.
 
@@ -184,7 +189,9 @@ A command from a non-approver, an edited comment or a bot is refused. An unknown
 
 | You see                                                    | Meaning                                                                                                                                                                                                                                               |
 | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| No `maul/acceptance` status at all                         | Verification is off (chart, controller or Project), the plan declared nothing automatable, or the intent has ended                                                                                                                                    |
+| No `maul/acceptance` status at all                         | Verification is off (chart, controller or Project) and maul never verified the intent, the App lacks Commit statuses write (the Project's `AcceptanceStatusUnavailable`), or the intent has ended                                                     |
+| `pending`, "to accept by hand" or "accept all"             | Everything maul runs passed; what only a person can close waits for an approver's `/maul accept <id>`, or `/maul accept all` for a plan with no criteria                                                                                              |
+| `error`, "verification switched off"                       | Verification was turned off for this intent after maul posted a status; nothing more is verified or reported                                                                                                                                          |
 | `pending`, "waiting for the preview"                       | No live preview at exactly the pull request heads yet. Check `kubectl get preview`                                                                                                                                                                    |
 | `error`, "maul could not run the checks"                   | Three tester attempts failed for infrastructure reasons (scheduling, image pull, quota, deadline). Not a verdict on the change                                                                                                                        |
 | `error`, "the approved acceptance criteria cannot be read" | The approved plan's stored copy is missing or no longer matches its approval, so maul verifies nothing rather than run an earlier plan's criteria. The Intent's `VerifyFailing` condition (reason `CriteriaUnreadable`) says the same; `/maul replan` |

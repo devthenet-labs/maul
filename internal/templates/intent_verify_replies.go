@@ -65,6 +65,8 @@ type VerifyCommandNotice struct {
 	Criterion string
 	// Heads are the short commits an acceptance was given at.
 	Heads []string
+	// NoCriteria: the accepted plan declares no criteria (/maul accept all).
+	NoCriteria bool
 	// Acceptable are the criteria an approver can accept now.
 	Acceptable []string
 	// ResetWait is how long resets are spaced, for VerifyResetTooSoon.
@@ -133,13 +135,18 @@ func verifyNoticeText(n VerifyCommandNotice, surface command.Surface) (text, hel
 		return fmt.Sprintf("%s does nothing: the preview was reset less than %s ago. Use %s to verify without a "+
 			"reset, or try again later.", cmd, n.ResetWait, slashCommand(action.VerbVerify)), "", nil
 	case VerifyAccepted:
+		if n.NoCriteria {
+			return fmt.Sprintf("%s from %s is done: the change, whose approved plan declares no acceptance criteria, "+
+				"is accepted at %s. If the commits change, it must be accepted again.", cmd, actor,
+				joinCode(n.Heads)), "", nil
+		}
 		return fmt.Sprintf("%s from %s is done: the criterion is accepted at %s. If the commits change, it is shown "+
 			"as accepted earlier and not re-checked.", cmd, actor, joinCode(n.Heads)), "", nil
 	case VerifyAcceptUnknown:
 		return cmd + " names no criterion of the approved plan." + acceptable(n.Acceptable), "", nil
 	case VerifyAcceptAutomatic:
-		return cmd + " does nothing: that criterion is checked automatically, and only a manual one or one that " +
-			"passed only on retry is accepted by hand." + acceptable(n.Acceptable), "", nil
+		return cmd + " does nothing: that criterion is checked automatically, and only a manual one, one maul does " +
+			"not run yet or one that passed only on retry is accepted by hand." + acceptable(n.Acceptable), "", nil
 	case VerifyAcceptNotYet:
 		return cmd + " must wait: maul has not yet recorded the commits it verifies, and an acceptance holds only " +
 			"at those. Try again once verification has started.", "", nil

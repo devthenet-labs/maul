@@ -122,6 +122,7 @@ func (p *pass) recordedVerifyNotice(surface command.Surface, key string, id int6
 		for _, r := range acc.Accepted {
 			if r.CommentID == id {
 				n.Outcome, n.Criterion, n.Heads = templates.VerifyAccepted, r.ID, r.Heads
+				n.NoCriteria = r.ID == acceptAll && len(acc.Criteria) == 0
 			}
 		}
 	}
@@ -222,12 +223,19 @@ func (p *pass) requestVerification(ctx context.Context, c verifyCommand, args co
 	return n, nil
 }
 
+// acceptAll is the id /maul accept all records for a plan that declares no
+// acceptance criteria: the approver's word that the change needs none. It
+// means nothing for a plan that declares some (a criterion of that id is
+// accepted as itself).
+const acceptAll = "all"
+
 // acceptCriterion records /maul accept <id> in status.acceptance.accepted,
 // bound to the combined change being verified (status.verification's head
 // set), replacing any earlier acceptance of the criterion. Only a manual
-// criterion, or one quarantined (it passed only on retry), is accepted by
-// hand: one maul checks and judged outright is never overridden by a human
-// saying so.
+// criterion, one maul does not run yet (command), or one quarantined (it
+// passed only on retry) is accepted by hand, and for a plan with no
+// criteria, all: one maul checks and judged outright is never overridden by
+// a human saying so.
 func (p *pass) acceptCriterion(ctx context.Context, c verifyCommand, id string,
 	n templates.VerifyCommandNotice) (templates.VerifyCommandNotice, error) {
 	acc := p.in.Status.Acceptance
@@ -246,7 +254,7 @@ func (p *pass) acceptCriterion(ctx context.Context, c verifyCommand, id string,
 		}
 	}
 	switch {
-	case crit == nil:
+	case crit == nil && (id != acceptAll || len(acc.Criteria) != 0):
 		n.Outcome = templates.VerifyAcceptUnknown
 		return n, nil
 	case !slices.Contains(n.Acceptable, id):
@@ -274,16 +282,20 @@ func (p *pass) acceptCriterion(ctx context.Context, c verifyCommand, id string,
 	}); err != nil {
 		return n, err
 	}
-	n.Outcome, n.Heads = templates.VerifyAccepted, heads
+	n.Outcome, n.Heads, n.NoCriteria = templates.VerifyAccepted, heads, crit == nil
 	return n, nil
 }
 
 // acceptable are the criteria an approver can accept by hand, in plan
-// order: the manual ones and the quarantined.
+// order: the manual ones, those maul does not run yet and the quarantined;
+// for a plan with no criteria, all.
 func (p *pass) acceptable() []string {
 	acc := p.in.Status.Acceptance
 	if acc == nil {
 		return nil
+	}
+	if len(acc.Criteria) == 0 {
+		return []string{acceptAll}
 	}
 	var quarantined []string
 	if v := p.in.Status.Verification; v != nil {
@@ -291,7 +303,7 @@ func (p *pass) acceptable() []string {
 	}
 	var out []string
 	for _, c := range acc.Criteria {
-		if c.Kind == v1alpha1.AcceptanceManual || slices.Contains(quarantined, c.ID) {
+		if byHand(c) || slices.Contains(quarantined, c.ID) {
 			out = append(out, c.ID)
 		}
 	}

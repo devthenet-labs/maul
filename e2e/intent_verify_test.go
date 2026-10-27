@@ -412,7 +412,9 @@ func TestIntentVerifyPasses(t *testing.T) {
 		v.AutoFix.State != v1alpha1.AutoFixArmed {
 		t.Errorf("verification = %+v, want round 1 attempt 1: 1 passed, 1 manual open, fixes armed", v)
 	}
-	e.waitStatus(t, pr.HeadSHA, "success", "automated part verified, 1 manual open")
+	// A manual criterion is open: pending, never green, until a human
+	// accepts it.
+	e.waitStatus(t, pr.HeadSHA, "pending", "1/1 automated passed, 1 to accept by hand")
 	e.checkOneTesterRun(t, name)
 	e.checkOneVerification(t, in, pr.HeadSHA)
 	eventually(t, "one verification comment on the issue", func() bool {
@@ -428,7 +430,7 @@ func TestIntentVerifyPasses(t *testing.T) {
 	mine, _ := e.gh.LatestStatus(pr.HeadSHA, acceptanceStatus)
 	e.gh.SetCommitStatus(pr.HeadSHA, fakegithub.CommitStatus{Context: acceptanceStatus, State: "failure",
 		Description: "not verified", Creator: mallory})
-	again := e.waitStatus(t, pr.HeadSHA, "success", "automated part verified, 1 manual open")
+	again := e.waitStatus(t, pr.HeadSHA, "pending", "1/1 automated passed, 1 to accept by hand")
 	if again.ID <= mine.ID {
 		t.Errorf("maul's status %d is not newer than its first %d", again.ID, mine.ID)
 	}
@@ -542,19 +544,23 @@ func TestIntentVerifyRepeatedFailure(t *testing.T) {
 }
 
 // TestIntentVerifyNotDeclared: a plan with no acceptance criteria is
-// reported NotDeclared: no tester runs and no maul/acceptance is posted,
-// so nothing reads as verified.
+// reported NotDeclared: no tester runs, and maul/acceptance is pending
+// (never green) until an approver's /maul accept all, which turns it
+// success naming them.
 func TestIntentVerifyNotDeclared(t *testing.T) {
 	e := startVerify(t, "", http.StatusOK)
-	_, name, pr := e.toReview(t)
+	number, name, pr := e.toReview(t)
 	e.serve(t, name, pr.HeadSHA)
 	e.waitVerification(t, name, "the verification NotDeclared", func(v *v1alpha1.IntentVerification) bool {
-		return v.State == v1alpha1.VerificationNotDeclared
+		return v.State == v1alpha1.VerificationNotDeclared && v.HeadSetDigest != ""
 	})
-	consistently(t, "no tester and no maul/acceptance", func() bool {
-		_, posted := e.gh.LatestStatus(pr.HeadSHA, acceptanceStatus)
-		return !posted && len(e.kubelet.TesterRuns()) == 0 && len(e.verifications(t, name)) == 0
+	e.waitStatus(t, pr.HeadSHA, "pending", "no acceptance criteria declared")
+	consistently(t, "no tester and nothing green", func() bool {
+		st, _ := e.gh.LatestStatus(pr.HeadSHA, acceptanceStatus)
+		return st.State == "pending" && len(e.kubelet.TesterRuns()) == 0 && len(e.verifications(t, name)) == 0
 	})
+	e.gh.CommentAs(number, "/maul accept all", approver)
+	e.waitStatus(t, pr.HeadSHA, "success", "accepted by "+approver.Login)
 }
 
 // TestIntentVerifyWithoutStatusesWrite: statuses write is never part of
@@ -744,7 +750,7 @@ func TestIntentVerifyHumanDuringRunningFix(t *testing.T) {
 
 // TestIntentVerifyHumanPushAndAccept: the plan's http criterion passes and
 // an approver accepts its manual one with /maul accept, which turns the
-// status's "manual open" into a clean count. A human then pushes to the
+// pending status success, naming them. A human then pushes to the
 // pull request's branch: the combined change moved, so maul/acceptance on
 // the new head goes back to pending, automatic fixes halt (HumanPush), and
 // the acceptance shows as made at the earlier heads, not re-checked. The
@@ -757,7 +763,7 @@ func TestIntentVerifyHumanPushAndAccept(t *testing.T) {
 	e.waitVerification(t, name, "the verification to pass", func(v *v1alpha1.IntentVerification) bool {
 		return v.State == v1alpha1.VerificationPassed
 	})
-	e.waitStatus(t, pr.HeadSHA, "success", "1 manual open")
+	e.waitStatus(t, pr.HeadSHA, "pending", "1 to accept by hand")
 
 	accept := e.gh.CommentAs(number, "/maul accept notes-read-well", approver)
 	in := e.waitFor(t, name, "the manual criterion accepted", func(in *v1alpha1.Intent) bool {
@@ -768,7 +774,7 @@ func TestIntentVerifyHumanPushAndAccept(t *testing.T) {
 		rec.CommentID != accept || rec.HeadSetDigest != in.Status.Verification.HeadSetDigest {
 		t.Errorf("acceptance record = %+v, want the approver's at the verified head set", rec)
 	}
-	e.waitStatus(t, pr.HeadSHA, "success", "1/1 automated passed")
+	e.waitStatus(t, pr.HeadSHA, "success", "1/1 automated passed; 1 accepted by hand by "+approver.Login)
 
 	// A human pushes to the branch.
 	branch := v1alpha1.IntentBranchPrefix + name

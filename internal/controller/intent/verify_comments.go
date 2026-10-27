@@ -126,11 +126,7 @@ func (p *pass) verifyProgress() *templates.VerifyProgress {
 		out = &templates.VerifyProgress{State: templates.VerifyNotDeclared}
 		if len(acc.Criteria) > 0 {
 			out.State = templates.VerifyNotChecked
-			for _, c := range acc.Criteria {
-				if c.Kind == v1alpha1.AcceptanceManual {
-					out.ManualOpen++
-				}
-			}
+			out.ManualOpen = handClosed(acc, v).open
 		}
 	case v1alpha1.VerificationWaitingForCI:
 		out.State = templates.VerifyWaitingForCI
@@ -246,7 +242,10 @@ func criterionView(c v1alpha1.AcceptanceCriterion, acc *v1alpha1.IntentAcceptanc
 			out.Outcome = templates.VerifyOutcomePass
 		}
 	case v1alpha1.AcceptanceCommand:
-		// Not run until command checks ship.
+		// Not run until command checks ship: open until a human accepts it.
+		if acceptedAt(acc, c.ID, v.HeadSetDigest) != nil {
+			out.Outcome = templates.VerifyOutcomeAccepted
+		}
 	}
 	return out
 }
@@ -464,14 +463,14 @@ func (p *pass) verifyTargetURL() string {
 	return url
 }
 
-// syncVerifyReports writes the verification's issue comment and its
-// maul/acceptance statuses, while it is reported. changed reports a status
-// write; only errConflict is returned.
+// syncVerifyReports writes the verification's issue comment while it is
+// reported, and its maul/acceptance statuses (acceptanceStatus decides).
+// changed reports a status write; only errConflict is returned.
 func (p *pass) syncVerifyReports(ctx context.Context) (bool, error) {
-	if !p.verifyReported() {
-		return false, nil
+	if p.verifyReported() {
+		p.syncVerifyComment(ctx)
 	}
-	p.syncVerifyComment(ctx)
+	// Also when verification was switched off: its final status.
 	return p.syncAcceptanceStatuses(ctx)
 }
 

@@ -478,3 +478,48 @@ func TestVerifyCommandAtTheCap(t *testing.T) {
 		t.Errorf("reply = %s", body)
 	}
 }
+
+// TestAcceptAll: /maul accept all accepts a plan that declares no acceptance
+// criteria at the current commits, and nothing else: on a plan with
+// criteria it names no criterion and records nothing.
+func TestAcceptAll(t *testing.T) {
+	e := newEnv(t, testProject())
+	name := e.reviewingWithCriteria()
+	refused := e.gh.comment(approver, "/maul accept all")
+	e.settleActions(name)
+	if got := e.get(name).Status.Acceptance.Accepted; len(got) != 0 {
+		t.Fatalf("accept all on a plan with criteria recorded %+v", got)
+	}
+	if body := e.onlyReply(refused); !strings.Contains(body, "names no criterion") {
+		t.Errorf("reply = %s", body)
+	}
+
+	e.setStatus(name, func(in *v1alpha1.Intent) { in.Status.Acceptance.Criteria = nil })
+	all := e.gh.comment(approver, "/maul accept all")
+	e.settleActions(name)
+	got := e.get(name).Status.Acceptance.Accepted
+	if len(got) != 1 || got[0].ID != acceptAll || got[0].HeadSetDigest != testHeadSet || got[0].CommentID != all {
+		t.Fatalf("accepted = %+v", got)
+	}
+	if body := e.onlyReply(all); !strings.Contains(body, "declares no acceptance criteria") {
+		t.Errorf("reply = %s", body)
+	}
+}
+
+// TestAcceptCommandCriterion: a command criterion, which maul does not run
+// in this slice, is closed by an approver's acceptance like a manual one,
+// so a plan carrying one can still reach a green maul/acceptance.
+func TestAcceptCommandCriterion(t *testing.T) {
+	e := newEnv(t, testProject())
+	name := e.reviewingWithCriteria()
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		in.Status.Acceptance.Criteria = append(in.Status.Acceptance.Criteria, v1alpha1.AcceptanceCriterion{
+			ID: "kick-onsets", Kind: v1alpha1.AcceptanceCommand, Statement: "kicks land on the beat", Target: "app"})
+	})
+	id := e.gh.comment(approver, "/maul accept kick-onsets")
+	e.settleActions(name)
+	got := e.get(name).Status.Acceptance.Accepted
+	if len(got) != 1 || got[0].ID != "kick-onsets" || got[0].CommentID != id {
+		t.Fatalf("accepted = %+v", got)
+	}
+}

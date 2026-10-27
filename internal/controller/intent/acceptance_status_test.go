@@ -65,7 +65,8 @@ func (e *env) judged(do acceptance.Doer) (string, string) {
 // TestAcceptanceStatusFollowsTheVerification: maul/acceptance is pending
 // while the verification runs and settles with it, on the pull request's
 // head, recorded on its record and posted once per state: further passes
-// post nothing.
+// post nothing. A pass with a manual criterion open is pending, never
+// green; once an approver accepts it, success, naming them.
 func TestAcceptanceStatusFollowsTheVerification(t *testing.T) {
 	e := newVerifyEnv(t, acceptancePlan)
 	name := e.reviewing()
@@ -78,7 +79,7 @@ func TestAcceptanceStatusFollowsTheVerification(t *testing.T) {
 	e.observe(e.onlyVerification(name).Name, v1alpha1.VerificationObserved, answering(200))
 	e.review(name, 8)
 	s := e.latestAcceptance(head)
-	if s.State != "success" || s.Description != "automated part verified, 1 manual open" {
+	if s.State != "pending" || s.Description != "1/1 automated passed, 1 to accept by hand" {
 		t.Fatalf("once passed: %+v", s)
 	}
 	pr := e.get(name).Status.PullRequests[0]
@@ -90,13 +91,20 @@ func TestAcceptanceStatusFollowsTheVerification(t *testing.T) {
 	if got := len(e.acceptanceStatuses(head)); got != n {
 		t.Fatalf("an unchanged status was posted again: %d statuses, had %d", got, n)
 	}
+	e.gh.comment(approver, "/maul accept sounds-good")
+	e.settleActions(name)
+	e.review(name, 2)
+	if s := e.latestAcceptance(head); s.State != "success" ||
+		s.Description != "1/1 automated passed; 1 accepted by hand by "+approver {
+		t.Fatalf("once the manual criterion is accepted: %+v", s)
+	}
 }
 
 // TestAcceptanceStatusStates: what each judged result posts. A failure is
 // failure, and stays failure while the automatic fix it starts on the next
 // pass runs, numbered as the first of the Project's maxVerifyFixes; a pass
-// only on retry stays pending (never green); with manualGatesStatus an open
-// manual criterion keeps it pending.
+// only on retry stays pending (never green); an open manual criterion keeps
+// it pending, manualGatesStatus or not.
 func TestAcceptanceStatusStates(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
@@ -106,7 +114,8 @@ func TestAcceptanceStatusStates(t *testing.T) {
 	}{
 		{"failure, fix running", answering(500), false, "failure", "0/1 automated passed; automatic fix 1 of 2 running"},
 		{"quarantined", flaky, false, "pending", "1 passed only on retry"},
-		{"manual gates", answering(200), true, "pending", "1/1 automated passed, 1 manual open"},
+		{"manual gates", answering(200), true, "pending", "1/1 automated passed, 1 to accept by hand"},
+		{"manual open", answering(200), false, "pending", "1/1 automated passed, 1 to accept by hand"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newVerifyEnv(t, acceptancePlan, func(p *v1alpha1.Project) {
@@ -138,20 +147,14 @@ func TestAcceptanceStatusUnavailable(t *testing.T) {
 	}
 }
 
-// TestAcceptanceStatusNotPosted: nothing is posted for a plan with nothing
-// to check, on a Project that does not verify, or with the controller's
-// verification off: no status ever claims work maul did not do.
+// TestAcceptanceStatusNotPosted: nothing is posted on a Project that does
+// not verify, or with the controller's verification off, on an intent maul
+// never posted a status for: no status ever claims work maul did not do.
 func TestAcceptanceStatusNotPosted(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		e    func(*testing.T) *env
 	}{
-		{"not declared", func(t *testing.T) *env { return newVerifyEnv(t, "") }},
-		{"manual only", func(t *testing.T) *env {
-			return newVerifyEnv(t, strings.Replace(acceptancePlan,
-				"  - id: health\n    kind: http\n    statement: the app answers its health check\n    target: app\n"+
-					"    request: {method: GET, path: /healthz}\n    expect: {status: 200}\n", "", 1))
-		}},
 		{"project off", func(t *testing.T) *env {
 			return newVerifyEnv(t, acceptancePlan, func(p *v1alpha1.Project) { p.Spec.Verification = nil })
 		}},
@@ -169,6 +172,90 @@ func TestAcceptanceStatusNotPosted(t *testing.T) {
 			head := e.get(name).Status.PullRequests[0].HeadSHA
 			if ss := e.acceptanceStatuses(head); len(ss) != 0 {
 				t.Fatalf("statuses posted: %+v", ss)
+			}
+		})
+	}
+}
+
+// manualOnlyPlan is acceptancePlan without its http criterion: one manual
+// criterion, nothing maul checks.
+var manualOnlyPlan = strings.Replace(acceptancePlan,
+	"  - id: health\n    kind: http\n    statement: the app answers its health check\n    target: app\n"+
+		"    request: {method: GET, path: /healthz}\n    expect: {status: 200}\n", "", 1)
+
+// TestAcceptanceStatusWithNothingToCheck is the regression test for a
+// required maul/acceptance that blocked an intent forever: a plan with no
+// criteria, or only manual ones, got no status at all. A verifying Project
+// now posts one on every open head: pending until an approver accepts what
+// only a human can (each manual criterion, or with no criteria
+// "/maul accept all"), then success naming them, and never green before.
+func TestAcceptanceStatusWithNothingToCheck(t *testing.T) {
+	for _, tc := range []struct {
+		name, plan, accept, pending, success string
+	}{
+		{"no criteria", "", "/maul accept all", "no acceptance criteria declared; an approver may /maul accept all",
+			"no acceptance criteria declared; accepted by " + approver},
+		{"manual only", manualOnlyPlan, "/maul accept sounds-good", "0/1 accepted by hand",
+			"1/1 accepted by hand by " + approver},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newVerifyEnv(t, tc.plan)
+			name := e.reviewing()
+			e.readyPreview(name)
+			e.review(name, 6)
+			head := e.get(name).Status.PullRequests[0].HeadSHA
+			if s := e.latestAcceptance(head); s.State != "pending" || s.Description != tc.pending {
+				t.Fatalf("before acceptance: %+v, want pending %q", s, tc.pending)
+			}
+			if len(e.verifications(name)) != 0 {
+				t.Fatal("a plan with nothing to check was verified")
+			}
+			e.gh.comment(approver, tc.accept)
+			e.settleActions(name)
+			e.review(name, 2)
+			if s := e.latestAcceptance(head); s.State != "success" || s.Description != tc.success {
+				t.Fatalf("after acceptance: %+v, want success %q", s, tc.success)
+			}
+		})
+	}
+}
+
+// TestAcceptanceStatusSwitchedOff: when verification is switched off for an
+// intent maul posted statuses for (the Project stops verifying, or the
+// controller's verification is turned off), its last status is replaced by
+// a final error rather than left pending or green forever.
+func TestAcceptanceStatusSwitchedOff(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		off  func(*env)
+	}{
+		{"project", func(e *env) {
+			p := e.getProject()
+			p.Spec.Verification = nil
+			if err := e.c.Update(context.Background(), p); err != nil {
+				e.t.Fatal(err)
+			}
+		}},
+		{"controller", func(e *env) { e.intent.Settings.Verification = false }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newVerifyEnv(t, acceptancePlan)
+			name := e.reviewing()
+			e.readyPreview(name)
+			e.review(name, 6)
+			head := e.get(name).Status.PullRequests[0].HeadSHA
+			if s := e.latestAcceptance(head); s.State != "pending" {
+				t.Fatalf("while verifying: %+v", s)
+			}
+			tc.off(e)
+			e.review(name, 4)
+			if s := e.latestAcceptance(head); s.State != "error" || s.Description != "verification switched off" {
+				t.Fatalf("once switched off: %+v", s)
+			}
+			n := len(e.acceptanceStatuses(head))
+			e.review(name, 3)
+			if got := len(e.acceptanceStatuses(head)); got != n {
+				t.Fatalf("the final status was posted again: %d, had %d", got, n)
 			}
 		})
 	}

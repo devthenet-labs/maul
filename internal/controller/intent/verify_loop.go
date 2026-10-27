@@ -30,7 +30,8 @@ import (
 //     approval's digest, normalised, digested as approved; and re-arms
 //     automatic fixes and the per-revision bounds;
 //  2. reports Off for a Project (or Preview) that does not verify and
-//     NotDeclared for a plan with nothing to run, consuming any request;
+//     NotDeclared for a plan with nothing to run, consuming any request
+//     (the latter still records the head set an acceptance binds to);
 //  3. halts automatic fixes once a human round of the approved revision
 //     started after the latest /maul verify fix re-armed them;
 //  4. supersedes (syncHeadSet): when the combined change moved, the
@@ -74,6 +75,13 @@ func (p *pass) syncVerification(ctx context.Context) (bool, error) {
 		return p.settleState(ctx, v1alpha1.VerificationOff)
 	}
 	if len(automatable(acc.Criteria)) == 0 {
+		// Nothing runs, but an approver's acceptance binds to the head set,
+		// so it is tracked all the same.
+		if hs, ok := previewHeadSet(p.proj, p.in); ok {
+			if changed, err := p.syncHeadSet(ctx, hs, v1alpha1.VerificationNotDeclared); changed || err != nil {
+				return changed, err
+			}
+		}
 		return p.settleState(ctx, v1alpha1.VerificationNotDeclared)
 	}
 	if reason := p.humanRoundHalt(); reason != "" {
@@ -86,7 +94,7 @@ func (p *pass) syncVerification(ctx context.Context) (bool, error) {
 	if !ok {
 		return false, nil
 	}
-	if changed, err := p.syncHeadSet(ctx, hs); changed || err != nil {
+	if changed, err := p.syncHeadSet(ctx, hs, v1alpha1.VerificationWaitingForCI); changed || err != nil {
 		return changed, err
 	}
 	return p.settleVerification(ctx)
@@ -269,11 +277,12 @@ func (p *pass) humanRoundHalt() v1alpha1.AutoFixReason {
 
 // syncHeadSet supersedes the recorded verification when the combined
 // change moved to hs (§4.7): the in-flight PreviewVerification is deleted,
-// the state starts over at hs (waiting for its checks), and a component
+// the state starts over at hs in state (waiting for its checks, or
+// NotDeclared for a plan with nothing to run), and a component
 // whose revision changed to a head maul did not push halts automatic fixes
 // (HumanPush). The commit statuses are re-posted on every head from the new
 // head-set digest.
-func (p *pass) syncHeadSet(ctx context.Context, hs headSet) (bool, error) {
+func (p *pass) syncHeadSet(ctx context.Context, hs headSet, state v1alpha1.IntentVerificationState) (bool, error) {
 	v := p.in.Status.Verification
 	if v.HeadSetDigest == hs.digest {
 		return false, nil
@@ -284,7 +293,7 @@ func (p *pass) syncHeadSet(ctx context.Context, hs headSet) (bool, error) {
 	pushed := p.humanPushed(v.Heads, hs.heads)
 	return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
 		nv := cur.Status.Verification
-		nv.State = v1alpha1.VerificationWaitingForCI
+		nv.State = state
 		nv.HeadSetDigest, nv.Heads = hs.digest, slices.Clone(hs.heads)
 		nv.Ref, nv.Attempt, nv.InfraRetries = nil, 0, 0
 		clearJudgement(nv)

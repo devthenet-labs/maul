@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
@@ -17,16 +18,24 @@ import (
 
 // The maul/acceptance commit status (acceptance verification, slice 1):
 // what the verification of the combined change says, posted on every open
-// pull request's head. It is maul's word on behavioural evidence, never
-// read back as state.
+// pull request's head of an intent in review whose Project verifies. It is
+// maul's word on behavioural evidence, never read back as state.
 //
-//   - pending while maul waits, verifies, or holds a result for a human (a
-//     pass only on retry, or with the Project's manualGatesStatus an open
-//     manual criterion); success only when every automated check passed at
-//     the current head set; failure when one failed; error when maul could
-//     not run them or an approved criterion cannot run as approved.
-//   - Nothing is posted for a plan with nothing maul checks, a Project or
-//     Preview that does not verify, or an ended intent.
+//   - success only when every approved criterion passed at the current head
+//     set or an approver accepted it there by hand (/maul accept): a manual
+//     criterion, one maul does not run yet (command), one that passed only
+//     on retry; a plan with no criteria at all only once an approver's
+//     /maul accept all. The description names who accepted. Never a green
+//     tick for work nothing and no one checked.
+//   - pending while maul waits or verifies, and while a result waits for a
+//     human; failure when a check failed; error when maul could not run
+//     them, an approved criterion cannot run as approved, or the approved
+//     criteria cannot be read.
+//   - When verification is switched off for an intent (the Project, its
+//     Preview or the controller stops verifying), a final error on every pull
+//     request maul posted a status on, so none is left pending or green.
+//   - Nothing is posted for a Project that never verified the intent, or an
+//     ended intent.
 //   - Each pull request's record keeps the digest of the head, the head-set
 //     digest, the state and the description last posted, so an unchanged
 //     status is never posted again, and a sibling's move (a new head-set
@@ -50,28 +59,48 @@ const (
 )
 
 // acceptanceState is one maul/acceptance status: its state and its
-// maul-authored description (counts only, within GitHub's 140 bytes).
+// maul-authored description (counts and approvers' logins only, within
+// GitHub's 140 bytes).
 type acceptanceState struct {
 	state, description string
 }
 
+// switchedOff is the final status of an intent whose verification was
+// switched off.
+var switchedOff = acceptanceState{statusError, "verification switched off"}
+
 // acceptanceStatus is the maul/acceptance status the recorded verification
-// calls for; ok is false when none is posted.
-func (p *pass) acceptanceStatus() (acceptanceState, bool) {
-	if !p.verifyReported() || !p.verifies() {
-		return acceptanceState{}, false
+// calls for; ok is false when none is posted. postedOnly: it goes only on
+// the pull requests maul posted a status on before (switchedOff).
+func (p *pass) acceptanceStatus() (st acceptanceState, postedOnly, ok bool) {
+	if !verifyPhase(p.in.Status.Phase) {
+		return acceptanceState{}, false, false
+	}
+	if !p.set.Verification || !p.verifies() {
+		return switchedOff, true, true
+	}
+	if !p.verifyReported() {
+		return acceptanceState{}, false, false
 	}
 	if p.criteriaUnreadable() {
-		return acceptanceState{statusError, "the approved acceptance criteria cannot be read: replan needed"}, true
+		return acceptanceState{statusError, "the approved acceptance criteria cannot be read: replan needed"}, false,
+			true
 	}
+	st, ok = p.verifyingStatus()
+	return st, false, ok
+}
+
+// verifyingStatus is the status of a verifying intent's recorded
+// verification; ok is false in a state it is about to leave (none yet, or
+// Off on a Project that verifies again).
+func (p *pass) verifyingStatus() (acceptanceState, bool) {
 	acc, v := p.in.Status.Acceptance, p.in.Status.Verification
 	total := int32(len(automatable(acc.Criteria)))
-	if total == 0 || v.HeadSetDigest == "" {
-		return acceptanceState{}, false
-	}
 	round, most := p.verifyFixRound()
 	passed := fmt.Sprintf("%d/%d automated passed", v.Passed, total)
 	switch v.State {
+	case v1alpha1.VerificationNotDeclared:
+		return notCheckedStatus(acc, v), true
 	case v1alpha1.VerificationWaitingForCI, v1alpha1.VerificationWaitingForPreview:
 		if v.Round > 0 {
 			return acceptanceState{statusPending, "combined change moved: re-verifying"}, true
@@ -84,7 +113,7 @@ func (p *pass) acceptanceStatus() (acceptanceState, bool) {
 		return acceptanceState{statusPending, fmt.Sprintf("verifying: round %d of %d, %d %s", round, most, total,
 			plural(total, "check", "checks"))}, true
 	case v1alpha1.VerificationPassed:
-		return p.passedStatus(passed, v), true
+		return passedStatus(passed, acc, v), true
 	case v1alpha1.VerificationFailing:
 		if v.AutoFix.State == v1alpha1.AutoFixHalted {
 			return acceptanceState{statusFailure, passed + "; automatic fixes halted"}, true
@@ -101,35 +130,109 @@ func (p *pass) acceptanceStatus() (acceptanceState, bool) {
 		return acceptanceState{statusError, "a check cannot run as approved: replan needed"}, true
 	case v1alpha1.VerificationUnavailable:
 		return acceptanceState{statusError, "maul could not run the checks"}, true
+	case v1alpha1.VerificationOff:
 	}
 	return acceptanceState{}, false
 }
 
 // passedStatus is the status of a verification that found no failure: a
 // pass only on retry holds it pending until a human accepts it or a clean
-// run passes it (D7); an open manual criterion does under the Project's
-// manualGatesStatus, and is named otherwise; command criteria are not run
-// in this slice and are named.
-func (p *pass) passedStatus(passed string, v *v1alpha1.IntentVerification) acceptanceState {
-	if q := openQuarantined(p.in.Status.Acceptance, v); q > 0 {
+// run passes it (D7); so does any criterion only a human closes (manual, or
+// not run in this slice) until an approver accepts it. Success names who
+// accepted what was closed by hand.
+func passedStatus(passed string, acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerification) acceptanceState {
+	if q := openQuarantined(acc, v); q > 0 {
 		return acceptanceState{statusPending, fmt.Sprintf("%d passed only on retry", q)}
 	}
-	gates := p.proj.Spec.Verification != nil && p.proj.Spec.Verification.ManualGatesStatus
-	var open []string
-	if v.ManualOpen > 0 {
-		open = append(open, fmt.Sprintf("%d manual open", v.ManualOpen))
-	}
-	if v.NotRun > 0 {
-		open = append(open, fmt.Sprintf("%d not run", v.NotRun))
-	}
+	h := handClosed(acc, v)
 	switch {
-	case gates && v.ManualOpen > 0:
-		return acceptanceState{statusPending, strings.Join(append([]string{passed}, open...), ", ")}
-	case len(open) > 0:
-		return acceptanceState{statusSuccess, strings.Join(append([]string{"automated part verified"}, open...),
-			", ")}
+	case h.open > 0:
+		return acceptanceState{statusPending, fmt.Sprintf("%s, %d to accept by hand", passed, h.open)}
+	case h.total > 0:
+		return acceptanceState{statusSuccess, fmt.Sprintf("%s; %d accepted by hand %s", passed, h.total,
+			acceptedBy(h.accepters))}
 	}
 	return acceptanceState{statusSuccess, passed}
+}
+
+// notCheckedStatus is the status of a plan with nothing maul checks: with
+// no criteria at all, pending until an approver's /maul accept all; with
+// only criteria a human closes, pending until an approver accepted each at
+// the current head set. Success names who accepted.
+func notCheckedStatus(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerification) acceptanceState {
+	const none = "no acceptance criteria declared"
+	if len(acc.Criteria) == 0 {
+		if r := acceptedAt(acc, acceptAll, v.HeadSetDigest); r != nil {
+			return acceptanceState{statusSuccess, none + "; accepted " + acceptedBy([]string{r.By})}
+		}
+		return acceptanceState{statusPending, none + "; an approver may /maul accept all"}
+	}
+	h := handClosed(acc, v)
+	if h.open > 0 {
+		return acceptanceState{statusPending, fmt.Sprintf("%d/%d accepted by hand", h.total-h.open, h.total)}
+	}
+	return acceptanceState{statusSuccess, fmt.Sprintf("%d/%d accepted by hand %s", h.total, h.total,
+		acceptedBy(h.accepters))}
+}
+
+// handTally is what only a human closes at a verification's head set.
+type handTally struct {
+	// total and open count the criteria only a human closes, and those no
+	// approver has accepted at the head set.
+	total, open int32
+	// accepters are the approvers who accepted the others, latest first.
+	accepters []string
+}
+
+// handClosed tallies the criteria only a human closes at v's head set: the
+// manual ones and those maul does not run in this slice (command). A
+// quarantined criterion is openQuarantined's.
+func handClosed(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerification) handTally {
+	var h handTally
+	var accepted []*v1alpha1.AcceptanceRecord
+	for _, c := range acc.Criteria {
+		if !byHand(c) {
+			continue
+		}
+		h.total++
+		if r := acceptedAt(acc, c.ID, v.HeadSetDigest); r != nil {
+			accepted = append(accepted, r)
+		} else {
+			h.open++
+		}
+	}
+	for _, id := range v.QuarantinedIDs {
+		if r := acceptedAt(acc, id, v.HeadSetDigest); r != nil {
+			h.total++
+			accepted = append(accepted, r)
+		}
+	}
+	slices.SortStableFunc(accepted, func(a, b *v1alpha1.AcceptanceRecord) int { return b.At.Compare(a.At.Time) })
+	for _, r := range accepted {
+		if !slices.Contains(h.accepters, r.By) {
+			h.accepters = append(h.accepters, r.By)
+		}
+	}
+	return h
+}
+
+// byHand reports a criterion only a human closes: manual, or of a kind maul
+// does not run in this slice.
+func byHand(c v1alpha1.AcceptanceCriterion) bool {
+	return c.Kind == v1alpha1.AcceptanceManual || c.Kind == v1alpha1.AcceptanceCommand
+}
+
+// acceptedBy names the approvers who accepted, latest first, as a status
+// description says it: logins only (GitHub's grammar, the CRD's pattern),
+// the first and how many more.
+func acceptedBy(logins []string) string {
+	switch len(logins) {
+	case 0:
+		return ""
+	case 1:
+		return "by " + logins[0]
+	}
+	return fmt.Sprintf("by %s and %d %s", logins[0], len(logins)-1, plural(int32(len(logins)-1), "other", "others"))
 }
 
 func plural(n int32, one, many string) string {
@@ -165,19 +268,22 @@ func (p *pass) syncAcceptanceStatuses(ctx context.Context) (bool, error) {
 	if p.statusesUnavailable() {
 		return false, nil
 	}
-	st, ok := p.acceptanceStatus()
+	st, postedOnly, ok := p.acceptanceStatus()
 	if !ok {
 		return false, nil
 	}
-	headSet := p.in.Status.Verification.HeadSetDigest
+	headSet := ""
+	if v := p.in.Status.Verification; v != nil {
+		headSet = v.HeadSetDigest
+	}
 	target := p.verifyTargetURL()
 	var records []acceptanceRecord
 	for _, pr := range p.in.Status.PullRequests {
-		if pr.State != prOpen || pr.HeadSHA == "" || p.leftProject(pr.Repository) {
+		if !p.acceptanceTarget(pr, postedOnly) {
 			continue
 		}
 		d := acceptanceDigest(pr.HeadSHA, headSet, st)
-		if d == pr.AcceptanceDigest && !p.impostorLatest(ctx, pr) {
+		if d == pr.AcceptanceDigest && (postedOnly || !p.impostorLatest(ctx, pr)) {
 			continue
 		}
 		if above, err := p.rateOK(ctx, pr.Repository); err != nil || !above {
@@ -208,6 +314,14 @@ func (p *pass) syncAcceptanceStatuses(ctx context.Context) (bool, error) {
 		}
 		return nil
 	})
+}
+
+// acceptanceTarget reports a pull request maul/acceptance goes on: open,
+// with a known head, in a repository the Project still lists, and, when the
+// status goes only where one was posted (postedOnly), carrying maul's.
+func (p *pass) acceptanceTarget(pr v1alpha1.IntentPullRequest, postedOnly bool) bool {
+	return pr.State == prOpen && pr.HeadSHA != "" && !p.leftProject(pr.Repository) &&
+		(!postedOnly || pr.AcceptanceStatusID != 0)
 }
 
 // statusesUnavailable reports a Project whose App may not post commit
