@@ -361,12 +361,15 @@ func TestVerificationJudgesTheObservations(t *testing.T) {
 			e.review(name, 3)
 			pv := e.onlyVerification(name)
 			e.observe(pv.Name, v1alpha1.VerificationObserved, tc.do)
-			e.review(name, 3)
+			// The judgement is the pass's one write: a failure's fix round
+			// (verify_round.go) starts on a later one.
+			e.review(name, 1)
 			v := e.verification(name)
 			if v.State != tc.state || v.Ref == nil || v.Ref.UID != pv.UID {
 				t.Fatalf("verification = %+v, want %s", v, tc.state)
 			}
 			tc.check(t, v)
+			e.review(name, 2)
 			if n := len(e.verifications(name)); n != 1 {
 				t.Fatalf("a judged head set ran again: %d verifications", n)
 			}
@@ -406,9 +409,13 @@ func TestVerificationEnvFailedChargesTheIntent(t *testing.T) {
 	pv := e.onlyVerification(name)
 	e.observe(pv.Name, v1alpha1.VerificationEnvFailed, nil, v1alpha1.PartFact{Name: "app",
 		Role: v1alpha1.PreviewRoleComponent, Waiting: "CrashLoopBackOff", Restarts: 4})
-	e.review(name, 3)
+	e.review(name, 1)
 	if v := e.verification(name); v.State != v1alpha1.VerificationFailing || len(e.verifications(name)) != 1 {
 		t.Fatalf("verification = %+v", v)
+	}
+	e.review(name, 2)
+	if n := len(e.verifications(name)); n != 1 {
+		t.Fatalf("a judged environment failure was retried: %d verifications", n)
 	}
 }
 

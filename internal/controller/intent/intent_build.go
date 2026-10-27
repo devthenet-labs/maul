@@ -479,6 +479,9 @@ func (p *pass) reviewNow(ctx context.Context) (bool, error) {
 	if changed, err := p.syncPRRoundNotices(ctx); changed || err != nil {
 		return changed, err
 	}
+	if err := p.settleVerifyCommandsOnPRs(ctx, prs); err != nil {
+		return false, err
+	}
 	if changed, err := p.syncVerification(ctx); changed || err != nil {
 		return changed, err
 	}
@@ -490,7 +493,10 @@ func (p *pass) reviewNow(ctx context.Context) (bool, error) {
 
 // startRound starts at most one round: the leased one adopted first, then
 // the first open pull request in roundOrder with a review, command or checks
-// round due. With none started, the acceptance verification's gate runs
+// round due. With none started, an intent that is verified starts nothing
+// more while a human's feedback is pending on any pull request (a review
+// still inside its quiet window: humanPending), then an acceptance-fix
+// round when one is due (startVerifyFix), and the verification's gate runs
 // last (startVerification): a human's or CI's round always goes first.
 func (p *pass) startRound(ctx context.Context, prs []v1alpha1.IntentPullRequest) (bool, error) {
 	if adopted, err := p.adoptPendingRound(ctx); adopted || err != nil {
@@ -522,7 +528,37 @@ func (p *pass) startRound(ctx context.Context, prs []v1alpha1.IntentPullRequest)
 			}
 		}
 	}
+	if p.set.Verification && p.verifies() && verifyWorkPending(p.in.Status.Verification) {
+		if reason, err := p.humanPending(ctx, prs); err != nil || reason != "" {
+			// The human's round starts once its quiet window ends, on a
+			// later poll.
+			return false, err
+		}
+		if started, err := p.startVerifyFix(ctx); started || err != nil {
+			return started, err
+		}
+	}
 	return p.startVerification(ctx, prs)
+}
+
+// settleVerifyCommandsOnPRs settles the acceptance commands (/maul verify,
+// /maul accept) made on the Intent's open pull requests in prs, while the
+// Intent is verified and in review. The review poll reaches it only with
+// every pull request repository's rate budget over its floor.
+func (p *pass) settleVerifyCommandsOnPRs(ctx context.Context, prs []v1alpha1.IntentPullRequest) error {
+	if !p.set.Verification || !verifyPhase(p.in.Status.Phase) {
+		return nil
+	}
+	for i := range prs {
+		if prs[i].State != prOpen {
+			continue
+		}
+		pr := prs[i]
+		if err := p.settlePRVerifyCommands(ctx, &pr); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // roundOrder is the order the pull requests in prs are offered a round in:
