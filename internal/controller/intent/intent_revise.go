@@ -12,8 +12,6 @@ import (
 	"slices"
 	"strings"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
@@ -27,6 +25,7 @@ import (
 	"github.com/devthenet-labs/maul/internal/command"
 	"github.com/devthenet-labs/maul/internal/ghclient"
 	"github.com/devthenet-labs/maul/internal/templates"
+	"github.com/devthenet-labs/maul/internal/untrusted"
 	"github.com/devthenet-labs/maul/internal/usagerollup"
 )
 
@@ -622,42 +621,10 @@ func (p *pass) ackPRCommand(ctx context.Context, run *v1alpha1.IntentRun) error 
 }
 
 // visibleFeedback makes untrusted GitHub text legible to both a human and
-// the model. CRLF, LF and tabs keep their ordinary layout; every other
-// invisible, invalid byte or non-ASCII separator becomes a printed escape.
-func visibleFeedback(s string) string {
-	var b strings.Builder
-	for i := 0; i < len(s); {
-		r, width := utf8.DecodeRuneInString(s[i:])
-		if r == utf8.RuneError && width == 1 {
-			fmt.Fprintf(&b, "<0x%02X>", s[i])
-			i++
-			continue
-		}
-		switch {
-		case r == '\n' || r == '\t', r == '\r' && i+1 < len(s) && s[i+1] == '\n':
-			b.WriteRune(r)
-		case unicode.IsControl(r) || unicode.In(r, unicode.Cf, unicode.Zl, unicode.Zp) ||
-			unicode.Is(unicode.Variation_Selector, r) || unicode.Is(unicode.Other_Default_Ignorable_Code_Point, r):
-			fmt.Fprintf(&b, "<U+%04X>", r)
-		default:
-			b.WriteRune(r)
-		}
-		i += width
-	}
-	return b.String()
-}
+// the model (see untrusted.Escape).
+func visibleFeedback(s string) string { return untrusted.Escape(s) }
 
-func capVisible(s string, maxBytes int) string {
-	if len(s) <= maxBytes {
-		return s
-	}
-	const note = "\n[truncated]\n"
-	end := maxBytes - len(note)
-	for end > 0 && !utf8.RuneStart(s[end]) {
-		end--
-	}
-	return s[:end] + note
-}
+func capVisible(s string, maxBytes int) string { return untrusted.Cap(s, maxBytes) }
 
 // fencedBounded keeps the enclosing fence inside the item bound too. An
 // attacker may send a 2-KiB run of backticks; the normal dynamic fence would

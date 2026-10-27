@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/untrusted"
 )
 
 // Bounds on the approver comments a replan's snapshot carries, the design's
@@ -111,13 +111,4 @@ func fenced(s string) string {
 }
 
 // cutBytes cuts s to at most n bytes on a rune boundary.
-func cutBytes(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	cut := n
-	for cut > 0 && !utf8.RuneStart(s[cut]) {
-		cut--
-	}
-	return s[:cut]
-}
+func cutBytes(s string, n int) string { return untrusted.Cut(s, n) }
