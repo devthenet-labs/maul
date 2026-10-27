@@ -63,3 +63,33 @@ func TestPreviewVerificationGrantsAreDocumented(t *testing.T) {
 		}
 	}
 }
+
+// The operator reference states the same grants in prose, beside the chart
+// switch that renders them, and the acceptance guide the people's side.
+func TestPreviewVerificationDocsStateTheGrantsAndCommands(t *testing.T) {
+	root := filepath.Join("..", "..", "..")
+	for path, wants := range map[string][]string{
+		"docs/configuration/preview-controller.md": {"preview.verification.enabled", "`jobs`", "`networkpolicies`",
+			"`pods` (delete", "`pods/log`", "`previewverifications`", "`previewverifications/status`",
+			"--preview-tester-image", "--preview-verify-deadline-max", "preview.verification.deadlineMaxSeconds"},
+		"docs/configuration/intent-controller.md": {"--intent-verification", "--intent-verify-timeout-max",
+			"previewverifications", "maul/acceptance"},
+		"docs/intents/acceptance.md": {"maul/acceptance", "/maul verify", "/maul verify fix", "/maul verify --reset",
+			"/maul accept", "maxVerifyFixes", "maxVerifications", "manualGatesStatus", "not an attestation",
+			"cancelled for your review", "Commit statuses", "{{run}}"},
+		"docs/intents/set-up-previews.md": {"acceptance.md", "preview.verification.enabled"},
+	} {
+		t.Run(path, func(t *testing.T) {
+			data, err := os.ReadFile(filepath.Join(root, path))
+			if err != nil {
+				t.Fatal(err)
+			}
+			prose := strings.Join(strings.Fields(string(data)), " ")
+			for _, want := range wants {
+				if !strings.Contains(prose, want) {
+					t.Errorf("%s does not state %q", path, want)
+				}
+			}
+		})
+	}
+}

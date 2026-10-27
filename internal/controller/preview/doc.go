@@ -8,7 +8,11 @@
 // NetworkPolicy per part of a verification-capable Preview, admitting
 // exactly the edges re-derived from the operator's Project beside the
 // chart's preview-isolation, and runs the tester as a Job; off, it never
-// touches either kind. Every rendered object is deterministic, a Preview
+// touches either kind. Its VerificationReconciler answers each
+// PreviewVerification request in the release namespace: it re-checks the
+// request against the Preview and the Intent's approved criteria, reads the
+// tester's log through pods/log (and only the log of the Job's own pod), and
+// writes observations, never verdicts, to the request's status. Every rendered object is deterministic, a Preview
 // without an environment renders exactly what it did before verification
 // (and a single-component one what it did before multi-component previews)
 // existed, and every slot is released only after finalizer cleanup sees no

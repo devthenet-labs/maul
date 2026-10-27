@@ -202,13 +202,13 @@ click **Create GitHub App**. The CLI writes the App's credentials as a Secret ma
 `-o - | sops ...`). [Creating the GitHub App](../cli.md#creating-the-github-app) has every flag, and
 [Create the GitHub App](../getting-started/github-app.md#intents) the permissions and why each is needed:
 
-| Repository                     | Permission                       | Access       |
-| ------------------------------ | -------------------------------- | ------------ |
-| The intent repository          | Issues                           | Read & write |
-| Each app repository            | Contents, Pull requests          | Read & write |
-| Each app repository            | Issues                           | Read         |
-| With `spec.checks.fix`         | Checks, Commit statuses, Actions | Read         |
-| With `spec.checks.rerunFailed` | Actions                          | Read & write |
+| Repository                     | Permission                               | Access       |
+| ------------------------------ | ---------------------------------------- | ------------ |
+| The intent repository          | Issues                                   | Read & write |
+| Each app repository            | Contents, Pull requests, Commit statuses | Read & write |
+| Each app repository            | Issues                                   | Read         |
+| With `spec.checks.fix`         | Checks, Actions                          | Read         |
+| With `spec.checks.rerunFailed` | Actions                                  | Read & write |
 
 Then install the App from the link the CLI prints. Choose **Only select repositories** and pick the intent repository
 and every application repository: an App installed on all repositories can act on all of them. Add each new application

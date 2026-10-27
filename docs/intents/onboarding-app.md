@@ -344,6 +344,11 @@ projects:
       # limits: {maxActiveIntents: 2, maxCostMicroUSD: 10000000}        $10 per intent
 ```
 
+To have maul check each intent's change against what its plan said before a human reviews it, add
+`verification: {enabled: true}` under `spec` (the operator also turns it on in the chart): the plan then lists
+acceptance criteria, maul runs them against the preview, and the pull request carries a `maul/acceptance` status. See
+[Acceptance verification](acceptance.md).
+
 An application whose tests need more than a small shared node (a browser suite, a large compile) should pick a resource
 class the operator defined: its builds otherwise run with no CPU or memory reserved. See
 [Sizing agents](deploying.md#sizing-agents).
