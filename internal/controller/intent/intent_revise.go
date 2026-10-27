@@ -107,6 +107,8 @@ func (p *pass) revising(ctx context.Context) (bool, error) {
 
 // acksCommand reports a round an approver's PR command started, whose
 // command is acknowledged (reacted to) when the round is entered.
+// It is the one helper that tells a review from a command, which
+// roundKindOf does not: a run with no trigger reads as a review.
 func acksCommand(t v1alpha1.IntentRunTrigger) bool {
 	switch t {
 	case v1alpha1.IntentRunTriggerCommand:
@@ -122,15 +124,13 @@ func acksCommand(t v1alpha1.IntentRunTrigger) bool {
 // status.revisions, checkFixes or verifyFixes. A round with no trigger is a
 // revision, as every round was before triggers were recorded.
 func countCompletedRound(st *v1alpha1.IntentStatus, t v1alpha1.IntentRunTrigger) {
-	switch t {
-	case v1alpha1.IntentRunTriggerReview, v1alpha1.IntentRunTriggerCommand:
+	switch roundKindOf(t) {
+	case roundHuman:
 		st.Revisions++
-	case v1alpha1.IntentRunTriggerChecks:
+	case roundChecks:
 		st.CheckFixes++
-	case v1alpha1.IntentRunTriggerVerify:
+	case roundVerify:
 		st.VerifyFixes++
-	default:
-		st.Revisions++
 	}
 }
 
@@ -140,14 +140,7 @@ func countCompletedRound(st *v1alpha1.IntentStatus, t v1alpha1.IntentRunTrigger)
 // not: the failures it was started for were at a head that is gone, and
 // the new head's checks or verification decide whether another is due.
 func retriesHeadMoved(t v1alpha1.IntentRunTrigger) bool {
-	switch t {
-	case v1alpha1.IntentRunTriggerReview, v1alpha1.IntentRunTriggerCommand:
-		return true
-	case v1alpha1.IntentRunTriggerChecks, v1alpha1.IntentRunTriggerVerify:
-		return false
-	default:
-		return true
-	}
+	return roundKindOf(t) == roundHuman
 }
 
 // requiresFeedback reports a round that is not launched without usable
@@ -155,14 +148,7 @@ func retriesHeadMoved(t v1alpha1.IntentRunTrigger) bool {
 // round's input is its checks' diagnostics, and an acceptance-fix round's
 // its verification's evidence, neither of which is thread feedback.
 func requiresFeedback(t v1alpha1.IntentRunTrigger) bool {
-	switch t {
-	case v1alpha1.IntentRunTriggerReview, v1alpha1.IntentRunTriggerCommand:
-		return true
-	case v1alpha1.IntentRunTriggerChecks, v1alpha1.IntentRunTriggerVerify:
-		return false
-	default:
-		return true
-	}
+	return roundKindOf(t) == roundHuman
 }
 
 // roundNoticeLabel names a round in its pull request notice. A check-fix
@@ -170,16 +156,14 @@ func requiresFeedback(t v1alpha1.IntentRunTrigger) bool {
 // never reads as a revision from review feedback, nor does an acceptance
 // fix.
 func roundNoticeLabel(t v1alpha1.IntentRunTrigger) (label string, namesChecks bool) {
-	switch t {
-	case v1alpha1.IntentRunTriggerReview, v1alpha1.IntentRunTriggerCommand:
-		return "Revision round", false
-	case v1alpha1.IntentRunTriggerChecks:
+	switch roundKindOf(t) {
+	case roundChecks:
 		return "", true
-	case v1alpha1.IntentRunTriggerVerify:
+	case roundVerify:
 		return "Acceptance fix round", false
-	default:
-		return "Revision round", false
+	case roundHuman:
 	}
+	return "Revision round", false
 }
 
 // missingPendingReviseBranch blocks a round not yet launched whose intent
@@ -974,14 +958,7 @@ func (p *pass) revisionRounds() int32 {
 // an approver's round, or one with no trigger (recorded before triggers
 // were). intentview.RevisionRounds repeats this rule, pinned to it.
 func countsAsRevision(t v1alpha1.IntentRunTrigger) bool {
-	switch t {
-	case v1alpha1.IntentRunTriggerReview, v1alpha1.IntentRunTriggerCommand:
-		return true
-	case v1alpha1.IntentRunTriggerChecks, v1alpha1.IntentRunTriggerVerify:
-		return false
-	default:
-		return true
-	}
+	return roundKindOf(t) == roundHuman
 }
 
 // reviewCutoff ignores feedback on the pull request in repoURL predating its

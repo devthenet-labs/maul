@@ -137,14 +137,7 @@ func (p *pass) statusComment() templates.IntentStatusComment {
 // fixingChecks reports a round the status comment names as fixing CI: a
 // check-fix round alone.
 func fixingChecks(t v1alpha1.IntentRunTrigger) bool {
-	switch t {
-	case v1alpha1.IntentRunTriggerChecks:
-		return true
-	case v1alpha1.IntentRunTriggerReview, v1alpha1.IntentRunTriggerCommand, v1alpha1.IntentRunTriggerVerify:
-		return false
-	default:
-		return false
-	}
+	return roundKindOf(t) == roundChecks
 }
 
 // latestAttribution is whom the Intent's newest run is attributed to, nil

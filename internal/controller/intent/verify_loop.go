@@ -259,17 +259,9 @@ func (p *pass) humanRoundHalt() v1alpha1.AutoFixReason {
 			run.Spec.Round <= latest {
 			continue
 		}
-		switch run.Spec.Trigger {
-		case v1alpha1.IntentRunTriggerReview:
-			reason, latest = v1alpha1.AutoFixHumanReview, run.Spec.Round
-		case v1alpha1.IntentRunTriggerCommand:
-			reason, latest = v1alpha1.AutoFixHumanCommand, run.Spec.Round
-		case v1alpha1.IntentRunTriggerChecks, v1alpha1.IntentRunTriggerVerify:
-			// maul's own rounds: never a human's.
-		default:
-			// A revise run with no trigger predates triggers: an approver's
-			// round, as roundKindOf reads it.
-			reason, latest = v1alpha1.AutoFixHumanReview, run.Spec.Round
+		// maul's own rounds (checks, verify) are never a human's.
+		if r := humanReason(run.Spec.Trigger); r != "" {
+			reason, latest = r, run.Spec.Round
 		}
 	}
 	return reason

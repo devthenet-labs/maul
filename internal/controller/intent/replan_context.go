@@ -131,16 +131,14 @@ func failedRunNoun(run *v1alpha1.IntentRun) string {
 	if run.Spec.Stage != v1alpha1.IntentStageRevise {
 		return string(run.Spec.Stage)
 	}
-	switch run.Spec.Trigger {
-	case v1alpha1.IntentRunTriggerReview, v1alpha1.IntentRunTriggerCommand:
-		return string(run.Spec.Stage)
-	case v1alpha1.IntentRunTriggerChecks:
+	switch roundKindOf(run.Spec.Trigger) {
+	case roundChecks:
 		return "check-fix"
-	case v1alpha1.IntentRunTriggerVerify:
+	case roundVerify:
 		return "acceptance-fix"
-	default:
-		return string(run.Spec.Stage)
+	case roundHuman:
 	}
+	return string(run.Spec.Stage)
 }
 
 // later orders runs by creation, then by name, which settles a tie within

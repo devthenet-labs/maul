@@ -1217,17 +1217,12 @@ func (r *RunReconciler) settleMissingJob(ctx context.Context, run *v1alpha1.Inte
 }
 
 // legacyEmptyHandoffPossible reports a round whose stored handoff the legacy
-// empty-review recovery may read: a review round's alone, the only kind
-// launched with an empty handoff before that was refused.
+// empty-review recovery may read: a review round's alone (an approver's
+// round no command started), the only kind launched with an empty handoff
+// before that was refused. A run with no trigger reads as a review, as at
+// every other site; the stored handoff must still match exactly.
 func legacyEmptyHandoffPossible(t v1alpha1.IntentRunTrigger) bool {
-	switch t {
-	case v1alpha1.IntentRunTriggerReview:
-		return true
-	case v1alpha1.IntentRunTriggerCommand, v1alpha1.IntentRunTriggerChecks, v1alpha1.IntentRunTriggerVerify:
-		return false
-	default:
-		return false
-	}
+	return roundKindOf(t) == roundHuman && !acksCommand(t)
 }
 
 // holdExpiredDetail says why a held run's changeset was lost: its Job
