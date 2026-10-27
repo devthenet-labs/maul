@@ -381,6 +381,12 @@ type Spec struct {
 	// Its shape is not this package's business either, and its text is
 	// untrusted — the prompt bounds and fences it.
 	OpenPullRequests string
+	// PlanVerification is pre-serialized JSON naming the previewed
+	// components an intent plan's acceptance criteria can target, set only
+	// on the plan Job of a Project that verifies, passed opaquely to the
+	// plan prompt; empty, as on every other Job, omits the prompt's
+	// acceptance section.
+	PlanVerification string
 	// RunnerImage is the digest-pinned repository-declared image from the
 	// Repository's status (name@sha256:...), copied by the launching
 	// controller; empty runs the harness's runner image. It is honoured only
@@ -1025,8 +1031,8 @@ var reservedEnv = map[string]bool{
 // perJobEnv are the names a finding Job sets itself: HOME, the workspace,
 // and what agentEnv reads off the Spec (repository, phase, finding, base
 // SHA, the stage's harness and model, the budget grant, the estimate
-// calibration, the previous attempt and an intent plan's open pull
-// requests). The injected-binary directory is
+// calibration, the previous attempt, and an intent plan's open pull
+// requests and verification). The injected-binary directory is
 // one too, set only by a Job that injects: on the default image it would
 // send agent-runner looking for an injected CLI that was never copied.
 // Unlike the gateway names, these are refused on Runner.Env as well as on
@@ -1051,6 +1057,7 @@ var perJobEnv = map[string]bool{
 	"MAUL_CALIBRATION":          true,
 	"MAUL_PREVIOUS_ATTEMPT":     true,
 	"MAUL_OPEN_PULL_REQUESTS":   true,
+	"MAUL_PLAN_VERIFICATION":    true,
 	agentrun.BinDirEnv:          true,
 	// Set only on a Job that carries a network profile (profileEnv), and
 	// read by cmd/agent-runner, not agentrun.FromEnv, so they are no
@@ -1290,6 +1297,9 @@ func (c *Client) agentEnv(runner Runner, spec Spec) []corev1.EnvVar {
 	}
 	if spec.OpenPullRequests != "" {
 		env = append(env, corev1.EnvVar{Name: "MAUL_OPEN_PULL_REQUESTS", Value: spec.OpenPullRequests})
+	}
+	if spec.PlanVerification != "" {
+		env = append(env, corev1.EnvVar{Name: "MAUL_PLAN_VERIFICATION", Value: spec.PlanVerification})
 	}
 
 	// The controller-global Env under the full reserved filter, then the

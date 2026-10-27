@@ -139,6 +139,13 @@ type Config struct {
 	// itself carries no profile.
 	BuildProfiles []templates.BuildProfile
 
+	// PlanVerification is the verification of an intent plan's Project, the
+	// previewed components its acceptance criteria can target, which the
+	// plan prompt teaches the planner to declare criteria against. Only the
+	// plan Job of a Project that verifies is handed it; nil omits the
+	// section.
+	PlanVerification *templates.PlanVerification
+
 	// NetworkProfile names the operator network profile the pod carries (a
 	// Go module route through the egress proxy), which the remediate and
 	// build prompts then describe instead of saying the run is offline.
@@ -242,6 +249,16 @@ func buildProfilesFromEnv(raw string, errs []string) ([]templates.BuildProfile, 
 		errs = append(errs, fmt.Sprintf("MAUL_BUILD_NETWORK_PROFILES is not valid JSON: %v", err))
 	}
 	return profiles, errs
+}
+
+// planVerificationFromEnv decodes MAUL_PLAN_VERIFICATION, adding to errs
+// when it is not the controller's encoding.
+func planVerificationFromEnv(raw string, errs []string) (*templates.PlanVerification, []string) {
+	v, err := templates.DecodePlanVerification(raw)
+	if err != nil {
+		errs = append(errs, fmt.Sprintf("MAUL_PLAN_VERIFICATION is not valid: %v", err))
+	}
+	return v, errs
 }
 
 // negativeIdleTimeouts reports each stage idle limit set below zero: zero is
@@ -361,6 +378,7 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		cfg.OpenPullRequests = prs
 	}
 	cfg.BuildProfiles, errs = buildProfilesFromEnv(get("BUILD_NETWORK_PROFILES", ""), errs)
+	cfg.PlanVerification, errs = planVerificationFromEnv(get("PLAN_VERIFICATION", ""), errs)
 	// Approving a fix must never buy less than leaving it alone would: a
 	// manual budget below the automated one inverts the whole model.
 	if cfg.RemediateManualMaxTurns < cfg.RemediateAutoMaxTurns {

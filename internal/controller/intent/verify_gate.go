@@ -120,12 +120,13 @@ func automatable(cs []v1alpha1.AcceptanceCriterion) []v1alpha1.AcceptanceCriteri
 	return out
 }
 
-// verifies reports whether this pass's Intent is verified: the Project
-// verifies, the preview projection is on, and the Intent's Preview is
-// verification-capable (v1alpha1.DesiredPreviewEnvironment, the derivation
-// preview-controller re-checks).
+// verifies reports whether this pass's Intent is verified: its Project is
+// (Settings.verifiesProject, the predicate the plan-time planAsk shares),
+// and the Intent's Preview is verification-capable
+// (v1alpha1.DesiredPreviewEnvironment, the derivation preview-controller
+// re-checks).
 func (p *pass) verifies() bool {
-	if !p.set.Previews || !p.proj.Spec.VerificationEnabled() {
+	if !p.set.verifiesProject(p.proj) {
 		return false
 	}
 	_, ok := v1alpha1.DesiredPreviewEnvironment(p.proj, p.in)

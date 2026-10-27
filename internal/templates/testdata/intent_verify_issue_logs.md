@@ -17,10 +17,6 @@ Verification failing: 2/4 checks passing, round 1 of 2, 1 quarantined, 1 for a h
 {"error":"boom"}
 ```
 
-This change edits tests that a check relies on, so maul does not count that check as passed until a human accepts it with `/maul accept <id>`.
-
-Services restarted: a service pod restarted and lost its data, so the checks ran against fresh services.
-
 Another actor, `mallory`, posted a `maul/acceptance` status. maul posted its own over it.
 
 Log tail of `beatbattle-api`:

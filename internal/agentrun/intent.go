@@ -277,6 +277,9 @@ func (a *Agent) plan(ctx context.Context, repos []manifestRepository) *envelope.
 		Trees:              planTrees(repos),
 		OpenPullRequests:   a.cfg.OpenPullRequests,
 		BuildProfiles:      a.cfg.BuildProfiles,
+		// The Project's verification, when it verifies: the prompt then asks
+		// for acceptance criteria against its previewed components.
+		Verification: a.cfg.PlanVerification,
 	})
 	if err != nil {
 		ev.Outcome = envelope.OutcomeRuntimeError

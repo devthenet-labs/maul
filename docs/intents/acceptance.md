@@ -84,9 +84,16 @@ acceptance:
 | `command` | Parsed and shown, reported as "not run" in this release; a person closes it with `/maul accept <id>`              |
 
 The grammar is checked statically before the plan is posted (path, headers, body size, at most four captures per step,
-RFC 6901 pointers, matchers `$present`, `$absent`, `$contains`, `$approx` and `$order`). A `target` that is not a
-previewed repository of the Project refuses the plan, and a criterion that can no longer run as approved later puts the
-intent in `NeedsReplan`: use `/maul replan`.
+RFC 6901 pointers, matchers `$present`, `$absent`, `$contains`, `$approx` and `$order`). While the plan will be verified
+(the Project sets `verification.enabled`, intent-controller runs with verification and previews on, and the Project
+previews at least one repository), a `target` that is not a previewed repository of the Project refuses the plan, and
+the planner's retry is told why. Otherwise verification is optional and never fails an intent: the criteria are kept,
+and the plan comment shows them as not checked. A criterion that can no longer run as approved later puts the intent in
+`NeedsReplan`: use `/maul replan`.
+
+The plan comment's header states what the approver is approving: how many criteria maul checks automatically and which
+need a person, that the plan declares none, that they are not checked because verification is off, or that maul could
+not ask the planner for criteria because the Project previews no repository a criterion could target.
 
 Two rules shape good criteria, and the plan prompt states both:
 

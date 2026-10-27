@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/envelope"
 	"github.com/devthenet-labs/maul/internal/report"
 )
@@ -36,6 +37,10 @@ type Plan struct {
 	// build's cost, verbatim: an estimate, never a grant.
 	EstimatedMaxTurns    int
 	EstimatedTokenBudget int
+	// Acceptance are the plan's acceptance criteria as written, validated
+	// by report.ParsePlan: what the controller holds to the Project's
+	// previewed repositories before the plan is offered for approval.
+	Acceptance []acceptance.Criterion
 }
 
 // FromPlan converts a plan event's payload. The plan is re-derived from the
@@ -65,5 +70,6 @@ func FromPlan(p *envelope.Plan) (*Plan, error) {
 	out.Confidence = FormatConfidence(*parsed.Confidence)
 	out.EstimatedMaxTurns = parsed.EstimatedMaxTurns
 	out.EstimatedTokenBudget = parsed.EstimatedTokenBudget
+	out.Acceptance = parsed.Acceptance
 	return out, nil
 }

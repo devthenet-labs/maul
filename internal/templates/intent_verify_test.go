@@ -35,8 +35,6 @@ func testVerifySection() VerifySection {
 func TestVerifyGoldens(t *testing.T) {
 	withLogs := testVerifySection()
 	withLogs.Logs = []VerifyLog{{Part: "beatbattle-api", Tail: "listening on :8080\npanic: boom"}}
-	withLogs.ChangedTests = true
-	withLogs.ServicesRestarted = true
 	withLogs.Impostor = "mallory"
 	passed := VerifySection{
 		Progress: VerifyProgress{State: VerifyPassed, Round: 2, MaxRounds: 2, Passing: 2, Total: 2},
@@ -53,7 +51,7 @@ func TestVerifyGoldens(t *testing.T) {
 			return RenderVerifyComment(VerifyComment{Namespace: "maul", Intent: "marigold-3", Round: 1, Attempt: 2,
 				Section: testVerifySection()})
 		}},
-		{"intent_verify_issue_logs_flags.md", func() (string, error) {
+		{"intent_verify_issue_logs.md", func() (string, error) {
 			return RenderVerifyComment(VerifyComment{Namespace: "maul", Intent: "marigold-3", Round: 1, Attempt: 1,
 				Section: withLogs})
 		}},
@@ -88,6 +86,11 @@ func TestVerifyGoldens(t *testing.T) {
 		{"intent_plan_acceptance_off.md", func() (string, error) {
 			pc := testPlanComment(testPlan)
 			pc.Acceptance = &PlanAcceptance{Off: true}
+			return RenderPlanComment(pc)
+		}},
+		{"intent_plan_acceptance_not_asked.md", func() (string, error) {
+			pc := testPlanComment(testPlan)
+			pc.Acceptance = &PlanAcceptance{NotAsked: true}
 			return RenderPlanComment(pc)
 		}},
 		{"prompt_plan_verification.md", func() (string, error) {

@@ -192,9 +192,9 @@ spec:
                       oldest first.
                     items:
                       description: |-
-                        AcceptanceRecord is one approver's /maul accept of a manual, quarantined
-                        or changed-tests criterion. It holds only at the combined change it was
-                        given at: once the heads move it is shown as not re-checked.
+                        AcceptanceRecord is one approver's /maul accept of a manual, command or
+                        quarantined criterion. It holds only at the combined change it was given
+                        at: once the heads move it is shown as not re-checked.
                       properties:
                         at:
                           description: At is the command comment's created_at.

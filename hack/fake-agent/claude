@@ -17,8 +17,16 @@
 # result carries its own num_turns and usage, but a total_cost_usd cumulative
 # over the session. Sessions are files under $HOME, as the CLI's are.
 #
-# Only the build stage is scripted. What the agent does is chosen by the
-# environment, a test's stand-in for a model:
+# The plan and build stages are scripted. A plan (MAUL_PHASE=plan) writes a
+# plan naming the repositories the request lists under "## Repositories", as
+# hack/fake-agent/codex's does; when its prompt teaches acceptance criteria
+# (the "### Acceptance criteria" section a verifying Project's plan prompt
+# carries) and MAUL_FAKE_PLAN_ACCEPTANCE is set (YAML lines), the plan's
+# frontmatter declares that acceptance block, as a model asked for criteria
+# would; a prompt that does not ask gets none. Every run's prompt (the -p
+# argument) is written to $HOME/.fake-claude/prompt-<phase> for the test to
+# read. What a build does is chosen by the environment, a test's stand-in
+# for a model:
 #
 #   MAUL_FAKE_CLAUDE_REPORT  the first run's report: "ok" (default), or the
 #                              two slips that threw builds away live:
@@ -50,14 +58,15 @@ if [ "${1:-}" = "--version" ]; then
   exit 0
 fi
 
-mode='' session='' turns='' tools=''
+mode='' session='' turns='' tools='' prompt=''
 while [ $# -gt 0 ]; do
   case "$1" in
   --session-id) mode=first session=$2; shift 2 ;;
   --resume) mode=resume session=$2; shift 2 ;;
   --max-turns) turns=$2; shift 2 ;;
   --allowedTools) tools=$2; shift 2 ;;
-  -p | --model | --output-format | --tools | --disallowedTools | --setting-sources | --permission-mode | --add-dir | \
+  -p) prompt=$2; shift 2 ;;
+  --model | --output-format | --tools | --disallowedTools | --setting-sources | --permission-mode | --add-dir | \
     --append-system-prompt) shift 2 ;;
   *) shift ;;
   esac
@@ -67,9 +76,14 @@ workspace="${MAUL_WORKSPACE:?MAUL_WORKSPACE is unset}"
 state="$HOME/.fake-claude"
 mkdir -p "$state/sessions"
 printf '%s %s %s %s\n' "$mode" "$session" "$turns" "$tools" >>"$state/calls"
+printf '%s' "$prompt" >"$state/prompt-${MAUL_PHASE:-none}"
 
-if [ "${MAUL_PHASE:-}" != build ] || [ -z "$mode" ]; then
-  printf '{"type":"result","subtype":"error_during_execution","is_error":true,"num_turns":0,"session_id":"%s","errors":["the scripted claude only builds"]}\n' "$session"
+case "${MAUL_PHASE:-}" in
+plan | build) ;;
+*) mode='' ;;
+esac
+if [ -z "$mode" ]; then
+  printf '{"type":"result","subtype":"error_during_execution","is_error":true,"num_turns":0,"session_id":"%s","errors":["the scripted claude only plans and builds"]}\n' "$session"
   exit 1
 fi
 
@@ -127,6 +141,27 @@ emit() {
   printf '{"type":"result","subtype":"success","is_error":false,"result":"%s","session_id":"%s","num_turns":%s,"total_cost_usd":%s,"usage":{"input_tokens":%s,"cache_creation_input_tokens":%s,"cache_read_input_tokens":%s,"output_tokens":%s}}\n' \
     "$8" "$1" "$2" "$7" "$3" "$4" "$5" "$6"
 }
+
+if [ "$MAUL_PHASE" = plan ]; then
+  repos=$(sed -n '/^## Repositories/,/^## /p' "$workspace/input/issue.md" | sed -n 's/^- \(https:[^ ]*\).*/  - "\1"/p')
+  acceptance=''
+  case "$prompt" in
+  *'### Acceptance criteria'*) acceptance=${MAUL_FAKE_PLAN_ACCEPTANCE:-} ;;
+  esac
+  mkdir -p "$workspace/reports"
+  {
+    printf '%s\n' '---' 'summary: "Add a VERSION file (scripted plan from hack/fake-agent/claude)"' 'repositories:'
+    [ -z "$repos" ] || printf '%s\n' "$repos"
+    printf '%s\n' 'new_dependencies: []' 'questions: []' 'confidence: 0.8' 'estimated_max_turns: 20' \
+      'estimated_token_budget: 100000'
+    [ -z "$acceptance" ] || printf '%s\n' "$acceptance"
+    printf '%s\n' '---' '' '## Approach' '' 'Add a VERSION file at the repository root.' '' '## Steps' '' \
+      '1. Create VERSION.' '' '## Test plan' '' '- go test ./...' '' '## Risks' '' 'None.'
+  } >"$workspace/reports/plan.md"
+  echo 500 >"$state/sessions/$session"
+  emit "$session" 2 800 100 2000 300 0.0500 "Planned: add a VERSION file."
+  exit 0
+fi
 
 if [ "$mode" = first ]; then
   printf '0.1.0\n' >VERSION

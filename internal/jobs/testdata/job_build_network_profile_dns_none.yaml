@@ -119,6 +119,7 @@ spec:
         - name: MAUL_MODEL_ALLOWLIST
         - name: MAUL_MODEL_MAP
         - name: MAUL_OPEN_PULL_REQUESTS
+        - name: MAUL_PLAN_VERIFICATION
         - name: MAUL_PREVIOUS_ATTEMPT
         - name: MAUL_REMEDIATE_AUTO_MAX_TURNS
         - name: MAUL_REMEDIATE_AUTO_TOKEN_BUDGET

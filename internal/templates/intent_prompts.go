@@ -259,7 +259,7 @@ func RenderPlanPrompt(p PlanPrompt) (string, error) {
 	}
 	p.OpenPullRequests = BoundOpenPullRequests(p.OpenPullRequests)
 	p.BuildProfiles = boundBuildProfiles(p.BuildProfiles)
-	p.Verification = p.Verification.quotable()
+	p.Verification = p.Verification.Normalize()
 	return render("prompt_plan.md.tmpl", p)
 }
 
