@@ -445,6 +445,19 @@ func harnessesAndDNS(ctx context.Context, opts *cli.Options, cs kubernetes.Inter
 	return claude, codex, mode, err
 }
 
+// releaseNamespace is the namespace the controller runs in: --namespace,
+// else the pod's own (POD_NAMESPACE).
+func releaseNamespace(opts *cli.Options) (string, error) {
+	namespace := opts.String("namespace")
+	if namespace == "" {
+		namespace = os.Getenv("POD_NAMESPACE")
+	}
+	if namespace == "" {
+		return "", errors.New("namespace is required (--namespace or POD_NAMESPACE)")
+	}
+	return namespace, nil
+}
+
 func serve(ctx context.Context, opts *cli.Options) error {
 	prov, shutdown, err := telemetry.Init(ctx, telemetry.Config{
 		Dir:            os.Getenv("MAUL_TELEMETRY_DIR"),
@@ -458,12 +471,9 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	defer func() { _ = shutdown(context.WithoutCancel(ctx)) }()
 	log := prov.Logger
 
-	namespace := opts.String("namespace")
-	if namespace == "" {
-		namespace = os.Getenv("POD_NAMESPACE")
-	}
-	if namespace == "" {
-		return errors.New("namespace is required (--namespace or POD_NAMESPACE)")
+	namespace, err := releaseNamespace(opts)
+	if err != nil {
+		return err
 	}
 	agentNS := opts.String("agent-namespace")
 	set, err := settings(opts, namespace, agentNS)
