@@ -14,6 +14,7 @@ import (
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/agentresult"
@@ -205,32 +206,70 @@ func (p *pass) previousAttempt(latest *v1alpha1.IntentRun) *v1alpha1.PreviousAtt
 	return latest.Spec.PreviousAttempt
 }
 
-// mayLaunch reports whether runs may be created now. Nothing is launched
-// while the Project is suspended (ok and stop both false: the phase waits for
-// it to be resumed), and nothing once the Intent's spend has reached the
-// Project's ceiling (Blocked; stop). The ceiling is checked once before a
-// build round's fan-out, so it stays advisory for builds: one pass may start
-// every approved repository's build below it.
-func (p *pass) mayLaunch(ctx context.Context) (ok, stop bool, err error) {
+// errAtCeiling: a run is not created because the Intent's spend has reached
+// its Project's per-intent ceiling (lease). The caller blocks the Intent
+// (blockAtCeiling).
+var errAtCeiling = errors.New("the intent's spend is at its project's cost ceiling")
+
+// blockAtCeiling blocks the Intent (BudgetExhausted, CostCeilingReached)
+// after lease refused a run at the ceiling, and reports the status write.
+// While the Project is suspended nothing is launched anyway, so it writes
+// nothing: the phase waits for the Project to resume, as every launch does.
+// blockHolds lifts the block once the ceiling is raised past the spend.
+func (p *pass) blockAtCeiling(ctx context.Context) (bool, error) {
 	if p.proj.Spec.Suspend {
-		return false, false, nil
+		return false, nil
 	}
-	if spent, ceiling := p.in.Status.Usage.CostMicroUSD, maxCostMicroUSD(p.proj); spent >= ceiling {
-		return false, true, p.block(ctx, v1alpha1.ConditionBudgetExhausted, "CostCeilingReached",
-			fmt.Sprintf("the intent has spent %d micro-USD, at or over the project's ceiling of %d; "+
-				"raise limits.maxCostMicroUSD to continue", spent, ceiling))
+	spent, ceiling := p.in.Status.Usage.CostMicroUSD, maxCostMicroUSD(p.proj)
+	return true, p.block(ctx, v1alpha1.ConditionBudgetExhausted, "CostCeilingReached",
+		fmt.Sprintf("the intent has spent %d micro-USD, at or over the project's ceiling of %d; "+
+			"raise limits.maxCostMicroUSD to continue", spent, ceiling))
+}
+
+// atCeiling reports whether the Intent's spend has reached the Project's
+// per-intent ceiling.
+func (p *pass) atCeiling() bool {
+	return p.in.Status.Usage.CostMicroUSD >= maxCostMicroUSD(p.proj)
+}
+
+// lease creates run under its deterministic name, the lease of its stage,
+// round, attempt and repository, and returns nil; or, when the name is
+// taken (a pass that created it failed before its status write, and the
+// cache may lag that create), returns the run the API server holds under
+// it, for the caller to check and adopt. It is the one place any run is
+// created, so the cost ceiling is checked here and nowhere else: at the
+// ceiling nothing is created, and a run already under the name is still
+// returned, never stranded, while a name not taken is errAtCeiling.
+func (p *pass) lease(ctx context.Context, run *v1alpha1.IntentRun) (*v1alpha1.IntentRun, error) {
+	atCeiling := p.atCeiling()
+	if !atCeiling {
+		err := p.r.Create(ctx, run)
+		if err == nil {
+			p.runs = append(p.runs, run)
+			return nil, nil
+		}
+		if !kerrors.IsAlreadyExists(err) {
+			return nil, fmt.Errorf("create run %s: %w", run.Name, err)
+		}
 	}
-	return true, false, nil
+	var existing v1alpha1.IntentRun
+	switch err := p.r.APIReader.Get(ctx, client.ObjectKeyFromObject(run), &existing); {
+	case atCeiling && kerrors.IsNotFound(err):
+		return nil, errAtCeiling
+	case err != nil:
+		return nil, fmt.Errorf("read run %s: %w", run.Name, err)
+	}
+	return &existing, nil
 }
 
 // launchPlan creates the next run of the plan round, unless the Project is
-// suspended (no run is launched until it is resumed), the Intent's spend has
-// reached the Project's ceiling (Blocked), the round has used every attempt
-// ordinal (Failed), or the person the plan would be attributed to has no
-// valid model credential under enforce (Blocked: holdForCredential).
+// suspended (no run is launched until it is resumed), the round has used
+// every attempt ordinal (Failed), the person the plan would be attributed to
+// has no valid model credential under enforce (Blocked: holdForCredential),
+// or the Intent's spend has reached the Project's ceiling (Blocked: lease).
 func (p *pass) launchPlan(ctx context.Context, round, attempt int32, prev *v1alpha1.PreviousAttempt) (bool, error) {
-	if ok, stop, err := p.mayLaunch(ctx); !ok {
-		return stop, err
+	if p.proj.Spec.Suspend {
+		return false, nil
 	}
 	if attempt > v1alpha1.MaxIntentRunAttempt {
 		return true, p.fail(ctx)
@@ -240,6 +279,9 @@ func (p *pass) launchPlan(ctx context.Context, round, attempt int32, prev *v1alp
 		return held, err
 	}
 	run, err := p.createRun(ctx, v1alpha1.IntentStagePlan, p.proj.Spec.Repositories[0], round, attempt, prev)
+	if errors.Is(err, errAtCeiling) {
+		return p.blockAtCeiling(ctx)
+	}
 	if err != nil {
 		return false, err
 	}
@@ -254,16 +296,17 @@ type buildLaunch struct {
 }
 
 // launchBuilds creates the next build run of each of launches, in one pass,
-// unless the Project is suspended or the spend is at its ceiling (checked
-// once, for the whole fan-out), an attempt ordinal is past the last (Failed),
-// or a repository's intent branch is not this round's to use, or the
-// approver has no valid model credential under enforce (Blocked, before any
-// build is spent). Each create is its own lease: a pass that
-// stops between two creates adopts the first on the next one.
+// unless the Project is suspended, an attempt ordinal is past the last
+// (Failed), a repository's intent branch is not this round's to use, the
+// approver has no valid model credential under enforce, or the spend is at
+// its ceiling (Blocked, before any build is spent). Every lease of one pass
+// judges the same recorded spend, so the ceiling stays advisory for builds:
+// one pass may start every approved repository's build below it. Each create is its own lease: a
+// pass that stops between two creates adopts the first on the next one.
 func (p *pass) launchBuilds(ctx context.Context, round int32, launches []buildLaunch) (
 	runs []*v1alpha1.IntentRun, stop bool, err error) {
-	if ok, stop, err := p.mayLaunch(ctx); !ok {
-		return nil, stop, err
+	if p.proj.Spec.Suspend {
+		return nil, false, nil
 	}
 	for _, l := range launches {
 		if l.attempt > v1alpha1.MaxIntentRunAttempt {
@@ -281,6 +324,10 @@ func (p *pass) launchBuilds(ctx context.Context, round int32, launches []buildLa
 	}
 	for _, l := range launches {
 		run, err := p.createRun(ctx, v1alpha1.IntentStageBuild, l.repo, round, l.attempt, l.prev)
+		if errors.Is(err, errAtCeiling) {
+			stop, err := p.blockAtCeiling(ctx)
+			return nil, stop, err
+		}
 		if err != nil {
 			return nil, false, err
 		}
@@ -318,9 +365,9 @@ func (p *pass) blockOnBranch(ctx context.Context, round int32, repo v1alpha1.Pro
 }
 
 // createRun creates the run of stage on repo under its deterministic name
-// (the lease), or adopts the run a failed pass created: only one whose
-// intentRef UID is this Intent's, since a same-named earlier Intent's may
-// still be terminating. A plan run of a Project with more than one
+// (lease; errAtCeiling at the cost ceiling), or adopts the run a failed pass
+// created: only one whose intentRef UID is this Intent's, since a same-named
+// earlier Intent's may still be terminating. A plan run of a Project with more than one
 // repository also reads every other one (spec.trees), each from a
 // Repository of its own the run will own.
 func (p *pass) createRun(ctx context.Context, stage v1alpha1.IntentStage, repo v1alpha1.ProjectRepository,
@@ -365,17 +412,12 @@ func (p *pass) createRun(ctx context.Context, stage v1alpha1.IntentStage, repo v
 			})
 		}
 	}
-	err := p.r.Create(ctx, run)
-	if err == nil {
-		p.runs = append(p.runs, run)
+	existing, err := p.lease(ctx, run)
+	switch {
+	case err != nil:
+		return nil, err
+	case existing == nil:
 		return run, nil
-	}
-	if !kerrors.IsAlreadyExists(err) {
-		return nil, fmt.Errorf("create run %s: %w", name, err)
-	}
-	var existing v1alpha1.IntentRun
-	if err := p.r.APIReader.Get(ctx, types.NamespacedName{Namespace: p.in.Namespace, Name: name}, &existing); err != nil {
-		return nil, fmt.Errorf("read run %s: %w", name, err)
 	}
 	if existing.Spec.IntentRef.UID != p.in.UID {
 		return nil, fmt.Errorf("run %s: %w", name, errNotOwned)
@@ -391,7 +433,7 @@ func (p *pass) createRun(ctx context.Context, stage v1alpha1.IntentStage, repo v
 			"(round %d, attempt %d)", errRunNameTaken, name, repoSlug(repo.URL), repo.Name, existing.Spec.Stage,
 			repoSlug(existing.Spec.Repository.URL), existing.Spec.Round, existing.Spec.Attempt)
 	}
-	return &existing, nil
+	return existing, nil
 }
 
 // errRunNameTaken: the deterministic name of a run to create is held by

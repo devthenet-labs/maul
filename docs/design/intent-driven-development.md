@@ -359,8 +359,8 @@ in `intent_types.go`, following the idiom of `transitions.go` but separate from 
   tripped breaker. `Blocked` is re-evaluated when the Project changes, so raising a limit resumes the intent.
 - `InReview` → `Merged` when every PR is merged. A human may also merge during a revise round or while the intent is
   `Blocked`, so `Revising` → `Merged` and `Blocked` → `Merged` exist too, mirroring the edges to `Closed`. PR state is
-  polled in both phases. The running round's Job is deleted through the finalizer, and no false resume through
-  `InReview` is recorded while a block still holds.
+  polled in both phases, and while `Blocked` from either of them whatever the block. The running round's Job is deleted
+  through the finalizer, and no false resume through `InReview` is recorded while a block still holds.
 - Any non-terminal phase → `Closed` when a human closes the intent issue or runs `/maul cancel`, or when every PR is
   closed unmerged. For cancel and the closed PRs, maul closes the issue itself.
 - `Planning` or `Building` → `Failed` when attempts are exhausted or the plan is invalid twice. Entering `Failed`
