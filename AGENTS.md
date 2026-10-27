@@ -224,8 +224,8 @@ Fifteen binaries, one module. "Not monolithic" means separate binaries/deploymen
   digest-pinned image on `Dockerfile.preview-tester`, admitted in a slot by that exact reference only): the in-slot
   tester Job preview-controller runs, stdlib plus `internal/acceptance` only, it observes and never judges. It reads
   `MAUL_VERIFY_SPEC` (≤ 32 KiB), sends each `http` criterion's steps to `http://<PreviewComponentServiceName>:80` built
-  structurally (no redirects, no cookie jar, 10s and 64 KiB per request), and prints a `MAUL-VERIFY:` JSONL stream with a
-  count-and-sha256 summary that preview-controller reads back through `pods/log`, beside the termination message. The
+  structurally (no redirects, no cookie jar, 10s and 64 KiB per request), and prints a `MAUL-VERIFY:` JSONL stream with
+  a count-and-sha256 summary that preview-controller reads back through `pods/log`, beside the termination message. The
   e2e build adds `e2edial` (`MAUL_E2E_DIAL_MAP`, `MAUL_E2E_TERMINATION_PATH`); a released binary has neither.
   Operator guide `docs/configuration/preview-controller.md#acceptance-verification-off-by-default`, the people's guide
   `docs/intents/acceptance.md`.
@@ -645,7 +645,8 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   never part of Ready; without it the Project's `AcceptanceStatusUnavailable` and no status; success only when every
   criterion passed or an approver accepted it, a final error once verification is switched off; digest-deduped,
   impostor-checked once per poll), a verification comment, a sticky-comment section, and settles
-  `/maul verify [fix|--reset]` and `/maul accept <id>|all` from both surfaces (`verify_commands.go`). `VerifyFailing` is a condition, never in `blockingConditions`.
+  `/maul verify [fix|--reset]` and `/maul accept <id>|all` from both surfaces (`verify_commands.go`). `VerifyFailing`
+  is a condition, never in `blockingConditions`.
 - `intentview` — the pure public projection of intents for the status page: board columns, fixed public wording
   for outcomes and block reasons (never a run's detail or a condition's message), limits with schema defaults, cost
   parsing, and `Text` (templates.VisibleText plus a cap) for every shown string. Copies of intent-controller facts
