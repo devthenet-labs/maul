@@ -109,6 +109,11 @@ func (p *pass) statusComment() templates.IntentStatusComment {
 		c.Revisions, c.MaxRevisions = p.revisionRounds(), maxRevisions(p.proj)
 	}
 	c.Preview = p.statusPreview()
+	if c.Preview != nil {
+		// Where the acceptance verification stands, beside the preview it
+		// runs against; nil when it is not reported.
+		c.Preview.Verify = p.verifyProgress()
+	}
 	c.AgentsPaused = p.agentsPaused()
 	c.Attribution = p.latestAttribution()
 	switch st.Phase {

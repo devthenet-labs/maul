@@ -43,6 +43,17 @@ const (
 	VerifyExhausted = "exhausted"
 	// VerifyUnavailable: the checks could not be run (infrastructure).
 	VerifyUnavailable = "unavailable"
+	// VerifyWaitingForCI: verification waits for the pull requests' named
+	// checks to pass.
+	VerifyWaitingForCI = "waiting-for-ci"
+	// VerifyNeedsReplan: an approved criterion cannot run as approved, so
+	// only a replan can change it.
+	VerifyNeedsReplan = "needs-replan"
+	// VerifyNotDeclared: the approved plan declares no acceptance criteria.
+	VerifyNotDeclared = "not-declared"
+	// VerifyNotChecked: the approved plan declares criteria, none of which
+	// maul checks automatically.
+	VerifyNotChecked = "not-checked"
 )
 
 // Automatic fix states.
@@ -93,7 +104,7 @@ const (
 
 // VerifyProgress is where verification stands, as one clause.
 type VerifyProgress struct {
-	// State is VerifyWaiting .. VerifyUnavailable; "" shows nothing.
+	// State is one of the Verify state constants; "" shows nothing.
 	State string
 	// Round and MaxRounds count verification rounds (MaxRounds 0 omits the
 	// limit).
@@ -108,9 +119,30 @@ type VerifyProgress struct {
 	AutoFixReason string
 }
 
+// verifyRestingLine is the sentence of a state nothing is checked in:
+// whole for one that never carries counts, else its head; "" for any other
+// state.
+func verifyRestingLine(state string) (line string, whole bool) {
+	switch state {
+	case VerifyWaitingForCI:
+		return "Verification waits for the pull requests' checks to pass", false
+	case VerifyNeedsReplan:
+		return "Verification cannot run: an approved check's target is not previewed, so only " +
+			slashCommand("replan") + " can change it.", true
+	case VerifyNotDeclared:
+		return "No acceptance criteria were declared.", true
+	case VerifyNotChecked:
+		return "Nothing is checked automatically", false
+	}
+	return "", false
+}
+
 // verifyLine is the progress as one sentence; "" for none.
 func verifyLine(p VerifyProgress) string {
-	var head string
+	head, whole := verifyRestingLine(p.State)
+	if whole {
+		return head
+	}
 	rounds := fmt.Sprintf("round %d", p.Round)
 	if p.MaxRounds > 0 {
 		rounds += fmt.Sprintf(" of %d", p.MaxRounds)
@@ -129,6 +161,8 @@ func verifyLine(p VerifyProgress) string {
 		return strings.Join(kept, ", ")
 	}
 	switch p.State {
+	case VerifyWaitingForCI, VerifyNotChecked:
+		// verifyRestingLine's head.
 	case VerifyWaiting:
 		head = "Verification waits for the preview to be ready"
 	case VerifyRunning:
