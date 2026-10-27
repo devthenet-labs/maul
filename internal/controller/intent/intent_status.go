@@ -82,7 +82,7 @@ func (p *pass) statusComment() templates.IntentStatusComment {
 	c := templates.IntentStatusComment{
 		Namespace: p.in.Namespace, Intent: p.in.Name, Phase: string(st.Phase),
 		CostMicroUSD: st.Usage.CostMicroUSD, MaxCostMicroUSD: maxCostMicroUSD(p.proj),
-		Commands: verbs(st.Phase),
+		Commands: verbs(st.Phase, p.set.Verification),
 	}
 	if pl := st.Plan; pl != nil && pl.CommentID != 0 {
 		c.PlanRevision, c.Summary = pl.Revision, pl.Summary

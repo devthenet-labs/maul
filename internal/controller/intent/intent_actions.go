@@ -642,7 +642,7 @@ func (p *pass) notAllowed(ctx context.Context, a humanAction, bot, labelRemoved,
 func (p *pass) notAvailable(ctx context.Context, a humanAction, phase v1alpha1.IntentPhase, labelRemoved bool) error {
 	n := templates.NotAvailableNotice{
 		Namespace: p.in.Namespace, Intent: p.in.Name, Key: a.key(), Phase: string(phase),
-		LabelRemoved: labelRemoved, Available: verbs(phase),
+		LabelRemoved: labelRemoved, Available: verbs(phase, p.set.Verification),
 	}
 	if a.source == v1alpha1.IntentActionLabel {
 		n.Label = a.label

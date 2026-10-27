@@ -56,6 +56,12 @@ func TestVerifyNoticeGoldens(t *testing.T) {
 			n.Criterion = "sounds-good"
 			return n
 		}()},
+		{"intent_notice_verify_accept_moved.md", func() VerifyCommandNotice {
+			n := base(VerifyAcceptMoved, "accept")
+			n.Criterion, n.Heads = "sounds-good", []string{"0123abc", "4567def"}
+			return n
+		}()},
+		{"intent_notice_verify_applied.md", base(VerifyApplied, "verify")},
 		{"intent_notice_verify_usage_pr.md", func() VerifyCommandNotice {
 			n := base(VerifyUsage, "verify")
 			n.Surface = command.IntentPR

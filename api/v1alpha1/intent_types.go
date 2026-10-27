@@ -35,6 +35,11 @@ const MaxIntentPhaseTimes = 64
 // repeats it as a literal; keep the two in lockstep.
 const MaxIntentRefusedActors = 32
 
+// MaxIntentAppliedCommands bounds status.commands.applied, which keeps the
+// latest acceptance commands the Intent applied. The schema marker repeats
+// it as a literal; keep the two in lockstep.
+const MaxIntentAppliedCommands = 64
+
 // IntentPhase is the lifecycle of one intent. It is a local enum, not part of
 // the Finding phase taxonomy in transitions.go, and its edge table
 // (intentTransitions below) is separate from Finding's: intent-controller is
@@ -663,6 +668,17 @@ type IntentCommands struct {
 	// +listType=set
 	// +kubebuilder:validation:MaxItems=32
 	RefusedActors []int64 `json:"refusedActors,omitempty"`
+	// Applied are the GitHub ids of the comments carrying the acceptance
+	// commands (/maul verify, /maul accept) whose effect the Intent
+	// recorded, on the intent issue or any of its pull requests, the latest
+	// MaxIntentAppliedCommands of them, each written with its effect. A
+	// comment among them is never applied again, even after maul's reply to
+	// it is deleted or the effect it recorded was consumed or superseded:
+	// only its reply may still be owed.
+	// +optional
+	// +listType=set
+	// +kubebuilder:validation:MaxItems=64
+	Applied []int64 `json:"applied,omitempty"`
 }
 
 // IntentCommentRef names one comment on the intent issue.

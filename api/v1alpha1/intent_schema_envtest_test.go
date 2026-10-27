@@ -896,6 +896,13 @@ func testIntentSchema(ctx context.Context, t *testing.T, c client.Client) {
 			s.Commands.RefusedActors = actors(maulv1.MaxIntentRefusedActors + 1)
 		}, true},
 		{"a refused actor twice", func(s *maulv1.IntentStatus) { s.Commands.RefusedActors = []int64{7, 7} }, true},
+		{"applied commands at the bound", func(s *maulv1.IntentStatus) {
+			s.Commands.Applied = actors(maulv1.MaxIntentAppliedCommands)
+		}, false},
+		{"applied commands past the bound", func(s *maulv1.IntentStatus) {
+			s.Commands.Applied = actors(maulv1.MaxIntentAppliedCommands + 1)
+		}, true},
+		{"a command applied twice", func(s *maulv1.IntentStatus) { s.Commands.Applied = []int64{7, 7} }, true},
 		// Slice 3: per-PR check observation and the recorded preview bases.
 		{"a malformed per-PR checks head", func(s *maulv1.IntentStatus) {
 			s.PullRequests[0].ChecksObservedHeadSHA = "HEAD"

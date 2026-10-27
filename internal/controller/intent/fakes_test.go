@@ -784,6 +784,9 @@ func (f *fakeGitHub) CreateIssueComment(_ context.Context, repoURL string, numbe
 
 func (f *fakeGitHub) ListPullRequestComments(ctx context.Context, repoURL string, number int64, since time.Time) (
 	[]*ghclient.Comment, error) {
+	f.mu.Lock()
+	f.calls["ListPullRequestComments"]++
+	f.mu.Unlock()
 	return f.ListIssueComments(ctx, repoURL, number, since)
 }
 

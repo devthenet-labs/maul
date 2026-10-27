@@ -250,7 +250,11 @@
 //     settled only up to it, and a later poll answers it. A refused label
 //     is recorded by its notice and the label's removal. A refusal is
 //     replied to before it is recorded, so a record without a reply means
-//     the action was accepted, and the retry replies "done".
+//     the action was accepted, and the retry replies "done". An acceptance
+//     command (/maul verify, /maul accept), on the issue or a pull request,
+//     is applied at most once: its comment id joins status.commands.applied
+//     in the write that applies it, so neither a lost reply nor a deleted
+//     one (a pull request has no seen watermark) applies it again.
 //   - Terminal effects come before the terminal status write: the trigger
 //     label is removed before Failed (and before Closed on a refused
 //     trigger), the issue is closed before Merged (after the summary) and

@@ -667,7 +667,7 @@ func (p *pass) commandRound(ctx context.Context, pr *v1alpha1.IntentPullRequest)
 // most maxFeedbackCandidates. eligiblePRCommand decides each.
 func (p *pass) prCommandCandidates(ctx context.Context, pr *v1alpha1.IntentPullRequest,
 	cutoff time.Time) ([]*ghclient.Comment, error) {
-	comments, err := p.r.GitHub.ListPullRequestComments(ctx, pr.Repository, pr.Number, cutoff.Add(-time.Second))
+	comments, err := p.prComments(ctx, pr, cutoff.Add(-time.Second))
 	if err != nil {
 		return nil, err
 	}

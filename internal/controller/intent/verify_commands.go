@@ -12,7 +12,9 @@ import (
 	"strings"
 	"time"
 
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/action"
@@ -63,7 +65,13 @@ func verifyPhase(phase v1alpha1.IntentPhase) bool {
 
 // verifyRecorded reports an acceptance command whose effect the Intent
 // already records, by the comment carrying it: only its reply may be owed.
+// status.commands.applied holds it durably, written with the effect, so it
+// counts after the request it made was consumed or the acceptance it gave
+// superseded, whatever became of maul's reply.
 func (p *pass) verifyRecorded(id int64) bool {
+	if c := p.in.Status.Commands; c != nil && slices.Contains(c.Applied, id) {
+		return true
+	}
 	if v := p.in.Status.Verification; v != nil && v.Requested != nil && v.Requested.CommentID == id {
 		return true
 	}
@@ -86,7 +94,8 @@ func (p *pass) settleVerifyIssue(ctx context.Context, a humanAction) error {
 		// An account with no numeric id cannot be recorded as the actor.
 		return p.notAllowed(ctx, a, bot, false, false)
 	}
-	if !verifyPhase(p.in.Status.Phase) {
+	if !p.set.Verification || !verifyPhase(p.in.Status.Phase) {
+		// With --intent-verification off nothing of acceptance is written.
 		return p.notAvailable(ctx, a, p.in.Status.Phase, false)
 	}
 	body := ""
@@ -109,10 +118,12 @@ func (p *pass) replyVerifyRecorded(ctx context.Context, a humanAction) error {
 }
 
 // recordedVerifyNotice is the reply to an acceptance command recorded as
-// comment id.
+// comment id: what it recorded while that still stands, else that it was
+// applied.
 func (p *pass) recordedVerifyNotice(surface command.Surface, key string, id int64, actor ghclient.Actor,
 	verb string) templates.VerifyCommandNotice {
 	n := p.verifyNoticeFor(surface, key, actor, verb)
+	n.Outcome = templates.VerifyApplied
 	if v := p.in.Status.Verification; v != nil && v.Requested != nil && v.Requested.CommentID == id {
 		n.Outcome, n.Fix, n.Reset = templates.VerifyRequested, v.Requested.Fix, v.Requested.Reset
 		n.AfterRound = p.in.Status.Phase == v1alpha1.IntentRevising
@@ -196,6 +207,7 @@ func (p *pass) requestVerification(ctx context.Context, c verifyCommand, args co
 			in.Status.Verification = v
 		}
 		v.Requested = &req
+		rememberApplied(in, c.id)
 		if args.Reset {
 			v.Reset = v1alpha1.ResetState{Generation: v.Reset.Generation + 1, By: c.actor.Login, ByID: c.actor.ID,
 				At: &at}
@@ -244,6 +256,10 @@ func (p *pass) acceptCriterion(ctx context.Context, c verifyCommand, id string,
 		return n, nil
 	}
 	heads := shortHeads(v.Heads)
+	if saw, err := p.liveWhenGiven(ctx, v, c.at); err != nil || !saw {
+		n.Outcome, n.Heads = templates.VerifyAcceptMoved, heads
+		return n, err
+	}
 	rec := v1alpha1.AcceptanceRecord{ID: id, By: c.actor.Login, ByID: c.actor.ID, At: metav1.NewTime(c.at),
 		CommentID: c.id, HeadSetDigest: v.HeadSetDigest, Heads: heads}
 	if err := p.update(ctx, func(in *v1alpha1.Intent) error {
@@ -253,6 +269,7 @@ func (p *pass) acceptCriterion(ctx context.Context, c verifyCommand, id string,
 		}
 		a.Accepted = append(slices.DeleteFunc(slices.Clone(a.Accepted),
 			func(r v1alpha1.AcceptanceRecord) bool { return r.ID == id }), rec)
+		rememberApplied(in, c.id)
 		// The counts maul/acceptance reads follow the acceptance at once.
 		if v := in.Status.Verification; v != nil {
 			countManual(v, a)
@@ -263,6 +280,49 @@ func (p *pass) acceptCriterion(ctx context.Context, c verifyCommand, id string,
 	}
 	n.Outcome, n.Heads = templates.VerifyAccepted, heads
 	return n, nil
+}
+
+// liveWhenGiven reports that the Preview ran the recorded head set v when an
+// acceptance was given at at, and still does: it is live at exactly the
+// heads the Intent's records derive, those are v's, and it went live at them
+// (status.lastDeployedAt, cleared by every new deployment) before at. An
+// acceptance is bound to the commits the approver could have checked, never
+// to ones recorded or deployed after they commented. A Preview not found is
+// not live; any other failed read is returned, deciding nothing.
+func (p *pass) liveWhenGiven(ctx context.Context, v *v1alpha1.IntentVerification, at time.Time) (bool, error) {
+	if hs, ok := previewHeadSet(p.proj, p.in); !ok || hs.digest != v.HeadSetDigest {
+		return false, nil
+	}
+	var pv v1alpha1.Preview
+	err := p.r.APIReader.Get(ctx, types.NamespacedName{Namespace: p.in.Namespace, Name: p.in.Name}, &pv)
+	switch {
+	case kerrors.IsNotFound(err):
+		return false, nil
+	case err != nil:
+		return false, fmt.Errorf("read the intent's preview: %w", err)
+	}
+	deployed := pv.Status.LastDeployedAt
+	return viewPreview(p.proj, p.in, &pv).state == templates.PreviewLive && deployed != nil &&
+		at.After(deployed.Time), nil
+}
+
+// rememberApplied records in in's status that the acceptance command in
+// comment id was applied, in the write that applies it, keeping the latest
+// MaxIntentAppliedCommands.
+func rememberApplied(in *v1alpha1.Intent, id int64) {
+	c := in.Status.Commands
+	if c == nil {
+		c = &v1alpha1.IntentCommands{}
+		in.Status.Commands = c
+	}
+	if slices.Contains(c.Applied, id) {
+		return
+	}
+	out := append(slices.Clone(c.Applied), id)
+	if over := len(out) - v1alpha1.MaxIntentAppliedCommands; over > 0 {
+		out = slices.Clone(out[over:])
+	}
+	c.Applied = out
 }
 
 // acceptable are the criteria an approver can accept by hand, in plan
@@ -311,7 +371,7 @@ func (p *pass) settlePRVerifyCommands(ctx context.Context, pr *v1alpha1.IntentPu
 		return nil // nothing is written to a repository that left the Project
 	}
 	since := p.prBuiltAt(pr.Repository)
-	comments, err := p.r.GitHub.ListPullRequestComments(ctx, pr.Repository, pr.Number, since.Add(-time.Second))
+	comments, err := p.prComments(ctx, pr, since.Add(-time.Second))
 	if err != nil {
 		return fmt.Errorf("list the comments of pull request %d: %w", pr.Number, err)
 	}
@@ -406,7 +466,7 @@ func (p *pass) settlePRVerifyCommand(ctx context.Context, pr *v1alpha1.IntentPul
 	if !verifyPhase(p.in.Status.Phase) {
 		body, err := templates.RenderNotAvailableNotice(templates.NotAvailableNotice{Namespace: p.in.Namespace,
 			Intent: p.in.Name, Key: key, Surface: command.IntentPR, Verb: a.verb, Phase: string(p.in.Status.Phase),
-			Available: verbs(p.in.Status.Phase)})
+			Available: verbs(p.in.Status.Phase, p.set.Verification)})
 		return p.prReply(ctx, pr, body, err)
 	}
 	n, err := p.applyVerifyCommand(ctx, verifyCommand{surface: command.IntentPR, key: key, id: c.ID, at: c.CreatedAt,
@@ -423,8 +483,10 @@ func (p *pass) prReply(ctx context.Context, pr *v1alpha1.IntentPullRequest, body
 	if renderErr != nil {
 		return renderErr
 	}
-	if _, err := p.r.GitHub.CreatePullRequestComment(ctx, pr.Repository, pr.Number, body); err != nil {
+	c, err := p.r.GitHub.CreatePullRequestComment(ctx, pr.Repository, pr.Number, body)
+	if err != nil {
 		return fmt.Errorf("reply on pull request %d: %w", pr.Number, err)
 	}
+	p.notePRComment(pr, c)
 	return nil
 }
