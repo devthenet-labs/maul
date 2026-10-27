@@ -331,9 +331,12 @@ func TestCodexHarnessAndDNS(t *testing.T) {
 	}
 }
 
-// TestSettingsVerificationFlags: --intent-verification needs the preview
-// projection, and --intent-verify-timeout-max carries through within the
-// bounds a PreviewVerification's timeout has (1m to 1h).
+// TestSettingsVerificationFlags: --intent-verify-timeout-max carries
+// through within the bounds a PreviewVerification's timeout has (1m to 1h).
+// --intent-verification without the preview projection it runs against
+// does not stop the controller: it starts with verification off
+// (VerificationWithoutPreviews, which serve warns of and the Projects and
+// issues explain).
 func TestSettingsVerificationFlags(t *testing.T) {
 	s, err := settings(resolved(t), "p", "a")
 	if err != nil || s.Verification || s.VerifyTimeoutMax != intent.DefaultVerifyTimeoutMax {
@@ -344,8 +347,14 @@ func TestSettingsVerificationFlags(t *testing.T) {
 	if err != nil || !s.Verification || s.VerifyTimeoutMax != 12*time.Minute {
 		t.Fatalf("on: verification %v, timeout max %s, err %v", s.Verification, s.VerifyTimeoutMax, err)
 	}
+	if s.VerificationWithoutPreviews() {
+		t.Fatal("verification with previews reads as without")
+	}
+	s, err = settings(resolved(t, "--intent-verification"), "p", "a")
+	if err != nil || !s.VerificationWithoutPreviews() {
+		t.Fatalf("verification without previews: settings %+v, err %v; want it started, verification off", s, err)
+	}
 	for _, args := range [][]string{
-		{"--intent-verification"},
 		{"--intent-previews-enabled", "--intent-verify-timeout-max", "30s"},
 		{"--intent-previews-enabled", "--intent-verify-timeout-max", "2h"},
 	} {

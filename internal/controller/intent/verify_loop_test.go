@@ -246,6 +246,44 @@ func TestVerificationNotDeclared(t *testing.T) {
 	}
 }
 
+// TestVerificationWithoutPreviews: a controller started with
+// --intent-verification but not --intent-previews-enabled (serve warns
+// rather than refusing to start) runs with verification Off. A verifying
+// Project stays Ready and says why in its VerificationOff condition; an
+// intent of it in review is Off, nothing is created, no maul/acceptance is
+// posted, and the issue's status comment says why. With previews on there
+// is no such condition.
+func TestVerificationWithoutPreviews(t *testing.T) {
+	e := newVerifyEnv(t, acceptancePlan)
+	e.reconcileProject()
+	if c := meta.FindStatusCondition(e.getProject().Status.Conditions, ConditionVerificationOff); c != nil {
+		t.Fatalf("%s with previews on: %+v", ConditionVerificationOff, c)
+	}
+	e.intent.Settings.Previews = false
+	e.project.Settings.Verification, e.project.Settings.Previews = true, false
+	e.reconcileProject()
+	conds := e.getProject().Status.Conditions
+	c := meta.FindStatusCondition(conds, ConditionVerificationOff)
+	if c == nil || c.Status != metav1.ConditionTrue || c.Reason != ReasonPreviewsDisabled ||
+		!strings.Contains(c.Message, "--intent-previews-enabled") || !meta.IsStatusConditionTrue(conds,
+		v1alpha1.ConditionReady) {
+		t.Fatalf("project conditions = %+v", conds)
+	}
+	name := e.reviewing()
+	e.review(name, 6)
+	v := e.verification(name)
+	if v.State != v1alpha1.VerificationOff || len(e.verifications(name)) != 0 {
+		t.Fatalf("verification = %+v, verifications %d", v, len(e.verifications(name)))
+	}
+	if ss := e.acceptanceStatuses(e.get(name).Status.PullRequests[0].HeadSHA); len(ss) != 0 {
+		t.Fatalf("statuses posted with verification off: %+v", ss)
+	}
+	if body := e.statusBody(); !strings.Contains(body, "**Verification:** off") ||
+		!strings.Contains(body, "`--intent-previews-enabled`") {
+		t.Fatalf("status comment does not say why verification is off:\n%s", body)
+	}
+}
+
 // TestVerificationWaitsForThePreview: nothing runs while the Preview is not
 // live at the heads.
 func TestVerificationWaitsForThePreview(t *testing.T) {

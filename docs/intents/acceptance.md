@@ -26,7 +26,9 @@ Three switches, in this order. Each fails closed: with one off, no acceptance st
    controllers' deadline flags, so no request can ask for a Job the slot policy refuses.
 2. **intent-controller.** `--intent-verification` (needs `--intent-previews-enabled`; see
    [its flags](../configuration/intent-controller.md#flags)). Off, its plans carry no acceptance prompt and no state is
-   written.
+   written. Without `--intent-previews-enabled` the controller still starts, logs a warning and leaves verification
+   `Off`: each verifying Project carries the condition `VerificationOff` (reason `PreviewsDisabled`), and each of its
+   intents in review says so in its status comment.
 3. **The Project**, per Project:
 
 ```yaml

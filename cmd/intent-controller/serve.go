@@ -61,7 +61,8 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 	f.Bool("intent-verification", false,
 		"run the approved plan's acceptance criteria against each intent's Preview for Projects with "+
 			"spec.verification.enabled (PreviewVerification requests a separately enabled preview-controller "+
-			"answers); needs --intent-previews-enabled. Off, no acceptance or verification state is written")
+			"answers); needs --intent-previews-enabled, without which verification is Off and each verifying "+
+			"Project says why. Off, no acceptance or verification state is written")
 	f.Duration("intent-verify-timeout-max", intent.DefaultVerifyTimeoutMax,
 		"the most a Project's verification.timeout gives a tester Job, between 1m and 1h; keep it at or under "+
 			"preview-controller's tester deadline maximum (chart preview.verification.deadlineMaxSeconds)")
@@ -222,17 +223,14 @@ func settings(opts *cli.Options, namespace, agentNS string) (intent.Settings, er
 }
 
 // verification reads the acceptance-verification switch and the tester
-// timeout ceiling. Verification runs against the Preview the preview
-// projection writes, so it is refused without it rather than silently
-// verifying nothing; the ceiling is held to a PreviewVerification's own
-// timeout bounds.
+// timeout ceiling, held to a PreviewVerification's own timeout bounds.
+// Verification runs against the Preview the preview projection writes;
+// without it the controller still starts, with verification Off
+// (Settings.VerificationWithoutPreviews: serve warns, and the Projects and
+// issues say why), rather than taking intents down with it.
 func verification(opts *cli.Options, s *intent.Settings) error {
 	s.Verification = opts.Bool("intent-verification")
 	s.VerifyTimeoutMax = opts.Duration("intent-verify-timeout-max")
-	if s.Verification && !s.Previews {
-		return errors.New("--intent-verification requires --intent-previews-enabled: verification runs against " +
-			"the intent's Preview")
-	}
 	if s.VerifyTimeoutMax < time.Minute || s.VerifyTimeoutMax > time.Hour {
 		return fmt.Errorf("--intent-verify-timeout-max %s must be between 1m and 1h", s.VerifyTimeoutMax)
 	}
@@ -592,6 +590,11 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		}
 	}
 
+	if set.VerificationWithoutPreviews() {
+		log.LogAttrs(ctx, slog.LevelWarn, "--intent-verification without --intent-previews-enabled: verification "+
+			"runs against the intent's Preview, so it is off; each verifying Project says so in its VerificationOff "+
+			"condition")
+	}
 	log.LogAttrs(ctx, slog.LevelInfo, "intent-controller starting",
 		slog.String("namespace", namespace),
 		slog.String("agent_namespace", agentNS),

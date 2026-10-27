@@ -40,6 +40,10 @@ inside an issue comment as a hard break. */ -}}
 {{- end }}
 {{- end }}
 {{- end }}
+{{- if .NoVerification }}
+
+**Verification:** off: intent-controller runs with `--intent-verification` but without `--intent-previews-enabled`, and verification runs against the intent's preview, so its acceptance criteria are not checked. The Project's `VerificationOff` condition says the same.
+{{- end }}
 {{- if .MaxRevisions }}
 
 **Revisions:** {{ .Revisions }} of {{ .MaxRevisions }}
