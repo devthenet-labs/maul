@@ -530,6 +530,29 @@ type IntentPullRequest struct {
 	// +optional
 	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
 	PreviewDigest string `json:"previewDigest,omitempty"`
+	// AcceptanceStatusID is GitHub's id of maul's latest maul/acceptance
+	// commit status on AcceptanceHead: a later maul/acceptance with another
+	// id is someone else's, and maul re-asserts its own. Written by the
+	// intent reconciler only; 0 while none was posted.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	AcceptanceStatusID int64 `json:"acceptanceStatusID,omitempty"`
+	// AcceptanceHead is the head commit maul's latest maul/acceptance was
+	// posted on.
+	// +optional
+	// +kubebuilder:validation:Pattern=`^([0-9a-f]{40}|[0-9a-f]{64})$`
+	AcceptanceHead string `json:"acceptanceHead,omitempty"`
+	// AcceptanceDigest is the sha256 over the head, the head-set digest, the
+	// state and the description last posted as maul/acceptance, so an
+	// unchanged status is never posted again and a moved sibling re-posts it.
+	// +optional
+	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
+	AcceptanceDigest string `json:"acceptanceDigest,omitempty"`
+	// VerifyDigest is the sha256 of the verification section last written
+	// into the sticky preview comment.
+	// +optional
+	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
+	VerifyDigest string `json:"verifyDigest,omitempty"`
 }
 
 // IntentChecksRerun records the re-run of failed GitHub Actions jobs maul
@@ -650,6 +673,356 @@ type IntentCommentRef struct {
 	ID int64 `json:"id"`
 	// At is the comment's created_at, as GitHub reports it.
 	At metav1.Time `json:"at"`
+}
+
+// IntentAcceptance is the approved plan's acceptance criteria and the
+// approvers' acceptances of the manual ones. intent-controller writes the
+// criteria once per approved plan revision, from the plan bytes it re-reads
+// under the approved digest; no run writes Intent status, so nothing a fix
+// round does can change what was approved.
+type IntentAcceptance struct {
+	// PlanRevision is the approved plan revision the criteria are from.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=999
+	PlanRevision int32 `json:"planRevision"`
+	// Digest is the digest of the full criteria list, manual criteria
+	// included (acceptance.Digest): what every PreviewVerification's
+	// criteriaDigest must equal.
+	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
+	Digest string `json:"digest"`
+	// Criteria are the approved criteria in plan order; empty when the plan
+	// declared none.
+	// +optional
+	// +kubebuilder:validation:MaxItems=16
+	// +listType=atomic
+	Criteria []AcceptanceCriterion `json:"criteria,omitempty"`
+	// Accepted are the approvers' /maul accept records, oldest first.
+	// +optional
+	// +kubebuilder:validation:MaxItems=32
+	// +listType=atomic
+	Accepted []AcceptanceRecord `json:"accepted,omitempty"`
+}
+
+// AcceptanceRecord is one approver's /maul accept of a manual, quarantined
+// or changed-tests criterion. It holds only at the combined change it was
+// given at: once the heads move it is shown as not re-checked.
+type AcceptanceRecord struct {
+	// ID of the accepted criterion.
+	// +kubebuilder:validation:Pattern=`^[a-z][a-z0-9-]{0,31}$`
+	ID string `json:"id"`
+	// By is the approver's login, for display.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=64
+	// +kubebuilder:validation:Pattern=`^[A-Za-z0-9][A-Za-z0-9_.-]*$`
+	By string `json:"by"`
+	// ByID is GitHub's numeric id of the approver: the identity.
+	// +kubebuilder:validation:Minimum=1
+	ByID int64 `json:"byID"`
+	// At is the command comment's created_at.
+	At metav1.Time `json:"at"`
+	// CommentID is GitHub's id of the comment carrying the command.
+	// +kubebuilder:validation:Minimum=1
+	CommentID int64 `json:"commentID"`
+	// HeadSetDigest is the combined change the acceptance was given at.
+	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
+	HeadSetDigest string `json:"headSetDigest"`
+	// Heads are that combined change's short commit SHAs, for display.
+	// +optional
+	// +kubebuilder:validation:MaxItems=4
+	// +listType=atomic
+	// +kubebuilder:validation:items:Pattern=`^[0-9a-f]{7,40}$`
+	Heads []string `json:"heads,omitempty"`
+}
+
+// IntentVerificationState is where an intent's acceptance verification
+// stands. It is a sub-state of review: no Intent phase depends on it.
+// +kubebuilder:validation:Enum=NotDeclared;Off;WaitingForCI;WaitingForPreview;Verifying;Passed;Failing;Fixing;Exhausted;NeedsReplan;Unavailable
+type IntentVerificationState string
+
+// Verification states.
+const (
+	// VerificationNotDeclared: the approved plan declared no criteria.
+	VerificationNotDeclared IntentVerificationState = "NotDeclared"
+	// VerificationOff: the Project or the controller does not verify.
+	VerificationOff IntentVerificationState = "Off"
+	// VerificationWaitingForCI: a pull request's named checks are not green
+	// at its head yet.
+	VerificationWaitingForCI IntentVerificationState = "WaitingForCI"
+	// VerificationWaitingForPreview: the Preview is not live at exactly the
+	// heads yet.
+	VerificationWaitingForPreview IntentVerificationState = "WaitingForPreview"
+	// VerificationVerifying: a PreviewVerification is in flight.
+	VerificationVerifying IntentVerificationState = "Verifying"
+	// VerificationPassed: every automatable criterion passed at the current
+	// heads (some perhaps only on retry: quarantined).
+	VerificationPassed IntentVerificationState = "Passed"
+	// VerificationFailing: a criterion failed and no fix round runs.
+	VerificationFailing IntentVerificationState = "Failing"
+	// VerificationFixing: a verify-fix round runs.
+	VerificationFixing IntentVerificationState = "Fixing"
+	// VerificationExhausted: criteria still fail and maxVerifyFixes is
+	// spent.
+	VerificationExhausted IntentVerificationState = "Exhausted"
+	// VerificationNeedsReplan: a criterion can no longer be run as approved
+	// (its target is no longer previewed); only a replan helps.
+	VerificationNeedsReplan IntentVerificationState = "NeedsReplan"
+	// VerificationUnavailable: maul's own machinery failed every attempt.
+	VerificationUnavailable IntentVerificationState = "Unavailable"
+)
+
+// VerdictOutcome is acceptance.Judge's verdict on one criterion: pass,
+// quarantined (failed, then passed on its retry: never counted as passed),
+// or fail. Nothing the application does yields any other outcome.
+// +kubebuilder:validation:Enum=pass;quarantined;fail
+type VerdictOutcome string
+
+// Verdict outcomes.
+const (
+	VerdictPass        VerdictOutcome = "pass"
+	VerdictQuarantined VerdictOutcome = "quarantined"
+	VerdictFail        VerdictOutcome = "fail"
+)
+
+// CriterionState is the judged state of one criterion that did not pass.
+type CriterionState struct {
+	// ID of the criterion.
+	// +kubebuilder:validation:Pattern=`^[a-z][a-z0-9-]{0,31}$`
+	ID string `json:"id"`
+	// Outcome judged.
+	Outcome VerdictOutcome `json:"outcome"`
+	// Fingerprint is the failure's signature over status codes, transport
+	// error classes and matched-expectation bits only, never a value.
+	// +optional
+	// +kubebuilder:validation:MaxLength=128
+	// +kubebuilder:validation:Pattern=`^maul-verify-fingerprint/[0-9]+:[0-9a-f]{64}$`
+	Fingerprint string `json:"fingerprint,omitempty"`
+}
+
+// AutoFixState says whether a failed verification may start a verify-fix
+// round on its own.
+// +kubebuilder:validation:Enum=Armed;Halted
+type AutoFixState string
+
+// Auto-fix states.
+const (
+	AutoFixArmed  AutoFixState = "Armed"
+	AutoFixHalted AutoFixState = "Halted"
+)
+
+// AutoFixReason says why automatic verify-fix rounds halted.
+// +kubebuilder:validation:Enum=HumanReview;HumanCommand;HumanPush;MaxVerifyFixes;RepeatedFailure;CostCeiling;CriterionError;NoOpenPR
+type AutoFixReason string
+
+// Auto-fix halt reasons.
+const (
+	// AutoFixHumanReview: an approver's review started a round; the human
+	// wins.
+	AutoFixHumanReview AutoFixReason = "HumanReview"
+	// AutoFixHumanCommand: an approver's /maul revise or retry started a
+	// round.
+	AutoFixHumanCommand AutoFixReason = "HumanCommand"
+	// AutoFixHumanPush: someone other than maul pushed to a pull request.
+	AutoFixHumanPush AutoFixReason = "HumanPush"
+	// AutoFixMaxVerifyFixes: the Project's maxVerifyFixes is spent.
+	AutoFixMaxVerifyFixes AutoFixReason = "MaxVerifyFixes"
+	// AutoFixRepeatedFailure: a fix round ended with the same failure
+	// fingerprint it was started for.
+	AutoFixRepeatedFailure AutoFixReason = "RepeatedFailure"
+	// AutoFixCostCeiling: the intent's spend reached its ceiling.
+	AutoFixCostCeiling AutoFixReason = "CostCeiling"
+	// AutoFixCriterionError: a criterion can no longer be run as approved.
+	AutoFixCriterionError AutoFixReason = "CriterionError"
+	// AutoFixNoOpenPR: no failing criterion's repository has an open pull
+	// request to fix.
+	AutoFixNoOpenPR AutoFixReason = "NoOpenPR"
+)
+
+// AutoFix is the automatic verify-fix latch: armed by each approved plan
+// revision, halted by any human round or push or by a bound, and re-armed
+// only by an approver's /maul verify fix.
+type AutoFix struct {
+	// State of the latch; unset is Armed.
+	// +optional
+	State AutoFixState `json:"state,omitempty"`
+	// Reason the latch halted.
+	// +optional
+	Reason AutoFixReason `json:"reason,omitempty"`
+	// Since is when the latch took its state.
+	// +optional
+	Since *metav1.Time `json:"since,omitempty"`
+	// Rearm is the approver's /maul verify fix that last re-armed it.
+	// +optional
+	Rearm *Rearm `json:"rearm,omitempty"`
+}
+
+// Rearm records an approver's /maul verify fix.
+type Rearm struct {
+	// By is the approver's login, for display.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=64
+	// +kubebuilder:validation:Pattern=`^[A-Za-z0-9][A-Za-z0-9_.-]*$`
+	By string `json:"by"`
+	// ByID is GitHub's numeric id of the approver.
+	// +kubebuilder:validation:Minimum=1
+	ByID int64 `json:"byID"`
+	// At is the command comment's created_at.
+	At metav1.Time `json:"at"`
+	// Round is status.rounds when re-armed: only a human round after it
+	// halts the latch again.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=999
+	Round int32 `json:"round"`
+}
+
+// VerifyRequest is an approver's pending /maul verify, run at the next
+// opportunity.
+type VerifyRequest struct {
+	// By is the approver's login, for display.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=64
+	// +kubebuilder:validation:Pattern=`^[A-Za-z0-9][A-Za-z0-9_.-]*$`
+	By string `json:"by"`
+	// ByID is GitHub's numeric id of the approver.
+	// +kubebuilder:validation:Minimum=1
+	ByID int64 `json:"byID"`
+	// At is the command comment's created_at.
+	At metav1.Time `json:"at"`
+	// CommentID is GitHub's id of the comment carrying the command.
+	// +kubebuilder:validation:Minimum=1
+	CommentID int64 `json:"commentID"`
+	// Fix also re-arms automatic fixes (/maul verify fix).
+	// +optional
+	Fix bool `json:"fix,omitempty"`
+	// Reset also restarts the Preview's parts first (/maul verify --reset).
+	// +optional
+	Reset bool `json:"reset,omitempty"`
+}
+
+// ResetState is the last /maul verify --reset: its generation is copied
+// into the Preview's spec.resetGeneration.
+type ResetState struct {
+	// Generation counts resets; it never decreases.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	Generation int64 `json:"generation,omitempty"`
+	// By is the approver's login, for display.
+	// +optional
+	// +kubebuilder:validation:MaxLength=64
+	// +kubebuilder:validation:Pattern=`^[A-Za-z0-9][A-Za-z0-9_.-]*$`
+	By string `json:"by,omitempty"`
+	// ByID is GitHub's numeric id of the approver.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	ByID int64 `json:"byID,omitempty"`
+	// At is the command comment's created_at.
+	// +optional
+	At *metav1.Time `json:"at,omitempty"`
+}
+
+// IntentVerification is the state of the acceptance verification of an
+// intent's combined change: the judged result of its latest
+// PreviewVerification, the auto-fix latch, and pending human requests.
+// Written by the intent reconciler only.
+type IntentVerification struct {
+	// State of the verification.
+	// +optional
+	State IntentVerificationState `json:"state,omitempty"`
+	// Round is the latest verification round.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=999
+	Round int32 `json:"round,omitempty"`
+	// Attempt is the latest attempt within it.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=3
+	Attempt int32 `json:"attempt,omitempty"`
+	// Ref is the latest PreviewVerification, pinned by UID.
+	// +optional
+	Ref *ObjectReference `json:"ref,omitempty"`
+	// HeadSetDigest is the combined change the state is about.
+	// +optional
+	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
+	HeadSetDigest string `json:"headSetDigest,omitempty"`
+	// Heads are that combined change's components and revisions.
+	// +optional
+	// +kubebuilder:validation:MaxItems=4
+	// +listType=map
+	// +listMapKey=component
+	Heads []VerificationHead `json:"heads,omitempty"`
+	// Passed counts the automatable criteria that passed.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=16
+	Passed int32 `json:"passed,omitempty"`
+	// Failed counts the automatable criteria that failed.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=16
+	Failed int32 `json:"failed,omitempty"`
+	// Quarantined counts the criteria that passed only on retry.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=16
+	Quarantined int32 `json:"quarantined,omitempty"`
+	// ManualOpen counts the manual criteria not accepted at the current
+	// heads.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=16
+	ManualOpen int32 `json:"manualOpen,omitempty"`
+	// ManualAccepted counts the manual criteria accepted at the current
+	// heads.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=16
+	ManualAccepted int32 `json:"manualAccepted,omitempty"`
+	// NotRun counts the criteria this slice cannot run yet.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=16
+	NotRun int32 `json:"notRun,omitempty"`
+	// Failing are the criteria that did not pass, in plan order.
+	// +optional
+	// +kubebuilder:validation:MaxItems=16
+	// +listType=atomic
+	Failing []CriterionState `json:"failing,omitempty"`
+	// QuarantinedIDs are the criteria that passed only on retry.
+	// +optional
+	// +kubebuilder:validation:MaxItems=16
+	// +listType=set
+	// +kubebuilder:validation:items:Pattern=`^[a-z][a-z0-9-]{0,31}$`
+	QuarantinedIDs []string `json:"quarantinedIDs,omitempty"`
+	// AutoFix is the automatic verify-fix latch.
+	// +optional
+	AutoFix AutoFix `json:"autoFix,omitempty"`
+	// CancelRun names a Pending verify-fix IntentRun a human round
+	// overtook: the run scheduler settles it unlaunched instead of creating
+	// its Job.
+	// +optional
+	// +kubebuilder:validation:MaxLength=63
+	CancelRun string `json:"cancelRun,omitempty"`
+	// Requested is an approver's pending /maul verify.
+	// +optional
+	Requested *VerifyRequest `json:"requested,omitempty"`
+	// Reset is the last /maul verify --reset.
+	// +optional
+	Reset ResetState `json:"reset,omitempty"`
+	// Automatic counts the verifications started without a request in the
+	// current plan revision, against the Project's maxVerifications.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=999
+	Automatic int32 `json:"automatic,omitempty"`
+	// LastAutomaticAt is when the latest of them started.
+	// +optional
+	LastAutomaticAt *metav1.Time `json:"lastAutomaticAt,omitempty"`
+	// InfraRetries counts the attempts maul's own machinery failed in the
+	// current round.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=999
+	InfraRetries int32 `json:"infraRetries,omitempty"`
 }
 
 // IntentStatus is the intent's observed state. Written only by
@@ -787,6 +1160,23 @@ type IntentStatus struct {
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=999
 	CheckFixes int32 `json:"checkFixes,omitempty"`
+	// VerifyFixes counts completed verify-fix rounds, for display. The
+	// count held against the Project's maxVerifyFixes is derived from the
+	// Intent's runs (the current plan revision's verify rounds), never read
+	// from here.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=999
+	VerifyFixes int32 `json:"verifyFixes,omitempty"`
+	// Acceptance is the approved plan's acceptance criteria, re-parsed from
+	// the digest-checked plan bytes once review begins, and the manual
+	// criteria approvers accepted since.
+	// +optional
+	Acceptance *IntentAcceptance `json:"acceptance,omitempty"`
+	// Verification is the state of the acceptance verification of the
+	// intent's combined change.
+	// +optional
+	Verification *IntentVerification `json:"verification,omitempty"`
 	// Usage totals the spend of every run.
 	// +optional
 	Usage IntentUsage `json:"usage,omitempty"`

@@ -802,6 +802,20 @@
                             "minimum": 0,
                             "type": "integer"
                         },
+                        "maxVerifications": {
+                            "description": "MaxVerifications is how many automatic verifications one approved\nplan revision may run; an approver's /maul verify does not raise it.\nNil means DefaultMaxVerifications (MaxVerificationsLimit).",
+                            "format": "int32",
+                            "maximum": 100,
+                            "minimum": 1,
+                            "type": "integer"
+                        },
+                        "maxVerifyFixes": {
+                            "description": "MaxVerifyFixes is how many automatic verify-fix rounds one approved\nplan revision may run when its acceptance verification fails, counted\napart from MaxRevisions and MaxCheckFixes. Zero is meaningful (report\nfailures, never fix them automatically), so the field is a pointer:\nnil means DefaultMaxVerifyFixes (MaxVerifyFixesLimit).",
+                            "format": "int32",
+                            "maximum": 10,
+                            "minimum": 0,
+                            "type": "integer"
+                        },
                         "plan": {
                             "description": "Plan bounds each planning run (read-only, default runner image).",
                             "properties": {
@@ -978,6 +992,29 @@
                 "suspend": {
                     "description": "Suspend stops the Project: no new intents are discovered and no run\nof its intents is launched. Running Jobs finish.",
                     "type": "boolean"
+                },
+                "verification": {
+                    "description": "Verification configures acceptance verification of the Project's\nintents (ProjectVerification). Unset means off.",
+                    "properties": {
+                        "enabled": {
+                            "description": "Enabled turns verification on for the Project's intents: the plan\nprompt asks for acceptance criteria, and each Preview is created\nverification-capable.",
+                            "type": "boolean"
+                        },
+                        "manualGatesStatus": {
+                            "description": "ManualGatesStatus keeps maul/acceptance pending until every manual\ncriterion is accepted (/maul accept) at the current heads. Off, the\nstatus reports the automated part only and names what is still open.",
+                            "type": "boolean"
+                        },
+                        "postLogs": {
+                            "description": "PostLogs also puts component log tails in the pull request comments,\nnot only on the intent issue. Log tails are redacted but are\npublished data.",
+                            "type": "boolean"
+                        },
+                        "timeout": {
+                            "description": "Timeout is the tester Job's wall clock, between 1m and 1h;\nDefaultVerificationTimeout when unset, and clamped by\nintent-controller's --intent-verify-timeout-max.",
+                            "type": "string"
+                        }
+                    },
+                    "type": "object",
+                    "additionalProperties": false
                 }
             },
             "required": ["approvers", "intentRepository", "repositories"],

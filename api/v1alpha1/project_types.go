@@ -4,6 +4,8 @@
 package v1alpha1
 
 import (
+	"time"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -70,6 +72,51 @@ const (
 	// DefaultMaxCostMicroUSD is limits.maxCostMicroUSD when unset ($10).
 	DefaultMaxCostMicroUSD int64 = 10000000
 )
+
+// Acceptance-verification defaults. Unlike the defaults above they are not
+// schema defaults: a stored Project is never rewritten by a new release's
+// schema (the live-fixture round trip pins that), so every reader applies
+// them to an unset field through the accessors below.
+const (
+	// DefaultMaxVerifyFixes is limits.maxVerifyFixes when unset.
+	DefaultMaxVerifyFixes int32 = 2
+	// DefaultMaxVerifications is limits.maxVerifications when unset.
+	DefaultMaxVerifications int32 = 20
+	// DefaultVerificationTimeout is verification.timeout when unset.
+	DefaultVerificationTimeout = 10 * time.Minute
+)
+
+// MaxVerifyFixesLimit is limits.maxVerifyFixes, or its default when unset.
+func (l ProjectLimits) MaxVerifyFixesLimit() int32 {
+	if l.MaxVerifyFixes == nil {
+		return DefaultMaxVerifyFixes
+	}
+	return *l.MaxVerifyFixes
+}
+
+// MaxVerificationsLimit is limits.maxVerifications, or its default when
+// unset.
+func (l ProjectLimits) MaxVerificationsLimit() int32 {
+	if l.MaxVerifications == nil {
+		return DefaultMaxVerifications
+	}
+	return *l.MaxVerifications
+}
+
+// VerificationEnabled reports whether the Project verifies its intents'
+// acceptance criteria (spec.verification.enabled).
+func (s *ProjectSpec) VerificationEnabled() bool {
+	return s.Verification != nil && s.Verification.Enabled
+}
+
+// VerificationTimeout is spec.verification.timeout, or its default when
+// unset. intent-controller clamps it to --intent-verify-timeout-max.
+func (s *ProjectSpec) VerificationTimeout() time.Duration {
+	if s.Verification == nil || s.Verification.Timeout == nil {
+		return DefaultVerificationTimeout
+	}
+	return s.Verification.Timeout.Duration
+}
 
 // ProjectLabels names the GitHub labels a Project reacts to on its intent
 // repository. GitHub compares label names case-insensitively, and so does
@@ -248,6 +295,22 @@ type ProjectLimits struct {
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=1000000000
 	MaxCostMicroUSD int64 `json:"maxCostMicroUSD,omitempty"`
+	// MaxVerifyFixes is how many automatic verify-fix rounds one approved
+	// plan revision may run when its acceptance verification fails, counted
+	// apart from MaxRevisions and MaxCheckFixes. Zero is meaningful (report
+	// failures, never fix them automatically), so the field is a pointer:
+	// nil means DefaultMaxVerifyFixes (MaxVerifyFixesLimit).
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=10
+	MaxVerifyFixes *int32 `json:"maxVerifyFixes,omitempty"`
+	// MaxVerifications is how many automatic verifications one approved
+	// plan revision may run; an approver's /maul verify does not raise it.
+	// Nil means DefaultMaxVerifications (MaxVerificationsLimit).
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=100
+	MaxVerifications *int32 `json:"maxVerifications,omitempty"`
 	// Plan bounds each planning run (read-only, default runner image).
 	// +optional
 	Plan StageLimits `json:"plan,omitempty"`
@@ -260,7 +323,10 @@ type ProjectLimits struct {
 }
 
 // ProjectChecks configures automatic fix rounds on failed CI checks of the
-// pull requests maul opened (slice 1b).
+// pull requests maul opened (slice 1b). maul/acceptance, maul's own commit
+// status, is never one of them: maul never fixes its own verdict as if it
+// were CI's.
+// +kubebuilder:validation:XValidation:rule="!has(self.fix) || !self.fix.exists(c, c.lowerAscii() == 'maul/acceptance')",message="checks.fix cannot name maul/acceptance: maul never fixes its own status"
 type ProjectChecks struct {
 	// Fix names the checks (check-run names or commit-status contexts, e.g.
 	// "test", "lint") whose failure on maul's own head starts a fix round
@@ -296,6 +362,37 @@ type ProjectChecks struct {
 	RerunFailed bool `json:"rerunFailed,omitempty"`
 }
 
+// ProjectVerification configures acceptance verification: maul runs the
+// approved plan's automatable acceptance criteria against the intent's
+// Preview and reports the result as the maul/acceptance commit status on
+// every open pull request. It needs previews (spec.preview or
+// repositories[].preview) and intent-controller's --intent-verification.
+// Every field is optional: unset means off, or the stated default, never a
+// schema default.
+type ProjectVerification struct {
+	// Enabled turns verification on for the Project's intents: the plan
+	// prompt asks for acceptance criteria, and each Preview is created
+	// verification-capable.
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+	// ManualGatesStatus keeps maul/acceptance pending until every manual
+	// criterion is accepted (/maul accept) at the current heads. Off, the
+	// status reports the automated part only and names what is still open.
+	// +optional
+	ManualGatesStatus bool `json:"manualGatesStatus,omitempty"`
+	// PostLogs also puts component log tails in the pull request comments,
+	// not only on the intent issue. Log tails are redacted but are
+	// published data.
+	// +optional
+	PostLogs bool `json:"postLogs,omitempty"`
+	// Timeout is the tester Job's wall clock, between 1m and 1h;
+	// DefaultVerificationTimeout when unset, and clamped by
+	// intent-controller's --intent-verify-timeout-max.
+	// +optional
+	// +kubebuilder:validation:XValidation:rule="duration(self) >= duration('1m') && duration(self) <= duration('1h')",message="verification.timeout must be between 1m and 1h"
+	Timeout *metav1.Duration `json:"timeout,omitempty"`
+}
+
 // MaxPreviewComponents bounds how many of a Project's repositories are
 // previewed, and so the components of one Preview: one host serves them all,
 // each from its own Deployment and Service in one slot, under the slot's
@@ -316,6 +413,7 @@ const MaxPreviewComponents = 4
 // +kubebuilder:validation:XValidation:rule="self.repositories.filter(r, has(r.preview)).size() <= 4",message="at most 4 repositories are previewed (repositories[].preview)"
 // +kubebuilder:validation:XValidation:rule="self.repositories.all(r, !has(r.preview) || self.repositories.exists_one(s, has(s.preview) && (has(s.preview.path) ? s.preview.path : '/') == (has(r.preview.path) ? r.preview.path : '/')))",message="two previewed repositories have the same path (repositories[].preview.path, default /)"
 // +kubebuilder:validation:XValidation:rule="!has(self.preview) || (size(self.repositories) == 1 && !self.repositories.exists(r, has(r.preview)))",message="spec.preview is the one-repository shorthand: it needs exactly one repository and no repositories[].preview"
+// +kubebuilder:validation:XValidation:rule="!has(self.verification) || !has(self.verification.enabled) || !self.verification.enabled || !self.repositories.exists(r, r.name == 'tester')",message="a repository key cannot be tester while verification is enabled: it names the verification tester's part of the preview slot"
 type ProjectSpec struct {
 	// IntentRepository is the https URL of the repository whose issues are
 	// this Project's intents (e.g. https://github.com/acme/intents). Several
@@ -394,6 +492,10 @@ type ProjectSpec struct {
 	// with (IntentRun spec.harness), so a change applies to new runs only.
 	// +optional
 	Harness ProjectHarness `json:"harness,omitempty"`
+	// Verification configures acceptance verification of the Project's
+	// intents (ProjectVerification). Unset means off.
+	// +optional
+	Verification *ProjectVerification `json:"verification,omitempty"`
 }
 
 // ProjectHarness is the coding agent an intent's runs use.
