@@ -305,6 +305,11 @@ type BuildPrompt struct {
 	// instead of step 1's Go paragraph; without, it is exactly step 1's
 	// prompt.
 	NetworkRoutes NetworkRoutes
+	// AcceptanceFix: the run is an acceptance-fix round, which may
+	// conclude, with evidence, that the code has no defect (the build
+	// report's no_defect). False omits the section and the field, and the
+	// prompt is exactly the prompt without them.
+	AcceptanceFix bool
 }
 
 // RenderBuildPrompt renders the build-stage prompt.

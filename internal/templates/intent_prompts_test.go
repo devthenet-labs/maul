@@ -89,6 +89,13 @@ func TestIntentPromptGoldens(t *testing.T) {
 				Detail: "changeset: .github/workflows/ci.yml: intent runs may not change .github/",
 			})
 		}},
+		// An acceptance-fix round, which may conclude no defect.
+		{"prompt_build_acceptance_fix.md", func() (string, error) {
+			return RenderBuildPrompt(BuildPrompt{
+				PlanPath: "/workspace/input/investigation.md", ReportPath: "/workspace/reports/build.md",
+				CommitScriptPath: "/workspace/commit.sh", Limits: testBuildLimits, AcceptanceFix: true,
+			})
+		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

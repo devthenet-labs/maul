@@ -103,6 +103,7 @@ spec:
         - name: LD_AUDIT
         - name: LD_LIBRARY_PATH
         - name: LD_PRELOAD
+        - name: MAUL_ACCEPTANCE_FIX
         - name: MAUL_BROKER_TOKEN
         - name: MAUL_BUILD_NETWORK_PROFILES
         - name: MAUL_CALIBRATION

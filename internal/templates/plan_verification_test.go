@@ -214,3 +214,33 @@ func wellFormedFrom(got, in *PlanVerification) bool {
 	}
 	return true
 }
+
+// TestPlanPromptKeepsChecksToTheirOwnData (beatbattle-44, rough edge 10):
+// the planner wrote ratings-order, which read the global top of a ranking
+// and a tie-break by creation time, and failed forever once an earlier
+// verification's data won the tie on a preview that is never reset. The
+// acceptance section says why the data persists, that a check creates its
+// own data named with {{run}} and asserts only on it, and that it reads
+// scoped, or orders only its own ids, never a global ranking or count.
+func TestPlanPromptKeepsChecksToTheirOwnData(t *testing.T) {
+	got, err := RenderPlanPrompt(PlanPrompt{
+		IssuePath: "/workspace/input/issue.md", ReportPath: "/workspace/reports/plan.md",
+		Intent: testPlanRequest, BuildMaxTurns: 150, BuildTokenBudget: 800000, Limits: testPlanLimits,
+		Verification: &PlanVerification{Components: []PlanVerifyComponent{{Key: "api", Path: "/api"}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	flat := strings.Join(strings.Fields(got), " ")
+	for _, want := range []string{
+		"The preview's data persists across verifications",
+		"create its own data, named with `{{run}}`, and assert only on that data",
+		"never a global ranking, a global count, the first or last item of a global list",
+		"`$order` restricted to the ids the check created",
+		"data an earlier verification left",
+	} {
+		if !strings.Contains(flat, want) {
+			t.Errorf("acceptance section lacks %q:\n%s", want, got)
+		}
+	}
+}

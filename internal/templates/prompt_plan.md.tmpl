@@ -226,9 +226,14 @@ Rules the checks keep to:
 - `expect` holds `status` (a number or a list of numbers), `json` (at most 8 entries, a JSON pointer to a literal or to
   one matcher: `{$present: true}`, `{$absent: true}`, `{$contains: "text"}`, `{$approx: n, $tolerance: n}`, or
   `{$order: [...], $by: <pointer>}`), `headers` and `bodyContains` (at most 200 characters).
-- `{{"{{"}}run{{"}}"}}` and `{{"{{"}}capture.<name>{{"}}"}}` are the only substitutions. Name each datum a check creates with
-  `{{"{{"}}run{{"}}"}}`: the preview is never reset between verification rounds, and each check runs against whatever the
-  earlier ones left. Prefer reads scoped to what the check created over global lists.
+- `{{"{{"}}run{{"}}"}}` and `{{"{{"}}capture.<name>{{"}}"}}` are the only substitutions.
+- The preview's data persists across verifications: maul never resets it between them, so every check runs against
+  whatever the earlier ones left, its own earlier runs included. A check must therefore create its own data, named with
+  `{{"{{"}}run{{"}}"}}`, and assert only on that data. Read it back scoped to what it created (by the id it captured,
+  or filtered by its `{{"{{"}}run{{"}}"}}` name), and to check an ordering use `$order` restricted to the ids the check
+  created. Assert never a global ranking, a global count, the first or last item of a global list, or a tie-break
+  against rows the check did not create: data an earlier verification left can win that tie, and the check then fails
+  on every later verification however correct the change is.
 - A capture is usable only by later steps, and its name is lowercase letters and digits, at most 16.
 - A criterion is unverifiable if it needs something the preview does not serve: target only these components.
 

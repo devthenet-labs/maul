@@ -23,7 +23,7 @@ import (
 	"github.com/devthenet-labs/maul/internal/templates"
 )
 
-// The acceptance commands, /maul verify [fix|--reset] and /maul accept <id>,
+// The acceptance commands, /maul verify [fix|stop|--reset] and /maul accept <id>,
 // settle here for both surfaces that offer them: the intent issue (from
 // decide, on the poll's answer path) and each of the intent's pull requests
 // (settlePRVerifyCommands). An intent has one combined change and one
@@ -129,6 +129,11 @@ func (p *pass) recordedVerifyNotice(surface command.Surface, key string, id int6
 		n.AfterRound = p.in.Status.Phase == v1alpha1.IntentRevising
 		return n
 	}
+	if v := p.in.Status.Verification; v != nil && v.AutoFix.State == v1alpha1.AutoFixHalted &&
+		v.AutoFix.Stop != nil && v.AutoFix.Stop.CommentID == id {
+		n.Outcome = templates.VerifyStopped
+		return n
+	}
 	if acc := p.in.Status.Acceptance; acc != nil {
 		for _, r := range acc.Accepted {
 			if r.CommentID == id {
@@ -165,6 +170,9 @@ func (p *pass) applyVerifyCommand(ctx context.Context, c verifyCommand) (templat
 		if !ok {
 			n.Outcome = templates.VerifyUsage
 			return n, nil
+		}
+		if args.Stop {
+			return p.stopAutoFix(ctx, c, n)
 		}
 		return p.requestVerification(ctx, c, args, n)
 	case action.VerbAccept:
@@ -233,6 +241,61 @@ func (p *pass) requestVerification(ctx context.Context, c verifyCommand, args co
 	n.Joined = waiting != nil
 	n.AfterRound = p.in.Status.Phase == v1alpha1.IntentRevising
 	return n, nil
+}
+
+// stopAutoFix records /maul verify stop: automatic fixes halted, reason
+// HumanStop, with the approver and the comment, and nothing started. An
+// acceptance fix leased but not launched is cancelled, as a human's round
+// cancels one (D3: verification.cancelRun, which the run scheduler settles
+// as OutcomeStoppedByHuman); one already running finishes and pushes. It
+// replaces any earlier halt, so the latch names the approver who stopped
+// it, and only /maul verify fix, or a new approved plan, re-arms it.
+func (p *pass) stopAutoFix(ctx context.Context, c verifyCommand,
+	n templates.VerifyCommandNotice) (templates.VerifyCommandNotice, error) {
+	pending, running := p.inFlightVerifyFix()
+	at := metav1.NewTime(c.at)
+	if err := p.update(ctx, func(in *v1alpha1.Intent) error {
+		v := in.Status.Verification
+		if v == nil {
+			v = &v1alpha1.IntentVerification{}
+			in.Status.Verification = v
+		}
+		since := metav1.NewTime(p.now)
+		v.AutoFix = v1alpha1.AutoFix{State: v1alpha1.AutoFixHalted, Reason: v1alpha1.AutoFixHumanStop, Since: &since,
+			Stop: &v1alpha1.AutoFixStop{By: c.actor.Login, ByID: c.actor.ID, At: at, CommentID: c.id}}
+		if pending != "" {
+			v.CancelRun = pending
+		}
+		rememberApplied(in, c.id)
+		return nil
+	}); err != nil {
+		return n, err
+	}
+	n.Outcome, n.Cancelled, n.Running = templates.VerifyStopped, pending != "", running
+	return n, nil
+}
+
+// inFlightVerifyFix is the intent's acceptance-fix round in flight: the
+// name of its run when it is leased but not launched (pending), or whether
+// its agent already runs (running). Neither outside a round of trigger
+// verify.
+func (p *pass) inFlightVerifyFix() (pending string, running bool) {
+	if p.in.Status.Phase != v1alpha1.IntentRevising {
+		return "", false
+	}
+	run := p.round(v1alpha1.IntentStageRevise, p.in.Status.Rounds, anyRepository).latest()
+	if run == nil || roundKindOf(run.Spec.Trigger) != roundVerify {
+		return "", false
+	}
+	switch run.Status.Phase {
+	case v1alpha1.RunComplete, v1alpha1.RunFailed:
+		return "", false
+	case v1alpha1.RunPending, v1alpha1.RunRunning, "":
+	}
+	if run.Status.JobRef == nil {
+		return run.Name, false
+	}
+	return "", true
 }
 
 // acceptAll is the id /maul accept all records for a plan that declares no

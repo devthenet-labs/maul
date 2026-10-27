@@ -360,6 +360,8 @@ func TestCreateAgentEnvPreviousAttempt(t *testing.T) {
 		{"plan verification", "MAUL_PLAN_VERIFICATION", verification,
 			func(s *Spec, v string) { s.PlanVerification = v }},
 		{"no plan verification", "MAUL_PLAN_VERIFICATION", "", func(s *Spec, v string) { s.PlanVerification = v }},
+		{"acceptance fix", "MAUL_ACCEPTANCE_FIX", "true", func(s *Spec, v string) { s.AcceptanceFix = v != "" }},
+		{"no acceptance fix", "MAUL_ACCEPTANCE_FIX", "", func(s *Spec, v string) { s.AcceptanceFix = v != "" }},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			cs := fake.NewClientset()
@@ -403,11 +405,15 @@ func TestOperatorEnvCannotShadowPerJobHandoff(t *testing.T) {
 	handoff := []struct {
 		env string
 		set func(*Spec, string)
+		// shown is the value a Job that sets the name gives it, when the
+		// Spec field is not that string itself (a switch); "" is the value.
+		shown string
 	}{
-		{"MAUL_CALIBRATION", func(s *Spec, v string) { s.Calibration = v }},
-		{"MAUL_PREVIOUS_ATTEMPT", func(s *Spec, v string) { s.PreviousAttempt = v }},
-		{"MAUL_OPEN_PULL_REQUESTS", func(s *Spec, v string) { s.OpenPullRequests = v }},
-		{"MAUL_PLAN_VERIFICATION", func(s *Spec, v string) { s.PlanVerification = v }},
+		{"MAUL_CALIBRATION", func(s *Spec, v string) { s.Calibration = v }, ""},
+		{"MAUL_PREVIOUS_ATTEMPT", func(s *Spec, v string) { s.PreviousAttempt = v }, ""},
+		{"MAUL_OPEN_PULL_REQUESTS", func(s *Spec, v string) { s.OpenPullRequests = v }, ""},
+		{"MAUL_PLAN_VERIFICATION", func(s *Spec, v string) { s.PlanVerification = v }, ""},
+		{"MAUL_ACCEPTANCE_FIX", func(s *Spec, v string) { s.AcceptanceFix = v != "" }, "true"},
 	}
 	sources := []struct {
 		name string
@@ -453,6 +459,9 @@ func TestOperatorEnvCannotShadowPerJobHandoff(t *testing.T) {
 							}
 						}
 						want := []corev1.EnvVar{{Name: h.env, Value: jobValue}}
+						if jobValue != "" && h.shown != "" {
+							want[0].Value = h.shown
+						}
 						if jobValue == "" && !shape.blank {
 							want = nil
 						}

@@ -47,8 +47,9 @@ func TestVerifyCommentOncePerRound(t *testing.T) {
 		t.Fatalf("verification comments of round 1 = %d, want one and none of round 2", len(cs))
 	}
 	got := cs[0].Body
-	for _, want := range []string{"round 1 (attempt 1)", "| `health` | `http` | failed |", "Expected `GET /healthz: " +
-		"status 200`", "Observed `status 500`", `{"error":"boom"}`, "sounds-good", "needs a human"} {
+	for _, want := range []string{"verification 1, attempt 1", "| `health` | `http` | failed |",
+		"Expected `GET /healthz: " +
+			"status 200`", "Observed `status 500`", `{"error":"boom"}`, "sounds-good", "needs a human"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("comment lacks %q:\n%s", want, got)
 		}
@@ -79,7 +80,7 @@ func TestVerifySectionOnThePreviewComment(t *testing.T) {
 	pr := e.get(name).Status.PullRequests[0]
 	body := e.onePreviewComment(name, pr.Number).Body
 	for _, want := range []string{"#### maul: acceptance checks", "- `health` (`http`): failed. the app answers " +
-		"its health check", "Verification failing:"} {
+		"its health check", "Verification 1 failing:"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("preview comment lacks %q:\n%s", want, body)
 		}
@@ -117,7 +118,7 @@ func TestVerifyLogTailsOnlyWhereAllowed(t *testing.T) {
 func TestVerifyStatusLine(t *testing.T) {
 	e := newVerifyEnv(t, acceptancePlan)
 	e.judged(answering(200))
-	if body := e.statusBody(); !strings.Contains(body, "Verified: 1/1 checks passed, 1 for a human.") {
+	if body := e.statusBody(); !strings.Contains(body, "Verification 1 passed: 1/1 checks passed, 1 for a human.") {
 		t.Fatalf("status comment:\n%s", body)
 	}
 }

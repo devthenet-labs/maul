@@ -208,8 +208,11 @@ func TestVerifyCommandAuthority(t *testing.T) {
 		{name: "a bot", actor: "renovate[bot]", body: "/maul accept " + manualID, want: "bot account"},
 		{name: "edited", actor: approver, body: "/maul verify --reset", edit: true, want: "was edited"},
 		{name: "an unknown argument", actor: approver, body: "/maul verify everything", want: "not understood"},
-		{name: "reset as a verb", actor: approver, body: "/maul reset", want: "/maul verify [fix|--reset]"},
+		{name: "reset as a verb", actor: approver, body: "/maul reset", want: "/maul verify [fix|stop|--reset]"},
 		{name: "two arguments", actor: approver, body: "/maul verify fix --reset", want: "not understood"},
+		{name: "stop from a non-approver", actor: "mallory", body: "/maul verify stop", want: "only the project"},
+		{name: "stop edited", actor: approver, body: "/maul verify stop", edit: true, want: "was edited"},
+		{name: "stop as a verb", actor: approver, body: "/maul stop", want: "/maul verify [fix|stop|--reset]"},
 		{name: "accept without an id", actor: approver, body: "/maul accept", want: "not understood"},
 	}
 	for _, tt := range tests {

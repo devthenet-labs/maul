@@ -41,9 +41,10 @@ type usage struct {
 // request offer alike: an intent has one combined change and one Preview, so
 // any of its surfaces names them.
 var (
-	verifyUsage = usage{verb: action.VerbVerify, args: "[" + VerifyFix + "|" + VerifyReset + "]",
+	verifyUsage = usage{verb: action.VerbVerify, args: "[" + VerifyFix + "|" + VerifyStop + "|" + VerifyReset + "]",
 		summary: "check the change against the plan's acceptance criteria now; `" + VerifyFix +
-			"` also lets maul fix failures again, `" + VerifyReset + "` first restarts the preview with fresh data"}
+			"` also lets maul fix failures again, `" + VerifyStop + "` only stops maul fixing failures on its own, `" +
+			VerifyReset + "` first restarts the preview with fresh data"}
 	acceptUsage = usage{verb: action.VerbAccept, args: "<id>",
 		summary: "accept a manual criterion, or one that passed only on retry, at the current commits"}
 )

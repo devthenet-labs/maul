@@ -11,7 +11,7 @@
 
 - [devthenet-labs/maul-target#12](https://github.com/devthenet-labs/maul-target/pull/12) (open)
 
-**Preview:** [`target-1.preview.maul.example.com`](https://target-1.preview.maul.example.com) serves `4b825dc642cb`. Verifying: round 1 of 2, 3/4 checks passing; automatic fix halted (`the fix budget is spent`).
+**Preview:** [`target-1.preview.maul.example.com`](https://target-1.preview.maul.example.com) serves `4b825dc642cb`. Verification 1 running: 3/4 checks passing, 0 of 2 automatic fixes used; automatic fix halted (`the fix budget is spent`).
 
 **Commands now:** `/maul cancel`
 

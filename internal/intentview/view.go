@@ -208,6 +208,8 @@ var outcomeText = map[string]string{
 	"aborted":             "the run ended with no result",
 	"image_required":      "the build needs an accepted repository agent image",
 	"not_built":           "the agent reported it could not build the plan",
+	"no_defect":           "the automatic fix found no defect to fix",
+	"stopped_by_human":    "an approver stopped the automatic fix before it started",
 	"dependency_refused":  "the egress proxy refused a dependency the build needs",
 	"branch_exists":       "the intent branch exists at a commit maul did not push",
 	"hold_expired":        "the finished build expired while the intent was suspended",

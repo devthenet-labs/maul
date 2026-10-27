@@ -24,6 +24,7 @@ import (
 	"github.com/devthenet-labs/maul/internal/attribution"
 	"github.com/devthenet-labs/maul/internal/command"
 	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/report"
 	"github.com/devthenet-labs/maul/internal/templates"
 	"github.com/devthenet-labs/maul/internal/untrusted"
 	"github.com/devthenet-labs/maul/internal/usagerollup"
@@ -76,16 +77,7 @@ func (p *pass) revising(ctx context.Context) (bool, error) {
 	}
 	switch run.Status.Phase {
 	case v1alpha1.RunComplete:
-		if err := p.finishPRRound(ctx, run); err != nil {
-			return false, err
-		}
-		// The completed run owns one pushed commit. The phase write makes the
-		// counter idempotent across reconciliation and restarts.
-		return true, p.setPhase(ctx, v1alpha1.IntentInReview, func(cur *v1alpha1.Intent) {
-			countCompletedRound(&cur.Status, run.Spec.Trigger)
-			cur.Status.ActiveRun = nil
-			settleVerifyRound(cur, run, true)
-		})
+		return p.completedRevise(ctx, run)
 	case v1alpha1.RunFailed:
 		return p.failedRevise(ctx, run, rs)
 	default:
@@ -103,6 +95,35 @@ func (p *pass) revising(ctx context.Context) (bool, error) {
 		}
 		return p.ensureActive(ctx, run)
 	}
+}
+
+// maxNoDefectReasonBytes bounds the no-defect reason the Intent records
+// (NoDefectRecord.Reason's schema bound).
+const maxNoDefectReasonBytes = 1024
+
+// completedRevise ends a round whose run completed: it owns one pushed
+// commit, or, an acceptance fix, found no defect and pushed nothing, which
+// halts automatic fixes (FixFoundNoDefect). The phase write makes the
+// counter idempotent across reconciliation and restarts.
+func (p *pass) completedRevise(ctx context.Context, run *v1alpha1.IntentRun) (bool, error) {
+	if err := p.finishPRRound(ctx, run); err != nil {
+		return false, err
+	}
+	found := run.Status.Outcome == OutcomeNoDefect
+	return true, p.setPhase(ctx, v1alpha1.IntentInReview, func(cur *v1alpha1.Intent) {
+		countCompletedRound(&cur.Status, run.Spec.Trigger)
+		cur.Status.ActiveRun = nil
+		settleVerifyRound(cur, run, !found)
+		if found {
+			if nv := cur.Status.Verification; nv != nil {
+				nv.NoDefect = &v1alpha1.NoDefectRecord{Run: run.Name, Reason: report.Bound(run.Status.Detail,
+					maxNoDefectReasonBytes), At: metav1.NewTime(p.now), HeadSetDigest: nv.HeadSetDigest}
+			}
+			haltOn(cur, v1alpha1.AutoFixFixFoundNoDefect, "", fmt.Sprintf("the acceptance-fix round %s found "+
+				"no defect in the code and changed nothing; the failing criteria are left to the reviewers",
+				run.Name), metav1.NewTime(p.now))
+		}
+	})
 }
 
 // acksCommand reports a round an approver's PR command started, whose
@@ -253,7 +274,8 @@ func (p *pass) failedRevise(ctx context.Context, run *v1alpha1.IntentRun, rs rou
 // with no retry (failedRevise).
 func endsRoundUnretried(outcome string) bool {
 	switch outcome {
-	case OutcomeInputUnavailable, OutcomeImageRequired, OutcomeSupersededByHuman, OutcomeNoUsableFeedback,
+	case OutcomeInputUnavailable, OutcomeImageRequired, OutcomeSupersededByHuman, OutcomeStoppedByHuman,
+		OutcomeNoUsableFeedback,
 		OutcomeUnschedulable, OutcomeDependencyRefused:
 		return true
 	}
@@ -320,7 +342,7 @@ func (p *pass) finishPRRound(ctx context.Context, run *v1alpha1.IntentRun) error
 		label = templates.CIFixRound(checks)
 	}
 	body := marker + "\n" + unpushedRoundNotice(run, label, tail)
-	if run.Status.Phase == v1alpha1.RunComplete {
+	if run.Status.Phase == v1alpha1.RunComplete && run.Status.Outcome != OutcomeNoDefect {
 		body = marker + "\n" + label + " pushed commit `" + run.Status.PushedCommit + "`."
 		if pr.State == prOpen && !terminal(p.in.Status.Phase) {
 			if err := p.r.GitHub.RequestReviewers(ctx, pr.Repository, pr.Number,
@@ -346,6 +368,13 @@ func unpushedRoundNotice(run *v1alpha1.IntentRun, label, tail string) string {
 	case OutcomeSupersededByHuman:
 		return label + " cancelled for your review: an approver's feedback arrived before it " +
 			"started, so nothing was pushed and the approver's round runs next." + tail
+	case OutcomeStoppedByHuman:
+		return label + " stopped by an approver's `/maul verify stop` before it started, so nothing was " +
+			"pushed. maul no longer fixes failing acceptance criteria on its own." + tail
+	case OutcomeNoDefect:
+		return label + " found no defect: its agent concluded that the code already does what the failing " +
+			"acceptance criteria ask, so nothing was pushed and maul stopped fixing on its own. The issue's " +
+			"verification comment gives its reason." + tail
 	case OutcomeNoUsableFeedback:
 		if run.Status.JobRef == nil {
 			return "Revision round stopped: no usable feedback was found after filtering. " +
@@ -521,6 +550,9 @@ func (p *pass) reviseInput(ctx context.Context, run *v1alpha1.IntentRun, plan []
 		keyApprovedPlan: string(plan), signatureKey(run.Spec.Trigger): in.signature}
 	if len(in.checks) > 0 {
 		data[keyCheckNames] = strings.Join(in.checks, "\n")
+	}
+	if len(in.pieces) > 0 {
+		data[keyVerifySignatures] = strings.Join(in.pieces, "\n")
 	}
 	return data, nil
 }

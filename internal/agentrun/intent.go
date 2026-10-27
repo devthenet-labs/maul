@@ -430,6 +430,7 @@ func (a *Agent) build(ctx context.Context, params remediationParams, scope build
 		Siblings:        scope.siblings,
 		NetworkProfile:  a.cfg.NetworkProfile,
 		NetworkRoutes:   a.cfg.NetworkRoutes,
+		AcceptanceFix:   a.cfg.AcceptanceFix,
 	})
 	if err != nil {
 		ev.Outcome = envelope.OutcomeRuntimeError
@@ -467,7 +468,7 @@ func (a *Agent) build(ctx context.Context, params remediationParams, scope build
 		return ev
 	}
 
-	b, raw, outcome, detail := settleReport(ctx, a, sr, &ev.Stage, a.cfg.buildPath(), readReport, report.ParseBuild)
+	b, raw, outcome, detail := settleReport(ctx, a, sr, &ev.Stage, a.cfg.buildPath(), readReport, a.parseBuild)
 	if outcome != envelope.OutcomeOK {
 		ev.Outcome, ev.Detail = outcome, detail
 		return ev
@@ -479,6 +480,9 @@ func (a *Agent) build(ctx context.Context, params remediationParams, scope build
 	ev.Outcome = envelope.OutcomeOK
 
 	if !*b.Success {
+		// An honest failure, or an acceptance-fix round's no_defect: either
+		// way nothing is packaged, and the controller reads which from the
+		// report.
 		return ev
 	}
 	// The agent claims success; the repository decides. commit.sh must run
@@ -489,4 +493,20 @@ func (a *Agent) build(ctx context.Context, params remediationParams, scope build
 	}
 	ev.Success = true
 	return ev
+}
+
+// parseBuild parses a build report (report.ParseBuild) and refuses one
+// claiming no_defect on a build that is not an acceptance-fix round: only
+// that round may conclude the code needs no change. The refusal is a
+// refused report, which the agent is asked to repair like any other.
+func (a *Agent) parseBuild(raw []byte) (*report.Build, error) {
+	b, err := report.ParseBuild(raw)
+	if err != nil {
+		return nil, err
+	}
+	if b.NoDefect && !a.cfg.AcceptanceFix {
+		return nil, errors.New("report: build: no_defect is only for an acceptance-fix round; " +
+			"build the plan, or report success false with the reason it cannot be built")
+	}
+	return b, nil
 }
