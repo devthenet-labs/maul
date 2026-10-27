@@ -78,3 +78,35 @@ func TestStampScript(t *testing.T) {
 		})
 	}
 }
+
+// TestStampChartValues: the shipped chart holds the one marked line the
+// release stamp rewrites, at preview.verification.testerImage, so a release
+// never fails its publish (or ships unstamped) over a values edit.
+func TestStampChartValues(t *testing.T) {
+	if _, err := exec.LookPath("yq"); err != nil {
+		t.Skip("yq not on PATH")
+	}
+	src, err := os.ReadFile("../../charts/maul/values.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "values.yaml")
+	if err := os.WriteFile(path, src, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	repo := "ghcr.io/devthenet-labs/maul/preview-tester"
+	digest := "sha256:" + strings.Repeat("0a", 32)
+	out, err := exec.Command(stampScript, path, repo, digest).CombinedOutput()
+	if err != nil {
+		t.Fatalf("stamp of charts/maul/values.yaml: %v\n%s", err, out)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := strings.Replace(string(src), `testerImage: "" # x-maul-preview-tester-image`,
+		`testerImage: "`+repo+"@"+digest+`" # x-maul-preview-tester-image`, 1)
+	if string(got) != want {
+		t.Error("the stamp changed more of charts/maul/values.yaml than the marked line")
+	}
+}

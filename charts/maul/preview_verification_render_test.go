@@ -44,6 +44,9 @@ func TestPreviewVerificationOffRendersNothing(t *testing.T) {
 		}
 	}
 	for _, role := range rolesNamed(objs, "maul-preview-controller") {
+		if p, ok := grants(role)["/pods"]; ok && p != "list" {
+			t.Errorf("verification off: %s/%s grants pods %q, want list", role.GetNamespace(), role.GetName(), p)
+		}
 		for _, r := range roleRules(role) {
 			for _, res := range r.resources {
 				if slices.Contains([]string{"jobs", "networkpolicies", "pods/log", "previewverifications",
@@ -134,6 +137,7 @@ func checkVerificationGrants(t *testing.T, objs []*unstructured.Unstructured) {
 			"batch/jobs":                        "create,get,list,delete",
 			"networking.k8s.io/networkpolicies": "create,get,list,update,delete",
 			"/pods/log":                         "get",
+			"/pods":                             "list,delete",
 		} {
 			if got[res] != verbs {
 				t.Errorf("%s: preview-controller %s = %q, want %q", slot, res, got[res], verbs)

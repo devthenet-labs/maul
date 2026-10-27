@@ -56,7 +56,7 @@ func TestPreviewVerificationGrantsAreDocumented(t *testing.T) {
 		header = append(header, strings.TrimPrefix(line, "#"))
 	}
 	prose := strings.Join(strings.Fields(strings.Join(header, " ")), " ")
-	for _, want := range []string{"preview.verification.enabled", "jobs", "networkpolicies", "pods/log",
+	for _, want := range []string{"preview.verification.enabled", "jobs", "networkpolicies", "pods (delete", "pods/log",
 		"previewverifications", "previewverifications/status"} {
 		if !strings.Contains(prose, want) {
 			t.Errorf("the preview-controller header does not state %q", want)

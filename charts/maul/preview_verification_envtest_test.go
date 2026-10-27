@@ -173,11 +173,12 @@ func waitVerificationGrants(t *testing.T, admin client.Client) {
 		return authorizationv1.ResourceAttributes{Namespace: egressRelease, Group: v1alpha1.GroupVersion.Group,
 			Resource: "previewverifications", Subresource: sub}
 	}
-	reviews := make([]authorizationv1.SubjectAccessReviewSpec, 0, 9)
+	reviews := make([]authorizationv1.SubjectAccessReviewSpec, 0, 10)
 	reviews = append(reviews, rbactest.Verbs(saPreview, nil, slot("batch", "jobs", ""), "create", "delete")...)
 	reviews = append(reviews, rbactest.Verbs(saPreview, nil, slot("networking.k8s.io", "networkpolicies", ""),
 		"create", "update", "delete")...)
 	reviews = append(reviews, rbactest.Verbs(saPreview, nil, slot("", "pods", "log"), "get")...)
+	reviews = append(reviews, rbactest.Verbs(saPreview, nil, slot("", "pods", ""), "delete")...)
 	reviews = append(reviews, rbactest.Verbs(saPreview, nil, release("status"), "update")...)
 	reviews = append(reviews, rbactest.Verbs(saIntent, nil, release(""), "create", "delete")...)
 	rbactest.WaitAllowed(t, admin, reviews...)

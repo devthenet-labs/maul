@@ -7,7 +7,8 @@
 # Acceptance verification (preview.verification.enabled, off by default) adds,
 # in each slot, batch jobs (create, get, list, delete: the tester Job),
 # networking.k8s.io networkpolicies (create, get, list, update, delete: one
-# edge policy per part) and pods/log (get: the tester's result and component
+# edge policy per part), pods (delete beside list: the sweep removes a tester
+# pod whose Job is gone) and pods/log (get: the tester's result and component
 # log tails), and in the release namespace previewverifications (get, list,
 # watch: the requests) and previewverifications/status (update: the
 # results). Admission fences each: maul-preview-jobs,
@@ -106,7 +107,7 @@ rules:
       verbs: [create, get, list, update, patch, delete]
     - apiGroups: ["" ]
       resources: [pods]
-      verbs: [list]
+      verbs: [list{{ if $verify }}, delete{{ end }}]
     - apiGroups: [apps]
       resources: [replicasets]
       verbs: [list]

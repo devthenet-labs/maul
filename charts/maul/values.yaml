@@ -279,7 +279,7 @@ preview:
         # reference only, so it must lie neither under the preview image
         # prefix nor under any agent.repositoryImages.registries entry: the
         # render fails otherwise. The release workflow stamps it.
-        testerImage: ""
+        testerImage: "" # x-maul-preview-tester-image
         # The longest activeDeadlineSeconds a slot Job (and its pod) may
         # carry. Keep it at least intent-controller's longest verification
         # timeout (a Project's verification.timeout, clamped by
