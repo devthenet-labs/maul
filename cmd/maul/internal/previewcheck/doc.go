@@ -43,7 +43,10 @@
 //     namespace is first judged as written (isolation_policy.go): none may
 //     admit a peer but the gateway's exact one and, on the legacy path,
 //     ipBlocks, since the agents' client is also held back by its own
-//     namespace's default-deny and so cannot prove the slot policy's shape.
+//     namespace's default-deny and so cannot prove the slot policy's shape;
+//     an acceptance verification edge policy (preview-<p>-np-<part>) is
+//     judged whole by the admission policy's own predicate instead, the
+//     same as ingress.sh's (a test holds the two to the same verdicts).
 //     A netprobe listener starts in
 //     a slot (in ingress.sh's exact Pod shape, pinned by a test that runs
 //     its --print-manifests); the gateway-labelled client runs alone and
