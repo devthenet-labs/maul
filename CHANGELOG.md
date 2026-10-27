@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.3](https://github.com/devthenet-labs/maul/compare/v0.13.2...v0.13.3) (2026-10-27)
+
+
+### Bug Fixes
+
+* **intent:** ask verifying plans for acceptance criteria and show the split ([#282](https://github.com/devthenet-labs/maul/issues/282)) ([b80441f](https://github.com/devthenet-labs/maul/commit/b80441f6c927726cbbb906e488c5f1bc46c1df53))
+
 ## [0.13.2](https://github.com/devthenet-labs/maul/compare/v0.13.1...v0.13.2) (2026-10-27)
 
 
