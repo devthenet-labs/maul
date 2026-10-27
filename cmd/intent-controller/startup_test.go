@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -327,5 +328,29 @@ func TestCodexHarnessAndDNS(t *testing.T) {
 				t.Errorf("claude runner injects %v, want agent-runner and claude", got)
 			}
 		})
+	}
+}
+
+// TestSettingsVerificationFlags: --intent-verification needs the preview
+// projection, and --intent-verify-timeout-max carries through within the
+// bounds a PreviewVerification's timeout has (1m to 1h).
+func TestSettingsVerificationFlags(t *testing.T) {
+	s, err := settings(resolved(t), "p", "a")
+	if err != nil || s.Verification || s.VerifyTimeoutMax != intent.DefaultVerifyTimeoutMax {
+		t.Fatalf("defaults: verification %v, timeout max %s, err %v", s.Verification, s.VerifyTimeoutMax, err)
+	}
+	s, err = settings(resolved(t, "--intent-previews-enabled", "--intent-verification",
+		"--intent-verify-timeout-max", "12m"), "p", "a")
+	if err != nil || !s.Verification || s.VerifyTimeoutMax != 12*time.Minute {
+		t.Fatalf("on: verification %v, timeout max %s, err %v", s.Verification, s.VerifyTimeoutMax, err)
+	}
+	for _, args := range [][]string{
+		{"--intent-verification"},
+		{"--intent-previews-enabled", "--intent-verify-timeout-max", "30s"},
+		{"--intent-previews-enabled", "--intent-verify-timeout-max", "2h"},
+	} {
+		if _, err := settings(resolved(t, args...), "p", "a"); err == nil {
+			t.Errorf("settings %v accepted", args)
+		}
 	}
 }

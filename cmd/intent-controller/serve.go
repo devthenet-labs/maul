@@ -58,6 +58,13 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 		"project opted-in, open intent PRs into Preview resources, beside the default-branch head (read once at "+
 			"review start) of each previewed repository an intent did not change; requires a separately enabled "+
 			"preview-controller")
+	f.Bool("intent-verification", false,
+		"run the approved plan's acceptance criteria against each intent's Preview for Projects with "+
+			"spec.verification.enabled (PreviewVerification requests a separately enabled preview-controller "+
+			"answers); needs --intent-previews-enabled. Off, no acceptance or verification state is written")
+	f.Duration("intent-verify-timeout-max", intent.DefaultVerifyTimeoutMax,
+		"the most a Project's verification.timeout gives a tester Job, between 1m and 1h; keep it at or under "+
+			"preview-controller's tester deadline maximum (chart preview.verification.deadlineMaxSeconds)")
 	f.Bool("intent-multi-repo", false,
 		"run intents of Projects that list more than one repository; off, such a Project is not Ready and its "+
 			"intents are held Blocked (UnsupportedRepositories) where they stand: no run is launched and nothing "+
@@ -194,6 +201,9 @@ func settings(opts *cli.Options, namespace, agentNS string) (intent.Settings, er
 			return intent.Settings{}, fmt.Errorf("%s must not be negative (0 disables it)", c.name)
 		}
 	}
+	if err := verification(opts, &s); err != nil {
+		return intent.Settings{}, err
+	}
 	if err := jobDeadlines(opts, &s); err != nil {
 		return intent.Settings{}, err
 	}
@@ -209,6 +219,24 @@ func settings(opts *cli.Options, namespace, agentNS string) (intent.Settings, er
 		return intent.Settings{}, err
 	}
 	return s, nil
+}
+
+// verification reads the acceptance-verification switch and the tester
+// timeout ceiling. Verification runs against the Preview the preview
+// projection writes, so it is refused without it rather than silently
+// verifying nothing; the ceiling is held to a PreviewVerification's own
+// timeout bounds.
+func verification(opts *cli.Options, s *intent.Settings) error {
+	s.Verification = opts.Bool("intent-verification")
+	s.VerifyTimeoutMax = opts.Duration("intent-verify-timeout-max")
+	if s.Verification && !s.Previews {
+		return errors.New("--intent-verification requires --intent-previews-enabled: verification runs against " +
+			"the intent's Preview")
+	}
+	if s.VerifyTimeoutMax < time.Minute || s.VerifyTimeoutMax > time.Hour {
+		return fmt.Errorf("--intent-verify-timeout-max %s must be between 1m and 1h", s.VerifyTimeoutMax)
+	}
+	return nil
 }
 
 // jobDeadlines reads the intent Job deadline floor and ceiling. Each run's
@@ -572,6 +600,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		slog.Int("max_concurrent_runs", opts.Int("intent-max-concurrent-runs")),
 		slog.Bool("agents_paused", opts.Bool(runnercfg.AgentsPausedFlag)),
 		slog.Bool("multi_repo", set.MultiRepo),
+		slog.Bool("verification", set.Verification),
 		slog.String("attribution_mode", string(set.Attribution)),
 		slog.String("user_credentials", string(set.UserCredentials)),
 		slog.Bool("usage_measurement", meter.On()),
