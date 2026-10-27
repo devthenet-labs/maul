@@ -246,8 +246,13 @@ func (p *pass) roundFeedback(ctx context.Context, run *v1alpha1.IntentRun, pr v1
 		return in, nil
 	case roundVerify:
 		// An acceptance-fix round's input is its verification's evidence,
-		// which its handoff carries; the thread is context alone, as for a
-		// check-fix round.
+		// and its signature that failure's fingerprint; the thread is
+		// context alone, as for a check-fix round.
+		feedback, signature, err := p.verifyRoundInput(ctx, run)
+		if err != nil {
+			return in, err
+		}
+		in.feedback, in.signature = feedback, signature
 		in.earlier = p.contextThread(ctx, run, pr)
 		return in, nil
 	case roundHuman:

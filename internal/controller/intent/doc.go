@@ -146,7 +146,12 @@
 // approved plan's criteria recorded once per approved revision from the plan
 // bytes re-read under the approval's digest, and the verification of the
 // combined change judged by acceptance.Judge from preview-controller's
-// observations, never its verdict.
+// observations, never its verdict. A failed verification may start an
+// acceptance-fix round (verify_round.go), and an approver's pending feedback
+// always goes first (human_pending.go): to cancel a fix not yet launched the
+// IntentReconciler writes status.verification.cancelRun, which the
+// RunReconciler only reads (uncached) and answers by settling that run
+// unlaunched, keeping IntentRun status its own.
 //
 // Repositories (spec, at creation) and the input, plan and run-input
 // ConfigMaps are created by the IntentReconciler and never changed; the
