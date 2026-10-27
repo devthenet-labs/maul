@@ -182,10 +182,11 @@ type TokenPerms struct {
 
 // Validate reports a permission set a scoped token must not be minted with:
 // one requesting nothing — GitHub would then grant every permission the
-// installation holds — or a level other than read or write. Checks and
-// statuses are read-only. Actions write is only ever requested alone: it
-// re-runs failed jobs (a Project's checks.rerunFailed), and a token holding
-// it holds nothing else, so no other call can ride on it.
+// installation holds — or a level other than read or write. Checks are
+// read-only. Actions write and statuses write are only ever requested alone:
+// the first re-runs failed jobs (a Project's checks.rerunFailed), the second
+// posts maul's commit status, and a token holding either holds nothing else,
+// so no other call can ride on it.
 func (p TokenPerms) Validate() error {
 	if p == (TokenPerms{}) {
 		return errors.New("ghclient: token permissions: none requested")
@@ -199,15 +200,14 @@ func (p TokenPerms) Validate() error {
 				perm.name, perm.level, PermRead, PermWrite)
 		}
 	}
-	for _, perm := range []struct{ name, level string }{
-		{"checks", p.Checks}, {"statuses", p.Statuses},
-	} {
-		if perm.level != "" && perm.level != PermRead {
-			return fmt.Errorf("ghclient: token permissions: %s is read-only", perm.name)
-		}
+	if p.Checks != "" && p.Checks != PermRead {
+		return errors.New("ghclient: token permissions: checks is read-only")
 	}
 	if p.Actions == PermWrite && p != (TokenPerms{Actions: PermWrite}) {
 		return errors.New("ghclient: token permissions: actions write is requested alone")
+	}
+	if p.Statuses == PermWrite && p != (TokenPerms{Statuses: PermWrite}) {
+		return errors.New("ghclient: token permissions: statuses write is requested alone")
 	}
 	return nil
 }

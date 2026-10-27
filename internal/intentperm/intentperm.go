@@ -65,16 +65,32 @@ func Intent() []Grant {
 
 // App is what intents need on an application repository: contents write
 // (push the intent branch), pull requests write (open the pull request, read
-// its reviews and conversation), and the RepositoryReads. checkFix adds the
-// reads a check-fix round makes: the check runs and their annotations, the
-// commit statuses, and the Actions jobs and log tails behind a failed run.
+// its reviews and conversation), the RepositoryReads, and statuses write
+// (CommitStatus, always: no Project opts out). checkFix adds the reads a
+// check-fix round makes: the check runs and their annotations, the commit
+// statuses, and the Actions jobs and log tails behind a failed run. The
+// statuses read is not listed beside the write that includes it.
 func App(checkFix bool) []Grant {
 	out := []Grant{{Contents, Write}, {PullRequests, Write}}
 	out = append(out, RepositoryReads()...)
+	out = append(out, CommitStatus()...)
 	if checkFix {
-		out = append(out, CheckFix()...)
+		for _, g := range CheckFix() {
+			if !slices.Contains(out, Grant{g.Permission, Write}) {
+				out = append(out, g)
+			}
+		}
 	}
 	return out
+}
+
+// CommitStatus is the write maul's own commit status needs on an
+// application repository (the maul/acceptance status on an intent's pull
+// request head): statuses write. Every Project's Ready proves it, whether or
+// not it verifies anything, so an App is never found short of it only when a
+// status is first posted. Write includes the read of the statuses at a head.
+func CommitStatus() []Grant {
+	return []Grant{{Statuses, Write}}
 }
 
 // RepositoryReads is the grant intent-controller reads a repository's own

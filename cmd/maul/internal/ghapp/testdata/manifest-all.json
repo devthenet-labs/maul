@@ -16,7 +16,7 @@
     "metadata": "read",
     "pull_requests": "write",
     "security_events": "write",
-    "statuses": "read"
+    "statuses": "write"
   },
   "default_events": [
     "code_scanning_alert",

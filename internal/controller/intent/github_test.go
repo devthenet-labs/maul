@@ -148,9 +148,13 @@ var tokenUses = map[string][]string{
 	"ReviewCommentEdited": {onAppRepository}, "ComparePatch": {onAppRepository},
 	"RequestReviewers": {onAppRepository},
 
+	// maul's commit status: written, and listed at a head, on every
+	// application repository (statuses write is in every Project's row).
+	"CreateCommitStatus": {onAppRepository}, "ListCommitStatuses": {onAppRepository},
+
 	"ListCheckRuns": {onCheckFixRepository}, "ListCheckAnnotations": {onCheckFixRepository},
-	"ListCommitStatuses": {onCheckFixRepository}, "ListWorkflowJobs": {onCheckFixRepository},
-	"GetJobLogTail": {onCheckFixRepository}, "ListWorkflowRuns": {onCheckFixRepository},
+	"ListWorkflowJobs": {onCheckFixRepository},
+	"GetJobLogTail":    {onCheckFixRepository}, "ListWorkflowRuns": {onCheckFixRepository},
 	"RerunFailedJobs": {onRerunRepository},
 }
 

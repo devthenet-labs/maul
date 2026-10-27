@@ -193,19 +193,22 @@ type fakeGitHub struct {
 	// index.
 	commitRepos []string
 	// lockedPRs refuse every comment on them (a locked conversation).
-	lockedPRs    map[int64]bool
-	parents      map[string]string
-	branches     map[string]string
-	prs          map[int64]*fakePR
-	heads        map[string]string
-	reviews      map[int64][]ghclient.Review
-	inline       map[int64][]ghclient.ReviewComment
-	prComments   map[int64][]*ghclient.Comment
-	reviewEdits  map[string]bool
-	inlineEdits  map[string]bool
-	patch        string
-	checks       map[string][]ghclient.CheckRun
-	statuses     map[string][]ghclient.CommitStatus
+	lockedPRs   map[int64]bool
+	parents     map[string]string
+	branches    map[string]string
+	prs         map[int64]*fakePR
+	heads       map[string]string
+	reviews     map[int64][]ghclient.Review
+	inline      map[int64][]ghclient.ReviewComment
+	prComments  map[int64][]*ghclient.Comment
+	reviewEdits map[string]bool
+	inlineEdits map[string]bool
+	patch       string
+	checks      map[string][]ghclient.CheckRun
+	statuses    map[string][]ghclient.CommitStatus
+	// nextStatusID numbers the statuses CreateCommitStatus posts, from a
+	// range clear of the ids tests seed.
+	nextStatusID int64
 	annotations  map[int64][]ghclient.CheckAnnotation
 	workflowJobs map[int64][]ghclient.WorkflowJob
 	jobLogs      map[int64]string
@@ -258,6 +261,7 @@ func newFakeGitHub(clock *fakeClock) *fakeGitHub {
 		inlineEdits:        map[string]bool{},
 		checks:             map[string][]ghclient.CheckRun{},
 		statuses:           map[string][]ghclient.CommitStatus{},
+		nextStatusID:       1_000_000,
 		annotations:        map[int64][]ghclient.CheckAnnotation{},
 		workflowJobs:       map[int64][]ghclient.WorkflowJob{},
 		jobLogs:            map[int64]string{},
@@ -1159,6 +1163,21 @@ func (f *fakeGitHub) ListCommitStatuses(_ context.Context, _, sha string) ([]ghc
 		return nil, err
 	}
 	return slices.Clone(f.statuses[sha]), nil
+}
+
+// CreateCommitStatus records the status under its sha, newest first as the
+// API lists them, with the next id, and returns the id.
+func (f *fakeGitHub) CreateCommitStatus(_ context.Context, _, sha, state, statusContext, description, _ string) (
+	int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.call("CreateCommitStatus"); err != nil {
+		return 0, err
+	}
+	f.nextStatusID++
+	f.statuses[sha] = append([]ghclient.CommitStatus{{ID: f.nextStatusID, Context: statusContext, State: state,
+		Description: description, Creator: "maul[bot]"}}, f.statuses[sha]...)
+	return f.nextStatusID, nil
 }
 
 func (f *fakeGitHub) ListWorkflowJobs(_ context.Context, _ string, runID int64) ([]ghclient.WorkflowJob, error) {

@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/go-github/v90/github"
 )
@@ -46,6 +47,11 @@ type CommitStatus struct {
 	Context     string
 	State       string
 	Description string
+	// Creator is the login that created the status and CreatedAt when; zero
+	// when GitHub omits them. They let a caller tell its own status from
+	// another writer's under the same context.
+	Creator   string
+	CreatedAt time.Time
 }
 
 // WorkflowRun is one GitHub Actions workflow run: the run behind the check
@@ -128,7 +134,8 @@ func (c *Client) ListCommitStatuses(ctx context.Context, repo Repo, sha string) 
 		for _, v := range page {
 			if v != nil {
 				out = append(out, CommitStatus{ID: v.GetID(), Context: v.GetContext(), State: v.GetState(),
-					Description: v.GetDescription()})
+					Description: v.GetDescription(), Creator: v.GetCreator().GetLogin(),
+					CreatedAt: v.GetCreatedAt().Time})
 			}
 		}
 		if resp.NextPage == 0 {
