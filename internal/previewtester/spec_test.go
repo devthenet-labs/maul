@@ -8,12 +8,13 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 // validSpec is a spec preview-controller could render: one criterion per
 // previewed component, each target its Service on port 80.
 const validSpec = `{
-  "round": 2, "attempt": 1, "run": "0a1b2c",
+  "round": 2, "attempt": 1, "run": "0a1b2c", "budgetSeconds": 45,
   "criteria": [
     {"id": "health", "kind": "http", "statement": "the api is healthy", "target": "api",
      "steps": [{"request": {"method": "GET", "path": "/api/healthz"}, "expect": {"status": [200]}}]},
@@ -132,5 +133,30 @@ func TestEncodeRefusesInvalidSpec(t *testing.T) {
 	s.Targets = map[string]string{"api": "10.0.0.1:80", "web": "preview-bb:80"}
 	if _, err := s.Encode(); err == nil {
 		t.Error("Encode accepted an IP literal target")
+	}
+}
+
+// TestBudgetFor: the tester's budget leaves room below the Job's deadline
+// for the pod to start and the summary to be written, and is a budget
+// ParseSpec admits for every deadline the tester Job can carry.
+func TestBudgetFor(t *testing.T) {
+	cases := []struct {
+		deadline time.Duration
+		want     int32
+	}{
+		{time.Minute, 45},
+		{10 * time.Minute, 480},
+		{time.Hour, 3480},
+	}
+	for _, c := range cases {
+		if got := BudgetFor(c.deadline); got != c.want {
+			t.Errorf("BudgetFor(%s) = %d, want %d", c.deadline, got, c.want)
+		}
+	}
+	for d := time.Minute; d <= time.Hour; d += 7 * time.Second {
+		b := BudgetFor(d)
+		if b < 1 || b > maxBudgetSeconds || time.Duration(b)*time.Second > d-15*time.Second {
+			t.Fatalf("BudgetFor(%s) = %ds leaves too little room", d, b)
+		}
 	}
 }

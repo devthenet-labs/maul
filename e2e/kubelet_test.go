@@ -1349,7 +1349,7 @@ func TestKubeletTester(t *testing.T) {
 		hits.Store(r.URL.Path, true)
 		_, _ = io.WriteString(w, "0.1.0")
 	}))
-	spec, err := previewtester.Spec{Round: 1, Attempt: 1, Run: "a1b2c3",
+	spec, err := previewtester.Spec{Round: 1, Attempt: 1, Run: "a1b2c3", BudgetSeconds: 45,
 		Criteria: acceptance.Normalize([]acceptance.Criterion{{ID: "version-served", Kind: acceptance.KindHTTP,
 			Statement: "GET /version answers", Target: "shop",
 			Steps: []acceptance.Step{{Request: acceptance.Request{Method: "GET", Path: "/version"},

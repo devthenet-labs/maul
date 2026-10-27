@@ -46,6 +46,21 @@ func TestValidateAcceptsValid(t *testing.T) {
 	}
 }
 
+// TestValidateAcceptsHeaderExpectations: header expectations whose
+// substituted text stays within MaxHeaderBytes are admitted, a capture and
+// the run token included.
+func TestValidateAcceptsHeaderExpectations(t *testing.T) {
+	c := validHTTP()
+	c.Steps[1].Expect.Headers = map[string]Value{
+		"X-Id":   mustValue(t, `{"$contains":"{{capture.id}}"}`),
+		"X-Run":  mustValue(t, `"maul-{{run}}-{{capture.id}}"`),
+		"X-Long": mustValue(t, `{"$contains":"`+strings.Repeat("a", MaxContainsChars)+`"}`),
+	}
+	if err := Validate([]Criterion{c}); err != nil {
+		t.Fatalf("Validate = %v", err)
+	}
+}
+
 // TestValidateRefuses mutates a valid criterion one rule at a time; each
 // mutation must be refused with a CriterionError naming the criterion.
 func TestValidateRefuses(t *testing.T) {
@@ -157,6 +172,30 @@ func TestValidateRefuses(t *testing.T) {
 			c.Steps[0].Expect.Headers = map[string]Value{}
 			for i := range 5 {
 				c.Steps[0].Expect.Headers[fmt.Sprintf("X-%d", i)] = mustValue(t, `"v"`)
+			}
+		},
+		// Two spellings of one header: the tester would send whichever its
+		// map order picked, so the approved text would not fix the request.
+		"header case twice": func(_ *testing.T, c *Criterion) {
+			c.Steps[0].Request.Headers = map[string]string{"X-Mode": "safe", "x-mode": "delete-all"}
+		},
+		"expect header case twice": func(t *testing.T, c *Criterion) {
+			c.Steps[0].Expect.Headers = map[string]Value{"X-A": mustValue(t, `"a"`), "x-a": mustValue(t, `"b"`)}
+		},
+		// A header expectation whose substituted text could pass
+		// MaxHeaderBytes could never be recorded within the observation's
+		// bound.
+		"expect header contains multibyte": func(t *testing.T, c *Criterion) {
+			c.Steps[0].Expect.Headers = map[string]Value{"X": mustValue(t, `{"$contains":"`+strings.Repeat("é", 129)+`"}`)}
+		},
+		"expect header contains captures": func(t *testing.T, c *Criterion) {
+			c.Steps[1].Expect.Headers = map[string]Value{
+				"X": mustValue(t, `{"$contains":"{{capture.id}}{{capture.id}}{{capture.id}}"}`),
+			}
+		},
+		"expect header value captures": func(t *testing.T, c *Criterion) {
+			c.Steps[1].Expect.Headers = map[string]Value{
+				"X": mustValue(t, `"{{capture.id}}{{capture.id}}{{capture.id}}"`),
 			}
 		},
 		"expect header number": func(t *testing.T, c *Criterion) {

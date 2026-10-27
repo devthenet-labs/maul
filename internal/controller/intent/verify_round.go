@@ -5,6 +5,7 @@ package intent
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -440,8 +441,7 @@ func criterionEvidence(c v1alpha1.AcceptanceCriterion, v acceptance.Verdict,
 	var bodies []string
 	for i := range try.Steps {
 		if body := try.Steps[i].BodyPrefix; body != "" {
-			bodies = append(bodies, fmt.Sprintf("Response body prefix, step %d:\n\n%s\n\n", i+1,
-				fencedBounded(visibleFeedback(body), maxVerifyPieceBytes)))
+			bodies = append(bodies, bodyPrefixEvidence(i, body))
 		}
 		try.Steps[i].BodyPrefix = ""
 	}
@@ -453,6 +453,18 @@ func criterionEvidence(c v1alpha1.AcceptanceCriterion, v acceptance.Verdict,
 		b.WriteString(body)
 	}
 	return b.String()
+}
+
+// bodyPrefixEvidence shows step i's recorded body prefix as the
+// application's own bytes: decoded from base64 first, so the escaping and
+// the fence apply to what the application sent, not to its encoding.
+func bodyPrefixEvidence(i int, encoded string) string {
+	raw, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return fmt.Sprintf("Response body prefix, step %d: recorded, but could not be decoded.\n\n", i+1)
+	}
+	return fmt.Sprintf("Response body prefix, step %d:\n\n%s\n\n", i+1,
+		fencedBounded(visibleFeedback(string(raw)), maxVerifyPieceBytes))
 }
 
 // failedParts lists the parts of env that show a failure, one JSON line
