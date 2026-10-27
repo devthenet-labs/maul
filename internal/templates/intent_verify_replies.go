@@ -32,6 +32,10 @@ const (
 	VerifyAcceptNotYet VerifyOutcome = "accept-not-yet"
 	// VerifyUsage: the command's arguments are not its grammar.
 	VerifyUsage VerifyOutcome = "usage"
+	// VerifyCapReached: the approved plan revision has used every
+	// verification its Project allows (spec.limits.maxVerifications), so a
+	// request would never run.
+	VerifyCapReached VerifyOutcome = "cap-reached"
 )
 
 // VerifyCommandNotice answers a /maul verify or /maul accept on the intent
@@ -65,6 +69,8 @@ type VerifyCommandNotice struct {
 	Acceptable []string
 	// ResetWait is how long resets are spaced, for VerifyResetTooSoon.
 	ResetWait string
+	// MaxVerifications is the Project's limit, for VerifyCapReached.
+	MaxVerifications int32
 }
 
 // RenderVerifyCommandNotice renders a VerifyCommandNotice.
@@ -139,6 +145,10 @@ func verifyNoticeText(n VerifyCommandNotice, surface command.Surface) (text, hel
 			"at those. Try again once verification has started.", "", nil
 	case VerifyUsage:
 		return cmd + " was not understood.", command.HelpFor(surface, []string{n.Verb}), nil
+	case VerifyCapReached:
+		return fmt.Sprintf("%s does nothing: this approved plan has used all %d verifications its Project allows, "+
+			"so no verification can run. Raise the Project's `spec.limits.maxVerifications` to allow more, or %s "+
+			"for a new plan, whose count starts afresh.", cmd, n.MaxVerifications, slashCommand("replan")), "", nil
 	}
 	return "", "", fmt.Errorf("render verify notice: no text for outcome %q", n.Outcome)
 }

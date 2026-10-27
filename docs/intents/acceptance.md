@@ -170,7 +170,7 @@ the next poll, never from a webhook.
 
 | Command                | Effect                                                                                                                                                               |
 | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/maul verify`         | Verify now, at the next gate (once the current round ends), bypassing the spacing but not `maxVerifications`.                                                        |
+| `/maul verify`         | Verify now, at the next gate (once the current round ends), bypassing the spacing but not `maxVerifications`: once it is spent, the reply says so and nothing runs.  |
 | `/maul verify fix`     | As above, and re-arm automatic fixes after a human halt.                                                                                                             |
 | `/maul verify --reset` | Roll the preview's component pods first, dropping their data, then verify. This is the only reset: nothing resets data automatically. Once per five minutes.         |
 | `/maul accept <id>`    | Close a manual criterion, a quarantined one or one whose tests changed, at the current heads. After the heads move it reads "accepted at `<heads>`, not re-checked". |

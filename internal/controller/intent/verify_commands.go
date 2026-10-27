@@ -174,12 +174,19 @@ func (p *pass) applyVerifyCommand(ctx context.Context, c verifyCommand) (templat
 // bumps the reset generation, which the Preview copies, unless the last
 // reset was under verifyResetInterval before it; fix also re-arms automatic
 // fixes from the current round (a human round after it, or a human push,
-// halts them again).
+// halts them again). Once the approved plan revision has used the Project's
+// maxVerifications nothing is recorded and the reply says so.
 func (p *pass) requestVerification(ctx context.Context, c verifyCommand, args command.VerifyArgs,
 	n templates.VerifyCommandNotice) (templates.VerifyCommandNotice, error) {
 	var cur v1alpha1.IntentVerification
 	if v := p.in.Status.Verification; v != nil {
 		cur = *v
+	}
+	if most := p.proj.Spec.Limits.MaxVerificationsLimit(); cur.Automatic >= most {
+		// A request bypasses the interval, never the cap: the gate would
+		// drop it unrun, so it is not recorded and the reply says why.
+		n.Outcome, n.MaxVerifications = templates.VerifyCapReached, most
+		return n, nil
 	}
 	if args.Reset && cur.Reset.At != nil && c.at.Sub(cur.Reset.At.Time) < verifyResetInterval {
 		n.Outcome, n.ResetWait = templates.VerifyResetTooSoon, "5 minutes"

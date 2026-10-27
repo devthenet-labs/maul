@@ -456,3 +456,25 @@ func TestVerifyCommandsOnThePullRequestNeedWriteAccess(t *testing.T) {
 		t.Errorf("replies = %q", r)
 	}
 }
+
+// TestVerifyCommandAtTheCap: an approver's /maul verify once the approved
+// plan revision has used the Project's maxVerifications records nothing and
+// says so, naming the limit and how to raise it, rather than answering
+// "recorded" for a request the loop then drops unrun.
+func TestVerifyCommandAtTheCap(t *testing.T) {
+	e := newEnv(t, testProject())
+	name := e.reviewingWithCriteria()
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		in.Status.Verification.Automatic = v1alpha1.DefaultMaxVerifications
+	})
+	id := e.gh.comment(approver, "/maul verify")
+	e.settleActions(name)
+	if r := e.verification(name).Requested; r != nil {
+		t.Fatalf("a request past the cap was recorded: %+v", r)
+	}
+	body := e.onlyReply(id)
+	if strings.Contains(body, "is recorded") || !strings.Contains(body, "spec.limits.maxVerifications") ||
+		!strings.Contains(body, fmt.Sprintf("all %d", v1alpha1.DefaultMaxVerifications)) {
+		t.Errorf("reply = %s", body)
+	}
+}
