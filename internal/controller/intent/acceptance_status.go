@@ -84,8 +84,10 @@ func (p *pass) acceptanceStatus() (acceptanceState, bool) {
 		}
 		return acceptanceState{statusFailure, fmt.Sprintf("%s, %d failing", passed, v.Failed)}, true
 	case v1alpha1.VerificationFixing:
+		// The running fix is already one of verifyFixRounds, so it is the
+		// round before the verification it will produce.
 		return acceptanceState{statusFailure, fmt.Sprintf("%s; automatic fix %d of %d running", passed,
-			round, most-1)}, true
+			round-1, most-1)}, true
 	case v1alpha1.VerificationExhausted:
 		return acceptanceState{statusFailure, passed + "; no automatic fix left"}, true
 	case v1alpha1.VerificationNeedsReplan:

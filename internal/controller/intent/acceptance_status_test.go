@@ -90,8 +90,10 @@ func TestAcceptanceStatusFollowsTheVerification(t *testing.T) {
 }
 
 // TestAcceptanceStatusStates: what each judged result posts. A failure is
-// failure; a pass only on retry stays pending (never green); with
-// manualGatesStatus an open manual criterion keeps it pending.
+// failure, and stays failure while the automatic fix it starts on the next
+// pass runs, numbered as the first of the Project's maxVerifyFixes; a pass
+// only on retry stays pending (never green); with manualGatesStatus an open
+// manual criterion keeps it pending.
 func TestAcceptanceStatusStates(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
@@ -99,7 +101,7 @@ func TestAcceptanceStatusStates(t *testing.T) {
 		gates       bool
 		state, desc string
 	}{
-		{"failure", answering(500), false, "failure", "0/1 automated passed, 1 failing"},
+		{"failure, fix running", answering(500), false, "failure", "0/1 automated passed; automatic fix 1 of 2 running"},
 		{"quarantined", flaky, false, "pending", "1 passed only on retry"},
 		{"manual gates", answering(200), true, "pending", "1/1 automated passed, 1 manual open"},
 	} {
