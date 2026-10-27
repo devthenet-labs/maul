@@ -56,6 +56,11 @@ type Requirement struct {
 	// URL is the repository's https URL as the Project spells it.
 	URL    string
 	Grants []Grant
+	// Optional are grants a Project's Ready proves but never requires: one
+	// the App lacks turns off only the feature it serves, which the Project
+	// reports beside Ready. Statuses write (CommitStatus) is the one, on an
+	// application repository of a Project that verifies.
+	Optional []Grant
 }
 
 // Intent is what intents need on the intent repository.
@@ -65,30 +70,25 @@ func Intent() []Grant {
 
 // App is what intents need on an application repository: contents write
 // (push the intent branch), pull requests write (open the pull request, read
-// its reviews and conversation), the RepositoryReads, and statuses write
-// (CommitStatus, always: no Project opts out). checkFix adds the reads a
-// check-fix round makes: the check runs and their annotations, the commit
-// statuses, and the Actions jobs and log tails behind a failed run. The
-// statuses read is not listed beside the write that includes it.
+// its reviews and conversation), and the RepositoryReads. checkFix adds the
+// reads a check-fix round makes: the check runs and their annotations, the
+// commit statuses, and the Actions jobs and log tails behind a failed run.
 func App(checkFix bool) []Grant {
 	out := []Grant{{Contents, Write}, {PullRequests, Write}}
 	out = append(out, RepositoryReads()...)
-	out = append(out, CommitStatus()...)
 	if checkFix {
-		for _, g := range CheckFix() {
-			if !slices.Contains(out, Grant{g.Permission, Write}) {
-				out = append(out, g)
-			}
-		}
+		out = append(out, CheckFix()...)
 	}
 	return out
 }
 
 // CommitStatus is the write maul's own commit status needs on an
 // application repository (the maul/acceptance status on an intent's pull
-// request head): statuses write. Every Project's Ready proves it, whether or
-// not it verifies anything, so an App is never found short of it only when a
-// status is first posted. Write includes the read of the statuses at a head.
+// request head): statuses write, which includes the read of the statuses at
+// a head. Only a Project that verifies (spec.verification.enabled) posts it,
+// and even there it is Optional: an App without it leaves the Project Ready
+// and verifying, with the status not posted and the Project saying why, so
+// an App registered before the status existed never stops a Project.
 func CommitStatus() []Grant {
 	return []Grant{{Statuses, Write}}
 }
@@ -120,7 +120,8 @@ func CheckRerun() []Grant {
 }
 
 // For is the table for one Project: the intent repository first, then every
-// entry of spec.repositories in order. A repository listed in two roles (an
+// entry of spec.repositories in order, each application repository of a
+// Project that verifies with CommitStatus as its Optional grant. A repository listed in two roles (an
 // intent repository that is also an application repository) appears once
 // per role, so each role's grants stay visible on their own.
 func For(spec *v1alpha1.ProjectSpec) []Requirement {
@@ -135,7 +136,11 @@ func For(spec *v1alpha1.ProjectSpec) []Requirement {
 		if rerun {
 			grants = append(grants, CheckRerun()...)
 		}
-		out = append(out, Requirement{Role: RoleApp, Key: r.Name, URL: r.URL, Grants: grants})
+		need := Requirement{Role: RoleApp, Key: r.Name, URL: r.URL, Grants: grants}
+		if spec.VerificationEnabled() {
+			need.Optional = CommitStatus()
+		}
+		out = append(out, need)
 	}
 	return out
 }

@@ -5,8 +5,11 @@ package intent
 
 import (
 	"context"
+	"net/http"
 	"strings"
 	"testing"
+
+	"k8s.io/apimachinery/pkg/api/meta"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
@@ -240,5 +243,36 @@ func TestAcceptanceStatusRepostsWhenTheHeadSetMoves(t *testing.T) {
 	ss := e.acceptanceStatuses(head)
 	if len(ss) != n+1 || ss[0].State != "pending" || ss[0].Description != "combined change moved: re-verifying" {
 		t.Fatalf("statuses = %+v", ss)
+	}
+}
+
+// TestAcceptanceStatusWithoutStatusesWrite: a verifying Project whose App
+// may not post commit statuses stays Ready and verifies as usual; maul
+// posts no maul/acceptance (nor lists the statuses for an impostor), and
+// the verification comment and the pull request's verification section say
+// why.
+func TestAcceptanceStatusWithoutStatusesWrite(t *testing.T) {
+	e := newVerifyEnv(t, acceptancePlan)
+	e.gh.refused = map[ghclient.TokenPerms]error{{Statuses: ghclient.PermWrite}: ghError(http.StatusUnprocessableEntity,
+		"The permissions requested are not granted to this installation.")}
+	e.reconcileProject()
+	if conds := e.getProject().Status.Conditions; !meta.IsStatusConditionTrue(conds, v1alpha1.ConditionReady) ||
+		!meta.IsStatusConditionTrue(conds, ConditionAcceptanceStatusUnavailable) {
+		t.Fatalf("project conditions = %+v", conds)
+	}
+	name, head := e.judged(answering(500))
+	if v := e.verification(name); v.State != v1alpha1.VerificationFailing && v.State != v1alpha1.VerificationFixing {
+		t.Fatalf("not verified: %+v", v)
+	}
+	if ss := e.acceptanceStatuses(head); len(ss) != 0 {
+		t.Fatalf("statuses posted without statuses write: %+v", ss)
+	}
+	const why = "Commit statuses"
+	if cs := e.verifyComments(name, 1); len(cs) != 1 || !strings.Contains(cs[0].Body, why) {
+		t.Fatalf("the verification comment does not say why no status is posted: %+v", cs)
+	}
+	n := e.get(name).Status.PullRequests[0].Number
+	if body := e.onePreviewComment(name, n).Body; !strings.Contains(body, why) {
+		t.Fatalf("the preview comment does not say why no status is posted:\n%s", body)
 	}
 }

@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/meta"
+
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
@@ -29,6 +31,8 @@ import (
 //     digest, the state and the description last posted, so an unchanged
 //     status is never posted again, and a sibling's move (a new head-set
 //     digest) re-posts it on a head that did not move: never a stale green.
+//   - Nothing is posted while the Project's App may not post statuses
+//     (AcceptanceStatusUnavailable): the comments say so instead.
 //   - Impostors (critique fix 5): at most once per poll interval per head,
 //     the statuses at the head are listed; a later maul/acceptance someone
 //     other than the App posted is answered by maul's own posted again, and
@@ -158,6 +162,9 @@ type acceptanceRecord struct {
 // again on a later pass. changed reports a status write; only errConflict
 // is returned.
 func (p *pass) syncAcceptanceStatuses(ctx context.Context) (bool, error) {
+	if p.statusesUnavailable() {
+		return false, nil
+	}
 	st, ok := p.acceptanceStatus()
 	if !ok {
 		return false, nil
@@ -201,6 +208,14 @@ func (p *pass) syncAcceptanceStatuses(ctx context.Context) (bool, error) {
 		}
 		return nil
 	})
+}
+
+// statusesUnavailable reports a Project whose App may not post commit
+// statuses (its AcceptanceStatusUnavailable condition, True): no
+// maul/acceptance is posted or listed, and the comments say why. The
+// verification itself goes on.
+func (p *pass) statusesUnavailable() bool {
+	return meta.IsStatusConditionTrue(p.proj.Status.Conditions, ConditionAcceptanceStatusUnavailable)
 }
 
 // statusCheck is when the statuses at a pull request's head were last

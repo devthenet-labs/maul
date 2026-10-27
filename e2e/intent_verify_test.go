@@ -557,10 +557,11 @@ func TestIntentVerifyNotDeclared(t *testing.T) {
 	})
 }
 
-// TestIntentVerifyNeedsStatusesWrite: statuses write is part of every
-// Project's Ready proof (D5): an installation without it leaves the
-// Project not Ready, naming the permission.
-func TestIntentVerifyNeedsStatusesWrite(t *testing.T) {
+// TestIntentVerifyWithoutStatusesWrite: statuses write is never part of
+// a Project's Ready proof (D5, narrowed): an installation without it leaves
+// a verifying Project Ready, with AcceptanceStatusUnavailable naming the
+// repository and the permission.
+func TestIntentVerifyWithoutStatusesWrite(t *testing.T) {
 	cl, gh, _ := startSourceStack(t, appRepo)
 	gh.DenyPermission("statuses")
 	gh.SetRole(approver.Login, "write")
@@ -571,22 +572,25 @@ func TestIntentVerifyNeedsStatusesWrite(t *testing.T) {
 		Spec: v1alpha1.ProjectSpec{
 			IntentRepository: intentRepoURL,
 			Approvers:        v1alpha1.ProjectApprovers{Logins: []string{approver.Login}},
-			Repositories:     []v1alpha1.ProjectRepository{{Name: appRepo, URL: appRepoURL}},
+			Repositories: []v1alpha1.ProjectRepository{{Name: appRepo, URL: appRepoURL,
+				Preview: previewAt(shopLeaf, "/healthz", "/")}},
+			Verification: &v1alpha1.ProjectVerification{Enabled: true},
 		},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	var ready *metav1.Condition
-	eventually(t, "the project not Ready for want of statuses write", func() bool {
+	var unavailable *metav1.Condition
+	eventually(t, "the project Ready, the status unavailable for want of statuses write", func() bool {
 		var p v1alpha1.Project
 		if err := cl.client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: projectName}, &p); err != nil {
 			return false
 		}
-		ready = meta.FindStatusCondition(p.Status.Conditions, v1alpha1.ConditionReady)
-		return ready != nil && ready.Status == metav1.ConditionFalse && strings.Contains(ready.Message, "statuses")
+		unavailable = meta.FindStatusCondition(p.Status.Conditions, "AcceptanceStatusUnavailable")
+		return meta.IsStatusConditionTrue(p.Status.Conditions, v1alpha1.ConditionReady) &&
+			unavailable != nil && unavailable.Status == metav1.ConditionTrue
 	})
-	if ready.Reason != v1alpha1.ReasonAppNotInstalled || !strings.Contains(ready.Message, appRepoURL) {
-		t.Errorf("Ready = %+v, want AppNotInstalled naming %s", ready, appRepoURL)
+	if !strings.Contains(unavailable.Message, appRepoURL) || !strings.Contains(unavailable.Message, "statuses: write") {
+		t.Errorf("AcceptanceStatusUnavailable = %+v, want it naming statuses: write on %s", unavailable, appRepoURL)
 	}
 }
 

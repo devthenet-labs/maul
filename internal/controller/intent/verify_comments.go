@@ -198,7 +198,7 @@ func (p *pass) verifySection(ctx context.Context, pr *v1alpha1.IntentPullRequest
 	if prog == nil {
 		return nil
 	}
-	s := &templates.VerifySection{Progress: *prog}
+	s := &templates.VerifySection{Progress: *prog, StatusNotPosted: p.statusesUnavailable()}
 	if p.criteriaUnreadable() {
 		// The criteria on record, if any, are not the approved ones.
 		return s

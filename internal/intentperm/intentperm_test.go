@@ -23,15 +23,17 @@ const (
 // TestFor: the intent repository needs issues write; every application
 // repository contents and pull requests write and issues read (the
 // repository reads), plus the check-fix reads when spec.checks.fix names a
-// check, and never otherwise, statuses write on every one (maul's commit
-// status), and actions write beside them when
+// check, and never otherwise, and actions write beside them when
 // spec.checks.rerunFailed is set too, and never without checks to fix.
+// Statuses write (maul's commit status) is never required: a Project that
+// verifies lists it as optional, one that does not never asks for it.
 func TestFor(t *testing.T) {
 	issuesW := Grant{Permission: Issues, Access: Write}
 	issuesR := Grant{Permission: Issues, Access: Read}
 	contentsW := Grant{Permission: Contents, Access: Write}
 	pullsW := Grant{Permission: PullRequests, Access: Write}
 	checksR := Grant{Permission: Checks, Access: Read}
+	statusesR := Grant{Permission: Statuses, Access: Read}
 	statusesW := Grant{Permission: Statuses, Access: Write}
 	actionsR := Grant{Permission: Actions, Access: Read}
 	actionsW := Grant{Permission: Actions, Access: Write}
@@ -47,7 +49,7 @@ func TestFor(t *testing.T) {
 				Repositories: []v1alpha1.ProjectRepository{{Name: "web", URL: webURL}}},
 			want: []Requirement{
 				{Role: RoleIntent, URL: intentURL, Grants: []Grant{issuesW}},
-				{Role: RoleApp, Key: "web", URL: webURL, Grants: []Grant{contentsW, pullsW, issuesR, statusesW}},
+				{Role: RoleApp, Key: "web", URL: webURL, Grants: []Grant{contentsW, pullsW, issuesR}},
 			},
 		},
 		{
@@ -58,7 +60,7 @@ func TestFor(t *testing.T) {
 			want: []Requirement{
 				{Role: RoleIntent, URL: intentURL, Grants: []Grant{issuesW}},
 				{Role: RoleApp, Key: "web", URL: webURL,
-					Grants: []Grant{contentsW, pullsW, issuesR, statusesW, checksR, actionsR}},
+					Grants: []Grant{contentsW, pullsW, issuesR, checksR, statusesR, actionsR}},
 			},
 		},
 		{
@@ -69,9 +71,9 @@ func TestFor(t *testing.T) {
 			want: []Requirement{
 				{Role: RoleIntent, URL: intentURL, Grants: []Grant{issuesW}},
 				{Role: RoleApp, Key: "web", URL: webURL,
-					Grants: []Grant{contentsW, pullsW, issuesR, statusesW, checksR, actionsR, actionsW}},
+					Grants: []Grant{contentsW, pullsW, issuesR, checksR, statusesR, actionsR, actionsW}},
 				{Role: RoleApp, Key: "api", URL: apiURL,
-					Grants: []Grant{contentsW, pullsW, issuesR, statusesW, checksR, actionsR, actionsW}},
+					Grants: []Grant{contentsW, pullsW, issuesR, checksR, statusesR, actionsR, actionsW}},
 			},
 		},
 		{
@@ -81,7 +83,7 @@ func TestFor(t *testing.T) {
 				Checks:       v1alpha1.ProjectChecks{RerunFailed: true}},
 			want: []Requirement{
 				{Role: RoleIntent, URL: intentURL, Grants: []Grant{issuesW}},
-				{Role: RoleApp, Key: "web", URL: webURL, Grants: []Grant{contentsW, pullsW, issuesR, statusesW}},
+				{Role: RoleApp, Key: "web", URL: webURL, Grants: []Grant{contentsW, pullsW, issuesR}},
 			},
 		},
 		{
@@ -92,9 +94,32 @@ func TestFor(t *testing.T) {
 			want: []Requirement{
 				{Role: RoleIntent, URL: intentURL, Grants: []Grant{issuesW}},
 				{Role: RoleApp, Key: "web", URL: webURL,
-					Grants: []Grant{contentsW, pullsW, issuesR, statusesW, checksR, actionsR}},
+					Grants: []Grant{contentsW, pullsW, issuesR, checksR, statusesR, actionsR}},
 				{Role: RoleApp, Key: "api", URL: apiURL,
-					Grants: []Grant{contentsW, pullsW, issuesR, statusesW, checksR, actionsR}},
+					Grants: []Grant{contentsW, pullsW, issuesR, checksR, statusesR, actionsR}},
+			},
+		},
+		{
+			name: "verification lists statuses write as optional",
+			spec: v1alpha1.ProjectSpec{IntentRepository: intentURL,
+				Repositories: []v1alpha1.ProjectRepository{{Name: "web", URL: webURL}},
+				Checks:       v1alpha1.ProjectChecks{Fix: []string{"test"}},
+				Verification: &v1alpha1.ProjectVerification{Enabled: true}},
+			want: []Requirement{
+				{Role: RoleIntent, URL: intentURL, Grants: []Grant{issuesW}},
+				{Role: RoleApp, Key: "web", URL: webURL,
+					Grants:   []Grant{contentsW, pullsW, issuesR, checksR, statusesR, actionsR},
+					Optional: []Grant{statusesW}},
+			},
+		},
+		{
+			name: "verification switched off asks nothing of statuses",
+			spec: v1alpha1.ProjectSpec{IntentRepository: intentURL,
+				Repositories: []v1alpha1.ProjectRepository{{Name: "web", URL: webURL}},
+				Verification: &v1alpha1.ProjectVerification{Enabled: false}},
+			want: []Requirement{
+				{Role: RoleIntent, URL: intentURL, Grants: []Grant{issuesW}},
+				{Role: RoleApp, Key: "web", URL: webURL, Grants: []Grant{contentsW, pullsW, issuesR}},
 			},
 		},
 		{
@@ -103,7 +128,7 @@ func TestFor(t *testing.T) {
 				Repositories: []v1alpha1.ProjectRepository{{Name: "web", URL: webURL}}},
 			want: []Requirement{
 				{Role: RoleIntent, URL: webURL, Grants: []Grant{issuesW}},
-				{Role: RoleApp, Key: "web", URL: webURL, Grants: []Grant{contentsW, pullsW, issuesR, statusesW}},
+				{Role: RoleApp, Key: "web", URL: webURL, Grants: []Grant{contentsW, pullsW, issuesR}},
 			},
 		},
 	}
@@ -137,7 +162,7 @@ func TestGrantString(t *testing.T) {
 
 // TestMerge: the highest access wins, one grant per permission, sorted.
 func TestMerge(t *testing.T) {
-	got := Merge(Intent(), App(true), App(false), []Grant{{Permission: Issues, Access: Read}})
+	got := Merge(Intent(), App(true), App(false), CommitStatus(), []Grant{{Permission: Issues, Access: Read}})
 	want := []Grant{
 		{Permission: Actions, Access: Read},
 		{Permission: Checks, Access: Read},

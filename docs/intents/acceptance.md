@@ -41,9 +41,12 @@ spec:
     maxVerifications: 20 # 1..100, automatic verifications per approved plan revision
 ```
 
-The App also needs **Commit statuses: Read & write** on each application repository, always, whether or not a Project
-verifies: see [Create the GitHub App](../getting-started/github-app.md#intents). A Project reports `Ready` only once the
-App holds it. An App made by `maul setup github-app --intents` has it.
+The App needs **Commit statuses: Read & write** on each application repository to post `maul/acceptance`: see
+[Create the GitHub App](../getting-started/github-app.md#intents). An App made by `maul setup github-app --intents` has
+it. It is never part of `Ready`: a verifying Project whose App lacks it stays `Ready`, verifies and comments as usual,
+posts no status, and shows the condition `AcceptanceStatusUnavailable` (naming the repository), as do the verification
+comments. To fix it, set Commit statuses to Read and write in the App's settings, then accept the change on the
+installation.
 
 ## What a plan declares
 
