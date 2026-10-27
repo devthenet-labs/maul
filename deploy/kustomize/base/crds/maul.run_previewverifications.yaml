@@ -513,13 +513,16 @@ spec:
                     ready:
                       description: Ready reports whether the part's pod was Ready.
                       type: boolean
+                    replaced:
+                      description: |-
+                        Replaced reports that the component's Pod was created during the
+                        attempt, replacing the one the tester started against.
+                      type: boolean
                     restartedDuring:
                       description: |-
-                        RestartedDuring counts the container's restarts since the attempt
-                        started: a component that exited during it crashed.
-                      format: int32
-                      minimum: 0
-                      type: integer
+                        RestartedDuring reports that the container exited, or started again,
+                        during the attempt: a component that did crashed.
+                      type: boolean
                     restarts:
                       description: Restarts counts the part's container restarts.
                       format: int32
@@ -733,8 +736,10 @@ spec:
                 description: |-
                   Readiness is the tester's wait for each component's Service before
                   its first criterion, in component-name order, as its summary
-                  declared it. A component never reached settles the attempt Infra
-                  (target-unreachable) with no observations.
+                  declared it. A component never reached ends the attempt with no
+                  observations: EnvFailed component-unreachable (its fact's
+                  unreachableForMs), the application's, unless every failed attempt
+                  was DNS, which is maul's (Infra dns-unavailable).
                 items:
                   description: |-
                     TargetWait is how the tester waited, before its first criterion, for one
@@ -816,44 +821,10 @@ spec:
                 - service-restarted
                 - component-unreachable
                 - component-restarted
+                - component-replaced
+                - dns-unavailable
                 - tester-version-mismatch
                 type: string
-              restartsAtStart:
-                description: |-
-                  RestartsAtStart is each component Pod's container restart count when
-                  the tester was rendered, so a restart during the attempt is told from
-                  one before it.
-                items:
-                  description: |-
-                    ComponentRestarts is one component Pod's container restart count at a
-                    point in time.
-                  properties:
-                    name:
-                      description: Name is the component.
-                      maxLength: 16
-                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
-                      type: string
-                    pod:
-                      description: Pod is the Pod's name.
-                      maxLength: 253
-                      type: string
-                    podUID:
-                      description: PodUID is the Pod's UID.
-                      maxLength: 64
-                      type: string
-                    restarts:
-                      description: Restarts is the container's restart count.
-                      format: int32
-                      minimum: 0
-                      type: integer
-                  required:
-                  - name
-                  - pod
-                  - restarts
-                  type: object
-                maxItems: 8
-                type: array
-                x-kubernetes-list-type: atomic
               startedAt:
                 description: |-
                   StartedAt is when the tester Job was created: the window environment

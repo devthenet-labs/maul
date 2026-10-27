@@ -54,7 +54,7 @@ const (
 // PreviewVerificationReason is the fixed vocabulary of a
 // PreviewVerification's status.reason: never free text, so nothing the slot
 // produced reaches a reader through it.
-// +kubebuilder:validation:Enum=ok;stale-preview;stale-criteria;rollout-unsettled;tester-unscheduled;tester-image-pull;quota-refused;deadline-no-summary;summary-mismatch;tester-output-invalid;component-crashloop;component-not-ready;component-evicted;component-image-pull;component-oom;preview-failed;service-restarted;component-unreachable;component-restarted;tester-version-mismatch
+// +kubebuilder:validation:Enum=ok;stale-preview;stale-criteria;rollout-unsettled;tester-unscheduled;tester-image-pull;quota-refused;deadline-no-summary;summary-mismatch;tester-output-invalid;component-crashloop;component-not-ready;component-evicted;component-image-pull;component-oom;preview-failed;service-restarted;component-unreachable;component-restarted;component-replaced;dns-unavailable;tester-version-mismatch
 type PreviewVerificationReason string
 
 // PreviewVerification reasons.
@@ -82,10 +82,20 @@ const (
 	// unreachableForMs, status.readiness). EnvFailed, the application's: the
 	// window absorbs the slot policy being programmed.
 	VerificationReasonComponentUnreachable PreviewVerificationReason = "component-unreachable"
-	// VerificationReasonComponentRestarted: a component's container
-	// restarted during the attempt (its fact's restartedDuring) and came
+	// VerificationReasonComponentRestarted: a component's container exited,
+	// or started again, during the attempt (its fact's restartedDuring, by
+	// the kubelet's timestamps against the tester Pod's start) and came
 	// back. EnvFailed, the application's.
 	VerificationReasonComponentRestarted PreviewVerificationReason = "component-restarted"
+	// VerificationReasonComponentReplaced: a component's Pod was created
+	// during the attempt (its fact's replaced), replacing the one the tester
+	// started against. EnvFailed, the application's.
+	VerificationReasonComponentReplaced PreviewVerificationReason = "component-replaced"
+	// VerificationReasonDNSUnavailable: every failed attempt to reach a
+	// component's Service before the first criterion was a DNS failure. The
+	// Service name and cluster DNS are maul's, never the application's:
+	// Infra.
+	VerificationReasonDNSUnavailable PreviewVerificationReason = "dns-unavailable"
 	// VerificationReasonTesterVersionMismatch: the tester wrote another
 	// MAUL-VERIFY wire version than preview-controller reads
 	// (status.testerWireVersion beside acceptance.WireVersion): the tester
@@ -309,11 +319,14 @@ type PartFact struct {
 	// Unschedulable reports that no node could take the part's pod.
 	// +optional
 	Unschedulable bool `json:"unschedulable,omitempty"`
-	// RestartedDuring counts the container's restarts since the attempt
-	// started: a component that exited during it crashed.
+	// RestartedDuring reports that the container exited, or started again,
+	// during the attempt: a component that did crashed.
 	// +optional
-	// +kubebuilder:validation:Minimum=0
-	RestartedDuring int32 `json:"restartedDuring,omitempty"`
+	RestartedDuring bool `json:"restartedDuring,omitempty"`
+	// Replaced reports that the component's Pod was created during the
+	// attempt, replacing the one the tester started against.
+	// +optional
+	Replaced bool `json:"replaced,omitempty"`
 	// UnreachableForMs is how long the tester tried, and failed, to connect
 	// to the component's Service before its first criterion (its whole
 	// readiness window); zero when reached.
@@ -405,8 +418,10 @@ type PreviewVerificationStatus struct {
 	SummarySHA256 string `json:"summarySHA256,omitempty"`
 	// Readiness is the tester's wait for each component's Service before
 	// its first criterion, in component-name order, as its summary
-	// declared it. A component never reached settles the attempt Infra
-	// (target-unreachable) with no observations.
+	// declared it. A component never reached ends the attempt with no
+	// observations: EnvFailed component-unreachable (its fact's
+	// unreachableForMs), the application's, unless every failed attempt
+	// was DNS, which is maul's (Infra dns-unavailable).
 	// +optional
 	// +kubebuilder:validation:MaxItems=8
 	// +listType=atomic
@@ -417,32 +432,6 @@ type PreviewVerificationStatus struct {
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	TesterWireVersion int32 `json:"testerWireVersion,omitempty"`
-	// RestartsAtStart is each component Pod's container restart count when
-	// the tester was rendered, so a restart during the attempt is told from
-	// one before it.
-	// +optional
-	// +kubebuilder:validation:MaxItems=8
-	// +listType=atomic
-	RestartsAtStart []ComponentRestarts `json:"restartsAtStart,omitempty"`
-}
-
-// ComponentRestarts is one component Pod's container restart count at a
-// point in time.
-type ComponentRestarts struct {
-	// Name is the component.
-	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
-	// +kubebuilder:validation:MaxLength=16
-	Name string `json:"name"`
-	// Pod is the Pod's name.
-	// +kubebuilder:validation:MaxLength=253
-	Pod string `json:"pod"`
-	// PodUID is the Pod's UID.
-	// +optional
-	// +kubebuilder:validation:MaxLength=64
-	PodUID string `json:"podUID,omitempty"`
-	// Restarts is the container's restart count.
-	// +kubebuilder:validation:Minimum=0
-	Restarts int32 `json:"restarts"`
 }
 
 // +kubebuilder:object:root=true

@@ -11,7 +11,7 @@ const (
 	EnvOK EnvClass = "OK"
 	// EnvAppFailure: a part the change under test runs (a component, or a
 	// command Job in a component's image) crashed (or, a component,
-	// restarted during the attempt), never became Ready, was evicted, ran
+	// restarted or was replaced during the attempt), never became Ready, was evicted, ran
 	// out of memory, could not pull its PR-head image, or, a component,
 	// accepted no connection from the tester for its whole readiness window
 	// while Ready. It is
@@ -68,7 +68,7 @@ func partClass(p PartFact) EnvClass {
 		// application can be the cause (a capability-less process can drop
 		// SYNs from every source but the node with a classic BPF socket
 		// filter and keep passing its probe). Never maul's Infra.
-		if crashed || !p.Ready || p.RestartedDuring > 0 || p.UnreachableForMs > 0 {
+		if crashed || !p.Ready || p.RestartedDuring || p.Replaced || p.UnreachableForMs > 0 {
 			return EnvAppFailure
 		}
 	case RoleCommand:

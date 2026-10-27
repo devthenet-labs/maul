@@ -39,13 +39,16 @@ func TestClassifyEnvironment(t *testing.T) {
 		// once recovered.
 		{"crashed before and back", []PartFact{{Name: "api", Role: RoleComponent, Ready: true, Restarts: 3,
 			LastTermination: &Termination{Reason: "Error", ExitCode: 2}}}, EnvOK, nil},
-		// A component that exited during the attempt (its restart count
-		// rose since the attempt started) and came back Ready crashed: the
-		// application's failure, however it exited.
+		// A component that exited during the attempt and came back Ready
+		// crashed: the application's failure, however it exited.
 		{"crashed during and back", []PartFact{{Name: "api", Role: RoleComponent, Ready: true, Restarts: 4,
-			RestartedDuring: 1, LastTermination: &Termination{Reason: "Error", ExitCode: 2}}}, app, []string{"api"}},
+			RestartedDuring: true, LastTermination: &Termination{Reason: "Error", ExitCode: 2}}}, app, []string{"api"}},
 		{"exited cleanly during", []PartFact{{Name: "api", Role: RoleComponent, Ready: true, Restarts: 1,
-			RestartedDuring: 1, LastTermination: &Termination{Reason: "Completed"}}}, app, []string{"api"}},
+			RestartedDuring: true, LastTermination: &Termination{Reason: "Completed"}}}, app, []string{"api"}},
+		// A component whose Pod was replaced during the attempt (a fresh
+		// Pod, restart count 0, Ready) is the application's failure too.
+		{"replaced during", []PartFact{{Name: "api", Role: RoleComponent, Ready: true, Replaced: true}}, app,
+			[]string{"api"}},
 		// A Ready component the tester could not connect to for its whole
 		// readiness window is the application's failure, never maul's Infra.
 		{"unreachable while ready", []PartFact{{Name: "api", Role: RoleComponent, Ready: true,

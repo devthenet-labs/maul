@@ -38,9 +38,10 @@ type fingerprintPart struct {
 	ExitCode      int32  `json:"x"`
 	Evicted       bool   `json:"e"`
 	Unschedulable bool   `json:"u"`
-	// Restarted and Unreachable are omitted when false, so a fingerprint
-	// taken before they existed is unchanged.
+	// Restarted, Replaced and Unreachable are omitted when false, so a
+	// fingerprint taken before they existed is unchanged.
 	Restarted   bool `json:"rs,omitempty"`
+	Replaced    bool `json:"rp,omitempty"`
 	Unreachable bool `json:"unr,omitempty"`
 }
 
@@ -50,7 +51,7 @@ type fingerprintPart struct {
 // matched bit of every declared expectation; and over the failing parts, by
 // name, each with its readiness, waiting reason, termination reason and exit
 // code, eviction and schedulability, and whether it restarted during the
-// attempt or was unreachable from the tester. Passing and quarantined criteria and
+// attempt, was replaced during it or was unreachable from the tester. Passing and quarantined criteria and
 // healthy parts are left out; so is every actual value, body, latency, run
 // token, restart count and log line, which change from run to run or are
 // the application's to choose.
@@ -77,8 +78,8 @@ func Fingerprint(vs []Verdict, env []PartFact) string {
 			continue
 		}
 		fp := fingerprintPart{Name: p.Name, Role: p.Role, Ready: p.Ready, Waiting: p.Waiting,
-			Evicted: p.Evicted, Unschedulable: p.Unschedulable, Restarted: p.RestartedDuring > 0,
-			Unreachable: p.UnreachableForMs > 0}
+			Evicted: p.Evicted, Unschedulable: p.Unschedulable, Restarted: p.RestartedDuring,
+			Replaced: p.Replaced, Unreachable: p.UnreachableForMs > 0}
 		if t := p.LastTermination; t != nil {
 			fp.Terminated, fp.Reason, fp.ExitCode = true, t.Reason, t.ExitCode
 		}

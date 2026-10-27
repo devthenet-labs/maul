@@ -299,10 +299,6 @@ func (v *VerificationReconciler) start(ctx context.Context, pv *v1alpha1.Preview
 		}
 		return v.wait(), nil
 	}
-	baseline, err := v.restartsNow(ctx, s.preview, s.slot)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
 	job, err := v.renderTester(pv, s)
 	if err != nil {
 		v.logRefusal(ctx, pv, "tester not rendered", err)
@@ -326,39 +322,96 @@ func (v *VerificationReconciler) start(ctx context.Context, pv *v1alpha1.Preview
 	pv.Status.Phase = v1alpha1.VerificationRunning
 	pv.Status.Reason = ""
 	pv.Status.StartedAt = &t
-	pv.Status.RestartsAtStart = baseline
 	return v.wait(), v.Status().Update(ctx, pv)
 }
 
-// restartsNow is each component's current Pod's container restart count,
-// the baseline a restart during the attempt is told by.
-func (v *VerificationReconciler) restartsNow(ctx context.Context, p *v1alpha1.Preview,
-	slot int32) ([]v1alpha1.ComponentRestarts, error) {
-	var out []v1alpha1.ComponentRestarts
-	for i, c := range p.Spec.Components {
-		pods, err := v.componentPods(ctx, p, i, slot)
-		if err != nil {
-			return nil, err
+// clockSkew is the tolerance between the kubelet's clock, which stamps a
+// container's start and termination, and the API server's, which stamps a
+// Pod's creation, when either is compared with the tester Pod's start.
+const clockSkew = 2 * time.Second
+
+// attemptStart is when the attempt began, the reference a component's
+// restart or replacement is judged against: the tester Pod's start as its
+// kubelet reported it (the same clock domain as the components'
+// timestamps), else its container's, else when the tester was rendered. It
+// needs no state: an attempt already running when the controller was
+// upgraded, or a start pass re-entered, judges the same.
+func attemptStart(tester *corev1.Pod, pv *v1alpha1.PreviewVerification) time.Time {
+	if tester != nil {
+		if tester.Status.StartTime != nil && !tester.Status.StartTime.IsZero() {
+			return tester.Status.StartTime.Time
 		}
-		if pod := currentPod(pods, p, c); pod != nil {
-			out = append(out, v1alpha1.ComponentRestarts{Name: c.Name, Pod: pod.Name, PodUID: string(pod.UID),
-				Restarts: podFact(pod, c.Name, c.Name, v1alpha1.PreviewRoleComponent).Restarts})
+		for _, s := range tester.Status.ContainerStatuses {
+			switch {
+			case s.Name != testerContainer:
+			case s.State.Running != nil && !s.State.Running.StartedAt.IsZero():
+				return s.State.Running.StartedAt.Time
+			case s.State.Terminated != nil && !s.State.Terminated.StartedAt.IsZero():
+				return s.State.Terminated.StartedAt.Time
+			}
 		}
 	}
-	return out, nil
+	return startedAt(pv)
 }
 
-// restartedDuring is how many times a component's container restarted
-// since the attempt started: its restart count less the baseline recorded
-// for the same Pod, or all of them on a Pod that was not there then.
-func restartedDuring(fact v1alpha1.PartFact, pod *corev1.Pod, baseline []v1alpha1.ComponentRestarts) int32 {
-	i := slices.IndexFunc(baseline, func(b v1alpha1.ComponentRestarts) bool {
-		return b.Name == fact.Name && b.Pod == pod.Name && b.PodUID == string(pod.UID)
-	})
-	if i < 0 {
-		return fact.Restarts
+// during reports whether t, a kubelet timestamp of a container exiting or
+// starting again, falls in the attempt that began at start, less the clock
+// skew: an exit around the tester's start is counted, never missed.
+func during(t metav1.Time, start time.Time) bool {
+	return !t.IsZero() && !t.Time.Before(start.Add(-clockSkew))
+}
+
+// createdDuring reports whether a Pod was created during the attempt that
+// began at start: after the tester started, by more than the clock skew. A
+// Pod created a moment before the tester (a fast cluster serves one within
+// seconds) is the one the tester ran against, never a replacement.
+func createdDuring(created metav1.Time, start time.Time) bool {
+	return !created.IsZero() && created.After(start.Add(clockSkew))
+}
+
+// restartedDuring reports whether a component's container exited, or ran
+// again after exiting, during the attempt: its last termination finished,
+// or its current run (of a container that has restarted) began, after the
+// attempt started.
+func restartedDuring(pod *corev1.Pod, container string, start time.Time) bool {
+	for _, s := range pod.Status.ContainerStatuses {
+		if s.Name != container {
+			continue
+		}
+		if t := s.LastTerminationState.Terminated; t != nil && during(t.FinishedAt, start) {
+			return true
+		}
+		if r := s.State.Running; r != nil && s.RestartCount > 0 && during(r.StartedAt, start) {
+			return true
+		}
 	}
-	return max(fact.Restarts-baseline[i].Restarts, 0)
+	return false
+}
+
+// failedDuring reports whether a component Pod that is not the current one
+// was created before the attempt and failed or began deleting during it:
+// an eviction during the attempt shows up through it.
+func failedDuring(pod *corev1.Pod, start time.Time) bool {
+	if createdDuring(pod.CreationTimestamp, start) {
+		return false
+	}
+	if pod.DeletionTimestamp != nil && during(*pod.DeletionTimestamp, start) {
+		return true
+	}
+	if pod.Status.Phase != corev1.PodFailed {
+		return false
+	}
+	for _, c := range pod.Status.Conditions {
+		if during(c.LastTransitionTime, start) {
+			return true
+		}
+	}
+	for _, s := range pod.Status.ContainerStatuses {
+		if t := s.State.Terminated; t != nil && during(t.FinishedAt, start) {
+			return true
+		}
+	}
+	return false
 }
 
 // testerTargets maps each component to the Service address its requests
@@ -430,15 +483,30 @@ func (v *VerificationReconciler) rolloutSettled(ctx context.Context, p *v1alpha1
 // componentPods are component i's live Pods: not deleting, not finished.
 func (v *VerificationReconciler) componentPods(ctx context.Context, p *v1alpha1.Preview, i int,
 	slot int32) ([]corev1.Pod, error) {
+	pods, err := v.allComponentPods(ctx, p, i, slot)
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(pods, func(pod corev1.Pod) bool { return !livePod(&pod) }), nil
+}
+
+// allComponentPods are every Pod of component i, finished and deleting
+// ones included. The reconciler's Client reads the API server directly
+// (preview-controller wires it uncached), so this is the live state.
+func (v *VerificationReconciler) allComponentPods(ctx context.Context, p *v1alpha1.Preview, i int,
+	slot int32) ([]corev1.Pod, error) {
 	var pods corev1.PodList
 	if err := v.List(ctx, &pods, client.InNamespace(v.Settings.slotName(slot)),
 		client.MatchingLabels(componentLabels(p, i))); err != nil {
 		return nil, err
 	}
-	return slices.DeleteFunc(pods.Items, func(pod corev1.Pod) bool {
-		return !pod.DeletionTimestamp.IsZero() || pod.Status.Phase == corev1.PodSucceeded ||
-			pod.Status.Phase == corev1.PodFailed
-	}), nil
+	return pods.Items, nil
+}
+
+// livePod reports whether a Pod is neither deleting nor finished.
+func livePod(pod *corev1.Pod) bool {
+	return pod.DeletionTimestamp.IsZero() && pod.Status.Phase != corev1.PodSucceeded &&
+		pod.Status.Phase != corev1.PodFailed
 }
 
 // observe follows a running tester: it waits, bounded, for the Job to
@@ -511,13 +579,16 @@ func (v *VerificationReconciler) record(ctx context.Context, pv *v1alpha1.Previe
 	if err != nil {
 		return err
 	}
-	markUnreachable(facts, out.sum.Waits)
+	held := out.reason == ""
+	if held && markUnreachable(facts, out.sum.Waits) {
+		out.reason = v1alpha1.VerificationReasonDNSUnavailable
+	}
 	phase, reason := route(facts, out.reason)
 	v.logOutcome(ctx, pv, out, phase, reason)
 	if out.reason == v1alpha1.VerificationReasonTesterVersionMismatch {
 		pv.Status.TesterWireVersion = int32(min(max(out.version, 0), math.MaxInt32))
 	}
-	if out.reason == "" {
+	if held {
 		if pv.Status.Readiness, err = crdconv.WaitsToCRD(out.sum.Waits); err != nil {
 			phase, reason = v1alpha1.VerificationInfra, v1alpha1.VerificationReasonTesterOutputInvalid
 		}
@@ -541,10 +612,18 @@ func (v *VerificationReconciler) record(ctx context.Context, pv *v1alpha1.Previe
 // tester could not connect to for the whole window refused it: the window
 // absorbs maul's slot policy being programmed, and past it only the
 // application can be the cause (internal/previewtester/readiness.go), so
-// the environment classifies it as the application's failure.
-func markUnreachable(facts []v1alpha1.PartFact, waits []acceptance.TargetWait) {
+// the environment classifies it as the application's failure. A target
+// whose every failed attempt was a DNS failure is the exception: its
+// Service name and the cluster's DNS are maul's, never the application's,
+// so it is not marked, and markUnreachable reports it (dns-unavailable,
+// Infra). One refused, timed-out or reset attempt means the name resolved.
+func markUnreachable(facts []v1alpha1.PartFact, waits []acceptance.TargetWait) (dnsOnly bool) {
 	for _, w := range waits {
 		if w.Reached() {
+			continue
+		}
+		if w.DNS == w.Attempts {
+			dnsOnly = true
 			continue
 		}
 		for i := range facts {
@@ -553,6 +632,7 @@ func markUnreachable(facts []v1alpha1.PartFact, waits []acceptance.TargetWait) {
 			}
 		}
 	}
+	return dnsOnly
 }
 
 // logOutcome logs what an operator needs from a tester's output that the
@@ -816,11 +896,13 @@ func appFailureReason(facts []v1alpha1.PartFact, failing []string) v1alpha1.Prev
 		return v1alpha1.VerificationReasonComponentImagePull
 	case f.Waiting != "":
 		return v1alpha1.VerificationReasonComponentCrashLoop
+	case f.Replaced:
+		return v1alpha1.VerificationReasonComponentReplaced
 	case f.Evicted:
 		return v1alpha1.VerificationReasonComponentEvicted
 	case !f.Ready:
 		return v1alpha1.VerificationReasonComponentNotReady
-	case f.RestartedDuring > 0:
+	case f.RestartedDuring:
 		return v1alpha1.VerificationReasonComponentRestarted
 	case f.UnreachableForMs > 0:
 		return v1alpha1.VerificationReasonComponentUnreachable
@@ -857,30 +939,55 @@ func infraReason(facts []v1alpha1.PartFact,
 
 // environment captures each part of the slot: every component, from its
 // current Pod (the one running it as the spec renders it, else its newest),
-// with its log tail since `since`, and the tester when it has a Pod. A Pod
-// list that fails is an error, never a part without a Pod: that would charge
-// the intent for the API server's trouble.
+// with its log tail since the attempt started, and the tester when it has a
+// Pod. Whether a component restarted or was replaced during the attempt is
+// read from the kubelet's and API server's timestamps against the tester
+// Pod's start (attemptStart), from Pods read live, the component's finished
+// and deleting Pods included, so an eviction during the attempt shows. A
+// Pod list that fails is an error, never a part without a Pod: that would
+// charge the intent for the API server's trouble.
 func (v *VerificationReconciler) environment(ctx context.Context, p *v1alpha1.Preview, slot int32,
 	tester *corev1.Pod, pv *v1alpha1.PreviewVerification) ([]v1alpha1.PartFact, error) {
-	since := startedAt(pv)
+	start := attemptStart(tester, pv)
 	facts := make([]v1alpha1.PartFact, 0, len(p.Spec.Components)+1)
 	for i, c := range p.Spec.Components {
-		fact := v1alpha1.PartFact{Name: c.Name, Role: v1alpha1.PreviewRoleComponent}
-		pods, err := v.componentPods(ctx, p, i, slot)
+		all, err := v.allComponentPods(ctx, p, i, slot)
 		if err != nil {
 			return nil, err
 		}
-		if pod := currentPod(pods, p, c); pod != nil {
-			fact = podFact(pod, c.Name, c.Name, v1alpha1.PreviewRoleComponent)
-			fact.RestartedDuring = restartedDuring(fact, pod, pv.Status.RestartsAtStart)
-			fact.LogTail = v.logTail(ctx, pod, c.Name, since)
-		}
-		facts = append(facts, fact)
+		facts = append(facts, v.componentFact(ctx, p, c, all, start, startedAt(pv)))
 	}
 	if tester != nil {
 		facts = append(facts, podFact(tester, v1alpha1.PreviewPartTester, testerContainer, v1alpha1.PreviewRoleTester))
 	}
 	return facts, nil
+}
+
+// componentFact is component c's fact from all its Pods: its current one's
+// container facts, whether that Pod restarted or replaced an earlier one
+// during the attempt, and whether a Pod from before the attempt was
+// evicted during it.
+func (v *VerificationReconciler) componentFact(ctx context.Context, p *v1alpha1.Preview,
+	c v1alpha1.PreviewComponent, all []corev1.Pod, start, since time.Time) v1alpha1.PartFact {
+	fact := v1alpha1.PartFact{Name: c.Name, Role: v1alpha1.PreviewRoleComponent}
+	live := slices.DeleteFunc(slices.Clone(all), func(pod corev1.Pod) bool { return !livePod(&pod) })
+	pod := currentPod(live, p, c)
+	if pod != nil {
+		fact = podFact(pod, c.Name, c.Name, v1alpha1.PreviewRoleComponent)
+		fact.RestartedDuring = restartedDuring(pod, c.Name, start)
+		fact.Replaced = createdDuring(pod.CreationTimestamp, start)
+		fact.LogTail = v.logTail(ctx, pod, c.Name, since)
+	}
+	for i := range all {
+		old := &all[i]
+		if (pod != nil && old.UID == pod.UID && old.Name == pod.Name) || !failedDuring(old, start) {
+			continue
+		}
+		if old.Status.Reason == "Evicted" {
+			fact.Evicted = true
+		}
+	}
+	return fact
 }
 
 // currentPod is the Pod running component c as the spec renders it, the
