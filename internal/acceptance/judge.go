@@ -218,13 +218,16 @@ func matchesHeader(expected Value, run string, caps map[string]string, raw strin
 	}
 }
 
+// bodyContains judges a bodyContains expectation: the recorded proof must
+// be exactly the proof of the needle as Judge substitutes it, so a proof
+// that is missing, malformed or of another needle fails.
 func bodyContains(needle, run string, caps map[string]string, pointers map[string]string) bool {
 	n, err := Substitute(needle, run, caps)
 	if err != nil {
 		return false
 	}
-	var seen string
-	return json.Unmarshal([]byte(pointers[KeyBodyContains]), &seen) == nil && strings.Contains(seen, n)
+	proof, ok := pointers[KeyBodyContains]
+	return ok && proof == bodyContainsProof(n)
 }
 
 func sortedKeys[V any](m map[string]V) []string {

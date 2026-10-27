@@ -190,7 +190,7 @@ func TestObserveBounds(t *testing.T) {
 	if st.Pointers["/list"] != `["b","a"]` {
 		t.Errorf("$order reduced to %q", st.Pointers["/list"])
 	}
-	if st.Pointers[KeyBodyContains] != `"tail-marker"` {
+	if st.Pointers[KeyBodyContains] != bodyContainsProof("tail-marker") {
 		t.Errorf("bodyContains recorded as %q", st.Pointers[KeyBodyContains])
 	}
 	checkBoundedStep(t, st, len(body))

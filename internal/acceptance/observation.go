@@ -38,9 +38,19 @@ const (
 const TooLarge = "!too-large"
 
 // KeyBodyContains is the reserved Pointers key holding the bodyContains
-// observation: the expected text as a JSON string when the body contains
-// it, absent otherwise. It is not a JSON pointer, so it cannot collide.
+// observation: when the body contains the expected text (as substituted),
+// a fixed-size proof of that text (bodyContainsProof), absent otherwise.
+// It is not a JSON pointer, so it cannot collide.
 const KeyBodyContains = "$bodyContains"
+
+// bodyContainsProof is what Pointers records for a needle the body
+// contained: the JSON string "sha256:<hex>" of the needle as substituted.
+// Its size never depends on the needle, whose captures the application
+// chose; Judge recomputes it from its own substitution.
+func bodyContainsProof(needle string) string {
+	sum := sha256.Sum256([]byte(needle))
+	return `"sha256:` + hex.EncodeToString(sum[:]) + `"`
+}
 
 // Transport classifies how a request failed before a response was judged.
 type Transport string
@@ -98,7 +108,7 @@ type StepObservation struct {
 	// list projected to its expected values, a long $contains string to the
 	// expected text or a prefix without it, anything else over
 	// MaxValueBytes to TooLarge); an absent key is an absent value. Plus
-	// KeyBodyContains.
+	// KeyBodyContains, a fixed-size proof.
 	Pointers map[string]string `json:"pointers,omitempty"`
 	// Captures holds each declared capture that resolved to a string,
 	// number or boolean of at most MaxCaptureBytes.
@@ -268,7 +278,7 @@ func observePointers(e Expect, doc any, valid bool, body []byte, run string, cap
 	}
 	if e.BodyContains != "" {
 		if needle, err := Substitute(e.BodyContains, run, caps); err == nil && bytes.Contains(body, []byte(needle)) {
-			out[KeyBodyContains] = quote(needle)
+			out[KeyBodyContains] = bodyContainsProof(needle)
 		}
 	}
 	if len(out) == 0 {
@@ -384,7 +394,10 @@ func observeCaptures(capture map[string]string, doc any, valid bool) (map[string
 // observeHeaders records each expected header (case-insensitive), values
 // joined by ", "; one over MaxHeaderBytes is reduced as a $contains or an
 // exact value would judge it, never to more than MaxHeaderBytes (a needle
-// longer than that, which Validate refuses, records TooLarge).
+// longer than that, which Validate refuses, records TooLarge). The values
+// are made valid UTF-8 first, each run of invalid bytes one U+FFFD, so the
+// value the tester judges is the value the controller reads back off the
+// wire, and its bound holds after the round trip.
 func observeHeaders(exp map[string]Value, h map[string][]string, run string, caps map[string]string) map[string]string {
 	if len(exp) == 0 {
 		return nil
@@ -400,12 +413,13 @@ func observeHeaders(exp map[string]Value, h map[string][]string, run string, cap
 		if vals == nil {
 			continue
 		}
-		got := strings.Join(vals, ", ")
+		whole := strings.ToValidUTF8(strings.Join(vals, ", "), string(utf8.RuneError))
+		got := whole
 		if len(got) > MaxHeaderBytes {
 			got = TooLarge
 			if m, err := parseMatcher(expected); err == nil && m.kind == matchContains {
 				if m, err = m.substitute(run, caps); err == nil && len(m.contains) <= MaxHeaderBytes &&
-					strings.Contains(strings.Join(vals, ", "), m.contains) {
+					strings.Contains(whole, m.contains) {
 					got = m.contains
 				}
 			}

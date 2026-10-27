@@ -56,9 +56,11 @@ const (
 	// the tester's Pod being created, scheduled and its image pulled, its
 	// log becoming readable after it finished, and the Job's own deadline.
 	verifyGrace = 2 * time.Minute
-	// maxTesterLog is the most of the tester's log read: well above what
-	// MaxCriteria observations take on the wire.
-	maxTesterLog = 512 << 10
+	// maxTesterLog is the most of the tester's log read. It is the grammar's
+	// own bound, so acceptance.Validate's plan-wide budget
+	// (acceptance.MaxWireBytes, below it) keeps every accepted plan's output
+	// within it whatever the application answers.
+	maxTesterLog = acceptance.MaxTesterLogBytes
 	// componentLogLimit and componentLogLines bound a component's log read;
 	// maxLogTail is the tail of it kept (PartFact.LogTail's maxLength).
 	componentLogLimit = 16 << 10

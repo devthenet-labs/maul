@@ -99,7 +99,8 @@ writing it again.
 
 This Project verifies each pull request's change running in a live preview before a human reviews it. Add one more
 frontmatter field after `estimated_token_budget`, `acceptance`, a list of at most 16 criteria (at most 48 steps in
-total) that state, checkably, what the approved plan must deliver. Write only criteria a request to the running
+total, and few enough expectations that what the checks record fits maul's size budget) that state, checkably, what
+the approved plan must deliver. Write only criteria a request to the running
 preview can decide; for what only a person can judge, write a `manual` criterion. Omit the field when nothing can be
 checked.
 

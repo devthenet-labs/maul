@@ -100,12 +100,14 @@ func requireFits(t *testing.T, pv *v1alpha1.PreviewVerification) {
 // (each 770 bytes once the API machinery HTML-escapes it) and fails each
 // criterion's last step cannot push the status over its cap: captures the
 // verdict does not need go to TooLarge, the one a later step's path is
-// built from is kept exactly, and every verdict stays what it was.
+// built from is kept exactly, and every verdict stays what it was. The plan
+// has as many such criteria (of three steps, four captures each) as the
+// grammar's wire budget admits.
 func TestVerificationStatusShrinksAppInflatedCaptures(t *testing.T) {
 	big := strings.Repeat("<", acceptance.MaxCaptureBytes)
-	cs := make([]acceptance.Criterion, 16)
-	for i := range cs {
-		cs[i] = acceptance.Criterion{ID: fmt.Sprintf("c%d", i), Kind: acceptance.KindHTTP,
+	var cs []acceptance.Criterion
+	for i := range acceptance.MaxCriteria {
+		c := acceptance.Criterion{ID: fmt.Sprintf("c%d", i), Kind: acceptance.KindHTTP,
 			Statement: "the flow works", Target: "api"}
 		for s := range 3 {
 			path := fmt.Sprintf("/s%d", s)
@@ -116,8 +118,12 @@ func TestVerificationStatusShrinksAppInflatedCaptures(t *testing.T) {
 			for k := range acceptance.MaxCaptures {
 				st.Capture[fmt.Sprintf("s%dc%d", s, k)] = fmt.Sprintf("/c%d", k)
 			}
-			cs[i].Steps = append(cs[i].Steps, st)
+			c.Steps = append(c.Steps, st)
 		}
+		if acceptance.Validate(append(cs, c)) != nil {
+			break
+		}
+		cs = append(cs, c)
 	}
 	body := jsonBody(t, map[string]string{"c0": big, "c1": big, "c2": big, "c3": big})
 	pv := observedVerification(t, cs, func(acceptance.Criterion) acceptance.Doer {
@@ -229,7 +235,7 @@ func TestVerificationStatusDropsOnlyTheHugeCriterion(t *testing.T) {
 	fitStatus(pv)
 	requireFits(t, pv)
 	after := judgeAll(t, pv, fitRun)
-	if after[0].Outcome != acceptance.OutcomeFail || after[0].Reason != "observation-too-large" {
+	if after[0].Outcome != acceptance.OutcomeFail || after[0].Reason != acceptance.ReasonObservationTooLarge {
 		t.Errorf("huge judged %+v, want fail observation-too-large", after[0])
 	}
 	if len(pv.Status.Observations[0].Tries) != 0 {
@@ -246,6 +252,19 @@ func TestVerificationStatusDropsOnlyTheHugeCriterion(t *testing.T) {
 	}
 	if passes == 0 {
 		t.Error("fixture has no passing small criterion to keep")
+	}
+}
+
+// The log read and the grammar's plan-wide budget are one bound: whatever
+// an accepted plan's application answers, the tester's output is read
+// whole, with room left over for the tester's own log lines.
+func TestTesterLogLimitIsTheGrammars(t *testing.T) {
+	if maxTesterLog != acceptance.MaxTesterLogBytes {
+		t.Fatalf("maxTesterLog %d, the grammar's MaxTesterLogBytes %d", maxTesterLog, acceptance.MaxTesterLogBytes)
+	}
+	if margin := maxTesterLog - acceptance.MaxWireBytes; margin < 64<<10 {
+		t.Fatalf("the budget %d leaves %d bytes of the %d read for the tester's own lines, want 64 KiB",
+			acceptance.MaxWireBytes, margin, maxTesterLog)
 	}
 }
 
@@ -270,7 +289,7 @@ func TestObjectSizeIsTheSerializedSize(t *testing.T) {
 func TestFitStatusNeverHidesAppFailures(t *testing.T) {
 	r := rand.New(rand.NewSource(fitSeed))
 	over := 0
-	for n := range 150 {
+	for n := range 250 {
 		pv, cs := randomVerification(t, r)
 		if objectSize(pv) > maxVerificationObject {
 			over++
@@ -284,14 +303,14 @@ func TestFitStatusNeverHidesAppFailures(t *testing.T) {
 				if reflect.DeepEqual(before[i], after[i]) {
 					continue
 				}
-				if after[i].Outcome != acceptance.OutcomeFail || after[i].Reason != "observation-too-large" {
+				if after[i].Outcome != acceptance.OutcomeFail || after[i].Reason != acceptance.ReasonObservationTooLarge {
 					t.Errorf("criterion %s judged %+v after fitting, %+v before", cs[i].ID, after[i], before[i])
 				}
 			}
 		})
 	}
-	if over < 30 {
-		t.Fatalf("only %d of 150 cases were over the cap: the property is not exercised", over)
+	if over < 25 {
+		t.Fatalf("only %d of 250 cases were over the cap: the property is not exercised", over)
 	}
 }
 
@@ -331,21 +350,32 @@ func size(r *rand.Rand, limit int) int {
 // random so some steps pass, and fails at random.
 func randomVerification(t *testing.T, r *rand.Rand) (*v1alpha1.PreviewVerification, []acceptance.Criterion) {
 	t.Helper()
-	n := 1 + r.Intn(16)
-	if r.Intn(2) == 0 {
-		n = 16
-	}
-	budget := acceptance.MaxSteps
-	cs := make([]acceptance.Criterion, 0, n)
-	for i := range n {
-		steps := min(1+r.Intn(acceptance.MaxStepsPerHTTP), budget-(n-1-i))
-		budget -= steps
-		cs = append(cs, randomCriterion(t, r, fmt.Sprintf("c%d", i), steps))
+	var cs []acceptance.Criterion
+	for cs == nil || acceptance.Validate(cs) != nil { // over the wire budget: draw again
+		n := 1 + r.Intn(16)
+		if r.Intn(2) == 0 {
+			n = 16
+		}
+		budget := acceptance.MaxSteps
+		cs = make([]acceptance.Criterion, 0, n)
+		for i := range n {
+			steps := min(1+r.Intn(acceptance.MaxStepsPerHTTP), budget-(n-1-i))
+			budget -= steps
+			cs = append(cs, randomCriterion(t, r, fmt.Sprintf("c%d", i), steps))
+		}
 	}
 	pv := observedVerification(t, cs, func(c acceptance.Criterion) acceptance.Doer {
 		return hostileDoer(r, acceptance.Normalize([]acceptance.Criterion{c})[0])
 	})
 	return pv, acceptance.Normalize(cs)
+}
+
+// sometimes is a count of up to limit a third of the time, else none.
+func sometimes(r *rand.Rand, limit int) int {
+	if r.Intn(3) > 0 {
+		return 0
+	}
+	return r.Intn(limit + 1)
 }
 
 func randomCriterion(t *testing.T, r *rand.Rand, id string, steps int) acceptance.Criterion {
@@ -357,16 +387,23 @@ func randomCriterion(t *testing.T, r *rand.Rand, id string, steps int) acceptanc
 		if len(captured) > 0 && r.Intn(2) == 0 {
 			st.Request.Path += "/{{capture." + captured[r.Intn(len(captured))] + "}}"
 		}
-		for k := range r.Intn(acceptance.MaxExpectPointers + 1) {
+		// Pointers lean to their bound: their values cost the status (which
+		// escapes HTML) up to three times what they cost the wire budget,
+		// so they are what can still put an accepted plan over the cap.
+		pointers := acceptance.MaxExpectPointers
+		if r.Intn(4) == 0 {
+			pointers = r.Intn(acceptance.MaxExpectPointers + 1)
+		}
+		for k := range pointers {
 			st.Expect.JSON[fmt.Sprintf("/p%d", k)] = randomMatcher(t, r, captured, false)
 		}
-		for k := range r.Intn(acceptance.MaxExpectHeaders + 1) {
+		for k := range sometimes(r, acceptance.MaxExpectHeaders) {
 			st.Expect.Headers[fmt.Sprintf("X-H%d", k)] = randomMatcher(t, r, nil, true)
 		}
 		if r.Intn(3) == 0 {
 			st.Expect.BodyContains = "<<"
 		}
-		for k := range r.Intn(acceptance.MaxCaptures + 1) {
+		for k := range sometimes(r, acceptance.MaxCaptures) {
 			if st.Capture == nil {
 				st.Capture = map[string]string{}
 			}
@@ -393,7 +430,7 @@ func randomMatcher(t *testing.T, r *rand.Rand, captured []string, header bool) a
 	case k == 3 && len(captured) > 0 && !header:
 		return mustValue(t, "{{capture."+captured[r.Intn(len(captured))]+"}}")
 	}
-	return mustValue(t, strings.Repeat("<", r.Intn(limit)))
+	return mustValue(t, strings.Repeat("<", min(size(r, limit), limit)))
 }
 
 // hostileDoer answers c's steps as a hostile application would: mostly
@@ -404,7 +441,7 @@ func hostileDoer(r *rand.Rand, c acceptance.Criterion) acceptance.Doer {
 	return func(call acceptance.Call) acceptance.Response {
 		st := c.Steps[call.Step]
 		status := int32(200)
-		if r.Intn(12) == 0 || (call.Step == len(c.Steps)-1 && r.Intn(2) == 0) {
+		if r.Intn(40) == 0 || (call.Step == len(c.Steps)-1 && r.Intn(2) == 0) {
 			status = 500
 		}
 		doc := map[string]any{}
