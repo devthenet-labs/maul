@@ -38,6 +38,18 @@ type GitHub interface {
 	// file is larger than limit bytes, with size still its size.
 	File(ctx context.Context, repoURL, ref, filePath string, limit int64) (data []byte, size int64, found bool,
 		err error)
+	// BranchRules returns the status checks the rules in force on branch
+	// require (GET /repos/{o}/{r}/rules/branches/{b}): the rulesets'
+	// view, which does not include classic branch protection.
+	BranchRules(ctx context.Context, repoURL, branch string) ([]RequiredCheck, error)
+}
+
+// RequiredCheck is one status check a branch rule requires.
+type RequiredCheck struct {
+	Context string
+	// IntegrationID is the GitHub App the status must come from; 0 when
+	// the rule accepts the context from any source.
+	IntegrationID int64
 }
 
 // shaPattern is a full commit SHA.
@@ -109,6 +121,45 @@ func (g *HTTPGitHub) Head(ctx context.Context, repoURL string) (Head, error) {
 		return Head{}, fmt.Errorf("GitHub answered the head of %s with %q, not a commit SHA", repo.DefaultBranch, sha)
 	}
 	return Head{Branch: repo.DefaultBranch, SHA: sha}, nil
+}
+
+// BranchRules implements GitHub. Only the first page (100 rules) is read.
+func (g *HTTPGitHub) BranchRules(ctx context.Context, repoURL, branch string) ([]RequiredCheck, error) {
+	base, auth, err := g.repoAPI(repoURL)
+	if err != nil {
+		return nil, err
+	}
+	body, _, err := g.get(ctx, auth, base+"/rules/branches/"+url.PathEscape(branch)+"?per_page=100",
+		"application/vnd.github+json", treeListLimit)
+	if err != nil {
+		return nil, err
+	}
+	var rules []struct {
+		Type       string `json:"type"`
+		Parameters struct {
+			Checks []struct {
+				Context       string `json:"context"`
+				IntegrationID *int64 `json:"integration_id"`
+			} `json:"required_status_checks"`
+		} `json:"parameters"`
+	}
+	if err := json.Unmarshal(body, &rules); err != nil {
+		return nil, fmt.Errorf("GitHub answered the rules of %s without a rule list: %w", branch, err)
+	}
+	var out []RequiredCheck
+	for _, r := range rules {
+		if r.Type != "required_status_checks" {
+			continue
+		}
+		for _, c := range r.Parameters.Checks {
+			rc := RequiredCheck{Context: c.Context}
+			if c.IntegrationID != nil {
+				rc.IntegrationID = *c.IntegrationID
+			}
+			out = append(out, rc)
+		}
+	}
+	return out, nil
 }
 
 // treeEntry is one entry of a Git tree listing.

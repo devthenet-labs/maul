@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -138,6 +139,14 @@ func TestServeStartupErrors(t *testing.T) {
 			"--preview-image-prefix", "registry.example/maul/previews/", "--preview-host-suffix", "previews.example.com",
 			"--preview-node-isolation", "none", "--kubeconfig", missing},
 			wantErr: "kubeconfig"},
+		{name: "tester image without a digest", args: validArgs("--preview-tester-image",
+			"ghcr.io/devthenet-labs/maul-preview-tester:v1"), wantErr: "not pinned by digest"},
+		{name: "verify deadline under a minute", args: validArgs("--preview-tester-image", testerImage,
+			"--preview-verify-deadline-max", "30s"), wantErr: "preview-verify-deadline-max"},
+		{name: "verify deadline over an hour", args: validArgs("--preview-tester-image", testerImage,
+			"--preview-verify-deadline-max", "2h"), wantErr: "preview-verify-deadline-max"},
+		{name: "verification reaches the manager", args: validArgs("--preview-tester-image", testerImage,
+			"--kubeconfig", missing), wantErr: "kubeconfig"},
 		{name: "namespace from the pod", env: "maul", args: validArgs("--namespace", "", "--kubeconfig", missing),
 			wantErr: "kubeconfig"},
 	} {
@@ -165,5 +174,28 @@ func TestLegacyIngressFlag(t *testing.T) {
 	t.Setenv("MAUL_PREVIEW_LEGACY_INGRESS", "false")
 	if serveOpts(t, validArgs()...).Bool("preview-legacy-ingress") {
 		t.Error("MAUL_PREVIEW_LEGACY_INGRESS=false not honoured")
+	}
+}
+
+const testerImage = "ghcr.io/devthenet-labs/maul-preview-tester@sha256:" +
+	"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+// TestVerificationFlags: verification is off (no tester image) unless the
+// operator sets one, and the tester deadline bound defaults to the chart's
+// preview.verification.deadlineMaxSeconds default, 30 minutes.
+func TestVerificationFlags(t *testing.T) {
+	opts := serveOpts(t, validArgs()...)
+	if opts.String("preview-tester-image") != "" {
+		t.Error("a tester image by default; verification must be opt-in")
+	}
+	if got := opts.Duration("preview-verify-deadline-max"); got != 30*time.Minute {
+		t.Errorf("--preview-verify-deadline-max defaults to %s, want 30m", got)
+	}
+	t.Setenv("MAUL_PREVIEW_TESTER_IMAGE", testerImage)
+	t.Setenv("MAUL_PREVIEW_VERIFY_DEADLINE_MAX", "1800s")
+	opts = serveOpts(t, validArgs()...)
+	if opts.String("preview-tester-image") != testerImage ||
+		opts.Duration("preview-verify-deadline-max") != 30*time.Minute {
+		t.Error("MAUL_PREVIEW_TESTER_IMAGE or MAUL_PREVIEW_VERIFY_DEADLINE_MAX not honoured")
 	}
 }

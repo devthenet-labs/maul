@@ -136,6 +136,22 @@
 //	Project status       ProjectReconciler
 //	Preview spec         PreviewSourceReconciler (preview-controller writes
 //	                     its status, which the IntentReconciler only reads)
+//	PreviewVerification  IntentReconciler: creates (spec, once) and deletes
+//	                     (supersede, retention, review end); preview-controller
+//	                     writes its status, which the IntentReconciler only
+//	                     reads, one uncached get per pass, and judges
+//
+// With --intent-verification, status.acceptance and status.verification are
+// the IntentReconciler's like the rest of Intent status (verify_loop.go): the
+// approved plan's criteria recorded once per approved revision from the plan
+// bytes re-read under the approval's digest, and the verification of the
+// combined change judged by acceptance.Judge from preview-controller's
+// observations, never its verdict. A failed verification may start an
+// acceptance-fix round (verify_round.go), and an approver's pending feedback
+// always goes first (human_pending.go): to cancel a fix not yet launched the
+// IntentReconciler writes status.verification.cancelRun, which the
+// RunReconciler only reads (uncached) and answers by settling that run
+// unlaunched, keeping IntentRun status its own.
 //
 // Repositories (spec, at creation) and the input, plan and run-input
 // ConfigMaps are created by the IntentReconciler and never changed; the
@@ -162,7 +178,12 @@
 // plan or build launch, InReview → Blocked before a review, command or
 // check-fix round is leased, Revising → Blocked before a round's retry
 // attempt, and Blocked stays Blocked, on the ceiling, when the run its
-// resume would launch is refused. A run or round already leased is adopted,
+// resume would launch is refused. An acceptance-fix round (trigger verify)
+// is the exception, by design (D2): the same lease refuses it, but at the
+// ceiling automatic fixes halt (CostCeiling, VerifyFailing) and the intent
+// stays, or returns to, InReview, never Blocked. startVerifyFix checks the
+// ceiling with lease's own predicate (atCeiling) before any credential hold,
+// so no hold can block it there either. A run or round already leased is adopted,
 // never refused; a suspended Project is never blocked on it (nothing is
 // launched); a PR command refused there is answered on its pull request;
 // and raising limits.maxCostMicroUSD past the spend lifts the block. An
@@ -246,7 +267,11 @@
 //     settled only up to it, and a later poll answers it. A refused label
 //     is recorded by its notice and the label's removal. A refusal is
 //     replied to before it is recorded, so a record without a reply means
-//     the action was accepted, and the retry replies "done".
+//     the action was accepted, and the retry replies "done". An acceptance
+//     command (/maul verify, /maul accept), on the issue or a pull request,
+//     is applied at most once: its comment id joins status.commands.applied
+//     in the write that applies it, so neither a lost reply nor a deleted
+//     one (a pull request has no seen watermark) applies it again.
 //   - Terminal effects come before the terminal status write: the trigger
 //     label is removed before Failed (and before Closed on a refused
 //     trigger), the issue is closed before Merged (after the summary) and

@@ -70,14 +70,18 @@ func runWorkingNotes(run *v1alpha1.IntentRun) string {
 // workingNotesOf is what a run's working notes are introduced by: the round
 // that wrote them.
 func workingNotesOf(run *v1alpha1.IntentRun) string {
-	switch {
-	case run.Spec.Stage == v1alpha1.IntentStageBuild:
+	if run.Spec.Stage == v1alpha1.IntentStageBuild {
 		return fmt.Sprintf("the build of plan r%d (attempt %d)", run.Spec.Inputs.PlanRevision, run.Spec.Attempt)
-	case run.Spec.Trigger == v1alpha1.IntentRunTriggerChecks:
-		return fmt.Sprintf("check-fix round %d (attempt %d)", run.Spec.Round, run.Spec.Attempt)
-	default:
-		return fmt.Sprintf("revise round %d (attempt %d)", run.Spec.Round, run.Spec.Attempt)
 	}
+	noun := "revise round"
+	switch roundKindOf(run.Spec.Trigger) {
+	case roundChecks:
+		noun = "check-fix round"
+	case roundVerify:
+		noun = "acceptance-fix round"
+	case roundHuman:
+	}
+	return fmt.Sprintf("%s %d (attempt %d)", noun, run.Spec.Round, run.Spec.Attempt)
 }
 
 // roundWorkingNotes is the working notes a round is handed: those of the

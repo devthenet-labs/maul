@@ -1,0 +1,108 @@
+# Copyright 2026 Bitwise Media Group Ltd.
+# SPDX-License-Identifier: MIT
+#
+# Acceptance verification's request channel (preview.verification.enabled):
+# a PreviewVerification in the release namespace is a request intent-controller
+# writes (create, delete) and preview-controller answers (status only). RBAC
+# grants each its half; this policy holds every identity to it, the cluster's
+# own garbage and namespace controllers aside, so neither controller can write
+# the other's half and nobody else can forge either. Fail closed.
+{{- /*
+maul.previewVerification: the verification switch, checked once for every
+template that renders a piece of it. Returns "true" with it on, "" off. On,
+it needs preview-controller (which needs the slot foundation and
+intent-controller) and a tester image maul.previewTesterImage accepts.
+*/}}
+{{- define "maul.previewVerification" -}}
+{{- $v := .Values.preview.verification | default dict -}}
+{{- if $v.enabled -}}
+{{- if not .Values.previewController.enabled }}{{ fail "preview.verification.enabled requires previewController.enabled (and with it preview.enabled and intentController.enabled): verification runs in the preview slots, from requests intent-controller writes" }}{{ end -}}
+{{- $_ := include "maul.previewTesterImage" . -}}
+true
+{{- end -}}
+{{- end }}
+{{- /*
+maul.previewTesterImage: preview.verification.testerImage, checked. The slot
+policies admit it by this exact reference beside the preview prefix, so it
+must be pinned by digest and must be neither a preview runtime image (under
+the preview image prefix: built from an unreviewed pull request) nor under
+an agent registry (invariant 17 made symmetric: no image is both a slot
+workload and an agent sandbox). Compared on segment boundaries through
+maul.registryPathKey, as the prefix overlap check is.
+*/}}
+{{- define "maul.previewTesterImage" -}}
+{{- $img := (.Values.preview.verification | default dict).testerImage | default "" | toString -}}
+{{- if not $img }}{{ fail "preview.verification.testerImage is required when preview.verification.enabled=true: the digest-pinned preview-tester image" }}{{ end -}}
+{{- $host := `(([a-z0-9-]+\.)+[a-z0-9-]+(:[0-9]+)?|[a-z0-9-]+:[0-9]+|localhost(:[0-9]+)?)` -}}
+{{- $path := `(/[a-z0-9]+([._-][a-z0-9]+)*)+` -}}
+{{- $tag := `(:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?` -}}
+{{- $digest := `@sha256:[0-9a-f]{64}` -}}
+{{- if not (regexMatch (printf "^%s%s%s%s$" $host $path $tag $digest) $img) }}{{ fail (printf "preview.verification.testerImage %q must be pinned by digest: <registry host>/<path>[:tag]@sha256:<64 lowercase hex>, the registry named" $img) }}{{ end -}}
+{{- $repo := regexReplaceAll (printf "%s%s$" $tag $digest) $img "" -}}
+{{- $key := include "maul.registryPathKey" (printf "%s/" $repo) -}}
+{{- $preview := include "maul.registryPathKey" (include "maul.previewImagePrefix" .) -}}
+{{- if hasPrefix $preview $key }}{{ fail (printf "preview.verification.testerImage %q lies under the preview image prefix %s: that path holds images built from unreviewed pull requests, and the tester must be maul's own" $img (include "maul.previewImagePrefix" .)) }}{{ end -}}
+{{- range $entry := (.Values.agent.repositoryImages | default dict).registries | default list -}}
+{{- $agent := include "maul.registryPathKey" (printf "%s/" (trimSuffix "/" (toString $entry))) -}}
+{{- if hasPrefix $agent $key }}{{ fail (printf "preview.verification.testerImage %q lies under the agent registry %q (agent.repositoryImages.registries): an image a slot runs must never be one an agent sandbox may run" $img (toString $entry)) }}{{ end -}}
+{{- end -}}
+{{- $img -}}
+{{- end }}
+{{- /*
+maul.previewVerifyDeadlineSeconds: preview.verification.deadlineMaxSeconds
+(default 1800), the one bound three readers share: maul-preview-jobs' limit
+on a slot Job's activeDeadlineSeconds, preview-controller's
+--preview-verify-deadline-max and intent-controller's
+--intent-verify-timeout-max (maul.previewVerifyDeadlineMax renders it as a
+Go duration). A request's timeout, so its tester Job's deadline, can then
+never exceed what admission allows. The schema holds it to [60, 3600], the
+range both flags accept.
+*/}}
+{{- define "maul.previewVerifyDeadlineSeconds" -}}
+{{- int ((.Values.preview.verification | default dict).deadlineMaxSeconds | default 1800) -}}
+{{- end }}
+{{- define "maul.previewVerifyDeadlineMax" -}}
+{{- printf "%ss" (include "maul.previewVerifyDeadlineSeconds" .) -}}
+{{- end }}
+{{- if include "maul.previewVerification" . }}
+{{- $pcSA := printf "system:serviceaccount:%s:%s" .Release.Namespace (include "maul.serviceAccountName" (dict "root" . "name" "preview-controller" "vals" .Values.previewController)) }}
+{{- $icSA := printf "system:serviceaccount:%s:%s" .Release.Namespace (include "maul.serviceAccountName" (dict "root" . "name" "intent-controller" "vals" .Values.intentController)) }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+    name: maul-preview-verifications
+spec:
+    failurePolicy: Fail
+    matchConstraints:
+        resourceRules:
+            - apiGroups: [maul.run]
+              apiVersions: [v1alpha1]
+              operations: [CREATE, UPDATE, DELETE]
+              resources: [previewverifications, previewverifications/status]
+        namespaceSelector:
+            matchLabels:
+                kubernetes.io/metadata.name: {{ .Release.Namespace }}
+    validations:
+        # The garbage collector deletes a request with its Intent (and
+        # updates one under foreground deletion), the namespace controller
+        # with its namespace; both run as their own ServiceAccounts, or as
+        # the controller manager where it does not use per-controller
+        # credentials.
+        - expression: >-
+              request.?subResource.orValue('') == 'status'
+                ? request.userInfo.username == '{{ $pcSA }}'
+                : request.userInfo.username in ['{{ $icSA }}',
+                    'system:serviceaccount:kube-system:generic-garbage-collector',
+                    'system:serviceaccount:kube-system:namespace-controller',
+                    'system:kube-controller-manager']
+          message: intent-controller writes verification requests; preview-controller writes their results
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+    name: maul-preview-verifications
+spec:
+    policyName: maul-preview-verifications
+    validationActions: [Deny]
+{{- end }}

@@ -205,6 +205,18 @@ type Settings struct {
 	// JobDeadlineMargin fits under.
 	JobDeadline    time.Duration
 	JobDeadlineMax time.Duration
+	// Verification is --intent-verification: an intent in review whose
+	// Project verifies (spec.verification.enabled) has its approved plan's
+	// acceptance criteria recorded and run against its Preview
+	// (verify_loop.go), which needs Previews: without them the intent's
+	// verification is Off (VerificationWithoutPreviews). Off (the default)
+	// the intent reconciler writes no acceptance or verification state and
+	// creates no PreviewVerification, whatever the Project says.
+	Verification bool
+	// VerifyTimeoutMax is --intent-verify-timeout-max: the most a Project's
+	// verification.timeout gives a tester Job (verifyTimeout). Zero is
+	// DefaultVerifyTimeoutMax.
+	VerifyTimeoutMax time.Duration
 	// Codex is the codex harness intents may run on (--intent-codex): the
 	// harness id and the canonical model of each stage. The zero value, the
 	// default, runs no intent on codex: a Project asking for it is not Ready
@@ -262,6 +274,25 @@ func (s Settings) ceiling(stage v1alpha1.IntentStage) StageCeiling {
 	return s.Plan
 }
 
+// VerificationWithoutPreviews reports --intent-verification without
+// --intent-previews-enabled: verification runs against the Preview only the
+// preview projection writes, so every verifying Project's intents are Off,
+// and the Project (ConditionVerificationOff) and the issue's status comment
+// say why. serve warns of it rather than refusing to start.
+func (s Settings) VerificationWithoutPreviews() bool {
+	return s.Verification && !s.Previews
+}
+
+// verifyTimeout is a verification's tester wall clock for Project p: its
+// verification.timeout (or the default), never more than VerifyTimeoutMax.
+func (s Settings) verifyTimeout(p *v1alpha1.Project) time.Duration {
+	limit := s.VerifyTimeoutMax
+	if limit <= 0 {
+		limit = DefaultVerifyTimeoutMax
+	}
+	return min(p.Spec.VerificationTimeout(), limit)
+}
+
 // stageLimits are the Project's limits for stage.
 func stageLimits(p *v1alpha1.Project, stage v1alpha1.IntentStage) v1alpha1.StageLimits {
 	switch stage {
@@ -308,6 +339,10 @@ const (
 	DefaultRateLimitFloor       = 1000
 	DefaultMaxAttempts          = 2
 	DefaultTTL                  = 14 * 24 * time.Hour
+	// DefaultVerifyTimeoutMax is --intent-verify-timeout-max's default: the
+	// chart's preview.verification.deadlineMaxSeconds, which preview-controller
+	// holds a tester Job's deadline to.
+	DefaultVerifyTimeoutMax = 30 * time.Minute
 )
 
 // withDefaults fills unset settings.

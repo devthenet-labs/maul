@@ -58,6 +58,14 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 		"project opted-in, open intent PRs into Preview resources, beside the default-branch head (read once at "+
 			"review start) of each previewed repository an intent did not change; requires a separately enabled "+
 			"preview-controller")
+	f.Bool("intent-verification", false,
+		"run the approved plan's acceptance criteria against each intent's Preview for Projects with "+
+			"spec.verification.enabled (PreviewVerification requests a separately enabled preview-controller "+
+			"answers); needs --intent-previews-enabled, without which verification is Off and each verifying "+
+			"Project says why. Off, no acceptance or verification state is written")
+	f.Duration("intent-verify-timeout-max", intent.DefaultVerifyTimeoutMax,
+		"the most a Project's verification.timeout gives a tester Job, between 1m and 1h; keep it at or under "+
+			"preview-controller's tester deadline maximum (chart preview.verification.deadlineMaxSeconds)")
 	f.Bool("intent-multi-repo", false,
 		"run intents of Projects that list more than one repository; off, such a Project is not Ready and its "+
 			"intents are held Blocked (UnsupportedRepositories) where they stand: no run is launched and nothing "+
@@ -194,6 +202,9 @@ func settings(opts *cli.Options, namespace, agentNS string) (intent.Settings, er
 			return intent.Settings{}, fmt.Errorf("%s must not be negative (0 disables it)", c.name)
 		}
 	}
+	if err := verification(opts, &s); err != nil {
+		return intent.Settings{}, err
+	}
 	if err := jobDeadlines(opts, &s); err != nil {
 		return intent.Settings{}, err
 	}
@@ -209,6 +220,21 @@ func settings(opts *cli.Options, namespace, agentNS string) (intent.Settings, er
 		return intent.Settings{}, err
 	}
 	return s, nil
+}
+
+// verification reads the acceptance-verification switch and the tester
+// timeout ceiling, held to a PreviewVerification's own timeout bounds.
+// Verification runs against the Preview the preview projection writes;
+// without it the controller still starts, with verification Off
+// (Settings.VerificationWithoutPreviews: serve warns, and the Projects and
+// issues say why), rather than taking intents down with it.
+func verification(opts *cli.Options, s *intent.Settings) error {
+	s.Verification = opts.Bool("intent-verification")
+	s.VerifyTimeoutMax = opts.Duration("intent-verify-timeout-max")
+	if s.VerifyTimeoutMax < time.Minute || s.VerifyTimeoutMax > time.Hour {
+		return fmt.Errorf("--intent-verify-timeout-max %s must be between 1m and 1h", s.VerifyTimeoutMax)
+	}
+	return nil
 }
 
 // jobDeadlines reads the intent Job deadline floor and ceiling. Each run's
@@ -419,6 +445,19 @@ func harnessesAndDNS(ctx context.Context, opts *cli.Options, cs kubernetes.Inter
 	return claude, codex, mode, err
 }
 
+// releaseNamespace is the namespace the controller runs in: --namespace,
+// else the pod's own (POD_NAMESPACE).
+func releaseNamespace(opts *cli.Options) (string, error) {
+	namespace := opts.String("namespace")
+	if namespace == "" {
+		namespace = os.Getenv("POD_NAMESPACE")
+	}
+	if namespace == "" {
+		return "", errors.New("namespace is required (--namespace or POD_NAMESPACE)")
+	}
+	return namespace, nil
+}
+
 func serve(ctx context.Context, opts *cli.Options) error {
 	prov, shutdown, err := telemetry.Init(ctx, telemetry.Config{
 		Dir:            os.Getenv("MAUL_TELEMETRY_DIR"),
@@ -432,12 +471,9 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	defer func() { _ = shutdown(context.WithoutCancel(ctx)) }()
 	log := prov.Logger
 
-	namespace := opts.String("namespace")
-	if namespace == "" {
-		namespace = os.Getenv("POD_NAMESPACE")
-	}
-	if namespace == "" {
-		return errors.New("namespace is required (--namespace or POD_NAMESPACE)")
+	namespace, err := releaseNamespace(opts)
+	if err != nil {
+		return err
 	}
 	agentNS := opts.String("agent-namespace")
 	set, err := settings(opts, namespace, agentNS)
@@ -564,6 +600,11 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		}
 	}
 
+	if set.VerificationWithoutPreviews() {
+		log.LogAttrs(ctx, slog.LevelWarn, "--intent-verification without --intent-previews-enabled: verification "+
+			"runs against the intent's Preview, so it is off; each verifying Project says so in its VerificationOff "+
+			"condition")
+	}
 	log.LogAttrs(ctx, slog.LevelInfo, "intent-controller starting",
 		slog.String("namespace", namespace),
 		slog.String("agent_namespace", agentNS),
@@ -572,6 +613,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		slog.Int("max_concurrent_runs", opts.Int("intent-max-concurrent-runs")),
 		slog.Bool("agents_paused", opts.Bool(runnercfg.AgentsPausedFlag)),
 		slog.Bool("multi_repo", set.MultiRepo),
+		slog.Bool("verification", set.Verification),
 		slog.String("attribution_mode", string(set.Attribution)),
 		slog.String("user_credentials", string(set.UserCredentials)),
 		slog.Bool("usage_measurement", meter.On()),

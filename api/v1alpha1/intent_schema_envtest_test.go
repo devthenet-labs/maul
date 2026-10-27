@@ -660,6 +660,8 @@ func fullIntentStatus() maulv1.IntentStatus {
 			ChecksRerun: &maulv1.IntentChecksRerun{HeadSHA: schemaSHA, CheckRunIDs: []int64{71, 72},
 				Checks: []string{"lint", "test"}, WorkflowRunIDs: []int64{81}, RequestedAt: schemaNow},
 			PreviewCommentID: 1002, PreviewDigest: schemaDigest,
+			AcceptanceStatusID: 1003, AcceptanceHead: schemaSHA, AcceptanceDigest: schemaDigest,
+			VerifyDigest: schemaDigest,
 		}},
 		PreviewBases: []maulv1.IntentPreviewBase{
 			{Repository: "https://github.com/acme/web", SHA: strings.Repeat("b", 40)},
@@ -668,6 +670,29 @@ func fullIntentStatus() maulv1.IntentStatus {
 		RoundNoticesThrough: 2,
 		Revisions:           1,
 		CheckFixes:          1,
+		VerifyFixes:         1,
+		Acceptance: &maulv1.IntentAcceptance{
+			PlanRevision: 1, Digest: schemaDigest, Criteria: schemaCriteria(),
+			Accepted: []maulv1.AcceptanceRecord{{ID: "sounds-good", By: "octocat", ByID: 583231, At: schemaNow,
+				CommentID: 46, HeadSetDigest: schemaDigest, Heads: []string{"aaaaaaa"}}},
+		},
+		Verification: &maulv1.IntentVerification{
+			State: maulv1.VerificationFailing, Round: 2, Attempt: 1,
+			Ref:           &maulv1.ObjectReference{Name: "target-1-v2-a1", UID: "u-pv"},
+			HeadSetDigest: schemaDigest, Heads: schemaHeads(),
+			Passed: 1, Failed: 1, Quarantined: 1, ManualOpen: 1, ManualAccepted: 1, NotRun: 1,
+			Failing: []maulv1.CriterionState{{ID: "battle-leaderboard", Outcome: maulv1.VerdictFail,
+				Fingerprint: "maul-verify-fingerprint/1:" + strings.Repeat("f", 64)}},
+			QuarantinedIDs: []string{"kick-onsets"},
+			AutoFix: maulv1.AutoFix{State: maulv1.AutoFixHalted, Reason: maulv1.AutoFixHumanReview,
+				Since: schemaNow.DeepCopy(),
+				Rearm: &maulv1.Rearm{By: "octocat", ByID: 583231, At: schemaNow, Round: 2}},
+			CancelRun: "target-1-rev4-shop-a1",
+			Requested: &maulv1.VerifyRequest{By: "octocat", ByID: 583231, At: schemaNow, CommentID: 47, Fix: true,
+				Reset: true},
+			Reset:     maulv1.ResetState{Generation: 1, By: "octocat", ByID: 583231, At: schemaNow.DeepCopy()},
+			Automatic: 3, LastAutomaticAt: schemaNow.DeepCopy(), InfraRetries: 1,
+		},
 		Usage: maulv1.IntentUsage{
 			CostMicroUSD: 1234567, InputTokens: 10, OutputTokens: 20, CacheReadTokens: 30, CacheCreationTokens: 40,
 		},
@@ -871,6 +896,13 @@ func testIntentSchema(ctx context.Context, t *testing.T, c client.Client) {
 			s.Commands.RefusedActors = actors(maulv1.MaxIntentRefusedActors + 1)
 		}, true},
 		{"a refused actor twice", func(s *maulv1.IntentStatus) { s.Commands.RefusedActors = []int64{7, 7} }, true},
+		{"applied commands at the bound", func(s *maulv1.IntentStatus) {
+			s.Commands.Applied = actors(maulv1.MaxIntentAppliedCommands)
+		}, false},
+		{"applied commands past the bound", func(s *maulv1.IntentStatus) {
+			s.Commands.Applied = actors(maulv1.MaxIntentAppliedCommands + 1)
+		}, true},
+		{"a command applied twice", func(s *maulv1.IntentStatus) { s.Commands.Applied = []int64{7, 7} }, true},
 		// Slice 3: per-PR check observation and the recorded preview bases.
 		{"a malformed per-PR checks head", func(s *maulv1.IntentStatus) {
 			s.PullRequests[0].ChecksObservedHeadSHA = "HEAD"
@@ -923,6 +955,36 @@ func testIntentSchema(ctx context.Context, t *testing.T, c client.Client) {
 			s.PreviewBases[0].Repository = "https://x:token@github.com/acme/web"
 		}, true},
 		{"a seen comment without its id", func(s *maulv1.IntentStatus) { s.Commands.Seen.ID = 0 }, true},
+		// Acceptance verification: a fixed vocabulary and bounded records.
+		{"an unknown verification state", func(s *maulv1.IntentStatus) { s.Verification.State = "Green" }, true},
+		{"an unknown auto-fix reason", func(s *maulv1.IntentStatus) {
+			s.Verification.AutoFix.Reason = "Because"
+		}, true},
+		{"an error verdict", func(s *maulv1.IntentStatus) { s.Verification.Failing[0].Outcome = "error" }, true},
+		{"a fingerprint of a value", func(s *maulv1.IntentStatus) {
+			s.Verification.Failing[0].Fingerprint = "maul-verify-fingerprint/1:leaderboard"
+		}, true},
+		{"a fourth verification attempt", func(s *maulv1.IntentStatus) { s.Verification.Attempt = 4 }, true},
+		{"seventeen approved criteria", func(s *maulv1.IntentStatus) {
+			for len(s.Acceptance.Criteria) < 17 {
+				s.Acceptance.Criteria = append(s.Acceptance.Criteria, s.Acceptance.Criteria[2])
+			}
+		}, true},
+		{"33 acceptance records", func(s *maulv1.IntentStatus) {
+			for len(s.Acceptance.Accepted) < 33 {
+				s.Acceptance.Accepted = append(s.Acceptance.Accepted, s.Acceptance.Accepted[0])
+			}
+		}, true},
+		{"an acceptance by a bot", func(s *maulv1.IntentStatus) {
+			s.Acceptance.Accepted[0].By = "maul[bot]"
+		}, true},
+		{"an acceptance without the approver's id", func(s *maulv1.IntentStatus) {
+			s.Acceptance.Accepted[0].ByID = 0
+		}, true},
+		{"a bare-hex acceptance digest", func(s *maulv1.IntentStatus) {
+			s.PullRequests[0].AcceptanceDigest = strings.Repeat("d", 64)
+		}, true},
+		{"a negative verify-fix count", func(s *maulv1.IntentStatus) { s.VerifyFixes = -1 }, true},
 	} {
 		t.Run("status with "+tt.name, func(t *testing.T) {
 			i := fresh(t)

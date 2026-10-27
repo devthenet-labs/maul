@@ -73,6 +73,9 @@ type IntentPreview struct {
 	// repository, in Project order. With more than one, the comment lists
 	// each; with one, it names its revision in the line.
 	Components []IntentPreviewComponent
+	// Verify is where acceptance verification stands, appended to the line
+	// as a clause; nil, or a zero State, adds nothing.
+	Verify *VerifyProgress
 }
 
 // IntentPreviewComponent is one repository a preview serves.
@@ -109,6 +112,9 @@ type IntentPreviewComment struct {
 	// Path is where the pull request's repository is served on the host,
 	// given when the preview serves more than one repository; "" omits it.
 	Path string
+	// Verify is the acceptance verification section, shown below the link
+	// sentence; nil, or one with no state and no criteria, adds nothing.
+	Verify *VerifySection
 }
 
 // previewHost is a host maul links: lowercase DNS labels, at least two.
@@ -208,6 +214,11 @@ func renderStatusPreview(p *IntentPreview) *statusPreview {
 			s = clause
 		}
 	}
+	if p.Verify != nil {
+		if line := verifyLine(*p.Verify); line != "" {
+			s += " " + line
+		}
+	}
 	out := &statusPreview{Sentence: s}
 	if !single {
 		for _, c := range p.Components {
@@ -243,13 +254,22 @@ func RenderIntentPreviewComment(c IntentPreviewComment) (string, error) {
 			s = "The preview of this pull request's head, " + shortRevision(c.Revision) + ", " + clause
 		}
 	}
+	section := ""
+	if state != PreviewRemoved {
+		var err error
+		if section, err = renderVerifySection(c.Verify); err != nil {
+			return "", err
+		}
+	}
 	return render("intent_preview.md.tmpl", struct {
 		Marker   string
 		Sentence string
 		Removed  bool
+		Verify   string
 	}{
 		Marker:   NoticeMarker(c.Namespace, c.Intent, PreviewKey),
 		Sentence: s,
 		Removed:  state == PreviewRemoved,
+		Verify:   section,
 	})
 }

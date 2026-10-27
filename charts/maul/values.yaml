@@ -255,6 +255,53 @@ preview:
     certificateARN: "" # LEGACY: issued wildcard certificate for preview hosts.
     hostSuffix: "" # e.g. preview.example.com, without leading dot.
     albName: "" # LEGACY: distinct from the normal maul ALB.
+    # Acceptance verification (docs/intents/acceptance.md): intent-controller
+    # asks preview-controller to run an intent's approved acceptance
+    # criteria against its live Preview, from a tester Job inside the
+    # Preview's own slot. Off by default. On, it needs previewController and
+    # renders, all fail closed: the tester's exact image beside the preview
+    # prefix in the slot pod image rule; maul-preview-jobs (only
+    # preview-controller runs a slot Job, once, bounded, labelled, under
+    # every slot pod rule); maul-preview-networkpolicies (preview-controller's
+    # per-part edge policies admit only pods of the same Preview, by part, on
+    # explicit TCP ports, and never touch preview-isolation);
+    # maul-preview-verifications (only intent-controller writes a request,
+    # only preview-controller its result); the grants that need (per slot,
+    # preview-controller: jobs, networkpolicies, pods/log; in the release
+    # namespace, previewverifications read and status update for it, and
+    # create/delete for intent-controller); and the slot quota's Job and
+    # NetworkPolicy counts.
+    verification:
+        enabled: false
+        # The preview-tester image, pinned by digest
+        # (<registry>/<path>@sha256:<64 hex>, a tag before the digest
+        # allowed). Required with enabled. Admitted in a slot by this exact
+        # reference only, so it must lie neither under the preview image
+        # prefix nor under any agent.repositoryImages.registries entry: the
+        # render fails otherwise. The release workflow stamps it.
+        testerImage: "" # x-maul-preview-tester-image
+        # The longest activeDeadlineSeconds a slot Job (and its pod) may
+        # carry, 60 to 3600. It also renders as preview-controller's
+        # --preview-verify-deadline-max and intent-controller's
+        # --intent-verify-timeout-max (the clamp on a Project's
+        # verification.timeout), so no request can ask for a tester Job the
+        # slot policy refuses.
+        deadlineMaxSeconds: 1800
+    # The slot ResourceQuota, per slot. Unset keys take the defaults: today's
+    # (pods 8, services 5, requests 1 CPU/1Gi, limits 2 CPU/2Gi) with
+    # verification off, and with it on room for the tester beside a Preview
+    # of four components (pods 10, requests 1250m/1280Mi, limits
+    # 2500m/2560Mi, jobs 1, networkPolicies 6: one edge policy per part plus
+    # preview-isolation). jobs and networkPolicies render only with
+    # verification on or when set. Load balancers and node ports are always
+    # 0, and ingresses 4.
+    quota: {}
+    #   pods: 10
+    #   services: 5
+    #   requests: {cpu: 1250m, memory: 1280Mi}
+    #   limits: {cpu: 2500m, memory: 2560Mi}
+    #   jobs: 1
+    #   networkPolicies: 6
 
 # Namespaced runtime renderer for opt-in Projects. Kept off while preview
 # isolation, the separate ALB, placeholder Ingress and DNS are being staged.

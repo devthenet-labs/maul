@@ -27,8 +27,10 @@ func TestAvailable(t *testing.T) {
 		want    []string
 	}{
 		{command.FindingIssue, action.ActionVerbs},
-		{command.IntentIssue, []string{action.VerbApprove, action.VerbReplan, action.VerbCancel}},
-		{command.IntentPR, []string{action.VerbRevise, action.VerbRetry}},
+		{command.IntentIssue, []string{
+			action.VerbApprove, action.VerbReplan, action.VerbVerify, action.VerbAccept, action.VerbCancel,
+		}},
+		{command.IntentPR, []string{action.VerbRevise, action.VerbRetry, action.VerbVerify, action.VerbAccept}},
 		{"pull-request", nil},
 		{"", nil},
 	}
@@ -73,6 +75,15 @@ func TestAvailableVerbsParse(t *testing.T) {
 	}
 }
 
+// The usage lines of the acceptance commands, which both intent surfaces
+// offer.
+const (
+	verifyLine = "- `/maul verify [fix|--reset]`: check the change against the plan's acceptance criteria now; " +
+		"`fix` also lets maul fix failures again, `--reset` first restarts the preview with fresh data"
+	acceptLine = "- `/maul accept <id>`: accept a manual criterion, or one that passed only on retry, " +
+		"at the current commits"
+)
+
 func TestHelp(t *testing.T) {
 	const intro = "Commands go on the first line of a comment. Here you can use:\n\n"
 	cases := []struct {
@@ -88,10 +99,12 @@ func TestHelp(t *testing.T) {
 		{command.IntentIssue, intro +
 			"- `/maul approve`: approve the posted plan and start the build\n" +
 			"- `/maul replan [note]`: plan again, taking the note and approvers' comments since the last plan into account\n" +
+			verifyLine + "\n" + acceptLine + "\n" +
 			"- `/maul cancel`: stop work on this intent and close it; open pull requests are left to you"},
 		{command.IntentPR, intro +
 			"- `/maul revise [note]`: start a revision round from your review feedback and the note\n" +
-			"- `/maul retry`: retry the round that failed"},
+			"- `/maul retry`: retry the round that failed\n" +
+			verifyLine + "\n" + acceptLine},
 		{"pull-request", ""},
 	}
 	for _, tc := range cases {
@@ -157,7 +170,7 @@ func helpLines(help string) (verbs, lines []string) {
 func TestHelpListsExactlyAvailable(t *testing.T) {
 	candidates := []string{
 		action.VerbApprove, action.VerbRetry, action.VerbExpedite, action.VerbSuspend, action.VerbResume,
-		action.VerbReplan, action.VerbCancel, action.VerbRevise, "bogus",
+		action.VerbReplan, action.VerbCancel, action.VerbRevise, action.VerbVerify, action.VerbAccept, "bogus",
 	}
 	for _, s := range []command.Surface{command.FindingIssue, command.IntentIssue, command.IntentPR} {
 		offered := command.Available(s)

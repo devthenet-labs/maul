@@ -12,8 +12,12 @@
 # admitted, which also proves the listener answers, so the refusals are the
 # policy's. With --refused-is-blocked (kube-router, k3s's policy controller,
 # REJECTs: a refused connection) the gateway client runs first and the other
-# two count a refusal as blocked only once it has reached the listener. See
-# README.md.
+# two count a refusal as blocked only once it has reached the listener.
+# Acceptance verification's edge policies (preview-<p>-np-<part>, one part of
+# one Preview each) admit only pods of the same Preview, so the static check
+# accepts a policy of exactly the shape the maul-preview-networkpolicies
+# admission policy admits preview-controller, and refuses any other edge
+# policy. --check-policies runs that static check alone. See README.md.
 set -euo pipefail
 
 usage() {
@@ -53,6 +57,9 @@ Each option falls back to the environment variable named beside it.
   --print-manifests             print the four Pods it would create (the
                                 listener's address as 192.0.2.1), then exit
                                 before kubectl is called
+  --check-policies              read the slot's NetworkPolicies and judge
+                                their shape, then exit before any Pod is
+                                created
   -h, --help                    print this help
 EOF
 }
@@ -74,6 +81,7 @@ isolation=1
 refused_blocks=0
 dry_run=0
 print_manifests=0
+check_policies=0
 while [[ $# -gt 0 ]]; do
     case $1 in
     -h | --help)
@@ -82,6 +90,7 @@ while [[ $# -gt 0 ]]; do
         ;;
     --dry-run) dry_run=1 ;;
     --print-manifests) print_manifests=1 ;;
+    --check-policies) check_policies=1 ;;
     --no-node-isolation) isolation=0 ;;
     --refused-is-blocked) refused_blocks=1 ;;
     --image | --node-selector | --taint-key | --release-namespace | --agents-namespace | --slot | --timeout)
@@ -240,6 +249,17 @@ trap cleanup EXIT
 # ipBlocks. preview-isolation must exist, select every Pod, govern ingress
 # and name that peer, or the admitted client would fail for a reason this run
 # is not about.
+#
+# A preview edge policy (named preview-<p>-np-<part>, or labelled as
+# preview-controller's) is judged whole instead, by the predicate the
+# maul-preview-networkpolicies admission policy holds preview-controller's
+# writes to: its name and label, a selector of exactly one Preview's UID and
+# one part, both policy types, and every rule, ingress and egress, naming at
+# least one peer and one port, each port a numeric TCP port without an
+# endPort and each peer a pod of the same Preview by its UID and a part,
+# by those two labels alone. Such a policy admits no Pod outside the slot
+# and none of this run's (they carry no Preview UID); any other edge policy
+# is refused, whoever wrote it.
 policies=$(kube get networkpolicy -n "$slot_ns" -o json)
 if ! jq -e '.items[]? | select(.metadata.name == "preview-isolation")' <<<"$policies" >/dev/null; then
     echo "there is no slot NetworkPolicy $slot_ns/preview-isolation: is the slot created (preview.enabled)?" >&2
@@ -249,7 +269,26 @@ offenders=$(jq -r --arg rel "$release_ns" '
     def gateway: . == {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": $rel}},
         "podSelector": {"matchLabels": {"maul.run/preview-gateway": "true"}}};
     def block: (keys == ["ipBlock"]) and ((.ipBlock.cidr // "") != "");
+    def pc_label: (.metadata.labels // {})["app.kubernetes.io/managed-by"] == "maul-preview-controller";
+    def edge_named: ((.metadata.name // "") | contains("-np-")) or pc_label;
+    def ports_ok: ((.ports // []) | length > 0) and all(.ports[]; .protocol == "TCP" and
+        (.port | type) == "number" and (has("endPort") | not));
+    def peer_ok($uid): keys == ["podSelector"] and (.podSelector | type) == "object" and
+        (.podSelector | keys) == ["matchLabels"] and (.podSelector.matchLabels | length == 2 and
+        .["maul.run/preview-uid"] == $uid and has("maul.run/preview-part"));
+    def edge_shaped: ((.spec.podSelector // {}) | if type == "object" then . else {} end) as $sel |
+        (($sel.matchLabels // {})["maul.run/preview-uid"] // "") as $uid |
+        ((.metadata.name // "") | startswith("preview-") and contains("-np-")) and pc_label and $uid != "" and
+        ($sel | keys) == ["matchLabels"] and ($sel.matchLabels | length == 2 and has("maul.run/preview-part")) and
+        ((.spec.policyTypes // []) | length == 2 and index("Ingress") != null and index("Egress") != null) and
+        all(.spec.ingress[]?; ((.from // []) | length > 0) and ports_ok and all(.from[]; peer_ok($uid))) and
+        all(.spec.egress[]?; ((.to // []) | length > 0) and ports_ok and all(.to[]; peer_ok($uid)));
     .items[] | .metadata.name as $n |
+    if edge_named then
+        (if edge_shaped then empty else "\($n) is a preview edge policy of a shape preview-controller may not write" +
+            " (one part of one Preview, both directions, peers of that Preview by part on numeric TCP ports): " +
+            "\(.spec | tojson)" end)
+    else
     (if $n == "preview-isolation" and ((.spec.podSelector // {}) != {}) then
         "\($n) selects only some of the slot'"'"'s Pods (its podSelector is not {})" else empty end),
     (if $n == "preview-isolation" and ((.spec.policyTypes // ["Ingress"]) | index("Ingress") == null) then
@@ -257,7 +296,8 @@ offenders=$(jq -r --arg rel "$release_ns" '
     (.spec.ingress[]? | if ((.from // []) | length) == 0 then
         "\($n) has an ingress rule with no from, which admits every source"
     else .from[] | select((gateway or block) | not) |
-        "\($n) admits an ingress peer other than the preview gateway'"'"'s: \(tojson)" end)' <<<"$policies")
+        "\($n) admits an ingress peer other than the preview gateway'"'"'s: \(tojson)" end)
+    end' <<<"$policies")
 if [[ -n $offenders ]]; then
     echo "the slot's NetworkPolicies in $slot_ns admit more than the preview gateway:" >&2
     printf '  %s\n' "$offenders" >&2
@@ -277,6 +317,11 @@ blocks=$(jq -r '[.items[].spec.ingress[]?.from[]? | .ipBlock.cidr? // empty] | u
 if [[ -n $blocks ]]; then
     echo "WARNING: $slot_ns/preview-isolation also admits the address ranges $blocks on port http, bypassing the" \
         "preview gateway; this run does not test them. They go once preview.legacyIngress is false." >&2
+fi
+if [[ $check_policies -eq 1 ]]; then
+    echo "the slot's NetworkPolicies in $slot_ns admit only the preview gateway, and preview edges between one" \
+        "Preview's parts; no Pod was created" >&2
+    exit 0
 fi
 for target in "$slot_ns/$listener" "$agents_ns/preview-ingress-agent" "$release_ns/preview-ingress-release" \
     "$release_ns/preview-ingress-gateway"; do

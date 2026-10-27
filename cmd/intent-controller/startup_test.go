@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -327,5 +328,38 @@ func TestCodexHarnessAndDNS(t *testing.T) {
 				t.Errorf("claude runner injects %v, want agent-runner and claude", got)
 			}
 		})
+	}
+}
+
+// TestSettingsVerificationFlags: --intent-verify-timeout-max carries
+// through within the bounds a PreviewVerification's timeout has (1m to 1h).
+// --intent-verification without the preview projection it runs against
+// does not stop the controller: it starts with verification off
+// (VerificationWithoutPreviews, which serve warns of and the Projects and
+// issues explain).
+func TestSettingsVerificationFlags(t *testing.T) {
+	s, err := settings(resolved(t), "p", "a")
+	if err != nil || s.Verification || s.VerifyTimeoutMax != intent.DefaultVerifyTimeoutMax {
+		t.Fatalf("defaults: verification %v, timeout max %s, err %v", s.Verification, s.VerifyTimeoutMax, err)
+	}
+	s, err = settings(resolved(t, "--intent-previews-enabled", "--intent-verification",
+		"--intent-verify-timeout-max", "12m"), "p", "a")
+	if err != nil || !s.Verification || s.VerifyTimeoutMax != 12*time.Minute {
+		t.Fatalf("on: verification %v, timeout max %s, err %v", s.Verification, s.VerifyTimeoutMax, err)
+	}
+	if s.VerificationWithoutPreviews() {
+		t.Fatal("verification with previews reads as without")
+	}
+	s, err = settings(resolved(t, "--intent-verification"), "p", "a")
+	if err != nil || !s.VerificationWithoutPreviews() {
+		t.Fatalf("verification without previews: settings %+v, err %v; want it started, verification off", s, err)
+	}
+	for _, args := range [][]string{
+		{"--intent-previews-enabled", "--intent-verify-timeout-max", "30s"},
+		{"--intent-previews-enabled", "--intent-verify-timeout-max", "2h"},
+	} {
+		if _, err := settings(resolved(t, args...), "p", "a"); err == nil {
+			t.Errorf("settings %v accepted", args)
+		}
 	}
 }

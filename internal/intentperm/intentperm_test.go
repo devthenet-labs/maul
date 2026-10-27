@@ -25,6 +25,8 @@ const (
 // repository reads), plus the check-fix reads when spec.checks.fix names a
 // check, and never otherwise, and actions write beside them when
 // spec.checks.rerunFailed is set too, and never without checks to fix.
+// Statuses write (maul's commit status) is never required: a Project that
+// verifies lists it as optional, one that does not never asks for it.
 func TestFor(t *testing.T) {
 	issuesW := Grant{Permission: Issues, Access: Write}
 	issuesR := Grant{Permission: Issues, Access: Read}
@@ -32,6 +34,7 @@ func TestFor(t *testing.T) {
 	pullsW := Grant{Permission: PullRequests, Access: Write}
 	checksR := Grant{Permission: Checks, Access: Read}
 	statusesR := Grant{Permission: Statuses, Access: Read}
+	statusesW := Grant{Permission: Statuses, Access: Write}
 	actionsR := Grant{Permission: Actions, Access: Read}
 	actionsW := Grant{Permission: Actions, Access: Write}
 
@@ -97,6 +100,29 @@ func TestFor(t *testing.T) {
 			},
 		},
 		{
+			name: "verification lists statuses write as optional",
+			spec: v1alpha1.ProjectSpec{IntentRepository: intentURL,
+				Repositories: []v1alpha1.ProjectRepository{{Name: "web", URL: webURL}},
+				Checks:       v1alpha1.ProjectChecks{Fix: []string{"test"}},
+				Verification: &v1alpha1.ProjectVerification{Enabled: true}},
+			want: []Requirement{
+				{Role: RoleIntent, URL: intentURL, Grants: []Grant{issuesW}},
+				{Role: RoleApp, Key: "web", URL: webURL,
+					Grants:   []Grant{contentsW, pullsW, issuesR, checksR, statusesR, actionsR},
+					Optional: []Grant{statusesW}},
+			},
+		},
+		{
+			name: "verification switched off asks nothing of statuses",
+			spec: v1alpha1.ProjectSpec{IntentRepository: intentURL,
+				Repositories: []v1alpha1.ProjectRepository{{Name: "web", URL: webURL}},
+				Verification: &v1alpha1.ProjectVerification{Enabled: false}},
+			want: []Requirement{
+				{Role: RoleIntent, URL: intentURL, Grants: []Grant{issuesW}},
+				{Role: RoleApp, Key: "web", URL: webURL, Grants: []Grant{contentsW, pullsW, issuesR}},
+			},
+		},
+		{
 			name: "the intent repository is also an application repository",
 			spec: v1alpha1.ProjectSpec{IntentRepository: webURL,
 				Repositories: []v1alpha1.ProjectRepository{{Name: "web", URL: webURL}}},
@@ -136,14 +162,14 @@ func TestGrantString(t *testing.T) {
 
 // TestMerge: the highest access wins, one grant per permission, sorted.
 func TestMerge(t *testing.T) {
-	got := Merge(Intent(), App(true), App(false), []Grant{{Permission: Issues, Access: Read}})
+	got := Merge(Intent(), App(true), App(false), CommitStatus(), []Grant{{Permission: Issues, Access: Read}})
 	want := []Grant{
 		{Permission: Actions, Access: Read},
 		{Permission: Checks, Access: Read},
 		{Permission: Contents, Access: Write},
 		{Permission: Issues, Access: Write},
 		{Permission: PullRequests, Access: Write},
-		{Permission: Statuses, Access: Read},
+		{Permission: Statuses, Access: Write},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Merge() = %+v, want %+v", got, want)

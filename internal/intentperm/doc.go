@@ -13,6 +13,12 @@
 //     conversation), and issues read, the token a reviewer's collaborator
 //     permission and the installation's rate budget are read with
 //     (RepositoryReads);
+//   - every application repository of a Project that verifies
+//     (spec.verification.enabled), as an Optional grant: statuses write,
+//     which posts maul's commit status on the pull request head and lists
+//     the statuses there (CommitStatus). Ready proves it but never requires
+//     it: without it the Project stays Ready and verifying, and only the
+//     status is not posted;
 //   - every application repository, when spec.checks.fix names a check:
 //     checks, statuses and actions read, which a check-fix round needs to
 //     find the failed checks and read their annotations and job log tails;
@@ -24,7 +30,8 @@
 // events it must hold, and nothing more: the findings pipeline (code
 // scanning alerts, issues, contents and pull requests write, and the four
 // events the integration-controller consumes), intents (the merged intent
-// rows above, no event: intent-controller polls), check fixes (the
+// rows above with statuses write, no event: intent-controller polls), check
+// fixes (the
 // check-fix reads), and failed-check re-runs (actions write, a feature of
 // its own so check fixes never widen to a write on CI), plus the metadata
 // read GitHub requires of every App.

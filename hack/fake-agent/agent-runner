@@ -44,7 +44,9 @@
 # "## Repositories" heading, exactly as listed there; or, when
 # MAUL_FAKE_PLAN_REPOSITORIES is set (space-separated URLs, a test
 # harness's stand-in for a model deciding that only some of them must
-# change), exactly those. A build is handed the
+# change), exactly those. When MAUL_FAKE_PLAN_ACCEPTANCE is set (YAML
+# lines), the plan's frontmatter also declares that acceptance block, the
+# criteria a model would write. A build is handed the
 # approved plan alone (input/investigation.md) with an empty request; a
 # request beside it is a fatal event, as agent-runner makes it. The
 # changeset stays clear of .github, .maul and .devcontainer, which an
@@ -263,7 +265,15 @@ plan)
 
   # The plan exactly as report.ParsePlan wants it: strict frontmatter, then
   # the plan in visible text the approver reads verbatim.
-  report='---\nsummary: Add a VERSION file (scripted plan from hack/fake-agent)\nrepositories:\n'"$repo_yaml"'new_dependencies: []\nquestions:\n  - Should VERSION follow the release tags?\nconfidence: 0.85\nestimated_max_turns: 30\nestimated_token_budget: 150000\n---\n\n## Approach\n\nScripted plan from `hack/fake-agent`; no model was consulted. Add a\nVERSION file at the repository root that names the current version.\n\n## Steps\n\n1. Create `VERSION` holding the version on one line.\n2. Commit it with `commit.sh`.\n\n## Test plan\n\n- `go test ./...` still passes.\n\n## Risks\n\nNone: the file is new and nothing reads it yet.\n'
+  # The plan's acceptance criteria, when a harness declares them in the
+  # model's place: MAUL_FAKE_PLAN_ACCEPTANCE is the frontmatter's
+  # acceptance block as YAML lines, escaped here for the JSON string.
+  acceptance=''
+  if [ -n "${MAUL_FAKE_PLAN_ACCEPTANCE:-}" ]; then
+    acceptance=$(printf '%s\n' "$MAUL_FAKE_PLAN_ACCEPTANCE" |
+      sed 's/\\/\\\\/g; s/"/\\"/g' | awk '{ printf "%s\\n", $0 }')
+  fi
+  report='---\nsummary: Add a VERSION file (scripted plan from hack/fake-agent)\nrepositories:\n'"$repo_yaml"'new_dependencies: []\nquestions:\n  - Should VERSION follow the release tags?\nconfidence: 0.85\nestimated_max_turns: 30\nestimated_token_budget: 150000\n'"$acceptance"'---\n\n## Approach\n\nScripted plan from `hack/fake-agent`; no model was consulted. Add a\nVERSION file at the repository root that names the current version.\n\n## Steps\n\n1. Create `VERSION` holding the version on one line.\n2. Commit it with `commit.sh`.\n\n## Test plan\n\n- `go test ./...` still passes.\n\n## Risks\n\nNone: the file is new and nothing reads it yet.\n'
 
   printf 'MAUL-EVENT: {"v":4,"type":"plan","repo":"%s","finding":"%s","plan":{"outcome":"ok","harness":"fake","model":"%s","session_id":"00000000-0000-4000-8000-000000000002","num_turns":%d,"usage":{"input_tokens":1500,"output_tokens":600,"cache_read_tokens":0,"cache_creation_tokens":0,"cost_usd":0.04},"elapsed_seconds":2.0,"report_markdown":"%s","summary":"Add a VERSION file (scripted plan from hack/fake-agent)","repositories":[%s],"questions":["Should VERSION follow the release tags?"],"confidence":0.85,"estimated_max_turns":30,"estimated_token_budget":150000}}\n' \
     "$repo" "$finding" "$investigate_model" "$seq" "$report" "$repo_json"

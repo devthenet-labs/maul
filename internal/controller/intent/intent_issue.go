@@ -211,13 +211,16 @@ func hasLabel(issue *ghclient.Issue, name string) bool {
 	return false
 }
 
-// verbs are the commands the intent issue admits in the Intent's phase.
-func verbs(phase v1alpha1.IntentPhase) []string {
+// verbs are the commands the intent issue admits in the Intent's phase; the
+// acceptance commands only with verification (--intent-verification) on.
+func verbs(phase v1alpha1.IntentPhase, verification bool) []string {
 	switch {
 	case phase == v1alpha1.IntentAwaitingApproval:
 		return []string{"approve", "replan", "cancel"}
 	case terminal(phase):
 		return nil
+	case verification && verifyPhase(phase):
+		return []string{"verify", "accept", "cancel"}
 	}
 	return []string{"cancel"}
 }

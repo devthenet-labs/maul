@@ -89,6 +89,7 @@ func Run(ctx context.Context, cfg Config) (Report, error) {
 	r.labels()
 	s := loadSettings(ctx, cfg.Reader, p.Namespace)
 	r.agentImages(ctx, s)
+	r.acceptanceRules(ctx)
 	r.previews(ctx, s)
 	return r.report, nil
 }
@@ -350,6 +351,59 @@ func (r *run) judgeAgentImage(ctx context.Context, key, image, declared string, 
 	r.add(CheckAgentImage, key, checkreport.Pass, "%s pins to %s and passes source-controller's policy from %s "+
 		"(%s); read with your registry credentials, not source-controller's", declared, rep.Image, pol.from,
 		pol.signature)
+}
+
+// acceptanceContext is the commit status context maul posts verification
+// results under.
+const acceptanceContext = "maul/acceptance"
+
+// acceptanceRules reports, for each app repository of a Project with
+// verification enabled, whether the rules on its default branch require
+// maul/acceptance from the maul App. Advisory only: a missing rule is a
+// WARN (the status then gates nothing), an unreadable one a SKIP. The
+// rules endpoint lists rulesets, not classic branch protection.
+func (r *run) acceptanceRules(ctx context.Context) {
+	if !r.p.Spec.VerificationEnabled() {
+		return
+	}
+	for _, repo := range r.p.Spec.Repositories {
+		r.acceptanceRule(ctx, repo)
+	}
+}
+
+func (r *run) acceptanceRule(ctx context.Context, repo v1alpha1.ProjectRepository) {
+	key := repo.Name
+	head, err := r.head(ctx, repo.URL)
+	if err != nil {
+		r.add(CheckAcceptanceRules, key, checkreport.Skip, "cannot read the default branch: %v", err)
+		return
+	}
+	var checks []RequiredCheck
+	if r.cfg.GitHub == nil {
+		err = errors.New("no GitHub reader")
+	} else {
+		checks, err = r.cfg.GitHub.BranchRules(ctx, repo.URL, head.Branch)
+	}
+	if err != nil {
+		r.add(CheckAcceptanceRules, key, checkreport.Skip, "cannot read the rules on %s: %v", head.Branch, err)
+		return
+	}
+	i := slices.IndexFunc(checks, func(c RequiredCheck) bool { return c.Context == acceptanceContext })
+	switch {
+	case i < 0:
+		r.add(CheckAcceptanceRules, key, checkreport.Warn, "no ruleset on %s requires the %s status, so a pull "+
+			"request merges whatever maul reports; add a ruleset requiring it with the maul App as expected source "+
+			"(classic branch protection is not read here). maul posts it on every open pull request of this "+
+			"Project; manual items, and a plan with no criteria, turn it green only through an approver's "+
+			"/maul accept", head.Branch, acceptanceContext)
+	case checks[i].IntegrationID == 0:
+		r.add(CheckAcceptanceRules, key, checkreport.Warn, "a ruleset on %s requires %s but accepts it from any "+
+			"source, so anyone who can write statuses can satisfy it; set the maul App as the expected source",
+			head.Branch, acceptanceContext)
+	default:
+		r.add(CheckAcceptanceRules, key, checkreport.Pass, "a ruleset on %s requires %s from App %d",
+			head.Branch, acceptanceContext, checks[i].IntegrationID)
+	}
 }
 
 // declarations reads the two declaration files at sha.

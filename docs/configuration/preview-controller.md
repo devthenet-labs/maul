@@ -274,3 +274,56 @@ judges it): the gauge `maul.preview.ingress.unauthenticated{slot}`, a log line, 
 owns it. It deletes such an Ingress only after it has stayed unauthenticated for three poll intervals, which gives the
 owning reconcile time to patch it first, and counts the deletion in `maul.preview.ingress.unauthenticated.deleted`. It
 never deletes the chart's placeholder Ingress. The Events use the `events.k8s.io` API in the release namespace.
+
+## Acceptance verification (off by default)
+
+With `preview.verification.enabled` (chart; needs `preview.enabled`, `previewController.enabled` and a
+`preview.verification.testerImage` pinned by digest) preview-controller also answers `PreviewVerification` requests from
+intent-controller: it runs the approved acceptance criteria of an intent against that intent's own Preview, from a
+tester Job inside the Preview's slot. See [Acceptance verification](../intents/acceptance.md) for what people see. The
+controller's side:
+
+- **Flags.** `--preview-tester-image` (`MAUL_PREVIEW_TESTER_IMAGE`; empty, the default, is verification off) is the
+  digest-pinned `preview-tester` image, never under the preview image prefix or an agent image registry.
+  `--preview-verify-deadline-max` (`MAUL_PREVIEW_VERIFY_DEADLINE_MAX`, default `30m`, 1m to 1h) is the most a tester Job
+  may run; a longer request is clamped. The chart sets it from `preview.verification.deadlineMaxSeconds` (60 to 3600,
+  default 1800), the bound the slot Job admission policy enforces, and renders the same value as intent-controller's
+  `--intent-verify-timeout-max`.
+- **Re-checks before anything runs.** The request must name this Preview's UID and generation, which must be Ready at
+  exactly the requested heads with its rollout settled (no pod of the Preview still on an older image); the criteria
+  must equal the automatable criteria of the Intent's approved list, by digest and in order; and the Preview's
+  `environment` must re-derive from the Project. Otherwise the verification is `Stale` and nothing renders.
+- **Per-part NetworkPolicies.** A Preview created with `spec.environment` (set once, immutable) gets one NetworkPolicy
+  per part, `preview-<project>-<issue>-np-<part>`, admitting only the edges derived from the Project beside the chart's
+  `preview-isolation`, which it never touches. In this release the one edge is the tester to each component, on its
+  numeric port. A Preview without an environment renders exactly what it always did.
+- **The tester Job**, `preview-<…>-vt-<hash>`: one pod, `backoffLimit: 0`, `activeDeadlineSeconds` the clamped timeout,
+  no service-account token, restricted security context, small requests and limits, a termination message in a file. It
+  requests only `http://<component Service>:80`, built from the declared component, never from criterion text.
+- **The result.** The controller reads the tester's log through `pods/log`, accepts only a well-formed `MAUL-VERIFY:`
+  stream whose summary count and hash match, and writes observations, never verdicts, to the PreviewVerification's
+  status, with component container facts (restarts, waiting reasons) and bounded, redacted log tails. A Preview that
+  fails while a verification runs has its failure written onto the request before the slot is released. Unclear output
+  is `Infra`, not a pass.
+- **Cleanup.** Jobs and NetworkPolicies are found and removed by the Preview's UID label like every rendered object, and
+  the orphan sweep removes a tester pod whose Job is gone.
+
+### Grants
+
+Everything below renders only under `preview.verification.enabled`, and each is fenced by an admission policy
+(`maul-preview-jobs`, `maul-preview-networkpolicies`, `maul-preview-verifications`):
+
+| Where                 | Resource                                                       | Verbs                             |
+| --------------------- | -------------------------------------------------------------- | --------------------------------- |
+| Each slot (Role)      | `jobs` (batch)                                                 | create, get, list, delete         |
+| Each slot (Role)      | `networkpolicies` (networking.k8s.io)                          | create, get, list, update, delete |
+| Each slot (Role)      | `pods` (delete, beside the list it already had) and `pods/log` | delete; get                       |
+| The release namespace | `previewverifications`                                         | get, list, watch                  |
+| The release namespace | `previewverifications/status`                                  | update                            |
+
+intent-controller gets `previewverifications` create, get, list, watch and delete beside it; it is the only writer of a
+request, and preview-controller the only writer of its status. preview-controller still has no Secret, ConfigMap,
+namespace, cluster-scope, GitHub or cloud access, and the slot quota gains room for one Job and the edge policies
+(`preview.quota`). To check a cluster's NetworkPolicy enforcement for the edges, run
+`hack/preview-isolation-probe/run.sh edges` (see its README); `ingress.sh --check-policies` judges the rendered policies
+without creating a pod.

@@ -57,6 +57,34 @@ const (
 	ReasonHarnessNotEnabled = "HarnessNotEnabled"
 )
 
+// ConditionAcceptanceStatusUnavailable marks a Project that verifies whose
+// App may not post commit statuses (intentperm.CommitStatus) on one of its
+// application repositories: never part of Ready, the Project goes on
+// verifying and commenting, and only the maul/acceptance status is not
+// posted. True names the repository and the grant; False once proven. A
+// Project that does not verify carries none.
+const ConditionAcceptanceStatusUnavailable = "AcceptanceStatusUnavailable"
+
+// ConditionVerificationOff marks a Project that verifies
+// (spec.verification.enabled) while this controller cannot: it runs with
+// --intent-verification but without --intent-previews-enabled, and
+// verification runs against the intent's Preview, which only the preview
+// projection writes. Never part of Ready: the Project's intents go on with
+// verification Off. Set True with ReasonPreviewsDisabled; absent otherwise.
+const ConditionVerificationOff = "VerificationOff"
+
+// ReasonPreviewsDisabled is VerificationOff's reason: verification is on
+// without the preview projection it runs against.
+const ReasonPreviewsDisabled = "PreviewsDisabled"
+
+// AcceptanceStatusUnavailable reasons.
+const (
+	// ReasonStatusesNotGranted: the App lacks statuses write.
+	ReasonStatusesNotGranted = "StatusesNotGranted"
+	// ReasonStatusesGranted: the App holds statuses write everywhere.
+	ReasonStatusesGranted = "StatusesGranted"
+)
+
 // revalidateEvery re-checks a Ready Project's forge, installation and labels
 // this often; a Project that is not Ready is re-checked once per poll
 // interval, never more often, so a fix (the App installed) is picked up
@@ -173,6 +201,7 @@ func (r *ProjectReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// A warning beside Ready, never part of it: an unknown class holds the
 	// builds of its repository alone, so discovery and plans go on.
 	setResourceClasses(cur, r.Classes)
+	setVerificationOff(cur, settings)
 	cur.Status.ObservedGeneration = p.Generation
 
 	var intents v1alpha1.IntentList
@@ -234,8 +263,71 @@ func (r *ProjectReconciler) revalidate(ctx context.Context, p, cur *v1alpha1.Pro
 	}
 	cond.ObservedGeneration = p.Generation
 	meta.SetStatusCondition(&cur.Status.Conditions, cond)
+	if err := r.proveOptional(ctx, p, cur, cond); err != nil {
+		return err
+	}
 	poll.validatedGen, poll.validatedAt, poll.validatedForges = p.Generation, now, forges
 	return nil
+}
+
+// proveOptional proves the Optional grants of p's intentperm table, statuses
+// write on each application repository of a Project that verifies, into
+// cur's AcceptanceStatusUnavailable condition: True naming the first the App
+// lacks, False once all are proven. Never part of Ready: without the grant
+// the Project's intents are verified and reported in comments, and only
+// maul/acceptance is not posted. A Project that does not verify carries no
+// such condition; one that is not Ready keeps its last word, since nothing
+// can be proven there. An error is a transient failure to find out.
+func (r *ProjectReconciler) proveOptional(ctx context.Context, p, cur *v1alpha1.Project, ready metav1.Condition) error {
+	if !p.Spec.VerificationEnabled() {
+		meta.RemoveStatusCondition(&cur.Status.Conditions, ConditionAcceptanceStatusUnavailable)
+		return nil
+	}
+	if ready.Status != metav1.ConditionTrue {
+		return nil
+	}
+	cond := metav1.Condition{Type: ConditionAcceptanceStatusUnavailable, Status: metav1.ConditionFalse,
+		Reason: ReasonStatusesGranted, ObservedGeneration: p.Generation,
+		Message: "the App may post the maul/acceptance commit status on every application repository"}
+	for _, need := range intentperm.For(&p.Spec) {
+		for _, g := range need.Optional {
+			perms, err := tokenPerms(g)
+			if err != nil {
+				return err
+			}
+			err = r.GitHub.Installed(ctx, need.URL, perms)
+			switch {
+			case err == nil:
+				continue
+			case !installationRefused(err) && !secretUnreadable(err):
+				return err
+			}
+			cond.Status, cond.Reason = metav1.ConditionTrue, ReasonStatusesNotGranted
+			cond.Message = fmt.Sprintf("the App cannot post the maul/acceptance commit status on %s without %s (%v): "+
+				"intents are still verified and reported in comments, but no status is posted; set Commit statuses "+
+				"to Read and write in the App's settings and accept the change on the installation", need.URL, g, err)
+			meta.SetStatusCondition(&cur.Status.Conditions, cond)
+			return nil
+		}
+	}
+	meta.SetStatusCondition(&cur.Status.Conditions, cond)
+	return nil
+}
+
+// setVerificationOff sets cur's VerificationOff condition: True on a
+// Project that verifies while s cannot (VerificationWithoutPreviews),
+// absent otherwise. It depends on the spec and the controller's flags only.
+func setVerificationOff(cur *v1alpha1.Project, s Settings) {
+	if !cur.Spec.VerificationEnabled() || !s.VerificationWithoutPreviews() {
+		meta.RemoveStatusCondition(&cur.Status.Conditions, ConditionVerificationOff)
+		return
+	}
+	meta.SetStatusCondition(&cur.Status.Conditions, metav1.Condition{Type: ConditionVerificationOff,
+		Status: metav1.ConditionTrue, Reason: ReasonPreviewsDisabled, ObservedGeneration: cur.Generation,
+		Message: "spec.verification.enabled is set, but intent-controller runs with --intent-verification and " +
+			"without --intent-previews-enabled (chart previewController.enabled), and verification runs " +
+			"against the intent's Preview: this Project's intents are not verified (state Off) until previews " +
+			"are enabled"})
 }
 
 // refusal is why this controller's own settings keep p from being Ready,

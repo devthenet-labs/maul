@@ -131,6 +131,11 @@ type IntentStatusComment struct {
 	// operator's agent pause (the run's AgentsPaused condition); the comment
 	// then says so, in fixed words, under the phase.
 	AgentsPaused bool
+	// VerificationNeedsPreviews reports an intent in review of a Project
+	// that verifies while intent-controller runs with --intent-verification
+	// but without --intent-previews-enabled: the comment then says, in fixed
+	// words, that its acceptance criteria are not verified and why.
+	VerificationNeedsPreviews bool
 	// FixingChecks reports a Revising intent whose round failed checks
 	// started rather than review feedback: the phase's sentence then says
 	// so.
@@ -222,6 +227,7 @@ func RenderIntentStatusComment(c IntentStatusComment) (string, error) {
 		Repositories     string
 		PullRequests     []statusPR
 		Preview          *statusPreview
+		NoVerification   bool
 		Revisions        int32
 		MaxRevisions     int32
 		Cost             string
@@ -242,6 +248,7 @@ func RenderIntentStatusComment(c IntentStatusComment) (string, error) {
 		Repositories:     repositoryList(c.Repositories, false),
 		PullRequests:     prs,
 		Preview:          renderStatusPreview(c.Preview),
+		NoVerification:   c.VerificationNeedsPreviews,
 		Revisions:        c.Revisions,
 		MaxRevisions:     c.MaxRevisions,
 		Cost:             usd(c.CostMicroUSD),
@@ -314,6 +321,11 @@ type PlanComment struct {
 	// build, which ecosystems it fetches, through which registry and under
 	// which policy, and from which hosts over HTTPS.
 	NetworkRoutes []NetworkRoutes
+	// Acceptance counts the plan's acceptance criteria for the header's
+	// acceptance line, from the parsed frontmatter only (acceptance
+	// verification). nil omits the line, and the comment is exactly the
+	// comment before the field existed.
+	Acceptance *PlanAcceptance
 }
 
 // RenderPlanComment renders a plan for approval: headed by PlanMarker over
@@ -423,6 +435,7 @@ func planComment(p PlanComment, digest string, view planView, advice string) (st
 		OthersOffline   bool
 		Advice          string
 		RouteAdvice     string
+		Acceptance      string
 		Plan            string
 	}{
 		Marker:          PlanMarker(p.Namespace, p.Intent, p.Revision, digest),
@@ -448,6 +461,7 @@ func planComment(p PlanComment, digest string, view planView, advice string) (st
 		OthersOffline:   offline,
 		Advice:          advice,
 		RouteAdvice:     routeAdvice,
+		Acceptance:      planAcceptanceLine(p.Acceptance),
 		Plan:            verbatim("markdown", string(p.Report)),
 	})
 }

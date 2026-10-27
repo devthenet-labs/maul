@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -110,6 +111,7 @@ const (
 	onAppRepository      = "an application repository"
 	onCheckFixRepository = "an application repository, on a check-fix round"
 	onRerunRepository    = "an application repository, re-running failed checks"
+	onVerifyRepository   = "an application repository of a Project that verifies"
 )
 
 // tokenUses declares, for every method of GitHub, the repositories
@@ -148,9 +150,15 @@ var tokenUses = map[string][]string{
 	"ReviewCommentEdited": {onAppRepository}, "ComparePatch": {onAppRepository},
 	"RequestReviewers": {onAppRepository},
 
+	// maul's commit status: written, and listed at a head for an impostor,
+	// on a Project that verifies (statuses write, Optional in its row); the
+	// statuses are listed on a check-fix round too (statuses read).
+	"CreateCommitStatus": {onVerifyRepository},
+	"ListCommitStatuses": {onCheckFixRepository, onVerifyRepository},
+
 	"ListCheckRuns": {onCheckFixRepository}, "ListCheckAnnotations": {onCheckFixRepository},
-	"ListCommitStatuses": {onCheckFixRepository}, "ListWorkflowJobs": {onCheckFixRepository},
-	"GetJobLogTail": {onCheckFixRepository}, "ListWorkflowRuns": {onCheckFixRepository},
+	"ListWorkflowJobs": {onCheckFixRepository},
+	"GetJobLogTail":    {onCheckFixRepository}, "ListWorkflowRuns": {onCheckFixRepository},
 	"RerunFailedJobs": {onRerunRepository},
 }
 
@@ -261,8 +269,9 @@ func tokenFixture(t *testing.T) (*forge.Store, v1alpha1.ProjectSpec) {
 // tableFor is the repository URL and the intentperm grants of the
 // repository use names in a Project shaped like spec: the intent
 // repository's row, or the application repository's, with spec.checks.fix
-// set for a check-fix round, and spec.checks.rerunFailed beside it for a
-// re-run.
+// set for a check-fix round, spec.checks.rerunFailed beside it for a
+// re-run, and spec.verification on for maul's commit status; Optional grants
+// included.
 func tableFor(t *testing.T, spec v1alpha1.ProjectSpec, use string) (string, []intentperm.Grant) {
 	t.Helper()
 	role := intentperm.RoleApp
@@ -273,10 +282,14 @@ func tableFor(t *testing.T, spec v1alpha1.ProjectSpec, use string) (string, []in
 		spec.Checks.Fix = []string{"test"}
 	case onRerunRepository:
 		spec.Checks.Fix, spec.Checks.RerunFailed = []string{"test"}, true
+	case onVerifyRepository:
+		spec.Verification = &v1alpha1.ProjectVerification{Enabled: true}
 	}
 	for _, need := range intentperm.For(&spec) {
 		if need.Role == role {
-			return need.URL, need.Grants
+			// An Optional grant is proven by Ready too; one the App lacks
+			// turns off only the calls that need it.
+			return need.URL, append(slices.Clone(need.Grants), need.Optional...)
 		}
 	}
 	t.Fatalf("intentperm.For has no %s row", role)

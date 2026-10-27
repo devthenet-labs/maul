@@ -57,6 +57,15 @@ const (
 	VerbCancel = "cancel"
 	// VerbRevise starts a revision round on an intent's pull request.
 	VerbRevise = "revise"
+	// VerbVerify asks for an acceptance verification of an intent's combined
+	// change now; "fix" also re-arms automatic fixes, "--reset" first resets
+	// the preview's data. --reset is a modifier, never VerbReset (the
+	// integration-scoped delete-everything), which no intent surface offers.
+	VerbVerify = "verify"
+	// VerbAccept records an approver's acceptance of one acceptance
+	// criterion (a manual one, or one that passed only on retry) at the
+	// current combined change.
+	VerbAccept = "accept"
 )
 
 // ActionVerbs lists the per-finding verbs in the order clients present them.

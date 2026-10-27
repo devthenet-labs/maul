@@ -326,6 +326,23 @@ spec:
                     minItems: 1
                     type: array
                     x-kubernetes-list-type: set
+                  verificationRef:
+                    description: |-
+                      VerificationRef is the PreviewVerification whose failed observations
+                      a verify round was handed, pinned by UID, so one verification starts
+                      at most one round. Required on a verify round, and on no other.
+                    properties:
+                      name:
+                        description: Name of the referent.
+                        minLength: 1
+                        type: string
+                      uid:
+                        description: UID of the referent at the time the reference
+                          was written.
+                        type: string
+                    required:
+                    - name
+                    type: object
                 required:
                 - configMap
                 - inputDigest
@@ -492,6 +509,7 @@ spec:
                 - review
                 - command
                 - checks
+                - verify
                 type: string
             required:
             - attempt
@@ -525,13 +543,22 @@ spec:
               rule: (self.stage == 'revise') == has(self.imageFrom)
             - message: 'a revise run records what its trigger consumed: inputs.reviewIDs
                 for a review round, inputs.checkRunIDs or inputs.statusIDs for a checks
-                round, inputs.commandID for a command round'
+                round, inputs.verificationRef for a verify round, inputs.commandID
+                for a command round'
               rule: '!has(self.trigger) || (self.trigger == ''review'' ? has(self.inputs.reviewIDs)
                 : self.trigger == ''checks'' ? (has(self.inputs.checkRunIDs) || has(self.inputs.statusIDs))
-                : has(self.inputs.commandID))'
+                : self.trigger == ''verify'' ? has(self.inputs.verificationRef) :
+                has(self.inputs.commandID))'
             - message: inputs.reviewIDs are consumed only by review and command rounds
               rule: '!has(self.inputs.reviewIDs) || (has(self.trigger) && self.trigger
-                != ''checks'')'
+                in [''review'', ''command''])'
+            - message: inputs.verificationRef is consumed only by verify rounds
+              rule: '!has(self.inputs.verificationRef) || (has(self.trigger) && self.trigger
+                == ''verify'')'
+            - message: 'inputs.verificationRef.uid is required: a verify round''s
+                evidence is pinned by UID'
+              rule: '!has(self.inputs.verificationRef) || (has(self.inputs.verificationRef.uid)
+                && size(self.inputs.verificationRef.uid) > 0)'
             - message: inputs.checkRunIDs are consumed only by checks rounds
               rule: '!has(self.inputs.checkRunIDs) || (has(self.trigger) && self.trigger
                 == ''checks'')'

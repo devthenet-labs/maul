@@ -60,7 +60,7 @@ const (
 )
 
 // IntentRunTrigger names what started a revise round (slice 1b).
-// +kubebuilder:validation:Enum=review;command;checks
+// +kubebuilder:validation:Enum=review;command;checks;verify
 type IntentRunTrigger string
 
 // Revise-round triggers.
@@ -72,7 +72,17 @@ const (
 	IntentRunTriggerCommand IntentRunTrigger = "command"
 	// IntentRunTriggerChecks: a named check failed on maul's own head.
 	IntentRunTriggerChecks IntentRunTrigger = "checks"
+	// IntentRunTriggerVerify: the intent's acceptance verification failed
+	// at maul's own heads; the run records the PreviewVerification whose
+	// observations it was handed in inputs.verificationRef.
+	IntentRunTriggerVerify IntentRunTrigger = "verify"
 )
+
+// IntentRunTriggers lists every revise-round trigger, in schema order, for
+// code that must handle each one (an exhaustive switch's test).
+var IntentRunTriggers = []IntentRunTrigger{
+	IntentRunTriggerReview, IntentRunTriggerCommand, IntentRunTriggerChecks, IntentRunTriggerVerify,
+}
 
 // IntentRunRepository is the tree one run works on.
 type IntentRunRepository struct {
@@ -148,7 +158,8 @@ type IntentRunTreeStatus struct {
 // immutable spec — that record is the exactly-once guarantee — so the
 // schema requires each trigger's own record (reviewIDs for a review round,
 // checkRunIDs or statusIDs for a checks round, commandID for a command
-// round) and keeps each record to the rounds it belongs to: a command round
+// round, verificationRef for a verify round) and keeps each record to the
+// rounds it belongs to: a command round
 // may also consume the approver reviews since the last round as its
 // feedback, while a checks round consumes failed checks only — check runs
 // and commit statuses, each in its own id space — so it is never counted
@@ -222,6 +233,11 @@ type IntentRunInputs struct {
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	CommandID int64 `json:"commandID,omitempty"`
+	// VerificationRef is the PreviewVerification whose failed observations
+	// a verify round was handed, pinned by UID, so one verification starts
+	// at most one round. Required on a verify round, and on no other.
+	// +optional
+	VerificationRef *ObjectReference `json:"verificationRef,omitempty"`
 }
 
 // IntentRunGrant is what the run was granted: the Project's per-stage limits
@@ -282,8 +298,10 @@ type IntentRunGrant struct {
 // +kubebuilder:validation:XValidation:rule="self.stage == 'plan' || (has(self.inputs.planRevision) && self.inputs.planRevision >= 1 && has(self.inputs.planDigest))",message="build and revise runs pin the approved plan (inputs.planRevision and inputs.planDigest)"
 // +kubebuilder:validation:XValidation:rule="(self.stage == 'revise') == has(self.trigger)",message="spec.trigger is set on revise runs, and only on them"
 // +kubebuilder:validation:XValidation:rule="(self.stage == 'revise') == has(self.imageFrom)",message="spec.imageFrom is set on revise runs, and only on them"
-// +kubebuilder:validation:XValidation:rule="!has(self.trigger) || (self.trigger == 'review' ? has(self.inputs.reviewIDs) : self.trigger == 'checks' ? (has(self.inputs.checkRunIDs) || has(self.inputs.statusIDs)) : has(self.inputs.commandID))",message="a revise run records what its trigger consumed: inputs.reviewIDs for a review round, inputs.checkRunIDs or inputs.statusIDs for a checks round, inputs.commandID for a command round"
-// +kubebuilder:validation:XValidation:rule="!has(self.inputs.reviewIDs) || (has(self.trigger) && self.trigger != 'checks')",message="inputs.reviewIDs are consumed only by review and command rounds"
+// +kubebuilder:validation:XValidation:rule="!has(self.trigger) || (self.trigger == 'review' ? has(self.inputs.reviewIDs) : self.trigger == 'checks' ? (has(self.inputs.checkRunIDs) || has(self.inputs.statusIDs)) : self.trigger == 'verify' ? has(self.inputs.verificationRef) : has(self.inputs.commandID))",message="a revise run records what its trigger consumed: inputs.reviewIDs for a review round, inputs.checkRunIDs or inputs.statusIDs for a checks round, inputs.verificationRef for a verify round, inputs.commandID for a command round"
+// +kubebuilder:validation:XValidation:rule="!has(self.inputs.reviewIDs) || (has(self.trigger) && self.trigger in ['review', 'command'])",message="inputs.reviewIDs are consumed only by review and command rounds"
+// +kubebuilder:validation:XValidation:rule="!has(self.inputs.verificationRef) || (has(self.trigger) && self.trigger == 'verify')",message="inputs.verificationRef is consumed only by verify rounds"
+// +kubebuilder:validation:XValidation:rule="!has(self.inputs.verificationRef) || (has(self.inputs.verificationRef.uid) && size(self.inputs.verificationRef.uid) > 0)",message="inputs.verificationRef.uid is required: a verify round's evidence is pinned by UID"
 // +kubebuilder:validation:XValidation:rule="!has(self.inputs.checkRunIDs) || (has(self.trigger) && self.trigger == 'checks')",message="inputs.checkRunIDs are consumed only by checks rounds"
 // +kubebuilder:validation:XValidation:rule="!has(self.inputs.statusIDs) || (has(self.trigger) && self.trigger == 'checks')",message="inputs.statusIDs are consumed only by checks rounds"
 // +kubebuilder:validation:XValidation:rule="!has(self.inputs.commandID) || (has(self.trigger) && self.trigger == 'command')",message="inputs.commandID is consumed only by command rounds"

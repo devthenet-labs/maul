@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
@@ -364,7 +365,7 @@ func (r *Reconciler) readyImage(ctx context.Context, p *v1alpha1.Preview, i int,
 	}
 	furthest := componentPending
 	for _, pod := range pods.Items {
-		if !pod.DeletionTimestamp.IsZero() || !runsComponent(&pod, c) {
+		if !pod.DeletionTimestamp.IsZero() || !runsComponent(&pod, p, c) {
 			continue
 		}
 		idx := slices.IndexFunc(pod.Status.ContainerStatuses, func(s corev1.ContainerStatus) bool {
@@ -396,9 +397,11 @@ func (r *Reconciler) readyImage(ctx context.Context, p *v1alpha1.Preview, i int,
 // it now: one container with c's exact image, port and readiness path. The
 // rolling update keeps the previous revision's Pod Ready beside the new one
 // until the new one is available, so a spec change that keeps the image (an
-// operator's new port or readiness path) must not count that Pod.
-func runsComponent(pod *corev1.Pod, c v1alpha1.PreviewComponent) bool {
-	if len(pod.Spec.Containers) != 1 {
+// operator's new port or readiness path) must not count that Pod, nor one
+// started before the Preview's latest reset.
+func runsComponent(pod *corev1.Pod, p *v1alpha1.Preview, c v1alpha1.PreviewComponent) bool {
+	if len(pod.Spec.Containers) != 1 ||
+		pod.Annotations[annotationResetGeneration] != componentPodAnnotations(p)[annotationResetGeneration] {
 		return false
 	}
 	ct := pod.Spec.Containers[0]
@@ -454,7 +457,8 @@ func (r *Reconciler) ingressAdmitted(ctx context.Context, p *v1alpha1.Preview, s
 
 // cleanup never deletes a foreign object, even one squatting on a rendered
 // name: it lists each kind by the Preview's own UID label, so it finds every
-// component's objects whatever their names, an older controller's included.
+// component's objects whatever their names, an older controller's included,
+// and, with verification on, its NetworkPolicies and tester Jobs.
 // It scans all configured slots so a lost status.slot or interrupted
 // assignment cannot leave a workload behind. Pod/ReplicaSet checks keep the
 // slot held until background garbage collection has truly removed the code.
@@ -484,12 +488,23 @@ func (r *Reconciler) cleanup(ctx context.Context, p *v1alpha1.Preview) (bool, er
 		for i := range deployments.Items {
 			objects = append(objects, &deployments.Items[i])
 		}
+		verification, err := r.verificationObjects(ctx, p, ns)
+		if err != nil {
+			return false, err
+		}
+		objects = append(objects, verification...)
 		for _, obj := range objects {
 			if !ownedBy(obj, p) {
 				return false, fmt.Errorf("foreign %T %s/%s carries preview %s's UID", obj,
 					obj.GetNamespace(), obj.GetName(), p.Name)
 			}
 			remaining = true
+			if job, ok := obj.(*batchv1.Job); ok {
+				if err := deleteJob(ctx, r.Client, job); err != nil {
+					return false, err
+				}
+				continue
+			}
 			if err := r.Delete(ctx, obj); err != nil && !kerrors.IsNotFound(err) {
 				return false, err
 			}
@@ -508,4 +523,30 @@ func (r *Reconciler) cleanup(ctx context.Context, p *v1alpha1.Preview) (bool, er
 		}
 	}
 	return !remaining, nil
+}
+
+// verificationObjects lists what a verification-capable Preview has in a
+// slot beside its workload: its NetworkPolicies and Jobs, by its UID label.
+// With verification off there are none to list (and no grant to list them).
+func (r *Reconciler) verificationObjects(ctx context.Context, p *v1alpha1.Preview,
+	ns client.InNamespace) ([]client.Object, error) {
+	if !r.Settings.verifying() {
+		return nil, nil
+	}
+	var policies networkingv1.NetworkPolicyList
+	if err := r.List(ctx, &policies, ns, ownedSelector(p)); err != nil {
+		return nil, err
+	}
+	var jobs batchv1.JobList
+	if err := r.List(ctx, &jobs, ns, ownedSelector(p)); err != nil {
+		return nil, err
+	}
+	out := make([]client.Object, 0, len(policies.Items)+len(jobs.Items))
+	for i := range policies.Items {
+		out = append(out, &policies.Items[i])
+	}
+	for i := range jobs.Items {
+		out = append(out, &jobs.Items[i])
+	}
+	return out, nil
 }

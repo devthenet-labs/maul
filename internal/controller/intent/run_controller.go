@@ -406,7 +406,7 @@ func (r *RunReconciler) run(ctx context.Context, req ctrl.Request) (ctrl.Result,
 // to the same rule: one stalled for any reason but its declared image aborts
 // the run, naming the tree, rather than leave the Intent planning forever.
 func (r *RunReconciler) pending(ctx context.Context, run *v1alpha1.IntentRun) error {
-	if ended, err := r.intentEnded(ctx, run); ended || err != nil {
+	if ended, err := r.unlaunchable(ctx, run); ended || err != nil {
 		return err
 	}
 	for _, tree := range run.Spec.Trees {
@@ -648,7 +648,65 @@ func (r *RunReconciler) launch(ctx context.Context, run *v1alpha1.IntentRun) err
 	if refusal != nil {
 		return r.settle(ctx, run, *refusal)
 	}
+	return r.launchVerified(ctx, run, proj, spec, requireImage)
+}
+
+// unlaunchable settles a pending run that will never launch: its Intent
+// ended (intentEnded), or it is an acceptance fix a human's feedback
+// overtook, settled while it waits for a slot so the human's round is not
+// held up behind the queue (verifyLaunch). It reports whether it settled.
+func (r *RunReconciler) unlaunchable(ctx context.Context, run *v1alpha1.IntentRun) (bool, error) {
+	if ended, err := r.intentEnded(ctx, run); ended || err != nil {
+		return ended, err
+	}
+	refusal, err := r.verifyLaunch(ctx, run, nil)
+	if err != nil || refusal == nil {
+		return false, err
+	}
+	return true, r.settle(ctx, run, *refusal)
+}
+
+// launchVerified is launchJob, checking last before the Job is created
+// that an acceptance fix was not cancelled for a human's feedback (H5) and
+// is one its approved plan accounts for (verifyLaunch).
+func (r *RunReconciler) launchVerified(ctx context.Context, run *v1alpha1.IntentRun, proj *v1alpha1.Project,
+	spec jobs.Spec, requireImage bool) error {
+	refusal, err := r.verifyLaunch(ctx, run, proj)
+	if err != nil {
+		return err
+	}
+	if refusal != nil {
+		return r.settle(ctx, run, *refusal)
+	}
 	return r.launchJob(ctx, run, proj, spec, requireImage)
+}
+
+// verifyLaunch is verifyRunRefusal over the run's Intent, read uncached so
+// a cancel written a moment ago is seen, and its Project (proj, or read
+// when nil). nil for any run but an acceptance fix, and when the Intent or
+// the Project is gone or another's: intentEnded and launchProject decide
+// those.
+func (r *RunReconciler) verifyLaunch(ctx context.Context, run *v1alpha1.IntentRun, proj *v1alpha1.Project) (
+	*result, error) {
+	if roundKindOf(run.Spec.Trigger) != roundVerify {
+		return nil, nil
+	}
+	var in v1alpha1.Intent
+	if err := r.APIReader.Get(ctx, types.NamespacedName{Namespace: run.Namespace, Name: run.Spec.IntentRef.Name},
+		&in); err != nil {
+		return nil, client.IgnoreNotFound(err)
+	}
+	if in.UID != run.Spec.IntentRef.UID {
+		return nil, nil
+	}
+	if proj == nil {
+		proj = &v1alpha1.Project{}
+		if err := r.Get(ctx, types.NamespacedName{Namespace: run.Namespace, Name: in.Spec.Project},
+			proj); err != nil {
+			return nil, client.IgnoreNotFound(err)
+		}
+	}
+	return verifyRunRefusal(&in, proj, run), nil
 }
 
 // launchProject reads a granted run's Intent and Project before its launch.
@@ -1143,7 +1201,7 @@ func (r *RunReconciler) settleMissingJob(ctx context.Context, run *v1alpha1.Inte
 	if pushHeld(run) {
 		return r.settle(ctx, run, result{outcome: OutcomeHoldExpired, keep: true, detail: holdExpiredDetail(run)})
 	}
-	if run.Spec.Stage == v1alpha1.IntentStageRevise && run.Spec.Trigger == v1alpha1.IntentRunTriggerReview {
+	if run.Spec.Stage == v1alpha1.IntentStageRevise && legacyEmptyHandoffPossible(run.Spec.Trigger) {
 		empty, err := r.legacyEmptyReviseFeedback(ctx, run)
 		if err != nil {
 			return fmt.Errorf("check expired revise Job's stored feedback: %w", err)
@@ -1156,6 +1214,15 @@ func (r *RunReconciler) settleMissingJob(ctx context.Context, run *v1alpha1.Inte
 	}
 	return r.settle(ctx, run, result{outcome: OutcomeAborted,
 		detail: "agent job vanished before reporting"})
+}
+
+// legacyEmptyHandoffPossible reports a round whose stored handoff the legacy
+// empty-review recovery may read: a review round's alone (an approver's
+// round no command started), the only kind launched with an empty handoff
+// before that was refused. A run with no trigger reads as a review, as at
+// every other site; the stored handoff must still match exactly.
+func legacyEmptyHandoffPossible(t v1alpha1.IntentRunTrigger) bool {
+	return roundKindOf(t) == roundHuman && !acksCommand(t)
 }
 
 // holdExpiredDetail says why a held run's changeset was lost: its Job

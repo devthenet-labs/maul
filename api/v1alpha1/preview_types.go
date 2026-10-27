@@ -76,6 +76,8 @@ func PreviewComponentPath(c PreviewComponent) string {
 // A PR head change updates Revision; an operator's Project change may also
 // update the component runtime configuration.
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.project) || (has(self.project) && self.project == oldSelf.project)",message="spec.project is set once and is then immutable"
+// +kubebuilder:validation:XValidation:rule="has(self.environment) == has(oldSelf.environment)",message="spec.environment is set at creation only: a changed environment is a new Preview"
+// +kubebuilder:validation:XValidation:rule="(has(self.resetGeneration) ? self.resetGeneration : 0) >= (has(oldSelf.resetGeneration) ? oldSelf.resetGeneration : 0)",message="spec.resetGeneration never decreases"
 type PreviewSpec struct {
 	// IntentRef pins the exact Intent; a recycled name cannot adopt a preview.
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="intentRef is immutable"
@@ -113,6 +115,65 @@ type PreviewSpec struct {
 	// forever if the image never becomes available.
 	// +kubebuilder:validation:XValidation:rule="duration(self) >= duration('1h') && duration(self) <= duration('72h')",message="ttl must be between 1h and 72h"
 	TTL metav1.Duration `json:"ttl"`
+	// Environment makes the Preview verification-capable: the parts of its
+	// slot beside the components and the edges between them that the
+	// slot's NetworkPolicies admit (DesiredPreviewEnvironment). It is set
+	// when the Preview is created and never changed, added or removed
+	// (CEL-enforced): a Project change that alters it is a new Preview. A
+	// Preview without it renders exactly as before.
+	// +optional
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="spec.environment is immutable"
+	Environment *PreviewEnvironment `json:"environment,omitempty"`
+	// ResetGeneration is bumped by an approver's /maul verify --reset: the
+	// slot's parts restart from scratch. It never decreases (CEL-enforced).
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	ResetGeneration int64 `json:"resetGeneration,omitempty"`
+}
+
+// PreviewPartTester is the part name of the verification tester in a
+// Preview's slot: the part every slice-1 edge starts at, and that no edge
+// may end at.
+const PreviewPartTester = "tester"
+
+// PreviewEnvironment is the operator-derived shape of a verification-capable
+// Preview's slot beyond its components.
+type PreviewEnvironment struct {
+	// Verification marks a Preview whose acceptance criteria are verified
+	// in its slot.
+	Verification bool `json:"verification"`
+	// Edges are the connections between the slot's parts that the
+	// preview-controller's NetworkPolicies admit, beside the isolation
+	// policy's DNS and gateway ingress. Nothing else in the slot connects.
+	// No edge ends at the tester, and no two edges are the same. There is
+	// at least one: the tester's to a component.
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=32
+	// +listType=atomic
+	// +kubebuilder:validation:XValidation:rule="self.all(e, e.to != 'tester')",message="nothing may connect to the tester"
+	// +kubebuilder:validation:XValidation:rule="self.all(e, self.exists_one(f, f.from == e.from && f.to == e.to && f.port == e.port))",message="edges are distinct"
+	Edges []PreviewEdge `json:"edges"`
+}
+
+// PreviewEdge admits TCP connections from one part of a Preview's slot to
+// another, on one numeric port.
+// +kubebuilder:validation:XValidation:rule="self.from != self.to",message="an edge connects two different parts"
+type PreviewEdge struct {
+	// From is the calling part: a component's key, or tester.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=20
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
+	From string `json:"from"`
+	// To is the called part.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=20
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
+	To string `json:"to"`
+	// Port is the called part's container port: numeric, since a named
+	// port's handling varies between network policy implementations.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	Port int32 `json:"port"`
 }
 
 // PreviewComponentStatus records the image the kubelet actually ran.
@@ -207,6 +268,11 @@ type PreviewStatus struct {
 	// URL and Components, it survives a redeploy (see PreviewServing).
 	// +optional
 	Serving *PreviewServing `json:"serving,omitempty"`
+	// ObservedResetGeneration is the spec.resetGeneration the slot's parts
+	// were last restarted for.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	ObservedResetGeneration int64 `json:"observedResetGeneration,omitempty"`
 	// +optional
 	Message string `json:"message,omitempty"`
 }

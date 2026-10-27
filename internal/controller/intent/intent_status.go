@@ -82,7 +82,7 @@ func (p *pass) statusComment() templates.IntentStatusComment {
 	c := templates.IntentStatusComment{
 		Namespace: p.in.Namespace, Intent: p.in.Name, Phase: string(st.Phase),
 		CostMicroUSD: st.Usage.CostMicroUSD, MaxCostMicroUSD: maxCostMicroUSD(p.proj),
-		Commands: verbs(st.Phase),
+		Commands: verbs(st.Phase, p.set.Verification),
 	}
 	if pl := st.Plan; pl != nil && pl.CommentID != 0 {
 		c.PlanRevision, c.Summary = pl.Revision, pl.Summary
@@ -109,12 +109,22 @@ func (p *pass) statusComment() templates.IntentStatusComment {
 		c.Revisions, c.MaxRevisions = p.revisionRounds(), maxRevisions(p.proj)
 	}
 	c.Preview = p.statusPreview()
+	if c.Preview != nil {
+		// Where the acceptance verification stands, beside the preview it
+		// runs against; nil when it is not reported.
+		c.Preview.Verify = p.verifyProgress()
+	}
+	// Verification runs against the Preview: without the preview
+	// projection a verifying Project's intent in review is Off, and the
+	// comment says why.
+	c.VerificationNeedsPreviews = p.set.VerificationWithoutPreviews() && p.proj.Spec.VerificationEnabled() &&
+		verifyPhase(st.Phase)
 	c.AgentsPaused = p.agentsPaused()
 	c.Attribution = p.latestAttribution()
 	switch st.Phase {
 	case v1alpha1.IntentRevising:
 		run := p.round(v1alpha1.IntentStageRevise, st.Rounds, anyRepository).latest()
-		c.FixingChecks = run != nil && run.Spec.Trigger == v1alpha1.IntentRunTriggerChecks
+		c.FixingChecks = run != nil && fixingChecks(run.Spec.Trigger)
 	case v1alpha1.IntentBlocked:
 		var reasons []string
 		for _, typ := range blockingConditions {
@@ -127,6 +137,12 @@ func (p *pass) statusComment() templates.IntentStatusComment {
 		c.Reason = p.failureReason()
 	}
 	return c
+}
+
+// fixingChecks reports a round the status comment names as fixing CI: a
+// check-fix round alone.
+func fixingChecks(t v1alpha1.IntentRunTrigger) bool {
+	return roundKindOf(t) == roundChecks
 }
 
 // latestAttribution is whom the Intent's newest run is attributed to, nil

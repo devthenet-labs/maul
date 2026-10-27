@@ -12,8 +12,6 @@ import (
 	"slices"
 	"strings"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
@@ -27,6 +25,7 @@ import (
 	"github.com/devthenet-labs/maul/internal/command"
 	"github.com/devthenet-labs/maul/internal/ghclient"
 	"github.com/devthenet-labs/maul/internal/templates"
+	"github.com/devthenet-labs/maul/internal/untrusted"
 	"github.com/devthenet-labs/maul/internal/usagerollup"
 )
 
@@ -62,7 +61,7 @@ func (p *pass) revising(ctx context.Context) (bool, error) {
 	// A revise round's number is the Intent's own ordinal, never repeated
 	// across repositories: the round is whichever repository's it is.
 	if run := p.round(v1alpha1.IntentStageRevise, p.in.Status.Rounds, anyRepository).latest(); run != nil &&
-		run.Spec.Trigger == v1alpha1.IntentRunTriggerCommand {
+		acksCommand(run.Spec.Trigger) {
 		if err := p.ackPRCommand(ctx, run); err != nil {
 			return false, err
 		}
@@ -72,6 +71,9 @@ func (p *pass) revising(ctx context.Context) (bool, error) {
 	if run == nil {
 		return false, fmt.Errorf("revising intent %s has no round %d run", p.in.Name, p.in.Status.Rounds)
 	}
+	if changed, err := p.humanOvertakesFix(ctx, run); changed || err != nil {
+		return changed, err
+	}
 	switch run.Status.Phase {
 	case v1alpha1.RunComplete:
 		if err := p.finishPRRound(ctx, run); err != nil {
@@ -80,12 +82,9 @@ func (p *pass) revising(ctx context.Context) (bool, error) {
 		// The completed run owns one pushed commit. The phase write makes the
 		// counter idempotent across reconciliation and restarts.
 		return true, p.setPhase(ctx, v1alpha1.IntentInReview, func(cur *v1alpha1.Intent) {
-			if run.Spec.Trigger == v1alpha1.IntentRunTriggerChecks {
-				cur.Status.CheckFixes++
-			} else {
-				cur.Status.Revisions++
-			}
+			countCompletedRound(&cur.Status, run.Spec.Trigger)
 			cur.Status.ActiveRun = nil
+			settleVerifyRound(cur, run, true)
 		})
 	case v1alpha1.RunFailed:
 		return p.failedRevise(ctx, run, rs)
@@ -104,6 +103,76 @@ func (p *pass) revising(ctx context.Context) (bool, error) {
 		}
 		return p.ensureActive(ctx, run)
 	}
+}
+
+// acksCommand reports a round an approver's PR command started, whose
+// command is acknowledged (reacted to) when the round is entered.
+// It is the one helper that tells a review from a command, which
+// roundKindOf does not: a run with no trigger reads as a review.
+func acksCommand(t v1alpha1.IntentRunTrigger) bool {
+	switch t {
+	case v1alpha1.IntentRunTriggerCommand:
+		return true
+	case v1alpha1.IntentRunTriggerReview, v1alpha1.IntentRunTriggerChecks, v1alpha1.IntentRunTriggerVerify:
+		return false
+	default:
+		return false
+	}
+}
+
+// countCompletedRound counts a completed round in its own display counter:
+// status.revisions, checkFixes or verifyFixes. A round with no trigger is a
+// revision, as every round was before triggers were recorded.
+func countCompletedRound(st *v1alpha1.IntentStatus, t v1alpha1.IntentRunTrigger) {
+	switch roundKindOf(t) {
+	case roundHuman:
+		st.Revisions++
+	case roundChecks:
+		st.CheckFixes++
+	case roundVerify:
+		st.VerifyFixes++
+	}
+}
+
+// retriesHeadMoved reports a round whose attempt a head move (a push to the
+// branch while it ran) is retried once at the new head. An approver's round
+// is: their feedback still applies. A check-fix or acceptance-fix round is
+// not: the failures it was started for were at a head that is gone, and
+// the new head's checks or verification decide whether another is due.
+func retriesHeadMoved(t v1alpha1.IntentRunTrigger) bool {
+	return roundKindOf(t) == roundHuman
+}
+
+// ceilingBlocks reports a round that blocks the Intent when lease refuses
+// it at the cost ceiling (blockAtCeiling). An approver's and a check-fix
+// round do. An acceptance-fix round does not: automatic fixing halts and
+// reports, and review stays open (D2; haltFixAtCeiling,
+// endVerifyRoundAtCeiling).
+func ceilingBlocks(t v1alpha1.IntentRunTrigger) bool {
+	return roundKindOf(t) != roundVerify
+}
+
+// requiresFeedback reports a round that is not launched without usable
+// feedback (errNoUsableFeedback). Only an approver's round is: a check-fix
+// round's input is its checks' diagnostics, and an acceptance-fix round's
+// its verification's evidence, neither of which is thread feedback.
+func requiresFeedback(t v1alpha1.IntentRunTrigger) bool {
+	return roundKindOf(t) == roundHuman
+}
+
+// roundNoticeLabel names a round in its pull request notice. A check-fix
+// round is named with its checks (namesChecks; templates.CIFixRound), so it
+// never reads as a revision from review feedback, nor does an acceptance
+// fix.
+func roundNoticeLabel(t v1alpha1.IntentRunTrigger) (label string, namesChecks bool) {
+	switch roundKindOf(t) {
+	case roundChecks:
+		return "", true
+	case roundVerify:
+		return "Acceptance fix round", false
+	case roundHuman:
+	}
+	return "Revision round", false
 }
 
 // missingPendingReviseBranch blocks a round not yet launched whose intent
@@ -142,9 +211,9 @@ func (p *pass) failedRevise(ctx context.Context, run *v1alpha1.IntentRun, rs rou
 	// notice says why; a check-fix round's failures are consumed with it.
 	// So does one whose dependency the egress proxy refuses by its policy,
 	// which every attempt under the same profile meets again.
-	if run.Status.Outcome == OutcomeInputUnavailable || run.Status.Outcome == OutcomeImageRequired ||
-		run.Status.Outcome == OutcomeNoUsableFeedback || run.Status.Outcome == OutcomeUnschedulable ||
-		run.Status.Outcome == OutcomeDependencyRefused || !p.roundOpen(run) {
+	// So does an acceptance-fix round cancelled for a human's feedback before
+	// it launched: the human's round is next, and the fix is not counted.
+	if endsRoundUnretried(run.Status.Outcome) || !p.roundOpen(run) {
 		return p.endReviseRound(ctx, run)
 	}
 	if p.leftProject(run.Spec.Repository.URL) {
@@ -153,7 +222,7 @@ func (p *pass) failedRevise(ctx context.Context, run *v1alpha1.IntentRun, rs rou
 			slog.String("repository", run.Spec.Repository.URL))
 		return p.endReviseRound(ctx, run)
 	}
-	if run.Status.Outcome == OutcomeHeadMoved && run.Spec.Trigger != v1alpha1.IntentRunTriggerChecks &&
+	if run.Status.Outcome == OutcomeHeadMoved && retriesHeadMoved(run.Spec.Trigger) &&
 		rs.next() <= v1alpha1.MaxIntentRunAttempt {
 		if pr := p.pullRequest(run.Spec.Repository.URL); pr != nil {
 			if _, err := p.r.GitHub.HeadSHA(ctx, pr.Repository, branchName(p.in.Name)); ghclient.IsNotFound(err) {
@@ -180,12 +249,24 @@ func (p *pass) failedRevise(ctx context.Context, run *v1alpha1.IntentRun, rs rou
 	return p.endReviseRound(ctx, run)
 }
 
+// endsRoundUnretried reports a failed attempt's outcome that ends its round
+// with no retry (failedRevise).
+func endsRoundUnretried(outcome string) bool {
+	switch outcome {
+	case OutcomeInputUnavailable, OutcomeImageRequired, OutcomeSupersededByHuman, OutcomeNoUsableFeedback,
+		OutcomeUnschedulable, OutcomeDependencyRefused:
+		return true
+	}
+	return false
+}
+
 func (p *pass) endReviseRound(ctx context.Context, run *v1alpha1.IntentRun) (bool, error) {
 	if err := p.finishPRRound(ctx, run); err != nil {
 		return false, err
 	}
 	return true, p.setPhase(ctx, v1alpha1.IntentInReview, func(cur *v1alpha1.Intent) {
 		cur.Status.ActiveRun = nil
+		settleVerifyRound(cur, run, false)
 	})
 }
 
@@ -230,28 +311,15 @@ func (p *pass) finishPRRound(ctx context.Context, run *v1alpha1.IntentRun) error
 	}
 	// A round failed checks started says so, and which: it never reads as a
 	// revision from review feedback.
-	label := "Revision round"
-	if run.Spec.Trigger == v1alpha1.IntentRunTriggerChecks {
+	label, namesChecks := roundNoticeLabel(run.Spec.Trigger)
+	if namesChecks {
 		checks, err := p.roundChecks(ctx, run)
 		if err != nil {
 			return err
 		}
 		label = templates.CIFixRound(checks)
 	}
-	body := marker + "\n" + label + " ended without a recorded completed push." + tail
-	if run.Status.Outcome == OutcomeUnschedulable {
-		// The scheduler's words name the cluster's nodes: they stay on the
-		// run, for the operator, and never reach the pull request.
-		body = marker + "\n" + label + " stopped: no node in the cluster could fit its agent, so it never ran " +
-			"and nothing was pushed. The operator can see why on the intent's run." + tail
-	}
-	if run.Status.Outcome == OutcomeNoUsableFeedback {
-		body = marker + "\nRevision round stopped: no usable feedback was found after filtering." + tail
-		if run.Status.JobRef == nil {
-			body = marker + "\nRevision round stopped: no usable feedback was found after filtering. " +
-				"No agent was launched for this round." + tail
-		}
-	}
+	body := marker + "\n" + unpushedRoundNotice(run, label, tail)
 	if run.Status.Phase == v1alpha1.RunComplete {
 		body = marker + "\n" + label + " pushed commit `" + run.Status.PushedCommit + "`."
 		if pr.State == prOpen && !terminal(p.in.Status.Phase) {
@@ -264,6 +332,28 @@ func (p *pass) finishPRRound(ctx context.Context, run *v1alpha1.IntentRun) error
 	}
 	_, err = p.r.GitHub.CreatePullRequestComment(ctx, pr.Repository, pr.Number, body)
 	return err
+}
+
+// unpushedRoundNotice is the notice of a round that ended without a push,
+// named label, ending with tail.
+func unpushedRoundNotice(run *v1alpha1.IntentRun, label, tail string) string {
+	switch run.Status.Outcome {
+	case OutcomeUnschedulable:
+		// The scheduler's words name the cluster's nodes: they stay on the
+		// run, for the operator, and never reach the pull request.
+		return label + " stopped: no node in the cluster could fit its agent, so it never ran " +
+			"and nothing was pushed. The operator can see why on the intent's run." + tail
+	case OutcomeSupersededByHuman:
+		return label + " cancelled for your review: an approver's feedback arrived before it " +
+			"started, so nothing was pushed and the approver's round runs next." + tail
+	case OutcomeNoUsableFeedback:
+		if run.Status.JobRef == nil {
+			return "Revision round stopped: no usable feedback was found after filtering. " +
+				"No agent was launched for this round." + tail
+		}
+		return "Revision round stopped: no usable feedback was found after filtering." + tail
+	}
+	return label + " ended without a recorded completed push." + tail
 }
 
 // roundChecks are the names of the failed checks a check-fix round fixed,
@@ -285,7 +375,9 @@ func (p *pass) roundChecks(ctx context.Context, run *v1alpha1.IntentRun) ([]stri
 
 // retryReviseAttempt leases one fresh attempt, or adopts the one a pass
 // leased already; at the cost ceiling it creates none, and the Intent is
-// Blocked from Revising (lease). A head move re-clones the branch and
+// Blocked from Revising (lease), unless the round is an acceptance fix,
+// which ends and halts automatic fixes instead (endVerifyRoundAtCeiling,
+// D2). A head move re-clones the branch and
 // re-renders its diff; an agent failure carries PreviousAttempt.
 func (p *pass) retryReviseAttempt(ctx context.Context, run *v1alpha1.IntentRun, attempt int32,
 	previous *v1alpha1.PreviousAttempt) (bool, error) {
@@ -308,6 +400,8 @@ func (p *pass) retryReviseAttempt(ctx context.Context, run *v1alpha1.IntentRun, 
 	}, Spec: spec}
 	existing, err := p.lease(ctx, with)
 	switch {
+	case errors.Is(err, errAtCeiling) && !ceilingBlocks(run.Spec.Trigger):
+		return p.endVerifyRoundAtCeiling(ctx, run)
 	case errors.Is(err, errAtCeiling):
 		return p.blockAtCeiling(ctx)
 	case err != nil:
@@ -403,7 +497,7 @@ func (p *pass) reviseInput(ctx context.Context, run *v1alpha1.IntentRun, plan []
 		}
 		return nil, err
 	}
-	if run.Spec.Trigger != v1alpha1.IntentRunTriggerChecks && in.feedback == "" {
+	if requiresFeedback(run.Spec.Trigger) && in.feedback == "" {
 		return nil, errNoUsableFeedback
 	}
 	// The compare base is the build of this round's own repository.
@@ -418,14 +512,47 @@ func (p *pass) reviseInput(ctx context.Context, run *v1alpha1.IntentRun, plan []
 		}
 		return nil, err
 	}
+	if in.feedback, err = p.withFixLandedNote(ctx, run, pr, in.feedback); err != nil {
+		return nil, err
+	}
 	before := roundContext{notes: p.roundWorkingNotes(run), previous: p.previousOutcome(run), earlier: in.earlier}
 	round := roundText(run, repo.Status.ResolvedSHA, before, in.feedback, visibleFeedback(patch))
 	data := map[string]string{keyIssue: "", keyInvestigation: string(plan) + round,
-		keyApprovedPlan: string(plan), keyCheckSignature: in.signature}
+		keyApprovedPlan: string(plan), signatureKey(run.Spec.Trigger): in.signature}
 	if len(in.checks) > 0 {
 		data[keyCheckNames] = strings.Join(in.checks, "\n")
 	}
 	return data, nil
+}
+
+// signatureKey is where a round's input records the failure signature it
+// was started for: an acceptance-fix round's under keyVerifySignature, any
+// other's (a check-fix round's; empty for an approver's) under
+// keyCheckSignature.
+func signatureKey(t v1alpha1.IntentRunTrigger) string {
+	switch roundKindOf(t) {
+	case roundVerify:
+		return keyVerifySignature
+	case roundHuman, roundChecks:
+	}
+	return keyCheckSignature
+}
+
+// withFixLandedNote is feedback with fixLandedNote before it, on an
+// approver's round; feedback alone on any other.
+func (p *pass) withFixLandedNote(ctx context.Context, run *v1alpha1.IntentRun, pr v1alpha1.IntentPullRequest,
+	feedback string) (string, error) {
+	if roundKindOf(run.Spec.Trigger) != roundHuman {
+		return feedback, nil
+	}
+	note, err := p.fixLandedNote(ctx, run, pr)
+	if err != nil {
+		if ghclient.IsRefused(err) || ghclient.IsNotFound(err) {
+			return "", fmt.Errorf("%w: GitHub refused the round's feedback: %v", errInputUnavailable, err)
+		}
+		return "", err
+	}
+	return note + feedback, nil
 }
 
 // The first attempt leases the feedback time window for all retries. A later
@@ -500,21 +627,10 @@ var prCommandParser = command.Parser{Surface: command.IntentPR}
 // access to the application repository.
 func (p *pass) commandRound(ctx context.Context, pr *v1alpha1.IntentPullRequest) (bool, error) {
 	cutoff := p.reviewCutoff(pr.Repository)
-	comments, err := p.r.GitHub.ListPullRequestComments(ctx, pr.Repository, pr.Number, cutoff.Add(-time.Second))
+	comments, err := p.prCommandCandidates(ctx, pr, cutoff)
 	if err != nil {
 		return false, err
 	}
-	comments = slices.DeleteFunc(comments, func(c *ghclient.Comment) bool {
-		if !isApprover(p.proj, c.UserLogin) {
-			return true
-		}
-		parsed, ok := prCommandParser.Parse(c.Body)
-		return !ok || parsed.Verb != action.VerbRevise && parsed.Verb != action.VerbRetry
-	})
-	if len(comments) > maxFeedbackCandidates {
-		comments = comments[len(comments)-maxFeedbackCandidates:]
-	}
-	slices.SortFunc(comments, func(a, b *ghclient.Comment) int { return int(a.ID - b.ID) })
 	for _, c := range comments {
 		eligible, err := p.eligiblePRCommand(ctx, pr, c, cutoff)
 		if err != nil {
@@ -552,6 +668,29 @@ func (p *pass) commandRound(ctx context.Context, pr *v1alpha1.IntentPullRequest)
 		return true, p.enterRevising(ctx, run)
 	}
 	return false, nil
+}
+
+// prCommandCandidates are the comments on pr since cutoff that could start
+// a command round: an approver's /maul revise or retry, oldest first, at
+// most maxFeedbackCandidates. eligiblePRCommand decides each.
+func (p *pass) prCommandCandidates(ctx context.Context, pr *v1alpha1.IntentPullRequest,
+	cutoff time.Time) ([]*ghclient.Comment, error) {
+	comments, err := p.prComments(ctx, pr, cutoff.Add(-time.Second))
+	if err != nil {
+		return nil, err
+	}
+	comments = slices.DeleteFunc(comments, func(c *ghclient.Comment) bool {
+		if !isApprover(p.proj, c.UserLogin) {
+			return true
+		}
+		parsed, ok := prCommandParser.Parse(c.Body)
+		return !ok || parsed.Verb != action.VerbRevise && parsed.Verb != action.VerbRetry
+	})
+	if len(comments) > maxFeedbackCandidates {
+		comments = comments[len(comments)-maxFeedbackCandidates:]
+	}
+	slices.SortFunc(comments, func(a, b *ghclient.Comment) int { return int(a.ID - b.ID) })
+	return comments, nil
 }
 
 func (p *pass) eligiblePRCommand(ctx context.Context, pr *v1alpha1.IntentPullRequest,
@@ -655,42 +794,10 @@ func (p *pass) replyToCommand(ctx context.Context, pr v1alpha1.IntentPullRequest
 }
 
 // visibleFeedback makes untrusted GitHub text legible to both a human and
-// the model. CRLF, LF and tabs keep their ordinary layout; every other
-// invisible, invalid byte or non-ASCII separator becomes a printed escape.
-func visibleFeedback(s string) string {
-	var b strings.Builder
-	for i := 0; i < len(s); {
-		r, width := utf8.DecodeRuneInString(s[i:])
-		if r == utf8.RuneError && width == 1 {
-			fmt.Fprintf(&b, "<0x%02X>", s[i])
-			i++
-			continue
-		}
-		switch {
-		case r == '\n' || r == '\t', r == '\r' && i+1 < len(s) && s[i+1] == '\n':
-			b.WriteRune(r)
-		case unicode.IsControl(r) || unicode.In(r, unicode.Cf, unicode.Zl, unicode.Zp) ||
-			unicode.Is(unicode.Variation_Selector, r) || unicode.Is(unicode.Other_Default_Ignorable_Code_Point, r):
-			fmt.Fprintf(&b, "<U+%04X>", r)
-		default:
-			b.WriteRune(r)
-		}
-		i += width
-	}
-	return b.String()
-}
+// the model (see untrusted.Escape).
+func visibleFeedback(s string) string { return untrusted.Escape(s) }
 
-func capVisible(s string, maxBytes int) string {
-	if len(s) <= maxBytes {
-		return s
-	}
-	const note = "\n[truncated]\n"
-	end := maxBytes - len(note)
-	for end > 0 && !utf8.RuneStart(s[end]) {
-		end--
-	}
-	return s[:end] + note
-}
+func capVisible(s string, maxBytes int) string { return untrusted.Cap(s, maxBytes) }
 
 // fencedBounded keeps the enclosing fence inside the item bound too. An
 // attacker may send a 2-KiB run of backticks; the normal dynamic fence would
@@ -726,7 +833,7 @@ func (p *pass) adoptPendingRound(ctx context.Context) (bool, error) {
 // adoptRound enters Revising on run, a round already leased, acknowledging
 // its command first when a command started it.
 func (p *pass) adoptRound(ctx context.Context, run *v1alpha1.IntentRun) error {
-	if run.Spec.Trigger == v1alpha1.IntentRunTriggerCommand {
+	if acksCommand(run.Spec.Trigger) {
 		if err := p.ackPRCommand(ctx, run); err != nil {
 			return err
 		}
@@ -780,15 +887,7 @@ func (p *pass) leasedRound(ctx context.Context, round int32) (*v1alpha1.IntentRu
 // have been quiet for two minutes (at most ten from the first request).
 func (p *pass) reviewRound(ctx context.Context, pr *v1alpha1.IntentPullRequest) (bool, error) {
 	round := p.in.Status.Rounds + 1
-	reviews, err := p.r.GitHub.ListPullRequestReviews(ctx, pr.Repository, pr.Number)
-	if err != nil {
-		return false, fmt.Errorf("list reviews on %s#%d: %w", pr.Repository, pr.Number, err)
-	}
-	reviews = slices.DeleteFunc(reviews, func(r ghclient.Review) bool {
-		return !isApprover(p.proj, r.Author.Login)
-	})
-	cutoff := p.reviewCutoff(pr.Repository)
-	eligible, requests, err := p.eligibleReviews(ctx, pr, reviews, cutoff)
+	eligible, requests, err := p.reviewRequests(ctx, pr)
 	if err != nil {
 		return false, err
 	}
@@ -827,6 +926,21 @@ func (p *pass) reviewRound(ctx context.Context, pr *v1alpha1.IntentPullRequest) 
 		return false, err
 	}
 	return true, p.enterRevising(ctx, run)
+}
+
+// reviewRequests are the approvers' reviews on pr a review round would
+// act on: eligible, every unedited and unconsumed one since the cutoff, and
+// requests, those of them asking for changes.
+func (p *pass) reviewRequests(ctx context.Context, pr *v1alpha1.IntentPullRequest) (
+	eligible, requests []ghclient.Review, err error) {
+	reviews, err := p.r.GitHub.ListPullRequestReviews(ctx, pr.Repository, pr.Number)
+	if err != nil {
+		return nil, nil, fmt.Errorf("list reviews on %s#%d: %w", pr.Repository, pr.Number, err)
+	}
+	reviews = slices.DeleteFunc(reviews, func(r ghclient.Review) bool {
+		return !isApprover(p.proj, r.Author.Login)
+	})
+	return p.eligibleReviews(ctx, pr, reviews, p.reviewCutoff(pr.Repository))
 }
 
 func (p *pass) eligibleReviews(ctx context.Context, pr *v1alpha1.IntentPullRequest,
@@ -871,10 +985,11 @@ func maxRevisions(proj *v1alpha1.Project) int32 {
 // revisionRounds counts leased review/command rounds, including agent failures.
 // A round refused before launch for lack of usable feedback does not spend
 // this allowance; the independent MaxIntentRound still bounds such rounds.
+// Check-fix and acceptance-fix rounds count against their own limits.
 func (p *pass) revisionRounds() int32 {
 	seen := map[int32]bool{}
 	for _, run := range p.runs {
-		if run.Spec.Stage == v1alpha1.IntentStageRevise && run.Spec.Trigger != v1alpha1.IntentRunTriggerChecks {
+		if run.Spec.Stage == v1alpha1.IntentStageRevise && countsAsRevision(run.Spec.Trigger) {
 			if latest := p.round(v1alpha1.IntentStageRevise, run.Spec.Round, anyRepository).latest(); latest != nil &&
 				latest.Status.Phase == v1alpha1.RunFailed && latest.Status.Outcome == OutcomeNoUsableFeedback {
 				continue
@@ -883,6 +998,13 @@ func (p *pass) revisionRounds() int32 {
 		}
 	}
 	return int32(len(seen))
+}
+
+// countsAsRevision reports a round held against the Project's maxRevisions:
+// an approver's round, or one with no trigger (recorded before triggers
+// were). intentview.RevisionRounds repeats this rule, pinned to it.
+func countsAsRevision(t v1alpha1.IntentRunTrigger) bool {
+	return roundKindOf(t) == roundHuman
 }
 
 // reviewCutoff ignores feedback on the pull request in repoURL predating its
@@ -939,6 +1061,7 @@ func (p *pass) enterRevising(ctx context.Context, run *v1alpha1.IntentRun) error
 	return p.setPhase(ctx, v1alpha1.IntentRevising, func(cur *v1alpha1.Intent) {
 		cur.Status.Rounds = run.Spec.Round
 		cur.Status.ActiveRun = &v1alpha1.ObjectReference{Name: run.Name, UID: run.UID}
+		haltForHumanRound(cur, run, metav1.NewTime(p.now))
 	})
 }
 
@@ -951,6 +1074,16 @@ func (p *pass) enterRevising(ctx context.Context, run *v1alpha1.IntentRun) error
 func (p *pass) createReviseRun(ctx context.Context, pr *v1alpha1.IntentPullRequest, round int32,
 	trigger v1alpha1.IntentRunTrigger, reviewIDs, checkIDs, statusIDs []int64,
 	commandID int64, attributed *v1alpha1.Attribution) (*v1alpha1.IntentRun, error) {
+	return p.leaseReviseRun(ctx, pr, round, trigger, v1alpha1.IntentRunInputs{ReviewIDs: slices.Clone(reviewIDs),
+		CheckRunIDs: slices.Clone(checkIDs), StatusIDs: slices.Clone(statusIDs), CommandID: commandID}, attributed)
+}
+
+// leaseReviseRun is createReviseRun with what the round's trigger consumed
+// given as consumed: the inputs' review, check and status ids, command id
+// and verification reference; the rest of the inputs are the lease's own.
+func (p *pass) leaseReviseRun(ctx context.Context, pr *v1alpha1.IntentPullRequest, round int32,
+	trigger v1alpha1.IntentRunTrigger, consumed v1alpha1.IntentRunInputs,
+	attributed *v1alpha1.Attribution) (*v1alpha1.IntentRun, error) {
 	ap := p.in.Status.Approval
 	if ap == nil {
 		return nil, errors.New("a revise round has no approved plan")
@@ -981,8 +1114,9 @@ func (p *pass) createReviseRun(ctx context.Context, pr *v1alpha1.IntentPullReque
 			RepositoryRef: v1alpha1.LocalObjectReference{Name: runRepositoryName(name)}},
 		Round: round, Attempt: 1,
 		Inputs: v1alpha1.IntentRunInputs{ConfigMap: runInputName(name), InputDigest: ap.InputDigest,
-			PlanRevision: ap.PlanRevision, PlanDigest: ap.PlanDigest, ReviewIDs: slices.Clone(reviewIDs),
-			CheckRunIDs: slices.Clone(checkIDs), StatusIDs: slices.Clone(statusIDs), CommandID: commandID},
+			PlanRevision: ap.PlanRevision, PlanDigest: ap.PlanDigest, ReviewIDs: consumed.ReviewIDs,
+			CheckRunIDs: consumed.CheckRunIDs, StatusIDs: consumed.StatusIDs, CommandID: consumed.CommandID,
+			VerificationRef: consumed.VerificationRef},
 		ImageFrom:    &v1alpha1.ObjectReference{Name: imageRepo.Name, UID: imageRepo.UID},
 		Grant:        p.set.grant(p.proj, v1alpha1.IntentStageRevise),
 		AttributedTo: p.set.Attribution.Stamp(attributed),

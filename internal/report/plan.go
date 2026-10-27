@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/devthenet-labs/maul/internal/acceptance"
 )
 
 // Plan report bounds, beyond the ones every intent report shares
@@ -67,6 +69,7 @@ var repositoryURL = regexp.MustCompile(`^https://[^/\s@?#]+/[^/\s?#]+/[^/\s?#]+$
 //	confidence: <0.0-1.0>                          # required
 //	estimated_max_turns: <integer>                 # required, positive
 //	estimated_token_budget: <integer>              # required, positive
+//	acceptance: []                                 # optional: criteria, see internal/acceptance
 //	---
 //
 // followed by the plan itself in markdown — approach, per-repository steps,
@@ -102,12 +105,24 @@ type Plan struct {
 	// run they describe; the controller grants the build's budget.
 	EstimatedMaxTurns    int `yaml:"estimated_max_turns"`
 	EstimatedTokenBudget int `yaml:"estimated_token_budget"`
+	// Acceptance are the plan's acceptance criteria, as written: the
+	// one-step shorthand is not folded into Steps (acceptance.Normalize does
+	// that), and a list that failed acceptance.Validate never leaves the
+	// parser. Absent means none declared.
+	Acceptance []acceptance.Criterion `yaml:"acceptance"`
 	// Body is the markdown plan following the frontmatter.
 	Body string `yaml:"-"`
 }
 
-// planFreeText are the plan keys whose values are prose.
-var planFreeText = map[string]bool{"summary": true}
+// planFreeText are the plan keys whose values are prose, and planProse the
+// top-level keys whose whole value is prose or a list of it: the only ones
+// the free-text repair may touch (decodeRepairing). Acceptance is never
+// among them: its lists hold numbers, booleans and literals, and what runs
+// must be what the approver read.
+var (
+	planFreeText = map[string]bool{"summary": true}
+	planProse    = map[string]bool{"summary": true, "repositories": true, "new_dependencies": true, "questions": true}
+)
 
 // ParsePlan parses and validates a plan report as the plan stage wrote it:
 // the document bound, that every byte of it is visible and in view, its
@@ -173,7 +188,7 @@ func parsePlanFrontmatter(data []byte) (*Plan, error) {
 			len(block), ReportMaxBytes)
 	}
 	var p Plan
-	if err := decodeRepairing(block, &p, planFreeText, func() { p = Plan{} }); err != nil {
+	if err := decodeRepairing(block, &p, planFreeText, planProse, func() { p = Plan{} }); err != nil {
 		return nil, err
 	}
 	p.Body = body
@@ -212,6 +227,9 @@ func (p *Plan) validate() error {
 	}
 	if p.EstimatedTokenBudget < 1 {
 		errs = append(errs, errors.New("estimated_token_budget must be a positive integer"))
+	}
+	if err := acceptance.Validate(p.Acceptance); err != nil {
+		errs = append(errs, fmt.Errorf("acceptance: %w", err))
 	}
 	return errors.Join(errs...)
 }

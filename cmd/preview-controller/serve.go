@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"k8s.io/client-go/kubernetes"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/devthenet-labs/maul/internal/cli"
@@ -60,6 +62,12 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 		"grace period delete, a slot Ingress without them")
 	f.String("preview-auth-annotations", "", "JSON object of slot namespace to its pinned auth annotations, "+
 		"the current key generation's, exactly as the chart renders it for the slot admission policy")
+	f.String("preview-tester-image", "", "digest-pinned preview-tester image (<repository>@sha256:<64 hex>, "+
+		"never under the preview image prefix); set, it turns acceptance verification on: per-part "+
+		"NetworkPolicies for verification-capable Previews and the PreviewVerification tester Jobs")
+	f.Duration("preview-verify-deadline-max", 30*time.Minute, "the most a tester Job may run (its "+
+		"activeDeadlineSeconds), the bound the slot Job admission policy holds it to (chart "+
+		"preview.verification.deadlineMaxSeconds); a verification asking more is clamped. 1m to 1h")
 	f.String("preview-auth-previous-annotations", "", "the previous key generation's pinned auth annotations "+
 		"during a rotation's overlap (same JSON shape); an Ingress still on them is not unauthenticated")
 	return cmd
@@ -87,6 +95,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		MaxRetries:      int32(opts.Int("preview-max-retries")),
 		TargetHealth:    opts.Bool("preview-target-health"),
 		NoLegacyIngress: !opts.Bool("preview-legacy-ingress"),
+		TesterImage:     opts.String("preview-tester-image"),
 	}
 	selector, err := preview.ParseNodeSelector(opts.String("preview-node-selector"))
 	if err != nil {
@@ -100,6 +109,10 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	settings.Auth = auth
 	if err := settings.Validate(); err != nil {
 		return err
+	}
+	deadlineMax := opts.Duration("preview-verify-deadline-max")
+	if deadlineMax < time.Minute || deadlineMax > time.Hour {
+		return fmt.Errorf("--preview-verify-deadline-max %s is outside [1m, 1h]", deadlineMax)
 	}
 	mgr, err := kube.NewManager(kube.Options{
 		Kubeconfig: opts.String("kubeconfig"), LeaderElectionID: "maul-preview-controller-leader",
@@ -118,6 +131,15 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	}
 	recorder := mgr.GetEventRecorder("maul-preview-controller")
 	reconciler := &preview.Reconciler{Client: direct, Settings: settings, Log: prov.Logger, Events: recorder}
+	if settings.TesterImage != "" {
+		verifier, err := newVerifier(mgr, direct, settings, deadlineMax, prov.Logger)
+		if err != nil {
+			return err
+		}
+		// A Preview released while a verification runs records what the
+		// slot showed first.
+		reconciler.BeforeRelease = verifier.BeforeRelease
+	}
 	if err := reconciler.SetupWithManager(mgr); err != nil {
 		return err
 	}
@@ -131,11 +153,30 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	}
 	prov.Logger.LogAttrs(ctx, slog.LevelInfo, "preview-controller starting",
 		slog.Int("slot_count", settings.SlotCount), slog.String("namespace", namespace),
-		slog.Bool("auth_required", settings.Auth.Required), slog.Bool("legacy_ingress", !settings.NoLegacyIngress))
+		slog.Bool("auth_required", settings.Auth.Required), slog.Bool("legacy_ingress", !settings.NoLegacyIngress),
+		slog.Bool("verification", settings.TesterImage != ""))
 	if err := mgr.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		return err
 	}
 	return nil
+}
+
+// newVerifier sets up the PreviewVerification reconciler: it watches the
+// requests in the release namespace through the manager's cache, reads and
+// writes through the direct client, and reads the tester's output and the
+// components' log tails through pods/log.
+func newVerifier(mgr ctrl.Manager, direct client.Client, settings preview.Settings, deadlineMax time.Duration,
+	log *slog.Logger) (*preview.VerificationReconciler, error) {
+	cs, err := kubernetes.NewForConfig(mgr.GetConfig())
+	if err != nil {
+		return nil, fmt.Errorf("preview log client: %w", err)
+	}
+	verifier := &preview.VerificationReconciler{Client: direct, Settings: settings,
+		Logs: preview.KubeLogReader{Pods: cs.CoreV1()}, DeadlineMax: deadlineMax, Log: log}
+	if err := verifier.SetupWithManager(mgr); err != nil {
+		return nil, err
+	}
+	return verifier, nil
 }
 
 // authSettings reads the sign-in relay's pinned annotations, which the chart

@@ -139,6 +139,78 @@ spec:
                 - message: two components have the same path (an omitted path is /)
                   rule: 'self.all(c, self.exists_one(d, (has(d.path) ? d.path : ''/'')
                     == (has(c.path) ? c.path : ''/'')))'
+              environment:
+                description: |-
+                  Environment makes the Preview verification-capable: the parts of its
+                  slot beside the components and the edges between them that the
+                  slot's NetworkPolicies admit (DesiredPreviewEnvironment). It is set
+                  when the Preview is created and never changed, added or removed
+                  (CEL-enforced): a Project change that alters it is a new Preview. A
+                  Preview without it renders exactly as before.
+                properties:
+                  edges:
+                    description: |-
+                      Edges are the connections between the slot's parts that the
+                      preview-controller's NetworkPolicies admit, beside the isolation
+                      policy's DNS and gateway ingress. Nothing else in the slot connects.
+                      No edge ends at the tester, and no two edges are the same. There is
+                      at least one: the tester's to a component.
+                    items:
+                      description: |-
+                        PreviewEdge admits TCP connections from one part of a Preview's slot to
+                        another, on one numeric port.
+                      properties:
+                        from:
+                          description: 'From is the calling part: a component''s key,
+                            or tester.'
+                          maxLength: 20
+                          minLength: 1
+                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                          type: string
+                        port:
+                          description: |-
+                            Port is the called part's container port: numeric, since a named
+                            port's handling varies between network policy implementations.
+                          format: int32
+                          maximum: 65535
+                          minimum: 1
+                          type: integer
+                        to:
+                          description: To is the called part.
+                          maxLength: 20
+                          minLength: 1
+                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                          type: string
+                      required:
+                      - from
+                      - port
+                      - to
+                      type: object
+                      x-kubernetes-validations:
+                      - message: an edge connects two different parts
+                        rule: self.from != self.to
+                    maxItems: 32
+                    minItems: 1
+                    type: array
+                    x-kubernetes-list-type: atomic
+                    x-kubernetes-validations:
+                    - message: nothing may connect to the tester
+                      rule: self.all(e, e.to != 'tester')
+                    - message: edges are distinct
+                      rule: self.all(e, self.exists_one(f, f.from == e.from && f.to
+                        == e.to && f.port == e.port))
+                  verification:
+                    description: |-
+                      Verification marks a Preview whose acceptance criteria are verified
+                      in its slot.
+                    type: boolean
+                required:
+                - edges
+                - verification
+                type: object
+                x-kubernetes-validations:
+                - message: spec.environment is immutable
+                  rule: self == oldSelf
               hostLabel:
                 description: HostLabel is the single DNS label before the operator's
                   host suffix.
@@ -180,6 +252,13 @@ spec:
                 minLength: 1
                 pattern: ^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$
                 type: string
+              resetGeneration:
+                description: |-
+                  ResetGeneration is bumped by an approver's /maul verify --reset: the
+                  slot's parts restart from scratch. It never decreases (CEL-enforced).
+                format: int64
+                minimum: 0
+                type: integer
               ttl:
                 description: |-
                   TTL is at most 72 hours since the last successful deployment. It is
@@ -199,6 +278,12 @@ spec:
             - message: spec.project is set once and is then immutable
               rule: '!has(oldSelf.project) || (has(self.project) && self.project ==
                 oldSelf.project)'
+            - message: 'spec.environment is set at creation only: a changed environment
+                is a new Preview'
+              rule: has(self.environment) == has(oldSelf.environment)
+            - message: spec.resetGeneration never decreases
+              rule: '(has(self.resetGeneration) ? self.resetGeneration : 0) >= (has(oldSelf.resetGeneration)
+                ? oldSelf.resetGeneration : 0)'
           status:
             description: |-
               PreviewStatus is written only by preview-controller. Slot is held until
@@ -242,6 +327,13 @@ spec:
                   ObservedGeneration distinguishes an expired or failed revision from a
                   later PR-head update that may legitimately start a fresh deployment.
                 format: int64
+                type: integer
+              observedResetGeneration:
+                description: |-
+                  ObservedResetGeneration is the spec.resetGeneration the slot's parts
+                  were last restarted for.
+                format: int64
+                minimum: 0
                 type: integer
               observedRevision:
                 description: |-

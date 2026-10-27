@@ -174,6 +174,7 @@ export const KIND_LABELS: Record<string, string> = {
   build: "intent build",
   revise: "intent revise",
   "check-fix": "check fix",
+  "verify-fix": "acceptance fix",
   evaluation: "evaluation",
 };
 

@@ -101,8 +101,10 @@ func TestProjectValidation(t *testing.T) {
 // TestProjectValidationProvesCheckFixReads is the regression test for a
 // Project with spec.checks.fix whose App was never granted the reads a
 // check-fix round makes: it used to report Ready, then fail on the first
-// failing check. Ready now proves checks, statuses and actions read on the
-// application repository, and names the one GitHub refused.
+// failing check. Ready now proves checks and actions read on the application
+// repository (statuses are proved by the write every Project asks for,
+// TestProjectValidationProvesTheStatusesWrite), and names the one GitHub
+// refused.
 func TestProjectValidationProvesCheckFixReads(t *testing.T) {
 	notGranted := ghError(http.StatusUnprocessableEntity,
 		"The permissions requested are not granted to this installation.")
@@ -112,7 +114,6 @@ func TestProjectValidationProvesCheckFixReads(t *testing.T) {
 		want    string
 	}{
 		{name: "checks", refused: ghclient.TokenPerms{Checks: ghclient.PermRead}, want: "checks: read"},
-		{name: "statuses", refused: ghclient.TokenPerms{Statuses: ghclient.PermRead}, want: "statuses: read"},
 		{name: "actions", refused: ghclient.TokenPerms{Actions: ghclient.PermRead}, want: "actions: read"},
 	}
 	for _, tt := range tests {
@@ -128,6 +129,71 @@ func TestProjectValidationProvesCheckFixReads(t *testing.T) {
 			}
 			if !strings.Contains(c.Message, appRepoURL+" with "+tt.want) || !strings.Contains(c.Message, "spec.checks.fix") {
 				t.Errorf("message %q does not name %s on %s and why", c.Message, tt.want, appRepoURL)
+			}
+		})
+	}
+}
+
+// TestProjectValidationStatusesWriteIsNeverRequired is the regression test
+// for an App registered before maul posted a commit status (statuses read
+// at most): every Project used to be NotReady after the upgrade. Statuses
+// write is now never part of Ready. A Project that does not verify never
+// asks for it and carries no AcceptanceStatusUnavailable condition; one
+// that verifies proves it beside Ready and, refused, stays Ready with the
+// condition True, naming the grant, the repository and what to change;
+// granted, the condition is False.
+func TestProjectValidationStatusesWriteIsNeverRequired(t *testing.T) {
+	refused := map[ghclient.TokenPerms]error{{Statuses: ghclient.PermWrite}: ghError(http.StatusUnprocessableEntity,
+		"The permissions requested are not granted to this installation.")}
+	for _, tc := range []struct {
+		name     string
+		verifies bool
+		fix      []string
+		refused  map[ghclient.TokenPerms]error
+		want     metav1.ConditionStatus // "" for no condition
+	}{
+		{name: "not verifying, refused", refused: refused},
+		{name: "not verifying, check fixes, refused", fix: []string{"test"}, refused: refused},
+		{name: "verifying, refused", verifies: true, refused: refused, want: metav1.ConditionTrue},
+		{name: "verifying, granted", verifies: true, want: metav1.ConditionFalse},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := testProject()
+			p.Spec.Checks.Fix = tc.fix
+			if tc.verifies {
+				p.Spec.Preview = &appPreview
+				p.Spec.Verification = &v1alpha1.ProjectVerification{Enabled: true}
+			}
+			e := newEnv(t, p)
+			e.gh.refused = tc.refused
+			e.reconcileProject()
+			conds := e.getProject().Status.Conditions
+			if c := meta.FindStatusCondition(conds, v1alpha1.ConditionReady); c == nil || c.Reason != ReasonValidated {
+				t.Fatalf("Ready = %+v, want Validated", c)
+			}
+			c := meta.FindStatusCondition(conds, ConditionAcceptanceStatusUnavailable)
+			switch {
+			case tc.want == "" && c != nil:
+				t.Fatalf("a Project that does not verify carries %+v", c)
+			case tc.want == "":
+			case c == nil || c.Status != tc.want:
+				t.Fatalf("%s = %+v, want %s", ConditionAcceptanceStatusUnavailable, c, tc.want)
+			case tc.want == metav1.ConditionTrue:
+				for _, want := range []string{appRepoURL, "statuses: write", "maul/acceptance", "Read and write"} {
+					if !strings.Contains(c.Message, want) {
+						t.Errorf("message %q does not say %q", c.Message, want)
+					}
+				}
+			}
+			if tc.verifies {
+				return
+			}
+			e.gh.mu.Lock()
+			defer e.gh.mu.Unlock()
+			for _, in := range e.gh.installs {
+				if in.perms.Statuses == ghclient.PermWrite {
+					t.Errorf("a Project that does not verify proved statuses write: %+v", in)
+				}
 			}
 		})
 	}
@@ -192,8 +258,9 @@ func TestProjectValidationProvesTheRepositoryReads(t *testing.T) {
 
 // TestProjectValidationMintsTheTable: Ready mints one token per grant of
 // the intentperm table, each with that one permission on its repository;
-// the check-fix reads only when spec.checks.fix names a check, and actions
-// write only when spec.checks.rerunFailed is set beside it.
+// the check-fix reads only when spec.checks.fix names a check, actions
+// write only when spec.checks.rerunFailed is set beside it, and statuses
+// write (Optional) only on a Project that verifies, after Ready's own.
 // TestEveryTokenIsInTheTable is the other half: every token an intent asks
 // for is a grant of that table.
 func TestProjectValidationMintsTheTable(t *testing.T) {
@@ -209,20 +276,27 @@ func TestProjectValidationMintsTheTable(t *testing.T) {
 		installCheck{appRepoURL, ghclient.TokenPerms{Actions: ghclient.PermRead}},
 	)
 	rerun := append(slices.Clone(checkFix), installCheck{appRepoURL, ghclient.TokenPerms{Actions: ghclient.PermWrite}})
+	verifying := append(slices.Clone(base), installCheck{appRepoURL, ghclient.TokenPerms{Statuses: ghclient.PermWrite}})
 	for _, tt := range []struct {
-		name  string
-		fix   []string
-		rerun bool
-		want  []installCheck
+		name     string
+		fix      []string
+		rerun    bool
+		verifies bool
+		want     []installCheck
 	}{
 		{name: "no check fixes", want: base},
 		{name: "check fixes", fix: []string{"test", "lint"}, want: checkFix},
 		{name: "check fixes and re-runs", fix: []string{"test"}, rerun: true, want: rerun},
 		{name: "re-runs with no check to fix", rerun: true, want: base},
+		{name: "verification proves statuses write after Ready", verifies: true, want: verifying},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			p := testProject()
 			p.Spec.Checks.Fix, p.Spec.Checks.RerunFailed = tt.fix, tt.rerun
+			if tt.verifies {
+				p.Spec.Preview = &appPreview
+				p.Spec.Verification = &v1alpha1.ProjectVerification{Enabled: true}
+			}
 			e := newEnv(t, p)
 			e.reconcileProject()
 			if c := meta.FindStatusCondition(e.getProject().Status.Conditions, v1alpha1.ConditionReady); c == nil ||

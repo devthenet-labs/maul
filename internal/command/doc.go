@@ -31,6 +31,18 @@
 // therefore end the command line and the note's lines but never lift a
 // command out of a code block.
 //
+// # Arguments
+//
+// A few verbs take arguments rather than a note: the whitespace-separated
+// words after the verb on the command's own line (Args), never text on the
+// lines below, which stays the note. /maul verify takes at most one, "fix"
+// or "--reset" (ParseVerify); /maul accept exactly one, a criterion id in
+// the plan grammar's form (ParseAccept), so an id it returns is safe to
+// echo. Anything else is refused, for the caller to answer with the help:
+// an argument is never guessed. "--reset" is a modifier of verify and never
+// a verb, so the integration-scoped action.VerbReset stays off every intent
+// surface.
+//
 // # Notes
 //
 // Every note, however its command arrived, is made by one exported rule,

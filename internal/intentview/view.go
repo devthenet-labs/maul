@@ -314,7 +314,7 @@ func RevisionRounds(runs []*v1alpha1.IntentRun) int32 {
 	}
 	seen := map[int32]bool{}
 	for _, run := range runs {
-		if run.Spec.Stage != v1alpha1.IntentStageRevise || run.Spec.Trigger == v1alpha1.IntentRunTriggerChecks {
+		if run.Spec.Stage != v1alpha1.IntentStageRevise || !countsAsRevision(run.Spec.Trigger) {
 			continue
 		}
 		if l := latest[run.Spec.Round]; l.Status.Phase == v1alpha1.RunFailed &&
@@ -333,11 +333,38 @@ func RevisionRounds(runs []*v1alpha1.IntentRun) int32 {
 func CheckFixRounds(runs []*v1alpha1.IntentRun) int32 {
 	seen := map[int32]bool{}
 	for _, run := range runs {
-		if run.Spec.Stage == v1alpha1.IntentStageRevise && run.Spec.Trigger == v1alpha1.IntentRunTriggerChecks {
+		if run.Spec.Stage == v1alpha1.IntentStageRevise && countsAsCheckFix(run.Spec.Trigger) {
 			seen[run.Spec.Round] = true
 		}
 	}
 	return int32(len(seen))
+}
+
+// countsAsRevision reports a round held against maxRevisions: an approver's
+// (review, command), or one recorded before triggers were. Check-fix and
+// acceptance-fix rounds count against their own limits.
+func countsAsRevision(t v1alpha1.IntentRunTrigger) bool {
+	switch t {
+	case v1alpha1.IntentRunTriggerReview, v1alpha1.IntentRunTriggerCommand:
+		return true
+	case v1alpha1.IntentRunTriggerChecks, v1alpha1.IntentRunTriggerVerify:
+		return false
+	default:
+		return true
+	}
+}
+
+// countsAsCheckFix reports a round held against maxCheckFixes: a checks
+// round alone.
+func countsAsCheckFix(t v1alpha1.IntentRunTrigger) bool {
+	switch t {
+	case v1alpha1.IntentRunTriggerChecks:
+		return true
+	case v1alpha1.IntentRunTriggerReview, v1alpha1.IntentRunTriggerCommand, v1alpha1.IntentRunTriggerVerify:
+		return false
+	default:
+		return false
+	}
 }
 
 // BlockedReasons are the public reasons the True blocking conditions give,

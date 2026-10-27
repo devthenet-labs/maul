@@ -100,6 +100,12 @@ const (
 	// ConditionChecksFailing marks an Intent whose named check failed again
 	// after a check-fix round with the same failure signature (slice 1b).
 	ConditionChecksFailing = "ChecksFailing"
+	// ConditionVerifyFailing marks an Intent whose acceptance verification
+	// fails and will not be fixed automatically (reasons RepeatedFailure,
+	// MaxVerifyFixes, CriterionError, CostCeiling). It never blocks the
+	// intent: the human's review rounds go on, and the maul/acceptance
+	// status reports the failure.
+	ConditionVerifyFailing = "VerifyFailing"
 	// ConditionBranchConflict marks a Blocked Intent whose branch
 	// maul-intent/<intent> is not maul's to use: it exists at a commit
 	// none of the Intent's runs pushed (left by an earlier Intent under the

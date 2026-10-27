@@ -334,6 +334,10 @@ func TestSchemaValidation(t *testing.T) {
 		testIntentRunTreesSchema(ctx, t, c)
 	})
 
+	t.Run("acceptance verification records are bounded and set once", func(t *testing.T) {
+		testVerificationSchema(ctx, t, c)
+	})
+
 	t.Run("finding commands round-trip and are bounded", func(t *testing.T) {
 		testFindingCommandsSchema(ctx, t, c)
 	})

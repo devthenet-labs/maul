@@ -1,0 +1,9 @@
+{{- /* The one reply to /maul verify or /maul accept. Every word is maul's:
+the actor is code, a criterion id or a commit is code and was checked against
+its grammar first, and the help is command.HelpFor's. */ -}}
+{{ .Marker }}
+{{ .Text }}
+{{- if .Help }}
+
+{{ .Help }}
+{{- end }}

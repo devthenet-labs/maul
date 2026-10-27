@@ -23,7 +23,7 @@ in priority order into pull requests, everything else routes to humans. Complete
 `FindingRollup` resources keep the all-time statistics, and (under `attribution.mode: attribute`) `UsageRollup`
 resources each person's, Project's and the org's usage by day and month.
 
-Fourteen binaries, one module. "Not monolithic" means separate binaries/deployments with shared `internal/` code:
+Fifteen binaries, one module. "Not monolithic" means separate binaries/deployments with shared `internal/` code:
 
 - `cmd/integration-controller` — the single internet-facing entry point, driven by `Integration` CRs: validates
   provider webhooks (`/github/webhooks` HMAC, `/google-cloud/webhooks` Pub/Sub OIDC, `/wiz/webhooks` bearer
@@ -220,6 +220,15 @@ Fourteen binaries, one module. "Not monolithic" means separate binaries/deployme
   renders stay byte-identical; chart `preview.nodeIsolation.{selector,mode,eksAutoMode}`). `--preview-legacy-ingress`
   (default true, today's path; chart `preview.legacyIngress`) off renders no slot Ingress, ignores target health and
   deletes the controller's own slot Ingresses. See `docs/configuration/preview-controller.md`.
+- `cmd/preview-tester` — OPTIONAL (default-off with acceptance verification; chart `preview.verification`, a
+  digest-pinned image on `Dockerfile.preview-tester`, admitted in a slot by that exact reference only): the in-slot
+  tester Job preview-controller runs, stdlib plus `internal/acceptance` only, it observes and never judges. It reads
+  `MAUL_VERIFY_SPEC` (≤ 32 KiB), sends each `http` criterion's steps to `http://<PreviewComponentServiceName>:80` built
+  structurally (no redirects, no cookie jar, 10s and 64 KiB per request), and prints a `MAUL-VERIFY:` JSONL stream with
+  a count-and-sha256 summary that preview-controller reads back through `pods/log`, beside the termination message. The
+  e2e build adds `e2edial` (`MAUL_E2E_DIAL_MAP`, `MAUL_E2E_TERMINATION_PATH`); a released binary has neither.
+  Operator guide `docs/configuration/preview-controller.md#acceptance-verification-off-by-default`, the people's guide
+  `docs/intents/acceptance.md`.
 - `cmd/status-server` — the human-facing status page (NOT a controller: no reconcilers, no leases): the embedded SPA +
   JSON projection of Findings/FindingRollups, SSE refetch signal, OIDC sign-in, the access-review-gated
   approve/retry/expedite/suspend/resume actions, and the user-menu demo tooling (replay → Integration `spec.replay`;
@@ -615,6 +624,29 @@ completions/        GENERATED shell completions, committed so the Homebrew cask 
   day stacked by Project (plus a "no project" remainder) and by run kind, top intents from month buckets, trusted,
   notional, unmetered and reported figures apart. Seeded conservation property over `stats.ApplyUsage`. Its types are
   the wire types, pinned to `ui/src/types.ts` (`TestUsageWireTypesMatchTypeScript`).
+- `acceptance`, `untrusted`, `previewtester` — acceptance verification's pure side (the design is
+  `.claude/plans/acceptance-verification/SPEC.md`; operator and people's guide `docs/intents/acceptance.md`).
+  `acceptance` (stdlib only, import pin): the plan's criterion grammar (`Validate`, the only `CriterionError` source;
+  `Normalize` folds the request/expect/capture shorthand into steps; `Digest` of the full list, manual included;
+  `Automatable`), `{{run}}` and `{{capture.x}}` substitution, `Judge`/`JudgeStep` (raw bounded observations in, a
+  `pass`, `quarantined` or `fail` verdict out; no runtime `error`), `Fingerprint` and `ClassifyEnvironment`, and the
+  `MAUL-VERIFY:` wire v1. `api/v1alpha1.AcceptanceCriterion` mirrors `Criterion` field for field, pinned by a seeded
+  round-trip. `untrusted` (`Visible`, moved from intent's `visibleDiagnostic`) bounds and makes legible every outsider's
+  text before a human or model sees it. `previewtester` is the tester binary's engine.
+- **Verification flow** (default off; `--intent-verification`, `--intent-verify-timeout-max`; chart
+  `preview.verification`, whose `deadlineMaxSeconds` drives both controllers' deadline flags): intent-controller reads
+  the approved plan's criteria into `status.acceptance` on the first review pass, and at the gate (CI green, no human
+  round pending, the Preview Live at exactly the PR heads, the bounds) creates an immutable `PreviewVerification`
+  (`ic/verify_*.go`); preview-controller's `VerificationReconciler` re-checks it and writes observations only; the intent
+  side judges them. A failure starts a verify-fix round (a `revise` run, trigger `verify`, own `verifyFixRounds()`
+  counter, `maxVerifyFixes`, `RepeatedFailure` stop by fingerprint, never a block); the human always wins (`humanPending`
+  halts auto-fix; a Pending fix is cancelled through `status.verification.cancelRun`). It posts the `maul/acceptance`
+  commit status on every open head of a verifying Project (statuses write: `intentperm.CommitStatus`, an Optional grant,
+  never part of Ready; without it the Project's `AcceptanceStatusUnavailable` and no status; success only when every
+  criterion passed or an approver accepted it, a final error once verification is switched off; digest-deduped,
+  impostor-checked once per poll), a verification comment, a sticky-comment section, and settles
+  `/maul verify [fix|--reset]` and `/maul accept <id>|all` from both surfaces (`verify_commands.go`). `VerifyFailing`
+  is a condition, never in `blockingConditions`.
 - `intentview` — the pure public projection of intents for the status page: board columns, fixed public wording
   for outcomes and block reasons (never a run's detail or a condition's message), limits with schema defaults, cost
   parsing, and `Text` (templates.VisibleText plus a cap) for every shown string. Copies of intent-controller facts

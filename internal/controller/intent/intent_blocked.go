@@ -230,7 +230,7 @@ func (p *pass) blockedReview(ctx context.Context) (bool, error) {
 	if !p.followsPullRequests() {
 		return false, nil
 	}
-	if due, err := p.reviewDue(ctx); !due || err != nil {
+	if due, err := p.prPollDue(ctx); !due || err != nil {
 		return false, err
 	}
 	_, changed, err := p.readPullRequests(ctx)

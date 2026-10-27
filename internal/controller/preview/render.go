@@ -9,6 +9,7 @@ import (
 	"maps"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -29,9 +30,22 @@ const (
 	// Deployment, Service and Pods belong to; their selectors carry it, so
 	// no Service selects a sibling's Pods.
 	labelComponent = "maul.run/preview-component"
-	labelManagedBy = "app.kubernetes.io/managed-by"
-	managedBy      = "maul-preview-controller"
-	finalizer      = "maul.run/preview-cleanup"
+	// labelPart and labelRole are pod-template-only labels of a
+	// verification-capable Preview: the part of the slot a Pod is (a
+	// component's key, or tester) and its role. The per-part
+	// NetworkPolicies select Pods by the Preview's UID and labelPart.
+	labelPart = "maul.run/preview-part"
+	labelRole = "maul.run/preview-role"
+	// labelVerificationUID ties a tester Job and its Pod to the
+	// PreviewVerification it runs, so the sweep can remove a Job whose
+	// verification is gone.
+	labelVerificationUID = "maul.run/preview-verification-uid"
+	// annotationResetGeneration on a component's Pod template is the
+	// Preview's spec.resetGeneration: a bump restarts every component.
+	annotationResetGeneration = "maul.run/reset-generation"
+	labelManagedBy            = "app.kubernetes.io/managed-by"
+	managedBy                 = "maul-preview-controller"
+	finalizer                 = "maul.run/preview-cleanup"
 	// annotationHealthcheck is the one annotation a preview Service or
 	// Ingress carries, the only one the slot admission policy admits there.
 	annotationHealthcheck = "alb.ingress.kubernetes.io/healthcheck-path"
@@ -108,6 +122,37 @@ type Settings struct {
 	// Auth puts every preview Ingress behind the sign-in relay; off, the
 	// Ingress renders exactly as it did before the relay existed.
 	Auth AuthSettings
+	// TesterImage is the digest-pinned preview-tester image, and turns
+	// verification on: the per-part NetworkPolicies of a verification-
+	// capable Preview and its tester Jobs. Empty, the controller never
+	// reads or writes a NetworkPolicy or a Job (the chart grants neither),
+	// and a Preview's environment renders no edge, so its slot stays as
+	// closed as preview-isolation leaves it.
+	TesterImage string
+}
+
+// testerImagePattern is a digest-pinned image reference: a lowercase
+// registry and repository, an optional tag, and an exact sha256 digest.
+var testerImagePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]+)?` +
+	`(/[a-z0-9]+([._-][a-z0-9]+)*)+(:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?@sha256:[0-9a-f]{64}$`)
+
+// verifying reports whether verification is on.
+func (s Settings) verifying() bool { return s.TesterImage != "" }
+
+// validateTesterImage refuses a tester image that is not pinned by digest,
+// or that lies under the preview image prefix, whose repositories an
+// application's own CI publishes.
+func (s Settings) validateTesterImage() error {
+	if !s.verifying() {
+		return nil
+	}
+	if !testerImagePattern.MatchString(s.TesterImage) {
+		return fmt.Errorf("tester image %q is not pinned by digest (<repository>@sha256:<64 hex>)", s.TesterImage)
+	}
+	if strings.HasPrefix(s.TesterImage, s.ImagePrefix) {
+		return fmt.Errorf("tester image %q lies under the preview image prefix", s.TesterImage)
+	}
+	return nil
 }
 
 // Validate refuses settings the controller must not run with. The image
@@ -125,6 +170,9 @@ func (s Settings) Validate() error {
 		return fmt.Errorf("invalid preview-controller settings")
 	}
 	if err := s.validateNodeIsolation(); err != nil {
+		return fmt.Errorf("invalid preview-controller settings: %w", err)
+	}
+	if err := s.validateTesterImage(); err != nil {
 		return fmt.Errorf("invalid preview-controller settings: %w", err)
 	}
 	return s.Auth.validate(s)
@@ -176,13 +224,38 @@ func labelsFor(p *v1alpha1.Preview) map[string]string {
 // Pods. A single-component Preview keeps labelsFor exactly, byte-identical to
 // slice 2 (a Deployment's selector is immutable, so adding a label would fail
 // the update rather than re-render it). With several components each adds its
-// own name, so no component's Service selects a sibling's Pods.
+// own name, so no component's Service selects a sibling's Pods; so does every
+// component of a verification-capable Preview, so no Service selects the
+// tester's Pod, which carries labelsFor too. spec.environment is set only at
+// creation, so no live Deployment's selector changes for it.
 func componentLabels(p *v1alpha1.Preview, i int) map[string]string {
 	l := labelsFor(p)
-	if len(p.Spec.Components) > 1 {
+	if len(p.Spec.Components) > 1 || p.Spec.Environment != nil {
 		l[labelComponent] = p.Spec.Components[i].Name
 	}
 	return l
+}
+
+// componentPodLabels are component i's Pod template labels: its selector's,
+// plus its part and role on a verification-capable Preview, which the
+// per-part NetworkPolicies select by. Without an environment they are the
+// selector's exactly, as before.
+func componentPodLabels(p *v1alpha1.Preview, i int) map[string]string {
+	l := componentLabels(p, i)
+	if p.Spec.Environment != nil {
+		l[labelPart] = p.Spec.Components[i].Name
+		l[labelRole] = string(v1alpha1.PreviewRoleComponent)
+	}
+	return l
+}
+
+// componentPodAnnotations are every component's Pod template annotations:
+// the reset generation once a reset was asked for, else none, as before.
+func componentPodAnnotations(p *v1alpha1.Preview) map[string]string {
+	if p.Spec.ResetGeneration == 0 {
+		return nil
+	}
+	return map[string]string{annotationResetGeneration: strconv.FormatInt(p.Spec.ResetGeneration, 10)}
 }
 
 func (s Settings) validatePreview(p *v1alpha1.Preview) error {
@@ -200,6 +273,32 @@ func (s Settings) validatePreview(p *v1alpha1.Preview) error {
 			return fmt.Errorf("invalid Preview component")
 		}
 		names[c.Name], paths[path] = true, true
+	}
+	return validEnvironment(p, names)
+}
+
+// validEnvironment checks a Preview's environment on its own, beside the
+// re-derivation matchesApprovedPreview does: it marks verification, no
+// component takes the tester's part name, and each edge joins two different
+// known parts (from the tester or a component, to a component) on a valid
+// port. A reset generation needs an environment: there is nothing else for
+// it to restart.
+func validEnvironment(p *v1alpha1.Preview, components map[string]bool) error {
+	env := p.Spec.Environment
+	if env == nil {
+		if p.Spec.ResetGeneration != 0 {
+			return fmt.Errorf("invalid Preview: a reset generation without an environment")
+		}
+		return nil
+	}
+	if !env.Verification || len(env.Edges) == 0 || components[v1alpha1.PreviewPartTester] {
+		return fmt.Errorf("invalid Preview environment")
+	}
+	for _, e := range env.Edges {
+		from := components[e.From] || e.From == v1alpha1.PreviewPartTester
+		if !from || !components[e.To] || e.From == e.To || e.Port < 1 || e.Port > 65535 {
+			return fmt.Errorf("invalid Preview environment edge")
+		}
 	}
 	return nil
 }
@@ -240,7 +339,8 @@ func (s Settings) deployment(p *v1alpha1.Preview, i int, slot int32) *appsv1.Dep
 				},
 			},
 			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Labels: labels},
+				ObjectMeta: metav1.ObjectMeta{Labels: componentPodLabels(p, i),
+					Annotations: componentPodAnnotations(p)},
 				Spec: corev1.PodSpec{
 					ServiceAccountName: "default", AutomountServiceAccountToken: ptr(false),
 					NodeSelector: s.nodeSelector(),

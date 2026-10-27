@@ -42,6 +42,7 @@ func addKnownTypes(s *runtime.Scheme) error {
 		&ModelCredential{}, &ModelCredentialList{},
 		&Project{}, &ProjectList{},
 		&Preview{}, &PreviewList{},
+		&PreviewVerification{}, &PreviewVerificationList{},
 		&Remediation{}, &RemediationList{},
 		&Repository{}, &RepositoryList{},
 		&UsageRollup{}, &UsageRollupList{},

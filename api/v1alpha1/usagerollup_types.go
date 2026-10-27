@@ -125,7 +125,7 @@ type UsageKindTotals struct {
 type UsageBucket struct {
 	UsageAggregate `json:",inline"`
 	// Kinds splits the bucket by run kind: investigation, remediation, plan,
-	// build, revise, check-fix, evaluation.
+	// build, revise, check-fix, verify-fix, evaluation.
 	// +optional
 	// +kubebuilder:validation:MaxProperties=16
 	Kinds map[string]UsageKindTotals `json:"kinds,omitempty"`

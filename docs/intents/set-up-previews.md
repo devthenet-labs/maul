@@ -123,6 +123,14 @@ Then follow `NEXT-STEPS.md`. Every recipe has the same eight steps:
 
 It ends with a rollback section for the recipe, all by deletion in reverse order.
 
+## Checking what an intent builds
+
+Once previews are up, they can also be put to work: with `preview.verification.enabled` in the chart's values, maul runs
+the approved plan's acceptance criteria against each intent's preview and reports them as the `maul/acceptance` commit
+status. It needs nothing from the edge recipes above, but it does add NetworkPolicies, a Job and the tester image to
+every slot, and the App's Commit statuses write permission. Turn it on only after `check previews` passes. See
+[Acceptance verification](acceptance.md).
+
 ### Applying it for you
 
 `--apply` runs the in-cluster parts of steps 4 to 8 itself, with your kubeconfig and the `helm` on your `PATH`: the

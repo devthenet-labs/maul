@@ -382,6 +382,8 @@ func (p *pass) stillToAnswer(a *humanAction) bool {
 			return true
 		}
 		return after(a.at, a.source, a.id, p.lastTrigger()) // else superseded by a newer trigger action
+	case action.VerbVerify, action.VerbAccept:
+		a.recorded = p.verifyRecorded(a.id)
 	}
 	return true
 }
@@ -515,9 +517,10 @@ func (p *pass) settle(ctx context.Context, a humanAction, issue *ghclient.Issue)
 }
 
 // acts reports a verb that takes effect on the intent (approve, replan,
-// cancel), as against one only answered with help.
+// cancel, verify, accept), as against one only answered with help.
 func acts(verb string) bool {
-	return verb == action.VerbApprove || verb == action.VerbReplan || verb == action.VerbCancel
+	return verb == action.VerbApprove || verb == action.VerbReplan || verb == action.VerbCancel ||
+		isVerifyVerb(verb)
 }
 
 // decide applies or refuses an intent verb, a label's or an approver's
@@ -530,6 +533,8 @@ func (p *pass) decide(ctx context.Context, a humanAction, issue *ghclient.Issue)
 		return p.settleApprove(ctx, a, issue)
 	case action.VerbReplan:
 		return p.settleReplan(ctx, a, issue)
+	case action.VerbVerify, action.VerbAccept:
+		return p.settleVerifyIssue(ctx, a)
 	}
 	return nil
 }
@@ -603,6 +608,9 @@ func (p *pass) replyDone(ctx context.Context, a humanAction) error {
 	if a.source != v1alpha1.IntentActionCommand {
 		return nil
 	}
+	if isVerifyVerb(a.verb) {
+		return p.replyVerifyRecorded(ctx, a)
+	}
 	var rev int32
 	if ap := p.in.Status.Approval; ap != nil {
 		rev = ap.PlanRevision
@@ -634,7 +642,7 @@ func (p *pass) notAllowed(ctx context.Context, a humanAction, bot, labelRemoved,
 func (p *pass) notAvailable(ctx context.Context, a humanAction, phase v1alpha1.IntentPhase, labelRemoved bool) error {
 	n := templates.NotAvailableNotice{
 		Namespace: p.in.Namespace, Intent: p.in.Name, Key: a.key(), Phase: string(phase),
-		LabelRemoved: labelRemoved, Available: verbs(phase),
+		LabelRemoved: labelRemoved, Available: verbs(phase, p.set.Verification),
 	}
 	if a.source == v1alpha1.IntentActionLabel {
 		n.Label = a.label
