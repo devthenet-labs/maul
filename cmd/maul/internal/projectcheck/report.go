@@ -10,13 +10,16 @@ import (
 
 // The checks, in the order a report lists them.
 const (
-	CheckReady        = "ready"
-	CheckIntentNames  = "intent-names"
-	CheckForge        = "forge"
-	CheckLabels       = "labels"
-	CheckAgentImage   = "agent-image"
-	CheckPreviews     = "previews"
-	CheckPreviewImage = "preview-image"
+	CheckReady       = "ready"
+	CheckIntentNames = "intent-names"
+	CheckForge       = "forge"
+	CheckLabels      = "labels"
+	CheckAgentImage  = "agent-image"
+	CheckPreviews    = "previews"
+	// CheckAcceptanceRules is whether a repository's branch rules require
+	// maul/acceptance (only for a Project with verification enabled).
+	CheckAcceptanceRules = "acceptance-rules"
+	CheckPreviewImage    = "preview-image"
 	// The preview path's checks, previewcheck's (the sign-in ones only while
 	// the chart's previewAuth is on, the allowlist only while the preview
 	// gateway is).

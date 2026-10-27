@@ -59,6 +59,14 @@ type fakeGitHub struct {
 	files map[string]map[string]string
 	// fileErr fails every file read.
 	fileErr error
+	// rules are the required status checks per repository URL; rulesErr
+	// fails every rules read.
+	rules    map[string][]RequiredCheck
+	rulesErr error
+}
+
+func (g *fakeGitHub) BranchRules(_ context.Context, repoURL, _ string) ([]RequiredCheck, error) {
+	return g.rules[repoURL], g.rulesErr
 }
 
 func (g *fakeGitHub) Head(_ context.Context, repoURL string) (Head, error) {
