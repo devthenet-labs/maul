@@ -114,6 +114,11 @@ func (p *pass) statusComment() templates.IntentStatusComment {
 		// runs against; nil when it is not reported.
 		c.Preview.Verify = p.verifyProgress()
 	}
+	// Verification runs against the Preview: without the preview
+	// projection a verifying Project's intent in review is Off, and the
+	// comment says why.
+	c.VerificationNeedsPreviews = p.set.VerificationWithoutPreviews() && p.proj.Spec.VerificationEnabled() &&
+		verifyPhase(st.Phase)
 	c.AgentsPaused = p.agentsPaused()
 	c.Attribution = p.latestAttribution()
 	switch st.Phase {
@@ -137,14 +142,7 @@ func (p *pass) statusComment() templates.IntentStatusComment {
 // fixingChecks reports a round the status comment names as fixing CI: a
 // check-fix round alone.
 func fixingChecks(t v1alpha1.IntentRunTrigger) bool {
-	switch t {
-	case v1alpha1.IntentRunTriggerChecks:
-		return true
-	case v1alpha1.IntentRunTriggerReview, v1alpha1.IntentRunTriggerCommand, v1alpha1.IntentRunTriggerVerify:
-		return false
-	default:
-		return false
-	}
+	return roundKindOf(t) == roundChecks
 }
 
 // latestAttribution is whom the Intent's newest run is attributed to, nil

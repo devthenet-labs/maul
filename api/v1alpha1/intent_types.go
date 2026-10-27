@@ -782,8 +782,21 @@ const (
 	// VerificationNeedsReplan: a criterion can no longer be run as approved
 	// (its target is no longer previewed); only a replan helps.
 	VerificationNeedsReplan IntentVerificationState = "NeedsReplan"
-	// VerificationUnavailable: maul's own machinery failed every attempt.
+	// VerificationUnavailable: maul's own machinery failed every attempt,
+	// or the Preview was not live within the bound (UnavailableReason).
 	VerificationUnavailable IntentVerificationState = "Unavailable"
+)
+
+// VerificationUnavailableReason says why a verification is Unavailable.
+// +kubebuilder:validation:Enum=PreviewNotLive
+type VerificationUnavailableReason string
+
+// Unavailable reasons. None (empty) is maul's machinery failing every
+// attempt.
+const (
+	// VerificationUnavailablePreviewNotLive: the Preview was not live at
+	// exactly the heads within the wait bound.
+	VerificationUnavailablePreviewNotLive VerificationUnavailableReason = "PreviewNotLive"
 )
 
 // VerdictOutcome is acceptance.Judge's verdict on one criterion: pass,
@@ -1039,6 +1052,18 @@ type IntentVerification struct {
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=999
 	InfraRetries int32 `json:"infraRetries,omitempty"`
+	// PreviewWaitSince is when the verification last began waiting for a
+	// live Preview at its heads (WaitingForPreview). A wait is bounded:
+	// past it the verification is Unavailable (PreviewNotLive) until the
+	// Preview is live.
+	// +optional
+	PreviewWaitSince *metav1.Time `json:"previewWaitSince,omitempty"`
+	// UnavailableReason says why the state is Unavailable: PreviewNotLive
+	// when the Preview was not live at the heads within the bound (Failed,
+	// expired, or never served); empty when maul's own machinery failed
+	// every attempt. Read only with state Unavailable.
+	// +optional
+	UnavailableReason VerificationUnavailableReason `json:"unavailableReason,omitempty"`
 }
 
 // IntentStatus is the intent's observed state. Written only by

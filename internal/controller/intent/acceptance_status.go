@@ -129,6 +129,10 @@ func (p *pass) verifyingStatus() (acceptanceState, bool) {
 	case v1alpha1.VerificationNeedsReplan:
 		return acceptanceState{statusError, "a check cannot run as approved: replan needed"}, true
 	case v1alpha1.VerificationUnavailable:
+		if previewNotLive(v) {
+			return acceptanceState{statusError, fmt.Sprintf("the preview was not live within %d minutes, so the "+
+				"checks could not run", int(previewWaitMax.Minutes()))}, true
+		}
 		return acceptanceState{statusError, "maul could not run the checks"}, true
 	case v1alpha1.VerificationOff:
 	}

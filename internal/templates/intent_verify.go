@@ -43,6 +43,9 @@ const (
 	VerifyExhausted = "exhausted"
 	// VerifyUnavailable: the checks could not be run (infrastructure).
 	VerifyUnavailable = "unavailable"
+	// VerifyPreviewNotLive: the checks could not be run because the
+	// preview was not live at the pull requests' heads in time.
+	VerifyPreviewNotLive = "preview-not-live"
 	// VerifyWaitingForCI: verification waits for the pull requests' named
 	// checks to pass.
 	VerifyWaitingForCI = "waiting-for-ci"
@@ -139,6 +142,10 @@ func verifyRestingLine(state string) (line string, whole bool) {
 			"verified. " + slashCommand("replan") + " to approve a plan again.", true
 	case VerifyNotChecked:
 		return "Nothing is checked automatically", false
+	case VerifyPreviewNotLive:
+		return "Verification unavailable: the preview did not become live at the pull requests' heads in time, so " +
+			"the checks could not run. Verification resumes once the preview is live; `kubectl get preview` " +
+			"says why it is not.", true
 	}
 	return "", false
 }

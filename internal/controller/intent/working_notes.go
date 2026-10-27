@@ -74,13 +74,12 @@ func workingNotesOf(run *v1alpha1.IntentRun) string {
 		return fmt.Sprintf("the build of plan r%d (attempt %d)", run.Spec.Inputs.PlanRevision, run.Spec.Attempt)
 	}
 	noun := "revise round"
-	switch run.Spec.Trigger {
-	case v1alpha1.IntentRunTriggerReview, v1alpha1.IntentRunTriggerCommand:
-	case v1alpha1.IntentRunTriggerChecks:
+	switch roundKindOf(run.Spec.Trigger) {
+	case roundChecks:
 		noun = "check-fix round"
-	case v1alpha1.IntentRunTriggerVerify:
+	case roundVerify:
 		noun = "acceptance-fix round"
-	default:
+	case roundHuman:
 	}
 	return fmt.Sprintf("%s %d (attempt %d)", noun, run.Spec.Round, run.Spec.Attempt)
 }

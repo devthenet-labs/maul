@@ -338,6 +338,10 @@ func TestVerifyLineStates(t *testing.T) {
 		{VerifyProgress{State: VerifyNotChecked, ManualOpen: 2}, "Nothing is checked automatically, 2 for a human."},
 		{VerifyProgress{State: VerifyUnreadable}, "Verification stopped: maul cannot read the approved plan's " +
 			"acceptance criteria, so nothing is verified. `/maul replan` to approve a plan again."},
+		{VerifyProgress{State: VerifyPreviewNotLive, Round: 1, MaxRounds: 3, ManualOpen: 1},
+			"Verification unavailable: the preview did not become live at the pull requests' heads in time, so the " +
+				"checks could not run. Verification resumes once the preview is live; `kubectl get preview` says " +
+				"why it is not."},
 	} {
 		if got := verifyLine(tc.p); got != tc.want {
 			t.Errorf("%+v:\n got %q\nwant %q", tc.p, got, tc.want)

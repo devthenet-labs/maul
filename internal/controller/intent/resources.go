@@ -131,16 +131,14 @@ func stageNoun(run *v1alpha1.IntentRun) string {
 	case v1alpha1.IntentStagePlan:
 		return "plan"
 	case v1alpha1.IntentStageRevise:
-		switch run.Spec.Trigger {
-		case v1alpha1.IntentRunTriggerReview, v1alpha1.IntentRunTriggerCommand:
-			return "revise round"
-		case v1alpha1.IntentRunTriggerChecks:
+		switch roundKindOf(run.Spec.Trigger) {
+		case roundChecks:
 			return "check-fix round"
-		case v1alpha1.IntentRunTriggerVerify:
+		case roundVerify:
 			return "acceptance-fix round"
-		default:
-			return "revise round"
+		case roundHuman:
 		}
+		return "revise round"
 	}
 	return "build"
 }

@@ -130,19 +130,16 @@ func (p *pass) notePRComment(pr *v1alpha1.IntentPullRequest, c *ghclient.Comment
 // humanReason is the halt reason a revise round of trigger t gives
 // automatic fixes when it starts: a human's names what started it; maul's
 // own rounds (checks, verify) give none.
+// A round with no trigger predates triggers: an approver's review, as
+// roundKindOf reads it.
 func humanReason(t v1alpha1.IntentRunTrigger) v1alpha1.AutoFixReason {
-	switch t {
-	case v1alpha1.IntentRunTriggerReview:
-		return v1alpha1.AutoFixHumanReview
-	case v1alpha1.IntentRunTriggerCommand:
-		return v1alpha1.AutoFixHumanCommand
-	case v1alpha1.IntentRunTriggerChecks, v1alpha1.IntentRunTriggerVerify:
+	switch {
+	case roundKindOf(t) != roundHuman:
 		return ""
-	default:
-		// A round with no trigger predates triggers: an approver's, as
-		// roundKindOf reads it.
-		return v1alpha1.AutoFixHumanReview
+	case acksCommand(t):
+		return v1alpha1.AutoFixHumanCommand
 	}
+	return v1alpha1.AutoFixHumanReview
 }
 
 // haltForHumanRound halts cur's automatic fixes as run, a round of the

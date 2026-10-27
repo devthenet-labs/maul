@@ -20,6 +20,7 @@ import (
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
+	"github.com/devthenet-labs/maul/internal/acceptance/crdconv"
 	"github.com/devthenet-labs/maul/internal/envelope"
 	"github.com/devthenet-labs/maul/internal/ghclient"
 	"github.com/devthenet-labs/maul/internal/jobs"
@@ -120,7 +121,7 @@ func (e *env) observe(pvName string, phase v1alpha1.PreviewVerificationPhase, do
 	}
 	pv.Status = v1alpha1.PreviewVerificationStatus{Phase: phase, Environment: env}
 	if do != nil {
-		cs, err := criteriaFromCRD(pv.Spec.Criteria)
+		cs, err := crdconv.CriteriaFromCRD(pv.Spec.Criteria)
 		if err != nil {
 			e.t.Fatal(err)
 		}
@@ -204,7 +205,7 @@ func TestVerificationRecordsTheApprovedCriteria(t *testing.T) {
 		acc.Criteria[1].Kind != v1alpha1.AcceptanceManual {
 		t.Fatalf("criteria = %+v", acc.Criteria)
 	}
-	back, err := criteriaFromCRD(acc.Criteria)
+	back, err := crdconv.CriteriaFromCRD(acc.Criteria)
 	if err != nil || acceptance.Digest(back) != acc.Digest {
 		t.Fatalf("stored criteria digest %s, err %v; want %s", acceptance.Digest(back), err, acc.Digest)
 	}
@@ -245,6 +246,44 @@ func TestVerificationNotDeclared(t *testing.T) {
 	}
 }
 
+// TestVerificationWithoutPreviews: a controller started with
+// --intent-verification but not --intent-previews-enabled (serve warns
+// rather than refusing to start) runs with verification Off. A verifying
+// Project stays Ready and says why in its VerificationOff condition; an
+// intent of it in review is Off, nothing is created, no maul/acceptance is
+// posted, and the issue's status comment says why. With previews on there
+// is no such condition.
+func TestVerificationWithoutPreviews(t *testing.T) {
+	e := newVerifyEnv(t, acceptancePlan)
+	e.reconcileProject()
+	if c := meta.FindStatusCondition(e.getProject().Status.Conditions, ConditionVerificationOff); c != nil {
+		t.Fatalf("%s with previews on: %+v", ConditionVerificationOff, c)
+	}
+	e.intent.Settings.Previews = false
+	e.project.Settings.Verification, e.project.Settings.Previews = true, false
+	e.reconcileProject()
+	conds := e.getProject().Status.Conditions
+	c := meta.FindStatusCondition(conds, ConditionVerificationOff)
+	if c == nil || c.Status != metav1.ConditionTrue || c.Reason != ReasonPreviewsDisabled ||
+		!strings.Contains(c.Message, "--intent-previews-enabled") || !meta.IsStatusConditionTrue(conds,
+		v1alpha1.ConditionReady) {
+		t.Fatalf("project conditions = %+v", conds)
+	}
+	name := e.reviewing()
+	e.review(name, 6)
+	v := e.verification(name)
+	if v.State != v1alpha1.VerificationOff || len(e.verifications(name)) != 0 {
+		t.Fatalf("verification = %+v, verifications %d", v, len(e.verifications(name)))
+	}
+	if ss := e.acceptanceStatuses(e.get(name).Status.PullRequests[0].HeadSHA); len(ss) != 0 {
+		t.Fatalf("statuses posted with verification off: %+v", ss)
+	}
+	if body := e.statusBody(); !strings.Contains(body, "**Verification:** off") ||
+		!strings.Contains(body, "`--intent-previews-enabled`") {
+		t.Fatalf("status comment does not say why verification is off:\n%s", body)
+	}
+}
+
 // TestVerificationWaitsForThePreview: nothing runs while the Preview is not
 // live at the heads.
 func TestVerificationWaitsForThePreview(t *testing.T) {
@@ -254,6 +293,68 @@ func TestVerificationWaitsForThePreview(t *testing.T) {
 	e.review(name, 3)
 	if v := e.verification(name); v.State != v1alpha1.VerificationWaitingForPreview || len(e.verifications(name)) != 0 {
 		t.Fatalf("verification = %+v", v)
+	}
+}
+
+// TestVerificationGivesUpWaitingForThePreview: a Preview that never goes
+// live at the heads (Failed, Expired, or never served: no preview-controller)
+// holds the verification only for previewWaitMax. Then it is Unavailable
+// (PreviewNotLive), maul/acceptance is an error saying why, and the issue's
+// verification comment says so; nothing is created meanwhile. Once the
+// Preview is live it verifies after all.
+func TestVerificationGivesUpWaitingForThePreview(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		phase v1alpha1.PreviewPhase
+	}{{"failed", v1alpha1.PreviewFailed}, {"expired", v1alpha1.PreviewExpired}, {"never served", ""}} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newVerifyEnv(t, acceptancePlan)
+			name := e.reviewing()
+			if tc.phase != "" {
+				e.servePreview(name, tc.phase, "")
+			} else {
+				e.previewOf(name)
+			}
+			e.review(name, 6)
+			v := e.verification(name)
+			if v.State != v1alpha1.VerificationWaitingForPreview || v.PreviewWaitSince == nil {
+				t.Fatalf("verification = %+v, want waiting with its start recorded", v)
+			}
+			head := e.get(name).Status.PullRequests[0].HeadSHA
+			if st := e.latestAcceptance(head); st.State != statusPending {
+				t.Fatalf("status while waiting = %+v", st)
+			}
+			e.clock.Advance(previewWaitMax - 10*time.Minute)
+			e.review(name, 2)
+			if v := e.verification(name); v.State != v1alpha1.VerificationWaitingForPreview {
+				t.Fatalf("gave up before the bound: %+v", v)
+			}
+			e.review(name, 6)
+			v = e.verification(name)
+			if v.State != v1alpha1.VerificationUnavailable ||
+				v.UnavailableReason != v1alpha1.VerificationUnavailablePreviewNotLive || len(e.verifications(name)) != 0 {
+				t.Fatalf("verification after the bound = %+v, verifications %d", v, len(e.verifications(name)))
+			}
+			st := e.latestAcceptance(head)
+			if st.State != statusError || !strings.Contains(st.Description, "preview") || len(st.Description) > 140 {
+				t.Fatalf("status after the bound = %+v", st)
+			}
+			cs := e.verifyComments(name, 1)
+			if len(cs) != 1 || !strings.Contains(cs[0].Body, "the preview did not become live") {
+				t.Fatalf("verification comments = %+v", cs)
+			}
+			e.review(name, 3)
+			if v := e.verification(name); v.State != v1alpha1.VerificationUnavailable {
+				t.Fatalf("did not stay unavailable: %+v", v)
+			}
+			e.readyPreview(name)
+			e.review(name, 3)
+			v = e.verification(name)
+			if v.State != v1alpha1.VerificationVerifying || v.UnavailableReason != "" || len(e.verifications(name)) != 1 {
+				t.Fatalf("verification once the preview is live = %+v, verifications %d", v,
+					len(e.verifications(name)))
+			}
+		})
 	}
 }
 
@@ -591,14 +692,14 @@ func TestCriteriaConversionIsStrict(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := criteriaToCRD(parsed.Acceptance); err == nil {
+	if _, err := crdconv.CriteriaToCRD(parsed.Acceptance); err == nil {
 		t.Fatal("the unnormalised shorthand converted")
 	}
-	got, err := criteriaToCRD(acceptance.Normalize(parsed.Acceptance))
+	got, err := crdconv.CriteriaToCRD(acceptance.Normalize(parsed.Acceptance))
 	if err != nil {
 		t.Fatal(err)
 	}
-	back, err := criteriaFromCRD(got)
+	back, err := crdconv.CriteriaFromCRD(got)
 	if err != nil || acceptance.Digest(back) != acceptance.Digest(parsed.Acceptance) {
 		t.Fatalf("round trip: %v", err)
 	}

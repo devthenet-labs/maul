@@ -464,14 +464,7 @@ func (p *pass) checkFixRounds() int32 {
 // round is compared with. An acceptance-fix round is not one: its failures
 // are acceptance criteria, counted against maxVerifyFixes.
 func isCheckFix(t v1alpha1.IntentRunTrigger) bool {
-	switch t {
-	case v1alpha1.IntentRunTriggerChecks:
-		return true
-	case v1alpha1.IntentRunTriggerReview, v1alpha1.IntentRunTriggerCommand, v1alpha1.IntentRunTriggerVerify:
-		return false
-	default:
-		return false
-	}
+	return roundKindOf(t) == roundChecks
 }
 
 // checkDiagnosis is what a check-fix round reads of its failed checks.

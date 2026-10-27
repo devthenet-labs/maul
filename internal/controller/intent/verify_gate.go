@@ -4,7 +4,6 @@
 package intent
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -20,20 +19,27 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
-	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // The verification gate: what must hold before the intent reconciler asks
 // preview-controller to run the approved acceptance criteria against the
 // intent's Preview (a PreviewVerification), and the pure pieces both the
-// gate and the loop (verify_loop.go) share: the head set, the criteria's
-// conversion between the CRD mirror and internal/acceptance, and the bounds.
+// gate and the loop (verify_loop.go) share: the head set and the bounds.
 
 // verifyInterval spaces verifications: an automatic one while automatic
 // fixes are halted (a human pushing repeatedly is not re-verified on every
 // push), and the runs of approvers' requests (one per interval per intent).
 const verifyInterval = 5 * time.Minute
+
+// previewWaitMax bounds how long a due verification waits for the Preview
+// to be live at exactly the heads (WaitingForPreview). A Preview that is
+// Failed, expired or never served (no preview-controller) would otherwise
+// hold maul/acceptance pending for ever. It is long enough for a queued
+// Preview to get a slot and for a few of preview-controller's rollout
+// attempts (--preview-rollout-timeout, 10 minutes by default); past it the
+// verification is Unavailable (PreviewNotLive) until the Preview is live.
+const previewWaitMax = time.Hour
 
 // verificationRetention is how many of an Intent's PreviewVerifications are
 // kept: the latest few carry the evidence a fix round or a comment may
@@ -99,46 +105,6 @@ func headSetDigest(heads []v1alpha1.VerificationHead) string {
 		b = []byte("!unencodable")
 	}
 	return digest(b)
-}
-
-// criteriaToCRD converts criteria (normalised: acceptance.Normalize) to the
-// CRD mirror, field for field through their identical JSON tags. A field the
-// mirror lacks is refused rather than dropped, so a criterion is stored
-// exactly as it was approved or not at all.
-func criteriaToCRD(cs []acceptance.Criterion) ([]v1alpha1.AcceptanceCriterion, error) {
-	if len(cs) == 0 {
-		return nil, nil
-	}
-	var out []v1alpha1.AcceptanceCriterion
-	if err := convertStrict(cs, &out); err != nil {
-		return nil, fmt.Errorf("acceptance criteria: %w", err)
-	}
-	return out, nil
-}
-
-// criteriaFromCRD converts stored criteria back to internal/acceptance's
-// form, as strictly.
-func criteriaFromCRD(cs []v1alpha1.AcceptanceCriterion) ([]acceptance.Criterion, error) {
-	if len(cs) == 0 {
-		return nil, nil
-	}
-	var out []acceptance.Criterion
-	if err := convertStrict(cs, &out); err != nil {
-		return nil, fmt.Errorf("stored acceptance criteria: %w", err)
-	}
-	return out, nil
-}
-
-// convertStrict re-decodes in's JSON into out, refusing any field out has
-// no place for.
-func convertStrict(in, out any) error {
-	b, err := json.Marshal(in)
-	if err != nil {
-		return err
-	}
-	dec := json.NewDecoder(bytes.NewReader(b))
-	dec.DisallowUnknownFields()
-	return dec.Decode(out)
 }
 
 // automatable are the criteria this slice (acceptance slice 1) runs, in

@@ -104,14 +104,7 @@ func (p *pass) threadWindow(run *v1alpha1.IntentRun) (lower, newAfter time.Time)
 // A check-fix or acceptance-fix round only reads the thread, all of it as
 // earlier context.
 func actsOnThread(t v1alpha1.IntentRunTrigger) bool {
-	switch t {
-	case v1alpha1.IntentRunTriggerReview, v1alpha1.IntentRunTriggerCommand:
-		return true
-	case v1alpha1.IntentRunTriggerChecks, v1alpha1.IntentRunTriggerVerify:
-		return false
-	default:
-		return true
-	}
+	return roundKindOf(t) == roundHuman
 }
 
 // earlierRounds is every run of the revise rounds before run's in its own
@@ -200,17 +193,15 @@ func roundText(run *v1alpha1.IntentRun, head string, before roundContext, feedba
 // criteria were approved with the plan, and the round may not bend them.
 func roundHeading(t v1alpha1.IntentRunTrigger) (heading, scope string) {
 	const human, humanScope = "Approver feedback", "address only authorised review feedback"
-	switch t {
-	case v1alpha1.IntentRunTriggerReview, v1alpha1.IntentRunTriggerCommand:
-		return human, humanScope
-	case v1alpha1.IntentRunTriggerChecks:
+	switch roundKindOf(t) {
+	case roundChecks:
 		return "Check failures", "fix only the failing checks"
-	case v1alpha1.IntentRunTriggerVerify:
+	case roundVerify:
 		return "Acceptance failures", "make the failing acceptance criteria pass; the criteria are fixed and " +
 			"approved; do not special-case maul's checks"
-	default:
-		return human, humanScope
+	case roundHuman:
 	}
+	return human, humanScope
 }
 
 // roundInput is what a round is given beside its compare patch: its new

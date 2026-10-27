@@ -19,6 +19,7 @@ import (
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
+	"github.com/devthenet-labs/maul/internal/acceptance/crdconv"
 	"github.com/devthenet-labs/maul/internal/report"
 )
 
@@ -207,7 +208,7 @@ func (p *pass) approvedAcceptance(ctx context.Context, ap *v1alpha1.IntentApprov
 	if err != nil {
 		return nil, fmt.Errorf("parse plan r%d: %w", ap.PlanRevision, err)
 	}
-	criteria, err := criteriaToCRD(acceptance.Normalize(parsed.Acceptance))
+	criteria, err := crdconv.CriteriaToCRD(acceptance.Normalize(parsed.Acceptance))
 	if err != nil {
 		return nil, err
 	}
@@ -259,17 +260,9 @@ func (p *pass) humanRoundHalt() v1alpha1.AutoFixReason {
 			run.Spec.Round <= latest {
 			continue
 		}
-		switch run.Spec.Trigger {
-		case v1alpha1.IntentRunTriggerReview:
-			reason, latest = v1alpha1.AutoFixHumanReview, run.Spec.Round
-		case v1alpha1.IntentRunTriggerCommand:
-			reason, latest = v1alpha1.AutoFixHumanCommand, run.Spec.Round
-		case v1alpha1.IntentRunTriggerChecks, v1alpha1.IntentRunTriggerVerify:
-			// maul's own rounds: never a human's.
-		default:
-			// A revise run with no trigger predates triggers: an approver's
-			// round, as roundKindOf reads it.
-			reason, latest = v1alpha1.AutoFixHumanReview, run.Spec.Round
+		// maul's own rounds (checks, verify) are never a human's.
+		if r := humanReason(run.Spec.Trigger); r != "" {
+			reason, latest = r, run.Spec.Round
 		}
 	}
 	return reason
@@ -390,7 +383,8 @@ func (p *pass) settleVerification(ctx context.Context) (bool, error) {
 			return nil
 		})
 	case v1alpha1.VerificationEnvFailed:
-		if parts := partFacts(pv.Status.Environment); acceptance.ClassifyEnvironment(parts) == acceptance.EnvAppFailure {
+		parts := crdconv.PartFacts(pv.Status.Environment)
+		if acceptance.ClassifyEnvironment(parts) == acceptance.EnvAppFailure {
 			return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
 				nv := cur.Status.Verification
 				clearJudgement(nv)
@@ -419,7 +413,7 @@ func (p *pass) unjudged(ctx context.Context) error {
 		clearJudgement(nv)
 		countManual(nv, cur.Status.Acceptance)
 		if nv.Attempt >= v1alpha1.MaxVerificationAttempts {
-			nv.State = v1alpha1.VerificationUnavailable
+			nv.State, nv.UnavailableReason = v1alpha1.VerificationUnavailable, ""
 			return nil
 		}
 		nv.Ref = nil
@@ -513,7 +507,7 @@ func judge(approved []v1alpha1.AcceptanceCriterion, pv *v1alpha1.PreviewVerifica
 func judgeOne(c v1alpha1.AcceptanceCriterion, obs []v1alpha1.CriterionObservation,
 	rt acceptance.RunTokens) acceptance.Verdict {
 	failed := acceptance.Verdict{ID: c.ID, Outcome: acceptance.OutcomeFail, Reason: acceptance.ReasonNotObservable}
-	cs, err := criteriaFromCRD([]v1alpha1.AcceptanceCriterion{c})
+	cs, err := crdconv.CriteriaFromCRD([]v1alpha1.AcceptanceCriterion{c})
 	if err != nil || len(cs) != 1 {
 		return failed
 	}
@@ -524,8 +518,10 @@ func judgeOne(c v1alpha1.AcceptanceCriterion, obs []v1alpha1.CriterionObservatio
 		}
 	}
 	var o acceptance.CriterionObservation
-	if len(found) != 1 || convertStrict(found[0], &o) != nil {
-		o = acceptance.CriterionObservation{}
+	if len(found) == 1 {
+		if converted, err := crdconv.ObservationFromCRD(found[0]); err == nil {
+			o = converted
+		}
 	}
 	return acceptance.Judge(cs[0], o, rt)
 }
@@ -539,22 +535,6 @@ func (j judgement) apply(v *v1alpha1.IntentVerification) {
 	if j.failed > 0 {
 		v.State = v1alpha1.VerificationFailing
 	}
-}
-
-// partFacts converts a verification's environment evidence to
-// internal/acceptance's form. A fact that does not convert is a part maul
-// knows nothing of: classified as infrastructure, never charged to the
-// intent.
-func partFacts(env []v1alpha1.PartFact) []acceptance.PartFact {
-	out := make([]acceptance.PartFact, 0, len(env))
-	for _, f := range env {
-		var a acceptance.PartFact
-		if convertStrict(f, &a) != nil {
-			a = acceptance.PartFact{Name: f.Name, Role: "unknown"}
-		}
-		out = append(out, a)
-	}
-	return out
 }
 
 // startVerification is the gate (startRound's last step, nothing else
@@ -592,7 +572,7 @@ func (p *pass) startVerification(ctx context.Context, prs []v1alpha1.IntentPullR
 	}
 	preview := p.livePreview(ctx, v)
 	if preview == nil {
-		return p.waitVerification(ctx, v1alpha1.VerificationWaitingForPreview)
+		return p.waitPreview(ctx)
 	}
 	green, err := p.checksGreen(ctx, prs)
 	if err != nil || !green {
@@ -615,6 +595,43 @@ func (p *pass) waitVerification(ctx context.Context, state v1alpha1.IntentVerifi
 		cur.Status.Verification.State = state
 		return nil
 	})
+}
+
+// waitPreview records that a due verification waits for the Preview to be
+// live at its heads, for at most previewWaitMax from when the wait began.
+// Past it the verification is Unavailable (PreviewNotLive) and stays so,
+// reported as an error, until the Preview is live (the gate then verifies)
+// or the heads move. A verification in flight or judged stands, as in
+// waitVerification.
+func (p *pass) waitPreview(ctx context.Context) (bool, error) {
+	v := p.in.Status.Verification
+	switch {
+	case v.Ref != nil, previewNotLive(v):
+		return false, nil
+	case v.State != v1alpha1.VerificationWaitingForPreview || v.PreviewWaitSince == nil:
+		since := metav1.NewTime(p.now)
+		return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
+			cur.Status.Verification.State = v1alpha1.VerificationWaitingForPreview
+			cur.Status.Verification.PreviewWaitSince = &since
+			return nil
+		})
+	case p.now.Sub(v.PreviewWaitSince.Time) < previewWaitMax:
+		return false, nil
+	}
+	p.r.log().LogAttrs(ctx, slog.LevelWarn, "the preview was not live at the heads in time; verification unavailable",
+		slog.String("intent", p.in.Name), slog.Duration("waited", p.now.Sub(v.PreviewWaitSince.Time)))
+	return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
+		nv := cur.Status.Verification
+		nv.State, nv.UnavailableReason = v1alpha1.VerificationUnavailable, v1alpha1.VerificationUnavailablePreviewNotLive
+		return nil
+	})
+}
+
+// previewNotLive reports a verification Unavailable because its Preview
+// was not live at the heads within previewWaitMax.
+func previewNotLive(v *v1alpha1.IntentVerification) bool {
+	return v.State == v1alpha1.VerificationUnavailable &&
+		v.UnavailableReason == v1alpha1.VerificationUnavailablePreviewNotLive
 }
 
 // needsReplan records that criterion id can no longer run as approved: no
@@ -648,7 +665,8 @@ func (p *pass) createVerification(ctx context.Context, kind verifyKind, preview 
 	}
 	if round > v1alpha1.MaxIntentRound || attempt > v1alpha1.MaxVerificationAttempts {
 		return p.update(ctx, func(cur *v1alpha1.Intent) error {
-			cur.Status.Verification.State, cur.Status.Verification.Requested = v1alpha1.VerificationUnavailable, nil
+			nv := cur.Status.Verification
+			nv.State, nv.UnavailableReason, nv.Requested = v1alpha1.VerificationUnavailable, "", nil
 			return nil
 		})
 	}
@@ -690,7 +708,7 @@ func (p *pass) createVerification(ctx context.Context, kind verifyKind, preview 
 	p.pruneVerifications(ctx)
 	return p.update(ctx, func(cur *v1alpha1.Intent) error {
 		nv := cur.Status.Verification
-		nv.State = v1alpha1.VerificationVerifying
+		nv.State, nv.UnavailableReason = v1alpha1.VerificationVerifying, ""
 		nv.Round, nv.Attempt = pv.Spec.Round, pv.Spec.Attempt
 		nv.Ref = &v1alpha1.ObjectReference{Name: pv.Name, UID: pv.UID}
 		clearJudgement(nv)

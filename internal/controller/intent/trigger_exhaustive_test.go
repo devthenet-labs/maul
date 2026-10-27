@@ -57,6 +57,17 @@ func TestTriggerSitesExhaustive(t *testing.T) {
 				tVerify: roundVerify}},
 		{"intent_status fixingChecks", func(tr v1alpha1.IntentRunTrigger) any { return fixingChecks(tr) },
 			map[v1alpha1.IntentRunTrigger]any{tReview: false, tCommand: false, tChecks: true, tVerify: false}},
+		{"human_pending humanReason", func(tr v1alpha1.IntentRunTrigger) any { return humanReason(tr) },
+			map[v1alpha1.IntentRunTrigger]any{tReview: v1alpha1.AutoFixHumanReview,
+				tCommand: v1alpha1.AutoFixHumanCommand, tChecks: v1alpha1.AutoFixReason(""),
+				tVerify: v1alpha1.AutoFixReason("")}},
+		{"verify_loop humanRoundHalt", func(tr v1alpha1.IntentRunTrigger) any {
+			in := approved.DeepCopy()
+			in.Status.Verification = &v1alpha1.IntentVerification{}
+			return (&pass{in: in, runs: []*v1alpha1.IntentRun{reviseRunOf(tr)}}).humanRoundHalt()
+		}, map[v1alpha1.IntentRunTrigger]any{tReview: v1alpha1.AutoFixHumanReview,
+			tCommand: v1alpha1.AutoFixHumanCommand, tChecks: v1alpha1.AutoFixReason(""),
+			tVerify: v1alpha1.AutoFixReason("")}},
 		{"intent_revise acksCommand", func(tr v1alpha1.IntentRunTrigger) any { return acksCommand(tr) },
 			map[v1alpha1.IntentRunTrigger]any{tReview: false, tCommand: true, tChecks: false, tVerify: false}},
 		{"intent_revise countCompletedRound", func(tr v1alpha1.IntentRunTrigger) any {
@@ -125,6 +136,11 @@ func TestTriggerSitesExhaustive(t *testing.T) {
 			tChecks: stats.UsageKindCheckFix, tVerify: stats.UsageKindVerifyFix}},
 	}
 	for _, site := range sites {
+		// A run with no trigger (one recorded before triggers were, or a
+		// fixture) reads as a review round at every site.
+		if got, want := site.got(""), site.got(tReview); !reflect.DeepEqual(got, want) {
+			t.Errorf("%s(\"\") = %#v, want the review round's %#v", site.name, got, want)
+		}
 		if len(site.want) != len(v1alpha1.IntentRunTriggers) {
 			t.Errorf("%s: %d rows for %d triggers", site.name, len(site.want), len(v1alpha1.IntentRunTriggers))
 		}

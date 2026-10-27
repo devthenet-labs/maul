@@ -28,6 +28,7 @@ import (
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
+	"github.com/devthenet-labs/maul/internal/acceptance/crdconv"
 	"github.com/devthenet-labs/maul/internal/kube"
 	"github.com/devthenet-labs/maul/internal/previewtester"
 )
@@ -664,18 +665,14 @@ func TestVerificationStatusKeepsAppInflatedFailure(t *testing.T) {
 // judgeAll judges every criterion of pv against its observations.
 func judgeAll(t *testing.T, pv *v1alpha1.PreviewVerification, rt acceptance.RunTokens) []acceptance.Verdict {
 	t.Helper()
-	cs, err := toCriteria(pv.Spec.Criteria)
+	cs, err := crdconv.CriteriaFromCRD(pv.Spec.Criteria)
 	if err != nil || len(cs) != len(pv.Status.Observations) {
 		t.Fatalf("criteria: %v (%d for %d observations)", err, len(cs), len(pv.Status.Observations))
 	}
 	out := make([]acceptance.Verdict, len(cs))
 	for i, c := range cs {
-		b, err := json.Marshal(pv.Status.Observations[i])
+		o, err := crdconv.ObservationFromCRD(pv.Status.Observations[i])
 		if err != nil {
-			t.Fatal(err)
-		}
-		var o acceptance.CriterionObservation
-		if err := json.Unmarshal(b, &o); err != nil {
 			t.Fatal(err)
 		}
 		out[i] = acceptance.Judge(c, o, rt)
