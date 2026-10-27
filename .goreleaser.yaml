@@ -205,6 +205,25 @@ builds:
       goarch:
           - amd64
           - arm64
+    - id: preview-tester
+      main: ./cmd/preview-tester
+      binary: preview-tester
+      flags:
+          - -trimpath
+      # The tester links only the standard library and internal/acceptance,
+      # so these stamps name a package it does not link and the linker
+      # drops them; they stay so every build carries the same contract
+      # (internal/version's TestStampsNameDeclaredVariables).
+      ldflags:
+          - -s -w
+          - -X github.com/devthenet-labs/maul/internal/version.Version={{ .Version }}
+          - -X github.com/devthenet-labs/maul/internal/version.Commit={{ .ShortCommit }}
+          - -X github.com/devthenet-labs/maul/internal/version.BuildDate={{ .Date }}
+      goos:
+          - linux
+      goarch:
+          - amd64
+          - arm64
     - id: agent-runner
       main: ./cmd/agent-runner
       binary: agent-runner
@@ -308,6 +327,7 @@ archives:
           - egress-broker
           - egress-proxy
           - preview-auth
+          - preview-tester
           - agent-runner
           - status-server
       formats: [tar.gz]
@@ -535,6 +555,25 @@ dockers_v2:
           - linux/arm64
       build_args:
           TARGET: preview-auth
+      labels:
+          org.opencontainers.image.source: https://github.com/devthenet-labs/maul
+          org.opencontainers.image.licenses: MIT
+          org.opencontainers.image.revision: "{{ .FullCommit }}"
+          org.opencontainers.image.version: "{{ .Version }}"
+    # The preview tester (cmd/preview-tester): its own Dockerfile, since it is
+    # not a controller. The chart takes it only by digest; helm.yaml stamps
+    # this release's digest into the published chart's values.
+    - id: preview-tester
+      ids: [preview-tester]
+      dockerfile: Dockerfile.preview-tester
+      images:
+          - "{{ .Env.MAUL_IMAGE_REGISTRY }}/preview-tester"
+      tags:
+          - v{{ .Version }}
+          - latest
+      platforms:
+          - linux/amd64
+          - linux/arm64
       labels:
           org.opencontainers.image.source: https://github.com/devthenet-labs/maul
           org.opencontainers.image.licenses: MIT
