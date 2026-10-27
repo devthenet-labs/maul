@@ -299,9 +299,13 @@ func validateRequest(r Request, captured map[string]bool) error {
 	if len(r.Headers) > MaxHeaders {
 		return fmt.Errorf("more than %d headers", MaxHeaders)
 	}
+	seen := map[string]bool{}
 	for name, v := range r.Headers {
 		if !headerPattern.MatchString(name) || forbiddenHeaders[strings.ToLower(name)] {
 			return fmt.Errorf("header name %q is not allowed", name)
+		}
+		if err := once(seen, name); err != nil {
+			return err
 		}
 		if err := checkHeaderValue(v); err != nil {
 			return fmt.Errorf("header %s: %w", name, err)
@@ -373,9 +377,13 @@ func validateHTTPExpect(e Expect, captured map[string]bool) error {
 	if len(e.Headers) > MaxExpectHeaders {
 		return fmt.Errorf("more than %d expected headers", MaxExpectHeaders)
 	}
+	seen := map[string]bool{}
 	for name, v := range e.Headers {
 		if !headerPattern.MatchString(name) {
 			return fmt.Errorf("expected header name %q is not allowed", name)
+		}
+		if err := once(seen, name); err != nil {
+			return err
 		}
 		if err := validateHeaderExpect(v, captured); err != nil {
 			return fmt.Errorf("expected header %s: %w", name, err)
@@ -387,14 +395,27 @@ func validateHTTPExpect(e Expect, captured map[string]bool) error {
 	return checkRefs("bodyContains", e.BodyContains, captured)
 }
 
+// once refuses a header name already seen in another spelling: header
+// names are case-insensitive, and two spellings of one would leave which
+// value is sent (or which expectation is recorded) to map order.
+func once(seen map[string]bool, name string) error {
+	key := strings.ToLower(name)
+	if seen[key] {
+		return fmt.Errorf("header %q is named twice, in different cases", name)
+	}
+	seen[key] = true
+	return nil
+}
+
 func validateHeaderExpect(v Value, captured map[string]bool) error {
 	m, err := parseMatcher(v)
 	if err != nil {
 		return err
 	}
+	var field, text string
 	switch m.kind {
 	case matchContains:
-		return checkRefs("$contains", m.contains, captured)
+		field, text = "$contains", m.contains
 	case matchLiteral:
 		s, ok := m.literal.decoded().(string)
 		if !ok {
@@ -403,10 +424,35 @@ func validateHeaderExpect(v Value, captured map[string]bool) error {
 		if err := checkHeaderValue(s); err != nil {
 			return err
 		}
-		return checkRefs("value", s, captured)
+		field, text = "value", s
 	default:
 		return errors.New("an expected header is a string or {$contains: s}")
 	}
+	if err := checkRefs(field, text, captured); err != nil {
+		return err
+	}
+	// A header is recorded only up to MaxHeaderBytes, so an expectation
+	// that could be longer once substituted could never be recorded.
+	if n := substitutedBound(text); n > MaxHeaderBytes {
+		return fmt.Errorf("%s may be %d bytes once substituted, over %d", field, n, MaxHeaderBytes)
+	}
+	return nil
+}
+
+// substitutedBound is the most bytes s can take once substituted: its
+// literal text, maxRunBytes per {{run}} and MaxCaptureBytes per capture.
+// s has already passed checkRefs.
+func substitutedBound(s string) int {
+	n := 0
+	_ = scan(s, func(t string) { n += len(t) }, func(c string) error {
+		if c == "" {
+			n += maxRunBytes
+		} else {
+			n += MaxCaptureBytes
+		}
+		return nil
+	})
+	return n
 }
 
 // validatePointers checks an expected-JSON map: at most MaxExpectPointers

@@ -166,6 +166,29 @@ func TestObserveBounds(t *testing.T) {
 	}
 }
 
+// TestObserveHeaderContainsBound: a header over MaxHeaderBytes that holds a
+// $contains needle longer than MaxHeaderBytes is recorded within the
+// observation's bound, so one such step cannot make the whole run's output
+// fail its own check (and the tester stop before its summary).
+func TestObserveHeaderContainsBound(t *testing.T) {
+	needle := strings.Repeat("é", 150) // 300 bytes, 150 characters
+	c := Criterion{ID: "hdr", Kind: KindHTTP, Statement: "s", Target: "api", Steps: []Step{{
+		Request: Request{Path: "/"},
+		Expect: Expect{Status: StatusList{200},
+			Headers: map[string]Value{"X-T": mustValue(t, `{"$contains":"`+needle+`"}`)}},
+	}}}
+	do := func(Call) Response {
+		return Response{Status: 200, Body: []byte(`{}`), Header: map[string][]string{"X-T": {"a" + needle}}}
+	}
+	o := Observe(c, RunTokens{Round: 1, Attempt: 1, Run: "abcdef"}, do)
+	if err := o.Check(); err != nil {
+		t.Fatalf("Observe produced an observation its own bounds refuse: %v", err)
+	}
+	if got := o.Tries[0].Steps[0].Headers["x-t"]; got != TooLarge {
+		t.Errorf("header recorded as %q, want %q", got, TooLarge)
+	}
+}
+
 func checkBoundedStep(t *testing.T, st StepObservation, bodyLen int) {
 	t.Helper()
 	if len(st.Headers["x-big"]) > MaxHeaderBytes {

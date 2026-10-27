@@ -378,7 +378,8 @@ func observeCaptures(capture map[string]string, doc any, valid bool) (map[string
 
 // observeHeaders records each expected header (case-insensitive), values
 // joined by ", "; one over MaxHeaderBytes is reduced as a $contains or an
-// exact value would judge it.
+// exact value would judge it, never to more than MaxHeaderBytes (a needle
+// longer than that, which Validate refuses, records TooLarge).
 func observeHeaders(exp map[string]Value, h map[string][]string, run string, caps map[string]string) map[string]string {
 	if len(exp) == 0 {
 		return nil
@@ -398,7 +399,8 @@ func observeHeaders(exp map[string]Value, h map[string][]string, run string, cap
 		if len(got) > MaxHeaderBytes {
 			got = TooLarge
 			if m, err := parseMatcher(expected); err == nil && m.kind == matchContains {
-				if m, err = m.substitute(run, caps); err == nil && strings.Contains(strings.Join(vals, ", "), m.contains) {
+				if m, err = m.substitute(run, caps); err == nil && len(m.contains) <= MaxHeaderBytes &&
+					strings.Contains(strings.Join(vals, ", "), m.contains) {
 					got = m.contains
 				}
 			}
