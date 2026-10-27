@@ -304,6 +304,25 @@ func TestAcceptCommand(t *testing.T) {
 	}
 }
 
+// TestAcceptCountsTheManualCriterion: an accepted manual criterion stops
+// counting as open at once, so maul/acceptance (which reads the counts) no
+// longer names it, without waiting for another verification.
+func TestAcceptCountsTheManualCriterion(t *testing.T) {
+	e := newEnv(t, testProject())
+	name := e.reviewingWithCriteria()
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		countManual(in.Status.Verification, in.Status.Acceptance)
+	})
+	if v := e.verification(name); v.ManualOpen != 1 || v.ManualAccepted != 0 {
+		t.Fatalf("before: manual open %d accepted %d, want 1 and 0", v.ManualOpen, v.ManualAccepted)
+	}
+	e.gh.comment(approver, "/maul accept "+manualID)
+	e.settleActions(name)
+	if v := e.verification(name); v.ManualOpen != 0 || v.ManualAccepted != 1 {
+		t.Errorf("after: manual open %d accepted %d, want 0 and 1", v.ManualOpen, v.ManualAccepted)
+	}
+}
+
 // TestVerifyCommandReplyAfterCrash: a request whose status write landed but
 // whose reply did not is answered on the next pass, once, and applied once.
 func TestVerifyCommandReplyAfterCrash(t *testing.T) {

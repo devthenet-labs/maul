@@ -64,6 +64,13 @@ func (s *Server) accessToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.mu.Lock()
+	for perm := range body.Permissions {
+		if s.denied[perm] {
+			s.mu.Unlock()
+			unprocessable(w, "The permissions requested are not granted to this installation.")
+			return
+		}
+	}
 	s.tokens = append(s.tokens, TokenRequest{Repositories: body.Repositories, Permissions: body.Permissions})
 	token := fmt.Sprintf("ghs_fake%d", len(s.tokens))
 	s.minted[token] = TokenRequest{Repositories: body.Repositories, Permissions: body.Permissions}
@@ -81,6 +88,16 @@ func (s *Server) accessToken(w http.ResponseWriter, r *http.Request) {
 		"expires_at":  s.now().Add(time.Hour),
 		"permissions": perms,
 	})
+}
+
+// DenyPermission makes the installation not hold perm (a GitHub permission
+// name, such as "statuses"): a token asking for it is refused with GitHub's
+// 422, as for a permission the App was never granted or an owner never
+// accepted.
+func (s *Server) DenyPermission(perm string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.denied[perm] = true
 }
 
 // The installation-token permissions a route needs, and their levels.

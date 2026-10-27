@@ -19,6 +19,15 @@ func (s *Server) SetComparePatch(base, head, patch string) {
 	s.patches[base+"..."+head] = patch
 }
 
+// SetDefaultComparePatch supplies the patch returned for every base...head
+// no SetComparePatch names, for a flow whose heads a test cannot know in
+// advance (a round pushed by maul). Unset, such a compare is a 404.
+func (s *Server) SetDefaultComparePatch(patch string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.defaultPatch = patch
+}
+
 // SetParents records commit ancestry for the compare endpoint: each commit
 // mapped to its parent. A linear history is all the flows need; commits it
 // does not name are unrelated to every other.
@@ -58,6 +67,9 @@ func (s *Server) compare(w http.ResponseWriter, r *http.Request) {
 	s.compares++
 	if strings.Contains(r.Header.Get("Accept"), "patch") {
 		patch, ok := s.patches[base+"..."+head]
+		if !ok && s.defaultPatch != "" {
+			patch, ok = s.defaultPatch, true
+		}
 		if !ok {
 			http.Error(w, `{"message":"Not Found"}`, http.StatusNotFound)
 			return

@@ -175,6 +175,25 @@ func (g *gitData) sha(kind string) string {
 	return fmt.Sprintf("%s%07d", strings.Repeat(kind[:1], 33), g.next)
 }
 
+// HumanPush records a person pushing one commit to branch in owner/repo,
+// as git push does outside the API: a commit on the branch's head that
+// writes path, with message, the branch moved to it. It is no ref write of
+// the App's (RefWrites). It returns the commit's sha.
+func (s *Server) HumanPush(owner, repo, branch, path, content, message string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := repoKey(owner, repo)
+	parent := s.headSHA(key, branch)
+	blob := s.git.sha("b")
+	s.git.blobs[blob] = []byte(content)
+	tree := s.git.sha("t")
+	s.git.trees[tree] = map[string]string{path: blob}
+	sha := s.git.sha("c")
+	s.git.commits[sha] = commitRec{Message: message, Tree: tree, Parents: []string{parent}}
+	s.git.setRef(key, "heads/"+branch, sha)
+	return sha
+}
+
 // BranchHead returns the pushed head of "heads/<branch>" in the one
 // repository it was pushed to, or BaseSHA if it was never pushed; "" when
 // more than one repository has it (RepoBranchHead names which).
