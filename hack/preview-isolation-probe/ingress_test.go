@@ -473,3 +473,124 @@ func TestIngressOldImageFails(t *testing.T) {
 		})
 	}
 }
+
+// edgeUID is the Preview the edge policies below belong to.
+const edgeUID = "11111111-2222-3333-4444-555555555555"
+
+// edgePart is a pod selector of part of edgeUID's Preview, as JSON.
+func edgePart(part string) string {
+	return `{"matchLabels":{"maul.run/preview-uid":"` + edgeUID + `","maul.run/preview-part":"` + part + `"}}`
+}
+
+// edgePolicyJSON is a policy of preview-controller's shape (the
+// maul-preview-networkpolicies admission policy's), as the API server
+// stores it: the tester's, egress to web on 8080, or with ingress set a
+// component's, ingress from the tester.
+func edgePolicyJSON(part string, ingress bool) string {
+	rule := `{"to":[{"podSelector":` + edgePart("web") + `}],"ports":[{"protocol":"TCP","port":8080}]}`
+	rules := `"egress":[` + rule + `]`
+	if ingress {
+		rules = `"ingress":[{"from":[{"podSelector":` + edgePart("tester") + `}],` +
+			`"ports":[{"protocol":"TCP","port":8080}]}]`
+	}
+	return `{"metadata":{"name":"preview-battles-np-` + part + `","labels":{"maul.run/preview":"battles",` +
+		`"maul.run/preview-uid":"` + edgeUID + `","app.kubernetes.io/managed-by":"maul-preview-controller"}},` +
+		`"spec":{"podSelector":` + edgePart(part) + `,"policyTypes":["Ingress","Egress"],` + rules + `}}`
+}
+
+// TestIngressAcceptsEdgePolicies: acceptance verification's per-part
+// policies admit pods of the same Preview by part, which no client of this
+// run is; a policy of exactly the admission policy's shape passes the
+// static check beside the slot policy.
+func TestIngressAcceptsEdgePolicies(t *testing.T) {
+	run := runIngressEnv(t, gatewayOnlyPolicy, expected(), []string{"STUB_EXTRA_POLICY=" +
+		edgePolicyJSON("tester", false) + "," + edgePolicyJSON("web", true)}, ingressArgs()...)
+	if run.code != 0 || !strings.Contains(run.stderr, "Ingress isolation passed") {
+		t.Errorf("exit %d, stderr:\n%s", run.code, run.stderr)
+	}
+}
+
+// TestIngressRefusesMisshapenEdgePolicies: a preview edge policy (one named
+// preview-<p>-np-<part>, or labelled as preview-controller's) of any shape
+// the admission policy refuses preview-controller is refused here too,
+// before anything is created: the same predicate, egress included.
+func TestIngressRefusesMisshapenEdgePolicies(t *testing.T) {
+	gw := `{"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"maul"}},` +
+		`"podSelector":{"matchLabels":{"maul.run/preview-gateway":"true"}}}`
+	component, tester := edgePolicyJSON("web", true), edgePolicyJSON("tester", false)
+	sub := func(policy, old, repl string) string {
+		if !strings.Contains(policy, old) {
+			t.Fatalf("%q not in %s", old, policy)
+		}
+		return strings.Replace(policy, old, repl, 1)
+	}
+	const tcp8080 = `{"protocol":"TCP","port":8080}`
+	fromTester := `{"podSelector":` + edgePart("tester") + `}`
+	toWeb := `{"podSelector":` + edgePart("web") + `}`
+	for name, policy := range map[string]string{
+		"ingress ipBlock": sub(component, fromTester, `{"ipBlock":{"cidr":"10.0.0.0/8"}}`),
+		"ingress namespaceSelector": sub(component, fromTester,
+			`{"namespaceSelector":{},"podSelector":`+edgePart("tester")+`}`),
+		"ingress gateway peer": sub(component, fromTester, gw),
+		"ingress no peers":     sub(component, `"from":[`+fromTester+`],`, ``),
+		"ingress empty peers":  sub(component, `"from":[`+fromTester+`]`, `"from":[]`),
+		"ingress no ports":     sub(component, `,"ports":[`+tcp8080+`]`, ``),
+		"ingress endPort":      sub(component, tcp8080, `{"protocol":"TCP","port":8080,"endPort":9000}`),
+		"ingress UDP":          sub(component, tcp8080, `{"protocol":"UDP","port":8080}`),
+		"ingress named port":   sub(component, tcp8080, `{"protocol":"TCP","port":"http"}`),
+		"ingress no port":      sub(component, tcp8080, `{"protocol":"TCP"}`),
+		"ingress foreign UID": sub(component, `"maul.run/preview-uid":"`+edgeUID+`","maul.run/preview-part":"tester"`,
+			`"maul.run/preview-uid":"99999999-2222-3333-4444-555555555555","maul.run/preview-part":"tester"`),
+		"ingress extra label": sub(component, `"maul.run/preview-part":"tester"`,
+			`"maul.run/preview-part":"tester","app":"x"`),
+		"ingress no part": sub(component, `"maul.run/preview-part":"tester"`, `"maul.run/preview-role":"tester"`),
+		"ingress matchExpressions": sub(component, edgePart("tester"), `{"matchLabels":{"maul.run/preview-uid":"`+
+			edgeUID+`","maul.run/preview-part":"tester"},"matchExpressions":[{"key":"a","operator":"Exists"}]}`),
+		"ingress any pod":          sub(component, fromTester, `{"podSelector":{}}`),
+		"egress ipBlock":           sub(tester, toWeb, `{"ipBlock":{"cidr":"0.0.0.0/0"}}`),
+		"egress namespaceSelector": sub(tester, toWeb, `{"namespaceSelector":{}}`),
+		"egress no peers":          sub(tester, `"to":[`+toWeb+`],`, ``),
+		"egress no ports":          sub(tester, `,"ports":[`+tcp8080+`]`, ``),
+		"egress named port":        sub(tester, tcp8080, `{"protocol":"TCP","port":"http"}`),
+		"egress foreign UID": sub(tester, `"maul.run/preview-uid":"`+edgeUID+`","maul.run/preview-part":"web"`,
+			`"maul.run/preview-uid":"99999999-2222-3333-4444-555555555555","maul.run/preview-part":"web"`),
+		"one policyType":    sub(tester, `"policyTypes":["Ingress","Egress"]`, `"policyTypes":["Egress"]`),
+		"no managed-by":     sub(tester, `,"app.kubernetes.io/managed-by":"maul-preview-controller"`, ``),
+		"an empty selector": sub(tester, `"spec":{"podSelector":`+edgePart("tester"), `"spec":{"podSelector":{}`),
+		"a selector expression": sub(tester, `"spec":{"podSelector":`+edgePart("tester"),
+			`"spec":{"podSelector":{"matchLabels":{"maul.run/preview-uid":"`+edgeUID+
+				`","maul.run/preview-part":"tester"},"matchExpressions":[{"key":"a","operator":"Exists"}]}`),
+		"a name without -np-": sub(tester, `"preview-battles-np-tester"`, `"preview-battles-tester"`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			run := runIngressEnv(t, gatewayOnlyPolicy, expected(), []string{"STUB_EXTRA_POLICY=" + policy},
+				ingressArgs()...)
+			if run.code != 1 || !strings.Contains(run.stderr, "admit more than the preview gateway") ||
+				run.created != "" {
+				t.Errorf("exit %d, created %q, stderr:\n%s", run.code, run.created, run.stderr)
+			}
+		})
+	}
+}
+
+// TestIngressCheckPoliciesOnly: --check-policies runs the static check of
+// the slot's policies alone: it creates nothing, passes what the full run
+// passes and refuses what it refuses.
+func TestIngressCheckPoliciesOnly(t *testing.T) {
+	run := runIngressEnv(t, gatewayOnlyPolicy, expected(), []string{"STUB_EXTRA_POLICY=" +
+		edgePolicyJSON("tester", false)}, ingressArgs("--check-policies")...)
+	if run.code != 0 || run.created != "" || !strings.Contains(run.stderr, "admit only the preview gateway") {
+		t.Errorf("exit %d, created %q, stderr:\n%s", run.code, run.created, run.stderr)
+	}
+	for _, call := range run.calls {
+		if call[1] != "get" || call[2] != "networkpolicy" {
+			t.Errorf("--check-policies called kubectl %q; want only the policy read", call[1:])
+		}
+	}
+	run = runIngressEnv(t, gatewayOnlyPolicy, expected(), []string{"STUB_EXTRA_POLICY=" +
+		strings.Replace(edgePolicyJSON("tester", false), `"port":8080`, `"port":"http"`, 1)},
+		ingressArgs("--check-policies")...)
+	if run.code != 1 || run.created != "" || !strings.Contains(run.stderr, "admit more than the preview gateway") {
+		t.Errorf("a misshapen edge policy: exit %d, created %q, stderr:\n%s", run.code, run.created, run.stderr)
+	}
+}

@@ -105,6 +105,17 @@ does not govern ingress. While `preview.legacyIngress` is `true` the slot policy
 by `ipBlock`; no client here is in them, so the run prints a `WARNING` naming those ranges instead of judging them. They
 are gone once `preview.legacyIngress` is `false`.
 
+With acceptance verification on (`preview.verification.enabled`), a slot also holds preview-controller's edge policies,
+one per part of a verifying Preview (`preview-<p>-np-<part>`). They admit only that Preview's own Pods, by its UID and a
+part, so the static check accepts a policy of exactly the shape the `maul-preview-networkpolicies` admission policy
+admits preview-controller (the same predicate, in jq: its name and managed-by label, a selector of one Preview's UID and
+one part, both policy types, every rule naming a peer and a numeric TCP port without an end, every peer a part of the
+same Preview by those two labels alone) and refuses any other policy so named or so labelled, whoever wrote it: the
+operator may write any slot policy, so the script cannot rely on admission. `maul check previews --isolation` judges
+edge policies the same way, and a test holds the two to the same verdicts. `--check-policies` runs this static check
+alone and creates nothing; the chart's preview probe envtest runs it against policies preview-controller wrote through
+the rendered admission policies, and against each shape they refuse it.
+
 ### A policy controller that refuses: `--refused-is-blocked`
 
 Some policy controllers drop a denied connection, so the client times out. kube-router, the network policy controller
@@ -172,6 +183,7 @@ bash hack/preview-isolation-probe/ingress.sh \
 | `--agents-namespace`   | `PROBE_AGENTS_NAMESPACE`  | `maul-agents` | The agents' namespace                                                                                |
 | `--slot`               | `PROBE_SLOT`              | `0`           | The slot the listener runs in                                                                        |
 | `--timeout`            | `PROBE_TIMEOUT`           | `300`         | Seconds each Pod may take to start or finish                                                         |
+| `--check-policies`     |                           |               | Judge the slot's NetworkPolicies, then exit before any Pod is created                                |
 
 `--dry-run` validates the values and prints the site; `--print-manifests` prints the four Pods (the listener's address
 as `192.0.2.1`). Neither calls `kubectl`. The chart's preview policy envtest creates `--print-manifests`' Pods with a
@@ -182,3 +194,60 @@ On EKS Auto Mode use the NodePool and NodeClass labels as the selector
 (`karpenter.sh/nodepool=maul-preview,eks.amazonaws.com/nodeclass=maul-preview`). On the desktop, isolation is scheduling
 only; the run still proves the NetworkPolicy, which k3d's bundled network policy controller enforces. Run it there with
 `--refused-is-blocked` (above).
+
+## The edges run: declared edges admitted, undeclared refused
+
+`run.sh edges` checks acceptance verification's per-part policies on **any cluster, with no cloud API** (it calls
+neither `gh` nor `aws`): that a Preview's declared edges connect and nothing else in or out of the slot does. Run it
+before the desktop live gate counts (three runs, slots 0, 1, 0), after any CNI or policy-controller upgrade, and again
+before turning `preview.verification.enabled` on anywhere.
+
+Its fixture is `edges.yaml`: the policies preview-controller renders for a Preview named `edges` whose tester calls
+`web`, `api` and `render` on 8080 (the slice-1 environment). `internal/controller/preview/probe_edges_test.go` holds the
+file to the controller's render, name for name and spec for spec; only the managed-by label differs
+(`maul-isolation-probe`), so preview-controller's orphan sweep leaves the probe's policies alone, and the Preview UID is
+the probe's own. Each run, in a slot that holds no Deployment and with the other slot free too:
+
+1. creates the fixture's policies, a ClusterIP Service for each component (port 80 to 8080, as a component's is) and a
+   netprobe listener (`listen`) for each part, labelled with the fixture's Preview UID and the part, plus a listener in
+   the other slot, all at once;
+2. reads the declared edges back from the policies the API server holds: a pair whose caller's egress and callee's
+   ingress both name it;
+3. runs every check as a `connect` exec'd in a stand-in, so it is that Pod's own traffic: each declared edge must reach
+   the called part through its Service; every other ordered pair of parts (each reverse edge, each component pair, any
+   part to the tester), every part to the other slot's Pod, and the tester to the API server, the egress broker,
+   integration-controller, source-controller, the status server and the instance metadata service must be `BLOCKED`;
+4. requires each listener to answer on its own loopback before and after the checks, and every stand-in to be the same
+   Pod, never restarted, so a refusal can never be a dead listener's;
+5. deletes everything it created.
+
+A declared edge gets `--timeout` seconds to connect while the policy is programmed; the refusals get the egress run's
+burst (four workers, four attempts). By default a refused connection is `INCONCLUSIVE` and fails the run; on k3s and
+k3d, whose policy controller rejects, pass `--refused-is-blocked` (see above): a refusal then counts as blocked, which
+step 4 makes sound for the stand-ins. The release's Services are assumed to answer.
+
+```sh
+bash hack/preview-isolation-probe/run.sh edges \
+  --image registry.example/maul/previews/netprobe:sha-0123456789abcdef0123456789abcdef01234567 \
+  --node-selector maul.example.com/previews=true \
+  --taint-key maul.example.com/preview-only \
+  --refused-is-blocked
+```
+
+| Flag                   | Environment               | Default  | Meaning                                                                              |
+| ---------------------- | ------------------------- | -------- | ------------------------------------------------------------------------------------ |
+| `--image`              | `PROBE_IMAGE`             | required | The netprobe image under the preview image prefix, tagged `sha-<40 hex>` (see above) |
+| `--node-selector`      | `PROBE_NODE_SELECTOR`     | required | `label=value[,label=value]`, the chart's `preview.nodeIsolation.selector`            |
+| `--taint-key`          | `PROBE_TAINT_KEY`         | required | The preview nodes' `NoExecute` taint key                                             |
+| `--no-node-isolation`  |                           |          | The install runs `preview.nodeIsolation.mode: none`                                  |
+| `--refused-is-blocked` |                           |          | Count a refused connection as blocked, against a listener proven alive: k3s and k3d  |
+| `--slots`              | `PROBE_SLOTS`             | `0,1,0`  | The runs' slots, in order: two distinct slots, each run's other slot the other one   |
+| `--cold-node-pool`     | `PROBE_COLD_NODE_POOL`    |          | A Karpenter NodePool to wait to reach zero nodes before each run (EKS Auto Mode)     |
+| `--release-namespace`  | `PROBE_RELEASE_NAMESPACE` | `maul`   | Where release `maul`'s Services run                                                  |
+| `--timeout`            | `PROBE_TIMEOUT`           | `300`    | Seconds each stand-in may take to start, and each declared edge to connect           |
+
+`--dry-run` validates the values and prints the site; `--print-manifests` prints the Services and Deployments a run in
+the first slot creates. Neither calls `kubectl`. The chart's preview probe envtest creates `--print-manifests`' objects
+and the fixture with a server-side dry run against the rendered slot policies with verification on, so they stay
+admissible. A failed run names each pair that connected or did not, deletes what it created, and stops: keep
+verification off and investigate.

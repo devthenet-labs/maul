@@ -1,0 +1,119 @@
+# Copyright 2026 Bitwise Media Group Ltd.
+# SPDX-License-Identifier: MIT
+#
+# The edges run's fixture (run.sh edges): the per-part NetworkPolicies
+# preview-controller renders for a Preview named edges whose environment
+# declares the slice-1 edges, the tester to web, api and render on 8080. The
+# run creates them in a slot with `kubectl create -n <slot>`, beside
+# stand-in Pods carrying the Preview UID and part labels they select, and
+# then requires every declared edge to connect and every other pair of parts
+# to be refused. Only the managed-by label differs from the render, so
+# preview-controller's orphan sweep leaves them alone; the UID is the
+# probe's, no Preview's. internal/controller/preview/probe_edges_test.go
+# holds this file to the controller's render, and the chart's preview probe
+# envtest to the slot admission policies.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: preview-edges-np-api
+  labels:
+    app.kubernetes.io/managed-by: maul-isolation-probe
+    maul.run/preview: edges
+    maul.run/preview-uid: 00000000-0000-4000-8000-0000000ed9e5
+spec:
+  podSelector:
+    matchLabels:
+      maul.run/preview-part: api
+      maul.run/preview-uid: 00000000-0000-4000-8000-0000000ed9e5
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              maul.run/preview-part: tester
+              maul.run/preview-uid: 00000000-0000-4000-8000-0000000ed9e5
+      ports:
+        - {protocol: TCP, port: 8080}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: preview-edges-np-render
+  labels:
+    app.kubernetes.io/managed-by: maul-isolation-probe
+    maul.run/preview: edges
+    maul.run/preview-uid: 00000000-0000-4000-8000-0000000ed9e5
+spec:
+  podSelector:
+    matchLabels:
+      maul.run/preview-part: render
+      maul.run/preview-uid: 00000000-0000-4000-8000-0000000ed9e5
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              maul.run/preview-part: tester
+              maul.run/preview-uid: 00000000-0000-4000-8000-0000000ed9e5
+      ports:
+        - {protocol: TCP, port: 8080}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: preview-edges-np-tester
+  labels:
+    app.kubernetes.io/managed-by: maul-isolation-probe
+    maul.run/preview: edges
+    maul.run/preview-uid: 00000000-0000-4000-8000-0000000ed9e5
+spec:
+  podSelector:
+    matchLabels:
+      maul.run/preview-part: tester
+      maul.run/preview-uid: 00000000-0000-4000-8000-0000000ed9e5
+  policyTypes: [Ingress, Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              maul.run/preview-part: api
+              maul.run/preview-uid: 00000000-0000-4000-8000-0000000ed9e5
+      ports:
+        - {protocol: TCP, port: 8080}
+    - to:
+        - podSelector:
+            matchLabels:
+              maul.run/preview-part: render
+              maul.run/preview-uid: 00000000-0000-4000-8000-0000000ed9e5
+      ports:
+        - {protocol: TCP, port: 8080}
+    - to:
+        - podSelector:
+            matchLabels:
+              maul.run/preview-part: web
+              maul.run/preview-uid: 00000000-0000-4000-8000-0000000ed9e5
+      ports:
+        - {protocol: TCP, port: 8080}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: preview-edges-np-web
+  labels:
+    app.kubernetes.io/managed-by: maul-isolation-probe
+    maul.run/preview: edges
+    maul.run/preview-uid: 00000000-0000-4000-8000-0000000ed9e5
+spec:
+  podSelector:
+    matchLabels:
+      maul.run/preview-part: web
+      maul.run/preview-uid: 00000000-0000-4000-8000-0000000ed9e5
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              maul.run/preview-part: tester
+              maul.run/preview-uid: 00000000-0000-4000-8000-0000000ed9e5
+      ports:
+        - {protocol: TCP, port: 8080}
